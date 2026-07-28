@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Search } from "lucide-react";
 import { useApp, type RecallMode } from "@/lib/store";
 import {
-  listSources,
+  listAllSources,
   recall,
   recallAnswer,
   recallDeepStream,
@@ -46,7 +46,7 @@ export default function RecallView() {
   useEffect(() => {
     if (!currentUser) return;
     let alive = true;
-    listSources(currentUser)
+    listAllSources(currentUser)
       .then((rows) => {
         if (!alive) return;
         setTitles(Object.fromEntries(rows.map((r) => [r.source_id, r.title])));

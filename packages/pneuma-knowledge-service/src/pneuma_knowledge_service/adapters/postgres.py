@@ -153,13 +153,42 @@ class PostgresStore:
             )).fetchall()
         return [r[0] for r in rows]
 
-    async def block_counts(self, user_id: UserId) -> dict[str, int]:
+    async def workspace_counts(self, user_id: UserId) -> dict[str, int]:
+        """Bounded overview counts without loading any collection rows."""
+        uid = str(user_id)
+        async with self._pool.connection() as conn:
+            row = await (await conn.execute(
+                "SELECT "
+                "(SELECT count(*) FROM sources WHERE user_id = %s), "
+                "(SELECT count(*) FROM compile_jobs WHERE user_id = %s), "
+                "(SELECT count(DISTINCT document_path) FROM canonical_claims "
+                " WHERE user_id = %s), "
+                "(SELECT count(*) FROM canonical_claims WHERE user_id = %s)",
+                (uid, uid, uid, uid),
+            )).fetchone()
+        assert row is not None
+        return {
+            "sources": int(row[0]),
+            "jobs": int(row[1]),
+            "documents": int(row[2]),
+            "claims": int(row[3]),
+        }
+
+    async def block_counts(
+        self, user_id: UserId, source_ids: list[str] | None = None
+    ) -> dict[str, int]:
         """source_id → block count for one user (single grouped query, no N+1)."""
+        if source_ids == []:
+            return {}
+        source_filter = " AND source_id = ANY(%s)" if source_ids is not None else ""
+        params: list[Any] = [str(user_id)]
+        if source_ids is not None:
+            params.append(source_ids)
         async with self._pool.connection() as conn:
             rows = await (await conn.execute(
                 "SELECT source_id, count(*) FROM blocks "
-                "WHERE user_id = %s GROUP BY source_id",
-                (str(user_id),),
+                f"WHERE user_id = %s{source_filter} GROUP BY source_id",
+                params,
             )).fetchall()
         return {r[0]: int(r[1]) for r in rows}
 
@@ -236,6 +265,66 @@ class PostgresStore:
             )
             for r in rows
         ]
+
+    async def list_sources_page(
+        self,
+        user_id: UserId,
+        *,
+        limit: int,
+        before: tuple[datetime, str] | None = None,
+        query: str | None = None,
+        kind: str | None = None,
+    ) -> tuple[list[RawSource], int, bool]:
+        """One keyset-paginated source page, newest first.
+
+        The count and page query apply the same user/filter predicate. Only ``limit + 1``
+        source rows cross the storage boundary; the extra row determines ``has_more``.
+        """
+        filters = ["user_id = %s"]
+        params: list[Any] = [str(user_id)]
+        if query:
+            filters.append("title ILIKE %s")
+            params.append(f"%{query}%")
+        if kind:
+            filters.append("kind = %s")
+            params.append(kind)
+        filtered_where = " AND ".join(filters)
+
+        page_filters = list(filters)
+        page_params = list(params)
+        if before is not None:
+            page_filters.append("(created_at, source_id) < (%s, %s)")
+            page_params.extend(before)
+        page_where = " AND ".join(page_filters)
+
+        async with self._pool.connection() as conn:
+            count_row = await (await conn.execute(
+                f"SELECT count(*) FROM sources WHERE {filtered_where}",
+                params,
+            )).fetchone()
+            rows = await (await conn.execute(
+                "SELECT source_id, kind, source_class, title, mime, checksum, "
+                "created_at, meta, intake_plan, origin FROM sources "
+                f"WHERE {page_where} "
+                "ORDER BY created_at DESC, source_id DESC LIMIT %s",
+                [*page_params, limit + 1],
+            )).fetchall()
+
+        has_more = len(rows) > limit
+        rows = rows[:limit]
+        return (
+            [
+                self._raw_from_row(
+                    user_id,
+                    SourceId(r[0]),
+                    (r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8]),
+                    origin=r[9],
+                )
+                for r in rows
+            ],
+            int(count_row[0]) if count_row is not None else 0,
+            has_more,
+        )
 
     async def fetch(
         self, user_id: UserId, source_id: SourceId, locator: Locator
@@ -382,6 +471,208 @@ class PostgresStore:
             for r in rows
         ]
 
+    async def list_jobs_page(
+        self,
+        user_id: UserId,
+        *,
+        limit: int,
+        before: tuple[datetime, str] | None = None,
+        status: str | None = None,
+        kind: str | None = None,
+    ) -> tuple[list[dict[str, Any]], int, bool]:
+        """One keyset-paginated job page, newest first."""
+        filters = ["user_id = %s"]
+        params: list[Any] = [str(user_id)]
+        if status:
+            filters.append("status = %s")
+            params.append(status)
+        if kind:
+            filters.append("kind = %s")
+            params.append(kind)
+        filtered_where = " AND ".join(filters)
+
+        page_filters = list(filters)
+        page_params = list(params)
+        if before is not None:
+            page_filters.append("(created_at, id) < (%s, %s)")
+            page_params.extend(before)
+        page_where = " AND ".join(page_filters)
+
+        async with self._pool.connection() as conn:
+            count_row = await (await conn.execute(
+                f"SELECT count(*) FROM compile_jobs WHERE {filtered_where}",
+                params,
+            )).fetchone()
+            rows = await (await conn.execute(
+                "SELECT id, kind, payload, status, created_at, claimed_at, "
+                "completed_at, ok, detail, snapshot_ref FROM compile_jobs "
+                f"WHERE {page_where} "
+                "ORDER BY created_at DESC, id DESC LIMIT %s",
+                [*page_params, limit + 1],
+            )).fetchall()
+
+        has_more = len(rows) > limit
+        rows = rows[:limit]
+        return (
+            [
+                {
+                    "job_id": r[0],
+                    "kind": r[1],
+                    "payload": r[2] or {},
+                    "status": r[3],
+                    "created_at": r[4],
+                    "claimed_at": r[5],
+                    "completed_at": r[6],
+                    "ok": r[7],
+                    "detail": r[8],
+                    "snapshot_ref": r[9],
+                }
+                for r in rows
+            ],
+            int(count_row[0]) if count_row is not None else 0,
+            has_more,
+        )
+
+    async def list_history_page(
+        self,
+        user_id: UserId,
+        *,
+        limit: int,
+        before: tuple[datetime, str, str] | None = None,
+    ) -> tuple[list[dict[str, Any]], dict[str, int], bool]:
+        """Merge source captures, jobs and committed patches into one bounded ledger."""
+        uid = str(user_id)
+        cursor_clause = ""
+        cursor_params: list[Any] = []
+        if before is not None:
+            cursor_clause = "WHERE (ts, kind, ref) < (%s, %s, %s)"
+            cursor_params.extend(before)
+
+        async with self._pool.connection() as conn:
+            counts_row = await (await conn.execute(
+                "SELECT "
+                "(SELECT count(*) FROM compile_events WHERE user_id = %s "
+                " GROUP BY user_id), "
+                "(SELECT count(*) FROM compile_jobs WHERE user_id = %s), "
+                "(SELECT count(*) FROM sources WHERE user_id = %s)",
+                (uid, uid, uid),
+            )).fetchone()
+            rows = await (await conn.execute(
+                """
+                WITH patch_items AS (
+                    SELECT
+                        'patch'::text AS kind,
+                        COALESCE(j.snapshot_ref, min(e.snapshot_ref))::text AS ref,
+                        COALESCE(j.completed_at, j.created_at, max(e.created_at)) AS ts,
+                        jsonb_build_object(
+                            'patch_id', COALESCE(j.snapshot_ref, min(e.snapshot_ref)),
+                            'job_id', j.id,
+                            'ts', COALESCE(j.completed_at, j.created_at, max(e.created_at)),
+                            'base_commit', NULL,
+                            'changed_paths', jsonb_agg(DISTINCT e.path),
+                            'documents', '[]'::jsonb,
+                            'sources_consumed',
+                                COALESCE(j.payload -> 'source_ids', '[]'::jsonb),
+                            'skill_version', NULL,
+                            'effort', NULL,
+                            'claims', jsonb_agg(
+                                jsonb_build_object(
+                                    'anchor', jsonb_build_object(
+                                        'document_id', NULL,
+                                        'anchor', e.anchor
+                                    ),
+                                    'flags', '[]'::jsonb,
+                                    'note', e.type
+                                )
+                                ORDER BY e.seq
+                            ),
+                            'escalations', '[]'::jsonb,
+                            'merges', '[]'::jsonb,
+                            'flag_counts', '{}'::jsonb,
+                            'lineage', '{}'::jsonb
+                        ) AS payload
+                    FROM compile_events e
+                    JOIN compile_jobs j
+                      ON j.user_id = e.user_id AND j.id = e.job_id
+                    WHERE e.user_id = %s
+                    GROUP BY j.id
+                ),
+                audit AS (
+                    SELECT
+                        'snapshot'::text AS kind,
+                        s.source_id::text AS ref,
+                        s.created_at AS ts,
+                        jsonb_build_object(
+                            'source_id', s.source_id,
+                            'source_type', s.kind,
+                            'captured_at', s.created_at,
+                            'checksum', s.checksum,
+                            'source_class', s.source_class
+                        ) AS payload
+                    FROM sources s
+                    WHERE s.user_id = %s
+                    UNION ALL
+                    SELECT
+                        'job'::text AS kind,
+                        j.id::text AS ref,
+                        COALESCE(j.completed_at, j.created_at) AS ts,
+                        jsonb_build_object(
+                            'job_id', j.id,
+                            'status',
+                                CASE
+                                    WHEN j.status <> 'done' THEN 'running'
+                                    WHEN j.ok THEN 'compiled'
+                                    ELSE 'failed'
+                                END,
+                            'patch_id', j.snapshot_ref,
+                            'ts', COALESCE(j.completed_at, j.created_at)
+                        ) AS payload
+                    FROM compile_jobs j
+                    WHERE j.user_id = %s
+                    UNION ALL
+                    SELECT kind, ref, ts, payload FROM patch_items
+                )
+                SELECT kind, ref, ts, payload
+                FROM audit
+                """
+                + cursor_clause
+                + " ORDER BY ts DESC, kind DESC, ref DESC LIMIT %s",
+                [uid, uid, uid, *cursor_params, limit + 1],
+            )).fetchall()
+
+        snapshots = int(counts_row[2]) if counts_row and counts_row[2] else 0
+        jobs = int(counts_row[1]) if counts_row and counts_row[1] else 0
+        # One patch per job with compile events, not one patch per event.
+        patches = 0
+        if counts_row and counts_row[0]:
+            async with self._pool.connection() as conn:
+                patch_row = await (await conn.execute(
+                    "SELECT count(DISTINCT job_id) FROM compile_events WHERE user_id = %s",
+                    (uid,),
+                )).fetchone()
+            patches = int(patch_row[0]) if patch_row else 0
+        counts = {
+            "patches": patches,
+            "jobs": jobs,
+            "snapshots": snapshots,
+            "total": patches + jobs + snapshots,
+        }
+        has_more = len(rows) > limit
+        rows = rows[:limit]
+        return (
+            [
+                {
+                    "kind": row[0],
+                    "ref": row[1],
+                    "ts": row[2],
+                    "payload": row[3],
+                }
+                for row in rows
+            ],
+            counts,
+            has_more,
+        )
+
     async def record_compile_events(
         self,
         user_id: UserId,
@@ -452,12 +743,21 @@ class PostgresStore:
                 (at, str(user_id), list(source_ids)),
             )
 
-    async def digested_map(self, user_id: UserId) -> dict[str, str | None]:
+    async def digested_map(
+        self, user_id: UserId, source_ids: list[str] | None = None
+    ) -> dict[str, str | None]:
         """source_id → digested_at ISO string (or None) for one user (Sources status)."""
+        if source_ids == []:
+            return {}
+        source_filter = " AND source_id = ANY(%s)" if source_ids is not None else ""
+        params: list[Any] = [str(user_id)]
+        if source_ids is not None:
+            params.append(source_ids)
         async with self._pool.connection() as conn:
             rows = await (await conn.execute(
-                "SELECT source_id, digested_at FROM sources WHERE user_id = %s",
-                (str(user_id),),
+                "SELECT source_id, digested_at FROM sources "
+                f"WHERE user_id = %s{source_filter}",
+                params,
             )).fetchall()
         return {r[0]: (r[1].isoformat() if r[1] is not None else None) for r in rows}
 

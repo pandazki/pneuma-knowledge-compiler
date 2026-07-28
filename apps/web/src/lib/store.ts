@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type { Dataset, Selection, UserProfile, ViewName } from "./types";
 import { buildModel, type Model } from "./model";
 import { hashToState, sameSelection, selectionToHash } from "./hash";
+import { needsCanonicalDataset } from "./datasetLoading";
 import {
   listUsers,
   getDatasetRaw,
@@ -218,6 +219,8 @@ interface AppState {
  * possibly normalized — user_id can never be mistaken for a staleness key.
  */
 let profileToken = 0;
+/** Invalidates an in-flight canonical projection when user/snapshot context changes. */
+let datasetToken = 0;
 
 /** In-flight guard for `ensureNames` so a re-render never re-fires a live fetch. */
 const namesInFlight = new Set<string>();
@@ -313,6 +316,9 @@ export const useApp = create<AppState>((set, get) => ({
         const { view, selection } = get();
         if (parsed.view === view && sameSelection(parsed.selection, selection)) return;
         set({ view: parsed.view, selection: parsed.selection });
+        if (needsCanonicalDataset(parsed.view) && get().dataset == null) {
+          void get().loadUserDataset();
+        }
       });
     }
 
@@ -327,7 +333,9 @@ export const useApp = create<AppState>((set, get) => ({
     // "ready" never waits on it (an unreachable /profile degrades gracefully).
     void get().loadProfile();
     await get().loadSnapshots();
-    await get().loadUserDataset();
+    if (needsCanonicalDataset(get().view)) {
+      await get().loadUserDataset();
+    }
     set({ status: "ready" });
   },
 
@@ -444,8 +452,11 @@ export const useApp = create<AppState>((set, get) => ({
   },
 
   setSnapshot: (ref) => {
-    set({ currentSnapshot: ref });
-    void get().loadUserDataset();
+    datasetToken += 1;
+    set({ currentSnapshot: ref, dataset: null, model: null });
+    if (needsCanonicalDataset(get().view)) {
+      void get().loadUserDataset();
+    }
   },
 
   loadUserDataset: async () => {
@@ -454,9 +465,11 @@ export const useApp = create<AppState>((set, get) => ({
       set({ dataset: null, model: null });
       return;
     }
+    const token = ++datasetToken;
     try {
       const at = get().currentSnapshot;
       const raw = (await getDatasetRaw(uid, at)) as unknown as Dataset;
+      if (token !== datasetToken || uid !== get().currentUser) return;
       const dataset: Dataset = {
         workspace: raw.workspace,
         documents: raw.documents,
@@ -477,6 +490,7 @@ export const useApp = create<AppState>((set, get) => ({
       }
       set({ dataset, model: buildModel(dataset) });
     } catch {
+      if (token !== datasetToken) return;
       // Canonical read failed (service down / empty) — degrade to the empty state.
       set({ dataset: null, model: null });
     }
@@ -490,9 +504,12 @@ export const useApp = create<AppState>((set, get) => ({
     }
     // New user: reset to HEAD, drop the stale profile, reload snapshots then dataset.
     // Record the selection in the MRU list (createUser routes through here too).
+    datasetToken += 1;
     set((s) => ({
       currentUser: uid,
       currentProfile: null,
+      dataset: null,
+      model: null,
       sourceFocus: null,
       selection: null,
       currentSnapshot: null,
@@ -502,7 +519,11 @@ export const useApp = create<AppState>((set, get) => ({
       recentUsers: pushRecent(s.recentUsers, uid),
     }));
     void get().loadProfile();
-    void get().loadSnapshots().then(() => get().loadUserDataset());
+    void get().loadSnapshots().then(() => {
+      if (needsCanonicalDataset(get().view)) {
+        return get().loadUserDataset();
+      }
+    });
   },
 
   createUser: (uid) => {
@@ -533,6 +554,9 @@ export const useApp = create<AppState>((set, get) => ({
   setView: (view) => {
     set({ view });
     writeHash(view, get().selection);
+    if (needsCanonicalDataset(view) && get().dataset == null) {
+      void get().loadUserDataset();
+    }
   },
   select: (selection) => {
     set({ selection });
@@ -542,6 +566,9 @@ export const useApp = create<AppState>((set, get) => ({
     const nextView = view ?? get().view;
     set({ selection, view: nextView });
     writeHash(nextView, selection);
+    if (needsCanonicalDataset(nextView) && get().dataset == null) {
+      void get().loadUserDataset();
+    }
   },
 
   toggleTheme: () => {

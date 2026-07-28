@@ -5,7 +5,7 @@ import {
   askBriefing,
   buildBriefing,
   listBriefings,
-  listSources,
+  listAllSources,
   type BriefingSummary,
   type SourceSummary,
 } from "@/lib/api";
@@ -60,7 +60,7 @@ export default function AskView() {
   const loadSources = useCallback(() => {
     if (!currentUser) return;
     setSourcesError(null);
-    listSources(currentUser)
+    listAllSources(currentUser)
       .then(setSources)
       .catch((e) => {
         setSources([]);

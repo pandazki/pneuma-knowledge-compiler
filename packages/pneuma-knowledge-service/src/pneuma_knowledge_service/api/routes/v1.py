@@ -32,7 +32,7 @@ from pneuma_knowledge_core.recall.briefing import (
 from pneuma_knowledge_core.recall.deep import deep_recall
 from pneuma_knowledge_core.recall.fast import fast_recall
 from pneuma_knowledge_core.recall.rag import rag_recall
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, RootModel
 
@@ -41,6 +41,7 @@ from ...dataset import build_dataset
 from ...ingest import ingest_conversation
 from ...ingest_document import ingest_document, preview_document
 from ...ingest_sources import ingest_source_contract
+from ...pagination import CursorError, decode_cursor, encode_cursor
 from ...wiring import AppContext, llm_call_config
 
 # Valid user_id shape — external key, keep it filesystem/URL-safe (mirrors the web
@@ -92,6 +93,25 @@ class SourceOut(BaseModel):
     block_count: int
     # M3b: null = not yet compiled into canonical; set once the worker digests it.
     digested_at: str | None = None
+
+
+class PageMetaOut(BaseModel):
+    limit: int
+    total: int
+    next_cursor: str | None
+
+
+class SourcePageOut(BaseModel):
+    items: list[SourceOut]
+    page: PageMetaOut
+
+
+class WorkspaceSummaryOut(BaseModel):
+    sources: int
+    jobs: int
+    documents: int
+    claims: int
+    snapshots: int
 
 
 class BlockOut(BaseModel):
@@ -423,14 +443,46 @@ async def post_profile_generate(body: ProfileGenerateIn, request: Request) -> Us
     return UserProfile.model_validate(merged)
 
 
-@router.get("/sources", response_model=list[SourceOut])
-async def list_sources(user_id: str, request: Request) -> list[SourceOut]:
+@router.get("/sources", response_model=SourcePageOut)
+async def list_sources(
+    user_id: str,
+    request: Request,
+    limit: int = Query(default=25, ge=1, le=100),
+    cursor: str | None = None,
+    query: str | None = Query(default=None, max_length=200),
+    kind: str | None = Query(default=None, max_length=80),
+) -> SourcePageOut:
     ctx = _ctx(request)
     user = UserId(user_id)
-    raws = await ctx.store.list(user)
-    counts = await ctx.store.block_counts(user)
-    digested = await ctx.store.digested_map(user)
-    return [
+    normalized_query = query.strip() if query and query.strip() else None
+    filters = {"query": normalized_query, "kind": kind}
+    before: tuple[datetime, str] | None = None
+    if cursor:
+        try:
+            position = decode_cursor(
+                cursor,
+                collection="sources",
+                user_id=user_id,
+                filters=filters,
+            )
+            before = (
+                datetime.fromisoformat(position["created_at"]),
+                position["id"],
+            )
+        except (CursorError, KeyError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    raws, total, has_more = await ctx.store.list_sources_page(
+        user,
+        limit=limit,
+        before=before,
+        query=normalized_query,
+        kind=kind,
+    )
+    source_ids = [str(raw.source_id) for raw in raws]
+    counts = await ctx.store.block_counts(user, source_ids)
+    digested = await ctx.store.digested_map(user, source_ids)
+    items = [
         SourceOut(
             source_id=str(r.source_id),
             kind=r.kind,
@@ -444,6 +496,36 @@ async def list_sources(user_id: str, request: Request) -> list[SourceOut]:
         )
         for r in raws
     ]
+    next_cursor = None
+    if has_more and raws:
+        last = raws[-1]
+        next_cursor = encode_cursor(
+            collection="sources",
+            user_id=user_id,
+            filters=filters,
+            position={
+                "created_at": last.created_at.isoformat(),
+                "id": str(last.source_id),
+            },
+        )
+    return SourcePageOut(
+        items=items,
+        page=PageMetaOut(limit=limit, total=total, next_cursor=next_cursor),
+    )
+
+
+@router.get("/summary", response_model=WorkspaceSummaryOut)
+async def get_workspace_summary(
+    user_id: str, request: Request
+) -> WorkspaceSummaryOut:
+    ctx = _ctx(request)
+    user = UserId(user_id)
+    counts = await ctx.store.workspace_counts(user)
+    snapshots = await ctx.canonical.snapshots(user)
+    return WorkspaceSummaryOut(
+        **counts,
+        snapshots=len(snapshots),
+    )
 
 
 @router.get("/sources/{source_id}", response_model=SourceDetailOut)
@@ -795,15 +877,70 @@ class JobOut(BaseModel):
     completed_at: str | None
 
 
+class JobPageOut(BaseModel):
+    items: list[JobOut]
+    page: PageMetaOut
+
+
+class HistoryCountsOut(BaseModel):
+    patches: int
+    jobs: int
+    snapshots: int
+    total: int
+
+
+class HistoryItemOut(BaseModel):
+    kind: str
+    ref: str
+    ts: str
+    payload: dict[str, Any]
+
+
+class HistoryPageOut(BaseModel):
+    items: list[HistoryItemOut]
+    page: PageMetaOut
+    counts: HistoryCountsOut
+
+
 class CompileOut(BaseModel):
     enqueued: list[str]
     source_ids: list[str]
 
 
-@router.get("/jobs", response_model=list[JobOut])
-async def list_jobs(user_id: str, request: Request) -> list[JobOut]:
-    rows = await _ctx(request).store.list_jobs(UserId(user_id))
-    return [
+@router.get("/jobs", response_model=JobPageOut)
+async def list_jobs(
+    user_id: str,
+    request: Request,
+    limit: int = Query(default=25, ge=1, le=100),
+    cursor: str | None = None,
+    status: str | None = Query(default=None, max_length=80),
+    kind: str | None = Query(default=None, max_length=80),
+) -> JobPageOut:
+    filters = {"status": status, "kind": kind}
+    before: tuple[datetime, str] | None = None
+    if cursor:
+        try:
+            position = decode_cursor(
+                cursor,
+                collection="jobs",
+                user_id=user_id,
+                filters=filters,
+            )
+            before = (
+                datetime.fromisoformat(position["created_at"]),
+                position["id"],
+            )
+        except (CursorError, KeyError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    rows, total, has_more = await _ctx(request).store.list_jobs_page(
+        UserId(user_id),
+        limit=limit,
+        before=before,
+        status=status,
+        kind=kind,
+    )
+    items = [
         JobOut(
             job_id=r["job_id"],
             kind=r["kind"],
@@ -817,6 +954,84 @@ async def list_jobs(user_id: str, request: Request) -> list[JobOut]:
         )
         for r in rows
     ]
+    next_cursor = None
+    if has_more and rows:
+        last = rows[-1]
+        next_cursor = encode_cursor(
+            collection="jobs",
+            user_id=user_id,
+            filters=filters,
+            position={
+                "created_at": last["created_at"].isoformat(),
+                "id": last["job_id"],
+            },
+        )
+    return JobPageOut(
+        items=items,
+        page=PageMetaOut(limit=limit, total=total, next_cursor=next_cursor),
+    )
+
+
+@router.get("/history", response_model=HistoryPageOut)
+async def list_history(
+    user_id: str,
+    request: Request,
+    limit: int = Query(default=25, ge=1, le=100),
+    cursor: str | None = None,
+) -> HistoryPageOut:
+    before: tuple[datetime, str, str] | None = None
+    if cursor:
+        try:
+            position = decode_cursor(
+                cursor,
+                collection="history",
+                user_id=user_id,
+                filters={},
+            )
+            before = (
+                datetime.fromisoformat(position["ts"]),
+                position["kind"],
+                position["id"],
+            )
+        except (CursorError, KeyError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    rows, counts, has_more = await _ctx(request).store.list_history_page(
+        UserId(user_id),
+        limit=limit,
+        before=before,
+    )
+    items = [
+        HistoryItemOut(
+            kind=row["kind"],
+            ref=row["ref"],
+            ts=row["ts"].isoformat(),
+            payload=row["payload"],
+        )
+        for row in rows
+    ]
+    next_cursor = None
+    if has_more and rows:
+        last = rows[-1]
+        next_cursor = encode_cursor(
+            collection="history",
+            user_id=user_id,
+            filters={},
+            position={
+                "ts": last["ts"].isoformat(),
+                "kind": last["kind"],
+                "id": last["ref"],
+            },
+        )
+    return HistoryPageOut(
+        items=items,
+        page=PageMetaOut(
+            limit=limit,
+            total=counts["total"],
+            next_cursor=next_cursor,
+        ),
+        counts=HistoryCountsOut(**counts),
+    )
 
 
 @router.post("/compile", response_model=CompileOut)

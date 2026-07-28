@@ -117,7 +117,7 @@ async def test_official_import_expands_natural_citation_units(client):
         assert response.status_code == 200, response.text
         assert len(response.json()["sources"]) == 2
 
-        listed = (await client.get(f"{base}/sources")).json()
+        listed = (await client.get(f"{base}/sources")).json()["items"]
         assert {item["kind"] for item in listed} == {"meeting", "document_library"}
         assert {item["origin"] for item in listed} == {"mock"}
         assert len(listed) == 3

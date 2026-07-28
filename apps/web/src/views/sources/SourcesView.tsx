@@ -8,6 +8,13 @@ import {
   type SourceSummary,
 } from "@/lib/api";
 import { fmtTime } from "@/lib/format";
+import {
+  firstPage,
+  nextPage,
+  previousPage,
+  type CursorPageState,
+  type Page,
+} from "@/lib/pagination";
 import { useApp } from "@/lib/store";
 import { Badge } from "@/ui/Badge";
 import { Button } from "@/ui/Button";
@@ -20,6 +27,7 @@ import { SectionRule } from "@/ui/SectionRule";
 import { SkeletonText } from "@/ui/Skeleton";
 import { Tabs } from "@/ui/Tabs";
 import { PageHeader } from "@/components/PageHeader";
+import { PaginationBar } from "@/components/PaginationBar";
 import { cn } from "@/ui/cn";
 import { SourceKindName, SourceKindSummary, SourceReader } from "./SourceReaders";
 
@@ -28,6 +36,8 @@ interface BlockRange {
   start: number;
   end: number;
 }
+
+const PAGE_SIZE = 25;
 
 export default function SourcesView() {
   const currentUser = useApp((s) => s.currentUser);
@@ -38,32 +48,44 @@ export default function SourcesView() {
 
   const sourceSel = selection?.kind === "source" ? selection : null;
 
-  const [sources, setSources] = useState<SourceSummary[] | null>(null);
+  const [sourcePage, setSourcePage] = useState<Page<SourceSummary> | null>(null);
+  const [pageState, setPageState] = useState<CursorPageState>(firstPage);
   const [listError, setListError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  const load = useCallback(() => setReloadKey((k) => k + 1), []);
+  const sources = sourcePage?.items ?? null;
+
+  const load = useCallback(() => {
+    setPageState(firstPage());
+    setReloadKey((k) => k + 1);
+  }, []);
+
+  useEffect(() => {
+    setPageState(firstPage());
+  }, [currentUser]);
 
   // source 目录：随用户切换 / 手动重试重载。
   useEffect(() => {
     if (!currentUser) {
-      setSources(null);
+      setSourcePage(null);
       setListError(null);
       setSelectedId(null);
       return;
     }
     let live = true;
     setListError(null);
-    listSources(currentUser)
-      .then((rows) => {
+    setSourcePage(null);
+    listSources(currentUser, { limit: PAGE_SIZE, cursor: pageState.cursor })
+      .then((page) => {
         if (!live) return;
-        setSources(rows);
+        const rows = page.items;
+        setSourcePage(page);
         // 落点优先级：deep-link selection > store.sourceFocus > 上次选中 > 第一条。
         setSelectedId((prev) => {
-          if (sourceSel && rows.some((r) => r.source_id === sourceSel.id)) return sourceSel.id;
+          if (sourceSel) return sourceSel.id;
           const focus = sourceFocus?.sourceId;
-          if (focus && rows.some((r) => r.source_id === focus)) return focus;
+          if (focus) return focus;
           if (prev && rows.some((r) => r.source_id === prev)) return prev;
           return rows[0]?.source_id ?? null;
         });
@@ -76,22 +98,22 @@ export default function SourcesView() {
       live = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentUser, reloadKey]);
+  }, [currentUser, pageState.cursor, reloadKey]);
 
   // 跨视图落点（recall/ask/suggestion 的 focusSource）：选中目标 source，只读消费、不动 hash。
   useEffect(() => {
-    if (sourceFocus && sources?.some((r) => r.source_id === sourceFocus.sourceId)) {
+    if (sourceFocus) {
       setSelectedId(sourceFocus.sourceId);
     }
-  }, [sourceFocus, sources]);
+  }, [sourceFocus]);
 
   // deep-link `#/sources/source/<id>/<block?>`：hash 进入时选中对应 source。
   useEffect(() => {
-    if (sourceSel && sources?.some((r) => r.source_id === sourceSel.id)) {
+    if (sourceSel) {
       setSelectedId(sourceSel.id);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sourceSel?.id, sourceSel?.block, sources]);
+  }, [sourceSel?.id, sourceSel?.block]);
 
   // 高亮区间：selection 带的 block 优先，其次 sourceFocus 的 span。
   const highlight: BlockRange | null =
@@ -105,9 +127,6 @@ export default function SourcesView() {
             end: sourceFocus.blockEnd ?? sourceFocus.blockStart,
           }
         : null;
-
-  const selectedMissing =
-    !!sourceSel && sources != null && !sources.some((r) => r.source_id === sourceSel.id);
 
   if (!currentUser) {
     return (
@@ -153,7 +172,9 @@ export default function SourcesView() {
       <div className="flex flex-col gap-6 md:flex-row md:items-start">
         {/* 左栏：source 目录 */}
         <aside className="w-full shrink-0 md:w-72">
-          <p className="mb-2 text-12 text-ink-3">目录 · {sources.length} 条</p>
+          <p className="mb-2 text-12 text-ink-3">
+            目录 · {sourcePage?.page.total ?? sources.length} 条
+          </p>
           <ul className="flex flex-col border-y border-line">
             {sources.map((s) => {
               const selected = s.source_id === selectedId;
@@ -200,17 +221,24 @@ export default function SourcesView() {
               );
             })}
           </ul>
+          <PaginationBar
+            pageIndex={pageState.previous.length}
+            limit={PAGE_SIZE}
+            itemCount={sources.length}
+            total={sourcePage?.page.total ?? sources.length}
+            hasNext={sourcePage?.page.next_cursor != null}
+            noun="条 source"
+            onPrevious={() => setPageState((state) => previousPage(state))}
+            onNext={() => {
+              const cursor = sourcePage?.page.next_cursor;
+              if (cursor) setPageState((state) => nextPage(state, cursor));
+            }}
+          />
         </aside>
 
         {/* 右栏：校样页 */}
         <div className="min-w-0 flex-1">
-          {selectedMissing ? (
-            <EmptyState
-              icon={FileText}
-              title="原文已不可用"
-              description="溯源链接指向的 source 不在当前用户的原料目录中——可能已被删除或属于其他用户。"
-            />
-          ) : selectedId ? (
+          {selectedId ? (
             <SourceGalley
               key={selectedId}
               userId={currentUser}

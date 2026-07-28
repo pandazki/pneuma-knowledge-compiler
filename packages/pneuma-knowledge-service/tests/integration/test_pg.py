@@ -2,23 +2,32 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from pneuma_knowledge_core.domain.ids import SourceId
+from pneuma_knowledge_core.domain.ids import AnchorId, SourceId
 from pneuma_knowledge_core.domain.source import ConversationTurn, RawSource
 from pneuma_knowledge_core.ingest.adapters import PlainConversationAdapter, PlainConversationInput
+from pneuma_knowledge_core.recall.projection import ProjectedClaim
 
 
-def _normalized(user, source_id: str, checksum: str):
+def _normalized(
+    user,
+    source_id: str,
+    checksum: str,
+    *,
+    title: str = "t",
+    kind: str = "conversation",
+    created_at: datetime | None = None,
+):
     raw = RawSource(
         source_id=SourceId(source_id),
         user_id=user,
-        kind="conversation",
+        kind=kind,
         source_class="workstream",
-        title="t",
+        title=title,
         mime="text/plain",
         checksum=checksum,
-        created_at=datetime(2026, 7, 20, tzinfo=timezone.utc),
+        created_at=created_at or datetime(2026, 7, 20, tzinfo=timezone.utc),
         intake_plan={"canonical_treatment": "full", "semantic_indexing": "full"},
     )
     turns = [
@@ -75,6 +84,206 @@ async def test_job_queue_enqueue_claim_complete_serial_per_user(pg_store, user):
     await pg_store.complete(user, j1)
     second = await pg_store.claim_next(user)
     assert second is not None and second.kind == "compile"
+
+
+async def test_source_pages_are_bounded_stable_filtered_and_user_scoped(pg_store, user):
+    base = datetime(2026, 7, 20, tzinfo=timezone.utc)
+    for index, title in enumerate(
+        ["Alpha brief", "Beta notes", "Alpha decision", "Gamma log", "Alpha mail"]
+    ):
+        await pg_store.add(
+            user,
+            _normalized(
+                user,
+                f"sid-page-{index}",
+                f"chk-page-{index}",
+                title=title,
+                kind="email" if index == 4 else "document",
+                created_at=base + timedelta(days=index),
+            ),
+        )
+
+    page1, total, has_more = await pg_store.list_sources_page(user, limit=2)
+    assert total == 5
+    assert has_more is True
+    assert [str(row.source_id) for row in page1] == ["sid-page-4", "sid-page-3"]
+
+    last = page1[-1]
+    page2, total2, has_more2 = await pg_store.list_sources_page(
+        user,
+        limit=2,
+        before=(last.created_at, str(last.source_id)),
+    )
+    assert total2 == 5
+    assert has_more2 is True
+    assert [str(row.source_id) for row in page2] == ["sid-page-2", "sid-page-1"]
+    assert {row.source_id for row in page1}.isdisjoint(row.source_id for row in page2)
+
+    filtered, filtered_total, filtered_more = await pg_store.list_sources_page(
+        user,
+        limit=10,
+        query="alpha",
+        kind="document",
+    )
+    assert filtered_total == 2
+    assert filtered_more is False
+    assert [row.title for row in filtered] == ["Alpha decision", "Alpha brief"]
+
+    other = type(user)(f"{user}-other")
+    await pg_store.add(
+        other,
+        _normalized(
+            other,
+            "sid-page-other",
+            "chk-page-other",
+            title="Alpha private",
+            kind="document",
+            created_at=base + timedelta(days=20),
+        ),
+    )
+    isolated, isolated_total, _ = await pg_store.list_sources_page(user, limit=10)
+    assert isolated_total == 5
+    assert all(row.user_id == user for row in isolated)
+
+
+async def test_job_pages_are_bounded_filtered_and_do_not_repeat(pg_store, user):
+    job_ids = [
+        await pg_store.enqueue(
+            user,
+            "index" if index % 2 == 0 else "compile",
+            {"source_ids": [f"sid-{index}"]},
+        )
+        for index in range(7)
+    ]
+    await pg_store.complete(user, job_ids[0], ok=True)
+    await pg_store.complete(user, job_ids[1], ok=False, detail="expected test failure")
+
+    page1, total, has_more = await pg_store.list_jobs_page(user, limit=3)
+    assert total == 7
+    assert has_more is True
+    assert len(page1) == 3
+
+    last = page1[-1]
+    page2, total2, has_more2 = await pg_store.list_jobs_page(
+        user,
+        limit=3,
+        before=(last["created_at"], last["job_id"]),
+    )
+    assert total2 == 7
+    assert has_more2 is True
+    assert {row["job_id"] for row in page1}.isdisjoint(
+        row["job_id"] for row in page2
+    )
+
+    queued, queued_total, queued_more = await pg_store.list_jobs_page(
+        user,
+        limit=10,
+        status="queued",
+        kind="index",
+    )
+    assert queued_total == 3
+    assert queued_more is False
+    assert all(row["status"] == "queued" and row["kind"] == "index" for row in queued)
+
+
+async def test_workspace_counts_are_derived_in_one_user_scope(pg_store, user):
+    await pg_store.add(user, _normalized(user, "sid-count", "chk-count"))
+    await pg_store.enqueue(user, "index", {"source_ids": ["sid-count"]})
+    await pg_store.replace_canonical_claims(
+        user,
+        "snapshot-count",
+        [
+            ProjectedClaim(
+                anchor=AnchorId("a001"),
+                document_path="work/products/a.md",
+                section_path=("范围",),
+                text="事实 A",
+            ),
+            ProjectedClaim(
+                anchor=AnchorId("a002"),
+                document_path="work/products/a.md",
+                section_path=("范围",),
+                text="事实 B",
+            ),
+            ProjectedClaim(
+                anchor=AnchorId("b001"),
+                document_path="work/products/b.md",
+                section_path=("决定",),
+                text="事实 C",
+            ),
+        ],
+    )
+
+    assert await pg_store.workspace_counts(user) == {
+        "sources": 1,
+        "jobs": 1,
+        "documents": 2,
+        "claims": 3,
+    }
+
+    other = type(user)(f"{user}-counts-other")
+    await pg_store.add(other, _normalized(other, "sid-other-count", "chk-other-count"))
+    assert await pg_store.workspace_counts(user) == {
+        "sources": 1,
+        "jobs": 1,
+        "documents": 2,
+        "claims": 3,
+    }
+
+
+async def test_history_pages_merge_sources_jobs_and_patches_without_repeats(
+    pg_store, user
+):
+    base = datetime(2026, 7, 20, tzinfo=timezone.utc)
+    for index in range(2):
+        await pg_store.add(
+            user,
+            _normalized(
+                user,
+                f"sid-history-{index}",
+                f"chk-history-{index}",
+                created_at=base + timedelta(days=index),
+            ),
+        )
+
+    first_job = await pg_store.enqueue(
+        user, "compile", {"source_ids": ["sid-history-0"]}
+    )
+    await pg_store.complete(user, first_job, snapshot_ref="ref-history-1")
+    await pg_store.record_compile_events(
+        user,
+        first_job,
+        "ref-history-1",
+        [
+            {
+                "type": "claim_added",
+                "path": "work/products/a.md",
+                "anchor": "a001",
+                "after": "事实 A",
+            }
+        ],
+    )
+    await pg_store.enqueue(user, "index", {"source_ids": ["sid-history-1"]})
+    await pg_store.enqueue(user, "compile", {"source_ids": ["sid-history-1"]})
+
+    page1, counts, has_more = await pg_store.list_history_page(user, limit=3)
+    assert counts == {"patches": 1, "jobs": 3, "snapshots": 2, "total": 6}
+    assert len(page1) == 3
+    assert has_more is True
+    assert {row["kind"] for row in page1} <= {"patch", "job", "snapshot"}
+
+    last = page1[-1]
+    page2, counts2, has_more2 = await pg_store.list_history_page(
+        user,
+        limit=3,
+        before=(last["ts"], last["kind"], last["ref"]),
+    )
+    assert counts2 == counts
+    assert len(page2) == 3
+    assert has_more2 is False
+    assert {(row["kind"], row["ref"]) for row in page1}.isdisjoint(
+        (row["kind"], row["ref"]) for row in page2
+    )
 
 
 async def test_user_profile_upsert_get_roundtrip(pg_store, user):

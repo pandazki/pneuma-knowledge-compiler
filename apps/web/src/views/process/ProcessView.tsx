@@ -7,6 +7,13 @@ import {
   type JobSummary,
 } from "@/lib/api";
 import { fmtTime } from "@/lib/format";
+import {
+  firstPage,
+  nextPage,
+  previousPage,
+  type CursorPageState,
+  type Page,
+} from "@/lib/pagination";
 import { useApp } from "@/lib/store";
 import { Badge } from "@/ui/Badge";
 import { Button } from "@/ui/Button";
@@ -17,10 +24,12 @@ import { ErrorState } from "@/ui/ErrorState";
 import { Mono } from "@/ui/Mono";
 import { SkeletonText } from "@/ui/Skeleton";
 import { PageHeader } from "@/components/PageHeader";
+import { PaginationBar } from "@/components/PaginationBar";
 import { cn } from "@/ui/cn";
 
 /** 仍在流水线里的状态（轮询继续的依据）。 */
 const ACTIVE_STATUSES = new Set(["queued", "running", "claimed"]);
+const PAGE_SIZE = 25;
 
 /** 状态用文字 + 墨阶表达，failed 用 danger 文字；不用彩色灯。 */
 function statusText(status: string): { label: string; className: string } {
@@ -47,19 +56,29 @@ export default function ProcessView() {
   const setView = useApp((s) => s.setView);
   const jump = useApp((s) => s.jump);
 
-  const [jobs, setJobs] = useState<JobSummary[] | null>(null);
+  const [jobPage, setJobPage] = useState<Page<JobSummary> | null>(null);
+  const [pageState, setPageState] = useState<CursorPageState>(firstPage);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [compiling, setCompiling] = useState(false);
   const [compileResult, setCompileResult] = useState<CompileResult | null>(null);
   const [compileError, setCompileError] = useState<string | null>(null);
 
-  const reload = useCallback(() => setReloadKey((k) => k + 1), []);
+  const jobs = jobPage?.items ?? null;
+
+  const reload = useCallback(() => {
+    setPageState(firstPage());
+    setReloadKey((k) => k + 1);
+  }, []);
+
+  useEffect(() => {
+    setPageState(firstPage());
+  }, [currentUser]);
 
   // job 账页：装载一次；存在 running/queued（含 claimed）job 时每 3s 轮询，卸载清理。
   useEffect(() => {
     if (!currentUser) {
-      setJobs(null);
+      setJobPage(null);
       setLoadError(null);
       return;
     }
@@ -68,10 +87,14 @@ export default function ProcessView() {
     let loaded = false;
     const tick = async () => {
       try {
-        const rows = await listJobs(currentUser);
+        const page = await listJobs(currentUser, {
+          limit: PAGE_SIZE,
+          cursor: pageState.cursor,
+        });
         if (!live) return;
+        const rows = page.items;
         loaded = true;
-        setJobs(rows);
+        setJobPage(page);
         setLoadError(null);
         if (rows.some((j) => ACTIVE_STATUSES.has(j.status))) {
           timer = window.setTimeout(tick, 3000);
@@ -88,7 +111,7 @@ export default function ProcessView() {
       live = false;
       if (timer) window.clearTimeout(timer);
     };
-  }, [currentUser, reloadKey]);
+  }, [currentUser, pageState.cursor, reloadKey]);
 
   async function onCompile() {
     if (!currentUser) return;
@@ -197,51 +220,66 @@ export default function ProcessView() {
           }
         />
       ) : (
-        <ul className="flex flex-col border-y border-line">
-          {jobs.map((j) => {
-            const expanded = j.job_id === selectedJobId;
-            const st = statusText(j.status);
-            return (
-              <li key={j.job_id} className="border-b border-line last:border-b-0">
-                <button
-                  type="button"
-                  aria-expanded={expanded}
-                  onClick={() =>
-                    select(expanded ? null : { kind: "job", id: j.job_id })
-                  }
-                  className={cn(
-                    "relative flex w-full flex-col gap-1.5 px-3 py-2.5 text-left",
-                    "transition-colors duration-120 ease-out",
-                    expanded ? "bg-accent-soft" : "hover:bg-hover",
-                  )}
-                >
-                  {expanded && (
-                    <span aria-hidden className="absolute inset-y-0 left-0 w-0.5 bg-accent" />
-                  )}
-                  <span className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
-                    <Mono className="min-w-0 break-all text-13 text-ink">{j.job_id}</Mono>
-                    <Badge>{j.kind}</Badge>
-                    <span className={cn("text-13", st.className)}>{st.label}</span>
-                  </span>
-                  <span className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-12 text-ink-3">
-                    <span>
-                      创建 <Mono>{fmtTime(j.created_at)}</Mono>
-                    </span>
-                    <span>
-                      完成 <Mono>{fmtTime(j.completed_at)}</Mono>
-                    </span>
-                    {j.snapshot_ref && (
-                      <span>
-                        snapshot <Mono className="break-all">{j.snapshot_ref}</Mono>
-                      </span>
+        <div className="flex flex-col gap-3">
+          <ul className="flex flex-col border-y border-line">
+            {jobs.map((j) => {
+              const expanded = j.job_id === selectedJobId;
+              const st = statusText(j.status);
+              return (
+                <li key={j.job_id} className="border-b border-line last:border-b-0">
+                  <button
+                    type="button"
+                    aria-expanded={expanded}
+                    onClick={() =>
+                      select(expanded ? null : { kind: "job", id: j.job_id })
+                    }
+                    className={cn(
+                      "relative flex w-full flex-col gap-1.5 px-3 py-2.5 text-left",
+                      "transition-colors duration-120 ease-out",
+                      expanded ? "bg-accent-soft" : "hover:bg-hover",
                     )}
-                  </span>
-                </button>
-                {expanded && <JobDetail job={j} />}
-              </li>
-            );
-          })}
-        </ul>
+                  >
+                    {expanded && (
+                      <span aria-hidden className="absolute inset-y-0 left-0 w-0.5 bg-accent" />
+                    )}
+                    <span className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+                      <Mono className="min-w-0 break-all text-13 text-ink">{j.job_id}</Mono>
+                      <Badge>{j.kind}</Badge>
+                      <span className={cn("text-13", st.className)}>{st.label}</span>
+                    </span>
+                    <span className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-12 text-ink-3">
+                      <span>
+                        创建 <Mono>{fmtTime(j.created_at)}</Mono>
+                      </span>
+                      <span>
+                        完成 <Mono>{fmtTime(j.completed_at)}</Mono>
+                      </span>
+                      {j.snapshot_ref && (
+                        <span>
+                          snapshot <Mono className="break-all">{j.snapshot_ref}</Mono>
+                        </span>
+                      )}
+                    </span>
+                  </button>
+                  {expanded && <JobDetail job={j} />}
+                </li>
+              );
+            })}
+          </ul>
+          <PaginationBar
+            pageIndex={pageState.previous.length}
+            limit={PAGE_SIZE}
+            itemCount={jobs.length}
+            total={jobPage?.page.total ?? jobs.length}
+            hasNext={jobPage?.page.next_cursor != null}
+            noun="个 job"
+            onPrevious={() => setPageState((state) => previousPage(state))}
+            onNext={() => {
+              const cursor = jobPage?.page.next_cursor;
+              if (cursor) setPageState((state) => nextPage(state, cursor));
+            }}
+          />
+        </div>
       )}
     </div>
   );

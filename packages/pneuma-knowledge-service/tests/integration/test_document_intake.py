@@ -71,7 +71,7 @@ async def test_preview_is_side_effect_free_and_proposes_plan(client):
     assert body["normalized"]["block_count"] >= 2
     assert body["normalized"]["section_tree"]  # heading-cut sections
     # No source was created by preview.
-    assert (await client.get(f"/v1/users/{uid}/sources")).json() == []
+    assert (await client.get(f"/v1/users/{uid}/sources")).json()["items"] == []
 
 
 async def test_contract_distill_full_confirm(client):
@@ -84,7 +84,7 @@ async def test_contract_distill_full_confirm(client):
     body = r.json()
     assert body["intake_plan"]["canonical_treatment"] == "distill"
     assert body["intake_plan"]["semantic_indexing"] == "full"
-    listed = (await client.get(f"/v1/users/{uid}/sources")).json()
+    listed = (await client.get(f"/v1/users/{uid}/sources")).json()["items"]
     entry = next(s for s in listed if s["source_id"] == body["source_id"])
     assert entry["kind"] == "document"
     assert entry["digested_at"] is None  # not compiled yet (worker does that)
@@ -176,6 +176,173 @@ async def test_preview_auto_reports_the_mechanical_archetype(client):
     )
     assert r.status_code == 200, r.text
     assert r.json()["proposed_archetype"] == "distill"
+
+
+async def test_source_collection_uses_context_bound_cursor_pages(client):
+    uid = f"u-it-source-page-{uuid.uuid4().hex[:8]}"
+    base = f"/v1/users/{uid}"
+    for title in ["Alpha brief", "Beta notes", "Alpha decision", "Gamma log", "Alpha mail"]:
+        response = await client.post(
+            f"{base}/sources/document",
+            json={"title": title, "text": f"# {title}\n\n正文 {title}"},
+        )
+        assert response.status_code == 200, response.text
+
+    first = await client.get(f"{base}/sources", params={"limit": 2})
+    assert first.status_code == 200, first.text
+    body = first.json()
+    assert len(body["items"]) == 2
+    assert body["page"]["limit"] == 2
+    assert body["page"]["total"] == 5
+    assert body["page"]["next_cursor"]
+
+    second = await client.get(
+        f"{base}/sources",
+        params={"limit": 2, "cursor": body["page"]["next_cursor"]},
+    )
+    assert second.status_code == 200, second.text
+    body2 = second.json()
+    assert len(body2["items"]) == 2
+    assert {row["source_id"] for row in body["items"]}.isdisjoint(
+        row["source_id"] for row in body2["items"]
+    )
+
+    filtered = await client.get(
+        f"{base}/sources",
+        params={"limit": 10, "query": "alpha"},
+    )
+    assert filtered.status_code == 200, filtered.text
+    assert filtered.json()["page"]["total"] == 3
+    assert all("alpha" in row["title"].lower() for row in filtered.json()["items"])
+
+    assert (
+        await client.get(f"{base}/sources", params={"cursor": "not-a-cursor"})
+    ).status_code == 422
+    assert (
+        await client.get(
+            f"{base}/sources",
+            params={"cursor": body["page"]["next_cursor"], "query": "different"},
+        )
+    ).status_code == 422
+
+
+async def test_job_collection_uses_bounded_filtered_pages(client):
+    uid = f"u-it-job-page-{uuid.uuid4().hex[:8]}"
+    base = f"/v1/users/{uid}"
+    store = client.app.state.ctx.store
+    job_ids = [
+        await store.enqueue(
+            uid,
+            "index" if index % 2 == 0 else "compile",
+            {"source_ids": [f"sid-{index}"]},
+        )
+        for index in range(7)
+    ]
+    await store.complete(uid, job_ids[0], ok=True)
+    await store.complete(uid, job_ids[1], ok=False, detail="expected test failure")
+
+    first = await client.get(f"{base}/jobs", params={"limit": 3})
+    assert first.status_code == 200, first.text
+    body = first.json()
+    assert len(body["items"]) == 3
+    assert body["page"]["total"] == 7
+    assert body["page"]["next_cursor"]
+
+    second = await client.get(
+        f"{base}/jobs",
+        params={"limit": 3, "cursor": body["page"]["next_cursor"]},
+    )
+    assert second.status_code == 200, second.text
+    assert {row["job_id"] for row in body["items"]}.isdisjoint(
+        row["job_id"] for row in second.json()["items"]
+    )
+
+    queued_index = await client.get(
+        f"{base}/jobs",
+        params={"limit": 10, "status": "queued", "kind": "index"},
+    )
+    assert queued_index.status_code == 200, queued_index.text
+    assert queued_index.json()["page"]["total"] == 3
+    assert all(
+        row["status"] == "queued" and row["kind"] == "index"
+        for row in queued_index.json()["items"]
+    )
+
+
+async def test_workspace_summary_counts_without_collection_payloads(client):
+    uid = f"u-it-summary-{uuid.uuid4().hex[:8]}"
+    base = f"/v1/users/{uid}"
+    imported = await client.post(
+        f"{base}/sources/document",
+        json={"title": "Summary source", "text": "# Summary\n\nOne source."},
+    )
+    assert imported.status_code == 200, imported.text
+
+    response = await client.get(f"{base}/summary")
+    assert response.status_code == 200, response.text
+    assert response.json() == {
+        "sources": 1,
+        "jobs": 2,
+        "documents": 0,
+        "claims": 0,
+        "snapshots": 0,
+    }
+
+
+async def test_history_collection_pages_the_unified_audit_ledger(client):
+    uid = f"u-it-history-{uuid.uuid4().hex[:8]}"
+    base = f"/v1/users/{uid}"
+    imported = await client.post(
+        f"{base}/sources/document",
+        json={"title": "History source", "text": "# History\n\nOne decision."},
+    )
+    assert imported.status_code == 200, imported.text
+    source_id = imported.json()["source_id"]
+
+    store = client.app.state.ctx.store
+    compile_job = next(
+        row for row in await store.list_jobs(uid) if row["kind"] == "compile"
+    )
+    await store.complete(uid, compile_job["job_id"], snapshot_ref="ref-history-api")
+    await store.record_compile_events(
+        uid,
+        compile_job["job_id"],
+        "ref-history-api",
+        [
+            {
+                "type": "claim_added",
+                "path": "work/products/history.md",
+                "anchor": "a001",
+                "after": "One decision.",
+            }
+        ],
+    )
+
+    first = await client.get(f"{base}/history", params={"limit": 2})
+    assert first.status_code == 200, first.text
+    body = first.json()
+    assert body["counts"] == {
+        "patches": 1,
+        "jobs": 2,
+        "snapshots": 1,
+        "total": 4,
+    }
+    assert len(body["items"]) == 2
+    assert body["page"]["next_cursor"]
+
+    second = await client.get(
+        f"{base}/history",
+        params={"limit": 2, "cursor": body["page"]["next_cursor"]},
+    )
+    assert second.status_code == 200, second.text
+    assert len(second.json()["items"]) == 2
+    assert {(row["kind"], row["ref"]) for row in body["items"]}.isdisjoint(
+        (row["kind"], row["ref"]) for row in second.json()["items"]
+    )
+    assert second.json()["page"]["next_cursor"] is None
+    assert (
+        await client.get(f"{base}/history", params={"cursor": "not-a-cursor"})
+    ).status_code == 422
 
 
 async def test_ingest_archetype_selects_plan_and_confirms(client):

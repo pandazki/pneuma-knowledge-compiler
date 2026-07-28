@@ -103,7 +103,7 @@ async def test_conversation_intake_recall_fetch_flow(client):
     assert body["deduplicated"] is False
 
     # List surfaces the source with its intake plan + block count (for M2 UI).
-    listed = (await client.get(f"{base}/sources")).json()
+    listed = (await client.get(f"{base}/sources")).json()["items"]
     entry = next(s for s in listed if s["source_id"] == source_id)
     assert entry["intake_plan"]["semantic_indexing"] == "full"
     assert entry["block_count"] >= 1

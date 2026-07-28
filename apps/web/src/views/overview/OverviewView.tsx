@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowRight } from "lucide-react";
 import { useApp } from "@/lib/store";
-import { listJobs, listSources } from "@/lib/api";
+import { getWorkspaceSummary, type WorkspaceSummary } from "@/lib/api";
 import type { ViewName } from "@/lib/types";
 import { Callout } from "@/ui/Callout";
 import { DefinitionList } from "@/ui/DefinitionList";
@@ -127,42 +127,35 @@ const GUIDE: GuideItem[] = [
 export default function OverviewView() {
   const currentUser = useApp((s) => s.currentUser);
   const usersError = useApp((s) => s.usersError);
-  const dataset = useApp((s) => s.dataset);
-  const snapshots = useApp((s) => s.snapshots);
   const setView = useApp((s) => s.setView);
 
-  // 流程图实时计数：sources / jobs 走服务 API；documents+claims / snapshots 读 store。
-  const [sourceCount, setSourceCount] = useState<number | null>(null);
-  const [jobCount, setJobCount] = useState<number | null>(null);
+  // 流程图实时计数走一个有界 summary；卷首不下载 sources/jobs/dataset 全量内容。
+  const [summary, setSummary] = useState<WorkspaceSummary | null>(null);
   const [countsLoaded, setCountsLoaded] = useState(false);
 
   useEffect(() => {
     if (!currentUser) {
-      setSourceCount(null);
-      setJobCount(null);
+      setSummary(null);
       setCountsLoaded(false);
       return;
     }
     let live = true;
     setCountsLoaded(false);
-    Promise.allSettled([listSources(currentUser), listJobs(currentUser)]).then(
-      ([sources, jobs]) => {
+    getWorkspaceSummary(currentUser)
+      .then((result) => {
         if (!live) return;
-        setSourceCount(sources.status === "fulfilled" ? sources.value.length : null);
-        setJobCount(jobs.status === "fulfilled" ? jobs.value.length : null);
+        setSummary(result);
         setCountsLoaded(true);
-      },
-    );
+      })
+      .catch(() => {
+        if (!live) return;
+        setSummary(null);
+        setCountsLoaded(true);
+      });
     return () => {
       live = false;
     };
   }, [currentUser]);
-
-  const docClaimCount = useMemo(() => {
-    if (!dataset) return undefined;
-    const docs = dataset.documents?.documents ?? [];
-    return docs.reduce((sum, d) => sum + (d.claims?.length ?? 0), 0) + docs.length;
-  }, [dataset]);
 
   /** 计数三态：加载中 null→Skeleton；无用户 / 加载失败 undefined→—；否则数字。 */
   const asCount = (loaded: boolean, value: number | null): number | null | undefined => {
@@ -177,7 +170,7 @@ export default function OverviewView() {
       name: "原料",
       caption: "source 按原貌入库，可定位",
       view: "sources",
-      count: asCount(countsLoaded, sourceCount),
+      count: asCount(countsLoaded, summary?.sources ?? null),
       unit: "条 source",
     },
     {
@@ -185,7 +178,7 @@ export default function OverviewView() {
       name: "编译",
       caption: "compile job 取证与合并",
       view: "process",
-      count: asCount(countsLoaded, jobCount),
+      count: asCount(countsLoaded, summary?.jobs ?? null),
       unit: "个 job",
     },
     {
@@ -193,7 +186,10 @@ export default function OverviewView() {
       name: "正典",
       caption: "canonical 文档与 claim",
       view: "library",
-      count: currentUser ? docClaimCount : undefined,
+      count: asCount(
+        countsLoaded,
+        summary ? summary.documents + summary.claims : null,
+      ),
       unit: "文档 + claim",
     },
     {
@@ -201,7 +197,7 @@ export default function OverviewView() {
       name: "取用",
       caption: "检索 / 问答 / 提示，带门禁",
       view: "recall",
-      count: currentUser ? snapshots.length : undefined,
+      count: asCount(countsLoaded, summary?.snapshots ?? null),
       unit: "个版本快照",
     },
   ];

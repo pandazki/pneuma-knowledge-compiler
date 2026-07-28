@@ -6,7 +6,7 @@ import {
   liveContextStream,
   getContextFocuses,
   getSuggestionKinds,
-  listSources,
+  listAllSources,
   type ContextSuggestion,
   type LiveContextDone,
   type LiveContextReadyFrame,
@@ -424,7 +424,7 @@ export default function LiveContextView() {
   useEffect(() => {
     if (!currentUser) return;
     let alive = true;
-    listSources(currentUser)
+    listAllSources(currentUser)
       .then((rows) => {
         if (alive) setTitles(Object.fromEntries(rows.map((r) => [r.source_id, r.title])));
       })

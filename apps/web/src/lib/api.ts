@@ -7,6 +7,7 @@
  */
 
 import type { UserProfile } from "./types";
+import { buildPageQuery, type Page } from "./pagination";
 
 const BASE = (import.meta.env.VITE_API_BASE ?? "").replace(/\/+$/, "");
 
@@ -197,8 +198,53 @@ export function generateProfile(sentence: string, userId?: string): Promise<User
   });
 }
 
-export function listSources(userId: string): Promise<SourceSummary[]> {
-  return req<SourceSummary[]>(`/v1/users/${u(userId)}/sources`);
+export interface SourcePageParams {
+  limit?: number;
+  cursor?: string | null;
+  query?: string | null;
+  kind?: string | null;
+}
+
+export interface WorkspaceSummary {
+  sources: number;
+  jobs: number;
+  documents: number;
+  claims: number;
+  snapshots: number;
+}
+
+export function getWorkspaceSummary(userId: string): Promise<WorkspaceSummary> {
+  return req<WorkspaceSummary>(`/v1/users/${u(userId)}/summary`);
+}
+
+export function listSources(
+  userId: string,
+  params: SourcePageParams = {},
+): Promise<Page<SourceSummary>> {
+  const query = buildPageQuery({
+    limit: params.limit ?? 25,
+    cursor: params.cursor,
+    query: params.query,
+    kind: params.kind,
+  });
+  return req<Page<SourceSummary>>(`/v1/users/${u(userId)}/sources${query}`);
+}
+
+/** Progressive compatibility helper for source pickers that still need a full inventory. */
+export async function listAllSources(userId: string): Promise<SourceSummary[]> {
+  const items: SourceSummary[] = [];
+  const seen = new Set<string>();
+  let cursor: string | null = null;
+  do {
+    const page = await listSources(userId, { limit: 100, cursor });
+    items.push(...page.items);
+    cursor = page.page.next_cursor;
+    if (cursor && seen.has(cursor)) {
+      throw new ApiError("来源分页返回了重复游标", 500);
+    }
+    if (cursor) seen.add(cursor);
+  } while (cursor);
+  return items;
 }
 
 export function getSource(userId: string, sourceId: string): Promise<SourceDetail> {
@@ -832,8 +878,24 @@ export interface CompileResult {
   source_ids: string[];
 }
 
-export function listJobs(userId: string): Promise<JobSummary[]> {
-  return req<JobSummary[]>(`/v1/users/${u(userId)}/jobs`);
+export interface JobPageParams {
+  limit?: number;
+  cursor?: string | null;
+  status?: string | null;
+  kind?: string | null;
+}
+
+export function listJobs(
+  userId: string,
+  params: JobPageParams = {},
+): Promise<Page<JobSummary>> {
+  const query = buildPageQuery({
+    limit: params.limit ?? 25,
+    cursor: params.cursor,
+    status: params.status,
+    kind: params.kind,
+  });
+  return req<Page<JobSummary>>(`/v1/users/${u(userId)}/jobs${query}`);
 }
 
 export function compile(userId: string): Promise<CompileResult> {
