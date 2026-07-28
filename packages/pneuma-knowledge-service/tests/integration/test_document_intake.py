@@ -14,6 +14,7 @@ from urllib.parse import urlparse
 
 import httpx
 import pytest
+from pneuma_knowledge_core.domain.ids import UserId
 from pneuma_knowledge_service.api.app import create_app
 from pneuma_knowledge_service.settings import Settings
 
@@ -342,6 +343,40 @@ async def test_history_collection_pages_the_unified_audit_ledger(client):
     assert second.json()["page"]["next_cursor"] is None
     assert (
         await client.get(f"{base}/history", params={"cursor": "not-a-cursor"})
+    ).status_code == 422
+
+
+async def test_snapshot_collection_pages_git_history(client):
+    uid = f"u-it-snapshots-{uuid.uuid4().hex[:8]}"
+    base = f"/v1/users/{uid}"
+    canonical = client.app.state.ctx.canonical
+    for version in range(1, 4):
+        await canonical.commit_patch(
+            UserId(uid),
+            {"memory/snapshot-probe.txt": f"version {version}\n"},
+            message=f"snapshot v{version}",
+        )
+
+    first = await client.get(f"{base}/snapshots", params={"limit": 2})
+    assert first.status_code == 200, first.text
+    body = first.json()
+    assert isinstance(body, dict)
+    assert [row["label"] for row in body["items"]] == [
+        "snapshot v3",
+        "snapshot v2",
+    ]
+    assert body["page"]["total"] == 3
+    assert body["page"]["next_cursor"]
+
+    second = await client.get(
+        f"{base}/snapshots",
+        params={"limit": 2, "cursor": body["page"]["next_cursor"]},
+    )
+    assert second.status_code == 200, second.text
+    assert [row["label"] for row in second.json()["items"]] == ["snapshot v1"]
+    assert second.json()["page"]["next_cursor"] is None
+    assert (
+        await client.get(f"{base}/snapshots", params={"cursor": "not-a-cursor"})
     ).status_code == 422
 
 

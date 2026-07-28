@@ -59,9 +59,13 @@ def _claims_index_uid(user_id: UserId) -> str:
 
 
 def _claim_doc_id(claim: ProjectedClaim) -> str:
+    return _claim_doc_id_from_key(claim.document_path, str(claim.anchor))
+
+
+def _claim_doc_id_from_key(document_path: str, anchor: str) -> str:
     # anchor is unique within a document; short path hash disambiguates across docs.
-    path_hash = hashlib.sha1(claim.document_path.encode("utf-8")).hexdigest()[:8]
-    return f"{claim.anchor}_{path_hash}"
+    path_hash = hashlib.sha1(document_path.encode("utf-8")).hexdigest()[:8]
+    return f"{anchor}_{path_hash}"
 
 
 class MeiliLexicalIndex:
@@ -185,6 +189,55 @@ class MeiliLexicalIndex:
         ]
         task = await index.add_documents(docs, primary_key="id")
         await self._client.wait_for_task(task.task_uid)
+
+    async def sync_claims(
+        self,
+        user_id: UserId,
+        upserts: list[ProjectedClaim],
+        deleted_keys: list[tuple[str, str]],
+    ) -> None:
+        """Idempotently apply only the changed canonical claim documents."""
+        index = await self._ensure_claims_index(_claims_index_uid(user_id))
+        if deleted_keys:
+            task = await index.delete_documents(
+                [
+                    _claim_doc_id_from_key(document_path, anchor)
+                    for document_path, anchor in deleted_keys
+                ]
+            )
+            await self._client.wait_for_task(task.task_uid)
+        if not upserts:
+            return
+        docs = [
+            {
+                "id": _claim_doc_id(claim),
+                "anchor": str(claim.anchor),
+                "document_path": claim.document_path,
+                "section_path": list(claim.section_path),
+                "text": claim.text,
+                "citations": [
+                    {
+                        "source_id": str(citation.source_id),
+                        "block_start": citation.block_start,
+                        "block_end": citation.block_end,
+                    }
+                    for citation in claim.citations
+                ],
+            }
+            for claim in upserts
+        ]
+        task = await index.add_documents(docs, primary_key="id")
+        await self._client.wait_for_task(task.task_uid)
+
+    async def count_claims(self, user_id: UserId) -> int:
+        """Exact claim-document count for projection consistency audits."""
+        try:
+            stats = await self._client.index(
+                _claims_index_uid(user_id)
+            ).get_stats()
+        except MeilisearchApiError:
+            return 0
+        return int(stats.number_of_documents)
 
     async def search_claims(
         self, user_id: UserId, query: str, *, limit: int = 40

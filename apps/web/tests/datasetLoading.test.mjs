@@ -16,7 +16,6 @@ const { needsCanonicalDataset } = await import(moduleUrl);
 test("only canonical readers trigger the expensive dataset projection", () => {
   assert.equal(needsCanonicalDataset("library"), true);
   assert.equal(needsCanonicalDataset("graph"), true);
-  assert.equal(needsCanonicalDataset("history"), true);
 
   for (const view of [
     "overview",
@@ -26,6 +25,7 @@ test("only canonical readers trigger the expensive dataset projection", () => {
     "recall",
     "ask",
     "live_context",
+    "history",
     "evolve",
     "profile",
     "components",

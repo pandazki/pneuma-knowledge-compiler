@@ -111,7 +111,7 @@ def _demo_settings(*, real: bool) -> Settings:
     issues: list[str] = []
     scripted_roles = [
         role
-        for role in ("compile", "recall", "deep", "suggestion", "evolve")
+        for role in ("compile", "recall", "deep", "live_context", "evolve")
         if resolve_model_name(settings, role).startswith("scripted:")
     ]
     if scripted_roles:

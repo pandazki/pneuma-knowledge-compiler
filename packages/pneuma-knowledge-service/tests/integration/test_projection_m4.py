@@ -12,12 +12,13 @@ from datetime import datetime, timezone
 from urllib.parse import urlparse
 
 import pytest
+from pneuma_knowledge_core.compile.documents import render_document
 from pneuma_knowledge_core.domain.ids import UserId
 from pneuma_knowledge_core.domain.source import ConversationTurn
 from pneuma_knowledge_core.skill import load_builtin_skill
 from pneuma_knowledge_service.adapters.scripted_model import ScriptedChatModel
 from pneuma_knowledge_service.ingest import ingest_conversation
-from pneuma_knowledge_service.projection import rebuild_projection
+from pneuma_knowledge_service.projection import rebuild_projection, sync_projection
 from pneuma_knowledge_service.settings import Settings
 from pneuma_knowledge_service.wiring import build_context
 from pneuma_knowledge_service.workers.compile_worker import drain_user
@@ -114,3 +115,88 @@ async def test_projection_lands_in_three_stores_and_is_user_isolated(ctx):
             await ctx.store.delete_user(u)
             await ctx.lexical.delete_user(u)
             await ctx.vectors.delete_user(u)
+
+
+async def test_incremental_projection_updates_and_deletes_all_three_stores(ctx):
+    user = UserId(f"u-it-proj-delta-{uuid.uuid4().hex[:8]}")
+
+    def document(document_id: str, slug: str, body: str) -> str:
+        return render_document(
+            {"pneuma_id": document_id, "type": "note", "slug": slug},
+            body,
+        )
+
+    try:
+        first = await ctx.canonical.commit_patch(
+            user,
+            {
+                "memory/a.md": document(
+                    "doc-a",
+                    "a",
+                    "# Facts\n\n- original delta marker "
+                    "[cite: src-delta ¶0] <!-- c:aa11 -->",
+                ),
+                "memory/b.md": document(
+                    "doc-b",
+                    "b",
+                    "# Facts\n\n- obsolete delta marker "
+                    "[cite: src-delta ¶1] <!-- c:bb22 -->",
+                ),
+            },
+            message="projection v1",
+        )
+        initial = await sync_projection(ctx, user, first.ref)
+        assert (initial.total, initial.upserted, initial.deleted) == (2, 2, 0)
+
+        # The canonical adapter stages -A, so removing one tracked path before the
+        # next patch models a compiler-owned document deletion.
+        (ctx.canonical._repo(user) / "memory/b.md").unlink()
+        second = await ctx.canonical.commit_patch(
+            user,
+            {
+                "memory/a.md": document(
+                    "doc-a",
+                    "a",
+                    "# Facts\n\n- revised delta marker "
+                    "[cite: src-delta ¶0] <!-- c:aa11 -->",
+                ),
+                "memory/c.md": document(
+                    "doc-c",
+                    "c",
+                    "# Facts\n\n- added delta marker "
+                    "[cite: src-delta ¶2] <!-- c:cc33 -->",
+                ),
+            },
+            message="projection v2",
+        )
+        delta = await sync_projection(ctx, user, second.ref)
+        assert (delta.total, delta.upserted, delta.deleted, delta.unchanged) == (
+            2,
+            2,
+            1,
+            0,
+        )
+
+        pg_claims = await ctx.store.list_canonical_claims(user)
+        assert {(row["document_path"], row["text"]) for row in pg_claims} == {
+            ("memory/a.md", "revised delta marker"),
+            ("memory/c.md", "added delta marker"),
+        }
+        assert {row["snapshot_ref"] for row in pg_claims} == {second.ref}
+
+        assert await ctx.lexical.search_claims(user, "obsolete", limit=10) == []
+        lexical = await ctx.lexical.search_claims(user, "delta marker", limit=10)
+        assert {hit.document_path for hit in lexical} == {"memory/a.md", "memory/c.md"}
+        assert await ctx.lexical.count_claims(user) == 2
+
+        vector = await ctx.embeddings.aembed_query("obsolete delta marker")
+        semantic = await ctx.vectors.search_claims(user, vector, limit=10)
+        assert {hit.document_path for hit in semantic} == {
+            "memory/a.md",
+            "memory/c.md",
+        }
+        assert await ctx.vectors.count_claims(user) == 2
+    finally:
+        await ctx.store.delete_user(user)
+        await ctx.lexical.delete_user(user)
+        await ctx.vectors.delete_user(user)

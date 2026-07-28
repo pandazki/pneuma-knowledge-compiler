@@ -838,6 +838,70 @@ class PostgresStore:
                             ],
                         )
 
+    async def sync_canonical_claims(
+        self,
+        user_id: UserId,
+        snapshot_ref: str,
+        upserts: list[ProjectedClaim],
+        deleted_keys: list[tuple[str, str]],
+        at: datetime | None = None,
+    ) -> None:
+        """Apply a deterministic claim delta, then advance the manifest snapshot.
+
+        The transaction lands after remote indexes succeed. Unchanged content keeps
+        its `updated_at`, but every surviving row records the new snapshot ref.
+        """
+        now = at or datetime.now(timezone.utc)
+        uid = str(user_id)
+        async with self._pool.connection() as conn:
+            async with conn.transaction():
+                if deleted_keys:
+                    async with conn.cursor() as cur:
+                        await cur.executemany(
+                            "DELETE FROM canonical_claims "
+                            "WHERE user_id = %s AND document_path = %s AND anchor = %s",
+                            [(uid, path, anchor) for path, anchor in deleted_keys],
+                        )
+                if upserts:
+                    async with conn.cursor() as cur:
+                        await cur.executemany(
+                            "INSERT INTO canonical_claims (user_id, document_path, "
+                            "anchor, section_path, text, citations, snapshot_ref, "
+                            "updated_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s) "
+                            "ON CONFLICT (user_id, document_path, anchor) DO UPDATE SET "
+                            "section_path = EXCLUDED.section_path, "
+                            "text = EXCLUDED.text, citations = EXCLUDED.citations, "
+                            "snapshot_ref = EXCLUDED.snapshot_ref, "
+                            "updated_at = EXCLUDED.updated_at",
+                            [
+                                (
+                                    uid,
+                                    claim.document_path,
+                                    str(claim.anchor),
+                                    Json(list(claim.section_path)),
+                                    claim.text,
+                                    Json(
+                                        [
+                                            {
+                                                "source_id": str(citation.source_id),
+                                                "block_start": citation.block_start,
+                                                "block_end": citation.block_end,
+                                            }
+                                            for citation in claim.citations
+                                        ]
+                                    ),
+                                    snapshot_ref,
+                                    now,
+                                )
+                                for claim in upserts
+                            ],
+                        )
+                await conn.execute(
+                    "UPDATE canonical_claims SET snapshot_ref = %s "
+                    "WHERE user_id = %s AND snapshot_ref <> %s",
+                    (snapshot_ref, uid, snapshot_ref),
+                )
+
     @staticmethod
     def _claim_row(r: tuple) -> dict[str, Any]:
         return {

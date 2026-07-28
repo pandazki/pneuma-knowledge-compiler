@@ -362,6 +362,12 @@ async def put_profile(
     # The path id is the source of truth for identity; provenance is now user-filled.
     merged["user_id"] = str(user)
     merged["source"] = "user"
+    # Avatar color is stable per user, while its letter is semantic display-name
+    # state and must never drift after onboarding edits.
+    merged["avatar"] = {
+        **base["avatar"],
+        "initial": _initial_of(str(merged.get("display_name") or "")),
+    }
     profile = UserProfile.model_validate(merged)
     await ctx.store.upsert_user_profile(user, profile.model_dump())
     return profile
@@ -521,10 +527,10 @@ async def get_workspace_summary(
     ctx = _ctx(request)
     user = UserId(user_id)
     counts = await ctx.store.workspace_counts(user)
-    snapshots = await ctx.canonical.snapshots(user)
+    _, snapshot_total, _ = await ctx.canonical.snapshots_page(user, limit=1)
     return WorkspaceSummaryOut(
         **counts,
-        snapshots=len(snapshots),
+        snapshots=snapshot_total,
     )
 
 
@@ -1056,18 +1062,67 @@ class SnapshotOut(BaseModel):
     label: str | None
 
 
-@router.get("/snapshots", response_model=list[SnapshotOut])
-async def list_snapshots(user_id: str, request: Request) -> list[SnapshotOut]:
-    refs = await _ctx(request).canonical.snapshots(UserId(user_id))
-    return [SnapshotOut(ref=r.ref, label=r.label) for r in refs]
+class SnapshotPageOut(BaseModel):
+    items: list[SnapshotOut]
+    page: PageMetaOut
+
+
+@router.get("/snapshots", response_model=SnapshotPageOut)
+async def list_snapshots(
+    user_id: str,
+    request: Request,
+    limit: int = Query(default=25, ge=1, le=100),
+    cursor: str | None = None,
+) -> SnapshotPageOut:
+    after_ref = None
+    if cursor:
+        try:
+            position = decode_cursor(
+                cursor,
+                collection="snapshots",
+                user_id=user_id,
+                filters={},
+            )
+            after_ref = position["ref"]
+            if not after_ref:
+                raise ValueError("snapshot cursor ref must not be empty")
+        except (CursorError, KeyError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    try:
+        refs, total, has_more = await _ctx(request).canonical.snapshots_page(
+            UserId(user_id),
+            limit=limit,
+            after_ref=after_ref,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    next_cursor = None
+    if has_more and refs:
+        next_cursor = encode_cursor(
+            collection="snapshots",
+            user_id=user_id,
+            filters={},
+            position={
+                "ref": refs[-1].ref,
+            },
+        )
+    return SnapshotPageOut(
+        items=[SnapshotOut(ref=r.ref, label=r.label) for r in refs],
+        page=PageMetaOut(limit=limit, total=total, next_cursor=next_cursor),
+    )
 
 
 @router.get("/dataset")
 async def get_dataset(
-    user_id: str, request: Request, at: str | None = None
+    user_id: str,
+    request: Request,
+    at: str | None = None,
+    audit: bool = True,
 ) -> dict[str, Any]:
     """Assemble canonical + PG audit into the M2 four-view dataset shape (dataset.py)."""
-    return await build_dataset(_ctx(request), UserId(user_id), at=at)
+    return await build_dataset(_ctx(request), UserId(user_id), at=at, audit=audit)
 
 
 # ------------------------------------------------------------------- briefings (M4)

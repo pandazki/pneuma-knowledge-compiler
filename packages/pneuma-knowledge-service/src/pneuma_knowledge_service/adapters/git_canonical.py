@@ -19,9 +19,11 @@ as "this is non-blocking at the OS level" — it is blocking work, moved off the
 from __future__ import annotations
 
 import asyncio
+import io
 import os
 import re
 import subprocess
+import tarfile
 import uuid
 from pathlib import Path
 
@@ -81,13 +83,27 @@ class GitCanonicalStore:
         ref = self._ref(at)
         if at is None and not self._has_head(repo):
             return []
-        tree = self._run(repo, "ls-tree", "-r", "--name-only", ref).stdout
+
+        # Read the complete selected tree in one bounded Git process. The previous
+        # ls-tree + one show per document implementation preserved completeness but
+        # turned a 60-document Library open into 62 subprocesses. We parse the tar
+        # stream in memory and never extract caller-controlled paths to disk.
+        archive = subprocess.run(
+            ["git", "-C", str(repo), "archive", "--format=tar", ref],
+            capture_output=True,
+            check=True,
+        ).stdout
         docs: list[CanonicalDocument] = []
-        for path in filter(None, (line.strip() for line in tree.splitlines())):
-            if not path.endswith(".md"):
-                continue
-            text = self._run(repo, "show", f"{ref}:{path}").stdout
-            docs.append(self._to_document(path, text))
+        with tarfile.open(fileobj=io.BytesIO(archive), mode="r:") as tree:
+            for member in tree.getmembers():
+                if not member.isfile() or not member.name.endswith(".md"):
+                    continue
+                stream = tree.extractfile(member)
+                if stream is None:
+                    continue
+                docs.append(
+                    self._to_document(member.name, stream.read().decode("utf-8"))
+                )
         return sorted(docs, key=lambda d: d.path)
 
     async def list(
@@ -336,6 +352,69 @@ class GitCanonicalStore:
     async def snapshots(self, user_id: UserId) -> list[SnapshotRef]:
         # to_thread: git subprocess (see module docstring).
         return await asyncio.to_thread(self._snapshots, user_id)
+
+    def _snapshots_page(
+        self,
+        user_id: UserId,
+        limit: int,
+        after_ref: str | None,
+    ) -> tuple[list[SnapshotRef], int, bool]:
+        if limit < 1:
+            raise ValueError("snapshot page limit must be positive")
+        repo = self._repo(user_id)
+        if not self._has_head(repo):
+            return [], 0, False
+
+        total = int(self._run(repo, "rev-list", "--count", "HEAD").stdout.strip())
+        if after_ref:
+            membership = subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(repo),
+                    "merge-base",
+                    "--is-ancestor",
+                    after_ref,
+                    "HEAD",
+                ],
+                capture_output=True,
+                text=True,
+            )
+            if membership.returncode != 0:
+                raise ValueError(
+                    "snapshot cursor no longer belongs to the current history"
+                )
+
+        start_ref = after_ref or "HEAD"
+        skip = ("--skip=1",) if after_ref else ()
+        log = self._run(
+            repo,
+            "log",
+            start_ref,
+            *skip,
+            f"--max-count={limit + 1}",
+            "--pretty=%H%x1f%s",
+        ).stdout
+        refs: list[SnapshotRef] = []
+        for line in filter(None, (line.strip() for line in log.splitlines())):
+            sha, _, subject = line.partition("\x1f")
+            refs.append(SnapshotRef(ref=sha, label=subject or None))
+        has_more = len(refs) > limit
+        return refs[:limit], total, has_more
+
+    async def snapshots_page(
+        self,
+        user_id: UserId,
+        *,
+        limit: int,
+        after_ref: str | None = None,
+    ) -> tuple[list[SnapshotRef], int, bool]:
+        return await asyncio.to_thread(
+            self._snapshots_page,
+            user_id,
+            limit,
+            after_ref,
+        )
 
     def _tag(
         self, user_id: UserId, ref: SnapshotRef, label: str

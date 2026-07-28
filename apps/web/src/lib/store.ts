@@ -3,6 +3,7 @@ import type { Dataset, Selection, UserProfile, ViewName } from "./types";
 import { buildModel, type Model } from "./model";
 import { hashToState, sameSelection, selectionToHash } from "./hash";
 import { needsCanonicalDataset } from "./datasetLoading";
+import { appendUniqueSnapshots } from "./snapshotPagination";
 import {
   listUsers,
   getDatasetRaw,
@@ -152,6 +153,11 @@ interface AppState {
 
   /** snapshots for the current user (git commits); [0] is HEAD. Empty = no canonical. */
   snapshots: SnapshotSummary[];
+  /** total git commits and opaque continuation for the bounded snapshot picker. */
+  snapshotTotal: number;
+  snapshotNextCursor: string | null;
+  snapshotsLoading: boolean;
+  snapshotError: string | null;
   /** selected snapshot ref, or null = current HEAD (live). Non-HEAD = history, read-only. */
   currentSnapshot: string | null;
 
@@ -186,6 +192,8 @@ interface AppState {
   loadUserDataset: () => Promise<void>;
   /** (re)load the current user's snapshot list from GET /snapshots. */
   loadSnapshots: () => Promise<void>;
+  /** append the next bounded git-history page to the snapshot picker. */
+  loadMoreSnapshots: () => Promise<void>;
   /** select a snapshot (null = HEAD); reloads the dataset at that ref (read-only if history). */
   setSnapshot: (ref: string | null) => void;
   /** switch the active pneuma-knowledge user (persists; clears any Sources focus). */
@@ -221,6 +229,8 @@ interface AppState {
 let profileToken = 0;
 /** Invalidates an in-flight canonical projection when user/snapshot context changes. */
 let datasetToken = 0;
+/** Invalidates an in-flight snapshot page when user context changes. */
+let snapshotToken = 0;
 
 /** In-flight guard for `ensureNames` so a re-render never re-fires a live fetch. */
 const namesInFlight = new Set<string>();
@@ -293,6 +303,10 @@ export const useApp = create<AppState>((set, get) => ({
   recallCache: EMPTY_RECALL_CACHE,
   askCache: EMPTY_ASK_CACHE,
   snapshots: [],
+  snapshotTotal: 0,
+  snapshotNextCursor: null,
+  snapshotsLoading: false,
+  snapshotError: null,
   currentSnapshot: null,
   view: "overview",
   selection: null,
@@ -437,17 +451,70 @@ export const useApp = create<AppState>((set, get) => ({
   loadSnapshots: async () => {
     const uid = get().currentUser;
     if (!uid) {
-      set({ snapshots: [], currentSnapshot: null });
+      snapshotToken += 1;
+      set({
+        snapshots: [],
+        snapshotTotal: 0,
+        snapshotNextCursor: null,
+        snapshotsLoading: false,
+        snapshotError: null,
+        currentSnapshot: null,
+      });
       return;
     }
+    const token = ++snapshotToken;
+    set({ snapshotsLoading: true, snapshotError: null });
     try {
-      const snaps = await listSnapshots(uid);
-      // Keep the selected snapshot only if it still exists; else fall back to HEAD.
+      const page = await listSnapshots(uid, { limit: 25 });
+      if (token !== snapshotToken || uid !== get().currentUser) return;
+      // A selected older ref may live beyond page one. Preserve its already-loaded
+      // label instead of falsely falling back to HEAD merely because the new page is bounded.
       const current = get().currentSnapshot;
-      const stillValid = current && snaps.some((s) => s.ref === current);
-      set({ snapshots: snaps, currentSnapshot: stillValid ? current : null });
-    } catch {
-      set({ snapshots: [], currentSnapshot: null });
+      const retained = current
+        ? get().snapshots.find((snapshot) => snapshot.ref === current)
+        : undefined;
+      const snapshots =
+        retained && !page.items.some((snapshot) => snapshot.ref === retained.ref)
+          ? [retained, ...page.items]
+          : page.items;
+      set({
+        snapshots,
+        snapshotTotal: page.page.total,
+        snapshotNextCursor: page.page.next_cursor,
+        snapshotsLoading: false,
+        snapshotError: null,
+      });
+    } catch (error) {
+      if (token !== snapshotToken) return;
+      set({
+        snapshotsLoading: false,
+        snapshotError: (error as Error).message,
+      });
+    }
+  },
+
+  loadMoreSnapshots: async () => {
+    const uid = get().currentUser;
+    const cursor = get().snapshotNextCursor;
+    if (!uid || !cursor || get().snapshotsLoading) return;
+    const token = ++snapshotToken;
+    set({ snapshotsLoading: true, snapshotError: null });
+    try {
+      const page = await listSnapshots(uid, { limit: 25, cursor });
+      if (token !== snapshotToken || uid !== get().currentUser) return;
+      set((state) => ({
+        snapshots: appendUniqueSnapshots(state.snapshots, page.items),
+        snapshotTotal: page.page.total,
+        snapshotNextCursor: page.page.next_cursor,
+        snapshotsLoading: false,
+        snapshotError: null,
+      }));
+    } catch (error) {
+      if (token !== snapshotToken) return;
+      set({
+        snapshotsLoading: false,
+        snapshotError: (error as Error).message,
+      });
     }
   },
 
@@ -505,6 +572,7 @@ export const useApp = create<AppState>((set, get) => ({
     // New user: reset to HEAD, drop the stale profile, reload snapshots then dataset.
     // Record the selection in the MRU list (createUser routes through here too).
     datasetToken += 1;
+    snapshotToken += 1;
     set((s) => ({
       currentUser: uid,
       currentProfile: null,
@@ -513,6 +581,11 @@ export const useApp = create<AppState>((set, get) => ({
       sourceFocus: null,
       selection: null,
       currentSnapshot: null,
+      snapshots: [],
+      snapshotTotal: 0,
+      snapshotNextCursor: null,
+      snapshotsLoading: false,
+      snapshotError: null,
       // per-user in-memory scratch: never carry one user's recall/ask into another's.
       recallCache: EMPTY_RECALL_CACHE,
       askCache: EMPTY_ASK_CACHE,

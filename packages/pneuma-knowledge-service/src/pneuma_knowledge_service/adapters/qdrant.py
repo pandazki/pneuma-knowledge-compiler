@@ -78,6 +78,15 @@ def _tenant_layer_filter(user_id: UserId, layer: str) -> models.Filter:
     )
 
 
+def _claim_point_id(user_id: UserId, document_path: str, anchor: str) -> str:
+    return str(
+        uuid.uuid5(
+            _POINT_NS,
+            f"{user_id}:claim:{document_path}:{anchor}",
+        )
+    )
+
+
 class QdrantVectorIndex:
     """Construction is inert (no I/O): the collection probe/creation that used to run in
     `__init__` is now `await ensure_collection()`, called once by `build_context` (and by
@@ -164,12 +173,7 @@ class QdrantVectorIndex:
             return
         points = [
             models.PointStruct(
-                id=str(
-                    uuid.uuid5(
-                        _POINT_NS,
-                        f"{user_id}:claim:{c.document_path}:{c.anchor}",
-                    )
-                ),
+                id=_claim_point_id(user_id, c.document_path, str(c.anchor)),
                 vector=list(vec),
                 payload={
                     "user_id": str(user_id),
@@ -191,6 +195,37 @@ class QdrantVectorIndex:
             for c, vec in zip(claims, vectors)
         ]
         await self._client.upsert(self._collection, points=points, wait=True)
+
+    async def sync_claims(
+        self,
+        user_id: UserId,
+        upserts: list[ProjectedClaim],
+        vectors: list[list[float]],
+        deleted_keys: list[tuple[str, str]],
+    ) -> None:
+        """Idempotently apply a claim-layer delta using deterministic point ids."""
+        if deleted_keys:
+            await self._client.delete(
+                self._collection,
+                points_selector=models.PointIdsList(
+                    points=[
+                        _claim_point_id(user_id, document_path, anchor)
+                        for document_path, anchor in deleted_keys
+                    ]
+                ),
+                wait=True,
+            )
+        if upserts:
+            await self.upsert_claims(user_id, upserts, vectors)
+
+    async def count_claims(self, user_id: UserId) -> int:
+        """Exact claim-layer point count for projection consistency audits."""
+        result = await self._client.count(
+            self._collection,
+            count_filter=_tenant_layer_filter(user_id, LAYER_CLAIM),
+            exact=True,
+        )
+        return int(result.count)
 
     async def delete_claims(self, user_id: UserId) -> None:
         """Drop the user's claim-layer points (full projection rebuild, I2)."""

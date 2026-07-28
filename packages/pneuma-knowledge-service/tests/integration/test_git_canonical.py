@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import subprocess
 
+import pytest
+
 from pneuma_knowledge_core.compile.documents import render_document
 from pneuma_knowledge_core.domain.ids import DocumentId, UserId
 from pneuma_knowledge_service.adapters.git_canonical import GitCanonicalStore
@@ -40,6 +42,45 @@ async def test_commit_and_read_roundtrip(tmp_path):
     assert await store.read(U1, DocumentId("missing")) is None
 
 
+async def test_list_reads_canonical_tree_with_one_archive_process(
+    tmp_path, monkeypatch
+):
+    store = GitCanonicalStore(str(tmp_path))
+    await store.commit_patch(
+        U1,
+        {
+            "memory/people/a.md": _file(
+                "d-a", "a", "- A。[cite: src-01 ¶0] <!-- c:aa11 -->"
+            ),
+            "memory/people/b.md": _file(
+                "d-b", "b", "- B。[cite: src-02 ¶0] <!-- c:bb22 -->"
+            ),
+            "skill/manifest.json": '{"base_version":"opc-developer-v1"}',
+        },
+        message="two docs and metadata",
+    )
+
+    real_run = subprocess.run
+    calls: list[tuple[str, ...]] = []
+
+    def recording_run(args, *positional, **kwargs):
+        if args and args[0] == "git":
+            calls.append(tuple(args[3:]))
+        return real_run(args, *positional, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", recording_run)
+    docs = await store.list(U1)
+
+    assert [doc.path for doc in docs] == [
+        "memory/people/a.md",
+        "memory/people/b.md",
+    ]
+    commands = [call[0] for call in calls]
+    assert commands == ["rev-parse", "archive"]
+    assert "ls-tree" not in commands
+    assert "show" not in commands
+
+
 async def test_at_snapshot_reads_historical_state(tmp_path):
     store = GitCanonicalStore(str(tmp_path))
     v1 = await store.commit_patch(
@@ -57,6 +98,57 @@ async def test_at_snapshot_reads_historical_state(tmp_path):
 
     snaps = await store.snapshots(U1)
     assert [s.label for s in snaps] == ["v2", "v1"]  # newest first
+
+
+async def test_snapshot_pages_are_bounded_and_stable_during_new_commits(tmp_path):
+    store = GitCanonicalStore(str(tmp_path))
+    for version in range(1, 4):
+        await store.commit_patch(
+            U1,
+            {
+                "memory/profile.md": _file(
+                    "d-p",
+                    "profile",
+                    f"- 版本{version}。[cite: src-0{version} ¶0] <!-- c:1111 -->",
+                )
+            },
+            message=f"v{version}",
+        )
+
+    first, total, has_more = await store.snapshots_page(U1, limit=1)
+    assert ([row.label for row in first], total, has_more) == (["v3"], 3, True)
+
+    # A newer commit arriving after page one must not shift the continuation.
+    await store.commit_patch(
+        U1,
+        {
+            "memory/profile.md": _file(
+                "d-p",
+                "profile",
+                "- 版本4。[cite: src-04 ¶0] <!-- c:1111 -->",
+            )
+        },
+        message="v4",
+    )
+
+    second, second_total, second_has_more = await store.snapshots_page(
+        U1,
+        limit=1,
+        after_ref=first[-1].ref,
+    )
+    assert ([row.label for row in second], second_total, second_has_more) == (
+        ["v2"],
+        4,
+        True,
+    )
+    assert first[0].ref != second[0].ref
+
+    with pytest.raises(ValueError, match="snapshot cursor"):
+        await store.snapshots_page(
+            U1,
+            limit=1,
+            after_ref="not-a-snapshot-ref",
+        )
 
 
 async def test_tag_creates_readable_ref(tmp_path):

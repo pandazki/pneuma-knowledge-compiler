@@ -9,6 +9,7 @@ is derived (invariant I2) — fully rebuildable from canonical + PG.
 
 from __future__ import annotations
 
+import asyncio
 import re
 from typing import Any
 
@@ -324,12 +325,18 @@ async def _build_timeline(
 
 
 async def build_dataset(
-    ctx: AppContext, user_id: UserId, *, at: str | None = None
+    ctx: AppContext,
+    user_id: UserId,
+    *,
+    at: str | None = None,
+    audit: bool = True,
 ) -> dict[str, Any]:
     """Project canonical (at optional snapshot ref) + PG audit into the viewer Dataset."""
     ref = SnapshotRef(ref=at) if at else None
-    docs = await ctx.canonical.list(user_id, at=ref)
-    sources = await ctx.store.list(user_id)
+    docs, sources = await asyncio.gather(
+        ctx.canonical.list(user_id, at=ref),
+        ctx.store.list(user_id),
+    )
 
     by_path = {
         d.path: (str(d.pneuma_id) if d.pneuma_id else d.path) for d in docs
@@ -340,7 +347,20 @@ async def build_dataset(
         "documents": [_document_record(d) for d in docs],
     }
     graph = _build_graph(docs, sources)
-    timeline, journal = await _build_timeline(ctx, user_id, sources, by_path)
+    if audit:
+        timeline, journal = await _build_timeline(ctx, user_id, sources, by_path)
+    else:
+        # Library / Graph consume only canonical state. Full audit remains available
+        # through the paged History endpoint, so do not duplicate its unbounded job
+        # and event lists into this read.
+        timeline = {
+            "schema_version": 2,
+            "snapshots": [],
+            "jobs": [],
+            "patches": [],
+            "bundle_versions": [],
+        }
+        journal = []
 
     types = sorted({str(d.frontmatter.get("type") or "") for d in docs} - {""})
     ontology = types + (["source"] if sources else [])

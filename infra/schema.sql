@@ -115,8 +115,9 @@ CREATE INDEX IF NOT EXISTS compile_events_user
     ON compile_events (user_id, created_at);
 
 -- canonical_claims: the L3 retrieval projection (architecture.md §7; M4). Derived
--- (invariant I2): one row per anchored claim in the latest snapshot, rebuilt in whole
--- after every compile commit. citations is the [{source_id, block_start, block_end}]
+-- (invariant I2): one row per anchored claim in the latest snapshot. Normal commits
+-- synchronize a content delta; repair/strategy migration can rebuild it in whole.
+-- citations is the [{source_id, block_start, block_end}]
 -- provenance list; the GIN index backs citation reverse lookup (claims citing a source).
 CREATE TABLE IF NOT EXISTS canonical_claims (
     user_id  text        NOT NULL,

@@ -1,133 +1,228 @@
-import { useMemo } from "react";
-import { GitCommitHorizontal, Inbox } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Inbox, UserRound } from "lucide-react";
+import { listHistory, type HistoryPage } from "@/lib/api";
+import {
+  normalizeHistoryItem,
+  selectedHistoryItem,
+  type HistoryTimelineItem,
+} from "@/lib/history";
 import { useApp } from "@/lib/store";
 import type { JobRecord, PatchRecord, Snapshot } from "@/lib/types";
-import { claimKey, patchChanges, patchNum, type Model } from "@/lib/model";
+import { claimKey, patchChanges, type Model } from "@/lib/model";
 import { escalationText } from "@/lib/claim";
 import { fmtTime, fmtTokens, shortSha } from "@/lib/format";
+import {
+  firstPage,
+  nextPage,
+  previousPage,
+  type CursorPageState,
+} from "@/lib/pagination";
 import { PageHeader } from "@/components/PageHeader";
+import { PaginationBar } from "@/components/PaginationBar";
 import { Badge, type BadgeTone } from "@/ui/Badge";
 import { Button } from "@/ui/Button";
 import { Callout } from "@/ui/Callout";
 import { DefinitionList } from "@/ui/DefinitionList";
 import { EmptyState } from "@/ui/EmptyState";
+import { ErrorState } from "@/ui/ErrorState";
 import { Mono } from "@/ui/Mono";
 import { SectionRule } from "@/ui/SectionRule";
+import { SkeletonText } from "@/ui/Skeleton";
 import { cn } from "@/ui/cn";
 
-type TimelineItem =
-  | { kind: "patch"; ts: string; ref: string; patch: PatchRecord }
-  | { kind: "job"; ts: string; ref: string; job: JobRecord }
-  | { kind: "snapshot"; ts: string; ref: string; snapshot: Snapshot };
+const PAGE_SIZE = 25;
 
-const KIND_BADGE: Record<TimelineItem["kind"], { label: string; tone: BadgeTone }> = {
+const KIND_BADGE: Record<
+  HistoryTimelineItem["kind"],
+  { label: string; tone: BadgeTone }
+> = {
   patch: { label: "patch", tone: "accent" },
   job: { label: "job", tone: "neutral" },
   snapshot: { label: "snapshot", tone: "neutral" },
 };
 
 export default function HistoryView() {
+  const currentUser = useApp((s) => s.currentUser);
   const model = useApp((s) => s.model);
-  const dataset = useApp((s) => s.dataset);
   const selection = useApp((s) => s.selection);
   const select = useApp((s) => s.select);
   const setView = useApp((s) => s.setView);
 
-  const timeline = dataset?.timeline;
+  const [historyPage, setHistoryPage] = useState<HistoryPage | null>(null);
+  const [pageState, setPageState] = useState<CursorPageState>(firstPage);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
-  // 统一账页：patches（主体）+ jobs + snapshots，时间倒序。
-  const items = useMemo<TimelineItem[]>(() => {
-    if (!timeline) return [];
-    const list: TimelineItem[] = [
-      ...timeline.patches.map((p) => ({
-        kind: "patch" as const,
-        ts: p.ts ?? "",
-        ref: p.patch_id,
-        patch: p,
-      })),
-      ...timeline.jobs.map((j) => ({
-        kind: "job" as const,
-        ts: j.ts ?? "",
-        ref: j.job_id,
-        job: j,
-      })),
-      ...timeline.snapshots.map((s) => ({
-        kind: "snapshot" as const,
-        ts: s.captured_at ?? "",
-        ref: s.source_id,
-        snapshot: s,
-      })),
-    ];
-    return list.sort((a, b) => {
-      const t = b.ts.localeCompare(a.ts);
-      if (t !== 0) return t;
-      if (a.kind === "patch" && b.kind === "patch")
-        return patchNum(b.patch.patch_id) - patchNum(a.patch.patch_id);
-      return 0;
-    });
-  }, [timeline]);
+  const reload = useCallback(() => {
+    setPageState(firstPage());
+    setReloadKey((key) => key + 1);
+  }, []);
 
-  if (!dataset || !model || !timeline) {
+  useEffect(() => {
+    setPageState(firstPage());
+    setHistoryPage(null);
+    setLoadError(null);
+  }, [currentUser]);
+
+  useEffect(() => {
+    if (!currentUser) {
+      setHistoryPage(null);
+      setLoading(false);
+      return;
+    }
+    let live = true;
+    setLoading(true);
+    void listHistory(currentUser, {
+      limit: PAGE_SIZE,
+      cursor: pageState.cursor,
+    })
+      .then((page) => {
+        if (!live) return;
+        setHistoryPage(page);
+        setLoadError(null);
+      })
+      .catch((error: unknown) => {
+        if (!live) return;
+        setLoadError((error as Error).message);
+      })
+      .finally(() => {
+        if (live) setLoading(false);
+      });
+    return () => {
+      live = false;
+    };
+  }, [currentUser, pageState.cursor, reloadKey]);
+
+  const items = useMemo(
+    () => historyPage?.items.map(normalizeHistoryItem) ?? [],
+    [historyPage],
+  );
+  const selected = selectedHistoryItem(items, selection);
+  const pagePatches = useMemo(
+    () => new Map(
+      items
+        .filter((item) => item.kind === "patch")
+        .map((item) => [item.ref, item.patch]),
+    ),
+    [items],
+  );
+  const pageJobIds = useMemo(
+    () => new Set(
+      items.filter((item) => item.kind === "job").map((item) => item.ref),
+    ),
+    [items],
+  );
+
+  if (!currentUser) {
     return (
       <>
-        <PageHeader title="版本 History" description="patch / job / snapshot 的统一时间线账页。" />
+        <PageHeader
+          title="版本 History"
+          description="patch / job / snapshot 的统一时间线账页。"
+        />
         <EmptyState
-          icon={Inbox}
-          title="还没有版本"
-          description="这个知识库尚未编译——先去「导入 Ingest」添加原料并编译，随后每次编译都会在这里留下一版。"
-          action={<Button size="sm" onClick={() => setView("ingest")}>去导入</Button>}
+          icon={UserRound}
+          title="未选择用户"
+          description="先在顶栏选择一个 user_id，再查看它的版本账页。"
         />
       </>
     );
   }
 
-  const selected =
-    selection?.kind === "patch" ? items.find((i) => i.kind === "patch" && i.ref === selection.id) ?? null
-    : selection?.kind === "job" ? items.find((i) => i.kind === "job" && i.ref === selection.id) ?? null
-    : selection?.kind === "snapshot" ? items.find((i) => i.kind === "snapshot" && i.ref === selection.id) ?? null
-    : null;
+  const counts = historyPage?.counts;
+  const headerDescription = counts
+    ? `${counts.patches} patches · ${counts.jobs} jobs · ${counts.snapshots} snapshots，按时间倒序。`
+    : "patch / job / snapshot 的统一时间线账页。";
 
   return (
     <>
       <PageHeader
         title="版本 History"
-        description={`${timeline.patches.length} patches · ${timeline.jobs.length} jobs · ${timeline.snapshots.length} snapshots，按时间倒序。`}
+        description={headerDescription}
       />
-      {items.length === 0 ? (
+      {loadError ? (
+        <ErrorState
+          title="加载版本账页失败"
+          error={loadError}
+          onRetry={reload}
+        />
+      ) : historyPage == null ? (
+        <SkeletonText lines={9} />
+      ) : items.length === 0 ? (
         <EmptyState
-          icon={GitCommitHorizontal}
-          title="时间线为空"
-          description="timeline 尚无 patch / job / snapshot 记录。"
+          icon={Inbox}
+          title="还没有版本"
+          description="这个知识库尚未编译——先去「导入 Ingest」添加原料并编译，随后每次编译都会在这里留下一版。"
+          action={
+            <Button size="sm" onClick={() => setView("ingest")}>
+              去导入
+            </Button>
+          }
         />
       ) : (
-        <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
-          {/* 左：时间线账页 */}
-          <ol className="w-full shrink-0 lg:w-80">
-            {items.map((it) => (
-              <TimelineRow
-                key={`${it.kind}-${it.ref}`}
-                item={it}
-                selected={
-                  selected?.kind === it.kind &&
-                  (selected as { ref: string }).ref === it.ref
-                }
-                onSelect={() => {
-                  if (it.kind === "patch") select({ kind: "patch", id: it.ref });
-                  else if (it.kind === "job") select({ kind: "job", id: it.ref });
-                  else select({ kind: "snapshot", id: it.ref });
-                }}
-              />
-            ))}
-          </ol>
+        <div
+          className="flex flex-col gap-6 lg:flex-row lg:items-start"
+          aria-busy={loading}
+        >
+          <div className="flex w-full shrink-0 flex-col gap-3 lg:w-80">
+            {/* 左：当前游标页的时间线账页 */}
+            <ol className="border-y border-line">
+              {items.map((it) => (
+                <TimelineRow
+                  key={`${it.kind}-${it.ref}`}
+                  item={it}
+                  selected={
+                    selected?.kind === it.kind &&
+                    (selected as { ref: string }).ref === it.ref
+                  }
+                  onSelect={() => {
+                    if (it.kind === "patch") select({ kind: "patch", id: it.ref });
+                    else if (it.kind === "job") select({ kind: "job", id: it.ref });
+                    else select({ kind: "snapshot", id: it.ref });
+                  }}
+                />
+              ))}
+            </ol>
+            <PaginationBar
+              pageIndex={pageState.previous.length}
+              limit={PAGE_SIZE}
+              itemCount={items.length}
+              total={historyPage.page.total}
+              hasNext={historyPage.page.next_cursor != null}
+              loading={loading}
+              noun="条记录"
+              onPrevious={() => {
+                select(null);
+                setPageState((state) => previousPage(state));
+              }}
+              onNext={() => {
+                const cursor = historyPage.page.next_cursor;
+                if (!cursor) return;
+                select(null);
+                setPageState((state) => nextPage(state, cursor));
+              }}
+            />
+          </div>
 
           {/* 右：选中详情 */}
           <div className="min-w-0 flex-1 lg:border-l lg:border-line lg:pl-6">
             {selected?.kind === "patch" ? (
-              <PatchDetail patch={selected.patch} model={model} />
+              <PatchDetail
+                patch={selected.patch}
+                model={model}
+                availableJobIds={pageJobIds}
+              />
             ) : selected?.kind === "job" ? (
-              <JobDetail job={selected.job} model={model} />
+              <JobDetail
+                job={selected.job}
+                pagePatches={pagePatches}
+              />
             ) : selected?.kind === "snapshot" ? (
-              <SnapshotDetail snapshot={selected.snapshot} model={model} />
+              <SnapshotDetail
+                snapshot={selected.snapshot}
+                pagePatches={[...pagePatches.values()]}
+              />
             ) : (
               <p className="text-13 text-ink-3">在左侧时间线选中一条记录查看详情。</p>
             )}
@@ -140,7 +235,7 @@ export default function HistoryView() {
 
 /* -------------------------------------------------------------- 时间线行 */
 
-function summaryOf(it: TimelineItem): string {
+function summaryOf(it: HistoryTimelineItem): string {
   if (it.kind === "patch") {
     const p = it.patch;
     return `${(p.changed_paths ?? []).length} 处变更 · 消化 ${(p.sources_consumed ?? []).length} 个来源`;
@@ -154,7 +249,7 @@ function TimelineRow({
   selected,
   onSelect,
 }: {
-  item: TimelineItem;
+  item: HistoryTimelineItem;
   selected: boolean;
   onSelect: () => void;
 }) {
@@ -187,7 +282,15 @@ function TimelineRow({
 
 /* -------------------------------------------------------------- patch 详情 */
 
-function PatchDetail({ patch, model }: { patch: PatchRecord; model: Model }) {
+function PatchDetail({
+  patch,
+  model,
+  availableJobIds,
+}: {
+  patch: PatchRecord;
+  model: Model | null;
+  availableJobIds: Set<string>;
+}) {
   const jump = useApp((s) => s.jump);
   const select = useApp((s) => s.select);
   const focusSource = useApp((s) => s.focusSource);
@@ -209,7 +312,7 @@ function PatchDetail({ patch, model }: { patch: PatchRecord; model: Model }) {
         <Mono className="text-14 text-ink">{patch.patch_id}</Mono>
         <p className="mt-1 text-12 text-ink-3">
           {fmtTime(patch.ts)} · base <Mono>{shortSha(patch.base_commit)}</Mono>
-          {patch.job_id && (
+          {patch.job_id && availableJobIds.has(patch.job_id) ? (
             <>
               {" · job "}
               <button
@@ -220,7 +323,12 @@ function PatchDetail({ patch, model }: { patch: PatchRecord; model: Model }) {
                 <Mono>{patch.job_id}</Mono>
               </button>
             </>
-          )}
+          ) : patch.job_id ? (
+            <>
+              {" · job "}
+              <Mono>{patch.job_id}</Mono>
+            </>
+          ) : null}
         </p>
         <p className="mt-1 text-12 text-ink-3">
           skill <Mono>v{patch.skill_version ?? "—"}</Mono> · effort{" "}
@@ -233,7 +341,7 @@ function PatchDetail({ patch, model }: { patch: PatchRecord; model: Model }) {
         <ul className="mt-3 flex flex-col">
           {changes.map((ch) => {
             const docId =
-              ch.document_id ?? model.docByPath.get(ch.path)?.document_id ?? null;
+              ch.document_id ?? model?.docByPath.get(ch.path)?.document_id ?? null;
             return (
               <li key={ch.path} className="border-b border-line last:border-b-0">
                 <button
@@ -287,7 +395,7 @@ function PatchDetail({ patch, model }: { patch: PatchRecord; model: Model }) {
               const anchor = c.anchor?.anchor;
               const note =
                 c.note ??
-                (docId && anchor
+                (model && docId && anchor
                   ? model.sidecarNotes.get(claimKey(docId, anchor))?.traces.slice(-1)[0]?.note
                   : undefined);
               const jumpable = !!docId && !!anchor;
@@ -377,11 +485,17 @@ function PatchDetail({ patch, model }: { patch: PatchRecord; model: Model }) {
 
 /* ---------------------------------------------------------------- job 详情 */
 
-function JobDetail({ job, model }: { job: JobRecord; model: Model }) {
+function JobDetail({
+  job,
+  pagePatches,
+}: {
+  job: JobRecord;
+  pagePatches: Map<string, PatchRecord>;
+}) {
   const select = useApp((s) => s.select);
   const tone: BadgeTone =
     job.status === "compiled" ? "ok" : job.status === "failed" ? "danger" : "warn";
-  const patch = job.patch_id ? model.patchById.get(job.patch_id) : undefined;
+  const patch = job.patch_id ? pagePatches.get(job.patch_id) : undefined;
   return (
     <div className="flex flex-col gap-4">
       <header className="flex flex-wrap items-center gap-2">
@@ -413,13 +527,19 @@ function JobDetail({ job, model }: { job: JobRecord; model: Model }) {
 
 /* ----------------------------------------------------------- snapshot 详情 */
 
-function SnapshotDetail({ snapshot, model }: { snapshot: Snapshot; model: Model }) {
+function SnapshotDetail({
+  snapshot,
+  pagePatches,
+}: {
+  snapshot: Snapshot;
+  pagePatches: PatchRecord[];
+}) {
   const select = useApp((s) => s.select);
   const snapshots = useApp((s) => s.snapshots);
   const currentSnapshot = useApp((s) => s.currentSnapshot);
   const setSnapshot = useApp((s) => s.setSnapshot);
 
-  const consumers = model.dataset.timeline.patches.filter((p) =>
+  const consumers = pagePatches.filter((p) =>
     (p.sources_consumed ?? []).includes(snapshot.source_id),
   );
   // timeline snapshot 是「来源快照」；只有它与 git ref 同名时才可切入只读态。
@@ -465,7 +585,10 @@ function SnapshotDetail({ snapshot, model }: { snapshot: Snapshot; model: Model 
       </div>
 
       <section>
-        <SectionRule no={1} title={`被以下 patch 消化 · ${consumers.length}`} />
+        <SectionRule
+          no={1}
+          title={`当前页可见的消化 patch · ${consumers.length}`}
+        />
         <div className="mt-3 flex flex-wrap gap-1.5">
           {consumers.map((p) => (
             <button

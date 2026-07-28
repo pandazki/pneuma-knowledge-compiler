@@ -346,6 +346,7 @@ async def test_profile_put_persists_and_get_reflects(client):
     assert body["source"] == "user"
     assert (body["industry"], body["role"], body["level"]) == ("tech", "engineering", "staff")
     assert body["locale"]["city"] == "深圳"
+    assert body["avatar"]["initial"] == "I"
 
     # Persisted picture is returned on subsequent GET (persisted-first).
     after = (await client.get(f"{base}/profile")).json()

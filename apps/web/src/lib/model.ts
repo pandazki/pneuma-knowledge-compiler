@@ -204,9 +204,11 @@ export interface PatchDocChange {
 /**
  * The documents a patch touched, with change_type. Prefers the schema v2
  * `patch.documents` stable-id interlink; falls back to changed_paths + classifyChange
- * for older exports.
+ * for older exports. A paged History ledger intentionally has no canonical model;
+ * in that bounded context the path remains readable, while identity and create/modify
+ * classification conservatively stay unknown/null and modified.
  */
-export function patchChanges(model: Model, patch: PatchRecord): PatchDocChange[] {
+export function patchChanges(model: Model | null, patch: PatchRecord): PatchDocChange[] {
   if (patch.documents && patch.documents.length) {
     return patch.documents.map((d) => ({
       document_id: d.document_id,
@@ -217,9 +219,9 @@ export function patchChanges(model: Model, patch: PatchRecord): PatchDocChange[]
   return (patch.changed_paths ?? []).map((cp) => {
     const rel = docRelPath(cp);
     return {
-      document_id: model.docByPath.get(rel)?.document_id ?? null,
+      document_id: model?.docByPath.get(rel)?.document_id ?? null,
       path: rel,
-      change_type: classifyChange(model, patch, cp),
+      change_type: model ? classifyChange(model, patch, cp) : "modified",
     };
   });
 }

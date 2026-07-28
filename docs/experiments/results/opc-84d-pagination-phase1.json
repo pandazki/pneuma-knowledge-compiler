@@ -1,0 +1,156 @@
+{
+  "schema": "pneuma.experiment.pagination-phase/v1",
+  "experiment": "opc-84d",
+  "user_id": "u-opc-ninghe",
+  "measured_at": "2026-07-29T02:28:11+08:00",
+  "scope": [
+    "sources",
+    "jobs",
+    "overview-summary",
+    "history",
+    "snapshots",
+    "canonical-dataset",
+    "claim-projection"
+  ],
+  "api": {
+    "/sources?limit=25": {
+      "items": 25,
+      "total": 98,
+      "bytes": 12817,
+      "median_ms": 6.47,
+      "baseline_bytes": 49002,
+      "bytes_reduction_percent": 73.84
+    },
+    "/jobs?limit=25": {
+      "items": 25,
+      "total": 196,
+      "bytes": 7032,
+      "median_ms": 2.02,
+      "baseline_bytes": 52507,
+      "bytes_reduction_percent": 86.61
+    },
+    "/history?limit=25": {
+      "items": 25,
+      "total": 356,
+      "bytes": 9906,
+      "samples": 5,
+      "median_ms": 5.48,
+      "previous_history_dependency": "/dataset",
+      "previous_dependency_bytes": 437591,
+      "bytes_reduction_percent": 97.74
+    },
+    "/snapshots?limit=25": {
+      "items": 25,
+      "total": 62,
+      "bytes": 2804,
+      "samples": 5,
+      "median_ms": 26.77,
+      "baseline_bytes": 6325,
+      "baseline_median_ms": 19.62,
+      "bytes_reduction_percent": 55.67,
+      "latency_tradeoff": "Two bounded git commands (count + page) are 7.15 ms slower at 62 commits, while response size and rendered options are bounded."
+    },
+    "/dataset?audit=false": {
+      "canonical_documents": 62,
+      "bytes": 236871,
+      "measured_ms": 51.28,
+      "baseline_bytes": 437591,
+      "baseline_median_ms": 577.0,
+      "bytes_reduction_percent": 45.87,
+      "latency_reduction_percent": 91.11,
+      "implementation": "One in-memory git archive read plus canonical-only projection; History owns the paged audit ledger."
+    }
+  },
+  "browser": {
+    "sources": {
+      "dom_elements": 889,
+      "buttons": 77,
+      "list_items": 62,
+      "scroll_height": 4042,
+      "visible_range": "1-25 / 98",
+      "dom_reduction_percent": 41.51,
+      "scroll_height_reduction_percent": 56.39,
+      "screenshot": "docs/experiments/screenshots/post-pagination-light-sources.png"
+    },
+    "process": {
+      "dom_elements": 417,
+      "buttons": 45,
+      "list_items": 25,
+      "scroll_height": 2056,
+      "visible_range": "1-25 / 196",
+      "dom_reduction_percent": 82.55,
+      "scroll_height_reduction_percent": 85.64,
+      "screenshot": "docs/experiments/screenshots/post-pagination-light-process.png"
+    },
+    "history": {
+      "dom_elements": 326,
+      "buttons": 44,
+      "list_items": 25,
+      "scroll_height": 1662,
+      "visible_range": "1-25 / 356",
+      "page_count": 15,
+      "page_1_page_2_overlap": 0,
+      "previous_round_trip_matches": true,
+      "dom_reduction_percent": 88.98,
+      "scroll_height_reduction_percent": 91.74,
+      "screenshot": "docs/experiments/screenshots/post-pagination-light-history.png"
+    },
+    "overview": {
+      "cold_visible_counts_ms": 287,
+      "data_source": "/summary"
+    },
+    "snapshot_picker": {
+      "initial_git_refs": 25,
+      "total_git_refs": 62,
+      "option_counts_including_head": [
+        26,
+        51,
+        63
+      ],
+      "duplicate_refs": 0,
+      "load_more_stages": [
+        "25 / 62",
+        "50 / 62",
+        "complete"
+      ],
+      "screenshot": "docs/experiments/screenshots/post-pagination-light-snapshot-picker.png"
+    },
+    "canonical": {
+      "documents": 62,
+      "dataset_mode": "audit=false",
+      "full_audit_dependency": false
+    },
+    "graph": {
+      "nodes": 160,
+      "dom_elements": 1990,
+      "scroll_height": 981,
+      "dataset_mode": "audit=false"
+    }
+  },
+  "incremental_projection_control": {
+    "baseline_elapsed_seconds": 75.4756,
+    "incremental_elapsed_seconds": 21.448,
+    "elapsed_reduction_percent": 71.58,
+    "baseline_first_batch_seconds": 2.7154,
+    "baseline_last_batch_seconds": 9.1132,
+    "incremental_first_batch_seconds": 1.9467,
+    "incremental_last_batch_seconds": 1.7205,
+    "last_to_first_ratio_before": 3.36,
+    "last_to_first_ratio_after": 0.88,
+    "final_claims": 240,
+    "content_upserts": 240,
+    "unchanged_claims_not_reembedded": 7440,
+    "report": "docs/experiments/results/opc-84d-incremental-control.json"
+  },
+  "verification": {
+    "web_tests": 16,
+    "backend_regression_tests": 30,
+    "typescript": "passed",
+    "production_build": "passed",
+    "history_full_page_screenshot": "passed"
+  },
+  "remaining_bottlenecks": [
+    "Graph renders the complete relationship canvas; the current 160-node experiment remains usable, but a substantially larger graph will need clustered or level-of-detail rendering.",
+    "Real model and semantic chunking latency dominate after eliminating repeated claim embedding."
+  ]
+}

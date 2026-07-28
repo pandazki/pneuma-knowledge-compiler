@@ -38,6 +38,21 @@ class CanonicalStore(Protocol):
 
     async def snapshots(self, user_id: UserId) -> list[SnapshotRef]: ...
 
+    async def snapshots_page(
+        self,
+        user_id: UserId,
+        *,
+        limit: int,
+        after_ref: str | None = None,
+    ) -> tuple[list[SnapshotRef], int, bool]:
+        """Read a bounded newest-first git-history page.
+
+        ``after_ref`` is the last item from the preceding page. Continuation walks
+        that commit's ancestors, so newer HEAD commits do not shift the page. A ref
+        that is no longer in the user's current history is rejected.
+        """
+        ...
+
     async def tag(
         self, user_id: UserId, ref: SnapshotRef, label: str
     ) -> SnapshotRef: ...

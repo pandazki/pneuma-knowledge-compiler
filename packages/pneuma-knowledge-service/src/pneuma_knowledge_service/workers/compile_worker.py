@@ -2,9 +2,10 @@
 
 Single process, per-user serial (the JobQueue's `FOR UPDATE SKIP LOCKED` + "no second
 in-flight job per user" rule is the single-writer guarantee for the git canonical
-layer). For each claimed job it rebuilds the supplied NormalizedSources, runs the pure
+layer). For each claimed job it loads the supplied NormalizedSources, runs the pure
 `run_compile` (which commits to git on success), then persists the mechanically-derived
-events to PG, stamps the sources digested, and marks the job done. An aborted compile
+events to PG, synchronizes the derived claim delta, stamps the sources digested, and
+marks the job done. An aborted compile
 (gate still failing after one repair) completes with ok=False + the violation detail;
 the canonical layer is untouched (runner made no commit).
 """
@@ -12,6 +13,7 @@ the canonical layer is untouched (runner made no commit).
 from __future__ import annotations
 
 import asyncio
+import json
 from dataclasses import asdict
 from datetime import datetime, timezone
 
@@ -30,7 +32,7 @@ from ..evolve_service import (
     run_evolve_job,
 )
 from ..ingest_document import _summary_chunks
-from ..projection import rebuild_projection
+from ..projection import sync_projection
 from ..settings import Settings
 from ..skills import skill_for_user
 from ..wiring import (
@@ -114,10 +116,16 @@ async def process_job(
             user_id, job_id, result.snapshot.ref, [asdict(e) for e in result.events]
         )
         await ctx.store.mark_digested(user_id, source_ids, now)
-        # L3 projection: rebuild the claim retrieval face from the new snapshot (M4).
-        await rebuild_projection(ctx, user_id, result.snapshot.ref)
+        # L3 projection: synchronize the frozen snapshot delta. The explicit full
+        # rebuild remains available for repair/strategy migration.
+        projection = await sync_projection(ctx, user_id, result.snapshot.ref)
         await ctx.store.complete(
-            user_id, job_id, ok=True, snapshot_ref=result.snapshot.ref
+            user_id,
+            job_id,
+            ok=True,
+            detail="projection:"
+            + json.dumps(asdict(projection), sort_keys=True, separators=(",", ":")),
+            snapshot_ref=result.snapshot.ref,
         )
         # Passive schema-evolve trigger (schema-evolve §2.1): once committed events land,
         # enqueue an evolve job if the topic/anchor increment cleared the threshold.

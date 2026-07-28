@@ -1,6 +1,7 @@
 import { History } from "lucide-react";
 import { useApp } from "@/lib/store";
 import { Combobox, type ComboboxItem } from "@/ui/Combobox";
+import { Button } from "@/ui/Button";
 import { Mono } from "@/ui/Mono";
 
 const HEAD = "__head__";
@@ -11,8 +12,14 @@ const HEAD = "__head__";
  */
 export function SnapshotPicker() {
   const snapshots = useApp((s) => s.snapshots);
+  const snapshotTotal = useApp((s) => s.snapshotTotal);
+  const nextCursor = useApp((s) => s.snapshotNextCursor);
+  const loading = useApp((s) => s.snapshotsLoading);
+  const error = useApp((s) => s.snapshotError);
   const currentSnapshot = useApp((s) => s.currentSnapshot);
   const setSnapshot = useApp((s) => s.setSnapshot);
+  const loadSnapshots = useApp((s) => s.loadSnapshots);
+  const loadMoreSnapshots = useApp((s) => s.loadMoreSnapshots);
 
   const items: ComboboxItem[] = [
     {
@@ -42,7 +49,39 @@ export function SnapshotPicker() {
     ),
   ];
 
-  const empty = snapshots.length === 0 && currentSnapshot == null;
+  const empty =
+    snapshots.length === 0 &&
+    snapshotTotal === 0 &&
+    currentSnapshot == null &&
+    !error;
+  const initialLoading = loading && snapshots.length === 0;
+  const loaded = Math.min(snapshots.length, snapshotTotal);
+  const footer =
+    nextCursor || error
+      ? () => (
+          <div className="flex flex-col gap-1.5 px-1 py-0.5">
+            {error && (
+              <p className="break-words px-1 text-12 text-danger" role="alert">
+                {error}
+              </p>
+            )}
+            <Button
+              size="sm"
+              variant="ghost"
+              className="w-full justify-center"
+              loading={loading}
+              disabled={loading}
+              onClick={() =>
+                void (nextCursor ? loadMoreSnapshots() : loadSnapshots())
+              }
+            >
+              {nextCursor
+                ? `加载更早版本 · ${loaded} / ${snapshotTotal}`
+                : "重试版本列表"}
+            </Button>
+          </div>
+        )
+      : undefined;
 
   return (
     <Combobox
@@ -60,8 +99,11 @@ export function SnapshotPicker() {
       triggerAriaLabel="切换到历史快照"
       filterPlaceholder="输入 ref 或标签…"
       emptyText="没有匹配的快照"
-      disabled={empty}
-      disabledNote={empty ? "尚无版本" : undefined}
+      footer={footer}
+      disabled={empty || initialLoading}
+      disabledNote={
+        initialLoading ? "加载版本…" : empty ? "尚无版本" : undefined
+      }
     />
   );
 }

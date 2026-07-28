@@ -3,7 +3,6 @@ import type { ViewName } from "./types";
 const CANONICAL_DATASET_VIEWS = new Set<ViewName>([
   "library",
   "graph",
-  "history",
 ]);
 
 export function needsCanonicalDataset(view: ViewName): boolean {

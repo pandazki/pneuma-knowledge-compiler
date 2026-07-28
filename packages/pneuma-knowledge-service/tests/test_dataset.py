@@ -85,10 +85,10 @@ class _FakeStore:
         ]
 
 
-def _ctx():
+def _ctx(store=None):
     return SimpleNamespace(
         canonical=_FakeCanonical(),
-        store=_FakeStore(),
+        store=store or _FakeStore(),
         settings=SimpleNamespace(
             llm_model="scripted:demo", user_schema_base_version="v3"
         ),
@@ -155,3 +155,25 @@ async def test_dataset_meta_carries_skill_declared_claim_labels():
     assert [x["label"] for x in labels] == ["强", "中", "弱"]
     assert [x["tier"] for x in labels] == ["solid", "outline", "muted"]
     assert all({"label", "name", "description", "tier"} <= x.keys() for x in labels)
+
+
+async def test_canonical_projection_does_not_read_unbounded_audit_lists():
+    class NoAuditStore(_FakeStore):
+        async def list_jobs(self, user_id):
+            raise AssertionError("canonical projection must not read all jobs")
+
+        async def list_compile_events(self, user_id):
+            raise AssertionError("canonical projection must not read all compile events")
+
+    ds = await build_dataset(_ctx(NoAuditStore()), USER, audit=False)
+
+    assert len(ds["documents"]["documents"]) == 2
+    assert ds["graph"]["nodes"]
+    assert ds["timeline"] == {
+        "schema_version": 2,
+        "snapshots": [],
+        "jobs": [],
+        "patches": [],
+        "bundle_versions": [],
+    }
+    assert ds["journal"] == []

@@ -7,6 +7,7 @@
  */
 
 import type { UserProfile } from "./types";
+import type { HistoryCounts, HistoryItemEnvelope } from "./history";
 import { buildPageQuery, type Page } from "./pagination";
 
 const BASE = (import.meta.env.VITE_API_BASE ?? "").replace(/\/+$/, "");
@@ -898,6 +899,21 @@ export function listJobs(
   return req<Page<JobSummary>>(`/v1/users/${u(userId)}/jobs${query}`);
 }
 
+export interface HistoryPage extends Page<HistoryItemEnvelope> {
+  counts: HistoryCounts;
+}
+
+export function listHistory(
+  userId: string,
+  params: { limit?: number; cursor?: string | null } = {},
+): Promise<HistoryPage> {
+  const query = buildPageQuery({
+    limit: params.limit ?? 25,
+    cursor: params.cursor,
+  });
+  return req<HistoryPage>(`/v1/users/${u(userId)}/history${query}`);
+}
+
 export function compile(userId: string): Promise<CompileResult> {
   return req<CompileResult>(`/v1/users/${u(userId)}/compile`, { method: "POST" });
 }
@@ -909,17 +925,30 @@ export interface SnapshotSummary {
   label: string | null;
 }
 
-export function listSnapshots(userId: string): Promise<SnapshotSummary[]> {
-  return req<SnapshotSummary[]>(`/v1/users/${u(userId)}/snapshots`);
+export function listSnapshots(
+  userId: string,
+  params: { limit?: number; cursor?: string | null } = {},
+): Promise<Page<SnapshotSummary>> {
+  const query = buildPageQuery({
+    limit: params.limit ?? 25,
+    cursor: params.cursor,
+  });
+  return req<Page<SnapshotSummary>>(`/v1/users/${u(userId)}/snapshots${query}`);
 }
 
-/** Raw five-file dataset projection (workspace/documents/graph/timeline/journal). */
+/**
+ * Canonical dataset projection for Library / Graph. Audit data is owned by the
+ * paged History endpoint and is intentionally not duplicated here.
+ */
 export function getDatasetRaw(
   userId: string,
   at?: string | null,
 ): Promise<Record<string, unknown>> {
-  const q = at ? `?at=${u(at)}` : "";
-  return req<Record<string, unknown>>(`/v1/users/${u(userId)}/dataset${q}`);
+  const query = new URLSearchParams({ audit: "false" });
+  if (at) query.set("at", at);
+  return req<Record<string, unknown>>(
+    `/v1/users/${u(userId)}/dataset?${query.toString()}`,
+  );
 }
 
 /* ------------------------------------------------ schema-evolve + skill (Stage C/D) */

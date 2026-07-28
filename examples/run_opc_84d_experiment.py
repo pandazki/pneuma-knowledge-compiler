@@ -77,13 +77,19 @@ async def _reset(ctx, settings: Settings) -> None:
 async def _profile(ctx) -> None:
     profile = await ctx.user_info.get_profile(USER)
     payload = profile.model_dump(mode="json", exclude={"level_style"})
+    display_name = "沈砚"
     payload.update(
         {
             "user_id": str(USER),
-            "display_name": "沈砚",
-            "industry": "technology",
-            "role": "founder",
-            "level": "independent",
+            "display_name": display_name,
+            "avatar": {
+                **payload["avatar"],
+                "initial": display_name[0],
+            },
+            "industry": "tech",
+            "role": "other",
+            "role_other": "founder",
+            "level": "staff",
             "occupation": "AI-native 独立开发者 / RelayForge 维护者",
             "bio": "独立开发、销售和运营可追溯决策产品 RelayForge。",
             "interests": ["开源维护", "客户研究", "知识系统", "产品工程"],
@@ -106,6 +112,36 @@ def _current_truth_values(manifest: dict[str, Any]) -> tuple[str, ...]:
         for item in rows
         if item.get("status") not in {"superseded", "cancelled"}
     )
+
+
+def _projection_metrics(
+    jobs: list[dict[str, Any]], source_ids: list[str]
+) -> dict[str, int]:
+    current_sources = set(source_ids)
+    totals = Counter()
+    for job in jobs:
+        if job.get("kind") != "compile":
+            continue
+        payload_sources = {
+            str(source_id)
+            for source_id in (job.get("payload") or {}).get("source_ids", [])
+        }
+        if not payload_sources.intersection(current_sources):
+            continue
+        detail = str(job.get("detail") or "")
+        if not detail.startswith("projection:"):
+            continue
+        metrics = json.loads(detail.removeprefix("projection:"))
+        for key in ("upserted", "deleted", "unchanged"):
+            totals[key] += int(metrics.get(key, 0))
+        totals["syncs"] += 1
+        totals["latest_total"] = max(
+            totals["latest_total"], int(metrics.get("total", 0))
+        )
+    return {
+        key: int(totals.get(key, 0))
+        for key in ("syncs", "upserted", "deleted", "unchanged", "latest_total")
+    }
 
 
 async def _scripted_turns(
@@ -221,13 +257,14 @@ async def run(
                 ctx, model, load_builtin_skill(), USER
             )
             after = await _counts(ctx)
+            all_jobs = await ctx.store.list_jobs(USER)
             failures = [
                 {
                     "job_id": job["job_id"],
                     "kind": job["kind"],
                     "detail": job.get("detail"),
                 }
-                for job in await ctx.store.list_jobs(USER)
+                for job in all_jobs
                 if job["status"] != "done" or job.get("ok") is not True
             ]
             batch_report = {
@@ -239,6 +276,7 @@ async def run(
                 "before": before,
                 "after": after,
                 "delta": {key: after[key] - before[key] for key in after},
+                "projection": _projection_metrics(all_jobs, source_ids),
                 "failures": failures,
             }
             batch_reports.append(batch_report)
