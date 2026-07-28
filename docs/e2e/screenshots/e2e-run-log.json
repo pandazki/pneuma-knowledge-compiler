@@ -1,21 +1,5 @@
 {
   "consoleLog": [],
-  "overflowLog": [
-    {
-      "journey": "14-graph-mobile",
-      "scrollWidth": 390,
-      "ok": true
-    },
-    {
-      "journey": "00-overview-mobile",
-      "scrollWidth": 390,
-      "ok": true
-    },
-    {
-      "journey": "01-sources-mobile",
-      "scrollWidth": 390,
-      "ok": true
-    }
-  ],
+  "overflowLog": [],
   "failures": []
 }

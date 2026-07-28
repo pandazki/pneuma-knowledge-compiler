@@ -130,7 +130,26 @@ focus 环与底 ≥ 3:1。accent 两色均按正文级对比度选取。
 禁止：大面积 uppercase + letter-spacing 伪造专业感；把下拉/正文/中文按钮
 设为等宽字体（mono 只给真正等宽语义的内容）。
 
-### 2.4 空间 / 形状 / 动效
+### 2.4 阅读层 Prose（kami 启发的排版纪律）
+
+一切 serif 阅读面（答案、claim 正文、source 原文、引用段、cue 卡片正文）
+统一走 `index.css` 的 `.prose` / `.prose-lede` 组件类，规则提炼自
+[kami](https://github.com/tw93/kami) 的 print 排版系统：
+
+- CJK 屏读行高 1.65（正文）/ 1.7（lede）；中文密度补偿 letter-spacing
+  0.015em（正文）/ 0.03em（lede）——这是楷体的呼吸感，不是装饰性 tracking
+- `strong` 锁 500，防浏览器在 W04 上合成 700
+- 标题邻近律：上距 ≥ 2× 下距；标题 `text-wrap: balance`、正文 `pretty`
+- 列表用原生 marker 并着 accent；引文为 2px accent 左边条 + ink-2
+- 行内 `code` 淡 accent 底 + accent 文 + 发丝边；`pre` 填充无框
+- 表格编辑式：无框、发丝行线、ink-2 表头、tabular-nums
+- 链接 accent 无下划线，hover 压深
+- 流程图/指标数字用 serif + tabular-nums（kami metric 式），不再用 mono
+
+`.prose` 在组件层定义，调用点可用 `text-14` / `text-ink-2` 等 utilities
+覆盖尺寸与颜色；阅读面不得再散写 `font-serif leading-[…]` 一次性组合。
+
+### 2.5 空间 / 形状 / 动效
 
 - 间距：4 基线网格，`4/8/12/16/24/32/48/64`
 - 圆角：`--r-1: 2px`（小控件）、`--r-2: 4px`（输入/按钮）、`--r-3: 8px`（浮层）；

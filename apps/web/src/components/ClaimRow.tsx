@@ -43,7 +43,7 @@ export function ClaimRow({ claim, onJumpCitation, className }: ClaimRowProps) {
   return (
     <div className={cn("flex flex-col gap-2 py-3 md:flex-row md:gap-6", className)}>
       <div className="min-w-0 flex-1">
-        <p className="font-serif text-16 leading-[1.75] text-ink">
+        <p className="prose">
           {claim.text}
           {claim.citations.map((c, i) => (
             <Footnote

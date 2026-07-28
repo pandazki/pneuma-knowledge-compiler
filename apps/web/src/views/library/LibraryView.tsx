@@ -280,7 +280,7 @@ function DocumentProof({
 
     const body = (
       <>
-        <p className="font-serif text-16 leading-[1.75] text-ink">
+        <p className="prose">
           {labeled && (
             <>
               <Badge tone="neutral" className={cn("mr-1.5 align-[1px]", labelBadgeClass(labeled.label.tier))}>
@@ -344,7 +344,7 @@ function DocumentProof({
     <article className="max-w-measure">
       <header className="border-b border-line pb-4">
         <Mono className="text-12 text-ink-3">{doc.path}</Mono>
-        <h2 className="mt-1 font-serif text-30 leading-[1.25] text-ink">{doc.title}</h2>
+        <h2 className="mt-1 font-serif text-30 leading-[1.25] text-balance text-ink">{doc.title}</h2>
         {doc.document_id && (
           <Mono className="mt-2 block text-12 text-ink-3">pneuma_id · {doc.document_id}</Mono>
         )}

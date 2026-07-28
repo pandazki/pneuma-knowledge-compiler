@@ -96,7 +96,7 @@ export function SourceSpanSheet({
             </div>
             {exactText != null && (
               <div className="rounded-2 border border-accent-line bg-accent-soft p-3">
-                <p className="font-serif text-13 leading-[1.75] whitespace-pre-wrap text-ink">
+                <p className="prose text-13 whitespace-pre-wrap">
                   {exactText}
                 </p>
               </div>
@@ -113,7 +113,7 @@ export function SourceSpanSheet({
                   <Mono className="w-8 shrink-0 pt-0.5 text-right text-12 text-ink-3">
                     b{b.index}
                   </Mono>
-                  <p className="min-w-0 font-serif text-14 leading-[1.75] whitespace-pre-wrap text-ink">
+                  <p className="prose min-w-0 text-14 whitespace-pre-wrap">
                     {b.text}
                   </p>
                 </li>

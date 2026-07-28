@@ -47,7 +47,7 @@ export function CueCard({
         <Mono className="text-12 text-ink-3">confidence {cue.confidence}</Mono>
         {via && <Mono className="text-12 text-ink-3">{via}</Mono>}
       </div>
-      <p className="mt-2 max-w-measure font-serif text-14 leading-[1.75] text-ink">{cue.body}</p>
+      <p className="prose mt-2 max-w-measure text-14">{cue.body}</p>
       <p className="mt-2 text-12 text-ink-3">触发：「{cue.trigger}」</p>
       {cue.citations.length > 0 && (
         <CitationList
@@ -83,7 +83,7 @@ export function CueCard({
       {detail && (
         <div className="mt-3 max-w-measure border-l-2 border-line-2 pl-3">
           <p className="text-12 text-ink-3">cue_detail</p>
-          <p className="mt-1 font-serif text-14 leading-[1.75] whitespace-pre-wrap text-ink">
+          <p className="prose mt-1 text-14 whitespace-pre-wrap">
             {detail.detail || "（空）"}
           </p>
           {detail.citations.length > 0 && (

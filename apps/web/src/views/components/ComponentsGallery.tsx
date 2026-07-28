@@ -430,7 +430,7 @@ export default function ComponentsGallery() {
           <SectionRule no={8} title="排版 Footnote / Mono / DefinitionList" />
           <div className={GRID}>
             <Demo label="Footnote（hover 出卡片，点击跳源）" className="sm:col-span-2">
-              <p className="max-w-measure font-serif text-16 leading-[1.75] text-ink">
+              <p className="prose max-w-measure">
                 每个 claim 都能回到精确的 source span
                 <Footnote
                   index={1}

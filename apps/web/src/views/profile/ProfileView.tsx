@@ -703,7 +703,7 @@ export default function ProfileView() {
         </span>
         <div className="flex min-w-0 flex-col gap-1">
           <div className="flex flex-wrap items-center gap-3">
-            <h2 className="font-serif text-24 text-ink">{profile.display_name}</h2>
+            <h2 className="font-serif text-24 text-balance text-ink">{profile.display_name}</h2>
             <Stamp tone="neutral">SYNTHETIC</Stamp>
           </div>
           <Mono className="text-13 text-ink-3">{profile.user_id}</Mono>

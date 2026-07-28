@@ -56,9 +56,11 @@ function FlowChart({ nodes }: { nodes: FlowNode[] }) {
               {node.count === null ? (
                 <Skeleton className="h-7 w-12" />
               ) : node.count === undefined ? (
-                <Mono className="text-24 text-ink-3">—</Mono>
+                <span className="font-serif text-24 text-ink-3">—</span>
               ) : (
-                <Mono className="text-24 text-ink">{node.count}</Mono>
+                <span className="font-serif text-24 text-accent tabular-nums">
+                  {node.count}
+                </span>
               )}
               <span className="text-12 text-ink-3">{node.unit}</span>
             </span>
@@ -214,10 +216,10 @@ export default function OverviewView() {
 
       {/* 题字 + 编者说明 */}
       <header className="max-w-measure">
-        <h1 className="font-serif text-30 text-ink sm:text-38">
+        <h1 className="font-serif text-30 text-balance text-ink sm:text-38">
           把持续产生的材料，编译成可追溯的知识。
         </h1>
-        <p className="mt-4 text-14 leading-[1.75] text-ink-2">
+        <p className="prose-lede mt-4">
           这是一台知识编译器：对话、文档与实验材料先落成可定位的原料（source），
           经编译工序取证、合并、标注争议，产出带稳定锚点的正典（canonical），
           再经检索、问答与主动提示三个取用面回到手边。每个 claim 都能回到精确的

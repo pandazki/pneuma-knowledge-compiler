@@ -122,7 +122,7 @@ export default function GraphView() {
                 <GlyphSwatch model={model} type={selNode.type} />
                 <Badge tone="neutral">{selNode.type ?? "—"}</Badge>
               </div>
-              <h2 className="mt-2 font-serif text-20 text-ink">{selNode.title}</h2>
+              <h2 className="mt-2 font-serif text-20 text-balance text-ink">{selNode.title}</h2>
               <Mono className="mt-1 block break-all text-12 text-ink-3">{selNode.id}</Mono>
               <Mono className="mt-0.5 block break-all text-12 text-ink-3">{selNode.path}</Mono>
               {selDoc && (

@@ -248,7 +248,7 @@ function HitList({
                 <button
                   type="button"
                   onClick={() => onJump(citation)}
-                  className="mt-1 block w-full text-left font-serif text-14 leading-[1.75] text-ink-2 transition-colors duration-120 hover:text-ink"
+                  className="prose mt-1 block w-full text-left text-14 text-ink-2 transition-colors duration-120 hover:text-ink"
                 >
                   {h.text}
                 </button>
@@ -341,7 +341,7 @@ function UsedClaimRow({
         ))}
         <Mono className="ml-auto text-12 text-ink-3">score {claim.score.toFixed(4)}</Mono>
       </div>
-      <p className="mt-1 max-w-measure font-serif text-14 leading-[1.75] text-ink">{claim.text}</p>
+      <p className="prose mt-1 max-w-measure text-14">{claim.text}</p>
       <CitationList
         className="mt-2 max-w-measure"
         citations={claim.citations.map((c) => ({
@@ -386,7 +386,7 @@ function AnswerPanel({
         <p className="mt-3 text-12 text-ink-3">
           as_of <Mono>{answer.as_of}</Mono>
         </p>
-        <div className="mt-2 max-w-measure font-serif text-16 leading-[1.75] text-ink">
+        <div className="prose mt-2 max-w-measure">
           {answer.answer ? (
             <CitedAnswer text={answer.answer} handles={answer.citation_handles} />
           ) : (

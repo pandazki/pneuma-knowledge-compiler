@@ -61,6 +61,133 @@
   --container-content: var(--content-max);
 }
 
+@layer components {
+  /**
+   * 阅读层 Prose（DESIGN.md §4.3）——一切 serif 阅读面的统一排版：
+   * 答案、claim 正文、source 原文、引用段、cue 卡片正文。
+   * 规则借鉴 kami（github.com/tw93/kami）的 print 排版纪律：
+   * CJK 屏读行高 1.65、中文密度补偿 0.015em、strong 锁 500 防合成粗体、
+   * 标题邻近律（上距 ≥ 2× 下距）、原生 marker 上 accent、引文 2px accent 左边条、
+   * 行内 code 淡 accent 底、pre 填充无框、表格发丝线无框、链接 accent 无下划线。
+   * 组件层定义，外层可用 text-14 / text-ink-2 等 utilities 覆盖尺寸与颜色。
+   */
+  .prose {
+    font-family: var(--font-serif);
+    font-size: var(--fs-16);
+    line-height: 1.65;
+    letter-spacing: 0.015em;
+    color: var(--ink);
+    text-wrap: pretty;
+  }
+  .prose strong {
+    font-weight: 500;
+  }
+  .prose p + p {
+    margin-top: 0.65em;
+  }
+  .prose h2,
+  .prose h3,
+  .prose h4 {
+    font-weight: 500;
+    line-height: 1.25;
+    color: var(--ink);
+    text-wrap: balance;
+  }
+  .prose h2 {
+    font-size: var(--fs-20);
+    margin: 1.6em 0 0.6em;
+  }
+  .prose h3 {
+    font-size: var(--fs-16);
+    margin: 1.5em 0 0.5em;
+  }
+  .prose h4 {
+    font-size: var(--fs-14);
+    margin: 1.4em 0 0.5em;
+  }
+  .prose ul,
+  .prose ol {
+    padding-left: 1.3em;
+    margin: 0.5em 0;
+  }
+  .prose li::marker {
+    color: var(--accent);
+    font-weight: 500;
+  }
+  .prose blockquote {
+    margin: 0.8em 0;
+    border-left: 2px solid var(--accent);
+    padding: 2px 0 2px 12px;
+    color: var(--ink-2);
+  }
+  .prose code {
+    font-family: var(--font-mono);
+    font-size: 0.85em;
+    letter-spacing: 0;
+    background: var(--accent-soft);
+    color: var(--accent);
+    border: 1px solid var(--accent-line);
+    border-radius: var(--r-1);
+    padding: 0 0.25em;
+  }
+  .prose pre {
+    margin: 0.8em 0;
+    background: var(--surface);
+    border-radius: var(--r-2);
+    padding: 10px 14px;
+    overflow-x: auto;
+  }
+  .prose pre code {
+    font-size: var(--fs-13);
+    line-height: 1.55;
+    background: none;
+    border: none;
+    color: inherit;
+    padding: 0;
+  }
+  .prose table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0.9em 0;
+    font-size: var(--fs-14);
+    font-variant-numeric: tabular-nums;
+  }
+  .prose th {
+    text-align: left;
+    font-weight: 500;
+    color: var(--ink-2);
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--line-2);
+  }
+  .prose td {
+    padding: 5px 8px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+  }
+  .prose a {
+    color: var(--accent);
+    text-decoration: none;
+  }
+  .prose a:hover {
+    color: color-mix(in srgb, var(--accent) 78%, var(--ink));
+  }
+  .prose hr {
+    border: none;
+    border-top: 1px solid var(--line);
+    margin: 1.6em 0;
+  }
+
+  /** 题下导言/lede：比正文略松的呼吸感（kami 的 CN lede 0.03–0.06em 密度补偿）。 */
+  .prose-lede {
+    font-family: var(--font-serif);
+    font-size: var(--fs-16);
+    line-height: 1.7;
+    letter-spacing: 0.03em;
+    color: var(--ink-2);
+    text-wrap: pretty;
+  }
+}
+
 @layer base {
   *,
   ::before,

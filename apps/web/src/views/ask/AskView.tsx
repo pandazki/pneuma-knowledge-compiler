@@ -331,7 +331,7 @@ export default function AskView() {
                 {turns.map((t, i) => (
                   <article key={i}>
                     <p className="text-14 font-medium text-ink">{t.question}</p>
-                    <div className="mt-2 max-w-measure font-serif text-16 leading-[1.75] text-ink">
+                    <div className="prose mt-2 max-w-measure">
                       {t.answer ? <CitedAnswer text={t.answer} handles={t.handles} /> : "（空）"}
                     </div>
                     {t.citations.length > 0 ? (

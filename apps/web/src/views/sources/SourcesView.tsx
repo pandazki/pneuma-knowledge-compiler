@@ -289,7 +289,7 @@ function SourceGalley({
     <article className="flex flex-col gap-6">
       {/* 页头：标题 + 元信息 */}
       <header className="flex flex-col gap-2">
-        <h2 className="font-serif text-20 text-ink">{detail.title}</h2>
+        <h2 className="font-serif text-20 text-balance text-ink">{detail.title}</h2>
         <p className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-12 text-ink-3">
           <Mono className="break-all">{detail.source_id}</Mono>
           <span>{detail.mime}</span>
@@ -371,7 +371,7 @@ function SourceGalley({
             title={<Mono>{`b${exact.block} · 精确段`}</Mono>}
             onDismiss={() => setExact(null)}
           >
-            <p className="font-serif leading-[1.75] whitespace-pre-wrap text-ink">{exact.text}</p>
+            <p className="prose whitespace-pre-wrap">{exact.text}</p>
           </Callout>
         )}
         <ol className="flex flex-col border-y border-line">
@@ -397,7 +397,7 @@ function SourceGalley({
               >
                 <Mono className="text-12 text-ink-3 hover:text-accent">b{b.index}</Mono>
               </button>
-              <p className="min-w-0 font-serif text-14 leading-[1.75] whitespace-pre-wrap text-ink">
+              <p className="prose min-w-0 text-14 whitespace-pre-wrap">
                 {b.text}
               </p>
             </li>
