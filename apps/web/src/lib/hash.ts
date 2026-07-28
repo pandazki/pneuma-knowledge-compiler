@@ -29,6 +29,8 @@ const VIEWS: ViewName[] = [
   "history",
   "graph",
   "evolve",
+  // hidden route: primitives 状态矩阵（验收用，不进目录）
+  "components",
 ];
 
 export function isViewName(v: string): v is ViewName {

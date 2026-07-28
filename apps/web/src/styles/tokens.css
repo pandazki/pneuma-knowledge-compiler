@@ -1,185 +1,102 @@
-/*
- * Pneuma Knowledge Compiler — Knowledge Transit Atlas.
- * Light is a porcelain wayfinding mural; dark is a midnight enamel control room.
- * Route colors identify system responsibility rather than decorative card categories.
+/**
+ * Pneuma Knowledge Compiler · 设计 tokens（DESIGN.md §2，唯一 source of truth）。
+ *
+ * 硬性规则：全部颜色只允许出现在本文件；组件内零 hex、零 rgb()/hsl() 字面值。
+ * 派生色一律用 color-mix 自既有变量推导，不引入新 hex。
+ * 双主题非反色：light「纸 Paper」/ dark「灯箱 Lightbox」独立调校。
  */
-:root {
+
+:root[data-theme="light"] {
   color-scheme: light;
 
-  --color-surface: #f2f1e9;
-  --color-surface-raised: #faf9f2;
-  --color-card: #fffef9;
-  --color-surface-muted: #e7ebe8;
-  --color-surface-hover: #dce6e4;
-  --color-surface-inverse: #0b203a;
-  --color-scrim: rgb(5 22 41 / 58%);
+  --bg: #f6f5f1; /* 页面纸底 */
+  --surface: #fbfaf7; /* 阅读面 / 面板底 */
+  --raised: #ffffff; /* 浮层（popover / dialog / menu） */
+  --ink: #20201d; /* 主文字 */
+  --ink-2: #57554e; /* 次级文字 */
+  --ink-3: #8b887e; /* 弱化文字 / 占位 */
+  --line: #e3e1d9; /* 发丝线 */
+  --line-2: #cfcdc3; /* 强调分隔线 / 控件边框 */
+  --accent: #3d5a99; /* 蓝铅笔：链接、选中、脚注编号、focus */
+  --accent-ink: #fbfaf7; /* accent 底上的文字 */
+  --ok: #4a7257;
+  --warn: #94650f;
+  --danger: #a03d2c;
 
-  --color-text: #0b203a;
-  --color-text-secondary: #40556b;
-  --color-text-tertiary: #647589;
-  --color-text-inverse: #fbf8ed;
-  --color-text-on-accent: #fffaf1;
+  /* 派生（color-mix，不写新 hex） */
+  --accent-soft: color-mix(in srgb, var(--accent) 10%, var(--bg)); /* 选中底 */
+  --accent-line: color-mix(in srgb, var(--accent) 35%, var(--bg)); /* 选中边 */
+  --hover: color-mix(in srgb, var(--ink) 4%, transparent); /* 悬停底（叠层） */
+  --active: color-mix(in srgb, var(--ink) 7%, transparent);
+  --ok-soft: color-mix(in srgb, var(--ok) 10%, var(--bg));
+  --warn-soft: color-mix(in srgb, var(--warn) 10%, var(--bg));
+  --danger-soft: color-mix(in srgb, var(--danger) 10%, var(--bg));
 
-  --color-border: #cdd6d5;
-  --color-border-subtle: #dfe5e1;
-  --color-border-strong: #849493;
-
-  --color-accent: #df4a2b;
-  --color-accent-strong: #bb321f;
-  --color-accent-foreground: #fffaf2;
-  --color-ring: #155fc6;
-  --color-selection-bg: #dce9fb;
-  --color-selection-text: #071d36;
-
-  --route-scarlet: #d73a49;
-  --route-cobalt: #1766c2;
-  --route-amber: #d9900d;
-  --route-green: #16845b;
-  --route-map-bg: #0b203a;
-  --route-map-panel: #fffaf0;
-  --route-map-text: #f8f4e8;
-  --route-map-ink: #0b203a;
-
-  --color-success: #16845b;
-  --color-success-foreground: #ffffff;
-  --color-warning: #9b6405;
-  --color-warning-foreground: #ffffff;
-  --color-danger: #bc3042;
-  --color-danger-foreground: #ffffff;
-  --color-info: #1766c2;
-  --color-info-foreground: #ffffff;
-  --color-verified: #16845b;
-  --color-open-question: #9b6405;
-  --color-disputed: #bc3042;
-  --color-inferred: #6d48bd;
-
-  --font-sans:
-    -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC",
-    "PingFang SC", "Microsoft YaHei", sans-serif;
-  --font-mono:
-    "SFMono-Regular", "Cascadia Code", "Roboto Mono", Consolas, monospace;
-
-  /*
-   * Operational type ramp. The smallest step is deliberately 12px so Chinese
-   * annotations stay legible; every other step has one unambiguous job.
-   */
-  --text-2xs: 0.75rem;
-  --text-xs: 0.8125rem;
-  --text-sm: 0.9375rem;
-  --text-base: 1rem;
-  --text-md: 1.125rem;
-  --text-lg: 1.375rem;
-  --text-xl: 1.75rem;
-  --text-2xl: 2.25rem;
-  --text-4xl: clamp(3rem, 7vw, 6.5rem);
-  --weight-light: 360;
-  --weight-medium: 540;
-  --weight-semibold: 660;
-  --leading-normal: 1.6;
-  --tracking-eyebrow: 0.04em;
-
-  --space-1: 0.25rem;
-  --space-2: 0.5rem;
-  --space-3: 0.75rem;
-  --space-4: 1rem;
-  --space-5: 1.25rem;
-  --space-6: 1.5rem;
-  --space-8: 2rem;
-
-  --radius-sm: 8px;
-  --radius-md: 14px;
-  --radius-lg: 22px;
-  --radius-pill: 999px;
-  --border-width-hairline: 1px;
-  --border-width-strong: 2px;
-  --shadow-subtle: 0 8px 26px rgb(20 45 65 / 8%);
-  --shadow-overlay: 0 24px 70px rgb(5 22 41 / 24%);
-
-  --duration-fast: 120ms;
-  --duration-normal: 220ms;
-  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
-
-  --background: var(--color-surface);
-  --foreground: var(--color-text);
-  --card: var(--color-card);
-  --card-foreground: var(--color-text);
-  --popover: var(--color-surface-raised);
-  --popover-foreground: var(--color-text);
-  --primary: var(--color-accent);
-  --primary-foreground: var(--color-accent-foreground);
-  --secondary: var(--color-surface-muted);
-  --secondary-foreground: var(--color-text);
-  --muted: var(--color-surface-muted);
-  --muted-foreground: var(--color-text-tertiary);
-  --accent: var(--color-surface-hover);
-  --accent-foreground: var(--color-text);
-  --destructive: var(--color-danger);
-  --destructive-foreground: var(--color-danger-foreground);
-  --border: var(--color-border);
-  --input: var(--color-border);
-  --ring: var(--color-ring);
-  --brand: var(--color-accent);
-  --brand-foreground: var(--color-accent-foreground);
+  --shadow-overlay: 0 1px 2px rgb(0 0 0 / 0.06), 0 8px 24px rgb(0 0 0 / 0.08);
 }
 
-[data-theme="dark"],
-.dark {
+:root[data-theme="dark"] {
   color-scheme: dark;
 
-  --color-surface: #07172b;
-  --color-surface-raised: #0a1d35;
-  --color-card: #0e2542;
-  --color-surface-muted: #132d4c;
-  --color-surface-hover: #193859;
-  --color-surface-inverse: #f7f2e6;
-  --color-scrim: rgb(1 8 18 / 78%);
+  --bg: #17171a;
+  --surface: #1d1d21;
+  --raised: #252529;
+  --ink: #e8e6e0;
+  --ink-2: #a6a39a;
+  --ink-3: #6f6c65;
+  --line: #2c2c31;
+  --line-2: #3d3d44;
+  --accent: #93a9d6;
+  --accent-ink: #17171a;
+  --ok: #7fa98c;
+  --warn: #cfa458;
+  --danger: #d08574;
 
-  --color-text: #f7f2e6;
-  --color-text-secondary: #c3cfda;
-  --color-text-tertiary: #8fa3b7;
-  --color-text-inverse: #081b32;
-  --color-text-on-accent: #fffaf0;
+  --accent-soft: color-mix(in srgb, var(--accent) 12%, var(--bg));
+  --accent-line: color-mix(in srgb, var(--accent) 35%, var(--bg));
+  --hover: color-mix(in srgb, var(--ink) 5%, transparent);
+  --active: color-mix(in srgb, var(--ink) 9%, transparent);
+  --ok-soft: color-mix(in srgb, var(--ok) 12%, var(--bg));
+  --warn-soft: color-mix(in srgb, var(--warn) 12%, var(--bg));
+  --danger-soft: color-mix(in srgb, var(--danger) 12%, var(--bg));
 
-  --color-border: #294561;
-  --color-border-subtle: #1e3a57;
-  --color-border-strong: #59718a;
-
-  --color-accent: #f06a43;
-  --color-accent-strong: #ff8a65;
-  --color-accent-foreground: #fffaf2;
-  --color-ring: #6aa8ff;
-  --color-selection-bg: #234d80;
-  --color-selection-text: #f7fbff;
-
-  --route-scarlet: #ff6675;
-  --route-cobalt: #62a3ff;
-  --route-amber: #f6bd4d;
-  --route-green: #4ad39c;
-  --route-map-bg: #0b2440;
-  --route-map-panel: #f8f2e6;
-  --route-map-text: #fff8e9;
-  --route-map-ink: #071a30;
-
-  --color-success: #4ad39c;
-  --color-success-foreground: #04251a;
-  --color-warning: #f6bd4d;
-  --color-warning-foreground: #2b1a00;
-  --color-danger: #ff6675;
-  --color-danger-foreground: #30070e;
-  --color-info: #62a3ff;
-  --color-info-foreground: #031a36;
-  --color-verified: #4ad39c;
-  --color-open-question: #f6bd4d;
-  --color-disputed: #ff6675;
-  --color-inferred: #b69cff;
-
-  --shadow-subtle: 0 10px 30px rgb(0 0 0 / 24%);
-  --shadow-overlay: 0 28px 80px rgb(0 0 0 / 58%);
+  --shadow-overlay: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px rgb(0 0 0 / 0.5);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  :root {
-    --duration-fast: 0ms;
-    --duration-normal: 0ms;
-  }
+:root {
+  /* 字体栈（编辑—文本—机器三层分工） */
+  --font-sans: system-ui, -apple-system, "PingFang SC", "Hiragino Sans GB",
+    "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+  --font-serif: "Songti SC", "Noto Serif SC", "Source Han Serif SC", Georgia,
+    "Times New Roman", serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+
+  /* 字号阶（px）：中文可见文本最小 12 */
+  --fs-12: 12px;
+  --fs-13: 13px;
+  --fs-14: 14px;
+  --fs-16: 16px;
+  --fs-20: 20px;
+  --fs-24: 24px;
+  --fs-30: 30px;
+  --fs-38: 38px;
+
+  /* 形状：编辑感 = 近乎直角 */
+  --r-1: 2px;
+  --r-2: 4px;
+  --r-3: 8px;
+
+  /* 动效：仅 fade / 2–4px 位移 */
+  --dur-1: 120ms;
+  --dur-2: 200ms;
+  --ease: ease-out;
+
+  /* z 轴 */
+  --z-nav: 40;
+  --z-overlay: 50;
+  --z-toast: 60;
+
+  /* 阅读宽度 / 内容栏宽 */
+  --measure: 68ch;
+  --content-max: 1080px;
 }

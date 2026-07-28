@@ -293,4 +293,6 @@ export type ViewName =
   | "history"
   | "graph"
   // schema-evolve review + 量身定制 skill 面
-  | "evolve";
+  | "evolve"
+  // 隐藏路由：primitives 状态矩阵页（验收截图用，不进目录）
+  | "components";
