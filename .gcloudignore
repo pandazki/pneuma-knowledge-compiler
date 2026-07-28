@@ -1,0 +1,17 @@
+.git
+.venv
+# Root-anchored: this is the local runtime canonical dir. WITHOUT the leading slash,
+# gitignore semantics match at any depth and would silently drop examples/data/preset —
+# the shipped demo bundles, which must be in the image for the seed step.
+/data
+apps/web/node_modules
+apps/web/dist
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.ruff_cache
+**/.mypy_cache
+.env
+.env.*
+!.env.example
+*.log

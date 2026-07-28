@@ -1,0 +1,705 @@
+@import "tailwindcss";
+@import "./styles/tokens.css";
+
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *, .dark, .dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-border-subtle: var(--color-border-subtle);
+  --color-border-strong: var(--color-border-strong);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+}
+
+* {
+  box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-strong) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-thumb {
+  border: 2px solid var(--color-surface);
+  border-radius: var(--radius-pill);
+  background: var(--color-border-strong);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+@layer base {
+  button,
+  input,
+  select,
+  textarea {
+    font-family: inherit;
+  }
+}
+
+button,
+a,
+input,
+select,
+textarea {
+  transition:
+    color var(--duration-fast) var(--ease-out),
+    background-color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: var(--color-selection-bg);
+  color: var(--color-selection-text);
+}
+
+.pneuma-app-shell {
+  display: grid;
+  grid-template-columns: 188px minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+  background: var(--color-surface);
+}
+
+.pneuma-navigation {
+  position: relative;
+  z-index: 20;
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  border-right: 1px solid var(--color-border);
+  background: var(--color-surface-raised);
+}
+
+.pneuma-brand {
+  display: flex;
+  min-height: 72px;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid var(--color-border);
+  padding: 14px 15px;
+}
+
+.pneuma-brand-mark {
+  display: grid;
+  flex: none;
+  grid-template-columns: repeat(2, 5px);
+  gap: 4px;
+}
+
+.pneuma-brand-mark i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--color-accent);
+}
+
+.pneuma-brand-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  line-height: 1.2;
+}
+
+.pneuma-brand-copy strong {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  letter-spacing: -0.015em;
+}
+
+.pneuma-brand-copy span {
+  margin-top: 2px;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-2xs);
+}
+
+.pneuma-mobile-synthetic {
+  display: none;
+}
+
+.pneuma-nav-groups {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px 9px;
+}
+
+.pneuma-nav-group + .pneuma-nav-group {
+  margin-top: 18px;
+}
+
+.pneuma-nav-label {
+  padding: 0 7px 5px;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-medium);
+}
+
+.pneuma-nav-items {
+  display: grid;
+  gap: 2px;
+}
+
+.pneuma-nav-item {
+  position: relative;
+  display: flex;
+  width: 100%;
+  min-height: 34px;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  padding: 0 9px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  text-align: left;
+}
+
+.pneuma-nav-item:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text);
+}
+
+.pneuma-nav-item.is-active {
+  border-color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 8%, transparent);
+  color: var(--color-text);
+}
+
+.pneuma-nav-item.is-active::after {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  content: "";
+}
+
+.pneuma-nav-short {
+  display: none;
+}
+
+.pneuma-synthetic-stamp {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px;
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  padding: 8px 9px;
+  color: var(--color-accent-strong);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  line-height: 1.2;
+}
+
+.pneuma-synthetic-stamp > span {
+  display: grid;
+  gap: 2px;
+}
+
+.pneuma-synthetic-stamp small {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-2xs);
+}
+
+.pneuma-operating-shell {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.pneuma-topbar {
+  position: relative;
+  z-index: 15;
+  flex: none;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface-raised);
+}
+
+.pneuma-service-alert {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-bottom: 1px solid var(--color-border);
+  padding: 4px 12px;
+  background: var(--color-surface-muted);
+  color: var(--color-text-secondary);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-medium);
+}
+
+.pneuma-topbar-main {
+  display: grid;
+  min-height: 72px;
+  grid-template-columns: minmax(180px, 1fr) auto minmax(300px, 1fr);
+  align-items: center;
+  gap: 16px;
+  padding: 10px 16px;
+}
+
+.pneuma-view-heading {
+  min-width: 0;
+}
+
+.pneuma-view-kicker {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--color-text-tertiary);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+}
+
+.pneuma-view-kicker svg {
+  color: var(--color-accent);
+}
+
+.pneuma-view-heading h1 {
+  margin: 3px 0 0;
+  font-size: var(--text-xl);
+  font-weight: var(--weight-medium);
+  letter-spacing: -0.025em;
+  line-height: 1.2;
+}
+
+.pneuma-topbar-state {
+  justify-self: center;
+}
+
+.pneuma-compile-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-2xs);
+}
+
+.pneuma-live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-success);
+  box-shadow: 0 2px 7px color-mix(in srgb, var(--color-success) 45%, transparent);
+}
+
+.pneuma-topbar-actions {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.pneuma-readonly-stamp {
+  border: 1px solid var(--color-warning);
+  border-radius: var(--radius-sm);
+  padding: 2px 5px;
+  color: var(--color-warning);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+}
+
+.pneuma-provenance-route {
+  border-bottom: 1px solid var(--color-border);
+  padding: 15px 20px 17px;
+  background: var(--color-surface-muted);
+}
+
+.pneuma-provenance-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.pneuma-provenance-heading span,
+.pneuma-provenance-stage,
+.pneuma-provenance-id {
+  font-family: var(--font-mono);
+}
+
+.pneuma-provenance-heading span,
+.pneuma-provenance-stage {
+  color: var(--color-accent-strong);
+  font-size: var(--text-2xs);
+  letter-spacing: 0.06em;
+}
+
+.pneuma-provenance-heading strong {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+
+.pneuma-provenance-strip {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px minmax(0, 1fr) 28px minmax(0, 0.9fr);
+  align-items: stretch;
+}
+
+.pneuma-provenance-card {
+  position: relative;
+  min-width: 0;
+  border: 1px solid var(--color-border-strong);
+  padding: 13px 14px 12px;
+  background: var(--color-card);
+  box-shadow: var(--shadow-subtle);
+}
+
+.pneuma-registration-frame::before,
+.pneuma-registration-frame::after {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  pointer-events: none;
+  content: "";
+}
+
+.pneuma-registration-frame::before {
+  top: -3px;
+  left: -3px;
+  border-top: 2px solid var(--color-accent);
+  border-left: 2px solid var(--color-accent);
+}
+
+.pneuma-registration-frame::after {
+  right: -3px;
+  bottom: -3px;
+  border-right: 2px solid var(--color-accent);
+  border-bottom: 2px solid var(--color-accent);
+}
+
+.pneuma-provenance-id {
+  overflow: hidden;
+  margin-top: 5px;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-2xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pneuma-provenance-card p {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 9px 0 0;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  line-height: 1.55;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.pneuma-provenance-card button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 10px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--color-accent-strong);
+  cursor: pointer;
+  font-size: var(--text-2xs);
+}
+
+.pneuma-provenance-card button:hover {
+  color: var(--color-text);
+}
+
+.pneuma-provenance-connector {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-accent);
+}
+
+.pneuma-provenance-connector::before {
+  width: 100%;
+  height: 1px;
+  margin-right: -10px;
+  background: var(--color-accent);
+  content: "";
+}
+
+.pneuma-workspace {
+  position: relative;
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+  background: var(--color-surface);
+}
+
+.pneuma-workspace::before {
+  position: absolute;
+  z-index: 50;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 1px;
+  pointer-events: none;
+  background: var(--color-accent);
+  content: "";
+  animation: pneuma-register 520ms var(--ease-out) both;
+}
+
+@keyframes pneuma-register {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0);
+  }
+}
+
+.pneuma-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-secondary);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+}
+
+.pneuma-flow {
+  background: var(--color-surface);
+  --xy-background-color: var(--color-surface);
+  --xy-edge-stroke: var(--color-border-strong);
+  --xy-edge-stroke-selected: var(--color-accent);
+}
+
+.pneuma-flow .react-flow__controls {
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-overlay);
+}
+
+.pneuma-flow .react-flow__controls-button {
+  width: 28px;
+  height: 28px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+}
+
+.pneuma-flow .react-flow__edge-path {
+  stroke: var(--color-border-strong);
+}
+
+.pneuma-prose {
+  max-width: 70ch;
+}
+
+.pneuma-prose a {
+  color: var(--color-text);
+  text-decoration: underline;
+  text-decoration-color: var(--color-accent);
+  text-underline-offset: 3px;
+}
+
+.pneuma-prose strong {
+  font-weight: var(--weight-semibold);
+}
+
+.pneuma-prose code {
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 1px 4px;
+  background: var(--color-surface-muted);
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+@media (max-width: 980px) {
+  .pneuma-app-shell {
+    grid-template-columns: 160px minmax(0, 1fr);
+  }
+
+  .pneuma-topbar-main {
+    grid-template-columns: minmax(150px, 1fr) auto;
+  }
+
+  .pneuma-topbar-state {
+    display: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .pneuma-app-shell {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .pneuma-navigation {
+    flex: none;
+    flex-direction: row;
+    border-right: 0;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .pneuma-brand {
+    min-height: 48px;
+    flex: none;
+    border-right: 1px solid var(--color-border);
+    border-bottom: 0;
+    padding: 8px 11px;
+  }
+
+  .pneuma-brand-copy span,
+  .pneuma-nav-label,
+  .pneuma-nav-long,
+  .pneuma-synthetic-stamp {
+    display: none;
+  }
+
+  .pneuma-mobile-synthetic {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--color-accent);
+    padding: 2px 3px;
+    color: var(--color-accent-strong);
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    line-height: 1;
+  }
+
+  .pneuma-nav-groups {
+    display: flex;
+    overflow-x: auto;
+    padding: 6px;
+  }
+
+  .pneuma-nav-group,
+  .pneuma-nav-group + .pneuma-nav-group,
+  .pneuma-nav-items {
+    display: contents;
+    margin: 0;
+  }
+
+  .pneuma-nav-item {
+    width: auto;
+    min-width: 55px;
+    flex: none;
+    flex-direction: column;
+    justify-content: center;
+    gap: 1px;
+    padding: 3px 8px;
+    font-size: var(--text-2xs);
+  }
+
+  .pneuma-nav-short {
+    display: inline;
+  }
+
+  .pneuma-nav-item.is-active::after {
+    top: 4px;
+    right: 4px;
+  }
+
+  .pneuma-topbar-main {
+    min-height: 56px;
+    grid-template-columns: minmax(100px, 1fr) auto;
+    gap: 8px;
+    padding: 7px 9px;
+  }
+
+  .pneuma-view-kicker {
+    display: none;
+  }
+
+  .pneuma-view-heading h1 {
+    margin: 0;
+    font-size: var(--text-md);
+  }
+
+  .pneuma-topbar-actions {
+    gap: 3px;
+  }
+
+  .pneuma-provenance-route {
+    padding: 13px 14px 16px;
+  }
+
+  .pneuma-provenance-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .pneuma-provenance-strip {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .pneuma-provenance-connector {
+    height: 22px;
+    transform: rotate(90deg);
+  }
+
+  .pneuma-provenance-connector::before {
+    max-width: 22px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

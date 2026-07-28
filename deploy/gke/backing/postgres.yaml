@@ -1,0 +1,80 @@
+# Authoritative L0 (sources, blocks) + the compile job queue + the L3 projection.
+# Plain Postgres 16 — no pgvector, no extensions. Schema is applied idempotently by
+# PostgresStore.apply_schema() at API boot, so there is no migration step here.
+#
+# In-cluster StatefulSet is a demo-scope choice; Cloud SQL is the production path.
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  labels:
+    app.kubernetes.io/name: pneuma-knowledge
+    app.kubernetes.io/component: postgres
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: pneuma-knowledge
+    app.kubernetes.io/component: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pneuma-knowledge
+      app.kubernetes.io/component: postgres
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pneuma-knowledge
+        app.kubernetes.io/component: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: "pneuma_knowledge"
+            - name: POSTGRES_DB
+              value: "pneuma_knowledge"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: pneuma-knowledge-secret
+                  key: POSTGRES_PASSWORD
+            # Subdirectory, because a GCE PD mounts with a lost+found that initdb refuses.
+            - name: PGDATA
+              value: "/var/lib/postgresql/data/pgdata"
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "pneuma_knowledge", "-d", "pneuma_knowledge"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "2Gi"
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 10Gi

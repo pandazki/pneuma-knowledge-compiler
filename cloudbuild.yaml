@@ -1,0 +1,41 @@
+# Cloud Build — build + push both images to Artifact Registry, so multi-GB layers never
+# cross the local network.
+#
+#   gcloud builds submit --config cloudbuild.yaml --substitutions=_TAG=v1 .
+substitutions:
+  _REGION: asia-east1
+  _REPO: pneuma-knowledge
+  _TAG: latest
+steps:
+  - name: gcr.io/cloud-builders/docker
+    id: build-app
+    env: ['DOCKER_BUILDKIT=1']  # docker/Dockerfile uses RUN --mount=type=cache
+    args:
+      - build
+      - -f
+      - docker/Dockerfile
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/pneuma-knowledge:${_TAG}
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/pneuma-knowledge:latest
+      - .
+  - name: gcr.io/cloud-builders/docker
+    id: build-web
+    env: ['DOCKER_BUILDKIT=1']
+    args:
+      - build
+      - -f
+      - docker/web.Dockerfile
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/pneuma-knowledge-web:${_TAG}
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/pneuma-knowledge-web:latest
+      - .
+images:
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/pneuma-knowledge:${_TAG}
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/pneuma-knowledge:latest
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/pneuma-knowledge-web:${_TAG}
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/pneuma-knowledge-web:latest
+options:
+  machineType: E2_HIGHCPU_8
+timeout: 2400s

@@ -1,0 +1,33 @@
+# pneuma-knowledge-compiler — GKE base.
+#
+# Validate:  kubectl kustomize deploy/gke/base | kubectl apply --dry-run=client -f -
+# Deploy:    kubectl apply -k deploy/gke/overlays/test
+#            (after creating a REAL pneuma-knowledge-secret — see secret.example.yaml)
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: pneuma-knowledge
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: pneuma-knowledge
+    includeSelectors: false
+
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - canonical-pvc.yaml
+  - app-deployment.yaml
+  - api-service.yaml
+  - web-deployment.yaml
+  - web-service.yaml
+  - pdb.yaml
+  # secret.example.yaml is intentionally NOT listed — create the real secret out-of-band.
+
+images:
+  - name: pneuma-knowledge
+    newName: REGION-docker.pkg.dev/PROJECT/REPO/pneuma-knowledge
+    newTag: latest
+  - name: pneuma-knowledge-web
+    newName: REGION-docker.pkg.dev/PROJECT/REPO/pneuma-knowledge-web
+    newTag: latest

@@ -1,0 +1,19 @@
+# Public entrypoint. The overlay flips this to type: LoadBalancer pinned to a reserved
+# static IP. It stays plain HTTP:80 — Cloudflare terminates TLS in front when configured
+# as Proxied / orange-cloud with Flexible SSL.
+apiVersion: v1
+kind: Service
+metadata:
+  name: pneuma-knowledge-web
+  labels:
+    app.kubernetes.io/name: pneuma-knowledge
+    app.kubernetes.io/component: web
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: pneuma-knowledge
+    app.kubernetes.io/component: web
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

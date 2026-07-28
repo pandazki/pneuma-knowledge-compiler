@@ -1,0 +1,30 @@
+# Autopilot bin-packing / node consolidation will drain nodes on its own. Without a PDB it
+# can evict both web pods at once, producing a 502 window on the public tier.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: pneuma-knowledge-web
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pneuma-knowledge
+      app.kubernetes.io/component: web
+---
+# pneuma-knowledge-app is a single replica pinned to an RWO PersistentDisk, so minAvailable:1 here means
+# "never voluntarily evict" — there is no second replica to shift traffic to. That is the intent.
+#
+# This protects the single-writer pod from routine voluntary consolidation while its
+# ReadWriteOnce volume is attached. It does not guarantee availability during forced
+# upgrades or repairs; production operators should choose replication and storage policy
+# for their own recovery objectives.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: pneuma-knowledge-app
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pneuma-knowledge
+      app.kubernetes.io/component: app

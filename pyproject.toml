@@ -1,0 +1,30 @@
+[project]
+name = "pneuma-knowledge-compiler"
+version = "0.6.0"
+description = "pneuma-knowledge-compiler workspace root (virtual, non-package)"
+requires-python = ">=3.12"
+dependencies = []
+
+[dependency-groups]
+# Test tooling for the whole workspace; uv syncs the default group automatically.
+dev = ["pytest", "pytest-asyncio", "httpx"]
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["packages/pneuma-knowledge-core", "packages/pneuma-knowledge-service"]
+
+[tool.uv.sources]
+pneuma-knowledge-core = { workspace = true }
+
+[tool.pytest.ini_options]
+# core and service are async top to bottom (ports are async Protocols), so essentially
+# every test is a coroutine. "auto" collects a bare `async def test_*` without a
+# per-test @pytest.mark.asyncio decorator.
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = [
+    "packages/pneuma-knowledge-core/tests",
+    "packages/pneuma-knowledge-service/tests",
+]

@@ -1,0 +1,15 @@
+.git
+.venv
+# Root-anchored — must NOT match examples/data/preset (the shipped demo bundles).
+/data
+apps/web/node_modules
+apps/web/dist
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.ruff_cache
+**/.mypy_cache
+.env
+.env.*
+!.env.example
+*.log

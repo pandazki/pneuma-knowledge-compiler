@@ -1,0 +1,13 @@
+node_modules
+dist
+dist-ssr
+*.local
+.vite
+
+# staged demo datasets (generated, not source)
+public/datasets/
+
+# stray tsc -b emit (root cause of a shadowed vite.config)
+/vite.config.js
+/vite.config.d.ts
+tsconfig.*.tsbuildinfo

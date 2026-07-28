@@ -1,0 +1,37 @@
+# Non-secret config for the API + worker. Credentials (OpenRouter key, Meili master key,
+# PG password inside the DSN) live in pneuma-knowledge-secret — never here.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pneuma-knowledge-config
+data:
+  # In-cluster middleware (see ../backing). PG password comes from the Secret's DSN, so
+  # PNEUMA_KNOWLEDGE_PG_DSN is deliberately absent from this ConfigMap.
+  PNEUMA_KNOWLEDGE_QDRANT_URL: "http://qdrant.pneuma-knowledge.svc.cluster.local:6333"
+  PNEUMA_KNOWLEDGE_QDRANT_COLLECTION: "pneuma_knowledge_chunks"
+  PNEUMA_KNOWLEDGE_MEILI_URL: "http://meilisearch.pneuma-knowledge.svc.cluster.local:7700"
+
+  # Absolute path on the shared PersistentVolume. The default (./data/canonical) is
+  # CWD-relative and would silently land on the container's ephemeral layer.
+  PNEUMA_KNOWLEDGE_CANONICAL_ROOT: "/data/canonical"
+
+  # Public baseline routing via OpenRouter. Operators may replace these with any
+  # tool-calling / structured-output capable models accepted by their provider.
+  PNEUMA_KNOWLEDGE_LLM_MODEL_COMPILE: "openrouter:openai/gpt-4o-mini"
+  PNEUMA_KNOWLEDGE_LLM_MODEL_RECALL: "openrouter:openai/gpt-4o-mini"
+  PNEUMA_KNOWLEDGE_LLM_MODEL_DEEP: "openrouter:openai/gpt-4o-mini"
+  PNEUMA_KNOWLEDGE_LLM_MODEL_SKILL: "openrouter:openai/gpt-4o-mini"
+
+  # 1536-dim. MUST stay aligned with the preset bundles' manifest.json vector_dim —
+  # a mismatch makes the shared Qdrant collection dim conflict on import.
+  PNEUMA_KNOWLEDGE_EMBEDDING_MODEL: "openrouter:openai/text-embedding-3-small"
+  PNEUMA_KNOWLEDGE_CHUNK_STRATEGY: "semantic"
+
+  # Langfuse is optional. Add LANGFUSE_BASE_URL here only when your deployment has
+  # a reachable Langfuse instance; tracing remains a no-op unless its public and
+  # secret keys are also supplied through pneuma-knowledge-secret.
+
+  # The SPA is served same-origin through the nginx tier (/v1 is proxied), so the browser
+  # never issues a cross-origin request. Kept narrow rather than empty so that direct API
+  # access from the deployed origin still works if the LB is ever split.
+  PNEUMA_KNOWLEDGE_CORS_ALLOW_ORIGIN_REGEX: "https?://pneuma-knowledge\\.example\\.com"

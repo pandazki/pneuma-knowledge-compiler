@@ -1,0 +1,295 @@
+"""Post-retrieval assembly pipeline (standard RAG content organization).
+
+`rag_recall` is a strong *recall* front-end (claim + window RRF fusion), but a raw
+fused hit is a bare block: a lexical name hit returns just `[401,401]` = "孙羽" (2 chars)
+with none of the surrounding evaluation, and a mid-document candidate is invisible when a
+briefing packs only a 4-block sample. That is a missing *assembly* stage, not a recall gap.
+
+This module is the standard post-retrieval pipeline, pure and deterministic (langchain-free):
+
+    expand → merge/dedup(+bridge) → per-source cap → lost-in-the-middle order → labeled render
+
+- **expand_and_merge** grows each bare hit FORWARD only (anchored at its own block — a
+  record flows forward from its match, so backward expansion would bleed the previous
+  record in), coalesces near-contiguous windows within a source into one continuous passage
+  (bridging small holes), caps per source, and rebuilds each passage's text from the blocks.
+- **order_lost_in_middle** places the strongest passages at the head and tail and the
+  weakest in the middle (the U-shaped "Lost in the Middle" positional bias).
+- **render_passages** renders each passage with a human-readable provenance header
+  (source *title*, section breadcrumb, exact block interval) so the model can attribute
+  and discriminate between records.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+from dataclasses import dataclass, field
+
+from ..domain.ids import UserId, SourceId
+from ..ports.content_store import ContentStore
+from .rag import RecallHit
+
+
+@dataclass(frozen=True)
+class Passage:
+    """A context-expanded, merged retrieval passage addressed by an inclusive block span.
+
+    The block interval `[block_start, block_end]` is exact provenance (citation round-trip
+    and UI drill-down) even when `text` is truncated for payload bounding. `source_title`
+    is the human title of the owning source for a readable provenance label; `section_path`
+    is the section breadcrumb of the highest-scoring seed hit."""
+
+    source_id: SourceId
+    block_start: int
+    block_end: int
+    text: str
+    paths: tuple[str, ...]
+    score: float
+    section_path: tuple[str, ...] = ()
+    source_title: str = ""
+
+
+# ------------------------------------------------------------------- expand + merge
+
+
+@dataclass
+class _Interval:
+    """Mutable working interval during expand/merge within one source."""
+
+    start: int
+    end: int
+    score: float
+    paths: list[str]
+    seed_score: float
+    section_path: tuple[str, ...]
+
+
+def _union_paths(into: list[str], extra: Sequence[str]) -> None:
+    for p in extra:
+        if p not in into:
+            into.append(p)
+
+
+def _truncate(text: str, max_chars: int) -> str:
+    """Bound a rendered passage to `max_chars`, keeping the HEAD and dropping the tail.
+
+    A record's entry — its name / source label / first fields — lives at the head, so keep
+    that. The old middle-drop (head + tail) silently gutted the body, where the answer often
+    is. The block interval on the Passage stays exact, so deep can fetch_verbatim the rest.
+    (Chunks are hard-capped at ingest, so this only fires for a whole-block lexical hit on an
+    unusually large block.)"""
+    if max_chars <= 0 or len(text) <= max_chars:
+        return text
+    return (
+        text[:max_chars].rstrip()
+        + "\n…（后略，本段较长；deep 可用 fetch_verbatim 取全文）"
+    )
+
+
+def _expand_one(
+    hit: RecallHit,
+    block_map: dict[int, str],
+    section_map: dict[int, tuple[str, ...]],
+    *,
+    forward_blocks: int,
+    forward_char_budget: int,
+) -> _Interval:
+    """Asymmetric expansion (director's rule): anchor backward, grow forward.
+
+    A block is a paragraph, so the passage's start stays at the hit's own block — we NEVER
+    expand backward into earlier blocks. That is deliberate: a record flows forward from its
+    match (a name block is followed by its evaluation), so backward expansion would only bleed
+    the *previous* record's tail into this passage. We expand FORWARD only — crossing paragraph
+    boundaries is fine — up to `forward_blocks` blocks or `forward_char_budget` chars (whichever
+    first), clamped to the source boundary. This pulls a bare name block into its own evaluation
+    without dragging in the neighbour above it."""
+    start, end = hit.block_start, hit.block_end
+    fwd_chars = fwd_count = 0
+    while fwd_count < forward_blocks and fwd_chars < forward_char_budget:
+        nxt = end + 1
+        if nxt not in block_map:
+            break
+        end = nxt
+        fwd_chars += len(block_map[nxt])
+        fwd_count += 1
+    section_path = section_map.get(hit.block_start, ())
+    return _Interval(
+        start=start,
+        end=end,
+        score=hit.score,
+        paths=list(hit.paths),
+        seed_score=hit.score,
+        section_path=section_path,
+    )
+
+
+def _rebuild_text(block_map: dict[int, str], start: int, end: int) -> str:
+    """Join a contiguous block interval in index order (bridged holes included)."""
+    parts = [block_map[i] for i in range(start, end + 1) if i in block_map]
+    return "\n".join(parts)
+
+
+async def expand_and_merge(
+    hits: Sequence[RecallHit],
+    *,
+    content: ContentStore | None,
+    user_id: UserId,
+    forward_blocks: int = 5,
+    forward_char_budget: int = 700,
+    max_passage_chars: int = 2500,
+    per_source_cap: int = 3,
+    merge_gap_blocks: int = 2,
+) -> list[Passage]:
+    """Standard expand → merge/dedup(+bridge) → per-source cap over fused recall hits.
+
+    Groups hits by source; fetches each source once (cached). For each source it expands
+    every hit FORWARD only (anchoring at the hit's own block — never bleeding backward into
+    the previous record; see `_expand_one`), then coalesces windows whose block gap ≤
+    `merge_gap_blocks` into one continuous passage — bridging the in-between blocks so the
+    passage reads without holes. Merged passages take the max score, the union of retrieval
+    paths, and the section breadcrumb of their highest-scoring seed. Text is rebuilt from the
+    source's blocks and truncated (head+tail) past `max_passage_chars` while the block
+    interval stays exact. At most `per_source_cap` passages survive per source (highest score
+    first) so one document can't flood the context. Deterministic throughout: stable tie-break
+    by (source_id, block_start). Falls back to the hit's own text/span for a source that can't
+    be fetched (missing source or `content is None`)."""
+    # Group hits by source, preserving fused order for stability.
+    by_source: dict[str, list[RecallHit]] = {}
+    for hit in hits:
+        by_source.setdefault(str(hit.source_id), []).append(hit)
+
+    cache: dict[str, object] = {}
+
+    async def _source(sid: str):
+        if sid not in cache:
+            if content is None:
+                cache[sid] = None
+            else:
+                try:
+                    cache[sid] = await content.get(user_id, SourceId(sid))
+                except KeyError:
+                    cache[sid] = None
+        return cache[sid]
+
+    passages: list[Passage] = []
+    for sid, group in by_source.items():
+        ns = await _source(sid)
+        if ns is None:
+            # No source content: keep each hit's own text/span (no expansion/merge).
+            capped = sorted(group, key=lambda h: (-h.score, h.block_start))[:per_source_cap]
+            for h in capped:
+                passages.append(
+                    Passage(
+                        source_id=SourceId(sid),
+                        block_start=h.block_start,
+                        block_end=h.block_end,
+                        text=h.text,
+                        paths=tuple(h.paths),
+                        score=h.score,
+                        section_path=(),
+                        source_title="",
+                    )
+                )
+            continue
+
+        block_map = {b.index: b.text for b in ns.blocks}
+        section_map = {b.index: tuple(b.section_path) for b in ns.blocks}
+        title = getattr(ns.raw, "title", "") or ""
+
+        # Expand each hit, then merge left-to-right over sorted intervals.
+        intervals = [
+            _expand_one(
+                h,
+                block_map,
+                section_map,
+                forward_blocks=forward_blocks,
+                forward_char_budget=forward_char_budget,
+            )
+            for h in group
+        ]
+        intervals.sort(key=lambda iv: (iv.start, iv.end))
+
+        merged: list[_Interval] = []
+        for iv in intervals:
+            if merged:
+                last = merged[-1]
+                gap = iv.start - last.end - 1  # blocks strictly between (negative = overlap)
+                if gap <= merge_gap_blocks:
+                    last.end = max(last.end, iv.end)
+                    last.score = max(last.score, iv.score)
+                    _union_paths(last.paths, iv.paths)
+                    if iv.seed_score > last.seed_score:
+                        last.seed_score = iv.seed_score
+                        last.section_path = iv.section_path
+                    continue
+            merged.append(iv)
+
+        source_passages = [
+            Passage(
+                source_id=SourceId(sid),
+                block_start=iv.start,
+                block_end=iv.end,
+                text=_truncate(_rebuild_text(block_map, iv.start, iv.end), max_passage_chars),
+                paths=tuple(iv.paths),
+                score=iv.score,
+                section_path=iv.section_path,
+                source_title=title,
+            )
+            for iv in merged
+        ]
+        source_passages.sort(key=lambda p: (-p.score, p.block_start))
+        passages.extend(source_passages[:per_source_cap])
+
+    passages.sort(key=lambda p: (-p.score, str(p.source_id), p.block_start))
+    return passages
+
+
+# ------------------------------------------------------------- lost-in-the-middle order
+
+
+def order_lost_in_middle(passages: Sequence[Passage]) -> list[Passage]:
+    """LongContextReorder: strongest passages to the HEAD and TAIL, weakest in the MIDDLE.
+
+    Long-context models attend most to the beginning and end of the context and least to
+    the middle (the U-shaped "Lost in the Middle" positional bias, Liu et al. 2023). Given
+    passages already sorted by score descending, we place ranked items alternately toward
+    the front and back: rank 1 lands at the head, rank 2 at the tail, and the weakest sink
+    into the low-attention middle. Deterministic."""
+    head: list[Passage] = []
+    tail: list[Passage] = []
+    for i, p in enumerate(passages):
+        (head if i % 2 == 0 else tail).append(p)
+    return head + tail[::-1]
+
+
+# ---------------------------------------------------------------------- labeled render
+
+
+def _provenance(passage: Passage) -> str:
+    """`[cite: <source_id> ¶start-end] <title> › <section>` — the provenance marker.
+
+    The `[cite: …]` token is a FIXED English/ASCII marker the app extracts into a citation
+    component; it is never translated to the answer's language, and its `source_id` is the
+    FULL resolvable id (never truncated) so a cited span always resolves. Any human title /
+    section rides AFTER the token as readable context, never inside the extractable marker."""
+    token = f"[cite: {passage.source_id} ¶{passage.block_start}-{passage.block_end}]"
+    ctx: list[str] = []
+    if passage.source_title.strip():
+        ctx.append(passage.source_title.strip())
+    if passage.section_path:
+        ctx.append(" › ".join(passage.section_path))
+    return f"{token} {' · '.join(ctx)}".rstrip()
+
+
+def render_passages(passages: Sequence[Passage], *, header: str = "原文摘录") -> str:
+    """Render passages with a per-passage provenance header line so the model can attribute
+    and discriminate between records. `header` optionally titles the whole block (empty =
+    no title line; the caller supplies its own section header). Replaces the flat single-line
+    window rendering."""
+    lines: list[str] = []
+    if header:
+        lines.append(f"# {header}")
+    for p in passages:
+        lines.append(_provenance(p))
+        lines.append(p.text)
+    return "\n".join(lines)

@@ -1,0 +1,17 @@
+# Internal only — the public entrypoint is the nginx web tier, which proxies /v1 here.
+apiVersion: v1
+kind: Service
+metadata:
+  name: pneuma-knowledge-api
+  labels:
+    app.kubernetes.io/name: pneuma-knowledge
+    app.kubernetes.io/component: app
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: pneuma-knowledge
+    app.kubernetes.io/component: app
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

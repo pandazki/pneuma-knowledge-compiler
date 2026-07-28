@@ -1,0 +1,96 @@
+{
+  "packs": [
+    {
+      "pack_id": "healthcare-clinical-ops",
+      "match": {
+        "roles": [
+          "admin",
+          "support"
+        ],
+        "industries": [
+          "healthcare"
+        ]
+      },
+      "extra_instructions": "## 附加归档位：排班与交接（医疗运营）\n\n当本人在医疗行业从事行政或支持类工作时，排班与交接是高频且形态稳定的运营语义。`memory/shifts/{slug}.md` 收稳定的排班/轮值上下文（班次归属、覆盖安排、例外与调换）；`memory/handoffs/{slug}.md` 收交接记录（交接事项、责任转移、未决随访）。与 topics 的分界：能明确归到某个具体班次或某次交接的进这里；一般的科室讨论、政策解读、跨班次的泛协调仍留 topics。涉及患者的信息遵循敏感内容最小化，只保留完成协作所必需的最小语义，不复制完整身份或病史。\n\n- 例：「周末夜班改由 B 覆盖，交接了两项未完成的随访」→ 进 shifts / handoffs。\n- 反例：把交接中念到的患者完整病史与证件号复制进 handoffs（只留必要的协作语义）。",
+      "extra_path_templates": [
+        "memory/shifts/{slug}.md",
+        "memory/handoffs/{slug}.md"
+      ],
+      "extra_contract_rules": []
+    },
+    {
+      "pack_id": "role-design",
+      "match": {
+        "roles": [
+          "design"
+        ],
+        "industries": []
+      },
+      "extra_instructions": "## 附加归档位：设计工作\n\n设计角色下，`memory/design-work/{slug}.md` 以一项设计工作或流程为主体，收其目标、关键设计决策与理由、评审反馈的处置、状态演化。与 topics 的分界：能明确归到某项设计工作的进这里；泛泛的审美偏好属于 profile，跨项目复用的设计规范类知识若稳定成型可留 topics 或外置进 materials。评审意见按说话人归属，一次反馈不等于已采纳的决定。拿不准就留在 topics，别硬塞。\n\n- 例：「结算页改版：确认按钮下移的决定，依据是可用性测试的点击热区」→ 进 design-work。\n- 反例：把一次评审里某人的个人偏好意见写成已定的设计规范。",
+      "extra_path_templates": [
+        "memory/design-work/{slug}.md"
+      ],
+      "extra_contract_rules": []
+    },
+    {
+      "pack_id": "role-engineering",
+      "match": {
+        "roles": [
+          "engineering"
+        ],
+        "industries": []
+      },
+      "extra_instructions": "## 附加归档位：工程项目与技术笔记\n\n本人是工程角色时，两类语义常有独立于通用 people/topics 的稳定形态。`memory/projects/{slug}.md` 收有交付生命周期的工程项目（目标、里程碑、负责人、验收条件、状态演化）；`memory/tech-notes/{slug}.md` 收跨项目复用的技术决策与经验（架构取舍、坑与规避、稳定的操作性事实），其价值不依附于任何单个项目。与 topics 的分界：能明确落到某个项目或某条技术结论上的归这里；泛泛的工作讨论、临时协调、纯人际互动仍留 topics。拿不准就留在 topics，别硬塞。\n\n- 例：「支付重构项目下周一交付，验收是端到端测试通过」→ 进 projects。\n- 反例：一次关于团队午饭安排的闲聊，不因发生在工程语境就进 tech-notes。",
+      "extra_path_templates": [
+        "memory/projects/{slug}.md",
+        "memory/tech-notes/{slug}.md"
+      ],
+      "extra_contract_rules": []
+    },
+    {
+      "pack_id": "role-marketing",
+      "match": {
+        "roles": [
+          "marketing"
+        ],
+        "industries": []
+      },
+      "extra_instructions": "## 附加归档位：营销活动与受众\n\n营销角色下，`memory/campaigns/{slug}.md` 以单个营销活动为主体（目标、渠道、时间窗、投放决策、结果与复盘）；`memory/audiences/{slug}.md` 收稳定的受众/细分知识（画像、偏好、有效触达方式）。与 topics 的分界：能归到某个活动或某条受众结论的进这里；一次性创意点子、跨活动的泛讨论留 topics。结果数据保留来源，一次波动不等于稳定规律。\n\n- 例：「春季活动在渠道 X 的转化显著高于 Y，已两轮验证」→ 进 campaigns（可提炼的受众规律再进 audiences）。\n- 反例：把某次活动的单日异常数据当作该受众的稳定特征写入 audiences。",
+      "extra_path_templates": [
+        "memory/campaigns/{slug}.md",
+        "memory/audiences/{slug}.md"
+      ],
+      "extra_contract_rules": []
+    },
+    {
+      "pack_id": "role-product-management",
+      "match": {
+        "roles": [
+          "product_management"
+        ],
+        "industries": []
+      },
+      "extra_instructions": "## 附加归档位：产品领域与用户研究\n\n产品角色下，`memory/products/{slug}.md` 以产品或功能领域为长期主体（目标、范围、关键决策与其理由、状态）；`memory/research/{slug}.md` 收支撑决策的用户与市场发现（访谈结论、数据洞察、验证结果）。与 topics 的分界：products 只收**本人自己团队**的产品/功能领域；供应商、客户等**外部组织**的评审、就绪与交付记录不进 products——那是以对方组织为主体的语义，留在 topics（或未来更合适的家族）。跨领域的路线图讨论、纯协调事项也留 topics。研究结论保留来源与不确定性，不把一次访谈的个别说法当作普遍事实。\n\n- 例：「新手引导流失集中在第 3 步，已验证与权限弹窗有关」→ 进 research。\n- 反例：把一次团队对某功能的头脑风暴设想当作已定的产品决策写入 products。",
+      "extra_path_templates": [
+        "memory/products/{slug}.md",
+        "memory/research/{slug}.md"
+      ],
+      "extra_contract_rules": []
+    },
+    {
+      "pack_id": "role-sales",
+      "match": {
+        "roles": [
+          "sales"
+        ],
+        "industries": []
+      },
+      "extra_instructions": "## 附加归档位：客户与商机\n\n销售角色下，客户关系与具体商机是两类高价值且形态稳定的语义。`memory/accounts/{slug}.md` 以客户组织为长期主体（合作历史、约束与偏好、关键联系人的角色）；`memory/deals/{slug}.md` 收单个商机的推进（阶段、金额口径、决策人、下一步、赢/输原因）。与 people/topics 的分界：客户方个人仍进 people，用链接关联到 account，account 文档只收把该组织当作整体主体的语义；一次性的销售杂谈留 topics。\n\n- 例：「A 公司本季度预算冻结，采购决策推迟到 Q4」→ 进 accounts。\n- 反例：把某客户联系人的完整个人档案塞进 account 文档（应在 people，以链接关联）。",
+      "extra_path_templates": [
+        "memory/accounts/{slug}.md",
+        "memory/deals/{slug}.md"
+      ],
+      "extra_contract_rules": []
+    }
+  ]
+}

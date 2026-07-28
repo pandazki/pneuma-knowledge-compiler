@@ -1,0 +1,70 @@
+# L2 semantic vectors. Derived — rebuildable from PG + canonical git via
+# examples/rebuild_derived.py, so the volume is convenience, not durability.
+#
+# Pinned to v1.18.x to match the qdrant-client>=1.18,<1.19 pin in pneuma-knowledge-service.
+apiVersion: v1
+kind: Service
+metadata:
+  name: qdrant
+  labels:
+    app.kubernetes.io/name: pneuma-knowledge
+    app.kubernetes.io/component: qdrant
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: pneuma-knowledge
+    app.kubernetes.io/component: qdrant
+  ports:
+    - name: http
+      port: 6333
+      targetPort: 6333
+    - name: grpc
+      port: 6334
+      targetPort: 6334
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: qdrant
+spec:
+  serviceName: qdrant
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pneuma-knowledge
+      app.kubernetes.io/component: qdrant
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pneuma-knowledge
+        app.kubernetes.io/component: qdrant
+    spec:
+      containers:
+        - name: qdrant
+          image: qdrant/qdrant:v1.18.0
+          ports:
+            - containerPort: 6333
+            - containerPort: 6334
+          volumeMounts:
+            - name: storage
+              mountPath: /qdrant/storage
+          readinessProbe:
+            tcpSocket:
+              port: 6333
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "1Gi"
+            limits:
+              cpu: "1"
+              memory: "2Gi"
+  volumeClaimTemplates:
+    - metadata:
+        name: storage
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 10Gi

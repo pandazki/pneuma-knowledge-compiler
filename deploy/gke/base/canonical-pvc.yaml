@@ -1,0 +1,16 @@
+# The one non-rebuildable, filesystem-backed layer: one git repo per user under
+# PNEUMA_KNOWLEDGE_CANONICAL_ROOT. Everything else (Qdrant vectors, Meili lexical, L3 projection)
+# is derived and can be rebuilt from PG + these repos via examples/rebuild_derived.py.
+#
+# ReadWriteOnce, which is why the API and worker are colocated in ONE pod — a GCE PD
+# cannot be attached to two nodes at once. Splitting them into separate Deployments would
+# require a ReadWriteMany volume (Filestore) and its ~1TiB minimum.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pneuma-knowledge-canonical
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 10Gi

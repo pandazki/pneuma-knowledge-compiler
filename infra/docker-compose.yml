@@ -1,0 +1,52 @@
+name: pneuma-knowledge-compiler
+
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.18.0
+    # 仅绑定 loopback，并使用独立开发端口避免和本机其他服务冲突。
+    ports:
+      - "127.0.0.1:16333:6333"
+      - "127.0.0.1:16334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: pneuma_knowledge
+      POSTGRES_USER: pneuma_knowledge
+      POSTGRES_PASSWORD: ${PNEUMA_KNOWLEDGE_PG_PASSWORD:-pneuma_knowledge}
+    ports:
+      - "127.0.0.1:15432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pneuma_knowledge -d pneuma_knowledge"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  meilisearch:
+    image: getmeili/meilisearch:v1.11
+    environment:
+      MEILI_MASTER_KEY: ${PNEUMA_KNOWLEDGE_MEILI_KEY:-masterKey_change_me}
+      MEILI_ENV: development
+    ports:
+      - "127.0.0.1:17700:7700"
+    volumes:
+      - meili_data:/meili_data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7700/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  qdrant_data:
+  postgres_data:
+  meili_data:

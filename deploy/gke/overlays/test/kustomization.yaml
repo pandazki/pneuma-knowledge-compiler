@@ -1,0 +1,31 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: pneuma-knowledge
+
+resources:
+  - ../../base
+  - ../../backing
+
+images:
+  - name: REGION-docker.pkg.dev/PROJECT/REPO/pneuma-knowledge
+    newName: asia-east1-docker.pkg.dev/your-gcp-project/pneuma-knowledge/pneuma-knowledge
+    newTag: v4
+  - name: REGION-docker.pkg.dev/PROJECT/REPO/pneuma-knowledge-web
+    newName: asia-east1-docker.pkg.dev/your-gcp-project/pneuma-knowledge/pneuma-knowledge-web
+    newTag: v4
+
+patches:
+  # Public tier. Static IP reserved as:
+  #   gcloud compute addresses create pneuma-knowledge-web --region asia-east1
+  # Stays HTTP:80 — Cloudflare fronts it with Flexible SSL (see deploy/gke/README.md).
+  - target:
+      kind: Service
+      name: pneuma-knowledge-web
+    patch: |-
+      - op: replace
+        path: /spec/type
+        value: LoadBalancer
+      - op: add
+        path: /spec/loadBalancerIP
+        value: "203.0.113.10"

@@ -1,0 +1,50 @@
+# nginx: serves the built SPA and reverse-proxies /v1 + /healthz to pneuma-knowledge-api.
+# Stateless, so unlike the app tier this runs 2 replicas for availability — a GKE Autopilot
+# node consolidation evicting a lone pod is an outage window on the public tier.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pneuma-knowledge-web
+  labels:
+    app.kubernetes.io/name: pneuma-knowledge
+    app.kubernetes.io/component: web
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pneuma-knowledge
+      app.kubernetes.io/component: web
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pneuma-knowledge
+        app.kubernetes.io/component: web
+    spec:
+      containers:
+        - name: web
+          image: pneuma-knowledge-web  # replaced by the kustomize images transformer
+          ports:
+            - name: http
+              containerPort: 8080
+          # Probes hit nginx's local /_nginx_health, NOT the proxied /healthz: the web tier
+          # should keep serving the SPA shell while the API restarts, rather than taking
+          # itself out of rotation and turning an API blip into a hard 502 for static assets.
+          readinessProbe:
+            httpGet:
+              path: /_nginx_health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /_nginx_health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+            limits:
+              cpu: "300m"
+              memory: "256Mi"

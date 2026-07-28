@@ -1,0 +1,338 @@
+"""Compile worker (architecture.md §5): consumes the PG compile queue serially.
+
+Single process, per-user serial (the JobQueue's `FOR UPDATE SKIP LOCKED` + "no second
+in-flight job per user" rule is the single-writer guarantee for the git canonical
+layer). For each claimed job it rebuilds the supplied NormalizedSources, runs the pure
+`run_compile` (which commits to git on success), then persists the mechanically-derived
+events to PG, stamps the sources digested, and marks the job done. An aborted compile
+(gate still failing after one repair) completes with ok=False + the violation detail;
+the canonical layer is untouched (runner made no commit).
+"""
+
+from __future__ import annotations
+
+import asyncio
+from dataclasses import asdict
+from datetime import datetime, timezone
+
+from pneuma_knowledge_core.compile.runner import CompileResult, run_compile
+from pneuma_knowledge_core.domain.ids import UserId, SourceId
+from pneuma_knowledge_core.domain.intake import IntakePlan
+from pneuma_knowledge_core.domain.source import NormalizedSource
+from pneuma_knowledge_core.ingest.chunking import EmbeddedChunk
+from pneuma_knowledge_core.ingest.source_types import first_party_type
+from pneuma_knowledge_core.skill.version import SkillVersion
+from langchain_core.language_models.chat_models import BaseChatModel
+
+from ..evolve_service import (
+    adopt_evolve_job,
+    maybe_trigger_evolve,
+    run_evolve_job,
+)
+from ..ingest_document import _summary_chunks
+from ..projection import rebuild_projection
+from ..settings import Settings
+from ..skills import skill_for_user
+from ..wiring import (
+    AppContext,
+    build_chat_model_for,
+    build_context,
+    full_l2_chunks,
+    llm_call_config,
+    resolve_model_name,
+)
+
+
+async def process_job(
+    ctx: AppContext,
+    chat_model: BaseChatModel,
+    skill: SkillVersion,
+    user_id: UserId,
+    job: object,
+) -> CompileResult:
+    """Run one claimed compile job to completion (commit + events + digest, or abort)."""
+    payload = getattr(job, "payload", {}) or {}
+    job_id = getattr(job, "job_id")
+    source_ids: list[str] = [str(s) for s in payload.get("source_ids", [])]
+
+    sources: list[NormalizedSource] = []
+    for sid in source_ids:
+        try:
+            sources.append(await ctx.store.get(user_id, SourceId(sid)))
+        except KeyError:
+            continue  # source deleted since enqueue; skip it
+
+    # Per-source treatment: payload override, else the source's stored IntakePlan.
+    payload_treatments = payload.get("treatments") or {}
+    treatments = {
+        str(s.raw.source_id): payload_treatments.get(
+            str(s.raw.source_id),
+            (s.raw.intake_plan or {}).get("canonical_treatment", "full"),
+        )
+        for s in sources
+    }
+
+    # Per-source first-party compile guidance (data-context + app-intent), by origin.
+    # A generic upload has no first-party type → no guidance. `context_stream_compile_guidance
+    # =False` disables injection deployment-wide (deep-heavy: the sharp frame can tip deep
+    # into over-assertion — see settings + docs/first-party-context-stream.md).
+    source_guidance: dict[str, str] = {}
+    if ctx.settings.context_stream_compile_guidance:
+        for s in sources:
+            fp = first_party_type(s.raw.origin)
+            g = fp.compile_guidance() if fp else None
+            if g:
+                source_guidance[str(s.raw.source_id)] = g.render()
+
+    trace_cfg = llm_call_config(
+        ctx,
+        operation="compile",
+        user_id=str(user_id),
+        extra={
+            "skill_version": skill.version,
+            "skill_id": skill.skill_id,
+            "job_id": str(job_id),
+            "source_count": len(sources),
+        },
+    )
+    result = await run_compile(
+        user_id=user_id,
+        model=chat_model,
+        store=ctx.canonical,
+        sources=sources,
+        skill=skill,
+        treatments=treatments,
+        source_guidance=source_guidance,
+        commit_message=f"compile {job_id}",
+        **trace_cfg,
+    )
+
+    now = datetime.now(timezone.utc)
+    if result.status == "committed":
+        assert result.snapshot is not None
+        await ctx.store.record_compile_events(
+            user_id, job_id, result.snapshot.ref, [asdict(e) for e in result.events]
+        )
+        await ctx.store.mark_digested(user_id, source_ids, now)
+        # L3 projection: rebuild the claim retrieval face from the new snapshot (M4).
+        await rebuild_projection(ctx, user_id, result.snapshot.ref)
+        await ctx.store.complete(
+            user_id, job_id, ok=True, snapshot_ref=result.snapshot.ref
+        )
+        # Passive schema-evolve trigger (schema-evolve §2.1): once committed events land,
+        # enqueue an evolve job if the topic/anchor increment cleared the threshold.
+        await maybe_trigger_evolve(ctx, user_id)
+    elif result.status == "noop":
+        # Consumed, produced no canonical change — still digested so it doesn't re-loop.
+        await ctx.store.mark_digested(user_id, source_ids, now)
+        await ctx.store.complete(user_id, job_id, ok=True, detail="noop")
+    else:  # aborted
+        detail = "; ".join(v.render() for v in result.violations)
+        await ctx.store.complete(user_id, job_id, ok=False, detail=detail)
+    return result
+
+
+async def process_index_job(
+    ctx: AppContext, user_id: UserId, job: object
+) -> None:
+    """Run one claimed "index" job: the L1/L2 indexing that used to run inline in ingest.
+
+    Loads the stored NormalizedSource + its intake_plan, then:
+      - L1 (unconditional, I3): lexical.index_blocks over the blocks.
+      - L2 (by semantic_indexing): full → full_l2_chunks (configured model when enabled, else the
+        mechanical sentence fallback); summary → _summary_chunks; none → no chunks.
+        Then embed + vectors.upsert_chunks.
+
+    Idempotent: L1/L2 upsert by deterministic ids, so a retried index job is safe. The
+    chat model for semantic chunking is fetched from ctx inside full_l2_chunks.
+    """
+    payload = getattr(job, "payload", {}) or {}
+    job_id = getattr(job, "job_id")
+    source_id_str = str(payload.get("source_id", ""))
+
+    try:
+        ns = await ctx.store.get(user_id, SourceId(source_id_str))
+    except KeyError:
+        # source deleted since enqueue — nothing to index; mark done so it doesn't re-loop.
+        await ctx.store.complete(user_id, job_id, ok=True, detail="source gone")
+        return
+
+    source_id = ns.raw.source_id
+    plan = (
+        IntakePlan.model_validate(ns.raw.intake_plan) if ns.raw.intake_plan else None
+    )
+    semantic = plan.semantic_indexing if plan else "full"
+
+    # L1: unconditional (I3).
+    await ctx.lexical.index_blocks(user_id, source_id, ns.blocks)
+
+    # L2: by IntakePlan (semantic_indexing knob).
+    if semantic == "full":
+        chunks = await full_l2_chunks(
+            ctx, source_id, ns.blocks, ns.structure, user_id
+        )
+    elif semantic == "summary":
+        chunks = _summary_chunks(source_id, ns)
+    else:
+        chunks = []
+    if chunks:
+        vectors = await ctx.embeddings.aembed_documents([c.text for c in chunks])
+        embedded = [
+            EmbeddedChunk(
+                source_id=c.source_id,
+                block_start=c.block_start,
+                block_end=c.block_end,
+                text=c.text,
+                char_start=c.char_start,
+                char_end=c.char_end,
+                embedding=vec,
+            )
+            for c, vec in zip(chunks, vectors)
+        ]
+        await ctx.vectors.upsert_chunks(user_id, embedded)
+
+    await ctx.store.complete(user_id, job_id, ok=True, detail="indexed")
+
+
+async def _resolve_user_skill(
+    ctx: AppContext,
+    user_id: UserId,
+    cache: dict[str, SkillVersion] | None,
+) -> SkillVersion:
+    """This user's per-job skill, memoized in a per-sweep cache to avoid re-reading git."""
+    key = str(user_id)
+    if cache is not None and key in cache:
+        return cache[key]
+    skill = await skill_for_user(ctx, user_id)
+    if cache is not None:
+        cache[key] = skill
+    return skill
+
+
+async def drain_user(
+    ctx: AppContext,
+    chat_model: BaseChatModel,
+    skill: SkillVersion | None,
+    user_id: UserId,
+    *,
+    skill_cache: dict[str, SkillVersion] | None = None,
+) -> int:
+    """Claim + process this user's queued jobs until the queue is empty.
+
+    Kind-agnostic claim (claim_next orders by created_at): dispatch by job.kind —
+    "index" → process_index_job (L1/L2), anything else ("compile") → process_job.
+
+    `skill` is the per-USER skill for this drain: pass an explicit SkillVersion to force
+    one (upgrade/version tests), or None to load it per-job via `skill_for_user` (the
+    worker's default — each owner compiles with their own composed skill). It resolves
+    lazily on the first compile job (index jobs need no skill) and is memoized here + in
+    `skill_cache` for the rest of the sweep."""
+    resolved = skill
+    processed = 0
+    while True:
+        job = await ctx.store.claim_next(user_id)
+        if job is None:
+            return processed
+        try:
+            kind = getattr(job, "kind", "compile")
+            if kind == "index":
+                await process_index_job(ctx, user_id, job)
+            elif kind == "evolve":
+                await run_evolve_job(ctx, user_id, job)
+            elif kind == "evolve_adopt":
+                await adopt_evolve_job(ctx, user_id, job)
+            else:
+                if resolved is None:
+                    resolved = await _resolve_user_skill(ctx, user_id, skill_cache)
+                await process_job(ctx, chat_model, resolved, user_id, job)
+        except Exception as exc:  # noqa: BLE001 — never leave a job stuck 'claimed'
+            await ctx.store.complete(
+                user_id, job.job_id, ok=False, detail=f"worker error: {exc}"
+            )
+        finally:
+            # Short-lived per-job trace flush: a worker sweep may exit right after, so
+            # never rely on the background batch surviving process end.
+            await ctx.flush_traces()
+        processed += 1
+
+
+async def drain_index_jobs(ctx: AppContext, user_id: UserId) -> int:
+    """Claim + process only this user's queued "index" jobs, leaving any compile job queued.
+
+    For callers that must exercise recall (L1/L2 populated) without running compile — e.g.
+    a test whose context has no real compile model / no throwaway canonical root. It peeks
+    the queue (list_jobs, oldest-first) so a compile job is never claimed and left blocking
+    the per-user single-in-flight slot.
+    """
+    processed = 0
+    while True:
+        jobs = await ctx.store.list_jobs(user_id)  # newest first
+        queued = [j for j in reversed(jobs) if j["status"] == "queued"]  # oldest first
+        if not queued or queued[0]["kind"] != "index":
+            return processed
+        job = await ctx.store.claim_next(user_id)
+        if job is None or getattr(job, "kind", None) != "index":
+            return processed
+        try:
+            await process_index_job(ctx, user_id, job)
+        finally:
+            await ctx.flush_traces()
+        processed += 1
+
+
+async def compile_pending(
+    ctx: AppContext, chat_model: BaseChatModel, skill: SkillVersion | None = None
+) -> int:
+    """One sweep across every user with data; returns the job count processed.
+
+    `skill=None` (the worker default) loads each user's own skill per job; a per-sweep
+    cache keyed by user avoids re-reading a manifest from git once per job."""
+    total = 0
+    cache: dict[str, SkillVersion] = {}
+    for uid in await ctx.store.list_users():
+        total += await drain_user(
+            ctx, chat_model, skill, UserId(uid), skill_cache=cache
+        )
+    return total
+
+
+async def run_forever() -> None:
+    settings = Settings()
+    ctx = await build_context(settings)
+    chat_model = build_chat_model_for(settings, "compile")
+    # No single global skill: each job loads its user's own composed skill (skill=None).
+    print(
+        f"[compile-worker] model={resolve_model_name(settings, 'compile')} "
+        f"canonical={settings.canonical_root}"
+    )
+    # Self-heal on startup: requeue any job orphaned as 'claimed' by a previous worker
+    # that died mid-job (killed during an LLM call), which would otherwise block its
+    # user's queue forever.
+    reclaimed = await ctx.store.requeue_claimed_jobs()
+    if reclaimed:
+        print(f"[compile-worker] reclaimed {reclaimed} orphaned claimed job(s) → requeued")
+    try:
+        while True:
+            n = await compile_pending(ctx, chat_model)
+            if n:
+                print(f"[compile-worker] processed {n} job(s)")
+            await asyncio.sleep(2.0)
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        print("[compile-worker] stopped")
+    finally:
+        await ctx.aclose()
+
+
+def main() -> None:
+    """Process entrypoint — `python -m pneuma_knowledge_service.workers.compile_worker`.
+
+    One `asyncio.run` owns the loop for the worker's whole life, so the PG pool and the
+    Meili/Qdrant clients are created and closed on the same loop."""
+    try:
+        asyncio.run(run_forever())
+    except KeyboardInterrupt:
+        pass  # Ctrl-C during shutdown; run_forever already printed its stop line
+
+
+if __name__ == "__main__":
+    main()

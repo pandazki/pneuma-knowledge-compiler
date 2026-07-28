@@ -1,0 +1,78 @@
+# L1 lexical index (per-user blocks_<uid> / claims_<uid>). Derived — rebuildable.
+apiVersion: v1
+kind: Service
+metadata:
+  name: meilisearch
+  labels:
+    app.kubernetes.io/name: pneuma-knowledge
+    app.kubernetes.io/component: meilisearch
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: pneuma-knowledge
+    app.kubernetes.io/component: meilisearch
+  ports:
+    - name: http
+      port: 7700
+      targetPort: 7700
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: meilisearch
+spec:
+  serviceName: meilisearch
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pneuma-knowledge
+      app.kubernetes.io/component: meilisearch
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pneuma-knowledge
+        app.kubernetes.io/component: meilisearch
+    spec:
+      containers:
+        - name: meilisearch
+          image: getmeili/meilisearch:v1.11
+          ports:
+            - containerPort: 7700
+          env:
+            # Same key the app sends as PNEUMA_KNOWLEDGE_MEILI_KEY — they must match or every
+            # index call 403s.
+            - name: MEILI_MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: pneuma-knowledge-secret
+                  key: PNEUMA_KNOWLEDGE_MEILI_KEY
+            - name: MEILI_ENV
+              value: "production"
+            # MEILI_DB_PATH is deliberately NOT set. The image's WORKDIR makes the default
+            # resolve to /meili_data/data.ms — a clean subdirectory. Pointing it at the PVC
+            # root instead makes Meilisearch try to read lost+found as a database and fail
+            # with "failed to infer the version of the database". Matches infra/docker-compose.yml.
+          volumeMounts:
+            - name: data
+              mountPath: /meili_data
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 7700
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "2Gi"
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 10Gi

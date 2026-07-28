@@ -1,0 +1,308 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-07-28T09:54:38Z",
+  "title": "Design System: Pneuma Knowledge Compiler",
+  "extensions": {
+    "colorMeta": {
+      "porcelain-canvas": {
+        "role": "neutral",
+        "displayName": "Porcelain Wayfinding Canvas",
+        "canonical": "#f2f1e9",
+        "tonalRamp": ["oklch(15% 0.012 95)", "oklch(27% 0.014 95)", "oklch(39% 0.016 95)", "oklch(51% 0.017 95)", "oklch(63% 0.015 95)", "oklch(75% 0.012 95)", "oklch(87% 0.008 95)", "oklch(95% 0.004 95)"]
+      },
+      "porcelain-card": {
+        "role": "neutral",
+        "displayName": "Porcelain Card",
+        "canonical": "#fffef9",
+        "tonalRamp": ["oklch(15% 0.008 95)", "oklch(27% 0.01 95)", "oklch(39% 0.012 95)", "oklch(51% 0.013 95)", "oklch(63% 0.012 95)", "oklch(75% 0.009 95)", "oklch(87% 0.006 95)", "oklch(98% 0.003 95)"]
+      },
+      "porcelain-muted": {
+        "role": "neutral",
+        "displayName": "Porcelain Muted Surface",
+        "canonical": "#e7ebe8",
+        "tonalRamp": ["oklch(15% 0.009 170)", "oklch(27% 0.012 170)", "oklch(39% 0.014 170)", "oklch(51% 0.015 170)", "oklch(63% 0.014 170)", "oklch(75% 0.011 170)", "oklch(87% 0.007 170)", "oklch(95% 0.004 170)"]
+      },
+      "atlas-navy": {
+        "role": "neutral",
+        "displayName": "Atlas Navy",
+        "canonical": "#0b203a",
+        "tonalRamp": ["oklch(15% 0.035 250)", "oklch(27% 0.055 250)", "oklch(39% 0.07 250)", "oklch(51% 0.075 250)", "oklch(63% 0.065 250)", "oklch(75% 0.045 250)", "oklch(87% 0.025 250)", "oklch(95% 0.01 250)"]
+      },
+      "atlas-slate": {
+        "role": "neutral",
+        "displayName": "Atlas Slate",
+        "canonical": "#40556b",
+        "tonalRamp": ["oklch(15% 0.025 250)", "oklch(27% 0.038 250)", "oklch(39% 0.048 250)", "oklch(51% 0.05 250)", "oklch(63% 0.043 250)", "oklch(75% 0.032 250)", "oklch(87% 0.018 250)", "oklch(95% 0.008 250)"]
+      },
+      "porcelain-border": {
+        "role": "neutral",
+        "displayName": "Porcelain Boundary",
+        "canonical": "#cdd6d5",
+        "tonalRamp": ["oklch(15% 0.008 190)", "oklch(27% 0.012 190)", "oklch(39% 0.015 190)", "oklch(51% 0.016 190)", "oklch(63% 0.014 190)", "oklch(75% 0.011 190)", "oklch(87% 0.007 190)", "oklch(95% 0.003 190)"]
+      },
+      "midnight-canvas": {
+        "role": "neutral",
+        "displayName": "Midnight Enamel Canvas",
+        "canonical": "#07172b",
+        "tonalRamp": ["oklch(15% 0.035 250)", "oklch(27% 0.052 250)", "oklch(39% 0.065 250)", "oklch(51% 0.07 250)", "oklch(63% 0.06 250)", "oklch(75% 0.043 250)", "oklch(87% 0.024 250)", "oklch(95% 0.01 250)"]
+      },
+      "midnight-card": {
+        "role": "neutral",
+        "displayName": "Midnight Enamel Card",
+        "canonical": "#0e2542",
+        "tonalRamp": ["oklch(15% 0.038 250)", "oklch(27% 0.056 250)", "oklch(39% 0.07 250)", "oklch(51% 0.074 250)", "oklch(63% 0.063 250)", "oklch(75% 0.045 250)", "oklch(87% 0.025 250)", "oklch(95% 0.01 250)"]
+      },
+      "midnight-muted": {
+        "role": "neutral",
+        "displayName": "Midnight Muted Surface",
+        "canonical": "#132d4c",
+        "tonalRamp": ["oklch(15% 0.04 250)", "oklch(27% 0.06 250)", "oklch(39% 0.074 250)", "oklch(51% 0.078 250)", "oklch(63% 0.066 250)", "oklch(75% 0.047 250)", "oklch(87% 0.026 250)", "oklch(95% 0.011 250)"]
+      },
+      "enamel-ink": {
+        "role": "neutral",
+        "displayName": "Warm Enamel Ink",
+        "canonical": "#f7f2e6",
+        "tonalRamp": ["oklch(15% 0.01 85)", "oklch(27% 0.014 85)", "oklch(39% 0.017 85)", "oklch(51% 0.018 85)", "oklch(63% 0.016 85)", "oklch(75% 0.012 85)", "oklch(87% 0.008 85)", "oklch(95% 0.004 85)"]
+      },
+      "enamel-slate": {
+        "role": "neutral",
+        "displayName": "Enamel Slate",
+        "canonical": "#c3cfda",
+        "tonalRamp": ["oklch(15% 0.02 245)", "oklch(27% 0.029 245)", "oklch(39% 0.036 245)", "oklch(51% 0.038 245)", "oklch(63% 0.033 245)", "oklch(75% 0.025 245)", "oklch(87% 0.014 245)", "oklch(95% 0.006 245)"]
+      },
+      "midnight-border": {
+        "role": "neutral",
+        "displayName": "Midnight Steel Boundary",
+        "canonical": "#294561",
+        "tonalRamp": ["oklch(15% 0.026 245)", "oklch(27% 0.04 245)", "oklch(39% 0.052 245)", "oklch(51% 0.056 245)", "oklch(63% 0.048 245)", "oklch(75% 0.035 245)", "oklch(87% 0.02 245)", "oklch(95% 0.008 245)"]
+      },
+      "action-coral-day": {
+        "role": "primary",
+        "displayName": "Daylight Action Coral",
+        "canonical": "#df4a2b",
+        "tonalRamp": ["oklch(15% 0.08 35)", "oklch(27% 0.12 35)", "oklch(39% 0.16 35)", "oklch(51% 0.19 35)", "oklch(63% 0.18 35)", "oklch(75% 0.14 35)", "oklch(87% 0.08 35)", "oklch(95% 0.03 35)"]
+      },
+      "action-coral-night": {
+        "role": "primary",
+        "displayName": "Midnight Action Coral",
+        "canonical": "#f06a43",
+        "tonalRamp": ["oklch(15% 0.08 35)", "oklch(27% 0.12 35)", "oklch(39% 0.16 35)", "oklch(51% 0.19 35)", "oklch(63% 0.18 35)", "oklch(75% 0.14 35)", "oklch(87% 0.08 35)", "oklch(95% 0.03 35)"]
+      },
+      "route-green-day": {
+        "role": "secondary",
+        "displayName": "Daylight Authority Green",
+        "canonical": "#16845b",
+        "tonalRamp": ["oklch(15% 0.065 155)", "oklch(27% 0.095 155)", "oklch(39% 0.125 155)", "oklch(51% 0.15 155)", "oklch(63% 0.14 155)", "oklch(75% 0.105 155)", "oklch(87% 0.06 155)", "oklch(95% 0.025 155)"]
+      },
+      "route-green-night": {
+        "role": "secondary",
+        "displayName": "Midnight Authority Green",
+        "canonical": "#4ad39c",
+        "tonalRamp": ["oklch(15% 0.065 155)", "oklch(27% 0.095 155)", "oklch(39% 0.125 155)", "oklch(51% 0.15 155)", "oklch(63% 0.14 155)", "oklch(75% 0.105 155)", "oklch(87% 0.06 155)", "oklch(95% 0.025 155)"]
+      },
+      "route-cobalt-day": {
+        "role": "secondary",
+        "displayName": "Daylight Retrieval Cobalt",
+        "canonical": "#1766c2",
+        "tonalRamp": ["oklch(15% 0.075 255)", "oklch(27% 0.11 255)", "oklch(39% 0.15 255)", "oklch(51% 0.18 255)", "oklch(63% 0.17 255)", "oklch(75% 0.13 255)", "oklch(87% 0.075 255)", "oklch(95% 0.03 255)"]
+      },
+      "route-cobalt-night": {
+        "role": "secondary",
+        "displayName": "Midnight Retrieval Cobalt",
+        "canonical": "#62a3ff",
+        "tonalRamp": ["oklch(15% 0.075 255)", "oklch(27% 0.11 255)", "oklch(39% 0.15 255)", "oklch(51% 0.18 255)", "oklch(63% 0.17 255)", "oklch(75% 0.13 255)", "oklch(87% 0.075 255)", "oklch(95% 0.03 255)"]
+      },
+      "route-amber-day": {
+        "role": "secondary",
+        "displayName": "Daylight Semantic Amber",
+        "canonical": "#d9900d",
+        "tonalRamp": ["oklch(15% 0.07 80)", "oklch(27% 0.105 80)", "oklch(39% 0.14 80)", "oklch(51% 0.17 80)", "oklch(63% 0.16 80)", "oklch(75% 0.12 80)", "oklch(87% 0.07 80)", "oklch(95% 0.028 80)"]
+      },
+      "route-amber-night": {
+        "role": "secondary",
+        "displayName": "Midnight Semantic Amber",
+        "canonical": "#f6bd4d",
+        "tonalRamp": ["oklch(15% 0.07 80)", "oklch(27% 0.105 80)", "oklch(39% 0.14 80)", "oklch(51% 0.17 80)", "oklch(63% 0.16 80)", "oklch(75% 0.12 80)", "oklch(87% 0.07 80)", "oklch(95% 0.028 80)"]
+      },
+      "route-scarlet-day": {
+        "role": "secondary",
+        "displayName": "Daylight Compile Scarlet",
+        "canonical": "#d73a49",
+        "tonalRamp": ["oklch(15% 0.08 15)", "oklch(27% 0.12 15)", "oklch(39% 0.16 15)", "oklch(51% 0.19 15)", "oklch(63% 0.18 15)", "oklch(75% 0.14 15)", "oklch(87% 0.08 15)", "oklch(95% 0.03 15)"]
+      },
+      "route-scarlet-night": {
+        "role": "secondary",
+        "displayName": "Midnight Compile Scarlet",
+        "canonical": "#ff6675",
+        "tonalRamp": ["oklch(15% 0.08 15)", "oklch(27% 0.12 15)", "oklch(39% 0.16 15)", "oklch(51% 0.19 15)", "oklch(63% 0.18 15)", "oklch(75% 0.14 15)", "oklch(87% 0.08 15)", "oklch(95% 0.03 15)"]
+      },
+      "inferred-violet-day": {
+        "role": "tertiary",
+        "displayName": "Daylight Inferred Violet",
+        "canonical": "#6d48bd",
+        "tonalRamp": ["oklch(15% 0.07 300)", "oklch(27% 0.1 300)", "oklch(39% 0.135 300)", "oklch(51% 0.16 300)", "oklch(63% 0.15 300)", "oklch(75% 0.115 300)", "oklch(87% 0.065 300)", "oklch(95% 0.026 300)"]
+      },
+      "inferred-violet-night": {
+        "role": "tertiary",
+        "displayName": "Midnight Inferred Violet",
+        "canonical": "#b69cff",
+        "tonalRamp": ["oklch(15% 0.07 300)", "oklch(27% 0.1 300)", "oklch(39% 0.135 300)", "oklch(51% 0.16 300)", "oklch(63% 0.15 300)", "oklch(75% 0.115 300)", "oklch(87% 0.065 300)", "oklch(95% 0.026 300)"]
+      },
+      "destination-paper-day": {
+        "role": "tertiary",
+        "displayName": "Daylight Destination Paper",
+        "canonical": "#fffaf0",
+        "tonalRamp": ["oklch(15% 0.01 85)", "oklch(27% 0.014 85)", "oklch(39% 0.018 85)", "oklch(51% 0.019 85)", "oklch(63% 0.017 85)", "oklch(75% 0.013 85)", "oklch(87% 0.008 85)", "oklch(97% 0.004 85)"]
+      },
+      "destination-paper-night": {
+        "role": "tertiary",
+        "displayName": "Midnight Destination Paper",
+        "canonical": "#f8f2e6",
+        "tonalRamp": ["oklch(15% 0.01 85)", "oklch(27% 0.014 85)", "oklch(39% 0.018 85)", "oklch(51% 0.019 85)", "oklch(63% 0.017 85)", "oklch(75% 0.013 85)", "oklch(87% 0.008 85)", "oklch(95% 0.004 85)"]
+      }
+    },
+    "typographyMeta": {
+      "hero": {"displayName": "Atlas Hero", "purpose": "The opening system promise only."},
+      "display": {"displayName": "Canonical Display", "purpose": "Large, light-weight canonical document titles."},
+      "headline": {"displayName": "Journey Headline", "purpose": "Major journey and object sections."},
+      "title": {"displayName": "Destination Title", "purpose": "Station sheets, local tasks, and key entities."},
+      "body": {"displayName": "Open-source Body", "purpose": "Architecture explanations, knowledge, and feedback."},
+      "control": {"displayName": "Route Control", "purpose": "Buttons, navigation, and form controls."},
+      "label": {"displayName": "Station Label", "purpose": "Station names, route groups, and supporting titles."},
+      "microcopy": {"displayName": "Readable Annotation", "purpose": "The 12px minimum for statuses, legends, and short metadata."},
+      "data": {"displayName": "Machine Wayfinding", "purpose": "Station codes, paths, IDs, refs, timestamps, and lineage."}
+    },
+    "shadows": [
+      {"name": "transit-sheet-day", "value": "0 8px 26px rgb(20 45 65 / 8%)", "purpose": "Daylight station workbenches and cards."},
+      {"name": "transit-sheet-night", "value": "0 10px 30px rgb(0 0 0 / 24%)", "purpose": "Midnight station workbenches and cards."},
+      {"name": "control-room-overlay-day", "value": "0 24px 70px rgb(5 22 41 / 24%)", "purpose": "Daylight dialogs and detached overlays."},
+      {"name": "control-room-overlay-night", "value": "0 28px 80px rgb(0 0 0 / 58%)", "purpose": "Midnight dialogs and detached overlays."},
+      {"name": "route-mural", "value": "0 28px 70px rgb(11 32 58 / 18%)", "purpose": "The single architecture mural on the opening route."}
+    ],
+    "motion": [
+      {"name": "state-fast", "value": "120ms", "purpose": "Color, border, and background feedback."},
+      {"name": "state-normal", "value": "220ms", "purpose": "Station halos and route emphasis."},
+      {"name": "route-arrival", "value": "900ms 220ms", "purpose": "One scarlet arrival line on the six-station mural."},
+      {"name": "ease-out", "value": "cubic-bezier(0.16, 1, 0.3, 1)", "purpose": "Shared settling curve; reduced motion resolves immediately."}
+    ],
+    "breakpoints": [
+      {"name": "compact-desktop", "value": "1180px"},
+      {"name": "mobile-route", "value": "820px"},
+      {"name": "mobile-acceptance", "value": "390px"}
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Route Action",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one primary departure action for a station or journey.",
+      "html": "<button class=\"ds-btn-primary\">回放一份材料</button>",
+      "css": ".ds-btn-primary{display:inline-flex;height:40px;align-items:center;justify-content:center;gap:6px;border:0;border-radius:999px;padding:0 16px;background:var(--color-accent,#df4a2b);color:var(--color-accent-foreground,#fffaf2);font:540 15px/1.2 var(--font-sans,system-ui,sans-serif);cursor:pointer;transition:opacity 120ms cubic-bezier(.16,1,.3,1)}.ds-btn-primary:hover{opacity:.9}.ds-btn-primary:active{opacity:.78}.ds-btn-primary:focus-visible{outline:2px solid var(--color-ring,#155fc6);outline-offset:2px}"
+    },
+    {
+      "name": "Secondary Route Action",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "A quiet route action on the current material layer.",
+      "html": "<button class=\"ds-btn-secondary\">运行检索实验 →</button>",
+      "css": ".ds-btn-secondary{display:inline-flex;height:40px;align-items:center;justify-content:center;gap:6px;border:0;border-radius:999px;padding:0 16px;background:var(--color-surface-muted,#e7ebe8);color:var(--color-text,#0b203a);font:540 15px/1.2 var(--font-sans,system-ui,sans-serif);cursor:pointer;transition:background-color 120ms cubic-bezier(.16,1,.3,1)}.ds-btn-secondary:hover{background:var(--color-surface-hover,#dce6e4)}.ds-btn-secondary:focus-visible{outline:2px solid var(--color-ring,#155fc6);outline-offset:2px}"
+    },
+    {
+      "name": "Station Field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "An input inside a station workbench with route-colored focus rail.",
+      "html": "<label class=\"ds-field\"><span>QUERY</span><input placeholder=\"搜索知识线路…\" /></label>",
+      "css": ".ds-field{display:grid;gap:6px;color:var(--color-text-tertiary,#647589);font:540 12px/1.4 var(--font-mono,monospace);letter-spacing:.07em}.ds-field input{height:40px;min-width:260px;border:0;border-bottom:2px solid var(--color-border-strong,#849493);border-radius:8px 8px 3px 3px;padding:0 12px;background:var(--color-surface-muted,#e7ebe8);color:var(--color-text,#0b203a);font:400 15px/1.6 var(--font-sans,system-ui,sans-serif)}.ds-field input:focus-visible{border-bottom-color:var(--station-color,var(--route-cobalt,#1766c2));outline:2px solid var(--color-ring,#155fc6);outline-offset:2px}.ds-field input::placeholder{color:var(--color-text-tertiary,#647589)}"
+    },
+    {
+      "name": "Route Chip",
+      "kind": "chip",
+      "refersTo": "chip",
+      "description": "Compact route, evidence, or OPC context metadata.",
+      "html": "<span class=\"ds-chip\"><i aria-hidden=\"true\"></i>OPC · AI-native</span>",
+      "css": ".ds-chip{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:4px 10px;background:var(--color-surface-muted,#e7ebe8);color:var(--color-text,#0b203a);font:540 12px/1 var(--font-sans,system-ui,sans-serif)}.ds-chip i{width:7px;height:7px;border-radius:50%;background:var(--route-green,#16845b)}.ds-chip:hover{background:var(--color-surface-hover,#dce6e4)}.ds-chip:focus-visible{outline:2px solid var(--color-ring,#155fc6);outline-offset:2px}"
+    },
+    {
+      "name": "Transit Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "A warm porcelain or midnight enamel station sheet.",
+      "html": "<article class=\"ds-card\"><small>C1 · COMPILE GATE</small><h3>编译门不直接相信生成</h3><p>不能证明的内容不会伪装成 canonical。</p></article>",
+      "css": ".ds-card{width:320px;border-radius:14px;padding:20px;background:var(--color-card,#fffef9);color:var(--color-text,#0b203a);box-shadow:var(--shadow-subtle,0 8px 26px rgb(20 45 65 / 8%));font-family:var(--font-sans,system-ui,sans-serif)}.ds-card small{color:var(--route-scarlet,#d73a49);font:540 12px/1.4 var(--font-mono,monospace);letter-spacing:.07em}.ds-card h3{margin:12px 0 7px;font-size:22px;line-height:1.2;letter-spacing:-.035em}.ds-card p{margin:0;color:var(--color-text-secondary,#40556b);font-size:15px;line-height:1.6}.ds-card:focus-within{outline:2px solid var(--color-ring,#155fc6);outline-offset:2px}"
+    },
+    {
+      "name": "Active Route Navigation",
+      "kind": "nav",
+      "description": "The current route in the grouped system navigation.",
+      "html": "<button class=\"ds-route-nav\" aria-current=\"page\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"8\"></circle><circle cx=\"12\" cy=\"12\" r=\"2\"></circle></svg>系统线路<i aria-hidden=\"true\"></i></button>",
+      "css": ".ds-route-nav{display:grid;width:188px;min-height:38px;grid-template-columns:auto 1fr auto;align-items:center;gap:10px;border:0;border-radius:999px;padding:0 12px;background:var(--color-surface-inverse,#0b203a);color:var(--color-text-inverse,#fbf8ed);box-shadow:0 8px 18px rgb(11 32 58 / 13%);font:540 13px/1.2 var(--font-sans,system-ui,sans-serif);text-align:left;cursor:pointer}.ds-route-nav svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.8}.ds-route-nav i{width:6px;height:6px;border-radius:50%;background:var(--color-accent,#df4a2b)}.ds-route-nav:hover{filter:brightness(1.06)}.ds-route-nav:focus-visible{outline:2px solid var(--color-ring,#155fc6);outline-offset:2px}"
+    },
+    {
+      "name": "Six-station Knowledge Route",
+      "kind": "custom",
+      "description": "The full Source-to-Git architecture route, preserved at 390px.",
+      "html": "<ol class=\"ds-atlas-route\"><li class=\"ds-green\"><b>S0</b><span>原始材料<small>对话、文档与代码片段</small></span></li><li class=\"ds-green\"><b>P0</b><span>PostgreSQL<small>权威来源与摄取计划</small></span></li><li class=\"ds-cobalt\"><b>L1</b><span>Meilisearch<small>词法层，可重建</small></span></li><li class=\"ds-amber\"><b>L2</b><span>Qdrant<small>语义层，可重建</small></span></li><li class=\"ds-scarlet\"><b>C1</b><span>编译门<small>取证、合并与结构化</small></span></li><li class=\"ds-scarlet\"><b>G1</b><span>Canonical Git<small>可审阅、可回滚的版本</small></span></li></ol>",
+      "css": ".ds-atlas-route{display:grid;grid-template-columns:repeat(6,minmax(118px,1fr));gap:0;margin:0;padding:28px;border-radius:22px;background:var(--route-map-bg,#0b203a);color:var(--route-map-text,#f8f4e8);list-style:none;font-family:var(--font-sans,system-ui,sans-serif)}.ds-atlas-route li{position:relative;display:grid;justify-items:center;gap:10px;text-align:center}.ds-atlas-route li:not(:last-child)::after{position:absolute;z-index:0;top:19px;left:50%;width:100%;height:5px;background:currentColor;content:''}.ds-atlas-route b{z-index:1;display:grid;width:42px;height:42px;place-items:center;border:5px solid currentColor;border-radius:50%;background:var(--route-map-bg,#0b203a);color:var(--route-map-text,#f8f4e8);font:700 12px/1 var(--font-mono,monospace)}.ds-atlas-route span{font-size:15px;font-weight:540}.ds-atlas-route small{display:block;margin-top:3px;color:color-mix(in srgb,var(--route-map-text,#f8f4e8) 62%,transparent);font-size:12px;font-weight:400}.ds-atlas-route .ds-green{color:var(--route-green,#16845b)}.ds-atlas-route .ds-cobalt{color:var(--route-cobalt,#1766c2)}.ds-atlas-route .ds-amber{color:var(--route-amber,#d9900d)}.ds-atlas-route .ds-scarlet{color:var(--route-scarlet,#d73a49)}@media(max-width:820px){.ds-atlas-route{grid-template-columns:1fr;padding:20px}.ds-atlas-route li{min-height:68px;grid-template-columns:44px 1fr;align-items:center;justify-items:start;gap:13px;text-align:left}.ds-atlas-route li:not(:last-child)::after{top:42px;bottom:-6px;left:21px;width:3px;height:auto}.ds-atlas-route span{color:var(--route-map-text,#f8f4e8)}}"
+    },
+    {
+      "name": "Live Destination Sheet",
+      "kind": "custom",
+      "description": "A high-contrast station sheet that exposes a real source-to-version trace.",
+      "html": "<aside class=\"ds-destination\"><header><i aria-hidden=\"true\"></i><b>S0</b><small>LIVE TRACE</small></header><h3>一条真实证据线路已点亮</h3><dl><div><dt>SOURCE / SPAN</dt><dd>source-a1 · ¶0–0</dd></div><div><dt>CLAIM ANCHOR</dt><dd>c:8e78019b</dd></div><div><dt>CANONICAL</dt><dd>work/experiments/retrieval.md</dd></div><div><dt>PATCH / REF</dt><dd>f3c4213f</dd></div></dl><button>查验这段原文 →</button></aside>",
+      "css": ".ds-destination{width:290px;border-radius:20px;padding:20px;background:var(--route-map-panel,#fffaf0);color:var(--route-map-ink,#0b203a);box-shadow:0 16px 42px rgb(0 0 0 / 20%);font-family:var(--font-sans,system-ui,sans-serif)}.ds-destination header{display:flex;align-items:center;gap:8px}.ds-destination header i{width:10px;height:10px;border-radius:50%;background:var(--route-green,#16845b)}.ds-destination header b,.ds-destination header small,.ds-destination dt,.ds-destination dd{font-family:var(--font-mono,monospace)}.ds-destination header small{margin-left:auto;font-size:12px;letter-spacing:.06em}.ds-destination h3{margin:28px 0 16px;font-size:22px;line-height:1.2}.ds-destination dl{display:grid;gap:10px}.ds-destination dl div{border-left:2px solid color-mix(in srgb,var(--route-green,#16845b) 58%,transparent);padding-left:9px}.ds-destination dt{font-size:12px;color:#6f7d89;letter-spacing:.06em}.ds-destination dd{overflow:hidden;margin:2px 0 0;font-size:12px;text-overflow:ellipsis;white-space:nowrap}.ds-destination button{margin-top:20px;border:0;border-bottom:1px solid currentColor;padding:0 0 2px;background:transparent;color:inherit;font:540 13px/1.4 var(--font-sans,system-ui,sans-serif);cursor:pointer}.ds-destination button:focus-visible{outline:2px solid var(--color-ring,#155fc6);outline-offset:2px}"
+    },
+    {
+      "name": "Evidence Journey",
+      "kind": "custom",
+      "description": "A real four-step source, claim, canonical, and Git journey.",
+      "html": "<ol class=\"ds-journey\"><li class=\"ds-green\"><b>01</b><small>SOURCE</small><strong>source-a1</strong></li><li class=\"ds-cobalt\"><b>02</b><small>CLAIM</small><strong>c:8e78019b</strong></li><li class=\"ds-amber\"><b>03</b><small>CANONICAL</small><strong>retrieval.md</strong></li><li class=\"ds-scarlet\"><b>04</b><small>PATCH / GIT</small><strong>f3c4213f</strong></li></ol>",
+      "css": ".ds-journey{position:relative;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));margin:0;padding:0;list-style:none;font-family:var(--font-sans,system-ui,sans-serif)}.ds-journey::before{position:absolute;top:17px;right:8%;left:3%;height:4px;background:var(--color-border-subtle,#dfe5e1);content:''}.ds-journey li{position:relative;padding:55px 20px 0 0}.ds-journey b{position:absolute;z-index:1;top:0;left:0;display:grid;width:38px;height:38px;place-items:center;border:7px solid var(--color-surface,#f2f1e9);border-radius:50%;background:currentColor;box-shadow:0 0 0 2px currentColor;color:#fff;font:700 12px/1 var(--font-mono,monospace)}.ds-journey small{display:block;color:var(--color-text-tertiary,#647589);font:540 12px/1.4 var(--font-mono,monospace);letter-spacing:.08em}.ds-journey strong{display:block;margin-top:5px;color:var(--color-text,#0b203a);font-size:15px}.ds-journey .ds-green{color:var(--route-green,#16845b)}.ds-journey .ds-cobalt{color:var(--route-cobalt,#1766c2)}.ds-journey .ds-amber{color:var(--route-amber,#d9900d)}.ds-journey .ds-scarlet{color:var(--route-scarlet,#d73a49)}@media(max-width:820px){.ds-journey{grid-template-columns:1fr;gap:22px}.ds-journey::before{top:0;bottom:0;left:17px;width:4px;height:auto}.ds-journey li{min-height:74px;padding:4px 0 0 62px}}"
+    },
+    {
+      "name": "Synthetic Disclosure",
+      "kind": "custom",
+      "description": "Persistent disclosure for the repository-bundled OPC demo.",
+      "html": "<div class=\"ds-synthetic\"><span>{ }</span><b>OPEN DEMO<small>SYNTHETIC · OPC</small></b></div>",
+      "css": ".ds-synthetic{display:flex;align-items:center;gap:9px;width:188px;border-radius:14px;padding:10px 11px;background:var(--color-surface-muted,#e7ebe8);color:var(--color-text,#0b203a);font-family:var(--font-mono,monospace)}.ds-synthetic>span{color:var(--route-cobalt,#1766c2);font-size:15px}.ds-synthetic b{display:grid;gap:2px;font-size:12px;font-weight:540}.ds-synthetic small{color:var(--color-text-tertiary,#647589);font-size:12px;font-weight:400;letter-spacing:.02em}.ds-synthetic:hover{background:var(--color-surface-hover,#dce6e4)}.ds-synthetic:focus-visible{outline:2px solid var(--color-ring,#155fc6);outline-offset:2px}"
+    }
+  ],
+  "narrative": {
+    "northStar": "Knowledge Transit Atlas",
+    "overview": "Pneuma Knowledge Compiler 把系统架构画成一张可以运行的城市线路图，而不是把功能拆成一组后台管理卡片。原始材料、权威存储、双层检索、编译门与 Canonical Git 是六个站点；实线与虚线说明权威层和可重建层，真实 source、claim、canonical 与 patch 则沿线路形成可查验的行程。\n\n日间模式是一张瓷白城市导视图：奶白画布、深海军蓝文字、珊瑚动作与清晰线路。夜间模式是一间午夜珐琅控制室：深蓝表面、暖白文字和更明亮的线路色。两种主题分别调校表面、阴影与对比度，但站点、线路责任、状态含义和证据路径完全一致。",
+    "keyCharacteristics": [
+      "六站知识线路是第一视口的主视觉与架构说明，不是装饰插图。",
+      "绿色、钴蓝、琥珀与猩红线路编码系统责任；珊瑚色单独承担动作和到站信号。",
+      "真实 dataset 点亮 source → claim → canonical → patch/Git 行程，不使用伪造 KPI。",
+      "站点页把现有任务装入宽阔的 destination sheet，而非永久展示密集表单网格。",
+      "桌面与 390px 移动端都呈现完整六站线路，并持续显示 SYNTHETIC 披露。",
+      "系统无衬线字负责阅读，等宽字只负责线路代码、路径、ID、ref 与运行元数据。"
+    ],
+    "rules": [
+      {"name": "The Route Identity Rule", "body": "绿色、钴蓝、琥珀和猩红只编码系统责任、线路与对应状态；不得为任意卡片轮换配色。", "section": "colors"},
+      {"name": "The Coral Action Rule", "body": "珊瑚色回答“接下来做什么”或“哪一站刚到达”；它不与猩红编译线路争夺语义。", "section": "colors"},
+      {"name": "The Theme Continuity Rule", "body": "日夜主题可以改变材料、亮度与阴影，但六站顺序、线路含义、状态映射和焦点可见性不得变化。", "section": "colors"},
+      {"name": "The Readable Annotation Rule", "body": "所有用户可见的注释与元数据至少为 12px；生成稿中的更小英文微字不得成为产品规范。", "section": "typography"},
+      {"name": "The Machine Wayfinding Rule", "body": "等宽字只用于站点代码、路径、标识符、版本与运行数据；中文标题、说明和动作保持无衬线字。", "section": "typography"},
+      {"name": "The Whole Line Rule", "body": "六站线路在桌面和 390px 都必须完整可达；响应式只改变线路方向和说明位置，不删除站点。", "section": "layout"},
+      {"name": "The Station Sheet Rule", "body": "表单、列表和调试面板只在明确站点的 workbench 中出现；首页不退化为功能卡片或 bento dashboard。", "section": "layout"},
+      {"name": "The Layered Enamel Rule", "body": "阴影只区分画布、舞台、sheet 与浮层四个材料层；线路和普通状态不得添加霓虹光晕。", "section": "elevation"},
+      {"name": "The Route Geometry Rule", "body": "圆形代表站点或状态，胶囊代表动作或当前路线，宽圆角矩形代表 destination sheet；不得把所有内容都包装成同一种胶囊。", "section": "shapes"}
+    ],
+    "dos": [
+      "Do 让六站顺序、线路颜色、实线/虚线含义在日夜主题和 390px 视口中保持一致。",
+      "Do 从当前 dataset 派生 source、claim、canonical 和 patch/ref，缺失时呈现真实空态。",
+      "Do 把复杂任务放入具名站点的 destination workbench，并保留全局 owner、snapshot 与 theme 控制。",
+      "Do 在桌面、移动端和首页内容层重复但不夸张地披露 SYNTHETIC。",
+      "Do 为线路站点、导航、按钮和移动列表提供键盘操作、可见焦点与 reduced-motion 回退。"
+    ],
+    "donts": [
+      "Don't 把首页改成 KPI 卡片、bento dashboard、上传 dropzone 大拼盘或后台表单网格。",
+      "Don't 为任意内容卡轮换使用四条线路色，或把 Coral 与 Scarlet 混成同一种状态。",
+      "Don't 在移动端裁掉 L1/L2 分支、编译门或 Git 终点；390px 必须能走完整条线路。",
+      "Don't 用假客户、假 benchmark、假计数或生成稿英文 filler 替代仓库内的真实 synthetic 数据。",
+      "Don't 把夜间模式实现成简单反色，或给线路添加霓虹光晕和无语义的装饰动画。"
+    ]
+  }
+}
