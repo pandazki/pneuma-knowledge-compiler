@@ -1,15 +1,23 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MessagesSquare } from "lucide-react";
 import { useApp, type AskTurn } from "@/lib/store";
 import {
   askBriefing,
   buildBriefing,
   listBriefings,
-  listAllSources,
+  listSources,
   type BriefingSummary,
   type SourceSummary,
 } from "@/lib/api";
+import {
+  firstPage,
+  nextPage,
+  previousPage,
+  type CursorPageState,
+  type Page,
+} from "@/lib/pagination";
 import { PageHeader } from "@/components/PageHeader";
+import { PaginationBar } from "@/components/PaginationBar";
 import { CitationList, type CitationEntry } from "@/components/CitationList";
 import { Button } from "@/ui/Button";
 import { Callout } from "@/ui/Callout";
@@ -19,11 +27,15 @@ import { EmptyState } from "@/ui/EmptyState";
 import { ErrorState } from "@/ui/ErrorState";
 import { Mono } from "@/ui/Mono";
 import { NumberField } from "@/ui/NumberField";
+import { SearchField } from "@/ui/SearchField";
 import { SectionRule } from "@/ui/SectionRule";
+import { Select } from "@/ui/Select";
 import { SkeletonText } from "@/ui/Skeleton";
 import { TextField } from "@/ui/TextField";
 import { CitedAnswer } from "../_shared/CitedAnswer";
 import { UsageLine } from "../_shared/UsageLine";
+
+const SOURCE_PAGE_SIZE = 12;
 
 /**
  * ask 问答：先构建一个 source 锚定 / query 检索的 briefing（冻结知识包），
@@ -39,8 +51,15 @@ export default function AskView() {
   const { scopeQuery, selected: selectedIds, briefing, question, turns } = askCache;
   const selected = useMemo(() => new Set(selectedIds), [selectedIds]);
 
-  const [sources, setSources] = useState<SourceSummary[] | null>(null);
+  const [sourcePage, setSourcePage] = useState<Page<SourceSummary> | null>(null);
+  const [sourcePageState, setSourcePageState] =
+    useState<CursorPageState>(firstPage);
+  const [sourceQuery, setSourceQuery] = useState("");
+  const [sourceKind, setSourceKind] = useState("all");
+  const [sourceTitles, setSourceTitles] = useState<Record<string, string>>({});
+  const [sourcesLoading, setSourcesLoading] = useState(false);
   const [sourcesError, setSourcesError] = useState<string | null>(null);
+  const sourceRequestVersion = useRef(0);
   const [history, setHistory] = useState<BriefingSummary[] | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
   // budget_chars 未进 store（lib 冻结），仅会话内保留；默认 4000。
@@ -52,21 +71,41 @@ export default function AskView() {
   // AskTurn 无 verbatim_fetches 字段（lib 冻结），按轮次下标会话内暂存。
   const [verbatim, setVerbatim] = useState<Record<number, Record<string, unknown>[]>>({});
 
-  const titles = useMemo(
-    () => Object.fromEntries((sources ?? []).map((s) => [s.source_id, s.title])),
-    [sources],
-  );
+  const sources = sourcePage?.items ?? null;
+  const titles = sourceTitles;
 
   const loadSources = useCallback(() => {
     if (!currentUser) return;
+    const requestVersion = ++sourceRequestVersion.current;
     setSourcesError(null);
-    listAllSources(currentUser)
-      .then(setSources)
+    setSourcesLoading(true);
+    listSources(currentUser, {
+      limit: SOURCE_PAGE_SIZE,
+      cursor: sourcePageState.cursor,
+      query: sourceQuery.trim() || null,
+      kind: sourceKind === "all" ? null : sourceKind,
+    })
+      .then((page) => {
+        if (requestVersion !== sourceRequestVersion.current) return;
+        setSourcePage(page);
+        setSourceTitles((known) => ({
+          ...known,
+          ...Object.fromEntries(
+            page.items.map((source) => [source.source_id, source.title]),
+          ),
+        }));
+      })
       .catch((e) => {
-        setSources([]);
+        if (requestVersion !== sourceRequestVersion.current) return;
+        setSourcePage(null);
         setSourcesError((e as Error).message);
+      })
+      .finally(() => {
+        if (requestVersion === sourceRequestVersion.current) {
+          setSourcesLoading(false);
+        }
       });
-  }, [currentUser]);
+  }, [currentUser, sourceKind, sourcePageState.cursor, sourceQuery]);
 
   const loadHistory = useCallback(() => {
     if (!currentUser) return;
@@ -81,6 +120,11 @@ export default function AskView() {
 
   useEffect(loadSources, [loadSources]);
   useEffect(loadHistory, [loadHistory]);
+
+  useEffect(() => {
+    setSourcePageState(firstPage());
+    setSourceTitles({});
+  }, [currentUser]);
 
   const jumpToCitation = useCallback(
     (c: CitationEntry) =>
@@ -178,34 +222,115 @@ export default function AskView() {
                 hint="query 与来源多选至少填一项。"
               />
               <div>
-                <p className="text-13 font-medium text-ink-2">scope.source_ids（锚定原始来源）</p>
-                {sources == null ? (
-                  <SkeletonText lines={3} className="mt-2" />
-                ) : sourcesError ? (
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <p className="text-13 font-medium text-ink-2">
+                    scope.source_ids（锚定原始来源）
+                  </p>
+                  <p className="text-12 text-ink-3" aria-live="polite">
+                    已选 <Mono>{selected.size}</Mono>
+                    <span> · 当前结果 </span>
+                    <Mono>{sourcePage?.page.total ?? 0}</Mono>
+                  </p>
+                </div>
+                <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_12rem]">
+                  <SearchField
+                    aria-label="搜索来源"
+                    placeholder="按来源标题搜索"
+                    value={sourceQuery}
+                    onChange={(value) => {
+                      setSourceQuery(value);
+                      setSourcePageState(firstPage());
+                    }}
+                  />
+                  <Select
+                    aria-label="筛选来源类型"
+                    value={sourceKind}
+                    onChange={(value) => {
+                      setSourceKind(value);
+                      setSourcePageState(firstPage());
+                    }}
+                    options={[
+                      { value: "all", label: "全部类型" },
+                      { value: "meeting", label: "会议 Meeting" },
+                      { value: "document_library", label: "文档库 Document" },
+                      { value: "im", label: "即时消息 IM" },
+                      { value: "email", label: "邮件 Email" },
+                    ]}
+                  />
+                </div>
+                {selectedIds.length > 0 && (
+                  <details className="mt-2 rounded-2 border border-line bg-surface px-3 py-2">
+                    <summary className="cursor-pointer text-13 text-ink-2">
+                      已选来源 · <Mono>{selectedIds.length}</Mono>
+                    </summary>
+                    <ol className="mt-2 border-t border-line pt-1">
+                      {selectedIds.map((sourceId) => (
+                        <li
+                          key={sourceId}
+                          className="flex items-baseline justify-between gap-3 py-1 text-12"
+                        >
+                          <span className="min-w-0 truncate text-ink-2">
+                            {titles[sourceId] ?? sourceId}
+                          </span>
+                          <button
+                            type="button"
+                            className="shrink-0 rounded-1 px-1.5 py-0.5 text-ink-3 hover:bg-hover hover:text-ink"
+                            onClick={() => toggleSource(sourceId)}
+                          >
+                            移除
+                          </button>
+                        </li>
+                      ))}
+                    </ol>
+                  </details>
+                )}
+                {sourcesError ? (
                   <div className="mt-2">
                     <ErrorState title="来源列表拉取失败" error={sourcesError} onRetry={loadSources} />
                   </div>
+                ) : sources == null ? (
+                  <SkeletonText lines={3} className="mt-2" />
                 ) : sources.length === 0 ? (
                   <p className="mt-2 text-13 text-ink-3">
-                    （无来源——可只靠 query 构建；或先去「导入 Ingest」入库材料）
+                    {sourceQuery.trim() || sourceKind !== "all"
+                      ? "当前筛选没有匹配来源；可清空搜索或切换来源类型。"
+                      : "（无来源——可只靠 query 构建；或先去「导入 Ingest」入库材料）"}
                   </p>
                 ) : (
-                  <ol className="mt-2 border-t border-line">
-                    {sources.map((s) => (
-                      <li key={s.source_id} className="border-b border-line py-2">
-                        <Checkbox
-                          checked={selected.has(s.source_id)}
-                          onCheckedChange={() => toggleSource(s.source_id)}
-                          label={s.title}
-                          hint={
-                            <Mono>
-                              {s.source_id} · {s.kind} · {s.block_count} blocks
-                            </Mono>
-                          }
-                        />
-                      </li>
-                    ))}
-                  </ol>
+                  <>
+                    <ol className="mt-2 border-t border-line">
+                      {sources.map((s) => (
+                        <li key={s.source_id} className="border-b border-line py-2">
+                          <Checkbox
+                            checked={selected.has(s.source_id)}
+                            onCheckedChange={() => toggleSource(s.source_id)}
+                            label={s.title}
+                            hint={
+                              <Mono>
+                                {s.source_id} · {s.kind} · {s.block_count} blocks
+                              </Mono>
+                            }
+                          />
+                        </li>
+                      ))}
+                    </ol>
+                    <PaginationBar
+                      pageIndex={sourcePageState.previous.length}
+                      limit={SOURCE_PAGE_SIZE}
+                      itemCount={sources.length}
+                      total={sourcePage?.page.total ?? sources.length}
+                      hasNext={sourcePage?.page.next_cursor != null}
+                      loading={sourcesLoading}
+                      noun="条 source"
+                      onPrevious={() => setSourcePageState((state) => previousPage(state))}
+                      onNext={() => {
+                        const cursor = sourcePage?.page.next_cursor;
+                        if (cursor) {
+                          setSourcePageState((state) => nextPage(state, cursor));
+                        }
+                      }}
+                    />
+                  </>
                 )}
               </div>
               <NumberField

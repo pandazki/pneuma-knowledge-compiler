@@ -150,6 +150,54 @@ def test_citation_grandfathers_untouched_base_doc_citing_old_source():
     assert "citation" not in _kinds(v)  # old src-00 citation grandfathered
 
 
+def test_citation_full_inventory_revalidates_untouched_base_provenance():
+    base = CanonicalDocument(
+        pneuma_id=DocumentId("d1"),
+        path="memory/people/cheng-ye.md",
+        frontmatter={"pneuma_id": "d1", "type": "person", "slug": "cheng-ye"},
+        body="- 老事实。[cite: src-truncated ¶0] <!-- c:aa11 -->",
+    )
+    draft = PatchDraft.from_canonical([base], TEMPLATES)
+    draft.create_document(
+        "memory/people/mei.md",
+        {"type": "person", "slug": "mei"},
+        "- 新事实。[cite: src-05 ¶0]",
+    )
+    violations = [
+        item
+        for item in run_gate(
+            draft,
+            [_source("src-05", 3)],
+            known_source_bounds={"src-00": 2, "src-05": 3},
+        )
+        if item.kind == "citation"
+    ]
+    assert len(violations) == 1
+    assert "src-truncated" in violations[0].detail
+
+
+def test_citation_full_inventory_accepts_valid_historical_source():
+    base = CanonicalDocument(
+        pneuma_id=DocumentId("d1"),
+        path="memory/people/cheng-ye.md",
+        frontmatter={"pneuma_id": "d1", "type": "person", "slug": "cheng-ye"},
+        body="- 老事实。[cite: src-00 ¶0-1] <!-- c:aa11 -->",
+    )
+    draft = PatchDraft.from_canonical([base], TEMPLATES)
+    draft.create_document(
+        "memory/people/mei.md",
+        {"type": "person", "slug": "mei"},
+        "- 新事实。[cite: src-05 ¶0]",
+    )
+    assert "citation" not in _kinds(
+        run_gate(
+            draft,
+            [_source("src-05", 3)],
+            known_source_bounds={"src-00": 2, "src-05": 3},
+        )
+    )
+
+
 def test_citation_still_rejects_new_claim_with_fabricated_source():
     # Grandfathering only covers verbatim carry-overs; a NEWLY introduced citation to an
     # unsupplied/fabricated source in an edited doc is still rejected.

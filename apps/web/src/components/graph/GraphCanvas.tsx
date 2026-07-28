@@ -24,6 +24,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import type { Model, NodeShape } from "@/lib/model";
 import { typeGlyph } from "@/lib/model";
+import { sliceGraph } from "@/lib/graphViewport";
 import { ShapeIcon, inkShade } from "./glyph";
 
 const NODE_W = 176;
@@ -88,35 +89,47 @@ const nodeTypes = { ink: InkNodeView };
 
 /* ------------------------------------------------------------------ 布局 */
 
-function useLayout(model: Model) {
+function useLayout(
+  nodes: Model["dataset"]["graph"]["nodes"],
+  edges: Model["dataset"]["graph"]["edges"],
+) {
   return useMemo(() => {
     const g = new dagre.graphlib.Graph();
     g.setGraph({ rankdir: "LR", nodesep: 20, ranksep: 80, marginx: 16, marginy: 16 });
     g.setDefaultEdgeLabel(() => ({}));
-    for (const n of model.dataset.graph.nodes)
+    for (const n of nodes)
       g.setNode(n.id, { width: NODE_W, height: NODE_H });
-    for (const e of model.dataset.graph.edges)
-      if (model.nodeById.has(e.source) && model.nodeById.has(e.target))
-        g.setEdge(e.source, e.target);
+    const visibleIds = new Set(nodes.map((node) => node.id));
+    for (const e of edges)
+      if (visibleIds.has(e.source) && visibleIds.has(e.target)) g.setEdge(e.source, e.target);
     dagre.layout(g);
     const pos = new Map<string, { x: number; y: number }>();
-    for (const n of model.dataset.graph.nodes) {
+    for (const n of nodes) {
       const p = g.node(n.id);
       if (p) pos.set(n.id, { x: p.x - NODE_W / 2, y: p.y - NODE_H / 2 });
     }
     return pos;
-  }, [model]);
+  }, [nodes, edges]);
 }
 
 /* ------------------------------------------------------------------ 画布 */
 
 function Flow({ model, selectedId, neighborhood, onSelectNode }: GraphCanvasProps) {
   const { fitView } = useReactFlow();
-  const positions = useLayout(model);
+  const visibleGraph = useMemo(
+    () =>
+      sliceGraph(
+        model.dataset.graph.nodes,
+        model.dataset.graph.edges,
+        neighborhood,
+      ),
+    [model, neighborhood],
+  );
+  const positions = useLayout(visibleGraph.nodes, visibleGraph.edges);
 
   const nodes = useMemo<InkNode[]>(
     () =>
-      model.dataset.graph.nodes.map((n) => {
+      visibleGraph.nodes.map((n) => {
         const selected = n.id === selectedId;
         const dim = !!neighborhood && !neighborhood.has(n.id);
         return {
@@ -136,12 +149,12 @@ function Flow({ model, selectedId, neighborhood, onSelectNode }: GraphCanvasProp
           targetPosition: Position.Left,
         };
       }),
-    [model, positions, selectedId, neighborhood],
+    [model, visibleGraph.nodes, positions, selectedId, neighborhood],
   );
 
   const edges = useMemo<Edge[]>(
     () =>
-      model.dataset.graph.edges
+      visibleGraph.edges
         .filter((e) => model.nodeById.has(e.source) && model.nodeById.has(e.target))
         .map((e, i) => {
           const incident = !!selectedId && (e.source === selectedId || e.target === selectedId);
@@ -162,7 +175,7 @@ function Flow({ model, selectedId, neighborhood, onSelectNode }: GraphCanvasProp
             },
           };
         }),
-    [model, selectedId, neighborhood],
+    [model, visibleGraph.edges, selectedId, neighborhood],
   );
 
   // 布局 / 数据变化时重取景；选中变化不重取（避免打断用户缩放）。

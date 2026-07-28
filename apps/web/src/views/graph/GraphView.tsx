@@ -2,6 +2,11 @@ import { Suspense, useMemo, useState } from "react";
 import { Waypoints, Inbox, BookOpen } from "lucide-react";
 import { useApp } from "@/lib/store";
 import { expandNeighborhood } from "@/lib/model";
+import {
+  limitGraphNeighborhood,
+  pickGraphHub,
+  sliceGraph,
+} from "@/lib/graphViewport";
 import { GraphCanvas } from "@/components/graph";
 import { GlyphSwatch } from "@/components/graph/glyph";
 import { PageHeader } from "@/components/PageHeader";
@@ -34,20 +39,61 @@ export default function GraphView() {
     return null;
   }, [model, selection]);
 
-  const neighborhood = useMemo(() => {
-    if (!model || !selectedId) return null;
-    return expandNeighborhood(model, selectedId, degree).ids;
-  }, [model, selectedId, degree]);
+  const defaultId = useMemo(
+    () =>
+      model
+        ? pickGraphHub(model.dataset.graph.nodes, model.dataset.graph.edges)
+        : null,
+    [model],
+  );
+  const activeId = selectedId ?? defaultId;
 
-  const selNode = selectedId && model ? model.nodeById.get(selectedId) : undefined;
+  const expandedNeighborhood = useMemo(() => {
+    if (!model || !activeId) return null;
+    return expandNeighborhood(model, activeId, degree).ids;
+  }, [model, activeId, degree]);
+
+  const neighborhood = useMemo(() => {
+    if (!model || !activeId || !expandedNeighborhood) return null;
+    return limitGraphNeighborhood(
+      model.dataset.graph.nodes,
+      model.dataset.graph.edges,
+      activeId,
+      expandedNeighborhood,
+      24,
+    );
+  }, [model, activeId, expandedNeighborhood]);
+
+  const visibleGraph = useMemo(
+    () =>
+      model
+        ? sliceGraph(
+            model.dataset.graph.nodes,
+            model.dataset.graph.edges,
+            neighborhood,
+          )
+        : { nodes: [], edges: [] },
+    [model, neighborhood],
+  );
+
+  const selNode = activeId && model ? model.nodeById.get(activeId) : undefined;
   const selDoc = selNode && model ? model.docById.get(selNode.id) : undefined;
 
   const incidentEdges = useMemo(() => {
-    if (!model || !selectedId) return [];
+    if (!model || !activeId || !neighborhood) return [];
     return model.dataset.graph.edges.filter(
-      (e) => e.source === selectedId || e.target === selectedId,
+      (e) =>
+        (e.source === activeId && neighborhood.has(e.target)) ||
+        (e.target === activeId && neighborhood.has(e.source)),
     );
-  }, [model, selectedId]);
+  }, [model, activeId, neighborhood]);
+
+  const totalIncidentEdges = useMemo(() => {
+    if (!model || !activeId) return 0;
+    return model.dataset.graph.edges.filter(
+      (e) => e.source === activeId || e.target === activeId,
+    ).length;
+  }, [model, activeId]);
 
   const usedTypes = useMemo(() => {
     if (!model) return [];
@@ -86,7 +132,7 @@ export default function GraphView() {
     <>
       <PageHeader
         title="图谱 Graph"
-        description={`${nodes.length} 节点 · ${model.dataset.graph.edges.length} 条边 · 单击节点选中，邻域随度数展开。`}
+        description={`全库 ${nodes.length} 节点 / ${model.dataset.graph.edges.length} 条边 · 当前聚焦 ${visibleGraph.nodes.length} 节点 / ${visibleGraph.edges.length} 条边${expandedNeighborhood && expandedNeighborhood.size > visibleGraph.nodes.length ? `（从 ${expandedNeighborhood.size} 个邻域节点中择取）` : ""}；单击节点切换中心。`}
         actions={
           <SegmentedControl
             aria-label="邻域度数"
@@ -107,7 +153,7 @@ export default function GraphView() {
           <Suspense fallback={<Skeleton className="m-4 h-[calc(100%-32px)]" />}>
             <GraphCanvas
               model={model}
-              selectedId={selectedId}
+              selectedId={activeId}
               neighborhood={neighborhood}
               onSelectNode={(id) => select({ kind: "node", id })}
             />
@@ -137,11 +183,12 @@ export default function GraphView() {
               )}
 
               <p className="mt-5 border-t border-line pt-3 text-12 text-ink-3">
-                相邻边 · {incidentEdges.length}
+                当前可见相邻边 · {incidentEdges.length}
+                {totalIncidentEdges > incidentEdges.length && ` / 全部 ${totalIncidentEdges}`}
               </p>
               <ul className="mt-1 flex flex-col">
                 {incidentEdges.map((e, i) => {
-                  const otherId = e.source === selectedId ? e.target : e.source;
+                  const otherId = e.source === activeId ? e.target : e.source;
                   const other = model.nodeById.get(otherId);
                   if (!other) return null;
                   return (
@@ -156,7 +203,7 @@ export default function GraphView() {
                           {other.title}
                         </span>
                         <Mono className="shrink-0 text-12 text-ink-3">
-                          {e.source === selectedId ? "→" : "←"} {e.type}
+                          {e.source === activeId ? "→" : "←"} {e.type}
                         </Mono>
                       </button>
                     </li>

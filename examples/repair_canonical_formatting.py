@@ -3,7 +3,8 @@
 
 The migration is intentionally narrow: it repairs repeated heading markers such as
 ``## ## 行动项`` and normalizes accepted citation spellings such as ``¶1-¶3`` to
-``¶1-3``. Claim prose, anchors, citation addresses and frontmatter remain unchanged.
+``¶1-3``. A truncated source id is expanded only when it uniquely prefixes one source
+owned by the same user. Claim prose, anchors, block spans and frontmatter remain unchanged.
 Canonical Git makes the repair recoverable; the derived projection is reconciled from
 the resulting snapshot.
 """
@@ -25,6 +26,7 @@ from pneuma_knowledge_core.compile.anchor_ops import (
 from pneuma_knowledge_core.compile.documents import render_document
 from pneuma_knowledge_core.domain.canonical import (
     normalize_canonical_citation_markers,
+    resolve_canonical_citation_source_prefixes,
 )
 from pneuma_knowledge_core.domain.ids import UserId, extract_anchors
 from pneuma_knowledge_core.recall.projection import project_snapshot_claims
@@ -55,8 +57,10 @@ async def run(user_id: str, *, apply: bool) -> dict[str, Any]:
     try:
         documents = await ctx.canonical.list(user)
         postgres_before = await ctx.store.list_canonical_claims(user)
+        source_bounds = await ctx.store.block_counts(user)
         files: dict[str, str] = {}
         changes_by_path: dict[str, dict[str, int]] = {}
+        unresolved_by_path: dict[str, list[str]] = {}
         for document in documents:
             repaired, heading_changes = normalize_repeated_heading_markers(
                 document.body
@@ -64,7 +68,14 @@ async def run(user_id: str, *, apply: bool) -> dict[str, Any]:
             repaired, citation_changes = normalize_canonical_citation_markers(
                 repaired
             )
-            if not heading_changes and not citation_changes:
+            repaired, source_prefix_changes, unresolved = (
+                resolve_canonical_citation_source_prefixes(
+                    repaired, source_bounds
+                )
+            )
+            if unresolved:
+                unresolved_by_path[document.path] = sorted(unresolved)
+            if not heading_changes and not citation_changes and not source_prefix_changes:
                 continue
             if extract_anchors(repaired) != extract_anchors(document.body):
                 raise RuntimeError(
@@ -74,6 +85,7 @@ async def run(user_id: str, *, apply: bool) -> dict[str, Any]:
             changes_by_path[document.path] = {
                 "heading_markers": heading_changes,
                 "citation_markers": citation_changes,
+                "citation_source_prefixes": source_prefix_changes,
             }
 
         result: dict[str, Any] = {
@@ -88,6 +100,10 @@ async def run(user_id: str, *, apply: bool) -> dict[str, Any]:
             "citation_markers_normalized": sum(
                 row["citation_markers"] for row in changes_by_path.values()
             ),
+            "citation_source_prefixes_repaired": sum(
+                row["citation_source_prefixes"] for row in changes_by_path.values()
+            ),
+            "unresolved_citation_source_ids": dict(sorted(unresolved_by_path.items())),
             "changes_by_path": dict(sorted(changes_by_path.items())),
             "snapshot_ref": None,
             "projection": None,
@@ -100,11 +116,17 @@ async def run(user_id: str, *, apply: bool) -> dict[str, Any]:
         if not apply:
             return result
 
+        if unresolved_by_path:
+            raise RuntimeError(
+                "refusing ambiguous or unknown citation source repair: "
+                + json.dumps(unresolved_by_path, ensure_ascii=False, sort_keys=True)
+            )
+
         if files:
             snapshot = await ctx.canonical.commit_patch(
                 user,
                 files,
-                message="repair repeated Markdown heading markers",
+                message="repair deterministic canonical formatting and citation prefixes",
             )
             snapshot_ref = snapshot.ref
         else:

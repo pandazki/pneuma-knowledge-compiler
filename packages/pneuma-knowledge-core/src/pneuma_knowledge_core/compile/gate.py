@@ -96,6 +96,7 @@ def run_gate(
     sources: Sequence[NormalizedSource],
     *,
     alias_map: dict[str, str] | None = None,
+    known_source_bounds: Mapping[str, int] | None = None,
 ) -> list[Violation]:
     docs = draft.documents()
     base_bodies = draft.base_bodies()
@@ -119,7 +120,9 @@ def run_gate(
 
     # 3. citation legality — judge only citations introduced this round (a verbatim
     # carry-over from the base body was already validated at its own commit).
-    bounds = {str(s.raw.source_id): len(s.blocks) for s in sources}
+    current_bounds = {str(s.raw.source_id): len(s.blocks) for s in sources}
+    bounds = dict(known_source_bounds or {})
+    bounds.update(current_bounds)
     # At the compile boundary the model cites short per-job handles (`sNN`); resolve each
     # to its real source id before validating (a real id is passed through). Both forms
     # are accepted — a scripted/real model may cite either.
@@ -127,7 +130,7 @@ def run_gate(
     for path, doc in docs.items():
         base_body = base_bodies.get(path, "")
         for m in CANONICAL_CITATION_RE.finditer(doc.body):
-            if m.group(0) in base_body:
+            if known_source_bounds is None and m.group(0) in base_body:
                 continue  # grandfathered: unchanged, previously-validated citation
             sid = alias_map.get(m.group("sid"), m.group("sid"))
             start = int(m.group("start"))

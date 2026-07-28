@@ -111,6 +111,7 @@ async def process_job(
         skill=skill,
         treatments=treatments,
         source_guidance=source_guidance,
+        known_source_bounds=await ctx.store.block_counts(user_id),
         commit_message=f"compile {job_id}",
         **trace_cfg,
     )

@@ -1,0 +1,47 @@
+{
+  "run_at": "2026-07-29T00:00:00+08:00",
+  "user_id": "u-opc-ninghe",
+  "sample_count": 20,
+  "warm_local_requests": true,
+  "counts": {
+    "sources": 98,
+    "jobs": 196,
+    "documents": 10,
+    "claims": 531,
+    "snapshots": 92,
+    "history_envelopes": 383
+  },
+  "endpoints": {
+    "sources_limit_25": {
+      "p50_seconds": 0.005552,
+      "p95_seconds": 0.006947,
+      "mean_seconds": 0.005804
+    },
+    "jobs_limit_25": {
+      "p50_seconds": 0.002068,
+      "p95_seconds": 0.003596,
+      "mean_seconds": 0.002325
+    },
+    "history_limit_25": {
+      "p50_seconds": 0.006371,
+      "p95_seconds": 0.007631,
+      "mean_seconds": 0.006727
+    },
+    "snapshots_limit_25": {
+      "p50_seconds": 0.029731,
+      "p95_seconds": 0.034162,
+      "mean_seconds": 0.030523
+    },
+    "summary": {
+      "p50_seconds": 0.034042,
+      "p95_seconds": 0.038031,
+      "mean_seconds": 0.033915
+    },
+    "dataset_without_audit": {
+      "p50_seconds": 0.04384,
+      "p95_seconds": 0.051928,
+      "mean_seconds": 0.046297,
+      "response_bytes": 504882
+    }
+  }
+}

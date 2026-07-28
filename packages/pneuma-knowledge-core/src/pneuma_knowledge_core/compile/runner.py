@@ -188,6 +188,7 @@ async def run_compile(
     commit_message: str = "compile",
     treatments: Mapping[str, str] | None = None,
     source_guidance: Mapping[str, str] | None = None,
+    known_source_bounds: Mapping[str, int] | None = None,
     callbacks: list | None = None,
     trace_metadata: dict | None = None,
 ) -> CompileResult:
@@ -273,13 +274,23 @@ async def run_compile(
 
     await tool_loop()
     rounds = 1
-    violations = run_gate(draft, sources, alias_map=real_by_handle)
+    violations = run_gate(
+        draft,
+        sources,
+        alias_map=real_by_handle,
+        known_source_bounds=known_source_bounds,
+    )
 
     if violations and MAX_REPAIR_ROUNDS >= 1:
         messages.append(HumanMessage(content=_render_violations(violations)))
         await tool_loop()
         rounds = 2
-        violations = run_gate(draft, sources, alias_map=real_by_handle)
+        violations = run_gate(
+            draft,
+            sources,
+            alias_map=real_by_handle,
+            known_source_bounds=known_source_bounds,
+        )
 
     files = draft.to_files()
     if violations:

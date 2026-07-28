@@ -19,6 +19,23 @@ def test_guarded_statement_distinguishes_rejected_history_from_active_claim():
     assert guarded_statement(active) is False
 
 
+def test_guarded_statement_recognizes_evidence_qualification_language():
+    guarded = [
+        "该条是行动项记录，不代表入口已经实现或发布。",
+        "素材未核验，不能据此确认普遍需求。",
+        "该方案待确认，不能视为已经批准。",
+        "旧规则与新说法存在未决冲突，不能静默合并。",
+        "这条消息不能证明自动推送已执行。",
+        "尚未有确认邮件证明它已成为正式排期。",
+        "该观察不能替代对具体来源时区的确认。",
+        "与现有版本冲突，因此暂不能更新为已确认决定。",
+        "该记录不证明方案已获接受。",
+        "当前素材不足，不能把该方向写成最终决定。",
+    ]
+    assert all(guarded_statement(text) for text in guarded)
+    assert guarded_statement("当前决定已经批准并开始执行。") is False
+
+
 def test_truth_entries_attach_category_and_filter_current_status():
     manifest = {
         "truth": {

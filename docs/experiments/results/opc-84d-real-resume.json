@@ -4,11 +4,11 @@
   "user_id": "u-opc-ninghe",
   "mode": "real",
   "models": {
-    "compile": "openrouter:openai/gpt-5.6-luna",
-    "recall": "openrouter:openai/gpt-5.6-luna",
-    "deep": "openrouter:openai/gpt-5.6-luna",
-    "live_context": "openrouter:openai/gpt-5.6-luna",
-    "evolve": "openrouter:openai/gpt-5.6-luna"
+    "compile": "openrouter:openai/configured-chat-model",
+    "recall": "openrouter:openai/configured-chat-model",
+    "deep": "openrouter:openai/configured-chat-model",
+    "live_context": "openrouter:openai/configured-chat-model",
+    "evolve": "openrouter:openai/configured-chat-model"
   },
   "embedding_model": "openrouter:openai/text-embedding-3-small",
   "chunk_strategy": "semantic",

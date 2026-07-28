@@ -15,6 +15,7 @@ semantic chunks, lexical hits, and the structure map.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 
 from pydantic import BaseModel, Field
 
@@ -46,6 +47,36 @@ def normalize_canonical_citation_markers(text: str) -> tuple[str, int]:
         return rendered
 
     return CANONICAL_CITATION_RE.sub(replace, text), changes
+
+
+def resolve_canonical_citation_source_prefixes(
+    text: str, valid_source_ids: Iterable[str]
+) -> tuple[str, int, set[str]]:
+    """Repair a truncated citation id only when it identifies one real source.
+
+    This is deliberately a migration primitive, not fuzzy matching: an exact id is left
+    alone; an invalid id is expanded only when it is a prefix of exactly one valid id.
+    Ambiguous and unrelated ids remain byte-for-byte unchanged and are reported so the
+    caller can fail closed instead of guessing provenance.
+    """
+
+    valid = set(valid_source_ids)
+    changes = 0
+    unresolved: set[str] = set()
+
+    def replace(match: re.Match[str]) -> str:
+        nonlocal changes
+        source_id = match.group("sid")
+        if source_id in valid:
+            return match.group(0)
+        candidates = [candidate for candidate in valid if candidate.startswith(source_id)]
+        if len(candidates) != 1:
+            unresolved.add(source_id)
+            return match.group(0)
+        changes += 1
+        return match.group(0).replace(source_id, candidates[0], 1)
+
+    return CANONICAL_CITATION_RE.sub(replace, text), changes, unresolved
 
 
 class Citation(BaseModel):

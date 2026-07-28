@@ -5,6 +5,7 @@ from __future__ import annotations
 from pneuma_knowledge_core.domain.canonical import (
     CanonicalDocument,
     normalize_canonical_citation_markers,
+    resolve_canonical_citation_source_prefixes,
 )
 from pneuma_knowledge_core.domain.ids import DocumentId, SourceId
 from pneuma_knowledge_core.recall.projection import (
@@ -74,6 +75,27 @@ def test_canonical_citation_normalizer_emits_one_stable_spelling():
     )
     assert changes == 2
     assert normalized == "A [cite: s1 ¶1-3] B [cite: s2 ¶7]"
+
+
+def test_canonical_citation_prefix_repair_requires_one_unique_real_source():
+    valid_ids = {
+        "352690b742381abc55c984a706b1c6c0",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab",
+    }
+    repaired, changes, unresolved = resolve_canonical_citation_source_prefixes(
+        "A [cite: 352690b742381abc55c984a706b1c6 ¶1-4] "
+        "B [cite: aaaaaaaaaaaaaaaa ¶0] "
+        "C [cite: missing-source ¶2]",
+        valid_ids,
+    )
+    assert changes == 1
+    assert repaired == (
+        "A [cite: 352690b742381abc55c984a706b1c6c0 ¶1-4] "
+        "B [cite: aaaaaaaaaaaaaaaa ¶0] "
+        "C [cite: missing-source ¶2]"
+    )
+    assert unresolved == {"aaaaaaaaaaaaaaaa", "missing-source"}
 
 
 def test_snapshot_projection_is_deterministic_by_path():
