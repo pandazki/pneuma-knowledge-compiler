@@ -1,0 +1,116 @@
+{
+  "schema": "pneuma.experiment.run/v1",
+  "experiment_id": "opc-84d-relayforge",
+  "user_id": "u-opc-ninghe",
+  "mode": "scripted",
+  "models": {
+    "compile": "scripted:opc-84d",
+    "recall": "scripted:opc-84d",
+    "deep": "scripted:opc-84d",
+    "live_context": "scripted:opc-84d",
+    "evolve": "scripted:opc-84d"
+  },
+  "embedding_model": "fake:64",
+  "chunk_strategy": "sentence",
+  "elapsed_seconds": 2.8728,
+  "dataset_stats": {
+    "day_count": 84,
+    "batch_count": 12,
+    "event_count": 144,
+    "normalized_source_units": 98,
+    "meetings": 14,
+    "meeting_segments": 1332,
+    "documents": 36,
+    "im_conversations": 24,
+    "email_threads": 24,
+    "messages": 912,
+    "source_chars": 382288,
+    "atom_count": 2280,
+    "noise_atoms": 1955,
+    "noise_atom_ratio": 0.8574561403508771,
+    "noise_chars": 338919,
+    "noise_char_ratio": 0.8865541162683631
+  },
+  "batches": [
+    {
+      "batch_id": "B01",
+      "elapsed_seconds": 2.6382,
+      "contracts": [
+        {
+          "schema": "pneuma.source.meeting/v1",
+          "units": 1,
+          "deduplicated": 0
+        },
+        {
+          "schema": "pneuma.source.document-library/v1",
+          "units": 3,
+          "deduplicated": 0
+        },
+        {
+          "schema": "pneuma.source.im/v1",
+          "units": 2,
+          "deduplicated": 0
+        },
+        {
+          "schema": "pneuma.source.email/v1",
+          "units": 2,
+          "deduplicated": 0
+        }
+      ],
+      "new_source_ids": [
+        "24872050822ec3bf5ed008ba198379cd",
+        "056465cd379e4fcf59bf75ea706bd267",
+        "2568106aea9d3f31ce291d33d468b5d3",
+        "a261274350a82e952069712053cb77b4",
+        "da9eb45b15700601116f81d027059481",
+        "f66bb7fcc4a822034194a430672ce0cb",
+        "4a7cfa99672773bfc4e558670289ba3a",
+        "68b3de365f078ff2627758fbb5473ba2"
+      ],
+      "processed_jobs": 16,
+      "before": {
+        "sources": 0,
+        "jobs": 0,
+        "jobs_ok": 0,
+        "jobs_failed": 0,
+        "documents": 0,
+        "claims": 0,
+        "snapshots": 0
+      },
+      "after": {
+        "sources": 8,
+        "jobs": 16,
+        "jobs_ok": 16,
+        "jobs_failed": 0,
+        "documents": 5,
+        "claims": 19,
+        "snapshots": 5
+      },
+      "delta": {
+        "sources": 8,
+        "jobs": 16,
+        "jobs_ok": 16,
+        "jobs_failed": 0,
+        "documents": 5,
+        "claims": 19,
+        "snapshots": 5
+      },
+      "failures": []
+    }
+  ],
+  "final": {
+    "sources": 8,
+    "jobs": 16,
+    "jobs_ok": 16,
+    "jobs_failed": 0,
+    "documents": 5,
+    "claims": 19,
+    "snapshots": 5
+  },
+  "source_kinds": {
+    "document_library": 3,
+    "email": 2,
+    "im": 2,
+    "meeting": 1
+  }
+}

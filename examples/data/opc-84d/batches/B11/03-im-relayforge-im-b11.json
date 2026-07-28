@@ -1,0 +1,967 @@
+{
+  "schema": "pneuma.source.im/v1",
+  "provider": "mock",
+  "archive_id": "relayforge-im-b11",
+  "owner_user_ids": [
+    "u-owner"
+  ],
+  "users": [
+    {
+      "user_id": "u-owner",
+      "display_name": "沈砚",
+      "email": "yan@relayforge.dev",
+      "is_bot": false
+    },
+    {
+      "user_id": "u-gu",
+      "display_name": "顾清",
+      "email": "gu@beichen.example",
+      "is_bot": false
+    },
+    {
+      "user_id": "u-tang",
+      "display_name": "唐恬",
+      "email": "tang@beichen.example",
+      "is_bot": false
+    },
+    {
+      "user_id": "u-luo",
+      "display_name": "罗屿",
+      "email": "luo@studio.example",
+      "is_bot": false
+    },
+    {
+      "user_id": "u-ci",
+      "display_name": "CI Bot",
+      "email": null,
+      "is_bot": true
+    },
+    {
+      "user_id": "u-billing",
+      "display_name": "Billing Bot",
+      "email": null,
+      "is_bot": true
+    }
+  ],
+  "conversations": [
+    {
+      "conversation_id": "im-b11-c01",
+      "conversation_type": "channel",
+      "title": "cedar-week-11",
+      "member_ids": [
+        "u-owner",
+        "u-gu",
+        "u-tang",
+        "u-ci"
+      ],
+      "messages": [
+        {
+          "message_id": "im-b11-c01-m001",
+          "sender_id": "u-tang",
+          "sent_at": "2026-05-11T13:41:00+08:00",
+          "text": "先丢个链接在这：https://example.invalid/read-later ，我还没读，不代表采用里面的方案。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": null,
+          "edited_at": null,
+          "reactions": [],
+          "metadata": {
+            "subtype": "message"
+          }
+        },
+        {
+          "message_id": "im-b11-c01-m002",
+          "sender_id": "u-ci",
+          "sent_at": "2026-05-11T16:52:00+08:00",
+          "text": "更正：我刚写的是周四，其实是周五下午；上条已编辑，日历邀请还没发。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": null,
+          "edited_at": "2026-05-11T16:56:00+08:00",
+          "reactions": [],
+          "metadata": {
+            "subtype": "bot_message"
+          }
+        },
+        {
+          "message_id": "im-b11-c01-m003",
+          "sender_id": "u-owner",
+          "sent_at": "2026-05-11T20:03:00+08:00",
+          "text": "👍 我看到了，等手头这个构建结束再切回来。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": null,
+          "edited_at": null,
+          "reactions": [],
+          "metadata": {
+            "subtype": "message"
+          }
+        },
+        {
+          "message_id": "im-b11-c01-m004",
+          "sender_id": "u-gu",
+          "sent_at": "2026-05-11T12:14:00+08:00",
+          "text": "我前一个会拖了十分钟，原定时间先顺延；如果你不方便我们明早再约。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": null,
+          "edited_at": null,
+          "reactions": [],
+          "metadata": {
+            "subtype": "message"
+          }
+        },
+        {
+          "message_id": "im-b11-c01-m005",
+          "sender_id": "u-gu",
+          "sent_at": "2026-05-11T15:25:00+08:00",
+          "text": "把这条落成可核对记录：完成首次引用问答的用户次周返回率明显高于只完成注册的用户。 请在 thread 里指出来源或修改，不用只回一个表情。",
+          "thread_id": null,
+          "edited_at": null,
+          "reactions": [
+            {
+              "name": "white_check_mark",
+              "count": 1
+            }
+          ],
+          "metadata": {
+            "subtype": "message"
+          }
+        },
+        {
+          "message_id": "im-b11-c01-m006",
+          "sender_id": "u-ci",
+          "sent_at": "2026-05-11T17:37:00+08:00",
+          "text": "收到，我先把这条标一下，晚一点集中回复，不在这里展开。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": null,
+          "edited_at": null,
+          "reactions": [],
+          "metadata": {
+            "subtype": "bot_message"
+          }
+        },
+        {
+          "message_id": "im-b11-c01-m007",
+          "sender_id": "u-ci",
+          "sent_at": "2026-05-12T09:48:00+08:00",
+          "text": "Dependabot：发现一个 patch 版本更新，当前测试通过，尚未安排合并。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": null,
+          "edited_at": null,
+          "reactions": [],
+          "metadata": {
+            "subtype": "bot_message"
+          }
+        },
+        {
+          "message_id": "im-b11-c01-m008",
+          "sender_id": "u-gu",
+          "sent_at": "2026-05-12T12:59:00+08:00",
+          "text": "今天咖啡豆好像磨得太细了，机器一直报警，和线上监控那声还挺像。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": "im-b11-c01-m005",
+          "edited_at": null,
+          "reactions": [],
+          "metadata": {
+            "subtype": "message"
+          }
+        },
+        {
+          "message_id": "im-b11-c01-m009",
+          "sender_id": "u-tang",
+          "sent_at": "2026-05-12T16:10:00+08:00",
+          "text": "状态先从 doing 改回 todo，依赖还没到位；这不是取消，只是今天不继续。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": null,
+          "edited_at": null,
+          "reactions": [
+            {
+              "name": "eyes",
+              "count": 2
+            }
+          ],
+          "metadata": {
+            "subtype": "message"
+          }
+        },
+        {
+          "message_id": "im-b11-c01-m010",
+          "sender_id": "u-ci",
+          "sent_at": "2026-05-12T19:21:00+08:00",
+          "text": "CI bot：preview 构建完成，缓存命中 87%，本条通知无需操作。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": null,
+          "edited_at": null,
+          "reactions": [],
+          "metadata": {
+            "subtype": "bot_message"
+          }
+        },
+        {
+          "message_id": "im-b11-c01-m011",
+          "sender_id": "u-gu",
+          "sent_at": "2026-05-12T10:33:00+08:00",
+          "text": "把这条落成可核对记录：导入检查器将常见格式错误在上传前暴露，支持量随之下降。 请在 thread 里指出来源或修改，不用只回一个表情。",
+          "thread_id": null,
+          "edited_at": null,
+          "reactions": [
+            {
+              "name": "white_check_mark",
+              "count": 1
+            }
+          ],
+          "metadata": {
+            "subtype": "message"
+          }
+        },
+        {
+          "message_id": "im-b11-c01-m012",
+          "sender_id": "u-gu",
+          "sent_at": "2026-05-12T13:44:00+08:00",
+          "text": "更正：我刚写的是周四，其实是周五下午；上条已编辑，日历邀请还没发。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": "im-b11-c01-m005",
+          "edited_at": "2026-05-12T13:48:00+08:00",
+          "reactions": [],
+          "metadata": {
+            "subtype": "message"
+          }
+        },
+        {
+          "message_id": "im-b11-c01-m013",
+          "sender_id": "u-tang",
+          "sent_at": "2026-05-13T16:55:00+08:00",
+          "text": "👍 我看到了，等手头这个构建结束再切回来。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": null,
+          "edited_at": null,
+          "reactions": [],
+          "metadata": {
+            "subtype": "message"
+          }
+        },
+        {
+          "message_id": "im-b11-c01-m014",
+          "sender_id": "u-ci",
+          "sent_at": "2026-05-13T20:06:00+08:00",
+          "text": "我前一个会拖了十分钟，原定时间先顺延；如果你不方便我们明早再约。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": null,
+          "edited_at": null,
+          "reactions": [],
+          "metadata": {
+            "subtype": "bot_message"
+          }
+        },
+        {
+          "message_id": "im-b11-c01-m015",
+          "sender_id": "u-owner",
+          "sent_at": "2026-05-13T12:17:00+08:00",
+          "text": "这条回错 thread 了，讨论的是文档示例，不是线上事故；我复制到正确的串里。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": null,
+          "edited_at": null,
+          "reactions": [],
+          "metadata": {
+            "subtype": "message"
+          }
+        },
+        {
+          "message_id": "im-b11-c01-m016",
+          "sender_id": "u-gu",
+          "sent_at": "2026-05-13T15:28:00+08:00",
+          "text": "收到，我先把这条标一下，晚一点集中回复，不在这里展开。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": "im-b11-c01-m005",
+          "edited_at": null,
+          "reactions": [],
+          "metadata": {
+            "subtype": "message"
+          }
+        },
+        {
+          "message_id": "im-b11-c01-m017",
+          "sender_id": "u-ci",
+          "sent_at": "2026-05-13T17:40:00+08:00",
+          "text": "Dependabot：发现一个 patch 版本更新，当前测试通过，尚未安排合并。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": null,
+          "edited_at": null,
+          "reactions": [],
+          "metadata": {
+            "subtype": "bot_message"
+          }
+        },
+        {
+          "message_id": "im-b11-c01-m018",
+          "sender_id": "u-tang",
+          "sent_at": "2026-05-13T09:51:00+08:00",
+          "text": "把这条落成可核对记录：暂停自动周报，把工程时间用于导入检查和首次引用问答。 请在 thread 里指出来源或修改，不用只回一个表情。",
+          "thread_id": null,
+          "edited_at": null,
+          "reactions": [
+            {
+              "name": "eyes",
+              "count": 2
+            }
+          ],
+          "metadata": {
+            "subtype": "message"
+          }
+        },
+        {
+          "message_id": "im-b11-c01-m019",
+          "sender_id": "u-owner",
+          "sent_at": "2026-05-14T13:02:00+08:00",
+          "text": "状态先从 doing 改回 todo，依赖还没到位；这不是取消，只是今天不继续。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": null,
+          "edited_at": null,
+          "reactions": [],
+          "metadata": {
+            "subtype": "message"
+          }
+        },
+        {
+          "message_id": "im-b11-c01-m020",
+          "sender_id": "u-ci",
+          "sent_at": "2026-05-14T16:13:00+08:00",
+          "text": "CI bot：preview 构建完成，缓存命中 87%，本条通知无需操作。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": "im-b11-c01-m005",
+          "edited_at": null,
+          "reactions": [],
+          "metadata": {
+            "subtype": "bot_message"
+          }
+        },
+        {
+          "message_id": "im-b11-c01-m021",
+          "sender_id": "u-tang",
+          "sent_at": "2026-05-14T19:24:00+08:00",
+          "text": "先丢个链接在这：https://example.invalid/read-later ，我还没读，不代表采用里面的方案。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": null,
+          "edited_at": null,
+          "reactions": [],
+          "metadata": {
+            "subtype": "message"
+          }
+        },
+        {
+          "message_id": "im-b11-c01-m022",
+          "sender_id": "u-ci",
+          "sent_at": "2026-05-14T10:36:00+08:00",
+          "text": "更正：我刚写的是周四，其实是周五下午；上条已编辑，日历邀请还没发。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": null,
+          "edited_at": "2026-05-14T10:40:00+08:00",
+          "reactions": [],
+          "metadata": {
+            "subtype": "bot_message"
+          }
+        },
+        {
+          "message_id": "im-b11-c01-m023",
+          "sender_id": "u-owner",
+          "sent_at": "2026-05-14T13:47:00+08:00",
+          "text": "👍 我看到了，等手头这个构建结束再切回来。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": null,
+          "edited_at": null,
+          "reactions": [],
+          "metadata": {
+            "subtype": "message"
+          }
+        },
+        {
+          "message_id": "im-b11-c01-m024",
+          "sender_id": "u-gu",
+          "sent_at": "2026-05-14T16:58:00+08:00",
+          "text": "我前一个会拖了十分钟，原定时间先顺延；如果你不方便我们明早再约。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": "im-b11-c01-m005",
+          "edited_at": null,
+          "reactions": [],
+          "metadata": {
+            "subtype": "message"
+          }
+        },
+        {
+          "message_id": "im-b11-c01-m025",
+          "sender_id": "u-owner",
+          "sent_at": "2026-05-15T20:09:00+08:00",
+          "text": "把这条落成可核对记录：沈砚在周四前移除首页周报入口并迁移已有链接。 请在 thread 里指出来源或修改，不用只回一个表情。",
+          "thread_id": null,
+          "edited_at": null,
+          "reactions": [
+            {
+              "name": "white_check_mark",
+              "count": 1
+            }
+          ],
+          "metadata": {
+            "subtype": "message"
+          }
+        },
+        {
+          "message_id": "im-b11-c01-m026",
+          "sender_id": "u-ci",
+          "sent_at": "2026-05-15T12:20:00+08:00",
+          "text": "收到，我先把这条标一下，晚一点集中回复，不在这里展开。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": null,
+          "edited_at": null,
+          "reactions": [],
+          "metadata": {
+            "subtype": "bot_message"
+          }
+        },
+        {
+          "message_id": "im-b11-c01-m027",
+          "sender_id": "u-ci",
+          "sent_at": "2026-05-15T14:32:00+08:00",
+          "text": "Dependabot：发现一个 patch 版本更新，当前测试通过，尚未安排合并。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": null,
+          "edited_at": null,
+          "reactions": [
+            {
+              "name": "eyes",
+              "count": 2
+            }
+          ],
+          "metadata": {
+            "subtype": "bot_message"
+          }
+        },
+        {
+          "message_id": "im-b11-c01-m028",
+          "sender_id": "u-gu",
+          "sent_at": "2026-05-15T17:43:00+08:00",
+          "text": "今天咖啡豆好像磨得太细了，机器一直报警，和线上监控那声还挺像。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": "im-b11-c01-m005",
+          "edited_at": null,
+          "reactions": [],
+          "metadata": {
+            "subtype": "message"
+          }
+        },
+        {
+          "message_id": "im-b11-c01-m029",
+          "sender_id": "u-tang",
+          "sent_at": "2026-05-15T09:54:00+08:00",
+          "text": "状态先从 doing 改回 todo，依赖还没到位；这不是取消，只是今天不继续。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": null,
+          "edited_at": null,
+          "reactions": [],
+          "metadata": {
+            "subtype": "message"
+          }
+        },
+        {
+          "message_id": "im-b11-c01-m030",
+          "sender_id": "u-ci",
+          "sent_at": "2026-05-15T13:05:00+08:00",
+          "text": "CI bot：preview 构建完成，缓存命中 87%，本条通知无需操作。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": null,
+          "edited_at": null,
+          "reactions": [],
+          "metadata": {
+            "subtype": "bot_message"
+          }
+        },
+        {
+          "message_id": "im-b11-c01-m031",
+          "sender_id": "u-owner",
+          "sent_at": "2026-05-16T16:16:00+08:00",
+          "text": "把这条落成可核对记录：迁移不能让已有 briefing 链接失效。 请在 thread 里指出来源或修改，不用只回一个表情。",
+          "thread_id": null,
+          "edited_at": null,
+          "reactions": [
+            {
+              "name": "white_check_mark",
+              "count": 1
+            }
+          ],
+          "metadata": {
+            "subtype": "message"
+          }
+        },
+        {
+          "message_id": "im-b11-c01-m032",
+          "sender_id": "u-gu",
+          "sent_at": "2026-05-16T19:27:00+08:00",
+          "text": "更正：我刚写的是周四，其实是周五下午；上条已编辑，日历邀请还没发。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": "im-b11-c01-m005",
+          "edited_at": "2026-05-16T19:31:00+08:00",
+          "reactions": [],
+          "metadata": {
+            "subtype": "message"
+          }
+        },
+        {
+          "message_id": "im-b11-c01-m033",
+          "sender_id": "u-tang",
+          "sent_at": "2026-05-16T10:39:00+08:00",
+          "text": "👍 我看到了，等手头这个构建结束再切回来。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": null,
+          "edited_at": null,
+          "reactions": [],
+          "metadata": {
+            "subtype": "message"
+          }
+        },
+        {
+          "message_id": "im-b11-c01-m034",
+          "sender_id": "u-ci",
+          "sent_at": "2026-05-16T13:50:00+08:00",
+          "text": "我前一个会拖了十分钟，原定时间先顺延；如果你不方便我们明早再约。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": null,
+          "edited_at": null,
+          "reactions": [],
+          "metadata": {
+            "subtype": "bot_message"
+          }
+        }
+      ],
+      "metadata": {
+        "batch_id": "B11",
+        "purpose": "根据使用证据减少首次导入后的迷路与等待"
+      }
+    },
+    {
+      "conversation_id": "im-b11-c02",
+      "conversation_type": "group_dm",
+      "title": "relayforge-ops-11",
+      "member_ids": [
+        "u-owner",
+        "u-luo",
+        "u-ci",
+        "u-billing"
+      ],
+      "messages": [
+        {
+          "message_id": "im-b11-c02-m001",
+          "sender_id": "u-billing",
+          "sent_at": "2026-05-11T14:41:00+08:00",
+          "text": "今天咖啡豆好像磨得太细了，机器一直报警，和线上监控那声还挺像。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": null,
+          "edited_at": null,
+          "reactions": [],
+          "metadata": {
+            "subtype": "bot_message"
+          }
+        },
+        {
+          "message_id": "im-b11-c02-m002",
+          "sender_id": "u-owner",
+          "sent_at": "2026-05-11T17:52:00+08:00",
+          "text": "状态先从 doing 改回 todo，依赖还没到位；这不是取消，只是今天不继续。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": null,
+          "edited_at": null,
+          "reactions": [],
+          "metadata": {
+            "subtype": "message"
+          }
+        },
+        {
+          "message_id": "im-b11-c02-m003",
+          "sender_id": "u-ci",
+          "sent_at": "2026-05-11T10:03:00+08:00",
+          "text": "CI bot：preview 构建完成，缓存命中 87%，本条通知无需操作。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": null,
+          "edited_at": null,
+          "reactions": [],
+          "metadata": {
+            "subtype": "bot_message"
+          }
+        },
+        {
+          "message_id": "im-b11-c02-m004",
+          "sender_id": "u-ci",
+          "sent_at": "2026-05-11T13:14:00+08:00",
+          "text": "先丢个链接在这：https://example.invalid/read-later ，我还没读，不代表采用里面的方案。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": null,
+          "edited_at": null,
+          "reactions": [],
+          "metadata": {
+            "subtype": "bot_message"
+          }
+        },
+        {
+          "message_id": "im-b11-c02-m005",
+          "sender_id": "u-billing",
+          "sent_at": "2026-05-11T16:25:00+08:00",
+          "text": "更正：我刚写的是周四，其实是周五下午；上条已编辑，日历邀请还没发。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": null,
+          "edited_at": "2026-05-11T16:29:00+08:00",
+          "reactions": [],
+          "metadata": {
+            "subtype": "bot_message"
+          }
+        },
+        {
+          "message_id": "im-b11-c02-m006",
+          "sender_id": "u-owner",
+          "sent_at": "2026-05-11T18:37:00+08:00",
+          "text": "👍 我看到了，等手头这个构建结束再切回来。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": null,
+          "edited_at": null,
+          "reactions": [],
+          "metadata": {
+            "subtype": "message"
+          }
+        },
+        {
+          "message_id": "im-b11-c02-m007",
+          "sender_id": "u-luo",
+          "sent_at": "2026-05-12T10:48:00+08:00",
+          "text": "我前一个会拖了十分钟，原定时间先顺延；如果你不方便我们明早再约。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": null,
+          "edited_at": null,
+          "reactions": [],
+          "metadata": {
+            "subtype": "message"
+          }
+        },
+        {
+          "message_id": "im-b11-c02-m008",
+          "sender_id": "u-luo",
+          "sent_at": "2026-05-12T13:59:00+08:00",
+          "text": "把这条落成可核对记录：自动生成周报的使用率很低，却制造了最多的格式支持问题。 请在 thread 里指出来源或修改，不用只回一个表情。",
+          "thread_id": "im-b11-c02-m005",
+          "edited_at": null,
+          "reactions": [
+            {
+              "name": "white_check_mark",
+              "count": 1
+            }
+          ],
+          "metadata": {
+            "subtype": "message"
+          }
+        },
+        {
+          "message_id": "im-b11-c02-m009",
+          "sender_id": "u-billing",
+          "sent_at": "2026-05-12T17:10:00+08:00",
+          "text": "收到，我先把这条标一下，晚一点集中回复，不在这里展开。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": null,
+          "edited_at": null,
+          "reactions": [
+            {
+              "name": "eyes",
+              "count": 2
+            }
+          ],
+          "metadata": {
+            "subtype": "bot_message"
+          }
+        },
+        {
+          "message_id": "im-b11-c02-m010",
+          "sender_id": "u-ci",
+          "sent_at": "2026-05-12T20:21:00+08:00",
+          "text": "Dependabot：发现一个 patch 版本更新，当前测试通过，尚未安排合并。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": null,
+          "edited_at": null,
+          "reactions": [],
+          "metadata": {
+            "subtype": "bot_message"
+          }
+        },
+        {
+          "message_id": "im-b11-c02-m011",
+          "sender_id": "u-luo",
+          "sent_at": "2026-05-12T11:33:00+08:00",
+          "text": "今天咖啡豆好像磨得太细了，机器一直报警，和线上监控那声还挺像。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": null,
+          "edited_at": null,
+          "reactions": [],
+          "metadata": {
+            "subtype": "message"
+          }
+        },
+        {
+          "message_id": "im-b11-c02-m012",
+          "sender_id": "u-ci",
+          "sent_at": "2026-05-12T14:44:00+08:00",
+          "text": "状态先从 doing 改回 todo，依赖还没到位；这不是取消，只是今天不继续。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": "im-b11-c02-m005",
+          "edited_at": null,
+          "reactions": [],
+          "metadata": {
+            "subtype": "bot_message"
+          }
+        },
+        {
+          "message_id": "im-b11-c02-m013",
+          "sender_id": "u-ci",
+          "sent_at": "2026-05-13T17:55:00+08:00",
+          "text": "CI bot：preview 构建完成，缓存命中 87%，本条通知无需操作。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": null,
+          "edited_at": null,
+          "reactions": [],
+          "metadata": {
+            "subtype": "bot_message"
+          }
+        },
+        {
+          "message_id": "im-b11-c02-m014",
+          "sender_id": "u-owner",
+          "sent_at": "2026-05-13T10:06:00+08:00",
+          "text": "先丢个链接在这：https://example.invalid/read-later ，我还没读，不代表采用里面的方案。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": null,
+          "edited_at": null,
+          "reactions": [],
+          "metadata": {
+            "subtype": "message"
+          }
+        },
+        {
+          "message_id": "im-b11-c02-m015",
+          "sender_id": "u-luo",
+          "sent_at": "2026-05-13T13:17:00+08:00",
+          "text": "更正：我刚写的是周四，其实是周五下午；上条已编辑，日历邀请还没发。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": null,
+          "edited_at": "2026-05-13T13:21:00+08:00",
+          "reactions": [],
+          "metadata": {
+            "subtype": "message"
+          }
+        },
+        {
+          "message_id": "im-b11-c02-m016",
+          "sender_id": "u-ci",
+          "sent_at": "2026-05-13T16:28:00+08:00",
+          "text": "👍 我看到了，等手头这个构建结束再切回来。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": "im-b11-c02-m005",
+          "edited_at": null,
+          "reactions": [],
+          "metadata": {
+            "subtype": "bot_message"
+          }
+        },
+        {
+          "message_id": "im-b11-c02-m017",
+          "sender_id": "u-billing",
+          "sent_at": "2026-05-13T18:40:00+08:00",
+          "text": "我前一个会拖了十分钟，原定时间先顺延；如果你不方便我们明早再约。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": null,
+          "edited_at": null,
+          "reactions": [],
+          "metadata": {
+            "subtype": "bot_message"
+          }
+        },
+        {
+          "message_id": "im-b11-c02-m018",
+          "sender_id": "u-owner",
+          "sent_at": "2026-05-13T10:51:00+08:00",
+          "text": "这条回错 thread 了，讨论的是文档示例，不是线上事故；我复制到正确的串里。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": null,
+          "edited_at": null,
+          "reactions": [
+            {
+              "name": "eyes",
+              "count": 2
+            }
+          ],
+          "metadata": {
+            "subtype": "message"
+          }
+        },
+        {
+          "message_id": "im-b11-c02-m019",
+          "sender_id": "u-luo",
+          "sent_at": "2026-05-14T14:02:00+08:00",
+          "text": "收到，我先把这条标一下，晚一点集中回复，不在这里展开。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": null,
+          "edited_at": null,
+          "reactions": [],
+          "metadata": {
+            "subtype": "message"
+          }
+        },
+        {
+          "message_id": "im-b11-c02-m020",
+          "sender_id": "u-ci",
+          "sent_at": "2026-05-14T17:13:00+08:00",
+          "text": "Dependabot：发现一个 patch 版本更新，当前测试通过，尚未安排合并。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": "im-b11-c02-m005",
+          "edited_at": null,
+          "reactions": [],
+          "metadata": {
+            "subtype": "bot_message"
+          }
+        },
+        {
+          "message_id": "im-b11-c02-m021",
+          "sender_id": "u-billing",
+          "sent_at": "2026-05-14T20:24:00+08:00",
+          "text": "今天咖啡豆好像磨得太细了，机器一直报警，和线上监控那声还挺像。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": null,
+          "edited_at": null,
+          "reactions": [],
+          "metadata": {
+            "subtype": "bot_message"
+          }
+        },
+        {
+          "message_id": "im-b11-c02-m022",
+          "sender_id": "u-owner",
+          "sent_at": "2026-05-14T11:36:00+08:00",
+          "text": "把这条落成可核对记录：继续打磨自动周报模板，把它放到首页主入口。 请在 thread 里指出来源或修改，不用只回一个表情。",
+          "thread_id": null,
+          "edited_at": null,
+          "reactions": [
+            {
+              "name": "white_check_mark",
+              "count": 1
+            }
+          ],
+          "metadata": {
+            "subtype": "message"
+          }
+        },
+        {
+          "message_id": "im-b11-c02-m023",
+          "sender_id": "u-ci",
+          "sent_at": "2026-05-14T14:47:00+08:00",
+          "text": "CI bot：preview 构建完成，缓存命中 87%，本条通知无需操作。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": null,
+          "edited_at": null,
+          "reactions": [],
+          "metadata": {
+            "subtype": "bot_message"
+          }
+        },
+        {
+          "message_id": "im-b11-c02-m024",
+          "sender_id": "u-ci",
+          "sent_at": "2026-05-14T17:58:00+08:00",
+          "text": "先丢个链接在这：https://example.invalid/read-later ，我还没读，不代表采用里面的方案。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": "im-b11-c02-m005",
+          "edited_at": null,
+          "reactions": [],
+          "metadata": {
+            "subtype": "bot_message"
+          }
+        },
+        {
+          "message_id": "im-b11-c02-m025",
+          "sender_id": "u-billing",
+          "sent_at": "2026-05-15T10:09:00+08:00",
+          "text": "更正：我刚写的是周四，其实是周五下午；上条已编辑，日历邀请还没发。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": null,
+          "edited_at": "2026-05-15T10:13:00+08:00",
+          "reactions": [],
+          "metadata": {
+            "subtype": "bot_message"
+          }
+        },
+        {
+          "message_id": "im-b11-c02-m026",
+          "sender_id": "u-owner",
+          "sent_at": "2026-05-15T13:20:00+08:00",
+          "text": "👍 我看到了，等手头这个构建结束再切回来。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": null,
+          "edited_at": null,
+          "reactions": [],
+          "metadata": {
+            "subtype": "message"
+          }
+        },
+        {
+          "message_id": "im-b11-c02-m027",
+          "sender_id": "u-luo",
+          "sent_at": "2026-05-15T15:32:00+08:00",
+          "text": "我前一个会拖了十分钟，原定时间先顺延；如果你不方便我们明早再约。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": null,
+          "edited_at": null,
+          "reactions": [
+            {
+              "name": "eyes",
+              "count": 2
+            }
+          ],
+          "metadata": {
+            "subtype": "message"
+          }
+        },
+        {
+          "message_id": "im-b11-c02-m028",
+          "sender_id": "u-ci",
+          "sent_at": "2026-05-15T18:43:00+08:00",
+          "text": "这条回错 thread 了，讨论的是文档示例，不是线上事故；我复制到正确的串里。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": "im-b11-c02-m005",
+          "edited_at": null,
+          "reactions": [],
+          "metadata": {
+            "subtype": "bot_message"
+          }
+        },
+        {
+          "message_id": "im-b11-c02-m029",
+          "sender_id": "u-billing",
+          "sent_at": "2026-05-15T10:54:00+08:00",
+          "text": "收到，我先把这条标一下，晚一点集中回复，不在这里展开。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": null,
+          "edited_at": null,
+          "reactions": [],
+          "metadata": {
+            "subtype": "bot_message"
+          }
+        },
+        {
+          "message_id": "im-b11-c02-m030",
+          "sender_id": "u-ci",
+          "sent_at": "2026-05-15T14:05:00+08:00",
+          "text": "Dependabot：发现一个 patch 版本更新，当前测试通过，尚未安排合并。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": null,
+          "edited_at": null,
+          "reactions": [],
+          "metadata": {
+            "subtype": "bot_message"
+          }
+        },
+        {
+          "message_id": "im-b11-c02-m031",
+          "sender_id": "u-luo",
+          "sent_at": "2026-05-16T17:16:00+08:00",
+          "text": "今天咖啡豆好像磨得太细了，机器一直报警，和线上监控那声还挺像。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": null,
+          "edited_at": null,
+          "reactions": [],
+          "metadata": {
+            "subtype": "message"
+          }
+        },
+        {
+          "message_id": "im-b11-c02-m032",
+          "sender_id": "u-ci",
+          "sent_at": "2026-05-16T20:27:00+08:00",
+          "text": "状态先从 doing 改回 todo，依赖还没到位；这不是取消，只是今天不继续。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": "im-b11-c02-m005",
+          "edited_at": null,
+          "reactions": [],
+          "metadata": {
+            "subtype": "bot_message"
+          }
+        },
+        {
+          "message_id": "im-b11-c02-m033",
+          "sender_id": "u-ci",
+          "sent_at": "2026-05-16T11:39:00+08:00",
+          "text": "把这条落成可核对记录：留存优化以真实行为漏斗为准，不以访谈中的功能好感代替。 请在 thread 里指出来源或修改，不用只回一个表情。",
+          "thread_id": null,
+          "edited_at": null,
+          "reactions": [
+            {
+              "name": "white_check_mark",
+              "count": 1
+            }
+          ],
+          "metadata": {
+            "subtype": "bot_message"
+          }
+        },
+        {
+          "message_id": "im-b11-c02-m034",
+          "sender_id": "u-owner",
+          "sent_at": "2026-05-16T14:50:00+08:00",
+          "text": "先丢个链接在这：https://example.invalid/read-later ，我还没读，不代表采用里面的方案。 当前频道主题是「留存修复」，但这条消息没有形成新的范围、承诺或客户事实。保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，并不是每次敲回车都在创造值得长期保存的知识。",
+          "thread_id": null,
+          "edited_at": null,
+          "reactions": [],
+          "metadata": {
+            "subtype": "message"
+          }
+        }
+      ],
+      "metadata": {
+        "batch_id": "B11",
+        "purpose": "根据使用证据减少首次导入后的迷路与等待"
+      }
+    }
+  ],
+  "metadata": {
+    "batch_id": "B11",
+    "provider_shape": "slack-export"
+  }
+}

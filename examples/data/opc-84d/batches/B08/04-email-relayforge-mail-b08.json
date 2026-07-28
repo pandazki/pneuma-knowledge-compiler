@@ -1,0 +1,261 @@
+{
+  "schema": "pneuma.source.email/v1",
+  "provider": "mock",
+  "archive_id": "relayforge-mail-b08",
+  "owner_addresses": [
+    "yan@relayforge.dev"
+  ],
+  "threads": [
+    {
+      "thread_id": "mail-b08-t01",
+      "subject": "定价与回款：范围、证据与本周确认",
+      "messages": [
+        {
+          "message_id": "<mail-b08-t01-m01@relayforge.example>",
+          "sent_at": "2026-04-22T12:39:00+08:00",
+          "from": {
+            "address": "yan@relayforge.dev",
+            "display_name": "沈砚"
+          },
+          "to": [
+            {
+              "address": "gu@beichen.example",
+              "display_name": "顾清"
+            }
+          ],
+          "cc": [],
+          "subject": "定价与回款：范围、证据与本周确认",
+          "text": "你好，\n\n本次需要明确确认的是：设计合作期采用单一月费，按新增材料设柔性使用边界。\n\n本周里程碑为「签下首个付费月度方案并恢复一次失败付款」。请直接回复同意、修改或拒绝，沉默不会被视为批准。\n\n为方便回放，本邮件只引用稳定业务事实，不把会中猜测写成结论。\n\n沈砚\nRelayForge",
+          "in_reply_to": null,
+          "references": [],
+          "attachments": [
+            {
+              "filename": "B08-scope.pdf",
+              "content_type": "application/pdf",
+              "size_bytes": 48239,
+              "content_id": "attach-b08"
+            }
+          ],
+          "metadata": {
+            "automated": false,
+            "batch_id": "B08"
+          }
+        },
+        {
+          "message_id": "<mail-b08-t01-m02@relayforge.example>",
+          "sent_at": "2026-04-23T12:48:00+08:00",
+          "from": {
+            "address": "gu@beichen.example",
+            "display_name": "顾清"
+          },
+          "to": [
+            {
+              "address": "yan@relayforge.dev",
+              "display_name": "沈砚"
+            }
+          ],
+          "cc": [],
+          "subject": "Re: 定价与回款：范围、证据与本周确认",
+          "text": "您好，\n\n供应商活动邀请：升级年度方案可获得额外额度。该报价与现有试点采购无关。\n通知批次 1；若已处理请忽略，不需要回复。\n\n供应商活动邀请：升级年度方案可获得额外额度。该报价与现有试点采购无关。\n通知批次 2；若已处理请忽略，不需要回复。\n\n供应商活动邀请：升级年度方案可获得额外额度。该报价与现有试点采购无关。\n通知批次 3；若已处理请忽略，不需要回复。\n\n供应商活动邀请：升级年度方案可获得额外额度。该报价与现有试点采购无关。\n通知批次 4；若已处理请忽略，不需要回复。\n\n供应商活动邀请：升级年度方案可获得额外额度。该报价与现有试点采购无关。\n通知批次 5；若已处理请忽略，不需要回复。\n\n供应商活动邀请：升级年度方案可获得额外额度。该报价与现有试点采购无关。\n通知批次 6；若已处理请忽略，不需要回复。\n\n当前邮件主题与「定价与回款」同周出现，但自动内容不代表客户决定。\n\n自动回复：我今天下午不在电脑前，紧急事项请走既有支持渠道；本邮箱不会自动转发。",
+          "in_reply_to": "<mail-b08-t01-m01@relayforge.example>",
+          "references": [
+            "<mail-b08-t01-m01@relayforge.example>"
+          ],
+          "attachments": [],
+          "metadata": {
+            "automated": false,
+            "batch_id": "B08"
+          }
+        },
+        {
+          "message_id": "<mail-b08-t01-m03@relayforge.example>",
+          "sent_at": "2026-04-24T12:57:00+08:00",
+          "from": {
+            "address": "gu@beichen.example",
+            "display_name": "顾清"
+          },
+          "to": [
+            {
+              "address": "yan@relayforge.dev",
+              "display_name": "沈砚"
+            }
+          ],
+          "cc": [
+            {
+              "address": "archive@relayforge.dev",
+              "display_name": "Project Archive"
+            }
+          ],
+          "subject": "Re: 定价与回款：范围、证据与本周确认",
+          "text": "你好，\n\n本次需要明确确认的是：沈砚在周二发出正式报价和发票。\n\n本周里程碑为「签下首个付费月度方案并恢复一次失败付款」。请直接回复同意、修改或拒绝，沉默不会被视为批准。\n\n为方便回放，本邮件只引用稳定业务事实，不把会中猜测写成结论。\n\n沈砚\nRelayForge",
+          "in_reply_to": "<mail-b08-t01-m02@relayforge.example>",
+          "references": [
+            "<mail-b08-t01-m01@relayforge.example>",
+            "<mail-b08-t01-m02@relayforge.example>"
+          ],
+          "attachments": [],
+          "metadata": {
+            "automated": false,
+            "batch_id": "B08"
+          }
+        },
+        {
+          "message_id": "<mail-b08-t01-m04@relayforge.example>",
+          "sent_at": "2026-04-25T13:06:00+08:00",
+          "from": {
+            "address": "gu@beichen.example",
+            "display_name": "顾清"
+          },
+          "to": [
+            {
+              "address": "yan@relayforge.dev",
+              "display_name": "沈砚"
+            }
+          ],
+          "cc": [],
+          "subject": "Re: 定价与回款：范围、证据与本周确认",
+          "text": "您好，\n\n此邮件由移动设备发送。签名中的职位和地址仅供联系，不构成项目范围承诺。\n通知批次 1；若已处理请忽略，不需要回复。\n\n此邮件由移动设备发送。签名中的职位和地址仅供联系，不构成项目范围承诺。\n通知批次 2；若已处理请忽略，不需要回复。\n\n此邮件由移动设备发送。签名中的职位和地址仅供联系，不构成项目范围承诺。\n通知批次 3；若已处理请忽略，不需要回复。\n\n此邮件由移动设备发送。签名中的职位和地址仅供联系，不构成项目范围承诺。\n通知批次 4；若已处理请忽略，不需要回复。\n\n此邮件由移动设备发送。签名中的职位和地址仅供联系，不构成项目范围承诺。\n通知批次 5；若已处理请忽略，不需要回复。\n\n此邮件由移动设备发送。签名中的职位和地址仅供联系，不构成项目范围承诺。\n通知批次 6；若已处理请忽略，不需要回复。\n\n当前邮件主题与「定价与回款」同周出现，但自动内容不代表客户决定。\n\n本邮件及附件可能包含保密信息。如误收请删除。此通用页脚不改变双方已签署文件。",
+          "in_reply_to": "<mail-b08-t01-m03@relayforge.example>",
+          "references": [
+            "<mail-b08-t01-m01@relayforge.example>",
+            "<mail-b08-t01-m02@relayforge.example>",
+            "<mail-b08-t01-m03@relayforge.example>"
+          ],
+          "attachments": [],
+          "metadata": {
+            "automated": false,
+            "batch_id": "B08"
+          }
+        }
+      ],
+      "metadata": {
+        "batch_id": "B08",
+        "category": "customer"
+      }
+    },
+    {
+      "thread_id": "mail-b08-t02",
+      "subject": "[自动通知] B08 账单、日历与服务摘要",
+      "messages": [
+        {
+          "message_id": "<mail-b08-t02-m01@relayforge.example>",
+          "sent_at": "2026-04-22T14:39:00+08:00",
+          "from": {
+            "address": "notify@service.example",
+            "display_name": "Service Notifications"
+          },
+          "to": [
+            {
+              "address": "yan@relayforge.dev",
+              "display_name": "沈砚"
+            }
+          ],
+          "cc": [],
+          "subject": "[自动通知] B08 账单、日历与服务摘要",
+          "text": "您好，\n\n以下为历史邮件引用，内容可能已经过期：\n> 我们先按旧时间讨论\n> 是否上线仍待确认\n> 请勿据此安排生产变更\n通知批次 1；若已处理请忽略，不需要回复。\n\n以下为历史邮件引用，内容可能已经过期：\n> 我们先按旧时间讨论\n> 是否上线仍待确认\n> 请勿据此安排生产变更\n通知批次 2；若已处理请忽略，不需要回复。\n\n以下为历史邮件引用，内容可能已经过期：\n> 我们先按旧时间讨论\n> 是否上线仍待确认\n> 请勿据此安排生产变更\n通知批次 3；若已处理请忽略，不需要回复。\n\n以下为历史邮件引用，内容可能已经过期：\n> 我们先按旧时间讨论\n> 是否上线仍待确认\n> 请勿据此安排生产变更\n通知批次 4；若已处理请忽略，不需要回复。\n\n以下为历史邮件引用，内容可能已经过期：\n> 我们先按旧时间讨论\n> 是否上线仍待确认\n> 请勿据此安排生产变更\n通知批次 5；若已处理请忽略，不需要回复。\n\n以下为历史邮件引用，内容可能已经过期：\n> 我们先按旧时间讨论\n> 是否上线仍待确认\n> 请勿据此安排生产变更\n通知批次 6；若已处理请忽略，不需要回复。\n\n当前邮件主题与「定价与回款」同周出现，但自动内容不代表客户决定。\n\n自动投递报告：一名抄送人地址暂时不可达，系统将在稍后重试；其他收件人已接收。",
+          "in_reply_to": null,
+          "references": [],
+          "attachments": [],
+          "metadata": {
+            "automated": true,
+            "batch_id": "B08"
+          }
+        },
+        {
+          "message_id": "<mail-b08-t02-m02@relayforge.example>",
+          "sent_at": "2026-04-23T14:48:00+08:00",
+          "from": {
+            "address": "notify@service.example",
+            "display_name": "Service Notifications"
+          },
+          "to": [
+            {
+              "address": "yan@relayforge.dev",
+              "display_name": "沈砚"
+            }
+          ],
+          "cc": [],
+          "subject": "Re: [自动通知] B08 账单、日历与服务摘要",
+          "text": "您好，\n\n日历系统通知：会议标题未变，视频链接已刷新。若您已接受邀请，无需回复本邮件。\n通知批次 1；若已处理请忽略，不需要回复。\n\n日历系统通知：会议标题未变，视频链接已刷新。若您已接受邀请，无需回复本邮件。\n通知批次 2；若已处理请忽略，不需要回复。\n\n日历系统通知：会议标题未变，视频链接已刷新。若您已接受邀请，无需回复本邮件。\n通知批次 3；若已处理请忽略，不需要回复。\n\n日历系统通知：会议标题未变，视频链接已刷新。若您已接受邀请，无需回复本邮件。\n通知批次 4；若已处理请忽略，不需要回复。\n\n日历系统通知：会议标题未变，视频链接已刷新。若您已接受邀请，无需回复本邮件。\n通知批次 5；若已处理请忽略，不需要回复。\n\n日历系统通知：会议标题未变，视频链接已刷新。若您已接受邀请，无需回复本邮件。\n通知批次 6；若已处理请忽略，不需要回复。\n\n当前邮件主题与「定价与回款」同周出现，但自动内容不代表客户决定。\n\n自动回复：我今天下午不在电脑前，紧急事项请走既有支持渠道；本邮箱不会自动转发。",
+          "in_reply_to": "<mail-b08-t02-m01@relayforge.example>",
+          "references": [
+            "<mail-b08-t02-m01@relayforge.example>"
+          ],
+          "attachments": [],
+          "metadata": {
+            "automated": true,
+            "batch_id": "B08"
+          }
+        },
+        {
+          "message_id": "<mail-b08-t02-m03@relayforge.example>",
+          "sent_at": "2026-04-24T14:57:00+08:00",
+          "from": {
+            "address": "notify@service.example",
+            "display_name": "Service Notifications"
+          },
+          "to": [
+            {
+              "address": "yan@relayforge.dev",
+              "display_name": "沈砚"
+            }
+          ],
+          "cc": [
+            {
+              "address": "archive@relayforge.dev",
+              "display_name": "Project Archive"
+            }
+          ],
+          "subject": "Re: [自动通知] B08 账单、日历与服务摘要",
+          "text": "您好，\n\n本周产品通讯汇总了十二条增长建议、七个模板和三场线上活动。这是一封自动订阅邮件。\n通知批次 1；若已处理请忽略，不需要回复。\n\n本周产品通讯汇总了十二条增长建议、七个模板和三场线上活动。这是一封自动订阅邮件。\n通知批次 2；若已处理请忽略，不需要回复。\n\n本周产品通讯汇总了十二条增长建议、七个模板和三场线上活动。这是一封自动订阅邮件。\n通知批次 3；若已处理请忽略，不需要回复。\n\n本周产品通讯汇总了十二条增长建议、七个模板和三场线上活动。这是一封自动订阅邮件。\n通知批次 4；若已处理请忽略，不需要回复。\n\n本周产品通讯汇总了十二条增长建议、七个模板和三场线上活动。这是一封自动订阅邮件。\n通知批次 5；若已处理请忽略，不需要回复。\n\n本周产品通讯汇总了十二条增长建议、七个模板和三场线上活动。这是一封自动订阅邮件。\n通知批次 6；若已处理请忽略，不需要回复。\n\n当前邮件主题与「定价与回款」同周出现，但自动内容不代表客户决定。\n\n供应商活动邀请：升级年度方案可获得额外额度。该报价与现有试点采购无关。",
+          "in_reply_to": "<mail-b08-t02-m02@relayforge.example>",
+          "references": [
+            "<mail-b08-t02-m01@relayforge.example>",
+            "<mail-b08-t02-m02@relayforge.example>"
+          ],
+          "attachments": [],
+          "metadata": {
+            "automated": true,
+            "batch_id": "B08"
+          }
+        },
+        {
+          "message_id": "<mail-b08-t02-m04@relayforge.example>",
+          "sent_at": "2026-04-25T15:06:00+08:00",
+          "from": {
+            "address": "notify@service.example",
+            "display_name": "Service Notifications"
+          },
+          "to": [
+            {
+              "address": "yan@relayforge.dev",
+              "display_name": "沈砚"
+            }
+          ],
+          "cc": [],
+          "subject": "Re: [自动通知] B08 账单、日历与服务摘要",
+          "text": "您好，\n\n自动投递报告：一名抄送人地址暂时不可达，系统将在稍后重试；其他收件人已接收。\n通知批次 1；若已处理请忽略，不需要回复。\n\n自动投递报告：一名抄送人地址暂时不可达，系统将在稍后重试；其他收件人已接收。\n通知批次 2；若已处理请忽略，不需要回复。\n\n自动投递报告：一名抄送人地址暂时不可达，系统将在稍后重试；其他收件人已接收。\n通知批次 3；若已处理请忽略，不需要回复。\n\n自动投递报告：一名抄送人地址暂时不可达，系统将在稍后重试；其他收件人已接收。\n通知批次 4；若已处理请忽略，不需要回复。\n\n自动投递报告：一名抄送人地址暂时不可达，系统将在稍后重试；其他收件人已接收。\n通知批次 5；若已处理请忽略，不需要回复。\n\n自动投递报告：一名抄送人地址暂时不可达，系统将在稍后重试；其他收件人已接收。\n通知批次 6；若已处理请忽略，不需要回复。\n\n当前邮件主题与「定价与回款」同周出现，但自动内容不代表客户决定。\n\n本邮件及附件可能包含保密信息。如误收请删除。此通用页脚不改变双方已签署文件。",
+          "in_reply_to": "<mail-b08-t02-m03@relayforge.example>",
+          "references": [
+            "<mail-b08-t02-m01@relayforge.example>",
+            "<mail-b08-t02-m02@relayforge.example>",
+            "<mail-b08-t02-m03@relayforge.example>"
+          ],
+          "attachments": [],
+          "metadata": {
+            "automated": true,
+            "batch_id": "B08"
+          }
+        }
+      ],
+      "metadata": {
+        "batch_id": "B08",
+        "category": "automated"
+      }
+    }
+  ],
+  "metadata": {
+    "batch_id": "B08",
+    "provider_shape": "rfc822"
+  }
+}
