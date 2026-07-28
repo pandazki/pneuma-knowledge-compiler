@@ -24,11 +24,27 @@ Locator = dict[str, Any]
 # (a generic pasted transcript) → rendered by raw speaker string, no owner claim.
 SpeakerRole = Literal["owner", "other", "unknown"]
 
-# Provenance of a raw source. `context_stream` = a typed activity or meeting stream
-# carrying speaker roles and compiled by the context-stream adapter; `upload` =
-# user-supplied material (the generic document/paste
-# path). First-party origin is a first-class intake axis, orthogonal to `kind`/archetype.
-SourceOrigin = Literal["upload", "context_stream"]
+# Provenance of a raw source. Official provider origins identify the adapter boundary;
+# `mock` is canonical synthetic input; `upload` and `context_stream` remain only for the
+# legacy generic endpoints. Origin is orthogonal to source kind and intake treatment.
+SourceOrigin = Literal[
+    "upload",
+    "context_stream",  # legacy capture path; not an official stored-source default
+    "zoom",
+    "obsidian",
+    "slack",
+    "rfc822",
+    "mock",
+]
+SourceKind = Literal[
+    "meeting",
+    "document_library",
+    "im",
+    "email",
+    "conversation",  # legacy API compatibility
+    "document",
+    "structured",
+]
 
 
 class ConversationTurn(BaseModel):
@@ -46,7 +62,7 @@ class ConversationTurn(BaseModel):
 class RawSource(BaseModel):
     source_id: SourceId
     user_id: UserId
-    kind: Literal["conversation", "document", "structured"]
+    kind: SourceKind
     source_class: Literal["workstream", "reference"] = "workstream"
     # First-party vs uploaded provenance (defaults to upload for back-compat). Drives
     # adapter/skill selection for first-party data (需求：第一方数据针对性处理).

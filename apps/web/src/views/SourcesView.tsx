@@ -224,7 +224,10 @@ export function SourcesView() {
   // A source jump whose id is not in this user's list (expired / deleted): keep the
   // 溯源意图 alive with a clear empty state instead of silently opening some other source.
   const selectedMissing =
-    !!sourceSel && listState === "ready" && !sources.some((s) => s.source_id === sourceSel.id);
+    !!sourceSel &&
+    sourceSel.id === selectedId &&
+    listState === "ready" &&
+    !sources.some((s) => s.source_id === sourceSel.id);
   // Highlight range for the detail pane: a `source` selection's block wins, else a Recall
   // focus. Both only apply to the source actually open.
   const detailHighlight =

@@ -21,6 +21,9 @@ os.environ.setdefault("no_proxy", "localhost,127.0.0.1")
 
 os.environ["PNEUMA_KNOWLEDGE_EMBEDDING_MODEL"] = "fake:384"
 os.environ["PNEUMA_KNOWLEDGE_CHUNK_STRATEGY"] = "sentence"
+# Never let a developer's real provider credential enter pytest settings, reprs, network
+# calls, or failure output. Tests are intentionally keyless and must override .env.
+os.environ["OPENROUTER_API_KEY"] = ""
 # Model routing must come from each test's own Settings(...) arguments, not from a local
 # `.env` that points ops at real models — a dev box with PNEUMA_KNOWLEDGE_LLM_MODEL_COMPILE set
 # would otherwise fail the routing assertions (resolve_model_name == the test's fallback).

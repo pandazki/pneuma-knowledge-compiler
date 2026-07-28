@@ -14,7 +14,8 @@
 | `briefing_e2e.py` | 入库 → scripted compile → `fast` / `deep`（agentic）/ 锚定来源的 `briefing` 连续问答。 |
 | `upgrade_e2e.py` | 升级演练：Path A 换投影策略不动 canonical HEAD；Path B v2 前向新增 compile。 |
 | `cue_e2e.py` | context_stream **主动提词**：入库 → 建索引 → 对一段转录窗口评估 → 五道机械闸门（看得见 `dropped` 计数）→ 句柄解析回真实来源 → `want_more` 按卡片自己的引用直取原文扩写。 |
-| `seed_demo.py` | 重置并生成合成 OPC 用户 `u-opc-lin`：3 个上下文流 → L0/L1/L2 → scripted compile + 引用门禁 → Git canonical / L3 投影。UI 走查前运行。 |
+| `seed_demo.py` | 重置并生成合成 OPC 用户 `u-opc-lin`：默认走 scripted/fake 的 keyless 路径；加 `--real` 后 fail-closed 地使用真实 semantic chunking、embedding 与 compile。 |
+| `import_source.py` | 把 canonical mock JSON、Zoom WebVTT、Obsidian vault、Slack export 或 EML/mbox 转换、校验并导入指定用户。 |
 
 ```bash
 uv run python examples/rag_e2e.py
@@ -27,7 +28,7 @@ uv run python examples/rag_e2e.py
 
 | friendly id | 来源 | 画像 |
 |---|---|---|
-| `u-opc-lin` | `opc-demo-v1` | 中文 AI-Native 一人公司开发者；3 源 / 9 claims / 3 Git snapshots |
+| `u-opc-lin` | `opc-demo-v2` | 中文 AI-Native 一人公司开发者；11 源 / 76 claims / 11 Git snapshots |
 
 ```bash
 # 干净中间件上导入合成用户（幂等，重跑先清同名 user；不打 OpenRouter）
@@ -51,6 +52,7 @@ canonical git tar）。改选哪些 user 用 `export_presets.py <src_uid>=<frien
 
 | 脚本 | 做什么 |
 |---|---|
+| `seed_demo.py --real` | 用真实 provider 重建正式演示租户；拒绝任何 `scripted:` LLM 或 `fake:` embedding。 |
 | `smoke_openrouter.py` | 真 provider 端到端冒烟：真实 compile（claim 级工具）+ fast/deep/briefing，全程 trace 到 Langfuse。**验证「我的 key 能不能跑通整条链路」**。 |
 | `context_stream_ab.py` | 第一方 context_stream source-type 的 A/B：同一份合成会议片段按 `upload` vs `context_stream` 各编译一次，对比 canonical 归属。`--show-prompt` **无需 key**、render 真实 compile prompt。复测指引见 [docs/first-party-context-stream.md](../docs/first-party-context-stream.md)。 |
 

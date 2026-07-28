@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pneuma.dev/schemas/source/email-v1.schema.json",
+  "title": "Pneuma Email Source v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "provider", "archive_id", "owner_addresses", "threads"],
+  "properties": {
+    "schema": {"const": "pneuma.source.email/v1"},
+    "provider": {"enum": ["rfc822", "mock"]},
+    "archive_id": {"type": "string", "minLength": 1},
+    "owner_addresses": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 3},
+      "uniqueItems": true
+    },
+    "threads": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/thread"}
+    },
+    "metadata": {"type": "object"}
+  },
+  "$defs": {
+    "address": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["address"],
+      "properties": {
+        "address": {"type": "string", "minLength": 3},
+        "display_name": {"type": ["string", "null"]}
+      }
+    },
+    "attachment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["filename", "content_type", "size_bytes"],
+      "properties": {
+        "filename": {"type": "string", "minLength": 1},
+        "content_type": {"type": "string", "minLength": 1},
+        "size_bytes": {"type": "integer", "minimum": 0},
+        "content_id": {"type": ["string", "null"]}
+      }
+    },
+    "message": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["message_id", "sent_at", "from", "to", "cc", "subject", "text", "attachments"],
+      "properties": {
+        "message_id": {"type": "string", "minLength": 1},
+        "sent_at": {"type": "string", "format": "date-time"},
+        "from": {"$ref": "#/$defs/address"},
+        "to": {"type": "array", "items": {"$ref": "#/$defs/address"}},
+        "cc": {"type": "array", "items": {"$ref": "#/$defs/address"}},
+        "subject": {"type": "string"},
+        "text": {"type": "string"},
+        "in_reply_to": {"type": ["string", "null"]},
+        "references": {"type": "array", "items": {"type": "string"}},
+        "attachments": {"type": "array", "items": {"$ref": "#/$defs/attachment"}},
+        "metadata": {"type": "object"}
+      }
+    },
+    "thread": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["thread_id", "subject", "messages"],
+      "properties": {
+        "thread_id": {"type": "string", "minLength": 1},
+        "subject": {"type": "string"},
+        "messages": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/message"}},
+        "metadata": {"type": "object"}
+      }
+    }
+  }
+}

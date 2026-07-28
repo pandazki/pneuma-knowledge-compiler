@@ -1,6 +1,6 @@
 # pneuma-knowledge-compiler
 
-面向 AI-Native 个人开发者的开源知识编译器：把对话、文档、决策、实验与运营记录编译成带来源引用、可版本化演进的 canonical knowledge。
+面向 AI-Native 个人开发者的开源知识编译器：把会议、层级文档库、IM、邮件与工作记录编译成带来源引用、可版本化演进的 canonical knowledge。
 
 它不是又一个聊天记录仓库。Pneuma Knowledge Compiler 把知识分成四个可访问层级：
 
@@ -27,7 +27,9 @@ bash scripts/dev-api.sh
 cd apps/web && pnpm install && pnpm dev
 ```
 
-打开 `http://localhost:5173`。默认合成人设是杭州的一人公司开发者「林知远」，演示内容覆盖产品范围、检索实验和公开发布检查；界面会持续标记 `SYNTHETIC`，不会把它呈现为真实客户或 benchmark。
+打开 `http://localhost:5173`。默认合成人设是杭州的一人公司开发者「林知远」，
+演示内容以同一个虚构客户试点串联 Zoom 风格会议纪要、Obsidian 风格层级笔记、
+Slack 风格 IM 与 RFC 风格邮件；界面会持续标记 `SYNTHETIC`，不会把它呈现为真实客户或 benchmark。
 
 也可以在一套干净中间件中直接导入已处理的四层 preset：
 
@@ -39,7 +41,8 @@ uv run python examples/import_presets.py
 
 ## 能力
 
-- 对话、结构化上下文流与 Markdown 文档入库；
+- 会议、Obsidian 层级文档库、Slack IM 与 RFC 5322 邮件的官方 canonical contract；
+- Zoom WebVTT、Obsidian vault、Slack JSON export、EML/mbox 真实适配器，以及同约束 mock adapter；
 - 异步 `index` / `compile` worker 与按用户串行写入；
 - `rag`、`fast`、`deep` 三种召回，以及连续 Briefing 问答；
 - 主动 context cue、引用闸门与原文 `want_more`；
@@ -67,7 +70,7 @@ raw material
 - `infra` / `docker` / `deploy`：本地与云端运行资产；
 - `examples`：keyless E2E、真实 provider 冒烟与维护脚本。
 
-关键不变式与完整设计见 [docs/architecture.md](docs/architecture.md)，迁移验收契约见 [docs/specs/open-source-migration.md](docs/specs/open-source-migration.md)。
+四类数据契约与导入方式见 [docs/source-adapters.md](docs/source-adapters.md)；关键不变式与完整设计见 [docs/architecture.md](docs/architecture.md)，迁移验收契约见 [docs/specs/open-source-migration.md](docs/specs/open-source-migration.md)。
 
 ## 使用真实模型
 
@@ -76,7 +79,11 @@ Keyless 路径足以运行测试、生成/导入 mock、浏览全部视图。需
 ```bash
 cp .env.example .env
 # 在本地 .env 中设置 OPENROUTER_API_KEY
+uv run python examples/seed_demo.py --real
 ```
+
+`--real` 会使用 `.env` 中配置的真实 LLM、semantic chunking 与 embedding
+重新生成演示租户；检测到 `scripted:` 或 `fake:` 时会直接失败，不会静默降级。
 
 不要提交 `.env`、密钥、真实个人材料或运行时 canonical。
 

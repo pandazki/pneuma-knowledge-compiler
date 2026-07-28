@@ -1,13 +1,12 @@
 #!/usr/bin/env python
-"""Build the bundled OPC demo through the real four-layer pipeline, without credentials.
+"""Build the synthetic OPC demo from all four official source contracts.
 
-The fixture is synthetic and deliberately small, but the processing is not a UI stub:
-three structured context streams enter L0, the worker builds L1/L2, a scripted compile
-model proposes canonical writes, the mechanical gate validates citations, and Git-backed
-L3 plus every derived projection are persisted for the API and Web UI.
+The data is synthetic, but the path is real: canonical JSON mock adapters validate the
+same contracts as Zoom/Obsidian/Slack/RFC 5322 adapters, natural citation units enter
+L0, the worker builds L1/L2, a scripted compiler writes cited L3 documents, and all
+derived projections are persisted for the API and Web UI.
 
-The named demo tenant is reset by default so every run starts from the same authored
-material. Pass ``--keep`` to exercise ingestion dedup against an existing local run.
+The named demo tenant is reset by default. Pass ``--keep`` to exercise source dedup.
 """
 
 from __future__ import annotations
@@ -16,112 +15,74 @@ import argparse
 import asyncio
 import shutil
 import sys
-from datetime import datetime
+from collections import Counter
 from pathlib import Path
 
 import _bootstrap  # noqa: F401  (localhost proxy bypass before middleware imports)
 
-from pneuma_knowledge_core.domain.ids import UserId
-from pneuma_knowledge_core.domain.source import ConversationTurn
+from pneuma_knowledge_core.domain.ids import SourceId, UserId
 from pneuma_knowledge_core.skill import load_builtin_skill
 from pneuma_knowledge_service.adapters.scripted_model import ScriptedChatModel
-from pneuma_knowledge_service.ingest import ingest_conversation
+from pneuma_knowledge_service.adapters.source_imports import CanonicalJsonSourceAdapter
+from pneuma_knowledge_service.ingest_sources import ingest_source_contract
 from pneuma_knowledge_service.settings import Settings
-from pneuma_knowledge_service.wiring import build_context
+from pneuma_knowledge_service.wiring import build_context, resolve_model_name
 from pneuma_knowledge_service.workers.compile_worker import drain_user
 
 USER = UserId("u-opc-lin")
-# The documented demo runs from the repository root. Keeping this model spec
-# repository-relative makes exported lineage portable and safe to publish.
-RECALL_SCRIPT = Path("examples/data/opc-demo/recall-script.json")
-
-STREAMS = [
-    (
-        "Atlas MVP 决策记录",
-        [
-            ("林知远", "Atlas 是我正在开发的本地优先 AI 研究助手，目标用户是独立开发者。", "owner"),
-            ("林知远", "首个 MVP 只保留来源导入、混合检索和带引用回答，暂不做团队权限。", "owner"),
-            ("宋遥", "发布门禁定为：离线演示可跑、引用可回到原文、关键流程有端到端测试。", "other"),
-        ],
-    ),
-    (
-        "混合检索实验复盘",
-        [
-            ("林知远", "实验 EXP-014 比较纯向量召回和 BM25 加向量的 RRF 融合。", "owner"),
-            ("林知远", "在 24 条合成任务上，融合方案减少了专有名词漏召回；这只是内部合成结果。", "owner"),
-            ("顾宁", "下一轮要固定数据集版本，并把失败样本和查询改写分开记录。", "other"),
-        ],
-    ),
-    (
-        "一人公司发布检查",
-        [
-            ("林知远", "每次公开发布前先跑单测、生产构建和无密钥 mock 全链路。", "owner"),
-            ("林知远", "密钥只从本地环境读取，日志、canonical 和示例数据都禁止写入凭据。", "owner"),
-            ("程野", "README 要写清能力边界、快速开始、恢复路径和已知限制。", "other"),
-        ],
-    ),
+DATA_ROOT = Path("examples/data/opc-demo")
+RECALL_SCRIPT = DATA_ROOT / "recall-script.json"
+SOURCE_FIXTURES = [
+    DATA_ROOT / "sources/meeting.json",
+    DATA_ROOT / "sources/document-library.json",
+    DATA_ROOT / "sources/im.json",
+    DATA_ROOT / "sources/email.json",
 ]
 
 
-def _turn(speaker: str, text: str, role: str, index: int) -> ConversationTurn:
-    return ConversationTurn(
-        speaker=speaker,
-        text=text,
-        role=role,
-        speaker_id="owner" if role == "owner" else f"peer-{speaker}",
-        at=datetime.fromisoformat(f"2026-07-{18 + index:02d}T09:00:00+08:00"),
-    )
+def _one_line(value: str, limit: int = 220) -> str:
+    compact = " ".join(value.split())
+    return compact if len(compact) <= limit else compact[: limit - 1] + "…"
 
 
-def _compile_turns() -> list[list[dict]]:
-    """One scripted, mechanically valid tool-call turn per source compile job.
+async def _compile_turns(ctx, source_ids: list[str]) -> list[list[dict]]:
+    """One deterministic, cited canonical document per expanded source."""
 
-    Every job receives exactly one source, so the runner aliases it to ``s01``.
-    """
-    documents = [
-        (
-            "work/products/atlas.md",
-            {"type": "product", "slug": "atlas"},
-            (
-                "# Atlas\n\n"
-                "## 定位\n\n"
-                "- Atlas 是面向独立开发者的本地优先 AI 研究助手。[cite: s01 ¶0]\n"
-                "- MVP 范围是来源导入、混合检索和带引用回答；团队权限明确不在首版。[cite: s01 ¶1]\n\n"
-                "## 发布门禁\n\n"
-                "- 离线演示、引用回溯和关键流程端到端测试全部通过后才可发布。[cite: s01 ¶2]"
-            ),
-        ),
-        (
-            "work/experiments/hybrid-retrieval.md",
-            {"type": "experiment", "slug": "hybrid-retrieval"},
-            (
-                "# EXP-014 · 混合检索\n\n"
-                "- 实验比较纯向量召回与 BM25 + 向量的 RRF 融合。[cite: s01 ¶0]\n"
-                "- 24 条合成任务中融合方案减少了专有名词漏召回；结果只代表内部合成数据。[cite: s01 ¶1]\n"
-                "- 下一轮必须固定数据集版本，并把失败样本与查询改写分开记录。[cite: s01 ¶2]"
-            ),
-        ),
-        (
-            "work/operations/release-checklist.md",
-            {"type": "operation", "slug": "release-checklist"},
-            (
-                "# 公开发布检查\n\n"
-                "- 发布前运行单测、生产构建和无密钥 mock 全链路。[cite: s01 ¶0]\n"
-                "- 凭据只从本地环境读取，禁止进入日志、canonical 与示例数据。[cite: s01 ¶1]\n"
-                "- README 必须覆盖能力边界、快速开始、恢复路径和已知限制。[cite: s01 ¶2]"
-            ),
-        ),
-    ]
-    return [
-        [
-            {
-                "name": "create_document",
-                "args": {"path": path, "frontmatter": frontmatter, "body": body},
-            },
-            {"name": "finish_compile"},
-        ]
-        for path, frontmatter, body in documents
-    ]
+    turns: list[list[dict]] = []
+    for index, source_id in enumerate(source_ids, start=1):
+        source = await ctx.store.get(USER, SourceId(source_id))
+        kind_slug = source.raw.kind.replace("_", "-")
+        blocks = source.blocks
+        claims = [f"- {_one_line(blocks[0].text)} [cite: s01 ¶0]"]
+        if len(blocks) > 1:
+            last = len(blocks) - 1
+            claims.append(
+                f"- {_one_line(blocks[last].text)} [cite: s01 ¶{last}]"
+            )
+        body = (
+            f"# {source.raw.title}\n\n"
+            "## 编译摘要\n\n"
+            + "\n".join(claims)
+        )
+        turns.append(
+            [
+                {
+                    "name": "create_document",
+                    "args": {
+                        "path": f"work/products/source-{index:02d}-{kind_slug}.md",
+                        "frontmatter": {
+                            "type": "source-digest",
+                            "slug": f"source-{index:02d}-{kind_slug}",
+                            "source_kind": source.raw.kind,
+                            "synthetic": True,
+                        },
+                        "body": body,
+                    },
+                },
+                {"name": "finish_compile"},
+            ]
+        )
+    return turns
 
 
 async def _reset(ctx, settings: Settings) -> None:
@@ -137,12 +98,51 @@ async def _reset(ctx, settings: Settings) -> None:
         shutil.rmtree(target)
 
 
-async def run(*, reset: bool = True) -> int:
-    settings = Settings(
-        llm_model=f"scripted:{RECALL_SCRIPT.as_posix()}",
-        embedding_model="fake:64",
-        chunk_strategy="sentence",
-    )
+def _demo_settings(*, real: bool) -> Settings:
+    if not real:
+        return Settings(
+            llm_model=f"scripted:{RECALL_SCRIPT.as_posix()}",
+            embedding_model="fake:64",
+            chunk_strategy="sentence",
+            evolve_auto_trigger=False,
+        )
+
+    settings = Settings(evolve_auto_trigger=False)
+    issues: list[str] = []
+    scripted_roles = [
+        role
+        for role in ("compile", "recall", "deep", "cue", "evolve")
+        if resolve_model_name(settings, role).startswith("scripted:")
+    ]
+    if scripted_roles:
+        issues.append(
+            "real demo refuses scripted LLM roles: " + ", ".join(scripted_roles)
+        )
+    if settings.embedding_model.startswith("fake:"):
+        issues.append(
+            f"real demo refuses fake embeddings: {settings.embedding_model}"
+        )
+    if not settings.openrouter_api_key:
+        issues.append("real demo requires OPENROUTER_API_KEY")
+    if issues:
+        raise RuntimeError("; ".join(issues))
+    return settings
+
+
+def _failed_job_details(jobs: list[dict]) -> list[str]:
+    failures: list[str] = []
+    for job in jobs:
+        if job.get("status") != "done" or job.get("ok") is not True:
+            detail = job.get("detail") or f"status={job.get('status')}"
+            failures.append(
+                f"{job.get('kind', 'unknown')} {job.get('job_id', 'unknown')}: "
+                f"{detail}"
+            )
+    return failures
+
+
+async def run(*, reset: bool = True, real: bool = False) -> int:
+    settings = _demo_settings(real=real)
     ctx = await build_context(settings)
     try:
         if reset:
@@ -153,50 +153,78 @@ async def run(*, reset: bool = True) -> int:
             USER, profile.model_dump(mode="json", exclude={"level_style"})
         )
 
+        mock = CanonicalJsonSourceAdapter()
         source_ids: list[str] = []
-        for stream_index, (title, rows) in enumerate(STREAMS):
-            turns = [
-                _turn(speaker, text, role, stream_index + turn_index)
-                for turn_index, (speaker, text, role) in enumerate(rows)
-            ]
-            result = await ingest_conversation(
-                ctx,
-                USER,
-                turns,
-                title=title,
-                origin="context_stream",
-                meta={"synthetic": True, "fixture": "opc-demo-v1"},
+        for fixture in SOURCE_FIXTURES:
+            contract = mock.load(fixture)
+            result = await ingest_source_contract(ctx, USER, contract)
+            for item in result.sources:
+                source_ids.append(str(item.source_id))
+            state = (
+                "dedup"
+                if result.sources and all(item.deduplicated for item in result.sources)
+                else "ingest"
             )
-            source_ids.append(str(result.source_id))
             print(
-                f"  {'dedup' if result.deduplicated else 'ingest'} "
-                f"{str(result.source_id)[:8]}  {title}"
+                f"  {state:6} {result.contract_schema:<42} "
+                f"units={len(result.sources)}"
             )
 
-        model = ScriptedChatModel(turns=_compile_turns())
+        model = (
+            ctx.get_chat_model("compile")
+            if real
+            else ScriptedChatModel(turns=await _compile_turns(ctx, source_ids))
+        )
         processed = await drain_user(ctx, model, load_builtin_skill(), USER)
+        failures = _failed_job_details(await ctx.store.list_jobs(USER))
+        if failures:
+            raise RuntimeError(
+                "demo pipeline has failed or unfinished jobs:\n- "
+                + "\n- ".join(failures)
+            )
 
         sources = await ctx.store.list(USER)
         claims = await ctx.store.list_canonical_claims(USER)
         documents = await ctx.canonical.list(USER)
         snapshots = await ctx.canonical.snapshots(USER)
+        kinds = Counter(source.kind for source in sources)
         print(
             "  pipeline "
             f"sources={len(sources)} jobs={processed} docs={len(documents)} "
             f"claims={len(claims)} snapshots={len(snapshots)}"
         )
+        print("  source kinds " + ", ".join(f"{k}={v}" for k, v in sorted(kinds.items())))
 
-        if reset:
-            assert len(sources) == 3
-            assert processed == 6
-            assert len(documents) == 3
-            assert len(claims) == 9
-            assert len(snapshots) == 3
+        if reset and not real:
+            assert kinds == {
+                "meeting": 1,
+                "document_library": 5,
+                "im": 3,
+                "email": 2,
+            }
+            assert len(sources) == 11
+            assert processed == 22
+            assert len(documents) == 11
+            assert len(claims) == 22
+            assert len(snapshots) == 11
+        elif reset:
+            assert kinds == {
+                "meeting": 1,
+                "document_library": 5,
+                "im": 3,
+                "email": 2,
+            }
+            assert len(sources) == 11
+            assert processed == 22
+            assert documents
+            assert claims
+            assert snapshots
         assert all(source_ids)
     finally:
         await ctx.aclose()
 
-    print(f"OK: synthetic OPC demo ready → {USER}")
+    mode = "real providers" if real else "scripted/keyless providers"
+    print(f"OK: four-source synthetic OPC demo ready ({mode}) → {USER}")
     return 0
 
 
@@ -207,8 +235,16 @@ def main() -> int:
         action="store_true",
         help="keep the existing tenant and exercise source dedup instead of resetting",
     )
+    parser.add_argument(
+        "--real",
+        action="store_true",
+        help=(
+            "use configured real providers; fail closed instead of accepting scripted "
+            "LLMs or fake embeddings"
+        ),
+    )
     args = parser.parse_args()
-    return asyncio.run(run(reset=not args.keep))
+    return asyncio.run(run(reset=not args.keep, real=args.real))
 
 
 if __name__ == "__main__":

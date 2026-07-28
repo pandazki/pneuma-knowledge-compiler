@@ -4,10 +4,16 @@
 环境：macOS · 浏览器真实渲染 · PostgreSQL + Qdrant + Meilisearch · FastAPI · Vite
 租户：`u-opc-lin`（仓库内置、明确标记为 synthetic 的 OPC 中文人设）
 
+> 2026-07-28 数据源刷新：下方数据计数已更新为 meeting / document library / IM /
+> email 四源、真实 GPT-5.6 Luna compile 与真实 1536 维 embedding 版本；截图索引仍是
+> 前端重设计前的基线，本次后端数据工作没有重写或重拍 UI。
+> 前端 worktree 完成后应重新执行浏览器旅程并替换整套截图。
+
 ## 结论
 
-通过。无密钥 mock 从 L0 原文进入真实索引与编译流水，最终形成可浏览、可召回、
-可追溯到 Git 快照的 canonical 知识。新版 Web 以 “Knowledge Transit Atlas”
+通过。合成来源从 L0 原文进入真实索引，并由真实 provider 完成 semantic chunking、
+embedding 与 compile，最终形成可浏览、可召回、可追溯到 Git 快照的 canonical 知识。
+导出的 preset 可在无密钥环境恢复这些已处理产物。新版 Web 以 “Knowledge Transit Atlas”
 呈现权威来源、可重建索引、编译门和 Git 版本，而非后台管理表格；全部入口、
 瓷白日间 / 午夜蓝夜间主题、历史快照与 390px 移动端均完成真实浏览器验收。
 
@@ -16,7 +22,7 @@
 执行：
 
 ```bash
-uv run python examples/seed_demo.py
+uv run python examples/seed_demo.py --real
 uv run python examples/export_presets.py
 ```
 
@@ -24,11 +30,11 @@ uv run python examples/export_presets.py
 
 | 层 | 结果 |
 |---|---:|
-| L0 来源 / blocks | 3 / 9 |
-| jobs | 6（3 index + 3 compile） |
-| L1 Meilisearch | 9 blocks + 9 claims |
-| L2 Qdrant | 9 chunks + 9 claims，64 维 fake embedding |
-| L3 canonical | 3 文档 + 9 claims + 3 Git commits |
+| L0 来源 / blocks | 11 / 145（meeting 逐字稿 110 轮） |
+| jobs | 22（11 index + 11 compile） |
+| L1 Meilisearch | 145 blocks + 76 claims |
+| L2 Qdrant | 44 source chunks + 76 claims，1536 维真实 embedding |
+| L3 canonical | 9 文档 + 76 claims + 11 Git commits |
 | profile | 1 个中文 OPC synthetic persona |
 
 第二次以 `--keep` 运行可验证来源去重；公开 preset 位于
@@ -39,15 +45,15 @@ uv run python examples/export_presets.py
 | 旅程 | 验收点 | 结果 |
 |---|---|---|
 | System route | 首屏六站架构图、真实 source/span/claim/canonical/Git 线路、权威/可重建分层与数据计数 | 通过 |
-| Sources | 三份 context stream、结构地图、原文块、消化状态 | 通过 |
+| Sources | 会议、5 篇层级笔记、3 个 IM 会话、2 个邮件线程，以及结构地图、原文块、消化状态 | 通过 |
 | Ingest | 站点工作区中粘贴合成文档 → 两步预览 → 机械 IntakePlan 建议 | 通过 |
-| Process | 六个真实 job、created 文档、来源与 portable model lineage | 通过 |
-| Recall | `Atlas MVP 发布门禁` → L1/L2 RRF → 9 个可定位命中 | 通过 |
+| Process | 22 个 provider-backed job、created 文档、来源与 portable model lineage | 通过 |
+| Recall | `Orion 试点范围和验收标准` → L1/L2 RRF → 可定位的跨源命中 | 通过 |
 | Ask | 构建固定 briefing → 连续两轮提问 → token/cache 元数据 | 通过 |
 | Context cue | 发布进度预置 → 无密钥 SSE → 2 张下发、1 张本地阈值过滤、1 张无引用拦截 | 通过 |
-| Canonical | 3 篇文档、`pneuma_id`、claim 引用与 patch 轨迹 | 通过 |
-| Graph | 选择 atlas → 展开 source 关系 → 文档/演化跳转 | 通过 |
-| History | 3 个 Git patch、模型血缘、来源与 claim trace | 通过 |
+| Canonical | 9 篇文档、`pneuma_id`、claim 引用与 patch 轨迹 | 通过 |
+| Graph | 选择 Orion 相关知识 → 展开 source 关系 → 文档/演化跳转 | 通过 |
+| History | 11 个 Git patch、模型血缘、来源与 claim trace | 通过 |
 | Evolve | base v3、7 个 OPC 路径模板、0 个扩展 pack 空态 | 通过 |
 | Snapshot | 选择历史 commit → `READ ONLY` → 恢复 HEAD | 通过 |
 | Theme | 瓷白线路图 ↔ 午夜蓝控制室，线路语义与选择持久化 | 通过 |
@@ -84,7 +90,7 @@ uv run python examples/export_presets.py
 ## 自动回归
 
 ```text
-Python: 425 passed
+Python: 448 passed
 Web:    TypeScript + Vite production build passed
 UI detector: 0 findings
 Browser console: 0 warnings / 0 errors

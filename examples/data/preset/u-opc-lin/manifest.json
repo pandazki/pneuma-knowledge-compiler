@@ -1,8 +1,8 @@
 {
   "friendly_id": "u-opc-lin",
   "source_user_id": "u-opc-lin",
-  "embedding_model": "fake:384",
-  "vector_dim": 64,
+  "embedding_model": "openrouter:openai/text-embedding-3-small",
+  "vector_dim": 1536,
   "qdrant_distance": "Cosine",
   "pg_column_types": {
     "blocks": {
@@ -198,20 +198,20 @@
   },
   "counts": {
     "pg": {
-      "sources": 3,
-      "blocks": 9,
-      "chunk_manifests": 0,
-      "compile_jobs": 6,
-      "compile_events": 9,
-      "canonical_claims": 9,
+      "sources": 11,
+      "blocks": 145,
+      "chunk_manifests": 11,
+      "compile_jobs": 22,
+      "compile_events": 81,
+      "canonical_claims": 76,
       "briefings": 0,
       "user_profiles": 1,
       "evolve_tasks": 0
     },
-    "qdrant_chunks": 9,
-    "qdrant_claims": 9,
-    "meili_blocks": 9,
-    "meili_claims": 9,
-    "canonical_commits": 3
+    "qdrant_chunks": 44,
+    "qdrant_claims": 76,
+    "meili_blocks": 145,
+    "meili_claims": 76,
+    "canonical_commits": 11
   }
 }

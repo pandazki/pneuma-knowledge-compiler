@@ -7,10 +7,14 @@ mechanically-injected tenant filter must still return zero cross-user results.
 
 from __future__ import annotations
 
+import os
 import uuid
 
+import pytest
 from pneuma_knowledge_core.domain.ids import UserId, SourceId
 from pneuma_knowledge_core.ingest.chunking import EmbeddedChunk
+from pneuma_knowledge_service.adapters.qdrant import QdrantVectorIndex
+from qdrant_client import AsyncQdrantClient
 
 
 def _chunk(source_id: str, text: str, embedding: list[float]) -> EmbeddedChunk:
@@ -55,3 +59,22 @@ async def test_search_returns_span_text_and_score(qdrant, embeddings):
     assert (hit.block_start, hit.block_end) == (0, 0)
     assert hit.text == text
     assert hit.score > 0
+
+
+async def test_existing_collection_with_wrong_dimension_fails_at_startup():
+    qdrant_url = os.environ.get(
+        "PNEUMA_KNOWLEDGE_QDRANT_URL", "http://localhost:16333"
+    )
+    collection = f"pneuma_dimension_guard_{uuid.uuid4().hex}"
+    first = QdrantVectorIndex(qdrant_url, 3, collection=collection)
+    mismatch = QdrantVectorIndex(qdrant_url, 4, collection=collection)
+    cleanup = AsyncQdrantClient(url=qdrant_url)
+    try:
+        await first.ensure_collection()
+        with pytest.raises(RuntimeError, match=r"expected 4.*has 3"):
+            await mismatch.ensure_collection()
+    finally:
+        await first.aclose()
+        await mismatch.aclose()
+        await cleanup.delete_collection(collection)
+        await cleanup.close()

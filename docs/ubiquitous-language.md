@@ -4,7 +4,9 @@ This file is the terminology authority for Pneuma Knowledge Compiler.
 
 | Term | Definition |
 |---|---|
-| Source | An authoritative raw input such as a conversation, document, project note, or structured export. |
+| Source | An authoritative raw input such as a meeting, hierarchical note, IM conversation, email thread, or uploaded document. |
+| Source contract | A versioned, provider-neutral input structure validated before normalization. |
+| Provider adapter | An anti-corruption layer translating an external format into an official source contract. |
 | Block | A stable paragraph-addressable slice of a source. |
 | Canonical knowledge | Curated, versioned knowledge stored in a per-user Git repository and protected by compile gates. |
 | Derived data | Rebuildable projections, lexical/vector indexes, annotations, manifests, and graph views. |

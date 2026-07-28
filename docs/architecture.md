@@ -6,7 +6,7 @@
 
 ## 0. 定位与两条全程纪律
 
-为 AI-Native 个人开发者提供可审计知识编译能力：对话与各类材料入库，
+为 AI-Native 个人开发者提供可审计知识编译能力：会议、层级文档、IM、邮件与各类材料入库，
 编译为结构化个人知识（canonical），支持多级检索与低延迟问答。
 
 两条纪律（任何实现不得偏离）：
@@ -91,7 +91,7 @@ await 任何东西的就不是协程**——`spine` / `citation_alias` / `projec
 **纪律：数据类型的多样性只允许被吸收在 adapter 层；策略词表与执行路径封闭且极小。**
 
 ```text
-任意输入（上下文流 / Pneuma app 第一方数据 / 用户上传第三方文件）
+任意输入（会议 / 层级文档库 / IM / 邮件 / 用户上传文件）
   → ① SourceAdapter（唯一允许随类型增长的层）
        产出 NormalizedSource：分块正文(blocks) + 结构地图(章节→¶span) + 元数据 + checksum
        只懂"这是什么形态"，不懂"该记住什么"
@@ -101,6 +101,19 @@ await 任何东西的就不是协程**——`spine` / `citation_alias` / `projec
   → ③ 执行路径（固定三条，永不新增）
        workstream compile / reference compile（卡片+定向蒸馏）/ projection indexer
 ```
+
+官方输入边界是四个 provider-neutral、版本化 contract；真实与 mock 适配器都必须先通过
+同一 contract 校验，再进入 `NormalizedSource`：
+
+| Contract | 真实 adapter | 自然引用单元 |
+|---|---|---|
+| `meeting/v1` | Zoom metadata + WebVTT | meeting |
+| `document-library/v1` | Obsidian vault | note |
+| `im/v1` | Slack JSON export | conversation |
+| `email/v1` | RFC 5322 EML/mbox | thread |
+
+Schema 与导入方式见 [source-adapters.md](source-adapters.md)。旧
+`sources/conversation` 仅保留兼容，不是默认个人知识来源。
 
 IntakePlan 两旋钮（只管 L2/L3；L0/L1 是不变式不在词表内）：
 
@@ -194,8 +207,9 @@ compile 时的 skill 层）。IntakePlan 是提案：UI 预览、用户可改、
 使 derived L2 从「可重建」升为「字节确定性重建」（I2 仍成立：正文始终是 L0 逐字切片，manifest 只钉住
 那一步非确定性）。
 
-**入库异步**：`sources/conversation`、`sources/document` 只落 L0 + 入队 `index`（L1/L2）与
-`compile`（L3）两类任务；worker 后台处理，并在重启时自愈卡住的任务。
+**入库异步**：`sources/import`（四类 official contract）与兼容的手工 document/conversation
+入口只落 L0 + 入队 `index`（L1/L2）与 `compile`（L3）两类任务；worker 后台处理，
+并在重启时自愈卡住的任务。
 
 **Briefing**（预加载问答会话）：`brief(user, scope, snapshot) → Briefing`，
 `briefing.ask(question, as_of)` 连续问答复用稳定上下文包。

@@ -89,18 +89,34 @@ class QdrantVectorIndex:
         self._dim = dim
 
     async def ensure_collection(self) -> None:
-        if not await self._client.collection_exists(self._collection):
-            await self._client.create_collection(
-                self._collection,
-                vectors_config=models.VectorParams(
-                    size=self._dim, distance=models.Distance.COSINE
-                ),
-            )
-            await self._client.create_payload_index(
-                self._collection,
-                field_name="user_id",
-                field_schema=models.PayloadSchemaType.KEYWORD,
-            )
+        if await self._client.collection_exists(self._collection):
+            info = await self._client.get_collection(self._collection)
+            vectors = info.config.params.vectors
+            if isinstance(vectors, dict):
+                raise RuntimeError(
+                    f"Qdrant collection {self._collection!r} uses named vectors; "
+                    "Pneuma requires one unnamed vector"
+                )
+            actual_dim = int(vectors.size)
+            if actual_dim != self._dim:
+                raise RuntimeError(
+                    f"Qdrant collection {self._collection!r} expected "
+                    f"{self._dim} dimensions but has {actual_dim}; select a new "
+                    "PNEUMA_KNOWLEDGE_QDRANT_COLLECTION or rebuild the collection"
+                )
+            return
+
+        await self._client.create_collection(
+            self._collection,
+            vectors_config=models.VectorParams(
+                size=self._dim, distance=models.Distance.COSINE
+            ),
+        )
+        await self._client.create_payload_index(
+            self._collection,
+            field_name="user_id",
+            field_schema=models.PayloadSchemaType.KEYWORD,
+        )
 
     async def upsert_chunks(
         self, user_id: UserId, chunks: list[SemanticChunk]

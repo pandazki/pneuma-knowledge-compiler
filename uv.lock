@@ -9,9 +9,9 @@ resolution-markers = [
 
 [manifest]
 members = [
+    "pneuma-knowledge-compiler",
     "pneuma-knowledge-core",
     "pneuma-knowledge-service",
-    "pneuma-knowledge-compiler",
 ]
 
 [[package]]
@@ -216,93 +216,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/fc/f8/98eea607f65de6527f8a2e8885fc8015d3e6f5775df186e443e0964a11c3/distro-1.9.0.tar.gz", hash = "sha256:2fa77c6fd8940f116ee1d6b94a2f90b13b5ea8d019b98bc8bafdcabcdd9bdbed", size = 60722, upload-time = "2023-12-24T09:54:32.31Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/12/b3/231ffd4ab1fc9d679809f356cebee130ac7daa00d6d6f3206dd4fd137e9e/distro-1.9.0-py3-none-any.whl", hash = "sha256:7bffd925d65168f85027d8da9af6bddab658135b840670a223589bc0c8ef02b2", size = 20277, upload-time = "2023-12-24T09:54:30.421Z" },
-]
-
-[[package]]
-name = "pneuma-knowledge-core"
-version = "0.6.0"
-source = { editable = "packages/pneuma-knowledge-core" }
-dependencies = [
-    { name = "chonkie" },
-    { name = "langchain" },
-    { name = "langchain-core" },
-    { name = "pydantic" },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "pytest" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "chonkie", specifier = ">=1.7,<2" },
-    { name = "langchain", specifier = ">=1,<2" },
-    { name = "langchain-core" },
-    { name = "pydantic", specifier = ">=2" },
-    { name = "pytest", marker = "extra == 'dev'" },
-]
-provides-extras = ["dev"]
-
-[[package]]
-name = "pneuma-knowledge-service"
-version = "0.6.0"
-source = { editable = "packages/pneuma-knowledge-service" }
-dependencies = [
-    { name = "pneuma-knowledge-core" },
-    { name = "fastapi" },
-    { name = "langchain" },
-    { name = "langchain-openai" },
-    { name = "langfuse" },
-    { name = "meilisearch-python-sdk" },
-    { name = "psycopg", extra = ["binary", "pool"] },
-    { name = "pydantic-settings" },
-    { name = "qdrant-client" },
-    { name = "uvicorn", extra = ["standard"] },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "httpx" },
-    { name = "pytest" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "pneuma-knowledge-core", editable = "packages/pneuma-knowledge-core" },
-    { name = "fastapi" },
-    { name = "httpx", marker = "extra == 'dev'" },
-    { name = "langchain" },
-    { name = "langchain-openai", specifier = ">=1.3.5" },
-    { name = "langfuse" },
-    { name = "meilisearch-python-sdk", specifier = ">=7.3,<8" },
-    { name = "psycopg", extras = ["binary", "pool"] },
-    { name = "pydantic-settings" },
-    { name = "pytest", marker = "extra == 'dev'" },
-    { name = "qdrant-client", specifier = ">=1.18,<1.19" },
-    { name = "uvicorn", extras = ["standard"] },
-]
-provides-extras = ["dev"]
-
-[[package]]
-name = "pneuma-knowledge-compiler"
-version = "0.6.0"
-source = { virtual = "." }
-
-[package.dev-dependencies]
-dev = [
-    { name = "httpx" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-]
-
-[package.metadata]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "httpx" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
 ]
 
 [[package]]
@@ -1062,6 +975,95 @@ sdist = { url = "https://files.pythonhosted.org/packages/f9/e2/3e91f31a7d2b083fe
 wheels = [
     { url = "https://files.pythonhosted.org/packages/54/20/4d324d65cc6d9205fabedc306948156824eb9f0ee1633355a8f7ec5c66bf/pluggy-1.6.0-py3-none-any.whl", hash = "sha256:e920276dd6813095e9377c0bc5566d94c932c33b27a3e3945d8389c374dd4746", size = 20538, upload-time = "2025-05-15T12:30:06.134Z" },
 ]
+
+[[package]]
+name = "pneuma-knowledge-compiler"
+version = "0.6.0"
+source = { virtual = "." }
+
+[package.dev-dependencies]
+dev = [
+    { name = "httpx" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+]
+
+[package.metadata]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "httpx" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+]
+
+[[package]]
+name = "pneuma-knowledge-core"
+version = "0.6.0"
+source = { editable = "packages/pneuma-knowledge-core" }
+dependencies = [
+    { name = "chonkie" },
+    { name = "langchain" },
+    { name = "langchain-core" },
+    { name = "pydantic" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "chonkie", specifier = ">=1.7,<2" },
+    { name = "langchain", specifier = ">=1,<2" },
+    { name = "langchain-core" },
+    { name = "pydantic", specifier = ">=2" },
+    { name = "pytest", marker = "extra == 'dev'" },
+]
+provides-extras = ["dev"]
+
+[[package]]
+name = "pneuma-knowledge-service"
+version = "0.6.0"
+source = { editable = "packages/pneuma-knowledge-service" }
+dependencies = [
+    { name = "fastapi" },
+    { name = "langchain" },
+    { name = "langchain-openai" },
+    { name = "langfuse" },
+    { name = "meilisearch-python-sdk" },
+    { name = "pneuma-knowledge-core" },
+    { name = "psycopg", extra = ["binary", "pool"] },
+    { name = "pydantic-settings" },
+    { name = "pyyaml" },
+    { name = "qdrant-client" },
+    { name = "uvicorn", extra = ["standard"] },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "httpx" },
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "fastapi" },
+    { name = "httpx", marker = "extra == 'dev'" },
+    { name = "langchain" },
+    { name = "langchain-openai", specifier = ">=1.3.5" },
+    { name = "langfuse" },
+    { name = "meilisearch-python-sdk", specifier = ">=7.3,<8" },
+    { name = "pneuma-knowledge-core", editable = "packages/pneuma-knowledge-core" },
+    { name = "psycopg", extras = ["binary", "pool"] },
+    { name = "pydantic-settings" },
+    { name = "pytest", marker = "extra == 'dev'" },
+    { name = "pyyaml", specifier = ">=6" },
+    { name = "qdrant-client", specifier = ">=1.18,<1.19" },
+    { name = "uvicorn", extras = ["standard"] },
+]
+provides-extras = ["dev"]
 
 [[package]]
 name = "portalocker"

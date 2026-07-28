@@ -16,6 +16,8 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from .source import SourceKind
+
 CanonicalTreatment = Literal["full", "distill", "card", "none"]
 SemanticIndexing = Literal["full", "summary", "none"]
 
@@ -112,20 +114,20 @@ def archetype_of(plan: IntakePlan) -> str | None:
 
 
 def propose_intake(
-    kind: Literal["conversation", "document", "structured"],
+    kind: SourceKind,
     source_class: Literal["workstream", "reference"],
     char_count: int,
     declared_type: str | None,
 ) -> IntakePlan:
     """Mechanical v1 intake proposal. Every branch states its matrix basis."""
     # First-party conversation or handwritten note: everything matters, compile fully.
-    if kind == "conversation" or declared_type == "note":
+    if kind in {"meeting", "im", "email", "conversation"} or declared_type == "note":
         return IntakePlan(
             canonical_treatment="full",
             semantic_indexing="full",
             rationale=(
-                "first-party conversation/note (matrix row 上下文流/手写 note): "
-                "都重要，全 compile + 全语义索引"
+                "first-party workstream/note (meeting, IM, email or handwritten note): "
+                "完整编译为个人工作知识，并建立全语义索引"
             ),
         )
 
@@ -142,7 +144,7 @@ def propose_intake(
         )
 
     # Documents.
-    if kind == "document":
+    if kind in {"document_library", "document"}:
         # A declared novel is card/summary regardless of size (matrix row 小说等大部头):
         # even a short excerpt of a big-work is treated as a card + metadata only.
         if declared_type == "novel":

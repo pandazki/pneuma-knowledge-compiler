@@ -50,15 +50,24 @@ uv sync --all-packages          # Python：core + service 两个包
 cd apps/web && pnpm install && cd ../..   # 前端
 ```
 
-## 4. 生成 keyless OPC 演示数据
+## 4. 生成 OPC 演示数据
 
 ```bash
+# 零密钥：scripted LLM + fake embedding
 uv run python examples/seed_demo.py
+
+# 真实 provider：读取根目录 .env，真实 compile + semantic chunking + embedding
+uv run python examples/seed_demo.py --real
 ```
 
-这不是静态 UI 假数据：三段合成上下文会实际经过 L0 入库、L1/L2 索引、scripted compile、
-引用门禁、Git canonical 与派生投影，最终生成 `u-opc-lin` 的 3 篇文档、9 条 claim 和
-3 个 Git 快照。重跑默认先清理该合成租户；`--keep` 可验证去重。
+这不是静态 UI 假数据：四份 canonical mock（会议、层级文档库、IM、邮件）会经过与真实
+provider 相同的契约校验，再实际进入 L0、L1/L2 索引、scripted compile、引用门禁、
+Git canonical 与派生投影。最终生成 `u-opc-lin` 的 11 个引用单元、11 篇文档、
+22 条 claim 和 11 个 Git 快照。重跑默认先清理该合成租户；`--keep` 可验证去重。
+
+`--real` 保留合成来源，但把 semantic chunking、embedding、compile 全部切到 `.env`
+配置的真实 provider；文档数与 claim 数由模型输出决定。该模式 fail-closed：只要任一
+关键 LLM 仍是 `scripted:`，或 embedding 仍是 `fake:`，脚本会在清理租户前直接退出。
 
 ## 5. 起服务
 
@@ -91,8 +100,8 @@ bundle 随包包含向量，import 不调用 embedding provider。导入是幂�
 浏览器打开 **http://localhost:5173** ：
 
 1. **工作画像**：检查 OPC 工作方式、技术栈、自动化水平和回答偏好。
-2. **材料入库**：加一段对话，或上传一份文档并选**处理意图**（精读归档 / 要点蒸馏 / 存目索引 /
-   仅可检索）。点「确认提交」——**秒回**（只入队），重活在后台跑。
+2. **材料入库**：通过四类 official contract 导入会议、层级文档、IM 或邮件；手工 Markdown
+   仍可选择**处理意图**（精读归档 / 要点蒸馏 / 存目索引 / 仅可检索）。
 3. **来源原文 / 编译流水**：看证据与 `索引中 → 编译中 → 已消化` 状态。
 4. **证据召回 / 知识问答**：
    - `rag`：L1+L2 双路 RRF 融合的原始命中列表；
@@ -107,10 +116,10 @@ bundle 随包包含向量，import 不调用 embedding provider。导入是幂�
 
 ```bash
 U=u-opc-lin
-# 入库一段对话（异步：返回 source_id + 入队，worker 后台编译）
-curl -s -X POST "http://localhost:18000/v1/users/$U/sources/conversation" \
+# 导入一个 meeting/v1 canonical mock（异步：返回 source_id + 入队）
+curl -s -X POST "http://localhost:18000/v1/users/$U/sources/import" \
   -H 'content-type: application/json' \
-  -d '{"title":"MVP 评审","turns":[{"speaker":"我","text":"Atlas 首版只做来源导入、混合检索和带引用回答"}]}'
+  --data-binary @examples/data/opc-demo/sources/meeting.json
 
 # 入库是异步的：轮询来源，等 digested_at 非空（= 已编译进 canonical）再做 L3 召回。
 # 队列本身可看 GET /v1/users/$U/jobs（queued/claimed/done）。
@@ -119,8 +128,10 @@ curl -s "http://localhost:18000/v1/users/$U/sources" | python3 -m json.tool
 # 召回：fast（claim + 原文窗口，带出处）
 curl -s -X POST "http://localhost:18000/v1/users/$U/recall" \
   -H 'content-type: application/json' \
-  -d '{"query":"Atlas 的 MVP 范围是什么","mode":"fast"}'
+  -d '{"query":"Orion 试点的范围和验收标准是什么","mode":"fast"}'
 ```
+
+真实 provider 的命令行导入方式见 [source-adapters.md](source-adapters.md)。
 
 - **交互式 API 文档**：服务起来后打开 **http://localhost:18000/docs**（Swagger UI）或
   取 `http://localhost:18000/openapi.json`——比读源码更快。探活用 `GET /healthz`。

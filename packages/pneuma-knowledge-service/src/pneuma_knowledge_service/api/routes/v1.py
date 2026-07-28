@@ -19,6 +19,7 @@ from pneuma_knowledge_core.domain.ids import UserId, SourceId
 from pneuma_knowledge_core.domain.intake import INTAKE_ARCHETYPES, IntakeArchetype
 from pneuma_knowledge_core.domain.snapshot import SnapshotRef
 from pneuma_knowledge_core.domain.source import ConversationTurn, SourceOrigin
+from pneuma_knowledge_core.ingest.source_contracts import SourceContract
 from pneuma_knowledge_core.domain.user import INDUSTRIES, LEVELS, ROLES, UserProfile
 from pneuma_knowledge_core.persona import synthesize_profile_draft
 from pneuma_knowledge_core.recall.briefing import (
@@ -33,12 +34,13 @@ from pneuma_knowledge_core.recall.fast import fast_recall
 from pneuma_knowledge_core.recall.rag import rag_recall
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, RootModel
 
 from ...adapters.user_info_mock import _synthesize
 from ...dataset import build_dataset
 from ...ingest import ingest_conversation
 from ...ingest_document import ingest_document, preview_document
+from ...ingest_sources import ingest_source_contract
 from ...wiring import AppContext, llm_call_config
 
 # Valid user_id shape — external key, keep it filesystem/URL-safe (mirrors the web
@@ -82,6 +84,7 @@ class ConversationIn(BaseModel):
 class SourceOut(BaseModel):
     source_id: str
     kind: str
+    origin: str
     source_class: str
     title: str
     created_at: str
@@ -100,6 +103,7 @@ class BlockOut(BaseModel):
 class SourceDetailOut(BaseModel):
     source_id: str
     kind: str
+    origin: str
     source_class: str
     title: str
     mime: str
@@ -114,6 +118,15 @@ class IngestOut(BaseModel):
     source_id: str
     intake_plan: dict[str, Any]
     deduplicated: bool
+
+
+class OfficialImportOut(BaseModel):
+    contract_schema: str
+    sources: list[IngestOut]
+
+
+class OfficialSourceIn(RootModel[SourceContract]):
+    """Bare discriminated union body for OpenAPI and runtime validation."""
 
 
 class RecallIn(BaseModel):
@@ -194,7 +207,7 @@ class FetchIn(BaseModel):
     locator: dict[str, Any]
 
 
-@router.post("/sources/conversation", response_model=IngestOut)
+@router.post("/sources/conversation", response_model=IngestOut, deprecated=True)
 async def post_conversation(
     user_id: str, body: ConversationIn, request: Request
 ) -> IngestOut:
@@ -210,6 +223,32 @@ async def post_conversation(
         source_id=str(result.source_id),
         intake_plan=result.intake_plan.model_dump(),
         deduplicated=result.deduplicated,
+    )
+
+
+@router.post("/sources/import", response_model=OfficialImportOut)
+async def post_official_source(
+    user_id: str, body: OfficialSourceIn, request: Request
+) -> OfficialImportOut:
+    """Import one meeting, document-library, IM or email v1 contract.
+
+    Bundles expand at citable boundaries (note, conversation or mail thread), so the
+    response may contain more than one stored source.
+    """
+
+    result = await ingest_source_contract(
+        _ctx(request), UserId(user_id), body.root
+    )
+    return OfficialImportOut(
+        contract_schema=result.contract_schema,
+        sources=[
+            IngestOut(
+                source_id=str(item.source_id),
+                intake_plan=item.intake_plan.model_dump(),
+                deduplicated=item.deduplicated,
+            )
+            for item in result.sources
+        ],
     )
 
 
@@ -395,6 +434,7 @@ async def list_sources(user_id: str, request: Request) -> list[SourceOut]:
         SourceOut(
             source_id=str(r.source_id),
             kind=r.kind,
+            origin=r.origin,
             source_class=r.source_class,
             title=r.title,
             created_at=r.created_at.isoformat(),
@@ -417,6 +457,7 @@ async def get_source(user_id: str, source_id: str, request: Request) -> SourceDe
     return SourceDetailOut(
         source_id=str(raw.source_id),
         kind=raw.kind,
+        origin=raw.origin,
         source_class=raw.source_class,
         title=raw.title,
         mime=raw.mime,
