@@ -97,12 +97,12 @@ class Settings(BaseSettings):
     llm_model_deep: str = ""  # deep recall (agentic search)
     llm_model_skill: str = ""  # skill synthesis (future)
     llm_model_evolve: str = ""  # schema evolve (phase-1 propose + phase-2 reorganize)
-    # AI cue (context_stream 提词) + its want_more expansion. Empty falls back to
-    # llm_model_recall BEFORE llm_model (see wiring._ROLE_FALLBACK): a cue is a
+    # Live Context evaluation + its want_more expansion. Empty falls back to
+    # llm_model_recall BEFORE llm_model (see wiring._ROLE_FALLBACK): an evaluation is
     # single-shot, latency-shaped call with the same appetite as fast recall, so a
     # deployment that already pointed recall at a fast model should not have to say so
-    # twice. Set PNEUMA_KNOWLEDGE_LLM_MODEL_CUE to split them.
-    llm_model_cue: str = ""
+    # twice. Set PNEUMA_KNOWLEDGE_LLM_MODEL_LIVE_CONTEXT to split them.
+    llm_model_live_context: str = ""
     # OpenRouter (OpenAI-compatible) key, read from the unprefixed OPENROUTER_API_KEY
     # so `openrouter:<model>` in llm_model can switch vendors without app changes.
     openrouter_api_key: str = Field(default="", validation_alias="OPENROUTER_API_KEY")

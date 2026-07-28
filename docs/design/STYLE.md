@@ -41,7 +41,7 @@ visibility, and layout hierarchy. They are not a color inversion.
 |---|---|
 | Green | Source, PostgreSQL, authority, verified / success |
 | Cobalt | Meilisearch L1, retrieval, information |
-| Amber | Qdrant L2, context cue, open question |
+| Amber | Qdrant L2, context suggestion, open question |
 | Scarlet | Compile gate, Canonical Git, patch, disputed / danger |
 | Coral | Primary action and arrival signal; not a responsibility route |
 | Violet | Inferred evidence only; not part of the six-station architecture route |

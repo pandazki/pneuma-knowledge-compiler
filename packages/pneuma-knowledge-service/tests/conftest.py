@@ -33,7 +33,7 @@ for _routing_var in (
     "PNEUMA_KNOWLEDGE_LLM_MODEL_RECALL",
     "PNEUMA_KNOWLEDGE_LLM_MODEL_DEEP",
     "PNEUMA_KNOWLEDGE_LLM_MODEL_SKILL",
-    "PNEUMA_KNOWLEDGE_LLM_MODEL_CUE",
+    "PNEUMA_KNOWLEDGE_LLM_MODEL_LIVE_CONTEXT",
 ):
     os.environ[_routing_var] = ""
 # Isolated Qdrant collection: a collection has one fixed vector dim, so the fake:384 tests

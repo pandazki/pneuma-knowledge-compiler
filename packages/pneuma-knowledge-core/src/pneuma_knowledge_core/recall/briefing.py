@@ -462,7 +462,7 @@ async def briefing_ask(
     an item the static pack didn't inline; `fetch_verbatim(source_id, locator)` pulls exact
     L0 text. The loop is the shared `run_agent_loop` (create_agent, budget-bounded).
 
-    Consumption is fast-lane (the owner reads the answer on the lens): with
+    Consumption is fast-lane (the owner reads the answer immediately): with
     `citation_alias`, one `SessionAliaser` gives every source a stable query-local `sNN`
     handle across the pack + tool results of THIS ask (consistent within the ask,
     query-local across asks), so the model copies short handles instead of raw ids. The

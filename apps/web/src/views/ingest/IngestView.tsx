@@ -1,21 +1,20 @@
 import { useEffect, useState } from "react";
-import { Plus, Trash2, UserRound } from "lucide-react";
+import { Braces, UserRound } from "lucide-react";
 import {
   getIntakeArchetypes,
-  ingestConversation,
   ingestDocument,
+  importOfficialSource,
   previewDocument,
-  type ConversationTurnInput,
   type DocumentPreview,
   type IngestResult,
   type IntakeArchetype,
+  type OfficialImportResult,
 } from "@/lib/api";
 import { useApp } from "@/lib/store";
 import { Button } from "@/ui/Button";
 import { Callout } from "@/ui/Callout";
 import { EmptyState } from "@/ui/EmptyState";
 import { FilePicker } from "@/ui/FilePicker";
-import { IconButton } from "@/ui/IconButton";
 import { Mono } from "@/ui/Mono";
 import { RadioGroup } from "@/ui/RadioGroup";
 import { SectionRule } from "@/ui/SectionRule";
@@ -24,6 +23,15 @@ import { Tabs } from "@/ui/Tabs";
 import { TextArea } from "@/ui/TextArea";
 import { TextField } from "@/ui/TextField";
 import { PageHeader } from "@/components/PageHeader";
+import {
+  OFFICIAL_SOURCE_OPTIONS,
+  detectOfficialSourceKind,
+  officialSourceTemplate,
+  parseOfficialSourcePayload,
+  summarizeOfficialSourcePayload,
+  type OfficialSourceKind,
+  type OfficialSourceSummary,
+} from "./officialSources";
 
 /** Select / RadioGroup 不接受空串项，用哨兵值映射回 null（「自动」）。 */
 const AUTO = "__auto__";
@@ -34,7 +42,7 @@ const SEMANTICS = ["full", "summary", "none"];
 export default function IngestView() {
   const currentUser = useApp((s) => s.currentUser);
   const readOnly = useApp((s) => s.currentSnapshot != null);
-  const [tab, setTab] = useState("document");
+  const [tab, setTab] = useState("official");
 
   if (!currentUser) {
     return (
@@ -50,7 +58,7 @@ export default function IngestView() {
     <div className="flex max-w-measure flex-col gap-6">
       <PageHeader
         title="导入 Ingest"
-        description="材料进入编译流水线的入口：文档两步（编辑 → 机械预览 → 确认），或一段对话。"
+        description="会议、文档库、即时消息与邮件共用一套可审计入口；canonical contract 预检通过后才进入编译流水线。"
       />
       {readOnly && (
         <Callout tone="info" title="历史快照 · 只读">
@@ -62,10 +70,235 @@ export default function IngestView() {
         value={tab}
         onChange={setTab}
         tabs={[
-          { value: "document", label: "文档", panel: <DocumentTab readOnly={readOnly} /> },
-          { value: "conversation", label: "对话", panel: <ConversationTab readOnly={readOnly} /> },
+          {
+            value: "official",
+            label: "结构化来源",
+            panel: <OfficialSourceTab readOnly={readOnly} />,
+          },
+          {
+            value: "document",
+            label: "单篇文档",
+            panel: <DocumentTab readOnly={readOnly} />,
+          },
         ]}
       />
+    </div>
+  );
+}
+
+function OfficialImportResultCallout({ result }: { result: OfficialImportResult }) {
+  const focusSource = useApp((s) => s.focusSource);
+  const deduplicated = result.sources.filter((source) => source.deduplicated).length;
+  return (
+    <Callout tone="notice" title={`导入完成 · ${result.sources.length} 条 source`}>
+      <div className="flex min-w-0 flex-col gap-2">
+        <p>
+          contract <Mono>{result.contract_schema}</Mono>
+          {deduplicated > 0 && <> · 去重命中 <Mono>{deduplicated}</Mono></>}
+        </p>
+        <ol className="flex flex-col border-t border-line">
+          {result.sources.map((source, index) => (
+            <li
+              key={source.source_id}
+              className="flex min-w-0 items-center gap-3 border-b border-line py-2"
+            >
+              <Mono className="shrink-0 text-ink-3">{index + 1}</Mono>
+              <Mono className="min-w-0 flex-1 truncate">{source.source_id}</Mono>
+              {source.deduplicated && <span className="shrink-0 text-12 text-ink-3">已存在</span>}
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => focusSource(source.source_id)}
+              >
+                查看
+              </Button>
+            </li>
+          ))}
+        </ol>
+      </div>
+    </Callout>
+  );
+}
+
+/* --------------------------------------------------------- 四类官方 Source */
+
+function OfficialSourceTab({ readOnly }: { readOnly: boolean }) {
+  const currentUser = useApp((s) => s.currentUser);
+  const loadUsers = useApp((s) => s.loadUsers);
+  const [kind, setKind] = useState<OfficialSourceKind>("meeting");
+  const [raw, setRaw] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [payload, setPayload] = useState<Record<string, unknown> | null>(null);
+  const [summary, setSummary] = useState<OfficialSourceSummary | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [result, setResult] = useState<OfficialImportResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const selected = OFFICIAL_SOURCE_OPTIONS.find((option) => option.kind === kind)!;
+  const canEdit = !readOnly && !submitting;
+
+  function resetPreview() {
+    setPayload(null);
+    setSummary(null);
+    setResult(null);
+    setError(null);
+  }
+
+  function selectKind(value: string) {
+    setKind(value as OfficialSourceKind);
+    setRaw("");
+    setFile(null);
+    resetPreview();
+  }
+
+  function setSourceText(value: string) {
+    setRaw(value);
+    resetPreview();
+  }
+
+  async function onFile(next: File | null) {
+    setFile(next);
+    if (!next) return;
+    try {
+      const content = await next.text();
+      const parsed = JSON.parse(content) as unknown;
+      const detected = detectOfficialSourceKind(parsed);
+      if (detected) setKind(detected);
+      setSourceText(JSON.stringify(parsed, null, 2));
+    } catch (caught) {
+      setError(`读取 source contract 失败：${(caught as Error).message}`);
+    }
+  }
+
+  function onPreflight() {
+    setError(null);
+    setResult(null);
+    try {
+      const parsed = parseOfficialSourcePayload(raw, kind);
+      setPayload(parsed);
+      setSummary(summarizeOfficialSourcePayload(parsed, kind));
+    } catch (caught) {
+      setPayload(null);
+      setSummary(null);
+      setError((caught as Error).message);
+    }
+  }
+
+  async function onImport() {
+    if (!currentUser || !payload) return;
+    setSubmitting(true);
+    setError(null);
+    setResult(null);
+    try {
+      const imported = await importOfficialSource(currentUser, payload);
+      setResult(imported);
+      setPayload(null);
+      setSummary(null);
+      void loadUsers();
+    } catch (caught) {
+      setError((caught as Error).message);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-6">
+      <section className="flex flex-col gap-4">
+        <SectionRule no={1} title="选择来源协议" />
+        <RadioGroup
+          aria-label="官方 source 类型"
+          value={kind}
+          onChange={selectKind}
+          disabled={!canEdit}
+          options={OFFICIAL_SOURCE_OPTIONS.map((option) => ({
+            value: option.kind,
+            label: option.label,
+            description: `${option.description} 引用单元：${option.citationUnit}。`,
+          }))}
+        />
+        <p className="text-13 text-ink-2">
+          <Mono>{selected.schema}</Mono> · {selected.provider}
+        </p>
+      </section>
+
+      <section className="flex flex-col gap-4">
+        <SectionRule no={2} title="载入 canonical JSON" />
+        <FilePicker
+          label="选择 JSON 文件（可选）"
+          hint="上传后按 schema 自动切换来源类型；文件只在本地读取，确认导入时才发送。"
+          accept=".json,application/json"
+          file={file}
+          onFile={(next) => void onFile(next)}
+          disabled={!canEdit}
+        />
+        <TextArea
+          label="source contract"
+          hint="可直接粘贴 provider adapter 产出的 canonical JSON。"
+          value={raw}
+          onChange={(event) => setSourceText(event.target.value)}
+          className="font-mono text-13 leading-[1.65]"
+          rows={14}
+          placeholder={`{\n  "schema": "${selected.schema}",\n  …\n}`}
+          disabled={!canEdit}
+        />
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={!canEdit}
+            onClick={() => {
+              setFile(null);
+              setSourceText(officialSourceTemplate(kind));
+            }}
+          >
+            <Braces size={14} aria-hidden />
+            载入合成示例
+          </Button>
+          <Button
+            size="sm"
+            variant="default"
+            disabled={!canEdit || !raw.trim()}
+            onClick={onPreflight}
+          >
+            预检结构
+          </Button>
+        </div>
+      </section>
+
+      {summary && payload && (
+        <section className="flex flex-col gap-4">
+          <SectionRule no={3} title="确认导入" />
+          <div className="border-y border-line py-3">
+            <p className="text-16 font-medium text-ink">{summary.title}</p>
+            <p className="mt-1 text-13 text-ink-2">
+              provider <Mono>{summary.provider}</Mono> ·{" "}
+              <Mono>{summary.itemCount}</Mono> {summary.itemLabel}
+            </p>
+            <p className="mt-2 text-12 leading-[1.7] text-ink-3">
+              服务端会再次执行完整 contract 校验；bundle 将按自然引用单元展开，并分别进入
+              L0–L3 流水线。
+            </p>
+          </div>
+          <div>
+            <Button
+              variant="primary"
+              loading={submitting}
+              disabled={readOnly}
+              onClick={() => void onImport()}
+            >
+              导入 {selected.label}
+            </Button>
+          </div>
+        </section>
+      )}
+
+      {error && (
+        <Callout tone="danger" title="结构化来源导入失败">
+          <Mono className="break-all">{error}</Mono>
+        </Callout>
+      )}
+      {result && <OfficialImportResultCallout result={result} />}
     </div>
   );
 }
@@ -365,144 +598,6 @@ function DocumentTab({ readOnly }: { readOnly: boolean }) {
 
       {error && (
         <Callout tone="danger" title="文档导入失败">
-          <Mono className="break-all">{error}</Mono>
-        </Callout>
-      )}
-      {result && <IngestResultCallout result={result} />}
-    </div>
-  );
-}
-
-/* ---------------------------------------------------------------- 对话 Tab */
-
-interface TurnDraft {
-  speaker: string;
-  text: string;
-  at: string; // 空串 = 未填
-}
-
-const EMPTY_TURN: TurnDraft = { speaker: "", text: "", at: "" };
-
-function ConversationTab({ readOnly }: { readOnly: boolean }) {
-  const currentUser = useApp((s) => s.currentUser);
-  const loadUsers = useApp((s) => s.loadUsers);
-
-  const [title, setTitle] = useState("");
-  const [turns, setTurns] = useState<TurnDraft[]>([{ ...EMPTY_TURN }]);
-  const [submitting, setSubmitting] = useState(false);
-  const [result, setResult] = useState<IngestResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const filledTurns = turns.filter((t) => t.text.trim());
-  const canSubmit =
-    !!currentUser && !!title.trim() && filledTurns.length > 0 && !readOnly && !submitting;
-
-  function updateTurn(i: number, patch: Partial<TurnDraft>) {
-    setTurns((prev) => prev.map((t, idx) => (idx === i ? { ...t, ...patch } : t)));
-  }
-
-  async function onSubmit() {
-    if (!currentUser) return;
-    setError(null);
-    setResult(null);
-    setSubmitting(true);
-    try {
-      const payloadTurns: ConversationTurnInput[] = filledTurns.map((t) => ({
-        speaker: t.speaker.trim() || "user",
-        text: t.text.trim(),
-        at: t.at.trim() || null,
-      }));
-      const res = await ingestConversation(currentUser, {
-        title: title.trim(),
-        turns: payloadTurns,
-      });
-      setResult(res);
-      void loadUsers();
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  return (
-    <div className="flex flex-col gap-4">
-      <TextField
-        label="标题"
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
-        placeholder="发布复盘 / roadmap sync …"
-        disabled={readOnly}
-      />
-      <div className="flex flex-col gap-3">
-        <p className="text-13 font-medium text-ink-2">对话轮次 · {filledTurns.length}</p>
-        {turns.map((t, i) => (
-          <div
-            key={i}
-            className="flex flex-col gap-3 border-y border-line py-3"
-          >
-            <div className="flex items-start gap-3">
-              <TextField
-                label="speaker"
-                wrapperClassName="w-36 shrink-0"
-                value={t.speaker}
-                onChange={(e) => updateTurn(i, { speaker: e.target.value })}
-                placeholder="user"
-                disabled={readOnly}
-              />
-              <TextField
-                label="at（可空）"
-                wrapperClassName="min-w-0 flex-1"
-                value={t.at}
-                onChange={(e) => updateTurn(i, { at: e.target.value })}
-                placeholder="2026-07-28T10:00:00Z"
-                disabled={readOnly}
-              />
-              {turns.length > 1 && (
-                <IconButton
-                  aria-label="删除这一轮"
-                  className="mt-6"
-                  disabled={readOnly}
-                  onClick={() => setTurns((prev) => prev.filter((_, idx) => idx !== i))}
-                >
-                  <Trash2 size={14} aria-hidden />
-                </IconButton>
-              )}
-            </div>
-            <TextArea
-              label="内容"
-              value={t.text}
-              onChange={(e) => updateTurn(i, { text: e.target.value })}
-              autoRows
-              maxRows={8}
-              placeholder="这一轮说了什么…"
-              disabled={readOnly}
-            />
-          </div>
-        ))}
-      </div>
-      <div className="flex items-center gap-2">
-        <Button
-          variant="default"
-          size="sm"
-          disabled={readOnly}
-          onClick={() => setTurns((prev) => [...prev, { ...EMPTY_TURN }])}
-        >
-          <Plus size={14} aria-hidden /> 加一轮
-        </Button>
-        <Button
-          variant="primary"
-          size="sm"
-          className="ml-auto"
-          loading={submitting}
-          disabled={!canSubmit}
-          onClick={() => void onSubmit()}
-        >
-          提交入库
-        </Button>
-      </div>
-      {error && (
-        <Callout tone="danger" title="对话导入失败">
           <Mono className="break-all">{error}</Mono>
         </Callout>
       )}

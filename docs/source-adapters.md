@@ -46,6 +46,22 @@ The response contains a list because a document library, IM archive or email arc
 expands into its natural citation units. Every new unit is persisted to L0, then queued
 for L1/L2 indexing and L3 compilation.
 
+## Web import
+
+The Web workbench exposes the same four canonical contracts as its primary import
+surface. A user chooses Meeting, Document library, IM or Email, then uploads or pastes
+one JSON contract. The client must:
+
+1. parse JSON locally and reject an invalid document before any request;
+2. verify that the contract `schema` matches the selected source kind;
+3. submit the unchanged object to `POST /sources/import`;
+4. render every returned source because one bundle may expand into several citation
+   units.
+
+The deprecated free-form conversation endpoint is not a product-facing import option.
+Provider-native formats remain the CLI adapter boundary; the Web surface consumes their
+provider-neutral canonical output.
+
 ## CLI
 
 The provider CLI performs translation, canonical validation and ingestion:
@@ -75,6 +91,21 @@ uv run python examples/import_source.py zoom /path/to/transcript.vtt \
 
 Owner identities are explicit CLI arguments or canonical fields. Adapters never infer
 ownership by reading message text.
+
+## Source presentation metadata
+
+Normalized sources keep citable text in the ordered block sequence. Their `meta` envelope
+also retains the provider-neutral fields required to present the original source shape:
+
+- meeting start/end, participants, agenda and segment speaker/timestamps;
+- vault path, frontmatter, tags, links and document timestamps;
+- IM members plus message timestamps, thread ids, edits and reactions;
+- email sender/recipient headers, reply relationships and attachment descriptors.
+
+Message and transcript bodies are not duplicated into metadata. The Web source viewer
+joins each metadata envelope to its block by normalized order, so clicking a displayed
+item still fetches the exact L0 block. Provider-specific optional fields remain nested
+under `metadata` / `archive_metadata`.
 
 ## Synthetic OPC demo
 

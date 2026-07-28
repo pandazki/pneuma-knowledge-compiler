@@ -130,6 +130,25 @@ def _meeting(source: MeetingSource, user_id: UserId) -> list[NormalizedSource]:
             ],
             "agenda": source.agenda,
             "segment_ids": [item.segment_id for item in ordered],
+            "started_at": source.started_at.isoformat(),
+            "ended_at": (
+                source.ended_at.isoformat() if source.ended_at is not None else None
+            ),
+            # Provider-neutral timeline metadata lets a source viewer reconstruct the
+            # meeting without duplicating the citable transcript text held in blocks.
+            "segments": [
+                {
+                    "segment_id": item.segment_id,
+                    "speaker_id": item.speaker_id,
+                    "started_at": item.started_at.isoformat(),
+                    "ended_at": (
+                        item.ended_at.isoformat()
+                        if item.ended_at is not None
+                        else None
+                    ),
+                }
+                for item in ordered
+            ],
             "timezone": source.timezone,
             "metadata": source.metadata,
         },
@@ -165,7 +184,18 @@ def _library(
                 "links": [
                     item.model_dump(mode="json") for item in document.links
                 ],
+                "created_at": (
+                    document.created_at.isoformat()
+                    if document.created_at is not None
+                    else None
+                ),
+                "modified_at": (
+                    document.modified_at.isoformat()
+                    if document.modified_at is not None
+                    else None
+                ),
                 "metadata": document.metadata,
+                "library_metadata": source.metadata,
             },
         )
         normalized.append(
@@ -214,7 +244,33 @@ def _im(source: ImSource, user_id: UserId) -> list[NormalizedSource]:
                 "member_ids": conversation.member_ids,
                 "owner_user_ids": source.owner_user_ids,
                 "message_ids": [item.message_id for item in messages],
+                "users": [
+                    users[user_id].model_dump(mode="json")
+                    for user_id in conversation.member_ids
+                ],
+                # Text stays in normalized blocks. This parallel metadata is only the
+                # provider-neutral envelope required to present channel chronology,
+                # threads, edits and reactions faithfully.
+                "messages": [
+                    {
+                        "message_id": item.message_id,
+                        "sender_id": item.sender_id,
+                        "sent_at": item.sent_at.isoformat(),
+                        "thread_id": item.thread_id,
+                        "edited_at": (
+                            item.edited_at.isoformat()
+                            if item.edited_at is not None
+                            else None
+                        ),
+                        "reactions": [
+                            reaction.model_dump(mode="json")
+                            for reaction in item.reactions
+                        ],
+                    }
+                    for item in messages
+                ],
                 "metadata": conversation.metadata,
+                "archive_metadata": source.metadata,
             },
         )
         normalized.append(
@@ -282,7 +338,32 @@ def _email(source: EmailSource, user_id: UserId) -> list[NormalizedSource]:
                 "thread_id": thread.thread_id,
                 "owner_addresses": source.owner_addresses,
                 "message_ids": [item.message_id for item in messages],
+                # Message bodies remain the citable block sequence. Header and
+                # attachment envelopes are retained here so the UI need not reverse
+                # engineer RFC-like strings from block prose.
+                "messages": [
+                    {
+                        "message_id": item.message_id,
+                        "sent_at": item.sent_at.isoformat(),
+                        "from": item.from_.model_dump(mode="json"),
+                        "to": [
+                            address.model_dump(mode="json") for address in item.to
+                        ],
+                        "cc": [
+                            address.model_dump(mode="json") for address in item.cc
+                        ],
+                        "subject": item.subject,
+                        "in_reply_to": item.in_reply_to,
+                        "references": item.references,
+                        "attachments": [
+                            attachment.model_dump(mode="json")
+                            for attachment in item.attachments
+                        ],
+                    }
+                    for item in messages
+                ],
                 "metadata": thread.metadata,
+                "archive_metadata": source.metadata,
             },
         )
         normalized.append(

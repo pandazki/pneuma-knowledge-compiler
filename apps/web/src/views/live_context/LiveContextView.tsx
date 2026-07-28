@@ -1,20 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Ear, Plug, Plus, RotateCcw, Trash2 } from "lucide-react";
+import { Plug, Plus, RadioTower, RotateCcw, Trash2 } from "lucide-react";
 import { useApp } from "@/lib/store";
 import {
-  CueSocket,
-  cueStream,
-  getCueFocuses,
-  getCueKinds,
+  LiveContextSocket,
+  liveContextStream,
+  getContextFocuses,
+  getSuggestionKinds,
   listSources,
-  type Cue,
-  type CueDone,
-  type CueReadyFrame,
-  type CueServerFrame,
-  type CueSocketStatus,
-  type CueStatsFrame,
-  type CueTurnInput,
-  type CueDetailFrame,
+  type ContextSuggestion,
+  type LiveContextDone,
+  type LiveContextReadyFrame,
+  type LiveContextServerFrame,
+  type LiveContextSocketStatus,
+  type LiveContextStatsFrame,
+  type ContextTurnInput,
+  type SuggestionDetailFrame,
 } from "@/lib/api";
 import { PageHeader } from "@/components/PageHeader";
 import { GateLedger } from "@/components/GateLedger";
@@ -36,7 +36,7 @@ import { Tabs } from "@/ui/Tabs";
 import { TextField } from "@/ui/TextField";
 import { cn } from "@/ui/cn";
 import { UsageLine } from "../_shared/UsageLine";
-import { CueCard } from "./CueCard";
+import { ContextSuggestionCard } from "./ContextSuggestionCard";
 
 type Role = "owner" | "other" | "unknown";
 
@@ -62,14 +62,14 @@ function useSsePanel(currentUser: string | null) {
   const [turns, setTurns] = useState<SseTurn[]>([]);
   const [focus, setFocus] = useState<string | null>(null);
   const [minConf, setMinConf] = useState(1);
-  const [maxCues, setMaxCues] = useState<number | null>(3);
+  const [maxContextSuggestions, setMaxContextSuggestions] = useState<number | null>(3);
   const [turnWindow, setTurnWindow] = useState<number | null>(3);
   /** 本地再过滤阈值：纯前端 software filter，不发任何请求。 */
   const [threshold, setThreshold] = useState(1);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [cards, setCards] = useState<Cue[]>([]);
-  const [done, setDone] = useState<CueDone | null>(null);
+  const [cards, setCards] = useState<ContextSuggestion[]>([]);
+  const [done, setDone] = useState<LiveContextDone | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   // 卸载中断 SSE。
@@ -98,7 +98,7 @@ function useSsePanel(currentUser: string | null) {
     setBusy(true);
     setError(null);
     setDone(null);
-    await cueStream(
+    await liveContextStream(
       currentUser,
       {
         turns: turns
@@ -110,13 +110,13 @@ function useSsePanel(currentUser: string | null) {
           })),
         focus,
         min_confidence: minConf,
-        max_cues: maxCues ?? 3,
+        max_suggestions: maxContextSuggestions ?? 3,
         turn_window: turnWindow ?? 3,
         // 去重回填：已下发的卡片以 {kind, title} 回传，避免重复提示。
         already_shown: cards.map((c) => ({ kind: c.kind, title: c.title })),
       },
       {
-        onCue: (cue) => setCards((cs) => [...cs, cue]),
+        onSuggestion: (suggestion) => setCards((cs) => [...cs, suggestion]),
         onDone: (d) => setDone(d),
         onError: (m) => {
           if (!ac.signal.aborted) setError(m);
@@ -136,8 +136,8 @@ function useSsePanel(currentUser: string | null) {
     setFocus,
     minConf,
     setMinConf,
-    maxCues,
-    setMaxCues,
+    maxContextSuggestions,
+    setMaxContextSuggestions,
     turnWindow,
     setTurnWindow,
     threshold,
@@ -156,26 +156,26 @@ function useSsePanel(currentUser: string | null) {
 
 interface WsCard {
   id: string;
-  cue: Cue;
+  suggestion: ContextSuggestion;
   seq: number;
 }
 
 function useWsPanel(currentUser: string | null) {
-  const sockRef = useRef<CueSocket | null>(null);
-  const [status, setStatus] = useState<CueSocketStatus>("closed");
-  const [ready, setReady] = useState<CueReadyFrame | null>(null);
+  const sockRef = useRef<LiveContextSocket | null>(null);
+  const [status, setStatus] = useState<LiveContextSocketStatus>("closed");
+  const [ready, setReady] = useState<LiveContextReadyFrame | null>(null);
   const [focus, setFocus] = useState<string | null>(null);
   const [minConf, setMinConf] = useState(6);
   const [turnWindow, setTurnWindow] = useState<number | null>(3);
   const [quietPeriod, setQuietPeriod] = useState<number | null>(6);
   const [statsOn, setStatsOn] = useState(true);
   const [cards, setCards] = useState<WsCard[]>([]);
-  const [sentTurns, setSentTurns] = useState<CueTurnInput[]>([]);
-  const [statsLog, setStatsLog] = useState<CueStatsFrame[]>([]);
+  const [sentTurns, setSentTurns] = useState<ContextTurnInput[]>([]);
+  const [statsLog, setStatsLog] = useState<LiveContextStatsFrame[]>([]);
   const [error, setError] = useState<string | null>(null);
   // want_more 三件套都按「收到卡片的 id」归账，由送出的 ref 解析回来——
   // 绝不按 title 对（title 是去重键，说不出失败属于哪个请求）。
-  const [details, setDetails] = useState<Record<string, CueDetailFrame>>({});
+  const [details, setDetails] = useState<Record<string, SuggestionDetailFrame>>({});
   const [pending, setPending] = useState<string[]>([]);
   const [failures, setFailures] = useState<Record<string, string>>({});
   // 在途 want_more 关联：ref → 卡片 id。用 ref 不用 state——帧处理器要同步读。
@@ -194,7 +194,7 @@ function useWsPanel(currentUser: string | null) {
   }, []);
 
   const onFrame = useCallback(
-    (frame: CueServerFrame) => {
+    (frame: LiveContextServerFrame) => {
       switch (frame.type) {
         case "ready":
           setReady(frame);
@@ -203,15 +203,15 @@ function useWsPanel(currentUser: string | null) {
           // 每次评估都回一帧，包括零下发的——那正是需要门禁账解释的一帧。
           setStatsLog((l) => [frame, ...l].slice(0, 8));
           break;
-        case "cue":
+        case "suggestion":
           setCards((cs) => {
             // 客户端是去重权威：已下发的 {kind,title} 不再收第二次。
-            if (cs.some((c) => c.cue.kind === frame.cue.kind && c.cue.title === frame.cue.title))
+            if (cs.some((c) => c.suggestion.kind === frame.suggestion.kind && c.suggestion.title === frame.suggestion.title))
               return cs;
-            return [...cs, { id: nextId(), cue: frame.cue, seq: frame.seq }];
+            return [...cs, { id: nextId(), suggestion: frame.suggestion, seq: frame.seq }];
           });
           break;
-        case "cue_detail": {
+        case "suggestion_detail": {
           const card = takeRef(frame.ref);
           if (card) {
             setDetails((d) => ({ ...d, [card]: frame }));
@@ -268,7 +268,7 @@ function useWsPanel(currentUser: string | null) {
       refToCard.current.clear();
       setPending([]);
       setStatsLog([]);
-      const sock = new CueSocket(currentUser, onFrame, (s) => setStatus(s));
+      const sock = new LiveContextSocket(currentUser, onFrame, (s) => setStatus(s));
       sockRef.current = sock;
       const open = () => {
         if (!sock.ready) {
@@ -280,7 +280,7 @@ function useWsPanel(currentUser: string | null) {
           ...(restore
             ? {
                 turns: sentTurns,
-                already_shown: cards.map((c) => ({ kind: c.cue.kind, title: c.cue.title })),
+                already_shown: cards.map((c) => ({ kind: c.suggestion.kind, title: c.suggestion.title })),
               }
             : {}),
         });
@@ -316,7 +316,7 @@ function useWsPanel(currentUser: string | null) {
     const text = draftText.trim();
     const sock = sockRef.current;
     if (!sock?.ready || !text) return;
-    const turn: CueTurnInput = {
+    const turn: ContextTurnInput = {
       speaker: draftSpeaker.trim() || draftRole,
       text,
       role: draftRole,
@@ -336,7 +336,7 @@ function useWsPanel(currentUser: string | null) {
     // 每个请求一个全新的 ref：失败重试是新的关联，迟到应答不会错挂。
     const ref = nextId();
     refToCard.current.set(ref, item.id);
-    sock.wantMore(item.cue, ref);
+    sock.wantMore(item.suggestion, ref);
     setFailures((f) => {
       if (!(item.id in f)) return f;
       const { [item.id]: _gone, ...rest } = f;
@@ -380,15 +380,15 @@ function useWsPanel(currentUser: string | null) {
   };
 }
 
-/* ====================================================================== view */
+/* ================================================================ Live Context view */
 
 /**
- * context_stream 提示：双链路面板。
- * SSE 一次性：整段转录窗口一次性评估；WS 长连接：服务端持窗口 + 静默期 +
- * 单在途合并，want_more 展开 cue_detail。两链路的状态都挂在 CueView 顶层的
+ * Live Context 双链路面板。
+ * SSE 一次性：整段工作流窗口一次性评估；WS 长连接：服务端持窗口 + 静默期 +
+ * 单在途合并，want_more 展开 suggestion_detail。两链路的状态都挂在 LiveContextView 顶层的
  * hook 上——Tabs 切换会卸载未激活面板，状态必须比面板活得久。
  */
-export default function CueView() {
+export default function LiveContextView() {
   const currentUser = useApp((s) => s.currentUser);
   const focusSource = useApp((s) => s.focusSource);
   const [tab, setTab] = useState("sse");
@@ -403,7 +403,7 @@ export default function CueView() {
   // focus / kind 词表由服务端供给（封闭词汇，不在前端私抄一份）。
   useEffect(() => {
     let alive = true;
-    Promise.all([getCueFocuses(), getCueKinds()])
+    Promise.all([getContextFocuses(), getSuggestionKinds()])
       .then(([f, k]) => {
         if (!alive) return;
         setFocuses(f);
@@ -446,11 +446,14 @@ export default function CueView() {
   if (!currentUser) {
     return (
       <>
-        <PageHeader title="提示 Cue" description="context_stream 主动提示，双链路。" />
+        <PageHeader
+          title="即时上下文 Live Context"
+          description="持续接收工作流片段，自动检索相关证据并融合为可引用的上下文提示。"
+        />
         <EmptyState
-          icon={Ear}
+          icon={RadioTower}
           title="未选择用户"
-          description="在右上角选择一个 user_id。提词卡只能引用该用户知识库里的真实来源——没有来源的卡片会被引用闸门丢掉。"
+          description="在右上角选择一个 user_id。上下文提示只会引用该用户知识库里的真实来源；没有可靠证据时保持静默。"
         />
       </>
     );
@@ -459,12 +462,12 @@ export default function CueView() {
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
-        title="提示 Cue"
-        description="context_stream 主动提示：同一段转录，可对比一次性 SSE 与长连接 WS 两条链路。被门禁吃掉的内容只在门禁账里留下计数。"
+        title="即时上下文 Live Context"
+        description="持续接收工作流片段，自动检索相关证据并融合为可引用的上下文提示；没有足够证据时保持静默。"
       />
       {vocabError && <Callout tone="warn">focus 词表拉取失败：{vocabError}</Callout>}
       <Tabs
-        aria-label="cue 链路"
+        aria-label="实时上下文传输"
         value={tab}
         onChange={setTab}
         tabs={[
@@ -518,20 +521,20 @@ function SsePanel({
   const hidden = panel.cards.length - panel.visible.length;
   return (
     <div className="flex flex-col gap-8">
-      {/* 转录窗口 */}
+      {/* 工作流窗口 */}
       <section>
         <SectionRule
           no={1}
-          title="转录窗口"
+          title="工作流窗口"
           actions={
             <Button size="sm" onClick={panel.addTurn}>
-              <Plus size={13} aria-hidden /> 追加一轮
+              <Plus size={13} aria-hidden /> 追加片段
             </Button>
           }
         />
         {panel.turns.length === 0 ? (
           <p className="mt-3 text-13 text-ink-3">
-            逐轮录入对话，整段窗口一次性送入评估——focus 只改变注意力指向，不做说话人过滤。
+            逐条录入会议、消息或协作片段，整段窗口一次性送入评估；focus 只改变注意力指向，不过滤上下文。
           </p>
         ) : (
           <ol className="mt-3 flex flex-col gap-2">
@@ -555,11 +558,11 @@ function SsePanel({
                   wrapperClassName="min-w-40 flex-1"
                   value={t.text}
                   onChange={(e) => panel.updateTurn(t.id, { text: e.target.value })}
-                  placeholder="这一轮说了什么…"
-                  aria-label="转录文本"
+                  placeholder="输入一条工作流片段…"
+                  aria-label="工作流片段"
                 />
                 <IconButton
-                  aria-label="删除该轮"
+                  aria-label="删除该片段"
                   size="md"
                   onClick={() => panel.removeTurn(t.id)}
                 >
@@ -594,9 +597,9 @@ function SsePanel({
           />
           <div className="flex flex-wrap gap-4">
             <NumberField
-              label="max_cues"
-              value={panel.maxCues}
-              onChange={panel.setMaxCues}
+              label="max_suggestions"
+              value={panel.maxContextSuggestions}
+              onChange={panel.setMaxContextSuggestions}
               min={1}
               max={5}
             />
@@ -628,11 +631,11 @@ function SsePanel({
         <section>
           <SectionRule
             no={3}
-            title={`存活卡片（${panel.visible.length} / 已下发 ${panel.cards.length}）`}
+            title={`上下文提示（${panel.visible.length} / 已生成 ${panel.cards.length}）`}
             actions={
               panel.cards.length > 0 ? (
                 <Button size="sm" variant="ghost" onClick={() => panel.setCards([])}>
-                  清空卡片
+                  清空提示
                 </Button>
               ) : undefined
             }
@@ -640,9 +643,9 @@ function SsePanel({
           {panel.cards.length === 0 && !panel.busy && !panel.done ? (
             <div className="mt-4">
               <EmptyState
-                icon={Ear}
-                title="还没有提词卡"
-                description="沉默是这个功能的稳态：解析失败 / 无引用 / 低置信 / 超限，任一道闸门都会让一次评估一张卡都不出——门禁账会说明卡在哪一道。"
+                icon={RadioTower}
+                title="还没有上下文提示"
+                description="输入工作流片段并运行评估；解析失败、无引用、低置信或超限时都会保持静默，门禁账会记录原因。"
               />
             </div>
           ) : (
@@ -654,7 +657,7 @@ function SsePanel({
                   onChange={panel.setThreshold}
                   min={1}
                   max={10}
-                  hint="纯前端过滤：confidence ≥ 阈值的已下发卡片保留，不发任何请求。"
+                  hint="纯前端过滤：confidence ≥ 阈值的已生成提示保留，不发任何请求。"
                 />
                 {hidden > 0 && (
                   <p className="mt-1 text-12 text-ink-3">
@@ -662,16 +665,16 @@ function SsePanel({
                   </p>
                 )}
               </div>
-              {panel.busy && <p className="mt-3 text-12 text-ink-3">评估中，卡片逐一到达…</p>}
+              {panel.busy && <p className="mt-3 text-12 text-ink-3">评估中，提示逐一到达…</p>}
               {panel.busy && panel.cards.length === 0 && (
                 <SkeletonText lines={3} className="mt-3 max-w-measure" />
               )}
               <div className="border-t border-line">
-                {panel.visible.map((cue, i) => (
-                  <CueCard
-                    key={`${cue.kind}:${cue.title}:${i}`}
-                    cue={cue}
-                    kindLabel={kindLabels[cue.kind]}
+                {panel.visible.map((suggestion, i) => (
+                  <ContextSuggestionCard
+                    key={`${suggestion.kind}:${suggestion.title}:${i}`}
+                    suggestion={suggestion}
+                    kindLabel={kindLabels[suggestion.kind]}
                     via="sse"
                     titles={titles}
                     onJump={onJump}
@@ -765,7 +768,7 @@ function WsPanel({
             items={[
               { term: "focus", definition: <Mono>{panel.ready.focus}</Mono> },
               { term: "min_confidence", definition: <Mono>{panel.ready.min_confidence}</Mono> },
-              { term: "max_cues", definition: <Mono>{panel.ready.max_cues}</Mono> },
+              { term: "max_suggestions", definition: <Mono>{panel.ready.max_suggestions}</Mono> },
               { term: "turn_window", definition: <Mono>{panel.ready.turn_window}</Mono> },
               { term: "quiet_period", definition: <Mono>{panel.ready.quiet_period}s</Mono> },
               {
@@ -824,11 +827,11 @@ function WsPanel({
         </div>
       </section>
 
-      {/* turn 追加 + flush */}
+      {/* 工作流片段追加 + flush */}
       <section>
         <SectionRule
           no={3}
-          title="转录追加"
+          title="工作流片段"
           actions={
             <Button size="sm" disabled={!open} title="立即评估，跳过静默期" onClick={panel.flush}>
               立即评估（flush）
@@ -857,8 +860,8 @@ function WsPanel({
             onKeyDown={(e) => {
               if (e.key === "Enter") panel.sendDraft();
             }}
-            placeholder="这一轮说了什么…"
-            aria-label="转录文本"
+            placeholder="输入一条工作流片段…"
+            aria-label="工作流片段"
           />
           <Button disabled={!open || !panel.draftText.trim()} onClick={panel.sendDraft}>
             发送
@@ -873,24 +876,24 @@ function WsPanel({
         </Callout>
       )}
 
-      {/* 提词卡 */}
+      {/* 上下文提示 */}
       <section>
-        <SectionRule no={4} title={`提词卡（${panel.cards.length}）`} />
+        <SectionRule no={4} title={`上下文提示（${panel.cards.length}）`} />
         {panel.cards.length === 0 ? (
           <div className="mt-4">
             <EmptyState
-              icon={Ear}
-              title="还没有提词卡"
-              description="长连接的稳态是静默：服务端持窗口 + 静默期 + 单在途合并，评估没东西可提示时一帧都不发。开启 stats 后可在下方看到每次评估的门禁账。"
+              icon={RadioTower}
+              title="还没有上下文提示"
+              description="长连接的稳态是静默：服务端维护窗口、静默期与单在途合并；没有足够相关且可引用的证据时不会发送提示。开启 stats 后可查看门禁账。"
             />
           </div>
         ) : (
           <div className="border-t border-line">
             {panel.cards.map((item) => (
-              <CueCard
+              <ContextSuggestionCard
                 key={item.id}
-                cue={item.cue}
-                kindLabel={kindLabels[item.cue.kind]}
+                suggestion={item.suggestion}
+                kindLabel={kindLabels[item.suggestion.kind]}
                 via={`ws · seq ${item.seq}`}
                 titles={titles}
                 onJump={onJump}

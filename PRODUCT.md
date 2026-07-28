@@ -12,7 +12,7 @@ web
 
 ## Product Purpose
 
-Pneuma Knowledge Compiler 是一个业务无关的开源个人知识编译器。它把原始材料异步编译为带来源引用的 canonical knowledge，并通过原文、词法、语义与 canonical 四级访问面支持检索、问答、连续 briefing、主动 cue 和知识演化。
+Pneuma Knowledge Compiler 是一个业务无关的开源个人知识编译器。它把原始材料异步编译为带来源引用的 canonical knowledge，并通过原文、词法、语义与 canonical 四级访问面支持检索、问答、连续 briefing、Live Context 即时上下文和知识演化。
 
 成功意味着：用户可以从一组完全本地、可复现的 mock 数据开始，跑通“导入 → 编译 → 检索/问答 → 浏览来源与演化历史”的完整链路；权威知识可审计，派生索引可重建，任何回答都能回到来源。
 
@@ -29,7 +29,7 @@ Pneuma Knowledge Compiler 是一个业务无关的开源个人知识编译器。
 
 ## Capabilities and Constraints
 
-- 保留源架构的入库、分块、compile、L0–L3 访问、rag/fast/deep recall、briefing、cue、evolve、数据集导入导出、可观测性和部署能力。
+- 保留源架构的入库、分块、compile、L0–L3 访问、rag/fast/deep recall、briefing、suggestion、evolve、数据集导入导出、可观测性和部署能力。
 - 所有状态以 `user_id` 为第一隔离维度；canonical 与 derived 必须在类型和存储语义上分离。
 - 默认领域策略服务于 OPC AI-Native 个人开发者，不包含任何特定硬件、消费设备、应用或商业品牌策略。
 - 默认中文人设和模拟数据用于可复现演示，必须明确标注为 synthetic，不构成真实客户、性能或商业证明。

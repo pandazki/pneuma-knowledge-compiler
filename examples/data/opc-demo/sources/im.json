@@ -11,13 +11,13 @@
       "is_bot": false
     },
     {
-      "user_id": "U-CHEN",
+      "user_id": "U-COLLAB",
       "display_name": "陈澄",
       "email": "chen@chenghai.example",
       "is_bot": false
     },
     {
-      "user_id": "U-ZHOU",
+      "user_id": "U-OPS",
       "display_name": "周岚",
       "email": "zhou@chenghai.example",
       "is_bot": false
@@ -34,7 +34,7 @@
       "conversation_id": "C-ORION",
       "conversation_type": "channel",
       "title": "client-orion",
-      "member_ids": ["U-LIN", "U-CHEN", "U-ZHOU"],
+      "member_ids": ["U-LIN", "U-COLLAB", "U-OPS"],
       "messages": [
         {
           "message_id": "1784772600.000001",
@@ -47,7 +47,7 @@
         },
         {
           "message_id": "1784773020.000002",
-          "sender_id": "U-CHEN",
+          "sender_id": "U-COLLAB",
           "sent_at": "2026-07-23T09:37:00+08:00",
           "text": "收到。二十个验收问题我周一中午前补全，问题会覆盖决策、负责人和截止时间。",
           "thread_id": "1784772600.000001",
@@ -56,7 +56,7 @@
         },
         {
           "message_id": "1784773680.000003",
-          "sender_id": "U-ZHOU",
+          "sender_id": "U-OPS",
           "sent_at": "2026-07-23T09:48:00+08:00",
           "text": "脱敏 vault 已准备 38 篇笔记，Slack 导出只包含 #client-orion 和两个相关私聊。",
           "thread_id": "1784772600.000001",
@@ -74,7 +74,7 @@
         },
         {
           "message_id": "1785120300.000005",
-          "sender_id": "U-CHEN",
+          "sender_id": "U-COLLAB",
           "sent_at": "2026-07-27T10:05:00+08:00",
           "text": "验收题已定稿 20 条。周三下午三点做第一次联合走查。",
           "thread_id": null,
@@ -88,11 +88,11 @@
       "conversation_id": "D-CHEN-LIN",
       "conversation_type": "dm",
       "title": "陈澄",
-      "member_ids": ["U-LIN", "U-CHEN"],
+      "member_ids": ["U-LIN", "U-COLLAB"],
       "messages": [
         {
           "message_id": "1784780400.000010",
-          "sender_id": "U-CHEN",
+          "sender_id": "U-COLLAB",
           "sent_at": "2026-07-23T11:40:00+08:00",
           "text": "采购问固定价是否包含邮件适配器。",
           "thread_id": null,
@@ -110,7 +110,7 @@
         },
         {
           "message_id": "1784781300.000012",
-          "sender_id": "U-CHEN",
+          "sender_id": "U-COLLAB",
           "sent_at": "2026-07-23T11:55:00+08:00",
           "text": "可以，我会在采购备注里写清不包含自动写回和长期运维。",
           "thread_id": null,
@@ -124,7 +124,7 @@
       "conversation_id": "G-DELIVERY",
       "conversation_type": "group_dm",
       "title": "Orion 交付协作",
-      "member_ids": ["U-LIN", "U-ZHOU", "U-SONG"],
+      "member_ids": ["U-LIN", "U-OPS", "U-SONG"],
       "messages": [
         {
           "message_id": "1784952900.000020",
@@ -146,7 +146,7 @@
         },
         {
           "message_id": "1784954700.000022",
-          "sender_id": "U-ZHOU",
+          "sender_id": "U-OPS",
           "sent_at": "2026-07-25T12:05:00+08:00",
           "text": "vault 里的附件先只记录文件名和类型，不上传二进制正文。",
           "thread_id": null,

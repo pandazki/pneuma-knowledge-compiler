@@ -45,7 +45,7 @@ uv run python examples/import_presets.py
 - Zoom WebVTT、Obsidian vault、Slack JSON export、EML/mbox 真实适配器，以及同约束 mock adapter；
 - 异步 `index` / `compile` worker 与按用户串行写入；
 - `rag`、`fast`、`deep` 三种召回，以及连续 Briefing 问答；
-- 主动 context cue、引用闸门与原文 `want_more`；
+- Live Context 即时上下文、引用闸门与原文 `want_more`；
 - Git canonical、快照、知识图谱、编译审计与 schema evolve；
 - 用户画像与可组合的版本化知识策略；
 - 数据集导入/导出、全量 derived rebuild、Docker 与 GKE 部署；

@@ -13,7 +13,7 @@
 | `compile_e2e.py` | 入库 → 用 scripted 模型 compile → git 快照 + 四视图投影（documents/graph/timeline/journal）。 |
 | `briefing_e2e.py` | 入库 → scripted compile → `fast` / `deep`（agentic）/ 锚定来源的 `briefing` 连续问答。 |
 | `upgrade_e2e.py` | 升级演练：Path A 换投影策略不动 canonical HEAD；Path B v2 前向新增 compile。 |
-| `cue_e2e.py` | context_stream **主动提词**：入库 → 建索引 → 对一段转录窗口评估 → 五道机械闸门（看得见 `dropped` 计数）→ 句柄解析回真实来源 → `want_more` 按卡片自己的引用直取原文扩写。 |
+| `live_context_e2e.py` | **Live Context 即时上下文**：入库 → 建索引 → 对一段工作流窗口评估 → 五道机械闸门（看得见 `dropped` 计数）→ 句柄解析回真实来源 → `want_more` 按提示自己的引用直取原文扩写。 |
 | `seed_demo.py` | 重置并生成合成 OPC 用户 `u-opc-lin`：默认走 scripted/fake 的 keyless 路径；加 `--real` 后 fail-closed 地使用真实 semantic chunking、embedding 与 compile。 |
 | `import_source.py` | 把 canonical mock JSON、Zoom WebVTT、Obsidian vault、Slack export 或 EML/mbox 转换、校验并导入指定用户。 |
 
@@ -60,8 +60,8 @@ canonical git tar）。改选哪些 user 用 `export_presets.py <src_uid>=<frien
 uv run python examples/smoke_openrouter.py   # 真链路冒烟
 ```
 
-`data/opc-demo/cue-script.json` 是 UI 闸门截图使用的无密钥脚本响应。只在本地复验时通过
-`PNEUMA_KNOWLEDGE_LLM_MODEL_CUE=scripted:examples/data/opc-demo/cue-script.json`
+`data/opc-demo/live-context-script.json` 是 UI 门禁截图使用的无密钥脚本响应。只在本地复验时通过
+`PNEUMA_KNOWLEDGE_LLM_MODEL_LIVE_CONTEXT=scripted:examples/data/opc-demo/live-context-script.json`
 显式启用，不参与默认运行配置。
 
 ## 维护脚本

@@ -4,7 +4,7 @@
 
 ## 背景
 
-context_stream 的 AI cue 功能要用 WebSocket 长连接。GKE 上 API 是**单 uvicorn 进程、无
+context_stream 的 AI suggestion 功能要用 WebSocket 长连接。GKE 上 API 是**单 uvicorn 进程、无
 `--workers`**（`deploy/gke/base/app-deployment.yaml`），也就是**一个事件循环服务整个 API**。
 WS handler 必须是 `async def`；若在其中直接调用当时的同步 core，一次 3 秒的 LLM 调用会占住
 循环，把所有用户的 recall、所有其他 WS 连接、以及 `/healthz` 探针一起卡住——最后一项会让
@@ -53,5 +53,5 @@ compile worker，一路改到底。
 ## 未决
 
 真正的并发上限尚未被压测过。此次改动移除了「每请求一线程」的天花板，但 PG 连接池大小、
-OpenRouter 的速率限制、以及单进程单循环本身都可能先成为瓶颈。等 cue 的 WS 长连接上线、
+OpenRouter 的速率限制、以及单进程单循环本身都可能先成为瓶颈。等 suggestion 的 WS 长连接上线、
 有了真实并发形态再测，不预先调参。

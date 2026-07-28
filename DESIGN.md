@@ -132,7 +132,7 @@ focus 环与底 ≥ 3:1。accent 两色均按正文级对比度选取。
 
 ### 2.4 阅读层 Prose（kami 启发的排版纪律）
 
-一切 serif 阅读面（答案、claim 正文、source 原文、引用段、cue 卡片正文）
+一切 serif 阅读面（答案、claim 正文、source 原文、引用段、suggestion 卡片正文）
 统一走 `index.css` 的 `.prose` / `.prose-lede` 组件类，规则提炼自
 [kami](https://github.com/tw93/kami) 的 print 排版系统：
 
@@ -174,7 +174,7 @@ hash 路由与 deep link 契约**不变**（`lib/hash.ts` 的 12 个视图 + sel
 | 卷首 | `overview` | 卷首 · 这是一个编译器 | 故事 1：为什么是"知识编译器" |
 | 原料篇 | `sources` / `ingest` | 原料 Sources · 导入 Ingest | 故事 2：导入材料、看编译计划 |
 | 工序篇 | `process` | 工序 Process | 编译 job 与状态 |
-| 取用篇 | `recall` / `ask` / `context_stream` | 检索 Recall · 问答 Ask · 提示 Cue | 故事 4/5/6 |
+| 取用篇 | `recall` / `ask` / `live_context` | 检索 Recall · 问答 Ask · 即时上下文 Live Context | 故事 4/5/6 |
 | 正典篇 | `library` / `graph` / `history` | 正典 Canonical · 图谱 Graph · 版本 History | 故事 3/7 |
 | 演化篇 | `evolve` | 演化 Evolve | 故事 8 |
 | 卷末 | `profile` | 画像 Profile | synthetic 用户档案 |
@@ -245,10 +245,10 @@ aria label/description、支持 disabled / error / loading / empty、双主题�
 - `ThemeToggle`（IconButton，日/夜）
 - `PageHeader`（serif 页题 + 一行说明 + 右侧操作区）
 - `SourceSpanSheet`（引用落点：source 原文 + block 编号 + 高亮 span +
-  fetch-locator 精确段；recall/ask/cue/library 共用）
+  fetch-locator 精确段；recall/ask/suggestion/library 共用）
 - `ClaimRow`（canonical claim：serif 正文 + 脚注 + flag 标记 + 锚点 mono）
 - `CitationList`（引用列表：编号 + source 标题 + block 区间 + 跳转）
-- `GateLedger`（cue 门禁账：`unparsed/repeat/uncited/low_confidence/capped`
+- `GateLedger`（suggestion 门禁账：`unparsed/repeat/uncited/low_confidence/capped`
   五栏计数账页，仅真实状态上色）
 - `GraphCanvas`（lazy 加载 @xyflow/react + dagre；墨色节点 + typeGlyph 形状冗余编码）
 
@@ -274,9 +274,19 @@ L0–L3 DefinitionList；六故事翻阅指引（编号列表链到各视图）�
 
 ### sources 原料
 master-detail：左为 source 目录（标题、kind、block 数、消化态——消化态用
-文字+时间，不用彩色灯），右为选中 source 的"校样页"：结构地图（section 树）、
-原文 blocks（mono 块号 + serif 正文）、span 高亮落点。交互：`focusSource`
-落点滚动 + 高亮；locator fetch 精确段。状态：空库 → EmptyState 指向 ingest。
+文字+时间，不用彩色灯），右侧分为两个阅读层：
+
+- **来源视图**按官方 source contract 还原原生阅读语法：meeting = 会议抬头、
+  参与者/议程与带时间逐字稿；document-library = vault 路径、frontmatter、
+  标签/双链与 Markdown 正文；IM = 频道/私聊语境、日期与 thread 缩进；email =
+  thread 抬头、收发件人、附件与逐封正文。
+- **编译校样**保留 intake plan、结构地图（section 树）、归一化 blocks
+  （mono 块号 + serif 正文）和 span 高亮落点。
+
+四种来源共享同一套纸/灯箱 tokens，不以四套颜色区分；差异来自信息结构。
+交互：`focusSource` 落点滚动 + 高亮；任一阅读层的 block 编号都可执行 locator
+fetch 精确段。状态：空库 → EmptyState 指向 ingest；旧 source 缺少新增展示元信息
+时按 blocks 渐进降级，不猜 provider 字段。
 
 ### ingest 导入
 两步：编辑（标题 + TextArea / FilePicker + archetype Select + source_class
@@ -299,10 +309,10 @@ deep → SSE 逐步 trail（工具调用时间线）+ 答案。token_usage 以 m
 briefing 构建（query/来源多选/字符预算 NumberField）→ 连续问答线程（serif
 问答对 + 引用脚注 + 逐轮 token_usage）。引用点击 → SourceSpanSheet。
 
-### context_stream 提示
-双链路面板：SSE 一次性（转录窗口编辑 + focus/kind Select + min_confidence
+### Live Context 即时上下文
+双链路面板：SSE 一次性（工作流窗口编辑 + focus/kind Select + min_confidence
 Slider + 评估 → 存活卡片 + GateLedger 门禁账）；WS 长连接（连接态、config、
-turn 追加、flush、want_more 展开 cue_detail）。卡片：标题 + serif 正文 +
+turn 追加、flush、want_more 展开 suggestion_detail）。卡片：标题 + serif 正文 +
 trigger + confidence（数字，非仪表）+ 引用。门禁被吃掉的内容只在
 GateLedger 计数中呈现——门禁的严肃性靠"消失"表达。
 

@@ -21,15 +21,15 @@ calls. Which shape a consumer needs:
 - list of ONE tool call, ``name`` = a **pydantic class name** → a structured-output call
   (``model.with_structured_output(Model)``). langchain implements that over tool calling,
   and it matches the returned call by the schema's class name, so ``name`` must equal the
-  class EXACTLY (``"CueBatch"``, not ``"cue_batch"``); a mismatch is a hard failure, not a
+  class EXACTLY (``"SuggestionBatch"``, not ``"suggestion_batch"``); a mismatch is a hard failure, not a
   parse-to-None. This works because `bind_tools` is overridden below, which is what gets
-  past `BaseChatModel`'s NotImplementedError guard. The AI cue path uses this shape.
+  past `BaseChatModel`'s NotImplementedError guard. The AI suggestion path uses this shape.
 - dict with ``content`` → a plain text answer (M4 fast/deep selector, deep verification
-  verdict, briefing-ask final answer, the cue ``want_more`` expansion).
+  verdict, briefing-ask final answer, the suggestion ``want_more`` expansion).
 
 After the last scripted turn the model returns a plain ``"done"`` message — which under
 ``with_structured_output(..., include_raw=True)`` arrives as ``parsed=None``, i.e. an
-exhausted script degrades a cue evaluation to silence rather than to an error.
+exhausted script degrades a suggestion evaluation to silence rather than to an error.
 
 Cursor advances across invocations, so one script drives one flow.
 """

@@ -19,7 +19,7 @@ related_targets: ["apps/web/src/index.css","apps/web/src/styles/tokens.css","app
 
 1. **System map:** understand authority, rebuildability, stores, and compile boundaries.
 2. **Replay demo:** restore the deterministic OPC dataset and watch the active route.
-3. **Run an experiment:** import a material, run recall, or evaluate a context cue from a station sheet.
+3. **Run an experiment:** import a material, run recall, or evaluate a context suggestion from a station sheet.
 4. **Verify provenance:** trace one answer or claim back to source and forward to Git history.
 5. **Explore internals:** branch into sources, indexes, canonical documents, graph, history, and strategy evolution only when needed.
 

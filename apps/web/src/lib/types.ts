@@ -285,8 +285,8 @@ export type ViewName =
   | "recall"
   // M4 briefing Q&A panel
   | "ask"
-  // AI cue bench — context_stream 主动提词（SSE 一次性 / WS 长连接双链路）
-  | "context_stream"
+  // Live Context：实时接收工作流片段并融合可引用知识（SSE / WS 双链路）
+  | "live_context"
   // canonical/derived views (light up once the user has compiled canonical)
   | "library"
   | "process"

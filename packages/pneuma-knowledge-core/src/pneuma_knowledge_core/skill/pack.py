@@ -285,7 +285,7 @@ async def derive_pack(
 ) -> SchemaPack | None:
     """One-shot LLM inference: occupation/bio/interests → at most one derived SchemaPack.
 
-    Conservative and fail-soft (mirrors recall/cue.py's include_raw parsing):
+    Conservative and fail-soft (mirrors recall/suggestion.py's include_raw parsing):
     - a `source == "mock"` synthetic picture is never derived from → None;
     - a parse failure / non-schema / LLM error → None (degrade, never raise);
     - more than `_MAX_DERIVED_TEMPLATES` templates → None (over-budget = untrusted);

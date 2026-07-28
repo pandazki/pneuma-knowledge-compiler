@@ -1,12 +1,12 @@
 /**
- * Preset transcripts for the AI-cue bench, so the project owner can click instead of
+ * Preset workstreams for the Live Context bench, so the project owner can click instead of
  * type. The synthetic conversations model a solo developer preparing an open-source
  * release. Two carry an explicit expectation; the third exists because silence is the
  * feature's steady state and a bench that only shows firing cases is misleading.
  *
  * `expect` is a note to the human reading the page, not a contract — whether a card
  * actually fires depends on what the selected user's knowledge base contains. A preset
- * against an empty KB is correctly silent: the citation gate drops any cue that cannot
+ * against an empty KB is correctly silent: the citation gate drops any suggestion that cannot
  * point at a real source.
  */
 
@@ -16,7 +16,7 @@ export interface PresetTurn {
   role: "owner" | "other";
 }
 
-export interface CuePreset {
+export interface LiveContextPreset {
   key: string;
   label: string;
   /** what this scenario is meant to probe, in one line */
@@ -26,7 +26,7 @@ export interface CuePreset {
   turns: PresetTurn[];
 }
 
-export const CUE_PRESETS: CuePreset[] = [
+export const LIVE_CONTEXT_PRESETS: LiveContextPreset[] = [
   {
     key: "release-license",
     label: "开源许可",
@@ -76,7 +76,7 @@ export const CUE_PRESETS: CuePreset[] = [
   {
     key: "smalltalk",
     label: "闲聊（对照组）",
-    summary: "没有任何值得提词的内容——四道闸门应当把一切挡掉",
+    summary: "没有任何值得补充的上下文——四道闸门应当把一切挡掉",
     expect: "期望 0 张卡：沉默是正常工作状态，不是故障",
     turns: [
       { speaker: "朋友", role: "other", text: "今天风挺大，出门走一圈比坐着舒服。" },

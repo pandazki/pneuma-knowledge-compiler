@@ -1,7 +1,7 @@
-"""The AI-cue WebSocket session policy — a pure, clock-injected state machine.
+"""The Live Context WebSocket session policy — a pure, clock-injected state machine.
 
-Everything a long-lived cue connection decides lives here: what the sliding window
-currently holds, whether an evaluation is allowed to start, which cues survive the
+Everything a long-lived suggestion connection decides lives here: what the sliding window
+currently holds, whether an evaluation is allowed to start, which suggestions survive the
 session's own dedup, and how a reconnect restores all of it. Nothing here awaits, opens a
 socket, or reads a clock — `now` is a parameter on every method that needs one.
 
@@ -41,10 +41,10 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any
 
-from pneuma_knowledge_core.domain.cue import CueFocus, focus_option
+from pneuma_knowledge_core.domain.suggestion import ContextFocus, focus_option
 from pneuma_knowledge_core.domain.source import ConversationTurn
-from pneuma_knowledge_core.recall.cue import (
-    DEFAULT_MAX_CUES,
+from pneuma_knowledge_core.recall.suggestion import (
+    DEFAULT_MAX_SUGGESTIONS,
     DEFAULT_MIN_CONFIDENCE,
     DEFAULT_TURN_WINDOW,
 )
@@ -62,16 +62,16 @@ SHOWN_MEMORY = 40
 
 
 @dataclass(frozen=True)
-class CuePolicy:
+class LiveContextPolicy:
     """The tunable half of a session. Every field is live-adjustable via `config`.
 
     `min_confidence` in particular is re-adjustable at zero cost mid-conversation: the
-    model always scores each cue, so raising or lowering the bar changes which cards pass
+    model always scores each suggestion, so raising or lowering the bar changes which cards pass
     the gate without re-running any retrieval or any LLM call."""
 
-    focus: CueFocus = "general"
+    focus: ContextFocus = "general"
     min_confidence: int = DEFAULT_MIN_CONFIDENCE
-    max_cues: int = DEFAULT_MAX_CUES
+    max_suggestions: int = DEFAULT_MAX_SUGGESTIONS
     turn_window: int = DEFAULT_TURN_WINDOW
     quiet_period: float = DEFAULT_QUIET_PERIOD
     # When set, evaluations run in briefing scope over this stored briefing (zero
@@ -89,9 +89,9 @@ class EvaluationPlan:
 
     seq: int
     turns: tuple[ConversationTurn, ...]
-    focus: CueFocus
+    focus: ContextFocus
     min_confidence: int
-    max_cues: int
+    max_suggestions: int
     turn_window: int
     briefing_id: str | None
     already_shown: tuple[dict[str, str], ...]
@@ -101,7 +101,7 @@ class EvaluationPlan:
 def _shown_entry(item: Any) -> dict[str, str] | None:
     """`{kind, title}` for one already-shown card, or None when it has no title.
 
-    Accepts a `ResolvedCue`, a `Cue`, or a plain mapping (a reconnecting client replays
+    Accepts a `ResolvedSuggestion`, a `ContextSuggestion`, or a plain mapping (a reconnecting client replays
     JSON it has been holding). Nothing else off the card is kept: `body` may still carry
     `[cite: sNN]` handles from an evaluation whose alias epoch is long gone, and a handle
     that outlived its evaluation points at a different source."""
@@ -116,11 +116,11 @@ def _shown_entry(item: Any) -> dict[str, str] | None:
     return {"kind": kind, "title": title}
 
 
-class CueSession:
+class LiveContextSession:
     """One WebSocket connection's policy state. Pure: no clock, no I/O, no awaits."""
 
-    def __init__(self, policy: CuePolicy | None = None) -> None:
-        self.policy = policy or CuePolicy()
+    def __init__(self, policy: LiveContextPolicy | None = None) -> None:
+        self.policy = policy or LiveContextPolicy()
         focus_option(self.policy.focus)  # closed vocabulary; unknown raises, never defaults
         self._turns: deque[ConversationTurn] = deque(maxlen=max(1, self.policy.turn_window))
         self._shown: OrderedDict[tuple[str, str], dict[str, str]] = OrderedDict()
@@ -140,13 +140,13 @@ class CueSession:
         *,
         focus: str | None = None,
         min_confidence: int | None = None,
-        max_cues: int | None = None,
+        max_suggestions: int | None = None,
         turn_window: int | None = None,
         quiet_period: float | None = None,
         briefing_id: str | None = None,
         turns: Sequence[ConversationTurn] | None = None,
         already_shown: Sequence[Any] | None = None,
-    ) -> CuePolicy:
+    ) -> LiveContextPolicy:
         """Apply a `config` message. Every argument is optional; None means "unchanged".
 
         `turns` and `already_shown` are the reconnect path: a client that lost its socket
@@ -162,8 +162,8 @@ class CueSession:
             changes["focus"] = focus
         if min_confidence is not None:
             changes["min_confidence"] = int(min_confidence)
-        if max_cues is not None:
-            changes["max_cues"] = int(max_cues)
+        if max_suggestions is not None:
+            changes["max_suggestions"] = int(max_suggestions)
         if turn_window is not None:
             changes["turn_window"] = max(1, int(turn_window))
         if quiet_period is not None:
@@ -249,15 +249,15 @@ class CueSession:
             turns=tuple(self._turns),
             focus=self.policy.focus,
             min_confidence=self.policy.min_confidence,
-            max_cues=self.policy.max_cues,
+            max_suggestions=self.policy.max_suggestions,
             turn_window=self.policy.turn_window,
             briefing_id=self.policy.briefing_id,
             already_shown=self.already_shown,
             started_at=now,
         )
 
-    def complete(self, seq: int, cues: Sequence[Any], *, now: float) -> list[Any]:
-        """Finish evaluation `seq`; return the cues that survive the session dedup.
+    def complete(self, seq: int, suggestions: Sequence[Any], *, now: float) -> list[Any]:
+        """Finish evaluation `seq`; return the suggestions that survive the session dedup.
 
         Anything but the in-flight seq is a stale result and is discarded whole — with
         single-in-flight it should not arise, but a result that outlived its evaluation
@@ -267,15 +267,15 @@ class CueSession:
         self._in_flight = None
         self._last_end = now
         kept = []
-        for cue in cues:
-            entry = _shown_entry(cue)
+        for suggestion in suggestions:
+            entry = _shown_entry(suggestion)
             if entry is None:
                 continue
             key = (entry["kind"], entry["title"])
             if key in self._shown:
                 continue
             self._remember(entry)
-            kept.append(cue)
+            kept.append(suggestion)
         return kept
 
     def abandon(self, seq: int, *, now: float) -> None:

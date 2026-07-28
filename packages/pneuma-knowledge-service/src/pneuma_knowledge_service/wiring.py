@@ -63,7 +63,7 @@ async def full_l2_chunks(ctx: "AppContext", source_id, blocks, structure, user_i
     # NOT because scripted models cannot do structured output: `ScriptedChatModel`
     # overrides `bind_tools` (adapters/scripted_model.py), which sidesteps
     # `BaseChatModel`'s NotImplementedError guard, so `with_structured_output` works fine
-    # over it — the AI cue path depends on exactly that. The reason is narrower: a fixed
+    # over it — the AI suggestion path depends on exactly that. The reason is narrower: a fixed
     # replay script cannot know where the boundaries in an arbitrary document are, so
     # scripted semantic chunking would emit segments unrelated to the input.
     semantic = (
@@ -162,19 +162,19 @@ _ROLE_FIELDS = {
     "recall": "llm_model_recall",  # fast recall + briefing ask
     "deep": "llm_model_deep",
     "skill": "llm_model_skill",
-    "cue": "llm_model_cue",  # context_stream AI cue + its want_more expansion
+    "live_context": "llm_model_live_context",  # evaluation + its want_more expansion
     "evolve": "llm_model_evolve",  # schema evolve (propose + reorganize)
 }
 
 # A role whose own field is empty may borrow ANOTHER role's field before falling all the
-# way back to settings.llm_model. Only `cue` → `recall` today: both are single-shot and
-# latency-shaped, so pointing recall at a fast model should route cue there too without a
+# way back to settings.llm_model. Only `live_context` → `recall` today: both are single-shot and
+# latency-shaped, so pointing recall at a fast model should route Live Context there too without a
 # second env var. Deliberately one hop, no chains — a routing table you have to trace is
 # how "which model actually ran?" becomes unanswerable.
 # `evolve` borrows `compile`'s model when its own field is empty: schema evolve is the same
 # heavy write-side reasoning as a compile (whole-KB reorganization), so a deployment that
 # already pointed compile at a strong model should not have to name it twice. One hop.
-_ROLE_FALLBACK = {"cue": "recall", "evolve": "compile"}
+_ROLE_FALLBACK = {"live_context": "recall", "evolve": "compile"}
 
 
 def resolve_model_name(settings: Settings, role: str = "default") -> str:

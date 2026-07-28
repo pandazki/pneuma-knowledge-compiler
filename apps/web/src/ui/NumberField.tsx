@@ -101,7 +101,7 @@ export function NumberField({
               stepBy(-1);
             }
           }}
-          className="h-full min-w-0 flex-1 px-3 text-14 text-ink tabular-nums"
+          className="h-full min-w-0 flex-1 px-3 text-14 text-ink tabular-nums focus-visible:outline-none"
           {...rest}
         />
         <div className="flex shrink-0 items-center border-l border-line">

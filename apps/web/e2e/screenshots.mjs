@@ -196,11 +196,11 @@ async function j06Ask() {
   await context.close();
 }
 
-async function j07Cue() {
+async function j07ContextSuggestion() {
   const { context, page } = await newPage({ theme: "light" });
-  await go(page, "/context_stream");
+  await go(page, "/live_context");
   await page.waitForTimeout(400);
-  await shot(page, "07-cue-initial.png");
+  await shot(page, "07-live-context-initial.png");
 
   // 两轮转录：本人同步 Atlas 发布进度，协作者追问门禁。
   await page.getByRole("button", { name: "追加一轮" }).click();
@@ -241,7 +241,7 @@ async function j07Cue() {
   // 存活卡片 + GateLedger 门禁账在首屏以下，滚过去再截
   await page.getByLabel("门禁计数").first().scrollIntoViewIfNeeded();
   await page.waitForTimeout(400);
-  await shot(page, "07-cue-gated.png");
+  await shot(page, "07-live-context-gated.png");
   await context.close();
 }
 
@@ -340,7 +340,7 @@ async function main() {
     "04": ["04-process", j04Process],
     "05": ["05-recall", j05Recall],
     "06": ["06-ask", j06Ask],
-    "07": ["07-cue", j07Cue],
+    "07": ["07-live-context", j07ContextSuggestion],
     "08": ["08-library", j08Library],
     "09": ["09-graph", j09Graph],
     "10": ["10-history", j10History],

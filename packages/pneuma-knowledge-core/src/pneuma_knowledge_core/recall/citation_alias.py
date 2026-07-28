@@ -103,7 +103,7 @@ def strip_citations(text: str) -> str:
     """Remove every `[cite: …]` marker, tidying the whitespace it leaves behind.
 
     For surfaces that carry provenance as a STRUCTURED field rather than inline markup
-    (the cue card: `citations` alongside a clean `body`). Doing this server-side is also
+    (the suggestion card: `citations` alongside a clean `body`). Doing this server-side is also
     what keeps a query-local `sNN` handle from ever escaping its evaluation."""
     out = _CITE_BRACKET_RE.sub("", text)
     out = re.sub(r"[ \t]{2,}", " ", out)

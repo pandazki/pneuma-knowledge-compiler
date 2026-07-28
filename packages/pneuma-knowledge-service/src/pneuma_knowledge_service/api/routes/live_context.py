@@ -1,20 +1,20 @@
-"""ContextStream AI cue — the two client-facing shapes plus the vocabulary endpoint.
+"""Live Context — two client-facing transports plus the vocabulary endpoint.
 
-**Shape A, `POST /context_stream/cue/stream`** — one-shot SSE. The client posts a whole
-transcript window, the server emits one `event: cue` per surviving card and then
+**Shape A, `POST /live-context/stream`** — one-shot SSE. The client posts a whole
+transcript window, the server emits one `event: suggestion` per surviving card and then
 `event: done`. No session, no dedup, no throttling: that is the point of it. Built for
 evals, for debugging, and for any client that is not a pair of context clients.
 
-**Shape B, `WS /context_stream/cue/ws`** — the long-lived connection the context clients use. The
+**Shape B, `WS /live-context/ws`** — the long-lived connection used by passive clients. The
 client pushes turns; the server holds the sliding window, the quiet period and the
-in-connection dedup. All of that policy lives in `context_stream/session.py` as a pure
+in-connection dedup. All of that policy lives in `live_context/session.py` as a pure
 clock-injected state machine — this module is the transport that feeds it.
 
 Wire protocol (JSON text frames both directions):
 
     client → server
       {"type": "config", "focus": "general"|"owner"|"other", "min_confidence": 1-10,
-       "max_cues": int, "turn_window": int, "quiet_period": float,
+       "max_suggestions": int, "turn_window": int, "quiet_period": float,
        "briefing_id": str|"", "turns": [Turn], "already_shown": [{kind, title}],
        "stats": bool}
           Every field optional; absent means unchanged. `turns` + `already_shown` are
@@ -22,37 +22,37 @@ Wire protocol (JSON text frames both directions):
       {"type": "turn", "speaker": str, "text": str,
        "role": "owner"|"other"|"unknown", "speaker_id": str|null, "at": iso8601|null}
       {"type": "flush"}                     — evaluate now, skipping the quiet period
-      {"type": "want_more", "cue": Cue, "ref": str|null}
+      {"type": "want_more", "suggestion": ContextSuggestion, "ref": str|null}
           The client hands a card it received back. `ref` is the client's own
-          correlation id, echoed on both `cue_detail` and `error` — without it a
+          correlation id, echoed on both `suggestion_detail` and `error` — without it a
           failed expansion names no request and the client cannot tell which card
           it belonged to.
       {"type": "ping"}                      — ignored; a client-side keepalive
 
     server → client
-      {"type": "ready", "focus": ..., "min_confidence": ..., "max_cues": ...,
+      {"type": "ready", "focus": ..., "min_confidence": ..., "max_suggestions": ...,
        "turn_window": ..., "quiet_period": ..., "briefing_id": ..., "stats": bool}
           On accept, and again after every `config`, echoing the EFFECTIVE policy.
       {"type": "stats", "seq": int, "focus": str, "delivered": int,
        "dropped": {...}, "token_usage": {...}}
           OFF unless the client sets `stats: true` in `config`. When on: one per
           evaluation, INCLUDING the ones that produced nothing — an evaluation with
-          zero survivors emits no `cue` frame at all, and that is exactly when the
+          zero survivors emits no `suggestion` frame at all, and that is exactly when the
           gate counters are worth having. Off by default because a quiet connection
           has to stay actually quiet: that is the property the context clients rely on.
-      {"type": "cue", "seq": int, "cue": {kind, title, body, trigger, confidence,
+      {"type": "suggestion", "seq": int, "suggestion": {kind, title, body, trigger, confidence,
        citations: [{source_id, block_start, block_end}]}}
-      {"type": "cue_detail", "ref": ..., "title": ..., "detail": ..., "citations": [...],
+      {"type": "suggestion_detail", "ref": ..., "title": ..., "detail": ..., "citations": [...],
        "token_usage": {...}}
       {"type": "error", "detail": str, "ref": str|null}
           Never fatal; the connection stays open. `ref` is present when the failure
           belongs to a specific `want_more`.
       {"type": "ping"}                      — ~30s server keepalive
 
-The server pings because SILENCE IS THIS FEATURE'S STEADY STATE: a connection with
-nothing worth cueing is working correctly, and Cloudflare would drop it at ~100s idle.
+The server pings because SILENCE IS THIS FEATURE'S STEADY STATE: a connection with no
+relevant context is working correctly, and Cloudflare would drop it at ~100s idle.
 Sending is its own task behind a bounded drop-oldest queue — a slow client must never be
-able to stall an evaluation, and a cue that has aged out on the way to the lens is worth
+able to stall an evaluation, and a suggestion that has aged out before delivery is worth
 less than the one behind it.
 """
 
@@ -63,17 +63,17 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
-from pneuma_knowledge_core.domain.cue import (
-    CUE_FOCUSES,
-    CUE_KINDS,
-    CueFocusOption,
-    CueKindOption,
+from pneuma_knowledge_core.domain.suggestion import (
+    CONTEXT_FOCUSES,
+    SUGGESTION_KINDS,
+    ContextFocusOption,
+    SuggestionKindOption,
     focus_option,
 )
 from pneuma_knowledge_core.domain.ids import UserId
 from pneuma_knowledge_core.domain.source import ConversationTurn
-from pneuma_knowledge_core.recall.cue import (
-    DEFAULT_MAX_CUES,
+from pneuma_knowledge_core.recall.suggestion import (
+    DEFAULT_MAX_SUGGESTIONS,
     DEFAULT_MIN_CONFIDENCE,
     DEFAULT_TURN_WINDOW,
 )
@@ -81,8 +81,8 @@ from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisco
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from ...context_stream.engine import expand_cue, load_briefing_pack, run_evaluation
-from ...context_stream.session import CueSession, EvaluationPlan
+from ...live_context.engine import expand_suggestion, load_briefing_pack, run_evaluation
+from ...live_context.session import LiveContextSession, EvaluationPlan
 from .v1 import _render_profile
 
 # Own routers, mounted alongside v1's in `create_app`. Same prefixes, so the owner-scoped
@@ -104,7 +104,7 @@ def put_drop_oldest(queue: asyncio.Queue, item: Any) -> bool:
     Synchronous and non-blocking on purpose: this is called from the evaluation path, and
     an `await queue.put()` there would let a client that has stopped reading apply
     backpressure all the way up into the LLM call. Dropping is the correct failure: an
-    old cue on a lens whose conversation moved on is worse than no cue."""
+    stale suggestion after the workstream moved on is worse than no suggestion."""
     dropped = False
     while queue.full():
         try:
@@ -136,11 +136,11 @@ class TurnIn(BaseModel):
         )
 
 
-class CueStreamIn(BaseModel):
+class LiveContextStreamIn(BaseModel):
     turns: list[TurnIn] = []
     focus: str = "general"
     min_confidence: int = DEFAULT_MIN_CONFIDENCE
-    max_cues: int = DEFAULT_MAX_CUES
+    max_suggestions: int = DEFAULT_MAX_SUGGESTIONS
     turn_window: int = DEFAULT_TURN_WINDOW
     # Briefing scope: evaluate against this stored briefing's frozen pack (zero retrieval).
     briefing_id: str | None = None
@@ -148,22 +148,22 @@ class CueStreamIn(BaseModel):
     as_of: str | None = None
 
 
-def _cue_out(cue: Any) -> dict[str, Any]:
+def _suggestion_out(suggestion: Any) -> dict[str, Any]:
     """One card on the wire. `sNN` handles are already gone — core resolved and stripped
     them before this point, and a handle is only meaningful inside its own evaluation."""
     return {
-        "kind": cue.kind,
-        "title": cue.title,
-        "body": cue.body,
-        "trigger": cue.trigger,
-        "confidence": cue.confidence,
+        "kind": suggestion.kind,
+        "title": suggestion.title,
+        "body": suggestion.body,
+        "trigger": suggestion.trigger,
+        "confidence": suggestion.confidence,
         "citations": [
             {
                 "source_id": str(c.source_id),
                 "block_start": c.block_start,
                 "block_end": c.block_end,
             }
-            for c in cue.citations
+            for c in suggestion.citations
         ],
     }
 
@@ -171,31 +171,31 @@ def _cue_out(cue: Any) -> dict[str, Any]:
 # ------------------------------------------------------------------- the vocabularies
 
 
-@root_router.get("/cue/focuses", response_model=list[CueFocusOption])
-async def list_cue_focuses() -> list[CueFocusOption]:
-    """The cue focus registry — core is the single source of truth and the UI fetches it
+@root_router.get("/live-context/focuses", response_model=list[ContextFocusOption])
+async def list_context_focuses() -> list[ContextFocusOption]:
+    """The suggestion focus registry — core is the single source of truth and the UI fetches it
     rather than inlining a copy (same discipline as `GET /v1/intake/archetypes`)."""
-    return CUE_FOCUSES
+    return CONTEXT_FOCUSES
 
 
-@root_router.get("/cue/kinds", response_model=list[CueKindOption])
-async def list_cue_kinds() -> list[CueKindOption]:
-    """The cue kind registry. Served for the same reason as the focuses: the client
+@root_router.get("/live-context/kinds", response_model=list[SuggestionKindOption])
+async def list_suggestion_kinds() -> list[SuggestionKindOption]:
+    """The suggestion kind registry. Served for the same reason as the focuses: the client
     renders `concept` and `fact` differently, so it needs the closed set, and a private
     copy in the frontend is a third place for it to drift."""
-    return CUE_KINDS
+    return SUGGESTION_KINDS
 
 
 # ------------------------------------------------------------------ shape A: one-shot
 
 
-def _plan_from(body: CueStreamIn) -> EvaluationPlan:
+def _plan_from(body: LiveContextStreamIn) -> EvaluationPlan:
     return EvaluationPlan(
         seq=0,
         turns=tuple(t.to_turn() for t in body.turns),
         focus=body.focus,  # type: ignore[arg-type]
         min_confidence=body.min_confidence,
-        max_cues=body.max_cues,
+        max_suggestions=body.max_suggestions,
         turn_window=body.turn_window,
         briefing_id=body.briefing_id,
         already_shown=tuple(body.already_shown),
@@ -203,9 +203,9 @@ def _plan_from(body: CueStreamIn) -> EvaluationPlan:
     )
 
 
-@router.post("/context_stream/cue/stream")
-async def context_stream_cue_stream(
-    user_id: str, body: CueStreamIn, request: Request
+@router.post("/live-context/stream")
+async def live_context_stream(
+    user_id: str, body: LiveContextStreamIn, request: Request
 ) -> StreamingResponse:
     """One evaluation over a posted transcript window, streamed as SSE.
 
@@ -239,14 +239,14 @@ async def context_stream_cue_stream(
                 pack=pack,
                 as_of=as_of,
             )
-            for cue in result.cues:
-                events.put_nowait(("cue", _cue_out(cue)))
+            for suggestion in result.suggestions:
+                events.put_nowait(("suggestion", _suggestion_out(suggestion)))
             events.put_nowait(
                 (
                     "done",
                     {
                         "focus": plan.focus,
-                        "count": len(result.cues),
+                        "count": len(result.suggestions),
                         "dropped": result.dropped,
                         "token_usage": result.token_usage,
                         "as_of": as_of.isoformat(),
@@ -279,13 +279,13 @@ async def context_stream_cue_stream(
 # --------------------------------------------------------------- shape B: the socket
 
 
-@router.websocket("/context_stream/cue/ws")
-async def context_stream_cue_ws(websocket: WebSocket, user_id: str) -> None:
+@router.websocket("/live-context/ws")
+async def live_context_ws(websocket: WebSocket, user_id: str) -> None:
     """The long-lived listening connection. See the module docstring for the protocol."""
     await websocket.accept()
     ctx = websocket.app.state.ctx
     loop = asyncio.get_running_loop()
-    session = CueSession()
+    session = LiveContextSession()
     outbound: asyncio.Queue = asyncio.Queue(maxsize=OUTBOUND_LIMIT)
     # Set whenever something might have made an evaluation due. The runner waits on this
     # instead of polling, so an idle connection costs one suspended task and no wakeups.
@@ -309,7 +309,7 @@ async def context_stream_cue_ws(websocket: WebSocket, user_id: str) -> None:
             "type": "ready",
             "focus": p.focus,
             "min_confidence": p.min_confidence,
-            "max_cues": p.max_cues,
+            "max_suggestions": p.max_suggestions,
             "turn_window": p.turn_window,
             "quiet_period": p.quiet_period,
             "briefing_id": p.briefing_id,
@@ -341,18 +341,18 @@ async def context_stream_cue_ws(websocket: WebSocket, user_id: str) -> None:
             pack=pack,
         )
         # The session dedup runs on the RESULT, layered over core's within-evaluation one.
-        delivered = session.complete(plan.seq, result.cues, now=loop.time())
-        for cue in delivered:
-            emit({"type": "cue", "seq": plan.seq, "cue": _cue_out(cue)})
-        # Its own frame rather than a field on `cue`: the evaluation that produced ZERO
-        # cards emits no `cue` frame at all, and that is precisely the one you need the
+        delivered = session.complete(plan.seq, result.suggestions, now=loop.time())
+        for suggestion in delivered:
+            emit({"type": "suggestion", "seq": plan.seq, "suggestion": _suggestion_out(suggestion)})
+        # Its own frame rather than a field on `suggestion`: the evaluation that produced ZERO
+        # cards emits no `suggestion` frame at all, and that is precisely the one you need the
         # gate counters for — "why did nothing fire" is the question this socket gets
         # asked most, because silence is the steady state.
         #
         # OFF by default, and that default is load-bearing. Emitting telemetry every
         # evaluation would mean a quiet connection is never actually quiet, which breaks
         # the property the context clients rely on (and which `test_silence_produces_no_frames`
-        # guards). Debug surfaces opt in; the lens never pays for them.
+        # guards). Debug surfaces opt in; passive clients need not pay for them.
         if send_stats[0]:
             emit(
                 {
@@ -392,7 +392,7 @@ async def context_stream_cue_ws(websocket: WebSocket, user_id: str) -> None:
             # Turns that landed mid-evaluation set `dirty`; re-check now that we are idle.
             wake.set()
 
-    async def want_more(cue: dict[str, Any], ref: str | None) -> None:
+    async def want_more(suggestion: dict[str, Any], ref: str | None) -> None:
         """`ref` is the client's own correlation id, echoed back on BOTH outcomes.
 
         Without it a client has no way to tell which expansion failed — the error frame
@@ -401,13 +401,13 @@ async def context_stream_cue_ws(websocket: WebSocket, user_id: str) -> None:
         work because title is also the dedup key, which makes it fragile by coincidence
         rather than by design."""
         try:
-            detail = await expand_cue(ctx, user_id, cue)
+            detail = await expand_suggestion(ctx, user_id, suggestion)
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001
             emit({"type": "error", "detail": str(exc), "ref": ref})
             return
-        emit({"type": "cue_detail", "ref": ref, **detail})
+        emit({"type": "suggestion_detail", "ref": ref, **detail})
 
     def spawn(coro) -> None:
         task = asyncio.create_task(coro)
@@ -433,7 +433,7 @@ async def context_stream_cue_ws(websocket: WebSocket, user_id: str) -> None:
                     session.configure(
                         focus=msg.get("focus"),
                         min_confidence=msg.get("min_confidence"),
-                        max_cues=msg.get("max_cues"),
+                        max_suggestions=msg.get("max_suggestions"),
                         turn_window=msg.get("turn_window"),
                         quiet_period=msg.get("quiet_period"),
                         briefing_id=msg.get("briefing_id"),
@@ -456,11 +456,11 @@ async def context_stream_cue_ws(websocket: WebSocket, user_id: str) -> None:
                     session.flush()
                     wake.set()
                 elif kind == "want_more":
-                    cue = msg.get("cue")
-                    if not isinstance(cue, dict):
-                        raise ValueError("want_more requires a `cue` object")
+                    suggestion = msg.get("suggestion")
+                    if not isinstance(suggestion, dict):
+                        raise ValueError("want_more requires a `suggestion` object")
                     ref = msg.get("ref")
-                    spawn(want_more(cue, str(ref) if ref is not None else None))
+                    spawn(want_more(suggestion, str(ref) if ref is not None else None))
                 elif kind in ("ping", "pong"):
                     pass
                 else:

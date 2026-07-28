@@ -80,7 +80,7 @@ async def rag_recall(
 
     `query_embedding` lets a caller that already holds the vector supply it instead of
     paying another round trip. It defaults to None = embed here, so every existing caller
-    is behaviorally untouched. The lever exists for fan-out callers (cue evaluates N
+    is behaviorally untouched. The lever exists for fan-out callers (suggestion evaluates N
     transcript turns per round and batches all N through one `aembed_documents`)."""
     lexical_hits = await lexical.search(user_id, query, limit=limit)
     if query_embedding is None:

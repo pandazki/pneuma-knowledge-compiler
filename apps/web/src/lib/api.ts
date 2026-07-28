@@ -59,6 +59,7 @@ export interface IntakePlan {
 export interface SourceSummary {
   source_id: string;
   kind: string;
+  origin: string;
   source_class: string;
   title: string;
   created_at: string;
@@ -83,6 +84,7 @@ export interface SectionSpan {
 export interface SourceDetail {
   source_id: string;
   kind: string;
+  origin: string;
   source_class: string;
   title: string;
   mime: string;
@@ -110,6 +112,11 @@ export interface IngestResult {
   source_id: string;
   intake_plan: IntakePlan;
   deduplicated: boolean;
+}
+
+export interface OfficialImportResult {
+  contract_schema: string;
+  sources: IngestResult[];
 }
 
 export interface ConversationTurnInput {
@@ -216,6 +223,16 @@ export function ingestConversation(
   return req<IngestResult>(`/v1/users/${u(userId)}/sources/conversation`, {
     method: "POST",
     body: JSON.stringify(body),
+  });
+}
+
+export function importOfficialSource(
+  userId: string,
+  payload: Record<string, unknown>,
+): Promise<OfficialImportResult> {
+  return req<OfficialImportResult>(`/v1/users/${u(userId)}/sources/import`, {
+    method: "POST",
+    body: JSON.stringify(payload),
   });
 }
 
@@ -407,35 +424,35 @@ export function askBriefing(
   );
 }
 
-/* ------------------------------------------------------ context_stream AI cue (Stage 3) */
+/* --------------------------------------------------------------- Live Context (Stage 3) */
 
 /**
- * The cue focus registry. Closed vocabulary, defined once in core and served here —
+ * The suggestion focus registry. Closed vocabulary, defined once in core and served here —
  * the UI fetches it rather than inlining a copy (same discipline as
  * `getIntakeArchetypes`; architecture.md:123-124).
  */
-export interface CueFocusOption {
+export interface ContextFocusOption {
   key: string;
   label: string;
   summary: string;
 }
 
-/** The cue kind registry (`concept` / `fact`). Same single-source-of-truth rule. */
-export interface CueKindOption {
+/** The suggestion kind registry (`concept` / `fact`). Same single-source-of-truth rule. */
+export interface SuggestionKindOption {
   key: string;
   label: string;
   summary: string;
 }
 
-export function getCueFocuses(): Promise<CueFocusOption[]> {
-  return req<CueFocusOption[]>("/v1/cue/focuses");
+export function getContextFocuses(): Promise<ContextFocusOption[]> {
+  return req<ContextFocusOption[]>("/v1/live-context/focuses");
 }
 
-export function getCueKinds(): Promise<CueKindOption[]> {
-  return req<CueKindOption[]>("/v1/cue/kinds");
+export function getSuggestionKinds(): Promise<SuggestionKindOption[]> {
+  return req<SuggestionKindOption[]>("/v1/live-context/kinds");
 }
 
-export interface CueCitation {
+export interface SuggestionCitation {
   source_id: string;
   block_start: number;
   block_end: number;
@@ -449,18 +466,18 @@ export interface CueCitation {
  * software filter over an already-computed score, so a client can re-apply a different
  * threshold to cards it already holds without re-requesting anything.
  */
-export interface Cue {
+export interface ContextSuggestion {
   kind: string;
   title: string;
   body: string;
   /** the transcript fragment that set this card off — the "why did this fire" answer. */
   trigger: string;
   confidence: number;
-  citations: CueCitation[];
+  citations: SuggestionCitation[];
 }
 
-/** The four mechanical gates' kill counts for one evaluation (recall/cue.py). */
-export interface CueDropped {
+/** The four mechanical gates' kill counts for one evaluation (recall/suggestion.py). */
+export interface SuggestionDropped {
   unparsed?: number;
   repeat?: number;
   uncited?: number;
@@ -469,15 +486,15 @@ export interface CueDropped {
 }
 
 /** SSE terminal frame: what the evaluation produced and what each gate ate. */
-export interface CueDone {
+export interface LiveContextDone {
   focus: string;
   count: number;
-  dropped: CueDropped;
+  dropped: SuggestionDropped;
   token_usage: TokenUsage;
   as_of: string;
 }
 
-export interface CueTurnInput {
+export interface ContextTurnInput {
   speaker: string;
   text: string;
   role: "owner" | "other" | "unknown";
@@ -486,40 +503,40 @@ export interface CueTurnInput {
 }
 
 /** `{kind, title}` only — a body may still carry a dead alias epoch's handles. */
-export interface CueShown {
+export interface SuggestionShown {
   kind: string;
   title: string;
 }
 
-export interface CueStreamBody {
-  turns: CueTurnInput[];
+export interface LiveContextStreamBody {
+  turns: ContextTurnInput[];
   focus: string;
   min_confidence: number;
-  max_cues: number;
+  max_suggestions: number;
   turn_window: number;
   /** set ⇒ briefing scope (evaluate against the frozen pack, zero retrieval). */
   briefing_id?: string | null;
-  already_shown?: CueShown[];
+  already_shown?: SuggestionShown[];
 }
 
 /**
- * Shape A — one-shot SSE over a posted transcript window. `onCue` fires per surviving
+ * Shape A — one-shot SSE over a posted transcript window. `onSuggestion` fires per surviving
  * card, then `onDone` carries the gate counters. No session, no dedup, no throttling.
  * Mirrors `recallDeepStream`'s frame parsing.
  */
-export async function cueStream(
+export async function liveContextStream(
   userId: string,
-  body: CueStreamBody,
+  body: LiveContextStreamBody,
   handlers: {
-    onCue: (cue: Cue) => void;
-    onDone: (done: CueDone) => void;
+    onSuggestion: (suggestion: ContextSuggestion) => void;
+    onDone: (done: LiveContextDone) => void;
     onError: (message: string) => void;
   },
   signal?: AbortSignal,
 ): Promise<void> {
   let res: Response;
   try {
-    res = await fetch(`${BASE}/v1/users/${u(userId)}/context_stream/cue/stream`, {
+    res = await fetch(`${BASE}/v1/users/${u(userId)}/live-context/stream`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
@@ -557,8 +574,8 @@ export async function cueStream(
       } catch {
         continue;
       }
-      if (event === "cue") handlers.onCue(payload as Cue);
-      else if (event === "done") handlers.onDone(payload as CueDone);
+      if (event === "suggestion") handlers.onSuggestion(payload as ContextSuggestion);
+      else if (event === "done") handlers.onDone(payload as LiveContextDone);
       else if (event === "error")
         handlers.onError((payload as { detail?: string }).detail ?? "stream error");
     }
@@ -568,11 +585,11 @@ export async function cueStream(
 /* ------------------------------------------------------------ shape B: the socket */
 
 /** Effective policy, echoed on accept and after every `config`. */
-export interface CueReadyFrame {
+export interface LiveContextReadyFrame {
   type: "ready";
   focus: string;
   min_confidence: number;
-  max_cues: number;
+  max_suggestions: number;
   turn_window: number;
   quiet_period: number;
   briefing_id: string | null;
@@ -584,62 +601,62 @@ export interface CueReadyFrame {
  * Per-evaluation telemetry, the socket's answer to the SSE `done` frame.
  *
  * OFF unless the client sends `stats: true` in a `config`, and that default is the point:
- * a connection with nothing worth cueing must stay actually silent, which is the property
+ * a connection with no relevant context must stay actually silent, which is the property
  * the context clients rely on. When on it fires on EVERY evaluation including the ones that
- * delivered zero cards — the evaluation that emitted no `cue` frame at all is exactly the
+ * delivered zero cards — the evaluation that emitted no `suggestion` frame at all is exactly the
  * one whose gate counters you need.
  */
-export interface CueStatsFrame {
+export interface LiveContextStatsFrame {
   type: "stats";
   seq: number;
   focus: string;
   delivered: number;
-  dropped: CueDropped;
+  dropped: SuggestionDropped;
   token_usage: TokenUsage;
 }
 
-export interface CueDetailFrame {
-  type: "cue_detail";
+export interface SuggestionDetailFrame {
+  type: "suggestion_detail";
   /** Echo of the `ref` the client sent on `want_more`; null when it sent none. */
   ref: string | null;
   title: string;
   detail: string;
-  citations: CueCitation[];
+  citations: SuggestionCitation[];
   token_usage: TokenUsage;
 }
 
 /** `ref` is present only when the failure belongs to a specific `want_more`; a bad frame
  * or a failed evaluation carries none, and must not be attributed to any request. */
-export interface CueErrorFrame {
+export interface LiveContextErrorFrame {
   type: "error";
   detail: string;
   ref?: string | null;
 }
 
-export type CueServerFrame =
-  | CueReadyFrame
-  | CueStatsFrame
-  | { type: "cue"; seq: number; cue: Cue }
-  | CueDetailFrame
-  | CueErrorFrame
+export type LiveContextServerFrame =
+  | LiveContextReadyFrame
+  | LiveContextStatsFrame
+  | { type: "suggestion"; seq: number; suggestion: ContextSuggestion }
+  | SuggestionDetailFrame
+  | LiveContextErrorFrame
   | { type: "ping" };
 
 /** Every field optional; absent means unchanged. `briefing_id: ""` turns scope back off
  * (JSON null would mean "unchanged"), which is why this is `string`, not `string | null`. */
-export interface CueConfigMessage {
+export interface LiveContextConfigMessage {
   focus?: string;
   min_confidence?: number;
-  max_cues?: number;
+  max_suggestions?: number;
   turn_window?: number;
   quiet_period?: number;
   briefing_id?: string;
-  turns?: CueTurnInput[];
-  already_shown?: CueShown[];
-  /** Opt in to `stats` frames. A debug surface asks for them; the lens never does. */
+  turns?: ContextTurnInput[];
+  already_shown?: SuggestionShown[];
+  /** Opt in to `stats` frames. Debug surfaces ask for them; passive clients need not. */
   stats?: boolean;
 }
 
-export type CueSocketStatus = "connecting" | "open" | "closed";
+export type LiveContextSocketStatus = "connecting" | "open" | "closed";
 
 /** ws(s):// URL for an API path, honoring VITE_API_BASE (empty → same origin). */
 function wsUrl(path: string): string {
@@ -655,16 +672,16 @@ function wsUrl(path: string): string {
  * does not auto-reconnect. Reconnect is a deliberate client act, because the client is
  * the dedup authority and must replay `turns` + `already_shown` in its `config`.
  */
-export class CueSocket {
+export class LiveContextSocket {
   private ws: WebSocket;
 
   constructor(
     userId: string,
-    private readonly onFrame: (frame: CueServerFrame) => void,
-    private readonly onStatus: (status: CueSocketStatus, detail?: string) => void,
+    private readonly onFrame: (frame: LiveContextServerFrame) => void,
+    private readonly onStatus: (status: LiveContextSocketStatus, detail?: string) => void,
   ) {
     this.onStatus("connecting");
-    this.ws = new WebSocket(wsUrl(`/v1/users/${u(userId)}/context_stream/cue/ws`));
+    this.ws = new WebSocket(wsUrl(`/v1/users/${u(userId)}/live-context/ws`));
     this.ws.onopen = () => this.onStatus("open");
     this.ws.onclose = (e) =>
       this.onStatus("closed", e.reason || (e.wasClean ? "已关闭" : `code ${e.code}`));
@@ -673,7 +690,7 @@ export class CueSocket {
     this.ws.onerror = () => this.onStatus("closed", "WebSocket 连接错误");
     this.ws.onmessage = (e) => {
       try {
-        const frame = JSON.parse(e.data as string) as CueServerFrame;
+        const frame = JSON.parse(e.data as string) as LiveContextServerFrame;
         this.onFrame(frame);
       } catch {
         this.onFrame({ type: "error", detail: `无法解析服务端帧：${String(e.data).slice(0, 120)}` });
@@ -691,11 +708,11 @@ export class CueSocket {
     return true;
   }
 
-  config(patch: CueConfigMessage): boolean {
+  config(patch: LiveContextConfigMessage): boolean {
     return this.send({ type: "config", ...patch });
   }
 
-  turn(turn: CueTurnInput): boolean {
+  turn(turn: ContextTurnInput): boolean {
     return this.send({ type: "turn", ...turn });
   }
 
@@ -705,14 +722,14 @@ export class CueSocket {
   }
 
   /**
-   * Hand a received card back for expansion; the reply is a `cue_detail` frame.
+   * Hand a received card back for expansion; the reply is a `suggestion_detail` frame.
    *
-   * `ref` is the caller's own correlation id, echoed on BOTH `cue_detail` and the `error`
+   * `ref` is the caller's own correlation id, echoed on BOTH `suggestion_detail` and the `error`
    * for this request. Pass one: without it a failure names no request, and the caller is
    * left either guessing from `title` or resetting every pending expansion at once.
    */
-  wantMore(cue: Cue, ref?: string): boolean {
-    return this.send({ type: "want_more", cue, ...(ref ? { ref } : {}) });
+  wantMore(suggestion: ContextSuggestion, ref?: string): boolean {
+    return this.send({ type: "want_more", suggestion, ...(ref ? { ref } : {}) });
   }
 
   close(): void {

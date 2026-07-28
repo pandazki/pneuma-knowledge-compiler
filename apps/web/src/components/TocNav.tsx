@@ -29,7 +29,7 @@ export const TOC: TocGroup[] = [
     items: [
       { view: "recall", no: "05", label: "检索 Recall" },
       { view: "ask", no: "06", label: "问答 Ask" },
-      { view: "context_stream", no: "07", label: "提示 Cue" },
+      { view: "live_context", no: "07", label: "即时上下文 Live Context" },
     ],
   },
   {

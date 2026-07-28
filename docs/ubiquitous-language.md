@@ -15,7 +15,7 @@ This file is the terminology authority for Pneuma Knowledge Compiler.
 | Intake plan | The explicit treatment for semantic indexing and canonical compilation of a source. |
 | Recall | Evidence-backed retrieval and answering over lexical, semantic, canonical, and raw access surfaces. |
 | Briefing | A stable, reusable knowledge package for a sequence of related questions. |
-| Cue | An optional, mechanically gated insight produced from an incoming context stream without an explicit question. |
+| Live Context | A real-time feature that continuously retrieves and fuses relevant evidence from an incoming workstream, emitting zero or more mechanically gated context suggestions without requiring an explicit question. |
 | Evolve | A forward-only strategy upgrade that rebuilds derived data without rewriting canonical history. |
 | Strategy | A versioned domain policy defining relevance, privacy, document families, and compilation behavior. |
 | OPC developer | A one-person-company, AI-native personal developer who combines product, engineering, research, and operations. |

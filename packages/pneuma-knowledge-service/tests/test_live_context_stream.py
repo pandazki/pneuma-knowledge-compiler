@@ -1,4 +1,4 @@
-"""`POST /v1/users/{id}/context_stream/cue/stream` — the one-shot SSE cue endpoint.
+"""`POST /v1/users/{id}/live-context/stream` — the one-shot SSE endpoint.
 
 Tested the same way `test_recall_stream.py` tests its sibling, and for the same reason:
 **the route is invoked directly and its `body_iterator` is drained**, never driven through
@@ -8,8 +8,8 @@ everything and flushes at the end are indistinguishable — it cannot observe th
 property this endpoint has.
 
 `run_evaluation` is monkeypatched throughout. The subject is the streaming machinery —
-frame shapes, terminal events, producer cleanup — not the cue evaluation, which
-`packages/pneuma-knowledge-core/tests/test_cue.py` covers against fake ports.
+frame shapes, terminal events, producer cleanup — not the suggestion evaluation, which
+`packages/pneuma-knowledge-core/tests/test_suggestion.py` covers against fake ports.
 """
 
 from __future__ import annotations
@@ -20,19 +20,19 @@ from types import SimpleNamespace
 
 import pytest
 from pneuma_knowledge_core.domain.canonical import Citation
-from pneuma_knowledge_core.domain.cue import ResolvedCue
+from pneuma_knowledge_core.domain.suggestion import ResolvedSuggestion
 from pneuma_knowledge_core.domain.ids import SourceId
-from pneuma_knowledge_core.recall.cue import CueResult
-from pneuma_knowledge_service.api.routes import context_stream as cue_module
-from pneuma_knowledge_service.api.routes.context_stream import CueStreamIn, context_stream_cue_stream
+from pneuma_knowledge_core.recall.suggestion import LiveContextResult
+from pneuma_knowledge_service.api.routes import live_context as suggestion_module
+from pneuma_knowledge_service.api.routes.live_context import LiveContextStreamIn, live_context_stream
 from fastapi import HTTPException
 
 _TIMEOUT = 5.0
 SRC = "11111111-1111-1111-1111-111111111111"
 
 
-def resolved(title: str, confidence: int = 9) -> ResolvedCue:
-    return ResolvedCue(
+def resolved(title: str, confidence: int = 9) -> ResolvedSuggestion:
+    return ResolvedSuggestion(
         kind="concept",
         title=title,
         body="解释",
@@ -42,9 +42,9 @@ def resolved(title: str, confidence: int = 9) -> ResolvedCue:
     )
 
 
-def _result(*cues: ResolvedCue) -> CueResult:
-    return CueResult(
-        cues=tuple(cues),
+def _result(*suggestions: ResolvedSuggestion) -> LiveContextResult:
+    return LiveContextResult(
+        suggestions=tuple(suggestions),
         token_usage={"total_tokens": 21},
         dropped={"unparsed": 0, "repeat": 0, "uncited": 1, "low_confidence": 0, "capped": 0},
     )
@@ -70,8 +70,8 @@ def _frame(raw: str) -> tuple[str, dict]:
 
 
 async def _start(**kwargs):
-    body = CueStreamIn(turns=[{"text": "我们在聊 RAG", "role": "owner"}], **kwargs)
-    response = await context_stream_cue_stream("u-cue", body, _request())
+    body = LiveContextStreamIn(turns=[{"text": "我们在聊 RAG", "role": "owner"}], **kwargs)
+    response = await live_context_stream("u-suggestion", body, _request())
     assert response.media_type == "text/event-stream"
     # nginx buffers proxied responses by default; this header is what turns that off.
     assert response.headers["x-accel-buffering"] == "no"
@@ -80,7 +80,7 @@ async def _start(**kwargs):
 
 @pytest.fixture(autouse=True)
 def _patch_profile(monkeypatch):
-    monkeypatch.setattr(cue_module, "_render_profile", _no_profile)
+    monkeypatch.setattr(suggestion_module, "_render_profile", _no_profile)
 
 
 async def test_the_response_is_returned_while_the_evaluation_is_still_running(monkeypatch):
@@ -98,7 +98,7 @@ async def test_the_response_is_returned_while_the_evaluation_is_still_running(mo
         await asyncio.wait_for(released.wait(), _TIMEOUT)
         return _result(resolved("RAG"), resolved("HNSW"))
 
-    monkeypatch.setattr(cue_module, "run_evaluation", fake)
+    monkeypatch.setattr(suggestion_module, "run_evaluation", fake)
     _response, frames = await _start()
 
     await asyncio.wait_for(entered.wait(), _TIMEOUT)
@@ -108,14 +108,14 @@ async def test_the_response_is_returned_while_the_evaluation_is_still_running(mo
     # Pulled ONE AT A TIME: each `__anext__` must yield exactly one complete SSE frame
     # (enforced inside `_frame`), so cards are not batched into a single flush.
     first = _frame(await asyncio.wait_for(frames.__anext__(), _TIMEOUT))
-    assert first == ("cue", first[1])
+    assert first == ("suggestion", first[1])
     assert first[1]["title"] == "RAG"
     assert first[1]["citations"] == [
         {"source_id": SRC, "block_start": 3, "block_end": 5}
     ]
 
     rest = [_frame(chunk) async for chunk in frames]
-    assert [k for k, _ in rest] == ["cue", "done"]
+    assert [k for k, _ in rest] == ["suggestion", "done"]
     assert rest[0][1]["title"] == "HNSW"
     done = rest[-1][1]
     assert done["count"] == 2
@@ -124,13 +124,13 @@ async def test_the_response_is_returned_while_the_evaluation_is_still_running(mo
 
 
 async def test_silence_streams_a_done_event_and_nothing_else(monkeypatch):
-    """Zero cues is the steady state, not an error: the stream must terminate cleanly with
+    """Zero suggestions is the steady state, not an error: the stream must terminate cleanly with
     a `done` carrying count 0 rather than hanging or erroring."""
 
     async def fake(*_args, **_kwargs):
         return _result()
 
-    monkeypatch.setattr(cue_module, "run_evaluation", fake)
+    monkeypatch.setattr(suggestion_module, "run_evaluation", fake)
     _response, frames = await _start()
     collected = [_frame(chunk) async for chunk in frames]
     assert [k for k, _ in collected] == ["done"]
@@ -145,7 +145,7 @@ async def test_failure_surfaces_as_a_terminal_error_event(monkeypatch):
     async def boom(*_args, **_kwargs):
         raise RuntimeError("qdrant unreachable")
 
-    monkeypatch.setattr(cue_module, "run_evaluation", boom)
+    monkeypatch.setattr(suggestion_module, "run_evaluation", boom)
     _response, frames = await _start()
     collected = [_frame(chunk) async for chunk in frames]
     assert [k for k, _ in collected] == ["error"]
@@ -166,7 +166,7 @@ async def test_client_disconnect_cancels_the_producer(monkeypatch):
             raise
         return _result()  # pragma: no cover - the sleep never completes
 
-    monkeypatch.setattr(cue_module, "run_evaluation", slow)
+    monkeypatch.setattr(suggestion_module, "run_evaluation", slow)
     _response, frames = await _start()
 
     # The client is waiting on the first frame (the generator is suspended on the queue),
@@ -180,17 +180,17 @@ async def test_client_disconnect_cancels_the_producer(monkeypatch):
 
 
 async def test_an_unknown_focus_is_a_400_not_a_silent_default(monkeypatch):
-    """The vocabulary is closed. Falling back to `general` would cue under an attention
+    """The vocabulary is closed. Falling back to `general` would suggestion under an attention
     direction the caller did not ask for and never tell them."""
 
     async def never(*_args, **_kwargs):  # pragma: no cover - must not be reached
         raise AssertionError("evaluation ran despite an invalid focus")
 
-    monkeypatch.setattr(cue_module, "run_evaluation", never)
+    monkeypatch.setattr(suggestion_module, "run_evaluation", never)
     with pytest.raises(HTTPException) as exc:
         await _start(focus="everyone")
     assert exc.value.status_code == 400
-    assert "unknown cue focus" in exc.value.detail
+    assert "unknown suggestion focus" in exc.value.detail
 
 
 async def test_the_briefing_pack_is_loaded_and_passed_as_the_evidence(monkeypatch):
@@ -206,8 +206,8 @@ async def test_the_briefing_pack_is_loaded_and_passed_as_the_evidence(monkeypatc
         seen["pack"] = kwargs.get("pack")
         return _result()
 
-    monkeypatch.setattr(cue_module, "load_briefing_pack", fake_pack)
-    monkeypatch.setattr(cue_module, "run_evaluation", fake)
+    monkeypatch.setattr(suggestion_module, "load_briefing_pack", fake_pack)
+    monkeypatch.setattr(suggestion_module, "run_evaluation", fake)
     _response, frames = await _start(briefing_id="bf-7")
     [_frame(chunk) async for chunk in frames]
 

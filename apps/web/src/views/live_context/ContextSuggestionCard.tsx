@@ -1,4 +1,4 @@
-import type { Cue, CueDetailFrame } from "@/lib/api";
+import type { ContextSuggestion, SuggestionDetailFrame } from "@/lib/api";
 import { CitationList, type CitationEntry } from "@/components/CitationList";
 import { Badge } from "@/ui/Badge";
 import { Button } from "@/ui/Button";
@@ -6,9 +6,9 @@ import { Callout } from "@/ui/Callout";
 import { Mono } from "@/ui/Mono";
 import { UsageLine } from "../_shared/UsageLine";
 
-export interface CueCardProps {
-  cue: Cue;
-  /** getCueKinds 词表里的中文名（缺省显示 kind key）。 */
+export interface ContextSuggestionCardProps {
+  suggestion: ContextSuggestion;
+  /** getSuggestionKinds 词表里的中文名（缺省显示 kind key）。 */
   kindLabel?: string;
   /** 到达渠道注记，如「ws · seq 3」/「sse」。 */
   via?: string;
@@ -19,16 +19,16 @@ export interface CueCardProps {
   pending?: boolean;
   /** 本卡自己的展开失败（按 ref 归属，永不串卡）。 */
   failure?: string;
-  detail?: CueDetailFrame;
+  detail?: SuggestionDetailFrame;
   onWantMore?: () => void;
 }
 
 /**
- * 提词卡：标题 + serif 正文 + trigger 一行（「触发」）+ confidence 数字 mono +
+ * 上下文提示卡：标题 + serif 正文 + trigger 一行（「触发」）+ confidence 数字 mono +
  * 引用 CitationList。被门禁吃掉的内容不在这里出现——只在 GateLedger 计数里。
  */
-export function CueCard({
-  cue,
+export function ContextSuggestionCard({
+  suggestion,
   kindLabel,
   via,
   titles,
@@ -38,21 +38,21 @@ export function CueCard({
   failure,
   detail,
   onWantMore,
-}: CueCardProps) {
+}: ContextSuggestionCardProps) {
   return (
     <article className="border-b border-line py-4">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <span className="text-14 font-medium text-ink">{cue.title}</span>
-        <Badge>{kindLabel ?? cue.kind}</Badge>
-        <Mono className="text-12 text-ink-3">confidence {cue.confidence}</Mono>
+        <span className="text-14 font-medium text-ink">{suggestion.title}</span>
+        <Badge>{kindLabel ?? suggestion.kind}</Badge>
+        <Mono className="text-12 text-ink-3">confidence {suggestion.confidence}</Mono>
         {via && <Mono className="text-12 text-ink-3">{via}</Mono>}
       </div>
-      <p className="prose mt-2 max-w-measure text-14">{cue.body}</p>
-      <p className="mt-2 text-12 text-ink-3">触发：「{cue.trigger}」</p>
-      {cue.citations.length > 0 && (
+      <p className="prose mt-2 max-w-measure text-14">{suggestion.body}</p>
+      <p className="mt-2 text-12 text-ink-3">触发：「{suggestion.trigger}」</p>
+      {suggestion.citations.length > 0 && (
         <CitationList
           className="mt-2 max-w-measure"
-          citations={cue.citations.map((c) => ({
+          citations={suggestion.citations.map((c) => ({
             sourceId: c.source_id,
             blockStart: c.block_start,
             blockEnd: c.block_end,
@@ -82,7 +82,7 @@ export function CueCard({
       )}
       {detail && (
         <div className="mt-3 max-w-measure border-l-2 border-line-2 pl-3">
-          <p className="text-12 text-ink-3">cue_detail</p>
+          <p className="text-12 text-ink-3">suggestion_detail</p>
           <p className="prose mt-1 text-14 whitespace-pre-wrap">
             {detail.detail || "（空）"}
           </p>

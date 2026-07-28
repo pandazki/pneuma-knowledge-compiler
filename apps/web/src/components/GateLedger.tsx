@@ -1,8 +1,8 @@
-import type { CueDropped } from "@/lib/api";
+import type { SuggestionDropped } from "@/lib/api";
 import { cn } from "@/ui/cn";
 
 export interface GateLedgerProps {
-  dropped: CueDropped;
+  dropped: SuggestionDropped;
   className?: string;
 }
 
@@ -10,7 +10,7 @@ export interface GateLedgerProps {
  * 五栏：label / 中文名 / 严重度（>0 时的文字色）。
  * uncited 是引用门禁的正门，记 danger；其余记 warn。0 栏一律 ink-3。
  */
-const GATES: { key: keyof CueDropped; label: string; tone: "danger" | "warn" }[] = [
+const GATES: { key: keyof SuggestionDropped; label: string; tone: "danger" | "warn" }[] = [
   { key: "unparsed", label: "无法解析", tone: "warn" },
   { key: "repeat", label: "重复", tone: "warn" },
   { key: "uncited", label: "无引用", tone: "danger" },
@@ -19,7 +19,7 @@ const GATES: { key: keyof CueDropped; label: string; tone: "danger" | "warn" }[]
 ];
 
 /**
- * cue 门禁账：被门禁吃掉的内容不展示原文，只在这本账里留下计数。
+ * suggestion 门禁账：被门禁吃掉的内容不展示原文，只在这本账里留下计数。
  */
 export function GateLedger({ dropped, className }: GateLedgerProps) {
   return (

@@ -24,6 +24,8 @@ def test_meeting_normalizes_one_block_per_segment_with_declared_owner():
             "meeting_id": "m1",
             "title": "客户发现会议",
             "started_at": "2026-07-28T09:00:00+08:00",
+            "ended_at": "2026-07-28T09:30:00+08:00",
+            "timezone": "Asia/Shanghai",
             "owner_participant_ids": ["p1"],
             "participants": [
                 {"participant_id": "p1", "display_name": "林知远"},
@@ -52,6 +54,22 @@ def test_meeting_normalizes_one_block_per_segment_with_declared_owner():
     assert [b.text for b in source.blocks] == ["本人（林知远）：我周四发方案。", "陈澄：收到。"]
     assert source.raw.meta["meeting_id"] == "m1"
     assert source.raw.meta["segment_ids"] == ["s1", "s2"]
+    assert source.raw.meta["started_at"] == "2026-07-28T09:00:00+08:00"
+    assert source.raw.meta["ended_at"] == "2026-07-28T09:30:00+08:00"
+    assert source.raw.meta["segments"] == [
+        {
+            "segment_id": "s1",
+            "speaker_id": "p1",
+            "started_at": "2026-07-28T09:00:01+08:00",
+            "ended_at": None,
+        },
+        {
+            "segment_id": "s2",
+            "speaker_id": "p2",
+            "started_at": "2026-07-28T09:00:05+08:00",
+            "ended_at": None,
+        },
+    ]
 
 
 def test_document_library_expands_to_one_citable_source_per_note():
@@ -61,6 +79,7 @@ def test_document_library_expands_to_one_citable_source_per_note():
             "provider": "mock",
             "library_id": "v1",
             "title": "工作库",
+            "metadata": {"folder_count": 2},
             "documents": [
                 {
                     "document_id": "d1",
@@ -70,6 +89,8 @@ def test_document_library_expands_to_one_citable_source_per_note():
                     "frontmatter": {"status": "active"},
                     "tags": ["client"],
                     "links": [{"target": "Projects/Pneuma", "embedded": False}],
+                    "created_at": "2026-07-27T09:00:00+08:00",
+                    "modified_at": "2026-07-28T10:00:00+08:00",
                 },
                 {
                     "document_id": "d2",
@@ -88,6 +109,9 @@ def test_document_library_expands_to_one_citable_source_per_note():
     acme = next(s for s in result if s.raw.meta["path"] == "Clients/Acme.md")
     assert acme.raw.meta["frontmatter"] == {"status": "active"}
     assert acme.raw.meta["links"][0]["target"] == "Projects/Pneuma"
+    assert acme.raw.meta["created_at"] == "2026-07-27T09:00:00+08:00"
+    assert acme.raw.meta["modified_at"] == "2026-07-28T10:00:00+08:00"
+    assert acme.raw.meta["library_metadata"] == {"folder_count": 2}
     assert acme.blocks[0].section_path == ["决策"]
 
 
@@ -124,6 +148,30 @@ def test_im_expands_by_conversation_and_preserves_message_ids():
     assert result[0].raw.kind == "im"
     assert result[0].blocks[0].text == "陈澄：字段表发你了。"
     assert result[0].raw.meta["message_ids"] == ["1.1"]
+    assert result[0].raw.meta["users"] == [
+        {
+            "user_id": "U1",
+            "display_name": "林知远",
+            "email": None,
+            "is_bot": False,
+        },
+        {
+            "user_id": "U2",
+            "display_name": "陈澄",
+            "email": None,
+            "is_bot": False,
+        },
+    ]
+    assert result[0].raw.meta["messages"] == [
+        {
+            "message_id": "1.1",
+            "sender_id": "U2",
+            "sent_at": "2026-07-28T11:00:00+08:00",
+            "thread_id": None,
+            "edited_at": None,
+            "reactions": [],
+        }
+    ]
 
 
 def test_email_expands_by_thread_and_marks_owner_side_without_inference():
@@ -166,3 +214,31 @@ def test_email_expands_by_thread_and_marks_owner_side_without_inference():
     assert source.blocks[0].text.startswith("本人（林知远 <lin@example.dev>）")
     assert "附件：proposal.pdf" in source.blocks[0].text
     assert source.raw.meta["message_ids"] == ["<m1@example.com>"]
+    assert source.raw.meta["messages"] == [
+        {
+            "message_id": "<m1@example.com>",
+            "sent_at": "2026-07-28T12:00:00+08:00",
+            "from": {
+                "address": "lin@example.dev",
+                "display_name": "林知远",
+            },
+            "to": [
+                {
+                    "address": "client@example.com",
+                    "display_name": "陈澄",
+                }
+            ],
+            "cc": [],
+            "subject": "试点",
+            "in_reply_to": None,
+            "references": [],
+            "attachments": [
+                {
+                    "filename": "proposal.pdf",
+                    "content_type": "application/pdf",
+                    "size_bytes": 1024,
+                    "content_id": None,
+                }
+            ],
+        }
+    ]

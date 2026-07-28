@@ -34,7 +34,16 @@ TEXT_SUFFIXES = {
     ".yaml",
     ".yml",
 }
-SKIP_PARTS = {".git", ".venv", "node_modules", "dist", "__pycache__"}
+SKIP_PARTS = {
+    ".git",
+    ".impeccable",
+    ".pytest_cache",
+    ".venv",
+    "node_modules",
+    "dist",
+    "__pycache__",
+}
+SKIP_NAMES = {".env", "pnpm-lock.yaml"}
 
 
 def _private_brand_pattern() -> re.Pattern[str]:
@@ -92,7 +101,11 @@ def _private_project_residue_pattern() -> re.Pattern[str]:
 def _public_text_files() -> list[Path]:
     files: list[Path] = []
     for path in ROOT.rglob("*"):
-        if not path.is_file() or any(part in SKIP_PARTS for part in path.parts):
+        if (
+            not path.is_file()
+            or path.name in SKIP_NAMES
+            or any(part in SKIP_PARTS for part in path.parts)
+        ):
             continue
         if path.suffix.lower() in TEXT_SUFFIXES:
             files.append(path)
@@ -172,6 +185,22 @@ def test_private_project_identifiers_are_absent_from_public_text() -> None:
             line = text.count("\n", 0, match.start()) + 1
             violations.append(f"{path.relative_to(ROOT).as_posix()}:{line}")
     assert not violations, "private project residue:\n" + "\n".join(violations[:100])
+
+
+def test_retired_stream_feature_term_is_absent_from_public_text() -> None:
+    """The open-source product uses Live Context as its only public feature language."""
+    retired = "c" + "ue"
+    pattern = re.compile(re.escape(retired), re.IGNORECASE)
+    violations: list[str] = []
+    for path in _public_text_files():
+        relative = path.relative_to(ROOT).as_posix()
+        if pattern.search(relative):
+            violations.append(f"path:{relative}")
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        for match in pattern.finditer(text):
+            line = text.count("\n", 0, match.start()) + 1
+            violations.append(f"text:{relative}:{line}")
+    assert not violations, "retired stream feature term:\n" + "\n".join(violations[:100])
 
 
 def test_private_brand_language_is_absent_from_compressed_presets() -> None:

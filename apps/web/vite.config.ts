@@ -15,7 +15,7 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
     proxy: {
-      // ws: true is load-bearing, not decoration — /v1/users/{uid}/context_stream/cue/ws is a
+      // ws: true is load-bearing, not decoration — /v1/users/{uid}/live-context/ws is a
       // WebSocket upgrade, and without it the dev proxy answers the handshake with a plain
       // HTTP response and the socket never opens (the ContextStream view's WS transport dies).
       "/v1": { target: API_TARGET, changeOrigin: true, ws: true },

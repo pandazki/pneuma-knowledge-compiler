@@ -1,4 +1,4 @@
-"""AI Cue — the listening engine: a live transcript in, zero-or-a-few cards out.
+"""Live Context: an incoming workstream in, zero-or-a-few grounded suggestions out.
 
 Every other recall mode is pulled by a question. This one is pushed by the conversation
 itself, and that single inversion sets every design choice here:
@@ -7,11 +7,11 @@ itself, and that single inversion sets every design choice here:
   agentic loop. A card that arrives after the topic moved on is worthless, so latency is
   not a nice-to-have, it is the feature.
 - **Silence is mechanical, never persuaded** (architecture.md:14-17). The contract does
-  not plead "most segments deserve no cue". Four gates in `apply_gates` do that work:
+  not plead "most segments deserve no suggestion". Four gates in `apply_gates` do that work:
   unparsed → nothing; ungrounded → dropped; under-confident → dropped; then capped by
   confidence. Prose asking a model to restrain itself is the road this repo already
   disproved.
-- **Sensitivity is a server-side dial.** The model always scores each cue 1-10; the
+- **Sensitivity is a server-side dial.** The model always scores each suggestion 1-10; the
   threshold lives in `min_confidence`. Retrieval scores could not do this job: `_rrf_scores`
   is pure reciprocal rank (a top hit is ~0.0167 regardless of how well it matched), so
   thresholding on it thresholds on nothing. A confidence already attached to a card can be
@@ -21,7 +21,7 @@ itself, and that single inversion sets every design choice here:
 retrievers over ONE query; fusing across DIFFERENT queries introduces ubiquity bias — a
 source that ranks mid-table on every turn (the owner profile doc, a long background
 transcript) accumulates past the source that ranked #1 on exactly one turn, and that
-sharp single-turn signal is precisely the one worth interrupting for. So: top-k per turn,
+sharp single-turn signal is precisely the one worth surfacing. So: top-k per turn,
 then union. The window union is re-`_coalesce_overlapping`d because each turn's
 `rag_recall` coalesced only within itself — turn A's `[6,7]` and turn B's `[6,9]` are
 different keys and would otherwise render as two near-duplicate passages.
@@ -47,7 +47,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 
 from ..domain.canonical import Citation
-from ..domain.cue import Cue, CueBatch, CueFocus, ResolvedCue
+from ..domain.suggestion import ContextSuggestion, SuggestionBatch, ContextFocus, ResolvedSuggestion
 from ..domain.ids import UserId, SourceId
 from ..domain.source import ConversationTurn
 from ..ports.claim_index import ClaimLexicalIndex, ClaimVectorIndex
@@ -76,7 +76,7 @@ from .spine import CITE_PRECISE, spine
 DEFAULT_TURN_WINDOW = 3
 DEFAULT_PER_TURN_CLAIMS = 2
 DEFAULT_PER_TURN_WINDOWS = 2
-DEFAULT_MAX_CUES = 3
+DEFAULT_MAX_SUGGESTIONS = 3
 DEFAULT_MIN_CONFIDENCE = 6
 
 OWNER_LABEL = "本人"
@@ -137,69 +137,69 @@ def render_transcript(turns: Sequence[ConversationTurn], labels: Sequence[str]) 
 
 # The closing clause replacing the Q&A one. The Q&A close ("「无相关记录」就是忠实的答案")
 # is right when a owner asked something and wrong here in two ways: it presumes a question
-# that was never asked, and it would have the model push a card literally reading
-# 「无相关记录」onto the lens. This states the output shape instead; the confidence + citation
+# that was never asked, and it would have the model emit a card literally reading
+# 「无相关记录」. This states the output shape instead; the confidence + citation
 # gates, not this sentence, are what actually produce silence.
-CLOSE_CUE = (
-    "- 一张卡片是一次打断：它凭空出现在本人眼前，而对话还在继续。卡片必须自身成立——\n"
-    "  不复述对话、不预告、不写「无相关记录」这类空卡；没有可写的卡片时，cues 就是空列表，\n"
+CLOSE_SUGGESTION = (
+    "- 一张提示卡是一次主动的上下文补充。它必须自身成立——\n"
+    "  不复述输入流、不预告、不写「无相关记录」这类空卡；没有可写的卡片时，suggestions 就是空列表，\n"
     "  空列表是本接口的正常返回值。"
 )
 
-_FOCUS_CLAUSE: dict[CueFocus, str] = {
+_FOCUS_CLAUSE: dict[ContextFocus, str] = {
     "general": (
-        "**本次提词范围**：整段转录里任何值得提示的概念或事实，不论出自谁口。"
+        "**本次关注范围**：整段工作流里任何值得补充的概念或事实，不论出自谁口。"
     ),
     "owner": (
-        "**本次提词范围**：只为「本人」说出的内容出卡片。参与者的发言照旧全文读入，\n"
-        "但只作理解上下文——不为参与者单独提到的东西出卡片。"
+        "**本次关注范围**：只为「本人」输入的内容生成提示。参与者的内容照旧全文读入，\n"
+        "但只作理解上下文——不为参与者单独提到的东西生成提示。"
     ),
     "other": (
-        "**本次提词范围**：只为「参与者」说出的内容出卡片。本人的发言照旧全文读入，\n"
-        "但只作理解上下文——不为本人单独提到的东西出卡片。"
+        "**本次关注范围**：只为「参与者」输入的内容生成提示。本人的内容照旧全文读入，\n"
+        "但只作理解上下文——不为本人单独提到的东西生成提示。"
     ),
 }
 
-_CUE_HEAD = """\
-# Pneuma 上下文流提示
+_LIVE_CONTEXT_HEAD = """\
+# Pneuma 即时上下文
 
-你在观察用户主动接入的一段工作上下文流，内容逐轮送到你面前。**没有人在向你提问**：
-触发你的不是一个问题，而是上下文里刚刚出现的东西。产物不是一段回答，而是零张或
-几张小卡片，显示在用户的知识工作台中。
+你在持续处理用户主动接入的一段工作流，输入可能来自会议转录、即时消息、协作文档
+或其他实时片段。**没有人在向你提问**：触发你的不是一个问题，而是工作上下文里刚刚
+出现的新信息。产物不是一段回答，而是零张或几张可引用的上下文提示。
 
 随转录一并送到的是从本人个人知识库里取出的证据（claim 注记 + 原文摘录），它们由最近
 几轮转录各自检索得来。
 
 两种卡片（`kind`）：
 
-- `concept`——对话里出现了一个知识库里有的概念 / 人 / 事，卡片说明它是什么。
-- `fact`——对话里出现了一个知识库能直接回答的具体问题或待确认的事实，卡片给出答案。
+- `concept`——工作流里出现了一个知识库里有的概念 / 人 / 事，提示说明它是什么。
+- `fact`——工作流里出现了一个知识库能直接回答的具体问题或待确认的事实，提示给出答案。
 
-每张卡片自带 `confidence`（1-10）。它不是修辞：服务端按阈值机械过滤并据此排序，低分卡片
+每张提示自带 `confidence`（1-10）。它不是修辞：服务端按阈值机械过滤并据此排序，低分提示
 不会展示。据实打分、把不确定的打低，比不写它更有用。
 
-`trigger` 逐字摘自下面的转录——它是这张卡片弹出来的理由，前端拿它做高亮。
+`trigger` 逐字摘自下面的输入流——它是这张提示出现的理由，前端拿它做高亮。
 
-转录里**每一位说话人**的话都是语音识别的产物，不只是本人的——陌生参与者的人名与术语
-最容易被听错。认主体时把这种音近的出入算作同一所指。
+会议转录可能来自语音识别，陌生参与者的人名与术语容易被听错；识别主体时把合理的音近
+出入视作同一所指，但不要凭空修正没有证据支持的内容。
 
 {focus}
 
-以下作答姿态与问答模式共用。本场景没有提问，其中「本人所求」一律读作「对话里刚出现、
+以下作答姿态与问答模式共用。本场景没有提问，其中「本人所求」一律读作「工作流里刚出现、
 值得提示的那个东西」。
 
 """
 
 
-def _cue_contract(focus: CueFocus) -> str:
-    return _CUE_HEAD.format(focus=_FOCUS_CLAUSE[focus]) + spine(CITE_PRECISE, CLOSE_CUE)
+def _live_context_contract(focus: ContextFocus) -> str:
+    return _LIVE_CONTEXT_HEAD.format(focus=_FOCUS_CLAUSE[focus]) + spine(CITE_PRECISE, CLOSE_SUGGESTION)
 
 
 # I5: one byte-stable System per focus, all computed at module load. focus rides the
 # System tier because it is posture, not data — and three fixed strings keep the provider
 # cache earnable, which one string interpolated per request would not.
-CUE_CONTRACTS: dict[CueFocus, str] = {
-    focus: _cue_contract(focus) for focus in ("general", "owner", "other")
+LIVE_CONTEXT_CONTRACTS: dict[ContextFocus, str] = {
+    focus: _live_context_contract(focus) for focus in ("general", "owner", "other")
 }
 
 
@@ -230,7 +230,7 @@ DETAIL_CONTRACT = """\
 
 
 @dataclass(frozen=True)
-class CueEvidence:
+class ContextEvidence:
     """The per-turn retrieval union feeding one evaluation.
 
     `claim_turn` / `source_turn` record WHICH transcript turn surfaced a piece of
@@ -256,7 +256,7 @@ async def gather_evidence(
     content: ContentStore | None = None,
     per_turn_claims: int = DEFAULT_PER_TURN_CLAIMS,
     per_turn_windows: int = DEFAULT_PER_TURN_WINDOWS,
-) -> CueEvidence:
+) -> ContextEvidence:
     """Per-turn retrieval → union → re-coalesce → assemble. ONE embedding round trip.
 
     All N turn queries go through a single `aembed_documents`, then every index call fans
@@ -268,7 +268,7 @@ async def gather_evidence(
     Union, NOT RRF across turns — see the module docstring on ubiquity bias."""
     queries = [q for q in queries if q and q.strip()]
     if not queries:
-        return CueEvidence()
+        return ContextEvidence()
 
     embedded = await embeddings.aembed_documents(list(queries))
 
@@ -343,7 +343,7 @@ async def gather_evidence(
                 )
             )
 
-    return CueEvidence(
+    return ContextEvidence(
         claims=tuple(claims),
         windows=tuple(windows),
         claim_turn=claim_turn,
@@ -357,7 +357,7 @@ _CITE_RESIDUE_RE = re.compile(r"\[cite:[^\]]*\]?")
 def _shown_line(item) -> str | None:
     """`- [kind] title` for one already-shown card, or None if it has no title.
 
-    Accepts a ResolvedCue/Cue or a plain mapping (the WS layer replays client-held JSON).
+    Accepts a ResolvedSuggestion/ContextSuggestion or a plain mapping (the WS layer replays client-held JSON).
     Any `[cite:` residue is stripped MECHANICALLY, not asked for: a handle from a previous
     evaluation resolves to a different source in this one."""
     if isinstance(item, Mapping):
@@ -382,7 +382,7 @@ def _shown_key(item) -> tuple[str, str]:
     return kind.strip(), _CITE_RESIDUE_RE.sub("", title).strip()
 
 
-def cue_human(
+def live_context_human(
     transcript: str,
     *,
     as_of: datetime,
@@ -427,11 +427,11 @@ def cue_human(
     )
 
 
-def cue_messages(
+def live_context_messages(
     transcript: str,
     *,
     as_of: datetime,
-    focus: CueFocus = "general",
+    focus: ContextFocus = "general",
     claims: Sequence[RetrievedClaim] = (),
     windows: Sequence = (),
     pack: str | None = None,
@@ -439,7 +439,7 @@ def cue_messages(
     already_shown: Sequence = (),
 ) -> list[BaseMessage]:
     """[SystemMessage(the focus's fixed contract), HumanMessage(evidence → transcript)]."""
-    human = cue_human(
+    human = live_context_human(
         transcript,
         as_of=as_of,
         claims=claims,
@@ -448,30 +448,30 @@ def cue_messages(
         profile=profile,
         already_shown=already_shown,
     )
-    if focus not in CUE_CONTRACTS:
-        raise ValueError(f"unknown cue focus: {focus!r}")
-    return [SystemMessage(content=CUE_CONTRACTS[focus]), HumanMessage(content=human)]
+    if focus not in LIVE_CONTEXT_CONTRACTS:
+        raise ValueError(f"unknown suggestion focus: {focus!r}")
+    return [SystemMessage(content=LIVE_CONTEXT_CONTRACTS[focus]), HumanMessage(content=human)]
 
 
 # ----------------------------------------------------------------------- the gates
 
 
 @dataclass(frozen=True)
-class CueResult:
-    cues: tuple[ResolvedCue, ...]
+class LiveContextResult:
+    suggestions: tuple[ResolvedSuggestion, ...]
     token_usage: dict[str, int]
-    # Why the model's emission shrank, by reason. Zeroes everywhere with an empty `cues`
+    # Why the model's emission shrank, by reason. Zeroes everywhere with an empty `suggestions`
     # means the model chose silence; a non-zero reason means a gate did.
     dropped: dict[str, int] = field(default_factory=dict)
     used_claims: tuple[RetrievedClaim, ...] = ()
     used_windows: tuple = ()
     # Which transcript turn (0-based within the evaluated window) surfaced each piece of
-    # evidence — see CueEvidence.
+    # evidence — see ContextEvidence.
     claim_turn: dict[str, int] = field(default_factory=dict)
     source_turn: dict[str, int] = field(default_factory=dict)
 
 
-def _resolve_cue(cue: Cue, handle_map: dict[str, str]) -> ResolvedCue:
+def _resolve_suggestion(suggestion: ContextSuggestion, handle_map: dict[str, str]) -> ResolvedSuggestion:
     """Lift the body's `[cite: …]` markers into structured citations, then strip them.
 
     A span whose handle is not in the map (a hallucinated or garbled `sNN`) yields no
@@ -479,7 +479,7 @@ def _resolve_cue(cue: Cue, handle_map: dict[str, str]) -> ResolvedCue:
     first-appearance order preserved."""
     citations: list[Citation] = []
     seen: set[tuple[str, int, int]] = set()
-    for sid, start, end in iter_answer_citations(cue.body):
+    for sid, start, end in iter_answer_citations(suggestion.body):
         real = handle_map.get(sid)
         if real is None:
             continue
@@ -490,38 +490,38 @@ def _resolve_cue(cue: Cue, handle_map: dict[str, str]) -> ResolvedCue:
         citations.append(
             Citation(source_id=SourceId(real), block_start=start, block_end=end)
         )
-    return ResolvedCue(
-        kind=cue.kind,
-        title=strip_citations(cue.title),
-        body=strip_citations(cue.body),
-        trigger=strip_citations(cue.trigger),
-        confidence=cue.confidence,
+    return ResolvedSuggestion(
+        kind=suggestion.kind,
+        title=strip_citations(suggestion.title),
+        body=strip_citations(suggestion.body),
+        trigger=strip_citations(suggestion.trigger),
+        confidence=suggestion.confidence,
         citations=citations,
     )
 
 
 def apply_gates(
-    parsed: CueBatch | None,
+    parsed: SuggestionBatch | None,
     handle_map: dict[str, str],
     *,
-    max_cues: int = DEFAULT_MAX_CUES,
+    max_suggestions: int = DEFAULT_MAX_SUGGESTIONS,
     min_confidence: int = DEFAULT_MIN_CONFIDENCE,
     already_shown: Sequence = (),
-) -> tuple[list[ResolvedCue], dict[str, int]]:
+) -> tuple[list[ResolvedSuggestion], dict[str, int]]:
     """The four mechanical gates, in order. Pure — no I/O, hence not a coroutine.
 
-    1. `parsed is None` → zero cues. Under `include_raw=True` a parse failure lands here
+    1. `parsed is None` → zero suggestions. Under `include_raw=True` a parse failure lands here
        too: a background listening feature degrades to silence, it never 500s onto a pair
        of context clients.
     2. **Grounding.** A body with no `[cite: …]` that resolves back to a real source is
-       dropped. An ungrounded cue is not a cue by definition. Same shape as the repo's
+       dropped. An ungrounded suggestion is not a suggestion by definition. Same shape as the repo's
        existing `compile/gate.py` discipline.
     3. **Confidence.** Below `min_confidence` → dropped. The dial that makes sensitivity
        tunable without re-running anything.
     4. **Cap.** Sort by confidence descending (stable, so equal scores keep the model's
-       own order) and truncate to `max_cues`.
+       own order) and truncate to `max_suggestions`.
 
-    A cue already shown this conversation is dropped ahead of the four, by exact
+    A suggestion already shown this conversation is dropped ahead of the four, by exact
     (kind, title): `already_shown` has to be load-bearing mechanically, because merely
     showing the model a list of what it already said and hoping is the persuasion road."""
     dropped = {"unparsed": 0, "repeat": 0, "uncited": 0, "low_confidence": 0, "capped": 0}
@@ -530,30 +530,30 @@ def apply_gates(
         return [], dropped
 
     seen_shown = {_shown_key(i) for i in already_shown}
-    kept: list[ResolvedCue] = []
-    for cue in parsed.cues:
-        if (cue.kind.strip(), cue.title.strip()) in seen_shown:
+    kept: list[ResolvedSuggestion] = []
+    for suggestion in parsed.suggestions:
+        if (suggestion.kind.strip(), suggestion.title.strip()) in seen_shown:
             dropped["repeat"] += 1
             continue
-        if not any(sid in handle_map for sid in iter_answer_sources(cue.body)):  # gate 2
+        if not any(sid in handle_map for sid in iter_answer_sources(suggestion.body)):  # gate 2
             dropped["uncited"] += 1
             continue
-        if cue.confidence < min_confidence:  # gate 3
+        if suggestion.confidence < min_confidence:  # gate 3
             dropped["low_confidence"] += 1
             continue
-        kept.append(_resolve_cue(cue, handle_map))
+        kept.append(_resolve_suggestion(suggestion, handle_map))
 
     kept.sort(key=lambda c: -c.confidence)  # gate 4 (stable: ties keep emission order)
-    if len(kept) > max_cues:
-        dropped["capped"] = len(kept) - max_cues
-        kept = kept[:max_cues]
+    if len(kept) > max_suggestions:
+        dropped["capped"] = len(kept) - max_suggestions
+        kept = kept[:max_suggestions]
     return kept, dropped
 
 
 # -------------------------------------------------------------------------- engine
 
 
-async def cue_once(
+async def evaluate_live_context(
     user_id: UserId,
     turns: Sequence[ConversationTurn],
     *,
@@ -565,7 +565,7 @@ async def cue_once(
     lexical: LexicalIndex | None = None,
     vectors: VectorIndex | None = None,
     content: ContentStore | None = None,
-    focus: CueFocus = "general",
+    focus: ContextFocus = "general",
     profile: str | None = None,
     pack: str | None = None,
     already_shown: Sequence = (),
@@ -573,11 +573,11 @@ async def cue_once(
     turn_window: int = DEFAULT_TURN_WINDOW,
     per_turn_claims: int = DEFAULT_PER_TURN_CLAIMS,
     per_turn_windows: int = DEFAULT_PER_TURN_WINDOWS,
-    max_cues: int = DEFAULT_MAX_CUES,
+    max_suggestions: int = DEFAULT_MAX_SUGGESTIONS,
     min_confidence: int = DEFAULT_MIN_CONFIDENCE,
     callbacks: list | None = None,
     trace_metadata: dict | None = None,
-) -> CueResult:
+) -> LiveContextResult:
     """One evaluation: prefetch → assemble → ONE structured llm round → gates.
 
     Two evidence scopes, chosen by whether `pack` is supplied:
@@ -600,7 +600,7 @@ async def cue_once(
     labels = label_turns(recent, label_map)
     transcript = render_transcript(recent, labels)
 
-    evidence = CueEvidence()
+    evidence = ContextEvidence()
     if pack is None and embeddings is not None:
         evidence = await gather_evidence(
             user_id,
@@ -615,7 +615,7 @@ async def cue_once(
             per_turn_windows=per_turn_windows,
         )
 
-    system, human = cue_messages(
+    system, human = live_context_messages(
         transcript,
         as_of=as_of,
         focus=focus,
@@ -632,29 +632,29 @@ async def cue_once(
     # reason aliasing exists — a 32-char id being mis-transcribed — comes back.
     aliased_human, handle_map = alias_sources(str(human.content))
 
-    structured = model.with_structured_output(CueBatch, include_raw=True)
+    structured = model.with_structured_output(SuggestionBatch, include_raw=True)
     raw = await structured.ainvoke(
         [system, HumanMessage(content=aliased_human)],
-        config=invoke_config("recall.cue", callbacks, trace_metadata),
+        config=invoke_config("recall.suggestion", callbacks, trace_metadata),
     )
     if isinstance(raw, Mapping):
         parsed = raw.get("parsed")
         message = raw.get("raw")
     else:  # a model handing back the bare object despite include_raw=True
         parsed, message = raw, None
-    if parsed is not None and not isinstance(parsed, CueBatch):
+    if parsed is not None and not isinstance(parsed, SuggestionBatch):
         parsed = None  # anything but the schema is a parse failure → silence
     usage = extract_usage(message) if message is not None else zero_usage()
 
-    cues, dropped = apply_gates(
+    suggestions, dropped = apply_gates(
         parsed,
         handle_map,
-        max_cues=max_cues,
+        max_suggestions=max_suggestions,
         min_confidence=min_confidence,
         already_shown=already_shown,
     )
-    return CueResult(
-        cues=tuple(cues),
+    return LiveContextResult(
+        suggestions=tuple(suggestions),
         token_usage=usage,
         dropped=dropped,
         used_claims=evidence.claims,

@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .. import __version__
 from ..settings import Settings, get_settings
 from ..wiring import build_context
-from .routes.context_stream import root_router as cue_root_router, router as cue_router
+from .routes.live_context import root_router as live_context_root_router, router as live_context_router
 from .routes.evolve import router as evolve_router
 from .routes.v1 import root_router, router as v1_router
 
@@ -47,8 +47,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(root_router)
     app.include_router(v1_router)
     app.include_router(evolve_router)
-    # ContextStream AI cue: same two prefixes, kept in their own module because the WS
+    # Live Context: same two prefixes, kept in its own module because the WS
     # session machinery has nothing in common with the request/response surface above.
-    app.include_router(cue_root_router)
-    app.include_router(cue_router)
+    app.include_router(live_context_root_router)
+    app.include_router(live_context_router)
     return app

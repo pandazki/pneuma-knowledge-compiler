@@ -20,7 +20,7 @@ export interface SourceSpanSheetProps {
 
 /**
  * 引用落点侧栏：source 原文（mono 块号 + serif 正文），目标区间 accent-soft
- * 高亮，附 fetch-locator 精确段按钮。recall / ask / cue / library 共用。
+ * 高亮，附 fetch-locator 精确段按钮。recall / ask / suggestion / library 共用。
  */
 export function SourceSpanSheet({
   open,

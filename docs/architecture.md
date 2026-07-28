@@ -179,10 +179,11 @@ compile 时的 skill 层）。IntakePlan 是提案：UI 预览、用户可改、
   fetch_verbatim），`create_agent` 循环 + recursion_limit 封顶；核验是 agentic 行为（回 L0 核对
   出处），每步经 SSE **流式**推到前端（`POST …/recall/stream`）。
 
-### AI cue（context_stream 主动提词）
+### Live Context 即时上下文
 
-上面四种都由一个提问触发。**cue 的触发方向是反的**：context_stream 实时转录流进来，系统旁听，
-没有人在提问，所以产物是零张或几张结构化卡片而非一段答案，**默认必须沉默**。
+上面四种都由一个提问触发。**Live Context 的触发方向相反**：会议、消息或其他工作流片段
+持续进入，系统自动检索并融合相关知识；没有人在提问，所以产物是零张或几张结构化提示而非
+一段答案，**默认必须沉默**。
 
 - **两种卡片**：`concept`（对话里出现了知识库里有的概念/人/事，说明它是什么）与
   `fact`（对话里出现了知识库能直接回答的问题，给出答案）。
@@ -190,13 +191,13 @@ compile 时的 skill 层）。IntakePlan 是提案：UI 预览、用户可改、
   **绝不按说话人过滤转录**——过滤会摧毁上下文理解。整段永远全量进入，focus 只表达为
   System 层三份定值契约的注意力指向。
 - **沉默是机械的**（§0 纪律 1）：五道闸门——已展示去重 → 解析失败即沉默 →
-  **引用闸门**（body 里没有可解析回真实来源的 `[cite:]` 即丢弃，未接地的提词按定义不是提词）
+  **引用闸门**（body 里没有可解析回真实来源的 `[cite:]` 即丢弃；未接地的提示按定义不是上下文）
   → **信心闸门**（LLM 为每条打 1-10，阈值过滤在程序侧，故中途调阈值无需重跑）→ 按信心截断。
 - **检索不跨轮 RRF 融合**：RRF 是为「同一 query 多路」设计的，跨轮融合会让每轮都排中游的
   泛泛来源压过「只在某一轮排第一」的尖锐信号。改为每轮取 top-k 后并集并标记触发轮次
   （`trigger` 字段即由此而来），并集后再 coalesce 一次，`expand_and_merge` 只跑一次。
-- **两种传输**：`POST …/context_stream/cue/stream`（一次性 SSE，去重在客户端）与
-  `WS …/context_stream/cue/ws`（长连接，服务端持窗口与节流；**客户端仍是去重权威**，
+- **两种传输**：`POST …/live-context/stream`（一次性 SSE，去重在客户端）与
+  `WS …/live-context/ws`（长连接，服务端持窗口与节流；**客户端仍是去重权威**，
   重连时回传近期轮次与已展示项——service 进程因此保持无状态，见 §5）。
 - **want_more**：把已收到的卡片传回，按它自己的引用直取 L0 原文扩写。零检索、零 embedding。
 
@@ -240,7 +241,7 @@ compile 时的 skill 层）。IntakePlan 是提案：UI 预览、用户可改、
 - **embedding**：OpenRouter（`openai/text-embedding-3-small`，连接池复用）。
 - **recall**：`rag` / `fast`（claim+window 融合 + 装配管线）/ `deep`（agentic + SSE 流式）/
   `Briefing`；作答契约带本人画像（回复语言）+ ASR 音近容错。
-- **AI cue**：context_stream 旁听主动提词（concept / fact 两型，focus 三档，五道机械闸门，
+- **Live Context**：实时工作流触发上下文融合（concept / fact 两型，focus 三档，五道机械闸门，
   SSE + WebSocket 双传输，want_more 按引用直取原文扩写）。
 - **UI**：Pneuma 瓷白城市导视图 / 午夜珐琅控制室双主题；工作画像、来源、入库、编译、
   召回、问答、提示、Canonical、图谱、历史与演化全流程。

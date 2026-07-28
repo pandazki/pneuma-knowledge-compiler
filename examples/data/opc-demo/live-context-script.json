@@ -2,9 +2,9 @@
   "turns": [
     [
       {
-        "name": "CueBatch",
+        "name": "SuggestionBatch",
         "args": {
-          "cues": [
+          "suggestions": [
             {
               "kind": "fact",
               "title": "公开发布门禁",

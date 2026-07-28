@@ -64,7 +64,7 @@
 @layer components {
   /**
    * 阅读层 Prose（DESIGN.md §4.3）——一切 serif 阅读面的统一排版：
-   * 答案、claim 正文、source 原文、引用段、cue 卡片正文。
+   * 答案、claim 正文、source 原文、引用段、suggestion 卡片正文。
    * 规则借鉴 kami（github.com/tw93/kami）的 print 排版纪律：
    * CJK 屏读行高 1.65、中文密度补偿 0.015em、strong 锁 500 防合成粗体、
    * 标题邻近律（上距 ≥ 2× 下距）、原生 marker 上 accent、引文 2px accent 左边条、

@@ -1,4 +1,4 @@
-"""AI cue service plumbing: briefing-pack stripping, model routing, want_more, vocabulary.
+"""AI suggestion service plumbing: briefing-pack stripping, model routing, want_more, vocabulary.
 
 The parts of Stage 2 that are neither session policy nor transport — each one a place
 where the service is responsible for something core deliberately refuses to do.
@@ -10,14 +10,14 @@ import asyncio
 from types import SimpleNamespace
 
 import pytest
-from pneuma_knowledge_core.domain.cue import CUE_FOCUSES, CUE_KINDS
+from pneuma_knowledge_core.domain.suggestion import CONTEXT_FOCUSES, SUGGESTION_KINDS
 from pneuma_knowledge_core.domain.source import ConversationTurn
 from pneuma_knowledge_core.recall.briefing import _BRIEFING_CONTRACT
 from pneuma_knowledge_service.adapters.scripted_model import ScriptedChatModel
 from pneuma_knowledge_service.api.app import create_app
-from pneuma_knowledge_service.api.routes.context_stream import OUTBOUND_LIMIT, put_drop_oldest
-from pneuma_knowledge_service.context_stream.engine import briefing_pack, expand_cue, run_evaluation
-from pneuma_knowledge_service.context_stream.session import CuePolicy, CueSession
+from pneuma_knowledge_service.api.routes.live_context import OUTBOUND_LIMIT, put_drop_oldest
+from pneuma_knowledge_service.live_context.engine import briefing_pack, expand_suggestion, run_evaluation
+from pneuma_knowledge_service.live_context.session import LiveContextPolicy, LiveContextSession
 from pneuma_knowledge_service.settings import Settings
 from pneuma_knowledge_service.wiring import resolve_model_name
 from fastapi.testclient import TestClient
@@ -39,9 +39,9 @@ def stored_prefix(pack: str = PACK) -> str:
 
 def test_the_stored_briefing_contract_is_stripped_off_the_pack():
     """core takes `pack` as DATA for the Human turn. Handing it the stored `system_prefix`
-    whole would paste a second, contradictory contract underneath the cue contract: a Q&A
+    whole would paste a second, contradictory contract underneath the suggestion contract: a Q&A
     posture, two tools that are not bound on this call, and the 「无相关记录」 close that
-    the cue contract exists specifically to replace."""
+    the suggestion contract exists specifically to replace."""
     assert briefing_pack(stored_prefix()) == PACK
 
     # The strip has to be total — no fragment of the contract may survive into the pack.
@@ -70,7 +70,7 @@ def test_an_empty_pack_is_the_empty_string_never_none():
 
 async def test_load_briefing_pack_strips_what_the_store_returns():
     """The strip happens on the way OUT of the store, so no caller can forget it."""
-    from pneuma_knowledge_service.context_stream.engine import load_briefing_pack
+    from pneuma_knowledge_service.live_context.engine import load_briefing_pack
 
     async def get_briefing(user, bid):  # noqa: ANN001
         return {"system_prefix": stored_prefix()} if bid == "bf-1" else None
@@ -84,36 +84,36 @@ async def test_load_briefing_pack_strips_what_the_store_returns():
 # ------------------------------------------------------------------ model routing
 
 
-def test_the_cue_role_falls_back_to_the_recall_model():
-    """A cue is single-shot and latency-shaped like fast recall, so a deployment that has
+def test_the_live_context_role_falls_back_to_the_recall_model():
+    """Live Context is single-shot and latency-shaped like fast recall, so a deployment that has
     already pointed recall at a fast model should not have to say it twice."""
     s = Settings(llm_model="openai:base", llm_model_recall="openrouter:fast-test")
-    assert resolve_model_name(s, "cue") == "openrouter:fast-test"
+    assert resolve_model_name(s, "live_context") == "openrouter:fast-test"
 
 
-def test_an_explicit_cue_model_wins_over_the_recall_fallback():
+def test_an_explicit_live_context_model_wins_over_the_recall_fallback():
     s = Settings(
         llm_model="openai:base",
         llm_model_recall="openrouter:fast-test",
-        llm_model_cue="openrouter:flash",
+        llm_model_live_context="openrouter:flash",
     )
-    assert resolve_model_name(s, "cue") == "openrouter:flash"
+    assert resolve_model_name(s, "live_context") == "openrouter:flash"
     assert resolve_model_name(s, "recall") == "openrouter:fast-test"  # unchanged
 
 
-def test_cue_falls_all_the_way_back_to_the_base_model():
-    assert resolve_model_name(Settings(llm_model="openai:base"), "cue") == "openai:base"
+def test_live_context_falls_all_the_way_back_to_the_base_model():
+    assert resolve_model_name(Settings(llm_model="openai:base"), "live_context") == "openai:base"
 
 
-def test_a_scripted_base_model_still_hard_overrides_cue_routing():
+def test_a_scripted_base_model_still_hard_overrides_live_context_routing():
     """The existing discipline: a scripted run stays fully keyless and reproducible, so an
     env-set role model must not leak into it."""
-    s = Settings(llm_model="scripted:/tmp/x.json", llm_model_cue="openrouter:flash")
-    assert resolve_model_name(s, "cue") == "scripted:/tmp/x.json"
+    s = Settings(llm_model="scripted:/tmp/x.json", llm_model_live_context="openrouter:flash")
+    assert resolve_model_name(s, "live_context") == "scripted:/tmp/x.json"
 
 
 def test_the_fallback_does_not_leak_into_the_other_roles():
-    """Only cue borrows. If `deep` started resolving to the recall model, a deployment
+    """Only Live Context borrows. If `deep` started resolving to the recall model, a deployment
     that tuned them separately would silently lose the distinction."""
     s = Settings(llm_model="openai:base", llm_model_recall="openrouter:fast-test")
     assert resolve_model_name(s, "deep") == "openai:base"
@@ -129,19 +129,19 @@ def test_the_focus_and_kind_registries_are_served_from_core():
     prompt, the route and the client become three vocabularies that drift."""
     # No lifespan: neither endpoint touches app.state.ctx, and running it would need PG.
     client = TestClient(create_app(Settings()))
-    focuses = client.get("/v1/cue/focuses").json()
-    assert [f["key"] for f in focuses] == [f.key for f in CUE_FOCUSES]
-    assert focuses[0]["label"] == CUE_FOCUSES[0].label
+    focuses = client.get("/v1/live-context/focuses").json()
+    assert [f["key"] for f in focuses] == [f.key for f in CONTEXT_FOCUSES]
+    assert focuses[0]["label"] == CONTEXT_FOCUSES[0].label
 
-    kinds = client.get("/v1/cue/kinds").json()
-    assert [k["key"] for k in kinds] == [k.key for k in CUE_KINDS]
+    kinds = client.get("/v1/live-context/kinds").json()
+    assert [k["key"] for k in kinds] == [k.key for k in SUGGESTION_KINDS]
 
 
 # ------------------------------------------------------------------- backpressure
 
 
 def test_the_outbound_queue_drops_the_oldest_frame():
-    """Bounded + drop-oldest. A cue whose conversation has already moved on is worth less
+    """Bounded + drop-oldest. A suggestion whose conversation has already moved on is worth less
     than the one behind it, and blocking instead would let a slow client apply
     backpressure all the way up into the evaluation."""
     q = asyncio.Queue(maxsize=3)
@@ -167,7 +167,7 @@ class FakeEmbeddings:
         return [[0.1, 0.2, 0.3] for _ in texts]
 
     async def aembed_query(self, text):  # noqa: ANN001
-        raise AssertionError("cue must batch its queries, never embed one at a time")
+        raise AssertionError("suggestion must batch its queries, never embed one at a time")
 
 
 def _ctx(model, **over):
@@ -187,17 +187,17 @@ def _ctx(model, **over):
 
 def _plan():
     """A one-turn plan, built through the real session so the shape cannot drift."""
-    s = CueSession(CuePolicy(quiet_period=0.0))
+    s = LiveContextSession(LiveContextPolicy(quiet_period=0.0))
     s.add_turn(ConversationTurn(speaker="me", text="我们在聊 RAG", role="owner"))
     return s.begin(now=0.0)
 
 
-def cue_call(**args):
+def suggestion_call(**args):
     return [
         {
-            "name": "CueBatch",
+            "name": "SuggestionBatch",
             "args": {
-                "cues": [
+                "suggestions": [
                     {
                         "kind": "concept",
                         "title": "RAG",
@@ -211,35 +211,35 @@ def cue_call(**args):
     ]
 
 
-async def test_a_scripted_model_serves_the_cue_structured_output():
+async def test_a_scripted_model_serves_the_suggestion_structured_output():
     """`ScriptedChatModel` CAN back `with_structured_output` — it overrides `bind_tools`,
-    which sidesteps `BaseChatModel`'s NotImplementedError guard. The whole keyless cue path
+    which sidesteps `BaseChatModel`'s NotImplementedError guard. The whole keyless suggestion path
     depends on this, so it is asserted rather than assumed.
 
     The card here is ungrounded (no resolvable `[cite: …]`), so gate 2 drops it — and that
     drop is itself the proof the emission PARSED: an unparsed round would have been
     counted under `unparsed` instead."""
-    model = ScriptedChatModel(turns=[cue_call()])
+    model = ScriptedChatModel(turns=[suggestion_call()])
     result = await run_evaluation(_ctx(model), "u-1", _plan())
     assert result.dropped["uncited"] == 1
     assert result.dropped["unparsed"] == 0
-    assert result.cues == ()
+    assert result.suggestions == ()
 
 
 async def test_an_exhausted_script_degrades_to_silence():
     """Past its last turn the scripted model answers plain prose, which arrives as
-    `parsed=None` under `include_raw=True`. That must be zero cues, never an exception —
+    `parsed=None` under `include_raw=True`. That must be zero suggestions, never an exception —
     a background listener degrades to silence, it does not 500 onto a pair of context clients."""
     model = ScriptedChatModel(turns=[])
     result = await run_evaluation(_ctx(model), "u-1", _plan())
-    assert result.cues == ()
+    assert result.suggestions == ()
     assert result.dropped["unparsed"] == 1
 
 
 async def test_briefing_scope_does_no_embedding_at_all():
     """The frozen pack IS the evidence. Zero retrieval and zero embedding is the reason
     briefing scope exists — it is the fastest path, and latency is this feature."""
-    model = ScriptedChatModel(turns=[cue_call()])
+    model = ScriptedChatModel(turns=[suggestion_call()])
     ctx = _ctx(model)
     await run_evaluation(ctx, "u-1", _plan(), pack=PACK)
     assert ctx.embeddings.document_calls == 0
@@ -276,7 +276,7 @@ class RecordingModel:
         return AIMessage(content=self.content)
 
 
-def a_cue(citations: list[dict]) -> dict:
+def a_suggestion(citations: list[dict]) -> dict:
     return {
         "kind": "concept",
         "title": "RAG",
@@ -287,7 +287,7 @@ def a_cue(citations: list[dict]) -> dict:
     }
 
 
-async def test_want_more_fetches_exactly_the_cues_own_citations():
+async def test_want_more_fetches_exactly_the_suggestions_own_citations():
     """Zero retrieval, zero embedding — the client hands back the whole card, and its
     citations already carry real source ids and block spans, so there is nothing left to
     search for. That is also what makes the operation survive a reconnect or a deploy: the
@@ -296,8 +296,8 @@ async def test_want_more_fetches_exactly_the_cues_own_citations():
     model = ScriptedChatModel(turns=[{"content": "展开后的正文"}])
     ctx = _ctx(model, store=store)
 
-    detail = await expand_cue(
-        ctx, "u-1", a_cue([{"source_id": SRC, "block_start": 3, "block_end": 5}])
+    detail = await expand_suggestion(
+        ctx, "u-1", a_suggestion([{"source_id": SRC, "block_start": 3, "block_end": 5}])
     )
 
     assert store.calls == [("u-1", SRC, (3, 5))]
@@ -311,7 +311,7 @@ async def test_want_more_fetches_exactly_the_cues_own_citations():
 
 
 async def test_want_more_refuses_to_deliver_an_empty_expansion():
-    """A blank expansion is the one failure that must never reach the lens.
+    """A blank expansion is the one failure that must never reach the client.
 
     The owner tapped a card and is waiting; handing back an empty one is worse than
     saying it failed, and it contradicts the discipline the whole feature rests on —
@@ -320,13 +320,13 @@ async def test_want_more_refuses_to_deliver_an_empty_expansion():
 
     Found by end-to-end smoke, not by unit tests: a scripted turn that carried a tool
     call instead of text produced `content == ""`, and the server cheerfully emitted
-    `cue_detail` with an empty body."""
+    `suggestion_detail` with an empty body."""
     store = RecordingStore({(SRC, (3, 5)): "原文第三到五块"})
     ctx = _ctx(ScriptedChatModel(turns=[{"content": "   "}]), store=store)
 
     with pytest.raises(ValueError, match="empty"):
-        await expand_cue(
-            ctx, "u-1", a_cue([{"source_id": SRC, "block_start": 3, "block_end": 5}])
+        await expand_suggestion(
+            ctx, "u-1", a_suggestion([{"source_id": SRC, "block_start": 3, "block_end": 5}])
         )
 
 
@@ -335,10 +335,10 @@ async def test_want_more_puts_the_fetched_verbatim_in_front_of_the_model():
     prompt — otherwise it is the model reciting the card back with more words."""
     store = RecordingStore({(SRC, (3, 5)): "被引用来源里的一段独特原文"})
     model = RecordingModel("ok")
-    await expand_cue(
+    await expand_suggestion(
         _ctx(model, store=store),
         "u-1",
-        a_cue([{"source_id": SRC, "block_start": 3, "block_end": 5}]),
+        a_suggestion([{"source_id": SRC, "block_start": 3, "block_end": 5}]),
     )
 
     system, human_msg = model.seen[0]
@@ -353,10 +353,10 @@ async def test_a_failing_fetch_yields_a_partial_expansion_not_an_error():
     frame, so a span that no longer resolves is skipped."""
     store = RecordingStore({(SRC, (3, 5)): "只有这一段还在"})
     model = ScriptedChatModel(turns=[{"content": "ok"}])
-    detail = await expand_cue(
+    detail = await expand_suggestion(
         _ctx(model, store=store),
         "u-1",
-        a_cue(
+        a_suggestion(
             [
                 {"source_id": SRC, "block_start": 3, "block_end": 5},
                 {"source_id": SRC, "block_start": 90, "block_end": 91},
@@ -370,8 +370,8 @@ async def test_a_failing_fetch_yields_a_partial_expansion_not_an_error():
 async def test_a_malformed_citation_is_skipped_not_raised():
     store = RecordingStore()
     model = ScriptedChatModel(turns=[{"content": "ok"}])
-    detail = await expand_cue(
-        _ctx(model, store=store), "u-1", a_cue([{"source_id": SRC}, "nonsense"])
+    detail = await expand_suggestion(
+        _ctx(model, store=store), "u-1", a_suggestion([{"source_id": SRC}, "nonsense"])
     )
     assert store.calls == []
     assert detail["citations"] == []

@@ -38,7 +38,10 @@ export const SearchField = forwardRef<HTMLInputElement, SearchFieldProps>(
           value={value}
           disabled={disabled}
           onChange={(e) => onChange(e.target.value)}
-          className={cn("h-full min-w-0 flex-1 text-14 text-ink", className)}
+          className={cn(
+            "h-full min-w-0 flex-1 text-14 text-ink focus-visible:outline-none",
+            className,
+          )}
           {...rest}
         />
         {value !== "" && !disabled && (

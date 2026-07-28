@@ -2,7 +2,7 @@ import type { TokenUsage } from "@/lib/api";
 import { Mono } from "@/ui/Mono";
 import { cn } from "@/ui/cn";
 
-/** 一次调用的 token 用量，mono 单行（ask 逐轮 / cue 评估账用）。 */
+/** 一次调用的 token 用量，mono 单行（ask 逐轮 / suggestion 评估账用）。 */
 export function UsageLine({ usage, className }: { usage: TokenUsage; className?: string }) {
   return (
     <p className={cn("text-12 text-ink-3", className)}>

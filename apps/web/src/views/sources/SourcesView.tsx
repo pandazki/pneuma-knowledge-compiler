@@ -18,8 +18,10 @@ import { ErrorState } from "@/ui/ErrorState";
 import { Mono } from "@/ui/Mono";
 import { SectionRule } from "@/ui/SectionRule";
 import { SkeletonText } from "@/ui/Skeleton";
+import { Tabs } from "@/ui/Tabs";
 import { PageHeader } from "@/components/PageHeader";
 import { cn } from "@/ui/cn";
+import { SourceKindName, SourceKindSummary, SourceReader } from "./SourceReaders";
 
 /** 校样页上待高亮的 block 区间（闭区间）。 */
 interface BlockRange {
@@ -76,7 +78,7 @@ export default function SourcesView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser, reloadKey]);
 
-  // 跨视图落点（recall/ask/cue 的 focusSource）：选中目标 source，只读消费、不动 hash。
+  // 跨视图落点（recall/ask/suggestion 的 focusSource）：选中目标 source，只读消费、不动 hash。
   useEffect(() => {
     if (sourceFocus && sources?.some((r) => r.source_id === sourceFocus.sourceId)) {
       setSelectedId(sourceFocus.sourceId);
@@ -146,7 +148,7 @@ export default function SourcesView() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="原料 Sources"
-        description="编译的输入：左为 source 目录，右为选中条的校样页——结构地图与原文 blocks。"
+        description="浏览会议、文档库、即时消息与邮件的来源原貌；切换到编译校样可审计 intake plan、结构与 block 落点。"
       />
       <div className="flex flex-col gap-6 md:flex-row md:items-start">
         {/* 左栏：source 目录 */}
@@ -170,7 +172,7 @@ export default function SourcesView() {
                     )}
                   >
                     {selected && (
-                      <span aria-hidden className="absolute inset-y-0 left-0 w-0.5 bg-accent" />
+                      <span aria-hidden className="absolute inset-y-0 left-0 w-px bg-accent" />
                     )}
                     <span className="flex min-w-0 items-baseline gap-2">
                       <span className="min-w-0 flex-1 truncate text-14 font-medium text-ink">
@@ -179,8 +181,10 @@ export default function SourcesView() {
                       <Mono className="shrink-0 text-12 text-ink-3">{s.block_count} blk</Mono>
                     </span>
                     <span className="flex flex-wrap items-center gap-1.5">
-                      <Badge>{s.kind}</Badge>
-                      <Badge>{s.source_class}</Badge>
+                      <Badge>
+                        <SourceKindName kind={s.kind} />
+                      </Badge>
+                      <Badge>{s.origin}</Badge>
                     </span>
                     <span className="text-12 text-ink-3">
                       {s.digested_at ? (
@@ -236,7 +240,8 @@ function SourceGalley({
   const [error, setError] = useState<string | null>(null);
   const [exact, setExact] = useState<{ block: number; text: string } | null>(null);
   const [fetching, setFetching] = useState(false);
-  const blockRefs = useRef<Map<number, HTMLLIElement>>(new Map());
+  const [activeTab, setActiveTab] = useState("source");
+  const blockRefs = useRef<Map<number, HTMLElement>>(new Map());
 
   const load = useCallback(async () => {
     setError(null);
@@ -258,12 +263,19 @@ function SourceGalley({
     if (!detail || !highlight) return;
     blockRefs.current.get(highlight.start)?.scrollIntoView({
       block: "center",
-      behavior: "smooth",
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        ? "auto"
+        : "smooth",
     });
-  }, [detail, highlight]);
+  }, [activeTab, detail, highlight]);
 
   const inRange = (index: number) =>
     highlight != null && index >= highlight.start && index <= highlight.end;
+
+  const blockRef = (index: number) => (element: HTMLElement | null) => {
+    if (element) blockRefs.current.set(index, element);
+    else blockRefs.current.delete(index);
+  };
 
   // 点击 block：fetchLocator 取该块的精确段（Callout 呈现）。
   async function onFetchBlock(index: number) {
@@ -288,20 +300,91 @@ function SourceGalley({
   return (
     <article className="flex flex-col gap-6">
       {/* 页头：标题 + 元信息 */}
-      <header className="flex flex-col gap-2">
-        <h2 className="font-serif text-20 text-balance text-ink">{detail.title}</h2>
-        <p className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-12 text-ink-3">
-          <Mono className="break-all">{detail.source_id}</Mono>
-          <span>{detail.mime}</span>
-          <Mono>{fmtTime(detail.created_at)}</Mono>
-        </p>
-        <p className="flex flex-wrap items-center gap-1.5">
-          <Badge>{detail.kind}</Badge>
-          <Badge>{detail.source_class}</Badge>
-        </p>
+      <header className="flex flex-col gap-3 border-b border-line pb-5">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
+          <div className="min-w-0">
+            <p className="mb-1 flex flex-wrap items-center gap-1.5">
+              <Badge tone="accent">
+                <SourceKindName kind={detail.kind} />
+              </Badge>
+              <Badge>{detail.origin}</Badge>
+              <Badge>{detail.source_class}</Badge>
+            </p>
+            <h2 className="font-serif text-24 text-balance text-ink">{detail.title}</h2>
+            <p className="mt-1 text-13 text-ink-2">
+              <SourceKindSummary detail={detail} />
+            </p>
+          </div>
+          <p className="flex shrink-0 flex-col items-start gap-0.5 text-12 text-ink-3 sm:items-end">
+            <Mono>{fmtTime(detail.created_at)}</Mono>
+            <span>{detail.mime}</span>
+          </p>
+        </div>
+        <Mono className="break-all text-12 text-ink-3">{detail.source_id}</Mono>
       </header>
 
-      {/* 编译计划 */}
+      {exact && (
+        <Callout
+          tone="notice"
+          title={<Mono>{`b${exact.block} · 精确段`}</Mono>}
+          onDismiss={() => setExact(null)}
+        >
+          <p className="prose whitespace-pre-wrap">{exact.text}</p>
+        </Callout>
+      )}
+
+      <Tabs
+        value={activeTab}
+        onChange={setActiveTab}
+        aria-label="来源详情视图"
+        tabs={[
+          {
+            value: "source",
+            label: "来源视图",
+            panel: (
+              <SourceReader
+                detail={detail}
+                inRange={inRange}
+                onFetchBlock={(index) => void onFetchBlock(index)}
+                blockRef={blockRef}
+                fetching={fetching}
+              />
+            ),
+          },
+          {
+            value: "compiler",
+            label: "编译校样",
+            panel: (
+              <CompilerGalley
+                detail={detail}
+                inRange={inRange}
+                onFetchBlock={(index) => void onFetchBlock(index)}
+                blockRef={blockRef}
+                fetching={fetching}
+              />
+            ),
+          },
+        ]}
+      />
+    </article>
+  );
+}
+
+function CompilerGalley({
+  detail,
+  inRange,
+  onFetchBlock,
+  blockRef,
+  fetching,
+}: {
+  detail: SourceDetail;
+  inRange: (index: number) => boolean;
+  onFetchBlock: (index: number) => void;
+  blockRef: (index: number) => (element: HTMLElement | null) => void;
+  fetching: boolean;
+}) {
+  return (
+    <div className="flex flex-col gap-8">
       {detail.intake_plan && (
         <section className="flex flex-col gap-3">
           <SectionRule no={1} title="编译计划" />
@@ -328,7 +411,6 @@ function SourceGalley({
         </section>
       )}
 
-      {/* 结构地图 */}
       {detail.structure.sections.length > 0 && (
         <section className="flex flex-col gap-3">
           <SectionRule no={2} title="结构地图" />
@@ -353,11 +435,10 @@ function SourceGalley({
         </section>
       )}
 
-      {/* 原文 blocks */}
       <section className="flex flex-col gap-3">
         <SectionRule
           no={3}
-          title={`原文 · ${detail.blocks.length} blocks`}
+          title={`归一化原文 · ${detail.blocks.length} blocks`}
           actions={
             <span className="text-12 text-ink-3">
               <Layers size={12} aria-hidden className="mr-1 inline-block align-[-2px]" />
@@ -365,45 +446,31 @@ function SourceGalley({
             </span>
           }
         />
-        {exact && (
-          <Callout
-            tone="notice"
-            title={<Mono>{`b${exact.block} · 精确段`}</Mono>}
-            onDismiss={() => setExact(null)}
-          >
-            <p className="prose whitespace-pre-wrap">{exact.text}</p>
-          </Callout>
-        )}
         <ol className="flex flex-col border-y border-line">
-          {detail.blocks.map((b) => (
+          {detail.blocks.map((block) => (
             <li
-              key={b.index}
-              ref={(el) => {
-                if (el) blockRefs.current.set(b.index, el);
-                else blockRefs.current.delete(b.index);
-              }}
+              key={block.index}
+              ref={blockRef(block.index)}
               className={cn(
                 "flex gap-3 border-b border-line px-2 py-2 last:border-b-0",
-                inRange(b.index) && "bg-accent-soft",
+                inRange(block.index) && "bg-accent-soft",
               )}
             >
               <button
                 type="button"
                 disabled={fetching}
-                onClick={() => void onFetchBlock(b.index)}
-                aria-label={`取 block ${b.index} 精确段`}
-                title="fetch 精确段"
-                className="shrink-0 pt-0.5 text-right disabled:opacity-45"
+                onClick={() => onFetchBlock(block.index)}
+                aria-label={`取 block ${block.index} 精确段`}
+                title="取精确原文段"
+                className="shrink-0 rounded-1 px-1 pt-0.5 text-right text-ink-3 hover:bg-hover hover:text-accent disabled:opacity-45"
               >
-                <Mono className="text-12 text-ink-3 hover:text-accent">b{b.index}</Mono>
+                <Mono className="text-12">b{block.index}</Mono>
               </button>
-              <p className="prose min-w-0 text-14 whitespace-pre-wrap">
-                {b.text}
-              </p>
+              <p className="prose min-w-0 whitespace-pre-wrap text-14">{block.text}</p>
             </li>
           ))}
         </ol>
       </section>
-    </article>
+    </div>
   );
 }

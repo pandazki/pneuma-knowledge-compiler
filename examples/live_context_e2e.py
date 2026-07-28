@@ -1,15 +1,16 @@
 #!/usr/bin/env python
-"""End-to-end AI cue walkthrough with a scripted (keyless) model.
+"""End-to-end Live Context walkthrough with a scripted (keyless) model.
 
-ingest → index (L1/L2) → cue evaluation over a transcript window → the mechanical gates
+ingest → index (L1/L2) → suggestion evaluation over a transcript window → the mechanical gates
 → handle resolution → want_more expansion. No provider key. Exit code is non-zero on any
 failure. Run after `docker compose -f infra/docker-compose.yml up -d --wait`.
 
 Scope note: this drives the CORE engine, like `briefing_e2e.py` does — the two transports
-(`POST …/context_stream/cue/stream` and `WS …/context_stream/cue/ws`) are covered by
-`packages/pneuma-knowledge-service/tests/test_cue_stream.py` and `test_cue_ws.py`.
+(`POST …/live-context/stream` and `WS …/live-context/ws`) are covered by
+`packages/pneuma-knowledge-service/tests/test_live_context_stream.py` and
+`test_live_context_ws.py`.
 
-The scripted cue bodies cite `s01`, not a real source id, and that is not a shortcut: the
+The scripted suggestion bodies cite `s01`, not a real source id, and that is not a shortcut: the
 model only ever sees query-local alias handles (`recall/citation_alias.py`), so `s01` is
 literally what a real model would emit. It also makes the script independent of the random
 source id minted each run.
@@ -29,11 +30,11 @@ from pathlib import Path
 # middleware client is constructed. See _bootstrap.py.
 import _bootstrap  # noqa: F401  (import for side effect)
 
-from pneuma_knowledge_core.domain.cue import CUE_FOCUSES
+from pneuma_knowledge_core.domain.suggestion import CONTEXT_FOCUSES
 from pneuma_knowledge_core.domain.ids import UserId
 from pneuma_knowledge_core.domain.source import ConversationTurn
-from pneuma_knowledge_core.recall.cue import CUE_CONTRACTS, cue_once
-from pneuma_knowledge_service.context_stream.engine import expand_cue
+from pneuma_knowledge_core.recall.suggestion import LIVE_CONTEXT_CONTRACTS, evaluate_live_context
+from pneuma_knowledge_service.live_context.engine import expand_suggestion
 from pneuma_knowledge_service.ingest import ingest_conversation
 from pneuma_knowledge_service.settings import Settings
 from pneuma_knowledge_service.wiring import build_context
@@ -53,7 +54,7 @@ MATERIAL = [
 ]
 
 # The live conversation the owner is in. The owner speaks first, the counterparty asks
-# the cue-worthy question — which is what makes `focus` observable.
+# the suggestion-worthy question — which is what makes `focus` observable.
 WINDOW = [
     ConversationTurn(speaker="林知远", text="我在整理 Atlas 的公开发布清单。", role="owner",
                      at=datetime(2026, 7, 25, 10, tzinfo=timezone.utc)),
@@ -62,12 +63,12 @@ WINDOW = [
 ]
 
 
-def _cue_script(path: Path) -> Path:
+def _suggestion_script(path: Path) -> Path:
     """Three cards, chosen so each surviving gate is observable in one run."""
     batch = {
-        "name": "CueBatch",
+        "name": "SuggestionBatch",
         "args": {
-            "cues": [
+            "suggestions": [
                 {  # survives: grounded + confident
                     "kind": "concept", "title": "许可证兼容性", "confidence": 9,
                     "trigger": "协作者：许可证兼容性需要怎么确认",
@@ -106,22 +107,22 @@ def _cue_script(path: Path) -> Path:
 
 
 async def main() -> int:
-    tmp = Path(tempfile.mkdtemp(prefix="pneuma_knowledge-cue-e2e-"))
+    tmp = Path(tempfile.mkdtemp(prefix="pneuma_knowledge-suggestion-e2e-"))
     # One scripted model for the whole run, wired through Settings the way briefing_e2e
-    # does: `expand_cue` reaches for `ctx.get_chat_model("cue")`, so handing the evaluation
+    # does: `expand_suggestion` reaches for `ctx.get_chat_model("live_context")`, so handing the evaluation
     # its own instance would leave the expansion trying to build a real provider client.
     # One instance also means one cursor — turn 1 is the evaluation, turn 2 the expansion.
-    script = _cue_script(tmp / "cue.json")
+    script = _suggestion_script(tmp / "suggestion.json")
     ctx = await build_context(
         Settings(
             canonical_root=str(tmp),
-            qdrant_collection=f"pneuma_knowledge_cue_e2e_{RUN}",
+            qdrant_collection=f"pneuma_knowledge_live_context_e2e_{RUN}",
             llm_model=f"scripted:{script}",
         )
     )
     failures: list[str] = []
     try:
-        user = UserId(f"u-e2e-cue-{RUN}")
+        user = UserId(f"u-e2e-suggestion-{RUN}")
         print(f"== ingest (user={user}) ==")
         res = await ingest_conversation(ctx, user, MATERIAL, title="Atlas 发布规范")
         sid = str(res.source_id)
@@ -135,57 +136,57 @@ async def main() -> int:
         if n != 1:
             failures.append(f"expected 1 index job, got {n}")
 
-        print("== cue evaluation (focus=other, min_confidence=6) ==")
-        result = await cue_once(
+        print("== suggestion evaluation (focus=other, min_confidence=6) ==")
+        result = await evaluate_live_context(
             user, WINDOW,
             as_of=datetime(2026, 7, 25, 10, 2, tzinfo=timezone.utc),
-            model=ctx.get_chat_model("cue"), embeddings=ctx.embeddings,
+            model=ctx.get_chat_model("live_context"), embeddings=ctx.embeddings,
             claim_lexical=ctx.lexical, claim_vectors=ctx.vectors,
             lexical=ctx.lexical, vectors=ctx.vectors, content=ctx.store,
             focus="other", min_confidence=6,
         )
-        print(f"  cues={len(result.cues)}  dropped={result.dropped}")
-        for c in result.cues:
+        print(f"  suggestions={len(result.suggestions)}  dropped={result.dropped}")
+        for c in result.suggestions:
             print(f"    [{c.kind}] {c.title!r} conf={c.confidence} cites={len(c.citations)}")
             print(f"      body: {c.body}")
 
-        if len(result.cues) != 1:
-            failures.append(f"expected 1 surviving cue, got {len(result.cues)}")
+        if len(result.suggestions) != 1:
+            failures.append(f"expected 1 surviving suggestion, got {len(result.suggestions)}")
         if result.dropped.get("uncited") != 1:
             failures.append(f"grounding gate did not fire: {result.dropped}")
         if result.dropped.get("low_confidence") != 1:
             failures.append(f"confidence gate did not fire: {result.dropped}")
 
-        if result.cues:
-            cue = result.cues[0]
+        if result.suggestions:
+            suggestion = result.suggestions[0]
             # The handle must be resolved and stripped server-side: the client never sees sNN.
-            if "[cite:" in cue.body:
+            if "[cite:" in suggestion.body:
                 failures.append("citation handle leaked into the delivered body")
-            if not cue.citations:
-                failures.append("surviving cue carries no structured citations")
-            elif str(cue.citations[0].source_id) != sid:
+            if not suggestion.citations:
+                failures.append("surviving suggestion carries no structured citations")
+            elif str(suggestion.citations[0].source_id) != sid:
                 failures.append(
-                    f"handle resolved to the wrong source: {cue.citations[0].source_id} != {sid}"
+                    f"handle resolved to the wrong source: {suggestion.citations[0].source_id} != {sid}"
                 )
 
         # focus is posture in the System tier — three fixed contracts, byte-stable (I5).
-        print(f"== focus contracts: {len(CUE_CONTRACTS)} ==")
-        if len({CUE_CONTRACTS[f] for f in CUE_CONTRACTS}) != 3:
+        print(f"== focus contracts: {len(LIVE_CONTEXT_CONTRACTS)} ==")
+        if len({LIVE_CONTEXT_CONTRACTS[f] for f in LIVE_CONTEXT_CONTRACTS}) != 3:
             failures.append("the three focus contracts are not distinct")
-        if {o.key for o in CUE_FOCUSES} != set(CUE_CONTRACTS):
+        if {o.key for o in CONTEXT_FOCUSES} != set(LIVE_CONTEXT_CONTRACTS):
             failures.append("focus vocabulary and contracts disagree")
 
         print("== want_more (zero retrieval, verbatim by the card's own citations) ==")
-        if result.cues:
-            detail = await expand_cue(
+        if result.suggestions:
+            detail = await expand_suggestion(
                 ctx, str(user),
                 {
-                    "kind": result.cues[0].kind, "title": result.cues[0].title,
-                    "body": result.cues[0].body, "trigger": result.cues[0].trigger,
+                    "kind": result.suggestions[0].kind, "title": result.suggestions[0].title,
+                    "body": result.suggestions[0].body, "trigger": result.suggestions[0].trigger,
                     "citations": [
                         {"source_id": str(c.source_id), "block_start": c.block_start,
                          "block_end": c.block_end}
-                        for c in result.cues[0].citations
+                        for c in result.suggestions[0].citations
                     ],
                 },
             )
@@ -205,7 +206,7 @@ async def main() -> int:
         for f in failures:
             print(f"  - {f}")
         return 1
-    print("\nOK: cue e2e passed")
+    print("\nOK: suggestion e2e passed")
     return 0
 
 

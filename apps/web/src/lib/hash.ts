@@ -20,10 +20,10 @@ const VIEWS: ViewName[] = [
   "sources",
   "ingest",
   "recall",
-  // "ask" and "context_stream" are nav-visible views; both must be here or a deep link to
+  // "ask" and "live_context" are nav-visible views; both must be here or a deep link to
   // them parses as null and silently falls back to the default view.
   "ask",
-  "context_stream",
+  "live_context",
   "library",
   "process",
   "history",

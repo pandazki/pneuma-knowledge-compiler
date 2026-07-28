@@ -52,7 +52,10 @@ export const TextField = forwardRef<HTMLInputElement, TextFieldProps>(function T
           disabled={disabled}
           aria-invalid={error ? true : undefined}
           aria-describedby={hintId}
-          className={cn("h-full min-w-0 flex-1 text-14 text-ink", className)}
+          className={cn(
+            "h-full min-w-0 flex-1 text-14 text-ink focus-visible:outline-none",
+            className,
+          )}
           {...rest}
         />
         {suffix != null && <span className="shrink-0 text-ink-3">{suffix}</span>}

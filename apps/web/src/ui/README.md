@@ -213,13 +213,13 @@ serif 正文 + Footnote 序列 + mono 锚点；flags（disputed/open_question/�
 页边注呈现（≥md 右侧边栏，窄屏落正文下）。
 
 ### GateLedger
-`dropped: CueDropped（lib/api）`：unparsed/repeat/uncited/low_confidence/capped
+`dropped: SuggestionDropped（lib/api）`：unparsed/repeat/uncited/low_confidence/capped
 五栏计数账；>0 栏 danger（uncited）/ warn（其余），0 栏 ink-3。
 
 ### SourceSpanSheet
 `open; onOpenChange; sourceId; blockStart?; blockEnd?`：右侧 Drawer，
 用 `api.getSource` 拉原文（mono 块号 + serif 正文），目标区间 accent-soft 高亮，
-附「fetch 精确段」（`api.fetchLocator`）。recall/ask/cue/library 共用。
+附「fetch 精确段」（`api.fetchLocator`）。recall/ask/suggestion/library 共用。
 
 ### GraphCanvas（graph/index.ts）
 `export const GraphCanvas = lazy(() => import("./GraphCanvas"))` —— 当前为空壳，

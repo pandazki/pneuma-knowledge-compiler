@@ -21,8 +21,8 @@ CITE_PRECISE = "精确到段落（`[cite: <source_id> ¶a-b]`）。"
 
 # The second injection point: the closing clause of 作答形态. Q&A modes (fast/deep/briefing)
 # close on "nothing found is a faithful answer" — right when a owner ASKED something. A
-# listening mode (cue) has no question, so that clause would make it push a card reading
-# 「无相关记录」onto the lens; it needs its own close. Same mechanism as `{cite}`: one spine,
+# listening mode (suggestion) has no question, so that clause would make it push a card reading
+# 「无相关记录」as a visible card; it needs its own close. Same mechanism as `{cite}`: one spine,
 # one differing clause per mode, never a forked copy.
 CLOSE_ANSWER_HONESTLY = (
     "- 眼前证据覆盖不到本人所求时，「无相关记录」就是忠实的答案；不要复述输入或添加\n"

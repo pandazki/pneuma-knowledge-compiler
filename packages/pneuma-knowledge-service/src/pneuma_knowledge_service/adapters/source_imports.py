@@ -66,7 +66,7 @@ class CanonicalJsonSourceAdapter:
         return parse_source_contract(data)
 
 
-_VTT_CUE_RE = re.compile(
+_VTT_ENTRY_RE = re.compile(
     r"(?:(?P<id>[^\n]+)\n)?"
     r"(?P<start>\d{2,}:\d{2}:\d{2}\.\d{3})\s+-->\s+"
     r"(?P<end>\d{2,}:\d{2}:\d{2}\.\d{3})(?:[^\n]*)\n"
@@ -123,19 +123,19 @@ class ZoomVttAdapter:
 
         segments: list[MeetingSegment] = []
         for index, match in enumerate(
-            _VTT_CUE_RE.finditer(_read_text(transcript).replace("\r\n", "\n")),
+            _VTT_ENTRY_RE.finditer(_read_text(transcript).replace("\r\n", "\n")),
             start=1,
         ):
-            cue_text = " ".join(
+            entry_text = " ".join(
                 line.strip() for line in match.group("text").splitlines() if line.strip()
             )
-            speaker_match = _VTT_SPEAKER_RE.match(cue_text)
+            speaker_match = _VTT_SPEAKER_RE.match(entry_text)
             if speaker_match:
                 speaker_name = html.unescape(speaker_match.group(1).strip())
                 text = html.unescape(speaker_match.group(2).strip())
             else:
                 speaker_name = "Unknown speaker"
-                text = html.unescape(cue_text.strip())
+                text = html.unescape(entry_text.strip())
             participant = by_name.get(speaker_name.casefold())
             if participant is None:
                 suffix = hashlib.sha256(speaker_name.encode("utf-8")).hexdigest()[:10]
@@ -154,7 +154,7 @@ class ZoomVttAdapter:
                 )
             )
         if not segments:
-            raise ValueError("Zoom transcript contains no WebVTT cues")
+            raise ValueError("Zoom transcript contains no WebVTT transcript entries")
 
         owner_emails = {item.casefold() for item in (owner_emails or set())}
         owner_ids = set(owner_participant_ids or set())

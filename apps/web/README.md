@@ -66,7 +66,7 @@ canonical path 和 patch/ref。没有编译数据时显示真实空态，不生�
 |---|---|
 | **导入材料** | 上传或粘贴材料，预览 intake plan，由后台 worker 异步索引与编译。 |
 | **检索实验** | `rag / fast / deep / briefing` 四模式召回；deep 通过 SSE 展示 agentic 取证过程。 |
-| **主动提示** | 模拟 context cue 的提示、沉默、丢弃与门禁结果。 |
+| **主动提示** | 模拟 context suggestion 的提示、沉默、丢弃与门禁结果。 |
 
 ### 核对证据
 

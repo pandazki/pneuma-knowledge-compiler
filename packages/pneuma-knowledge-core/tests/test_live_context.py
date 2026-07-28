@@ -1,4 +1,4 @@
-"""AI Cue: the four mechanical gates, focus as posture, stable speaker labelling.
+"""AI ContextSuggestion: the four mechanical gates, focus as posture, stable speaker labelling.
 
 Keyless throughout — plain fakes, no provider, no middleware. The gate tests each break
 exactly one mechanism, so removing that mechanism from `apply_gates` turns exactly one
@@ -15,23 +15,23 @@ from typing import Any
 
 import pytest
 from pneuma_knowledge_core.domain.canonical import Citation
-from pneuma_knowledge_core.domain.cue import (
-    CUE_FOCUSES,
-    CUE_KINDS,
-    Cue,
-    CueBatch,
+from pneuma_knowledge_core.domain.suggestion import (
+    CONTEXT_FOCUSES,
+    SUGGESTION_KINDS,
+    ContextSuggestion,
+    SuggestionBatch,
     focus_option,
     kind_option,
 )
 from pneuma_knowledge_core.domain.ids import UserId, SourceId
 from pneuma_knowledge_core.domain.source import ConversationTurn
 from pneuma_knowledge_core.recall.briefing import _BRIEFING_CONTRACT
-from pneuma_knowledge_core.recall.cue import (
-    CUE_CONTRACTS,
+from pneuma_knowledge_core.recall.suggestion import (
+    LIVE_CONTEXT_CONTRACTS,
     apply_gates,
-    cue_human,
-    cue_messages,
-    cue_once,
+    live_context_human,
+    live_context_messages,
+    evaluate_live_context,
     gather_evidence,
     label_turns,
 )
@@ -48,7 +48,7 @@ SRC = "11111111-1111-1111-1111-111111111111"
 
 
 class FakeStructuredModel:
-    """Stands in for `model.with_structured_output(CueBatch, include_raw=True)`.
+    """Stands in for `model.with_structured_output(SuggestionBatch, include_raw=True)`.
 
     Returns the scripted `include_raw` envelopes in order; once exhausted it returns the
     shape a real model produces when it answers with prose instead of a tool call —
@@ -79,7 +79,7 @@ class FakeStructuredModel:
         return _Runnable()
 
 
-def envelope(batch: CueBatch | None) -> dict:
+def envelope(batch: SuggestionBatch | None) -> dict:
     return {"raw": AIMessage(content=""), "parsed": batch, "parsing_error": None}
 
 
@@ -135,14 +135,14 @@ def claim_stub(anchor: str, text: str, source: str = SRC) -> ClaimStub:
     )
 
 
-def cue(
+def suggestion(
     *,
     body: str = f"[cite: s01 ¶1-2] 说明",
     confidence: int = 8,
     title: str = "术语",
     kind: str = "concept",
-) -> Cue:
-    return Cue(kind=kind, title=title, body=body, trigger="他刚提到术语", confidence=confidence)
+) -> ContextSuggestion:
+    return ContextSuggestion(kind=kind, title=title, body=body, trigger="他刚提到术语", confidence=confidence)
 
 
 HANDLES = {"s01": SRC, "s02": "22222222-2222-2222-2222-222222222222"}
@@ -173,140 +173,140 @@ def test_public_answer_contracts_are_byte_stable(name):
     assert digest == _PUBLIC_BASELINE_SHA256[name]
 
 
-def test_cue_contract_drops_the_qa_close_and_keeps_the_red_lines():
+def test_live_context_contract_drops_the_qa_close_and_keeps_the_red_lines():
     """The whole reason `close` exists: the Q&A closing would have the model push a card
-    reading 「无相关记录」onto the lens. The red line (assertion strength = evidence
+    emitting a visible 「无相关记录」 card. The red line (assertion strength = evidence
     strength) and the wide-recall/subject-identity paragraph stay — in a multi-party
     conversation they matter MORE, not less."""
-    contract = CUE_CONTRACTS["general"]
+    contract = LIVE_CONTEXT_CONTRACTS["general"]
     assert "「无相关记录」就是忠实的答案" not in contract
     assert "断言的强度必须与证据的强度对齐" in contract
     assert "属于其他主体的证据再相似也是另一条记录" in contract
-    # ASR error is re-attributed to every speaker, not just the owner.
-    assert "每一位说话人" in contract
+    # ASR remains a meeting-input concern without making the whole feature conversation-only.
+    assert "会议转录可能来自语音识别" in contract
 
 
-def test_cue_contracts_are_byte_stable_per_focus():
+def test_live_context_contracts_are_byte_stable_per_focus():
     """Computed at module load, no timestamp / transcript / evidence (I5)."""
-    from pneuma_knowledge_core.recall.cue import _cue_contract
+    from pneuma_knowledge_core.recall.suggestion import _live_context_contract
 
     for focus in ("general", "owner", "other"):
         # rebuilding is byte-identical: nothing volatile was baked in at load time
-        assert _cue_contract(focus) == CUE_CONTRACTS[focus]
+        assert _live_context_contract(focus) == LIVE_CONTEXT_CONTRACTS[focus]
         # no timestamp, no transcript, no evidence — posture only (I5)
-        assert not re.search(r"\d{4}-\d{2}-\d{2}", CUE_CONTRACTS[focus])
-        assert "本人输入" not in CUE_CONTRACTS[focus]
+        assert not re.search(r"\d{4}-\d{2}-\d{2}", LIVE_CONTEXT_CONTRACTS[focus])
+        assert "本人输入" not in LIVE_CONTEXT_CONTRACTS[focus]
 
 
 # ------------------------------------------------------------------- the four gates
 
 
-def test_gate1_unparsed_yields_zero_cues():
+def test_gate1_unparsed_yields_zero_suggestions():
     """`parsed is None` (prose answer, schema violation, provider hiccup) → silence, never
     an exception onto a pair of context clients."""
-    cues, dropped = apply_gates(None, HANDLES)
-    assert cues == []
+    suggestions, dropped = apply_gates(None, HANDLES)
+    assert suggestions == []
     assert dropped["unparsed"] == 1
 
 
-def test_gate2_uncited_cue_is_dropped():
-    """No `[cite: …]` resolving to a real source → not grounded → not a cue."""
-    batch = CueBatch(
-        cues=[
-            cue(title="有引用", body="[cite: s01 ¶1-2] 有据"),
-            cue(title="无引用", body="听起来很重要但没有出处"),
-            cue(title="幻觉句柄", body="[cite: s99 ¶1-2] 指向不存在的来源"),
+def test_gate2_uncited_suggestion_is_dropped():
+    """No `[cite: …]` resolving to a real source → not grounded → not a suggestion."""
+    batch = SuggestionBatch(
+        suggestions=[
+            suggestion(title="有引用", body="[cite: s01 ¶1-2] 有据"),
+            suggestion(title="无引用", body="听起来很重要但没有出处"),
+            suggestion(title="幻觉句柄", body="[cite: s99 ¶1-2] 指向不存在的来源"),
         ]
     )
-    cues, dropped = apply_gates(batch, HANDLES, max_cues=5, min_confidence=1)
-    assert [c.title for c in cues] == ["有引用"]
+    suggestions, dropped = apply_gates(batch, HANDLES, max_suggestions=5, min_confidence=1)
+    assert [c.title for c in suggestions] == ["有引用"]
     assert dropped["uncited"] == 2
 
 
 def test_gate3_confidence_below_threshold_is_dropped():
-    batch = CueBatch(
-        cues=[
-            cue(title="高分", confidence=9),
-            cue(title="低分", confidence=3),
+    batch = SuggestionBatch(
+        suggestions=[
+            suggestion(title="高分", confidence=9),
+            suggestion(title="低分", confidence=3),
         ]
     )
-    cues, dropped = apply_gates(batch, HANDLES, max_cues=5, min_confidence=6)
-    assert [c.title for c in cues] == ["高分"]
+    suggestions, dropped = apply_gates(batch, HANDLES, max_suggestions=5, min_confidence=6)
+    assert [c.title for c in suggestions] == ["高分"]
     assert dropped["low_confidence"] == 1
 
 
 def test_gate3_threshold_is_a_dial_over_the_same_batch():
     """The confidence is already computed, so re-thresholding re-runs nothing — that is
     the reason sensitivity lives here and not on a retrieval score."""
-    batch = CueBatch(cues=[cue(title=f"c{n}", confidence=n) for n in (2, 5, 8)])
+    batch = SuggestionBatch(suggestions=[suggestion(title=f"c{n}", confidence=n) for n in (2, 5, 8)])
     for threshold, expected in [(1, 3), (5, 2), (8, 1), (9, 0)]:
-        cues, _ = apply_gates(batch, HANDLES, max_cues=5, min_confidence=threshold)
-        assert len(cues) == expected
+        suggestions, _ = apply_gates(batch, HANDLES, max_suggestions=5, min_confidence=threshold)
+        assert len(suggestions) == expected
 
 
 def test_gate4_caps_by_confidence_descending():
-    batch = CueBatch(
-        cues=[
-            cue(title="中", confidence=7),
-            cue(title="低", confidence=6),
-            cue(title="高", confidence=10),
-            cue(title="次高", confidence=9),
+    batch = SuggestionBatch(
+        suggestions=[
+            suggestion(title="中", confidence=7),
+            suggestion(title="低", confidence=6),
+            suggestion(title="高", confidence=10),
+            suggestion(title="次高", confidence=9),
         ]
     )
-    cues, dropped = apply_gates(batch, HANDLES, max_cues=2, min_confidence=1)
-    assert [c.title for c in cues] == ["高", "次高"]
-    assert [c.confidence for c in cues] == [10, 9]
+    suggestions, dropped = apply_gates(batch, HANDLES, max_suggestions=2, min_confidence=1)
+    assert [c.title for c in suggestions] == ["高", "次高"]
+    assert [c.confidence for c in suggestions] == [10, 9]
     assert dropped["capped"] == 2
 
 
 def test_gate4_ties_keep_the_models_own_order():
-    batch = CueBatch(cues=[cue(title=t, confidence=7) for t in ("甲", "乙", "丙")])
-    cues, _ = apply_gates(batch, HANDLES, max_cues=2, min_confidence=1)
-    assert [c.title for c in cues] == ["甲", "乙"]
+    batch = SuggestionBatch(suggestions=[suggestion(title=t, confidence=7) for t in ("甲", "乙", "丙")])
+    suggestions, _ = apply_gates(batch, HANDLES, max_suggestions=2, min_confidence=1)
+    assert [c.title for c in suggestions] == ["甲", "乙"]
 
 
 def test_already_shown_is_dropped_mechanically_not_asked_for():
-    batch = CueBatch(cues=[cue(title="术语", kind="concept"), cue(title="新的")])
-    cues, dropped = apply_gates(
+    batch = SuggestionBatch(suggestions=[suggestion(title="术语", kind="concept"), suggestion(title="新的")])
+    suggestions, dropped = apply_gates(
         batch,
         HANDLES,
-        max_cues=5,
+        max_suggestions=5,
         min_confidence=1,
         # a client replaying its own JSON, cite residue and all
         already_shown=[{"kind": "concept", "title": "术语 [cite: s07 ¶1-2]"}],
     )
-    assert [c.title for c in cues] == ["新的"]
+    assert [c.title for c in suggestions] == ["新的"]
     assert dropped["repeat"] == 1
 
 
 def test_handles_are_resolved_and_stripped_before_leaving_the_server():
     """A client never sees `sNN`: handles are re-assigned every evaluation, so one that
     outlived its evaluation would point at a different source."""
-    batch = CueBatch(cues=[cue(body="RRF 是排名倒数融合 [cite: s01 ¶3-5]。")])
-    cues, _ = apply_gates(batch, HANDLES, min_confidence=1)
-    assert "[cite:" not in cues[0].body
-    assert "s01" not in cues[0].body
-    assert cues[0].body == "RRF 是排名倒数融合。"
-    assert cues[0].citations == [
+    batch = SuggestionBatch(suggestions=[suggestion(body="RRF 是排名倒数融合 [cite: s01 ¶3-5]。")])
+    suggestions, _ = apply_gates(batch, HANDLES, min_confidence=1)
+    assert "[cite:" not in suggestions[0].body
+    assert "s01" not in suggestions[0].body
+    assert suggestions[0].body == "RRF 是排名倒数融合。"
+    assert suggestions[0].citations == [
         Citation(source_id=SourceId(SRC), block_start=3, block_end=5)
     ]
 
 
 def test_hallucinated_handle_yields_no_citation():
-    batch = CueBatch(cues=[cue(body="有据 [cite: s01 ¶1-2] 与臆造 [cite: s42 ¶9-9]")])
-    cues, _ = apply_gates(batch, HANDLES, min_confidence=1)
-    assert [c.source_id for c in cues[0].citations] == [SourceId(SRC)]
+    batch = SuggestionBatch(suggestions=[suggestion(body="有据 [cite: s01 ¶1-2] 与臆造 [cite: s42 ¶9-9]")])
+    suggestions, _ = apply_gates(batch, HANDLES, min_confidence=1)
+    assert [c.source_id for c in suggestions[0].citations] == [SourceId(SRC)]
 
 
 # ------------------------------------------------------------------------- focus
 
 
 def test_three_focus_values_produce_three_different_contracts():
-    contracts = {f: CUE_CONTRACTS[f] for f in ("general", "owner", "other")}
+    contracts = {f: LIVE_CONTEXT_CONTRACTS[f] for f in ("general", "owner", "other")}
     assert len(set(contracts.values())) == 3
     assert "不论出自谁口" in contracts["general"]
-    assert "只为「本人」说出的内容出卡片" in contracts["owner"]
-    assert "只为「参与者」说出的内容出卡片" in contracts["other"]
+    assert "只为「本人」输入的内容生成提示" in contracts["owner"]
+    assert "只为「参与者」输入的内容生成提示" in contracts["other"]
 
 
 TRANSCRIPT = "本人：我们在谈 RRF。\n参与者1（others/2）：那 chonkie 呢？"
@@ -318,7 +318,7 @@ def test_focus_changes_the_system_the_model_sees_but_never_the_transcript():
     context needed to understand what is left."""
     systems, humans = set(), set()
     for focus in ("general", "owner", "other"):
-        system, human = cue_messages(TRANSCRIPT, as_of=AS_OF, focus=focus)
+        system, human = live_context_messages(TRANSCRIPT, as_of=AS_OF, focus=focus)
         systems.add(system.content)
         humans.add(human.content)
     assert len(systems) == 3, "focus must change the posture"
@@ -337,14 +337,14 @@ async def test_focus_reaches_the_model_end_to_end():
     seen = []
     for focus in ("general", "owner", "other"):
         model = FakeStructuredModel()
-        await cue_once(USER, turns, as_of=AS_OF, model=model, focus=focus)
+        await evaluate_live_context(USER, turns, as_of=AS_OF, model=model, focus=focus)
         seen.append(model.calls[0][0].content)
     assert len(set(seen)) == 3
 
 
 def test_unknown_focus_is_a_hard_error_not_a_silent_fallback():
     with pytest.raises(ValueError):
-        cue_messages(TRANSCRIPT, as_of=AS_OF, focus="everyone")  # type: ignore[arg-type]
+        live_context_messages(TRANSCRIPT, as_of=AS_OF, focus="everyone")  # type: ignore[arg-type]
 
 
 # ------------------------------------------------------------------ speaker labels
@@ -399,7 +399,7 @@ def test_label_turns_leaves_undiarized_turns_verbatim():
 
 
 def test_transcript_sits_last_in_the_human_turn():
-    human = cue_human(
+    human = live_context_human(
         TRANSCRIPT,
         as_of=AS_OF,
         claims=[],
@@ -416,12 +416,12 @@ def test_human_turn_never_labels_the_transcript_as_the_owners_input():
     """Not `recall_human`: hanging a multi-speaker transcript under 「本人输入」 would
     mislabel every interlocutor line as the owner's — under a feature whose whole focus
     axis is speaker attribution."""
-    human = cue_human(TRANSCRIPT, as_of=AS_OF)
+    human = live_context_human(TRANSCRIPT, as_of=AS_OF)
     assert "本人输入" not in human
 
 
 def test_already_shown_cite_residue_never_reaches_the_prompt():
-    human = cue_human(
+    human = live_context_human(
         TRANSCRIPT,
         as_of=AS_OF,
         already_shown=[{"kind": "concept", "title": "RRF [cite: s03 ¶1-2]"}],
@@ -431,7 +431,7 @@ def test_already_shown_cite_residue_never_reaches_the_prompt():
 
 @pytest.mark.asyncio
 async def test_gather_evidence_batches_every_turn_into_one_embedding_call():
-    """N=3 turns must cost ONE embedding round trip, not N. Latency is why cue exists."""
+    """N=3 turns must cost ONE embedding round trip, not N. Latency is why suggestion exists."""
     embeddings = FakeEmbeddings()
     lexical = FakeClaimLexical(
         {
@@ -468,13 +468,13 @@ async def test_gather_evidence_dedups_a_claim_surfaced_by_several_turns():
 
 
 @pytest.mark.asyncio
-async def test_cue_once_end_to_end_grounded_card():
+async def test_evaluate_live_context_end_to_end_grounded_card():
     embeddings = FakeEmbeddings()
     lexical = FakeClaimLexical({"RRF 是什么？": [claim_stub("c1", "RRF = 排名倒数融合")]})
     model = FakeStructuredModel(
-        [envelope(CueBatch(cues=[cue(body="RRF 是排名倒数融合 [cite: s01 ¶1-2]")]))]
+        [envelope(SuggestionBatch(suggestions=[suggestion(body="RRF 是排名倒数融合 [cite: s01 ¶1-2]")]))]
     )
-    result = await cue_once(
+    result = await evaluate_live_context(
         USER,
         [other("RRF 是什么？", "others/2")],
         as_of=AS_OF,
@@ -483,11 +483,11 @@ async def test_cue_once_end_to_end_grounded_card():
         claim_lexical=lexical,
         claim_vectors=FakeClaimVectors(),
     )
-    assert model.schemas == [CueBatch]
+    assert model.schemas == [SuggestionBatch]
     assert model.include_raw == [True], "include_raw is what makes a parse failure silent"
-    assert len(result.cues) == 1
-    assert result.cues[0].citations[0].source_id == SourceId(SRC)
-    assert "[cite:" not in result.cues[0].body
+    assert len(result.suggestions) == 1
+    assert result.suggestions[0].citations[0].source_id == SourceId(SRC)
+    assert "[cite:" not in result.suggestions[0].body
     assert result.dropped == {
         "unparsed": 0, "repeat": 0, "uncited": 0, "low_confidence": 0, "capped": 0
     }
@@ -497,19 +497,19 @@ async def test_cue_once_end_to_end_grounded_card():
 
 
 @pytest.mark.asyncio
-async def test_cue_once_is_silent_when_the_model_answers_with_prose():
+async def test_evaluate_live_context_is_silent_when_the_model_answers_with_prose():
     """FakeStructuredModel exhausted → parsed None. Gate 1, end to end."""
-    result = await cue_once(USER, [owner("随便聊聊")], as_of=AS_OF, model=FakeStructuredModel())
-    assert result.cues == ()
+    result = await evaluate_live_context(USER, [owner("随便聊聊")], as_of=AS_OF, model=FakeStructuredModel())
+    assert result.suggestions == ()
     assert result.dropped["unparsed"] == 1
     assert result.token_usage["input_tokens"] == 0
 
 
 @pytest.mark.asyncio
-async def test_cue_once_window_keeps_only_the_last_n_turns():
+async def test_evaluate_live_context_window_keeps_only_the_last_n_turns():
     embeddings = FakeEmbeddings()
     turns = [owner(f"第{i}句") for i in range(6)]
-    await cue_once(
+    await evaluate_live_context(
         USER,
         turns,
         as_of=AS_OF,
@@ -527,7 +527,7 @@ async def test_briefing_scope_does_zero_retrieval():
     """A frozen pack IS the evidence: no embedding, no index call, fastest path."""
     embeddings = FakeEmbeddings()
     model = FakeStructuredModel()
-    await cue_once(
+    await evaluate_live_context(
         USER,
         [owner("说点什么")],
         as_of=AS_OF,
@@ -540,12 +540,12 @@ async def test_briefing_scope_does_zero_retrieval():
 
 
 @pytest.mark.asyncio
-async def test_cue_once_holds_speaker_numbering_across_evaluations():
+async def test_evaluate_live_context_holds_speaker_numbering_across_evaluations():
     a, b = other("A 说", "others/2"), other("B 说", "others/5")
     label_map: dict[str, str] = {}
     model = FakeStructuredModel()
-    await cue_once(USER, [a, b], as_of=AS_OF, model=model, label_map=label_map)
-    await cue_once(USER, [b], as_of=AS_OF, model=model, label_map=label_map)
+    await evaluate_live_context(USER, [a, b], as_of=AS_OF, model=model, label_map=label_map)
+    await evaluate_live_context(USER, [b], as_of=AS_OF, model=model, label_map=label_map)
     assert "参与者2（others/5）：B 说" in model.calls[1][1].content
 
 
@@ -553,10 +553,10 @@ async def test_cue_once_holds_speaker_numbering_across_evaluations():
 
 
 def test_focus_and_kind_vocabularies_are_closed():
-    assert [f.key for f in CUE_FOCUSES] == ["general", "owner", "other"]
-    assert [k.key for k in CUE_KINDS] == ["concept", "fact"]
-    assert set(CUE_CONTRACTS) == {f.key for f in CUE_FOCUSES}
-    assert focus_option("owner").label == "仅我说的"
+    assert [f.key for f in CONTEXT_FOCUSES] == ["general", "owner", "other"]
+    assert [k.key for k in SUGGESTION_KINDS] == ["concept", "fact"]
+    assert set(LIVE_CONTEXT_CONTRACTS) == {f.key for f in CONTEXT_FOCUSES}
+    assert focus_option("owner").label == "聚焦本人"
     assert kind_option("fact").key == "fact"
     with pytest.raises(ValueError):
         focus_option("everybody")
@@ -564,14 +564,14 @@ def test_focus_and_kind_vocabularies_are_closed():
         kind_option("opinion")
 
 
-def test_cue_batch_has_a_mechanical_ceiling():
+def test_suggestion_batch_has_a_mechanical_ceiling():
     """max_length=5 is what the model can physically emit; under include_raw a longer list
-    becomes a parsing_error → silence. Distinct from the tunable max_cues cap."""
+    becomes a parsing_error → silence. Distinct from the tunable max_suggestions cap."""
     with pytest.raises(Exception):
-        CueBatch(cues=[cue(title=f"c{i}") for i in range(6)])
+        SuggestionBatch(suggestions=[suggestion(title=f"c{i}") for i in range(6)])
 
 
 def test_confidence_is_bounded_by_the_schema():
     for bad in (0, 11, -3):
         with pytest.raises(Exception):
-            cue(confidence=bad)
+            suggestion(confidence=bad)
