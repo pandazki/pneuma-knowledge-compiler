@@ -1,0 +1,52 @@
+import * as RadixTabs from "@radix-ui/react-tabs";
+import type { ReactNode } from "react";
+import { cn } from "./cn";
+
+export interface TabItem {
+  value: string;
+  label: ReactNode;
+  panel: ReactNode;
+  disabled?: boolean;
+}
+
+export interface TabsProps {
+  value: string;
+  onChange: (value: string) => void;
+  tabs: TabItem[];
+  "aria-label": string;
+  className?: string;
+}
+
+/** Radix Tabs：下划线式，发丝线分隔。 */
+export function Tabs({ value, onChange, tabs, className, ...rest }: TabsProps) {
+  return (
+    <RadixTabs.Root value={value} onValueChange={onChange} className={className}>
+      <RadixTabs.List
+        aria-label={rest["aria-label"]}
+        className="flex items-stretch gap-1 border-b border-line"
+      >
+        {tabs.map((tab) => (
+          <RadixTabs.Trigger
+            key={tab.value}
+            value={tab.value}
+            disabled={tab.disabled}
+            className={cn(
+              "-mb-px h-9 border-b-2 border-transparent px-3 text-14 text-ink-2",
+              "transition-colors duration-120 ease-out",
+              "hover:not-disabled:not-data-[state=active]:text-ink",
+              "data-[state=active]:border-accent data-[state=active]:font-medium data-[state=active]:text-ink",
+              "disabled:cursor-not-allowed disabled:opacity-45",
+            )}
+          >
+            {tab.label}
+          </RadixTabs.Trigger>
+        ))}
+      </RadixTabs.List>
+      {tabs.map((tab) => (
+        <RadixTabs.Content key={tab.value} value={tab.value} className="pt-4 outline-none">
+          {tab.panel}
+        </RadixTabs.Content>
+      ))}
+    </RadixTabs.Root>
+  );
+}
