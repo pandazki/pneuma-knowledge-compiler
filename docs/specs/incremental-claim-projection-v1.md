@@ -41,11 +41,13 @@ For one user, under the existing single-writer queue:
 5. idempotently upsert/delete the Meilisearch and Qdrant delta;
 6. transactionally apply the same PostgreSQL delta and advance every surviving row's
    `snapshot_ref`;
-7. only then mark the compile job complete.
+7. only then stamp the input sources as digested and mark the compile job complete.
 
 PostgreSQL lands last. If a remote index or embedding call fails, its manifest remains
 old and a retry recomputes the same delta. Deterministic remote IDs make partial
-upserts/deletes safe to repeat.
+upserts/deletes safe to repeat. The canonical commit may already exist at that point,
+so retrying the undigested source can legitimately produce a canonical `noop`; that
+branch must reconcile the current HEAD projection before stamping digestion.
 
 ## 5. Acceptance
 
@@ -54,6 +56,9 @@ upserts/deletes safe to repeat.
 - Removed identities are deleted from all three derived stores.
 - PostgreSQL rows all carry the current snapshot ref after success.
 - A zero-delta commit performs no embedding call.
+- A projection failure leaves every input source undigested and the job failed.
+- Retrying after canonical success repairs the projection through the `noop` branch,
+  then stamps digestion.
 - The explicit full rebuild remains idempotent and passes the existing three-store
   integration test.
 - The 12-batch real experiment reports per-batch elapsed time without the prior

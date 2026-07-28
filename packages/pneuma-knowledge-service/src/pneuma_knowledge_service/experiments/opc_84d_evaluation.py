@@ -88,6 +88,59 @@ def truth_entries(
     return rows
 
 
+def canonical_quality(claims: list[dict[str, Any]]) -> dict[str, Any]:
+    """Mechanical structure/provenance debt indicators over projected claim rows."""
+    by_normalized: dict[str, list[dict[str, str]]] = {}
+    claims_per_document: Counter[str] = Counter()
+    claims_without_citations = 0
+    citation_marker_residue = 0
+    marked_section_components = 0
+    representative: dict[str, str] = {}
+
+    for claim in claims:
+        path = str(claim["document_path"])
+        anchor = str(claim["anchor"])
+        text = str(claim["text"])
+        claims_per_document[path] += 1
+        claims_without_citations += int(not claim.get("citations"))
+        citation_marker_residue += int("[cite:" in text.lower())
+        marked_section_components += sum(
+            str(component).lstrip().startswith("#")
+            for component in (claim.get("section_path") or [])
+        )
+        normalized = normalize_text(text)
+        if normalized:
+            representative.setdefault(normalized, text)
+            by_normalized.setdefault(normalized, []).append(
+                {"document_path": path, "anchor": anchor}
+            )
+
+    duplicate_groups = [
+        {
+            "text": representative[normalized],
+            "count": len(locations),
+            "locations": locations,
+        }
+        for normalized, locations in sorted(by_normalized.items())
+        if len(locations) > 1
+    ]
+    duplicate_rows_excess = sum(row["count"] - 1 for row in duplicate_groups)
+    total = len(claims)
+    return {
+        "claims_total": total,
+        "claims_without_citations": claims_without_citations,
+        "citation_marker_residue": citation_marker_residue,
+        "section_components_with_heading_marker": marked_section_components,
+        "exact_duplicate_groups": len(duplicate_groups),
+        "duplicate_rows_excess": duplicate_rows_excess,
+        "duplicate_row_rate": round(duplicate_rows_excess / total, 6)
+        if total
+        else None,
+        "claims_per_document": dict(sorted(claims_per_document.items())),
+        "duplicate_samples": duplicate_groups[:30],
+    }
+
+
 def _cosine(left: list[float] | None, right: list[float] | None) -> float:
     if not left or not right or len(left) != len(right):
         return 0.0
@@ -409,6 +462,7 @@ async def evaluate_opc_84d(
             "postgres_equals_meilisearch": len(claims) == meili_count,
             "postgres_equals_qdrant": len(claims) == qdrant_count,
         },
+        "canonical_quality": canonical_quality(claims),
         "truth_recall": {
             "matched": matched_truth,
             "total": len(truth_matches),

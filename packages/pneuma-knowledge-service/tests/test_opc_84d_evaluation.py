@@ -1,4 +1,5 @@
 from pneuma_knowledge_service.experiments.opc_84d_evaluation import (
+    canonical_quality,
     char_similarity,
     guarded_statement,
     truth_entries,
@@ -42,3 +43,36 @@ def test_truth_entries_attach_category_and_filter_current_status():
         "f1",
         "d2",
     ]
+
+
+def test_canonical_quality_reports_duplicate_and_provenance_debt():
+    claims = [
+        {
+            "document_path": "a.md",
+            "anchor": "a1",
+            "section_path": ["行动项"],
+            "text": "周五前交付。",
+            "citations": [{"source_id": "s1"}],
+        },
+        {
+            "document_path": "b.md",
+            "anchor": "b1",
+            "section_path": ["## 行动项"],
+            "text": "周五前交付！",
+            "citations": [],
+        },
+        {
+            "document_path": "b.md",
+            "anchor": "b2",
+            "section_path": ["记录"],
+            "text": "残留 [cite: s2 ¶0-¶1]",
+            "citations": [],
+        },
+    ]
+    quality = canonical_quality(claims)
+    assert quality["exact_duplicate_groups"] == 1
+    assert quality["duplicate_rows_excess"] == 1
+    assert quality["claims_without_citations"] == 2
+    assert quality["citation_marker_residue"] == 1
+    assert quality["section_components_with_heading_marker"] == 1
+    assert quality["claims_per_document"] == {"a.md": 1, "b.md": 2}

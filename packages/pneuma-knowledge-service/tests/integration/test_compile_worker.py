@@ -20,6 +20,7 @@ from pneuma_knowledge_service.dataset import build_dataset
 from pneuma_knowledge_service.ingest import ingest_conversation
 from pneuma_knowledge_service.settings import Settings
 from pneuma_knowledge_service.wiring import build_context
+from pneuma_knowledge_service.workers import compile_worker
 from pneuma_knowledge_service.workers.compile_worker import drain_user
 
 
@@ -118,3 +119,80 @@ async def test_worker_compiles_one_job_end_to_end(ctx):
 
     # cleanup PG rows (git repo is under tmp_path, auto-removed).
     await ctx.store.delete_user(user)
+
+
+async def test_projection_failure_keeps_source_retryable_and_noop_repairs_it(
+    ctx, monkeypatch
+):
+    user = UserId(f"u-it-worker-retry-{uuid.uuid4().hex[:8]}")
+    result = await ingest_conversation(
+        ctx,
+        user,
+        [_turn("Alice", "程野负责投影重试验收。")],
+        title="投影重试",
+    )
+    sid = str(result.source_id)
+    model = ScriptedChatModel(
+        turns=[
+            [
+                {
+                    "name": "create_document",
+                    "args": {
+                        "path": "memory/people/cheng-ye.md",
+                        "frontmatter": {"type": "person", "slug": "cheng-ye"},
+                        "body": (
+                            "## 程野\n\n"
+                            f"- 程野负责投影重试验收。[cite: {sid} ¶0]"
+                        ),
+                    },
+                },
+                {"name": "finish_compile"},
+            ]
+        ]
+    )
+    real_sync = compile_worker.sync_projection
+    calls = 0
+
+    async def fail_once(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("synthetic projection outage")
+        return await real_sync(*args, **kwargs)
+
+    monkeypatch.setattr(compile_worker, "sync_projection", fail_once)
+
+    try:
+        # The canonical commit succeeds, but its first derived projection fails.
+        assert await drain_user(ctx, model, load_builtin_skill(), user) == 2
+        assert (await ctx.store.digested_map(user))[sid] is None
+        failed = [
+            job
+            for job in await ctx.store.list_jobs(user)
+            if job["kind"] == "compile"
+        ][0]
+        assert failed["status"] == "done" and failed["ok"] is False
+        assert "synthetic projection outage" in failed["detail"]
+
+        # POST /compile would select this undigested source. Replaying it is a
+        # canonical noop, but must repair all derived stores before digestion.
+        assert await ctx.store.undigested_source_ids(user) == [sid]
+        await ctx.store.enqueue(user, "compile", {"source_ids": [sid]})
+        assert await drain_user(ctx, model, load_builtin_skill(), user) == 1
+
+        assert calls == 2
+        assert (await ctx.store.digested_map(user))[sid] is not None
+        retry = [
+            job
+            for job in await ctx.store.list_jobs(user)
+            if job["kind"] == "compile"
+        ][0]
+        assert retry["ok"] is True
+        assert retry["detail"].startswith("projection:")
+        assert await ctx.store.list_canonical_claims(user)
+        assert await ctx.lexical.count_claims(user) == 1
+        assert await ctx.vectors.count_claims(user) == 1
+    finally:
+        await ctx.store.delete_user(user)
+        await ctx.lexical.delete_user(user)
+        await ctx.vectors.delete_user(user)

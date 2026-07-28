@@ -30,7 +30,11 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from langchain_core.tools import StructuredTool
 
-from ..domain.canonical import CanonicalDocument, Citation
+from ..domain.canonical import (
+    CANONICAL_CITATION_RE,
+    CanonicalDocument,
+    Citation,
+)
 from ..domain.ids import UserId, SourceId
 from ..domain.snapshot import SnapshotRef
 from ..ports.content_store import ContentStore
@@ -39,12 +43,7 @@ from .assembly import expand_and_merge, render_passages
 from .citation_alias import SessionAliaser, iter_answer_citations
 from .spine import CITE_PRECISE, CLOSE_ANSWER_HONESTLY, spine
 from .fast import render_claims, retrieve_claims
-from .projection import (
-    _CITATION_RE,
-    ProjectedClaim,
-    claims_citing,
-    project_snapshot_claims,
-)
+from .projection import ProjectedClaim, claims_citing, project_snapshot_claims
 from .rag import rag_recall
 
 # I5: byte-stable. No snapshot ref, no as_of, no pack content — posture only.
@@ -216,7 +215,10 @@ async def _source_section(
             d
             for d in snapshot_docs
             if d.path.startswith("materials/")
-            and any(m.group("sid") == sid for m in _CITATION_RE.finditer(d.body))
+            and any(
+                m.group("sid") == sid
+                for m in CANONICAL_CITATION_RE.finditer(d.body)
+            )
         ),
         key=lambda d: d.path,
     )

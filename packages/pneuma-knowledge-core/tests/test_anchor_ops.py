@@ -10,6 +10,7 @@ from pneuma_knowledge_core.compile.anchor_ops import (
     assign_document_anchors,
     edit_claim_text,
     missing_anchors,
+    normalize_repeated_heading_markers,
 )
 from pneuma_knowledge_core.domain.ids import extract_anchors
 
@@ -40,6 +41,32 @@ def test_missing_anchors_detects_whole_file_rewrite_loss():
 def test_missing_anchors_respects_allowed_removals():
     rewritten = DOC.replace(" <!-- c:bb22 -->", "")
     assert missing_anchors(DOC, rewritten, allowed_removals={"bb22"}) == []
+
+
+def test_normalize_repeated_heading_markers_preserves_level_content_and_anchors():
+    damaged = (
+        "# 标题\n\n"
+        "## ## 行动项\n"
+        "- A <!-- c:aa11 -->\n\n"
+        "```md\n"
+        "## ## 代码示例保持原样\n"
+        "```\n\n"
+        "### ## ## 细节\n"
+        "- B <!-- c:bb22 -->\n"
+    )
+    repaired, changes = normalize_repeated_heading_markers(damaged)
+    assert changes == 2
+    assert repaired == (
+        "# 标题\n\n"
+        "## 行动项\n"
+        "- A <!-- c:aa11 -->\n\n"
+        "```md\n"
+        "## ## 代码示例保持原样\n"
+        "```\n\n"
+        "### 细节\n"
+        "- B <!-- c:bb22 -->\n"
+    )
+    assert extract_anchors(repaired) == ["aa11", "bb22"]
 
 
 def test_edit_claim_rewrites_in_place_and_restores_anchor():

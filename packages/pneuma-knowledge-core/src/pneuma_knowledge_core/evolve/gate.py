@@ -25,7 +25,6 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from ..compile.gate import (
-    CITATION_RE,
     Violation,
     check_anchor_coverage,
     check_anchor_uniqueness,
@@ -33,6 +32,7 @@ from ..compile.gate import (
 )
 from ..compile.patch import PatchDraft, path_allowed
 from ..compile.transitions import _anchor_blocks
+from ..domain.canonical import CANONICAL_CITATION_RE
 from ..domain.ids import extract_anchors
 
 SourceBounds = Callable[[str], Awaitable[int | None]]
@@ -62,7 +62,7 @@ def _base_citation_markers(base_bodies: dict[str, str]) -> set[str]:
     grandfather set (a verbatim carry-over is exempt from the store re-check)."""
     markers: set[str] = set()
     for body in base_bodies.values():
-        for m in CITATION_RE.finditer(body):
+        for m in CANONICAL_CITATION_RE.finditer(body):
             markers.add(m.group(0))
     return markers
 
@@ -95,7 +95,7 @@ async def run_evolve_gate(
     # repo level (a verbatim base carry-over never touches `source_bounds`).
     grandfathered = _base_citation_markers(base_bodies)
     for path, doc in docs.items():
-        for m in CITATION_RE.finditer(doc.body):
+        for m in CANONICAL_CITATION_RE.finditer(doc.body):
             if m.group(0) in grandfathered:
                 continue  # moved/unchanged citation — exempt, no store call
             sid = m.group("sid")

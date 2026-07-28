@@ -228,6 +228,11 @@ compile 时的 skill 层）。IntakePlan 是提案：UI 预览、用户可改、
 紧凑投影渲染（render_v2 思路）；materials 三层框架；rag-v1 混合检索思路；
 可组合 strategy pack（slug 形态：按主体与工作流分文件）。
 
+`append_block` 拥有 Markdown 小节语法：模型只提供标题文本，即使误带 `##` 也在
+写入边界机械剥离，避免增量编译产生 `## ##` 层级漂移。canonical citation 统一输出
+`[cite: <sid> ¶a-b]`，解析/机械 gate 同时容忍模型自然生成的 `¶a-¶b` 与空白变体；
+两者共用一份语法，不能出现 gate 放过但 derived projection 丢失出处的分叉。
+
 不移植：Fusion 评审机器；skill YAML 整体 dump 进 prompt；固定 5 文件 ownership；
 指令式 transition 簿记（transition 由系统从 diff 机械推导）；consumer/retrieval_intents
 渲染进编译 prompt。

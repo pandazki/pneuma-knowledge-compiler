@@ -144,6 +144,36 @@ def _projection_metrics(
     }
 
 
+def _batch_failures(
+    jobs: list[dict[str, Any]], source_ids: list[str]
+) -> list[dict[str, Any]]:
+    """Unresolved jobs belonging to this batch, without poisoning later recovery.
+
+    A historical failed job remains in the audit ledger forever. Once its derived state
+    has been mechanically reconciled, a later batch must still be runnable; only jobs
+    whose payload intersects the current batch decide whether this batch fails closed.
+    """
+    current_sources = set(source_ids)
+    failures: list[dict[str, Any]] = []
+    for job in jobs:
+        payload_sources = {
+            str(source_id)
+            for source_id in (job.get("payload") or {}).get("source_ids", [])
+        }
+        if not payload_sources.intersection(current_sources):
+            continue
+        if job["status"] == "done" and job.get("ok") is True:
+            continue
+        failures.append(
+            {
+                "job_id": job["job_id"],
+                "kind": job["kind"],
+                "detail": job.get("detail"),
+            }
+        )
+    return failures
+
+
 async def _scripted_turns(
     ctx, source_ids: list[str], truth_values: tuple[str, ...]
 ) -> list[list[dict[str, Any]]]:
@@ -213,6 +243,7 @@ async def run(
     *,
     mode: str,
     reset: bool,
+    from_batch: int,
     until_batch: int,
     report_path: Path,
 ) -> dict[str, Any]:
@@ -227,6 +258,8 @@ async def run(
             await _reset(ctx, settings)
         await _profile(ctx)
         for batch_number, batch in enumerate(dataset.batches, start=1):
+            if batch_number < from_batch:
+                continue
             if batch_number > until_batch:
                 break
             before = await _counts(ctx)
@@ -258,15 +291,7 @@ async def run(
             )
             after = await _counts(ctx)
             all_jobs = await ctx.store.list_jobs(USER)
-            failures = [
-                {
-                    "job_id": job["job_id"],
-                    "kind": job["kind"],
-                    "detail": job.get("detail"),
-                }
-                for job in all_jobs
-                if job["status"] != "done" or job.get("ok") is not True
-            ]
+            failures = _batch_failures(all_jobs, source_ids)
             batch_report = {
                 "batch_id": batch.batch_id,
                 "elapsed_seconds": round(time.perf_counter() - batch_started, 4),
@@ -312,6 +337,18 @@ async def run(
             "batches": batch_reports,
             "final": final,
             "source_kinds": dict(sorted(kinds.items())),
+            "historical_failures": [
+                {
+                    "job_id": job["job_id"],
+                    "kind": job["kind"],
+                    "detail": job.get("detail"),
+                    "source_ids": list(
+                        (job.get("payload") or {}).get("source_ids", [])
+                    ),
+                }
+                for job in await ctx.store.list_jobs(USER)
+                if job["status"] == "done" and job.get("ok") is not True
+            ],
         }
         report_path.parent.mkdir(parents=True, exist_ok=True)
         report_path.write_text(
@@ -327,6 +364,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", choices=("scripted", "real"), default="scripted")
     parser.add_argument("--keep", action="store_true")
+    parser.add_argument("--from-batch", type=int, default=1, choices=range(1, 13))
     parser.add_argument("--until-batch", type=int, default=12, choices=range(1, 13))
     parser.add_argument("--report", type=Path, default=DEFAULT_REPORT)
     args = parser.parse_args()
@@ -334,6 +372,7 @@ def main() -> int:
         run(
             mode=args.mode,
             reset=not args.keep,
+            from_batch=args.from_batch,
             until_batch=args.until_batch,
             report_path=args.report,
         )

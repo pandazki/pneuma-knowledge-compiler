@@ -28,12 +28,52 @@ from __future__ import annotations
 import hashlib
 import re
 
+from ..domain.canonical import normalize_canonical_citation_markers
 from ..domain.ids import ANCHOR_MARK_RE, extract_anchors
 
 
 class AnchorToolError(ValueError):
     """Model-readable operation refusal. The message is returned verbatim to the
     agent, written as an actionable instruction."""
+
+
+_REPEATED_HEADING_MARKER_RE = re.compile(
+    r"^(?P<prefix>[ \t]*#{1,6})[ \t]+(?:#{1,6}[ \t]+)+"
+)
+_FENCE_RE = re.compile(r"^[ \t]*(?P<fence>`{3,}|~{3,})")
+
+
+def normalize_repeated_heading_markers(document: str) -> tuple[str, int]:
+    """Repair compounded Markdown syntax without touching claims or anchors.
+
+    ``## ## 行动项`` is the historical result of treating a model-supplied
+    ``"## 行动项"`` section argument as plain title text. Keep the actual leading
+    heading level and remove only the repeated marker runs after it. Returns the
+    rewritten document and replacement count for migration reporting.
+    """
+    output: list[str] = []
+    changes = 0
+    fence_character: str | None = None
+    fence_length = 0
+    for line in document.splitlines(keepends=True):
+        fence = _FENCE_RE.match(line)
+        if fence is not None:
+            marker = fence.group("fence")
+            if fence_character is None:
+                fence_character = marker[0]
+                fence_length = len(marker)
+            elif marker[0] == fence_character and len(marker) >= fence_length:
+                fence_character = None
+                fence_length = 0
+            output.append(line)
+            continue
+        if fence_character is None:
+            line, count = _REPEATED_HEADING_MARKER_RE.subn(
+                r"\g<prefix> ", line, count=1
+            )
+            changes += count
+        output.append(line)
+    return "".join(output), changes
 
 
 # ---------------------------------------------------------------- preflight
@@ -111,7 +151,7 @@ def edit_claim_text(doc_text: str, anchor_id: str, new_block: str) -> str:
             f"edit_claim 被拒绝：锚 c:{anchor_id} 在文档中出现多次，先修复重复锚。"
         )
 
-    block = new_block.strip("\n")
+    block = normalize_canonical_citation_markers(new_block.strip("\n"))[0]
     block_anchors = extract_anchors(block)
     if any(a != anchor_id for a in block_anchors):
         raise AnchorToolError(
@@ -143,6 +183,26 @@ def assign_anchor(document_path: str, block: str, existing: set[str]) -> str:
         seed += 1
 
 
+def _heading_title(heading: str) -> str:
+    """Normalize a model-supplied section name to plain heading text.
+
+    The tool owns Markdown syntax and always creates a level-two section. Models
+    nevertheless sometimes pass ``"## 行动项"`` after reading a rendered document;
+    treating those hashes as title text produces ``"## ## 行动项"`` and compounds on
+    every incremental compile. Strip any repeated leading Markdown heading markers at
+    the write boundary instead.
+    """
+    title = heading.strip()
+    while True:
+        marker = re.match(r"^#{1,6}(?:\s+|$)", title)
+        if marker is None:
+            break
+        title = title[marker.end() :].strip()
+    if not title:
+        raise AnchorToolError("append_block 被拒绝：小节标题不能为空。")
+    return title
+
+
 def _append_to_section(doc_text: str, heading: str, block: str) -> str:
     """Insert an already-finalized `block` string at the end of the named section, creating
     the section at end-of-file when absent.
@@ -151,7 +211,7 @@ def _append_to_section(doc_text: str, heading: str, block: str) -> str:
     `append_block_text` anchors a new claim, `insert_block_verbatim` carries a moved claim's
     existing anchor. Shared by both so the section-placement rule is written once."""
     lines = doc_text.split("\n")
-    target = heading.strip()
+    target = _heading_title(heading)
     heading_line = -1
     heading_level = 0
     for i, line in enumerate(lines):
@@ -286,6 +346,7 @@ def assign_document_anchors(
     paragraph run; headings and blank lines are skipped. Already-anchored blocks are left
     untouched. `existing` seeds the anchor set with ids the surrounding document already
     holds, so appended-block anchors never collide with the doc's."""
+    body = normalize_canonical_citation_markers(body)[0]
     lines = body.split("\n")
     seen = set(existing or ()) | set(extract_anchors(body))
     for block_lines, start in _iter_content_blocks(lines):

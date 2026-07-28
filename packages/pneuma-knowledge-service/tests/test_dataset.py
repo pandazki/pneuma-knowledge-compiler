@@ -28,7 +28,7 @@ Q3 = CanonicalDocument(
     pneuma_id=DocumentId("doc-q3"),
     path="memory/topics/q3-launch.md",
     frontmatter={"pneuma_id": "doc-q3", "type": "topic", "slug": "q3-launch"},
-    body="## 承诺\n\n- 下周交付演示稿。[cite: src-01 ¶4] <!-- c:cc33 -->",
+    body="## 承诺\n\n- 下周交付演示稿。[cite: src-01 ¶3-¶4] <!-- c:cc33 -->",
 )
 
 
@@ -107,6 +107,11 @@ async def test_documents_carry_claims_with_citations():
     aa11 = next(c for c in cheng_ye["claims"] if c["anchor"] == "aa11")
     assert aa11["citations"][0]["source_id"] == "src-01"
     assert (aa11["citations"][0]["from"], aa11["citations"][0]["to"]) == (3, 3)
+    q3 = docs["memory/topics/q3-launch.md"]
+    assert (q3["claims"][0]["citations"][0]["from"], q3["claims"][0]["citations"][0]["to"]) == (
+        3,
+        4,
+    )
 
 
 async def test_graph_has_doc_and_source_nodes_with_link_and_citation_edges():

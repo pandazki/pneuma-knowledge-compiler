@@ -18,9 +18,28 @@ for a NEW developer — who, behind any global proxy, would hit that wall on ste
 
 `setdefault`, not assignment: anyone genuinely proxying localhost can still override it
 from their own environment.
+
+**The fake-IP escape hatch.** A local TUN proxy can also publish a synthetic
+``198.18.0.0/15`` DNS answer while its route for one upstream is temporarily broken.
+Example scripts may opt into a process-local OpenRouter address override with
+``PNEUMA_KNOWLEDGE_OPENROUTER_RESOLVE_IP``. The URL hostname and TLS SNI stay
+``openrouter.ai``; only ``socket.getaddrinfo`` for that one host is redirected. This is
+deliberately opt-in and never edits system DNS or ``/etc/hosts``.
 """
 
 import os
+import socket
 
 os.environ.setdefault("NO_PROXY", "localhost,127.0.0.1")
 os.environ.setdefault("no_proxy", "localhost,127.0.0.1")
+
+_openrouter_ip = os.getenv("PNEUMA_KNOWLEDGE_OPENROUTER_RESOLVE_IP", "").strip()
+if _openrouter_ip:
+    _system_getaddrinfo = socket.getaddrinfo
+
+    def _example_getaddrinfo(host, port, *args, **kwargs):  # noqa: ANN001
+        if host in {"openrouter.ai", b"openrouter.ai"}:
+            host = _openrouter_ip
+        return _system_getaddrinfo(host, port, *args, **kwargs)
+
+    socket.getaddrinfo = _example_getaddrinfo

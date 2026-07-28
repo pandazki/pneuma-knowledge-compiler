@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from pneuma_knowledge_core.domain.canonical import CanonicalDocument
+from pneuma_knowledge_core.domain.canonical import (
+    CanonicalDocument,
+    normalize_canonical_citation_markers,
+)
 from pneuma_knowledge_core.domain.ids import DocumentId, SourceId
 from pneuma_knowledge_core.recall.projection import (
     PROJECTION_V1,
@@ -42,6 +45,35 @@ def test_projects_one_claim_per_anchor_with_section_and_citations():
     assert c.section_path == ("交付",)
     assert c.text == "下周交付演示稿。"
     assert (c.citations[0].block_start, c.citations[0].block_end) == (1, 3)
+
+
+def test_projection_accepts_repeated_paragraph_marker_in_range():
+    claims = project_document_claims(
+        _doc(
+            body=(
+                "## 证据\n\n"
+                "- 模型生成的自然区间写法。"
+                "[cite: s1 ¶ 1 - ¶ 3] <!-- c:dddd -->"
+            )
+        )
+    )
+    assert claims[0].text == "模型生成的自然区间写法。"
+    assert [
+        (
+            str(citation.source_id),
+            citation.block_start,
+            citation.block_end,
+        )
+        for citation in claims[0].citations
+    ] == [("s1", 1, 3)]
+
+
+def test_canonical_citation_normalizer_emits_one_stable_spelling():
+    normalized, changes = normalize_canonical_citation_markers(
+        "A [cite: s1 ¶ 1 - ¶ 3] B [cite: s2 ¶ 7]"
+    )
+    assert changes == 2
+    assert normalized == "A [cite: s1 ¶1-3] B [cite: s2 ¶7]"
 
 
 def test_snapshot_projection_is_deterministic_by_path():

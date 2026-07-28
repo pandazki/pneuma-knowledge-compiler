@@ -21,17 +21,14 @@ The gate is the mechanism; there is no prompt asking the model to "please rememb
 
 from __future__ import annotations
 
-import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
+from ..domain.canonical import CANONICAL_CITATION_RE
 from ..domain.ids import extract_anchors
 from ..domain.source import NormalizedSource
 from .anchor_ops import missing_anchors, unanchored_blocks
 from .patch import PatchDraft, path_allowed
-
-# Accepts a single paragraph (`¶3`) or a range (`¶3-5`).
-CITATION_RE = re.compile(r"\[cite:\s*(?P<sid>[^\s\]]+)\s*¶(?P<start>\d+)(?:-(?P<end>\d+))?\s*\]")
 
 REQUIRED_FRONTMATTER = ("pneuma_id", "type", "slug")
 
@@ -129,7 +126,7 @@ def run_gate(
     alias_map = alias_map or {}
     for path, doc in docs.items():
         base_body = base_bodies.get(path, "")
-        for m in CITATION_RE.finditer(doc.body):
+        for m in CANONICAL_CITATION_RE.finditer(doc.body):
             if m.group(0) in base_body:
                 continue  # grandfathered: unchanged, previously-validated citation
             sid = alias_map.get(m.group("sid"), m.group("sid"))

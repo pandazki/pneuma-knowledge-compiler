@@ -45,6 +45,12 @@ from ..wiring import (
 )
 
 
+def _projection_detail(projection: object) -> str:
+    return "projection:" + json.dumps(
+        asdict(projection), sort_keys=True, separators=(",", ":")
+    )
+
+
 async def process_job(
     ctx: AppContext,
     chat_model: BaseChatModel,
@@ -115,25 +121,35 @@ async def process_job(
         await ctx.store.record_compile_events(
             user_id, job_id, result.snapshot.ref, [asdict(e) for e in result.events]
         )
-        await ctx.store.mark_digested(user_id, source_ids, now)
         # L3 projection: synchronize the frozen snapshot delta. The explicit full
-        # rebuild remains available for repair/strategy migration.
+        # rebuild remains available for repair/strategy migration. Digestion lands
+        # only after every derived store succeeds, so a projection outage remains
+        # retryable through the normal POST /compile flow.
         projection = await sync_projection(ctx, user_id, result.snapshot.ref)
+        await ctx.store.mark_digested(user_id, source_ids, now)
         await ctx.store.complete(
             user_id,
             job_id,
             ok=True,
-            detail="projection:"
-            + json.dumps(asdict(projection), sort_keys=True, separators=(",", ":")),
+            detail=_projection_detail(projection),
             snapshot_ref=result.snapshot.ref,
         )
         # Passive schema-evolve trigger (schema-evolve §2.1): once committed events land,
         # enqueue an evolve job if the topic/anchor increment cleared the threshold.
         await maybe_trigger_evolve(ctx, user_id)
     elif result.status == "noop":
-        # Consumed, produced no canonical change — still digested so it doesn't re-loop.
+        # A retry after canonical commit + projection failure is a canonical noop.
+        # Reconcile HEAD before digestion so the same normal retry repairs derived
+        # stores instead of silently accepting a partial projection.
+        refs, _, _ = await ctx.canonical.snapshots_page(user_id, limit=1)
+        detail = "noop"
+        if refs:
+            projection = await sync_projection(ctx, user_id, refs[0].ref)
+            detail = _projection_detail(projection)
         await ctx.store.mark_digested(user_id, source_ids, now)
-        await ctx.store.complete(user_id, job_id, ok=True, detail="noop")
+        await ctx.store.complete(user_id, job_id, ok=True, detail=detail)
+        if refs:
+            await maybe_trigger_evolve(ctx, user_id)
     else:  # aborted
         detail = "; ".join(v.render() for v in result.violations)
         await ctx.store.complete(user_id, job_id, ok=False, detail=detail)

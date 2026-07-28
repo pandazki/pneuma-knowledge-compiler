@@ -48,7 +48,7 @@
       "baseline_bytes": 6325,
       "baseline_median_ms": 19.62,
       "bytes_reduction_percent": 55.67,
-      "latency_tradeoff": "Two bounded git commands (count + page) are 7.15 ms slower at 62 commits, while response size and rendered options are bounded."
+      "latency_tradeoff": "The first page uses bounded count + page commands and is 7.15 ms slower at 62 commits; continuation pages add an ancestry check so cursors stay valid while new HEAD commits arrive. Response size and rendered options remain bounded."
     },
     "/dataset?audit=false": {
       "canonical_documents": 62,
@@ -147,7 +147,24 @@
     "backend_regression_tests": 30,
     "typescript": "passed",
     "production_build": "passed",
-    "history_full_page_screenshot": "passed"
+    "history_full_page_screenshot": "passed",
+    "cursor_stability_during_live_writes": {
+      "sources": {
+        "total_before": 73,
+        "total_after": 82,
+        "continuation_page_unchanged": true
+      },
+      "history": {
+        "total_before": 282,
+        "total_after": 313,
+        "continuation_page_unchanged": true
+      },
+      "snapshots": {
+        "total_before": 62,
+        "total_after": 67,
+        "continuation_page_unchanged": true
+      }
+    }
   },
   "remaining_bottlenecks": [
     "Graph renders the complete relationship canvas; the current 160-node experiment remains usable, but a substantially larger graph will need clustered or level-of-detail rendering.",

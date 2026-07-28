@@ -1,0 +1,133 @@
+{
+  "schema": "pneuma.experiment.run/v1",
+  "experiment_id": "opc-84d-relayforge",
+  "user_id": "u-opc-ninghe",
+  "mode": "real",
+  "models": {
+    "compile": "openrouter:openai/gpt-5.6-luna",
+    "recall": "openrouter:openai/gpt-5.6-luna",
+    "deep": "openrouter:openai/gpt-5.6-luna",
+    "live_context": "openrouter:openai/gpt-5.6-luna",
+    "evolve": "openrouter:openai/gpt-5.6-luna"
+  },
+  "embedding_model": "openrouter:openai/text-embedding-3-small",
+  "chunk_strategy": "semantic",
+  "elapsed_seconds": 209.0515,
+  "dataset_stats": {
+    "day_count": 84,
+    "batch_count": 12,
+    "event_count": 144,
+    "normalized_source_units": 98,
+    "meetings": 14,
+    "meeting_segments": 1332,
+    "documents": 36,
+    "im_conversations": 24,
+    "email_threads": 24,
+    "messages": 912,
+    "source_chars": 382288,
+    "atom_count": 2280,
+    "noise_atoms": 1955,
+    "noise_atom_ratio": 0.8574561403508771,
+    "noise_chars": 338919,
+    "noise_char_ratio": 0.8865541162683631
+  },
+  "batches": [
+    {
+      "batch_id": "B12",
+      "elapsed_seconds": 208.8969,
+      "contracts": [
+        {
+          "schema": "pneuma.source.meeting/v1",
+          "units": 1,
+          "deduplicated": 0
+        },
+        {
+          "schema": "pneuma.source.document-library/v1",
+          "units": 3,
+          "deduplicated": 0
+        },
+        {
+          "schema": "pneuma.source.im/v1",
+          "units": 2,
+          "deduplicated": 0
+        },
+        {
+          "schema": "pneuma.source.email/v1",
+          "units": 2,
+          "deduplicated": 0
+        }
+      ],
+      "new_source_ids": [
+        "a4a2fd2e167e5e88dafd474d37727fc9",
+        "81eab15f8d5eca4d4183d9ceea2c1d02",
+        "76470321f6d3ca2f381edf8fd681edf4",
+        "7e9b618e25954cc1e71e26a22bf8df95",
+        "ca5f2473650b31201634a8c0d8a636c5",
+        "3ef58dc527537446f2f98c97d2543ae8",
+        "78a2f9a29092dddb9a5eb5e1acdd91c6",
+        "0db20769eb6ccac9707e2c9a343bd30b"
+      ],
+      "processed_jobs": 16,
+      "before": {
+        "sources": 90,
+        "jobs": 180,
+        "jobs_ok": 179,
+        "jobs_failed": 1,
+        "documents": 10,
+        "claims": 496,
+        "snapshots": 83
+      },
+      "after": {
+        "sources": 98,
+        "jobs": 196,
+        "jobs_ok": 195,
+        "jobs_failed": 1,
+        "documents": 10,
+        "claims": 531,
+        "snapshots": 90
+      },
+      "delta": {
+        "sources": 8,
+        "jobs": 16,
+        "jobs_ok": 16,
+        "jobs_failed": 0,
+        "documents": 0,
+        "claims": 35,
+        "snapshots": 7
+      },
+      "projection": {
+        "syncs": 8,
+        "upserted": 40,
+        "deleted": 0,
+        "unchanged": 4114,
+        "latest_total": 531
+      },
+      "failures": []
+    }
+  ],
+  "final": {
+    "sources": 98,
+    "jobs": 196,
+    "jobs_ok": 195,
+    "jobs_failed": 1,
+    "documents": 10,
+    "claims": 531,
+    "snapshots": 90
+  },
+  "source_kinds": {
+    "document_library": 36,
+    "email": 24,
+    "im": 24,
+    "meeting": 14
+  },
+  "historical_failures": [
+    {
+      "job_id": "6ef2113001f64741a4a9b02c0daf2eb4",
+      "kind": "compile",
+      "detail": "worker error: OpenRouter embeddings failed after 3 tries: ",
+      "source_ids": [
+        "2bd88b05bb181063cdf53cf82fc0eb3d"
+      ]
+    }
+  ]
+}

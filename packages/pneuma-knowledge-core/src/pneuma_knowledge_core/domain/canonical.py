@@ -14,9 +14,38 @@ semantic chunks, lexical hits, and the structure map.
 
 from __future__ import annotations
 
+import re
+
 from pydantic import BaseModel, Field
 
 from .ids import AnchorId, DocumentId, SourceId
+
+# Canonical syntax is rendered as `¶a-b`. Accept an optional repeated paragraph
+# marker (`¶a-¶b`) and surrounding whitespace as a lossless model-output variant.
+# The compile gate, projection and UI dataset must share this exact grammar.
+CANONICAL_CITATION_RE = re.compile(
+    r"\[cite:\s*(?P<sid>[^\s\]]+)\s*"
+    r"¶\s*(?P<start>\d+)"
+    r"(?:\s*-\s*¶?\s*(?P<end>\d+))?\s*\]"
+)
+
+
+def normalize_canonical_citation_markers(text: str) -> tuple[str, int]:
+    """Render every accepted canonical citation variant with one stable spelling."""
+    changes = 0
+
+    def replace(match: re.Match[str]) -> str:
+        nonlocal changes
+        start = int(match.group("start"))
+        end_raw = match.group("end")
+        rendered = f"[cite: {match.group('sid')} ¶{start}"
+        if end_raw is not None and int(end_raw) != start:
+            rendered += f"-{int(end_raw)}"
+        rendered += "]"
+        changes += int(rendered != match.group(0))
+        return rendered
+
+    return CANONICAL_CITATION_RE.sub(replace, text), changes
 
 
 class Citation(BaseModel):

@@ -64,6 +64,40 @@ def test_append_block_assigns_a_new_anchor():
     assert len(after - before) == 1  # exactly one system-assigned anchor
 
 
+def test_append_block_normalizes_markdown_heading_syntax_from_model():
+    draft = _draft()
+    draft.create_document(
+        "memory/topics/q3-launch.md",
+        {"type": "topic", "slug": "q3-launch"},
+        "## 承诺\n\n- 初始。[cite: src-01 ¶0]",
+    )
+    doc = draft.append_block(
+        "memory/topics/q3-launch.md",
+        "### 承诺",
+        "- 新承诺。[cite: src-02 ¶ 1 - ¶ 1]",
+    )
+    assert [line for line in doc.body.splitlines() if line.startswith("#")] == [
+        "## 承诺"
+    ]
+    assert "## ##" not in doc.body
+    assert "[cite: src-02 ¶1]" in doc.body
+
+
+def test_append_block_rejects_heading_with_no_title():
+    draft = _draft()
+    draft.create_document(
+        "memory/topics/q3-launch.md",
+        {"type": "topic", "slug": "q3-launch"},
+        "## 承诺\n\n- 初始。[cite: src-01 ¶0]",
+    )
+    with pytest.raises(AnchorToolError, match="小节标题不能为空"):
+        draft.append_block(
+            "memory/topics/q3-launch.md",
+            "###",
+            "- 新承诺。[cite: src-02 ¶1]",
+        )
+
+
 def test_edit_claim_preserves_anchor():
     draft = _draft()
     doc = draft.create_document(

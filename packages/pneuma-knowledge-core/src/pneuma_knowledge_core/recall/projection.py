@@ -14,12 +14,13 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from ..domain.canonical import CanonicalDocument, Citation
+from ..domain.canonical import (
+    CANONICAL_CITATION_RE,
+    CanonicalDocument,
+    Citation,
+)
 from ..domain.ids import ANCHOR_MARK_RE, AnchorId, SourceId
 
-_CITATION_RE = re.compile(
-    r"\[cite:\s*(?P<sid>[^\s\]]+)\s*¶(?P<start>\d+)(?:-(?P<end>\d+))?\s*\]"
-)
 _LIST_ITEM_RE = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s")
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.*?)\s*$")
 
@@ -88,9 +89,9 @@ def _clean_and_cite(block: str) -> tuple[str, list[Citation]]:
             block_start=int(m.group("start")),
             block_end=int(m.group("end")) if m.group("end") else int(m.group("start")),
         )
-        for m in _CITATION_RE.finditer(block)
+        for m in CANONICAL_CITATION_RE.finditer(block)
     ]
-    text = _CITATION_RE.sub("", block)
+    text = CANONICAL_CITATION_RE.sub("", block)
     text = ANCHOR_MARK_RE.sub("", text)
     # Drop a leading list bullet for a cleaner claim string; collapse trailing space.
     text = _LIST_ITEM_RE.sub("", text, count=1) if _LIST_ITEM_RE.match(text) else text

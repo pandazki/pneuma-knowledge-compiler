@@ -13,7 +13,10 @@ import asyncio
 import re
 from typing import Any
 
-from pneuma_knowledge_core.domain.canonical import CanonicalDocument
+from pneuma_knowledge_core.domain.canonical import (
+    CANONICAL_CITATION_RE,
+    CanonicalDocument,
+)
 from pneuma_knowledge_core.domain.ids import ANCHOR_MARK_RE, UserId, extract_anchors
 from pneuma_knowledge_core.domain.snapshot import SnapshotRef
 from pneuma_knowledge_core.skill import claim_labels_for, load_builtin_skill
@@ -21,9 +24,6 @@ from pneuma_knowledge_core.skill import claim_labels_for, load_builtin_skill
 from .skills import read_manifest
 from .wiring import AppContext, resolve_model_name
 
-_CITATION_RE = re.compile(
-    r"\[cite:\s*(?P<sid>[^\s\]]+)\s*¶(?P<start>\d+)(?:-(?P<end>\d+))?\s*\]"
-)
 _LIST_ITEM_RE = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s")
 _HEADING_RE = re.compile(r"^(#{1,6})\s+")
 _MD_LINK_RE = re.compile(r"\]\(([^)]+)\)")
@@ -70,7 +70,7 @@ def _parse_claims(body: str) -> list[dict[str, Any]]:
                     "snippet": "",
                     "redaction_state": "included",
                 }
-                for m in _CITATION_RE.finditer(text)
+                for m in CANONICAL_CITATION_RE.finditer(text)
             ]
             claims.append(
                 {
@@ -141,7 +141,7 @@ def _build_graph(
     # source cards
     cited: set[str] = set()
     for doc in docs:
-        for m in _CITATION_RE.finditer(doc.body):
+        for m in CANONICAL_CITATION_RE.finditer(doc.body):
             cited.add(m.group("sid"))
     for raw in sources:
         sid = str(raw.source_id)
@@ -172,7 +172,7 @@ def _build_graph(
             if target in by_path and by_path[target] != did:
                 add_edge(did, by_path[target], "link")
         # citations → source cards
-        for m in _CITATION_RE.finditer(doc.body):
+        for m in CANONICAL_CITATION_RE.finditer(doc.body):
             add_edge(did, f"src:{m.group('sid')}", "relationship")
 
     return {"schema_version": 2, "nodes": nodes, "edges": edges}
