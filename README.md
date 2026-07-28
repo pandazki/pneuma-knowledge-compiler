@@ -97,6 +97,14 @@ cd apps/web && pnpm run build
 - [pneuma-skills](https://github.com/pandazki/pneuma-skills)
 - [pneuma-framework](https://github.com/pandazki/pneuma-framework)
 
+## 致谢
+
+- [霞鹜文楷 LXGW WenKai](https://github.com/lxgw/LxgwWenKai)（屏幕阅读版）——Web UI
+  阅读面的中文衬线字体，SIL Open Font License 1.1，可自由商用与再分发。
+- [kami](https://github.com/tw93/kami)——文档排版约束系统；其"单一衬线撑起整页"
+  的字体决策启发了本项目阅读面的字体选型（注意：kami 中文默认字体仓耳今楷 02
+  仅限个人免费使用，商用需另行向仓耳授权，本项目因此未采用）。
+
 ## License
 
 [MIT](LICENSE)

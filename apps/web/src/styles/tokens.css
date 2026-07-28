@@ -67,8 +67,10 @@
   /* 字体栈（编辑—文本—机器三层分工） */
   --font-sans: system-ui, -apple-system, "PingFang SC", "Hiragino Sans GB",
     "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
-  --font-serif: "Songti SC", "Noto Serif SC", "Source Han Serif SC", Georgia,
-    "Times New Roman", serif;
+  /* 阅读面首选霞鹜文楷屏幕版（随包内嵌、OFL 可商用，index.css 引入；
+     未加载/缺字形时回落系统宋体） */
+  --font-serif: "LXGW WenKai Screen", "Songti SC", "Noto Serif SC",
+    "Source Han Serif SC", Georgia, "Times New Roman", serif;
   --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
 
   /* 字号阶（px）：中文可见文本最小 12 */

@@ -118,7 +118,7 @@ focus 环与底 ≥ 3:1。accent 两色均按正文级对比度选取。
 | token | 值 | 用途 |
 |---|---|---|
 | `--font-sans` | `system-ui, -apple-system, "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif` | UI 外壳、导航、按钮、表单 |
-| `--font-serif` | `"Songti SC", "Noto Serif SC", "Source Han Serif SC", Georgia, "Times New Roman", serif` | 阅读面：canonical 正文、问答答案、引用原文、页标题 |
+| `--font-serif` | `"LXGW WenKai Screen"`（随包内嵌，OFL）, `"Songti SC"`, `"Noto Serif SC"`, `"Source Han Serif SC"`, Georgia, `"Times New Roman"`, serif | 阅读面：canonical 正文、问答答案、引用原文、页标题 |
 | `--font-mono` | `ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace` | ID、路径、Git ref、lineage、block 编号、token 计数 |
 
 字号阶（px）：`12 / 13 / 14 / 16 / 20 / 24 / 30 / 38`。

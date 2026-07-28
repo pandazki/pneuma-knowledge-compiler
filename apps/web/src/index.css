@@ -4,6 +4,8 @@
  * 组件内只允许使用这些 utilities，不写一次性 CSS 文件。
  */
 @import "tailwindcss";
+/* 霞鹜文楷屏幕版（OFL）：unicode-range 分包，浏览器只下载用到的字形 */
+@import "lxgw-wenkai-screen-webfont/lxgwwenkaiscreen.css";
 @import "./styles/tokens.css";
 
 @theme inline {
