@@ -1,0 +1,199 @@
+{
+  "status": "structural_pass",
+  "input_hashes": {
+    "docs/experiments/opc-84d-v2/groups/G27.json": "9da0b8feebd8ebeb10bfd8301c2962996b5159af495f76bf0a22c58553641a19",
+    "docs/experiments/opc-84d-v2/daily-beats.json": "3027a707adf4ad9a0fdae00635bdc2e41e693ca9ea9fd915d247c07c118547cc"
+  },
+  "schema_hash": "8207240aef36f22c242b1e7b45d1915c535001a61d118309c07b1f8f63a43684",
+  "detector": {
+    "version": "opc-84d-v2-deterministic/3",
+    "config": {
+      "exact_normalized_min_chars": 80,
+      "ngram_size": 5,
+      "ngram_jaccard": 0.18,
+      "character_count_policy": "mapped-visible-body/v2",
+      "document_mapping": "ordered verbatim visible_blocks within full_markdown",
+      "excluded_from_body_chars": [
+        "frontmatter",
+        "RFC822 headers",
+        "Markdown headings and syntax",
+        "email quote prefixes and quoted reply sections"
+      ]
+    }
+  },
+  "findings": [],
+  "groups": [
+    {
+      "group_id": "G27",
+      "findings": [],
+      "metrics": {
+        "source_families": {
+          "meeting": {
+            "sources": 1,
+            "units": 12,
+            "raw_body_chars": 1264,
+            "body_chars": 1264
+          },
+          "email": {
+            "sources": 1,
+            "units": 5,
+            "raw_body_chars": 1316,
+            "body_chars": 1298
+          }
+        },
+        "body_chars": 2562,
+        "signal_chars": 1704,
+        "noise_chars": 181,
+        "ambiguous_chars": 677,
+        "system_noise_chars": 50,
+        "lived_noise_chars": 808
+      },
+      "daily_beats_evidence": {
+        "group_id": "G27",
+        "days": [
+          {
+            "date": "2026-05-19",
+            "day_id": "D79",
+            "source_plan": [],
+            "fact_ids": [
+              "F01",
+              "F02",
+              "F03",
+              "F04",
+              "F05",
+              "F06",
+              "F07",
+              "F08",
+              "F09",
+              "F10",
+              "F11",
+              "F12",
+              "F13"
+            ],
+            "continuity_ids": [
+              "C02",
+              "C03",
+              "C04",
+              "C05",
+              "C06"
+            ]
+          },
+          {
+            "date": "2026-05-20",
+            "day_id": "D80",
+            "source_plan": [
+              {
+                "type": "meeting",
+                "purpose": "延长条件的口头复核"
+              }
+            ],
+            "fact_ids": [
+              "F01",
+              "F02",
+              "F03",
+              "F04",
+              "F05",
+              "F06",
+              "F07",
+              "F08",
+              "F09",
+              "F10",
+              "F11",
+              "F12",
+              "F13",
+              "F14"
+            ],
+            "continuity_ids": [
+              "C02",
+              "C03",
+              "C04",
+              "C05",
+              "C06"
+            ]
+          },
+          {
+            "date": "2026-05-21",
+            "day_id": "D81",
+            "source_plan": [
+              {
+                "type": "email",
+                "purpose": "签字请求与自动回执"
+              }
+            ],
+            "fact_ids": [
+              "F01",
+              "F02",
+              "F03",
+              "F04",
+              "F05",
+              "F06",
+              "F07",
+              "F08",
+              "F09",
+              "F10",
+              "F11",
+              "F12",
+              "F13",
+              "F14"
+            ],
+            "continuity_ids": [
+              "C02",
+              "C03",
+              "C04",
+              "C05",
+              "C06"
+            ]
+          }
+        ],
+        "expected_source_counts": {
+          "meeting": 1,
+          "document_library": 0,
+          "im": 0,
+          "email": 1
+        },
+        "actual_source_counts": {
+          "meeting": 1,
+          "document_library": 0,
+          "im": 0,
+          "email": 1
+        },
+        "permitted_day_ids": [
+          "D79",
+          "D80",
+          "D81"
+        ],
+        "permitted_fact_ids": [
+          "F01",
+          "F02",
+          "F03",
+          "F04",
+          "F05",
+          "F06",
+          "F07",
+          "F08",
+          "F09",
+          "F10",
+          "F11",
+          "F12",
+          "F13",
+          "F14"
+        ],
+        "permitted_continuity_ids": [
+          "C02",
+          "C03",
+          "C04",
+          "C05",
+          "C06"
+        ]
+      }
+    }
+  ],
+  "pending": [
+    "semantic_near_duplicate_review",
+    "independent_human_or_subagent_review"
+  ],
+  "global_hooks": {
+    "three_group_family_coverage": "pending",
+    "uniform_source_density_review": "pending"
+  }
+}

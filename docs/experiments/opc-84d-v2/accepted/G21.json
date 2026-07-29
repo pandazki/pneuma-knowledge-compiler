@@ -1,0 +1,934 @@
+{
+  "schema": "pneuma.experiment.opc-84d-v2.group-content/v1",
+  "group_id": "G21",
+  "group_window": {
+    "starts_on": "2026-05-01",
+    "ends_on": "2026-05-03",
+    "day_count": 3,
+    "timezone": "Asia/Shanghai"
+  },
+  "story_scope": {
+    "allowed_story_beat_ids": ["D61", "D62", "D63"],
+    "known_fact_ids": ["F01", "F02", "F03", "F04", "F05", "F06", "F07", "F08", "F09", "F10", "F11"],
+    "open_continuity_ids": ["C01", "C02", "C03", "C04", "C05"],
+    "new_continuity_ids": []
+  },
+  "research_context": [
+    {
+      "research_ref_id": "R21-status-message",
+      "topic_query": "official status messages result waiting progress error distinction",
+      "url": "https://www.w3.org/WAI/WCAG21/Understanding/status-messages.html",
+      "title": "Understanding Success Criterion 4.1.3: Status Messages",
+      "accessed_on": "2026-07-29",
+      "credibility": {
+        "tier": "primary",
+        "rationale": "W3C 的规范配套说明直接区分动作结果、等待、进度与错误等状态信息，并解释上下文不足会造成的理解障碍。"
+      },
+      "applicability_scope": "只用于塑造虚构会议中“标签必须说明它在描述哪一种变化”的追问，以及完整短句比孤立词更易理解的结构；不导入网页实现、无障碍合规结论或原站示例。",
+      "author_fact_summaries": [
+        "状态信息可以在不改变用户当前上下文时传达动作结果、等待、进度或错误，但这些含义并不等价。",
+        "只更新孤立片段可能丢失语境；让读者听见或读到包含对象的完整信息，更有助于判断变化指向什么。"
+      ],
+      "fictionalization_boundary": "会议中的三种候选状态、误解案例、人物意见与未决项均为原创；正文不出现来源品牌、技术属性或原文句式。",
+      "applied_authored_ids": ["g21m-auth09", "g21m-auth11"]
+    },
+    {
+      "research_ref_id": "R21-completion-explanation",
+      "topic_query": "official confirmation page completed transaction what happens next guidance",
+      "url": "https://design-system.service.gov.uk/patterns/confirmation-pages/",
+      "title": "Confirmation pages – GOV.UK Design System",
+      "accessed_on": "2026-07-29",
+      "credibility": {
+        "tier": "official",
+        "rationale": "政府设计系统的官方模式明确把确认页放在事务完成之后，并要求解释后续步骤和联系路径。"
+      },
+      "applicability_scope": "只用于虚构迁移说明把“已经变化”“还没有变化”“下一步去哪里问”分栏，并阻止草稿提前出现完成语气；不移植视觉组件、公共服务场景或示例文案。",
+      "author_fact_summaries": [
+        "完成说明应当在一项事务结束之后出现，而不是把准备、等待或草稿写成完成。",
+        "面向人的说明除了说清结果，还应交代接下来会发生什么、何处可取得帮助，以及如何保留可回查记录。"
+      ],
+      "fictionalization_boundary": "迁移说明的栏目、问答、路径和限制全部依据故事事实原创；不复制页面标题、示例编号、机构名称或句子。",
+      "applied_authored_ids": ["g21d-auth03", "g21d-auth07"]
+    },
+    {
+      "research_ref_id": "R21-invitation-boundary",
+      "topic_query": "official invitation draft send accept pending membership distinction",
+      "url": "https://docs.github.com/en/organizations/managing-membership-in-your-organization/inviting-users-to-join-your-organization",
+      "title": "Inviting users to join your organization",
+      "accessed_on": "2026-07-29",
+      "credibility": {
+        "tier": "official",
+        "rationale": "产品官方文档把选择对象、设定角色、发送邀请和对方接受列为彼此不同的步骤。"
+      },
+      "applicability_scope": "只用于虚构邀请工作台把名单槽位、联系许可、拟发送文字和真正发出动作分开；不带入账户、席位、期限、权限产品或操作界面。",
+      "author_fact_summaries": [
+        "被列为候选对象不等于已经收到邀请，发送动作也不等于对方已经加入。",
+        "邀请前需要明确对象和相应角色；发送后的待处理状态还应允许后续更改或取消。"
+      ],
+      "fictionalization_boundary": "十二个槽位、角色组合、邀请草句与核对条件都是虚构；正文不出现来源品牌、账户规则、期限或界面步骤。",
+      "applied_authored_ids": ["g21d-auth14", "g21d-auth16"]
+    }
+  ],
+  "sources": {
+    "meetings": [
+      {
+        "source_id": "g21m-src01",
+        "authorship": {
+          "authored_id": "g21m-src-auth",
+          "occurred_at": "2026-05-02T15:30:00+08:00",
+          "author_role": "product",
+          "content_class": "signal",
+          "links": {
+            "story_beat_ids": ["D62"],
+            "fact_ids": ["F04"],
+            "continuity_ids": ["C01"]
+          }
+        },
+        "schema": "pneuma.source.meeting/v1",
+        "provider": "mock",
+        "meeting_id": "g21m-meet01",
+        "title": "状态词回看：一句纠正到底改了什么",
+        "started_at": "2026-05-02T15:30:00+08:00",
+        "ended_at": "2026-05-02T16:07:00+08:00",
+        "timezone": "Asia/Shanghai",
+        "owner_participant_ids": ["linzhou"],
+        "participants": [
+          {
+            "participant_id": "linzhou",
+            "display_name": "林舟",
+            "role": "product",
+            "synthetic_address": "lin.zhou@seamlog.test"
+          },
+          {
+            "participant_id": "chenfang",
+            "display_name": "陈放",
+            "role": "customer",
+            "synthetic_address": "fang.chen@northfield.test"
+          }
+        ],
+        "agenda": [
+          {
+            "agenda_id": "g21m-ag01",
+            "text": "回看“不是这个意思”纠正的是原话、系统解释还是后续动作",
+            "authorship": {
+              "authored_id": "g21m-ag-auth01",
+              "occurred_at": "2026-05-02T15:28:00+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": ["D62"],
+                "fact_ids": ["F04"],
+                "continuity_ids": ["C01"]
+              }
+            }
+          },
+          {
+            "agenda_id": "g21m-ag02",
+            "text": "检验待确认、已确认、已撤回三种候选说法会造成的误读",
+            "authorship": {
+              "authored_id": "g21m-ag-auth02",
+              "occurred_at": "2026-05-02T15:29:00+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": ["D62"],
+                "fact_ids": ["F04"],
+                "continuity_ids": ["C01"]
+              }
+            }
+          }
+        ],
+        "utterances": [
+          {
+            "utterance_id": "g21m-u01",
+            "speaker_id": "linzhou",
+            "started_at": "2026-05-02T15:30:04+08:00",
+            "ended_at": "2026-05-02T15:31:12+08:00",
+            "text": "我把上次那句单独拿出来了。你先说“可以照这个改”，后来又说“不是这个意思”。我当时把后一句标成撤回前一句，今天重看觉得可能擅自加了一个动作。",
+            "interruption_of_utterance_id": null,
+            "authorship": {
+              "authored_id": "g21m-auth01",
+              "occurred_at": "2026-05-02T15:30:04+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": ["D62"],
+                "fact_ids": ["F04"],
+                "continuity_ids": ["C01"]
+              }
+            }
+          },
+          {
+            "utterance_id": "g21m-u02",
+            "speaker_id": "chenfang",
+            "started_at": "2026-05-02T15:31:18+08:00",
+            "ended_at": "2026-05-02T15:32:31+08:00",
+            "text": "对，问题就在这儿。我说“不是这个意思”，是你把“先换样板”讲成了“整套都换”。我在纠正范围，不是把同意过的那一步取消。你一写已撤回，别人会以为什么都没说过。",
+            "interruption_of_utterance_id": null,
+            "authorship": {
+              "authored_id": "g21m-auth02",
+              "occurred_at": "2026-05-02T15:31:18+08:00",
+              "author_role": "customer",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": ["D62"],
+                "fact_ids": ["F04"],
+                "continuity_ids": ["C01"]
+              }
+            }
+          },
+          {
+            "utterance_id": "g21m-u03",
+            "speaker_id": "linzhou",
+            "started_at": "2026-05-02T15:32:38+08:00",
+            "ended_at": "2026-05-02T15:33:52+08:00",
+            "text": "那原句保留，后一句指向我写的范围解释。可如果只看一个状态词，读者还是不知道被纠正的是哪一层。我是不是该把状态和它指向的对象一起显示？",
+            "interruption_of_utterance_id": null,
+            "authorship": {
+              "authored_id": "g21m-auth03",
+              "occurred_at": "2026-05-02T15:32:38+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": ["D62"],
+                "fact_ids": ["F04"],
+                "continuity_ids": ["C01"]
+              }
+            }
+          },
+          {
+            "utterance_id": "g21m-u04",
+            "speaker_id": "chenfang",
+            "started_at": "2026-05-02T15:34:00+08:00",
+            "ended_at": "2026-05-02T15:35:22+08:00",
+            "text": "先别急着变成界面答案。你得先分清对象：原话、你概括出来的范围、还是后续要做的动作。三样东西都可能被人说“不对”，但不该因此一起变成撤回。",
+            "interruption_of_utterance_id": null,
+            "authorship": {
+              "authored_id": "g21m-auth04",
+              "occurred_at": "2026-05-02T15:34:00+08:00",
+              "author_role": "customer",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": ["D62"],
+                "fact_ids": ["F04"],
+                "continuity_ids": ["C01"]
+              }
+            }
+          },
+          {
+            "utterance_id": "g21m-u05",
+            "speaker_id": "linzhou",
+            "started_at": "2026-05-02T15:35:31+08:00",
+            "ended_at": "2026-05-02T15:36:30+08:00",
+            "text": "等我关一下窗。楼下小孩在拍球，正好每三下撞一次铁门，我刚才把你最后几个字听成了“都撤回”。",
+            "interruption_of_utterance_id": null,
+            "authorship": {
+              "authored_id": "g21m-auth05",
+              "occurred_at": "2026-05-02T15:35:31+08:00",
+              "author_role": "product",
+              "content_class": "noise",
+              "links": {
+                "story_beat_ids": ["D62"],
+                "fact_ids": [],
+                "continuity_ids": []
+              }
+            }
+          },
+          {
+            "utterance_id": "g21m-u06",
+            "speaker_id": "chenfang",
+            "started_at": "2026-05-02T15:36:37+08:00",
+            "ended_at": "2026-05-02T15:37:34+08:00",
+            "text": "我这边也在楼道里，信号会断。先记一句：我没有说三种状态一定够，也没同意它们现在就叫这三个名字。只是你拿来的三个卡片里，至少有两张被你混用了。",
+            "interruption_of_utterance_id": null,
+            "authorship": {
+              "authored_id": "g21m-auth06",
+              "occurred_at": "2026-05-02T15:36:37+08:00",
+              "author_role": "customer",
+              "content_class": "ambiguous",
+              "links": {
+                "story_beat_ids": ["D62"],
+                "fact_ids": ["F04"],
+                "continuity_ids": ["C01"]
+              }
+            }
+          },
+          {
+            "utterance_id": "g21m-u07",
+            "speaker_id": "linzhou",
+            "started_at": "2026-05-02T15:37:40+08:00",
+            "ended_at": "2026-05-02T15:39:02+08:00",
+            "text": "我把待确认理解成没人表态，已确认理解成有人同意，已撤回理解成后来取消。照你刚才的例子，先同意一个小范围、但范围还没被双方说清，放哪张卡都像在撒谎。",
+            "interruption_of_utterance_id": null,
+            "authorship": {
+              "authored_id": "g21m-auth07",
+              "occurred_at": "2026-05-02T15:37:40+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": ["D62"],
+                "fact_ids": ["F04"],
+                "continuity_ids": ["C01"]
+              }
+            }
+          },
+          {
+            "utterance_id": "g21m-u08",
+            "speaker_id": "chenfang",
+            "started_at": "2026-05-02T15:38:51+08:00",
+            "ended_at": "2026-05-02T15:40:20+08:00",
+            "text": "不是这个意思——我打断一下。不是“双方没说清”，是我说清了小范围，你的摘要扩大了。原话本身可以被确认，摘要仍然待你修；一个记录里可能同时有两个不同状态。",
+            "interruption_of_utterance_id": "g21m-u07",
+            "authorship": {
+              "authored_id": "g21m-auth08",
+              "occurred_at": "2026-05-02T15:38:51+08:00",
+              "author_role": "customer",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": ["D62"],
+                "fact_ids": ["F04"],
+                "continuity_ids": ["C01"]
+              }
+            }
+          },
+          {
+            "utterance_id": "g21m-u09",
+            "speaker_id": "linzhou",
+            "started_at": "2026-05-02T15:40:28+08:00",
+            "ended_at": "2026-05-02T15:41:59+08:00",
+            "text": "明白了，刚才又是我把纠正当成没有答案。那状态短句至少得带对象和变化：哪句话被确认、哪段概括等修改、哪个动作真的被取消。只亮一个“已”字，听起来像结果，实际没有上下文。",
+            "interruption_of_utterance_id": null,
+            "authorship": {
+              "authored_id": "g21m-auth09",
+              "occurred_at": "2026-05-02T15:40:28+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": ["D62"],
+                "fact_ids": ["F04"],
+                "continuity_ids": ["C01"]
+              }
+            }
+          },
+          {
+            "utterance_id": "g21m-u10",
+            "speaker_id": "chenfang",
+            "started_at": "2026-05-02T15:42:05+08:00",
+            "ended_at": "2026-05-02T15:43:26+08:00",
+            "text": "还有“确认”也危险。确认收到、确认原话、同意执行，不是一回事。我平时说“收到了”，你不能因为里面有个确认动作，就把方案标成已经通过。",
+            "interruption_of_utterance_id": null,
+            "authorship": {
+              "authored_id": "g21m-auth10",
+              "occurred_at": "2026-05-02T15:42:05+08:00",
+              "author_role": "customer",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": ["D62"],
+                "fact_ids": ["F04"],
+                "continuity_ids": ["C01"]
+              }
+            }
+          },
+          {
+            "utterance_id": "g21m-u11",
+            "speaker_id": "linzhou",
+            "started_at": "2026-05-02T15:43:34+08:00",
+            "ended_at": "2026-05-02T15:45:12+08:00",
+            "text": "我先按信息用途拆，不先定词：一类告诉人还在等哪种判断，一类告诉人哪个对象已有明确答复，一类说明某个先前动作被本人取消。进度、结果和错误也不能借同一张卡互相顶替。",
+            "interruption_of_utterance_id": null,
+            "authorship": {
+              "authored_id": "g21m-auth11",
+              "occurred_at": "2026-05-02T15:43:34+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": ["D62"],
+                "fact_ids": ["F04"],
+                "continuity_ids": ["C01"]
+              }
+            }
+          },
+          {
+            "utterance_id": "g21m-u12",
+            "speaker_id": "chenfang",
+            "started_at": "2026-05-02T15:45:19+08:00",
+            "ended_at": "2026-05-02T15:46:33+08:00",
+            "text": "这个拆法可以继续试，但“被本人取消”也别先写死。有时候是时限过了，有时候是提出的人收回，有时候只是另一个版本替代。它们是否共用一类，我今天答不了。",
+            "interruption_of_utterance_id": null,
+            "authorship": {
+              "authored_id": "g21m-auth12",
+              "occurred_at": "2026-05-02T15:45:19+08:00",
+              "author_role": "customer",
+              "content_class": "ambiguous",
+              "links": {
+                "story_beat_ids": ["D62"],
+                "fact_ids": ["F04"],
+                "continuity_ids": ["C01"]
+              }
+            }
+          },
+          {
+            "utterance_id": "g21m-u13",
+            "speaker_id": "linzhou",
+            "started_at": "2026-05-02T15:46:41+08:00",
+            "ended_at": "2026-05-02T15:47:54+08:00",
+            "text": "那我今天只留下三种语义问题，不把待确认、已确认、已撤回写成定稿名称。下一版每个样例都要同时显示对象、说话人和时间，看看还有没有第四种情况。",
+            "interruption_of_utterance_id": null,
+            "authorship": {
+              "authored_id": "g21m-auth13",
+              "occurred_at": "2026-05-02T15:46:41+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": ["D62"],
+                "fact_ids": ["F04"],
+                "continuity_ids": ["C01"]
+              }
+            }
+          },
+          {
+            "utterance_id": "g21m-u14",
+            "speaker_id": "chenfang",
+            "started_at": "2026-05-02T15:48:02+08:00",
+            "ended_at": "2026-05-02T15:49:20+08:00",
+            "text": "还要留一句人的解释。别让我点了一个词之后，原来那句“只换样板”反而看不见。状态是后来加的判断，不该覆盖当时说了什么。",
+            "interruption_of_utterance_id": null,
+            "authorship": {
+              "authored_id": "g21m-auth14",
+              "occurred_at": "2026-05-02T15:48:02+08:00",
+              "author_role": "customer",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": ["D62"],
+                "fact_ids": ["F04"],
+                "continuity_ids": ["C01"]
+              }
+            }
+          },
+          {
+            "utterance_id": "g21m-u15",
+            "speaker_id": "linzhou",
+            "started_at": "2026-05-02T15:49:29+08:00",
+            "ended_at": "2026-05-02T15:50:31+08:00",
+            "text": "门外送餐到了，我下楼前再确认一个小问题。晚点我和赵楠约了吃面，不会把今天这些带过去。你下午还方便看我改后的样例吗？不方便就别勉强，今天本来就是假期。",
+            "interruption_of_utterance_id": null,
+            "authorship": {
+              "authored_id": "g21m-auth15",
+              "occurred_at": "2026-05-02T15:49:29+08:00",
+              "author_role": "product",
+              "content_class": "noise",
+              "links": {
+                "story_beat_ids": ["D62"],
+                "fact_ids": [],
+                "continuity_ids": []
+              }
+            }
+          },
+          {
+            "utterance_id": "g21m-u16",
+            "speaker_id": "chenfang",
+            "started_at": "2026-05-02T15:50:38+08:00",
+            "ended_at": "2026-05-02T15:51:43+08:00",
+            "text": "今天别发，我一会儿去接家里人，手机也快没电。下次只给我两三个会冲突的例子，别拿一整页让我替你挑名称。",
+            "interruption_of_utterance_id": null,
+            "authorship": {
+              "authored_id": "g21m-auth16",
+              "occurred_at": "2026-05-02T15:50:38+08:00",
+              "author_role": "customer",
+              "content_class": "noise",
+              "links": {
+                "story_beat_ids": ["D62"],
+                "fact_ids": [],
+                "continuity_ids": []
+              }
+            }
+          },
+          {
+            "utterance_id": "g21m-u17",
+            "speaker_id": "linzhou",
+            "started_at": "2026-05-02T15:51:50+08:00",
+            "ended_at": "2026-05-02T15:53:08+08:00",
+            "text": "好。我会把今天的结论写成“语义重新打开”，不是“核心语言确定”。三张卡继续是占位，是否保留三类、分别叫什么，都等下一轮样例。",
+            "interruption_of_utterance_id": null,
+            "authorship": {
+              "authored_id": "g21m-auth17",
+              "occurred_at": "2026-05-02T15:51:50+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": ["D62"],
+                "fact_ids": ["F04"],
+                "continuity_ids": ["C01"]
+              }
+            }
+          },
+          {
+            "utterance_id": "g21m-u18",
+            "speaker_id": "chenfang",
+            "started_at": "2026-05-02T15:53:15+08:00",
+            "ended_at": "2026-05-02T15:54:27+08:00",
+            "text": "对，就停在这儿。今天只是把你的误读纠正了，没有验收哪个视图，也没有选中某个词，样例也还没有成为对外材料。你先吃饭，我也得走了。",
+            "interruption_of_utterance_id": null,
+            "authorship": {
+              "authored_id": "g21m-auth18",
+              "occurred_at": "2026-05-02T15:53:15+08:00",
+              "author_role": "customer",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": ["D62"],
+                "fact_ids": ["F04"],
+                "continuity_ids": ["C01"]
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "document_library": [
+      {
+        "source_id": "g21d-src01",
+        "authorship": {
+          "authored_id": "g21d-src-auth",
+          "occurred_at": "2026-05-03T10:16:00+08:00",
+          "author_role": "product",
+          "content_class": "signal",
+          "links": {
+            "story_beat_ids": ["D63"],
+            "fact_ids": ["F04"],
+            "continuity_ids": ["C01"]
+          }
+        },
+        "schema": "pneuma.source.document-library/v1",
+        "provider": "mock",
+        "library_id": "g21d-lib01",
+        "title": "假期第三天的演示与邀请草稿",
+        "documents": [
+          {
+            "document_id": "g21d-doc01",
+            "path": "work/migration/2026-05-03-reader-note-draft.md",
+            "title": "迁移说明与问答（第二遍草稿）",
+            "frontmatter": {
+              "date": "2026-05-03",
+              "status": "incomplete",
+              "owner": "林舟",
+              "audience": "小范围同业"
+            },
+            "full_markdown": "# 迁移说明与问答（第二遍草稿）\n\n> 草稿状态：结构能读，措辞未定，展示范围未获确认。此页不是迁移通知，也不能作为任何动作已经完成的证明。\n\n这页先给第一次回来的人看，不从功能名开始。要回答的只有三件事：以前保存的原句去哪里找；页面上后来增加的判断和原句是什么关系；遇到空白、旧入口或含义不明的状态时该把问题交到哪里。若这三件事说不清，就不录演示旁白。\n\n| 读者会遇到的情况 | 目前能诚实说明的内容 | 仍缺的判断 |\n| --- | --- | --- |\n| 从旧收藏进入 | 可能先落到记录列表，再由时间与来源位置找回原句 | 旧收藏是否都会保持可用，尚未逐项检查 |\n| 看见一条状态提示 | 它是后来附加的判断，不改写原句；应同时说明指向对象 | 三种候选名称仍在重做，不能当成固定词表 |\n| 看见没有答复的条目 | 空白只说明当前记录里没有明确答复 | 是否需要另分“未查看”和“看过但未决定”，还没有答案 |\n| 想确认谁说过什么 | 回到原始位置、时间和说话角色，不靠摘要猜测 | 第二条证据链是否足以支撑完整演示，仍待检查 |\n\n演示暂排成四个停点，不写成顺滑故事。第一停只让人找到原句；第二停展示后来附加的范围解释；第三停故意放入一句“不是这个意思”，请观众判断它纠正的是原话、解释还是动作；第四停回到来源位置。任何一停找不到对象，就保留失败画面，不用旁白把它说圆。是否能向外展示仍要等吴岚明确答复，今天不代她做判断。\n\n- 问：旧页面没开到原来的位置，是记录被删了吗？\n  - 草答：不能这样推断。先记下旧地址、看到的页面和发生时间，再从来源位置查找；若仍找不到，把它当作迁移问题，不写成内容不存在。\n- 问：状态提示等于当事人的原话吗？\n  - 草答：不等于。它是对当前记录的补充判断，必须能返回原话；状态词本身还在修改。\n- 问：我需要把旧内容重新录一遍吗？\n  - 草答：目前不要求。先检查原句和附件是否能从原位置回查；如果个别位置失效，再逐项登记，不能给出普遍保证。\n- 问：页面显示“完成”之后还要做什么？\n  - 删掉这题。现在没有可以诚实称为完成的迁移步骤，也没有发出通知；提前写完成后的说明会误导读者。\n- 问：在哪里反馈问题？\n  - 草答：先留一个人工联系入口和问题最小字段。联系人、回复时段与可见范围都没定，不能先填漂亮答案。\n\n~~迁移已经完成，所有旧记录都会自动出现在新页面。~~ 这句整段撤掉。改成：此页正在变化，现阶段只说明如何找回原始位置、如何辨认后加判断，以及找不到时如何留下可复查的问题。对未检查的旧记录不作整体验证。\n\n| 什么时候才可以用肯定语气 | 当前记录 | 本页写法 |\n| --- | --- | --- |\n| 找回一条原句 | 只检查了演示样例，覆盖不足 | 写“样例可回查”，不写“全部已迁移” |\n| 状态含义稳定 | 陈放重新打开语义问题 | 保留候选词与冲突样例，不命名核心语言 |\n| 展示范围可用 | 尚缺吴岚答复 | 标记“内部草稿”，不安排外部观看 |\n| 迁移说明可发 | 问答和联系入口均未审 | 保持未完成，不制作发送版本 |\n\n下一轮只收三个问题：陈放的两个冲突样例是否还会被误读；吴岚允许展示到哪一层；第二条证据链缺的是原句、位置还是人工判断。三项没有回齐之前，这份文档只留版本时间和修改痕迹，不写发布日期，不附观看入口。\n",
+            "tags": ["migration", "faq", "draft"],
+            "links": [],
+            "created_at": "2026-05-03T10:16:00+08:00",
+            "modified_at": "2026-05-03T11:42:00+08:00",
+            "visible_blocks": [
+              {
+                "block_id": "g21d-b01",
+                "kind": "heading",
+                "markdown": "# 迁移说明与问答（第二遍草稿）",
+                "authorship": {
+                  "authored_id": "g21d-auth01",
+                  "occurred_at": "2026-05-03T10:16:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D63"],
+                    "fact_ids": ["F04"],
+                    "continuity_ids": ["C01"]
+                  }
+                }
+              },
+              {
+                "block_id": "g21d-b02",
+                "kind": "callout",
+                "markdown": "> 草稿状态：结构能读，措辞未定，展示范围未获确认。此页不是迁移通知，也不能作为任何动作已经完成的证明。",
+                "authorship": {
+                  "authored_id": "g21d-auth02",
+                  "occurred_at": "2026-05-03T10:18:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D63"],
+                    "fact_ids": ["F04"],
+                    "continuity_ids": ["C01"]
+                  }
+                }
+              },
+              {
+                "block_id": "g21d-b03",
+                "kind": "paragraph",
+                "markdown": "这页先给第一次回来的人看，不从功能名开始。要回答的只有三件事：以前保存的原句去哪里找；页面上后来增加的判断和原句是什么关系；遇到空白、旧入口或含义不明的状态时该把问题交到哪里。若这三件事说不清，就不录演示旁白。",
+                "authorship": {
+                  "authored_id": "g21d-auth03",
+                  "occurred_at": "2026-05-03T10:24:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D63"],
+                    "fact_ids": ["F04"],
+                    "continuity_ids": ["C01"]
+                  }
+                }
+              },
+              {
+                "block_id": "g21d-b04",
+                "kind": "table",
+                "markdown": "| 读者会遇到的情况 | 目前能诚实说明的内容 | 仍缺的判断 |\n| --- | --- | --- |\n| 从旧收藏进入 | 可能先落到记录列表，再由时间与来源位置找回原句 | 旧收藏是否都会保持可用，尚未逐项检查 |\n| 看见一条状态提示 | 它是后来附加的判断，不改写原句；应同时说明指向对象 | 三种候选名称仍在重做，不能当成固定词表 |\n| 看见没有答复的条目 | 空白只说明当前记录里没有明确答复 | 是否需要另分“未查看”和“看过但未决定”，还没有答案 |\n| 想确认谁说过什么 | 回到原始位置、时间和说话角色，不靠摘要猜测 | 第二条证据链是否足以支撑完整演示，仍待检查 |",
+                "authorship": {
+                  "authored_id": "g21d-auth04",
+                  "occurred_at": "2026-05-03T10:36:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D63"],
+                    "fact_ids": ["F04"],
+                    "continuity_ids": ["C01"]
+                  }
+                }
+              },
+              {
+                "block_id": "g21d-b05",
+                "kind": "paragraph",
+                "markdown": "演示暂排成四个停点，不写成顺滑故事。第一停只让人找到原句；第二停展示后来附加的范围解释；第三停故意放入一句“不是这个意思”，请观众判断它纠正的是原话、解释还是动作；第四停回到来源位置。任何一停找不到对象，就保留失败画面，不用旁白把它说圆。是否能向外展示仍要等吴岚明确答复，今天不代她做判断。",
+                "authorship": {
+                  "authored_id": "g21d-auth05",
+                  "occurred_at": "2026-05-03T10:48:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D63"],
+                    "fact_ids": ["F04"],
+                    "continuity_ids": ["C01"]
+                  }
+                }
+              },
+              {
+                "block_id": "g21d-b06",
+                "kind": "list",
+                "markdown": "- 问：旧页面没开到原来的位置，是记录被删了吗？\n  - 草答：不能这样推断。先记下旧地址、看到的页面和发生时间，再从来源位置查找；若仍找不到，把它当作迁移问题，不写成内容不存在。\n- 问：状态提示等于当事人的原话吗？\n  - 草答：不等于。它是对当前记录的补充判断，必须能返回原话；状态词本身还在修改。\n- 问：我需要把旧内容重新录一遍吗？\n  - 草答：目前不要求。先检查原句和附件是否能从原位置回查；如果个别位置失效，再逐项登记，不能给出普遍保证。\n- 问：页面显示“完成”之后还要做什么？\n  - 删掉这题。现在没有可以诚实称为完成的迁移步骤，也没有发出通知；提前写完成后的说明会误导读者。\n- 问：在哪里反馈问题？\n  - 草答：先留一个人工联系入口和问题最小字段。联系人、回复时段与可见范围都没定，不能先填漂亮答案。",
+                "authorship": {
+                  "authored_id": "g21d-auth06",
+                  "occurred_at": "2026-05-03T11:02:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D63"],
+                    "fact_ids": ["F04"],
+                    "continuity_ids": ["C01"]
+                  }
+                }
+              },
+              {
+                "block_id": "g21d-b07",
+                "kind": "quote",
+                "markdown": "~~迁移已经完成，所有旧记录都会自动出现在新页面。~~ 这句整段撤掉。改成：此页正在变化，现阶段只说明如何找回原始位置、如何辨认后加判断，以及找不到时如何留下可复查的问题。对未检查的旧记录不作整体验证。",
+                "authorship": {
+                  "authored_id": "g21d-auth07",
+                  "occurred_at": "2026-05-03T11:16:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D63"],
+                    "fact_ids": ["F04"],
+                    "continuity_ids": ["C01"]
+                  }
+                }
+              },
+              {
+                "block_id": "g21d-b08",
+                "kind": "table",
+                "markdown": "| 什么时候才可以用肯定语气 | 当前记录 | 本页写法 |\n| --- | --- | --- |\n| 找回一条原句 | 只检查了演示样例，覆盖不足 | 写“样例可回查”，不写“全部已迁移” |\n| 状态含义稳定 | 陈放重新打开语义问题 | 保留候选词与冲突样例，不命名核心语言 |\n| 展示范围可用 | 尚缺吴岚答复 | 标记“内部草稿”，不安排外部观看 |\n| 迁移说明可发 | 问答和联系入口均未审 | 保持未完成，不制作发送版本 |",
+                "authorship": {
+                  "authored_id": "g21d-auth08",
+                  "occurred_at": "2026-05-03T11:29:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D63"],
+                    "fact_ids": ["F04"],
+                    "continuity_ids": ["C01"]
+                  }
+                }
+              },
+              {
+                "block_id": "g21d-b09",
+                "kind": "paragraph",
+                "markdown": "下一轮只收三个问题：陈放的两个冲突样例是否还会被误读；吴岚允许展示到哪一层；第二条证据链缺的是原句、位置还是人工判断。三项没有回齐之前，这份文档只留版本时间和修改痕迹，不写发布日期，不附观看入口。",
+                "authorship": {
+                  "authored_id": "g21d-auth09",
+                  "occurred_at": "2026-05-03T11:42:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D63"],
+                    "fact_ids": ["F04"],
+                    "continuity_ids": ["C01"]
+                  }
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "g21d-doc-auth01",
+              "occurred_at": "2026-05-03T10:16:00+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": ["D63"],
+                "fact_ids": ["F04"],
+                "continuity_ids": ["C01"]
+              }
+            }
+          },
+          {
+            "document_id": "g21d-doc02",
+            "path": "work/outreach/2026-05-03-twelve-seats-workbench.md",
+            "title": "十二个邀请槽位：未完成工作台",
+            "frontmatter": {
+              "date": "2026-05-03",
+              "status": "rough-unsent",
+              "owner": "林舟",
+              "sendable": false
+            },
+            "full_markdown": "# 十二个邀请槽位：未完成工作台\n\n> 当前状态：名单未完成，邀请文字未完成，未执行发出动作。这里的“槽位”只是为了检查角色组合，不代表已联系到十二个人。\n\n先从愿意指出误读的人里选，不从赞成产品的人里选。每个候选需要一条明确理由、一个可使用的联系入口和“是否适合看虚构样例”的判断。今天只写角色，不填私人地址；没有征得联系许可的名字不抄进工作台。\n\n| 槽位 | 希望覆盖的视角 | 候选状态 | 还缺什么 |\n| --- | --- | --- | --- |\n| 01 | 做项目交接的人 | 有一位可能对象 | 联系许可、近期是否方便 |\n| 02 | 经常整理会议记录的人 | 空 | 对象与理由 |\n| 03 | 负责内部流程的人 | 有一位可能对象 | 是否能看状态样例 |\n| 04 | 很少用整理工具的人 | 空 | 对象与联系入口 |\n| 05 | 曾指出摘要越界的人 | 只记了角色 | 对象本人确认 |\n| 06 | 会追问证据位置的人 | 有两位备选 | 二选一的依据 |\n| 07 | 做支持答疑的人 | 空 | 对象与理由 |\n| 08 | 需要交接旧资料的人 | 只记了角色 | 联系许可 |\n| 09 | 对状态词敏感的人 | 空 | 对象与联系入口 |\n| 10 | 习惯从原句复核的人 | 有一位可能对象 | 是否愿意参加 |\n| 11 | 不熟悉当前页面的人 | 空 | 对象与理由 |\n| 12 | 能指出迁移断点的人 | 空 | 对象、理由、联系许可 |\n\n> [称呼待补]，我正在整理一段很短的内部演示，想请你只指出哪里会误解原话、状态或旧资料位置。[可看范围待确认]。这不是公开发布，也不是请你认可结果。[日期、时长、反馈方式全部待补]。\n\n- [ ] 十二个槽位都对应到具体且合适的人\n- [ ] 每个人的联系许可与可见范围已经单独核对\n- [ ] 演示材料得到允许展示的答复\n- [ ] 状态词不再以定稿口吻出现\n- [ ] 邀请文字包含退出方式和人工联系入口\n- [ ] 真正发出前另存一版，保留发出时间；当前这一项未执行\n\n今晚不会把空槽位用熟人名字补满，也不会把这段半成品复制到消息窗口。下一次先补 02、04、07、09、11、12 的人选理由，再删掉不合适的重复视角。只有名单和文字都可复核之后，才讨论何时发出；这页目前没有收件人，也没有任何回应数据。\n",
+            "tags": ["invitation", "workbench", "unsent"],
+            "links": [],
+            "created_at": "2026-05-03T13:08:00+08:00",
+            "modified_at": "2026-05-03T14:26:00+08:00",
+            "visible_blocks": [
+              {
+                "block_id": "g21d-b10",
+                "kind": "heading",
+                "markdown": "# 十二个邀请槽位：未完成工作台",
+                "authorship": {
+                  "authored_id": "g21d-auth10",
+                  "occurred_at": "2026-05-03T13:08:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D63"],
+                    "fact_ids": [],
+                    "continuity_ids": []
+                  }
+                }
+              },
+              {
+                "block_id": "g21d-b11",
+                "kind": "callout",
+                "markdown": "> 当前状态：名单未完成，邀请文字未完成，未执行发出动作。这里的“槽位”只是为了检查角色组合，不代表已联系到十二个人。",
+                "authorship": {
+                  "authored_id": "g21d-auth11",
+                  "occurred_at": "2026-05-03T13:10:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D63"],
+                    "fact_ids": [],
+                    "continuity_ids": []
+                  }
+                }
+              },
+              {
+                "block_id": "g21d-b12",
+                "kind": "paragraph",
+                "markdown": "先从愿意指出误读的人里选，不从赞成产品的人里选。每个候选需要一条明确理由、一个可使用的联系入口和“是否适合看虚构样例”的判断。今天只写角色，不填私人地址；没有征得联系许可的名字不抄进工作台。",
+                "authorship": {
+                  "authored_id": "g21d-auth12",
+                  "occurred_at": "2026-05-03T13:17:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D63"],
+                    "fact_ids": [],
+                    "continuity_ids": []
+                  }
+                }
+              },
+              {
+                "block_id": "g21d-b13",
+                "kind": "table",
+                "markdown": "| 槽位 | 希望覆盖的视角 | 候选状态 | 还缺什么 |\n| --- | --- | --- | --- |\n| 01 | 做项目交接的人 | 有一位可能对象 | 联系许可、近期是否方便 |\n| 02 | 经常整理会议记录的人 | 空 | 对象与理由 |\n| 03 | 负责内部流程的人 | 有一位可能对象 | 是否能看状态样例 |\n| 04 | 很少用整理工具的人 | 空 | 对象与联系入口 |\n| 05 | 曾指出摘要越界的人 | 只记了角色 | 对象本人确认 |\n| 06 | 会追问证据位置的人 | 有两位备选 | 二选一的依据 |\n| 07 | 做支持答疑的人 | 空 | 对象与理由 |\n| 08 | 需要交接旧资料的人 | 只记了角色 | 联系许可 |\n| 09 | 对状态词敏感的人 | 空 | 对象与联系入口 |\n| 10 | 习惯从原句复核的人 | 有一位可能对象 | 是否愿意参加 |\n| 11 | 不熟悉当前页面的人 | 空 | 对象与理由 |\n| 12 | 能指出迁移断点的人 | 空 | 对象、理由、联系许可 |",
+                "authorship": {
+                  "authored_id": "g21d-auth13",
+                  "occurred_at": "2026-05-03T13:44:00+08:00",
+                  "author_role": "product",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": ["D63"],
+                    "fact_ids": [],
+                    "continuity_ids": []
+                  }
+                }
+              },
+              {
+                "block_id": "g21d-b14",
+                "kind": "quote",
+                "markdown": "> [称呼待补]，我正在整理一段很短的内部演示，想请你只指出哪里会误解原话、状态或旧资料位置。[可看范围待确认]。这不是公开发布，也不是请你认可结果。[日期、时长、反馈方式全部待补]。",
+                "authorship": {
+                  "authored_id": "g21d-auth14",
+                  "occurred_at": "2026-05-03T14:02:00+08:00",
+                  "author_role": "product",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": ["D63"],
+                    "fact_ids": [],
+                    "continuity_ids": []
+                  }
+                }
+              },
+              {
+                "block_id": "g21d-b15",
+                "kind": "list",
+                "markdown": "- [ ] 十二个槽位都对应到具体且合适的人\n- [ ] 每个人的联系许可与可见范围已经单独核对\n- [ ] 演示材料得到允许展示的答复\n- [ ] 状态词不再以定稿口吻出现\n- [ ] 邀请文字包含退出方式和人工联系入口\n- [ ] 真正发出前另存一版，保留发出时间；当前这一项未执行",
+                "authorship": {
+                  "authored_id": "g21d-auth15",
+                  "occurred_at": "2026-05-03T14:13:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D63"],
+                    "fact_ids": [],
+                    "continuity_ids": []
+                  }
+                }
+              },
+              {
+                "block_id": "g21d-b16",
+                "kind": "paragraph",
+                "markdown": "今晚不会把空槽位用熟人名字补满，也不会把这段半成品复制到消息窗口。下一次先补 02、04、07、09、11、12 的人选理由，再删掉不合适的重复视角。只有名单和文字都可复核之后，才讨论何时发出；这页目前没有收件人，也没有任何回应数据。",
+                "authorship": {
+                  "authored_id": "g21d-auth16",
+                  "occurred_at": "2026-05-03T14:26:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D63"],
+                    "fact_ids": [],
+                    "continuity_ids": []
+                  }
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "g21d-doc-auth02",
+              "occurred_at": "2026-05-03T13:08:00+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": ["D63"],
+                "fact_ids": [],
+                "continuity_ids": []
+              }
+            }
+          },
+          {
+            "document_id": "g21d-doc03",
+            "path": "daily/2026-05-03-desk-cables.md",
+            "title": "桌面清理旁页",
+            "frontmatter": {
+              "date": "2026-05-03",
+              "status": "personal",
+              "owner": "林舟"
+            },
+            "full_markdown": "# 桌面清理旁页\n\n上午打开电脑前先挪了桌面。两条旧充电线绕在台灯底座上，一根已经露出白色内皮；我找了纸胶带贴住，仍放进“不要再用”的袋子，没有因为看起来还能充就塞回抽屉。\n\n- 透明盒：能辨认用途的短线三根，贴上设备名\n- 灰袋：接口松动或外皮破损的四根，等假期后处理\n- 抽屉左格：两个转接头和一包扎带\n- 桌面只留：电脑电源、耳机线、读卡器\n\n中午热剩面时发现酱油瓶盖没拧紧，台面黏了一圈。我擦完厨房才回到邀请工作台，已经过了四十多分钟；这段时间没有发生任何产品决定，也不该被补成“整理资料”。\n\n> 17:20 又翻出一个贴着旧标签的移动盘。我没有接入电脑，先和坏线放开。今天不借清桌面的名义检查旧内容，明天再决定它该归还、留存还是交给谁看。\n",
+            "tags": ["daily", "desk", "holiday"],
+            "links": [],
+            "created_at": "2026-05-03T09:22:00+08:00",
+            "modified_at": "2026-05-03T17:22:00+08:00",
+            "visible_blocks": [
+              {
+                "block_id": "g21d-b17",
+                "kind": "heading",
+                "markdown": "# 桌面清理旁页",
+                "authorship": {
+                  "authored_id": "g21d-auth17",
+                  "occurred_at": "2026-05-03T09:22:00+08:00",
+                  "author_role": "product",
+                  "content_class": "noise",
+                  "links": {
+                    "story_beat_ids": ["D63"],
+                    "fact_ids": [],
+                    "continuity_ids": []
+                  }
+                }
+              },
+              {
+                "block_id": "g21d-b18",
+                "kind": "paragraph",
+                "markdown": "上午打开电脑前先挪了桌面。两条旧充电线绕在台灯底座上，一根已经露出白色内皮；我找了纸胶带贴住，仍放进“不要再用”的袋子，没有因为看起来还能充就塞回抽屉。",
+                "authorship": {
+                  "authored_id": "g21d-auth18",
+                  "occurred_at": "2026-05-03T09:28:00+08:00",
+                  "author_role": "product",
+                  "content_class": "noise",
+                  "links": {
+                    "story_beat_ids": ["D63"],
+                    "fact_ids": [],
+                    "continuity_ids": []
+                  }
+                }
+              },
+              {
+                "block_id": "g21d-b19",
+                "kind": "list",
+                "markdown": "- 透明盒：能辨认用途的短线三根，贴上设备名\n- 灰袋：接口松动或外皮破损的四根，等假期后处理\n- 抽屉左格：两个转接头和一包扎带\n- 桌面只留：电脑电源、耳机线、读卡器",
+                "authorship": {
+                  "authored_id": "g21d-auth19",
+                  "occurred_at": "2026-05-03T09:46:00+08:00",
+                  "author_role": "product",
+                  "content_class": "noise",
+                  "links": {
+                    "story_beat_ids": ["D63"],
+                    "fact_ids": [],
+                    "continuity_ids": []
+                  }
+                }
+              },
+              {
+                "block_id": "g21d-b20",
+                "kind": "paragraph",
+                "markdown": "中午热剩面时发现酱油瓶盖没拧紧，台面黏了一圈。我擦完厨房才回到邀请工作台，已经过了四十多分钟；这段时间没有发生任何产品决定，也不该被补成“整理资料”。",
+                "authorship": {
+                  "authored_id": "g21d-auth20",
+                  "occurred_at": "2026-05-03T12:58:00+08:00",
+                  "author_role": "product",
+                  "content_class": "noise",
+                  "links": {
+                    "story_beat_ids": ["D63"],
+                    "fact_ids": [],
+                    "continuity_ids": []
+                  }
+                }
+              },
+              {
+                "block_id": "g21d-b21",
+                "kind": "quote",
+                "markdown": "> 17:20 又翻出一个贴着旧标签的移动盘。我没有接入电脑，先和坏线放开。今天不借清桌面的名义检查旧内容，明天再决定它该归还、留存还是交给谁看。",
+                "authorship": {
+                  "authored_id": "g21d-auth21",
+                  "occurred_at": "2026-05-03T17:20:00+08:00",
+                  "author_role": "product",
+                  "content_class": "noise",
+                  "links": {
+                    "story_beat_ids": ["D63"],
+                    "fact_ids": [],
+                    "continuity_ids": []
+                  }
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "g21d-doc-auth03",
+              "occurred_at": "2026-05-03T09:22:00+08:00",
+              "author_role": "product",
+              "content_class": "noise",
+              "links": {
+                "story_beat_ids": ["D63"],
+                "fact_ids": [],
+                "continuity_ids": []
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "im": [],
+    "email": []
+  }
+}

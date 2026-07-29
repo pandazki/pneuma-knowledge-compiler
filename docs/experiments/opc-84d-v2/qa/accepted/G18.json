@@ -1,0 +1,61 @@
+{
+  "accepted_at": "2026-07-29T11:46:06.916101Z",
+  "accepted_copy": {
+    "byte_identical": true,
+    "path": "docs/experiments/opc-84d-v2/accepted/G18.json",
+    "sha256": "06fe86c5f7069025cb355740a3055f1f9dcb2e5ea59fb3ee7a83a6a73c300ba2"
+  },
+  "deterministic": {
+    "detector_version": "opc-84d-v2-deterministic/3",
+    "finding_count": 0,
+    "path": "docs/experiments/opc-84d-v2/qa/deterministic/G18.json",
+    "sha256": "ce1a3ef7f951887d33ac6dab41a8f998d11bd32083d7a990890d87b754f5283a",
+    "status": "structural_pass"
+  },
+  "group_id": "G18",
+  "group_sha256": "06fe86c5f7069025cb355740a3055f1f9dcb2e5ea59fb3ee7a83a6a73c300ba2",
+  "inputs": {
+    "daily_beats": {
+      "path": "docs/experiments/opc-84d-v2/daily-beats.json",
+      "sha256": "3027a707adf4ad9a0fdae00635bdc2e41e693ca9ea9fd915d247c07c118547cc"
+    },
+    "deterministic_report": {
+      "path": "docs/experiments/opc-84d-v2/qa/deterministic/G18.json",
+      "sha256": "ce1a3ef7f951887d33ac6dab41a8f998d11bd32083d7a990890d87b754f5283a"
+    },
+    "group": {
+      "path": "docs/experiments/opc-84d-v2/groups/G18.json",
+      "sha256": "06fe86c5f7069025cb355740a3055f1f9dcb2e5ea59fb3ee7a83a6a73c300ba2"
+    },
+    "independent_review": {
+      "path": "docs/experiments/opc-84d-v2/qa/reviews/G18.md",
+      "sha256": "00027f7faf21a1c6cbea061919124690b33dc237828134f26870e0166265a91b"
+    },
+    "qa_rubric": {
+      "path": "docs/experiments/opc-84d-v2/qa-rubric.md",
+      "sha256": "b4dc5661f475f5ad146b2154c1daf32dcfbd449128b252c2c15aee4029c94cc5"
+    },
+    "schema": {
+      "path": "docs/experiments/opc-84d-v2/group-content.schema.json",
+      "sha256": "8207240aef36f22c242b1e7b45d1915c535001a61d118309c07b1f8f63a43684"
+    },
+    "story_bible": {
+      "path": "docs/experiments/opc-84d-v2/story-bible.md",
+      "sha256": "bd006e208fc88629982428f535485e5c278c0a9cae2950c0aef6728892ceb9a1"
+    }
+  },
+  "review": {
+    "independence_metadata": "**non-author independent reviewer**；未创作或修改 G18 source text。",
+    "non_author_attested": true,
+    "non_author_evidence": "non-author",
+    "path": "docs/experiments/opc-84d-v2/qa/reviews/G18.md",
+    "recorded_group_sha256": "06fe86c5f7069025cb355740a3055f1f9dcb2e5ea59fb3ee7a83a6a73c300ba2",
+    "reviewed_at": "2026-07-29T06:41:25Z",
+    "reviewer": "Codex `/root/review_g23_v2`",
+    "reviewer_metadata": "Codex `/root/review_g23_v2`",
+    "sha256": "00027f7faf21a1c6cbea061919124690b33dc237828134f26870e0166265a91b",
+    "verdict": "PASS"
+  },
+  "schema": "pneuma.experiment.opc-84d-v2.acceptance/v1",
+  "status": "accepted"
+}

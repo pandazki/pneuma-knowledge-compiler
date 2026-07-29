@@ -214,9 +214,17 @@ interface ProfileFormProps {
   disabled?: boolean;
   onSaved: (saved: UserProfile) => void;
   onCancel: () => void;
+  cancelLabel?: string;
 }
 
-function ProfileForm({ uid, seed, disabled, onSaved, onCancel }: ProfileFormProps) {
+function ProfileForm({
+  uid,
+  seed,
+  disabled,
+  onSaved,
+  onCancel,
+  cancelLabel = "取消",
+}: ProfileFormProps) {
   const [form, setForm] = useState<FormState>(() => toForm(seed));
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -440,7 +448,7 @@ function ProfileForm({ uid, seed, disabled, onSaved, onCancel }: ProfileFormProp
           保存画像
         </Button>
         <Button variant="ghost" disabled={saving} onClick={onCancel}>
-          取消
+          {cancelLabel}
         </Button>
       </div>
     </div>
@@ -535,6 +543,10 @@ export default function ProfileView() {
   const currentUser = useApp((s) => s.currentUser);
   const profile = useApp((s) => s.currentProfile);
   const setProfile = useApp((s) => s.setProfile);
+  const onboarding = useApp(
+    (s) => s.currentUser != null && s.profileOnboardingUser === s.currentUser,
+  );
+  const finishProfileCreation = useApp((s) => s.finishProfileCreation);
   /** 历史快照只读态：所有 mutation 控件 disabled（DESIGN.md §4.3）。 */
   const readOnly = useApp((s) => s.currentSnapshot != null);
 
@@ -552,7 +564,7 @@ export default function ProfileView() {
   // 自己发起加载以获得真实的 error 态（store.loadProfile 吞错降级，无法驱动 ErrorState）；
   // 成功后写回 store，store.currentProfile 仍是唯一展示来源。
   useEffect(() => {
-    setEditing(false);
+    setEditing(onboarding);
     setDraft(null);
     setGenError(null);
     if (!currentUser) {
@@ -577,7 +589,7 @@ export default function ProfileView() {
     return () => {
       live = false;
     };
-  }, [currentUser, attempt, setProfile]);
+  }, [currentUser, onboarding, attempt, setProfile]);
 
   async function generate() {
     const s = sentence.trim();
@@ -681,10 +693,14 @@ export default function ProfileView() {
   return (
     <div className="flex flex-col gap-10">
       <PageHeader
-        title="画像 Profile"
-        description="演示用 synthetic 人设：由服务确定性合成，不代表真实用户。"
+        title={onboarding ? "新建画像" : "画像 Profile"}
+        description={
+          onboarding
+            ? "先建立工作画像；可以让 AI 生成一份可编辑草稿，也可以直接填写。"
+            : "演示用 synthetic 人设：由服务确定性合成，不代表真实用户。"
+        }
         actions={
-          !editing ? (
+          !onboarding && !editing ? (
             <Button size="sm" disabled={readOnly} onClick={() => setEditing(true)}>
               <Pencil size={13} aria-hidden />
               编辑画像
@@ -714,15 +730,16 @@ export default function ProfileView() {
         </div>
       </section>
 
-      {editing ? (
+      {onboarding ? (
         <>
+          {aiSection}
           {draft && (
             <Callout tone="notice" title="草稿已预填">
               这是 AI 按一句话生成的草稿，尚未写入——确认「保存画像」后才落库。
             </Callout>
           )}
           <section>
-            <SectionRule no={1} title="编辑画像" className="mb-4" />
+            <SectionRule no={2} title="确认画像" className="mb-4" />
             <ProfileForm
               key={draft ? `draft-${draft.nonce}` : "base"}
               uid={currentUser}
@@ -730,25 +747,36 @@ export default function ProfileView() {
               disabled={readOnly}
               onSaved={(saved) => {
                 setProfile(currentUser, saved);
-                setEditing(false);
                 setDraft(null);
+                finishProfileCreation(true);
               }}
               onCancel={() => {
-                setEditing(false);
                 setDraft(null);
+                finishProfileCreation(false);
               }}
+              cancelLabel="跳过，先导入"
             />
           </section>
-          {aiSection}
         </>
+      ) : editing ? (
+        <section>
+          <SectionRule no={1} title="编辑画像" className="mb-4" />
+          <ProfileForm
+            uid={currentUser}
+            seed={profile}
+            disabled={readOnly}
+            onSaved={(saved) => {
+              setProfile(currentUser, saved);
+              setEditing(false);
+            }}
+            onCancel={() => setEditing(false)}
+          />
+        </section>
       ) : (
-        <>
-          <section>
-            <SectionRule no={1} title="核心字段" className="mb-2" />
-            <ProfileFields p={profile} />
-          </section>
-          {aiSection}
-        </>
+        <section>
+          <SectionRule no={1} title="核心字段" className="mb-2" />
+          <ProfileFields p={profile} />
+        </section>
       )}
     </div>
   );

@@ -146,6 +146,37 @@ async def test_source_pages_are_bounded_stable_filtered_and_user_scoped(pg_store
     assert all(row.user_id == user for row in isolated)
 
 
+async def test_source_activity_groups_by_requested_calendar_offset(pg_store, user):
+    await pg_store.add(
+        user,
+        _normalized(
+            user,
+            "sid-activity-document",
+            "chk-activity-document",
+            kind="document",
+            created_at=datetime(2026, 7, 20, 23, 30, tzinfo=timezone.utc),
+        ),
+    )
+    await pg_store.add(
+        user,
+        _normalized(
+            user,
+            "sid-activity-email",
+            "chk-activity-email",
+            kind="email",
+            created_at=datetime(2026, 7, 21, 0, 30, tzinfo=timezone.utc),
+        ),
+    )
+
+    assert await pg_store.source_activity(user, offset_minutes=480) == [
+        {
+            "date": "2026-07-21",
+            "count": 2,
+            "kinds": {"document": 1, "email": 1},
+        }
+    ]
+
+
 async def test_job_pages_are_bounded_filtered_and_do_not_repeat(pg_store, user):
     job_ids = [
         await pg_store.enqueue(
@@ -284,6 +315,74 @@ async def test_history_pages_merge_sources_jobs_and_patches_without_repeats(
     assert {(row["kind"], row["ref"]) for row in page1}.isdisjoint(
         (row["kind"], row["ref"]) for row in page2
     )
+
+    patches_only, patch_counts, patches_have_more = (
+        await pg_store.list_history_page(user, limit=3, kind="patch")
+    )
+    assert patch_counts == {
+        "patches": 1,
+        "jobs": 3,
+        "snapshots": 2,
+        "total": 1,
+    }
+    assert patches_have_more is False
+    assert [row["kind"] for row in patches_only] == ["patch"]
+    claim = patches_only[0]["payload"]["claims"][0]
+    assert claim == {
+        "type": "claim_added",
+        "path": "work/products/a.md",
+        "anchor": {"document_id": None, "anchor": "a001"},
+        "flags": [],
+        "before": None,
+        "after": "事实 A",
+    }
+
+
+async def test_history_activity_counts_each_ledger_kind_once(pg_store, user):
+    base = datetime(2026, 7, 20, tzinfo=timezone.utc)
+    for index in range(2):
+        await pg_store.add(
+            user,
+            _normalized(
+                user,
+                f"sid-calendar-{index}",
+                f"chk-calendar-{index}",
+                created_at=base + timedelta(days=index),
+            ),
+        )
+    first_job = await pg_store.enqueue(
+        user, "compile", {"source_ids": ["sid-calendar-0"]}
+    )
+    await pg_store.complete(user, first_job, snapshot_ref="ref-calendar")
+    await pg_store.record_compile_events(
+        user,
+        first_job,
+        "ref-calendar",
+        [
+            {
+                "type": "claim_added",
+                "path": "work/products/calendar.md",
+                "anchor": "a001",
+                "after": "事实 A",
+            }
+        ],
+    )
+    await pg_store.enqueue(user, "index", {"source_ids": ["sid-calendar-1"]})
+
+    days = await pg_store.history_activity(user, offset_minutes=480)
+    assert sum(day["count"] for day in days) == 5
+    totals = {
+        kind: sum(day["kinds"].get(kind, 0) for day in days)
+        for kind in ("patch", "job", "snapshot")
+    }
+    assert totals == {"patch": 1, "job": 2, "snapshot": 2}
+    patch_days = await pg_store.history_activity(
+        user, offset_minutes=480, kind="patch"
+    )
+    assert sum(day["count"] for day in patch_days) == 1
+    assert {
+        kind for day in patch_days for kind in day["kinds"]
+    } == {"patch"}
 
 
 async def test_user_profile_upsert_get_roundtrip(pg_store, user):

@@ -341,7 +341,8 @@ Callout 呈现。
 ### profile 画像
 synthetic 用户档案：avatar 字标 + display_name + 核心字段定义表
 （industry/role/level/level_style/workspace/preferences/interests）；
-编辑表单（全部走 primitives）；AI 生成画像（一句话 → generateProfile 预填）。
+编辑表单（全部走 primitives）。AI 生成画像只属于「新建画像」onboarding：
+一句话 → generateProfile 预填 → 用户确认保存；已有画像详情不显示生成入口。
 明示"演示用 synthetic 人设"。
 
 ### components 组件状态页（隐藏路由 `#/components`）

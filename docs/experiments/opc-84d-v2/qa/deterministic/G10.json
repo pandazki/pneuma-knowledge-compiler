@@ -1,0 +1,199 @@
+{
+  "status": "structural_pass",
+  "input_hashes": {
+    "docs/experiments/opc-84d-v2/groups/G10.json": "3e05578b66a0f9260b936506199ede9ed2a0cc0772898523857c2fa42d417dc1",
+    "docs/experiments/opc-84d-v2/daily-beats.json": "3027a707adf4ad9a0fdae00635bdc2e41e693ca9ea9fd915d247c07c118547cc"
+  },
+  "schema_hash": "8207240aef36f22c242b1e7b45d1915c535001a61d118309c07b1f8f63a43684",
+  "detector": {
+    "version": "opc-84d-v2-deterministic/3",
+    "config": {
+      "exact_normalized_min_chars": 80,
+      "ngram_size": 5,
+      "ngram_jaccard": 0.18,
+      "character_count_policy": "mapped-visible-body/v2",
+      "document_mapping": "ordered verbatim visible_blocks within full_markdown",
+      "excluded_from_body_chars": [
+        "frontmatter",
+        "RFC822 headers",
+        "Markdown headings and syntax",
+        "email quote prefixes and quoted reply sections"
+      ]
+    }
+  },
+  "findings": [],
+  "groups": [
+    {
+      "group_id": "G10",
+      "findings": [],
+      "metrics": {
+        "source_families": {
+          "meeting": {
+            "sources": 1,
+            "units": 12,
+            "raw_body_chars": 1204,
+            "body_chars": 1204
+          },
+          "document_library": {
+            "sources": 2,
+            "units": 18,
+            "raw_body_chars": 1900,
+            "body_chars": 1899,
+            "raw_full_markdown_chars": 1979,
+            "mapped_raw_chars": 1900,
+            "excluded_structural_chars": 1,
+            "unmapped_visible_block_chars": 0,
+            "mapped_visible_blocks": 18,
+            "unmapped_visible_blocks": 0
+          },
+          "im": {
+            "sources": 1,
+            "units": 18,
+            "raw_body_chars": 1063,
+            "body_chars": 1063
+          },
+          "email": {
+            "sources": 1,
+            "units": 4,
+            "raw_body_chars": 1221,
+            "body_chars": 1204
+          }
+        },
+        "body_chars": 5370,
+        "signal_chars": 3704,
+        "noise_chars": 702,
+        "ambiguous_chars": 964,
+        "system_noise_chars": 0,
+        "lived_noise_chars": 1666
+      },
+      "daily_beats_evidence": {
+        "group_id": "G10",
+        "days": [
+          {
+            "date": "2026-03-29",
+            "day_id": "D28",
+            "source_plan": [
+              {
+                "type": "meeting",
+                "purpose": "当日需要口头核对的分歧或边界"
+              },
+              {
+                "type": "document_library",
+                "purpose": "权限检查与观察表"
+              }
+            ],
+            "fact_ids": [
+              "F01",
+              "F02",
+              "F03",
+              "F04",
+              "F05",
+              "F06",
+              "F07",
+              "F08"
+            ],
+            "continuity_ids": [
+              "C01",
+              "C02",
+              "C03"
+            ]
+          },
+          {
+            "date": "2026-03-30",
+            "day_id": "D29",
+            "source_plan": [
+              {
+                "type": "document_library",
+                "purpose": "导入批次记录"
+              },
+              {
+                "type": "IM",
+                "purpose": "启动确认和机器人流水"
+              }
+            ],
+            "fact_ids": [
+              "F01",
+              "F02",
+              "F03",
+              "F04",
+              "F05",
+              "F06",
+              "F07",
+              "F08"
+            ],
+            "continuity_ids": [
+              "C01",
+              "C02",
+              "C03"
+            ]
+          },
+          {
+            "date": "2026-03-31",
+            "day_id": "D30",
+            "source_plan": [
+              {
+                "type": "email",
+                "purpose": "当日正式确认、外部往来或账务状态"
+              }
+            ],
+            "fact_ids": [
+              "F01",
+              "F02",
+              "F03",
+              "F04",
+              "F05",
+              "F06",
+              "F07",
+              "F08"
+            ],
+            "continuity_ids": [
+              "C01",
+              "C02",
+              "C03"
+            ]
+          }
+        ],
+        "expected_source_counts": {
+          "meeting": 1,
+          "document_library": 2,
+          "im": 1,
+          "email": 1
+        },
+        "actual_source_counts": {
+          "meeting": 1,
+          "document_library": 2,
+          "im": 1,
+          "email": 1
+        },
+        "permitted_day_ids": [
+          "D28",
+          "D29",
+          "D30"
+        ],
+        "permitted_fact_ids": [
+          "F01",
+          "F02",
+          "F03",
+          "F04",
+          "F05",
+          "F06",
+          "F07",
+          "F08"
+        ],
+        "permitted_continuity_ids": [
+          "C01",
+          "C02",
+          "C03"
+        ]
+      }
+    }
+  ],
+  "pending": [
+    "semantic_near_duplicate_review",
+    "independent_human_or_subagent_review"
+  ],
+  "global_hooks": {
+    "three_group_family_coverage": "pending",
+    "uniform_source_density_review": "pending"
+  }
+}

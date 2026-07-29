@@ -22,6 +22,15 @@ test("history envelopes normalize into the three timeline detail shapes", () => 
       patch_id: "stale",
       changed_paths: ["work/products/status.md"],
       sources_consumed: ["source-01"],
+      claims: [
+        {
+          type: "claim_revised",
+          path: "work/products/status.md",
+          anchor: { document_id: null, anchor: "a001" },
+          before: "旧状态",
+          after: "新状态",
+        },
+      ],
     },
   });
   const job = normalizeHistoryItem({
@@ -39,6 +48,13 @@ test("history envelopes normalize into the three timeline detail shapes", () => 
 
   assert.equal(patch.patch.patch_id, "ref-patch");
   assert.equal(patch.patch.ts, "2026-07-28T10:00:00Z");
+  assert.deepEqual(patch.patch.claims[0], {
+    type: "claim_revised",
+    path: "work/products/status.md",
+    anchor: { document_id: null, anchor: "a001" },
+    before: "旧状态",
+    after: "新状态",
+  });
   assert.equal(job.job.job_id, "job-01");
   assert.equal(job.job.ts, "2026-07-28T09:00:00Z");
   assert.equal(snapshot.snapshot.source_id, "source-01");

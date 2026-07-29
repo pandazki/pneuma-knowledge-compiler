@@ -32,7 +32,7 @@ from ..compile.gate import (
 )
 from ..compile.patch import PatchDraft, path_allowed
 from ..compile.transitions import _anchor_blocks
-from ..domain.canonical import CANONICAL_CITATION_RE
+from ..domain.canonical import CANONICAL_CITATION_MARKER_RE, iter_canonical_citations
 from ..domain.ids import extract_anchors
 
 SourceBounds = Callable[[str], Awaitable[int | None]]
@@ -58,12 +58,10 @@ def _base_anchor_texts(base_bodies: dict[str, str]) -> dict[str, tuple[str, str]
 
 
 def _base_citation_markers(base_bodies: dict[str, str]) -> set[str]:
-    """Every citation marker string present anywhere in the base repo — the repo-level
-    grandfather set (a verbatim carry-over is exempt from the store re-check)."""
+    """Every citation marker in the base repo — the verbatim grandfather set."""
     markers: set[str] = set()
     for body in base_bodies.values():
-        for m in CANONICAL_CITATION_RE.finditer(body):
-            markers.add(m.group(0))
+        markers.update(m.group(0) for m in CANONICAL_CITATION_MARKER_RE.finditer(body))
     return markers
 
 
@@ -92,34 +90,35 @@ async def run_evolve_gate(
             dropped.append(DroppedAnchor(anchor=anchor, old_path=old_path, text=text))
 
     # 2. citation legality against the store — only for citations NOT grandfathered at the
-    # repo level (a verbatim base carry-over never touches `source_bounds`).
+    # repo level (a verbatim base marker carried unchanged never touches `source_bounds`).
     grandfathered = _base_citation_markers(base_bodies)
     for path, doc in docs.items():
-        for m in CANONICAL_CITATION_RE.finditer(doc.body):
-            if m.group(0) in grandfathered:
+        for marker in CANONICAL_CITATION_MARKER_RE.finditer(doc.body):
+            if marker.group(0) in grandfathered:
                 continue  # moved/unchanged citation — exempt, no store call
-            sid = m.group("sid")
-            start = int(m.group("start"))
-            end = int(m.group("end")) if m.group("end") is not None else start
-            n = await source_bounds(sid)
-            if n is None:
-                violations.append(
-                    Violation(
-                        "citation",
-                        path,
-                        f"citation 引用了 store 中不存在的 source_id={sid}。",
+            for citation in iter_canonical_citations(marker.group(0)):
+                sid = str(citation.source_id)
+                start = citation.block_start
+                end = citation.block_end
+                n = await source_bounds(sid)
+                if n is None:
+                    violations.append(
+                        Violation(
+                            "citation",
+                            path,
+                            f"citation 引用了 store 中不存在的 source_id={sid}。",
+                        )
                     )
-                )
-                continue
-            if start > end or start < 0 or end >= n:
-                violations.append(
-                    Violation(
-                        "citation",
-                        path,
-                        f"citation [{sid} ¶{start}-{end}] 越界（该 source 有 {n} 个 block，"
-                        f"合法区间 0..{n - 1}）。",
+                    continue
+                if start > end or start < 0 or end >= n:
+                    violations.append(
+                        Violation(
+                            "citation",
+                            path,
+                            f"citation [{sid} ¶{start}-{end}] 越界（该 source 有 {n} 个 block，"
+                            f"合法区间 0..{n - 1}）。",
+                        )
                     )
-                )
 
     # 3. anchor uniqueness / frontmatter / anchor coverage — reused verbatim from compile.
     violations.extend(check_anchor_uniqueness(docs))

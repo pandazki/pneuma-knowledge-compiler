@@ -14,8 +14,8 @@ import re
 from typing import Any
 
 from pneuma_knowledge_core.domain.canonical import (
-    CANONICAL_CITATION_RE,
     CanonicalDocument,
+    iter_canonical_citations,
 )
 from pneuma_knowledge_core.domain.ids import ANCHOR_MARK_RE, UserId, extract_anchors
 from pneuma_knowledge_core.domain.snapshot import SnapshotRef
@@ -64,13 +64,13 @@ def _parse_claims(body: str) -> list[dict[str, Any]]:
             kind = "list_item" if _LIST_ITEM_RE.match(lines[start]) else "paragraph"
             citations = [
                 {
-                    "source_id": m.group("sid"),
-                    "from": int(m.group("start")),
-                    "to": int(m.group("end")) if m.group("end") else int(m.group("start")),
+                    "source_id": str(citation.source_id),
+                    "from": citation.block_start,
+                    "to": citation.block_end,
                     "snippet": "",
                     "redaction_state": "included",
                 }
-                for m in CANONICAL_CITATION_RE.finditer(text)
+                for citation in iter_canonical_citations(text)
             ]
             claims.append(
                 {
@@ -141,8 +141,9 @@ def _build_graph(
     # source cards
     cited: set[str] = set()
     for doc in docs:
-        for m in CANONICAL_CITATION_RE.finditer(doc.body):
-            cited.add(m.group("sid"))
+        cited.update(
+            str(citation.source_id) for citation in iter_canonical_citations(doc.body)
+        )
     for raw in sources:
         sid = str(raw.source_id)
         nodes.append(
@@ -172,8 +173,8 @@ def _build_graph(
             if target in by_path and by_path[target] != did:
                 add_edge(did, by_path[target], "link")
         # citations → source cards
-        for m in CANONICAL_CITATION_RE.finditer(doc.body):
-            add_edge(did, f"src:{m.group('sid')}", "relationship")
+        for citation in iter_canonical_citations(doc.body):
+            add_edge(did, f"src:{citation.source_id}", "relationship")
 
     return {"schema_version": 2, "nodes": nodes, "edges": edges}
 

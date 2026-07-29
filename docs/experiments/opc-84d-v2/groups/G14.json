@@ -1,0 +1,1135 @@
+{
+  "schema": "pneuma.experiment.opc-84d-v2.group-content/v1",
+  "group_id": "G14",
+  "group_window": {
+    "starts_on": "2026-04-10",
+    "ends_on": "2026-04-12",
+    "day_count": 3,
+    "timezone": "Asia/Shanghai"
+  },
+  "story_scope": {
+    "allowed_story_beat_ids": ["D40", "D41", "D42"],
+    "known_fact_ids": ["F01", "F02", "F03", "F04", "F05", "F06", "F07", "F08", "F09", "F10"],
+    "open_continuity_ids": ["C01", "C02", "C03", "C04"],
+    "new_continuity_ids": []
+  },
+  "research_context": [
+    {
+      "research_ref_id": "G14-R01",
+      "topic_query": "official design system status tag adjectives not verbs avoid action confusion",
+      "url": "https://design-system.service.gov.uk/components/tag/",
+      "title": "Tag – GOV.UK Design System",
+      "accessed_on": "2026-07-29",
+      "credibility": {
+        "tier": "official",
+        "rationale": "The public design system's component guidance distinguishes a displayed status from an interactive action and recommends descriptive state labels."
+      },
+      "applicability_scope": "Shapes the D40 row review so the label describes both source separation and outstanding customer review instead of compressing an action into an apparently final state. It does not supply the fictional interface, wording, or user response.",
+      "author_fact_summaries": [
+        "A status marker should tell a reader the current condition of an item rather than look like an available action.",
+        "When several states are possible, a short label needs enough context to keep completion in one layer from implying completion in another."
+      ],
+      "fictionalization_boundary": "The service name, component examples, design tokens, interface code, exact labels, and page language remain research metadata only.",
+      "applied_authored_ids": ["g14-d40-a03", "g14-d40-a04"]
+    },
+    {
+      "research_ref_id": "G14-R02",
+      "topic_query": "official entity reconciliation human judgment review approve candidates supplementary fields",
+      "url": "https://openrefine.org/docs/manual/reconciling",
+      "title": "Reconciling",
+      "accessed_on": "2026-07-29",
+      "credibility": {
+        "tier": "official",
+        "rationale": "The project owner's manual treats proposed matches as reviewable judgments and describes comparing candidates with additional contextual fields."
+      },
+      "applicability_scope": "Shapes the D41 requirement that any future suggested relationship remain inert until a named reviewer compares source details and explicitly accepts it. It does not establish a matching algorithm or fictional record value.",
+      "author_fact_summaries": [
+        "A suggested identity relationship can remain unapproved until a person reviews the candidate.",
+        "Additional fields and narrower subsets can help a reviewer distinguish records that share similar text."
+      ],
+      "fictionalization_boundary": "The tool, commands, screens, sample entities, scores, service endpoints, and manual wording do not appear in authored corpus bodies.",
+      "applied_authored_ids": ["g14-d41-m11"]
+    },
+    {
+      "research_ref_id": "G14-R03",
+      "topic_query": "NIST SP 800-61 revision 3 verify restoration before online recovery communication incomplete safeguards official",
+      "url": "https://nvlpubs.nist.gov/nistpubs/specialpublications/nist.sp.800-61r3.pdf",
+      "title": "Incident Response Recommendations and Considerations for Cybersecurity Risk Management: A CSF 2.0 Community Profile",
+      "accessed_on": "2026-07-29",
+      "credibility": {
+        "tier": "primary",
+        "rationale": "The current NIST publication connects restoration with explicit verification and treats recovery communication as continuing coordination with designated stakeholders."
+      },
+      "applicability_scope": "Shapes the D41 test matrix before limited read-only restoration and the D42 distinction between actions completed, current operating limits, and protections still unfinished. It does not prescribe the fictional restoration decision.",
+      "author_fact_summaries": [
+        "Restoration can be checked for correctness and adequacy before a service path is returned to use.",
+        "Incident communication can report recovery progress while separately documenting work that remains outstanding."
+      ],
+      "fictionalization_boundary": "The publication's organization, framework names, normative phrasing, tables, scenarios, and technical examples are excluded from the source bodies.",
+      "applied_authored_ids": ["g14-d41-b03", "g14-d42-e01"]
+    },
+    {
+      "research_ref_id": "G14-R04",
+      "topic_query": "official breach communication nature impact measures contact current evidence incomplete information",
+      "url": "https://ico.org.uk/for-organisations/law-enforcement/guide-to-le-processing/personal-data-breaches/",
+      "title": "Personal data breaches",
+      "accessed_on": "2026-07-29",
+      "credibility": {
+        "tier": "official",
+        "rationale": "The public regulator's guidance identifies event nature, affected scope, likely consequences, response measures, and a contact point as distinct notification content."
+      },
+      "applicability_scope": "Shapes the D42 customer incident statement so verified impact, current absence-of-evidence, containment, correction, contact, and incomplete safeguards are not collapsed into a blanket assurance. It supplies no jurisdictional conclusion or deadline.",
+      "author_fact_summaries": [
+        "An incident notice can separate the event and affected scope from measures already taken and measures still proposed.",
+        "Current findings and a contact for follow-up help readers understand the limits of an investigation that may continue after the first notice."
+      ],
+      "fictionalization_boundary": "Regulator names, legal thresholds, deadlines, penalties, page wording, and real incident examples remain outside all fictional emails.",
+      "applied_authored_ids": ["g14-d42-e01", "g14-d42-e02"]
+    }
+  ],
+  "sources": {
+    "meetings": [],
+    "document_library": [
+      {
+        "source_id": "g14-doclib-review-src",
+        "authorship": {
+          "authored_id": "g14-doclib-review-src-auth",
+          "occurred_at": "2026-04-10T20:25:00+08:00",
+          "author_role": "engineering",
+          "content_class": "ambiguous",
+          "links": {"story_beat_ids": ["D40"], "fact_ids": ["F09"], "continuity_ids": ["C04"]}
+        },
+        "schema": "pneuma.source.document-library/v1",
+        "provider": "mock",
+        "library_id": "g14-review-library",
+        "title": "四月十日逐条复核",
+        "documents": [
+          {
+            "document_id": "g14-doc-row-review",
+            "path": "reviews/2026-04-10-record-by-record.md",
+            "title": "逐条更正复核：项目与状态",
+            "frontmatter": {
+              "date": "2026-04-10",
+              "status": "one-label-open",
+              "owner": "林舟",
+              "reviewer": "陈放"
+            },
+            "full_markdown": "# 逐条更正复核：项目与状态\n\n这份表只记录陈放在工作副本里的逐条查看，不代表竹影已经接受更正，也不触发任何入口恢复。检查分三层：来源是否回到原项目、摘要是否仍跨项目出现、页面状态是否会让人误以为流程已结束。前两层看记录归属，第三层看读者理解，不能用一个“通过”盖住。\n\n| 核对行 | 陈放实际查看 | 结果 | 留下的问题 |\n| --- | --- | --- | --- |\n| `owner-src-104` | 从云麓项目回到原消息父项，房号与联系尾号一致 | 归属可核 | 无 |\n| `owner-src-887` | 从澄湾项目回到另一条父项，摘要未出现在云麓 | 归属可核 | 无 |\n| 云麓摘要区 | 只见本项目两条现场摘要 | 工作副本未见串行 | 仍需吴岚复核 |\n| 澄湾摘要区 | 只见本项目摘要，来源可单独打开 | 工作副本未见串行 | 仍需吴岚复核 |\n| 页面状态条 | 显示“已分离” | 未通过 | 陈放理解成客户已经确认，可以恢复使用 |\n\n唯一失败不是记录又混回去，而是“已分离”把技术动作和客户状态压成一个词。陈放的原话是：“我看到这个就会跟现场说可以用了，后面那个小字‘待复核’我不会再看。”这里暴露的是阅读顺序，不是他漏做核对。当前状态实际只有工作副本里的来源拆分完成，客户确认仍为空。\n\n文案试了两种。方案一把状态改成“等待竹影确认”，但完全看不出来源是否已经拆开；方案二拆成两行：“来源已拆开”只描述工作副本动作，“客户复核：未开始”单独占一行。陈放读第二种时能说出两层差别，也没有把它当按钮。先保留方案二，不给整张卡加绿色或完成图标。判读记录把“看见的字”“说出的含义”“是否认为可操作”和“实际状态”分列保存；这样下一次复测能定位是归属错误、状态误读，还是把描述当成了动作入口，不能只留下一个总分。\n\n明早要做一次不看讲解的复测：陈放从项目列表自行进入，分别说出两条来源归属、当前能否写入、谁还没确认。只有三问都没有借助林舟提示，才把文案交吴岚。复测期间不展示昨天的答案，不由林舟补全句子；若陈放仍把“来源已拆开”推成“客户已确认”，结果就继续记为未通过。今天不请吴岚确认，不恢复只读查看，不改线上关系；工作副本截图继续留在复核目录。\n\n中午在楼下吃了碗雪菜面，店里把小票压在辣椒罐下面，我走到路口才想起来没拿。下午等陈放回话时刷了四十分钟办公椅测评，把扶手高度、网布和头枕抄进便签，最后一把也没下单。晚上坐回旧椅子，左边扶手仍旧会自己往下掉。\n",
+            "tags": ["逐条复核", "状态误读", "客户未确认"],
+            "links": [],
+            "created_at": "2026-04-10T09:40:00+08:00",
+            "modified_at": "2026-04-10T20:22:00+08:00",
+            "visible_blocks": [
+              {
+                "block_id": "g14-d40-a-h01",
+                "kind": "heading",
+                "markdown": "# 逐条更正复核：项目与状态",
+                "authorship": {
+                  "authored_id": "g14-d40-a-h01-auth",
+                  "occurred_at": "2026-04-10T09:40:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "ambiguous",
+                  "links": {"story_beat_ids": ["D40"], "fact_ids": ["F09"], "continuity_ids": ["C04"]}
+                }
+              },
+              {
+                "block_id": "g14-d40-a01",
+                "kind": "paragraph",
+                "markdown": "这份表只记录陈放在工作副本里的逐条查看，不代表竹影已经接受更正，也不触发任何入口恢复。检查分三层：来源是否回到原项目、摘要是否仍跨项目出现、页面状态是否会让人误以为流程已结束。前两层看记录归属，第三层看读者理解，不能用一个“通过”盖住。",
+                "authorship": {
+                  "authored_id": "g14-d40-a01",
+                  "occurred_at": "2026-04-10T09:52:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {"story_beat_ids": ["D40"], "fact_ids": ["F09"], "continuity_ids": ["C04"]}
+                }
+              },
+              {
+                "block_id": "g14-d40-a02",
+                "kind": "table",
+                "markdown": "| 核对行 | 陈放实际查看 | 结果 | 留下的问题 |\n| --- | --- | --- | --- |\n| `owner-src-104` | 从云麓项目回到原消息父项，房号与联系尾号一致 | 归属可核 | 无 |\n| `owner-src-887` | 从澄湾项目回到另一条父项，摘要未出现在云麓 | 归属可核 | 无 |\n| 云麓摘要区 | 只见本项目两条现场摘要 | 工作副本未见串行 | 仍需吴岚复核 |\n| 澄湾摘要区 | 只见本项目摘要，来源可单独打开 | 工作副本未见串行 | 仍需吴岚复核 |\n| 页面状态条 | 显示“已分离” | 未通过 | 陈放理解成客户已经确认，可以恢复使用 |",
+                "authorship": {
+                  "authored_id": "g14-d40-a02",
+                  "occurred_at": "2026-04-10T11:18:00+08:00",
+                  "author_role": "operations",
+                  "content_class": "signal",
+                  "links": {"story_beat_ids": ["D40"], "fact_ids": ["F09"], "continuity_ids": ["C04"]}
+                }
+              },
+              {
+                "block_id": "g14-d40-a03",
+                "kind": "paragraph",
+                "markdown": "唯一失败不是记录又混回去，而是“已分离”把技术动作和客户状态压成一个词。陈放的原话是：“我看到这个就会跟现场说可以用了，后面那个小字‘待复核’我不会再看。”这里暴露的是阅读顺序，不是他漏做核对。当前状态实际只有工作副本里的来源拆分完成，客户确认仍为空。",
+                "authorship": {
+                  "authored_id": "g14-d40-a03",
+                  "occurred_at": "2026-04-10T12:06:00+08:00",
+                  "author_role": "operations",
+                  "content_class": "signal",
+                  "links": {"story_beat_ids": ["D40"], "fact_ids": ["F09"], "continuity_ids": ["C04"]}
+                }
+              },
+              {
+                "block_id": "g14-d40-a04",
+                "kind": "paragraph",
+                "markdown": "文案试了两种。方案一把状态改成“等待竹影确认”，但完全看不出来源是否已经拆开；方案二拆成两行：“来源已拆开”只描述工作副本动作，“客户复核：未开始”单独占一行。陈放读第二种时能说出两层差别，也没有把它当按钮。先保留方案二，不给整张卡加绿色或完成图标。判读记录把“看见的字”“说出的含义”“是否认为可操作”和“实际状态”分列保存；这样下一次复测能定位是归属错误、状态误读，还是把描述当成了动作入口，不能只留下一个总分。",
+                "authorship": {
+                  "authored_id": "g14-d40-a04",
+                  "occurred_at": "2026-04-10T14:34:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {"story_beat_ids": ["D40"], "fact_ids": ["F09"], "continuity_ids": ["C04"]}
+                }
+              },
+              {
+                "block_id": "g14-d40-a05",
+                "kind": "paragraph",
+                "markdown": "明早要做一次不看讲解的复测：陈放从项目列表自行进入，分别说出两条来源归属、当前能否写入、谁还没确认。只有三问都没有借助林舟提示，才把文案交吴岚。复测期间不展示昨天的答案，不由林舟补全句子；若陈放仍把“来源已拆开”推成“客户已确认”，结果就继续记为未通过。今天不请吴岚确认，不恢复只读查看，不改线上关系；工作副本截图继续留在复核目录。",
+                "authorship": {
+                  "authored_id": "g14-d40-a05",
+                  "occurred_at": "2026-04-10T17:22:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "ambiguous",
+                  "links": {"story_beat_ids": ["D40"], "fact_ids": ["F09"], "continuity_ids": ["C03", "C04"]}
+                }
+              },
+              {
+                "block_id": "g14-d40-a06",
+                "kind": "paragraph",
+                "markdown": "中午在楼下吃了碗雪菜面，店里把小票压在辣椒罐下面，我走到路口才想起来没拿。下午等陈放回话时刷了四十分钟办公椅测评，把扶手高度、网布和头枕抄进便签，最后一把也没下单。晚上坐回旧椅子，左边扶手仍旧会自己往下掉。",
+                "authorship": {
+                  "authored_id": "g14-d40-a06",
+                  "occurred_at": "2026-04-10T20:18:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "noise",
+                  "links": {"story_beat_ids": ["D40"], "fact_ids": [], "continuity_ids": []}
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "g14-doc-row-review-auth",
+              "occurred_at": "2026-04-10T20:22:00+08:00",
+              "author_role": "engineering",
+              "content_class": "ambiguous",
+              "links": {"story_beat_ids": ["D40"], "fact_ids": ["F09"], "continuity_ids": ["C04"]}
+            }
+          }
+        ]
+      },
+      {
+        "source_id": "g14-doclib-reopen-src",
+        "authorship": {
+          "authored_id": "g14-doclib-reopen-src-auth",
+          "occurred_at": "2026-04-11T17:52:00+08:00",
+          "author_role": "engineering",
+          "content_class": "signal",
+          "links": {"story_beat_ids": ["D41"], "fact_ids": ["F09", "F10"], "continuity_ids": ["C03", "C04"]}
+        },
+        "schema": "pneuma.source.document-library/v1",
+        "provider": "mock",
+        "library_id": "g14-reopen-library",
+        "title": "四月十一日访问控制记录",
+        "documents": [
+          {
+            "document_id": "g14-doc-readonly-reopen",
+            "path": "operations/2026-04-11-limited-readonly-reopen.md",
+            "title": "受限只读恢复记录",
+            "frontmatter": {
+              "date": "2026-04-11",
+              "status": "read-only-limited",
+              "owner": "林舟",
+              "authorization": "decision-0411-01"
+            },
+            "full_markdown": "# 受限只读恢复记录\n\n本记录从 `decision-0411-01` 的授权之后开始，只写控制变化和验证结果，不代替吴岚的确认消息。恢复对象是云麓受限项目的只读查看路径；关系写入、候选应用、导入和既有分享入口不在本次范围。执行前保存当前开关状态，执行后用三类账号分别验证，任何一类越界都要重新关闭只读路径。\n\n| 控制项 | 执行前 | 11:36 后 | 验证方式 |\n| --- | --- | --- | --- |\n| 云麓受限只读 | 暂停 | 对授权试点账号开放 | 从项目列表进入并回到两份各自来源 |\n| 关系写入 | 关闭 | 关闭 | 写入请求返回阻断记录，不生成新关系 |\n| 新导入 | 关闭 | 关闭 | 队列为空，提交入口不接收文件 |\n| 分享入口 | 暂停提示 | 暂停提示 | 原链接记录保留，访问不返回项目内容 |\n| 候选自动应用 | 关闭 | 关闭 | 同姓测试只产生待审行，不改变实体归属 |\n\n账号验证没有共用同一个会话。试点授权账号能看到云麓自己的摘要与来源位置，澄湾摘要不再出现；内部复核账号能打开差异页，但不能执行关系写入；无关测试账号仍被拒绝。三次检查分别重新登录并记录时间，避免把前一个账号的缓存当作后一个账号权限。页面状态分成“来源已拆开”和“客户复核已完成”两行，陈放与吴岚均能区分。\n\n14:06 后的交接不在这份运行记录里复写聊天中的判断口径，只登记它落在哪里、是否改变系统。当前没有独立审批页或新的写入能力；当日待处理项仍留在内部工作列表，值守表只保存支持频道消息标识、操作批次和最后一次只读校验时间。为确认开关没有被旁路，授权切换前后各提交一条空白测试请求，两次都只生成阻断日志，关系数量未增加，客户页也没有出现新的派生摘要。阻断日志和只读访问日志分开归档，交接人只能据此还原今天何时切了哪个开关。这里留下的是操作证据，不是人工门已经上线的证明；聊天规则日后若变更，运行记录只追加新的出处和生效时间，不覆盖今天的记录。\n\n仍未恢复的东西不要从标题里猜。分享入口、关系写入和新导入都保持暂停，客户也没有获得编辑能力。正式事故说明尚未发送；较早批次的同姓候选抽查、人工门的技术实现和完整回归仍在待办。运行中若出现跨项目摘要、无关账号可见、写入请求成功或原分享链接返回内容，值守人要先关闭这条只读路径并通知吴岚，再保存账号、时间和入口，不以“刷新后消失”作为通过。今天的结果只证明限定账号下的只读路径符合当前范围，不等于事件处理结束。\n",
+            "tags": ["受限恢复", "只读", "人工确认"],
+            "links": [],
+            "created_at": "2026-04-11T12:16:00+08:00",
+            "modified_at": "2026-04-11T17:50:00+08:00",
+            "visible_blocks": [
+              {
+                "block_id": "g14-d41-b-h01",
+                "kind": "heading",
+                "markdown": "# 受限只读恢复记录",
+                "authorship": {
+                  "authored_id": "g14-d41-b-h01-auth",
+                  "occurred_at": "2026-04-11T12:16:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "ambiguous",
+                  "links": {"story_beat_ids": ["D41"], "fact_ids": ["F09"], "continuity_ids": ["C03", "C04"]}
+                }
+              },
+              {
+                "block_id": "g14-d41-b01",
+                "kind": "paragraph",
+                "markdown": "本记录从 `decision-0411-01` 的授权之后开始，只写控制变化和验证结果，不代替吴岚的确认消息。恢复对象是云麓受限项目的只读查看路径；关系写入、候选应用、导入和既有分享入口不在本次范围。执行前保存当前开关状态，执行后用三类账号分别验证，任何一类越界都要重新关闭只读路径。",
+                "authorship": {
+                  "authored_id": "g14-d41-b01",
+                  "occurred_at": "2026-04-11T12:20:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {"story_beat_ids": ["D41"], "fact_ids": ["F09"], "continuity_ids": ["C03", "C04"]}
+                }
+              },
+              {
+                "block_id": "g14-d41-b02",
+                "kind": "table",
+                "markdown": "| 控制项 | 执行前 | 11:36 后 | 验证方式 |\n| --- | --- | --- | --- |\n| 云麓受限只读 | 暂停 | 对授权试点账号开放 | 从项目列表进入并回到两份各自来源 |\n| 关系写入 | 关闭 | 关闭 | 写入请求返回阻断记录，不生成新关系 |\n| 新导入 | 关闭 | 关闭 | 队列为空，提交入口不接收文件 |\n| 分享入口 | 暂停提示 | 暂停提示 | 原链接记录保留，访问不返回项目内容 |\n| 候选自动应用 | 关闭 | 关闭 | 同姓测试只产生待审行，不改变实体归属 |",
+                "authorship": {
+                  "authored_id": "g14-d41-b02",
+                  "occurred_at": "2026-04-11T12:42:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {"story_beat_ids": ["D41"], "fact_ids": ["F09", "F10"], "continuity_ids": ["C03", "C04"]}
+                }
+              },
+              {
+                "block_id": "g14-d41-b03",
+                "kind": "paragraph",
+                "markdown": "账号验证没有共用同一个会话。试点授权账号能看到云麓自己的摘要与来源位置，澄湾摘要不再出现；内部复核账号能打开差异页，但不能执行关系写入；无关测试账号仍被拒绝。三次检查分别重新登录并记录时间，避免把前一个账号的缓存当作后一个账号权限。页面状态分成“来源已拆开”和“客户复核已完成”两行，陈放与吴岚均能区分。",
+                "authorship": {
+                  "authored_id": "g14-d41-b03",
+                  "occurred_at": "2026-04-11T13:18:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {"story_beat_ids": ["D41"], "fact_ids": ["F09"], "continuity_ids": ["C03", "C04"]}
+                }
+              },
+              {
+                "block_id": "g14-d41-b04",
+                "kind": "paragraph",
+                "markdown": "14:06 后的交接不在这份运行记录里复写聊天中的判断口径，只登记它落在哪里、是否改变系统。当前没有独立审批页或新的写入能力；当日待处理项仍留在内部工作列表，值守表只保存支持频道消息标识、操作批次和最后一次只读校验时间。为确认开关没有被旁路，授权切换前后各提交一条空白测试请求，两次都只生成阻断日志，关系数量未增加，客户页也没有出现新的派生摘要。阻断日志和只读访问日志分开归档，交接人只能据此还原今天何时切了哪个开关。这里留下的是操作证据，不是人工门已经上线的证明；聊天规则日后若变更，运行记录只追加新的出处和生效时间，不覆盖今天的记录。",
+                "authorship": {
+                  "authored_id": "g14-d41-b04",
+                  "occurred_at": "2026-04-11T14:06:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {"story_beat_ids": ["D41"], "fact_ids": ["F10"], "continuity_ids": ["C04"]}
+                }
+              },
+              {
+                "block_id": "g14-d41-b05",
+                "kind": "paragraph",
+                "markdown": "仍未恢复的东西不要从标题里猜。分享入口、关系写入和新导入都保持暂停，客户也没有获得编辑能力。正式事故说明尚未发送；较早批次的同姓候选抽查、人工门的技术实现和完整回归仍在待办。运行中若出现跨项目摘要、无关账号可见、写入请求成功或原分享链接返回内容，值守人要先关闭这条只读路径并通知吴岚，再保存账号、时间和入口，不以“刷新后消失”作为通过。今天的结果只证明限定账号下的只读路径符合当前范围，不等于事件处理结束。",
+                "authorship": {
+                  "authored_id": "g14-d41-b05",
+                  "occurred_at": "2026-04-11T17:46:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "ambiguous",
+                  "links": {"story_beat_ids": ["D41"], "fact_ids": ["F09", "F10"], "continuity_ids": ["C03", "C04"]}
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "g14-doc-readonly-reopen-auth",
+              "occurred_at": "2026-04-11T17:50:00+08:00",
+              "author_role": "engineering",
+              "content_class": "signal",
+              "links": {"story_beat_ids": ["D41"], "fact_ids": ["F09", "F10"], "continuity_ids": ["C03", "C04"]}
+            }
+          }
+        ]
+      }
+    ],
+    "im": [
+      {
+        "source_id": "g14-im-src",
+        "authorship": {
+          "authored_id": "g14-im-src-auth",
+          "occurred_at": "2026-04-11T22:00:00+08:00",
+          "author_role": "manager",
+          "content_class": "signal",
+          "links": {"story_beat_ids": ["D41"], "fact_ids": ["F09", "F10"], "continuity_ids": ["C03", "C04"]}
+        },
+        "schema": "pneuma.source.im/v1",
+        "provider": "mock",
+        "archive_id": "g14-im-0411",
+        "owner_user_ids": ["g14-user-lin"],
+        "users": [
+          {"user_id": "g14-user-lin", "display_name": "林舟", "role": "engineering", "synthetic_address": "lin.zhou@seamlog.test", "is_bot": false},
+          {"user_id": "g14-user-wu", "display_name": "吴岚", "role": "manager", "synthetic_address": "wu.lan@bamboo.test", "is_bot": false},
+          {"user_id": "g14-user-chen", "display_name": "陈放", "role": "operations", "synthetic_address": "chen.fang@field.test", "is_bot": false},
+          {"user_id": "g14-user-jia", "display_name": "贾宁", "role": "engineering", "synthetic_address": "jia.ning@review.test", "is_bot": false},
+          {"user_id": "g14-user-zhao", "display_name": "赵楠", "role": "design", "synthetic_address": "zhao.nan@home.test", "is_bot": false}
+        ],
+        "conversations": [
+          {
+            "conversation_id": "g14-conv-restore",
+            "conversation_type": "group_dm",
+            "title": "受限只读恢复协调",
+            "member_ids": ["g14-user-lin", "g14-user-wu", "g14-user-chen", "g14-user-jia"],
+            "messages": [
+              {
+                "message_id": "g14-msg-01",
+                "sender_id": "g14-user-lin",
+                "sent_at": "2026-04-11T08:52:00+08:00",
+                "full_text": "昨晚那条状态已拆成两行。我把工作副本入口发这里，请陈放不看说明重新走一遍：先看来源归属，再说现在是谁确认、能不能写。吴岚先不用点，等陈放报结果。",
+                "thread_id": null,
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g14-d41-m01",
+                  "occurred_at": "2026-04-11T08:52:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "ambiguous",
+                  "links": {"story_beat_ids": ["D41"], "fact_ids": ["F09"], "continuity_ids": ["C03", "C04"]}
+                }
+              },
+              {
+                "message_id": "g14-msg-02",
+                "sender_id": "g14-user-chen",
+                "sent_at": "2026-04-11T08:59:00+08:00",
+                "full_text": "我从列表进了云麓，卡里只剩云麓两条；点来源都回云麓。澄湾那边也各回各的。状态现在写“来源已拆开”和“客户复核未开始”，我读成还不能用。",
+                "thread_id": "g14-msg-01",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g14-d41-m02",
+                  "occurred_at": "2026-04-11T08:59:00+08:00",
+                  "author_role": "operations",
+                  "content_class": "signal",
+                  "links": {"story_beat_ids": ["D41"], "fact_ids": ["F09"], "continuity_ids": ["C04"]}
+                }
+              },
+              {
+                "message_id": "g14-msg-03",
+                "sender_id": "g14-user-lin",
+                "sent_at": "2026-04-11T09:04:00+08:00",
+                "full_text": "你说“不能用”是指不能写，还是连只读也不该开？我需要把这两个权限分开问，不然吴岚没法给范围。",
+                "thread_id": "g14-msg-01",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g14-d41-m03",
+                  "occurred_at": "2026-04-11T09:04:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "ambiguous",
+                  "links": {"story_beat_ids": ["D41"], "fact_ids": ["F09"], "continuity_ids": ["C03", "C04"]}
+                }
+              },
+              {
+                "message_id": "g14-msg-04",
+                "sender_id": "g14-user-chen",
+                "sent_at": "2026-04-11T09:08:00+08:00",
+                "full_text": "写入肯定不能开。只读如果吴岚同意，我可以用来继续找有没有串错；但原来的分享链接先别活。我刚才说“不能用”主要是别让现场新增东西。",
+                "thread_id": "g14-msg-01",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g14-d41-m04",
+                  "occurred_at": "2026-04-11T09:08:00+08:00",
+                  "author_role": "operations",
+                  "content_class": "signal",
+                  "links": {"story_beat_ids": ["D41"], "fact_ids": ["F09"], "continuity_ids": ["C03", "C04"]}
+                }
+              },
+              {
+                "message_id": "g14-msg-05",
+                "sender_id": "g14-user-wu",
+                "sent_at": "2026-04-11T09:16:00+08:00",
+                "full_text": "陈放，请再确认两点：你看到的是工作副本，不是旧截图；两边来源点进去都没有跳到对方项目。确认后我再决定只读范围。",
+                "thread_id": "g14-msg-01",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g14-d41-m05",
+                  "occurred_at": "2026-04-11T09:16:00+08:00",
+                  "author_role": "manager",
+                  "content_class": "signal",
+                  "links": {"story_beat_ids": ["D41"], "fact_ids": ["F09"], "continuity_ids": ["C04"]}
+                }
+              },
+              {
+                "message_id": "g14-msg-06",
+                "sender_id": "g14-user-chen",
+                "sent_at": "2026-04-11T09:21:00+08:00",
+                "full_text": "确认，是今天 08:47 的工作副本。我分别从项目卡、摘要和来源位置点了三遍，没有跳到另一个项目。页面归属这部分我没再看到错的；其他批次我没查。",
+                "thread_id": "g14-msg-01",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g14-d41-m06",
+                  "occurred_at": "2026-04-11T09:21:00+08:00",
+                  "author_role": "operations",
+                  "content_class": "signal",
+                  "links": {"story_beat_ids": ["D41"], "fact_ids": ["F09"], "continuity_ids": ["C04"]}
+                }
+              },
+              {
+                "message_id": "g14-msg-07",
+                "sender_id": "g14-user-jia",
+                "sent_at": "2026-04-11T09:28:00+08:00",
+                "full_text": "页面核对够回答这两条，恢复前还要看控制面：只读路由能单独开吗，写入、导入、分享和候选应用是否继续关。别用一个总开关让四项跟着起来。",
+                "thread_id": "g14-msg-01",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g14-d41-m07",
+                  "occurred_at": "2026-04-11T09:28:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {"story_beat_ids": ["D41"], "fact_ids": ["F09"], "continuity_ids": ["C03", "C04"]}
+                }
+              },
+              {
+                "message_id": "g14-msg-08",
+                "sender_id": "g14-user-lin",
+                "sent_at": "2026-04-11T09:35:00+08:00",
+                "full_text": "可以单开。我试过三类账号：试点账号只读工作副本，内部账号看差异，无关账号拒绝。写入、导入、分享入口和候选自动应用都保持关闭；我还没切正式只读。",
+                "thread_id": "g14-msg-01",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g14-d41-m08",
+                  "occurred_at": "2026-04-11T09:35:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {"story_beat_ids": ["D41"], "fact_ids": ["F09"], "continuity_ids": ["C03", "C04"]}
+                }
+              },
+              {
+                "message_id": "g14-msg-09",
+                "sender_id": "g14-user-wu",
+                "sent_at": "2026-04-11T09:44:00+08:00",
+                "full_text": "我确认这两条错误归并的更正结果。允许恢复云麓授权试点账号的受限只读查看，仅限现有项目；不恢复写入、导入或原分享链接。执行后把三类账号结果留档。",
+                "thread_id": "g14-msg-01",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g14-d41-m09",
+                  "occurred_at": "2026-04-11T09:44:00+08:00",
+                  "author_role": "manager",
+                  "content_class": "signal",
+                  "links": {"story_beat_ids": ["D41"], "fact_ids": ["F09"], "continuity_ids": ["C03", "C04"]}
+                }
+              },
+              {
+                "message_id": "g14-msg-10",
+                "sender_id": "g14-user-lin",
+                "sent_at": "2026-04-11T09:49:00+08:00",
+                "full_text": "后续同姓候选怎么处理？我可以继续让自动应用关闭，但如果现场急着补一条关系，临时人工确认要看到哪些内容、由谁按下接受？",
+                "thread_id": "g14-msg-01",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g14-d41-m10",
+                  "occurred_at": "2026-04-11T09:49:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "ambiguous",
+                  "links": {"story_beat_ids": ["D41"], "fact_ids": ["F10"], "continuity_ids": ["C04"]}
+                }
+              },
+              {
+                "message_id": "g14-msg-11",
+                "sender_id": "g14-user-jia",
+                "sent_at": "2026-04-11T09:57:00+08:00",
+                "full_text": "候选先不产生写入。审阅者至少要同时看到两边来源位置、项目、联系尾号和消息父项，再对这一对明确接受或拒绝；不能拿相同短标签批量确认。缺字段或没人审就保持未决。",
+                "thread_id": "g14-msg-01",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g14-d41-m11",
+                  "occurred_at": "2026-04-11T09:57:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {"story_beat_ids": ["D41"], "fact_ids": ["F10"], "continuity_ids": ["C04"]}
+                }
+              },
+              {
+                "message_id": "g14-msg-12",
+                "sender_id": "g14-user-wu",
+                "sent_at": "2026-04-11T10:08:00+08:00",
+                "full_text": "按这个条件执行临时人工确认，自动应用继续停。今天的授权只针对受限只读，不代表事故说明已经发出；正式说明明天给我和孙秋，未完成的防护也要写进去。",
+                "thread_id": "g14-msg-01",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g14-d41-m12",
+                  "occurred_at": "2026-04-11T10:08:00+08:00",
+                  "author_role": "manager",
+                  "content_class": "signal",
+                  "links": {"story_beat_ids": ["D41"], "fact_ids": ["F09", "F10"], "continuity_ids": ["C03", "C04"]}
+                }
+              },
+              {
+                "message_id": "g14-msg-13",
+                "sender_id": "g14-user-lin",
+                "sent_at": "2026-04-11T11:42:00+08:00",
+                "full_text": "已按授权切换。云麓试点账号恢复只读，写入、导入、分享和自动应用仍关；无关账号测试仍被拒绝。详细时间与会话分开记在运行记录。",
+                "thread_id": "g14-msg-01",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g14-d41-m13",
+                  "occurred_at": "2026-04-11T11:42:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {"story_beat_ids": ["D41"], "fact_ids": ["F09", "F10"], "continuity_ids": ["C03", "C04"]}
+                }
+              },
+              {
+                "message_id": "g14-msg-14",
+                "sender_id": "g14-user-wu",
+                "sent_at": "2026-04-11T11:49:00+08:00",
+                "full_text": "收到。这次恢复到此为止，别顺手打开其他项目或旧链接。下午没有新异常就保持现状，不用为了“全恢复”再做动作。",
+                "thread_id": "g14-msg-01",
+                "edited_at": null,
+                "reactions": [
+                  {
+                    "reaction_id": "g14-reaction-01",
+                    "name": "已查看",
+                    "reactor_ids": ["g14-user-chen"],
+                    "authorship": {
+                      "authored_id": "g14-reaction-01-auth",
+                      "occurred_at": "2026-04-11T11:52:00+08:00",
+                      "author_role": "operations",
+                      "content_class": "ambiguous",
+                      "links": {"story_beat_ids": ["D41"], "fact_ids": ["F09"], "continuity_ids": ["C03", "C04"]}
+                    }
+                  }
+                ],
+                "authorship": {
+                  "authored_id": "g14-d41-m14",
+                  "occurred_at": "2026-04-11T11:49:00+08:00",
+                  "author_role": "manager",
+                  "content_class": "signal",
+                  "links": {"story_beat_ids": ["D41"], "fact_ids": ["F09"], "continuity_ids": ["C03", "C04"]}
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "g14-conv-restore-auth",
+              "occurred_at": "2026-04-11T11:52:00+08:00",
+              "author_role": "manager",
+              "content_class": "signal",
+              "links": {"story_beat_ids": ["D41"], "fact_ids": ["F09", "F10"], "continuity_ids": ["C03", "C04"]}
+            }
+          },
+          {
+            "conversation_id": "g14-conv-game",
+            "conversation_type": "dm",
+            "title": "林舟 / 赵楠",
+            "member_ids": ["g14-user-lin", "g14-user-zhao"],
+            "messages": [
+              {
+                "message_id": "g14-msg-15",
+                "sender_id": "g14-user-zhao",
+                "sent_at": "2026-04-11T20:10:00+08:00",
+                "full_text": "今晚开一小时？我把上次卡住的门找到了，不用你再看攻略。九点半我就下，后面还有一段对白要交。",
+                "thread_id": null,
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g14-d41-m15",
+                  "occurred_at": "2026-04-11T20:10:00+08:00",
+                  "author_role": "design",
+                  "content_class": "noise",
+                  "links": {"story_beat_ids": ["D41"], "fact_ids": [], "continuity_ids": []}
+                }
+              },
+              {
+                "message_id": "g14-msg-16",
+                "sender_id": "g14-user-lin",
+                "sent_at": "2026-04-11T20:16:00+08:00",
+                "full_text": "开，计时一小时。我刚把车里的保养册拿上来，手上全是纸袋灰，先洗个手。别给我留最难跳的那个角色。",
+                "thread_id": "g14-msg-15",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g14-d41-m16",
+                  "occurred_at": "2026-04-11T20:16:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "noise",
+                  "links": {"story_beat_ids": ["D41"], "fact_ids": [], "continuity_ids": []}
+                }
+              },
+              {
+                "message_id": "g14-msg-17",
+                "sender_id": "g14-user-zhao",
+                "sent_at": "2026-04-11T21:04:00+08:00",
+                "full_text": "还剩六分钟，别又开下一关。冰箱里有两根玉米，明天那锅汤你要用就先贴张纸，我怕晚上煮掉。",
+                "thread_id": "g14-msg-15",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g14-d41-m17",
+                  "occurred_at": "2026-04-11T21:04:00+08:00",
+                  "author_role": "design",
+                  "content_class": "noise",
+                  "links": {"story_beat_ids": ["D41"], "fact_ids": [], "continuity_ids": []}
+                }
+              },
+              {
+                "message_id": "g14-msg-18",
+                "sender_id": "g14-user-lin",
+                "sent_at": "2026-04-11T21:17:00+08:00",
+                "full_text": "已经退了，四十八分钟也算一小时额度。玉米我贴纸，明天再买番茄和豆腐。你剪对白时门别关死，屋里有点闷。",
+                "thread_id": "g14-msg-15",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g14-d41-m18",
+                  "occurred_at": "2026-04-11T21:17:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "noise",
+                  "links": {"story_beat_ids": ["D41"], "fact_ids": [], "continuity_ids": []}
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "g14-conv-game-auth",
+              "occurred_at": "2026-04-11T21:17:00+08:00",
+              "author_role": "design",
+              "content_class": "noise",
+              "links": {"story_beat_ids": ["D41"], "fact_ids": [], "continuity_ids": []}
+            }
+          }
+        ]
+      }
+    ],
+    "email": [
+      {
+        "source_id": "g14-email-src",
+        "authorship": {
+          "authored_id": "g14-email-src-auth",
+          "occurred_at": "2026-04-12T17:00:00+08:00",
+          "author_role": "engineering",
+          "content_class": "signal",
+          "links": {"story_beat_ids": ["D42"], "fact_ids": ["F09", "F10"], "continuity_ids": ["C03", "C04"]}
+        },
+        "schema": "pneuma.source.email/v1",
+        "provider": "rfc822",
+        "archive_id": "g14-mail-0412",
+        "owner_addresses": ["lin.zhou@seamlog.test"],
+        "threads": [
+          {
+            "thread_id": "g14-thread-incident",
+            "subject": "事故说明：同姓记录错误关联与当前处置",
+            "messages": [
+              {
+                "message_id": "g14-email-01",
+                "sent_at": "2026-04-12T15:18:00+08:00",
+                "from": {"address": "lin.zhou@seamlog.test", "display_name": "林舟", "role": "engineering"},
+                "to": [
+                  {"address": "wu.lan@bamboo.test", "display_name": "吴岚", "role": "manager"},
+                  {"address": "sun.qiu@advice.test", "display_name": "孙秋", "role": "legal"}
+                ],
+                "cc": [{"address": "jia.ning@review.test", "display_name": "贾宁", "role": "engineering"}],
+                "subject": "事故说明：同姓记录错误关联与当前处置",
+                "headers": [
+                  {
+                    "header_id": "g14-e01-h-date",
+                    "name": "Date",
+                    "value": "Sun, 12 Apr 2026 15:18:00 +0800",
+                    "authorship": {
+                      "authored_id": "g14-e01-h-date-auth",
+                      "occurred_at": "2026-04-12T15:18:00+08:00",
+                      "author_role": "engineering",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D42"], "fact_ids": ["F09", "F10"], "continuity_ids": ["C03", "C04"]}
+                    }
+                  },
+                  {
+                    "header_id": "g14-e01-h-from",
+                    "name": "From",
+                    "value": "林舟 <lin.zhou@seamlog.test>",
+                    "authorship": {
+                      "authored_id": "g14-e01-h-from-auth",
+                      "occurred_at": "2026-04-12T15:18:00+08:00",
+                      "author_role": "engineering",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D42"], "fact_ids": ["F09", "F10"], "continuity_ids": ["C03", "C04"]}
+                    }
+                  },
+                  {
+                    "header_id": "g14-e01-h-to",
+                    "name": "To",
+                    "value": "吴岚 <wu.lan@bamboo.test>, 孙秋 <sun.qiu@advice.test>",
+                    "authorship": {
+                      "authored_id": "g14-e01-h-to-auth",
+                      "occurred_at": "2026-04-12T15:18:00+08:00",
+                      "author_role": "engineering",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D42"], "fact_ids": ["F09", "F10"], "continuity_ids": ["C03", "C04"]}
+                    }
+                  },
+                  {
+                    "header_id": "g14-e01-h-cc",
+                    "name": "Cc",
+                    "value": "贾宁 <jia.ning@review.test>",
+                    "authorship": {
+                      "authored_id": "g14-e01-h-cc-auth",
+                      "occurred_at": "2026-04-12T15:18:00+08:00",
+                      "author_role": "engineering",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D42"], "fact_ids": ["F09", "F10"], "continuity_ids": ["C03", "C04"]}
+                    }
+                  },
+                  {
+                    "header_id": "g14-e01-h-subject",
+                    "name": "Subject",
+                    "value": "事故说明：同姓记录错误关联与当前处置",
+                    "authorship": {
+                      "authored_id": "g14-e01-h-subject-auth",
+                      "occurred_at": "2026-04-12T15:18:00+08:00",
+                      "author_role": "engineering",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D42"], "fact_ids": ["F09", "F10"], "continuity_ids": ["C03", "C04"]}
+                    }
+                  },
+                  {
+                    "header_id": "g14-e01-h-id",
+                    "name": "Message-ID",
+                    "value": "<g14-incident-root@seamlog.test>",
+                    "authorship": {
+                      "authored_id": "g14-e01-h-id-auth",
+                      "occurred_at": "2026-04-12T15:18:00+08:00",
+                      "author_role": "engineering",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D42"], "fact_ids": ["F09", "F10"], "continuity_ids": ["C03", "C04"]}
+                    }
+                  }
+                ],
+                "full_text": "吴岚、孙秋：\n\n现发送本次错误关联的书面说明，范围截至 4 月 12 日 15:00。\n\n**影响。** 两份属于不同项目的业主来源因同姓候选被写入同一关系，云麓受限客户视图一度出现澄湾的两条现场摘要。当前确认至少一名试点授权使用者打开过该位置。来源文件没有被删除，错误发生在关系与派生展示层；更早批次及其他同姓候选的抽查尚未全部完成。\n\n**暂停与修正。** 4 月 7 日起，关系写入、新导入、候选自动应用和既有分享入口保持暂停。两份来源已在工作副本中人工分开，派生引用逐条比对后由陈放核对项目归属，4 月 11 日由吴岚确认本次更正。随后只恢复云麓授权试点账号的受限只读查看；写入、导入和原分享链接没有恢复。\n\n**当前证据边界。** 已检查本次卡片的授权访问、分享调用与下载记录，覆盖 4 月 5 日 09:00 至 4 月 12 日 15:00；核对对象包括访问账号、发生时间、入口类型与下载结果，并以保存的查询条件作为本版说明的依据。在该范围内未发现未授权会话、公开分享或外部下载证据。这是当前核查结果，不是对未检查范围作“从未发生”的保证。若后续发现范围变化，我会追加时间与依据，不改写本版截止时间。\n\n**尚未完成的防护。** 自动应用继续关闭，所有新候选临时要求审阅者比较两边来源位置、项目、联系尾号和消息父项后明确接受或拒绝。这个人工门目前是操作条件，技术化约束和完整回归还未完成；较早批次的抽查也仍在继续。以上项目完成前，不讨论恢复自动写入或分享入口。\n\n后续问题请直接回复此邮件，由我维护技术取数，吴岚决定客户侧范围，孙秋复核表述边界。\n\n林舟",
+                "in_reply_to": null,
+                "references": [],
+                "attachments": [],
+                "authorship": {
+                  "authored_id": "g14-d42-e01",
+                  "occurred_at": "2026-04-12T15:18:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {"story_beat_ids": ["D42"], "fact_ids": ["F09", "F10"], "continuity_ids": ["C03", "C04"]}
+                }
+              },
+              {
+                "message_id": "g14-email-02",
+                "sent_at": "2026-04-12T16:06:00+08:00",
+                "from": {"address": "sun.qiu@advice.test", "display_name": "孙秋", "role": "legal"},
+                "to": [
+                  {"address": "lin.zhou@seamlog.test", "display_name": "林舟", "role": "engineering"},
+                  {"address": "wu.lan@bamboo.test", "display_name": "吴岚", "role": "manager"}
+                ],
+                "cc": [{"address": "jia.ning@review.test", "display_name": "贾宁", "role": "engineering"}],
+                "subject": "Re: 事故说明：同姓记录错误关联与当前处置",
+                "headers": [
+                  {
+                    "header_id": "g14-e02-h-date",
+                    "name": "Date",
+                    "value": "Sun, 12 Apr 2026 16:06:00 +0800",
+                    "authorship": {
+                      "authored_id": "g14-e02-h-date-auth",
+                      "occurred_at": "2026-04-12T16:06:00+08:00",
+                      "author_role": "legal",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D42"], "fact_ids": ["F09", "F10"], "continuity_ids": ["C03", "C04"]}
+                    }
+                  },
+                  {
+                    "header_id": "g14-e02-h-from",
+                    "name": "From",
+                    "value": "孙秋 <sun.qiu@advice.test>",
+                    "authorship": {
+                      "authored_id": "g14-e02-h-from-auth",
+                      "occurred_at": "2026-04-12T16:06:00+08:00",
+                      "author_role": "legal",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D42"], "fact_ids": ["F09", "F10"], "continuity_ids": ["C03", "C04"]}
+                    }
+                  },
+                  {
+                    "header_id": "g14-e02-h-to",
+                    "name": "To",
+                    "value": "林舟 <lin.zhou@seamlog.test>, 吴岚 <wu.lan@bamboo.test>",
+                    "authorship": {
+                      "authored_id": "g14-e02-h-to-auth",
+                      "occurred_at": "2026-04-12T16:06:00+08:00",
+                      "author_role": "legal",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D42"], "fact_ids": ["F09", "F10"], "continuity_ids": ["C03", "C04"]}
+                    }
+                  },
+                  {
+                    "header_id": "g14-e02-h-cc",
+                    "name": "Cc",
+                    "value": "贾宁 <jia.ning@review.test>",
+                    "authorship": {
+                      "authored_id": "g14-e02-h-cc-auth",
+                      "occurred_at": "2026-04-12T16:06:00+08:00",
+                      "author_role": "legal",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D42"], "fact_ids": ["F09", "F10"], "continuity_ids": ["C03", "C04"]}
+                    }
+                  },
+                  {
+                    "header_id": "g14-e02-h-subject",
+                    "name": "Subject",
+                    "value": "Re: 事故说明：同姓记录错误关联与当前处置",
+                    "authorship": {
+                      "authored_id": "g14-e02-h-subject-auth",
+                      "occurred_at": "2026-04-12T16:06:00+08:00",
+                      "author_role": "legal",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D42"], "fact_ids": ["F09", "F10"], "continuity_ids": ["C03", "C04"]}
+                    }
+                  },
+                  {
+                    "header_id": "g14-e02-h-id",
+                    "name": "Message-ID",
+                    "value": "<g14-incident-reply@advice.test>",
+                    "authorship": {
+                      "authored_id": "g14-e02-h-id-auth",
+                      "occurred_at": "2026-04-12T16:06:00+08:00",
+                      "author_role": "legal",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D42"], "fact_ids": ["F09", "F10"], "continuity_ids": ["C03", "C04"]}
+                    }
+                  },
+                  {
+                    "header_id": "g14-e02-h-reply",
+                    "name": "In-Reply-To",
+                    "value": "<g14-incident-root@seamlog.test>",
+                    "authorship": {
+                      "authored_id": "g14-e02-h-reply-auth",
+                      "occurred_at": "2026-04-12T16:06:00+08:00",
+                      "author_role": "legal",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D42"], "fact_ids": ["F09", "F10"], "continuity_ids": ["C03", "C04"]}
+                    }
+                  },
+                  {
+                    "header_id": "g14-e02-h-refs",
+                    "name": "References",
+                    "value": "<g14-incident-root@seamlog.test>",
+                    "authorship": {
+                      "authored_id": "g14-e02-h-refs-auth",
+                      "occurred_at": "2026-04-12T16:06:00+08:00",
+                      "author_role": "legal",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D42"], "fact_ids": ["F09", "F10"], "continuity_ids": ["C03", "C04"]}
+                    }
+                  }
+                ],
+                "full_text": "林舟、吴岚：\n\n已收到并按当前核查范围留存。说明把客户可见影响、已执行暂停、经复核的更正和仍未完成的防护分开了；后续追加时沿用各自的截止时间，不要覆盖今天这一版。\n\n请继续保持两条边界。第一，“未发现未授权会话、公开分享或外部下载”只适用于邮件中写明的记录与时段，不能在后续摘要里缩成“没有外泄”。第二，人工审阅现在是临时操作条件，不应写成技术防护已经上线。较早批次抽查和控制实现完成后，请另发进展，不必重发整封事故经过；如果证据范围或影响人数发生变化，追加邮件要同时写明发现时间、变化项和仍未知的部分。\n\n这封回复确认的是说明已收和表述范围，不扩大昨天的只读恢复，也不批准写入、导入或分享。若吴岚需要面向其他人转发，请由她决定收件范围。\n\n孙秋",
+                "in_reply_to": "g14-email-01",
+                "references": ["g14-email-01"],
+                "attachments": [],
+                "authorship": {
+                  "authored_id": "g14-d42-e02",
+                  "occurred_at": "2026-04-12T16:06:00+08:00",
+                  "author_role": "legal",
+                  "content_class": "ambiguous",
+                  "links": {"story_beat_ids": ["D42"], "fact_ids": ["F09", "F10"], "continuity_ids": ["C03", "C04"]}
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "g14-thread-incident-auth",
+              "occurred_at": "2026-04-12T16:06:00+08:00",
+              "author_role": "legal",
+              "content_class": "signal",
+              "links": {"story_beat_ids": ["D42"], "fact_ids": ["F09", "F10"], "continuity_ids": ["C03", "C04"]}
+            }
+          },
+          {
+            "thread_id": "g14-thread-grocery",
+            "subject": "周日蔬菜订单替换确认",
+            "messages": [
+              {
+                "message_id": "g14-email-03",
+                "sent_at": "2026-04-12T10:12:00+08:00",
+                "from": {"address": "orders@qinghe-market.test", "display_name": "清禾菜店", "role": "vendor"},
+                "to": [{"address": "lin.zhou@seamlog.test", "display_name": "林舟", "role": "engineering"}],
+                "cc": [],
+                "subject": "周日蔬菜订单替换确认",
+                "headers": [
+                  {
+                    "header_id": "g14-e03-h-date",
+                    "name": "Date",
+                    "value": "Sun, 12 Apr 2026 10:12:00 +0800",
+                    "authorship": {
+                      "authored_id": "g14-e03-h-date-auth",
+                      "occurred_at": "2026-04-12T10:12:00+08:00",
+                      "author_role": "vendor",
+                      "content_class": "noise",
+                      "links": {"story_beat_ids": ["D42"], "fact_ids": [], "continuity_ids": []}
+                    }
+                  },
+                  {
+                    "header_id": "g14-e03-h-from",
+                    "name": "From",
+                    "value": "清禾菜店 <orders@qinghe-market.test>",
+                    "authorship": {
+                      "authored_id": "g14-e03-h-from-auth",
+                      "occurred_at": "2026-04-12T10:12:00+08:00",
+                      "author_role": "vendor",
+                      "content_class": "noise",
+                      "links": {"story_beat_ids": ["D42"], "fact_ids": [], "continuity_ids": []}
+                    }
+                  },
+                  {
+                    "header_id": "g14-e03-h-to",
+                    "name": "To",
+                    "value": "林舟 <lin.zhou@seamlog.test>",
+                    "authorship": {
+                      "authored_id": "g14-e03-h-to-auth",
+                      "occurred_at": "2026-04-12T10:12:00+08:00",
+                      "author_role": "vendor",
+                      "content_class": "noise",
+                      "links": {"story_beat_ids": ["D42"], "fact_ids": [], "continuity_ids": []}
+                    }
+                  },
+                  {
+                    "header_id": "g14-e03-h-subject",
+                    "name": "Subject",
+                    "value": "周日蔬菜订单替换确认",
+                    "authorship": {
+                      "authored_id": "g14-e03-h-subject-auth",
+                      "occurred_at": "2026-04-12T10:12:00+08:00",
+                      "author_role": "vendor",
+                      "content_class": "noise",
+                      "links": {"story_beat_ids": ["D42"], "fact_ids": [], "continuity_ids": []}
+                    }
+                  },
+                  {
+                    "header_id": "g14-e03-h-id",
+                    "name": "Message-ID",
+                    "value": "<g14-grocery-root@qinghe-market.test>",
+                    "authorship": {
+                      "authored_id": "g14-e03-h-id-auth",
+                      "occurred_at": "2026-04-12T10:12:00+08:00",
+                      "author_role": "vendor",
+                      "content_class": "noise",
+                      "links": {"story_beat_ids": ["D42"], "fact_ids": [], "continuity_ids": []}
+                    }
+                  }
+                ],
+                "full_text": "林先生：\n\n您今天订单里的嫩豆腐临时缺货，可以替换为一盒老豆腐并退差价 2 元；番茄和香菇正常。配送员预计 11:40 至 12:20 到，雨天会放在一楼架子，不直接靠门。若不同意替换，请在 10:40 前回复，我们会只取消豆腐。\n\n清禾菜店",
+                "in_reply_to": null,
+                "references": [],
+                "attachments": [],
+                "authorship": {
+                  "authored_id": "g14-d42-e03",
+                  "occurred_at": "2026-04-12T10:12:00+08:00",
+                  "author_role": "vendor",
+                  "content_class": "noise",
+                  "links": {"story_beat_ids": ["D42"], "fact_ids": [], "continuity_ids": []}
+                }
+              },
+              {
+                "message_id": "g14-email-04",
+                "sent_at": "2026-04-12T10:28:00+08:00",
+                "from": {"address": "lin.zhou@seamlog.test", "display_name": "林舟", "role": "engineering"},
+                "to": [{"address": "orders@qinghe-market.test", "display_name": "清禾菜店", "role": "vendor"}],
+                "cc": [],
+                "subject": "Re: 周日蔬菜订单替换确认",
+                "headers": [
+                  {
+                    "header_id": "g14-e04-h-date",
+                    "name": "Date",
+                    "value": "Sun, 12 Apr 2026 10:28:00 +0800",
+                    "authorship": {
+                      "authored_id": "g14-e04-h-date-auth",
+                      "occurred_at": "2026-04-12T10:28:00+08:00",
+                      "author_role": "engineering",
+                      "content_class": "noise",
+                      "links": {"story_beat_ids": ["D42"], "fact_ids": [], "continuity_ids": []}
+                    }
+                  },
+                  {
+                    "header_id": "g14-e04-h-from",
+                    "name": "From",
+                    "value": "林舟 <lin.zhou@seamlog.test>",
+                    "authorship": {
+                      "authored_id": "g14-e04-h-from-auth",
+                      "occurred_at": "2026-04-12T10:28:00+08:00",
+                      "author_role": "engineering",
+                      "content_class": "noise",
+                      "links": {"story_beat_ids": ["D42"], "fact_ids": [], "continuity_ids": []}
+                    }
+                  },
+                  {
+                    "header_id": "g14-e04-h-to",
+                    "name": "To",
+                    "value": "清禾菜店 <orders@qinghe-market.test>",
+                    "authorship": {
+                      "authored_id": "g14-e04-h-to-auth",
+                      "occurred_at": "2026-04-12T10:28:00+08:00",
+                      "author_role": "engineering",
+                      "content_class": "noise",
+                      "links": {"story_beat_ids": ["D42"], "fact_ids": [], "continuity_ids": []}
+                    }
+                  },
+                  {
+                    "header_id": "g14-e04-h-subject",
+                    "name": "Subject",
+                    "value": "Re: 周日蔬菜订单替换确认",
+                    "authorship": {
+                      "authored_id": "g14-e04-h-subject-auth",
+                      "occurred_at": "2026-04-12T10:28:00+08:00",
+                      "author_role": "engineering",
+                      "content_class": "noise",
+                      "links": {"story_beat_ids": ["D42"], "fact_ids": [], "continuity_ids": []}
+                    }
+                  },
+                  {
+                    "header_id": "g14-e04-h-id",
+                    "name": "Message-ID",
+                    "value": "<g14-grocery-reply@seamlog.test>",
+                    "authorship": {
+                      "authored_id": "g14-e04-h-id-auth",
+                      "occurred_at": "2026-04-12T10:28:00+08:00",
+                      "author_role": "engineering",
+                      "content_class": "noise",
+                      "links": {"story_beat_ids": ["D42"], "fact_ids": [], "continuity_ids": []}
+                    }
+                  },
+                  {
+                    "header_id": "g14-e04-h-reply",
+                    "name": "In-Reply-To",
+                    "value": "<g14-grocery-root@qinghe-market.test>",
+                    "authorship": {
+                      "authored_id": "g14-e04-h-reply-auth",
+                      "occurred_at": "2026-04-12T10:28:00+08:00",
+                      "author_role": "engineering",
+                      "content_class": "noise",
+                      "links": {"story_beat_ids": ["D42"], "fact_ids": [], "continuity_ids": []}
+                    }
+                  },
+                  {
+                    "header_id": "g14-e04-h-refs",
+                    "name": "References",
+                    "value": "<g14-grocery-root@qinghe-market.test>",
+                    "authorship": {
+                      "authored_id": "g14-e04-h-refs-auth",
+                      "occurred_at": "2026-04-12T10:28:00+08:00",
+                      "author_role": "engineering",
+                      "content_class": "noise",
+                      "links": {"story_beat_ids": ["D42"], "fact_ids": [], "continuity_ids": []}
+                    }
+                  }
+                ],
+                "full_text": "可以换老豆腐，差价按原路退。番茄如果有一个太软也没关系，我今天会直接煮汤。请放一楼架子第二层，到了只发短信，不用按门铃；合租人在补觉。纸袋外面若淋湿，麻烦再套一层，我下午才下楼取。\n\n林舟",
+                "in_reply_to": "g14-email-03",
+                "references": ["g14-email-03"],
+                "attachments": [],
+                "authorship": {
+                  "authored_id": "g14-d42-e04",
+                  "occurred_at": "2026-04-12T10:28:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "noise",
+                  "links": {"story_beat_ids": ["D42"], "fact_ids": [], "continuity_ids": []}
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "g14-thread-grocery-auth",
+              "occurred_at": "2026-04-12T10:28:00+08:00",
+              "author_role": "vendor",
+              "content_class": "noise",
+              "links": {"story_beat_ids": ["D42"], "fact_ids": [], "continuity_ids": []}
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

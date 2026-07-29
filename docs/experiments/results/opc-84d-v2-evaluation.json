@@ -1,0 +1,1934 @@
+{
+  "schema": "pneuma.experiment.evaluation/v1",
+  "experiment_id": "opc-84d-v2",
+  "user_id": "u-opc-seamlog-v2-20260729T091206681661Z-3b4f957a6d98063e",
+  "thresholds": {
+    "truth": 0.72,
+    "negative": 0.78,
+    "citation_support": 0.55,
+    "retrieval": 0.68
+  },
+  "counts": {
+    "canonical_documents": 28,
+    "canonical_projected_claims": 1262,
+    "postgres_claims": 1262,
+    "meilisearch_claims": 1262,
+    "qdrant_claims": 1262
+  },
+  "projection_consistency": {
+    "consistent": true,
+    "canonical_equals_postgres": true,
+    "postgres_equals_meilisearch": true,
+    "postgres_equals_qdrant": true
+  },
+  "canonical_quality": {
+    "claims_total": 1262,
+    "claims_without_citations": 0,
+    "citation_marker_residue": 0,
+    "section_components_with_heading_marker": 0,
+    "exact_duplicate_groups": 0,
+    "duplicate_rows_excess": 0,
+    "duplicate_row_rate": 0.0,
+    "claims_per_document": {
+      "materials/demo-assets-inventory.md": 28,
+      "materials/procurement-boundaries-v0-4.md": 19,
+      "memory/people/chen-fang.md": 94,
+      "memory/people/chen-yu.md": 6,
+      "memory/people/he-ming.md": 5,
+      "memory/people/jia-ning.md": 45,
+      "memory/people/lin-zhou.md": 228,
+      "memory/people/luo-chuan.md": 2,
+      "memory/people/ni-shan.md": 3,
+      "memory/people/sun-qiu.md": 46,
+      "memory/people/tang-ke.md": 3,
+      "memory/people/wu-lan.md": 116,
+      "memory/people/zhao-nan.md": 21,
+      "memory/profile.md": 11,
+      "memory/topics/data-processing-appendix.md": 4,
+      "memory/topics/household-coordination.md": 24,
+      "memory/topics/identity-resolution.md": 24,
+      "memory/topics/material-intake-boundaries.md": 86,
+      "memory/topics/seamlog.md": 126,
+      "memory/topics/status-presentation.md": 21,
+      "memory/topics/workspace-boundaries.md": 5,
+      "work/experiments/first-chain-onboarding.md": 16,
+      "work/experiments/read-only-traceability-pilot.md": 103,
+      "work/experiments/seamlog-discovery.md": 76,
+      "work/operations/cashflow-reconciliation.md": 28,
+      "work/operations/household-rice-subscription.md": 3,
+      "work/operations/vehicle-maintenance.md": 11,
+      "work/products/yunlu-apartment.md": 108
+    },
+    "duplicate_samples": []
+  },
+  "truth_recall": {
+    "matched": 1,
+    "total": 7,
+    "recall": 0.142857,
+    "by_category": {
+      "durable_facts": {
+        "matched": 1,
+        "total": 3,
+        "recall": 0.333333
+      },
+      "decisions": {
+        "matched": 0,
+        "total": 2,
+        "recall": 0.0
+      },
+      "commitments": {
+        "matched": 0,
+        "total": 1,
+        "recall": 0.0
+      },
+      "constraints": {
+        "matched": 0,
+        "total": 1,
+        "recall": 0.0
+      }
+    },
+    "misses": [
+      {
+        "truth_id": "v2-f-d29-start",
+        "category": "durable_facts",
+        "value": "3月30日，四个分别标名的只读副本进入观察；这不等于资料已验证。",
+        "matched": false,
+        "best": {
+          "score": 0.696471,
+          "char_score": 0.229885,
+          "embedding_score": 0.696471,
+          "text": "林舟将批次收尾状态写为“已进入只读观察”，而不是“资料已验证”；首日只核对四项副本能被列出，没有据此形成重复率、附件可读性或质量结论。"
+        }
+      },
+      {
+        "truth_id": "v2-f-d84-focus",
+        "category": "durable_facts",
+        "value": "下一周期只聚焦小型设计团队的变更证据链。",
+        "matched": false,
+        "best": {
+          "score": 0.711993,
+          "char_score": 0.25,
+          "embedding_score": 0.711993,
+          "text": "下一周期将继续验证“小型设计团队的变更证据链”：使用者应能指出一处变更材料、一次确认和一条尚未回答的状态，并把三者的原始位置放在同一条记录旁；缺少任一处就停在缺口，不预先导入其他项目、角色或待办。这仍是窄场景工作假设，不是接管所有项目流程。"
+        }
+      },
+      {
+        "truth_id": "v2-d-d82-stop-platform",
+        "category": "decisions",
+        "value": "停止全项目平台方向，供应商审批模块延后。",
+        "matched": false,
+        "best": {
+          "score": 0.665859,
+          "char_score": 0.18018,
+          "embedding_score": 0.665859,
+          "text": "下一周期不把全项目平台作为目标，也不把供应商审批带入当前试点；任务排期、采购推进、人员分配和总览不因既有两条链而获授权。审批若重新提出，需独立说明问题、使用者、成本理由和不同证据入口，当前尚未具备这些条件。"
+        }
+      },
+      {
+        "truth_id": "v2-d-d84-no-contract",
+        "category": "decisions",
+        "value": "六周延长仍是带条件的口头意向，尚未生效，并非长期合同。",
+        "matched": false,
+        "best": {
+          "score": 0.655348,
+          "char_score": 0.188679,
+          "embedding_score": 0.655348,
+          "text": "吴岚提出可讨论再延六周，但目前仅是口头意向，不是买下、自动顺延或长期合作承诺；在讨论顺延前，数据处理附录须签署、删除演练须获业务方确认、试点尾款须处理，三项均未完成时不应写成已顺延。"
+        }
+      },
+      {
+        "truth_id": "v2-c-d80-conditions",
+        "category": "commitments",
+        "value": "口头延长须附录签字、删除确认和尾款处理三项条件。",
+        "matched": false,
+        "best": {
+          "score": 0.620639,
+          "char_score": 0.166667,
+          "embedding_score": 0.620639,
+          "text": "本周期收尾进一步固定了可追溯记录的边界：应保留被划掉的词、替代词及其所依赖的旧邮件，并将“附条件口头延长”“签字/业务确认”“采购付款”作为不同状态对象；重复口头表达不应仅因格式更整齐而改变结论。"
+        }
+      },
+      {
+        "truth_id": "v2-x-d84-open",
+        "category": "constraints",
+        "value": "附录仍待签，删除确认未完成，尾款仍没有付款结果。",
+        "matched": false,
+        "best": {
+          "score": 0.672445,
+          "char_score": 0.217054,
+          "embedding_score": 0.672445,
+          "text": "在周期收尾回复中，吴岚明确：附录尚未签署，删除演练尚未逐格完成，尾款没有新日期；她不希望这封总览被解释为同意延长。三项必须分别回到各自原始问题和证据，回复其中一项不代表另外两项有进展；“收到”“在看”或沉默也不能改写成完成、签字、付款或延长生效。"
+        }
+      }
+    ],
+    "matches": [
+      {
+        "truth_id": "v2-f-d29-start",
+        "category": "durable_facts",
+        "value": "3月30日，四个分别标名的只读副本进入观察；这不等于资料已验证。",
+        "matched": false,
+        "best": {
+          "score": 0.696471,
+          "char_score": 0.229885,
+          "embedding_score": 0.696471,
+          "text": "林舟将批次收尾状态写为“已进入只读观察”，而不是“资料已验证”；首日只核对四项副本能被列出，没有据此形成重复率、附件可读性或质量结论。"
+        }
+      },
+      {
+        "truth_id": "v2-f-d78-second-chain",
+        "category": "durable_facts",
+        "value": "第二条材料替代链已有自己的来源和确认；两条链不合成总通过标记。",
+        "matched": true,
+        "best": {
+          "score": 0.728322,
+          "char_score": 0.184874,
+          "embedding_score": 0.728322,
+          "text": "两条证据链必须分别显示原材料入口、状态留存人及确认对应的材料范围；预算链不借材料替代答复改写，材料替代链也不借预算邮件补来源。若材料后续更换，应重新取得确认，不能把本次确认预先盖到下一次变更上。"
+        }
+      },
+      {
+        "truth_id": "v2-f-d84-focus",
+        "category": "durable_facts",
+        "value": "下一周期只聚焦小型设计团队的变更证据链。",
+        "matched": false,
+        "best": {
+          "score": 0.711993,
+          "char_score": 0.25,
+          "embedding_score": 0.711993,
+          "text": "下一周期将继续验证“小型设计团队的变更证据链”：使用者应能指出一处变更材料、一次确认和一条尚未回答的状态，并把三者的原始位置放在同一条记录旁；缺少任一处就停在缺口，不预先导入其他项目、角色或待办。这仍是窄场景工作假设，不是接管所有项目流程。"
+        }
+      },
+      {
+        "truth_id": "v2-d-d82-stop-platform",
+        "category": "decisions",
+        "value": "停止全项目平台方向，供应商审批模块延后。",
+        "matched": false,
+        "best": {
+          "score": 0.665859,
+          "char_score": 0.18018,
+          "embedding_score": 0.665859,
+          "text": "下一周期不把全项目平台作为目标，也不把供应商审批带入当前试点；任务排期、采购推进、人员分配和总览不因既有两条链而获授权。审批若重新提出，需独立说明问题、使用者、成本理由和不同证据入口，当前尚未具备这些条件。"
+        }
+      },
+      {
+        "truth_id": "v2-d-d84-no-contract",
+        "category": "decisions",
+        "value": "六周延长仍是带条件的口头意向，尚未生效，并非长期合同。",
+        "matched": false,
+        "best": {
+          "score": 0.655348,
+          "char_score": 0.188679,
+          "embedding_score": 0.655348,
+          "text": "吴岚提出可讨论再延六周，但目前仅是口头意向，不是买下、自动顺延或长期合作承诺；在讨论顺延前，数据处理附录须签署、删除演练须获业务方确认、试点尾款须处理，三项均未完成时不应写成已顺延。"
+        }
+      },
+      {
+        "truth_id": "v2-c-d80-conditions",
+        "category": "commitments",
+        "value": "口头延长须附录签字、删除确认和尾款处理三项条件。",
+        "matched": false,
+        "best": {
+          "score": 0.620639,
+          "char_score": 0.166667,
+          "embedding_score": 0.620639,
+          "text": "本周期收尾进一步固定了可追溯记录的边界：应保留被划掉的词、替代词及其所依赖的旧邮件，并将“附条件口头延长”“签字/业务确认”“采购付款”作为不同状态对象；重复口头表达不应仅因格式更整齐而改变结论。"
+        }
+      },
+      {
+        "truth_id": "v2-x-d84-open",
+        "category": "constraints",
+        "value": "附录仍待签，删除确认未完成，尾款仍没有付款结果。",
+        "matched": false,
+        "best": {
+          "score": 0.672445,
+          "char_score": 0.217054,
+          "embedding_score": 0.672445,
+          "text": "在周期收尾回复中，吴岚明确：附录尚未签署，删除演练尚未逐格完成，尾款没有新日期；她不希望这封总览被解释为同意延长。三项必须分别回到各自原始问题和证据，回复其中一项不代表另外两项有进展；“收到”“在看”或沉默也不能改写成完成、签字、付款或延长生效。"
+        }
+      }
+    ]
+  },
+  "truth_set_precision_proxy": {
+    "matched": 1,
+    "total": 1262,
+    "precision": 0.000792,
+    "unmatched_samples": [
+      {
+        "document_path": "materials/demo-assets-inventory.md",
+        "anchor": "0af2cf0b",
+        "text": "林舟在付款不确定期间暂不改演示排期，只制作准备清单；吴岚也不会替客户确认演示照常进行，因此当前没有取消或确认。演示开场选总览还是原始记录仍是未决的产品叙事问题，不能与“谁有权判断、证据如何成立”的预备问题混为一谈。",
+        "matched": false,
+        "best": {
+          "score": 0.484352,
+          "char_score": 0.033613,
+          "embedding_score": 0.484352,
+          "text": "附录仍待签，删除确认未完成，尾款仍没有付款结果。"
+        }
+      },
+      {
+        "document_path": "materials/demo-assets-inventory.md",
+        "anchor": "1f0009a5",
+        "text": "迁移说明的演示暂排四个停点，而非顺滑故事：先找到原句，再展示附加的范围解释，随后用“不是这个意思”检验观众能否区分它纠正的是原话、解释还是动作，最后回到来源位置。任何一停找不到对象时应保留失败画面，不用旁白补圆；向外展示仍待吴岚明确答复。",
+        "matched": false,
+        "best": {
+          "score": 0.312137,
+          "char_score": 0.032,
+          "embedding_score": 0.312137,
+          "text": "停止全项目平台方向，供应商审批模块延后。"
+        }
+      },
+      {
+        "document_path": "materials/demo-assets-inventory.md",
+        "anchor": "2853f799",
+        "text": "第一条记录链目前只是内部编排中的工作序列，依次放入原始变更提出、现场会口头确认的位置、失效附件说明以及仍待比较的颜色样和预算差异；页面用于检查指针能否回到来源，不是完成记录或验收请求。第二条变更来源尚未接入，自动周报旧页面仍保留，也没有据此决定下次演示或邀请安排。",
+        "matched": false,
+        "best": {
+          "score": 0.481792,
+          "char_score": 0.065789,
+          "embedding_score": 0.481792,
+          "text": "第二条材料替代链已有自己的来源和确认；两条链不合成总通过标记。"
+        }
+      },
+      {
+        "document_path": "materials/demo-assets-inventory.md",
+        "anchor": "2919a54c",
+        "text": "`demo/weekly-summary`（AS-WS-01）由林舟维护，最后核查于 2026-04-26 14:06，结果为可打开，且只读索引已建立；截图 `assets/demo/weekly-summary/S04.png`（AS-WS-02）拍摄于 2026-04-12，最后核查同为 14:06，结果为可打开；讲解顺序 `notes/demo/WS-ORDER-03.md`（AS-WS-03）最后使用于 2026-04-12，未改写。",
+        "matched": false,
+        "best": {
+          "score": 0.384308,
+          "char_score": 0.040404,
+          "embedding_score": 0.384308,
+          "text": "3月30日，四个分别标名的只读副本进入观察；这不等于资料已验证。"
+        }
+      },
+      {
+        "document_path": "materials/demo-assets-inventory.md",
+        "anchor": "3e074321",
+        "text": "本次现场答复进一步补足材料替代链的状态依据：该段被替代材料按记录范围处理，原“待确认”状态可以更新为“已确认”。定位、状态确认和原材料仍作为不同对象保留；该答复不改变失效附件状态，不补预算链，也不表示附录、尾款、延长或删除演练等其他事项已解决。",
+        "matched": false,
+        "best": {
+          "score": 0.563459,
+          "char_score": 0.131387,
+          "embedding_score": 0.563459,
+          "text": "第二条材料替代链已有自己的来源和确认；两条链不合成总通过标记。"
+        }
+      },
+      {
+        "document_path": "materials/demo-assets-inventory.md",
+        "anchor": "40ceb895",
+        "text": "第一条链导出的当前核对结果是：从导出首页可回到预算变更邮件、现场会位置和当前状态记录，三类来源保持分开；但首次从首页阅读时先误点状态，退回后才找到邮件入口，说明导出仍存在阅读顺序不直观的问题。当前拟改的是字段标题、分组顺序和跳转标签，不改变底层地址、来源或记录顺序；该修订不构成验收，也不覆盖第二条材料、删除演练或付款。",
+        "matched": false,
+        "best": {
+          "score": 0.427987,
+          "char_score": 0.057143,
+          "embedding_score": 0.427987,
+          "text": "第二条材料替代链已有自己的来源和确认；两条链不合成总通过标记。"
+        }
+      },
+      {
+        "document_path": "materials/demo-assets-inventory.md",
+        "anchor": "50443e45",
+        "text": "版本注记需列旧标题、新标题、改动人、改动时间及“阅读层”性质。跳转失效时应另开来源修正项，保留原位置、观察到的结果和修正进度，不用其他摘录替换失效位置；第二条材料替代链仍不在本页，当前没有由本页推出的验收或开始时限。",
+        "matched": false,
+        "best": {
+          "score": 0.546709,
+          "char_score": 0.144,
+          "embedding_score": 0.546709,
+          "text": "第二条材料替代链已有自己的来源和确认；两条链不合成总通过标记。"
+        }
+      },
+      {
+        "document_path": "materials/demo-assets-inventory.md",
+        "anchor": "50696bd2",
+        "text": "2026-04-26 14:06 的逐项检查分别记录为：旧摘要路由可打开且标为只读、截图 `WS-S04` 可打开、材料替代附件原链接返回“已失效”、现场会记录位置尚未取得；可打开的截图不替代失效附件，待查会议位置也不写成已找到。下一次检查沿用这些对象编号，以保持比较基线。",
+        "matched": false,
+        "best": {
+          "score": 0.439701,
+          "char_score": 0.110345,
+          "embedding_score": 0.439701,
+          "text": "3月30日，四个分别标名的只读副本进入观察；这不等于资料已验证。"
+        }
+      },
+      {
+        "document_path": "materials/demo-assets-inventory.md",
+        "anchor": "57291177",
+        "text": "陈放回传的现场会记录位置位于会议记录约 10:36，吴岚当时表示可按替代材料继续，但前提是把颜色样和预算差异留在项目记录；该回传仅补足有条件的口头确认及其定位，不是失效附件的替身，也不构成变更验收。原附件仍打不开，且未找到新的附件副本。",
+        "matched": false,
+        "best": {
+          "score": 0.389482,
+          "char_score": 0.077519,
+          "embedding_score": 0.389482,
+          "text": "附录仍待签，删除确认未完成，尾款仍没有付款结果。"
+        }
+      },
+      {
+        "document_path": "materials/demo-assets-inventory.md",
+        "anchor": "65f132ac",
+        "text": "林舟于 2026-04-26 13:40 将明日讲解入口 `WS-ENTRY-01` 从 `demo/weekly-summary` 移至只读索引 `demo/archive/weekly-summary`；旧入口对应截图 `WS-S04`，最后演示日期为 2026-04-12，原讲解顺序 `WS-ORDER-03` 随索引保留。本次只改变演示路由，没有删除页面或改写代码分支。",
+        "matched": false,
+        "best": {
+          "score": 0.337181,
+          "char_score": 0.056818,
+          "embedding_score": 0.337181,
+          "text": "3月30日，四个分别标名的只读副本进入观察；这不等于资料已验证。"
+        }
+      },
+      {
+        "document_path": "materials/demo-assets-inventory.md",
+        "anchor": "6d255376",
+        "text": "候选入口框架 `demo/drafts/trace-view`（AS-TRACE-01）由林舟维护，建立于 2026-04-26 14:48，目前只定义来源、状态、未答复三种字段，数据行数为零。因此它可用于检查布局，但不能用作材料链示例；演示标题和下次使用日期尚未登记，不能由资产表替责任人员生成答案。",
+        "matched": false,
+        "best": {
+          "score": 0.332207,
+          "char_score": 0.03871,
+          "embedding_score": 0.332207,
+          "text": "3月30日，四个分别标名的只读副本进入观察；这不等于资料已验证。"
+        }
+      },
+      {
+        "document_path": "materials/demo-assets-inventory.md",
+        "anchor": "72a038a8",
+        "text": "候选入口 `TRACE-DRAFT-01` 目前只建立 `SRC-01`（来源位置）、`STA-01`（原材料状态）和 `GAP-01`（未回答问题）三个空槽，尚未填入材料链；自动周报是否继续仍未作正式决定，现有代码和说明不因本记录改变状态。",
+        "matched": false,
+        "best": {
+          "score": 0.445814,
+          "char_score": 0.098361,
+          "embedding_score": 0.445814,
+          "text": "第二条材料替代链已有自己的来源和确认；两条链不合成总通过标记。"
+        }
+      },
+      {
+        "document_path": "materials/demo-assets-inventory.md",
+        "anchor": "77397807",
+        "text": "本次采购阅读版修订只改变第一条预算调整记录的显示词与阅读顺序，不新建来源、不移动原记录，也不把当前状态倒填到旧邮件；修订前后并排保留同一行号和三个原入口，以便核对改变的是阅读线索而非证据链。",
+        "matched": false,
+        "best": {
+          "score": 0.412689,
+          "char_score": 0.050847,
+          "embedding_score": 0.412689,
+          "text": "3月30日，四个分别标名的只读副本进入观察；这不等于资料已验证。"
+        }
+      },
+      {
+        "document_path": "materials/demo-assets-inventory.md",
+        "anchor": "782e1037",
+        "text": "第二遍迁移说明仍是结构可读、措辞未定且展示范围未获确认的草稿；它不是迁移通知，也不能证明任何动作已经完成。当前只应说明如何从旧收藏回到原始位置、如何区分后来附加的判断与原句、以及遇到空白、旧入口或含义不明状态时如何留下可复查问题；未逐项检查的旧记录不作整体验证。",
+        "matched": false,
+        "best": {
+          "score": 0.389747,
+          "char_score": 0.066225,
+          "embedding_score": 0.389747,
+          "text": "3月30日，四个分别标名的只读副本进入观察；这不等于资料已验证。"
+        }
+      },
+      {
+        "document_path": "materials/demo-assets-inventory.md",
+        "anchor": "8067f4ee",
+        "text": "首列改为“预算调整记录”，并把预算影响与对象说明放在一起；三个入口分别指向最初提出的邮件、说明执行范围的现场会位置和陈放留存的当前状态，责任人只随状态入口出现。标题用于辨认记录对象，不替代邮件原话；打印版入口下保留来源类型和记录日期。",
+        "matched": false,
+        "best": {
+          "score": 0.377967,
+          "char_score": 0.046512,
+          "embedding_score": 0.377967,
+          "text": "口头延长须附录签字、删除确认和尾款处理三项条件。"
+        }
+      },
+      {
+        "document_path": "materials/demo-assets-inventory.md",
+        "anchor": "9410f27e",
+        "text": "现场会记录的回传标准是可复看的原记录路径、说话人和时间点；日历中的录制链接可以作为入口，但若只有录制没有转写，应回传录制路径与可复看的分钟位置，不能为满足字段而编造转写。转发摘要只可帮助定位日期，不能证明原话；若只有摘要而无原记录，应标为线索而非定位结果。",
+        "matched": false,
+        "best": {
+          "score": 0.318061,
+          "char_score": 0.054422,
+          "embedding_score": 0.318061,
+          "text": "3月30日，四个分别标名的只读副本进入观察；这不等于资料已验证。"
+        }
+      },
+      {
+        "document_path": "materials/demo-assets-inventory.md",
+        "anchor": "9470072c",
+        "text": "若后续安排演练，应先询问谁有权判断及观察条件；今天不把任何人预写成演示背书者，也不把准备清单、口头转述或未完成讨论写成验收结论。会议在中途结束，林舟明确不把未谈完的问题整理成会议结论。",
+        "matched": false,
+        "best": {
+          "score": 0.398996,
+          "char_score": 0.075472,
+          "embedding_score": 0.398996,
+          "text": "附录仍待签，删除确认未完成，尾款仍没有付款结果。"
+        }
+      },
+      {
+        "document_path": "materials/demo-assets-inventory.md",
+        "anchor": "a21fa24c",
+        "text": "修订提交前的检查只核对三个入口是否可达、状态是否仍为待确认、责任人是否只附在状态处，以及排除范围是否仍在页面说明中；任一项未过，版本保持草稿，不回头修改原材料。",
+        "matched": false,
+        "best": {
+          "score": 0.470028,
+          "char_score": 0.105263,
+          "embedding_score": 0.470028,
+          "text": "口头延长须附录签字、删除确认和尾款处理三项条件。"
+        }
+      },
+      {
+        "document_path": "materials/demo-assets-inventory.md",
+        "anchor": "ac5c8709",
+        "text": "原附件链接（AS-MAT-01）来自旧项目记录，最后核查于 2026-04-26 14:06，状态为已失效，且没有本地副本；现场会记录定位符（AS-MAT-02）原先为空，现已补回为会议记录约 10:36 的可复看位置，涉及吴岚对材料替代的有条件口头确认。AS-MAT-02 的补齐不改变 AS-MAT-01 的失效状态，也不证明颜色样已通过、预算差异已结清或附件已恢复。",
+        "matched": false,
+        "best": {
+          "score": 0.438952,
+          "char_score": 0.057471,
+          "embedding_score": 0.438952,
+          "text": "附录仍待签，删除确认未完成，尾款仍没有付款结果。"
+        }
+      },
+      {
+        "document_path": "materials/demo-assets-inventory.md",
+        "anchor": "b4ac27b0",
+        "text": "页面顶部明确本试点只处理预算变更和材料替代，不含供应商审批；范围说明属于页面，不属于任何记录状态，也不能把未纳入类型解释为已处理。页脚只放版本号、生成时间及展示范围说明，不写“通过”或“完成”。",
+        "matched": false,
+        "best": {
+          "score": 0.40546,
+          "char_score": 0.052632,
+          "embedding_score": 0.40546,
+          "text": "3月30日，四个分别标名的只读副本进入观察；这不等于资料已验证。"
+        }
+      },
+      {
+        "document_path": "materials/demo-assets-inventory.md",
+        "anchor": "be6819c2",
+        "text": "邀请仍处于待发状态时，赵楠按待发信顺序检查主入口、说明页、反馈表和返回目标：主入口可打开且仅显示一条虚构链与反馈入口，但“如何找回原句”缺少一段路径而为空白，反馈表底部“返回演示”仍指向旧草稿入口并显示不同标题。两处不应合并为“入口坏了”：前者是说明断开，后者是反馈返回错版本；主入口本身未受影响。",
+        "matched": false,
+        "best": {
+          "score": 0.360517,
+          "char_score": 0.039216,
+          "embedding_score": 0.360517,
+          "text": "附录仍待签，删除确认未完成，尾款仍没有付款结果。"
+        }
+      },
+      {
+        "document_path": "materials/demo-assets-inventory.md",
+        "anchor": "cb0b6426",
+        "text": "材料替代的会议检索当前保留三场相近标题候选，不先猜定具体场次；在原始记录位置确认前，不把材料替代接入第一条证据链，失效附件也继续单独保留。",
+        "matched": false,
+        "best": {
+          "score": 0.577121,
+          "char_score": 0.172043,
+          "embedding_score": 0.577121,
+          "text": "第二条材料替代链已有自己的来源和确认；两条链不合成总通过标记。"
+        }
+      },
+      {
+        "document_path": "materials/demo-assets-inventory.md",
+        "anchor": "d5a92115",
+        "text": "周报入口和生成路线已从主分支移出；本轮复测确认旧深链接可在空缓存下回到原句，并显示范围和确认人。一个本地缓存侧栏缩略图仍会打开空壳，删除后第二次返回与导出复测通过；导出名改为 `records` 加记录日期，文件内容和来源标识未变。",
+        "matched": false,
+        "best": {
+          "score": 0.352698,
+          "char_score": 0.029851,
+          "embedding_score": 0.352698,
+          "text": "3月30日，四个分别标名的只读副本进入观察；这不等于资料已验证。"
+        }
+      },
+      {
+        "document_path": "materials/demo-assets-inventory.md",
+        "anchor": "d9897be7",
+        "text": "旧页面、截图和讲解顺序只能说明此前的展示结构；材料替代项必须显示真实核查结果。陈放的交接范围止于 AS-MAT-02，林舟收到后负责补登记并复查链接，不能把口头位置抄成附件。清单没有完成列或验收列；地址变化时应新增一行，记录旧地址、修改人、修改时间和复查结果，不覆盖本次核查。",
+        "matched": false,
+        "best": {
+          "score": 0.467435,
+          "char_score": 0.055172,
+          "embedding_score": 0.467435,
+          "text": "口头延长须附录签字、删除确认和尾款处理三项条件。"
+        }
+      },
+      {
+        "document_path": "materials/demo-assets-inventory.md",
+        "anchor": "db3195d8",
+        "text": "下一次交接只接收两种回传：可复看的会议位置，或明确的“未找到”。若收到位置，先登记说话人、时间点和原记录路径，再单独保留失效附件；若未找到，未答问题槽保持空缺。当前记录没有演示新日期、界面名称、完成标记或验收人。",
+        "matched": false,
+        "best": {
+          "score": 0.391625,
+          "char_score": 0.070796,
+          "embedding_score": 0.391625,
+          "text": "附录仍待签，删除确认未完成，尾款仍没有付款结果。"
+        }
+      },
+      {
+        "document_path": "materials/demo-assets-inventory.md",
+        "anchor": "eb102329",
+        "text": "REV-02 复核再次确认，现场会记录与失效附件是两个独立对象：会议摘录不移入附件栏，原附件链接、最后尝试时间和不可用结果继续保留；若附件恢复，应新增恢复记录并引用旧失效记录，保留旧结果可见。",
+        "matched": false,
+        "best": {
+          "score": 0.406173,
+          "char_score": 0.074766,
+          "embedding_score": 0.406173,
+          "text": "附录仍待签，删除确认未完成，尾款仍没有付款结果。"
+        }
+      },
+      {
+        "document_path": "materials/demo-assets-inventory.md",
+        "anchor": "fe0062ef",
+        "text": "本次演示调整只撤下明日讲解入口，会议时间暂留空，不据此改变产品方向；旧页面仍在开发环境中的状态另行处理，撤掉讲解不等于停止功能。",
+        "matched": false,
+        "best": {
+          "score": 0.491518,
+          "char_score": 0.051948,
+          "embedding_score": 0.491518,
+          "text": "停止全项目平台方向，供应商审批模块延后。"
+        }
+      },
+      {
+        "document_path": "materials/procurement-boundaries-v0-4.md",
+        "anchor": "109f9827",
+        "text": "字段目录采用来源登记而非开票模板：每个字段保留原始位置、记录时间、当前维护人和待确认人；名称修改须追加原字段、反馈来源、反馈时间和执行人，未有来源的修改继续挂起，空白字段不以旧客户信息补位。",
+        "matched": false,
+        "best": {
+          "score": 0.396407,
+          "char_score": 0.074074,
+          "embedding_score": 0.396407,
+          "text": "口头延长须附录签字、删除确认和尾款处理三项条件。"
+        }
+      },
+      {
+        "document_path": "materials/procurement-boundaries-v0-4.md",
+        "anchor": "198c03b4",
+        "text": "报价版本应原样保留，当前范围仍由原文件解释为一个项目、两名使用者、一次导出且不含审批；收件信息暂记为“待吴岚确认”，因为内部转交人与付款批准人可能不是同一角色。编号、开具日、付款日和到账状态均保持空白，不为完整而补造。",
+        "matched": false,
+        "best": {
+          "score": 0.481525,
+          "char_score": 0.101695,
+          "embedding_score": 0.481525,
+          "text": "附录仍待签，删除确认未完成，尾款仍没有付款结果。"
+        }
+      },
+      {
+        "document_path": "materials/procurement-boundaries-v0-4.md",
+        "anchor": "1b397634",
+        "text": "采购所说“材料可进入内部流程”目前只支持内部查阅，不支持接受报价、付款许可或长期合同；最终接收角色、付款责任人和下一站仍未识别，不能把内部流转写成流程已完成。",
+        "matched": false,
+        "best": {
+          "score": 0.468034,
+          "char_score": 0.022472,
+          "embedding_score": 0.468034,
+          "text": "停止全项目平台方向，供应商审批模块延后。"
+        }
+      }
+    ]
+  },
+  "negative_controls": {
+    "unguarded_leaks": 0,
+    "total": 5,
+    "leak_rate": 0.0,
+    "guarded_mentions": 0,
+    "details": [
+      {
+        "truth_id": "v2-n-no-payment",
+        "value": "试点尾款已经到账。",
+        "found": false,
+        "guarded": false,
+        "unguarded_leak": false,
+        "best": {
+          "score": 0.56614,
+          "char_score": 0.151899,
+          "embedding_score": 0.56614,
+          "text": "试点尾款当前只能记为仍在内部流程中；没有可引用的付款日期，也没有“预计到账”依据。若采购后续提供凭据或新的联系人，应追加带时间的新记录，不回填为今天已经知道。"
+        }
+      },
+      {
+        "truth_id": "v2-n-no-signature",
+        "value": "吴岚已经完成删除确认并签字。",
+        "found": false,
+        "guarded": false,
+        "unguarded_leak": false,
+        "best": {
+          "score": 0.649644,
+          "char_score": 0.217822,
+          "embedding_score": 0.649644,
+          "text": "吴岚已看到合同收件箱的回执，但明确表示尚未完成删除演练确认或签字；她要求继续显示“待确认”，因为确认栏中的范围和业务方回告接收者仍需逐格与现场记录核对，当前不能把回执或她的阅读写成业务认可。"
+        }
+      },
+      {
+        "truth_id": "v2-n-no-platform",
+        "value": "下一周期将继续建设全项目平台。",
+        "found": false,
+        "guarded": false,
+        "unguarded_leak": false,
+        "best": {
+          "score": 0.556265,
+          "char_score": 0.168224,
+          "embedding_score": 0.556265,
+          "text": "下一周期不把全项目平台作为目标，也不把供应商审批带入当前试点；任务排期、采购推进、人员分配和总览不因既有两条链而获授权。审批若重新提出，需独立说明问题、使用者、成本理由和不同证据入口，当前尚未具备这些条件。"
+        }
+      },
+      {
+        "truth_id": "v2-n-no-verified-start",
+        "value": "首日进入只读观察的四类材料已经验证完整无误。",
+        "found": false,
+        "guarded": false,
+        "unguarded_leak": false,
+        "best": {
+          "score": 0.64494,
+          "char_score": 0.253165,
+          "embedding_score": 0.64494,
+          "text": "林舟将批次收尾状态写为“已进入只读观察”，而不是“资料已验证”；首日只核对四项副本能被列出，没有据此形成重复率、附件可读性或质量结论。"
+        }
+      },
+      {
+        "truth_id": "v2-n-no-total-pass",
+        "value": "第二条材料替代链确认意味着两条链已经共同验收通过。",
+        "found": false,
+        "guarded": false,
+        "unguarded_leak": false,
+        "best": {
+          "score": 0.719223,
+          "char_score": 0.140351,
+          "embedding_score": 0.719223,
+          "text": "两条证据链必须分别显示原材料入口、状态留存人及确认对应的材料范围；预算链不借材料替代答复改写，材料替代链也不借预算邮件补来源。若材料后续更换，应重新取得确认，不能把本次确认预先盖到下一次变更上。"
+        }
+      }
+    ]
+  },
+  "supersessions": {
+    "correct": 0,
+    "total": 0,
+    "accuracy": null,
+    "details": []
+  },
+  "citations": {
+    "claims_with_citations": 1262,
+    "claims_total": 1262,
+    "claim_coverage": 1.0,
+    "locators_valid": 1753,
+    "locators_total": 1753,
+    "locator_replay_rate": 1.0,
+    "semantic_support_valid": 1235,
+    "semantic_support_total": 1262,
+    "semantic_support_rate": 0.978605,
+    "invalid_locators": [],
+    "weak_support_samples": [
+      {
+        "document_path": "materials/procurement-boundaries-v0-4.md",
+        "anchor": "7748fe35",
+        "score": 0.479927,
+        "char_score": 0.293333,
+        "embedding_score": 0.479927,
+        "supported": false
+      },
+      {
+        "document_path": "materials/procurement-boundaries-v0-4.md",
+        "anchor": "c402445d",
+        "score": 0.464627,
+        "char_score": 0.087404,
+        "embedding_score": 0.464627,
+        "supported": false
+      },
+      {
+        "document_path": "memory/people/chen-fang.md",
+        "anchor": "e1932409",
+        "score": 0.540494,
+        "char_score": 0.28436,
+        "embedding_score": 0.540494,
+        "supported": false
+      },
+      {
+        "document_path": "memory/people/jia-ning.md",
+        "anchor": "ac506d7d",
+        "score": 0.541711,
+        "char_score": 0.050107,
+        "embedding_score": 0.541711,
+        "supported": false
+      },
+      {
+        "document_path": "memory/people/lin-zhou.md",
+        "anchor": "1bb96199",
+        "score": 0.427949,
+        "char_score": 0.12,
+        "embedding_score": 0.427949,
+        "supported": false
+      },
+      {
+        "document_path": "memory/people/lin-zhou.md",
+        "anchor": "f5f9a455",
+        "score": 0.519517,
+        "char_score": 0.170799,
+        "embedding_score": 0.519517,
+        "supported": false
+      },
+      {
+        "document_path": "memory/people/wu-lan.md",
+        "anchor": "ed36f901",
+        "score": 0.492922,
+        "char_score": 0.108696,
+        "embedding_score": 0.492922,
+        "supported": false
+      },
+      {
+        "document_path": "memory/people/zhao-nan.md",
+        "anchor": "96f64a99",
+        "score": 0.537492,
+        "char_score": 0.294118,
+        "embedding_score": 0.537492,
+        "supported": false
+      },
+      {
+        "document_path": "memory/people/zhao-nan.md",
+        "anchor": "e5b3ea99",
+        "score": 0.280716,
+        "char_score": 0.026769,
+        "embedding_score": 0.280716,
+        "supported": false
+      },
+      {
+        "document_path": "memory/people/zhao-nan.md",
+        "anchor": "f7203966",
+        "score": 0.473358,
+        "char_score": 0.204082,
+        "embedding_score": 0.473358,
+        "supported": false
+      },
+      {
+        "document_path": "memory/profile.md",
+        "anchor": "776ac02a",
+        "score": 0.517997,
+        "char_score": 0.076256,
+        "embedding_score": 0.517997,
+        "supported": false
+      },
+      {
+        "document_path": "memory/topics/household-coordination.md",
+        "anchor": "4e46ea77",
+        "score": 0.458958,
+        "char_score": 0.151724,
+        "embedding_score": 0.458958,
+        "supported": false
+      },
+      {
+        "document_path": "memory/topics/household-coordination.md",
+        "anchor": "a678f375",
+        "score": 0.438464,
+        "char_score": 0.094444,
+        "embedding_score": 0.438464,
+        "supported": false
+      },
+      {
+        "document_path": "memory/topics/identity-resolution.md",
+        "anchor": "0f330e43",
+        "score": 0.488431,
+        "char_score": 0.107672,
+        "embedding_score": 0.488431,
+        "supported": false
+      },
+      {
+        "document_path": "memory/topics/identity-resolution.md",
+        "anchor": "58896bd9",
+        "score": 0.549598,
+        "char_score": 0.284024,
+        "embedding_score": 0.549598,
+        "supported": false
+      },
+      {
+        "document_path": "memory/topics/identity-resolution.md",
+        "anchor": "73c7b5c2",
+        "score": 0.521061,
+        "char_score": 0.137063,
+        "embedding_score": 0.521061,
+        "supported": false
+      },
+      {
+        "document_path": "memory/topics/identity-resolution.md",
+        "anchor": "7ae4b763",
+        "score": 0.512672,
+        "char_score": 0.240964,
+        "embedding_score": 0.512672,
+        "supported": false
+      },
+      {
+        "document_path": "memory/topics/material-intake-boundaries.md",
+        "anchor": "8d7c97b7",
+        "score": 0.539023,
+        "char_score": 0.129199,
+        "embedding_score": 0.539023,
+        "supported": false
+      },
+      {
+        "document_path": "memory/topics/seamlog.md",
+        "anchor": "2cfb1f52",
+        "score": 0.54024,
+        "char_score": 0.112421,
+        "embedding_score": 0.54024,
+        "supported": false
+      },
+      {
+        "document_path": "memory/topics/seamlog.md",
+        "anchor": "4d00edaf",
+        "score": 0.530564,
+        "char_score": 0.104046,
+        "embedding_score": 0.530564,
+        "supported": false
+      },
+      {
+        "document_path": "memory/topics/seamlog.md",
+        "anchor": "5a66d533",
+        "score": 0.430498,
+        "char_score": 0.248175,
+        "embedding_score": 0.430498,
+        "supported": false
+      },
+      {
+        "document_path": "work/experiments/read-only-traceability-pilot.md",
+        "anchor": "f769abc7",
+        "score": 0.511349,
+        "char_score": 0.162759,
+        "embedding_score": 0.511349,
+        "supported": false
+      },
+      {
+        "document_path": "work/experiments/read-only-traceability-pilot.md",
+        "anchor": "fd848a5c",
+        "score": 0.525263,
+        "char_score": 0.202667,
+        "embedding_score": 0.525263,
+        "supported": false
+      },
+      {
+        "document_path": "work/experiments/seamlog-discovery.md",
+        "anchor": "7c5a09cf",
+        "score": 0.540321,
+        "char_score": 0.208835,
+        "embedding_score": 0.540321,
+        "supported": false
+      },
+      {
+        "document_path": "work/operations/household-rice-subscription.md",
+        "anchor": "dca520c1",
+        "score": 0.405412,
+        "char_score": 0.083333,
+        "embedding_score": 0.405412,
+        "supported": false
+      },
+      {
+        "document_path": "work/products/yunlu-apartment.md",
+        "anchor": "57d956e0",
+        "score": 0.513615,
+        "char_score": 0.265625,
+        "embedding_score": 0.513615,
+        "supported": false
+      },
+      {
+        "document_path": "work/products/yunlu-apartment.md",
+        "anchor": "c13f2e01",
+        "score": 0.476544,
+        "char_score": 0.142433,
+        "embedding_score": 0.476544,
+        "supported": false
+      }
+    ]
+  },
+  "retrieval": {
+    "cases_successful": 2,
+    "cases_total": 6,
+    "case_success_rate": 0.333333,
+    "expected_truths_matched": 3,
+    "expected_truths_total": 9,
+    "expected_truth_recall": 0.333333,
+    "current_cases_successful": 0,
+    "current_cases_total": 0,
+    "historical_cases_successful": 2,
+    "historical_cases_total": 6,
+    "path_hits": {
+      "lexical": 52,
+      "vector": 50
+    },
+    "cases": [
+      {
+        "case_id": "v2-r-first-day",
+        "question": "3月30日首日观察的四个只读副本是什么，它们的状态意味着什么？",
+        "as_of": "2026-03-30",
+        "historical": true,
+        "success": true,
+        "expected": [
+          {
+            "truth_id": "v2-f-d29-start",
+            "matched": true,
+            "best": {
+              "score": 0.696471,
+              "char_score": 0.229885,
+              "embedding_score": 0.696471,
+              "text": "林舟将批次收尾状态写为“已进入只读观察”，而不是“资料已验证”；首日只核对四项副本能被列出，没有据此形成重复率、附件可读性或质量结论。"
+            }
+          }
+        ],
+        "hit_count": 15,
+        "hits": [
+          {
+            "document_path": "work/experiments/read-only-traceability-pilot.md",
+            "anchor": "3dfa871c",
+            "text": "对同一批次三条相邻录制做只读比对时，A（3 月 31 日 14:06）和 C（17:03）的来源时间与项目页日期同为 3 月 31 日，B（16:12）的来源时间为 3 月 31 日而项目页落在 3 月 30 日；三条都有来源定位和转写段，只有 B 跨日。样本仅三条，不能外推整个批次，但暂时不支持“所有录制统一少一天”的判断。",
+            "paths": [
+              "lexical",
+              "vector"
+            ],
+            "score": 0.03115942
+          },
+          {
+            "document_path": "work/experiments/read-only-traceability-pilot.md",
+            "anchor": "b8519988",
+            "text": "4 月 1 日继续只看已进入受限试点的副本，没有新增来源。对一条页面找不到的录制，当前观察是来源侧仍可定位、项目页日期有偏移；原因与修复时间未定，不能将页面现象写成删除事件。",
+            "paths": [
+              "vector"
+            ],
+            "score": 0.01666667
+          },
+          {
+            "document_path": "work/operations/vehicle-maintenance.md",
+            "anchor": "d02d80d7",
+            "text": "最初电话估算为 420 元；制动液和后雨刷片在 3 月 30 日电话确认后加入，最终结算为 680 元，增加 260 元。林舟已支付 680 元并确认项目与邮件一致，收到分项工单和付款凭证。",
+            "paths": [
+              "lexical"
+            ],
+            "score": 0.01639344
+          },
+          {
+            "document_path": "memory/people/lin-zhou.md",
+            "anchor": "0d259327",
+            "text": "林舟将批次收尾状态写为“已进入只读观察”，而不是“资料已验证”；首日只核对四项副本能被列出，没有据此形成重复率、附件可读性或质量结论。",
+            "paths": [
+              "vector"
+            ],
+            "score": 0.01639344
+          },
+          {
+            "document_path": "memory/topics/seamlog.md",
+            "anchor": "fd5895f3",
+            "text": "针对陈放找不到的一条现场记录，本次排查保留了四个独立观察值：录制条目开始于 3 月 31 日 16:12、来源偏移为 `+08:00`；转写段可跳到同一时刻；导入批次没有失败标记；项目列表却把它放在 3 月 30 日，消息副本仍在 3 月 31 日。该差异足以解释页面查找困难，但不足以定位偏移发生在哪一层，也不能据此断言录制被删除。",
+            "paths": [
+              "lexical"
+            ],
+            "score": 0.01612903
+          },
+          {
+            "document_path": "work/experiments/read-only-traceability-pilot.md",
+            "anchor": "e5a6ced8",
+            "text": "每日笔记副本只纳入林舟已公开给试点观察的页面，并记录权限快照和观察人；它是工作笔记而不是客户决定的原始来源。批次 01 收尾状态为“已进入只读观察”，不是“资料已验证”；首日没有重复率、附件可读性或质量结论。",
+            "paths": [
+              "vector"
+            ],
+            "score": 0.01612903
+          },
+          {
+            "document_path": "memory/topics/seamlog.md",
+            "anchor": "ca9c2efa",
+            "text": "对同批次三条相邻录制的只读抽查发现，来源时间与项目页日期并非总是同日：两条同日，一条来源为 3 月 31 日而项目页为 3 月 30 日；三条样本不足以外推整个批次，也不足以证明统一少一天。详情页同时存在 `source_started_at` 与不带偏移的 `meeting_date`，而列表按后者分组；在未回放导入过程前，不能判断该字段的生成来源。",
+            "paths": [
+              "lexical"
+            ],
+            "score": 0.01587302
+          },
+          {
+            "document_path": "work/experiments/read-only-traceability-pilot.md",
+            "anchor": "a716b60b",
+            "text": "4 月 1 日抽查了两对正文相同的重复消息：一对 message id 相同但线程位置不同，另一对 id 不同但正文相同。前者可能是展示展开，后者也可能来自同步或编辑历史；样本不足以归为同一类，当前只保存对照 id 与出现位置，不合并或删除副本。",
+            "paths": [
+              "vector"
+            ],
+            "score": 0.01587302
+          },
+          {
+            "document_path": "memory/people/wu-lan.md",
+            "anchor": "e0a26a25",
+            "text": "3 月 5 日边页显示，10:36 已向协调人询问访谈安排，但对方是否愿意以及何时方便仍待确认；这只是询问动作，不是协调人已同意后续提问。",
+            "paths": [
+              "lexical"
+            ],
+            "score": 0.015625
+          },
+          {
+            "document_path": "work/experiments/read-only-traceability-pilot.md",
+            "anchor": "c5575a4a",
+            "text": "本次首日批次将会议、沟通、邮件和笔记四类副本分别放入观察队列，不触碰原入口；截至首日，只能确认四项各自已有一行，不能据此验收内容正确、宣布“首日顺利”或把四项揉成一条项目日记。两周观察从本日计算，但每条材料仍按自身来源和说话人保留。",
+            "paths": [
+              "vector"
+            ],
+            "score": 0.015625
+          },
+          {
+            "document_path": "memory/topics/seamlog.md",
+            "anchor": "3cfe1695",
+            "text": "3 月 12 日准备范围讨论时，我放弃了“所有项目都能用”这一无访谈依据的表述，并把它标为想象而非要求；当前范围讨论应先承认全项目看板只是未验证的内部草图，暂不扩展到工作室全部流程、多个项目并行、任务分派或进度汇总，也不假设已有真实数据入口或讨论后即可开始。",
+            "paths": [
+              "lexical"
+            ],
+            "score": 0.01538462
+          },
+          {
+            "document_path": "memory/people/wu-lan.md",
+            "anchor": "f326de01",
+            "text": "吴岚要求本次只把副本跑起来，不另写总结；两周观察从本日计算，但每条材料须保留自己的来源和说话人，不能揉成项目日记。她还要求不要因队列已有四行就发布“首日顺利”，晚上只查看各项是已列出还是仍等待人员。",
+            "paths": [
+              "vector"
+            ],
+            "score": 0.01538462
+          },
+          {
+            "document_path": "memory/topics/seamlog.md",
+            "anchor": "c370b6d2",
+            "text": "3 月 12 日的材料状态仍是准备材料：说明被压缩为一屏的草图、一个待选问题和四个未定项，附件尚未发送，需等对方在线后先确认能否查看；这不构成对方已查看、已同意范围或可以开始执行。",
+            "paths": [
+              "lexical"
+            ],
+            "score": 0.01515152
+          },
+          {
+            "document_path": "memory/people/lin-zhou.md",
+            "anchor": "c3930936",
+            "text": "林舟在本次首日批次中把四个入口分别列入观察队列，不碰原入口；每个到达项先标为“副本已列出”，不标为“内容正确”。观察表只记录来源位置、取得时间和发现问题的人，判断留待有人回到原处核对；他还将页面状态原样记为“观看入口仍可见”，不补充解释，并计划只更新批次号和收到时间。",
+            "paths": [
+              "vector"
+            ],
+            "score": 0.01515152
+          },
+          {
+            "document_path": "work/experiments/seamlog-discovery.md",
+            "anchor": "628be5cf",
+            "text": "3 月 12 日的下一次范围讨论准备被压缩为：先说明全项目看板只是内部草图且未验证，请吴岚判断争议发生时最值得先看的记录，并询问哪些角色只是阅读、哪些人可能留下判断；答案可以暂时未知。该讨论暂不验证工作室全流程、并行项目、任务分派或进度汇总，也不把一次范围讨论当作可以开始的信号。",
+            "paths": [
+              "lexical"
+            ],
+            "score": 0.01492537
+          }
+        ]
+      },
+      {
+        "case_id": "v2-r-second-chain",
+        "question": "第二条材料替代链现在能说明什么，不能说明什么？",
+        "as_of": "2026-05-18",
+        "historical": true,
+        "success": true,
+        "expected": [
+          {
+            "truth_id": "v2-f-d78-second-chain",
+            "matched": true,
+            "best": {
+              "score": 0.728322,
+              "char_score": 0.184874,
+              "embedding_score": 0.728322,
+              "text": "两条证据链必须分别显示原材料入口、状态留存人及确认对应的材料范围；预算链不借材料替代答复改写，材料替代链也不借预算邮件补来源。若材料后续更换，应重新取得确认，不能把本次确认预先盖到下一次变更上。"
+            }
+          }
+        ],
+        "hit_count": 15,
+        "hits": [
+          {
+            "document_path": "work/products/yunlu-apartment.md",
+            "anchor": "0d155c8c",
+            "text": "本次现场回传使材料替代链在其限定范围内获得新的状态依据：被替代材料按本次记录范围处理，原“待确认”状态可改为“已确认”。该确认不扩展到第一条预算链，也不替预算链补充内容；材料片段、导入动作、现场确认、状态留存人及定位问题仍分开记录，后续材料变更须重新确认。",
+            "paths": [
+              "lexical",
+              "vector"
+            ],
+            "score": 0.03125763
+          },
+          {
+            "document_path": "work/products/yunlu-apartment.md",
+            "anchor": "fe699b17",
+            "text": "两条记录链的状态继续独立维护：预算链保留其自身回源依据，材料替代链使用自己的现场确认，不合成一个总通过标记。材料替代链的定位修正仍是单独的阅读观察；本次状态确认不等于每个阅读问题都已消失，也不覆盖删除演练或其他未决事项。",
+            "paths": [
+              "lexical",
+              "vector"
+            ],
+            "score": 0.02946912
+          },
+          {
+            "document_path": "work/products/yunlu-apartment.md",
+            "anchor": "14f1c15f",
+            "text": "本次材料替代记录已按简化入口导入内部试用区，当前只包含选定材料片段、来源位置和“待确认”状态；没有把预算邮件、第一条链会议内容或两条链的验收状态拼入其中。陈放确认材料和来源位置正确，但要求状态保持“待确认”，因为他仍需向现场确认替代是否按原计划执行，且本次回复不构成签字或采购接受。",
+            "paths": [
+              "lexical",
+              "vector"
+            ],
+            "score": 0.02885015
+          },
+          {
+            "document_path": "materials/demo-assets-inventory.md",
+            "anchor": "cb0b6426",
+            "text": "材料替代的会议检索当前保留三场相近标题候选，不先猜定具体场次；在原始记录位置确认前，不把材料替代接入第一条证据链，失效附件也继续单独保留。",
+            "paths": [
+              "lexical",
+              "vector"
+            ],
+            "score": 0.02877847
+          },
+          {
+            "document_path": "materials/demo-assets-inventory.md",
+            "anchor": "50443e45",
+            "text": "版本注记需列旧标题、新标题、改动人、改动时间及“阅读层”性质。跳转失效时应另开来源修正项，保留原位置、观察到的结果和修正进度，不用其他摘录替换失效位置；第二条材料替代链仍不在本页，当前没有由本页推出的验收或开始时限。",
+            "paths": [
+              "lexical",
+              "vector"
+            ],
+            "score": 0.0282194
+          },
+          {
+            "document_path": "memory/people/lin-zhou.md",
+            "anchor": "c3368962",
+            "text": "林舟在材料替代简化入口中只导入陈放选定的材料片段、来源位置和“待确认”状态，没有补入预算邮件或第一条链会议内容，也没有把两条链写成已验收。来源跳转异常被拆为独立修正项；在复核前仅显示“修正中”，不以链接可用替代材料或状态确认。",
+            "paths": [
+              "lexical",
+              "vector"
+            ],
+            "score": 0.02777778
+          },
+          {
+            "document_path": "memory/people/wu-lan.md",
+            "anchor": "2de76df1",
+            "text": "在本次状态复核中，吴岚认可两条记录链各自保留来源和状态：第一条预算链已有自己的回源依据，第二条材料替代链现在也有独立来源与确认；两条状态不得合并为一个总的“通过”。她还明确删除演练的业务确认仍在另一张清单中，本次未对此回复。",
+            "paths": [
+              "lexical"
+            ],
+            "score": 0.01666667
+          },
+          {
+            "document_path": "work/products/yunlu-apartment.md",
+            "anchor": "0826bdc6",
+            "text": "陈放继续核对材料替代链；该链目前只能说明哪些材料彼此有关，不能替代缺失的一次现场确认，也不能作为试点已经验收的证据。采购材料与使用核对必须分开作为证据，当前相关待办仍未完成。",
+            "paths": [
+              "vector"
+            ],
+            "score": 0.01666667
+          },
+          {
+            "document_path": "work/products/yunlu-apartment.md",
+            "anchor": "e57003dd",
+            "text": "陈放本次确认，预算调整在现场会说明调整后金额和执行范围后已转为“已确认”；确认依据是现场会中的说明，不是改预算邮件发出本身。原邮件附件仍打不开，附件缺口不能由会议内容补成附件文本；这条状态链目前可用但未验收，尚未经过吴岚认可，第二条材料链也不随之接入。",
+            "paths": [
+              "lexical"
+            ],
+            "score": 0.01639344
+          },
+          {
+            "document_path": "memory/people/chen-fang.md",
+            "anchor": "bbbc8a01",
+            "text": "在本轮试点报价讨论中，陈放继续核对材料替代链；该链只能说明材料之间的关联，不能替代一次缺失的现场确认，也不能被写成试点验收证据。采购材料与使用核对应保持为两条独立证据路径。",
+            "paths": [
+              "vector"
+            ],
+            "score": 0.01639344
+          },
+          {
+            "document_path": "work/products/yunlu-apartment.md",
+            "anchor": "c1820275",
+            "text": "REV-02 对第一条预算记录链的修订范围保持为节点显示句、发言归属和时间归属，不改变其他字段。最终显示句应将现场动作归属于参会人：邮件中的预算提议在会上被收窄为可执行范围，并确认调整后的数额；这仍不扩大为客户侧认可或验收。",
+            "paths": [
+              "lexical"
+            ],
+            "score": 0.01612903
+          },
+          {
+            "document_path": "materials/demo-assets-inventory.md",
+            "anchor": "23b16ae4",
+            "text": "两条证据链必须分别显示原材料入口、状态留存人及确认对应的材料范围；预算链不借材料替代答复改写，材料替代链也不借预算邮件补来源。若材料后续更换，应重新取得确认，不能把本次确认预先盖到下一次变更上。",
+            "paths": [
+              "vector"
+            ],
+            "score": 0.01612903
+          },
+          {
+            "document_path": "memory/topics/seamlog.md",
+            "anchor": "38af2c0d",
+            "text": "本次材料替代链复核进一步确立：现场确认只能更新其所限定的材料范围和状态，不应倒写原材料，也不能把两条证据链合并为一个总通过标记；定位修正、状态确认、阅读问题和其他业务事项应分别保留。",
+            "paths": [
+              "vector"
+            ],
+            "score": 0.01587302
+          },
+          {
+            "document_path": "memory/people/chen-fang.md",
+            "anchor": "56f0a4d7",
+            "text": "陈放本次回传现场对材料替代范围的确认：被替代材料确实按本次记录所列范围处理，因此此前留下“待确认”的状态可以改为“已确认”。该答复只覆盖这一段材料及本次状态，不为第一条预算记录补充内容；若材料后续变更，仍需重新取得对应确认。",
+            "paths": [
+              "lexical"
+            ],
+            "score": 0.015625
+          },
+          {
+            "document_path": "memory/people/lin-zhou.md",
+            "anchor": "f6f7955d",
+            "text": "林舟决定把本次现场确认作为材料替代链今天新增的状态依据，同时保留此前选定的材料片段及其原来源位置；材料、导入动作、现场确认和状态留存人分开显示，避免把后来的确认倒写成材料最初就带有的结论。预算链不因材料替代链确认而重写，材料替代链也不借预算邮件补来源。",
+            "paths": [
+              "vector"
+            ],
+            "score": 0.015625
+          }
+        ]
+      },
+      {
+        "case_id": "v2-r-extension-conditions",
+        "question": "讨论再延六周前，口头意向还需要哪些条件？",
+        "as_of": "2026-05-20",
+        "historical": true,
+        "success": false,
+        "expected": [
+          {
+            "truth_id": "v2-c-d80-conditions",
+            "matched": false,
+            "best": {
+              "score": 0.611185,
+              "char_score": 0.314607,
+              "embedding_score": 0.611185,
+              "text": "竹影的六周延长仍只是带条件的口头意向，不应写成已签客户或已自动顺延；附录、删除确认和尾款分别等待各自原处的新证据，任何一项没有新原处就不挪状态。"
+            }
+          }
+        ],
+        "hit_count": 15,
+        "hits": [
+          {
+            "document_path": "work/products/yunlu-apartment.md",
+            "anchor": "3d7c63d0",
+            "text": "吴岚提出可讨论再延六周，但目前仅是口头意向，不是买下、自动顺延或长期合作承诺；在讨论顺延前，数据处理附录须签署、删除演练须获业务方确认、试点尾款须处理，三项均未完成时不应写成已顺延。",
+            "paths": [
+              "lexical",
+              "vector"
+            ],
+            "score": 0.03333333
+          },
+          {
+            "document_path": "memory/people/lin-zhou.md",
+            "anchor": "1dadcd22",
+            "text": "林舟要求若客户想继续了解供应商审批，应先以具体场景及希望达成的结果提出，再判断转入产品澄清、采购转交或独立讨论；“可以另开讨论”不得写成扩展已经存在，客户新问题应另起主题保存，不据此补猜测。",
+            "paths": [
+              "lexical",
+              "vector"
+            ],
+            "score": 0.02779923
+          },
+          {
+            "document_path": "memory/topics/material-intake-boundaries.md",
+            "anchor": "3047ad66",
+            "text": "外部服务清单目前只是待核的附页，由林舟维护来源和用途、孙秋检查处理环节是否遗漏、吴岚决定是否接受或要求说明；新增或替换服务应先标记，再讨论通知方式，不能用“基础设施”代替服务名称、用途和责任人。该版本只是可审阅材料，采购尚未批准。",
+            "paths": [
+              "lexical"
+            ],
+            "score": 0.01639344
+          },
+          {
+            "document_path": "memory/people/wu-lan.md",
+            "anchor": "2cac5a66",
+            "text": "吴岚提出的再延六周意向附带三个前置条件：数据处理附录签署、删除演练由业务方确认、试点尾款处理；三项负责人和顺序仍需分别落位，少一项都不构成自动顺延，且尾款尚无预计日。",
+            "paths": [
+              "vector"
+            ],
+            "score": 0.01639344
+          },
+          {
+            "document_path": "memory/people/lin-zhou.md",
+            "anchor": "55ac90ff",
+            "text": "林舟当前把子处理方登记保持为四个待问栏：服务或经手环节、可能接触的副本类型、本次变更核对为何需要它、以及由谁向项目侧确认。登记中暂未填入真实服务名或联系人；他将“待列服务清单”和“待确认接触目的”分开。若提出某个服务，必须先补明它位于流向哪一段、是否会看到副本，再讨论能否接入；笼统的供应服务名称不能写成已获准处理材料。",
+            "paths": [
+              "lexical"
+            ],
+            "score": 0.01612903
+          },
+          {
+            "document_path": "work/products/yunlu-apartment.md",
+            "anchor": "80f7dbbe",
+            "text": "竹影的六周延长仍只是带条件的口头意向，不应写成已签客户或已自动顺延；附录、删除确认和尾款分别等待各自原处的新证据，任何一项没有新原处就不挪状态。",
+            "paths": [
+              "vector"
+            ],
+            "score": 0.01612903
+          },
+          {
+            "document_path": "memory/topics/material-intake-boundaries.md",
+            "anchor": "bf884511",
+            "text": "子处理方登记目前只保留四个待问栏：服务或经手环节、可能接触的副本类型、本次变更核对为何需要它、以及由谁向项目侧确认；暂未填入真实服务名或联系人。林舟将待列服务清单与待确认接触目的分开。任何被提出的服务都必须先说明其在材料流向中的位置及是否会看到副本，再讨论能否接入；笼统的供应服务名称不得写成已获准处理材料。",
+            "paths": [
+              "lexical"
+            ],
+            "score": 0.01587302
+          },
+          {
+            "document_path": "memory/people/lin-zhou.md",
+            "anchor": "7cd58c75",
+            "text": "林舟决定将可能的六周延长作为待处理条件而非事实：数据处理附录签署、删除演练业务确认和试点尾款处理分别保留，未获答复的条件不被勾成完成；尾款没有预计日。",
+            "paths": [
+              "vector"
+            ],
+            "score": 0.01587302
+          },
+          {
+            "document_path": "work/experiments/first-chain-onboarding.md",
+            "anchor": "fc3791c8",
+            "text": "当前待查假设是首屏要求先选择整个项目的数据来源，可能使只有一段改动的使用者面对三个导入入口和历史范围；这仍不是已接受的流程修改。下一轮回放应把页面要求、用户当时实际持有的材料、以及完成首链真正必需的字段并列比较：若页面多要了东西，再讨论收窄首步；若必要字段不清，先修正定义，而不是把问题归因于说明文字。",
+            "paths": [
+              "lexical"
+            ],
+            "score": 0.015625
+          },
+          {
+            "document_path": "memory/topics/seamlog.md",
+            "anchor": "e3b6b70f",
+            "text": "时间需要有足够的上下文，不能只记录“本周”，因为争议时需要判断一句话发生在改动之前还是之后。",
+            "paths": [
+              "vector"
+            ],
+            "score": 0.015625
+          },
+          {
+            "document_path": "work/products/yunlu-apartment.md",
+            "anchor": "bace0ef3",
+            "text": "提交后的版本冻结为阅读底稿；内部意见若引起改动，需另列改动位置、理由和生效时点，不能用无说明的新文件覆盖原稿。删除演练尚未安排：先确认参与角色、可见范围和是否需要查看请求之外的项目材料，再讨论是否值得安排；当天不建立演练记录、不预设见证人或步骤。",
+            "paths": [
+              "lexical"
+            ],
+            "score": 0.01538462
+          },
+          {
+            "document_path": "work/operations/cashflow-reconciliation.md",
+            "anchor": "b25bd38e",
+            "text": "周期结束时，试点尾款仍没有付款结果、采购凭据、联系人或日期；吴岚的状态回复不能被改写成付款预测，口头六周意向也尚未生效。因此现金流记录继续把尾款与延长意向分开置于未收/待证状态，不将其计入可用现金或下一笔工作安排。",
+            "paths": [
+              "vector"
+            ],
+            "score": 0.01538462
+          },
+          {
+            "document_path": "memory/people/chen-fang.md",
+            "anchor": "6617e1ec",
+            "text": "本轮范围讨论记录陈放已有现场排期，因此任务管理暂不纳入；若再次提出任务管理需求，需要先说明它与回查一段变更的直接关系。",
+            "paths": [
+              "lexical"
+            ],
+            "score": 0.01515152
+          },
+          {
+            "document_path": "memory/topics/seamlog.md",
+            "anchor": "23473339",
+            "text": "吴岚只能替林舟询问项目侧是否有人愿意继续讨论，不替项目侧承诺材料、使用者或导入方式；陈放下周回复较慢，不能因此预填为参与者或导入负责人。草稿不得转给客户，也不得拿去询问上线时间；本轮结论是问题更窄而非试点开始，‘可以继续谈’不等于项目许可，脱敏样本在未获明确边界前只能继续本地练习。",
+            "paths": [
+              "vector"
+            ],
+            "score": 0.01515152
+          },
+          {
+            "document_path": "memory/topics/seamlog.md",
+            "anchor": "3d6fc565",
+            "text": "4 月 22 日报价核对继续区分材料依据与业务状态：核对页固定报价位置、版本标记和保管人，但不重新计算金额或把报价提议写成批准；资料包仍限于已说明的试点范围，供应商审批若再提出应独立讨论。",
+            "paths": [
+              "lexical"
+            ],
+            "score": 0.01492537
+          }
+        ]
+      },
+      {
+        "case_id": "v2-r-open-conditions",
+        "question": "截至5月24日，附录、删除确认和尾款分别仍处于什么状态？",
+        "as_of": "2026-05-24",
+        "historical": true,
+        "success": false,
+        "expected": [
+          {
+            "truth_id": "v2-x-d84-open",
+            "matched": false,
+            "best": {
+              "score": 0.672445,
+              "char_score": 0.217054,
+              "embedding_score": 0.672445,
+              "text": "在周期收尾回复中，吴岚明确：附录尚未签署，删除演练尚未逐格完成，尾款没有新日期；她不希望这封总览被解释为同意延长。三项必须分别回到各自原始问题和证据，回复其中一项不代表另外两项有进展；“收到”“在看”或沉默也不能改写成完成、签字、付款或延长生效。"
+            }
+          }
+        ],
+        "hit_count": 15,
+        "hits": [
+          {
+            "document_path": "memory/people/sun-qiu.md",
+            "anchor": "d2b0d716",
+            "text": "孙秋收到截至 4 月 12 日 15:00 的事故说明，并要求后续追加保留各自截止时间；“未发现未授权会话、公开分享或外部下载”只能适用于说明列明的记录与时段，不能缩写为“没有外泄”。她还明确人工审阅是临时操作条件，不应写成技术防护已经上线；较早批次抽查和控制实现完成后应另发进展，若证据范围或影响人数变化，应同时写明发现时间、变化项和仍未知部分。",
+            "paths": [
+              "lexical",
+              "vector"
+            ],
+            "score": 0.02759802
+          },
+          {
+            "document_path": "memory/people/lin-zhou.md",
+            "anchor": "41ec23b8",
+            "text": "林舟在截至 4 月 12 日 15:00 的书面事故说明中维护技术取数；说明覆盖授权访问、分享调用与下载记录，核查时段为 4 月 5 日 09:00 至 4 月 12 日 15:00，并明确“未发现未授权会话、公开分享或外部下载”只适用于该记录范围，不外推到未检查范围。",
+            "paths": [
+              "lexical"
+            ],
+            "score": 0.01666667
+          },
+          {
+            "document_path": "memory/people/wu-lan.md",
+            "anchor": "f8ba84b2",
+            "text": "在周期收尾回复中，吴岚明确：附录尚未签署，删除演练尚未逐格完成，尾款没有新日期；她不希望这封总览被解释为同意延长。三项必须分别回到各自原始问题和证据，回复其中一项不代表另外两项有进展；“收到”“在看”或沉默也不能改写成完成、签字、付款或延长生效。",
+            "paths": [
+              "vector"
+            ],
+            "score": 0.01666667
+          },
+          {
+            "document_path": "work/products/yunlu-apartment.md",
+            "anchor": "57d956e0",
+            "text": "截至该说明的核查范围，已检查本次卡片的授权访问、分享调用与下载记录，覆盖 4 月 5 日 09:00 至 4 月 12 日 15:00，核对访问账号、发生时间、入口类型和下载结果；该范围内未发现未授权会话、公开分享或外部下载证据。这是限定时段和记录种类内的当前核查结果，不保证未检查范围。",
+            "paths": [
+              "lexical"
+            ],
+            "score": 0.01639344
+          },
+          {
+            "document_path": "work/experiments/read-only-traceability-pilot.md",
+            "anchor": "b0e31ed8",
+            "text": "4 月 1 日的待办状态是：已保留录制来源时间与项目页分组截图，并已回答陈放页面日期不对；确认全部录制是否同样跨日、回放历史批次、打开邮件附件索引并核对对象可用性、检查名称候选可靠性仍未完成。",
+            "paths": [
+              "vector"
+            ],
+            "score": 0.01639344
+          },
+          {
+            "document_path": "memory/topics/seamlog.md",
+            "anchor": "3d963fbe",
+            "text": "事故证据必须保留截止时间和检查口径。4 月 5 日 09:00 至 4 月 12 日 15:00 的授权访问、分享调用与下载记录中未发现未授权会话、公开分享或外部下载证据，但该观察不保证未检查范围；后续追加不得改写本版截止时间。",
+            "paths": [
+              "lexical"
+            ],
+            "score": 0.01612903
+          },
+          {
+            "document_path": "memory/people/lin-zhou.md",
+            "anchor": "67e57c26",
+            "text": "林舟在周期收尾时将附录、删除演练和尾款分别记回各自等待位置：附录仍无指定签字人，删除仍在阅读，尾款仍无日期；他没有增加“预计完成”列，也没有因吴岚回复总览而改变口头意向状态。后续新材料应按原问题回挂，不把一条笼统跟进或共同邮件主题拆成项目计划，也不把未完成阅读判断放入发给孙秋或采购的无关转发中。",
+            "paths": [
+              "vector"
+            ],
+            "score": 0.01612903
+          },
+          {
+            "document_path": "memory/people/wu-lan.md",
+            "anchor": "86980d09",
+            "text": "截至 22:08，吴岚尚未批准恢复客户项目页或相关入口。次日对外处理仍先书面核对客户实际可见范围、已暂停的入口、修正复核方式和恢复条件；内部工作副本的分离结果不能被写成已完成更正。",
+            "paths": [
+              "lexical"
+            ],
+            "score": 0.01587302
+          },
+          {
+            "document_path": "work/products/yunlu-apartment.md",
+            "anchor": "6c67c41c",
+            "text": "本次删除演练确认请求仍处于业务侧待确认状态：合同收件箱只回执已进入处理队列，不代表阅读、同意、签字或付款安排；吴岚尚未完成逐格核对或签字，第一格的材料阶段范围、第二格的业务回告接收者和第三格的补问位置仍未定，因此不能把回执写成删除演练已获确认。",
+            "paths": [
+              "vector"
+            ],
+            "score": 0.01587302
+          },
+          {
+            "document_path": "memory/people/wu-lan.md",
+            "anchor": "77d052b4",
+            "text": "截至 4 月 12 日 15:00 的事故说明记录，吴岚于 4 月 11 日确认本次工作副本更正，并负责客户侧范围；更正后只恢复云麓授权试点账号的受限只读查看，写入、导入和原分享链接仍未恢复。",
+            "paths": [
+              "lexical"
+            ],
+            "score": 0.015625
+          },
+          {
+            "document_path": "memory/topics/seamlog.md",
+            "anchor": "6ccea747",
+            "text": "本周期收尾进一步固定了可追溯记录的边界：应保留被划掉的词、替代词及其所依赖的旧邮件，并将“附条件口头延长”“签字/业务确认”“采购付款”作为不同状态对象；重复口头表达不应仅因格式更整齐而改变结论。",
+            "paths": [
+              "vector"
+            ],
+            "score": 0.015625
+          },
+          {
+            "document_path": "memory/topics/identity-resolution.md",
+            "anchor": "7f89d96b",
+            "text": "截至 4 月 12 日 15:00，事故说明确认两份不同项目的来源因同姓候选被写入同一关系，导致云麓受限客户视图一度出现澄湾的两条现场摘要；来源文件未删除，错误位于关系与派生展示层，更早批次及其他同姓候选仍未全部抽查。",
+            "paths": [
+              "lexical"
+            ],
+            "score": 0.01538462
+          },
+          {
+            "document_path": "work/products/yunlu-apartment.md",
+            "anchor": "80f7dbbe",
+            "text": "竹影的六周延长仍只是带条件的口头意向，不应写成已签客户或已自动顺延；附录、删除确认和尾款分别等待各自原处的新证据，任何一项没有新原处就不挪状态。",
+            "paths": [
+              "vector"
+            ],
+            "score": 0.01538462
+          },
+          {
+            "document_path": "work/experiments/first-chain-onboarding.md",
+            "anchor": "b40be432",
+            "text": "截至本次核对，七个账号中只有两人留下完整的首条链记录；账号建立、触达或打开帮助页都不算产品成果。完整首链的最低定义是：有来源片段、可回查位置和一次明确状态记录；首次成功应描述具体材料、留下的状态以及能否点回原处。现有两条完成记录的路径不同（单封邮件起步、先放会议摘录），不能据此给所有人规定一条路线，也暂不附时长目标。五月十日复核继续沿用这一计数边界：七个已建立账号与两条完整首链是两类不可互相替代的记录，未完成者不解释为拒绝。",
+            "paths": [
+              "lexical"
+            ],
+            "score": 0.01515152
+          },
+          {
+            "document_path": "work/products/yunlu-apartment.md",
+            "anchor": "a8dd254b",
+            "text": "未结索引继续分开保留三行：附录待项目方签、删除演练等待吴岚逐格确认、试点尾款仍在内部流程；每行保留最后可回看的来源和下一位应答者，不猜签字或付款日期，也不把一行的沉默归到另一行。",
+            "paths": [
+              "vector"
+            ],
+            "score": 0.01515152
+          }
+        ]
+      },
+      {
+        "case_id": "v2-r-cross-source",
+        "question": "为什么下一周期不做全项目平台，实际保留什么窄范围？",
+        "as_of": "2026-05-24",
+        "historical": true,
+        "success": false,
+        "expected": [
+          {
+            "truth_id": "v2-d-d82-stop-platform",
+            "matched": false,
+            "best": {
+              "score": 0.665859,
+              "char_score": 0.18018,
+              "embedding_score": 0.665859,
+              "text": "下一周期不把全项目平台作为目标，也不把供应商审批带入当前试点；任务排期、采购推进、人员分配和总览不因既有两条链而获授权。审批若重新提出，需独立说明问题、使用者、成本理由和不同证据入口，当前尚未具备这些条件。"
+            }
+          },
+          {
+            "truth_id": "v2-f-d84-focus",
+            "matched": true,
+            "best": {
+              "score": 0.701526,
+              "char_score": 0.340426,
+              "embedding_score": 0.701526,
+              "text": "下一周期的继续项收窄为小型设计团队的变更证据链，不收集“项目进度”：记录需能回到变更材料、确认位置和当前未答状态，缺任一证据就停在缺口，不预先导入其他项目、角色或待办。"
+            }
+          }
+        ],
+        "hit_count": 15,
+        "hits": [
+          {
+            "document_path": "work/experiments/read-only-traceability-pilot.md",
+            "anchor": "1e5deb9f",
+            "text": "下一周期的继续项收窄为小型设计团队的变更证据链，不收集“项目进度”：记录需能回到变更材料、确认位置和当前未答状态，缺任一证据就停在缺口，不预先导入其他项目、角色或待办。",
+            "paths": [
+              "lexical",
+              "vector"
+            ],
+            "score": 0.03115942
+          },
+          {
+            "document_path": "work/experiments/seamlog-discovery.md",
+            "anchor": "628be5cf",
+            "text": "3 月 12 日的下一次范围讨论准备被压缩为：先说明全项目看板只是内部草图且未验证，请吴岚判断争议发生时最值得先看的记录，并询问哪些角色只是阅读、哪些人可能留下判断；答案可以暂时未知。该讨论暂不验证工作室全流程、并行项目、任务分派或进度汇总，也不把一次范围讨论当作可以开始的信号。",
+            "paths": [
+              "lexical",
+              "vector"
+            ],
+            "score": 0.02923602
+          },
+          {
+            "document_path": "work/experiments/read-only-traceability-pilot.md",
+            "anchor": "543cf231",
+            "text": "下一周期不把全项目平台作为目标，也不把供应商审批带入当前试点；任务排期、采购推进、人员分配和总览不因既有两条链而获授权。审批若重新提出，需独立说明问题、使用者、成本理由和不同证据入口，当前尚未具备这些条件。",
+            "paths": [
+              "vector"
+            ],
+            "score": 0.01666667
+          },
+          {
+            "document_path": "memory/profile.md",
+            "anchor": "e121cd1b",
+            "text": "署名为林舟的本轮记录显示，周期收尾时应把不同问题保持为互不替代的入口：附录只接指定签字人或签后回告，删除只接实际看过的格，尾款只接采购凭据、联系人或日期；回复一项不更新另外两项。下一周期的工作卡收窄到小型设计团队的窄场景，不把项目管理、采购或审批塞进解释。这支持该署名发言者的本轮工作约束，不据此确认当前用户身份或提升为稳定用户画像。",
+            "paths": [
+              "lexical"
+            ],
+            "score": 0.01639344
+          },
+          {
+            "document_path": "work/experiments/seamlog-discovery.md",
+            "anchor": "7f786380",
+            "text": "停止项和延后项不得在下一周期悄悄复活；若有人重新提出全项目平台或供应商审批，必须先形成独立范围卡，写清具体问题、使用者、成本理由，并说明不同于既有证据链的入口。在这些条件出现前，不自动升级、不设默认预算或预设启动日。",
+            "paths": [
+              "vector"
+            ],
+            "score": 0.01639344
+          },
+          {
+            "document_path": "work/products/yunlu-apartment.md",
+            "anchor": "9e9231c5",
+            "text": "下一周期的工作卡先从小型设计团队的变更证据链开始，只验证一条记录如何回到来源、确认和当前状态；排程、供应商审批或全项目看板若被提出，应标为范围外并另行讨论，不能从这张工作卡顺手扩展。",
+            "paths": [
+              "lexical"
+            ],
+            "score": 0.01612903
+          },
+          {
+            "document_path": "work/products/yunlu-apartment.md",
+            "anchor": "ae7545cc",
+            "text": "下一周期首张工作卡只服务小型设计团队的变更证据链；它是删去全项目平台方向后留下的明确限制，不应扩展成排程、采购或审批全套方案。若新客户需要这些事项，应先回到范围问题。",
+            "paths": [
+              "vector"
+            ],
+            "score": 0.01612903
+          },
+          {
+            "document_path": "memory/people/lin-zhou.md",
+            "anchor": "455a53da",
+            "text": "林舟将任务管理暂不纳入，报价生成和审批流降为待问，不把三者写成下一周功能清单；当前只保留脱敏样本的页面实验，等待问题单回应。",
+            "paths": [
+              "lexical"
+            ],
+            "score": 0.01587302
+          },
+          {
+            "document_path": "work/products/yunlu-apartment.md",
+            "anchor": "f8bff981",
+            "text": "下一周期停止将全项目平台作为目标：任务排期、采购推进、人员分配和总览不再借当前两条证据链的结果获得授权。供应商审批模块延后，采购提出的问题仍保留原状态；重新提出前必须独立说明具体问题、使用者和成本理由，当前三项均未具备。若重新提出，还需标出不同于既有两条链的证据入口，不能改名复活旧总览或附带默认预算、自动升级和启动日。",
+            "paths": [
+              "vector"
+            ],
+            "score": 0.01587302
+          },
+          {
+            "document_path": "memory/people/lin-zhou.md",
+            "anchor": "bd389f5f",
+            "text": "林舟将任务、报价和审批保留为待排除或待问的候选，不把它们做成页面、开发顺序或下一周功能清单；任务不替代陈放已有现场排期，报价与审批分别继续询问谁需要、谁能决定及会涉及哪些材料。",
+            "paths": [
+              "lexical"
+            ],
+            "score": 0.015625
+          },
+          {
+            "document_path": "work/products/yunlu-apartment.md",
+            "anchor": "3f1d9436",
+            "text": "周期收尾时，云麓相关的六周口头意向仍未生效：数据处理附录未签、删除演练未完成业务确认、试点尾款没有付款结果；三条链分别保留，不因同一封总览回复而合并或改变状态。下一周期只收窄到小型设计团队的一处变更材料、一次确认和一条当前状态，不把项目管理、采购或审批纳入该延续解释；这不是客户批准或下一阶段命名。",
+            "paths": [
+              "vector"
+            ],
+            "score": 0.015625
+          },
+          {
+            "document_path": "memory/topics/household-coordination.md",
+            "anchor": "b2a2355d",
+            "text": "本次晚间双方约定开一小时游戏：赵楠已找到上次卡住的门，计划九点半下线；林舟提前退出并将四十八分钟计作一小时额度，双方不再开启下一关。居家方面，林舟负责给冰箱里的玉米贴纸并计划次日买番茄和豆腐，赵楠提醒不要让玉米被提前煮掉；林舟另请赵楠剪对白时不要关死门以缓解闷热。这些是当次互动的临时协调，不应提升为固定游戏时长、家务分工或采购习惯。",
+            "paths": [
+              "lexical"
+            ],
+            "score": 0.01538462
+          },
+          {
+            "document_path": "memory/topics/seamlog.md",
+            "anchor": "3cfe1695",
+            "text": "3 月 12 日准备范围讨论时，我放弃了“所有项目都能用”这一无访谈依据的表述，并把它标为想象而非要求；当前范围讨论应先承认全项目看板只是未验证的内部草图，暂不扩展到工作室全部流程、多个项目并行、任务分派或进度汇总，也不假设已有真实数据入口或讨论后即可开始。",
+            "paths": [
+              "vector"
+            ],
+            "score": 0.01538462
+          },
+          {
+            "document_path": "memory/people/zhao-nan.md",
+            "anchor": "ccb8c000",
+            "text": "本次晚间互动中，赵楠提出与林舟开一小时游戏，并说明自己已找到上次卡住的门，不需要林舟再查攻略；她计划九点半下线，之后还要交一段对白。她又提醒林舟剩六分钟时不要开启下一关，并请他给冰箱里的玉米贴纸，避免次日晚间被煮掉。这些是本次互动的临时游戏与生活协调，不足以推导为固定游戏时长、工作安排或家务分工。",
+            "paths": [
+              "lexical"
+            ],
+            "score": 0.01515152
+          },
+          {
+            "document_path": "memory/people/lin-zhou.md",
+            "anchor": "9df7eac1",
+            "text": "采购回信对照表供林舟在收到采购或项目方回信后，把每条回信附回它实际回答的问题：每行同时保留问题短标识与回信实际引用的标题、编号或原句；回信只说“第三项”时，先保留这一说法并请吴岚确认对应行，不能靠位置猜测。未触及的行保持空白，被否定的项目也保留原问题和否定语境。该表只支持下一轮起草核对，不产生新问题、不替换原邮件，也不把部分回应汇总为完成。",
+            "paths": [
+              "lexical"
+            ],
+            "score": 0.01492537
+          }
+        ]
+      },
+      {
+        "case_id": "v2-r-extension-status",
+        "question": "截至5月24日，口头六周延长能否生效，尚缺哪些条件？",
+        "as_of": "2026-05-24",
+        "historical": true,
+        "success": false,
+        "expected": [
+          {
+            "truth_id": "v2-c-d80-conditions",
+            "matched": false,
+            "best": {
+              "score": 0.611185,
+              "char_score": 0.314607,
+              "embedding_score": 0.611185,
+              "text": "竹影的六周延长仍只是带条件的口头意向，不应写成已签客户或已自动顺延；附录、删除确认和尾款分别等待各自原处的新证据，任何一项没有新原处就不挪状态。"
+            }
+          },
+          {
+            "truth_id": "v2-d-d84-no-contract",
+            "matched": false,
+            "best": {
+              "score": 0.655348,
+              "char_score": 0.188679,
+              "embedding_score": 0.655348,
+              "text": "吴岚提出可讨论再延六周，但目前仅是口头意向，不是买下、自动顺延或长期合作承诺；在讨论顺延前，数据处理附录须签署、删除演练须获业务方确认、试点尾款须处理，三项均未完成时不应写成已顺延。"
+            }
+          },
+          {
+            "truth_id": "v2-x-d84-open",
+            "matched": false,
+            "best": {
+              "score": 0.634716,
+              "char_score": 0.227273,
+              "embedding_score": 0.634716,
+              "text": "竹影的六周延长仍只是带条件的口头意向，不应写成已签客户或已自动顺延；附录、删除确认和尾款分别等待各自原处的新证据，任何一项没有新原处就不挪状态。"
+            }
+          }
+        ],
+        "hit_count": 15,
+        "hits": [
+          {
+            "document_path": "memory/people/lin-zhou.md",
+            "anchor": "41ec23b8",
+            "text": "林舟在截至 4 月 12 日 15:00 的书面事故说明中维护技术取数；说明覆盖授权访问、分享调用与下载记录，核查时段为 4 月 5 日 09:00 至 4 月 12 日 15:00，并明确“未发现未授权会话、公开分享或外部下载”只适用于该记录范围，不外推到未检查范围。",
+            "paths": [
+              "lexical"
+            ],
+            "score": 0.01666667
+          },
+          {
+            "document_path": "memory/people/wu-lan.md",
+            "anchor": "2cac5a66",
+            "text": "吴岚提出的再延六周意向附带三个前置条件：数据处理附录签署、删除演练由业务方确认、试点尾款处理；三项负责人和顺序仍需分别落位，少一项都不构成自动顺延，且尾款尚无预计日。",
+            "paths": [
+              "vector"
+            ],
+            "score": 0.01666667
+          },
+          {
+            "document_path": "work/products/yunlu-apartment.md",
+            "anchor": "57d956e0",
+            "text": "截至该说明的核查范围，已检查本次卡片的授权访问、分享调用与下载记录，覆盖 4 月 5 日 09:00 至 4 月 12 日 15:00，核对访问账号、发生时间、入口类型和下载结果；该范围内未发现未授权会话、公开分享或外部下载证据。这是限定时段和记录种类内的当前核查结果，不保证未检查范围。",
+            "paths": [
+              "lexical"
+            ],
+            "score": 0.01639344
+          },
+          {
+            "document_path": "memory/people/lin-zhou.md",
+            "anchor": "7cd58c75",
+            "text": "林舟决定将可能的六周延长作为待处理条件而非事实：数据处理附录签署、删除演练业务确认和试点尾款处理分别保留，未获答复的条件不被勾成完成；尾款没有预计日。",
+            "paths": [
+              "vector"
+            ],
+            "score": 0.01639344
+          },
+          {
+            "document_path": "memory/topics/seamlog.md",
+            "anchor": "3d963fbe",
+            "text": "事故证据必须保留截止时间和检查口径。4 月 5 日 09:00 至 4 月 12 日 15:00 的授权访问、分享调用与下载记录中未发现未授权会话、公开分享或外部下载证据，但该观察不保证未检查范围；后续追加不得改写本版截止时间。",
+            "paths": [
+              "lexical"
+            ],
+            "score": 0.01612903
+          },
+          {
+            "document_path": "work/products/yunlu-apartment.md",
+            "anchor": "3d7c63d0",
+            "text": "吴岚提出可讨论再延六周，但目前仅是口头意向，不是买下、自动顺延或长期合作承诺；在讨论顺延前，数据处理附录须签署、删除演练须获业务方确认、试点尾款须处理，三项均未完成时不应写成已顺延。",
+            "paths": [
+              "vector"
+            ],
+            "score": 0.01612903
+          },
+          {
+            "document_path": "memory/people/wu-lan.md",
+            "anchor": "86980d09",
+            "text": "截至 22:08，吴岚尚未批准恢复客户项目页或相关入口。次日对外处理仍先书面核对客户实际可见范围、已暂停的入口、修正复核方式和恢复条件；内部工作副本的分离结果不能被写成已完成更正。",
+            "paths": [
+              "lexical"
+            ],
+            "score": 0.01587302
+          },
+          {
+            "document_path": "work/products/yunlu-apartment.md",
+            "anchor": "80f7dbbe",
+            "text": "竹影的六周延长仍只是带条件的口头意向，不应写成已签客户或已自动顺延；附录、删除确认和尾款分别等待各自原处的新证据，任何一项没有新原处就不挪状态。",
+            "paths": [
+              "vector"
+            ],
+            "score": 0.01587302
+          },
+          {
+            "document_path": "memory/people/wu-lan.md",
+            "anchor": "77d052b4",
+            "text": "截至 4 月 12 日 15:00 的事故说明记录，吴岚于 4 月 11 日确认本次工作副本更正，并负责客户侧范围；更正后只恢复云麓授权试点账号的受限只读查看，写入、导入和原分享链接仍未恢复。",
+            "paths": [
+              "lexical"
+            ],
+            "score": 0.015625
+          },
+          {
+            "document_path": "work/products/yunlu-apartment.md",
+            "anchor": "77de62cc",
+            "text": "本周期收尾将“竹影：附条件口头延长，未生效”替代“已签客户”；口头愿意继续只说明下一次对话仍有理由，不能替代签字页、业务确认或采购付款日期，也不构成收入。当前没有长期合同、到账或可公开宣布的案例。",
+            "paths": [
+              "vector"
+            ],
+            "score": 0.015625
+          },
+          {
+            "document_path": "memory/topics/identity-resolution.md",
+            "anchor": "7f89d96b",
+            "text": "截至 4 月 12 日 15:00，事故说明确认两份不同项目的来源因同姓候选被写入同一关系，导致云麓受限客户视图一度出现澄湾的两条现场摘要；来源文件未删除，错误位于关系与派生展示层，更早批次及其他同姓候选仍未全部抽查。",
+            "paths": [
+              "lexical"
+            ],
+            "score": 0.01538462
+          },
+          {
+            "document_path": "work/operations/cashflow-reconciliation.md",
+            "anchor": "b25bd38e",
+            "text": "周期结束时，试点尾款仍没有付款结果、采购凭据、联系人或日期；吴岚的状态回复不能被改写成付款预测，口头六周意向也尚未生效。因此现金流记录继续把尾款与延长意向分开置于未收/待证状态，不将其计入可用现金或下一笔工作安排。",
+            "paths": [
+              "vector"
+            ],
+            "score": 0.01538462
+          },
+          {
+            "document_path": "work/experiments/first-chain-onboarding.md",
+            "anchor": "b40be432",
+            "text": "截至本次核对，七个账号中只有两人留下完整的首条链记录；账号建立、触达或打开帮助页都不算产品成果。完整首链的最低定义是：有来源片段、可回查位置和一次明确状态记录；首次成功应描述具体材料、留下的状态以及能否点回原处。现有两条完成记录的路径不同（单封邮件起步、先放会议摘录），不能据此给所有人规定一条路线，也暂不附时长目标。五月十日复核继续沿用这一计数边界：七个已建立账号与两条完整首链是两类不可互相替代的记录，未完成者不解释为拒绝。",
+            "paths": [
+              "lexical"
+            ],
+            "score": 0.01515152
+          },
+          {
+            "document_path": "memory/topics/material-intake-boundaries.md",
+            "anchor": "6829e890",
+            "text": "本轮口头核对明确，九十天只是客户在问题清单中提出的保留要求，不是系统对所有项目的默认期限；问题清单尚未正式确认，也没有试点开始通知，因而不能据此推导通用保留规则或已生效的系统行为。",
+            "paths": [
+              "vector"
+            ],
+            "score": 0.01515152
+          },
+          {
+            "document_path": "work/experiments/read-only-traceability-pilot.md",
+            "anchor": "3b5025e9",
+            "text": "截至 4 月 12 日 15:00，试点事故处置的当前状态是：关系写入、新导入、候选自动应用和既有分享入口仍暂停；工作副本中的两份来源已人工分开并逐条比对，随后仅恢复云麓授权试点账号的受限只读查看。写入、导入和原分享链接仍未恢复。",
+            "paths": [
+              "lexical"
+            ],
+            "score": 0.01492537
+          }
+        ]
+      }
+    ]
+  },
+  "limitations": [
+    "Truth-set precision is a finite-manifest proxy; useful unlabeled facts can score as unmatched.",
+    "Historical as_of retrieval is evaluated against the current HEAD claim indexes because the live retrieval API has no snapshot selector.",
+    "Semantic thresholds are serialized and misses retain best-match evidence; no LLM judge silently changes labels."
+  ]
+}

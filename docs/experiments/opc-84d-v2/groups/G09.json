@@ -1,0 +1,1892 @@
+{
+  "schema": "pneuma.experiment.opc-84d-v2.group-content/v1",
+  "group_id": "G09",
+  "group_window": {
+    "starts_on": "2026-03-26",
+    "ends_on": "2026-03-28",
+    "day_count": 3,
+    "timezone": "Asia/Shanghai"
+  },
+  "story_scope": {
+    "allowed_story_beat_ids": [
+      "D25",
+      "D26",
+      "D27"
+    ],
+    "known_fact_ids": [
+      "F01",
+      "F02",
+      "F03",
+      "F04",
+      "F05",
+      "F06",
+      "F07",
+      "F08"
+    ],
+    "open_continuity_ids": [
+      "C01",
+      "C02",
+      "C03"
+    ],
+    "new_continuity_ids": []
+  },
+  "research_context": [
+    {
+      "research_ref_id": "G09-R01",
+      "topic_query": "Slack official help data exports conversations threads edits reactions file links",
+      "url": "https://slack.com/help/articles/220556107-How-to-read-Slack-data-exports",
+      "title": "How to read Slack data exports",
+      "accessed_on": "2026-07-29",
+      "credibility": {
+        "tier": "official",
+        "rationale": "The service owner documents the structural distinctions in its exported conversation records."
+      },
+      "applicability_scope": "Used only to make the fictional handoff distinguish three source entry points, conversations, replies, reactions, and uncertain file availability; it supplies no brand, account, export format, or prose.",
+      "author_fact_summaries": [
+        "A conversation archive can retain messages and thread relationships separately from linked files.",
+        "A linked file may need a separate availability check rather than being assumed present in the conversation record."
+      ],
+      "fictionalization_boundary": "No product name, interface label, export-directory example, user identifier, or wording from the page appears in the fictional materials.",
+      "applied_authored_ids": [
+        "G09d26ImMsg03Auth",
+        "G09d26ImMsg11Auth",
+        "G09d26Doc1Block03Auth"
+      ]
+    },
+    {
+      "research_ref_id": "G09-R02",
+      "topic_query": "RFC 5322 message identifier in reply to references email reply chain",
+      "url": "https://www.rfc-editor.org/rfc/rfc5322.html",
+      "title": "RFC 5322: Internet Message Format",
+      "accessed_on": "2026-07-29",
+      "credibility": {
+        "tier": "primary",
+        "rationale": "The IETF standard is the primary technical reference for message identifiers and reply relationships."
+      },
+      "applicability_scope": "Used only to shape two invented email threads with separate identifiers and replies while their commercial and project content remains wholly fictional.",
+      "author_fact_summaries": [
+        "A message identifier can distinguish one mail item from another even when subjects resemble each other.",
+        "Reply linkage can be expressed independently from the visible order of a mailbox thread."
+      ],
+      "fictionalization_boundary": "No RFC examples, formal grammar, section wording, identifiers, or addresses are reused; every address is synthetic.",
+      "applied_authored_ids": [
+        "G09d27Mail01Auth",
+        "G09d27Mail02Auth",
+        "G09d27Mail03Auth",
+        "G09d27Mail04Auth"
+      ]
+    }
+  ],
+  "sources": {
+    "meetings": [
+      {
+        "source_id": "G09d25RetentionMeetingSource",
+        "authorship": {
+          "authored_id": "G09d25RetentionMeetingSourceAuth",
+          "occurred_at": "2026-03-26T10:00:00+08:00",
+          "author_role": "product",
+          "content_class": "signal",
+          "links": {
+            "story_beat_ids": [
+              "D25"
+            ],
+            "fact_ids": [
+              "F08"
+            ],
+            "continuity_ids": [
+              "C01",
+              "C03"
+            ]
+          }
+        },
+        "schema": "pneuma.source.meeting/v1",
+        "provider": "mock",
+        "meeting_id": "G09d25RetentionCall",
+        "title": "保留说明与删除证明的口头核对",
+        "started_at": "2026-03-26T10:00:00+08:00",
+        "ended_at": "2026-03-26T11:14:00+08:00",
+        "timezone": "Asia/Shanghai",
+        "owner_participant_ids": [
+          "G09meetLin"
+        ],
+        "participants": [
+          {
+            "participant_id": "G09meetLin",
+            "display_name": "林舟",
+            "role": "product",
+            "synthetic_address": "lin.zhou@seamlog.example.test"
+          },
+          {
+            "participant_id": "G09meetSun",
+            "display_name": "孙秋",
+            "role": "legal",
+            "synthetic_address": "sun.qiu@advisory.example.test"
+          },
+          {
+            "participant_id": "G09meetWu",
+            "display_name": "吴岚",
+            "role": "manager",
+            "synthetic_address": "wu.lan@bamboo.example.test"
+          }
+        ],
+        "agenda": [
+          {
+            "agenda_id": "G09d25Agenda01",
+            "text": "把客户提出的保留条件、删除后的最小证明，以及尚未答复的启动问题分开记录。",
+            "authorship": {
+              "authored_id": "G09d25Agenda01Auth",
+              "occurred_at": "2026-03-26T10:00:00+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D25"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C01",
+                  "C03"
+                ]
+              }
+            }
+          }
+        ],
+        "utterances": [
+          {
+            "utterance_id": "G09d25Turn01",
+            "speaker_id": "G09meetLin",
+            "started_at": "2026-03-26T10:00:00+08:00",
+            "ended_at": "2026-03-26T10:05:00+08:00",
+            "text": "我把说明初稿拆成三页：保留、导出、删除。最容易被我写得太满的是第一页，所以先确认一个词：九十天是客户今天提出的保留要求，不是系统原本就替所有项目设好的期限。我不能把这句话缩成“默认保留九十天”，那会把来源和适用范围都弄丢。",
+            "authorship": {
+              "authored_id": "G09d25Turn01Auth",
+              "occurred_at": "2026-03-26T10:00:00+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D25"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C01",
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "G09d25Turn02",
+            "speaker_id": "G09meetWu",
+            "started_at": "2026-03-26T10:05:00+08:00",
+            "ended_at": "2026-03-26T10:10:00+08:00",
+            "text": "对，是客户在问题清单里问到九十天。我的理解只是他们希望这次材料不要无限放着，不是替他们批准某个通用规则。清单还没回到正式确认那一步；我也没有收到可以开始试点的通知。说明里最好让人看得见这两个空白。",
+            "authorship": {
+              "authored_id": "G09d25Turn02Auth",
+              "occurred_at": "2026-03-26T10:05:00+08:00",
+              "author_role": "manager",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D25"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C01",
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "G09d25Turn03",
+            "speaker_id": "G09meetSun",
+            "started_at": "2026-03-26T10:10:00+08:00",
+            "ended_at": "2026-03-26T10:16:00+08:00",
+            "text": "删除也不要写成一个按钮。若有人提出按项目删除，至少要留下最小证明：谁在什么时间提出、针对哪个项目、处理动作何时结束、结果是否仍有待确认。证明日志不是把被删内容再抄一遍，更不是让你借此永久保留原材料；它只需要让后来的人能说明这次请求确实被处理过。",
+            "authorship": {
+              "authored_id": "G09d25Turn03Auth",
+              "occurred_at": "2026-03-26T10:10:00+08:00",
+              "author_role": "legal",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D25"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C01",
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "G09d25Turn04",
+            "speaker_id": "G09meetLin",
+            "started_at": "2026-03-26T10:16:00+08:00",
+            "ended_at": "2026-03-26T10:22:00+08:00",
+            "text": "那日志里我只放请求编号、项目代号、处理时间和结果状态，不放被导入的段落、附件名或谁在材料里说了什么。可是如果请求来自口头电话，是否要先补一封确认？我担心为了留痕反而把客户没同意保存的内容写得更多。",
+            "authorship": {
+              "authored_id": "G09d25Turn04Auth",
+              "occurred_at": "2026-03-26T10:16:00+08:00",
+              "author_role": "product",
+              "content_class": "ambiguous",
+              "links": {
+                "story_beat_ids": [
+                  "D25"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C01"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "G09d25Turn05",
+            "speaker_id": "G09meetSun",
+            "started_at": "2026-03-26T10:22:00+08:00",
+            "ended_at": "2026-03-26T10:28:00+08:00",
+            "text": "可以把“口头提出，等待对方确认范围”作为状态，而不是编造一封确认。重点是日志能区分请求到达、范围核对和处理完成。哪一步没有材料，就写没有材料。你现在不需要设计一次删除演练，也不要暗示它已经排期；眼下只是把将来验证时需要看什么说清楚。",
+            "authorship": {
+              "authored_id": "G09d25Turn05Auth",
+              "occurred_at": "2026-03-26T10:22:00+08:00",
+              "author_role": "legal",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D25"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C01",
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "G09d25Turn06",
+            "speaker_id": "G09meetWu",
+            "started_at": "2026-03-26T10:28:00+08:00",
+            "ended_at": "2026-03-26T10:33:00+08:00",
+            "text": "还有导出。客户问的是将来需要项目级导出时能不能找到材料，不等于他们已经交了第一批材料。林舟昨天把“入口准备好”说得像“导入已完成”，我希望说明里把连接测试和实际导入分成两行，免得采购读到后以为我们已经碰过正式项目内容。",
+            "authorship": {
+              "authored_id": "G09d25Turn06Auth",
+              "occurred_at": "2026-03-26T10:28:00+08:00",
+              "author_role": "manager",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D25"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C02",
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "G09d25Turn07",
+            "speaker_id": "G09meetLin",
+            "started_at": "2026-03-26T10:33:00+08:00",
+            "ended_at": "2026-03-26T10:38:00+08:00",
+            "text": "我先把草案里的“自动清理”删掉。它原来是我为了让页面看起来完整而塞进去的词，和客户的问题不是一回事。保留期那一栏先只留提问来源；如果吴岚拿回不同的说法，我再把原问题与新答复并排放，不替它们推导系统行为。",
+            "authorship": {
+              "authored_id": "G09d25Turn07Auth",
+              "occurred_at": "2026-03-26T10:33:00+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D25"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C01",
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "G09d25Turn08",
+            "speaker_id": "G09meetWu",
+            "started_at": "2026-03-26T10:38:00+08:00",
+            "ended_at": "2026-03-26T10:42:00+08:00",
+            "text": "楼下卸货车倒了两次，录音里可能会有提示音。回到草案本身，我只需要吴岚确认问题列表是否由她转交；名单、发送时间和客户答复都不在今天的记录里。其余段落先不加，免得会议把下一步写得比事实更快。",
+            "authorship": {
+              "authored_id": "G09d25Turn08Auth",
+              "occurred_at": "2026-03-26T10:38:00+08:00",
+              "author_role": "manager",
+              "content_class": "noise",
+              "links": {
+                "story_beat_ids": [
+                  "D25"
+                ],
+                "fact_ids": [],
+                "continuity_ids": [
+                  "C02",
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "G09d25Turn09",
+            "speaker_id": "G09meetSun",
+            "started_at": "2026-03-26T10:42:00+08:00",
+            "ended_at": "2026-03-26T10:48:00+08:00",
+            "text": "问题可以留空，但别把空白做成一张漂亮的承诺表。对删除这一项，只写谁需要确认范围；对其余采购问题，吴岚另带走。这样之后有人回来补答时，能看到是补在什么问题上，而不是把今天的会议当作批准记录。",
+            "authorship": {
+              "authored_id": "G09d25Turn09Auth",
+              "occurred_at": "2026-03-26T10:42:00+08:00",
+              "author_role": "legal",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D25"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C01",
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "G09d25Turn10",
+            "speaker_id": "G09meetLin",
+            "started_at": "2026-03-26T10:48:00+08:00",
+            "ended_at": "2026-03-26T10:55:00+08:00",
+            "text": "我把标题改成“删除处理证明草案”。下面只保留请求到达、范围核对和处理结果三个阶段，具体表单放在明天的笔记里。吴岚不需要替这张内部便签背书；她只要决定是否愿意转交那份短问题列表。",
+            "authorship": {
+              "authored_id": "G09d25Turn10Auth",
+              "occurred_at": "2026-03-26T10:48:00+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D25"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C01",
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "G09d25Turn11",
+            "speaker_id": "G09meetWu",
+            "started_at": "2026-03-26T10:55:00+08:00",
+            "ended_at": "2026-03-26T11:05:00+08:00",
+            "text": "可以。客户可见的只有短问题列表，内部草案不要附上。我会在转交前再看一遍收件对象；如果对方只是补采购资料，就不把它展开成新需求讨论。今天的结论到这里，不需要替未来的安排命名。",
+            "authorship": {
+              "authored_id": "G09d25Turn11Auth",
+              "occurred_at": "2026-03-26T10:55:00+08:00",
+              "author_role": "manager",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D25"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C02",
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "G09d25Turn12",
+            "speaker_id": "G09meetLin",
+            "started_at": "2026-03-26T11:05:00+08:00",
+            "ended_at": "2026-03-26T11:14:00+08:00",
+            "text": "我会先把删除字段整理成给孙秋看的内部草案：项目代号、收到时间、范围、处理状态和结果。若以后真有请求，再先问清范围和确认人；没有这些答案就不填完成时间。明天陈放若发入口，我只记下入口由谁交接，具体读取另等权限安排。",
+            "authorship": {
+              "authored_id": "G09d25Turn12Auth",
+              "occurred_at": "2026-03-26T11:05:00+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D25"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C01",
+                  "C02",
+                  "C03"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "document_library": [
+      {
+        "source_id": "G09d26ConnectionNotesSource",
+        "authorship": {
+          "authored_id": "G09d26ConnectionNotesSourceAuth",
+          "occurred_at": "2026-03-27T11:12:00+08:00",
+          "author_role": "product",
+          "content_class": "signal",
+          "links": {
+            "story_beat_ids": [
+              "D26"
+            ],
+            "fact_ids": [
+              "F08"
+            ],
+            "continuity_ids": [
+              "C02",
+              "C03"
+            ]
+          }
+        },
+        "schema": "pneuma.source.document-library/v1",
+        "provider": "mock",
+        "library_id": "G09d26ConnectionNotesLibrary",
+        "title": "启动前连接便签",
+        "documents": [
+          {
+            "document_id": "G09d26EntryCheckDoc",
+            "path": "ops/2026-03-27-source-entry-check.md",
+            "title": "三类来源入口：只做可见性检查",
+            "frontmatter": {
+              "date": "2026-03-27",
+              "state": "draft",
+              "scope": "no-import"
+            },
+        "full_markdown": "# 三类来源入口：只做可见性检查\n\n陈放给的是三种入口：一处会议记录观看链接、一处项目沟通归档入口，以及一条邮件归集地址。它们落在不同的权限界面，也可能由不同的人维护。这张便签只记页面当时怎样回应，不把入口当成已交付的材料。\n\n浏览时，会议页提示需要项目账号；沟通页露出项目名称和日期范围；邮件地址接受了测试主题。会议页左栏还能看见“请求访问”的按钮，沟通页顶部显示的是筛选标签而非消息列表，邮件测试则只收到主题行。缩略信息不足以说明页面内容可以使用，三个页面的时间显示也没有拿来互相校对。\n\n历史附件另记为未知。陈放提醒旧消息里的附件可能打不开；这是一条交接风险，不是附件已缺失的发现。要等到获准检查的人逐项尝试，才会有链接可用或失效的记录。若之后有人测试链接，便签应另写测试的链接名、当时的提示和测试时间，避免把一条旧提醒误认成新的观察。\n\n午饭前水槽堵住了。我把滤网冲干净、擦完台面，水才慢慢退下去；晚些时候还得把湿抹布拿去阳台晾。那半小时没有新的来信，也没有留下任何工作结论。\n\n给接手者的状态栏只抄页面回应：会议“需项目账号”，沟通“范围提示可见”，邮件“测试主题可收”。状态栏旁还留了浏览时间和页面截图的本地编号，方便下一个人确认自己看的是否同一页。它方便找到下一位联系人，不是权限批准，也不替将来的检查下注释。",
+            "tags": [
+              "启动前",
+              "连接检查",
+              "未导入"
+            ],
+            "links": [],
+            "created_at": "2026-03-27T11:12:00+08:00",
+            "modified_at": "2026-03-27T15:46:00+08:00",
+            "visible_blocks": [
+              {
+                "block_id": "G09d26Doc1Block01",
+                "kind": "paragraph",
+            "markdown": "陈放给的是三种入口：一处会议记录观看链接、一处项目沟通归档入口，以及一条邮件归集地址。它们落在不同的权限界面，也可能由不同的人维护。这张便签只记页面当时怎样回应，不把入口当成已交付的材料。",
+                "authorship": {
+                  "authored_id": "G09d26Doc1Block01Auth",
+                  "occurred_at": "2026-03-27T11:12:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D26"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C02",
+                      "C03"
+                    ]
+                  }
+                }
+              },
+              {
+                "block_id": "G09d26Doc1Block02",
+                "kind": "paragraph",
+            "markdown": "浏览时，会议页提示需要项目账号；沟通页露出项目名称和日期范围；邮件地址接受了测试主题。会议页左栏还能看见“请求访问”的按钮，沟通页顶部显示的是筛选标签而非消息列表，邮件测试则只收到主题行。缩略信息不足以说明页面内容可以使用，三个页面的时间显示也没有拿来互相校对。",
+                "authorship": {
+                  "authored_id": "G09d26Doc1Block02Auth",
+                  "occurred_at": "2026-03-27T13:20:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D26"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C02"
+                    ]
+                  }
+                }
+              },
+              {
+                "block_id": "G09d26Doc1Block03",
+                "kind": "paragraph",
+            "markdown": "历史附件另记为未知。陈放提醒旧消息里的附件可能打不开；这是一条交接风险，不是附件已缺失的发现。要等到获准检查的人逐项尝试，才会有链接可用或失效的记录。若之后有人测试链接，便签应另写测试的链接名、当时的提示和测试时间，避免把一条旧提醒误认成新的观察。",
+                "authorship": {
+                  "authored_id": "G09d26Doc1Block03Auth",
+                  "occurred_at": "2026-03-27T14:08:00+08:00",
+                  "author_role": "product",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": [
+                      "D26"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C02",
+                      "C03"
+                    ]
+                  }
+                }
+              },
+              {
+                "block_id": "G09d26Doc1Block04",
+                "kind": "paragraph",
+            "markdown": "午饭前水槽堵住了。我把滤网冲干净、擦完台面，水才慢慢退下去；晚些时候还得把湿抹布拿去阳台晾。那半小时没有新的来信，也没有留下任何工作结论。",
+                "authorship": {
+                  "authored_id": "G09d26Doc1Block04Auth",
+                  "occurred_at": "2026-03-27T15:46:00+08:00",
+                  "author_role": "product",
+                  "content_class": "noise",
+                  "links": {
+                    "story_beat_ids": [
+                      "D26"
+                    ],
+                    "fact_ids": [],
+                    "continuity_ids": [
+                      "C02",
+                      "C03"
+                    ]
+                  }
+                }
+              },
+              {
+                "block_id": "G09d26Doc1Block05",
+                "kind": "paragraph",
+            "markdown": "给接手者的状态栏只抄页面回应：会议“需项目账号”，沟通“范围提示可见”，邮件“测试主题可收”。状态栏旁还留了浏览时间和页面截图的本地编号，方便下一个人确认自己看的是否同一页。它方便找到下一位联系人，不是权限批准，也不替将来的检查下注释。",
+                "authorship": {
+                  "authored_id": "G09d26Doc1Block05Auth",
+                  "occurred_at": "2026-03-27T15:46:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D26"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C02",
+                      "C03"
+                    ]
+                  }
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "G09d26EntryCheckDocAuth",
+              "occurred_at": "2026-03-27T11:12:00+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D26"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C02",
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "document_id": "G09d26DeletionProofDoc",
+            "path": "ops/2026-03-27-deletion-proof-draft.md",
+            "title": "删除处理证明：字段草稿",
+            "frontmatter": {
+              "date": "2026-03-27",
+              "state": "questions-open",
+              "retention": "customer-requested"
+            },
+        "full_markdown": "# 删除处理证明：字段草稿\n\n这页只讨论未来的删除处理证明。保留期若被写进请求背景，必须连同提出人和待确认状态一起保留；它不是这张字段表可以替人设定的期限。\n\n最小证明字段暂列为：请求标识、项目代号、收到请求的时间、请求范围、处理状态、处理完成时间以及需要补问的说明。请求标识用来把来信和后续动作连在一起，项目代号只照抄申请人给出的写法；范围字段可以包含材料类别和日期段，但不应抄进材料本身。字段刻意不包含被删除的正文、对话摘录或附件内容。它记录处理过程曾发生，而不是再建一份内容副本。确认范围的人和复核结果的人，目前都留空。\n\n字段有一个填写顺序：先收到具体请求，再复述对方给出的范围；范围不清就写“待核对”，不能由记录者猜项目、材料或日期。处理人没有权限时，状态也停在等待权限，完成时间保持空白。若后来补到确认，新增一条带时间的状态变化，不覆盖先前的等待记录。这样复核时能分辨是请求尚未明确，还是动作尚未发生，也能看见空白在何时被补齐。\n\n傍晚赵楠问我宵夜要不要多拿一盒。我只吃了几口，把剩下的鸡翅装回保鲜盒；洗碗时发现厨房纸快用完，顺手写进了购物清单。那一阵没有改这张草稿。\n\n另一个反例是：不能为了便于检索，把原正文、聊天摘录或附件另存到证明日志。即使某次处理完成，日志也只填请求标识、范围、状态和结果说明；结果说明只可写处理动作的简短描述，不能附回收站截图或内容片段。任何需要解释的内容回到提出请求的人，不留一份替代材料。",
+            "tags": [
+              "删除",
+              "最小证明",
+              "客户条件"
+            ],
+            "links": [],
+            "created_at": "2026-03-27T16:02:00+08:00",
+            "modified_at": "2026-03-27T19:18:00+08:00",
+            "visible_blocks": [
+              {
+                "block_id": "G09d26Doc2Block01",
+                "kind": "paragraph",
+            "markdown": "这页只讨论未来的删除处理证明。保留期若被写进请求背景，必须连同提出人和待确认状态一起保留；它不是这张字段表可以替人设定的期限。",
+                "authorship": {
+                  "authored_id": "G09d26Doc2Block01Auth",
+                  "occurred_at": "2026-03-27T16:02:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D26"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C01",
+                      "C03"
+                    ]
+                  }
+                }
+              },
+              {
+                "block_id": "G09d26Doc2Block02",
+                "kind": "paragraph",
+            "markdown": "最小证明字段暂列为：请求标识、项目代号、收到请求的时间、请求范围、处理状态、处理完成时间以及需要补问的说明。请求标识用来把来信和后续动作连在一起，项目代号只照抄申请人给出的写法；范围字段可以包含材料类别和日期段，但不应抄进材料本身。字段刻意不包含被删除的正文、对话摘录或附件内容。它记录处理过程曾发生，而不是再建一份内容副本。确认范围的人和复核结果的人，目前都留空。",
+                "authorship": {
+                  "authored_id": "G09d26Doc2Block02Auth",
+                  "occurred_at": "2026-03-27T16:26:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D26"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C01",
+                      "C03"
+                    ]
+                  }
+                }
+              },
+              {
+                "block_id": "G09d26Doc2Block03",
+                "kind": "paragraph",
+            "markdown": "字段有一个填写顺序：先收到具体请求，再复述对方给出的范围；范围不清就写“待核对”，不能由记录者猜项目、材料或日期。处理人没有权限时，状态也停在等待权限，完成时间保持空白。若后来补到确认，新增一条带时间的状态变化，不覆盖先前的等待记录。这样复核时能分辨是请求尚未明确，还是动作尚未发生，也能看见空白在何时被补齐。",
+                "authorship": {
+                  "authored_id": "G09d26Doc2Block03Auth",
+                  "occurred_at": "2026-03-27T17:10:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D26"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C01",
+                      "C02",
+                      "C03"
+                    ]
+                  }
+                }
+              },
+              {
+                "block_id": "G09d26Doc2Block04",
+                "kind": "paragraph",
+            "markdown": "傍晚赵楠问我宵夜要不要多拿一盒。我只吃了几口，把剩下的鸡翅装回保鲜盒；洗碗时发现厨房纸快用完，顺手写进了购物清单。那一阵没有改这张草稿。",
+                "authorship": {
+                  "authored_id": "G09d26Doc2Block04Auth",
+                  "occurred_at": "2026-03-27T19:18:00+08:00",
+                  "author_role": "product",
+                  "content_class": "noise",
+                  "links": {
+                    "story_beat_ids": [
+                      "D26"
+                    ],
+                    "fact_ids": [],
+                    "continuity_ids": [
+                      "C02",
+                      "C03"
+                    ]
+                  }
+                }
+              },
+              {
+                "block_id": "G09d26Doc2Block05",
+                "kind": "paragraph",
+            "markdown": "另一个反例是：不能为了便于检索，把原正文、聊天摘录或附件另存到证明日志。即使某次处理完成，日志也只填请求标识、范围、状态和结果说明；结果说明只可写处理动作的简短描述，不能附回收站截图或内容片段。任何需要解释的内容回到提出请求的人，不留一份替代材料。",
+                "authorship": {
+                  "authored_id": "G09d26Doc2Block05Auth",
+                  "occurred_at": "2026-03-27T19:18:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D26"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C01",
+                      "C03"
+                    ]
+                  }
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "G09d26DeletionProofDocAuth",
+              "occurred_at": "2026-03-27T16:02:00+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D26"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C01",
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "document_id": "G09d26BoundaryChecklistDoc",
+        "path": "ops/2026-03-27-contact-reply-handoff.md",
+        "title": "联系人回信：交接登记法",
+            "frontmatter": {
+              "date": "2026-03-27",
+              "state": "waiting",
+              "scope": "pre-start"
+            },
+        "full_markdown": "# 联系人回信：交接登记法\n\n这是一张给晚班接手人的回信登记卡，不是边界说明。每个待答问题占一行：问题原文、应该答的人、已经转给谁、最后一次联系时间、回信位置和下一位跟进者。没有回信时，位置一栏只写“未收到”，不要用猜测填满。\n\n卡片按问题而非按联系人排序，避免同一位联系人回了两句话就覆盖两条不同的问题。每行末尾有一个小复选框，用于标明“已看过原件”；它不表示问题已经解决。若邮件、电话和聊天同时有回音，登记人先写最早可追溯的一条，再在备注写其余位置，保留原有时间顺序。\n\n卡片的备注不能写“已同步”这一类笼统词。若有人只转发了链接，就记“转发链接，未见答复”；若留下语音，也只写语音到达时间和等待文字确认。这样接班人能判断下一步是催问、转交还是单纯等待，不会把消息动作误认成答复。\n\n陈放、吴岚和项目方的名字被分开写，是为了让接手者知道该找谁，而不是让一个人替三类答复背书。陈放只留入口名称和他知道的联系人；吴岚决定是否转交客户问题；项目方若回复账号归属，就把原句和时间贴在对应行。\n\n记录回信时先保留原问题，再写答复人的名字与收到时间。口头转述只能标“待书面确认”，不能挪作最终措辞；如果答复只覆盖其中一项，其余行继续等待。卡片右上角另有“本班已做”小格，只能填转发、催问或登记这类实际动作；没有动作时留空。换班的人在姓名后写接班时间，不修改上一班的时间戳。这样下一班只需查看卡上的新回信和未完动作，不必重读一整串聊天记录。\n\n交班前我把台灯调暗，窗外的风把晾衣杆碰得一直响。楼下便利店的热豆浆卖完了，我改买了一盒常温牛奶；回家时记得把门口的纸箱收进来。\n\n这张卡明早只更新两类变化：谁回复了，或哪一行换了跟进人。它不裁定问题的答案，也不把没有答复的空格标成完成。",
+            "tags": [
+              "等待",
+              "边界",
+              "启动前"
+            ],
+            "links": [],
+            "created_at": "2026-03-27T20:04:00+08:00",
+            "modified_at": "2026-03-27T20:30:00+08:00",
+            "visible_blocks": [
+              {
+                "block_id": "G09d26Doc3Block01",
+                "kind": "paragraph",
+            "markdown": "这是一张给晚班接手人的回信登记卡，不是边界说明。每个待答问题占一行：问题原文、应该答的人、已经转给谁、最后一次联系时间、回信位置和下一位跟进者。没有回信时，位置一栏只写“未收到”，不要用猜测填满。",
+                "authorship": {
+                  "authored_id": "G09d26Doc3Block01Auth",
+                  "occurred_at": "2026-03-27T20:04:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D26"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C01",
+                      "C02",
+                      "C03"
+                    ]
+                  }
+                }
+              },
+              {
+                "block_id": "G09d26Doc3Block02",
+                "kind": "paragraph",
+            "markdown": "卡片按问题而非按联系人排序，避免同一位联系人回了两句话就覆盖两条不同的问题。每行末尾有一个小复选框，用于标明“已看过原件”；它不表示问题已经解决。若邮件、电话和聊天同时有回音，登记人先写最早可追溯的一条，再在备注写其余位置，保留原有时间顺序。\n\n卡片的备注不能写“已同步”这一类笼统词。若有人只转发了链接，就记“转发链接，未见答复”；若留下语音，也只写语音到达时间和等待文字确认。这样接班人能判断下一步是催问、转交还是单纯等待，不会把消息动作误认成答复。\n\n陈放、吴岚和项目方的名字被分开写，是为了让接手者知道该找谁，而不是让一个人替三类答复背书。陈放只留入口名称和他知道的联系人；吴岚决定是否转交客户问题；项目方若回复账号归属，就把原句和时间贴在对应行。",
+                "authorship": {
+                  "authored_id": "G09d26Doc3Block02Auth",
+                  "occurred_at": "2026-03-27T20:16:00+08:00",
+                  "author_role": "product",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": [
+                      "D26"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C02",
+                      "C03"
+                    ]
+                  }
+                }
+              },
+              {
+                "block_id": "G09d26Doc3Block03",
+                "kind": "paragraph",
+            "markdown": "记录回信时先保留原问题，再写答复人的名字与收到时间。口头转述只能标“待书面确认”，不能挪作最终措辞；如果答复只覆盖其中一项，其余行继续等待。卡片右上角另有“本班已做”小格，只能填转发、催问或登记这类实际动作；没有动作时留空。换班的人在姓名后写接班时间，不修改上一班的时间戳。这样下一班只需查看卡上的新回信和未完动作，不必重读一整串聊天记录。\n\n交班前我把台灯调暗，窗外的风把晾衣杆碰得一直响。楼下便利店的热豆浆卖完了，我改买了一盒常温牛奶；回家时记得把门口的纸箱收进来。\n\n这张卡明早只更新两类变化：谁回复了，或哪一行换了跟进人。它不裁定问题的答案，也不把没有答复的空格标成完成。",
+                "authorship": {
+                  "authored_id": "G09d26Doc3Block03Auth",
+                  "occurred_at": "2026-03-27T20:30:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D26"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C01",
+                      "C03"
+                    ]
+                  }
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "G09d26BoundaryChecklistDocAuth",
+              "occurred_at": "2026-03-27T20:04:00+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D26"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C01",
+                  "C02",
+                  "C03"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "im": [
+      {
+        "source_id": "G09d26HandoffImSource",
+        "authorship": {
+          "authored_id": "G09d26HandoffImSourceAuth",
+          "occurred_at": "2026-03-27T09:18:00+08:00",
+          "author_role": "operations",
+          "content_class": "signal",
+          "links": {
+            "story_beat_ids": [
+              "D26"
+            ],
+            "fact_ids": [
+              "F08"
+            ],
+            "continuity_ids": [
+              "C02",
+              "C03"
+            ]
+          }
+        },
+        "schema": "pneuma.source.im/v1",
+        "provider": "mock",
+        "archive_id": "G09d26HandoffArchive",
+        "owner_user_ids": [
+          "G09imChen"
+        ],
+        "users": [
+          {
+            "user_id": "G09imChen",
+            "display_name": "陈放",
+            "role": "operations",
+            "synthetic_address": "chen.fang@bamboo.example.test",
+            "is_bot": false
+          },
+          {
+            "user_id": "G09imLin",
+            "display_name": "林舟",
+            "role": "product",
+            "synthetic_address": "lin.zhou@seamlog.example.test",
+            "is_bot": false
+          },
+          {
+            "user_id": "G09imWu",
+            "display_name": "吴岚",
+            "role": "manager",
+            "synthetic_address": "wu.lan@bamboo.example.test",
+            "is_bot": false
+          }
+        ],
+        "conversations": [
+          {
+            "conversation_id": "G09d26ProjectHandoff",
+            "conversation_type": "channel",
+            "title": "云麓材料入口",
+            "member_ids": [
+              "G09imChen",
+              "G09imLin",
+              "G09imWu"
+            ],
+            "authorship": {
+              "authored_id": "G09d26ProjectHandoffAuth",
+              "occurred_at": "2026-03-27T09:18:00+08:00",
+              "author_role": "operations",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D26"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C02",
+                  "C03"
+                ]
+              }
+            },
+            "messages": [
+              {
+                "message_id": "G09d26ImMsg01",
+                "sender_id": "G09imChen",
+                "sent_at": "2026-03-27T09:18:00+08:00",
+                "full_text": "我把第一批入口放在同一条说明里：会议记录观看页、项目沟通归档入口、邮件归集地址。它们只是可供核对的入口，不是已经交给你们的导入包。每一处的权限还要由项目方自己确认。",
+                "thread_id": null,
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "G09d26ImMsg01Auth",
+                  "occurred_at": "2026-03-27T09:18:00+08:00",
+                  "author_role": "operations",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D26"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C02",
+                      "C03"
+                    ]
+                  }
+                }
+              },
+              {
+                "message_id": "G09d26ImMsg02",
+                "sender_id": "G09imLin",
+                "sent_at": "2026-03-27T09:24:00+08:00",
+                "full_text": "收到。我今天只检查入口是否能抵达和页面要求什么权限，不拉取正文，不把人名、时间或主题放到同一条链里。连接检查结束后我会写明哪些步骤没有做。",
+                "thread_id": "G09d26ImMsg01",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "G09d26ImMsg02Auth",
+                  "occurred_at": "2026-03-27T09:24:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D26"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C02"
+                    ]
+                  }
+                }
+              },
+              {
+                "message_id": "G09d26ImMsg03",
+                "sender_id": "G09imChen",
+                "sent_at": "2026-03-27T09:31:00+08:00",
+                "full_text": "补充一个限制：历史消息里带的附件不保证现在还能打开。有人以前换过存放位置，也有人只留了链接。我不是说附件缺了，只是不要把“能看到消息”当成“文件一定可读”。",
+                "thread_id": "G09d26ImMsg01",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "G09d26ImMsg03Auth",
+                  "occurred_at": "2026-03-27T09:31:00+08:00",
+                  "author_role": "operations",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": [
+                      "D26"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C02",
+                      "C03"
+                    ]
+                  }
+                }
+              },
+              {
+                "message_id": "G09d26ImMsg04",
+                "sender_id": "G09imWu",
+                "sent_at": "2026-03-27T09:39:00+08:00",
+            "full_text": "附件那句请原样放在交接里：旧链接可能打不开，但我们没有逐项点过，所以不能标缺失。其他启动问题不用在这个频道讨论，我会把它们留给吴岚的客户沟通。",
+                "thread_id": "G09d26ImMsg01",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "G09d26ImMsg04Auth",
+                  "occurred_at": "2026-03-27T09:39:00+08:00",
+                  "author_role": "manager",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D26"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C02",
+                      "C03"
+                    ]
+                  }
+                }
+              },
+              {
+                "message_id": "G09d26ImMsg05",
+                "sender_id": "G09imLin",
+                "sent_at": "2026-03-27T09:47:00+08:00",
+            "full_text": "我先建三个空的交接卡：会议、沟通、邮件。卡上只记陈放发来的位置和权限联系人；不需要把旧消息贴进来。等项目方给出访问方式后，我再回这里补检查结果。",
+                "thread_id": "G09d26ImMsg01",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "G09d26ImMsg05Auth",
+                  "occurred_at": "2026-03-27T09:47:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D26"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C02"
+                    ]
+                  }
+                }
+              },
+              {
+                "message_id": "G09d26ImMsg06",
+                "sender_id": "G09imChen",
+                "sent_at": "2026-03-27T10:04:00+08:00",
+                "full_text": "会议入口下午可能有人在用，看到登录提示也先别找我开权限；我得问项目负责人。沟通入口的项目名旁边有旧日期，不保证就是这次范围。邮件地址只负责收集，没人答应过会自动转发。",
+                "thread_id": "G09d26ImMsg01",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "G09d26ImMsg06Auth",
+                  "occurred_at": "2026-03-27T10:04:00+08:00",
+                  "author_role": "operations",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": [
+                      "D26"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C02",
+                      "C03"
+                    ]
+                  }
+                }
+              },
+              {
+                "message_id": "G09d26ImMsg07",
+                "sender_id": "G09imWu",
+                "sent_at": "2026-03-27T10:16:00+08:00",
+            "full_text": "我下午问项目负责人会议页的账号归谁管。邮件地址的收件规则也先由我确认。陈放不用继续翻旧文件；他只要把知道的入口名称留在卡上，免得我们从记忆里对号。",
+                "thread_id": "G09d26ImMsg01",
+                "edited_at": null,
+                "reactions": [
+                  {
+                    "reaction_id": "G09d26React01",
+                    "name": "ack",
+                    "reactor_ids": [
+                      "G09imChen"
+                    ],
+                    "authorship": {
+                      "authored_id": "G09d26React01Auth",
+                      "occurred_at": "2026-03-27T10:17:00+08:00",
+                      "author_role": "operations",
+                      "content_class": "noise",
+                      "links": {
+                        "story_beat_ids": [
+                          "D26"
+                        ],
+                        "fact_ids": [],
+                        "continuity_ids": [
+                          "C02"
+                        ]
+                      }
+                    }
+                  }
+                ],
+                "authorship": {
+                  "authored_id": "G09d26ImMsg07Auth",
+                  "occurred_at": "2026-03-27T10:16:00+08:00",
+                  "author_role": "manager",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D26"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C02",
+                      "C03"
+                    ]
+                  }
+                }
+              },
+              {
+                "message_id": "G09d26ImMsg08",
+                "sender_id": "G09imLin",
+                "sent_at": "2026-03-27T10:28:00+08:00",
+                "full_text": "我先去处理厨房积水，半小时后回来把检查边界写进便签。若期间有新链接，请只发入口本身，不需要复制历史正文给我；我会等权限和范围清楚再继续。",
+                "thread_id": null,
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "G09d26ImMsg08Auth",
+                  "occurred_at": "2026-03-27T10:28:00+08:00",
+                  "author_role": "product",
+                  "content_class": "noise",
+                  "links": {
+                    "story_beat_ids": [
+                      "D26"
+                    ],
+                    "fact_ids": [],
+                    "continuity_ids": []
+                  }
+                }
+              },
+              {
+                "message_id": "G09d26ImMsg09",
+                "sender_id": "G09imChen",
+                "sent_at": "2026-03-27T11:06:00+08:00",
+            "full_text": "好，我先不补文件。午后我得去现场协调一件材料尺寸的事，回来再看是否有人回复权限联系人。附件风险就留在这条里，别把它搬到每张卡上。",
+                "thread_id": "G09d26ImMsg08",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "G09d26ImMsg09Auth",
+                  "occurred_at": "2026-03-27T11:06:00+08:00",
+                  "author_role": "operations",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D26"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C02",
+                      "C03"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "conversation_id": "G09d26OpsCheck",
+            "conversation_type": "group_dm",
+            "title": "连接检查回执",
+            "member_ids": [
+              "G09imChen",
+              "G09imLin",
+              "G09imWu"
+            ],
+            "authorship": {
+              "authored_id": "G09d26OpsCheckAuth",
+              "occurred_at": "2026-03-27T14:22:00+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D26"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C02",
+                  "C03"
+                ]
+              }
+            },
+            "messages": [
+              {
+                "message_id": "G09d26ImMsg10",
+                "sender_id": "G09imLin",
+                "sent_at": "2026-03-27T14:22:00+08:00",
+            "full_text": "回执：会议页显示需项目账号；沟通页能看到项目筛选；邮件地址收到了测试主题。请陈放确认会议账号该找谁，吴岚确认邮件是否需要抄送采购。其余结果等各自联系人回复。",
+                "thread_id": null,
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "G09d26ImMsg10Auth",
+                  "occurred_at": "2026-03-27T14:22:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D26"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C02",
+                      "C03"
+                    ]
+                  }
+                }
+              },
+              {
+                "message_id": "G09d26ImMsg11",
+                "sender_id": "G09imChen",
+                "sent_at": "2026-03-27T14:35:00+08:00",
+                "full_text": "这个回执和我看到的一致。邮件入口以后可能收到带附件的转发，但今天没有用它取文件。会议页的账号由谁提供、历史附件是否还能读，都还是要客户那边确认。",
+                "thread_id": "G09d26ImMsg10",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "G09d26ImMsg11Auth",
+                  "occurred_at": "2026-03-27T14:35:00+08:00",
+                  "author_role": "operations",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": [
+                      "D26"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C02",
+                      "C03"
+                    ]
+                  }
+                }
+              },
+              {
+                "message_id": "G09d26ImMsg12",
+                "sender_id": "G09imWu",
+                "sent_at": "2026-03-27T14:48:00+08:00",
+            "full_text": "我收到。会议账号的问题我明天问项目负责人；邮件抄送我先不加。陈放那边不用再刷新页面。这个回执只方便我们分工，不需要整理成对外说明。",
+                "thread_id": "G09d26ImMsg10",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "G09d26ImMsg12Auth",
+                  "occurred_at": "2026-03-27T14:48:00+08:00",
+                  "author_role": "manager",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D26"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C02",
+                      "C03"
+                    ]
+                  }
+                }
+              },
+              {
+                "message_id": "G09d26ImMsg13",
+                "sender_id": "G09imLin",
+                "sent_at": "2026-03-27T15:03:00+08:00",
+            "full_text": "便签里我只保留了页面回应和联系人。下午水槽弄湿的抹布还没晾，我先离开十分钟；回来后若没有新回复，就把三张卡停在等待联系人这一格。",
+                "thread_id": "G09d26ImMsg10",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "G09d26ImMsg13Auth",
+                  "occurred_at": "2026-03-27T15:03:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D26"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C02"
+                    ]
+                  }
+                }
+              },
+              {
+                "message_id": "G09d26ImMsg14",
+                "sender_id": "G09imChen",
+                "sent_at": "2026-03-27T15:11:00+08:00",
+                "full_text": "好。今天我只把入口发出去了，电脑风扇已经叫了一下午，我先离开十分钟。明天若客户问起，我会把权限问题转给吴岚，不在频道里猜一个答案。",
+                "thread_id": null,
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "G09d26ImMsg14Auth",
+                  "occurred_at": "2026-03-27T15:11:00+08:00",
+                  "author_role": "operations",
+                  "content_class": "noise",
+                  "links": {
+                    "story_beat_ids": [
+                      "D26"
+                    ],
+                    "fact_ids": [],
+                    "continuity_ids": [
+                      "C02"
+                    ]
+                  }
+                }
+              },
+              {
+                "message_id": "G09d26ImMsg15",
+                "sender_id": "G09imWu",
+                "sent_at": "2026-03-27T15:24:00+08:00",
+            "full_text": "可以。陈放，会议账号暂归你跟项目负责人问；林舟，等到账号再做页面检查。邮件地址由我保留收件记录。谁先拿到答复，就在自己的卡上写时间和来源。",
+                "thread_id": "G09d26ImMsg14",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "G09d26ImMsg15Auth",
+                  "occurred_at": "2026-03-27T15:24:00+08:00",
+                  "author_role": "manager",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D26"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C02",
+                      "C03"
+                    ]
+                  }
+                }
+              },
+              {
+                "message_id": "G09d26ImMsg16",
+                "sender_id": "G09imLin",
+                "sent_at": "2026-03-27T15:46:00+08:00",
+            "full_text": "三张交接卡已存到内部目录：会议卡等账号，沟通卡等范围联系人，邮件卡等抄送决定。今晚我不再改它们；明早先看哪一位联系人有回复，再决定是否需要陈放补说明。",
+                "thread_id": "G09d26ImMsg10",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "G09d26ImMsg16Auth",
+                  "occurred_at": "2026-03-27T15:46:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D26"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C01",
+                      "C02",
+                      "C03"
+                    ]
+                  }
+                }
+              },
+              {
+                "message_id": "G09d26ImMsg17",
+                "sender_id": "G09imChen",
+                "sent_at": "2026-03-27T16:02:00+08:00",
+                "full_text": "我点了一个确认表情，免得这条又被埋掉。附件、权限和启动日都没有新消息；如果晚上有人把旧材料贴来，我会先提醒他们走确认路径。",
+                "thread_id": "G09d26ImMsg16",
+                "edited_at": null,
+                "reactions": [
+                  {
+                    "reaction_id": "G09d26React02",
+                    "name": "seen",
+                    "reactor_ids": [
+                      "G09imWu"
+                    ],
+                    "authorship": {
+                      "authored_id": "G09d26React02Auth",
+                      "occurred_at": "2026-03-27T16:03:00+08:00",
+                      "author_role": "manager",
+                      "content_class": "noise",
+                      "links": {
+                        "story_beat_ids": [
+                          "D26"
+                        ],
+                        "fact_ids": [],
+                        "continuity_ids": []
+                      }
+                    }
+                  }
+                ],
+                "authorship": {
+                  "authored_id": "G09d26ImMsg17Auth",
+                  "occurred_at": "2026-03-27T16:02:00+08:00",
+                  "author_role": "operations",
+                  "content_class": "noise",
+                  "links": {
+                    "story_beat_ids": [
+                      "D26"
+                    ],
+                    "fact_ids": [],
+                    "continuity_ids": [
+                      "C02"
+                    ]
+                  }
+                }
+              },
+              {
+                "message_id": "G09d26ImMsg18",
+                "sender_id": "G09imWu",
+                "sent_at": "2026-03-27T16:20:00+08:00",
+            "full_text": "我看到了。频道先到这里，别再转发旧材料。下次更新只报联系人是否回复、哪个入口还被挡住；需要客户答的问题由我在另一条正式邮件里处理。",
+                "thread_id": "G09d26ImMsg16",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "G09d26ImMsg18Auth",
+                  "occurred_at": "2026-03-27T16:20:00+08:00",
+                  "author_role": "manager",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D26"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C02",
+                      "C03"
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "email": [
+      {
+        "source_id": "G09d27StartEmailSource",
+        "authorship": {
+          "authored_id": "G09d27StartEmailSourceAuth",
+          "occurred_at": "2026-03-28T09:36:00+08:00",
+          "author_role": "product",
+          "content_class": "signal",
+          "links": {
+            "story_beat_ids": [
+              "D27"
+            ],
+            "fact_ids": [
+              "F08"
+            ],
+            "continuity_ids": [
+              "C01",
+              "C02",
+              "C03"
+            ]
+          }
+        },
+        "schema": "pneuma.source.email/v1",
+        "provider": "rfc822",
+        "archive_id": "G09d27StartArchive",
+        "owner_addresses": [
+          "lin.zhou@seamlog.example.test"
+        ],
+        "threads": [
+          {
+            "thread_id": "G09d27StartWordingThread",
+    "subject": "请转交：客户需答的问题",
+            "authorship": {
+              "authored_id": "G09d27StartWordingThreadAuth",
+              "occurred_at": "2026-03-28T09:36:00+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D27"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C02",
+                  "C03"
+                ]
+              }
+            },
+            "messages": [
+              {
+                "message_id": "G09d27Mail01",
+                "sent_at": "2026-03-28T09:36:00+08:00",
+                "from": {
+                  "address": "lin.zhou@seamlog.example.test",
+                  "display_name": "林舟",
+                  "role": "product"
+                },
+                "to": [
+                  {
+                    "address": "wu.lan@bamboo.example.test",
+                    "display_name": "吴岚",
+                    "role": "manager"
+                  }
+                ],
+                "cc": [],
+        "subject": "请转交：客户需答的问题",
+                "headers": [
+                  {
+                    "header_id": "G09d27Mail01Id",
+                    "name": "Message-ID",
+                    "value": "<G09d27Mail01@seamlog.example.test>",
+                    "authorship": {
+                      "authored_id": "G09d27Mail01IdAuth",
+                      "occurred_at": "2026-03-28T09:36:00+08:00",
+                      "author_role": "product",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": [
+                          "D27"
+                        ],
+                        "fact_ids": [
+                          "F08"
+                        ],
+                        "continuity_ids": [
+                          "C02",
+                          "C03"
+                        ]
+                      }
+                    }
+                  }
+                ],
+        "full_text": "吴岚：\n\n请帮我判断这份短问题列表能否由你转给客户。第一，客户希望由谁回答验收文字应怎样表述；第二，客户希望由谁确认任何保留条件的适用范围与起算方式；第三，客户希望由谁指定删除请求的确认人。\n\n我不需要你替客户回答，也不需要你把内部笔记附上。若你愿意转交，请告诉我收件对象和你希望我用的问题顺序；若不方便，也请指出应该交给哪位联系人。每个问题收到答复后，我只记录答复人、原话和时间，不替未答的问题补结论。\n\n列表不需要预填推荐答案：例如保留条件的提问只问“适用范围和起算由谁确认”，不替对方写出期限；删除一项也只问“谁能确认范围”。如果收件人要求合并问题，请你标出合并后的原问题序号，免得回信回来时无法判断它答的是哪一项。\n\n启动日仍未确认，验收文字也没有定稿，所以这封信只是请你转交问题，不是任何安排的通知。\n\n林舟",
+                "in_reply_to": null,
+                "references": [],
+                "attachments": [],
+                "authorship": {
+                  "authored_id": "G09d27Mail01Auth",
+                  "occurred_at": "2026-03-28T09:36:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D27"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C01",
+                      "C02",
+                      "C03"
+                    ]
+                  }
+                }
+              },
+              {
+                "message_id": "G09d27Mail02",
+                "sent_at": "2026-03-28T10:18:00+08:00",
+                "from": {
+                  "address": "wu.lan@bamboo.example.test",
+                  "display_name": "吴岚",
+                  "role": "manager"
+                },
+                "to": [
+                  {
+                    "address": "lin.zhou@seamlog.example.test",
+                    "display_name": "林舟",
+                    "role": "product"
+                  }
+                ],
+                "cc": [],
+        "subject": "Re: 请转交：客户需答的问题",
+                "headers": [
+                  {
+                    "header_id": "G09d27Mail02Id",
+                    "name": "Message-ID",
+                    "value": "<G09d27Mail02@bamboo.example.test>",
+                    "authorship": {
+                      "authored_id": "G09d27Mail02IdAuth",
+                      "occurred_at": "2026-03-28T10:18:00+08:00",
+                      "author_role": "manager",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": [
+                          "D27"
+                        ],
+                        "fact_ids": [
+                          "F08"
+                        ],
+                        "continuity_ids": [
+                          "C02",
+                          "C03"
+                        ]
+                      }
+                    }
+                  }
+                ],
+        "full_text": "林舟：\n\n可以转，但请把每个问题写得更短：验收文字由谁确认；保留条件由谁确认范围和起算；删除请求由谁确认范围。不要把这些问题包装成选项，也不要附内部的字段草稿。\n\n我下周一会先问客户侧应该由谁接收问题列表，确认收件对象后再转。客户若只答其中一项，你就按那一项的答复人和原话登记，另外两项继续留空；不要因为我转发了问题，就替客户把内容解释成决定。若客户让不同部门分别答，请保留各自的收件人和回信链路，不要由我们合成一段统一答复。回复若只说“请找采购”，也照原话登记，并把下一位联系人留空，等对方明确姓名。\n\n另外，请保留“尚未确认启动日、验收文字待定”这句背景，避免收件人误会这是正式安排。\n\n吴岚",
+                "in_reply_to": "G09d27Mail01",
+                "references": [
+                  "G09d27Mail01"
+                ],
+                "attachments": [],
+                "authorship": {
+                  "authored_id": "G09d27Mail02Auth",
+                  "occurred_at": "2026-03-28T10:18:00+08:00",
+                  "author_role": "manager",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D27"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C01",
+                      "C02",
+                      "C03"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "thread_id": "G09d27DeletionReviewThread",
+    "subject": "删除处理证明草案：字段与范围",
+            "authorship": {
+              "authored_id": "G09d27DeletionReviewThreadAuth",
+              "occurred_at": "2026-03-28T13:42:00+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D27"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C01",
+                  "C03"
+                ]
+              }
+            },
+            "messages": [
+              {
+                "message_id": "G09d27Mail03",
+                "sent_at": "2026-03-28T13:42:00+08:00",
+                "from": {
+                  "address": "lin.zhou@seamlog.example.test",
+                  "display_name": "林舟",
+                  "role": "product"
+                },
+                "to": [
+                  {
+                    "address": "sun.qiu@advisory.example.test",
+                    "display_name": "孙秋",
+                    "role": "legal"
+                  }
+                ],
+                "cc": [
+                  {
+                    "address": "wu.lan@bamboo.example.test",
+                    "display_name": "吴岚",
+                    "role": "manager"
+                  }
+                ],
+        "subject": "删除处理证明草案：字段与范围",
+                "headers": [
+                  {
+                    "header_id": "G09d27Mail03Id",
+                    "name": "Message-ID",
+                    "value": "<G09d27Mail03@seamlog.example.test>",
+                    "authorship": {
+                      "authored_id": "G09d27Mail03IdAuth",
+                      "occurred_at": "2026-03-28T13:42:00+08:00",
+                      "author_role": "product",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": [
+                          "D27"
+                        ],
+                        "fact_ids": [
+                          "F08"
+                        ],
+                        "continuity_ids": [
+                          "C01",
+                          "C03"
+                        ]
+                      }
+                    }
+                  }
+                ],
+        "full_text": "孙秋、吴岚：\n\n请只审这张删除处理证明草案的字段和范围。现列字段为请求标识、项目代号、收到时间、请求范围、处理状态、处理完成时间和待补说明；不保存被删正文、聊天摘录或附件副本。\n\n我想确认两点：范围不清时写“待核对”是否足够；处理人因权限不足而未动作时，状态与完成时间怎样写才不会被读成已处理。草案不指定保存位置，也不指定具体处理人。请标出任何会让证明日志变成原内容副本的措辞。\n\n今晚我要陪家人去看电影，手机会静音一阵；这封邮件不需要即时答复。\n\n林舟",
+                "in_reply_to": null,
+                "references": [],
+                "attachments": [],
+                "authorship": {
+                  "authored_id": "G09d27Mail03Auth",
+                  "occurred_at": "2026-03-28T13:42:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D27"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C01",
+                      "C03"
+                    ]
+                  }
+                }
+              },
+              {
+                "message_id": "G09d27Mail04",
+                "sent_at": "2026-03-28T16:07:00+08:00",
+                "from": {
+                  "address": "sun.qiu@advisory.example.test",
+                  "display_name": "孙秋",
+                  "role": "legal"
+                },
+                "to": [
+                  {
+                    "address": "lin.zhou@seamlog.example.test",
+                    "display_name": "林舟",
+                    "role": "product"
+                  }
+                ],
+                "cc": [
+                  {
+                    "address": "wu.lan@bamboo.example.test",
+                    "display_name": "吴岚",
+                    "role": "manager"
+                  }
+                ],
+        "subject": "Re: 删除处理证明草案：字段与范围",
+                "headers": [
+                  {
+                    "header_id": "G09d27Mail04Id",
+                    "name": "Message-ID",
+                    "value": "<G09d27Mail04@advisory.example.test>",
+                    "authorship": {
+                      "authored_id": "G09d27Mail04IdAuth",
+                      "occurred_at": "2026-03-28T16:07:00+08:00",
+                      "author_role": "legal",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": [
+                          "D27"
+                        ],
+                        "fact_ids": [
+                          "F08"
+                        ],
+                        "continuity_ids": [
+                          "C01",
+                          "C03"
+                        ]
+                      }
+                    }
+                  }
+                ],
+        "full_text": "林舟、吴岚：\n\n字段方向可以保留。最小证明日志只在具体删除请求被处理时写相应记录，不能反过来成为保存原内容的理由。“处理完成时间”应明确是字段草案，不能让人以为每一项都已完成。\n\n范围不清时记录“待核对”，不要替申请人推断项目、材料或日期；因权限不足没有动作时，状态写“等待权限”，完成时间留空。这样能分开请求尚未明确和处理尚未发生两种情况。\n\n建议把“结果说明”限定为一句动作摘要，例如“已按确认范围处理”或“等待范围确认”；不要放处理前后内容的比较、文件名清单或任何可还原内容的描述。请求标识可用于日后找回原始来信，但不应被当成把来信抄进日志的理由。\n\n我也建议补一条：证明日志不能另存正文、聊天摘录或附件，哪怕这些内容方便复核。若需要解释范围，应回到提出请求的人补问，而非在日志里复制一份材料。\n\n孙秋",
+                "in_reply_to": "G09d27Mail03",
+                "references": [
+                  "G09d27Mail03"
+                ],
+                "attachments": [],
+                "authorship": {
+                  "authored_id": "G09d27Mail04Auth",
+                  "occurred_at": "2026-03-28T16:07:00+08:00",
+                  "author_role": "legal",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D27"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C01",
+                      "C02",
+                      "C03"
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

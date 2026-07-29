@@ -15,9 +15,10 @@ import re
 from dataclasses import dataclass, field
 
 from ..domain.canonical import (
-    CANONICAL_CITATION_RE,
+    CANONICAL_CITATION_MARKER_RE,
     CanonicalDocument,
     Citation,
+    iter_canonical_citations,
 )
 from ..domain.ids import ANCHOR_MARK_RE, AnchorId, SourceId
 
@@ -83,15 +84,8 @@ def _clean_and_cite(block: str) -> tuple[str, list[Citation]]:
 
     The anchor comment and the inline `[cite:…]` markers are stripped from the text;
     citations are parsed into structured `Citation` records (I4 addressing)."""
-    citations = [
-        Citation(
-            source_id=SourceId(m.group("sid")),
-            block_start=int(m.group("start")),
-            block_end=int(m.group("end")) if m.group("end") else int(m.group("start")),
-        )
-        for m in CANONICAL_CITATION_RE.finditer(block)
-    ]
-    text = CANONICAL_CITATION_RE.sub("", block)
+    citations = list(iter_canonical_citations(block))
+    text = CANONICAL_CITATION_MARKER_RE.sub("", block)
     text = ANCHOR_MARK_RE.sub("", text)
     # Drop a leading list bullet for a cleaner claim string; collapse trailing space.
     text = _LIST_ITEM_RE.sub("", text, count=1) if _LIST_ITEM_RE.match(text) else text

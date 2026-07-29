@@ -2,8 +2,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Database, FileText, Layers, PackageOpen } from "lucide-react";
 import {
   fetchLocator,
+  getSourceActivity,
   getSource,
   listSources,
+  type ActivityDay,
   type SourceDetail,
   type SourceSummary,
 } from "@/lib/api";
@@ -20,12 +22,14 @@ import { Badge } from "@/ui/Badge";
 import { Button } from "@/ui/Button";
 import { Callout } from "@/ui/Callout";
 import { DefinitionList } from "@/ui/DefinitionList";
+import { Drawer } from "@/ui/Drawer";
 import { EmptyState } from "@/ui/EmptyState";
 import { ErrorState } from "@/ui/ErrorState";
 import { Mono } from "@/ui/Mono";
 import { SectionRule } from "@/ui/SectionRule";
 import { SkeletonText } from "@/ui/Skeleton";
 import { Tabs } from "@/ui/Tabs";
+import { ActivityHeatmap } from "@/components/ActivityHeatmap";
 import { PageHeader } from "@/components/PageHeader";
 import { PaginationBar } from "@/components/PaginationBar";
 import { cn } from "@/ui/cn";
@@ -53,6 +57,9 @@ export default function SourcesView() {
   const [listError, setListError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [directoryOpen, setDirectoryOpen] = useState(false);
+  const [activityDays, setActivityDays] = useState<ActivityDay[]>([]);
+  const detailTopRef = useRef<HTMLDivElement>(null);
 
   const sources = sourcePage?.items ?? null;
 
@@ -61,9 +68,44 @@ export default function SourcesView() {
     setReloadKey((k) => k + 1);
   }, []);
 
+  const chooseSource = useCallback(
+    (sourceId: string) => {
+      setSelectedId(sourceId);
+      select({ kind: "source", id: sourceId });
+      setDirectoryOpen(false);
+      requestAnimationFrame(() => {
+        detailTopRef.current?.scrollIntoView({
+          block: "start",
+          behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+            ? "auto"
+            : "smooth",
+        });
+      });
+    },
+    [select],
+  );
+
   useEffect(() => {
     setPageState(firstPage());
   }, [currentUser]);
+
+  useEffect(() => {
+    if (!currentUser) {
+      setActivityDays([]);
+      return;
+    }
+    let live = true;
+    void getSourceActivity(currentUser)
+      .then((calendar) => {
+        if (live) setActivityDays(calendar.days);
+      })
+      .catch(() => {
+        if (live) setActivityDays([]);
+      });
+    return () => {
+      live = false;
+    };
+  }, [currentUser, reloadKey]);
 
   // source 目录：随用户切换 / 手动重试重载。
   useEffect(() => {
@@ -163,81 +205,56 @@ export default function SourcesView() {
     );
   }
 
+  const directory = (
+    <SourceDirectory
+      sources={sources}
+      total={sourcePage?.page.total ?? sources.length}
+      selectedId={selectedId}
+      pageIndex={pageState.previous.length}
+      hasNext={sourcePage?.page.next_cursor != null}
+      onSelect={chooseSource}
+      onPrevious={() => setPageState((state) => previousPage(state))}
+      onNext={() => {
+        const cursor = sourcePage?.page.next_cursor;
+        if (cursor) setPageState((state) => nextPage(state, cursor));
+      }}
+    />
+  );
+
   return (
-    <div className="flex flex-col gap-6">
+    <>
       <PageHeader
         title="原料 Sources"
         description="浏览会议、文档库、即时消息与邮件的来源原貌；切换到编译校样可审计 intake plan、结构与 block 落点。"
+        actions={
+          <Button
+            size="sm"
+            variant="ghost"
+            className="xl:hidden"
+            onClick={() => setDirectoryOpen(true)}
+          >
+            <FileText size={14} aria-hidden />
+            切换来源
+          </Button>
+        }
       />
-      <div className="flex flex-col gap-6 md:flex-row md:items-start">
-        {/* 左栏：source 目录 */}
-        <aside className="w-full shrink-0 md:w-72">
-          <p className="mb-2 text-12 text-ink-3">
-            目录 · {sourcePage?.page.total ?? sources.length} 条
-          </p>
-          <ul className="flex flex-col border-y border-line">
-            {sources.map((s) => {
-              const selected = s.source_id === selectedId;
-              return (
-                <li key={s.source_id} className="border-b border-line last:border-b-0">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedId(s.source_id);
-                      select({ kind: "source", id: s.source_id });
-                    }}
-                    className={cn(
-                      "relative flex w-full flex-col gap-1.5 px-3 py-2.5 text-left",
-                      "transition-colors duration-120 ease-out",
-                      selected ? "bg-accent-soft" : "hover:bg-hover",
-                    )}
-                  >
-                    {selected && (
-                      <span aria-hidden className="absolute inset-y-0 left-0 w-px bg-accent" />
-                    )}
-                    <span className="flex min-w-0 items-baseline gap-2">
-                      <span className="min-w-0 flex-1 truncate text-14 font-medium text-ink">
-                        {s.title}
-                      </span>
-                      <Mono className="shrink-0 text-12 text-ink-3">{s.block_count} blk</Mono>
-                    </span>
-                    <span className="flex flex-wrap items-center gap-1.5">
-                      <Badge>
-                        <SourceKindName kind={s.kind} />
-                      </Badge>
-                      <Badge>{s.origin}</Badge>
-                    </span>
-                    <span className="text-12 text-ink-3">
-                      {s.digested_at ? (
-                        <>
-                          已消化 · <Mono>{fmtTime(s.digested_at)}</Mono>
-                        </>
-                      ) : (
-                        "未消化"
-                      )}
-                    </span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-          <PaginationBar
-            pageIndex={pageState.previous.length}
-            limit={PAGE_SIZE}
-            itemCount={sources.length}
-            total={sourcePage?.page.total ?? sources.length}
-            hasNext={sourcePage?.page.next_cursor != null}
-            noun="条 source"
-            onPrevious={() => setPageState((state) => previousPage(state))}
-            onNext={() => {
-              const cursor = sourcePage?.page.next_cursor;
-              if (cursor) setPageState((state) => nextPage(state, cursor));
-            }}
-          />
+      <ActivityHeatmap
+        className="mb-6"
+        days={activityDays}
+        title="来源密度"
+        kindLabels={{
+          meeting: "会议",
+          document_library: "文档",
+          im: "IM",
+          email: "邮件",
+        }}
+      />
+      <div className="xl:grid xl:grid-cols-[18rem_minmax(0,1fr)] xl:items-start xl:gap-8">
+        <aside className="sticky top-16 hidden h-[calc(100dvh-5rem)] min-h-0 overflow-hidden xl:block">
+          {directory}
         </aside>
 
-        {/* 右栏：校样页 */}
-        <div className="min-w-0 flex-1">
+        <div ref={detailTopRef} className="min-w-0 scroll-mt-16">
           {selectedId ? (
             <SourceGalley
               key={selectedId}
@@ -249,6 +266,99 @@ export default function SourcesView() {
             <EmptyState icon={FileText} title="在左侧目录选择一条 source" />
           )}
         </div>
+      </div>
+      <Drawer
+        open={directoryOpen}
+        onOpenChange={setDirectoryOpen}
+        side="bottom"
+        title="选择来源"
+        contentClassName="h-[min(44rem,85dvh)] max-h-[85dvh]"
+      >
+        <div className="h-full min-h-0 p-4">{directory}</div>
+      </Drawer>
+    </>
+  );
+}
+
+function SourceDirectory({
+  sources,
+  total,
+  selectedId,
+  pageIndex,
+  hasNext,
+  onSelect,
+  onPrevious,
+  onNext,
+}: {
+  sources: SourceSummary[];
+  total: number;
+  selectedId: string | null;
+  pageIndex: number;
+  hasNext: boolean;
+  onSelect: (sourceId: string) => void;
+  onPrevious: () => void;
+  onNext: () => void;
+}) {
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <p className="shrink-0 pb-2 text-12 text-ink-3">目录 · {total} 条</p>
+      <ul className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain border-y border-line">
+        {sources.map((source) => {
+          const selected = source.source_id === selectedId;
+          return (
+            <li key={source.source_id} className="border-b border-line last:border-b-0">
+              <button
+                type="button"
+                aria-current={selected ? "true" : undefined}
+                onClick={() => onSelect(source.source_id)}
+                className={cn(
+                  "relative flex w-full flex-col gap-1.5 px-3 py-2.5 text-left",
+                  "transition-colors duration-120 ease-out",
+                  selected ? "bg-accent-soft" : "hover:bg-hover",
+                )}
+              >
+                {selected && (
+                  <span aria-hidden className="absolute inset-y-0 left-0 w-px bg-accent" />
+                )}
+                <span className="flex min-w-0 items-baseline gap-2">
+                  <span className="min-w-0 flex-1 truncate text-14 font-medium text-ink">
+                    {source.title}
+                  </span>
+                  <Mono className="shrink-0 text-12 text-ink-3">
+                    {source.block_count} blk
+                  </Mono>
+                </span>
+                <span className="flex flex-wrap items-center gap-1.5">
+                  <Badge>
+                    <SourceKindName kind={source.kind} />
+                  </Badge>
+                  <Badge>{source.origin}</Badge>
+                </span>
+                <span className="text-12 text-ink-3">
+                  {source.digested_at ? (
+                    <>
+                      已消化 · <Mono>{fmtTime(source.digested_at)}</Mono>
+                    </>
+                  ) : (
+                    "未消化"
+                  )}
+                </span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+      <div className="shrink-0 pt-3">
+        <PaginationBar
+          pageIndex={pageIndex}
+          limit={PAGE_SIZE}
+          itemCount={sources.length}
+          total={total}
+          hasNext={hasNext}
+          noun="条 source"
+          onPrevious={onPrevious}
+          onNext={onNext}
+        />
       </div>
     </div>
   );

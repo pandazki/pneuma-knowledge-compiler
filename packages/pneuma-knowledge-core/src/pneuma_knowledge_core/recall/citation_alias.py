@@ -41,9 +41,9 @@ def alias_sources(text: str) -> tuple[str, dict[str, str]]:
     return aliased, {h: r for r, h in real_to_handle.items()}
 
 
-# Consumption-side answer parsing. DISTINCT from the canonical
-# `CANONICAL_CITATION_RE`, which stays strict — one span, `]`-terminated — because it gates
-# compiled bodies. A model writing free-text prose sometimes merges spans into ONE
+# Consumption-side answer parsing. DISTINCT from canonical citation parsing: canonical
+# bodies permit grouped spans only for one source, while a free-text answer may merge
+# spans from several sources into ONE
 # bracket: `[cite: s01 ¶1-3, ¶5-7]` (one source, several spans) or
 # `[cite: s01 ¶1-3, s02 ¶2-4]` (several sources). The strict regex matches none of these,
 # silently dropping every span. Here we accept the merged form and expand it — a span

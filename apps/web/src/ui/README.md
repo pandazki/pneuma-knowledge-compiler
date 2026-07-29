@@ -204,7 +204,7 @@ IconButton（Sun/Moon），接 store.toggleTheme。
 `title; description?; actions?`：serif 页题（24）+ 一行 ink-2 说明 + 右侧操作区。
 
 ### CitationList
-`citations: { sourceId; blockStart?; blockEnd?; title? }[]; onJump?`：
+`citations: { sourceId; blockStart?; blockEnd?; title?; description? }[]; onJump?`：
 编号 + 标题/id + block 区间 + 跳转行。
 
 ### ClaimRow

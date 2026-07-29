@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
+import unicodedata
 from collections import Counter, defaultdict
 from datetime import datetime
 
@@ -16,6 +18,73 @@ def _stable_bytes(dataset) -> bytes:
         sort_keys=True,
         separators=(",", ":"),
     ).encode()
+
+
+def _normalized_visible_text(text: str) -> str:
+    return re.sub(r"\s+", " ", unicodedata.normalize("NFKC", text)).strip()
+
+
+def _template_shape(text: str) -> str:
+    """Mask incidental coordinates while retaining the actual language shape."""
+
+    normalized = _normalized_visible_text(text).lower()
+    normalized = re.sub(r"https?://\S+", "<url>", normalized)
+    normalized = re.sub(r"[\w.+-]+@[\w.-]+", "<email>", normalized)
+    normalized = re.sub(r"「[^」]*」", "「<topic>」", normalized)
+    normalized = re.sub(
+        r"\b(?:b|week|evt|doc|rf|im|mail)[-_]?\d[\w.-]*\b",
+        "<id>",
+        normalized,
+    )
+    return re.sub(r"\d+(?:[.:/-]\d+)*", "<n>", normalized)
+
+
+def _visible_fragments(dataset) -> dict[str, list[str]]:
+    fragments: dict[str, list[str]] = defaultdict(list)
+    for batch in dataset.batches:
+        for contract in batch.contracts:
+            schema = contract["schema"]
+            if schema == "pneuma.source.meeting/v1":
+                fragments["meeting"].extend(
+                    segment["text"] for segment in contract["segments"]
+                )
+            elif schema == "pneuma.source.document-library/v1":
+                for document in contract["documents"]:
+                    fragments["document_library"].extend(
+                        paragraph
+                        for paragraph in re.split(
+                            r"\n\s*\n", document["content"]
+                        )
+                        if _normalized_visible_text(paragraph)
+                    )
+            elif schema == "pneuma.source.im/v1":
+                for conversation in contract["conversations"]:
+                    fragments["im"].extend(
+                        message["text"] for message in conversation["messages"]
+                    )
+            elif schema == "pneuma.source.email/v1":
+                for thread in contract["threads"]:
+                    for message in thread["messages"]:
+                        paragraphs = [
+                            paragraph
+                            for paragraph in re.split(r"\n\s*\n", message["text"])
+                            if _normalized_visible_text(paragraph)
+                        ]
+                        assert len(paragraphs) == len(
+                            {_normalized_visible_text(item) for item in paragraphs}
+                        ), (
+                            "one synthetic email repeats a paragraph byte-for-byte; "
+                            f"message_id={message['message_id']}"
+                        )
+                        fragments["email"].extend(paragraphs)
+    return fragments
+
+
+def _duplicate_excess_ratio(
+    values: list[str], *, normalizer=_normalized_visible_text
+) -> float:
+    counts = Counter(normalizer(value) for value in values)
+    return sum(count - 1 for count in counts.values()) / len(values)
 
 
 def test_opc_84d_dataset_is_deterministic_and_contract_valid() -> None:
@@ -58,7 +127,7 @@ def test_opc_84d_manifest_meets_scale_and_story_contract() -> None:
     assert (ended.date() - started.date()).days + 1 >= 84
     assert stats["event_count"] >= 144
     assert stats["normalized_source_units"] >= 80
-    assert 350_000 <= stats["source_chars"] <= 900_000
+    assert 200_000 <= stats["source_chars"] <= 700_000
 
     events = manifest["events"]
     assert len(events) == stats["event_count"]
@@ -121,6 +190,74 @@ def test_opc_84d_noise_is_natural_and_dominant_in_every_source() -> None:
     assert len(noise_types) >= 16
     assert all(count >= 2 for count in noise_types.values())
     assert all(item["char_count"] > 0 for item in atoms)
+
+
+def test_opc_84d_visible_sources_do_not_use_repetition_as_volume() -> None:
+    dataset = build_opc_84d_dataset()
+    fragments = _visible_fragments(dataset)
+    assert set(fragments) == {"meeting", "document_library", "im", "email"}
+    reported = dataset.manifest["stats"]["visible_repetition"]
+    assert set(reported) == set(fragments)
+
+    exact_limits = {
+        "meeting": 0.08,
+        "document_library": 0.18,
+        "im": 0.08,
+        "email": 0.25,
+    }
+    template_limits = {
+        "meeting": 0.20,
+        "document_library": 0.30,
+        "im": 0.20,
+        "email": 0.40,
+    }
+    for source_type, values in fragments.items():
+        exact_ratio = _duplicate_excess_ratio(values)
+        template_ratio = _duplicate_excess_ratio(
+            values, normalizer=_template_shape
+        )
+        prose_values = (
+            [
+                value
+                for value in values
+                if not _normalized_visible_text(value).startswith("#")
+                and not _normalized_visible_text(value).lower().startswith("tags:")
+            ]
+            if source_type == "document_library"
+            else values
+        )
+        prose_exact_ratio = _duplicate_excess_ratio(prose_values)
+        prose_template_ratio = _duplicate_excess_ratio(
+            prose_values, normalizer=_template_shape
+        )
+        assert reported[source_type]["fragments"] == len(values)
+        assert reported[source_type]["prose_fragments"] == len(prose_values)
+        assert (
+            reported[source_type]["exact_duplicate_excess_ratio"]
+            == exact_ratio
+        )
+        assert (
+            reported[source_type]["template_duplicate_excess_ratio"]
+            == template_ratio
+        )
+        assert (
+            reported[source_type]["prose_exact_duplicate_excess_ratio"]
+            == prose_exact_ratio
+        )
+        assert (
+            reported[source_type]["prose_template_duplicate_excess_ratio"]
+            == prose_template_ratio
+        )
+        assert prose_exact_ratio <= 0.03
+        assert prose_template_ratio <= 0.05
+        assert exact_ratio <= exact_limits[source_type], (
+            f"{source_type} exact duplicate excess {exact_ratio:.2%} exceeds "
+            f"{exact_limits[source_type]:.0%}"
+        )
+        assert template_ratio <= template_limits[source_type], (
+            f"{source_type} template duplicate excess {template_ratio:.2%} exceeds "
+            f"{template_limits[source_type]:.0%}"
+        )
 
 
 def test_opc_84d_truth_set_exercises_cross_source_and_time() -> None:

@@ -28,6 +28,7 @@ _POINT_NS = uuid.UUID("6f9619ff-8b86-d011-b42d-00cf4fc964ff")
 # ("chunk") from the L3 claim projection ("claim"). Retrieval always filters by layer.
 LAYER_CHUNK = "chunk"
 LAYER_CLAIM = "claim"
+_CLAIM_UPSERT_BATCH_SIZE = 128
 
 
 @dataclass(frozen=True)
@@ -194,7 +195,16 @@ class QdrantVectorIndex:
             )
             for c, vec in zip(claims, vectors)
         ]
-        await self._client.upsert(self._collection, points=points, wait=True)
+        # A full projection can contain thousands of 1536-dimension vectors. Sending
+        # the whole tenant in one REST request is large enough to trip intermediary or
+        # client read limits even though Qdrant finishes the write. Deterministic point
+        # ids make bounded batches idempotent, so a failed rebuild can safely retry.
+        for start in range(0, len(points), _CLAIM_UPSERT_BATCH_SIZE):
+            await self._client.upsert(
+                self._collection,
+                points=points[start : start + _CLAIM_UPSERT_BATCH_SIZE],
+                wait=True,
+            )
 
     async def sync_claims(
         self,

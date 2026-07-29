@@ -1,0 +1,1258 @@
+{
+  "schema": "pneuma.experiment.opc-84d-v2.group-content/v1",
+  "group_id": "G22",
+  "group_window": {
+    "starts_on": "2026-05-04",
+    "ends_on": "2026-05-06",
+    "day_count": 3,
+    "timezone": "Asia/Shanghai"
+  },
+  "story_scope": {
+    "allowed_story_beat_ids": ["D64", "D65", "D66"],
+    "known_fact_ids": ["F01", "F02", "F03", "F04", "F05", "F06", "F07", "F08", "F09", "F10", "F11", "F12"],
+    "open_continuity_ids": ["C01", "C02", "C03", "C04", "C05", "C06"],
+    "new_continuity_ids": []
+  },
+  "research_context": [
+    {
+      "research_ref_id": "R22-mail-thread",
+      "topic_query": "RFC email unique message identifier reply references thread fields",
+      "url": "https://www.rfc-editor.org/rfc/rfc5322.html",
+      "title": "RFC 5322: Internet Message Format",
+      "accessed_on": "2026-07-29",
+      "credibility": {
+        "tier": "primary",
+        "rationale": "IETF 标准原文定义了邮件消息标识、直接回复指针和对话引用字段。"
+      },
+      "applicability_scope": "只用于虚构邮件的 Date、From、To、Subject、Message-ID、In-Reply-To 与 References 关系，以及邀请线程和链接校对线程的分离；不导入标准示例、人名或真实地址。",
+      "author_fact_summaries": [
+        "每封邮件可以拥有指向该版本的唯一消息标识，回复可另外保存它直接回应的消息标识。",
+        "一条回复还可以携带前序消息标识以维持对话脉络，而邮件主题、收件人与正文各自承担不同信息。"
+      ],
+      "fictionalization_boundary": "所有标识、主题、地址和正文均为原创并使用 .test；不复制标准附录中的消息样例或技术句式。",
+      "applied_authored_ids": ["g22e-hdr-auth05", "g22e-hdr-auth11", "g22e-hdr-auth24"]
+    },
+    {
+      "research_ref_id": "R22-entry-boundary",
+      "topic_query": "official service start page just enough information user need",
+      "url": "https://design-system.service.gov.uk/patterns/start-using-a-service/",
+      "title": "Start using a service – GOV.UK Design System",
+      "accessed_on": "2026-07-29",
+      "credibility": {
+        "tier": "official",
+        "rationale": "政府设计系统的官方模式说明入口应交代用途、是否适合、所需材料和明确的下一步。"
+      },
+      "applicability_scope": "只用于把虚构邀请入口限制为“能看什么、需要准备什么、下一步去哪里”，并把它与公开首页、营销说明分开；不移植公共服务流程、按钮文案或视觉组件。",
+      "author_fact_summaries": [
+        "入口需要提供足以判断用途和适用性的最少信息，并让下一步动作与页面承诺一致。",
+        "开始前普遍需要的材料和其他联系路径应当可见，但复杂内容不应全堆在入口上。"
+      ],
+      "fictionalization_boundary": "入口页范围、证据链演示、反馈入口和非公开邀请均来自故事设定；不复制原站名称、示例或公共服务规则。",
+      "applied_authored_ids": ["g22e-msg-auth02", "g22e-msg-auth03r1"]
+    },
+    {
+      "research_ref_id": "R22-single-choice",
+      "topic_query": "official radio button single choice do not preselect unknown option guidance",
+      "url": "https://design-system.service.gov.uk/components/radios/",
+      "title": "Radios – GOV.UK Design System",
+      "accessed_on": "2026-07-29",
+      "credibility": {
+        "tier": "official",
+        "rationale": "政府设计系统的官方组件文档列出选择控件的使用前提与错误作答风险，可用于审视界面是否把人的实际任务压成了错误的问题形状。"
+      },
+      "applicability_scope": "只约束虚构支持过程：在弄清用户手里有什么、一次点击会创建什么之前，支持者不能随口推荐某个入口。故事不移植原页的组件名称、选项次序、默认规则或提示文字。",
+      "author_fact_summaries": [
+        "选择控件也在规定系统允许人表达哪几种现实；答案集合与实际任务错位时，犹豫未必是说明不足，而可能是问题本身问错了。",
+        "作答之前需要让人判断这次动作会保留或改变什么；信息尚不完整时，可靠流程不能逼出一个外表确定的答案。"
+      ],
+      "fictionalization_boundary": "两位受邀者持有的材料、页面措辞、点击后果与支持判断全部由剧情原创；正文不复刻来源页面的选项、控制方式或结论顺序。",
+      "applied_authored_ids": ["g22i-msg-auth03r1", "g22i-msg-auth04r1", "g22i-msg-auth07r1", "g22i-msg-auth08r1", "g22i-msg-auth20r1"]
+    }
+  ],
+  "sources": {
+    "meetings": [],
+    "document_library": [],
+    "im": [
+      {
+        "source_id": "g22i-src01",
+        "authorship": {
+          "authored_id": "g22i-src-auth",
+          "occurred_at": "2026-05-06T09:12:00+08:00",
+          "author_role": "product",
+          "content_class": "signal",
+          "links": {
+            "story_beat_ids": ["D66"],
+            "fact_ids": ["F12"],
+            "continuity_ids": ["C06"]
+          }
+        },
+        "schema": "pneuma.source.im/v1",
+        "provider": "mock",
+        "archive_id": "g22i-arc01",
+        "owner_user_ids": ["linzhou"],
+        "users": [
+          {
+            "user_id": "linzhou",
+            "display_name": "林舟",
+            "role": "product",
+            "synthetic_address": "lin.zhou@seamlog.test",
+            "is_bot": false
+          },
+          {
+            "user_id": "jianing",
+            "display_name": "贾宁",
+            "role": "engineering",
+            "synthetic_address": "ning.jia@review.test",
+            "is_bot": false
+          },
+          {
+            "user_id": "heming",
+            "display_name": "何明",
+            "role": "research",
+            "synthetic_address": "he.ming@peer.test",
+            "is_bot": false
+          },
+          {
+            "user_id": "tangke",
+            "display_name": "唐可",
+            "role": "operations",
+            "synthetic_address": "tang.ke@peer.test",
+            "is_bot": false
+          }
+        ],
+        "conversations": [
+          {
+            "conversation_id": "g22i-conv01",
+            "conversation_type": "group_dm",
+            "title": "导入选择卡住",
+            "member_ids": ["linzhou", "heming", "tangke"],
+            "messages": [
+              {
+                "message_id": "g22i-msg01",
+                "sender_id": "heming",
+                "sent_at": "2026-05-06T09:12:00+08:00",
+                "full_text": "我到“从哪里开始”这一步了。手里既有导出的会议文本，也有原来的网页地址，只能选一个，我不知道哪个会把另一个丢掉。",
+                "thread_id": null,
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g22i-msg-auth01",
+                  "occurred_at": "2026-05-06T09:12:00+08:00",
+                  "author_role": "research",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": ["D66"],
+                    "fact_ids": ["F12"],
+                    "continuity_ids": ["C06"]
+                  }
+                }
+              },
+              {
+                "message_id": "g22i-msg02",
+                "sender_id": "linzhou",
+                "sent_at": "2026-05-06T09:14:00+08:00",
+                "full_text": "先别替页面猜。你最想保住的是文本本身、原始位置，还是两样都要？不用贴材料，告诉我类型就行。",
+                "thread_id": "g22i-msg01",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g22i-msg-auth02",
+                  "occurred_at": "2026-05-06T09:14:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D66"],
+                    "fact_ids": ["F12"],
+                    "continuity_ids": ["C06"]
+                  }
+                }
+              },
+              {
+                "message_id": "g22i-msg03",
+                "sender_id": "heming",
+                "sent_at": "2026-05-06T09:17:00+08:00",
+                "full_text": "我担心的不是少点一个按钮，而是点完以后不知道另一份东西还有没有地方放。文本里是要找的变化，地址只是回查路标；少掉任何一边，我以后都解释不清它从哪来。当前页没有告诉我这次点击会改动什么。",
+                "thread_id": "g22i-msg01",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g22i-msg-auth03r1",
+                  "occurred_at": "2026-05-06T09:17:00+08:00",
+                  "author_role": "research",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D66"],
+                    "fact_ids": ["F12"],
+                    "continuity_ids": ["C06"]
+                  }
+                }
+              },
+              {
+                "message_id": "g22i-msg04",
+                "sender_id": "tangke",
+                "sent_at": "2026-05-06T09:20:00+08:00",
+                "full_text": "我这边只有同事粘过来的一段话，前后消息和附件都缺了。页面一上来要我声明它从哪里来，我手里没有这个事实；随便点一个，后来的人都会以为我见过原件。",
+                "thread_id": null,
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g22i-msg-auth04r1",
+                  "occurred_at": "2026-05-06T09:20:00+08:00",
+                  "author_role": "operations",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": ["D66"],
+                    "fact_ids": ["F12"],
+                    "continuity_ids": ["C06"]
+                  }
+                }
+              },
+              {
+                "message_id": "g22i-msg05",
+                "sender_id": "linzhou",
+                "sent_at": "2026-05-06T09:23:00+08:00",
+                "full_text": "你们都先停在当前页，不要用真实材料试错。何明是同时需要两种来源，唐可是不知道来源类型；我先把它们分开，不合成一个“导入失败”。",
+                "thread_id": "g22i-msg04",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g22i-msg-auth05",
+                  "occurred_at": "2026-05-06T09:23:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D66"],
+                    "fact_ids": ["F12"],
+                    "continuity_ids": ["C06"]
+                  }
+                }
+              },
+              {
+                "message_id": "g22i-msg06",
+                "sender_id": "heming",
+                "sent_at": "2026-05-06T09:26:00+08:00",
+                "full_text": "那我如果先选文件，后面还能补地址吗？这句只要回答能或不能，我就知道要不要继续。",
+                "thread_id": "g22i-msg03",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g22i-msg-auth06",
+                  "occurred_at": "2026-05-06T09:26:00+08:00",
+                  "author_role": "research",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": ["D66"],
+                    "fact_ids": ["F12"],
+                    "continuity_ids": ["C06"]
+                  }
+                }
+              },
+              {
+                "message_id": "g22i-msg07",
+                "sender_id": "linzhou",
+                "sent_at": "2026-05-06T09:28:00+08:00",
+                "full_text": "我不靠按钮名字猜后面会发生什么。你先别拿真实材料探路，只记住当前页标题和手上两样东西的类型；我用空白样例走到下一屏，确认那里是否还能补回查位置，再给你确定答复。现在先等我回信。",
+                "thread_id": "g22i-msg06",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g22i-msg-auth07r1",
+                  "occurred_at": "2026-05-06T09:28:00+08:00",
+                  "author_role": "product",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": ["D66"],
+                    "fact_ids": ["F12"],
+                    "continuity_ids": ["C06"]
+                  }
+                }
+              },
+              {
+                "message_id": "g22i-msg08",
+                "sender_id": "tangke",
+                "sent_at": "2026-05-06T09:31:00+08:00",
+                "full_text": "我刚把鼠标移到继续又退回来。现在我只能保证这段文字确实存在，不能保证它的来路。要是先编一个出处才能往下走，我宁可不提交。",
+                "thread_id": "g22i-msg04",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g22i-msg-auth08r1",
+                  "occurred_at": "2026-05-06T09:31:00+08:00",
+                  "author_role": "operations",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": ["D66"],
+                    "fact_ids": ["F12"],
+                    "continuity_ids": ["C06"]
+                  }
+                }
+              },
+              {
+                "message_id": "g22i-msg09",
+                "sender_id": "linzhou",
+                "sent_at": "2026-05-06T09:34:00+08:00",
+                "full_text": "那就别重抄，也别给它编出处。我会用一段故意删掉来路的虚构文字走一次，看能否先保存内容、把证据缺口明着留在那里。",
+                "thread_id": "g22i-msg08",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g22i-msg-auth09r1",
+                  "occurred_at": "2026-05-06T09:34:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D66"],
+                    "fact_ids": ["F12"],
+                    "continuity_ids": ["C06"]
+                  }
+                }
+              },
+              {
+                "message_id": "g22i-msg10",
+                "sender_id": "heming",
+                "sent_at": "2026-05-06T09:38:00+08:00",
+                "full_text": "好，我只等结论，不发文件。刚才那页没有坏，只是我不知道选择会锁住什么。",
+                "thread_id": "g22i-msg07",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g22i-msg-auth10",
+                  "occurred_at": "2026-05-06T09:38:00+08:00",
+                  "author_role": "research",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D66"],
+                    "fact_ids": ["F12"],
+                    "continuity_ids": ["C06"]
+                  }
+                }
+              },
+              {
+                "message_id": "g22i-msg11",
+                "sender_id": "tangke",
+                "sent_at": "2026-05-06T09:42:00+08:00",
+                "full_text": "好，我等。你只要告诉我有没有一条不用虚构出处的路，以及从哪个页面进入；不要替我整理那段话，也别把它做成案例。",
+                "thread_id": "g22i-msg09",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g22i-msg-auth11r1",
+                  "occurred_at": "2026-05-06T09:42:00+08:00",
+                  "author_role": "operations",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D66"],
+                    "fact_ids": ["F12"],
+                    "continuity_ids": ["C06"]
+                  }
+                }
+              },
+              {
+                "message_id": "g22i-msg12",
+                "sender_id": "linzhou",
+                "sent_at": "2026-05-06T09:45:00+08:00",
+                "full_text": "明白。现在只有两条待支持的问题，各自停在选择页；我不会把你们的停留写成首条链结果，核对后分别回复。",
+                "thread_id": "g22i-msg11",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g22i-msg-auth12",
+                  "occurred_at": "2026-05-06T09:45:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D66"],
+                    "fact_ids": ["F12"],
+                    "continuity_ids": ["C06"]
+                  }
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "g22i-conv-auth01",
+              "occurred_at": "2026-05-06T09:12:00+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": ["D66"],
+                "fact_ids": ["F12"],
+                "continuity_ids": ["C06"]
+              }
+            }
+          },
+          {
+            "conversation_id": "g22i-conv02",
+            "conversation_type": "dm",
+            "title": "林舟与贾宁：支持先插进来",
+            "member_ids": ["linzhou", "jianing"],
+            "messages": [
+              {
+                "message_id": "g22i-msg13",
+                "sender_id": "linzhou",
+                "sent_at": "2026-05-06T09:48:00+08:00",
+                "full_text": "刚有两条支持消息一起进来，我把编辑器关了。一个人同时有文件和地址，另一个连来源类型都不知道，都卡在第一步。",
+                "thread_id": null,
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g22i-msg-auth13",
+                  "occurred_at": "2026-05-06T09:48:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D66"],
+                    "fact_ids": ["F12"],
+                    "continuity_ids": ["C06"]
+                  }
+                }
+              },
+              {
+                "message_id": "g22i-msg14",
+                "sender_id": "jianing",
+                "sent_at": "2026-05-06T09:50:00+08:00",
+                "full_text": "先别数成同一个错误。把他们各自看见的选项和想保住的东西发我，不要转材料正文。",
+                "thread_id": "g22i-msg13",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g22i-msg-auth14",
+                  "occurred_at": "2026-05-06T09:50:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D66"],
+                    "fact_ids": ["F12"],
+                    "continuity_ids": ["C06"]
+                  }
+                }
+              },
+              {
+                "message_id": "g22i-msg15",
+                "sender_id": "linzhou",
+                "sent_at": "2026-05-06T09:53:00+08:00",
+                "full_text": "第一位想导入文本后还能返回原地址，怕选文件就失去链接。第二位只有转来的文字，需要先承认来源未知，不能被迫猜文件或网页。",
+                "thread_id": "g22i-msg14",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g22i-msg-auth15",
+                  "occurred_at": "2026-05-06T09:53:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D66"],
+                    "fact_ids": ["F12"],
+                    "continuity_ids": ["C06"]
+                  }
+                }
+              },
+              {
+                "message_id": "g22i-msg16",
+                "sender_id": "jianing",
+                "sent_at": "2026-05-06T09:56:00+08:00",
+                "full_text": "这确实是两个原因。前者把来源形式误当成只能保留一种，后者根本没有可选答案；别用一条帮助文字同时糊住。",
+                "thread_id": "g22i-msg15",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g22i-msg-auth16",
+                  "occurred_at": "2026-05-06T09:56:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D66"],
+                    "fact_ids": ["F12"],
+                    "continuity_ids": ["C06"]
+                  }
+                }
+              },
+              {
+                "message_id": "g22i-msg17",
+                "sender_id": "linzhou",
+                "sent_at": "2026-05-06T09:59:00+08:00",
+                "full_text": "我原本在补状态历史，第二条消息弹出来时刚写到一半。现在继续写代码会漏掉支持，我先查选择后的真实路径。",
+                "thread_id": "g22i-msg16",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g22i-msg-auth17",
+                  "occurred_at": "2026-05-06T09:59:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D66"],
+                    "fact_ids": ["F12"],
+                    "continuity_ids": ["C06"]
+                  }
+                }
+              },
+              {
+                "message_id": "g22i-msg18",
+                "sender_id": "jianing",
+                "sent_at": "2026-05-06T10:02:00+08:00",
+                "full_text": "先做支持。查的时候用空白样例，确认文件之后能否补位置、未知来源能否不撒谎地停住；没有答案就直接说没有。",
+                "thread_id": "g22i-msg17",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g22i-msg-auth18",
+                  "occurred_at": "2026-05-06T10:02:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D66"],
+                    "fact_ids": ["F12"],
+                    "continuity_ids": ["C06"]
+                  }
+                }
+              },
+              {
+                "message_id": "g22i-msg19",
+                "sender_id": "linzhou",
+                "sent_at": "2026-05-06T10:05:00+08:00",
+                "full_text": "我刚想先加一行“请选择主要来源”，但那会让何明继续以为另一种来源要被丢掉。先不改字，等两条路径核完。",
+                "thread_id": "g22i-msg18",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g22i-msg-auth19",
+                  "occurred_at": "2026-05-06T10:05:00+08:00",
+                  "author_role": "product",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": ["D66"],
+                    "fact_ids": ["F12"],
+                    "continuity_ids": ["C06"]
+                  }
+                }
+              },
+              {
+                "message_id": "g22i-msg20",
+                "sender_id": "jianing",
+                "sent_at": "2026-05-06T10:08:00+08:00",
+                "full_text": "先别修那一行字。我们画两张纸：一张列他们现在拿着什么，另一张列点击后会新建或保留什么。若两张纸根本对不上，障碍就在步骤划分，不是他们没读懂；今天也别顺手把草图宣布成新流程。",
+                "thread_id": "g22i-msg19",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g22i-msg-auth20r1",
+                  "occurred_at": "2026-05-06T10:08:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D66"],
+                    "fact_ids": ["F12"],
+                    "continuity_ids": ["C06"]
+                  }
+                }
+              },
+              {
+                "message_id": "g22i-msg21",
+                "sender_id": "linzhou",
+                "sent_at": "2026-05-06T10:11:00+08:00",
+                "full_text": "快递柜刚又提醒我，昨天那只包裹忘了取。中午我得绕去北门，假期后的闹钟和门卡都还没归位。",
+                "thread_id": null,
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g22i-msg-auth21",
+                  "occurred_at": "2026-05-06T10:11:00+08:00",
+                  "author_role": "product",
+                  "content_class": "noise",
+                  "links": {
+                    "story_beat_ids": ["D66"],
+                    "fact_ids": [],
+                    "continuity_ids": []
+                  }
+                }
+              },
+              {
+                "message_id": "g22i-msg22",
+                "sender_id": "jianing",
+                "sent_at": "2026-05-06T10:13:00+08:00",
+                "full_text": "我也刚挤完节后第一班公交，工位上的杯子还有放假前的茶渍。你先设个午间提醒，别晚上又从聊天记录里想起包裹。",
+                "thread_id": "g22i-msg21",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g22i-msg-auth22",
+                  "occurred_at": "2026-05-06T10:13:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "noise",
+                  "links": {
+                    "story_beat_ids": ["D66"],
+                    "fact_ids": [],
+                    "continuity_ids": []
+                  }
+                }
+              },
+              {
+                "message_id": "g22i-msg23",
+                "sender_id": "linzhou",
+                "sent_at": "2026-05-06T19:46:00+08:00",
+                "full_text": "包裹取到了，屋里还是没收。旅行袋摊在门边，我把两件外套挪到椅背就停了，今晚不再拿“先整理一下”拖延回支持消息。",
+                "thread_id": "g22i-msg21",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g22i-msg-auth23",
+                  "occurred_at": "2026-05-06T19:46:00+08:00",
+                  "author_role": "product",
+                  "content_class": "noise",
+                  "links": {
+                    "story_beat_ids": ["D66"],
+                    "fact_ids": [],
+                    "continuity_ids": []
+                  }
+                }
+              },
+              {
+                "message_id": "g22i-msg24",
+                "sender_id": "jianing",
+                "sent_at": "2026-05-06T19:49:00+08:00",
+                "full_text": "先回他们你核到了什么，屋子明天再说。旅行袋不会因为多放一晚变成产品问题。",
+                "thread_id": "g22i-msg23",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g22i-msg-auth24",
+                  "occurred_at": "2026-05-06T19:49:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "noise",
+                  "links": {
+                    "story_beat_ids": ["D66"],
+                    "fact_ids": [],
+                    "continuity_ids": []
+                  }
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "g22i-conv-auth02",
+              "occurred_at": "2026-05-06T09:48:00+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": ["D66"],
+                "fact_ids": ["F12"],
+                "continuity_ids": ["C06"]
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "email": [
+      {
+        "source_id": "g22e-src01",
+        "authorship": {
+          "authored_id": "g22e-src-auth",
+          "occurred_at": "2026-05-05T07:42:00+08:00",
+          "author_role": "product",
+          "content_class": "signal",
+          "links": {
+            "story_beat_ids": ["D65"],
+            "fact_ids": ["F12"],
+            "continuity_ids": ["C06"]
+          }
+        },
+        "schema": "pneuma.source.email/v1",
+        "provider": "mock",
+        "archive_id": "g22e-arc01",
+        "owner_addresses": ["lin.zhou@seamlog.test"],
+        "threads": [
+          {
+            "thread_id": "g22e-thread01",
+            "subject": "邀请发出前：两个链接回查",
+            "messages": [
+              {
+                "message_id": "g22e-msg01",
+                "sent_at": "2026-05-05T07:42:00+08:00",
+                "from": {
+                  "address": "nan.zhao@flat.test",
+                  "display_name": "赵楠",
+                  "role": "design"
+                },
+                "to": [
+                  {
+                    "address": "lin.zhou@seamlog.test",
+                    "display_name": "林舟",
+                    "role": "product"
+                  }
+                ],
+                "cc": [],
+                "subject": "邀请发出前：两个链接回查",
+                "headers": [
+                  {
+                    "header_id": "g22e-hdr01",
+                    "name": "Date",
+                    "value": "Tue, 05 May 2026 07:42:00 +0800",
+                    "authorship": {
+                      "authored_id": "g22e-hdr-auth01",
+                      "occurred_at": "2026-05-05T07:42:00+08:00",
+                      "author_role": "design",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": ["D65"],
+                        "fact_ids": ["F12"],
+                        "continuity_ids": ["C06"]
+                      }
+                    }
+                  },
+                  {
+                    "header_id": "g22e-hdr02",
+                    "name": "From",
+                    "value": "赵楠 <nan.zhao@flat.test>",
+                    "authorship": {
+                      "authored_id": "g22e-hdr-auth02",
+                      "occurred_at": "2026-05-05T07:42:00+08:00",
+                      "author_role": "design",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": ["D65"],
+                        "fact_ids": ["F12"],
+                        "continuity_ids": ["C06"]
+                      }
+                    }
+                  },
+                  {
+                    "header_id": "g22e-hdr03",
+                    "name": "To",
+                    "value": "林舟 <lin.zhou@seamlog.test>",
+                    "authorship": {
+                      "authored_id": "g22e-hdr-auth03",
+                      "occurred_at": "2026-05-05T07:42:00+08:00",
+                      "author_role": "design",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": ["D65"],
+                        "fact_ids": ["F12"],
+                        "continuity_ids": ["C06"]
+                      }
+                    }
+                  },
+                  {
+                    "header_id": "g22e-hdr04",
+                    "name": "Subject",
+                    "value": "邀请发出前：两个链接回查",
+                    "authorship": {
+                      "authored_id": "g22e-hdr-auth04",
+                      "occurred_at": "2026-05-05T07:42:00+08:00",
+                      "author_role": "design",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": ["D65"],
+                        "fact_ids": ["F12"],
+                        "continuity_ids": ["C06"]
+                      }
+                    }
+                  },
+                  {
+                    "header_id": "g22e-hdr05",
+                    "name": "Message-ID",
+                    "value": "<g22e-msg01@flat.test>",
+                    "authorship": {
+                      "authored_id": "g22e-hdr-auth05",
+                      "occurred_at": "2026-05-05T07:42:00+08:00",
+                      "author_role": "design",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": ["D65"],
+                        "fact_ids": ["F12"],
+                        "continuity_ids": ["C06"]
+                      }
+                    }
+                  }
+                ],
+                "full_text": "林舟，\n\n我按待发信里的顺序从头点了一遍。主入口能打开，页面也只停在一条虚构链和反馈入口，没有多余导航；但下面两个链接有问题。\n\n第一处是“如何找回原句”，地址少了一段路径，打开后只有空页。第二处是反馈表底部的“返回演示”，还指向昨天的草稿入口，回来会看见不同标题。两处都不会影响主入口，但受邀者一旦点到，会不知道该退回哪里。\n\n两个错误的作用不同：前者让说明断开，后者让反馈返回错版本。别把它们合成“入口坏了”，否则修完以后不知道该复查哪一段。我把主入口、说明页、反馈表和返回目标分别记了检查时间，没有截取演示内容。\n\n邀请现在还在待发状态。我没有替你改链接，只把完整地址和出现位置写在这封信里，免得修一处又带出第三个版本。发出前请用无历史记录的窗口各点一次。\n\n赵楠",
+                "in_reply_to": null,
+                "references": [],
+                "attachments": [],
+                "authorship": {
+                  "authored_id": "g22e-msg-auth01",
+                  "occurred_at": "2026-05-05T07:42:00+08:00",
+                  "author_role": "design",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D65"],
+                    "fact_ids": ["F12"],
+                    "continuity_ids": ["C06"]
+                  }
+                }
+              },
+              {
+                "message_id": "g22e-msg02",
+                "sent_at": "2026-05-05T08:18:00+08:00",
+                "from": {
+                  "address": "lin.zhou@seamlog.test",
+                  "display_name": "林舟",
+                  "role": "product"
+                },
+                "to": [
+                  {
+                    "address": "nan.zhao@flat.test",
+                    "display_name": "赵楠",
+                    "role": "design"
+                  }
+                ],
+                "cc": [],
+                "subject": "Re: 邀请发出前：两个链接回查",
+                "headers": [
+                  {
+                    "header_id": "g22e-hdr06",
+                    "name": "Date",
+                    "value": "Tue, 05 May 2026 08:18:00 +0800",
+                    "authorship": {
+                      "authored_id": "g22e-hdr-auth06",
+                      "occurred_at": "2026-05-05T08:18:00+08:00",
+                      "author_role": "product",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": ["D65"],
+                        "fact_ids": ["F12"],
+                        "continuity_ids": ["C06"]
+                      }
+                    }
+                  },
+                  {
+                    "header_id": "g22e-hdr07",
+                    "name": "From",
+                    "value": "林舟 <lin.zhou@seamlog.test>",
+                    "authorship": {
+                      "authored_id": "g22e-hdr-auth07",
+                      "occurred_at": "2026-05-05T08:18:00+08:00",
+                      "author_role": "product",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": ["D65"],
+                        "fact_ids": ["F12"],
+                        "continuity_ids": ["C06"]
+                      }
+                    }
+                  },
+                  {
+                    "header_id": "g22e-hdr08",
+                    "name": "To",
+                    "value": "赵楠 <nan.zhao@flat.test>",
+                    "authorship": {
+                      "authored_id": "g22e-hdr-auth08",
+                      "occurred_at": "2026-05-05T08:18:00+08:00",
+                      "author_role": "product",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": ["D65"],
+                        "fact_ids": ["F12"],
+                        "continuity_ids": ["C06"]
+                      }
+                    }
+                  },
+                  {
+                    "header_id": "g22e-hdr09",
+                    "name": "Subject",
+                    "value": "Re: 邀请发出前：两个链接回查",
+                    "authorship": {
+                      "authored_id": "g22e-hdr-auth09",
+                      "occurred_at": "2026-05-05T08:18:00+08:00",
+                      "author_role": "product",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": ["D65"],
+                        "fact_ids": ["F12"],
+                        "continuity_ids": ["C06"]
+                      }
+                    }
+                  },
+                  {
+                    "header_id": "g22e-hdr10",
+                    "name": "Message-ID",
+                    "value": "<g22e-msg02@seamlog.test>",
+                    "authorship": {
+                      "authored_id": "g22e-hdr-auth10",
+                      "occurred_at": "2026-05-05T08:18:00+08:00",
+                      "author_role": "product",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": ["D65"],
+                        "fact_ids": ["F12"],
+                        "continuity_ids": ["C06"]
+                      }
+                    }
+                  },
+                  {
+                    "header_id": "g22e-hdr11",
+                    "name": "In-Reply-To",
+                    "value": "<g22e-msg01@flat.test>",
+                    "authorship": {
+                      "authored_id": "g22e-hdr-auth11",
+                      "occurred_at": "2026-05-05T08:18:00+08:00",
+                      "author_role": "product",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": ["D65"],
+                        "fact_ids": ["F12"],
+                        "continuity_ids": ["C06"]
+                      }
+                    }
+                  },
+                  {
+                    "header_id": "g22e-hdr12",
+                    "name": "References",
+                    "value": "<g22e-msg01@flat.test>",
+                    "authorship": {
+                      "authored_id": "g22e-hdr-auth12",
+                      "occurred_at": "2026-05-05T08:18:00+08:00",
+                      "author_role": "product",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": ["D65"],
+                        "fact_ids": ["F12"],
+                        "continuity_ids": ["C06"]
+                      }
+                    }
+                  }
+                ],
+                "full_text": "赵楠，\n\n两处都已改，并按你写的位置重新走了一遍：说明链接现在回到对应原句，反馈表返回后仍落在同一个入口标题。我又换了一个没有历史记录的窗口，结果一致。\n\n修复记录也拆成两行：说明页补齐缺失路径；反馈表只改返回目标。邀请信里的主入口地址没有更换，定时任务不用重建；以后若再出错，可以看出是进入、说明还是返回这一段发生了变化。\n\n我没有趁修链接增加页面内容。入口继续只说明这次小范围查看能看到一条脱敏证据链、需要准备一段可公开给我的虚构材料，以及遇到卡点可从哪里反馈；它不是公开首页，也不展示参与人数。反馈表仍单独打开，不和演示步骤挤在一页。\n\n邀请保留原定的上午发送时间。发出之后我只按实际回信处理问题，不用邮件送达状态推测谁会开始。\n\n林舟",
+                "in_reply_to": "g22e-msg01",
+                "references": ["g22e-msg01"],
+                "attachments": [],
+                "authorship": {
+                  "authored_id": "g22e-msg-auth02",
+                  "occurred_at": "2026-05-05T08:18:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D65"],
+                    "fact_ids": ["F12"],
+                    "continuity_ids": ["C06"]
+                  }
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "g22e-thread-auth01",
+              "occurred_at": "2026-05-05T07:42:00+08:00",
+              "author_role": "design",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": ["D65"],
+                "fact_ids": ["F12"],
+                "continuity_ids": ["C06"]
+              }
+            }
+          },
+          {
+            "thread_id": "g22e-thread02",
+            "subject": "小范围邀请：只看一条证据链与反馈入口",
+            "messages": [
+              {
+                "message_id": "g22e-msg03",
+                "sent_at": "2026-05-05T09:20:00+08:00",
+                "from": {
+                  "address": "lin.zhou@seamlog.test",
+                  "display_name": "林舟",
+                  "role": "product"
+                },
+                "to": [
+                  {
+                    "address": "small-circle@seamlog.test",
+                    "display_name": "小范围同行",
+                    "role": "partner"
+                  }
+                ],
+                "cc": [],
+                "subject": "小范围邀请：只看一条证据链与反馈入口",
+                "headers": [
+                  {
+                    "header_id": "g22e-hdr13",
+                    "name": "Date",
+                    "value": "Tue, 05 May 2026 09:20:00 +0800",
+                    "authorship": {
+                      "authored_id": "g22e-hdr-auth13",
+                      "occurred_at": "2026-05-05T09:20:00+08:00",
+                      "author_role": "product",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": ["D65"],
+                        "fact_ids": ["F12"],
+                        "continuity_ids": ["C06"]
+                      }
+                    }
+                  },
+                  {
+                    "header_id": "g22e-hdr14",
+                    "name": "From",
+                    "value": "林舟 <lin.zhou@seamlog.test>",
+                    "authorship": {
+                      "authored_id": "g22e-hdr-auth14",
+                      "occurred_at": "2026-05-05T09:20:00+08:00",
+                      "author_role": "product",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": ["D65"],
+                        "fact_ids": ["F12"],
+                        "continuity_ids": ["C06"]
+                      }
+                    }
+                  },
+                  {
+                    "header_id": "g22e-hdr15",
+                    "name": "To",
+                    "value": "小范围同行 <small-circle@seamlog.test>",
+                    "authorship": {
+                      "authored_id": "g22e-hdr-auth15",
+                      "occurred_at": "2026-05-05T09:20:00+08:00",
+                      "author_role": "product",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": ["D65"],
+                        "fact_ids": ["F12"],
+                        "continuity_ids": ["C06"]
+                      }
+                    }
+                  },
+                  {
+                    "header_id": "g22e-hdr16",
+                    "name": "Bcc",
+                    "value": "何明 <he.ming@peer.test>, 唐可 <tang.ke@peer.test>, 陈语 <chen.yu@peer.test>, 罗川 <luo.chuan@peer.test>, 方禾 <fang.he@peer.test>, 周岑 <zhou.cen@peer.test>, 任清 <ren.qing@peer.test>, 韩立 <han.li@peer.test>, 魏青 <wei.qing@peer.test>, 沈青 <shen.qing@peer.test>, 叶遥 <ye.yao@peer.test>, 徐平 <xu.ping@peer.test>",
+                    "authorship": {
+                      "authored_id": "g22e-hdr-auth16",
+                      "occurred_at": "2026-05-05T09:20:00+08:00",
+                      "author_role": "product",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": ["D65"],
+                        "fact_ids": ["F12"],
+                        "continuity_ids": ["C06"]
+                      }
+                    }
+                  },
+                  {
+                    "header_id": "g22e-hdr17",
+                    "name": "Reply-To",
+                    "value": "林舟 <lin.zhou@seamlog.test>",
+                    "authorship": {
+                      "authored_id": "g22e-hdr-auth17",
+                      "occurred_at": "2026-05-05T09:20:00+08:00",
+                      "author_role": "product",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": ["D65"],
+                        "fact_ids": ["F12"],
+                        "continuity_ids": ["C06"]
+                      }
+                    }
+                  },
+                  {
+                    "header_id": "g22e-hdr18",
+                    "name": "Subject",
+                    "value": "小范围邀请：只看一条证据链与反馈入口",
+                    "authorship": {
+                      "authored_id": "g22e-hdr-auth18",
+                      "occurred_at": "2026-05-05T09:20:00+08:00",
+                      "author_role": "product",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": ["D65"],
+                        "fact_ids": ["F12"],
+                        "continuity_ids": ["C06"]
+                      }
+                    }
+                  },
+                  {
+                    "header_id": "g22e-hdr19",
+                    "name": "Message-ID",
+                    "value": "<g22e-msg03@seamlog.test>",
+                    "authorship": {
+                      "authored_id": "g22e-hdr-auth19",
+                      "occurred_at": "2026-05-05T09:20:00+08:00",
+                      "author_role": "product",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": ["D65"],
+                        "fact_ids": ["F12"],
+                        "continuity_ids": ["C06"]
+                      }
+                    }
+                  }
+                ],
+                "full_text": "各位好，\n\n今天上午我把这封信密送给十二位同行。请把下面的地址留在本次邮件往来中：它没有挂到站内目录，转寄也不会替新的收件人取得查看资格。若有人希望加入，请让对方直接写信给我，我会另开一封确认范围的邮件。\n\n本次查看请扮演挑错者。入口打开后是一段我改写的虚构记录，用来观察一条证据链在实际点击中会在哪里断掉；旁边另有“遇到阻碍”入口，提交后只回到我这里，不生成公开评价。演示页脚若出现“竹影”，只表示该处材料获准按脱敏范围展示，不可拿去做推荐语、成功案例标题或对外评价。\n\n请自行编两三句变更作为材料，不要带工作文件。你可以随时关掉页面；如果某一步让你不敢继续，请在反馈页写下当时的页面标题、你手里已有的材料以及你原本准备做的下一步，也可以直接回复本信。不参加无需说明原因。\n\n今天没有首页公告、公开名单或扩大发送。邮件到达、地址被打开、材料被实际提交是三种不同记录；我只会根据主动发来的问题建立支持对话，不会把送达回执计成使用进展。\n\n查看地址：<https://circle.seamlog.test/evidence-start>\n反馈地址：<https://circle.seamlog.test/one-question>\n\n林舟",
+                "in_reply_to": null,
+                "references": [],
+                "attachments": [],
+                "authorship": {
+                  "authored_id": "g22e-msg-auth03r1",
+                  "occurred_at": "2026-05-05T09:20:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D65"],
+                    "fact_ids": ["F12"],
+                    "continuity_ids": ["C06"]
+                  }
+                }
+              },
+              {
+                "message_id": "g22e-msg04",
+                "sent_at": "2026-05-05T10:04:00+08:00",
+                "from": {
+                  "address": "he.ming@peer.test",
+                  "display_name": "何明",
+                  "role": "research"
+                },
+                "to": [
+                  {
+                    "address": "lin.zhou@seamlog.test",
+                    "display_name": "林舟",
+                    "role": "product"
+                  }
+                ],
+                "cc": [],
+                "subject": "Re: 小范围邀请：只看一条证据链与反馈入口",
+                "headers": [
+                  {
+                    "header_id": "g22e-hdr20",
+                    "name": "Date",
+                    "value": "Tue, 05 May 2026 10:04:00 +0800",
+                    "authorship": {
+                      "authored_id": "g22e-hdr-auth20",
+                      "occurred_at": "2026-05-05T10:04:00+08:00",
+                      "author_role": "research",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": ["D65"],
+                        "fact_ids": ["F12"],
+                        "continuity_ids": ["C06"]
+                      }
+                    }
+                  },
+                  {
+                    "header_id": "g22e-hdr21",
+                    "name": "From",
+                    "value": "何明 <he.ming@peer.test>",
+                    "authorship": {
+                      "authored_id": "g22e-hdr-auth21",
+                      "occurred_at": "2026-05-05T10:04:00+08:00",
+                      "author_role": "research",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": ["D65"],
+                        "fact_ids": ["F12"],
+                        "continuity_ids": ["C06"]
+                      }
+                    }
+                  },
+                  {
+                    "header_id": "g22e-hdr22",
+                    "name": "To",
+                    "value": "林舟 <lin.zhou@seamlog.test>",
+                    "authorship": {
+                      "authored_id": "g22e-hdr-auth22",
+                      "occurred_at": "2026-05-05T10:04:00+08:00",
+                      "author_role": "research",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": ["D65"],
+                        "fact_ids": ["F12"],
+                        "continuity_ids": ["C06"]
+                      }
+                    }
+                  },
+                  {
+                    "header_id": "g22e-hdr23",
+                    "name": "Subject",
+                    "value": "Re: 小范围邀请：只看一条证据链与反馈入口",
+                    "authorship": {
+                      "authored_id": "g22e-hdr-auth23",
+                      "occurred_at": "2026-05-05T10:04:00+08:00",
+                      "author_role": "research",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": ["D65"],
+                        "fact_ids": ["F12"],
+                        "continuity_ids": ["C06"]
+                      }
+                    }
+                  },
+                  {
+                    "header_id": "g22e-hdr24",
+                    "name": "Message-ID",
+                    "value": "<g22e-msg04@peer.test>",
+                    "authorship": {
+                      "authored_id": "g22e-hdr-auth24",
+                      "occurred_at": "2026-05-05T10:04:00+08:00",
+                      "author_role": "research",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": ["D65"],
+                        "fact_ids": ["F12"],
+                        "continuity_ids": ["C06"]
+                      }
+                    }
+                  },
+                  {
+                    "header_id": "g22e-hdr25",
+                    "name": "In-Reply-To",
+                    "value": "<g22e-msg03@seamlog.test>",
+                    "authorship": {
+                      "authored_id": "g22e-hdr-auth25",
+                      "occurred_at": "2026-05-05T10:04:00+08:00",
+                      "author_role": "research",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": ["D65"],
+                        "fact_ids": ["F12"],
+                        "continuity_ids": ["C06"]
+                      }
+                    }
+                  },
+                  {
+                    "header_id": "g22e-hdr26",
+                    "name": "References",
+                    "value": "<g22e-msg03@seamlog.test>",
+                    "authorship": {
+                      "authored_id": "g22e-hdr-auth26",
+                      "occurred_at": "2026-05-05T10:04:00+08:00",
+                      "author_role": "research",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": ["D65"],
+                        "fact_ids": ["F12"],
+                        "continuity_ids": ["C06"]
+                      }
+                    }
+                  }
+                ],
+                "full_text": "林舟，\n\n密送栏没有露出其他人的地址。我从邮件打开后，页头先写了这次查看的收件范围，页面里也找不到通往站内其他区域的菜单。我把地址存进临时书签，不会转给同事。\n\n我点到演示的第一屏又退回来了。反馈页里的“当时页面标题”我知道怎么填，但“原本准备做的下一步”现在还答不了，因为我还没挑好那段虚构材料。今天先停在这里，明天带着材料再走；如果仍卡住，我会写具体屏幕，不把这封回信当成完成记录。\n\n何明",
+                "in_reply_to": "g22e-msg03",
+                "references": ["g22e-msg03"],
+                "attachments": [],
+                "authorship": {
+                  "authored_id": "g22e-msg-auth04r1",
+                  "occurred_at": "2026-05-05T10:04:00+08:00",
+                  "author_role": "research",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": ["D65"],
+                    "fact_ids": ["F12"],
+                    "continuity_ids": ["C06"]
+                  }
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "g22e-thread-auth02",
+              "occurred_at": "2026-05-05T09:20:00+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": ["D65"],
+                "fact_ids": ["F12"],
+                "continuity_ids": ["C06"]
+              }
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

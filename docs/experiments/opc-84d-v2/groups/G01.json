@@ -1,0 +1,440 @@
+{
+  "schema": "pneuma.experiment.opc-84d-v2.group-content/v1",
+  "group_id": "G01",
+  "group_window": {
+    "starts_on": "2026-03-02",
+    "ends_on": "2026-03-04",
+    "day_count": 3,
+    "timezone": "Asia/Shanghai"
+  },
+  "story_scope": {
+    "allowed_story_beat_ids": ["D01", "D02", "D03"],
+    "known_fact_ids": ["F01"],
+    "open_continuity_ids": [],
+    "new_continuity_ids": []
+  },
+  "research_context": [
+    {
+      "research_ref_id": "RG01-change-fields",
+      "topic_query": "official change-request field structure for reason, impact, assignee, approver, and dates",
+      "url": "https://support.atlassian.com/jira-service-management-cloud/docs/default-form-fields-for-change-requests/",
+      "title": "Default form fields for change requests",
+      "accessed_on": "2026-07-29",
+      "credibility": {
+        "tier": "official",
+        "rationale": "Product-owner documentation enumerates configurable request fields and their operational roles."
+      },
+      "applicability_scope": "Used only to give Lin Zhou's scratch record a plausible distinction among a requested alteration, its affected area, the responsible person, and an unresolved approval; it is not evidence about design-team practice.",
+      "author_fact_summaries": [
+        "A useful alteration record separates who raised it, who owns the follow-up, what may be affected, why it was raised, and whether anyone has approved it.",
+        "The source distinguishes intended timing from observed timing. G01 uses that distinction only as a prompt to ask for chronology; it makes no claim that blank dates are best practice."
+      ],
+      "fictionalization_boundary": "No vendor labels, default field names, interface layout, workflow names, customer examples, or claims of industry standard are carried into the fictional notes.",
+      "applied_authored_ids": ["G01-doc1-b2a", "G01-doc2-b2a"]
+    },
+    {
+      "research_ref_id": "RG01-markdown-blocks",
+      "topic_query": "official CommonMark specification document blocks headings paragraphs lists quotations",
+      "url": "https://spec.commonmark.org/spec",
+      "title": "CommonMark Spec",
+      "accessed_on": "2026-07-29",
+      "credibility": {
+        "tier": "primary",
+        "rationale": "The published specification is the primary source for the structural behavior of the plain-text markup used by the fictional notes."
+      },
+      "applicability_scope": "Used only to preserve boundaries among rough prose, an ordinary bullet list, and an indented self-question. Checkbox meaning is outside this source and is not attributed to the core specification.",
+      "author_fact_summaries": [
+        "The syntax gives neighboring sections different parsing roles. Keeping those boundaries lets an unfinished note retain its pauses and hierarchy instead of collapsing into one polished paragraph."
+      ],
+      "fictionalization_boundary": "The specification supplies no wording, people, product behavior, or narrative. No examples or prose from it are reproduced or paraphrased in the invented documents.",
+      "applied_authored_ids": ["G01-doc1-b1a", "G01-doc1-b3a", "G01-doc2-b3a"]
+    },
+    {
+      "research_ref_id": "RG01-im-export-shape",
+      "topic_query": "official chat export structure conversation membership message timestamp optional edit reaction metadata",
+      "url": "https://slack.com/help/articles/220556107-How-to-read-Slack-data-exports",
+      "title": "How to read Slack data exports",
+      "accessed_on": "2026-07-29",
+      "credibility": {
+        "tier": "official",
+        "rationale": "The service owner's export guide directly documents conversation membership, chronological message records, and optional interaction metadata."
+      },
+      "applicability_scope": "Used to keep each fictional DM as a separate conversation with explicit members, per-message sender and posting time, and empty edit/reaction fields where nothing happened. Thread IDs come from the local source schema, not this page.",
+      "author_fact_summaries": [
+        "A chat archive can identify a conversation and its members separately from the text of each message, which also carries a sender and posting time.",
+        "Edits and reactions are conditional layers rather than mandatory prose. Their absence can remain explicit instead of being padded with synthetic activity."
+      ],
+      "fictionalization_boundary": "No vendor name, export filename, field label, example value, retention behavior, or source sentence enters the fictional messages; only the separation of conversation and message metadata is retained.",
+      "applied_authored_ids": ["G01-convo-review-a", "G01-im1-m11a", "G01-convo-home-a", "G01-im2-m1a"]
+    }
+  ],
+  "sources": {
+    "meetings": [],
+    "document_library": [
+      {
+        "source_id": "G01-docsrc-problem",
+        "authorship": {
+          "authored_id": "G01-docsrc-problem-a",
+          "occurred_at": "2026-03-02T10:42:00+08:00",
+          "author_role": "product",
+          "content_class": "signal",
+          "links": {"story_beat_ids": ["D01"], "fact_ids": ["F01"], "continuity_ids": []}
+        },
+        "schema": "pneuma.source.document-library/v1",
+        "provider": "mock",
+        "library_id": "lib-lin-notes",
+        "title": "林舟的工作笔记摘录",
+        "documents": [
+          {
+            "document_id": "G01-doc-problem",
+            "path": "工作/2026-03-02-问题先于界面.md",
+            "title": "问题先于界面",
+            "frontmatter": {"date": "2026-03-02", "stage": "乱记", "owner": "林舟"},
+            "full_markdown": "# 问题先于界面\n\n翻出去年三段咨询收尾：一次是材料替换后没人说清谁点了头，一次是预算在群里被改过却只剩截屏，还有一次大家各自记得不同版本。它们不该被我当成客户资料；我手里没有任何可再用的数据，也没向任何人要。今天先把纸上工作名写成 **Seamlog**。只是桌面上的标签，不是项目，也不是承诺。\n\n- 我想收集的不是一段漂亮总结，而是一条能倒回去看的改动：原来讨论的是什么，后来动了哪一块，谁说可以，谁还没回。\n- 预算、范围和责任人可能需要分开，不然一句“可以改”会把三件事糊在一起。\n- 时间也不能只留“本周”；争议时，人会先问那句话是在改之前还是改之后。\n- 先别把字段写成表单。没有人愿意为我的表单多做一遍工作。\n\n> 今天的假设：大家缺的是更顺眼的周报。\n> \n> 反问：如果真有人拿周报去吵架，他要找的会不会是原话？\n\n午饭后本来只想看十分钟装修论坛，结果翻到一串木皮色差争论，连收藏夹都没关。傍晚把衬衫和跑步袜塞进洗衣机，等脱水时又回来看这页，发现“谁还没回”被我写了三遍。删掉两遍，留一遍。\n\n把三段旧事压成一行会很省事：改材、预算、确认。可它们真正难的地方在于，话不是一次说完的。有人先提出替换，另一个人补了一句“看价格”，第三个人隔天只回了一个表情。若只做摘要，那些停顿会被洗掉；若只存原文，后来的人又得从头翻。我要找的是两者之间的窄缝，但今天连缝的形状都还没画清。\n\n- 先写“提议”和“已经同意”两种不同的格子，哪怕它们最后未必叫这个名字。\n- 看到金额时，记住金额可能只是猜测、上限或最终数；不要把数字一出现就当成范围变化。\n- 谁把一段话带进记录，也应该看得见，否则以后只会多一个更漂亮的黑箱。\n- 明天只带问题去见人，不带结论。\n\n给自己留一个不舒服的例子：假如有人在上午提了“先换一块试试”，下午另一个人问“会不会超预算”，晚上负责人只说“先别动”，那这三句不能被一条平滑的时间线替代。它们的关系可能是反对，也可能只是还没收到回复；它们各自影响的对象也不相同。真正需要回看的，不是算法替大家选出的结论，而是这三句话如何并排出现、谁有资格把其中一条变成行动、以及那份行动后来是否被撤回。这个问题写得像要做很大的东西，先承认：我不知道小团队会不会愿意多看一眼。\n\n暂时不做一个替人判定对错的东西。也不写“智能识别确认”这种词，写完自己都不信。第一版哪怕只是把一段话的出处和前后两句挨着放，让使用的人自己说“这算不算”，也比把猜测藏在摘要里诚实。问题是，这样到底省不省他们的时间，还是只把我的好奇心做成一页页面；答案只能从访谈里来。\n\n先停在这里。明天要验证的不是字段够不够，而是有没有人愿意把一次麻烦讲给我听。听完再改，不抢答，也不把沉默填满。先去问，明早发出。\n\n| 旧记录形状 | 当时能看到什么 | 现在缺口 |\n| --- | --- | --- |\n| 会后手记 | 日期和三条结论，没有逐句话 | 不知道结论由谁确认 |\n| 群聊截屏 | 有发送人和前后几句，画面外内容未知 | 找不到对应的正式版本 |\n| 邮件打印件 | 有主题、发件人和一段解释 | 附件名称被裁掉，金额来自哪一版不清楚 |\n\n这不是数据清单，只是我对旧咨询收尾的回忆。任何一格都不能拿来演示，更不能补写成人名或项目名。它的用途只有一个：明天问别人时，别把“找不到”当成单一故障。\n",
+            "tags": ["产品起点", "未验证", "日记"],
+            "links": [],
+            "created_at": "2026-03-02T10:42:00+08:00",
+            "modified_at": "2026-03-02T19:56:00+08:00",
+            "visible_blocks": [
+              {
+                "block_id": "G01-doc1-b1",
+                "kind": "paragraph",
+                "markdown": "翻出去年三段咨询收尾：一次是材料替换后没人说清谁点了头，一次是预算在群里被改过却只剩截屏，还有一次大家各自记得不同版本。它们不该被我当成客户资料；我手里没有任何可再用的数据，也没向任何人要。今天先把纸上工作名写成 **Seamlog**。只是桌面上的标签，不是项目，也不是承诺。",
+                "authorship": {
+                  "authored_id": "G01-doc1-b1a",
+                  "occurred_at": "2026-03-02T10:44:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {"story_beat_ids": ["D01"], "fact_ids": ["F01"], "continuity_ids": []}
+                }
+              },
+              {
+                "block_id": "G01-doc1-b2",
+                "kind": "list",
+                "markdown": "- 我想收集的不是一段漂亮总结，而是一条能倒回去看的改动：原来讨论的是什么，后来动了哪一块，谁说可以，谁还没回。\n- 预算、范围和责任人可能需要分开，不然一句“可以改”会把三件事糊在一起。\n- 时间也不能只留“本周”；争议时，人会先问那句话是在改之前还是改之后。\n- 先别把字段写成表单。没有人愿意为我的表单多做一遍工作。",
+                "authorship": {
+                  "authored_id": "G01-doc1-b2a",
+                  "occurred_at": "2026-03-02T10:50:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {"story_beat_ids": ["D01"], "fact_ids": ["F01"], "continuity_ids": []}
+                }
+              },
+              {
+                "block_id": "G01-doc1-b3",
+                "kind": "quote",
+                "markdown": "> 今天的假设：大家缺的是更顺眼的周报。\n> \n> 反问：如果真有人拿周报去吵架，他要找的会不会是原话？",
+                "authorship": {
+                  "authored_id": "G01-doc1-b3a",
+                  "occurred_at": "2026-03-02T11:03:00+08:00",
+                  "author_role": "product",
+                  "content_class": "ambiguous",
+                  "links": {"story_beat_ids": ["D01"], "fact_ids": [], "continuity_ids": []}
+                }
+              },
+              {
+                "block_id": "G01-doc1-b4",
+                "kind": "paragraph",
+                "markdown": "午饭后本来只想看十分钟装修论坛，结果翻到一串木皮色差争论，连收藏夹都没关。傍晚把衬衫和跑步袜塞进洗衣机，等脱水时又回来看这页，发现“谁还没回”被我写了三遍。删掉两遍，留一遍。",
+                "authorship": {
+                  "authored_id": "G01-doc1-b4a",
+                  "occurred_at": "2026-03-02T19:26:00+08:00",
+                  "author_role": "product",
+                  "content_class": "noise",
+                  "links": {"story_beat_ids": ["D01"], "fact_ids": [], "continuity_ids": []}
+                }
+              },
+              {
+                "block_id": "G01-doc1-b5",
+                "kind": "paragraph",
+                "markdown": "把三段旧事压成一行会很省事：改材、预算、确认。可它们真正难的地方在于，话不是一次说完的。有人先提出替换，另一个人补了一句“看价格”，第三个人隔天只回了一个表情。若只做摘要，那些停顿会被洗掉；若只存原文，后来的人又得从头翻。我要找的是两者之间的窄缝，但今天连缝的形状都还没画清。",
+                "authorship": {
+                  "authored_id": "G01-doc1-b5a",
+                  "occurred_at": "2026-03-02T19:30:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {"story_beat_ids": ["D01"], "fact_ids": [], "continuity_ids": []}
+                }
+              },
+              {
+                "block_id": "G01-doc1-b6",
+                "kind": "list",
+                "markdown": "- 先写“提议”和“已经同意”两种不同的格子，哪怕它们最后未必叫这个名字。\n- 看到金额时，记住金额可能只是猜测、上限或最终数；不要把数字一出现就当成范围变化。\n- 谁把一段话带进记录，也应该看得见，否则以后只会多一个更漂亮的黑箱。\n- 明天只带问题去见人，不带结论。",
+                "authorship": {
+                  "authored_id": "G01-doc1-b6a",
+                  "occurred_at": "2026-03-02T19:34:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {"story_beat_ids": ["D01"], "fact_ids": [], "continuity_ids": []}
+                }
+              },
+              {
+                "block_id": "G01-doc1-b7",
+                "kind": "paragraph",
+                "markdown": "给自己留一个不舒服的例子：假如有人在上午提了“先换一块试试”，下午另一个人问“会不会超预算”，晚上负责人只说“先别动”，那这三句不能被一条平滑的时间线替代。它们的关系可能是反对，也可能只是还没收到回复；它们各自影响的对象也不相同。真正需要回看的，不是算法替大家选出的结论，而是这三句话如何并排出现、谁有资格把其中一条变成行动、以及那份行动后来是否被撤回。这个问题写得像要做很大的东西，先承认：我不知道小团队会不会愿意多看一眼。",
+                "authorship": {
+                  "authored_id": "G01-doc1-b7a",
+                  "occurred_at": "2026-03-02T19:39:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {"story_beat_ids": ["D01"], "fact_ids": [], "continuity_ids": []}
+                }
+              },
+              {
+                "block_id": "G01-doc1-b8",
+                "kind": "paragraph",
+                "markdown": "暂时不做一个替人判定对错的东西。也不写“智能识别确认”这种词，写完自己都不信。第一版哪怕只是把一段话的出处和前后两句挨着放，让使用的人自己说“这算不算”，也比把猜测藏在摘要里诚实。问题是，这样到底省不省他们的时间，还是只把我的好奇心做成一页页面；答案只能从访谈里来。",
+                "authorship": {
+                  "authored_id": "G01-doc1-b8a",
+                  "occurred_at": "2026-03-02T19:45:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {"story_beat_ids": ["D01"], "fact_ids": [], "continuity_ids": []}
+                }
+              },
+              {
+                "block_id": "G01-doc1-b9",
+                "kind": "paragraph",
+                "markdown": "先停在这里。明天要验证的不是字段够不够，而是有没有人愿意把一次麻烦讲给我听。听完再改，不抢答，也不把沉默填满。先去问，明早发出。",
+                "authorship": {
+                  "authored_id": "G01-doc1-b9a",
+                  "occurred_at": "2026-03-02T19:49:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {"story_beat_ids": ["D01"], "fact_ids": [], "continuity_ids": []}
+                }
+              },
+              {
+                "block_id": "G01-doc1-b10",
+                "kind": "table",
+                "markdown": "| 旧记录形状 | 当时能看到什么 | 现在缺口 |\n| --- | --- | --- |\n| 会后手记 | 日期和三条结论，没有逐句话 | 不知道结论由谁确认 |\n| 群聊截屏 | 有发送人和前后几句，画面外内容未知 | 找不到对应的正式版本 |\n| 邮件打印件 | 有主题、发件人和一段解释 | 附件名称被裁掉，金额来自哪一版不清楚 |\n\n这不是数据清单，只是我对旧咨询收尾的回忆。任何一格都不能拿来演示，更不能补写成人名或项目名。它的用途只有一个：明天问别人时，别把“找不到”当成单一故障。",
+                "authorship": {
+                  "authored_id": "G01-doc1-b10a",
+                  "occurred_at": "2026-03-02T19:53:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {"story_beat_ids": ["D01"], "fact_ids": [], "continuity_ids": []}
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "G01-doc1-a",
+              "occurred_at": "2026-03-02T19:56:00+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {"story_beat_ids": ["D01"], "fact_ids": ["F01"], "continuity_ids": []}
+            }
+          }
+        ]
+      },
+      {
+        "source_id": "G01-docsrc-interview",
+        "authorship": {
+          "authored_id": "G01-docsrc-interview-a",
+          "occurred_at": "2026-03-02T21:18:00+08:00",
+          "author_role": "product",
+          "content_class": "signal",
+          "links": {"story_beat_ids": ["D01"], "fact_ids": ["F01"], "continuity_ids": []}
+        },
+        "schema": "pneuma.source.document-library/v1",
+        "provider": "mock",
+        "library_id": "lib-lin-notes",
+        "title": "林舟的访谈准备草稿",
+        "documents": [
+          {
+            "document_id": "G01-doc-interview",
+            "path": "工作/访谈/第零版-别先问功能.md",
+            "title": "第零版：别先问功能",
+            "frontmatter": {"date": "2026-03-02", "status": "未发", "related": "问题先于界面"},
+            "full_markdown": "# 第零版：别先问功能\n\n我还是想先做一张跨来源的自动周报：会议里一句、消息里半句、邮件里一句，最后排成一条好看的线。这个想法很顺手，也很可疑。明天找贾宁时不要问他“能不能做”，先让他拆掉它。\n\n| 可能先找谁 | 他在争议里会带什么 | 我不能替他回答的事 |\n| --- | --- | --- |\n| 接客户的人 | 当时答应了什么、后来客户又说了什么 | 哪一句算确认 |\n| 现场协调的人 | 临时改动、照片、催促 | 谁能把状态改掉 |\n| 做预算的人 | 版本、金额、附件 | 没回话是不是默认同意 |\n\n- [ ] 先问：最近一次找不到依据是什么时候。\n- [ ] 再问：你翻的第一处是哪儿。\n- [ ] 不问：如果我给你一个总览，你会不会开心。这个问题太容易得到礼貌答案。\n- [ ] 给吴岚的开场只写“想请你看一个样子”，不要写“接入”或“导入”。我还没有资格碰任何真实项目。\n\n下午把桌角堆了半个月的收据按月份夹好，才发现其中两张只是便利店小票。热水壶除垢时忘了设提醒，水凉了又重新烧。它们跟这页问题都没关系，只是今天确实被这些小事切走了四十多分钟。\n\n访谈时不要把“记录”说成要替人记住一切。更实际的问法也许是：当你要解释一次改动时，手边已经有什么，缺的又是哪一截。可能缺的是附件，可能是说话的人，可能只是消息发出的先后。答案不该替我决定产品，只能决定我下一页该少画什么。吴岚如果愿意看样，也只是给我一个被质疑的机会，不是对任何接入的许可。\n\n> [!warning] 明早先删词\n> \n> 把“自动整理全部沟通”“完整项目视图”“无须打扰任何人”划掉。它们都像承诺，而我现在连一位一线使用者怎么称呼自己的麻烦都不知道。\n\n如果对方追问样子里有什么，只展示我手写的三段虚构对话：一段提议换材料，一段询问价差，一段明确说先等等。每段故意留一个空白，让她指出最先想补的是人、时间、原文还是结果。不要用旧咨询截图，也不要把“愿意看”解释成愿意交材料。看样结束后只记她真正指出的麻烦；礼貌的“挺有意思”不计入结论。\n",
+            "tags": ["访谈", "假设", "未发送"],
+            "links": [],
+            "created_at": "2026-03-02T21:18:00+08:00",
+            "modified_at": "2026-03-02T22:07:00+08:00",
+            "visible_blocks": [
+              {
+                "block_id": "G01-doc2-b1",
+                "kind": "paragraph",
+                "markdown": "我还是想先做一张跨来源的自动周报：会议里一句、消息里半句、邮件里一句，最后排成一条好看的线。这个想法很顺手，也很可疑。明天找贾宁时不要问他“能不能做”，先让他拆掉它。",
+                "authorship": {
+                  "authored_id": "G01-doc2-b1a",
+                  "occurred_at": "2026-03-02T21:20:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {"story_beat_ids": ["D01"], "fact_ids": [], "continuity_ids": []}
+                }
+              },
+              {
+                "block_id": "G01-doc2-b2",
+                "kind": "table",
+                "markdown": "| 可能先找谁 | 他在争议里会带什么 | 我不能替他回答的事 |\n| --- | --- | --- |\n| 接客户的人 | 当时答应了什么、后来客户又说了什么 | 哪一句算确认 |\n| 现场协调的人 | 临时改动、照片、催促 | 谁能把状态改掉 |\n| 做预算的人 | 版本、金额、附件 | 没回话是不是默认同意 |",
+                "authorship": {
+                  "authored_id": "G01-doc2-b2a",
+                  "occurred_at": "2026-03-02T21:28:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {"story_beat_ids": ["D01"], "fact_ids": [], "continuity_ids": []}
+                }
+              },
+              {
+                "block_id": "G01-doc2-b3",
+                "kind": "list",
+                "markdown": "- [ ] 先问：最近一次找不到依据是什么时候。\n- [ ] 再问：你翻的第一处是哪儿。\n- [ ] 不问：如果我给你一个总览，你会不会开心。这个问题太容易得到礼貌答案。\n- [ ] 给吴岚的开场只写“想请你看一个样子”，不要写“接入”或“导入”。我还没有资格碰任何真实项目。",
+                "authorship": {
+                  "authored_id": "G01-doc2-b3a",
+                  "occurred_at": "2026-03-02T21:39:00+08:00",
+                  "author_role": "product",
+                  "content_class": "ambiguous",
+                  "links": {"story_beat_ids": ["D01"], "fact_ids": [], "continuity_ids": []}
+                }
+              },
+              {
+                "block_id": "G01-doc2-b4",
+                "kind": "paragraph",
+                "markdown": "下午把桌角堆了半个月的收据按月份夹好，才发现其中两张只是便利店小票。热水壶除垢时忘了设提醒，水凉了又重新烧。它们跟这页问题都没关系，只是今天确实被这些小事切走了四十多分钟。",
+                "authorship": {
+                  "authored_id": "G01-doc2-b4a",
+                  "occurred_at": "2026-03-02T21:45:00+08:00",
+                  "author_role": "product",
+                  "content_class": "noise",
+                  "links": {"story_beat_ids": ["D01"], "fact_ids": [], "continuity_ids": []}
+                }
+              },
+              {
+                "block_id": "G01-doc2-b5",
+                "kind": "paragraph",
+                "markdown": "访谈时不要把“记录”说成要替人记住一切。更实际的问法也许是：当你要解释一次改动时，手边已经有什么，缺的又是哪一截。可能缺的是附件，可能是说话的人，可能只是消息发出的先后。答案不该替我决定产品，只能决定我下一页该少画什么。吴岚如果愿意看样，也只是给我一个被质疑的机会，不是对任何接入的许可。",
+                "authorship": {
+                  "authored_id": "G01-doc2-b5a",
+                  "occurred_at": "2026-03-02T21:48:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {"story_beat_ids": ["D01"], "fact_ids": [], "continuity_ids": []}
+                }
+              },
+              {
+                "block_id": "G01-doc2-b6",
+                "kind": "callout",
+                "markdown": "> [!warning] 明早先删词\n> \n> 把“自动整理全部沟通”“完整项目视图”“无须打扰任何人”划掉。它们都像承诺，而我现在连一位一线使用者怎么称呼自己的麻烦都不知道。",
+                "authorship": {
+                  "authored_id": "G01-doc2-b6a",
+                  "occurred_at": "2026-03-02T21:55:00+08:00",
+                  "author_role": "product",
+                  "content_class": "ambiguous",
+                  "links": {"story_beat_ids": ["D01"], "fact_ids": [], "continuity_ids": []}
+                }
+              },
+              {
+                "block_id": "G01-doc2-b7",
+                "kind": "paragraph",
+                "markdown": "如果对方追问样子里有什么，只展示我手写的三段虚构对话：一段提议换材料，一段询问价差，一段明确说先等等。每段故意留一个空白，让她指出最先想补的是人、时间、原文还是结果。不要用旧咨询截图，也不要把“愿意看”解释成愿意交材料。看样结束后只记她真正指出的麻烦；礼貌的“挺有意思”不计入结论。",
+                "authorship": {
+                  "authored_id": "G01-doc2-b7a",
+                  "occurred_at": "2026-03-02T22:01:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {"story_beat_ids": ["D01"], "fact_ids": [], "continuity_ids": []}
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "G01-doc2-a",
+              "occurred_at": "2026-03-02T22:07:00+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {"story_beat_ids": ["D01"], "fact_ids": ["F01"], "continuity_ids": []}
+            }
+          }
+        ]
+      }
+    ],
+    "im": [
+      {
+        "source_id": "G01-imsrc-review",
+        "authorship": {
+          "authored_id": "G01-imsrc-review-a",
+          "occurred_at": "2026-03-03T11:16:00+08:00",
+          "author_role": "engineering",
+          "content_class": "signal",
+          "links": {"story_beat_ids": ["D02"], "fact_ids": ["F01"], "continuity_ids": []}
+        },
+        "schema": "pneuma.source.im/v1",
+        "provider": "mock",
+        "archive_id": "arc-lin-private",
+        "owner_user_ids": ["usr-lin"],
+        "users": [
+          {"user_id": "usr-lin", "display_name": "林舟", "role": "product", "synthetic_address": "lin.zhou@seamlog.test", "is_bot": false},
+          {"user_id": "usr-jia", "display_name": "贾宁", "role": "engineering", "synthetic_address": "jia.ning@review.test", "is_bot": false}
+        ],
+        "conversations": [
+          {
+            "conversation_id": "G01-convo-review",
+            "conversation_type": "dm",
+            "title": "林舟 / 贾宁",
+            "member_ids": ["usr-lin", "usr-jia"],
+            "messages": [
+              {"message_id": "G01-im1-m1", "sender_id": "usr-lin", "sent_at": "2026-03-03T11:16:00+08:00", "full_text": "我把东西临时叫 Seamlog。现在脑子里是一张总时间线：会里一句、消息里一句、邮件里一句，最后自动吐出周报。看着会很像有答案。", "thread_id": null, "edited_at": null, "reactions": [], "authorship": {"authored_id": "G01-im1-m1a", "occurred_at": "2026-03-03T11:16:00+08:00", "author_role": "product", "content_class": "signal", "links": {"story_beat_ids": ["D02"], "fact_ids": ["F01"], "continuity_ids": []}}},
+              {"message_id": "G01-im1-m2", "sender_id": "usr-jia", "sent_at": "2026-03-03T11:18:00+08:00", "full_text": "你先别让它吐东西。谁会在争议里打开这张线？他想确认的又是哪一件事？", "thread_id": "G01-im1-m1", "edited_at": null, "reactions": [], "authorship": {"authored_id": "G01-im1-m2a", "occurred_at": "2026-03-03T11:18:00+08:00", "author_role": "engineering", "content_class": "signal", "links": {"story_beat_ids": ["D02"], "fact_ids": [], "continuity_ids": []}}},
+              {"message_id": "G01-im1-m3", "sender_id": "usr-lin", "sent_at": "2026-03-03T11:21:00+08:00", "full_text": "大概是负责人想知道改动怎么来的，或者预算为什么变了。我要不要先把这两类标出来？", "thread_id": "G01-im1-m1", "edited_at": null, "reactions": [], "authorship": {"authored_id": "G01-im1-m3a", "occurred_at": "2026-03-03T11:21:00+08:00", "author_role": "product", "content_class": "ambiguous", "links": {"story_beat_ids": ["D02"], "fact_ids": [], "continuity_ids": []}}},
+              {"message_id": "G01-im1-m4", "sender_id": "usr-jia", "sent_at": "2026-03-03T11:24:00+08:00", "full_text": "先去听一个真在翻记录的人。别从你想展示的页面倒推他的麻烦。你可以问他上次吵起来时先找了哪里。", "thread_id": "G01-im1-m1", "edited_at": null, "reactions": [], "authorship": {"authored_id": "G01-im1-m4a", "occurred_at": "2026-03-03T11:24:00+08:00", "author_role": "engineering", "content_class": "signal", "links": {"story_beat_ids": ["D02"], "fact_ids": [], "continuity_ids": []}}},
+              {"message_id": "G01-im1-m5", "sender_id": "usr-lin", "sent_at": "2026-03-03T11:28:00+08:00", "full_text": "吴岚可能肯看一眼。我还没问材料，更没问能不能连任何项目。先约她看样子？", "thread_id": "G01-im1-m1", "edited_at": null, "reactions": [], "authorship": {"authored_id": "G01-im1-m5a", "occurred_at": "2026-03-03T11:28:00+08:00", "author_role": "product", "content_class": "signal", "links": {"story_beat_ids": ["D02"], "fact_ids": [], "continuity_ids": []}}},
+              {"message_id": "G01-im1-m6", "sender_id": "usr-jia", "sent_at": "2026-03-03T11:31:00+08:00", "full_text": "可以。把“看样子”和“给数据”分两句写，别替她把第二句答了。", "thread_id": "G01-im1-m1", "edited_at": null, "reactions": [], "authorship": {"authored_id": "G01-im1-m6a", "occurred_at": "2026-03-03T11:31:00+08:00", "author_role": "engineering", "content_class": "signal", "links": {"story_beat_ids": ["D02"], "fact_ids": [], "continuity_ids": []}}},
+              {"message_id": "G01-im1-m7", "sender_id": "usr-lin", "sent_at": "2026-03-03T11:35:00+08:00", "full_text": "行。我把那张全项目大图先收进草稿。它现在像一张地铁图，站名还都没定。", "thread_id": "G01-im1-m1", "edited_at": null, "reactions": [], "authorship": {"authored_id": "G01-im1-m7a", "occurred_at": "2026-03-03T11:35:00+08:00", "author_role": "product", "content_class": "noise", "links": {"story_beat_ids": ["D02"], "fact_ids": [], "continuity_ids": []}}},
+              {"message_id": "G01-im1-m8", "sender_id": "usr-jia", "sent_at": "2026-03-03T11:36:00+08:00", "full_text": "地铁图先别删，省得明天又画一遍。但别拿它当结论。", "thread_id": "G01-im1-m1", "edited_at": null, "reactions": [], "authorship": {"authored_id": "G01-im1-m8a", "occurred_at": "2026-03-03T11:36:00+08:00", "author_role": "engineering", "content_class": "ambiguous", "links": {"story_beat_ids": ["D02"], "fact_ids": [], "continuity_ids": []}}},
+              {"message_id": "G01-im1-m9", "sender_id": "usr-lin", "sent_at": "2026-03-03T12:02:00+08:00", "full_text": "午饭后我把问题压成三条，晚上再发给你。要是又写成产品介绍你直接骂。", "thread_id": null, "edited_at": null, "reactions": [], "authorship": {"authored_id": "G01-im1-m9a", "occurred_at": "2026-03-03T12:02:00+08:00", "author_role": "product", "content_class": "noise", "links": {"story_beat_ids": ["D02"], "fact_ids": [], "continuity_ids": []}}},
+              {"message_id": "G01-im1-m10", "sender_id": "usr-jia", "sent_at": "2026-03-03T12:04:00+08:00", "full_text": "不骂。每道题后面留空，别先写你盼着听见的答案。", "thread_id": "G01-im1-m9", "edited_at": null, "reactions": [], "authorship": {"authored_id": "G01-im1-m10a", "occurred_at": "2026-03-03T12:04:00+08:00", "author_role": "engineering", "content_class": "ambiguous", "links": {"story_beat_ids": ["D02"], "fact_ids": [], "continuity_ids": []}}},
+              {"message_id": "G01-im1-m11", "sender_id": "usr-lin", "sent_at": "2026-03-03T14:46:00+08:00", "full_text": "我把问题改成：上次有人问你“为什么改”时，你先翻了什么；翻到以后还缺什么；谁能说这不是一句随口提议。比问功能别扭，但至少没替他选答案。", "thread_id": null, "edited_at": null, "reactions": [], "authorship": {"authored_id": "G01-im1-m11a", "occurred_at": "2026-03-03T14:46:00+08:00", "author_role": "product", "content_class": "signal", "links": {"story_beat_ids": ["D02"], "fact_ids": [], "continuity_ids": []}}},
+              {"message_id": "G01-im1-m12", "sender_id": "usr-jia", "sent_at": "2026-03-03T14:52:00+08:00", "full_text": "这比“想要什么仪表盘”好。别把提议、确认和没回当同一种状态；人们往往不是忘了内容，而是记不准哪一步已经算数。先听他们怎么说，不要急着给状态起名。", "thread_id": "G01-im1-m11", "edited_at": null, "reactions": [], "authorship": {"authored_id": "G01-im1-m12a", "occurred_at": "2026-03-03T14:52:00+08:00", "author_role": "engineering", "content_class": "signal", "links": {"story_beat_ids": ["D02"], "fact_ids": [], "continuity_ids": []}}},
+              {"message_id": "G01-im1-m13", "sender_id": "usr-lin", "sent_at": "2026-03-03T15:03:00+08:00", "full_text": "我原来以为一张周报会把人从翻消息里救出来。现在听起来更像是我替他们把争议压平，再把压平后的东西叫清楚。", "thread_id": "G01-im1-m11", "edited_at": null, "reactions": [], "authorship": {"authored_id": "G01-im1-m13a", "occurred_at": "2026-03-03T15:03:00+08:00", "author_role": "product", "content_class": "ambiguous", "links": {"story_beat_ids": ["D02"], "fact_ids": [], "continuity_ids": []}}},
+              {"message_id": "G01-im1-m14", "sender_id": "usr-jia", "sent_at": "2026-03-03T15:07:00+08:00", "full_text": "可能。也可能有人只想少找五分钟。两种事别用一个原型证明。先拿到一次具体的翻找过程，再决定你要保留什么。", "thread_id": "G01-im1-m11", "edited_at": null, "reactions": [], "authorship": {"authored_id": "G01-im1-m14a", "occurred_at": "2026-03-03T15:07:00+08:00", "author_role": "engineering", "content_class": "signal", "links": {"story_beat_ids": ["D02"], "fact_ids": [], "continuity_ids": []}}},
+              {"message_id": "G01-im1-m15", "sender_id": "usr-lin", "sent_at": "2026-03-03T15:20:00+08:00", "full_text": "我给吴岚只发“是否愿意看一个样子”。那张周报大图继续放草稿，不排开发时间。", "thread_id": null, "edited_at": null, "reactions": [], "authorship": {"authored_id": "G01-im1-m15a", "occurred_at": "2026-03-03T15:20:00+08:00", "author_role": "product", "content_class": "signal", "links": {"story_beat_ids": ["D02"], "fact_ids": [], "continuity_ids": []}}},
+              {"message_id": "G01-im1-m16", "sender_id": "usr-jia", "sent_at": "2026-03-03T15:24:00+08:00", "full_text": "措辞可以。她没答复时，状态就写未答复；项目名、同事和旧材料一概别先登记。", "thread_id": "G01-im1-m15", "edited_at": null, "reactions": [], "authorship": {"authored_id": "G01-im1-m16a", "occurred_at": "2026-03-03T15:24:00+08:00", "author_role": "engineering", "content_class": "signal", "links": {"story_beat_ids": ["D02"], "fact_ids": [], "continuity_ids": []}}},
+              {"message_id": "G01-im1-m17", "sender_id": "usr-lin", "sent_at": "2026-03-03T15:26:00+08:00", "full_text": "发完了。先去跑步，回来再看问题表。", "thread_id": "G01-im1-m15", "edited_at": null, "reactions": [], "authorship": {"authored_id": "G01-im1-m17a", "occurred_at": "2026-03-03T15:26:00+08:00", "author_role": "product", "content_class": "noise", "links": {"story_beat_ids": ["D02"], "fact_ids": [], "continuity_ids": []}}}
+            ],
+            "authorship": {"authored_id": "G01-convo-review-a", "occurred_at": "2026-03-03T11:16:00+08:00", "author_role": "product", "content_class": "signal", "links": {"story_beat_ids": ["D02"], "fact_ids": ["F01"], "continuity_ids": []}}
+          }
+        ]
+      },
+      {
+        "source_id": "G01-imsrc-home",
+        "authorship": {
+          "authored_id": "G01-imsrc-home-a",
+          "occurred_at": "2026-03-03T20:43:00+08:00",
+          "author_role": "product",
+          "content_class": "noise",
+          "links": {"story_beat_ids": ["D02"], "fact_ids": [], "continuity_ids": []}
+        },
+        "schema": "pneuma.source.im/v1",
+        "provider": "mock",
+        "archive_id": "arc-flat-chat",
+        "owner_user_ids": ["usr-lin", "usr-zhao"],
+        "users": [
+          {"user_id": "usr-lin", "display_name": "林舟", "role": "product", "synthetic_address": "lin.zhou@seamlog.test", "is_bot": false},
+          {"user_id": "usr-zhao", "display_name": "赵楠", "role": "design", "synthetic_address": "zhao.nan@flat.test", "is_bot": false}
+        ],
+        "conversations": [
+          {
+            "conversation_id": "G01-convo-home",
+            "conversation_type": "dm",
+            "title": "客厅另一头",
+            "member_ids": ["usr-lin", "usr-zhao"],
+            "messages": [
+              {"message_id": "G01-im2-m1", "sender_id": "usr-zhao", "sent_at": "2026-03-03T20:43:00+08:00", "full_text": "九点开一局？昨天那关还在，今天我保证不乱按电梯。", "thread_id": null, "edited_at": null, "reactions": [], "authorship": {"authored_id": "G01-im2-m1a", "occurred_at": "2026-03-03T20:43:00+08:00", "author_role": "design", "content_class": "noise", "links": {"story_beat_ids": ["D02"], "fact_ids": [], "continuity_ids": []}}},
+              {"message_id": "G01-im2-m2", "sender_id": "usr-lin", "sent_at": "2026-03-03T20:44:00+08:00", "full_text": "悬。我刚跑完，鞋带松了两次，回来菜还摊在门口。先让我把土冲掉，再把那件湿外套挂起来。", "thread_id": "G01-im2-m1", "edited_at": null, "reactions": [], "authorship": {"authored_id": "G01-im2-m2a", "occurred_at": "2026-03-03T20:44:00+08:00", "author_role": "product", "content_class": "noise", "links": {"story_beat_ids": ["D02"], "fact_ids": [], "continuity_ids": []}}},
+              {"message_id": "G01-im2-m3", "sender_id": "usr-zhao", "sent_at": "2026-03-03T20:45:00+08:00", "full_text": "你买的是青菜还是一盆土？袋子一路在掉渣。", "thread_id": "G01-im2-m1", "edited_at": null, "reactions": [], "authorship": {"authored_id": "G01-im2-m3a", "occurred_at": "2026-03-03T20:45:00+08:00", "author_role": "design", "content_class": "noise", "links": {"story_beat_ids": ["D02"], "fact_ids": [], "continuity_ids": []}}},
+              {"message_id": "G01-im2-m4", "sender_id": "usr-lin", "sent_at": "2026-03-03T20:47:00+08:00", "full_text": "摊主多送的。葱在最下面，别顺手当垃圾扔了。", "thread_id": "G01-im2-m1", "edited_at": null, "reactions": [], "authorship": {"authored_id": "G01-im2-m4a", "occurred_at": "2026-03-03T20:47:00+08:00", "author_role": "product", "content_class": "noise", "links": {"story_beat_ids": ["D02"], "fact_ids": [], "continuity_ids": []}}},
+              {"message_id": "G01-im2-m5", "sender_id": "usr-zhao", "sent_at": "2026-03-03T20:49:00+08:00", "full_text": "下午是不是有快递找你？我在剪一段人声，电话响了几轮才停。来电显示是陌生号码，我没替你接。", "thread_id": null, "edited_at": null, "reactions": [], "authorship": {"authored_id": "G01-im2-m5a", "occurred_at": "2026-03-03T20:49:00+08:00", "author_role": "design", "content_class": "noise", "links": {"story_beat_ids": ["D02"], "fact_ids": [], "continuity_ids": []}}},
+              {"message_id": "G01-im2-m6", "sender_id": "usr-lin", "sent_at": "2026-03-03T20:53:00+08:00", "full_text": "漏接了。短信说改天再送，不用下楼找。", "thread_id": "G01-im2-m5", "edited_at": null, "reactions": [], "authorship": {"authored_id": "G01-im2-m6a", "occurred_at": "2026-03-03T20:53:00+08:00", "author_role": "product", "content_class": "noise", "links": {"story_beat_ids": ["D02"], "fact_ids": [], "continuity_ids": []}}},
+              {"message_id": "G01-im2-m7", "sender_id": "usr-zhao", "sent_at": "2026-03-03T21:08:00+08:00", "full_text": "锅里给你留了半碗饭，豆腐我没动。九点半还不来，我就喊阿策补位；他刚才已经问过一次。", "thread_id": "G01-im2-m1", "edited_at": null, "reactions": [], "authorship": {"authored_id": "G01-im2-m7a", "occurred_at": "2026-03-03T21:08:00+08:00", "author_role": "design", "content_class": "noise", "links": {"story_beat_ids": ["D02"], "fact_ids": [], "continuity_ids": []}}},
+              {"message_id": "G01-im2-m8", "sender_id": "usr-lin", "sent_at": "2026-03-03T21:12:00+08:00", "full_text": "你先喊。我刚把青菜焯上，还得洗锅，进去也只会站着不动。那半碗饭我一会儿拌豆腐吃。", "thread_id": "G01-im2-m1", "edited_at": null, "reactions": [], "authorship": {"authored_id": "G01-im2-m8a", "occurred_at": "2026-03-03T21:12:00+08:00", "author_role": "product", "content_class": "noise", "links": {"story_beat_ids": ["D02"], "fact_ids": [], "continuity_ids": []}}},
+              {"message_id": "G01-im2-m9", "sender_id": "usr-zhao", "sent_at": "2026-03-03T21:13:00+08:00", "full_text": "行，今天不等。明晚八点我再敲你一次。", "thread_id": "G01-im2-m1", "edited_at": null, "reactions": [], "authorship": {"authored_id": "G01-im2-m9a", "occurred_at": "2026-03-03T21:13:00+08:00", "author_role": "design", "content_class": "noise", "links": {"story_beat_ids": ["D02"], "fact_ids": [], "continuity_ids": []}}},
+              {"message_id": "G01-im2-m10", "sender_id": "usr-lin", "sent_at": "2026-03-03T21:15:00+08:00", "full_text": "好，位置别留。饭我看见了，谢。明晚要是我还没回家，你也照常开，不用再等第二遍。嗯。", "thread_id": "G01-im2-m1", "edited_at": null, "reactions": [], "authorship": {"authored_id": "G01-im2-m10a", "occurred_at": "2026-03-03T21:15:00+08:00", "author_role": "product", "content_class": "noise", "links": {"story_beat_ids": ["D02"], "fact_ids": [], "continuity_ids": []}}}
+            ],
+            "authorship": {"authored_id": "G01-convo-home-a", "occurred_at": "2026-03-03T20:43:00+08:00", "author_role": "design", "content_class": "noise", "links": {"story_beat_ids": ["D02"], "fact_ids": [], "continuity_ids": []}}
+          }
+        ]
+      }
+    ],
+    "email": []
+  }
+}

@@ -7,14 +7,22 @@
  *   - vite dev on :5174 proxying to :18001 (PNEUMA_KNOWLEDGE_API_PORT=18001)
  *
  * Run: node e2e/screenshots.mjs   (from apps/web)
+ * V2:  E2E_USER=<tenant> E2E_SCOPE=sources-v2 node e2e/screenshots.mjs
  */
 import { chromium } from "playwright";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import {
+  SOURCE_V2_KINDS,
+  resolveE2EConfig,
+  selectJourneyKeys,
+} from "./screenshots-config.mjs";
 
 const BASE = process.env.E2E_BASE ?? "http://127.0.0.1:5199";
-const USER = "u-opc-lin";
+const CONFIG = resolveE2EConfig();
+const USER = CONFIG.user;
+const SCOPE = CONFIG.scope;
 const OUT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "../../../docs/e2e/screenshots",
@@ -25,8 +33,12 @@ const DESKTOP = { width: 1440, height: 900 };
 const MOBILE = { width: 390, height: 844 };
 
 const consoleLog = []; // {journey, type, text}
-const overflowLog = []; // {journey, scrollWidth, ok}
+const overflowLog = []; // {journey, scrollWidth, viewportWidth, ok}
+const assertionLog = []; // {journey, assertion, ok, detail?}
+const sourceSelections = []; // {kind, label, title}
+const journeysRun = [];
 const failures = [];
+const startedAt = new Date().toISOString();
 
 let browser;
 let journey = "boot";
@@ -62,11 +74,82 @@ async function shot(page, name) {
   console.log(`shot ${name}`);
 }
 
+async function shotElement(locator, name) {
+  await locator.screenshot({ path: path.join(OUT, name) });
+  console.log(`shot ${name}`);
+}
+
 async function checkOverflow(page, name) {
-  const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
-  const ok = scrollWidth <= 390;
-  overflowLog.push({ journey: name, scrollWidth, ok });
-  if (!ok) failures.push(`横向溢出: ${name} scrollWidth=${scrollWidth}`);
+  const { scrollWidth, viewportWidth } = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    viewportWidth: document.documentElement.clientWidth,
+  }));
+  const ok = scrollWidth <= viewportWidth;
+  overflowLog.push({ journey: name, scrollWidth, viewportWidth, ok });
+  if (!ok) {
+    failures.push(
+      `横向溢出: ${name} scrollWidth=${scrollWidth} viewportWidth=${viewportWidth}`,
+    );
+  }
+}
+
+async function assertVisible(locator, assertion) {
+  try {
+    await locator.waitFor({ state: "visible", timeout: 30000 });
+    assertionLog.push({ journey, assertion, ok: true });
+  } catch (error) {
+    assertionLog.push({
+      journey,
+      assertion,
+      ok: false,
+      detail: error.message.split("\n")[0],
+    });
+    throw error;
+  }
+}
+
+async function assertNonEmptyText(locator, assertion) {
+  await assertVisible(locator, assertion);
+  const text = (await locator.innerText()).trim();
+  if (text.length === 0) {
+    assertionLog.push({
+      journey,
+      assertion: `${assertion} has text`,
+      ok: false,
+      detail: "empty text",
+    });
+    throw new Error(`${assertion} 为空`);
+  }
+  assertionLog.push({
+    journey,
+    assertion: `${assertion} has text`,
+    ok: true,
+    detail: text,
+  });
+  return text;
+}
+
+async function assertHeatmap(page, title) {
+  const heatmap = page.locator(`section[aria-label="${title}"]`);
+  await assertVisible(heatmap, `${title} heatmap`);
+  const activeCells = heatmap.getByRole("img");
+  const activeCount = await activeCells.count();
+  if (activeCount === 0) {
+    assertionLog.push({
+      journey,
+      assertion: `${title} has active days`,
+      ok: false,
+      detail: "0 active cells",
+    });
+    throw new Error(`${title} 没有活跃日`);
+  }
+  assertionLog.push({
+    journey,
+    assertion: `${title} has active days`,
+    ok: true,
+    detail: `${activeCount} active cells`,
+  });
+  return heatmap;
 }
 
 async function step(name, fn) {
@@ -77,6 +160,97 @@ async function step(name, fn) {
     failures.push(`${name}: ${e.message.split("\n")[0]}`);
     console.error(`FAIL ${name}: ${e.message.split("\n")[0]}`);
   }
+}
+
+function desktopSourceDirectory(page) {
+  return page
+    .locator("aside:visible")
+    .filter({ has: page.getByText(/^目录 · \d+ 条$/) })
+    .first();
+}
+
+async function waitForSourceDirectory(root) {
+  await assertVisible(root.getByText(/^目录 · \d+ 条$/), "source directory");
+  await assertVisible(root.locator("ul > li > button").first(), "source directory row");
+}
+
+async function waitForTextChange(locator, previousText) {
+  const deadline = Date.now() + 30000;
+  while (Date.now() < deadline) {
+    const currentText = (await locator.innerText()).trim();
+    if (currentText !== previousText) return;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error(`分页状态未变化：${previousText}`);
+}
+
+async function changeSourceDirectoryPage(root, buttonName) {
+  const pagination = root.getByRole("navigation", { name: "分页" });
+  const before = (await pagination.innerText()).trim();
+  await root.getByRole("button", { name: buttonName }).click();
+  await waitForTextChange(pagination, before);
+  await assertVisible(root.locator("ul > li > button").first(), "source directory row");
+}
+
+async function resetSourceDirectory(root) {
+  const previous = root.getByRole("button", { name: "上一页" });
+  while (await previous.isEnabled()) {
+    await changeSourceDirectoryPage(root, "上一页");
+  }
+}
+
+async function selectSourceRow(page, row, expectedKind = null) {
+  const button = row.getByRole("button").first();
+  await button.click();
+  const article = page.locator("article").filter({
+    has: page.getByRole("tab", { name: "来源视图" }),
+  });
+  const title = await assertNonEmptyText(
+    article.locator(":scope > header h2"),
+    "selected source title",
+  );
+  if (expectedKind) {
+    await assertVisible(
+      article.getByText(expectedKind.label, { exact: true }).first(),
+      `${expectedKind.kind} reader`,
+    );
+  }
+  await assertVisible(
+    article.getByRole("tab", { name: "来源视图" }),
+    "source reader tab",
+  );
+  return title;
+}
+
+async function selectFirstSource(page, root) {
+  await waitForSourceDirectory(root);
+  return selectSourceRow(page, root.locator("ul > li").first());
+}
+
+async function selectSourceByKind(page, spec) {
+  const root = desktopSourceDirectory(page);
+  await waitForSourceDirectory(root);
+  await resetSourceDirectory(root);
+
+  for (let pageIndex = 0; pageIndex < 100; pageIndex += 1) {
+    const rows = root.locator("ul > li");
+    const rowCount = await rows.count();
+    for (let index = 0; index < rowCount; index += 1) {
+      const row = rows.nth(index);
+      if (await row.getByText(spec.label, { exact: true }).count()) {
+        return selectSourceRow(page, row, spec);
+      }
+    }
+    const next = root.getByRole("button", { name: "下一页" });
+    if (!(await next.isEnabled())) break;
+    await changeSourceDirectoryPage(root, "下一页");
+  }
+  throw new Error(`未找到真实 ${spec.kind} source`);
+}
+
+async function toggleTheme(page) {
+  await page.getByRole("button", { name: "切换主题" }).click();
+  await page.waitForTimeout(200);
 }
 
 /* ---------------------------------------------------------------- journeys */
@@ -102,23 +276,59 @@ async function j00Overview() {
 async function j01Sources() {
   const { context, page } = await newPage({ theme: "light" });
   await go(page, "/sources");
-  await page.getByRole("button", { name: /Atlas MVP 决策记录/ }).first().click();
+  await selectFirstSource(page, desktopSourceDirectory(page));
   await page.waitForLoadState("networkidle");
   await page.waitForTimeout(300);
   await shot(page, "01-sources-light.png");
-  await page.getByRole("button", { name: "切换主题" }).click();
-  await page.waitForTimeout(300);
+  await toggleTheme(page);
   await shot(page, "01-sources-dark.png");
   await context.close();
 
   const m = await newPage({ viewport: MOBILE, theme: "light" });
   await go(m.page, "/sources");
-  await m.page.getByRole("button", { name: /Atlas MVP 决策记录/ }).first().click();
+  await m.page.getByRole("button", { name: "切换来源" }).click();
+  const mobileDirectory = m.page.getByRole("dialog", { name: "选择来源" });
+  await selectFirstSource(m.page, mobileDirectory);
   await m.page.waitForLoadState("networkidle");
   await m.page.waitForTimeout(300);
   await checkOverflow(m.page, "01-sources-mobile");
   await shot(m.page, "01-sources-mobile.png");
   await m.context.close();
+}
+
+async function j01SourcesV2() {
+  const { context, page } = await newPage({ theme: "light" });
+  await go(page, "/sources");
+  await assertVisible(
+    page.getByRole("heading", { name: "原料 Sources" }),
+    "Sources heading",
+  );
+
+  const heatmap = await assertHeatmap(page, "来源密度");
+  await checkOverflow(page, "01-sources-v2-heatmap-light");
+  await shotElement(heatmap, "01-sources-v2-heatmap-light.png");
+  await toggleTheme(page);
+  await checkOverflow(page, "01-sources-v2-heatmap-dark");
+  await shotElement(heatmap, "01-sources-v2-heatmap-dark.png");
+  await toggleTheme(page);
+
+  for (const spec of SOURCE_V2_KINDS) {
+    const title = await selectSourceByKind(page, spec);
+    sourceSelections.push({
+      kind: spec.kind,
+      label: spec.label,
+      title,
+    });
+    await page.waitForLoadState("networkidle");
+    await page.waitForTimeout(300);
+    await checkOverflow(page, `01-sources-v2-${spec.slug}-light`);
+    await shot(page, `01-sources-v2-${spec.slug}-light.png`);
+    await toggleTheme(page);
+    await checkOverflow(page, `01-sources-v2-${spec.slug}-dark`);
+    await shot(page, `01-sources-v2-${spec.slug}-dark.png`);
+    await toggleTheme(page);
+  }
+  await context.close();
 }
 
 const INGEST_MD = `# Atlas 公开预览演示笔记（synthetic）
@@ -276,6 +486,38 @@ async function j10History() {
   await context.close();
 }
 
+async function j10HistoryV2() {
+  const { context, page } = await newPage({ theme: "light" });
+  await go(page, "/history");
+  await assertVisible(
+    page.getByRole("heading", { name: "版本 History" }),
+    "History heading",
+  );
+
+  const heatmap = await assertHeatmap(page, "版本编译密度");
+  await checkOverflow(page, "10-history-v2-heatmap-light");
+  await shotElement(heatmap, "10-history-v2-heatmap-light.png");
+  await toggleTheme(page);
+  await checkOverflow(page, "10-history-v2-heatmap-dark");
+  await shotElement(heatmap, "10-history-v2-heatmap-dark.png");
+  await toggleTheme(page);
+
+  const firstTimelineRow = page.locator("ol > li > button").first();
+  await assertVisible(firstTimelineRow, "History timeline row");
+  await firstTimelineRow.click();
+  await assertVisible(
+    page.locator('ol > li > button[aria-current="true"]').first(),
+    "selected History timeline row",
+  );
+  await page.waitForTimeout(300);
+  await checkOverflow(page, "10-history-v2-light");
+  await shot(page, "10-history-v2-light.png");
+  await toggleTheme(page);
+  await checkOverflow(page, "10-history-v2-dark");
+  await shot(page, "10-history-v2-dark.png");
+  await context.close();
+}
+
 async function j11Evolve() {
   const { context, page } = await newPage({ theme: "light" });
   await go(page, "/evolve");
@@ -324,17 +566,12 @@ async function j14GraphMobile() {
 /* ------------------------------------------------------------------- main */
 
 async function main() {
-  try {
-    browser = await chromium.launch({ channel: "chrome" });
-    console.log("browser: channel chrome");
-  } catch {
-    browser = await chromium.launch();
-    console.log("browser: bundled chromium");
-  }
-
   const ALL = {
     "00": ["00-overview", j00Overview],
-    "01": ["01-sources", j01Sources],
+    "01":
+      SCOPE === "sources-v2"
+        ? ["01-sources-v2", j01SourcesV2]
+        : ["01-sources", j01Sources],
     "02": ["02-ingest", j02Ingest],
     "03": ["03-profile", j03Profile],
     "04": ["04-process", j04Process],
@@ -343,21 +580,67 @@ async function main() {
     "07": ["07-live-context", j07ContextSuggestion],
     "08": ["08-library", j08Library],
     "09": ["09-graph", j09Graph],
-    "10": ["10-history", j10History],
+    "10":
+      SCOPE === "sources-v2"
+        ? ["10-history-v2", j10HistoryV2]
+        : ["10-history", j10History],
     "11": ["11-evolve", j11Evolve],
     "12": ["12-snapshot", j12Snapshot],
     "13": ["13-components", j13Components],
     "14": ["14-graph-mobile", j14GraphMobile],
   };
-  const only = process.argv.slice(2);
-  for (const [key, [name, fn]] of Object.entries(ALL)) {
-    if (only.length > 0 && !only.includes(key)) continue;
+  const selectedKeys = selectJourneyKeys(Object.keys(ALL), {
+    scope: SCOPE,
+    requested: process.argv.slice(2),
+  });
+  console.log(
+    `e2e scope=${SCOPE} user=${USER} journeys=${selectedKeys.join(",")}`,
+  );
+
+  try {
+    browser = await chromium.launch({ channel: "chrome" });
+    console.log("browser: channel chrome");
+  } catch {
+    browser = await chromium.launch();
+    console.log("browser: bundled chromium");
+  }
+
+  for (const key of selectedKeys) {
+    const [name, fn] = ALL[key];
+    journeysRun.push({ key, name });
     await step(name, fn);
   }
 
   await browser.close();
 
-  const report = { consoleLog, overflowLog, failures };
+  if (consoleLog.length > 0) {
+    failures.push(`console error/warning/pageerror: ${consoleLog.length}`);
+  }
+  if (SCOPE === "sources-v2" && selectedKeys.includes("01")) {
+    const selectedKinds = new Set(sourceSelections.map(({ kind }) => kind));
+    const missingKinds = SOURCE_V2_KINDS
+      .map(({ kind }) => kind)
+      .filter((kind) => !selectedKinds.has(kind));
+    if (missingKinds.length > 0) {
+      failures.push(`缺少真实 source family: ${missingKinds.join(", ")}`);
+    }
+  }
+
+  const report = {
+    run: {
+      scope: SCOPE,
+      user: USER,
+      base: BASE,
+      started_at: startedAt,
+      finished_at: new Date().toISOString(),
+      journeys: journeysRun,
+      source_selections: sourceSelections,
+    },
+    assertions: assertionLog,
+    consoleLog,
+    overflowLog,
+    failures,
+  };
   writeFileSync(
     path.join(OUT, "e2e-run-log.json"),
     JSON.stringify(report, null, 2),
@@ -367,7 +650,7 @@ async function main() {
   console.log(`overflow: ${overflowLog.map((o) => `${o.journey}=${o.scrollWidth}`).join(" ")}`);
   console.log(`failures: ${failures.length}`);
   for (const f of failures) console.log(`  - ${f}`);
-  process.exit(failures.length || consoleLog.some((c) => c.type !== "warning") ? 1 : 0);
+  process.exit(failures.length ? 1 : 0);
 }
 
 main();

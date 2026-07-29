@@ -1,0 +1,201 @@
+{
+  "status": "structural_pass",
+  "input_hashes": {
+    "docs/experiments/opc-84d-v2/groups/G16.json": "a0309854f5580641d63b7569c3e437da6cbb69965d1530c5d798ba3430c100b7",
+    "docs/experiments/opc-84d-v2/daily-beats.json": "3027a707adf4ad9a0fdae00635bdc2e41e693ca9ea9fd915d247c07c118547cc"
+  },
+  "schema_hash": "8207240aef36f22c242b1e7b45d1915c535001a61d118309c07b1f8f63a43684",
+  "detector": {
+    "version": "opc-84d-v2-deterministic/3",
+    "config": {
+      "exact_normalized_min_chars": 80,
+      "ngram_size": 5,
+      "ngram_jaccard": 0.18,
+      "character_count_policy": "mapped-visible-body/v2",
+      "document_mapping": "ordered verbatim visible_blocks within full_markdown",
+      "excluded_from_body_chars": [
+        "frontmatter",
+        "RFC822 headers",
+        "Markdown headings and syntax",
+        "email quote prefixes and quoted reply sections"
+      ]
+    }
+  },
+  "findings": [],
+  "groups": [
+    {
+      "group_id": "G16",
+      "findings": [],
+      "metrics": {
+        "source_families": {
+          "document_library": {
+            "sources": 2,
+            "units": 16,
+            "raw_body_chars": 2080,
+            "body_chars": 2048,
+            "raw_full_markdown_chars": 2172,
+            "mapped_raw_chars": 2080,
+            "excluded_structural_chars": 32,
+            "unmapped_visible_block_chars": 0,
+            "mapped_visible_blocks": 21,
+            "unmapped_visible_blocks": 0
+          },
+          "im": {
+            "sources": 1,
+            "units": 20,
+            "raw_body_chars": 1089,
+            "body_chars": 1089
+          },
+          "email": {
+            "sources": 1,
+            "units": 6,
+            "raw_body_chars": 1286,
+            "body_chars": 1266
+          }
+        },
+        "body_chars": 4403,
+        "signal_chars": 3313,
+        "noise_chars": 521,
+        "ambiguous_chars": 569,
+        "system_noise_chars": 0,
+        "lived_noise_chars": 1090
+      },
+      "daily_beats_evidence": {
+        "group_id": "G16",
+        "days": [
+          {
+            "date": "2026-04-16",
+            "day_id": "D46",
+            "source_plan": [
+              {
+                "type": "document_library",
+                "purpose": "材料责任矩阵"
+              }
+            ],
+            "fact_ids": [
+              "F01",
+              "F02",
+              "F03",
+              "F04",
+              "F05",
+              "F06",
+              "F07",
+              "F08",
+              "F09",
+              "F10"
+            ],
+            "continuity_ids": [
+              "C01",
+              "C02",
+              "C03",
+              "C04"
+            ]
+          },
+          {
+            "date": "2026-04-17",
+            "day_id": "D47",
+            "source_plan": [
+              {
+                "type": "document_library",
+                "purpose": "现金流草表与订阅清理"
+              }
+            ],
+            "fact_ids": [
+              "F01",
+              "F02",
+              "F03",
+              "F04",
+              "F05",
+              "F06",
+              "F07",
+              "F08",
+              "F09",
+              "F10"
+            ],
+            "continuity_ids": [
+              "C01",
+              "C02",
+              "C03",
+              "C04"
+            ]
+          },
+          {
+            "date": "2026-04-18",
+            "day_id": "D48",
+            "source_plan": [
+              {
+                "type": "IM",
+                "purpose": "当日短协作、等待或生活对话"
+              },
+              {
+                "type": "email",
+                "purpose": "材料版本提交"
+              }
+            ],
+            "fact_ids": [
+              "F01",
+              "F02",
+              "F03",
+              "F04",
+              "F05",
+              "F06",
+              "F07",
+              "F08",
+              "F09",
+              "F10"
+            ],
+            "continuity_ids": [
+              "C01",
+              "C02",
+              "C03",
+              "C04"
+            ]
+          }
+        ],
+        "expected_source_counts": {
+          "meeting": 0,
+          "document_library": 2,
+          "im": 1,
+          "email": 1
+        },
+        "actual_source_counts": {
+          "meeting": 0,
+          "document_library": 2,
+          "im": 1,
+          "email": 1
+        },
+        "permitted_day_ids": [
+          "D46",
+          "D47",
+          "D48"
+        ],
+        "permitted_fact_ids": [
+          "F01",
+          "F02",
+          "F03",
+          "F04",
+          "F05",
+          "F06",
+          "F07",
+          "F08",
+          "F09",
+          "F10"
+        ],
+        "permitted_continuity_ids": [
+          "C01",
+          "C02",
+          "C03",
+          "C04"
+        ]
+      }
+    }
+  ],
+  "pending": [
+    "semantic_near_duplicate_review",
+    "independent_human_or_subagent_review"
+  ],
+  "global_hooks": {
+    "three_group_family_coverage": "pending",
+    "uniform_source_density_review": "pending"
+  }
+}

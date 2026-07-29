@@ -187,5 +187,6 @@ export/backward compatibility. Canonical readers request `audit=false`:
   cursor continuation, malformed-cursor failure and cross-user isolation.
 - Web tests prove API query construction and page-state transitions.
 - The OPC 84-day browser rerun proves Sources and Process render at most one page.
-- The post-fix report compares API bytes, route time, DOM size and scroll height with
-  `docs/experiments/results/opc-84d-frontend-baseline.json`.
+- The retained regression tests cover API bounds, page-state transitions, DOM size and
+  scroll behavior. One-off baseline captures are intentionally not kept as project
+  documentation.

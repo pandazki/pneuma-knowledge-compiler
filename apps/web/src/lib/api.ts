@@ -71,6 +71,16 @@ export interface SourceSummary {
   digested_at: string | null;
 }
 
+export interface ActivityDay {
+  date: string;
+  count: number;
+  kinds: Record<string, number>;
+}
+
+export interface ActivityCalendar {
+  days: ActivityDay[];
+}
+
 export interface SourceBlock {
   index: number;
   text: string;
@@ -229,6 +239,16 @@ export function listSources(
     kind: params.kind,
   });
   return req<Page<SourceSummary>>(`/v1/users/${u(userId)}/sources${query}`);
+}
+
+function browserCalendarOffset(): number {
+  return -new Date().getTimezoneOffset();
+}
+
+export function getSourceActivity(userId: string): Promise<ActivityCalendar> {
+  return req<ActivityCalendar>(
+    `/v1/users/${u(userId)}/sources/activity?offset_minutes=${browserCalendarOffset()}`,
+  );
 }
 
 /** Progressive compatibility helper for source pickers that still need a full inventory. */
@@ -905,13 +925,28 @@ export interface HistoryPage extends Page<HistoryItemEnvelope> {
 
 export function listHistory(
   userId: string,
-  params: { limit?: number; cursor?: string | null } = {},
+  params: {
+    limit?: number;
+    cursor?: string | null;
+    kind?: "patch" | "job" | "snapshot" | null;
+  } = {},
 ): Promise<HistoryPage> {
   const query = buildPageQuery({
     limit: params.limit ?? 25,
     cursor: params.cursor,
+    kind: params.kind,
   });
   return req<HistoryPage>(`/v1/users/${u(userId)}/history${query}`);
+}
+
+export function getHistoryActivity(
+  userId: string,
+  kind?: "patch" | "job" | "snapshot",
+): Promise<ActivityCalendar> {
+  const kindQuery = kind ? `&kind=${encodeURIComponent(kind)}` : "";
+  return req<ActivityCalendar>(
+    `/v1/users/${u(userId)}/history/activity?offset_minutes=${browserCalendarOffset()}${kindQuery}`,
+  );
 }
 
 export function compile(userId: string): Promise<CompileResult> {

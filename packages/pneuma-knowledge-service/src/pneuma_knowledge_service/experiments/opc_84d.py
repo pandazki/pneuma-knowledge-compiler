@@ -10,6 +10,9 @@ the truth set; the source payloads themselves never announce which lines are noi
 from __future__ import annotations
 
 import random
+import re
+import unicodedata
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable
@@ -408,43 +411,369 @@ EVENT_SHAPES: tuple[tuple[int, int, str, str], ...] = (
 )
 
 
-MEETING_NOISE: tuple[tuple[str, str], ...] = (
-    ("small_talk", "先等一下，顾清还在进会议室。昨晚雨挺大，我这边地铁也慢了十来分钟。"),
-    ("audio_check", "能听见吗？我刚才麦克风选错了。现在这个音量如果还有回声你们提醒我一下。"),
-    ("screen_navigation", "我共享的是不是浏览器窗口？等一下，我翻错标签页了，应该是左边第三个，不是这个监控面板。"),
-    ("disfluency", "嗯，我重新说一下，刚才那句话不准确。我的意思不是已经做完，而是今天先把能验证的那一段跑通。"),
-    ("repeated_context", "这个背景上周其实讲过一遍，我还是快速重复一下，主要怕今天新进来的同学不知道前因后果。"),
-    ("scheduling", "周三那个时间我可能会晚十分钟，日历先别急着改，等下午另一个会议确认后我再回消息。"),
-    ("tangent", "顺便说一句，新的文档站搜索好像变慢了，不过和今天的验收范围没直接关系，先记在停车场。"),
-    ("speculation", "这里我只是猜测，也可能是浏览器缓存，不要把这句当结论，待会儿看完日志再说。"),
-    ("transcript_error", "刚才转写把 RelayForge 写成了 railway force，后面看到这个词都按产品名理解，不影响实际数据。"),
-    ("acknowledgement", "好，收到。这个我先不展开，等轮到对应议题再一起看，避免来回跳。"),
-    ("recap_without_decision", "目前有人倾向方案一，也有人觉得方案二维护简单，但我们还没有足够证据，今天先不定。"),
-    ("break", "我们已经连续四十五分钟了，先停两分钟。回来以后只看剩下三个问题，不再开新话题。"),
+MEETING_NOISE: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "small_talk",
+        (
+            "先等一下，还有人正在进会议室。我刚从雨里回来，耳机上都是水。",
+            "我今天换了个房间，窗外施工有点响；听不清就直接打断我。",
+            "早上地铁临时限流，我是踩着点到的，先缓半分钟再开始。",
+            "顾清那边还在接电话，我们不用干等，先把议程顺序对一下。",
+        ),
+    ),
+    (
+        "audio_check",
+        (
+            "我刚才选成显示器麦克风了，现在切回耳机，回声应该没了。",
+            "你们能听见键盘声吗？如果太明显我就改成按键发言。",
+            "刚才那十秒没有录进去，我把最后一句重新说一遍。",
+            "唐恬的声音有点断，先关一下视频试试，内容不用从头重讲。",
+        ),
+    ),
+    (
+        "screen_navigation",
+        (
+            "我共享错窗口了，这个是本地日志，不是准备给大家看的流程图。",
+            "等一下，我在两个相同标题的标签页之间切反了，右边那个才是最新版。",
+            "页面还停在昨天的缓存，我强制刷新一下；先别按这个数字记录。",
+            "我把侧栏收起来，不然表格最后两列被遮住了，你们现在能看到吗？",
+        ),
+    ),
+    (
+        "disfluency",
+        (
+            "嗯，我收回刚才的“已经完成”，准确说是主路径跑通，边界还没验。",
+            "这句我说得太绝对了，应该改成目前样本里观察到，不是普遍规律。",
+            "我换个说法：不是功能不能做，而是这轮没有证据支持优先做。",
+            "刚才把原因和结果说反了，日志只证明发生顺序，还不能证明因果。",
+        ),
+    ),
+    (
+        "repeated_context",
+        (
+            "这个背景老成员听过，新加入的人没听过，我只补两句必要上下文。",
+            "上次我们停在这个分歧上，今天不重放整段，只说后来多了什么证据。",
+            "我先复述已确认部分，避免大家拿不同版本继续讨论。",
+            "这里和前一场会有重叠，但今天的材料时间更晚，状态可能已经变化。",
+        ),
+    ),
+    (
+        "scheduling",
+        (
+            "周三的走查我可能晚十分钟，先不要动邀请，下午我再给确定答复。",
+            "下一个会贴得太近了，这个议题如果超时就挪到异步，不临时延长。",
+            "客户那边还没确认时区，日历里的时间先保留 tentative。",
+            "周五下午我有一段离线时间，行动项别都压到那个窗口。",
+        ),
+    ),
+    (
+        "tangent",
+        (
+            "顺便记一下，文档站搜索今天变慢了，但它不属于本次验收范围。",
+            "我看到社区里有人讨论另一套索引，先放停车场，不在这里换技术路线。",
+            "刚才弹出的账单提醒和这个故障没有关系，我会后单独处理。",
+            "有个命名问题一直悬着，不过它不影响今天验证引用是否能回放。",
+        ),
+    ),
+    (
+        "speculation",
+        (
+            "这可能是缓存，也可能是旧索引，我还没看日志，先不要写成根因。",
+            "我怀疑是时区偏移，但只有一条样本，结论至少要等第二个来源。",
+            "这个现象看起来像权限问题，只是外观相似，证据还不够。",
+            "也许用户是没看到入口，也许是没有需求；现在只能把两种解释都留着。",
+        ),
+    ),
+    (
+        "transcript_error",
+        (
+            "转写刚把产品名拆成了两个英文词，原音没问题，校对时再统一。",
+            "这里的“删除”被识别成“筛选”，后面讨论的是数据删除请求。",
+            "说话人标签串了，上一句是顾清说的，不是沈砚。",
+            "数字的小数点没有进转写，先以共享屏幕为准，别从字幕抄数。",
+        ),
+    ),
+    (
+        "acknowledgement",
+        (
+            "收到，我先记下，不在这个话题中间展开，等对应议题再回。",
+            "我理解你的担心了，先让当前问题走完，避免两个线程互相覆盖。",
+            "可以，这条先标成待核对；没有异议不等于大家已经同意。",
+            "看到了，我会后把原文链接补上，现在先不凭记忆复述。",
+        ),
+    ),
+    (
+        "recap_without_decision",
+        (
+            "目前两种方案各有支持者，但维护成本数据没齐，今天不做选择。",
+            "我们确认了问题存在，还没有确认哪一种修法值得进入排期。",
+            "这轮只排除了一个明显不成立的解释，剩下的方向仍然是开放的。",
+            "大家对目标基本一致，对实现顺序没有一致意见，纪要要把两层分开。",
+        ),
+    ),
+    (
+        "break",
+        (
+            "已经连续说了快一小时，先停两分钟，回来只收行动项。",
+            "我去接杯水，录制先不停；这段静音不要当成会议结束。",
+            "我们休息一下，回来不再新增议题，只处理刚才留下的三个问号。",
+            "后面还有十分钟，先做一次时间检查，次要问题全部转异步。",
+        ),
+    ),
 )
 
-IM_NOISE: tuple[tuple[str, str], ...] = (
-    ("ack", "收到，我先把这条标一下，晚一点集中回复，不在这里展开。"),
-    ("reaction_only", "👍 我看到了，等手头这个构建结束再切回来。"),
-    ("bot_build", "CI bot：preview 构建完成，缓存命中 87%，本条通知无需操作。"),
-    ("bot_dependency", "Dependabot：发现一个 patch 版本更新，当前测试通过，尚未安排合并。"),
-    ("reschedule", "我前一个会拖了十分钟，原定时间先顺延；如果你不方便我们明早再约。"),
-    ("link_only", "先丢个链接在这：https://example.invalid/read-later ，我还没读，不代表采用里面的方案。"),
-    ("casual", "今天咖啡豆好像磨得太细了，机器一直报警，和线上监控那声还挺像。"),
-    ("thread_misalignment", "这条回错 thread 了，讨论的是文档示例，不是线上事故；我复制到正确的串里。"),
-    ("edited", "更正：我刚写的是周四，其实是周五下午；上条已编辑，日历邀请还没发。"),
-    ("status_churn", "状态先从 doing 改回 todo，依赖还没到位；这不是取消，只是今天不继续。"),
+IM_NOISE: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("ack", ("收到，晚点细看。", "看到了，先挂在这里。", "好，我补完手头这段再回。", "记下了，别把这个表情当批准。")),
+    ("reaction_only", ("👍 已阅", "👀 我在看", "先点个眼睛，稍后回复", "✅ 只表示收到，不表示验收通过")),
+    (
+        "bot_build",
+        (
+            "CI bot：preview 已完成，单元测试通过。",
+            "CI bot：文档预览部署成功，链接十五分钟后过期。",
+            "CI bot：构建取消，原因是同一分支已有更新提交。",
+            "CI bot：缓存未命中，本轮比平时多用了两分钟。",
+        ),
+    ),
+    (
+        "bot_dependency",
+        (
+            "依赖机器人开了一个 patch 更新，尚未进入排期。",
+            "安全扫描没有新增高危项，报告已归档。",
+            "自动更新检查到锁文件变化，需要人工确认后再合并。",
+            "许可证扫描完成，有一项元数据等待维护者复核。",
+        ),
+    ),
+    (
+        "reschedule",
+        (
+            "我前一个会拖延了，原定时间往后顺十分钟可以吗？",
+            "客户临时改期，今天的同步先取消，材料照常留在 thread。",
+            "明早那段我冲突了，下午三点或四点都可以。",
+            "先别动日历，我等外部协作者回完再发新邀请。",
+        ),
+    ),
+    (
+        "link_only",
+        (
+            "先存一个还没读的链接：https://example.invalid/read-later",
+            "这个文档可能相关，我只看了标题：https://example.invalid/draft",
+            "把参考页放这，暂时不代表采用：https://example.invalid/reference",
+            "稍后阅读：https://example.invalid/inbox ，目前没有摘要。",
+        ),
+    ),
+    (
+        "casual",
+        (
+            "咖啡机又提示缺水，我刚才还以为是监控告警。",
+            "今天楼下施工有点吵，我下午换个地方开会。",
+            "外面突然下雨，快递可能要晚一点到。",
+            "午饭回来我会离线半小时，紧急事项电话找我。",
+        ),
+    ),
+    (
+        "thread_misalignment",
+        (
+            "回错 thread 了，这里讨论文档示例，不是线上事故。",
+            "上一条应该发到采购串，我不在这里继续回复。",
+            "这段上下文属于另一个客户，我撤回后重新贴。",
+            "串线了；本条只纠正位置，不改变原来的决定。",
+        ),
+    ),
+    (
+        "edited",
+        (
+            "更正：我写成周四了，实际是周五下午。",
+            "上条少了一个“不”字，我已经编辑，结论以新文本为准。",
+            "刚才贴的是旧链接，已换成带日期的版本。",
+            "名字拼错了，内容不变，我只修正显示名称。",
+        ),
+    ),
+    (
+        "status_churn",
+        (
+            "先从 doing 退回 todo，依赖没到，不是取消。",
+            "这张卡暂时 blocked，等对方补样本后再开。",
+            "我把优先级降一级，今天先处理引用回放故障。",
+            "状态改回待确认；刚才的完成标记点早了。",
+        ),
+    ),
 )
 
-EMAIL_NOISE: tuple[tuple[str, str], ...] = (
-    ("signature", "此邮件由移动设备发送。签名中的职位和地址仅供联系，不构成项目范围承诺。"),
-    ("quoted_reply", "以下为历史邮件引用，内容可能已经过期：\n> 我们先按旧时间讨论\n> 是否上线仍待确认\n> 请勿据此安排生产变更"),
-    ("calendar_update", "日历系统通知：会议标题未变，视频链接已刷新。若您已接受邀请，无需回复本邮件。"),
-    ("newsletter", "本周产品通讯汇总了十二条增长建议、七个模板和三场线上活动。这是一封自动订阅邮件。"),
-    ("delivery_notice", "自动投递报告：一名抄送人地址暂时不可达，系统将在稍后重试；其他收件人已接收。"),
-    ("out_of_office", "自动回复：我今天下午不在电脑前，紧急事项请走既有支持渠道；本邮箱不会自动转发。"),
-    ("vendor_marketing", "供应商活动邀请：升级年度方案可获得额外额度。该报价与现有试点采购无关。"),
-    ("legal_footer", "本邮件及附件可能包含保密信息。如误收请删除。此通用页脚不改变双方已签署文件。"),
+EMAIL_NOISE: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "signature",
+        (
+            "此邮件从移动设备发出，排版可能与桌面版不同。",
+            "我正在外出，只能先确认收到，详细意见稍后补。",
+            "以下联系信息来自通用签名，不构成项目范围条款。",
+            "邮件签名由客户端自动附加，请以正文中的明确回复为准。",
+        ),
+    ),
+    (
+        "quoted_reply",
+        (
+            "附上上周的历史回复供定位；其中的时间已经失效，请勿直接排期。",
+            "下方引用来自旧线程，只用于解释前因后果，不代表当前批准。",
+            "客户端自动带出了上一封全文，新的答复只有顶部两段。",
+            "这段报价来自草稿版本，最终金额仍要看已签署文件。",
+        ),
+    ),
+    (
+        "calendar_update",
+        (
+            "日历系统已刷新视频链接，会议标题和参与人没有变化。",
+            "一名参与人提议了新时间，邀请仍处于待确认状态。",
+            "会议室发生冲突，线上链接保留，实体地点暂时移除。",
+            "系统检测到时区差异，请在接受邀请前核对本地时间。",
+        ),
+    ),
+    (
+        "newsletter",
+        (
+            "本周产品通讯包含增长文章、模板下载和三场线上活动。",
+            "社区周报汇总了热门讨论；它们没有经过本项目的证据审查。",
+            "自动简报推荐了几篇定价文章，推荐不等于适用于当前客户。",
+            "订阅摘要列出新工具发布，正文没有本周试点的状态更新。",
+        ),
+    ),
+    (
+        "delivery_notice",
+        (
+            "投递系统报告一名抄送人暂时不可达，其他收件人已接收。",
+            "附件扫描仍在进行，正文已经投递，稍后会补发结果。",
+            "邮件网关延迟了外部收件人队列，当前不需要重复发送。",
+            "归档地址拒收了过大的附件，客户地址未受影响。",
+        ),
+    ),
+    (
+        "out_of_office",
+        (
+            "自动回复：我今天下午不在电脑前，紧急事项请走既有支持渠道。",
+            "自动回复：本周出差，邮件会延迟处理，不会自动转发。",
+            "休假提示：下周一恢复，期间请不要把未回复视为默认同意。",
+            "外出提示：只能偶尔查看手机，审批事项将在返回后处理。",
+        ),
+    ),
+    (
+        "vendor_marketing",
+        (
+            "供应商邀请升级年度方案；该活动报价与现有试点采购无关。",
+            "营销邮件提供额外额度，但没有包含迁移成本和退出条件。",
+            "合作伙伴推荐了付费培训，这不是当前交付所需服务。",
+            "限时折扣将在月底结束；采购决策仍需走现有评审。",
+        ),
+    ),
+    (
+        "legal_footer",
+        (
+            "本邮件可能包含保密信息；误收时请删除，不要继续转发。",
+            "通用保密页脚不修改双方已经确认的范围和责任。",
+            "附件版权归原作者所有，邮件转发不授予额外使用权。",
+            "安全提示：请从既有渠道核验付款账户变更，不要只依赖邮件。",
+        ),
+    ),
+)
+
+MEETING_CONTEXT = (
+    "这只是现场协调，不改变已经确认的范围。",
+    "先让当前发言说完，待会儿再回到证据列表。",
+    "纪要里保留这个插曲即可，不需要把它提升成行动项。",
+    "如果会后没有新的书面确认，状态仍保持待核对。",
+    "这段和客户交付无关，但能解释为什么中间停了几分钟。",
+    "我先在停车场记一行，今天不为它切换主线。",
+    "下一位先接着讲，不用重复刚才整段背景。",
+    "等共享材料打开后再判断，现在不凭记忆补内容。",
+    "这里没有形成结论，转写保留原话就够了。",
+    "把事实、猜测和日程调整分开写，避免会后看成一件事。",
+    "这场会只处理眼前的验收问题，旁支留到异步。",
+    "暂时不更新任务状态，等对应负责人明确回复。",
+)
+
+IM_CONTEXT = (
+    "跟{phase}的主决定无关，先留在{channel}里。",
+    "{phase}阶段先在{weekday}再回来看；现在没有需要同步给客户的变化。",
+    "等{person}补完{phase}的上下文，我再给完整回复。",
+    "这条只说明{phase}期间{artifact}的处理进度，不代表范围更新。",
+    "先放进收件箱，今天的主线仍是{milestone}。",
+    "{phase}的会后再整理，当前不需要其他人停下手头工作。",
+    "{phase}没有新的证据，状态继续保持待确认。",
+    "这只是{phase}阶段的协作过程，别从短回复推断审批结果。",
+    "如果今天没继续跟进，就顺延到{phase}的下一次集中处理。",
+    "{phase}相关原文还没找到，先别把记忆里的版本转述给客户。",
+    "我只处理了{phase}期间的通知，业务事项仍由原负责人确认。",
+    "先把{phase}相关的链接和时间留住，是否采用要等正式讨论。",
+)
+
+DOCUMENT_LEADS = (
+    "{day}早上清理收件箱时，",
+    "为准备{phase}阶段的下一次走查，",
+    "从{customer}最近提供的材料回看，",
+    "午后重新打开这条记录时，",
+    "在关闭编辑器之前，",
+    "本周第二次整理这个主题时，",
+    "从会议逐字稿回到文档后，",
+    "把工作和个人收件箱分开以后，",
+    "晚间复盘注意力切换时，",
+    "准备把草稿移入归档前，",
+    "对照上一版决定记录时，",
+    "在没有新增证据的情况下，",
+)
+
+DOCUMENT_MIDDLES = {
+    "process": (
+        "我只补齐来源和待确认点，没有替缺失材料写结论。",
+        "这次修改保留了原来的语气，推断仍放在单独位置。",
+        "相同说法出现在不同渠道，但各自的时间与上下文仍需保留。",
+        "当前能确认的是处理动作，不是客户已经接受结果。",
+        "我把口头意见和可验收条件拆开，避免两者在摘要里粘连。",
+        "旧版本没有被覆盖，而是作为已经失效的想法继续可回放。",
+        "这条内容先进入待核对区，等会后邮件给出明确状态。",
+        "正文没有增加新范围，只修正了一个容易误读的表达。",
+    ),
+    "clipping": (
+        "原链接仍在待读区，标题和转述都不能充当证据。",
+        "它看起来与当前产品相近，但样本、预算和客户类型都不同。",
+        "我只记录了为什么收藏，没有把文章观点并入路线图。",
+        "评论区很热闹，正文却没有能复核的数据口径。",
+        "这个案例可能值得访谈追问，目前还不能改变优先级。",
+        "作者省略了实施成本，因此这里继续标为未核验。",
+        "它触发了一个问题，但没有给出可直接采用的答案。",
+        "先保留出处；若后续没有客户材料支持，就在周末清理掉。",
+    ),
+    "daily": (
+        "它没有改变今天的主任务，只造成了几次注意力切换。",
+        "我当时只记了一句话，晚些时候也没有形成新的决定。",
+        "这件事更像生活维护，不需要进入产品知识。",
+        "处理完成后没有后续动作，留在日记里就足够了。",
+        "情绪和疲劳影响了节奏，所以没有在晚上做范围判断。",
+        "临时想法先经过一晚，第二天仍重要再进入项目文档。",
+        "我关掉通知后继续工作，没有把忙碌误写成进展。",
+        "今天的产出很小，但至少没有制造未经确认的承诺。",
+    ),
+}
+
+DOCUMENT_CLOSINGS = (
+    "下一次处理必须先回到原文，而不是沿用这次印象。",
+    "如果状态变化，需要新的日期和明确责任人。",
+    "这条记录到此结束，不自动生成后续任务。",
+    "周末只决定是否继续关注，不改写它当时的不确定性。",
+    "没有新的书面确认前，现状保持不变。",
+    "后续若引用它，应同时带上来源位置和发生时间。",
+    "这次整理的目的只是恢复上下文，不是增加材料体量。",
+    "等真正进入排期时，再补验收条件和退出标准。",
+    "即使它再次出现，也不会因为重复而增加证据强度。",
+    "我把它留给未来的自己，而不是当作已经完成的工作。",
+)
+
+EMAIL_CONTEXT = (
+    "该系统消息与{phase}同周出现，但不包含客户批准。",
+    "若需要确认{milestone}，请回到原始客户线程。",
+    "这封邮件只报告投递或日程状态，不改变项目范围。",
+    "请不要因为自动邮件重复出现就提高它的证据权重。",
+    "归档时保留 Message-ID 和时间，正文无需转成行动项。",
+    "与{customer}有关的决定仍以明确书面答复为准。",
+    "该内容可以帮助解释时间线，但不能证明交付完成。",
+    "如果通知与人工回复冲突，先隔离并请求发件人确认。",
 )
 
 
@@ -705,6 +1034,8 @@ def _meeting(
     segments: list[dict[str, Any]] = []
     cursor = started_at
     signal_index = 0
+    used_noise_texts: set[str] = set()
+    session_label = "客户周走查" if suffix == "main" else "发布与风险复盘"
     for index in range(1, count + 1):
         segment_id = f"{meeting_id}-s{index:03d}"
         speaker_id = speakers[(index + week + (1 if suffix != "main" else 0)) % len(speakers)]
@@ -715,23 +1046,49 @@ def _meeting(
                 "这里请大家明确确认，当前有效版本是：",
                 "先区分事实和猜测，已经有材料支撑的是：",
                 "这个要写进会后行动项，不是口头建议：",
+                "对照原始材料后，目前可以稳定写下的是：",
+                "这一条请保留发生时间，内容是：",
+                "旧说法先不要覆盖；这次明确更新为：",
+                "为了让下次走查可以直接回放，我记录为：",
             )
-            text = f"{speaker_names[speaker_id]}：{prefixes[signal_index % len(prefixes)]}{value}"
+            closings = (
+                "如果有人不同意，请现在指出具体来源。",
+                "会后邮件只确认这句话，不顺带扩张范围。",
+                "负责人和日期继续按行动项单独记录。",
+                "这条进入纪要，其他讨论仍留在待核对区。",
+                "后续若状态变化，需要新的书面记录。",
+                "我会把引用位置补在同一句后面。",
+            )
+            text = (
+                f"{speaker_names[speaker_id]}："
+                f"{builder.rng.choice(prefixes)}{value}"
+                f"{builder.rng.choice(closings)}"
+            )
             is_noise = False
             noise_type = None
             signal_index += 1
         else:
-            noise_type, raw = MEETING_NOISE[(index * 5 + week) % len(MEETING_NOISE)]
-            elaboration = (
-                f"今天讨论的是「{arc.objective}」，但这段只是在整理现场，不新增决定。"
-                if index % 3 == 0
-                else "如果后面有正式结论，请以会后确认邮件和决定记录为准。"
+            noise_type, variants = MEETING_NOISE[
+                (index * 5 + week) % len(MEETING_NOISE)
+            ]
+            scope_variants = (
+                f"在{arc.phase}阶段的{session_label}里，",
+                f"今天主议题仍是{arc.objective}；",
+                f"围绕“{arc.milestone}”这项里程碑，",
+                f"在{arc.phase}阶段，就{arc.customer}这次{session_label}而言，",
             )
-            text = (
-                f"{speaker_names[speaker_id]}：{raw}{elaboration}"
-                "我先把现场话保留下来，里面的停顿、重复和临时判断都不要自动抹平，"
-                "否则复盘时会误以为当时已经达成一致。"
-            )
+            for _ in range(40):
+                candidate = (
+                    f"{speaker_names[speaker_id]}：{builder.rng.choice(variants)}"
+                    f"{builder.rng.choice(scope_variants)}"
+                    f"{builder.rng.choice(MEETING_CONTEXT)}"
+                )
+                if candidate not in used_noise_texts:
+                    text = candidate
+                    used_noise_texts.add(candidate)
+                    break
+            else:  # combination space is intentionally much larger than one meeting
+                raise RuntimeError(f"meeting noise variation exhausted for {meeting_id}")
             is_noise = True
         duration = 11 + (index * 7 + week) % 21
         ended = cursor + timedelta(seconds=duration)
@@ -778,15 +1135,33 @@ def _meeting(
     }
 
 
-def _expanded_paragraphs(lines: Iterable[str], *, rounds: int) -> str:
+def _expanded_paragraphs(
+    builder: _Builder,
+    lines: Iterable[str],
+    *,
+    rounds: int,
+    mode: str,
+    phase: str,
+    customer: str,
+    day: str,
+) -> str:
     source = tuple(lines)
     paragraphs: list[str] = []
+    used: set[str] = set()
     for index in range(rounds):
         value = source[index % len(source)]
-        paragraphs.append(
-            f"{value} 这段记录保留当时的上下文和未决状态；后续若有明确确认，"
-            f"以带日期的决定记录为准。记录序号 {index + 1:02d}。"
-        )
+        context = {"day": day, "phase": phase, "customer": customer}
+        for _ in range(60):
+            lead = builder.rng.choice(DOCUMENT_LEADS).format(**context)
+            middle = builder.rng.choice(DOCUMENT_MIDDLES[mode])
+            closing = builder.rng.choice(DOCUMENT_CLOSINGS)
+            paragraph = f"{lead}{value.rstrip('。！？')}。{middle}{closing}"
+            if paragraph not in used:
+                used.add(paragraph)
+                paragraphs.append(paragraph)
+                break
+        else:
+            raise RuntimeError(f"document variation exhausted for {phase}/{mode}")
     return "\n\n".join(paragraphs)
 
 
@@ -812,19 +1187,25 @@ def _documents(
         f"- 客户：[[01-Projects/RelayForge/Customers/{arc.customer}]]\n"
         "\n## 工作过程\n\n"
         + _expanded_paragraphs(
+            builder,
             (
                 "先把能直接回到原文的句子列出来，再将推断放到单独小节。",
                 "同一个结论在会议、消息和邮件中出现时，保留各自时间与语气差异。",
                 "没有明确确认的事项继续留在待验证区，不把重复出现当作事实。",
                 "周末复盘只改变优先级，不回写或美化原始来源。",
             ),
-            rounds=20,
+            rounds=8 + week % 4,
+            mode="process",
+            phase=arc.phase,
+            customer=arc.customer,
+            day=base.date().isoformat(),
         )
     )
     clip_content = (
         f"# 未整理剪藏 · {arc.phase}\n\n"
         f"tags: #read-later #unverified\n\n"
         + _expanded_paragraphs(
+            builder,
             (
                 "有人说所有 B2B 产品都应该先做团队权限，但这篇帖子没有数据来源。",
                 "收藏了一篇增长文章，只看了标题；里面的漏斗数字不适用于当前客户。",
@@ -833,7 +1214,11 @@ def _documents(
                 "把三个可能的首页文案放在这里，顺序随机，暂时不选。",
                 "外部案例声称一天获得上千注册，未核验渠道、预算或转化定义。",
             ),
-            rounds=45,
+            rounds=14 + week % 5,
+            mode="clipping",
+            phase=arc.phase,
+            customer=arc.customer,
+            day=base.date().isoformat(),
         )
     )
     daily_content = (
@@ -850,13 +1235,18 @@ def _documents(
         )
         + "\n\n## 随手记\n\n"
         + _expanded_paragraphs(
+            builder,
             (
                 "上午切换了太多窗口，几次忘记刚才为什么打开日志。",
                 "想到一个功能名字又觉得太像别的产品，先不做任何设计。",
                 "社区里有人推荐另一套技术栈，看起来有趣，但迁移成本完全没算。",
                 "晚上状态一般，只修了两个小错误，没有形成需要长期保存的结论。",
             ),
-            rounds=30,
+            rounds=8 + (week * 2) % 5,
+            mode="daily",
+            phase=arc.phase,
+            customer=arc.customer,
+            day=base.date().isoformat(),
         )
     )
     specs = (
@@ -951,6 +1341,18 @@ def _im_source(
     ]
     conversations: list[dict[str, Any]] = []
     signals = _signal_values(arc)
+    used_noise_texts: set[str] = set()
+    weekdays = ("周一", "周二", "周三", "周四", "周五", "周六", "周日")
+    artifacts = (
+        "预览构建",
+        "会议邀请",
+        "导入样本",
+        "引用清单",
+        "问题列表",
+        "支持收件箱",
+        "依赖更新",
+        "归档线程",
+    )
     for conv_index, (title, kind, members) in enumerate(
         (
             (
@@ -980,22 +1382,49 @@ def _im_source(
             )
             if index in signal_positions:
                 value = signals[signal_index % len(signals)]
+                signal_openers = (
+                    "把这条落成可核对记录：",
+                    "对照今天的原文，我确认目前版本是：",
+                    "这不是表情确认，完整状态写在这里：",
+                    "为免下次从头追 thread，当前可以写成：",
+                )
+                signal_closings = (
+                    "请在 thread 里指出来源或修改。",
+                    "如果表述不准，直接引用原句纠正。",
+                    "这条之外没有新增承诺。",
+                    "后续变化另开带日期的回复。",
+                )
                 text = (
-                    f"把这条落成可核对记录：{value}"
-                    " 请在 thread 里指出来源或修改，不用只回一个表情。"
+                    f"{builder.rng.choice(signal_openers)}{value}"
+                    f"{builder.rng.choice(signal_closings)}"
                 )
                 sender = members[(index + week) % max(1, len(members) - 1)]
                 is_noise = False
                 noise_type = None
                 signal_index += 2
             else:
-                noise_type, raw = IM_NOISE[(index * 3 + week + conv_index) % len(IM_NOISE)]
-                text = (
-                    f"{raw} 当前频道主题是「{arc.phase}」，"
-                    "但这条消息没有形成新的范围、承诺或客户事实。"
-                    "保留它是为了还原真实协作流：人们会确认、跑题、等待和改期，"
-                    "并不是每次敲回车都在创造值得长期保存的知识。"
-                )
+                noise_type, variants = IM_NOISE[
+                    (index * 3 + week + conv_index) % len(IM_NOISE)
+                ]
+                context = {
+                    "phase": arc.phase,
+                    "channel": title,
+                    "weekday": weekdays[(index - 1) // 6 % len(weekdays)],
+                    "person": users[(index + week) % 4]["display_name"],
+                    "artifact": artifacts[(index * 3 + week) % len(artifacts)],
+                    "milestone": arc.milestone,
+                }
+                for _ in range(40):
+                    candidate = (
+                        f"{builder.rng.choice(variants)} "
+                        f"{builder.rng.choice(IM_CONTEXT).format(**context)}"
+                    )
+                    if candidate not in used_noise_texts:
+                        text = candidate
+                        used_noise_texts.add(candidate)
+                        break
+                else:
+                    raise RuntimeError(f"IM noise variation exhausted for B{week:02d}")
                 sender = (
                     "u-ci"
                     if noise_type.startswith("bot_")
@@ -1069,6 +1498,55 @@ def _email_source(
         arc.commitments[0],
         arc.constraints[0],
     )
+    greetings = (
+        "顾清，你好，",
+        "沈砚，你好，",
+        "各位好，",
+        "你好，补充一条，",
+        "收到上一封邮件，",
+        "接着刚才的线程，",
+    )
+    evidence_notes = (
+        "为方便回放，这封邮件只写可定位到原始材料的内容。",
+        "会中猜测没有写进下面的确认项，避免它看起来像结论。",
+        "如果正文与附件不一致，请直接回复差异位置。",
+        "本次确认不覆盖旧邮件，后续仍可查看变化前的版本。",
+        "请不要从未回复推断同意；需要明确的同意、修改或拒绝。",
+        "引用位置会随归档一起保留，转述不能替代原文。",
+    )
+    signoffs = (
+        "谢谢\n沈砚",
+        "先到这里\n沈砚",
+        "等你的明确回复\n沈砚",
+        "祝好\n沈砚",
+        "收到后请直接标注修改处\n沈砚",
+        "会后见\n沈砚",
+    )
+    system_openings = (
+        "您好，以下是本次自动状态摘要。",
+        "系统通知：这是一封无需直接回复的状态邮件。",
+        "收件箱提醒：以下信息由服务自动生成。",
+        "归档通知：系统记录了一次投递或日程变化。",
+        "服务摘要：请先核对时间，再决定是否需要人工处理。",
+        "自动消息：本邮件用于解释收件箱里的状态变化。",
+    )
+    response_instructions = (
+        "回复时请保留原主题，并明确写出同意、修改或拒绝。",
+        "若有异议，请指出对应原文；没有回复不会被当作默认接受。",
+        "请只确认你能够承诺的部分，其余内容继续标为待核对。",
+        "如需调整，请同时给出新表述和可接受的完成时间。",
+        "这次只收书面确认，不把会中口头倾向升级为决定。",
+        "请在原线程中回复，避免脱离上下文转发一句结论。",
+    )
+    delivery_notes = (
+        "若你已经处理，无需为了这封自动消息重复操作。",
+        "该通知会随线程归档，回复不会发送给机器人。",
+        "系统稍后可能再发状态更新，请以最新时间戳为准。",
+        "需要人工判断时，请转到原项目线程，不在本邮件中审批。",
+        "这条记录只用于解释收件箱时间线。",
+        "无需转发；相关负责人已能在原系统看到状态。",
+    )
+    message_positions = ("首次来信", "第一次回复", "补充确认", "收尾回复")
     for thread_index in range(1, 3):
         thread_id = f"mail-b{week:02d}-t{thread_index:02d}"
         subject = (
@@ -1081,6 +1559,8 @@ def _email_source(
         references: list[str] = []
         for index in range(1, 5):
             message_id = f"<{thread_id}-m{index:02d}@relayforge.example>"
+            position = message_positions[index - 1]
+            thread_label = "客户确认线程" if thread_index == 1 else "服务通知线程"
             at = base + timedelta(
                 days=1 + index,
                 hours=2 + thread_index * 2,
@@ -1089,31 +1569,54 @@ def _email_source(
             if thread_index == 1 and index in {1, 3}:
                 value = signal_values[index - 1]
                 text = (
-                    f"你好，\n\n本次需要明确确认的是：{value}\n\n"
-                    f"本周里程碑为「{arc.milestone}」。请直接回复同意、修改或拒绝，"
-                    "沉默不会被视为批准。\n\n"
-                    "为方便回放，本邮件只引用稳定业务事实，不把会中猜测写成结论。\n\n"
-                    "沈砚\nRelayForge"
+                    f"{builder.rng.choice(greetings)}这封{position}来自{arc.phase}阶段的"
+                    f"{thread_label}，需要明确确认的是：{value}\n\n"
+                    f"在这次{position}发出时，本周工作里程碑是{arc.milestone}。"
+                    f"{builder.rng.choice(evidence_notes)}\n\n"
+                    f"{builder.rng.choice(response_instructions)}"
+                    f"这项{position}确认关系到{arc.customer}后续如何安排，"
+                    "请不要脱离当前线程转述。"
+                    f"\n{builder.rng.choice(signoffs)}"
                 )
                 is_noise = False
                 noise_type = None
                 from_ = owner if index == 1 else customer
                 to = [customer if index == 1 else owner]
             else:
-                noise_type, raw = EMAIL_NOISE[
+                noise_type, variants = EMAIL_NOISE[
                     (week + thread_index * 4 + index) % len(EMAIL_NOISE)
                 ]
-                repeated = "\n\n".join(
-                    f"{raw}\n通知批次 {copy + 1}；若已处理请忽略，不需要回复。"
-                    for copy in range(6)
+                _, secondary_variants = EMAIL_NOISE[
+                    (week + thread_index * 2 + index + 3) % len(EMAIL_NOISE)
+                ]
+                context = builder.rng.choice(EMAIL_CONTEXT).format(
+                    phase=arc.phase,
+                    milestone=arc.milestone,
+                    customer=arc.customer,
+                )
+                from_ = (
+                    ops
+                    if thread_index == 2
+                    else (customer if index % 2 == 0 else owner)
+                )
+                opening = (
+                    builder.rng.choice(system_openings)
+                    if from_ == ops
+                    else builder.rng.choice(greetings)
                 )
                 text = (
-                    f"您好，\n\n{repeated}\n\n"
-                    f"当前邮件主题与「{arc.phase}」同周出现，但自动内容不代表客户决定。\n\n"
-                    f"{EMAIL_NOISE[(index + 3) % len(EMAIL_NOISE)][1]}"
+                    f"{opening}{builder.rng.choice(variants)}"
+                    f"它是{arc.phase}阶段{thread_label}中的{position}，"
+                    f"与当周正在推进的{arc.objective}并不是同一件事。\n\n"
+                    f"{context}在这封{position}归档时，当前业务里程碑仍然是"
+                    f"{arc.milestone}，"
+                    f"若两边状态看起来冲突，应先回到{arc.customer}的人工往来核对。\n\n"
+                    f"{builder.rng.choice(secondary_variants)}"
+                    f"{builder.rng.choice(delivery_notes)}"
+                    f"归档时把这封{position}保留为{arc.phase}期间的通信噪声，"
+                    "不要从通知频率推断工作已经完成。"
                 )
                 is_noise = True
-                from_ = ops if thread_index == 2 else (customer if index % 2 == 0 else owner)
                 to = [owner] if from_ == ops or from_ == customer else [customer]
             message = {
                 "message_id": message_id,
@@ -1177,6 +1680,100 @@ def _email_source(
     }
 
 
+def _normalized_visible_text(text: str) -> str:
+    return re.sub(r"\s+", " ", unicodedata.normalize("NFKC", text)).strip()
+
+
+def _template_shape(text: str) -> str:
+    normalized = _normalized_visible_text(text).lower()
+    normalized = re.sub(r"https?://\S+", "<url>", normalized)
+    normalized = re.sub(r"[\w.+-]+@[\w.-]+", "<email>", normalized)
+    normalized = re.sub(r"「[^」]*」", "「<topic>」", normalized)
+    normalized = re.sub(
+        r"\b(?:b|week|evt|doc|rf|im|mail)[-_]?\d[\w.-]*\b",
+        "<id>",
+        normalized,
+    )
+    return re.sub(r"\d+(?:[.:/-]\d+)*", "<n>", normalized)
+
+
+def _source_repetition_metrics(
+    batches: list[ExperimentBatch],
+) -> dict[str, dict[str, float | int]]:
+    fragments: dict[str, list[str]] = defaultdict(list)
+    for batch in batches:
+        for contract in batch.contracts:
+            match contract["schema"]:
+                case "pneuma.source.meeting/v1":
+                    fragments["meeting"].extend(
+                        segment["text"] for segment in contract["segments"]
+                    )
+                case "pneuma.source.document-library/v1":
+                    for document in contract["documents"]:
+                        fragments["document_library"].extend(
+                            paragraph
+                            for paragraph in re.split(
+                                r"\n\s*\n", document["content"]
+                            )
+                            if _normalized_visible_text(paragraph)
+                        )
+                case "pneuma.source.im/v1":
+                    for conversation in contract["conversations"]:
+                        fragments["im"].extend(
+                            message["text"] for message in conversation["messages"]
+                        )
+                case "pneuma.source.email/v1":
+                    for thread in contract["threads"]:
+                        for message in thread["messages"]:
+                            fragments["email"].extend(
+                                paragraph
+                                for paragraph in re.split(
+                                    r"\n\s*\n", message["text"]
+                                )
+                                if _normalized_visible_text(paragraph)
+                            )
+
+    metrics: dict[str, dict[str, float | int]] = {}
+    for source_type, values in fragments.items():
+        exact = Counter(_normalized_visible_text(value) for value in values)
+        templates = Counter(_template_shape(value) for value in values)
+        prose_values = (
+            [
+                value
+                for value in values
+                if not _normalized_visible_text(value).startswith("#")
+                and not _normalized_visible_text(value).lower().startswith("tags:")
+            ]
+            if source_type == "document_library"
+            else values
+        )
+        prose_exact = Counter(
+            _normalized_visible_text(value) for value in prose_values
+        )
+        prose_templates = Counter(_template_shape(value) for value in prose_values)
+        metrics[source_type] = {
+            "fragments": len(values),
+            "exact_duplicate_excess_ratio": sum(
+                count - 1 for count in exact.values()
+            )
+            / len(values),
+            "template_duplicate_excess_ratio": sum(
+                count - 1 for count in templates.values()
+            )
+            / len(values),
+            "prose_fragments": len(prose_values),
+            "prose_exact_duplicate_excess_ratio": sum(
+                count - 1 for count in prose_exact.values()
+            )
+            / len(prose_values),
+            "prose_template_duplicate_excess_ratio": sum(
+                count - 1 for count in prose_templates.values()
+            )
+            / len(prose_values),
+        }
+    return dict(sorted(metrics.items()))
+
+
 def _stats(
     batches: list[ExperimentBatch], events: list[dict[str, Any]], atoms: list[dict[str, Any]]
 ) -> dict[str, Any]:
@@ -1216,6 +1813,7 @@ def _stats(
         "noise_atom_ratio": sum(item["is_noise"] for item in atoms) / len(atoms),
         "noise_chars": noise_chars,
         "noise_char_ratio": noise_chars / chars,
+        "visible_repetition": _source_repetition_metrics(batches),
     }
 
 

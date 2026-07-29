@@ -24,7 +24,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
-from ..domain.canonical import CANONICAL_CITATION_RE
+from ..domain.canonical import CANONICAL_CITATION_MARKER_RE, iter_canonical_citations
 from ..domain.ids import extract_anchors
 from ..domain.source import NormalizedSource
 from .anchor_ops import missing_anchors, unanchored_blocks
@@ -129,31 +129,35 @@ def run_gate(
     alias_map = alias_map or {}
     for path, doc in docs.items():
         base_body = base_bodies.get(path, "")
-        for m in CANONICAL_CITATION_RE.finditer(doc.body):
-            if known_source_bounds is None and m.group(0) in base_body:
-                continue  # grandfathered: unchanged, previously-validated citation
-            sid = alias_map.get(m.group("sid"), m.group("sid"))
-            start = int(m.group("start"))
-            end = int(m.group("end")) if m.group("end") is not None else start
-            if sid not in bounds:
-                violations.append(
-                    Violation(
-                        "citation",
-                        path,
-                        f"citation 引用了本次未供给的 source_id={sid}。",
+        for marker in CANONICAL_CITATION_MARKER_RE.finditer(doc.body):
+            # Preserve the existing single-span grandfather rule: only a byte-identical
+            # marker already present in this document's base body is exempt.
+            grandfathered = known_source_bounds is None and marker.group(0) in base_body
+            for citation in iter_canonical_citations(marker.group(0)):
+                if grandfathered:
+                    continue
+                sid = alias_map.get(str(citation.source_id), str(citation.source_id))
+                start = citation.block_start
+                end = citation.block_end
+                if sid not in bounds:
+                    violations.append(
+                        Violation(
+                            "citation",
+                            path,
+                            f"citation 引用了本次未供给的 source_id={sid}。",
+                        )
                     )
-                )
-                continue
-            n = bounds[sid]
-            if start > end or start < 0 or end >= n:
-                violations.append(
-                    Violation(
-                        "citation",
-                        path,
-                        f"citation [{sid} ¶{start}-{end}] 越界（该 source 有 {n} 个 block，"
-                        f"合法区间 0..{n - 1}）。",
+                    continue
+                n = bounds[sid]
+                if start > end or start < 0 or end >= n:
+                    violations.append(
+                        Violation(
+                            "citation",
+                            path,
+                            f"citation [{sid} ¶{start}-{end}] 越界（该 source 有 {n} 个 block，"
+                            f"合法区间 0..{n - 1}）。",
+                        )
                     )
-                )
 
     # 4. frontmatter completeness.
     violations.extend(check_frontmatter(docs))

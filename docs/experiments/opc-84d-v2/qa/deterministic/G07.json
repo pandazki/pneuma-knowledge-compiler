@@ -1,0 +1,192 @@
+{
+  "status": "structural_pass",
+  "input_hashes": {
+    "docs/experiments/opc-84d-v2/groups/G07.json": "338fcbcc261fd6fe8ed698db8235ee5e29803589f33bb5edb1aae02abbde14b7",
+    "docs/experiments/opc-84d-v2/daily-beats.json": "3027a707adf4ad9a0fdae00635bdc2e41e693ca9ea9fd915d247c07c118547cc"
+  },
+  "schema_hash": "8207240aef36f22c242b1e7b45d1915c535001a61d118309c07b1f8f63a43684",
+  "detector": {
+    "version": "opc-84d-v2-deterministic/3",
+    "config": {
+      "exact_normalized_min_chars": 80,
+      "ngram_size": 5,
+      "ngram_jaccard": 0.18,
+      "character_count_policy": "mapped-visible-body/v2",
+      "document_mapping": "ordered verbatim visible_blocks within full_markdown",
+      "excluded_from_body_chars": [
+        "frontmatter",
+        "RFC822 headers",
+        "Markdown headings and syntax",
+        "email quote prefixes and quoted reply sections"
+      ]
+    }
+  },
+  "findings": [],
+  "groups": [
+    {
+      "group_id": "G07",
+      "findings": [],
+      "metrics": {
+        "source_families": {
+          "meeting": {
+            "sources": 1,
+            "units": 14,
+            "raw_body_chars": 1333,
+            "body_chars": 1333
+          },
+          "document_library": {
+            "sources": 2,
+            "units": 18,
+            "raw_body_chars": 2093,
+            "body_chars": 2089,
+            "raw_full_markdown_chars": 2191,
+            "mapped_raw_chars": 2093,
+            "excluded_structural_chars": 4,
+            "unmapped_visible_block_chars": 0,
+            "mapped_visible_blocks": 18,
+            "unmapped_visible_blocks": 0
+          },
+          "im": {
+            "sources": 2,
+            "units": 18,
+            "raw_body_chars": 1142,
+            "body_chars": 1142
+          }
+        },
+        "body_chars": 4564,
+        "signal_chars": 3275,
+        "noise_chars": 508,
+        "ambiguous_chars": 781,
+        "system_noise_chars": 0,
+        "lived_noise_chars": 1289
+      },
+      "daily_beats_evidence": {
+        "group_id": "G07",
+        "days": [
+          {
+            "date": "2026-03-20",
+            "day_id": "D19",
+            "source_plan": [
+              {
+                "type": "meeting",
+                "purpose": "当日需要口头核对的分歧或边界"
+              },
+              {
+                "type": "document_library",
+                "purpose": "采购问卷模板"
+              }
+            ],
+            "fact_ids": [
+              "F01",
+              "F02",
+              "F03",
+              "F04",
+              "F05",
+              "F06",
+              "F07"
+            ],
+            "continuity_ids": [
+              "C01",
+              "C02",
+              "C03"
+            ]
+          },
+          {
+            "date": "2026-03-21",
+            "day_id": "D20",
+            "source_plan": [
+              {
+                "type": "document_library",
+                "purpose": "来源映射表"
+              }
+            ],
+            "fact_ids": [
+              "F01",
+              "F02",
+              "F03",
+              "F04",
+              "F05",
+              "F06",
+              "F07",
+              "F08"
+            ],
+            "continuity_ids": [
+              "C01",
+              "C02",
+              "C03"
+            ]
+          },
+          {
+            "date": "2026-03-22",
+            "day_id": "D21",
+            "source_plan": [
+              {
+                "type": "IM",
+                "purpose": "CI 通知、邻里闲聊与短确认"
+              },
+              {
+                "type": "IM",
+                "purpose": "当日短协作、等待或生活对话"
+              }
+            ],
+            "fact_ids": [
+              "F01",
+              "F02",
+              "F03",
+              "F04",
+              "F05",
+              "F06",
+              "F07",
+              "F08"
+            ],
+            "continuity_ids": [
+              "C01",
+              "C02",
+              "C03"
+            ]
+          }
+        ],
+        "expected_source_counts": {
+          "meeting": 1,
+          "document_library": 2,
+          "im": 2,
+          "email": 0
+        },
+        "actual_source_counts": {
+          "meeting": 1,
+          "document_library": 2,
+          "im": 2,
+          "email": 0
+        },
+        "permitted_day_ids": [
+          "D19",
+          "D20",
+          "D21"
+        ],
+        "permitted_fact_ids": [
+          "F01",
+          "F02",
+          "F03",
+          "F04",
+          "F05",
+          "F06",
+          "F07",
+          "F08"
+        ],
+        "permitted_continuity_ids": [
+          "C01",
+          "C02",
+          "C03"
+        ]
+      }
+    }
+  ],
+  "pending": [
+    "semantic_near_duplicate_review",
+    "independent_human_or_subagent_review"
+  ],
+  "global_hooks": {
+    "three_group_family_coverage": "pending",
+    "uniform_source_density_review": "pending"
+  }
+}

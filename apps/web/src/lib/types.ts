@@ -115,9 +115,13 @@ export interface JobRecord {
 }
 
 export interface SidecarClaimRef {
+  type?: "claim_added" | "claim_revised" | string;
+  path?: string;
   anchor?: { document_id?: string; anchor?: string };
   flags?: FlagKind[];
   note?: string;
+  before?: string | null;
+  after?: string;
 }
 
 /**

@@ -29,7 +29,7 @@ _CARD = CanonicalDocument(
     pneuma_id=DocumentId("doc-card"),
     path="materials/contract.md",
     frontmatter={"type": "material"},
-    body="## 合同卡片\n\n关键条款蒸馏。[cite: s1 ¶0-3] <!-- c:dddd -->",
+    body="## 合同卡片\n\n关键条款蒸馏。[cite: s1 ¶0,2-3] <!-- c:dddd -->",
 )
 
 

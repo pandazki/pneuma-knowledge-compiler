@@ -1,0 +1,1721 @@
+{
+  "schema": "pneuma.experiment.opc-84d-v2.group-content/v1",
+  "group_id": "G07",
+  "group_window": {
+    "starts_on": "2026-03-20",
+    "ends_on": "2026-03-22",
+    "day_count": 3,
+    "timezone": "Asia/Shanghai"
+  },
+  "story_scope": {
+    "allowed_story_beat_ids": [
+      "D19",
+      "D20",
+      "D21"
+    ],
+    "known_fact_ids": [
+      "F01",
+      "F02",
+      "F03",
+      "F04",
+      "F05",
+      "F06",
+      "F07",
+      "F08"
+    ],
+    "open_continuity_ids": [
+      "C01",
+      "C02",
+      "C03"
+    ],
+    "new_continuity_ids": []
+  },
+  "research_context": [
+    {
+      "research_ref_id": "G07-R01",
+      "topic_query": "NIST Privacy Framework data processing risk management communication",
+      "url": "https://www.nist.gov/privacy-framework",
+      "title": "NIST Privacy Framework",
+      "accessed_on": "2026-07-29",
+      "credibility": {
+        "tier": "official",
+        "rationale": "The framework owner publishes a primary reference for treating processing choices and communication as explicit risk-management work."
+      },
+      "applicability_scope": "Shapes the D19 questionnaire as separately answerable acceptance questions about export and project removal, rather than an implied legal promise. It supplies no retention duration, policy, right, or approval for fictional parties.",
+      "author_fact_summaries": [
+        "A data-processing decision can be made more reviewable when the action, affected material, and responsible follow-up are recorded separately.",
+        "A question list can expose an unresolved control without claiming that the control has already been implemented."
+      ],
+      "fictionalization_boundary": "No framework terminology, control catalogue, organization, assessment method, statutory interpretation, or source wording enters fictional materials.",
+      "applied_authored_ids": [
+        "G07d19QuestionBlock02Auth",
+        "G07d19QuestionBlock04Auth"
+      ]
+    },
+    {
+      "research_ref_id": "G07-R02",
+      "topic_query": "RFC 3339 date time offset local time representation",
+      "url": "https://www.rfc-editor.org/rfc/rfc3339.html",
+      "title": "RFC 3339: Date and Time on the Internet",
+      "accessed_on": "2026-07-29",
+      "credibility": {
+        "tier": "primary",
+        "rationale": "The IETF RFC is the primary specification for representing dates, local times, and numeric offsets in interoperable records."
+      },
+      "applicability_scope": "Shapes D21's narrow observation that recording exports contain more than one time notation and that an unresolved interpretation must remain a risk, not a fabricated shift. It supplies no parser, conversion result, service, or production behavior.",
+      "author_fact_summaries": [
+        "A timestamp representation can carry a local clock value together with an offset, while another record may omit part of that context.",
+        "Different time notations require an explicit interpretation before they can safely be compared on one timeline."
+      ],
+      "fictionalization_boundary": "No RFC labels, examples, normative language, algorithms, identifiers, or prose are copied into fictional chats.",
+      "applied_authored_ids": [
+        "G07d21TimeMsg03Auth",
+        "G07d21TimeMsg08Auth"
+      ]
+    }
+  ],
+  "sources": {
+    "meetings": [
+      {
+        "source_id": "G07d19MeetingSource",
+        "schema": "pneuma.source.meeting/v1",
+        "provider": "mock",
+        "meeting_id": "G07d19AcceptanceMeeting",
+        "title": "试点验收项与采购问题单",
+        "started_at": "2026-03-20T10:06:00+08:00",
+        "ended_at": "2026-03-20T11:03:00+08:00",
+        "timezone": "Asia/Shanghai",
+        "owner_participant_ids": [
+          "G07personLin"
+        ],
+        "participants": [
+          {
+            "participant_id": "G07personLin",
+            "display_name": "林舟",
+            "role": "product",
+            "synthetic_address": "lin.zhou@seamlog.test"
+          },
+          {
+            "participant_id": "G07personWu",
+            "display_name": "吴岚",
+            "role": "manager",
+            "synthetic_address": "wu.lan@bamboo.test"
+          },
+          {
+            "participant_id": "G07personSun",
+            "display_name": "孙秋",
+            "role": "legal",
+            "synthetic_address": "sun.qiu@advisory.test"
+          }
+        ],
+        "agenda": [
+          {
+            "agenda_id": "G07d19Agenda01",
+            "text": "确认试点验收必须能回答的边界，不讨论起始日期。",
+            "authorship": {
+              "authored_id": "G07d19Agenda01Auth",
+              "occurred_at": "2026-03-20T10:06:00+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D19"
+                ],
+                "fact_ids": [
+                  "F07"
+                ],
+                "continuity_ids": [
+                  "C03"
+                ]
+              }
+            }
+          }
+        ],
+        "utterances": [
+          {
+            "utterance_id": "G07d19Turn01",
+            "speaker_id": "G07personLin",
+            "started_at": "2026-03-20T10:06:00+08:00",
+            "ended_at": "2026-03-20T10:10:00+08:00",
+            "text": "我把腕托刚拆开，包装纸还压在键盘边。今天不问什么时候开始，也不谈第一批材料；我只想把验收写成能被你们指出哪里不够的动作。现在草稿里只有“能回到原话”，吴岚说这太像展示。",
+            "authorship": {
+              "authored_id": "G07d19Turn01Auth",
+              "occurred_at": "2026-03-20T10:06:00+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D19"
+                ],
+                "fact_ids": [],
+                "continuity_ids": []
+              }
+            }
+          },
+          {
+            "utterance_id": "G07d19Turn02",
+            "speaker_id": "G07personWu",
+            "started_at": "2026-03-20T10:10:00+08:00",
+            "ended_at": "2026-03-20T10:14:00+08:00",
+            "text": "对。给我看的不是漂亮链路，而是项目结束或我要求离开时能带走什么、又能按项目移走什么。导出和按项目删除都得写进验收；否则我们只是把材料换了一个地方放。",
+            "authorship": {
+              "authored_id": "G07d19Turn02Auth",
+              "occurred_at": "2026-03-20T10:10:00+08:00",
+              "author_role": "manager",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D19"
+                ],
+                "fact_ids": [
+                  "F07"
+                ],
+                "continuity_ids": [
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "G07d19Turn03",
+            "speaker_id": "G07personLin",
+            "started_at": "2026-03-20T10:14:00+08:00",
+            "ended_at": "2026-03-20T10:18:00+08:00",
+            "text": "导出我可以写成一次核对：选定的项目能给出记录、来源位置和当前状态，而不是只给一张概览。删除我不想写成一个按钮：需要知道谁提出、范围指到哪里、做完后谁看见结果。今天没有数字期限，也没有开始日。",
+            "authorship": {
+              "authored_id": "G07d19Turn03Auth",
+              "occurred_at": "2026-03-20T10:14:00+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D19"
+                ],
+                "fact_ids": [
+                  "F07"
+                ],
+                "continuity_ids": [
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "G07d19Turn04",
+            "speaker_id": "G07personSun",
+            "started_at": "2026-03-20T10:18:00+08:00",
+            "ended_at": "2026-03-20T10:22:00+08:00",
+            "text": "把“按项目”先写成待核对象，不要把它偷偷等同于所有关联材料。问卷应分别问：请求来自谁、要移除哪一段或哪一类副本、哪些人需要收到完成说明、无法确认范围时怎么办。模板提出问题，不替项目侧作承诺。",
+            "authorship": {
+              "authored_id": "G07d19Turn04Auth",
+              "occurred_at": "2026-03-20T10:18:00+08:00",
+              "author_role": "legal",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D19"
+                ],
+                "fact_ids": [
+                  "F03",
+                  "F07"
+                ],
+                "continuity_ids": [
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "G07d19Turn05",
+            "speaker_id": "G07personWu",
+            "started_at": "2026-03-20T10:22:00+08:00",
+            "ended_at": "2026-03-20T10:26:00+08:00",
+            "text": "我能接受这两个验收项，但不接受你先替我们选触发人。项目侧可能由我转问题，也可能让现场的人补材料；导出给谁看、删除由谁确认，都要留到清单里。没有清单，就不能把“可以试”说成已经可以接。",
+            "authorship": {
+              "authored_id": "G07d19Turn05Auth",
+              "occurred_at": "2026-03-20T10:22:00+08:00",
+              "author_role": "manager",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D19"
+                ],
+                "fact_ids": [
+                  "F07"
+                ],
+                "continuity_ids": [
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "G07d19Turn06",
+            "speaker_id": "G07personLin",
+            "started_at": "2026-03-20T10:26:00+08:00",
+            "ended_at": "2026-03-20T10:30:00+08:00",
+            "text": "那验收表只写观察，不写通过结论：能否生成项目范围内的导出、能否提出并复核一次项目移除。谁执行、用哪份材料、从哪天算，都先是空格。这样我也不能拿今天的会去启动目录或导入。",
+            "authorship": {
+              "authored_id": "G07d19Turn06Auth",
+              "occurred_at": "2026-03-20T10:26:00+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D19"
+                ],
+                "fact_ids": [
+                  "F07"
+                ],
+                "continuity_ids": [
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "G07d19Turn07",
+            "speaker_id": "G07personSun",
+            "started_at": "2026-03-20T10:30:00+08:00",
+            "ended_at": "2026-03-20T10:34:00+08:00",
+            "text": "我发的是采购问卷骨架，不是批准书。里面把材料范围、使用者、导出接收者、删除请求和核对人拆成格子；空格可以回答“不适用”或“待定”。不要因为有模板，就把没有答复的格子当成默认许可。",
+            "authorship": {
+              "authored_id": "G07d19Turn07Auth",
+              "occurred_at": "2026-03-20T10:30:00+08:00",
+              "author_role": "legal",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D19"
+                ],
+                "fact_ids": [
+                  "F03",
+                  "F07"
+                ],
+                "continuity_ids": [
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "G07d19Turn08",
+            "speaker_id": "G07personWu",
+            "started_at": "2026-03-20T10:34:00+08:00",
+            "ended_at": "2026-03-20T10:38:00+08:00",
+            "text": "还有一条：导出不是把所有对话打包给任何想看的人。它必须和项目范围、查看者以及原材料能否回查一起核。若导出里出现本不该进入的人，单纯删除一次也不能说明前面的边界已经处理对。",
+            "authorship": {
+              "authored_id": "G07d19Turn08Auth",
+              "occurred_at": "2026-03-20T10:34:00+08:00",
+              "author_role": "manager",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D19"
+                ],
+                "fact_ids": [
+                  "F07"
+                ],
+                "continuity_ids": [
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "G07d19Turn09",
+            "speaker_id": "G07personLin",
+            "started_at": "2026-03-20T10:38:00+08:00",
+            "ended_at": "2026-03-20T10:42:00+08:00",
+            "text": "我把腕托的塑料条收进抽屉了，免得下午又被它刮手。回到表上，我会给导出加“范围外条目是否出现”的观察位，给删除加“请求与完成说明是否能对上”的观察位；这仍不是实际演练，也没有任何材料进入。",
+            "authorship": {
+              "authored_id": "G07d19Turn09Auth",
+              "occurred_at": "2026-03-20T10:38:00+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D19"
+                ],
+                "fact_ids": [],
+                "continuity_ids": []
+              }
+            }
+          },
+          {
+            "utterance_id": "G07d19Turn10",
+            "speaker_id": "G07personSun",
+            "started_at": "2026-03-20T10:42:00+08:00",
+            "ended_at": "2026-03-20T10:46:00+08:00",
+            "text": "注意把“范围外条目”写成检查问题，不是保证语。若当时发现无法确定某个副本是否属于该项目，结果应保留为未完成，并带回给项目侧。问卷也要允许指定一个人只接收问题、不承担删除核对。",
+            "authorship": {
+              "authored_id": "G07d19Turn10Auth",
+              "occurred_at": "2026-03-20T10:42:00+08:00",
+              "author_role": "legal",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D19"
+                ],
+                "fact_ids": [
+                  "F03",
+                  "F07"
+                ],
+                "continuity_ids": [
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "G07d19Turn11",
+            "speaker_id": "G07personWu",
+            "started_at": "2026-03-20T10:46:00+08:00",
+            "ended_at": "2026-03-20T10:51:00+08:00",
+            "text": "好，我确认当前试点的验收至少包含导出和按项目删除两项，不把它们留给以后补。其余问题仍未答：谁确认移除、从什么时间开始、先用什么材料。请把这些未答项和验收项放在同一张清单里，别让人只截前半句。",
+            "authorship": {
+              "authored_id": "G07d19Turn11Auth",
+              "occurred_at": "2026-03-20T10:46:00+08:00",
+              "author_role": "manager",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D19"
+                ],
+                "fact_ids": [
+                  "F07"
+                ],
+                "continuity_ids": [
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "G07d19Turn12",
+            "speaker_id": "G07personLin",
+            "started_at": "2026-03-20T10:51:00+08:00",
+            "ended_at": "2026-03-20T10:55:00+08:00",
+            "text": "我会把孙秋的骨架附在问题单后面，保留它的空格和待答标记。今天的产出只是验收项和问卷，不是期限、开始通知或首次导入。等边界清单有负责人后，再讨论怎样做一轮观察。",
+            "authorship": {
+              "authored_id": "G07d19Turn12Auth",
+              "occurred_at": "2026-03-20T10:51:00+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D19"
+                ],
+                "fact_ids": [
+                  "F07"
+                ],
+                "continuity_ids": [
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "G07d19Turn13",
+            "speaker_id": "G07personSun",
+            "started_at": "2026-03-20T10:55:00+08:00",
+            "ended_at": "2026-03-20T10:58:00+08:00",
+            "text": "我会在模板每一页加一个“答复归口”栏，但它不是让孙秋替项目侧分配负责人。导出接收、项目移除、范围判断和完成回告各自留一个归口问题；吴岚可以带回去指定谁回答，没人指定就仍标“未指派”。这样下一轮收到半句答复时，能看出它只覆盖哪一格，而不是被抄进所有验收项。至于谁实际确认移除，我今天仍没有答案，也不会把自己写成那个 owner。",
+            "authorship": {
+              "authored_id": "G07d19Turn13Auth",
+              "occurred_at": "2026-03-20T10:55:00+08:00",
+              "author_role": "legal",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D19"
+                ],
+                "fact_ids": [
+                  "F03",
+                  "F07"
+                ],
+                "continuity_ids": [
+                  "C03"
+                ]
+              }
+            }
+          },
+          {"utterance_id":"G07d19Turn14","speaker_id":"G07personWu","started_at":"2026-03-20T10:58:00+08:00","ended_at":"2026-03-20T11:03:00+08:00","text":"我有个保留：问题单里的“答复归口”不能被项目侧读成“最终决策人”。我会在转交时说明，它只表示谁接住这一个问题，答复可能是指定别人、要求补原处，或说暂时没有人可答。等收到这种退回，也要保留退回原因；否则下次有人会把未指派误看成吴岚没有跟进。","authorship":{"authored_id":"G07d19Turn14Auth","occurred_at":"2026-03-20T10:58:00+08:00","author_role":"manager","content_class":"ambiguous","links":{"story_beat_ids":["D19"],"fact_ids":["F03","F07"],"continuity_ids":["C03"]}}}
+        ],
+        "authorship": {
+          "authored_id": "G07d19MeetingSourceAuth",
+          "occurred_at": "2026-03-20T10:06:00+08:00",
+          "author_role": "product",
+          "content_class": "signal",
+          "links": {
+            "story_beat_ids": [
+              "D19"
+            ],
+            "fact_ids": [
+              "F07"
+            ],
+            "continuity_ids": [
+              "C03"
+            ]
+          }
+        }
+      }
+    ],
+    "document_library": [
+      {
+        "source_id": "G07d19QuestionnaireSource",
+        "schema": "pneuma.source.document-library/v1",
+        "provider": "mock",
+        "library_id": "G07d19ProcurementVault",
+        "title": "采购问卷模板",
+        "documents": [
+          {
+            "document_id": "G07d19QuestionnaireDoc",
+            "path": "procurement/2026-03-20-pilot-questionnaire-template.md",
+            "title": "试点问题单：导出与项目移除",
+            "frontmatter": {
+              "date": "2026-03-20",
+              "status": "template-awaiting-answers",
+              "reviewer": "孙秋"
+            },
+            "tags": [
+              "procurement",
+              "export",
+              "removal"
+            ],
+            "links": [],
+            "created_at": "2026-03-20T12:18:00+08:00",
+            "modified_at": "2026-03-20T15:26:00+08:00",
+            "full_markdown": "# 试点问题单：导出与项目移除\n\n导出项不问系统能否生成漂亮文件，而问一次项目范围内的记录是否能带着来源位置与当前状态被复看。接收者、检查人和不应出现的条目仍待项目侧填写；空白不被当成默认可以看。\n\n项目移除项先要求把请求指到具体项目和材料范围。模板分别留出提出人、需要通知的人、无法判断归属时的处理、以及完成后如何回给提出人的格子。它不是删除已经成功的证明，也没有填写任何期限。\n\n两项验收并排写，是为了防止导出被当成一次展示、移除被当成一个孤立按钮。导出中出现范围外信息，或移除请求无法核对到项目，结果都应保留为未完成并回到问题单。\n\n孙秋只提供了问题结构：材料范围、查看者、导出接收、移除请求、核对说明。每格可以写待定或不适用；模板没有替任何人指定角色，也不授予导入许可。\n\n下午拆腕托时，纸盒里的泡棉黏在手上。我把它丢进回收袋后才继续改表，没把这件小事写成效率方法。",
+            "visible_blocks": [
+              {
+                "block_id": "G07d19QuestionBlock01",
+                "kind": "paragraph",
+                "markdown": "导出项不问系统能否生成漂亮文件，而问一次项目范围内的记录是否能带着来源位置与当前状态被复看。接收者、检查人和不应出现的条目仍待项目侧填写；空白不被当成默认可以看。",
+                "authorship": {
+                  "authored_id": "G07d19QuestionBlock01Auth",
+                  "occurred_at": "2026-03-20T12:18:00+08:00",
+                  "author_role": "legal",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D19"
+                    ],
+                    "fact_ids": [
+                      "F07"
+                    ],
+                    "continuity_ids": [
+                      "C03"
+                    ]
+                  }
+                }
+              },
+              {
+                "block_id": "G07d19QuestionBlock02",
+                "kind": "paragraph",
+                "markdown": "项目移除项先要求把请求指到具体项目和材料范围。模板分别留出提出人、需要通知的人、无法判断归属时的处理、以及完成后如何回给提出人的格子。它不是删除已经成功的证明，也没有填写任何期限。",
+                "authorship": {
+                  "authored_id": "G07d19QuestionBlock02Auth",
+                  "occurred_at": "2026-03-20T12:44:00+08:00",
+                  "author_role": "legal",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D19"
+                    ],
+                    "fact_ids": [
+                      "F03",
+                      "F07"
+                    ],
+                    "continuity_ids": [
+                      "C03"
+                    ]
+                  }
+                }
+              },
+              {
+                "block_id": "G07d19QuestionBlock03",
+                "kind": "paragraph",
+                "markdown": "两项验收并排写，是为了防止导出被当成一次展示、移除被当成一个孤立按钮。导出中出现范围外信息，或移除请求无法核对到项目，结果都应保留为未完成并回到问题单。",
+                "authorship": {
+                  "authored_id": "G07d19QuestionBlock03Auth",
+                  "occurred_at": "2026-03-20T13:28:00+08:00",
+                  "author_role": "legal",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D19"
+                    ],
+                    "fact_ids": [
+                      "F07"
+                    ],
+                    "continuity_ids": [
+                      "C03"
+                    ]
+                  }
+                }
+              },
+              {
+                "block_id": "G07d19QuestionBlock04",
+                "kind": "paragraph",
+                "markdown": "孙秋只提供了问题结构：材料范围、查看者、导出接收、移除请求、核对说明。每格可以写待定或不适用；模板没有替任何人指定角色，也不授予导入许可。",
+                "authorship": {
+                  "authored_id": "G07d19QuestionBlock04Auth",
+                  "occurred_at": "2026-03-20T14:12:00+08:00",
+                  "author_role": "legal",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D19"
+                    ],
+                    "fact_ids": [
+                      "F03",
+                      "F07"
+                    ],
+                    "continuity_ids": [
+                      "C03"
+                    ]
+                  }
+                }
+              },
+              {
+                "block_id": "G07d19QuestionBlock05",
+                "kind": "paragraph",
+                "markdown": "下午拆腕托时，纸盒里的泡棉黏在手上。我把它丢进回收袋后才继续改表，没把这件小事写成效率方法。",
+                "authorship": {
+                  "authored_id": "G07d19QuestionBlock05Auth",
+                  "occurred_at": "2026-03-20T15:26:00+08:00",
+                  "author_role": "product",
+                  "content_class": "noise",
+                  "links": {
+                    "story_beat_ids": [
+                      "D19"
+                    ],
+                    "fact_ids": [],
+                    "continuity_ids": []
+                  }
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "G07d19QuestionnaireDocAuth",
+              "occurred_at": "2026-03-20T15:26:00+08:00",
+              "author_role": "legal",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D19"
+                ],
+                "fact_ids": [
+                  "F03",
+                  "F07"
+                ],
+                "continuity_ids": [
+                  "C03"
+                ]
+              }
+            }
+          }
+        ],
+        "authorship": {
+          "authored_id": "G07d19QuestionnaireSourceAuth",
+          "occurred_at": "2026-03-20T15:26:00+08:00",
+          "author_role": "legal",
+          "content_class": "signal",
+          "links": {
+            "story_beat_ids": [
+              "D19"
+            ],
+            "fact_ids": [
+              "F03",
+              "F07"
+            ],
+            "continuity_ids": [
+              "C03"
+            ]
+          }
+        }
+      },
+      {
+        "source_id": "G07d20BoundarySource",
+        "schema": "pneuma.source.document-library/v1",
+        "provider": "mock",
+        "library_id": "G07d20PilotVault",
+        "title": "云麓范围与来源映射",
+        "documents": [
+          {
+            "document_id": "G07d20BoundaryDoc",
+            "path": "projects/yunlu/2026-03-21-pilot-boundary-and-map.md",
+            "title": "云麓试点边界与只读副本清单",
+            "frontmatter": {
+              "date": "2026-03-21",
+              "status": "confirmed-boundary",
+              "owner": "吴岚"
+            },
+            "tags": [
+              "yunlu",
+              "boundary",
+              "read-only"
+            ],
+            "links": [],
+            "created_at": "2026-03-21T11:06:00+08:00",
+            "modified_at": "2026-03-21T17:18:00+08:00",
+            "full_markdown": "# 云麓试点边界与只读副本清单\n\n本次确认的对象是云麓公寓，范围只含预算变更与材料替代两类记录。任务管理、报价生成和供应商审批不随这次确认进入；它们不是被解决，只是明确留在范围外。\n\n三名使用者分别是吴岚、陈放和林舟。吴岚负责项目侧范围问题，陈放核对现场表达与当前状态，林舟维护只读副本和来源映射；这不让任何一人自动成为全部记录的确认者。\n\n只读副本只收被三人选定的两类变更片段及其回查位置。原处不改写，副本不开放写入；没有被选入的相邻聊天、联系人和附件不因同属项目而自动进入。\n\n来源映射表把每段材料列为原处位置、进入副本的原因、谁核对过、仍缺什么。它目前是一张边界清单，不是导入结果，也没有开始日期或第一批材料。\n\n菜场票据放在桌上两小时才整理：青菜和豆腐的金额对得上，找零硬币滚到抽屉后面。拖延整理票据没有改变三个人的范围确认。\n\n下一步仍待答的是从哪天开始、怎样观察状态是否混淆、谁确认项目移除的演练。今天只把范围、三名使用者和只读副本写清。",
+            "visible_blocks": [
+              {
+                "block_id": "G07d20BoundaryBlock01",
+                "kind": "paragraph",
+                "markdown": "本次确认的对象是云麓公寓，范围只含预算变更与材料替代两类记录。任务管理、报价生成和供应商审批不随这次确认进入；它们不是被解决，只是明确留在范围外。",
+                "authorship": {
+                  "authored_id": "G07d20BoundaryBlock01Auth",
+                  "occurred_at": "2026-03-21T11:06:00+08:00",
+                  "author_role": "manager",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D20"
+                    ],
+                    "fact_ids": [
+                      "F07",
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C02",
+                      "C03"
+                    ]
+                  }
+                }
+              },
+              {
+                "block_id": "G07d20BoundaryBlock02",
+                "kind": "paragraph",
+                "markdown": "三名使用者分别是吴岚、陈放和林舟。吴岚负责项目侧范围问题，陈放核对现场表达与当前状态，林舟维护只读副本和来源映射；这不让任何一人自动成为全部记录的确认者。",
+                "authorship": {
+                  "authored_id": "G07d20BoundaryBlock02Auth",
+                  "occurred_at": "2026-03-21T11:42:00+08:00",
+                  "author_role": "manager",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D20"
+                    ],
+                    "fact_ids": [
+                      "F07",
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C02",
+                      "C03"
+                    ]
+                  }
+                }
+              },
+              {
+                "block_id": "G07d20BoundaryBlock03",
+                "kind": "paragraph",
+                "markdown": "只读副本只收被三人选定的两类变更片段及其回查位置。原处不改写，副本不开放写入；没有被选入的相邻聊天、联系人和附件不因同属项目而自动进入。",
+                "authorship": {
+                  "authored_id": "G07d20BoundaryBlock03Auth",
+                  "occurred_at": "2026-03-21T13:04:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D20"
+                    ],
+                    "fact_ids": [
+                      "F07",
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C02",
+                      "C03"
+                    ]
+                  }
+                }
+              },
+              {
+                "block_id": "G07d20BoundaryBlock04",
+                "kind": "paragraph",
+                "markdown": "来源映射表把每段材料列为原处位置、进入副本的原因、谁核对过、仍缺什么。它目前是一张边界清单，不是导入结果，也没有开始日期或第一批材料。",
+                "authorship": {
+                  "authored_id": "G07d20BoundaryBlock04Auth",
+                  "occurred_at": "2026-03-21T14:16:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D20"
+                    ],
+                    "fact_ids": [
+                      "F07",
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C02",
+                      "C03"
+                    ]
+                  }
+                }
+              },
+              {
+                "block_id": "G07d20BoundaryBlock05",
+                "kind": "paragraph",
+                "markdown": "菜场票据放在桌上两小时才整理：青菜和豆腐的金额对得上，找零硬币滚到抽屉后面。拖延整理票据没有改变三个人的范围确认。",
+                "authorship": {
+                  "authored_id": "G07d20BoundaryBlock05Auth",
+                  "occurred_at": "2026-03-21T16:02:00+08:00",
+                  "author_role": "product",
+                  "content_class": "noise",
+                  "links": {
+                    "story_beat_ids": [
+                      "D20"
+                    ],
+                    "fact_ids": [],
+                    "continuity_ids": []
+                  }
+                }
+              },
+              {
+                "block_id": "G07d20BoundaryBlock06",
+                "kind": "paragraph",
+                "markdown": "下一步仍待答的是从哪天开始、怎样观察状态是否混淆、谁确认项目移除的演练。今天只把范围、三名使用者和只读副本写清。",
+                "authorship": {
+                  "authored_id": "G07d20BoundaryBlock06Auth",
+                  "occurred_at": "2026-03-21T17:18:00+08:00",
+                  "author_role": "product",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": [
+                      "D20"
+                    ],
+                    "fact_ids": [
+                      "F07",
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C02",
+                      "C03"
+                    ]
+                  }
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "G07d20BoundaryDocAuth",
+              "occurred_at": "2026-03-21T17:18:00+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D20"
+                ],
+                "fact_ids": [
+                  "F07",
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C02",
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "document_id": "G07d20MapReadingDoc",
+            "path": "projects/yunlu/2026-03-21-source-map-reading-notes.md",
+            "title": "云麓来源映射读取说明",
+            "frontmatter": {
+              "date": "2026-03-21",
+              "status": "boundary-reading-notes",
+              "owner": "林舟"
+            },
+            "tags": [
+              "yunlu",
+              "source-map",
+              "read-only"
+            ],
+            "links": [],
+            "created_at": "2026-03-21T17:42:00+08:00",
+            "modified_at": "2026-03-21T18:34:00+08:00",
+            "full_markdown": "# 云麓来源映射读取说明\n\n这份说明把“进入副本”拆成一项可回看的选择，而不是把文件夹里看起来相关的内容一次搬走。每一行先写原处的具体位置，再写它为什么属于本次两类变更、由谁看过、还缺哪种判断。若原处只给出笼统结论，映射表保留这个笼统状态，不为凑齐字段补写原因。读取的人应能回到原材料核对，而不必相信副本自带的解释。\n\n预算变更与材料替代是两个独立入口。前者关心原预算、变更缘由和当前标记；后者关心被替代的材料、现场说法和可回查的位置。同一段话即使同时提到工期或供应商，也不能因此把任务安排、报价制作或供应商审批带进只读副本。范围的作用是让相邻信息停在原处，并不是评价那些信息有没有价值。\n\n三位使用者的名字出现在同一张表上，但工作并不相同。吴岚回答项目边界是否被读错，陈放提示现场表述和现状能否对上，林舟维护副本中的来源定位。谁查看过一行材料，不等于谁确认了所有结论；没有明确回应的格子继续显示待答。这个区分避免把一次阅读记录误写成项目侧已经批准的全面说明。\n\n只读副本的目的只是方便回查：它不改原处、不接收补写，也不把未选材料变成默认候选。表内的“仍缺什么”可以是范围、状态或解释问题，并不表示已经安排导入。开始日期、第一批材料和项目移除演练的确认人仍未填入；在这些空位有答案前，读取说明不能被当成实施通知或进度承诺。\n\n傍晚收衣服时，一只袜子卡在晾衣架角上，我绕了半天才取下来。窗外的风把夹子吹得轻响，等我回桌前茶已经凉了。这个插曲只说明笔记写得晚一点，没有改变云麓边界。",
+            "visible_blocks": [
+              {
+                "block_id": "G07d20MapReadBlock01",
+                "kind": "paragraph",
+                "markdown": "这份说明把“进入副本”拆成一项可回看的选择，而不是把文件夹里看起来相关的内容一次搬走。每一行先写原处的具体位置，再写它为什么属于本次两类变更、由谁看过、还缺哪种判断。若原处只给出笼统结论，映射表保留这个笼统状态，不为凑齐字段补写原因。读取的人应能回到原材料核对，而不必相信副本自带的解释。",
+                "authorship": {
+                  "authored_id": "G07d20MapReadBlock01Auth",
+                  "occurred_at": "2026-03-21T17:42:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D20"
+                    ],
+                    "fact_ids": [
+                      "F07",
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C02",
+                      "C03"
+                    ]
+                  }
+                }
+              },
+              {
+                "block_id": "G07d20MapReadBlock02",
+                "kind": "paragraph",
+                "markdown": "预算变更与材料替代是两个独立入口。前者关心原预算、变更缘由和当前标记；后者关心被替代的材料、现场说法和可回查的位置。同一段话即使同时提到工期或供应商，也不能因此把任务安排、报价制作或供应商审批带进只读副本。范围的作用是让相邻信息停在原处，并不是评价那些信息有没有价值。",
+                "authorship": {
+                  "authored_id": "G07d20MapReadBlock02Auth",
+                  "occurred_at": "2026-03-21T17:56:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D20"
+                    ],
+                    "fact_ids": [
+                      "F07",
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C02",
+                      "C03"
+                    ]
+                  }
+                }
+              },
+              {
+                "block_id": "G07d20MapReadBlock03",
+                "kind": "paragraph",
+                "markdown": "三位使用者的名字出现在同一张表上，但工作并不相同。吴岚回答项目边界是否被读错，陈放提示现场表述和现状能否对上，林舟维护副本中的来源定位。谁查看过一行材料，不等于谁确认了所有结论；没有明确回应的格子继续显示待答。这个区分避免把一次阅读记录误写成项目侧已经批准的全面说明。",
+                "authorship": {
+                  "authored_id": "G07d20MapReadBlock03Auth",
+                  "occurred_at": "2026-03-21T18:09:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D20"
+                    ],
+                    "fact_ids": [
+                      "F07",
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C02",
+                      "C03"
+                    ]
+                  }
+                }
+              },
+              {
+                "block_id": "G07d20MapReadBlock04",
+                "kind": "paragraph",
+                "markdown": "只读副本的目的只是方便回查：它不改原处、不接收补写，也不把未选材料变成默认候选。表内的“仍缺什么”可以是范围、状态或解释问题，并不表示已经安排导入。开始日期、第一批材料和项目移除演练的确认人仍未填入；在这些空位有答案前，读取说明不能被当成实施通知或进度承诺。",
+                "authorship": {
+                  "authored_id": "G07d20MapReadBlock04Auth",
+                  "occurred_at": "2026-03-21T18:21:00+08:00",
+                  "author_role": "product",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": [
+                      "D20"
+                    ],
+                    "fact_ids": [
+                      "F07",
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C02",
+                      "C03"
+                    ]
+                  }
+                }
+              },
+              {
+                "block_id": "G07d20MapReadBlock05",
+                "kind": "paragraph",
+                "markdown": "傍晚收衣服时，一只袜子卡在晾衣架角上，我绕了半天才取下来。窗外的风把夹子吹得轻响，等我回桌前茶已经凉了。这个插曲只说明笔记写得晚一点，没有改变云麓边界。",
+                "authorship": {
+                  "authored_id": "G07d20MapReadBlock05Auth",
+                  "occurred_at": "2026-03-21T18:34:00+08:00",
+                  "author_role": "product",
+                  "content_class": "noise",
+                  "links": {
+                    "story_beat_ids": [
+                      "D20"
+                    ],
+                    "fact_ids": [],
+                    "continuity_ids": []
+                  }
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "G07d20MapReadingDocAuth",
+              "occurred_at": "2026-03-21T18:34:00+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D20"
+                ],
+                "fact_ids": [
+                  "F07",
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C02",
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "document_id": "G07d20ReadbackBoundaryDoc",
+            "path": "projects/yunlu/2026-03-21-readback-boundary.md",
+            "title": "云麓材料定位异议单",
+            "frontmatter": {
+              "date": "2026-03-21",
+              "status": "blank-objection-form",
+              "owner": "林舟"
+            },
+            "tags": [
+              "yunlu",
+              "objection",
+              "locator"
+            ],
+            "links": [],
+            "created_at": "2026-03-21T18:47:00+08:00",
+            "modified_at": "2026-03-21T19:03:00+08:00",
+            "full_markdown": "# 云麓材料定位异议单\n\n这是一张留给复查者的空白异议单，不是又一份范围说明。遇到候选片段时，填写人要先抄下它在原材料中的定位，再只勾一项异议：它不像预算变更、它不像材料替代、它与项目关系说不清，或它的当前状态没有可读依据。勾选后不能改写候选片段，只能把异议交给相应的人。\n\n单子把接收异议的人分成三种：吴岚接项目边界疑问，陈放接现场表述与状态疑问，林舟接副本定位疑问。三种收件人都可以退回“无法判断”；退回并不把材料自动排除，也不让某一位变成全部内容的批准者。这样以后有人问某条为什么没有进入副本，能找到提出的问题和归口，而不是只看到一个空结果。\n\n异议单还有一格给“需要补看的原处”，只允许写位置线索，不抄录相邻聊天，也不补充联系人背景。它的用途是把一次看不清标为可复查的工作，而非替三名使用者先做共同结论。表格目前没有填写样例；没有人实际提交异议，也没有产生导入或移除动作。",
+            "visible_blocks": [
+              {
+                "block_id": "G07d20ReadbackBlock01",
+                "kind": "paragraph",
+                "markdown": "这是一张留给复查者的空白异议单，不是又一份范围说明。遇到候选片段时，填写人要先抄下它在原材料中的定位，再只勾一项异议：它不像预算变更、它不像材料替代、它与项目关系说不清，或它的当前状态没有可读依据。勾选后不能改写候选片段，只能把异议交给相应的人。\n\n单子把接收异议的人分成三种：吴岚接项目边界疑问，陈放接现场表述与状态疑问，林舟接副本定位疑问。三种收件人都可以退回“无法判断”；退回并不把材料自动排除，也不让某一位变成全部内容的批准者。这样以后有人问某条为什么没有进入副本，能找到提出的问题和归口，而不是只看到一个空结果。\n\n异议单还有一格给“需要补看的原处”，只允许写位置线索，不抄录相邻聊天，也不补充联系人背景。它的用途是把一次看不清标为可复查的工作，而非替三名使用者先做共同结论。表格目前没有填写样例；没有人实际提交异议，也没有产生导入或移除动作。",
+                "authorship": {
+                  "authored_id": "G07d20ReadbackBlock01Auth",
+                  "occurred_at": "2026-03-21T19:03:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D20"
+                    ],
+                    "fact_ids": [
+                      "F07",
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C02",
+                      "C03"
+                    ]
+                  }
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "G07d20ReadbackBoundaryDocAuth",
+              "occurred_at": "2026-03-21T19:03:00+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D20"
+                ],
+                "fact_ids": [
+                  "F07",
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C02",
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "document_id": "G07d20UnresolvedMarkersDoc",
+            "path": "projects/yunlu/2026-03-21-procurement-answer-routing.md",
+            "title": "采购答复路由卡",
+            "frontmatter": {
+              "date": "2026-03-21",
+              "status": "routing-draft",
+              "owner": "林舟"
+            },
+            "tags": [
+              "yunlu",
+              "answer-routing",
+              "procurement"
+            ],
+            "links": [],
+            "created_at": "2026-03-21T19:12:00+08:00",
+            "modified_at": "2026-03-21T19:12:00+08:00",
+            "full_markdown": "# 采购答复路由卡\n\n这张卡处理的是问题怎样被送到能答的人，不记录材料是否已经被选入。每张卡只写一个采购问题、最初提出它的来源、准备交给谁、以及对方可以用“不是我负责”退回的理由。比如项目边界问题交吴岚，现场措辞问题交陈放，副本位置问题交林舟；没有人被要求因为收到卡片就替别人补答案。\n\n卡片背面留出“转交后发生什么”的窄栏：收件人可指定更合适的回答者、要求看到原处位置，或说明目前无从判断。这样采购人员把问题转来时，林舟不会把一封转发误当客户结论；项目侧也能区分自己是在回答范围、状态，还是仅在纠正问题送错了人。\n\n这套路由仍是草稿，尚未寄给任何人。它没有创建新的材料访问，也不替吴岚决定谁有删除权；它只是为后续问题单保留一次有来处的交接。若卡片被退回，原问题继续留在卡上，而不是被改写成已经解决。",
+            "visible_blocks": [
+              {
+                "block_id": "G07d20UnresolvedBlock01",
+                "kind": "paragraph",
+                "markdown": "这张卡处理的是问题怎样被送到能答的人，不记录材料是否已经被选入。每张卡只写一个采购问题、最初提出它的来源、准备交给谁、以及对方可以用“不是我负责”退回的理由。比如项目边界问题交吴岚，现场措辞问题交陈放，副本位置问题交林舟；没有人被要求因为收到卡片就替别人补答案。\n\n卡片背面留出“转交后发生什么”的窄栏：收件人可指定更合适的回答者、要求看到原处位置，或说明目前无从判断。这样采购人员把问题转来时，林舟不会把一封转发误当客户结论；项目侧也能区分自己是在回答范围、状态，还是仅在纠正问题送错了人。\n\n这套路由仍是草稿，尚未寄给任何人。它没有创建新的材料访问，也不替吴岚决定谁有删除权；它只是为后续问题单保留一次有来处的交接。若卡片被退回，原问题继续留在卡上，而不是被改写成已经解决。",
+                "authorship": {
+                  "authored_id": "G07d20UnresolvedBlock01Auth",
+                  "occurred_at": "2026-03-21T19:12:00+08:00",
+                  "author_role": "product",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": [
+                      "D20"
+                    ],
+                    "fact_ids": [
+                      "F07",
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C02",
+                      "C03"
+                    ]
+                  }
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "G07d20UnresolvedMarkersDocAuth",
+              "occurred_at": "2026-03-21T19:12:00+08:00",
+              "author_role": "product",
+              "content_class": "ambiguous",
+              "links": {
+                "story_beat_ids": [
+                  "D20"
+                ],
+                "fact_ids": [
+                  "F07",
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C02",
+                  "C03"
+                ]
+              }
+            }
+          }
+        ],
+        "authorship": {
+          "authored_id": "G07d20BoundarySourceAuth",
+          "occurred_at": "2026-03-21T17:18:00+08:00",
+          "author_role": "product",
+          "content_class": "signal",
+          "links": {
+            "story_beat_ids": [
+              "D20"
+            ],
+            "fact_ids": [
+              "F07",
+              "F08"
+            ],
+            "continuity_ids": [
+              "C02",
+              "C03"
+            ]
+          }
+        }
+      }
+    ],
+    "im": [
+      {
+        "source_id": "G07d21TimeImSource",
+        "schema": "pneuma.source.im/v1",
+        "provider": "mock",
+        "archive_id": "G07d21TimeArchive",
+        "owner_user_ids": [
+          "G07imLin"
+        ],
+        "users": [
+          {
+            "user_id": "G07imLin",
+            "display_name": "林舟",
+            "role": "product",
+            "synthetic_address": "lin.zhou@seamlog.test",
+            "is_bot": false
+          },
+          {
+            "user_id": "G07imChen",
+            "display_name": "陈放",
+            "role": "operations",
+            "synthetic_address": "chen.fang@bamboo.test",
+            "is_bot": false
+          }
+        ],
+        "conversations": [
+          {
+            "conversation_id": "G07d21TimeConversation",
+            "conversation_type": "dm",
+            "title": "会议记录时间格式",
+            "member_ids": [
+              "G07imLin",
+              "G07imChen"
+            ],
+            "messages": [
+              {
+                "message_id": "G07d21TimeMsg01",
+                "sender_id": "G07imLin",
+                "sent_at": "2026-03-22T09:14:00+08:00",
+                "full_text": "我在准备最小导入队列时翻到三种会议时间写法：一条是“3/21 9:30”，一条写“2026-03-21 上午九点半”，还有一条带完整日期。它们现在只是格式不同，我还没把任何两条放到同一时刻。",
+                "thread_id": null,
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "G07d21TimeMsg01Auth",
+                  "occurred_at": "2026-03-22T09:14:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D21"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C02",
+                      "C03"
+                    ]
+                  }
+                }
+              },
+              {
+                "message_id": "G07d21TimeMsg02",
+                "sender_id": "G07imChen",
+                "sent_at": "2026-03-22T09:21:00+08:00",
+                "full_text": "现场记录的人有时只写当天和钟点，录制页则喜欢带年月日。别先替它们补时区，也别凭标题猜会议是否同一场；我能帮你指出哪条来自现场，但不能替录制页解释时间。",
+                "thread_id": "G07d21TimeMsg01",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "G07d21TimeMsg02Auth",
+                  "occurred_at": "2026-03-22T09:21:00+08:00",
+                  "author_role": "operations",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D21"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C02",
+                      "C03"
+                    ]
+                  }
+                }
+              },
+              {
+                "message_id": "G07d21TimeMsg03",
+                "sender_id": "G07imLin",
+                "sent_at": "2026-03-22T09:29:00+08:00",
+                "full_text": "我会先让队列把原写法、来源和可见日期各留一格。没有明确时区的记录就标待解释，不转换成另一种时间，也不叫它偏移。当前风险是排序可能误导复看，不是已经发现了错位。",
+                "thread_id": "G07d21TimeMsg01",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "G07d21TimeMsg03Auth",
+                  "occurred_at": "2026-03-22T09:29:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D21"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C02",
+                      "C03"
+                    ]
+                  }
+                }
+              },
+              {
+                "message_id": "G07d21TimeMsg04",
+                "sender_id": "G07imChen",
+                "sent_at": "2026-03-22T09:37:00+08:00",
+                "full_text": "这样可以。现场的人要是只写“下午两点”，至少还能看见那是原记录，不会被你悄悄改成精确时间。等开始前再核哪些会议有足够上下文；今天别因为格式乱就把队列停掉。",
+                "thread_id": "G07d21TimeMsg01",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "G07d21TimeMsg04Auth",
+                  "occurred_at": "2026-03-22T09:37:00+08:00",
+                  "author_role": "operations",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D21"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C02",
+                      "C03"
+                    ]
+                  }
+                }
+              },
+              {
+                "message_id": "G07d21TimeMsg05",
+                "sender_id": "G07imLin",
+                "sent_at": "2026-03-22T10:06:00+08:00",
+                "full_text": "我原本想把没有时区的都排到最后，想想那会把不确定当成一种发生顺序。现在只做字段检查：日期有没有、钟点怎么写、记录来自哪里、解释是否缺失。队列能收下风险，不替风险下结论。",
+                "thread_id": "G07d21TimeMsg01",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "G07d21TimeMsg05Auth",
+                  "occurred_at": "2026-03-22T10:06:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D21"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C02",
+                      "C03"
+                    ]
+                  }
+                }
+              },
+              {
+                "message_id": "G07d21TimeMsg06",
+                "sender_id": "G07imChen",
+                "sent_at": "2026-03-22T10:18:00+08:00",
+                "full_text": "对，先别让我为每条补小时。哪怕以后发现同一场会有两个写法，也要回到录制说明和现场记录逐项解释；现在没有材料证明它们已经排错。采购清单那边也还没答，不要把两个等待混成一个故障。",
+                "thread_id": "G07d21TimeMsg01",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "G07d21TimeMsg06Auth",
+                  "occurred_at": "2026-03-22T10:18:00+08:00",
+                  "author_role": "operations",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": [
+                      "D21"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C02",
+                      "C03"
+                    ]
+                  }
+                }
+              },
+              {
+                "message_id": "G07d21TimeMsg07",
+                "sender_id": "G07imLin",
+                "sent_at": "2026-03-22T10:43:00+08:00",
+                "full_text": "最小队列只会新建待核时间项，不触碰原会议，也不请求更多附件。等问题单和开始前的检查有答复，再决定哪些条目值得进入第一轮；今天没有导入结果可以报告。",
+                "thread_id": "G07d21TimeMsg01",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "G07d21TimeMsg07Auth",
+                  "occurred_at": "2026-03-22T10:43:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D21"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C02",
+                      "C03"
+                    ]
+                  }
+                }
+              },
+              {
+                "message_id": "G07d21TimeMsg08",
+                "sender_id": "G07imChen",
+                "sent_at": "2026-03-22T10:51:00+08:00",
+                "full_text": "我晚些把现场记录里能辨认的日期标出来，辨认不出的就留空。不要把空白当坏数据，也别说已经修好时区；现在只是知道它会影响以后怎么排序。",
+                "thread_id": "G07d21TimeMsg01",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "G07d21TimeMsg08Auth",
+                  "occurred_at": "2026-03-22T10:51:00+08:00",
+                  "author_role": "operations",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D21"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C02",
+                      "C03"
+                    ]
+                  }
+                }
+              },
+              {
+                "message_id": "G07d21TimeMsg09",
+                "sender_id": "G07imLin",
+                "sent_at": "2026-03-22T11:04:00+08:00",
+                "full_text": "收到。我把“时间解释待完成”放进开始前清单，不替它写截止日。若到时仍不能判断，就让那段材料留在原处，不拿一个看似整齐的时间线掩盖风险。",
+                "thread_id": "G07d21TimeMsg01",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "G07d21TimeMsg09Auth",
+                  "occurred_at": "2026-03-22T11:04:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D21"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C02",
+                      "C03"
+                    ]
+                  }
+                }
+              },
+              {
+                "message_id": "G07d21TimeMsg10",
+                "sender_id": "G07imChen",
+                "sent_at": "2026-03-22T11:17:00+08:00",
+                "full_text": "这比先猜一个统一时区好。先保留原写法和待解释项；等能回看上下文再处理。今天我没有要你暂停，也没有说哪条会议记录失真。",
+                "thread_id": "G07d21TimeMsg01",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "G07d21TimeMsg10Auth",
+                  "occurred_at": "2026-03-22T11:17:00+08:00",
+                  "author_role": "operations",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D21"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C02",
+                      "C03"
+                    ]
+                  }
+                }
+              },
+              {
+                "message_id": "G07d21TimeMsg11",
+                "sender_id": "G07imLin",
+                "sent_at": "2026-03-22T11:28:00+08:00",
+                "full_text": "好，我先去把队列的原文列补完。采购答复和时间解释都仍在等待，谁先回来就只处理那一项；不把等待写成一次失败。",
+                "thread_id": "G07d21TimeMsg01",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "G07d21TimeMsg11Auth",
+                  "occurred_at": "2026-03-22T11:28:00+08:00",
+                  "author_role": "product",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": [
+                      "D21"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C02",
+                      "C03"
+                    ]
+                  }
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "G07d21TimeConversationAuth",
+              "occurred_at": "2026-03-22T09:14:00+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D21"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C02",
+                  "C03"
+                ]
+              }
+            }
+          }
+        ],
+        "authorship": {
+          "authored_id": "G07d21TimeImSourceAuth",
+          "occurred_at": "2026-03-22T09:14:00+08:00",
+          "author_role": "product",
+          "content_class": "signal",
+          "links": {
+            "story_beat_ids": [
+              "D21"
+            ],
+            "fact_ids": [
+              "F08"
+            ],
+            "continuity_ids": [
+              "C02",
+              "C03"
+            ]
+          }
+        }
+      },
+      {
+        "source_id": "G07d21HomeImSource",
+        "schema": "pneuma.source.im/v1",
+        "provider": "mock",
+        "archive_id": "G07d21HomeArchive",
+        "owner_user_ids": [
+          "G07homeLin"
+        ],
+        "users": [
+          {
+            "user_id": "G07homeLin",
+            "display_name": "林舟",
+            "role": "product",
+            "synthetic_address": "lin.zhou@seamlog.test",
+            "is_bot": false
+          },
+          {
+            "user_id": "G07homeZhao",
+            "display_name": "赵楠",
+            "role": "partner",
+            "synthetic_address": "zhao.nan@home.test",
+            "is_bot": false
+          }
+        ],
+        "conversations": [
+          {
+            "conversation_id": "G07d21HomeConversation",
+            "conversation_type": "dm",
+            "title": "楼上打钻和晚饭",
+            "member_ids": [
+              "G07homeLin",
+              "G07homeZhao"
+            ],
+            "messages": [
+              {
+                "message_id": "G07d21HomeMsg01",
+                "sender_id": "G07homeZhao",
+                "sent_at": "2026-03-22T18:12:00+08:00",
+                "full_text": "楼上又在打钻，墙像在震。你耳机还找得到吗？我去买菜时顺手看了蒜和鸡蛋，别让我猜你今晚回不回来吃。",
+                "thread_id": null,
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "G07d21HomeMsg01Auth",
+                  "occurred_at": "2026-03-22T18:12:00+08:00",
+                  "author_role": "partner",
+                  "content_class": "noise",
+                  "links": {
+                    "story_beat_ids": [
+                      "D21"
+                    ],
+                    "fact_ids": [],
+                    "continuity_ids": []
+                  }
+                }
+              },
+              {
+                "message_id": "G07d21HomeMsg02",
+                "sender_id": "G07homeLin",
+                "sent_at": "2026-03-22T18:19:00+08:00",
+                "full_text": "找到了，戴着也还是听见一点。回来吃，鸡蛋够就不用再买；我再把这段列表看完就关电脑，不想和电钻比谁更响。",
+                "thread_id": "G07d21HomeMsg01",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "G07d21HomeMsg02Auth",
+                  "occurred_at": "2026-03-22T18:19:00+08:00",
+                  "author_role": "product",
+                  "content_class": "noise",
+                  "links": {
+                    "story_beat_ids": [
+                      "D21"
+                    ],
+                    "fact_ids": [],
+                    "continuity_ids": []
+                  }
+                }
+              },
+              {
+                "message_id": "G07d21HomeMsg03",
+                "sender_id": "G07homeZhao",
+                "sent_at": "2026-03-22T18:31:00+08:00",
+                "full_text": "菜场的阿姨少找了我两块，回头才发现，算了。锅里先煮面，钻头停了我再切菜；你进门记得把耳机放桌上，别又压在沙发缝里。",
+                "thread_id": "G07d21HomeMsg01",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "G07d21HomeMsg03Auth",
+                  "occurred_at": "2026-03-22T18:31:00+08:00",
+                  "author_role": "partner",
+                  "content_class": "noise",
+                  "links": {
+                    "story_beat_ids": [
+                      "D21"
+                    ],
+                    "fact_ids": [],
+                    "continuity_ids": []
+                  }
+                }
+              },
+              {
+                "message_id": "G07d21HomeMsg04",
+                "sender_id": "G07homeLin",
+                "sent_at": "2026-03-22T18:42:00+08:00",
+                "full_text": "两块就别折返回去了。面里多放点青菜，我路过楼道时看看装修门口有没有留下钉子，昨天鞋底沾了一颗小石子似的东西。",
+                "thread_id": "G07d21HomeMsg01",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "G07d21HomeMsg04Auth",
+                  "occurred_at": "2026-03-22T18:42:00+08:00",
+                  "author_role": "product",
+                  "content_class": "noise",
+                  "links": {
+                    "story_beat_ids": [
+                      "D21"
+                    ],
+                    "fact_ids": [],
+                    "continuity_ids": []
+                  }
+                }
+              },
+              {
+                "message_id": "G07d21HomeMsg05",
+                "sender_id": "G07homeZhao",
+                "sent_at": "2026-03-22T19:04:00+08:00",
+                "full_text": "好。楼道没钉子，只有一层白灰。你回来先洗手，我把窗关一半，味道少点；今天不打游戏，耳朵已经被钻得发麻。",
+                "thread_id": "G07d21HomeMsg01",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "G07d21HomeMsg05Auth",
+                  "occurred_at": "2026-03-22T19:04:00+08:00",
+                  "author_role": "partner",
+                  "content_class": "noise",
+                  "links": {
+                    "story_beat_ids": [
+                      "D21"
+                    ],
+                    "fact_ids": [],
+                    "continuity_ids": []
+                  }
+                }
+              },
+              {
+                "message_id": "G07d21HomeMsg06",
+                "sender_id": "G07homeLin",
+                "sent_at": "2026-03-22T19:17:00+08:00",
+                "full_text": "我到楼下了。耳机明天再擦，今晚先别放音乐；吃完把菜场票据塞进抽屉，别又跟快递单混在一起。",
+                "thread_id": "G07d21HomeMsg01",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "G07d21HomeMsg06Auth",
+                  "occurred_at": "2026-03-22T19:17:00+08:00",
+                  "author_role": "product",
+                  "content_class": "noise",
+                  "links": {
+                    "story_beat_ids": [
+                      "D21"
+                    ],
+                    "fact_ids": [],
+                    "continuity_ids": []
+                  }
+                }
+              },
+              {
+                "message_id": "G07d21HomeMsg07",
+                "sender_id": "G07homeZhao",
+                "sent_at": "2026-03-22T19:21:00+08:00",
+                "full_text": "行，面没坨。门开小点，楼上刚停，过会儿可能又响。",
+                "thread_id": "G07d21HomeMsg01",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "G07d21HomeMsg07Auth",
+                  "occurred_at": "2026-03-22T19:21:00+08:00",
+                  "author_role": "partner",
+                  "content_class": "noise",
+                  "links": {
+                    "story_beat_ids": [
+                      "D21"
+                    ],
+                    "fact_ids": [],
+                    "continuity_ids": []
+                  }
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "G07d21HomeConversationAuth",
+              "occurred_at": "2026-03-22T18:12:00+08:00",
+              "author_role": "partner",
+              "content_class": "noise",
+              "links": {
+                "story_beat_ids": [
+                  "D21"
+                ],
+                "fact_ids": [],
+                "continuity_ids": []
+              }
+            }
+          }
+        ],
+        "authorship": {
+          "authored_id": "G07d21HomeImSourceAuth",
+          "occurred_at": "2026-03-22T18:12:00+08:00",
+          "author_role": "partner",
+          "content_class": "noise",
+          "links": {
+            "story_beat_ids": [
+              "D21"
+            ],
+            "fact_ids": [],
+            "continuity_ids": []
+          }
+        }
+      }
+    ],
+    "email": []
+  }
+}

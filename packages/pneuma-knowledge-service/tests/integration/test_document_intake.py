@@ -216,6 +216,13 @@ async def test_source_collection_uses_context_bound_cursor_pages(client):
     assert filtered.json()["page"]["total"] == 3
     assert all("alpha" in row["title"].lower() for row in filtered.json()["items"])
 
+    activity = await client.get(
+        f"{base}/sources/activity",
+        params={"offset_minutes": 480},
+    )
+    assert activity.status_code == 200, activity.text
+    assert sum(day["count"] for day in activity.json()["days"]) == 5
+
     assert (
         await client.get(f"{base}/sources", params={"cursor": "not-a-cursor"})
     ).status_code == 422
@@ -341,6 +348,41 @@ async def test_history_collection_pages_the_unified_audit_ledger(client):
         (row["kind"], row["ref"]) for row in second.json()["items"]
     )
     assert second.json()["page"]["next_cursor"] is None
+    patches = await client.get(
+        f"{base}/history",
+        params={"limit": 2, "kind": "patch"},
+    )
+    assert patches.status_code == 200, patches.text
+    patch_body = patches.json()
+    assert patch_body["page"]["total"] == 1
+    assert patch_body["page"]["next_cursor"] is None
+    assert [item["kind"] for item in patch_body["items"]] == ["patch"]
+    assert patch_body["items"][0]["payload"]["claims"] == [
+        {
+            "type": "claim_added",
+            "path": "work/products/history.md",
+            "anchor": {"document_id": None, "anchor": "a001"},
+            "flags": [],
+            "before": None,
+            "after": "One decision.",
+        }
+    ]
+    activity = await client.get(
+        f"{base}/history/activity",
+        params={"offset_minutes": 480},
+    )
+    assert activity.status_code == 200, activity.text
+    assert sum(day["count"] for day in activity.json()["days"]) == 4
+    assert {
+        kind: sum(day["kinds"].get(kind, 0) for day in activity.json()["days"])
+        for kind in ("patch", "job", "snapshot")
+    } == {"patch": 1, "job": 2, "snapshot": 1}
+    patch_activity = await client.get(
+        f"{base}/history/activity",
+        params={"offset_minutes": 480, "kind": "patch"},
+    )
+    assert patch_activity.status_code == 200, patch_activity.text
+    assert sum(day["count"] for day in patch_activity.json()["days"]) == 1
     assert (
         await client.get(f"{base}/history", params={"cursor": "not-a-cursor"})
     ).status_code == 422

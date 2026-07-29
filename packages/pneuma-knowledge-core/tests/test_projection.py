@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pneuma_knowledge_core.domain.canonical import (
     CanonicalDocument,
+    iter_canonical_citations,
     normalize_canonical_citation_markers,
     resolve_canonical_citation_source_prefixes,
 )
@@ -75,6 +76,35 @@ def test_canonical_citation_normalizer_emits_one_stable_spelling():
     )
     assert changes == 2
     assert normalized == "A [cite: s1 ¶1-3] B [cite: s2 ¶7]"
+
+
+def test_grouped_citation_normalizes_and_expands_to_one_span_per_citation():
+    grouped = "A [cite: s1 ¶ 1 - ¶ 2, 6, ¶ 8 - 9]"
+    normalized, changes = normalize_canonical_citation_markers(grouped)
+    assert changes == 1
+    assert normalized == "A [cite: s1 ¶1-2] [cite: s1 ¶6] [cite: s1 ¶8-9]"
+    assert [
+        (str(citation.source_id), citation.block_start, citation.block_end)
+        for citation in iter_canonical_citations(grouped)
+    ] == [("s1", 1, 2), ("s1", 6, 6), ("s1", 8, 9)]
+
+
+def test_projection_strips_grouped_marker_and_keeps_every_span_structured():
+    claims = project_document_claims(
+        _doc(
+            body=(
+                "## 证据\n\n"
+                "- 同一来源的离散证据。"
+                "[cite: s1 ¶1-2,6,8-9] <!-- c:eeee -->"
+            )
+        )
+    )
+    assert claims[0].text == "同一来源的离散证据。"
+    assert "[cite:" not in claims[0].text
+    assert [
+        (str(citation.source_id), citation.block_start, citation.block_end)
+        for citation in claims[0].citations
+    ] == [("s1", 1, 2), ("s1", 6, 6), ("s1", 8, 9)]
 
 
 def test_canonical_citation_prefix_repair_requires_one_unique_real_source():

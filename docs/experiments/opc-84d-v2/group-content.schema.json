@@ -1,0 +1,402 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pneuma.dev/schemas/experiments/opc-84d-v2/group-content.schema.json",
+  "title": "OPC 84-day v2 authored group content",
+  "description": "A self-contained, authored 2- or 3-day source group. Text fields are final source text, never instructions for generating text.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "group_id", "group_window", "story_scope", "research_context", "sources"],
+  "properties": {
+    "schema": {"const": "pneuma.experiment.opc-84d-v2.group-content/v1"},
+    "group_id": {"$ref": "#/$defs/id"},
+    "group_window": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["starts_on", "ends_on", "day_count", "timezone"],
+      "properties": {
+        "starts_on": {"type": "string", "format": "date"},
+        "ends_on": {"type": "string", "format": "date"},
+        "day_count": {"enum": [2, 3]},
+        "timezone": {"type": "string", "minLength": 1}
+      }
+    },
+    "story_scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allowed_story_beat_ids", "known_fact_ids", "open_continuity_ids", "new_continuity_ids"],
+      "properties": {
+        "allowed_story_beat_ids": {"$ref": "#/$defs/id_list"},
+        "known_fact_ids": {"$ref": "#/$defs/id_list"},
+        "open_continuity_ids": {"$ref": "#/$defs/id_list"},
+        "new_continuity_ids": {"$ref": "#/$defs/id_list"}
+      }
+    },
+    "research_context": {
+      "type": "array",
+      "minItems": 2,
+      "items": {"$ref": "#/$defs/research_context_item"}
+    },
+    "sources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["meetings", "document_library", "im", "email"],
+      "properties": {
+        "meetings": {"type": "array", "minItems": 0, "items": {"$ref": "#/$defs/meeting_source"}},
+        "document_library": {"type": "array", "minItems": 0, "items": {"$ref": "#/$defs/document_library_source"}},
+        "im": {"type": "array", "minItems": 0, "items": {"$ref": "#/$defs/im_source"}},
+        "email": {"type": "array", "minItems": 0, "items": {"$ref": "#/$defs/email_source"}}
+      }
+    }
+  },
+  "allOf": [
+      {
+        "anyOf": [
+          {"properties": {"sources": {"properties": {"meetings": {"minItems": 1}, "document_library": {"minItems": 1}}}}},
+          {"properties": {"sources": {"properties": {"meetings": {"minItems": 1}, "im": {"minItems": 1}}}}},
+          {"properties": {"sources": {"properties": {"meetings": {"minItems": 1}, "email": {"minItems": 1}}}}},
+          {"properties": {"sources": {"properties": {"document_library": {"minItems": 1}, "im": {"minItems": 1}}}}},
+          {"properties": {"sources": {"properties": {"document_library": {"minItems": 1}, "email": {"minItems": 1}}}}},
+          {"properties": {"sources": {"properties": {"im": {"minItems": 1}, "email": {"minItems": 1}}}}}
+        ]
+      },
+      {
+        "anyOf": [
+          {"properties": {"sources": {"properties": {"meetings": {"contains": {"properties": {"authorship": {"properties": {"content_class": {"const": "signal"}}, "required": ["content_class"]}}, "required": ["authorship"]}}}}}},
+          {"properties": {"sources": {"properties": {"document_library": {"contains": {"properties": {"authorship": {"properties": {"content_class": {"const": "signal"}}, "required": ["content_class"]}}, "required": ["authorship"]}}}}}},
+          {"properties": {"sources": {"properties": {"im": {"contains": {"properties": {"authorship": {"properties": {"content_class": {"const": "signal"}}, "required": ["content_class"]}}, "required": ["authorship"]}}}}}},
+          {"properties": {"sources": {"properties": {"email": {"contains": {"properties": {"authorship": {"properties": {"content_class": {"const": "signal"}}, "required": ["content_class"]}}, "required": ["authorship"]}}}}}}
+        ]
+      }
+  ],
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9._:-]{2,127}$"},
+    "id_list": {"type": "array", "items": {"$ref": "#/$defs/id"}, "uniqueItems": true},
+    "research_context_item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["research_ref_id", "topic_query", "url", "title", "accessed_on", "credibility", "applicability_scope", "author_fact_summaries", "fictionalization_boundary", "applied_authored_ids"],
+      "properties": {
+        "research_ref_id": {"$ref": "#/$defs/id"},
+        "topic_query": {"type": "string", "minLength": 1, "maxLength": 300},
+        "url": {"type": "string", "format": "uri", "minLength": 1},
+        "title": {"type": "string", "minLength": 1, "maxLength": 300},
+        "accessed_on": {"type": "string", "format": "date"},
+        "credibility": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["tier", "rationale"],
+          "properties": {
+            "tier": {"enum": ["primary", "official", "secondary", "context_only"]},
+            "rationale": {"type": "string", "minLength": 1, "maxLength": 500}
+          }
+        },
+        "applicability_scope": {"type": "string", "minLength": 1, "maxLength": 500},
+        "author_fact_summaries": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 12,
+          "items": {"type": "string", "minLength": 1, "maxLength": 280}
+        },
+        "fictionalization_boundary": {"type": "string", "minLength": 1, "maxLength": 500},
+        "applied_authored_ids": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/id"},
+          "uniqueItems": true
+        }
+      }
+    },
+    "timestamp": {"type": "string", "format": "date-time"},
+    "role": {
+      "enum": ["executive", "manager", "product", "engineering", "design", "research", "operations", "support", "sales", "finance", "legal", "people", "vendor", "customer", "partner", "system", "unknown"]
+    },
+    "content_class": {"enum": ["signal", "noise", "ambiguous"]},
+    "links": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["story_beat_ids", "fact_ids", "continuity_ids"],
+      "properties": {
+        "story_beat_ids": {"$ref": "#/$defs/id_list"},
+        "fact_ids": {"$ref": "#/$defs/id_list"},
+        "continuity_ids": {"$ref": "#/$defs/id_list"}
+      }
+    },
+    "authorship": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["authored_id", "occurred_at", "author_role", "content_class", "links"],
+      "properties": {
+        "authored_id": {"$ref": "#/$defs/id"},
+        "occurred_at": {"$ref": "#/$defs/timestamp"},
+        "author_role": {"$ref": "#/$defs/role"},
+        "content_class": {"$ref": "#/$defs/content_class"},
+        "links": {"$ref": "#/$defs/links"}
+      }
+    },
+    "person": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["person_id", "display_name", "role"],
+      "properties": {
+        "person_id": {"$ref": "#/$defs/id"},
+        "display_name": {"type": "string", "minLength": 1},
+        "role": {"$ref": "#/$defs/role"},
+        "synthetic_address": {"type": ["string", "null"], "format": "email"}
+      }
+    },
+    "reaction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reaction_id", "name", "reactor_ids", "authorship"],
+      "properties": {
+        "reaction_id": {"$ref": "#/$defs/id"},
+        "name": {"type": "string", "minLength": 1},
+        "reactor_ids": {"$ref": "#/$defs/id_list"},
+        "authorship": {"$ref": "#/$defs/authorship"}
+      }
+    },
+    "attachment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["attachment_id", "filename", "content_type", "size_bytes", "authorship"],
+      "properties": {
+        "attachment_id": {"$ref": "#/$defs/id"},
+        "filename": {"type": "string", "minLength": 1},
+        "content_type": {"type": "string", "minLength": 1},
+        "size_bytes": {"type": "integer", "minimum": 0},
+        "content_id": {"type": ["string", "null"], "minLength": 1},
+        "authorship": {"$ref": "#/$defs/authorship"}
+      }
+    },
+    "meeting_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_id", "authorship", "schema", "provider", "meeting_id", "title", "started_at", "ended_at", "timezone", "owner_participant_ids", "participants", "agenda", "utterances"],
+      "properties": {
+        "source_id": {"$ref": "#/$defs/id"},
+        "authorship": {"$ref": "#/$defs/authorship"},
+        "schema": {"const": "pneuma.source.meeting/v1"},
+        "provider": {"enum": ["zoom", "mock"]},
+        "meeting_id": {"$ref": "#/$defs/id"},
+        "title": {"type": "string", "minLength": 1},
+        "started_at": {"$ref": "#/$defs/timestamp"},
+        "ended_at": {"type": ["string", "null"], "format": "date-time"},
+        "timezone": {"type": ["string", "null"], "minLength": 1},
+        "owner_participant_ids": {"$ref": "#/$defs/id_list"},
+        "participants": {"type": "array", "minItems": 2, "items": {"$ref": "#/$defs/meeting_participant"}},
+        "agenda": {"type": "array", "items": {"$ref": "#/$defs/meeting_agenda_item"}},
+        "utterances": {"type": "array", "minItems": 3, "items": {"$ref": "#/$defs/utterance"}}
+      }
+    },
+    "meeting_participant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["participant_id", "display_name", "role"],
+      "properties": {
+        "participant_id": {"$ref": "#/$defs/id"},
+        "display_name": {"type": "string", "minLength": 1},
+        "role": {"$ref": "#/$defs/role"},
+        "synthetic_address": {"type": ["string", "null"], "format": "email"}
+      }
+    },
+    "meeting_agenda_item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["agenda_id", "text", "authorship"],
+      "properties": {
+        "agenda_id": {"$ref": "#/$defs/id"},
+        "text": {"type": "string", "minLength": 1},
+        "authorship": {"$ref": "#/$defs/authorship"}
+      }
+    },
+    "utterance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["utterance_id", "speaker_id", "started_at", "ended_at", "text", "authorship"],
+      "properties": {
+        "utterance_id": {"$ref": "#/$defs/id"},
+        "speaker_id": {"$ref": "#/$defs/id"},
+        "started_at": {"$ref": "#/$defs/timestamp"},
+        "ended_at": {"type": ["string", "null"], "format": "date-time"},
+        "text": {"type": "string", "minLength": 1},
+        "interruption_of_utterance_id": {"type": ["string", "null"], "pattern": "^[A-Za-z][A-Za-z0-9._:-]{2,127}$"},
+        "authorship": {"$ref": "#/$defs/authorship"}
+      }
+    },
+    "document_library_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_id", "authorship", "schema", "provider", "library_id", "title", "documents"],
+      "properties": {
+        "source_id": {"$ref": "#/$defs/id"},
+        "authorship": {"$ref": "#/$defs/authorship"},
+        "schema": {"const": "pneuma.source.document-library/v1"},
+        "provider": {"enum": ["obsidian", "mock"]},
+        "library_id": {"$ref": "#/$defs/id"},
+        "title": {"type": "string", "minLength": 1},
+        "documents": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/document"}}
+      }
+    },
+    "document": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["document_id", "path", "title", "frontmatter", "full_markdown", "tags", "links", "created_at", "modified_at", "visible_blocks", "authorship"],
+      "properties": {
+        "document_id": {"$ref": "#/$defs/id"},
+        "path": {"type": "string", "pattern": "^(?!/)(?!.*\\.\\.)[^\\u0000]+\\.md$"},
+        "title": {"type": "string", "minLength": 1},
+        "frontmatter": {"type": "object"},
+        "full_markdown": {"type": "string", "minLength": 1},
+        "tags": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+        "links": {"type": "array", "items": {"$ref": "#/$defs/document_link"}},
+        "created_at": {"type": ["string", "null"], "format": "date-time"},
+        "modified_at": {"type": ["string", "null"], "format": "date-time"},
+        "visible_blocks": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/markdown_block"}},
+        "authorship": {"$ref": "#/$defs/authorship"}
+      }
+    },
+    "document_link": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["link_id", "target", "label", "embedded", "authorship"],
+      "properties": {
+        "link_id": {"$ref": "#/$defs/id"},
+        "target": {"type": "string", "minLength": 1},
+        "label": {"type": ["string", "null"]},
+        "embedded": {"type": "boolean"},
+        "authorship": {"$ref": "#/$defs/authorship"}
+      }
+    },
+    "markdown_block": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["block_id", "kind", "markdown", "authorship"],
+      "properties": {
+        "block_id": {"$ref": "#/$defs/id"},
+        "kind": {"enum": ["heading", "paragraph", "list", "quote", "table", "callout", "code", "other"]},
+        "markdown": {"type": "string", "minLength": 1},
+        "authorship": {"$ref": "#/$defs/authorship"}
+      }
+    },
+    "im_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_id", "authorship", "schema", "provider", "archive_id", "owner_user_ids", "users", "conversations"],
+      "properties": {
+        "source_id": {"$ref": "#/$defs/id"},
+        "authorship": {"$ref": "#/$defs/authorship"},
+        "schema": {"const": "pneuma.source.im/v1"},
+        "provider": {"enum": ["slack", "mock"]},
+        "archive_id": {"$ref": "#/$defs/id"},
+        "owner_user_ids": {"$ref": "#/$defs/id_list"},
+        "users": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/im_user"}},
+        "conversations": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/conversation"}}
+      }
+    },
+    "im_user": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["user_id", "display_name", "role", "is_bot"],
+      "properties": {
+        "user_id": {"$ref": "#/$defs/id"},
+        "display_name": {"type": "string", "minLength": 1},
+        "role": {"$ref": "#/$defs/role"},
+        "synthetic_address": {"type": ["string", "null"], "format": "email"},
+        "is_bot": {"type": "boolean"}
+      }
+    },
+    "conversation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["conversation_id", "conversation_type", "title", "member_ids", "messages", "authorship"],
+      "properties": {
+        "conversation_id": {"$ref": "#/$defs/id"},
+        "conversation_type": {"enum": ["channel", "dm", "group_dm"]},
+        "title": {"type": "string", "minLength": 1},
+        "member_ids": {"$ref": "#/$defs/id_list"},
+        "messages": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/im_message"}},
+        "authorship": {"$ref": "#/$defs/authorship"}
+      }
+    },
+    "im_message": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["message_id", "sender_id", "sent_at", "full_text", "thread_id", "edited_at", "reactions", "authorship"],
+      "properties": {
+        "message_id": {"$ref": "#/$defs/id"},
+        "sender_id": {"$ref": "#/$defs/id"},
+        "sent_at": {"$ref": "#/$defs/timestamp"},
+        "full_text": {"type": "string", "minLength": 1},
+        "thread_id": {"type": ["string", "null"], "pattern": "^[A-Za-z][A-Za-z0-9._:-]{2,127}$"},
+        "edited_at": {"type": ["string", "null"], "format": "date-time"},
+        "reactions": {"type": "array", "items": {"$ref": "#/$defs/reaction"}},
+        "authorship": {"$ref": "#/$defs/authorship"}
+      }
+    },
+    "email_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_id", "authorship", "schema", "provider", "archive_id", "owner_addresses", "threads"],
+      "properties": {
+        "source_id": {"$ref": "#/$defs/id"},
+        "authorship": {"$ref": "#/$defs/authorship"},
+        "schema": {"const": "pneuma.source.email/v1"},
+        "provider": {"enum": ["rfc822", "mock"]},
+        "archive_id": {"$ref": "#/$defs/id"},
+        "owner_addresses": {"type": "array", "items": {"type": "string", "format": "email"}, "uniqueItems": true},
+        "threads": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/email_thread"}}
+      }
+    },
+    "email_thread": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["thread_id", "subject", "messages", "authorship"],
+      "properties": {
+        "thread_id": {"$ref": "#/$defs/id"},
+        "subject": {"type": "string"},
+        "messages": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/email_message"}},
+        "authorship": {"$ref": "#/$defs/authorship"}
+      }
+    },
+    "email_address": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["address", "display_name", "role"],
+      "properties": {
+        "address": {"type": "string", "format": "email"},
+        "display_name": {"type": ["string", "null"]},
+        "role": {"$ref": "#/$defs/role"}
+      }
+    },
+    "email_header": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["header_id", "name", "value", "authorship"],
+      "properties": {
+        "header_id": {"$ref": "#/$defs/id"},
+        "name": {"type": "string", "pattern": "^[A-Za-z0-9-]+$"},
+        "value": {"type": "string"},
+        "authorship": {"$ref": "#/$defs/authorship"}
+      }
+    },
+    "email_message": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["message_id", "sent_at", "from", "to", "cc", "subject", "headers", "full_text", "in_reply_to", "references", "attachments", "authorship"],
+      "properties": {
+        "message_id": {"$ref": "#/$defs/id"},
+        "sent_at": {"$ref": "#/$defs/timestamp"},
+        "from": {"$ref": "#/$defs/email_address"},
+        "to": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/email_address"}},
+        "cc": {"type": "array", "items": {"$ref": "#/$defs/email_address"}},
+        "subject": {"type": "string"},
+        "headers": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/email_header"}},
+        "full_text": {"type": "string", "minLength": 1},
+        "in_reply_to": {"type": ["string", "null"], "pattern": "^[A-Za-z][A-Za-z0-9._:-]{2,127}$"},
+        "references": {"$ref": "#/$defs/id_list"},
+        "attachments": {"type": "array", "items": {"$ref": "#/$defs/attachment"}},
+        "authorship": {"$ref": "#/$defs/authorship"}
+      }
+    }
+  }
+}

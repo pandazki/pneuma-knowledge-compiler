@@ -133,6 +133,26 @@ def test_citation_range_accepts_repeated_marker_and_still_checks_bounds():
     assert "citation" in _kinds(run_gate(invalid, SOURCES))
 
 
+def test_grouped_citation_validates_every_span():
+    valid = _draft()
+    valid.create_document(
+        "memory/people/a.md",
+        {"type": "person", "slug": "a"},
+        "- x。[cite: src-01 ¶0,2-4]",
+    )
+    assert "citation" not in _kinds(run_gate(valid, SOURCES))
+
+    invalid = _draft()
+    invalid.create_document(
+        "memory/people/a.md",
+        {"type": "person", "slug": "a"},
+        "- x。[cite: src-01 ¶0,6]",
+    )
+    violations = [item for item in run_gate(invalid, SOURCES) if item.kind == "citation"]
+    assert len(violations) == 1
+    assert "¶6-6" in violations[0].detail
+
+
 def test_citation_grandfathers_untouched_base_doc_citing_old_source():
     # M5 Path B: a forward-only compile supplies only src-05; an untouched base doc
     # citing the old src-00 (not supplied now) must NOT be re-rejected — its citation

@@ -13,7 +13,7 @@ import re
 import secrets
 import uuid
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Literal
 
 from pneuma_knowledge_core.domain.ids import UserId, SourceId
 from pneuma_knowledge_core.domain.intake import INTAKE_ARCHETYPES, IntakeArchetype
@@ -104,6 +104,16 @@ class PageMetaOut(BaseModel):
 class SourcePageOut(BaseModel):
     items: list[SourceOut]
     page: PageMetaOut
+
+
+class ActivityDayOut(BaseModel):
+    date: str
+    count: int
+    kinds: dict[str, int]
+
+
+class ActivityCalendarOut(BaseModel):
+    days: list[ActivityDayOut]
 
 
 class WorkspaceSummaryOut(BaseModel):
@@ -518,6 +528,18 @@ async def list_sources(
         items=items,
         page=PageMetaOut(limit=limit, total=total, next_cursor=next_cursor),
     )
+
+
+@router.get("/sources/activity", response_model=ActivityCalendarOut)
+async def get_source_activity(
+    user_id: str,
+    request: Request,
+    offset_minutes: int = Query(default=0, ge=-840, le=840),
+) -> ActivityCalendarOut:
+    days = await _ctx(request).store.source_activity(
+        UserId(user_id), offset_minutes=offset_minutes
+    )
+    return ActivityCalendarOut(days=[ActivityDayOut(**day) for day in days])
 
 
 @router.get("/summary", response_model=WorkspaceSummaryOut)
@@ -984,7 +1006,9 @@ async def list_history(
     request: Request,
     limit: int = Query(default=25, ge=1, le=100),
     cursor: str | None = None,
+    kind: Literal["patch", "job", "snapshot"] | None = None,
 ) -> HistoryPageOut:
+    filters = {"kind": kind}
     before: tuple[datetime, str, str] | None = None
     if cursor:
         try:
@@ -992,7 +1016,7 @@ async def list_history(
                 cursor,
                 collection="history",
                 user_id=user_id,
-                filters={},
+                filters=filters,
             )
             before = (
                 datetime.fromisoformat(position["ts"]),
@@ -1006,6 +1030,7 @@ async def list_history(
         UserId(user_id),
         limit=limit,
         before=before,
+        kind=kind,
     )
     items = [
         HistoryItemOut(
@@ -1022,7 +1047,7 @@ async def list_history(
         next_cursor = encode_cursor(
             collection="history",
             user_id=user_id,
-            filters={},
+            filters=filters,
             position={
                 "ts": last["ts"].isoformat(),
                 "kind": last["kind"],
@@ -1038,6 +1063,19 @@ async def list_history(
         ),
         counts=HistoryCountsOut(**counts),
     )
+
+
+@router.get("/history/activity", response_model=ActivityCalendarOut)
+async def get_history_activity(
+    user_id: str,
+    request: Request,
+    offset_minutes: int = Query(default=0, ge=-840, le=840),
+    kind: Literal["patch", "job", "snapshot"] | None = None,
+) -> ActivityCalendarOut:
+    days = await _ctx(request).store.history_activity(
+        UserId(user_id), offset_minutes=offset_minutes, kind=kind
+    )
+    return ActivityCalendarOut(days=[ActivityDayOut(**day) for day in days])
 
 
 @router.post("/compile", response_model=CompileOut)

@@ -326,6 +326,36 @@ class PostgresStore:
             has_more,
         )
 
+    async def source_activity(
+        self, user_id: UserId, *, offset_minutes: int
+    ) -> list[dict[str, Any]]:
+        """Daily source density in the caller's fixed calendar offset."""
+
+        async with self._pool.connection() as conn:
+            rows = await (await conn.execute(
+                """
+                SELECT
+                    (
+                        (created_at AT TIME ZONE 'UTC')
+                        + make_interval(mins => %s)
+                    )::date AS activity_date,
+                    kind,
+                    count(*)
+                FROM sources
+                WHERE user_id = %s
+                GROUP BY activity_date, kind
+                ORDER BY activity_date, kind
+                """,
+                (offset_minutes, str(user_id)),
+            )).fetchall()
+        grouped: dict[str, dict[str, Any]] = {}
+        for activity_date, kind, count in rows:
+            key = activity_date.isoformat()
+            day = grouped.setdefault(key, {"date": key, "count": 0, "kinds": {}})
+            day["count"] += int(count)
+            day["kinds"][kind] = int(count)
+        return list(grouped.values())
+
     async def fetch(
         self, user_id: UserId, source_id: SourceId, locator: Locator
     ) -> str:
@@ -539,14 +569,21 @@ class PostgresStore:
         *,
         limit: int,
         before: tuple[datetime, str, str] | None = None,
+        kind: str | None = None,
     ) -> tuple[list[dict[str, Any]], dict[str, int], bool]:
         """Merge source captures, jobs and committed patches into one bounded ledger."""
         uid = str(user_id)
-        cursor_clause = ""
-        cursor_params: list[Any] = []
+        ledger_filters: list[str] = []
+        ledger_params: list[Any] = []
+        if kind is not None:
+            ledger_filters.append("kind = %s")
+            ledger_params.append(kind)
         if before is not None:
-            cursor_clause = "WHERE (ts, kind, ref) < (%s, %s, %s)"
-            cursor_params.extend(before)
+            ledger_filters.append("(ts, kind, ref) < (%s, %s, %s)")
+            ledger_params.extend(before)
+        ledger_clause = (
+            "WHERE " + " AND ".join(ledger_filters) if ledger_filters else ""
+        )
 
         async with self._pool.connection() as conn:
             counts_row = await (await conn.execute(
@@ -577,12 +614,15 @@ class PostgresStore:
                             'effort', NULL,
                             'claims', jsonb_agg(
                                 jsonb_build_object(
+                                    'type', e.type,
+                                    'path', e.path,
                                     'anchor', jsonb_build_object(
                                         'document_id', NULL,
                                         'anchor', e.anchor
                                     ),
                                     'flags', '[]'::jsonb,
-                                    'note', e.type
+                                    'before', e.before,
+                                    'after', e.after
                                 )
                                 ORDER BY e.seq
                             ),
@@ -635,9 +675,9 @@ class PostgresStore:
                 SELECT kind, ref, ts, payload
                 FROM audit
                 """
-                + cursor_clause
+                + ledger_clause
                 + " ORDER BY ts DESC, kind DESC, ref DESC LIMIT %s",
-                [uid, uid, uid, *cursor_params, limit + 1],
+                [uid, uid, uid, *ledger_params, limit + 1],
             )).fetchall()
 
         snapshots = int(counts_row[2]) if counts_row and counts_row[2] else 0
@@ -651,11 +691,20 @@ class PostgresStore:
                     (uid,),
                 )).fetchone()
             patches = int(patch_row[0]) if patch_row else 0
+        totals_by_kind = {
+            "patch": patches,
+            "job": jobs,
+            "snapshot": snapshots,
+        }
         counts = {
             "patches": patches,
             "jobs": jobs,
             "snapshots": snapshots,
-            "total": patches + jobs + snapshots,
+            "total": (
+                totals_by_kind[kind]
+                if kind in totals_by_kind
+                else patches + jobs + snapshots
+            ),
         }
         has_more = len(rows) > limit
         rows = rows[:limit]
@@ -672,6 +721,66 @@ class PostgresStore:
             counts,
             has_more,
         )
+
+    async def history_activity(
+        self, user_id: UserId, *, offset_minutes: int, kind: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Daily density for the same patch/job/source ledger as ``list_history_page``."""
+
+        uid = str(user_id)
+        kind_clause = "WHERE kind = %s" if kind is not None else ""
+        query_params: list[Any] = [uid, uid, uid, offset_minutes]
+        if kind is not None:
+            query_params.append(kind)
+        async with self._pool.connection() as conn:
+            rows = await (await conn.execute(
+                """
+                WITH patch_items AS (
+                    SELECT
+                        'patch'::text AS kind,
+                        COALESCE(j.completed_at, j.created_at, max(e.created_at)) AS ts
+                    FROM compile_events e
+                    JOIN compile_jobs j
+                      ON j.user_id = e.user_id AND j.id = e.job_id
+                    WHERE e.user_id = %s
+                    GROUP BY j.id
+                ),
+                audit AS (
+                    SELECT 'snapshot'::text AS kind, s.created_at AS ts
+                    FROM sources s
+                    WHERE s.user_id = %s
+                    UNION ALL
+                    SELECT
+                        'job'::text AS kind,
+                        COALESCE(j.completed_at, j.created_at) AS ts
+                    FROM compile_jobs j
+                    WHERE j.user_id = %s
+                    UNION ALL
+                    SELECT kind, ts FROM patch_items
+                )
+                SELECT
+                    (
+                        (ts AT TIME ZONE 'UTC')
+                        + make_interval(mins => %s)
+                    )::date AS activity_date,
+                    kind,
+                    count(*)
+                FROM audit
+                """
+                + kind_clause
+                + """
+                GROUP BY activity_date, kind
+                ORDER BY activity_date, kind
+                """,
+                query_params,
+            )).fetchall()
+        grouped: dict[str, dict[str, Any]] = {}
+        for activity_date, kind, count in rows:
+            key = activity_date.isoformat()
+            day = grouped.setdefault(key, {"date": key, "count": 0, "kinds": {}})
+            day["count"] += int(count)
+            day["kinds"][kind] = int(count)
+        return list(grouped.values())
 
     async def record_compile_events(
         self,

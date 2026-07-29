@@ -1,0 +1,1218 @@
+{
+  "schema": "pneuma.experiment.opc-84d-v2.group-content/v1",
+  "group_id": "G04",
+  "group_window": {
+    "starts_on": "2026-03-11",
+    "ends_on": "2026-03-13",
+    "day_count": 3,
+    "timezone": "Asia/Shanghai"
+  },
+  "story_scope": {
+    "allowed_story_beat_ids": ["D10", "D11", "D12"],
+    "known_fact_ids": ["F01", "F02", "F03", "F04"],
+    "open_continuity_ids": ["C01", "C03"],
+    "new_continuity_ids": []
+  },
+  "research_context": [
+    {
+      "research_ref_id": "RG04-observation-notes",
+      "topic_query": "official user research notes separate direct observations from interpretations label participant session",
+      "url": "https://www.gov.uk/service-manual/user-research/taking-notes-and-recording-user-research-sessions",
+      "title": "Taking notes and recording user research sessions",
+      "accessed_on": "2026-07-29",
+      "credibility": {
+        "tier": "official",
+        "rationale": "The source-owner service manual directly describes how research observations, participant labels, notes, and later analysis should be kept distinguishable."
+      },
+      "applicability_scope": "Used to shape the D10 interview residue as time-labelled excerpts beside Lin Zhou's contemporaneous interpretation, so the raw correction remains visible even though his understanding is still wrong.",
+      "author_fact_summaries": [
+        "把当场听见或看见的细节与记录者随后作出的推断拆开，复盘者才能判断哪一部分真正来自参与者。",
+        "零散记录若带有发生时点和对象线索，后续整理就不必靠记忆重新拼装上下文。"
+      ],
+      "fictionalization_boundary": "No government service, consent scenario, note-taking tool, participant scheme, interface label, example, or source wording is transferred into the authored documents.",
+      "applied_authored_ids": ["g04d10-auth03", "g04d10-auth04"]
+    },
+    {
+      "research_ref_id": "RG04-scope-priority",
+      "topic_query": "official product prioritisation limited time evidence user research stakeholder input defer features",
+      "url": "https://www.gov.uk/service-manual/agile-delivery/deciding-on-priorities",
+      "title": "Deciding on priorities",
+      "accessed_on": "2026-07-29",
+      "credibility": {
+        "tier": "official",
+        "rationale": "The official service manual is a first-party source for evidence-based product prioritisation under limited capacity."
+      },
+      "applicability_scope": "Used only to structure Jia Ning's D11 objection and the D12 subtraction: an attractive untested feature stays outside the narrow learning question instead of becoming scope through enthusiasm.",
+      "author_fact_summaries": [
+        "候选工作往往多于眼下能投入的资源，因此需要明确当前学习问题，并把暂缓内容写出来。",
+        "观察结果与相关人的输入会改变先后次序；优先级不是按功能数量排出的固定名次。"
+      ],
+      "fictionalization_boundary": "No named prioritisation method, government phase, service example, backlog label, organization, or page language appears in the synthetic notes or chat.",
+      "applied_authored_ids": ["g04d11-auth03", "g04iw-auth03"]
+    },
+    {
+      "research_ref_id": "RG04-decision-trace",
+      "topic_query": "official decision record context decision consequences state owner timestamp lifecycle",
+      "url": "https://docs.aws.amazon.com/prescriptive-guidance/latest/architectural-decision-records/adr-process.html",
+      "title": "Architectural decision record process",
+      "accessed_on": "2026-07-29",
+      "credibility": {
+        "tier": "official",
+        "rationale": "The source-owner guidance directly specifies a decision-record lifecycle and distinguishes a proposal from an accepted choice with context and consequences."
+      },
+      "applicability_scope": "Used only to make the D12 scope choice traceable in conversational form: the choice, its reason, its immediate exclusion, its confirming person, and still-open dependencies remain separate.",
+      "author_fact_summaries": [
+        "一次取舍应同时留下触发背景、实际选择和马上受影响的工作，避免后来只见结论而不见原因。",
+        "尚在讨论的方案与已经核过的选择需要区分；后来若有替代，应另留关联记录，而不是覆盖旧条目。"
+      ],
+      "fictionalization_boundary": "No cloud vendor, architecture term, lifecycle label, template heading, review duration, implementation example, or source sentence is used in the fictional IM.",
+      "applied_authored_ids": ["g04iw-auth09", "g04iw-auth10"]
+    }
+  ],
+  "sources": {
+    "meetings": [],
+    "document_library": [
+      {
+        "source_id": "g04d10-src01",
+        "authorship": {
+          "authored_id": "g04d10-src-auth",
+          "occurred_at": "2026-03-11T18:06:00+08:00",
+          "author_role": "product",
+          "content_class": "ambiguous",
+          "links": {
+            "story_beat_ids": ["D10"],
+            "fact_ids": ["F01", "F02", "F03", "F04"],
+            "continuity_ids": ["C01", "C03"]
+          }
+        },
+        "schema": "pneuma.source.document-library/v1",
+        "provider": "mock",
+        "library_id": "g04d10-interview-residue",
+        "title": "3 月 11 日访谈残片与字段试写",
+        "documents": [
+          {
+            "document_id": "g04d10-doc01",
+            "path": "research/interviews/2026-03-11-two-corrections.md",
+            "title": "两次更正摘录（未判明）",
+            "frontmatter": {
+              "date": "2026-03-11",
+              "author": "林舟",
+              "status": "interpretation-open",
+              "source": "message-excerpts"
+            },
+            "full_markdown": "# 两次更正摘录（未判明）\n\n09:37 把上午消息里两处原句单独抄出，时间沿用消息旁显示的时刻。右栏是我当时写下的理解，不是陈放认可的转述。旧材料尚未进入任何环境；这里也不补他没说过的原因。\n\n| 时刻 | 陈放原句摘录 | 我当时记成 |\n| --- | --- | --- |\n| 09:18 | “不是这个意思。我不是说这条变化不该做；页面写成‘已经定了’，可现场只是有人提过，还没人答应照它改。我纠正的是旁边那一格。” | 他反对页面把话说得太满，可能想增加反对意见 |\n| 09:26 | “不是这个意思，方案本身我没意见。我说你把‘有人提到’和‘可以照着做’写成同一件事了。” | 他仍在反对这张卡，或觉得摘要缺少过程 |\n\n读到第二次时，我还是把“不是”落进了意见列，准备给卡片加一块正反观点。可两段原句都把方案内容和旁边那格分开：他没有要求我判断方案好坏，也没有说应该由谁决定。我知道自己没听懂，却暂时说不清漏掉的是哪一种关系。\n\n- 未解一：旁边那格究竟在描述说过的话、后来发生的动作，还是某个人作出的判断？\n- 未解二：同一句内容由不同人看到时，谁能改变那格，谁只能提出异议？\n- 未解三：如果只记录“陈放反对”，会不会把他的更正再次写错？\n- 今日不做：给这些关系起正式名称；把某个人默认成能拍板的人；用更多摘要替代回看原句。\n\n15:42 颈肩发紧，计时器响后离桌拉伸了十分钟。回来时水杯碰翻一点，先擦桌垫再继续；这段中断没有帮助我理解那两句话，也不补进访谈结论。",
+            "tags": ["interview", "raw-excerpt", "interpretation-gap"],
+            "links": [
+              {
+                "link_id": "g04d10-link01",
+                "target": "research/models/2026-03-11-change-chain-fields-v0.md",
+                "label": "字段试写第零遍",
+                "embedded": false,
+                "authorship": {
+                  "authored_id": "g04d10-link-auth01",
+                  "occurred_at": "2026-03-11T16:22:00+08:00",
+                  "author_role": "product",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": ["D10"],
+                    "fact_ids": ["F04"],
+                    "continuity_ids": ["C01", "C03"]
+                  }
+                }
+              }
+            ],
+            "created_at": "2026-03-11T09:37:00+08:00",
+            "modified_at": "2026-03-11T16:22:00+08:00",
+            "visible_blocks": [
+              {
+                "block_id": "g04d10-b01",
+                "kind": "heading",
+                "markdown": "# 两次更正摘录（未判明）",
+                "authorship": {
+                  "authored_id": "g04d10-auth01",
+                  "occurred_at": "2026-03-11T09:37:00+08:00",
+                  "author_role": "product",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": ["D10"],
+                    "fact_ids": ["F04"],
+                    "continuity_ids": ["C01", "C03"]
+                  }
+                }
+              },
+              {
+                "block_id": "g04d10-b02",
+                "kind": "paragraph",
+                "markdown": "09:37 把上午消息里两处原句单独抄出，时间沿用消息旁显示的时刻。右栏是我当时写下的理解，不是陈放认可的转述。旧材料尚未进入任何环境；这里也不补他没说过的原因。",
+                "authorship": {
+                  "authored_id": "g04d10-auth02",
+                  "occurred_at": "2026-03-11T09:37:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D10"],
+                    "fact_ids": ["F02", "F04"],
+                    "continuity_ids": ["C01", "C03"]
+                  }
+                }
+              },
+              {
+                "block_id": "g04d10-b03",
+                "kind": "table",
+                "markdown": "| 时刻 | 陈放原句摘录 | 我当时记成 |\n| --- | --- | --- |\n| 09:18 | “不是这个意思。我不是说这条变化不该做；页面写成‘已经定了’，可现场只是有人提过，还没人答应照它改。我纠正的是旁边那一格。” | 他反对页面把话说得太满，可能想增加反对意见 |\n| 09:26 | “不是这个意思，方案本身我没意见。我说你把‘有人提到’和‘可以照着做’写成同一件事了。” | 他仍在反对这张卡，或觉得摘要缺少过程 |",
+                "authorship": {
+                  "authored_id": "g04d10-auth03",
+                  "occurred_at": "2026-03-11T09:51:00+08:00",
+                  "author_role": "research",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D10"],
+                    "fact_ids": ["F04"],
+                    "continuity_ids": ["C01", "C03"]
+                  }
+                }
+              },
+              {
+                "block_id": "g04d10-b04",
+                "kind": "paragraph",
+                "markdown": "读到第二次时，我还是把“不是”落进了意见列，准备给卡片加一块正反观点。可两段原句都把方案内容和旁边那格分开：他没有要求我判断方案好坏，也没有说应该由谁决定。我知道自己没听懂，却暂时说不清漏掉的是哪一种关系。",
+                "authorship": {
+                  "authored_id": "g04d10-auth04",
+                  "occurred_at": "2026-03-11T10:14:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D10"],
+                    "fact_ids": ["F04"],
+                    "continuity_ids": ["C01", "C03"]
+                  }
+                }
+              },
+              {
+                "block_id": "g04d10-b05",
+                "kind": "list",
+                "markdown": "- 未解一：旁边那格究竟在描述说过的话、后来发生的动作，还是某个人作出的判断？\n- 未解二：同一句内容由不同人看到时，谁能改变那格，谁只能提出异议？\n- 未解三：如果只记录“陈放反对”，会不会把他的更正再次写错？\n- 今日不做：给这些关系起正式名称；把某个人默认成能拍板的人；用更多摘要替代回看原句。",
+                "authorship": {
+                  "authored_id": "g04d10-auth05",
+                  "occurred_at": "2026-03-11T10:43:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D10"],
+                    "fact_ids": ["F04"],
+                    "continuity_ids": ["C01", "C03"]
+                  }
+                }
+              },
+              {
+                "block_id": "g04d10-b06",
+                "kind": "paragraph",
+                "markdown": "15:42 颈肩发紧，计时器响后离桌拉伸了十分钟。回来时水杯碰翻一点，先擦桌垫再继续；这段中断没有帮助我理解那两句话，也不补进访谈结论。",
+                "authorship": {
+                  "authored_id": "g04d10-auth06",
+                  "occurred_at": "2026-03-11T15:42:00+08:00",
+                  "author_role": "product",
+                  "content_class": "noise",
+                  "links": {
+                    "story_beat_ids": ["D10"],
+                    "fact_ids": [],
+                    "continuity_ids": []
+                  }
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "g04d10-doc-auth01",
+              "occurred_at": "2026-03-11T16:22:00+08:00",
+              "author_role": "product",
+              "content_class": "ambiguous",
+              "links": {
+                "story_beat_ids": ["D10"],
+                "fact_ids": ["F02", "F04"],
+                "continuity_ids": ["C01", "C03"]
+              }
+            }
+          },
+          {
+            "document_id": "g04d10-doc02",
+            "path": "research/models/2026-03-11-change-chain-fields-v0.md",
+            "title": "变更链字段试写第零遍",
+            "frontmatter": {
+              "date": "2026-03-11",
+              "author": "林舟",
+              "status": "scratch",
+              "input": "fictional-only"
+            },
+            "full_markdown": "# 变更链字段试写第零遍\n\n这不是数据模型，只是把今天没听懂的地方摊开。样例仍用角色甲、角色乙和编造短句；两处陈放原句只留在访谈摘录页，不放进运行样例。字段名随时可删，空白不能自动补成结论。\n\n| 暂用格子 | 想留下什么 | 现在为什么不可靠 |\n| --- | --- | --- |\n| 来源片段 | 一段没有改写的句子 | 还没定义会议、消息、文档如何定位 |\n| 发生时刻 | 句子出现的大致时间 | 时间精度和时区没有比较 |\n| 关系占位 | 句子之后是否发生了别的动作 | 我仍把更正误读成反对，不能先写枚举 |\n| 留下判断的人 | 谁改变了关系占位 | 谁拥有这个资格完全未答 |\n| 备注 | 不确定处和不同意见 | 不能拿备注替代来源片段 |\n\n> 失败的草稿句：“陈放不同意这项变化。”它把他的两次更正都压成对内容的反对，不能进入样例。暂时只保留“他指出页面把两种情况写成了一种”，但“两种情况”具体如何表示仍未解决。\n\n- 第一轮只做纸面卡，不接旧材料，不邀请陈放再次确认。\n- 不把吴岚、陈放或林舟预填进“留下判断的人”。\n- 不设置默认答案；空格就是当前缺口。\n- 明天若讨论范围，先问要验证哪一个关系，不先问整个项目还缺哪些页面。\n\n18:06 收尾时仍没有一套可用字段。来源片段和时刻看起来较稳，后面三格只是提醒我别再混写。今天的结果是暴露误读，不是解释了陈放的意思。",
+            "tags": ["field-scratch", "fictional-data", "open-question"],
+            "links": [
+              {
+                "link_id": "g04d10-link02",
+                "target": "research/interviews/2026-03-11-two-corrections.md",
+                "label": "两次更正摘录",
+                "embedded": false,
+                "authorship": {
+                  "authored_id": "g04d10-link-auth02",
+                  "occurred_at": "2026-03-11T17:08:00+08:00",
+                  "author_role": "product",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": ["D10"],
+                    "fact_ids": ["F04"],
+                    "continuity_ids": ["C01", "C03"]
+                  }
+                }
+              }
+            ],
+            "created_at": "2026-03-11T13:24:00+08:00",
+            "modified_at": "2026-03-11T18:06:00+08:00",
+            "visible_blocks": [
+              {
+                "block_id": "g04d10-b07",
+                "kind": "heading",
+                "markdown": "# 变更链字段试写第零遍",
+                "authorship": {
+                  "authored_id": "g04d10-auth07",
+                  "occurred_at": "2026-03-11T13:24:00+08:00",
+                  "author_role": "product",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": ["D10"],
+                    "fact_ids": ["F04"],
+                    "continuity_ids": ["C01", "C03"]
+                  }
+                }
+              },
+              {
+                "block_id": "g04d10-b08",
+                "kind": "paragraph",
+                "markdown": "这不是数据模型，只是把今天没听懂的地方摊开。样例仍用角色甲、角色乙和编造短句；两处陈放原句只留在访谈摘录页，不放进运行样例。字段名随时可删，空白不能自动补成结论。",
+                "authorship": {
+                  "authored_id": "g04d10-auth08",
+                  "occurred_at": "2026-03-11T13:24:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D10"],
+                    "fact_ids": ["F02", "F04"],
+                    "continuity_ids": ["C01", "C03"]
+                  }
+                }
+              },
+              {
+                "block_id": "g04d10-b09",
+                "kind": "table",
+                "markdown": "| 暂用格子 | 想留下什么 | 现在为什么不可靠 |\n| --- | --- | --- |\n| 来源片段 | 一段没有改写的句子 | 还没定义会议、消息、文档如何定位 |\n| 发生时刻 | 句子出现的大致时间 | 时间精度和时区没有比较 |\n| 关系占位 | 句子之后是否发生了别的动作 | 我仍把更正误读成反对，不能先写枚举 |\n| 留下判断的人 | 谁改变了关系占位 | 谁拥有这个资格完全未答 |\n| 备注 | 不确定处和不同意见 | 不能拿备注替代来源片段 |",
+                "authorship": {
+                  "authored_id": "g04d10-auth09",
+                  "occurred_at": "2026-03-11T14:02:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D10"],
+                    "fact_ids": ["F04"],
+                    "continuity_ids": ["C01", "C03"]
+                  }
+                }
+              },
+              {
+                "block_id": "g04d10-b10",
+                "kind": "quote",
+                "markdown": "> 失败的草稿句：“陈放不同意这项变化。”它把他的两次更正都压成对内容的反对，不能进入样例。暂时只保留“他指出页面把两种情况写成了一种”，但“两种情况”具体如何表示仍未解决。",
+                "authorship": {
+                  "authored_id": "g04d10-auth10",
+                  "occurred_at": "2026-03-11T16:11:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D10"],
+                    "fact_ids": ["F04"],
+                    "continuity_ids": ["C01", "C03"]
+                  }
+                }
+              },
+              {
+                "block_id": "g04d10-b11",
+                "kind": "list",
+                "markdown": "- 第一轮只做纸面卡，不接旧材料，不邀请陈放再次确认。\n- 不把吴岚、陈放或林舟预填进“留下判断的人”。\n- 不设置默认答案；空格就是当前缺口。\n- 明天若讨论范围，先问要验证哪一个关系，不先问整个项目还缺哪些页面。",
+                "authorship": {
+                  "authored_id": "g04d10-auth11",
+                  "occurred_at": "2026-03-11T17:08:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D10"],
+                    "fact_ids": ["F02", "F04"],
+                    "continuity_ids": ["C01", "C03"]
+                  }
+                }
+              },
+              {
+                "block_id": "g04d10-b12",
+                "kind": "paragraph",
+                "markdown": "18:06 收尾时仍没有一套可用字段。来源片段和时刻看起来较稳，后面三格只是提醒我别再混写。今天的结果是暴露误读，不是解释了陈放的意思。",
+                "authorship": {
+                  "authored_id": "g04d10-auth12",
+                  "occurred_at": "2026-03-11T18:06:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D10"],
+                    "fact_ids": ["F04"],
+                    "continuity_ids": ["C01", "C03"]
+                  }
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "g04d10-doc-auth02",
+              "occurred_at": "2026-03-11T18:06:00+08:00",
+              "author_role": "product",
+              "content_class": "ambiguous",
+              "links": {
+                "story_beat_ids": ["D10"],
+                "fact_ids": ["F02", "F04"],
+                "continuity_ids": ["C01", "C03"]
+              }
+            }
+          }
+        ]
+      },
+      {
+        "source_id": "g04d11-src01",
+        "authorship": {
+          "authored_id": "g04d11-src-auth",
+          "occurred_at": "2026-03-12T19:18:00+08:00",
+          "author_role": "product",
+          "content_class": "ambiguous",
+          "links": {
+            "story_beat_ids": ["D11"],
+            "fact_ids": ["F01", "F02", "F03", "F04"],
+            "continuity_ids": ["C01", "C03"]
+          }
+        },
+        "schema": "pneuma.source.document-library/v1",
+        "provider": "mock",
+        "library_id": "g04d11-scope-scratch",
+        "title": "3 月 12 日范围草图与日页",
+        "documents": [
+          {
+            "document_id": "g04d11-doc01",
+            "path": "product/scope/2026-03-12-all-project-board-scratch.md",
+            "title": "全项目看板草图：未验证",
+            "frontmatter": {
+              "date": "2026-03-12",
+              "author": "林舟",
+              "status": "unvalidated-idea",
+              "reviewer": "贾宁"
+            },
+            "full_markdown": "# 全项目看板草图：未验证\n\n上午一度想把入口改成“所有项目—全部任务—负责人—进度”，再从任务旁挂回变更片段。起因不是新访谈，而是我觉得三张孤立卡看起来太薄。这张图没有用户走过，也没有数据证明一个总览能回答陈放昨天纠正的关系问题。\n\n| 草图区域 | 我想象的用途 | 贾宁指出的扩张 |\n| --- | --- | --- |\n| 项目总表 | 一眼看所有工作 | 先要求一套并不存在的项目结构 |\n| 任务泳道 | 把沟通变成待办 | 把“说过什么”提前改写为“应该做什么” |\n| 人员负载 | 找到负责人 | 未回答谁只是说话、谁能够作出判断 |\n| 周视图 | 自动汇总进展 | 又绕回尚未证实有用的概览 |\n| 变更卡入口 | 从任务进入来源 | 依赖前三块才能存在，无法单独验证 |\n\n> 贾宁 11:16 的原话记录：“你连一条变化为什么要留、留到哪里都还没说清，就先做所有项目的任务板，等于把四个未知一起铺开。这个草图可以留，不能拿它冒充范围。”\n\n我第一反应是看板以后总会需要，先搭骨架不算扩张。贾宁反问：如果明天只能让对方判断一件事，看板中的哪一列有独立证据？我答不出来。到午饭时只把页面移回草图区，没有删除，也没有继续做交互；它仍是我的偏好，不是已经验证的方向。\n\n- 会前要问：对方遇到争议时，第一步必须看见什么？\n- 会前要问：哪一项不出现，也不妨碍验证原句与后续判断的关系？\n- 会前要写：全项目看板没有进入承诺，只是被质疑的备选草图。\n- 尚未回答：试验对象、参与角色、数据怎么访问，以及谁能够确认关系变化。\n\n今天没有落定一份正式边界。贾宁明确反对把看板扩张当默认路径，但“只留下哪一件事”要等明天继续谈；当前页面也未对外发送。",
+            "tags": ["scope", "board-scratch", "unvalidated"],
+            "links": [
+              {
+                "link_id": "g04d11-link01",
+                "target": "daily/2026/03/2026-03-12.md",
+                "label": "当日日页",
+                "embedded": false,
+                "authorship": {
+                  "authored_id": "g04d11-link-auth01",
+                  "occurred_at": "2026-03-12T17:22:00+08:00",
+                  "author_role": "product",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": ["D11"],
+                    "fact_ids": ["F04"],
+                    "continuity_ids": ["C01", "C03"]
+                  }
+                }
+              }
+            ],
+            "created_at": "2026-03-12T09:42:00+08:00",
+            "modified_at": "2026-03-12T17:22:00+08:00",
+            "visible_blocks": [
+              {
+                "block_id": "g04d11-b01",
+                "kind": "heading",
+                "markdown": "# 全项目看板草图：未验证",
+                "authorship": {
+                  "authored_id": "g04d11-auth01",
+                  "occurred_at": "2026-03-12T09:42:00+08:00",
+                  "author_role": "product",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": ["D11"],
+                    "fact_ids": ["F04"],
+                    "continuity_ids": ["C01", "C03"]
+                  }
+                }
+              },
+              {
+                "block_id": "g04d11-b02",
+                "kind": "paragraph",
+                "markdown": "上午一度想把入口改成“所有项目—全部任务—负责人—进度”，再从任务旁挂回变更片段。起因不是新访谈，而是我觉得三张孤立卡看起来太薄。这张图没有用户走过，也没有数据证明一个总览能回答陈放昨天纠正的关系问题。",
+                "authorship": {
+                  "authored_id": "g04d11-auth02",
+                  "occurred_at": "2026-03-12T09:42:00+08:00",
+                  "author_role": "product",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": ["D11"],
+                    "fact_ids": ["F04"],
+                    "continuity_ids": ["C01", "C03"]
+                  }
+                }
+              },
+              {
+                "block_id": "g04d11-b03",
+                "kind": "table",
+                "markdown": "| 草图区域 | 我想象的用途 | 贾宁指出的扩张 |\n| --- | --- | --- |\n| 项目总表 | 一眼看所有工作 | 先要求一套并不存在的项目结构 |\n| 任务泳道 | 把沟通变成待办 | 把“说过什么”提前改写为“应该做什么” |\n| 人员负载 | 找到负责人 | 未回答谁只是说话、谁能够作出判断 |\n| 周视图 | 自动汇总进展 | 又绕回尚未证实有用的概览 |\n| 变更卡入口 | 从任务进入来源 | 依赖前三块才能存在，无法单独验证 |",
+                "authorship": {
+                  "authored_id": "g04d11-auth03",
+                  "occurred_at": "2026-03-12T11:04:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D11"],
+                    "fact_ids": ["F04"],
+                    "continuity_ids": ["C01", "C03"]
+                  }
+                }
+              },
+              {
+                "block_id": "g04d11-b04",
+                "kind": "quote",
+                "markdown": "> 贾宁 11:16 的原话记录：“你连一条变化为什么要留、留到哪里都还没说清，就先做所有项目的任务板，等于把四个未知一起铺开。这个草图可以留，不能拿它冒充范围。”",
+                "authorship": {
+                  "authored_id": "g04d11-auth04",
+                  "occurred_at": "2026-03-12T11:16:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D11"],
+                    "fact_ids": ["F04"],
+                    "continuity_ids": ["C01", "C03"]
+                  }
+                }
+              },
+              {
+                "block_id": "g04d11-b05",
+                "kind": "paragraph",
+                "markdown": "我第一反应是看板以后总会需要，先搭骨架不算扩张。贾宁反问：如果明天只能让对方判断一件事，看板中的哪一列有独立证据？我答不出来。到午饭时只把页面移回草图区，没有删除，也没有继续做交互；它仍是我的偏好，不是已经验证的方向。",
+                "authorship": {
+                  "authored_id": "g04d11-auth05",
+                  "occurred_at": "2026-03-12T12:03:00+08:00",
+                  "author_role": "product",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": ["D11"],
+                    "fact_ids": ["F04"],
+                    "continuity_ids": ["C01", "C03"]
+                  }
+                }
+              },
+              {
+                "block_id": "g04d11-b06",
+                "kind": "list",
+                "markdown": "- 会前要问：对方遇到争议时，第一步必须看见什么？\n- 会前要问：哪一项不出现，也不妨碍验证原句与后续判断的关系？\n- 会前要写：全项目看板没有进入承诺，只是被质疑的备选草图。\n- 尚未回答：试验对象、参与角色、数据怎么访问，以及谁能够确认关系变化。",
+                "authorship": {
+                  "authored_id": "g04d11-auth06",
+                  "occurred_at": "2026-03-12T15:46:00+08:00",
+                  "author_role": "product",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": ["D11"],
+                    "fact_ids": ["F04"],
+                    "continuity_ids": ["C01", "C03"]
+                  }
+                }
+              },
+              {
+                "block_id": "g04d11-b07",
+                "kind": "paragraph",
+                "markdown": "今天没有落定一份正式边界。贾宁明确反对把看板扩张当默认路径，但“只留下哪一件事”要等明天继续谈；当前页面也未对外发送。",
+                "authorship": {
+                  "authored_id": "g04d11-auth07",
+                  "occurred_at": "2026-03-12T17:22:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D11"],
+                    "fact_ids": ["F04"],
+                    "continuity_ids": ["C01", "C03"]
+                  }
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "g04d11-doc-auth01",
+              "occurred_at": "2026-03-12T17:22:00+08:00",
+              "author_role": "product",
+              "content_class": "ambiguous",
+              "links": {
+                "story_beat_ids": ["D11"],
+                "fact_ids": ["F04"],
+                "continuity_ids": ["C01", "C03"]
+              }
+            }
+          },
+          {
+            "document_id": "g04d11-doc02",
+            "path": "daily/2026/03/2026-03-12.md",
+            "title": "3 月 12 日日页",
+            "frontmatter": {
+              "date": "2026-03-12",
+              "mood": "restless",
+              "work_state": "scope-agenda-open",
+              "private": true
+            },
+            "full_markdown": "# 3 月 12 日日页\n\n08:41 修车店来电提醒该做常规保养，问周末能否留车。我看了下生活日历，说这周不排，下周再约；对方只记了“待回电”，没有日期。钥匙仍在玄关小碟里，这通电话只挪动生活安排。\n\n下午准备范围讨论的提纲，写到“所有项目都能用”时停住。那句话没有访谈依据，也会把人员、任务和进度一起带进来。我把它划线留在废稿区，旁边写“想象，不是要求”，没有换成另一个确定范围。\n\n- 明天先说明：全项目看板只是内部草图，没有经过验证。\n- 请吴岚判断：争议发生时，哪一种记录最值得先看。\n- 请她指出：哪些角色只是阅读，哪些人可能留下判断；答案可以是暂时不知道。\n- 暂不讨论：工作室全部流程、多个项目并行、任务分派、进度汇总。\n- 仍不假设：有真实数据入口，或一次范围讨论等于可以开始。\n\n17:58 午饭剩的面坨在盒底，热过一次还是结块，我只吃了几口，又拆了袋苏打饼。窗外施工钻了二十多分钟，提纲停在第三行；安静下来后也没有突然多出答案。\n\n19:18 把明天的说明缩到一屏，只列草图、一个待选问题和四个未定项。没有发附件，先等对方在线时用消息确认能否看；今天的文档仍是准备材料。",
+            "tags": ["daily-note", "scope-agenda", "life"],
+            "links": [
+              {
+                "link_id": "g04d11-link02",
+                "target": "product/scope/2026-03-12-all-project-board-scratch.md",
+                "label": "全项目看板草图",
+                "embedded": false,
+                "authorship": {
+                  "authored_id": "g04d11-link-auth02",
+                  "occurred_at": "2026-03-12T16:34:00+08:00",
+                  "author_role": "product",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": ["D11"],
+                    "fact_ids": ["F04"],
+                    "continuity_ids": ["C01", "C03"]
+                  }
+                }
+              }
+            ],
+            "created_at": "2026-03-12T08:41:00+08:00",
+            "modified_at": "2026-03-12T19:18:00+08:00",
+            "visible_blocks": [
+              {
+                "block_id": "g04d11-b08",
+                "kind": "heading",
+                "markdown": "# 3 月 12 日日页",
+                "authorship": {
+                  "authored_id": "g04d11-auth08",
+                  "occurred_at": "2026-03-12T08:41:00+08:00",
+                  "author_role": "product",
+                  "content_class": "noise",
+                  "links": {
+                    "story_beat_ids": ["D11"],
+                    "fact_ids": [],
+                    "continuity_ids": []
+                  }
+                }
+              },
+              {
+                "block_id": "g04d11-b09",
+                "kind": "paragraph",
+                "markdown": "08:41 修车店来电提醒该做常规保养，问周末能否留车。我看了下生活日历，说这周不排，下周再约；对方只记了“待回电”，没有日期。钥匙仍在玄关小碟里，这通电话只挪动生活安排。",
+                "authorship": {
+                  "authored_id": "g04d11-auth09",
+                  "occurred_at": "2026-03-12T08:41:00+08:00",
+                  "author_role": "product",
+                  "content_class": "noise",
+                  "links": {
+                    "story_beat_ids": ["D11"],
+                    "fact_ids": [],
+                    "continuity_ids": []
+                  }
+                }
+              },
+              {
+                "block_id": "g04d11-b10",
+                "kind": "paragraph",
+                "markdown": "下午准备范围讨论的提纲，写到“所有项目都能用”时停住。那句话没有访谈依据，也会把人员、任务和进度一起带进来。我把它划线留在废稿区，旁边写“想象，不是要求”，没有换成另一个确定范围。",
+                "authorship": {
+                  "authored_id": "g04d11-auth10",
+                  "occurred_at": "2026-03-12T14:27:00+08:00",
+                  "author_role": "product",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": ["D11"],
+                    "fact_ids": ["F04"],
+                    "continuity_ids": ["C01", "C03"]
+                  }
+                }
+              },
+              {
+                "block_id": "g04d11-b11",
+                "kind": "list",
+                "markdown": "- 明天先说明：全项目看板只是内部草图，没有经过验证。\n- 请吴岚判断：争议发生时，哪一种记录最值得先看。\n- 请她指出：哪些角色只是阅读，哪些人可能留下判断；答案可以是暂时不知道。\n- 暂不讨论：工作室全部流程、多个项目并行、任务分派、进度汇总。\n- 仍不假设：有真实数据入口，或一次范围讨论等于可以开始。",
+                "authorship": {
+                  "authored_id": "g04d11-auth11",
+                  "occurred_at": "2026-03-12T15:09:00+08:00",
+                  "author_role": "product",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": ["D11"],
+                    "fact_ids": ["F02", "F04"],
+                    "continuity_ids": ["C01", "C03"]
+                  }
+                }
+              },
+              {
+                "block_id": "g04d11-b12",
+                "kind": "paragraph",
+                "markdown": "17:58 午饭剩的面坨在盒底，热过一次还是结块，我只吃了几口，又拆了袋苏打饼。窗外施工钻了二十多分钟，提纲停在第三行；安静下来后也没有突然多出答案。",
+                "authorship": {
+                  "authored_id": "g04d11-auth12",
+                  "occurred_at": "2026-03-12T17:58:00+08:00",
+                  "author_role": "product",
+                  "content_class": "noise",
+                  "links": {
+                    "story_beat_ids": ["D11"],
+                    "fact_ids": [],
+                    "continuity_ids": []
+                  }
+                }
+              },
+              {
+                "block_id": "g04d11-b13",
+                "kind": "paragraph",
+                "markdown": "19:18 把明天的说明缩到一屏，只列草图、一个待选问题和四个未定项。没有发附件，先等对方在线时用消息确认能否看；今天的文档仍是准备材料。",
+                "authorship": {
+                  "authored_id": "g04d11-auth13",
+                  "occurred_at": "2026-03-12T19:18:00+08:00",
+                  "author_role": "product",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": ["D11"],
+                    "fact_ids": ["F04"],
+                    "continuity_ids": ["C01", "C03"]
+                  }
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "g04d11-doc-auth02",
+              "occurred_at": "2026-03-12T19:18:00+08:00",
+              "author_role": "product",
+              "content_class": "ambiguous",
+              "links": {
+                "story_beat_ids": ["D11"],
+                "fact_ids": ["F02", "F04"],
+                "continuity_ids": ["C01", "C03"]
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "im": [
+      {
+        "source_id": "g04iw-src01",
+        "authorship": {
+          "authored_id": "g04iw-src-auth",
+          "occurred_at": "2026-03-13T10:17:00+08:00",
+          "author_role": "product",
+          "content_class": "signal",
+          "links": {
+            "story_beat_ids": ["D12"],
+            "fact_ids": ["F01", "F02", "F03", "F04"],
+            "continuity_ids": ["C01", "C03"]
+          }
+        },
+        "schema": "pneuma.source.im/v1",
+        "provider": "mock",
+        "archive_id": "g04iw-scope-dm-archive",
+        "owner_user_ids": ["g04-user-lin"],
+        "users": [
+          {
+            "user_id": "g04-user-lin",
+            "display_name": "林舟",
+            "role": "product",
+            "synthetic_address": "lin.zhou@seamlog.test",
+            "is_bot": false
+          },
+          {
+            "user_id": "g04-user-wu",
+            "display_name": "吴岚",
+            "role": "manager",
+            "synthetic_address": "lan.wu@studio.test",
+            "is_bot": false
+          }
+        ],
+        "conversations": [
+          {
+            "conversation_id": "g04iw-conv01",
+            "conversation_type": "dm",
+            "title": "范围会前的一屏说明",
+            "member_ids": ["g04-user-lin", "g04-user-wu"],
+            "messages": [
+              {
+                "message_id": "g04iw-msg01",
+                "sender_id": "g04-user-lin",
+                "sent_at": "2026-03-13T09:12:00+08:00",
+                "full_text": "早。我把昨晚那一屏又缩了一次，先不丢附件。你十点半前若有空，我只在这里核一项范围变化和三个仍没答案的问题。",
+                "thread_id": null,
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g04iw-auth01",
+                  "occurred_at": "2026-03-13T09:12:00+08:00",
+                  "author_role": "product",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": ["D12"],
+                    "fact_ids": ["F04"],
+                    "continuity_ids": ["C01", "C03"]
+                  }
+                }
+              },
+              {
+                "message_id": "g04iw-msg02",
+                "sender_id": "g04-user-wu",
+                "sent_at": "2026-03-13T09:16:00+08:00",
+                "full_text": "现在能看。先说你删了什么，再说为什么。别把这段消息写成开始通知，我只能核对你有没有准确记录我们讨论的重点。",
+                "thread_id": null,
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g04iw-auth02",
+                  "occurred_at": "2026-03-13T09:16:00+08:00",
+                  "author_role": "manager",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D12"],
+                    "fact_ids": ["F02", "F04"],
+                    "continuity_ids": ["C01", "C03"]
+                  }
+                }
+              },
+              {
+                "message_id": "g04iw-msg03",
+                "sender_id": "g04-user-lin",
+                "sent_at": "2026-03-13T09:19:00+08:00",
+                "full_text": "删的是自动周报：它移出试点目标。全项目看板也不顺带进入。我现在只保留一个要验证的问题——发生争议时，能不能沿着一条记录找回原话和后来的判断。",
+                "thread_id": null,
+                "edited_at": "2026-03-13T09:20:00+08:00",
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g04iw-auth03",
+                  "occurred_at": "2026-03-13T09:19:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D12"],
+                    "fact_ids": ["F04"],
+                    "continuity_ids": ["C01", "C03"]
+                  }
+                }
+              },
+              {
+                "message_id": "g04iw-msg04",
+                "sender_id": "g04-user-wu",
+                "sent_at": "2026-03-13T09:23:00+08:00",
+                "full_text": "原因别写成“陈放说了两次，所以你懂了”。他是在纠正页面表达，你昨天还把它记成反对意见。你现在凭什么先砍周报？",
+                "thread_id": null,
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g04iw-auth04",
+                  "occurred_at": "2026-03-13T09:23:00+08:00",
+                  "author_role": "manager",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D12"],
+                    "fact_ids": ["F04"],
+                    "continuity_ids": ["C01", "C03"]
+                  }
+                }
+              },
+              {
+                "message_id": "g04iw-msg05",
+                "sender_id": "g04-user-lin",
+                "sent_at": "2026-03-13T09:28:00+08:00",
+                "full_text": "我仍解释不了他要的状态语义，这一点不装懂。能确定的是，两次一线反馈都把争议时的回查放在概览前面；周报会先压缩内容，正好跳过当前最需要验证的关系。",
+                "thread_id": null,
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g04iw-auth05",
+                  "occurred_at": "2026-03-13T09:28:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D12"],
+                    "fact_ids": ["F04"],
+                    "continuity_ids": ["C01", "C03"]
+                  }
+                }
+              },
+              {
+                "message_id": "g04iw-msg06",
+                "sender_id": "g04-user-wu",
+                "sent_at": "2026-03-13T09:32:00+08:00",
+                "full_text": "这个理由可以继续讨论。那你所谓一条记录最少放什么？别给我页面清单，也别把不知道的角色先填进去。",
+                "thread_id": null,
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g04iw-auth06",
+                  "occurred_at": "2026-03-13T09:32:00+08:00",
+                  "author_role": "manager",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D12"],
+                    "fact_ids": ["F04"],
+                    "continuity_ids": ["C01", "C03"]
+                  }
+                }
+              },
+              {
+                "message_id": "g04iw-msg07",
+                "sender_id": "g04-user-lin",
+                "sent_at": "2026-03-13T09:36:00+08:00",
+                "full_text": "最低四项先写成：原文、时间、状态、确认者。原文不改写；时间指向它出现的时刻；状态只留位置，不预先造选项；确认者没有依据就空着，不能从说话人自动带入。",
+                "thread_id": null,
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g04iw-auth07",
+                  "occurred_at": "2026-03-13T09:36:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D12"],
+                    "fact_ids": ["F04"],
+                    "continuity_ids": ["C01", "C03"]
+                  }
+                }
+              },
+              {
+                "message_id": "g04iw-msg08",
+                "sender_id": "g04-user-wu",
+                "sent_at": "2026-03-13T09:41:00+08:00",
+                "full_text": "“确认者”先别默认是我或陈放。谁有资格改状态还没谈；我今天回复你，也只是在核字，不会因此成为每条记录的确认人。数据从哪里拿同样没有答案。",
+                "thread_id": null,
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g04iw-auth08",
+                  "occurred_at": "2026-03-13T09:41:00+08:00",
+                  "author_role": "manager",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D12"],
+                    "fact_ids": ["F02", "F04"],
+                    "continuity_ids": ["C01", "C03"]
+                  }
+                }
+              },
+              {
+                "message_id": "g04iw-msg09",
+                "sender_id": "g04-user-lin",
+                "sent_at": "2026-03-13T09:47:00+08:00",
+                "full_text": "我记当前决定：证据链优先，自动周报不进这轮试点目标。依据是两次访谈都把争议时的来源回查排在概览前；直接后果是暂停总览和任务板，只做能容纳四项的纸面卡。状态表达、确认资格和数据入口继续空着。",
+                "thread_id": null,
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g04iw-auth09",
+                  "occurred_at": "2026-03-13T09:47:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D12"],
+                    "fact_ids": ["F04"],
+                    "continuity_ids": ["C01", "C03"]
+                  }
+                }
+              },
+              {
+                "message_id": "g04iw-msg10",
+                "sender_id": "g04-user-wu",
+                "sent_at": "2026-03-13T09:53:00+08:00",
+                "full_text": "这段准确记录了今天的范围选择，我确认的是这段文字。它不指定具体对象，不开放任何数据，也不表示已经可以开始。四项可以带到下一次讨论，三个空缺也要一起带着。",
+                "thread_id": null,
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g04iw-auth10",
+                  "occurred_at": "2026-03-13T09:53:00+08:00",
+                  "author_role": "manager",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D12"],
+                    "fact_ids": ["F02", "F04"],
+                    "continuity_ids": ["C01", "C03"]
+                  }
+                }
+              },
+              {
+                "message_id": "g04iw-msg11",
+                "sender_id": "g04-user-lin",
+                "sent_at": "2026-03-13T09:58:00+08:00",
+                "full_text": "收到。我只标“范围文字已核对”，不会把你的这次回复贴到样例里充当确认者。纸面卡继续用虚构短句，数据入口单列成未决。",
+                "thread_id": null,
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g04iw-auth11",
+                  "occurred_at": "2026-03-13T09:58:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D12"],
+                    "fact_ids": ["F02", "F04"],
+                    "continuity_ids": ["C01", "C03"]
+                  }
+                }
+              },
+              {
+                "message_id": "g04iw-msg12",
+                "sender_id": "g04-user-wu",
+                "sent_at": "2026-03-13T10:17:00+08:00",
+                "full_text": "好，下午发一屏文字就行，先别给这轮讨论起称呼，也不要追加演示地址。我看完只会改范围表述；后续是否继续，要另谈对象、角色和访问方式。",
+                "thread_id": null,
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g04iw-auth12",
+                  "occurred_at": "2026-03-13T10:17:00+08:00",
+                  "author_role": "manager",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D12"],
+                    "fact_ids": ["F02", "F04"],
+                    "continuity_ids": ["C01", "C03"]
+                  }
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "g04iw-conv-auth01",
+              "occurred_at": "2026-03-13T09:12:00+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": ["D12"],
+                "fact_ids": ["F02", "F04"],
+                "continuity_ids": ["C01", "C03"]
+              }
+            }
+          }
+        ]
+      },
+      {
+        "source_id": "g04il-src01",
+        "authorship": {
+          "authored_id": "g04il-src-auth",
+          "occurred_at": "2026-03-13T21:06:00+08:00",
+          "author_role": "partner",
+          "content_class": "noise",
+          "links": {
+            "story_beat_ids": ["D12"],
+            "fact_ids": [],
+            "continuity_ids": []
+          }
+        },
+        "schema": "pneuma.source.im/v1",
+        "provider": "mock",
+        "archive_id": "g04il-home-dm-archive",
+        "owner_user_ids": ["g04-user-lin-home"],
+        "users": [
+          {
+            "user_id": "g04-user-lin-home",
+            "display_name": "林舟",
+            "role": "product",
+            "synthetic_address": "lin.zhou@flat.test",
+            "is_bot": false
+          },
+          {
+            "user_id": "g04-user-zhao",
+            "display_name": "赵楠",
+            "role": "partner",
+            "synthetic_address": "nan.zhao@flat.test",
+            "is_bot": false
+          }
+        ],
+        "conversations": [
+          {
+            "conversation_id": "g04il-conv01",
+            "conversation_type": "dm",
+            "title": "雨天晚饭和窗台",
+            "member_ids": ["g04-user-lin-home", "g04-user-zhao"],
+            "messages": [
+              {
+                "message_id": "g04il-msg01",
+                "sender_id": "g04-user-zhao",
+                "sent_at": "2026-03-13T18:42:00+08:00",
+                "full_text": "雨还没停。你今天出过门吗？我伞落在录音棚了，回去要从地铁口跑一段。",
+                "thread_id": null,
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g04il-auth01",
+                  "occurred_at": "2026-03-13T18:42:00+08:00",
+                  "author_role": "partner",
+                  "content_class": "noise",
+                  "links": {"story_beat_ids": ["D12"], "fact_ids": [], "continuity_ids": []}
+                }
+              },
+              {
+                "message_id": "g04il-msg02",
+                "sender_id": "g04-user-lin-home",
+                "sent_at": "2026-03-13T18:47:00+08:00",
+                "full_text": "没出门。下午视频断断续续刷了两个小时，自动接下一条，我连米都忘了淘。窗缝下面已经塞了旧毛巾。",
+                "thread_id": null,
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g04il-auth02",
+                  "occurred_at": "2026-03-13T18:47:00+08:00",
+                  "author_role": "product",
+                  "content_class": "noise",
+                  "links": {"story_beat_ids": ["D12"], "fact_ids": [], "continuity_ids": []}
+                }
+              },
+              {
+                "message_id": "g04il-msg03",
+                "sender_id": "g04-user-zhao",
+                "sent_at": "2026-03-13T18:53:00+08:00",
+                "full_text": "昨天修车店那张便签还压在钥匙碟下面。你已经回过电话就挪走，别让我明早以为今天要送车。",
+                "thread_id": null,
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g04il-auth03",
+                  "occurred_at": "2026-03-13T18:53:00+08:00",
+                  "author_role": "partner",
+                  "content_class": "noise",
+                  "links": {"story_beat_ids": ["D12"], "fact_ids": [], "continuity_ids": []}
+                }
+              },
+              {
+                "message_id": "g04il-msg04",
+                "sender_id": "g04-user-lin-home",
+                "sent_at": "2026-03-13T18:56:00+08:00",
+                "full_text": "回过了，只说下周再约，没有定哪天。车今天不动。我把纸夹到生活日历那页，钥匙还放原处。",
+                "thread_id": null,
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g04il-auth04",
+                  "occurred_at": "2026-03-13T18:56:00+08:00",
+                  "author_role": "product",
+                  "content_class": "noise",
+                  "links": {"story_beat_ids": ["D12"], "fact_ids": [], "continuity_ids": []}
+                }
+              },
+              {
+                "message_id": "g04il-msg05",
+                "sender_id": "g04-user-zhao",
+                "sent_at": "2026-03-13T19:21:00+08:00",
+                "full_text": "我在楼下便利店，番茄没剩，买了两包青菜和挂面。你先烧水，别再点开长视频。",
+                "thread_id": null,
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g04il-auth05",
+                  "occurred_at": "2026-03-13T19:21:00+08:00",
+                  "author_role": "partner",
+                  "content_class": "noise",
+                  "links": {"story_beat_ids": ["D12"], "fact_ids": [], "continuity_ids": []}
+                }
+              },
+              {
+                "message_id": "g04il-msg06",
+                "sender_id": "g04-user-lin-home",
+                "sent_at": "2026-03-13T19:25:00+08:00",
+                "full_text": "水开了。我把手机扣在鞋柜上，最后那条只看到一半。锅里还有昨天剩的半盒豆腐，要不要一起煮？",
+                "thread_id": null,
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g04il-auth06",
+                  "occurred_at": "2026-03-13T19:25:00+08:00",
+                  "author_role": "product",
+                  "content_class": "noise",
+                  "links": {"story_beat_ids": ["D12"], "fact_ids": [], "continuity_ids": []}
+                }
+              },
+              {
+                "message_id": "g04il-msg07",
+                "sender_id": "g04-user-zhao",
+                "sent_at": "2026-03-13T19:28:00+08:00",
+                "full_text": "煮。豆腐闻一下，酸就别放。我鞋全湿了，进门先站垫子上，你别刚拖完又踩一圈。",
+                "thread_id": null,
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g04il-auth07",
+                  "occurred_at": "2026-03-13T19:28:00+08:00",
+                  "author_role": "partner",
+                  "content_class": "noise",
+                  "links": {"story_beat_ids": ["D12"], "fact_ids": [], "continuity_ids": []}
+                }
+              },
+              {
+                "message_id": "g04il-msg08",
+                "sender_id": "g04-user-lin-home",
+                "sent_at": "2026-03-13T20:04:00+08:00",
+                "full_text": "豆腐没放，闻着不对。面好了，青菜分两碗，汤有点淡。窗台毛巾湿了一角，我饭后换干的。",
+                "thread_id": null,
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g04il-auth08",
+                  "occurred_at": "2026-03-13T20:04:00+08:00",
+                  "author_role": "product",
+                  "content_class": "noise",
+                  "links": {"story_beat_ids": ["D12"], "fact_ids": [], "continuity_ids": []}
+                }
+              },
+              {
+                "message_id": "g04il-msg09",
+                "sender_id": "g04-user-zhao",
+                "sent_at": "2026-03-13T20:37:00+08:00",
+                "full_text": "碗我洗了。那盒豆腐扎紧扔掉，别留到明天又犹豫。我的湿鞋放卫生间门边，夜里别关灯走过去。",
+                "thread_id": null,
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g04il-auth09",
+                  "occurred_at": "2026-03-13T20:37:00+08:00",
+                  "author_role": "partner",
+                  "content_class": "noise",
+                  "links": {"story_beat_ids": ["D12"], "fact_ids": [], "continuity_ids": []}
+                }
+              },
+              {
+                "message_id": "g04il-msg10",
+                "sender_id": "g04-user-lin-home",
+                "sent_at": "2026-03-13T21:06:00+08:00",
+                "full_text": "扔了，窗台也换好毛巾。手机还在鞋柜，我今晚不接着刷；客厅只留小灯，走卫生间看得见鞋。",
+                "thread_id": null,
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g04il-auth10",
+                  "occurred_at": "2026-03-13T21:06:00+08:00",
+                  "author_role": "product",
+                  "content_class": "noise",
+                  "links": {"story_beat_ids": ["D12"], "fact_ids": [], "continuity_ids": []}
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "g04il-conv-auth01",
+              "occurred_at": "2026-03-13T18:42:00+08:00",
+              "author_role": "partner",
+              "content_class": "noise",
+              "links": {
+                "story_beat_ids": ["D12"],
+                "fact_ids": [],
+                "continuity_ids": []
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "email": []
+  }
+}

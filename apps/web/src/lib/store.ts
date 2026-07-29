@@ -125,6 +125,8 @@ interface AppState {
   currentUser: string | null;
   /** product profile of the active user (GET /profile); null while loading / unavailable. */
   currentProfile: UserProfile | null;
+  /** User id currently in the explicit create-profile onboarding flow. */
+  profileOnboardingUser: string | null;
   /**
    * Best-effort uid → display_name cache for the switcher (so options can show
    * names, not raw ids). Populated lazily/in-parallel; a missing entry falls back
@@ -206,6 +208,8 @@ interface AppState {
    * no user, so a new id is absent from GET /v1/users until its first source lands.
    */
   createUser: (uid: string) => void;
+  /** Leave new-profile onboarding and continue to the first-source import step. */
+  finishProfileCreation: (saved: boolean) => void;
   /** jump to the Sources panel focused on a source (+ optional block range). */
   focusSource: (sourceId: string, range?: { start: number; end: number } | null) => void;
   /** merge a partial into the Recall view cache (inputs / last result). */
@@ -295,6 +299,7 @@ export const useApp = create<AppState>((set, get) => ({
   users: [],
   currentUser: null,
   currentProfile: null,
+  profileOnboardingUser: null,
   profileNames: {},
   profileCards: {},
   recentUsers: loadRecent(),
@@ -576,6 +581,7 @@ export const useApp = create<AppState>((set, get) => ({
     set((s) => ({
       currentUser: uid,
       currentProfile: null,
+      profileOnboardingUser: null,
       dataset: null,
       model: null,
       sourceFocus: null,
@@ -604,8 +610,24 @@ export const useApp = create<AppState>((set, get) => ({
     // (the backend directory won't list it until its first source lands).
     set((s) => ({ users: withCurrent(s.users, uid) }));
     get().setUser(uid); // handles persistence + HEAD reset + snapshot/dataset reload
-    // Land on Ingest — an empty knowledge base's next step is adding data — and nudge.
-    set({ view: "ingest", notice: "新知识库 · 去 Ingest 加第一条数据" });
+    // Creating a user starts with its profile. AI generation is an onboarding aid,
+    // never an action on an existing profile's detail page.
+    set({
+      view: "profile",
+      profileOnboardingUser: uid,
+      notice: "新画像 · 可以用 AI 生成草稿，也可以直接填写",
+    });
+    writeHash("profile", null);
+  },
+
+  finishProfileCreation: (saved) => {
+    set({
+      profileOnboardingUser: null,
+      view: "ingest",
+      notice: saved
+        ? "画像已保存 · 去 Ingest 导入第一条数据"
+        : "已跳过画像设置 · 去 Ingest 导入第一条数据",
+    });
     writeHash("ingest", null);
   },
 

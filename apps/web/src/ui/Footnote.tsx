@@ -45,6 +45,7 @@ export function Footnote({ index, citation, onJump, className }: FootnoteProps) 
   };
 
   const range = rangeText(citation);
+  const title = citation.title?.trim() || "未命名来源";
 
   return (
     <PopoverPrimitive.Root open={open} onOpenChange={setOpen}>
@@ -71,21 +72,30 @@ export function Footnote({ index, citation, onJump, className }: FootnoteProps) 
           side="top"
           align="start"
           sideOffset={6}
+          collisionPadding={16}
           onMouseEnter={openNow}
           onMouseLeave={closeSoon}
           onOpenAutoFocus={(e) => e.preventDefault()}
-          className="z-50 w-72 rounded-3 border border-line bg-raised p-3 shadow-overlay"
+          className="z-50 w-80 max-w-[calc(100vw-2rem)] rounded-3 border border-line bg-raised p-3 shadow-overlay"
         >
-          <div className="flex flex-col gap-1.5">
-            <div className="flex items-baseline justify-between gap-3">
-              <span className="font-serif text-14 text-ink">
-                {citation.title ?? citation.sourceId}
-              </span>
-              <Mono className="shrink-0 text-12 text-ink-3">{citation.sourceId}</Mono>
+          <div className="flex min-w-0 flex-col gap-2">
+            <p className="break-words font-serif text-14 leading-relaxed text-ink">
+              {title}
+            </p>
+            <div className="flex min-w-0 items-center gap-2 border-t border-line pt-2">
+              {range && (
+                <>
+                  <Mono className="shrink-0 text-12 text-accent">块 {range}</Mono>
+                  <span aria-hidden className="text-12 text-ink-3">·</span>
+                </>
+              )}
+              <Mono
+                className="min-w-0 flex-1 truncate text-12 text-ink-3"
+                title={citation.sourceId}
+              >
+                {citation.sourceId}
+              </Mono>
             </div>
-            {range && (
-              <Mono className="text-12 text-accent">块 {range}</Mono>
-            )}
             {citation.snippet && (
               <p className="border-l-2 border-line-2 pl-2 font-serif text-13 leading-[1.75] text-ink-2">
                 {citation.snippet}

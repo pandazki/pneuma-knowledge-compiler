@@ -1,0 +1,1644 @@
+{
+  "schema": "pneuma.experiment.opc-84d-v2.group-content/v1",
+  "group_id": "G23",
+  "group_window": {
+    "starts_on": "2026-05-07",
+    "ends_on": "2026-05-09",
+    "day_count": 3,
+    "timezone": "Asia/Shanghai"
+  },
+  "story_scope": {
+    "allowed_story_beat_ids": ["D67", "D68", "D69"],
+    "known_fact_ids": ["F01", "F02", "F03", "F04", "F05", "F06", "F07", "F08", "F09", "F10", "F11", "F12"],
+    "open_continuity_ids": ["C01", "C02", "C03", "C04", "C05", "C06"],
+    "new_continuity_ids": []
+  },
+  "research_context": [
+    {
+      "research_ref_id": "RG23-event-boundaries",
+      "topic_query": "official analytics recommended events sign up tutorial begin tutorial complete distinct user actions",
+      "url": "https://support.google.com/analytics/answer/9267735?hl=en",
+      "title": "[GA4] Recommended events",
+      "accessed_on": "2026-07-29",
+      "credibility": {
+        "tier": "official",
+        "rationale": "The product owner's measurement documentation enumerates account creation, guidance start, and guidance completion as separately recorded user actions."
+      },
+      "applicability_scope": "Used only to discipline the D67 counting discussion: a registration record cannot inherit a later meaningful-use label, and any future activation definition needs its own observable event. It supplies no fictional totals or product verdict.",
+      "author_fact_summaries": [
+        "Account creation, beginning guided use, and finishing guided use can be represented as distinct events instead of one status automatically implying the next.",
+        "A behavior event needs enough context to be meaningful; a label alone does not establish what the person actually did."
+      ],
+      "fictionalization_boundary": "No analytics product name, event token, report label, platform, implementation instruction, or source sentence appears in the authored meeting.",
+      "applied_authored_ids": ["g23m-auth05", "g23m-auth09"]
+    },
+    {
+      "research_ref_id": "RG23-input-clarity",
+      "topic_query": "W3C official labels instructions input controls enough information not too much guidance",
+      "url": "https://www.w3.org/WAI/WCAG22/Understanding/labels-or-instructions.html",
+      "title": "Understanding Success Criterion 3.3.2: Labels or Instructions",
+      "accessed_on": "2026-07-29",
+      "credibility": {
+        "tier": "primary",
+        "rationale": "W3C publishes the accessibility criterion and its first-party explanatory material about making expected input understandable without overwhelming the task."
+      },
+      "applicability_scope": "Used only to shape the fictional ambiguity around a status control: the nearby wording must identify the human action and expected input, while the correction must not become another wall of instructions.",
+      "author_fact_summaries": [
+        "交互控件要把用户此刻需要作出的选择说清楚；只有名称而没有对象或后果，容易把不同动作混为一件事。",
+        "说明的取舍应从一次具体操作出发：先补足会导致误选的线索，再把不影响当下决定的背景另行安放。"
+      ],
+      "fictionalization_boundary": "No conformance claim, disability scenario, markup term, criterion wording, example field, or technical implementation is transferred into the synthetic interface notes.",
+      "applied_authored_ids": ["g23d-auth04", "g23i-auth03"]
+    },
+    {
+      "research_ref_id": "RG23-progressive-detail",
+      "topic_query": "official design system details progressive disclosure essential information majority users need",
+      "url": "https://design-system.service.gov.uk/components/details/",
+      "title": "Details – GOV.UK Design System",
+      "accessed_on": "2026-07-29",
+      "credibility": {
+        "tier": "official",
+        "rationale": "The government design system is the source owner for its component guidance and explicitly distinguishes optional detail from information most users need."
+      },
+      "applicability_scope": "Used only to separate the D68 first-screen explanation from optional edge-case help and to ground Chen Fang's D69 objection to a full tutorial. It does not prescribe a component or visual treatment.",
+      "author_fact_summaries": [
+        "可展开内容适合收纳例外、分支和少数人才会遇到的说明，使主路径不必携带全部情形。",
+        "是否延后展示取决于信息在常规操作中的必要性；会改变多数人下一步的提示应在决定发生前出现。"
+      ],
+      "fictionalization_boundary": "The authored corpus contains no government service, component name, sample link text, code, visual style, or copied wording from the page.",
+      "applied_authored_ids": ["g23d-auth09", "g23e-auth04"]
+    },
+    {
+      "research_ref_id": "RG23-email-replies",
+      "topic_query": "RFC 5322 Message-ID In-Reply-To References reply conversation structure",
+      "url": "https://www.rfc-editor.org/rfc/rfc5322.html",
+      "title": "RFC 5322: Internet Message Format",
+      "accessed_on": "2026-07-29",
+      "credibility": {
+        "tier": "primary",
+        "rationale": "The standards-track specification is the primary source for message identifiers and reply/reference relationships in Internet mail."
+      },
+      "applicability_scope": "Used only to keep Luo Chuan's support exchange separate from the tutorial-review exchange and to make each reply point to the proper parent and prior identifiers.",
+      "author_fact_summaries": [
+        "A particular message version can carry its own identifier, while a reply can separately name the message it directly answers.",
+        "A reply's reference list can preserve the preceding identifier chain so a conversation remains reconstructable across multiple messages."
+      ],
+      "fictionalization_boundary": "All people, addresses, subjects, identifiers, timestamps, and bodies are synthetic; no RFC example message, address, prose, or appendix sequence is reused.",
+      "applied_authored_ids": ["g23e-h05", "g23e-h12", "g23e-h17", "g23e-h24"]
+    }
+  ],
+  "sources": {
+    "meetings": [
+      {
+        "source_id": "g23m-src01",
+        "authorship": {
+          "authored_id": "g23m-src-auth",
+          "occurred_at": "2026-05-07T10:39:00+08:00",
+          "author_role": "product",
+          "content_class": "signal",
+          "links": {"story_beat_ids": ["D67"], "fact_ids": ["F12"], "continuity_ids": ["C06"]}
+        },
+        "schema": "pneuma.source.meeting/v1",
+        "provider": "mock",
+        "meeting_id": "g23m-registration-cutoff",
+        "title": "首轮数字只记到注册",
+        "started_at": "2026-05-07T10:02:00+08:00",
+        "ended_at": "2026-05-07T10:39:00+08:00",
+        "timezone": "Asia/Shanghai",
+        "owner_participant_ids": ["g23p-lin"],
+        "participants": [
+          {
+            "participant_id": "g23p-lin",
+            "display_name": "林舟",
+            "role": "product",
+            "synthetic_address": "lin.zhou@seamlog.test"
+          },
+          {
+            "participant_id": "g23p-jia",
+            "display_name": "贾宁",
+            "role": "engineering",
+            "synthetic_address": "ning.jia@review.test"
+          }
+        ],
+        "agenda": [
+          {
+            "agenda_id": "g23m-ag01",
+            "text": "固定首轮统计的截至时间、分母与注册定义",
+            "authorship": {
+              "authored_id": "g23m-ag-auth01",
+              "occurred_at": "2026-05-07T09:58:00+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {"story_beat_ids": ["D67"], "fact_ids": ["F12"], "continuity_ids": ["C06"]}
+            }
+          },
+          {
+            "agenda_id": "g23m-ag02",
+            "text": "划清注册记录与尚未定义的激活行为",
+            "authorship": {
+              "authored_id": "g23m-ag-auth02",
+              "occurred_at": "2026-05-07T09:59:00+08:00",
+              "author_role": "engineering",
+              "content_class": "signal",
+              "links": {"story_beat_ids": ["D67"], "fact_ids": ["F12"], "continuity_ids": ["C06"]}
+            }
+          }
+        ],
+        "utterances": [
+          {
+            "utterance_id": "g23m-u01",
+            "speaker_id": "g23p-lin",
+            "started_at": "2026-05-07T10:02:00+08:00",
+            "ended_at": "2026-05-07T10:03:08+08:00",
+            "text": "先等我把豆浆袋挪开。今早恢复跑步，回程多买了一杯，杯盖没扣紧，桌边已经滴了两点。我不边擦边共享，免得又念错格子。",
+            "interruption_of_utterance_id": null,
+            "authorship": {
+              "authored_id": "g23m-auth01",
+              "occurred_at": "2026-05-07T10:02:00+08:00",
+              "author_role": "product",
+              "content_class": "noise",
+              "links": {"story_beat_ids": ["D67"], "fact_ids": [], "continuity_ids": []}
+            }
+          },
+          {
+            "utterance_id": "g23m-u02",
+            "speaker_id": "g23p-jia",
+            "started_at": "2026-05-07T10:03:12+08:00",
+            "ended_at": "2026-05-07T10:04:16+08:00",
+            "text": "你慢慢擦。我刚从走廊接电话回来，耳机还连着会议室那台机器。今天只核一张统计页，别顺手开昨天的支持草图。",
+            "interruption_of_utterance_id": null,
+            "authorship": {
+              "authored_id": "g23m-auth02",
+              "occurred_at": "2026-05-07T10:03:12+08:00",
+              "author_role": "engineering",
+              "content_class": "noise",
+              "links": {"story_beat_ids": ["D67"], "fact_ids": [], "continuity_ids": []}
+            }
+          },
+          {
+            "utterance_id": "g23m-u03",
+            "speaker_id": "g23p-lin",
+            "started_at": "2026-05-07T10:04:22+08:00",
+            "ended_at": "2026-05-07T10:06:08+08:00",
+            "text": "共享了。标题先只写“邀请窗口首轮记录”，具体计数和口径在表格里分开摆着；我没把它命名成增长、转化或者成功。",
+            "interruption_of_utterance_id": null,
+            "authorship": {
+              "authored_id": "g23m-auth03",
+              "occurred_at": "2026-05-07T10:04:22+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {"story_beat_ids": ["D67"], "fact_ids": ["F12"], "continuity_ids": ["C06"]}
+            }
+          },
+          {
+            "utterance_id": "g23m-u04",
+            "speaker_id": "g23p-jia",
+            "started_at": "2026-05-07T10:06:16+08:00",
+            "ended_at": "2026-05-07T10:08:22+08:00",
+            "text": "先把“注册”说得能复算。是出现一个账号记录，还是填过资料，还是只要进过入口？这个计数按账号去重，还是按邀请对象去重？我现在不问他们后来做了什么。",
+            "interruption_of_utterance_id": null,
+            "authorship": {
+              "authored_id": "g23m-auth04",
+              "occurred_at": "2026-05-07T10:06:16+08:00",
+              "author_role": "engineering",
+              "content_class": "signal",
+              "links": {"story_beat_ids": ["D67"], "fact_ids": ["F12"], "continuity_ids": ["C06"]}
+            }
+          },
+          {
+            "utterance_id": "g23m-u05",
+            "speaker_id": "g23p-lin",
+            "started_at": "2026-05-07T10:08:28+08:00",
+            "ended_at": "2026-05-07T10:10:43+08:00",
+            "text": "这里的注册只认账号建立记录，再按受邀地址去重；同一个人重试不加一。周二实际发出十二份小范围邀请，截至今天九点半，七位受邀对象留下了这样的记录。建立账号之后有没有开始引导、走到哪一页，这张表都没有回答。",
+            "interruption_of_utterance_id": null,
+            "authorship": {
+              "authored_id": "g23m-auth05",
+              "occurred_at": "2026-05-07T10:08:28+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {"story_beat_ids": ["D67"], "fact_ids": ["F12"], "continuity_ids": ["C06"]}
+            }
+          },
+          {
+            "utterance_id": "g23m-u06",
+            "speaker_id": "g23p-jia",
+            "started_at": "2026-05-07T10:10:50+08:00",
+            "ended_at": "2026-05-07T10:12:35+08:00",
+            "text": "那就把刚才那段定义贴在表格旁，不另做一句口号。不要让标题替数据加情绪，也不要拿这一个窗口和不存在的上一期作比较；读者若要复算，应能看见去重规则。",
+            "interruption_of_utterance_id": null,
+            "authorship": {
+              "authored_id": "g23m-auth06",
+              "occurred_at": "2026-05-07T10:10:50+08:00",
+              "author_role": "engineering",
+              "content_class": "signal",
+              "links": {"story_beat_ids": ["D67"], "fact_ids": ["F12"], "continuity_ids": ["C06"]}
+            }
+          },
+          {
+            "utterance_id": "g23m-u07",
+            "speaker_id": "g23p-lin",
+            "started_at": "2026-05-07T10:12:41+08:00",
+            "ended_at": "2026-05-07T10:14:20+08:00",
+            "text": "我昨晚差点把旁注写成“已经有一批人开始使用”。账号记录看起来像是可讲的进展，我就想给这列一个更有意义的名字，但我确实不知道他们是否做过同一种事。",
+            "interruption_of_utterance_id": null,
+            "authorship": {
+              "authored_id": "g23m-auth07",
+              "occurred_at": "2026-05-07T10:12:41+08:00",
+              "author_role": "product",
+              "content_class": "ambiguous",
+              "links": {"story_beat_ids": ["D67"], "fact_ids": ["F12"], "continuity_ids": ["C06"]}
+            }
+          },
+          {
+            "utterance_id": "g23m-u08",
+            "speaker_id": "g23p-jia",
+            "started_at": "2026-05-07T10:14:10+08:00",
+            "ended_at": "2026-05-07T10:16:05+08:00",
+            "text": "我打断一下，“开始使用”就是你偷偷添进去的第二件事。一个比例只说明这一张表里的算术位置；它不会替你定义使用，更不会替这些受邀者补一段相同经历。",
+            "interruption_of_utterance_id": "g23m-u07",
+            "authorship": {
+              "authored_id": "g23m-auth08",
+              "occurred_at": "2026-05-07T10:14:10+08:00",
+              "author_role": "engineering",
+              "content_class": "signal",
+              "links": {"story_beat_ids": ["D67"], "fact_ids": ["F12"], "continuity_ids": ["C06"]}
+            }
+          },
+          {
+            "utterance_id": "g23m-u09",
+            "speaker_id": "g23p-lin",
+            "started_at": "2026-05-07T10:16:12+08:00",
+            "ended_at": "2026-05-07T10:18:26+08:00",
+            "text": "对。注册是一个可见动作，激活得另选一个对产品有意义、而且能稳定观察的行为。开始看说明和真正完成一次核心任务也不能混成同一步。今天既没定激活事件，也不补算它。",
+            "interruption_of_utterance_id": null,
+            "authorship": {
+              "authored_id": "g23m-auth09",
+              "occurred_at": "2026-05-07T10:16:12+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {"story_beat_ids": ["D67"], "fact_ids": ["F12"], "continuity_ids": ["C06"]}
+            }
+          },
+          {
+            "utterance_id": "g23m-u10",
+            "speaker_id": "g23p-jia",
+            "started_at": "2026-05-07T10:18:32+08:00",
+            "ended_at": "2026-05-07T10:20:20+08:00",
+            "text": "而且以后选了行为，也要写谁触发、什么时候触发、能不能重放。不要今天先造一个“激活”栏，明天再把任何看起来积极的动作塞进去。",
+            "interruption_of_utterance_id": null,
+            "authorship": {
+              "authored_id": "g23m-auth10",
+              "occurred_at": "2026-05-07T10:18:32+08:00",
+              "author_role": "engineering",
+              "content_class": "signal",
+              "links": {"story_beat_ids": ["D67"], "fact_ids": ["F12"], "continuity_ids": ["C06"]}
+            }
+          },
+          {
+            "utterance_id": "g23m-u11",
+            "speaker_id": "g23p-lin",
+            "started_at": "2026-05-07T10:20:27+08:00",
+            "ended_at": "2026-05-07T10:22:10+08:00",
+            "text": "反馈表还有几列空着。我本来想把空白和这些注册记录并排，看看是不是没人愿意写原因；可空白可能是没看见、没作答，或者那题根本不适用。",
+            "interruption_of_utterance_id": null,
+            "authorship": {
+              "authored_id": "g23m-auth11",
+              "occurred_at": "2026-05-07T10:20:27+08:00",
+              "author_role": "product",
+              "content_class": "ambiguous",
+              "links": {"story_beat_ids": ["D67"], "fact_ids": ["F12"], "continuity_ids": ["C06"]}
+            }
+          },
+          {
+            "utterance_id": "g23m-u12",
+            "speaker_id": "g23p-jia",
+            "started_at": "2026-05-07T10:22:16+08:00",
+            "ended_at": "2026-05-07T10:24:03+08:00",
+            "text": "空白先保持空白。没有作答不是一个统一答案，也不能拿来判断卡点多不多。你可以复核字段是否必填、是否真的保存，但不要把缺失值翻译成人的态度。",
+            "interruption_of_utterance_id": null,
+            "authorship": {
+              "authored_id": "g23m-auth12",
+              "occurred_at": "2026-05-07T10:22:16+08:00",
+              "author_role": "engineering",
+              "content_class": "signal",
+              "links": {"story_beat_ids": ["D67"], "fact_ids": ["F12"], "continuity_ids": ["C06"]}
+            }
+          },
+          {
+            "utterance_id": "g23m-u13",
+            "speaker_id": "g23p-lin",
+            "started_at": "2026-05-07T10:24:10+08:00",
+            "ended_at": "2026-05-07T10:26:02+08:00",
+            "text": "那统计页保留原表和口径说明，不再把反馈空白排进同一列。空白另做完整性检查：先确认题目是否出现、是否允许跳过、提交有没有保存；不能从现有支持对话推一个总体原因。",
+            "interruption_of_utterance_id": null,
+            "authorship": {
+              "authored_id": "g23m-auth13",
+              "occurred_at": "2026-05-07T10:24:10+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {"story_beat_ids": ["D67"], "fact_ids": ["F12"], "continuity_ids": ["C06"]}
+            }
+          },
+          {
+            "utterance_id": "g23m-u14",
+            "speaker_id": "g23p-jia",
+            "started_at": "2026-05-07T10:26:08+08:00",
+            "ended_at": "2026-05-07T10:28:00+08:00",
+            "text": "可以。页脚写成观察范围：这页只报告账号建立记录，其余行为没有被本页采样。这不是悲观结论；人为什么停住、是否愿意反馈，都得等各自留下可回看的材料。",
+            "interruption_of_utterance_id": null,
+            "authorship": {
+              "authored_id": "g23m-auth14",
+              "occurred_at": "2026-05-07T10:26:08+08:00",
+              "author_role": "engineering",
+              "content_class": "signal",
+              "links": {"story_beat_ids": ["D67"], "fact_ids": ["F12"], "continuity_ids": ["C06"]}
+            }
+          },
+          {
+            "utterance_id": "g23m-u15",
+            "speaker_id": "g23p-lin",
+            "started_at": "2026-05-07T10:28:07+08:00",
+            "ended_at": "2026-05-07T10:30:06+08:00",
+            "text": "我还想按注册时间画一条上升线，但三天窗口太短，邀请又是同一批发出的，那条线很容易被我讲成趋势。先保留逐条时间，不画结论图。",
+            "interruption_of_utterance_id": null,
+            "authorship": {
+              "authored_id": "g23m-auth15",
+              "occurred_at": "2026-05-07T10:28:07+08:00",
+              "author_role": "product",
+              "content_class": "ambiguous",
+              "links": {"story_beat_ids": ["D67"], "fact_ids": ["F12"], "continuity_ids": ["C06"]}
+            }
+          },
+          {
+            "utterance_id": "g23m-u16",
+            "speaker_id": "g23p-jia",
+            "started_at": "2026-05-07T10:30:12+08:00",
+            "ended_at": "2026-05-07T10:32:15+08:00",
+            "text": "逐条时间可以用于复算，不用于讲增长。你现在只有一次邀请和一个截至点，连可比基线都没有。把图删掉，比在图下补三段免责声明干净。",
+            "interruption_of_utterance_id": null,
+            "authorship": {
+              "authored_id": "g23m-auth16",
+              "occurred_at": "2026-05-07T10:30:12+08:00",
+              "author_role": "engineering",
+              "content_class": "signal",
+              "links": {"story_beat_ids": ["D67"], "fact_ids": ["F12"], "continuity_ids": ["C06"]}
+            }
+          },
+          {
+            "utterance_id": "g23m-u17",
+            "speaker_id": "g23p-lin",
+            "started_at": "2026-05-07T10:32:22+08:00",
+            "ended_at": "2026-05-07T10:35:16+08:00",
+            "text": "已删。今天的内部记录就保存成原始登记快照和去重规则，不加趋势图、不加用途标签。反馈空白、后续行为和整体支持负担都不在这次结论里。",
+            "interruption_of_utterance_id": null,
+            "authorship": {
+              "authored_id": "g23m-auth17",
+              "occurred_at": "2026-05-07T10:32:22+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {"story_beat_ids": ["D67"], "fact_ids": ["F12"], "continuity_ids": ["C06"]}
+            }
+          },
+          {
+            "utterance_id": "g23m-u18",
+            "speaker_id": "g23p-jia",
+            "started_at": "2026-05-07T10:35:22+08:00",
+            "ended_at": "2026-05-07T10:39:00+08:00",
+            "text": "就停在这里。你下午可以继续检查表单字段，但别回头为这些记录补用途标签。等有了独立定义和真实行为，再开另一张统计；今天不借一个数字提前回答产品有没有被用起来。",
+            "interruption_of_utterance_id": null,
+            "authorship": {
+              "authored_id": "g23m-auth18",
+              "occurred_at": "2026-05-07T10:35:22+08:00",
+              "author_role": "engineering",
+              "content_class": "signal",
+              "links": {"story_beat_ids": ["D67"], "fact_ids": ["F12"], "continuity_ids": ["C06"]}
+            }
+          }
+        ]
+      }
+    ],
+    "document_library": [
+      {
+        "source_id": "g23d-src01",
+        "authorship": {
+          "authored_id": "g23d-src-auth",
+          "occurred_at": "2026-05-08T17:38:00+08:00",
+          "author_role": "product",
+          "content_class": "signal",
+          "links": {"story_beat_ids": ["D68"], "fact_ids": ["F04", "F12"], "continuity_ids": ["C06"]}
+        },
+        "schema": "pneuma.source.document-library/v1",
+        "provider": "mock",
+        "library_id": "g23d-work-notes",
+        "title": "5 月 8 日说明与交互返工",
+        "documents": [
+          {
+            "document_id": "g23d-doc01",
+            "path": "work/onboarding/2026-05-08-confirmed-reading-gap.md",
+            "title": "“已确认”被读成自动结论：观察与返工",
+            "frontmatter": {
+              "date": "2026-05-08",
+              "status": "rework-in-progress",
+              "owner": "林舟",
+              "input": "虚构演示与受邀者口述"
+            },
+            "full_markdown": "# “已确认”被读成自动结论：观察与返工\n\n> 这是一份读法缺口记录，不为状态名称下定义，也不替真实项目补出角色规则。\n\n陈语从预置的虚构卡进入时，先看见原句边的“已确认”，随后问这是不是页面自行得出的结论。她没有把自己的材料贴进来，也没有提交任何选择。这个观察只说明：卡片把一个已经存在的结果放在了视线最先到达的位置，却没有给出它的来历。\n\n| 视线先到的位置 | 卡片实际给出的线索 | 陈语据此推到的事 | 下次要取的观察 |\n| --- | --- | --- | --- |\n| 原句右侧的状态词 | 词很醒目，没有人物或时刻 | 页面已经替内容作了结论 | 读者能否说出这是一条预置记录 |\n| 状态行下方的入口 | 有可点项目，没有点击后的预览 | 点一下可能直接改变样例 | 不操作的人能否找到只读路径 |\n| 页面末尾的帮助 | 解释在停止后才会被翻到 | 每个疑问都得先看长文 | 短提示是否让人知道该问什么 |\n| 理由框的占位文字 | 只写“可选” | 不清楚这栏会留下什么 | 是否需要先说明记录将出现在哪里 |\n\n这不是“受邀者没看说明”的问题。她能准确指出标签靠着原句、而人和过程缺席；这给返工留下的是一个可检查的呈现问题。下一轮不问她替谁作判断，只让她用自己的话复述卡片正在展示的东西，并记录她在哪个词上停住。\n\n- 保留今天的截图与她的原问题，不把它改写成满意度结论。\n- 做一张只读入口的草图，检查人能否先离开而不触发状态操作。\n- 给状态行试两种来源提示，比较哪一种让人先想到“已有记录”而不是“系统算出”。\n- 将理由框、角色范围和三种名称列为不同问题，暂不在同一段里处理。\n\n返工后的第一轮只收两项证据：读者能否指出标签依据什么出现，以及能否说出自己尚不知道什么。两项都不能从猜测变成事实；如果仍要靠解释员口头补充，页面就还没有通过这次观察。",
+            "tags": ["onboarding", "status", "ambiguity", "rework"],
+            "links": [
+              {
+                "link_id": "g23d-link01",
+                "target": "work/support/2026-05-08-first-screen-copy-scratch.md",
+                "label": "短说明试写",
+                "embedded": false,
+                "authorship": {
+                  "authored_id": "g23d-link-auth01",
+                  "occurred_at": "2026-05-08T15:05:00+08:00",
+                  "author_role": "product",
+                  "content_class": "ambiguous",
+                  "links": {"story_beat_ids": ["D68"], "fact_ids": ["F04", "F12"], "continuity_ids": ["C06"]}
+                }
+              }
+            ],
+            "created_at": "2026-05-08T10:24:00+08:00",
+            "modified_at": "2026-05-08T16:48:00+08:00",
+            "visible_blocks": [
+              {
+                "block_id": "g23d-b01",
+                "kind": "heading",
+                "markdown": "# “已确认”被读成自动结论：观察与返工",
+                "authorship": {
+                  "authored_id": "g23d-auth01",
+                  "occurred_at": "2026-05-08T10:24:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {"story_beat_ids": ["D68"], "fact_ids": ["F04", "F12"], "continuity_ids": ["C06"]}
+                }
+              },
+              {
+                "block_id": "g23d-b02",
+                "kind": "callout",
+                "markdown": "> 这是一份读法缺口记录，不为状态名称下定义，也不替真实项目补出角色规则。",
+                "authorship": {
+                  "authored_id": "g23d-auth02",
+                  "occurred_at": "2026-05-08T10:27:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {"story_beat_ids": ["D68"], "fact_ids": ["F04", "F12"], "continuity_ids": ["C06"]}
+                }
+              },
+              {
+                "block_id": "g23d-b03",
+                "kind": "paragraph",
+                "markdown": "陈语从预置的虚构卡进入时，先看见原句边的“已确认”，随后问这是不是页面自行得出的结论。她没有把自己的材料贴进来，也没有提交任何选择。这个观察只说明：卡片把一个已经存在的结果放在了视线最先到达的位置，却没有给出它的来历。",
+                "authorship": {
+                  "authored_id": "g23d-auth03",
+                  "occurred_at": "2026-05-08T10:36:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {"story_beat_ids": ["D68"], "fact_ids": ["F04", "F12"], "continuity_ids": ["C06"]}
+                }
+              },
+              {
+                "block_id": "g23d-b04",
+                "kind": "table",
+                "markdown": "| 视线先到的位置 | 卡片实际给出的线索 | 陈语据此推到的事 | 下次要取的观察 |\n| --- | --- | --- | --- |\n| 原句右侧的状态词 | 词很醒目，没有人物或时刻 | 页面已经替内容作了结论 | 读者能否说出这是一条预置记录 |\n| 状态行下方的入口 | 有可点项目，没有点击后的预览 | 点一下可能直接改变样例 | 不操作的人能否找到只读路径 |\n| 页面末尾的帮助 | 解释在停止后才会被翻到 | 每个疑问都得先看长文 | 短提示是否让人知道该问什么 |\n| 理由框的占位文字 | 只写“可选” | 不清楚这栏会留下什么 | 是否需要先说明记录将出现在哪里 |",
+                "authorship": {
+                  "authored_id": "g23d-auth04",
+                  "occurred_at": "2026-05-08T11:12:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {"story_beat_ids": ["D68"], "fact_ids": ["F04", "F12"], "continuity_ids": ["C06"]}
+                }
+              },
+              {
+                "block_id": "g23d-b05",
+                "kind": "paragraph",
+                "markdown": "这不是“受邀者没看说明”的问题。她能准确指出标签靠着原句、而人和过程缺席；这给返工留下的是一个可检查的呈现问题。下一轮不问她替谁作判断，只让她用自己的话复述卡片正在展示的东西，并记录她在哪个词上停住。",
+                "authorship": {
+                  "authored_id": "g23d-auth05",
+                  "occurred_at": "2026-05-08T13:42:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {"story_beat_ids": ["D68"], "fact_ids": ["F04", "F12"], "continuity_ids": ["C01", "C06"]}
+                }
+              },
+              {
+                "block_id": "g23d-b06",
+                "kind": "list",
+                "markdown": "- 保留今天的截图与她的原问题，不把它改写成满意度结论。\n- 做一张只读入口的草图，检查人能否先离开而不触发状态操作。\n- 给状态行试两种来源提示，比较哪一种让人先想到“已有记录”而不是“系统算出”。\n- 将理由框、角色范围和三种名称列为不同问题，暂不在同一段里处理。\n\n返工后的第一轮只收两项证据：读者能否指出标签依据什么出现，以及能否说出自己尚不知道什么。两项都不能从猜测变成事实；如果仍要靠解释员口头补充，页面就还没有通过这次观察。",
+                "authorship": {
+                  "authored_id": "g23d-auth06",
+                  "occurred_at": "2026-05-08T16:48:00+08:00",
+                  "author_role": "product",
+                  "content_class": "ambiguous",
+                  "links": {"story_beat_ids": ["D68"], "fact_ids": ["F04", "F12"], "continuity_ids": ["C01", "C06"]}
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "g23d-doc-auth01",
+              "occurred_at": "2026-05-08T16:48:00+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {"story_beat_ids": ["D68"], "fact_ids": ["F04", "F12"], "continuity_ids": ["C01", "C06"]}
+            }
+          },
+          {
+            "document_id": "g23d-doc02",
+            "path": "work/support/2026-05-08-first-screen-copy-scratch.md",
+            "title": "第一屏短说明试写，未发布",
+            "frontmatter": {
+              "date": "2026-05-08",
+              "status": "scratch-not-published",
+              "owner": "林舟",
+              "review_needed": true
+            },
+            "full_markdown": "# 第一屏短说明试写，未发布\n\n这页比较的是两种引导方式，不是把帮助文压缩成另一份教程。草图把卡片顶端分成“浏览样例”和“留下判断”两个入口：前者只用于核对虚构材料，后者在进入前先展示将出现的一行记录。这样做的目的，是让读者先辨认自己正要做哪类操作。\n\n> ~~系统已根据记录标记状态，你可以继续。~~ 删。它把卡片正在展示的内容和下一步可做的事粘在一起。替换稿：`此卡含一条先前保存的判断记录。` 下面另放 `查看记录出处`；只有打开“留下判断”后，才出现“准备新增一行记录”的提示。\n\n- 浏览入口旁：写明材料为虚构样例，并给出返回卡片列表的路径。\n- 留下判断入口前：预览将新增的三项字段——对象、判断内容、留下时间；不先假装这些字段已有值。\n- 理由框上方：改为“补充你看到的依据（可留空）”，并注明此草图尚未确定谁能看到它。\n- 帮助链接：只收进替代版本、多人意见和历史冲突，标题直接写“遇到不同版本时怎么看”。\n- 不写进草图：真实项目角色、默认可执行范围、三种状态的最终名称；这些都没有今天可用的答案。\n\n试写 A 把所有提醒塞到卡片下面，读起来像一道免责墙；试写 B 虽然短，却让“浏览”和“留下判断”变成两个没有关系的按钮。明天请陈放只做一个停表测试：他先找回卡片里的出处，再决定是否愿意打开第二个入口。若他在第一步仍要翻到页尾找路，说明需要改的是导航和词头，不是继续加解释。陈语的提问只证明卡片的来历没有被读到，不能替这两版文案背书。",
+            "tags": ["support-copy", "first-screen", "draft"],
+            "links": [
+              {
+                "link_id": "g23d-link02",
+                "target": "work/onboarding/2026-05-08-confirmed-reading-gap.md",
+                "label": "误读观察",
+                "embedded": false,
+                "authorship": {
+                  "authored_id": "g23d-link-auth02",
+                  "occurred_at": "2026-05-08T17:30:00+08:00",
+                  "author_role": "product",
+                  "content_class": "ambiguous",
+                  "links": {"story_beat_ids": ["D68"], "fact_ids": ["F04", "F12"], "continuity_ids": ["C06"]}
+                }
+              }
+            ],
+            "created_at": "2026-05-08T15:05:00+08:00",
+            "modified_at": "2026-05-08T17:30:00+08:00",
+            "visible_blocks": [
+              {
+                "block_id": "g23d-b07",
+                "kind": "heading",
+                "markdown": "# 第一屏短说明试写，未发布",
+                "authorship": {
+                  "authored_id": "g23d-auth07",
+                  "occurred_at": "2026-05-08T15:05:00+08:00",
+                  "author_role": "product",
+                  "content_class": "ambiguous",
+                  "links": {"story_beat_ids": ["D68"], "fact_ids": ["F04", "F12"], "continuity_ids": ["C06"]}
+                }
+              },
+              {
+                "block_id": "g23d-b08",
+                "kind": "paragraph",
+                "markdown": "这页比较的是两种引导方式，不是把帮助文压缩成另一份教程。草图把卡片顶端分成“浏览样例”和“留下判断”两个入口：前者只用于核对虚构材料，后者在进入前先展示将出现的一行记录。这样做的目的，是让读者先辨认自己正要做哪类操作。",
+                "authorship": {
+                  "authored_id": "g23d-auth08",
+                  "occurred_at": "2026-05-08T15:12:00+08:00",
+                  "author_role": "product",
+                  "content_class": "ambiguous",
+                  "links": {"story_beat_ids": ["D68"], "fact_ids": ["F04", "F12"], "continuity_ids": ["C06"]}
+                }
+              },
+              {
+                "block_id": "g23d-b09",
+                "kind": "quote",
+                "markdown": "> ~~系统已根据记录标记状态，你可以继续。~~ 删。它把卡片正在展示的内容和下一步可做的事粘在一起。替换稿：`此卡含一条先前保存的判断记录。` 下面另放 `查看记录出处`；只有打开“留下判断”后，才出现“准备新增一行记录”的提示。",
+                "authorship": {
+                  "authored_id": "g23d-auth09",
+                  "occurred_at": "2026-05-08T15:28:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {"story_beat_ids": ["D68"], "fact_ids": ["F04", "F12"], "continuity_ids": ["C01", "C06"]}
+                }
+              },
+              {
+                "block_id": "g23d-b10",
+                "kind": "list",
+                "markdown": "- 浏览入口旁：写明材料为虚构样例，并给出返回卡片列表的路径。\n- 留下判断入口前：预览将新增的三项字段——对象、判断内容、留下时间；不先假装这些字段已有值。\n- 理由框上方：改为“补充你看到的依据（可留空）”，并注明此草图尚未确定谁能看到它。\n- 帮助链接：只收进替代版本、多人意见和历史冲突，标题直接写“遇到不同版本时怎么看”。\n- 不写进草图：真实项目角色、默认可执行范围、三种状态的最终名称；这些都没有今天可用的答案。",
+                "authorship": {
+                  "authored_id": "g23d-auth10",
+                  "occurred_at": "2026-05-08T16:04:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {"story_beat_ids": ["D68"], "fact_ids": ["F04", "F12"], "continuity_ids": ["C01", "C06"]}
+                }
+              },
+              {
+                "block_id": "g23d-b11",
+                "kind": "paragraph",
+                "markdown": "试写 A 把所有提醒塞到卡片下面，读起来像一道免责墙；试写 B 虽然短，却让“浏览”和“留下判断”变成两个没有关系的按钮。明天请陈放只做一个停表测试：他先找回卡片里的出处，再决定是否愿意打开第二个入口。若他在第一步仍要翻到页尾找路，说明需要改的是导航和词头，不是继续加解释。陈语的提问只证明卡片的来历没有被读到，不能替这两版文案背书。",
+                "authorship": {
+                  "authored_id": "g23d-auth11",
+                  "occurred_at": "2026-05-08T17:30:00+08:00",
+                  "author_role": "product",
+                  "content_class": "ambiguous",
+                  "links": {"story_beat_ids": ["D68"], "fact_ids": ["F04", "F12"], "continuity_ids": ["C06"]}
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "g23d-doc-auth02",
+              "occurred_at": "2026-05-08T17:30:00+08:00",
+              "author_role": "product",
+              "content_class": "ambiguous",
+              "links": {"story_beat_ids": ["D68"], "fact_ids": ["F04", "F12"], "continuity_ids": ["C06"]}
+            }
+          },
+          {
+            "document_id": "g23d-doc03",
+            "path": "work/onboarding/2026-05-08-two-card-readback.md",
+            "title": "两张虚构卡的回读检查",
+            "frontmatter": {
+              "date": "2026-05-08",
+              "status": "manual-check",
+              "owner": "林舟",
+              "data": "fictional-only"
+            },
+            "full_markdown": "# 两张虚构卡的回读检查\n\n16:55 从空白分支做两张新卡，没有沿用陈语看到的那段文字。甲卡放入一条虚构的已保存记录和它的出处链接；乙卡只放来源摘录，并把“留下判断”折成第二步。此次回读不模拟真实项目，也不问谁有资格决定；只检查页面是否把“看见什么”和“准备写什么”拆开。\n\n| 回读任务 | 甲卡的路径 | 乙卡的路径 | 观察到的问题 |\n| --- | --- | --- | --- |\n| 找到状态依据 | 从记录旁进入出处 | 没有记录，直接显示“未附判断” | 甲卡的出处链接可找到，乙卡的空位文字太像错误提示 |\n| 只看来源后离开 | 返回列表 | 返回列表 | 两张卡都能离开，但乙卡的第二步标题仍抢眼 |\n| 打开第二步前预测结果 | 先见将新增字段预览 | 先见同一份字段预览 | 预览把“会留下些什么”说清了，未说明哪些人能使用它 |\n| 寻找少见情形 | 打开“不同版本时怎么看” | 同一链接 | 链接标题能定位问题，内容暂不在首屏展开 |\n\n> 手工回读：甲卡不再把状态词摆成孤立答案；乙卡却让“未附判断”看起来像失败而不是卡片当前的材料形态。下一步只换乙卡的空位文案，并把第二步标题从动作名改成结果说明。不要因此宣称误读消失，也不要用虚构卡补出真实项目的责任范围。\n\n下一轮请读者先完成“找出处—返回列表—读第二步预览”三件小事，再问他是否仍把甲卡当成机器结论。若他在空位处停住，记录停住的词和位置；若他能走完，也只说明这组虚构卡可继续测试，不把它写成任何受邀者已经完成了工作链。",
+            "tags": ["onboarding", "manual-check", "fictional-data"],
+            "links": [
+              {
+                "link_id": "g23d-link03",
+                "target": "work/onboarding/2026-05-08-confirmed-reading-gap.md",
+                "label": "误读与返工主记",
+                "embedded": false,
+                "authorship": {
+                  "authored_id": "g23d-link-auth03",
+                  "occurred_at": "2026-05-08T17:38:00+08:00",
+                  "author_role": "product",
+                  "content_class": "ambiguous",
+                  "links": {"story_beat_ids": ["D68"], "fact_ids": ["F04", "F12"], "continuity_ids": ["C06"]}
+                }
+              }
+            ],
+            "created_at": "2026-05-08T16:55:00+08:00",
+            "modified_at": "2026-05-08T17:38:00+08:00",
+            "visible_blocks": [
+              {
+                "block_id": "g23d-b12",
+                "kind": "heading",
+                "markdown": "# 两张虚构卡的回读检查",
+                "authorship": {
+                  "authored_id": "g23d-auth12",
+                  "occurred_at": "2026-05-08T16:55:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {"story_beat_ids": ["D68"], "fact_ids": ["F04", "F12"], "continuity_ids": ["C01", "C06"]}
+                }
+              },
+              {
+                "block_id": "g23d-b13",
+                "kind": "paragraph",
+                "markdown": "16:55 从空白分支做两张新卡，没有沿用陈语看到的那段文字。甲卡放入一条虚构的已保存记录和它的出处链接；乙卡只放来源摘录，并把“留下判断”折成第二步。此次回读不模拟真实项目，也不问谁有资格决定；只检查页面是否把“看见什么”和“准备写什么”拆开。",
+                "authorship": {
+                  "authored_id": "g23d-auth13",
+                  "occurred_at": "2026-05-08T17:03:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {"story_beat_ids": ["D68"], "fact_ids": ["F04", "F12"], "continuity_ids": ["C01", "C06"]}
+                }
+              },
+              {
+                "block_id": "g23d-b14",
+                "kind": "table",
+                "markdown": "| 回读任务 | 甲卡的路径 | 乙卡的路径 | 观察到的问题 |\n| --- | --- | --- | --- |\n| 找到状态依据 | 从记录旁进入出处 | 没有记录，直接显示“未附判断” | 甲卡的出处链接可找到，乙卡的空位文字太像错误提示 |\n| 只看来源后离开 | 返回列表 | 返回列表 | 两张卡都能离开，但乙卡的第二步标题仍抢眼 |\n| 打开第二步前预测结果 | 先见将新增字段预览 | 先见同一份字段预览 | 预览把“会留下些什么”说清了，未说明哪些人能使用它 |\n| 寻找少见情形 | 打开“不同版本时怎么看” | 同一链接 | 链接标题能定位问题，内容暂不在首屏展开 |",
+                "authorship": {
+                  "authored_id": "g23d-auth14",
+                  "occurred_at": "2026-05-08T17:22:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {"story_beat_ids": ["D68"], "fact_ids": ["F04", "F12"], "continuity_ids": ["C01", "C06"]}
+                }
+              },
+              {
+                "block_id": "g23d-b15",
+                "kind": "quote",
+                "markdown": "> 手工回读：甲卡不再把状态词摆成孤立答案；乙卡却让“未附判断”看起来像失败而不是卡片当前的材料形态。下一步只换乙卡的空位文案，并把第二步标题从动作名改成结果说明。不要因此宣称误读消失，也不要用虚构卡补出真实项目的责任范围。\n\n下一轮请读者先完成“找出处—返回列表—读第二步预览”三件小事，再问他是否仍把甲卡当成机器结论。若他在空位处停住，记录停住的词和位置；若他能走完，也只说明这组虚构卡可继续测试，不把它写成任何受邀者已经完成了工作链。",
+                "authorship": {
+                  "authored_id": "g23d-auth15",
+                  "occurred_at": "2026-05-08T17:38:00+08:00",
+                  "author_role": "product",
+                  "content_class": "ambiguous",
+                  "links": {"story_beat_ids": ["D68"], "fact_ids": ["F04", "F12"], "continuity_ids": ["C01", "C06"]}
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "g23d-doc-auth03",
+              "occurred_at": "2026-05-08T17:38:00+08:00",
+              "author_role": "product",
+              "content_class": "ambiguous",
+              "links": {"story_beat_ids": ["D68"], "fact_ids": ["F04", "F12"], "continuity_ids": ["C01", "C06"]}
+            }
+          }
+        ]
+      }
+    ],
+    "im": [
+      {
+        "source_id": "g23i-src01",
+        "authorship": {
+          "authored_id": "g23i-src-auth",
+          "occurred_at": "2026-05-08T13:05:00+08:00",
+          "author_role": "product",
+          "content_class": "signal",
+          "links": {"story_beat_ids": ["D68"], "fact_ids": ["F04", "F12"], "continuity_ids": ["C06"]}
+        },
+        "schema": "pneuma.source.im/v1",
+        "provider": "mock",
+        "archive_id": "g23i-archive-0508",
+        "owner_user_ids": ["g23u-lin"],
+        "users": [
+          {
+            "user_id": "g23u-lin",
+            "display_name": "林舟",
+            "role": "product",
+            "synthetic_address": "lin.zhou@seamlog.test",
+            "is_bot": false
+          },
+          {
+            "user_id": "g23u-chenyu",
+            "display_name": "陈语",
+            "role": "research",
+            "synthetic_address": "chen.yu@peer.test",
+            "is_bot": false
+          },
+          {
+            "user_id": "g23u-zhao",
+            "display_name": "赵楠",
+            "role": "design",
+            "synthetic_address": "nan.zhao@flat.test",
+            "is_bot": false
+          }
+        ],
+        "conversations": [
+          {
+            "conversation_id": "g23i-conv01",
+            "conversation_type": "dm",
+            "title": "样例里的确认是谁做的",
+            "member_ids": ["g23u-lin", "g23u-chenyu"],
+            "messages": [
+              {
+                "message_id": "g23i-msg01",
+                "sender_id": "g23u-chenyu",
+                "sent_at": "2026-05-08T09:06:00+08:00",
+                "full_text": "我点开一张虚构样例，原句旁边已经写着“已确认”。这是系统读完那句话以后自动判的吗？如果是，我不知道它凭什么确定。",
+                "thread_id": null,
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g23i-auth01",
+                  "occurred_at": "2026-05-08T09:06:00+08:00",
+                  "author_role": "research",
+                  "content_class": "signal",
+                  "links": {"story_beat_ids": ["D68"], "fact_ids": ["F04", "F12"], "continuity_ids": ["C06"]}
+                }
+              },
+              {
+                "message_id": "g23i-msg02",
+                "sender_id": "g23u-lin",
+                "sent_at": "2026-05-08T09:09:00+08:00",
+                "full_text": "不是自动判定。先别点下面的状态选项。你能说说是什么让你觉得判断来自系统吗？只描述页面，不要贴你自己的材料。",
+                "thread_id": "g23i-msg01",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g23i-auth02",
+                  "occurred_at": "2026-05-08T09:09:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {"story_beat_ids": ["D68"], "fact_ids": ["F04", "F12"], "continuity_ids": ["C06"]}
+                }
+              },
+              {
+                "message_id": "g23i-msg03",
+                "sender_id": "g23u-chenyu",
+                "sent_at": "2026-05-08T09:13:00+08:00",
+                "full_text": "标签紧挨着原句，但旁边没有人名，也没有“谁做了这个选择”。我打开样例时它就在那里，所以自然以为页面根据内容给出了答案。",
+                "thread_id": "g23i-msg01",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g23i-auth03",
+                  "occurred_at": "2026-05-08T09:13:00+08:00",
+                  "author_role": "research",
+                  "content_class": "signal",
+                  "links": {"story_beat_ids": ["D68"], "fact_ids": ["F04", "F12"], "continuity_ids": ["C06"]}
+                }
+              },
+              {
+                "message_id": "g23i-msg04",
+                "sender_id": "g23u-lin",
+                "sent_at": "2026-05-08T09:17:00+08:00",
+                "full_text": "明白了。那张样例预先放了一次虚构人物的人工选择，程序只把记录显示出来；可界面把人物和动作都藏掉了，等于逼你替它猜。",
+                "thread_id": "g23i-msg03",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g23i-auth04",
+                  "occurred_at": "2026-05-08T09:17:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {"story_beat_ids": ["D68"], "fact_ids": ["F04", "F12"], "continuity_ids": ["C01", "C06"]}
+                }
+              },
+              {
+                "message_id": "g23i-msg05",
+                "sender_id": "g23u-chenyu",
+                "sent_at": "2026-05-08T09:21:00+08:00",
+                "full_text": "那下面三个状态是让我体验选择吗？我已经注册进来了，看得到按钮，但不知道这是否表示我有资格点“已确认”。",
+                "thread_id": "g23i-msg04",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g23i-auth05",
+                  "occurred_at": "2026-05-08T09:21:00+08:00",
+                  "author_role": "research",
+                  "content_class": "ambiguous",
+                  "links": {"story_beat_ids": ["D68"], "fact_ids": ["F04", "F12"], "continuity_ids": ["C06"]}
+                }
+              },
+              {
+                "message_id": "g23i-msg06",
+                "sender_id": "g23u-lin",
+                "sent_at": "2026-05-08T09:25:00+08:00",
+                "full_text": "先不要选。注册只让你进入这次受邀查看，不会授予真实项目里的确认权；而这张样例也没把谁有权判断写清楚。你指出误解就已经足够。",
+                "thread_id": "g23i-msg05",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g23i-auth06",
+                  "occurred_at": "2026-05-08T09:25:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {"story_beat_ids": ["D68"], "fact_ids": ["F04", "F12"], "continuity_ids": ["C06"]}
+                }
+              },
+              {
+                "message_id": "g23i-msg07",
+                "sender_id": "g23u-chenyu",
+                "sent_at": "2026-05-08T09:31:00+08:00",
+                "full_text": "那我刚才把两层都混了：既以为状态是机器算的，又以为能进来就能替样例决定。长说明在页面最下面，我是在停住以后才找到。",
+                "thread_id": "g23i-msg06",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g23i-auth07",
+                  "occurred_at": "2026-05-08T09:31:00+08:00",
+                  "author_role": "research",
+                  "content_class": "signal",
+                  "links": {"story_beat_ids": ["D68"], "fact_ids": ["F04", "F12"], "continuity_ids": ["C06"]}
+                }
+              },
+              {
+                "message_id": "g23i-msg08",
+                "sender_id": "g23u-lin",
+                "sent_at": "2026-05-08T09:36:00+08:00",
+                "full_text": "这说明帮助内容和操作都在制造歧义。核心边界应该靠近状态，而不是等人出错后去翻页底。复杂情况可以另开，但人工判断不能藏起来。",
+                "thread_id": "g23i-msg07",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g23i-auth08",
+                  "occurred_at": "2026-05-08T09:36:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {"story_beat_ids": ["D68"], "fact_ids": ["F04", "F12"], "continuity_ids": ["C01", "C06"]}
+                }
+              },
+              {
+                "message_id": "g23i-msg09",
+                "sender_id": "g23u-chenyu",
+                "sent_at": "2026-05-08T09:42:00+08:00",
+                "full_text": "如果第一眼能看到“这是一条人留下的判断，不改原句”，我至少不会先问机器怎么得出答案。至于谁有权点，我愿意看到明确的未知。",
+                "thread_id": "g23i-msg08",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g23i-auth09",
+                  "occurred_at": "2026-05-08T09:42:00+08:00",
+                  "author_role": "research",
+                  "content_class": "ambiguous",
+                  "links": {"story_beat_ids": ["D68"], "fact_ids": ["F04", "F12"], "continuity_ids": ["C06"]}
+                }
+              },
+              {
+                "message_id": "g23i-msg10",
+                "sender_id": "g23u-lin",
+                "sent_at": "2026-05-08T09:48:00+08:00",
+                "full_text": "我先按这个顺序改草稿：原句保持原样；状态来自人工记录；权限不明就停下。不会把“谁都能确认”补成答案，也不改三个状态名称。",
+                "thread_id": "g23i-msg09",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g23i-auth10",
+                  "occurred_at": "2026-05-08T09:48:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {"story_beat_ids": ["D68"], "fact_ids": ["F04", "F12"], "continuity_ids": ["C01", "C06"]}
+                }
+              },
+              {
+                "message_id": "g23i-msg11",
+                "sender_id": "g23u-chenyu",
+                "sent_at": "2026-05-08T09:54:00+08:00",
+                "full_text": "好。我停在这张样例，没有提交状态，也没填补充理由。你改好后可以只发第一屏给我，不用把整篇帮助一起贴过来。",
+                "thread_id": "g23i-msg10",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g23i-auth11",
+                  "occurred_at": "2026-05-08T09:54:00+08:00",
+                  "author_role": "research",
+                  "content_class": "ambiguous",
+                  "links": {"story_beat_ids": ["D68"], "fact_ids": ["F04", "F12"], "continuity_ids": ["C06"]}
+                }
+              },
+              {
+                "message_id": "g23i-msg12",
+                "sender_id": "g23u-lin",
+                "sent_at": "2026-05-08T10:01:00+08:00",
+                "full_text": "收到。我只记“发现自动判定误解并停下”，不会把这次对话写成完成记录。下一版先测第一屏，其他问题仍留着。",
+                "thread_id": "g23i-msg11",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g23i-auth12",
+                  "occurred_at": "2026-05-08T10:01:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {"story_beat_ids": ["D68"], "fact_ids": ["F04", "F12"], "continuity_ids": ["C06"]}
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "g23i-conv-auth01",
+              "occurred_at": "2026-05-08T10:01:00+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {"story_beat_ids": ["D68"], "fact_ids": ["F04", "F12"], "continuity_ids": ["C06"]}
+            }
+          },
+          {
+            "conversation_id": "g23i-conv02",
+            "conversation_type": "dm",
+            "title": "午饭和更新后的关卡",
+            "member_ids": ["g23u-lin", "g23u-zhao"],
+            "messages": [
+              {
+                "message_id": "g23i-msg13",
+                "sender_id": "g23u-zhao",
+                "sent_at": "2026-05-08T12:17:00+08:00",
+                "full_text": "楼下馄饨摊今天终于开门了。你要鲜肉还是荠菜？我十二点半下去，过点又要排队。",
+                "thread_id": null,
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g23i-auth13",
+                  "occurred_at": "2026-05-08T12:17:00+08:00",
+                  "author_role": "design",
+                  "content_class": "noise",
+                  "links": {"story_beat_ids": ["D68"], "fact_ids": [], "continuity_ids": []}
+                }
+              },
+              {
+                "message_id": "g23i-msg14",
+                "sender_id": "g23u-lin",
+                "sent_at": "2026-05-08T12:20:00+08:00",
+                "full_text": "鲜肉，小碗，不要香菜。早上的豆浆还有半杯，我就不加饮料了。",
+                "thread_id": "g23i-msg13",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g23i-auth14",
+                  "occurred_at": "2026-05-08T12:20:00+08:00",
+                  "author_role": "product",
+                  "content_class": "noise",
+                  "links": {"story_beat_ids": ["D68"], "fact_ids": [], "continuity_ids": []}
+                }
+              },
+              {
+                "message_id": "g23i-msg15",
+                "sender_id": "g23u-zhao",
+                "sent_at": "2026-05-08T12:23:00+08:00",
+                "full_text": "行。昨晚那个游戏补丁把厨房关的传送带调快了，我看别人端着空盘一路追锅，笑了十分钟。",
+                "thread_id": "g23i-msg14",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g23i-auth15",
+                  "occurred_at": "2026-05-08T12:23:00+08:00",
+                  "author_role": "design",
+                  "content_class": "noise",
+                  "links": {"story_beat_ids": ["D68"], "fact_ids": [], "continuity_ids": []}
+                }
+              },
+              {
+                "message_id": "g23i-msg16",
+                "sender_id": "g23u-lin",
+                "sent_at": "2026-05-08T12:27:00+08:00",
+                "full_text": "我只看到背包图标换了位置，按旧习惯把两盘菜全扔进垃圾桶。更新说明写得像搬家清单。",
+                "thread_id": "g23i-msg15",
+                "edited_at": null,
+                "reactions": [
+                  {
+                    "reaction_id": "g23i-react01",
+                    "name": "笑",
+                    "reactor_ids": ["g23u-zhao"],
+                    "authorship": {
+                      "authored_id": "g23i-react-auth01",
+                      "occurred_at": "2026-05-08T12:28:00+08:00",
+                      "author_role": "design",
+                      "content_class": "noise",
+                      "links": {"story_beat_ids": ["D68"], "fact_ids": [], "continuity_ids": []}
+                    }
+                  }
+                ],
+                "authorship": {
+                  "authored_id": "g23i-auth16",
+                  "occurred_at": "2026-05-08T12:27:00+08:00",
+                  "author_role": "product",
+                  "content_class": "noise",
+                  "links": {"story_beat_ids": ["D68"], "fact_ids": [], "continuity_ids": []}
+                }
+              },
+              {
+                "message_id": "g23i-msg17",
+                "sender_id": "g23u-zhao",
+                "sent_at": "2026-05-08T12:32:00+08:00",
+                "full_text": "最怪的是蘑菇会从案板弹出去，像故意的。补丁说明只写“调整物理效果”，没说会飞。",
+                "thread_id": "g23i-msg16",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g23i-auth17",
+                  "occurred_at": "2026-05-08T12:32:00+08:00",
+                  "author_role": "design",
+                  "content_class": "noise",
+                  "links": {"story_beat_ids": ["D68"], "fact_ids": [], "continuity_ids": []}
+                }
+              },
+              {
+                "message_id": "g23i-msg18",
+                "sender_id": "g23u-lin",
+                "sent_at": "2026-05-08T12:36:00+08:00",
+                "full_text": "那不是做饭，是接球。先别给我剧透新关卡，我连旧的冰面都没过。",
+                "thread_id": "g23i-msg17",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g23i-auth18",
+                  "occurred_at": "2026-05-08T12:36:00+08:00",
+                  "author_role": "product",
+                  "content_class": "noise",
+                  "links": {"story_beat_ids": ["D68"], "fact_ids": [], "continuity_ids": []}
+                }
+              },
+              {
+                "message_id": "g23i-msg19",
+                "sender_id": "g23u-zhao",
+                "sent_at": "2026-05-08T12:41:00+08:00",
+                "full_text": "馄饨买到了，老板把你的香菜单独装了一袋，我让他拿走了。门口桌满，我带回去吃。",
+                "thread_id": "g23i-msg13",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g23i-auth19",
+                  "occurred_at": "2026-05-08T12:41:00+08:00",
+                  "author_role": "design",
+                  "content_class": "noise",
+                  "links": {"story_beat_ids": ["D68"], "fact_ids": [], "continuity_ids": []}
+                }
+              },
+              {
+                "message_id": "g23i-msg20",
+                "sender_id": "g23u-lin",
+                "sent_at": "2026-05-08T12:44:00+08:00",
+                "full_text": "好，我把折叠桌腾出来。勺子只剩两把，一把在沥水篮里。",
+                "thread_id": "g23i-msg19",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g23i-auth20",
+                  "occurred_at": "2026-05-08T12:44:00+08:00",
+                  "author_role": "product",
+                  "content_class": "noise",
+                  "links": {"story_beat_ids": ["D68"], "fact_ids": [], "continuity_ids": []}
+                }
+              },
+              {
+                "message_id": "g23i-msg21",
+                "sender_id": "g23u-zhao",
+                "sent_at": "2026-05-08T13:02:00+08:00",
+                "full_text": "吃完了。你那半杯豆浆我放回冰箱门上，晚上记得闻一下再喝。",
+                "thread_id": "g23i-msg20",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g23i-auth21",
+                  "occurred_at": "2026-05-08T13:02:00+08:00",
+                  "author_role": "design",
+                  "content_class": "noise",
+                  "links": {"story_beat_ids": ["D68"], "fact_ids": [], "continuity_ids": []}
+                }
+              },
+              {
+                "message_id": "g23i-msg22",
+                "sender_id": "g23u-lin",
+                "sent_at": "2026-05-08T13:05:00+08:00",
+                "full_text": "记住了。补丁笑话也先停在蘑菇会飞，别发通关视频。",
+                "thread_id": "g23i-msg21",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g23i-auth22",
+                  "occurred_at": "2026-05-08T13:05:00+08:00",
+                  "author_role": "product",
+                  "content_class": "noise",
+                  "links": {"story_beat_ids": ["D68"], "fact_ids": [], "continuity_ids": []}
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "g23i-conv-auth02",
+              "occurred_at": "2026-05-08T13:05:00+08:00",
+              "author_role": "design",
+              "content_class": "noise",
+              "links": {"story_beat_ids": ["D68"], "fact_ids": [], "continuity_ids": []}
+            }
+          }
+        ]
+      }
+    ],
+    "email": [
+      {
+        "source_id": "g23e-src01",
+        "authorship": {
+          "authored_id": "g23e-src-auth",
+          "occurred_at": "2026-05-09T14:08:00+08:00",
+          "author_role": "product",
+          "content_class": "signal",
+          "links": {"story_beat_ids": ["D69"], "fact_ids": ["F04", "F12"], "continuity_ids": ["C01", "C06"]}
+        },
+        "schema": "pneuma.source.email/v1",
+        "provider": "rfc822",
+        "archive_id": "g23e-archive-0509",
+        "owner_addresses": ["lin.zhou@seamlog.test"],
+        "threads": [
+          {
+            "thread_id": "g23e-thread01",
+            "subject": "补充判断理由会写到哪里",
+            "messages": [
+              {
+                "message_id": "g23e-msg01",
+                "sent_at": "2026-05-09T09:14:00+08:00",
+                "from": {
+                  "address": "luo.chuan@peer.test",
+                  "display_name": "罗川",
+                  "role": "operations"
+                },
+                "to": [
+                  {
+                    "address": "lin.zhou@seamlog.test",
+                    "display_name": "林舟",
+                    "role": "product"
+                  }
+                ],
+                "cc": [],
+                "subject": "补充判断理由会写到哪里",
+                "headers": [
+                  {
+                    "header_id": "g23e-hdr01",
+                    "name": "Date",
+                    "value": "Sat, 09 May 2026 09:14:00 +0800",
+                    "authorship": {
+                      "authored_id": "g23e-h01",
+                      "occurred_at": "2026-05-09T09:14:00+08:00",
+                      "author_role": "operations",
+                      "content_class": "ambiguous",
+                      "links": {"story_beat_ids": ["D69"], "fact_ids": ["F12"], "continuity_ids": ["C06"]}
+                    }
+                  },
+                  {
+                    "header_id": "g23e-hdr02",
+                    "name": "From",
+                    "value": "罗川 <luo.chuan@peer.test>",
+                    "authorship": {
+                      "authored_id": "g23e-h02",
+                      "occurred_at": "2026-05-09T09:14:00+08:00",
+                      "author_role": "operations",
+                      "content_class": "ambiguous",
+                      "links": {"story_beat_ids": ["D69"], "fact_ids": ["F12"], "continuity_ids": ["C06"]}
+                    }
+                  },
+                  {
+                    "header_id": "g23e-hdr03",
+                    "name": "To",
+                    "value": "林舟 <lin.zhou@seamlog.test>",
+                    "authorship": {
+                      "authored_id": "g23e-h03",
+                      "occurred_at": "2026-05-09T09:14:00+08:00",
+                      "author_role": "operations",
+                      "content_class": "ambiguous",
+                      "links": {"story_beat_ids": ["D69"], "fact_ids": ["F12"], "continuity_ids": ["C06"]}
+                    }
+                  },
+                  {
+                    "header_id": "g23e-hdr04",
+                    "name": "Subject",
+                    "value": "补充判断理由会写到哪里",
+                    "authorship": {
+                      "authored_id": "g23e-h04",
+                      "occurred_at": "2026-05-09T09:14:00+08:00",
+                      "author_role": "operations",
+                      "content_class": "ambiguous",
+                      "links": {"story_beat_ids": ["D69"], "fact_ids": ["F12"], "continuity_ids": ["C06"]}
+                    }
+                  },
+                  {
+                    "header_id": "g23e-hdr05",
+                    "name": "Message-ID",
+                    "value": "<g23-luo-root@peer.test>",
+                    "authorship": {
+                      "authored_id": "g23e-h05",
+                      "occurred_at": "2026-05-09T09:14:00+08:00",
+                      "author_role": "operations",
+                      "content_class": "ambiguous",
+                      "links": {"story_beat_ids": ["D69"], "fact_ids": ["F12"], "continuity_ids": ["C06"]}
+                    }
+                  }
+                ],
+                "full_text": "林舟：\n\n我用自己编的两句话走到状态旁边，看到一个“补充判断理由”的输入框，于是停了。我的问题不是状态是谁选的，而是这段补充会写到哪里：它会接在原句后面、只挂在状态上，还是变成其他受邀者也能看见的说明？页面只写“可选”，没有告诉我关系和可见范围。\n\n我没有输入内容，也没有提交。长帮助页里讲了原句、状态和多人意见，但我翻到一半仍没找到这个输入框的答案。请直接回我两个边界就行：它会不会改原句，以及当前谁能看到。若第二个问题还没定，也请明确说没定，不用先发一整套教程。\n\n罗川",
+                "in_reply_to": null,
+                "references": [],
+                "attachments": [],
+                "authorship": {
+                  "authored_id": "g23e-auth01",
+                  "occurred_at": "2026-05-09T09:14:00+08:00",
+                  "author_role": "operations",
+                  "content_class": "ambiguous",
+                  "links": {"story_beat_ids": ["D69"], "fact_ids": ["F04", "F12"], "continuity_ids": ["C01", "C06"]}
+                }
+              },
+              {
+                "message_id": "g23e-msg02",
+                "sent_at": "2026-05-09T10:02:00+08:00",
+                "from": {
+                  "address": "lin.zhou@seamlog.test",
+                  "display_name": "林舟",
+                  "role": "product"
+                },
+                "to": [
+                  {
+                    "address": "luo.chuan@peer.test",
+                    "display_name": "罗川",
+                    "role": "operations"
+                  }
+                ],
+                "cc": [],
+                "subject": "Re: 补充判断理由会写到哪里",
+                "headers": [
+                  {
+                    "header_id": "g23e-hdr06",
+                    "name": "Date",
+                    "value": "Sat, 09 May 2026 10:02:00 +0800",
+                    "authorship": {
+                      "authored_id": "g23e-h06",
+                      "occurred_at": "2026-05-09T10:02:00+08:00",
+                      "author_role": "product",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D69"], "fact_ids": ["F12"], "continuity_ids": ["C06"]}
+                    }
+                  },
+                  {
+                    "header_id": "g23e-hdr07",
+                    "name": "From",
+                    "value": "林舟 <lin.zhou@seamlog.test>",
+                    "authorship": {
+                      "authored_id": "g23e-h07",
+                      "occurred_at": "2026-05-09T10:02:00+08:00",
+                      "author_role": "product",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D69"], "fact_ids": ["F12"], "continuity_ids": ["C06"]}
+                    }
+                  },
+                  {
+                    "header_id": "g23e-hdr08",
+                    "name": "To",
+                    "value": "罗川 <luo.chuan@peer.test>",
+                    "authorship": {
+                      "authored_id": "g23e-h08",
+                      "occurred_at": "2026-05-09T10:02:00+08:00",
+                      "author_role": "product",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D69"], "fact_ids": ["F12"], "continuity_ids": ["C06"]}
+                    }
+                  },
+                  {
+                    "header_id": "g23e-hdr09",
+                    "name": "Subject",
+                    "value": "Re: 补充判断理由会写到哪里",
+                    "authorship": {
+                      "authored_id": "g23e-h09",
+                      "occurred_at": "2026-05-09T10:02:00+08:00",
+                      "author_role": "product",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D69"], "fact_ids": ["F12"], "continuity_ids": ["C06"]}
+                    }
+                  },
+                  {
+                    "header_id": "g23e-hdr10",
+                    "name": "Message-ID",
+                    "value": "<g23-luo-reply@seamlog.test>",
+                    "authorship": {
+                      "authored_id": "g23e-h10",
+                      "occurred_at": "2026-05-09T10:02:00+08:00",
+                      "author_role": "product",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D69"], "fact_ids": ["F12"], "continuity_ids": ["C06"]}
+                    }
+                  },
+                  {
+                    "header_id": "g23e-hdr11",
+                    "name": "In-Reply-To",
+                    "value": "<g23-luo-root@peer.test>",
+                    "authorship": {
+                      "authored_id": "g23e-h11",
+                      "occurred_at": "2026-05-09T10:02:00+08:00",
+                      "author_role": "product",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D69"], "fact_ids": ["F12"], "continuity_ids": ["C06"]}
+                    }
+                  },
+                  {
+                    "header_id": "g23e-hdr12",
+                    "name": "References",
+                    "value": "<g23-luo-root@peer.test>",
+                    "authorship": {
+                      "authored_id": "g23e-h12",
+                      "occurred_at": "2026-05-09T10:02:00+08:00",
+                      "author_role": "product",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D69"], "fact_ids": ["F12"], "continuity_ids": ["C06"]}
+                    }
+                  }
+                ],
+                "full_text": "罗川：\n\n你停下是对的。先给能确认的部分：在当前虚构样例里，补充理由会作为状态旁的一条独立说明保存，不会接进或覆写原句。页面没有把这层关系写在输入框附近，是我的问题。\n\n谁能看到这条说明，我现在不能给你完整保证。当前邀请环境与真实项目的可见角色不同，页面也没有在输入前列出接收范围；在我把这件事核清之前，请继续留空，不要放任何工作内容。我会把“写到哪一层”和“哪些角色可见”拆成两个近场提示，不能确认的部分直接标未知。保存位置也会用另一条虚构输入单独复核，不拿你的空白表单试验。\n\n今天调休上班，支持邮件比前两天更密，我上午一直在逐封回复，没有继续发新邀请。你的问题和昨天那条“状态是不是自动判断”不是同一个障碍，我会分开记录，不用一篇长说明把它们盖住。\n\n林舟",
+                "in_reply_to": "g23e-msg01",
+                "references": ["g23e-msg01"],
+                "attachments": [],
+                "authorship": {
+                  "authored_id": "g23e-auth02",
+                  "occurred_at": "2026-05-09T10:02:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {"story_beat_ids": ["D69"], "fact_ids": ["F04", "F12"], "continuity_ids": ["C01", "C06"]}
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "g23e-thread-auth01",
+              "occurred_at": "2026-05-09T10:02:00+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {"story_beat_ids": ["D69"], "fact_ids": ["F04", "F12"], "continuity_ids": ["C01", "C06"]}
+            }
+          },
+          {
+            "thread_id": "g23e-thread02",
+            "subject": "真实项目的人会读这份长说明吗",
+            "messages": [
+              {
+                "message_id": "g23e-msg03",
+                "sent_at": "2026-05-09T11:26:00+08:00",
+                "from": {
+                  "address": "lin.zhou@seamlog.test",
+                  "display_name": "林舟",
+                  "role": "product"
+                },
+                "to": [
+                  {
+                    "address": "fang.chen@northfield.test",
+                    "display_name": "陈放",
+                    "role": "customer"
+                  }
+                ],
+                "cc": [],
+                "subject": "真实项目的人会读这份长说明吗",
+                "headers": [
+                  {
+                    "header_id": "g23e-hdr13",
+                    "name": "Date",
+                    "value": "Sat, 09 May 2026 11:26:00 +0800",
+                    "authorship": {
+                      "authored_id": "g23e-h13",
+                      "occurred_at": "2026-05-09T11:26:00+08:00",
+                      "author_role": "product",
+                      "content_class": "ambiguous",
+                      "links": {"story_beat_ids": ["D69"], "fact_ids": ["F04", "F12"], "continuity_ids": ["C01", "C06"]}
+                    }
+                  },
+                  {
+                    "header_id": "g23e-hdr14",
+                    "name": "From",
+                    "value": "林舟 <lin.zhou@seamlog.test>",
+                    "authorship": {
+                      "authored_id": "g23e-h14",
+                      "occurred_at": "2026-05-09T11:26:00+08:00",
+                      "author_role": "product",
+                      "content_class": "ambiguous",
+                      "links": {"story_beat_ids": ["D69"], "fact_ids": ["F04", "F12"], "continuity_ids": ["C01", "C06"]}
+                    }
+                  },
+                  {
+                    "header_id": "g23e-hdr15",
+                    "name": "To",
+                    "value": "陈放 <fang.chen@northfield.test>",
+                    "authorship": {
+                      "authored_id": "g23e-h15",
+                      "occurred_at": "2026-05-09T11:26:00+08:00",
+                      "author_role": "product",
+                      "content_class": "ambiguous",
+                      "links": {"story_beat_ids": ["D69"], "fact_ids": ["F04", "F12"], "continuity_ids": ["C01", "C06"]}
+                    }
+                  },
+                  {
+                    "header_id": "g23e-hdr16",
+                    "name": "Subject",
+                    "value": "真实项目的人会读这份长说明吗",
+                    "authorship": {
+                      "authored_id": "g23e-h16",
+                      "occurred_at": "2026-05-09T11:26:00+08:00",
+                      "author_role": "product",
+                      "content_class": "ambiguous",
+                      "links": {"story_beat_ids": ["D69"], "fact_ids": ["F04", "F12"], "continuity_ids": ["C01", "C06"]}
+                    }
+                  },
+                  {
+                    "header_id": "g23e-hdr17",
+                    "name": "Message-ID",
+                    "value": "<g23-guide-root@seamlog.test>",
+                    "authorship": {
+                      "authored_id": "g23e-h17",
+                      "occurred_at": "2026-05-09T11:26:00+08:00",
+                      "author_role": "product",
+                      "content_class": "ambiguous",
+                      "links": {"story_beat_ids": ["D69"], "fact_ids": ["F04", "F12"], "continuity_ids": ["C01", "C06"]}
+                    }
+                  }
+                ],
+                "full_text": "陈放：\n\n今天是调休工作日。我早上洗完车刚开回来就下雨，外套和脚垫又沾湿了；到桌前以后，支持邮件一直接着进，我半天都在逐封回，没有做新的推广。\n\n昨天有人把“已确认”当成程序自动判断，今天又有人问补充理由会不会改原句、哪些人能看。两个问题发生在不同位置。我怕漏答，于是把账号进入、原句与状态的关系、判断权限、补充理由、冲突情形和反馈入口串成一份从头到尾的说明，附件就是当前草稿。\n\n它现在很长，读者得先看完几段才会到第一步。我想请你只判断：真实项目里临时来核一条变更的人，会不会在动手前读这种教程？哪些话必须第一眼出现，哪些例外可以需要时再看？这不是让你验收页面，也不代表客户的第二条链有了结果。\n\n林舟",
+                "in_reply_to": null,
+                "references": [],
+                "attachments": [
+                  {
+                    "attachment_id": "g23e-att01",
+                    "filename": "first-screen-guide-draft.txt",
+                    "content_type": "text/plain",
+                    "size_bytes": 4316,
+                    "content_id": null,
+                    "authorship": {
+                      "authored_id": "g23e-att-auth01",
+                      "occurred_at": "2026-05-09T11:26:00+08:00",
+                      "author_role": "product",
+                      "content_class": "ambiguous",
+                      "links": {"story_beat_ids": ["D69"], "fact_ids": ["F04", "F12"], "continuity_ids": ["C01", "C06"]}
+                    }
+                  }
+                ],
+                "authorship": {
+                  "authored_id": "g23e-auth03",
+                  "occurred_at": "2026-05-09T11:26:00+08:00",
+                  "author_role": "product",
+                  "content_class": "ambiguous",
+                  "links": {"story_beat_ids": ["D69"], "fact_ids": ["F04", "F12"], "continuity_ids": ["C01", "C02", "C06"]}
+                }
+              },
+              {
+                "message_id": "g23e-msg04",
+                "sent_at": "2026-05-09T14:08:00+08:00",
+                "from": {
+                  "address": "fang.chen@northfield.test",
+                  "display_name": "陈放",
+                  "role": "customer"
+                },
+                "to": [
+                  {
+                    "address": "lin.zhou@seamlog.test",
+                    "display_name": "林舟",
+                    "role": "product"
+                  }
+                ],
+                "cc": [],
+                "subject": "Re: 真实项目的人会读这份长说明吗",
+                "headers": [
+                  {
+                    "header_id": "g23e-hdr18",
+                    "name": "Date",
+                    "value": "Sat, 09 May 2026 14:08:00 +0800",
+                    "authorship": {
+                      "authored_id": "g23e-h18",
+                      "occurred_at": "2026-05-09T14:08:00+08:00",
+                      "author_role": "customer",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D69"], "fact_ids": ["F04", "F12"], "continuity_ids": ["C01", "C06"]}
+                    }
+                  },
+                  {
+                    "header_id": "g23e-hdr19",
+                    "name": "From",
+                    "value": "陈放 <fang.chen@northfield.test>",
+                    "authorship": {
+                      "authored_id": "g23e-h19",
+                      "occurred_at": "2026-05-09T14:08:00+08:00",
+                      "author_role": "customer",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D69"], "fact_ids": ["F04", "F12"], "continuity_ids": ["C01", "C06"]}
+                    }
+                  },
+                  {
+                    "header_id": "g23e-hdr20",
+                    "name": "To",
+                    "value": "林舟 <lin.zhou@seamlog.test>",
+                    "authorship": {
+                      "authored_id": "g23e-h20",
+                      "occurred_at": "2026-05-09T14:08:00+08:00",
+                      "author_role": "customer",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D69"], "fact_ids": ["F04", "F12"], "continuity_ids": ["C01", "C06"]}
+                    }
+                  },
+                  {
+                    "header_id": "g23e-hdr21",
+                    "name": "Subject",
+                    "value": "Re: 真实项目的人会读这份长说明吗",
+                    "authorship": {
+                      "authored_id": "g23e-h21",
+                      "occurred_at": "2026-05-09T14:08:00+08:00",
+                      "author_role": "customer",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D69"], "fact_ids": ["F04", "F12"], "continuity_ids": ["C01", "C06"]}
+                    }
+                  },
+                  {
+                    "header_id": "g23e-hdr22",
+                    "name": "Message-ID",
+                    "value": "<g23-guide-reply@northfield.test>",
+                    "authorship": {
+                      "authored_id": "g23e-h22",
+                      "occurred_at": "2026-05-09T14:08:00+08:00",
+                      "author_role": "customer",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D69"], "fact_ids": ["F04", "F12"], "continuity_ids": ["C01", "C06"]}
+                    }
+                  },
+                  {
+                    "header_id": "g23e-hdr23",
+                    "name": "In-Reply-To",
+                    "value": "<g23-guide-root@seamlog.test>",
+                    "authorship": {
+                      "authored_id": "g23e-h23",
+                      "occurred_at": "2026-05-09T14:08:00+08:00",
+                      "author_role": "customer",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D69"], "fact_ids": ["F04", "F12"], "continuity_ids": ["C01", "C06"]}
+                    }
+                  },
+                  {
+                    "header_id": "g23e-hdr24",
+                    "name": "References",
+                    "value": "<g23-guide-root@seamlog.test>",
+                    "authorship": {
+                      "authored_id": "g23e-h24",
+                      "occurred_at": "2026-05-09T14:08:00+08:00",
+                      "author_role": "customer",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D69"], "fact_ids": ["F04", "F12"], "continuity_ids": ["C01", "C06"]}
+                    }
+                  }
+                ],
+                "full_text": "林舟：\n\n真实项目里的人不会先读完这份长教程。现场有人追问一条变更时，他想先知道眼前要做什么、这个动作不会改掉什么，然后马上去核原句；若第一页先讲账户、状态历史和所有例外，我会直接问同事从哪里点，不会逐段找答案。\n\n第一眼必须留的，我看只有当前动作、原句不会被覆盖、状态是谁留下的。如果人物或权限还不清楚，就直接显示缺口，别用一段温和文字让人继续。多人意见、替代版本、补充理由的可见范围，可以在碰到相应情况时再展开；但“不是自动判断”不能藏在展开内容里，因为每个人都可能先误会这一点。\n\n附件里从第三段开始已经像说明书，不像手边提示。你可以继续压缩，但别把我的意见写成最终流程，也别说客户因此完成了哪条链。我们自己的第二条材料链还没有到验收结论，今天这封信只是在回答长教程有没有用。\n\n陈放",
+                "in_reply_to": "g23e-msg03",
+                "references": ["g23e-msg03"],
+                "attachments": [],
+                "authorship": {
+                  "authored_id": "g23e-auth04",
+                  "occurred_at": "2026-05-09T14:08:00+08:00",
+                  "author_role": "customer",
+                  "content_class": "signal",
+                  "links": {"story_beat_ids": ["D69"], "fact_ids": ["F04", "F12"], "continuity_ids": ["C01", "C06"]}
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "g23e-thread-auth02",
+              "occurred_at": "2026-05-09T14:08:00+08:00",
+              "author_role": "customer",
+              "content_class": "signal",
+              "links": {"story_beat_ids": ["D69"], "fact_ids": ["F04", "F12"], "continuity_ids": ["C01", "C06"]}
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

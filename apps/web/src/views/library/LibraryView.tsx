@@ -4,6 +4,11 @@ import { useApp } from "@/lib/store";
 import type { Claim, DocumentRecord } from "@/lib/types";
 import { claimKey, type DirNode, type Model } from "@/lib/model";
 import { displayClaim, extractClaimLabel } from "@/lib/claim";
+import {
+  buildCitationNumbers,
+  citationKey,
+  presentCitationSource,
+} from "@/lib/citations";
 import { PageHeader } from "@/components/PageHeader";
 import { CitationList, type CitationEntry } from "@/components/CitationList";
 import { Badge } from "@/ui/Badge";
@@ -230,15 +235,39 @@ function DocumentProof({
     const seen = new Map<string, CitationEntry>();
     for (const c of doc.claims) {
       for (const ci of c.citations) {
-        const key = `${ci.source_id}:${ci.from}-${ci.to}`;
-        if (!seen.has(key))
-          seen.set(key, { sourceId: ci.source_id, blockStart: ci.from, blockEnd: ci.to });
+        const entry = {
+          sourceId: ci.source_id,
+          blockStart: ci.from,
+          blockEnd: ci.to,
+        };
+        const key = citationKey(entry);
+        if (!seen.has(key)) {
+          const node = model.nodeById.get(`src:${ci.source_id}`);
+          const snapshot = model.snapshotById.get(ci.source_id);
+          const source = presentCitationSource({
+            sourceId: ci.source_id,
+            title: node?.title,
+            kind: snapshot?.source_type,
+            capturedAt: snapshot?.captured_at,
+          });
+          seen.set(key, { ...entry, ...source });
+        }
       }
     }
     return [...seen.values()];
-  }, [doc]);
+  }, [doc, model]);
 
-  const renderClaim = (c: Claim) => {
+  // 正文与「出处」共用同一张文档级账本；同一 source span 在两处永远同号。
+  const citationNumbers = useMemo(
+    () => buildCitationNumbers(citations),
+    [citations],
+  );
+  const citationByKey = useMemo(
+    () => new Map(citations.map((citation) => [citationKey(citation), citation])),
+    [citations],
+  );
+
+  const renderClaim = (c: Claim, renderKey?: string | number) => {
     const { md, disputedNote, openQuestionNote } = displayClaim(c);
     const labeled = extractClaimLabel(md, labels);
     const note = c.anchor
@@ -289,19 +318,28 @@ function DocumentProof({
             </>
           )}
           {labeled ? labeled.rest : md}
-          {c.citations.map((ci, i) => (
-            <Footnote
-              key={`${ci.source_id}-${ci.from}-${i}`}
-              index={i + 1}
-              citation={{
-                sourceId: ci.source_id,
-                blockStart: ci.from,
-                blockEnd: ci.to,
-                snippet: ci.redaction_state === "withheld" ? undefined : ci.snippet,
-              }}
-              onJump={() => focusSource(ci.source_id, { start: ci.from, end: ci.to })}
-            />
-          ))}
+          {c.citations.map((ci, i) => {
+            const key = citationKey({
+              sourceId: ci.source_id,
+              blockStart: ci.from,
+              blockEnd: ci.to,
+            });
+            const entry = citationByKey.get(key);
+            return (
+              <Footnote
+                key={`${key}-${i}`}
+                index={citationNumbers.get(key) ?? i + 1}
+                citation={{
+                  sourceId: ci.source_id,
+                  blockStart: ci.from,
+                  blockEnd: ci.to,
+                  title: typeof entry?.title === "string" ? entry.title : undefined,
+                  snippet: ci.redaction_state === "withheld" ? undefined : ci.snippet,
+                }}
+                onJump={() => focusSource(ci.source_id, { start: ci.from, end: ci.to })}
+              />
+            );
+          })}
         </p>
         {c.anchor && (
           <Mono className="mt-1 block text-12 text-ink-3">⚓ {c.anchor}</Mono>
@@ -311,6 +349,7 @@ function DocumentProof({
 
     return (
       <div
+        key={renderKey}
         id={c.anchor ? `claim-${c.anchor}` : undefined}
         role={c.anchor && doc.document_id ? "button" : undefined}
         tabIndex={c.anchor && doc.document_id ? 0 : undefined}
@@ -379,7 +418,9 @@ function DocumentProof({
                 ))}
               </ul>
             ) : (
-              <div key={gi}>{g.claims.map((c) => renderClaim(c))}</div>
+              <div key={gi}>
+                {g.claims.map((c, i) => renderClaim(c, c.anchor ?? i))}
+              </div>
             ),
           )}
           {doc.claims.length === 0 && (

@@ -1,0 +1,1919 @@
+{
+  "schema": "pneuma.experiment.opc-84d-v2.group-content/v1",
+  "group_id": "G12",
+  "group_window": {
+    "starts_on": "2026-04-04",
+    "ends_on": "2026-04-06",
+    "day_count": 3,
+    "timezone": "Asia/Shanghai"
+  },
+  "story_scope": {
+    "allowed_story_beat_ids": [
+      "D34",
+      "D35",
+      "D36"
+    ],
+    "known_fact_ids": [
+      "F01",
+      "F02",
+      "F03",
+      "F04",
+      "F05",
+      "F06",
+      "F07",
+      "F08",
+      "F09"
+    ],
+    "open_continuity_ids": [
+      "C01",
+      "C02",
+      "C03",
+      "C04"
+    ],
+    "new_continuity_ids": [
+      "C04"
+    ]
+  },
+  "research_context": [
+    {
+      "research_ref_id": "G12-R01",
+      "topic_query": "official chat export edited messages original timestamp thread order documentation",
+      "url": "https://slack.com/help/articles/220556107-How-to-read-Slack-data-exports",
+      "title": "How to read Slack data exports",
+      "accessed_on": "2026-07-29",
+      "credibility": {
+        "tier": "official",
+        "rationale": "The service owner distinguishes a message's original send position, later edit records, and thread presentation in exported conversation data."
+      },
+      "applicability_scope": "Shapes the D34 comparison of source order, edit occurrence, and thread placement. It does not establish the fictional replay defect or determine which duplicate should be removed.",
+      "author_fact_summaries": [
+        "Conversation archives can represent the moment of sending separately from a later modification record.",
+        "A flattened archive view may require additional relationship data before a reader can reconstruct channel and thread placement."
+      ],
+      "fictionalization_boundary": "The vendor name, interface labels, sample payloads, user identifiers, and export wording remain research metadata only; all meeting details are invented.",
+      "applied_authored_ids": [
+        "g12-d34-u09",
+        "g12-d34-u11"
+      ]
+    },
+    {
+      "research_ref_id": "G12-R02",
+      "topic_query": "official entity reconciliation string similarity false positives human review documentation",
+      "url": "https://openrefine.org/docs/manual/reconciling",
+      "title": "Reconciling",
+      "accessed_on": "2026-07-29",
+      "credibility": {
+        "tier": "official",
+        "rationale": "The project's own manual describes reconciliation as a candidate-generating process whose proposed matches require contextual review and human judgment."
+      },
+      "applicability_scope": "Shapes the D35 candidate export so name resemblance is inspected beside source locators and other distinguishing fields. It does not prove that the fictional records were merged.",
+      "author_fact_summaries": [
+        "Similarity-based reconciliation yields candidates rather than guaranteed identity conclusions.",
+        "Reviewers can use identifiers, types, and supplementary fields to evaluate a proposed relationship instead of relying only on a display name."
+      ],
+      "fictionalization_boundary": "No tool name, command, screen layout, example entity, scoring value, or manual phrasing appears in the fictional documents.",
+      "applied_authored_ids": [
+        "g12-d35-a02",
+        "g12-d35-a03"
+      ]
+    },
+    {
+      "research_ref_id": "G12-R03",
+      "topic_query": "NIST SP 800-61 revision 3 incident response evidence scope communication containment official",
+      "url": "https://csrc.nist.gov/pubs/sp/800/61/r3/final",
+      "title": "Incident Response Recommendations and Considerations for Cybersecurity Risk Management: A CSF 2.0 Community Profile",
+      "accessed_on": "2026-07-29",
+      "credibility": {
+        "tier": "primary",
+        "rationale": "The current final NIST publication is a first-party incident-response standard that separates detection, response, recovery, communication, and evidence-informed scope assessment."
+      },
+      "applicability_scope": "Shapes the D36 first internal notice: state verified facts, qualify absence of evidence, preserve the current record, and keep containment decisions separate from recovery. It does not supply legal conclusions or a customer-notification decision.",
+      "author_fact_summaries": [
+        "An initial incident response benefits from recording what is known, what remains uncertain, and what evidence supports the current scope.",
+        "Measures that limit additional impact are distinct from later recovery work, and communication should reflect that distinction."
+      ],
+      "fictionalization_boundary": "The publication's terminology, diagrams, recommended wording, organization names, and examples are not reproduced; the incident, participants, and actions are wholly synthetic.",
+      "applied_authored_ids": [
+        "g12-d36-m06",
+        "g12-d36-m11",
+        "g12-d36-m18"
+      ]
+    }
+  ],
+  "sources": {
+    "meetings": [
+      {
+        "source_id": "g12-meeting-src",
+        "authorship": {
+          "authored_id": "g12-meeting-src-auth",
+          "occurred_at": "2026-04-04T11:02:00+08:00",
+          "author_role": "engineering",
+          "content_class": "signal",
+          "links": {
+            "story_beat_ids": [
+              "D34"
+            ],
+            "fact_ids": [
+              "F08"
+            ],
+            "continuity_ids": [
+              "C03"
+            ]
+          }
+        },
+        "schema": "pneuma.source.meeting/v1",
+        "provider": "mock",
+        "meeting_id": "g12-meeting-0404",
+        "title": "假期短会：局部去重后的编辑顺序",
+        "started_at": "2026-04-04T10:18:00+08:00",
+        "ended_at": "2026-04-04T10:51:40+08:00",
+        "timezone": "Asia/Shanghai",
+        "owner_participant_ids": [
+          "g12-participant-lin"
+        ],
+        "participants": [
+          {
+            "participant_id": "g12-participant-lin",
+            "display_name": "林舟",
+            "role": "engineering",
+            "synthetic_address": "lin.zhou@seamlog.test"
+          },
+          {
+            "participant_id": "g12-participant-chen",
+            "display_name": "陈放",
+            "role": "operations",
+            "synthetic_address": "chen.fang@field.test"
+          }
+        ],
+        "agenda": [
+          {
+            "agenda_id": "g12-agenda-01",
+            "text": "确认局部去重后页面关系是否仍完整。",
+            "authorship": {
+              "authored_id": "g12-agenda-01-auth",
+              "occurred_at": "2026-04-04T10:16:00+08:00",
+              "author_role": "engineering",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D34"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "agenda_id": "g12-agenda-02",
+            "text": "记下编辑事件与原消息位置之间仍无法解释的顺序差异。",
+            "authorship": {
+              "authored_id": "g12-agenda-02-auth",
+              "occurred_at": "2026-04-04T10:17:00+08:00",
+              "author_role": "engineering",
+              "content_class": "ambiguous",
+              "links": {
+                "story_beat_ids": [
+                  "D34"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C03"
+                ]
+              }
+            }
+          }
+        ],
+        "utterances": [
+          {
+            "utterance_id": "g12-utt-01",
+            "speaker_id": "g12-participant-lin",
+            "started_at": "2026-04-04T10:18:06+08:00",
+            "ended_at": "2026-04-04T10:19:02+08:00",
+            "text": "我刚从便利店回来，洗衣液的盖子在袋里松了，桌边全是柚子味。你等我把报纸垫好，别一会儿连触控板也打滑。",
+            "interruption_of_utterance_id": null,
+            "authorship": {
+              "authored_id": "g12-d34-u01",
+              "occurred_at": "2026-04-04T10:18:06+08:00",
+              "author_role": "engineering",
+              "content_class": "noise",
+              "links": {
+                "story_beat_ids": [
+                  "D34"
+                ],
+                "fact_ids": [],
+                "continuity_ids": []
+              }
+            }
+          },
+          {
+            "utterance_id": "g12-utt-02",
+            "speaker_id": "g12-participant-chen",
+            "started_at": "2026-04-04T10:19:05+08:00",
+            "ended_at": "2026-04-04T10:19:52+08:00",
+            "text": "先擦，我这边听见你塑料袋一直响。现场今天没进人，楼道还在贴清明防火通知，我能坐一会儿。你昨晚说只修到一部分，今天页面到底变了什么？",
+            "interruption_of_utterance_id": null,
+            "authorship": {
+              "authored_id": "g12-d34-u02",
+              "occurred_at": "2026-04-04T10:19:05+08:00",
+              "author_role": "operations",
+              "content_class": "noise",
+              "links": {
+                "story_beat_ids": [
+                  "D34"
+                ],
+                "fact_ids": [],
+                "continuity_ids": []
+              }
+            }
+          },
+          {
+            "utterance_id": "g12-utt-03",
+            "speaker_id": "g12-participant-lin",
+            "started_at": "2026-04-04T10:20:03+08:00",
+            "ended_at": "2026-04-04T10:22:18+08:00",
+            "text": "只少掉了一个画面上的双份：同一次导入落点同时进了主区和回复区，我让回放组装时只画一次。存下来的记录没删，其他看起来相似的东西也没碰。所以这不能叫重复消息已经修完。",
+            "interruption_of_utterance_id": null,
+            "authorship": {
+              "authored_id": "g12-d34-u03",
+              "occurred_at": "2026-04-04T10:20:03+08:00",
+              "author_role": "engineering",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D34"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "g12-utt-04",
+            "speaker_id": "g12-participant-chen",
+            "started_at": "2026-04-04T10:22:24+08:00",
+            "ended_at": "2026-04-04T10:23:46+08:00",
+            "text": "等等，你说“只画一次”，是两个位置里随便藏一个，还是你知道哪个位置才对？如果回复本来就在下面，别为了少一条把它提到主区。",
+            "interruption_of_utterance_id": null,
+            "authorship": {
+              "authored_id": "g12-d34-u04",
+              "occurred_at": "2026-04-04T10:22:24+08:00",
+              "author_role": "operations",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D34"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "g12-utt-05",
+            "speaker_id": "g12-participant-lin",
+            "started_at": "2026-04-04T10:23:55+08:00",
+            "ended_at": "2026-04-04T10:26:34+08:00",
+            "text": "我没有选主区或回复区，只认这一次导入落点该挂在哪个父项下。重复的那个展示节点不再生成，回复关系还留着。可我往下复核时碰到一条编辑过的指令，它把“哪个位置才对”又弄复杂了——",
+            "interruption_of_utterance_id": null,
+            "authorship": {
+              "authored_id": "g12-d34-u05",
+              "occurred_at": "2026-04-04T10:23:55+08:00",
+              "author_role": "engineering",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D34"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "g12-utt-06",
+            "speaker_id": "g12-participant-chen",
+            "started_at": "2026-04-04T10:26:28+08:00",
+            "ended_at": "2026-04-04T10:28:04+08:00",
+            "text": "先停一下。你说编辑把位置弄复杂，是页面又出现两条，还是同一句话跑到了别的时间？这两个现场后果不一样。",
+            "interruption_of_utterance_id": "g12-utt-05",
+            "interruption_of_utterance_id": "g12-utt-05",
+            "authorship": {
+              "authored_id": "g12-d34-u06",
+              "occurred_at": "2026-04-04T10:26:40+08:00",
+              "author_role": "operations",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D34"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "g12-utt-07",
+            "speaker_id": "g12-participant-lin",
+            "started_at": "2026-04-04T10:28:10+08:00",
+            "ended_at": "2026-04-04T10:30:45+08:00",
+            "text": "不是多一条，是时间感变了。那句最早在十点十二分发出，十一点零七分改过；项目页把当前文字留在十点的位置，回放文件却把改动事件排在十一点附近。读者从两边看，会以为动作发生在不同阶段。",
+            "interruption_of_utterance_id": null,
+            "authorship": {
+              "authored_id": "g12-d34-u07",
+              "occurred_at": "2026-04-04T10:28:10+08:00",
+              "author_role": "engineering",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D34"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "g12-utt-08",
+            "speaker_id": "g12-participant-chen",
+            "started_at": "2026-04-04T10:30:52+08:00",
+            "ended_at": "2026-04-04T10:32:14+08:00",
+            "text": "给我一个不带字段名的例子。文字改了以后，会让现场的人误会什么？",
+            "interruption_of_utterance_id": null,
+            "authorship": {
+              "authored_id": "g12-d34-u08",
+              "occurred_at": "2026-04-04T10:30:52+08:00",
+              "author_role": "operations",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D34"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "g12-utt-09",
+            "speaker_id": "g12-participant-lin",
+            "started_at": "2026-04-04T10:32:18+08:00",
+            "ended_at": "2026-04-04T10:33:51+08:00",
+            "text": "原话先是“下午量完再报”，后来改成“下午先别报”。项目页把后一句放在上午原位置，回放又像是下午才追加了它。只看当前文字的人会以为暂停来得更早；只按事件行读，又可能以为现场先做完才收到暂停。",
+            "interruption_of_utterance_id": null,
+            "authorship": {
+              "authored_id": "g12-d34-u09",
+              "occurred_at": "2026-04-04T10:32:18+08:00",
+              "author_role": "engineering",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D34"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "g12-utt-10",
+            "speaker_id": "g12-participant-chen",
+            "started_at": "2026-04-04T10:34:00+08:00",
+            "ended_at": "2026-04-04T10:35:24+08:00",
+            "text": "这才是问题。你现在能还原哪一版在什么时刻被人看见吗？如果不能，就别把两种排序里任何一种叫原始顺序。",
+            "interruption_of_utterance_id": null,
+            "authorship": {
+              "authored_id": "g12-d34-u10",
+              "occurred_at": "2026-04-04T10:34:00+08:00",
+              "author_role": "operations",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D34"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "g12-utt-11",
+            "speaker_id": "g12-participant-lin",
+            "started_at": "2026-04-04T10:35:31+08:00",
+            "ended_at": "2026-04-04T10:38:12+08:00",
+            "text": "不能。手里有发送位置、改动发生的时刻、改前文字和现在的文字，但没有每个时刻的连续画面。我只能说两种读法冲突，不能补出当时谁先看见哪一版。这个缺口我会单独留在运行单里。",
+            "interruption_of_utterance_id": null,
+            "authorship": {
+              "authored_id": "g12-d34-u11",
+              "occurred_at": "2026-04-04T10:35:31+08:00",
+              "author_role": "engineering",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D34"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "g12-utt-12",
+            "speaker_id": "g12-participant-chen",
+            "started_at": "2026-04-04T10:38:20+08:00",
+            "ended_at": "2026-04-04T10:39:48+08:00",
+            "text": "那今天实际完成的是什么？别把去重和顺序揉成一个状态，我要转给现场的人看。",
+            "interruption_of_utterance_id": null,
+            "authorship": {
+              "authored_id": "g12-d34-u12",
+              "occurred_at": "2026-04-04T10:38:20+08:00",
+              "author_role": "operations",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D34"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "g12-utt-13",
+            "speaker_id": "g12-participant-lin",
+            "started_at": "2026-04-04T10:39:55+08:00",
+            "ended_at": "2026-04-04T10:42:03+08:00",
+            "text": "完成的是一条展示路径不再把同一次导入画两遍，回复还在。没完成的是编辑后的回放顺序，也没证明历史可见版本。其他展示路径和其他类型样本今天没有动作，我不把它们塞进这次修复里。",
+            "interruption_of_utterance_id": null,
+            "authorship": {
+              "authored_id": "g12-d34-u13",
+              "occurred_at": "2026-04-04T10:39:55+08:00",
+              "author_role": "engineering",
+              "content_class": "ambiguous",
+              "links": {
+                "story_beat_ids": [
+                  "D34"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C01",
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "g12-utt-14",
+            "speaker_id": "g12-participant-chen",
+            "started_at": "2026-04-04T10:42:10+08:00",
+            "ended_at": "2026-04-04T10:43:32+08:00",
+            "text": "你怎么确认回复还在？是点开看过，还是只数页面上少了一条？如果只是肉眼看主区，可能把另一个缺口漏掉。",
+            "interruption_of_utterance_id": null,
+            "authorship": {
+              "authored_id": "g12-d34-u14-check",
+              "occurred_at": "2026-04-04T10:42:10+08:00",
+              "author_role": "operations",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D34"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "g12-utt-15",
+            "speaker_id": "g12-participant-lin",
+            "started_at": "2026-04-04T10:43:38+08:00",
+            "ended_at": "2026-04-04T10:45:02+08:00",
+            "text": "我点了这一条和前后两条，分别从页面回到来源位置，也核了回复数。三条都还能打开，只有目标样本少了一个展示节点。我也逐条核了回复指向的消息标识，三条都指回原消息，没有漂到相邻卡片。不过样本就三条，不能拿它当全量结果；运行单里会写清检查范围。",
+            "interruption_of_utterance_id": null,
+            "authorship": {
+              "authored_id": "g12-d34-u15-check",
+              "occurred_at": "2026-04-04T10:43:38+08:00",
+              "author_role": "engineering",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D34"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "g12-utt-16",
+            "speaker_id": "g12-participant-chen",
+            "started_at": "2026-04-04T10:45:08+08:00",
+            "ended_at": "2026-04-04T10:46:05+08:00",
+            "text": "三条可以算今天的检查，不算结论。假期里别临时抓生活群凑样本，工作日我再给你一条真的改过动作的记录。",
+            "interruption_of_utterance_id": null,
+            "authorship": {
+              "authored_id": "g12-d34-u16-check",
+              "occurred_at": "2026-04-04T10:45:08+08:00",
+              "author_role": "operations",
+              "content_class": "ambiguous",
+              "links": {
+                "story_beat_ids": [
+                  "D34"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "g12-utt-17",
+            "speaker_id": "g12-participant-chen",
+            "started_at": "2026-04-04T10:46:12+08:00",
+            "ended_at": "2026-04-04T10:47:08+08:00",
+            "text": "行。还有，你那袋薯片从刚才起一直响，我以为耳机又有电流声。先放远一点，假期短会别开成吃播。",
+            "interruption_of_utterance_id": null,
+            "authorship": {
+              "authored_id": "g12-d34-u17",
+              "occurred_at": "2026-04-04T10:46:12+08:00",
+              "author_role": "operations",
+              "content_class": "noise",
+              "links": {
+                "story_beat_ids": [
+                  "D34"
+                ],
+                "fact_ids": [],
+                "continuity_ids": []
+              }
+            }
+          },
+          {
+            "utterance_id": "g12-utt-18",
+            "speaker_id": "g12-participant-lin",
+            "started_at": "2026-04-04T10:47:14+08:00",
+            "ended_at": "2026-04-04T10:48:44+08:00",
+            "text": "放了。运行单标题我写“局部去重后发现编辑顺序冲突”，下面只列已完成和未确认两栏，可以吗？",
+            "interruption_of_utterance_id": null,
+            "authorship": {
+              "authored_id": "g12-d34-u18",
+              "occurred_at": "2026-04-04T10:47:14+08:00",
+              "author_role": "engineering",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D34"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "g12-utt-19",
+            "speaker_id": "g12-participant-chen",
+            "started_at": "2026-04-04T10:48:52+08:00",
+            "ended_at": "2026-04-04T10:51:32+08:00",
+            "text": "可以，但“局部”别藏在括号里。运行单先发我核一下，别自动转给现场；我会确认工作日样本是否允许进入测试，再把路径补给你。今天就停在这里。",
+            "interruption_of_utterance_id": null,
+            "authorship": {
+              "authored_id": "g12-d34-u19",
+              "occurred_at": "2026-04-04T10:48:52+08:00",
+              "author_role": "operations",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D34"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C01",
+                  "C03"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "document_library": [
+      {
+        "source_id": "g12-doclib-src",
+        "authorship": {
+          "authored_id": "g12-doclib-src-auth",
+          "occurred_at": "2026-04-05T22:18:00+08:00",
+          "author_role": "engineering",
+          "content_class": "ambiguous",
+          "links": {
+            "story_beat_ids": [
+              "D35"
+            ],
+            "fact_ids": [
+              "F09"
+            ],
+            "continuity_ids": [
+              "C04"
+            ]
+          }
+        },
+        "schema": "pneuma.source.document-library/v1",
+        "provider": "mock",
+        "library_id": "g12-working-library",
+        "title": "同姓候选核查包",
+        "documents": [
+          {
+            "document_id": "g12-doc-candidate",
+            "path": "checks/2026-04-05-same-surname-candidates.md",
+            "title": "同姓候选关系核对表",
+            "frontmatter": {
+              "date": "2026-04-05",
+              "status": "unconfirmed",
+              "owner": "林舟",
+              "scope": "candidate-export"
+            },
+            "full_markdown": "# 同姓候选关系核对表\n\n用途：把陈放指到的 `candidate-k271` 拆成两条可回源的候选，交给有权审阅业主关系的人。表里只写页面实际展示和来源可见字段，不写“同一人”或“不同人”。当前异常是同一卡片下出现了两个项目的现场摘要；这是一条待核对关系，不是原因结论。\n\n| 对照项 | 记录 A | 记录 B | 当前观察 |\n| --- | --- | --- | --- |\n| 来源定位 | `owner-src-104` | `owner-src-887` | 两个定位都能单独打开 |\n| 项目与房号 | 云麓 7 栋 1604 | 澄湾 3 栋 1202 | 项目和房号不同 |\n| 页面短标签 | 周女士 | 周女士 | 显示文本相同 |\n| 联系尾号 | 2618 | 9043 | 尾号不同 |\n| 现场消息父项 | `thread-7f2` | `thread-91c` | 各自指向不同对话 |\n| 候选卡标识 | `candidate-k271` | `candidate-k271` | 页面把两行放在同一卡下 |\n| 原始实体标识 | 未在本次导出中展示 | 未在本次导出中展示 | 暂不能比较 |\n\n核对时把“相同”与“可区分”分开。相同项只有页面短标签和候选卡标识；可区分项包括来源定位、项目房号、联系尾号和消息父项。前一组可以解释为什么值得检查，后一组则说明不能只凭姓氏接受候选。表里没有原始实体标识，也没有既有关系记录，所以这些字段既不能证明两人已被放进同一底层关系，也不能证明页面只是临时并排。\n\n只读回源结果：`owner-src-104` 打开后落到云麓项目，消息父项只含该项目的现场对话；`owner-src-887` 落到澄湾项目，父项也能单独打开。两个来源都没有跳转错误。陈放截图中的混排因此可以复现，但复现发生在候选卡视图，不等于已定位到产生卡片的环节。核对过程中没有进入编辑页，没有确认候选，也没有补全姓名。\n\n项目筛选记录：选云麓时，卡片标题仍显示“周女士”，卡内只剩云麓摘要；选澄湾时，标题不变，内容换成澄湾摘要；取消筛选后两组摘要重新连续出现。筛选器能按项目拆开内容，却没有暴露卡片标题取自显示标签、候选结果还是已有关系。三次查看的路径和时间已附在只读导出旁，供审阅者复现。\n\n关系审阅仍缺三项：是否存在共同联系人或代管记录；两条来源在生成候选前各自指向什么实体；谁有权限查看这段关系历史。审阅者若能找到既有业务关系，应把关系来源和生效时间写回核对表；若找不到，也只能把原因继续标为未知。今天不运行新的匹配，不改候选卡，不删除任何一行。\n\n审阅输出只接受三种状态：已有关系、两条独立记录、仍无法判断。前两种都要附现有关系记录或来源实体位置和审阅时间；如果材料只重复候选卡画面，就保留第三种。核对表不要求审阅者解释技术原因，也不把缺少关系记录自动写成两条独立记录。这样下一步查显示、候选还是来源时，仍能看见业务判断依据。",
+            "tags": [
+              "同姓",
+              "关系核对",
+              "待审阅"
+            ],
+            "links": [],
+            "created_at": "2026-04-05T11:24:00+08:00",
+            "modified_at": "2026-04-05T17:50:00+08:00",
+            "visible_blocks": [
+              {
+                "block_id": "g12-d35-a-h01",
+                "kind": "heading",
+                "markdown": "# 同姓候选关系核对表",
+                "authorship": {
+                  "authored_id": "g12-d35-a-h01-auth",
+                  "occurred_at": "2026-04-05T11:24:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": [
+                      "D35"
+                    ],
+                    "fact_ids": [
+                      "F09"
+                    ],
+                    "continuity_ids": [
+                      "C04"
+                    ]
+                  }
+                }
+              },
+              {
+                "block_id": "g12-d35-a01",
+                "kind": "paragraph",
+                "markdown": "用途：把陈放指到的 `candidate-k271` 拆成两条可回源的候选，交给有权审阅业主关系的人。表里只写页面实际展示和来源可见字段，不写“同一人”或“不同人”。当前异常是同一卡片下出现了两个项目的现场摘要；这是一条待核对关系，不是原因结论。",
+                "authorship": {
+                  "authored_id": "g12-d35-a01",
+                  "occurred_at": "2026-04-05T11:36:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": [
+                      "D35"
+                    ],
+                    "fact_ids": [
+                      "F09"
+                    ],
+                    "continuity_ids": [
+                      "C04"
+                    ]
+                  }
+                }
+              },
+              {
+                "block_id": "g12-d35-a02",
+                "kind": "table",
+                "markdown": "| 对照项 | 记录 A | 记录 B | 当前观察 |\n| --- | --- | --- | --- |\n| 来源定位 | `owner-src-104` | `owner-src-887` | 两个定位都能单独打开 |\n| 项目与房号 | 云麓 7 栋 1604 | 澄湾 3 栋 1202 | 项目和房号不同 |\n| 页面短标签 | 周女士 | 周女士 | 显示文本相同 |\n| 联系尾号 | 2618 | 9043 | 尾号不同 |\n| 现场消息父项 | `thread-7f2` | `thread-91c` | 各自指向不同对话 |\n| 候选卡标识 | `candidate-k271` | `candidate-k271` | 页面把两行放在同一卡下 |\n| 原始实体标识 | 未在本次导出中展示 | 未在本次导出中展示 | 暂不能比较 |",
+                "authorship": {
+                  "authored_id": "g12-d35-a02",
+                  "occurred_at": "2026-04-05T12:18:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D35"
+                    ],
+                    "fact_ids": [
+                      "F09"
+                    ],
+                    "continuity_ids": [
+                      "C04"
+                    ]
+                  }
+                }
+              },
+              {
+                "block_id": "g12-d35-a03",
+                "kind": "paragraph",
+                "markdown": "核对时把“相同”与“可区分”分开。相同项只有页面短标签和候选卡标识；可区分项包括来源定位、项目房号、联系尾号和消息父项。前一组可以解释为什么值得检查，后一组则说明不能只凭姓氏接受候选。表里没有原始实体标识，也没有既有关系记录，所以这些字段既不能证明两人已被放进同一底层关系，也不能证明页面只是临时并排。",
+                "authorship": {
+                  "authored_id": "g12-d35-a03",
+                  "occurred_at": "2026-04-05T13:42:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D35"
+                    ],
+                    "fact_ids": [
+                      "F09"
+                    ],
+                    "continuity_ids": [
+                      "C04"
+                    ]
+                  }
+                }
+              },
+              {
+                "block_id": "g12-d35-a04",
+                "kind": "paragraph",
+                "markdown": "只读回源结果：`owner-src-104` 打开后落到云麓项目，消息父项只含该项目的现场对话；`owner-src-887` 落到澄湾项目，父项也能单独打开。两个来源都没有跳转错误。陈放截图中的混排因此可以复现，但复现发生在候选卡视图，不等于已定位到产生卡片的环节。核对过程中没有进入编辑页，没有确认候选，也没有补全姓名。",
+                "authorship": {
+                  "authored_id": "g12-d35-a04",
+                  "occurred_at": "2026-04-05T15:08:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D35"
+                    ],
+                    "fact_ids": [
+                      "F09"
+                    ],
+                    "continuity_ids": [
+                      "C04"
+                    ]
+                  }
+                }
+              },
+              {
+                "block_id": "g12-d35-a045",
+                "kind": "paragraph",
+                "markdown": "项目筛选记录：选云麓时，卡片标题仍显示“周女士”，卡内只剩云麓摘要；选澄湾时，标题不变，内容换成澄湾摘要；取消筛选后两组摘要重新连续出现。筛选器能按项目拆开内容，却没有暴露卡片标题取自显示标签、候选结果还是已有关系。三次查看的路径和时间已附在只读导出旁，供审阅者复现。",
+                "authorship": {
+                  "authored_id": "g12-d35-a045",
+                  "occurred_at": "2026-04-05T16:12:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D35"
+                    ],
+                    "fact_ids": [
+                      "F09"
+                    ],
+                    "continuity_ids": [
+                      "C04"
+                    ]
+                  }
+                }
+              },
+              {
+                "block_id": "g12-d35-a05",
+                "kind": "paragraph",
+                "markdown": "关系审阅仍缺三项：是否存在共同联系人或代管记录；两条来源在生成候选前各自指向什么实体；谁有权限查看这段关系历史。审阅者若能找到既有业务关系，应把关系来源和生效时间写回核对表；若找不到，也只能把原因继续标为未知。今天不运行新的匹配，不改候选卡，不删除任何一行。",
+                "authorship": {
+                  "authored_id": "g12-d35-a05",
+                  "occurred_at": "2026-04-05T17:36:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": [
+                      "D35"
+                    ],
+                    "fact_ids": [
+                      "F09"
+                    ],
+                    "continuity_ids": [
+                      "C04"
+                    ]
+                  }
+                }
+              },
+              {
+                "block_id": "g12-d35-a06",
+                "kind": "paragraph",
+                "markdown": "审阅输出只接受三种状态：已有关系、两条独立记录、仍无法判断。前两种都要附现有关系记录或来源实体位置和审阅时间；如果材料只重复候选卡画面，就保留第三种。核对表不要求审阅者解释技术原因，也不把缺少关系记录自动写成两条独立记录。这样下一步查显示、候选还是来源时，仍能看见业务判断依据。",
+                "authorship": {
+                  "authored_id": "g12-d35-a06",
+                  "occurred_at": "2026-04-05T17:48:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D35"
+                    ],
+                    "fact_ids": [
+                      "F09"
+                    ],
+                    "continuity_ids": [
+                      "C04"
+                    ]
+                  }
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "g12-doc-candidate-auth",
+              "occurred_at": "2026-04-05T17:36:00+08:00",
+              "author_role": "engineering",
+              "content_class": "ambiguous",
+              "links": {
+                "story_beat_ids": [
+                  "D35"
+                ],
+                "fact_ids": [
+                  "F09"
+                ],
+                "continuity_ids": [
+                  "C04"
+                ]
+              }
+            }
+          },
+          {
+            "document_id": "g12-doc-personal-check",
+            "path": "checks/2026-04-05-personal-verification-notes.md",
+            "title": "个人排查日志：四月五日",
+            "frontmatter": {
+              "date": "2026-04-05",
+              "status": "hypotheses-open",
+              "author": "林舟"
+            },
+            "full_markdown": "# 个人排查日志：四月五日\n\n09:36，陈放只发来页面位置和一句“两套房子的消息挨在一起”。我第一反应是列表把同姓短标签折叠了，于是先写下假设 H1：显示分组异常。这个判断当时没有证据，也没有进入关系核对表。先记下它，是为了防止下午看到更多字段后把最初猜测说成早就知道的事实。\n\n11:20，我停止改页面，另开关系核对表。这个动作的目的不是解释卡片，而是把陈放看到的现象变成别人能复查的两行材料。只读导出完成后，我把表交叉链接到本日志；日志继续记录我为什么做或没做某一步，字段值和筛选结果只留在核对表，不在这里再抄一遍。\n\n14:10，假设队列仍有三项。H1 是短标签在显示时被折叠，需要另一个同姓但分属不同卡片的反例；H2 是候选卡读取了错误的关系结果，需要能看到候选生成前后的标识；H3 是两条来源原本存在业务关联，需要现有共同联系人或代管记录。今天拿到的页面和只读导出不能排除任何一项，三项都保持未确认。\n\n15:05，我在同一只读列表里另找了两个显示为“周女士”的候选，它们分别留在不同卡片里，没有跟着折成一组。这个小反例让“只要短标签相同就会并排”的解释变弱，但样本只有两个，而且项目、录入时间都不同，不能据此排除 H1。它也没有回答眼前这张卡为什么包含两组摘要。\n\n16:45，排查卡在权限和审阅人上。我能打开项目来源和候选页面，但看不到业主关系历史，也不知道由谁确认共同联系人或代管记录。继续点页面不会增加证据，反而可能让我把候选视图当成关系底稿。我把“找关系审阅人”留到工作日，没有发访问请求，没有运行新一轮候选，也没有改页面上的任何值。\n\n傍晚去帮赵楠搬音箱。她说只有一个纸箱，门一开却看见外面还套着木架。电梯停在检修层，我们在楼梯拐角换了三次手，箱角蹭得小腿发青。她把“这边朝上”的箭头贴到了侧面，发现以后嫌胶带太黏，索性就让它歪着。\n\n回家时花店已经收摊，路边的灰被风吹到单车轮上。我把中午剩的面包烤焦了一边，水烧开后又忘在壶里。晚上没有再开工作页面，赵楠发来音箱接好的照片，我只回了一个大拇指。",
+            "tags": [
+              "排查日志",
+              "假设未决",
+              "清明假期"
+            ],
+            "links": [
+              {
+                "link_id": "g12-d35-log-link-table",
+                "target": "checks/2026-04-05-same-surname-candidates.md",
+                "label": "同姓候选关系核对表",
+                "embedded": false,
+                "authorship": {
+                  "authored_id": "g12-d35-log-link-table-auth",
+                  "occurred_at": "2026-04-05T11:22:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D35"
+                    ],
+                    "fact_ids": [
+                      "F09"
+                    ],
+                    "continuity_ids": [
+                      "C04"
+                    ]
+                  }
+                }
+              }
+            ],
+            "created_at": "2026-04-05T09:32:00+08:00",
+            "modified_at": "2026-04-05T22:18:00+08:00",
+            "visible_blocks": [
+              {
+                "block_id": "g12-d35-b-h01",
+                "kind": "heading",
+                "markdown": "# 个人排查日志：四月五日",
+                "authorship": {
+                  "authored_id": "g12-d35-b-h01-auth",
+                  "occurred_at": "2026-04-05T09:32:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": [
+                      "D35"
+                    ],
+                    "fact_ids": [
+                      "F09"
+                    ],
+                    "continuity_ids": [
+                      "C04"
+                    ]
+                  }
+                }
+              },
+              {
+                "block_id": "g12-d35-b01",
+                "kind": "paragraph",
+                "markdown": "09:36，陈放只发来页面位置和一句“两套房子的消息挨在一起”。我第一反应是列表把同姓短标签折叠了，于是先写下假设 H1：显示分组异常。这个判断当时没有证据，也没有进入关系核对表。先记下它，是为了防止下午看到更多字段后把最初猜测说成早就知道的事实。",
+                "authorship": {
+                  "authored_id": "g12-d35-b01",
+                  "occurred_at": "2026-04-05T09:36:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": [
+                      "D35"
+                    ],
+                    "fact_ids": [
+                      "F09"
+                    ],
+                    "continuity_ids": [
+                      "C04"
+                    ]
+                  }
+                }
+              },
+              {
+                "block_id": "g12-d35-b02",
+                "kind": "paragraph",
+                "markdown": "11:20，我停止改页面，另开关系核对表。这个动作的目的不是解释卡片，而是把陈放看到的现象变成别人能复查的两行材料。只读导出完成后，我把表交叉链接到本日志；日志继续记录我为什么做或没做某一步，字段值和筛选结果只留在核对表，不在这里再抄一遍。",
+                "authorship": {
+                  "authored_id": "g12-d35-b02",
+                  "occurred_at": "2026-04-05T11:20:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D35"
+                    ],
+                    "fact_ids": [
+                      "F09"
+                    ],
+                    "continuity_ids": [
+                      "C04"
+                    ]
+                  }
+                }
+              },
+              {
+                "block_id": "g12-d35-b03",
+                "kind": "paragraph",
+                "markdown": "14:10，假设队列仍有三项。H1 是短标签在显示时被折叠，需要另一个同姓但分属不同卡片的反例；H2 是候选卡读取了错误的关系结果，需要能看到候选生成前后的标识；H3 是两条来源原本存在业务关联，需要现有共同联系人或代管记录。今天拿到的页面和只读导出不能排除任何一项，三项都保持未确认。",
+                "authorship": {
+                  "authored_id": "g12-d35-b03",
+                  "occurred_at": "2026-04-05T14:10:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": [
+                      "D35"
+                    ],
+                    "fact_ids": [
+                      "F09"
+                    ],
+                    "continuity_ids": [
+                      "C04"
+                    ]
+                  }
+                }
+              },
+              {
+                "block_id": "g12-d35-b035",
+                "kind": "paragraph",
+                "markdown": "15:05，我在同一只读列表里另找了两个显示为“周女士”的候选，它们分别留在不同卡片里，没有跟着折成一组。这个小反例让“只要短标签相同就会并排”的解释变弱，但样本只有两个，而且项目、录入时间都不同，不能据此排除 H1。它也没有回答眼前这张卡为什么包含两组摘要。",
+                "authorship": {
+                  "authored_id": "g12-d35-b035-counter",
+                  "occurred_at": "2026-04-05T15:05:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": [
+                      "D35"
+                    ],
+                    "fact_ids": [
+                      "F09"
+                    ],
+                    "continuity_ids": [
+                      "C04"
+                    ]
+                  }
+                }
+              },
+              {
+                "block_id": "g12-d35-b036",
+                "kind": "paragraph",
+                "markdown": "16:45，排查卡在权限和审阅人上。我能打开项目来源和候选页面，但看不到业主关系历史，也不知道由谁确认共同联系人或代管记录。继续点页面不会增加证据，反而可能让我把候选视图当成关系底稿。我把“找关系审阅人”留到工作日，没有发访问请求，没有运行新一轮候选，也没有改页面上的任何值。",
+                "authorship": {
+                  "authored_id": "g12-d35-b036",
+                  "occurred_at": "2026-04-05T16:45:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": [
+                      "D35"
+                    ],
+                    "fact_ids": [
+                      "F09"
+                    ],
+                    "continuity_ids": [
+                      "C04"
+                    ]
+                  }
+                }
+              },
+              {
+                "block_id": "g12-d35-b04",
+                "kind": "paragraph",
+                "markdown": "傍晚去帮赵楠搬音箱。她说只有一个纸箱，门一开却看见外面还套着木架。电梯停在检修层，我们在楼梯拐角换了三次手，箱角蹭得小腿发青。她把“这边朝上”的箭头贴到了侧面，发现以后嫌胶带太黏，索性就让它歪着。",
+                "authorship": {
+                  "authored_id": "g12-d35-b04",
+                  "occurred_at": "2026-04-05T19:20:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "noise",
+                  "links": {
+                    "story_beat_ids": [
+                      "D35"
+                    ],
+                    "fact_ids": [],
+                    "continuity_ids": []
+                  }
+                }
+              },
+              {
+                "block_id": "g12-d35-b05",
+                "kind": "paragraph",
+                "markdown": "回家时花店已经收摊，路边的灰被风吹到单车轮上。我把中午剩的面包烤焦了一边，水烧开后又忘在壶里。晚上没有再开工作页面，赵楠发来音箱接好的照片，我只回了一个大拇指。",
+                "authorship": {
+                  "authored_id": "g12-d35-b05",
+                  "occurred_at": "2026-04-05T22:18:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "noise",
+                  "links": {
+                    "story_beat_ids": [
+                      "D35"
+                    ],
+                    "fact_ids": [],
+                    "continuity_ids": []
+                  }
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "g12-doc-personal-check-auth",
+              "occurred_at": "2026-04-05T22:18:00+08:00",
+              "author_role": "engineering",
+              "content_class": "ambiguous",
+              "links": {
+                "story_beat_ids": [
+                  "D35"
+                ],
+                "fact_ids": [
+                  "F09"
+                ],
+                "continuity_ids": [
+                  "C04"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "im": [
+      {
+        "source_id": "g12-im-src",
+        "authorship": {
+          "authored_id": "g12-im-src-auth",
+          "occurred_at": "2026-04-06T22:14:00+08:00",
+          "author_role": "engineering",
+          "content_class": "signal",
+          "links": {
+            "story_beat_ids": [
+              "D36"
+            ],
+            "fact_ids": [
+              "F09"
+            ],
+            "continuity_ids": [
+              "C04"
+            ]
+          }
+        },
+        "schema": "pneuma.source.im/v1",
+        "provider": "mock",
+        "archive_id": "g12-im-20260406",
+        "owner_user_ids": [
+          "g12-user-lin"
+        ],
+        "users": [
+          {
+            "user_id": "g12-user-lin",
+            "display_name": "林舟",
+            "role": "engineering",
+            "synthetic_address": "lin.zhou@seamlog.test",
+            "is_bot": false
+          },
+          {
+            "user_id": "g12-user-jia",
+            "display_name": "贾宁",
+            "role": "engineering",
+            "synthetic_address": "jia.ning@review.test",
+            "is_bot": false
+          },
+          {
+            "user_id": "g12-user-chen",
+            "display_name": "陈放",
+            "role": "operations",
+            "synthetic_address": "chen.fang@field.test",
+            "is_bot": false
+          },
+          {
+            "user_id": "g12-user-wu",
+            "display_name": "吴岚",
+            "role": "manager",
+            "synthetic_address": "wu.lan@lead.test",
+            "is_bot": false
+          },
+          {
+            "user_id": "g12-user-zhao",
+            "display_name": "赵楠",
+            "role": "design",
+            "synthetic_address": "zhao.nan@roommate.test",
+            "is_bot": false
+          }
+        ],
+        "conversations": [
+          {
+            "conversation_id": "g12-conv-incident",
+            "conversation_type": "group_dm",
+            "title": "林舟 / 贾宁 / 陈放：候选卡核查",
+            "member_ids": [
+              "g12-user-lin",
+              "g12-user-jia",
+              "g12-user-chen"
+            ],
+            "messages": [
+              {
+                "message_id": "g12-msg-01",
+                "sender_id": "g12-user-lin",
+                "sent_at": "2026-04-06T09:08:00+08:00",
+                "full_text": "确认了，昨天那两条不是单纯的短标签挨在一起。两份来源记录在导入后指向同一个实体标识，原因是名称近似分支把两个同姓业主当成了同一候选。",
+                "thread_id": null,
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g12-d36-m01",
+                  "occurred_at": "2026-04-06T09:08:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D36"
+                    ],
+                    "fact_ids": [
+                      "F09"
+                    ],
+                    "continuity_ids": [
+                      "C04"
+                    ]
+                  }
+                }
+              },
+              {
+                "message_id": "g12-msg-02",
+                "sender_id": "g12-user-jia",
+                "sent_at": "2026-04-06T09:11:00+08:00",
+                "full_text": "把“确认”拆开。你看到了哪几段记录，哪一段证明是名称近似造成的，别用页面现象替代过程证据。",
+                "thread_id": "g12-msg-01",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g12-d36-m02",
+                  "occurred_at": "2026-04-06T09:11:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D36"
+                    ],
+                    "fact_ids": [
+                      "F09"
+                    ],
+                    "continuity_ids": [
+                      "C04"
+                    ]
+                  }
+                }
+              },
+              {
+                "message_id": "g12-msg-03",
+                "sender_id": "g12-user-lin",
+                "sent_at": "2026-04-06T09:16:00+08:00",
+                "full_text": "证据链有四项：两个不同来源定位和房号；导入结果里相同的实体标识；候选事件中只记录了姓氏规范值和近似分支命中；随后两边消息都写到这个实体下。来源里没有共同标识，也没有授权关联字段。",
+                "thread_id": "g12-msg-01",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g12-d36-m03",
+                  "occurred_at": "2026-04-06T09:16:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D36"
+                    ],
+                    "fact_ids": [
+                      "F09"
+                    ],
+                    "continuity_ids": [
+                      "C04"
+                    ]
+                  }
+                }
+              },
+              {
+                "message_id": "g12-msg-04",
+                "sender_id": "g12-user-chen",
+                "sent_at": "2026-04-06T09:19:00+08:00",
+                "full_text": "不是这个意思，客户到底看见了什么？我昨天从项目卡点进去，云麓那边能看到澄湾的两条量房消息，这不是只有后台候选挨着。",
+                "thread_id": "g12-msg-01",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g12-d36-m04",
+                  "occurred_at": "2026-04-06T09:19:00+08:00",
+                  "author_role": "operations",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D36"
+                    ],
+                    "fact_ids": [
+                      "F09"
+                    ],
+                    "continuity_ids": [
+                      "C04"
+                    ]
+                  }
+                }
+              },
+              {
+                "message_id": "g12-msg-05",
+                "sender_id": "g12-user-lin",
+                "sent_at": "2026-04-06T09:24:00+08:00",
+                "full_text": "我用受限客户视图复现了：云麓项目卡内出现澄湾业主的两条现场摘要，点进去仍停在受限视图，没有公开地址。可见范围是试点项目的授权账号，不是公共页面。",
+                "thread_id": "g12-msg-01",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g12-d36-m05",
+                  "occurred_at": "2026-04-06T09:24:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D36"
+                    ],
+                    "fact_ids": [
+                      "F09"
+                    ],
+                    "continuity_ids": [
+                      "C04"
+                    ]
+                  }
+                }
+              },
+              {
+                "message_id": "g12-msg-06",
+                "sender_id": "g12-user-jia",
+                "sent_at": "2026-04-06T09:27:00+08:00",
+                "full_text": "表述改成“受限客户视图内可见”。再单列目前没有发现的东西：公开分享、未授权会话或外部下载证据。没有发现不等于证明没发生，检查范围和时间要一起写。",
+                "thread_id": "g12-msg-01",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g12-d36-m06",
+                  "occurred_at": "2026-04-06T09:27:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D36"
+                    ],
+                    "fact_ids": [
+                      "F09"
+                    ],
+                    "continuity_ids": [
+                      "C04"
+                    ]
+                  }
+                }
+              },
+              {
+                "message_id": "g12-msg-07",
+                "sender_id": "g12-user-lin",
+                "sent_at": "2026-04-06T09:32:00+08:00",
+                "full_text": "收到。我已查当前卡片的访问记录和分享记录：只见试点授权账号与内部复核账号，没有公开分享动作，也没看到外部下载。更早批次和相邻候选还没查完，所以范围仍是初步的。",
+                "thread_id": "g12-msg-01",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g12-d36-m07",
+                  "occurred_at": "2026-04-06T09:32:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": [
+                      "D36"
+                    ],
+                    "fact_ids": [
+                      "F09"
+                    ],
+                    "continuity_ids": [
+                      "C04"
+                    ]
+                  }
+                }
+              },
+              {
+                "message_id": "g12-msg-08",
+                "sender_id": "g12-user-chen",
+                "sent_at": "2026-04-06T09:35:00+08:00",
+                "full_text": "我昨天是用项目方给我的试点只读账号看到的，没有转发截图给客户群。页面位置只发给了你，原截图还在我这边。",
+                "thread_id": "g12-msg-01",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g12-d36-m08",
+                  "occurred_at": "2026-04-06T09:35:00+08:00",
+                  "author_role": "operations",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D36"
+                    ],
+                    "fact_ids": [
+                      "F09"
+                    ],
+                    "continuity_ids": [
+                      "C04"
+                    ]
+                  }
+                }
+              },
+              {
+                "message_id": "g12-msg-09",
+                "sender_id": "g12-user-jia",
+                "sent_at": "2026-04-06T09:39:00+08:00",
+                "full_text": "先停止继续导入。现在队列里还有没有正在跑的批次？我问的是新增数据，不是让你改动或清理现有记录。",
+                "thread_id": "g12-msg-01",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g12-d36-m09",
+                  "occurred_at": "2026-04-06T09:39:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D36"
+                    ],
+                    "fact_ids": [
+                      "F09"
+                    ],
+                    "continuity_ids": [
+                      "C04"
+                    ]
+                  }
+                }
+              },
+              {
+                "message_id": "g12-msg-10",
+                "sender_id": "g12-user-lin",
+                "sent_at": "2026-04-06T09:43:00+08:00",
+                "full_text": "没有执行中的批次。我已把明天和后续的导入任务移出执行队列，新的来源不会继续进入。现有记录没有改动，是否要立即停用写入仍未决定。",
+                "thread_id": "g12-msg-01",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g12-d36-m10",
+                  "occurred_at": "2026-04-06T09:43:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D36"
+                    ],
+                    "fact_ids": [
+                      "F09"
+                    ],
+                    "continuity_ids": [
+                      "C04"
+                    ]
+                  }
+                }
+              },
+              {
+                "message_id": "g12-msg-11",
+                "sender_id": "g12-user-jia",
+                "sent_at": "2026-04-06T09:47:00+08:00",
+                "full_text": "保留两份来源、候选事件、导入结果、页面截图和访问记录的原值与时间。不要为了让卡片正常就先拆关系，影响范围没量清前，清理会把证据和修复混在一起。",
+                "thread_id": "g12-msg-01",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g12-d36-m11",
+                  "occurred_at": "2026-04-06T09:47:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D36"
+                    ],
+                    "fact_ids": [
+                      "F09"
+                    ],
+                    "continuity_ids": [
+                      "C04"
+                    ]
+                  }
+                }
+              },
+              {
+                "message_id": "g12-msg-12",
+                "sender_id": "g12-user-lin",
+                "sent_at": "2026-04-06T09:51:00+08:00",
+                "full_text": "已把这些对象放进同一份只读清单，每项带来源位置和取证时间。候选卡暂时保持现状，我不会覆盖原标识。接下来按同一批次、相同姓氏候选和已打开记录三条线数范围。",
+                "thread_id": "g12-msg-01",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g12-d36-m12",
+                  "occurred_at": "2026-04-06T09:51:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D36"
+                    ],
+                    "fact_ids": [
+                      "F09"
+                    ],
+                    "continuity_ids": [
+                      "C04"
+                    ]
+                  }
+                }
+              },
+              {
+                "message_id": "g12-msg-13",
+                "sender_id": "g12-user-chen",
+                "sent_at": "2026-04-06T09:55:00+08:00",
+                "full_text": "客户现在要不要说？他们今天放假，但试点账号有人会偶尔看。我可以先不发群，别让我现场被问到时只会说“还在查”。",
+                "thread_id": "g12-msg-01",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g12-d36-m13",
+                  "occurred_at": "2026-04-06T09:55:00+08:00",
+                  "author_role": "operations",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": [
+                      "D36"
+                    ],
+                    "fact_ids": [
+                      "F09"
+                    ],
+                    "continuity_ids": [
+                      "C04"
+                    ]
+                  }
+                }
+              },
+              {
+                "message_id": "g12-msg-14",
+                "sender_id": "g12-user-jia",
+                "sent_at": "2026-04-06T09:58:00+08:00",
+                "full_text": "先不由现场群自行通知。林舟只把客户可见边界和仍未核到的范围发吴岚，由她决定是否、何时沟通。你如果被直接问，只说正在核对受限视图中的记录，不猜原因和人数。",
+                "thread_id": "g12-msg-01",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g12-d36-m14",
+                  "occurred_at": "2026-04-06T09:58:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D36"
+                    ],
+                    "fact_ids": [
+                      "F09"
+                    ],
+                    "continuity_ids": [
+                      "C04"
+                    ]
+                  }
+                }
+              },
+              {
+                "message_id": "g12-msg-15",
+                "sender_id": "g12-user-lin",
+                "sent_at": "2026-04-06T10:02:00+08:00",
+                "full_text": "明白。新增导入暂停和证据保全继续在这条线程协调，现有写入仍标未决。我只把客户可见边界和当前缺口发吴岚，请她决定是否、何时沟通。",
+                "thread_id": "g12-msg-01",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g12-d36-m15",
+                  "occurred_at": "2026-04-06T10:02:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D36"
+                    ],
+                    "fact_ids": [
+                      "F09"
+                    ],
+                    "continuity_ids": [
+                      "C04"
+                    ]
+                  }
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "g12-conv-incident-auth",
+              "occurred_at": "2026-04-06T10:02:00+08:00",
+              "author_role": "engineering",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D36"
+                ],
+                "fact_ids": [
+                  "F09"
+                ],
+                "continuity_ids": [
+                  "C04"
+                ]
+              }
+            }
+          },
+          {
+            "conversation_id": "g12-conv-wu",
+            "conversation_type": "dm",
+            "title": "林舟 / 吴岚",
+            "member_ids": [
+              "g12-user-lin",
+              "g12-user-wu"
+            ],
+            "messages": [
+              {
+                "message_id": "g12-msg-16",
+                "sender_id": "g12-user-lin",
+                "sent_at": "2026-04-06T10:18:00+08:00",
+                "full_text": "吴岚，现有核查清单编号是 `IR-0406`，范围项由贾宁和陈放继续补。我需要你决定客户沟通边界：是否先告知试点客户，还是等更早批次核完；若被现场直接问，当前允许回应到哪一层。",
+                "thread_id": null,
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g12-d36-m16",
+                  "occurred_at": "2026-04-06T10:18:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D36"
+                    ],
+                    "fact_ids": [
+                      "F09"
+                    ],
+                    "continuity_ids": [
+                      "C04"
+                    ]
+                  }
+                }
+              },
+              {
+                "message_id": "g12-msg-17",
+                "sender_id": "g12-user-wu",
+                "sent_at": "2026-04-06T10:22:00+08:00",
+                "full_text": "先给我客户实际可见范围、外部证据和还没核到的批次。不要先报人数，也不要把“没发现”写成“没有发生”。",
+                "thread_id": "g12-msg-16",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g12-d36-m17",
+                  "occurred_at": "2026-04-06T10:22:00+08:00",
+                  "author_role": "manager",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D36"
+                    ],
+                    "fact_ids": [
+                      "F09"
+                    ],
+                    "continuity_ids": [
+                      "C04"
+                    ]
+                  }
+                }
+              },
+              {
+                "message_id": "g12-msg-18",
+                "sender_id": "g12-user-lin",
+                "sent_at": "2026-04-06T10:27:00+08:00",
+                "full_text": "当前复现入口只对试点授权账号和内部复核账号开放。今天查过的访问与分享记录里，没有未授权会话、公开分享或外部下载证据；更早批次还没查完，所以我不能把这个范围外推。",
+                "thread_id": "g12-msg-16",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g12-d36-m18",
+                  "occurred_at": "2026-04-06T10:27:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D36"
+                    ],
+                    "fact_ids": [
+                      "F09"
+                    ],
+                    "continuity_ids": [
+                      "C04"
+                    ]
+                  }
+                }
+              },
+              {
+                "message_id": "g12-msg-19",
+                "sender_id": "g12-user-wu",
+                "sent_at": "2026-04-06T10:32:00+08:00",
+                "full_text": "对外口径先保持未决。沿用 `IR-0406`，把每个范围数字的取数区间写在旁边；我要看授权账号、实际打开记录和未查批次，不要把后台候选总数直接当成客户可见数。",
+                "thread_id": "g12-msg-16",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g12-d36-m19",
+                  "occurred_at": "2026-04-06T10:32:00+08:00",
+                  "author_role": "manager",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D36"
+                    ],
+                    "fact_ids": [
+                      "F09"
+                    ],
+                    "continuity_ids": [
+                      "C04"
+                    ]
+                  }
+                }
+              },
+              {
+                "message_id": "g12-msg-20",
+                "sender_id": "g12-user-lin",
+                "sent_at": "2026-04-06T10:36:00+08:00",
+                "full_text": "收到。我会补试点授权账号、实际打开过的记录和未查批次；候选总数只作排查数，不放进客户可见口径。今天不发客户通知。",
+                "thread_id": "g12-msg-16",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g12-d36-m20",
+                  "occurred_at": "2026-04-06T10:36:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D36"
+                    ],
+                    "fact_ids": [
+                      "F09"
+                    ],
+                    "continuity_ids": [
+                      "C04"
+                    ]
+                  }
+                }
+              },
+              {
+                "message_id": "g12-msg-21",
+                "sender_id": "g12-user-wu",
+                "sent_at": "2026-04-06T10:40:00+08:00",
+                "full_text": "好。下午先给一次初步范围，如果证据没有变化就明确写“没有变化”，不用为了显得完整提前回答客户通知。",
+                "thread_id": "g12-msg-16",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g12-d36-m21",
+                  "occurred_at": "2026-04-06T10:40:00+08:00",
+                  "author_role": "manager",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": [
+                      "D36"
+                    ],
+                    "fact_ids": [
+                      "F09"
+                    ],
+                    "continuity_ids": [
+                      "C04"
+                    ]
+                  }
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "g12-conv-wu-auth",
+              "occurred_at": "2026-04-06T10:40:00+08:00",
+              "author_role": "manager",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D36"
+                ],
+                "fact_ids": [
+                  "F09"
+                ],
+                "continuity_ids": [
+                  "C04"
+                ]
+              }
+            }
+          },
+          {
+            "conversation_id": "g12-conv-home",
+            "conversation_type": "dm",
+            "title": "林舟 / 赵楠",
+            "member_ids": [
+              "g12-user-lin",
+              "g12-user-zhao"
+            ],
+            "messages": [
+              {
+                "message_id": "g12-msg-22",
+                "sender_id": "g12-user-zhao",
+                "sent_at": "2026-04-06T20:12:00+08:00",
+                "full_text": "你晚饭吃没？昨天搬箱子还好好的，今天怎么一下午都捂着肚子。冰箱里那盒辣卤别碰了。",
+                "thread_id": null,
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g12-d36-m22",
+                  "occurred_at": "2026-04-06T20:12:00+08:00",
+                  "author_role": "design",
+                  "content_class": "noise",
+                  "links": {
+                    "story_beat_ids": [
+                      "D36"
+                    ],
+                    "fact_ids": [],
+                    "continuity_ids": []
+                  }
+                }
+              },
+              {
+                "message_id": "g12-msg-23",
+                "sender_id": "g12-user-lin",
+                "sent_at": "2026-04-06T20:16:00+08:00",
+                "full_text": "没吃辣的，可能中午那块面包放久了。现在不想下楼，我点一碗白粥，备注别加葱和油条。",
+                "thread_id": "g12-msg-22",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g12-d36-m23",
+                  "occurred_at": "2026-04-06T20:16:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "noise",
+                  "links": {
+                    "story_beat_ids": [
+                      "D36"
+                    ],
+                    "fact_ids": [],
+                    "continuity_ids": []
+                  }
+                }
+              },
+              {
+                "message_id": "g12-msg-24",
+                "sender_id": "g12-user-zhao",
+                "sent_at": "2026-04-06T20:21:00+08:00",
+                "full_text": "白粥我顺路带，外卖今天堵在景区那条路。音箱已经立好了，箭头虽然贴歪，居然没影响我接线。",
+                "thread_id": "g12-msg-22",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g12-d36-m24",
+                  "occurred_at": "2026-04-06T20:21:00+08:00",
+                  "author_role": "design",
+                  "content_class": "noise",
+                  "links": {
+                    "story_beat_ids": [
+                      "D36"
+                    ],
+                    "fact_ids": [],
+                    "continuity_ids": []
+                  }
+                }
+              },
+              {
+                "message_id": "g12-msg-25",
+                "sender_id": "g12-user-lin",
+                "sent_at": "2026-04-06T20:25:00+08:00",
+                "full_text": "谢谢，放门口敲两下就行。我今晚吃完就躺着，清明假期最后一天算是被一碗粥收尾了。",
+                "thread_id": "g12-msg-22",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g12-d36-m25",
+                  "occurred_at": "2026-04-06T20:25:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "noise",
+                  "links": {
+                    "story_beat_ids": [
+                      "D36"
+                    ],
+                    "fact_ids": [],
+                    "continuity_ids": []
+                  }
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "g12-conv-home-auth",
+              "occurred_at": "2026-04-06T20:25:00+08:00",
+              "author_role": "design",
+              "content_class": "noise",
+              "links": {
+                "story_beat_ids": [
+                  "D36"
+                ],
+                "fact_ids": [],
+                "continuity_ids": []
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "email": []
+  }
+}

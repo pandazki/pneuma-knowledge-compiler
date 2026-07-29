@@ -21,32 +21,75 @@ from pydantic import BaseModel, Field
 
 from .ids import AnchorId, DocumentId, SourceId
 
-# Canonical syntax is rendered as `¶a-b`. Accept an optional repeated paragraph
-# marker (`¶a-¶b`) and surrounding whitespace as a lossless model-output variant.
-# The compile gate, projection and UI dataset must share this exact grammar.
+# Canonical syntax is rendered as `¶a-b`. A model may emit several spans for the same
+# source in one bracket, e.g. `¶1-2,6` or `¶1,3,5-7`; that form expands into the same
+# one-Citation-per-span addressing used elsewhere. Accept an optional repeated paragraph
+# marker (`¶a-¶b`) and surrounding whitespace as lossless output variants. The
+# compile/evolve gates, projection, briefing and dataset share this grammar.
 CANONICAL_CITATION_RE = re.compile(
     r"\[cite:\s*(?P<sid>[^\s\]]+)\s*"
     r"¶\s*(?P<start>\d+)"
     r"(?:\s*-\s*¶?\s*(?P<end>\d+))?\s*\]"
 )
+CANONICAL_CITATION_MARKER_RE = re.compile(
+    r"\[cite:\s*(?P<sid>[^\s\]]+)\s*"
+    r"(?P<spans>¶\s*\d+(?:\s*-\s*¶?\s*\d+)?"
+    r"(?:\s*,\s*¶?\s*\d+(?:\s*-\s*¶?\s*\d+)?)*)\s*\]"
+)
+_CANONICAL_CITATION_SPAN_RE = re.compile(
+    r"¶?\s*(?P<start>\d+)(?:\s*-\s*¶?\s*(?P<end>\d+))?"
+)
+
+
+class Citation(BaseModel):
+    source_id: SourceId
+    block_start: int
+    block_end: int
+
+
+def _citation_spans(spans: str) -> tuple[tuple[int, int], ...]:
+    """Parse the already grammar-checked span list inside one canonical marker."""
+    parsed: list[tuple[int, int]] = []
+    for raw_span in spans.split(","):
+        match = _CANONICAL_CITATION_SPAN_RE.fullmatch(raw_span.strip())
+        if match is None:  # Defensive: callers only pass MARKER_RE's `spans` group.
+            continue
+        start = int(match.group("start"))
+        end = int(match.group("end")) if match.group("end") is not None else start
+        parsed.append((start, end))
+    return tuple(parsed)
+
+
+def iter_canonical_citations(text: str) -> Iterable[Citation]:
+    """Yield structured canonical citations, expanding same-source grouped spans.
+
+    A grouped marker remains one markdown marker at rest, but becomes one Citation per
+    span for projection, provenance checks, and consumer views. Single-span markers keep
+    their existing result exactly.
+    """
+    for marker in CANONICAL_CITATION_MARKER_RE.finditer(text):
+        source_id = SourceId(marker.group("sid"))
+        for start, end in _citation_spans(marker.group("spans")):
+            yield Citation(source_id=source_id, block_start=start, block_end=end)
 
 
 def normalize_canonical_citation_markers(text: str) -> tuple[str, int]:
-    """Render every accepted canonical citation variant with one stable spelling."""
+    """Render accepted citations with one stable spelling and expand grouped spans."""
     changes = 0
 
     def replace(match: re.Match[str]) -> str:
         nonlocal changes
-        start = int(match.group("start"))
-        end_raw = match.group("end")
-        rendered = f"[cite: {match.group('sid')} ¶{start}"
-        if end_raw is not None and int(end_raw) != start:
-            rendered += f"-{int(end_raw)}"
-        rendered += "]"
+        rendered_spans: list[str] = []
+        for start, end in _citation_spans(match.group("spans")):
+            rendered = f"[cite: {match.group('sid')} ¶{start}"
+            if end != start:
+                rendered += f"-{end}"
+            rendered_spans.append(rendered + "]")
+        rendered = " ".join(rendered_spans)
         changes += int(rendered != match.group(0))
         return rendered
 
-    return CANONICAL_CITATION_RE.sub(replace, text), changes
+    return CANONICAL_CITATION_MARKER_RE.sub(replace, text), changes
 
 
 def resolve_canonical_citation_source_prefixes(
@@ -76,13 +119,7 @@ def resolve_canonical_citation_source_prefixes(
         changes += 1
         return match.group(0).replace(source_id, candidates[0], 1)
 
-    return CANONICAL_CITATION_RE.sub(replace, text), changes, unresolved
-
-
-class Citation(BaseModel):
-    source_id: SourceId
-    block_start: int
-    block_end: int
+    return CANONICAL_CITATION_MARKER_RE.sub(replace, text), changes, unresolved
 
 
 class Claim(BaseModel):

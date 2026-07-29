@@ -1,0 +1,1999 @@
+{
+  "schema": "pneuma.experiment.opc-84d-v2.group-content/v1",
+  "group_id": "G11",
+  "group_window": {
+    "starts_on": "2026-04-01",
+    "ends_on": "2026-04-03",
+    "day_count": 3,
+    "timezone": "Asia/Shanghai"
+  },
+  "story_scope": {
+    "allowed_story_beat_ids": ["D31", "D32", "D33"],
+    "known_fact_ids": ["F01", "F02", "F03", "F04", "F05", "F06", "F07", "F08"],
+    "open_continuity_ids": ["C01", "C02", "C03"],
+    "new_continuity_ids": []
+  },
+  "research_context": [
+    {
+      "research_ref_id": "R02",
+      "topic_query": "official smart recording transcript processing timestamp documentation",
+      "url": "https://support.zoom.com/hc/en/article?id=zm_kb&sysparm_article=KB0061101",
+      "title": "Using smart recording with AI",
+      "accessed_on": "2026-07-29",
+      "credibility": {
+        "tier": "official",
+        "rationale": "The service owner documents recording files, processed transcripts, editable derived views, and time-addressable playback as related but separate layers."
+      },
+      "applicability_scope": "Constrains the D31 defect note to compare the source recording, processed transcript locator, and project display grouping without treating one layer as the whole record.",
+      "author_fact_summaries": [
+        "A hosted recording may coexist with a processed transcript and later-generated navigation aids rather than being a single indivisible artifact.",
+        "Time-addressable viewing features can help locate a passage, but they do not establish why a separate application assigned the item to a calendar bucket."
+      ],
+      "fictionalization_boundary": "No vendor interface, feature label, account condition, example, or claimed cause of the fictional offset is carried into the story.",
+      "applied_authored_ids": ["g11-d1-b03"]
+    },
+    {
+      "research_ref_id": "R03",
+      "topic_query": "official chat export dated files edits reactions linked files documentation",
+      "url": "https://slack.com/help/articles/220556107-How-to-read-Slack-data-exports",
+      "title": "How to read Slack data exports",
+      "accessed_on": "2026-07-29",
+      "credibility": {
+        "tier": "official",
+        "rationale": "The archive-format owner explains dated conversation records, edit metadata, reactions, and file references as distinct exported elements."
+      },
+      "applicability_scope": "Shapes the D32 exchange about checking a preserved edit and a file-reference field separately from message text; it does not prove whether the fictional linked object is retrievable.",
+      "author_fact_summaries": [
+        "A conversation export can retain message text, edit information, reactions, and external file references as separate record elements.",
+        "The presence of a file reference in an archive is not equivalent to having inspected the referenced object's contents."
+      ],
+      "fictionalization_boundary": "No platform name, workspace shape, export syntax, real user, or sample record is reproduced in the invented messages.",
+      "applied_authored_ids": ["g11-d2-m08", "g11-d2-m12"]
+    },
+    {
+      "research_ref_id": "R05",
+      "topic_query": "RFC 5322 Message-ID In-Reply-To References email reply threading",
+      "url": "https://www.rfc-editor.org/rfc/rfc5322.html",
+      "title": "RFC 5322: Internet Message Format",
+      "accessed_on": "2026-07-29",
+      "credibility": {
+        "tier": "primary",
+        "rationale": "The IETF Standards Track specification defines message identifiers and reply/reference relationships used to represent email ancestry."
+      },
+      "applicability_scope": "Constrains the two synthetic email threads, their complete visible headers, and the ancestry carried through each reply.",
+      "author_fact_summaries": [
+        "A particular message version can have its own identifier, while reply and reference fields connect later messages to parent and earlier thread members.",
+        "Thread ancestry identifies conversational relationships; it does not assert that a linked file mentioned in a body remains available."
+      ],
+      "fictionalization_boundary": "Normative wording, specification examples, addresses, people, and organizations are excluded; every header value and body is synthetic.",
+      "applied_authored_ids": ["g11-d3-e01", "g11-d3-e02", "g11-d3-e03", "g11-d3-e04", "g11-d3-e05", "g11-d3-e06"]
+    }
+  ],
+  "sources": {
+    "meetings": [],
+    "document_library": [
+      {
+        "source_id": "g11-docsrc-time",
+        "schema": "pneuma.source.document-library/v1",
+        "provider": "mock",
+        "library_id": "seamlog-working-notes",
+        "title": "时间偏移排查笔记",
+        "authorship": {
+          "authored_id": "g11-docsrc-time-auth",
+          "occurred_at": "2026-04-01T21:48:00+08:00",
+          "author_role": "engineering",
+          "content_class": "signal",
+          "links": {
+            "story_beat_ids": ["D31"],
+            "fact_ids": ["F08"],
+            "continuity_ids": ["C03"]
+          }
+        },
+        "documents": [
+          {
+            "document_id": "g11-doc-time",
+            "path": "incidents/2026-04-01-recording-date-shift.md",
+            "title": "录制条目跨到前一天",
+            "frontmatter": {
+              "date": "2026-04-01",
+              "status": "investigating",
+              "owner": "林舟",
+              "scope": "云麓只读导入"
+            },
+            "full_markdown": "# 录制条目跨到前一天\n\n陈放上午说项目页里一条现场记录“不见了”。他按施工日期往下翻，没有找到，所以先问是不是导入后被删。我从项目页的来源定位回到录制条目，原文件和对应转写段都还在；同一条记录却被归到前一天的分组。现在只能把“删除”改成“页面里找不到”，不能说问题已经修好。\n\n我把四个值抄在这里：录制条目显示开始于 3 月 31 日 16:12，来源偏移为 `+08:00`；转写段能跳到同一时刻；导入批次没有失败标记；项目列表把它放在 3 月 30 日。消息副本仍在 3 月 31 日，没有跟着移动。这个差异足以解释陈放为什么找不到，但还不足以解释偏移发生在哪一层。\n\n核对时要分开看三个对象。第一是录制文件及其来源时间，第二是处理后转写里的段落定位，第三是 Seamlog 项目页给条目分配的日期。它们能互相指到同一段现场内容，却不是同一个字段。今天先保留原值、批次号和页面截图，避免排查过程中把来源记录改掉。\n\n目前有三个互斥不了的猜测：导入时把本地时间当成了无偏移值；存储值正确，但项目页按另一列分组；旧批次中间做过一次换算，详情页和列表页各读了一份结果。我只抽了这一条，不能据此说全部录制都受影响。消息重复是否同源也没有证据，明天需要另选样本核对。\n\n晚饭前肩颈越来越僵，我把热毛巾搭了十分钟，还是没去打游戏。楼下送来一盒下错单的纸巾，骑手说第二天再换；我把它放在门边，没再追。桌上半杯麦茶凉透，最后也倒掉了。",
+            "tags": ["时区", "只读导入", "待核对"],
+            "links": [
+              {
+                "link_id": "g11-d1-link-time",
+                "target": "worklog/2026-04-01-import-check.md",
+                "label": "当日导入核对",
+                "embedded": false,
+                "authorship": {
+                  "authored_id": "g11-d1-link-time-auth",
+                  "occurred_at": "2026-04-01T21:45:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D31"],
+                    "fact_ids": ["F08"],
+                    "continuity_ids": ["C03"]
+                  }
+                }
+              }
+            ],
+            "created_at": "2026-04-01T10:26:00+08:00",
+            "modified_at": "2026-04-01T21:48:00+08:00",
+            "visible_blocks": [
+              {
+                "block_id": "g11-d1-h01",
+                "kind": "heading",
+                "markdown": "# 录制条目跨到前一天",
+                "authorship": {
+                  "authored_id": "g11-d1-h01-auth",
+                  "occurred_at": "2026-04-01T10:26:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D31"],
+                    "fact_ids": ["F08"],
+                    "continuity_ids": ["C03"]
+                  }
+                }
+              },
+              {
+                "block_id": "g11-d1-b01",
+                "kind": "paragraph",
+                "markdown": "陈放上午说项目页里一条现场记录“不见了”。他按施工日期往下翻，没有找到，所以先问是不是导入后被删。我从项目页的来源定位回到录制条目，原文件和对应转写段都还在；同一条记录却被归到前一天的分组。现在只能把“删除”改成“页面里找不到”，不能说问题已经修好。",
+                "authorship": {
+                  "authored_id": "g11-d1-b01",
+                  "occurred_at": "2026-04-01T10:42:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D31"],
+                    "fact_ids": ["F08"],
+                    "continuity_ids": ["C03"]
+                  }
+                }
+              },
+              {
+                "block_id": "g11-d1-b02",
+                "kind": "paragraph",
+                "markdown": "我把四个值抄在这里：录制条目显示开始于 3 月 31 日 16:12，来源偏移为 `+08:00`；转写段能跳到同一时刻；导入批次没有失败标记；项目列表把它放在 3 月 30 日。消息副本仍在 3 月 31 日，没有跟着移动。这个差异足以解释陈放为什么找不到，但还不足以解释偏移发生在哪一层。",
+                "authorship": {
+                  "authored_id": "g11-d1-b02",
+                  "occurred_at": "2026-04-01T12:18:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D31"],
+                    "fact_ids": ["F08"],
+                    "continuity_ids": ["C03"]
+                  }
+                }
+              },
+              {
+                "block_id": "g11-d1-b03",
+                "kind": "paragraph",
+                "markdown": "核对时要分开看三个对象。第一是录制文件及其来源时间，第二是处理后转写里的段落定位，第三是 Seamlog 项目页给条目分配的日期。它们能互相指到同一段现场内容，却不是同一个字段。今天先保留原值、批次号和页面截图，避免排查过程中把来源记录改掉。",
+                "authorship": {
+                  "authored_id": "g11-d1-b03",
+                  "occurred_at": "2026-04-01T15:06:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D31"],
+                    "fact_ids": ["F08"],
+                    "continuity_ids": ["C03"]
+                  }
+                }
+              },
+              {
+                "block_id": "g11-d1-b04",
+                "kind": "paragraph",
+                "markdown": "目前有三个互斥不了的猜测：导入时把本地时间当成了无偏移值；存储值正确，但项目页按另一列分组；旧批次中间做过一次换算，详情页和列表页各读了一份结果。我只抽了这一条，不能据此说全部录制都受影响。消息重复是否同源也没有证据，明天需要另选样本核对。",
+                "authorship": {
+                  "authored_id": "g11-d1-b04",
+                  "occurred_at": "2026-04-01T18:34:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": ["D31"],
+                    "fact_ids": ["F08"],
+                    "continuity_ids": ["C03"]
+                  }
+                }
+              },
+              {
+                "block_id": "g11-d1-b05",
+                "kind": "paragraph",
+                "markdown": "晚饭前肩颈越来越僵，我把热毛巾搭了十分钟，还是没去打游戏。楼下送来一盒下错单的纸巾，骑手说第二天再换；我把它放在门边，没再追。桌上半杯麦茶凉透，最后也倒掉了。",
+                "authorship": {
+                  "authored_id": "g11-d1-b05",
+                  "occurred_at": "2026-04-01T21:40:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "noise",
+                  "links": {
+                    "story_beat_ids": ["D31"],
+                    "fact_ids": [],
+                    "continuity_ids": []
+                  }
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "g11-doc-time-auth",
+              "occurred_at": "2026-04-01T21:48:00+08:00",
+              "author_role": "engineering",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": ["D31"],
+                "fact_ids": ["F08"],
+                "continuity_ids": ["C03"]
+              }
+            }
+          },
+          {
+            "document_id": "g11-doc-neighbor-sample",
+            "path": "incidents/2026-04-01-neighbor-recording-sample.md",
+            "title": "相邻录制样本",
+            "frontmatter": {
+              "date": "2026-04-01",
+              "status": "sampled-not-replayed",
+              "batch": "pilot-readonly-0330"
+            },
+            "full_markdown": "# 相邻录制样本\n\n为了判断跨日是不是单条异常，我从同一批次挑了三条相邻录制，只做只读比对。A 条来源时间是 3 月 31 日 14:06，项目页也在 3 月 31 日；B 条来源时间是 16:12，项目页落在 3 月 30 日；C 条来源时间是 17:03，项目页仍在 3 月 31 日。三条都有来源定位和转写段，只有 B 条跨日。样本太小，不能外推整个批次，但它让“所有录制统一少一天”暂时站不住。\n\nB 条还有一个不同点：详情页同时保留 `source_started_at` 和一个不带偏移的 `meeting_date`，列表分组展示的是后者。A、C 两条的两个值恰好落在同一天，所以即使读错列也看不出来。这里仍然只是字段观察；没有回放导入过程，不能判断 `meeting_date` 是来源本来就给的、导入时生成的，还是后来补的。\n\n我把三条的来源定位、批次号和页面位置抄进表格，没有改字段，也没有拿 B 条去覆盖列表。明天需要再选一个更早批次和一个跨月样本；如果只测这三条，排序测试很容易把错误藏在“日期刚好相同”的两条里。消息重复的两对 id 不写进这份样本，它们暂时没有被证明与时间字段相关。",
+            "tags": ["抽样", "录制", "未回放"],
+            "links": [],
+            "created_at": "2026-04-01T19:12:00+08:00",
+            "modified_at": "2026-04-01T21:44:00+08:00",
+            "visible_blocks": [
+              {
+                "block_id": "g11-d1s-h01",
+                "kind": "heading",
+                "markdown": "# 相邻录制样本",
+                "authorship": {
+                  "authored_id": "g11-d1s-h01-auth",
+                  "occurred_at": "2026-04-01T19:12:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D31"],
+                    "fact_ids": ["F08"],
+                    "continuity_ids": ["C03"]
+                  }
+                }
+              },
+              {
+                "block_id": "g11-d1s-b01",
+                "kind": "paragraph",
+                "markdown": "为了判断跨日是不是单条异常，我从同一批次挑了三条相邻录制，只做只读比对。A 条来源时间是 3 月 31 日 14:06，项目页也在 3 月 31 日；B 条来源时间是 16:12，项目页落在 3 月 30 日；C 条来源时间是 17:03，项目页仍在 3 月 31 日。三条都有来源定位和转写段，只有 B 条跨日。样本太小，不能外推整个批次，但它让“所有录制统一少一天”暂时站不住。",
+                "authorship": {
+                  "authored_id": "g11-d1s-b01",
+                  "occurred_at": "2026-04-01T19:46:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D31"],
+                    "fact_ids": ["F08"],
+                    "continuity_ids": ["C03"]
+                  }
+                }
+              },
+              {
+                "block_id": "g11-d1s-b02",
+                "kind": "paragraph",
+                "markdown": "B 条还有一个不同点：详情页同时保留 `source_started_at` 和一个不带偏移的 `meeting_date`，列表分组展示的是后者。A、C 两条的两个值恰好落在同一天，所以即使读错列也看不出来。这里仍然只是字段观察；没有回放导入过程，不能判断 `meeting_date` 是来源本来就给的、导入时生成的，还是后来补的。",
+                "authorship": {
+                  "authored_id": "g11-d1s-b02",
+                  "occurred_at": "2026-04-01T20:28:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": ["D31"],
+                    "fact_ids": ["F08"],
+                    "continuity_ids": ["C03"]
+                  }
+                }
+              },
+              {
+                "block_id": "g11-d1s-b03",
+                "kind": "paragraph",
+                "markdown": "我把三条的来源定位、批次号和页面位置抄进表格，没有改字段，也没有拿 B 条去覆盖列表。明天需要再选一个更早批次和一个跨月样本；如果只测这三条，排序测试很容易把错误藏在“日期刚好相同”的两条里。消息重复的两对 id 不写进这份样本，它们暂时没有被证明与时间字段相关。",
+                "authorship": {
+                  "authored_id": "g11-d1s-b03",
+                  "occurred_at": "2026-04-01T21:40:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D31"],
+                    "fact_ids": ["F08"],
+                    "continuity_ids": ["C03"]
+                  }
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "g11-doc-neighbor-sample-auth",
+              "occurred_at": "2026-04-01T21:44:00+08:00",
+              "author_role": "engineering",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": ["D31"],
+                "fact_ids": ["F08"],
+                "continuity_ids": ["C03"]
+              }
+            }
+          }
+        ]
+      },
+      {
+        "source_id": "g11-docsrc-worklog",
+        "schema": "pneuma.source.document-library/v1",
+        "provider": "mock",
+        "library_id": "seamlog-working-notes",
+        "title": "4 月 1 日工作留痕",
+        "authorship": {
+          "authored_id": "g11-docsrc-worklog-auth",
+          "occurred_at": "2026-04-01T22:22:00+08:00",
+          "author_role": "engineering",
+          "content_class": "signal",
+          "links": {
+            "story_beat_ids": ["D31"],
+            "fact_ids": ["F08"],
+            "continuity_ids": ["C01", "C03"]
+          }
+        },
+        "documents": [
+          {
+            "document_id": "g11-doc-worklog",
+            "path": "worklog/2026-04-01-import-check.md",
+            "title": "4 月 1 日导入核对",
+            "frontmatter": {
+              "date": "2026-04-01",
+              "energy": "anxious-medium",
+              "status": "unfinished"
+            },
+            "full_markdown": "# 4 月 1 日导入核对\n\n今天没有继续加来源，只看已经进入受限试点的副本。陈放的“是不是删了”先记作用户看到的现象，不记作删除事件。我给吴岚的回复只有两点：条目在来源侧还能定位；项目页日期有偏移，原因和修复时间都没有结论。她回“先别让大家补录”，这条边界维持不变。\n\n消息重复另开一页记。我抽的两对内容相同，但一对 message id 相同、线程位置不同，另一对 id 不同、正文相同。前一种可能是展示展开，后一种也可能来自同步或编辑历史；现在没有足够样本把它们归成一类。今晚只保存对照 id 和出现位置，没有合并或删除任何副本。\n\n- [x] 留下录制来源时间与项目页分组截图\n- [x] 回答陈放：来源记录还在，页面日期不对\n- [ ] 确认全部录制是否同样跨日\n- [ ] 回放历史批次\n- [ ] 打开邮件附件索引并核对对象可用性\n- [ ] 检查名称候选是否可靠\n\n傍晚洗衣机脱水时晃得撞墙，我和赵楠把它往外挪了半寸，又垫回一块旧毛巾。收床单时右肩抬不高，赵楠问还开不开上周那局，我说今天不玩。他自己戴耳机进了游戏，我煮了速冻馄饨，漏勺滑进锅里，汤溅了一圈；擦完灶台就去洗澡了。\n\n睡前把显示修复、历史回放和附件索引分成三栏。第一栏今天没有动；第二栏只选了样本，还没运行；第三栏甚至没打开。明天如果仍想先处理最显眼的页面问题，至少要在记录里写清它不会回答数据层是否正确。",
+            "tags": ["工作日志", "重复消息", "未完成"],
+            "links": [
+              {
+                "link_id": "g11-d1-link-defect",
+                "target": "incidents/2026-04-01-recording-date-shift.md",
+                "label": "录制日期偏移",
+                "embedded": false,
+                "authorship": {
+                  "authored_id": "g11-d1-link-defect-auth",
+                  "occurred_at": "2026-04-01T22:18:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D31"],
+                    "fact_ids": ["F08"],
+                    "continuity_ids": ["C03"]
+                  }
+                }
+              }
+            ],
+            "created_at": "2026-04-01T09:54:00+08:00",
+            "modified_at": "2026-04-01T22:22:00+08:00",
+            "visible_blocks": [
+              {
+                "block_id": "g11-d1w-h01",
+                "kind": "heading",
+                "markdown": "# 4 月 1 日导入核对",
+                "authorship": {
+                  "authored_id": "g11-d1w-h01-auth",
+                  "occurred_at": "2026-04-01T09:54:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D31"],
+                    "fact_ids": ["F08"],
+                    "continuity_ids": ["C03"]
+                  }
+                }
+              },
+              {
+                "block_id": "g11-d1w-b01",
+                "kind": "paragraph",
+                "markdown": "今天没有继续加来源，只看已经进入受限试点的副本。陈放的“是不是删了”先记作用户看到的现象，不记作删除事件。我给吴岚的回复只有两点：条目在来源侧还能定位；项目页日期有偏移，原因和修复时间都没有结论。她回“先别让大家补录”，这条边界维持不变。",
+                "authorship": {
+                  "authored_id": "g11-d1w-b01",
+                  "occurred_at": "2026-04-01T11:20:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D31"],
+                    "fact_ids": ["F08"],
+                    "continuity_ids": ["C03"]
+                  }
+                }
+              },
+              {
+                "block_id": "g11-d1w-b02",
+                "kind": "paragraph",
+                "markdown": "消息重复另开一页记。我抽的两对内容相同，但一对 message id 相同、线程位置不同，另一对 id 不同、正文相同。前一种可能是展示展开，后一种也可能来自同步或编辑历史；现在没有足够样本把它们归成一类。今晚只保存对照 id 和出现位置，没有合并或删除任何副本。",
+                "authorship": {
+                  "authored_id": "g11-d1w-b02",
+                  "occurred_at": "2026-04-01T14:15:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": ["D31"],
+                    "fact_ids": ["F08"],
+                    "continuity_ids": ["C03"]
+                  }
+                }
+              },
+              {
+                "block_id": "g11-d1w-b03",
+                "kind": "list",
+                "markdown": "- [x] 留下录制来源时间与项目页分组截图\n- [x] 回答陈放：来源记录还在，页面日期不对\n- [ ] 确认全部录制是否同样跨日\n- [ ] 回放历史批次\n- [ ] 打开邮件附件索引并核对对象可用性\n- [ ] 检查名称候选是否可靠",
+                "authorship": {
+                  "authored_id": "g11-d1w-b03",
+                  "occurred_at": "2026-04-01T18:02:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D31"],
+                    "fact_ids": ["F08"],
+                    "continuity_ids": ["C01", "C03"]
+                  }
+                }
+              },
+              {
+                "block_id": "g11-d1w-b04",
+                "kind": "paragraph",
+                "markdown": "傍晚洗衣机脱水时晃得撞墙，我和赵楠把它往外挪了半寸，又垫回一块旧毛巾。收床单时右肩抬不高，赵楠问还开不开上周那局，我说今天不玩。他自己戴耳机进了游戏，我煮了速冻馄饨，漏勺滑进锅里，汤溅了一圈；擦完灶台就去洗澡了。",
+                "authorship": {
+                  "authored_id": "g11-d1w-b04",
+                  "occurred_at": "2026-04-01T20:36:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "noise",
+                  "links": {
+                    "story_beat_ids": ["D31"],
+                    "fact_ids": [],
+                    "continuity_ids": []
+                  }
+                }
+              },
+              {
+                "block_id": "g11-d1w-b05",
+                "kind": "paragraph",
+                "markdown": "睡前把显示修复、历史回放和附件索引分成三栏。第一栏今天没有动；第二栏只选了样本，还没运行；第三栏甚至没打开。明天如果仍想先处理最显眼的页面问题，至少要在记录里写清它不会回答数据层是否正确。",
+                "authorship": {
+                  "authored_id": "g11-d1w-b05",
+                  "occurred_at": "2026-04-01T22:12:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": ["D31"],
+                    "fact_ids": ["F08"],
+                    "continuity_ids": ["C01", "C03"]
+                  }
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "g11-doc-worklog-auth",
+              "occurred_at": "2026-04-01T22:22:00+08:00",
+              "author_role": "engineering",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": ["D31"],
+                "fact_ids": ["F08"],
+                "continuity_ids": ["C01", "C03"]
+              }
+            }
+          },
+          {
+            "document_id": "g11-doc-duplicate-pairs",
+            "path": "scratch/2026-04-01-duplicate-pairs.md",
+            "title": "两对重复消息样本",
+            "frontmatter": {
+              "date": "2026-04-01",
+              "status": "unclassified",
+              "sample_size": 4
+            },
+            "full_markdown": "# 两对重复消息样本\n\n只记录看到的形状，不把两对都叫成同步重复。第一对出现在主消息和线程展开区，message id 完全相同，正文也相同；第二对分别出现在项目频道和私聊导入，正文只有末尾标点差异，message id 不同。两种现象给用户的观感都是“出现两遍”，但排查入口不一样。\n\n| 样本 | message id | 位置 | 编辑时间 | 当前判断 |\n| --- | --- | --- | --- | --- |\n| A1/A2 | 相同 | 主列表 / 线程展开 | 均为空 | 可能是展示展开 |\n| B1/B2 | 不同 | 项目频道 / 私聊副本 | B2 有值 | 可能是两条来源记录 |\n\n下一步要回到导出记录看线程父项、编辑标记和来源会话，不能只比较正文。今晚没有删除 A2，也没有把 B1/B2 合并。若后面发现一个是引用或编辑版本，仍需保留各自来源定位；这个样本暂时不与录制跨日问题共享根因。",
+            "tags": ["消息重复", "抽样", "未分类"],
+            "links": [],
+            "created_at": "2026-04-01T15:42:00+08:00",
+            "modified_at": "2026-04-01T22:16:00+08:00",
+            "visible_blocks": [
+              {
+                "block_id": "g11-d1d-h01",
+                "kind": "heading",
+                "markdown": "# 两对重复消息样本",
+                "authorship": {
+                  "authored_id": "g11-d1d-h01-auth",
+                  "occurred_at": "2026-04-01T15:42:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": ["D31"],
+                    "fact_ids": ["F08"],
+                    "continuity_ids": ["C03"]
+                  }
+                }
+              },
+              {
+                "block_id": "g11-d1d-b01",
+                "kind": "paragraph",
+                "markdown": "只记录看到的形状，不把两对都叫成同步重复。第一对出现在主消息和线程展开区，message id 完全相同，正文也相同；第二对分别出现在项目频道和私聊导入，正文只有末尾标点差异，message id 不同。两种现象给用户的观感都是“出现两遍”，但排查入口不一样。",
+                "authorship": {
+                  "authored_id": "g11-d1d-b01",
+                  "occurred_at": "2026-04-01T16:05:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": ["D31"],
+                    "fact_ids": ["F08"],
+                    "continuity_ids": ["C03"]
+                  }
+                }
+              },
+              {
+                "block_id": "g11-d1d-b02",
+                "kind": "table",
+                "markdown": "| 样本 | message id | 位置 | 编辑时间 | 当前判断 |\n| --- | --- | --- | --- | --- |\n| A1/A2 | 相同 | 主列表 / 线程展开 | 均为空 | 可能是展示展开 |\n| B1/B2 | 不同 | 项目频道 / 私聊副本 | B2 有值 | 可能是两条来源记录 |",
+                "authorship": {
+                  "authored_id": "g11-d1d-b02",
+                  "occurred_at": "2026-04-01T17:22:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": ["D31"],
+                    "fact_ids": ["F08"],
+                    "continuity_ids": ["C03"]
+                  }
+                }
+              },
+              {
+                "block_id": "g11-d1d-b03",
+                "kind": "paragraph",
+                "markdown": "下一步要回到导出记录看线程父项、编辑标记和来源会话，不能只比较正文。今晚没有删除 A2，也没有把 B1/B2 合并。若后面发现一个是引用或编辑版本，仍需保留各自来源定位；这个样本暂时不与录制跨日问题共享根因。",
+                "authorship": {
+                  "authored_id": "g11-d1d-b03",
+                  "occurred_at": "2026-04-01T22:14:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D31"],
+                    "fact_ids": ["F08"],
+                    "continuity_ids": ["C03"]
+                  }
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "g11-doc-duplicate-pairs-auth",
+              "occurred_at": "2026-04-01T22:16:00+08:00",
+              "author_role": "engineering",
+              "content_class": "ambiguous",
+              "links": {
+                "story_beat_ids": ["D31"],
+                "fact_ids": ["F08"],
+                "continuity_ids": ["C03"]
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "im": [
+      {
+        "source_id": "g11-imsrc",
+        "schema": "pneuma.source.im/v1",
+        "provider": "mock",
+        "archive_id": "seamlog-im-20260402",
+        "owner_user_ids": ["g11-user-lin"],
+        "users": [
+          {
+            "user_id": "g11-user-lin",
+            "display_name": "林舟",
+            "role": "engineering",
+            "synthetic_address": "lin.zhou@seamlog.test",
+            "is_bot": false
+          },
+          {
+            "user_id": "g11-user-jia",
+            "display_name": "贾宁",
+            "role": "engineering",
+            "synthetic_address": "jia.ning@review.test",
+            "is_bot": false
+          },
+          {
+            "user_id": "g11-user-zhao",
+            "display_name": "赵楠",
+            "role": "design",
+            "synthetic_address": "zhao.nan@roommate.test",
+            "is_bot": false
+          }
+        ],
+        "conversations": [
+          {
+            "conversation_id": "g11-conv-debug",
+            "conversation_type": "dm",
+            "title": "林舟 / 贾宁",
+            "member_ids": ["g11-user-lin", "g11-user-jia"],
+            "messages": [
+              {
+                "message_id": "g11-msg01",
+                "sender_id": "g11-user-lin",
+                "sent_at": "2026-04-02T10:08:00+08:00",
+                "full_text": "我先把项目列表改成按来源开始时间排，跨日那条已经回到 3 月 31 日。没有停导入，想先让陈放能找到它。",
+                "thread_id": null,
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g11-d2-m01",
+                  "occurred_at": "2026-04-02T10:08:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D32"],
+                    "fact_ids": ["F08"],
+                    "continuity_ids": ["C03"]
+                  }
+                }
+              },
+              {
+                "message_id": "g11-msg02",
+                "sender_id": "g11-user-jia",
+                "sent_at": "2026-04-02T10:11:00+08:00",
+                "full_text": "你修的是哪一列？如果存下来的时间已经错了，页面排整齐只会把问题藏起来。",
+                "thread_id": "g11-msg01",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g11-d2-m02",
+                  "occurred_at": "2026-04-02T10:11:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D32"],
+                    "fact_ids": ["F08"],
+                    "continuity_ids": ["C03"]
+                  }
+                }
+              },
+              {
+                "message_id": "g11-msg03",
+                "sender_id": "g11-user-lin",
+                "sent_at": "2026-04-02T10:14:00+08:00",
+                "full_text": "这一条的存储值带 `+08:00`，列表之前读了另一个日期字段。我只比了这一行，旧批次还没回放。",
+                "thread_id": "g11-msg01",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g11-d2-m03",
+                  "occurred_at": "2026-04-02T10:14:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": ["D32"],
+                    "fact_ids": ["F08"],
+                    "continuity_ids": ["C03"]
+                  }
+                }
+              },
+              {
+                "message_id": "g11-msg04",
+                "sender_id": "g11-user-jia",
+                "sent_at": "2026-04-02T10:18:00+08:00",
+                "full_text": "那只能说明这个样本的页面读错列。拿一个更早的批次，再拿一条没有跨日的录制，对照来源、写入和展示三个值。",
+                "thread_id": "g11-msg01",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g11-d2-m04",
+                  "occurred_at": "2026-04-02T10:18:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D32"],
+                    "fact_ids": ["F08"],
+                    "continuity_ids": ["C03"]
+                  }
+                }
+              },
+              {
+                "message_id": "g11-msg05",
+                "sender_id": "g11-user-lin",
+                "sent_at": "2026-04-02T10:23:00+08:00",
+                "full_text": "我先补了两个列表排序测试。历史回放那套要把旧夹具修一下，今天可能做不完。",
+                "thread_id": "g11-msg01",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g11-d2-m05",
+                  "occurred_at": "2026-04-02T10:23:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D32"],
+                    "fact_ids": ["F08"],
+                    "continuity_ids": ["C03"]
+                  }
+                }
+              },
+              {
+                "message_id": "g11-msg06",
+                "sender_id": "g11-user-jia",
+                "sent_at": "2026-04-02T10:27:00+08:00",
+                "full_text": "测试先留着，但别把它叫时区修复。你的历史夹具坏了，本身就是现在不能判断数据层的原因。",
+                "thread_id": "g11-msg01",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g11-d2-m06",
+                  "occurred_at": "2026-04-02T10:27:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D32"],
+                    "fact_ids": ["F08"],
+                    "continuity_ids": ["C03"]
+                  }
+                }
+              },
+              {
+                "message_id": "g11-msg07",
+                "sender_id": "g11-user-lin",
+                "sent_at": "2026-04-02T15:36:00+08:00",
+                "full_text": "下午看重复消息：有一对 message id 相同、thread root 不同；另一对正文一样但 id 不同。我还没判定哪种算真正重复。",
+                "thread_id": null,
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g11-d2-m07",
+                  "occurred_at": "2026-04-02T15:36:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": ["D32"],
+                    "fact_ids": ["F08"],
+                    "continuity_ids": ["C03"]
+                  }
+                }
+              },
+              {
+                "message_id": "g11-msg08",
+                "sender_id": "g11-user-jia",
+                "sent_at": "2026-04-02T15:42:00+08:00",
+                "full_text": "先按记录元素拆。正文相同不够，比较原 message id、线程父项、编辑时间和文件引用。附件字段如果只有地址，先标“未打开”，别写成文件存在或不存在。",
+                "thread_id": "g11-msg07",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g11-d2-m08",
+                  "occurred_at": "2026-04-02T15:42:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D32"],
+                    "fact_ids": ["F08"],
+                    "continuity_ids": ["C01", "C03"]
+                  }
+                }
+              },
+              {
+                "message_id": "g11-msg09",
+                "sender_id": "g11-user-lin",
+                "sent_at": "2026-04-02T15:48:00+08:00",
+                "full_text": "抽样里确实有一个附件引用字段，我没开历史地址。邮件归档也还没搜到吴岚说的那封，今天只记字段状态。",
+                "thread_id": "g11-msg07",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g11-d2-m09",
+                  "occurred_at": "2026-04-02T15:48:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D32"],
+                    "fact_ids": ["F08"],
+                    "continuity_ids": ["C01", "C03"]
+                  }
+                }
+              },
+              {
+                "message_id": "g11-msg10",
+                "sender_id": "g11-user-jia",
+                "sent_at": "2026-04-02T15:52:00+08:00",
+                "full_text": "好。名称候选也别顺手归并，先看看同名是否来自同一个项目和同一地址。你现在缺的是反例，不是更多 if。",
+                "thread_id": "g11-msg07",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g11-d2-m10",
+                  "occurred_at": "2026-04-02T15:52:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D32"],
+                    "fact_ids": ["F08"],
+                    "continuity_ids": ["C01", "C03"]
+                  }
+                }
+              },
+              {
+                "message_id": "g11-msg11",
+                "sender_id": "g11-user-lin",
+                "sent_at": "2026-04-02T19:06:00+08:00",
+                "full_text": "旧夹具只修到能读录制，消息和邮件还过不了。我今晚不跑一半的回放，结果会更难解释。",
+                "thread_id": null,
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g11-d2-m11",
+                  "occurred_at": "2026-04-02T19:06:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D32"],
+                    "fact_ids": ["F08"],
+                    "continuity_ids": ["C01", "C03"]
+                  }
+                }
+              },
+              {
+                "message_id": "g11-msg12",
+                "sender_id": "g11-user-jia",
+                "sent_at": "2026-04-02T19:10:00+08:00",
+                "full_text": "可以停在失败处。把那条编辑过的消息连同原 id 和 edited_at 留在样本里，不要为了通过夹具重写旧文本。",
+                "thread_id": "g11-msg11",
+                "edited_at": "2026-04-02T19:12:00+08:00",
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g11-d2-m12",
+                  "occurred_at": "2026-04-02T19:12:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D32"],
+                    "fact_ids": ["F08"],
+                    "continuity_ids": ["C03"]
+                  }
+                }
+              },
+              {
+                "message_id": "g11-msg13",
+                "sender_id": "g11-user-lin",
+                "sent_at": "2026-04-02T19:18:00+08:00",
+                "full_text": "记了。今天实际完成的是列表排序和两条新测试；历史回放、附件地址、名称候选都没查完。",
+                "thread_id": "g11-msg11",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g11-d2-m13",
+                  "occurred_at": "2026-04-02T19:18:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D32"],
+                    "fact_ids": ["F08"],
+                    "continuity_ids": ["C01", "C03"]
+                  }
+                }
+              },
+              {
+                "message_id": "g11-msg14",
+                "sender_id": "g11-user-jia",
+                "sent_at": "2026-04-02T19:24:00+08:00",
+                "full_text": "那就别再加夜间任务。明早先决定回放范围，别让界面已经顺眼这件事替你做判断。",
+                "thread_id": "g11-msg11",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g11-d2-m14",
+                  "occurred_at": "2026-04-02T19:24:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D32"],
+                    "fact_ids": ["F08"],
+                    "continuity_ids": ["C01", "C03"]
+                  }
+                }
+              },
+              {
+                "message_id": "g11-msg21",
+                "sender_id": "g11-user-lin",
+                "sent_at": "2026-04-02T19:29:00+08:00",
+                "full_text": "还有个限制：当前历史夹具会重新拉取文件引用，旧地址一失败，整个样本就中断。我要先让它保留引用字段、跳过下载，才能看后面的消息和邮件记录。",
+                "thread_id": "g11-msg11",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g11-d2-m21",
+                  "occurred_at": "2026-04-02T19:29:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D32"],
+                    "fact_ids": ["F08"],
+                    "continuity_ids": ["C01", "C03"]
+                  }
+                }
+              },
+              {
+                "message_id": "g11-msg22",
+                "sender_id": "g11-user-jia",
+                "sent_at": "2026-04-02T19:33:00+08:00",
+                "full_text": "可以改夹具的读取方式，不能改样本里的引用值。把“地址未请求”和“请求失败”分开，不然明天看到空文件还是不知道是哪一步空的。",
+                "thread_id": "g11-msg11",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g11-d2-m22",
+                  "occurred_at": "2026-04-02T19:33:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D32"],
+                    "fact_ids": ["F08"],
+                    "continuity_ids": ["C01", "C03"]
+                  }
+                }
+              },
+              {
+                "message_id": "g11-msg23",
+                "sender_id": "g11-user-lin",
+                "sent_at": "2026-04-02T19:36:00+08:00",
+                "full_text": "明白。我只改夹具输出：原引用、是否发起请求、返回状态各一列。今晚不执行全量回放，先把这个阻断记进明早的样本清单。",
+                "thread_id": "g11-msg11",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g11-d2-m23",
+                  "occurred_at": "2026-04-02T19:36:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D32"],
+                    "fact_ids": ["F08"],
+                    "continuity_ids": ["C01", "C03"]
+                  }
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "g11-conv-debug-auth",
+              "occurred_at": "2026-04-02T19:36:00+08:00",
+              "author_role": "engineering",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": ["D32"],
+                "fact_ids": ["F08"],
+                "continuity_ids": ["C01", "C03"]
+              }
+            }
+          },
+          {
+            "conversation_id": "g11-conv-home",
+            "conversation_type": "dm",
+            "title": "林舟 / 赵楠",
+            "member_ids": ["g11-user-lin", "g11-user-zhao"],
+            "messages": [
+              {
+                "message_id": "g11-msg15",
+                "sender_id": "g11-user-zhao",
+                "sent_at": "2026-04-02T20:46:00+08:00",
+                "full_text": "门口那盒纸巾我替你换了，新的在鞋柜上。你买的咖啡豆也到了，快递袋一股烘焦味。",
+                "thread_id": null,
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g11-d2-m15",
+                  "occurred_at": "2026-04-02T20:46:00+08:00",
+                  "author_role": "design",
+                  "content_class": "noise",
+                  "links": {
+                    "story_beat_ids": ["D32"],
+                    "fact_ids": [],
+                    "continuity_ids": []
+                  }
+                }
+              },
+              {
+                "message_id": "g11-msg16",
+                "sender_id": "g11-user-lin",
+                "sent_at": "2026-04-02T20:49:00+08:00",
+                "full_text": "谢了。豆子别开，我这包旧的还剩一点，最近买东西全靠测评上头。",
+                "thread_id": "g11-msg15",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g11-d2-m16",
+                  "occurred_at": "2026-04-02T20:49:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "noise",
+                  "links": {
+                    "story_beat_ids": ["D32"],
+                    "fact_ids": [],
+                    "continuity_ids": []
+                  }
+                }
+              },
+              {
+                "message_id": "g11-msg17",
+                "sender_id": "g11-user-zhao",
+                "sent_at": "2026-04-02T21:03:00+08:00",
+                "full_text": "今晚还开不开？上周那关我一个人过不去。先说好，十点以后我不等。",
+                "thread_id": null,
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g11-d2-m17",
+                  "occurred_at": "2026-04-02T21:03:00+08:00",
+                  "author_role": "design",
+                  "content_class": "noise",
+                  "links": {
+                    "story_beat_ids": ["D32"],
+                    "fact_ids": [],
+                    "continuity_ids": []
+                  }
+                }
+              },
+              {
+                "message_id": "g11-msg18",
+                "sender_id": "g11-user-lin",
+                "sent_at": "2026-04-02T21:08:00+08:00",
+                "full_text": "不开了，肩膀还疼。我把饭热一下就洗碗，电脑今天合上。",
+                "thread_id": "g11-msg17",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g11-d2-m18",
+                  "occurred_at": "2026-04-02T21:08:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "noise",
+                  "links": {
+                    "story_beat_ids": ["D32"],
+                    "fact_ids": [],
+                    "continuity_ids": []
+                  }
+                }
+              },
+              {
+                "message_id": "g11-msg19",
+                "sender_id": "g11-user-zhao",
+                "sent_at": "2026-04-02T21:42:00+08:00",
+                "full_text": "楼道灯又灭了，出来倒垃圾记得开手机灯。我刚才差点踩到别人门口的菜。",
+                "thread_id": null,
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g11-d2-m19",
+                  "occurred_at": "2026-04-02T21:42:00+08:00",
+                  "author_role": "design",
+                  "content_class": "noise",
+                  "links": {
+                    "story_beat_ids": ["D32"],
+                    "fact_ids": [],
+                    "continuity_ids": []
+                  }
+                }
+              },
+              {
+                "message_id": "g11-msg20",
+                "sender_id": "g11-user-lin",
+                "sent_at": "2026-04-02T21:47:00+08:00",
+                "full_text": "看到了。我不下楼，垃圾明早带。",
+                "thread_id": "g11-msg19",
+                "edited_at": null,
+                "reactions": [],
+                "authorship": {
+                  "authored_id": "g11-d2-m20",
+                  "occurred_at": "2026-04-02T21:47:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "noise",
+                  "links": {
+                    "story_beat_ids": ["D32"],
+                    "fact_ids": [],
+                    "continuity_ids": []
+                  }
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "g11-conv-home-auth",
+              "occurred_at": "2026-04-02T21:47:00+08:00",
+              "author_role": "design",
+              "content_class": "noise",
+              "links": {
+                "story_beat_ids": ["D32"],
+                "fact_ids": [],
+                "continuity_ids": []
+              }
+            }
+          }
+        ],
+        "authorship": {
+          "authored_id": "g11-imsrc-auth",
+          "occurred_at": "2026-04-02T21:47:00+08:00",
+          "author_role": "engineering",
+          "content_class": "signal",
+          "links": {
+            "story_beat_ids": ["D32"],
+            "fact_ids": ["F08"],
+            "continuity_ids": ["C01", "C03"]
+          }
+        }
+      }
+    ],
+    "email": [
+      {
+        "source_id": "g11-emailsrc",
+        "schema": "pneuma.source.email/v1",
+        "provider": "rfc822",
+        "archive_id": "seamlog-mail-20260403",
+        "owner_addresses": ["lin.zhou@seamlog.test"],
+        "threads": [
+          {
+            "thread_id": "g11-thread-budget",
+            "subject": "找到：客厅预算调整邮件",
+            "messages": [
+              {
+                "message_id": "g11-email01",
+                "sent_at": "2026-04-03T09:18:00+08:00",
+                "from": {
+                  "address": "wu.lan@bamboo.test",
+                  "display_name": "吴岚",
+                  "role": "manager"
+                },
+                "to": [
+                  {
+                    "address": "lin.zhou@seamlog.test",
+                    "display_name": "林舟",
+                    "role": "engineering"
+                  }
+                ],
+                "cc": [
+                  {
+                    "address": "chen.fang@bamboo.test",
+                    "display_name": "陈放",
+                    "role": "operations"
+                  }
+                ],
+                "subject": "找到：客厅预算调整邮件",
+                "headers": [
+                  {
+                    "header_id": "g11-e01-h-date",
+                    "name": "Date",
+                    "value": "Fri, 03 Apr 2026 09:18:00 +0800",
+                    "authorship": {
+                      "authored_id": "g11-e01-h-date-auth",
+                      "occurred_at": "2026-04-03T09:18:00+08:00",
+                      "author_role": "manager",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D33"], "fact_ids": ["F08"], "continuity_ids": ["C01", "C03"]}
+                    }
+                  },
+                  {
+                    "header_id": "g11-e01-h-from",
+                    "name": "From",
+                    "value": "吴岚 <wu.lan@bamboo.test>",
+                    "authorship": {
+                      "authored_id": "g11-e01-h-from-auth",
+                      "occurred_at": "2026-04-03T09:18:00+08:00",
+                      "author_role": "manager",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D33"], "fact_ids": ["F08"], "continuity_ids": ["C01", "C03"]}
+                    }
+                  },
+                  {
+                    "header_id": "g11-e01-h-to",
+                    "name": "To",
+                    "value": "林舟 <lin.zhou@seamlog.test>",
+                    "authorship": {
+                      "authored_id": "g11-e01-h-to-auth",
+                      "occurred_at": "2026-04-03T09:18:00+08:00",
+                      "author_role": "manager",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D33"], "fact_ids": ["F08"], "continuity_ids": ["C01", "C03"]}
+                    }
+                  },
+                  {
+                    "header_id": "g11-e01-h-subject",
+                    "name": "Subject",
+                    "value": "找到：客厅预算调整邮件",
+                    "authorship": {
+                      "authored_id": "g11-e01-h-subject-auth",
+                      "occurred_at": "2026-04-03T09:18:00+08:00",
+                      "author_role": "manager",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D33"], "fact_ids": ["F08"], "continuity_ids": ["C01", "C03"]}
+                    }
+                  },
+                  {
+                    "header_id": "g11-e01-h-id",
+                    "name": "Message-ID",
+                    "value": "<g11-budget-root@bamboo.test>",
+                    "authorship": {
+                      "authored_id": "g11-e01-h-id-auth",
+                      "occurred_at": "2026-04-03T09:18:00+08:00",
+                      "author_role": "manager",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D33"], "fact_ids": ["F08"], "continuity_ids": ["C01", "C03"]}
+                    }
+                  }
+                ],
+                "full_text": "林舟：\n\n昨晚按旧项目名重新搜，找到了我一直说的那封改预算邮件。正文列了客厅木作和灯具两项调整，并指向一份“预算更新表 v3”。邮件本身可以打开，但附件位置是外部跳转；我今早点过两次，都只返回“链接已失效”，归档里没有文件副本。\n\n请先把状态写成“邮件已找到、所指附件不可用”。这封邮件证明调整曾被发出，不证明表里的每项后来都获确认，也不能替代现场会上关于数量的讨论。可以继续核对，但要把这条边界写清楚。\n\n吴岚",
+                "in_reply_to": null,
+                "references": [],
+                "attachments": [],
+                "authorship": {
+                  "authored_id": "g11-d3-e01",
+                  "occurred_at": "2026-04-03T09:18:00+08:00",
+                  "author_role": "manager",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D33"],
+                    "fact_ids": ["F08"],
+                    "continuity_ids": ["C01", "C03"]
+                  }
+                }
+              },
+              {
+                "message_id": "g11-email02",
+                "sent_at": "2026-04-03T10:02:00+08:00",
+                "from": {
+                  "address": "lin.zhou@seamlog.test",
+                  "display_name": "林舟",
+                  "role": "engineering"
+                },
+                "to": [
+                  {
+                    "address": "wu.lan@bamboo.test",
+                    "display_name": "吴岚",
+                    "role": "manager"
+                  }
+                ],
+                "cc": [
+                  {
+                    "address": "chen.fang@bamboo.test",
+                    "display_name": "陈放",
+                    "role": "operations"
+                  }
+                ],
+                "subject": "Re: 找到：客厅预算调整邮件",
+                "headers": [
+                  {
+                    "header_id": "g11-e02-h-date",
+                    "name": "Date",
+                    "value": "Fri, 03 Apr 2026 10:02:00 +0800",
+                    "authorship": {
+                      "authored_id": "g11-e02-h-date-auth",
+                      "occurred_at": "2026-04-03T10:02:00+08:00",
+                      "author_role": "engineering",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D33"], "fact_ids": ["F08"], "continuity_ids": ["C01", "C03"]}
+                    }
+                  },
+                  {
+                    "header_id": "g11-e02-h-from",
+                    "name": "From",
+                    "value": "林舟 <lin.zhou@seamlog.test>",
+                    "authorship": {
+                      "authored_id": "g11-e02-h-from-auth",
+                      "occurred_at": "2026-04-03T10:02:00+08:00",
+                      "author_role": "engineering",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D33"], "fact_ids": ["F08"], "continuity_ids": ["C01", "C03"]}
+                    }
+                  },
+                  {
+                    "header_id": "g11-e02-h-to",
+                    "name": "To",
+                    "value": "吴岚 <wu.lan@bamboo.test>",
+                    "authorship": {
+                      "authored_id": "g11-e02-h-to-auth",
+                      "occurred_at": "2026-04-03T10:02:00+08:00",
+                      "author_role": "engineering",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D33"], "fact_ids": ["F08"], "continuity_ids": ["C01", "C03"]}
+                    }
+                  },
+                  {
+                    "header_id": "g11-e02-h-subject",
+                    "name": "Subject",
+                    "value": "Re: 找到：客厅预算调整邮件",
+                    "authorship": {
+                      "authored_id": "g11-e02-h-subject-auth",
+                      "occurred_at": "2026-04-03T10:02:00+08:00",
+                      "author_role": "engineering",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D33"], "fact_ids": ["F08"], "continuity_ids": ["C01", "C03"]}
+                    }
+                  },
+                  {
+                    "header_id": "g11-e02-h-id",
+                    "name": "Message-ID",
+                    "value": "<g11-budget-reply1@seamlog.test>",
+                    "authorship": {
+                      "authored_id": "g11-e02-h-id-auth",
+                      "occurred_at": "2026-04-03T10:02:00+08:00",
+                      "author_role": "engineering",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D33"], "fact_ids": ["F08"], "continuity_ids": ["C01", "C03"]}
+                    }
+                  },
+                  {
+                    "header_id": "g11-e02-h-reply",
+                    "name": "In-Reply-To",
+                    "value": "<g11-budget-root@bamboo.test>",
+                    "authorship": {
+                      "authored_id": "g11-e02-h-reply-auth",
+                      "occurred_at": "2026-04-03T10:02:00+08:00",
+                      "author_role": "engineering",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D33"], "fact_ids": ["F08"], "continuity_ids": ["C01", "C03"]}
+                    }
+                  },
+                  {
+                    "header_id": "g11-e02-h-refs",
+                    "name": "References",
+                    "value": "<g11-budget-root@bamboo.test>",
+                    "authorship": {
+                      "authored_id": "g11-e02-h-refs-auth",
+                      "occurred_at": "2026-04-03T10:02:00+08:00",
+                      "author_role": "engineering",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D33"], "fact_ids": ["F08"], "continuity_ids": ["C01", "C03"]}
+                    }
+                  }
+                ],
+                "full_text": "吴岚：\n\n收到。我已把邮件正文、原 Message-ID 和附件跳转地址分别留存，附件对象没有进入归档，所以不会在 Seamlog 里显示成可下载文件。记录状态按你的表述：正文可读，链接失效，附件内容未知。\n\n我会先找现场录制中谈木作和灯具的时段，再判断两份材料能否互相补足。现在不把邮件中的“调整”直接标成已确认，也不从正文金额反推附件表格。昨天改的只是项目列表排序，历史回放仍没完成，这两件事分开记。\n\n林舟",
+                "in_reply_to": "g11-email01",
+                "references": ["g11-email01"],
+                "attachments": [],
+                "authorship": {
+                  "authored_id": "g11-d3-e02",
+                  "occurred_at": "2026-04-03T10:02:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D33"],
+                    "fact_ids": ["F08"],
+                    "continuity_ids": ["C01", "C03"]
+                  }
+                }
+              },
+              {
+                "message_id": "g11-email03",
+                "sent_at": "2026-04-03T11:26:00+08:00",
+                "from": {
+                  "address": "chen.fang@bamboo.test",
+                  "display_name": "陈放",
+                  "role": "operations"
+                },
+                "to": [
+                  {
+                    "address": "lin.zhou@seamlog.test",
+                    "display_name": "林舟",
+                    "role": "engineering"
+                  }
+                ],
+                "cc": [
+                  {
+                    "address": "wu.lan@bamboo.test",
+                    "display_name": "吴岚",
+                    "role": "manager"
+                  }
+                ],
+                "subject": "Re: 找到：客厅预算调整邮件",
+                "headers": [
+                  {
+                    "header_id": "g11-e03-h-date",
+                    "name": "Date",
+                    "value": "Fri, 03 Apr 2026 11:26:00 +0800",
+                    "authorship": {
+                      "authored_id": "g11-e03-h-date-auth",
+                      "occurred_at": "2026-04-03T11:26:00+08:00",
+                      "author_role": "operations",
+                      "content_class": "ambiguous",
+                      "links": {"story_beat_ids": ["D33"], "fact_ids": ["F08"], "continuity_ids": ["C01", "C03"]}
+                    }
+                  },
+                  {
+                    "header_id": "g11-e03-h-from",
+                    "name": "From",
+                    "value": "陈放 <chen.fang@bamboo.test>",
+                    "authorship": {
+                      "authored_id": "g11-e03-h-from-auth",
+                      "occurred_at": "2026-04-03T11:26:00+08:00",
+                      "author_role": "operations",
+                      "content_class": "ambiguous",
+                      "links": {"story_beat_ids": ["D33"], "fact_ids": ["F08"], "continuity_ids": ["C01", "C03"]}
+                    }
+                  },
+                  {
+                    "header_id": "g11-e03-h-to",
+                    "name": "To",
+                    "value": "林舟 <lin.zhou@seamlog.test>",
+                    "authorship": {
+                      "authored_id": "g11-e03-h-to-auth",
+                      "occurred_at": "2026-04-03T11:26:00+08:00",
+                      "author_role": "operations",
+                      "content_class": "ambiguous",
+                      "links": {"story_beat_ids": ["D33"], "fact_ids": ["F08"], "continuity_ids": ["C01", "C03"]}
+                    }
+                  },
+                  {
+                    "header_id": "g11-e03-h-subject",
+                    "name": "Subject",
+                    "value": "Re: 找到：客厅预算调整邮件",
+                    "authorship": {
+                      "authored_id": "g11-e03-h-subject-auth",
+                      "occurred_at": "2026-04-03T11:26:00+08:00",
+                      "author_role": "operations",
+                      "content_class": "ambiguous",
+                      "links": {"story_beat_ids": ["D33"], "fact_ids": ["F08"], "continuity_ids": ["C01", "C03"]}
+                    }
+                  },
+                  {
+                    "header_id": "g11-e03-h-id",
+                    "name": "Message-ID",
+                    "value": "<g11-budget-reply2@bamboo.test>",
+                    "authorship": {
+                      "authored_id": "g11-e03-h-id-auth",
+                      "occurred_at": "2026-04-03T11:26:00+08:00",
+                      "author_role": "operations",
+                      "content_class": "ambiguous",
+                      "links": {"story_beat_ids": ["D33"], "fact_ids": ["F08"], "continuity_ids": ["C01", "C03"]}
+                    }
+                  },
+                  {
+                    "header_id": "g11-e03-h-reply",
+                    "name": "In-Reply-To",
+                    "value": "<g11-budget-reply1@seamlog.test>",
+                    "authorship": {
+                      "authored_id": "g11-e03-h-reply-auth",
+                      "occurred_at": "2026-04-03T11:26:00+08:00",
+                      "author_role": "operations",
+                      "content_class": "ambiguous",
+                      "links": {"story_beat_ids": ["D33"], "fact_ids": ["F08"], "continuity_ids": ["C01", "C03"]}
+                    }
+                  },
+                  {
+                    "header_id": "g11-e03-h-refs",
+                    "name": "References",
+                    "value": "<g11-budget-root@bamboo.test> <g11-budget-reply1@seamlog.test>",
+                    "authorship": {
+                      "authored_id": "g11-e03-h-refs-auth",
+                      "occurred_at": "2026-04-03T11:26:00+08:00",
+                      "author_role": "operations",
+                      "content_class": "ambiguous",
+                      "links": {"story_beat_ids": ["D33"], "fact_ids": ["F08"], "continuity_ids": ["C01", "C03"]}
+                    }
+                  }
+                ],
+                "full_text": "我能帮你缩小录制范围，但先说清：是凭现场顺序回忆，不是确认。那天先看了两块木皮样，后来有人把柜体数量从一组说成两组；灯具金额是在更后面提到的。我不记得最后是谁点头，也不确定这两句是不是同一轮调整。\n\n纸质预算表当时在桌上转过，我没有拿走，电脑里也没存。录制里如果能听到数量，只能补现场说过什么；不能替代现在打不开的 v3 表。下午我会另发一封邮件，写我能定位到的前后动作，免得这里越回越长。\n\n陈放",
+                "in_reply_to": "g11-email02",
+                "references": ["g11-email01", "g11-email02"],
+                "attachments": [],
+                "authorship": {
+                  "authored_id": "g11-d3-e03",
+                  "occurred_at": "2026-04-03T11:26:00+08:00",
+                  "author_role": "operations",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": ["D33"],
+                    "fact_ids": ["F08"],
+                    "continuity_ids": ["C01", "C03"]
+                  }
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "g11-thread-budget-auth",
+              "occurred_at": "2026-04-03T11:26:00+08:00",
+              "author_role": "manager",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": ["D33"],
+                "fact_ids": ["F08"],
+                "continuity_ids": ["C01", "C03"]
+              }
+            }
+          },
+          {
+            "thread_id": "g11-thread-locator",
+            "subject": "现场会定位：只到样板之后",
+            "messages": [
+              {
+                "message_id": "g11-email04",
+                "sent_at": "2026-04-03T15:07:00+08:00",
+                "from": {
+                  "address": "chen.fang@bamboo.test",
+                  "display_name": "陈放",
+                  "role": "operations"
+                },
+                "to": [
+                  {
+                    "address": "lin.zhou@seamlog.test",
+                    "display_name": "林舟",
+                    "role": "engineering"
+                  }
+                ],
+                "cc": [
+                  {
+                    "address": "wu.lan@bamboo.test",
+                    "display_name": "吴岚",
+                    "role": "manager"
+                  }
+                ],
+                "subject": "现场会定位：只到样板之后",
+                "headers": [
+                  {
+                    "header_id": "g11-e04-h-date",
+                    "name": "Date",
+                    "value": "Fri, 03 Apr 2026 15:07:00 +0800",
+                    "authorship": {
+                      "authored_id": "g11-e04-h-date-auth",
+                      "occurred_at": "2026-04-03T15:07:00+08:00",
+                      "author_role": "operations",
+                      "content_class": "ambiguous",
+                      "links": {"story_beat_ids": ["D33"], "fact_ids": ["F08"], "continuity_ids": ["C01", "C03"]}
+                    }
+                  },
+                  {
+                    "header_id": "g11-e04-h-from",
+                    "name": "From",
+                    "value": "陈放 <chen.fang@bamboo.test>",
+                    "authorship": {
+                      "authored_id": "g11-e04-h-from-auth",
+                      "occurred_at": "2026-04-03T15:07:00+08:00",
+                      "author_role": "operations",
+                      "content_class": "ambiguous",
+                      "links": {"story_beat_ids": ["D33"], "fact_ids": ["F08"], "continuity_ids": ["C01", "C03"]}
+                    }
+                  },
+                  {
+                    "header_id": "g11-e04-h-to",
+                    "name": "To",
+                    "value": "林舟 <lin.zhou@seamlog.test>",
+                    "authorship": {
+                      "authored_id": "g11-e04-h-to-auth",
+                      "occurred_at": "2026-04-03T15:07:00+08:00",
+                      "author_role": "operations",
+                      "content_class": "ambiguous",
+                      "links": {"story_beat_ids": ["D33"], "fact_ids": ["F08"], "continuity_ids": ["C01", "C03"]}
+                    }
+                  },
+                  {
+                    "header_id": "g11-e04-h-subject",
+                    "name": "Subject",
+                    "value": "现场会定位：只到样板之后",
+                    "authorship": {
+                      "authored_id": "g11-e04-h-subject-auth",
+                      "occurred_at": "2026-04-03T15:07:00+08:00",
+                      "author_role": "operations",
+                      "content_class": "ambiguous",
+                      "links": {"story_beat_ids": ["D33"], "fact_ids": ["F08"], "continuity_ids": ["C01", "C03"]}
+                    }
+                  },
+                  {
+                    "header_id": "g11-e04-h-id",
+                    "name": "Message-ID",
+                    "value": "<g11-locator-root@bamboo.test>",
+                    "authorship": {
+                      "authored_id": "g11-e04-h-id-auth",
+                      "occurred_at": "2026-04-03T15:07:00+08:00",
+                      "author_role": "operations",
+                      "content_class": "ambiguous",
+                      "links": {"story_beat_ids": ["D33"], "fact_ids": ["F08"], "continuity_ids": ["C01", "C03"]}
+                    }
+                  }
+                ],
+                "full_text": "林舟：\n\n我按当天手机照片顺序看了一遍。讨论应该发生在第二块木皮样收回之后、量窗帘盒之前。照片只能给前后顺序，拍不到预算表，也没有金额。录制里若有翻纸声，大概就是那一段，但我不敢给具体分钟。\n\n另外，消息里有一句“不是这个意思”，那是我在纠正柜体数量，不是撤回整个调整。请先当定位提示，不要据此给变更状态。办公室明天放假，我今晚收电脑后不会再补材料。\n\n陈放",
+                "in_reply_to": null,
+                "references": [],
+                "attachments": [],
+                "authorship": {
+                  "authored_id": "g11-d3-e04",
+                  "occurred_at": "2026-04-03T15:07:00+08:00",
+                  "author_role": "operations",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": ["D33"],
+                    "fact_ids": ["F08"],
+                    "continuity_ids": ["C01", "C03"]
+                  }
+                }
+              },
+              {
+                "message_id": "g11-email05",
+                "sent_at": "2026-04-03T16:02:00+08:00",
+                "from": {
+                  "address": "lin.zhou@seamlog.test",
+                  "display_name": "林舟",
+                  "role": "engineering"
+                },
+                "to": [
+                  {
+                    "address": "chen.fang@bamboo.test",
+                    "display_name": "陈放",
+                    "role": "operations"
+                  }
+                ],
+                "cc": [
+                  {
+                    "address": "wu.lan@bamboo.test",
+                    "display_name": "吴岚",
+                    "role": "manager"
+                  }
+                ],
+                "subject": "Re: 现场会定位：只到样板之后",
+                "headers": [
+                  {
+                    "header_id": "g11-e05-h-date",
+                    "name": "Date",
+                    "value": "Fri, 03 Apr 2026 16:02:00 +0800",
+                    "authorship": {
+                      "authored_id": "g11-e05-h-date-auth",
+                      "occurred_at": "2026-04-03T16:02:00+08:00",
+                      "author_role": "engineering",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D33"], "fact_ids": ["F08"], "continuity_ids": ["C01", "C03"]}
+                    }
+                  },
+                  {
+                    "header_id": "g11-e05-h-from",
+                    "name": "From",
+                    "value": "林舟 <lin.zhou@seamlog.test>",
+                    "authorship": {
+                      "authored_id": "g11-e05-h-from-auth",
+                      "occurred_at": "2026-04-03T16:02:00+08:00",
+                      "author_role": "engineering",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D33"], "fact_ids": ["F08"], "continuity_ids": ["C01", "C03"]}
+                    }
+                  },
+                  {
+                    "header_id": "g11-e05-h-to",
+                    "name": "To",
+                    "value": "陈放 <chen.fang@bamboo.test>",
+                    "authorship": {
+                      "authored_id": "g11-e05-h-to-auth",
+                      "occurred_at": "2026-04-03T16:02:00+08:00",
+                      "author_role": "engineering",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D33"], "fact_ids": ["F08"], "continuity_ids": ["C01", "C03"]}
+                    }
+                  },
+                  {
+                    "header_id": "g11-e05-h-subject",
+                    "name": "Subject",
+                    "value": "Re: 现场会定位：只到样板之后",
+                    "authorship": {
+                      "authored_id": "g11-e05-h-subject-auth",
+                      "occurred_at": "2026-04-03T16:02:00+08:00",
+                      "author_role": "engineering",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D33"], "fact_ids": ["F08"], "continuity_ids": ["C01", "C03"]}
+                    }
+                  },
+                  {
+                    "header_id": "g11-e05-h-id",
+                    "name": "Message-ID",
+                    "value": "<g11-locator-reply1@seamlog.test>",
+                    "authorship": {
+                      "authored_id": "g11-e05-h-id-auth",
+                      "occurred_at": "2026-04-03T16:02:00+08:00",
+                      "author_role": "engineering",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D33"], "fact_ids": ["F08"], "continuity_ids": ["C01", "C03"]}
+                    }
+                  },
+                  {
+                    "header_id": "g11-e05-h-reply",
+                    "name": "In-Reply-To",
+                    "value": "<g11-locator-root@bamboo.test>",
+                    "authorship": {
+                      "authored_id": "g11-e05-h-reply-auth",
+                      "occurred_at": "2026-04-03T16:02:00+08:00",
+                      "author_role": "engineering",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D33"], "fact_ids": ["F08"], "continuity_ids": ["C01", "C03"]}
+                    }
+                  },
+                  {
+                    "header_id": "g11-e05-h-refs",
+                    "name": "References",
+                    "value": "<g11-locator-root@bamboo.test>",
+                    "authorship": {
+                      "authored_id": "g11-e05-h-refs-auth",
+                      "occurred_at": "2026-04-03T16:02:00+08:00",
+                      "author_role": "engineering",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D33"], "fact_ids": ["F08"], "continuity_ids": ["C01", "C03"]}
+                    }
+                  }
+                ],
+                "full_text": "陈放：\n\n收到。我会用照片前后动作缩小播放范围，但不把照片当预算证据，也不把你的记忆写成确认。那句“不是这个意思”只挂在柜体数量的待核项下面；灯具金额仍只出现在邮件正文，附件表的内容保持未知。\n\n今天能整理出的只是三份来源各自的边界：邮件说明调整被发出，现场定位提示录制里可能有数量讨论，消息提示你纠正过某个表述。它们还没有组成完整变更链，第二条变更更没有找到。历史回放也继续留在未完成。\n\n林舟",
+                "in_reply_to": "g11-email04",
+                "references": ["g11-email04"],
+                "attachments": [],
+                "authorship": {
+                  "authored_id": "g11-d3-e05",
+                  "occurred_at": "2026-04-03T16:02:00+08:00",
+                  "author_role": "engineering",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D33"],
+                    "fact_ids": ["F08"],
+                    "continuity_ids": ["C01", "C03"]
+                  }
+                }
+              },
+              {
+                "message_id": "g11-email06",
+                "sent_at": "2026-04-03T17:18:00+08:00",
+                "from": {
+                  "address": "wu.lan@bamboo.test",
+                  "display_name": "吴岚",
+                  "role": "manager"
+                },
+                "to": [
+                  {
+                    "address": "lin.zhou@seamlog.test",
+                    "display_name": "林舟",
+                    "role": "engineering"
+                  }
+                ],
+                "cc": [
+                  {
+                    "address": "chen.fang@bamboo.test",
+                    "display_name": "陈放",
+                    "role": "operations"
+                  }
+                ],
+                "subject": "Re: 现场会定位：只到样板之后",
+                "headers": [
+                  {
+                    "header_id": "g11-e06-h-date",
+                    "name": "Date",
+                    "value": "Fri, 03 Apr 2026 17:18:00 +0800",
+                    "authorship": {
+                      "authored_id": "g11-e06-h-date-auth",
+                      "occurred_at": "2026-04-03T17:18:00+08:00",
+                      "author_role": "manager",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D33"], "fact_ids": ["F08"], "continuity_ids": ["C01", "C03"]}
+                    }
+                  },
+                  {
+                    "header_id": "g11-e06-h-from",
+                    "name": "From",
+                    "value": "吴岚 <wu.lan@bamboo.test>",
+                    "authorship": {
+                      "authored_id": "g11-e06-h-from-auth",
+                      "occurred_at": "2026-04-03T17:18:00+08:00",
+                      "author_role": "manager",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D33"], "fact_ids": ["F08"], "continuity_ids": ["C01", "C03"]}
+                    }
+                  },
+                  {
+                    "header_id": "g11-e06-h-to",
+                    "name": "To",
+                    "value": "林舟 <lin.zhou@seamlog.test>",
+                    "authorship": {
+                      "authored_id": "g11-e06-h-to-auth",
+                      "occurred_at": "2026-04-03T17:18:00+08:00",
+                      "author_role": "manager",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D33"], "fact_ids": ["F08"], "continuity_ids": ["C01", "C03"]}
+                    }
+                  },
+                  {
+                    "header_id": "g11-e06-h-subject",
+                    "name": "Subject",
+                    "value": "Re: 现场会定位：只到样板之后",
+                    "authorship": {
+                      "authored_id": "g11-e06-h-subject-auth",
+                      "occurred_at": "2026-04-03T17:18:00+08:00",
+                      "author_role": "manager",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D33"], "fact_ids": ["F08"], "continuity_ids": ["C01", "C03"]}
+                    }
+                  },
+                  {
+                    "header_id": "g11-e06-h-id",
+                    "name": "Message-ID",
+                    "value": "<g11-locator-reply2@bamboo.test>",
+                    "authorship": {
+                      "authored_id": "g11-e06-h-id-auth",
+                      "occurred_at": "2026-04-03T17:18:00+08:00",
+                      "author_role": "manager",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D33"], "fact_ids": ["F08"], "continuity_ids": ["C01", "C03"]}
+                    }
+                  },
+                  {
+                    "header_id": "g11-e06-h-reply",
+                    "name": "In-Reply-To",
+                    "value": "<g11-locator-reply1@seamlog.test>",
+                    "authorship": {
+                      "authored_id": "g11-e06-h-reply-auth",
+                      "occurred_at": "2026-04-03T17:18:00+08:00",
+                      "author_role": "manager",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D33"], "fact_ids": ["F08"], "continuity_ids": ["C01", "C03"]}
+                    }
+                  },
+                  {
+                    "header_id": "g11-e06-h-refs",
+                    "name": "References",
+                    "value": "<g11-locator-root@bamboo.test> <g11-locator-reply1@seamlog.test>",
+                    "authorship": {
+                      "authored_id": "g11-e06-h-refs-auth",
+                      "occurred_at": "2026-04-03T17:18:00+08:00",
+                      "author_role": "manager",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D33"], "fact_ids": ["F08"], "continuity_ids": ["C01", "C03"]}
+                    }
+                  }
+                ],
+                "full_text": "可以按这个范围继续，但请把导出写成两栏：左边是已经能点回的来源，右边是仍缺的东西。预算附件、最终确认人、第二条变更都放右边；不要用陈放的照片顺序或记忆把它们补齐。\n\n假期前不再要求竹影同事找历史材料。你周二先演示如何回到邮件正文和录制时段，再说明为什么附件缺失使这封邮件不足以单独证明全部调整。页面排序和数据层回放另行处理，不要混在这次核对结论里。\n\n吴岚",
+                "in_reply_to": "g11-email05",
+                "references": ["g11-email04", "g11-email05"],
+                "attachments": [],
+                "authorship": {
+                  "authored_id": "g11-d3-e06",
+                  "occurred_at": "2026-04-03T17:18:00+08:00",
+                  "author_role": "manager",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D33"],
+                    "fact_ids": ["F08"],
+                    "continuity_ids": ["C01", "C03"]
+                  }
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "g11-thread-locator-auth",
+              "occurred_at": "2026-04-03T17:18:00+08:00",
+              "author_role": "manager",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": ["D33"],
+                "fact_ids": ["F08"],
+                "continuity_ids": ["C01", "C03"]
+              }
+            }
+          },
+          {
+            "thread_id": "g11-thread-archive-receipt",
+            "subject": "归档检索作业 0403-2 完成",
+            "messages": [
+              {
+                "message_id": "g11-email07",
+                "sent_at": "2026-04-03T17:36:00+08:00",
+                "from": {
+                  "address": "archive-notify@seamlog.test",
+                  "display_name": "归档检索通知",
+                  "role": "system"
+                },
+                "to": [
+                  {
+                    "address": "lin.zhou@seamlog.test",
+                    "display_name": "林舟",
+                    "role": "engineering"
+                  }
+                ],
+                "cc": [],
+                "subject": "归档检索作业 0403-2 完成",
+                "headers": [
+                  {
+                    "header_id": "g11-e07-h-date",
+                    "name": "Date",
+                    "value": "Fri, 03 Apr 2026 17:36:00 +0800",
+                    "authorship": {
+                      "authored_id": "g11-e07-h-date-auth",
+                      "occurred_at": "2026-04-03T17:36:00+08:00",
+                      "author_role": "system",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D33"], "fact_ids": ["F08"], "continuity_ids": ["C01"]}
+                    }
+                  },
+                  {
+                    "header_id": "g11-e07-h-from",
+                    "name": "From",
+                    "value": "归档检索通知 <archive-notify@seamlog.test>",
+                    "authorship": {
+                      "authored_id": "g11-e07-h-from-auth",
+                      "occurred_at": "2026-04-03T17:36:00+08:00",
+                      "author_role": "system",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D33"], "fact_ids": ["F08"], "continuity_ids": ["C01"]}
+                    }
+                  },
+                  {
+                    "header_id": "g11-e07-h-to",
+                    "name": "To",
+                    "value": "林舟 <lin.zhou@seamlog.test>",
+                    "authorship": {
+                      "authored_id": "g11-e07-h-to-auth",
+                      "occurred_at": "2026-04-03T17:36:00+08:00",
+                      "author_role": "system",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D33"], "fact_ids": ["F08"], "continuity_ids": ["C01"]}
+                    }
+                  },
+                  {
+                    "header_id": "g11-e07-h-subject",
+                    "name": "Subject",
+                    "value": "归档检索作业 0403-2 完成",
+                    "authorship": {
+                      "authored_id": "g11-e07-h-subject-auth",
+                      "occurred_at": "2026-04-03T17:36:00+08:00",
+                      "author_role": "system",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D33"], "fact_ids": ["F08"], "continuity_ids": ["C01"]}
+                    }
+                  },
+                  {
+                    "header_id": "g11-e07-h-id",
+                    "name": "Message-ID",
+                    "value": "<g11-archive-receipt@seamlog.test>",
+                    "authorship": {
+                      "authored_id": "g11-e07-h-id-auth",
+                      "occurred_at": "2026-04-03T17:36:00+08:00",
+                      "author_role": "system",
+                      "content_class": "signal",
+                      "links": {"story_beat_ids": ["D33"], "fact_ids": ["F08"], "continuity_ids": ["C01"]}
+                    }
+                  }
+                ],
+                "full_text": "检索范围：云麓只读邮件归档；关键词：预算更新表 v3；命中：1 封邮件。\n\n保留内容：邮件正文、Message-ID、发送与收件字段、一个外部跳转地址。归档内文件对象：0。此结果只描述归档内容，不包含对外部地址的可用性测试，也不推断附件原文。",
+                "in_reply_to": null,
+                "references": [],
+                "attachments": [],
+                "authorship": {
+                  "authored_id": "g11-d3-e07",
+                  "occurred_at": "2026-04-03T17:36:00+08:00",
+                  "author_role": "system",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": ["D33"],
+                    "fact_ids": ["F08"],
+                    "continuity_ids": ["C01"]
+                  }
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "g11-thread-archive-receipt-auth",
+              "occurred_at": "2026-04-03T17:36:00+08:00",
+              "author_role": "system",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": ["D33"],
+                "fact_ids": ["F08"],
+                "continuity_ids": ["C01"]
+              }
+            }
+          }
+        ],
+        "authorship": {
+          "authored_id": "g11-emailsrc-auth",
+          "occurred_at": "2026-04-03T17:36:00+08:00",
+          "author_role": "engineering",
+          "content_class": "signal",
+          "links": {
+            "story_beat_ids": ["D33"],
+            "fact_ids": ["F08"],
+            "continuity_ids": ["C01", "C03"]
+          }
+        }
+      }
+    ]
+  }
+}

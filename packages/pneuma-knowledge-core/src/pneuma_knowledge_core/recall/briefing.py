@@ -31,9 +31,9 @@ from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from langchain_core.tools import StructuredTool
 
 from ..domain.canonical import (
-    CANONICAL_CITATION_RE,
     CanonicalDocument,
     Citation,
+    iter_canonical_citations,
 )
 from ..domain.ids import UserId, SourceId
 from ..domain.snapshot import SnapshotRef
@@ -216,8 +216,8 @@ async def _source_section(
             for d in snapshot_docs
             if d.path.startswith("materials/")
             and any(
-                m.group("sid") == sid
-                for m in CANONICAL_CITATION_RE.finditer(d.body)
+                str(citation.source_id) == sid
+                for citation in iter_canonical_citations(d.body)
             )
         ),
         key=lambda d: d.path,

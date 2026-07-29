@@ -95,6 +95,24 @@ async def test_new_citation_out_of_range_is_violation():
     assert bounds.calls == ["src-09"]  # a NEW citation is validated against the store
 
 
+async def test_grouped_new_citation_validates_each_span():
+    src = _topic("atlas", "## 计划\n")
+    draft = PatchDraft.from_canonical([src], TEMPLATES)
+    draft.create_document(
+        "memory/products/atlas.md",
+        {"type": "product", "slug": "atlas"},
+        "- 新写事实。[cite: src-09 ¶1-2,6]",
+    )
+    bounds = _CountingBounds({"src-09": 3})
+    violations, _ = await run_evolve_gate(
+        draft, source_bounds=bounds, path_templates=TEMPLATES
+    )
+    citation_violations = [item for item in violations if item.kind == "citation"]
+    assert len(citation_violations) == 1
+    assert "¶6-6" in citation_violations[0].detail
+    assert bounds.calls == ["src-09", "src-09"]
+
+
 async def test_new_citation_missing_source_is_violation():
     src = _topic("atlas", "## 计划\n")
     draft = PatchDraft.from_canonical([src], TEMPLATES)

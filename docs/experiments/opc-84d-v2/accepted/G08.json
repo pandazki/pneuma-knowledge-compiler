@@ -1,0 +1,1608 @@
+{
+  "schema": "pneuma.experiment.opc-84d-v2.group-content/v1",
+  "group_id": "G08",
+  "group_window": {
+    "starts_on": "2026-03-23",
+    "ends_on": "2026-03-25",
+    "day_count": 3,
+    "timezone": "Asia/Shanghai"
+  },
+  "story_scope": {
+    "allowed_story_beat_ids": [
+      "D22",
+      "D23",
+      "D24"
+    ],
+    "known_fact_ids": [
+      "F01",
+      "F02",
+      "F03",
+      "F04",
+      "F05",
+      "F06",
+      "F07",
+      "F08"
+    ],
+    "open_continuity_ids": [
+      "C01",
+      "C02",
+      "C03"
+    ],
+    "new_continuity_ids": []
+  },
+  "research_context": [
+    {
+      "research_ref_id": "G08-R01",
+      "topic_query": "RFC 5322 message identifier reply references email threading",
+      "url": "https://www.rfc-editor.org/rfc/rfc5322.html",
+      "title": "RFC 5322: Internet Message Format",
+      "accessed_on": "2026-07-29",
+      "credibility": {
+        "tier": "primary",
+        "rationale": "The IETF specification is the primary source describing message identification and reply-related header fields."
+      },
+      "applicability_scope": "Shapes only the fictional email archive's separate message identifiers and linked reply threads. It supplies no email prose, organization, address, policy, or commercial term.",
+      "author_fact_summaries": [
+        "A mail message can carry an identifier independently of its display subject.",
+        "Reply-related fields can preserve a chain even when recipients change between messages."
+      ],
+      "fictionalization_boundary": "No RFC examples, ABNF, section labels, wording, dates, or addresses are carried into fictional email bodies.",
+      "applied_authored_ids": [
+        "G08d23Mail01Auth",
+        "G08d23Mail02Auth",
+        "G08d23Mail03Auth",
+        "G08d23Mail04Auth"
+      ]
+    },
+    {
+      "research_ref_id": "G08-R02",
+      "topic_query": "NIST Privacy Framework 1.0 Core identify privacy risk",
+      "url": "https://nvlpubs.nist.gov/nistpubs/CSWP/NIST.CSWP.01162020.pdf",
+      "title": "NIST Privacy Framework: A Tool for Improving Privacy through Enterprise Risk Management, Version 1.0",
+      "accessed_on": "2026-07-29",
+      "credibility": {
+        "tier": "official",
+        "rationale": "The framework publisher describes its purpose as helping organizations identify and manage privacy risk."
+      },
+      "applicability_scope": "Supports only a neutral draft distinction between material with an identified source and fields whose source remains to be checked. It supplies no project-specific role, path, retention, export, deletion, legal conclusion, or decision.",
+      "author_fact_summaries": [
+        "The Privacy Framework describes a voluntary way for organizations to identify and manage privacy risk."
+      ],
+      "fictionalization_boundary": "No framework control names, organizational examples, assessment language, or source text appears in fictional materials.",
+      "applied_authored_ids": [
+        "G08d23ProcessorBlock01Auth",
+        "G08d23NoAssumptionBlock01Auth"
+      ]
+    }
+  ],
+  "sources": {
+    "meetings": [
+      {
+        "source_id": "G08d22MeetingSource",
+        "schema": "pneuma.source.meeting/v1",
+        "provider": "mock",
+        "meeting_id": "G08d22ProcurementCall",
+        "title": "采购清单与临时审批请求",
+        "started_at": "2026-03-23T10:08:00+08:00",
+        "ended_at": "2026-03-23T11:20:00+08:00",
+        "timezone": "Asia/Shanghai",
+        "owner_participant_ids": [
+          "G08personLin"
+        ],
+        "participants": [
+          {
+            "participant_id": "G08personLin",
+            "display_name": "林舟",
+            "role": "product",
+            "synthetic_address": "lin.zhou@seamlog.example.test"
+          },
+          {
+            "participant_id": "G08personWu",
+            "display_name": "吴岚",
+            "role": "manager",
+            "synthetic_address": "wu.lan@bamboo.example.test"
+          },
+          {
+            "participant_id": "G08personJia",
+            "display_name": "贾宁",
+            "role": "engineering",
+            "synthetic_address": "jia.ning@seamlog.example.test"
+          },
+          {
+            "participant_id": "G08personSun",
+            "display_name": "孙秋",
+            "role": "legal",
+            "synthetic_address": "sun.qiu@advisory.example.test"
+          }
+        ],
+        "agenda": [
+          {
+            "agenda_id": "G08d22Agenda01",
+            "text": "辨认采购清单刚出现的项目，并区分客户临时提出的请求与已确认的试点边界。",
+            "authorship": {
+              "authored_id": "G08d22Agenda01Auth",
+              "occurred_at": "2026-03-23T10:08:00+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D22"
+                ],
+                "fact_ids": [
+                  "F07",
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C03"
+                ]
+              }
+            }
+          }
+        ],
+        "utterances": [
+          {
+            "utterance_id": "G08d22Turn01",
+            "speaker_id": "G08personLin",
+            "started_at": "2026-03-23T10:08:00+08:00",
+            "ended_at": "2026-03-23T10:12:00+08:00",
+            "text": "我刚跑完步，膝盖贴着止痛贴，楼下药店的收据还在口袋里。先说正事：吴岚转来的采购清单不是批准书，里面有几项需要我们逐条说明，但我还没把它读成任何开始通知。",
+            "authorship": {
+              "authored_id": "G08d22Turn01Auth",
+              "occurred_at": "2026-03-23T10:08:00+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D22"
+                ],
+                "fact_ids": [],
+                "continuity_ids": []
+              }
+            }
+          },
+          {
+            "utterance_id": "G08d22Turn02",
+            "speaker_id": "G08personWu",
+            "started_at": "2026-03-23T10:12:00+08:00",
+            "ended_at": "2026-03-23T10:17:00+08:00",
+            "text": "清单是采购同事今天才转给我的，很多格子只写了主题，没有答案。客户在旁边问了一句，能不能把供应商审批也顺手放进去；这是一项临时请求，不是我替项目确认的新范围。",
+            "authorship": {
+              "authored_id": "G08d22Turn02Auth",
+              "occurred_at": "2026-03-23T10:12:00+08:00",
+              "author_role": "manager",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D22"
+                ],
+                "fact_ids": [
+                  "F07",
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "G08d22Turn03",
+            "speaker_id": "G08personLin",
+            "started_at": "2026-03-23T10:17:00+08:00",
+            "ended_at": "2026-03-23T10:21:00+08:00",
+            "text": "我听到的是“有人问能否加入”，不是“我们要做”。现有边界仍是云麓的预算变更和材料替代，只读副本也只围着那两类材料。审批牵涉谁提出、谁看、谁最后放行，不能被一行口头问题吞掉。",
+            "authorship": {
+              "authored_id": "G08d22Turn03Auth",
+              "occurred_at": "2026-03-23T10:17:00+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D22"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "G08d22Turn04",
+            "speaker_id": "G08personJia",
+            "started_at": "2026-03-23T10:21:00+08:00",
+            "ended_at": "2026-03-23T10:25:00+08:00",
+            "text": "先别把“审批”当成一个按钮。若它只是把某段材料送人看，和若它要保存可追责的批准链，数据关系完全不同。你们连清单里谁提问、谁能确认答案都还没写清，今天不能拿现有副本去代替它。",
+            "authorship": {
+              "authored_id": "G08d22Turn04Auth",
+              "occurred_at": "2026-03-23T10:21:00+08:00",
+              "author_role": "engineering",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D22"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "G08d22Turn05",
+            "speaker_id": "G08personSun",
+            "started_at": "2026-03-23T10:25:00+08:00",
+            "ended_at": "2026-03-23T10:30:00+08:00",
+            "text": "清单开始出现本身有价值，但不要把空格当默认同意。我建议把它拆成：当前副本碰到哪些材料、外部服务是否会接触、谁提出删除或导出请求、以及哪些问题仍由客户回答。供应商审批另列，不在这些问题里偷偷变成既定功能。",
+            "authorship": {
+              "authored_id": "G08d22Turn05Auth",
+              "occurred_at": "2026-03-23T10:25:00+08:00",
+              "author_role": "legal",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D22"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "G08d22Turn06",
+            "speaker_id": "G08personWu",
+            "started_at": "2026-03-23T10:30:00+08:00",
+            "ended_at": "2026-03-23T10:34:00+08:00",
+            "text": "我可以把这句话带回去：审批不是当前试点的默认组成。可我不想替客户下结论，说永远不需要它；他们可能只是把两个问题混在了一次会议里。采购那边也还没告诉我哪些条目必须先答。",
+            "authorship": {
+              "authored_id": "G08d22Turn06Auth",
+              "occurred_at": "2026-03-23T10:30:00+08:00",
+              "author_role": "manager",
+              "content_class": "ambiguous",
+              "links": {
+                "story_beat_ids": [
+                  "D22"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "G08d22Turn07",
+            "speaker_id": "G08personLin",
+            "started_at": "2026-03-23T10:34:00+08:00",
+            "ended_at": "2026-03-23T10:39:00+08:00",
+            "text": "对，我也不想在口头会上给它贴永久标签。我今天只会整理一份可读的子处理方草稿，写清已知服务位置和未知项；不会给出期限、价格或任何导入安排。草稿的目的，是让采购能指出哪一格问错了。",
+            "authorship": {
+              "authored_id": "G08d22Turn07Auth",
+              "occurred_at": "2026-03-23T10:34:00+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D22"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "G08d22Turn08",
+            "speaker_id": "G08personJia",
+            "started_at": "2026-03-23T10:39:00+08:00",
+            "ended_at": "2026-03-23T10:43:00+08:00",
+            "text": "“已知服务位置”也别写成已经审核。你可以记来源副本所在的托管层、通知邮件由谁收、故障时谁先被叫到；但只要某个外部处理角色还没核对，就标未确认。否则清单一回来，你会很难解释哪些是事实、哪些是你为了填表猜的。",
+            "authorship": {
+              "authored_id": "G08d22Turn08Auth",
+              "occurred_at": "2026-03-23T10:39:00+08:00",
+              "author_role": "engineering",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D22"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "G08d22Turn09",
+            "speaker_id": "G08personSun",
+            "started_at": "2026-03-23T10:43:00+08:00",
+            "ended_at": "2026-03-23T10:48:00+08:00",
+            "text": "另一个容易混掉的词是“验收”。现在只能说将来要检查项目级导出和删除说明是否可回答，不能把它说成已经测试通过。至于保留多长、由谁见证删除，都还没有来自客户的答复；别把问题单的标题变成承诺。",
+            "authorship": {
+              "authored_id": "G08d22Turn09Auth",
+              "occurred_at": "2026-03-23T10:43:00+08:00",
+              "author_role": "legal",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D22"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "G08d22Turn10",
+            "speaker_id": "G08personWu",
+            "started_at": "2026-03-23T10:48:00+08:00",
+            "ended_at": "2026-03-23T10:52:00+08:00",
+            "text": "我会转发一封短回复，让客户知道当前材料没有把审批装进去，同时留一个窗口问他们是否愿意另谈。这样不会假装我已经替采购同意，也不会让林舟免费接下一个没有边界的工作。",
+            "authorship": {
+              "authored_id": "G08d22Turn10Auth",
+              "occurred_at": "2026-03-23T10:48:00+08:00",
+              "author_role": "manager",
+              "content_class": "ambiguous",
+              "links": {
+                "story_beat_ids": [
+                  "D22"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "G08d22Turn11",
+            "speaker_id": "G08personLin",
+            "started_at": "2026-03-23T10:52:00+08:00",
+            "ended_at": "2026-03-23T10:58:00+08:00",
+            "text": "我来写，但先请吴岚确认收件人和措辞。邮件只说当前试点不包含审批；如果他们想讨论独立扩展，我们再约一次范围会。没有数额、没有报价附件，也不把“可以讨论”写成我已经接下。",
+            "authorship": {
+              "authored_id": "G08d22Turn11Auth",
+              "occurred_at": "2026-03-23T10:52:00+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D22"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "G08d22Turn13",
+            "speaker_id": "G08personWu",
+              "started_at": "2026-03-23T10:58:00+08:00",
+              "ended_at": "2026-03-23T11:03:00+08:00",
+            "text": "还有一个实际问题：采购同事转来的主题没有编号，我怕客户回一封邮件只说“第三项不适用”时，没人知道第三项是哪一项。林舟能否在草稿里给每个问题留自己的短标识，同时保留我收到时的原主题？这不是替他们排序优先级，只是避免转交后问题失去来处。",
+            "authorship": {
+              "authored_id": "G08d22Turn13Auth",
+              "occurred_at": "2026-03-23T11:03:00+08:00",
+              "author_role": "manager",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D22"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "G08d22Turn14",
+            "speaker_id": "G08personLin",
+              "started_at": "2026-03-23T11:03:00+08:00",
+              "ended_at": "2026-03-23T11:07:00+08:00",
+            "text": "可以。我会做一个仅供回信引用的索引：原主题、我们的问题标识、需要哪类答复和目前的收件归口。索引不判断哪项更重要，也不产生审批步骤；如果客户用自己的编号回复，我们就把编号并列记下，不把它翻译成已经同意的范围。",
+            "authorship": {
+              "authored_id": "G08d22Turn14Auth",
+              "occurred_at": "2026-03-23T11:07:00+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D22"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "G08d22Turn15",
+            "speaker_id": "G08personJia",
+              "started_at": "2026-03-23T11:07:00+08:00",
+              "ended_at": "2026-03-23T11:13:00+08:00",
+            "text": "索引里别用“处理方”当一列总称。采购主题可能问的是谁维护副本，也可能问的是谁收到故障通知；把它们放进同一个格子，客户回答“林舟”后会被误读成他负责所有外部环节。建议每个主题先标它要的是职责、材料位置还是联系人，再决定交给谁。",
+            "authorship": {
+              "authored_id": "G08d22Turn15Auth",
+              "occurred_at": "2026-03-23T11:11:00+08:00",
+              "author_role": "engineering",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D22"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "G08d22Turn16",
+            "speaker_id": "G08personSun",
+              "started_at": "2026-03-23T11:13:00+08:00",
+            "ended_at": "2026-03-23T11:20:00+08:00",
+            "text": "我同意拆列，但不同意让索引看起来像一张处理者名单。它应保留一格“依据在哪”：来自吴岚转来的主题、来自现有副本说明，还是仍无依据。采购回复时可以纠正这格的来源，而不是被迫先回答技术细节。林舟负责起草索引，吴岚负责确认转交对象，孙秋只检查问题是否把未知写成事实。",
+            "authorship": {
+              "authored_id": "G08d22Turn16Auth",
+              "occurred_at": "2026-03-23T11:16:00+08:00",
+              "author_role": "legal",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D22"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C03"
+                ]
+              }
+            }
+          }
+        ],
+        "authorship": {
+          "authored_id": "G08d22MeetingSourceAuth",
+          "occurred_at": "2026-03-23T10:08:00+08:00",
+          "author_role": "product",
+          "content_class": "signal",
+          "links": {
+            "story_beat_ids": [
+              "D22"
+            ],
+            "fact_ids": [
+              "F08"
+            ],
+            "continuity_ids": [
+              "C03"
+            ]
+          }
+        }
+      }
+    ],
+    "document_library": [
+      {
+        "source_id": "G08d23DocumentSource",
+        "schema": "pneuma.source.document-library/v1",
+        "provider": "mock",
+        "library_id": "G08d23ProcurementVault",
+        "title": "采购补件草稿",
+        "documents": [
+          {
+            "document_id": "G08d23ProcessorDoc",
+            "path": "procurement/2026-03-24-subprocessor-draft.md",
+            "title": "子处理方与待确认项（草稿）",
+            "frontmatter": {
+              "date": "2026-03-24",
+              "status": "draft-not-submitted",
+              "owner": "林舟"
+            },
+            "tags": [
+              "procurement",
+              "subprocessor",
+              "open-questions"
+            ],
+            "links": [],
+            "created_at": "2026-03-24T09:16:00+08:00",
+            "modified_at": "2026-03-24T11:48:00+08:00",
+            "full_markdown": "# 子处理方与待确认项（草稿）\n\n这页不是已经完成的清单，而是给采购回看的空白地图。当前只读副本需要记录原材料位置、被选入的原因和后续回查入口；草稿把可能接触这些信息的托管、通知和维护环节分开写，避免把一个笼统的“平台”当成所有人的角色。尚未核对的环节保留未确认，不借用旧项目经验补全。\n\n每一项先问三件事：它在这次窄范围里是否真的接触项目材料、接触的是原处还是只读副本、发生问题时由谁接收并转给项目侧。答案不能从产品名字推断。即使某项技术上可用，只要这次材料不需要经过它，就不应为了让表格完整而写成参与者。\n\n供应商审批单列为范围外请求。它可能需要提交、查阅、提醒或最终确认等不同动作，但这些动作尚未被客户拆开，也没有进入当前两类变更的只读副本。草稿只留下“另行讨论”的问题位，不把它塞进处理路径，也不以免费补齐作为清单通过的条件。\n\n导出和删除仍写成项目级问题：导出应能指出所选材料来自哪里，删除请求应能定位到项目与副本范围。谁提出、谁检查、怎样留下回告，目前仍待采购或项目侧回答。这里没有写保留数字、开始日期、首批导入或任何已经完成的演练。\n\n午休刷到几则招聘帖，我点开职责又关掉，没有投递。页面上反复出现“快速到岗”，和这张需要慢慢补空格的草稿没有关系；下午我只把未确认项换成更具体的问题。",
+            "visible_blocks": [
+              {
+                "block_id": "G08d23ProcessorBlock01",
+                "kind": "paragraph",
+                "markdown": "这页不是已经完成的清单，而是给采购回看的空白地图。当前只读副本需要记录原材料位置、被选入的原因和后续回查入口；草稿把可能接触这些信息的托管、通知和维护环节分开写，避免把一个笼统的“平台”当成所有人的角色。尚未核对的环节保留未确认，不借用旧项目经验补全。",
+                "authorship": {
+                  "authored_id": "G08d23ProcessorBlock01Auth",
+                  "occurred_at": "2026-03-24T09:16:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D23"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C03"
+                    ]
+                  }
+                }
+              },
+              {
+                "block_id": "G08d23ProcessorBlock02",
+                "kind": "paragraph",
+                "markdown": "每一项先问三件事：它在这次窄范围里是否真的接触项目材料、接触的是原处还是只读副本、发生问题时由谁接收并转给项目侧。答案不能从产品名字推断。即使某项技术上可用，只要这次材料不需要经过它，就不应为了让表格完整而写成参与者。",
+                "authorship": {
+                  "authored_id": "G08d23ProcessorBlock02Auth",
+                  "occurred_at": "2026-03-24T09:47:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D23"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C03"
+                    ]
+                  }
+                }
+              },
+              {
+                "block_id": "G08d23ProcessorBlock03",
+                "kind": "paragraph",
+                "markdown": "供应商审批单列为范围外请求。它可能需要提交、查阅、提醒或最终确认等不同动作，但这些动作尚未被客户拆开，也没有进入当前两类变更的只读副本。草稿只留下“另行讨论”的问题位，不把它塞进处理路径，也不以免费补齐作为清单通过的条件。",
+                "authorship": {
+                  "authored_id": "G08d23ProcessorBlock03Auth",
+                  "occurred_at": "2026-03-24T10:21:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D23"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C03"
+                    ]
+                  }
+                }
+              },
+              {
+                "block_id": "G08d23ProcessorBlock04",
+                "kind": "paragraph",
+                "markdown": "导出和删除仍写成项目级问题：导出应能指出所选材料来自哪里，删除请求应能定位到项目与副本范围。谁提出、谁检查、怎样留下回告，目前仍待采购或项目侧回答。这里没有写保留数字、开始日期、首批导入或任何已经完成的演练。",
+                "authorship": {
+                  "authored_id": "G08d23ProcessorBlock04Auth",
+                  "occurred_at": "2026-03-24T11:02:00+08:00",
+                  "author_role": "product",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": [
+                      "D23"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C03"
+                    ]
+                  }
+                }
+              },
+              {
+                "block_id": "G08d23ProcessorBlock05",
+                "kind": "paragraph",
+                "markdown": "午休刷到几则招聘帖，我点开职责又关掉，没有投递。页面上反复出现“快速到岗”，和这张需要慢慢补空格的草稿没有关系；下午我只把未确认项换成更具体的问题。",
+                "authorship": {
+                  "authored_id": "G08d23ProcessorBlock05Auth",
+                  "occurred_at": "2026-03-24T11:48:00+08:00",
+                  "author_role": "product",
+                  "content_class": "noise",
+                  "links": {
+                    "story_beat_ids": [
+                      "D23"
+                    ],
+                    "fact_ids": [],
+                    "continuity_ids": []
+                  }
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "G08d23ProcessorDocAuth",
+              "occurred_at": "2026-03-24T11:48:00+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D23"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "document_id": "G08d23QuestionLedgerDoc",
+            "path": "procurement/2026-03-24-question-ledger.md",
+            "title": "清单问题的来源与缺口",
+            "frontmatter": {
+              "date": "2026-03-24",
+              "status": "working-notes",
+              "owner": "孙秋"
+            },
+            "tags": [
+              "procurement",
+              "questions",
+              "scope"
+            ],
+            "links": [],
+            "created_at": "2026-03-24T13:06:00+08:00",
+            "modified_at": "2026-03-24T16:02:00+08:00",
+            "full_markdown": "# 清单问题的来源与缺口\n\n采购清单刚出现时，最容易发生的是把题目当成答案。这个工作页只记录问题从哪里来：吴岚转来的主题、会议里说不清的角色、以及草稿中仍没有材料支撑的判断。每一条后面留一个回查位置或“未提供”，这样下一次补件能看见什么是新答复，而不是把旧的猜测重新排版。\n\n关于当前范围，记录应持续指向云麓的预算变更与材料替代。只读副本不是项目管理页，也没有权限去承接客户内部的供应商审批。若客户想把审批作为独立扩展讨论，需要先说明它要证明的动作和责任关系；这份问题页不替任何一方承诺免费加入，也不提出商业条件。\n\n处理方草稿的可读性不来自列得多，而来自每个条目都能回答“为什么在这里”。可保留的内容是目前已知的用途、材料类别、联系入口和未决项；不应编造的内容包括外部方的状态、客户已同意的期限或某个服务已经被批准。看不清的地方写看不清，比用“通常如此”更能帮助采购指出缺口。\n\n项目级导出和删除被列为待回答的验收问题，而不是操作已经发生的记录。问题页不排开始日，也不声明数据已进入任何地方。它可以在客户回复后接住具体答案，但在回复到来前，不把沉默解释成接受，也不把讨论中的供应商审批放回试点。\n\n傍晚整理桌面时，我把止痛贴的空纸和两张外卖小票一起扔掉。清单仍卡在几个待答格上；这些生活碎屑不会替任何人把它填完。",
+            "visible_blocks": [
+              {
+                "block_id": "G08d23LedgerBlock01",
+                "kind": "paragraph",
+                "markdown": "采购清单刚出现时，最容易发生的是把题目当成答案。这个工作页只记录问题从哪里来：吴岚转来的主题、会议里说不清的角色、以及草稿中仍没有材料支撑的判断。每一条后面留一个回查位置或“未提供”，这样下一次补件能看见什么是新答复，而不是把旧的猜测重新排版。",
+                "authorship": {
+                  "authored_id": "G08d23LedgerBlock01Auth",
+                  "occurred_at": "2026-03-24T13:06:00+08:00",
+                  "author_role": "legal",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D23"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C03"
+                    ]
+                  }
+                }
+              },
+              {
+                "block_id": "G08d23LedgerBlock02",
+                "kind": "paragraph",
+                "markdown": "关于当前范围，记录应持续指向云麓的预算变更与材料替代。只读副本不是项目管理页，也没有权限去承接客户内部的供应商审批。若客户想把审批作为独立扩展讨论，需要先说明它要证明的动作和责任关系；这份问题页不替任何一方承诺免费加入，也不提出商业条件。",
+                "authorship": {
+                  "authored_id": "G08d23LedgerBlock02Auth",
+                  "occurred_at": "2026-03-24T13:42:00+08:00",
+                  "author_role": "legal",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D23"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C03"
+                    ]
+                  }
+                }
+              },
+              {
+                "block_id": "G08d23LedgerBlock03",
+                "kind": "paragraph",
+                "markdown": "处理方草稿的可读性不来自列得多，而来自每个条目都能回答“为什么在这里”。可保留的内容是目前已知的用途、材料类别、联系入口和未决项；不应编造的内容包括外部方的状态、客户已同意的期限或某个服务已经被批准。看不清的地方写看不清，比用“通常如此”更能帮助采购指出缺口。",
+                "authorship": {
+                  "authored_id": "G08d23LedgerBlock03Auth",
+                  "occurred_at": "2026-03-24T14:18:00+08:00",
+                  "author_role": "legal",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D23"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C03"
+                    ]
+                  }
+                }
+              },
+              {
+                "block_id": "G08d23LedgerBlock04",
+                "kind": "paragraph",
+                "markdown": "项目级导出和删除被列为待回答的验收问题，而不是操作已经发生的记录。问题页不排开始日，也不声明数据已进入任何地方。它可以在客户回复后接住具体答案，但在回复到来前，不把沉默解释成接受，也不把讨论中的供应商审批放回试点。",
+                "authorship": {
+                  "authored_id": "G08d23LedgerBlock04Auth",
+                  "occurred_at": "2026-03-24T15:16:00+08:00",
+                  "author_role": "legal",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": [
+                      "D23"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C03"
+                    ]
+                  }
+                }
+              },
+              {
+                "block_id": "G08d23LedgerBlock05",
+                "kind": "paragraph",
+                "markdown": "傍晚整理桌面时，我把止痛贴的空纸和两张外卖小票一起扔掉。清单仍卡在几个待答格上；这些生活碎屑不会替任何人把它填完。",
+                "authorship": {
+                  "authored_id": "G08d23LedgerBlock05Auth",
+                  "occurred_at": "2026-03-24T16:02:00+08:00",
+                  "author_role": "product",
+                  "content_class": "noise",
+                  "links": {
+                    "story_beat_ids": [
+                      "D23"
+                    ],
+                    "fact_ids": [],
+                    "continuity_ids": []
+                  }
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "G08d23QuestionLedgerDocAuth",
+              "occurred_at": "2026-03-24T16:02:00+08:00",
+              "author_role": "legal",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D23"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "document_id": "G08d23BoundaryQuestionsDoc",
+            "path": "procurement/2026-03-24-boundary-questions-for-return.md",
+            "title": "退回采购的边界问题",
+            "frontmatter": {
+              "date": "2026-03-24",
+              "status": "questions-not-answers",
+              "owner": "林舟"
+            },
+            "tags": [
+              "procurement",
+              "boundary",
+              "return"
+            ],
+            "links": [],
+            "created_at": "2026-03-24T16:24:00+08:00",
+            "modified_at": "2026-03-24T17:08:00+08:00",
+            "full_markdown": "# 退回采购的边界问题\n\n这份短表准备随草稿一起退回，不替采购完成判断。第一组问题围绕材料：预算变更和材料替代各自从哪一个原处位置取回、谁能确认副本选得太宽或太窄、如果一段记录同时谈到别的项目动作应怎样处理。回答这些问题能让回查落在具体项目材料上，而不是依靠“和云麓有关”这种宽泛印象。\n\n第二组问题围绕导出与删除。导出接收者是否由项目侧指定、项目移除请求由谁提出、谁看到完成回告、当材料归属不清时是否先保留未完成状态，这些都尚待答复。问题不写成期限，不写成已经有删除按钮，也不把一张清单当作任何操作已经发生的证据。\n\n第三组把供应商审批留在纸外侧：客户可以说明是否要在未来单独讨论，但当前试点不承担提交、催办、选择或批准供应商的流程。若以后形成扩展，先需要单独的动作边界、阅读范围和责任关系；在此以前，不能用“顺手加上”把它带进只读副本，也不能要求林舟免费补做。\n\n最后一组问的是草稿本身：哪些外部环节真的接触项目材料，哪些只提供技术通道，哪些联系人需要接收问题但不应取得材料。每个未知项都可以被采购标回“尚未提供”。这种写法可能显得慢，却能避免后来把林舟的猜测说成客户已经确认的处理路径。",
+            "visible_blocks": [
+              {
+                "block_id": "G08d23BoundaryQuestionBlock01",
+                "kind": "paragraph",
+                "markdown": "这份短表准备随草稿一起退回，不替采购完成判断。第一组问题围绕材料：预算变更和材料替代各自从哪一个原处位置取回、谁能确认副本选得太宽或太窄、如果一段记录同时谈到别的项目动作应怎样处理。回答这些问题能让回查落在具体项目材料上，而不是依靠“和云麓有关”这种宽泛印象。",
+                "authorship": {
+                  "authored_id": "G08d23BoundaryQuestionBlock01Auth",
+                  "occurred_at": "2026-03-24T16:24:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D23"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C03"
+                    ]
+                  }
+                }
+              },
+              {
+                "block_id": "G08d23BoundaryQuestionBlock02",
+                "kind": "paragraph",
+                "markdown": "第二组问题围绕导出与删除。导出接收者是否由项目侧指定、项目移除请求由谁提出、谁看到完成回告、当材料归属不清时是否先保留未完成状态，这些都尚待答复。问题不写成期限，不写成已经有删除按钮，也不把一张清单当作任何操作已经发生的证据。",
+                "authorship": {
+                  "authored_id": "G08d23BoundaryQuestionBlock02Auth",
+                  "occurred_at": "2026-03-24T16:37:00+08:00",
+                  "author_role": "product",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": [
+                      "D23"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C03"
+                    ]
+                  }
+                }
+              },
+              {
+                "block_id": "G08d23BoundaryQuestionBlock03",
+                "kind": "paragraph",
+                "markdown": "第三组把供应商审批留在纸外侧：客户可以说明是否要在未来单独讨论，但当前试点不承担提交、催办、选择或批准供应商的流程。若以后形成扩展，先需要单独的动作边界、阅读范围和责任关系；在此以前，不能用“顺手加上”把它带进只读副本，也不能要求林舟免费补做。",
+                "authorship": {
+                  "authored_id": "G08d23BoundaryQuestionBlock03Auth",
+                  "occurred_at": "2026-03-24T16:49:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D23"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C03"
+                    ]
+                  }
+                }
+              },
+              {
+                "block_id": "G08d23BoundaryQuestionBlock04",
+                "kind": "paragraph",
+                "markdown": "最后一组问的是草稿本身：哪些外部环节真的接触项目材料，哪些只提供技术通道，哪些联系人需要接收问题但不应取得材料。每个未知项都可以被采购标回“尚未提供”。这种写法可能显得慢，却能避免后来把林舟的猜测说成客户已经确认的处理路径。",
+                "authorship": {
+                  "authored_id": "G08d23BoundaryQuestionBlock04Auth",
+                  "occurred_at": "2026-03-24T17:08:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D23"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C03"
+                    ]
+                  }
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "G08d23BoundaryQuestionsDocAuth",
+              "occurred_at": "2026-03-24T17:08:00+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D23"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "document_id": "G08d23ReplyNotesDoc",
+            "path": "procurement/2026-03-24-reply-packet-cover.md",
+            "title": "采购回复包封面",
+            "frontmatter": {
+              "date": "2026-03-24",
+              "status": "routing-cover",
+              "owner": "吴岚"
+            },
+            "tags": [
+              "procurement",
+              "routing",
+              "handoff"
+            ],
+            "links": [],
+            "created_at": "2026-03-24T18:28:00+08:00",
+            "modified_at": "2026-03-24T18:28:00+08:00",
+            "full_markdown": "# 采购回复包封面\n\n读者：吴岚，在把问题转出前使用。\n\n这张封面只核对一件事：每个外发问题是否还带着原始主题、收件对象和预期答复类型。暂列三类：材料定位、项目联系人、以及需要项目方确认的事项；没有对应原始主题的条目不进入包内。封面不写产品结论，也不替任何收件人分配答案。\n\n后续收到回信时，吴岚把回信日期和原主题补在同一行；若对方换了标题，就并列记录新标题。它用于追溯一次转交有没有找对人，不用于证明某个问题已经解决。",
+            "visible_blocks": [
+              {
+                "block_id": "G08d23ReplyNotesBlock01",
+                "kind": "paragraph",
+                "markdown": "读者：吴岚，在把问题转出前使用。\n\n这张封面只核对一件事：每个外发问题是否还带着原始主题、收件对象和预期答复类型。暂列三类：材料定位、项目联系人、以及需要项目方确认的事项；没有对应原始主题的条目不进入包内。封面不写产品结论，也不替任何收件人分配答案。\n\n后续收到回信时，吴岚把回信日期和原主题补在同一行；若对方换了标题，就并列记录新标题。它用于追溯一次转交有没有找对人，不用于证明某个问题已经解决。",
+                "authorship": {
+                  "authored_id": "G08d23ReplyNotesBlock01Auth",
+                  "occurred_at": "2026-03-24T18:28:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D23"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C03"
+                    ]
+                  }
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "G08d23ReplyNotesDocAuth",
+              "occurred_at": "2026-03-24T18:28:00+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D23"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "document_id": "G08d23NoAssumptionDoc",
+            "path": "procurement/2026-03-24-field-provenance-check.md",
+            "title": "字段来源核验便签",
+            "frontmatter": {
+              "date": "2026-03-24",
+              "status": "review-note",
+              "owner": "孙秋"
+            },
+            "tags": [
+              "procurement",
+              "provenance",
+              "review"
+            ],
+            "links": [],
+            "created_at": "2026-03-24T18:46:00+08:00",
+            "modified_at": "2026-03-24T18:46:00+08:00",
+            "full_markdown": "# 字段来源核验便签\n\n读者：孙秋，在审阅草稿字段时使用。\n\n每个字段先标记证据对象：会议里的口头观察、吴岚转来的主题行，或林舟为便于阅读而加的字段名。前两类可以被追问出处；第三类只能说明编辑意图，不能冒充项目事实。遇到找不到对象的词，标为“来源待补”，而不是改写成更肯定的句子。\n\n这张便签的后续用途是让审阅者逐项指出哪句话缺少可追溯的来处。它不替客户确认字段内容，也不决定问题由谁答复；下一版草稿只在得到对应材料后更新该字段。",
+            "visible_blocks": [
+              {
+                "block_id": "G08d23NoAssumptionBlock01",
+                "kind": "paragraph",
+                "markdown": "读者：孙秋，在审阅草稿字段时使用。\n\n每个字段先标记证据对象：会议里的口头观察、吴岚转来的主题行，或林舟为便于阅读而加的字段名。前两类可以被追问出处；第三类只能说明编辑意图，不能冒充项目事实。遇到找不到对象的词，标为“来源待补”，而不是改写成更肯定的句子。\n\n这张便签的后续用途是让审阅者逐项指出哪句话缺少可追溯的来处。它不替客户确认字段内容，也不决定问题由谁答复；下一版草稿只在得到对应材料后更新该字段。",
+                "authorship": {
+                  "authored_id": "G08d23NoAssumptionBlock01Auth",
+                  "occurred_at": "2026-03-24T18:46:00+08:00",
+                  "author_role": "legal",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": [
+                      "D23"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C03"
+                    ]
+                  }
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "G08d23NoAssumptionDocAuth",
+              "occurred_at": "2026-03-24T18:46:00+08:00",
+              "author_role": "legal",
+              "content_class": "ambiguous",
+              "links": {
+                "story_beat_ids": [
+                  "D23"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "document_id": "G08d23QuestionIndexDoc",
+            "path": "procurement/2026-03-24-reply-matching-table.md",
+            "title": "采购回信对照表",
+            "frontmatter": {
+              "date": "2026-03-24",
+              "status": "awaiting-replies",
+              "owner": "林舟"
+            },
+            "tags": [
+              "procurement",
+              "matching",
+              "archive"
+            ],
+            "links": [],
+            "created_at": "2026-03-24T19:06:00+08:00",
+            "modified_at": "2026-03-24T19:06:00+08:00",
+            "full_markdown": "# 采购回信对照表\n\n读者：林舟，在收到采购或项目方回信后使用。\n\n每一行保留两件证据：发出时的问题短标识，以及回信中实际引用的标题、编号或原句。若回信只说“第三项”，表格先记下这个说法，再请吴岚确认它对应哪一行；不能靠位置猜测。回信没有触及的行保持空白，回信否定某项时也保留原问题和否定语境。\n\n它的后续用途是把一封具体回信附回它回答的那条问题，供下一轮起草核对。对照表不产生新问题、不替换原始邮件，也不把一条部分回应汇总成完成状态。",
+            "visible_blocks": [
+              {
+                "block_id": "G08d23QuestionIndexBlock01",
+                "kind": "paragraph",
+                "markdown": "读者：林舟，在收到采购或项目方回信后使用。\n\n每一行保留两件证据：发出时的问题短标识，以及回信中实际引用的标题、编号或原句。若回信只说“第三项”，表格先记下这个说法，再请吴岚确认它对应哪一行；不能靠位置猜测。回信没有触及的行保持空白，回信否定某项时也保留原问题和否定语境。\n\n它的后续用途是把一封具体回信附回它回答的那条问题，供下一轮起草核对。对照表不产生新问题、不替换原始邮件，也不把一条部分回应汇总成完成状态。",
+                "authorship": {
+                  "authored_id": "G08d23QuestionIndexBlock01Auth",
+                  "occurred_at": "2026-03-24T19:06:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D23"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C03"
+                    ]
+                  }
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "G08d23QuestionIndexDocAuth",
+              "occurred_at": "2026-03-24T19:06:00+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D23"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C03"
+                ]
+              }
+            }
+          }
+        ],
+        "authorship": {
+          "authored_id": "G08d23DocumentSourceAuth",
+          "occurred_at": "2026-03-24T09:16:00+08:00",
+          "author_role": "product",
+          "content_class": "signal",
+          "links": {
+            "story_beat_ids": [
+              "D23"
+            ],
+            "fact_ids": [
+              "F08"
+            ],
+            "continuity_ids": [
+              "C03"
+            ]
+          }
+        }
+      }
+    ],
+    "im": [],
+    "email": [
+      {
+        "source_id": "G08d23EmailSource",
+        "schema": "pneuma.source.email/v1",
+        "provider": "rfc822",
+        "archive_id": "G08d23MailArchive",
+        "owner_addresses": [
+          "lin.zhou@seamlog.example.test"
+        ],
+        "threads": [
+          {
+            "thread_id": "G08d23ScopeThread",
+            "subject": "云麓试点范围：供应商审批请求",
+            "messages": [
+              {
+                "message_id": "G08d23Mail01",
+                "sent_at": "2026-03-24T16:34:00+08:00",
+                "from": {
+                  "address": "lin.zhou@seamlog.example.test",
+                  "display_name": "林舟",
+                  "role": "product"
+                },
+                "to": [
+                  {
+                    "address": "wu.lan@bamboo.example.test",
+                    "display_name": "吴岚",
+                    "role": "manager"
+                  }
+                ],
+                "cc": [
+                  {
+                    "address": "sun.qiu@advisory.example.test",
+                    "display_name": "孙秋",
+                    "role": "legal"
+                  }
+                ],
+                "subject": "云麓试点范围：供应商审批请求",
+                "headers": [
+                  { "header_id": "G08d23Mail01From", "name": "From", "value": "林舟 <lin.zhou@seamlog.example.test>", "authorship": { "authored_id": "G08d23Mail01FromAuth", "occurred_at": "2026-03-24T16:34:00+08:00", "author_role": "product", "content_class": "signal", "links": { "story_beat_ids": ["D23"], "fact_ids": ["F08"], "continuity_ids": ["C03"] } } },
+                  { "header_id": "G08d23Mail01To", "name": "To", "value": "吴岚 <wu.lan@bamboo.example.test>", "authorship": { "authored_id": "G08d23Mail01ToAuth", "occurred_at": "2026-03-24T16:34:00+08:00", "author_role": "product", "content_class": "signal", "links": { "story_beat_ids": ["D23"], "fact_ids": ["F08"], "continuity_ids": ["C03"] } } },
+                  { "header_id": "G08d23Mail01Cc", "name": "Cc", "value": "孙秋 <sun.qiu@advisory.example.test>", "authorship": { "authored_id": "G08d23Mail01CcAuth", "occurred_at": "2026-03-24T16:34:00+08:00", "author_role": "product", "content_class": "signal", "links": { "story_beat_ids": ["D23"], "fact_ids": ["F08"], "continuity_ids": ["C03"] } } },
+                  { "header_id": "G08d23Mail01Subject", "name": "Subject", "value": "云麓试点范围：供应商审批请求", "authorship": { "authored_id": "G08d23Mail01SubjectAuth", "occurred_at": "2026-03-24T16:34:00+08:00", "author_role": "product", "content_class": "signal", "links": { "story_beat_ids": ["D23"], "fact_ids": ["F08"], "continuity_ids": ["C03"] } } },
+                  {
+                    "header_id": "G08d23Mail01Date",
+                    "name": "Date",
+                    "value": "Tue, 24 Mar 2026 16:34:00 +0800",
+                    "authorship": {
+                      "authored_id": "G08d23Mail01DateAuth",
+                      "occurred_at": "2026-03-24T16:34:00+08:00",
+                      "author_role": "product",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": [
+                          "D23"
+                        ],
+                        "fact_ids": [
+                          "F08"
+                        ],
+                        "continuity_ids": [
+                          "C03"
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "header_id": "G08d23Mail01Id",
+                    "name": "Message-ID",
+                    "value": "<G08d23Mail01@seamlog.example.test>",
+                    "authorship": {
+                      "authored_id": "G08d23Mail01IdAuth",
+                      "occurred_at": "2026-03-24T16:34:00+08:00",
+                      "author_role": "product",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": [
+                          "D23"
+                        ],
+                        "fact_ids": [
+                          "F08"
+                        ],
+                        "continuity_ids": [
+                          "C03"
+                        ]
+                      }
+                    }
+                  }
+                ],
+                "full_text": "吴岚、孙秋：\n\n就今天提出的“供应商审批”，可以给客户的答复是：它不在当前云麓试点的免费范围内。当前副本只用于预算变更和材料替代的回查；审批所需的提交、判断、提醒和确认关系都没有列入这一范围。\n\n如果客户想继续了解，可以另开一项收费扩展的讨论。届时先收集希望覆盖的动作、参与角色和可核对的输出，再判断是否需要形成后续材料。本邮件不是报价、订单或批准，也没有改变当前副本。\n\n这次答复只处理范围，不附带实施顺序、资源安排或收费数字。客户如果希望提出具体场景，请把场景同希望达成的结果一起写来；我们再判断该由产品澄清、采购转交，还是留给独立讨论。这样不会把一次边界回复误读为双方已经选定了下一步。\n\n吴岚，请以这两段作为转述依据；不要把“可以另开讨论”写成已经有了扩展。孙秋，如需收窄措辞请直接标注在回信中。客户若提出新问题，另起主题保存，不用在这条范围记录里补猜测。\n\n林舟",
+                "in_reply_to": null,
+                "references": [],
+                "attachments": [],
+                "authorship": {
+                  "authored_id": "G08d23Mail01Auth",
+                  "occurred_at": "2026-03-24T16:34:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D23"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C03"
+                    ]
+                  }
+                }
+              },
+              {
+                "message_id": "G08d23Mail02",
+                "sent_at": "2026-03-24T17:02:00+08:00",
+                "from": {
+                  "address": "wu.lan@bamboo.example.test",
+                  "display_name": "吴岚",
+                  "role": "manager"
+                },
+                "to": [
+                  {
+                    "address": "lin.zhou@seamlog.example.test",
+                    "display_name": "林舟",
+                    "role": "product"
+                  }
+                ],
+                "cc": [
+                  {
+                    "address": "sun.qiu@advisory.example.test",
+                    "display_name": "孙秋",
+                    "role": "legal"
+                  }
+                ],
+                "subject": "Re: 云麓试点范围：供应商审批请求",
+                "headers": [
+                  { "header_id": "G08d23Mail02From", "name": "From", "value": "吴岚 <wu.lan@bamboo.example.test>", "authorship": { "authored_id": "G08d23Mail02FromAuth", "occurred_at": "2026-03-24T17:02:00+08:00", "author_role": "manager", "content_class": "signal", "links": { "story_beat_ids": ["D23"], "fact_ids": ["F08"], "continuity_ids": ["C03"] } } },
+                  { "header_id": "G08d23Mail02To", "name": "To", "value": "林舟 <lin.zhou@seamlog.example.test>", "authorship": { "authored_id": "G08d23Mail02ToAuth", "occurred_at": "2026-03-24T17:02:00+08:00", "author_role": "manager", "content_class": "signal", "links": { "story_beat_ids": ["D23"], "fact_ids": ["F08"], "continuity_ids": ["C03"] } } },
+                  { "header_id": "G08d23Mail02Cc", "name": "Cc", "value": "孙秋 <sun.qiu@advisory.example.test>", "authorship": { "authored_id": "G08d23Mail02CcAuth", "occurred_at": "2026-03-24T17:02:00+08:00", "author_role": "manager", "content_class": "signal", "links": { "story_beat_ids": ["D23"], "fact_ids": ["F08"], "continuity_ids": ["C03"] } } },
+                  { "header_id": "G08d23Mail02Subject", "name": "Subject", "value": "Re: 云麓试点范围：供应商审批请求", "authorship": { "authored_id": "G08d23Mail02SubjectAuth", "occurred_at": "2026-03-24T17:02:00+08:00", "author_role": "manager", "content_class": "signal", "links": { "story_beat_ids": ["D23"], "fact_ids": ["F08"], "continuity_ids": ["C03"] } } },
+                  {
+                    "header_id": "G08d23Mail02Date",
+                    "name": "Date",
+                    "value": "Tue, 24 Mar 2026 17:02:00 +0800",
+                    "authorship": {
+                      "authored_id": "G08d23Mail02DateAuth",
+                      "occurred_at": "2026-03-24T17:02:00+08:00",
+                      "author_role": "manager",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": [
+                          "D23"
+                        ],
+                        "fact_ids": [
+                          "F08"
+                        ],
+                        "continuity_ids": [
+                          "C03"
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "header_id": "G08d23Mail02Id",
+                    "name": "Message-ID",
+                    "value": "<G08d23Mail02@bamboo.example.test>",
+                    "authorship": {
+                      "authored_id": "G08d23Mail02IdAuth",
+                      "occurred_at": "2026-03-24T17:02:00+08:00",
+                      "author_role": "manager",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": [
+                          "D23"
+                        ],
+                        "fact_ids": [
+                          "F08"
+                        ],
+                        "continuity_ids": [
+                          "C03"
+                        ]
+                      }
+                    }
+                  },
+                  { "header_id": "G08d23Mail02InReplyTo", "name": "In-Reply-To", "value": "<G08d23Mail01@seamlog.example.test>", "authorship": { "authored_id": "G08d23Mail02InReplyToAuth", "occurred_at": "2026-03-24T17:02:00+08:00", "author_role": "manager", "content_class": "signal", "links": { "story_beat_ids": ["D23"], "fact_ids": ["F08"], "continuity_ids": ["C03"] } } },
+                  { "header_id": "G08d23Mail02References", "name": "References", "value": "<G08d23Mail01@seamlog.example.test>", "authorship": { "authored_id": "G08d23Mail02ReferencesAuth", "occurred_at": "2026-03-24T17:02:00+08:00", "author_role": "manager", "content_class": "signal", "links": { "story_beat_ids": ["D23"], "fact_ids": ["F08"], "continuity_ids": ["C03"] } } }
+                ],
+                "full_text": "林舟、孙秋：\n\n收到。我会把“当前不含审批；如要继续，可另行讨论收费扩展”按原意转给客户，并保留这条邮件主题。这样客户看到的是范围答复，不是功能通知。\n\n转发时我会请对方说明：他们是在询问、提出后续意向，还是希望启动另一轮讨论。三种说法都先保留原句；在客户明确之前，我不替他们选一种，也不写成已同意开展。\n\n若对方用新主题追问，我会另存该主题和日期，并在转交说明中标出它没有替代这次答复。请给我一句经孙秋核过的客户可见表述；我只转述，不补充产品安排。\n\n吴岚",
+                "in_reply_to": "G08d23Mail01",
+                "references": [
+                  "G08d23Mail01"
+                ],
+                "attachments": [],
+                "authorship": {
+                  "authored_id": "G08d23Mail02Auth",
+                  "occurred_at": "2026-03-24T17:02:00+08:00",
+                  "author_role": "manager",
+                  "content_class": "ambiguous",
+                  "links": {
+                    "story_beat_ids": [
+                      "D23"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C03"
+                    ]
+                  }
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "G08d23ScopeThreadAuth",
+              "occurred_at": "2026-03-24T16:34:00+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D23"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C03"
+                ]
+              }
+            }
+          },
+          {
+            "thread_id": "G08d23DraftThread",
+            "subject": "子处理方草稿：字段依据复核",
+            "messages": [
+              {
+                "message_id": "G08d23Mail03",
+                "sent_at": "2026-03-24T17:26:00+08:00",
+                "from": {
+                  "address": "lin.zhou@seamlog.example.test",
+                  "display_name": "林舟",
+                  "role": "product"
+                },
+                "to": [
+                  {
+                    "address": "sun.qiu@advisory.example.test",
+                    "display_name": "孙秋",
+                    "role": "legal"
+                  }
+                ],
+                "cc": [
+                  {
+                    "address": "wu.lan@bamboo.example.test",
+                    "display_name": "吴岚",
+                    "role": "manager"
+                  }
+                ],
+                "subject": "子处理方草稿：字段依据复核",
+                "headers": [
+                  { "header_id": "G08d23Mail03From", "name": "From", "value": "林舟 <lin.zhou@seamlog.example.test>", "authorship": { "authored_id": "G08d23Mail03FromAuth", "occurred_at": "2026-03-24T17:26:00+08:00", "author_role": "product", "content_class": "signal", "links": { "story_beat_ids": ["D23"], "fact_ids": ["F08"], "continuity_ids": ["C03"] } } },
+                  { "header_id": "G08d23Mail03To", "name": "To", "value": "孙秋 <sun.qiu@advisory.example.test>", "authorship": { "authored_id": "G08d23Mail03ToAuth", "occurred_at": "2026-03-24T17:26:00+08:00", "author_role": "product", "content_class": "signal", "links": { "story_beat_ids": ["D23"], "fact_ids": ["F08"], "continuity_ids": ["C03"] } } },
+                  { "header_id": "G08d23Mail03Cc", "name": "Cc", "value": "吴岚 <wu.lan@bamboo.example.test>", "authorship": { "authored_id": "G08d23Mail03CcAuth", "occurred_at": "2026-03-24T17:26:00+08:00", "author_role": "product", "content_class": "signal", "links": { "story_beat_ids": ["D23"], "fact_ids": ["F08"], "continuity_ids": ["C03"] } } },
+                  { "header_id": "G08d23Mail03Subject", "name": "Subject", "value": "子处理方草稿：字段依据复核", "authorship": { "authored_id": "G08d23Mail03SubjectAuth", "occurred_at": "2026-03-24T17:26:00+08:00", "author_role": "product", "content_class": "signal", "links": { "story_beat_ids": ["D23"], "fact_ids": ["F08"], "continuity_ids": ["C03"] } } },
+                  {
+                    "header_id": "G08d23Mail03Date",
+                    "name": "Date",
+                    "value": "Tue, 24 Mar 2026 17:26:00 +0800",
+                    "authorship": {
+                      "authored_id": "G08d23Mail03DateAuth",
+                      "occurred_at": "2026-03-24T17:26:00+08:00",
+                      "author_role": "product",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": [
+                          "D23"
+                        ],
+                        "fact_ids": [
+                          "F08"
+                        ],
+                        "continuity_ids": [
+                          "C03"
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "header_id": "G08d23Mail03Id",
+                    "name": "Message-ID",
+                    "value": "<G08d23Mail03@seamlog.example.test>",
+                    "authorship": {
+                      "authored_id": "G08d23Mail03IdAuth",
+                      "occurred_at": "2026-03-24T17:26:00+08:00",
+                      "author_role": "product",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": [
+                          "D23"
+                        ],
+                        "fact_ids": [
+                          "F08"
+                        ],
+                        "continuity_ids": [
+                          "C03"
+                        ]
+                      }
+                    }
+                  }
+                ],
+                "full_text": "孙秋、吴岚：\n\n请只复核这份草稿的字段依据，不评估商业范围。每个字段现在暂标三种来处：会议记录里的口头观察、吴岚转来的主题行，或我为了阅读而加的字段名。前两种应能追到具体文字；第三种只说明编辑用途。\n\n请特别看有没有字段把“可追到来源”误写成“已经确认内容”。找不到对应对象的词，请标为“来源待补”，不要换成更肯定的句子。吴岚无需向客户解释这张内部便签；若以后对外提问，再另行整理可见版本。\n\n为方便复核，我会在每个批注旁留下所指字段和审阅日期，但不把批注重写进事实栏。若同一字段有两个可能来处，也先并列列出，等能确认哪一条真正支撑它再收束。这个动作是为了让下一位读者看见判断路径，不是为了制造一份看起来完备的清单。\n\n我会把你们的批注逐项留在字段旁，并只在取得相应材料后改动那一格。没有材料的行保留原样，方便下次辨认是证据缺口还是编辑习惯。\n\n林舟",
+                "in_reply_to": null,
+                "references": [],
+                "attachments": [],
+                "authorship": {
+                  "authored_id": "G08d23Mail03Auth",
+                  "occurred_at": "2026-03-24T17:26:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D23"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C03"
+                    ]
+                  }
+                }
+              },
+              {
+                "message_id": "G08d23Mail04",
+                "sent_at": "2026-03-24T18:11:00+08:00",
+                "from": {
+                  "address": "sun.qiu@advisory.example.test",
+                  "display_name": "孙秋",
+                  "role": "legal"
+                },
+                "to": [
+                  {
+                    "address": "lin.zhou@seamlog.example.test",
+                    "display_name": "林舟",
+                    "role": "product"
+                  }
+                ],
+                "cc": [
+                  {
+                    "address": "wu.lan@bamboo.example.test",
+                    "display_name": "吴岚",
+                    "role": "manager"
+                  }
+                ],
+                "subject": "Re: 子处理方草稿：字段依据复核",
+                "headers": [
+                  { "header_id": "G08d23Mail04From", "name": "From", "value": "孙秋 <sun.qiu@advisory.example.test>", "authorship": { "authored_id": "G08d23Mail04FromAuth", "occurred_at": "2026-03-24T18:11:00+08:00", "author_role": "legal", "content_class": "signal", "links": { "story_beat_ids": ["D23"], "fact_ids": ["F08"], "continuity_ids": ["C03"] } } },
+                  { "header_id": "G08d23Mail04To", "name": "To", "value": "林舟 <lin.zhou@seamlog.example.test>", "authorship": { "authored_id": "G08d23Mail04ToAuth", "occurred_at": "2026-03-24T18:11:00+08:00", "author_role": "legal", "content_class": "signal", "links": { "story_beat_ids": ["D23"], "fact_ids": ["F08"], "continuity_ids": ["C03"] } } },
+                  { "header_id": "G08d23Mail04Cc", "name": "Cc", "value": "吴岚 <wu.lan@bamboo.example.test>", "authorship": { "authored_id": "G08d23Mail04CcAuth", "occurred_at": "2026-03-24T18:11:00+08:00", "author_role": "legal", "content_class": "signal", "links": { "story_beat_ids": ["D23"], "fact_ids": ["F08"], "continuity_ids": ["C03"] } } },
+                  { "header_id": "G08d23Mail04Subject", "name": "Subject", "value": "Re: 子处理方草稿：字段依据复核", "authorship": { "authored_id": "G08d23Mail04SubjectAuth", "occurred_at": "2026-03-24T18:11:00+08:00", "author_role": "legal", "content_class": "signal", "links": { "story_beat_ids": ["D23"], "fact_ids": ["F08"], "continuity_ids": ["C03"] } } },
+                  {
+                    "header_id": "G08d23Mail04Date",
+                    "name": "Date",
+                    "value": "Tue, 24 Mar 2026 18:11:00 +0800",
+                    "authorship": {
+                      "authored_id": "G08d23Mail04DateAuth",
+                      "occurred_at": "2026-03-24T18:11:00+08:00",
+                      "author_role": "legal",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": [
+                          "D23"
+                        ],
+                        "fact_ids": [
+                          "F08"
+                        ],
+                        "continuity_ids": [
+                          "C03"
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "header_id": "G08d23Mail04Id",
+                    "name": "Message-ID",
+                    "value": "<G08d23Mail04@advisory.example.test>",
+                    "authorship": {
+                      "authored_id": "G08d23Mail04IdAuth",
+                      "occurred_at": "2026-03-24T18:11:00+08:00",
+                      "author_role": "legal",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": [
+                          "D23"
+                        ],
+                        "fact_ids": [
+                          "F08"
+                        ],
+                        "continuity_ids": [
+                          "C03"
+                        ]
+                      }
+                    }
+                  },
+                  { "header_id": "G08d23Mail04InReplyTo", "name": "In-Reply-To", "value": "<G08d23Mail03@seamlog.example.test>", "authorship": { "authored_id": "G08d23Mail04InReplyToAuth", "occurred_at": "2026-03-24T18:11:00+08:00", "author_role": "legal", "content_class": "signal", "links": { "story_beat_ids": ["D23"], "fact_ids": ["F08"], "continuity_ids": ["C03"] } } },
+                  { "header_id": "G08d23Mail04References", "name": "References", "value": "<G08d23Mail03@seamlog.example.test>", "authorship": { "authored_id": "G08d23Mail04ReferencesAuth", "occurred_at": "2026-03-24T18:11:00+08:00", "author_role": "legal", "content_class": "signal", "links": { "story_beat_ids": ["D23"], "fact_ids": ["F08"], "continuity_ids": ["C03"] } } }
+                ],
+                "full_text": "林舟、吴岚：\n\n复核意见：把字段名和事实字段分开显示。会议记录或采购主题行可作为“已标明来源”的证据对象；你为整理而写的标题应标为“编辑字段”，不能让读者误以为项目方已经说过这句话。\n\n有两类行应当直接写“来源待补”：一类是想表达责任但没有对应原句的行，另一类是只凭名称推断关系的行。不要用“通常如此”填补。若后来收到更正，保留原先的标记、补上新对象和日期，而不是覆盖旧的审阅痕迹。\n\n吴岚只需知道哪些字段尚不能外发；她不负责替内部草稿寻找依据。林舟下一轮可按这三种标签逐格修改，再请我复核改动是否仍能指向对象。\n\n孙秋",
+                "in_reply_to": "G08d23Mail03",
+                "references": [
+                  "G08d23Mail03"
+                ],
+                "attachments": [],
+                "authorship": {
+                  "authored_id": "G08d23Mail04Auth",
+                  "occurred_at": "2026-03-24T18:11:00+08:00",
+                  "author_role": "legal",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D23"
+                    ],
+                    "fact_ids": [
+                      "F08"
+                    ],
+                    "continuity_ids": [
+                      "C03"
+                    ]
+                  }
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "G08d23DraftThreadAuth",
+              "occurred_at": "2026-03-24T17:26:00+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D23"
+                ],
+                "fact_ids": [
+                  "F08"
+                ],
+                "continuity_ids": [
+                  "C03"
+                ]
+              }
+            }
+          }
+        ],
+        "authorship": {
+          "authored_id": "G08d23EmailSourceAuth",
+          "occurred_at": "2026-03-24T16:34:00+08:00",
+          "author_role": "product",
+          "content_class": "signal",
+          "links": {
+            "story_beat_ids": [
+              "D23"
+            ],
+            "fact_ids": [
+              "F08"
+            ],
+            "continuity_ids": [
+              "C03"
+            ]
+          }
+        }
+      }
+    ]
+  }
+}

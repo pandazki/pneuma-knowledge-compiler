@@ -1,0 +1,1445 @@
+{
+  "schema": "pneuma.experiment.opc-84d-v2.group-content/v1",
+  "group_id": "G18",
+  "group_window": {
+    "starts_on": "2026-04-22",
+    "ends_on": "2026-04-24",
+    "day_count": 3,
+    "timezone": "Asia/Shanghai"
+  },
+  "story_scope": {
+    "allowed_story_beat_ids": [
+      "D52",
+      "D53",
+      "D54"
+    ],
+    "known_fact_ids": [
+      "F01",
+      "F02",
+      "F03",
+      "F04",
+      "F05",
+      "F06",
+      "F07",
+      "F08",
+      "F09",
+      "F10",
+      "F11"
+    ],
+    "open_continuity_ids": [
+      "C01",
+      "C02",
+      "C03",
+      "C04",
+      "C05"
+    ],
+    "new_continuity_ids": []
+  },
+  "research_context": [
+    {
+      "research_ref_id": "G18-R01",
+      "topic_query": "official change control assess record change before work starts",
+      "url": "https://www.gov.uk/guidance/making-changes-to-a-higher-risk-building-project",
+      "title": "Making changes to a higher-risk building project",
+      "accessed_on": "2026-07-29",
+      "credibility": {
+        "tier": "official",
+        "rationale": "The UK Building Safety Regulator guidance distinguishes an agreed baseline from a later change that must be assessed and recorded."
+      },
+      "applicability_scope": "Shapes the D52 meeting and D54 scope thread: the approval request remains separately named until its impact can be examined, rather than being silently absorbed into a small trial. It does not impose a construction rule or formal approval procedure on fictional work.",
+      "author_fact_summaries": [
+        "A change can be assessed against an existing agreed baseline before work proceeds.",
+        "Keeping a record of a change makes its status distinguishable from the original agreed material."
+      ],
+      "fictionalization_boundary": "The regulator, building setting, safety requirements, formal change categories, mandatory actions, examples, terminology, and wording are excluded from fictional sources.",
+      "applied_authored_ids": [
+        "g18-d52-u08",
+        "g18-d54-e02"
+      ]
+    },
+    {
+      "research_ref_id": "G18-R02",
+      "topic_query": "official contract modification scope period cost written change documentation",
+      "url": "https://www.acquisition.gov/daffars/5343.102-90-contract-scope-considerations",
+      "title": "Contract Scope Considerations",
+      "accessed_on": "2026-07-29",
+      "credibility": {
+        "tier": "official",
+        "rationale": "The official acquisition regulation frames a proposed modification through the type of work, performance period, and cost relative to the original scope."
+      },
+      "applicability_scope": "Shapes the three-part comparison in the D52 meeting and the D54 email's separation of a paid extension from the current quote. It does not determine a contract, procurement result, price, or legal status for fictional parties.",
+      "author_fact_summaries": [
+        "A proposed modification can be compared with the original work by looking at the work type, time period, and cost impact.",
+        "A scope determination can be documented separately from a decision to proceed."
+      ],
+      "fictionalization_boundary": "The government, acquisition rules, competition requirements, decision authorities, forms, thresholds, legal effects, and page wording do not appear in fictional bodies.",
+      "applied_authored_ids": [
+        "g18-d52-u10",
+        "g18-d54-e01"
+      ]
+    }
+  ],
+  "sources": {
+    "meetings": [
+      {
+        "source_id": "g18-meeting-quote-src",
+        "schema": "pneuma.source.meeting/v1",
+        "provider": "mock",
+        "meeting_id": "g18-quote-clarify",
+        "title": "试点报价与范围口头澄清",
+        "started_at": "2026-04-22T10:03:00+08:00",
+        "ended_at": "2026-04-22T10:47:00+08:00",
+        "timezone": "Asia/Shanghai",
+        "owner_participant_ids": [
+          "g18-p-lin"
+        ],
+        "participants": [
+          {
+            "participant_id": "g18-p-lin",
+            "display_name": "林舟",
+            "role": "product",
+            "synthetic_address": "lin.zhou@seamlog.test"
+          },
+          {
+            "participant_id": "g18-p-wu",
+            "display_name": "吴岚",
+            "role": "manager",
+            "synthetic_address": "wu.lan@bamboo.test"
+          },
+          {
+            "participant_id": "g18-p-sun",
+            "display_name": "孙秋",
+            "role": "legal",
+            "synthetic_address": "sun.qiu@advice.test"
+          }
+        ],
+        "agenda": [
+          {
+            "agenda_id": "g18-a01",
+            "text": "确认已发报价描述的适用范围，不作接受决定。",
+            "authorship": {
+              "authored_id": "g18-d52-a01",
+              "occurred_at": "2026-04-22T10:03:00+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D52"
+                ],
+                "fact_ids": [
+                  "F09",
+                  "F11"
+                ],
+                "continuity_ids": [
+                  "C04",
+                  "C05"
+                ]
+              }
+            }
+          },
+          {
+            "agenda_id": "g18-a02",
+            "text": "把供应商审批请求与当前试点分开。",
+            "authorship": {
+              "authored_id": "g18-d52-a02",
+              "occurred_at": "2026-04-22T10:03:00+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D52"
+                ],
+                "fact_ids": [
+                  "F09"
+                ],
+                "continuity_ids": [
+                  "C04",
+                  "C05"
+                ]
+              }
+            }
+          }
+        ],
+        "utterances": [
+          {
+            "utterance_id": "g18-utt-01",
+            "speaker_id": "g18-p-lin",
+            "started_at": "2026-04-22T10:03:00+08:00",
+            "ended_at": "2026-04-22T10:05:00+08:00",
+            "text": "我先说清楚：报价已经发出去，但今天不是让你们点头。昨晚洗碗时听了半集播客，一个字也没记住，早上才发现我还没把免费扩展那段从说明里删干净。",
+            "authorship": {
+              "authored_id": "g18-d52-u01",
+              "occurred_at": "2026-04-22T10:03:00+08:00",
+              "author_role": "product",
+              "content_class": "noise",
+              "links": {
+                "story_beat_ids": [
+                  "D52"
+                ],
+                "fact_ids": [],
+                "continuity_ids": []
+              }
+            }
+          },
+          {
+            "utterance_id": "g18-utt-02",
+            "speaker_id": "g18-p-wu",
+            "started_at": "2026-04-22T10:05:00+08:00",
+            "ended_at": "2026-04-22T10:07:00+08:00",
+            "text": "我看到了。我们可以听你讲范围，但我不能在这通里代表采购作答。内部还要看预算和材料，今天最多是把问题听明白。若他们问我为什么要再看一次，我会说这是给内部选择用的说明，不是请现场同事替我们补判断。",
+            "authorship": {
+              "authored_id": "g18-d52-u02",
+              "occurred_at": "2026-04-22T10:05:00+08:00",
+              "author_role": "manager",
+              "content_class": "ambiguous",
+              "links": {
+                "story_beat_ids": [
+                  "D52"
+                ],
+                "fact_ids": [
+                  "F11"
+                ],
+                "continuity_ids": [
+                  "C05"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "g18-utt-03",
+            "speaker_id": "g18-p-lin",
+            "started_at": "2026-04-22T10:07:00+08:00",
+            "ended_at": "2026-04-22T10:10:00+08:00",
+            "text": "报价写的是一万八千元、六周：一个项目、两名使用者、一次导出。它只描述这段受限试点的工作，不是把你们以后可能想到的流程一起打包。",
+            "authorship": {
+              "authored_id": "g18-d52-u03",
+              "occurred_at": "2026-04-22T10:07:00+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D52"
+                ],
+                "fact_ids": [
+                  "F09",
+                  "F11"
+                ],
+                "continuity_ids": [
+                  "C04",
+                  "C05"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "g18-utt-04",
+            "speaker_id": "g18-p-sun",
+            "started_at": "2026-04-22T10:10:00+08:00",
+            "ended_at": "2026-04-22T10:12:00+08:00",
+            "text": "把已写进来的和仍在发问的东西分开是对的。尤其别因为对方正在走内部流程，就把一份报价当成已经可执行的安排。",
+            "authorship": {
+              "authored_id": "g18-d52-u04",
+              "occurred_at": "2026-04-22T10:10:00+08:00",
+              "author_role": "legal",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D52"
+                ],
+                "fact_ids": [
+                  "F11"
+                ],
+                "continuity_ids": [
+                  "C05"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "g18-utt-05",
+            "speaker_id": "g18-p-wu",
+            "started_at": "2026-04-22T10:12:00+08:00",
+            "ended_at": "2026-04-22T10:15:00+08:00",
+            "text": "现场的人仍会问供应商审批。不是说他们已经要求你交出来，只是这个词会反复出现。我们想知道，它和现有记录链之间到底差多少。",
+            "authorship": {
+              "authored_id": "g18-d52-u05",
+              "occurred_at": "2026-04-22T10:12:00+08:00",
+              "author_role": "manager",
+              "content_class": "ambiguous",
+              "links": {
+                "story_beat_ids": [
+                  "D52"
+                ],
+                "fact_ids": [
+                  "F09"
+                ],
+                "continuity_ids": [
+                  "C04",
+                  "C05"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "g18-utt-06",
+            "speaker_id": "g18-p-lin",
+            "started_at": "2026-04-22T10:15:00+08:00",
+            "ended_at": "2026-04-22T10:18:00+08:00",
+            "text": "现在的试点只把已有沟通里的变更链整理出来。审批会多出谁提出、谁看、谁能改状态以及漏项怎么处理；我不能把这些责任叫成一个小按钮再免费塞进六周里。",
+            "authorship": {
+              "authored_id": "g18-d52-u06",
+              "occurred_at": "2026-04-22T10:15:00+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D52"
+                ],
+                "fact_ids": [
+                  "F09"
+                ],
+                "continuity_ids": [
+                  "C04",
+                  "C05"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "g18-utt-07",
+            "speaker_id": "g18-p-wu",
+            "started_at": "2026-04-22T10:18:00+08:00",
+            "ended_at": "2026-04-22T10:20:00+08:00",
+            "text": "我理解不含，不等于我已经接受报价。采购会问为什么不含，你给我一句能转述的，不要把解释写成威胁或一长串功能清单。还有，别让他们以为只要把审批拿掉，材料替代链的核对就自动结束；那是使用上的另一件事。",
+            "authorship": {
+              "authored_id": "g18-d52-u07",
+              "occurred_at": "2026-04-22T10:18:00+08:00",
+              "author_role": "manager",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D52"
+                ],
+                "fact_ids": [
+                  "F09",
+                  "F11"
+                ],
+                "continuity_ids": [
+                  "C04",
+                  "C05"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "g18-utt-08",
+            "speaker_id": "g18-p-sun",
+            "started_at": "2026-04-22T10:20:00+08:00",
+            "ended_at": "2026-04-22T10:23:00+08:00",
+            "text": "可以说它是另一项需要估清适用人、操作路径和维护责任的工作。这样既没有否认问题，也没有把还没评估的内容伪装成现有承诺。",
+            "authorship": {
+              "authored_id": "g18-d52-u08",
+              "occurred_at": "2026-04-22T10:20:00+08:00",
+              "author_role": "legal",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D52"
+                ],
+                "fact_ids": [
+                  "F09"
+                ],
+                "continuity_ids": [
+                  "C04",
+                  "C05"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "g18-utt-09",
+            "speaker_id": "g18-p-lin",
+            "started_at": "2026-04-22T10:23:00+08:00",
+            "ended_at": "2026-04-22T10:26:00+08:00",
+            "text": "那我在 FAQ 里留一个收费扩展的占位，不填数字，也不写成可以立刻开工。当前这份只保留一个项目、两名使用者和一次导出，其他问题单列。",
+            "authorship": {
+              "authored_id": "g18-d52-u09",
+              "occurred_at": "2026-04-22T10:23:00+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D52"
+                ],
+                "fact_ids": [
+                  "F09",
+                  "F11"
+                ],
+                "continuity_ids": [
+                  "C04",
+                  "C05"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "g18-utt-10",
+            "speaker_id": "g18-p-sun",
+            "started_at": "2026-04-22T10:26:00+08:00",
+            "ended_at": "2026-04-22T10:29:00+08:00",
+            "text": "把范围、时长和新增负担放在同一处看就够了。以后若讨论扩展，再从这三项出发；不要倒过来让一个模糊的预算压力改写原先交付什么。",
+            "authorship": {
+              "authored_id": "g18-d52-u10",
+              "occurred_at": "2026-04-22T10:26:00+08:00",
+              "author_role": "legal",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D52"
+                ],
+                "fact_ids": [
+                  "F09",
+                  "F11"
+                ],
+                "continuity_ids": [
+                  "C04",
+                  "C05"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "g18-utt-11",
+            "speaker_id": "g18-p-wu",
+            "started_at": "2026-04-22T10:29:00+08:00",
+            "ended_at": "2026-04-22T10:32:00+08:00",
+            "text": "好，先别把扩展带进当前报价。我会把这份转内部看，但“转内部”只是状态，不是通过，也没有下一步日期可给。",
+            "authorship": {
+              "authored_id": "g18-d52-u11",
+              "occurred_at": "2026-04-22T10:29:00+08:00",
+              "author_role": "manager",
+              "content_class": "ambiguous",
+              "links": {
+                "story_beat_ids": [
+                  "D52"
+                ],
+                "fact_ids": [
+                  "F11"
+                ],
+                "continuity_ids": [
+                  "C05"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "g18-utt-12",
+            "speaker_id": "g18-p-lin",
+            "started_at": "2026-04-22T10:32:00+08:00",
+            "ended_at": "2026-04-22T10:35:00+08:00",
+            "text": "明白。我今天只发修正后的说明，不做单据，不排开始时间。陈放那条材料替代链也还在核对，我不把它当成试点已经验收的证据。那条链目前能说明的是哪些材料彼此有关，不能替代缺失的一次现场确认；即便当前报价后来有回复，这个缺口仍需要按自己的证据走完。",
+            "authorship": {
+              "authored_id": "g18-d52-u12",
+              "occurred_at": "2026-04-22T10:32:00+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D52",
+                  "D53"
+                ],
+                "fact_ids": [
+                  "F09",
+                  "F11"
+                ],
+                "continuity_ids": [
+                  "C02",
+                  "C05"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "g18-utt-13",
+            "speaker_id": "g18-p-wu",
+            "started_at": "2026-04-22T10:35:00+08:00",
+            "ended_at": "2026-04-22T10:38:00+08:00",
+            "text": "对，陈放先把那条链核清。采购材料和使用核对不要互相当证明；我能转的是范围说明，不能替一线确认那条变更是否足够。内部若要问进度，我也只会说他仍在回看材料，不把缺的那一段拿猜测补上。",
+            "authorship": {
+              "authored_id": "g18-d52-u13",
+              "occurred_at": "2026-04-22T10:35:00+08:00",
+              "author_role": "manager",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D52",
+                  "D53"
+                ],
+                "fact_ids": [
+                  "F11"
+                ],
+                "continuity_ids": [
+                  "C02",
+                  "C05"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "g18-utt-14",
+            "speaker_id": "g18-p-sun",
+            "started_at": "2026-04-22T10:38:00+08:00",
+            "ended_at": "2026-04-22T10:41:00+08:00",
+            "text": "会后保留两件待办就行：一件是当前报价等待内部回复，另一件是替代链继续由陈放核对。不要为了让记录整齐，把任何一个待办写成完成。",
+            "authorship": {
+              "authored_id": "g18-d52-u14",
+              "occurred_at": "2026-04-22T10:38:00+08:00",
+              "author_role": "legal",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D52",
+                  "D53"
+                ],
+                "fact_ids": [
+                  "F11"
+                ],
+                "continuity_ids": [
+                  "C02",
+                  "C05"
+                ]
+              }
+            }
+          },
+          {
+            "utterance_id": "g18-utt-15",
+            "speaker_id": "g18-p-lin",
+            "started_at": "2026-04-22T10:41:00+08:00",
+            "ended_at": "2026-04-22T10:44:00+08:00",
+            "text": "收到。我下午会把厨房水槽也收拾了，之后不再改报价；明天如果没消息，我先修来源标题，不追着问采购。",
+            "authorship": {
+              "authored_id": "g18-d52-u15",
+              "occurred_at": "2026-04-22T10:41:00+08:00",
+              "author_role": "product",
+              "content_class": "noise",
+              "links": {
+                "story_beat_ids": [
+                  "D52",
+                  "D53"
+                ],
+                "fact_ids": [],
+                "continuity_ids": []
+              }
+            }
+          },
+          {
+            "utterance_id": "g18-utt-16",
+            "speaker_id": "g18-p-wu",
+            "started_at": "2026-04-22T10:44:00+08:00",
+            "ended_at": "2026-04-22T10:47:00+08:00",
+            "text": "那就到这。我的下一封回复只会告诉你有没有新的内部问题，不会替采购作结论。你也不用在等待期间重发同一份报价；有新问题时，我们再针对那个问题说，不把沉默变成催促。若我没有问题，也只能说明还在等待，不是默认接受了任何条目。明天你可以先做自己的修正，不用把一天空出来守着邮箱；材料核对照原来的节奏走。",
+            "authorship": {
+              "authored_id": "g18-d52-u16",
+              "occurred_at": "2026-04-22T10:44:00+08:00",
+              "author_role": "manager",
+              "content_class": "ambiguous",
+              "links": {
+                "story_beat_ids": [
+                  "D52"
+                ],
+                "fact_ids": [
+                  "F11"
+                ],
+                "continuity_ids": [
+                  "C05"
+                ]
+              }
+            }
+          }
+        ],
+        "authorship": {
+          "authored_id": "g18-meeting-quote-src-auth",
+          "occurred_at": "2026-04-22T10:47:00+08:00",
+          "author_role": "product",
+          "content_class": "signal",
+          "links": {
+            "story_beat_ids": [
+              "D52",
+              "D53"
+            ],
+            "fact_ids": [
+              "F09",
+              "F11"
+            ],
+            "continuity_ids": [
+              "C02",
+              "C04",
+              "C05"
+            ]
+          }
+        }
+      }
+    ],
+    "document_library": [],
+    "im": [],
+    "email": [
+      {
+        "source_id": "g18-email-scope-src",
+        "schema": "pneuma.source.email/v1",
+        "provider": "rfc822",
+        "archive_id": "g18-mail-archive",
+        "owner_addresses": [
+          "lin.zhou@seamlog.test"
+        ],
+        "threads": [
+          {
+            "thread_id": "g18-thread-scope-boundary",
+            "subject": "当前报价与审批请求的边界",
+            "messages": [
+              {
+                "message_id": "g18-email-01",
+                "sent_at": "2026-04-24T10:18:00+08:00",
+                "from": {
+                  "address": "lin.zhou@seamlog.test",
+                  "display_name": "林舟",
+                  "role": "product"
+                },
+                "to": [
+                  {
+                    "address": "wu.lan@bamboo.test",
+                    "display_name": "吴岚",
+                    "role": "manager"
+                  }
+                ],
+                "cc": [
+                  {
+                    "address": "sun.qiu@advice.test",
+                    "display_name": "孙秋",
+                    "role": "legal"
+                  }
+                ],
+                "subject": "当前报价与审批请求的边界",
+                "headers": [
+                  {
+                    "header_id": "g18-e01-date",
+                    "name": "Date",
+                    "value": "Fri, 24 Apr 2026 10:18:00 +0800",
+                    "authorship": {
+                      "authored_id": "g18-e01-date-a",
+                      "occurred_at": "2026-04-24T10:18:00+08:00",
+                      "author_role": "product",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": [
+                          "D54"
+                        ],
+                        "fact_ids": [
+                          "F09",
+                          "F11"
+                        ],
+                        "continuity_ids": [
+                          "C04",
+                          "C05"
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "header_id": "g18-e01-from",
+                    "name": "From",
+                    "value": "林舟 <lin.zhou@seamlog.test>",
+                    "authorship": {
+                      "authored_id": "g18-e01-from-a",
+                      "occurred_at": "2026-04-24T10:18:00+08:00",
+                      "author_role": "product",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": [
+                          "D54"
+                        ],
+                        "fact_ids": [
+                          "F09"
+                        ],
+                        "continuity_ids": [
+                          "C04",
+                          "C05"
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "header_id": "g18-e01-to",
+                    "name": "To",
+                    "value": "吴岚 <wu.lan@bamboo.test>",
+                    "authorship": {
+                      "authored_id": "g18-e01-to-a",
+                      "occurred_at": "2026-04-24T10:18:00+08:00",
+                      "author_role": "product",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": [
+                          "D54"
+                        ],
+                        "fact_ids": [
+                          "F09"
+                        ],
+                        "continuity_ids": [
+                          "C04",
+                          "C05"
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "header_id": "g18-e01-cc",
+                    "name": "Cc",
+                    "value": "孙秋 <sun.qiu@advice.test>",
+                    "authorship": {
+                      "authored_id": "g18-e01-cc-a",
+                      "occurred_at": "2026-04-24T10:18:00+08:00",
+                      "author_role": "product",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": [
+                          "D54"
+                        ],
+                        "fact_ids": [
+                          "F09"
+                        ],
+                        "continuity_ids": [
+                          "C04",
+                          "C05"
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "header_id": "g18-e01-subj",
+                    "name": "Subject",
+                    "value": "当前报价与审批请求的边界",
+                    "authorship": {
+                      "authored_id": "g18-e01-subj-a",
+                      "occurred_at": "2026-04-24T10:18:00+08:00",
+                      "author_role": "product",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": [
+                          "D54"
+                        ],
+                        "fact_ids": [
+                          "F09"
+                        ],
+                        "continuity_ids": [
+                          "C04",
+                          "C05"
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "header_id": "g18-e01-id",
+                    "name": "Message-ID",
+                    "value": "<g18-scope-boundary-root@seamlog.test>",
+                    "authorship": {
+                      "authored_id": "g18-e01-id-a",
+                      "occurred_at": "2026-04-24T10:18:00+08:00",
+                      "author_role": "product",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": [
+                          "D54"
+                        ],
+                        "fact_ids": [
+                          "F09"
+                        ],
+                        "continuity_ids": [
+                          "C04",
+                          "C05"
+                        ]
+                      }
+                    }
+                  }
+                ],
+                "full_text": "吴岚、孙秋：\n\n按周三的口头澄清，我把当前报价的说明压回一个项目、两名使用者和一次导出；供应商审批不在其中。它不是被忽略，而是另作收费扩展，等使用场景、参与人和维护责任能单独说明后再谈。\n\n这封信不要求接受当前报价，也不替采购设置时间。范围 FAQ 已把“当前不含”和“另行评估”放在不同段落，避免一边等待内部流程，一边把新增工作默认成已买。\n\n若内部只想问审批为何存在，我会先回到实际问题：它是记录一次提出、安排一次复核，还是要留下可追看的结果。三种情况需要的人和后续不同，不能用同一个短词掩盖。当前报价不承担替它们猜答案的工作。\n\n若以后决定讨论扩展，我会另起一页写它与当前范围的差异，而不是在这封邮件上反复追加。这样内部读到的是一个待判断的问题，不是一串已经默认生效的补充。\n\n林舟",
+                "in_reply_to": null,
+                "references": [],
+                "attachments": [],
+                "authorship": {
+                  "authored_id": "g18-d54-e01",
+                  "occurred_at": "2026-04-24T10:18:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D54"
+                    ],
+                    "fact_ids": [
+                      "F09",
+                      "F11"
+                    ],
+                    "continuity_ids": [
+                      "C04",
+                      "C05"
+                    ]
+                  }
+                }
+              },
+              {
+                "message_id": "g18-email-02",
+                "sent_at": "2026-04-24T11:02:00+08:00",
+                "from": {
+                  "address": "wu.lan@bamboo.test",
+                  "display_name": "吴岚",
+                  "role": "manager"
+                },
+                "to": [
+                  {
+                    "address": "lin.zhou@seamlog.test",
+                    "display_name": "林舟",
+                    "role": "product"
+                  }
+                ],
+                "cc": [
+                  {
+                    "address": "sun.qiu@advice.test",
+                    "display_name": "孙秋",
+                    "role": "legal"
+                  }
+                ],
+                "subject": "Re: 当前报价与审批请求的边界",
+                "headers": [
+                  {
+                    "header_id": "g18-e02-date",
+                    "name": "Date",
+                    "value": "Fri, 24 Apr 2026 11:02:00 +0800",
+                    "authorship": {
+                      "authored_id": "g18-e02-date-a",
+                      "occurred_at": "2026-04-24T11:02:00+08:00",
+                      "author_role": "manager",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": [
+                          "D54"
+                        ],
+                        "fact_ids": [
+                          "F09",
+                          "F11"
+                        ],
+                        "continuity_ids": [
+                          "C04",
+                          "C05"
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "header_id": "g18-e02-from",
+                    "name": "From",
+                    "value": "吴岚 <wu.lan@bamboo.test>",
+                    "authorship": {
+                      "authored_id": "g18-e02-from-a",
+                      "occurred_at": "2026-04-24T11:02:00+08:00",
+                      "author_role": "manager",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": [
+                          "D54"
+                        ],
+                        "fact_ids": [
+                          "F09"
+                        ],
+                        "continuity_ids": [
+                          "C04",
+                          "C05"
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "header_id": "g18-e02-to",
+                    "name": "To",
+                    "value": "林舟 <lin.zhou@seamlog.test>",
+                    "authorship": {
+                      "authored_id": "g18-e02-to-a",
+                      "occurred_at": "2026-04-24T11:02:00+08:00",
+                      "author_role": "manager",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": [
+                          "D54"
+                        ],
+                        "fact_ids": [
+                          "F09"
+                        ],
+                        "continuity_ids": [
+                          "C04",
+                          "C05"
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "header_id": "g18-e02-cc",
+                    "name": "Cc",
+                    "value": "孙秋 <sun.qiu@advice.test>",
+                    "authorship": {
+                      "authored_id": "g18-e02-cc-a",
+                      "occurred_at": "2026-04-24T11:02:00+08:00",
+                      "author_role": "manager",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": [
+                          "D54"
+                        ],
+                        "fact_ids": [
+                          "F09"
+                        ],
+                        "continuity_ids": [
+                          "C04",
+                          "C05"
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "header_id": "g18-e02-subj",
+                    "name": "Subject",
+                    "value": "Re: 当前报价与审批请求的边界",
+                    "authorship": {
+                      "authored_id": "g18-e02-subj-a",
+                      "occurred_at": "2026-04-24T11:02:00+08:00",
+                      "author_role": "manager",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": [
+                          "D54"
+                        ],
+                        "fact_ids": [
+                          "F09"
+                        ],
+                        "continuity_ids": [
+                          "C04",
+                          "C05"
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "header_id": "g18-e02-id",
+                    "name": "Message-ID",
+                    "value": "<g18-scope-boundary-reply@bamboo.test>",
+                    "authorship": {
+                      "authored_id": "g18-e02-id-a",
+                      "occurred_at": "2026-04-24T11:02:00+08:00",
+                      "author_role": "manager",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": [
+                          "D54"
+                        ],
+                        "fact_ids": [
+                          "F09"
+                        ],
+                        "continuity_ids": [
+                          "C04",
+                          "C05"
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "header_id": "g18-e02-reply",
+                    "name": "In-Reply-To",
+                    "value": "<g18-scope-boundary-root@seamlog.test>",
+                    "authorship": {
+                      "authored_id": "g18-e02-reply-a",
+                      "occurred_at": "2026-04-24T11:02:00+08:00",
+                      "author_role": "manager",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": [
+                          "D54"
+                        ],
+                        "fact_ids": [
+                          "F09"
+                        ],
+                        "continuity_ids": [
+                          "C04",
+                          "C05"
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "header_id": "g18-e02-refs",
+                    "name": "References",
+                    "value": "<g18-scope-boundary-root@seamlog.test>",
+                    "authorship": {
+                      "authored_id": "g18-e02-refs-a",
+                      "occurred_at": "2026-04-24T11:02:00+08:00",
+                      "author_role": "manager",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": [
+                          "D54"
+                        ],
+                        "fact_ids": [
+                          "F09"
+                        ],
+                        "continuity_ids": [
+                          "C04",
+                          "C05"
+                        ]
+                      }
+                    }
+                  }
+                ],
+                "full_text": "林舟、孙秋：\n\n这样写可以。审批不要塞进当前报价，若以后要做，就按收费扩展单独讨论；我也会向内部说明它不是遗漏项。\n\n当前报价仍在流程里，我没有新的批准结论可以给。FAQ 里保留等待状态即可，不要把今天这封边界确认写成采购已经同意的证明。\n\n我会把内部问题收在一处再回，不希望你为了每个转述版本都重写范围。若采购只问当前包含什么，就给当前段落；若问审批，再给扩展段落。两边都先不要附带更大的承诺。\n\n今天我能确认的是表达方式，不是金额、时间或开始条件。若有人问我何时有结论，我只能回到内部仍在看的事实，不替他们作预测。\n\n吴岚",
+                "in_reply_to": "g18-email-01",
+                "references": [
+                  "g18-email-01"
+                ],
+                "attachments": [],
+                "authorship": {
+                  "authored_id": "g18-d54-e02",
+                  "occurred_at": "2026-04-24T11:02:00+08:00",
+                  "author_role": "manager",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D54"
+                    ],
+                    "fact_ids": [
+                      "F09",
+                      "F11"
+                    ],
+                    "continuity_ids": [
+                      "C04",
+                      "C05"
+                    ]
+                  }
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "g18-thread-scope-boundary-auth",
+              "occurred_at": "2026-04-24T11:02:00+08:00",
+              "author_role": "manager",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D54"
+                ],
+                "fact_ids": [
+                  "F09",
+                  "F11"
+                ],
+                "continuity_ids": [
+                  "C04",
+                  "C05"
+                ]
+              }
+            }
+          },
+          {
+            "thread_id": "g18-thread-material-check",
+            "subject": "材料替代链：仍待核对的两个位置",
+            "messages": [
+              {
+                "message_id": "g18-email-03",
+                "sent_at": "2026-04-24T14:36:00+08:00",
+                "from": {
+                  "address": "chen.fang@bamboo.test",
+                  "display_name": "陈放",
+                  "role": "operations"
+                },
+                "to": [
+                  {
+                    "address": "lin.zhou@seamlog.test",
+                    "display_name": "林舟",
+                    "role": "product"
+                  }
+                ],
+                "cc": [],
+                "subject": "材料替代链：仍待核对的两个位置",
+                "headers": [
+                  {
+                    "header_id": "g18-e03-date",
+                    "name": "Date",
+                    "value": "Fri, 24 Apr 2026 14:36:00 +0800",
+                    "authorship": {
+                      "authored_id": "g18-e03-date-a",
+                      "occurred_at": "2026-04-24T14:36:00+08:00",
+                      "author_role": "operations",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": [
+                          "D53",
+                          "D54"
+                        ],
+                        "fact_ids": [
+                          "F11"
+                        ],
+                        "continuity_ids": [
+                          "C02"
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "header_id": "g18-e03-from",
+                    "name": "From",
+                    "value": "陈放 <chen.fang@bamboo.test>",
+                    "authorship": {
+                      "authored_id": "g18-e03-from-a",
+                      "occurred_at": "2026-04-24T14:36:00+08:00",
+                      "author_role": "operations",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": [
+                          "D53"
+                        ],
+                        "fact_ids": [
+                          "F11"
+                        ],
+                        "continuity_ids": [
+                          "C02"
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "header_id": "g18-e03-to",
+                    "name": "To",
+                    "value": "林舟 <lin.zhou@seamlog.test>",
+                    "authorship": {
+                      "authored_id": "g18-e03-to-a",
+                      "occurred_at": "2026-04-24T14:36:00+08:00",
+                      "author_role": "operations",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": [
+                          "D53"
+                        ],
+                        "fact_ids": [
+                          "F11"
+                        ],
+                        "continuity_ids": [
+                          "C02"
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "header_id": "g18-e03-subj",
+                    "name": "Subject",
+                    "value": "材料替代链：仍待核对的两个位置",
+                    "authorship": {
+                      "authored_id": "g18-e03-subj-a",
+                      "occurred_at": "2026-04-24T14:36:00+08:00",
+                      "author_role": "operations",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": [
+                          "D53"
+                        ],
+                        "fact_ids": [
+                          "F11"
+                        ],
+                        "continuity_ids": [
+                          "C02"
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "header_id": "g18-e03-id",
+                    "name": "Message-ID",
+                    "value": "<g18-material-check-root@bamboo.test>",
+                    "authorship": {
+                      "authored_id": "g18-e03-id-a",
+                      "occurred_at": "2026-04-24T14:36:00+08:00",
+                      "author_role": "operations",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": [
+                          "D53"
+                        ],
+                        "fact_ids": [
+                          "F11"
+                        ],
+                        "continuity_ids": [
+                          "C02"
+                        ]
+                      }
+                    }
+                  }
+                ],
+                "full_text": "林舟：\n\n昨天我继续把那条真实变更的替代材料往回点。现在能从摘要回到父消息，也能找到后来的附件说明，但中间那条现场确认还是只剩转写里的时间点；我不想把它补成已确认。\n\n你把来源标题改正后，麻烦只给我新的入口位置，不要顺手改状态。我会再和原材料对一次。昨天那份报价我没有参与讨论，今天才接着核这条链。\n\n我还要确认摘要旁边那句“已沟通”究竟是描述附件补发，还是描述现场决定。它们指向的不是同一件事；在我找到原话前，先把这一句留在待核里比较稳。\n\n如果父消息的日期和转写时间对不上，我会把两个时间都保留，不挑一个看起来顺的。核对目的不是补一条漂亮链，而是让人看见哪一环仍然缺材料。\n\n陈放",
+                "in_reply_to": null,
+                "references": [],
+                "attachments": [],
+                "authorship": {
+                  "authored_id": "g18-d54-e03",
+                  "occurred_at": "2026-04-24T14:36:00+08:00",
+                  "author_role": "operations",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D53",
+                      "D54"
+                    ],
+                    "fact_ids": [
+                      "F11"
+                    ],
+                    "continuity_ids": [
+                      "C02"
+                    ]
+                  }
+                }
+              },
+              {
+                "message_id": "g18-email-04",
+                "sent_at": "2026-04-24T15:24:00+08:00",
+                "from": {
+                  "address": "lin.zhou@seamlog.test",
+                  "display_name": "林舟",
+                  "role": "product"
+                },
+                "to": [
+                  {
+                    "address": "chen.fang@bamboo.test",
+                    "display_name": "陈放",
+                    "role": "operations"
+                  }
+                ],
+                "cc": [],
+                "subject": "Re: 材料替代链：仍待核对的两个位置",
+                "headers": [
+                  {
+                    "header_id": "g18-e04-date",
+                    "name": "Date",
+                    "value": "Fri, 24 Apr 2026 15:24:00 +0800",
+                    "authorship": {
+                      "authored_id": "g18-e04-date-a",
+                      "occurred_at": "2026-04-24T15:24:00+08:00",
+                      "author_role": "product",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": [
+                          "D53",
+                          "D54"
+                        ],
+                        "fact_ids": [
+                          "F11"
+                        ],
+                        "continuity_ids": [
+                          "C02"
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "header_id": "g18-e04-from",
+                    "name": "From",
+                    "value": "林舟 <lin.zhou@seamlog.test>",
+                    "authorship": {
+                      "authored_id": "g18-e04-from-a",
+                      "occurred_at": "2026-04-24T15:24:00+08:00",
+                      "author_role": "product",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": [
+                          "D54"
+                        ],
+                        "fact_ids": [
+                          "F11"
+                        ],
+                        "continuity_ids": [
+                          "C02"
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "header_id": "g18-e04-to",
+                    "name": "To",
+                    "value": "陈放 <chen.fang@bamboo.test>",
+                    "authorship": {
+                      "authored_id": "g18-e04-to-a",
+                      "occurred_at": "2026-04-24T15:24:00+08:00",
+                      "author_role": "product",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": [
+                          "D54"
+                        ],
+                        "fact_ids": [
+                          "F11"
+                        ],
+                        "continuity_ids": [
+                          "C02"
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "header_id": "g18-e04-subj",
+                    "name": "Subject",
+                    "value": "Re: 材料替代链：仍待核对的两个位置",
+                    "authorship": {
+                      "authored_id": "g18-e04-subj-a",
+                      "occurred_at": "2026-04-24T15:24:00+08:00",
+                      "author_role": "product",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": [
+                          "D54"
+                        ],
+                        "fact_ids": [
+                          "F11"
+                        ],
+                        "continuity_ids": [
+                          "C02"
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "header_id": "g18-e04-id",
+                    "name": "Message-ID",
+                    "value": "<g18-material-check-reply@seamlog.test>",
+                    "authorship": {
+                      "authored_id": "g18-e04-id-a",
+                      "occurred_at": "2026-04-24T15:24:00+08:00",
+                      "author_role": "product",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": [
+                          "D54"
+                        ],
+                        "fact_ids": [
+                          "F11"
+                        ],
+                        "continuity_ids": [
+                          "C02"
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "header_id": "g18-e04-reply",
+                    "name": "In-Reply-To",
+                    "value": "<g18-material-check-root@bamboo.test>",
+                    "authorship": {
+                      "authored_id": "g18-e04-reply-a",
+                      "occurred_at": "2026-04-24T15:24:00+08:00",
+                      "author_role": "product",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": [
+                          "D54"
+                        ],
+                        "fact_ids": [
+                          "F11"
+                        ],
+                        "continuity_ids": [
+                          "C02"
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "header_id": "g18-e04-refs",
+                    "name": "References",
+                    "value": "<g18-material-check-root@bamboo.test>",
+                    "authorship": {
+                      "authored_id": "g18-e04-refs-a",
+                      "occurred_at": "2026-04-24T15:24:00+08:00",
+                      "author_role": "product",
+                      "content_class": "signal",
+                      "links": {
+                        "story_beat_ids": [
+                          "D54"
+                        ],
+                        "fact_ids": [
+                          "F11"
+                        ],
+                        "continuity_ids": [
+                          "C02"
+                        ]
+                      }
+                    }
+                  }
+                ],
+                "full_text": "陈放：\n\n标题已经改回材料里原来的叫法，新的入口在你上次保存的工作位置旁边；我没有触碰那条链的状态。你找到的父消息、附件说明和转写时间点仍分别留着，缺的现场确认继续标为待核。\n\n这条邮件只处理那一处来源路径，不拿它去支持报价或采购判断。昨天我和赵楠玩了两小时游戏，报价完全没碰；今天整理冰箱时扔了两瓶过期酱料，才顺手把你的入口说明写清。其他材料等你复看后再说。\n\n你回看时可以只记两件事：从哪个入口回到父消息，以及“已沟通”对应的是哪一份材料。若仍不能对上，不需要替我补标题，直接留一条缺口说明；我再看是否有遗漏的来源位置。\n\n我把转写时间放在原位置旁，没有把它改成确认时间。你若找到新的材料，只补来源位置和你看到的内容；状态继续由核对结果决定，避免后来的人把阅读路径误当作结论。\n\n林舟",
+                "in_reply_to": "g18-email-03",
+                "references": [
+                  "g18-email-03"
+                ],
+                "attachments": [],
+                "authorship": {
+                  "authored_id": "g18-d54-e04",
+                  "occurred_at": "2026-04-24T15:24:00+08:00",
+                  "author_role": "product",
+                  "content_class": "signal",
+                  "links": {
+                    "story_beat_ids": [
+                      "D53",
+                      "D54"
+                    ],
+                    "fact_ids": [
+                      "F11"
+                    ],
+                    "continuity_ids": [
+                      "C02"
+                    ]
+                  }
+                }
+              }
+            ],
+            "authorship": {
+              "authored_id": "g18-thread-material-check-auth",
+              "occurred_at": "2026-04-24T15:24:00+08:00",
+              "author_role": "product",
+              "content_class": "signal",
+              "links": {
+                "story_beat_ids": [
+                  "D53",
+                  "D54"
+                ],
+                "fact_ids": [
+                  "F11"
+                ],
+                "continuity_ids": [
+                  "C02"
+                ]
+              }
+            }
+          }
+        ],
+        "authorship": {
+          "authored_id": "g18-email-scope-src-auth",
+          "occurred_at": "2026-04-24T15:24:00+08:00",
+          "author_role": "product",
+          "content_class": "signal",
+          "links": {
+            "story_beat_ids": [
+              "D53",
+              "D54"
+            ],
+            "fact_ids": [
+              "F09",
+              "F11"
+            ],
+            "continuity_ids": [
+              "C02",
+              "C04",
+              "C05"
+            ]
+          }
+        }
+      }
+    ]
+  }
+}
