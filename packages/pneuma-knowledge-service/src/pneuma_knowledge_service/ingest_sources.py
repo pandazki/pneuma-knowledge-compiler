@@ -10,7 +10,7 @@ from pneuma_knowledge_core.domain.intake import IntakePlan, propose_intake
 from pneuma_knowledge_core.ingest.canonical_sources import normalize_source_contract
 from pneuma_knowledge_core.ingest.source_contracts import SourceContract
 
-from .ingest import IngestResult
+from .ingest import IngestResult, subject_time_context
 from .wiring import AppContext
 
 
@@ -34,8 +34,11 @@ async def ingest_source_contract(
     """
 
     timestamp = imported_at or datetime.now(timezone.utc)
+    # Meeting / IM / email contracts cut sections by calendar day; that day is the subject's
+    # (domain/time_context.py), not the provider's offset.
+    time = await subject_time_context(ctx, user_id)
     normalized_sources = normalize_source_contract(
-        contract, user_id, imported_at=timestamp
+        contract, user_id, imported_at=timestamp, time=time
     )
     results: list[IngestResult] = []
     new_sources: list[tuple[str, IntakePlan]] = []

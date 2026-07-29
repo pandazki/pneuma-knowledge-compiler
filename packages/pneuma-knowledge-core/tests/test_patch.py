@@ -1,4 +1,4 @@
-"""PatchDraft: claim-level staging, system anchor/pneuma_id assignment, no whole-file
+"""PatchDraft: claim-level staging, system anchor/doc_id assignment, no whole-file
 rewrite op, path ownership enforcement."""
 
 import pytest
@@ -28,14 +28,14 @@ def test_path_allowed_matches_templates_and_rejects_others():
     assert not path_allowed("memory/profile.txt", TEMPLATES)
 
 
-def test_create_document_assigns_pneuma_id_and_all_anchors_deterministically():
+def test_create_document_assigns_doc_id_and_all_anchors_deterministically():
     draft = _draft()
     doc = draft.create_document(
         "memory/people/cheng-ye.md",
         {"type": "person", "slug": "cheng-ye"},
         "## 程野\n\n- 程野 是后端负责人。[cite: src-01 ¶3]\n- 别名「欧文」。[cite: src-01 ¶8]",
     )
-    assert doc.frontmatter["pneuma_id"] == str(doc.pneuma_id)
+    assert doc.frontmatter["doc_id"] == str(doc.doc_id)
     assert len(extract_anchors(doc.body)) == 2
 
     # Re-running the identical create in a fresh draft yields identical ids/anchors.
@@ -44,7 +44,7 @@ def test_create_document_assigns_pneuma_id_and_all_anchors_deterministically():
         {"type": "person", "slug": "cheng-ye"},
         "## 程野\n\n- 程野 是后端负责人。[cite: src-01 ¶3]\n- 别名「欧文」。[cite: src-01 ¶8]",
     )
-    assert again.pneuma_id == doc.pneuma_id
+    assert again.doc_id == doc.doc_id
     assert extract_anchors(again.body) == extract_anchors(doc.body)
 
 
@@ -90,7 +90,7 @@ def test_append_block_rejects_heading_with_no_title():
         {"type": "topic", "slug": "q3-launch"},
         "## 承诺\n\n- 初始。[cite: src-01 ¶0]",
     )
-    with pytest.raises(AnchorToolError, match="小节标题不能为空"):
+    with pytest.raises(AnchorToolError, match="section heading cannot be empty"):
         draft.append_block(
             "memory/topics/q3-launch.md",
             "###",
@@ -117,9 +117,9 @@ def test_there_is_no_whole_file_rewrite_operation():
 
 def test_from_canonical_seeds_base_and_working():
     base = CanonicalDocument(
-        pneuma_id=DocumentId("abc123"),
+        doc_id=DocumentId("abc123"),
         path="memory/profile.md",
-        frontmatter={"pneuma_id": "abc123", "type": "profile", "slug": "profile"},
+        frontmatter={"doc_id": "abc123", "type": "profile", "slug": "profile"},
         body="- 本人是产品经理。[cite: src-01 ¶0] <!-- c:1111 -->",
     )
     draft = _draft(base)

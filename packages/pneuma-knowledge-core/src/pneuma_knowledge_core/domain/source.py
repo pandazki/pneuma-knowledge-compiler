@@ -1,7 +1,7 @@
 """Source domain models: raw → normalized, with structure map for L0 addressing.
 
 A source's four parallel views (architecture.md §3) all address into the block
-sequence produced here. The StructureMap backs L0 structural fetch (章/节/¶ span):
+sequence produced here. The StructureMap backs L0 structural fetch (chapter/section/¶ span):
 locator v1 forms are `{"section": [...]} | {"blocks": [start, end]}`.
 """
 
@@ -19,7 +19,8 @@ Locator = dict[str, Any]
 
 # Who spoke a turn, relative to the knowledge owner. A structured stream may already
 # diarize this (`self/*` vs `others/*`); typing it lets the context_stream adapter render
-# the owner/other distinction the compile skill reasons over (§9 说话人与归属), instead
+# the owner/other distinction the compile skill reasons over (§9, speaker and attribution),
+# instead
 # of leaving opaque diarization codes for the LLM to guess. `unknown` = un-diarized
 # (a generic pasted transcript) → rendered by raw speaker string, no owner claim.
 SpeakerRole = Literal["owner", "other", "unknown"]
@@ -50,6 +51,11 @@ SourceKind = Literal[
 class ConversationTurn(BaseModel):
     speaker: str
     text: str
+    # WHEN this turn happened, as an AWARE UTC instant. A naive value is accepted and
+    # interpreted as UTC rather than rejected (existing callers post naive timestamps), and
+    # a value carrying any other offset is honoured as the instant it denotes. The CALENDAR
+    # DAY a turn belongs to is never read off this field directly — it is resolved through
+    # the subject's TimeContext at the sectioning boundary (domain/time_context.py).
     at: datetime | None = None
     # Role relative to the owner. First-party context_stream sets this from diarization;
     # a generic conversation leaves it "unknown" (rendered by raw `speaker`).
@@ -65,14 +71,15 @@ class RawSource(BaseModel):
     kind: SourceKind
     source_class: Literal["workstream", "reference"] = "workstream"
     # First-party vs uploaded provenance (defaults to upload for back-compat). Drives
-    # adapter/skill selection for first-party data (需求：第一方数据针对性处理).
+    # adapter/skill selection for first-party data (requirement: type-specific handling).
     origin: SourceOrigin = "upload"
     title: str
     mime: str
     checksum: str
     created_at: datetime
     meta: dict[str, Any] = Field(default_factory=dict)
-    # IntakePlan proposal, persisted for audit (§4: "IntakePlan 是提案 … 落库留审计").
+    # IntakePlan proposal, persisted for audit (§4: "the IntakePlan is a proposal … persisted
+    # for audit").
     # Held as a plain dict to keep the domain source module free of an intake import
     # cycle; the plan's schema lives in domain/intake.py.
     intake_plan: dict[str, Any] | None = None

@@ -82,9 +82,9 @@ def test_edit_claim_accepts_block_carrying_own_anchor():
 
 
 def test_edit_claim_rejects_unknown_and_foreign_anchor():
-    with pytest.raises(AnchorToolError, match="不在该文档中"):
+    with pytest.raises(AnchorToolError, match="is not in this document"):
         edit_claim_text(DOC, "dead", "- x [inferred]")
-    with pytest.raises(AnchorToolError, match="含有其它锚"):
+    with pytest.raises(AnchorToolError, match="contains other anchors"):
         edit_claim_text(DOC, "aa11", "- x [inferred] <!-- c:ffff -->")
 
 
@@ -101,7 +101,7 @@ def test_append_block_into_existing_section():
 def test_append_block_creates_missing_section_and_rejects_model_anchor():
     out = append_block_text(DOC, "Open Questions", "- 归属待确认。[inferred]")
     assert "## Open Questions" in out and len(extract_anchors(out)) == 3
-    with pytest.raises(AnchorToolError, match="锚由系统分配"):
+    with pytest.raises(AnchorToolError, match="the system assigns it"):
         append_block_text(DOC, "程野", "- x [inferred] <!-- c:1234 -->")
 
 

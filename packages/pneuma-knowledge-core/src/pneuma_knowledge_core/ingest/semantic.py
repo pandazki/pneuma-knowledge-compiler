@@ -26,6 +26,7 @@ from pydantic import BaseModel, Field
 
 from ..domain.source import NormalizedBlock, StructureMap
 from ..domain.ids import SourceId
+from ..prompts import prompt
 from ..recall.fast import invoke_config
 from .chunking import (
     Chunk,
@@ -76,20 +77,9 @@ class Segments(BaseModel):
     segments: list[int] = Field(default_factory=list)
 
 
-# Byte-stable, volatile-free rubric (I5 / prompt-cache discipline). Encodes the
-# nemori-derived boundary philosophy. No block content here — the numbered blocks ride
-# the Human turn.
-_SEGMENTER_RUBRIC = """\
-你在为个人知识库切分一段按顺序编号的内容。目标：把内容切成若干「语义段」，理想情况下一个自然单元（例如一位候选人、一个主题）= 一段。
-
-切分规则（按优先级）：
-- 以「实质话题 / 主体（如某个候选人、某个具体主题）的转变」作为最高优先级的切分点。
-- 忽略寒暄、过渡、客套这类填充内容，不要因为它们而切分。
-- 不要过度切分——把属于同一主体 / 同一话题的连续内容并为一段。
-- 每个自然单元（如对某一位候选人的完整评价）尽量完整地落在同一段里。
-
-只需给出每个语义段的「起始块编号」（segments，升序整数）。段 i 覆盖 [start_i, start_{i+1}-1]，最后一段直到最末一块；因此你无需给出结束编号。编号必须是列表里出现过的真实块编号。
-"""
+# Byte-stable, volatile-free rubric (I5 / prompt-cache discipline), resolved from the prompt
+# catalog. Encodes the nemori-derived boundary philosophy. No block content here — the
+# numbered blocks ride the Human turn.
 
 
 def _number_blocks(window: list[NormalizedBlock], offset: int) -> str:
@@ -120,13 +110,15 @@ async def _segment_window_starts(
     dropped here; ascending/dedup/ensure-0 is finished by `semantic_segments`."""
     listing = _number_blocks(window, offset)
     lo, hi = offset, offset + len(window) - 1
-    human = (
-        f"以下是编号 {lo}..{hi} 的内容块（共 {len(window)} 块），每行格式为 "
-        f"「行号:内容」（行号即冒号前的整数，与 grep -n 一致）。"
-        f"请返回每个语义段的起始行号：\n\n{listing}"
+    human = prompt(
+        "ingest.semantic.human",
+        lo=lo,
+        hi=hi,
+        count=len(window),
+        listing=listing,
     )
     messages = [
-        SystemMessage(content=_SEGMENTER_RUBRIC),
+        SystemMessage(content=prompt("ingest.semantic.rubric")),
         HumanMessage(content=human),
     ]
     structured = model.with_structured_output(Segments)

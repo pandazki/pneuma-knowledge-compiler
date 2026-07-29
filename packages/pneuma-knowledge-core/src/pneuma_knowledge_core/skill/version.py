@@ -35,27 +35,29 @@ _OPC_DEVELOPER_TEMPLATES = [
 _SKILL_ID = "opc-developer-knowledge"
 
 # Per-version extra write-contract clauses folded into render_system_contract. These are
-# mechanism refinements (受控词表/呈现约定), not persuasion (§0 discipline 1). v1 carries
-# none; v2 adds a citation-presentation rule that shapes how future compiles cite. The
-# rules ride the byte-stable SystemMessage, so they are part of the version's identity.
-_CITATION_GRANULARITY_RULE = (
-    "每条 claim 只回链其直接依据的 source ¶ 区间；有多段独立支撑时按 ¶ 升序分别列出 "
-    "`[cite: <sid> ¶a-b]`，不要合并成一个跨越无关段落的大区间。"
-)
-_STRENGTH_LABEL_RULE = (
-    "承诺与关系类 claim 用 skill 约定的强度前缀标签（【强】/【中】/【弱】）起头，"
-    "投影层据此分层呈现；标签只用这三档。"
-)
+# mechanism refinements (a controlled vocabulary, a presentation convention), not
+# persuasion (§0 discipline 1). v1 carries none; v2 adds a citation-presentation rule that
+# shapes how future compiles cite. The rules ride the byte-stable SystemMessage, so they
+# are part of the version's identity.
+#
+# The values are prompt-catalog KEYS, not sentences: `render_system_contract` resolves each
+# through `resolve_or_verbatim`, so a deployment rewrites a clause through the same seam as
+# every other surface, while a business-authored SkillVersion may still store a literal
+# sentence (it resolves to itself). `compute_hash` therefore hashes the key string — the
+# prose the model actually saw is pinned by the overlay hash in the commit trailer, giving a
+# two-axis identity (skill hash × overlay hash).
+CITATION_GRANULARITY_RULE = "contract.rule.citation_granularity"
+STRENGTH_LABEL_RULE = "contract.rule.strength_labels"
 # One citation marker holds exactly ONE source and ONE ¶ range. Stated because the gate
 # parses citations with a fixed grammar and rejects anything it cannot fully parse: a model
 # that packs several sources or several ranges into one marker (`¶1,3`, `¶0-2; s07 ¶4`)
 # writes a citation the projection cannot resolve, which is how a claim ends up committed
 # with no recoverable provenance at all.
-_CITATION_SHAPE_RULE = (
-    "一个 `[cite: …]` 标记里只能有一个 source_id 和一个 ¶ 区间。"
-    "多段支撑就并列多个标记（`[cite: <sid> ¶0-2] [cite: <sid> ¶7]`），"
-    "不要在同一个标记里用逗号堆多段、也不要用分号并列多个 source。"
-)
+CITATION_SHAPE_RULE = "contract.rule.citation_shape"
+
+_CITATION_GRANULARITY_RULE = CITATION_GRANULARITY_RULE
+_STRENGTH_LABEL_RULE = STRENGTH_LABEL_RULE
+_CITATION_SHAPE_RULE = CITATION_SHAPE_RULE
 
 _CONTRACT_RULES: dict[str, tuple[str, ...]] = {
     "v1": (),
@@ -99,11 +101,44 @@ class SkillVersion(BaseModel):
         return h.hexdigest()
 
 
+# Business-registered skill bases, keyed by version string. The skill BODY is a versioned
+# asset rather than a prompt surface — it is domain content whose length and structure the
+# deployment owns — so it has its own registration seam instead of riding the prompt
+# catalog. Registering `v3` replaces the packaged v3 body everywhere `base_version` points
+# at it, and `content_hash` keeps working unchanged (it is computed from whatever
+# instructions are loaded).
+_REGISTERED_BASES: dict[str, SkillVersion] = {}
+
+
+def register_skill_base(version: str, skill: SkillVersion) -> None:
+    """Register (or replace) the skill base loaded for `version` — the business seam.
+
+    Call at startup (wiring), before any compile. `load_builtin_skill(version)` then returns
+    this SkillVersion instead of reading the packaged asset, so a deployment can ship its
+    own full skill body (its own language, its own domain sections) while every manifest,
+    trailer and `base_version` reference keeps naming the same version string.
+    """
+    _REGISTERED_BASES[version] = skill
+
+
+def registered_skill_bases() -> dict[str, SkillVersion]:
+    """The currently registered bases (a copy) — for wiring inspection and tests."""
+    return dict(_REGISTERED_BASES)
+
+
+def reset_skill_bases() -> None:
+    """Drop every registered base. Tests only — the startup contract is register-once."""
+    _REGISTERED_BASES.clear()
+
+
 def load_builtin_skill(version: str = "v1") -> SkillVersion:
-    """Load a built-in OPC developer strategy from its packaged asset.
+    """Load a skill base: a business-registered one if present, else the packaged asset.
 
     `version` selects the asset (`opc_developer_<version>.md`). Versions coexist so
     forward-only upgrades can rebuild derived data without rewriting canonical history."""
+    registered = _REGISTERED_BASES.get(version)
+    if registered is not None:
+        return registered
     asset = _ASSETS / f"opc_developer_{version}.md"
     if not asset.is_file():
         raise ValueError(f"unknown built-in skill version: {version!r}")

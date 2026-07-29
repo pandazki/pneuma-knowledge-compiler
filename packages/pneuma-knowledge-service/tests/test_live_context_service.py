@@ -12,7 +12,7 @@ from types import SimpleNamespace
 import pytest
 from pneuma_knowledge_core.domain.suggestion import CONTEXT_FOCUSES, SUGGESTION_KINDS
 from pneuma_knowledge_core.domain.source import ConversationTurn
-from pneuma_knowledge_core.recall.briefing import _BRIEFING_CONTRACT
+from pneuma_knowledge_core.recall.briefing import briefing_contract
 from pneuma_knowledge_service.adapters.scripted_model import ScriptedChatModel
 from pneuma_knowledge_service.api.app import create_app
 from pneuma_knowledge_service.api.routes.live_context import OUTBOUND_LIMIT, put_drop_oldest
@@ -34,7 +34,7 @@ PACK = "# 检索知识（scope.query）\n- 某条 claim 注记"
 
 def stored_prefix(pack: str = PACK) -> str:
     """Exactly what `build_briefing` persists (briefing.py:328)."""
-    return _BRIEFING_CONTRACT + "\n" + pack + "\n" if pack else _BRIEFING_CONTRACT
+    return briefing_contract() + "\n" + pack + "\n" if pack else briefing_contract()
 
 
 def test_the_stored_briefing_contract_is_stripped_off_the_pack():
@@ -49,7 +49,7 @@ def test_the_stored_briefing_contract_is_stripped_off_the_pack():
     assert "# Pneuma 个人记忆会话" not in stripped
     assert "search_knowledge" not in stripped
     assert "无相关记录" not in stripped
-    assert _BRIEFING_CONTRACT[:200] not in stripped
+    assert briefing_contract()[:200] not in stripped
 
 
 def test_a_prefix_that_is_not_contract_prefixed_is_returned_unchanged():
@@ -342,7 +342,7 @@ async def test_want_more_puts_the_fetched_verbatim_in_front_of_the_model():
     )
 
     system, human_msg = model.seen[0]
-    assert "Pneuma 上下文提示 · 展开" in str(system.content)
+    assert "# Context briefing · expanded" in str(system.content)
     human = str(human_msg.content)
     assert "被引用来源里的一段独特原文" in human
     assert "RAG" in human  # the card itself is there too

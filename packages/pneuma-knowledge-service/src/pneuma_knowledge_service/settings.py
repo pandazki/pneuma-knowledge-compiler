@@ -46,7 +46,8 @@ class Settings(BaseSettings):
     # guidance are independent because deployments may want raw speaker labels, generic
     # compile behavior, or both. Toggling is per-stage: rendering is applied at ingest
     # (affects new sources), guidance at compile (affects the next compile).
-    #   render_roles     — render self/others as 本人/参与者N at ingest (ELSE plain verbatim)
+    #   render_roles     — render self/others as owner/participant labels at ingest (ELSE
+    #                      plain verbatim)
     #   compile_guidance — inject the per-type data+app context into compile (ELSE none)
     context_stream_render_roles: bool = True
     context_stream_compile_guidance: bool = True
@@ -69,6 +70,12 @@ class Settings(BaseSettings):
     #     touching existing callers; flip this knob, not the loader default.
     user_schema_packs: bool = True
     user_schema_base_version: str = "v3"
+    # Path to a deployment-supplied pack matrix (the JSON asset packs_for_profile reads on
+    # the first-compile auto-resolution path). None → the packaged built-in matrix. This is
+    # the prose seam for branch-3 skill materialization: without it a deployment could only
+    # replace the built-in pack wording by pre-writing a full manifest (branch 2), which
+    # REPLACES auto-resolution instead of layering on it.
+    user_schema_matrix_path: str | None = None
 
     # Schema evolve (schema-evolve §2). The whole-KB reorganization flow: a strong model
     # proposes new schema families off accrued compile evidence, an agentic pass reorganizes

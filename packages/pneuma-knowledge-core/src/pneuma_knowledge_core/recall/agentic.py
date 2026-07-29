@@ -30,9 +30,13 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langgraph.errors import GraphRecursionError
 
+from ..prompts import prompt
 from .fast import add_usage, extract_usage, invoke_config, zero_usage
 
-_BUDGET_NOTICE = "检索预算已用尽——基于已取得的证据直接作答。"
+
+def _budget_notice() -> str:
+    """The forced-finalize nudge injected at the budget edge."""
+    return prompt("recall.agentic.budget_notice")
 
 
 def _text(content: object) -> str:
@@ -74,7 +78,7 @@ async def run_agent_loop(
         messages = list(state["messages"]) if state else [HumanMessage(content=human)]
         pending = getattr(messages[-1], "tool_calls", None) or []
         for call in pending:
-            messages.append(ToolMessage(content=_BUDGET_NOTICE, tool_call_id=call["id"]))
+            messages.append(ToolMessage(content=_budget_notice(), tool_call_id=call["id"]))
         final = await model.ainvoke(
             [SystemMessage(content=system_prompt), *messages],
             config=invoke_config(run_name, callbacks, trace_metadata),

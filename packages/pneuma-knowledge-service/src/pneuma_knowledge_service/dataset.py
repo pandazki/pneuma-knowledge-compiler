@@ -95,7 +95,7 @@ def _doc_title(doc: CanonicalDocument) -> str:
 
 def _document_record(doc: CanonicalDocument) -> dict[str, Any]:
     return {
-        "document_id": str(doc.pneuma_id) if doc.pneuma_id else None,
+        "document_id": str(doc.doc_id) if doc.doc_id else None,
         "path": doc.path,
         "title": _doc_title(doc),
         "frontmatter": dict(doc.frontmatter),
@@ -128,7 +128,7 @@ def _build_graph(
     nodes: list[dict[str, Any]] = []
     by_path: dict[str, str] = {}
     for doc in docs:
-        did = str(doc.pneuma_id) if doc.pneuma_id else doc.path
+        did = str(doc.doc_id) if doc.doc_id else doc.path
         by_path[doc.path] = did
         nodes.append(
             {
@@ -340,7 +340,7 @@ async def build_dataset(
     )
 
     by_path = {
-        d.path: (str(d.pneuma_id) if d.pneuma_id else d.path) for d in docs
+        d.path: (str(d.doc_id) if d.doc_id else d.path) for d in docs
     }
 
     documents = {
@@ -378,8 +378,8 @@ async def build_dataset(
         ],
     }
 
-    # Claim-prefix vocabulary the owner's effective skill declares (§5强/中/弱). Rides the
-    # dataset top-level meta so the dataset-driven Library/History can lift the字面【强】
+    # Claim-prefix vocabulary the owner's effective skill declares (§5 strength tiers). Rides
+    # the dataset top-level meta so the dataset-driven Library/History can lift the literal
     # prefix into a structured badge without a second /skill request. Resolved off the base
     # version (from a persisted manifest, else the settings default) rather than the full
     # skill_for_user path — a read projection must not materialize a manifest or derive

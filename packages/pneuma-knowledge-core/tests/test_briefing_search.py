@@ -119,7 +119,7 @@ async def test_search_knowledge_reaches_mid_document_item_absent_from_static_pac
     assert "强烈推荐进入终面" not in briefing.system_prefix
     assert briefing.source_ids == (_SID,)
     # The structure outline IS present, so the model knows the doc holds candidate content.
-    assert "文档结构（章节大纲）" in briefing.system_prefix
+    assert "Document structure (section outline)" in briefing.system_prefix
 
     model = SearchThenAnswerModel()
     ans = await briefing_ask(
@@ -217,4 +217,4 @@ async def test_search_knowledge_scoped_to_anchored_sources():
         vectors=FakeVector([VecHit(SourceId("other-src"), 0, 0, "无关内容")]),
     )
     # out-of-scope source filtered → the tool reported nothing in scope.
-    assert "未检索到相关内容" in model.seen_tool_output
+    assert "nothing relevant found" in model.seen_tool_output

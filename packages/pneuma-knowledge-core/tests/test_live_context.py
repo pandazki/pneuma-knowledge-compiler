@@ -25,9 +25,9 @@ from pneuma_knowledge_core.domain.suggestion import (
 )
 from pneuma_knowledge_core.domain.ids import UserId, SourceId
 from pneuma_knowledge_core.domain.source import ConversationTurn
-from pneuma_knowledge_core.recall.briefing import _BRIEFING_CONTRACT
+from pneuma_knowledge_core.recall.briefing import briefing_contract
 from pneuma_knowledge_core.recall.suggestion import (
-    LIVE_CONTEXT_CONTRACTS,
+    live_context_contracts,
     apply_gates,
     live_context_human,
     live_context_messages,
@@ -35,8 +35,8 @@ from pneuma_knowledge_core.recall.suggestion import (
     gather_evidence,
     label_turns,
 )
-from pneuma_knowledge_core.recall.deep import _DEEP_CONTRACT
-from pneuma_knowledge_core.recall.fast import _SELECTOR_CONTRACT
+from pneuma_knowledge_core.recall.deep import deep_contract
+from pneuma_knowledge_core.recall.fast import selector_contract
 from langchain_core.messages import AIMessage
 
 AS_OF = datetime(2026, 7, 21, 9, 0, tzinfo=timezone.utc)
@@ -154,16 +154,16 @@ HANDLES = {"s01": SRC, "s02": "22222222-2222-2222-2222-222222222222"}
 # contracts so later edits cannot silently drift the provider-cache-stable System bytes.
 
 _PUBLIC_BASELINE_SHA256 = {
-    "fast": "13dccd9e2db1da26652605cd13ad857f845df03951357df109bb647ce5d7242e",
-    "deep": "c2aec38af57a9764154868f35f3083e13fd7ad4c54a414f06268c91ff215a36b",
-    "briefing": "04592260b176bdd7707da7100aa32393e554728880a838380b64b2294026e9e2",
+    "fast": "ee16c57c45894ca4d808bfdc809ca572a013e0fb27246505d1aa567efe4586a7",
+    "deep": "a28fddeefd5f3b87e71a37958cbec02ff94188a6854bdf17828e17c5bee9249b",
+    "briefing": "01632bcbdde35a0357af4ce0654206e53b095de4c583859211af46df739ae20e",
 }
 
 
 _ANSWER_CONTRACTS = {
-    "fast": _SELECTOR_CONTRACT,
-    "deep": _DEEP_CONTRACT,
-    "briefing": _BRIEFING_CONTRACT,
+    "fast": selector_contract(),
+    "deep": deep_contract(),
+    "briefing": briefing_contract(),
 }
 
 
@@ -174,16 +174,19 @@ def test_public_answer_contracts_are_byte_stable(name):
 
 
 def test_live_context_contract_drops_the_qa_close_and_keeps_the_red_lines():
-    """The whole reason `close` exists: the Q&A closing would have the model push a card
-    emitting a visible 「无相关记录」 card. The red line (assertion strength = evidence
-    strength) and the wide-recall/subject-identity paragraph stay — in a multi-party
-    conversation they matter MORE, not less."""
-    contract = LIVE_CONTEXT_CONTRACTS["general"]
-    assert "「无相关记录」就是忠实的答案" not in contract
-    assert "断言的强度必须与证据的强度对齐" in contract
-    assert "属于其他主体的证据再相似也是另一条记录" in contract
-    # ASR remains a meeting-input concern without making the whole feature conversation-only.
-    assert "会议转录可能来自语音识别" in contract
+    """The whole reason `close` exists: the Q&A closing would have the model push a visible
+    "no relevant record" card. The red line (assertion strength = evidence strength) and the
+    wide-recall/subject-identity paragraph stay — in a multi-party conversation they matter
+    MORE, not less."""
+    contract = live_context_contracts()["general"]
+    assert '"no relevant record" is the faithful answer' not in contract
+    assert (
+        "The strength of an assertion must match the strength of the evidence" in contract
+    )
+    assert "is another record however similar it looks" in contract
+    # Speech recognition stays an input concern without making the whole feature
+    # conversation-only.
+    assert "The stream may come from speech recognition" in contract
 
 
 def test_live_context_contracts_are_byte_stable_per_focus():
@@ -192,10 +195,10 @@ def test_live_context_contracts_are_byte_stable_per_focus():
 
     for focus in ("general", "owner", "other"):
         # rebuilding is byte-identical: nothing volatile was baked in at load time
-        assert _live_context_contract(focus) == LIVE_CONTEXT_CONTRACTS[focus]
+        assert _live_context_contract(focus) == live_context_contracts()[focus]
         # no timestamp, no transcript, no evidence — posture only (I5)
-        assert not re.search(r"\d{4}-\d{2}-\d{2}", LIVE_CONTEXT_CONTRACTS[focus])
-        assert "本人输入" not in LIVE_CONTEXT_CONTRACTS[focus]
+        assert not re.search(r"\d{4}-\d{2}-\d{2}", live_context_contracts()[focus])
+        assert "Owner input:" not in live_context_contracts()[focus]
 
 
 # ------------------------------------------------------------------- the four gates
@@ -302,11 +305,11 @@ def test_hallucinated_handle_yields_no_citation():
 
 
 def test_three_focus_values_produce_three_different_contracts():
-    contracts = {f: LIVE_CONTEXT_CONTRACTS[f] for f in ("general", "owner", "other")}
+    contracts = {f: live_context_contracts()[f] for f in ("general", "owner", "other")}
     assert len(set(contracts.values())) == 3
-    assert "不论出自谁口" in contracts["general"]
-    assert "只为「本人」输入的内容生成提示" in contracts["owner"]
-    assert "只为「参与者」输入的内容生成提示" in contracts["other"]
+    assert "whoever said it" in contracts["general"]
+    assert "generate cards only for what the owner put in" in contracts["owner"]
+    assert "generate cards only for what the participants put" in contracts["other"]
 
 
 TRANSCRIPT = "本人：我们在谈 RRF。\n参与者1（others/2）：那 chonkie 呢？"
@@ -360,7 +363,7 @@ def other(text: str, sid: str) -> ConversationTurn:
 
 def test_label_turns_numbers_owner_and_others():
     turns = [owner("嗨"), other("你好", "others/2"), other("我也在", "others/5")]
-    assert label_turns(turns) == ["本人", "参与者1（others/2）", "参与者2（others/5）"]
+    assert label_turns(turns) == ["Owner", "Participant1 (others/2)", "Participant2 (others/5)"]
 
 
 def test_label_turns_is_stable_across_evaluations_with_a_caller_owned_map():
@@ -374,8 +377,8 @@ def test_label_turns_is_stable_across_evaluations_with_a_caller_owned_map():
     # window slides: speaker A has scrolled out entirely
     second = label_turns([b, other("B 又说", "others/5")], label_map)
 
-    assert first == ["参与者1（others/2）", "参与者2（others/5）"]
-    assert second == ["参与者2（others/5）", "参与者2（others/5）"]
+    assert first == ["Participant1 (others/2)", "Participant2 (others/5)"]
+    assert second == ["Participant2 (others/5)", "Participant2 (others/5)"]
     assert second[0] == first[1], "B must keep its number across evaluations"
 
 
@@ -385,8 +388,8 @@ def test_label_turns_renumbers_without_a_shared_map():
     a, b = other("A 说", "others/2"), other("B 说", "others/5")
     first = label_turns([a, b])
     second = label_turns([b])
-    assert first[1] == "参与者2（others/5）"
-    assert second[0] == "参与者1（others/5）"
+    assert first[1] == "Participant2 (others/5)"
+    assert second[0] == "Participant1 (others/5)"
     assert second[0] != first[1]
 
 
@@ -406,9 +409,9 @@ def test_transcript_sits_last_in_the_human_turn():
         profile="张三，工程师",
         already_shown=[{"kind": "fact", "title": "上一张"}],
     )
-    assert human.index("本人画像") < human.index("claim 注记")
-    assert human.index("claim 注记") < human.index("已提示过")
-    assert human.index("已提示过") < human.index("as_of:")
+    assert human.index("Owner profile") < human.index("claim notes")
+    assert human.index("claim notes") < human.index("Already surfaced")
+    assert human.index("Already surfaced") < human.index("as_of:")
     assert human.rstrip().endswith("那 chonkie 呢？")
 
 
@@ -426,7 +429,7 @@ def test_already_shown_cite_residue_never_reaches_the_prompt():
         as_of=AS_OF,
         already_shown=[{"kind": "concept", "title": "RRF [cite: s03 ¶1-2]"}],
     )
-    assert "[cite:" not in human.split("# 对话转录")[0].split("已提示过")[1]
+    assert "[cite:" not in human.split("# Stream transcript")[0].split("Already surfaced")[1]
 
 
 @pytest.mark.asyncio
@@ -546,7 +549,7 @@ async def test_evaluate_live_context_holds_speaker_numbering_across_evaluations(
     model = FakeStructuredModel()
     await evaluate_live_context(USER, [a, b], as_of=AS_OF, model=model, label_map=label_map)
     await evaluate_live_context(USER, [b], as_of=AS_OF, model=model, label_map=label_map)
-    assert "参与者2（others/5）：B 说" in model.calls[1][1].content
+    assert "Participant2 (others/5): B 说" in model.calls[1][1].content
 
 
 # ------------------------------------------------------------------- the vocabulary
@@ -555,8 +558,8 @@ async def test_evaluate_live_context_holds_speaker_numbering_across_evaluations(
 def test_focus_and_kind_vocabularies_are_closed():
     assert [f.key for f in CONTEXT_FOCUSES] == ["general", "owner", "other"]
     assert [k.key for k in SUGGESTION_KINDS] == ["concept", "fact"]
-    assert set(LIVE_CONTEXT_CONTRACTS) == {f.key for f in CONTEXT_FOCUSES}
-    assert focus_option("owner").label == "聚焦本人"
+    assert set(live_context_contracts()) == {f.key for f in CONTEXT_FOCUSES}
+    assert focus_option("owner").label == "Focus on the owner"
     assert kind_option("fact").key == "fact"
     with pytest.raises(ValueError):
         focus_option("everybody")

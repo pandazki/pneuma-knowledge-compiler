@@ -54,6 +54,7 @@ from ..ports.claim_index import ClaimLexicalIndex, ClaimVectorIndex
 from ..ports.content_store import ContentStore
 from ..ports.lexical_index import LexicalIndex
 from ..ports.vector_index import VectorIndex
+from ..prompts import prompt
 from .assembly import expand_and_merge, order_lost_in_middle
 from .citation_alias import (
     alias_sources,
@@ -71,15 +72,13 @@ from .fast import (
     zero_usage,
 )
 from .rag import RecallHit, _coalesce_overlapping, rag_recall
-from .spine import CITE_PRECISE, spine
+from .spine import CITE_PRECISE, CLOSE_SUGGESTION, spine
 
 DEFAULT_TURN_WINDOW = 3
 DEFAULT_PER_TURN_CLAIMS = 2
 DEFAULT_PER_TURN_WINDOWS = 2
 DEFAULT_MAX_SUGGESTIONS = 3
 DEFAULT_MIN_CONFIDENCE = 6
-
-OWNER_LABEL = "本人"
 
 
 # ----------------------------------------------------------------- speaker labelling
@@ -88,16 +87,17 @@ OWNER_LABEL = "本人"
 def label_turns(
     turns: Sequence[ConversationTurn], label_map: dict[str, str] | None = None
 ) -> list[str]:
-    """Speaker labels for a run of turns: 本人 / 参与者N / the raw speaker string.
+    """Speaker labels for a run of turns: the owner label / a numbered participant / the raw
+    speaker string.
 
     Returns one label per turn, positionally aligned with `turns`.
 
-    `label_map` is the caller's — pass the SAME dict across evaluations and 参与者N
+    `label_map` is the caller's — pass the SAME dict across evaluations and participant
     numbering stays stable for the life of that conversation; pass None (or a fresh dict)
     and numbering restarts from first-appearance order within this call. That distinction
     is the entire reason this function exists: `ContextStreamAdapter` numbers within a
     single `normalize()`, which is right for a stored source but wrong under a sliding
-    window — once the first speaker's turns scroll out, 参与者1 silently becomes a
+    window — once the first speaker's turns scroll out, participant 1 silently becomes a
     DIFFERENT person between one evaluation and the next. A caller that holds a
     connection-lifetime map never has that happen.
 
@@ -112,15 +112,21 @@ def label_turns(
     out: list[str] = []
     for turn in turns:
         if turn.role == "owner":
-            out.append(OWNER_LABEL)
+            out.append(prompt("ingest.owner_label"))
             continue
         if turn.role == "other":
             key = turn.speaker_id or turn.speaker
             if key not in labels:
                 # Keep the raw diarization id as a parenthetical alias so provenance back
                 # to the capture channel is never lost (same rule as the adapter).
-                suffix = f"（{key}）" if turn.speaker_id else ""
-                labels[key] = f"参与者{len(labels) + 1}{suffix}"
+                suffix = (
+                    prompt("ingest.speaker_alias", speaker_id=key)
+                    if turn.speaker_id
+                    else ""
+                )
+                labels[key] = prompt(
+                    "ingest.other_label", n=len(labels) + 1, suffix=suffix
+                )
             out.append(labels[key])
             continue
         out.append(turn.speaker)
@@ -128,79 +134,43 @@ def label_turns(
 
 
 def render_transcript(turns: Sequence[ConversationTurn], labels: Sequence[str]) -> str:
-    """`<label>：<text>` per line — the same grammar the context_stream adapter stores blocks
+    """`<label>: <text>` per line — the same grammar the context_stream adapter stores blocks
     in, so the compile-side and the listening-side speak one vocabulary."""
-    return "\n".join(f"{label}：{turn.text}" for label, turn in zip(labels, turns))
+    return "\n".join(
+        prompt("ingest.turn_line", label=label, text=turn.text)
+        for label, turn in zip(labels, turns)
+    )
 
 
 # ---------------------------------------------------------------------- the contract
 
-# The closing clause replacing the Q&A one. The Q&A close ("「无相关记录」就是忠实的答案")
-# is right when a owner asked something and wrong here in two ways: it presumes a question
-# that was never asked, and it would have the model emit a card literally reading
-# 「无相关记录」. This states the output shape instead; the confidence + citation
-# gates, not this sentence, are what actually produce silence.
-CLOSE_SUGGESTION = (
-    "- 一张提示卡是一次主动的上下文补充。它必须自身成立——\n"
-    "  不复述输入流、不预告、不写「无相关记录」这类空卡；没有可写的卡片时，suggestions 就是空列表，\n"
-    "  空列表是本接口的正常返回值。"
-)
+# The closing clause replacing the Q&A one (`spine.CLOSE_SUGGESTION`). The Q&A close ("no
+# relevant record is the faithful answer") is right when an owner asked something and wrong
+# here in two ways: it presumes a question that was never asked, and it would have the model
+# emit a card literally reading "no relevant record". The suggestion close states the output
+# shape instead; the confidence + citation gates, not that sentence, are what actually
+# produce silence.
 
-_FOCUS_CLAUSE: dict[ContextFocus, str] = {
-    "general": (
-        "**本次关注范围**：整段工作流里任何值得补充的概念或事实，不论出自谁口。"
-    ),
-    "owner": (
-        "**本次关注范围**：只为「本人」输入的内容生成提示。参与者的内容照旧全文读入，\n"
-        "但只作理解上下文——不为参与者单独提到的东西生成提示。"
-    ),
-    "other": (
-        "**本次关注范围**：只为「参与者」输入的内容生成提示。本人的内容照旧全文读入，\n"
-        "但只作理解上下文——不为本人单独提到的东西生成提示。"
-    ),
+FOCUSES: tuple[ContextFocus, ...] = ("general", "owner", "other")
+
+_FOCUS_CLAUSE_KEYS: dict[ContextFocus, str] = {
+    focus: f"recall.suggestion.focus.{focus}" for focus in FOCUSES
 }
-
-_LIVE_CONTEXT_HEAD = """\
-# Pneuma 即时上下文
-
-你在持续处理用户主动接入的一段工作流，输入可能来自会议转录、即时消息、协作文档
-或其他实时片段。**没有人在向你提问**：触发你的不是一个问题，而是工作上下文里刚刚
-出现的新信息。产物不是一段回答，而是零张或几张可引用的上下文提示。
-
-随转录一并送到的是从本人个人知识库里取出的证据（claim 注记 + 原文摘录），它们由最近
-几轮转录各自检索得来。
-
-两种卡片（`kind`）：
-
-- `concept`——工作流里出现了一个知识库里有的概念 / 人 / 事，提示说明它是什么。
-- `fact`——工作流里出现了一个知识库能直接回答的具体问题或待确认的事实，提示给出答案。
-
-每张提示自带 `confidence`（1-10）。它不是修辞：服务端按阈值机械过滤并据此排序，低分提示
-不会展示。据实打分、把不确定的打低，比不写它更有用。
-
-`trigger` 逐字摘自下面的输入流——它是这张提示出现的理由，前端拿它做高亮。
-
-会议转录可能来自语音识别，陌生参与者的人名与术语容易被听错；识别主体时把合理的音近
-出入视作同一所指，但不要凭空修正没有证据支持的内容。
-
-{focus}
-
-以下作答姿态与问答模式共用。本场景没有提问，其中「本人所求」一律读作「工作流里刚出现、
-值得提示的那个东西」。
-
-"""
 
 
 def _live_context_contract(focus: ContextFocus) -> str:
-    return _LIVE_CONTEXT_HEAD.format(focus=_FOCUS_CLAUSE[focus]) + spine(CITE_PRECISE, CLOSE_SUGGESTION)
+    return prompt(
+        "recall.suggestion.contract_head",
+        focus=prompt(_FOCUS_CLAUSE_KEYS[focus]),
+    ) + spine(CITE_PRECISE, CLOSE_SUGGESTION)
 
 
-# I5: one byte-stable System per focus, all computed at module load. focus rides the
-# System tier because it is posture, not data — and three fixed strings keep the provider
-# cache earnable, which one string interpolated per request would not.
-LIVE_CONTEXT_CONTRACTS: dict[ContextFocus, str] = {
-    focus: _live_context_contract(focus) for focus in ("general", "owner", "other")
-}
+def live_context_contracts() -> dict[ContextFocus, str]:
+    """I5: one byte-stable System per focus. focus rides the System tier because it is
+    posture, not data — and three fixed strings keep the provider cache earnable, which one
+    string interpolated per request would not. Assembled per call (cheap) rather than at
+    import, so a startup-registered prompt overlay reaches them."""
+    return {focus: _live_context_contract(focus) for focus in FOCUSES}
 
 
 # I5, and deliberately NOT built on `spine()`. Every other contract here answers from wide
@@ -211,19 +181,9 @@ LIVE_CONTEXT_CONTRACTS: dict[ContextFocus, str] = {
 # confuse it with and no handle to cite, because the citations are already attached
 # structurally. What it does keep is the red line (assertion strength = evidence strength),
 # restated here rather than inherited, because that one is not about retrieval at all.
-DETAIL_CONTRACT = """\
-# Pneuma 上下文提示 · 展开
-
-本人刚刚看到一张提示卡片，并要求展开它。下面给出那张卡片本身，以及它引用的
-来源原文——**逐字取自本人的个人知识库，没有经过检索或改写**。
-
-在这些原文的范围内把卡片讲透：补上卡片因为篇幅省掉的细节、条件、数字与出处上下文。
-
-- 断言强度以证据强度为准。原文没写的，就说原文没写；不要用常识补全，也不要引入原文之外
-  的信息。
-- 原文若与卡片有出入，以原文为准并明确指出这一点。
-- 直接写正文，不要重复卡片标题，不要写开场白。
-"""
+def detail_contract() -> str:
+    """The expansion contract (I5, and deliberately NOT built on `spine()`)."""
+    return prompt("recall.suggestion.detail_contract")
 
 
 # ------------------------------------------------------------------------- assembly
@@ -392,37 +352,48 @@ def live_context_human(
     profile: str | None = None,
     already_shown: Sequence = (),
 ) -> str:
-    """The volatile Human turn: 画像 → evidence → 已提示过 → as_of → 转录 (LAST).
+    """The volatile Human turn: profile → evidence → already shown → as_of → transcript (LAST).
 
-    Deliberately NOT `recall_human` (fast.py): that assembler closes with
-    `本人输入：{question}`, which would hang a multi-speaker transcript under a label
-    saying the owner said it — mislabelling every interlocutor line as the owner's,
-    under a feature whose entire focus axis is speaker attribution.
+    Deliberately NOT `recall_human` (fast.py): that assembler closes with an "owner input:"
+    label, which would hang a multi-speaker transcript under a label saying the owner said
+    it — mislabelling every interlocutor line as the owner's, under a feature whose entire
+    focus axis is speaker attribution.
 
     Same tail discipline as fast: the live thing (here, the transcript) sits in the
     attention-hot tail below the evidence wall, not above it. Section headers reuse the
     contract's exact names; what each IS is explained once, in the byte-stable System."""
     sections: list[str] = []
     if profile:
-        sections.append(f"# 本人画像\n{profile}")
+        sections.append(f"{prompt('recall.section.profile_header')}\n{profile}")
     if pack is not None:
         # briefing scope: a frozen pack IS the evidence; zero retrieval this round.
         sections.append(pack.strip())
     else:
         sections.append(
-            f"# claim 注记（{len(claims)} 条）\n"
-            f"{render_claims(list(claims)) or '（本次检索无命中）'}"
+            prompt("recall.section.claims_header", count=len(claims))
+            + "\n"
+            + (
+                render_claims(list(claims))
+                or prompt("recall.section.claims_empty")
+            )
         )
         if windows:
             sections.append(
-                f"# 原文摘录（{len(windows)} 条）\n{_render_window_section(list(windows))}"
+                prompt("recall.section.windows_header", count=len(windows))
+                + "\n"
+                + _render_window_section(list(windows))
             )
     shown = [line for line in (_shown_line(i) for i in already_shown) if line]
     if shown:
-        sections.append("# 本次对话已提示过（同一张不再出）\n" + "\n".join(shown))
+        sections.append(
+            prompt("recall.section.already_shown_header") + "\n" + "\n".join(shown)
+        )
+    transcript_header = prompt(
+        "recall.section.transcript_header", turns=transcript.count(chr(10)) + 1
+    )
     return (
         "\n\n".join(sections)
-        + f"\n\nas_of: {as_of.isoformat()}\n# 对话转录（最近 {transcript.count(chr(10)) + 1} 轮）\n"
+        + f"\n\nas_of: {as_of.isoformat()}\n{transcript_header}\n"
         + transcript
     )
 
@@ -448,9 +419,12 @@ def live_context_messages(
         profile=profile,
         already_shown=already_shown,
     )
-    if focus not in LIVE_CONTEXT_CONTRACTS:
+    if focus not in _FOCUS_CLAUSE_KEYS:
         raise ValueError(f"unknown suggestion focus: {focus!r}")
-    return [SystemMessage(content=LIVE_CONTEXT_CONTRACTS[focus]), HumanMessage(content=human)]
+    return [
+        SystemMessage(content=_live_context_contract(focus)),
+        HumanMessage(content=human),
+    ]
 
 
 # ----------------------------------------------------------------------- the gates
@@ -595,7 +569,8 @@ async def evaluate_live_context(
     in the (byte-stable, per-focus) System contract.
 
     `label_map`, when passed, is the caller's and is MUTATED in place — hold one per
-    connection and 参与者N stays the same person across evaluations (see `label_turns`)."""
+    connection and a participant number stays the same person across evaluations (see
+    `label_turns`)."""
     recent = list(turns)[-turn_window:] if turn_window > 0 else list(turns)
     labels = label_turns(recent, label_map)
     transcript = render_transcript(recent, labels)

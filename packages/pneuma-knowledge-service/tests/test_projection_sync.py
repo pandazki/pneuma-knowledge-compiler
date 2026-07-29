@@ -13,9 +13,9 @@ USER = UserId("u-projection-sync")
 
 def _doc(path: str, document_id: str, body: str) -> CanonicalDocument:
     return CanonicalDocument(
-        pneuma_id=DocumentId(document_id),
+        doc_id=DocumentId(document_id),
         path=path,
-        frontmatter={"pneuma_id": document_id, "type": "note", "slug": document_id},
+        frontmatter={"doc_id": document_id, "type": "note", "slug": document_id},
         body=body,
     )
 

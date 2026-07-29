@@ -1,7 +1,7 @@
 """First-party context_stream adapter: diarized role → owner/other block rendering.
 
 The whole Layer-1 intervention is that a diarized `role` renders in the compile skill's
-vocabulary (本人 / 参与者N), so the compiler sees who owns each turn instead of guessing
+vocabulary (Owner / ParticipantN), so the compiler sees who owns each turn instead of guessing
 opaque `self/3` / `others/2` codes. These assert that rendering + graceful fallback.
 """
 
@@ -43,12 +43,12 @@ def test_owner_and_others_render_in_skill_vocabulary():
         ConversationTurn(speaker="others/2", text="对，构建结果已记录", role="other", speaker_id="others/2"),
     ]
     blocks = _norm(turns).blocks
-    assert blocks[0].text == "本人：我明天完成许可证扫描"
-    # distinct others get stable 参与者N in first-appearance order, with the raw channel alias
-    assert blocks[1].text == "参与者1（others/2）：生产构建已经通过"
-    assert blocks[2].text == "参与者2（others/1）：README 还缺恢复路径"
+    assert blocks[0].text == "Owner: 我明天完成许可证扫描"
+    # distinct others get a stable ParticipantN in first-appearance order, with the raw channel alias
+    assert blocks[1].text == "Participant1 (others/2): 生产构建已经通过"
+    assert blocks[2].text == "Participant2 (others/1): README 还缺恢复路径"
     # same speaker_id reuses its label across the transcript (identity continuity)
-    assert blocks[3].text == "参与者1（others/2）：对，构建结果已记录"
+    assert blocks[3].text == "Participant1 (others/2): 对，构建结果已记录"
 
 
 def test_unknown_role_falls_back_to_raw_speaker():
@@ -58,8 +58,8 @@ def test_unknown_role_falls_back_to_raw_speaker():
         ConversationTurn(speaker="self/1", text="ok", role="owner", speaker_id="self/1"),
     ]
     blocks = _norm(turns).blocks
-    assert blocks[0].text == "审阅 agent：hi"
-    assert blocks[1].text == "本人：ok"
+    assert blocks[0].text == "审阅 agent: hi"
+    assert blocks[1].text == "Owner: ok"
 
 
 def test_multiple_self_channels_all_collapse_to_owner():
@@ -69,8 +69,8 @@ def test_multiple_self_channels_all_collapse_to_owner():
         ConversationTurn(speaker="self/3", text="b", role="owner", speaker_id="self/3"),
     ]
     blocks = _norm(turns).blocks
-    assert blocks[0].text == "本人：a"
-    assert blocks[1].text == "本人：b"
+    assert blocks[0].text == "Owner: a"
+    assert blocks[1].text == "Owner: b"
 
 
 def test_date_sections_match_plain_adapter():

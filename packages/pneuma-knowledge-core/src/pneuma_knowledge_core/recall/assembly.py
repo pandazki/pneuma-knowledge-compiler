@@ -1,7 +1,7 @@
 """Post-retrieval assembly pipeline (standard RAG content organization).
 
 `rag_recall` is a strong *recall* front-end (claim + window RRF fusion), but a raw
-fused hit is a bare block: a lexical name hit returns just `[401,401]` = "孙羽" (2 chars)
+fused hit is a bare block: a lexical name hit can return just `[401,401]` = a bare name
 with none of the surrounding evaluation, and a mid-document candidate is invisible when a
 briefing packs only a 4-block sample. That is a missing *assembly* stage, not a recall gap.
 
@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 
 from ..domain.ids import UserId, SourceId
 from ..ports.content_store import ContentStore
+from ..prompts import prompt
 from .rag import RecallHit
 
 
@@ -82,7 +83,7 @@ def _truncate(text: str, max_chars: int) -> str:
         return text
     return (
         text[:max_chars].rstrip()
-        + "\n…（后略，本段较长；deep 可用 fetch_verbatim 取全文）"
+        + prompt("recall.passage_truncated")
     )
 
 
@@ -281,11 +282,13 @@ def _provenance(passage: Passage) -> str:
     return f"{token} {' · '.join(ctx)}".rstrip()
 
 
-def render_passages(passages: Sequence[Passage], *, header: str = "原文摘录") -> str:
+def render_passages(passages: Sequence[Passage], *, header: str | None = None) -> str:
     """Render passages with a per-passage provenance header line so the model can attribute
     and discriminate between records. `header` optionally titles the whole block (empty =
     no title line; the caller supplies its own section header). Replaces the flat single-line
     window rendering."""
+    if header is None:
+        header = prompt("recall.section.passages_header")
     lines: list[str] = []
     if header:
         lines.append(f"# {header}")

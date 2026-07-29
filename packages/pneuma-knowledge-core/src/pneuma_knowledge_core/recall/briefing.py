@@ -38,6 +38,7 @@ from ..domain.canonical import (
 from ..domain.ids import UserId, SourceId
 from ..domain.snapshot import SnapshotRef
 from ..ports.content_store import ContentStore
+from ..prompts import prompt
 from .agentic import run_agent_loop
 from .assembly import expand_and_merge, render_passages
 from .citation_alias import SessionAliaser, iter_answer_citations
@@ -46,25 +47,14 @@ from .fast import render_claims, retrieve_claims
 from .projection import ProjectedClaim, claims_citing, project_snapshot_claims
 from .rag import rag_recall
 
-# I5: byte-stable. No snapshot ref, no as_of, no pack content — posture only.
-_BRIEFING_CONTRACT = (
-    """\
-# Pneuma 连续知识会话
+def briefing_contract() -> str:
+    """The briefing lane's System contract: head + shared spine.
 
-你是 Pneuma Knowledge Compiler 的连续问答引擎。本次会话围绕一个固定知识包展开。
-知识包包含 claim 注记（已编译的结构化知识，带锚点与出处）、原文摘录（未编译的
-原始内容片段，带出处），以及围绕锚定来源的资料卡片与章节大纲。
-
-知识包摆出的是样本，不是全部。包外的部分有两条随时可用的取证途径：
-
-- `search_knowledge(query)`：在知识包覆盖的范围内再检索——包里没摆出来的条目
-  （比如某篇文档中段的一条记录）用它就能够到。
-- `fetch_verbatim(source_id, locator)`：逐字直取某来源的原文，locator 形如
-  {"blocks": [start, end]} 或 {"section": [...]}——核对出处、或本人要原件时的途径。
-
-"""
-    + spine(CITE_PRECISE, CLOSE_ANSWER_HONESTLY)
-)
+    I5: byte-stable per prompt overlay. No snapshot ref, no as_of, no pack content — posture
+    only."""
+    return prompt("recall.briefing.contract_head") + spine(
+        CITE_PRECISE, CLOSE_ANSWER_HONESTLY
+    )
 
 DEFAULT_TOOL_NAMES: tuple[str, ...] = ("fetch_verbatim", "search_knowledge")
 _ASK_TOOL_BUDGET = 4
@@ -105,15 +95,18 @@ class AskAnswer:
 def assemble_messages(
     briefing: Briefing, question: str, *, as_of: datetime, profile: str | None = None
 ) -> list[BaseMessage]:
-    """Assemble the message list for one ask: 画像 → as_of → 本人输入.
+    """Assemble the message list for one ask: profile → as_of → the owner's input.
 
     I5: SystemMessage = briefing.system_prefix verbatim (byte-stable across asks, no as_of).
-    The per-owner 画像 (who is asking; the System tier explains what it is) and the live
-    input ride the HumanMessage — the 画像 sits at the top, the input last."""
+    The per-owner profile (who is asking; the System tier explains what it is) and the live
+    input ride the HumanMessage — the profile sits at the top, the input last."""
     parts: list[str] = []
     if profile:
-        parts.append(f"# 本人画像\n{profile}")
-    parts.append(f"as_of: {as_of.isoformat()}\n本人输入：{question}")
+        parts.append(f"{prompt('recall.section.profile_header')}\n{profile}")
+    parts.append(
+        f"as_of: {as_of.isoformat()}\n"
+        + prompt("recall.section.input", question=question)
+    )
     human = "\n\n".join(parts)
     return [SystemMessage(content=briefing.system_prefix), HumanMessage(content=human)]
 
@@ -134,7 +127,7 @@ def _render_projected_claim(claim: ProjectedClaim) -> str:
     )
     line = f"{head} {claim.text}"
     if cites:
-        line += f"  (出处 {cites})"
+        line += prompt("recall.briefing.provenance_suffix", cites=cites)
     return line
 
 
@@ -168,7 +161,9 @@ async def _query_section(
         if retrieved:
             # select by relevance, render in canonical order (deterministic).
             ordered = sorted(retrieved, key=_sort_key)
-            lines.append(f"## 检索相关 claim 注记（query：{query}）")
+            lines.append(
+                prompt("recall.briefing.query_claims_header", query=query)
+            )
             lines.append(render_claims(ordered))
             claim_count = len(ordered)
 
@@ -190,7 +185,7 @@ async def _query_section(
             ordered = sorted(
                 passages, key=lambda p: (str(p.source_id), p.block_start, p.block_end)
             )
-            lines.append("## 检索相关原文摘录")
+            lines.append(prompt("recall.briefing.query_excerpts_header"))
             lines.append(render_passages(ordered, header=""))
     return lines, claim_count
 
@@ -207,7 +202,7 @@ async def _source_section(
 ) -> tuple[list[str], int]:
     """Anchor one source: materials card + citing claims + raw excerpts (deterministic)."""
     sid = str(source_id)
-    lines: list[str] = [f"### 来源 {sid}"]
+    lines: list[str] = [prompt("recall.briefing.source_heading", source_id=sid)]
 
     # ① materials card: a canonical doc under materials/ that cites this source.
     cards = sorted(
@@ -223,14 +218,14 @@ async def _source_section(
         key=lambda d: d.path,
     )
     if cards:
-        lines.append("资料卡片：")
+        lines.append(prompt("recall.briefing.material_cards_header"))
         for d in cards:
             lines.append(f"[{d.path}]\n{d.body.strip()}")
 
     # ② every canonical claim citing this source (citation reverse lookup).
     citing = sorted(claims_citing(all_claims, source_id), key=_sort_key)
     if citing:
-        lines.append("引用本来源的 claim 注记：")
+        lines.append(prompt("recall.briefing.citing_claims_header"))
         for c in citing:
             lines.append(_render_projected_claim(c))
 
@@ -245,12 +240,17 @@ async def _source_section(
             # structure outline: the section paths the document contains, so the model
             # sees what is inside (e.g. a candidate roster) and can target search_knowledge.
             if sections:
-                lines.append("文档结构（章节大纲）：")
+                lines.append(prompt("recall.briefing.outline_header"))
                 for span in sections[:max_outline_sections]:
                     path = " › ".join(span.path) if span.path else f"¶{span.start_block}"
                     lines.append(f"- {path}  ¶{span.start_block}-{span.end_block}")
                 if len(sections) > max_outline_sections:
-                    lines.append(f"- …（另有 {len(sections) - max_outline_sections} 节，从略）")
+                    lines.append(
+                        prompt(
+                            "recall.briefing.outline_more",
+                            count=len(sections) - max_outline_sections,
+                        )
+                    )
             excerpts: list[str] = []
             for span in sections[:max_excerpt_blocks]:
                 block = next(
@@ -260,7 +260,7 @@ async def _source_section(
                     path = " › ".join(span.path) if span.path else f"¶{span.start_block}"
                     excerpts.append(f"- [{path}] {block.text}")
             if excerpts:
-                lines.append("原文摘录：")
+                lines.append(prompt("recall.briefing.excerpts_header"))
                 lines.extend(excerpts)
     return lines, len(citing)
 
@@ -302,7 +302,11 @@ async def build_briefing(
             content=content,
         )
         if query_lines:
-            segments.append("# 检索知识（scope.query）\n" + "\n".join(query_lines))
+            segments.append(
+                prompt("recall.briefing.query_section_header")
+                + "\n"
+                + "\n".join(query_lines)
+            )
             claims_count += qcount
 
     if scope.source_ids:
@@ -319,14 +323,22 @@ async def build_briefing(
             source_segments.append("\n".join(src_lines))
             claims_count += ccount
         if source_segments:
-            segments.append("# 来源锚定（scope.source_ids）\n" + "\n\n".join(source_segments))
+            segments.append(
+                prompt("recall.briefing.source_section_header")
+                + "\n"
+                + "\n\n".join(source_segments)
+            )
 
     # Budget truncation on the knowledge pack (the fixed contract is exempt).
     pack = "\n\n".join(segments)
     if len(pack) > scope.budget_chars:
-        pack = pack[: scope.budget_chars].rstrip() + "\n…（预算截断）"
+        pack = (
+            pack[: scope.budget_chars].rstrip()
+            + prompt("recall.briefing.budget_truncated")
+        )
 
-    system_prefix = _BRIEFING_CONTRACT + "\n" + pack + "\n" if pack else _BRIEFING_CONTRACT
+    contract = briefing_contract()
+    system_prefix = contract + "\n" + pack + "\n" if pack else contract
 
     return Briefing(
         user_id=user_id,
@@ -347,8 +359,7 @@ def _fetch_verbatim_tool(
     user_id: UserId, content: ContentStore, sink: list[dict], aliaser=None
 ) -> StructuredTool:
     async def fetch_verbatim(source_id: str, locator: dict) -> str:
-        """L0 直取：返回指定 source 的 locator 片段原文（逐字）。locator 形如
-        {"section": [...]} 或 {"blocks": [start, end]}。"""
+        """L0 verbatim fetch; see `recall.briefing.tool.fetch_verbatim_doc`."""
         # The model may pass the query-local handle it saw (sNN) — resolve it to the real id.
         real_id = aliaser.to_real(source_id) if aliaser else source_id
         try:
@@ -357,10 +368,14 @@ def _fetch_verbatim_tool(
             return text
         except (KeyError, ValueError) as exc:
             sink.append({"source_id": source_id, "locator": locator, "error": str(exc)})
-            return f"fetch_verbatim 失败：{exc}"
+            return prompt(
+                "recall.briefing.tool.fetch_verbatim_failed", error=exc
+            )
 
+    fetch_verbatim.__doc__ = prompt("recall.briefing.tool.fetch_verbatim_doc")
     return StructuredTool.from_function(
-        coroutine=fetch_verbatim, description="L0 逐字直取指定来源的片段原文。"
+        coroutine=fetch_verbatim,
+        description=prompt("recall.briefing.tool.fetch_verbatim"),
     )
 
 
@@ -387,7 +402,7 @@ def _search_knowledge_tool(
     allowed = set(source_ids)
 
     async def search_knowledge(query: str) -> str:
-        """在知识包范围内检索与 query 相关的 claim 与原文片段（含上下文），返回带出处的结果文本。"""
+        """In-scope retrieval; see `recall.briefing.tool.search_knowledge_doc`."""
         claims = []
         if claim_lexical is not None and claim_vectors is not None and embeddings is not None:
             claims = await retrieve_claims(
@@ -427,16 +442,29 @@ def _search_knowledge_tool(
 
         parts: list[str] = []
         if claims:
-            parts.append("## 命中 claim 注记\n" + render_claims(claims))
+            parts.append(
+                prompt("recall.briefing.tool.claims_header")
+                + "\n"
+                + render_claims(claims)
+            )
         if passages:
-            parts.append(render_passages(passages, header="命中原文摘录"))
-        result = "\n\n".join(parts) if parts else "（知识包范围内未检索到相关内容；可换关键词重试，或用 fetch_verbatim 直取已知来源的原文）"
+            parts.append(
+                render_passages(
+                    passages, header=prompt("recall.briefing.tool.passages_header")
+                )
+            )
+        result = (
+            "\n\n".join(parts)
+            if parts
+            else prompt("recall.briefing.tool.search_empty")
+        )
         # keep source handles consistent with the pack (same session aliaser).
         return aliaser.alias(result) if aliaser else result
 
+    search_knowledge.__doc__ = prompt("recall.briefing.tool.search_knowledge_doc")
     return StructuredTool.from_function(
         coroutine=search_knowledge,
-        description="在知识包范围内检索相关 claim 与原文片段（带上下文与出处）。",
+        description=prompt("recall.briefing.tool.search_knowledge"),
     )
 
 
@@ -459,8 +487,8 @@ async def briefing_ask(
 ) -> AskAnswer:
     """Ask over a briefing: fixed-prefix messages + a bounded tool loop.
 
-    Two tools: `search_knowledge(query)` runs in-scope retrieval (claim 注记 + context-
-    expanded 原文摘录, filtered to the briefing's anchored sources) so the model can locate
+    Two tools: `search_knowledge(query)` runs in-scope retrieval (claim notes + context-
+    expanded raw excerpts, filtered to the briefing's anchored sources) so the model can locate
     an item the static pack didn't inline; `fetch_verbatim(source_id, locator)` pulls exact
     L0 text. The loop is the shared `run_agent_loop` (create_agent, budget-bounded).
 
@@ -494,9 +522,10 @@ async def briefing_ask(
         # `[cite: <source_id> ¶a-b]` / `[cite: …]` are teaching syntax, not real sources
         # (I5: the contract carries no source refs). Aliasing them would rewrite the shown
         # examples into `[cite: s01 …]` AND offset every real source's handle by two.
-        if system_prefix.startswith(_BRIEFING_CONTRACT):
-            pack = system_prefix[len(_BRIEFING_CONTRACT) :]
-            system_prefix = _BRIEFING_CONTRACT + aliaser.alias(pack)
+        contract = briefing_contract()
+        if system_prefix.startswith(contract):
+            pack = system_prefix[len(contract) :]
+            system_prefix = contract + aliaser.alias(pack)
         else:
             system_prefix = aliaser.alias(system_prefix)
     answer, usage, _transcript = await run_agent_loop(

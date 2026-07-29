@@ -15,9 +15,9 @@ U1 = UserId("u-git-alice")
 U2 = UserId("u-git-bob")
 
 
-def _file(pneuma_id: str, slug: str, body: str) -> str:
+def _file(doc_id: str, slug: str, body: str) -> str:
     return render_document(
-        {"pneuma_id": pneuma_id, "type": "person", "slug": slug}, body
+        {"doc_id": doc_id, "type": "person", "slug": slug}, body
     )
 
 
@@ -79,6 +79,31 @@ async def test_list_reads_canonical_tree_with_one_archive_process(
     assert commands == ["rev-parse", "archive"]
     assert "ls-tree" not in commands
     assert "show" not in commands
+
+
+async def test_a_document_committed_with_the_legacy_id_key_still_loads(tmp_path):
+    """An already-deployed repo has documents whose frontmatter spells the id `pneuma_id`.
+    Canonical is never history-rewritten (invariant I2), so the read side folds the legacy
+    key onto `doc_id` and such a document keeps its identity — `read` by DocumentId works."""
+    store = GitCanonicalStore(str(tmp_path))
+    legacy = (
+        "---\n"
+        "pneuma_id: d-song-yao\n"
+        "slug: song-yao\n"
+        "type: person\n"
+        "---\n"
+        "\n"
+        "- 宋遥 负责 Atlas 的检索评测。[cite: src-01 ¶0] <!-- c:aa11 -->\n"
+    )
+    await store.commit_patch(
+        U1, {"memory/people/song-yao.md": legacy}, message="pre-rename compile"
+    )
+
+    docs = await store.list(U1)
+    assert [str(doc.doc_id) for doc in docs] == ["d-song-yao"]
+    assert "pneuma_id" not in docs[0].frontmatter
+    assert docs[0].frontmatter["doc_id"] == "d-song-yao"
+    assert await store.read(U1, DocumentId("d-song-yao")) is not None
 
 
 async def test_at_snapshot_reads_historical_state(tmp_path):

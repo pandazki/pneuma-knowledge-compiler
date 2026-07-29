@@ -38,7 +38,8 @@ class ProjectionStrategy:
     - `version`: identity tag stamped onto each rebuild (audit/observability).
     - `fold_section_context`: v2 enriches the indexed/rendered claim text with its
       section breadcrumb so a claim is self-contained for lexical + semantic retrieval
-      (a claim like "通过端到端测试" gains its "交付 › 验收" context). The canonical body
+      (a claim like "end-to-end tests pass" gains its "Delivery › Acceptance" context). The
+      canonical body
       is unchanged; only the derived `text` differs.
     """
 

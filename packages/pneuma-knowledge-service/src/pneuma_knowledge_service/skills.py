@@ -105,7 +105,9 @@ async def skill_for_user(ctx, user_id: UserId) -> SkillVersion:
         model = ctx.get_chat_model("compile")
     except Exception:  # noqa: BLE001
         model = None
-    packs = await packs_for_profile(profile, model=model)
+    packs = await packs_for_profile(
+        profile, model=model, matrix_path=settings.user_schema_matrix_path
+    )
     composed = compose_skill(base, packs)
     await _write_manifest(ctx, user_id, base, packs, composed)
     return composed

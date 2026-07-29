@@ -12,11 +12,11 @@ from pneuma_knowledge_core.domain.ids import DocumentId, extract_anchors
 from pneuma_knowledge_service.evolve_service import reconcile_adopt
 
 
-def _doc(path: str, pneuma: str, body: str) -> CanonicalDocument:
+def _doc(path: str, document_id: str, body: str) -> CanonicalDocument:
     return CanonicalDocument(
-        pneuma_id=DocumentId(pneuma),
+        doc_id=DocumentId(document_id),
         path=path,
-        frontmatter={"pneuma_id": pneuma, "type": "topic", "slug": pneuma},
+        frontmatter={"doc_id": document_id, "type": "topic", "slug": document_id},
         body=body,
     )
 
@@ -144,5 +144,5 @@ def test_duplicate_anchor_in_final_tree_fails_the_terminal_check():
 
     final_files, ok, reason = reconcile_adopt(base, branch, main)
     assert not ok
-    assert "重复" in reason
+    assert "are duplicated" in reason
     assert final_files == {}

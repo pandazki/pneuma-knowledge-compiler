@@ -11,7 +11,7 @@
           "healthcare"
         ]
       },
-      "extra_instructions": "## 附加归档位：排班与交接（医疗运营）\n\n当本人在医疗行业从事行政或支持类工作时，排班与交接是高频且形态稳定的运营语义。`memory/shifts/{slug}.md` 收稳定的排班/轮值上下文（班次归属、覆盖安排、例外与调换）；`memory/handoffs/{slug}.md` 收交接记录（交接事项、责任转移、未决随访）。与 topics 的分界：能明确归到某个具体班次或某次交接的进这里；一般的科室讨论、政策解读、跨班次的泛协调仍留 topics。涉及患者的信息遵循敏感内容最小化，只保留完成协作所必需的最小语义，不复制完整身份或病史。\n\n- 例：「周末夜班改由 B 覆盖，交接了两项未完成的随访」→ 进 shifts / handoffs。\n- 反例：把交接中念到的患者完整病史与证件号复制进 handoffs（只留必要的协作语义）。",
+      "extra_instructions": "## Extra filing slots: shifts and handoffs (healthcare operations)\n\nWhen the owner does administrative or support work in healthcare, shifts and handoffs are frequent operational meaning with a stable shape. `memory/shifts/{slug}.md` collects stable shift/rota context (who a shift belongs to, coverage arrangements, exceptions and swaps); `memory/handoffs/{slug}.md` collects handover records (what was handed over, transfer of responsibility, outstanding follow-ups). The boundary with topics: anything that clearly belongs to a specific shift or a specific handover goes here; general departmental discussion, policy interpretation and cross-shift coordination in general stay in topics. Information involving patients follows sensitive-content minimization — keep only the minimum meaning needed to complete the collaboration, and never copy a full identity or medical history.\n\n- Example: \"the weekend night shift is now covered by B, with two outstanding follow-ups handed over\" → shifts / handoffs.\n- Counter-example: copying a patient's full medical history and identity number, read out during a handover, into handoffs (keep only the collaboration meaning that is necessary).",
       "extra_path_templates": [
         "memory/shifts/{slug}.md",
         "memory/handoffs/{slug}.md"
@@ -26,7 +26,7 @@
         ],
         "industries": []
       },
-      "extra_instructions": "## 附加归档位：设计工作\n\n设计角色下，`memory/design-work/{slug}.md` 以一项设计工作或流程为主体，收其目标、关键设计决策与理由、评审反馈的处置、状态演化。与 topics 的分界：能明确归到某项设计工作的进这里；泛泛的审美偏好属于 profile，跨项目复用的设计规范类知识若稳定成型可留 topics 或外置进 materials。评审意见按说话人归属，一次反馈不等于已采纳的决定。拿不准就留在 topics，别硬塞。\n\n- 例：「结算页改版：确认按钮下移的决定，依据是可用性测试的点击热区」→ 进 design-work。\n- 反例：把一次评审里某人的个人偏好意见写成已定的设计规范。",
+      "extra_instructions": "## Extra filing slot: design work\n\nIn a design role, `memory/design-work/{slug}.md` takes one piece of design work or one design process as its subject, collecting its goal, the key design decisions and their reasons, how review feedback was handled, and the evolution of its state. The boundary with topics: anything that clearly belongs to a specific piece of design work goes here; general aesthetic preferences belong in profile, and cross-project design-standard knowledge may stay in topics or be externalized into materials once it stabilizes. Review comments are attributed by speaker; one piece of feedback is not an adopted decision. When unsure leave it in topics rather than forcing it.\n\n- Example: \"checkout page redesign: decision to move the confirm button down, based on the click heatmap from usability testing\" → design-work.\n- Counter-example: writing one person's personal preference from a review as a settled design standard.",
       "extra_path_templates": [
         "memory/design-work/{slug}.md"
       ],
@@ -40,7 +40,7 @@
         ],
         "industries": []
       },
-      "extra_instructions": "## 附加归档位：工程项目与技术笔记\n\n本人是工程角色时，两类语义常有独立于通用 people/topics 的稳定形态。`memory/projects/{slug}.md` 收有交付生命周期的工程项目（目标、里程碑、负责人、验收条件、状态演化）；`memory/tech-notes/{slug}.md` 收跨项目复用的技术决策与经验（架构取舍、坑与规避、稳定的操作性事实），其价值不依附于任何单个项目。与 topics 的分界：能明确落到某个项目或某条技术结论上的归这里；泛泛的工作讨论、临时协调、纯人际互动仍留 topics。拿不准就留在 topics，别硬塞。\n\n- 例：「支付重构项目下周一交付，验收是端到端测试通过」→ 进 projects。\n- 反例：一次关于团队午饭安排的闲聊，不因发生在工程语境就进 tech-notes。",
+      "extra_instructions": "## Extra filing slots: engineering projects and technical notes\n\nWhen the owner is in an engineering role, two kinds of meaning often have a stable shape independent of generic people/topics. `memory/projects/{slug}.md` collects engineering projects with a delivery lifecycle (goal, milestones, owner, acceptance conditions, state evolution); `memory/tech-notes/{slug}.md` collects technical decisions and hard-won experience reused across projects (architecture trade-offs, pitfalls and how to avoid them, stable operational facts), whose value does not depend on any single project. The boundary with topics: anything that lands clearly on a specific project or a specific technical conclusion goes here; general work discussion, ad-hoc coordination and purely interpersonal exchanges stay in topics. When unsure leave it in topics rather than forcing it.\n\n- Example: \"the payments refactor ships next Monday, acceptance is end-to-end tests passing\" → projects.\n- Counter-example: chatter about where the team is having lunch does not belong in tech-notes just because it happened in an engineering context.",
       "extra_path_templates": [
         "memory/projects/{slug}.md",
         "memory/tech-notes/{slug}.md"
@@ -55,7 +55,7 @@
         ],
         "industries": []
       },
-      "extra_instructions": "## 附加归档位：营销活动与受众\n\n营销角色下，`memory/campaigns/{slug}.md` 以单个营销活动为主体（目标、渠道、时间窗、投放决策、结果与复盘）；`memory/audiences/{slug}.md` 收稳定的受众/细分知识（画像、偏好、有效触达方式）。与 topics 的分界：能归到某个活动或某条受众结论的进这里；一次性创意点子、跨活动的泛讨论留 topics。结果数据保留来源，一次波动不等于稳定规律。\n\n- 例：「春季活动在渠道 X 的转化显著高于 Y，已两轮验证」→ 进 campaigns（可提炼的受众规律再进 audiences）。\n- 反例：把某次活动的单日异常数据当作该受众的稳定特征写入 audiences。",
+      "extra_instructions": "## Extra filing slots: campaigns and audiences\n\nIn a marketing role, `memory/campaigns/{slug}.md` takes a single campaign as its subject (goal, channels, time window, spend decisions, results and retrospective); `memory/audiences/{slug}.md` collects stable audience/segment knowledge (profiles, preferences, what actually reaches them). The boundary with topics: anything attributable to a specific campaign or a specific audience conclusion goes here; one-off creative ideas and cross-campaign general discussion stay in topics. Result data keeps its source; one fluctuation is not a stable regularity.\n\n- Example: \"the spring campaign converts significantly better on channel X than Y, verified over two rounds\" → campaigns (a distillable audience regularity can then go into audiences).\n- Counter-example: treating one day's anomalous numbers from one campaign as a stable trait of that audience and writing it into audiences.",
       "extra_path_templates": [
         "memory/campaigns/{slug}.md",
         "memory/audiences/{slug}.md"
@@ -70,7 +70,7 @@
         ],
         "industries": []
       },
-      "extra_instructions": "## 附加归档位：产品领域与用户研究\n\n产品角色下，`memory/products/{slug}.md` 以产品或功能领域为长期主体（目标、范围、关键决策与其理由、状态）；`memory/research/{slug}.md` 收支撑决策的用户与市场发现（访谈结论、数据洞察、验证结果）。与 topics 的分界：products 只收**本人自己团队**的产品/功能领域；供应商、客户等**外部组织**的评审、就绪与交付记录不进 products——那是以对方组织为主体的语义，留在 topics（或未来更合适的家族）。跨领域的路线图讨论、纯协调事项也留 topics。研究结论保留来源与不确定性，不把一次访谈的个别说法当作普遍事实。\n\n- 例：「新手引导流失集中在第 3 步，已验证与权限弹窗有关」→ 进 research。\n- 反例：把一次团队对某功能的头脑风暴设想当作已定的产品决策写入 products。",
+      "extra_instructions": "## Extra filing slots: product areas and user research\n\nIn a product role, `memory/products/{slug}.md` takes a product or feature area as a long-term subject (goal, scope, key decisions and their reasons, state); `memory/research/{slug}.md` collects the user and market findings that support decisions (interview conclusions, data insights, validation results). The boundary with topics: products collects only the product/feature areas of **the owner's own team**; reviews, readiness and delivery records of **external organizations** such as vendors or customers do not go into products — that is meaning whose subject is the other organization, and it stays in topics (or a more suitable family in future). Cross-area roadmap discussion and pure coordination also stay in topics. Research conclusions keep their source and their uncertainty; one remark from one interview is not a general fact.\n\n- Example: \"onboarding drop-off concentrates on step 3, confirmed to relate to the permissions dialog\" → research.\n- Counter-example: writing a team brainstorm about a feature into products as a settled product decision.",
       "extra_path_templates": [
         "memory/products/{slug}.md",
         "memory/research/{slug}.md"
@@ -85,7 +85,7 @@
         ],
         "industries": []
       },
-      "extra_instructions": "## 附加归档位：客户与商机\n\n销售角色下，客户关系与具体商机是两类高价值且形态稳定的语义。`memory/accounts/{slug}.md` 以客户组织为长期主体（合作历史、约束与偏好、关键联系人的角色）；`memory/deals/{slug}.md` 收单个商机的推进（阶段、金额口径、决策人、下一步、赢/输原因）。与 people/topics 的分界：客户方个人仍进 people，用链接关联到 account，account 文档只收把该组织当作整体主体的语义；一次性的销售杂谈留 topics。\n\n- 例：「A 公司本季度预算冻结，采购决策推迟到 Q4」→ 进 accounts。\n- 反例：把某客户联系人的完整个人档案塞进 account 文档（应在 people，以链接关联）。",
+      "extra_instructions": "## Extra filing slots: accounts and deals\n\nIn a sales role, customer relationships and specific opportunities are two kinds of high-value meaning with a stable shape. `memory/accounts/{slug}.md` takes the customer organization as a long-term subject (history of the relationship, constraints and preferences, the roles of key contacts); `memory/deals/{slug}.md` collects the progress of a single opportunity (stage, how the amount is defined, decision maker, next step, why it was won or lost). The boundary with people/topics: individuals on the customer side still go into people and are linked to the account, while the account document collects only meaning that treats the organization as a whole as its subject; one-off sales chatter stays in topics.\n\n- Example: \"company A's budget is frozen this quarter, the purchasing decision moves to Q4\" → accounts.\n- Counter-example: stuffing a customer contact's full personal record into the account document (it belongs in people, linked from the account).",
       "extra_path_templates": [
         "memory/accounts/{slug}.md",
         "memory/deals/{slug}.md"

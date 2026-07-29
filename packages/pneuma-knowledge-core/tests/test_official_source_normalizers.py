@@ -51,7 +51,10 @@ def test_meeting_normalizes_one_block_per_segment_with_declared_owner():
     source = result[0]
     assert source.raw.kind == "meeting"
     assert source.raw.origin == "mock"
-    assert [b.text for b in source.blocks] == ["本人（林知远）：我周四发方案。", "陈澄：收到。"]
+    assert [b.text for b in source.blocks] == [
+        "Owner (林知远): 我周四发方案。",
+        "陈澄: 收到。",
+    ]
     assert source.raw.meta["meeting_id"] == "m1"
     assert source.raw.meta["segment_ids"] == ["s1", "s2"]
     assert source.raw.meta["started_at"] == "2026-07-28T09:00:00+08:00"
@@ -146,7 +149,7 @@ def test_im_expands_by_conversation_and_preserves_message_ids():
     )
     assert len(result) == 1
     assert result[0].raw.kind == "im"
-    assert result[0].blocks[0].text == "陈澄：字段表发你了。"
+    assert result[0].blocks[0].text == "陈澄: 字段表发你了。"
     assert result[0].raw.meta["message_ids"] == ["1.1"]
     assert result[0].raw.meta["users"] == [
         {
@@ -211,8 +214,8 @@ def test_email_expands_by_thread_and_marks_owner_side_without_inference():
     assert len(result) == 1
     source = result[0]
     assert source.raw.kind == "email"
-    assert source.blocks[0].text.startswith("本人（林知远 <lin@example.dev>）")
-    assert "附件：proposal.pdf" in source.blocks[0].text
+    assert source.blocks[0].text.startswith("Owner (林知远 <lin@example.dev>)")
+    assert "Attachments: proposal.pdf" in source.blocks[0].text
     assert source.raw.meta["message_ids"] == ["<m1@example.com>"]
     assert source.raw.meta["messages"] == [
         {

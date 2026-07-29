@@ -100,6 +100,33 @@ async def test_materializes_manifest_and_no_rederive_on_reload(tmp_path):
     assert render_system_contract(second) == render_system_contract(first)
 
 
+async def test_deployment_matrix_path_reaches_auto_resolution(tmp_path):
+    # Branch 3 (no manifest, first compile) must honor a deployment-supplied matrix: this
+    # is the prose seam for pack wording. Without the plumb, replacing the built-in matrix
+    # text required pre-writing a full manifest, which REPLACES auto-resolution.
+    import json
+
+    matrix = tmp_path / "deploy_matrix.json"
+    matrix.write_text(json.dumps({"packs": [{
+        "pack_id": "deploy-eng",
+        "match": {"roles": ["engineering"], "industries": ["tech"]},
+        "extra_instructions": "DEPLOYMENT-SUPPLIED PACK WORDING",
+        "extra_path_templates": ["memory/deploy-projects/{slug}.md"],
+    }]}), encoding="utf-8")
+
+    uid = "u-matrix"
+    ctx = _ctx(tmp_path, profiles={uid: _profile(uid)}, model=_CountingDerive(),
+               user_schema_base_version="v2", user_schema_matrix_path=str(matrix))
+    skill = await skill_for_user(ctx, UserId(uid))
+
+    contract = render_system_contract(skill)
+    assert "DEPLOYMENT-SUPPLIED PACK WORDING" in contract
+    assert "memory/deploy-projects/{slug}.md" in skill.path_templates
+    # The manifest records the resolved packs, so reloads never depend on the file again.
+    manifest = await ctx.canonical.read_meta(UserId(uid), "skill/manifest.json")
+    assert manifest is not None and "deploy-eng" in manifest
+
+
 async def test_per_user_contracts_differ_and_are_stable(tmp_path, monkeypatch):
     # Differentiate packs by role, independent of the shipped matrix asset.
     async def fake_packs(profile, *, model=None, matrix_path=None, callbacks=None, trace_metadata=None):

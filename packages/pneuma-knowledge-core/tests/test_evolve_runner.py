@@ -66,9 +66,9 @@ ATLAS_BODY = (
 def _base_docs() -> list[CanonicalDocument]:
     return [
         CanonicalDocument(
-            pneuma_id=DocumentId("d-atlas"),
+            doc_id=DocumentId("d-atlas"),
             path="memory/topics/atlas.md",
-            frontmatter={"pneuma_id": "d-atlas", "type": "topic", "slug": "atlas"},
+            frontmatter={"doc_id": "d-atlas", "type": "topic", "slug": "atlas"},
             body=ATLAS_BODY,
         )
     ]

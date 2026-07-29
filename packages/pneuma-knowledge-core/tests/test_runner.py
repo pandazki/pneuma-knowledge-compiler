@@ -65,7 +65,7 @@ class FakeCanonicalStore:
         return list(self._docs)
 
     async def read(self, user_id, document_id, *, at: SnapshotRef | None = None):
-        return next((d for d in self._docs if d.pneuma_id == document_id), None)
+        return next((d for d in self._docs if d.doc_id == document_id), None)
 
     async def commit_patch(self, user_id, files: dict[str, str], *, message: str):
         self.commits.append(dict(files))
@@ -74,7 +74,7 @@ class FakeCanonicalStore:
             fm, body = parse_document(text)
             new_docs.append(
                 CanonicalDocument(
-                    pneuma_id=DocumentId(str(fm.get("pneuma_id", ""))),
+                    doc_id=DocumentId(str(fm.get("doc_id", ""))),
                     path=path,
                     frontmatter=fm,
                     body=body,
@@ -226,9 +226,9 @@ async def test_scenario_3_still_illegal_after_repair_aborts_with_zero_canonical_
 
 async def test_scenario_1_editing_existing_base_document_preserves_anchor():
     base = CanonicalDocument(
-        pneuma_id=DocumentId("abc123"),
+        doc_id=DocumentId("abc123"),
         path="memory/people/cheng-ye.md",
-        frontmatter={"pneuma_id": "abc123", "type": "person", "slug": "cheng-ye"},
+        frontmatter={"doc_id": "abc123", "type": "person", "slug": "cheng-ye"},
         body="## 程野\n\n- 程野 是后端负责人。[cite: src-00 ¶0] <!-- c:aa11 -->",
     )
     store = FakeCanonicalStore([base])

@@ -44,9 +44,9 @@ def test_contract_contains_mechanics_and_no_volatile_content():
     # Path ownership templates present.
     assert "memory/people/{slug}.md" in contract
     # Skill instructions folded in.
-    assert "长期可追溯个人记忆" in contract
-    assert "一人公司" in contract
-    assert "实验" in contract and "产品" in contract
+    assert "long-term, traceable personal memory" in contract
+    assert "one-person company" in contract
+    assert "experiment" in contract and "product" in contract
     # I5: no timestamp/ISO date leaked into the byte-stable contract.
     assert "2026-" not in contract
     # No YAML dump of the skill object.
@@ -77,10 +77,10 @@ def test_v1_and_v2_have_distinct_stable_content_hashes():
 def test_v2_evolves_status_time_and_adds_strength_tiering():
     v2 = load_builtin_skill("v2")
     # §4 sharpened: relative time must be normalized to an absolute date.
-    assert "归一为绝对日期" in v2.instructions
+    assert "normalized to an absolute date" in v2.instructions
     # New section: commitment/relationship strength tiering that shapes projection.
-    assert "强度分级" in v2.instructions
-    assert "【强】" in v2.instructions and "【中】" in v2.instructions
+    assert "strength tiering" in v2.instructions
+    assert "【firm】" in v2.instructions and "【forming】" in v2.instructions
 
 
 def test_unknown_skill_version_rejected():
@@ -97,9 +97,9 @@ def test_v2_contract_adds_rules_and_is_byte_stable():
     c2a = render_system_contract(load_builtin_skill("v2"))
     c2b = render_system_contract(load_builtin_skill("v2"))
     # v2's contract carries the added presentation rules; v1's does not.
-    assert "本版本附加呈现规则" in c2a
-    assert "强度前缀标签" in c2a
-    assert "本版本附加呈现规则" not in c1
+    assert "extra presentation rules of this version" in c2a
+    assert "strength prefix label" in c2a
+    assert "extra presentation rules of this version" not in c1
     # Still byte-stable per version (I5): same version renders identically each call.
     assert c2a == c2b
     # v2 still carries the immutable write mechanics.

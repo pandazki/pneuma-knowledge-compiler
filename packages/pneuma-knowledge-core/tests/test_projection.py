@@ -28,7 +28,7 @@ _BODY = (
 
 def _doc(path: str = "memory/people/cheng-ye.md", body: str = _BODY) -> CanonicalDocument:
     return CanonicalDocument(
-        pneuma_id=DocumentId("doc-cheng-ye"), path=path, frontmatter={"type": "person"}, body=body
+        doc_id=DocumentId("doc-cheng-ye"), path=path, frontmatter={"type": "person"}, body=body
     )
 
 

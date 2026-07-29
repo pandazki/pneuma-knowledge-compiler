@@ -22,6 +22,7 @@ from pneuma_knowledge_core.domain.source import ConversationTurn, SourceOrigin
 from pneuma_knowledge_core.ingest.source_contracts import SourceContract
 from pneuma_knowledge_core.domain.user import INDUSTRIES, LEVELS, ROLES, UserProfile
 from pneuma_knowledge_core.persona import synthesize_profile_draft
+from pneuma_knowledge_core.prompts import prompt
 from pneuma_knowledge_core.recall.briefing import (
     DEFAULT_TOOL_NAMES,
     Briefing,
@@ -359,6 +360,27 @@ async def put_profile(
         else:
             merged[key] = value
 
+    # Forward-only timezone history. The subject's timezone is a compile input, and every
+    # date already in canonical was normalized under whatever it was at the time. Those
+    # dates are never rewritten (canonical is the non-rebuildable layer), so a move is
+    # recorded here instead and the compile time frame states it. Server-maintained: the
+    # request body has no `timezone_history` field to forge.
+    base_locale = base.get("locale") or {}
+    new_locale = merged.get("locale") or {}
+    old_zone, new_zone = base_locale.get("timezone"), new_locale.get("timezone")
+    if old_zone and new_zone and old_zone != new_zone:
+        merged["locale"] = {
+            **new_locale,
+            "timezone_history": [
+                *(base_locale.get("timezone_history") or []),
+                {
+                    "changed_at": _now(),
+                    "from_zone": old_zone,
+                    "to_zone": new_zone,
+                },
+            ],
+        }
+
     invalid: list[str] = []
     if merged.get("industry") not in INDUSTRIES:
         invalid.append(f"industry must be one of {list(INDUSTRIES)}")
@@ -379,12 +401,14 @@ async def put_profile(
         "initial": _initial_of(str(merged.get("display_name") or "")),
     }
     profile = UserProfile.model_validate(merged)
-    await ctx.store.upsert_user_profile(user, profile.model_dump())
+    # mode="json": the profile now holds datetimes (locale.timezone_history[].changed_at) and
+    # the store hands the dict straight to a jsonb parameter, which cannot serialize one.
+    await ctx.store.upsert_user_profile(user, profile.model_dump(mode="json"))
     return profile
 
 
 class ProfileGenerateIn(BaseModel):
-    """"AI 生成人设": one sentence → a full UserProfile draft. Not user-scoped —
+    """AI-generated persona: one sentence → a full UserProfile draft. Not user-scoped —
     a brand-new picture has no user_id yet; the client may pin one it already typed."""
 
     sentence: str
@@ -597,7 +621,7 @@ async def fetch_source(
 
 async def _render_profile(ctx, user: UserId) -> str | None:
     """Compact owner profile for the recall Human turn's top block: identity (helps the
-    model resolve who/what an ASR-transcribed ask refers to) + the answer language. Never
+    model resolve who/what a transcribed ask refers to) + the answer language. Never
     fatal — a lookup failure just drops the block (profile=None)."""
     try:
         p = await ctx.user_info.get_profile(user)
@@ -605,16 +629,21 @@ async def _render_profile(ctx, user: UserId) -> str | None:
         return None
     ind = p.industry_other if (p.industry == "other" and p.industry_other) else p.industry
     role = p.role_other if (p.role == "other" and p.role_other) else p.role
-    lines = [f"姓名：{p.display_name}"]
+    lines = [prompt("recall.profile.name", value=p.display_name)]
     who = " / ".join(x for x in (ind, role, p.level) if x)
     if who:
-        lines.append(f"行业·角色·级别：{who}")
+        lines.append(prompt("recall.profile.industry_role", value=who))
     if p.occupation:
-        lines.append(f"职业：{p.occupation}")
+        lines.append(prompt("recall.profile.occupation", value=p.occupation))
     place = " · ".join(x for x in (p.locale.city, p.locale.country) if x)
     if place:
-        lines.append(f"所在地：{place}")
-    lines.append(f"回复语言：{p.preferences.response_language}（除非本次输入另有要求）")
+        lines.append(prompt("recall.profile.location", value=place))
+    lines.append(
+        prompt(
+            "recall.profile.response_language",
+            value=p.preferences.response_language,
+        )
+    )
     return "\n".join(lines)
 
 
@@ -707,7 +736,7 @@ async def recall(
 @router.post("/recall/stream")
 async def recall_stream(user_id: str, body: RecallIn, request: Request) -> StreamingResponse:
     """Deep recall as Server-Sent Events: one `step` event per agentic tool call as it
-    completes (so the UI grows the 深查过程 list live), then a final `done` event with the
+    completes (so the UI grows the deep-search trail live), then a final `done` event with the
     full answer. Step-level streaming, not token streaming. deep only."""
     ctx = _ctx(request)
     user = UserId(user_id)

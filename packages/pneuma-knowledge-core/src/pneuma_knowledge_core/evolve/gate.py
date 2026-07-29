@@ -34,6 +34,7 @@ from ..compile.patch import PatchDraft, path_allowed
 from ..compile.transitions import _anchor_blocks
 from ..domain.canonical import CANONICAL_CITATION_MARKER_RE, iter_canonical_citations
 from ..domain.ids import extract_anchors
+from ..prompts import prompt
 
 SourceBounds = Callable[[str], Awaitable[int | None]]
 
@@ -106,7 +107,9 @@ async def run_evolve_gate(
                         Violation(
                             "citation",
                             path,
-                            f"citation 引用了 store 中不存在的 source_id={sid}。",
+                            prompt(
+                                "gate.evolve.citation_unknown_source", source_id=sid
+                            ),
                         )
                     )
                     continue
@@ -115,8 +118,14 @@ async def run_evolve_gate(
                         Violation(
                             "citation",
                             path,
-                            f"citation [{sid} ¶{start}-{end}] 越界（该 source 有 {n} 个 block，"
-                            f"合法区间 0..{n - 1}）。",
+                            prompt(
+                                "gate.evolve.citation_out_of_range",
+                                source_id=sid,
+                                start=start,
+                                end=end,
+                                count=n,
+                                last=n - 1,
+                            ),
                         )
                     )
 
@@ -132,7 +141,10 @@ async def run_evolve_gate(
                 Violation(
                     "path",
                     path,
-                    f"路径不在新 skill 允许的 ownership 模板内：{', '.join(path_templates)}。",
+                    prompt(
+                        "gate.evolve.path_not_owned",
+                        templates=", ".join(path_templates),
+                    ),
                 )
             )
 

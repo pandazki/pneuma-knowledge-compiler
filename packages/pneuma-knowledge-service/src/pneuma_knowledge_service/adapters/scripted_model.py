@@ -10,7 +10,7 @@ Script shape::
     {"turns": [
         [ {"name": "create_document", "args": {...}}, {"name": "finish_compile"} ],
         [ ... second (repair) round ... ],
-        {"content": "最短短语答案"}
+        {"content": "shortest phrase answer"}
     ]}
 
 Each turn is one assistant step. A turn that is a *list* is a set of tool calls emitted

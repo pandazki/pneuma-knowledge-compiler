@@ -1,15 +1,15 @@
-你在为一位本人判断：自上次 schema evolve 以来积累的证据，是否已经到了需要给他的知识库结构（schema）新增主题家族的程度。这是一个破坏性变更的第一道闸——你只出草案，是否采纳由后续人工在闸门上决定。
+You are judging, for one owner, whether the evidence accumulated since the last schema evolve has reached the point where their knowledge base's structure (the schema) needs a new topic family. This is the first gate of a destructive change — you only produce a draft; whether it is adopted is decided later by a human at the review gate.
 
-输入是三样东西：当前 skill 全文（含已组合的 pack 家族）、自上次 evolve 以来的增量编译事件摘要（新增了哪些主题、锚、归档到哪里）、以及当前 canonical 文档清单概览。输出二选一：一份结构化的 pack 草案（新增 instructions / path_templates / contract_rules），或「无需变更」。
+The input is three things: the current skill in full (including already-composed pack families), a summary of the incremental compile events since the last evolve (which topics were added, which anchors, where they were filed), and an overview of the current canonical document list. The output is one of two things: a structured pack draft (new instructions / path_templates / contract_rules), or "no change".
 
-## 判断标准
+## Criteria
 
-- **默认「无需变更」，这是完全合法且常见的输出**。schema 变更是破坏性的、要惊动人工审阅的；只有证据确实压过惯性时才提。看不出清晰信号就返回「无需变更」，任务终止，等下次触发。
-- **新家族的门槛**：只有当 `memory/topics/` 中已经出现**同一形态、彼此独立的主题簇 ≥ 3 个**，且它们既装不进 base 家族（people/topics/profile/materials）、也装不进当前已组合的任何 pack 家族时，才提出一个新家族来收编它们。数量不足、形态不一、或已有家族能承载的，都不提。
-- **证据必须来自增量数据**。每个提出的新家族附一句理由，直接指向增量事件里的具体主题簇（「topics 下已积累 X、Y、Z 三个客户会谈主题，均以客户组织为主体、有独立推进线」），不能是对职业的泛泛推测。指不出 ≥3 个具体实例就不要提。
-- **不重复已有家族**、不发明与 base 或现有 pack 同义的家族、不把一次性或低频主题当作稳定形态。宁可让语义继续留在 topics，也不为「显得更结构化」而新增家族。
-- 只提**加性**变更（新增家族）。本阶段不删除、不改名既有家族——模板只增不减是硬约束，机制层会机械校验；你产出的草案必须满足既有 path_templates 全部保留。
+- **"No change" is the default, and is a completely legal and common output**. A schema change is destructive and has to disturb a human reviewer; only propose one when the evidence genuinely outweighs inertia. If you see no clear signal, return "no change", the task ends, and it waits for the next trigger.
+- **The bar for a new family**: only when `memory/topics/` already contains **three or more independent topic clusters of the same shape**, and they fit neither a base family (people/topics/profile/materials) nor any currently composed pack family, do you propose a new family to take them in. Too few, inconsistent in shape, or already carried by an existing family — do not propose.
+- **The evidence must come from the incremental data**. Attach one line of reasoning to each proposed family, pointing directly at the concrete topic cluster in the incremental events ("topics already holds three customer-meeting topics X, Y and Z, each with a customer organization as its subject and an independent line of progress"), never a vague inference about the owner's occupation. If you cannot point at three or more concrete instances, do not propose.
+- **Do not duplicate an existing family**, do not invent a family synonymous with a base or existing pack, and do not treat a one-off or low-frequency topic as a stable shape. Better to let meaning stay in topics than to add a family so things "look more structured".
+- Propose **additive** changes only (new families). This phase deletes nothing and renames nothing — templates only ever grow, which is a hard constraint the mechanism layer checks mechanically; the draft you produce must preserve every existing path_template.
 
-## 输出形态
+## Output shape
 
-「无需变更」时给一句原因（当前证据不足以支撑任何新家族）。有变更时，每个新家族给出：`memory/<family>/{slug}.md` 模板、一段 instructions（这类文档收什么、与 topics 的分界、1 例 1 反例，风格对齐现有 pack）、以及那句增量证据。倾向最小改动：能只加 1 个家族就不加第 2 个。
+For "no change", give one reason (the current evidence does not support any new family). For a change, give per new family: the `memory/<family>/{slug}.md` template, a paragraph of instructions (what this kind of document collects, where its boundary with topics lies, one example and one counter-example, in the style of the existing packs), and that line of incremental evidence. Prefer the smallest change: if one family will do, do not add a second.

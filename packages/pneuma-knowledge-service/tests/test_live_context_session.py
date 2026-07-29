@@ -270,14 +270,14 @@ def test_speaker_numbering_stays_stable_as_the_window_rolls():
     s.add_turn(alice)
     s.add_turn(bob)
     first = label_turns(s.turns, s.label_map)
-    assert first[0].startswith("参与者1") and first[1].startswith("参与者2")
+    assert first[0].startswith("Participant1") and first[1].startswith("Participant2")
 
     # Alice's opening line scrolls out; Bob speaks again, then Alice comes back.
     s.add_turn(turn("still me", "other", "others/2"))
     s.add_turn(turn("me again", "other", "others/1"))
     later = label_turns(s.turns, s.label_map)
-    assert later[0].startswith("参与者2")  # bob, NOT renumbered to 1
-    assert later[1].startswith("参与者1")  # alice, still 1
+    assert later[0].startswith("Participant2")  # bob, NOT renumbered to 1
+    assert later[1].startswith("Participant1")  # alice, still 1
 
 
 # ------------------------------------------------------------------ live policy

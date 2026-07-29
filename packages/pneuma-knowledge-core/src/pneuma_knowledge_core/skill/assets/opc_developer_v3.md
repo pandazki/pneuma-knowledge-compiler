@@ -1,102 +1,102 @@
-# opc-developer-knowledge v3 领域指导
+# opc-developer-knowledge v3 domain guidance
 
-本策略服务于以一人公司方式工作的 AI-Native 个人开发者。编译目标是形成以本人为主体、覆盖产品、工程、研究与经营的**长期可追溯个人记忆**。它不是逐字稿摘要，也不是把所有输入永久保存。
+This strategy serves an AI-native solo developer working as a one-person company. The compile goal is a **long-term, traceable personal memory** with the owner as its subject, covering product, engineering, research and operations. It is not a transcript summary, and it is not permanent storage of every input.
 
-每次只问一个问题：**这条信息以后会不会被用于行动、判断、解释、协作或审计？** 会，才进入 canonical；否则留在原始来源和检索层。
+Ask one question each time: **will this information later be used for action, judgment, explanation, collaboration or audit?** If yes it enters canonical; otherwise it stays in the original source and the retrieval layers.
 
-## 1. 高价值语义
+## 1. High-value meaning
 
-优先保存产品假设与定位、架构决定与约束、实验设计与结果、明确承诺与验收、用户反馈及其原话、影响发布/现金流/合规的经营事实，以及稳定的工作偏好。寒暄、重复播报、未接受建议、背景噪声和短期无效细节不进入长期知识。
+Prefer to keep product hypotheses and positioning, architecture decisions and constraints, experiment design and results, explicit commitments and acceptance conditions, user feedback together with its exact wording, operational facts affecting releases / cash flow / compliance, and stable working preferences. Greetings, repeated broadcasts, unaccepted suggestions, background noise and short-lived detail do not enter long-term knowledge.
 
-- 例：「Atlas 首版明确不做团队权限，理由是单人使用场景下收益低于维护成本」→ 记范围决定与其理由。
-- 反例：把「今天状态不错，多写了两小时」写进长期知识（一次性状态，无未来效用）。
+- Example: "the first version of the product explicitly excludes team permissions, because in a single-user scenario the benefit is below the maintenance cost" → record the scope decision and its reason.
+- Counter-example: writing "felt good today, wrote two extra hours" into long-term knowledge (a one-off state with no future use).
 
-## 2. 证据层级
+## 2. Evidence tiers
 
-每条结论区分以下来源：
+Distinguish these sources for every conclusion:
 
-1. **直接事实**：可由来源逐字或结构字段支持；
-2. **观测**：日志、访谈、指标或运行结果；
-3. **解释**：本人或模型对观测的归因；
-4. **假设**：仍需实验验证的预测；
-5. **决定**：本人明确接受、会影响后续行动的选择。
+1. **Direct fact**: supportable verbatim or by a structured field of the source;
+2. **Observation**: logs, interviews, metrics or run results;
+3. **Interpretation**: the owner's or a model's attribution of an observation;
+4. **Hypothesis**: a prediction still needing experimental validation;
+5. **Decision**: a choice the owner explicitly accepted that will shape later action.
 
-转录、模型归纳、搜索结果和 agent 输出都只是观察。原话与解释分开；指标带口径、样本与范围；模型建议不等于决定；agent 日志不等于完成；相关性不写成因果。
+Transcripts, model summaries, search results and agent output are all merely observations. Keep the exact words apart from the interpretation; a metric carries its definition, sample and range; a model suggestion is not a decision; an agent log is not a completion; a correlation is not written as a cause.
 
-- 例：「EXP-014 在 24 条合成任务上召回率高于纯向量」→ 记为观测，并带上数据集与样本量。
-- 反例：把「融合方案更好」写成结论而不写口径与适用范围（观测被抬成普适事实）。
+- Example: "EXP-014 has higher recall than pure vector search on 24 synthetic tasks" → record as an observation, and carry the dataset and sample size.
+- Counter-example: writing "the fused approach is better" as a conclusion without its definition and scope of validity (an observation promoted to a universal fact).
 
-## 3. 产品与实验
+## 3. Product and experiments
 
-产品知识围绕“用户问题 → 假设 → 方案 → 发布 → 反馈”前向演化。实验知识必须尽量保留：
+Product knowledge evolves forward along "user problem → hypothesis → solution → release → feedback". Experiment knowledge must retain as much as possible of:
 
-- 可证伪假设和成功/失败阈值；
-- 版本、数据集、样本、模型、提示或运行条件；
-- 实际观测与异常；
-- 结论的适用范围；
-- 下一步继续、调整或停止的决定。
+- the falsifiable hypothesis and the success/failure threshold;
+- the version, dataset, sample, model, prompt or run conditions;
+- the actual observations and anomalies;
+- the scope of validity of the conclusion;
+- the decision to continue, adjust or stop.
 
-后验修改阈值必须作为新决定记录，不能把新阈值伪装成实验前就存在。负结果和失败原因与成功同样有长期价值。
+A threshold changed after the fact must be recorded as a NEW decision; the new threshold must never be dressed up as having existed before the experiment. Negative results and failure causes carry the same long-term value as successes.
 
-- 例：「阈值从 0.7 调到 0.6，因为漏召回代价更高」→ 作为**新决定**记录，并保留原阈值与调整时间。
-- 反例：直接把 0.6 写成实验设计时就定的阈值（事后修改被伪装成事前设定）。
+- Example: "threshold moved from 0.7 to 0.6, because a missed recall costs more" → record as a **new decision**, keeping the original threshold and the time of the change.
+- Counter-example: writing 0.6 straight in as the threshold fixed at design time (an after-the-fact change disguised as a prior setting).
 
-## 4. 身份、归属与状态
+## 4. Identity, attribution and state
 
-人物、组织、产品、仓库和项目默认不合并。名称接近只形成候选关联；明确纠正、稳定角色和跨来源一致证据才能确认同一实体。别名只增不删。
+People, organizations, products, repositories and projects are not merged by default. Similar names only form a candidate association; an explicit correction, a stable role, or consistent evidence across sources is what confirms one entity. Aliases are only added, never removed.
 
-只有同一实体、同一语义范围且明确描述当前状态的新证据，才能取代旧状态。更新时保留旧状态、变化时间与来源。
+Only new evidence about the same entity, in the same semantic scope, explicitly describing the current state, may supersede an old state. When updating, keep the old state, the time of change and the source.
 
-本人转述他人意见不等于本人认同；协作者提出方案不等于已接受决定；agent 生成候选不等于完成承诺。提议、决定、执行、验收分开。
+The owner relaying someone else's opinion is not the owner agreeing with it; a collaborator proposing a plan is not an accepted decision; an agent generating a candidate is not a fulfilled commitment. Proposal, decision, execution and acceptance stay separate.
 
-- 例：宋遥提出方案、林知远说「先按这个做」→ 记为林知远接受的决定，出处仍归宋遥。
-- 反例：仅因两个仓库名相近就合并成同一实体（近似名称只是候选关联）。
-- 反例：把「宋遥觉得该换方案」记成林知远的决定（转述 ≠ 认同）。
+- Example: a teammate proposes a plan and the owner says "let's go with this for now" → record as a decision the owner accepted, with the provenance still attributed to the teammate.
+- Counter-example: merging two repositories into one entity merely because their names are similar (a similar name is only a candidate association).
+- Counter-example: recording "a teammate thinks we should switch approaches" as the owner's decision (relaying ≠ agreeing).
 
-## 5. 时间与强度分级
+## 5. Time and strength tiering
 
-相对时间必须**归一为绝对日期**，同时保留原始说法；基准不可靠时保持待确认。
+Relative time must be **normalized to an absolute date**, while the original wording is kept; when the reference point is unreliable, keep it pending.
 
-承诺、决定和稳定关系使用受控的**强度前缀标签**：
+Commitments, decisions and stable relationships use a controlled **strength prefix label**:
 
-- `【强】`：责任人、条件/时间或双方确认已经成立；
-- `【中】`：方向明确但缺一个关键槽位；
-- `【弱】`：想法、假设、转述或尚未接受的提议。
+- `【firm】`: an owner, a condition/time, or confirmation by both sides is already in place;
+- `【forming】`: the direction is clear but one key slot is missing;
+- `【loose】`: an idea, a hypothesis, a second-hand account, or a proposal not yet accepted.
 
-强度随证据前向升降档，保留旧档和变化依据。只用三档；拿不准时降一档。
+Strength is re-tiered forward as evidence changes, keeping the old tier and the basis for the change. Use only three tiers; when unsure, drop a tier.
 
-- 例：素材发生在 2026-07-18，其中说「下周一交付」→ 写「截止 2026-07-27（原话「下周一」）」。
-- 例：「顾宁负责导入模块，验收是端到端测试通过」→ `【强】`；只说「顾宁可以看看」→ `【弱】`。
-- 反例：把「也许以后可以一起做」标成 `【强】`承诺。
+- Example: the material occurred on 2026-07-18 and says "delivery next Monday" → write "due 2026-07-27 (original wording: \"next Monday\")".
+- Example: "a teammate owns the import module, acceptance is end-to-end tests passing" → `【firm】`; merely "a teammate could take a look" → `【loose】`.
+- Counter-example: labelling "maybe we could work on it together some day" as a `【firm】` commitment.
 
-## 6. 隐私与秘密
+## 6. Privacy and secrets
 
-只保存完成未来行动所需的最小信息。密码、验证码、令牌、私钥、支付凭据、完整证件号和认证秘密永不进入 canonical；使用不含秘密值的业务状态表达。
+Keep only the minimum information needed to complete future action. Passwords, verification codes, tokens, private keys, payment credentials, full identity numbers and authentication secrets never enter canonical; express business state without the secret value.
 
-涉及第三方、健康、财务或法律的信息必须保留来源和不确定性，不从零散描述推导诊断、资产或法律结论。
+Information touching third parties, health, finances or legal matters must keep its source and its uncertainty; do not derive a diagnosis, an asset position or a legal conclusion from scattered remarks.
 
-- 例：记「测试环境账号仍待管理员开通」，不记对话里念出的临时口令。
-- 反例：从「最近一直很累」推断健康状况并当作事实保存。
+- Example: record "the test-environment account is still awaiting the administrator", not the temporary password read out in the conversation.
+- Counter-example: inferring a health condition from "I've been tired lately" and storing it as fact.
 
-## 7. 文档组织
+## 7. Document organization
 
-- 本人画像、长期偏好与工作方式 → `memory/profile.md`
-- 稳定协作者/联系人 → `memory/people/{slug}.md`
-- 产品持续状态 → `work/products/{slug}.md`
-- 实验、评测与假设演化 → `work/experiments/{slug}.md`
-- 发布、销售、现金流与运营事项 → `work/operations/{slug}.md`
-- 尚未稳定归类的跨域主题 → `memory/topics/{slug}.md`
-- 需要外置正文的重要资料 → `materials/{slug}.md`
+- owner profile, long-term preferences and way of working → `memory/profile.md`
+- stable collaborators / contacts → `memory/people/{slug}.md`
+- ongoing product state → `work/products/{slug}.md`
+- experiments, evaluations and hypothesis evolution → `work/experiments/{slug}.md`
+- releases, sales, cash flow and operational matters → `work/operations/{slug}.md`
+- cross-domain topics not yet stably classified → `memory/topics/{slug}.md`
+- important material whose body must live outside → `materials/{slug}.md`
 
-按共同生命周期组织，不按会话建档。准确归类时单向前移；拿不准留在 topics。
+Organize by shared lifecycle, not one document per session. Move forward, one way only, when the classification is accurate; when unsure leave it in topics.
 
-- 例：Atlas 的范围与发布门禁始终写进同一份 `work/products/atlas.md`，按时间前向更新。
-- 反例：为 7 月 18 日的评审单独建 `work/products/atlas-2026-07-18.md`（按会话建档，同一产品状态会散落到无法连续更新）。
+- Example: a product's scope and release gates always go into the same `work/products/<product>.md`, updated forward over time.
+- Counter-example: creating `work/products/<product>-2026-07-18.md` for one review meeting (filing by session scatters one product's state until it can no longer be updated continuously).
 
-## 8. 画像不是素材
+## 8. The profile is not material
 
-注册画像、schema pack 和本策略只用于判断相关性与归档位置，不能作为 claim 来源。任何 claim 必须回链到本轮来源或既有 canonical。
+The registration profile, the schema packs and this strategy are only used to judge relevance and filing location; they cannot be the source of a claim. Every claim must link back to this round's source or to existing canonical.
 
-## 9. 收尾自查
+## 9. Closing self-check
 
-检查引用、证据层级、归属、绝对时间、强度档、实验可复现条件、失败原因、实体边界、秘密排除和不确定性保留。
+Check citations, evidence tiers, attribution, absolute time, strength tier, reproducibility conditions of experiments, failure causes, entity boundaries, secret exclusion and preserved uncertainty.

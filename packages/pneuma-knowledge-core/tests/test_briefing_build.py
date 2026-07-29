@@ -20,13 +20,13 @@ _USER = UserId("u-brief")
 _S1 = SourceId("s1")
 
 _PEOPLE = CanonicalDocument(
-    pneuma_id=DocumentId("doc-cheng-ye"),
+    doc_id=DocumentId("doc-cheng-ye"),
     path="memory/people/cheng-ye.md",
     frontmatter={"type": "person"},
     body="## 程野\n\n- 程野 是后端负责人。[cite: s1 ¶0] <!-- c:aaaa -->",
 )
 _CARD = CanonicalDocument(
-    pneuma_id=DocumentId("doc-card"),
+    doc_id=DocumentId("doc-card"),
     path="materials/contract.md",
     frontmatter={"type": "material"},
     body="## 合同卡片\n\n关键条款蒸馏。[cite: s1 ¶0,2-3] <!-- c:dddd -->",

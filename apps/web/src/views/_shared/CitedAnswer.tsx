@@ -26,7 +26,7 @@ export function CitedAnswer({
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
       urlTransform={(url) =>
-        url.startsWith("pneuma-cite:") ? url : defaultUrlTransform(url)
+        url.startsWith("cite-ref:") ? url : defaultUrlTransform(url)
       }
       components={{
         a: ({
@@ -34,7 +34,7 @@ export function CitedAnswer({
           children,
           ...props
         }: ComponentPropsWithoutRef<"a">) => {
-          const citationMatch = href?.match(/^pneuma-cite:(\d+)$/);
+          const citationMatch = href?.match(/^cite-ref:(\d+)$/);
           if (citationMatch) {
             const index = Number(citationMatch[1]);
             const citation = prepared.citations[index];

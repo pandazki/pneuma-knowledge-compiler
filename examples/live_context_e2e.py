@@ -33,7 +33,10 @@ import _bootstrap  # noqa: F401  (import for side effect)
 from pneuma_knowledge_core.domain.suggestion import CONTEXT_FOCUSES
 from pneuma_knowledge_core.domain.ids import UserId
 from pneuma_knowledge_core.domain.source import ConversationTurn
-from pneuma_knowledge_core.recall.suggestion import LIVE_CONTEXT_CONTRACTS, evaluate_live_context
+from pneuma_knowledge_core.recall.suggestion import (
+    evaluate_live_context,
+    live_context_contracts,
+)
 from pneuma_knowledge_service.live_context.engine import expand_suggestion
 from pneuma_knowledge_service.ingest import ingest_conversation
 from pneuma_knowledge_service.settings import Settings
@@ -170,10 +173,11 @@ async def main() -> int:
                 )
 
         # focus is posture in the System tier — three fixed contracts, byte-stable (I5).
-        print(f"== focus contracts: {len(LIVE_CONTEXT_CONTRACTS)} ==")
-        if len({LIVE_CONTEXT_CONTRACTS[f] for f in LIVE_CONTEXT_CONTRACTS}) != 3:
+        contracts = live_context_contracts()
+        print(f"== focus contracts: {len(contracts)} ==")
+        if len({contracts[f] for f in contracts}) != 3:
             failures.append("the three focus contracts are not distinct")
-        if {o.key for o in CONTEXT_FOCUSES} != set(LIVE_CONTEXT_CONTRACTS):
+        if {o.key for o in CONTEXT_FOCUSES} != set(contracts):
             failures.append("focus vocabulary and contracts disagree")
 
         print("== want_more (zero retrieval, verbatim by the card's own citations) ==")

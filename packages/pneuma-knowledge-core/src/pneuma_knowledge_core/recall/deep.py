@@ -13,7 +13,7 @@ four-level tool face on demand:
 Verification is an agentic act — fetch the cited span and read it — not a fixed batch
 protocol. What stays mechanical (§0 discipline 1): the tool budget (recursion_limit +
 forced finalize, see `agentic.py`), the `trail` record per tool call, and the
-byte-stable `_DEEP_CONTRACT` (I5) — input, as_of, and all evidence ride the
+byte-stable `deep_contract()` (I5) — input, as_of, and all evidence ride the
 HumanMessage / ToolMessages.
 """
 
@@ -32,6 +32,7 @@ from ..ports.claim_index import ClaimLexicalIndex, ClaimVectorIndex
 from ..ports.content_store import ContentStore
 from ..ports.lexical_index import LexicalIndex
 from ..ports.vector_index import VectorIndex
+from ..prompts import prompt
 from .agentic import run_agent_loop
 from .spine import CITE_PRECISE, CLOSE_ANSWER_HONESTLY, spine
 from .assembly import Passage
@@ -73,29 +74,17 @@ def _trail_preview(text: str) -> str:
     the model still receives the full return value."""
     if len(text) <= _TRAIL_PREVIEW_CHARS:
         return text
-    return text[:_TRAIL_PREVIEW_CHARS].rstrip() + "\n…（略）"
+    return text[:_TRAIL_PREVIEW_CHARS].rstrip() + "\n…(truncated)"
 
-# I5: byte-stable. No timestamp, no input, no evidence content — posture only.
-_DEEP_CONTRACT = (
-    """\
-# Pneuma 深度知识核验
 
-你是 Pneuma Knowledge Compiler 的深度核验代理。用户的对话、文档、项目与实验材料
-按四级访问面组织，你可以使用：
+def deep_contract() -> str:
+    """The deep lane's System contract: head + shared spine.
 
-- 随输入附上的**初检证据**：claim 注记（已编译的结构化个人知识，带锚点与出处）与
-  原文摘录（未编译的原始内容片段，带出处）——一轮宽召回的结果。
-- `search_claims(query)`：换关键词、换角度再检 claim 注记。
-- `search_content(query)`：再检原文片段（带上下文与出处），覆盖从未编译成 claim 的内容。
-- `fetch_verbatim(source_id, locator)`：逐字直取某来源的原文，locator 形如
-  {"blocks": [start, end]} 或 {"section": [...]}——核对出处与取原件的途径。
-
-深查的本分是不满足于初检——证据可疑、相互矛盾或不完整时换角度再检，关键结论回原文核对，
-答案只建立在核对得住出处的证据上。查证有预算，每次调用都带着一个明确的待证问题。
-
-"""
-    + spine(CITE_PRECISE, CLOSE_ANSWER_HONESTLY)
-)
+    I5: byte-stable per prompt overlay. No timestamp, no input, no evidence content — posture
+    only."""
+    return prompt("recall.deep.contract_head") + spine(
+        CITE_PRECISE, CLOSE_ANSWER_HONESTLY
+    )
 
 
 @dataclass(frozen=True)
@@ -121,7 +110,7 @@ def _search_claims_tool(
     trail: list[dict],
 ) -> StructuredTool:
     async def search_claims(query: str) -> str:
-        """换关键词/角度再检 claim 注记（结构化个人知识），返回带锚点与出处的命中。"""
+        """Re-search the claim notes; see `recall.deep.tool.search_claims_doc`."""
         claims = await retrieve_claims(
             user_id,
             query,
@@ -134,7 +123,7 @@ def _search_claims_tool(
         out = (
             render_claims(claims)
             if claims
-            else "（未命中 claim 注记；可换关键词重试，或用 search_content 检未编译的原文）"
+            else prompt("recall.deep.tool.search_claims_empty")
         )
         trail.append(
             {"tool": "search_claims", "query": query, "hits": len(claims),
@@ -142,9 +131,10 @@ def _search_claims_tool(
         )
         return out
 
+    search_claims.__doc__ = prompt("recall.deep.tool.search_claims_doc")
     return StructuredTool.from_function(
         coroutine=search_claims,
-        description="换关键词/角度再检 claim 注记（结构化知识面）。",
+        description=prompt("recall.deep.tool.search_claims"),
     )
 
 
@@ -159,7 +149,7 @@ def _search_content_tool(
     trail: list[dict],
 ) -> StructuredTool:
     async def search_content(query: str) -> str:
-        """检索原文片段（含上下文与出处），覆盖未编译成 claim 的原始内容。"""
+        """Search raw fragments; see `recall.deep.tool.search_content_doc`."""
         hits = await retrieve_windows(
             user_id,
             query,
@@ -175,7 +165,7 @@ def _search_content_tool(
         out = (
             _render_window_section(windows)
             if windows
-            else "（未命中原文片段；可换关键词重试，或用 search_claims 检结构化知识）"
+            else prompt("recall.deep.tool.search_content_empty")
         )
         trail.append(
             {"tool": "search_content", "query": query, "hits": len(windows),
@@ -183,9 +173,10 @@ def _search_content_tool(
         )
         return out
 
+    search_content.__doc__ = prompt("recall.deep.tool.search_content_doc")
     return StructuredTool.from_function(
         coroutine=search_content,
-        description="检索原文片段（未编译内容面，带上下文与出处）。",
+        description=prompt("recall.deep.tool.search_content"),
     )
 
 
@@ -195,7 +186,7 @@ def _fetch_verbatim_tool(
     trail: list[dict],
 ) -> StructuredTool:
     async def fetch_verbatim(source_id: str, locator: dict) -> str:
-        """逐字直取某来源的原文片段。locator 形如 {"blocks": [start, end]} 或 {"section": [...]}。"""
+        """Fetch source text verbatim; see `recall.deep.tool.fetch_verbatim_doc`."""
         try:
             text = await content.fetch(user_id, SourceId(source_id), locator)
         except (KeyError, ValueError) as exc:
@@ -203,20 +194,18 @@ def _fetch_verbatim_tool(
                 {"tool": "fetch_verbatim", "source_id": source_id,
                  "locator": locator, "error": str(exc)}
             )
-            return (
-                f"fetch_verbatim 失败：{exc}。source_id 取证据出处标注的来源 id，"
-                'locator 形如 {"blocks": [start, end]} 或 {"section": [...]}'
-            )
-        out = text if text else "（该 locator 未取到内容）"
+            return prompt("recall.deep.tool.fetch_verbatim_failed", error=exc)
+        out = text if text else prompt("recall.deep.tool.fetch_verbatim_empty")
         trail.append(
             {"tool": "fetch_verbatim", "source_id": source_id, "locator": locator,
              "chars": len(text), "result": _trail_preview(out)}
         )
         return out
 
+    fetch_verbatim.__doc__ = prompt("recall.deep.tool.fetch_verbatim_doc")
     return StructuredTool.from_function(
         coroutine=fetch_verbatim,
-        description="逐字直取指定来源的原文片段（核对出处 / 取原件）。",
+        description=prompt("recall.deep.tool.fetch_verbatim"),
     )
 
 
@@ -330,7 +319,7 @@ async def deep_recall(
     answer, usage, _transcript = await run_agent_loop(
         model,
         tools,
-        system_prompt=_DEEP_CONTRACT,
+        system_prompt=deep_contract(),
         human=recall_human(
             question, seed_claims, as_of=as_of, windows=seed_windows, profile=profile
         ),

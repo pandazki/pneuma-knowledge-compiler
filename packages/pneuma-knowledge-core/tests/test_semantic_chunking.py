@@ -264,7 +264,7 @@ async def test_result_digest_tracks_chunk_layout():
 
 
 async def test_prompt_assembly_system_rubric_and_numbered_blocks():
-    from pneuma_knowledge_core.ingest.semantic import _SEGMENTER_RUBRIC
+    from pneuma_knowledge_core.prompts import prompt
     from langchain_core.messages import HumanMessage, SystemMessage
 
     blocks = _blocks(["候选人甲评价", "候选人乙评价"])
@@ -274,7 +274,7 @@ async def test_prompt_assembly_system_rubric_and_numbered_blocks():
         blocks, model=model, callbacks=[cb], trace_metadata={"operation": "chunk.semantic"}
     )
     msgs, config = model.structured.calls[0]
-    assert isinstance(msgs[0], SystemMessage) and msgs[0].content == _SEGMENTER_RUBRIC
+    assert isinstance(msgs[0], SystemMessage) and msgs[0].content == prompt("ingest.semantic.rubric")
     assert isinstance(msgs[1], HumanMessage)
     # grep -n / git grep convention: `<lineno>:<content>`, not an invented `#N` format.
     assert "0:候选人甲评价" in msgs[1].content

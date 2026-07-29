@@ -2,7 +2,7 @@
 
 architecture.md §4: the plan governs only L2/L3 (canonical_treatment,
 semantic_indexing); L0/L1 are unconditional invariants (I3) and never appear in
-the vocabulary. v1 判定 is purely mechanical — declared adapter default + volume
+the vocabulary. The v1 decision is purely mechanical — declared adapter default + volume
 thresholds. No LLM classifier (discipline 1: mechanism over persuasion); that is
 deferred until real misclassification samples exist.
 
@@ -35,7 +35,7 @@ class IntakePlan(BaseModel):
 # ------------------------------------------------------------ intake archetypes
 #
 # The user-facing intake axis is NOT content genre (an open, unenumerable set —
-# 论文/邮件/纪要/手册/简历/收据/幻灯…) but *processing intent*: a named preset of
+# papers/mail/minutes/manuals/CVs/receipts/slides…) but *processing intent*: a named preset of
 # the two knobs (canonical_treatment × semantic_indexing). Genre demotes to mere
 # `examples` text under each archetype. This registry is the single source of
 # truth — the API imports it, the UI fetches it via GET /v1/intake/archetypes.
@@ -55,33 +55,33 @@ class IntakeArchetype(BaseModel):
 INTAKE_ARCHETYPES: list[IntakeArchetype] = [
     IntakeArchetype(
         key="digest",
-        label="精读归档",
-        summary="全量 compile 进知识库",
-        examples="手写笔记、工作产物、重要短文",
+        label="Study and file",
+        summary="compiled into the knowledge base in full",
+        examples="handwritten notes, work products, short but important pieces",
         canonical_treatment="full",
         semantic_indexing="full",
     ),
     IntakeArchetype(
         key="distill",
-        label="要点蒸馏",
-        summary="关键信息进 canonical，正文外置可检索",
-        examples="合同、报告、规格",
+        label="Distil key points",
+        summary="key information enters canonical, the body stays external and searchable",
+        examples="contracts, reports, specifications",
         canonical_treatment="distill",
         semantic_indexing="full",
     ),
     IntakeArchetype(
         key="archive",
-        label="存目索引",
-        summary="只留卡片+元信息，正文仍可达",
-        examples="书籍、长篇资料",
+        label="Catalogue only",
+        summary="a card plus metadata only, the body remains reachable",
+        examples="books, long-form material",
         canonical_treatment="card",
         semantic_indexing="summary",
     ),
     IntakeArchetype(
         key="searchable",
-        label="仅可检索",
-        summary="不 compile、不做语义，仅保底全文检索",
-        examples="任何只想存着能搜到的东西",
+        label="Searchable only",
+        summary="no compile, no semantic indexing, just baseline full-text search",
+        examples="anything you only want stored and findable",
         canonical_treatment="none",
         semantic_indexing="none",
     ),
@@ -101,7 +101,7 @@ def plan_for_archetype(key: str) -> IntakePlan:
     return IntakePlan(
         canonical_treatment=archetype.canonical_treatment,
         semantic_indexing=archetype.semantic_indexing,
-        rationale=f"处理意图「{archetype.label}」：{archetype.summary}",
+        rationale=f"processing intent \"{archetype.label}\": {archetype.summary}",
         user_confirmed=False,
     )
 
@@ -127,7 +127,7 @@ def propose_intake(
             semantic_indexing="full",
             rationale=(
                 "first-party workstream/note (meeting, IM, email or handwritten note): "
-                "完整编译为个人工作知识，并建立全语义索引"
+                "compiled in full into personal work knowledge, with full semantic indexing"
             ),
         )
 
@@ -138,32 +138,34 @@ def propose_intake(
             canonical_treatment="distill",
             semantic_indexing="summary",
             rationale=(
-                "structured stream (matrix row 结构化流): 周期蒸馏成事实，"
-                "不索原始流水，摘要级语义"
+                "structured stream (matrix row: structured streams): distilled into facts "
+                "periodically, the raw flow is not indexed, summary-level semantics"
             ),
         )
 
     # Documents.
     if kind in {"document_library", "document"}:
-        # A declared novel is card/summary regardless of size (matrix row 小说等大部头):
+        # A declared novel is card/summary regardless of size (matrix row: long works):
         # even a short excerpt of a big-work is treated as a card + metadata only.
         if declared_type == "novel":
             return IntakePlan(
                 canonical_treatment="card",
                 semantic_indexing="summary",
                 rationale=(
-                    "declared novel (matrix row 小说等大部头): 只留卡片与元信息，"
-                    "正文仍 L0/L1 可达，摘要级语义"
+                    "declared novel (matrix row: long works): a card plus metadata only, "
+                    "the body stays reachable via L0/L1, summary-level semantics"
                 ),
             )
-        # A declared contract is a distilled reference document (matrix row 合同类重要文书).
+        # A declared contract is a distilled reference document (matrix row: important
+        # instruments such as contracts).
         if declared_type == "contract":
             return IntakePlan(
                 canonical_treatment="distill",
                 semantic_indexing="full",
                 rationale=(
-                    "declared contract (matrix row 合同类重要文书): "
-                    "关键信息蒸馏进 canonical，正文外置为可检索资料，全语义索引"
+                    "declared contract (matrix row: important instruments): key information "
+                    "distilled into canonical, the body externalized as searchable material, "
+                    "full semantic indexing"
                 ),
             )
         if source_class == "reference":
@@ -174,7 +176,8 @@ def propose_intake(
                     semantic_indexing="summary",
                     rationale=(
                         f"large reference document (>{BIG_DOCUMENT_CHARS} chars, "
-                        "matrix row 小说等大部头): 只留卡片与元信息，正文仍 L0/L1 可达"
+                        "matrix row: long works): a card plus metadata only, the body stays "
+                        "reachable via L0/L1"
                     ),
                 )
             # Contract-scale reference: distill key info into canonical, keep body external.
@@ -182,8 +185,9 @@ def propose_intake(
                 canonical_treatment="distill",
                 semantic_indexing="full",
                 rationale=(
-                    "reference document (matrix row 合同类重要文书): "
-                    "关键信息蒸馏进 canonical，正文外置为可检索资料，全语义索引"
+                    "reference document (matrix row: important instruments): key information "
+                    "distilled into canonical, the body externalized as searchable material, "
+                    "full semantic indexing"
                 ),
             )
         # Workstream document (first-party work product, not a note): main path.
@@ -191,7 +195,8 @@ def propose_intake(
             canonical_treatment="full",
             semantic_indexing="full",
             rationale=(
-                "first-party workstream document: 主路径工作产物，全 compile + 全语义索引"
+                "first-party workstream document: a main-path work product, full compile + "
+                "full semantic indexing"
             ),
         )
 

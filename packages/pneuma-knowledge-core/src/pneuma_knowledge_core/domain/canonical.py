@@ -129,7 +129,7 @@ class Claim(BaseModel):
 
 
 class CanonicalDocument(BaseModel):
-    pneuma_id: DocumentId
+    doc_id: DocumentId
     path: str
     frontmatter: dict = Field(default_factory=dict)
     body: str

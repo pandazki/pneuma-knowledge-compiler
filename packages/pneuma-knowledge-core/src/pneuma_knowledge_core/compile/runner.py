@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from datetime import datetime
 from dataclasses import dataclass
 from typing import Literal
 
@@ -33,7 +32,9 @@ from ..domain.ids import UserId, SourceId, extract_anchors
 from ..recall.citation_alias import resolve_handles
 from ..domain.snapshot import SnapshotRef
 from ..domain.source import NormalizedSource
+from ..domain.time_context import TimeContext
 from ..ports.canonical_store import CanonicalStore
+from ..prompts import prompt, prompt_overlay_hash
 from ..skill.contract import render_system_contract
 from ..skill.version import SkillVersion
 from .anchor_ops import AnchorToolError
@@ -52,45 +53,36 @@ SearchSource = Callable[[str], Awaitable[str]]
 
 
 async def _search_knowledge_unavailable(query: str) -> str:
-    return "（本次未接 L3 检索端口，search_knowledge 不可用；可用 read_document 按路径读取）"
+    return prompt("compile.tool.search_knowledge_unavailable")
 
 
 async def _search_source_unavailable(query: str) -> str:
-    return "（本次未接 L1/L2 检索端口，search_source 不可用；只能使用本轮供给的素材）"
+    return prompt("compile.tool.search_source_unavailable")
 
 
 # Centralized loop bounds.
 MAX_TOOL_CALLS = 40
 MAX_REPAIR_ROUNDS = 1
 
-# Per-source treatment instruction segments (architecture.md §4 执行路径). These are
+# Per-source treatment instruction segments (architecture.md §4, execution paths). These are
 # fixed strings mechanically mapped from IntakePlan.canonical_treatment — a mechanism,
 # not persuasion (§0 discipline 1). They ride the HumanMessage (task content), never
 # the byte-stable SystemMessage (I5). skill instructions are unchanged.
 Treatment = Literal["full", "distill", "card"]
 
-_TREATMENT_INSTRUCTIONS: dict[str, str] = {
-    "full": (
-        "【treatment=full · 常规全量消化】按 skill 判断把该素材中值得长期记忆的语义编译进 "
-        "canonical，各按主体归档到 skill 允许的归档位。"
-        "若该素材通不过准入标准（寒暄、通知播报、无后续效用的过程细节），"
-        "就**不为它写任何 claim**——它仍留在 L0 原文与检索层，不算漏。"
-    ),
-    "distill": (
-        "【treatment=distill · 定向蒸馏】该素材的正文不进 canonical，靠 L0/L1 可达即可。"
-        "**注意：让这份素材「能被搜到」不是你的任务——L1/L2 已经做到了。**"
-        "你要做的只有一件事：判断它有没有**改变或推进某条脉络**，"
-        "有就把那一点写进**相应主体已有的文档**（`edit_claim` / `append_block`）。"
-        "没有就什么都不写——为一份素材建一张只是概括它的卡，功能上与 L1/L2 重复，"
-        "只是给不可重建层增加副本。"
-        "只有当这份资料**本身**就是一个需要长期指向的主体（外部报告、合同、规范、评测集）时，"
-        "才建 `materials/{slug}.md`，并写清它属于哪条脉络、支撑了哪个决定。"
-    ),
-    "card": (
-        "【treatment=card · 仅登记】只登记这份资料**存在过、属于哪条脉络**，不抄内容细节。"
-        "**若它不挂在任何脉络上，就不要登记**——单纯「存着能搜到」由 L1/L2 负责。slug 按主体取。"
-    ),
+_TREATMENT_KEYS: dict[str, str] = {
+    "full": "compile.treatment.full",
+    "distill": "compile.treatment.distill",
+    "card": "compile.treatment.card",
 }
+
+# The closed set of treatment tiers — the thing a caller validating an intake plan needs.
+TREATMENTS: frozenset[str] = frozenset(_TREATMENT_KEYS)
+
+
+def _treatment_instruction(treatment: str) -> str:
+    """The fixed paragraph for one treatment tier; an unknown tier degrades to `full`."""
+    return prompt(_TREATMENT_KEYS.get(treatment, _TREATMENT_KEYS["full"]))
 
 
 @dataclass
@@ -106,22 +98,43 @@ class CompileResult:
 
 
 def _render_time_anchor(
-    sources: Sequence[NormalizedSource], now: "datetime | None"
+    sources: Sequence[NormalizedSource], time: TimeContext | None
 ) -> list[str]:
     """The task's time frame: when this compile runs, and what period the material covers.
 
-    The skill requires relative time ("明天", "上周") to be normalized to absolute dates, but
+    The skill requires relative time ("tomorrow", "last week") to be normalized to absolute
+    dates, but
     the prompt carried no reference point to normalize AGAINST: the only dates present were
     whatever happened to appear inside the text. `RawSource.created_at` is no help either —
     it is the INGEST wall-clock, so material captured weeks ago is stamped with today.
 
-    The window is derived from each source's own occurrence metadata (`occurred_on`, else the
-    date section paths the conversation adapters cut). `now` is passed in rather than read
-    from the clock so the render stays deterministic and testable.
+    Every date here is a calendar day in the SUBJECT's timezone, and the anchor says which
+    zone that is: the section dates were cut in that zone at ingest, so a "today" stated in
+    UTC would silently disagree with them for a third of the day. `time` is passed in rather
+    than read from the clock so the render stays deterministic and testable.
+
+    A recorded timezone change is stated too. Dates compiled before the move were normalized
+    under the OLD zone and are never rewritten (canonical is the non-rebuildable layer), so
+    the only honest option is to tell the model which zone an older date belongs to.
     """
     lines: list[str] = []
-    if now is not None:
-        lines.append(f"- **本次编译时间**：{now.date().isoformat()}")
+    if time is not None:
+        lines.append(
+            prompt(
+                "compile.task.time_now",
+                date=time.today.isoformat(),
+                zone=time.zone_name,
+            )
+        )
+        for change in time.history:
+            lines.append(
+                prompt(
+                    "compile.task.time_zone_changed",
+                    at=time.local_date(change.changed_at).isoformat(),
+                    from_zone=change.from_zone,
+                    to_zone=change.to_zone,
+                )
+            )
     dates: set[str] = set()
     for s in sources:
         occurred_on = str((s.raw.meta or {}).get("occurred_on") or "").strip()
@@ -135,15 +148,12 @@ def _render_time_anchor(
     if dates:
         lo, hi = min(dates), max(dates)
         span_text = lo if lo == hi else f"{lo} — {hi}"
-        lines.append(f"- **本轮素材发生于**：{span_text}（共 {len(dates)} 天）")
         lines.append(
-            "- 素材里的相对时间（「昨天」「上周」「下周一」）以**素材发生日**为基准归一为绝对日期，"
-            "不要以本次编译时间为基准；基准不可靠时保留原话并标为待确认。"
+            prompt("compile.task.time_window", span=span_text, days=len(dates))
         )
+        lines.append(prompt("compile.task.time_relative_rule"))
     else:
-        lines.append(
-            "- **本轮素材未提供发生时间**：不要推断绝对日期，相对时间一律保留原话并标为待确认。"
-        )
+        lines.append(prompt("compile.task.time_unknown"))
     return lines
 
 
@@ -163,7 +173,7 @@ def _render_outline(base_docs: list[CanonicalDocument]) -> list[str]:
     and the gate need the full set. Only what the MODEL is shown changes here.
     """
     if not base_docs:
-        return ["(暂无既有 canonical；用 create_document 新建)"]
+        return [prompt("compile.task.outline_empty")]
     lines: list[str] = []
     for d in sorted(base_docs, key=lambda x: x.path):
         heads = [
@@ -173,8 +183,20 @@ def _render_outline(base_docs: list[CanonicalDocument]) -> list[str]:
         ]
         claims = len(extract_anchors(d.body))
         doc_type = str((d.frontmatter or {}).get("type") or "?")
-        tail = f"：{' / '.join(heads)}" if heads else ""
-        lines.append(f"- `{d.path}`（type={doc_type}，{claims} 条 claim）{tail}")
+        tail = (
+            prompt("compile.task.outline_entry_tail", headings=" / ".join(heads))
+            if heads
+            else ""
+        )
+        lines.append(
+            prompt(
+                "compile.task.outline_entry",
+                path=d.path,
+                doc_type=doc_type,
+                claims=claims,
+                tail=tail,
+            )
+        )
     return lines
 
 
@@ -185,7 +207,7 @@ def _render_task(
     source_guidance: Mapping[str, str] | None = None,
     source_preamble: Mapping[str, str] | None = None,
     retrieved: str | None = None,
-    now: "datetime | None" = None,
+    time: TimeContext | None = None,
 ) -> str:
     treatments = treatments or {}
     source_guidance = source_guidance or {}
@@ -202,7 +224,7 @@ def _render_task(
         if g and g not in distinct_guidance:
             distinct_guidance.append(g)
     if distinct_guidance:
-        parts.append("# 本轮素材的类型说明（适用于下列全部素材）\n")
+        parts.append(prompt("compile.task.guidance_header"))
         parts.extend(distinct_guidance)
         parts.append("")
 
@@ -216,18 +238,24 @@ def _render_task(
         if t not in used:
             used.append(t)
     if used:
-        parts.append("# 本轮用到的处理档位\n")
+        parts.append(prompt("compile.task.treatment_header"))
         for t in used:
-            parts.append(_TREATMENT_INSTRUCTIONS.get(t, _TREATMENT_INSTRUCTIONS["full"]))
+            parts.append(_treatment_instruction(t))
         parts.append("")
 
-    parts.append("# 本轮的时间坐标\n")
-    parts.extend(_render_time_anchor(sources, now))
+    parts.append(prompt("compile.task.time_header"))
+    parts.extend(_render_time_anchor(sources, time))
     parts.append("")
 
-    parts.append("# 本次编译供给的素材\n")
+    parts.append(prompt("compile.task.sources_header"))
     for s in sources:
-        parts.append(f"## source {s.raw.source_id} — {s.raw.title}")
+        parts.append(
+            prompt(
+                "compile.task.source_heading",
+                source_id=s.raw.source_id,
+                title=s.raw.title,
+            )
+        )
         # Per-source provenance sentence with the OWNER as subject: whose material, when it
         # happened, what his role in it was. The transcript cannot convey any of that, and
         # authorship + time are exactly what the compiler must not guess.
@@ -235,26 +263,18 @@ def _render_task(
         if preamble:
             parts.append(preamble)
         treatment = treatments.get(str(s.raw.source_id), "full")
-        parts.append(f"→ 处理档位：**treatment={treatment}**（说明见开头）")
+        parts.append(prompt("compile.task.treatment_tag", treatment=treatment))
         for b in s.blocks:
-            parts.append(f"¶{b.index} {b.text}")
+            parts.append(prompt("compile.task.block_line", index=b.index, text=b.text))
         parts.append("")
-    parts.append("# 既有 canonical 全貌（大纲）\n")
-    parts.append(
-        "这是本人知识库当前的全部文档，只列结构不列正文。"
-        "先在这里找主体是否已经存在：**已存在就用 `edit_claim` / `append_block` 就地更新，"
-        "不要另建一篇新文档**；需要正文时用 `read_document(path)` 或 `search_knowledge(query)` 取。"
-    )
+    parts.append(prompt("compile.task.outline_header"))
+    parts.append(prompt("compile.task.outline_note"))
     parts.append("")
     parts.extend(_render_outline(base_docs))
 
     if retrieved:
-        parts.append("\n# 与本轮素材相关的既有 claim（自动召回，供对齐与更新）\n")
-        parts.append(
-            "以下 claim 是按本轮素材检索出来的既有知识，**不是本轮的证据**——"
-            "它们的作用是让你发现该更新哪一条、避免重复建立同义 claim。"
-            "要引用证据仍须回到本轮素材的 ¶ 区间。"
-        )
+        parts.append(prompt("compile.task.retrieved_header"))
+        parts.append(prompt("compile.task.retrieved_note"))
         parts.append("")
         parts.append(retrieved.rstrip())
     return "\n".join(parts)
@@ -267,18 +287,22 @@ def _with_skill_trailer(message: str, skill: SkillVersion) -> str:
     trailers. `git log --format=%(trailers:key=Skill-Version,valueonly)` reads it back.
     Forward-only — old commits keep whatever version compiled them; this never rewrites
     history."""
-    trailers = (
+    trailers = [
         f"Skill-Version: {skill.version}",
         f"Skill-Id: {skill.skill_id}",
         f"Skill-Content-Hash: {skill.content_hash}",
-    )
+    ]
+    # Second identity axis: WHICH prose the model saw. The skill hash pins the skill body;
+    # the overlay hash pins every prompt surface a deployment rewrote. Absent when nothing is
+    # overridden, so a stock deployment's trailer is byte-for-byte what it always was.
+    overlay = prompt_overlay_hash()
+    if overlay is not None:
+        trailers.append(f"Prompt-Overlay-Hash: {overlay}")
     return f"{message}\n\n" + "\n".join(trailers)
 
 
 def _render_violations(violations: Sequence[Violation]) -> str:
-    lines = [
-        "# gate 拒绝：以下机械校验未通过，请用 claim 级工具修正后重新 finish_compile。",
-    ]
+    lines = [prompt("gate.feedback_header")]
     lines.extend(v.render() for v in violations)
     return "\n".join(lines)
 
@@ -294,7 +318,7 @@ def _build_tools(
     nothing to await and async would only color the loop for free."""
 
     def list_documents() -> str:
-        return "\n".join(draft.list_paths()) or "(no documents yet)"
+        return "\n".join(draft.list_paths()) or prompt("compile.tool.list_documents_empty")
 
     def read_document(path: str) -> str:
         doc = draft.read(path)
@@ -302,21 +326,28 @@ def _build_tools(
 
     def create_document(path: str, frontmatter: dict, body: str) -> str:
         doc = draft.create_document(path, frontmatter, body)
-        anchors = ", ".join(extract_anchors(doc.body)) or "(none)"
-        return f"created {path} (pneuma_id={doc.pneuma_id}); system-assigned anchors: {anchors}"
+        anchors = ", ".join(extract_anchors(doc.body)) or prompt("compile.anchor.none")
+        return prompt(
+            "compile.tool.create_document_result",
+            path=path,
+            doc_id=doc.doc_id,
+            anchors=anchors,
+        )
 
     def edit_claim(path: str, anchor_id: str, new_text: str) -> str:
         draft.edit_claim(path, anchor_id, new_text)
-        return f"edited claim c:{anchor_id} in {path} (anchor preserved)"
+        return prompt("compile.tool.edit_claim_result", anchor_id=anchor_id, path=path)
 
     def append_block(path: str, heading: str, text: str) -> str:
         before = set(extract_anchors(draft.read(path).body))
         doc = draft.append_block(path, heading, text)
         new = [a for a in extract_anchors(doc.body) if a not in before]
-        return f"appended claim to {path} under '{heading}'; assigned anchor: {new}"
+        return prompt(
+            "compile.tool.append_block_result", path=path, heading=heading, anchors=new
+        )
 
     def finish_compile() -> str:
-        return "compile finished"
+        return prompt("compile.tool.finish_compile_result")
 
     _search_knowledge = search_knowledge or _search_knowledge_unavailable
     _search_source = search_source or _search_source_unavailable
@@ -328,27 +359,33 @@ def _build_tools(
         return await _search_source(query)
 
     return [
-        StructuredTool.from_function(list_documents, description="列出现有 canonical 文档路径。"),
-        StructuredTool.from_function(read_document, description="读取一份文档完整内容（含锚）。"),
-        StructuredTool.from_function(create_document, description="新建文档；系统分配 pneuma_id 与全部锚。"),
-        StructuredTool.from_function(edit_claim, description="原位改写指定锚的 claim，锚自动保持。"),
-        StructuredTool.from_function(append_block, description="在小节末尾新增一条 claim，锚由系统分配。"),
-        StructuredTool.from_function(finish_compile, description="无更多写操作时调用，结束本次编译。"),
+        StructuredTool.from_function(
+            list_documents, description=prompt("compile.tool.list_documents")
+        ),
+        StructuredTool.from_function(
+            read_document, description=prompt("compile.tool.read_document")
+        ),
+        StructuredTool.from_function(
+            create_document, description=prompt("compile.tool.create_document")
+        ),
+        StructuredTool.from_function(
+            edit_claim, description=prompt("compile.tool.edit_claim")
+        ),
+        StructuredTool.from_function(
+            append_block, description=prompt("compile.tool.append_block")
+        ),
+        StructuredTool.from_function(
+            finish_compile, description=prompt("compile.tool.finish_compile")
+        ),
         StructuredTool.from_function(
             coroutine=search_knowledge_tool,
             name="search_knowledge",
-            description=(
-                "按 query 检索**既有 canonical claim**（L3），返回命中 claim 的锚与所在文档路径。"
-                "用它判断某个主体是否已经记过、该更新哪一条锚，而不是另建新文档。"
-            ),
+            description=prompt("compile.tool.search_knowledge"),
         ),
         StructuredTool.from_function(
             coroutine=search_source_tool,
             name="search_source",
-            description=(
-                "按 query 检索**原始素材**（L1/L2），跨源找旁证或补上下文。"
-                "注意：只有本轮供给的素材才能作为 citation 的 source_id。"
-            ),
+            description=prompt("compile.tool.search_source"),
         ),
     ]
 
@@ -369,7 +406,11 @@ async def run_compile(
     retrieved: str | None = None,
     search_knowledge: SearchKnowledge | None = None,
     search_source: SearchSource | None = None,
-    now: "datetime | None" = None,
+    # The subject's clock for this job (domain/time_context.py): the instant the compile
+    # runs PLUS the timezone its calendar days are counted in. Timezone is a compile input,
+    # not a rendering option — the ingest side already cut sections in this zone, and the
+    # time frame has to agree with them. Absent → no time frame is rendered at all.
+    time: TimeContext | None = None,
     callbacks: list | None = None,
     trace_metadata: dict | None = None,
 ) -> CompileResult:
@@ -422,7 +463,7 @@ async def run_compile(
                 source_guidance,
                 source_preamble,
                 retrieved,
-                now,
+                time,
             )
         ),
     ]
@@ -452,7 +493,7 @@ async def run_compile(
                     return
                 tool = by_name.get(name)
                 if tool is None:
-                    content = f"unknown tool: {name}"
+                    content = prompt("compile.tool.unknown_tool", name=name)
                 else:
                     fn = tool.coroutine or tool.func
                     try:
@@ -466,7 +507,9 @@ async def run_compile(
                     except AnchorToolError as exc:
                         content = str(exc)
                     except (TypeError, ValueError) as exc:
-                        content = f"tool {name} 调用失败：{exc}"
+                        content = prompt(
+                            "compile.tool.call_failed", name=name, error=exc
+                        )
                 messages.append(ToolMessage(content=content, tool_call_id=cid))
                 if tool_calls >= MAX_TOOL_CALLS:
                     return

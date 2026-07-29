@@ -30,6 +30,7 @@ import re
 
 from ..domain.canonical import normalize_canonical_citation_markers
 from ..domain.ids import ANCHOR_MARK_RE, extract_anchors
+from ..prompts import prompt
 
 
 class AnchorToolError(ValueError):
@@ -46,8 +47,8 @@ _FENCE_RE = re.compile(r"^[ \t]*(?P<fence>`{3,}|~{3,})")
 def normalize_repeated_heading_markers(document: str) -> tuple[str, int]:
     """Repair compounded Markdown syntax without touching claims or anchors.
 
-    ``## ## 行动项`` is the historical result of treating a model-supplied
-    ``"## 行动项"`` section argument as plain title text. Keep the actual leading
+    ``## ## Action items`` is the historical result of treating a model-supplied
+    ``"## Action items"`` section argument as plain title text. Keep the actual leading
     heading level and remove only the repeated marker runs after it. Returns the
     rewritten document and replacement count for migration reporting.
     """
@@ -142,21 +143,24 @@ def edit_claim_text(doc_text: str, anchor_id: str, new_block: str) -> str:
         if any(m == anchor_id for m in ANCHOR_MARK_RE.findall(line))
     ]
     if not anchor_lines:
-        existing = ", ".join(extract_anchors(doc_text)) or "（无）"
+        existing = ", ".join(extract_anchors(doc_text)) or prompt("compile.anchor.none")
         raise AnchorToolError(
-            f"edit_claim 被拒绝：锚 c:{anchor_id} 不在该文档中。现有锚：{existing}。"
+            prompt(
+                "compile.anchor.edit_unknown_anchor",
+                anchor_id=anchor_id,
+                existing=existing,
+            )
         )
     if len(anchor_lines) > 1:
         raise AnchorToolError(
-            f"edit_claim 被拒绝：锚 c:{anchor_id} 在文档中出现多次，先修复重复锚。"
+            prompt("compile.anchor.edit_duplicate_anchor", anchor_id=anchor_id)
         )
 
     block = normalize_canonical_citation_markers(new_block.strip("\n"))[0]
     block_anchors = extract_anchors(block)
     if any(a != anchor_id for a in block_anchors):
         raise AnchorToolError(
-            "edit_claim 被拒绝：new_block 含有其它锚。一次 edit_claim 只改写一条 claim，"
-            "新增 claim 用 append_block。"
+            prompt("compile.anchor.edit_extra_anchor")
         )
     if not block_anchors:
         block_lines = block.split("\n")
@@ -187,8 +191,8 @@ def _heading_title(heading: str) -> str:
     """Normalize a model-supplied section name to plain heading text.
 
     The tool owns Markdown syntax and always creates a level-two section. Models
-    nevertheless sometimes pass ``"## 行动项"`` after reading a rendered document;
-    treating those hashes as title text produces ``"## ## 行动项"`` and compounds on
+    nevertheless sometimes pass ``"## Action items"`` after reading a rendered document;
+    treating those hashes as title text produces ``"## ## Action items"`` and compounds on
     every incremental compile. Strip any repeated leading Markdown heading markers at
     the write boundary instead.
     """
@@ -199,7 +203,7 @@ def _heading_title(heading: str) -> str:
             break
         title = title[marker.end() :].strip()
     if not title:
-        raise AnchorToolError("append_block 被拒绝：小节标题不能为空。")
+        raise AnchorToolError(prompt("compile.anchor.append_empty_heading"))
     return title
 
 
@@ -249,8 +253,7 @@ def append_block_text(
     block = block.strip("\n")
     if extract_anchors(block):
         raise AnchorToolError(
-            "append_block 被拒绝：新块不需要携带锚，锚由系统分配。"
-            "改写既有 claim 请用 edit_claim。"
+            prompt("compile.anchor.append_anchor_present")
         )
     # Anchor EVERY block in the appended text (it may be several paragraphs / list items),
     # not just the last line — otherwise the earlier ones are orphaned: visible in the doc
@@ -281,13 +284,17 @@ def remove_claim_block(doc_text: str, anchor_id: str) -> tuple[str, str]:
         if any(m == anchor_id for m in ANCHOR_MARK_RE.findall(line))
     ]
     if not anchor_lines:
-        existing = ", ".join(extract_anchors(doc_text)) or "（无）"
+        existing = ", ".join(extract_anchors(doc_text)) or prompt("compile.anchor.none")
         raise AnchorToolError(
-            f"claim 搬移/合并被拒绝：锚 c:{anchor_id} 不在该文档中。现有锚：{existing}。"
+            prompt(
+                "compile.anchor.move_unknown_anchor",
+                anchor_id=anchor_id,
+                existing=existing,
+            )
         )
     if len(anchor_lines) > 1:
         raise AnchorToolError(
-            f"claim 搬移/合并被拒绝：锚 c:{anchor_id} 在文档中出现多次，先修复重复锚。"
+            prompt("compile.anchor.move_duplicate_anchor", anchor_id=anchor_id)
         )
     start, end = _block_span(lines, anchor_lines[0])
     block = "\n".join(lines[start:end])
@@ -304,7 +311,7 @@ def insert_block_verbatim(doc_text: str, heading: str, block: str) -> str:
     block = block.strip("\n")
     if not extract_anchors(block):
         raise AnchorToolError(
-            "claim 搬移被拒绝：目标块缺少锚，无法作为既有 claim 搬移。"
+            prompt("compile.anchor.move_missing_anchor")
         )
     return _append_to_section(doc_text, heading, block)
 

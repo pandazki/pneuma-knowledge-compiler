@@ -1,5 +1,5 @@
 """Schema-evolve API surface (schema-evolve §2.5): trigger, review, adopt, drop + the
-current effective skill ("量身定制" panel).
+current effective skill (the "tailored for you" panel).
 
 Every write (manual trigger, adopt) is ENQUEUED onto the same per-user queue the compiler
 drains — the API only accepts and reports queue state, never touches git inline — so the
@@ -90,9 +90,9 @@ class SkillOut(BaseModel):
     content_hash: str
     base_version: str
     path_templates: list[str]
-    # Compact pack summary (id/origin/templates) — the UI's "量身定制" panel.
+    # Compact pack summary (id/origin/templates) — the UI's "tailored for you" panel.
     packs: list[dict[str, Any]]
-    # Claim-prefix vocabulary this skill declares (§5强/中/弱) — the UI renders it as a
+    # Claim-prefix vocabulary this skill declares (§5 strength tiers) — the UI renders it as a
     # generic badge mechanism instead of hardcoding any specific word.
     claim_labels: list[ClaimLabelOut]
 
@@ -116,7 +116,8 @@ async def trigger_evolve(user_id: str, request: Request) -> EnqueuedOut:
     user = UserId(user_id)
     if await has_pending_evolve(ctx, user):
         raise HTTPException(
-            status_code=409, detail="已有待评审的 evolve 草案或排队中的 evolve 任务。"
+            status_code=409,
+            detail="an evolve draft is already awaiting review, or an evolve job is queued.",
         )
     job_id = await ctx.store.enqueue(user, "evolve", {})
     return EnqueuedOut(job_id=job_id)
@@ -190,7 +191,8 @@ async def adopt_evolve(
         raise HTTPException(status_code=404, detail=f"evolve task not found: {task_id}")
     if task["status"] != "draft":
         raise HTTPException(
-            status_code=409, detail=f"任务状态为 {task['status']}，无法采纳。"
+            status_code=409,
+            detail=f"task status is {task['status']}, so it cannot be adopted.",
         )
     job_id = await ctx.store.enqueue(user, "evolve_adopt", {"task_id": task_id})
     return EnqueuedOut(job_id=job_id)
@@ -209,14 +211,15 @@ async def drop_evolve(
     ok = await drop_task(ctx, user, task_id)
     if not ok:
         raise HTTPException(
-            status_code=409, detail=f"任务状态为 {task['status']}，无法放弃。"
+            status_code=409,
+            detail=f"task status is {task['status']}, so it cannot be discarded.",
         )
     return DroppedOut(dropped=True)
 
 
 @router.get("/skill", response_model=SkillOut)
 async def get_skill(user_id: str, request: Request) -> SkillOut:
-    """The owner's CURRENT effective composed skill — the "量身定制" panel. Version +
+    """The owner's CURRENT effective composed skill — the "tailored for you" panel. Version +
     content hash + base version + the pack list it composes + the path-ownership templates."""
     ctx = _ctx(request)
     user = UserId(user_id)

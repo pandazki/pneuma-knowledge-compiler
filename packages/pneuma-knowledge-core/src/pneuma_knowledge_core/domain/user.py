@@ -12,6 +12,7 @@ from __future__ import annotations
 from pydantic import BaseModel, Field, computed_field
 
 from .ids import UserId
+from .time_context import TimezoneChange
 
 # Onboarding enums for the business-neutral developer profile. These are NOT free text —
 # they feed recall to tune answer style. Store the enum key; UI renders the label.
@@ -60,6 +61,11 @@ class Locale(BaseModel):
     country: str
     timezone: str  # IANA tz, e.g. "Asia/Shanghai"
     language: str  # BCP-47, e.g. zh-CN / en-US / ja-JP
+    # Forward-only record of timezone transitions, appended by the profile update path and
+    # never edited by the client. Dates already compiled under an earlier zone are NOT
+    # rewritten (canonical is the non-rebuildable layer); this history is what lets the
+    # compile time frame say which zone those older dates were normalized under.
+    timezone_history: list[TimezoneChange] = Field(default_factory=list)
 
 
 class WorkspaceProfile(BaseModel):

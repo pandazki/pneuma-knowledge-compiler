@@ -12,7 +12,9 @@ import json
 from datetime import datetime
 from ..domain.ids import SourceId, UserId
 from ..domain.source import NormalizedBlock, NormalizedSource, RawSource
-from .adapters import MarkdownDocumentAdapter, PlainDocumentInput
+from ..domain.time_context import TimeContext
+from ..prompts import prompt
+from .adapters import MarkdownDocumentAdapter, PlainDocumentInput, stamp_occurred_on
 from .source_contracts import (
     DocumentLibrarySource,
     EmailAddress,
@@ -68,6 +70,17 @@ def _raw(
     )
 
 
+def _local_day(at: datetime, time: TimeContext | None) -> str:
+    """An instant → the calendar day it belongs to **in the subject's timezone**.
+
+    Official contracts carry aware timestamps (often in the provider's own offset), so a
+    bare `.date()` files a message under whichever offset the provider happened to send.
+    The section a message lands in has to be the subject's day, since that is the unit they
+    recall by. `time=None` keeps the timestamp's own offset (the historical behaviour).
+    """
+    return (time.local_date(at) if time is not None else at.date()).isoformat()
+
+
 def _spans_from_paths(blocks: list[NormalizedBlock]):
     from ..domain.source import SectionSpan, StructureMap
 
@@ -95,7 +108,9 @@ def _spans_from_paths(blocks: list[NormalizedBlock]):
     return StructureMap(sections=sections)
 
 
-def _meeting(source: MeetingSource, user_id: UserId) -> list[NormalizedSource]:
+def _meeting(
+    source: MeetingSource, user_id: UserId, time: TimeContext | None = None
+) -> list[NormalizedSource]:
     participants = {item.participant_id: item for item in source.participants}
     owners = set(source.owner_participant_ids)
     ordered = sorted(source.segments, key=lambda item: (item.started_at, item.segment_id))
@@ -104,12 +119,12 @@ def _meeting(source: MeetingSource, user_id: UserId) -> list[NormalizedSource]:
         participant = participants[segment.speaker_id]
         label = participant.display_name
         if participant.participant_id in owners:
-            label = f"本人（{label}）"
+            label = prompt("ingest.owner_wrapped", label=label)
         blocks.append(
             NormalizedBlock(
                 index=index,
-                text=f"{label}：{segment.text}",
-                section_path=[segment.started_at.date().isoformat()],
+                text=prompt("ingest.turn_line", label=label, text=segment.text),
+                section_path=[_local_day(segment.started_at, time)],
             )
         )
     raw = _raw(
@@ -153,6 +168,7 @@ def _meeting(source: MeetingSource, user_id: UserId) -> list[NormalizedSource]:
             "metadata": source.metadata,
         },
     )
+    stamp_occurred_on(raw, [block.section_path[0] for block in blocks])
     return [
         NormalizedSource(raw=raw, blocks=blocks, structure=_spans_from_paths(blocks))
     ]
@@ -204,7 +220,9 @@ def _library(
     return normalized
 
 
-def _im(source: ImSource, user_id: UserId) -> list[NormalizedSource]:
+def _im(
+    source: ImSource, user_id: UserId, time: TimeContext | None = None
+) -> list[NormalizedSource]:
     users = {item.user_id: item for item in source.users}
     owners = set(source.owner_user_ids)
     normalized: list[NormalizedSource] = []
@@ -219,12 +237,14 @@ def _im(source: ImSource, user_id: UserId) -> list[NormalizedSource]:
             sender = users[message.sender_id]
             label = sender.display_name
             if sender.user_id in owners:
-                label = f"本人（{label}）"
+                label = prompt("ingest.owner_wrapped", label=label)
             blocks.append(
                 NormalizedBlock(
                     index=index,
-                    text=f"{label}：{message.text}",
-                    section_path=[message.sent_at.date().isoformat()],
+                    text=prompt(
+                        "ingest.turn_line", label=label, text=message.text
+                    ),
+                    section_path=[_local_day(message.sent_at, time)],
                 )
             )
         raw = _raw(
@@ -273,6 +293,7 @@ def _im(source: ImSource, user_id: UserId) -> list[NormalizedSource]:
                 "archive_metadata": source.metadata,
             },
         )
+        stamp_occurred_on(raw, [block.section_path[0] for block in blocks])
         normalized.append(
             NormalizedSource(raw=raw, blocks=blocks, structure=_spans_from_paths(blocks))
         )
@@ -290,17 +311,17 @@ def _address_label(address: EmailAddress) -> str:
 def _email_block(message: EmailMessage, owners: set[str]) -> str:
     sender = _address_label(message.from_)
     if message.from_.address in owners:
-        sender = f"本人（{sender}）"
+        sender = prompt("ingest.owner_wrapped", label=sender)
     recipients = ", ".join(_address_label(item) for item in message.to)
     lines = [
         f"{sender} → {recipients}",
-        f"主题：{message.subject}",
+        prompt("ingest.email.subject", subject=message.subject),
         message.text,
     ]
     if message.attachments:
         lines.append(
-            "附件："
-            + "，".join(
+            prompt("ingest.email.attachments")
+            + ", ".join(
                 f"{item.filename} ({item.content_type}, {item.size_bytes} bytes)"
                 for item in message.attachments
             )
@@ -308,7 +329,9 @@ def _email_block(message: EmailMessage, owners: set[str]) -> str:
     return "\n".join(lines)
 
 
-def _email(source: EmailSource, user_id: UserId) -> list[NormalizedSource]:
+def _email(
+    source: EmailSource, user_id: UserId, time: TimeContext | None = None
+) -> list[NormalizedSource]:
     owners = set(source.owner_addresses)
     normalized: list[NormalizedSource] = []
     for thread in sorted(source.threads, key=lambda item: item.thread_id):
@@ -319,7 +342,7 @@ def _email(source: EmailSource, user_id: UserId) -> list[NormalizedSource]:
             NormalizedBlock(
                 index=index,
                 text=_email_block(message, owners),
-                section_path=[message.sent_at.date().isoformat()],
+                section_path=[_local_day(message.sent_at, time)],
             )
             for index, message in enumerate(messages)
         ]
@@ -366,6 +389,7 @@ def _email(source: EmailSource, user_id: UserId) -> list[NormalizedSource]:
                 "archive_metadata": source.metadata,
             },
         )
+        stamp_occurred_on(raw, [block.section_path[0] for block in blocks])
         normalized.append(
             NormalizedSource(raw=raw, blocks=blocks, structure=_spans_from_paths(blocks))
         )
@@ -373,16 +397,25 @@ def _email(source: EmailSource, user_id: UserId) -> list[NormalizedSource]:
 
 
 def normalize_source_contract(
-    source: SourceContract, user_id: UserId, *, imported_at: datetime
+    source: SourceContract,
+    user_id: UserId,
+    *,
+    imported_at: datetime,
+    time: TimeContext | None = None,
 ) -> list[NormalizedSource]:
-    """Expand one official contract into immutable compiler sources."""
+    """Expand one official contract into immutable compiler sources.
+
+    `time` is the knowledge subject's clock: the conversation-shaped contracts (meeting, IM,
+    email) cut sections by calendar day, and that day is the subject's local one. A document
+    library is cut by headings, so it never needs it. Absent → each timestamp's own offset.
+    """
 
     if isinstance(source, MeetingSource):
-        return _meeting(source, user_id)
+        return _meeting(source, user_id, time)
     if isinstance(source, DocumentLibrarySource):
         return _library(source, user_id, imported_at)
     if isinstance(source, ImSource):
-        return _im(source, user_id)
+        return _im(source, user_id, time)
     if isinstance(source, EmailSource):
-        return _email(source, user_id)
+        return _email(source, user_id, time)
     raise TypeError(f"unsupported source contract: {type(source)!r}")

@@ -40,6 +40,7 @@ from ..compile.gate import Violation
 from ..compile.patch import PatchDraft
 from ..domain.canonical import CanonicalDocument
 from ..domain.ids import UserId, extract_anchors
+from ..prompts import prompt
 from ..skill.contract import render_system_contract
 from ..skill.version import SkillVersion
 from .contracts import phase2_contract
@@ -65,22 +66,24 @@ class EvolveResult:
 
 
 async def _search_unavailable(query: str) -> str:
-    return "（本次未接检索端口，search_knowledge 不可用）"
+    return prompt("evolve.tool.search_unavailable")
 
 
 async def _fetch_unavailable(source_id: str, block_start: int, block_end: int) -> str:
-    return "（本次未接原文端口，fetch_source 不可用）"
+    return prompt("evolve.tool.fetch_unavailable")
 
 
 def _render_evolve_task(base_docs: list[CanonicalDocument], proposal: EvolveProposal) -> str:
-    parts: list[str] = ["# 现有 canonical 文档（全量）"]
+    parts: list[str] = [prompt("evolve.task.docs_header")]
     if not base_docs:
-        parts.append("(暂无文档)")
+        parts.append(prompt("evolve.task.docs_empty"))
     else:
         for d in base_docs:
             parts.append(f"\n## {d.path}")
             parts.append(render_document(d.frontmatter, d.body).rstrip())
-    parts.append("\n# 本次 schema evolve 依据\n" + proposal.rationale)
+    parts.append(
+        "\n" + prompt("evolve.task.rationale_header") + "\n" + proposal.rationale
+    )
     families: list[str] = []
     for pack in proposal.packs:
         for template in pack.extra_path_templates:
@@ -88,16 +91,16 @@ def _render_evolve_task(base_docs: list[CanonicalDocument], proposal: EvolveProp
         if pack.extra_instructions.strip():
             families.append(f"  ↳ {pack.extra_instructions.strip()}")
     parts.append(
-        "\n# 新增的模板家族（把 topics 里本应属于这些家族的语义搬移归位）\n"
-        + ("\n".join(families) or "（无）")
+        "\n"
+        + prompt("evolve.task.families_header")
+        + "\n"
+        + ("\n".join(families) or prompt("evolve.task.families_empty"))
     )
     return "\n".join(parts)
 
 
 def _render_violations(violations: list[Violation]) -> str:
-    lines = [
-        "# evolve gate 拒绝：以下机械校验未通过，请用工具修正后重新 finish_evolve。",
-    ]
+    lines = [prompt("gate.evolve.feedback_header")]
     lines.extend(v.render() for v in violations)
     return "\n".join(lines)
 
@@ -128,7 +131,7 @@ async def run_evolve(
     # --- sync write tools -----------------------------------------------------
 
     def list_documents() -> str:
-        return "\n".join(draft.list_paths()) or "(no documents yet)"
+        return "\n".join(draft.list_paths()) or prompt("evolve.tool.list_documents_empty")
 
     def read_document(path: str) -> str:
         doc = draft.read(path)
@@ -137,35 +140,47 @@ async def run_evolve(
     def create_document(path: str, frontmatter: dict, body: str) -> str:
         doc = draft.create_document(path, frontmatter, body)
         stats["new_documents"] += 1
-        anchors = ", ".join(extract_anchors(doc.body)) or "(none)"
-        return f"created {path} (pneuma_id={doc.pneuma_id}); system-assigned anchors: {anchors}"
+        anchors = ", ".join(extract_anchors(doc.body)) or prompt("evolve.tool.anchors_none")
+        return prompt(
+            "evolve.tool.create_document_result",
+            path=path,
+            doc_id=doc.doc_id,
+            anchors=anchors,
+        )
 
     def move_claim(from_path: str, anchor_id: str, to_path: str, heading: str) -> str:
         draft.move_claim(from_path, anchor_id, to_path, heading)
         stats["moved_claims"] += 1
         adopted[to_path] = adopted.get(to_path, 0) + 1
-        return (
-            f"moved c:{anchor_id} from {from_path} to {to_path} under '{heading}' "
-            "(anchor preserved verbatim)"
+        return prompt(
+            "evolve.tool.move_claim_result",
+            anchor_id=anchor_id,
+            from_path=from_path,
+            to_path=to_path,
+            heading=heading,
         )
 
     def edit_claim(path: str, anchor_id: str, new_text: str) -> str:
         draft.edit_claim(path, anchor_id, new_text)
-        return f"edited claim c:{anchor_id} in {path} (anchor preserved)"
+        return prompt("evolve.tool.edit_claim_result", anchor_id=anchor_id, path=path)
 
     def append_block(path: str, heading: str, text: str) -> str:
         before = set(extract_anchors(draft.read(path).body))
         doc = draft.append_block(path, heading, text)
         new = [a for a in extract_anchors(doc.body) if a not in before]
-        return f"appended claim to {path} under '{heading}'; assigned anchor: {new}"
+        return prompt(
+            "evolve.tool.append_block_result", path=path, heading=heading, anchors=new
+        )
 
     def delete_claim(path: str, anchor_id: str) -> str:
         draft.delete_claim(path, anchor_id)
         stats["merged_claims"] += 1
-        return f"deleted c:{anchor_id} from {path} (合并/丢弃；锚将进入 dropped 清单)"
+        return prompt(
+            "evolve.tool.delete_claim_result", anchor_id=anchor_id, path=path
+        )
 
     def finish_evolve() -> str:
-        return "evolve finished"
+        return prompt("evolve.tool.finish_evolve_result")
 
     # --- async read ports -----------------------------------------------------
 
@@ -178,32 +193,44 @@ async def run_evolve(
         return await _fetch(source_id, block_start, block_end)
 
     tools = [
-        StructuredTool.from_function(list_documents, description="列出现有 canonical 文档路径。"),
-        StructuredTool.from_function(read_document, description="读取一份文档完整内容（含锚）。"),
-        StructuredTool.from_function(create_document, description="新建文档；系统分配 pneuma_id 与全部锚。"),
+        StructuredTool.from_function(
+            list_documents, description=prompt("evolve.tool.list_documents")
+        ),
+        StructuredTool.from_function(
+            read_document, description=prompt("evolve.tool.read_document")
+        ),
+        StructuredTool.from_function(
+            create_document, description=prompt("evolve.tool.create_document")
+        ),
         StructuredTool.from_function(
             move_claim,
             name="move_claim",
-            description="把带锚 claim 块原文照录搬到目标文档指定小节末尾，锚不变；目标须先 create_document。",
+            description=prompt("evolve.tool.move_claim"),
         ),
-        StructuredTool.from_function(edit_claim, description="原位改写指定锚的 claim，锚自动保持。"),
-        StructuredTool.from_function(append_block, description="在小节末尾新增一条 claim，锚由系统分配。"),
+        StructuredTool.from_function(
+            edit_claim, description=prompt("evolve.tool.edit_claim")
+        ),
+        StructuredTool.from_function(
+            append_block, description=prompt("evolve.tool.append_block")
+        ),
         StructuredTool.from_function(
             delete_claim,
             name="delete_claim",
-            description="整块移除一条 claim（仅用于合并等价冗余；锚会进入 dropped 清单）。",
+            description=prompt("evolve.tool.delete_claim"),
         ),
         StructuredTool.from_function(
             coroutine=search_knowledge_tool,
             name="search_knowledge",
-            description="按 query 再检索知识库（L1/L2/L3），换角度找证据。",
+            description=prompt("evolve.tool.search_knowledge"),
         ),
         StructuredTool.from_function(
             coroutine=fetch_source_tool,
             name="fetch_source",
-            description="逐字直取某来源指定 block 区间的原文，用于核对 citation。",
+            description=prompt("evolve.tool.fetch_source"),
         ),
-        StructuredTool.from_function(finish_evolve, description="无更多操作时调用，结束本次重组。"),
+        StructuredTool.from_function(
+            finish_evolve, description=prompt("evolve.tool.finish_evolve")
+        ),
     ]
     by_name = {t.name: t for t in tools}
     bound = model.bind_tools(tools)
@@ -216,7 +243,9 @@ async def run_evolve(
 
     system_text = (
         render_system_contract(new_skill)
-        + "\n\n# 本次任务：schema evolve\n"
+        + "\n\n"
+        + prompt("evolve.task_header")
+        + "\n"
         + phase2_contract()
     )
     messages: list[BaseMessage] = [
@@ -235,7 +264,7 @@ async def run_evolve(
     async def dispatch(name: str, args: dict) -> str:
         tool = by_name.get(name)
         if tool is None:
-            return f"unknown tool: {name}"
+            return prompt("evolve.tool.unknown_tool", name=name)
         fn = tool.coroutine or tool.func
         try:
             if inspect.iscoroutinefunction(fn):
@@ -244,7 +273,7 @@ async def run_evolve(
         except AnchorToolError as exc:
             return str(exc)
         except (TypeError, ValueError) as exc:
-            return f"tool {name} 调用失败：{exc}"
+            return prompt("evolve.tool.call_failed", name=name, error=exc)
 
     async def tool_loop() -> None:
         nonlocal tool_calls

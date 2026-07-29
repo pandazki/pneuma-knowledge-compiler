@@ -122,7 +122,7 @@ async def test_incremental_projection_updates_and_deletes_all_three_stores(ctx):
 
     def document(document_id: str, slug: str, body: str) -> str:
         return render_document(
-            {"pneuma_id": document_id, "type": "note", "slug": slug},
+            {"doc_id": document_id, "type": "note", "slug": slug},
             body,
         )
 

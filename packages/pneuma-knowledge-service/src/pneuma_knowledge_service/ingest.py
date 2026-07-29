@@ -19,10 +19,29 @@ from typing import Any
 from pneuma_knowledge_core.domain.ids import UserId, SourceId
 from pneuma_knowledge_core.domain.intake import IntakePlan, propose_intake
 from pneuma_knowledge_core.domain.source import ConversationTurn, RawSource, SourceOrigin
+from pneuma_knowledge_core.domain.time_context import TimeContext, time_context_for
 from pneuma_knowledge_core.ingest.adapters import CONTEXT_STREAM_MIME, PlainConversationInput
 from pneuma_knowledge_core.ingest.source_types import first_party_type
 
 from .wiring import AppContext
+
+
+async def subject_time_context(
+    ctx: AppContext, user_id: UserId, raw: RawSource | None = None
+) -> TimeContext:
+    """The knowledge subject's clock for an ingest boundary.
+
+    Sectioning turns an instant into a calendar day, and that day has to be the subject's,
+    so ingest needs the profile's timezone (or whatever a registered TimeZoneProvider says
+    about this particular source). A profile lookup failure degrades to UTC — a timezone is
+    context, never a hard dependency of accepting material.
+    """
+    profile = None
+    try:
+        profile = await ctx.user_info.get_profile(user_id)
+    except Exception:  # noqa: BLE001 — no profile → UTC, never a failed ingest
+        profile = None
+    return time_context_for(user_id, profile, raw=raw)
 
 
 @dataclass(frozen=True)
@@ -82,12 +101,18 @@ async def ingest_conversation(
     # =False` disables the owner/other rendering (deep-heavy deployments): origin is still
     # recorded, but blocks are the plain verbatim form. Intake hints are identical either
     # way (kind=conversation), so the plain adapter supplies them.
+    # Sections are cut by calendar day, so the subject's timezone decides which day each
+    # turn belongs to — see domain/time_context.py. The adapter also stamps the derived
+    # `meta["occurred_on"]` from it, unless the caller supplied one explicitly.
+    time = await subject_time_context(ctx, user_id, raw)
     plain = ctx.registry.find("conversation")  # (conversation, None) → PlainConversationAdapter
     fp = first_party_type(origin)
     if fp is not None and ctx.settings.context_stream_render_roles:
-        normalized = fp.format(raw, fp.load(turns))
+        normalized = fp.format(raw, fp.load(turns), time=time)
     else:
-        normalized = plain.normalize(PlainConversationInput(raw=raw, turns=turns))
+        normalized = plain.normalize(
+            PlainConversationInput(raw=raw, turns=turns), time=time
+        )
 
     hints = plain.default_intake_hints()
     char_count = sum(len(b.text) for b in normalized.blocks)

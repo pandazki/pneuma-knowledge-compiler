@@ -33,6 +33,7 @@ from pneuma_knowledge_core.domain.canonical import CanonicalDocument
 from pneuma_knowledge_core.domain.ids import UserId, SourceId, extract_anchors
 from pneuma_knowledge_core.domain.snapshot import SnapshotRef
 from pneuma_knowledge_core.evolve import propose_evolution, run_evolve
+from pneuma_knowledge_core.prompts import prompt
 from pneuma_knowledge_core.skill import SchemaPack, compose_skill, load_builtin_skill
 from pneuma_knowledge_core.skill.version import SkillVersion
 
@@ -41,7 +42,9 @@ from .skills import MANIFEST_PATH, read_manifest, serialize_manifest, skill_for_
 from .wiring import AppContext, llm_call_config
 
 # Heading under which a window-new / revived claim is (re)inserted during adopt catch-up.
-_RECOVERY_HEADING = "窗口更新"
+def _recovery_heading() -> str:
+    """Section heading the adopt catch-up files a main-branch-only claim under."""
+    return prompt("evolve.recovery_heading")
 
 
 def _is_topic(path: str) -> bool:
@@ -54,9 +57,12 @@ def _dropped_json(dropped) -> list[dict]:
 
 def _summary_line(summary: dict) -> str:
     return (
-        f"schema evolve：重组 {summary.get('moved_claims', 0)} 条 claim "
-        f"至 {summary.get('new_documents', 0)} 个新文档，"
-        f"合并 {summary.get('merged_claims', 0)} 条。"
+        prompt(
+            "evolve.commit_message",
+            moved=summary.get("moved_claims", 0),
+            new_documents=summary.get("new_documents", 0),
+            merged=summary.get("merged_claims", 0),
+        )
     )
 
 
@@ -82,7 +88,7 @@ def _fetch_source_port(ctx: AppContext, user: UserId):
                 user, SourceId(source_id), {"blocks": [block_start, block_end]}
             )
         except (KeyError, ValueError) as exc:
-            return f"（fetch_source 失败：{exc}）"
+            return prompt("evolve.service.fetch_failed", error=exc)
 
     return fetch_source
 
@@ -101,7 +107,7 @@ def _search_knowledge_port(ctx: AppContext, user: UserId):
             limit=8,
         )
         if not hits:
-            return f"（检索「{query}」未命中原文片段。）"
+            return prompt("evolve.service.search_empty", query=query)
         lines = [
             f"- [{h.source_id} ¶{h.block_start}-{h.block_end}] {h.text.strip()[:200]}"
             for h in hits
@@ -202,7 +208,7 @@ async def run_evolve_job(ctx: AppContext, user: UserId, job: object) -> None:
             user, task_id, status="aborted",
             proposal=proposal.model_dump(), summary=result.summary,
             dropped=_dropped_json(result.dropped),
-            detail="evolve gate 拒绝：重组后仍未通过机械校验。",
+            detail="evolve gate rejected: the reorganization still fails the mechanical checks.",
         )
         await ctx.store.complete(user, job_id, ok=False, detail="evolve aborted")
         return
@@ -210,7 +216,8 @@ async def run_evolve_job(ctx: AppContext, user: UserId, job: object) -> None:
     if result.status == "noop":
         await ctx.store.create_evolve_task(
             user, task_id, status="no_change",
-            proposal=proposal.model_dump(), detail="重组未产生任何变化。",
+            proposal=proposal.model_dump(),
+            detail="the reorganization produced no change.",
         )
         await ctx.store.complete(user, job_id, ok=True, detail="evolve noop")
         return
@@ -256,7 +263,8 @@ def reconcile_adopt(
     Three-way over anchors — base (branch point) ↔ branch (reorganized) ↔ main (current):
 
     - anchor still in branch, main changed its text in the window (`main != base`) → the
-      main text wins at the branch's (new) location — 近者胜 on text, branch wins on layout;
+      main text wins at the branch's (new) location — nearest-wins on text, branch wins on
+      layout;
     - anchor dropped by evolve (in base, not in branch): revived to its main path ONLY if the
       window changed it (`main != base`) — safety-first, never silently discard a fresh edit;
       an untouched drop stays dropped;
@@ -305,7 +313,7 @@ def reconcile_adopt(
             continue
         if mpath in final_body:
             final_body[mpath] = insert_block_verbatim(
-                final_body[mpath], _RECOVERY_HEADING, mtext
+                final_body[mpath], _recovery_heading(), mtext
             )
         else:
             # A path that never existed on the branch is a window-new doc (daily compile
@@ -336,14 +344,16 @@ def reconcile_adopt(
         return (
             {},
             False,
-            f"adopt 追平终检失败：锚 {sorted(duplicated)} 在最终树中重复。",
+            f"adopt catch-up final check failed: anchors {sorted(duplicated)} are duplicated "
+            "in the final tree.",
         )
     missing = required - final_anchors
     if missing:
         return (
             {},
             False,
-            f"adopt 追平终检失败：main 锚 {sorted(missing)} 未出现在最终树中。",
+            f"adopt catch-up final check failed: main anchors {sorted(missing)} are absent "
+            "from the final tree.",
         )
 
     final_files = {
@@ -364,14 +374,14 @@ async def adopt_evolve_job(ctx: AppContext, user: UserId, job: object) -> None:
     task = await ctx.store.get_evolve_task(user, task_id)
     if task is None or task["status"] != "draft":
         await ctx.store.complete(
-            user, job_id, ok=False, detail="evolve adopt: 任务不是可采纳的 draft。"
+            user, job_id, ok=False, detail="evolve adopt: the task is not an adoptable draft."
         )
         return
     branch = task["branch"]
     head = await ctx.canonical.branch_head(user, branch) if branch else None
     if head is None:
         await ctx.store.complete(
-            user, job_id, ok=False, detail="evolve adopt: 分支已不存在。"
+            user, job_id, ok=False, detail="evolve adopt: the branch no longer exists."
         )
         return
 
@@ -388,7 +398,8 @@ async def adopt_evolve_job(ctx: AppContext, user: UserId, job: object) -> None:
         return
 
     # Carry the evolved skill manifest from the branch onto main so the skill flips with the
-    # data — an adopt reloads to the evolved composed skill (manifest continuity闭环).
+    # data — an adopt reloads to the evolved composed skill (closing the manifest-continuity
+    # loop).
     manifest_content = await ctx.canonical.read_meta_at(user, MANIFEST_PATH, branch)
     if manifest_content is not None:
         final_files[MANIFEST_PATH] = manifest_content
@@ -422,7 +433,9 @@ async def drop_task(ctx: AppContext, user: UserId, task_id: str) -> bool:
         return False
     if task["branch"]:
         await ctx.canonical.delete_branch(user, task["branch"])
-    await ctx.store.decide_evolve_task(user, task_id, "dropped", detail="用户放弃本次提案。")
+    await ctx.store.decide_evolve_task(
+        user, task_id, "dropped", detail="the owner discarded this proposal."
+    )
     return True
 
 
@@ -439,7 +452,10 @@ async def _maybe_expire(ctx: AppContext, user: UserId, task: dict) -> dict:
     if task["branch"]:
         await ctx.canonical.delete_branch(user, task["branch"])
     await ctx.store.decide_evolve_task(
-        user, task["task_id"], "expired", detail="draft 超过评审窗口未决，自动过期。"
+        user,
+        task["task_id"],
+        "expired",
+        detail="the draft went undecided past the review window and expired automatically.",
     )
     refreshed = await ctx.store.get_evolve_task(user, task["task_id"])
     return refreshed if refreshed is not None else task

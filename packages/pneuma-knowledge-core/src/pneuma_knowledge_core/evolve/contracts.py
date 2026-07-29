@@ -1,28 +1,23 @@
 """Byte-stable loaders for the two evolve-phase System contracts (schema-evolve §2).
 
-Stage S authored `skill/assets/evolve/phase1_contract.md` / `phase2_contract.md`; the
-mechanism only loads them. `lru_cache` reads each file at most once per process, so the
-loaded text is byte-stable from module load onward (no re-read, no drift) — the same I5
-stability the recall contracts get from module-level string constants.
+The editable form is the packaged asset (`skill/assets/evolve/phase1_contract.md` /
+`phase2_contract.md`); the catalog keys `evolve.phase1_contract` / `evolve.phase2_contract`
+default to those bytes, so a deployment replaces either contract wholesale through the same
+seam as every other prompt surface. Resolution is a dict lookup, so the loaded text is
+byte-stable from startup onward (no re-read, no drift) — the same I5 stability the recall
+contracts get.
 """
 
 from __future__ import annotations
 
-from functools import lru_cache
-from pathlib import Path
-
-_EVOLVE_ASSETS = (
-    Path(__file__).resolve().parents[1] / "skill" / "assets" / "evolve"
-)
+from ..prompts import prompt
 
 
-@lru_cache(maxsize=None)
 def phase1_contract() -> str:
-    """The schema-draft (phase 1) System contract — verbatim asset text."""
-    return (_EVOLVE_ASSETS / "phase1_contract.md").read_text(encoding="utf-8")
+    """The schema-draft (phase 1) System contract."""
+    return prompt("evolve.phase1_contract")
 
 
-@lru_cache(maxsize=None)
 def phase2_contract() -> str:
-    """The whole-KB reorganization (phase 2) System contract — verbatim asset text."""
-    return (_EVOLVE_ASSETS / "phase2_contract.md").read_text(encoding="utf-8")
+    """The whole-KB reorganization (phase 2) System contract."""
+    return prompt("evolve.phase2_contract")

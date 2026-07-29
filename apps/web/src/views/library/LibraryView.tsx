@@ -385,7 +385,7 @@ function DocumentProof({
         <Mono className="text-12 text-ink-3">{doc.path}</Mono>
         <h2 className="mt-1 font-serif text-30 leading-[1.25] text-balance text-ink">{doc.title}</h2>
         {doc.document_id && (
-          <Mono className="mt-2 block text-12 text-ink-3">pneuma_id · {doc.document_id}</Mono>
+          <Mono className="mt-2 block text-12 text-ink-3">doc_id · {doc.document_id}</Mono>
         )}
       </header>
 

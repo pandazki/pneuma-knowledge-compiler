@@ -3,6 +3,11 @@
 No LLM judge is used. The evaluator combines normalized character matching with the
 configured embedding model, replays every citation locator, exercises the live dual
 claim indexes, and compares all four derived/canonical counts.
+
+NOTE ON LANGUAGE. `_GUARD_MARKERS` below is the scoring vocabulary for the Chinese
+synthetic corpus in `opc_84d.py` — it matches against compiled canonical text produced from
+that corpus, so it is DATA paired with that dataset, not framework prose. See the language
+note in `opc_84d.py`.
 """
 
 from __future__ import annotations

@@ -12,6 +12,7 @@ from pneuma_knowledge_core.domain.source import (
     SectionSpan,
     StructureMap,
 )
+from pneuma_knowledge_core.prompts import prompt
 from pneuma_knowledge_core.recall.assembly import (
     Passage,
     expand_and_merge,
@@ -159,8 +160,8 @@ async def test_char_budget_bounds_expansion_and_max_passage_chars_truncates():
     assert (p.block_start, p.block_end) == (4, 5)
     # rendered text keeps the HEAD (records begin there) and drops the tail; the block
     # interval stays exact so deep can fetch_verbatim the rest.
-    marker = "\n…（后略，本段较长；deep 可用 fetch_verbatim 取全文）"
-    assert "…（后略" in p.text
+    marker = prompt("recall.passage_truncated")
+    assert "…(truncated;" in p.text
     assert p.text.startswith("字")  # head preserved, not middle-gutted
     assert len(p.text) <= 600 + len(marker)
 

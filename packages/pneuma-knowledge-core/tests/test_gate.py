@@ -48,9 +48,9 @@ def _kinds(violations) -> set[str]:
 
 def test_anchor_continuity_rejects_vanished_base_anchor():
     base = CanonicalDocument(
-        pneuma_id=DocumentId("d1"),
+        doc_id=DocumentId("d1"),
         path="memory/people/cheng-ye.md",
-        frontmatter={"pneuma_id": "d1", "type": "person", "slug": "cheng-ye"},
+        frontmatter={"doc_id": "d1", "type": "person", "slug": "cheng-ye"},
         body="- 原始。[cite: src-01 ¶0] <!-- c:aa11 -->",
     )
     draft = PatchDraft.from_canonical([base], TEMPLATES)
@@ -63,9 +63,9 @@ def test_anchor_continuity_rejects_vanished_base_anchor():
 
 def test_anchor_continuity_passes_when_preserved():
     base = CanonicalDocument(
-        pneuma_id=DocumentId("d1"),
+        doc_id=DocumentId("d1"),
         path="memory/people/cheng-ye.md",
-        frontmatter={"pneuma_id": "d1", "type": "person", "slug": "cheng-ye"},
+        frontmatter={"doc_id": "d1", "type": "person", "slug": "cheng-ye"},
         body="- 原始。[cite: src-01 ¶0] <!-- c:aa11 -->",
     )
     draft = PatchDraft.from_canonical([base], TEMPLATES)
@@ -80,12 +80,12 @@ def test_anchor_uniqueness_rejects_duplicate_across_repo():
     draft = _draft()
     draft._working["memory/people/a.md"] = DraftDoc(
         "memory/people/a.md", DocumentId("d1"),
-        {"pneuma_id": "d1", "type": "person", "slug": "a"},
+        {"doc_id": "d1", "type": "person", "slug": "a"},
         "- x。[cite: src-01 ¶0] <!-- c:dddd -->",
     )
     draft._working["memory/people/b.md"] = DraftDoc(
         "memory/people/b.md", DocumentId("d2"),
-        {"pneuma_id": "d2", "type": "person", "slug": "b"},
+        {"doc_id": "d2", "type": "person", "slug": "b"},
         "- y。[cite: src-01 ¶1] <!-- c:dddd -->",
     )
     assert "anchor_uniqueness" in _kinds(run_gate(draft, SOURCES))
@@ -158,9 +158,9 @@ def test_citation_grandfathers_untouched_base_doc_citing_old_source():
     # citing the old src-00 (not supplied now) must NOT be re-rejected — its citation
     # was validated at its own commit and is carried over verbatim.
     base = CanonicalDocument(
-        pneuma_id=DocumentId("d1"),
+        doc_id=DocumentId("d1"),
         path="memory/people/cheng-ye.md",
-        frontmatter={"pneuma_id": "d1", "type": "person", "slug": "cheng-ye"},
+        frontmatter={"doc_id": "d1", "type": "person", "slug": "cheng-ye"},
         body="- 老事实。[cite: src-00 ¶0] <!-- c:aa11 -->",
     )
     draft = PatchDraft.from_canonical([base], TEMPLATES)
@@ -172,9 +172,9 @@ def test_citation_grandfathers_untouched_base_doc_citing_old_source():
 
 def test_citation_full_inventory_revalidates_untouched_base_provenance():
     base = CanonicalDocument(
-        pneuma_id=DocumentId("d1"),
+        doc_id=DocumentId("d1"),
         path="memory/people/cheng-ye.md",
-        frontmatter={"pneuma_id": "d1", "type": "person", "slug": "cheng-ye"},
+        frontmatter={"doc_id": "d1", "type": "person", "slug": "cheng-ye"},
         body="- 老事实。[cite: src-truncated ¶0] <!-- c:aa11 -->",
     )
     draft = PatchDraft.from_canonical([base], TEMPLATES)
@@ -198,9 +198,9 @@ def test_citation_full_inventory_revalidates_untouched_base_provenance():
 
 def test_citation_full_inventory_accepts_valid_historical_source():
     base = CanonicalDocument(
-        pneuma_id=DocumentId("d1"),
+        doc_id=DocumentId("d1"),
         path="memory/people/cheng-ye.md",
-        frontmatter={"pneuma_id": "d1", "type": "person", "slug": "cheng-ye"},
+        frontmatter={"doc_id": "d1", "type": "person", "slug": "cheng-ye"},
         body="- 老事实。[cite: src-00 ¶0-1] <!-- c:aa11 -->",
     )
     draft = PatchDraft.from_canonical([base], TEMPLATES)
@@ -222,9 +222,9 @@ def test_citation_still_rejects_new_claim_with_fabricated_source():
     # Grandfathering only covers verbatim carry-overs; a NEWLY introduced citation to an
     # unsupplied/fabricated source in an edited doc is still rejected.
     base = CanonicalDocument(
-        pneuma_id=DocumentId("d1"),
+        doc_id=DocumentId("d1"),
         path="memory/people/cheng-ye.md",
-        frontmatter={"pneuma_id": "d1", "type": "person", "slug": "cheng-ye"},
+        frontmatter={"doc_id": "d1", "type": "person", "slug": "cheng-ye"},
         body="- 老事实。[cite: src-00 ¶0] <!-- c:aa11 -->",
     )
     draft = PatchDraft.from_canonical([base], TEMPLATES)
@@ -240,7 +240,7 @@ def test_frontmatter_rejects_missing_required_fields():
     draft = _draft()
     draft._working["memory/people/a.md"] = DraftDoc(
         "memory/people/a.md", DocumentId("d1"),
-        {"pneuma_id": "d1"},  # missing type + slug
+        {"doc_id": "d1"},  # missing type + slug
         "- x。[cite: src-01 ¶0] <!-- c:aa11 -->",
     )
     v = [x for x in run_gate(draft, SOURCES) if x.kind == "frontmatter"]
@@ -260,7 +260,7 @@ def test_path_ownership_rejects_foreign_path():
     draft = _draft()
     draft._working["notes/x.md"] = DraftDoc(
         "notes/x.md", DocumentId("d1"),
-        {"pneuma_id": "d1", "type": "note", "slug": "x"},
+        {"doc_id": "d1", "type": "note", "slug": "x"},
         "- x。[cite: src-01 ¶0] <!-- c:aa11 -->",
     )
     assert "path" in _kinds(run_gate(draft, SOURCES))
@@ -290,8 +290,8 @@ def test_anchor_coverage_flags_unanchored_block():
     draft = _draft()
     draft._working["memory/topics/x.md"] = DraftDoc(
         path="memory/topics/x.md",
-        pneuma_id=DocumentId("d1"),
-        frontmatter={"pneuma_id": "d1", "type": "topic", "slug": "x"},
+        doc_id=DocumentId("d1"),
+        frontmatter={"doc_id": "d1", "type": "topic", "slug": "x"},
         body="第一段有锚。 <!-- c:aa11 -->\n\n第二段无锚，会被漏掉。",
     )
     assert "anchor_coverage" in _kinds(run_gate(draft, SOURCES))
@@ -301,8 +301,8 @@ def test_anchor_coverage_passes_when_every_block_anchored():
     draft = _draft()
     draft._working["memory/topics/x.md"] = DraftDoc(
         path="memory/topics/x.md",
-        pneuma_id=DocumentId("d1"),
-        frontmatter={"pneuma_id": "d1", "type": "topic", "slug": "x"},
+        doc_id=DocumentId("d1"),
+        frontmatter={"doc_id": "d1", "type": "topic", "slug": "x"},
         body="第一段。 <!-- c:aa11 -->\n\n- 列表项。 <!-- c:bb22 -->",
     )
     assert "anchor_coverage" not in _kinds(run_gate(draft, SOURCES))
@@ -317,8 +317,8 @@ def test_citation_handle_accepted_via_alias_map():
     draft = _draft()
     draft._working["memory/topics/x.md"] = DraftDoc(
         path="memory/topics/x.md",
-        pneuma_id=DocumentId("d1"),
-        frontmatter={"pneuma_id": "d1", "type": "topic", "slug": "x"},
+        doc_id=DocumentId("d1"),
+        frontmatter={"doc_id": "d1", "type": "topic", "slug": "x"},
         body="事实。[cite: s01 ¶0-2] <!-- c:aa11 -->",
     )
     assert "citation" not in _kinds(run_gate(draft, SOURCES, alias_map={"s01": "src-01"}))

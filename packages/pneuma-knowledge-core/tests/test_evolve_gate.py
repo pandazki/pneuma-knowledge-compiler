@@ -18,9 +18,9 @@ TEMPLATES = [
 
 def _topic(slug: str, body: str) -> CanonicalDocument:
     return CanonicalDocument(
-        pneuma_id=DocumentId(f"d-{slug}"),
+        doc_id=DocumentId(f"d-{slug}"),
         path=f"memory/topics/{slug}.md",
-        frontmatter={"pneuma_id": f"d-{slug}", "type": "topic", "slug": slug},
+        frontmatter={"doc_id": f"d-{slug}", "type": "topic", "slug": slug},
         body=body,
     )
 

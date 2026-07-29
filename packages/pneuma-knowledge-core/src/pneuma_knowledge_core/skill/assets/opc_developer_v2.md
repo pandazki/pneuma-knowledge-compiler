@@ -1,65 +1,65 @@
-# opc-developer-knowledge v2 领域指导
+# opc-developer-knowledge v2 domain guidance
 
-本策略服务于以一人公司方式工作的 AI-Native 个人开发者。编译目标是形成以本人为主体、覆盖产品、工程、研究与经营的**长期可追溯个人记忆**。它不是逐字稿摘要，也不是把所有输入永久保存。
+This strategy serves an AI-native solo developer working as a one-person company. The compile goal is a **long-term, traceable personal memory** with the owner as its subject, covering product, engineering, research and operations. It is not a transcript summary, and it is not permanent storage of every input.
 
-每次只问一个问题：**这条信息以后会不会被用于行动、判断、解释、协作或审计？** 会，才进入 canonical；否则留在原始来源和检索层。
+Ask one question each time: **will this information later be used for action, judgment, explanation, collaboration or audit?** If yes it enters canonical; otherwise it stays in the original source and the retrieval layers.
 
-## 1. 高价值语义
+## 1. High-value meaning
 
-优先保存产品假设与定位、架构决定与约束、实验设计与结果、明确承诺与验收、用户反馈及其原话、影响发布/现金流/合规的经营事实，以及稳定的工作偏好。寒暄、重复播报、未接受建议、背景噪声和短期无效细节不进入长期知识。
+Prefer to keep product hypotheses and positioning, architecture decisions and constraints, experiment design and results, explicit commitments and acceptance conditions, user feedback together with its exact wording, operational facts affecting releases / cash flow / compliance, and stable working preferences. Greetings, repeated broadcasts, unaccepted suggestions, background noise and short-lived detail do not enter long-term knowledge.
 
-## 2. 观察不是事实
+## 2. An observation is not a fact
 
-转录、模型归纳、搜索结果和 agent 输出都只是观察。人物、数字、日期、否定词、责任人、实验指标等高影响槽位无法由来源直接支持时，保留不确定性，不补全看似合理的答案。
+Transcripts, model summaries, search results and agent output are all merely observations. When a high-impact slot — a person, a number, a date, a negation, an owner, an experiment metric — cannot be supported directly by the source, keep the uncertainty; do not fill in a plausible-looking answer.
 
-原话与解释分开；指标带口径、样本与范围；模型建议不等于本人决定；agent 日志不等于完成；单个反馈不自动外推为市场结论。
+Keep the exact words apart from the interpretation; a metric carries its definition, sample and range; a model suggestion is not the owner's decision; an agent log is not a completion; a single piece of feedback does not extrapolate into a market conclusion.
 
-## 3. 身份与归属
+## 3. Identity and attribution
 
-人物、组织、产品、仓库和项目默认不合并。名称接近只形成候选关联；明确纠正、稳定角色和跨来源一致证据才能确认同一实体。别名只增不删。
+People, organizations, products, repositories and projects are not merged by default. Similar names only form a candidate association; an explicit correction, a stable role, or consistent evidence across sources is what confirms one entity. Aliases are only added, never removed.
 
-本人转述他人意见不等于本人认同；协作者提出方案不等于已接受决定；agent 生成候选不等于完成承诺。
+The owner relaying someone else's opinion is not the owner agreeing with it; a collaborator proposing a plan is not an accepted decision; an agent generating a candidate is not a fulfilled commitment.
 
-## 4. 状态与时间
+## 4. State and time
 
-只有同一实体、同一语义范围且明确描述当前状态的新证据，才能取代旧状态。更新时保留旧状态、变化时间与来源，不重写历史。
+Only new evidence about the same entity, in the same semantic scope, explicitly describing the current state, may supersede an old state. When updating, keep the old state, the time of change and the source; do not rewrite history.
 
-**相对时间必须归一为绝对日期再入库。** “明天”“下周一”“上次发布后”等表达以来源发生时间为基准解析，同时保留原始说法。基准缺失或存在歧义时不写确定日期，标为待确认。
+**Relative time must be normalized to an absolute date before it is stored.** Expressions like "tomorrow", "next Monday" or "after the last release" are resolved against the source's occurrence time, while the original wording is kept. When the reference point is missing or ambiguous, do not write a definite date — mark it as pending.
 
-提议、决定、执行、验收分开；issue 关闭不等于问题解决；代码合并不等于发布完成；实验跑完不等于假设成立；口头兴趣不等于合同或收入。
+Proposal, decision, execution and acceptance stay separate; closing an issue is not solving the problem; merging code is not completing a release; finishing an experiment run is not the hypothesis holding; verbal interest is not a contract or revenue.
 
-## 5. 承诺与关系强度分级
+## 5. Commitment and relationship strength tiering
 
-为承诺、决定和稳定关系使用受控的**强度前缀标签**：
+Use a controlled **strength prefix label** for commitments, decisions and stable relationships:
 
-- `【强】`：责任人、条件/时间或双方确认已经成立；
-- `【中】`：方向明确但缺一个关键槽位，如时间待定或仍待书面确认；
-- `【弱】`：想法、假设、转述或尚未接受的提议。
+- `【firm】`: an owner, a condition/time, or confirmation by both sides is already in place;
+- `【forming】`: the direction is clear but one key slot is missing, such as an undecided time or a pending written confirmation;
+- `【loose】`: an idea, a hypothesis, a second-hand account, or a proposal not yet accepted.
 
-强度随证据前向升降档，保留旧档和变化依据。只用这三档；拿不准时降一档。
+Strength is re-tiered forward as evidence changes, keeping the old tier and the basis for the change. Use only these three tiers; when unsure, drop a tier.
 
-## 6. 隐私与秘密
+## 6. Privacy and secrets
 
-只保存完成未来行动所需的最小信息。密码、验证码、令牌、私钥、支付凭据、完整证件号和认证秘密永不进入 canonical；使用不含秘密值的业务状态表达。
+Keep only the minimum information needed to complete future action. Passwords, verification codes, tokens, private keys, payment credentials, full identity numbers and authentication secrets never enter canonical; express business state without the secret value.
 
-涉及第三方、健康、财务或法律的信息必须保留来源和不确定性，不从零散描述推导诊断、资产或法律结论。
+Information touching third parties, health, finances or legal matters must keep its source and its uncertainty; do not derive a diagnosis, an asset position or a legal conclusion from scattered remarks.
 
-## 7. 文档组织
+## 7. Document organization
 
-- 本人画像、长期偏好与工作方式 → `memory/profile.md`
-- 稳定协作者/联系人 → `memory/people/{slug}.md`
-- 产品持续状态 → `work/products/{slug}.md`
-- 实验、评测与假设演化 → `work/experiments/{slug}.md`
-- 发布、销售、现金流与运营事项 → `work/operations/{slug}.md`
-- 尚未稳定归类的跨域主题 → `memory/topics/{slug}.md`
-- 需要外置正文的重要资料 → `materials/{slug}.md`
+- owner profile, long-term preferences and way of working → `memory/profile.md`
+- stable collaborators / contacts → `memory/people/{slug}.md`
+- ongoing product state → `work/products/{slug}.md`
+- experiments, evaluations and hypothesis evolution → `work/experiments/{slug}.md`
+- releases, sales, cash flow and operational matters → `work/operations/{slug}.md`
+- cross-domain topics not yet stably classified → `memory/topics/{slug}.md`
+- important material whose body must live outside → `materials/{slug}.md`
 
-按共同生命周期组织，不按会话建档。准确归类时单向前移；拿不准留在 topics。
+Organize by shared lifecycle, not one document per session. Move forward, one way only, when the classification is accurate; when unsure leave it in topics.
 
-## 8. 画像不是素材
+## 8. The profile is not material
 
-注册画像、schema pack 和本策略只用于判断相关性与归档位置，不能作为 claim 来源。任何 claim 必须回链到本轮来源或既有 canonical。
+The registration profile, the schema packs and this strategy are only used to judge relevance and filing location; they cannot be the source of a claim. Every claim must link back to this round's source or to existing canonical.
 
-## 9. 收尾自查
+## 9. Closing self-check
 
-检查引用、归属、绝对时间、强度档、实验条件、失败原因、实体边界、秘密排除和不确定性保留。
+Check citations, attribution, absolute time, strength tier, experiment conditions, failure causes, entity boundaries, secret exclusion and preserved uncertainty.

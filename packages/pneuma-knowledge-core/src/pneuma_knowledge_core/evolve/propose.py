@@ -30,6 +30,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, ConfigDict, Field
 
+from ..prompts import prompt
 from ..recall.fast import invoke_config
 from ..skill.pack import SchemaPack, compose_skill
 from ..skill.version import SkillVersion
@@ -84,7 +85,11 @@ def _render_event_summary(recent_events: Sequence[Mapping]) -> str:
     for row in recent_events:
         if not isinstance(row, Mapping):
             continue
-        path = str(row.get("path") or row.get("document_path") or "(未知路径)")
+        path = str(
+            row.get("path")
+            or row.get("document_path")
+            or prompt("evolve.propose.unknown_path")
+        )
         etype = str(row.get("type") or row.get("event_type") or row.get("kind") or "")
         if "revis" in etype:
             revised[path] = revised.get(path, 0) + 1
@@ -93,16 +98,22 @@ def _render_event_summary(recent_events: Sequence[Mapping]) -> str:
 
     paths = sorted(set(added) | set(revised))
     if not paths:
-        return "（自上次 evolve 以来无增量编译事件）"
+        return prompt("evolve.propose.events_empty")
     lines = [
-        f"- {p}：新增 {added.get(p, 0)}、修订 {revised.get(p, 0)}" for p in paths
+        prompt(
+            "evolve.propose.event_line",
+            path=p,
+            added=added.get(p, 0),
+            revised=revised.get(p, 0),
+        )
+        for p in paths
     ]
     return "\n".join(lines)
 
 
 def _render_doc_tree(doc_paths: Sequence[str]) -> str:
     if not doc_paths:
-        return "（暂无 canonical 文档）"
+        return prompt("evolve.propose.docs_empty")
     return "\n".join(f"- {p}" for p in sorted(doc_paths))
 
 
@@ -113,13 +124,18 @@ def _propose_human(
 ) -> str:
     return "\n\n".join(
         [
-            "# 当前 skill 指导（含已组合的 pack 家族）\n"
+            prompt("evolve.propose.skill_header")
+            + "\n"
             + current_skill.instructions.rstrip(),
-            "# 当前 path 家族（ownership 模板）\n"
+            prompt("evolve.propose.templates_header")
+            + "\n"
             + "\n".join(f"- {t}" for t in current_skill.path_templates),
-            "# 自上次 evolve 以来的增量编译事件摘要\n"
+            prompt("evolve.propose.events_header")
+            + "\n"
             + _render_event_summary(recent_events),
-            "# 当前 canonical 文档清单\n" + _render_doc_tree(doc_paths),
+            prompt("evolve.propose.docs_header")
+            + "\n"
+            + _render_doc_tree(doc_paths),
         ]
     )
 

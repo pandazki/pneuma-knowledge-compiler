@@ -89,7 +89,7 @@ def _normalize(
         checksum=_checksum(text),
         created_at=datetime.now(timezone.utc),
         # Caller metadata (author, occurrence time, workspace, parent doc …) is preserved:
-        # it is what the compile preamble textualizes into "这是 X 于 … 创建的一篇 …".
+        # it is what the compile preamble textualizes into "This is a … by X created on …".
         # Without this passthrough a document source reached compile with provenance
         # stripped, so authorship and time could only be guessed from the prose.
         meta={**(meta or {}), **({"declared_type": declared_type} if declared_type else {})},
@@ -190,7 +190,8 @@ def preview_document(
 
 def _summary_chunks(source_id: SourceId, normalized: NormalizedSource) -> list:
     """Summary-level L2 material: one chunk per section = heading path + its first block
-    (architecture.md §4 semantic=summary: 只 embed 标题+各节首块)."""
+    (architecture.md §4 semantic=summary: embed only the title + each section's first
+    block)."""
     by_index = {b.index: b.text for b in normalized.blocks}
     chunks = []
     from pneuma_knowledge_core.ingest.chunking import Chunk, join_blocks

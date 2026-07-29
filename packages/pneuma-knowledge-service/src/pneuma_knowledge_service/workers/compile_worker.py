@@ -15,14 +15,15 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import asdict
-from datetime import datetime, timezone
 
 from pneuma_knowledge_core.compile.runner import CompileResult, run_compile
 from pneuma_knowledge_core.domain.ids import UserId, SourceId
 from pneuma_knowledge_core.domain.intake import IntakePlan
 from pneuma_knowledge_core.domain.source import NormalizedSource
+from pneuma_knowledge_core.domain.time_context import time_context_for
 from pneuma_knowledge_core.ingest.chunking import EmbeddedChunk
 from pneuma_knowledge_core.ingest.source_types import describe_source, first_party_type
+from pneuma_knowledge_core.prompts import prompt
 from pneuma_knowledge_core.skill.version import SkillVersion
 from langchain_core.language_models.chat_models import BaseChatModel
 
@@ -63,9 +64,9 @@ def _search_knowledge_port(ctx: AppContext, user_id: UserId):
         try:
             hits = await ctx.lexical.search_claims(user_id, query, limit=12)
         except Exception as exc:  # noqa: BLE001 — retrieval is context, never fatal
-            return f"（检索失败：{exc}）"
+            return prompt("compile.worker.search_failed", error=exc)
         if not hits:
-            return f"（既有 canonical 中检索「{query}」无命中。）"
+            return prompt("compile.worker.knowledge_empty", query=query)
         return "\n".join(
             f"- [{h.document_path} c:{h.anchor}] {h.text.strip()[:220]}" for h in hits
         )
@@ -89,9 +90,9 @@ def _search_source_port(ctx: AppContext, user_id: UserId):
                 limit=8,
             )
         except Exception as exc:  # noqa: BLE001
-            return f"（检索失败：{exc}）"
+            return prompt("compile.worker.search_failed", error=exc)
         if not hits:
-            return f"（原始素材中检索「{query}」无命中。）"
+            return prompt("compile.worker.source_empty", query=query)
         # 600, not 220: rag_recall merges neighbouring blocks into one window, so a hit can
         # span many blocks. A short truncation cut the very line being looked up out of the
         # answer (e.g. a roster entry sitting mid-window), making lookups silently useless.
@@ -119,7 +120,10 @@ async def _recall_related_claims(
         # (a room name and a date), which recalled same-room noise instead of same-subject
         # knowledge. The owner's own turns are the strongest signal for what this source is
         # about; fall back to the opening blocks when he did not speak.
-        own = [b.text for b in source.blocks if b.text.startswith("本人：")]
+        owner_prefix = prompt(
+            "ingest.turn_line", label=prompt("ingest.owner_label"), text=""
+        ).rstrip()
+        own = [b.text for b in source.blocks if b.text.startswith(owner_prefix)]
         body = " ".join(own or [b.text for b in source.blocks[:4]])
         query = f"{source.raw.title or ''} {body}".strip()[:400]
         if not query:
@@ -185,7 +189,9 @@ async def process_job(
         owner = await ctx.user_info.get_profile(user_id)
     except Exception:  # noqa: BLE001 — identity is context, never a hard dependency
         owner = None
-    owner_name = getattr(owner, "display_name", "") or "本人"
+    owner_name = getattr(owner, "display_name", "") or prompt(
+        "source.preamble.owner_default"
+    )
 
     # Per-source provenance sentence (whose material, when, owner's role in it). Built here
     # because it needs the profile; `describe_source` reads the source's OWN metadata for the
@@ -199,6 +205,12 @@ async def process_job(
     # claims actually related to this job's material. Both replace the former practice of
     # inlining every existing canonical document into the prompt.
     retrieved = await _recall_related_claims(ctx, user_id, sources)
+
+    # The job's clock: one instant plus the subject's timezone, resolved once from the
+    # profile (or a registered TimeZoneProvider) and used for every calendar-day render
+    # below. It replaces a bare `datetime.now(timezone.utc)`, which made "today" a UTC day
+    # while the sections in the material had been cut in the subject's own day.
+    time = time_context_for(user_id, owner)
 
     trace_cfg = llm_call_config(
         ctx,
@@ -225,12 +237,15 @@ async def process_job(
         retrieved=retrieved,
         search_knowledge=_search_knowledge_port(ctx, user_id),
         search_source=_search_source_port(ctx, user_id),
-        now=datetime.now(timezone.utc),
+        time=time,
         commit_message=f"compile {job_id}",
         **trace_cfg,
     )
 
-    now = datetime.now(timezone.utc)
+    # Bookkeeping timestamps stay UTC instants (storage is UTC everywhere); only rendered
+    # calendar days go through the TimeContext. Reuse its instant so the whole job is
+    # stamped from one clock read.
+    now = time.now_utc
     if result.status == "committed":
         assert result.snapshot is not None
         await ctx.store.record_compile_events(

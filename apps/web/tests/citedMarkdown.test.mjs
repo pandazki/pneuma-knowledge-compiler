@@ -22,7 +22,7 @@ test("cited markdown preserves structure and resolves multi-span handles", () =>
   assert.match(result.markdown, /^> 原文/m);
   assert.equal(
     result.markdown,
-    "## 决定\n\n> 原文 [citation](pneuma-cite:0)[citation](pneuma-cite:1)",
+    "## 决定\n\n> 原文 [citation](cite-ref:0)[citation](cite-ref:1)",
   );
   assert.deepEqual(result.citations, [
     { sourceId: "source-a", blockStart: 2, blockEnd: 4 },

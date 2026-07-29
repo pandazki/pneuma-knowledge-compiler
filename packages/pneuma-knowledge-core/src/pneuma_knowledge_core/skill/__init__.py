@@ -17,11 +17,20 @@ from .pack import (
     matrix_packs,
     packs_for_profile,
 )
-from .version import SkillVersion, load_builtin_skill
+from .version import (
+    SkillVersion,
+    load_builtin_skill,
+    register_skill_base,
+    registered_skill_bases,
+    reset_skill_bases,
+)
 
 __all__ = [
     "SkillVersion",
     "load_builtin_skill",
+    "register_skill_base",
+    "registered_skill_bases",
+    "reset_skill_bases",
     "render_system_contract",
     "ClaimLabel",
     "claim_labels_for",

@@ -50,31 +50,43 @@ class SuggestionKindOption(BaseModel):
 CONTEXT_FOCUSES: list[ContextFocusOption] = [
     ContextFocusOption(
         key="general",
-        label="通用",
-        summary="整段工作流里任何值得补充的概念或事实，不限定输入方",
+        label="General",
+        summary="any concept or fact in the whole workstream worth adding, whoever said it",
     ),
     ContextFocusOption(
         key="owner",
-        label="聚焦本人",
-        summary="只为本人输入的内容生成提示，参与者内容仅作理解上下文",
+        label="Focus on the owner",
+        summary=(
+            "cards only for what the owner put in; participants' content is context for "
+            "understanding only"
+        ),
     ),
     ContextFocusOption(
         key="other",
-        label="聚焦协作者",
-        summary="只为参与者输入的内容生成提示，本人内容仅作理解上下文",
+        label="Focus on collaborators",
+        summary=(
+            "cards only for what participants put in; the owner's content is context for "
+            "understanding only"
+        ),
     ),
 ]
 
 SUGGESTION_KINDS: list[SuggestionKindOption] = [
     SuggestionKindOption(
         key="concept",
-        label="概念解释",
-        summary="工作流里出现了知识库里已有的概念、人或事项，提示解释它是什么",
+        label="Concept",
+        summary=(
+            "a concept, person or matter the knowledge base already holds appeared in the "
+            "stream; the card explains what it is"
+        ),
     ),
     SuggestionKindOption(
         key="fact",
-        label="事实问答",
-        summary="工作流里出现了知识库能直接回答的问题，提示给出答案",
+        label="Fact",
+        summary=(
+            "a question the knowledge base can answer directly appeared in the stream; the "
+            "card gives the answer"
+        ),
     ),
 ]
 

@@ -85,7 +85,7 @@ export function prepareCitedMarkdown(
             blockStart: ref.from,
             blockEnd: ref.to,
           }) - 1;
-        return `[citation](pneuma-cite:${index})`;
+        return `[citation](cite-ref:${index})`;
       })
       .join("");
   });

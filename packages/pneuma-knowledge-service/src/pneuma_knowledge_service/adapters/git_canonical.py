@@ -27,7 +27,7 @@ import tarfile
 import uuid
 from pathlib import Path
 
-from pneuma_knowledge_core.compile.documents import parse_document
+from pneuma_knowledge_core.compile.documents import DOC_ID_KEY, parse_document
 from pneuma_knowledge_core.domain.canonical import CanonicalDocument
 from pneuma_knowledge_core.domain.ids import DocumentId, UserId
 from pneuma_knowledge_core.domain.snapshot import SnapshotRef
@@ -120,15 +120,17 @@ class GitCanonicalStore:
         at: SnapshotRef | None = None,
     ) -> CanonicalDocument | None:
         for doc in await self.list(user_id, at=at):
-            if doc.pneuma_id == document_id:
+            if doc.doc_id == document_id:
                 return doc
         return None
 
     @staticmethod
     def _to_document(path: str, text: str) -> CanonicalDocument:
+        # `parse_document` folds the pre-rename `pneuma_id` key onto `doc_id`, so a commit
+        # made before the rename loads with its id intact and needs no history rewrite.
         frontmatter, body = parse_document(text)
         return CanonicalDocument(
-            pneuma_id=DocumentId(str(frontmatter.get("pneuma_id", ""))),
+            doc_id=DocumentId(str(frontmatter.get(DOC_ID_KEY, ""))),
             path=path,
             frontmatter=frontmatter,
             body=body,

@@ -5,6 +5,14 @@ through twelve weekly import batches while most atomic content is ordinary work 
 meeting setup, repeated context, bot events, draft notes, quoted mail, newsletters, and
 plans that never become decisions.  A separate manifest labels that exhaust and carries
 the truth set; the source payloads themselves never announce which lines are noise.
+
+NOTE ON LANGUAGE.  The corpus strings below are Chinese by design: they are synthetic
+SOURCE DATA fed into the compiler as L0 material (a fictional studio, invented people, an
+invented product), not framework prose, and they are this repository's only end-to-end
+coverage of a CJK knowledge base.  The framework's own model-visible prose lives in
+`pneuma_knowledge_core.prompts.catalog` and is English and business-neutral; a deployment
+overlays its own language there.  Keep new corpus content synthetic, and never introduce
+real captured material.
 """
 
 from __future__ import annotations

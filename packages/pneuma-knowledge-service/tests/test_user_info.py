@@ -7,6 +7,7 @@ Qdrant.
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
 from pneuma_knowledge_core.domain.ids import UserId
@@ -28,11 +29,11 @@ async def test_named_persona_opc_developer():
     p = await _provider().get_profile(UserId("u-opc-lin"))
     assert isinstance(p, UserProfile)
     assert p.user_id == "u-opc-lin"
-    assert p.display_name == "林知远 Lin Zhiyuan"
-    assert p.locale.language == "zh-CN"
-    assert p.occupation == "AI 产品独立开发者"
+    assert p.display_name == "Ada Lindqvist"
+    assert p.locale.language == "en-GB"
+    assert p.occupation == "independent AI product developer"
     assert p.source == "mock"
-    assert p.avatar.initial == "林"
+    assert p.avatar.initial == "A"
     assert p.avatar.color.startswith("#")
     # Structured onboarding core.
     assert (p.industry, p.role, p.level) == ("tech", "engineering", "senior")
@@ -65,7 +66,7 @@ async def test_synthesis_is_self_consistent_and_complete():
     p = await _provider().get_profile(UserId("u-brand-new-xyz"))
     assert isinstance(p, UserProfile)
     assert p.display_name and p.avatar.initial and p.avatar.color.startswith("#")
-    assert p.locale.language == p.preferences.response_language == "zh-CN"
+    assert p.locale.language == p.preferences.response_language == "en-GB"
     assert p.preferences.units == "metric"
     assert p.preferences.privacy_level in ("standard", "strict")
     assert 1900 < (p.birth_year or 0) < 2020
@@ -79,7 +80,7 @@ async def test_synthesis_is_self_consistent_and_complete():
     assert p.industry == "tech"
     assert p.role == "engineering"
     assert p.level in LEVELS
-    assert p.occupation == "AI-Native 独立开发者"
+    assert p.occupation == "AI-native independent developer"
     assert p.level_style == LEVEL_STYLES[p.level]
 
 
@@ -127,8 +128,8 @@ async def test_api_profile_named_persona():
     assert resp.status_code == 200
     body = resp.json()
     assert body["user_id"] == "u-opc-lin"
-    assert body["display_name"] == "林知远 Lin Zhiyuan"
-    assert body["avatar"]["initial"] == "林"
+    assert body["display_name"] == "Ada Lindqvist"
+    assert body["avatar"]["initial"] == "A"
     assert body["industry"] == "tech"
     assert body["role"] == "engineering"
     assert body["level"] == "senior"
@@ -183,7 +184,7 @@ async def test_composite_mock_fallback_when_not_persisted():
 
     prov = PersistedThenMockUserInfoProvider(_none, MockUserInfoProvider())
     p = await prov.get_profile(UserId("u-opc-lin"))
-    assert p.display_name == "林知远 Lin Zhiyuan"
+    assert p.display_name == "Ada Lindqvist"
     assert p.source == "mock"
 
 
@@ -267,6 +268,47 @@ async def test_put_profile_nested_merge():
     assert body["locale"]["language"] == base["locale"]["language"]
     assert body["preferences"]["units"] == "imperial"
     assert body["preferences"]["privacy_level"] == base["preferences"]["privacy_level"]
+
+
+async def test_put_profile_records_timezone_changes_forward_only():
+    """A move changes which calendar day the subject's dates mean, and canonical dates
+    already compiled under the old zone are never rewritten — so the change is recorded as
+    history for the compile time frame to state."""
+    app, store = _app_with_store()
+    client = _client(app)
+    uid = "u-it-moved"
+    base = (await client.get(f"/v1/users/{uid}/profile")).json()
+    assert base["locale"]["timezone_history"] == []
+    old_zone = base["locale"]["timezone"]
+
+    body = (
+        await client.put(
+            f"/v1/users/{uid}/profile", json={"locale": {"timezone": "Europe/Lisbon"}}
+        )
+    ).json()
+    history = body["locale"]["timezone_history"]
+    assert len(history) == 1
+    assert history[0]["from_zone"] == old_zone
+    assert history[0]["to_zone"] == "Europe/Lisbon"
+    assert history[0]["changed_at"].startswith("20")
+
+    # An unrelated edit does not append a spurious entry.
+    body = (
+        await client.put(f"/v1/users/{uid}/profile", json={"display_name": "Moved"})
+    ).json()
+    assert len(body["locale"]["timezone_history"]) == 1
+
+    # A second move appends rather than replacing (forward-only).
+    body = (
+        await client.put(
+            f"/v1/users/{uid}/profile", json={"locale": {"timezone": "Asia/Shanghai"}}
+        )
+    ).json()
+    zones = [(h["from_zone"], h["to_zone"]) for h in body["locale"]["timezone_history"]]
+    assert zones == [(old_zone, "Europe/Lisbon"), ("Europe/Lisbon", "Asia/Shanghai")]
+
+    # What was persisted is JSON-serializable (it lands in a jsonb column).
+    json.dumps(store._profiles[uid])
 
 
 async def test_put_profile_rejects_bad_enum():

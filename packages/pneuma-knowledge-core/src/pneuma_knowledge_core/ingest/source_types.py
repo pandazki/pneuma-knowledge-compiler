@@ -23,11 +23,12 @@ A `FirstPartySourceType` bundles the FIVE places one stream differs from another
   5. describe — the source's provenance as one owner-subject sentence for the compile task
                (who / when / the owner's role), phrased in the medium's own vocabulary.
 
-UNCERTAINTY IS FIRST-CLASS. Real capture is noisy ASR with environmental sound; no type
-targets byte-perfect extraction. Every concern degrades gracefully — never fabricate
-structure the capture didn't provide; mark or drop noise rather than assert it. Success is
-"the owner's high-value memory is captured and correctly attributed more often, with
-uncertainty preserved", not zero error.
+UNCERTAINTY IS FIRST-CLASS. Real capture is lossy whatever it is made of — an upstream
+recognizer, a partial export, an editor's half-finished draft — and no type targets
+byte-perfect extraction. Every concern degrades gracefully: never fabricate structure the
+capture didn't provide; mark or drop noise rather than assert it. Success is "the owner's
+high-value memory is captured and correctly attributed more often, with uncertainty
+preserved", not zero error.
 
 The generic `upload` path is the degenerate type (no loader beyond the posted body, plain
 formatter, no per-type compile guidance, settings-driven indexing); first-party types are
@@ -42,6 +43,8 @@ from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
 from ..domain.source import ConversationTurn, NormalizedSource, RawSource, SourceOrigin
+from ..domain.time_context import TimeContext
+from ..prompts import prompt
 from .adapters import ContextStreamAdapter, PlainConversationInput
 
 
@@ -57,10 +60,10 @@ class CompileGuidance:
     app_context: str
 
     def render(self) -> str:
-        return (
-            "【第一方数据说明】\n"
-            f"· 数据结构：{self.data_context}\n"
-            f"· 功能意图：{self.app_context}"
+        return prompt(
+            "source.guidance_header",
+            data_context=self.data_context,
+            app_context=self.app_context,
         )
 
 
@@ -86,8 +89,18 @@ class FirstPartySourceType(Protocol):
         normalizes them into typed roles. A file/remote-API type would fetch + parse here."""
         ...
 
-    def format(self, raw: RawSource, turns: list[ConversationTurn]) -> NormalizedSource:
-        """Concern 2: typed turns → addressable, owner-anchored NormalizedSource."""
+    def format(
+        self,
+        raw: RawSource,
+        turns: list[ConversationTurn],
+        *,
+        time: TimeContext | None = None,
+    ) -> NormalizedSource:
+        """Concern 2: typed turns → addressable, owner-anchored NormalizedSource.
+
+        `time` is the subject's clock: a type that cuts sections by day resolves each
+        timestamp through it so a day means the subject's local day. Absent → UTC.
+        """
         ...
 
     def compile_guidance(self) -> CompileGuidance | None:
@@ -134,21 +147,16 @@ def parse_diarized_turns(turns: list[ConversationTurn]) -> list[ConversationTurn
     return out
 
 
-_CONTEXT_STREAM_GUIDANCE = CompileGuidance(
-    data_context=(
-        "这是结构化工作上下文流，已按声道把说话人分成「本人」与「参与者N」"
-        "（同一 N 全文指同一人）。转录可能来自 ASR，夹着环境音、串音和识别错误——"
-        "人名、数字、日期、否定词、责任人这些改变含义的词经常不可靠。"
-    ),
-    app_context=(
-        "context stream 要把本人参与的工作过程沉淀为日后可行动、可解释、可审计的知识："
-        "产品假设、技术决定、实验、承诺、风险与悬而未决的问题。本人是这段知识的主体——"
-        "从大量上下文里凸显未来有用的内容，不做逐字纪要。"
-        "谁说的都如实记为出处：归属是**溯源、不是裁定**——拿不准某件事是不是本人的，就留成不确定，"
-        "不下正反结论。承诺按现场实际的确定程度记：提议不等于已定的决定，关键值听不清就留待确认，"
-        "不拔高成事实。"
-    ),
-)
+def _context_stream_guidance() -> CompileGuidance:
+    """The built-in context-stream compile guidance, resolved from the catalog.
+
+    Deliberately medium-neutral: it says "a structured work-context stream" and "an upstream
+    recognizer", never naming a capture device or a product. A deployment that has a specific
+    medium overrides `source.context_stream.*` (or registers its own type)."""
+    return CompileGuidance(
+        data_context=prompt("source.context_stream.data_context"),
+        app_context=prompt("source.context_stream.app_context"),
+    )
 
 
 class ContextStreamSourceType:
@@ -166,18 +174,26 @@ class ContextStreamSourceType:
         turns = list(payload)  # already ConversationTurn; type the roles
         return parse_diarized_turns(turns)
 
-    def format(self, raw: RawSource, turns: list[ConversationTurn]) -> NormalizedSource:
-        return self._adapter.normalize(PlainConversationInput(raw=raw, turns=turns))
+    def format(
+        self,
+        raw: RawSource,
+        turns: list[ConversationTurn],
+        *,
+        time: TimeContext | None = None,
+    ) -> NormalizedSource:
+        return self._adapter.normalize(
+            PlainConversationInput(raw=raw, turns=turns), time=time
+        )
 
     def compile_guidance(self) -> CompileGuidance | None:
-        return _CONTEXT_STREAM_GUIDANCE
+        return _context_stream_guidance()
 
     def indexing(self) -> IndexingSpec:
         return IndexingSpec(chunk_strategy="semantic")
 
     def describe(self, raw: RawSource, blocks_count: int, owner_name: str) -> str:
         """Medium-neutral: a diarized stream with turn counts and the owner's involvement.
-        A deployment whose capture has a名字 (a chat room, a call) subclasses and overrides
+        A deployment whose capture has a NAME (a chat room, a call) subclasses and overrides
         this — see `register_source_type`."""
         return _context_stream_preamble(raw, blocks_count, owner_name)
 
@@ -190,8 +206,8 @@ class ContextStreamSourceType:
 # sees only a source id, a title and a wall of ¶ blocks, and has to infer authorship and
 # time from the prose — the two things it is least allowed to guess.
 #
-# All examples below use the repository's synthetic persona (林知远 / Atlas, see
-# examples/seed_demo.py). Never illustrate with real captured material.
+# Every example below uses a neutral synthetic role ("the owner", "a teammate"). Never
+# illustrate with real captured material.
 #
 # The occurrence time comes from the source's own metadata, NEVER from `RawSource.created_at`
 # (that is the INGEST wall-clock: a conversation from 2026-07-21 ingested today would be
@@ -208,13 +224,16 @@ _QUOTED = re.compile(r"「[^」]*」")
 
 def _spaced(text: str) -> str:
     """Insert the conventional space between CJK and adjacent Latin/digits, and collapse
-    accidental double spaces. The preamble is assembled from a mix of Chinese templates and
-    Latin names/dates, so doing this once at the end beats hand-tuning every seam that
-    would otherwise read as 「林知远在场」/「一篇Atlas 周报」.
+    accidental double spaces.
 
-    Spans inside 「」 are left byte-for-byte alone: those are DATA (a document title, a chat
-    room's name), not prose. Re-spacing them would silently rewrite a proper noun whose exact
-    form callers may rely on — 「Atlas MVP发布组」 must not become 「Atlas MVP 发布组」.
+    A no-op on the English defaults (there is no CJK to butt against Latin), and kept in the
+    framework because it is a pure typography function: the moment a deployment overrides
+    these preambles with CJK templates, the assembled sentence mixes CJK skeleton with Latin
+    names and dates, and doing this once at the end beats hand-tuning every seam.
+
+    Spans inside CJK corner quotes are left byte-for-byte alone: those are DATA (a document
+    title, a room name), not prose. Re-spacing them would silently rewrite a proper noun
+    whose exact form callers may rely on.
     """
 
     def normalize(chunk: str) -> str:
@@ -249,57 +268,107 @@ def _context_stream_preamble(raw: RawSource, blocks_count: int, owner_name: str)
     sentence degrades to an unqualified one rather than guessing a medium.
     """
     meta = raw.meta or {}
-    scene = str(meta.get("scene") or "").strip() or "一段对话"
+    scene = (
+        str(meta.get("scene") or "").strip()
+        or prompt("source.preamble.stream_scene_default")
+    )
     when = str(meta.get("occurred_on") or "").strip()
     part = ""
     if int(meta.get("part_count") or 1) > 1:
-        part = f"，当日第 {meta.get('part')}/{meta.get('part_count')} 段"
+        part = prompt(
+            "source.preamble.stream_part",
+            part=meta.get("part"),
+            part_count=meta.get("part_count"),
+        )
     owner_turns = int(meta.get("owner_turns") or 0)
     role = (
-        f"{owner_name}发言 {owner_turns} 次"
+        prompt(
+            "source.preamble.stream_role_spoke", owner=owner_name, turns=owner_turns
+        )
         if owner_turns
-        else f"{owner_name}在场，但本段没有发言"
+        else prompt("source.preamble.stream_role_silent", owner=owner_name)
     )
     mentions = int(meta.get("owner_mentions") or 0)
     if mentions:
-        role += f"，被 @ 提及 {mentions} 次"
+        role += prompt("source.preamble.stream_mentions", mentions=mentions)
     replied = int(meta.get("owner_replied_to") or 0)
     if replied:
-        role += f"，有 {replied} 条消息在回复他"
-    when_part = f"{when} " if when else ""
-    # Owner-as-subject: "这是 <owner> 于 <when> 在 <场景>…", not "这是 <场景>…".
-    return f"这是 {owner_name} {when_part}{scene}，共 {blocks_count} 条消息{part}。{role}。"
+        role += prompt("source.preamble.stream_replies", replied=replied)
+    # Owner-as-subject: "This is <owner> <when> in <scene>…", not "This is <scene>…".
+    lead = prompt(
+        "source.preamble.stream_lead",
+        owner=owner_name,
+        when=f"{when} " if when else "",
+        scene=scene,
+        blocks=blocks_count,
+        part=part,
+    )
+    return prompt("source.preamble.stream_tail", lead=lead, role=role)
 
 
 def _document_preamble(raw: RawSource, owner_name: str) -> str:
     meta = raw.meta or {}
-    kind = meta.get("doc_kind") or meta.get("declared_type") or "文档"
+    kind = (
+        meta.get("doc_kind")
+        or meta.get("declared_type")
+        or prompt("source.preamble.document_kind_default")
+    )
     author = str(meta.get("author") or "").strip()
     by_owner = bool(meta.get("authored_by_owner")) or author == owner_name
     created, updated = _fmt_when(meta.get("created_at")), _fmt_when(meta.get("updated_at"))
-    who = owner_name if by_owner else (author or "他人")
-    title_part = f"，标题为「{raw.title}」" if raw.title else ""
-    when = f"于 {created} 创建" if created else ""
-    if updated and updated[:10] != created[:10]:
-        when = f"{when}、{updated[:10]} 最后更新" if when else f"{updated[:10]} 最后更新"
-    parent = f"，隶属于上层文档「{meta.get('parent_title')}」" if meta.get("parent_title") else ""
-    stance = (
-        f"{owner_name}是作者，文中的判断默认属于他。"
+    who = (
+        owner_name
         if by_owner
-        else f"{owner_name}是读者而不是作者，文中的判断属于{who}，不得记成他自己的决定。"
+        else (author or prompt("source.preamble.document_other_author"))
     )
-    lead = f"这是{who}{when}的一篇{kind}{title_part}{parent}。"
+    title_part = (
+        prompt("source.preamble.document_title", title=raw.title) if raw.title else ""
+    )
+    created_part = (
+        prompt("source.preamble.document_created", created=created) if created else ""
+    )
+    updated_part = (
+        prompt("source.preamble.document_updated", updated=updated[:10])
+        if updated and updated[:10] != created[:10]
+        else ""
+    )
+    if created_part and updated_part:
+        when = prompt(
+            "source.preamble.document_created_and_updated",
+            created=created_part,
+            updated=updated_part,
+        )
+    else:
+        when = created_part or updated_part
+    parent = (
+        prompt("source.preamble.document_parent", parent_title=meta.get("parent_title"))
+        if meta.get("parent_title")
+        else ""
+    )
+    stance = (
+        prompt("source.preamble.document_stance_owner", owner=owner_name)
+        if by_owner
+        else prompt(
+            "source.preamble.document_stance_other", owner=owner_name, author=who
+        )
+    )
+    lead = prompt(
+        "source.preamble.document_lead",
+        who=who,
+        when=prompt("source.preamble.document_when", when=when) if when else "",
+        kind=kind,
+        title=title_part,
+        parent=parent,
+    )
     return f"{lead}{stance}"
 
 
 def _reference_preamble(raw: RawSource, owner_name: str) -> str:
-    """`source_class == "reference"` with no authorship metadata:外部资料。The stance
-    clause matters more than the provenance detail — it must not be read as the owner's
-    own words."""
-    title_part = f"「{raw.title}」" if raw.title else ""
-    return (
-        f"这是一份供{owner_name}参考的外部资料{title_part}，不是他本人的表述。"
-        f"其中的说法属于资料作者；只有当它确实构成对他将来有用的事实时才编译，并如实标注来源。"
+    """`source_class == "reference"` with no authorship metadata: external material. The
+    stance clause matters more than the provenance detail — it must not be read as the
+    owner's own words."""
+    return prompt(
+        "source.preamble.reference", owner=owner_name, title=_title_part(raw)
     )
 
 
@@ -316,25 +385,40 @@ def register_source_type(source_type: FirstPartySourceType) -> None:
     _FIRST_PARTY_TYPES[str(source_type.origin)] = source_type
 
 
-def describe_source(raw: RawSource, blocks_count: int, owner_name: str = "本人") -> str:
+def _title_part(raw: RawSource) -> str:
+    """The quoted-title fragment, or empty when the source has no title."""
+    return (
+        prompt("source.preamble.title_quoted", title=raw.title) if raw.title else ""
+    )
+
+
+def describe_source(
+    raw: RawSource, blocks_count: int, owner_name: str | None = None
+) -> str:
     """One sentence naming whose material this is, when it happened, and the owner's role.
 
     Dispatches on the source's own shape (origin / kind / source_class) and degrades to a
     minimal but still owner-subject sentence when metadata is thin — a source with no
     metadata should read as "provenance unknown", never as if it were the owner's own.
 
-    Shape of the output (synthetic persona; see examples/seed_demo.py):
+    `owner_name` defaults to the neutral `source.preamble.owner_default` label, so a caller
+    that does not know the owner's display name still gets an owner-subject sentence.
+
+    Shape of the output (neutral synthetic roles only):
 
       context_stream (scene supplied by the ingest side)
-        这是 林知远 2026-07-18 在 Atlas 评审会上的一段对话，共 12 条消息。
-        林知远发言 4 次，被 @ 提及 1 次。
+        This is the owner 2026-07-18 in the release review, 12 message(s).
+        The owner spoke 4 time(s), was @-mentioned 1 time(s).
       document authored by the owner
-        这是 林知远 于 2026-07-18 09:30 创建的一篇工作笔记，标题为「Atlas 发布检查」。
-        林知远是作者，文中的判断默认属于他。
+        This is a work note by the owner created on 2026-07-18 09:30, titled "Release check".
+        The owner is the author, so judgments in it belong to them by default.
       document authored by someone else
-        这是 宋遥 于 2026-07-10 14:05 创建的一篇工作笔记，标题为「…」。
-        林知远是读者而不是作者，文中的判断属于宋遥，不得记成他自己的决定。
+        This is a work note by a teammate created on 2026-07-10 14:05, titled "…".
+        The owner is a reader and not the author; judgments in it belong to a teammate and
+        must not be recorded as their own decisions.
     """
+    if owner_name is None:
+        owner_name = prompt("source.preamble.owner_default")
     return _spaced(_describe(raw, blocks_count, owner_name))
 
 
@@ -351,15 +435,13 @@ def _describe(raw: RawSource, blocks_count: int, owner_name: str) -> str:
             return _document_preamble(raw, owner_name)
         if raw.source_class == "reference":
             return _reference_preamble(raw, owner_name)
-        title_part = f"「{raw.title}」" if raw.title else ""
-        return (
-            f"这是{owner_name}导入的一篇文档{title_part}；素材未提供作者与成文时间，"
-            f"因此不得默认其中的判断出自他本人。"
+        return prompt(
+            "source.preamble.document_unknown",
+            owner=owner_name,
+            title=_title_part(raw),
         )
-    title_part = f"「{raw.title}」" if raw.title else ""
-    return (
-        f"这是{owner_name}知识库中的一份素材{title_part}；素材未提供出处与时间，"
-        f"归属与时间一律留待确认。"
+    return prompt(
+        "source.preamble.fallback", owner=owner_name, title=_title_part(raw)
     )
 
 

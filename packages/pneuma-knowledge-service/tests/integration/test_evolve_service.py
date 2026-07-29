@@ -59,7 +59,7 @@ async def _seed_base(ctx, user) -> None:
 
     files = {
         "memory/topics/atlas.md": render_document(
-            {"pneuma_id": "d-atlas", "type": "topic", "slug": "atlas"}, _ATLAS_BODY
+            {"doc_id": "d-atlas", "type": "topic", "slug": "atlas"}, _ATLAS_BODY
         )
     }
     await ctx.canonical.commit_patch(user, files, message="seed base")

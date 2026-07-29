@@ -124,7 +124,8 @@ class LiveContextSession:
         focus_option(self.policy.focus)  # closed vocabulary; unknown raises, never defaults
         self._turns: deque[ConversationTurn] = deque(maxlen=max(1, self.policy.turn_window))
         self._shown: OrderedDict[tuple[str, str], dict[str, str]] = OrderedDict()
-        # Held for the life of the connection so 参与者N keeps meaning the same person as
+        # Held for the life of the connection so a participant number keeps meaning the same
+        # person as
         # the window rolls. See core's `label_turns`.
         self.label_map: dict[str, str] = {}
         self._dirty = False

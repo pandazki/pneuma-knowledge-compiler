@@ -11,7 +11,7 @@ repair round by the runner):
    carried over verbatim from the base body is grandfathered (it was validated when first
    committed); a later forward-only compile that does not supply that old source must not
    retroactively reject it (M5 Path B: new source compiled while old canonical stands).
-4. frontmatter completeness — pneuma_id / type / slug present.
+4. frontmatter completeness — doc_id / type / slug present.
 4b. anchor coverage — every content block carries an anchor (else it is browse-visible
    canonical text that never enters the L3 claim index — an orphaned claim).
 5. path ownership — every document path matches a skill path template.
@@ -28,10 +28,19 @@ from dataclasses import dataclass
 from ..domain.canonical import CANONICAL_CITATION_MARKER_RE, iter_canonical_citations
 from ..domain.ids import extract_anchors
 from ..domain.source import NormalizedSource
+from ..prompts import prompt
 from .anchor_ops import anchored_blocks, missing_anchors, unanchored_blocks
+from .documents import DOC_ID_KEY, LEGACY_DOC_ID_KEYS
 from .patch import PatchDraft, path_allowed
 
-REQUIRED_FRONTMATTER = ("pneuma_id", "type", "slug")
+REQUIRED_FRONTMATTER = (DOC_ID_KEY, "type", "slug")
+
+# Accepted-on-read spellings per required key. A document committed before the id key was
+# renamed carries `pneuma_id`; loads normalize it (compile.documents.normalize_frontmatter),
+# but the gate accepts the legacy spelling directly too, so an un-normalized legacy
+# document is never hard-rejected for "missing" an id it does have. Writes emit `doc_id`
+# only — this is a read-side alias, not a second supported field name.
+_FRONTMATTER_READ_ALIASES: dict[str, tuple[str, ...]] = {DOC_ID_KEY: LEGACY_DOC_ID_KEYS}
 
 # Inter-document markdown links — the form the projection layer reads to build graph edges
 # (service dataset._MD_LINK_RE). Kept identical here so the gate validates exactly what the
@@ -74,7 +83,11 @@ def check_anchor_uniqueness(docs: Mapping[str, object]) -> list[Violation]:
                     Violation(
                         "anchor_uniqueness",
                         path,
-                        f"锚 c:{anchor} 重复（另见 {seen[anchor]}）；锚是全 repo 唯一身份。",
+                        prompt(
+                            "gate.anchor_uniqueness",
+                            anchor=anchor,
+                            other_path=seen[anchor],
+                        ),
                     )
                 )
             else:
@@ -83,13 +96,20 @@ def check_anchor_uniqueness(docs: Mapping[str, object]) -> list[Violation]:
 
 
 def check_frontmatter(docs: Mapping[str, object]) -> list[Violation]:
-    """pneuma_id / type / slug present on every document (shared by compile + evolve gates)."""
+    """doc_id / type / slug present on every document (shared by compile + evolve gates)."""
     violations: list[Violation] = []
     for path, doc in docs.items():
         for key in REQUIRED_FRONTMATTER:
-            if not str(doc.frontmatter.get(key, "")).strip():
+            spellings = (key, *_FRONTMATTER_READ_ALIASES.get(key, ()))
+            if not any(
+                str(doc.frontmatter.get(spelling, "")).strip() for spelling in spellings
+            ):
                 violations.append(
-                    Violation("frontmatter", path, f"frontmatter 缺少必填字段 {key}。")
+                    Violation(
+                        "frontmatter",
+                        path,
+                        prompt("gate.frontmatter_missing", key=key),
+                    )
                 )
     return violations
 
@@ -105,7 +125,7 @@ def check_anchor_coverage(docs: Mapping[str, object]) -> list[Violation]:
                 Violation(
                     "anchor_coverage",
                     path,
-                    f"内容块无锚，不会进入 claim 索引：「{preview}…」。每个 claim 块都需系统锚。",
+                    prompt("gate.anchor_coverage", preview=preview),
                 )
             )
     return violations
@@ -131,7 +151,7 @@ def run_gate(
                 Violation(
                     "anchor_continuity",
                     path,
-                    f"既有锚 c:{anchor} 在本次编译后消失（v1 无删除通道，claim 只增改不删）。",
+                    prompt("gate.anchor_continuity", anchor=anchor),
                 )
             )
 
@@ -164,7 +184,7 @@ def run_gate(
                         Violation(
                             "citation",
                             path,
-                            f"citation 引用了本次未供给的 source_id={sid}。",
+                            prompt("gate.citation_unknown_source", source_id=sid),
                         )
                     )
                     continue
@@ -174,8 +194,14 @@ def run_gate(
                         Violation(
                             "citation",
                             path,
-                            f"citation [{sid} ¶{start}-{end}] 越界（该 source 有 {n} 个 block，"
-                            f"合法区间 0..{n - 1}）。",
+                            prompt(
+                                "gate.citation_out_of_range",
+                                source_id=sid,
+                                start=start,
+                                end=end,
+                                count=n,
+                                last=n - 1,
+                            ),
                         )
                     )
 
@@ -194,8 +220,9 @@ def run_gate(
             if CANONICAL_CITATION_MARKER_RE.search(block):
                 continue
             # The skill allows a second legitimate provenance: a claim derived from EXISTING
-            # canonical rather than from this round's material (§8 "回链到本轮来源或既有
-            # canonical"). There is no `[cite:]` form for that, so referencing the existing
+            # canonical rather than from this round's material (§8 "link back to this round's
+            # source or to existing canonical"). There is no `[cite:]` form for that, so
+            # referencing the existing
             # anchor it derives from satisfies the requirement. Without this the rule would
             # be stricter than the invariant it enforces.
             if any(f"c:{a}" in block for a in base_anchors):
@@ -205,10 +232,11 @@ def run_gate(
                 Violation(
                     "citation",
                     path,
-                    f"新建的 claim 没有任何来源：「{preview}…」（锚 c:{anchors[0]}）。"
-                    "本轮新增的每条 claim 都必须回链依据——要么用 `[cite: <source_id> ¶a-b]` "
-                    "指向本轮素材，要么在文中引用其所依据的既有锚 `c:<id>`；"
-                    "若它只是小节标签或结构行，就不要把它写成独立 claim 块。",
+                    prompt(
+                        "gate.claim_without_provenance",
+                        preview=preview,
+                        anchor=anchors[0],
+                    ),
                 )
             )
 
@@ -231,8 +259,7 @@ def run_gate(
                     Violation(
                         "link",
                         path,
-                        f"链接指向了当前文档自己：`{href}`。链接只用于指向别的主体，"
-                        "自指是噪声，投影层也会丢弃它。",
+                        prompt("gate.link_self_reference", href=href),
                     )
                 )
                 continue
@@ -241,9 +268,7 @@ def run_gate(
                     Violation(
                         "link",
                         path,
-                        f"链接目标不存在：`{href}`（解析为 `{target}`）。"
-                        "要么先用 create_document 建立该主体文档，要么不要写这个链接——"
-                        "死链在知识图谱里是断头路。",
+                        prompt("gate.link_dead", href=href, target=target),
                     )
                 )
 
@@ -263,7 +288,10 @@ def run_gate(
                 Violation(
                     "path",
                     path,
-                    f"路径不在 skill 允许的 ownership 模板内：{', '.join(draft.path_templates)}。",
+                    prompt(
+                        "gate.path_not_owned",
+                        templates=", ".join(draft.path_templates),
+                    ),
                 )
             )
 

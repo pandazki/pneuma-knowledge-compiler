@@ -13,8 +13,13 @@ from typing import Any
 
 from pneuma_knowledge_core.domain.canonical import Citation
 from pneuma_knowledge_core.domain.ids import UserId, SourceId
-from pneuma_knowledge_core.recall.briefing import _BRIEFING_CONTRACT
-from pneuma_knowledge_core.recall.suggestion import DETAIL_CONTRACT, LiveContextResult, evaluate_live_context
+from pneuma_knowledge_core.prompts import prompt
+from pneuma_knowledge_core.recall.briefing import briefing_contract
+from pneuma_knowledge_core.recall.suggestion import (
+    LiveContextResult,
+    detail_contract,
+    evaluate_live_context,
+)
 from pneuma_knowledge_core.recall.fast import extract_usage, invoke_config, zero_usage
 from langchain_core.messages import HumanMessage, SystemMessage
 
@@ -25,15 +30,15 @@ from .session import EvaluationPlan
 def briefing_pack(system_prefix: str) -> str:
     """The knowledge pack alone, with the stored briefing's Q&A contract stripped off.
 
-    `build_briefing` persists `system_prefix = _BRIEFING_CONTRACT + "\\n" + pack + "\\n"`
+    `build_briefing` persists `system_prefix = briefing_contract() + "\\n" + pack + "\\n"`
     (briefing.py). The Live Context engine takes `pack` as data for the HUMAN turn, and core
     will not reach into service-persisted state to unpick it, so the split happens here.
 
     Handing the raw `system_prefix` through would inject a second, contradictory contract
     into the middle of the suggestion Human turn: it tells the model it is a Q&A engine answering
     a owner's question, advertises `search_knowledge` / `fetch_verbatim` tools that are
-    not bound on this call, and closes with the very 「无相关记录」 clause the Live Context
-    contract exists to replace — the one that produces an empty card. The active System
+    not bound on this call, and closes with the very "no relevant record" clause the Live
+    Context contract exists to replace — the one that produces an empty card. The active System
     contract would be arguing with a stale contract quoted underneath it.
 
     A prefix that does NOT start with the contract (an older or hand-written briefing) is
@@ -41,9 +46,10 @@ def briefing_pack(system_prefix: str) -> str:
     An empty pack yields `""`, never None — the difference is load-bearing in core, where
     `pack is None` means "full scope, go retrieve" and `pack == ""` means "briefing scope,
     which happens to be empty; retrieve nothing"."""
-    if not system_prefix.startswith(_BRIEFING_CONTRACT):
+    contract = briefing_contract()
+    if not system_prefix.startswith(contract):
         return system_prefix
-    return system_prefix[len(_BRIEFING_CONTRACT) :].strip()
+    return system_prefix[len(contract) :].strip()
 
 
 async def load_briefing_pack(ctx: Any, user: UserId, briefing_id: str) -> str:
@@ -99,17 +105,31 @@ async def run_evaluation(
 
 def _detail_human(suggestion: dict[str, Any], passages: Sequence[dict[str, Any]]) -> str:
     parts = [
-        f"# 卡片\nkind: {suggestion.get('kind', '')}\n标题：{suggestion.get('title', '')}\n"
-        f"正文：{suggestion.get('body', '')}\n触发片段：{suggestion.get('trigger', '')}"
+        prompt(
+            "recall.suggestion.detail_card",
+            kind=suggestion.get("kind", ""),
+            title=suggestion.get("title", ""),
+            body=suggestion.get("body", ""),
+            trigger=suggestion.get("trigger", ""),
+        )
     ]
     if passages:
         blocks = []
         for p in passages:
-            head = f"来源 {p['source_id']} 区块 [{p['block_start']}, {p['block_end']}]"
+            head = prompt(
+                "recall.suggestion.detail_source_head",
+                source_id=p["source_id"],
+                block_start=p["block_start"],
+                block_end=p["block_end"],
+            )
             blocks.append(f"## {head}\n{p['text']}")
-        parts.append(f"# 引用来源原文（{len(passages)} 段）\n" + "\n\n".join(blocks))
+        parts.append(
+            prompt("recall.suggestion.detail_sources_header", count=len(passages))
+            + "\n"
+            + "\n\n".join(blocks)
+        )
     else:
-        parts.append("# 引用来源原文\n（本卡片没有可直取的引用，只能基于卡片本身展开）")
+        parts.append(prompt("recall.suggestion.detail_no_sources"))
     return "\n\n".join(parts)
 
 
@@ -167,7 +187,7 @@ async def expand_suggestion(
     model = ctx.get_chat_model("live_context")
     response = await model.ainvoke(
         [
-            SystemMessage(content=DETAIL_CONTRACT),
+            SystemMessage(content=detail_contract()),
             HumanMessage(content=_detail_human(suggestion, passages)),
         ],
         config=invoke_config(

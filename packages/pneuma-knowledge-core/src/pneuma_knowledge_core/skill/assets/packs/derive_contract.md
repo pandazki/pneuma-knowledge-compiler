@@ -1,22 +1,22 @@
-你在为一位个人知识工作台本人判断：他的职业是否有一类**明显区别于通用 people/topics、且形态稳定**的高价值信息，值得为其预留专属的归档位置。
+You are judging, for one owner of a personal knowledge workbench, whether their occupation produces a class of high-value information that is **clearly distinct from the generic people/topics families and stable in shape**, worth reserving a dedicated filing location for.
 
-输入是本人注册画像里的自由文本：occupation（职业补充）、bio（简介）、interests（兴趣列表）。输出是 0 到 3 个附加主题家族（每个一个 `memory/<family>/{slug}.md` 形态的路径模板），每个家族附一句从画像出发的理由。
+The input is the free text from the owner's registration profile: occupation, bio, and the interests list. The output is 0 to 3 additional topic families (each one path template shaped `memory/<family>/{slug}.md`), each with one line of reasoning grounded in the profile.
 
-## 判断标准
+## Criteria
 
-- **默认空集**。只有当职业明确指向一类反复出现、结构稳定、且通用 people/topics 装不下的信息形态时，才提出家族。看不出这种稳定形态、或只能靠猜，就返回空集——漏建一个家族可以由后续证据补上，错建一个空家族会长期误导归档。
-- **宁少勿多**。能想到 3 个也优先只留最有把握的 1~2 个。薄而准是产品要求。
-- **不发明与内置矩阵重复的家族**。projects、tech-notes、accounts、deals、products、research、design-work、campaigns、audiences、shifts、handoffs 这些已由 role×industry 矩阵覆盖；不要因为 bio 里出现相近词就重复提出它们。你补的是矩阵没覆盖的职业专属形态。
-- **不与 base 家族抢地盘**。people（人物）、topics（工作/生活主题）、profile（本人本人画像与偏好）、materials（外置正文）是通用底座；凡是这些已经装得下的语义，不要另立家族。
-- **interests 不是归档需求**。兴趣/爱好本身不产生稳定的归档形态，除非 bio 明确表明它是本人的严肃投入（职业化、有产出、有长期追踪价值）。「喜欢摄影」不构成 `memory/photos/` 家族；「独立摄影师，持续接商拍」才可能构成。
-- 家族命名用英文 kebab-case，与现有 people/topics 一致；每个家族一句理由必须能指回画像里的具体依据，不能是泛泛套话。
+- **The empty set is the default.** Only propose a family when the occupation clearly implies a recurring, structurally stable class of information that generic people/topics cannot hold. If you cannot see that stable shape, or can only guess, return the empty set — a missing family can be added by later evidence, whereas a wrongly created empty family misleads filing for a long time.
+- **Fewer rather than more.** Even if you can think of three, prefer to keep only the one or two you are most confident about. Thin and accurate is the product requirement.
+- **Do not invent families that duplicate the built-in matrix.** projects, tech-notes, accounts, deals, products, research, design-work, campaigns, audiences, shifts and handoffs are already covered by the role × industry matrix; do not re-propose them just because a similar word appears in the bio. What you add is the occupation-specific shape the matrix does not cover.
+- **Do not compete with the base families.** people (individuals), topics (work / life topics), profile (the owner's own picture and preferences) and materials (externalized bodies) are the generic foundation; do not set up a family for meaning these already hold.
+- **Interests are not a filing requirement.** A hobby by itself does not produce a stable filing shape, unless the bio makes clear that it is a serious commitment (professionalized, producing output, worth tracking long term). "Likes photography" does not justify a `memory/photos/` family; "independent photographer, taking commercial work continuously" might.
+- Name families in English kebab-case, consistent with the existing people/topics; each family's single line of reasoning must point back to concrete evidence in the profile, never generic filler.
 
 ## few-shot
 
-**例 1（产出 1 个家族）**
-occupation：「执业律师，主做商事合同」；bio：「独立执业五年，长期跟进十几家企业客户的合同与纠纷」；interests：["徒步","红酒"]。
-→ 输出：`memory/matters/{slug}.md`，理由：「本人以案件/事项为单位长期跟进，每个 matter 有独立的当事人、时间线与状态演化，通用 topics 无法承载这种稳定的案件生命周期。」（interests 里的徒步、红酒不产生家族。）
+**Example 1 (one family produced)**
+occupation: "practising lawyer, mainly commercial contracts"; bio: "five years in independent practice, following the contracts and disputes of a dozen or so corporate clients"; interests: ["hiking", "wine"].
+→ Output: `memory/matters/{slug}.md`, reasoning: "the owner tracks work in units of cases/matters over long periods; each matter has its own parties, timeline and state evolution, and generic topics cannot carry that stable case lifecycle." (The hiking and wine in interests produce no family.)
 
-**例 2（产出空集）**
-occupation：「自由职业者」；bio：「喜欢到处旅行，偶尔接点零活」；interests：["旅行","咖啡","摄影"]。
-→ 输出：空集。理由：画像看不出任何稳定、反复、区别于通用 people/topics 的信息形态；旅行与摄影是兴趣而非严肃投入，base 家族足够承载。
+**Example 2 (empty set produced)**
+occupation: "freelancer"; bio: "likes travelling around, picks up odd jobs now and then"; interests: ["travel", "coffee", "photography"].
+→ Output: the empty set. Reasoning: the profile shows no stable, recurring information shape distinct from generic people/topics; travel and photography are interests rather than serious commitments, and the base families carry them adequately.

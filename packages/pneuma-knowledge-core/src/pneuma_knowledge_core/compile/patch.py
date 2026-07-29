@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 
 from ..domain.canonical import CanonicalDocument
 from ..domain.ids import DocumentId
+from ..prompts import prompt
 from .anchor_ops import (
     AnchorToolError,
     append_block_text,
@@ -23,7 +24,7 @@ from .anchor_ops import (
     insert_block_verbatim,
     remove_claim_block,
 )
-from .documents import render_document
+from .documents import DOC_ID_KEY, normalize_frontmatter, render_document
 
 _SLUG = r"[a-z0-9]+(?:-[a-z0-9]+)*"
 
@@ -46,7 +47,7 @@ def _assign_document_id(path: str) -> DocumentId:
 @dataclass
 class DraftDoc:
     path: str
-    pneuma_id: DocumentId
+    doc_id: DocumentId
     frontmatter: dict
     body: str
 
@@ -66,14 +67,14 @@ class PatchDraft:
         base = {
             d.path: DraftDoc(
                 path=d.path,
-                pneuma_id=d.pneuma_id,
+                doc_id=d.doc_id,
                 frontmatter=dict(d.frontmatter),
                 body=d.body,
             )
             for d in docs
         }
         working = {
-            p: DraftDoc(d.path, d.pneuma_id, dict(d.frontmatter), d.body)
+            p: DraftDoc(d.path, d.doc_id, dict(d.frontmatter), d.body)
             for p, d in base.items()
         }
         return cls(path_templates=list(path_templates), _base=base, _working=working)
@@ -86,7 +87,7 @@ class PatchDraft:
     def read(self, path: str) -> DraftDoc:
         doc = self._working.get(path)
         if doc is None:
-            raise AnchorToolError(f"read_document 被拒绝：文档 {path} 不存在。")
+            raise AnchorToolError(prompt("compile.patch.read_missing", path=path))
         return doc
 
     # --- claim-level mutations ------------------------------------------------
@@ -94,19 +95,23 @@ class PatchDraft:
     def create_document(self, path: str, frontmatter: dict, body: str) -> DraftDoc:
         if not path_allowed(path, self.path_templates):
             raise AnchorToolError(
-                f"create_document 被拒绝：路径 {path} 不在 skill 允许的 ownership 模板内。"
-                f"允许模板：{', '.join(self.path_templates)}。"
+                prompt(
+                    "compile.patch.create_path_not_allowed",
+                    path=path,
+                    templates=", ".join(self.path_templates),
+                )
             )
         if path in self._working:
             raise AnchorToolError(
-                f"create_document 被拒绝：文档 {path} 已存在，改写既有 claim 用 edit_claim，"
-                "新增 claim 用 append_block。"
+                prompt("compile.patch.create_exists", path=path)
             )
-        pneuma_id = _assign_document_id(path)
+        doc_id = _assign_document_id(path)
         anchored = assign_document_anchors(body, path)
-        fm = dict(frontmatter)
-        fm["pneuma_id"] = str(pneuma_id)
-        doc = DraftDoc(path=path, pneuma_id=pneuma_id, frontmatter=fm, body=anchored)
+        # Normalize first so a legacy id key handed in by a caller is folded away rather
+        # than persisted next to the system-assigned one; the id itself is never caller-set.
+        fm = normalize_frontmatter(frontmatter)
+        fm[DOC_ID_KEY] = str(doc_id)
+        doc = DraftDoc(path=path, doc_id=doc_id, frontmatter=fm, body=anchored)
         self._working[path] = doc
         return doc
 
@@ -134,7 +139,7 @@ class PatchDraft:
         src = self.read(from_path)  # refuses if source missing / anchor missing
         if to_path not in self._working:
             raise AnchorToolError(
-                f"move_claim 被拒绝：目标文档 {to_path} 不存在，请先 create_document 再搬移。"
+                prompt("compile.patch.move_target_missing", to_path=to_path)
             )
         block, remaining = remove_claim_block(src.body, anchor_id)
         if from_path == to_path:

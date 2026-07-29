@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Any
 
 from pneuma_knowledge_core.domain.ids import UserId, SourceId
-from pneuma_knowledge_core.recall.deep import _DEEP_CONTRACT, _DEEP_TOOL_BUDGET, deep_recall
+from pneuma_knowledge_core.recall.deep import _DEEP_TOOL_BUDGET, deep_contract, deep_recall
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
@@ -96,9 +96,9 @@ async def test_direct_answer_over_seed_evidence_no_tools():
     assert result.trail == ()
     # System is the byte-stable deep contract; the live input closes the Human turn.
     system, human = model.seen[0][0], model.seen[0][1]
-    assert system.content == _DEEP_CONTRACT
-    assert "# claim 注记" in human.content
-    assert human.content.rstrip().endswith("本人输入：谁是后端负责人")
+    assert system.content == deep_contract()
+    assert "# claim notes" in human.content
+    assert human.content.rstrip().endswith("Owner input: 谁是后端负责人")
 
 
 async def test_search_content_surfaces_uncompiled_body_the_jack_regression():

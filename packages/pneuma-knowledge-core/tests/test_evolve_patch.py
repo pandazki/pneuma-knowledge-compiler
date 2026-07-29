@@ -21,9 +21,9 @@ TEMPLATES = [
 
 def _topic(slug: str, body: str) -> CanonicalDocument:
     return CanonicalDocument(
-        pneuma_id=DocumentId(f"d-{slug}"),
+        doc_id=DocumentId(f"d-{slug}"),
         path=f"memory/topics/{slug}.md",
-        frontmatter={"pneuma_id": f"d-{slug}", "type": "topic", "slug": slug},
+        frontmatter={"doc_id": f"d-{slug}", "type": "topic", "slug": slug},
         body=body,
     )
 
@@ -94,5 +94,5 @@ def test_delete_claim_removes_anchor():
 def test_delete_claim_rejects_unknown_anchor():
     src = _topic("atlas", "- 计划发布。[cite: src-01 ¶0] <!-- c:aa11 -->")
     draft = _draft(src)
-    with pytest.raises(AnchorToolError, match="不在该文档中"):
+    with pytest.raises(AnchorToolError, match="is not in this document"):
         draft.delete_claim("memory/topics/atlas.md", "dead")

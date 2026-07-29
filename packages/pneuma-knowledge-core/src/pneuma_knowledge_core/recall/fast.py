@@ -2,7 +2,7 @@
 
 Three seals, all mechanical (§0 discipline 1), not prose pleas:
 
-1. **Fixed answer contract.** The SystemMessage is `_SELECTOR_CONTRACT` verbatim — a
+1. **Fixed answer contract.** The SystemMessage is `selector_contract()` verbatim — a
    byte-stable string (I5). It is a top-down account (identity → the two evidence forms
    → world-facts about the evidence → answer shape), not a rule list; it never carries
    a timestamp, the question, or claim content, so the provider cache is earned by
@@ -11,7 +11,7 @@ Three seals, all mechanical (§0 discipline 1), not prose pleas:
    Qdrant claim layer) fused by RRF, deduped by (document_path, anchor), then capped to
    `cap` (default 40) before rendering.
 3. **Everything volatile in the Human turn, question LAST.** Evidence sections render
-   first (claim 注记 → 原文摘录), then as_of + question close the message — the live
+   first (claim notes → raw excerpts), then as_of + question close the message — the live
    ask sits in the attention-hot tail instead of drowning above a 40-claim wall.
 
 `token_usage` passes through the provider's cache_read / cache_creation fields
@@ -34,6 +34,7 @@ from ..ports.claim_index import ClaimLexicalIndex, ClaimVectorIndex
 from ..ports.content_store import ContentStore
 from ..ports.lexical_index import LexicalIndex
 from ..ports.vector_index import VectorIndex
+from ..prompts import prompt
 from .citation_alias import alias_sources
 from .spine import CITE_SOURCE_LEVEL, CLOSE_ANSWER_HONESTLY, spine
 from .assembly import (
@@ -68,21 +69,15 @@ def invoke_config(
     }
 
 
-# I5: byte-stable. No timestamp, no question, no claim/window content — posture only.
-_SELECTOR_CONTRACT = (
-    """\
-# Pneuma 快速知识回答
+def selector_contract() -> str:
+    """The fast lane's System contract: head + shared spine.
 
-你是 Pneuma Knowledge Compiler 的快速回答引擎。用户需要在工作流中快速得到可追溯答案，
-所以先给结论，再给必要证据。用户的对话、文档、项目与实验材料被编译成两种证据形态：
-
-- **claim 注记**——已编译的结构化个人知识，逐条带锚点（c:…）与出处。
-- **原文摘录**——尚未编译为 claim 的原始内容片段，同样带出处，与 claim 注记同等可信，
-  可直接作为作答依据。
-
-"""
-    + spine(CITE_SOURCE_LEVEL, CLOSE_ANSWER_HONESTLY)
-)
+    I5: byte-stable per prompt overlay. No timestamp, no question, no claim/window content —
+    posture only. Assembled per call rather than at import so a startup-registered overlay
+    reaches it."""
+    return prompt("recall.fast.contract_head") + spine(
+        CITE_SOURCE_LEVEL, CLOSE_ANSWER_HONESTLY
+    )
 
 
 @dataclass(frozen=True)
@@ -240,7 +235,7 @@ def render_windows(windows: list[RecallHit]) -> str:
 
     Windows are the recall lever over uncompiled content, so each line carries the FULL
     block text (capped by count upstream, never truncated). The provenance label uses the
-    same `来源:` grammar as render_passages (I4: one addressing vocabulary everywhere)."""
+    same `[cite: …]` grammar as render_passages (I4: one addressing vocabulary everywhere)."""
     lines: list[str] = []
     for w in windows:
         # Same fixed English `[cite: …]` marker with the FULL source_id (never truncated),
@@ -265,31 +260,36 @@ def recall_human(
     windows: list | None = None,
     profile: str | None = None,
 ) -> str:
-    """The volatile Human payload shared by fast and deep: 画像 → evidence → as_of → input.
+    """The volatile Human payload shared by fast and deep: profile → evidence → as_of → input.
 
-    Deterministic assembly order (I5 / prompt-cache discipline), input LAST: 本人画像
+    Deterministic assembly order (I5 / prompt-cache discipline), input LAST: the owner profile
     (who is asking — the System tier explains what it is) → claim section → window section
-    → as_of → 本人输入, so the live ask sits in the attention-hot tail below the evidence
-    wall instead of above it. Section headers reuse the contract's exact names (本人画像 /
-    claim 注记 / 原文摘录) — what each IS is explained once, in the stable System tier, never
-    re-explained per turn. Claims and windows live in disjoint id spaces (anchor vs
-    block-span), so they are presented as two sections, never cross-fused. The 画像 is the
-    reason it lives in the Human turn, not the byte-stable System (it is per-owner volatile)."""
+    → as_of → the owner's input, so the live ask sits in the attention-hot tail below the
+    evidence wall instead of above it. Section headers reuse the contract's exact names
+    (owner profile / claim notes / raw excerpts) — what each IS is explained once, in the
+    stable System tier, never re-explained per turn. Claims and windows live in disjoint id
+    spaces (anchor vs block-span), so they are presented as two sections, never cross-fused.
+    The profile is the reason it lives in the Human turn, not the byte-stable System (it is
+    per-owner volatile)."""
     windows = windows or []
     sections: list[str] = []
     if profile:
-        sections.append(f"# 本人画像\n{profile}")
+        sections.append(f"{prompt('recall.section.profile_header')}\n{profile}")
     sections.append(
-        f"# claim 注记（{len(claims)} 条）\n"
-        f"{render_claims(claims) or '（本次检索无命中）'}"
+        prompt("recall.section.claims_header", count=len(claims))
+        + "\n"
+        + (render_claims(claims) or prompt("recall.section.claims_empty"))
     )
     if windows:
         sections.append(
-            f"# 原文摘录（{len(windows)} 条）\n{_render_window_section(windows)}"
+            prompt("recall.section.windows_header", count=len(windows))
+            + "\n"
+            + _render_window_section(windows)
         )
     return (
         "\n\n".join(sections)
-        + f"\n\nas_of: {as_of.isoformat()}\n本人输入：{question}"
+        + f"\n\nas_of: {as_of.isoformat()}\n"
+        + prompt("recall.section.input", question=question)
     )
 
 
@@ -301,9 +301,9 @@ def selector_messages(
     windows: list | None = None,
     profile: str | None = None,
 ) -> list[BaseMessage]:
-    """[SystemMessage(fixed contract), HumanMessage(画像 → evidence → as_of → input)]."""
+    """[SystemMessage(fixed contract), HumanMessage(profile → evidence → as_of → input)]."""
     human = recall_human(question, claims, as_of=as_of, windows=windows, profile=profile)
-    return [SystemMessage(content=_SELECTOR_CONTRACT), HumanMessage(content=human)]
+    return [SystemMessage(content=selector_contract()), HumanMessage(content=human)]
 
 
 async def answer_with_selector(

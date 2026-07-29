@@ -8,7 +8,7 @@ from typing import Any
 
 from pneuma_knowledge_core.domain.ids import UserId, SourceId
 from pneuma_knowledge_core.recall.fast import (
-    _SELECTOR_CONTRACT,
+    selector_contract,
     fast_recall,
     selector_messages,
 )
@@ -158,14 +158,18 @@ async def test_windows_surface_when_claims_irrelevant_the_jack_regression():
     )
 
     # 1) windows surfaced into the Human turn payload the model answered over.
-    assert "# 原文摘录" in captured["human"]
+    assert "# raw excerpts" in captured["human"]
     assert real_body in captured["human"]
     # the pre-hook aliases the real source id to a short query-local handle for the LLM.
     assert "[cite: s01 ¶3-3]" in captured["human"]
     assert "srcbody1" not in captured["human"]  # the real id is hidden from the model
     # Assembly order: evidence sections first, the live question LAST (attention-hot tail).
     human = captured["human"]
-    assert human.index("# claim 注记") < human.index("# 原文摘录") < human.index("本人输入：")
+    assert (
+        human.index("# claim notes")
+        < human.index("# raw excerpts")
+        < human.index("Owner input:")
+    )
     assert human.rstrip().endswith("有哪些候选人适合后端或SRE岗位")
     # 2) windows surfaced into the returned payload (drill-downable).
     assert [(w.block_start, w.block_end) for w in result.used_windows] == [(3, 3)]
@@ -204,6 +208,6 @@ async def test_selector_system_message_byte_stable_across_as_of():
     b = selector_messages("同一个问题", list(claims), as_of=datetime(2026, 7, 20, 18, 30))
     assert isinstance(a[0], SystemMessage) and isinstance(a[1], HumanMessage)
     # I5: SystemMessage is the fixed contract, byte-identical, no as_of.
-    assert a[0].content == b[0].content == _SELECTOR_CONTRACT
+    assert a[0].content == b[0].content == selector_contract()
     assert "2026-01-01" not in a[0].content
     assert "2026-01-01T09:00:00" in a[1].content

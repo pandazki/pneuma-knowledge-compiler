@@ -15,9 +15,9 @@ USER = UserId("u-it-ds")
 TS = datetime(2026, 7, 20, 9, 0, tzinfo=timezone.utc)
 
 CHENG_YE = CanonicalDocument(
-    pneuma_id=DocumentId("doc-cheng-ye"),
+    doc_id=DocumentId("doc-cheng-ye"),
     path="memory/people/cheng-ye.md",
-    frontmatter={"pneuma_id": "doc-cheng-ye", "type": "person", "slug": "cheng-ye"},
+    frontmatter={"doc_id": "doc-cheng-ye", "type": "person", "slug": "cheng-ye"},
     body=(
         "## 程野\n\n"
         "- 程野 是后端负责人。[cite: src-01 ¶3] <!-- c:aa11 -->\n"
@@ -25,9 +25,9 @@ CHENG_YE = CanonicalDocument(
     ),
 )
 Q3 = CanonicalDocument(
-    pneuma_id=DocumentId("doc-q3"),
+    doc_id=DocumentId("doc-q3"),
     path="memory/topics/q3-launch.md",
-    frontmatter={"pneuma_id": "doc-q3", "type": "topic", "slug": "q3-launch"},
+    frontmatter={"doc_id": "doc-q3", "type": "topic", "slug": "q3-launch"},
     body="## 承诺\n\n- 下周交付演示稿。[cite: src-01 ¶3,5-¶6] <!-- c:cc33 -->",
 )
 
@@ -157,7 +157,7 @@ async def test_dataset_meta_carries_skill_declared_claim_labels():
     # (v3 §5强/中/弱) so the dataset-driven views render badges without a second request.
     ds = await build_dataset(_ctx(), USER)
     labels = ds["claim_labels"]
-    assert [x["label"] for x in labels] == ["强", "中", "弱"]
+    assert [x["label"] for x in labels] == ["firm", "forming", "loose"]
     assert [x["tier"] for x in labels] == ["solid", "outline", "muted"]
     assert all({"label", "name", "description", "tier"} <= x.keys() for x in labels)
 

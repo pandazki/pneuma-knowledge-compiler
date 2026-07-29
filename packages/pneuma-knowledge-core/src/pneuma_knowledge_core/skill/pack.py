@@ -38,6 +38,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ..compile.patch import _template_regex
 from ..domain.user import UserProfile
+from ..prompts import prompt
 from ..recall.fast import invoke_config
 from .version import SkillVersion
 
@@ -238,35 +239,25 @@ class _DerivedPack(BaseModel):
     templates: list[_DerivedTemplate] = Field(default_factory=list)
 
 
-# Byte-stable System contract for the derive inference. Placeholder text for this stage;
-# a parallel workstream supplies the tuned copy. No volatile content — the profile rides
-# the HumanMessage.
-_DERIVE_CONTRACT = """\
-# 本人领域 schema 推导
-
-根据本人的职业(occupation)、自述(bio)与兴趣(interests)，判断其个人知识里是否存在一类
-高价值、会反复出现的领域主题，值得为其预留专属归档位置（path template）。保守取信：只在
-证据明确时给出；宁缺毋滥。
-
-规则：
-- 最多 3 个 path template，每个配一句 reason 说明为何该本人会反复产生这类记忆。
-- template 形如 `memory/<英文复数名词>/{slug}.md`，slug 为稳定 ASCII kebab-case。
-- 信息太泛、与通用记忆无异、或拿不准 → templates 返回空数组。
-- instructions 用一两句中文点出该本人高价值语义可能集中的主题（可留空）。
-"""
-
-
 def derive_pack_contract() -> str:
-    """The byte-stable System contract for the occupation/bio/interests derive inference."""
-    return _DERIVE_CONTRACT
+    """The byte-stable System contract for the occupation/bio/interests derive inference.
+
+    Resolved through the prompt catalog (`skill.derive_contract`), whose default is the
+    packaged `assets/packs/derive_contract.md` bytes — so the asset stays the editable form
+    while a deployment can replace the whole contract through the standard seam. No volatile
+    content: the profile rides the HumanMessage."""
+    return prompt("skill.derive_contract")
 
 
 def _derive_human(profile: UserProfile) -> str:
-    interests = "、".join(profile.interests) if profile.interests else "（无）"
-    return (
-        f"职业(occupation)：{profile.occupation or '（无）'}\n"
-        f"自述(bio)：{profile.bio or '（无）'}\n"
-        f"兴趣(interests)：{interests}"
+    empty = prompt("skill.derive.empty")
+    separator = prompt("skill.derive.interest_separator")
+    interests = separator.join(profile.interests) if profile.interests else empty
+    return prompt(
+        "skill.derive.human",
+        occupation=profile.occupation or empty,
+        bio=profile.bio or empty,
+        interests=interests,
     )
 
 

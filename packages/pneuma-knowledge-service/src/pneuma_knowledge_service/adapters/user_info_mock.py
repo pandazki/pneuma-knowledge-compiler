@@ -108,23 +108,30 @@ def _build_personas() -> dict[str, UserProfile]:
         # Default synthetic protagonist: an AI-native one-person-company developer.
         "u-opc-lin": _persona(
             "u-opc-lin",
-            display_name="林知远 Lin Zhiyuan",
-            initial="林",
-            gender="male",
+            display_name="Ada Lindqvist",
+            initial="A",
+            gender="female",
             birth_year=1992,
-            city="杭州",
-            country="中国",
-            timezone="Asia/Shanghai",
-            language="zh-CN",
+            city="Lisbon",
+            country="Portugal",
+            timezone="Europe/Lisbon",
+            language="en-GB",
             industry="tech",
             role="engineering",
             level="senior",
-            occupation="AI 产品独立开发者",
+            occupation="independent AI product developer",
             bio=(
-                "以一人公司方式开发 AI 产品，用多个 agent 协作完成研究、工程、"
-                "内容与运营；重视可复现实验、开源反馈和现金流纪律。"
+                "I build AI products as a one-person company, using several agents to cover "
+                "research, engineering, content and operations; I care about reproducible "
+                "experiments, open-source feedback and cash-flow discipline."
             ),
-            interests=["开源", "智能体", "产品实验", "开发者工具", "长跑"],
+            interests=[
+                "open source",
+                "agents",
+                "product experiments",
+                "developer tools",
+                "long-distance running",
+            ],
             primary_stack="TypeScript + Python",
             automation_level="agentic",
             active_since="2024-03-12",
@@ -140,37 +147,37 @@ _PERSONAS: dict[str, UserProfile] = _build_personas()
 
 # --------------------------------------------------------- deterministic synthesis pools
 
-# The public fallback deliberately stays inside the same fictional Chinese OPC world as
-# the named demo. Names are invented and selected deterministically from the user id.
+# The public fallback deliberately stays inside the same fictional one-person-company world
+# as the named demo. Names are invented and selected deterministically from the user id.
 _BUCKETS = [
     {
-        "language": "zh-CN",
+        "language": "en-GB",
         "units": "metric",
         "names": [
-            ("赵明 Zhao Ming", "赵", "male"),
-            ("钱伟 Qian Wei", "钱", "male"),
-            ("孙丽 Sun Li", "孙", "female"),
-            ("李娜 Li Na", "李", "female"),
-            ("吴强 Wu Qiang", "吴", "male"),
-            ("郑欣 Zheng Xin", "郑", "female"),
+            ("Mira Halloran", "M", "female"),
+            ("Tobias Rennick", "T", "male"),
+            ("Sanne Vermeer", "S", "female"),
+            ("Owen Castellan", "O", "male"),
+            ("Priya Ravel", "P", "female"),
+            ("Nils Aakerlund", "N", "male"),
         ],
         "cities": [
-            ("杭州", "中国", "Asia/Shanghai"),
-            ("深圳", "中国", "Asia/Shanghai"),
-            ("北京", "中国", "Asia/Shanghai"),
-            ("广州", "中国", "Asia/Shanghai"),
-            ("南京", "中国", "Asia/Shanghai"),
+            ("Lisbon", "Portugal", "Europe/Lisbon"),
+            ("Tallinn", "Estonia", "Europe/Tallinn"),
+            ("Bristol", "United Kingdom", "Europe/London"),
+            ("Valencia", "Spain", "Europe/Madrid"),
+            ("Wellington", "New Zealand", "Pacific/Auckland"),
         ],
-        "occupations": ["AI-Native 独立开发者"],
+        "occupations": ["AI-native independent developer"],
         "interests": [
-            "开源",
-            "智能体",
-            "产品实验",
-            "开发者工具",
-            "本地优先",
-            "技术写作",
-            "跑步",
-            "摄影",
+            "open source",
+            "agents",
+            "product experiments",
+            "developer tools",
+            "local-first software",
+            "technical writing",
+            "running",
+            "photography",
         ],
     },
 ]
@@ -225,7 +232,10 @@ def _synthesize(user_id: str) -> UserProfile:
         role="engineering",
         level=_pick(list(LEVELS), "level", user_id),
         occupation=occupation,
-        bio="以一人公司方式开发 AI 产品，使用 agent 协作完成研究、工程与运营。",
+        bio=(
+            "I build AI products as a one-person company, using agents to cover research, "
+            "engineering and operations."
+        ),
         interests=interests,
         workspace=WorkspaceProfile(
             operating_mode="opc",

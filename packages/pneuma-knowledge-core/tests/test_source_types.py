@@ -40,10 +40,14 @@ def test_context_stream_type_bundles_all_concerns():
     assert first_party_type("upload") is None  # generic path has no plugin
     assert ct.indexing().chunk_strategy == "semantic"
     g = ct.compile_guidance()
-    assert g is not None and "本人" in g.data_context and "context stream" in g.app_context
+    assert (
+        g is not None
+        and "the owner and numbered" in g.data_context
+        and "context stream" in g.app_context
+    )
     # attribution is framed as provenance, not adjudication — the systemic fix for the
     # over-assertion the sharp discrimination framing caused on the strong agentic lane.
-    assert "溯源" in g.app_context
+    assert "tracing, not" in g.app_context
 
     raw = RawSource(
         source_id=SourceId("s1"), user_id=UserId("u1"), kind="conversation",
@@ -51,7 +55,7 @@ def test_context_stream_type_bundles_all_concerns():
         checksum="c", created_at=datetime(2026, 6, 30, tzinfo=timezone.utc),
     )
     norm = ct.format(raw, ct.load([ConversationTurn(speaker="self/1", text="hi")]))
-    assert norm.blocks[0].text == "本人：hi"
+    assert norm.blocks[0].text == "Owner: hi"
 
 
 def test_render_task_injects_guidance_before_blocks():
@@ -66,8 +70,8 @@ def test_render_task_injects_guidance_before_blocks():
         [norm], [], source_guidance={"s1": ct.compile_guidance().render()}
     )
     # guidance appears, and before the block body it annotates
-    assert "第一方数据说明" in task
-    assert task.index("功能意图") < task.index("¶0 本人：hi")
+    assert "[First-party data notes]" in task
+    assert task.index("Feature intent") < task.index("¶0 Owner: hi")
 
 
 def test_render_task_no_guidance_is_unchanged_generic_path():
@@ -82,4 +86,4 @@ def test_render_task_no_guidance_is_unchanged_generic_path():
         raw=raw, blocks=[NormalizedBlock(index=0, text="x: hi")], structure=StructureMap()
     )
     task = _render_task([norm], [], source_guidance={})
-    assert "第一方数据说明" not in task
+    assert "[First-party data notes]" not in task

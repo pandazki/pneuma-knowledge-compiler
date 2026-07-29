@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 from pneuma_knowledge_core.domain.user import INDUSTRIES, LEVELS, ROLES
 from pneuma_knowledge_core.persona import ProfileDraft, synthesize_profile_draft
-from pneuma_knowledge_core.persona.generate import _PROFILE_INSTRUCTION
+from pneuma_knowledge_core.prompts import prompt
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import ValidationError
 
@@ -89,7 +89,7 @@ async def test_synthesize_assembles_messages_and_returns_draft():
     # [SystemMessage(fixed instruction), HumanMessage(sentence)] — nothing else.
     msgs = model.structured.messages
     assert len(msgs) == 2
-    assert isinstance(msgs[0], SystemMessage) and msgs[0].content == _PROFILE_INSTRUCTION
+    assert isinstance(msgs[0], SystemMessage) and msgs[0].content == prompt("persona.profile_instruction")
     assert isinstance(msgs[1], HumanMessage) and msgs[1].content == "杭州做 AI 产品的独立开发者"
     # invoke_config wiring: run_name + empty callbacks/metadata on the keyless path.
     assert model.structured.config["run_name"] == "profile.generate"

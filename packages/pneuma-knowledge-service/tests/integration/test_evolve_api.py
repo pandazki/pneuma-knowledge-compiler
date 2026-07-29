@@ -113,7 +113,7 @@ async def env(tmp_path):
         user = UserId(f"u-it-evapi-{uuid.uuid4().hex[:8]}")
         files = {
             "memory/topics/atlas.md": render_document(
-                {"pneuma_id": "d-atlas", "type": "topic", "slug": "atlas"}, _ATLAS_BODY
+                {"doc_id": "d-atlas", "type": "topic", "slug": "atlas"}, _ATLAS_BODY
             )
         }
         await ctx.canonical.commit_patch(user, files, message="seed base")
@@ -138,7 +138,7 @@ async def test_trigger_review_adopt_full_cycle(env):
     assert "memory/products/{slug}.md" not in skill0["path_templates"]
     assert skill0["base_version"]
     # skill declares the §5强/中/弱 claim-prefix vocabulary — the UI's generic badge词表.
-    assert [x["label"] for x in skill0["claim_labels"]] == ["强", "中", "弱"]
+    assert [x["label"] for x in skill0["claim_labels"]] == ["firm", "forming", "loose"]
     assert all(
         {"label", "name", "description", "tier"} <= x.keys() for x in skill0["claim_labels"]
     )
@@ -186,7 +186,7 @@ async def test_trigger_review_adopt_full_cycle(env):
     assert "memory/products/{slug}.md" in skill1["path_templates"]
     assert any(p["origin"] == "evolved" for p in skill1["packs"])
     # the evolved-composed skill still declares the same vocabulary (packs are additive).
-    assert [x["label"] for x in skill1["claim_labels"]] == ["强", "中", "弱"]
+    assert [x["label"] for x in skill1["claim_labels"]] == ["firm", "forming", "loose"]
 
 
 async def test_drop_discards_draft(env):

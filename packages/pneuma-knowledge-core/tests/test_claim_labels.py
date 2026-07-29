@@ -16,11 +16,11 @@ def test_v1_declares_no_labels() -> None:
 
 def test_v3_declares_three_tier_strength_labels() -> None:
     labels = claim_labels_for(load_builtin_skill("v3"))
-    assert [x.label for x in labels] == ["强", "中", "弱"]
+    assert [x.label for x in labels] == ["firm", "forming", "loose"]
     assert [x.tier for x in labels] == ["solid", "outline", "muted"]
     assert all(isinstance(x, ClaimLabel) for x in labels)
     # names + non-empty semantics ride each entry (drives the badge + tooltip).
-    assert [x.name for x in labels] == ["已确立", "进行中", "仅提及"]
+    assert [x.name for x in labels] == ["Established", "In progress", "Mentioned only"]
     assert all(x.description.strip() for x in labels)
     # label is the bare prefix — no【】brackets bleed into the vocabulary.
     assert all("【" not in x.label and "】" not in x.label for x in labels)
@@ -28,7 +28,7 @@ def test_v3_declares_three_tier_strength_labels() -> None:
 
 def test_v2_also_declares_the_three_labels() -> None:
     # v2 carries the clause in contract_rules; the same vocabulary results.
-    assert [x.label for x in claim_labels_for(load_builtin_skill("v2"))] == ["强", "中", "弱"]
+    assert [x.label for x in claim_labels_for(load_builtin_skill("v2"))] == ["firm", "forming", "loose"]
 
 
 def test_composed_v3_plus_packs_inherits_the_labels() -> None:
@@ -41,7 +41,7 @@ def test_composed_v3_plus_packs_inherits_the_labels() -> None:
     )
     composed = compose_skill(base, [pack])
     assert composed.version.startswith("v3+packs.")
-    assert [x.label for x in claim_labels_for(composed)] == ["强", "中", "弱"]
+    assert [x.label for x in claim_labels_for(composed)] == ["firm", "forming", "loose"]
 
 
 def test_labels_call_returns_a_fresh_list() -> None:
