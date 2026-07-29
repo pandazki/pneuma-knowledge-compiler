@@ -44,6 +44,12 @@ class EvolveTaskSummaryOut(BaseModel):
     summary: dict[str, Any] | None
     created_at: str | None
     decided_at: str | None
+    # Mechanically derived from the STORED proposal (no extra read, no new persistence):
+    # the archive families / path templates this task proposed. The list endpoint needs them
+    # so a timeline row and the schema-snapshot axis can name what a task adds without
+    # fetching every task's detail.
+    families: list[str] = []
+    path_templates: list[str] = []
 
 
 class ChangedFileOut(BaseModel):
@@ -64,6 +70,8 @@ class EvolveTaskDetailOut(BaseModel):
     branch: str | None
     created_at: str | None
     decided_at: str | None
+    families: list[str] = []
+    path_templates: list[str] = []
     # Review payload: per-file old (base_ref) vs new (branch) body. Empty once adopted/dropped
     # (the branch is gone) — the detail degrades to summary-only.
     changed_files: list[ChangedFileOut]
@@ -97,7 +105,43 @@ class SkillOut(BaseModel):
     claim_labels: list[ClaimLabelOut]
 
 
+def _proposed_packs(proposal: Any) -> list[dict[str, Any]]:
+    """The stored proposal's pack list, or [] for a no-change / malformed proposal."""
+    if not isinstance(proposal, dict):
+        return []
+    packs = proposal.get("packs")
+    if not isinstance(packs, list):
+        return []
+    return [p for p in packs if isinstance(p, dict)]
+
+
+def _proposed_families(proposal: Any) -> list[str]:
+    """Family names a proposal adds: `pack_id` minus its `evolved-` prefix (propose.py mints
+    it as `evolved-<family>`). Mechanical string work only — no interpretation."""
+    out: list[str] = []
+    for pack in _proposed_packs(proposal):
+        pack_id = str(pack.get("pack_id") or "").strip()
+        family = pack_id[len("evolved-") :] if pack_id.startswith("evolved-") else pack_id
+        if family and family not in out:
+            out.append(family)
+    return out
+
+
+def _proposed_templates(proposal: Any) -> list[str]:
+    out: list[str] = []
+    for pack in _proposed_packs(proposal):
+        templates = pack.get("extra_path_templates")
+        if not isinstance(templates, list):
+            continue
+        for template in templates:
+            value = str(template).strip()
+            if value and value not in out:
+                out.append(value)
+    return out
+
+
 def _summary_out(t: dict) -> EvolveTaskSummaryOut:
+    proposal = t["proposal"]
     return EvolveTaskSummaryOut(
         task_id=t["task_id"],
         status=t["status"],
@@ -105,6 +149,8 @@ def _summary_out(t: dict) -> EvolveTaskSummaryOut:
         summary=t["summary"],
         created_at=_iso(t["created_at"]),
         decided_at=_iso(t["decided_at"]),
+        families=_proposed_families(proposal),
+        path_templates=_proposed_templates(proposal),
     )
 
 
@@ -174,6 +220,8 @@ async def get_evolve(
         branch=branch,
         created_at=_iso(task["created_at"]),
         decided_at=_iso(task["decided_at"]),
+        families=_proposed_families(proposal),
+        path_templates=_proposed_templates(proposal),
         changed_files=changed,
     )
 

@@ -6,7 +6,7 @@
  * by the vite dev server; see vite.config.ts).
  */
 
-import type { UserProfile } from "./types";
+import type { ClaimLabel, UserProfile } from "./types";
 import type { HistoryCounts, HistoryItemEnvelope } from "./history";
 import { buildPageQuery, type Page } from "./pagination";
 
@@ -1038,6 +1038,12 @@ export interface EvolveTaskSummary {
   summary: EvolveSummary | null;
   created_at: string | null;
   decided_at: string | null;
+  /** Archive families this task proposed, derived server-side from the stored proposal.
+   * Optional: an older service omits it, and the UI then reverse-derives from
+   * `path_templates` (lib/evolve.ts `proposedFamilies`). */
+  families?: string[];
+  /** Path templates this task proposed (same server-side derivation). */
+  path_templates?: string[];
 }
 
 export interface EvolveTaskDetail extends EvolveTaskSummary {
@@ -1069,6 +1075,9 @@ export interface SkillInfo {
   base_version: string;
   path_templates: string[];
   packs: SkillPack[];
+  /** The claim-prefix vocabulary this skill version declares (§5 strength tiers). Optional:
+   * a v1-style skill declares none, and an older service omits the field entirely. */
+  claim_labels?: ClaimLabel[];
 }
 
 /** All evolve tasks (newest first); the server runs its lazy stale-draft expiry sweep first. */

@@ -156,11 +156,17 @@ async def test_trigger_review_adopt_full_cycle(env):
     tasks = r.json()
     assert len(tasks) == 1 and tasks[0]["status"] == "draft"
     task_id = tasks[0]["task_id"]
+    # The list row names what the task adds (derived from the stored proposal) so a timeline
+    # row / schema-snapshot axis needs no per-task detail fetch.
+    assert tasks[0]["families"] == ["products"]
+    assert tasks[0]["path_templates"] == ["memory/products/{slug}.md"]
 
     # detail carries the review payload: summary, rationale, changed_files (base vs branch).
     r = await client.get(f"{base}/evolve/{task_id}")
     assert r.status_code == 200
     detail = r.json()
+    assert detail["families"] == ["products"]
+    assert detail["path_templates"] == ["memory/products/{slug}.md"]
     assert detail["summary"]["moved_claims"] == 2
     assert "topics" in detail["rationale"] or detail["rationale"]
     changed = {c["path"] for c in detail["changed_files"]}
