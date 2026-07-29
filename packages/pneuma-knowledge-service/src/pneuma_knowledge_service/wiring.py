@@ -298,6 +298,16 @@ def llm_call_config(
     }
     if extra:
         metadata.update({k: v for k, v in extra.items() if v is not None})
+    # Group a multi-round tool loop into ONE Langfuse session. Every `invoke` inside a loop
+    # creates its own root trace, so a compile job's rounds used to land as N unrelated
+    # traces — the job as a whole was not observable, only its individual model calls, and
+    # reconstructing it meant joining on metadata by hand. `langfuse_session_id` /
+    # `langfuse_user_id` are the langchain integration's reserved metadata keys; they are
+    # additive and inert when tracing is off.
+    session = metadata.get("job_id") or metadata.get("briefing_id") or metadata.get("snapshot_ref")
+    if session:
+        metadata["langfuse_session_id"] = f"{operation}:{session}"
+    metadata["langfuse_user_id"] = str(user_id)
     return {
         "callbacks": [handler] if handler is not None else [],
         "trace_metadata": metadata,

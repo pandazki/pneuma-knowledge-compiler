@@ -368,3 +368,18 @@ def unanchored_blocks(body: str) -> list[str]:
         for block_lines, _ in _iter_content_blocks(lines)
         if not extract_anchors(text := "\n".join(block_lines))
     ]
+
+
+def anchored_blocks(body: str) -> list[str]:
+    """Content blocks in `body` that DO carry an anchor — i.e. the claims.
+
+    Complement of `unanchored_blocks`, over the same block segmentation, so the gate can
+    judge a claim as a whole (its text plus its anchor plus its citations) rather than
+    line by line.
+    """
+    lines = body.split("\n")
+    return [
+        text
+        for block_lines, _ in _iter_content_blocks(lines)
+        if extract_anchors(text := "\n".join(block_lines))
+    ]

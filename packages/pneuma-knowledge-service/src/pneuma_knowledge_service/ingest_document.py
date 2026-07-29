@@ -77,6 +77,7 @@ def _normalize(
     declared_type: str | None,
     source_class: SourceClass,
     source_id: SourceId,
+    meta: dict[str, Any] | None = None,
 ) -> NormalizedSource:
     raw = RawSource(
         source_id=source_id,
@@ -87,7 +88,11 @@ def _normalize(
         mime="text/markdown",
         checksum=_checksum(text),
         created_at=datetime.now(timezone.utc),
-        meta={"declared_type": declared_type} if declared_type else {},
+        # Caller metadata (author, occurrence time, workspace, parent doc …) is preserved:
+        # it is what the compile preamble textualizes into "这是 X 于 … 创建的一篇 …".
+        # Without this passthrough a document source reached compile with provenance
+        # stripped, so authorship and time could only be guessed from the prose.
+        meta={**(meta or {}), **({"declared_type": declared_type} if declared_type else {})},
     )
     adapter = MarkdownDocumentAdapter()
     return adapter.normalize(PlainDocumentInput(raw=raw, text=text))
@@ -224,6 +229,7 @@ async def ingest_document(
     source_class: str | None = None,
     intake_archetype: str | None = None,
     plan_override: dict[str, Any] | None = None,
+    meta: dict[str, Any] | None = None,
 ) -> IngestResult:
     """Execute document intake with the confirmed plan (may be user-overridden).
 
@@ -239,6 +245,7 @@ async def ingest_document(
         declared_type=declared_type,
         source_class=cls,
         source_id=source_id,
+        meta=meta,
     )
 
     plan = _resolve_plan(

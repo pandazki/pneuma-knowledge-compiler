@@ -823,6 +823,10 @@ class DocumentPreviewOut(BaseModel):
 class DocumentIngestIn(DocumentPreviewIn):
     # user override of the two knobs (UI edited the proposed plan); None = accept proposal.
     plan_override: dict[str, Any] | None = None
+    # Provenance the caller knows and the text does not carry (author, occurrence time,
+    # source app, parent document). Persisted on the source and textualized into the
+    # compile preamble; symmetric with ConversationIn.meta.
+    meta: dict[str, Any] | None = None
 
 
 @root_router.get("/intake/archetypes", response_model=list[IntakeArchetype])
@@ -880,6 +884,7 @@ async def post_document(
             declared_type=body.declared_type,
             source_class=body.source_class,
             plan_override=body.plan_override,
+            meta=body.meta,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc

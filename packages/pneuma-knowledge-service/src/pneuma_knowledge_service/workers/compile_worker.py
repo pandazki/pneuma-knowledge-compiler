@@ -22,7 +22,7 @@ from pneuma_knowledge_core.domain.ids import UserId, SourceId
 from pneuma_knowledge_core.domain.intake import IntakePlan
 from pneuma_knowledge_core.domain.source import NormalizedSource
 from pneuma_knowledge_core.ingest.chunking import EmbeddedChunk
-from pneuma_knowledge_core.ingest.source_types import first_party_type
+from pneuma_knowledge_core.ingest.source_types import describe_source, first_party_type
 from pneuma_knowledge_core.skill.version import SkillVersion
 from langchain_core.language_models.chat_models import BaseChatModel
 
@@ -49,6 +49,90 @@ def _projection_detail(projection: object) -> str:
     return "projection:" + json.dumps(
         asdict(projection), sort_keys=True, separators=(",", ":")
     )
+
+
+def _search_knowledge_port(ctx: AppContext, user_id: UserId):
+    """`search_knowledge(query)` → already-compiled L3 claims, WITH their anchors.
+
+    The anchor is the point: without it the model can see that a subject is already recorded
+    but has no way to address the claim, so `edit_claim` is unusable and it creates a parallel
+    document instead. Lexical only — the semantic claim face needs an embedding round trip per
+    call, and the lexical face already keys on the vocabulary the compiler is holding."""
+
+    async def search_knowledge(query: str) -> str:
+        try:
+            hits = await ctx.lexical.search_claims(user_id, query, limit=12)
+        except Exception as exc:  # noqa: BLE001 — retrieval is context, never fatal
+            return f"（检索失败：{exc}）"
+        if not hits:
+            return f"（既有 canonical 中检索「{query}」无命中。）"
+        return "\n".join(
+            f"- [{h.document_path} c:{h.anchor}] {h.text.strip()[:220]}" for h in hits
+        )
+
+    return search_knowledge
+
+
+def _search_source_port(ctx: AppContext, user_id: UserId):
+    """`search_source(query)` → raw L0 blocks via the L1/L2 fused face, for cross-source
+    evidence. Only THIS job's sources are citable, so hits outside them are context only."""
+    from pneuma_knowledge_core.recall.rag import rag_recall
+
+    async def search_source(query: str) -> str:
+        try:
+            hits = await rag_recall(
+                user_id,
+                query,
+                lexical=ctx.lexical,
+                vectors=ctx.vectors,
+                embeddings=ctx.embeddings,
+                limit=8,
+            )
+        except Exception as exc:  # noqa: BLE001
+            return f"（检索失败：{exc}）"
+        if not hits:
+            return f"（原始素材中检索「{query}」无命中。）"
+        # 600, not 220: rag_recall merges neighbouring blocks into one window, so a hit can
+        # span many blocks. A short truncation cut the very line being looked up out of the
+        # answer (e.g. a roster entry sitting mid-window), making lookups silently useless.
+        return "\n".join(
+            f"- [{h.source_id} ¶{h.block_start}-{h.block_end}] {h.text.strip()[:600]}"
+            for h in hits
+        )
+
+    return search_source
+
+
+async def _recall_related_claims(
+    ctx: AppContext, user_id: UserId, sources: list[NormalizedSource], *, per_source: int = 6
+) -> str:
+    """Pre-load the existing claims most related to THIS job's sources.
+
+    Default context, replacing the old whole-knowledge-base dump: the model should start
+    already knowing which of its own prior conclusions this material touches, without having
+    to spend a tool round to find out. Queried per source by title (the cheapest signal that
+    is about the source rather than about one line inside it), then deduped by anchor.
+    """
+    seen: dict[str, str] = {}
+    for source in sources:
+        # Query from the material itself, not the title. Titles are often near-contentless
+        # (a room name and a date), which recalled same-room noise instead of same-subject
+        # knowledge. The owner's own turns are the strongest signal for what this source is
+        # about; fall back to the opening blocks when he did not speak.
+        own = [b.text for b in source.blocks if b.text.startswith("本人：")]
+        body = " ".join(own or [b.text for b in source.blocks[:4]])
+        query = f"{source.raw.title or ''} {body}".strip()[:400]
+        if not query:
+            continue
+        try:
+            hits = await ctx.lexical.search_claims(user_id, query, limit=per_source)
+        except Exception:  # noqa: BLE001 — absent recall degrades to the outline alone
+            continue
+        for hit in hits:
+            seen.setdefault(
+                hit.anchor, f"- [{hit.document_path} c:{hit.anchor}] {hit.text.strip()[:220]}"
+            )
+    return "\n".join(seen.values())
 
 
 async def process_job(
@@ -92,6 +176,30 @@ async def process_job(
             if g:
                 source_guidance[str(s.raw.source_id)] = g.render()
 
+    # The knowledge subject. compile used to never learn who it was compiling FOR — the
+    # profile was consumed once by schema-pack selection and then dropped, so every judgment
+    # about "is this HIS commitment / is this useful to HIM" had no referent. A provider
+    # failure degrades to the "subject unknown" contract, never to a wrong subject.
+    owner = None
+    try:
+        owner = await ctx.user_info.get_profile(user_id)
+    except Exception:  # noqa: BLE001 — identity is context, never a hard dependency
+        owner = None
+    owner_name = getattr(owner, "display_name", "") or "本人"
+
+    # Per-source provenance sentence (whose material, when, owner's role in it). Built here
+    # because it needs the profile; `describe_source` reads the source's OWN metadata for the
+    # occurrence time — never `raw.created_at`, which is the ingest wall-clock.
+    source_preamble = {
+        str(s.raw.source_id): describe_source(s.raw, len(s.blocks), owner_name)
+        for s in sources
+    }
+
+    # Context the model starts with: the outline (rendered in core from base_docs) plus the
+    # claims actually related to this job's material. Both replace the former practice of
+    # inlining every existing canonical document into the prompt.
+    retrieved = await _recall_related_claims(ctx, user_id, sources)
+
     trace_cfg = llm_call_config(
         ctx,
         operation="compile",
@@ -112,6 +220,12 @@ async def process_job(
         treatments=treatments,
         source_guidance=source_guidance,
         known_source_bounds=await ctx.store.block_counts(user_id),
+        source_preamble=source_preamble,
+        owner=owner,
+        retrieved=retrieved,
+        search_knowledge=_search_knowledge_port(ctx, user_id),
+        search_source=_search_source_port(ctx, user_id),
+        now=datetime.now(timezone.utc),
         commit_message=f"compile {job_id}",
         **trace_cfg,
     )

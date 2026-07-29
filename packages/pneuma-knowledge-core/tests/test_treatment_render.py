@@ -6,6 +6,7 @@ byte-stable SystemMessage), and defaults to `full` when unspecified.
 
 from datetime import datetime, timezone
 
+from pneuma_knowledge_core.skill import load_builtin_skill, render_system_contract
 from pneuma_knowledge_core.compile.runner import _TREATMENT_INSTRUCTIONS, _render_task
 from pneuma_knowledge_core.domain.ids import UserId, SourceId
 from pneuma_knowledge_core.domain.source import (
@@ -56,5 +57,9 @@ def test_missing_or_unknown_treatment_defaults_to_full():
 
 def test_treatment_rides_human_task_not_system_contract():
     # _render_task builds the HumanMessage body; the fixed strings live only here.
+    # Asserted on the treatment's own marker rather than a phrase from its prose, so
+    # rewording a treatment's guidance does not break a test about WHERE it is rendered.
     task = _render_task([_source("a")], [], {"a": "card"})
-    assert "仅卡片元信息" in task
+    assert _TREATMENT_INSTRUCTIONS["card"] in task
+    assert "treatment=card" in task
+    assert "treatment=card" not in render_system_contract(load_builtin_skill())

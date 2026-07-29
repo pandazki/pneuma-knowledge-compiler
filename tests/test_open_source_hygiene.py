@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import gzip
 import re
+import subprocess
 import tarfile
 import zlib
 from pathlib import Path
@@ -98,6 +99,35 @@ def _private_project_residue_pattern() -> re.Pattern[str]:
     return re.compile("|".join(alternatives), re.IGNORECASE)
 
 
+def _git_ignored(paths: list[Path]) -> set[Path]:
+    """Paths git considers ignored — i.e. content this repository never publishes.
+
+    The hygiene invariant is about what ships, so a deliberately private working-tree path
+    must not be judged as public text. `.gitignore` already excludes per-user canonical
+    repositories (`/data/`), local experiment projects and benchmark run outputs, all of
+    which legitimately hold real material; scanning them made the check fail on content
+    that is not part of the open repository at all. Asking git keeps this list from drifting
+    away from `.gitignore`.
+    """
+    if not paths:
+        return set()
+    # `-z` on both sides: without it git C-quotes any path containing non-ASCII bytes
+    # (`"local/…\344\270\216…"`), which silently fails to match the path we asked about —
+    # so ignored files with CJK names would be scanned anyway.
+    proc = subprocess.run(
+        ["git", "check-ignore", "--stdin", "-z"],
+        cwd=ROOT,
+        input="\0".join(str(p) for p in paths).encode("utf-8"),
+        capture_output=True,
+        check=False,
+    )
+    # exit 0 = some ignored (listed on stdout), 1 = none ignored, >1 = real error.
+    if proc.returncode > 1:
+        raise RuntimeError(f"git check-ignore failed: {proc.stderr.decode(errors='replace').strip()}")
+    out = proc.stdout.decode("utf-8", errors="surrogateescape")
+    return {Path(entry) for entry in out.split("\0") if entry}
+
+
 def _public_text_files() -> list[Path]:
     files: list[Path] = []
     for path in ROOT.rglob("*"):
@@ -109,7 +139,8 @@ def _public_text_files() -> list[Path]:
             continue
         if path.suffix.lower() in TEXT_SUFFIXES:
             files.append(path)
-    return files
+    ignored = _git_ignored(files)
+    return [path for path in files if path not in ignored]
 
 
 def test_public_package_topology_matches_spec() -> None:
@@ -167,7 +198,10 @@ def test_legacy_enterprise_demo_is_absent_from_public_product_assets() -> None:
                 and not any(part in SKIP_PARTS for part in path.parts)
                 and path.suffix.lower() in TEXT_SUFFIXES
             )
+    ignored = _git_ignored(candidates)
     for path in candidates:
+        if path in ignored:
+            continue
         text = path.read_text(encoding="utf-8", errors="ignore")
         match = pattern.search(text)
         if match:

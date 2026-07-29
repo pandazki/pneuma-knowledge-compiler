@@ -18,3 +18,8 @@ examples/seed-bench/runs/
 
 # Pneuma workspace (project config + session state) — local, not part of the codebase.
 .pneuma/
+
+# Local-only private datasets: real personal/corporate material used for local
+# experiments (raw captures, prepared payloads, prep scripts, derived memory).
+# NEVER shipped — the open repository carries only synthetic fixtures.
+/local/

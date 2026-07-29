@@ -210,11 +210,15 @@ async def test_missing_move_target_reported_but_does_not_crash():
 
 
 def test_compile_tool_face_excludes_evolve_only_tools():
-    # Regression guard: the daily compile face never exposes the merge channel.
+    # Regression guard: the daily compile face never exposes the destructive channels that
+    # only whole-KB reorganization (evolve, behind its own human gate) is allowed to use.
     draft = PatchDraft.from_canonical([], load_builtin_skill().path_templates)
     names = {t.name for t in _build_tools(draft)}
     assert "move_claim" not in names
     assert "delete_claim" not in names
+    # Exact set, so newly exposed tools are a deliberate decision rather than a drift.
+    # compile carries read ports (search_knowledge / search_source) so it can ask what is
+    # already known instead of being handed the whole knowledge base in its prompt.
     assert names == {
         "list_documents",
         "read_document",
@@ -222,4 +226,6 @@ def test_compile_tool_face_excludes_evolve_only_tools():
         "edit_claim",
         "append_block",
         "finish_compile",
+        "search_knowledge",
+        "search_source",
     }
