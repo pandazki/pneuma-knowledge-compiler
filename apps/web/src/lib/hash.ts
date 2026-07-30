@@ -29,7 +29,7 @@ const VIEWS: ViewName[] = [
   "history",
   "graph",
   "evolve",
-  // hidden route: primitives 状态矩阵（验收用，不进目录）
+  // hidden route: the primitives state matrix (for acceptance shots; not in the contents)
   "components",
 ];
 

@@ -6,15 +6,15 @@ export interface CitationEntry {
   sourceId: string;
   blockStart?: number | null;
   blockEnd?: number | null;
-  /** source 标题（缺省显示 sourceId）。 */
+  /** Source title (falls back to the sourceId). */
   title?: ReactNode;
-  /** 标题下方的来源类型、时间等辅助信息。 */
+  /** Supporting line under the title: source kind, capture time, … */
   description?: ReactNode;
 }
 
 export interface CitationListProps {
   citations: CitationEntry[];
-  /** 点击某条跳 source span（sources 视图落点）。 */
+  /** Click a row to jump to its source span (landing in the Sources view). */
   onJump?: (citation: CitationEntry) => void;
   className?: string;
 }
@@ -25,7 +25,7 @@ function rangeText(c: CitationEntry): string | null {
   return end === c.blockStart ? `b${c.blockStart}` : `b${c.blockStart}–b${end}`;
 }
 
-/** 引用列表：编号 + source 标题/id + block 区间 + 跳转。 */
+/** Citation list: number + source title/id + block range + jump. */
 export function CitationList({ citations, onJump, className }: CitationListProps) {
   if (citations.length === 0) return null;
   return (

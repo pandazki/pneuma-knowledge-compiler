@@ -1,25 +1,27 @@
 import { fmtTime } from "@/lib/format";
 import {
-  evolveStatusLabel,
+  evolveStatusLabelKey,
   evolveStatusTone,
-  fmtTtlRemaining,
+  ttlRemainingMessage,
   ttlRemainingMs,
   type EvolveTimelineEntry,
 } from "@/lib/evolve";
 import { EVOLVE_DRAFT_TTL_HOURS } from "@/lib/api";
+import { useT, useTOr, type TFunction } from "@/lib/useT";
 import { Badge } from "@/ui/Badge";
 import { Mono } from "@/ui/Mono";
 import { cn } from "@/ui/cn";
 
 /**
- * 演化时间线：一次演化一条账，按时间倒序（最新在上）。
+ * The evolution timeline: one row per evolution, newest at the top.
  *
- * 视觉沿用 DESIGN.md 的「标尺线」语汇——一条发丝竖线串起编号刻度，不是线路图：
- * 刻度形状承担状态冗余编码（实心=已采用、菱形=闸门待审、空心=已否决），
- * 语义色只给真实状态。
+ * The visual keeps DESIGN.md's "ruler line" vocabulary — a hairline vertical rule threading
+ * numbered stations, not a circuit diagram. The station's SHAPE carries the status redundantly
+ * (filled = adopted, diamond = at the gate, hollow = declined), and semantic colour is
+ * reserved for real states.
  */
 
-/** 刻度：形状 + 墨阶/语义色双重编码，色盲下靠形状仍可读。 */
+/** A station: shape plus ink/semantic colour, so it still reads by shape alone. */
 function StationMark({ entry }: { entry: EvolveTimelineEntry }) {
   const { status } = entry;
   if (entry.awaitingReview) {
@@ -54,13 +56,16 @@ function StationMark({ entry }: { entry: EvolveTimelineEntry }) {
   );
 }
 
-function scaleLine(entry: EvolveTimelineEntry): string {
+function scaleLine(entry: EvolveTimelineEntry, t: TFunction): string {
   const { scale } = entry;
   const parts: string[] = [];
-  if (scale.newDocuments > 0) parts.push(`新建 ${scale.newDocuments} 篇`);
-  if (scale.movedClaims > 0) parts.push(`搬移 ${scale.movedClaims} 条`);
-  if (scale.mergedClaims > 0) parts.push(`合并 ${scale.mergedClaims} 条`);
-  if (parts.length === 0) return "无机械规模摘要";
+  if (scale.newDocuments > 0)
+    parts.push(t("evolve.scale.newDocuments", { count: scale.newDocuments }));
+  if (scale.movedClaims > 0)
+    parts.push(t("evolve.scale.moved", { count: scale.movedClaims }));
+  if (scale.mergedClaims > 0)
+    parts.push(t("evolve.scale.merged", { count: scale.mergedClaims }));
+  if (parts.length === 0) return t("evolve.scale.none");
   return parts.join(" · ");
 }
 
@@ -77,9 +82,12 @@ export function EvolveTimelineRow({
   last: boolean;
   onSelect: () => void;
 }) {
+  const t = useT();
+  const tOr = useTOr();
   const ttl = entry.awaitingReview
     ? ttlRemainingMs(entry.createdAt, EVOLVE_DRAFT_TTL_HOURS)
     : null;
+  const ttlMessage = ttl != null ? ttlRemainingMessage(ttl) : null;
   return (
     <li className="border-b border-line last:border-b-0">
       <button
@@ -92,7 +100,7 @@ export function EvolveTimelineRow({
           selected ? "bg-accent-soft" : "hover:bg-hover",
         )}
       >
-        {/* 标尺线 + 刻度（刻度中心距行顶 11px：mt-1.5 + 半个刻度） */}
+        {/* The ruler line + the station (station centre 11px below the row top: mt-1.5 + half a station) */}
         <span className="relative flex w-2.5 justify-center">
           {!(first && last) && (
             <span
@@ -109,19 +117,22 @@ export function EvolveTimelineRow({
         <span className="flex min-w-0 flex-col gap-1">
           <span className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
             <span className="font-serif text-14 font-medium text-ink">
-              第 {entry.ordinal} 次演化
+              {t("evolve.evolutionOrdinal", { n: entry.ordinal })}
             </span>
             <Badge tone={evolveStatusTone(entry.status)}>
-              {evolveStatusLabel(entry.status)}
+              {tOr(evolveStatusLabelKey(entry.status), entry.status)}
             </Badge>
-            {ttl != null && (
-              <span className="text-12 text-ink-3">{fmtTtlRemaining(ttl)}</span>
+            {ttlMessage && (
+              <span className="text-12 text-ink-3">
+                {t(ttlMessage.key, ttlMessage.params)}
+              </span>
             )}
           </span>
 
           <span className="text-12 text-ink-3">
             {fmtTime(entry.createdAt)}
-            {entry.decidedAt != null && ` · 决定 ${fmtTime(entry.decidedAt)}`}
+            {entry.decidedAt != null &&
+              ` · ${t("evolve.decided", { at: fmtTime(entry.decidedAt) })}`}
           </span>
 
           {entry.families.length > 0 ? (
@@ -136,10 +147,10 @@ export function EvolveTimelineRow({
               ))}
             </span>
           ) : (
-            <span className="text-12 text-ink-3">未提出新 family</span>
+            <span className="text-12 text-ink-3">{t("evolve.timeline.noNewFamily")}</span>
           )}
 
-          <span className="text-12 text-ink-2">{scaleLine(entry)}</span>
+          <span className="text-12 text-ink-2">{scaleLine(entry, t)}</span>
         </span>
       </button>
     </li>

@@ -1,5 +1,6 @@
 import { History } from "lucide-react";
 import { useApp } from "@/lib/store";
+import { useT } from "@/lib/useT";
 import { Combobox, type ComboboxItem } from "@/ui/Combobox";
 import { Button } from "@/ui/Button";
 import { Mono } from "@/ui/Mono";
@@ -7,10 +8,12 @@ import { Mono } from "@/ui/Mono";
 const HEAD = "__head__";
 
 /**
- * HEAD / 历史快照切换：首项 HEAD（当前），其后 git ref 列表（mono + label）。
- * 选中非 HEAD = 只读历史态（AppShell 出档案戳横幅）。
+ * HEAD / historical-snapshot switcher: HEAD first (the live, writable state), then the git
+ * refs (mono + label). Selecting anything but HEAD is the read-only historical state, and
+ * AppShell raises its archive-stamp banner.
  */
 export function SnapshotPicker() {
+  const t = useT();
   const snapshots = useApp((s) => s.snapshots);
   const snapshotTotal = useApp((s) => s.snapshotTotal);
   const nextCursor = useApp((s) => s.snapshotNextCursor);
@@ -25,11 +28,11 @@ export function SnapshotPicker() {
     {
       value: HEAD,
       label: "HEAD",
-      keywords: "head 当前",
+      keywords: t("nav.snapshot.headKeywords"),
       render: () => (
         <span className="flex items-baseline gap-2">
           <Mono>HEAD</Mono>
-          <span className="text-12 text-ink-3">当前 · 可写</span>
+          <span className="text-12 text-ink-3">{t("nav.snapshot.headNote")}</span>
         </span>
       ),
     },
@@ -42,7 +45,7 @@ export function SnapshotPicker() {
           <span className="flex min-w-0 items-baseline gap-2">
             <Mono className="shrink-0 text-12">{s.ref.slice(0, 10)}</Mono>
             <span className="min-w-0 truncate text-ink-2">{s.label ?? ""}</span>
-            <span className="shrink-0 text-12 text-ink-3">只读</span>
+            <span className="shrink-0 text-12 text-ink-3">{t("nav.snapshot.readOnly")}</span>
           </span>
         ),
       }),
@@ -76,8 +79,8 @@ export function SnapshotPicker() {
               }
             >
               {nextCursor
-                ? `加载更早版本 · ${loaded} / ${snapshotTotal}`
-                : "重试版本列表"}
+                ? t("nav.snapshot.loadMore", { loaded, total: snapshotTotal })
+                : t("nav.snapshot.retryList")}
             </Button>
           </div>
         )
@@ -96,13 +99,17 @@ export function SnapshotPicker() {
           </Mono>
         </span>
       }
-      triggerAriaLabel="切换到历史快照"
-      filterPlaceholder="输入 ref 或标签…"
-      emptyText="没有匹配的快照"
+      triggerAriaLabel={t("nav.snapshot.switchAria")}
+      filterPlaceholder={t("nav.snapshot.filterPlaceholder")}
+      emptyText={t("nav.snapshot.empty")}
       footer={footer}
       disabled={empty || initialLoading}
       disabledNote={
-        initialLoading ? "加载版本…" : empty ? "尚无版本" : undefined
+        initialLoading
+          ? t("nav.snapshot.loadingNote")
+          : empty
+            ? t("nav.snapshot.noneNote")
+            : undefined
       }
     />
   );

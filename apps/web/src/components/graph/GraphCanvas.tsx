@@ -1,11 +1,12 @@
 /**
- * 图谱画布真实现（DESIGN.md §5 graph）：@xyflow/react + dagre 布局。
- * 墨色纪律（§6）：节点用 typeGlyph 的形状 + 墨阶冗余编码，边用发丝线
- * var(--line-2)，选中节点 accent 描边，邻域（expandNeighborhood ids）高亮、
- * 其余压淡。全部颜色经 CSS 变量 / color-mix 推导，零 hex、零彩色。
+ * The real graph canvas (DESIGN.md §5 graph): @xyflow/react with a dagre layout.
+ * Ink discipline (§6): nodes carry the redundant typeGlyph encoding (shape + ink step), edges
+ * are hairlines in var(--line-2), the selected node takes an accent outline, and the
+ * neighbourhood (expandNeighborhood ids) is highlighted while the rest is dimmed. Every colour
+ * derives from a CSS variable / color-mix — no hex, no hue.
  *
- * 本文件只经 ./index.ts 的 React.lazy 引用（硬性规则 11）；xyflow 的
- * css import 只允许出现在本文件内。
+ * This file is only ever reached through ./index.ts's React.lazy (hard rule 11); the xyflow
+ * css import is allowed nowhere else.
  */
 import { useEffect, useMemo } from "react";
 import dagre from "dagre";
@@ -25,6 +26,7 @@ import "@xyflow/react/dist/style.css";
 import type { Model, NodeShape } from "@/lib/model";
 import { typeGlyph } from "@/lib/model";
 import { sliceGraph } from "@/lib/graphViewport";
+import { useT } from "@/lib/useT";
 import { ShapeIcon, inkShade } from "./glyph";
 
 const NODE_W = 176;
@@ -32,14 +34,17 @@ const NODE_H = 44;
 
 export interface GraphCanvasProps {
   model: Model;
-  /** 当前选中节点（null = 无选中，整图正常墨色）。 */
+  /** The selected node (null = nothing selected, the whole graph at normal ink). */
   selectedId: string | null;
-  /** 邻域高亮集合（expandNeighborhood 的 ids，含中心）；selection 为空时为 null。 */
+  /**
+   * The highlighted neighbourhood (expandNeighborhood's ids, centre included); null when
+   * nothing is selected.
+   */
   neighborhood: Set<string> | null;
   onSelectNode: (id: string) => void;
 }
 
-/* ------------------------------------------------------------------ 节点 */
+/* ------------------------------------------------------------------- Nodes */
 
 interface InkNodeData extends Record<string, unknown> {
   title: string;
@@ -87,7 +92,7 @@ function InkNodeView({ data }: NodeProps<InkNode>) {
 
 const nodeTypes = { ink: InkNodeView };
 
-/* ------------------------------------------------------------------ 布局 */
+/* ------------------------------------------------------------------ Layout */
 
 function useLayout(
   nodes: Model["dataset"]["graph"]["nodes"],
@@ -112,10 +117,11 @@ function useLayout(
   }, [nodes, edges]);
 }
 
-/* ------------------------------------------------------------------ 画布 */
+/* ------------------------------------------------------------------ Canvas */
 
 function Flow({ model, selectedId, neighborhood, onSelectNode }: GraphCanvasProps) {
   const { fitView } = useReactFlow();
+  const t = useT();
   const visibleGraph = useMemo(
     () =>
       sliceGraph(
@@ -178,7 +184,8 @@ function Flow({ model, selectedId, neighborhood, onSelectNode }: GraphCanvasProp
     [model, visibleGraph.edges, selectedId, neighborhood],
   );
 
-  // 布局 / 数据变化时重取景；选中变化不重取（避免打断用户缩放）。
+  // Re-fit the view when the layout / data changes, but not on a selection change — that
+  // would interrupt the reader's own zoom.
   useEffect(() => {
     const id = requestAnimationFrame(() => {
       void fitView({ padding: 0.12, duration: 200, maxZoom: 1.2 });
@@ -199,7 +206,7 @@ function Flow({ model, selectedId, neighborhood, onSelectNode }: GraphCanvasProp
       nodesDraggable={false}
       elementsSelectable={false}
       proOptions={{ hideAttribution: true }}
-      aria-label="知识图谱画布"
+      aria-label={t("graph.canvas.aria")}
     >
       <Background variant={BackgroundVariant.Dots} gap={22} size={1} color="var(--line-2)" />
     </ReactFlow>

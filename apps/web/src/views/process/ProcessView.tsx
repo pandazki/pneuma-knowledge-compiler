@@ -15,6 +15,7 @@ import {
   type Page,
 } from "@/lib/pagination";
 import { useApp } from "@/lib/store";
+import { useT, type TFunction } from "@/lib/useT";
 import { Badge } from "@/ui/Badge";
 import { Button } from "@/ui/Button";
 import { Callout } from "@/ui/Callout";
@@ -27,22 +28,25 @@ import { PageHeader } from "@/components/PageHeader";
 import { PaginationBar } from "@/components/PaginationBar";
 import { cn } from "@/ui/cn";
 
-/** 仍在流水线里的状态（轮询继续的依据）。 */
+/** The statuses still in the pipeline (what keeps the poll going). */
 const ACTIVE_STATUSES = new Set(["queued", "running", "claimed"]);
 const PAGE_SIZE = 25;
 
-/** 状态用文字 + 墨阶表达，failed 用 danger 文字；不用彩色灯。 */
-function statusText(status: string): { label: string; className: string } {
+/**
+ * Status as words + an ink step, `failed` in danger text; no coloured lamps. An unknown
+ * status renders as its raw machine name rather than as a blank.
+ */
+function statusText(t: TFunction, status: string): { label: string; className: string } {
   switch (status) {
     case "compiled":
-      return { label: "已编译", className: "text-ink" };
+      return { label: t("process.status.compiled"), className: "text-ink" };
     case "failed":
-      return { label: "失败", className: "text-danger" };
+      return { label: t("process.status.failed"), className: "text-danger" };
     case "running":
     case "claimed":
-      return { label: "运行中", className: "text-ink-2" };
+      return { label: t("process.status.running"), className: "text-ink-2" };
     case "queued":
-      return { label: "排队中", className: "text-ink-3" };
+      return { label: t("process.status.queued"), className: "text-ink-3" };
     default:
       return { label: status, className: "text-ink-2" };
   }
@@ -55,6 +59,7 @@ export default function ProcessView() {
   const select = useApp((s) => s.select);
   const setView = useApp((s) => s.setView);
   const jump = useApp((s) => s.jump);
+  const t = useT();
 
   const [jobPage, setJobPage] = useState<Page<JobSummary> | null>(null);
   const [pageState, setPageState] = useState<CursorPageState>(firstPage);
@@ -75,7 +80,8 @@ export default function ProcessView() {
     setPageState(firstPage());
   }, [currentUser]);
 
-  // job 账页：装载一次；存在 running/queued（含 claimed）job 时每 3s 轮询，卸载清理。
+  // The job ledger: loaded once; polled every 3s while a running/queued (or claimed) job is
+  // present, and cleaned up on unmount.
   useEffect(() => {
     if (!currentUser) {
       setJobPage(null);
@@ -101,7 +107,8 @@ export default function ProcessView() {
         }
       } catch (e) {
         if (!live) return;
-        // 首轮失败进 ErrorState；轮询中途失败保留旧列表，稍后重试。
+        // A first-round failure becomes an ErrorState; a failure mid-poll keeps the old list
+        // and retries shortly.
         if (!loaded) setLoadError((e as Error).message);
         timer = window.setTimeout(tick, 3000);
       }
@@ -135,8 +142,8 @@ export default function ProcessView() {
     return (
       <EmptyState
         icon={UserRound}
-        title="未选择用户"
-        description="先在顶栏选择一个 user_id，再查看它的编译任务账页。"
+        title={t("process.noUser.title")}
+        description={t("process.noUser.description")}
       />
     );
   }
@@ -144,47 +151,54 @@ export default function ProcessView() {
   return (
     <div className="flex max-w-measure flex-col gap-6">
       <PageHeader
-        title="工序 Process"
-        description="compile job 账页：每次编译一行——状态、来源、耗时与落版 ref。"
+        title={t("nav.view.process")}
+        description={t("process.description")}
         actions={
           <Button
             variant="primary"
             loading={compiling}
             disabled={readOnly || compiling}
-            title={readOnly ? "历史快照为只读" : "把未消化的 source 入 compile 队列"}
+            title={
+              readOnly ? t("process.compile.readOnlyHint") : t("process.compile.hint")
+            }
             onClick={() => void onCompile()}
           >
-            触发编译
+            {t("process.compile.action")}
           </Button>
         }
       />
 
       {readOnly && (
-        <Callout tone="info" title="历史快照 · 只读">
-          正在查看历史快照，触发编译已禁用；切回 HEAD 后才能操作。
+        <Callout tone="info" title={t("nav.snapshotBanner")}>
+          {t("process.readOnly.body")}
         </Callout>
       )}
 
-      {/* patch deep-link：patch 归 History 管，这里只给跳转，不报错。 */}
+      {/* patch deep-link: patches belong to History, so this only offers the jump — no error. */}
       {patchSel && (
         <Callout tone="info">
           <span className="flex flex-wrap items-center gap-2">
             <span>
-              此 patch <Mono>{patchSel.id}</Mono> 在「版本 History」查看。
+              {t("process.patch.prefix")} <Mono>{patchSel.id}</Mono>{" "}
+              {t("process.patch.suffix")}
             </span>
             <Button
               size="sm"
               variant="ghost"
               onClick={() => jump({ kind: "patch", id: patchSel.id }, "history")}
             >
-              去版本 History
+              {t("process.patch.goHistory")}
             </Button>
           </span>
         </Callout>
       )}
 
       {compileResult && (
-        <Callout tone="notice" title="已入队" onDismiss={() => setCompileResult(null)}>
+        <Callout
+          tone="notice"
+          title={t("process.enqueued.title")}
+          onDismiss={() => setCompileResult(null)}
+        >
           {compileResult.enqueued.length > 0 ? (
             <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
               {compileResult.enqueued.map((id) => (
@@ -194,28 +208,32 @@ export default function ProcessView() {
               ))}
             </span>
           ) : (
-            "没有待编译的 source（全部已消化）。"
+            t("process.enqueued.none")
           )}
         </Callout>
       )}
       {compileError && (
-        <Callout tone="danger" title="触发编译失败" onDismiss={() => setCompileError(null)}>
+        <Callout
+          tone="danger"
+          title={t("process.compile.failed")}
+          onDismiss={() => setCompileError(null)}
+        >
           <Mono className="break-all">{compileError}</Mono>
         </Callout>
       )}
 
       {loadError ? (
-        <ErrorState title="加载 job 账页失败" error={loadError} onRetry={reload} />
+        <ErrorState title={t("process.loadFailed")} error={loadError} onRetry={reload} />
       ) : jobs == null ? (
         <SkeletonText lines={8} />
       ) : jobs.length === 0 ? (
         <EmptyState
           icon={PackageOpen}
-          title="尚无编译任务"
-          description="先在「导入 Ingest」添加原料，再回到这里触发编译。"
+          title={t("process.empty.title")}
+          description={t("process.empty.description")}
           action={
             <Button size="sm" onClick={() => setView("ingest")}>
-              去导入
+              {t("process.empty.action")}
             </Button>
           }
         />
@@ -224,7 +242,7 @@ export default function ProcessView() {
           <ul className="flex flex-col border-y border-line">
             {jobs.map((j) => {
               const expanded = j.job_id === selectedJobId;
-              const st = statusText(j.status);
+              const st = statusText(t, j.status);
               return (
                 <li key={j.job_id} className="border-b border-line last:border-b-0">
                   <button
@@ -249,10 +267,10 @@ export default function ProcessView() {
                     </span>
                     <span className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-12 text-ink-3">
                       <span>
-                        创建 <Mono>{fmtTime(j.created_at)}</Mono>
+                        {t("process.row.created")} <Mono>{fmtTime(j.created_at)}</Mono>
                       </span>
                       <span>
-                        完成 <Mono>{fmtTime(j.completed_at)}</Mono>
+                        {t("process.row.completed")} <Mono>{fmtTime(j.completed_at)}</Mono>
                       </span>
                       {j.snapshot_ref && (
                         <span>
@@ -272,7 +290,7 @@ export default function ProcessView() {
             itemCount={jobs.length}
             total={jobPage?.page.total ?? jobs.length}
             hasNext={jobPage?.page.next_cursor != null}
-            noun="个 job"
+            noun={t("process.jobNoun")}
             onPrevious={() => setPageState((state) => previousPage(state))}
             onNext={() => {
               const cursor = jobPage?.page.next_cursor;
@@ -285,7 +303,7 @@ export default function ProcessView() {
   );
 }
 
-/** 选中 job 的展开详情：来源、detail 与落版信息。 */
+/** The selected job, expanded: its sources, `detail` and where it landed. */
 function JobDetail({ job }: { job: JobSummary }) {
   return (
     <div className="border-t border-line bg-surface px-3 py-3">

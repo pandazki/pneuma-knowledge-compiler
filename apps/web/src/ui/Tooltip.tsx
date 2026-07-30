@@ -10,8 +10,8 @@ export interface TooltipProps {
 }
 
 /**
- * 桌面 hover + focus 触发的轻提示（单行短文案；富内容请用 Footnote/Popover）。
- * 自带 Provider（delay 200ms）。
+ * Light hint on desktop hover + focus (one short line; use Footnote/Popover for rich
+ * content). Brings its own Provider (200ms delay).
  */
 export function Tooltip({ content, children, side = "top", delayDuration = 200 }: TooltipProps) {
   return (

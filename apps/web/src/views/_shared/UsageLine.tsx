@@ -2,7 +2,10 @@ import type { TokenUsage } from "@/lib/api";
 import { Mono } from "@/ui/Mono";
 import { cn } from "@/ui/cn";
 
-/** 一次调用的 token 用量，mono 单行（ask 逐轮 / suggestion 评估账用）。 */
+/**
+ * One call's token usage, as a single mono line — used per turn in Ask and for the suggestion
+ * evaluation ledger. Every word in it is a field name, so there is nothing to translate.
+ */
 export function UsageLine({ usage, className }: { usage: TokenUsage; className?: string }) {
   return (
     <p className={cn("text-12 text-ink-3", className)}>

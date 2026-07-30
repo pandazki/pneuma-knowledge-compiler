@@ -1,8 +1,19 @@
-export function fmtTime(ts: string | null | undefined): string {
+/**
+ * Display formatters. The locale comes from the module-level active locale rather than a
+ * parameter: these are called from deep inside render trees, and a language switch
+ * re-renders everything, so reading it at call time is both simpler and correct. The
+ * parameter is still there for tests and for any caller that needs a fixed locale.
+ */
+import { activeLocale, intlTag, type Locale } from "./i18n";
+
+export function fmtTime(
+  ts: string | null | undefined,
+  locale: Locale = activeLocale(),
+): string {
   if (!ts) return "—";
   const d = new Date(ts);
   if (isNaN(d.getTime())) return ts;
-  return d.toLocaleString("zh-CN", {
+  return d.toLocaleString(intlTag(locale), {
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
@@ -12,11 +23,14 @@ export function fmtTime(ts: string | null | undefined): string {
   });
 }
 
-export function fmtDate(ts: string | null | undefined): string {
+export function fmtDate(
+  ts: string | null | undefined,
+  locale: Locale = activeLocale(),
+): string {
   if (!ts) return "—";
   const d = new Date(ts);
   if (isNaN(d.getTime())) return ts;
-  return d.toLocaleDateString("zh-CN", {
+  return d.toLocaleDateString(intlTag(locale), {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",

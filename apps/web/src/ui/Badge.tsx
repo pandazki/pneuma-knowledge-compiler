@@ -11,7 +11,7 @@ const TONES: Record<BadgeTone, string> = {
   danger: "border-transparent bg-danger-soft text-danger",
 };
 
-/** 中性小标签；语义色只给真实状态。 */
+/** Small neutral tag; semantic colour is reserved for real state. */
 export function Badge({
   tone = "neutral",
   children,

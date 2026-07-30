@@ -1,24 +1,27 @@
 import { forwardRef, type InputHTMLAttributes } from "react";
 import { Search, X } from "lucide-react";
+import { useT } from "@/lib/useT";
 import { cn } from "./cn";
 
 export interface SearchFieldProps
   extends Omit<InputHTMLAttributes<HTMLInputElement>, "type" | "onChange"> {
   value: string;
   onChange: (value: string) => void;
-  /** 清空按钮的 aria-label。 */
+  /** aria-label for the clear button; defaults to the shared "clear" copy. */
   clearLabel?: string;
   wrapperClassName?: string;
 }
 
 /**
- * 搜索输入：Search 图标前缀 + 自绘清空按钮（原生 clear 按钮已在 base 层清除）。
+ * Search input: Search-icon prefix + a hand-drawn clear button (the native clear button is
+ * already stripped in the base layer).
  */
 export const SearchField = forwardRef<HTMLInputElement, SearchFieldProps>(
   function SearchField(
-    { value, onChange, clearLabel = "清空", wrapperClassName, className, disabled, ...rest },
+    { value, onChange, clearLabel, wrapperClassName, className, disabled, ...rest },
     ref,
   ) {
+    const t = useT();
     return (
       <div
         className={cn(
@@ -47,7 +50,7 @@ export const SearchField = forwardRef<HTMLInputElement, SearchFieldProps>(
         {value !== "" && !disabled && (
           <button
             type="button"
-            aria-label={clearLabel}
+            aria-label={clearLabel ?? t("common.clear")}
             onClick={() => onChange("")}
             className="inline-flex size-5 shrink-0 items-center justify-center rounded-1 text-ink-3 hover:bg-hover hover:text-ink"
           >

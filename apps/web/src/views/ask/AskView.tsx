@@ -16,6 +16,7 @@ import {
   type CursorPageState,
   type Page,
 } from "@/lib/pagination";
+import { useT } from "@/lib/useT";
 import { PageHeader } from "@/components/PageHeader";
 import { PaginationBar } from "@/components/PaginationBar";
 import { CitationList, type CitationEntry } from "@/components/CitationList";
@@ -38,11 +39,12 @@ import { UsageLine } from "../_shared/UsageLine";
 const SOURCE_PAGE_SIZE = 12;
 
 /**
- * ask 问答：先构建一个 source 锚定 / query 检索的 briefing（冻结知识包），
- * 再对它连续提问。构建输入与问答线程都在 store.askCache —— 跳 sources 看
- * 引用原文 + Back 不丢。
+ * Ask: first build a briefing — a frozen knowledge pack, anchored to sources or gathered by a
+ * query — then keep questioning it. Both the build inputs and the question thread live in
+ * `store.askCache`, so jumping to Sources to read a citation and coming Back loses nothing.
  */
 export default function AskView() {
+  const t = useT();
   const currentUser = useApp((s) => s.currentUser);
   const currentSnapshot = useApp((s) => s.currentSnapshot);
   const focusSource = useApp((s) => s.focusSource);
@@ -62,13 +64,13 @@ export default function AskView() {
   const sourceRequestVersion = useRef(0);
   const [history, setHistory] = useState<BriefingSummary[] | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
-  // budget_chars 未进 store（lib 冻结），仅会话内保留；默认 4000。
+  // budget_chars is not in the store (lib is frozen); it lives for the session only, default 4000.
   const [budget, setBudget] = useState<number | null>(4000);
   const [building, setBuilding] = useState(false);
   const [buildError, setBuildError] = useState<string | null>(null);
   const [asking, setAsking] = useState(false);
   const [askError, setAskError] = useState<string | null>(null);
-  // AskTurn 无 verbatim_fetches 字段（lib 冻结），按轮次下标会话内暂存。
+  // AskTurn has no verbatim_fetches field (lib is frozen); park them by turn index for the session.
   const [verbatim, setVerbatim] = useState<Record<number, Record<string, unknown>[]>>({});
 
   const sources = sourcePage?.items ?? null;
@@ -138,11 +140,11 @@ export default function AskView() {
   if (!currentUser) {
     return (
       <>
-        <PageHeader title="问答 Ask" description="构建 briefing，然后连续提问。" />
+        <PageHeader title={t("ask.title")} description={t("ask.descriptionShort")} />
         <EmptyState
           icon={MessagesSquare}
-          title="未选择用户"
-          description="在右上角选择一个 user_id 后，即可构建 Briefing 并连续提问。"
+          title={t("ask.noUser.title")}
+          description={t("ask.noUser.description")}
         />
       </>
     );
@@ -203,39 +205,36 @@ export default function AskView() {
 
   return (
     <div className="flex flex-col gap-8">
-      <PageHeader
-        title="问答 Ask"
-        description="把一批 claim 冻结成 briefing 知识包，再对它连续提问——每轮答案都带引用脚注与 token 账。"
-      />
+      <PageHeader title={t("ask.title")} description={t("ask.description")} />
 
       {briefing == null ? (
         <>
-          {/* ------------------------------------------------ 构建 briefing */}
+          {/* ------------------------------------------------ build a briefing */}
           <section>
-            <SectionRule no={1} title="构建 Briefing" />
+            <SectionRule no={1} title={t("ask.build.title")} />
             <div className="mt-4 flex max-w-measure flex-col gap-4">
               <TextField
-                label="scope.query（检索取料）"
+                label={t("ask.build.queryLabel")}
                 value={scopeQuery}
                 onChange={(e) => setAskCache({ scopeQuery: e.target.value })}
-                placeholder="可选：一句检索意图"
-                hint="query 与来源多选至少填一项。"
+                placeholder={t("ask.build.queryPlaceholder")}
+                hint={t("ask.build.queryHint")}
               />
               <div>
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
                   <p className="text-13 font-medium text-ink-2">
-                    scope.source_ids（锚定原始来源）
+                    {t("ask.build.sourcesLabel")}
                   </p>
                   <p className="text-12 text-ink-3" aria-live="polite">
-                    已选 <Mono>{selected.size}</Mono>
-                    <span> · 当前结果 </span>
+                    {t("ask.build.selectedLabel")} <Mono>{selected.size}</Mono>
+                    <span> · {t("ask.build.matchLabel")} </span>
                     <Mono>{sourcePage?.page.total ?? 0}</Mono>
                   </p>
                 </div>
                 <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_12rem]">
                   <SearchField
-                    aria-label="搜索来源"
-                    placeholder="按来源标题搜索"
+                    aria-label={t("ask.build.searchAria")}
+                    placeholder={t("ask.build.searchPlaceholder")}
                     value={sourceQuery}
                     onChange={(value) => {
                       setSourceQuery(value);
@@ -243,25 +242,28 @@ export default function AskView() {
                     }}
                   />
                   <Select
-                    aria-label="筛选来源类型"
+                    aria-label={t("ask.build.kindAria")}
                     value={sourceKind}
                     onChange={(value) => {
                       setSourceKind(value);
                       setSourcePageState(firstPage());
                     }}
                     options={[
-                      { value: "all", label: "全部类型" },
-                      { value: "meeting", label: "会议 Meeting" },
-                      { value: "document_library", label: "文档库 Document" },
-                      { value: "im", label: "即时消息 IM" },
-                      { value: "email", label: "邮件 Email" },
+                      { value: "all", label: t("ask.build.kind.all") },
+                      { value: "meeting", label: t("ask.build.kind.meeting") },
+                      {
+                        value: "document_library",
+                        label: t("ask.build.kind.documentLibrary"),
+                      },
+                      { value: "im", label: t("ask.build.kind.im") },
+                      { value: "email", label: t("ask.build.kind.email") },
                     ]}
                   />
                 </div>
                 {selectedIds.length > 0 && (
                   <details className="mt-2 rounded-2 border border-line bg-surface px-3 py-2">
                     <summary className="cursor-pointer text-13 text-ink-2">
-                      已选来源 · <Mono>{selectedIds.length}</Mono>
+                      {t("ask.build.selectedSummary")} <Mono>{selectedIds.length}</Mono>
                     </summary>
                     <ol className="mt-2 border-t border-line pt-1">
                       {selectedIds.map((sourceId) => (
@@ -277,7 +279,7 @@ export default function AskView() {
                             className="shrink-0 rounded-1 px-1.5 py-0.5 text-ink-3 hover:bg-hover hover:text-ink"
                             onClick={() => toggleSource(sourceId)}
                           >
-                            移除
+                            {t("ask.build.remove")}
                           </button>
                         </li>
                       ))}
@@ -286,15 +288,19 @@ export default function AskView() {
                 )}
                 {sourcesError ? (
                   <div className="mt-2">
-                    <ErrorState title="来源列表拉取失败" error={sourcesError} onRetry={loadSources} />
+                    <ErrorState
+                      title={t("ask.build.sourcesError")}
+                      error={sourcesError}
+                      onRetry={loadSources}
+                    />
                   </div>
                 ) : sources == null ? (
                   <SkeletonText lines={3} className="mt-2" />
                 ) : sources.length === 0 ? (
                   <p className="mt-2 text-13 text-ink-3">
                     {sourceQuery.trim() || sourceKind !== "all"
-                      ? "当前筛选没有匹配来源；可清空搜索或切换来源类型。"
-                      : "（无来源——可只靠 query 构建；或先去「导入 Ingest」入库材料）"}
+                      ? t("ask.build.noMatch")
+                      : t("ask.build.noSources")}
                   </p>
                 ) : (
                   <>
@@ -321,7 +327,7 @@ export default function AskView() {
                       total={sourcePage?.page.total ?? sources.length}
                       hasNext={sourcePage?.page.next_cursor != null}
                       loading={sourcesLoading}
-                      noun="条 source"
+                      noun={t("ask.build.sourceNoun")}
                       onPrevious={() => setSourcePageState((state) => previousPage(state))}
                       onNext={() => {
                         const cursor = sourcePage?.page.next_cursor;
@@ -334,7 +340,7 @@ export default function AskView() {
                 )}
               </div>
               <NumberField
-                label="budget_chars（字符预算）"
+                label={t("ask.build.budgetLabel")}
                 value={budget}
                 onChange={setBudget}
                 min={500}
@@ -342,17 +348,22 @@ export default function AskView() {
                 step={500}
               />
               <p className="text-12 text-ink-3">
-                快照：
+                {t("ask.build.snapshotLabel")}
                 {currentSnapshot ? (
                   <>
-                    <Mono>{currentSnapshot}</Mono>（历史只读）
+                    <Mono>{currentSnapshot}</Mono>
+                    {t("ask.build.snapshotReadOnly")}
                   </>
                 ) : (
-                  "当前 HEAD"
+                  t("ask.build.snapshotHead")
                 )}
               </p>
               {buildError && (
-                <ErrorState title="构建失败" error={buildError} onRetry={() => void onBuild()} />
+                <ErrorState
+                  title={t("ask.build.error")}
+                  error={buildError}
+                  onRetry={() => void onBuild()}
+                />
               )}
               <div>
                 <Button
@@ -361,23 +372,27 @@ export default function AskView() {
                   disabled={!canBuild}
                   onClick={() => void onBuild()}
                 >
-                  构建 Briefing
+                  {t("ask.build.action")}
                 </Button>
               </div>
             </div>
           </section>
 
-          {/* ------------------------------------------------ 历史 briefing */}
+          {/* ------------------------------------------------ past briefings */}
           <section>
-            <SectionRule no={2} title="历史 Briefing" />
+            <SectionRule no={2} title={t("ask.history.title")} />
             {history == null ? (
               <SkeletonText lines={3} className="mt-4 max-w-measure" />
             ) : historyError ? (
               <div className="mt-4">
-                <ErrorState title="历史拉取失败" error={historyError} onRetry={loadHistory} />
+                <ErrorState
+                  title={t("ask.history.error")}
+                  error={historyError}
+                  onRetry={loadHistory}
+                />
               </div>
             ) : history.length === 0 ? (
-              <p className="mt-4 text-13 text-ink-3">还没有构建过 briefing。</p>
+              <p className="mt-4 text-13 text-ink-3">{t("ask.history.empty")}</p>
             ) : (
               <ol className="mt-2 border-t border-line">
                 {history.map((b) => (
@@ -389,7 +404,7 @@ export default function AskView() {
                           briefing: {
                             briefing_id: b.briefing_id,
                             snapshot_ref: b.snapshot_ref,
-                            // 历史条目不带 claims/source 计数，只展示有的字段。
+                            // A history row carries no claims / source counts; show what it has.
                             claims_count: 0,
                             source_count: 0,
                             char_count: b.char_count,
@@ -399,26 +414,30 @@ export default function AskView() {
                       className="flex w-full flex-wrap items-baseline gap-x-3 gap-y-1 px-1 py-2 text-left transition-colors duration-120 hover:bg-hover"
                     >
                       <Mono className="text-13 text-accent">{b.briefing_id}</Mono>
-                      <Mono className="text-12 text-ink-3">{b.created_at ?? "（无时间）"}</Mono>
-                      <Mono className="ml-auto text-12 text-ink-3">{b.char_count} 字</Mono>
+                      <Mono className="text-12 text-ink-3">
+                        {b.created_at ?? t("ask.history.noTime")}
+                      </Mono>
+                      <Mono className="ml-auto text-12 text-ink-3">
+                        {t("ask.history.chars", { count: b.char_count })}
+                      </Mono>
                     </button>
                   </li>
                 ))}
               </ol>
             )}
-            <p className="mt-2 text-12 text-ink-3">选中一条即可在它的知识包上继续提问。</p>
+            <p className="mt-2 text-12 text-ink-3">{t("ask.history.hint")}</p>
           </section>
         </>
       ) : (
         <>
-          {/* ------------------------------------------------ 已构建 + 连续问答 */}
+          {/* --------------------------------- built, and the ongoing question thread */}
           <section>
             <SectionRule
               no={1}
-              title="当前 Briefing"
+              title={t("ask.current.title")}
               actions={
                 <Button size="sm" onClick={() => setAskCache({ briefing: null })}>
-                  重新构建 briefing
+                  {t("ask.current.rebuild")}
                 </Button>
               }
             />
@@ -428,41 +447,51 @@ export default function AskView() {
                 { term: "briefing_id", definition: <Mono>{briefing.briefing_id}</Mono> },
                 {
                   term: "snapshot_ref",
-                  definition: <Mono>{briefing.snapshot_ref || "（空）"}</Mono>,
+                  definition: <Mono>{briefing.snapshot_ref || t("ask.blank")}</Mono>,
                 },
                 ...(briefing.claims_count > 0 || briefing.source_count > 0
                   ? [
                       { term: "claims", definition: <Mono>{briefing.claims_count}</Mono> },
-                      { term: "来源", definition: <Mono>{briefing.source_count}</Mono> },
+                      {
+                        term: t("ask.current.sources"),
+                        definition: <Mono>{briefing.source_count}</Mono>,
+                      },
                     ]
                   : []),
-                { term: "字符", definition: <Mono>{briefing.char_count}</Mono> },
+                {
+                  term: t("ask.current.chars"),
+                  definition: <Mono>{briefing.char_count}</Mono>,
+                },
               ]}
             />
           </section>
 
           <section>
-            <SectionRule no={2} title="连续问答" />
+            <SectionRule no={2} title={t("ask.thread.title")} />
             {turns.length === 0 ? (
               <div className="mt-4">
                 <EmptyState
                   icon={MessagesSquare}
-                  title="还没有提问"
-                  description="在下方输入问题——briefing 问法复用冻结的知识包，每轮答案都带引用脚注。"
+                  title={t("ask.thread.emptyTitle")}
+                  description={t("ask.thread.emptyDescription")}
                 />
               </div>
             ) : (
               <div className="mt-4 flex flex-col gap-8">
-                {turns.map((t, i) => (
+                {turns.map((turn, i) => (
                   <article key={i}>
-                    <p className="text-14 font-medium text-ink">{t.question}</p>
+                    <p className="text-14 font-medium text-ink">{turn.question}</p>
                     <div className="prose mt-2 max-w-measure">
-                      {t.answer ? <CitedAnswer text={t.answer} handles={t.handles} /> : "（空）"}
+                      {turn.answer ? (
+                        <CitedAnswer text={turn.answer} handles={turn.handles} />
+                      ) : (
+                        t("ask.blank")
+                      )}
                     </div>
-                    {t.citations.length > 0 ? (
+                    {turn.citations.length > 0 ? (
                       <CitationList
                         className="mt-3 max-w-measure"
-                        citations={t.citations.map((c) => ({
+                        citations={turn.citations.map((c) => ({
                           sourceId: c.source_id,
                           blockStart: c.block_start,
                           blockEnd: c.block_end,
@@ -472,14 +501,14 @@ export default function AskView() {
                       />
                     ) : (
                       <Callout tone="warn" className="mt-3 max-w-measure">
-                        本轮没有返回 source 引用；答案可阅读，但尚未完成证据绑定。
+                        {t("ask.thread.noCitations")}
                       </Callout>
                     )}
-                    <UsageLine usage={t.usage} className="mt-2" />
+                    <UsageLine usage={turn.usage} className="mt-2" />
                     {(verbatim[i]?.length ?? 0) > 0 && (
                       <details className="mt-2 max-w-measure">
                         <summary className="cursor-pointer text-13 text-ink-2">
-                          verbatim_fetches（{verbatim[i].length}）
+                          {t("ask.thread.verbatim", { count: verbatim[i].length })}
                         </summary>
                         <pre className="mt-2 max-h-64 overflow-auto rounded-2 border border-line bg-surface p-3 font-mono text-12 whitespace-pre-wrap text-ink-2">
                           {JSON.stringify(verbatim[i], null, 2)}
@@ -491,13 +520,17 @@ export default function AskView() {
               </div>
             )}
 
-            {/* 提问行 */}
+            {/* Question row */}
             <div className="mt-6 flex max-w-measure flex-col gap-2">
               {asking ? (
                 <SkeletonText lines={4} />
               ) : (
                 askError && (
-                  <ErrorState title="提问失败" error={askError} onRetry={() => void onAsk()} />
+                  <ErrorState
+                    title={t("ask.thread.error")}
+                    error={askError}
+                    onRetry={() => void onAsk()}
+                  />
                 )
               )}
               <div className="flex items-center gap-2">
@@ -508,8 +541,8 @@ export default function AskView() {
                   onKeyDown={(e) => {
                     if (e.key === "Enter") void onAsk();
                   }}
-                  placeholder="对当前 Briefing 提问"
-                  aria-label="提问"
+                  placeholder={t("ask.thread.placeholder")}
+                  aria-label={t("ask.thread.aria")}
                 />
                 <Button
                   variant="primary"
@@ -517,7 +550,7 @@ export default function AskView() {
                   disabled={!question.trim()}
                   onClick={() => void onAsk()}
                 >
-                  提问
+                  {t("ask.thread.action")}
                 </Button>
               </div>
             </div>

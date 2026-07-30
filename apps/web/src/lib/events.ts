@@ -15,6 +15,7 @@ import {
   XCircle,
   type LucideIcon,
 } from "lucide-react";
+import { txOr } from "./i18n";
 
 export type EventTone = "neutral" | "success" | "warning" | "danger" | "accent";
 
@@ -24,27 +25,36 @@ export interface EventMeta {
   tone: EventTone;
 }
 
-/** Journal event model used by the public canonical projection. */
-export const EVENT_META: Record<string, EventMeta> = {
-  job_created: { label: "Job 创建", icon: CircleDashed, tone: "neutral" },
-  job_planned: { label: "Job 规划", icon: CircleDashed, tone: "neutral" },
-  driver_started: { label: "Driver 启动", icon: CirclePlay, tone: "neutral" },
-  driver_finished: { label: "Driver 完成", icon: Hammer, tone: "neutral" },
-  gate_checked: { label: "Gate 校验通过", icon: FileCheck2, tone: "success" },
-  gate_rejected: { label: "Gate 拒绝", icon: ShieldX, tone: "danger" },
-  gate_repair_retry: { label: "Gate 修复重试", icon: RefreshCw, tone: "warning" },
-  patch_committed: { label: "Patch 提交", icon: GitCommitHorizontal, tone: "success" },
-  job_failed: { label: "Job 失败", icon: XCircle, tone: "danger" },
-  bundle_published: { label: "Bundle 发布", icon: PackageCheck, tone: "accent" },
-  viz_exported: { label: "Viz 导出", icon: Sparkles, tone: "accent" },
-  bypass_reconciled: { label: "旁路收编", icon: FilePlus2, tone: "warning" },
-  rollback: { label: "回滚", icon: RefreshCw, tone: "danger" },
-  job_replanned: { label: "Job 重规划", icon: RefreshCw, tone: "warning" },
-  limits_exceeded: { label: "超限告警", icon: ShieldAlert, tone: "warning" },
+/**
+ * Journal event model used by the public canonical projection. Icon + tone are presentation
+ * facts and live here; the name comes from the dictionary, keyed by event type, and an
+ * unknown type degrades to its raw machine name rather than to a blank.
+ */
+export const EVENT_ICONS: Record<string, { icon: LucideIcon; tone: EventTone }> = {
+  job_created: { icon: CircleDashed, tone: "neutral" },
+  job_planned: { icon: CircleDashed, tone: "neutral" },
+  driver_started: { icon: CirclePlay, tone: "neutral" },
+  driver_finished: { icon: Hammer, tone: "neutral" },
+  gate_checked: { icon: FileCheck2, tone: "success" },
+  gate_rejected: { icon: ShieldX, tone: "danger" },
+  gate_repair_retry: { icon: RefreshCw, tone: "warning" },
+  patch_committed: { icon: GitCommitHorizontal, tone: "success" },
+  job_failed: { icon: XCircle, tone: "danger" },
+  bundle_published: { icon: PackageCheck, tone: "accent" },
+  viz_exported: { icon: Sparkles, tone: "accent" },
+  bypass_reconciled: { icon: FilePlus2, tone: "warning" },
+  rollback: { icon: RefreshCw, tone: "danger" },
+  job_replanned: { icon: RefreshCw, tone: "warning" },
+  limits_exceeded: { icon: ShieldAlert, tone: "warning" },
 };
 
 export function eventMeta(type: string): EventMeta {
-  return EVENT_META[type] ?? { label: type, icon: Flag, tone: "neutral" };
+  const known = EVENT_ICONS[type];
+  return {
+    label: txOr(`event.${type}`, type),
+    icon: known?.icon ?? Flag,
+    tone: known?.tone ?? "neutral",
+  };
 }
 
 export function toneColor(tone: EventTone): string {

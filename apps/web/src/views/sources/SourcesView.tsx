@@ -18,6 +18,7 @@ import {
   type Page,
 } from "@/lib/pagination";
 import { useApp } from "@/lib/store";
+import { useT } from "@/lib/useT";
 import { Badge } from "@/ui/Badge";
 import { Button } from "@/ui/Button";
 import { Callout } from "@/ui/Callout";
@@ -35,7 +36,7 @@ import { PaginationBar } from "@/components/PaginationBar";
 import { cn } from "@/ui/cn";
 import { SourceKindName, SourceKindSummary, SourceReader } from "./SourceReaders";
 
-/** 校样页上待高亮的 block 区间（闭区间）。 */
+/** The block range to highlight on the galley page (inclusive). */
 interface BlockRange {
   start: number;
   end: number;
@@ -44,6 +45,7 @@ interface BlockRange {
 const PAGE_SIZE = 25;
 
 export default function SourcesView() {
+  const t = useT();
   const currentUser = useApp((s) => s.currentUser);
   const sourceFocus = useApp((s) => s.sourceFocus);
   const selection = useApp((s) => s.selection);
@@ -107,7 +109,7 @@ export default function SourcesView() {
     };
   }, [currentUser, reloadKey]);
 
-  // source 目录：随用户切换 / 手动重试重载。
+  // The source catalogue: reloads on a user switch or a manual retry.
   useEffect(() => {
     if (!currentUser) {
       setSourcePage(null);
@@ -123,7 +125,7 @@ export default function SourcesView() {
         if (!live) return;
         const rows = page.items;
         setSourcePage(page);
-        // 落点优先级：deep-link selection > store.sourceFocus > 上次选中 > 第一条。
+        // Landing priority: deep-link selection > store.sourceFocus > last pick > first row.
         setSelectedId((prev) => {
           if (sourceSel) return sourceSel.id;
           const focus = sourceFocus?.sourceId;
@@ -142,14 +144,15 @@ export default function SourcesView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser, pageState.cursor, reloadKey]);
 
-  // 跨视图落点（recall/ask/suggestion 的 focusSource）：选中目标 source，只读消费、不动 hash。
+  // Cross-view landing (focusSource from recall/ask/suggestion): select the target source.
+  // Read-only consumption — the hash is left alone.
   useEffect(() => {
     if (sourceFocus) {
       setSelectedId(sourceFocus.sourceId);
     }
   }, [sourceFocus]);
 
-  // deep-link `#/sources/source/<id>/<block?>`：hash 进入时选中对应 source。
+  // deep link `#/sources/source/<id>/<block?>`: arriving by hash selects that source.
   useEffect(() => {
     if (sourceSel) {
       setSelectedId(sourceSel.id);
@@ -157,7 +160,7 @@ export default function SourcesView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sourceSel?.id, sourceSel?.block]);
 
-  // 高亮区间：selection 带的 block 优先，其次 sourceFocus 的 span。
+  // Highlight range: a block carried by the selection wins, then sourceFocus's span.
   const highlight: BlockRange | null =
     sourceSel && sourceSel.id === selectedId && sourceSel.block != null
       ? { start: sourceSel.block, end: sourceSel.block }
@@ -174,18 +177,21 @@ export default function SourcesView() {
     return (
       <EmptyState
         icon={Database}
-        title="未选择用户"
-        description="先在顶栏选择一个 user_id，再查看它的原料目录。"
+        title={t("sources.empty.noUser.title")}
+        description={t("sources.empty.noUser.description")}
       />
     );
   }
   if (listError) {
-    return <ErrorState title="加载原料目录失败" error={listError} onRetry={load} />;
+    return <ErrorState title={t("sources.error.list")} error={listError} onRetry={load} />;
   }
   if (sources == null) {
     return (
       <div className="flex flex-col gap-4">
-        <PageHeader title="原料 Sources" description="编译的输入：每条 source 的校样与消化态。" />
+        <PageHeader
+          title={t("nav.view.sources")}
+          description={t("sources.descriptionShort")}
+        />
         <SkeletonText lines={6} />
       </div>
     );
@@ -194,11 +200,11 @@ export default function SourcesView() {
     return (
       <EmptyState
         icon={PackageOpen}
-        title="还没有原料"
-        description="去「导入 Ingest」添加第一条 source，再回来查看它的校样页。"
+        title={t("sources.empty.none.title")}
+        description={t("sources.empty.none.description")}
         action={
           <Button size="sm" onClick={() => setView("ingest")}>
-            去导入
+            {t("sources.empty.none.action")}
           </Button>
         }
       />
@@ -224,8 +230,8 @@ export default function SourcesView() {
   return (
     <>
       <PageHeader
-        title="原料 Sources"
-        description="浏览会议、文档库、即时消息与邮件的来源原貌；切换到编译校样可审计 intake plan、结构与 block 落点。"
+        title={t("nav.view.sources")}
+        description={t("sources.description")}
         actions={
           <Button
             size="sm"
@@ -234,19 +240,19 @@ export default function SourcesView() {
             onClick={() => setDirectoryOpen(true)}
           >
             <FileText size={14} aria-hidden />
-            切换来源
+            {t("sources.switchSource")}
           </Button>
         }
       />
       <ActivityHeatmap
         className="mb-6"
         days={activityDays}
-        title="来源密度"
+        title={t("sources.heatmap.title")}
         kindLabels={{
-          meeting: "会议",
-          document_library: "文档",
-          im: "IM",
-          email: "邮件",
+          meeting: t("sources.heatmap.kind.meeting"),
+          document_library: t("sources.heatmap.kind.document_library"),
+          im: t("sources.heatmap.kind.im"),
+          email: t("sources.heatmap.kind.email"),
         }}
       />
       <div className="xl:grid xl:grid-cols-[18rem_minmax(0,1fr)] xl:items-start xl:gap-8">
@@ -263,7 +269,7 @@ export default function SourcesView() {
               highlight={highlight}
             />
           ) : (
-            <EmptyState icon={FileText} title="在左侧目录选择一条 source" />
+            <EmptyState icon={FileText} title={t("sources.empty.pick")} />
           )}
         </div>
       </div>
@@ -271,7 +277,7 @@ export default function SourcesView() {
         open={directoryOpen}
         onOpenChange={setDirectoryOpen}
         side="bottom"
-        title="选择来源"
+        title={t("sources.chooseSource")}
         contentClassName="h-[min(44rem,85dvh)] max-h-[85dvh]"
       >
         <div className="h-full min-h-0 p-4">{directory}</div>
@@ -299,9 +305,12 @@ function SourceDirectory({
   onPrevious: () => void;
   onNext: () => void;
 }) {
+  const t = useT();
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <p className="shrink-0 pb-2 text-12 text-ink-3">目录 · {total} 条</p>
+      <p className="shrink-0 pb-2 text-12 text-ink-3">
+        {t("sources.directory.count", { total })}
+      </p>
       <ul className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain border-y border-line">
         {sources.map((source) => {
           const selected = source.source_id === selectedId;
@@ -337,10 +346,11 @@ function SourceDirectory({
                 <span className="text-12 text-ink-3">
                   {source.digested_at ? (
                     <>
-                      已消化 · <Mono>{fmtTime(source.digested_at)}</Mono>
+                      {t("sources.directory.digested")} ·{" "}
+                      <Mono>{fmtTime(source.digested_at)}</Mono>
                     </>
                   ) : (
-                    "未消化"
+                    t("sources.directory.undigested")
                   )}
                 </span>
               </button>
@@ -355,7 +365,7 @@ function SourceDirectory({
           itemCount={sources.length}
           total={total}
           hasNext={hasNext}
-          noun="条 source"
+          noun={t("sources.directory.noun")}
           onPrevious={onPrevious}
           onNext={onNext}
         />
@@ -364,7 +374,7 @@ function SourceDirectory({
   );
 }
 
-/** 单条 source 的校样页：intake_plan 定义表 + 结构地图 + 原文 blocks。 */
+/** One source's galley page: the intake_plan table, the structure map, the raw blocks. */
 function SourceGalley({
   userId,
   sourceId,
@@ -374,6 +384,7 @@ function SourceGalley({
   sourceId: string;
   highlight: BlockRange | null;
 }) {
+  const t = useT();
   const [detail, setDetail] = useState<SourceDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [exact, setExact] = useState<{ block: number; text: string } | null>(null);
@@ -396,7 +407,7 @@ function SourceGalley({
     void load();
   }, [load]);
 
-  // span 落点：详情就绪后把目标 block 区间滚动进视野。
+  // Span landing: once the detail is in, scroll the target block range into view.
   useEffect(() => {
     if (!detail || !highlight) return;
     blockRefs.current.get(highlight.start)?.scrollIntoView({
@@ -415,21 +426,26 @@ function SourceGalley({
     else blockRefs.current.delete(index);
   };
 
-  // 点击 block：fetchLocator 取该块的精确段（Callout 呈现）。
+  // Clicking a block: fetchLocator returns that block's exact span (shown in a Callout).
   async function onFetchBlock(index: number) {
     setFetching(true);
     try {
       const res = await fetchLocator(userId, sourceId, { blocks: [index, index] });
       setExact({ block: index, text: res.text });
     } catch (e) {
-      setExact({ block: index, text: `fetch 失败：${(e as Error).message}` });
+      setExact({
+        block: index,
+        text: t("common.sourceSpan.fetchFailed", { detail: (e as Error).message }),
+      });
     } finally {
       setFetching(false);
     }
   }
 
   if (error) {
-    return <ErrorState title="加载 source 详情失败" error={error} onRetry={() => void load()} />;
+    return (
+      <ErrorState title={t("sources.error.detail")} error={error} onRetry={() => void load()} />
+    );
   }
   if (!detail) {
     return <SkeletonText lines={10} />;
@@ -437,7 +453,7 @@ function SourceGalley({
 
   return (
     <article className="flex flex-col gap-6">
-      {/* 页头：标题 + 元信息 */}
+      {/* header: title + metadata */}
       <header className="flex flex-col gap-3 border-b border-line pb-5">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
           <div className="min-w-0">
@@ -464,7 +480,7 @@ function SourceGalley({
       {exact && (
         <Callout
           tone="notice"
-          title={<Mono>{`b${exact.block} · 精确段`}</Mono>}
+          title={<Mono>{t("sources.exactSpan.title", { block: exact.block })}</Mono>}
           onDismiss={() => setExact(null)}
         >
           <p className="prose whitespace-pre-wrap">{exact.text}</p>
@@ -474,11 +490,11 @@ function SourceGalley({
       <Tabs
         value={activeTab}
         onChange={setActiveTab}
-        aria-label="来源详情视图"
+        aria-label={t("sources.tabs.aria")}
         tabs={[
           {
             value: "source",
-            label: "来源视图",
+            label: t("sources.tabs.source"),
             panel: (
               <SourceReader
                 detail={detail}
@@ -491,7 +507,7 @@ function SourceGalley({
           },
           {
             value: "compiler",
-            label: "编译校样",
+            label: t("sources.tabs.compiler"),
             panel: (
               <CompilerGalley
                 detail={detail}
@@ -521,11 +537,12 @@ function CompilerGalley({
   blockRef: (index: number) => (element: HTMLElement | null) => void;
   fetching: boolean;
 }) {
+  const t = useT();
   return (
     <div className="flex flex-col gap-8">
       {detail.intake_plan && (
         <section className="flex flex-col gap-3">
-          <SectionRule no={1} title="编译计划" />
+          <SectionRule no={1} title={t("sources.compiler.plan")} />
           <DefinitionList
             termClassName="sm:w-48"
             items={[
@@ -538,10 +555,10 @@ function CompilerGalley({
                 definition: <Mono>{detail.intake_plan.semantic_indexing}</Mono>,
               },
               {
-                term: "确认状态",
+                term: t("sources.compiler.confirmTerm"),
                 definition: detail.intake_plan.user_confirmed
-                  ? "用户已确认"
-                  : "系统提案（未人工确认）",
+                  ? t("sources.compiler.confirmed")
+                  : t("sources.compiler.proposed"),
               },
               { term: "rationale", definition: detail.intake_plan.rationale },
             ]}
@@ -551,7 +568,7 @@ function CompilerGalley({
 
       {detail.structure.sections.length > 0 && (
         <section className="flex flex-col gap-3">
-          <SectionRule no={2} title="结构地图" />
+          <SectionRule no={2} title={t("sources.compiler.structure")} />
           <ul className="flex flex-col border-y border-line">
             {detail.structure.sections.map((sec, i) => {
               const depth = Math.max(0, sec.path.length - 1);
@@ -576,11 +593,11 @@ function CompilerGalley({
       <section className="flex flex-col gap-3">
         <SectionRule
           no={3}
-          title={`归一化原文 · ${detail.blocks.length} blocks`}
+          title={t("sources.compiler.blocks", { count: detail.blocks.length })}
           actions={
             <span className="text-12 text-ink-3">
               <Layers size={12} aria-hidden className="mr-1 inline-block align-[-2px]" />
-              点击块号取精确段
+              {t("sources.compiler.blocksHint")}
             </span>
           }
         />
@@ -598,8 +615,8 @@ function CompilerGalley({
                 type="button"
                 disabled={fetching}
                 onClick={() => onFetchBlock(block.index)}
-                aria-label={`取 block ${block.index} 精确段`}
-                title="取精确原文段"
+                aria-label={t("sources.block.fetchAria", { index: block.index })}
+                title={t("sources.block.fetchTitle")}
                 className="shrink-0 rounded-1 px-1 pt-0.5 text-right text-ink-3 hover:bg-hover hover:text-accent disabled:opacity-45"
               >
                 <Mono className="text-12">b{block.index}</Mono>

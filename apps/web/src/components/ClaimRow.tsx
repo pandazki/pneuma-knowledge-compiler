@@ -1,4 +1,5 @@
 import type { Claim, Citation } from "@/lib/types";
+import { useTOr } from "@/lib/useT";
 import { Badge } from "@/ui/Badge";
 import { Footnote } from "@/ui/Footnote";
 import { Mono } from "@/ui/Mono";
@@ -6,22 +7,17 @@ import { cn } from "@/ui/cn";
 
 export interface ClaimRowProps {
   claim: Claim;
-  /** 脚注点击 → source span 落点（通常接 store.focusSource）。 */
+  /** Footnote click → the source-span landing (usually store.focusSource). */
   onJumpCitation?: (citation: Citation) => void;
   className?: string;
 }
 
-const FLAG_LABEL: Record<string, string> = {
-  disputed: "有争议",
-  open_question: "待决问题",
-  inferred: "推断",
-};
-
 /**
- * canonical claim 一行：serif 正文 + 上标脚注序列 + mono 锚点；
- * flag 以页边注呈现（≥md 显示在右侧边栏，窄屏落到正文下方）。
+ * One canonical claim: serif prose + a superscript footnote sequence + a mono anchor. Flags
+ * render as marginalia (a right rail at ≥md, dropping under the prose on a narrow screen).
  */
 export function ClaimRow({ claim, onJumpCitation, className }: ClaimRowProps) {
+  const tOr = useTOr();
   const flags = claim.flags ?? [];
   const notes = claim.notes ?? {};
 
@@ -29,7 +25,7 @@ export function ClaimRow({ claim, onJumpCitation, className }: ClaimRowProps) {
     <div className="flex flex-row flex-wrap gap-2 md:flex-col md:flex-nowrap">
       {flags.map((flag) => (
         <div key={flag} className="flex flex-col gap-1">
-          <Badge tone="warn">{FLAG_LABEL[flag] ?? flag}</Badge>
+          <Badge tone="warn">{tOr(`common.flag.${flag}`, flag)}</Badge>
           {notes[flag as keyof typeof notes] && (
             <p className="max-w-44 text-12 leading-relaxed text-ink-3">
               {notes[flag as keyof typeof notes]}

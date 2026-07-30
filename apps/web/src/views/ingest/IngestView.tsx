@@ -11,6 +11,7 @@ import {
   type OfficialImportResult,
 } from "@/lib/api";
 import { useApp } from "@/lib/store";
+import { useT, useTOr } from "@/lib/useT";
 import { Button } from "@/ui/Button";
 import { Callout } from "@/ui/Callout";
 import { EmptyState } from "@/ui/EmptyState";
@@ -33,13 +34,14 @@ import {
   type OfficialSourceSummary,
 } from "./officialSources";
 
-/** Select / RadioGroup 不接受空串项，用哨兵值映射回 null（「自动」）。 */
+/** Select / RadioGroup take no empty-string item; this sentinel maps back to null ("auto"). */
 const AUTO = "__auto__";
 
 const TREATMENTS = ["full", "distill", "card", "none"];
 const SEMANTICS = ["full", "summary", "none"];
 
 export default function IngestView() {
+  const t = useT();
   const currentUser = useApp((s) => s.currentUser);
   const readOnly = useApp((s) => s.currentSnapshot != null);
   const [tab, setTab] = useState("official");
@@ -48,36 +50,33 @@ export default function IngestView() {
     return (
       <EmptyState
         icon={UserRound}
-        title="未选择用户"
-        description="先在顶栏选择或新建一个 user_id，导入的原料归属于该用户。"
+        title={t("ingest.noUser.title")}
+        description={t("ingest.noUser.description")}
       />
     );
   }
 
   return (
     <div className="flex max-w-measure flex-col gap-6">
-      <PageHeader
-        title="导入 Ingest"
-        description="会议、文档库、即时消息与邮件共用一套可审计入口；canonical contract 预检通过后才进入编译流水线。"
-      />
+      <PageHeader title={t("ingest.pageTitle")} description={t("ingest.pageDescription")} />
       {readOnly && (
-        <Callout tone="info" title="历史快照 · 只读">
-          正在查看历史快照，导入已禁用；切回 HEAD 后才能提交新原料。
+        <Callout tone="info" title={t("ingest.readOnly.title")}>
+          {t("ingest.readOnly.body")}
         </Callout>
       )}
       <Tabs
-        aria-label="导入方式"
+        aria-label={t("ingest.tabs.aria")}
         value={tab}
         onChange={setTab}
         tabs={[
           {
             value: "official",
-            label: "结构化来源",
+            label: t("ingest.tabs.official"),
             panel: <OfficialSourceTab readOnly={readOnly} />,
           },
           {
             value: "document",
-            label: "单篇文档",
+            label: t("ingest.tabs.document"),
             panel: <DocumentTab readOnly={readOnly} />,
           },
         ]}
@@ -87,14 +86,23 @@ export default function IngestView() {
 }
 
 function OfficialImportResultCallout({ result }: { result: OfficialImportResult }) {
+  const t = useT();
   const focusSource = useApp((s) => s.focusSource);
   const deduplicated = result.sources.filter((source) => source.deduplicated).length;
   return (
-    <Callout tone="notice" title={`导入完成 · ${result.sources.length} 条 source`}>
+    <Callout
+      tone="notice"
+      title={t("ingest.official.result.title", { count: result.sources.length })}
+    >
       <div className="flex min-w-0 flex-col gap-2">
         <p>
           contract <Mono>{result.contract_schema}</Mono>
-          {deduplicated > 0 && <> · 去重命中 <Mono>{deduplicated}</Mono></>}
+          {deduplicated > 0 && (
+            <>
+              {" "}
+              · {t("ingest.official.result.dedupHit")} <Mono>{deduplicated}</Mono>
+            </>
+          )}
         </p>
         <ol className="flex flex-col border-t border-line">
           {result.sources.map((source, index) => (
@@ -104,13 +112,17 @@ function OfficialImportResultCallout({ result }: { result: OfficialImportResult 
             >
               <Mono className="shrink-0 text-ink-3">{index + 1}</Mono>
               <Mono className="min-w-0 flex-1 truncate">{source.source_id}</Mono>
-              {source.deduplicated && <span className="shrink-0 text-12 text-ink-3">已存在</span>}
+              {source.deduplicated && (
+                <span className="shrink-0 text-12 text-ink-3">
+                  {t("ingest.official.result.existing")}
+                </span>
+              )}
               <Button
                 size="sm"
                 variant="ghost"
                 onClick={() => focusSource(source.source_id)}
               >
-                查看
+                {t("ingest.official.result.view")}
               </Button>
             </li>
           ))}
@@ -120,9 +132,10 @@ function OfficialImportResultCallout({ result }: { result: OfficialImportResult 
   );
 }
 
-/* --------------------------------------------------------- 四类官方 Source */
+/* ------------------------------------------ The four official source contracts */
 
 function OfficialSourceTab({ readOnly }: { readOnly: boolean }) {
+  const t = useT();
   const currentUser = useApp((s) => s.currentUser);
   const loadUsers = useApp((s) => s.loadUsers);
   const [kind, setKind] = useState<OfficialSourceKind>("meeting");
@@ -166,7 +179,9 @@ function OfficialSourceTab({ readOnly }: { readOnly: boolean }) {
       if (detected) setKind(detected);
       setSourceText(JSON.stringify(parsed, null, 2));
     } catch (caught) {
-      setError(`读取 source contract 失败：${(caught as Error).message}`);
+      setError(
+        t("ingest.official.fileFailed", { detail: (caught as Error).message }),
+      );
     }
   }
 
@@ -174,9 +189,9 @@ function OfficialSourceTab({ readOnly }: { readOnly: boolean }) {
     setError(null);
     setResult(null);
     try {
-      const parsed = parseOfficialSourcePayload(raw, kind);
+      const parsed = parseOfficialSourcePayload(raw, kind, { t });
       setPayload(parsed);
-      setSummary(summarizeOfficialSourcePayload(parsed, kind));
+      setSummary(summarizeOfficialSourcePayload(parsed, kind, { t }));
     } catch (caught) {
       setPayload(null);
       setSummary(null);
@@ -205,16 +220,19 @@ function OfficialSourceTab({ readOnly }: { readOnly: boolean }) {
   return (
     <div className="flex flex-col gap-6">
       <section className="flex flex-col gap-4">
-        <SectionRule no={1} title="选择来源协议" />
+        <SectionRule no={1} title={t("ingest.official.step1")} />
         <RadioGroup
-          aria-label="官方 source 类型"
+          aria-label={t("ingest.official.kindAria")}
           value={kind}
           onChange={selectKind}
           disabled={!canEdit}
           options={OFFICIAL_SOURCE_OPTIONS.map((option) => ({
             value: option.kind,
-            label: option.label,
-            description: `${option.description} 引用单元：${option.citationUnit}。`,
+            label: t(option.labelKey),
+            description: t("ingest.official.optionDescription", {
+              description: t(option.descriptionKey),
+              citationUnit: t(option.citationUnitKey),
+            }),
           }))}
         />
         <p className="text-13 text-ink-2">
@@ -223,10 +241,10 @@ function OfficialSourceTab({ readOnly }: { readOnly: boolean }) {
       </section>
 
       <section className="flex flex-col gap-4">
-        <SectionRule no={2} title="载入 canonical JSON" />
+        <SectionRule no={2} title={t("ingest.official.step2")} />
         <FilePicker
-          label="选择 JSON 文件（可选）"
-          hint="上传后按 schema 自动切换来源类型；文件只在本地读取，确认导入时才发送。"
+          label={t("ingest.official.file.label")}
+          hint={t("ingest.official.file.hint")}
           accept=".json,application/json"
           file={file}
           onFile={(next) => void onFile(next)}
@@ -234,7 +252,7 @@ function OfficialSourceTab({ readOnly }: { readOnly: boolean }) {
         />
         <TextArea
           label="source contract"
-          hint="可直接粘贴 provider adapter 产出的 canonical JSON。"
+          hint={t("ingest.official.contract.hint")}
           value={raw}
           onChange={(event) => setSourceText(event.target.value)}
           className="font-mono text-13 leading-[1.65]"
@@ -249,11 +267,11 @@ function OfficialSourceTab({ readOnly }: { readOnly: boolean }) {
             disabled={!canEdit}
             onClick={() => {
               setFile(null);
-              setSourceText(officialSourceTemplate(kind));
+              setSourceText(officialSourceTemplate(kind, { t }));
             }}
           >
             <Braces size={14} aria-hidden />
-            载入合成示例
+            {t("ingest.official.loadSample")}
           </Button>
           <Button
             size="sm"
@@ -261,14 +279,14 @@ function OfficialSourceTab({ readOnly }: { readOnly: boolean }) {
             disabled={!canEdit || !raw.trim()}
             onClick={onPreflight}
           >
-            预检结构
+            {t("ingest.official.preflight")}
           </Button>
         </div>
       </section>
 
       {summary && payload && (
         <section className="flex flex-col gap-4">
-          <SectionRule no={3} title="确认导入" />
+          <SectionRule no={3} title={t("ingest.official.step3")} />
           <div className="border-y border-line py-3">
             <p className="text-16 font-medium text-ink">{summary.title}</p>
             <p className="mt-1 text-13 text-ink-2">
@@ -276,8 +294,7 @@ function OfficialSourceTab({ readOnly }: { readOnly: boolean }) {
               <Mono>{summary.itemCount}</Mono> {summary.itemLabel}
             </p>
             <p className="mt-2 text-12 leading-[1.7] text-ink-3">
-              服务端会再次执行完整 contract 校验；bundle 将按自然引用单元展开，并分别进入
-              L0–L3 流水线。
+              {t("ingest.official.confirmNote")}
             </p>
           </div>
           <div>
@@ -287,14 +304,14 @@ function OfficialSourceTab({ readOnly }: { readOnly: boolean }) {
               disabled={readOnly}
               onClick={() => void onImport()}
             >
-              导入 {selected.label}
+              {t("ingest.official.submit", { kind: t(selected.labelKey) })}
             </Button>
           </div>
         </section>
       )}
 
       {error && (
-        <Callout tone="danger" title="结构化来源导入失败">
+        <Callout tone="danger" title={t("ingest.official.failed")}>
           <Mono className="break-all">{error}</Mono>
         </Callout>
       )}
@@ -303,13 +320,18 @@ function OfficialSourceTab({ readOnly }: { readOnly: boolean }) {
   );
 }
 
-/** 入库结果态：mono source_id + 去重标记 + intake_plan + 跳 sources 落点。 */
+/** The stored result: mono source_id + dedup mark + intake_plan + a jump into Sources. */
 function IngestResultCallout({ result }: { result: IngestResult }) {
+  const t = useT();
   const focusSource = useApp((s) => s.focusSource);
   return (
     <Callout
       tone="notice"
-      title={result.deduplicated ? "内容去重命中（append-only）" : "已入库"}
+      title={
+        result.deduplicated
+          ? t("ingest.document.result.deduplicated")
+          : t("ingest.document.result.stored")
+      }
     >
       <div className="flex flex-col gap-2">
         <p>
@@ -326,7 +348,7 @@ function IngestResultCallout({ result }: { result: IngestResult }) {
         <p className="leading-[1.75]">{result.intake_plan.rationale}</p>
         <p>
           <Button size="sm" variant="ghost" onClick={() => focusSource(result.source_id)}>
-            查看原料
+            {t("ingest.document.result.view")}
           </Button>
         </p>
       </div>
@@ -334,9 +356,11 @@ function IngestResultCallout({ result }: { result: IngestResult }) {
   );
 }
 
-/* ---------------------------------------------------------------- 文档 Tab */
+/* ----------------------------------------------------------- The document tab */
 
 function DocumentTab({ readOnly }: { readOnly: boolean }) {
+  const t = useT();
+  const tOr = useTOr();
   const currentUser = useApp((s) => s.currentUser);
   const loadUsers = useApp((s) => s.loadUsers);
 
@@ -355,7 +379,8 @@ function DocumentTab({ readOnly }: { readOnly: boolean }) {
   const [result, setResult] = useState<IngestResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // intake archetype 注册表（core 为单一权威，UI 拉取而非内联）。
+  // The intake archetype registry (core is the single authority; the UI fetches it rather
+  // than inlining a copy).
   useEffect(() => {
     let live = true;
     getIntakeArchetypes()
@@ -371,7 +396,7 @@ function DocumentTab({ readOnly }: { readOnly: boolean }) {
 
   const selectedArchetype = archetypes.find((a) => a.key === archetype) ?? null;
 
-  // 换意图会使现有预览的提案过期。
+  // Changing the intent makes an existing preview's proposal stale.
   function selectArchetype(key: string) {
     setArchetype(key);
     setPreview(null);
@@ -386,7 +411,7 @@ function DocumentTab({ readOnly }: { readOnly: boolean }) {
       setText(content);
       if (!title.trim()) setTitle(f.name.replace(/\.(md|markdown|txt)$/i, ""));
     } catch (e) {
-      setError(`读取文件失败：${(e as Error).message}`);
+      setError(t("ingest.document.fileFailed", { detail: (e as Error).message }));
     }
   }
 
@@ -425,14 +450,14 @@ function DocumentTab({ readOnly }: { readOnly: boolean }) {
         semantic !== preview.proposed_plan.semantic_indexing;
       const res = await ingestDocument(currentUser, {
         ...body(),
-        // 仅在覆盖双旋钮时传 plan_override。
+        // `plan_override` only travels when one of the two knobs was moved.
         ...(overridden
           ? { plan_override: { canonical_treatment: treatment, semantic_indexing: semantic } }
           : {}),
       });
       setResult(res);
       setPreview(null);
-      // 首条 source 可能让新用户出现在目录里。
+      // A first source can make a new user appear in the directory.
       void loadUsers();
     } catch (e) {
       setError((e as Error).message);
@@ -441,32 +466,36 @@ function DocumentTab({ readOnly }: { readOnly: boolean }) {
     }
   }
 
-  const archetypeLabel = (key: string | null | undefined) =>
-    archetypes.find((a) => a.key === key)?.label ?? key ?? "";
+  // The served label is the fallback: an archetype this client has no wording for degrades
+  // to the service's English, never to a blank.
+  const archetypeLabel = (key: string | null | undefined) => {
+    const served = archetypes.find((a) => a.key === key)?.label ?? key ?? "";
+    return key ? tOr(`enum.intakeArchetype.${key}.label`, served) : served;
+  };
 
   return (
     <div className="flex flex-col gap-6">
-      {/* 第一步：编辑 */}
+      {/* Step one: edit */}
       <section className="flex flex-col gap-4">
-        <SectionRule no={1} title="编辑" />
+        <SectionRule no={1} title={t("ingest.document.step1")} />
         <TextField
-          label="标题"
+          label={t("ingest.document.title.label")}
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          placeholder="发布规范 / 会议记录 …"
+          placeholder={t("ingest.document.title.placeholder")}
           disabled={!canEdit}
         />
         <FilePicker
-          label="从文件读入（可选）"
-          hint="支持 .md / .txt，读入后可在下方继续编辑"
+          label={t("ingest.document.file.label")}
+          hint={t("ingest.document.file.hint")}
           accept=".md,.markdown,.txt,text/markdown,text/plain"
           file={file}
           onFile={(f) => void onFile(f)}
           disabled={!canEdit}
         />
         <TextArea
-          label="正文"
-          hint="markdown / 纯文本；按标题分节，无标题按段落"
+          label={t("ingest.document.body.label")}
+          hint={t("ingest.document.body.hint")}
           value={text}
           onChange={(e) => {
             setText(e.target.value);
@@ -474,27 +503,42 @@ function DocumentTab({ readOnly }: { readOnly: boolean }) {
           }}
           autoRows
           maxRows={18}
-          placeholder={"# 标题\n\n正文……"}
+          placeholder={t("ingest.document.body.placeholder")}
           disabled={!canEdit}
         />
         <Select
-          label="处理意图 intake_archetype"
+          label={t("ingest.document.archetype.label")}
           value={archetype}
           onChange={selectArchetype}
           disabled={!canEdit}
           options={[
-            { value: AUTO, label: "自动（让系统判断）" },
-            ...archetypes.map((a) => ({ value: a.key, label: a.label })),
+            { value: AUTO, label: t("ingest.document.archetype.auto") },
+            ...archetypes.map((a) => ({
+              value: a.key,
+              label: tOr(`enum.intakeArchetype.${a.key}.label`, a.label),
+            })),
           ]}
         />
         {archetype === AUTO ? (
-          <p className="text-12 text-ink-3">按类型与体量机械判定处理策略，预览时给出系统建议。</p>
+          <p className="text-12 text-ink-3">{t("ingest.document.archetype.autoHint")}</p>
         ) : (
           selectedArchetype && (
             <div className="flex flex-col gap-1 border-l-2 border-line-2 pl-3">
-              <p className="text-13 text-ink-2">{selectedArchetype.summary}</p>
+              <p className="text-13 text-ink-2">
+                {tOr(
+                  `enum.intakeArchetype.${selectedArchetype.key}.summary`,
+                  selectedArchetype.summary,
+                )}
+              </p>
               {selectedArchetype.examples && (
-                <p className="text-12 text-ink-3">例：{selectedArchetype.examples}</p>
+                <p className="text-12 text-ink-3">
+                  {t("ingest.document.archetype.examples", {
+                    examples: tOr(
+                      `enum.intakeArchetype.${selectedArchetype.key}.examples`,
+                      selectedArchetype.examples,
+                    ),
+                  })}
+                </p>
               )}
             </div>
           )
@@ -508,28 +552,42 @@ function DocumentTab({ readOnly }: { readOnly: boolean }) {
           }}
           disabled={!canEdit}
           options={[
-            { value: AUTO, label: "不指定", description: "由系统按内容判断" },
-            { value: "workstream", label: "workstream", description: "进行中的工作流材料" },
-            { value: "reference", label: "reference", description: "长期参考资料" },
+            {
+              value: AUTO,
+              label: t("ingest.document.sourceClass.auto"),
+              description: t("ingest.document.sourceClass.autoHint"),
+            },
+            {
+              value: "workstream",
+              label: "workstream",
+              description: t("ingest.document.sourceClass.workstream"),
+            },
+            {
+              value: "reference",
+              label: "reference",
+              description: t("ingest.document.sourceClass.reference"),
+            },
           ]}
         />
         <div>
           <Button variant="primary" loading={previewing} disabled={!canPreview} onClick={() => void onPreview()}>
-            机械预览
+            {t("ingest.document.preview")}
           </Button>
         </div>
       </section>
 
-      {/* 第二步：预览 → 确认 */}
+      {/* Step two: preview → confirm */}
       {preview && (
         <section className="flex flex-col gap-4">
-          <SectionRule no={2} title="机械预览" />
+          <SectionRule no={2} title={t("ingest.document.preview")} />
           <p className="text-13 text-ink-2">
-            归一化结果：<Mono>{preview.normalized.block_count}</Mono> blocks ·{" "}
+            {t("ingest.document.normalizedPrefix")}
+            <Mono>{preview.normalized.block_count}</Mono> blocks ·{" "}
             <Mono>{preview.normalized.char_count}</Mono> chars
             {preview.proposed_archetype && (
               <>
-                {" "}· 系统建议意图 <Mono>{archetypeLabel(preview.proposed_archetype)}</Mono>
+                {" "}· {t("ingest.document.proposedArchetype")}{" "}
+                <Mono>{archetypeLabel(preview.proposed_archetype)}</Mono>
               </>
             )}
           </p>
@@ -544,7 +602,7 @@ function DocumentTab({ readOnly }: { readOnly: boolean }) {
                     style={{ paddingLeft: `${depth * 16}px` }}
                   >
                     <span className="min-w-0 flex-1 truncate text-14 text-ink">
-                      {sec.path[sec.path.length - 1] ?? "(前言)"}
+                      {sec.path[sec.path.length - 1] ?? t("ingest.document.preamble")}
                     </span>
                     <Mono className="shrink-0 text-12 text-ink-3">
                       b{sec.start_block}–b{sec.end_block} · {sec.block_count}
@@ -556,30 +614,37 @@ function DocumentTab({ readOnly }: { readOnly: boolean }) {
           )}
           <div className="flex flex-col gap-2">
             <p className="text-13 text-ink-2">
-              提案：canonical_treatment <Mono>{preview.proposed_plan.canonical_treatment}</Mono> ·
-              semantic_indexing <Mono>{preview.proposed_plan.semantic_indexing}</Mono>
+              {t("ingest.document.proposalPrefix")}canonical_treatment{" "}
+              <Mono>{preview.proposed_plan.canonical_treatment}</Mono> · semantic_indexing{" "}
+              <Mono>{preview.proposed_plan.semantic_indexing}</Mono>
             </p>
             <p className="text-13 leading-[1.75] text-ink-3">{preview.proposed_plan.rationale}</p>
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <Select
-              label="canonical_treatment（覆盖）"
+              label={t("ingest.document.treatmentOverride")}
               value={treatment}
               onChange={setTreatment}
               disabled={readOnly}
-              options={TREATMENTS.map((t) => ({
-                value: t,
-                label: t === preview.proposed_plan.canonical_treatment ? `${t} · 提案` : t,
+              options={TREATMENTS.map((option) => ({
+                value: option,
+                label:
+                  option === preview.proposed_plan.canonical_treatment
+                    ? t("ingest.document.proposedOption", { value: option })
+                    : option,
               }))}
             />
             <Select
-              label="semantic_indexing（覆盖）"
+              label={t("ingest.document.semanticOverride")}
               value={semantic}
               onChange={setSemantic}
               disabled={readOnly}
-              options={SEMANTICS.map((t) => ({
-                value: t,
-                label: t === preview.proposed_plan.semantic_indexing ? `${t} · 提案` : t,
+              options={SEMANTICS.map((option) => ({
+                value: option,
+                label:
+                  option === preview.proposed_plan.semantic_indexing
+                    ? t("ingest.document.proposedOption", { value: option })
+                    : option,
               }))}
             />
           </div>
@@ -590,14 +655,14 @@ function DocumentTab({ readOnly }: { readOnly: boolean }) {
               disabled={readOnly}
               onClick={() => void onConfirm()}
             >
-              确认导入
+              {t("ingest.document.confirm")}
             </Button>
           </div>
         </section>
       )}
 
       {error && (
-        <Callout tone="danger" title="文档导入失败">
+        <Callout tone="danger" title={t("ingest.document.failed")}>
           <Mono className="break-all">{error}</Mono>
         </Callout>
       )}

@@ -19,16 +19,17 @@ const {
   changedFileKind,
   diffStat,
   evolveScale,
+  evolveStatusLabelKey,
   evolveStatusTone,
   evolveTimelineCounts,
   familyFromTemplate,
-  fmtTtlRemaining,
   groupFamiliesByArea,
   isTerminalEvolveStatus,
   lineDiff,
   parseRationale,
   proposedFamilies,
   selectedTimelineEntry,
+  ttlRemainingMessage,
   ttlRemainingMs,
 } = await import(moduleUrl);
 
@@ -155,6 +156,15 @@ test("status tone only colors real states, terminal set drives polling", () => {
   assert.equal(isTerminalEvolveStatus("no_change"), true);
   assert.equal(isTerminalEvolveStatus("draft"), false);
   assert.equal(isTerminalEvolveStatus("phase2"), false);
+
+  // 状态文案由词典渲染：本模块只给 key（transpile-standalone，拿不到翻译函数）。
+  assert.equal(evolveStatusLabelKey("draft"), "evolve.status.draft");
+  assert.equal(evolveStatusLabelKey("no_change"), "evolve.status.no_change");
+  // 词典里没有的状态 → 未声明的 key，视图侧 tOr 回落到原样状态串，不空白。
+  assert.equal(
+    evolveStatusLabelKey("running-something-new"),
+    "evolve.status.running-something-new",
+  );
 });
 
 test("TTL countdown is advisory and degrades honestly", () => {
@@ -164,9 +174,16 @@ test("TTL countdown is advisory and degrades honestly", () => {
   assert.equal(ttlRemainingMs("not-a-date", 24, now), null);
   assert.equal(ttlRemainingMs("2026-07-18T08:00:00Z", 24, now) < 0, true);
 
-  assert.equal(fmtTtlRemaining(22 * 3600_000), "剩约 22h0m");
-  assert.equal(fmtTtlRemaining(45 * 60_000), "剩约 45m");
-  assert.equal(fmtTtlRemaining(-1), "已超评审窗口");
+  // 倒计时同样只返回 key + 参数，语言由视图侧的 t() 决定。
+  assert.deepEqual(ttlRemainingMessage(22 * 3600_000), {
+    key: "evolve.ttl.hoursMinutes",
+    params: { h: 22, m: 0 },
+  });
+  assert.deepEqual(ttlRemainingMessage(45 * 60_000), {
+    key: "evolve.ttl.minutes",
+    params: { m: 45 },
+  });
+  assert.deepEqual(ttlRemainingMessage(-1), { key: "evolve.ttl.expired" });
 });
 
 /* --------------------------------------------------------------- 模板 → family */
@@ -384,6 +401,17 @@ test("schema axis derives stations from adopted tasks and the current skill", ()
     "materials",
   ]);
   assert.deepEqual(axis.stations[1].families, ["operations"]);
+  // 站点标题也是 key + 参数（视图侧 t() 渲染），编号与时间线共享。
+  assert.deepEqual(
+    axis.stations.map((s) => [s.labelKey, s.labelParams ?? null]),
+    [
+      ["evolve.axis.station.baseVersion", { version: "v3" }],
+      ["evolve.axis.station.packs", null],
+      ["evolve.evolutionOrdinal", { n: 1 }],
+      ["evolve.evolutionOrdinal", { n: 2 }],
+      ["evolve.axis.station.pending", { n: 3 }],
+    ],
+  );
   // 采纳站按时间正序，编号与时间线一致（0001 是第 1 次）。
   assert.equal(axis.stations[2].ordinal, 1);
   assert.deepEqual(axis.stations[2].liveFamilies, ["runbooks"]);
@@ -442,6 +470,9 @@ test("schema axis stays readable with no skill and no tasks", () => {
     axis.stations.map((s) => s.kind),
     ["base"],
   );
+  // 没有 base_version 可报时用无参的基线站标题，不拼一个空版本号。
+  assert.equal(axis.stations[0].labelKey, "evolve.axis.station.base");
+  assert.equal(axis.stations[0].labelParams, undefined);
   assert.deepEqual(axis.families, []);
   assert.equal(axis.baseVersion, null);
   assert.deepEqual(axis.drifted, []);

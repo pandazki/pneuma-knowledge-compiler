@@ -1,6 +1,7 @@
 import { useId, type ReactNode } from "react";
 import * as RadixSelect from "@radix-ui/react-select";
 import { Check, ChevronDown, ChevronUp } from "lucide-react";
+import { useT } from "@/lib/useT";
 import { cn } from "./cn";
 
 export interface SelectOption {
@@ -23,12 +24,12 @@ export interface SelectProps {
   wrapperClassName?: string;
 }
 
-/** Radix Select：自绘 trigger / listbox / item（check 指示 + 滚动按钮）。 */
+/** Radix Select with a hand-drawn trigger / listbox / item (check mark + scroll buttons). */
 export function Select({
   value,
   onChange,
   options,
-  placeholder = "请选择",
+  placeholder,
   label,
   hint,
   error,
@@ -37,6 +38,7 @@ export function Select({
   wrapperClassName,
   ...rest
 }: SelectProps) {
+  const t = useT();
   const autoId = useId();
   const triggerId = id ?? autoId;
   const hintId = hint || error ? `${triggerId}-hint` : undefined;
@@ -48,8 +50,9 @@ export function Select({
         </label>
       )}
       <RadixSelect.Root
-        // null 用 "" 收口：Radix 的 undefined=非受控，词表异步回填后会从非受控
-        // 跳到受控并抛 React 警告；"" 是合法的受控空值（仍显示 placeholder）。
+        // null is normalised to "": Radix reads undefined as uncontrolled, so an async
+        // vocabulary arriving later would flip uncontrolled → controlled and warn. "" is a
+        // legitimate controlled empty value (the placeholder still shows).
         value={value ?? ""}
         onValueChange={onChange}
         disabled={disabled}
@@ -67,7 +70,7 @@ export function Select({
             "data-[placeholder]:text-ink-3",
           )}
         >
-          <RadixSelect.Value placeholder={placeholder} />
+          <RadixSelect.Value placeholder={placeholder ?? t("common.selectPlaceholder")} />
           <RadixSelect.Icon>
             <ChevronDown size={15} aria-hidden className="text-ink-3" />
           </RadixSelect.Icon>

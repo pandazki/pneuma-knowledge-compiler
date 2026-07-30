@@ -2,7 +2,7 @@ import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from "react";
 import { cn } from "./cn";
 
 export interface IconButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  /** 必须提供：图标按钮没有可见文字。 */
+  /** Required: an icon button has no visible text. */
   "aria-label": string;
   size?: "sm" | "md";
   children: ReactNode;

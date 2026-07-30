@@ -11,8 +11,8 @@ export interface SegmentedControlProps {
 }
 
 /**
- * Radix Tabs 实现的分段选择（fast/deep/rag 等模式切换）；
- * 只渲染触发器，不渲染 panel —— 面板内容由调用方按 value 自己切换。
+ * Segmented picker built on Radix Tabs (fast/deep/rag mode switching). It renders only the
+ * triggers, never a panel — the caller switches its own content off `value`.
  */
 export function SegmentedControl({
   value,

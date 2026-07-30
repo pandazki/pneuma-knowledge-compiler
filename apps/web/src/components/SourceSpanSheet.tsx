@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Crosshair } from "lucide-react";
 import { fetchLocator, getSource, type SourceDetail } from "@/lib/api";
 import { useApp } from "@/lib/store";
+import { useT } from "@/lib/useT";
 import { Button } from "@/ui/Button";
 import { Drawer } from "@/ui/Drawer";
 import { ErrorState } from "@/ui/ErrorState";
@@ -13,14 +14,15 @@ export interface SourceSpanSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   sourceId: string | null;
-  /** 高亮的目标 block 区间（闭区间）。 */
+  /** The highlighted target block range (inclusive). */
   blockStart?: number | null;
   blockEnd?: number | null;
 }
 
 /**
- * 引用落点侧栏：source 原文（mono 块号 + serif 正文），目标区间 accent-soft
- * 高亮，附 fetch-locator 精确段按钮。recall / ask / suggestion / library 共用。
+ * The citation landing rail: a source's original text (mono block numbers + serif prose) with
+ * the target range highlighted accent-soft, plus a fetch-locator exact-span button. Shared by
+ * recall / ask / suggestion / library.
  */
 export function SourceSpanSheet({
   open,
@@ -30,6 +32,7 @@ export function SourceSpanSheet({
   blockEnd = null,
 }: SourceSpanSheetProps) {
   const currentUser = useApp((s) => s.currentUser);
+  const t = useT();
   const [detail, setDetail] = useState<SourceDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -66,7 +69,7 @@ export function SourceSpanSheet({
       });
       setExactText(res.text);
     } catch (e) {
-      setExactText(`fetch 失败：${(e as Error).message}`);
+      setExactText(t("common.sourceSpan.fetchFailed", { detail: (e as Error).message }));
     } finally {
       setFetching(false);
     }
@@ -76,7 +79,7 @@ export function SourceSpanSheet({
     blockStart != null && index >= blockStart && index <= (blockEnd ?? blockStart);
 
   return (
-    <Drawer open={open} onOpenChange={onOpenChange} side="right" title={detail?.title ?? "原文"}>
+    <Drawer open={open} onOpenChange={onOpenChange} side="right" title={detail?.title ?? t("common.sourceSpan.title")}>
       <div className="flex flex-col gap-4 p-4">
         {loading && <SkeletonText lines={8} />}
         {error && <ErrorState error={error} onRetry={() => void load()} />}
@@ -90,7 +93,7 @@ export function SourceSpanSheet({
               {blockStart != null && (
                 <Button size="sm" variant="ghost" loading={fetching} onClick={() => void fetchExact()}>
                   <Crosshair size={13} aria-hidden />
-                  fetch 精确段
+                  {t("common.sourceSpan.fetchExact")}
                 </Button>
               )}
             </div>

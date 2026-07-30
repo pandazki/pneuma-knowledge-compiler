@@ -9,6 +9,8 @@ import {
   citationKey,
   presentCitationSource,
 } from "@/lib/citations";
+import { intlTag } from "@/lib/i18n";
+import { useLocale, useT, useTOr } from "@/lib/useT";
 import { PageHeader } from "@/components/PageHeader";
 import { CitationList, type CitationEntry } from "@/components/CitationList";
 import { Badge } from "@/ui/Badge";
@@ -19,13 +21,10 @@ import { Mono } from "@/ui/Mono";
 import { SectionRule } from "@/ui/SectionRule";
 import { cn } from "@/ui/cn";
 
-const FLAG_LABEL: Record<string, string> = {
-  disputed: "有争议",
-  open_question: "待决问题",
-  inferred: "推断",
-};
-
-/** claimLabel tier → 墨阶（solid 实墨 / outline 次级 / muted 弱化，规则 4：不给模块配色）。 */
+/**
+ * claimLabel tier → ink step (solid / outline as the secondary / muted as the quietest;
+ * rule 4: no per-module colour).
+ */
 function labelBadgeClass(tier: string): string {
   switch (tier) {
     case "solid":
@@ -38,6 +37,7 @@ function labelBadgeClass(tier: string): string {
 }
 
 export default function LibraryView() {
+  const t = useT();
   const dataset = useApp((s) => s.dataset);
   const model = useApp((s) => s.model);
   const selection = useApp((s) => s.selection);
@@ -46,7 +46,8 @@ export default function LibraryView() {
 
   const docs = model?.dataset.documents.documents ?? [];
 
-  // 选中解析：document/node → 文档；claim → 文档 + 高亮锚点；否则首篇。
+  // Resolve the selection: document/node → the document; claim → document + highlight anchor;
+  // otherwise the first document.
   const { activeDoc, highlightAnchor } = useMemo(() => {
     if (!model) return { activeDoc: null as DocumentRecord | null, highlightAnchor: null as string | null };
     let id: string | null = null;
@@ -63,7 +64,7 @@ export default function LibraryView() {
     };
   }, [model, selection, docs]);
 
-  // deep link 进入（#/library/claim/...）：滚动定位到该 claim。
+  // Arriving by deep link (#/library/claim/…): scroll the claim into view.
   useEffect(() => {
     if (!highlightAnchor || !activeDoc) return;
     const el = document.getElementById(`claim-${highlightAnchor}`);
@@ -73,12 +74,16 @@ export default function LibraryView() {
   if (!dataset || !model) {
     return (
       <>
-        <PageHeader title="正典 Canonical" description="编译产出的 canonical 文档：serif 版样、claim 锚点、脚注引用。" />
+        <PageHeader title={t("library.title")} description={t("library.descriptionShort")} />
         <EmptyState
           icon={Inbox}
-          title="还没有正典"
-          description="这个知识库尚未编译出 canonical 文档——先去「导入 Ingest」添加原料，再在「工序 Process」里编译。"
-          action={<Button size="sm" onClick={() => setView("ingest")}>去导入</Button>}
+          title={t("library.empty.title")}
+          description={t("library.empty.description")}
+          action={
+            <Button size="sm" onClick={() => setView("ingest")}>
+              {t("library.empty.action")}
+            </Button>
+          }
         />
       </>
     );
@@ -87,16 +92,18 @@ export default function LibraryView() {
   return (
     <>
       <PageHeader
-        title="正典 Canonical"
-        description={`${docs.length} 篇文档 · 每个 claim 都能回到精确 source span。`}
+        title={t("library.title")}
+        description={t("library.description", { count: docs.length })}
       />
       <div className="flex flex-col gap-6 md:flex-row md:items-start">
-        {/* 左：文档目录树 */}
+        {/* Left: the document tree */}
         <nav
-          aria-label="文档目录"
+          aria-label={t("library.toc.aria")}
           className="max-h-64 w-full shrink-0 overflow-y-auto border-b border-line pb-3 md:max-h-[70vh] md:w-60 md:border-b-0 md:pb-0"
         >
-          <p className="mb-2 text-12 text-ink-3">目录 · {docs.length} 篇</p>
+          <p className="mb-2 text-12 text-ink-3">
+            {t("library.toc.count", { count: docs.length })}
+          </p>
           <ul className="flex flex-col">
             {model.tree.children.map((node) => (
               <TreeRow
@@ -112,7 +119,7 @@ export default function LibraryView() {
           </ul>
         </nav>
 
-        {/* 右：选中文档的版样 */}
+        {/* Right: the selected document, set as a proof */}
         <div className="min-w-0 flex-1">
           {activeDoc ? (
             <DocumentProof
@@ -124,8 +131,8 @@ export default function LibraryView() {
           ) : (
             <EmptyState
               icon={BookMarked}
-              title="没有文档"
-              description="documents 为空——编译尚未产出任何 canonical 文档。"
+              title={t("library.noDoc.title")}
+              description={t("library.noDoc.description")}
             />
           )}
         </div>
@@ -134,7 +141,7 @@ export default function LibraryView() {
   );
 }
 
-/* ---------------------------------------------------------------- 目录树 */
+/* ------------------------------------------------------------ the document tree */
 
 function TreeRow({
   node,
@@ -194,7 +201,7 @@ function TreeRow({
   );
 }
 
-/* ---------------------------------------------------------------- 版样 */
+/* ------------------------------------------------------------------- the proof */
 
 function DocumentProof({
   doc,
@@ -207,10 +214,17 @@ function DocumentProof({
   highlightAnchor: string | null;
   selectedAnchor: string | null;
 }) {
+  const t = useT();
+  const tOr = useTOr();
+  const locale = useLocale();
   const select = useApp((s) => s.select);
   const jump = useApp((s) => s.jump);
   const focusSource = useApp((s) => s.focusSource);
   const labels = model.dataset.claimLabels;
+
+  // The wording lib/citations needs, injected: that module is transpiled standalone by its
+  // test, so it cannot import the dictionary itself.
+  const citationI18n = useMemo(() => ({ tOr, intlTag: intlTag(locale) }), [tOr, locale]);
 
   const fm = doc.frontmatter ?? {};
   const fmEntries = Object.entries(fm);
@@ -218,7 +232,7 @@ function DocumentProof({
     ? model.patchesByDocId.get(doc.document_id) ?? []
     : model.patchesByPath.get(doc.path) ?? [];
 
-  // 连续 list_item 归并成列表，段落各自独立。
+  // Consecutive list_items merge into one list; paragraphs each stand alone.
   const groups = useMemo(() => {
     const out: { kind: "list" | "prose"; claims: Claim[] }[] = [];
     for (const c of doc.claims) {
@@ -230,7 +244,7 @@ function DocumentProof({
     return out;
   }, [doc]);
 
-  // 文档级引用列表（去重，保留首次出现的编号）。
+  // The document-level citation list (deduplicated, keeping the number of the first mention).
   const citations = useMemo(() => {
     const seen = new Map<string, CitationEntry>();
     for (const c of doc.claims) {
@@ -244,20 +258,24 @@ function DocumentProof({
         if (!seen.has(key)) {
           const node = model.nodeById.get(`src:${ci.source_id}`);
           const snapshot = model.snapshotById.get(ci.source_id);
-          const source = presentCitationSource({
-            sourceId: ci.source_id,
-            title: node?.title,
-            kind: snapshot?.source_type,
-            capturedAt: snapshot?.captured_at,
-          });
+          const source = presentCitationSource(
+            {
+              sourceId: ci.source_id,
+              title: node?.title,
+              kind: snapshot?.source_type,
+              capturedAt: snapshot?.captured_at,
+            },
+            citationI18n,
+          );
           seen.set(key, { ...entry, ...source });
         }
       }
     }
     return [...seen.values()];
-  }, [doc, model]);
+  }, [doc, model, citationI18n]);
 
-  // 正文与「出处」共用同一张文档级账本；同一 source span 在两处永远同号。
+  // The body and the “Sources” section share one document-level ledger, so the same source
+  // span always carries the same number in both.
   const citationNumbers = useMemo(
     () => buildCitationNumbers(citations),
     [citations],
@@ -282,7 +300,7 @@ function DocumentProof({
         {flags.map((f) => (
           <div key={f} className="flex max-w-52 flex-col gap-1">
             <Badge tone={f === "disputed" || f === "open_question" ? "warn" : "neutral"}>
-              {FLAG_LABEL[f] ?? f}
+              {tOr(`common.flag.${f}`, f)}
             </Badge>
             {f === "disputed" && sideDisputed && (
               <p className="text-12 leading-relaxed text-ink-3">{sideDisputed}</p>
@@ -294,13 +312,13 @@ function DocumentProof({
         ))}
         {!flags.includes("disputed") && sideDisputed && (
           <div className="flex max-w-52 flex-col gap-1">
-            <Badge tone="warn">有争议</Badge>
+            <Badge tone="warn">{t("common.flag.disputed")}</Badge>
             <p className="text-12 leading-relaxed text-ink-3">{sideDisputed}</p>
           </div>
         )}
         {!flags.includes("open_question") && sideOpen && (
           <div className="flex max-w-52 flex-col gap-1">
-            <Badge tone="warn">待决问题</Badge>
+            <Badge tone="warn">{t("common.flag.open_question")}</Badge>
             <p className="text-12 leading-relaxed text-ink-3">{sideOpen}</p>
           </div>
         )}
@@ -391,7 +409,7 @@ function DocumentProof({
 
       {fmEntries.length > 0 && (
         <section className="mt-5">
-          <SectionRule no={1} title="版式信息" />
+          <SectionRule no={1} title={t("library.frontmatter.title")} />
           <dl className="mt-3 flex flex-col">
             {fmEntries.map(([k, v]) => (
               <div key={k} className="flex items-baseline gap-3 border-b border-line py-1.5 last:border-b-0">
@@ -408,7 +426,7 @@ function DocumentProof({
       )}
 
       <section className="mt-6">
-        <SectionRule no={2} title="正文" />
+        <SectionRule no={2} title={t("library.body.title")} />
         <div className="mt-2 divide-y divide-line">
           {groups.map((g, gi) =>
             g.kind === "list" ? (
@@ -424,14 +442,14 @@ function DocumentProof({
             ),
           )}
           {doc.claims.length === 0 && (
-            <p className="py-6 text-13 text-ink-3">该文档没有可追溯 claim 块。</p>
+            <p className="py-6 text-13 text-ink-3">{t("library.body.empty")}</p>
           )}
         </div>
       </section>
 
       {citations.length > 0 && (
         <section className="mt-6">
-          <SectionRule no={3} title="出处" />
+          <SectionRule no={3} title={t("library.citations.title")} />
           <CitationList
             className="mt-3"
             citations={citations}
@@ -449,7 +467,7 @@ function DocumentProof({
 
       {patches.length > 0 && (
         <section className="mt-6">
-          <SectionRule no={4} title="版次轨迹" />
+          <SectionRule no={4} title={t("library.patches.title")} />
           <ul className="mt-3 flex flex-col">
             {patches.map((p) => (
               <li key={p.patch_id} className="border-b border-line last:border-b-0">
@@ -463,7 +481,9 @@ function DocumentProof({
                     {p.ts ?? ""}
                   </span>
                   <span className="shrink-0 text-12 text-ink-3">
-                    {(p.changed_paths ?? []).length} 处变更
+                    {t("library.patches.changed", {
+                      count: (p.changed_paths ?? []).length,
+                    })}
                   </span>
                 </button>
               </li>

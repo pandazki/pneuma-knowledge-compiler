@@ -1,64 +1,82 @@
 import { useApp } from "@/lib/store";
+import { useT } from "@/lib/useT";
+import type { MessageKey } from "@/lib/i18n";
 import type { ViewName } from "@/lib/types";
 import { cn } from "@/ui/cn";
 
 interface TocItem {
   view: ViewName;
   no: string;
-  label: string;
+  label: MessageKey;
 }
 
 interface TocGroup {
-  group: string;
+  group: MessageKey;
   items: TocItem[];
 }
 
-/** DESIGN.md §3 的章节目录（「components」隐藏路由不进目录）。 */
+/**
+ * The chapter table from DESIGN.md §3 (the hidden "components" route stays out of it).
+ * Structure — § numbers, order, grouping — lives here; the words live in i18n/nav.ts.
+ */
 export const TOC: TocGroup[] = [
-  { group: "卷首", items: [{ view: "overview", no: "01", label: "卷首 · 这是一个编译器" }] },
   {
-    group: "原料篇",
-    items: [
-      { view: "sources", no: "02", label: "原料 Sources" },
-      { view: "ingest", no: "03", label: "导入 Ingest" },
-    ],
+    group: "nav.group.front",
+    items: [{ view: "overview", no: "01", label: "nav.view.overview" }],
   },
-  { group: "工序篇", items: [{ view: "process", no: "04", label: "工序 Process" }] },
   {
-    group: "取用篇",
+    group: "nav.group.materials",
     items: [
-      { view: "recall", no: "05", label: "检索 Recall" },
-      { view: "ask", no: "06", label: "问答 Ask" },
-      { view: "live_context", no: "07", label: "即时上下文 Live Context" },
+      { view: "sources", no: "02", label: "nav.view.sources" },
+      { view: "ingest", no: "03", label: "nav.view.ingest" },
     ],
   },
   {
-    group: "正典篇",
+    group: "nav.group.process",
+    items: [{ view: "process", no: "04", label: "nav.view.process" }],
+  },
+  {
+    group: "nav.group.retrieval",
     items: [
-      { view: "library", no: "08", label: "正典 Canonical" },
-      { view: "graph", no: "09", label: "图谱 Graph" },
-      { view: "history", no: "10", label: "版本 History" },
+      { view: "recall", no: "05", label: "nav.view.recall" },
+      { view: "ask", no: "06", label: "nav.view.ask" },
+      { view: "live_context", no: "07", label: "nav.view.live_context" },
     ],
   },
-  { group: "演化篇", items: [{ view: "evolve", no: "11", label: "演化 Evolve" }] },
-  { group: "卷末", items: [{ view: "profile", no: "12", label: "画像 Profile" }] },
+  {
+    group: "nav.group.canon",
+    items: [
+      { view: "library", no: "08", label: "nav.view.library" },
+      { view: "graph", no: "09", label: "nav.view.graph" },
+      { view: "history", no: "10", label: "nav.view.history" },
+    ],
+  },
+  {
+    group: "nav.group.evolution",
+    items: [{ view: "evolve", no: "11", label: "nav.view.evolve" }],
+  },
+  {
+    group: "nav.group.back",
+    items: [{ view: "profile", no: "12", label: "nav.view.profile" }],
+  },
 ];
 
 export interface TocNavProps {
-  /** 选中某项后回调（移动端 Drawer 用来关闭自己）。 */
+  /** Called after a pick (the mobile Drawer uses it to close itself). */
   onNavigate?: () => void;
 }
 
-/** 目录轨：章节分组 + §编号 + 当前页 accent 左标线。 */
+/** The contents rail: chapter groups + § numbers + an accent rule on the current page. */
 export function TocNav({ onNavigate }: TocNavProps) {
   const view = useApp((s) => s.view);
   const setView = useApp((s) => s.setView);
+  const t = useT();
 
   return (
-    <nav aria-label="目录" className="flex flex-col gap-5 px-3 py-4">
+    <nav aria-label={t("nav.toc.aria")} className="flex flex-col gap-5 px-3 py-4">
       {TOC.map((group) => (
         <div key={group.group} className="flex flex-col gap-0.5">
-          <p className="px-2 pb-1 text-12 text-ink-3">{group.group}</p>
+          <p className="px-2 pb-1 text-12 text-ink-3">{t(group.group)}</p>
           {group.items.map((item) => {
             const active = item.view === view;
             return (
@@ -86,7 +104,7 @@ export function TocNav({ onNavigate }: TocNavProps) {
                 >
                   §{item.no}
                 </span>
-                <span className="min-w-0 truncate">{item.label}</span>
+                <span className="min-w-0 truncate">{t(item.label)}</span>
               </button>
             );
           })}

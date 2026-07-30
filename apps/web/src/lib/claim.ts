@@ -10,6 +10,7 @@
  * <!-- c:xxxx -->, and flag comments <!-- disputed: … --> / <!-- open-question: … -->.
  */
 
+import { tx } from "./i18n";
 import type { Claim, ClaimLabel, Escalation } from "./types";
 
 const CITE_RE = /\[cite:[^\]]*\]/g;
@@ -91,8 +92,8 @@ const CLAIM_LABEL_PREFIX_RE = /^\s*【([^【】]+)】\s*/;
  * Lift a skill-declared claim-prefix label off the head of a claim's text.
  *
  * Generic mechanism, no hardcoded vocabulary: matches a leading `【…】` (leading
- * whitespace tolerated) and returns `{label, rest}` ONLY when the bracketed字 exactly
- * equals one of the DECLARED labels (逐字匹配). An undeclared `【…】` prefix — or an empty
+ * whitespace tolerated) and returns `{label, rest}` ONLY when the bracketed text matches one
+ * of the DECLARED labels character for character. An undeclared `【…】` prefix — or an empty
  * / absent label list — is left untouched so it stays part of the prose. Both the schema v2
  * clean-text path and the v1 fallback funnel their display text through here.
  */
@@ -164,7 +165,7 @@ export function flagMeta(flag: string) {
  */
 export function escalationText(e: Escalation): { label: string; body: string | null } {
   return {
-    label: e.reason ?? e.trigger ?? e.category ?? e.policy ?? "升级",
+    label: e.reason ?? e.trigger ?? e.category ?? e.policy ?? tx("common.escalation.fallback"),
     body: e.note ?? e.detail ?? e.question ?? null,
   };
 }

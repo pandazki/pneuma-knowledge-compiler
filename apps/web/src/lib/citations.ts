@@ -1,3 +1,11 @@
+/**
+ * Citation identity + human-first naming.
+ *
+ * The wording is INJECTED (`CitationI18n`) rather than imported: tests transpile this file
+ * on its own into a data: URL module, so a runtime import here would not resolve. Passing
+ * the lookup in also keeps the module honest — it decides what to say, not in which language.
+ */
+
 export interface CitationLocatorLike {
   sourceId: string;
   blockStart?: number | null;
@@ -11,15 +19,11 @@ export interface CitationSourceLike {
   capturedAt?: string | null;
 }
 
-const SOURCE_KIND_LABELS: Record<string, string> = {
-  meeting: "会议",
-  document_library: "文档",
-  im: "即时消息",
-  email: "邮件",
-  conversation: "对话",
-  document: "文档",
-  structured: "结构化数据",
-};
+/** The wording + formatting a caller supplies (see lib/i18n: `translateOr`, `intlTag`). */
+export interface CitationI18n {
+  tOr: (key: string, fallback: string, params?: Record<string, string | number>) => string;
+  intlTag: string;
+}
 
 /** A document citation is identified by its source and exact block span. */
 export function citationKey(citation: CitationLocatorLike): string {
@@ -35,16 +39,22 @@ export function buildCitationNumbers(
   );
 }
 
-function sourceKindLabel(kind: string | null | undefined): string | null {
+function sourceKindLabel(
+  kind: string | null | undefined,
+  i18n: CitationI18n,
+): string | null {
   if (!kind) return null;
-  return SOURCE_KIND_LABELS[kind] ?? kind;
+  return i18n.tOr(`enum.citationKind.${kind}`, kind);
 }
 
-function fullTimestamp(value: string | null | undefined): string | null {
+function fullTimestamp(
+  value: string | null | undefined,
+  i18n: CitationI18n,
+): string | null {
   if (!value) return null;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString("zh-CN", {
+  return date.toLocaleString(i18n.intlTag, {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -64,12 +74,15 @@ function hasReadableTitle(title: string | null | undefined, sourceId: string): b
  * Human-first citation naming. The source id remains available as technical metadata,
  * but never has to be the primary label when the public projection has source metadata.
  */
-export function presentCitationSource(source: CitationSourceLike): {
+export function presentCitationSource(
+  source: CitationSourceLike,
+  i18n: CitationI18n,
+): {
   title: string;
   description: string | null;
 } {
-  const kind = sourceKindLabel(source.kind);
-  const capturedAt = fullTimestamp(source.capturedAt);
+  const kind = sourceKindLabel(source.kind, i18n);
+  const capturedAt = fullTimestamp(source.capturedAt, i18n);
 
   if (hasReadableTitle(source.title, source.sourceId)) {
     return {
@@ -78,10 +91,14 @@ export function presentCitationSource(source: CitationSourceLike): {
     };
   }
 
+  const noun = kind ?? i18n.tOr("common.citation.sourceNoun", "source");
   return {
     title: capturedAt
-      ? `${capturedAt} 的${kind ?? "来源"}`
-      : `未命名${kind ?? "来源"}`,
-    description: "原始标题缺失",
+      ? i18n.tOr("common.citation.capturedTitle", `${noun} ${capturedAt}`, {
+          kind: noun,
+          capturedAt,
+        })
+      : i18n.tOr("common.citation.untitled", `Untitled ${noun}`, { kind: noun }),
+    description: i18n.tOr("common.citation.missingTitle", "Original title missing"),
   };
 }

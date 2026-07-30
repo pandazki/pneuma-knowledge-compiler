@@ -8,12 +8,12 @@ export interface DefinitionItem {
 
 export interface DefinitionListProps {
   items: DefinitionItem[];
-  /** 术语列宽（默认 w-28）。 */
+  /** Term column width (defaults to w-28). */
   termClassName?: string;
   className?: string;
 }
 
-/** 术语—定义双栏（L0–L3 说明用），行间发丝线。 */
+/** Term / definition two-column list (used for the L0–L3 gloss), hairline between rows. */
 export function DefinitionList({ items, termClassName, className }: DefinitionListProps) {
   return (
     <dl className={cn("flex flex-col", className)}>

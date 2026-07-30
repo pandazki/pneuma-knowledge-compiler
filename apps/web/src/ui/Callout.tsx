@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { X } from "lucide-react";
+import { useT } from "@/lib/useT";
 import { cn } from "./cn";
 import { IconButton } from "./IconButton";
 
@@ -17,12 +18,12 @@ export interface CalloutProps {
   title?: ReactNode;
   children: ReactNode;
   onDismiss?: () => void;
-  /** inline = 顶栏下 notice 条（通栏一行）；block = 内容区提示块。 */
+  /** inline = the full-width notice strip under the top bar; block = an in-content note. */
   variant?: "block" | "inline";
   className?: string;
 }
 
-/** notice / info / warn / danger 四阶：左边 2px 语义色条 + 中性底。 */
+/** Four steps — notice / info / warn / danger: a 2px semantic bar left, neutral ground. */
 export function Callout({
   tone = "notice",
   title,
@@ -31,6 +32,7 @@ export function Callout({
   variant = "block",
   className,
 }: CalloutProps) {
+  const t = useT();
   return (
     <div
       role={tone === "danger" || tone === "warn" ? "alert" : "status"}
@@ -49,7 +51,12 @@ export function Callout({
           <div className="min-w-0 text-ink-2">{children}</div>
         </div>
         {onDismiss && (
-          <IconButton aria-label="关闭提示" size="sm" onClick={onDismiss} className="-mr-1 -mt-0.5">
+          <IconButton
+            aria-label={t("common.dismissNotice")}
+            size="sm"
+            onClick={onDismiss}
+            className="-mr-1 -mt-0.5"
+          >
             <X size={14} aria-hidden />
           </IconButton>
         )}

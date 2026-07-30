@@ -12,7 +12,7 @@ export interface PopoverProps {
   contentClassName?: string;
 }
 
-/** Radix Popover 轻封装：trigger 走 asChild，内容浮层统一样式。 */
+/** Thin wrapper over Radix Popover: asChild trigger, one shared surface style. */
 export function Popover({
   trigger,
   children,

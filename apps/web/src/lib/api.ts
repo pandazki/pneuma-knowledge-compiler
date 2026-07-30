@@ -6,6 +6,7 @@
  * by the vite dev server; see vite.config.ts).
  */
 
+import { tx } from "./i18n";
 import type { ClaimLabel, UserProfile } from "./types";
 import type { HistoryCounts, HistoryItemEnvelope } from "./history";
 import { buildPageQuery, type Page } from "./pagination";
@@ -34,7 +35,7 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
     });
   } catch (e) {
     // Network-level failure (service down, CORS blocked, offline).
-    throw new ApiError(`无法连接 API：${(e as Error).message}`, 0);
+    throw new ApiError(tx("service.unreachable", { detail: (e as Error).message }), 0);
   }
   if (!res.ok) {
     let detail = `${res.status} ${res.statusText}`;
@@ -197,9 +198,9 @@ export function putUserProfile(userId: string, patch: UserProfilePatch): Promise
 }
 
 /**
- * "AI 生成人设": expand one sentence into a complete, self-consistent UserProfile via
- * the LLM. Not persisted — the returned draft pre-fills the create form (mirrors the
- * deterministic 随机填充). Pass a userId to pin the id the user already typed;
+ * "Generate a persona with AI": expand one sentence into a complete, self-consistent
+ * UserProfile via the LLM. Not persisted — the returned draft pre-fills the create form
+ * (mirroring the deterministic random fill). Pass a userId to pin the id already typed;
  * otherwise the service derives one from the persona.
  */
 export function generateProfile(sentence: string, userId?: string): Promise<UserProfile> {
@@ -261,7 +262,7 @@ export async function listAllSources(userId: string): Promise<SourceSummary[]> {
     items.push(...page.items);
     cursor = page.page.next_cursor;
     if (cursor && seen.has(cursor)) {
-      throw new ApiError("来源分页返回了重复游标", 500);
+      throw new ApiError(tx("service.duplicateCursor"), 500);
     }
     if (cursor) seen.add(cursor);
   } while (cursor);
@@ -373,7 +374,7 @@ export function recallAnswer(
 }
 
 /** Deep recall over Server-Sent Events: `onStep` fires per agentic tool call as it lands
- * (grow the 深查过程 list live), then `onDone` with the full answer. Step-level streaming,
+ * (growing the deep-search trace live), then `onDone` with the full answer. Step-level,
  * not token streaming. Returns when the stream ends; throws/`onError` on failure. */
 export async function recallDeepStream(
   userId: string,
@@ -751,16 +752,22 @@ export class LiveContextSocket {
     this.ws = new WebSocket(wsUrl(`/v1/users/${u(userId)}/live-context/ws`));
     this.ws.onopen = () => this.onStatus("open");
     this.ws.onclose = (e) =>
-      this.onStatus("closed", e.reason || (e.wasClean ? "已关闭" : `code ${e.code}`));
+      this.onStatus(
+        "closed",
+        e.reason || (e.wasClean ? tx("service.ws.closed") : `code ${e.code}`),
+      );
     // The browser never surfaces WHY a handshake failed (spec-mandated, to avoid a
     // cross-origin probe oracle); onclose carries whatever there is.
-    this.ws.onerror = () => this.onStatus("closed", "WebSocket 连接错误");
+    this.ws.onerror = () => this.onStatus("closed", tx("service.ws.error"));
     this.ws.onmessage = (e) => {
       try {
         const frame = JSON.parse(e.data as string) as LiveContextServerFrame;
         this.onFrame(frame);
       } catch {
-        this.onFrame({ type: "error", detail: `无法解析服务端帧：${String(e.data).slice(0, 120)}` });
+        this.onFrame({
+          type: "error",
+          detail: tx("service.ws.badFrame", { detail: String(e.data).slice(0, 120) }),
+        });
       }
     };
   }
@@ -808,7 +815,7 @@ export class LiveContextSocket {
     } catch {
       /* already closing */
     }
-    this.onStatus("closed", "已断开");
+    this.onStatus("closed", tx("service.ws.disconnected"));
   }
 }
 
@@ -1061,7 +1068,7 @@ export interface EvolveEnqueued {
   status: string;
 }
 
-/** One composed pack in the owner's effective skill (the "量身定制"面). */
+/** One composed pack in the owner's effective skill (the tailored-skill surface). */
 export interface SkillPack {
   pack_id: string | null;
   /** where the pack came from — `matrix` / `derived` / `evolved`. */

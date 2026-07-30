@@ -12,6 +12,7 @@ import {
   type TrailStep,
   type UsedClaim,
 } from "@/lib/api";
+import { useT } from "@/lib/useT";
 import { PageHeader } from "@/components/PageHeader";
 import { CitationList, type CitationEntry } from "@/components/CitationList";
 import { Badge } from "@/ui/Badge";
@@ -28,21 +29,25 @@ import { SkeletonText } from "@/ui/Skeleton";
 import { cn } from "@/ui/cn";
 import { CitedAnswer } from "../_shared/CitedAnswer";
 
-/** 三 lane 的输入与结果都在 store.recallCache：跳 sources 看原文 + Back 不丢。 */
+/**
+ * All three lanes keep their input and their results in `store.recallCache`, so jumping to
+ * Sources to read an original and coming Back loses nothing.
+ */
 export default function RecallView() {
+  const t = useT();
   const currentUser = useApp((s) => s.currentUser);
   const focusSource = useApp((s) => s.focusSource);
   const recallCache = useApp((s) => s.recallCache);
   const setRecallCache = useApp((s) => s.setRecallCache);
   const { query, mode, hits, answer, error } = recallCache;
 
-  // liveTrail / searching 是在途查询的瞬态，不需要随 Back 保留。
+  // liveTrail / searching are transients of the in-flight query; Back need not preserve them.
   const [searching, setSearching] = useState(false);
   const [liveTrail, setLiveTrail] = useState<TrailStep[]>([]);
   const abortRef = useRef<AbortController | null>(null);
   const [titles, setTitles] = useState<Record<string, string>>({});
 
-  // source id → 标题（命中账与引用列表展示用；失败则退回显示 id）。
+  // source id → title, for the hit ledger and the citation list; on failure the id shows.
   useEffect(() => {
     if (!currentUser) return;
     let alive = true;
@@ -57,7 +62,7 @@ export default function RecallView() {
     };
   }, [currentUser]);
 
-  // 卸载时中断 deep SSE。
+  // Abort the deep SSE stream on unmount.
   useEffect(() => () => abortRef.current?.abort(), []);
 
   const jumpToCitation = useCallback(
@@ -80,7 +85,8 @@ export default function RecallView() {
         const rows = await recall(currentUser, { query: query.trim(), mode, limit: 20 });
         setRecallCache({ answer: null, hits: rows });
       } else if (mode === "deep") {
-        // deep 走 SSE：每个工具调用实时追加到 liveTrail，最终答案随 done 帧到达。
+        // deep runs over SSE: each tool call appends to liveTrail live, and the final answer
+        // arrives with the done frame.
         setRecallCache({ hits: null, answer: null });
         const ac = new AbortController();
         abortRef.current = ac;
@@ -110,11 +116,11 @@ export default function RecallView() {
   if (!currentUser) {
     return (
       <>
-        <PageHeader title="检索 Recall" description="rag / fast / deep 三条检索 lane。" />
+        <PageHeader title={t("recall.title")} description={t("recall.descriptionShort")} />
         <EmptyState
           icon={Search}
-          title="未选择用户"
-          description="在右上角选择一个 user_id 后，即可对其知识库做检索。"
+          title={t("recall.noUser.title")}
+          description={t("recall.noUser.description")}
         />
       </>
     );
@@ -122,12 +128,9 @@ export default function RecallView() {
 
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader
-        title="检索 Recall"
-        description="同一个查询可在 rag / fast / deep 三条 lane 上重跑对比：命中账、直接作答、带核验的深查。"
-      />
+      <PageHeader title={t("recall.title")} description={t("recall.description")} />
 
-      {/* 查询行 */}
+      {/* Query row */}
       <div className="flex flex-wrap items-center gap-2">
         <SearchField
           wrapperClassName="min-w-56 flex-1"
@@ -137,18 +140,20 @@ export default function RecallView() {
             if (e.key === "Enter") void onSearch();
           }}
           placeholder={
-            mode === "rag" ? "查询词，如「发布 门禁」" : "自然语言提问，如「发布前还缺什么」"
+            mode === "rag"
+              ? t("recall.query.placeholderRag")
+              : t("recall.query.placeholderAsk")
           }
-          aria-label="检索查询"
+          aria-label={t("recall.query.aria")}
         />
         <SegmentedControl
-          aria-label="检索模式"
+          aria-label={t("recall.mode.aria")}
           value={mode}
           onChange={(m) => setRecallCache({ mode: m as RecallMode })}
           options={[
-            { value: "rag", label: "rag" },
-            { value: "fast", label: "fast" },
-            { value: "deep", label: "deep" },
+            { value: "rag", label: t("recall.mode.rag") },
+            { value: "fast", label: t("recall.mode.fast") },
+            { value: "deep", label: t("recall.mode.deep") },
           ]}
         />
         <Button
@@ -157,13 +162,17 @@ export default function RecallView() {
           disabled={!query.trim()}
           onClick={() => void onSearch()}
         >
-          {mode === "rag" ? "检索" : "提问"}
+          {mode === "rag" ? t("recall.action.search") : t("recall.action.ask")}
         </Button>
       </div>
 
-      {/* 结果 */}
+      {/* Results */}
       {error ? (
-        <ErrorState title="检索失败" error={error} onRetry={() => void onSearch()} />
+        <ErrorState
+          title={t("recall.error.title")}
+          error={error}
+          onRetry={() => void onSearch()}
+        />
       ) : searching && mode === "deep" ? (
         <TrailTimeline steps={liveTrail} live />
       ) : searching ? (
@@ -173,18 +182,18 @@ export default function RecallView() {
       ) : hits == null ? (
         <EmptyState
           icon={Search}
-          title={mode === "rag" ? "输入查询开始检索" : "提问开始作答"}
+          title={mode === "rag" ? t("recall.empty.ragTitle") : t("recall.empty.askTitle")}
           description={
             mode === "rag"
-              ? "rag 跑 L2 语义 + L1 词法双路，命中经 RRF 融合排序。"
-              : "fast 基于 canonical claim 直接作答；deep 再对引用逐条核验。"
+              ? t("recall.empty.ragDescription")
+              : t("recall.empty.askDescription")
           }
         />
       ) : hits.length === 0 ? (
         <EmptyState
           icon={Search}
-          title="无命中"
-          description="换个查询词，或先去「导入 Ingest」入库更多材料。"
+          title={t("recall.empty.noHitsTitle")}
+          description={t("recall.empty.noHitsDescription")}
         />
       ) : (
         <HitList hits={hits} titles={titles} onJump={jumpToCitation} />
@@ -193,7 +202,7 @@ export default function RecallView() {
   );
 }
 
-/* ----------------------------------------------------------------- rag 命中账 */
+/* ---------------------------------------------------------------- rag hit ledger */
 
 function HitList({
   hits,
@@ -204,9 +213,12 @@ function HitList({
   titles: Record<string, string>;
   onJump: (c: CitationEntry) => void;
 }) {
+  const t = useT();
   return (
     <section>
-      <p className="mb-2 text-13 text-ink-2">{hits.length} 条命中 · 点击脚注定位到原文</p>
+      <p className="mb-2 text-13 text-ink-2">
+        {t("recall.hits.count", { count: hits.length })}
+      </p>
       <ol className="border-t border-line">
         {hits.map((h, i) => {
           const citation: CitationEntry = {
@@ -261,15 +273,16 @@ function HitList({
   );
 }
 
-/* --------------------------------------------------------------- deep 时间线 */
+/* ------------------------------------------------------------------ deep timeline */
 
-/** deep 的工具调用时间线：tool mono + query + hits/chars，错误用 danger。 */
+/** The deep lane's tool-call timeline: mono tool + query + hits/chars, errors in danger. */
 function TrailTimeline({ steps, live }: { steps: TrailStep[]; live?: boolean }) {
+  const t = useT();
   return (
     <section>
       <p className="mb-2 flex items-center gap-2 text-13 text-ink-2">
-        深查过程（{steps.length} 步）
-        {live && <span className="text-12 text-ink-3">进行中…</span>}
+        {t("recall.trail.title", { count: steps.length })}
+        {live && <span className="text-12 text-ink-3">{t("recall.trail.live")}</span>}
       </p>
       {steps.length === 0 && live ? (
         <SkeletonText lines={3} className="max-w-measure" />
@@ -279,11 +292,11 @@ function TrailTimeline({ steps, live }: { steps: TrailStep[]; live?: boolean }) 
             const arg =
               s.query ?? (s.source_id ? `${s.source_id} ${JSON.stringify(s.locator ?? {})}` : "");
             const meta = s.error
-              ? `失败：${s.error}`
+              ? t("recall.trail.failed", { detail: s.error })
               : s.hits != null
-                ? `${s.hits} 命中`
+                ? t("recall.trail.hits", { count: s.hits })
                 : s.chars != null
-                  ? `${s.chars} 字`
+                  ? t("recall.trail.chars", { count: s.chars })
                   : "";
             return (
               <li key={i} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-line py-2">
@@ -306,7 +319,7 @@ function TrailTimeline({ steps, live }: { steps: TrailStep[]; live?: boolean }) 
   );
 }
 
-/* ------------------------------------------------------------- fast/deep 答案 */
+/* --------------------------------------------------------- the fast/deep answer */
 
 function UsageDefinitionList({ usage }: { usage: TokenUsage }) {
   return (
@@ -365,15 +378,16 @@ function AnswerPanel({
   titles: Record<string, string>;
   onJump: (c: CitationEntry) => void;
 }) {
+  const t = useT();
   const trail = answer.trail ?? [];
   const windows = answer.used_windows ?? [];
   return (
     <div className="flex flex-col gap-6">
-      {/* deep：答案是头条，过程折叠备查 */}
+      {/* deep: the answer leads; the process folds away for checking */}
       {answer.mode === "deep" && trail.length > 0 && (
         <details className="max-w-measure">
           <summary className="cursor-pointer text-13 text-ink-2">
-            深查过程（{trail.length} 步）
+            {t("recall.trail.title", { count: trail.length })}
           </summary>
           <div className="mt-3">
             <TrailTimeline steps={trail} />
@@ -382,7 +396,7 @@ function AnswerPanel({
       )}
 
       <section>
-        <SectionRule no={1} title="答案" />
+        <SectionRule no={1} title={t("recall.answer.title")} />
         <p className="mt-3 text-12 text-ink-3">
           as_of <Mono>{answer.as_of}</Mono>
         </p>
@@ -390,7 +404,7 @@ function AnswerPanel({
           {answer.answer ? (
             <CitedAnswer text={answer.answer} handles={answer.citation_handles} />
           ) : (
-            "（空）"
+            t("recall.answer.blank")
           )}
         </div>
         <div className="mt-4">
@@ -400,7 +414,10 @@ function AnswerPanel({
 
       {answer.used_claims.length > 0 && (
         <section>
-          <SectionRule no={2} title={`依据 claim（${answer.used_claims.length}）`} />
+          <SectionRule
+            no={2}
+            title={t("recall.usedClaims.title", { count: answer.used_claims.length })}
+          />
           <div className="mt-2 border-t border-line">
             {answer.used_claims.map((c) => (
               <UsedClaimRow key={c.anchor} claim={c} titles={titles} onJump={onJump} />
@@ -411,8 +428,8 @@ function AnswerPanel({
 
       {windows.length > 0 && (
         <section>
-          <SectionRule no={3} title={`原文摘录（${windows.length}）`} />
-          <p className="mt-2 text-12 text-ink-3">未编译为 claim 的原始内容，同样可定位回原文。</p>
+          <SectionRule no={3} title={t("recall.windows.title", { count: windows.length })} />
+          <p className="mt-2 text-12 text-ink-3">{t("recall.windows.description")}</p>
           <div className="mt-2">
             <HitList hits={windows} titles={titles} onJump={onJump} />
           </div>

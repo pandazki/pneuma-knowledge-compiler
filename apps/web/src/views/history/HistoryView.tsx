@@ -11,6 +11,7 @@ import {
   type HistoryTimelineItem,
 } from "@/lib/history";
 import { useApp } from "@/lib/store";
+import { useT, type TFunction } from "@/lib/useT";
 import type { PatchRecord, SidecarClaimRef } from "@/lib/types";
 import { patchChanges, type Model } from "@/lib/model";
 import { escalationText } from "@/lib/claim";
@@ -44,6 +45,7 @@ function isPatchItem(item: HistoryTimelineItem): item is PatchTimelineItem {
 }
 
 export default function HistoryView() {
+  const t = useT();
   const currentUser = useApp((s) => s.currentUser);
   const model = useApp((s) => s.model);
   const selection = useApp((s) => s.selection);
@@ -147,14 +149,11 @@ export default function HistoryView() {
   if (!currentUser) {
     return (
       <>
-        <PageHeader
-          title="版本 History"
-          description="查看知识库每一次可追溯的内容变化。"
-        />
+        <PageHeader title={t("history.title")} description={t("history.description")} />
         <EmptyState
           icon={UserRound}
-          title="未选择用户"
-          description="先在顶栏选择一个 user_id，再查看它的知识版本。"
+          title={t("history.noUser.title")}
+          description={t("history.noUser.description")}
         />
       </>
     );
@@ -163,28 +162,28 @@ export default function HistoryView() {
   const patchCount = historyPage?.counts.patches;
   const headerDescription =
     patchCount == null
-      ? "查看知识库每一次可追溯的内容变化。"
-      : `${patchCount} 个知识版本，按编译时间倒序。运行任务请前往「工序 Process」查看。`;
+      ? t("history.description")
+      : t("history.descriptionCount", { count: patchCount });
 
   return (
     <>
       <div className="mb-6 grid gap-5 border-b border-line pb-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
         <PageHeader
           className="mb-0 lg:pt-1"
-          title="版本 History"
+          title={t("history.title")}
           description={headerDescription}
         />
         <ActivityHeatmap
           compact
           className="max-w-full lg:w-96"
           days={activityDays}
-          title="版本编译密度"
-          kindLabels={{ patch: "知识版本" }}
+          title={t("history.heatmap.title")}
+          kindLabels={{ patch: t("history.heatmap.patch") }}
         />
       </div>
       {loadError ? (
         <ErrorState
-          title="加载知识变更失败"
+          title={t("history.loadFailed")}
           error={loadError}
           onRetry={reload}
         />
@@ -193,11 +192,11 @@ export default function HistoryView() {
       ) : items.length === 0 ? (
         <EmptyState
           icon={Inbox}
-          title="还没有知识版本"
-          description="这个知识库尚未产生内容变化。导入原料并完成编译后，每次知识更新都会在这里留下可读的差异。"
+          title={t("history.empty.title")}
+          description={t("history.empty.description")}
           action={
             <Button size="sm" onClick={() => setView("ingest")}>
-              去导入
+              {t("history.empty.action")}
             </Button>
           }
         />
@@ -225,7 +224,7 @@ export default function HistoryView() {
               total={historyPage.page.total}
               hasNext={historyPage.page.next_cursor != null}
               loading={loading}
-              noun="次更新"
+              noun={t("history.updateNoun")}
               onPrevious={() => {
                 select(null);
                 setPageState((state) => previousPage(state));
@@ -246,9 +245,7 @@ export default function HistoryView() {
             {selected ? (
               <PatchDetail patch={selected.patch} model={model} />
             ) : (
-              <p className="text-13 text-ink-3">
-                在左侧选择一次知识更新查看内容差异。
-              </p>
+              <p className="text-13 text-ink-3">{t("history.selectHint")}</p>
             )}
           </div>
         </div>
@@ -279,16 +276,20 @@ function truncateText(value: string, maxLength: number): string {
     : value;
 }
 
-function patchSummary(patch: PatchRecord): string {
+/**
+ * The first readable claim in the patch, as its one-line summary. The claim prose itself is
+ * DATA and is never translated — only the "nothing readable here" fallback is copy.
+ */
+function patchSummary(patch: PatchRecord, t: TFunction): string {
   const firstChange = patch.claims.find(
     (claim) => cleanClaimText(claim.after ?? claim.before).length > 0,
   );
   const text = cleanClaimText(firstChange?.after ?? firstChange?.before);
-  if (!text) return "本次更新没有留下可读的内容摘要";
+  if (!text) return t("history.summary.empty");
   return truncateText(text, 52);
 }
 
-function patchTitle(patch: PatchRecord): string {
+function patchTitle(patch: PatchRecord, t: TFunction): string {
   const added = patch.claims.filter(
     (claim) => claimKind(claim) === "added",
   ).length;
@@ -296,11 +297,11 @@ function patchTitle(patch: PatchRecord): string {
     (claim) => claimKind(claim) === "revised",
   ).length;
   if (added > 0 && revised > 0) {
-    return `新增 ${added} 条、修订 ${revised} 条知识`;
+    return t("history.patchTitle.addedRevised", { added, revised });
   }
-  if (revised > 0) return `修订 ${revised} 条知识`;
-  if (added > 0) return `新增 ${added} 条知识`;
-  return "知识库更新";
+  if (revised > 0) return t("history.patchTitle.revised", { revised });
+  if (added > 0) return t("history.patchTitle.added", { added });
+  return t("history.patchTitle.generic");
 }
 
 function TimelineRow({
@@ -314,6 +315,7 @@ function TimelineRow({
   selected: boolean;
   onSelect: () => void;
 }) {
+  const t = useT();
   const documentCount = patchChanges(model, item.patch).length;
   const claimCount = item.patch.claims.length;
   return (
@@ -328,12 +330,12 @@ function TimelineRow({
         )}
       >
         <span className="line-clamp-2 font-medium text-13 text-ink">
-          {patchSummary(item.patch)}
+          {patchSummary(item.patch, t)}
         </span>
         <span className="flex items-baseline justify-between gap-3 text-12 text-ink-3">
           <span>{fmtTime(item.ts)}</span>
           <span className="shrink-0">
-            {documentCount} 篇 · {claimCount} 条
+            {t("history.row.counts", { documents: documentCount, claims: claimCount })}
           </span>
         </span>
       </button>
@@ -357,8 +359,9 @@ interface DocumentClaimGroup {
 function groupClaimsByDocument(
   patch: PatchRecord,
   model: Model | null,
+  unlocatedLabel: string,
 ): DocumentClaimGroup[] {
-  const fallbackPath = patchChanges(model, patch)[0]?.path ?? "未定位文档";
+  const fallbackPath = patchChanges(model, patch)[0]?.path ?? unlocatedLabel;
   const groups = new Map<string, SidecarClaimRef[]>();
   for (const claim of patch.claims) {
     const path = claim.path ?? fallbackPath;
@@ -376,11 +379,12 @@ function PatchDetail({
   patch: PatchRecord;
   model: Model | null;
 }) {
+  const t = useT();
   const jump = useApp((s) => s.jump);
   const focusSource = useApp((s) => s.focusSource);
 
   const changes = patchChanges(model, patch);
-  const groups = groupClaimsByDocument(patch, model);
+  const groups = groupClaimsByDocument(patch, model, t("history.unlocatedDocument"));
   const addedCount = patch.claims.filter(
     (claim) => claimKind(claim) === "added",
   ).length;
@@ -390,12 +394,25 @@ function PatchDetail({
   const flagEntries = Object.entries(patch.flag_counts ?? {});
   const lineage = patch.lineage ?? {};
   const technicalItems = [
-    { term: "版本", definition: <Mono className="break-all">{patch.patch_id}</Mono> },
+    {
+      term: t("history.tech.patch"),
+      definition: <Mono className="break-all">{patch.patch_id}</Mono>,
+    },
     ...(patch.job_id
-      ? [{ term: "编译任务", definition: <Mono className="break-all">{patch.job_id}</Mono> }]
+      ? [
+          {
+            term: t("history.tech.job"),
+            definition: <Mono className="break-all">{patch.job_id}</Mono>,
+          },
+        ]
       : []),
     ...(patch.base_commit
-      ? [{ term: "基于版本", definition: <Mono>{shortSha(patch.base_commit)}</Mono> }]
+      ? [
+          {
+            term: t("history.tech.baseCommit"),
+            definition: <Mono>{shortSha(patch.base_commit)}</Mono>,
+          },
+        ]
       : []),
     ...(lineage.model
       ? [{ term: "model", definition: <Mono>{lineage.model}</Mono> }]
@@ -421,27 +438,31 @@ function PatchDetail({
           <FileDiff className="mt-1 shrink-0 text-accent" size={18} aria-hidden />
           <div className="min-w-0">
             <h2 className="font-serif text-24 text-ink text-balance">
-              {patchTitle(patch)}
+              {patchTitle(patch, t)}
             </h2>
             <p className="mt-1 text-13 text-ink-3">
-              {fmtTime(patch.ts)} · 版本{" "}
+              {fmtTime(patch.ts)} · {t("history.tech.patch")}{" "}
               <Mono title={patch.patch_id}>{shortSha(patch.patch_id)}</Mono>
             </p>
             <p className="mt-3 max-w-measure font-serif text-14 leading-relaxed text-ink-2">
-              {patchSummary(patch)}
+              {patchSummary(patch, t)}
             </p>
           </div>
         </div>
         <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 border-y border-line py-2 text-13 text-ink-2">
-          <span>{changes.length} 篇文档</span>
-          <span className="text-ok">新增 {addedCount}</span>
-          <span className="text-accent">修订 {revisedCount}</span>
-          <span>{patch.sources_consumed.length} 个来源</span>
+          <span>{t("history.stats.documents", { count: changes.length })}</span>
+          <span className="text-ok">{t("history.stats.added", { count: addedCount })}</span>
+          <span className="text-accent">
+            {t("history.stats.revised", { count: revisedCount })}
+          </span>
+          <span>
+            {t("history.stats.sources", { count: patch.sources_consumed.length })}
+          </span>
         </div>
       </header>
 
       <section>
-        <SectionRule no={1} title="内容差异" />
+        <SectionRule no={1} title={t("history.section.diff")} />
         {groups.length > 0 ? (
           <div className="mt-4 flex flex-col gap-6">
             {groups.map((group) => {
@@ -458,7 +479,9 @@ function PatchDetail({
                         {group.path}
                       </Mono>
                     </div>
-                    <Badge tone="neutral">{group.claims.length} 条变化</Badge>
+                    <Badge tone="neutral">
+                      {t("history.group.changes", { count: group.claims.length })}
+                    </Badge>
                   </header>
                   <ol>
                     {group.claims.map((claim, index) => {
@@ -473,10 +496,10 @@ function PatchDetail({
                           <div className="mb-2 flex flex-wrap items-center gap-2">
                             <Badge tone={kind === "added" ? "ok" : "accent"}>
                               {kind === "added"
-                                ? "新增"
+                                ? t("history.claim.added")
                                 : kind === "revised"
-                                  ? "修订"
-                                  : "变更"}
+                                  ? t("history.claim.revised")
+                                  : t("history.claim.changed")}
                             </Badge>
                             {anchor && (
                               <Mono className="text-12 text-ink-3">
@@ -498,7 +521,7 @@ function PatchDetail({
                                   )
                                 }
                               >
-                                查看当前原文
+                                {t("history.claim.viewCurrent")}
                               </button>
                             )}
                           </div>
@@ -507,7 +530,7 @@ function PatchDetail({
                             <div className="grid gap-2 md:grid-cols-2">
                               <div className="min-w-0 rounded-2 bg-danger-soft px-3 py-2.5">
                                 <span className="text-12 font-medium text-danger">
-                                  原
+                                  {t("history.claim.before")}
                                 </span>
                                 <p className="mt-1 whitespace-pre-wrap break-words font-serif text-14 leading-relaxed text-ink-2">
                                   {cleanClaimText(claim.before)}
@@ -515,7 +538,7 @@ function PatchDetail({
                               </div>
                               <div className="min-w-0 rounded-2 bg-ok-soft px-3 py-2.5">
                                 <span className="text-12 font-medium text-ok">
-                                  现
+                                  {t("history.claim.after")}
                                 </span>
                                 <p className="mt-1 whitespace-pre-wrap break-words font-serif text-14 leading-relaxed text-ink">
                                   {cleanClaimText(claim.after) || "—"}
@@ -529,7 +552,7 @@ function PatchDetail({
                               </span>
                               <p className="mt-1 whitespace-pre-wrap break-words font-serif text-14 leading-relaxed text-ink">
                                 {cleanClaimText(claim.after ?? claim.note) ||
-                                  "未记录正文差异"}
+                                  t("history.claim.noText")}
                               </p>
                             </div>
                           )}
@@ -542,14 +565,14 @@ function PatchDetail({
             })}
           </div>
         ) : (
-          <Callout className="mt-4" tone="info" title="暂无逐条差异">
-            这个旧版本只记录了受影响的文档，没有保存知识条目的前后文本。
+          <Callout className="mt-4" tone="info" title={t("history.noPerClaim.title")}>
+            {t("history.noPerClaim.body")}
           </Callout>
         )}
       </section>
 
       <section>
-        <SectionRule no={2} title="依据来源" />
+        <SectionRule no={2} title={t("history.section.sources")} />
         <div className="mt-3 flex flex-col border-y border-line">
           {patch.sources_consumed.map((sourceId, index) => (
             <button
@@ -559,7 +582,7 @@ function PatchDetail({
               className="flex min-w-0 items-baseline gap-3 border-b border-line px-1 py-2 text-left transition-colors duration-120 last:border-b-0 hover:bg-hover"
             >
               <span className="shrink-0 text-13 text-ink-2">
-                来源 {index + 1}
+                {t("history.source.index", { index: index + 1 })}
               </span>
               <Mono
                 className="min-w-0 flex-1 truncate text-12 text-ink-3"
@@ -567,24 +590,26 @@ function PatchDetail({
               >
                 {sourceId}
               </Mono>
-              <span className="shrink-0 text-12 text-accent">查看原料</span>
+              <span className="shrink-0 text-12 text-accent">
+                {t("history.source.view")}
+              </span>
             </button>
           ))}
           {patch.sources_consumed.length === 0 && (
-            <p className="py-2 text-13 text-ink-3">未记录来源。</p>
+            <p className="py-2 text-13 text-ink-3">{t("history.source.empty")}</p>
           )}
         </div>
       </section>
 
       {(patch.escalations.length > 0 || flagEntries.length > 0) && (
         <section>
-          <SectionRule no={3} title="需复核" />
+          <SectionRule no={3} title={t("history.section.review")} />
           <div className="mt-3 flex flex-col gap-2">
             {patch.escalations.map((escalation, index) => {
               const { label, body } = escalationText(escalation);
               return (
                 <Callout key={index} tone="notice" title={label}>
-                  {body || "这条变化需要人工复核。"}
+                  {body || t("history.escalation.fallbackBody")}
                 </Callout>
               );
             })}
@@ -603,7 +628,7 @@ function PatchDetail({
 
       <details className="border-t border-line pt-3">
         <summary className="cursor-pointer text-13 text-ink-2 marker:text-ink-3">
-          技术记录
+          {t("history.tech.summary")}
         </summary>
         <DefinitionList className="mt-2" items={technicalItems} />
       </details>

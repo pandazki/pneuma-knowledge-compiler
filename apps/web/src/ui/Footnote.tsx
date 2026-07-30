@@ -1,10 +1,11 @@
 import { useRef, useState } from "react";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
+import { useT } from "@/lib/useT";
 import { cn } from "./cn";
 import { Mono } from "./Mono";
 
 export interface FootnoteCitation {
-  /** source 标题（缺省显示 sourceId）。 */
+  /** Source title (falls back to the sourceId). */
   title?: string;
   sourceId: string;
   blockStart?: number | null;
@@ -13,10 +14,10 @@ export interface FootnoteCitation {
 }
 
 export interface FootnoteProps {
-  /** 上标编号（1 起）。 */
+  /** Superscript number (1-based). */
   index: number;
   citation: FootnoteCitation;
-  /** 点击跳 source span（hover 卡片只读，点击才跳）。 */
+  /** Jump to the source span on click (the hover card is read-only). */
   onJump?: (citation: FootnoteCitation) => void;
   className?: string;
 }
@@ -28,10 +29,11 @@ function rangeText(c: FootnoteCitation): string | null {
 }
 
 /**
- * 签名组件：正文里的上标 accent 编号 [n]；hover/focus 出 citation 卡片，
- * 点击经 onJump 跳 source span。
+ * The signature component: an accent superscript [n] inside prose; hover/focus reveals the
+ * citation card, a click goes through onJump to the source span.
  */
 export function Footnote({ index, citation, onJump, className }: FootnoteProps) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -45,14 +47,14 @@ export function Footnote({ index, citation, onJump, className }: FootnoteProps) 
   };
 
   const range = rangeText(citation);
-  const title = citation.title?.trim() || "未命名来源";
+  const title = citation.title?.trim() || t("common.footnote.untitledSource");
 
   return (
     <PopoverPrimitive.Root open={open} onOpenChange={setOpen}>
       <PopoverPrimitive.Trigger asChild>
         <button
           type="button"
-          aria-label={`脚注 ${index}`}
+          aria-label={t("common.footnote.aria", { index })}
           onMouseEnter={openNow}
           onMouseLeave={closeSoon}
           onFocus={openNow}
@@ -85,7 +87,9 @@ export function Footnote({ index, citation, onJump, className }: FootnoteProps) 
             <div className="flex min-w-0 items-center gap-2 border-t border-line pt-2">
               {range && (
                 <>
-                  <Mono className="shrink-0 text-12 text-accent">块 {range}</Mono>
+                  <Mono className="shrink-0 text-12 text-accent">
+                    {t("common.footnote.block", { range })}
+                  </Mono>
                   <span aria-hidden className="text-12 text-ink-3">·</span>
                 </>
               )}
@@ -101,7 +105,9 @@ export function Footnote({ index, citation, onJump, className }: FootnoteProps) 
                 {citation.snippet}
               </p>
             )}
-            {onJump && <p className="text-12 text-ink-3">点击编号跳到原文</p>}
+            {onJump && (
+              <p className="text-12 text-ink-3">{t("common.footnote.jumpHint")}</p>
+            )}
           </div>
         </PopoverPrimitive.Content>
       </PopoverPrimitive.Portal>

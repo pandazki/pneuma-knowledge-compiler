@@ -1,3 +1,17 @@
+/**
+ * Normalised sources → the shapes the four readers render.
+ *
+ * The wording is INJECTED (`SourcePresentationI18n`) rather than imported: the test
+ * transpiles this file on its own into a data: URL module, so a runtime import of
+ * `@/lib/i18n` here would not resolve. Passing the lookup in also keeps the module honest —
+ * it decides what to say, not in which language.
+ *
+ * Do not confuse that with the literals in `WIRE` below. Those are not copy at all: they are
+ * the shape the backend textualizer emits (`prompts/catalog.py`: `ingest.owner_wrapped`,
+ * `ingest.turn_line`, `ingest.email.attachments`), and they must track the catalogue rather
+ * than the interface language.
+ */
+
 export interface PresentableBlock {
   index: number;
   text: string;
@@ -111,18 +125,31 @@ export type SourcePresentation =
       blocks: PresentableBlock[];
     };
 
-const SOURCE_KIND_LABELS: Record<string, string> = {
-  meeting: "会议",
-  document_library: "文档库",
-  im: "即时消息",
-  email: "电子邮件",
-  conversation: "对话",
-  document: "文档",
-  structured: "结构化数据",
+/** The wording a caller supplies (see lib/i18n: `translateOr`). */
+export interface SourcePresentationI18n {
+  tOr: (key: string, fallback: string, params?: Record<string, string | number>) => string;
+}
+
+/**
+ * The block-text patterns the backend textualizer produces. Parsing, not copy — see the note
+ * at the top of the file. The full-width variants are tolerated so blocks normalised by an
+ * older build, when the catalogue punctuated in Chinese, still split correctly.
+ */
+const WIRE = {
+  /** `ingest.turn_line`: `{label}: {text}`. */
+  turnLine: /^([^\n:：]*)[:：][ \t]?([\s\S]*)$/,
+  /** `ingest.owner_wrapped`: `Owner ({label})`. */
+  ownerWrapped: /^Owner[ \t]*[(（]([\s\S]*)[)）]$/,
+  /** `ingest.email.attachments`: `Attachments: `. */
+  attachments: /^Attachments[:：]/,
 };
 
-export function sourceKindLabel(kind: string): string {
-  return SOURCE_KIND_LABELS[kind] ?? kind;
+/**
+ * The source kind's display name. Keyed by the wire value, which is exactly how the shared
+ * `enum.sourceKind.*` bundle is keyed; an unknown kind degrades to the raw value.
+ */
+export function sourceKindLabel(kind: string, i18n: SourcePresentationI18n): string {
+  return i18n.tOr(`enum.sourceKind.${kind}`, kind);
 }
 
 function objectValue(value: unknown): Record<string, unknown> {
@@ -161,19 +188,33 @@ function durationMinutes(startedAt: string, endedAt: string | null): number | nu
   return Math.round((end - start) / 60_000);
 }
 
-function splitSpeakerText(text: string): {
+/**
+ * Recover the speaker from a normalised turn line. Only a fallback: when the source's meta
+ * still carries the participant envelope the readers prefer that, and this is what is left
+ * when it does not.
+ */
+function splitSpeakerText(
+  text: string,
+  i18n: SourcePresentationI18n,
+): {
   speaker: string;
   owner: boolean;
   body: string;
 } {
-  const separator = text.indexOf("：");
-  if (separator < 0) return { speaker: "未知发言人", owner: false, body: text };
-  const rawSpeaker = text.slice(0, separator);
-  const owner = rawSpeaker.startsWith("本人（") && rawSpeaker.endsWith("）");
+  const turn = WIRE.turnLine.exec(text);
+  if (!turn) {
+    return {
+      speaker: i18n.tOr("common.unknownSpeaker", "Unknown speaker"),
+      owner: false,
+      body: text,
+    };
+  }
+  const [, rawSpeaker, body] = turn;
+  const wrapped = WIRE.ownerWrapped.exec(rawSpeaker);
   return {
-    speaker: owner ? rawSpeaker.slice(3, -1) : rawSpeaker,
-    owner,
-    body: text.slice(separator + 1),
+    speaker: wrapped ? wrapped[1] : rawSpeaker,
+    owner: wrapped != null,
+    body,
   };
 }
 
@@ -185,23 +226,35 @@ function addressValue(value: unknown): PersonAddress {
   };
 }
 
-function attachmentValue(value: unknown): AttachmentPresentation {
+function attachmentValue(
+  value: unknown,
+  i18n: SourcePresentationI18n,
+): AttachmentPresentation {
   const record = objectValue(value);
   return {
-    filename: stringValue(record.filename) ?? "未命名附件",
+    filename:
+      stringValue(record.filename) ?? i18n.tOr("common.untitledAttachment", "Untitled attachment"),
     contentType: stringValue(record.content_type) ?? "application/octet-stream",
     sizeBytes: numberValue(record.size_bytes),
   };
 }
 
+/**
+ * The citable body of an email block: the textualizer writes an address line and a subject
+ * line first, and appends the attachment manifest last.
+ */
 function emailBody(text: string, hasAttachments: boolean): string {
   const lines = text.split("\n");
   const body = lines.slice(2);
-  if (hasAttachments && body[body.length - 1]?.startsWith("附件：")) body.pop();
+  const last = body[body.length - 1];
+  if (hasAttachments && last != null && WIRE.attachments.test(last)) body.pop();
   return body.join("\n").trim();
 }
 
-function buildMeeting(source: PresentableSource): SourcePresentation {
+function buildMeeting(
+  source: PresentableSource,
+  i18n: SourcePresentationI18n,
+): SourcePresentation {
   const meta = source.meta;
   const ownerIds = new Set(stringArray(meta.owner_participant_ids));
   const participants = objectArray(meta.participants).map((item) => {
@@ -217,7 +270,7 @@ function buildMeeting(source: PresentableSource): SourcePresentation {
   const segmentMeta = objectArray(meta.segments);
   const segments = source.blocks.map((block, index) => {
     const envelope = segmentMeta[index] ?? {};
-    const fallback = splitSpeakerText(block.text);
+    const fallback = splitSpeakerText(block.text, i18n);
     const speakerId = stringValue(envelope.speaker_id) ?? "";
     const participant = people.get(speakerId);
     return {
@@ -267,7 +320,10 @@ function buildDocument(source: PresentableSource): SourcePresentation {
   };
 }
 
-function buildIm(source: PresentableSource): SourcePresentation {
+function buildIm(
+  source: PresentableSource,
+  i18n: SourcePresentationI18n,
+): SourcePresentation {
   const meta = source.meta;
   const ownerIds = new Set(stringArray(meta.owner_user_ids));
   const members = objectArray(meta.users).map((item) => {
@@ -283,7 +339,7 @@ function buildIm(source: PresentableSource): SourcePresentation {
   const messageMeta = objectArray(meta.messages);
   const messages = source.blocks.map((block, index) => {
     const envelope = messageMeta[index] ?? {};
-    const fallback = splitSpeakerText(block.text);
+    const fallback = splitSpeakerText(block.text, i18n);
     const speakerId = stringValue(envelope.sender_id) ?? "";
     const person = people.get(speakerId);
     const threadId = stringValue(envelope.thread_id);
@@ -315,14 +371,19 @@ function buildIm(source: PresentableSource): SourcePresentation {
   };
 }
 
-function buildEmail(source: PresentableSource): SourcePresentation {
+function buildEmail(
+  source: PresentableSource,
+  i18n: SourcePresentationI18n,
+): SourcePresentation {
   const meta = source.meta;
   const ownerAddresses = stringArray(meta.owner_addresses);
   const owners = new Set(ownerAddresses.map((address) => address.toLocaleLowerCase()));
   const messageMeta = objectArray(meta.messages);
   const messages = source.blocks.map((block, index) => {
     const envelope = messageMeta[index] ?? {};
-    const attachments = objectArray(envelope.attachments).map(attachmentValue);
+    const attachments = objectArray(envelope.attachments).map((item) =>
+      attachmentValue(item, i18n),
+    );
     const from = addressValue(envelope.from);
     return {
       blockIndex: block.index,
@@ -331,7 +392,7 @@ function buildEmail(source: PresentableSource): SourcePresentation {
       from,
       to: objectArray(envelope.to).map(addressValue),
       cc: objectArray(envelope.cc).map(addressValue),
-      subject: stringValue(envelope.subject) ?? "（无主题）",
+      subject: stringValue(envelope.subject) ?? i18n.tOr("common.noSubject", "(no subject)"),
       owner: owners.has(from.address.toLocaleLowerCase()),
       inReplyTo: stringValue(envelope.in_reply_to),
       attachments,
@@ -346,16 +407,19 @@ function buildEmail(source: PresentableSource): SourcePresentation {
   };
 }
 
-export function buildSourcePresentation(source: PresentableSource): SourcePresentation {
+export function buildSourcePresentation(
+  source: PresentableSource,
+  i18n: SourcePresentationI18n,
+): SourcePresentation {
   switch (source.kind) {
     case "meeting":
-      return buildMeeting(source);
+      return buildMeeting(source, i18n);
     case "document_library":
       return buildDocument(source);
     case "im":
-      return buildIm(source);
+      return buildIm(source, i18n);
     case "email":
-      return buildEmail(source);
+      return buildEmail(source, i18n);
     default:
       return { kind: "generic", blocks: source.blocks };
   }

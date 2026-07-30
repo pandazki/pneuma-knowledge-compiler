@@ -5,13 +5,13 @@ import { cn } from "./cn";
 export interface EmptyStateProps {
   icon: LucideIcon;
   title: ReactNode;
-  /** 一行说明，给「下一步动作」。 */
+  /** One line of copy, naming the next action. */
   description?: ReactNode;
   action?: ReactNode;
   className?: string;
 }
 
-/** 全产品唯一 empty 实现：图标 + 一行说明 + 可选动作。 */
+/** The one empty implementation in the product: icon + one line + an optional action. */
 export function EmptyState({ icon: Icon, title, description, action, className }: EmptyStateProps) {
   return (
     <div

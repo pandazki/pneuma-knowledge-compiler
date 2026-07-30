@@ -1,5 +1,6 @@
 import { useId, type ReactNode } from "react";
 import { Minus, Plus } from "lucide-react";
+import { useT } from "@/lib/useT";
 import { cn } from "./cn";
 
 export interface NumberFieldProps {
@@ -24,8 +25,8 @@ function clamp(v: number, min?: number, max?: number): number {
 }
 
 /**
- * 数值输入：type=text + inputMode 自绘（原生 spinner 已全局清除），
- * ± stepper 按钮与 ArrowUp/Down 键盘步进，blur 时 clamp。
+ * Numeric input, hand-drawn on type=text + inputMode (the native spinner is stripped
+ * globally): ± stepper buttons, ArrowUp/Down stepping, clamped on blur.
  */
 export function NumberField({
   value,
@@ -41,6 +42,7 @@ export function NumberField({
   wrapperClassName,
   ...rest
 }: NumberFieldProps) {
+  const t = useT();
   const autoId = useId();
   const inputId = id ?? autoId;
   const hintId = hint || error ? `${inputId}-hint` : undefined;
@@ -108,7 +110,7 @@ export function NumberField({
           <button
             type="button"
             tabIndex={-1}
-            aria-label="减少"
+            aria-label={t("common.decrease")}
             disabled={disabled || (min != null && value != null && value <= min)}
             onClick={() => stepBy(-1)}
             className="inline-flex h-full w-8 items-center justify-center text-ink-2 hover:not-disabled:bg-hover disabled:opacity-40"
@@ -118,7 +120,7 @@ export function NumberField({
           <button
             type="button"
             tabIndex={-1}
-            aria-label="增加"
+            aria-label={t("common.increase")}
             disabled={disabled || (max != null && value != null && value >= max)}
             onClick={() => stepBy(1)}
             className="inline-flex h-full w-8 items-center justify-center border-l border-line text-ink-2 hover:not-disabled:bg-hover disabled:opacity-40"

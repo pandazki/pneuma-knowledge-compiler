@@ -1,6 +1,7 @@
 import * as RadixDialog from "@radix-ui/react-dialog";
 import type { ReactNode } from "react";
 import { X } from "lucide-react";
+import { useT } from "@/lib/useT";
 import { cn } from "./cn";
 import { IconButton } from "./IconButton";
 
@@ -11,11 +12,11 @@ export interface DialogProps {
   description?: ReactNode;
   children: ReactNode;
   footer?: ReactNode;
-  /** 内容最大宽度，默认 max-w-md。 */
+  /** Max content width; defaults to max-w-md. */
   contentClassName?: string;
 }
 
-/** Radix Dialog：overlay + 居中面板，Esc/点遮罩关闭。 */
+/** Radix Dialog: overlay + centred panel, closed by Esc or a click on the overlay. */
 export function Dialog({
   open,
   onOpenChange,
@@ -25,6 +26,7 @@ export function Dialog({
   footer,
   contentClassName,
 }: DialogProps) {
+  const t = useT();
   return (
     <RadixDialog.Root open={open} onOpenChange={onOpenChange}>
       <RadixDialog.Portal>
@@ -49,7 +51,7 @@ export function Dialog({
               )}
             </div>
             <RadixDialog.Close asChild>
-              <IconButton aria-label="关闭" size="sm">
+              <IconButton aria-label={t("common.close")} size="sm">
                 <X size={15} aria-hidden />
               </IconButton>
             </RadixDialog.Close>

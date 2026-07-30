@@ -9,7 +9,7 @@ export interface MenuItem {
   danger?: boolean;
   disabled?: boolean;
   onSelect?: () => void;
-  /** true → 该项渲染为分隔线（忽略其余字段）。 */
+  /** true → render this item as a separator (every other field is ignored). */
   separator?: boolean;
 }
 
@@ -21,7 +21,7 @@ export interface MenuProps {
   contentClassName?: string;
 }
 
-/** Radix DropdownMenu：trigger 走 asChild。 */
+/** Radix DropdownMenu with an asChild trigger. */
 export function Menu({
   trigger,
   items,

@@ -1,15 +1,20 @@
 /**
- * Evolve 派生逻辑（纯函数）——演化时间线、任务详情、Schema 快照轴三个面共用的
- * 数据变换。视图只做呈现，判断与推导全在这里，因此可以用 node --test 直接覆盖。
+ * Evolve's derivation logic (pure functions) — the data transforms shared by the three
+ * surfaces: the evolution timeline, the task detail, and the schema axis. The views only
+ * present; every judgement and derivation happens here, which is what makes `node --test`
+ * cover it directly.
  *
- * 数据面只有两个端点（不新增持久化）：
- *   `GET /v1/users/{u}/evolve`（任务摘要列表）与 `GET /v1/users/{u}/skill`（当前 skill）。
- * Schema 快照轴不是另一份存储，而是「已采纳任务序列 × 当前 skill」的推导结果；
- * 推导不出来的部分（例如某次 adopted 加入的 family 已不在当前 skill 里）如实标为
- * 漂移，不补造、不静默吞掉。
+ * There are only two endpoints behind all of it (no new persistence):
+ *   `GET /v1/users/{u}/evolve` (task summaries) and `GET /v1/users/{u}/skill` (current skill).
+ * The schema axis is not a third store — it is what you get from "the adopted task sequence
+ * × the current skill". Whatever cannot be derived (a family some adopted task added but the
+ * current skill no longer declares, say) is reported as drift: never invented, never
+ * swallowed.
  *
- * 所有 import 必须是 `import type`：测试把本文件单独 esbuild 成一个 data: URL 模块，
- * 任何运行期 import 都无法解析。
+ * Every import must be `import type`: the test esbuilds this file on its own into a data: URL
+ * module, where no runtime import would resolve. That is also why the wording lives in the
+ * dictionary and this module returns message KEYS — see `EVOLVE_STATUS_LABEL_KEY`,
+ * `ttlRemainingMessage`, `SchemaStation.labelKey`.
  */
 import type {
   EvolveStatus,
@@ -18,10 +23,20 @@ import type {
   SkillInfo,
   SkillPack,
 } from "./api";
+import type { MessageKey, MessageParams } from "./i18n";
 
-/* ------------------------------------------------------------------ 状态语义 */
+/**
+ * A piece of copy this module picks but does not render: a declared dictionary key plus its
+ * placeholder values. The caller does `t(msg.key, msg.params)`.
+ */
+export interface EvolveMessage {
+  key: MessageKey;
+  params?: MessageParams;
+}
 
-/** 终态：不再变化，无需轮询。 */
+/* --------------------------------------------------------------- status semantics */
+
+/** Terminal: settled for good, so no polling needed. */
 const TERMINAL_STATUSES: readonly string[] = [
   "adopted",
   "dropped",
@@ -30,18 +45,19 @@ const TERMINAL_STATUSES: readonly string[] = [
   "no_change",
 ];
 
-export const EVOLVE_STATUS_LABEL: Record<string, string> = {
-  draft: "草案待审",
-  adopted: "已采用",
-  dropped: "已放弃",
-  expired: "已过期",
-  aborted: "已中止",
-  no_change: "无变化",
+/** The closed status vocabulary, as dictionary keys. */
+export const EVOLVE_STATUS_LABEL_KEY: Record<string, MessageKey> = {
+  draft: "evolve.status.draft",
+  adopted: "evolve.status.adopted",
+  dropped: "evolve.status.dropped",
+  expired: "evolve.status.expired",
+  aborted: "evolve.status.aborted",
+  no_change: "evolve.status.no_change",
 };
 
 export type EvolveStatusTone = "neutral" | "accent" | "ok" | "warn" | "danger";
 
-/** 语义色只给真实状态（DESIGN.md §6.4）：待审=warn、已采用=ok、中止=danger、其余中性。 */
+/** Semantic colour only for real states (DESIGN.md §6.4): awaiting review = warn, adopted = ok, aborted = danger, everything else neutral. */
 export function evolveStatusTone(status: string): EvolveStatusTone {
   switch (status) {
     case "draft":
@@ -55,8 +71,13 @@ export function evolveStatusTone(status: string): EvolveStatusTone {
   }
 }
 
-export function evolveStatusLabel(status: string): string {
-  return EVOLVE_STATUS_LABEL[status] ?? status;
+/**
+ * The dictionary key for a status. A status the client does not know yet yields an
+ * undeclared key on purpose, so `tOr(key, status)` renders the raw status rather than a
+ * blank — the same graceful degradation the backend's other closed vocabularies get.
+ */
+export function evolveStatusLabelKey(status: string): string {
+  return EVOLVE_STATUS_LABEL_KEY[status] ?? `evolve.status.${status}`;
 }
 
 export function isTerminalEvolveStatus(status: string): boolean {
@@ -64,8 +85,9 @@ export function isTerminalEvolveStatus(status: string): boolean {
 }
 
 /**
- * draft 评审窗口剩余毫秒（created_at + TTL − now）。纯 advisory：服务端的惰性过期
- * 扫描才是权威。`null` 表示无从推算（缺 created_at 或时间戳不可解析）。
+ * Milliseconds left in a draft's review window (created_at + TTL − now). Purely advisory:
+ * the service's lazy expiry sweep is the authority. `null` means there is nothing to compute
+ * from (no created_at, or an unparseable timestamp).
  */
 export function ttlRemainingMs(
   createdAt: string | null | undefined,
@@ -78,19 +100,23 @@ export function ttlRemainingMs(
   return created + ttlHours * 3600_000 - now;
 }
 
-export function fmtTtlRemaining(ms: number): string {
-  if (ms <= 0) return "已超评审窗口";
+/** The countdown as a message the view renders; the hour part is dropped below one hour. */
+export function ttlRemainingMessage(ms: number): EvolveMessage {
+  if (ms <= 0) return { key: "evolve.ttl.expired" };
   const h = Math.floor(ms / 3600_000);
   const m = Math.floor((ms % 3600_000) / 60_000);
-  return h > 0 ? `剩约 ${h}h${m}m` : `剩约 ${m}m`;
+  return h > 0
+    ? { key: "evolve.ttl.hoursMinutes", params: { h, m } }
+    : { key: "evolve.ttl.minutes", params: { m } };
 }
 
-/* ------------------------------------------------------------- 路径模板 → family */
+/* --------------------------------------------------- path template → family */
 
 /**
- * 归档 family 名：路径模板里最后一个非占位段。
- * `memory/people/{slug}.md` → `people`；`memory/profile.md` → `profile`；
- * `materials/{slug}.md` → `materials`。取不出来时回落整条模板（不猜）。
+ * The archive family name: the last non-placeholder segment of a path template.
+ * `memory/people/{slug}.md` → `people`; `memory/profile.md` → `profile`;
+ * `materials/{slug}.md` → `materials`. When nothing can be taken, fall back to the whole
+ * template (no guessing).
  */
 export function familyFromTemplate(template: string): string {
   const segs = template
@@ -102,21 +128,21 @@ export function familyFromTemplate(template: string): string {
   return last.replace(/\.md$/i, "");
 }
 
-/** 归档区：模板的第一段（`memory` / `work` / `materials` / pack 自带的新顶层目录）。 */
+/** The archive area: the template's first segment (`memory` / `work` / `materials` / a new top-level directory a pack brings). */
 export function areaFromTemplate(template: string): string {
   const first = template.split("/")[0]?.trim();
   return first && !first.includes("{slug}") ? first.replace(/\.md$/i, "") : "—";
 }
 
-/* ------------------------------------------------------------------- 时间线 */
+/* ------------------------------------------------------------------- timeline */
 
 export interface EvolveScale {
   newDocuments: number;
   movedClaims: number;
   mergedClaims: number;
-  /** 收编了 claim 的文档数（summary.adopted_by_document 的键数）。 */
+  /** How many documents took claims in (the key count of summary.adopted_by_document). */
   adoptedDocuments: number;
-  /** 规模合计：搬移 + 合并（"这次动了多少条"的一个数）。 */
+  /** Total scale: moved + merged — one number for "how many claims this touched". */
   touchedClaims: number;
 }
 
@@ -132,7 +158,7 @@ function int(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
-/** 机械规模摘要（缺 summary 的任务给全零，不伪造）。 */
+/** The mechanical scale summary (a task without a summary reads all zeros — nothing faked). */
 export function evolveScale(summary: EvolveSummary | null | undefined): EvolveScale {
   if (!summary) return { ...EMPTY_SCALE };
   const moved = int(summary.moved_claims);
@@ -150,26 +176,27 @@ export interface EvolveTimelineEntry {
   task: EvolveTaskSummary;
   taskId: string;
   status: EvolveStatus;
-  /** 时间正序序号（最早 = 1）：「第 n 次演化」。 */
+  /** Chronological index (earliest = 1): the "nth evolution". */
   ordinal: number;
   createdAt: string | null;
   decidedAt: string | null;
-  /** 排序用 epoch ms；时间戳缺失/不可解析时为 null（这些条目排在末尾）。 */
+  /** Epoch ms for sorting; null when the timestamp is missing or unparseable (those entries sort last). */
   sortKey: number | null;
-  /** 本次提案新增的归档 family 名。 */
+  /** The archive families this proposal adds. */
   families: string[];
-  /** 本次提案新增的路径模板。 */
+  /** The path templates this proposal adds. */
   pathTemplates: string[];
   scale: EvolveScale;
-  /** 非终态：还在跑，或停在闸门上等人。 */
+  /** Non-terminal: still running, or parked at the gate waiting for a person. */
   pending: boolean;
-  /** 停在闸门上等人裁决（可 adopt / drop）。 */
+  /** Parked at the gate awaiting a human decision (adoptable / droppable). */
   awaitingReview: boolean;
 }
 
 /**
- * 提案新增的 family 名。优先用服务端派生字段 `families`；老服务端没有这个字段时，
- * 从 `path_templates` 反推；两者都没有就是空（渐进降级，不猜）。
+ * The families a proposal adds. Prefer the service's derived `families` field; fall back to
+ * reverse-deriving them from `path_templates` for an older service that does not send it;
+ * with neither, the answer is empty (degrade gracefully, never guess).
  */
 export function proposedFamilies(task: EvolveTaskSummary): string[] {
   const declared = Array.isArray(task.families) ? task.families : null;
@@ -204,9 +231,11 @@ function epoch(ts: string | null | undefined): number | null {
 }
 
 /**
- * 任务摘要 → 时间线条目，**最新在前**（服务端已是 created_at DESC，这里仍显式排序，
- * 顺序不依赖端点实现）。`ordinal` 按时间正序编号，所以同一次演化在时间线与快照轴上
- * 是同一个编号。时间戳缺失的条目排在最后，并拿到最大的 ordinal（不假装它们最早）。
+ * Task summaries → timeline entries, **newest first** (the service already returns created_at
+ * DESC; sorting explicitly here keeps the order independent of the endpoint). `ordinal` counts
+ * forward in time, so one evolution carries the same number on the timeline and on the schema
+ * axis. Entries without a timestamp sort last and take the largest ordinal — they are not
+ * pretended to be the oldest.
  */
 export function buildEvolveTimeline(
   tasks: readonly EvolveTaskSummary[],
@@ -215,7 +244,7 @@ export function buildEvolveTimeline(
     task,
     sortKey: epoch(task.created_at),
   }));
-  // 时间正序（无时间戳垫底），再按 task_id 定序，保证渲染稳定。
+  // Chronological (undated last), then by task_id, so rendering is stable.
   const ascending = [...rows].sort((a, b) => {
     if (a.sortKey == null && b.sortKey == null)
       return a.task.task_id.localeCompare(b.task.task_id);
@@ -250,7 +279,7 @@ export interface EvolveTimelineCounts {
   total: number;
   awaitingReview: number;
   adopted: number;
-  /** 放弃 + 过期 + 中止：人或系统否决掉的。 */
+  /** Dropped + expired + aborted: turned down by a person or by the system. */
   declined: number;
   noChange: number;
 }
@@ -272,7 +301,7 @@ export function evolveTimelineCounts(
   return { total: entries.length, awaitingReview, adopted, declined, noChange };
 }
 
-/** 选中态解析：选中 id 不在当前列表里就落回 null（不指向不存在的任务）。 */
+/** Resolve the selection: an id absent from the current list falls back to null (never point at a task that is not there). */
 export function selectedTimelineEntry(
   entries: readonly EvolveTimelineEntry[],
   taskId: string | null | undefined,
@@ -281,14 +310,14 @@ export function selectedTimelineEntry(
   return entries.find((e) => e.taskId === taskId) ?? null;
 }
 
-/* --------------------------------------------------------------- pack 草案 */
+/* --------------------------------------------------------------- pack drafts */
 
 export interface EvolvePackDraft {
   packId: string | null;
-  /** family 名：pack_id 去掉 `evolved-` 前缀，取不到就从模板反推。 */
+  /** The family name: pack_id minus its `evolved-` prefix, or reverse-derived from the template. */
   family: string;
   origin: string | null;
-  /** pack 追加的 instructions 全文（人审的正文）。 */
+  /** The instructions the pack appends, in full — the body a person reviews. */
   instructions: string;
   pathTemplates: string[];
   contractRules: string[];
@@ -304,8 +333,8 @@ function strList(value: unknown): string[] {
 }
 
 /**
- * 存下来的 proposal（`EvolveProposal.model_dump()`：`{packs, rationale}`）→ pack 草案列表。
- * 对形状宽容：坏结构降级为空列表，绝不抛。
+ * The stored proposal (`EvolveProposal.model_dump()`: `{packs, rationale}`) → a list of pack
+ * drafts. Tolerant about shape: a malformed structure degrades to an empty list, never throws.
  */
 export function buildPackDrafts(
   proposal: Record<string, unknown> | null | undefined,
@@ -331,16 +360,17 @@ export function buildPackDrafts(
 }
 
 export interface EvolveRationale {
-  /** 提案自述（强模型给的总体理由）。 */
+  /** The proposal's own statement (the overall reasoning the strong model gave). */
   lead: string;
-  /** 证据行：phase 1 每个 family 追加一行指向增量里的具体聚簇。 */
+  /** Evidence lines: in phase 1 each family appends one line pointing at a concrete cluster in the increment. */
   evidence: string[];
 }
 
 /**
- * 拆开 rationale 文本块。propose.py 的组装方式是
- * `rationale + "\n\n" + 每个 family 一行 evidence`，所以末尾至多 `packCount` 行
- * 非空行是证据行，其余归总体理由。切不准也不丢内容：两半都会渲染。
+ * Split the rationale text block. propose.py assembles it as
+ * `rationale + "\n\n" + one evidence line per family`, so at most the last `packCount`
+ * non-empty lines are evidence and the rest is the overall reasoning. A mis-cut loses nothing:
+ * both halves render.
  */
 export function parseRationale(
   rationale: string | null | undefined,
@@ -358,7 +388,7 @@ export function parseRationale(
   return { lead, evidence };
 }
 
-/* --------------------------------------------------------------- 行内 diff */
+/* --------------------------------------------------------------- inline diff */
 
 export type DiffRowType = "same" | "add" | "del";
 export interface DiffRow {
@@ -366,7 +396,7 @@ export interface DiffRow {
   text: string;
 }
 
-/** 最小 LCS 行 diff：输出统一 +/− 行流（墨阶呈现，禁彩色 diff）。 */
+/** A minimal LCS line diff: one unified +/− stream (rendered in ink tones — no coloured diff). */
 export function lineDiff(oldStr: string, newStr: string): DiffRow[] {
   const A = oldStr.split("\n");
   const B = newStr.split("\n");
@@ -410,7 +440,7 @@ export function diffStat(rows: readonly DiffRow[]): DiffStat {
   return { adds, dels };
 }
 
-/** 文件级变更种类（old/new 空串即新建/删除，服务端就是这么表达的）。 */
+/** The kind of a file-level change (an empty old/new body means created/deleted — that is how the service expresses it). */
 export type ChangedFileKind = "created" | "deleted" | "modified";
 
 export function changedFileKind(oldBody: string, newBody: string): ChangedFileKind {
@@ -419,7 +449,7 @@ export function changedFileKind(oldBody: string, newBody: string): ChangedFileKi
   return "modified";
 }
 
-/* ------------------------------------------------------------- Schema 快照轴 */
+/* ------------------------------------------------------------- schema axis */
 
 export type FamilyOrigin = "base" | "pack" | "evolved";
 
@@ -428,11 +458,11 @@ export interface SchemaFamily {
   area: string;
   template: string;
   origin: FamilyOrigin;
-  /** 哪次已采纳的演化加入了它（origin === "evolved" 时才可能有）。 */
+  /** Which adopted evolution added it (only possible when origin === "evolved"). */
   addedByTask: string | null;
   addedAtOrdinal: number | null;
   addedAt: string | null;
-  /** 注册期 pack 带来的（matrix / derived）。 */
+  /** The registration-time pack it came with (matrix / derived). */
   packId: string | null;
 }
 
@@ -440,31 +470,33 @@ export type SchemaStationKind = "base" | "pack" | "adopted" | "pending";
 
 export interface SchemaStation {
   kind: SchemaStationKind;
-  /** base → base_version；pack → "packs"；adopted / pending → task_id。 */
+  /** base → base_version; pack → "packs"; adopted / pending → task_id. */
   id: string;
-  label: string;
-  /** 与时间线共享的编号；base / pack 站为 null。 */
+  /** The station's caption, as a dictionary key the view renders with `labelParams`. */
+  labelKey: MessageKey;
+  labelParams?: MessageParams;
+  /** The number shared with the timeline; null for the base / pack stations. */
   ordinal: number | null;
   at: string | null;
   families: string[];
   templates: string[];
-  /** adopted 站：仍在当前 skill 里的 family。 */
+  /** Adopted stations: the families still declared by the current skill. */
   liveFamilies: string[];
-  /** adopted 站：当前 skill 里已找不到的 family（如实呈现漂移）。 */
+  /** Adopted stations: the families the current skill no longer declares (drift, shown as it is). */
   driftedFamilies: string[];
   status: EvolveStatus | null;
 }
 
 export interface SchemaAxis {
   stations: SchemaStation[];
-  /** 当前全量 family 一览（当前 skill 的 path_templates 逐条解析）。 */
+  /** The full current family roster (every path_template of the current skill, parsed). */
   families: SchemaFamily[];
   baseVersion: string | null;
   skillVersion: string | null;
   contentHash: string | null;
-  /** 已采纳过、但当前 skill 里已不见的 family。 */
+  /** Families that were adopted once but are no longer in the current skill. */
   drifted: string[];
-  /** 还停在闸门上、尚未进入 schema 的 family。 */
+  /** Families still at the gate, not yet part of the schema. */
   proposed: string[];
 }
 
@@ -482,27 +514,29 @@ function packTemplates(packs: readonly SkillPack[], evolved: boolean): Map<strin
 }
 
 /**
- * 「已采纳任务序列 × 当前 skill」→ Schema 快照轴。
+ * "The adopted task sequence × the current skill" → the schema axis.
  *
- * - 站点顺序：基线 skill → 注册期 pack（有才出现）→ 每次 adopted 演化（时间正序）
- *   → 闸门上待审的 draft（尚未进入 schema，单独标出）。
- * - family 一览完全由当前 skill 的 path_templates 推出，来源归因（base / pack /
- *   evolved + 哪次任务）由模板集合比对得到。
- * - adopted 站宣称过、但当前 skill 里查不到的 family 记为漂移，不静默丢弃。
+ * - Station order: the baseline skill → the registration-time packs (only when there are any)
+ *   → every adopted evolution (chronologically) → the drafts still at the gate (not part of
+ *   the schema yet, marked out separately).
+ * - The family roster comes entirely from the current skill's path_templates; origin
+ *   attribution (base / pack / evolved + which task) falls out of comparing template sets.
+ * - A family an adopted station claimed but the current skill does not declare is recorded as
+ *   drift rather than silently dropped.
  */
 export function buildSchemaAxis(
   tasks: readonly EvolveTaskSummary[],
   skill: SkillInfo | null | undefined,
 ): SchemaAxis {
   const entries = buildEvolveTimeline(tasks);
-  const chronological = [...entries].reverse(); // 时间正序
+  const chronological = [...entries].reverse(); // oldest first
 
   const skillTemplates = dedupe((skill?.path_templates ?? []).map((t) => String(t).trim()));
   const packs = skill?.packs ?? [];
   const evolvedTemplates = packTemplates(packs, true);
   const registrationTemplates = packTemplates(packs, false);
 
-  /** family → 当前 skill 里承载它的模板。 */
+  /** family → the template in the current skill that carries it. */
   const currentByFamily = new Map<string, string>();
   for (const template of skillTemplates) {
     const family = familyFromTemplate(template);
@@ -512,7 +546,7 @@ export function buildSchemaAxis(
   const adopted = chronological.filter((e) => e.status === "adopted");
   const awaiting = chronological.filter((e) => e.awaitingReview);
 
-  /** family → 加入它的那次 adopted 演化（后来的覆盖先前的）。 */
+  /** family → the adopted evolution that added it (a later one overrides an earlier). */
   const addedBy = new Map<string, EvolveTimelineEntry>();
   for (const entry of adopted) {
     for (const family of entry.families) addedBy.set(family, entry);
@@ -551,7 +585,10 @@ export function buildSchemaAxis(
   stations.push({
     kind: "base",
     id: skill?.base_version ?? "base",
-    label: skill?.base_version ? `基线 skill ${skill.base_version}` : "基线 skill",
+    labelKey: skill?.base_version
+      ? "evolve.axis.station.baseVersion"
+      : "evolve.axis.station.base",
+    labelParams: skill?.base_version ? { version: skill.base_version } : undefined,
     ordinal: null,
     at: null,
     families: dedupe(families.filter((f) => f.origin === "base").map((f) => f.family)),
@@ -566,7 +603,7 @@ export function buildSchemaAxis(
     stations.push({
       kind: "pack",
       id: "packs",
-      label: "注册期定制 pack",
+      labelKey: "evolve.axis.station.packs",
       ordinal: null,
       at: null,
       families: dedupe(packFamilies.map((f) => f.family)),
@@ -585,7 +622,8 @@ export function buildSchemaAxis(
     stations.push({
       kind: "adopted",
       id: entry.taskId,
-      label: `第 ${entry.ordinal} 次演化`,
+      labelKey: "evolve.evolutionOrdinal",
+      labelParams: { n: entry.ordinal },
       ordinal: entry.ordinal,
       at: entry.decidedAt ?? entry.createdAt,
       families: entry.families,
@@ -602,7 +640,8 @@ export function buildSchemaAxis(
     stations.push({
       kind: "pending",
       id: entry.taskId,
-      label: `第 ${entry.ordinal} 次演化 · 闸门待审`,
+      labelKey: "evolve.axis.station.pending",
+      labelParams: { n: entry.ordinal },
       ordinal: entry.ordinal,
       at: entry.createdAt,
       families: entry.families,
@@ -624,7 +663,7 @@ export function buildSchemaAxis(
   };
 }
 
-/** family 一览按归档区分组（呈现用；区内按 family 名定序）。 */
+/** The family roster grouped by archive area (for presentation; families sorted by name within an area). */
 export function groupFamiliesByArea(
   families: readonly SchemaFamily[],
 ): { area: string; families: SchemaFamily[] }[] {

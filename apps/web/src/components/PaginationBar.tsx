@@ -1,5 +1,6 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { visibleRange } from "@/lib/pagination";
+import { useT } from "@/lib/useT";
 import { Button } from "@/ui/Button";
 
 export interface PaginationBarProps {
@@ -23,14 +24,15 @@ export function PaginationBar({
   loading = false,
   onPrevious,
   onNext,
-  noun = "条",
+  noun,
 }: PaginationBarProps) {
+  const t = useT();
   const range = visibleRange(pageIndex, limit, itemCount, total);
   const pageCount = total === 0 ? 0 : Math.ceil(total / limit);
 
   return (
     <nav
-      aria-label="分页"
+      aria-label={t("common.pagination.aria")}
       className="flex flex-wrap items-center justify-between gap-3 border-t border-line pt-3"
     >
       <p className="text-13 text-ink-2" aria-live="polite">
@@ -39,11 +41,10 @@ export function PaginationBar({
         </span>
         <span> / </span>
         <span className="font-serif tabular-nums text-ink">{range.total}</span>
-        <span> {noun}</span>
+        <span> {noun ?? t("common.pagination.noun")}</span>
         {pageCount > 0 && (
-          <span className="ml-2 text-ink-3">
-            第 <span className="tabular-nums">{pageIndex + 1}</span> /{" "}
-            <span className="tabular-nums">{pageCount}</span> 页
+          <span className="ml-2 tabular-nums text-ink-3">
+            {t("common.pagination.page", { current: pageIndex + 1, total: pageCount })}
           </span>
         )}
       </p>
@@ -55,14 +56,14 @@ export function PaginationBar({
           onClick={onPrevious}
         >
           <ChevronLeft size={14} aria-hidden />
-          上一页
+          {t("common.pagination.previous")}
         </Button>
         <Button
           size="sm"
           disabled={loading || !hasNext}
           onClick={onNext}
         >
-          下一页
+          {t("common.pagination.next")}
           <ChevronRight size={14} aria-hidden />
         </Button>
       </div>

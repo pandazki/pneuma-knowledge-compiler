@@ -9,43 +9,44 @@ import {
 } from "react";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { ChevronDown, Search } from "lucide-react";
+import { useT } from "@/lib/useT";
 import { cn } from "./cn";
 
 export interface ComboboxItem {
   value: string;
-  /** 主文案（过滤依据之一）。 */
+  /** Primary copy (one of the things the filter matches on). */
   label: string;
-  /** 额外过滤关键词（如 user_id、ref）。 */
+  /** Extra filter keywords (user_id, ref, …). */
   keywords?: string;
   disabled?: boolean;
-  /** 分组名（如「最近」「全部」）；相同 group 的连续项归为一节。 */
+  /** Group name (e.g. "recent" / "all"); consecutive items sharing one form a section. */
   group?: string;
-  /** 自定义行渲染；缺省渲染 label。 */
+  /** Custom row renderer; falls back to rendering `label`. */
   render?: () => ReactNode;
 }
 
 export interface ComboboxProps {
-  /** 当前选中值（null = 未选）。 */
+  /** Current value (null = nothing selected). */
   value: string | null;
   onChange: (value: string) => void;
   items: ComboboxItem[];
-  /** 触发按钮内容（由调用方自绘，如 avatar + 名字）。 */
+  /** Trigger content, drawn by the caller (e.g. avatar + name). */
   trigger: ReactNode;
   triggerAriaLabel: string;
   filterPlaceholder?: string;
   emptyText?: string;
   disabled?: boolean;
-  /** 禁用时的说明（如「尚无版本」），显示在触发器旁。 */
+  /** Note shown beside the trigger while disabled (e.g. "no versions yet"). */
   disabledNote?: string;
-  /** 浮层底部动作区；收到当前过滤词与 close（用于「新建画像「query」」之类）。 */
+  /** Footer action area; receives the live filter text and `close` (e.g. "new profile …"). */
   footer?: (query: string, close: () => void) => ReactNode;
-  /** 浮层宽度对齐触发器还是固定。默认 280px。 */
+  /** Whether the surface matches the trigger width or is fixed. Defaults to 280px. */
   contentClassName?: string;
 }
 
 /**
- * Combobox = Radix Popover + 过滤输入 + 自绘 listbox（箭头键移动 / Enter 选中 /
- * Esc 关闭）。供 UserPicker / SnapshotPicker 复用。
+ * Combobox = Radix Popover + a filter input + a hand-drawn listbox (arrows move, Enter
+ * selects, Esc closes). Shared by UserPicker / SnapshotPicker.
  */
 export function Combobox({
   value,
@@ -53,13 +54,14 @@ export function Combobox({
   items,
   trigger,
   triggerAriaLabel,
-  filterPlaceholder = "过滤…",
-  emptyText = "没有匹配项",
+  filterPlaceholder,
+  emptyText,
   disabled,
   disabledNote,
   footer,
   contentClassName,
 }: ComboboxProps) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
@@ -80,7 +82,7 @@ export function Combobox({
     if (open) {
       setQuery("");
       setActive(0);
-      // Popover 动画后聚焦过滤输入
+      // focus the filter input once the Popover animation has settled
       requestAnimationFrame(() => inputRef.current?.focus());
     }
   }, [open]);
@@ -108,7 +110,7 @@ export function Combobox({
     }
   };
 
-  // 分组标题：某组第一项之前插入组名
+  // group heading: insert the group name before its first item
   let lastGroup: string | undefined;
 
   return (
@@ -152,7 +154,7 @@ export function Combobox({
               aria-controls={listboxId}
               aria-activedescendant={filtered[active] ? `${listboxId}-opt-${filtered[active].value}` : undefined}
               value={query}
-              placeholder={filterPlaceholder}
+              placeholder={filterPlaceholder ?? t("common.filterPlaceholder")}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={onListKeyDown}
               className="h-full min-w-0 flex-1 text-13 text-ink"
@@ -165,7 +167,9 @@ export function Combobox({
             className="max-h-64 overflow-y-auto p-1"
           >
             {filtered.length === 0 && (
-              <li className="px-2.5 py-3 text-center text-13 text-ink-3">{emptyText}</li>
+              <li className="px-2.5 py-3 text-center text-13 text-ink-3">
+                {emptyText ?? t("common.noMatches")}
+              </li>
             )}
             {filtered.map((item, i) => {
               const header =

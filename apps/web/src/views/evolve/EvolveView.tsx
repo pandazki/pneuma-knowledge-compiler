@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Sprout, UserRoundX } from "lucide-react";
 import { useApp } from "@/lib/store";
+import { useT } from "@/lib/useT";
 import * as api from "@/lib/api";
 import { ApiError } from "@/lib/api";
 import {
@@ -22,21 +23,25 @@ import { EvolveTaskDetail } from "./EvolveTaskDetail";
 import { SchemaAxisPanel } from "./SchemaAxisPanel";
 
 /**
- * 演化 Evolve（DESIGN.md §5）。三个面：
+ * Evolve (DESIGN.md §5). Three surfaces:
  *
- * 1. **演化时间线**（`timeline` tab 左栏）：一次演化一刻度，状态即刻度形状与语义色。
- * 2. **任务详情**（`timeline` tab 右栏）：提案理由与证据行、pack 草案全文、消失的锚
- *    （人审重点）、变更文件 diff、闸门操作。
- * 3. **Schema 快照轴**（`schema` tab）：family / 路径模板随时间的累积，由「已采纳任务
- *    序列 × 当前 skill」推导。
+ * 1. **The evolution timeline** (left column of the `timeline` tab): one station per
+ *    evolution, where the status IS the station's shape and semantic colour.
+ * 2. **The task detail** (right column of the `timeline` tab): the proposal's reasoning and
+ *    evidence lines, the pack drafts in full, the anchors that disappear (what a human review
+ *    turns on), the changed-file diffs, and the gate actions.
+ * 3. **The schema axis** (`schema` tab): how families / path templates accumulate over time,
+ *    derived from "the adopted task sequence × the current skill".
  *
- * 数据面只有 `GET /evolve` 与 `GET /skill` 两个读端点，两个 tab 共用同一次取数。
- * hash 路由契约不变：`#/evolve/evolve-task/<id>` 仍然直达任务详情（选中即切回时间线）。
+ * There are only two read endpoints behind it, `GET /evolve` and `GET /skill`, and both tabs
+ * share one fetch. The hash-route contract is unchanged: `#/evolve/evolve-task/<id>` still
+ * lands on the task detail (a selection switches back to the timeline).
  */
 
 type TabValue = "timeline" | "schema";
 
 export default function EvolveView() {
+  const t = useT();
   const currentUser = useApp((s) => s.currentUser);
   const currentSnapshot = useApp((s) => s.currentSnapshot);
   const selection = useApp((s) => s.selection);
@@ -62,7 +67,7 @@ export default function EvolveView() {
 
   const refresh = useCallback(() => setReloadKey((k) => k + 1), []);
 
-  /* skill 面 */
+  /* The skill surface */
   useEffect(() => {
     if (!currentUser) return;
     let live = true;
@@ -84,7 +89,7 @@ export default function EvolveView() {
     };
   }, [currentUser, reloadKey]);
 
-  /* 任务账 */
+  /* The task ledger */
   useEffect(() => {
     if (!currentUser) return;
     let live = true;
@@ -105,7 +110,7 @@ export default function EvolveView() {
     };
   }, [currentUser, reloadKey]);
 
-  /* 轮询：有未决任务时每 5s 刷新；卸载清理。 */
+  /* Polling: refresh every 5s while a task is unsettled; cleared on unmount. */
   const needsPoll = tasks.some((t) => !isTerminalEvolveStatus(t.status));
   useEffect(() => {
     if (!currentUser || !needsPoll) return;
@@ -120,7 +125,7 @@ export default function EvolveView() {
   const selectedId = selection?.kind === "evolve-task" ? selection.id : null;
   const selectedEntry = selectedTimelineEntry(timeline, selectedId);
 
-  /* 深链进来时（#/evolve/evolve-task/<id>）保证停在时间线 tab。 */
+  /* Arriving by deep link (#/evolve/evolve-task/<id>) must land on the timeline tab. */
   useEffect(() => {
     if (selectedId) setTab("timeline");
   }, [selectedId]);
@@ -144,16 +149,16 @@ export default function EvolveView() {
     setNotice(null);
     try {
       await api.triggerEvolve(currentUser);
-      setNotice({
-        tone: "notice",
-        text: "已入队演化任务——worker 跑完后草案会出现在时间线顶端。",
-      });
+      setNotice({ tone: "notice", text: t("evolve.notice.queued") });
     } catch (e) {
       if (e instanceof ApiError && e.status === 409) {
-        // single-flight：已有 draft 待审或任务进行中。
+        // single-flight: a draft is already awaiting review, or a task is in flight.
         setNotice({ tone: "warn", text: e.message });
       } else {
-        setNotice({ tone: "danger", text: `触发失败：${(e as Error).message}` });
+        setNotice({
+          tone: "danger",
+          text: t("evolve.notice.triggerFailed", { detail: (e as Error).message }),
+        });
       }
     } finally {
       setTriggering(false);
@@ -164,14 +169,11 @@ export default function EvolveView() {
   if (!currentUser) {
     return (
       <>
-        <PageHeader
-          title="演化 Evolve"
-          description="schema 重组提案的评审台与 family 累积轴。"
-        />
+        <PageHeader title={t("evolve.title")} description={t("evolve.descriptionShort")} />
         <EmptyState
           icon={UserRoundX}
-          title="未选择用户"
-          description="在右上角选择一个 user_id，以查看它的演化时间线与量身定制 skill。"
+          title={t("evolve.noUser.title")}
+          description={t("evolve.noUser.description")}
         />
       </>
     );
@@ -182,25 +184,30 @@ export default function EvolveView() {
       {listState === "loading" && <SkeletonText lines={6} />}
       {listState === "error" && (
         <ErrorState
-          title="演化时间线加载失败"
-          error={listError ?? "未知错误"}
+          title={t("evolve.timeline.loadFailed")}
+          error={listError ?? t("common.unknownError")}
           onRetry={refresh}
         />
       )}
       {listState === "ready" && timeline.length === 0 && (
         <EmptyState
           icon={Sprout}
-          title="暂无演化任务"
-          description="点右上角「触发演化」发起一次 schema 重组提案；草案会停在这里等待你的裁决。"
+          title={t("evolve.timeline.empty.title")}
+          description={t("evolve.timeline.empty.description")}
         />
       )}
       {listState === "ready" && timeline.length > 0 && (
         <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
           <div className="w-full shrink-0 lg:w-80">
             <p className="mb-2 text-12 text-ink-3">
-              共 {counts.total} 次 · 待审 {counts.awaitingReview} · 已采用{" "}
-              {counts.adopted} · 已否决 {counts.declined}
-              {counts.noChange > 0 && ` · 无变化 ${counts.noChange}`}
+              {t("evolve.timeline.counts", {
+                total: counts.total,
+                awaiting: counts.awaitingReview,
+                adopted: counts.adopted,
+                declined: counts.declined,
+              })}
+              {counts.noChange > 0 &&
+                ` · ${t("evolve.timeline.countsNoChange", { count: counts.noChange })}`}
             </p>
             <EvolveTimeline
               entries={timeline}
@@ -222,7 +229,7 @@ export default function EvolveView() {
                 onDecided={refresh}
               />
             ) : (
-              <p className="text-13 text-ink-3">在左侧时间线选中一次演化查看详情。</p>
+              <p className="text-13 text-ink-3">{t("evolve.detail.pickHint")}</p>
             )}
           </div>
         </div>
@@ -235,8 +242,8 @@ export default function EvolveView() {
       {skillState === "loading" && <SkeletonText lines={6} />}
       {skillState === "error" && (
         <ErrorState
-          title="skill 加载失败"
-          error={skillError ?? "未知错误"}
+          title={t("evolve.skill.loadFailed")}
+          error={skillError ?? t("common.unknownError")}
           onRetry={refresh}
         />
       )}
@@ -253,18 +260,18 @@ export default function EvolveView() {
   return (
     <>
       <PageHeader
-        title="演化 Evolve"
-        description="演化时间线 · 草案评审（采用 / 放弃）· family 与路径模板的累积轴。"
+        title={t("evolve.title")}
+        description={t("evolve.description")}
         actions={
           <Button
             variant="primary"
             size="sm"
             loading={triggering}
             disabled={readOnly}
-            title={readOnly ? "历史快照为只读" : undefined}
+            title={readOnly ? t("evolve.readOnlyHint") : undefined}
             onClick={onTrigger}
           >
-            触发演化
+            {t("evolve.trigger")}
           </Button>
         }
       />
@@ -276,16 +283,19 @@ export default function EvolveView() {
       )}
 
       <Tabs
-        aria-label="演化视图"
+        aria-label={t("evolve.tabs.aria")}
         value={tab}
         onChange={(v) => setTab(v as TabValue)}
         tabs={[
           {
             value: "timeline",
-            label: `时间线${counts.awaitingReview > 0 ? ` · ${counts.awaitingReview} 待审` : ""}`,
+            label:
+              counts.awaitingReview > 0
+                ? t("evolve.tab.timelineAwaiting", { count: counts.awaitingReview })
+                : t("evolve.tab.timeline"),
             panel: timelinePanel,
           },
-          { value: "schema", label: "Schema 快照轴", panel: schemaPanel },
+          { value: "schema", label: t("evolve.tab.schema"), panel: schemaPanel },
         ]}
       />
     </>

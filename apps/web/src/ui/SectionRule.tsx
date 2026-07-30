@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { cn } from "./cn";
 
 export interface SectionRuleProps {
-  /** 章节号（数字 1 → §01；也接受已成形字符串）。 */
+  /** Section number (1 → §01; an already-formed string is accepted too). */
   no: number | string;
   title: ReactNode;
   actions?: ReactNode;
@@ -14,7 +14,7 @@ function formatNo(no: number | string): string {
   return no.startsWith("§") ? no : `§${no}`;
 }
 
-/** 章节发丝线：§编号 + 标题 + 发丝线，结构性分节（代替卡片）。 */
+/** Section hairline: § number + title + rule. Structural sectioning, instead of cards. */
 export function SectionRule({ no, title, actions, className }: SectionRuleProps) {
   return (
     <div className={cn("flex items-baseline gap-3", className)}>

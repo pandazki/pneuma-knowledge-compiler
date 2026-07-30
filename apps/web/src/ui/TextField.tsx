@@ -10,17 +10,17 @@ export interface TextFieldProps
   extends Omit<InputHTMLAttributes<HTMLInputElement>, "prefix" | "size"> {
   label?: ReactNode;
   hint?: ReactNode;
-  /** 非空即 error 态（同时作为错误文案）。 */
+  /** Non-empty means the error state, and doubles as the error copy. */
   error?: ReactNode;
   prefix?: ReactNode;
   suffix?: ReactNode;
-  /** 外层 wrapper 的 className（布局用）。 */
+  /** className for the outer wrapper (layout). */
   wrapperClassName?: string;
 }
 
 /**
- * 受控文本输入。原生外观已由 index.css base 层清除；
- * focus 环在 wrapper 上（focus-within），input 自身无 outline。
+ * Controlled text input. The native appearance is stripped in the index.css base layer; the
+ * focus ring sits on the wrapper (focus-within), the input itself has no outline.
  */
 export const TextField = forwardRef<HTMLInputElement, TextFieldProps>(function TextField(
   { label, hint, error, prefix, suffix, id, className, wrapperClassName, disabled, ...rest },

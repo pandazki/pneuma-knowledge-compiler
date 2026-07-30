@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { cn } from "./cn";
 
-/** 快捷键提示（mono 小键帽）。 */
+/** Shortcut hint (a small mono keycap). */
 export function Kbd({ children, className }: { children: ReactNode; className?: string }) {
   return (
     <kbd

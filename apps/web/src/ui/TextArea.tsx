@@ -12,14 +12,15 @@ export interface TextAreaProps extends TextareaHTMLAttributes<HTMLTextAreaElemen
   label?: ReactNode;
   hint?: ReactNode;
   error?: ReactNode;
-  /** 自动随内容增高；与 maxRows 配合封顶。设了它就不要再传 rows。 */
+  /** Grow with the content, capped by maxRows. Do not pass `rows` alongside it. */
   autoRows?: boolean;
   maxRows?: number;
   wrapperClassName?: string;
 }
 
 /**
- * 多行输入：禁原生 resize（resize-none），需要可变高度时用 autoRows 自绘增长。
+ * Multi-line input: native resize is disabled (resize-none); use autoRows when the height
+ * needs to follow the content.
  */
 export const TextArea = forwardRef<HTMLTextAreaElement, TextAreaProps>(function TextArea(
   {

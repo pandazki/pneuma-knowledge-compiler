@@ -2,7 +2,9 @@ import { useEffect, useState } from "react";
 import { ArrowRight } from "lucide-react";
 import { useApp } from "@/lib/store";
 import { getWorkspaceSummary, type WorkspaceSummary } from "@/lib/api";
+import type { MessageKey } from "@/lib/i18n";
 import type { ViewName } from "@/lib/types";
+import { useT } from "@/lib/useT";
 import { Callout } from "@/ui/Callout";
 import { DefinitionList } from "@/ui/DefinitionList";
 import { Mono } from "@/ui/Mono";
@@ -11,23 +13,24 @@ import { Skeleton } from "@/ui/Skeleton";
 import { Stamp } from "@/ui/Stamp";
 import { cn } from "@/ui/cn";
 
-/* ---------------------------------------------------------- 标尺线生产流程图 */
+/* ------------------------------------------- The ruled production-line diagram */
 
 interface FlowNode {
   no: string;
   name: string;
   caption: string;
   view: ViewName;
-  /** null = 加载中（Skeleton）；undefined = 无数据 / 无用户（—）。 */
+  /** null = loading (Skeleton); undefined = no data / no user (—). */
   count: number | null | undefined;
   unit: string;
 }
 
 function FlowChart({ nodes }: { nodes: FlowNode[] }) {
   const setView = useApp((s) => s.setView);
+  const t = useT();
   return (
     <ol
-      aria-label="生产流程：原料、编译、正典、取用"
+      aria-label={t("overview.flow.aria")}
       className="flex flex-col border-l border-line sm:grid sm:grid-cols-4 sm:gap-x-6 sm:border-t sm:border-l-0"
     >
       {nodes.map((node) => (
@@ -40,7 +43,7 @@ function FlowChart({ nodes }: { nodes: FlowNode[] }) {
               "transition-colors duration-120 ease-out",
             )}
           >
-            {/* 标尺刻度：宽屏竖刻度挂在顶线上，窄屏横刻度挂在左线上 */}
+            {/* Ruler tick: vertical off the top rule on wide screens, horizontal off the left rule when narrow */}
             <span
               aria-hidden
               className="hidden h-3 w-px bg-line-2 sm:-mt-4 sm:block"
@@ -65,7 +68,7 @@ function FlowChart({ nodes }: { nodes: FlowNode[] }) {
               <span className="text-12 text-ink-3">{node.unit}</span>
             </span>
             <span className="mt-1 inline-flex items-center gap-1 text-12 text-accent opacity-0 transition-opacity duration-120 group-hover:opacity-100 group-focus-visible:opacity-100">
-              进入本篇 <ArrowRight size={12} aria-hidden />
+              {t("overview.flow.enter")} <ArrowRight size={12} aria-hidden />
             </span>
           </button>
         </li>
@@ -74,62 +77,72 @@ function FlowChart({ nodes }: { nodes: FlowNode[] }) {
   );
 }
 
-/* --------------------------------------------------------------- 翻阅指引 */
+/* --------------------------------------------------------------- Reading guide */
 
 interface GuideItem {
   no: string;
-  title: string;
-  body: string;
+  titleKey: MessageKey;
+  bodyKey: MessageKey;
   view: ViewName;
 }
 
 const GUIDE: GuideItem[] = [
   {
     no: "01",
-    title: "导入一份材料",
-    body: "从粘贴文本、文件或一段会话开始，先看机械预览与编译计划，再确认入库。",
+    titleKey: "overview.guide.ingest.title",
+    bodyKey: "overview.guide.ingest.body",
     view: "ingest",
   },
   {
     no: "02",
-    title: "看编译如何发生",
-    body: "每次 compile 都是一行账：来源、状态、耗时与模型 lineage，逐条可查。",
+    titleKey: "overview.guide.process.title",
+    bodyKey: "overview.guide.process.body",
     view: "process",
   },
   {
     no: "03",
-    title: "读编译出的正典",
-    body: "每条 claim 带稳定锚点与脚注，随手一条都能回到精确的 source span。",
+    titleKey: "overview.guide.library.title",
+    bodyKey: "overview.guide.library.body",
     view: "library",
   },
   {
     no: "04",
-    title: "试三个取用面",
-    body: "同一句问题，对比检索、连续问答与主动提示——全都受引用门禁约束。",
+    titleKey: "overview.guide.recall.title",
+    bodyKey: "overview.guide.recall.body",
     view: "recall",
   },
   {
     no: "05",
-    title: "核对版本历史",
-    body: "快照、job 与 patch 在同一条 Git 时间线上，任何版本都可只读回看。",
+    titleKey: "overview.guide.history.title",
+    bodyKey: "overview.guide.history.body",
     view: "history",
   },
   {
     no: "06",
-    title: "看 skill 如何演化",
-    body: "schema-evolve 的提案、对照与采纳 / 放弃，决定正典下一步怎么长。",
+    titleKey: "overview.guide.evolve.title",
+    bodyKey: "overview.guide.evolve.body",
     view: "evolve",
   },
 ];
 
-/* -------------------------------------------------------------------- 视图 */
+/* --------------------------------------------------------------------- The view */
+
+/** The L0–L3 definition table: term glyph in code, prose in the dictionary. */
+const LAYERS: { term: string; key: MessageKey }[] = [
+  { term: "L0", key: "overview.layer.l0" },
+  { term: "L1", key: "overview.layer.l1" },
+  { term: "L2", key: "overview.layer.l2" },
+  { term: "L3", key: "overview.layer.l3" },
+];
 
 export default function OverviewView() {
   const currentUser = useApp((s) => s.currentUser);
   const usersError = useApp((s) => s.usersError);
   const setView = useApp((s) => s.setView);
+  const t = useT();
 
-  // 流程图实时计数走一个有界 summary；卷首不下载 sources/jobs/dataset 全量内容。
+  // The live counts come from one bounded summary; the front matter never downloads the
+  // whole of sources / jobs / dataset.
   const [summary, setSummary] = useState<WorkspaceSummary | null>(null);
   const [countsLoaded, setCountsLoaded] = useState(false);
 
@@ -157,7 +170,7 @@ export default function OverviewView() {
     };
   }, [currentUser]);
 
-  /** 计数三态：加载中 null→Skeleton；无用户 / 加载失败 undefined→—；否则数字。 */
+  /** Three count states: loading null→Skeleton; no user / failed undefined→—; else the number. */
   const asCount = (loaded: boolean, value: number | null): number | null | undefined => {
     if (!currentUser) return undefined;
     if (!loaded) return null;
@@ -167,105 +180,79 @@ export default function OverviewView() {
   const nodes: FlowNode[] = [
     {
       no: "§1",
-      name: "原料",
-      caption: "source 按原貌入库，可定位",
+      name: t("overview.flow.sources.name"),
+      caption: t("overview.flow.sources.caption"),
       view: "sources",
       count: asCount(countsLoaded, summary?.sources ?? null),
-      unit: "条 source",
+      unit: t("overview.flow.sources.unit"),
     },
     {
       no: "§2",
-      name: "编译",
-      caption: "compile job 取证与合并",
+      name: t("overview.flow.process.name"),
+      caption: t("overview.flow.process.caption"),
       view: "process",
       count: asCount(countsLoaded, summary?.jobs ?? null),
-      unit: "个 job",
+      unit: t("overview.flow.process.unit"),
     },
     {
       no: "§3",
-      name: "正典",
-      caption: "canonical 文档与 claim",
+      name: t("overview.flow.library.name"),
+      caption: t("overview.flow.library.caption"),
       view: "library",
       count: asCount(
         countsLoaded,
         summary ? summary.documents + summary.claims : null,
       ),
-      unit: "文档 + claim",
+      unit: t("overview.flow.library.unit"),
     },
     {
       no: "§4",
-      name: "取用",
-      caption: "检索 / 问答 / 提示，带门禁",
+      name: t("overview.flow.recall.name"),
+      caption: t("overview.flow.recall.caption"),
       view: "recall",
       count: asCount(countsLoaded, summary?.snapshots ?? null),
-      unit: "个版本快照",
+      unit: t("overview.flow.recall.unit"),
     },
   ];
 
   return (
     <div className="flex flex-col gap-10">
       {usersError && (
-        <Callout tone="warn" title="服务不可达">
-          无法连接 pneuma-knowledge 服务（{usersError}），下方实时计数暂不可用，翻阅指引仍可使用。
+        <Callout tone="warn" title={t("overview.offline.title")}>
+          {t("overview.offline.body", { detail: usersError })}
         </Callout>
       )}
 
-      {/* 题字 + 编者说明 */}
+      {/* Title page + editor's note */}
       <header className="max-w-measure">
         <h1 className="font-serif text-30 text-balance text-ink sm:text-38">
-          把持续产生的材料，编译成可追溯的知识。
+          {t("overview.hero.title")}
         </h1>
-        <p className="prose-lede mt-4">
-          这是一台知识编译器：对话、文档与实验材料先落成可定位的原料（source），
-          经编译工序取证、合并、标注争议，产出带稳定锚点的正典（canonical），
-          再经检索、问答与主动提示三个取用面回到手边。每个 claim 都能回到精确的
-          source span，取用面受引用门禁约束——没有出处的内容不会被当作事实递出。
-          本页与全部演示数据均为可复现的合成数据。
-        </p>
+        <p className="prose-lede mt-4">{t("overview.hero.lede")}</p>
       </header>
 
-      {/* 标尺线生产流程图 */}
+      {/* The ruled production-line diagram */}
       <section>
-        <SectionRule no={1} title="生产流程" className="mb-6" />
+        <SectionRule no={1} title={t("overview.section.flow")} className="mb-6" />
         <FlowChart nodes={nodes} />
-        <p className="mt-3 text-12 text-ink-3">
-          计数来自当前选中用户的实时数据；未选择用户或尚无数据时显示 —。
-        </p>
+        <p className="mt-3 text-12 text-ink-3">{t("overview.flow.countNote")}</p>
       </section>
 
-      {/* L0–L3 定义表 */}
+      {/* The L0–L3 definition table */}
       <section>
-        <SectionRule no={2} title="四层结构" className="mb-2" />
+        <SectionRule no={2} title={t("overview.section.layers")} className="mb-2" />
         <DefinitionList
           termClassName="sm:w-28"
-          items={[
-            {
-              term: <Mono>L0</Mono>,
-              definition:
-                "原始来源。对话、文档、代码片段按原貌入库，每段都有可定位的 source_id 与 block 编号——证据层，不可伪造。",
-            },
-            {
-              term: <Mono>L1</Mono>,
-              definition:
-                "词法索引。Meilisearch 低延迟字面检索；索引只是投影，随时可从 L0 重建，不反向定义事实。",
-            },
-            {
-              term: <Mono>L2</Mono>,
-              definition:
-                "语义索引。向量召回与 L1 融合排序，补上字面之外的邻近；同为可重建投影。",
-            },
-            {
-              term: <Mono>L3</Mono>,
-              definition:
-                "canonical Git 仓库。编译产物的唯一事实形态——文档、claim 锚点与 patch 全部进 Git，可审阅、比较、回滚、快照。",
-            },
-          ]}
+          items={LAYERS.map((layer) => ({
+            term: <Mono>{layer.term}</Mono>,
+            definition: t(layer.key),
+          }))}
         />
       </section>
 
-      {/* 翻阅指引 */}
+      {/* Reading guide */}
       <section>
-        <SectionRule no={3} title="翻阅指引" className="mb-2" />
+        <SectionRule no={3} title={t("overview.section.guide")} className="mb-2" />
         <ol className="flex flex-col">
           {GUIDE.map((item) => (
             <li key={item.no} className="border-t border-line first:border-t-0">
@@ -280,9 +267,9 @@ export default function OverviewView() {
                 <span className="w-7 shrink-0 font-mono text-12 text-accent">{item.no}</span>
                 <span className="flex min-w-0 flex-1 flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-3">
                   <span className="shrink-0 font-serif text-16 text-ink group-hover:text-accent sm:w-40">
-                    {item.title}
+                    {t(item.titleKey)}
                   </span>
-                  <span className="min-w-0 flex-1 text-13 text-ink-2">{item.body}</span>
+                  <span className="min-w-0 flex-1 text-13 text-ink-2">{t(item.bodyKey)}</span>
                 </span>
                 <ArrowRight
                   size={14}
@@ -295,14 +282,11 @@ export default function OverviewView() {
         </ol>
       </section>
 
-      {/* synthetic 披露 */}
+      {/* Synthetic-data disclosure */}
       <section className="border-t border-line pt-6">
         <div className="flex flex-wrap items-center gap-3">
           <Stamp tone="neutral">SYNTHETIC DEMO DATA</Stamp>
-          <p className="max-w-measure text-13 text-ink-2">
-            演示数据全部可复现合成：用户画像、source、canonical 与版本历史均由确定性生成器产出，
-            可在本地完整重放，不包含任何真实用户内容。
-          </p>
+          <p className="max-w-measure text-13 text-ink-2">{t("overview.synthetic.body")}</p>
         </div>
       </section>
     </div>

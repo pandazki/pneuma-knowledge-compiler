@@ -8,7 +8,7 @@ export type ButtonSize = "sm" | "md";
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant;
   size?: ButtonSize;
-  /** 操作中：spinner 进按钮，禁止重复提交。 */
+  /** In flight: the spinner moves into the button and re-submission is blocked. */
   loading?: boolean;
 }
 

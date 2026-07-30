@@ -1,5 +1,7 @@
 <!doctype html>
-<html lang="zh-CN" data-theme="light">
+<!-- `lang` is the pre-hydration default; lib/store.ts::applyLocale rewrites it from the
+     resolved locale (localStorage → navigator.language → en) as soon as the app boots. -->
+<html lang="en" data-theme="light">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -9,7 +11,7 @@
     />
     <meta
       name="description"
-      content="Pneuma Knowledge Compiler — 可追溯、可演化的个人知识编译器"
+      content="Pneuma Knowledge Compiler — a traceable, evolving compiler for personal knowledge"
     />
     <title>Pneuma Knowledge Compiler</title>
   </head>

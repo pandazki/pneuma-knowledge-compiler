@@ -4,7 +4,7 @@ export interface SkeletonProps {
   className?: string;
 }
 
-/** 内容位骨架块（统一 loading；spinner 仅按钮内）。 */
+/** Content-slot skeleton block (the one loading treatment; spinners stay in buttons). */
 export function Skeleton({ className }: SkeletonProps) {
   return <div aria-hidden className={cn("animate-pulse rounded-1 bg-active", className)} />;
 }
@@ -14,7 +14,7 @@ export interface SkeletonTextProps {
   className?: string;
 }
 
-/** 多行正文骨架：末行缩短，模拟段落。 */
+/** Multi-line prose skeleton: the last line is shortened to read as a paragraph. */
 export function SkeletonText({ lines = 3, className }: SkeletonTextProps) {
   return (
     <div aria-hidden className={cn("flex flex-col gap-2", className)}>

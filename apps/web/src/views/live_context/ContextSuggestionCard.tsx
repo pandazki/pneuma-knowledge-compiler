@@ -1,4 +1,5 @@
 import type { ContextSuggestion, SuggestionDetailFrame } from "@/lib/api";
+import { useT } from "@/lib/useT";
 import { CitationList, type CitationEntry } from "@/components/CitationList";
 import { Badge } from "@/ui/Badge";
 import { Button } from "@/ui/Button";
@@ -8,24 +9,26 @@ import { UsageLine } from "../_shared/UsageLine";
 
 export interface ContextSuggestionCardProps {
   suggestion: ContextSuggestion;
-  /** getSuggestionKinds 词表里的中文名（缺省显示 kind key）。 */
+  /** Display name for the kind, localised by the caller (absent → the kind key shows). */
   kindLabel?: string;
-  /** 到达渠道注记，如「ws · seq 3」/「sse」。 */
+  /** Arrival-channel note, e.g. "ws · seq 3" / "sse". */
   via?: string;
   titles: Record<string, string>;
   onJump: (c: CitationEntry) => void;
-  /** want_more 展开（仅 WS 链路）：未传则卡片无展开区。 */
+  /** want_more expansion (WS only): omit and the card has no expansion area. */
   canExpand?: boolean;
   pending?: boolean;
-  /** 本卡自己的展开失败（按 ref 归属，永不串卡）。 */
+  /** This card's own expansion failure (attributed by ref, never crossed with another). */
   failure?: string;
   detail?: SuggestionDetailFrame;
   onWantMore?: () => void;
 }
 
 /**
- * 上下文提示卡：标题 + serif 正文 + trigger 一行（「触发」）+ confidence 数字 mono +
- * 引用 CitationList。被门禁吃掉的内容不在这里出现——只在 GateLedger 计数里。
+ * One context suggestion: title + serif body + the trigger line + confidence in mono +
+ * citations. What a gate ate never appears here — only in the GateLedger's counts.
+ *
+ * `title` / `body` / `trigger` and the citations are server payload, rendered verbatim.
  */
 export function ContextSuggestionCard({
   suggestion,
@@ -39,6 +42,7 @@ export function ContextSuggestionCard({
   detail,
   onWantMore,
 }: ContextSuggestionCardProps) {
+  const t = useT();
   return (
     <article className="border-b border-line py-4">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -48,7 +52,9 @@ export function ContextSuggestionCard({
         {via && <Mono className="text-12 text-ink-3">{via}</Mono>}
       </div>
       <p className="prose mt-2 max-w-measure text-14">{suggestion.body}</p>
-      <p className="mt-2 text-12 text-ink-3">触发：「{suggestion.trigger}」</p>
+      <p className="mt-2 text-12 text-ink-3">
+        {t("liveContext.card.trigger", { trigger: suggestion.trigger })}
+      </p>
       {suggestion.citations.length > 0 && (
         <CitationList
           className="mt-2 max-w-measure"
@@ -68,23 +74,27 @@ export function ContextSuggestionCard({
             size="sm"
             loading={pending}
             disabled={!canExpand}
-            title={canExpand ? "走 WS 的 want_more，基于本卡引用取原文再展开" : "want_more 只在连接打开时可用"}
+            title={
+              canExpand
+                ? t("liveContext.card.wantMoreTitle")
+                : t("liveContext.card.wantMoreDisabled")
+            }
             onClick={onWantMore}
           >
-            {failure ? "重试展开（want_more）" : "展开（want_more）"}
+            {failure ? t("liveContext.card.wantMoreRetry") : t("liveContext.card.wantMore")}
           </Button>
         </div>
       )}
       {failure && (
         <Callout tone="danger" className="mt-2 max-w-measure">
-          展开失败：{failure}
+          {t("liveContext.card.expandFailed", { detail: failure })}
         </Callout>
       )}
       {detail && (
         <div className="mt-3 max-w-measure border-l-2 border-line-2 pl-3">
           <p className="text-12 text-ink-3">suggestion_detail</p>
           <p className="prose mt-1 text-14 whitespace-pre-wrap">
-            {detail.detail || "（空）"}
+            {detail.detail || t("liveContext.card.detailEmpty")}
           </p>
           {detail.citations.length > 0 && (
             <CitationList

@@ -1,5 +1,7 @@
 import { create } from "zustand";
 import type { Dataset, Selection, UserProfile, ViewName } from "./types";
+import type { MessageKey, MessageParams } from "./i18n";
+import { LOCALE_STORAGE_KEY, detectLocale, setActiveLocale, type Locale } from "./i18n";
 import { buildModel, type Model } from "./model";
 import { hashToState, sameSelection, selectionToHash } from "./hash";
 import { needsCanonicalDataset } from "./datasetLoading";
@@ -112,11 +114,21 @@ const EMPTY_ASK_CACHE: AskCache = {
   turns: [],
 };
 
+/**
+ * A dismissible notice, held as a message KEY (plus params) rather than a rendered string,
+ * so a language switch re-renders the banner in the new language instead of stranding the
+ * sentence it was minted in.
+ */
+export interface Notice {
+  key: MessageKey;
+  params?: MessageParams;
+}
+
 interface AppState {
   status: "idle" | "loading" | "ready" | "error";
   error: string | null;
   /** non-blocking, dismissible notice (e.g. invalid ?ds= fell back) — distinct from `error`. */
-  notice: string | null;
+  notice: Notice | null;
   dataset: Dataset | null;
   model: Model | null;
 
@@ -141,7 +153,7 @@ interface AppState {
    * to the raw id with chips omitted.
    */
   profileCards: Record<string, UserProfile>;
-  /** most-recently-selected user_ids (newest first, persisted); drives the "最近" list. */
+  /** most-recently-selected user_ids (newest first, persisted); drives the "recent" list. */
   recentUsers: string[];
   /** non-fatal API problem (service unreachable / empty) — panels degrade gracefully. */
   usersError: string | null;
@@ -166,6 +178,8 @@ interface AppState {
   view: ViewName;
   selection: Selection;
   theme: Theme;
+  /** interface language (zh | en); resolved from localStorage → navigator → en. */
+  locale: Locale;
 
   init: () => Promise<void>;
   /** (re)load the pneuma-knowledge user directory from GET /v1/users. */
@@ -222,6 +236,9 @@ interface AppState {
   jump: (s: Selection, view?: ViewName) => void;
   toggleTheme: () => void;
   setTheme: (t: Theme) => void;
+  /** switch the interface language (persists; takes effect without a reload). */
+  setLocale: (l: Locale) => void;
+  toggleLocale: () => void;
   dismissNotice: () => void;
 }
 
@@ -274,6 +291,21 @@ function applyTheme(t: Theme) {
 }
 
 /**
+ * Same shape as `applyTheme`: persist the explicit choice, mirror it into the module-level
+ * active locale that the non-React formatters read, and put it on `<html lang>` so the
+ * browser hyphenates and the screen reader switches voice.
+ */
+function applyLocale(locale: Locale) {
+  setActiveLocale(locale);
+  document.documentElement.setAttribute("lang", locale === "zh" ? "zh-CN" : "en");
+  try {
+    localStorage.setItem(LOCALE_STORAGE_KEY, locale);
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
  * Push the view + selection into the location hash so it is deep-linkable and the
  * Back button walks the in-app history. Assigning location.hash creates a history
  * entry and emits a hashchange whose parsed state equals the store's, so the
@@ -316,9 +348,11 @@ export const useApp = create<AppState>((set, get) => ({
   view: "overview",
   selection: null,
   theme: initialTheme(),
+  locale: detectLocale(),
 
   init: async () => {
     applyTheme(get().theme);
+    applyLocale(get().locale);
 
     // restore view + selection from a deep link, else normalize the hash.
     if (typeof window !== "undefined") {
@@ -548,7 +582,7 @@ export const useApp = create<AppState>((set, get) => ({
         graph: raw.graph,
         timeline: raw.timeline,
         journal: raw.journal,
-        // skill-declared claim-prefix vocabulary (§5强/中/弱) rides the dataset meta.
+        // skill-declared claim-prefix vocabulary (§5 strong/medium/weak) rides dataset meta.
         claimLabels: Array.isArray(raw.claimLabels)
           ? raw.claimLabels
           : (raw as { claim_labels?: Dataset["claimLabels"] }).claim_labels ?? [],
@@ -615,7 +649,7 @@ export const useApp = create<AppState>((set, get) => ({
     set({
       view: "profile",
       profileOnboardingUser: uid,
-      notice: "新画像 · 可以用 AI 生成草稿，也可以直接填写",
+      notice: { key: "nav.notice.newProfile" },
     });
     writeHash("profile", null);
   },
@@ -624,9 +658,9 @@ export const useApp = create<AppState>((set, get) => ({
     set({
       profileOnboardingUser: null,
       view: "ingest",
-      notice: saved
-        ? "画像已保存 · 去 Ingest 导入第一条数据"
-        : "已跳过画像设置 · 去 Ingest 导入第一条数据",
+      notice: {
+        key: saved ? "nav.notice.profileSaved" : "nav.notice.profileSkipped",
+      },
     });
     writeHash("ingest", null);
   },
@@ -674,6 +708,16 @@ export const useApp = create<AppState>((set, get) => ({
   setTheme: (t) => {
     applyTheme(t);
     set({ theme: t });
+  },
+
+  setLocale: (locale) => {
+    applyLocale(locale);
+    set({ locale });
+  },
+  toggleLocale: () => {
+    const next: Locale = get().locale === "zh" ? "en" : "zh";
+    applyLocale(next);
+    set({ locale: next });
   },
   dismissNotice: () => set({ notice: null }),
 }));

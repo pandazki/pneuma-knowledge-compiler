@@ -2,11 +2,11 @@ import type { ReactNode } from "react";
 import { cn } from "@/ui/cn";
 
 export interface PageHeaderProps {
-  /** serif 页题（24/30）。 */
+  /** Serif page title (24/30). */
   title: ReactNode;
-  /** 一行 ink-2 说明。 */
+  /** One ink-2 line of description. */
   description?: ReactNode;
-  /** 右侧操作区。 */
+  /** Action area on the right. */
   actions?: ReactNode;
   className?: string;
 }

@@ -1,5 +1,6 @@
 import { CircleAlert } from "lucide-react";
 import type { ReactNode } from "react";
+import { useT } from "@/lib/useT";
 import { cn } from "./cn";
 import { Button } from "./Button";
 import { Mono } from "./Mono";
@@ -11,8 +12,9 @@ export interface ErrorStateProps {
   className?: string;
 }
 
-/** 全产品唯一 error 实现：错误说明 + detail + 重试。 */
-export function ErrorState({ title = "出错了", error, onRetry, className }: ErrorStateProps) {
+/** The one error implementation in the product: message + detail + retry. */
+export function ErrorState({ title, error, onRetry, className }: ErrorStateProps) {
+  const t = useT();
   const detail = typeof error === "string" ? error : error.message;
   return (
     <div
@@ -23,13 +25,13 @@ export function ErrorState({ title = "出错了", error, onRetry, className }: E
       )}
     >
       <CircleAlert size={20} aria-hidden className="text-danger" />
-      <p className="text-14 font-medium text-ink">{title}</p>
+      <p className="text-14 font-medium text-ink">{title ?? t("common.errorTitle")}</p>
       <p className="max-w-measure text-13 text-ink-2">
         <Mono>{detail}</Mono>
       </p>
       {onRetry && (
         <Button size="sm" onClick={onRetry} className="mt-2">
-          重试
+          {t("common.retry")}
         </Button>
       )}
     </div>

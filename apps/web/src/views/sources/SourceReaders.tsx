@@ -19,6 +19,8 @@ import remarkGfm from "remark-gfm";
 
 import type { SourceDetail } from "@/lib/api";
 import { fmtDate, fmtTime } from "@/lib/format";
+import { intlTag } from "@/lib/i18n";
+import { useLocale, useT, useTOr, type TFunction, type TOrFunction } from "@/lib/useT";
 import { Badge } from "@/ui/Badge";
 import { Mono } from "@/ui/Mono";
 import { SectionRule } from "@/ui/SectionRule";
@@ -42,11 +44,11 @@ export interface SourceReaderProps {
   fetching: boolean;
 }
 
-function clockTime(ts: string | null): string {
+function clockTime(ts: string | null, tag: string): string {
   if (!ts) return "—";
   const value = new Date(ts);
   if (Number.isNaN(value.getTime())) return ts;
-  return value.toLocaleTimeString("zh-CN", {
+  return value.toLocaleTimeString(tag, {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
@@ -87,13 +89,14 @@ function BlockLocator({
   fetching: boolean;
   onFetch: (index: number) => void;
 }) {
+  const t = useT();
   return (
     <button
       type="button"
       disabled={fetching}
       onClick={() => onFetch(index)}
-      aria-label={`取 block ${index} 精确段`}
-      title="取精确原文段"
+      aria-label={t("sources.block.fetchAria", { index })}
+      title={t("sources.block.fetchTitle")}
       className="shrink-0 rounded-1 px-1 py-0.5 text-ink-3 hover:bg-hover hover:text-accent disabled:opacity-45"
     >
       <Mono className="text-12">b{index}</Mono>
@@ -102,13 +105,16 @@ function BlockLocator({
 }
 
 function ParticipantList({ participants }: { participants: ParticipantPresentation[] }) {
-  if (participants.length === 0) return <span className="text-ink-3">未提供参与者元信息</span>;
+  const t = useT();
+  if (participants.length === 0) {
+    return <span className="text-ink-3">{t("sources.meeting.noParticipants")}</span>;
+  }
   return (
     <span className="flex flex-wrap items-center gap-1.5">
       {participants.map((participant) => (
         <Badge key={participant.id} tone={participant.owner ? "accent" : "neutral"}>
           {participant.displayName}
-          {participant.owner ? " · 本人" : ""}
+          {participant.owner ? ` · ${t("sources.owner")}` : ""}
         </Badge>
       ))}
     </span>
@@ -124,29 +130,31 @@ function MeetingReader({
 }: Omit<SourceReaderProps, "detail"> & {
   presentation: Extract<SourcePresentation, { kind: "meeting" }>;
 }) {
+  const t = useT();
+  const tag = intlTag(useLocale());
   return (
     <div className="flex flex-col gap-8">
       <section className="flex flex-col gap-4">
-        <SectionRule no="01" title="会议概览" />
+        <SectionRule no="01" title={t("sources.meeting.overview")} />
         <dl className="grid border-y border-line sm:grid-cols-2 lg:grid-cols-4">
           <div className="flex gap-3 border-b border-line py-3 sm:border-r sm:pr-4 lg:border-b-0">
             <CalendarDays size={16} aria-hidden className="mt-0.5 shrink-0 text-ink-3" />
             <div>
-              <dt className="text-12 text-ink-3">日期</dt>
+              <dt className="text-12 text-ink-3">{t("sources.meeting.date")}</dt>
               <dd className="mt-0.5 text-14 text-ink">{fmtDate(presentation.startedAt)}</dd>
             </div>
           </div>
           <div className="flex gap-3 border-b border-line py-3 sm:pl-4 lg:border-r lg:pr-4">
             <Clock3 size={16} aria-hidden className="mt-0.5 shrink-0 text-ink-3" />
             <div>
-              <dt className="text-12 text-ink-3">时段</dt>
+              <dt className="text-12 text-ink-3">{t("sources.meeting.window")}</dt>
               <dd className="mt-0.5 text-13 text-ink">
                 <span className="whitespace-nowrap">
-                  {clockTime(presentation.startedAt)}–{clockTime(presentation.endedAt)}
+                  {clockTime(presentation.startedAt, tag)}–{clockTime(presentation.endedAt, tag)}
                 </span>
                 {presentation.durationMinutes != null && (
                   <span className="ml-1.5 whitespace-nowrap text-ink-3">
-                    · {presentation.durationMinutes} 分钟
+                    · {t("sources.meeting.minutes", { count: presentation.durationMinutes })}
                   </span>
                 )}
               </dd>
@@ -155,25 +163,31 @@ function MeetingReader({
           <div className="flex gap-3 border-b border-line py-3 sm:border-b-0 sm:border-r sm:pr-4 lg:pl-4">
             <Users size={16} aria-hidden className="mt-0.5 shrink-0 text-ink-3" />
             <div>
-              <dt className="text-12 text-ink-3">参与者</dt>
-              <dd className="mt-0.5 text-14 text-ink">{presentation.participants.length} 人</dd>
+              <dt className="text-12 text-ink-3">{t("sources.meeting.participants")}</dt>
+              <dd className="mt-0.5 text-14 text-ink">
+                {t("sources.meeting.participantCount", {
+                  count: presentation.participants.length,
+                })}
+              </dd>
             </div>
           </div>
           <div className="flex gap-3 py-3 sm:pl-4">
             <MessageSquare size={16} aria-hidden className="mt-0.5 shrink-0 text-ink-3" />
             <div>
-              <dt className="text-12 text-ink-3">转写</dt>
-              <dd className="mt-0.5 text-14 text-ink">{presentation.segments.length} 段</dd>
+              <dt className="text-12 text-ink-3">{t("sources.meeting.transcript")}</dt>
+              <dd className="mt-0.5 text-14 text-ink">
+                {t("sources.meeting.segmentCount", { count: presentation.segments.length })}
+              </dd>
             </div>
           </div>
         </dl>
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(16rem,0.7fr)]">
           <div>
-            <p className="mb-2 text-13 font-medium text-ink">与会者</p>
+            <p className="mb-2 text-13 font-medium text-ink">{t("sources.meeting.attendees")}</p>
             <ParticipantList participants={presentation.participants} />
           </div>
           <div>
-            <p className="mb-2 text-13 font-medium text-ink">议程</p>
+            <p className="mb-2 text-13 font-medium text-ink">{t("sources.meeting.agenda")}</p>
             {presentation.agenda.length > 0 ? (
               <ol className="flex flex-col gap-1 text-13 leading-[1.65] text-ink-2">
                 {presentation.agenda.map((item, index) => (
@@ -184,7 +198,7 @@ function MeetingReader({
                 ))}
               </ol>
             ) : (
-              <p className="text-13 text-ink-3">未提供会议议程</p>
+              <p className="text-13 text-ink-3">{t("sources.meeting.noAgenda")}</p>
             )}
           </div>
         </div>
@@ -193,8 +207,10 @@ function MeetingReader({
       <section className="flex flex-col gap-3">
         <SectionRule
           no="02"
-          title="逐字稿"
-          actions={<span className="text-12 text-ink-3">点击 block 编号取精确段</span>}
+          title={t("sources.meeting.verbatim")}
+          actions={
+            <span className="text-12 text-ink-3">{t("sources.meeting.blockHint")}</span>
+          }
         />
         <ol className="border-y border-line">
           {presentation.segments.map((segment) => (
@@ -207,7 +223,9 @@ function MeetingReader({
                 inRange(segment.blockIndex) && "bg-accent-soft",
               )}
             >
-              <Mono className="pt-0.5 text-12 text-ink-3">{clockTime(segment.startedAt)}</Mono>
+              <Mono className="pt-0.5 text-12 text-ink-3">
+                {clockTime(segment.startedAt, tag)}
+              </Mono>
               <span
                 className={cn(
                   "col-start-2 min-w-0 text-13 font-medium sm:col-start-auto",
@@ -241,15 +259,20 @@ function DocumentReader({
 }: Omit<SourceReaderProps, "detail"> & {
   presentation: Extract<SourcePresentation, { kind: "document_library" }>;
 }) {
+  const t = useT();
   const frontmatter = Object.entries(presentation.frontmatter);
   return (
     <div className="flex flex-col gap-8">
       <section className="flex flex-col gap-4">
-        <SectionRule no="01" title="Vault 定位" />
+        <SectionRule no="01" title={t("sources.document.location")} />
         <div className="border-y border-line py-3">
           <p className="flex flex-wrap items-center gap-1.5 text-13 text-ink-2">
             <Folder size={15} aria-hidden className="mr-0.5 text-ink-3" />
-            <span>{presentation.libraryTitle ?? presentation.libraryId ?? "文档库"}</span>
+            <span>
+              {presentation.libraryTitle ??
+                presentation.libraryId ??
+                t("sources.document.libraryFallback")}
+            </span>
             {presentation.pathParts.map((part) => (
               <span key={part} className="contents">
                 <ChevronRight size={13} aria-hidden className="text-ink-3" />
@@ -258,8 +281,16 @@ function DocumentReader({
             ))}
           </p>
           <p className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-12 text-ink-3">
-            {presentation.createdAt && <span>创建 {fmtTime(presentation.createdAt)}</span>}
-            {presentation.modifiedAt && <span>更新 {fmtTime(presentation.modifiedAt)}</span>}
+            {presentation.createdAt && (
+              <span>
+                {t("sources.document.created", { time: fmtTime(presentation.createdAt) })}
+              </span>
+            )}
+            {presentation.modifiedAt && (
+              <span>
+                {t("sources.document.modified", { time: fmtTime(presentation.modifiedAt) })}
+              </span>
+            )}
           </p>
         </div>
 
@@ -286,27 +317,27 @@ function DocumentReader({
                 ))}
               </dl>
             ) : (
-              <p className="text-13 text-ink-3">这篇文档没有 frontmatter</p>
+              <p className="text-13 text-ink-3">{t("sources.document.noFrontmatter")}</p>
             )}
           </div>
           <div className="flex flex-col gap-4">
             <div>
               <p className="mb-2 flex items-center gap-2 text-13 font-medium text-ink">
                 <Tag size={14} aria-hidden className="text-ink-3" />
-                标签
+                {t("sources.document.tags")}
               </p>
               <p className="flex flex-wrap gap-1.5">
                 {presentation.tags.length > 0 ? (
                   presentation.tags.map((tag) => <Badge key={tag}>#{tag}</Badge>)
                 ) : (
-                  <span className="text-13 text-ink-3">无标签</span>
+                  <span className="text-13 text-ink-3">{t("sources.document.noTags")}</span>
                 )}
               </p>
             </div>
             <div>
               <p className="mb-2 flex items-center gap-2 text-13 font-medium text-ink">
                 <Link2 size={14} aria-hidden className="text-ink-3" />
-                双链
+                {t("sources.document.links")}
               </p>
               {presentation.links.length > 0 ? (
                 <ul className="flex flex-col gap-1.5">
@@ -322,7 +353,7 @@ function DocumentReader({
                   ))}
                 </ul>
               ) : (
-                <span className="text-13 text-ink-3">无出链</span>
+                <span className="text-13 text-ink-3">{t("sources.document.noLinks")}</span>
               )}
             </div>
           </div>
@@ -332,8 +363,12 @@ function DocumentReader({
       <section className="flex flex-col gap-3">
         <SectionRule
           no="02"
-          title="文档正文"
-          actions={<span className="text-12 text-ink-3">{presentation.blocks.length} blocks</span>}
+          title={t("sources.document.body")}
+          actions={
+            <span className="text-12 text-ink-3">
+              {t("sources.blockCount", { count: presentation.blocks.length })}
+            </span>
+          }
         />
         <ol className="border-y border-line">
           {presentation.blocks.map((block) => (
@@ -379,19 +414,19 @@ function ImReader({
 }: SourceReaderProps & {
   presentation: Extract<SourcePresentation, { kind: "im" }>;
 }) {
+  const t = useT();
+  const tOr = useTOr();
+  const tag = intlTag(useLocale());
   let lastDate: string | null = null;
-  const typeLabel =
-    presentation.conversationType === "channel"
-      ? "频道"
-      : presentation.conversationType === "dm"
-        ? "私聊"
-        : presentation.conversationType === "group_dm"
-          ? "多人私聊"
-          : "会话";
+  // A conversation_type the vocabulary does not carry degrades to the generic word.
+  const typeLabel = tOr(
+    `sources.im.type.${presentation.conversationType}`,
+    t("sources.im.type.other"),
+  );
   return (
     <div className="flex flex-col gap-8">
       <section className="flex flex-col gap-4">
-        <SectionRule no="01" title="会话语境" />
+        <SectionRule no="01" title={t("sources.im.context")} />
         <div className="flex flex-col gap-3 border-y border-line py-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <p className="flex items-center gap-2 text-16 font-medium text-ink">
@@ -403,7 +438,11 @@ function ImReader({
               {detail.title}
             </p>
             <p className="mt-1 text-13 text-ink-2">
-              {presentation.purpose ?? `${typeLabel} · ${presentation.messages.length} 条消息`}
+              {presentation.purpose ??
+                t("sources.im.summary", {
+                  type: typeLabel,
+                  count: presentation.messages.length,
+                })}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
@@ -416,8 +455,8 @@ function ImReader({
       <section className="flex flex-col gap-3">
         <SectionRule
           no="02"
-          title="消息记录"
-          actions={<span className="text-12 text-ink-3">线程回复保留缩进</span>}
+          title={t("sources.im.log")}
+          actions={<span className="text-12 text-ink-3">{t("sources.im.threadHint")}</span>}
         />
         <ol className="border-y border-line">
           {presentation.messages.map((message) => {
@@ -430,7 +469,9 @@ function ImReader({
               >
                 {showDate && (
                   <div className="flex items-center gap-3 border-b border-line py-2">
-                    <span className="text-12 text-ink-3">{message.date ?? "日期未知"}</span>
+                    <span className="text-12 text-ink-3">
+                      {message.date ?? t("sources.im.unknownDate")}
+                    </span>
                     <hr aria-hidden className="flex-1 border-0 border-t border-line" />
                   </div>
                 )}
@@ -463,9 +504,15 @@ function ImReader({
                       >
                         {message.speaker}
                       </span>
-                      <Mono className="text-12 text-ink-3">{clockTime(message.sentAt)}</Mono>
-                      {message.editedAt && <span className="text-12 text-ink-3">已编辑</span>}
-                      {message.isReply && <span className="text-12 text-ink-3">线程回复</span>}
+                      <Mono className="text-12 text-ink-3">
+                        {clockTime(message.sentAt, tag)}
+                      </Mono>
+                      {message.editedAt && (
+                        <span className="text-12 text-ink-3">{t("sources.im.edited")}</span>
+                      )}
+                      {message.isReply && (
+                        <span className="text-12 text-ink-3">{t("sources.im.threadReply")}</span>
+                      )}
                     </p>
                     <p className="prose mt-1 text-14">{message.text}</p>
                     {message.reactions.length > 0 && (
@@ -514,22 +561,24 @@ function AttachmentList({ attachments }: { attachments: AttachmentPresentation[]
 }
 
 function EmailHeader({ message }: { message: EmailMessagePresentation }) {
+  const t = useT();
+  const separator = t("sources.email.addressSeparator");
   return (
     <dl className="grid grid-cols-[3.5rem_minmax(0,1fr)] gap-x-3 gap-y-1 text-12 leading-[1.55]">
-      <dt className="text-ink-3">发件人</dt>
+      <dt className="text-ink-3">{t("sources.email.from")}</dt>
       <dd className={message.owner ? "text-accent" : "text-ink"}>
         {addressLabel(message.from)}
-        {message.owner && " · 本人"}
+        {message.owner && ` · ${t("sources.owner")}`}
       </dd>
-      <dt className="text-ink-3">收件人</dt>
-      <dd className="text-ink-2">{message.to.map(addressLabel).join("，") || "—"}</dd>
+      <dt className="text-ink-3">{t("sources.email.to")}</dt>
+      <dd className="text-ink-2">{message.to.map(addressLabel).join(separator) || "—"}</dd>
       {message.cc.length > 0 && (
         <>
-          <dt className="text-ink-3">抄送</dt>
-          <dd className="text-ink-2">{message.cc.map(addressLabel).join("，")}</dd>
+          <dt className="text-ink-3">{t("sources.email.cc")}</dt>
+          <dd className="text-ink-2">{message.cc.map(addressLabel).join(separator)}</dd>
         </>
       )}
-      <dt className="text-ink-3">时间</dt>
+      <dt className="text-ink-3">{t("sources.email.sentAt")}</dt>
       <dd className="text-ink-2">{fmtTime(message.sentAt)}</dd>
     </dl>
   );
@@ -544,6 +593,7 @@ function EmailReader({
 }: Omit<SourceReaderProps, "detail"> & {
   presentation: Extract<SourcePresentation, { kind: "email" }>;
 }) {
+  const t = useT();
   const correspondents = new Set(
     presentation.messages.flatMap((message) => [
       addressLabel(message.from),
@@ -554,20 +604,24 @@ function EmailReader({
   return (
     <div className="flex flex-col gap-8">
       <section className="flex flex-col gap-4">
-        <SectionRule no="01" title="邮件线程" />
+        <SectionRule no="01" title={t("sources.email.thread")} />
         <div className="grid gap-4 border-y border-line py-3 sm:grid-cols-3">
           <div className="flex gap-2">
             <Mail size={15} aria-hidden className="mt-0.5 text-ink-3" />
             <div>
-              <p className="text-12 text-ink-3">邮件</p>
-              <p className="mt-0.5 text-14 text-ink">{presentation.messages.length} 封</p>
+              <p className="text-12 text-ink-3">{t("sources.email.countTerm")}</p>
+              <p className="mt-0.5 text-14 text-ink">
+                {t("sources.email.count", { count: presentation.messages.length })}
+              </p>
             </div>
           </div>
           <div className="flex gap-2">
             <Users size={15} aria-hidden className="mt-0.5 text-ink-3" />
             <div>
-              <p className="text-12 text-ink-3">通信方</p>
-              <p className="mt-0.5 text-14 text-ink">{correspondents.size} 个地址</p>
+              <p className="text-12 text-ink-3">{t("sources.email.correspondents")}</p>
+              <p className="mt-0.5 text-14 text-ink">
+                {t("sources.email.addressCount", { count: correspondents.size })}
+              </p>
             </div>
           </div>
           <div className="min-w-0">
@@ -580,7 +634,7 @@ function EmailReader({
       </section>
 
       <section className="flex flex-col gap-3">
-        <SectionRule no="02" title="往来邮件" />
+        <SectionRule no="02" title={t("sources.email.messages")} />
         <ol className="border-y border-line">
           {presentation.messages.map((message, index) => (
             <li
@@ -594,7 +648,9 @@ function EmailReader({
               <article>
                 <header className="flex items-start justify-between gap-4">
                   <div className="min-w-0">
-                    <p className="mb-1 text-12 text-ink-3">第 {index + 1} 封</p>
+                    <p className="mb-1 text-12 text-ink-3">
+                      {t("sources.email.ordinal", { index: index + 1 })}
+                    </p>
                     <h3 className="font-serif text-16 text-balance text-ink">{message.subject}</h3>
                   </div>
                   <BlockLocator
@@ -628,12 +684,17 @@ function GenericReader({
 }: Omit<SourceReaderProps, "detail"> & {
   presentation: Extract<SourcePresentation, { kind: "generic" }>;
 }) {
+  const t = useT();
   return (
     <section className="flex flex-col gap-3">
       <SectionRule
         no="01"
-        title="原文"
-        actions={<span className="text-12 text-ink-3">{presentation.blocks.length} blocks</span>}
+        title={t("sources.generic.body")}
+        actions={
+          <span className="text-12 text-ink-3">
+            {t("sources.blockCount", { count: presentation.blocks.length })}
+          </span>
+        }
       />
       <ol className="border-y border-line">
         {presentation.blocks.map((block) => (
@@ -655,7 +716,8 @@ function GenericReader({
 }
 
 export function SourceReader(props: SourceReaderProps) {
-  const presentation = buildSourcePresentation(props.detail);
+  const tOr = useTOr();
+  const presentation = buildSourcePresentation(props.detail, { tOr });
   switch (presentation.kind) {
     case "meeting":
       return <MeetingReader {...props} presentation={presentation} />;
@@ -670,22 +732,41 @@ export function SourceReader(props: SourceReaderProps) {
   }
 }
 
-export function SourceKindSummary({ detail }: { detail: SourceDetail }) {
-  const presentation = buildSourcePresentation(detail);
+/** One-line summary of a source, for the catalogue row. A path is data and wins outright. */
+function sourceKindSummary(
+  presentation: SourcePresentation,
+  t: TFunction,
+): string {
   switch (presentation.kind) {
     case "meeting":
-      return `${presentation.participants.length} 位参与者 · ${presentation.segments.length} 段转写`;
+      return t("sources.summary.meeting", {
+        participants: presentation.participants.length,
+        segments: presentation.segments.length,
+      });
     case "document_library":
-      return presentation.path ?? `${presentation.blocks.length} 个正文块`;
+      return (
+        presentation.path ??
+        t("sources.summary.document", { count: presentation.blocks.length })
+      );
     case "im":
-      return `${presentation.messages.length} 条消息 · ${presentation.members.length} 位成员`;
+      return t("sources.summary.im", {
+        messages: presentation.messages.length,
+        members: presentation.members.length,
+      });
     case "email":
-      return `${presentation.messages.length} 封邮件`;
+      return t("sources.summary.email", { count: presentation.messages.length });
     case "generic":
-      return `${presentation.blocks.length} 个原文块`;
+      return t("sources.summary.generic", { count: presentation.blocks.length });
   }
 }
 
+export function SourceKindSummary({ detail }: { detail: SourceDetail }) {
+  const t = useT();
+  const tOr = useTOr();
+  return <>{sourceKindSummary(buildSourcePresentation(detail, { tOr }), t)}</>;
+}
+
 export function SourceKindName({ kind }: { kind: string }) {
-  return <>{sourceKindLabel(kind)}</>;
+  const tOr: TOrFunction = useTOr();
+  return <>{sourceKindLabel(kind, { tOr })}</>;
 }

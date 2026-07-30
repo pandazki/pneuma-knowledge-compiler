@@ -11,14 +11,14 @@ export interface SliderProps {
   label?: ReactNode;
   hint?: ReactNode;
   disabled?: boolean;
-  /** 右侧 mono 显示当前值（默认开）。 */
+  /** Show the current value in mono on the right (on by default). */
   showValue?: boolean;
   formatValue?: (value: number) => string;
   "aria-label"?: string;
   wrapperClassName?: string;
 }
 
-/** Radix Slider：track / range / thumb 全自绘，右侧显示当前值。 */
+/** Radix Slider: track / range / thumb all drawn here; current value on the right. */
 export function Slider({
   value,
   onChange,

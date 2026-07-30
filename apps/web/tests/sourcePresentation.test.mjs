@@ -11,7 +11,12 @@ const transformed = await transformWithEsbuild(sourceText, sourceUrl.pathname, {
   target: "es2021",
 });
 const moduleUrl = `data:text/javascript;base64,${Buffer.from(transformed.code).toString("base64")}`;
-const { buildSourcePresentation } = await import(moduleUrl);
+const { buildSourcePresentation: build } = await import(moduleUrl);
+
+// The module takes its wording by injection (it cannot import lib/i18n: this test transpiles
+// it on its own). Resolving every key to its fallback keeps the assertions about structure.
+const i18n = { tOr: (_key, fallback) => fallback };
+const buildSourcePresentation = (source) => build(source, i18n);
 
 test("meeting presentation joins normalized segments to participants and blocks", () => {
   const result = buildSourcePresentation({
@@ -39,7 +44,8 @@ test("meeting presentation joins normalized segments to participants and blocks"
     blocks: [
       {
         index: 0,
-        text: "本人（林知远）：先确认范围。",
+        // The wire format the textualizer emits: `ingest.owner_wrapped` + `ingest.turn_line`.
+        text: "Owner (林知远): 先确认范围。",
         section_path: ["2026-07-28"],
       },
     ],
@@ -114,6 +120,7 @@ test("IM presentation resolves senders, thread replies and reactions", () => {
     blocks: [
       {
         index: 0,
+        // Full-width colon on purpose: a block normalised by an older build still splits.
         text: "陈澄：字段表发你了。",
         section_path: ["2026-07-28"],
       },
@@ -156,11 +163,12 @@ test("email presentation separates RFC-like headers from the citable body", () =
     blocks: [
       {
         index: 0,
+        // `ingest.owner_wrapped` / `ingest.email.subject` / `ingest.email.attachments`.
         text:
-          "本人（林知远 <lin@example.dev>） → 陈澄 <client@example.dev>\n" +
-          "主题：试点\n" +
+          "Owner (林知远 <lin@example.dev>) → 陈澄 <client@example.dev>\n" +
+          "Subject: 试点\n" +
           "方案见附件。\n" +
-          "附件：proposal.pdf (application/pdf, 1024 bytes)",
+          "Attachments: proposal.pdf (application/pdf, 1024 bytes)",
         section_path: ["2026-07-28"],
       },
     ],

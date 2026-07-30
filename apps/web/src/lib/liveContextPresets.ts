@@ -8,80 +8,92 @@
  * actually fires depends on what the selected user's knowledge base contains. A preset
  * against an empty KB is correctly silent: the citation gate drops any suggestion that cannot
  * point at a real source.
+ *
+ * The copy is synthetic UI material rather than data, so it is translated — but this table is
+ * a module-level constant, evaluated once at import. Rendering it through `tx()` here would
+ * freeze whichever locale happened to be active at import time and never follow the header
+ * toggle. So the preset carries message KEYS and the view resolves them with `t()` on every
+ * render. The type-only import keeps this module free of runtime imports too, which matters
+ * for the standalone-transpile test pattern.
  */
+import type { MessageKey } from "./i18n";
 
 export interface PresetTurn {
-  speaker: string;
-  text: string;
+  speakerKey: MessageKey;
+  textKey: MessageKey;
   role: "owner" | "other";
 }
 
 export interface LiveContextPreset {
   key: string;
-  label: string;
+  labelKey: MessageKey;
   /** what this scenario is meant to probe, in one line */
-  summary: string;
+  summaryKey: MessageKey;
   /** the expected outcome, for eyeballing against what actually lands */
-  expect: string;
+  expectKey: MessageKey;
   turns: PresetTurn[];
 }
+
+const OWNER: MessageKey = "liveContext.preset.speaker.owner";
+const COLLABORATOR: MessageKey = "liveContext.preset.speaker.collaborator";
+const FRIEND: MessageKey = "liveContext.preset.speaker.friend";
 
 export const LIVE_CONTEXT_PRESETS: LiveContextPreset[] = [
   {
     key: "release-license",
-    label: "开源许可",
-    summary: "讨论里出现一个许可证概念，本人没有追问，系统应主动补充它的含义",
-    expect: "期望 concept 卡（概念解释）",
+    labelKey: "liveContext.preset.releaseLicense.label",
+    summaryKey: "liveContext.preset.releaseLicense.summary",
+    expectKey: "liveContext.preset.releaseLicense.expect",
     turns: [
       {
-        speaker: "协作者",
+        speakerKey: COLLABORATOR,
         role: "other",
-        text: "发布前还要确认依赖许可证兼容性，特别是 copyleft 的传递范围。",
+        textKey: "liveContext.preset.releaseLicense.turn1",
       },
       {
-        speaker: "林知远",
+        speakerKey: OWNER,
         role: "owner",
-        text: "我先把依赖清单和生成代码的归属整理出来。",
+        textKey: "liveContext.preset.releaseLicense.turn2",
       },
       {
-        speaker: "协作者",
+        speakerKey: COLLABORATOR,
         role: "other",
-        text: "README 里也最好解释一下 permissive license 和 copyleft 的区别。",
+        textKey: "liveContext.preset.releaseLicense.turn3",
       },
     ],
   },
   {
     key: "release-progress",
-    label: "发布进度",
-    summary: "讨论里出现一个知识库能直接回答的发布问题，系统应把事实递上来",
-    expect: "期望 fact 卡（事实问答）",
+    labelKey: "liveContext.preset.releaseProgress.label",
+    summaryKey: "liveContext.preset.releaseProgress.summary",
+    expectKey: "liveContext.preset.releaseProgress.expect",
     turns: [
       {
-        speaker: "协作者",
+        speakerKey: COLLABORATOR,
         role: "other",
-        text: "Atlas 的公开预览版现在推进到哪一步了？",
+        textKey: "liveContext.preset.releaseProgress.turn1",
       },
       {
-        speaker: "林知远",
+        speakerKey: OWNER,
         role: "owner",
-        text: "我记得已经跑过本地导出，但具体还缺哪一道发布检查一时想不起来。",
+        textKey: "liveContext.preset.releaseProgress.turn2",
       },
       {
-        speaker: "协作者",
+        speakerKey: COLLABORATOR,
         role: "other",
-        text: "那你确认一下知识库里记录的门禁，别把未脱敏的实验材料打进公开包。",
+        textKey: "liveContext.preset.releaseProgress.turn3",
       },
     ],
   },
   {
     key: "smalltalk",
-    label: "闲聊（对照组）",
-    summary: "没有任何值得补充的上下文——四道闸门应当把一切挡掉",
-    expect: "期望 0 张卡：沉默是正常工作状态，不是故障",
+    labelKey: "liveContext.preset.smalltalk.label",
+    summaryKey: "liveContext.preset.smalltalk.summary",
+    expectKey: "liveContext.preset.smalltalk.expect",
     turns: [
-      { speaker: "朋友", role: "other", text: "今天风挺大，出门走一圈比坐着舒服。" },
-      { speaker: "林知远", role: "owner", text: "是啊，我准备工作告一段落就去散会儿步。" },
-      { speaker: "朋友", role: "other", text: "回来吃什么？楼下那家新开的还没试过。" },
+      { speakerKey: FRIEND, role: "other", textKey: "liveContext.preset.smalltalk.turn1" },
+      { speakerKey: OWNER, role: "owner", textKey: "liveContext.preset.smalltalk.turn2" },
+      { speakerKey: FRIEND, role: "other", textKey: "liveContext.preset.smalltalk.turn3" },
     ],
   },
 ];

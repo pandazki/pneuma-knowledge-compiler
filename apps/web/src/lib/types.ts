@@ -48,8 +48,8 @@ export interface DocumentRecord {
 /**
  * One skill-declared claim-prefix label (dataset meta / GET /skill `claim_labels`). The
  * skill owns this vocabulary; the UI implements a generic render mechanism and hardcodes
- * no specific word. `label` is the bare字面 prefix (no【】brackets); `tier` is the
- * presentation weight hint the badge maps to a visual档位.
+ * no specific word. `label` is the bare literal prefix (no 【】 brackets); `tier` is the
+ * presentation-weight hint the badge maps to a visual step.
  */
 export interface ClaimLabel {
   label: string;
@@ -258,9 +258,9 @@ export interface Dataset {
   timeline: TimelineFile;
   journal: JournalEvent[];
   /**
-   * The effective skill's claim-prefix vocabulary (§5强/中/弱), carried in the dataset
-   * top-level meta so the dataset-driven views can lift the字面【强】prefix into a badge
-   * without a second request. When absent, prose remains unchanged and no badge is shown.
+   * The effective skill's claim-prefix vocabulary (§5 strong/medium/weak), carried in the
+   * dataset top-level meta so the dataset-driven views can lift a literal 【…】 prefix into a
+   * badge without a second request. When absent, prose is unchanged and no badge is shown.
    */
   claimLabels?: ClaimLabel[];
 }
@@ -273,7 +273,7 @@ export type Selection =
   | { kind: "job"; id: string }
   | { kind: "snapshot"; id: string }
   | { kind: "claim"; documentId: string; anchor: string }
-  // A source's original text, optionally focused on one block (溯源动线的落点).
+  // A source's original text, optionally focused on one block (the provenance landing).
   | { kind: "source"; id: string; block?: number }
   | { kind: "evolve-task"; id: string }
   | null;
@@ -289,14 +289,15 @@ export type ViewName =
   | "recall"
   // M4 briefing Q&A panel
   | "ask"
-  // Live Context：实时接收工作流片段并融合可引用知识（SSE / WS 双链路）
+  // Live Context: takes workstream fragments live and folds in citable knowledge
+  // (SSE and WS, two transports)
   | "live_context"
   // canonical/derived views (light up once the user has compiled canonical)
   | "library"
   | "process"
   | "history"
   | "graph"
-  // schema-evolve review + 量身定制 skill 面
+  // schema-evolve review + the tailored-skill surface
   | "evolve"
-  // 隐藏路由：primitives 状态矩阵页（验收截图用，不进目录）
+  // hidden route: the primitives state-matrix page (acceptance shots; not in contents)
   | "components";

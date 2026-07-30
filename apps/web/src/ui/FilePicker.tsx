@@ -1,6 +1,7 @@
 import { useRef, useState, type DragEvent, type ReactNode } from "react";
 import * as VisuallyHidden from "@radix-ui/react-visually-hidden";
 import { FileUp, X } from "lucide-react";
+import { useT } from "@/lib/useT";
 import { cn } from "./cn";
 
 export interface FilePickerProps {
@@ -21,8 +22,8 @@ function formatSize(bytes: number): string {
 }
 
 /**
- * 文件选择：visually-hidden native input + 自绘点击/拖放区。
- * 选中后显示文件名 + 大小（mono），可移除。
+ * File chooser: a visually-hidden native input + a hand-drawn click / drop zone. Once a file
+ * is chosen it shows the name + size in mono, and can be removed.
  */
 export function FilePicker({
   file,
@@ -34,6 +35,7 @@ export function FilePicker({
   disabled,
   wrapperClassName,
 }: FilePickerProps) {
+  const t = useT();
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
 
@@ -76,7 +78,7 @@ export function FilePicker({
           </div>
           <button
             type="button"
-            aria-label="移除文件"
+            aria-label={t("common.removeFile")}
             disabled={disabled}
             onClick={() => onFile(null)}
             className="inline-flex size-6 shrink-0 items-center justify-center rounded-1 text-ink-3 hover:bg-hover hover:text-ink"
@@ -105,7 +107,7 @@ export function FilePicker({
         >
           <FileUp size={16} aria-hidden className="text-ink-3" />
           <span className="text-13 text-ink-2">
-            {dragOver ? "松开以选择文件" : "点击选择或拖入文件"}
+            {dragOver ? t("common.filePicker.drop") : t("common.filePicker.idle")}
           </span>
         </button>
       )}

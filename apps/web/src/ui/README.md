@@ -12,6 +12,7 @@
   `EmptyState` / `ErrorState` 一个实现。
 - 历史快照只读态（`useApp((s) => s.currentSnapshot) != null`）：所有 mutation
   控件 `disabled`。
+- **文案一律走 i18n**：`src/` 里不写任何面向用户的中文字面量（含注释）。见下「i18n」一节。
 
 ```tsx
 import { Button } from "@/ui/Button";
@@ -19,6 +20,41 @@ import { PageHeader } from "@/components/PageHeader";
 // 合并 className：cn()（clsx + tailwind-merge）
 import { cn } from "@/ui/cn";
 ```
+
+---
+
+## i18n（zh + en）
+
+词典在 `src/i18n/`，每个 view 一个命名空间文件，`defineMessages()` 让 zh/en 的 key 集合在
+**编译期**恒等（缺一个就是 `tsc` 错）。汇总在 `src/i18n/index.ts`。
+
+```tsx
+import { useT, useTOr } from "@/lib/useT";
+
+const t = useT();                                    // 声明过的 key，编译期检查
+t("recall.empty")                                    //
+t("common.pagination.page", { current: 2, total: 7 }) // 占位符是 {name}
+
+const tOr = useTOr();                                // 服务端派生的 key + 服务端 label 兜底
+tOr(`enum.intakeArchetype.${a.key}.label`, a.label)
+```
+
+- 新增文案：只往对应命名空间文件加，key 以命名空间开头（`library.claim.empty`）。
+  通用词（重试 / 关闭 / 上一页 / flag / gate / 分页 / footnote）先查 `i18n/common.ts`，别重造。
+- 后端封闭词表（intake archetype / context focus / suggestion kind / source kind）在
+  `i18n/enums.ts`，key 就是 API 给的稳定 `key`；一律用 `useTOr()` + 服务端 label 兜底，
+  这样服务端加值时降级成英文而不是空白。
+- **数据不译**：canonical 正文、source 内容、人名、服务端 rationale / detail / 错误 message。
+- 纯函数模块（`lib/evolve.ts`、`lib/citations.ts`、`views/*/…Presentation.ts` 等被测试单独
+  esbuild 成 data: URL 的那些）**不能运行期 import i18n**——返回 message key 让视图翻译，
+  或者把翻译函数注入进去。
+- primitives 的默认文案已从词典取（`ErrorState.title` / `Select.placeholder` /
+  `Combobox.filterPlaceholder`·`emptyText` / `SearchField.clearLabel` / `PaginationBar.noun`
+  都是 optional，不传即走 `common.*`）。
+- `locale` 在 store 里，和 `theme` 同形：`s.locale` / `setLocale` / `toggleLocale`；
+  顶栏 `LocaleToggle` 紧挨 `ThemeToggle`，切换即时生效不刷新。
+  解析顺序：localStorage 显式选择 → `navigator.language`（`zh*`→zh）→ **en**。
+- `fmtTime` / `fmtDate`（`lib/format.ts`）已随 locale 走 `Intl`，调用点不用管。
 
 ---
 

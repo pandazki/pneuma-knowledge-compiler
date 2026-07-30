@@ -2,10 +2,11 @@ import { clsx, type ClassValue } from "clsx";
 import { extendTailwindMerge } from "tailwind-merge";
 
 /**
- * tailwind-merge 默认配置不认识本设计系统的 token（DESIGN.md §2），会把
- * `text-accent-ink` 误判为字号类并在合并时丢弃——primary 按钮曾因此丢色。
- * 这里把 token 注册进对应分组：颜色归颜色、字号归字号、圆角归圆角，
- * 跨分组不再互相误吞，同分组仍能正确去重（调用方覆盖生效）。
+ * Out of the box tailwind-merge does not know this design system's tokens (DESIGN.md §2):
+ * it reads `text-accent-ink` as a font-size class and drops it on merge — which is how the
+ * primary button once lost its colour. Registering each token in its own group (colours with
+ * colours, sizes with sizes, radii with radii) stops the cross-group swallowing while keeping
+ * correct dedupe within a group, so a caller's override still wins.
  */
 const twMerge = extendTailwindMerge({
   extend: {

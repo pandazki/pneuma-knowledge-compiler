@@ -1,12 +1,14 @@
 import { Suspense, lazy, useEffect, type ComponentType } from "react";
 import { useApp } from "./lib/store";
+import { useT } from "./lib/useT";
 import type { ViewName } from "./lib/types";
 import { AppShell } from "./components/AppShell";
 import { ErrorState } from "./ui/ErrorState";
 import { Skeleton, SkeletonText } from "./ui/Skeleton";
 import OverviewView from "./views/overview/OverviewView";
 
-// 视图级分包：主包只留卷首，其余视图首访时加载（Suspense 骨架兜底）。
+// View-level code splitting: the main bundle keeps only the front matter; every other view
+// loads on first visit, with a Suspense skeleton covering the gap.
 const ProfileView = lazy(() => import("./views/profile/ProfileView"));
 const SourcesView = lazy(() => import("./views/sources/SourcesView"));
 const IngestView = lazy(() => import("./views/ingest/IngestView"));
@@ -36,7 +38,7 @@ const VIEWS: Record<ViewName, ComponentType> = {
   components: ComponentsGallery,
 };
 
-/** 全屏启动骨架（status loading）：顶栏 + 目录轨 + 内容位。 */
+/** Full-screen boot skeleton (status loading): top bar + contents rail + content slot. */
 function BootSkeleton() {
   return (
     <div aria-busy className="flex min-h-screen flex-col bg-bg">
@@ -66,6 +68,7 @@ export function App() {
   const status = useApp((s) => s.status);
   const error = useApp((s) => s.error);
   const view = useApp((s) => s.view);
+  const t = useT();
 
   useEffect(() => {
     void useApp.getState().init();
@@ -76,8 +79,8 @@ export function App() {
     return (
       <div className="flex min-h-screen items-center justify-center bg-bg p-6">
         <ErrorState
-          title="启动失败"
-          error={error ?? "未知错误"}
+          title={t("common.bootFailed")}
+          error={error ?? t("common.unknownError")}
           onRetry={() => void useApp.getState().init()}
         />
       </div>

@@ -1,6 +1,7 @@
 import { CalendarDays } from "lucide-react";
 import type { ActivityDay } from "@/lib/api";
 import { buildActivityGrid } from "@/lib/activity";
+import { useT, type TFunction } from "@/lib/useT";
 import { Tooltip } from "@/ui/Tooltip";
 import { cn } from "@/ui/cn";
 
@@ -23,12 +24,14 @@ function levelFor(count: number, maxCount: number): number {
 function activityDescription(
   day: ActivityDay,
   labels: Record<string, string>,
+  t: TFunction,
 ): string {
   const breakdown = Object.entries(day.kinds)
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([kind, count]) => `${labels[kind] ?? kind} ${count}`)
     .join(" · ");
-  return `${day.date} · ${day.count} 条${breakdown ? ` · ${breakdown}` : ""}`;
+  const head = `${day.date} · ${t("common.heatmap.dayCount", { count: day.count })}`;
+  return breakdown ? `${head} · ${breakdown}` : head;
 }
 
 export function ActivityHeatmap({
@@ -46,6 +49,7 @@ export function ActivityHeatmap({
   compact?: boolean;
 }) {
   const grid = buildActivityGrid(days);
+  const t = useT();
 
   return (
     <section
@@ -70,8 +74,11 @@ export function ActivityHeatmap({
             </span>
           )}
         </p>
-        <div className="flex items-center gap-1.5 text-12 text-ink-3" aria-label="密度图例">
-          <span>少</span>
+        <div
+          className="flex items-center gap-1.5 text-12 text-ink-3"
+          aria-label={t("common.heatmap.legendAria")}
+        >
+          <span>{t("common.heatmap.less")}</span>
           {LEVEL_CLASSES.map((classes, level) => (
             <span
               key={level}
@@ -79,12 +86,12 @@ export function ActivityHeatmap({
               className={cn("h-3 w-3 rounded-1 border", classes)}
             />
           ))}
-          <span>多</span>
+          <span>{t("common.heatmap.more")}</span>
         </div>
       </div>
 
       {grid.cells.length === 0 ? (
-        <p className="text-13 text-ink-3">还没有可绘制的活动。</p>
+        <p className="text-13 text-ink-3">{t("common.heatmap.empty")}</p>
       ) : (
         <div className="overflow-x-auto pb-1">
           <div className="inline-flex min-w-max items-start gap-2">
@@ -92,13 +99,13 @@ export function ActivityHeatmap({
               aria-hidden
               className="grid h-[108px] grid-rows-7 gap-1 pt-0.5 text-12 leading-3 text-ink-3"
             >
-              <span>一</span>
+              <span>{t("common.heatmap.mon")}</span>
               <span />
-              <span>三</span>
+              <span>{t("common.heatmap.wed")}</span>
               <span />
-              <span>五</span>
+              <span>{t("common.heatmap.fri")}</span>
               <span />
-              <span>日</span>
+              <span>{t("common.heatmap.sun")}</span>
             </div>
             <div className="grid grid-flow-col grid-rows-7 gap-1">
               {grid.cells.map((cell) => {
@@ -112,7 +119,7 @@ export function ActivityHeatmap({
                     />
                   );
                 }
-                const label = activityDescription(cell, kindLabels);
+                const label = activityDescription(cell, kindLabels, t);
                 return (
                   <Tooltip key={cell.date} content={label}>
                     <span

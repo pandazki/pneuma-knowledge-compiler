@@ -2,11 +2,11 @@ import type { Model, NodeShape } from "@/lib/model";
 import { typeGlyph } from "@/lib/model";
 
 /**
- * 图谱与图例共用的 typeGlyph 冗余编码（形状 + 墨阶）。
+ * The redundant typeGlyph encoding (shape + ink step) shared by the graph and its legend.
  *
- * 注意：lib/model 的 typeShade 用的是旧变量 var(--color-text)，在新 tokens
- * （§2）下无解；这里按同一墨阶 ramp（35%→92%）改用 var(--ink) 推导，
- * 保证双主题下都有效，且仍然是纯墨色（规则：图谱零彩色）。
+ * Note: lib/model's typeShade resolves against the old var(--color-text), which does not
+ * exist under the new tokens (§2). This derives the same ink ramp (35%→92%) from var(--ink)
+ * instead, so it holds in both themes and stays pure ink (rule: no colour in the graph).
  */
 export function inkShade(model: Model, type: string | null): string {
   if (!type) return "color-mix(in srgb, var(--ink) 26%, transparent)";
@@ -36,7 +36,7 @@ function ShapePath({ shape }: { shape: NodeShape }) {
   }
 }
 
-/** 纯形状图标：shape + shade 已解算（GraphCanvas 节点用）。 */
+/** Pure shape icon with shape + shade already resolved (used by GraphCanvas nodes). */
 export function ShapeIcon({
   shape,
   shade,
@@ -61,7 +61,7 @@ export function ShapeIcon({
   );
 }
 
-/** 类型字形小样：形状描边 + 墨阶填充（图谱节点与图例同源）。 */
+/** Type glyph swatch: shape outline + ink-step fill (one source for node and legend). */
 export function GlyphSwatch({
   model,
   type,

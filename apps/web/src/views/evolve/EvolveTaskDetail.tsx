@@ -6,13 +6,15 @@ import {
   buildPackDrafts,
   changedFileKind,
   diffStat,
-  evolveStatusLabel,
+  evolveStatusLabelKey,
   evolveStatusTone,
-  fmtTtlRemaining,
   lineDiff,
   parseRationale,
+  ttlRemainingMessage,
   ttlRemainingMs,
 } from "@/lib/evolve";
+import type { MessageKey } from "@/lib/i18n";
+import { useT, useTOr } from "@/lib/useT";
 import { Badge } from "@/ui/Badge";
 import { Button } from "@/ui/Button";
 import { Callout } from "@/ui/Callout";
@@ -25,12 +27,12 @@ import { SkeletonText } from "@/ui/Skeleton";
 import { Stamp } from "@/ui/Stamp";
 import { cn } from "@/ui/cn";
 
-/* ------------------------------------------------------------------ 行内 diff */
+/* ------------------------------------------------------------------ inline diff */
 
-const KIND_LABEL: Record<ReturnType<typeof changedFileKind>, string> = {
-  created: "新建",
-  deleted: "删除",
-  modified: "改写",
+const KIND_LABEL_KEY: Record<ReturnType<typeof changedFileKind>, MessageKey> = {
+  created: "evolve.file.created",
+  deleted: "evolve.file.deleted",
+  modified: "evolve.file.modified",
 };
 
 function DiffBlock({ oldBody, newBody }: { oldBody: string; newBody: string }) {
@@ -68,7 +70,7 @@ function DiffBlock({ oldBody, newBody }: { oldBody: string; newBody: string }) {
   );
 }
 
-/* ------------------------------------------------------------------ 任务详情 */
+/* ------------------------------------------------------------------ task detail */
 
 export function EvolveTaskDetail({
   userId,
@@ -79,11 +81,13 @@ export function EvolveTaskDetail({
 }: {
   userId: string;
   taskId: string;
-  /** 时间线里的次序号，标题与快照轴共用同一个编号。 */
+  /** The timeline's index for this task; the heading and the schema axis share the number. */
   ordinal: number | null;
   readOnly: boolean;
   onDecided: () => void;
 }) {
+  const t = useT();
+  const tOr = useTOr();
   const [detail, setDetail] = useState<api.EvolveTaskDetail | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
   const [error, setError] = useState<string | null>(null);
@@ -121,7 +125,7 @@ export function EvolveTaskDetail({
       onDecided();
       setReload((k) => k + 1);
     } catch (e) {
-      setActionErr(`采用失败：${(e as Error).message}`);
+      setActionErr(t("evolve.action.adoptFailed", { detail: (e as Error).message }));
     } finally {
       setActing(false);
     }
@@ -136,7 +140,7 @@ export function EvolveTaskDetail({
       onDecided();
       setReload((k) => k + 1);
     } catch (e) {
-      setActionErr(`放弃失败：${(e as Error).message}`);
+      setActionErr(t("evolve.action.dropFailed", { detail: (e as Error).message }));
     } finally {
       setActing(false);
     }
@@ -146,8 +150,8 @@ export function EvolveTaskDetail({
   if (state === "error" || !detail) {
     return (
       <ErrorState
-        title="任务加载失败"
-        error={error ?? "未知错误"}
+        title={t("evolve.detail.loadFailed")}
+        error={error ?? t("common.unknownError")}
         onRetry={() => setReload((k) => k + 1)}
       />
     );
@@ -156,6 +160,7 @@ export function EvolveTaskDetail({
   const isDraft = detail.status === "draft";
   const summary = detail.summary;
   const ttl = isDraft ? ttlRemainingMs(detail.created_at, EVOLVE_DRAFT_TTL_HOURS) : null;
+  const ttlMessage = ttl != null ? ttlRemainingMessage(ttl) : null;
   const packs = buildPackDrafts(detail.proposal);
   const rationale = parseRationale(detail.rationale, packs.length);
   const adoptedEntries = summary ? Object.entries(summary.adopted_by_document ?? {}) : [];
@@ -166,30 +171,34 @@ export function EvolveTaskDetail({
       <header>
         <div className="flex flex-wrap items-center gap-2">
           <h2 className="font-serif text-24 text-ink text-balance">
-            {ordinal != null ? `第 ${ordinal} 次演化` : "演化任务"}
+            {ordinal != null
+              ? t("evolve.evolutionOrdinal", { n: ordinal })
+              : t("evolve.detail.title")}
           </h2>
           <Badge tone={evolveStatusTone(detail.status)}>
-            {evolveStatusLabel(detail.status)}
+            {tOr(evolveStatusLabelKey(detail.status), detail.status)}
           </Badge>
-          {ttl != null && (
+          {ttlMessage && (
             <span
               className="text-12 text-ink-3"
-              title={`评审窗口 ${EVOLVE_DRAFT_TTL_HOURS}h，客户端按 created_at 推算（advisory），实际过期以服务端为准`}
+              title={t("evolve.ttl.tooltip", { hours: EVOLVE_DRAFT_TTL_HOURS })}
             >
-              {fmtTtlRemaining(ttl)}
+              {t(ttlMessage.key, ttlMessage.params)}
             </span>
           )}
         </div>
 
         <p className="mt-1 text-12 text-ink-3">
-          <Mono>{detail.task_id}</Mono> · 创建 {fmtTime(detail.created_at)}
-          {detail.decided_at && ` · 决定 ${fmtTime(detail.decided_at)}`}
+          <Mono>{detail.task_id}</Mono> ·{" "}
+          {t("evolve.detail.created", { at: fmtTime(detail.created_at) })}
+          {detail.decided_at &&
+            ` · ${t("evolve.decided", { at: fmtTime(detail.decided_at) })}`}
         </p>
         {detail.detail && <p className="mt-2 text-13 text-ink-2">{detail.detail}</p>}
 
         {packs.length > 0 && (
           <p className="mt-3 flex flex-wrap items-baseline gap-1.5 text-13 text-ink-2">
-            <span>本次提议新增归档 family：</span>
+            <span>{t("evolve.detail.proposedFamilies")}</span>
             {packs.map((pack) => (
               <Mono
                 key={pack.packId ?? pack.family}
@@ -208,23 +217,21 @@ export function EvolveTaskDetail({
               size="sm"
               loading={acting}
               disabled={readOnly}
-              title={readOnly ? "历史快照为只读" : undefined}
+              title={readOnly ? t("evolve.readOnlyHint") : undefined}
               onClick={onAdopt}
             >
-              采用
+              {t("evolve.action.adopt")}
             </Button>
             <Button
               variant="danger"
               size="sm"
               disabled={acting || readOnly}
-              title={readOnly ? "历史快照为只读" : undefined}
+              title={readOnly ? t("evolve.readOnlyHint") : undefined}
               onClick={() => setConfirmDrop(true)}
             >
-              放弃
+              {t("evolve.action.drop")}
             </Button>
-            <span className="text-12 text-ink-3">
-              采用会把这次重组并回主线并重建 L3；放弃会删掉演化分支。
-            </span>
+            <span className="text-12 text-ink-3">{t("evolve.action.hint")}</span>
           </div>
         )}
         {actionErr && (
@@ -234,11 +241,11 @@ export function EvolveTaskDetail({
         )}
       </header>
 
-      {/* 提案理由 + 证据行 */}
+      {/* The proposal's reasoning + its evidence lines */}
       <section>
-        <SectionRule no={1} title="提案理由" />
+        <SectionRule no={1} title={t("evolve.section.rationale")} />
         {rationale.lead === "" && rationale.evidence.length === 0 ? (
-          <p className="mt-3 text-13 text-ink-3">本任务没有留下提案自述。</p>
+          <p className="mt-3 text-13 text-ink-3">{t("evolve.rationale.empty")}</p>
         ) : (
           <>
             {rationale.lead && (
@@ -267,13 +274,11 @@ export function EvolveTaskDetail({
         )}
       </section>
 
-      {/* pack 草案全文 */}
+      {/* The pack drafts, in full */}
       <section>
-        <SectionRule no={2} title={`pack 草案 · ${packs.length}`} />
+        <SectionRule no={2} title={t("evolve.section.packs", { count: packs.length })} />
         {packs.length === 0 ? (
-          <p className="mt-3 text-13 text-ink-3">
-            本任务没有 pack 草案（无变化提案，或提案未通过模板校验）。
-          </p>
+          <p className="mt-3 text-13 text-ink-3">{t("evolve.packs.empty")}</p>
         ) : (
           <div className="mt-3 flex flex-col gap-5">
             {packs.map((pack) => (
@@ -293,7 +298,9 @@ export function EvolveTaskDetail({
                     {pack.instructions}
                   </p>
                 ) : (
-                  <p className="mt-1 text-13 text-ink-3">未附 instructions。</p>
+                  <p className="mt-1 text-13 text-ink-3">
+                    {t("evolve.packs.noInstructions")}
+                  </p>
                 )}
 
                 <p className="mt-3 text-12 text-ink-3">
@@ -311,7 +318,7 @@ export function EvolveTaskDetail({
                     ))}
                   </ul>
                 ) : (
-                  <p className="mt-1 text-13 text-ink-3">未附路径模板。</p>
+                  <p className="mt-1 text-13 text-ink-3">{t("evolve.packs.noTemplates")}</p>
                 )}
 
                 {pack.contractRules.length > 0 && (
@@ -334,28 +341,29 @@ export function EvolveTaskDetail({
         )}
       </section>
 
-      {/* 消失的锚——人审的重点 */}
+      {/* The anchors that disappear — what a human review turns on */}
       <section>
         <SectionRule
           no={3}
-          title={`消失的锚 · ${droppedCount}`}
+          title={t("evolve.section.dropped", { count: droppedCount })}
           actions={
             droppedCount > 0 ? (
-              <Stamp tone="warn">等人裁决</Stamp>
+              <Stamp tone="warn">{t("evolve.dropped.awaiting")}</Stamp>
             ) : (
-              <Stamp tone="ok">锚全部保留</Stamp>
+              <Stamp tone="ok">{t("evolve.dropped.allKept")}</Stamp>
             )
           }
         />
         {droppedCount === 0 ? (
-          <p className="mt-3 text-13 text-ink-3">
-            这次重组没有让任何 claim 锚消失——每一条都带原锚搬到了新 family。
-          </p>
+          <p className="mt-3 text-13 text-ink-3">{t("evolve.dropped.empty")}</p>
         ) : (
           <>
-            <Callout tone="warn" title="这是本次评审的重点" className="mt-3">
-              下面 {droppedCount} 条 claim 的锚在新库里已找不到（被合并或删除）。锚消失意味着
-              L3 / 事件 / git blame 上的引用链在这里断开，采用前请逐条确认这是你要的结果。
+            <Callout
+              tone="warn"
+              title={t("evolve.dropped.calloutTitle")}
+              className="mt-3"
+            >
+              {t("evolve.dropped.calloutBody", { count: droppedCount })}
             </Callout>
             <ul className="mt-3 flex flex-col border-y border-line">
               {detail.dropped.map((d) => (
@@ -379,17 +387,17 @@ export function EvolveTaskDetail({
         )}
       </section>
 
-      {/* 机械摘要 */}
+      {/* The mechanical summary */}
       <section>
-        <SectionRule no={4} title="机械摘要" />
+        <SectionRule no={4} title={t("evolve.section.summary")} />
         {summary ? (
           <div className="mt-3 grid grid-cols-3 gap-3">
-            <StatCell label="新建文档" value={summary.new_documents} />
-            <StatCell label="搬移 claim" value={summary.moved_claims} />
-            <StatCell label="合并 claim" value={summary.merged_claims} />
+            <StatCell label={t("evolve.stat.newDocuments")} value={summary.new_documents} />
+            <StatCell label={t("evolve.stat.movedClaims")} value={summary.moved_claims} />
+            <StatCell label={t("evolve.stat.mergedClaims")} value={summary.merged_claims} />
           </div>
         ) : (
-          <p className="mt-3 text-13 text-ink-3">本任务无机械摘要。</p>
+          <p className="mt-3 text-13 text-ink-3">{t("evolve.summary.empty")}</p>
         )}
         {adoptedEntries.length > 0 && (
           <ul className="mt-3 flex flex-col border-y border-line">
@@ -401,7 +409,9 @@ export function EvolveTaskDetail({
                 <Mono className="min-w-0 flex-1 truncate text-12 text-ink-2" title={path}>
                   {path}
                 </Mono>
-                <Mono className="shrink-0 text-12 text-ink-3">收编 {count} 条</Mono>
+                <Mono className="shrink-0 text-12 text-ink-3">
+                  {t("evolve.summary.adoptedCount", { count })}
+                </Mono>
               </li>
             ))}
           </ul>
@@ -410,12 +420,13 @@ export function EvolveTaskDetail({
 
       {/* changed files */}
       <section>
-        <SectionRule no={5} title={`变更文件 · ${detail.changed_files.length}`} />
+        <SectionRule
+          no={5}
+          title={t("evolve.section.changedFiles", { count: detail.changed_files.length })}
+        />
         {detail.changed_files.length === 0 ? (
           <p className="mt-3 text-13 text-ink-3">
-            {isDraft
-              ? "本草案无文件级差异，或分支暂不可读。"
-              : "任务已决定、分支已回收——仅保留上方机械摘要。"}
+            {isDraft ? t("evolve.files.emptyDraft") : t("evolve.files.emptyDecided")}
           </p>
         ) : (
           <ul className="mt-3 flex flex-col gap-2">
@@ -441,10 +452,10 @@ export function EvolveTaskDetail({
                       {f.path}
                     </Mono>
                     <Badge tone={kind === "deleted" ? "warn" : "neutral"}>
-                      {KIND_LABEL[kind]}
+                      {t(KIND_LABEL_KEY[kind])}
                     </Badge>
                     <span className="shrink-0 text-12 text-ink-3">
-                      {open ? "收起" : "展开"}
+                      {open ? t("evolve.files.collapse") : t("evolve.files.expand")}
                     </span>
                   </button>
                   {open && (
@@ -459,10 +470,10 @@ export function EvolveTaskDetail({
         )}
       </section>
 
-      {/* 技术记录 */}
+      {/* The technical record */}
       <details className="border-t border-line pt-3">
         <summary className="cursor-pointer text-13 text-ink-2 marker:text-ink-3">
-          技术记录
+          {t("evolve.technical")}
         </summary>
         <DefinitionList
           className="mt-2"
@@ -493,25 +504,26 @@ export function EvolveTaskDetail({
         )}
       </details>
 
-      {/* 放弃：二次确认 */}
+      {/* Dropping: a second confirmation */}
       <Dialog
         open={confirmDrop}
         onOpenChange={setConfirmDrop}
-        title="放弃这份草案？"
-        description="将删除该演化分支并记为已放弃，操作不可撤销。"
+        title={t("evolve.drop.confirmTitle")}
+        description={t("evolve.drop.confirmDescription")}
         footer={
           <>
             <Button size="sm" variant="ghost" onClick={() => setConfirmDrop(false)} disabled={acting}>
-              取消
+              {t("evolve.action.cancel")}
             </Button>
             <Button size="sm" variant="danger" loading={acting} onClick={onDrop}>
-              确认放弃
+              {t("evolve.drop.confirmAction")}
             </Button>
           </>
         }
       >
         <p className="text-13 text-ink-2">
-          任务 <Mono>{detail.task_id}</Mono> 的草案与其分支将被丢弃。
+          {t("evolve.drop.confirmBody.before")} <Mono>{detail.task_id}</Mono>{" "}
+          {t("evolve.drop.confirmBody.after")}
         </p>
       </Dialog>
     </div>

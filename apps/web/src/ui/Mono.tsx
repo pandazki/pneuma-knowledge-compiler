@@ -1,7 +1,7 @@
 import type { ComponentPropsWithoutRef } from "react";
 import { cn } from "./cn";
 
-/** 等宽内联：ID / ref / 路径 / 计数；自动 tabular-nums。不给中文正文用。 */
+/** Inline monospace: ids / refs / paths / counts, tabular-nums. Never for CJK prose. */
 export function Mono({
   children,
   className,

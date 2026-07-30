@@ -6,6 +6,8 @@ import {
   type SchemaStation,
 } from "@/lib/evolve";
 import type { ClaimLabel } from "@/lib/types";
+import type { MessageKey } from "@/lib/i18n";
+import { useT } from "@/lib/useT";
 import { Badge } from "@/ui/Badge";
 import { Callout } from "@/ui/Callout";
 import { DefinitionList } from "@/ui/DefinitionList";
@@ -15,18 +17,20 @@ import { Tooltip } from "@/ui/Tooltip";
 import { cn } from "@/ui/cn";
 
 /**
- * Schema 快照轴：family / 路径模板随时间累积的样貌。
+ * The schema axis: how families / path templates look as they accumulate over time.
  *
- * 不是第三份存储——它完全是「已采纳任务序列 × 当前 skill」的推导（lib/evolve.ts
- * `buildSchemaAxis`）。基线 skill 是第一站，之后每次 adopted 演化是一刻度，闸门上待审的
- * 草案作为「尚未入册」单独一段；某次采纳过、当前 skill 里却查不到的 family 如实标为漂移。
+ * Not a third store — it is entirely derived from "the adopted task sequence × the current
+ * skill" (lib/evolve.ts `buildSchemaAxis`). The baseline skill is the first station, each
+ * adopted evolution is one station after it, and the drafts still at the gate get their own
+ * "not yet enrolled" segment; a family that was adopted once but is no longer in the current
+ * skill is reported as drift rather than hidden.
  */
 
-const ORIGIN_LABEL = {
-  base: "基线",
-  pack: "注册期 pack",
-  evolved: "演化加入",
-} as const;
+const ORIGIN_LABEL_KEY: Record<SchemaFamily["origin"], MessageKey> = {
+  base: "evolve.origin.base",
+  pack: "evolve.origin.pack",
+  evolved: "evolve.origin.evolved",
+};
 
 function StationMark({ kind }: { kind: SchemaStation["kind"] }) {
   if (kind === "pending") {
@@ -56,10 +60,11 @@ function StationRow({
   last: boolean;
   onOpenTask: (taskId: string) => void;
 }) {
+  const t = useT();
   const openable = station.kind === "adopted" || station.kind === "pending";
   return (
     <li className="grid grid-cols-[auto_minmax(0,1fr)] gap-3 py-3">
-      {/* 标尺线 + 刻度（刻度中心距行顶 9px：mt-1 + 半个刻度） */}
+      {/* The ruler line + the station (station centre 9px below the row top: mt-1 + half a station) */}
       <span className="relative flex w-2.5 justify-center">
         {!(first && last) && (
           <span
@@ -75,10 +80,16 @@ function StationRow({
 
       <div className="min-w-0">
         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-          <span className="font-serif text-14 font-medium text-ink">{station.label}</span>
-          {station.kind === "pending" && <Badge tone="warn">尚未入册</Badge>}
+          <span className="font-serif text-14 font-medium text-ink">
+            {t(station.labelKey, station.labelParams)}
+          </span>
+          {station.kind === "pending" && (
+            <Badge tone="warn">{t("evolve.axis.notEnrolled")}</Badge>
+          )}
           {station.driftedFamilies.length > 0 && (
-            <Badge tone="neutral">{station.driftedFamilies.length} 项已漂移</Badge>
+            <Badge tone="neutral">
+              {t("evolve.axis.driftedCount", { count: station.driftedFamilies.length })}
+            </Badge>
           )}
           {station.at && <span className="text-12 text-ink-3">{fmtTime(station.at)}</span>}
           {openable && (
@@ -87,13 +98,13 @@ function StationRow({
               onClick={() => onOpenTask(station.id)}
               className="text-12 text-accent underline-offset-2 hover:underline"
             >
-              查看这次演化
+              {t("evolve.axis.openTask")}
             </button>
           )}
         </div>
 
         {station.families.length === 0 ? (
-          <p className="mt-1 text-12 text-ink-3">未新增 family。</p>
+          <p className="mt-1 text-12 text-ink-3">{t("evolve.axis.noNewFamily")}</p>
         ) : (
           <ul className="mt-1.5 flex flex-wrap gap-1">
             {station.families.map((family) => {
@@ -109,7 +120,7 @@ function StationRow({
                           ? "border-warn bg-warn-soft text-warn"
                           : "border-line-2 bg-surface text-ink-2",
                     )}
-                    title={drifted ? "当前 skill 里已找不到这个 family" : undefined}
+                    title={drifted ? t("evolve.axis.driftedTitle") : undefined}
                   >
                     {station.kind === "base" || station.kind === "pack" ? family : `+${family}`}
                   </Mono>
@@ -140,6 +151,7 @@ function FamilyRow({
   family: SchemaFamily;
   onOpenTask: (taskId: string) => void;
 }) {
+  const t = useT();
   return (
     <li className="flex flex-col gap-1 border-b border-line py-2 last:border-b-0 sm:flex-row sm:items-baseline sm:gap-3">
       <span className="shrink-0 font-serif text-14 font-medium text-ink sm:w-32">
@@ -150,9 +162,9 @@ function FamilyRow({
       </Mono>
       <span className="flex shrink-0 items-baseline gap-2">
         <Badge tone={family.origin === "evolved" ? "accent" : "neutral"}>
-          {ORIGIN_LABEL[family.origin]}
+          {t(ORIGIN_LABEL_KEY[family.origin])}
           {family.origin === "evolved" && family.addedAtOrdinal != null
-            ? ` · 第 ${family.addedAtOrdinal} 次`
+            ? ` · ${t("evolve.axis.originOrdinal", { n: family.addedAtOrdinal })}`
             : ""}
         </Badge>
         {family.origin === "evolved" && family.addedByTask && (
@@ -161,7 +173,7 @@ function FamilyRow({
             onClick={() => onOpenTask(family.addedByTask as string)}
             className="text-12 text-accent underline-offset-2 hover:underline"
           >
-            来源
+            {t("evolve.axis.originLink")}
           </button>
         )}
       </span>
@@ -178,13 +190,15 @@ export function SchemaAxisPanel({
   claimLabels: ClaimLabel[];
   onOpenTask: (taskId: string) => void;
 }) {
+  const t = useT();
   const groups = groupFamiliesByArea(axis.families);
+  const separator = t("evolve.listSeparator");
   const evolvedCount = axis.families.filter((f) => f.origin === "evolved").length;
 
   return (
     <div className="flex flex-col gap-8">
       <section>
-        <SectionRule no={1} title="当前生效 skill" />
+        <SectionRule no={1} title={t("evolve.axis.currentSkill")} />
         <DefinitionList
           className="mt-2"
           items={[
@@ -206,7 +220,10 @@ export function SchemaAxisPanel({
               term: "family",
               definition: (
                 <span className="text-14 text-ink-2">
-                  共 {axis.families.length} 个，其中 {evolvedCount} 个由演化加入
+                  {t("evolve.axis.familyCount", {
+                    total: axis.families.length,
+                    evolved: evolvedCount,
+                  })}
                 </span>
               ),
             },
@@ -214,14 +231,19 @@ export function SchemaAxisPanel({
         />
         {claimLabels.length > 0 && (
           <>
-            <p className="mt-3 text-12 text-ink-3">claim 标签词表 · {claimLabels.length}</p>
+            <p className="mt-3 text-12 text-ink-3">
+              {t("evolve.axis.claimLabels", { count: claimLabels.length })}
+            </p>
             <ul className="mt-1 flex flex-wrap gap-1.5">
               {claimLabels.map((label) => (
                 <li key={label.label}>
                   <Tooltip content={label.description}>
                     <span
                       tabIndex={0}
-                      aria-label={`${label.name}：${label.description}`}
+                      aria-label={t("evolve.axis.labelAria", {
+                        name: label.name,
+                        description: label.description,
+                      })}
                       className="inline-flex rounded-1 outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1"
                     >
                       <Badge
@@ -241,11 +263,13 @@ export function SchemaAxisPanel({
       </section>
 
       <section>
-        <SectionRule no={2} title={`累积轴 · ${axis.stations.length} 刻度`} />
+        <SectionRule
+          no={2}
+          title={t("evolve.axis.stationsTitle", { count: axis.stations.length })}
+        />
         {axis.drifted.length > 0 && (
-          <Callout tone="warn" title="schema 漂移" className="mt-3">
-            这些 family 曾被采纳、但当前 skill 里已经查不到：
-            {axis.drifted.join("、")}。轴上以删除线标出，未做任何补齐。
+          <Callout tone="warn" title={t("evolve.axis.driftTitle")} className="mt-3">
+            {t("evolve.axis.driftBody", { families: axis.drifted.join(separator) })}
           </Callout>
         )}
         <ol className="mt-2 flex flex-col">
@@ -262,18 +286,21 @@ export function SchemaAxisPanel({
       </section>
 
       <section>
-        <SectionRule no={3} title={`当前全量 family · ${axis.families.length}`} />
+        <SectionRule
+          no={3}
+          title={t("evolve.axis.familiesTitle", { count: axis.families.length })}
+        />
         {axis.families.length === 0 ? (
-          <p className="mt-3 text-13 text-ink-3">
-            当前 skill 未声明任何路径模板——无法推导 family 一览。
-          </p>
+          <p className="mt-3 text-13 text-ink-3">{t("evolve.axis.noTemplates")}</p>
         ) : (
           <div className="mt-3 flex flex-col gap-5">
             {groups.map((group) => (
               <div key={group.area}>
                 <p className="flex items-baseline gap-2 border-b border-line-2 pb-1">
                   <Mono className="text-12 text-ink-3">{group.area}/</Mono>
-                  <span className="text-12 text-ink-3">{group.families.length} 个</span>
+                  <span className="text-12 text-ink-3">
+                    {t("evolve.axis.groupCount", { count: group.families.length })}
+                  </span>
                 </p>
                 <ul className="flex flex-col">
                   {group.families.map((family) => (
@@ -289,9 +316,8 @@ export function SchemaAxisPanel({
           </div>
         )}
         {axis.proposed.length > 0 && (
-          <Callout tone="notice" title="闸门上待审" className="mt-4">
-            {axis.proposed.join("、")} 已被提议，但要等你在时间线上采用后才会进入
-            schema。
+          <Callout tone="notice" title={t("evolve.axis.proposedTitle")} className="mt-4">
+            {t("evolve.axis.proposedBody", { families: axis.proposed.join(separator) })}
           </Callout>
         )}
       </section>

@@ -12,8 +12,8 @@ const TONES: Record<StampTone, string> = {
 };
 
 /**
- * 档案戳：旋转 -2deg 的线框章。仅用于「只读 / synthetic / 真实状态」，
- * 用语义色描边；不要当装饰贴纸到处贴。
+ * Archive stamp: an outlined mark rotated -2deg. Only for read-only / synthetic / real-state
+ * facts, outlined in a semantic colour. Not a decorative sticker.
  */
 export function Stamp({
   tone = "neutral",

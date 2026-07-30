@@ -7,6 +7,7 @@ import {
   getContextFocuses,
   getSuggestionKinds,
   listAllSources,
+  type ContextFocusOption,
   type ContextSuggestion,
   type LiveContextDone,
   type LiveContextReadyFrame,
@@ -16,6 +17,8 @@ import {
   type ContextTurnInput,
   type SuggestionDetailFrame,
 } from "@/lib/api";
+import type { MessageKey } from "@/lib/i18n";
+import { useT, useTOr, type TFunction, type TOrFunction } from "@/lib/useT";
 import { PageHeader } from "@/components/PageHeader";
 import { GateLedger } from "@/components/GateLedger";
 import { type CitationEntry } from "@/components/CitationList";
@@ -40,16 +43,45 @@ import { ContextSuggestionCard } from "./ContextSuggestionCard";
 
 type Role = "owner" | "other" | "unknown";
 
-const ROLE_OPTIONS = [
-  { value: "owner", label: "本人" },
-  { value: "other", label: "参与者" },
-  { value: "unknown", label: "未知" },
+/**
+ * The role vocabulary is the client's own (the wire takes the bare `owner` / `other` /
+ * `unknown`), so it holds message keys and is resolved per render — a module-level constant
+ * built from `tx()` would freeze the locale at import time.
+ */
+const ROLE_OPTIONS: { value: Role; labelKey: MessageKey }[] = [
+  { value: "owner", labelKey: "liveContext.role.owner" },
+  { value: "other", labelKey: "liveContext.role.other" },
+  { value: "unknown", labelKey: "liveContext.role.unknown" },
 ];
+
+const roleOptions = (t: TFunction) =>
+  ROLE_OPTIONS.map(({ value, labelKey }) => ({ value, label: t(labelKey) }));
+
+/** The focus select's options and hint, from the server vocabulary + the enum dictionary. */
+function focusOptions(focuses: ContextFocusOption[], t: TFunction, tOr: TOrFunction) {
+  return focuses.map((f) => ({
+    value: f.key,
+    label: t("liveContext.focus.option", {
+      label: tOr(`enum.contextFocus.${f.key}.label`, f.label),
+      key: f.key,
+    }),
+  }));
+}
+
+function focusHint(
+  focuses: ContextFocusOption[],
+  selected: string | null,
+  tOr: TOrFunction,
+): string | undefined {
+  const found = focuses.find((f) => f.key === selected);
+  if (!found) return undefined;
+  return tOr(`enum.contextFocus.${found.key}.summary`, found.summary);
+}
 
 let seed = 0;
 const nextId = () => `${Date.now().toString(36)}-${(seed++).toString(36)}`;
 
-/* ============================================================== 一次性 SSE panel */
+/* ============================================================= one-shot SSE panel */
 
 interface SseTurn {
   id: string;
@@ -64,7 +96,7 @@ function useSsePanel(currentUser: string | null) {
   const [minConf, setMinConf] = useState(1);
   const [maxContextSuggestions, setMaxContextSuggestions] = useState<number | null>(3);
   const [turnWindow, setTurnWindow] = useState<number | null>(3);
-  /** 本地再过滤阈值：纯前端 software filter，不发任何请求。 */
+  /** The local re-filter threshold: a client-side software filter, sending no request. */
   const [threshold, setThreshold] = useState(1);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -72,7 +104,7 @@ function useSsePanel(currentUser: string | null) {
   const [done, setDone] = useState<LiveContextDone | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
-  // 卸载中断 SSE。
+  // Abort the SSE stream on unmount.
   useEffect(() => () => abortRef.current?.abort(), []);
 
   const addTurn = useCallback(() => {
@@ -112,7 +144,8 @@ function useSsePanel(currentUser: string | null) {
         min_confidence: minConf,
         max_suggestions: maxContextSuggestions ?? 3,
         turn_window: turnWindow ?? 3,
-        // 去重回填：已下发的卡片以 {kind, title} 回传，避免重复提示。
+        // Deduplication feedback: cards already delivered go back as {kind, title}, so the
+        // same suggestion is not raised twice.
         already_shown: cards.map((c) => ({ kind: c.kind, title: c.title })),
       },
       {
@@ -152,7 +185,7 @@ function useSsePanel(currentUser: string | null) {
   };
 }
 
-/* ============================================================== 长连接 WS panel */
+/* ========================================================== long-lived WS panel */
 
 interface WsCard {
   id: string;
@@ -160,7 +193,7 @@ interface WsCard {
   seq: number;
 }
 
-function useWsPanel(currentUser: string | null) {
+function useWsPanel(currentUser: string | null, t: TFunction) {
   const sockRef = useRef<LiveContextSocket | null>(null);
   const [status, setStatus] = useState<LiveContextSocketStatus>("closed");
   const [ready, setReady] = useState<LiveContextReadyFrame | null>(null);
@@ -173,19 +206,23 @@ function useWsPanel(currentUser: string | null) {
   const [sentTurns, setSentTurns] = useState<ContextTurnInput[]>([]);
   const [statsLog, setStatsLog] = useState<LiveContextStatsFrame[]>([]);
   const [error, setError] = useState<string | null>(null);
-  // want_more 三件套都按「收到卡片的 id」归账，由送出的 ref 解析回来——
-  // 绝不按 title 对（title 是去重键，说不出失败属于哪个请求）。
+  // All three want_more books are kept against the RECEIVED CARD's id, resolved back from
+  // the ref that was sent — never against the title (the title is the deduplication key and
+  // cannot say which request a failure belongs to).
   const [details, setDetails] = useState<Record<string, SuggestionDetailFrame>>({});
   const [pending, setPending] = useState<string[]>([]);
   const [failures, setFailures] = useState<Record<string, string>>({});
-  // 在途 want_more 关联：ref → 卡片 id。用 ref 不用 state——帧处理器要同步读。
+  // In-flight want_more links: ref → card id. A ref, not state — the frame handler reads it
+  // synchronously.
   const refToCard = useRef(new Map<string, string>());
 
-  const [draftSpeaker, setDraftSpeaker] = useState("对方");
+  // The draft speaker is a starting value for an editable field, so it is read once: a later
+  // locale switch must not overwrite what the operator typed.
+  const [draftSpeaker, setDraftSpeaker] = useState(() => t("liveContext.ws.defaultSpeaker"));
   const [draftText, setDraftText] = useState("");
   const [draftRole, setDraftRole] = useState<Role>("other");
 
-  /** 把帧的 ref 解析回发起请求的卡片并退休该关联；ref 为空或已失效 → null。 */
+  /** Resolve a frame's ref back to the card that asked, retiring the link; unknown → null. */
   const takeRef = useCallback((ref: string | null | undefined): string | null => {
     if (!ref) return null;
     const card = refToCard.current.get(ref) ?? null;
@@ -200,12 +237,14 @@ function useWsPanel(currentUser: string | null) {
           setReady(frame);
           break;
         case "stats":
-          // 每次评估都回一帧，包括零下发的——那正是需要门禁账解释的一帧。
+          // Every evaluation returns one, including those that delivered nothing — precisely
+          // the frame whose gate ledger needs reading.
           setStatsLog((l) => [frame, ...l].slice(0, 8));
           break;
         case "suggestion":
           setCards((cs) => {
-            // 客户端是去重权威：已下发的 {kind,title} 不再收第二次。
+            // The client is the deduplication authority: a {kind,title} already delivered is
+            // never taken a second time.
             if (cs.some((c) => c.suggestion.kind === frame.suggestion.kind && c.suggestion.title === frame.suggestion.title))
               return cs;
             return [...cs, { id: nextId(), suggestion: frame.suggestion, seq: frame.seq }];
@@ -225,7 +264,8 @@ function useWsPanel(currentUser: string | null) {
           break;
         }
         case "error": {
-          // 带 ref 的失败归属对应的 want_more；无 ref（坏帧/评估失败）不归属任何请求。
+          // A failure carrying a ref belongs to that want_more; without one (a bad frame, a
+          // failed evaluation) it belongs to no request and surfaces as the panel error.
           const card = takeRef(frame.ref);
           if (card) {
             setFailures((f) => ({ ...f, [card]: frame.detail }));
@@ -248,15 +288,17 @@ function useWsPanel(currentUser: string | null) {
       min_confidence: minConf,
       turn_window: turnWindow ?? undefined,
       quiet_period: quietPeriod ?? undefined,
-      // 试验台显式开启 stats；context 客户端永远不会——静默连接必须真的静默。
+      // The bench turns stats on explicitly; a real context client never would — a silent
+      // connection has to be genuinely silent.
       stats: statsOn,
     }),
     [focus, minConf, turnWindow, quietPeriod, statsOn],
   );
 
   /**
-   * 打开连接。restore=true 时在首个 config 里回放窗口 + 已展示卡片——
-   * 这是文档规定的重连路径：客户端是去重权威，服务端跨断线不记任何事。
+   * Open the connection. With restore=true the first config replays the window plus the
+   * cards already shown — the documented reconnect path: the client is the deduplication
+   * authority and the server remembers nothing across a disconnect.
    */
   const connect = useCallback(
     (restore: boolean) => {
@@ -264,7 +306,7 @@ function useWsPanel(currentUser: string | null) {
       sockRef.current?.close();
       setReady(null);
       setError(null);
-      // 关联不跨连接存活：旧 socket 上送出的 ref 永远不会再有应答。
+      // Links do not outlive a connection: a ref sent on the old socket will never be answered.
       refToCard.current.clear();
       setPending([]);
       setStatsLog([]);
@@ -298,7 +340,8 @@ function useWsPanel(currentUser: string | null) {
     setPending([]);
   }, []);
 
-  // 卸载（或用户切换）时拆掉连接——绑着旧用户的监听器会继续对旧知识库评估。
+  // Tear the connection down on unmount (or a user switch) — a listener bound to the previous
+  // user would go on evaluating against the previous knowledge base.
   useEffect(() => {
     return () => {
       sockRef.current?.close();
@@ -306,7 +349,8 @@ function useWsPanel(currentUser: string | null) {
     };
   }, [currentUser]);
 
-  // 旋钮在连接中可调：每次变更实时推 config，服务端回一帧新的 ready。
+  // The knobs stay live while connected: each change pushes config and the server answers
+  // with a fresh ready frame.
   const policyKey = JSON.stringify(policyMessage());
   useEffect(() => {
     if (status === "open") sockRef.current?.config(JSON.parse(policyKey));
@@ -333,7 +377,8 @@ function useWsPanel(currentUser: string | null) {
   function wantMore(item: WsCard) {
     const sock = sockRef.current;
     if (!sock?.ready) return;
-    // 每个请求一个全新的 ref：失败重试是新的关联，迟到应答不会错挂。
+    // A brand-new ref per request: a retry after a failure is a new link, so a late answer
+    // cannot attach itself to the wrong card.
     const ref = nextId();
     refToCard.current.set(ref, item.id);
     sock.wantMore(item.suggestion, ref);
@@ -383,24 +428,28 @@ function useWsPanel(currentUser: string | null) {
 /* ================================================================ Live Context view */
 
 /**
- * Live Context 双链路面板。
- * SSE 一次性：整段工作流窗口一次性评估；WS 长连接：服务端持窗口 + 静默期 +
- * 单在途合并，want_more 展开 suggestion_detail。两链路的状态都挂在 LiveContextView 顶层的
- * hook 上——Tabs 切换会卸载未激活面板，状态必须比面板活得久。
+ * The Live Context bench, one panel per transport.
+ * One-shot SSE evaluates a whole workstream window in a single call; the long-lived WS keeps
+ * the window, the quiet period and single-in-flight coalescing on the server, with want_more
+ * expanding a card into a suggestion_detail. Both transports' state hangs off hooks at the
+ * LiveContextView level — switching tabs unmounts the inactive panel, so the state has to
+ * outlive it.
  */
 export default function LiveContextView() {
+  const t = useT();
   const currentUser = useApp((s) => s.currentUser);
   const focusSource = useApp((s) => s.focusSource);
   const [tab, setTab] = useState("sse");
-  const [focuses, setFocuses] = useState<{ key: string; label: string; summary: string }[]>([]);
+  const [focuses, setFocuses] = useState<ContextFocusOption[]>([]);
   const [kindLabels, setKindLabels] = useState<Record<string, string>>({});
   const [vocabError, setVocabError] = useState<string | null>(null);
   const [titles, setTitles] = useState<Record<string, string>>({});
 
   const sse = useSsePanel(currentUser);
-  const ws = useWsPanel(currentUser);
+  const ws = useWsPanel(currentUser, t);
 
-  // focus / kind 词表由服务端供给（封闭词汇，不在前端私抄一份）。
+  // The focus / kind vocabularies come from the server (closed vocabularies; the front end
+  // keeps no private copy — only translations of the served keys).
   useEffect(() => {
     let alive = true;
     Promise.all([getContextFocuses(), getSuggestionKinds()])
@@ -408,7 +457,7 @@ export default function LiveContextView() {
         if (!alive) return;
         setFocuses(f);
         setKindLabels(Object.fromEntries(k.map((x) => [x.key, x.label])));
-        // 默认值永远取服务端词表的第一项，不硬编码。
+        // The default is always the vocabulary's first entry, never a hard-coded key.
         if (f.length > 0) {
           sse.setFocus((cur) => cur ?? f[0].key);
           ws.setFocus((cur) => cur ?? f[0].key);
@@ -447,13 +496,13 @@ export default function LiveContextView() {
     return (
       <>
         <PageHeader
-          title="即时上下文 Live Context"
-          description="持续接收工作流片段，自动检索相关证据并融合为可引用的上下文提示。"
+          title={t("nav.view.live_context")}
+          description={t("liveContext.descriptionShort")}
         />
         <EmptyState
           icon={RadioTower}
-          title="未选择用户"
-          description="在右上角选择一个 user_id。上下文提示只会引用该用户知识库里的真实来源；没有可靠证据时保持静默。"
+          title={t("liveContext.noUser.title")}
+          description={t("liveContext.noUser.description")}
         />
       </>
     );
@@ -462,18 +511,20 @@ export default function LiveContextView() {
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
-        title="即时上下文 Live Context"
-        description="持续接收工作流片段，自动检索相关证据并融合为可引用的上下文提示；没有足够证据时保持静默。"
+        title={t("nav.view.live_context")}
+        description={t("liveContext.description")}
       />
-      {vocabError && <Callout tone="warn">focus 词表拉取失败：{vocabError}</Callout>}
+      {vocabError && (
+        <Callout tone="warn">{t("liveContext.vocabError", { detail: vocabError })}</Callout>
+      )}
       <Tabs
-        aria-label="实时上下文传输"
+        aria-label={t("liveContext.transportAria")}
         value={tab}
         onChange={setTab}
         tabs={[
           {
             value: "sse",
-            label: "一次性 SSE",
+            label: t("liveContext.tab.sse"),
             panel: (
               <SsePanel
                 panel={sse}
@@ -486,7 +537,7 @@ export default function LiveContextView() {
           },
           {
             value: "ws",
-            label: "长连接 WS",
+            label: t("liveContext.tab.ws"),
             panel: (
               <WsPanel
                 panel={ws}
@@ -503,7 +554,7 @@ export default function LiveContextView() {
   );
 }
 
-/* ---------------------------------------------------------------- SSE 面板 */
+/* ---------------------------------------------------------------- SSE panel */
 
 function SsePanel({
   panel,
@@ -513,58 +564,58 @@ function SsePanel({
   onJump,
 }: {
   panel: ReturnType<typeof useSsePanel>;
-  focuses: { key: string; label: string; summary: string }[];
+  focuses: ContextFocusOption[];
   kindLabels: Record<string, string>;
   titles: Record<string, string>;
   onJump: (c: CitationEntry) => void;
 }) {
+  const t = useT();
+  const tOr = useTOr();
   const hidden = panel.cards.length - panel.visible.length;
   return (
     <div className="flex flex-col gap-8">
-      {/* 工作流窗口 */}
+      {/* the workstream window */}
       <section>
         <SectionRule
           no={1}
-          title="工作流窗口"
+          title={t("liveContext.sse.window.title")}
           actions={
             <Button size="sm" onClick={panel.addTurn}>
-              <Plus size={13} aria-hidden /> 追加片段
+              <Plus size={13} aria-hidden /> {t("liveContext.sse.window.add")}
             </Button>
           }
         />
         {panel.turns.length === 0 ? (
-          <p className="mt-3 text-13 text-ink-3">
-            逐条录入会议、消息或协作片段，整段窗口一次性送入评估；focus 只改变注意力指向，不过滤上下文。
-          </p>
+          <p className="mt-3 text-13 text-ink-3">{t("liveContext.sse.window.hint")}</p>
         ) : (
           <ol className="mt-3 flex flex-col gap-2">
-            {panel.turns.map((t) => (
-              <li key={t.id} className="flex flex-wrap items-start gap-2">
+            {panel.turns.map((turn) => (
+              <li key={turn.id} className="flex flex-wrap items-start gap-2">
                 <TextField
                   wrapperClassName="w-28"
-                  value={t.speaker}
-                  onChange={(e) => panel.updateTurn(t.id, { speaker: e.target.value })}
-                  placeholder="说话人"
-                  aria-label="说话人"
+                  value={turn.speaker}
+                  onChange={(e) => panel.updateTurn(turn.id, { speaker: e.target.value })}
+                  placeholder={t("liveContext.turn.speaker")}
+                  aria-label={t("liveContext.turn.speaker")}
                 />
                 <Select
                   wrapperClassName="w-28"
-                  value={t.role}
-                  onChange={(v) => panel.updateTurn(t.id, { role: v as Role })}
-                  options={ROLE_OPTIONS}
-                  aria-label="角色"
+                  value={turn.role}
+                  onChange={(v) => panel.updateTurn(turn.id, { role: v as Role })}
+                  options={roleOptions(t)}
+                  aria-label={t("liveContext.turn.role")}
                 />
                 <TextField
                   wrapperClassName="min-w-40 flex-1"
-                  value={t.text}
-                  onChange={(e) => panel.updateTurn(t.id, { text: e.target.value })}
-                  placeholder="输入一条工作流片段…"
-                  aria-label="工作流片段"
+                  value={turn.text}
+                  onChange={(e) => panel.updateTurn(turn.id, { text: e.target.value })}
+                  placeholder={t("liveContext.turn.textPlaceholder")}
+                  aria-label={t("liveContext.turn.text")}
                 />
                 <IconButton
-                  aria-label="删除该片段"
+                  aria-label={t("liveContext.turn.remove")}
                   size="md"
-                  onClick={() => panel.removeTurn(t.id)}
+                  onClick={() => panel.removeTurn(turn.id)}
                 >
                   <Trash2 size={14} aria-hidden />
                 </IconButton>
@@ -574,26 +625,26 @@ function SsePanel({
         )}
       </section>
 
-      {/* 评估参数 */}
+      {/* evaluation parameters */}
       <section>
-        <SectionRule no={2} title="评估参数" />
+        <SectionRule no={2} title={t("liveContext.sse.params.title")} />
         <div className="mt-4 flex max-w-measure flex-col gap-4">
           <Select
-            label="focus（注意力指向）"
+            label={t("liveContext.focus.label")}
             value={panel.focus}
             onChange={panel.setFocus}
-            options={focuses.map((f) => ({ value: f.key, label: `${f.label}（${f.key}）` }))}
-            placeholder="载入词表…"
+            options={focusOptions(focuses, t, tOr)}
+            placeholder={t("liveContext.focus.loading")}
             disabled={focuses.length === 0}
-            hint={focuses.find((f) => f.key === panel.focus)?.summary}
+            hint={focusHint(focuses, panel.focus, tOr)}
           />
           <Slider
-            label="min_confidence（服务端闸门）"
+            label={t("liveContext.sse.minConfidence.label")}
             value={panel.minConf}
             onChange={panel.setMinConf}
             min={1}
             max={10}
-            hint="低于该置信度的卡片不会下发，计入 dropped.low_confidence。"
+            hint={t("liveContext.sse.minConfidence.hint")}
           />
           <div className="flex flex-wrap gap-4">
             <NumberField
@@ -618,24 +669,31 @@ function SsePanel({
               disabled={panel.turns.length === 0 || !panel.focus}
               onClick={() => void panel.evaluate()}
             >
-              送整段评估一次
+              {t("liveContext.sse.run")}
             </Button>
           </div>
         </div>
       </section>
 
-      {/* 结果 */}
+      {/* results */}
       {panel.error ? (
-        <ErrorState title="评估失败" error={panel.error} onRetry={() => void panel.evaluate()} />
+        <ErrorState
+          title={t("liveContext.sse.errorTitle")}
+          error={panel.error}
+          onRetry={() => void panel.evaluate()}
+        />
       ) : (
         <section>
           <SectionRule
             no={3}
-            title={`上下文提示（${panel.visible.length} / 已生成 ${panel.cards.length}）`}
+            title={t("liveContext.sse.cards.title", {
+              visible: panel.visible.length,
+              total: panel.cards.length,
+            })}
             actions={
               panel.cards.length > 0 ? (
                 <Button size="sm" variant="ghost" onClick={() => panel.setCards([])}>
-                  清空提示
+                  {t("liveContext.cards.clear")}
                 </Button>
               ) : undefined
             }
@@ -644,28 +702,30 @@ function SsePanel({
             <div className="mt-4">
               <EmptyState
                 icon={RadioTower}
-                title="还没有上下文提示"
-                description="输入工作流片段并运行评估；解析失败、无引用、低置信或超限时都会保持静默，门禁账会记录原因。"
+                title={t("liveContext.cards.emptyTitle")}
+                description={t("liveContext.sse.cards.emptyDescription")}
               />
             </div>
           ) : (
             <>
               <div className="mt-4 max-w-measure">
                 <Slider
-                  label="本地再过滤阈值（software filter）"
+                  label={t("liveContext.sse.threshold.label")}
                   value={panel.threshold}
                   onChange={panel.setThreshold}
                   min={1}
                   max={10}
-                  hint="纯前端过滤：confidence ≥ 阈值的已生成提示保留，不发任何请求。"
+                  hint={t("liveContext.sse.threshold.hint")}
                 />
                 {hidden > 0 && (
                   <p className="mt-1 text-12 text-ink-3">
-                    本地阈值挡下 {hidden} 张（未重新请求）。
+                    {t("liveContext.sse.threshold.hidden", { count: hidden })}
                   </p>
                 )}
               </div>
-              {panel.busy && <p className="mt-3 text-12 text-ink-3">评估中，提示逐一到达…</p>}
+              {panel.busy && (
+                <p className="mt-3 text-12 text-ink-3">{t("liveContext.sse.streaming")}</p>
+              )}
               {panel.busy && panel.cards.length === 0 && (
                 <SkeletonText lines={3} className="mt-3 max-w-measure" />
               )}
@@ -674,7 +734,10 @@ function SsePanel({
                   <ContextSuggestionCard
                     key={`${suggestion.kind}:${suggestion.title}:${i}`}
                     suggestion={suggestion}
-                    kindLabel={kindLabels[suggestion.kind]}
+                    kindLabel={tOr(
+                      `enum.suggestionKind.${suggestion.kind}.label`,
+                      kindLabels[suggestion.kind] ?? suggestion.kind,
+                    )}
                     via="sse"
                     titles={titles}
                     onJump={onJump}
@@ -686,14 +749,14 @@ function SsePanel({
         </section>
       )}
 
-      {/* 门禁账 */}
+      {/* the gate ledger */}
       {panel.done && (
         <section>
-          <SectionRule no={4} title="门禁账" />
+          <SectionRule no={4} title={t("liveContext.gate.title")} />
           <GateLedger className="mt-4 max-w-measure" dropped={panel.done.dropped} />
           <p className="mt-2 text-12 text-ink-3">
-            下发 {panel.done.count} 张 · focus <Mono>{panel.done.focus}</Mono> · as_of{" "}
-            <Mono>{panel.done.as_of}</Mono>
+            {t("liveContext.deliveredCount", { count: panel.done.count })} · focus{" "}
+            <Mono>{panel.done.focus}</Mono> · as_of <Mono>{panel.done.as_of}</Mono>
           </p>
           <UsageLine usage={panel.done.token_usage} className="mt-1" />
         </section>
@@ -702,7 +765,7 @@ function SsePanel({
   );
 }
 
-/* ----------------------------------------------------------------- WS 面板 */
+/* ----------------------------------------------------------------- WS panel */
 
 function WsPanel({
   panel,
@@ -712,36 +775,38 @@ function WsPanel({
   onJump,
 }: {
   panel: ReturnType<typeof useWsPanel>;
-  focuses: { key: string; label: string; summary: string }[];
+  focuses: ContextFocusOption[];
   kindLabels: Record<string, string>;
   titles: Record<string, string>;
   onJump: (c: CitationEntry) => void;
 }) {
+  const t = useT();
+  const tOr = useTOr();
   const open = panel.status === "open";
   return (
     <div className="flex flex-col gap-8">
-      {/* 连接 */}
+      {/* the connection */}
       <section>
         <SectionRule
           no={1}
-          title="连接"
+          title={t("liveContext.ws.connection.title")}
           actions={
             open ? (
               <>
                 <Button size="sm" onClick={panel.disconnect}>
-                  断开
+                  {t("liveContext.ws.disconnect")}
                 </Button>
                 <Button
                   size="sm"
-                  title="断开后重连，并在 config 里回放窗口与已展示卡片（客户端是去重权威）"
+                  title={t("liveContext.ws.reconnectTitle")}
                   onClick={() => panel.connect(true)}
                 >
-                  <RotateCcw size={13} aria-hidden /> 重连（回放）
+                  <RotateCcw size={13} aria-hidden /> {t("liveContext.ws.reconnect")}
                 </Button>
               </>
             ) : (
               <Button size="sm" variant="primary" onClick={() => panel.connect(false)}>
-                <Plug size={13} aria-hidden /> 连接
+                <Plug size={13} aria-hidden /> {t("liveContext.ws.connect")}
               </Button>
             )
           }
@@ -754,12 +819,15 @@ function WsPanel({
               open ? "bg-ok" : panel.status === "connecting" ? "bg-accent" : "bg-ink-3",
             )}
           />
-          {open ? "已连接" : panel.status === "connecting" ? "连接中…" : "已断开"}
+          {open
+            ? t("liveContext.ws.status.open")
+            : panel.status === "connecting"
+              ? t("liveContext.ws.status.connecting")
+              : t("liveContext.ws.status.closed")}
         </p>
         {panel.status === "closed" && (
           <Callout tone="notice" className="mt-3 max-w-measure">
-            连接已断开。客户端是去重权威：重连时在 config 里回放已推送的 turns 与已下发卡片
-            already_shown，服务端跨断线不记任何事。
+            {t("liveContext.ws.closedNotice")}
           </Callout>
         )}
         {panel.ready && (
@@ -783,16 +851,16 @@ function WsPanel({
 
       {/* config */}
       <section>
-        <SectionRule no={2} title="生效策略（config）" />
+        <SectionRule no={2} title={t("liveContext.ws.config.title")} />
         <div className="mt-4 flex max-w-measure flex-col gap-4">
           <Select
-            label="focus（注意力指向）"
+            label={t("liveContext.focus.label")}
             value={panel.focus}
             onChange={panel.setFocus}
-            options={focuses.map((f) => ({ value: f.key, label: `${f.label}（${f.key}）` }))}
-            placeholder="载入词表…"
+            options={focusOptions(focuses, t, tOr)}
+            placeholder={t("liveContext.focus.loading")}
             disabled={focuses.length === 0}
-            hint={focuses.find((f) => f.key === panel.focus)?.summary}
+            hint={focusHint(focuses, panel.focus, tOr)}
           />
           <Slider
             label="min_confidence"
@@ -810,7 +878,7 @@ function WsPanel({
               max={12}
             />
             <NumberField
-              label="quiet_period（秒）"
+              label={t("liveContext.ws.quietPeriod.label")}
               value={panel.quietPeriod}
               onChange={panel.setQuietPeriod}
               min={0}
@@ -820,21 +888,26 @@ function WsPanel({
           <Switch
             checked={panel.statsOn}
             onCheckedChange={panel.setStatsOn}
-            label="stats 帧"
-            hint="开启后每次评估都回一帧门禁账，包括一张卡都没下发的评估。"
+            label={t("liveContext.ws.stats.label")}
+            hint={t("liveContext.ws.stats.hint")}
           />
-          <p className="text-12 text-ink-3">连接打开时，改动实时推送 config。</p>
+          <p className="text-12 text-ink-3">{t("liveContext.ws.config.liveNote")}</p>
         </div>
       </section>
 
-      {/* 工作流片段追加 + flush */}
+      {/* appending workstream fragments + flush */}
       <section>
         <SectionRule
           no={3}
-          title="工作流片段"
+          title={t("liveContext.ws.turns.title")}
           actions={
-            <Button size="sm" disabled={!open} title="立即评估，跳过静默期" onClick={panel.flush}>
-              立即评估（flush）
+            <Button
+              size="sm"
+              disabled={!open}
+              title={t("liveContext.ws.flushTitle")}
+              onClick={panel.flush}
+            >
+              {t("liveContext.ws.flush")}
             </Button>
           }
         />
@@ -843,15 +916,15 @@ function WsPanel({
             wrapperClassName="w-28"
             value={panel.draftSpeaker}
             onChange={(e) => panel.setDraftSpeaker(e.target.value)}
-            placeholder="说话人"
-            aria-label="说话人"
+            placeholder={t("liveContext.turn.speaker")}
+            aria-label={t("liveContext.turn.speaker")}
           />
           <Select
             wrapperClassName="w-28"
             value={panel.draftRole}
             onChange={(v) => panel.setDraftRole(v as Role)}
-            options={ROLE_OPTIONS}
-            aria-label="角色"
+            options={roleOptions(t)}
+            aria-label={t("liveContext.turn.role")}
           />
           <TextField
             wrapperClassName="min-w-40 flex-1"
@@ -860,14 +933,16 @@ function WsPanel({
             onKeyDown={(e) => {
               if (e.key === "Enter") panel.sendDraft();
             }}
-            placeholder="输入一条工作流片段…"
-            aria-label="工作流片段"
+            placeholder={t("liveContext.turn.textPlaceholder")}
+            aria-label={t("liveContext.turn.text")}
           />
           <Button disabled={!open || !panel.draftText.trim()} onClick={panel.sendDraft}>
-            发送
+            {t("liveContext.ws.send")}
           </Button>
         </div>
-        <p className="mt-2 text-12 text-ink-3">已推送 {panel.sentTurns.length} 轮。</p>
+        <p className="mt-2 text-12 text-ink-3">
+          {t("liveContext.ws.sentCount", { count: panel.sentTurns.length })}
+        </p>
       </section>
 
       {panel.error && (
@@ -876,15 +951,18 @@ function WsPanel({
         </Callout>
       )}
 
-      {/* 上下文提示 */}
+      {/* context suggestions */}
       <section>
-        <SectionRule no={4} title={`上下文提示（${panel.cards.length}）`} />
+        <SectionRule
+          no={4}
+          title={t("liveContext.ws.cards.title", { count: panel.cards.length })}
+        />
         {panel.cards.length === 0 ? (
           <div className="mt-4">
             <EmptyState
               icon={RadioTower}
-              title="还没有上下文提示"
-              description="长连接的稳态是静默：服务端维护窗口、静默期与单在途合并；没有足够相关且可引用的证据时不会发送提示。开启 stats 后可查看门禁账。"
+              title={t("liveContext.cards.emptyTitle")}
+              description={t("liveContext.ws.cards.emptyDescription")}
             />
           </div>
         ) : (
@@ -893,7 +971,10 @@ function WsPanel({
               <ContextSuggestionCard
                 key={item.id}
                 suggestion={item.suggestion}
-                kindLabel={kindLabels[item.suggestion.kind]}
+                kindLabel={tOr(
+                  `enum.suggestionKind.${item.suggestion.kind}.label`,
+                  kindLabels[item.suggestion.kind] ?? item.suggestion.kind,
+                )}
                 via={`ws · seq ${item.seq}`}
                 titles={titles}
                 onJump={onJump}
@@ -908,19 +989,19 @@ function WsPanel({
         )}
       </section>
 
-      {/* stats 历史 */}
+      {/* the stats history */}
       <section>
-        <SectionRule no={5} title="评估账（stats 历史）" />
+        <SectionRule no={5} title={t("liveContext.ws.statsLog.title")} />
         {panel.statsLog.length === 0 ? (
-          <p className="mt-3 text-13 text-ink-3">
-            还没有评估帧。stats 开启后每次评估都会回一帧——包括零下发的那些。
-          </p>
+          <p className="mt-3 text-13 text-ink-3">{t("liveContext.ws.statsLog.empty")}</p>
         ) : (
           <div className="mt-4 flex flex-col gap-6">
             {panel.statsLog.map((s) => (
               <div key={s.seq}>
                 <p className="mb-2 text-12 text-ink-3">
-                  <Mono>seq {s.seq}</Mono> · 下发 {s.delivered} 张 · focus <Mono>{s.focus}</Mono>
+                  <Mono>seq {s.seq}</Mono> ·{" "}
+                  {t("liveContext.deliveredCount", { count: s.delivered })} · focus{" "}
+                  <Mono>{s.focus}</Mono>
                 </p>
                 <GateLedger className="max-w-measure" dropped={s.dropped} />
                 <UsageLine usage={s.token_usage} className="mt-1" />

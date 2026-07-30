@@ -9,6 +9,7 @@ import {
 } from "@/lib/api";
 import { fmtDate } from "@/lib/format";
 import type { UserProfile } from "@/lib/types";
+import { useT, useTOr, type TOrFunction } from "@/lib/useT";
 import { PageHeader } from "@/components/PageHeader";
 import { UserPicker } from "@/components/UserPicker";
 import { Badge } from "@/ui/Badge";
@@ -26,7 +27,7 @@ import { Stamp } from "@/ui/Stamp";
 import { TextArea } from "@/ui/TextArea";
 import { TextField } from "@/ui/TextField";
 
-/* ------------------------------------------- 取值域（镜像后端 user.py 的枚举） */
+/* ------------------------------------ Value domains (mirroring user.py's enums) */
 
 const INDUSTRIES = [
   "tech",
@@ -48,56 +49,33 @@ const ROLES = [
   "admin",
   "other",
 ] as const;
-/** 6 档资历，低 → 高；驱动 AI 回答风格。 */
+/** Six seniority levels, low → high; drives the AI's answer style. */
 const LEVELS = ["entry", "junior", "mid", "senior", "staff", "principal"] as const;
-/** 每档资历对应的回答风格指令（镜像后端 LEVEL_STYLES）。 */
-const LEVEL_STYLES: Record<string, string> = {
-  entry: "用定义和逐步拆解解释问题，不预设背景知识。",
-  junior: "给出清晰说明、具体例子和必要的下一步指引。",
-  mid: "平衡结论、理由与可执行细节。",
-  senior: "保持简洁，优先呈现取舍、影响和决策边界。",
-  staff: "突出系统影响、跨域约束和边界情况。",
-  principal: "默认深厚专业背景，只保留决策所需的高信号信息。",
-};
 const LANGUAGES = ["zh-CN", "en-US", "ja-JP", "ko-KR", "fr-FR", "de-DE", "es-ES"] as const;
 const UNITS = ["metric", "imperial"] as const;
 const PRIVACY = ["standard", "strict"] as const;
 const WORKSPACE_MODES = ["opc", "independent", "team"] as const;
 const AUTOMATION_LEVELS = ["manual", "assisted", "agentic"] as const;
 
-const CORE_LABELS: Record<string, string> = {
-  tech: "技术与软件",
-  finance: "金融",
-  sports: "体育",
-  creative: "创意",
-  education: "教育",
-  healthcare: "医疗健康",
-  marketing: "市场",
-  engineering: "独立工程",
-  product_management: "产品管理",
-  sales: "销售",
-  design: "设计",
-  support: "客户支持",
-  admin: "运营管理",
-  other: "其他",
-  entry: "入门",
-  junior: "初级",
-  mid: "中级",
-  senior: "资深",
-  staff: "专家",
-  principal: "首席",
-};
+/**
+ * The industry / role / seniority vocabulary is spelled out in `i18n/profile.ts`
+ * (`profile.core.*`) because the API ships keys without labels. `tOr` is what keeps a value
+ * outside the vocabulary — one the service grew and this client has not learned — rendering
+ * as its raw wire value rather than as a blank. Same for the per-level answer-style hint
+ * (`profile.levelStyle.*`), whose wording mirrors the service's own.
+ */
+const coreKey = (value: string) => `profile.core.${value}`;
 
-/** industry/role 展示：枚举为 other 时用自由文本 *_other。 */
-function coreLabel(value: string, other: string | null): string {
-  if (value === "other") return other?.trim() || CORE_LABELS.other;
-  return CORE_LABELS[value] ?? value;
+/** industry/role display: the free-text `*_other` stands in when the enum is `other`. */
+function coreLabel(tOr: TOrFunction, value: string, other: string | null): string {
+  if (value === "other") return other?.trim() || tOr(coreKey("other"), "other");
+  return tOr(coreKey(value), value);
 }
 
-/** Select 选项：当前值在取值域外时也保留为可选项（不丢数据）。 */
-function enumOptions(domain: readonly string[], current: string) {
+/** Select options: a current value outside the domain stays selectable (no data lost). */
+function enumOptions(tOr: TOrFunction, domain: readonly string[], current: string) {
   const values = domain.includes(current) ? [...domain] : [current, ...domain];
-  return values.map((v) => ({ value: v, label: CORE_LABELS[v] ?? v }));
+  return values.map((v) => ({ value: v, label: tOr(coreKey(v), v) }));
 }
 
 const rawOptions = (domain: readonly string[], current: string) => {
@@ -105,7 +83,7 @@ const rawOptions = (domain: readonly string[], current: string) => {
   return values.map((v) => ({ value: v, label: v }));
 };
 
-/* ------------------------------------------------------------- 编辑表单 */
+/* ------------------------------------------------------------- The edit form */
 
 interface FormState {
   display_name: string;
@@ -118,7 +96,7 @@ interface FormState {
   level: string;
   occupation: string;
   bio: string;
-  /** 逗号分隔，提交时拆回 string[]。 */
+  /** Comma-separated; split back into a string[] on submit. */
   interestsText: string;
   city: string;
   country: string;
@@ -133,7 +111,10 @@ interface FormState {
   workspace_since: string;
 }
 
-/** 以画像（或 AI 草稿）播种表单；只读字段（avatar/level_style/joined_at/source）不进表单。 */
+/**
+ * Seed the form from a profile (or an AI draft). The read-only fields — avatar,
+ * level_style, joined_at, source — never enter it.
+ */
 function toForm(p: UserProfile): FormState {
   return {
     display_name: p.display_name ?? "",
@@ -161,7 +142,7 @@ function toForm(p: UserProfile): FormState {
   };
 }
 
-/** 表单 → PUT /profile 的 patch（仅可编辑子集）。 */
+/** Form → the patch for PUT /profile (the editable subset only). */
 function toPatch(f: FormState): UserProfilePatch {
   return {
     display_name: f.display_name.trim(),
@@ -209,7 +190,7 @@ function FormGroup({ label, children }: { label: string; children: ReactNode }) 
 
 interface ProfileFormProps {
   uid: string;
-  /** 播种来源：当前画像或 AI 草稿。 */
+  /** What seeds the fields: the current profile, or an AI draft. */
   seed: UserProfile;
   disabled?: boolean;
   onSaved: (saved: UserProfile) => void;
@@ -217,14 +198,9 @@ interface ProfileFormProps {
   cancelLabel?: string;
 }
 
-function ProfileForm({
-  uid,
-  seed,
-  disabled,
-  onSaved,
-  onCancel,
-  cancelLabel = "取消",
-}: ProfileFormProps) {
+function ProfileForm({ uid, seed, disabled, onSaved, onCancel, cancelLabel }: ProfileFormProps) {
+  const t = useT();
+  const tOr = useTOr();
   const [form, setForm] = useState<FormState>(() => toForm(seed));
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -235,7 +211,7 @@ function ProfileForm({
   async function save() {
     setErr(null);
     if (!form.display_name.trim()) {
-      setErr("显示名称不能为空。");
+      setErr(t("profile.form.nameRequired"));
       return;
     }
     setSaving(true);
@@ -243,7 +219,7 @@ function ProfileForm({
       const saved = await putUserProfile(uid, toPatch(form));
       onSaved(saved);
     } catch (e) {
-      setErr(`保存失败：${(e as Error).message}`);
+      setErr(t("profile.form.saveFailed", { detail: (e as Error).message }));
     } finally {
       setSaving(false);
     }
@@ -251,30 +227,30 @@ function ProfileForm({
 
   return (
     <div className="flex flex-col gap-6">
-      <FormGroup label="基本">
+      <FormGroup label={t("profile.group.basics")}>
         <div className="grid gap-4 sm:grid-cols-2">
           <TextField
-            label="显示名称"
+            label={t("profile.field.displayName")}
             value={form.display_name}
             onChange={(e) => set("display_name", e.target.value)}
             disabled={disabled}
             required
           />
           <TextField
-            label="职业"
+            label={t("profile.field.occupation")}
             value={form.occupation}
             onChange={(e) => set("occupation", e.target.value)}
             disabled={disabled}
-            placeholder="AI-Native 独立开发者"
+            placeholder={t("profile.placeholder.occupation")}
           />
           <TextField
-            label="性别（可选）"
+            label={t("profile.field.gender")}
             value={form.gender}
             onChange={(e) => set("gender", e.target.value)}
             disabled={disabled}
           />
           <NumberField
-            label="出生年份（可选）"
+            label={t("profile.field.birthYear")}
             value={form.birth_year}
             onChange={(v) => set("birth_year", v)}
             min={1900}
@@ -283,61 +259,61 @@ function ProfileForm({
           />
         </div>
         <TextArea
-          label="简介"
+          label={t("profile.field.bio")}
           value={form.bio}
           onChange={(e) => set("bio", e.target.value)}
           disabled={disabled}
           autoRows
           maxRows={6}
-          placeholder="一句话介绍…"
+          placeholder={t("profile.placeholder.bio")}
         />
         <TextField
-          label="兴趣"
+          label={t("profile.field.interests")}
           value={form.interestsText}
           onChange={(e) => set("interestsText", e.target.value)}
           disabled={disabled}
-          hint="多个兴趣用逗号分隔"
-          placeholder="开源, 编译器, 徒步"
+          hint={t("profile.hint.interests")}
+          placeholder={t("profile.placeholder.interests")}
         />
       </FormGroup>
 
-      <FormGroup label="回答风格（industry / role / level）">
+      <FormGroup label={t("profile.group.style")}>
         <div className="grid gap-4 sm:grid-cols-2">
           <Select
-            label="行业"
+            label={t("profile.field.industry")}
             value={form.industry}
             onChange={(v) => set("industry", v)}
-            options={enumOptions(INDUSTRIES, form.industry)}
+            options={enumOptions(tOr, INDUSTRIES, form.industry)}
             disabled={disabled}
           />
           {form.industry === "other" && (
             <TextField
-              label="行业（其它）"
+              label={t("profile.field.industryOther")}
               value={form.industry_other}
               onChange={(e) => set("industry_other", e.target.value)}
               disabled={disabled}
-              placeholder="自定义行业"
+              placeholder={t("profile.placeholder.industryOther")}
             />
           )}
           <Select
-            label="角色"
+            label={t("profile.field.role")}
             value={form.role}
             onChange={(v) => set("role", v)}
-            options={enumOptions(ROLES, form.role)}
+            options={enumOptions(tOr, ROLES, form.role)}
             disabled={disabled}
           />
           {form.role === "other" && (
             <TextField
-              label="角色（其它）"
+              label={t("profile.field.roleOther")}
               value={form.role_other}
               onChange={(e) => set("role_other", e.target.value)}
               disabled={disabled}
-              placeholder="自定义角色"
+              placeholder={t("profile.placeholder.roleOther")}
             />
           )}
         </div>
         <Select
-          label="资历（决定 AI 回答风格）"
+          label={t("profile.field.level")}
           value={form.level}
           onChange={(v) => set("level", v)}
           options={(LEVELS.includes(form.level as (typeof LEVELS)[number])
@@ -345,57 +321,58 @@ function ProfileForm({
             : [form.level, ...LEVELS]
           ).map((l) => ({
             value: l,
-            label: `${(LEVELS as readonly string[]).indexOf(l) + 1 || "?"} · ${CORE_LABELS[l] ?? l}`,
+            label: `${(LEVELS as readonly string[]).indexOf(l) + 1 || "?"} · ${tOr(coreKey(l), l)}`,
           }))}
-          hint={LEVEL_STYLES[form.level]}
+          // Empty for a level outside the vocabulary, which reads as "no hint".
+          hint={tOr(`profile.levelStyle.${form.level}`, "")}
           disabled={disabled}
         />
       </FormGroup>
 
-      <FormGroup label="地区与偏好">
+      <FormGroup label={t("profile.group.locale")}>
         <div className="grid gap-4 sm:grid-cols-2">
           <TextField
-            label="城市"
+            label={t("profile.field.city")}
             value={form.city}
             onChange={(e) => set("city", e.target.value)}
             disabled={disabled}
           />
           <TextField
-            label="国家"
+            label={t("profile.field.country")}
             value={form.country}
             onChange={(e) => set("country", e.target.value)}
             disabled={disabled}
           />
           <TextField
-            label="时区"
+            label={t("profile.field.timezone")}
             value={form.timezone}
             onChange={(e) => set("timezone", e.target.value)}
             disabled={disabled}
             placeholder="Asia/Shanghai"
           />
           <Select
-            label="界面语言"
+            label={t("profile.field.language")}
             value={form.language}
             onChange={(v) => set("language", v)}
             options={rawOptions(LANGUAGES, form.language)}
             disabled={disabled}
           />
           <Select
-            label="回答语言"
+            label={t("profile.field.responseLanguage")}
             value={form.response_language}
             onChange={(v) => set("response_language", v)}
             options={rawOptions(LANGUAGES, form.response_language)}
             disabled={disabled}
           />
           <Select
-            label="单位"
+            label={t("profile.field.units")}
             value={form.units}
             onChange={(v) => set("units", v)}
             options={rawOptions(UNITS, form.units)}
             disabled={disabled}
           />
           <Select
-            label="隐私"
+            label={t("profile.field.privacy")}
             value={form.privacy_level}
             onChange={(v) => set("privacy_level", v)}
             options={rawOptions(PRIVACY, form.privacy_level)}
@@ -404,31 +381,31 @@ function ProfileForm({
         </div>
       </FormGroup>
 
-      <FormGroup label="工作台">
+      <FormGroup label={t("profile.group.workspace")}>
         <div className="grid gap-4 sm:grid-cols-2">
           <Select
-            label="工作模式"
+            label={t("profile.field.workspaceMode")}
             value={form.workspace_mode}
             onChange={(v) => set("workspace_mode", v)}
             options={rawOptions(WORKSPACE_MODES, form.workspace_mode)}
             disabled={disabled}
           />
           <TextField
-            label="主要技术栈"
+            label={t("profile.field.workspaceStack")}
             value={form.workspace_stack}
             onChange={(e) => set("workspace_stack", e.target.value)}
             disabled={disabled}
             placeholder="TypeScript + Python"
           />
           <Select
-            label="自动化程度"
+            label={t("profile.field.workspaceAutomation")}
             value={form.workspace_automation}
             onChange={(v) => set("workspace_automation", v)}
             options={rawOptions(AUTOMATION_LEVELS, form.workspace_automation)}
             disabled={disabled}
           />
           <TextField
-            label="启用日期"
+            label={t("profile.field.workspaceSince")}
             value={form.workspace_since}
             onChange={(e) => set("workspace_since", e.target.value)}
             disabled={disabled}
@@ -438,24 +415,24 @@ function ProfileForm({
       </FormGroup>
 
       {err && (
-        <Callout tone="danger" title="无法保存">
+        <Callout tone="danger" title={t("profile.form.saveFailedTitle")}>
           {err}
         </Callout>
       )}
 
       <div className="flex items-center gap-2 border-t border-line pt-4">
         <Button variant="primary" loading={saving} disabled={disabled} onClick={() => void save()}>
-          保存画像
+          {t("profile.form.save")}
         </Button>
         <Button variant="ghost" disabled={saving} onClick={onCancel}>
-          {cancelLabel}
+          {cancelLabel ?? t("profile.form.cancel")}
         </Button>
       </div>
     </div>
   );
 }
 
-/* ------------------------------------------------------------- 只读定义表 */
+/* --------------------------------------------------- The read-only definition list */
 
 function joinParts(parts: (string | null | undefined)[]): string | null {
   const s = parts.filter((p) => p && p.trim()).join(" · ");
@@ -463,6 +440,8 @@ function joinParts(parts: (string | null | undefined)[]): string | null {
 }
 
 function ProfileFields({ p }: { p: UserProfile }) {
+  const t = useT();
+  const tOr = useTOr();
   const levelIdx = (LEVELS as readonly string[]).indexOf(p.level);
   const dash = <span className="text-ink-3">—</span>;
   return (
@@ -470,13 +449,13 @@ function ProfileFields({ p }: { p: UserProfile }) {
       termClassName="sm:w-32"
       items={[
         { term: "user_id", definition: <Mono>{p.user_id}</Mono> },
-        { term: "行业", definition: coreLabel(p.industry, p.industry_other) },
-        { term: "角色", definition: coreLabel(p.role, p.role_other) },
+        { term: t("profile.term.industry"), definition: coreLabel(tOr, p.industry, p.industry_other) },
+        { term: t("profile.term.role"), definition: coreLabel(tOr, p.role, p.role_other) },
         {
-          term: "资历",
+          term: t("profile.term.level"),
           definition: (
             <>
-              {coreLabel(p.level, null)}
+              {coreLabel(tOr, p.level, null)}
               {levelIdx >= 0 && (
                 <Mono className="ml-2 text-12 text-ink-3">
                   {levelIdx + 1}/{LEVELS.length}
@@ -485,11 +464,11 @@ function ProfileFields({ p }: { p: UserProfile }) {
             </>
           ),
         },
-        { term: "回答风格", definition: p.level_style || dash },
-        { term: "职业", definition: p.occupation || dash },
-        { term: "简介", definition: p.bio || dash },
+        { term: t("profile.term.levelStyle"), definition: p.level_style || dash },
+        { term: t("profile.term.occupation"), definition: p.occupation || dash },
+        { term: t("profile.term.bio"), definition: p.bio || dash },
         {
-          term: "兴趣",
+          term: t("profile.term.interests"),
           definition:
             p.interests.length > 0 ? (
               <span className="flex flex-wrap gap-1.5">
@@ -502,7 +481,7 @@ function ProfileFields({ p }: { p: UserProfile }) {
             ),
         },
         {
-          term: "地区",
+          term: t("profile.term.region"),
           definition:
             joinParts([
               joinParts([p.locale.city, p.locale.country]),
@@ -511,35 +490,52 @@ function ProfileFields({ p }: { p: UserProfile }) {
             ]) ?? dash,
         },
         {
-          term: "工作台",
+          term: t("profile.term.workspace"),
+          // The values are wire codes (opc / agentic / a stack string): labelled, not
+          // translated.
           definition:
             joinParts([
-              p.workspace.operating_mode ? `模式 ${p.workspace.operating_mode}` : null,
-              p.workspace.primary_stack ? `技术栈 ${p.workspace.primary_stack}` : null,
-              p.workspace.automation_level ? `自动化 ${p.workspace.automation_level}` : null,
-              p.workspace.active_since ? `自 ${p.workspace.active_since}` : null,
+              p.workspace.operating_mode
+                ? t("profile.summary.mode", { value: p.workspace.operating_mode })
+                : null,
+              p.workspace.primary_stack
+                ? t("profile.summary.stack", { value: p.workspace.primary_stack })
+                : null,
+              p.workspace.automation_level
+                ? t("profile.summary.automation", { value: p.workspace.automation_level })
+                : null,
+              p.workspace.active_since
+                ? t("profile.summary.since", { value: p.workspace.active_since })
+                : null,
             ]) ?? dash,
         },
         {
-          term: "偏好",
+          term: t("profile.term.preferences"),
           definition:
             joinParts([
               p.preferences.response_language
-                ? `回答语言 ${p.preferences.response_language}`
+                ? t("profile.summary.responseLanguage", {
+                    value: p.preferences.response_language,
+                  })
                 : null,
-              p.preferences.units ? `单位 ${p.preferences.units}` : null,
-              p.preferences.privacy_level ? `隐私 ${p.preferences.privacy_level}` : null,
+              p.preferences.units
+                ? t("profile.summary.units", { value: p.preferences.units })
+                : null,
+              p.preferences.privacy_level
+                ? t("profile.summary.privacy", { value: p.preferences.privacy_level })
+                : null,
             ]) ?? dash,
         },
-        { term: "加入时间", definition: p.joined_at ? fmtDate(p.joined_at) : dash },
+        { term: t("profile.term.joinedAt"), definition: p.joined_at ? fmtDate(p.joined_at) : dash },
       ]}
     />
   );
 }
 
-/* ------------------------------------------------------------------- 视图 */
+/* ------------------------------------------------------------------- The view */
 
 export default function ProfileView() {
+  const t = useT();
   const currentUser = useApp((s) => s.currentUser);
   const profile = useApp((s) => s.currentProfile);
   const setProfile = useApp((s) => s.setProfile);
@@ -547,22 +543,26 @@ export default function ProfileView() {
     (s) => s.currentUser != null && s.profileOnboardingUser === s.currentUser,
   );
   const finishProfileCreation = useApp((s) => s.finishProfileCreation);
-  /** 历史快照只读态：所有 mutation 控件 disabled（DESIGN.md §4.3）。 */
+  /** Historical snapshots are read-only: every mutating control is disabled (DESIGN.md §4.3). */
   const readOnly = useApp((s) => s.currentSnapshot != null);
 
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [loadError, setLoadError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [editing, setEditing] = useState(false);
-  /** AI 生成的草稿：只预填表单，不落库；nonce 变化触发表单重播种。 */
+  /**
+   * The AI's draft: it only pre-fills the form, it is never stored. A changing nonce is what
+   * re-seeds the form.
+   */
   const [draft, setDraft] = useState<{ profile: UserProfile; nonce: number } | null>(null);
 
   const [sentence, setSentence] = useState("");
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState<string | null>(null);
 
-  // 自己发起加载以获得真实的 error 态（store.loadProfile 吞错降级，无法驱动 ErrorState）；
-  // 成功后写回 store，store.currentProfile 仍是唯一展示来源。
+  // This view loads the profile itself so it can show a real error state: store.loadProfile
+  // swallows failures and degrades, which cannot drive an ErrorState. On success the result
+  // goes back into the store, which stays the single source for what is displayed.
   useEffect(() => {
     setEditing(onboarding);
     setDraft(null);
@@ -601,7 +601,7 @@ export default function ProfileView() {
       setDraft((d) => ({ profile: p, nonce: (d?.nonce ?? 0) + 1 }));
       setEditing(true);
     } catch (e) {
-      setGenError(`生成失败：${(e as Error).message}`);
+      setGenError(t("profile.ai.failed", { detail: (e as Error).message }));
     } finally {
       setGenerating(false);
     }
@@ -609,14 +609,12 @@ export default function ProfileView() {
 
   const aiSection = (
     <section>
-      <SectionRule no={2} title="AI 生成画像" className="mb-3" />
-      <p className="mb-3 max-w-measure text-13 text-ink-2">
-        一句话描述一个人设，AI 展开为完整画像草稿并预填编辑表单——不落库，确认保存后才写入。
-      </p>
+      <SectionRule no={2} title={t("profile.ai.title")} className="mb-3" />
+      <p className="mb-3 max-w-measure text-13 text-ink-2">{t("profile.ai.lead")}</p>
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
         <TextField
           wrapperClassName="flex-1"
-          aria-label="一句话描述人设"
+          aria-label={t("profile.ai.inputAria")}
           value={sentence}
           onChange={(e) => setSentence(e.target.value)}
           onKeyDown={(e) => {
@@ -626,7 +624,7 @@ export default function ProfileView() {
             }
           }}
           disabled={readOnly || generating}
-          placeholder="如「杭州做开源数据库的独立开发者」"
+          placeholder={t("profile.ai.placeholder")}
         />
         <Button
           variant="primary"
@@ -635,7 +633,7 @@ export default function ProfileView() {
           onClick={() => void generate()}
         >
           <Sparkles size={14} aria-hidden />
-          生成草稿
+          {t("profile.ai.generate")}
         </Button>
       </div>
       {genError && <p className="mt-2 text-12 text-danger">{genError}</p>}
@@ -646,13 +644,13 @@ export default function ProfileView() {
     return (
       <>
         <PageHeader
-          title="画像 Profile"
-          description="synthetic 用户档案：核心字段、编辑与 AI 生成。"
+          title={t("nav.view.profile")}
+          description={t("profile.header.description")}
         />
         <EmptyState
           icon={UserRound}
-          title="尚未选择用户"
-          description="选择一个 user_id 查看其画像；任何 id 都会解析出一份合成画像。"
+          title={t("profile.empty.title")}
+          description={t("profile.empty.description")}
           action={<UserPicker />}
         />
       </>
@@ -662,10 +660,13 @@ export default function ProfileView() {
   if (phase === "error") {
     return (
       <>
-        <PageHeader title="画像 Profile" description="synthetic 用户档案。" />
+        <PageHeader
+          title={t("nav.view.profile")}
+          description={t("profile.header.descriptionShort")}
+        />
         <ErrorState
-          title="画像加载失败"
-          error={loadError ?? "未知错误"}
+          title={t("profile.error.title")}
+          error={loadError ?? t("common.unknownError")}
           onRetry={() => setAttempt((a) => a + 1)}
         />
       </>
@@ -675,7 +676,10 @@ export default function ProfileView() {
   if (phase === "loading" || !profile) {
     return (
       <>
-        <PageHeader title="画像 Profile" description="synthetic 用户档案。" />
+        <PageHeader
+          title={t("nav.view.profile")}
+          description={t("profile.header.descriptionShort")}
+        />
         <div aria-busy className="flex flex-col gap-8">
           <div className="flex items-center gap-4">
             <Skeleton className="size-14" />
@@ -693,23 +697,23 @@ export default function ProfileView() {
   return (
     <div className="flex flex-col gap-10">
       <PageHeader
-        title={onboarding ? "新建画像" : "画像 Profile"}
+        title={onboarding ? t("profile.onboarding.title") : t("nav.view.profile")}
         description={
           onboarding
-            ? "先建立工作画像；可以让 AI 生成一份可编辑草稿，也可以直接填写。"
-            : "演示用 synthetic 人设：由服务确定性合成，不代表真实用户。"
+            ? t("profile.onboarding.description")
+            : t("profile.header.demoDescription")
         }
         actions={
           !onboarding && !editing ? (
             <Button size="sm" disabled={readOnly} onClick={() => setEditing(true)}>
               <Pencil size={13} aria-hidden />
-              编辑画像
+              {t("profile.action.edit")}
             </Button>
           ) : undefined
         }
       />
 
-      {/* 身份区：avatar 字标 + display_name + mono id + synthetic 档案戳 */}
+      {/* Identity: the avatar letter tile, display_name, the mono id, the synthetic stamp. */}
       <section className="flex flex-wrap items-center gap-4">
         <span
           aria-hidden
@@ -724,8 +728,8 @@ export default function ProfileView() {
           </div>
           <Mono className="text-13 text-ink-3">{profile.user_id}</Mono>
           <p className="text-12 text-ink-3">
-            画像来源 <Mono>source = {profile.source}</Mono>
-            （mock = 合成，user = 已编辑保存）
+            {t("profile.source.prefix")} <Mono>source = {profile.source}</Mono>
+            {t("profile.source.legend")}
           </p>
         </div>
       </section>
@@ -734,12 +738,12 @@ export default function ProfileView() {
         <>
           {aiSection}
           {draft && (
-            <Callout tone="notice" title="草稿已预填">
-              这是 AI 按一句话生成的草稿，尚未写入——确认「保存画像」后才落库。
+            <Callout tone="notice" title={t("profile.draft.title")}>
+              {t("profile.draft.body")}
             </Callout>
           )}
           <section>
-            <SectionRule no={2} title="确认画像" className="mb-4" />
+            <SectionRule no={2} title={t("profile.section.confirm")} className="mb-4" />
             <ProfileForm
               key={draft ? `draft-${draft.nonce}` : "base"}
               uid={currentUser}
@@ -754,13 +758,13 @@ export default function ProfileView() {
                 setDraft(null);
                 finishProfileCreation(false);
               }}
-              cancelLabel="跳过，先导入"
+              cancelLabel={t("profile.form.skip")}
             />
           </section>
         </>
       ) : editing ? (
         <section>
-          <SectionRule no={1} title="编辑画像" className="mb-4" />
+          <SectionRule no={1} title={t("profile.section.edit")} className="mb-4" />
           <ProfileForm
             uid={currentUser}
             seed={profile}
@@ -774,7 +778,7 @@ export default function ProfileView() {
         </section>
       ) : (
         <section>
-          <SectionRule no={1} title="核心字段" className="mb-2" />
+          <SectionRule no={1} title={t("profile.section.core")} className="mb-2" />
           <ProfileFields p={profile} />
         </section>
       )}

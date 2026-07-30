@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { UserRoundPlus } from "lucide-react";
 import { useApp } from "@/lib/store";
+import { useT } from "@/lib/useT";
 import { Combobox, type ComboboxItem } from "@/ui/Combobox";
 import { Mono } from "@/ui/Mono";
 import { cn } from "@/ui/cn";
@@ -20,10 +21,12 @@ function AvatarMark({ initial, className }: { initial: string; className?: strin
 }
 
 /**
- * synthetic 用户切换：avatar 字标 + display_name + mono id；
- * 「最近」分组（store.recentUsers）+「新建画像」（过滤词即新 id，走 createUser）。
+ * Synthetic user switcher: avatar mark + display_name + mono id, a "recent" group
+ * (store.recentUsers) and a "new profile" footer where the filter text IS the new id
+ * (routed through createUser).
  */
 export function UserPicker() {
+  const t = useT();
   const users = useApp((s) => s.users);
   const currentUser = useApp((s) => s.currentUser);
   const currentProfile = useApp((s) => s.currentProfile);
@@ -61,8 +64,8 @@ export function UserPicker() {
   });
 
   const items: ComboboxItem[] = [
-    ...recent.map((u) => toItem(u, "最近")),
-    ...rest.map((u) => toItem(u, recent.length > 0 ? "全部" : "")),
+    ...recent.map((u) => toItem(u, t("nav.user.recent"))),
+    ...rest.map((u) => toItem(u, recent.length > 0 ? t("nav.user.all") : "")),
   ];
 
   return (
@@ -74,13 +77,13 @@ export function UserPicker() {
         <span className="flex items-center gap-1.5">
           {currentUser && <AvatarMark initial={initialOf(currentUser)} />}
           <span className="max-w-28 truncate">
-            {currentUser ? nameOf(currentUser) : "选择画像"}
+            {currentUser ? nameOf(currentUser) : t("nav.user.choose")}
           </span>
         </span>
       }
-      triggerAriaLabel="切换用户画像"
-      filterPlaceholder="输入名字或 user_id…"
-      emptyText="没有匹配的画像"
+      triggerAriaLabel={t("nav.user.switchAria")}
+      filterPlaceholder={t("nav.user.filterPlaceholder")}
+      emptyText={t("nav.user.empty")}
       footer={(query, close) => {
         const id = query.trim();
         if (!id || users.includes(id)) return null;
@@ -95,7 +98,7 @@ export function UserPicker() {
           >
             <UserRoundPlus size={14} aria-hidden />
             <span className="min-w-0 truncate">
-              新建画像 <Mono className="text-12">{id}</Mono>
+              {t("nav.user.create")} <Mono className="text-12">{id}</Mono>
             </span>
           </button>
         );

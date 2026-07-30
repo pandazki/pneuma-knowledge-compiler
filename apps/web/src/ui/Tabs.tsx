@@ -17,7 +17,7 @@ export interface TabsProps {
   className?: string;
 }
 
-/** Radix Tabs：下划线式，发丝线分隔。 */
+/** Radix Tabs: underline style, hairline separator. */
 export function Tabs({ value, onChange, tabs, className, ...rest }: TabsProps) {
   return (
     <RadixTabs.Root value={value} onValueChange={onChange} className={className}>

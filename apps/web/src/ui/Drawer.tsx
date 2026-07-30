@@ -1,6 +1,7 @@
 import * as RadixDialog from "@radix-ui/react-dialog";
 import type { ReactNode } from "react";
 import { X } from "lucide-react";
+import { useT } from "@/lib/useT";
 import { cn } from "./cn";
 import { IconButton } from "./IconButton";
 
@@ -22,7 +23,8 @@ const SIDE_CLASSES: Record<DrawerSide, string> = {
 };
 
 /**
- * Drawer = Dialog 变体：从侧 / 底部滑入（移动端目录、SourceSpanSheet 等）。
+ * Drawer = a Dialog variant sliding in from a side or the bottom (mobile contents,
+ * SourceSpanSheet, …).
  */
 export function Drawer({
   open,
@@ -32,6 +34,7 @@ export function Drawer({
   side = "left",
   contentClassName,
 }: DrawerProps) {
+  const t = useT();
   return (
     <RadixDialog.Root open={open} onOpenChange={onOpenChange}>
       <RadixDialog.Portal>
@@ -49,10 +52,10 @@ export function Drawer({
                 {title}
               </RadixDialog.Title>
             ) : (
-              <RadixDialog.Title className="sr-only">抽屉面板</RadixDialog.Title>
+              <RadixDialog.Title className="sr-only">{t("common.drawer.title")}</RadixDialog.Title>
             )}
             <RadixDialog.Close asChild>
-              <IconButton aria-label="关闭" size="sm">
+              <IconButton aria-label={t("common.close")} size="sm">
                 <X size={15} aria-hidden />
               </IconButton>
             </RadixDialog.Close>
