@@ -35,7 +35,13 @@ from .metrics.common import Matcher, char_similarity
 from .qa import qa_metrics
 from .truth import TruthSet
 
-SCORECARD_SCHEMA = "pneuma.eval.scorecard/v1"
+#: Bumped to v2 when group D's reachability was re-based from the designated hub family to
+#: retrieval-hit seeding and gained the glance check (see metrics/navigability.py). The field
+#: names under `D_navigability.reachability` changed with the definition, deliberately: a
+#: renamed metric makes an old and a new scorecard refuse to be compared, where a silently
+#: redefined one would invite exactly that comparison. Artifacts already written under v1 keep
+#: their schema string and their old meaning.
+SCORECARD_SCHEMA = "pneuma.eval.scorecard/v2"
 
 
 def build_scorecard(
@@ -242,13 +248,23 @@ def findings(scorecard: dict[str, Any]) -> list[dict[str, Any]]:
                 "with no inter-document links the follow-the-thread job does not exist at all",
             )
         )
-    elif reach["head"]["reachable_document_rate"] not in (None, 1.0):
+    if reach["head"]["dead_end_documents"]:
         out.append(
             _finding(
-                "D.reachability.reachable_document_rate",
+                "D.reachability.dead_end_documents",
                 "medium",
-                reach["head"]["reachable_document_rate"],
-                "a document unreachable from the hub can only be found by already knowing it",
+                f"{reach['head']['dead_end_documents']}/{reach['head']['documents']}",
+                "landing on one of these by retrieval leaves nowhere to walk: the thread ends "
+                "at the hit",
+            )
+        )
+    if reach["head"]["arrival_blind_documents"]:
+        out.append(
+            _finding(
+                "D.reachability.arrival_blind_documents",
+                "medium",
+                f"{reach['head']['arrival_blind_documents']}/{reach['head']['documents']}",
+                "a document nothing links to can only be found by already knowing its name",
             )
         )
     if reach["head"]["isolated_documents"]:
@@ -258,6 +274,28 @@ def findings(scorecard: dict[str, Any]) -> list[dict[str, Any]]:
                 "medium",
                 reach["head"]["isolated_documents"],
                 "an isolated document is retrievable but not browsable",
+            )
+        )
+    glance = groups["D_navigability"].get("glance") or {}
+    if glance.get("status") == "ok" and not glance.get("present"):
+        out.append(
+            _finding(
+                "D.glance.present",
+                "high",
+                f"{glance.get('documents_listed')}/{glance.get('documents_at_head')} documents, "
+                f"{glance.get('families_rendered')}/{glance.get('families_declared')} families",
+                "the answering side carries the base's layout into every prompt; a layout that "
+                "renders nothing claims to show the shape of the library while showing none of it",
+            )
+        )
+    elif glance.get("status") == "ok" and not glance.get("within_budget"):
+        out.append(
+            _finding(
+                "D.glance.within_budget",
+                "medium",
+                f"{glance.get('chars')}/{glance.get('budget')} chars",
+                "a glance past its budget is truncated in every recall prompt, so the tail of "
+                "the base is invisible to the answerer",
             )
         )
     growth = groups["D_navigability"]["growth"]
@@ -661,21 +699,47 @@ def render_report(scorecard: dict[str, Any]) -> str:
         "",
         "## D · navigability",
         "",
+        f"- reachability basis: `{groups['D_navigability']['reachability'].get('basis')}` "
+        f"(k={groups['D_navigability']['reachability'].get('max_hops')} hops from every "
+        "document in turn, each standing for a retrieval hit)",
+        "",
         _table(
-            ["round", "docs", "edges", "reachable", "reach rate", "isolated", "orphan claims"],
+            [
+                "round",
+                "docs",
+                "edges",
+                "mean reach",
+                "median reach",
+                "dead ends",
+                "arrival-blind",
+                "orphan claims",
+            ],
             [
                 [
                     row["checkpoint"],
                     row["documents"],
                     row["edges"],
-                    row["reachable_documents"],
-                    row["reachable_document_rate"],
-                    row["isolated_documents"],
+                    row["mean_reach_rate"],
+                    row["median_reach_rate"],
+                    row["dead_end_documents"],
+                    row["arrival_blind_documents"],
                     row["orphan_claims"],
                 ]
                 for row in groups["D_navigability"]["reachability"]["series"]
             ],
         ),
+        "",
+    ]
+    glance = groups["D_navigability"].get("glance") or {}
+    if glance.get("status") == "ok":
+        out.append(
+            f"- glance at head: {glance['chars']}/{glance['budget']} chars, "
+            f"{glance['documents_listed']}/{glance['documents_at_head']} documents listed, "
+            f"{glance['families_rendered']}/{glance['families_declared']} declared families "
+            f"rendered ({glance['families_with_documents']} in use); present: "
+            f"{'yes' if glance['present'] else 'no'}"
+        )
+    out += [
         "",
         "## E · evolution",
         "",

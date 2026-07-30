@@ -23,6 +23,7 @@ Every list is sorted by path / anchor / block — never a set/dict iteration ord
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -30,6 +31,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from langchain_core.tools import StructuredTool
 
+from ..canonical_glance import render_canonical_glance
 from ..domain.canonical import (
     CanonicalDocument,
     Citation,
@@ -277,6 +279,8 @@ async def build_briefing(
     embeddings=None,
     lexical=None,
     vectors=None,
+    skill: object | None = None,
+    packs: Sequence[object] = (),
     tool_names: tuple[str, ...] = DEFAULT_TOOL_NAMES,
 ) -> Briefing:
     """Assemble a Briefing's stable knowledge pack over a fixed snapshot.
@@ -284,11 +288,21 @@ async def build_briefing(
     Byte-stable per (user, scope, snapshot): claims/sources are projected from
     snapshot_docs and rendered in canonical order; the budget truncates the assembled
     pack deterministically. The fixed contract prefix is never truncated.
+
+    The pack OPENS with the knowledge base glance (canonical_glance.py) — the same static
+    shape fast and deep carry, with no selection pass, because a briefing is built once and
+    reused across many asks so there is no per-question moment to select in. It is rendered
+    from `snapshot_docs`, which the caller already loaded, and it is deterministic, so it does
+    not cost the pack its byte-stability. `skill` supplies the declared families and `packs`
+    their blurbs; without them the glance still lists what exists.
     """
     all_claims = project_snapshot_claims(snapshot_docs)
 
     segments: list[str] = []
     claims_count = 0
+
+    if snapshot_docs:
+        segments.append(render_canonical_glance(snapshot_docs, skill, packs=packs))
 
     if scope.query:
         query_lines, qcount = await _query_section(

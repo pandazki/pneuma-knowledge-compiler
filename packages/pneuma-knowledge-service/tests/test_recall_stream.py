@@ -42,6 +42,11 @@ class _FakeDeepAnswer:
     used_claims: tuple = ()
     used_windows: tuple = ()
     trail: list = field(default_factory=list)
+    # The glance fields the deep lane now returns: this stub carries them because the route
+    # projects them into the `done` frame, and a stub missing a field the route reads would
+    # fail as an "error" event and look like a streaming bug.
+    glance_chars: int = 0
+    read_documents: tuple = ()
     token_usage: dict = field(default_factory=lambda: {"total_tokens": 7})
 
 

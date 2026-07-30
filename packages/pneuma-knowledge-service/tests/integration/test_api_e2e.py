@@ -54,13 +54,24 @@ async def client():
 
 @pytest.fixture
 async def scripted_client(tmp_path):
-    """App whose recall/briefing chat model is a scripted (keyless) model. The script
-    replays fast-answer, deep-answer (direct, no tool calls), briefing-answer in order."""
+    """App whose recall/briefing chat model is a scripted (keyless) model.
+
+    The script replays, in order: fast's glance selection pass (a structured-output turn — the
+    tool name must equal the pydantic class exactly), fast-answer, deep-answer (direct, no tool
+    calls), briefing-answer. The selection turn picks the one document the compile below
+    creates, so the e2e exercises the whole glance path: render → select → read in full.
+    """
     script = tmp_path / "recall.json"
     script.write_text(
         json.dumps(
             {
                 "turns": [
+                    [
+                        {
+                            "name": "DocumentSelection",
+                            "args": {"paths": ["memory/people/cheng-ye.md"]},
+                        }
+                    ],
                     {"content": "后端负责人"},
                     {"content": "初答"},
                     {"content": "简报回答"},
@@ -265,6 +276,11 @@ async def test_fast_deep_and_briefing_flow(scripted_client):
     assert fbody["mode"] == "fast" and fbody["answer"] == "后端负责人"
     assert fbody["used_claims"], "fast should surface at least one claim"
     assert set(fbody["token_usage"]) >= {"cache_read", "cache_creation"}
+    # The glance reached the prompt, and the concurrent selection pass turned a path off the
+    # glance into a document read in full for the answer.
+    assert fbody["glance_chars"] > 0
+    assert fbody["documents_read"] == ["memory/people/cheng-ye.md"]
+    assert fbody["glance_degraded"] is None
 
     # deep recall → agentic loop (scripted model answers directly → empty tool trail).
     deep = await client.post(
@@ -276,6 +292,9 @@ async def test_fast_deep_and_briefing_flow(scripted_client):
     assert dbody["mode"] == "deep" and dbody["answer"] == "初答"
     assert dbody["used_claims"], "deep should surface the seed claims"
     assert dbody["trail"] == []
+    # deep carries the same map; this scripted model answers without walking it.
+    assert dbody["glance_chars"] > 0
+    assert dbody["documents_read"] == []
 
     # briefing build (source-anchored) → summary counts.
     built = await client.post(f"{base}/briefings", json={"source_ids": [sid]})

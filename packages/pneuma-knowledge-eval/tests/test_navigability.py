@@ -1,23 +1,26 @@
-"""Group D: hub reachability, growth exponent, structure health."""
+"""Group D: hit-seeded reachability, growth exponent, structure health, glance."""
 
 from __future__ import annotations
 
 from _fixtures import claim, document, source, trajectory
 from pneuma_knowledge_eval.metrics.navigability import (
+    glance,
     growth,
-    hub_paths,
     navigability_metrics,
     reachability,
     structure_health,
 )
 
 
-def test_hub_family_is_the_fixed_path_template():
-    files = {"memory/profile.md": document("memory/profile.md", [claim("Owner.", "aaaa0001")])}
-    assert hub_paths(trajectory([files])) == ("memory/profile.md",)
+def test_reachability_is_seeded_from_every_document_not_from_a_designated_root():
+    """The口径 this metric was re-based onto: nobody enters at a root.
 
-
-def test_reachability_follows_links_from_the_hub_and_counts_orphan_claims():
+    profile → ann → pilot is a 3-document chain plus one unlinked file. Seeded from profile
+    you reach all three; seeded from pilot you reach nothing; seeded from the unlinked file you
+    reach nothing. The average is therefore well below 1 while the chain itself works — which
+    is the honest reading, and the one a hub-seeded walk from profile (1.0 for 3 of 4 files)
+    hid entirely.
+    """
     files = {
         "memory/profile.md": document(
             "memory/profile.md", [claim("Owner.", "aaaa0001")], links=["people/ann.md"]
@@ -34,12 +37,20 @@ def test_reachability_follows_links_from_the_hub_and_counts_orphan_claims():
     report = reachability(trajectory([files]), max_hops=2)
     head = report["head"]
 
+    assert report["basis"] == "retrieval_hit_seeded"
     assert head["documents"] == 4
     assert head["edges"] == 2
-    assert head["reachable_documents"] == 3  # hub + two hops
-    assert head["isolated_documents"] == 1
-    assert head["orphan_claims"] == 1  # only the unlinked document's claim
-    assert report["invariants"]["every_document_reachable_at_head"] is False
+    # seeds reach: profile 3/4, ann 2/4, pilot 1/4, raw 1/4 → mean 7/16
+    assert head["mean_reach_rate"] == 0.4375
+    assert head["max_reach_rate"] == 0.75
+    assert head["dead_end_documents"] == 2  # pilot and raw lead nowhere
+    # profile and raw are linked to by nothing
+    assert head["arrival_blind_documents"] == 2
+    assert head["isolated_documents"] == 1  # raw is both dead end and arrival-blind
+    # profile's two rows (its claim + its link row) and raw's one
+    assert head["orphan_claims"] == 3
+    assert report["invariants"]["no_dead_end_at_head"] is False
+    assert report["invariants"]["every_document_arrivable_at_head"] is False
 
 
 def test_hop_budget_is_respected():
@@ -53,11 +64,12 @@ def test_hop_budget_is_respected():
         "memory/topics/pilot.md": document("memory/topics/pilot.md", [claim("Pilot.", "bbbb0003")]),
     }
     loaded = trajectory([files])
-    assert reachability(loaded, max_hops=1)["head"]["reachable_documents"] == 2
-    assert reachability(loaded, max_hops=2)["head"]["reachable_documents"] == 3
+    # From profile: 2 docs at one hop, 3 at two. The seed distribution rises with the budget.
+    assert reachability(loaded, max_hops=1)["head"]["max_reach_rate"] == round(2 / 3, 6)
+    assert reachability(loaded, max_hops=2)["head"]["max_reach_rate"] == 1.0
 
 
-def test_a_link_free_snapshot_reports_zero_edges_and_every_claim_orphaned():
+def test_a_link_free_snapshot_leaves_every_hit_stranded_on_its_own_document():
     """The quiet failure this metric exists for: nothing is broken, and nothing is navigable."""
     files = {
         "memory/profile.md": document("memory/profile.md", [claim("Owner.", "cccc0001")]),
@@ -65,8 +77,9 @@ def test_a_link_free_snapshot_reports_zero_edges_and_every_claim_orphaned():
     }
     report = reachability(trajectory([files]))
     assert report["head"]["edges"] == 0
-    assert report["head"]["reachable_documents"] == 1
-    assert report["head"]["orphan_claims"] == 1
+    assert report["head"]["mean_reach_rate"] == 0.5  # 1/N: only what you landed on
+    assert report["head"]["dead_end_documents"] == 2
+    assert report["head"]["orphan_claims"] == 2
     assert report["invariants"]["graph_has_edges_at_head"] is False
 
 
@@ -141,8 +154,31 @@ def test_claims_outside_every_family_are_counted():
     assert report["families_in_use"] == 0
 
 
-def test_group_entry_point_returns_all_three_sections():
+def test_glance_reports_the_layout_the_answering_side_would_receive():
+    files = {
+        "memory/profile.md": document("memory/profile.md", [claim("Owner.", "4d4d0001")]),
+        "memory/topics/pilot.md": document("memory/topics/pilot.md", [claim("Pilot.", "4d4d0002")]),
+    }
+    report = glance(trajectory([files]))
+    assert report["present"] is True
+    assert report["documents_at_head"] == 2
+    assert report["documents_listed"] == 2
+    assert report["documents_omitted_by_truncation"] == 0
+    assert report["families_declared"] == report["families_rendered"] > 0
+    assert report["families_missing_from_glance"] == []
+    assert report["within_budget"] is True
+
+
+def test_glance_is_not_present_for_an_empty_head():
+    """A base with nothing in it has no bird's-eye view to offer, and must say so rather than
+    report a rendered header as a working layout."""
+    report = glance(trajectory([{}]))
+    assert report["present"] is False
+    assert report["documents_listed"] == 0
+
+
+def test_group_entry_point_returns_all_four_sections():
     files = {"memory/profile.md": document("memory/profile.md", [claim("A.", "3c3c0001")])}
     report = navigability_metrics(trajectory([files]))
     assert report["group"] == "D_navigability"
-    assert set(report) >= {"reachability", "growth", "structure"}
+    assert set(report) >= {"reachability", "growth", "structure", "glance"}

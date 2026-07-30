@@ -898,6 +898,81 @@ DEFAULTS: dict[str, str] = {
     "recall.passage_truncated": (
         "\n…(truncated; this block is long — deep can fetch the full text with fetch_verbatim)"
     ),
+    # ─────────────────────────────────────────────── recall: knowledge base glance
+    # The library's SHAPE, present for every question: which filing families exist, what is
+    # filed under each, how developed each document is. Not the contents — this is what makes
+    # "open that document and follow its links" and "what does this base even hold" possible
+    # from the answering side, which retrieval hits alone never conveyed.
+    "recall.glance.header": "# Knowledge base at a glance",
+    "recall.glance.note": (
+        "The layout of the compiled knowledge base: the filing families it declares, the "
+        "documents filed under each, and how many claims each carries. This is the shape, not "
+        "the contents — open a document to read it."
+    ),
+    "recall.glance.empty": (
+        "(the knowledge base holds no documents yet; the families below are where material "
+        "will be filed)"
+    ),
+    "recall.glance.family_heading": "## {template}",
+    "recall.glance.family_blurb": "  ↳ {blurb}",
+    "recall.glance.family_empty": "  (no documents filed here yet)",
+    "recall.glance.entry": "- `{path}` — {title} ({claims} claim(s){tail})",
+    "recall.glance.entry_tail_updated": ", updated {updated}",
+    "recall.glance.family_more": "- …and {count} more document(s) in this family",
+    "recall.glance.unfiled_heading": "## (documents outside every declared family)",
+    "recall.glance.flat_heading": "## Documents",
+    "recall.glance.truncated": "…({count} more line(s) omitted at the glance budget)",
+    # ─────────────────────────────────────────────── recall: fast's glance selection pass
+    # A single small call that runs CONCURRENTLY with retrieval: given the glance and the
+    # question, name the documents worth reading in full. Selecting nothing is the normal
+    # answer — retrieval already covers most questions, and this pass exists only for the
+    # ones where the whole of one document is the evidence.
+    "recall.fast.select.contract": (
+        "You are given the layout of a compiled knowledge base and one question. Your only job "
+        "is to name the documents that must be read IN FULL to answer it well.\n\n"
+        "You are not answering the question and you are not searching. A separate retrieval "
+        "pass is already fetching the individual claims and raw excerpts that match the "
+        "question's wording. You exist for what that pass cannot do: recognise, from the "
+        "layout alone, that one whole document IS the subject being asked about — because the "
+        "question names it, or names the person/product/topic it holds, or asks something "
+        "(a history, a comparison, an overall state) that only the full document answers.\n\n"
+        "Return an empty list when no document stands out that way. That is the normal result, "
+        "not a failure: a question already covered by matching fragments needs nothing here, "
+        "and naming a document just because it is loosely related crowds out the evidence that "
+        "does match. Choose at most {cap}, fewest first, in order of how central they are.\n\n"
+        "Return the paths exactly as they appear in the layout. A path that is not in the "
+        "layout does not exist and will be discarded."
+    ),
+    "recall.fast.select.request": (
+        "{glance}\n\nQuestion: {question}\n\n"
+        "Which of the documents above must be read in full to answer this? Paths only, at most "
+        "{cap}, empty if none."
+    ),
+    "recall.fast.select.documents_header": "# full documents ({count})",
+    "recall.fast.select.document_heading": "## {path}",
+    # ─────────────────────────────────────────────── recall: deep's document tools
+    # Same names and same shapes as the compile tool face (one addressing vocabulary across
+    # the system): the answerer walks canonical exactly the way the compiler does.
+    "recall.deep.tool.list_documents": (
+        "List the knowledge base's document paths, so you can open one by path."
+    ),
+    "recall.deep.tool.list_documents_doc": (
+        "List every canonical document path in the knowledge base. Use it when the glance was "
+        "truncated or you need the exact spelling of a path."
+    ),
+    "recall.deep.tool.list_documents_empty": "(the knowledge base holds no documents)",
+    "recall.deep.tool.read_document": (
+        "Read one document in full by path — claims, anchors and its links to other documents, "
+        "which you can follow by reading those paths in turn."
+    ),
+    "recall.deep.tool.read_document_doc": (
+        "Read one canonical document in full by path. The text keeps its claim anchors and its "
+        "markdown links to other documents; follow a link by calling read_document on its "
+        "target path."
+    ),
+    "recall.deep.tool.read_document_not_found": (
+        "(no document at {path}; use list_documents for the exact paths)"
+    ),
     "recall.agentic.budget_notice": (
         "The retrieval budget is spent — answer directly from the evidence already obtained."
     ),

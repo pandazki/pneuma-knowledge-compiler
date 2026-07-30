@@ -27,6 +27,7 @@ from langchain_core.messages import (
 )
 from langchain_core.tools import StructuredTool
 
+from ..canonical_glance import render_outline
 from ..domain.canonical import CanonicalDocument
 from ..domain.ids import UserId, SourceId, extract_anchors
 from ..recall.citation_alias import resolve_handles
@@ -171,33 +172,13 @@ def _render_outline(base_docs: list[CanonicalDocument]) -> list[str]:
 
     Note the draft still holds every document (PatchDraft.from_canonical): anchor continuity
     and the gate need the full set. Only what the MODEL is shown changes here.
+
+    The render itself now lives in `canonical_glance`, shared with the recall side's glance,
+    so the compiler and the answerer derive "what a document is" from one place instead of
+    two drifting copies. This function stays as the compile task's name for it; the bytes are
+    unchanged.
     """
-    if not base_docs:
-        return [prompt("compile.task.outline_empty")]
-    lines: list[str] = []
-    for d in sorted(base_docs, key=lambda x: x.path):
-        heads = [
-            ln[3:].strip()
-            for ln in d.body.splitlines()
-            if ln.startswith("## ") and ln[3:].strip()
-        ]
-        claims = len(extract_anchors(d.body))
-        doc_type = str((d.frontmatter or {}).get("type") or "?")
-        tail = (
-            prompt("compile.task.outline_entry_tail", headings=" / ".join(heads))
-            if heads
-            else ""
-        )
-        lines.append(
-            prompt(
-                "compile.task.outline_entry",
-                path=d.path,
-                doc_type=doc_type,
-                claims=claims,
-                tail=tail,
-            )
-        )
-    return lines
+    return render_outline(base_docs)
 
 
 def _render_task(

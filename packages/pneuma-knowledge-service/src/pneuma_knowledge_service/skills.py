@@ -56,6 +56,30 @@ async def read_manifest(ctx, user_id: UserId) -> dict | None:
     return await _read_manifest(ctx, user_id)
 
 
+async def packs_for_user(ctx, user_id: UserId) -> list[SchemaPack]:
+    """The user's persisted SchemaPacks, or [] — the family blurbs the recall glance reads.
+
+    `skill_for_user` composes packs INTO a SkillVersion, which is what compiling needs but
+    loses which pack declared which family and what it said it collects. The glance needs
+    exactly that pairing (`extra_path_templates` × `extra_instructions`), so it is read back
+    off the same manifest rather than reconstructed from the composed skill. Never fatal: no
+    manifest, packs disabled, or a malformed entry all mean "no blurbs", and the glance still
+    lists what exists.
+    """
+    if not ctx.settings.user_schema_packs:
+        return []
+    manifest = await _read_manifest(ctx, user_id)
+    if manifest is None:
+        return []
+    packs: list[SchemaPack] = []
+    for entry in manifest.get("packs", []) or []:
+        try:
+            packs.append(SchemaPack(**entry))
+        except (TypeError, ValueError):
+            continue
+    return packs
+
+
 async def _read_manifest(ctx, user_id: UserId) -> dict | None:
     raw = await ctx.canonical.read_meta(user_id, _MANIFEST_PATH)
     if not raw:

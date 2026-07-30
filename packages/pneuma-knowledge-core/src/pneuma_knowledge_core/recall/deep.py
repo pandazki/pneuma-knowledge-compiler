@@ -3,12 +3,23 @@
 
 deep = fast's seed retrieval + a bounded agentic loop (langchain `create_agent`, via
 `recall.agentic.run_agent_loop`). The model starts warm on the SAME dual-face evidence
-fast answers over (byte-identical Human assembly via `recall_human`), then works the
-four-level tool face on demand:
+fast answers over (byte-identical Human assembly via `recall_human`) — including the
+knowledge base glance, so the map of the library is the first thing in context — then works
+the tool face on demand:
 
 - `search_claims(query)`   — L3: re-search the compiled claim face from a new angle
 - `search_content(query)`  — L1/L2: re-search raw body windows (+ context assembly)
 - `fetch_verbatim(source_id, locator)` — L0: exact raw text for a cited span
+- `list_documents()`       — L3: the document paths, when the glance was truncated
+- `read_document(path)`    — L3: one document in full, anchors and links included
+
+MAP PLUS LEGS. The last two are what make canonical's follow-the-thread job usable from the
+answering side: a document read in full carries its markdown links, and following one is
+just `read_document` on the target — so a question whose subject is never named by the
+retrieved fragments can still be walked to from a neighbouring one. They are deliberately
+the compile face's tools, same names and same shapes, because one addressing vocabulary
+across the system is the point (I4) — the answerer navigates canonical the way the compiler
+wrote it.
 
 Verification is an agentic act — fetch the cited span and read it — not a fixed batch
 protocol. What stays mechanical (§0 discipline 1): the tool budget (recursion_limit +
@@ -20,13 +31,16 @@ HumanMessage / ToolMessages.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.tools import StructuredTool
 
+from ..canonical_glance import render_canonical_glance
+from ..compile.documents import render_document
+from ..domain.canonical import CanonicalDocument
 from ..domain.ids import UserId, SourceId
 from ..ports.claim_index import ClaimLexicalIndex, ClaimVectorIndex
 from ..ports.content_store import ContentStore
@@ -98,6 +112,11 @@ class DeepAnswer:
     used_windows: tuple[RecallHit | Passage, ...] = ()
     # The agentic search trace: one record per tool call, in execution order.
     trail: tuple[dict, ...] = ()
+    # The glance's size in the opening context, 0 when no canonical documents were supplied.
+    glance_chars: int = 0
+    # Documents the loop actually opened with read_document, in first-read order — the
+    # follow-the-thread walk, drill-downable for the UI.
+    read_documents: tuple[str, ...] = ()
 
 
 def _search_claims_tool(
@@ -209,6 +228,67 @@ def _fetch_verbatim_tool(
     )
 
 
+def _list_documents_tool(
+    documents: Sequence[CanonicalDocument], trail: list[dict]
+) -> StructuredTool:
+    """`list_documents()` — the compile face's tool, read-only.
+
+    Same name and same return shape as `compile.runner`'s (sorted paths, one per line, a
+    stated-empty fallback), so the model that wrote the base and the model that answers over
+    it name the same thing the same way. The glance already shows the layout; this exists for
+    when it was truncated at the budget or an exact path spelling is needed."""
+
+    async def list_documents() -> str:
+        """List document paths; see `recall.deep.tool.list_documents_doc`."""
+        paths = sorted(doc.path for doc in documents)
+        out = "\n".join(paths) or prompt("recall.deep.tool.list_documents_empty")
+        trail.append(
+            {"tool": "list_documents", "documents": len(paths), "result": _trail_preview(out)}
+        )
+        return out
+
+    list_documents.__doc__ = prompt("recall.deep.tool.list_documents_doc")
+    return StructuredTool.from_function(
+        coroutine=list_documents,
+        description=prompt("recall.deep.tool.list_documents"),
+    )
+
+
+def _read_document_tool(
+    documents: Sequence[CanonicalDocument], read: list[str], trail: list[dict]
+) -> StructuredTool:
+    """`read_document(path)` — one document in full, anchors and links intact.
+
+    The rendering is `compile.documents.render_document`, the same serializer the compiler
+    writes with, so the answerer reads the exact bytes canonical holds: claim anchors it can
+    cite and markdown links it can follow with another `read_document`. A missing path is a
+    stated absence, never an exception — a wrong guess must cost one tool round, not the run.
+    """
+    by_path = {doc.path: doc for doc in documents}
+
+    async def read_document(path: str) -> str:
+        """Read one document in full; see `recall.deep.tool.read_document_doc`."""
+        doc = by_path.get(str(path or "").strip())
+        if doc is None:
+            out = prompt("recall.deep.tool.read_document_not_found", path=path)
+            trail.append({"tool": "read_document", "path": path, "found": False, "result": out})
+            return out
+        out = render_document(doc.frontmatter, doc.body)
+        if doc.path not in read:
+            read.append(doc.path)
+        trail.append(
+            {"tool": "read_document", "path": doc.path, "found": True,
+             "chars": len(out), "result": _trail_preview(out)}
+        )
+        return out
+
+    read_document.__doc__ = prompt("recall.deep.tool.read_document_doc")
+    return StructuredTool.from_function(
+        coroutine=read_document,
+        description=prompt("recall.deep.tool.read_document"),
+    )
+
+
 def _merge_claims(
     seed: list[RetrievedClaim], found: list[RetrievedClaim]
 ) -> tuple[RetrievedClaim, ...]:
@@ -246,17 +326,25 @@ async def deep_recall(
     lexical: LexicalIndex | None = None,
     vectors: VectorIndex | None = None,
     profile: str | None = None,
+    # The canonical documents at the answering snapshot: the glance is rendered from them and
+    # they are what list_documents / read_document walk. Omitted → the glance is absent and
+    # both tools state that the base holds no documents (the tool FACE is constant either way,
+    # so a deployment cannot silently lose a capability by forgetting a keyword).
+    documents: Sequence[CanonicalDocument] = (),
+    skill: object | None = None,
+    packs: Sequence[object] = (),
     on_step: "Callable[[dict], None] | None" = None,
     cap: int = DEFAULT_CLAIM_CAP,
     window_cap: int = DEFAULT_WINDOW_CAP,
     callbacks: list | None = None,
     trace_metadata: dict | None = None,
 ) -> DeepAnswer:
-    """Seed with fast's dual-face retrieval, then run the bounded agentic loop.
+    """Seed with the glance + fast's dual-face retrieval, then run the bounded agentic loop.
 
     The seed Human payload is byte-identical to fast's (`recall_human`) under the deep
-    contract; the loop is `run_agent_loop` (create_agent + budget + forced finalize).
-    All model calls trace under run_name "recall.deep".
+    contract — glance first, then the two evidence faces, then as_of + input — and the loop is
+    `run_agent_loop` (create_agent + budget + forced finalize). All model calls trace under
+    run_name "recall.deep".
 
     Deep does NOT alias source ids to query-local `sNN` handles (unlike fast): its agentic
     loop re-retrieves across rounds, so one source would get different handles in different
@@ -292,6 +380,7 @@ async def deep_recall(
 
     found_claims: list[RetrievedClaim] = []
     found_windows: list = []
+    read_paths: list[str] = []
     # A trail that fires on_step as each tool records a step → the agentic search can be
     # streamed one step at a time (the tools stay unchanged; they just .append as before).
     trail: list[dict] = _NotifyingTrail(on_step) if on_step else []
@@ -314,14 +403,22 @@ async def deep_recall(
             trail=trail,
         ),
         _fetch_verbatim_tool(user_id, content, trail),
+        _list_documents_tool(documents, trail),
+        _read_document_tool(documents, read_paths, trail),
     ]
 
+    glance = render_canonical_glance(documents, skill, packs=packs) if documents else None
     answer, usage, _transcript = await run_agent_loop(
         model,
         tools,
         system_prompt=deep_contract(),
         human=recall_human(
-            question, seed_claims, as_of=as_of, windows=seed_windows, profile=profile
+            question,
+            seed_claims,
+            as_of=as_of,
+            windows=seed_windows,
+            profile=profile,
+            glance=glance,
         ),
         tool_budget=_DEEP_TOOL_BUDGET,
         run_name="recall.deep",
@@ -335,4 +432,6 @@ async def deep_recall(
         token_usage=usage,
         used_windows=_merge_windows(seed_windows, found_windows),
         trail=tuple(trail),
+        glance_chars=len(glance or ""),
+        read_documents=tuple(read_paths),
     )

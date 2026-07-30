@@ -43,6 +43,7 @@ from ...ingest import ingest_conversation
 from ...ingest_document import ingest_document, preview_document
 from ...ingest_sources import ingest_source_contract
 from ...pagination import CursorError, decode_cursor, encode_cursor
+from ...skills import packs_for_user, skill_for_user
 from ...wiring import AppContext, llm_call_config
 
 # Valid user_id shape — external key, keep it filesystem/URL-safe (mirrors the web
@@ -201,6 +202,16 @@ class RecallAnswerOut(BaseModel):
     # {handle: real_source_id} for the query-local `sNN` citation handles in `answer` —
     # the UI reverse-binds each `[cite: sNN]` to its real source (fast lane).
     citation_handles: dict[str, str] = {}
+    # Size of the knowledge base glance carried in the prompt; 0 when canonical was empty or
+    # unreadable. The in-presence signal, without re-rendering the prompt to check.
+    glance_chars: int = 0
+    # Canonical documents read in full for this answer: fast's glance selection, deep's
+    # read_document walk. Drill-downable provenance for the parts of the answer that came from
+    # a whole document rather than a retrieved fragment.
+    documents_read: list[str] = []
+    # fast only: why the glance selection pass contributed nothing ("timeout"/"error"), or
+    # null — which includes the normal case of it running and selecting nothing.
+    glance_degraded: str | None = None
     token_usage: dict[str, int]
 
 
@@ -619,6 +630,28 @@ async def fetch_source(
     return {"text": text}
 
 
+async def _glance_inputs(ctx, user: UserId, at: SnapshotRef | None = None) -> dict:
+    """The canonical layout inputs the recall lanes render their glance from.
+
+    Three reads the answering side needs and never had: the documents at the answering
+    snapshot (the shape), the composed skill (its declared families), and the raw packs (each
+    family's one-line "what this collects"). Never fatal — the glance is context, so a failure
+    to load it degrades to today's retrieval-only prompt rather than a 500.
+    """
+    try:
+        documents = await ctx.canonical.list(user, at=at)
+    except Exception:  # noqa: BLE001 — the glance is advisory context, never blocks recall
+        return {}
+    if not documents:
+        return {}
+    try:
+        skill = await skill_for_user(ctx, user)
+        packs = await packs_for_user(ctx, user)
+    except Exception:  # noqa: BLE001 — families/blurbs are decoration on a real document list
+        skill, packs = None, []
+    return {"documents": documents, "skill": skill, "packs": packs}
+
+
 async def _render_profile(ctx, user: UserId) -> str | None:
     """Compact owner profile for the recall Human turn's top block: identity (helps the
     model resolve who/what a transcribed ask refers to) + the answer language. Never
@@ -673,6 +706,7 @@ async def recall(
         datetime.fromisoformat(body.as_of) if body.as_of else _now()
     )
     snapshot_ref = await _resolve_snapshot(ctx, user, None) or None
+    glance_inputs = await _glance_inputs(ctx, user)
     if body.mode == "fast":
         fa = await fast_recall(
             user,
@@ -686,6 +720,7 @@ async def recall(
             profile=await _render_profile(ctx, user),
             embeddings=ctx.embeddings,
             model=ctx.get_chat_model("recall"),
+            **glance_inputs,
             **llm_call_config(
                 ctx,
                 operation="recall.fast",
@@ -700,6 +735,9 @@ async def recall(
             used_claims=[_used_claim_out(c) for c in fa.used_claims],
             used_windows=[_recall_hit_out(w) for w in fa.used_windows],
             citation_handles=fa.citation_handles,
+            glance_chars=fa.glance_chars,
+            documents_read=list(fa.expanded_documents),
+            glance_degraded=fa.glance_degraded,
             token_usage=fa.token_usage,
         )
 
@@ -715,6 +753,7 @@ async def recall(
         model=ctx.get_chat_model("deep"),
         content=ctx.store,
         profile=await _render_profile(ctx, user),
+        **glance_inputs,
         **llm_call_config(
             ctx,
             operation="recall.deep",
@@ -729,6 +768,8 @@ async def recall(
         used_claims=[_used_claim_out(c) for c in da.used_claims],
         used_windows=[_recall_hit_out(w) for w in da.used_windows],
         trail=list(da.trail),
+        glance_chars=da.glance_chars,
+        documents_read=list(da.read_documents),
         token_usage=da.token_usage,
     )
 
@@ -743,6 +784,7 @@ async def recall_stream(user_id: str, body: RecallIn, request: Request) -> Strea
     as_of = datetime.fromisoformat(body.as_of) if body.as_of else _now()
     snapshot_ref = await _resolve_snapshot(ctx, user, None) or None
     profile = await _render_profile(ctx, user)
+    glance_inputs = await _glance_inputs(ctx, user)
     # Unbounded on purpose — see the on_step contract below.
     events: asyncio.Queue = asyncio.Queue()
 
@@ -773,6 +815,7 @@ async def recall_stream(user_id: str, body: RecallIn, request: Request) -> Strea
                 content=ctx.store,
                 profile=profile,
                 on_step=on_step,
+                **glance_inputs,
                 **llm_call_config(
                     ctx,
                     operation="recall.deep",
@@ -790,6 +833,8 @@ async def recall_stream(user_id: str, body: RecallIn, request: Request) -> Strea
                         used_claims=[_used_claim_out(c) for c in da.used_claims],
                         used_windows=[_recall_hit_out(w) for w in da.used_windows],
                         trail=list(da.trail),
+                        glance_chars=da.glance_chars,
+                        documents_read=list(da.read_documents),
                         token_usage=da.token_usage,
                     ).model_dump(),
                 )
@@ -1252,6 +1297,9 @@ async def post_briefing(user_id: str, body: BriefingBuildIn, request: Request) -
         source_ids=[SourceId(s) for s in body.source_ids],
         budget_chars=body.budget_chars,
     )
+    # The glance's families/blurbs: same seam the fast and deep lanes use, minus the documents
+    # (the briefing already loaded its own snapshot-pinned set above).
+    layout = await _glance_inputs(ctx, user, at)
     briefing = await build_briefing(
         user,
         scope,
@@ -1263,6 +1311,8 @@ async def post_briefing(user_id: str, body: BriefingBuildIn, request: Request) -
         embeddings=ctx.embeddings,
         lexical=ctx.lexical,
         vectors=ctx.vectors,
+        skill=layout.get("skill"),
+        packs=layout.get("packs") or (),
     )
     briefing_id = uuid.uuid4().hex
     await ctx.store.create_briefing(

@@ -11,8 +11,15 @@ Three seals, all mechanical (§0 discipline 1), not prose pleas:
    Qdrant claim layer) fused by RRF, deduped by (document_path, anchor), then capped to
    `cap` (default 40) before rendering.
 3. **Everything volatile in the Human turn, question LAST.** Evidence sections render
-   first (claim notes → raw excerpts), then as_of + question close the message — the live
-   ask sits in the attention-hot tail instead of drowning above a 40-claim wall.
+   first (glance → claim notes → raw excerpts → any fully-read documents), then as_of +
+   question close the message — the live ask sits in the attention-hot tail instead of
+   drowning above a 40-claim wall.
+
+On top of retrieval the lane carries the knowledge base GLANCE (canonical_glance.py) — the
+library's layout, present for every question — plus one concurrent selection pass that may
+ask for a handful of documents to be read in full. Both are additive: with no canonical
+documents supplied the lane is byte-for-byte the retrieval-only one it has always been, and
+a failed selection pass degrades to exactly that. See `fast_recall`.
 
 `token_usage` passes through the provider's cache_read / cache_creation fields
 (defaulting to 0 when absent — scripted/keyless models report 0).
@@ -21,14 +28,17 @@ Three seals, all mechanical (§0 discipline 1), not prose pleas:
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
+from pydantic import BaseModel, Field
 
-from ..domain.canonical import Citation
+from ..canonical_glance import render_canonical_glance
+from ..compile.documents import render_document
+from ..domain.canonical import CanonicalDocument, Citation
 from ..domain.ids import AnchorId, UserId, SourceId
 from ..ports.claim_index import ClaimLexicalIndex, ClaimVectorIndex
 from ..ports.content_store import ContentStore
@@ -47,6 +57,15 @@ from .rag import RecallHit, _rrf_scores, rag_recall, rrf_fuse
 
 DEFAULT_CLAIM_CAP = 40
 DEFAULT_WINDOW_CAP = 8
+
+#: How many documents the glance pass may ask to be read in full. Small on purpose: the pass
+#: exists for the question whose answer IS one document, not as a second retrieval channel.
+DEFAULT_GLANCE_PICK_CAP = 3
+
+#: Wall-clock ceiling on the glance pass. It runs concurrently with retrieval, so the whole
+#: lane costs max(retrieval, this) — but a hung provider must not hold the answer hostage, and
+#: the answer is well-formed without the pass (that is the whole point of it being additive).
+DEFAULT_GLANCE_TIMEOUT_SECONDS = 8.0
 
 
 def invoke_config(
@@ -105,6 +124,14 @@ class FastAnswer:
     # Merged Passages when a ContentStore is wired (expand→merge assembly); raw RecallHits
     # in the langchain-only fallback. Both expose source_id/block_start/block_end/text.
     used_windows: tuple[RecallHit | Passage, ...] = field(default_factory=tuple)
+    # The glance's size in the prompt, 0 when no canonical documents were supplied — the
+    # in-presence signal a caller (or the evaluation) checks without re-rendering.
+    glance_chars: int = 0
+    # Paths the glance pass asked to be read in full and that were actually expanded.
+    expanded_documents: tuple[str, ...] = field(default_factory=tuple)
+    # Why the glance pass contributed nothing, when it failed rather than simply selecting
+    # nothing: "timeout", "error", or None. Telemetry, never an error surfaced to the owner.
+    glance_degraded: str | None = None
 
 
 def zero_usage() -> dict[str, int]:
@@ -252,6 +279,20 @@ def _render_window_section(windows: list) -> str:
     return render_windows(windows)
 
 
+def render_full_documents(documents: Sequence[CanonicalDocument]) -> str:
+    """The whole of each selected document, in supplied order, headed by its path.
+
+    Rendered with the compile side's `render_document`, so frontmatter, claim anchors and
+    inter-document links reach the answerer in exactly the form the compiler wrote them —
+    which is what lets an answer cite a claim it read here the same way it cites a retrieved
+    one, and lets the model see the links it could follow."""
+    parts: list[str] = []
+    for doc in documents:
+        parts.append(prompt("recall.fast.select.document_heading", path=doc.path))
+        parts.append(render_document(doc.frontmatter, doc.body).rstrip())
+    return "\n".join(parts)
+
+
 def recall_human(
     question: str,
     claims: list[RetrievedClaim],
@@ -259,14 +300,19 @@ def recall_human(
     as_of: datetime,
     windows: list | None = None,
     profile: str | None = None,
+    glance: str | None = None,
+    full_documents: Sequence[CanonicalDocument] = (),
 ) -> str:
-    """The volatile Human payload shared by fast and deep: profile → evidence → as_of → input.
+    """The volatile Human payload shared by fast and deep: profile → glance → evidence →
+    documents → as_of → input.
 
     Deterministic assembly order (I5 / prompt-cache discipline), input LAST: the owner profile
-    (who is asking — the System tier explains what it is) → claim section → window section
-    → as_of → the owner's input, so the live ask sits in the attention-hot tail below the
-    evidence wall instead of above it. Section headers reuse the contract's exact names
-    (owner profile / claim notes / raw excerpts) — what each IS is explained once, in the
+    (who is asking — the System tier explains what it is) → the knowledge base glance (the
+    library's shape, which is per-snapshot rather than per-question, so it sits high where a
+    provider cache can reach it) → claim section → window section → any documents selected for
+    full reading → as_of → the owner's input, so the live ask sits in the attention-hot tail
+    below the evidence wall instead of above it. Section headers reuse the contract's exact
+    names (owner profile / claim notes / raw excerpts) — what each IS is explained once, in the
     stable System tier, never re-explained per turn. Claims and windows live in disjoint id
     spaces (anchor vs block-span), so they are presented as two sections, never cross-fused.
     The profile is the reason it lives in the Human turn, not the byte-stable System (it is
@@ -275,6 +321,8 @@ def recall_human(
     sections: list[str] = []
     if profile:
         sections.append(f"{prompt('recall.section.profile_header')}\n{profile}")
+    if glance:
+        sections.append(glance)
     sections.append(
         prompt("recall.section.claims_header", count=len(claims))
         + "\n"
@@ -285,6 +333,12 @@ def recall_human(
             prompt("recall.section.windows_header", count=len(windows))
             + "\n"
             + _render_window_section(windows)
+        )
+    if full_documents:
+        sections.append(
+            prompt("recall.fast.select.documents_header", count=len(full_documents))
+            + "\n"
+            + render_full_documents(full_documents)
         )
     return (
         "\n\n".join(sections)
@@ -300,9 +354,19 @@ def selector_messages(
     as_of: datetime,
     windows: list | None = None,
     profile: str | None = None,
+    glance: str | None = None,
+    full_documents: Sequence[CanonicalDocument] = (),
 ) -> list[BaseMessage]:
-    """[SystemMessage(fixed contract), HumanMessage(profile → evidence → as_of → input)]."""
-    human = recall_human(question, claims, as_of=as_of, windows=windows, profile=profile)
+    """[SystemMessage(fixed contract), HumanMessage(profile → glance → evidence → as_of → input)]."""
+    human = recall_human(
+        question,
+        claims,
+        as_of=as_of,
+        windows=windows,
+        profile=profile,
+        glance=glance,
+        full_documents=full_documents,
+    )
     return [SystemMessage(content=selector_contract()), HumanMessage(content=human)]
 
 
@@ -314,6 +378,8 @@ async def answer_with_selector(
     as_of: datetime,
     windows: list | None = None,
     profile: str | None = None,
+    glance: str | None = None,
+    full_documents: Sequence[CanonicalDocument] = (),
     callbacks: list | None = None,
     trace_metadata: dict | None = None,
     run_name: str = "recall.fast",
@@ -322,7 +388,13 @@ async def answer_with_selector(
     usage, handle→real_id map). The LLM only ever sees/copies short query-local `sNN`
     handles; the caller reverse-binds them (business side / UI)."""
     system, human = selector_messages(
-        question, claims, as_of=as_of, windows=windows, profile=profile
+        question,
+        claims,
+        as_of=as_of,
+        windows=windows,
+        profile=profile,
+        glance=glance,
+        full_documents=full_documents,
     )
     aliased_human, handle_map = alias_sources(human.content)
     response = await model.ainvoke(
@@ -332,6 +404,103 @@ async def answer_with_selector(
     content = response.content
     text = content if isinstance(content, str) else str(content)
     return text.strip(), extract_usage(response), handle_map
+
+
+# ------------------------------------------------------- the glance selection pass (B)
+
+
+class DocumentSelection(BaseModel):
+    """Structured output of the glance pass: 0..K paths, and nothing else.
+
+    A list of paths rather than free text because the result is CONSUMED mechanically (each
+    path is looked up in the document set and dropped if absent) — a prose answer would have
+    to be parsed, and a parse this pass cannot verify is a way to read a hallucinated path as
+    an instruction."""
+
+    paths: list[str] = Field(default_factory=list)
+
+
+def glance_selection_contract(cap: int = DEFAULT_GLANCE_PICK_CAP) -> str:
+    """The System contract for the glance pass — NOT the answer contract.
+
+    Named apart from `selector_contract()` on purpose. That one is the fast lane's ANSWERING
+    posture (it "selects" an answer out of evidence); this one selects DOCUMENTS to read and
+    never answers anything. Two different jobs, two different contracts, no shared prose."""
+    return prompt("recall.fast.select.contract", cap=cap)
+
+
+def glance_selection_messages(
+    question: str, glance: str, *, cap: int = DEFAULT_GLANCE_PICK_CAP
+) -> list[BaseMessage]:
+    """[SystemMessage(the pass's contract), HumanMessage(glance → question)]."""
+    return [
+        SystemMessage(content=glance_selection_contract(cap)),
+        HumanMessage(
+            content=prompt(
+                "recall.fast.select.request", glance=glance, question=question, cap=cap
+            )
+        ),
+    ]
+
+
+async def select_glance_documents(
+    model: BaseChatModel,
+    question: str,
+    glance: str,
+    *,
+    known_paths: Sequence[str],
+    cap: int = DEFAULT_GLANCE_PICK_CAP,
+    timeout: float | None = DEFAULT_GLANCE_TIMEOUT_SECONDS,
+    callbacks: list | None = None,
+    trace_metadata: dict | None = None,
+) -> tuple[tuple[str, ...], dict[str, int], str | None]:
+    """One small structured call: glance + question → the paths worth reading in full.
+
+    Returns `(paths, token_usage, degraded_reason)`. Fail-soft by construction, because this
+    pass is ADDITIVE: a timeout, a provider error, a non-schema reply or a path that is not in
+    `known_paths` all degrade to selecting less (or nothing) and let the answer proceed on
+    retrieval alone. `degraded_reason` distinguishes "the pass ran and chose nothing" (None —
+    the normal, common outcome) from "the pass never delivered" (telemetry).
+
+    Selecting nothing is not a failure and is not retried: an empty selection is exactly what
+    a question already covered by matching fragments should produce.
+    """
+    messages = glance_selection_messages(question, glance, cap=cap)
+    config = invoke_config("recall.fast.select", callbacks, trace_metadata)
+    try:
+        # Inside the guard: a model that does not implement structured output at all raises
+        # right here, and that is the same class of failure as a provider error — the lane
+        # must keep answering, not 500 because a keyless model lacks a capability.
+        structured = model.with_structured_output(DocumentSelection, include_raw=True)
+        call = structured.ainvoke(messages, config=config)
+        raw = await (asyncio.wait_for(call, timeout) if timeout else call)
+    except asyncio.TimeoutError:
+        return (), zero_usage(), "timeout"
+    except Exception:  # noqa: BLE001 — an additive pass never fails the answer
+        return (), zero_usage(), "error"
+
+    usage = zero_usage()
+    parsed: object = raw
+    if isinstance(raw, Mapping):
+        response = raw.get("raw")
+        if isinstance(response, BaseMessage):
+            usage = extract_usage(response)
+        parsed = raw.get("parsed")
+    if not isinstance(parsed, DocumentSelection):
+        return (), usage, "error"
+
+    # Only paths that actually exist survive: the glance is the model's whole view of the
+    # library, so anything outside it is invented, and an invented path would otherwise be
+    # reported as an expanded document.
+    allowed = set(known_paths)
+    picked: list[str] = []
+    for raw_path in parsed.paths:
+        path = str(raw_path or "").strip()
+        if path in allowed and path not in picked:
+            picked.append(path)
+        if len(picked) >= cap:
+            break
+    return tuple(picked), usage, None
 
 
 async def retrieve_windows(
@@ -389,10 +558,19 @@ async def fast_recall(
     profile: str | None = None,
     cap: int = DEFAULT_CLAIM_CAP,
     window_cap: int = DEFAULT_WINDOW_CAP,
+    # The canonical documents at the answering snapshot. Supplied → the glance is rendered
+    # into the prompt and the glance pass runs; omitted (None) → byte-for-byte the
+    # retrieval-only lane, so no caller is forced to load canonical to ask a question.
+    documents: Sequence[CanonicalDocument] | None = None,
+    skill: object | None = None,
+    packs: Sequence[object] = (),
+    glance_model: BaseChatModel | None = None,
+    glance_pick_cap: int = DEFAULT_GLANCE_PICK_CAP,
+    glance_timeout: float | None = DEFAULT_GLANCE_TIMEOUT_SECONDS,
     callbacks: list | None = None,
     trace_metadata: dict | None = None,
 ) -> FastAnswer:
-    """fast recall: L3 claims + L1/L2 body windows → fixed-contract selector.
+    """fast recall: the knowledge base glance + L3 claims + L1/L2 body windows → one answer.
 
     Two disjoint retrieval faces answer one question: claims give precision + citation
     provenance, body windows give recall over content never lifted into claims (e.g. a
@@ -403,33 +581,76 @@ async def fast_recall(
     pipeline (expand → merge/dedup → per-source cap → lost-in-the-middle order), so a bare
     hit carries its surrounding context; without one the raw hits render as before.
 
-    The two retrieval faces are independent network work (each embeds the query + hits
+    TWO BRANCHES, ONE WALL CLOCK. When `documents` is supplied, retrieval (A) and the glance
+    selection pass (B) are launched together under one `asyncio.gather`, so the lane costs
+    max(A, B) + the answer call rather than A + B + the answer. B is a single small
+    structured call whose output is a handful of paths, so it is normally the faster of the
+    two. B is strictly additive: it selects nothing for most questions, and a timeout or
+    provider error degrades to the retrieval-only answer with a `glance_degraded` marker —
+    it can never fail or delay the answer past its own timeout.
+
+    The glance itself is present whether or not B selects anything: the shape of the library
+    is context for every question, not a reward for a successful selection.
+
+    The retrieval faces are independent network work (each embeds the query + hits
     Meili/Qdrant), so they run concurrently on the event loop via `asyncio.gather` — the
     wall-clock is the slower face, not their sum, and the double query-embed overlaps
     instead of stacking. `gather` returns results in argument order, so `claims` and
     `raw_windows` bind exactly as they did under the previous thread-pool fan-out."""
-    claims_raw, raw_windows = await asyncio.gather(
-        retrieve_claims(
-            user_id,
-            question,
-            claim_lexical=claim_lexical,
-            claim_vectors=claim_vectors,
-            embeddings=embeddings,
-            limit=cap,
-        ),
-        retrieve_windows(
-            user_id,
-            question,
-            lexical=lexical,
-            vectors=vectors,
-            embeddings=embeddings,
-            limit=window_cap,
-        ),
-    )
+
+    async def retrieval_branch() -> tuple[list[RetrievedClaim], list[RecallHit]]:
+        return await asyncio.gather(  # type: ignore[return-value]
+            retrieve_claims(
+                user_id,
+                question,
+                claim_lexical=claim_lexical,
+                claim_vectors=claim_vectors,
+                embeddings=embeddings,
+                limit=cap,
+            ),
+            retrieve_windows(
+                user_id,
+                question,
+                lexical=lexical,
+                vectors=vectors,
+                embeddings=embeddings,
+                limit=window_cap,
+            ),
+        )
+
+    glance: str | None = None
+    by_path: dict[str, CanonicalDocument] = {}
+    if documents is not None:
+        glance = render_canonical_glance(documents, skill, packs=packs)
+        by_path = {doc.path: doc for doc in documents}
+
+    selected: tuple[str, ...] = ()
+    select_usage = zero_usage()
+    degraded: str | None = None
+    if glance and by_path:
+        (claims_raw, raw_windows), (selected, select_usage, degraded) = await asyncio.gather(
+            retrieval_branch(),
+            select_glance_documents(
+                glance_model or model,
+                question,
+                glance,
+                known_paths=tuple(by_path),
+                cap=glance_pick_cap,
+                timeout=glance_timeout,
+                callbacks=callbacks,
+                trace_metadata=trace_metadata,
+            ),
+        )
+    else:
+        claims_raw, raw_windows = await retrieval_branch()
+
     claims = claims_raw[:cap]
     windows = await assemble_windows(
         raw_windows, content=content, user_id=user_id
     )
+    # Reading the selected documents is a local git read the caller already paid for (they
+    # are in `documents`), so the expansion costs nothing on the wire.
+    expanded = [by_path[path] for path in selected]
     answer, usage, citation_handles = await answer_with_selector(
         model,
         question,
@@ -437,6 +658,8 @@ async def fast_recall(
         as_of=as_of,
         windows=windows,
         profile=profile,
+        glance=glance,
+        full_documents=expanded,
         callbacks=callbacks,
         trace_metadata=trace_metadata,
         run_name="recall.fast",
@@ -444,7 +667,10 @@ async def fast_recall(
     return FastAnswer(
         answer=answer,
         used_claims=tuple(claims),
-        token_usage=usage,
+        token_usage=add_usage(usage, select_usage),
         used_windows=tuple(windows),
         citation_handles=citation_handles,
+        glance_chars=len(glance or ""),
+        expanded_documents=selected,
+        glance_degraded=degraded,
     )

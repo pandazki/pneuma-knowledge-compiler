@@ -65,8 +65,18 @@ def test_preset_layering_and_navigability_report_real_denominators(preset_trajec
 
     reach = groups["D_navigability"]["reachability"]
     assert reach["head"]["documents"] > 1
-    assert reach["head"]["hub_documents_present"] == 1
+    assert reach["basis"] == "retrieval_hit_seeded"
+    # Every seed reaches at least itself, so the rate has a real, non-degenerate denominator
+    # whether or not this bundle happens to link well.
+    assert 0.0 < reach["head"]["mean_reach_rate"] <= 1.0
+    assert reach["head"]["dead_end_documents"] <= reach["head"]["documents"]
     assert 0.0 <= reach["head"]["orphan_claim_rate"] <= 1.0
+
+    glance = groups["D_navigability"]["glance"]
+    assert glance["status"] == "ok"
+    assert glance["documents_at_head"] == len(preset_trajectory.head.files)
+    assert glance["families_declared"] == len(preset_trajectory.path_templates)
+    assert glance["within_budget"] is True
 
     structure = groups["D_navigability"]["structure"]
     assert structure["families_available"] == len(preset_trajectory.path_templates)
