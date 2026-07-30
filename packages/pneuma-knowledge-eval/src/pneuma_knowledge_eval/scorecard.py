@@ -52,6 +52,7 @@ def build_scorecard(
     matcher: Matcher | None = None,
     generated_at: datetime | None = None,
     qa: dict[str, Any] | None = None,
+    declared_language: str | None = None,
 ) -> dict[str, Any]:
     """Run all six groups over `trajectory` and assemble a JSON-serializable scorecard.
 
@@ -59,6 +60,10 @@ def build_scorecard(
     a live recall path a question is the one group that cannot run inside a pure sync
     function. Omitted, F falls back to the synchronous shell — which is a real result for
     mechanical mode and an explicit `unavailable`/raise otherwise, never a fabricated number.
+
+    `declared_language` is the evaluated subject's own language setting (their profile's
+    `locale.language`). Group C holds the claims to it; omitted, English — the framework's
+    documented default for a subject who declared none.
     """
     if mode not in ("mechanical", "full"):
         raise ValueError(f"unknown evaluation mode: {mode!r}")
@@ -66,7 +71,9 @@ def build_scorecard(
     groups = {
         "A_grounded": grounded_metrics(trajectory),
         "B_admission": admission_metrics(trajectory, truth, matcher=matcher),
-        "C_layering": layering_metrics(trajectory, truth, matcher=matcher),
+        "C_layering": layering_metrics(
+            trajectory, truth, matcher=matcher, declared_language=declared_language
+        ),
         "D_navigability": navigability_metrics(trajectory),
         "E_evolution": evolution_metrics(trajectory, matcher=matcher),
         "F_usability_qa": qa if qa is not None else qa_metrics(truth, mode=mode),
@@ -227,14 +234,16 @@ def findings(scorecard: dict[str, Any]) -> list[dict[str, Any]]:
             )
         )
     language = layering.get("language_consistency") or {}
-    if language.get("status") == "ok" and (language["head"]["diverged"] or 0) > 0:
+    head_language = language.get("head") or {}
+    if language.get("status") == "ok" and (head_language.get("diverged_from_declared") or 0) > 0:
         out.append(
             _finding(
-                "C.language_consistency.diverged",
+                "C.language_consistency.diverged_from_declared",
                 "medium",
-                f"{language['head']['diverged']}/{language['head']['claims_total']}",
-                "a claim in another language than its evidence is a translation presented as a "
-                "thread, and no character-level metric can match it against its own corpus",
+                f"{head_language['diverged_from_declared']}/{head_language['claims_total']}",
+                "a claim written outside the subject's declared language "
+                f"({language['declared_language']}) is unreadable to the only reader the layer "
+                "exists for, and no character-level metric can match it against its own corpus",
             )
         )
 
@@ -669,19 +678,28 @@ def render_report(scorecard: dict[str, Any]) -> str:
     language = groups["C_layering"].get("language_consistency") or {}
     if language.get("status") == "ok":
         out += [
-            f"- corpus language: `{language['corpus_script']}` "
-            f"(L0 block scripts {language['corpus_block_scripts']})",
+            f"- declared language: `{language['declared_language']}` "
+            f"(script `{language['declared_script']}`, from {language['declared_language_source']})",
+            f"- material script, for reference only: `{language['material_script']}` "
+            f"(L0 block scripts {language['material_block_scripts']})",
             "",
             _table(
-                ["round", "claims", "consistent", "diverged", "mixed", "consistency rate"],
+                [
+                    "round",
+                    "claims",
+                    "in declared language",
+                    "diverged",
+                    "mixed",
+                    "declared-language rate",
+                ],
                 [
                     [
                         row["checkpoint"],
                         row["claims_total"],
-                        row["consistent"],
-                        row["diverged"],
+                        row["in_declared_language"],
+                        row["diverged_from_declared"],
                         row["mixed"],
-                        row["consistency_rate"],
+                        row["declared_language_rate"],
                     ]
                     for row in language["series"]
                 ],

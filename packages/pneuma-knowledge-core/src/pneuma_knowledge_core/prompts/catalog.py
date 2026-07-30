@@ -277,6 +277,7 @@ party marked as the owner in the material is the subject.
 So be strict about "is this the owner's own commitment / judgment / responsibility": with no
 explicit evidence, leave it uncertain rather than claiming it on their behalf.
 
+{environment}
 """
 
 _OWNER_SECTION = """\
@@ -284,6 +285,7 @@ _OWNER_SECTION = """\
 
 {lines}
 
+{environment}
 This profile has **exactly two** uses: judging relevance (will this information be useful to
 them later) and judging attribution (was this said by them, does this belong to them). It is
 **not material** — no sentence in the profile may become the source or evidence of a claim;
@@ -295,6 +297,22 @@ If the material shows that their responsibilities, organization or way of workin
 changed, that is **a new fact worth compiling**, not "the profile is wrong" — record the
 change and its source as stated.
 
+"""
+
+# The subject's operating environment: region, timezone, language — each DECLARED with where
+# it came from, including "nobody set this, here is the default being used instead". The
+# provenance is the point. A compile that silently wrote in the contract's own language
+# produced an entire knowledge base in English over Chinese material (first evaluation,
+# language_consistency), because nothing in the prompt ever said which language the subject
+# reads. Stating the language is the fix; stating where it came from is what keeps a
+# deployment default from being read as the subject's own choice.
+_OWNER_ENV = """\
+**The subject's environment** — each line says where it came from. None of it is inferred
+from the material, and you must not infer it either:
+
+{lines}
+
+{policy}
 """
 
 _TREATMENT_FULL = (
@@ -547,17 +565,62 @@ DEFAULTS: dict[str, str] = {
     "compile.owner_field.name": "- **Name**: {value}",
     "compile.owner_field.occupation": "- **Occupation**: {value}",
     "compile.owner_field.industry_role": "- **Domain / role**: {industry} / {role}",
-    "compile.owner_field.location": "- **Based in**: {value}",
     "compile.owner_field.working_style": "- **Way of working**: {value}",
     "compile.owner_field.background": "- **Background**: {value}",
     "compile.owner_field.interests": "- **Long-standing interests**: {value}",
-    "compile.owner_field.timezone": "timezone {value}",
-    "compile.owner_field.language": "language {value}",
     "compile.owner_field.collab_mode": "collaboration mode {value}",
     "compile.owner_field.unspecified": "not provided",
     "compile.owner_field.unlabeled": "unlabeled",
     "compile.owner_field.list_separator": ", ",
     "compile.owner_field.detail_separator": "; ",
+    # ───────────────────────────────── compile: the subject's declared environment (§2)
+    # One key per state of each field, full sentences rather than a composed
+    # "{value} — {origin}": an overlay in another language has to be able to reorder the
+    # clause, and a half-translated sentence assembled from fragments is how that breaks.
+    "compile.owner_env.section": _OWNER_ENV,
+    "compile.owner_env.region": "- **Region**: {value} — on record for the subject.",
+    "compile.owner_env.region_unknown": (
+        "- **Region**: unknown — no city or country is on record for the subject. Do not "
+        "infer one from the material; read local references (holidays, forms of address, "
+        "office names) as unconfirmed context rather than as an established location."
+    ),
+    "compile.owner_env.timezone_provider": (
+        "- **Timezone**: {value} — resolved for this material by this deployment."
+    ),
+    "compile.owner_env.timezone_profile": (
+        "- **Timezone**: {value} — on record for the subject."
+    ),
+    "compile.owner_env.timezone_default": (
+        "- **Timezone**: unknown — no timezone is on record for the subject, so this "
+        "deployment's default **{value}** is in use. Dates are still counted in that zone, "
+        "but it is the installation's assumption, not the subject's own setting."
+    ),
+    "compile.owner_env.timezone_unstated": "- **Timezone**: {value}.",
+    "compile.owner_env.timezone_unknown": (
+        "- **Timezone**: unknown — none was resolved for this round. Keep dates as the "
+        "material words them and do not compute a calendar day of your own."
+    ),
+    "compile.owner_env.language": (
+        "- **Language**: {value} — on record for the subject."
+    ),
+    "compile.owner_env.language_unknown": (
+        "- **Language**: unknown — no language is on record for the subject, so **English** "
+        "is used by default. That is a default, not a finding about the subject."
+    ),
+    "compile.owner_env.write_language": (
+        "Write every claim and every document in the subject's language declared above — not "
+        "in the language of this contract, and not in whichever language a given source "
+        "happens to be in. Wording quoted verbatim from the material keeps its original "
+        "language inside the quotation marks; everything you write around it — the claim "
+        "itself, headings, labels, summaries — is in the subject's language."
+    ),
+    # Deliberately does NOT restate "every date you write is a day in that zone" — the task's
+    # time anchor (compile.task.time_now) already says that, next to the actual date. This line
+    # answers the other half, the one no anchor can: WHY this zone and not another.
+    "compile.owner_env.day_grouping": (
+        "The material of each round is grouped by calendar day in the timezone declared "
+        "above; the task's time frame states which day \"today\" is in that zone."
+    ),
     # ─────────────────────────────────────────────── compile: per-source treatments
     "compile.treatment.full": _TREATMENT_FULL,
     "compile.treatment.distill": _TREATMENT_DISTILL,

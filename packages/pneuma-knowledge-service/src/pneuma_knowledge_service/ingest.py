@@ -33,15 +33,17 @@ async def subject_time_context(
 
     Sectioning turns an instant into a calendar day, and that day has to be the subject's,
     so ingest needs the profile's timezone (or whatever a registered TimeZoneProvider says
-    about this particular source). A profile lookup failure degrades to UTC — a timezone is
-    context, never a hard dependency of accepting material.
+    about this particular source). A profile lookup failure degrades to this deployment's
+    default zone — a timezone is context, never a hard dependency of accepting material.
     """
     profile = None
     try:
         profile = await ctx.user_info.get_profile(user_id)
-    except Exception:  # noqa: BLE001 — no profile → UTC, never a failed ingest
+    except Exception:  # noqa: BLE001 — no profile → deployment default, never a failed ingest
         profile = None
-    return time_context_for(user_id, profile, raw=raw)
+    return time_context_for(
+        user_id, profile, raw=raw, default_timezone=ctx.settings.default_timezone
+    )
 
 
 @dataclass(frozen=True)

@@ -28,6 +28,7 @@ from pneuma_knowledge_core.domain.time_context import (
     register_timezone_provider,
     reset_timezone_providers,
     resolve_zone,
+    resolve_zone_with_source,
     time_context_for,
 )
 from pneuma_knowledge_core.domain.user import Locale
@@ -133,6 +134,57 @@ def test_profile_locale_timezone_is_used_when_no_provider_is_registered():
 
 def test_no_profile_and_no_provider_falls_back_to_utc():
     assert resolve_zone(USER, None) == UTC
+
+
+# ────────────────────────────────── the chain reports WHICH link answered, and the default
+
+
+def test_each_link_of_the_chain_labels_its_own_answer():
+    """The compile contract declares where the subject's zone came from, so the resolution has to
+    say. Without the label a deployment default is indistinguishable from the subject's own
+    setting, and the prompt would be asserting something nobody knows."""
+    locale = Locale(city="Lisbon", country="Portugal", timezone="Europe/Lisbon", language="pt-PT")
+
+    from_profile = resolve_zone_with_source(USER, _Profile(locale))
+    assert (from_profile.zone, from_profile.source) == (LISBON, "profile")
+
+    register_timezone_provider(_FixedProvider(SHANGHAI))
+    from_provider = resolve_zone_with_source(USER, _Profile(locale))
+    assert (from_provider.zone, from_provider.source) == (SHANGHAI, "provider")
+
+    reset_timezone_providers()
+    from_default = resolve_zone_with_source(USER, None, default_timezone="Asia/Shanghai")
+    assert (from_default.zone, from_default.source) == (SHANGHAI, "deployment_default")
+
+
+def test_the_last_link_is_the_deployment_default_not_a_hardcoded_utc():
+    """`Settings.default_timezone` reaches here from the caller: what an installation assumes
+    about a subject it knows nothing about is a deployment fact, and UTC for a subject living at
+    +08:00 files a third of their evenings on the previous day."""
+    assert resolve_zone(USER, None, default_timezone="Asia/Shanghai") == SHANGHAI
+    assert resolve_zone(USER, None, default_timezone=SHANGHAI) == SHANGHAI
+    # An unusable default is still not a crash — UTC is the floor a library can defend.
+    assert resolve_zone(USER, None, default_timezone="Mars/Olympus") == UTC
+    assert resolve_zone(USER, None, default_timezone="") == UTC
+
+
+def test_a_profile_zone_outranks_the_deployment_default():
+    locale = Locale(city="Lisbon", country="Portugal", timezone="Europe/Lisbon", language="pt-PT")
+    resolution = resolve_zone_with_source(
+        USER, _Profile(locale), default_timezone="Asia/Shanghai"
+    )
+    assert (resolution.zone, resolution.source) == (LISBON, "profile")
+
+
+def test_time_context_for_carries_the_provenance_of_the_zone_it_resolved():
+    locale = Locale(city="Lisbon", country="Portugal", timezone="Europe/Lisbon", language="pt-PT")
+    assert time_context_for(USER, _Profile(locale)).zone_source == "profile"
+    assert (
+        time_context_for(USER, None, default_timezone="Asia/Shanghai").zone_source
+        == "deployment_default"
+    )
+    # A hand-built context claims no provenance rather than borrowing one.
+    assert TimeContext(now_utc=datetime(2026, 7, 30, tzinfo=timezone.utc)).zone_source == "unstated"
 
 
 def test_an_unusable_iana_name_degrades_to_utc_instead_of_crashing():

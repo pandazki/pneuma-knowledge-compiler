@@ -70,6 +70,30 @@ def test_findings_name_the_metric_the_value_and_why_it_matters():
         assert finding["why"]
 
 
+def test_the_declared_language_reaches_group_c_and_defaults_to_english():
+    """Group C holds the claims to the language the base is DECLARED to be in — the subject's own
+    setting, which only the entry point knows. Unstated, English: the same default the compile
+    contract states to the model, so the evaluation and the compile agree on the target."""
+    default = build_scorecard(_trajectory())["groups"]["C_layering"]["language_consistency"]
+    assert (default["declared_language"], default["declared_language_source"]) == (
+        "en",
+        "default",
+    )
+    assert default["head"]["diverged_from_declared"] == 0  # the fixture claims are English
+
+    declared = build_scorecard(_trajectory(), declared_language="zh-CN")["groups"][
+        "C_layering"
+    ]["language_consistency"]
+    assert declared["declared_script"] == "cjk"
+    # every English claim in the fixture now counts against a Chinese-reading subject
+    assert (
+        declared["head"]["diverged_from_declared"] == declared["head"]["claims_total"] > 0
+    )
+    assert declared["head"]["declared_language_rate"] == 0.0
+    findings = {row["metric"] for row in build_scorecard(_trajectory(), declared_language="zh-CN")["findings"]}
+    assert "C.language_consistency.diverged_from_declared" in findings
+
+
 def test_an_unknown_mode_is_rejected():
     with pytest.raises(ValueError, match="unknown evaluation mode"):
         build_scorecard(_trajectory(), mode="approximate")

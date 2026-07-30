@@ -30,6 +30,15 @@ class Settings(BaseSettings):
 
     canonical_root: str = "./data/canonical"
 
+    # The timezone this installation counts calendar days in for a subject whose profile does
+    # not state one — the last link of `domain.time_context.resolve_zone_with_source`
+    # (provider → profile → this). UTC is the only defensible default for a library; a
+    # deployment serving one region should say so (PNEUMA_KNOWLEDGE_DEFAULT_TIMEZONE=Asia/Shanghai),
+    # because "UTC" for a subject who lives at +08:00 files a third of their evenings on the
+    # wrong day. It is never presented as the subject's own setting: the compile contract
+    # declares it as this deployment's default (compile.owner_env.timezone_default).
+    default_timezone: str = "UTC"
+
     # L2 chunking. `sentence` = chonkie SentenceChunker with CJK-aware delimiters and
     # real overlap (shipped default); `recursive` = chonkie RecursiveChunker for
     # structure-heavy docs. `semantic` = configured LLM topic/entity boundary detection over

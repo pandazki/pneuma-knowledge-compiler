@@ -156,39 +156,74 @@ def _language_trajectory(claim_texts):
     )
 
 
-def test_corpus_language_is_read_from_l0_rather_than_assumed():
-    report = language_consistency(_language_trajectory([CN_CLAIM]))
+def test_claims_are_judged_against_the_declared_language_not_the_material():
+    report = language_consistency(
+        _language_trajectory([CN_CLAIM]), declared_language="zh-CN"
+    )
     assert report["status"] == "ok"
-    assert report["corpus_script"] == "cjk"
-    assert report["head"]["consistency_rate"] == 1.0
-    assert report["head"]["diverged"] == 0
-    assert report["invariants"]["head_fully_consistent"] is True
+    assert report["declared_language"] == "zh-CN"
+    assert report["declared_script"] == "cjk"
+    assert report["declared_language_source"] == "argument"
+    assert report["head"]["declared_language_rate"] == 1.0
+    assert report["head"]["diverged_from_declared"] == 0
+    assert report["invariants"]["head_fully_in_declared_language"] is True
+    # the material's script is reported, but it decided nothing
+    assert report["material_script"] == "cjk"
 
 
-def test_a_claim_in_another_script_than_its_evidence_is_reported_as_diverged():
-    """The failure is a translation presented as a thread: the reader can no longer tell which
-    words were the speaker's, and no character-level metric can match the claim to its corpus."""
+def test_the_material_script_is_reference_only_and_does_not_move_the_target():
+    """The regression this re-basing prevents: a Chinese-reading subject's base scored a clean
+    1.0 for claims written in the language of whichever source arrived. The declaration is the
+    target, so the same claims over the same material score differently for a different subject."""
+    report = language_consistency(
+        _language_trajectory([CN_CLAIM, EN_CLAIM]), declared_language="en-US"
+    )
+    head = report["head"]
+    assert report["material_script"] == "cjk"  # unchanged material
+    assert report["declared_script"] == "latin"
+    assert head["in_declared_language"] == 1
+    assert head["diverged_from_declared"] == 1
+    assert report["diverged_claims_at_head"][0]["script"] == "cjk"
+
+
+def test_english_is_the_default_when_no_language_is_declared():
+    """Same rule the compile contract states to the model (`compile.owner_env.language_unknown`):
+    a subject who declared no language gets English, so English is what the compile is held to."""
     report = language_consistency(_language_trajectory([CN_CLAIM, EN_CLAIM]))
+    assert report["declared_language"] == "en"
+    assert report["declared_language_source"] == "default"
+    assert report["head"]["in_declared_language"] == 1
+    assert report["head"]["diverged_from_declared"] == 1
+
+
+def test_a_claim_outside_the_declared_language_is_reported_as_diverged():
+    """The failure is a thread the only reader it exists for cannot read — and no
+    character-level metric can match it against the rest of the base."""
+    report = language_consistency(
+        _language_trajectory([CN_CLAIM, EN_CLAIM]), declared_language="zh-CN"
+    )
     head = report["head"]
     assert head["claims_total"] == 2
-    assert head["consistent"] == 1
-    assert head["diverged"] == 1
-    assert head["consistency_rate"] == 0.5
+    assert head["in_declared_language"] == 1
+    assert head["diverged_from_declared"] == 1
+    assert head["declared_language_rate"] == 0.5
     assert head["by_script"] == {"cjk": 1, "latin": 1}
     sample = report["diverged_claims_at_head"][0]
     assert sample["anchor"] == "aaaa0002" and sample["script"] == "latin"
     assert report["documents_at_head"] == {"memory/topics/pilot.md": 1}
-    assert report["invariants"]["head_fully_consistent"] is False
+    assert report["invariants"]["head_fully_in_declared_language"] is False
 
 
 def test_a_genuinely_bilingual_claim_is_counted_as_mixed_not_as_diverged():
     """`mixed` is its own bucket: a claim carrying real weight in both scripts is a different
     defect from one written wholly in the wrong language, and collapsing them would hide both."""
-    report = language_consistency(_language_trajectory([CN_CLAIM, MIXED_CLAIM]))
+    report = language_consistency(
+        _language_trajectory([CN_CLAIM, MIXED_CLAIM]), declared_language="zh-CN"
+    )
     head = report["head"]
     assert head["mixed"] == 1
-    assert head["diverged"] == 0  # mixed is excluded from diverged
-    assert head["consistent"] == 1
+    assert head["diverged_from_declared"] == 0  # mixed is excluded from diverged
+    assert head["in_declared_language"] == 1
     assert not report["diverged_claims_at_head"]
 
 
@@ -196,19 +231,26 @@ def test_a_stray_latin_token_does_not_make_a_chinese_claim_diverged():
     """Dates, product names and identifiers are Latin in any corpus; the floor keeps them from
     reading as a language switch."""
     report = language_consistency(
-        _language_trajectory(["【firm】附录在 2026-05-24 仍未签字，尾款没有付款结果。"])
+        _language_trajectory(["【firm】附录在 2026-05-24 仍未签字，尾款没有付款结果。"]),
+        declared_language="zh-CN",
     )
-    assert report["head"]["consistency_rate"] == 1.0
+    assert report["head"]["declared_language_rate"] == 1.0
 
 
-def test_language_consistency_is_unavailable_without_l0():
+def test_language_consistency_is_available_without_l0():
+    """It no longer needs a corpus to be consistent WITH: the declared language is known
+    whether or not the trajectory carries its L0, which is the point of declaring it."""
     report = language_consistency(
-        trajectory([{"memory/topics/pilot.md": document("memory/topics/pilot.md", [claim("X.", "aaaa0001")])}])
+        trajectory([{"memory/topics/pilot.md": document("memory/topics/pilot.md", [claim("X.", "aaaa0001")])}]),
+        declared_language="zh-CN",
     )
-    assert report["status"] == "unavailable"
-    assert "corpus language" in report["reason"]
+    assert report["status"] == "ok"
+    assert report["material_script"] is None
+    assert report["head"]["claims_total"] == 1
 
 
-def test_language_consistency_reaches_the_group_c_entry_point():
-    groups = layering_metrics(_language_trajectory([CN_CLAIM, EN_CLAIM]))
-    assert groups["language_consistency"]["head"]["diverged"] == 1
+def test_the_declared_language_reaches_the_group_c_entry_point():
+    groups = layering_metrics(
+        _language_trajectory([CN_CLAIM, EN_CLAIM]), declared_language="zh-CN"
+    )
+    assert groups["language_consistency"]["head"]["diverged_from_declared"] == 1

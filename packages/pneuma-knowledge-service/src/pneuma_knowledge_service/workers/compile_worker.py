@@ -207,10 +207,14 @@ async def process_job(
     retrieved = await _recall_related_claims(ctx, user_id, sources)
 
     # The job's clock: one instant plus the subject's timezone, resolved once from the
-    # profile (or a registered TimeZoneProvider) and used for every calendar-day render
-    # below. It replaces a bare `datetime.now(timezone.utc)`, which made "today" a UTC day
-    # while the sections in the material had been cut in the subject's own day.
-    time = time_context_for(user_id, owner)
+    # profile (or a registered TimeZoneProvider, or this deployment's default) and used for
+    # every calendar-day render below. It replaces a bare `datetime.now(timezone.utc)`, which
+    # made "today" a UTC day while the sections in the material had been cut in the subject's
+    # own day. The resolution's PROVENANCE travels with it, because the contract declares
+    # which of the three answered rather than presenting them as one fact.
+    time = time_context_for(
+        user_id, owner, default_timezone=ctx.settings.default_timezone
+    )
 
     trace_cfg = llm_call_config(
         ctx,

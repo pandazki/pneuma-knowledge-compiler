@@ -26,10 +26,18 @@ RESOLUTION (three links, first hit wins)
      `ingest.source_types.register_source_type`. A provider may read the RawSource, so a
      deployment whose capture carries its own `timezone` field can answer per source.
   2. `UserProfile.locale.timezone` (an IANA name) — the framework's own answer.
-  3. UTC.
+  3. the DEPLOYMENT DEFAULT (`Settings.default_timezone`, UTC unless a deployment says
+     otherwise) — the caller passes it in, because "what does this installation assume when
+     it knows nothing about the subject" is a deployment fact, not a domain constant.
 
 An unusable IANA name is a warning and a fall-through, never a crash: a bad profile field
 must not be able to fail a compile job.
+
+Which of the three links answered is carried alongside the answer (`ZoneResolution.source`,
+`TimeContext.zone_source`), because the subject-environment declaration in the compile
+contract has to say *why* it is using this zone. A zone that came from the deployment
+default is not the subject's stated zone, and a prompt that presented the two identically
+would be telling the model something nobody knows.
 
 FORWARD-ONLY HISTORY
 --------------------
@@ -46,7 +54,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel
@@ -60,18 +68,34 @@ _log = logging.getLogger(__name__)
 
 __all__ = [
     "UTC",
+    "ZONE_SOURCES",
     "TimeContext",
     "TimeZoneProvider",
     "TimezoneChange",
+    "ZoneResolution",
+    "ZoneSource",
     "load_zone",
     "register_timezone_provider",
     "registered_timezone_providers",
     "reset_timezone_providers",
     "resolve_zone",
+    "resolve_zone_with_source",
     "time_context_for",
 ]
 
 UTC = ZoneInfo("UTC")
+
+#: Which link of the resolution chain answered. `unstated` is not a link: it is what a
+#: hand-built TimeContext carries, i.e. "this zone was handed to me and nobody recorded
+#: where it came from" — a render that has to declare provenance must be able to say that
+#: rather than invent one.
+ZoneSource = Literal["provider", "profile", "deployment_default", "unstated"]
+ZONE_SOURCES: tuple[ZoneSource, ...] = (
+    "provider",
+    "profile",
+    "deployment_default",
+    "unstated",
+)
 
 
 class TimezoneChange(BaseModel):
@@ -116,6 +140,9 @@ class TimeContext:
     # Ascending by `changed_at`. Empty for a subject who never moved (the common case),
     # and an empty history renders nothing at all.
     history: tuple[TimezoneChange, ...] = ()
+    # Which link of the resolution chain produced `zone`. Last field and defaulted, so every
+    # existing construction site keeps working; `time_context_for` fills it in for real.
+    zone_source: ZoneSource = "unstated"
 
     def resolve(self, dt: datetime) -> datetime:
         """An instant → the same instant expressed in the subject's zone.
@@ -217,15 +244,37 @@ def _profile_history(profile: object | None) -> tuple[TimezoneChange, ...]:
     return tuple(changes)
 
 
-def resolve_zone(
+@dataclass(frozen=True)
+class ZoneResolution:
+    """The resolved zone plus which link of the chain answered.
+
+    Two callers want two different things from the same resolution: sectioning wants the
+    zone, and the compile contract's subject-environment block wants to declare where the
+    zone came from. Returning both keeps the second from having to re-derive it (and get it
+    wrong the moment a provider is registered).
+    """
+
+    zone: ZoneInfo
+    source: ZoneSource
+
+
+def resolve_zone_with_source(
     user_id: UserId,
     profile: object | None = None,
     raw: "RawSource | None" = None,
-) -> ZoneInfo:
-    """The subject's timezone: registered provider → profile locale → UTC.
+    *,
+    default_timezone: str | ZoneInfo | None = None,
+) -> ZoneResolution:
+    """The subject's timezone AND its provenance: provider → profile → deployment default.
 
     `profile` is duck-typed (anything exposing `.locale.timezone`, or the equivalent dict)
     so this stays in the domain layer without importing the profile model.
+
+    `default_timezone` is the deployment's own answer for a subject it knows nothing about
+    (`Settings.default_timezone`); it is passed in rather than read here because the domain
+    layer has no settings. Absent or unusable → UTC, which is the only defensible guess a
+    library can make on its own. Either way the result is labelled `deployment_default`, so
+    the contract never presents an installation's assumption as the subject's own setting.
     """
     for provider in registered_timezone_providers():
         try:
@@ -234,8 +283,29 @@ def resolve_zone(
             _log.warning("timezone provider %r raised; deferring", provider, exc_info=True)
             continue
         if zone is not None:
-            return zone
-    return load_zone(_profile_zone_name(profile)) or UTC
+            return ZoneResolution(zone=zone, source="provider")
+    from_profile = load_zone(_profile_zone_name(profile))
+    if from_profile is not None:
+        return ZoneResolution(zone=from_profile, source="profile")
+    fallback = (
+        default_timezone
+        if isinstance(default_timezone, ZoneInfo)
+        else load_zone(default_timezone)
+    )
+    return ZoneResolution(zone=fallback or UTC, source="deployment_default")
+
+
+def resolve_zone(
+    user_id: UserId,
+    profile: object | None = None,
+    raw: "RawSource | None" = None,
+    *,
+    default_timezone: str | ZoneInfo | None = None,
+) -> ZoneInfo:
+    """The subject's timezone alone, for callers that only need to count days in it."""
+    return resolve_zone_with_source(
+        user_id, profile, raw, default_timezone=default_timezone
+    ).zone
 
 
 def time_context_for(
@@ -244,14 +314,22 @@ def time_context_for(
     *,
     now_utc: datetime | None = None,
     raw: "RawSource | None" = None,
+    default_timezone: str | ZoneInfo | None = None,
 ) -> TimeContext:
     """Build the job's TimeContext — the single place a caller needs to touch.
 
     `now_utc` defaults to the wall clock because a job's "now" genuinely is now; every
     render downstream takes the resulting TimeContext, so the clock is read once, here.
+
+    `default_timezone` is the deployment's fallback (see `resolve_zone_with_source`); the
+    resulting context carries which link answered, so a render can declare it.
     """
+    resolution = resolve_zone_with_source(
+        user_id, profile, raw, default_timezone=default_timezone
+    )
     return TimeContext(
         now_utc=now_utc or datetime.now(timezone.utc),
-        zone=resolve_zone(user_id, profile, raw),
+        zone=resolution.zone,
         history=_profile_history(profile),
+        zone_source=resolution.source,
     )

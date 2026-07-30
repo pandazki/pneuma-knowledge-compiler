@@ -435,7 +435,10 @@ async def run_compile(
     }
 
     messages: list[BaseMessage] = [
-        SystemMessage(content=render_system_contract(skill, owner=owner)),
+        # `time` reaches the system side too, but only for its zone and that zone's
+        # provenance (the subject-environment declaration in §2) — never its instant, so the
+        # SystemMessage stays byte-stable per (skill, owner, zone, overlay).
+        SystemMessage(content=render_system_contract(skill, owner=owner, time=time)),
         HumanMessage(
             content=_render_task(
                 a_sources,

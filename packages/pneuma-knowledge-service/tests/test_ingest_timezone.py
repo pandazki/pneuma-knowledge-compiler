@@ -64,7 +64,9 @@ def _profile(zone: str) -> UserProfile:
     )
 
 
-def _ctx(zone: str | None, *, raises: bool = False) -> tuple[SimpleNamespace, _FakeStore]:
+def _ctx(
+    zone: str | None, *, raises: bool = False, default_timezone: str = "UTC"
+) -> tuple[SimpleNamespace, _FakeStore]:
     store = _FakeStore()
     registry = AdapterRegistry()
     registry.register(PlainConversationAdapter(), kind="conversation")
@@ -80,7 +82,9 @@ def _ctx(zone: str | None, *, raises: bool = False) -> tuple[SimpleNamespace, _F
             registry=registry,
             user_info=SimpleNamespace(get_profile=get_profile),
             settings=SimpleNamespace(
-                context_stream_render_roles=True, context_stream_compile_guidance=True
+                context_stream_render_roles=True,
+                context_stream_compile_guidance=True,
+                default_timezone=default_timezone,
             ),
         ),
         store,
@@ -120,6 +124,18 @@ async def test_a_failing_profile_lookup_degrades_to_utc_rather_than_failing_inge
     result = await ingest_conversation(ctx, USER, _turns(), title="evening thread")
     assert result.deduplicated is False
     assert {tuple(b.section_path) for b in store.sources[0].blocks} == {("2026-07-30",)}
+
+
+async def test_with_no_profile_zone_the_deployment_default_cuts_the_sections():
+    """The last link of the chain is a DEPLOYMENT fact, not UTC: an installation serving one
+    region says so once (Settings.default_timezone) and every subject it knows nothing about
+    is filed in that region's days instead of a third of their evenings landing a day early."""
+    ctx, store = _ctx(None, raises=True, default_timezone="Asia/Shanghai")
+    await ingest_conversation(ctx, USER, _turns(), title="evening thread")
+    assert [b.section_path for b in store.sources[0].blocks] == [
+        ["2026-07-30"],
+        ["2026-07-31"],
+    ]
 
 
 async def test_an_explicit_occurred_on_from_the_caller_survives_ingest():

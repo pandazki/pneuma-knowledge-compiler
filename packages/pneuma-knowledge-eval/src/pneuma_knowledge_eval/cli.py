@@ -18,6 +18,11 @@ asked over its live recall path:
 
 Without `--answer-url`, `--mode full` with a truth set fails loudly instead of publishing a
 five-group scorecard under the six-group label.
+
+One thing about the evaluated subject cannot be read off their artifacts: the language their
+knowledge base is supposed to be written in. It is a setting in their profile, so it is passed
+in — `--declared-language zh-CN` — and group C holds every claim to it. Omitted, English, which
+is the same default the compile contract states to the model for a subject who declared none.
 """
 
 from __future__ import annotations
@@ -92,6 +97,7 @@ def evaluate(args: argparse.Namespace) -> int:
         truth=truth,
         matcher=_build_matcher(args.mode, trajectory, truth),
         qa=_build_qa(args, trajectory, truth),
+        declared_language=args.declared_language,
     )
     json_path, report_path = write_outputs(scorecard, args.out)
     qa = scorecard["groups"]["F_usability_qa"]
@@ -133,6 +139,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="directory of authored corpus JSON carrying authorship.content_class labels; "
         "enables the admission over-inclusion metric (B.noise_support)",
+    )
+    run.add_argument(
+        "--declared-language",
+        help="the evaluated subject's own language setting (their profile's locale.language, "
+        "e.g. zh-CN); group C holds every claim to it. Default: en, which is the framework's "
+        "default for a subject who declared none",
     )
     run.add_argument(
         "--answer-url",

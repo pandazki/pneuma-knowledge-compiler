@@ -18,11 +18,14 @@ Three mechanical signals, none of which needs a label:
   blocks it cites. A thread paraphrases and attributes; a transcript copies. This is the
   label-free half of "detail leakage" — the labelled half needs negative controls and is
   reported separately when a truth set is bound.
-- LANGUAGE CONSISTENCY: do the claims stay in the language of the material they compile? A
-  claim written in another language is a translation presented as a thread, so the reader can
-  no longer tell which words were the speaker's — and it silently breaks every character-level
-  measurement downstream, because a label or a duplicate in one script cannot match a claim in
-  the other.
+- LANGUAGE CONSISTENCY: are the claims written in the language the knowledge base is DECLARED
+  to be in — the subject's own language setting, defaulting to English when nothing is set?
+  This used to be measured against the language of the material, which was the wrong target:
+  the material of one knowledge base is routinely multilingual, so "consistent with the
+  material" has no single answer, and a base whose subject reads Chinese is not improved by
+  claims that follow whichever language each source happened to arrive in. The declared
+  language is a setting, so it is a target a compile can be held to. The material's own script
+  is still reported beside it, as context for reading the number.
 """
 
 from __future__ import annotations
@@ -269,10 +272,33 @@ def detail_leakage(
 
 
 #: Scripts distinguished for the language-consistency check. Deliberately coarse: the question is
-#: "did the thread layer switch writing system away from its evidence", which is exactly the
+#: "is the thread layer written in the writing system the subject reads", which is exactly the
 #: failure a script test catches and a finer language ID would only blur.
 _CJK_RE = re.compile(r"[㐀-䶿一-鿿　-〿＀-￯]")
 _LATIN_RE = re.compile(r"[A-Za-z]")
+
+#: The language a knowledge base is assumed to be written in when no declaration reaches the
+#: evaluator. It mirrors the framework's own default (prompts `compile.owner_env.language_unknown`):
+#: a subject with no language setting gets English, so English is what the compile is held to.
+DEFAULT_DECLARED_LANGUAGE = "en"
+
+#: BCP-47 primary subtags whose writing system is CJK. Coarse on purpose, exactly like `_script_of`:
+#: the check distinguishes writing systems, not languages, so only the split it can actually
+#: measure is encoded here.
+_CJK_LANGUAGE_TAGS = frozenset({"zh", "ja", "ko", "yue", "cmn", "wuu", "nan", "hak"})
+
+
+def script_of_language(tag: str | None) -> str:
+    """A BCP-47 tag → the script this check measures in (`cjk` / `latin`).
+
+    Unknown or empty tags fall back to the default declared language rather than to "anything
+    goes": a missing declaration is a known state with a known consequence (English), and
+    treating it as unmeasurable would quietly drop the metric on exactly the bases that need it.
+    """
+    primary = str(tag or DEFAULT_DECLARED_LANGUAGE).strip().lower().replace("_", "-")
+    primary = primary.split("-", 1)[0]
+    return "cjk" if primary in _CJK_LANGUAGE_TAGS else "latin"
+
 
 #: A claim needs this many letters of the minority script before it counts as genuinely mixed
 #: rather than as a stray loan word, product name or date fragment.
@@ -293,39 +319,52 @@ def _script_of(text: str) -> str:
     return "cjk" if cjk >= latin / 3 else "latin"
 
 
-def language_consistency(trajectory: Trajectory) -> dict[str, Any]:
-    """Do canonical's claims stay in the language of the material they compile?
+def _material_script(trajectory: Trajectory) -> tuple[str | None, dict[str, int]]:
+    """The dominant script of the L0 blocks, as REFERENCE only (never the target).
 
-    A layering question, not a cosmetic one. Canonical is the thread layer over evidence that is
-    never rewritten, and the contract requires exact wording to be kept apart from
-    interpretation — so a claim written in a different language from its source is a translation
-    presented as a thread, and the reader cannot tell which words were the speaker's. It also
-    silently breaks every character-level measurement downstream: a truth label or a duplicate
-    in one script can never match a claim in the other, so admission recall and duplication both
-    under-report on exactly the claims that drifted.
-
-    The corpus language is taken from the L0 blocks rather than assumed, and the metric reports
-    the share of claims that match it per checkpoint. Unavailable without L0, because "consistent
-    with what?" has no answer then.
+    Kept because it is what makes a divergence readable — "claims in Latin over Chinese
+    material" is a different diagnosis from "claims in Latin over Latin material that the
+    subject cannot read" — but it no longer decides anything.
     """
-    if not trajectory.has_l0:
-        return unavailable(
-            "trajectory carries no L0 sources: there is no corpus language to be consistent with"
-        )
-    corpus_counts = Counter(
+    counts = Counter(
         _script_of(block)
         for record in trajectory.sources.values()
         for block in record.blocks
         if block.strip()
     )
     ranked = [
-        (script, count)
-        for script, count in corpus_counts.most_common()
+        script
+        for script, _ in counts.most_common()
         if script not in {"neither", "mixed"}
     ]
-    if not ranked:
-        return unavailable("L0 carries no script this check can identify")
-    corpus_script = ranked[0][0]
+    return (ranked[0] if ranked else None), dict(counts)
+
+
+def language_consistency(
+    trajectory: Trajectory, *, declared_language: str | None = None
+) -> dict[str, Any]:
+    """Are canonical's claims written in the language the base is DECLARED to be in?
+
+    A layering question, not a cosmetic one. The knowledge base belongs to one subject who
+    reads one language, declared in their profile (`locale.language`, defaulting to English
+    when unset), and the compile contract now states that language and requires every claim to
+    be written in it. A claim in another language is unreadable to the only person the layer
+    exists for, and it silently breaks every character-level measurement downstream: a truth
+    label or a duplicate in one script can never match a claim in the other, so admission
+    recall and duplication both under-report on exactly the claims that drifted.
+
+    The target is the DECLARATION, not the material. Measuring against the material was the
+    earlier reading and it does not survive contact with a real corpus: one base's sources are
+    routinely in several languages, so "the corpus language" is an artifact of whichever
+    language happened to dominate, and a compile cannot be held to it. The material's own
+    script is still reported (`material_script`) as context.
+
+    Available with or without L0 — the declared language is known either way, which is the
+    point of declaring it.
+    """
+    declared = (declared_language or "").strip() or DEFAULT_DECLARED_LANGUAGE
+    declared_script = script_of_language(declared)
+    material_script, material_counts = _material_script(trajectory)
     series: list[dict[str, Any]] = []
     head_samples: list[dict[str, Any]] = []
     for checkpoint in trajectory.checkpoints:
@@ -334,7 +373,7 @@ def language_consistency(trajectory: Trajectory) -> dict[str, Any]:
         for claim in checkpoint.claims:
             script = _script_of(claim.text)
             counts[script] += 1
-            if script not in {corpus_script, "mixed", "neither"}:
+            if script not in {declared_script, "mixed", "neither"}:
                 samples.append(
                     {
                         "anchor": str(claim.anchor),
@@ -348,18 +387,26 @@ def language_consistency(trajectory: Trajectory) -> dict[str, Any]:
             {
                 "checkpoint": checkpoint.label,
                 "claims_total": total,
-                "consistent": counts[corpus_script],
-                "diverged": total - counts[corpus_script] - counts["mixed"],
+                # Field names carry the new basis: an old scorecard's `consistent` was
+                # measured against the material and must not be compared with this.
+                "in_declared_language": counts[declared_script],
+                "diverged_from_declared": total
+                - counts[declared_script]
+                - counts["mixed"],
                 "mixed": counts["mixed"],
-                "consistency_rate": rate(counts[corpus_script], total),
+                "declared_language_rate": rate(counts[declared_script], total),
                 "by_script": dict(counts),
             }
         )
         head_samples = samples
     return {
         "status": "ok",
-        "corpus_script": corpus_script,
-        "corpus_block_scripts": dict(corpus_counts),
+        "declared_language": declared,
+        "declared_script": declared_script,
+        "declared_language_source": "argument" if declared_language else "default",
+        # Reference only — what the material happened to be written in.
+        "material_script": material_script,
+        "material_block_scripts": material_counts,
         "series": series,
         "head": series[-1] if series else None,
         "diverged_claims_at_head": head_samples[:30],
@@ -367,8 +414,8 @@ def language_consistency(trajectory: Trajectory) -> dict[str, Any]:
             Counter(row["document_path"] for row in head_samples)
         ),
         "invariants": {
-            "head_fully_consistent": bool(series)
-            and series[-1]["consistency_rate"] in (None, 1.0)
+            "head_fully_in_declared_language": bool(series)
+            and series[-1]["declared_language_rate"] in (None, 1.0)
         },
     }
 
@@ -378,24 +425,34 @@ def layering_metrics(
     truth: TruthSet | None = None,
     *,
     matcher: Matcher = char_similarity,
+    declared_language: str | None = None,
 ) -> dict[str, Any]:
-    """Group C entry point: compression, duplication, verbatim, detail leakage, language."""
+    """Group C entry point: compression, duplication, verbatim, detail leakage, language.
+
+    `declared_language` is the subject's own language setting (`UserProfile.locale.language`)
+    threaded from the evaluation entry point; omitted, the framework default (English) is what
+    the compile is held to — same rule the compile contract states to the model.
+    """
     return {
         "group": "C_layering",
         "compression": compression(trajectory),
         "duplication": duplication(trajectory, matcher=matcher),
         "verbatim_reproduction": verbatim_reproduction(trajectory),
         "detail_leakage": detail_leakage(trajectory, truth, matcher=matcher),
-        "language_consistency": language_consistency(trajectory),
+        "language_consistency": language_consistency(
+            trajectory, declared_language=declared_language
+        ),
     }
 
 
 __all__ = [
+    "DEFAULT_DECLARED_LANGUAGE",
     "VERBATIM_RUN_CHARS",
     "compression",
     "detail_leakage",
     "duplication",
     "language_consistency",
     "layering_metrics",
+    "script_of_language",
     "verbatim_reproduction",
 ]
