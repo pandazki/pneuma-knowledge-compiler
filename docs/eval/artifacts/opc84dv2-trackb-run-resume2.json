@@ -1,0 +1,553 @@
+{
+  "schema": "pneuma.experiment.run/v1",
+  "experiment_id": "opc-84d-v2-accepted",
+  "user_id": "u-opc-seamlog-v2-trackb-20260730",
+  "mode": "real",
+  "models": {
+    "compile": "openrouter:configured",
+    "recall": "openrouter:configured",
+    "deep": "openrouter:configured",
+    "live_context": "openrouter:configured",
+    "evolve": "openrouter:configured"
+  },
+  "embedding_model": "openrouter:configured",
+  "chunk_strategy": "sentence",
+  "elapsed_seconds": 830.2139,
+  "dataset_stats": {
+    "batch_count": 28,
+    "source_contract_count": 104,
+    "accepted_group_ids": [
+      "G01",
+      "G02",
+      "G03",
+      "G04",
+      "G05",
+      "G06",
+      "G07",
+      "G08",
+      "G09",
+      "G10",
+      "G11",
+      "G12",
+      "G13",
+      "G14",
+      "G15",
+      "G16",
+      "G17",
+      "G18",
+      "G19",
+      "G20",
+      "G21",
+      "G22",
+      "G23",
+      "G24",
+      "G25",
+      "G26",
+      "G27",
+      "G28"
+    ]
+  },
+  "batches": [
+    {
+      "batch_id": "G22",
+      "elapsed_seconds": 87.1391,
+      "contracts": [
+        {
+          "schema": "pneuma.source.im/v1",
+          "units": 2,
+          "deduplicated": 0
+        },
+        {
+          "schema": "pneuma.source.email/v1",
+          "units": 2,
+          "deduplicated": 0
+        }
+      ],
+      "new_source_ids": [
+        "a55d549436382ed78ba4ac4538429d93",
+        "0294295e1e3652cc06d35a3c914609ef",
+        "0eb3beb9bdcbb0b7d214c17318fb7fcd",
+        "4eb48fc5016fce53ec14eb2fe2ee6388"
+      ],
+      "processed_jobs": 8,
+      "before": {
+        "sources": 149,
+        "jobs": 299,
+        "jobs_ok": 298,
+        "jobs_failed": 1,
+        "documents": 8,
+        "claims": 260,
+        "snapshots": 133
+      },
+      "after": {
+        "sources": 153,
+        "jobs": 307,
+        "jobs_ok": 306,
+        "jobs_failed": 1,
+        "documents": 8,
+        "claims": 269,
+        "snapshots": 137
+      },
+      "delta": {
+        "sources": 4,
+        "jobs": 8,
+        "jobs_ok": 8,
+        "jobs_failed": 0,
+        "documents": 0,
+        "claims": 9,
+        "snapshots": 4
+      },
+      "projection": {
+        "syncs": 4,
+        "upserted": 12,
+        "deleted": 0,
+        "unchanged": 1048,
+        "latest_total": 269
+      },
+      "failures": []
+    },
+    {
+      "batch_id": "G23",
+      "elapsed_seconds": 163.5699,
+      "contracts": [
+        {
+          "schema": "pneuma.source.meeting/v1",
+          "units": 1,
+          "deduplicated": 0
+        },
+        {
+          "schema": "pneuma.source.document-library/v1",
+          "units": 3,
+          "deduplicated": 0
+        },
+        {
+          "schema": "pneuma.source.im/v1",
+          "units": 2,
+          "deduplicated": 0
+        },
+        {
+          "schema": "pneuma.source.email/v1",
+          "units": 2,
+          "deduplicated": 0
+        }
+      ],
+      "new_source_ids": [
+        "04ff863d4786cccf2b8941cf7a97c68b",
+        "a15187343cdf848be3910858e5915949",
+        "3f6be7d3861e3531bc265a38a21c04cf",
+        "1b8645f383e901b916c8bdf0e2b6d34e",
+        "902bad7fbf222f4048ec7fdc1720eee4",
+        "35d723e5c88dcbcbc176ee573959a8a1",
+        "5450127cda1e85db4cf11892a2babdfa",
+        "025f3b85b93da3ab3723767a8a4a3494"
+      ],
+      "processed_jobs": 16,
+      "before": {
+        "sources": 153,
+        "jobs": 307,
+        "jobs_ok": 306,
+        "jobs_failed": 1,
+        "documents": 8,
+        "claims": 269,
+        "snapshots": 137
+      },
+      "after": {
+        "sources": 161,
+        "jobs": 323,
+        "jobs_ok": 322,
+        "jobs_failed": 1,
+        "documents": 8,
+        "claims": 284,
+        "snapshots": 144
+      },
+      "delta": {
+        "sources": 8,
+        "jobs": 16,
+        "jobs_ok": 16,
+        "jobs_failed": 0,
+        "documents": 0,
+        "claims": 15,
+        "snapshots": 7
+      },
+      "projection": {
+        "syncs": 8,
+        "upserted": 18,
+        "deleted": 0,
+        "unchanged": 2225,
+        "latest_total": 284
+      },
+      "failures": []
+    },
+    {
+      "batch_id": "G24",
+      "elapsed_seconds": 203.3804,
+      "contracts": [
+        {
+          "schema": "pneuma.source.meeting/v1",
+          "units": 1,
+          "deduplicated": 0
+        },
+        {
+          "schema": "pneuma.source.document-library/v1",
+          "units": 2,
+          "deduplicated": 0
+        },
+        {
+          "schema": "pneuma.source.document-library/v1",
+          "units": 3,
+          "deduplicated": 0
+        },
+        {
+          "schema": "pneuma.source.im/v1",
+          "units": 1,
+          "deduplicated": 0
+        },
+        {
+          "schema": "pneuma.source.im/v1",
+          "units": 1,
+          "deduplicated": 0
+        },
+        {
+          "schema": "pneuma.source.email/v1",
+          "units": 2,
+          "deduplicated": 0
+        }
+      ],
+      "new_source_ids": [
+        "300858bd809f88821ec8c6debb8f233b",
+        "1dd5809573dbcdfb279746501695e237",
+        "ace5a26dc01838c8bf08ebb72a04f38f",
+        "ae06ede726ac0d430040442905e3397c",
+        "a4a47e98001515f926f8ec21b46c38ef",
+        "194146c6cf88984465dbf5dc7b2185cd",
+        "24995ad298594064d37d98e05f2b504e",
+        "350508f72992e6aede0b82de2a6000bb",
+        "c0e2a9a9fa070c5a9928a918ff617e63",
+        "ff08f24bc5b52733fa5c17bdd7c3e763"
+      ],
+      "processed_jobs": 20,
+      "before": {
+        "sources": 161,
+        "jobs": 323,
+        "jobs_ok": 322,
+        "jobs_failed": 1,
+        "documents": 8,
+        "claims": 284,
+        "snapshots": 144
+      },
+      "after": {
+        "sources": 171,
+        "jobs": 343,
+        "jobs_ok": 342,
+        "jobs_failed": 1,
+        "documents": 8,
+        "claims": 306,
+        "snapshots": 153
+      },
+      "delta": {
+        "sources": 10,
+        "jobs": 20,
+        "jobs_ok": 20,
+        "jobs_failed": 0,
+        "documents": 0,
+        "claims": 22,
+        "snapshots": 9
+      },
+      "projection": {
+        "syncs": 10,
+        "upserted": 25,
+        "deleted": 0,
+        "unchanged": 2966,
+        "latest_total": 306
+      },
+      "failures": []
+    },
+    {
+      "batch_id": "G25",
+      "elapsed_seconds": 117.9124,
+      "contracts": [
+        {
+          "schema": "pneuma.source.meeting/v1",
+          "units": 1,
+          "deduplicated": 0
+        },
+        {
+          "schema": "pneuma.source.document-library/v1",
+          "units": 2,
+          "deduplicated": 0
+        },
+        {
+          "schema": "pneuma.source.im/v1",
+          "units": 1,
+          "deduplicated": 0
+        },
+        {
+          "schema": "pneuma.source.im/v1",
+          "units": 1,
+          "deduplicated": 0
+        },
+        {
+          "schema": "pneuma.source.email/v1",
+          "units": 2,
+          "deduplicated": 0
+        }
+      ],
+      "new_source_ids": [
+        "85b86ec60517a7b250c1c0f8a641e6c9",
+        "420c23e2ea9a34cd2490d53fa8570be8",
+        "423ecaec8fed7f6cf61b80422b7695f5",
+        "beb1930fafed6c5474950fb335aeb506",
+        "ac4c97d57be1ff9c720a298eb9f5cf4f",
+        "250574e068366ca3d7915ea1f4e32e11",
+        "525f3f4450809a9cc595a4bc29b936f0"
+      ],
+      "processed_jobs": 14,
+      "before": {
+        "sources": 171,
+        "jobs": 343,
+        "jobs_ok": 342,
+        "jobs_failed": 1,
+        "documents": 8,
+        "claims": 306,
+        "snapshots": 153
+      },
+      "after": {
+        "sources": 178,
+        "jobs": 357,
+        "jobs_ok": 356,
+        "jobs_failed": 1,
+        "documents": 8,
+        "claims": 313,
+        "snapshots": 159
+      },
+      "delta": {
+        "sources": 7,
+        "jobs": 14,
+        "jobs_ok": 14,
+        "jobs_failed": 0,
+        "documents": 0,
+        "claims": 7,
+        "snapshots": 6
+      },
+      "projection": {
+        "syncs": 7,
+        "upserted": 12,
+        "deleted": 0,
+        "unchanged": 2161,
+        "latest_total": 313
+      },
+      "failures": []
+    },
+    {
+      "batch_id": "G26",
+      "elapsed_seconds": 85.5256,
+      "contracts": [
+        {
+          "schema": "pneuma.source.document-library/v1",
+          "units": 1,
+          "deduplicated": 0
+        },
+        {
+          "schema": "pneuma.source.document-library/v1",
+          "units": 1,
+          "deduplicated": 0
+        },
+        {
+          "schema": "pneuma.source.im/v1",
+          "units": 2,
+          "deduplicated": 0
+        }
+      ],
+      "new_source_ids": [
+        "2206d1a83008d35bf1f46b9fe6d30efa",
+        "92e6885627aff6b284096547aeb63011",
+        "c5921c1acc3fee56d2bc1638b7629dca",
+        "bd160e9c3df4504db008174f8666438d"
+      ],
+      "processed_jobs": 8,
+      "before": {
+        "sources": 178,
+        "jobs": 357,
+        "jobs_ok": 356,
+        "jobs_failed": 1,
+        "documents": 8,
+        "claims": 313,
+        "snapshots": 159
+      },
+      "after": {
+        "sources": 182,
+        "jobs": 365,
+        "jobs_ok": 364,
+        "jobs_failed": 1,
+        "documents": 8,
+        "claims": 320,
+        "snapshots": 163
+      },
+      "delta": {
+        "sources": 4,
+        "jobs": 8,
+        "jobs_ok": 8,
+        "jobs_failed": 0,
+        "documents": 0,
+        "claims": 7,
+        "snapshots": 4
+      },
+      "projection": {
+        "syncs": 4,
+        "upserted": 10,
+        "deleted": 0,
+        "unchanged": 1261,
+        "latest_total": 320
+      },
+      "failures": []
+    },
+    {
+      "batch_id": "G27",
+      "elapsed_seconds": 57.7315,
+      "contracts": [
+        {
+          "schema": "pneuma.source.meeting/v1",
+          "units": 1,
+          "deduplicated": 0
+        },
+        {
+          "schema": "pneuma.source.email/v1",
+          "units": 2,
+          "deduplicated": 0
+        }
+      ],
+      "new_source_ids": [
+        "78d351e415c740512274372fe704d0a2",
+        "35f5aedce19385de86252fc6d4132a2a",
+        "46ad8e259a2d97e8471d7c869c73d011"
+      ],
+      "processed_jobs": 6,
+      "before": {
+        "sources": 182,
+        "jobs": 365,
+        "jobs_ok": 364,
+        "jobs_failed": 1,
+        "documents": 8,
+        "claims": 320,
+        "snapshots": 163
+      },
+      "after": {
+        "sources": 185,
+        "jobs": 371,
+        "jobs_ok": 370,
+        "jobs_failed": 1,
+        "documents": 8,
+        "claims": 326,
+        "snapshots": 166
+      },
+      "delta": {
+        "sources": 3,
+        "jobs": 6,
+        "jobs_ok": 6,
+        "jobs_failed": 0,
+        "documents": 0,
+        "claims": 6,
+        "snapshots": 3
+      },
+      "projection": {
+        "syncs": 3,
+        "upserted": 7,
+        "deleted": 0,
+        "unchanged": 968,
+        "latest_total": 326
+      },
+      "failures": []
+    },
+    {
+      "batch_id": "G28",
+      "elapsed_seconds": 113.9165,
+      "contracts": [
+        {
+          "schema": "pneuma.source.document-library/v1",
+          "units": 3,
+          "deduplicated": 0
+        },
+        {
+          "schema": "pneuma.source.email/v1",
+          "units": 2,
+          "deduplicated": 0
+        }
+      ],
+      "new_source_ids": [
+        "6afa60891c73e8ceb6ed96c99066f30a",
+        "10076d1e6c314e1a263490508c882575",
+        "2f2986123304f1fed03e5a277b96af49",
+        "cad08fa98e86145f155a43921217a631",
+        "9918a9fdf0772a576f36d101fb17a3b9"
+      ],
+      "processed_jobs": 10,
+      "before": {
+        "sources": 185,
+        "jobs": 371,
+        "jobs_ok": 370,
+        "jobs_failed": 1,
+        "documents": 8,
+        "claims": 326,
+        "snapshots": 166
+      },
+      "after": {
+        "sources": 190,
+        "jobs": 381,
+        "jobs_ok": 380,
+        "jobs_failed": 1,
+        "documents": 8,
+        "claims": 328,
+        "snapshots": 170
+      },
+      "delta": {
+        "sources": 5,
+        "jobs": 10,
+        "jobs_ok": 10,
+        "jobs_failed": 0,
+        "documents": 0,
+        "claims": 2,
+        "snapshots": 4
+      },
+      "projection": {
+        "syncs": 5,
+        "upserted": 14,
+        "deleted": 0,
+        "unchanged": 1626,
+        "latest_total": 328
+      },
+      "failures": []
+    }
+  ],
+  "execution": {
+    "from_batch": 22,
+    "until_batch": 28,
+    "executed_batch_count": 7,
+    "executed_contract_count": 24,
+    "status": "completed"
+  },
+  "final": {
+    "sources": 190,
+    "jobs": 381,
+    "jobs_ok": 380,
+    "jobs_failed": 1,
+    "documents": 8,
+    "claims": 328,
+    "snapshots": 170
+  },
+  "source_kinds": {
+    "document_library": 81,
+    "email": 43,
+    "im": 48,
+    "meeting": 18
+  },
+  "historical_failures": [
+    {
+      "job_id": "2f8c1b1acc944b9e9b232ffa508bcb3f",
+      "kind": "compile",
+      "detail": "worker error: OpenRouter embeddings failed after 3 tries: ",
+      "source_ids": [
+        "6f3b3243311f92b8934d5ad9a39667c3"
+      ]
+    }
+  ]
+}

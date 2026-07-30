@@ -1,0 +1,141 @@
+{
+  "schema": "pneuma.experiment.run/v1",
+  "experiment_id": "opc-84d-v2-accepted",
+  "user_id": "u-opc-seamlog-v2-trackb-20260730",
+  "mode": "real",
+  "models": {
+    "compile": "openrouter:configured",
+    "recall": "openrouter:configured",
+    "deep": "openrouter:configured",
+    "live_context": "openrouter:configured",
+    "evolve": "openrouter:configured"
+  },
+  "embedding_model": "openrouter:configured",
+  "chunk_strategy": "sentence",
+  "elapsed_seconds": 82.537,
+  "dataset_stats": {
+    "batch_count": 28,
+    "source_contract_count": 104,
+    "accepted_group_ids": [
+      "G01",
+      "G02",
+      "G03",
+      "G04",
+      "G05",
+      "G06",
+      "G07",
+      "G08",
+      "G09",
+      "G10",
+      "G11",
+      "G12",
+      "G13",
+      "G14",
+      "G15",
+      "G16",
+      "G17",
+      "G18",
+      "G19",
+      "G20",
+      "G21",
+      "G22",
+      "G23",
+      "G24",
+      "G25",
+      "G26",
+      "G27",
+      "G28"
+    ]
+  },
+  "batches": [
+    {
+      "batch_id": "G01",
+      "elapsed_seconds": 82.0413,
+      "contracts": [
+        {
+          "schema": "pneuma.source.document-library/v1",
+          "units": 1,
+          "deduplicated": 0
+        },
+        {
+          "schema": "pneuma.source.document-library/v1",
+          "units": 1,
+          "deduplicated": 0
+        },
+        {
+          "schema": "pneuma.source.im/v1",
+          "units": 1,
+          "deduplicated": 0
+        },
+        {
+          "schema": "pneuma.source.im/v1",
+          "units": 1,
+          "deduplicated": 0
+        }
+      ],
+      "new_source_ids": [
+        "63fb9ae20dc108053f9a8f7e4a276ea3",
+        "55b89af738b93189632f2164e429bec8",
+        "4b477efe39cf09709722a90a5d7b2717",
+        "61e527a94c250b98b266dbc2c0de3381"
+      ],
+      "processed_jobs": 8,
+      "before": {
+        "sources": 0,
+        "jobs": 0,
+        "jobs_ok": 0,
+        "jobs_failed": 0,
+        "documents": 0,
+        "claims": 0,
+        "snapshots": 0
+      },
+      "after": {
+        "sources": 4,
+        "jobs": 8,
+        "jobs_ok": 8,
+        "jobs_failed": 0,
+        "documents": 1,
+        "claims": 11,
+        "snapshots": 4
+      },
+      "delta": {
+        "sources": 4,
+        "jobs": 8,
+        "jobs_ok": 8,
+        "jobs_failed": 0,
+        "documents": 1,
+        "claims": 11,
+        "snapshots": 4
+      },
+      "projection": {
+        "syncs": 4,
+        "upserted": 11,
+        "deleted": 0,
+        "unchanged": 23,
+        "latest_total": 11
+      },
+      "failures": []
+    }
+  ],
+  "execution": {
+    "from_batch": 1,
+    "until_batch": 1,
+    "executed_batch_count": 1,
+    "executed_contract_count": 4,
+    "status": "completed"
+  },
+  "final": {
+    "sources": 4,
+    "jobs": 8,
+    "jobs_ok": 8,
+    "jobs_failed": 0,
+    "documents": 1,
+    "claims": 11,
+    "snapshots": 4
+  },
+  "source_kinds": {
+    "document_library": 2,
+    "im": 2
+  },
+  "historical_failures": []
+}

@@ -1,0 +1,29 @@
+contract: per-user composed base vv3 + schema packs (shipped runner default would have been vv1)
+G02   173.45s +sources=9 +jobs=18 +docs=1 +claims=17 failed=0
+G03   259.21s +sources=8 +jobs=16 +docs=2 +claims=20 failed=0
+G04   135.60s +sources=6 +jobs=12 +docs=0 +claims=5 failed=0
+G05   113.77s +sources=6 +jobs=12 +docs=1 +claims=14 failed=0
+G06   138.56s +sources=6 +jobs=12 +docs=0 +claims=12 failed=0
+G07   173.64s +sources=8 +jobs=16 +docs=2 +claims=11 failed=0
+G08   210.26s +sources=9 +jobs=18 +docs=0 +claims=9 failed=0
+G09   182.02s +sources=8 +jobs=16 +docs=0 +claims=15 failed=0
+G10   429.48s +sources=8 +jobs=16 +docs=0 +claims=8 failed=10
+Traceback (most recent call last):
+  File "/private/tmp/claude-501/-Users-pandazki-orca-workspaces-pneuma-knowledge-compiler-platy/fedfa01c-aae0-4c81-bf7d-3bb6767759fe/scratchpad/run_track_b.py", line 40, in <module>
+    raise SystemExit(runner.main())
+                     ^^^^^^^^^^^^^
+  File "/Users/pandazki/orca/workspaces/pneuma-knowledge-compiler/platy/examples/run_opc_84d_experiment.py", line 638, in main
+    result = asyncio.run(
+             ^^^^^^^^^^^^
+  File "/Users/pandazki/.local/share/uv/python/cpython-3.12.7-macos-aarch64-none/lib/python3.12/asyncio/runners.py", line 194, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "/Users/pandazki/.local/share/uv/python/cpython-3.12.7-macos-aarch64-none/lib/python3.12/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/pandazki/.local/share/uv/python/cpython-3.12.7-macos-aarch64-none/lib/python3.12/asyncio/base_events.py", line 687, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "/Users/pandazki/orca/workspaces/pneuma-knowledge-compiler/platy/examples/run_opc_84d_experiment.py", line 542, in run
+    raise RuntimeError(
+RuntimeError: G10 has 6 failed or unfinished jobs

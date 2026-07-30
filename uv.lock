@@ -11,6 +11,7 @@ resolution-markers = [
 members = [
     "pneuma-knowledge-compiler",
     "pneuma-knowledge-core",
+    "pneuma-knowledge-eval",
     "pneuma-knowledge-service",
 ]
 
@@ -1057,6 +1058,30 @@ requires-dist = [
     { name = "langchain", specifier = ">=1,<2" },
     { name = "langchain-core" },
     { name = "pydantic", specifier = ">=2" },
+    { name = "pytest", marker = "extra == 'dev'" },
+]
+provides-extras = ["dev"]
+
+[[package]]
+name = "pneuma-knowledge-eval"
+version = "0.6.0"
+source = { editable = "packages/pneuma-knowledge-eval" }
+dependencies = [
+    { name = "pneuma-knowledge-core" },
+    { name = "pneuma-knowledge-service" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "httpx" },
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "httpx", marker = "extra == 'dev'" },
+    { name = "pneuma-knowledge-core", editable = "packages/pneuma-knowledge-core" },
+    { name = "pneuma-knowledge-service", editable = "packages/pneuma-knowledge-service" },
     { name = "pytest", marker = "extra == 'dev'" },
 ]
 provides-extras = ["dev"]

@@ -1,0 +1,225 @@
+{
+  "friendly_id": "u-opc-seamlog-v2-trackb-20260730",
+  "source_user_id": "u-opc-seamlog-v2-trackb-20260730",
+  "embedding_model": "openrouter:openai/text-embedding-3-small",
+  "vector_dim": 1536,
+  "qdrant_distance": "Cosine",
+  "pg_column_types": {
+    "blocks": {
+      "user_id": "text",
+      "source_id": "text",
+      "block_index": "integer",
+      "text": "text",
+      "section_path": "jsonb"
+    },
+    "briefings": {
+      "briefing_id": "text",
+      "user_id": "text",
+      "scope": "jsonb",
+      "snapshot_ref": "text",
+      "system_prefix": "text",
+      "created_at": "timestamp with time zone"
+    },
+    "canonical_claims": {
+      "user_id": "text",
+      "document_path": "text",
+      "anchor": "text",
+      "section_path": "jsonb",
+      "text": "text",
+      "citations": "jsonb",
+      "snapshot_ref": "text",
+      "updated_at": "timestamp with time zone"
+    },
+    "chunk_manifests": {
+      "user_id": "text",
+      "source_id": "text",
+      "strategy": "text",
+      "model": "text",
+      "content_digest": "text",
+      "segments": "jsonb",
+      "result_digest": "text",
+      "updated_at": "timestamp with time zone"
+    },
+    "compile_events": {
+      "user_id": "text",
+      "job_id": "text",
+      "seq": "integer",
+      "snapshot_ref": "text",
+      "type": "text",
+      "path": "text",
+      "anchor": "text",
+      "before": "text",
+      "after": "text",
+      "created_at": "timestamp with time zone"
+    },
+    "compile_jobs": {
+      "id": "text",
+      "user_id": "text",
+      "kind": "text",
+      "payload": "jsonb",
+      "status": "text",
+      "claimed_by": "text",
+      "created_at": "timestamp with time zone",
+      "claimed_at": "timestamp with time zone",
+      "completed_at": "timestamp with time zone",
+      "ok": "boolean",
+      "detail": "text",
+      "snapshot_ref": "text"
+    },
+    "evolve_tasks": {
+      "task_id": "text",
+      "user_id": "text",
+      "status": "text",
+      "base_ref": "text",
+      "branch": "text",
+      "proposal": "jsonb",
+      "summary": "jsonb",
+      "dropped": "jsonb",
+      "detail": "text",
+      "created_at": "timestamp with time zone",
+      "decided_at": "timestamp with time zone"
+    },
+    "sources": {
+      "user_id": "text",
+      "source_id": "text",
+      "kind": "text",
+      "source_class": "text",
+      "title": "text",
+      "mime": "text",
+      "checksum": "text",
+      "created_at": "timestamp with time zone",
+      "meta": "jsonb",
+      "intake_plan": "jsonb",
+      "structure_map": "jsonb",
+      "digested_at": "timestamp with time zone",
+      "origin": "text"
+    },
+    "user_profiles": {
+      "user_id": "text",
+      "profile": "jsonb",
+      "updated_at": "timestamp with time zone"
+    }
+  },
+  "pg_column_order": {
+    "blocks": [
+      "user_id",
+      "source_id",
+      "block_index",
+      "text",
+      "section_path"
+    ],
+    "briefings": [
+      "briefing_id",
+      "user_id",
+      "scope",
+      "snapshot_ref",
+      "system_prefix",
+      "created_at"
+    ],
+    "canonical_claims": [
+      "user_id",
+      "document_path",
+      "anchor",
+      "section_path",
+      "text",
+      "citations",
+      "snapshot_ref",
+      "updated_at"
+    ],
+    "chunk_manifests": [
+      "user_id",
+      "source_id",
+      "strategy",
+      "model",
+      "content_digest",
+      "segments",
+      "result_digest",
+      "updated_at"
+    ],
+    "compile_events": [
+      "user_id",
+      "job_id",
+      "seq",
+      "snapshot_ref",
+      "type",
+      "path",
+      "anchor",
+      "before",
+      "after",
+      "created_at"
+    ],
+    "compile_jobs": [
+      "id",
+      "user_id",
+      "kind",
+      "payload",
+      "status",
+      "claimed_by",
+      "created_at",
+      "claimed_at",
+      "completed_at",
+      "ok",
+      "detail",
+      "snapshot_ref"
+    ],
+    "evolve_tasks": [
+      "task_id",
+      "user_id",
+      "status",
+      "base_ref",
+      "branch",
+      "proposal",
+      "summary",
+      "dropped",
+      "detail",
+      "created_at",
+      "decided_at"
+    ],
+    "sources": [
+      "user_id",
+      "source_id",
+      "kind",
+      "source_class",
+      "title",
+      "mime",
+      "checksum",
+      "created_at",
+      "meta",
+      "intake_plan",
+      "structure_map",
+      "digested_at",
+      "origin"
+    ],
+    "user_profiles": [
+      "user_id",
+      "profile",
+      "updated_at"
+    ]
+  },
+  "counts": {
+    "pg": {
+      "sources": 190,
+      "blocks": 1292,
+      "chunk_manifests": 0,
+      "compile_jobs": 381,
+      "compile_events": 473,
+      "canonical_claims": 328,
+      "briefings": 0,
+      "user_profiles": 1,
+      "evolve_tasks": 0
+    },
+    "qdrant_chunks": 319,
+    "qdrant_claims": 328,
+    "meili_blocks": 1292,
+    "meili_claims": 328,
+    "canonical_commits": 170
+  },
+  "trimmed_for_evaluation": {
+    "removed": [
+      "qdrant/",
+      "meili/"
+    ],
+    "why": "The evaluator reads only manifest.json, canonical.tar.gz and pg/*.json.gz. The L1/L2 dumps are regenerable by re-indexing and were 5.2 MB of vectors, so they are not kept in the repository. This bundle is therefore an EVALUATION input, not a complete four-layer preset: examples/import_presets.py would restore no L1/L2 from it. Re-export with examples/export_presets.py against the live tenant to get the full bundle.",
+    "counts_below_describe_the_original_export": true
+  }
+}

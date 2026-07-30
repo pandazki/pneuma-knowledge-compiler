@@ -1,0 +1,1939 @@
+{
+  "schema": "pneuma.eval.scorecard/v1",
+  "mode": "mechanical",
+  "generated_at": "2026-07-30T00:56:27.976101+00:00",
+  "bundle": {
+    "id": "u-opc-lin",
+    "checkpoints": 11,
+    "documents_at_head": 9,
+    "claims_at_head": 76,
+    "sources": 11,
+    "l0_blocks": 145,
+    "path_templates": [
+      "memory/profile.md",
+      "memory/people/{slug}.md",
+      "work/products/{slug}.md",
+      "work/experiments/{slug}.md",
+      "work/operations/{slug}.md",
+      "memory/topics/{slug}.md",
+      "materials/{slug}.md"
+    ],
+    "origin": {
+      "kind": "preset_bundle",
+      "bundle_path": "examples/data/preset/u-opc-lin",
+      "source_user_id": "u-opc-lin",
+      "manifest_counts": {
+        "pg": {
+          "sources": 11,
+          "blocks": 145,
+          "chunk_manifests": 11,
+          "compile_jobs": 22,
+          "compile_events": 81,
+          "canonical_claims": 76,
+          "briefings": 0,
+          "user_profiles": 1,
+          "evolve_tasks": 0
+        },
+        "qdrant_chunks": 44,
+        "qdrant_claims": 76,
+        "meili_blocks": 145,
+        "meili_claims": 76,
+        "canonical_commits": 11
+      }
+    }
+  },
+  "checkpoints": [
+    {
+      "label": "r01",
+      "ref": "3ac804493f63",
+      "committed_at": "2026-07-28T19:27:31+08:00",
+      "job_id": "d1d6a6816f4c41d3916fbee2d4b37979",
+      "consumed_sources": [
+        "cb29d30c7ffded101afeb5468fa8d5ee"
+      ],
+      "documents": 6,
+      "claims": 39,
+      "canonical_chars": 5453
+    },
+    {
+      "label": "r02",
+      "ref": "4945f01281b6",
+      "committed_at": "2026-07-28T19:27:55+08:00",
+      "job_id": "1f03e8d33a5d4860a6dc7e2629723a92",
+      "consumed_sources": [
+        "eb8dd940a85c71a84cc7029113854eff"
+      ],
+      "documents": 6,
+      "claims": 42,
+      "canonical_chars": 5937
+    },
+    {
+      "label": "r03",
+      "ref": "9b39a80fde11",
+      "committed_at": "2026-07-28T19:28:06+08:00",
+      "job_id": "81af46bc14d8459cb1d05ee27c138243",
+      "consumed_sources": [
+        "b978f71476ba59a371a8628446c39cbf"
+      ],
+      "documents": 6,
+      "claims": 46,
+      "canonical_chars": 6496
+    },
+    {
+      "label": "r04",
+      "ref": "0a1fae94f60b",
+      "committed_at": "2026-07-28T19:28:17+08:00",
+      "job_id": "2c222b29257b4813a0acf95e0f0e532d",
+      "consumed_sources": [
+        "3ec9137339c09bf503652a252ace0a93"
+      ],
+      "documents": 6,
+      "claims": 48,
+      "canonical_chars": 6746
+    },
+    {
+      "label": "r05",
+      "ref": "2d1b8fd24ca7",
+      "committed_at": "2026-07-28T19:28:31+08:00",
+      "job_id": "652edb13f35f4ea981284bee185ecade",
+      "consumed_sources": [
+        "b7074809c6e5eb27749efa57d0357c13"
+      ],
+      "documents": 7,
+      "claims": 51,
+      "canonical_chars": 7165
+    },
+    {
+      "label": "r06",
+      "ref": "53b492ef8b37",
+      "committed_at": "2026-07-28T19:28:46+08:00",
+      "job_id": "1e638eddf9094b4ba686d347b9411bf0",
+      "consumed_sources": [
+        "ec1cd8769c258d724bc04296198ff6cb"
+      ],
+      "documents": 8,
+      "claims": 56,
+      "canonical_chars": 7800
+    },
+    {
+      "label": "r07",
+      "ref": "ae274bbfca70",
+      "committed_at": "2026-07-28T19:29:18+08:00",
+      "job_id": "d46ad1a223bf49dba434c938c9bffb09",
+      "consumed_sources": [
+        "3c9f3a0dbf798b0e9b0366499703cbf0"
+      ],
+      "documents": 8,
+      "claims": 60,
+      "canonical_chars": 8435
+    },
+    {
+      "label": "r08",
+      "ref": "9b098ce08d08",
+      "committed_at": "2026-07-28T19:29:31+08:00",
+      "job_id": "7b0334df06a34220bc62fabaaad7722d",
+      "consumed_sources": [
+        "6dc0d7006490b8bb0d6ac641af92091a"
+      ],
+      "documents": 8,
+      "claims": 62,
+      "canonical_chars": 8654
+    },
+    {
+      "label": "r09",
+      "ref": "caafc408f79b",
+      "committed_at": "2026-07-28T19:29:43+08:00",
+      "job_id": "44ac937fce274873b4460aec60a4a749",
+      "consumed_sources": [
+        "2b08df3ebdd4d1f75824a9c114980804"
+      ],
+      "documents": 9,
+      "claims": 67,
+      "canonical_chars": 9244
+    },
+    {
+      "label": "r10",
+      "ref": "7f1c56c11acd",
+      "committed_at": "2026-07-28T19:30:03+08:00",
+      "job_id": "d7c63b84b8324611ae3a0ee360a43625",
+      "consumed_sources": [
+        "1286c51d8e284e61d34da70290ad4e1f"
+      ],
+      "documents": 9,
+      "claims": 72,
+      "canonical_chars": 9904
+    },
+    {
+      "label": "r11",
+      "ref": "2272163a534d",
+      "committed_at": "2026-07-28T19:30:22+08:00",
+      "job_id": "79e779f5bb1a404aa26730e9e0da0925",
+      "consumed_sources": [
+        "2f5aab20413256d55952d6b609718dd8"
+      ],
+      "documents": 9,
+      "claims": 76,
+      "canonical_chars": 10407
+    }
+  ],
+  "groups": {
+    "A_grounded": {
+      "group": "A_grounded",
+      "citations": {
+        "status": "ok",
+        "l0_available": true,
+        "series": [
+          {
+            "checkpoint": "r01",
+            "claims_total": 39,
+            "claims_with_citations": 38,
+            "claim_coverage": 0.974359,
+            "citations_total": 44,
+            "unparsable_marker_residue": 0,
+            "citations_resolvable": 44,
+            "resolvable_rate": 1.0,
+            "unknown_source": 0,
+            "out_of_range": 0
+          },
+          {
+            "checkpoint": "r02",
+            "claims_total": 42,
+            "claims_with_citations": 41,
+            "claim_coverage": 0.97619,
+            "citations_total": 47,
+            "unparsable_marker_residue": 0,
+            "citations_resolvable": 47,
+            "resolvable_rate": 1.0,
+            "unknown_source": 0,
+            "out_of_range": 0
+          },
+          {
+            "checkpoint": "r03",
+            "claims_total": 46,
+            "claims_with_citations": 45,
+            "claim_coverage": 0.978261,
+            "citations_total": 52,
+            "unparsable_marker_residue": 0,
+            "citations_resolvable": 52,
+            "resolvable_rate": 1.0,
+            "unknown_source": 0,
+            "out_of_range": 0
+          },
+          {
+            "checkpoint": "r04",
+            "claims_total": 48,
+            "claims_with_citations": 47,
+            "claim_coverage": 0.979167,
+            "citations_total": 54,
+            "unparsable_marker_residue": 0,
+            "citations_resolvable": 54,
+            "resolvable_rate": 1.0,
+            "unknown_source": 0,
+            "out_of_range": 0
+          },
+          {
+            "checkpoint": "r05",
+            "claims_total": 51,
+            "claims_with_citations": 50,
+            "claim_coverage": 0.980392,
+            "citations_total": 57,
+            "unparsable_marker_residue": 0,
+            "citations_resolvable": 57,
+            "resolvable_rate": 1.0,
+            "unknown_source": 0,
+            "out_of_range": 0
+          },
+          {
+            "checkpoint": "r06",
+            "claims_total": 56,
+            "claims_with_citations": 55,
+            "claim_coverage": 0.982143,
+            "citations_total": 62,
+            "unparsable_marker_residue": 0,
+            "citations_resolvable": 62,
+            "resolvable_rate": 1.0,
+            "unknown_source": 0,
+            "out_of_range": 0
+          },
+          {
+            "checkpoint": "r07",
+            "claims_total": 60,
+            "claims_with_citations": 59,
+            "claim_coverage": 0.983333,
+            "citations_total": 68,
+            "unparsable_marker_residue": 0,
+            "citations_resolvable": 68,
+            "resolvable_rate": 1.0,
+            "unknown_source": 0,
+            "out_of_range": 0
+          },
+          {
+            "checkpoint": "r08",
+            "claims_total": 62,
+            "claims_with_citations": 61,
+            "claim_coverage": 0.983871,
+            "citations_total": 69,
+            "unparsable_marker_residue": 0,
+            "citations_resolvable": 69,
+            "resolvable_rate": 1.0,
+            "unknown_source": 0,
+            "out_of_range": 0
+          },
+          {
+            "checkpoint": "r09",
+            "claims_total": 67,
+            "claims_with_citations": 66,
+            "claim_coverage": 0.985075,
+            "citations_total": 74,
+            "unparsable_marker_residue": 0,
+            "citations_resolvable": 74,
+            "resolvable_rate": 1.0,
+            "unknown_source": 0,
+            "out_of_range": 0
+          },
+          {
+            "checkpoint": "r10",
+            "claims_total": 72,
+            "claims_with_citations": 71,
+            "claim_coverage": 0.986111,
+            "citations_total": 79,
+            "unparsable_marker_residue": 0,
+            "citations_resolvable": 79,
+            "resolvable_rate": 1.0,
+            "unknown_source": 0,
+            "out_of_range": 0
+          },
+          {
+            "checkpoint": "r11",
+            "claims_total": 76,
+            "claims_with_citations": 75,
+            "claim_coverage": 0.986842,
+            "citations_total": 82,
+            "unparsable_marker_residue": 0,
+            "citations_resolvable": 82,
+            "resolvable_rate": 1.0,
+            "unknown_source": 0,
+            "out_of_range": 0
+          }
+        ],
+        "head": {
+          "checkpoint": "r11",
+          "claims_total": 76,
+          "claims_with_citations": 75,
+          "claim_coverage": 0.986842,
+          "citations_total": 82,
+          "unparsable_marker_residue": 0,
+          "citations_resolvable": 82,
+          "resolvable_rate": 1.0,
+          "unknown_source": 0,
+          "out_of_range": 0
+        },
+        "invariants": {
+          "head_claim_coverage_is_total": false,
+          "head_all_citations_resolvable": true,
+          "no_unparsable_residue_at_head": true
+        }
+      },
+      "anchors": {
+        "status": "ok",
+        "transitions": 10,
+        "series": [
+          {
+            "from": "r01",
+            "to": "r02",
+            "anchors_before": 39,
+            "anchors_after": 42,
+            "anchors_added": 3,
+            "per_document_vanished": 0,
+            "repo_wide_vanished": 0,
+            "moved_not_lost": 0,
+            "samples": []
+          },
+          {
+            "from": "r02",
+            "to": "r03",
+            "anchors_before": 42,
+            "anchors_after": 46,
+            "anchors_added": 4,
+            "per_document_vanished": 0,
+            "repo_wide_vanished": 0,
+            "moved_not_lost": 0,
+            "samples": []
+          },
+          {
+            "from": "r03",
+            "to": "r04",
+            "anchors_before": 46,
+            "anchors_after": 48,
+            "anchors_added": 2,
+            "per_document_vanished": 0,
+            "repo_wide_vanished": 0,
+            "moved_not_lost": 0,
+            "samples": []
+          },
+          {
+            "from": "r04",
+            "to": "r05",
+            "anchors_before": 48,
+            "anchors_after": 51,
+            "anchors_added": 3,
+            "per_document_vanished": 0,
+            "repo_wide_vanished": 0,
+            "moved_not_lost": 0,
+            "samples": []
+          },
+          {
+            "from": "r05",
+            "to": "r06",
+            "anchors_before": 51,
+            "anchors_after": 56,
+            "anchors_added": 5,
+            "per_document_vanished": 0,
+            "repo_wide_vanished": 0,
+            "moved_not_lost": 0,
+            "samples": []
+          },
+          {
+            "from": "r06",
+            "to": "r07",
+            "anchors_before": 56,
+            "anchors_after": 60,
+            "anchors_added": 4,
+            "per_document_vanished": 0,
+            "repo_wide_vanished": 0,
+            "moved_not_lost": 0,
+            "samples": []
+          },
+          {
+            "from": "r07",
+            "to": "r08",
+            "anchors_before": 60,
+            "anchors_after": 62,
+            "anchors_added": 2,
+            "per_document_vanished": 0,
+            "repo_wide_vanished": 0,
+            "moved_not_lost": 0,
+            "samples": []
+          },
+          {
+            "from": "r08",
+            "to": "r09",
+            "anchors_before": 62,
+            "anchors_after": 67,
+            "anchors_added": 5,
+            "per_document_vanished": 0,
+            "repo_wide_vanished": 0,
+            "moved_not_lost": 0,
+            "samples": []
+          },
+          {
+            "from": "r09",
+            "to": "r10",
+            "anchors_before": 67,
+            "anchors_after": 72,
+            "anchors_added": 5,
+            "per_document_vanished": 0,
+            "repo_wide_vanished": 0,
+            "moved_not_lost": 0,
+            "samples": []
+          },
+          {
+            "from": "r10",
+            "to": "r11",
+            "anchors_before": 72,
+            "anchors_after": 76,
+            "anchors_added": 4,
+            "per_document_vanished": 0,
+            "repo_wide_vanished": 0,
+            "moved_not_lost": 0,
+            "samples": []
+          }
+        ],
+        "documents_dropped": [],
+        "invariants": {
+          "no_repo_wide_anchor_loss": true,
+          "no_document_dropped": true,
+          "anchor_floor_is_monotone": true
+        }
+      },
+      "links": {
+        "status": "ok",
+        "series": [
+          {
+            "checkpoint": "r01",
+            "documents": 6,
+            "links_total": 0,
+            "resolved": 0,
+            "dead": 0,
+            "self": 0,
+            "dead_rate": null,
+            "samples": []
+          },
+          {
+            "checkpoint": "r02",
+            "documents": 6,
+            "links_total": 0,
+            "resolved": 0,
+            "dead": 0,
+            "self": 0,
+            "dead_rate": null,
+            "samples": []
+          },
+          {
+            "checkpoint": "r03",
+            "documents": 6,
+            "links_total": 0,
+            "resolved": 0,
+            "dead": 0,
+            "self": 0,
+            "dead_rate": null,
+            "samples": []
+          },
+          {
+            "checkpoint": "r04",
+            "documents": 6,
+            "links_total": 0,
+            "resolved": 0,
+            "dead": 0,
+            "self": 0,
+            "dead_rate": null,
+            "samples": []
+          },
+          {
+            "checkpoint": "r05",
+            "documents": 7,
+            "links_total": 0,
+            "resolved": 0,
+            "dead": 0,
+            "self": 0,
+            "dead_rate": null,
+            "samples": []
+          },
+          {
+            "checkpoint": "r06",
+            "documents": 8,
+            "links_total": 0,
+            "resolved": 0,
+            "dead": 0,
+            "self": 0,
+            "dead_rate": null,
+            "samples": []
+          },
+          {
+            "checkpoint": "r07",
+            "documents": 8,
+            "links_total": 0,
+            "resolved": 0,
+            "dead": 0,
+            "self": 0,
+            "dead_rate": null,
+            "samples": []
+          },
+          {
+            "checkpoint": "r08",
+            "documents": 8,
+            "links_total": 0,
+            "resolved": 0,
+            "dead": 0,
+            "self": 0,
+            "dead_rate": null,
+            "samples": []
+          },
+          {
+            "checkpoint": "r09",
+            "documents": 9,
+            "links_total": 0,
+            "resolved": 0,
+            "dead": 0,
+            "self": 0,
+            "dead_rate": null,
+            "samples": []
+          },
+          {
+            "checkpoint": "r10",
+            "documents": 9,
+            "links_total": 0,
+            "resolved": 0,
+            "dead": 0,
+            "self": 0,
+            "dead_rate": null,
+            "samples": []
+          },
+          {
+            "checkpoint": "r11",
+            "documents": 9,
+            "links_total": 0,
+            "resolved": 0,
+            "dead": 0,
+            "self": 0,
+            "dead_rate": null,
+            "samples": []
+          }
+        ],
+        "head": {
+          "checkpoint": "r11",
+          "documents": 9,
+          "links_total": 0,
+          "resolved": 0,
+          "dead": 0,
+          "self": 0,
+          "dead_rate": null,
+          "samples": []
+        },
+        "invariants": {
+          "no_dead_links_at_head": true,
+          "no_self_links_at_head": true,
+          "head_has_any_link": false
+        }
+      }
+    },
+    "B_admission": {
+      "group": "B_admission",
+      "status": "unavailable",
+      "reason": "no truth set is bound to this trajectory: admission judgement is only measurable against a corpus whose facts, exhaust and supersessions were labelled before compilation"
+    },
+    "C_layering": {
+      "group": "C_layering",
+      "compression": {
+        "status": "ok",
+        "series": [
+          {
+            "checkpoint": "r01",
+            "canonical_chars": 5453,
+            "prose_chars": 2640,
+            "l0_chars": 4343,
+            "compression_ratio": 0.607875,
+            "raw_compression_ratio": 1.255584,
+            "markup_chars": 2813,
+            "claims_total": 39,
+            "chars_per_claim": 67.692308
+          },
+          {
+            "checkpoint": "r02",
+            "canonical_chars": 5937,
+            "prose_chars": 2934,
+            "l0_chars": 4463,
+            "compression_ratio": 0.657405,
+            "raw_compression_ratio": 1.330271,
+            "markup_chars": 3003,
+            "claims_total": 42,
+            "chars_per_claim": 69.857143
+          },
+          {
+            "checkpoint": "r03",
+            "canonical_chars": 6496,
+            "prose_chars": 3198,
+            "l0_chars": 4668,
+            "compression_ratio": 0.68509,
+            "raw_compression_ratio": 1.391602,
+            "markup_chars": 3298,
+            "claims_total": 46,
+            "chars_per_claim": 69.521739
+          },
+          {
+            "checkpoint": "r04",
+            "canonical_chars": 6746,
+            "prose_chars": 3324,
+            "l0_chars": 4873,
+            "compression_ratio": 0.682126,
+            "raw_compression_ratio": 1.384363,
+            "markup_chars": 3422,
+            "claims_total": 48,
+            "chars_per_claim": 69.25
+          },
+          {
+            "checkpoint": "r05",
+            "canonical_chars": 7165,
+            "prose_chars": 3556,
+            "l0_chars": 5049,
+            "compression_ratio": 0.704298,
+            "raw_compression_ratio": 1.419093,
+            "markup_chars": 3609,
+            "claims_total": 51,
+            "chars_per_claim": 69.72549
+          },
+          {
+            "checkpoint": "r06",
+            "canonical_chars": 7800,
+            "prose_chars": 3878,
+            "l0_chars": 5238,
+            "compression_ratio": 0.740359,
+            "raw_compression_ratio": 1.489118,
+            "markup_chars": 3922,
+            "claims_total": 56,
+            "chars_per_claim": 69.25
+          },
+          {
+            "checkpoint": "r07",
+            "canonical_chars": 8435,
+            "prose_chars": 4179,
+            "l0_chars": 5459,
+            "compression_ratio": 0.765525,
+            "raw_compression_ratio": 1.545155,
+            "markup_chars": 4256,
+            "claims_total": 60,
+            "chars_per_claim": 69.65
+          },
+          {
+            "checkpoint": "r08",
+            "canonical_chars": 8654,
+            "prose_chars": 4319,
+            "l0_chars": 5551,
+            "compression_ratio": 0.778058,
+            "raw_compression_ratio": 1.558998,
+            "markup_chars": 4335,
+            "claims_total": 62,
+            "chars_per_claim": 69.66129
+          },
+          {
+            "checkpoint": "r09",
+            "canonical_chars": 9244,
+            "prose_chars": 4598,
+            "l0_chars": 5705,
+            "compression_ratio": 0.80596,
+            "raw_compression_ratio": 1.620333,
+            "markup_chars": 4646,
+            "claims_total": 67,
+            "chars_per_claim": 68.626866
+          },
+          {
+            "checkpoint": "r10",
+            "canonical_chars": 9904,
+            "prose_chars": 4942,
+            "l0_chars": 5982,
+            "compression_ratio": 0.826145,
+            "raw_compression_ratio": 1.655634,
+            "markup_chars": 4962,
+            "claims_total": 72,
+            "chars_per_claim": 68.638889
+          },
+          {
+            "checkpoint": "r11",
+            "canonical_chars": 10407,
+            "prose_chars": 5240,
+            "l0_chars": 6318,
+            "compression_ratio": 0.829376,
+            "raw_compression_ratio": 1.647198,
+            "markup_chars": 5167,
+            "claims_total": 76,
+            "chars_per_claim": 68.947368
+          }
+        ],
+        "head_ratio": 0.829376,
+        "min_ratio": 0.607875,
+        "max_ratio": 0.829376,
+        "trend": 0.221501
+      },
+      "duplication": {
+        "status": "ok",
+        "threshold": 0.86,
+        "series": [
+          {
+            "checkpoint": "r01",
+            "claims_total": 39,
+            "exact_duplicate_groups": 1,
+            "exact_duplicate_excess": 1,
+            "near_duplicate_groups": 2,
+            "near_duplicate_excess": 2,
+            "cross_document_groups": 1,
+            "duplicate_row_rate": 0.051282
+          },
+          {
+            "checkpoint": "r02",
+            "claims_total": 42,
+            "exact_duplicate_groups": 1,
+            "exact_duplicate_excess": 1,
+            "near_duplicate_groups": 2,
+            "near_duplicate_excess": 2,
+            "cross_document_groups": 1,
+            "duplicate_row_rate": 0.047619
+          },
+          {
+            "checkpoint": "r03",
+            "claims_total": 46,
+            "exact_duplicate_groups": 1,
+            "exact_duplicate_excess": 1,
+            "near_duplicate_groups": 2,
+            "near_duplicate_excess": 2,
+            "cross_document_groups": 1,
+            "duplicate_row_rate": 0.043478
+          },
+          {
+            "checkpoint": "r04",
+            "claims_total": 48,
+            "exact_duplicate_groups": 1,
+            "exact_duplicate_excess": 1,
+            "near_duplicate_groups": 2,
+            "near_duplicate_excess": 2,
+            "cross_document_groups": 1,
+            "duplicate_row_rate": 0.041667
+          },
+          {
+            "checkpoint": "r05",
+            "claims_total": 51,
+            "exact_duplicate_groups": 1,
+            "exact_duplicate_excess": 1,
+            "near_duplicate_groups": 2,
+            "near_duplicate_excess": 2,
+            "cross_document_groups": 1,
+            "duplicate_row_rate": 0.039216
+          },
+          {
+            "checkpoint": "r06",
+            "claims_total": 56,
+            "exact_duplicate_groups": 1,
+            "exact_duplicate_excess": 1,
+            "near_duplicate_groups": 2,
+            "near_duplicate_excess": 2,
+            "cross_document_groups": 1,
+            "duplicate_row_rate": 0.035714
+          },
+          {
+            "checkpoint": "r07",
+            "claims_total": 60,
+            "exact_duplicate_groups": 1,
+            "exact_duplicate_excess": 1,
+            "near_duplicate_groups": 2,
+            "near_duplicate_excess": 2,
+            "cross_document_groups": 1,
+            "duplicate_row_rate": 0.033333
+          },
+          {
+            "checkpoint": "r08",
+            "claims_total": 62,
+            "exact_duplicate_groups": 1,
+            "exact_duplicate_excess": 1,
+            "near_duplicate_groups": 2,
+            "near_duplicate_excess": 2,
+            "cross_document_groups": 1,
+            "duplicate_row_rate": 0.032258
+          },
+          {
+            "checkpoint": "r09",
+            "claims_total": 67,
+            "exact_duplicate_groups": 1,
+            "exact_duplicate_excess": 1,
+            "near_duplicate_groups": 2,
+            "near_duplicate_excess": 2,
+            "cross_document_groups": 1,
+            "duplicate_row_rate": 0.029851
+          },
+          {
+            "checkpoint": "r10",
+            "claims_total": 72,
+            "exact_duplicate_groups": 1,
+            "exact_duplicate_excess": 1,
+            "near_duplicate_groups": 2,
+            "near_duplicate_excess": 2,
+            "cross_document_groups": 1,
+            "duplicate_row_rate": 0.027778
+          },
+          {
+            "checkpoint": "r11",
+            "claims_total": 76,
+            "exact_duplicate_groups": 1,
+            "exact_duplicate_excess": 1,
+            "near_duplicate_groups": 2,
+            "near_duplicate_excess": 2,
+            "cross_document_groups": 1,
+            "duplicate_row_rate": 0.026316
+          }
+        ],
+        "head": {
+          "checkpoint": "r11",
+          "claims_total": 76,
+          "exact_duplicate_groups": 1,
+          "exact_duplicate_excess": 1,
+          "near_duplicate_groups": 2,
+          "near_duplicate_excess": 2,
+          "cross_document_groups": 1,
+          "duplicate_row_rate": 0.026316
+        },
+        "head_clusters": [
+          {
+            "members": [
+              "work/operations/orion-pilot.md#6781548b",
+              "work/operations/orion-pilot.md#75f53736"
+            ],
+            "text": "当前素材记录的是已约定的计划与承诺，不等同于相应文件已发送、数据已导入、走查已完成或验收已通过。"
+          },
+          {
+            "members": [
+              "work/operations/orion-pilot.md#48d59e60",
+              "work/products/orion-client-knowledge-assistant.md#19fff13c"
+            ],
+            "text": "第二周末进行二十题验收。"
+          }
+        ],
+        "invariants": {
+          "no_exact_duplicates_at_head": false,
+          "no_cross_document_duplicates_at_head": false
+        }
+      },
+      "verbatim_reproduction": {
+        "status": "ok",
+        "min_run_chars": 40,
+        "series": [
+          {
+            "checkpoint": "r01",
+            "claims_judged": 38,
+            "claims_total": 39,
+            "transcribed": 1,
+            "transcription_rate": 0.026316,
+            "longest_run_max": 46,
+            "longest_run_mean": 14.421
+          },
+          {
+            "checkpoint": "r02",
+            "claims_judged": 41,
+            "claims_total": 42,
+            "transcribed": 1,
+            "transcription_rate": 0.02439,
+            "longest_run_max": 46,
+            "longest_run_mean": 14.585
+          },
+          {
+            "checkpoint": "r03",
+            "claims_judged": 45,
+            "claims_total": 46,
+            "transcribed": 1,
+            "transcription_rate": 0.022222,
+            "longest_run_max": 46,
+            "longest_run_mean": 14.689
+          },
+          {
+            "checkpoint": "r04",
+            "claims_judged": 47,
+            "claims_total": 48,
+            "transcribed": 1,
+            "transcription_rate": 0.021277,
+            "longest_run_max": 46,
+            "longest_run_mean": 15.128
+          },
+          {
+            "checkpoint": "r05",
+            "claims_judged": 50,
+            "claims_total": 51,
+            "transcribed": 1,
+            "transcription_rate": 0.02,
+            "longest_run_max": 46,
+            "longest_run_mean": 15.26
+          },
+          {
+            "checkpoint": "r06",
+            "claims_judged": 55,
+            "claims_total": 56,
+            "transcribed": 1,
+            "transcription_rate": 0.018182,
+            "longest_run_max": 46,
+            "longest_run_mean": 15.236
+          },
+          {
+            "checkpoint": "r07",
+            "claims_judged": 59,
+            "claims_total": 60,
+            "transcribed": 1,
+            "transcription_rate": 0.016949,
+            "longest_run_max": 46,
+            "longest_run_mean": 15.085
+          },
+          {
+            "checkpoint": "r08",
+            "claims_judged": 61,
+            "claims_total": 62,
+            "transcribed": 1,
+            "transcription_rate": 0.016393,
+            "longest_run_max": 46,
+            "longest_run_mean": 14.803
+          },
+          {
+            "checkpoint": "r09",
+            "claims_judged": 66,
+            "claims_total": 67,
+            "transcribed": 1,
+            "transcription_rate": 0.015152,
+            "longest_run_max": 46,
+            "longest_run_mean": 14.848
+          },
+          {
+            "checkpoint": "r10",
+            "claims_judged": 71,
+            "claims_total": 72,
+            "transcribed": 1,
+            "transcription_rate": 0.014085,
+            "longest_run_max": 46,
+            "longest_run_mean": 15.155
+          },
+          {
+            "checkpoint": "r11",
+            "claims_judged": 75,
+            "claims_total": 76,
+            "transcribed": 2,
+            "transcription_rate": 0.026667,
+            "longest_run_max": 58,
+            "longest_run_mean": 15.813
+          }
+        ],
+        "head": {
+          "checkpoint": "r11",
+          "claims_judged": 75,
+          "claims_total": 76,
+          "transcribed": 2,
+          "transcription_rate": 0.026667,
+          "longest_run_max": 58,
+          "longest_run_mean": 15.813
+        },
+        "head_samples": [
+          {
+            "document_path": "work/operations/orion-pilot.md",
+            "anchor": "1ce41d20",
+            "longest_run": 58,
+            "claim_chars": 73
+          },
+          {
+            "document_path": "work/products/orion-client-knowledge-assistant.md",
+            "anchor": "6c43b189",
+            "longest_run": 46,
+            "claim_chars": 113
+          }
+        ]
+      },
+      "detail_leakage": {
+        "status": "unavailable",
+        "reason": "no labelled detail negatives are bound to this trajectory"
+      },
+      "language_consistency": {
+        "status": "ok",
+        "corpus_script": "cjk",
+        "corpus_block_scripts": {
+          "mixed": 25,
+          "cjk": 120
+        },
+        "series": [
+          {
+            "checkpoint": "r01",
+            "claims_total": 39,
+            "consistent": 29,
+            "diverged": 0,
+            "mixed": 10,
+            "consistency_rate": 0.74359,
+            "by_script": {
+              "cjk": 29,
+              "mixed": 10
+            }
+          },
+          {
+            "checkpoint": "r02",
+            "claims_total": 42,
+            "consistent": 31,
+            "diverged": 0,
+            "mixed": 11,
+            "consistency_rate": 0.738095,
+            "by_script": {
+              "cjk": 31,
+              "mixed": 11
+            }
+          },
+          {
+            "checkpoint": "r03",
+            "claims_total": 46,
+            "consistent": 33,
+            "diverged": 0,
+            "mixed": 13,
+            "consistency_rate": 0.717391,
+            "by_script": {
+              "cjk": 33,
+              "mixed": 13
+            }
+          },
+          {
+            "checkpoint": "r04",
+            "claims_total": 48,
+            "consistent": 35,
+            "diverged": 0,
+            "mixed": 13,
+            "consistency_rate": 0.729167,
+            "by_script": {
+              "cjk": 35,
+              "mixed": 13
+            }
+          },
+          {
+            "checkpoint": "r05",
+            "claims_total": 51,
+            "consistent": 38,
+            "diverged": 0,
+            "mixed": 13,
+            "consistency_rate": 0.745098,
+            "by_script": {
+              "cjk": 38,
+              "mixed": 13
+            }
+          },
+          {
+            "checkpoint": "r06",
+            "claims_total": 56,
+            "consistent": 42,
+            "diverged": 0,
+            "mixed": 14,
+            "consistency_rate": 0.75,
+            "by_script": {
+              "cjk": 42,
+              "mixed": 14
+            }
+          },
+          {
+            "checkpoint": "r07",
+            "claims_total": 60,
+            "consistent": 44,
+            "diverged": 0,
+            "mixed": 16,
+            "consistency_rate": 0.733333,
+            "by_script": {
+              "cjk": 44,
+              "mixed": 16
+            }
+          },
+          {
+            "checkpoint": "r08",
+            "claims_total": 62,
+            "consistent": 45,
+            "diverged": 0,
+            "mixed": 17,
+            "consistency_rate": 0.725806,
+            "by_script": {
+              "cjk": 45,
+              "mixed": 17
+            }
+          },
+          {
+            "checkpoint": "r09",
+            "claims_total": 67,
+            "consistent": 49,
+            "diverged": 0,
+            "mixed": 18,
+            "consistency_rate": 0.731343,
+            "by_script": {
+              "cjk": 49,
+              "mixed": 18
+            }
+          },
+          {
+            "checkpoint": "r10",
+            "claims_total": 72,
+            "consistent": 52,
+            "diverged": 0,
+            "mixed": 20,
+            "consistency_rate": 0.722222,
+            "by_script": {
+              "cjk": 52,
+              "mixed": 20
+            }
+          },
+          {
+            "checkpoint": "r11",
+            "claims_total": 76,
+            "consistent": 56,
+            "diverged": 0,
+            "mixed": 20,
+            "consistency_rate": 0.736842,
+            "by_script": {
+              "cjk": 56,
+              "mixed": 20
+            }
+          }
+        ],
+        "head": {
+          "checkpoint": "r11",
+          "claims_total": 76,
+          "consistent": 56,
+          "diverged": 0,
+          "mixed": 20,
+          "consistency_rate": 0.736842,
+          "by_script": {
+            "cjk": 56,
+            "mixed": 20
+          }
+        },
+        "diverged_claims_at_head": [],
+        "documents_at_head": {},
+        "invariants": {
+          "head_fully_consistent": false
+        }
+      }
+    },
+    "D_navigability": {
+      "group": "D_navigability",
+      "reachability": {
+        "status": "ok",
+        "max_hops": 2,
+        "hub_templates": [
+          "memory/profile.md"
+        ],
+        "series": [
+          {
+            "checkpoint": "r01",
+            "documents": 6,
+            "hub_documents_present": 1,
+            "edges": 0,
+            "reachable_documents": 1,
+            "reachable_document_rate": 0.166667,
+            "reachable_documents_undirected": 1,
+            "isolated_documents": 6,
+            "isolated_document_rate": 1.0,
+            "orphan_claims": 35,
+            "orphan_claim_rate": 0.897436
+          },
+          {
+            "checkpoint": "r02",
+            "documents": 6,
+            "hub_documents_present": 1,
+            "edges": 0,
+            "reachable_documents": 1,
+            "reachable_document_rate": 0.166667,
+            "reachable_documents_undirected": 1,
+            "isolated_documents": 6,
+            "isolated_document_rate": 1.0,
+            "orphan_claims": 38,
+            "orphan_claim_rate": 0.904762
+          },
+          {
+            "checkpoint": "r03",
+            "documents": 6,
+            "hub_documents_present": 1,
+            "edges": 0,
+            "reachable_documents": 1,
+            "reachable_document_rate": 0.166667,
+            "reachable_documents_undirected": 1,
+            "isolated_documents": 6,
+            "isolated_document_rate": 1.0,
+            "orphan_claims": 41,
+            "orphan_claim_rate": 0.891304
+          },
+          {
+            "checkpoint": "r04",
+            "documents": 6,
+            "hub_documents_present": 1,
+            "edges": 0,
+            "reachable_documents": 1,
+            "reachable_document_rate": 0.166667,
+            "reachable_documents_undirected": 1,
+            "isolated_documents": 6,
+            "isolated_document_rate": 1.0,
+            "orphan_claims": 43,
+            "orphan_claim_rate": 0.895833
+          },
+          {
+            "checkpoint": "r05",
+            "documents": 7,
+            "hub_documents_present": 1,
+            "edges": 0,
+            "reachable_documents": 1,
+            "reachable_document_rate": 0.142857,
+            "reachable_documents_undirected": 1,
+            "isolated_documents": 7,
+            "isolated_document_rate": 1.0,
+            "orphan_claims": 46,
+            "orphan_claim_rate": 0.901961
+          },
+          {
+            "checkpoint": "r06",
+            "documents": 8,
+            "hub_documents_present": 1,
+            "edges": 0,
+            "reachable_documents": 1,
+            "reachable_document_rate": 0.125,
+            "reachable_documents_undirected": 1,
+            "isolated_documents": 8,
+            "isolated_document_rate": 1.0,
+            "orphan_claims": 51,
+            "orphan_claim_rate": 0.910714
+          },
+          {
+            "checkpoint": "r07",
+            "documents": 8,
+            "hub_documents_present": 1,
+            "edges": 0,
+            "reachable_documents": 1,
+            "reachable_document_rate": 0.125,
+            "reachable_documents_undirected": 1,
+            "isolated_documents": 8,
+            "isolated_document_rate": 1.0,
+            "orphan_claims": 55,
+            "orphan_claim_rate": 0.916667
+          },
+          {
+            "checkpoint": "r08",
+            "documents": 8,
+            "hub_documents_present": 1,
+            "edges": 0,
+            "reachable_documents": 1,
+            "reachable_document_rate": 0.125,
+            "reachable_documents_undirected": 1,
+            "isolated_documents": 8,
+            "isolated_document_rate": 1.0,
+            "orphan_claims": 57,
+            "orphan_claim_rate": 0.919355
+          },
+          {
+            "checkpoint": "r09",
+            "documents": 9,
+            "hub_documents_present": 1,
+            "edges": 0,
+            "reachable_documents": 1,
+            "reachable_document_rate": 0.111111,
+            "reachable_documents_undirected": 1,
+            "isolated_documents": 9,
+            "isolated_document_rate": 1.0,
+            "orphan_claims": 62,
+            "orphan_claim_rate": 0.925373
+          },
+          {
+            "checkpoint": "r10",
+            "documents": 9,
+            "hub_documents_present": 1,
+            "edges": 0,
+            "reachable_documents": 1,
+            "reachable_document_rate": 0.111111,
+            "reachable_documents_undirected": 1,
+            "isolated_documents": 9,
+            "isolated_document_rate": 1.0,
+            "orphan_claims": 66,
+            "orphan_claim_rate": 0.916667
+          },
+          {
+            "checkpoint": "r11",
+            "documents": 9,
+            "hub_documents_present": 1,
+            "edges": 0,
+            "reachable_documents": 1,
+            "reachable_document_rate": 0.111111,
+            "reachable_documents_undirected": 1,
+            "isolated_documents": 9,
+            "isolated_document_rate": 1.0,
+            "orphan_claims": 70,
+            "orphan_claim_rate": 0.921053
+          }
+        ],
+        "head": {
+          "checkpoint": "r11",
+          "documents": 9,
+          "hub_documents_present": 1,
+          "edges": 0,
+          "reachable_documents": 1,
+          "reachable_document_rate": 0.111111,
+          "reachable_documents_undirected": 1,
+          "isolated_documents": 9,
+          "isolated_document_rate": 1.0,
+          "orphan_claims": 70,
+          "orphan_claim_rate": 0.921053
+        },
+        "invariants": {
+          "hub_present_at_head": true,
+          "graph_has_edges_at_head": false,
+          "every_document_reachable_at_head": false
+        }
+      },
+      "growth": {
+        "status": "ok",
+        "reason": null,
+        "series": [
+          {
+            "checkpoint": "r01",
+            "l0_chars": 4343,
+            "canonical_chars": 5453,
+            "documents": 6,
+            "claims": 39
+          },
+          {
+            "checkpoint": "r02",
+            "l0_chars": 4463,
+            "canonical_chars": 5937,
+            "documents": 6,
+            "claims": 42
+          },
+          {
+            "checkpoint": "r03",
+            "l0_chars": 4668,
+            "canonical_chars": 6496,
+            "documents": 6,
+            "claims": 46
+          },
+          {
+            "checkpoint": "r04",
+            "l0_chars": 4873,
+            "canonical_chars": 6746,
+            "documents": 6,
+            "claims": 48
+          },
+          {
+            "checkpoint": "r05",
+            "l0_chars": 5049,
+            "canonical_chars": 7165,
+            "documents": 7,
+            "claims": 51
+          },
+          {
+            "checkpoint": "r06",
+            "l0_chars": 5238,
+            "canonical_chars": 7800,
+            "documents": 8,
+            "claims": 56
+          },
+          {
+            "checkpoint": "r07",
+            "l0_chars": 5459,
+            "canonical_chars": 8435,
+            "documents": 8,
+            "claims": 60
+          },
+          {
+            "checkpoint": "r08",
+            "l0_chars": 5551,
+            "canonical_chars": 8654,
+            "documents": 8,
+            "claims": 62
+          },
+          {
+            "checkpoint": "r09",
+            "l0_chars": 5705,
+            "canonical_chars": 9244,
+            "documents": 9,
+            "claims": 67
+          },
+          {
+            "checkpoint": "r10",
+            "l0_chars": 5982,
+            "canonical_chars": 9904,
+            "documents": 9,
+            "claims": 72
+          },
+          {
+            "checkpoint": "r11",
+            "l0_chars": 6318,
+            "canonical_chars": 10407,
+            "documents": 9,
+            "claims": 76
+          }
+        ],
+        "canonical_growth_exponent": 1.747674,
+        "claim_growth_exponent": 1.820984,
+        "sublinear": false
+      },
+      "structure": {
+        "status": "ok",
+        "documents_at_head": 9,
+        "documents_growing_across_rounds": 5,
+        "aggregation_rate": 0.555556,
+        "dated_slug_documents": 0,
+        "dated_slug_rate": 0.0,
+        "dated_slug_samples": [],
+        "families_available": 7,
+        "families_in_use": 6,
+        "family_utilization": 0.857143,
+        "family_claim_counts": {
+          "materials/{slug}.md": 0,
+          "memory/people/{slug}.md": 18,
+          "memory/profile.md": 6,
+          "memory/topics/{slug}.md": 3,
+          "work/experiments/{slug}.md": 5,
+          "work/operations/{slug}.md": 14,
+          "work/products/{slug}.md": 30
+        },
+        "family_entropy_bits": 2.20263,
+        "family_entropy_normalized": 0.784593,
+        "claims_in_unowned_paths": 0,
+        "documents_per_round": [
+          {
+            "checkpoint": "r01",
+            "documents": 6,
+            "claims": 39
+          },
+          {
+            "checkpoint": "r02",
+            "documents": 6,
+            "claims": 42
+          },
+          {
+            "checkpoint": "r03",
+            "documents": 6,
+            "claims": 46
+          },
+          {
+            "checkpoint": "r04",
+            "documents": 6,
+            "claims": 48
+          },
+          {
+            "checkpoint": "r05",
+            "documents": 7,
+            "claims": 51
+          },
+          {
+            "checkpoint": "r06",
+            "documents": 8,
+            "claims": 56
+          },
+          {
+            "checkpoint": "r07",
+            "documents": 8,
+            "claims": 60
+          },
+          {
+            "checkpoint": "r08",
+            "documents": 8,
+            "claims": 62
+          },
+          {
+            "checkpoint": "r09",
+            "documents": 9,
+            "claims": 67
+          },
+          {
+            "checkpoint": "r10",
+            "documents": 9,
+            "claims": 72
+          },
+          {
+            "checkpoint": "r11",
+            "documents": 9,
+            "claims": 76
+          }
+        ]
+      }
+    },
+    "E_evolution": {
+      "group": "E_evolution",
+      "response": {
+        "status": "no_evolution_events",
+        "reason": "the trajectory records no evolve commit and no evolve task: schema response cannot be scored, and no score is imputed",
+        "verdict": "aligned_restraint",
+        "pressure": {
+          "status": "ok",
+          "high_pressure_share": 0.5,
+          "series": [
+            {
+              "checkpoint": "r01",
+              "new_claims": 39,
+              "catchall_claims": 0,
+              "catchall_share": 0.0,
+              "unowned_claims": 0,
+              "by_family": {
+                "memory/people/{slug}.md": 8,
+                "memory/profile.md": 4,
+                "work/operations/{slug}.md": 6,
+                "work/products/{slug}.md": 21
+              },
+              "under_pressure": false
+            },
+            {
+              "checkpoint": "r02",
+              "new_claims": 3,
+              "catchall_claims": 0,
+              "catchall_share": 0.0,
+              "unowned_claims": 0,
+              "by_family": {
+                "memory/people/{slug}.md": 2,
+                "work/operations/{slug}.md": 1
+              },
+              "under_pressure": false
+            },
+            {
+              "checkpoint": "r03",
+              "new_claims": 4,
+              "catchall_claims": 0,
+              "catchall_share": 0.0,
+              "unowned_claims": 0,
+              "by_family": {
+                "memory/profile.md": 1,
+                "work/operations/{slug}.md": 1,
+                "work/products/{slug}.md": 2
+              },
+              "under_pressure": false
+            },
+            {
+              "checkpoint": "r04",
+              "new_claims": 2,
+              "catchall_claims": 0,
+              "catchall_share": 0.0,
+              "unowned_claims": 0,
+              "by_family": {
+                "work/operations/{slug}.md": 1,
+                "work/products/{slug}.md": 1
+              },
+              "under_pressure": false
+            },
+            {
+              "checkpoint": "r05",
+              "new_claims": 3,
+              "catchall_claims": 3,
+              "catchall_share": 1.0,
+              "unowned_claims": 0,
+              "by_family": {
+                "memory/topics/{slug}.md": 3
+              },
+              "under_pressure": true
+            },
+            {
+              "checkpoint": "r06",
+              "new_claims": 5,
+              "catchall_claims": 0,
+              "catchall_share": 0.0,
+              "unowned_claims": 0,
+              "by_family": {
+                "work/experiments/{slug}.md": 5
+              },
+              "under_pressure": false
+            },
+            {
+              "checkpoint": "r07",
+              "new_claims": 4,
+              "catchall_claims": 0,
+              "catchall_share": 0.0,
+              "unowned_claims": 0,
+              "by_family": {
+                "memory/people/{slug}.md": 2,
+                "work/operations/{slug}.md": 1,
+                "work/products/{slug}.md": 1
+              },
+              "under_pressure": false
+            },
+            {
+              "checkpoint": "r08",
+              "new_claims": 2,
+              "catchall_claims": 0,
+              "catchall_share": 0.0,
+              "unowned_claims": 0,
+              "by_family": {
+                "memory/people/{slug}.md": 1,
+                "work/products/{slug}.md": 1
+              },
+              "under_pressure": false
+            },
+            {
+              "checkpoint": "r09",
+              "new_claims": 5,
+              "catchall_claims": 0,
+              "catchall_share": 0.0,
+              "unowned_claims": 0,
+              "by_family": {
+                "memory/people/{slug}.md": 3,
+                "work/operations/{slug}.md": 1,
+                "work/products/{slug}.md": 1
+              },
+              "under_pressure": false
+            },
+            {
+              "checkpoint": "r10",
+              "new_claims": 5,
+              "catchall_claims": 0,
+              "catchall_share": 0.0,
+              "unowned_claims": 0,
+              "by_family": {
+                "memory/people/{slug}.md": 1,
+                "memory/profile.md": 1,
+                "work/operations/{slug}.md": 1,
+                "work/products/{slug}.md": 2
+              },
+              "under_pressure": false
+            },
+            {
+              "checkpoint": "r11",
+              "new_claims": 4,
+              "catchall_claims": 0,
+              "catchall_share": 0.0,
+              "unowned_claims": 0,
+              "by_family": {
+                "memory/people/{slug}.md": 1,
+                "work/operations/{slug}.md": 2,
+                "work/products/{slug}.md": 1
+              },
+              "under_pressure": false
+            }
+          ],
+          "rounds_under_pressure": 1,
+          "longest_pressure_run": 1,
+          "sustained": false,
+          "mean_catchall_share": 0.090909
+        },
+        "evolve_commits": [],
+        "evolve_task_statuses": {}
+      },
+      "cross_family_duplication": {
+        "status": "ok",
+        "threshold": 0.86,
+        "series": [
+          {
+            "checkpoint": "r01",
+            "duplicate_clusters": 2,
+            "cross_family_clusters": 1,
+            "claims_total": 39
+          },
+          {
+            "checkpoint": "r02",
+            "duplicate_clusters": 2,
+            "cross_family_clusters": 1,
+            "claims_total": 42
+          },
+          {
+            "checkpoint": "r03",
+            "duplicate_clusters": 2,
+            "cross_family_clusters": 1,
+            "claims_total": 46
+          },
+          {
+            "checkpoint": "r04",
+            "duplicate_clusters": 2,
+            "cross_family_clusters": 1,
+            "claims_total": 48
+          },
+          {
+            "checkpoint": "r05",
+            "duplicate_clusters": 2,
+            "cross_family_clusters": 1,
+            "claims_total": 51
+          },
+          {
+            "checkpoint": "r06",
+            "duplicate_clusters": 2,
+            "cross_family_clusters": 1,
+            "claims_total": 56
+          },
+          {
+            "checkpoint": "r07",
+            "duplicate_clusters": 2,
+            "cross_family_clusters": 1,
+            "claims_total": 60
+          },
+          {
+            "checkpoint": "r08",
+            "duplicate_clusters": 2,
+            "cross_family_clusters": 1,
+            "claims_total": 62
+          },
+          {
+            "checkpoint": "r09",
+            "duplicate_clusters": 2,
+            "cross_family_clusters": 1,
+            "claims_total": 67
+          },
+          {
+            "checkpoint": "r10",
+            "duplicate_clusters": 2,
+            "cross_family_clusters": 1,
+            "claims_total": 72
+          },
+          {
+            "checkpoint": "r11",
+            "duplicate_clusters": 2,
+            "cross_family_clusters": 1,
+            "claims_total": 76
+          }
+        ],
+        "head": {
+          "checkpoint": "r11",
+          "duplicate_clusters": 2,
+          "cross_family_clusters": 1,
+          "claims_total": 76
+        },
+        "head_samples": [
+          {
+            "members": [
+              "work/operations/orion-pilot.md#48d59e60",
+              "work/products/orion-client-knowledge-assistant.md#19fff13c"
+            ],
+            "families": [
+              "work/operations/{slug}.md",
+              "work/products/{slug}.md"
+            ]
+          }
+        ]
+      },
+      "move_fidelity": {
+        "status": "no_moves_observed",
+        "moves_observed": 0,
+        "moves_verbatim": 0,
+        "verbatim_rate": null,
+        "rewritten_while_moving": [],
+        "dropped_anchors_reported_by_tasks": 0,
+        "samples": []
+      },
+      "schema_stability": {
+        "status": "ok",
+        "series": [
+          {
+            "checkpoint": "r01",
+            "families_in_use": 4,
+            "families_added": 4,
+            "families_removed": 0,
+            "anchors": 39
+          },
+          {
+            "checkpoint": "r02",
+            "families_in_use": 4,
+            "families_added": 0,
+            "families_removed": 0,
+            "anchors": 42
+          },
+          {
+            "checkpoint": "r03",
+            "families_in_use": 4,
+            "families_added": 0,
+            "families_removed": 0,
+            "anchors": 46
+          },
+          {
+            "checkpoint": "r04",
+            "families_in_use": 4,
+            "families_added": 0,
+            "families_removed": 0,
+            "anchors": 48
+          },
+          {
+            "checkpoint": "r05",
+            "families_in_use": 5,
+            "families_added": 1,
+            "families_removed": 0,
+            "anchors": 51
+          },
+          {
+            "checkpoint": "r06",
+            "families_in_use": 6,
+            "families_added": 1,
+            "families_removed": 0,
+            "anchors": 56
+          },
+          {
+            "checkpoint": "r07",
+            "families_in_use": 6,
+            "families_added": 0,
+            "families_removed": 0,
+            "anchors": 60
+          },
+          {
+            "checkpoint": "r08",
+            "families_in_use": 6,
+            "families_added": 0,
+            "families_removed": 0,
+            "anchors": 62
+          },
+          {
+            "checkpoint": "r09",
+            "families_in_use": 6,
+            "families_added": 0,
+            "families_removed": 0,
+            "anchors": 67
+          },
+          {
+            "checkpoint": "r10",
+            "families_in_use": 6,
+            "families_added": 0,
+            "families_removed": 0,
+            "anchors": 72
+          },
+          {
+            "checkpoint": "r11",
+            "families_in_use": 6,
+            "families_added": 0,
+            "families_removed": 0,
+            "anchors": 76
+          }
+        ],
+        "family_churn_events": 0,
+        "floor_violations": [],
+        "invariants": {
+          "family_floor_is_monotone": true,
+          "anchor_floor_is_monotone": true
+        }
+      }
+    },
+    "F_usability_qa": {
+      "group": "F_usability_qa",
+      "status": "skipped",
+      "reason": "outcome question answering needs a live recall path (and, for the judge arm, a model); mechanical mode is defined as zero-LLM and zero-network"
+    }
+  },
+  "findings": [
+    {
+      "metric": "A.citations.claim_coverage",
+      "severity": "high",
+      "observed": "75/76",
+      "why": "an uncited claim is an assertion in the only non-rebuildable layer"
+    },
+    {
+      "metric": "C.duplication.cross_document_groups",
+      "severity": "medium",
+      "observed": 1,
+      "why": "two documents claiming the same fact means neither owns the subject"
+    },
+    {
+      "metric": "C.verbatim_reproduction.transcription_rate",
+      "severity": "medium",
+      "observed": 0.026667,
+      "why": "canonical is the thread layer; a transcript duplicates L0 without adding a thread"
+    },
+    {
+      "metric": "C.compression.trend",
+      "severity": "low",
+      "observed": 0.221501,
+      "why": "a rising ratio means the compiler transcribes at a fixed rate instead of threading"
+    },
+    {
+      "metric": "D.reachability.edges",
+      "severity": "high",
+      "observed": 0,
+      "why": "with no inter-document links the follow-the-thread job does not exist at all"
+    },
+    {
+      "metric": "D.reachability.isolated_documents",
+      "severity": "medium",
+      "observed": 9,
+      "why": "an isolated document is retrievable but not browsable"
+    },
+    {
+      "metric": "D.growth.canonical_growth_exponent",
+      "severity": "medium",
+      "observed": 1.747674,
+      "why": "canonical growing at or above the material's own rate means the bird's-eye view stops improving as material accumulates"
+    },
+    {
+      "metric": "B.admission",
+      "severity": "coverage",
+      "observed": "unavailable",
+      "why": "no truth set is bound to this trajectory: admission judgement is only measurable against a corpus whose facts, exhaust and supersessions were labelled before compilation"
+    },
+    {
+      "metric": "F.usability_qa",
+      "severity": "coverage",
+      "observed": "skipped",
+      "why": "outcome question answering needs a live recall path (and, for the judge arm, a model); mechanical mode is defined as zero-LLM and zero-network"
+    }
+  ],
+  "unavailable": [
+    {
+      "metric": "B_admission",
+      "status": "unavailable",
+      "reason": "no truth set is bound to this trajectory: admission judgement is only measurable against a corpus whose facts, exhaust and supersessions were labelled before compilation"
+    },
+    {
+      "metric": "C_layering.detail_leakage",
+      "status": "unavailable",
+      "reason": "no labelled detail negatives are bound to this trajectory"
+    },
+    {
+      "metric": "E_evolution.response",
+      "status": "no_evolution_events",
+      "reason": "the trajectory records no evolve commit and no evolve task: schema response cannot be scored, and no score is imputed"
+    },
+    {
+      "metric": "E_evolution.move_fidelity",
+      "status": "no_moves_observed",
+      "reason": ""
+    },
+    {
+      "metric": "F_usability_qa",
+      "status": "skipped",
+      "reason": "outcome question answering needs a live recall path (and, for the judge arm, a model); mechanical mode is defined as zero-LLM and zero-network"
+    }
+  ]
+}

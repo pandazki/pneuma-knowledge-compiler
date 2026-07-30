@@ -20,6 +20,8 @@ Layout, by key prefix:
   skill.*          the schema-derive inference and the claim-label vocabulary
   evolve.*         the two evolve-phase contracts and the phase-2 task rendering
   contract.rule.*  per-skill-version extra contract clauses (see skill/version.py)
+  eval.*           the evaluation package's optional answer-grading judge (full mode only;
+                   its mechanical mode emits no model-visible prose at all)
 
 Three keys default to a packaged asset's bytes (`evolve.phase1_contract`,
 `evolve.phase2_contract`, `skill.derive_contract`): the asset stays the editable form,
@@ -1128,4 +1130,25 @@ DEFAULTS: dict[str, str] = {
         "label (【firm】/【forming】/【loose】), which the projection layer uses to tier the "
         "presentation; use only those three tiers."
     ),
+    # ───────────────────────────────────────────────── evaluation (optional judge arm)
+    # The evaluation package is read-only and its mechanical mode never calls a model. These
+    # three keys are the ONLY model-visible prose it can emit, and only in its `full` mode:
+    # a judge consulted for an answer the mechanical matcher already rejected.
+    "eval.qa.judge_system": (
+        "You are grading one answer against one expected statement, and nothing else.\n\n"
+        "Answer YES only when the answer actually carries the expected statement — the same "
+        "fact, not merely the same topic, and not a weaker or hedged version of it. Answer NO "
+        "when the answer omits it, contradicts it, states it about a different subject or "
+        "period, or only gestures at where it might be found.\n\n"
+        "You are not judging style, completeness, or whether the answer is useful. Extra "
+        "correct material is not a fault; a missing expected statement is.\n\n"
+        "Reply with YES or NO on the first line, then one short line naming the evidence in "
+        "the answer that decided it."
+    ),
+    "eval.qa.judge_user": (
+        "Question:\n{question}\n\n"
+        "Expected statement:\n{expected}\n\n"
+        "Answer under grading:\n{answer}"
+    ),
+    "eval.qa.judge_verdict_yes": "YES",
 }

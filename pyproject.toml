@@ -13,10 +13,15 @@ dev = ["pytest", "pytest-asyncio", "httpx", "jsonschema"]
 package = false
 
 [tool.uv.workspace]
-members = ["packages/pneuma-knowledge-core", "packages/pneuma-knowledge-service"]
+members = [
+    "packages/pneuma-knowledge-core",
+    "packages/pneuma-knowledge-service",
+    "packages/pneuma-knowledge-eval",
+]
 
 [tool.uv.sources]
 pneuma-knowledge-core = { workspace = true }
+pneuma-knowledge-service = { workspace = true }
 
 [tool.pytest.ini_options]
 # core and service are async top to bottom (ports are async Protocols), so essentially
@@ -27,4 +32,5 @@ asyncio_default_fixture_loop_scope = "function"
 testpaths = [
     "packages/pneuma-knowledge-core/tests",
     "packages/pneuma-knowledge-service/tests",
+    "packages/pneuma-knowledge-eval/tests",
 ]
