@@ -28,7 +28,23 @@ from langchain_core.embeddings import Embeddings
 # body; OpenRouter returns `data` with per-input `index` we re-sort on.
 _BATCH = 32
 _TIMEOUT = 60.0
-_RETRIES = 3
+
+# Retry budget. 6 attempts with exponential backoff capped per sleep at 30s spends
+# 2+4+8+16+30 = 60s of waiting before giving up. The previous budget (3 tries,
+# 0.5/1.0s sleeps → 1.5s total) was shorter than a single ordinary network hiccup or
+# provider rate-limit window, so a blip that a minute of patience would have absorbed
+# failed a whole ingest instead. Minutes-scale patience here is cheap: the caller is a
+# background compile/index job, not a user-facing request.
+# Deliberately module constants rather than Settings: this is one internal policy number,
+# not a per-deployment knob.
+_RETRIES = 6
+_BACKOFF_BASE = 2.0
+_BACKOFF_CAP = 30.0
+
+
+def _backoff(attempt: int) -> float:
+    """Seconds to wait after a failed attempt (0-based). Exponential, capped."""
+    return min(_BACKOFF_CAP, _BACKOFF_BASE * 2**attempt)
 
 # NOTE on provider stability: OpenRouter load-balances a model across providers at wildly
 # different latencies (qwen3-embedding-8b measured ~1s on Nebius but 24-65s on DeepInfra).
@@ -81,7 +97,9 @@ class OpenRouterEmbeddings(Embeddings):
             except Exception as exc:  # noqa: BLE001 — transient network/5xx: retry then raise
                 last = exc
                 if attempt < _RETRIES - 1:
-                    await asyncio.sleep(0.5 * (attempt + 1))
+                    await asyncio.sleep(_backoff(attempt))
+        # Fail loud: the budget is spent, so this is no longer a blip. Never return a
+        # partial/zero vector — a silently empty embedding corrupts the index.
         raise RuntimeError(f"OpenRouter embeddings failed after {_RETRIES} tries: {last}")
 
     async def aembed_documents(self, texts: list[str]) -> list[list[float]]:
@@ -110,7 +128,8 @@ class OpenRouterEmbeddings(Embeddings):
             except Exception as exc:  # noqa: BLE001 — transient network/5xx: retry then raise
                 last = exc
                 if attempt < _RETRIES - 1:
-                    time.sleep(0.5 * (attempt + 1))
+                    time.sleep(_backoff(attempt))
+        # Same fail-loud contract as the async face (see `_apost`).
         raise RuntimeError(f"OpenRouter embeddings failed after {_RETRIES} tries: {last}")
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:

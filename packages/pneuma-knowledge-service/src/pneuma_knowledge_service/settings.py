@@ -110,6 +110,18 @@ class Settings(BaseSettings):
     # deployment that already pointed recall at a fast model should not have to say so
     # twice. Set PNEUMA_KNOWLEDGE_LLM_MODEL_LIVE_CONTEXT to split them.
     llm_model_live_context: str = ""
+    # Provider-call guardrails for EVERY chat-model role (compile/recall/deep/evolve/…).
+    # Deliberately not split per role: one timeout and one retry budget is a guardrail, and
+    # a per-role matrix would be a knob nobody can reason about.
+    #   llm_timeout     — seconds a single request may take before it is abandoned. Large on
+    #     purpose: a slow-but-alive request must not be killed; the guard is against hangs,
+    #     not latency. Without it langchain/httpx would wait forever (a hung compile call
+    #     once held a worker for 25 minutes with no error and no progress).
+    #   llm_max_retries — langchain's own retry budget for transient provider errors
+    #     (429 / 5xx / connection reset). Low-frequency provider flakes get absorbed by the
+    #     library's mechanism rather than by hand-rolled retry code at the call sites.
+    llm_timeout: float = 600.0
+    llm_max_retries: int = 3
     # OpenRouter (OpenAI-compatible) key, read from the unprefixed OPENROUTER_API_KEY
     # so `openrouter:<model>` in llm_model can switch vendors without app changes.
     openrouter_api_key: str = Field(default="", validation_alias="OPENROUTER_API_KEY")

@@ -27,7 +27,10 @@ from pneuma_knowledge_service.adapters.source_imports import CanonicalJsonSource
 from pneuma_knowledge_service.ingest_sources import ingest_source_contract
 from pneuma_knowledge_service.settings import Settings
 from pneuma_knowledge_service.wiring import build_context, resolve_model_name
-from pneuma_knowledge_service.workers.compile_worker import drain_user
+from pneuma_knowledge_service.workers.compile_worker import (
+    drain_user,
+    requeue_orphaned_jobs,
+)
 
 USER = UserId("u-opc-lin")
 DATA_ROOT = Path("examples/data/opc-demo")
@@ -147,6 +150,10 @@ async def run(*, reset: bool = True, real: bool = False) -> int:
     try:
         if reset:
             await _reset(ctx, settings)
+        # In-process drain → same startup self-heal the worker does. Matters on the
+        # `--keep` path: the retained tenant may carry a 'claimed' orphan from a killed
+        # run, which blocks its queue and would fail this demo closed on "unfinished jobs".
+        await requeue_orphaned_jobs(ctx, label="seed-demo")
 
         profile = await ctx.user_info.get_profile(USER)
         await ctx.store.upsert_user_profile(

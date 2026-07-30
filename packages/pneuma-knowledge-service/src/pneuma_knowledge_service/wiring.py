@@ -194,12 +194,35 @@ def resolve_model_name(settings: Settings, role: str = "default") -> str:
     return settings.llm_model
 
 
+def _provider_guardrails(settings: Settings) -> dict:
+    """The `timeout` / `max_retries` kwargs every real chat model is constructed with.
+
+    `timeout` is the anti-hang guard: a provider connection that stops producing (no error,
+    no tokens) otherwise pins the caller forever — a worker job held for 25 minutes with a
+    hung OpenRouter call is what put this here. It is set LARGE on purpose (see
+    Settings.llm_timeout): killing a slow-but-alive request is the worse failure.
+
+    `max_retries` is langchain's own transient-error retry — the library mechanism is the
+    right place to absorb low-frequency 429/5xx flakes, so no call site grows its own loop.
+
+    langchain-openai exposes the timeout field as `request_timeout` with `timeout` as its
+    pydantic alias, so the kwarg name here is the portable one; other langchain provider
+    integrations accept the same two names. Both are plain constructor fields: `bind_tools`
+    and `with_structured_output` re-bind the same configured client and are unaffected.
+    """
+    return {"timeout": settings.llm_timeout, "max_retries": settings.llm_max_retries}
+
+
 def _build_from_name(name: str, settings: Settings) -> BaseChatModel:
     """Assemble a chat model from a spec.
 
     `scripted:<path>` → a keyless ScriptedChatModel from a JSON script (tests / demos,
     no provider key). `openrouter:<model>` → the OpenAI-compatible OpenRouter endpoint.
     Anything else goes through langchain `init_chat_model` (e.g. `anthropic:claude-sonnet-5`).
+
+    Every REAL model (both branches, hence every role) is built with the same two provider
+    guardrails from settings — see `_provider_guardrails`. The scripted model is local
+    replay: no request, nothing to time out or retry.
     """
     if name.startswith("scripted:"):
         return load_scripted_model(name.split(":", 1)[1])
@@ -207,6 +230,7 @@ def _build_from_name(name: str, settings: Settings) -> BaseChatModel:
     # is requested, keeping the scripted/keyless path dependency-free.
     from langchain.chat_models import init_chat_model
 
+    guardrails = _provider_guardrails(settings)
     if name.startswith("openrouter:"):
         key = settings.openrouter_api_key
         if not key:
@@ -216,8 +240,9 @@ def _build_from_name(name: str, settings: Settings) -> BaseChatModel:
             model_provider="openai",
             base_url="https://openrouter.ai/api/v1",
             api_key=key,
+            **guardrails,
         )
-    return init_chat_model(name)
+    return init_chat_model(name, **guardrails)
 
 
 def build_chat_model_for(settings: Settings, role: str = "default") -> BaseChatModel:

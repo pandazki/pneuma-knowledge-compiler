@@ -10,10 +10,23 @@ from types import SimpleNamespace
 
 import pytest
 
+from pneuma_knowledge_service.adapters.user_info_mock import MockUserInfoProvider
+from pneuma_knowledge_service.settings import Settings
+
 
 ROOT = Path(__file__).resolve().parents[3]
 SCRIPT = ROOT / "examples" / "run_opc_84d_experiment.py"
 EVALUATE_SCRIPT = ROOT / "examples" / "evaluate_opc_84d_experiment.py"
+
+
+async def _noop() -> None:
+    """An awaitable no-op — stands in for `ctx.aclose`."""
+    return None
+
+
+async def _returns(value):
+    """An awaitable that yields `value` — stands in for `build_context`."""
+    return value
 
 
 def _load_script():
@@ -323,6 +336,107 @@ def test_resume_allows_current_partial_sources_but_rejects_future_sources() -> N
                 from_batch=2,
             )
         )
+
+
+def test_resumed_run_requeues_orphaned_claimed_jobs_before_draining(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A run killed mid-job leaves a 'claimed' orphan that blocks its tenant's queue
+    (claim_next hands out nothing while one job is in flight), so the resumed batch would
+    drain 0 jobs and fail closed on "unfinished jobs". The runner drains in-process, so it
+    owes the same startup self-heal as the production worker — before the first drain."""
+    module = _load_script()
+
+    class Store:
+        def __init__(self):
+            self.jobs = [
+                {
+                    "job_id": "orphan-1",
+                    "kind": "compile",
+                    "status": "claimed",
+                    "ok": None,
+                    "payload": {"source_ids": ["s-earlier-batch"]},
+                }
+            ]
+            self.requeue_calls = 0
+
+        async def requeue_claimed_jobs(self):
+            self.requeue_calls += 1
+            stuck = [job for job in self.jobs if job["status"] == "claimed"]
+            for job in stuck:
+                job["status"] = "queued"
+            return len(stuck)
+
+        async def list(self, user_id):
+            return []
+
+        async def list_jobs(self, user_id):
+            return self.jobs
+
+        async def get_user_profile(self, user_id):
+            return {"experiment_id": module.EXPERIMENT_ID}
+
+        async def list_canonical_claims(self, user_id):
+            return []
+
+        async def upsert_user_profile(self, user_id, payload):
+            return None
+
+    class Canonical:
+        async def list(self, user_id):
+            return []
+
+        async def snapshots(self, user_id):
+            return []
+
+    store = Store()
+    ctx = SimpleNamespace(
+        store=store,
+        canonical=Canonical(),
+        user_info=MockUserInfoProvider(),
+        aclose=_noop,
+    )
+    drains: list[int] = []
+
+    async def drain_user(ctx_, model, skill, user_id, **kwargs):
+        drains.append(store.requeue_calls)
+        return 0
+
+    async def no_preflight(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(
+        module,
+        "_build_dataset",
+        lambda: SimpleNamespace(
+            batches=[
+                SimpleNamespace(batch_id="G01", contracts=[]),
+                SimpleNamespace(batch_id="G02", contracts=[]),
+            ]
+        ),
+    )
+    monkeypatch.setattr(
+        module, "_settings", lambda mode: Settings(llm_model="scripted:opc-84d")
+    )
+    monkeypatch.setattr(module, "build_context", lambda settings: _returns(ctx))
+    monkeypatch.setattr(module, "_require_resume_tenant", no_preflight)
+    monkeypatch.setattr(module, "drain_user", drain_user)
+
+    asyncio.run(
+        module.run(
+            user_id=module._user_id("u-opc-seamlog-v2-orphan-resume"),
+            mode="scripted",
+            reset=False,
+            from_batch=2,
+            until_batch=2,
+            report_path=tmp_path / "report.json",
+        )
+    )
+
+    assert store.requeue_calls == 1
+    assert [job["status"] for job in store.jobs] == ["queued"]
+    # The self-heal ran BEFORE the batch drain, not after it.
+    assert drains == [1]
 
 
 def test_evaluation_rejects_a_user_id_that_can_escape_report_directory() -> None:

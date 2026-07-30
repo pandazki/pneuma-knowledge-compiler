@@ -363,6 +363,32 @@ async def _resolve_user_skill(
     return skill
 
 
+async def requeue_orphaned_jobs(ctx: AppContext, *, label: str = "compile-worker") -> int:
+    """Startup self-heal: return every job orphaned as 'claimed' to 'queued'.
+
+    A process killed mid-job (typically during a long LLM call) leaves its row 'claimed'
+    forever, and `claim_next` refuses to hand out any further job for that user while one
+    is in flight — so the orphan silently blocks that user's whole queue. A later drain
+    then processes 0 jobs and the caller reads that as "the batch failed".
+
+    Every entrypoint that drains the queue must call this once BEFORE its first drain, not
+    just the long-running worker: an experiment/demo script that reuses a tenant inherits
+    the exact same orphan.
+
+    Blast radius: the underlying store call is global (the JobQueue port has no per-user
+    variant), so it also requeues other tenants' claimed jobs. That is sound for this
+    single-worker queue — while no worker is running nothing is legitimately in flight —
+    but it does mean a script calling this alongside a LIVE compile worker would yank that
+    worker's in-flight job back into the queue. Don't run the two concurrently.
+
+    Returns the number requeued and reports it on stdout (silence means nothing was stuck).
+    """
+    reclaimed = await ctx.store.requeue_claimed_jobs()
+    if reclaimed:
+        print(f"[{label}] reclaimed {reclaimed} orphaned claimed job(s) → requeued", flush=True)
+    return reclaimed
+
+
 async def drain_user(
     ctx: AppContext,
     chat_model: BaseChatModel,
@@ -462,9 +488,7 @@ async def run_forever() -> None:
     # Self-heal on startup: requeue any job orphaned as 'claimed' by a previous worker
     # that died mid-job (killed during an LLM call), which would otherwise block its
     # user's queue forever.
-    reclaimed = await ctx.store.requeue_claimed_jobs()
-    if reclaimed:
-        print(f"[compile-worker] reclaimed {reclaimed} orphaned claimed job(s) → requeued")
+    await requeue_orphaned_jobs(ctx)
     try:
         while True:
             n = await compile_pending(ctx, chat_model)

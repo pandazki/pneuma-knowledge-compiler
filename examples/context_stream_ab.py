@@ -38,7 +38,10 @@ from pneuma_knowledge_core.skill import load_builtin_skill
 from pneuma_knowledge_service.ingest import ingest_conversation
 from pneuma_knowledge_service.settings import Settings
 from pneuma_knowledge_service.wiring import build_context
-from pneuma_knowledge_service.workers.compile_worker import drain_user
+from pneuma_knowledge_service.workers.compile_worker import (
+    drain_user,
+    requeue_orphaned_jobs,
+)
 
 U_BASE = UserId("u-opc-context-base")
 U_CONV = UserId("u-opc-context-first-party")
@@ -117,6 +120,10 @@ async def main() -> int:
         return show_prompt()
     ctx = await build_context(Settings())
     try:
+        # Fixed tenants + in-process drain: a 'claimed' orphan left by a killed run would
+        # block the queue and silently make both variants drain 0 job(s), which reads as
+        # "compile committed nothing" rather than as a stuck queue.
+        await requeue_orphaned_jobs(ctx, label="context-stream-ab")
         print("== BASELINE compile (generic upload: `self/1:` verbatim, no guidance) ==")
         await build(ctx, U_BASE, "upload")
         print("== CONTEXT_STREAM compile (first-party type: owner/other + guidance) ==")

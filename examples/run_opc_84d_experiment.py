@@ -36,7 +36,10 @@ from pneuma_knowledge_service.experiments.opc_84d_v2 import (
 from pneuma_knowledge_service.ingest_sources import ingest_source_contract
 from pneuma_knowledge_service.settings import Settings
 from pneuma_knowledge_service.wiring import build_context, resolve_model_name
-from pneuma_knowledge_service.workers.compile_worker import drain_user
+from pneuma_knowledge_service.workers.compile_worker import (
+    drain_user,
+    requeue_orphaned_jobs,
+)
 
 USER_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,95}$")
 DEFAULT_USER_PREFIX = "u-opc-seamlog-v2"
@@ -461,6 +464,12 @@ async def run(
             )
         else:
             await _require_empty_tenant(ctx, user_id)
+        # This runner drains the queue in-process, so it owes the same startup self-heal
+        # the production worker does: a previous run killed mid-batch (long real compile
+        # calls make that routine) leaves a 'claimed' orphan that blocks this tenant's
+        # queue, and the resumed batch would then drain nothing and fail closed on
+        # "unfinished jobs". See requeue_orphaned_jobs for the global blast radius.
+        await requeue_orphaned_jobs(ctx, label="experiment")
         await _profile(ctx, user_id)
         for batch_number, batch in enumerate(dataset.batches, start=1):
             if batch_number < from_batch:
