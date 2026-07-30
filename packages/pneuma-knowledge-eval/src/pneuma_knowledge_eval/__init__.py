@@ -58,12 +58,15 @@ from __future__ import annotations
 
 from .artifacts import (
     Checkpoint,
+    PgDumps,
     Snapshot,
     SourceRecord,
     Trajectory,
     build_trajectory,
     load_git_trajectory,
+    load_pg_dumps,
     load_preset_trajectory,
+    load_repo_trajectory,
 )
 from .errors import EvalDependencyError, EvalInputError
 from .scorecard import build_scorecard, render_report
@@ -73,6 +76,7 @@ __all__ = [
     "Checkpoint",
     "EvalDependencyError",
     "EvalInputError",
+    "PgDumps",
     "Snapshot",
     "SourceRecord",
     "Trajectory",
@@ -82,6 +86,8 @@ __all__ = [
     "load_84d_truth_set",
     "load_frozen_truth_manifest",
     "load_git_trajectory",
+    "load_pg_dumps",
     "load_preset_trajectory",
+    "load_repo_trajectory",
     "render_report",
 ]

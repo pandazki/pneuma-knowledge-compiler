@@ -52,11 +52,29 @@ def test_malformed_marker_is_counted_as_residue_not_as_a_citation():
 
 
 def test_citation_resolvability_is_unavailable_without_l0():
+    """A null in a series row is not a declaration. Replay gets its own `unavailable` node with
+    a reason and a cause, which is what puts it in the scorecard's list of what did not run."""
     files = {"memory/topics/a.md": document("memory/topics/a.md", [claim("A.", "cccc0001", cite="s1 ¶0")])}
     report = citation_integrity(trajectory([files]))
     assert report["l0_available"] is False
     assert report["head"]["citations_resolvable"] is None
     assert report["invariants"]["head_all_citations_resolvable"] is None
+    assert report["locator_replay"]["status"] == "unavailable"
+    assert report["locator_replay"]["cause"] == "l0_absent"
+    # the half that needs canonical alone is still measured, and the reason says which is which
+    assert report["head"]["claims_with_citations"] == 1
+    assert "claim coverage" in report["locator_replay"]["reason"]
+
+
+def test_citation_replay_reports_its_numbers_when_l0_is_present():
+    files = {"memory/topics/a.md": document("memory/topics/a.md", [claim("A.", "cccc0002", cite="s1 ¶0")])}
+    report = citation_integrity(trajectory([files], sources=SOURCES, consumed=[["s1"]]))
+    replay = report["locator_replay"]
+    assert replay["status"] == "ok"
+    assert replay["citations_total"] == 1
+    assert replay["citations_resolvable"] == 1
+    assert replay["resolvable_rate"] == 1.0
+    assert replay["unknown_source"] == 0 and replay["out_of_range"] == 0
 
 
 def test_a_moved_claim_is_not_an_anchor_loss_but_a_deleted_one_is():

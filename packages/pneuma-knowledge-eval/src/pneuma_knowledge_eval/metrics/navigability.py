@@ -52,7 +52,7 @@ from pneuma_knowledge_core.canonical_glance import (
 from pneuma_knowledge_core.compile.gate import _MD_LINK_RE, _resolve_relative
 
 from ..artifacts import Checkpoint, Trajectory, family_of
-from .common import log_log_slope, rate, shannon_entropy, unavailable
+from .common import L0_ABSENT, log_log_slope, rate, shannon_entropy, unavailable
 
 #: A slug carrying a date or a bare year — the fragmentation tell. A subject that gets
 #: `orion-pilot-2026-07-24.md` instead of growing `orion-pilot.md` has been sliced by time,
@@ -200,7 +200,10 @@ def growth(trajectory: Trajectory) -> dict[str, Any]:
     HEAD. It needs at least two checkpoints with known consumed L0; otherwise it says so.
     """
     if not trajectory.has_l0:
-        return unavailable("trajectory carries no L0 sources: growth has no independent axis")
+        return unavailable(
+            "trajectory carries no L0 sources: growth has no independent axis",
+            cause=L0_ABSENT,
+        )
     xs: list[float] = []
     chars: list[float] = []
     claims: list[float] = []

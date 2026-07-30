@@ -1268,10 +1268,17 @@ DEFAULTS: dict[str, str] = {
         "label (【firm】/【forming】/【loose】), which the projection layer uses to tier the "
         "presentation; use only those three tiers."
     ),
-    # ───────────────────────────────────────────────── evaluation (optional judge arm)
+    # ───────────────────────────────────────────────── evaluation (optional judge arms)
     # The evaluation package is read-only and its mechanical mode never calls a model. These
-    # three keys are the ONLY model-visible prose it can emit, and only in its `full` mode:
-    # a judge consulted for an answer the mechanical matcher already rejected.
+    # six keys are the ONLY model-visible prose it can emit, and only in its `full` mode: two
+    # judges, each consulted for exactly one thing the character matcher already rejected.
+    #
+    # `eval.qa.*` grades an ANSWER produced for a question. `eval.truth_judge.*` grades a
+    # CANONICAL CLAIM, which was written for a reader rather than for a question — a
+    # distinction worth its own prose, because the similarity threshold group B applies was
+    # calibrated on short label-shaped claims and a compiler that legitimately rewrites a fact
+    # into 170 characters of threaded prose scores below it while stating the fact perfectly.
+    # The judge arm is what stops that from reading as a recall failure.
     "eval.qa.judge_system": (
         "You are grading one answer against one expected statement, and nothing else.\n\n"
         "Answer YES only when the answer actually carries the expected statement — the same "
@@ -1289,4 +1296,23 @@ DEFAULTS: dict[str, str] = {
         "Answer under grading:\n{answer}"
     ),
     "eval.qa.judge_verdict_yes": "YES",
+    "eval.truth_judge.system": (
+        "You are checking one written claim against one labelled fact, and nothing else.\n\n"
+        "Answer YES when the claim states that fact — the same fact about the same subject and "
+        "the same period — however differently it is worded, ordered, or embedded in "
+        "surrounding prose. Paraphrase is not a defect. A claim that carries the fact plus "
+        "additional correct material still answers YES.\n\n"
+        "Answer NO when the claim omits the fact, contradicts it, states it about a different "
+        "subject or period, states only a weaker or hedged version of it, or merely names the "
+        "topic the fact belongs to. A claim that says a decision was made without saying what "
+        "was decided does not carry the decision.\n\n"
+        "You are not judging wording, completeness, or whether the claim is well written.\n\n"
+        "Reply with YES or NO on the first line, then one short line naming what in the claim "
+        "decided it."
+    ),
+    "eval.truth_judge.user": (
+        "Labelled fact:\n{statement}\n\n"
+        "Claim under check:\n{claim}"
+    ),
+    "eval.truth_judge.verdict_yes": "YES",
 }

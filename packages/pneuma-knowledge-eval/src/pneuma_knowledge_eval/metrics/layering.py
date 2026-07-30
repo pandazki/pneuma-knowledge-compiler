@@ -38,6 +38,7 @@ from typing import Any
 from ..artifacts import Trajectory
 from ..truth import TruthSet
 from .common import (
+    L0_ABSENT,
     NEAR_DUPLICATE_THRESHOLD,
     Matcher,
     best_match,
@@ -59,7 +60,10 @@ VERBATIM_RUN_CHARS = 40
 def compression(trajectory: Trajectory) -> dict[str, Any]:
     """Canonical body characters against the L0 characters actually consumed, per checkpoint."""
     if not trajectory.has_l0:
-        return unavailable("trajectory carries no L0 sources: compression has no denominator")
+        return unavailable(
+            "trajectory carries no L0 sources: compression has no denominator",
+            cause=L0_ABSENT,
+        )
     series: list[dict[str, Any]] = []
     for index, checkpoint in enumerate(trajectory.checkpoints):
         l0_chars = trajectory.l0_chars_through(index)
@@ -177,7 +181,10 @@ def verbatim_reproduction(
     measurement.
     """
     if not trajectory.has_l0:
-        return unavailable("trajectory carries no L0 sources: nothing to compare claims against")
+        return unavailable(
+            "trajectory carries no L0 sources: nothing to compare claims against",
+            cause=L0_ABSENT,
+        )
     series: list[dict[str, Any]] = []
     head_samples: list[dict[str, Any]] = []
     for checkpoint in trajectory.checkpoints:

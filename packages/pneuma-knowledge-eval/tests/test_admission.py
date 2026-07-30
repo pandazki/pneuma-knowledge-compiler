@@ -7,7 +7,7 @@ import json
 import pytest
 
 from _fixtures import FROZEN_V2_TRUTH, claim, document, source, trajectory
-from pneuma_knowledge_eval.errors import EvalInputError
+from pneuma_knowledge_eval.errors import EvalDependencyError, EvalInputError
 from pneuma_knowledge_eval.metrics.admission import (
     admission_latency,
     admission_metrics,
@@ -112,6 +112,177 @@ def test_degradation_from_peak_is_visible_when_a_fact_stops_being_expressed():
     assert report["peak_recall"] == 1.0
     assert report["head_recall"] == 0.0
     assert report["degraded_from_peak"] == 1.0
+
+
+# ──────────────────────────────────────────────────────── the judge arm over recall
+
+
+#: The failure the judge arm exists for, written out: the same fact as `FACT`, threaded into
+#: prose. Character overlap lands below the truth threshold; the fact is stated exactly.
+REWRITTEN_FACT = (
+    "Scope was settled at the kickoff: the engagement runs on a single agreed price for a "
+    "fourteen-day window, with no hourly billing and no option to extend the calendar."
+)
+
+
+def _one_fact_truth() -> TruthSet:
+    return TruthSet(
+        experiment_id="fixture",
+        corpus_key="fixture",
+        entries=(TruthEntry("t-fact", "durable_facts", FACT, "current", None),),
+    )
+
+
+def _rewritten_trajectory():
+    """One round, one claim: the fact, restated well enough that characters miss it."""
+    return trajectory(
+        [
+            {
+                "memory/topics/pilot.md": document(
+                    "memory/topics/pilot.md", [claim(REWRITTEN_FACT, "eeee0001", cite="s1 ¶0")]
+                )
+            }
+        ]
+    )
+
+
+def test_the_similarity_arm_alone_misses_a_correctly_rewritten_fact():
+    """The premise of the whole arm, asserted rather than assumed: this is what 0/N looked
+    like on a base that states the fact perfectly."""
+    report = truth_recall_series(_rewritten_trajectory(), _one_fact_truth())
+    assert report["head_recall"] == 0.0
+    assert report["arms"] == ["similarity"]
+    # and it says the second arm did not run, rather than letting one number stand for both
+    assert report["recall_judged"]["status"] == "unavailable"
+    assert report["recall_judged"]["cause"] == "no_judge_arm"
+    assert report["recall_similarity"]["head"] == 0.0
+
+
+def test_a_fact_below_the_threshold_that_the_judge_accepts_counts_in_recall_judged():
+    consulted: list[tuple[str, str]] = []
+
+    def judge(statement: str, claim: str) -> tuple[bool, str]:
+        consulted.append((statement, claim))
+        return True, "YES\nthe claim states the price basis and the two-week window"
+
+    report = truth_recall_series(_rewritten_trajectory(), _one_fact_truth(), judge=judge)
+
+    # the judge saw the labelled fact and the best-matching claim, and nothing else
+    assert consulted == [(FACT, REWRITTEN_FACT)]
+    assert report["arms"] == ["similarity", "judge"]
+    # both numbers are reported, and they disagree — which is the finding
+    assert report["recall_similarity"]["head"] == 0.0
+    assert report["head_recall"] == 0.0  # the historical spelling keeps its historical meaning
+    assert report["recall_judged"]["head"] == 1.0
+    assert report["recall_judged"]["matched_at_head"] == 1
+    assert report["recall_judged"]["judge_decisions"] == 1
+    assert report["recall_judged"]["judge_calls"] == 1
+    assert report["series"][-1]["matched"] == 0
+    assert report["series"][-1]["matched_judged"] == 1
+    assert report["series"][-1]["by_category_judged"]["durable_facts"]["recall"] == 1.0
+
+
+def test_a_fact_the_judge_also_rejects_stays_a_miss():
+    def judge(statement: str, claim: str) -> tuple[bool, str]:
+        return False, "NO\nthe claim names the topic without stating the fact"
+
+    report = truth_recall_series(_rewritten_trajectory(), _one_fact_truth(), judge=judge)
+
+    assert report["recall_judged"]["status"] == "ok"
+    assert report["recall_judged"]["head"] == 0.0
+    assert report["recall_judged"]["judge_decisions"] == 1
+    miss = report["misses_at_head"][0]
+    assert miss["judge_pass"] is False
+    assert miss["matched_judged"] is False
+    assert "NO" in miss["judge_rationale"]  # the verdict is auditable, not just counted
+
+
+def test_the_judge_is_never_asked_about_a_fact_the_threshold_already_accepted():
+    """The arm can only ADD recognized facts. Letting it review passes would let a judge
+    remove a fact the corpus and the characters both agree is there."""
+    consulted: list[str] = []
+
+    def judge(statement: str, claim: str) -> tuple[bool, str]:  # pragma: no cover - must not run
+        consulted.append(statement)
+        return False, "NO"
+
+    verbatim = trajectory(
+        [{"memory/topics/p.md": document("memory/topics/p.md", [claim(FACT, "eeee0002")])}]
+    )
+    report = truth_recall_series(verbatim, _one_fact_truth(), judge=judge)
+
+    assert consulted == []
+    assert report["recall_similarity"]["head"] == report["recall_judged"]["head"] == 1.0
+    assert report["recall_judged"]["judge_decisions"] == 0
+
+
+def test_a_judge_failure_raises_instead_of_degrading_to_the_similarity_arm():
+    def judge(statement: str, claim: str) -> tuple[bool, str]:
+        raise RuntimeError("connection reset")
+
+    with pytest.raises(EvalDependencyError, match="judge arm failed"):
+        truth_recall_series(_rewritten_trajectory(), _one_fact_truth(), judge=judge)
+
+
+def test_a_fact_with_no_candidate_claim_at_all_is_not_handed_to_the_judge():
+    """A best match of zero means the base offered nothing for this fact. Showing the judge an
+    arbitrary claim would be inventing the candidate the metric is supposed to find."""
+    consulted: list[str] = []
+
+    def judge(statement: str, claim: str) -> tuple[bool, str]:
+        consulted.append(claim)
+        return True, "YES"
+
+    unrelated = trajectory(
+        [
+            {
+                "memory/topics/q.md": document(
+                    "memory/topics/q.md", [claim("氣候很好。", "eeee0003")]
+                )
+            }
+        ]
+    )
+    report = truth_recall_series(unrelated, _one_fact_truth(), judge=judge)
+
+    assert consulted == []
+    assert report["recall_judged"]["head"] == 0.0
+    assert report["recall_judged"]["judge_no_candidate"] == 1
+
+
+def test_the_judge_is_asked_once_per_distinct_pair_across_a_long_trajectory():
+    """Canonical is forward-only, so the same (fact, best claim) pair recurs every round. One
+    verdict, one model call — otherwise a 170-round trajectory pays 170 times for one answer."""
+    calls: list[str] = []
+
+    def judge(statement: str, claim: str) -> tuple[bool, str]:
+        calls.append(claim)
+        return True, "YES"
+
+    files = {
+        "memory/topics/pilot.md": document(
+            "memory/topics/pilot.md", [claim(REWRITTEN_FACT, "eeee0004", cite="s1 ¶0")]
+        )
+    }
+    report = truth_recall_series(trajectory([files] * 6), _one_fact_truth(), judge=judge)
+
+    assert len(calls) == 1
+    assert report["recall_judged"]["judge_calls"] == 1
+    assert report["recall_judged"]["judge_decisions"] == 6
+    assert [row["recall_judged"] for row in report["series"]] == [1.0] * 6
+
+
+def test_the_judge_reaches_recall_only_and_group_b_reports_both_numbers():
+    def judge(statement: str, claim: str) -> tuple[bool, str]:
+        return True, "YES"
+
+    report = admission_metrics(_rewritten_trajectory(), _one_fact_truth(), judge=judge)
+
+    assert report["recall"]["recall_similarity"]["head"] == 0.0
+    assert report["recall"]["recall_judged"]["head"] == 1.0
+    # noise exclusion turns on a labelled statement being FOUND, where a false positive costs
+    # more than a false negative: it keeps the character threshold alone
+    assert report["noise_exclusion"]["status"] == "ok"
+    assert "judge" not in json.dumps(report["noise_exclusion"])
 
 
 def test_a_guarded_mention_of_exhaust_is_not_a_leak():

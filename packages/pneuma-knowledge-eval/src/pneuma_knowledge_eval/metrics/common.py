@@ -30,6 +30,14 @@ NEAR_DUPLICATE_THRESHOLD = 0.86
 #: normalized text cannot reach the threshold, so blocking is exact, not approximate.
 _SHINGLE = 8
 
+#: Machine-readable causes for an `unavailable` metric. A reason sentence is for the reader;
+#: a cause is for the caller, which is what lets the CLI print "these N metrics were not
+#: computed because L0 was absent, supply --pg-dumps" instead of leaving the reader to grep
+#: five prose reasons out of the scorecard.
+L0_ABSENT = "l0_absent"
+NO_TRUTH_SET = "no_truth_set"
+NO_JUDGE_ARM = "no_judge_arm"
+
 
 def rate(numerator: float, denominator: float, *, digits: int = 6) -> float | None:
     """A rate, or None when the denominator is zero — never a silent 0.0."""
@@ -38,9 +46,17 @@ def rate(numerator: float, denominator: float, *, digits: int = 6) -> float | No
     return round(numerator / denominator, digits)
 
 
-def unavailable(reason: str, **extra: Any) -> dict[str, Any]:
-    """The one shape every un-computable metric returns."""
-    return {"status": "unavailable", "reason": reason, **extra}
+def unavailable(reason: str, *, cause: str | None = None, **extra: Any) -> dict[str, Any]:
+    """The one shape every un-computable metric returns.
+
+    `cause` is the machine-readable half of the same statement (`L0_ABSENT`, …). It is what
+    a caller groups on: the scorecard's `unavailable` list carries it through, so the CLI can
+    name every metric a single missing input cost and say how to supply it.
+    """
+    out: dict[str, Any] = {"status": "unavailable", "reason": reason}
+    if cause is not None:
+        out["cause"] = cause
+    return {**out, **extra}
 
 
 def mean(values: Sequence[float]) -> float | None:
@@ -96,6 +112,30 @@ def best_match(
             best_score = score
             best_text = candidate
     return round(best_score, 6), best_text
+
+
+def top_matches(
+    expected: str,
+    candidates: Sequence[str],
+    *,
+    matcher: Matcher = char_similarity,
+    k: int = 1,
+) -> list[tuple[float, str]]:
+    """The `k` highest-scoring candidates for `expected`, best first.
+
+    Only candidates that score ABOVE ZERO are returned. A zero score means the matcher found
+    no shared material at all, so the "top" of a set of zeroes is whichever candidate happened
+    to come first — handing that to a judge as this fact's best evidence would be inventing a
+    candidate, not finding one. Ties keep input order, so the result is deterministic.
+    """
+    scored = [
+        (round(matcher(expected, candidate), 6), index, candidate)
+        for index, candidate in enumerate(candidates)
+    ]
+    ranked = sorted(
+        (row for row in scored if row[0] > 0.0), key=lambda row: (-row[0], row[1])
+    )
+    return [(score, candidate) for score, _, candidate in ranked[: max(k, 0)]]
 
 
 def memoized(matcher: Matcher) -> Matcher:
@@ -188,8 +228,11 @@ def cluster(pairs: Sequence[tuple[str, str, float]]) -> list[list[str]]:
 
 
 __all__ = [
+    "L0_ABSENT",
     "Matcher",
     "NEAR_DUPLICATE_THRESHOLD",
+    "NO_JUDGE_ARM",
+    "NO_TRUTH_SET",
     "best_match",
     "char_similarity",
     "cluster",
@@ -200,5 +243,6 @@ __all__ = [
     "normalize_text",
     "rate",
     "shannon_entropy",
+    "top_matches",
     "unavailable",
 ]

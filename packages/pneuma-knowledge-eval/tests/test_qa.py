@@ -9,6 +9,7 @@ from pneuma_knowledge_eval.qa import (
     QaCase,
     build_http_answerer,
     build_llm_judge,
+    build_truth_judge,
     cases_from_truth,
     qa_metrics,
     qa_metrics_async,
@@ -163,6 +164,10 @@ def test_live_arms_refuse_without_their_dependencies(monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     with pytest.raises(EvalDependencyError, match="OPENROUTER_API_KEY"):
         build_llm_judge()
+    # group B's arm shares the plumbing, so it shares the refusal: a judge that cannot be
+    # reached must never be reported as a judge that approved nothing
+    with pytest.raises(EvalDependencyError, match="OPENROUTER_API_KEY"):
+        build_truth_judge()
 
 
 def test_judge_prose_lives_in_the_prompt_catalog():
@@ -174,3 +179,43 @@ def test_judge_prose_lives_in_the_prompt_catalog():
     assert {"eval.qa.judge_system", "eval.qa.judge_user", "eval.qa.judge_verdict_yes"} <= keys
     rendered = prompt("eval.qa.judge_user", question="Q?", expected="E", answer="A")
     assert "Q?" in rendered and "E" in rendered and "A" in rendered
+
+
+def test_the_truth_judge_has_its_own_catalog_prose_not_group_f_s():
+    """Group F grades an ANSWER to a question; group B grades a CLAIM written for a reader.
+    Renting group F's wording would put the word "answer" in front of the model when there is
+    no answer, which makes a verdict unreadable afterwards."""
+    from pneuma_knowledge_core.prompts import catalog, prompt
+
+    keys = set(catalog())
+    assert {
+        "eval.truth_judge.system",
+        "eval.truth_judge.user",
+        "eval.truth_judge.verdict_yes",
+    } <= keys
+    rendered = prompt("eval.truth_judge.user", statement="S", claim="C")
+    assert "S" in rendered and "C" in rendered
+    # the two arms are distinct prose, not one key under two names
+    assert prompt("eval.truth_judge.system") != prompt("eval.qa.judge_system")
+
+
+def test_both_judge_arms_share_one_notion_of_being_configured(monkeypatch):
+    """`_judge_chat` is the single seam. If the two arms grew separate credential checks, one
+    could be considered configured while the other was not."""
+    from pneuma_knowledge_eval import qa
+
+    built: list[dict] = []
+
+    class FakeChat:
+        def invoke(self, messages):
+            built.append({"sync": messages})
+            return type("R", (), {"content": "YES\nthe claim states the fact"})()
+
+    monkeypatch.setattr(qa, "_judge_chat", lambda **kwargs: FakeChat())
+    judge = qa.build_truth_judge(model="fake/model")
+    verdict, rationale = judge("the pilot is fixed-price", "The pilot runs on one agreed price.")
+    assert verdict is True
+    assert "states the fact" in rationale
+    # the labelled fact and the claim both reached the model, under their own labels
+    human = built[0]["sync"][1][1]
+    assert "the pilot is fixed-price" in human and "one agreed price" in human

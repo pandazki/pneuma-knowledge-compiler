@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
@@ -60,6 +62,74 @@ def test_every_uncomputable_metric_is_listed_with_a_reason():
     assert "B_admission" in metrics  # no truth set bound
     assert "F_usability_qa" in metrics  # mechanical mode
     assert all(row["reason"] or row["status"] for row in scorecard["unavailable"])
+    assert metrics["B_admission"]["cause"] == "no_truth_set"
+
+
+# ─────────────────────────────────────────────── what a missing L0 half costs, by name
+
+
+#: Every metric that needs the raw sources. This list is the contract: a trajectory without
+#: L0 must declare exactly these as uncomputed, so that adding a sixth L0-dependent metric
+#: without wiring its declaration fails here rather than shipping as a silent hole.
+L0_DEPENDENT_METRICS = {
+    "A_grounded.citations.locator_replay",
+    "C_layering.compression",
+    "C_layering.verbatim_reproduction",
+    "D_navigability.growth",
+    "B_admission.noise_support",
+}
+
+
+def _l0_less_trajectory():
+    """The same artifacts, loaded the way `--git-repo` without `--pg-dumps` loads them."""
+    return trajectory(
+        [
+            {
+                "memory/profile.md": document(
+                    "memory/profile.md", [claim("Owner works alone.", "aaaa0001", cite="s1 ¶0")]
+                )
+            }
+        ]
+    )
+
+
+def _labelled_truth(corpus: Path):
+    """The corpus's truth set with content-class labels attached, so group B's L0-dependent
+    metric is reached rather than short-circuited on the labels it also needs."""
+    from pneuma_knowledge_eval.metrics.common import normalize_text
+    from pneuma_knowledge_eval.truth import load_truth_set
+
+    truth = load_truth_set(corpus)
+    return replace(
+        truth, content_classes={normalize_text("block zero"): "signal"}
+    )
+
+
+def test_a_trajectory_without_l0_declares_every_metric_it_could_not_compute(corpus_84d):
+    """The failure this closes: `--git-repo` produced a scorecard indistinguishable from a
+    complete one while five metrics had quietly not run. Every one of them now names itself,
+    with a reason and a machine-readable cause a caller can group on."""
+    from pneuma_knowledge_eval.scorecard import unavailable_because
+
+    scorecard = build_scorecard(_l0_less_trajectory(), truth=_labelled_truth(corpus_84d))
+    l0 = unavailable_because(scorecard, "l0_absent")
+
+    assert {row["metric"] for row in l0} == L0_DEPENDENT_METRICS
+    assert all(row["reason"] and "L0" in row["reason"] for row in l0)
+    # the report shows them too: a section listing only what WAS computed reads as full coverage
+    report = render_report(scorecard)
+    assert "## Not computed" in report
+    for metric in L0_DEPENDENT_METRICS:
+        assert f"`{metric}`" in report
+
+
+def test_the_same_metrics_are_computed_once_l0_is_present(corpus_84d):
+    """The complement, so the list above is a statement about L0 and not about these metrics
+    being permanently broken."""
+    from pneuma_knowledge_eval.scorecard import unavailable_because
+
+    scorecard = build_scorecard(_trajectory(), truth=_labelled_truth(corpus_84d))
+    assert unavailable_because(scorecard, "l0_absent") == []
 
 
 def test_findings_name_the_metric_the_value_and_why_it_matters():
@@ -168,7 +238,10 @@ def test_a_bound_truth_set_renders_its_admission_series(corpus_84d):
     report = render_report(scorecard)
     assert "## B · admission" in report
     assert "truth set: `opc-84d-relayforge`" in report
-    assert "head recall:" in report
+    assert "recall_similarity" in report
+    # mechanical mode has one arm, and the report says which one is missing rather than
+    # leaving the single number to read as the whole answer
+    assert "recall_judged: `unavailable`" in report
 
 
 def test_mechanical_mode_is_deterministic():

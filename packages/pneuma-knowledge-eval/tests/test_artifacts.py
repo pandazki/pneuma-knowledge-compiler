@@ -12,7 +12,9 @@ from pneuma_knowledge_eval.artifacts import (
     family_of,
     is_catchall,
     load_git_trajectory,
+    load_pg_dumps,
     load_preset_trajectory,
+    load_repo_trajectory,
     unowned_paths,
 )
 from pneuma_knowledge_eval.errors import EvalInputError
@@ -189,3 +191,91 @@ def test_preset_reconciliation_rejects_a_truncated_bundle(tmp_path: Path, preset
 def test_missing_preset_manifest_fails_loud(tmp_path: Path):
     with pytest.raises(EvalInputError, match="no preset manifest"):
         load_preset_trajectory(tmp_path)
+
+
+# ───────────────────────────────────────────────── a live repo plus its pg dumps
+
+
+def _unpack_canonical(bundle: Path, into: Path) -> Path:
+    """The bundle's canonical.tar.gz as a real git repo on disk — what `--git-repo` points at."""
+    import tarfile
+
+    repo = into / "canonical"
+    repo.mkdir(parents=True)
+    with tarfile.open(bundle / "canonical.tar.gz", "r:gz") as tar:
+        tar.extractall(repo, filter="data")
+    return repo
+
+
+def test_a_repo_plus_its_pg_dumps_equals_the_preset_bundle(
+    tmp_path: Path, preset_bundle: Path, preset_trajectory
+):
+    """`--git-repo` + `--pg-dumps` must be the same trajectory `--preset` builds, not a
+    plausible-looking cousin of it.
+
+    Taken apart from a bundle that already ships both halves, so the comparison is against a
+    known-good whole rather than against another hand-built fixture. Only the bundle id and the
+    `origin` provenance differ — deliberately: origin records HOW the trajectory was loaded, and
+    two loaders that reported the same origin could not be told apart afterwards.
+    """
+    repo = _unpack_canonical(preset_bundle, tmp_path)
+
+    loaded = load_repo_trajectory(
+        repo, pg_dumps=preset_bundle / "pg", bundle_id=preset_trajectory.bundle_id
+    )
+
+    assert loaded.bundle_id == preset_trajectory.bundle_id
+    assert len(loaded.checkpoints) == len(preset_trajectory.checkpoints)
+    assert loaded.path_templates == preset_trajectory.path_templates
+    assert loaded.sources == preset_trajectory.sources
+    assert loaded.events == preset_trajectory.events
+    assert loaded.evolve_tasks == preset_trajectory.evolve_tasks
+    for mine, theirs in zip(loaded.checkpoints, preset_trajectory.checkpoints):
+        assert mine.ref == theirs.ref
+        assert mine.files == theirs.files
+        assert mine.job_id == theirs.job_id
+        assert mine.consumed_source_ids == theirs.consumed_source_ids
+        assert mine.trailers == theirs.trailers
+    # the L0-derived denominators, which is the whole reason --pg-dumps exists
+    assert loaded.has_l0 is True
+    last = len(loaded.checkpoints) - 1
+    assert loaded.l0_chars_through(last) == preset_trajectory.l0_chars_through(last)
+    assert loaded.origin["kind"] == "canonical_repo_with_pg_dumps"
+    assert loaded.origin["pg_dumps_path"] == str(preset_bundle / "pg")
+
+
+def test_the_same_repo_without_dumps_carries_no_l0_and_says_so(tmp_path: Path, preset_bundle: Path):
+    """The other half of the same statement: the repo alone is the compiled layer only."""
+    repo = _unpack_canonical(preset_bundle, tmp_path)
+
+    loaded = load_repo_trajectory(repo)
+
+    assert loaded.has_l0 is False
+    assert loaded.sources == {}
+    assert loaded.l0_chars_through(0) is None
+    assert loaded.origin["kind"] == "canonical_repo"
+    assert "pg_dumps_path" not in loaded.origin
+
+
+def test_an_explicitly_named_dumps_directory_without_l0_fails_loud(tmp_path: Path, preset_bundle: Path):
+    """Naming a dumps directory IS the request for L0. A directory that yields none must not
+    quietly produce the same L0-less trajectory `--git-repo` alone would."""
+    repo = _unpack_canonical(preset_bundle, tmp_path)
+    empty = tmp_path / "pg"
+    empty.mkdir()
+
+    with pytest.raises(EvalInputError, match="no L0 sources"):
+        load_repo_trajectory(repo, pg_dumps=empty)
+
+    with pytest.raises(EvalInputError, match="not a pg dumps directory"):
+        load_repo_trajectory(repo, pg_dumps=tmp_path / "nowhere")
+
+
+def test_pg_dumps_parse_the_same_tables_the_preset_loader_reads(preset_bundle: Path):
+    dumps = load_pg_dumps(preset_bundle / "pg")
+    manifest = json.loads((preset_bundle / "manifest.json").read_text("utf-8"))
+
+    assert len(dumps.sources) == manifest["counts"]["pg"]["sources"]
+    assert dumps.block_count == manifest["counts"]["pg"]["blocks"]
+    # every compile job's declared source list survives as the per-round consumption
+    assert dumps.consumed_by_job and all(dumps.consumed_by_job.values())

@@ -26,6 +26,14 @@ Citation resolvability and the compression ratio need the raw sources. A preset 
 ships them; a bare canonical repo does not. `Trajectory.sources` is then empty and the
 metrics that need it report `unavailable` with a reason instead of quietly reporting a rate
 computed against nothing.
+
+That absence is a real gap rather than a design choice, so it is also CLOSABLE without a
+preset bundle: `load_pg_dumps` reads the same `pg/*.json.gz` table dumps a bundle ships, and
+`load_repo_trajectory` pairs them with a live canonical repo. A repo plus a dumps directory
+is a complete trajectory — the same one `load_preset_trajectory` assembles, because both go
+through this one parser rather than two spellings of it. There is deliberately no live
+Postgres path here: exporting a bundle from a live stack already exists, and a second
+connection-owning code path in a read-only evaluator would be one more thing to keep honest.
 """
 
 from __future__ import annotations
@@ -484,6 +492,85 @@ def _sources_from_dumps(pg_dir: Path) -> dict[str, SourceRecord]:
     return records
 
 
+@dataclass(frozen=True)
+class PgDumps:
+    """The `pg/*.json.gz` half of a bundle: L0 plus the tables evaluation reads.
+
+    One parser, two callers — a preset bundle's own `pg/` directory and a `--pg-dumps`
+    directory handed to a live canonical repo. Whatever a dump does not contain is empty
+    here and reported as absent downstream; nothing in this type is ever imputed.
+    """
+
+    path: Path
+    sources: Mapping[str, SourceRecord]
+    consumed_by_job: Mapping[str, tuple[str, ...]]
+    events: tuple[Mapping[str, Any], ...] = ()
+    evolve_tasks: tuple[Mapping[str, Any], ...] = ()
+
+    @property
+    def block_count(self) -> int:
+        return sum(record.block_count for record in self.sources.values())
+
+
+def load_pg_dumps(pg_dir: Path | str, *, require_sources: bool = False) -> PgDumps:
+    """Parse a `pg/*.json.gz` dumps directory (a bundle's `pg/`, or one handed in by hand).
+
+    `require_sources` is what a caller sets when the dumps directory was named EXPLICITLY —
+    the whole reason to name one is L0, so a directory that yields no source rows is a loud
+    input error rather than a trajectory that silently drops five metrics. A preset bundle
+    leaves it off: a bundle without L0 is a documented, self-describing state.
+    """
+    pg_dir = Path(pg_dir)
+    if not pg_dir.is_dir():
+        raise EvalInputError(f"not a pg dumps directory: {pg_dir}")
+    sources = _sources_from_dumps(pg_dir)
+    if require_sources and not sources:
+        raise EvalInputError(
+            f"pg dumps directory {pg_dir} yields no L0 sources (expected sources.json.gz + "
+            "blocks.json.gz as a preset bundle's pg/ directory ships them); an empty L0 table "
+            "would leave citation replay, compression, verbatim reproduction, growth and "
+            "admission over-inclusion uncomputed"
+        )
+    consumed_by_job = {
+        str(job["id"]): tuple(str(sid) for sid in (job.get("payload") or {}).get("source_ids", ()))
+        for job in _read_gz_json(pg_dir / "compile_jobs.json.gz")
+        if job.get("kind") == "compile"
+    }
+    return PgDumps(
+        path=pg_dir,
+        sources=sources,
+        consumed_by_job=consumed_by_job,
+        events=tuple(_read_gz_json(pg_dir / "compile_events.json.gz")),
+        evolve_tasks=tuple(_read_gz_json(pg_dir / "evolve_tasks.json.gz")),
+    )
+
+
+def load_repo_trajectory(
+    repo: Path | str, *, pg_dumps: Path | str | None = None, bundle_id: str | None = None
+) -> Trajectory:
+    """A live canonical repo, optionally completed with its `pg/*.json.gz` dumps.
+
+    This is the `--git-repo [--pg-dumps]` loader. With dumps it produces the same trajectory
+    a preset bundle of the same user does (same sources, same per-round consumption, same
+    event rows); without them it produces the L0-less one, and every metric that needed L0
+    says so by name.
+    """
+    dumps = load_pg_dumps(pg_dumps, require_sources=True) if pg_dumps is not None else None
+    return load_git_trajectory(
+        repo,
+        bundle_id=bundle_id,
+        sources=dumps.sources if dumps else None,
+        consumed_by_job=dumps.consumed_by_job if dumps else None,
+        events=dumps.events if dumps else (),
+        evolve_tasks=dumps.evolve_tasks if dumps else (),
+        origin={
+            "kind": "canonical_repo_with_pg_dumps" if dumps else "canonical_repo",
+            "repo_path": str(Path(repo)),
+            **({"pg_dumps_path": str(dumps.path)} if dumps else {}),
+        },
+    )
+
+
 def load_preset_trajectory(bundle: Path | str) -> Trajectory:
     """Load a shipped preset bundle (`examples/data/preset/<friendly>`) into a Trajectory.
 
@@ -501,15 +588,11 @@ def load_preset_trajectory(bundle: Path | str) -> Trajectory:
         raise EvalInputError(f"no canonical archive at {tar_path}")
 
     pg_dir = bundle / "pg"
-    sources = _sources_from_dumps(pg_dir)
-    jobs = _read_gz_json(pg_dir / "compile_jobs.json.gz")
-    consumed_by_job = {
-        str(job["id"]): tuple(str(sid) for sid in (job.get("payload") or {}).get("source_ids", ()))
-        for job in jobs
-        if job.get("kind") == "compile"
-    }
-    events = tuple(_read_gz_json(pg_dir / "compile_events.json.gz"))
-    evolve_tasks = tuple(_read_gz_json(pg_dir / "evolve_tasks.json.gz"))
+    dumps = (
+        load_pg_dumps(pg_dir)
+        if pg_dir.is_dir()
+        else PgDumps(path=pg_dir, sources={}, consumed_by_job={})
+    )
 
     with tempfile.TemporaryDirectory(prefix="pkc-eval-canonical-") as workdir:
         repo = Path(workdir) / "canonical"
@@ -519,10 +602,10 @@ def load_preset_trajectory(bundle: Path | str) -> Trajectory:
         trajectory = load_git_trajectory(
             repo,
             bundle_id=str(manifest.get("friendly_id") or bundle.name),
-            sources=sources,
-            consumed_by_job=consumed_by_job,
-            events=events,
-            evolve_tasks=evolve_tasks,
+            sources=dumps.sources,
+            consumed_by_job=dumps.consumed_by_job,
+            events=dumps.events,
+            evolve_tasks=dumps.evolve_tasks,
             origin={
                 "kind": "preset_bundle",
                 "bundle_path": str(bundle),

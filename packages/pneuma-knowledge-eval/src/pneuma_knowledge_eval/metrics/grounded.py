@@ -23,7 +23,7 @@ from pneuma_knowledge_core.compile.gate import _MD_LINK_RE, _resolve_relative
 from pneuma_knowledge_core.domain.canonical import CANONICAL_CITATION_MARKER_RE
 
 from ..artifacts import Checkpoint, Trajectory
-from .common import rate
+from .common import L0_ABSENT, rate, unavailable
 
 # A `[cite:` opening that the accepted grammar does not match — malformed provenance that
 # reads as a citation to a human but resolves to nothing.
@@ -37,6 +37,13 @@ def citation_integrity(trajectory: Trajectory) -> dict[str, Any]:
     `unknown_source` is a fabricated or renamed provenance, `out_of_range` is a real source
     with an interval past its block table, and `unparsable` is prose that looks like a
     citation but is not one.
+
+    Claim coverage and unparsable residue are readable off canonical alone; REPLAY is not —
+    it needs the block tables to replay against. Without L0 that half is reported as an
+    explicit `locator_replay` unavailable rather than as a null in a series row, which is what
+    puts it in the scorecard's `unavailable` list and in the CLI's closing account of what a
+    missing input cost. The whole group used to keep `status: ok` and quietly carry
+    `citations_resolvable: None`, which is exactly the shape of a silently skipped metric.
     """
     bounds = trajectory.source_bounds()
     series: list[dict[str, Any]] = []
@@ -92,6 +99,24 @@ def citation_integrity(trajectory: Trajectory) -> dict[str, Any]:
     return {
         "status": "ok",
         "l0_available": trajectory.has_l0,
+        "locator_replay": (
+            {
+                "status": "ok",
+                "citations_total": head["citations_total"],
+                "citations_resolvable": head["citations_resolvable"],
+                "resolvable_rate": head["resolvable_rate"],
+                "unknown_source": head["unknown_source"],
+                "out_of_range": head["out_of_range"],
+            }
+            if trajectory.has_l0
+            else unavailable(
+                "trajectory carries no L0 sources: a citation locator can only be replayed "
+                "against the block tables it addresses, so resolvability, unknown-source and "
+                "out-of-range counts are not computed (claim coverage and unparsable residue "
+                "are, they need canonical alone)",
+                cause=L0_ABSENT,
+            )
+        ),
         "series": series,
         "head": head,
         "invariants": {

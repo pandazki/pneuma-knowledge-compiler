@@ -31,8 +31,8 @@ from .metrics import (
     layering_metrics,
     navigability_metrics,
 )
-from .metrics.common import Matcher, char_similarity
-from .qa import qa_metrics
+from .metrics.common import L0_ABSENT, Matcher, char_similarity
+from .qa import TruthJudge, qa_metrics
 from .truth import TruthSet
 
 #: Bumped to v2 when group D's reachability was re-based from the designated hub family to
@@ -53,6 +53,7 @@ def build_scorecard(
     generated_at: datetime | None = None,
     qa: dict[str, Any] | None = None,
     declared_language: str | None = None,
+    truth_judge: TruthJudge | None = None,
 ) -> dict[str, Any]:
     """Run all six groups over `trajectory` and assemble a JSON-serializable scorecard.
 
@@ -64,13 +65,17 @@ def build_scorecard(
     `declared_language` is the evaluated subject's own language setting (their profile's
     `locale.language`). Group C holds the claims to it; omitted, English — the framework's
     documented default for a subject who declared none.
+
+    `truth_judge` is group B's full-mode entailment arm (`qa.build_truth_judge`). Omitted,
+    group B reports its similarity arm and marks the judged arm `unavailable` with its reason;
+    it is never silently reported as the same number.
     """
     if mode not in ("mechanical", "full"):
         raise ValueError(f"unknown evaluation mode: {mode!r}")
     matcher = matcher or char_similarity
     groups = {
         "A_grounded": grounded_metrics(trajectory),
-        "B_admission": admission_metrics(trajectory, truth, matcher=matcher),
+        "B_admission": admission_metrics(trajectory, truth, matcher=matcher, judge=truth_judge),
         "C_layering": layering_metrics(
             trajectory, truth, matcher=matcher, declared_language=declared_language
         ),
@@ -113,6 +118,14 @@ def build_scorecard(
 
 
 def _unavailable(groups: dict[str, Any]) -> list[dict[str, str]]:
+    """Every metric that did NOT produce a number, by name, with its reason and its cause.
+
+    This list is the package's answer to silent shortfall: a metric that could not run has to
+    say so somewhere a reader and a caller both look, or a scorecard missing five metrics is
+    indistinguishable from one that computed them. `cause` is the machine-readable half —
+    `l0_absent` on every metric a missing L0 half cost, which is what lets the CLI account for
+    them in one line and name the flag that supplies them.
+    """
     out: list[dict[str, str]] = []
 
     def walk(prefix: str, node: Any) -> None:
@@ -124,6 +137,7 @@ def _unavailable(groups: dict[str, Any]) -> list[dict[str, str]]:
                         "metric": prefix,
                         "status": str(status),
                         "reason": str(node.get("reason") or ""),
+                        "cause": str(node.get("cause") or ""),
                     }
                 )
             for key, value in node.items():
@@ -133,6 +147,16 @@ def _unavailable(groups: dict[str, Any]) -> list[dict[str, str]]:
 
     walk("", groups)
     return out
+
+
+def unavailable_because(scorecard: dict[str, Any], cause: str) -> list[dict[str, str]]:
+    """The `unavailable` entries a single missing input is responsible for.
+
+    The CLI's closing account is built from this: one missing half of the evidence usually
+    costs several metrics across several groups, and listing them by name beats leaving the
+    reader to notice five nulls in three different sections.
+    """
+    return [row for row in scorecard.get("unavailable", ()) if row.get("cause") == cause]
 
 
 # ──────────────────────────────────────────────────────────────────────────── findings
@@ -471,9 +495,14 @@ def _render_admission(admission: dict[str, Any]) -> list[str]:
     out.append("")
     recall = admission.get("recall") or {}
     if recall.get("status") == "ok":
+        judged = recall.get("recall_judged") or {}
+        judged_ran = judged.get("status") == "ok"
+        headers = ["round", "claims", "matched", "labelled", "recall"]
+        if judged_ran:
+            headers += ["matched (judged)", "recall (judged)"]
         out.append(
             _table(
-                ["round", "claims", "matched", "labelled", "recall"],
+                headers,
                 [
                     [
                         row["checkpoint"],
@@ -481,6 +510,11 @@ def _render_admission(admission: dict[str, Any]) -> list[str]:
                         row["matched"],
                         row["total"],
                         row["recall"],
+                        *(
+                            [row["matched_judged"], row["recall_judged"]]
+                            if judged_ran
+                            else []
+                        ),
                     ]
                     for row in recall["series"]
                 ],
@@ -488,10 +522,22 @@ def _render_admission(admission: dict[str, Any]) -> list[str]:
         )
         out += [
             "",
-            f"- head recall: {recall.get('head_recall')} · peak {recall.get('peak_recall')} "
-            f"· degraded from peak {recall.get('degraded_from_peak')}",
-            "",
+            f"- recall_similarity (character overlap ≥ {recall.get('threshold')}): head "
+            f"{recall.get('head_recall')} · peak {recall.get('peak_recall')} · degraded from "
+            f"peak {recall.get('degraded_from_peak')}",
         ]
+        if judged_ran:
+            out.append(
+                f"- recall_judged (threshold passes + judge-confirmed rejections, top-"
+                f"{judged.get('top_k')}): head {judged.get('head')} · peak "
+                f"{judged.get('peak_recall')} · degraded from peak "
+                f"{judged.get('degraded_from_peak')}; {judged.get('judge_decisions')} "
+                f"fact-round decision(s) over {judged.get('judge_calls')} model call(s), "
+                f"{judged.get('judge_no_candidate')} of them with no candidate claim to judge"
+            )
+        else:
+            out.append(f"- recall_judged: `{judged.get('status')}` — {judged.get('reason')}")
+        out.append("")
     noise = admission.get("noise_exclusion") or {}
     if noise.get("status") == "ok":
         head = noise["head"]
@@ -824,6 +870,30 @@ def render_report(scorecard: dict[str, Any]) -> str:
         )
     else:
         out.append("_no findings._")
+    # Rendered because a metric that did not run is a hole in the reading, and a report that
+    # shows only what WAS computed reads as complete coverage of everything it does not mention.
+    out += [
+        "",
+        "## Not computed",
+        "",
+    ]
+    if scorecard.get("unavailable"):
+        out.append(
+            _table(
+                ["metric", "status", "cause", "reason"],
+                [
+                    [
+                        f"`{row['metric']}`",
+                        row["status"],
+                        f"`{row['cause']}`" if row.get("cause") else "—",
+                        row["reason"],
+                    ]
+                    for row in scorecard["unavailable"]
+                ],
+            )
+        )
+    else:
+        out.append("_every metric produced a number._")
     out.append("")
     return "\n".join(out)
 
@@ -843,4 +913,12 @@ def write_outputs(scorecard: dict[str, Any], out_dir: Any) -> tuple[Any, Any]:
     return json_path, report_path
 
 
-__all__ = ["SCORECARD_SCHEMA", "build_scorecard", "findings", "render_report", "write_outputs"]
+__all__ = [
+    "L0_ABSENT",
+    "SCORECARD_SCHEMA",
+    "build_scorecard",
+    "findings",
+    "render_report",
+    "unavailable_because",
+    "write_outputs",
+]

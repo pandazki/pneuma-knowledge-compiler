@@ -24,6 +24,14 @@ label it did not earn. `full` mode without an answerer or without judge credenti
 The ablation the design keeps in reserve (rag-only vs fused recall) drops straight into this
 shape: run the suite twice with two answerers and diff the accuracy — the difference IS
 canonical's marginal contribution to follow-the-thread.
+
+WHY GROUP B'S JUDGE IS BUILT HERE TOO
+-------------------------------------
+`build_truth_judge` lives beside `build_llm_judge` because "reach a model, refuse without
+credentials, keep the prose in the catalog" is one mechanism, not two (`_judge_chat`). Only the
+question differs — and so does the shape: group F's judge is awaited inside an async suite,
+group B's is called from a pure synchronous metric. The prose differs with the question and
+lives under its own `eval.truth_judge.*` keys.
 """
 
 from __future__ import annotations
@@ -45,6 +53,11 @@ Answerer = Callable[[str, str | None], Awaitable[str]]
 #: `(question, expected, answer) -> (correct, rationale)`. Consulted only after the
 #: mechanical check has already failed.
 Judge = Callable[[str, str, str], Awaitable[tuple[bool, str]]]
+
+#: `(statement, claim) -> (entails, rationale)`. Group B's arm: does this ONE canonical claim
+#: carry this ONE labelled fact? Synchronous, because group B is a pure synchronous function
+#: over artifacts and wrapping it in an event loop would buy nothing but a second call shape.
+TruthJudge = Callable[[str, str], tuple[bool, str]]
 
 #: Containment threshold for the mechanical arm. Lower than the truth-admission threshold on
 #: purpose: an answer legitimately wraps the fact in prose, so the fact only has to be
@@ -278,18 +291,18 @@ def build_http_answerer(
     return answer
 
 
-def build_llm_judge(
+def _judge_chat(
     *,
     model: str | None = None,
     api_key: str | None = None,
     base_url: str | None = None,
-) -> Judge:
-    """An LLM judge for answers the mechanical arm rejected. Full mode only.
+) -> Any:
+    """The credential and model plumbing behind every judge arm in this package.
 
-    The judge's prose lives in the prompt catalog under `eval.qa.*`, like every other
-    model-visible surface in this framework, so a deployment can replace the judging language
-    without forking the evaluator. Missing credentials raise: a judge that cannot be reached
-    must not be reported as a judge that approved nothing.
+    Shared so that the two arms — group F's answer judge and group B's entailment judge —
+    cannot drift into two different notions of "the judge is configured". Missing credentials
+    raise: a judge that cannot be reached must not be reported as a judge that approved
+    nothing.
     """
     key = api_key or os.environ.get("OPENROUTER_API_KEY") or os.environ.get("OPENAI_API_KEY")
     if not key:
@@ -302,12 +315,27 @@ def build_llm_judge(
     except ModuleNotFoundError as exc:  # pragma: no cover - service dependency
         raise EvalDependencyError("the LLM judge arm needs langchain-openai") from exc
 
-    chat = ChatOpenAI(
+    return ChatOpenAI(
         model=model or os.environ.get("EVAL_JUDGE_MODEL") or "openai/gpt-4o-mini",
         api_key=key,
         base_url=base_url or os.environ.get("OPENROUTER_BASE_URL") or None,
         temperature=0,
     )
+
+
+def build_llm_judge(
+    *,
+    model: str | None = None,
+    api_key: str | None = None,
+    base_url: str | None = None,
+) -> Judge:
+    """An LLM judge for answers the mechanical arm rejected. Full mode only.
+
+    The judge's prose lives in the prompt catalog under `eval.qa.*`, like every other
+    model-visible surface in this framework, so a deployment can replace the judging language
+    without forking the evaluator.
+    """
+    chat = _judge_chat(model=model, api_key=api_key, base_url=base_url)
     verdict_yes = prompt("eval.qa.judge_verdict_yes").strip().lower()
 
     async def judge(question: str, expected: str, answer: str) -> tuple[bool, str]:
@@ -332,13 +360,50 @@ def build_llm_judge(
     return judge
 
 
+def build_truth_judge(
+    *,
+    model: str | None = None,
+    api_key: str | None = None,
+    base_url: str | None = None,
+) -> TruthJudge:
+    """Group B's entailment judge: does this claim carry this labelled fact? Full mode only.
+
+    The same plumbing as the answer judge (`_judge_chat`), a different question, and therefore
+    its own prose under `eval.truth_judge.*` rather than a reused `eval.qa.*` key. Group F asks
+    whether an ANSWER to a question carries a statement; group B asks whether a single CANONICAL
+    CLAIM — written for a reader, not for a question — entails one. Renting group F's wording for
+    that would put the word "answer" in front of the model when there is no answer, which is the
+    kind of borrowed prompt that makes a judge's verdicts unreadable after the fact.
+    """
+    chat = _judge_chat(model=model, api_key=api_key, base_url=base_url)
+    verdict_yes = prompt("eval.truth_judge.verdict_yes").strip().lower()
+
+    def judge(statement: str, claim: str) -> tuple[bool, str]:
+        response = chat.invoke(
+            [
+                ("system", prompt("eval.truth_judge.system")),
+                (
+                    "human",
+                    prompt("eval.truth_judge.user", statement=statement, claim=claim),
+                ),
+            ]
+        )
+        text = str(response.content).strip()
+        first = text.splitlines()[0].strip().lower() if text else ""
+        return first.startswith(verdict_yes), text
+
+    return judge
+
+
 __all__ = [
     "ANSWER_THRESHOLD",
     "Answerer",
     "Judge",
     "QaCase",
+    "TruthJudge",
     "build_http_answerer",
     "build_llm_judge",
+    "build_truth_judge",
     "cases_from_truth",
     "qa_metrics",
     "qa_metrics_async",
