@@ -46,9 +46,9 @@ Two images, both from this repo:
 - **Slow, network-dependent boot.** `build_context()` applies the schema, then probes the
   embedding dim with a **real OpenRouter call**, then connects Meili and Qdrant. The pod
   will not serve until all four are reachable — hence a 5-minute `startupProbe` budget.
-- **Embedding dim is load-bearing.** `PNEUMA_KNOWLEDGE_EMBEDDING_MODEL` must stay
-  `openrouter:openai/text-embedding-3-small` (1536) to match the preset bundles'
-  `manifest.json`; a mismatch makes the shared Qdrant collection dim conflict on import.
+- **Embedding dim is load-bearing.** Changing
+  `PNEUMA_KNOWLEDGE_EMBEDDING_MODEL` requires rebuilding the Qdrant collection and all
+  vector projections; mixed dimensions cannot share a collection.
 
 ## Deploy from scratch
 
@@ -89,8 +89,6 @@ kubectl -n pneuma-knowledge create secret generic pneuma-knowledge-secret \
 kubectl apply -k deploy/gke/overlays/test
 kubectl -n pneuma-knowledge rollout status deploy/pneuma-knowledge-app --timeout=10m
 
-# 7. Seed the bundled synthetic preset (keyless — ships its own vectors)
-bash scripts/gke-seed-presets.sh
 ```
 
 ## Verify
@@ -98,7 +96,7 @@ bash scripts/gke-seed-presets.sh
 ```bash
 IP=$(kubectl -n pneuma-knowledge get svc pneuma-knowledge-web -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
 curl -s "http://$IP/healthz"                       # {"status":"ok","version":"0.6.0"}
-curl -s "http://$IP/v1/users"                      # includes u-opc-lin
+curl -s "http://$IP/v1/users"                      # empty until a tenant is created/imported
 curl -s "http://$IP/" | head -5                    # SPA shell
 ```
 
@@ -119,7 +117,8 @@ kubectl -n pneuma-knowledge logs -f deploy/pneuma-knowledge-app -c api
 kubectl -n pneuma-knowledge logs -f deploy/pneuma-knowledge-app -c worker
 
 # Rebuild derived layers (L1/L2/L3) after wiping middleware or changing embedding dim
-kubectl -n pneuma-knowledge exec deploy/pneuma-knowledge-app -c api -- python examples/rebuild_derived.py --all
+kubectl -n pneuma-knowledge exec deploy/pneuma-knowledge-app -c api -- \
+  python -m examples.ops.rebuild_derived --all
 ```
 
 ## Gotchas

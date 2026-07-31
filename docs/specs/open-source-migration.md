@@ -12,7 +12,7 @@ The public repository preserves the complete executable topology:
 - a service package with FastAPI routes, adapters, worker, settings, wiring, datasets, and integration tests;
 - a React/Vite operating UI;
 - PostgreSQL, Qdrant, Meilisearch, per-user Git canonical storage, Docker, and GKE deployment assets;
-- examples, ADRs, observability, upgrade, mock seed, import/export, and rebuild workflows.
+- examples, ADRs, observability, upgrade, mock seed, import, and rebuild workflows.
 
 Generated caches, local environments, runtime data, and unpublished Git history are not architecture and are excluded.
 
@@ -28,8 +28,8 @@ Generated caches, local environments, runtime data, and unpublished Git history 
 | Web package | `pneuma-knowledge-web` |
 | Tenant key | `user_id` / `UserId` |
 | Environment prefix | `PNEUMA_KNOWLEDGE_` |
-| Default strategy family | `opc_developer_v1` → `opc_developer_v3` |
-| Default demo user | `u-opc-lin` |
+| Built-in fallback strategy | `personal_knowledge_v1` → `personal_knowledge_v3` |
+| Complete application example | `examples/opc` |
 
 Public identifiers are canonical. Compatibility aliases for retired or external product vocabulary are forbidden.
 
@@ -43,16 +43,15 @@ Public identifiers are canonical. Compatibility aliases for retired or external 
 - **I-6 Evaluation isolation:** expected answers, rubrics, and scoring evidence never enter compile or recall inputs.
 - **I-7 Synthetic honesty:** bundled personas and journeys are labeled synthetic and never presented as real customer evidence.
 
-## 4. Strategy replacement
+## 4. Strategy separation
 
-The default strategy family models durable knowledge for an OPC AI-Native developer:
+The framework packages ship mechanisms plus a neutral personal-knowledge fallback. The
+fictional AI-Native solo developer strategy, Chinese prompt wording, profile, schema
+matrix, data and evaluation truth live under `examples/opc` and are registered at that
+application's startup boundary.
 
-- identity, working preferences, tools, collaborators, and operating constraints;
-- products, experiments, decisions, commitments, customers/prospects, and risks;
-- evidence-bearing project history with forward-only state evolution;
-- privacy minimization and absolute exclusion of credentials and secrets.
-
-The v1 → v2 → v3 upgrade path remains executable so architecture-level evolve and rebuild behavior is preserved. All bundled persona and journey content is rewritten around a fictional Chinese solo developer.
+The generic v1 → v2 → v3 upgrade path remains executable so architecture-level evolve
+and rebuild behavior is preserved without requiring an application domain.
 
 ## 5. UI replacement
 

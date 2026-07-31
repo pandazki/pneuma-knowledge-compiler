@@ -1,6 +1,6 @@
 # The one non-rebuildable, filesystem-backed layer: one git repo per user under
 # PNEUMA_KNOWLEDGE_CANONICAL_ROOT. Everything else (Qdrant vectors, Meili lexical, L3 projection)
-# is derived and can be rebuilt from PG + these repos via examples/rebuild_derived.py.
+# is derived and can be rebuilt from PG + these repos via examples.ops.rebuild_derived.
 #
 # ReadWriteOnce, which is why the API and worker are colocated in ONE pod — a GCE PD
 # cannot be attached to two nodes at once. Splitting them into separate Deployments would

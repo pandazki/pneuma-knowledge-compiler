@@ -7,7 +7,7 @@ import { defineMessages } from "./define";
  *   - Everything the service composes — display_name, bio, occupation, interests,
  *     level_style, city / country / timezone, industry_other / role_other. That is data;
  *     it renders verbatim in whatever language it was written.
- *   - The bare enum codes shown by the "raw" selects (`zh-CN`, `metric`, `opc`, `agentic`,
+ *   - The bare enum codes shown by the "raw" selects (`zh-CN`, `metric`, `independent`, `agentic`,
  *     …). Those were never translated in the original copy either — they are the wire
  *     values, and the read-only summary quotes them as such.
  *
@@ -82,7 +82,7 @@ export const profile = defineMessages({
     "profile.field.workspaceSince": "启用日期",
 
     "profile.hint.interests": "多个兴趣用逗号分隔",
-    "profile.placeholder.occupation": "AI-Native 独立开发者",
+    "profile.placeholder.occupation": "独立软件开发者",
     "profile.placeholder.bio": "一句话介绍…",
     "profile.placeholder.interests": "开源, 编译器, 徒步",
     "profile.placeholder.industryOther": "自定义行业",
@@ -206,7 +206,7 @@ export const profile = defineMessages({
     "profile.field.workspaceSince": "Active since",
 
     "profile.hint.interests": "Separate interests with commas",
-    "profile.placeholder.occupation": "AI-native indie developer",
+    "profile.placeholder.occupation": "Independent software developer",
     "profile.placeholder.bio": "One sentence about yourself…",
     "profile.placeholder.interests": "open source, compilers, hiking",
     "profile.placeholder.industryOther": "Your own industry",

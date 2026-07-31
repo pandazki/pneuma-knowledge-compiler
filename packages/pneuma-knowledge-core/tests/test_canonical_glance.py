@@ -82,8 +82,8 @@ def test_compile_outline_is_the_shared_renderer_and_its_bytes_are_the_old_ones()
     docs = [
         _people_doc("ada-quill", "Ada Quill", claims=2),
         _doc(
-            "memory/topics/orion-pilot.md",
-            "# Orion pilot\n\n## Scope\n- Fixed price. <!-- c:1a2b3c4d -->\n\n## Risks\n",
+            "memory/topics/delta-pilot.md",
+            "# Delta pilot\n\n## Scope\n- Fixed price. <!-- c:1a2b3c4d -->\n\n## Risks\n",
             type="topic",
         ),
     ]
@@ -92,7 +92,7 @@ def test_compile_outline_is_the_shared_renderer_and_its_bytes_are_the_old_ones()
     # claim count, then the section headings joined.
     assert render_outline(docs) == [
         "- `memory/people/ada-quill.md` (type=person, 2 claim(s)): Role",
-        "- `memory/topics/orion-pilot.md` (type=topic, 1 claim(s)): Scope / Risks",
+        "- `memory/topics/delta-pilot.md` (type=topic, 1 claim(s)): Scope / Risks",
     ]
 
 
@@ -128,7 +128,7 @@ def test_title_prefers_the_first_heading_then_frontmatter_then_the_filename():
     assert document_title(_doc("memory/topics/a.md", "# Real Title\n\n## S\n")) == "Real Title"
     assert document_title(_doc("memory/topics/a.md", "## S\n", title="From FM")) == "From FM"
     # frontmatter always carries a slug in this fixture, which is the next fallback
-    assert document_title(_doc("memory/topics/orion.md", "no headings")) == "orion"
+    assert document_title(_doc("memory/topics/delta.md", "no headings")) == "delta"
 
 
 def test_updated_is_rendered_from_the_callers_map_and_never_invented():
@@ -176,7 +176,7 @@ def test_family_blurbs_come_from_pack_structure_not_from_skill_prose():
         "work/engagements/{slug}.md": "Extra filing slots: engagements"
     }
 
-    docs = [_doc("work/engagements/orion.md", "# Orion\n\n## Scope\n")]
+    docs = [_doc("work/engagements/delta.md", "# Delta\n\n## Scope\n")]
     text = render_canonical_glance(
         docs, _skill(["work/engagements/{slug}.md"]), packs=[pack]
     )

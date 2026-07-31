@@ -1,4 +1,4 @@
-"""End-to-end mechanical evaluation of the shipped preset bundle.
+"""End-to-end mechanical evaluation of a runtime-built preset bundle.
 
 These assertions are deliberately about EXISTENCE, DENOMINATORS and INVARIANTS rather than
 exact values. A golden number would break the moment the preset is regenerated with a better
@@ -131,13 +131,15 @@ def test_cli_writes_both_artifacts_for_the_shipped_preset(tmp_path, preset_bundl
     )
     assert exit_code == 0
     scorecard = json.loads((tmp_path / "out" / "scorecard.json").read_text("utf-8"))
-    assert scorecard["bundle"]["id"] == "u-opc-lin"
+    assert scorecard["bundle"]["id"] == "generic-eval-fixture"
     assert scorecard["mode"] == "mechanical"
     assert (tmp_path / "out" / "report.md").is_file()
     assert "OK: scorecard" in capsys.readouterr().out
 
 
-def test_cli_runs_group_f_against_a_live_answer_url(tmp_path, preset_bundle, corpus_84d, capsys, monkeypatch):
+def test_cli_runs_group_f_against_a_live_answer_url(
+    tmp_path, preset_bundle, labelled_corpus, capsys, monkeypatch
+):
     """The regression this guards: `--mode full --truth ...` had no way to supply an answerer,
     so the six-group mode raised on group F and could never complete. The arms are faked here
     (the point is the wiring, not the network), but everything else is the real path."""
@@ -172,7 +174,7 @@ def test_cli_runs_group_f_against_a_live_answer_url(tmp_path, preset_bundle, cor
             "--preset",
             str(preset_bundle),
             "--truth",
-            str(corpus_84d),
+            str(labelled_corpus),
             "--mode",
             "full",
             "--answer-url",
@@ -189,11 +191,13 @@ def test_cli_runs_group_f_against_a_live_answer_url(tmp_path, preset_bundle, cor
     assert qa["accuracy"] == 0.0  # every answer was "no idea"; nothing is imputed
     assert qa["judge_used"] is True and qa["judge_decided_checks"] > 0
     # the tenant defaults to the evaluated bundle, and the corpus's own as_of labels survive
-    assert {user for user, _ in asked} == {"u-opc-lin"}
+    assert {user for user, _ in asked} == {"generic-eval-fixture"}
     assert '"qa_accuracy": 0.0' in capsys.readouterr().out
 
 
-def test_cli_full_mode_still_refuses_when_no_answerer_is_configured(tmp_path, preset_bundle, corpus_84d, capsys, monkeypatch):
+def test_cli_full_mode_still_refuses_when_no_answerer_is_configured(
+    tmp_path, preset_bundle, labelled_corpus, capsys, monkeypatch
+):
     """Adding a way to supply the arm must not add a way to skip it silently.
 
     The embedding arm and group B's judge arm are stubbed out so the ONE missing arm under test
@@ -212,7 +216,7 @@ def test_cli_full_mode_still_refuses_when_no_answerer_is_configured(tmp_path, pr
             "--preset",
             str(preset_bundle),
             "--truth",
-            str(corpus_84d),
+            str(labelled_corpus),
             "--mode",
             "full",
             "--out",
@@ -224,7 +228,7 @@ def test_cli_full_mode_still_refuses_when_no_answerer_is_configured(tmp_path, pr
 
 
 def test_cli_full_mode_gives_group_b_a_judge_arm_and_reports_both_recalls(
-    tmp_path, preset_bundle, corpus_84d, capsys, monkeypatch
+    tmp_path, preset_bundle, labelled_corpus, capsys, monkeypatch
 ):
     """Full mode must reach group B's judge arm through the same wiring group F uses, and the
     scorecard must carry BOTH recall numbers — the similarity arm keeps its historical meaning,
@@ -254,7 +258,7 @@ def test_cli_full_mode_gives_group_b_a_judge_arm_and_reports_both_recalls(
             "--preset",
             str(preset_bundle),
             "--truth",
-            str(corpus_84d),
+            str(labelled_corpus),
             "--mode",
             "full",
             "--answer-url",
@@ -275,15 +279,15 @@ def test_cli_full_mode_gives_group_b_a_judge_arm_and_reports_both_recalls(
     # the gap between the two IS the reading the arm exists to produce
     assert recall["recall_judged"]["head"] == 1.0
     assert recall["recall_similarity"]["head"] < 1.0
-    # one model call per distinct (fact, claim) pair — the cache absorbs the rest of the rounds
+    # one model call per distinct (fact, claim) pair; repeated pairs are cacheable.
     assert recall["recall_judged"]["judge_calls"] == len(seen) == len(set(seen))
-    assert recall["recall_judged"]["judge_decisions"] > len(seen)
+    assert recall["recall_judged"]["judge_decisions"] >= len(seen)
     out = capsys.readouterr().out
     assert '"recall_judged": 1.0' in out
 
 
 def test_cli_no_judge_opts_both_arms_out_without_pretending_either_ran(
-    tmp_path, preset_bundle, corpus_84d, monkeypatch
+    tmp_path, preset_bundle, labelled_corpus, monkeypatch
 ):
     """`--no-judge` is an explicit opt-out, so it must read as one: group B reports
     `recall_judged` unavailable with its reason rather than echoing the similarity number."""
@@ -301,7 +305,7 @@ def test_cli_no_judge_opts_both_arms_out_without_pretending_either_ran(
             "--preset",
             str(preset_bundle),
             "--truth",
-            str(corpus_84d),
+            str(labelled_corpus),
             "--mode",
             "full",
             "--answer-url",
@@ -428,7 +432,9 @@ def test_cli_refuses_pg_dumps_alongside_a_preset(tmp_path, preset_bundle, capsys
     assert "--pg-dumps applies to --git-repo" in capsys.readouterr().err
 
 
-def test_cli_refuses_a_truth_set_from_another_corpus(tmp_path, preset_bundle, corpus_84d, capsys):
+def test_cli_refuses_a_truth_set_from_another_corpus(
+    tmp_path, preset_bundle, labelled_corpus, capsys
+):
     """Binding one corpus's labels to another corpus's canonical would score near zero and read
     as a quality finding. The guard makes the mismatch a loud input error instead."""
     exit_code = main(
@@ -437,7 +443,7 @@ def test_cli_refuses_a_truth_set_from_another_corpus(tmp_path, preset_bundle, co
             "--preset",
             str(preset_bundle),
             "--truth",
-            str(corpus_84d),
+            str(labelled_corpus),
             "--require-corpus",
             "some-other-corpus",
             "--out",

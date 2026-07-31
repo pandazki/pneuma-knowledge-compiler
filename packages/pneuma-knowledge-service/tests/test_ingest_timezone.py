@@ -50,7 +50,7 @@ def _profile(zone: str) -> UserProfile:
         occupation="engineer",
         bio="b",
         workspace={
-            "operating_mode": "opc",
+            "operating_mode": "independent",
             "primary_stack": "Python",
             "automation_level": "agentic",
             "active_since": "2024-05-01",

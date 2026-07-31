@@ -8,13 +8,14 @@ node_modules/
 *.tsbuildinfo
 .env
 .DS_Store
-# Root canonical git repos (per-user, large, rebuildable) — anchored so it does NOT
-# also swallow examples/data/preset/ (the shippable preset bundle).
+# Root canonical git repos (per-user, large and rebuildable).
 /data/
 
 # Seed-bench raw run outputs — kept locally, not shipped (only the curated
 # examples/seed-bench/README.md is tracked). Other experiment data stays local too.
 examples/seed-bench/runs/
+examples/opc/.env
+examples/opc/var/
 
 # Pneuma workspace (project config + session state) — local, not part of the codebase.
 .pneuma/

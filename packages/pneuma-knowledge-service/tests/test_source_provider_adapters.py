@@ -28,7 +28,7 @@ def test_canonical_json_mock_adapter_validates_official_contract():
         "meeting_id": "m1",
         "title": "演示会议",
         "started_at": "2026-07-28T09:00:00+08:00",
-        "participants": [{"participant_id": "p1", "display_name": "林知远"}],
+        "participants": [{"participant_id": "p1", "display_name": "测试用户"}],
         "owner_participant_ids": ["p1"],
         "segments": [
             {
@@ -51,7 +51,7 @@ def test_zoom_vtt_adapter_maps_speakers_and_offsets():
         "duration": 30,
         "timezone": "Asia/Shanghai",
         "participants": [
-            {"id": "p1", "name": "林知远", "email": "lin@example.dev"},
+            {"id": "p1", "name": "测试用户", "email": "owner@example.test"},
             {"id": "p2", "name": "陈澄", "email": "client@example.com"},
         ],
     }
@@ -59,14 +59,14 @@ def test_zoom_vtt_adapter_maps_speakers_and_offsets():
 
 1
 00:00:01.000 --> 00:00:04.000
-林知远: 我周四发方案。
+测试用户: 我周四发方案。
 
 2
 00:00:05.000 --> 00:00:07.000
 陈澄: 收到。
 """
     source = ZoomVttAdapter().load(
-        metadata, vtt, owner_emails={"lin@example.dev"}
+        metadata, vtt, owner_emails={"owner@example.test"}
     )
     assert isinstance(source, MeetingSource)
     assert source.provider == "zoom"
@@ -124,7 +124,7 @@ def test_slack_export_adapter_reads_channel_history(tmp_path: Path):
                 {
                     "id": "U1",
                     "name": "lin",
-                    "real_name": "林知远",
+                    "real_name": "测试用户",
                     "profile": {"email": "lin@example.dev"},
                 },
                 {

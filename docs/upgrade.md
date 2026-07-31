@@ -58,9 +58,9 @@ RRF 参数、cap、去重键、claim 层与 chunk 层的隔离策略等纯 deriv
 
 - `pneuma_knowledge_core/skill/version.py` —— `SkillVersion`（immutable）+ `load_builtin_skill(version="v1"|"v2")`；`_CONTRACT_RULES` 按版本注入附加契约规则。
 - `pneuma_knowledge_core/skill/contract.py` —— `render_system_contract`：写机制 + 本版本 contract_rules + skill instructions，逐字节稳定。
-- `pneuma_knowledge_core/skill/assets/opc_developer_v{1,2}.md` —— 两个真实版本的领域指导。
+- `pneuma_knowledge_core/skill/assets/personal_knowledge_v{1,2}.md` —— 两个通用默认版本。
 - `pneuma_knowledge_core/recall/projection.py` —— `ProjectionStrategy` / `PROJECTION_V1` / `PROJECTION_V2`；`project_snapshot_claims(docs, strategy)`。
 - `pneuma_knowledge_service/projection.py` —— `rebuild_projection(ctx, user, snapshot_ref=None, *, strategy=…)`：derived 全量重建入口。
 - `pneuma_knowledge_core/compile/runner.py` —— `_with_skill_trailer`：把 `Skill-Version` 盖进 commit trailer。
 - `pneuma_knowledge_service/adapters/git_canonical.py` —— `commit_trailer`：用 git 自带 trailer 解析读回。
-- `examples/upgrade_e2e.py` —— 路径 A + 路径 B 串起来的可运行证据。
+- `examples/walkthroughs/upgrade_e2e.py` —— 路径 A + 路径 B 串起来的可运行证据。

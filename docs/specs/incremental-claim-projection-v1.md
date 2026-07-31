@@ -1,6 +1,6 @@
 # Incremental claim projection v1
 
-Status: accepted for the OPC 84-day scale experiment
+Status: accepted after a 12-week longitudinal scale exercise
 
 ## 1. Problem
 

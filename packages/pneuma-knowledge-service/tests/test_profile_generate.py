@@ -19,7 +19,7 @@ from fastapi import FastAPI
 
 def _draft(**over) -> ProfileDraft:
     base = dict(
-        display_name="林知远 Lin Zhiyuan",
+        display_name="测试用户 Test User",
         gender="male",
         birth_year=1992,
         industry="tech",
@@ -40,12 +40,12 @@ def _draft(**over) -> ProfileDraft:
             "privacy_level": "standard",
         },
         workspace={
-            "operating_mode": "opc",
+            "operating_mode": "independent",
             "primary_stack": "TypeScript + Python",
             "automation_level": "agentic",
             "active_since": "2024-05-01",
         },
-        user_id="u-opc-lin",
+        user_id="u-profile-test",
     )
     base.update(over)
     return ProfileDraft(**base)
@@ -95,11 +95,11 @@ async def test_generate_overlays_draft_onto_valid_profile():
 
     # Provenance + semantic overlay from the draft.
     assert body["source"] == "ai"
-    assert body["display_name"] == "林知远 Lin Zhiyuan"
+    assert body["display_name"] == "测试用户 Test User"
     assert body["occupation"] == "AI 产品独立开发者"
     assert body["locale"]["timezone"] == "Asia/Shanghai"
     assert body["preferences"]["units"] == "metric"
-    assert body["workspace"]["operating_mode"] == "opc"
+    assert body["workspace"]["operating_mode"] == "independent"
     assert body["workspace"]["automation_level"] == "agentic"
     assert body["interests"] == ["开源", "智能体", "产品实验"]
 
@@ -110,14 +110,14 @@ async def test_generate_overlays_draft_onto_valid_profile():
     assert body["level_style"]
 
     # avatar.initial recomputed from the draft name; color kept from the mock base.
-    assert body["avatar"]["initial"] == "林"
+    assert body["avatar"]["initial"] == "测"
     assert body["avatar"]["color"].startswith("#")
 
     # Non-semantic scaffolding supplied by the deterministic base.
     assert body["joined_at"]
 
     # No explicit id → the draft's suggested slug is honored.
-    assert body["user_id"] == "u-opc-lin"
+    assert body["user_id"] == "u-profile-test"
 
 
 async def test_explicit_id_wins_over_draft_slug():
@@ -140,6 +140,6 @@ async def test_invalid_draft_slug_falls_back_to_random_id():
 
 
 async def test_avatar_initial_tracks_display_name():
-    client = _client(_app(_draft(display_name="林知远 Lin Zhiyuan")))
+    client = _client(_app(_draft(display_name="测试用户 Test User")))
     resp = await client.post("/v1/profile/generate", json={"sentence": "SF backend eng"})
-    assert resp.json()["avatar"]["initial"] == "林"
+    assert resp.json()["avatar"]["initial"] == "测"

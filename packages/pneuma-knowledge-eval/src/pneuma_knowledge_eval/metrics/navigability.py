@@ -55,7 +55,7 @@ from ..artifacts import Checkpoint, Trajectory, family_of
 from .common import L0_ABSENT, log_log_slope, rate, shannon_entropy, unavailable
 
 #: A slug carrying a date or a bare year — the fragmentation tell. A subject that gets
-#: `orion-pilot-2026-07-24.md` instead of growing `orion-pilot.md` has been sliced by time,
+#: `project-pilot-2026-07-24.md` instead of growing `project-pilot.md` has been sliced by time,
 #: which is precisely what makes follow-the-thread stop working.
 _DATED_SLUG_RE = re.compile(r"(?:^|-)(?:19|20)\d{2}(?:-\d{1,2})?(?:-\d{1,2})?(?:$|-)")
 

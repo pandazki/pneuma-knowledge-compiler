@@ -5,7 +5,7 @@ from pneuma_knowledge_core.skill import SkillVersion, load_builtin_skill, render
 
 def test_load_builtin_skill_is_immutable_with_hash():
     skill = load_builtin_skill()
-    assert skill.skill_id == "opc-developer-knowledge"
+    assert skill.skill_id == "personal-knowledge"
     assert skill.version == "v1"
     assert skill.instructions.strip()
     assert skill.path_templates == [
@@ -44,8 +44,8 @@ def test_contract_contains_mechanics_and_no_volatile_content():
     # Path ownership templates present.
     assert "memory/people/{slug}.md" in contract
     # Skill instructions folded in.
-    assert "long-term, traceable personal memory" in contract
-    assert "one-person company" in contract
+    assert "long-term, traceable knowledge" in contract
+    assert "one-person company" not in contract
     assert "experiment" in contract and "product" in contract
     # I5: no timestamp/ISO date leaked into the byte-stable contract.
     assert "2026-" not in contract

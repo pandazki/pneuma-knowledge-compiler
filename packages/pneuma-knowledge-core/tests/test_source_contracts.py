@@ -25,7 +25,7 @@ def _meeting() -> dict:
         "timezone": "Asia/Shanghai",
         "owner_participant_ids": ["u-owner"],
         "participants": [
-            {"participant_id": "u-owner", "display_name": "林知远"},
+            {"participant_id": "u-owner", "display_name": "测试用户"},
             {"participant_id": "u-client", "display_name": "陈澄"},
         ],
         "agenda": ["确认试点范围"],
@@ -72,7 +72,7 @@ def _im() -> dict:
         "archive_id": "slack-1",
         "owner_user_ids": ["U1"],
         "users": [
-            {"user_id": "U1", "display_name": "林知远"},
+            {"user_id": "U1", "display_name": "测试用户"},
             {"user_id": "U2", "display_name": "陈澄"},
         ],
         "conversations": [
@@ -117,7 +117,12 @@ def _email() -> dict:
                             "address": "client@example.com",
                             "display_name": "陈澄",
                         },
-                        "to": [{"address": "lin@example.dev", "display_name": "林知远"}],
+                        "to": [
+                            {
+                                "address": "owner@example.test",
+                                "display_name": "测试用户",
+                            }
+                        ],
                         "cc": [],
                         "subject": "Re: Acme 试点范围",
                         "text": "确认先做三个项目组。",

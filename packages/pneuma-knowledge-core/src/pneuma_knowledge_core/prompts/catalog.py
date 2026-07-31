@@ -539,8 +539,8 @@ Rules:
 - Give 3-5 interests.
 - Use a `u-` prefix plus a short latin-script slug for user_id (letters, digits and hyphens
   only).
-- workspace describes how they work: a one-person company uses operating_mode=opc; heavy use
-  of autonomous agents means automation_level=agentic.
+- workspace describes how they work; use a concise deployment-neutral operating_mode and
+  reserve automation_level=agentic for explicit autonomous-agent usage.
 - Use IANA names for timezone, BCP-47 tags for language / response_language, and an ISO date
   for workspace.active_since.
 """

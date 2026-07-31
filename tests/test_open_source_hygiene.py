@@ -173,7 +173,7 @@ def test_private_brand_language_is_absent_from_paths_and_text() -> None:
 
 
 def test_legacy_enterprise_demo_is_absent_from_public_product_assets() -> None:
-    """The public defaults must stay OPC-shaped, even when no private brand is named."""
+    """Public defaults stay free of the separated enterprise demo."""
     pattern = _legacy_demo_pattern()
     roots = [
         ROOT / "apps" / "web" / "public",

@@ -2,8 +2,9 @@
 
 Covers: compose determinism (order-independent, byte-stable), the additive template
 assertion (raise, not warn), empty/no-pack continuity (base contract bytes unchanged),
-matrix table lookup from a fixture JSON (+ absent-file tolerance), and the conservative
-derive inference (over-budget / garbage / empty → None; valid → a capped pack)."""
+matrix table lookup from a fixture JSON (explicit configuration fails loud), and the
+conservative derive inference (over-budget / garbage / empty → None; valid → a capped
+pack)."""
 
 from __future__ import annotations
 
@@ -47,7 +48,7 @@ def _profile(source: str = "user", **over) -> UserProfile:
         bio="我在做支付系统。",
         interests=["跑步", "开源"],
         workspace=WorkspaceProfile(
-            operating_mode="opc",
+            operating_mode="independent",
             primary_stack="Python + TypeScript",
             automation_level="agentic",
             active_since="2024-05-01",
@@ -166,8 +167,17 @@ def test_matrix_lookup_role_and_industry(tmp_path):
     assert matrix_packs("tech", "design", matrix_path=mp) == []
 
 
-def test_matrix_absent_file_is_empty(tmp_path):
-    assert matrix_packs("tech", "engineering", matrix_path=str(tmp_path / "nope.json")) == []
+def test_explicit_matrix_path_must_exist(tmp_path):
+    with pytest.raises(FileNotFoundError, match="schema pack matrix"):
+        matrix_packs("tech", "engineering", matrix_path=str(tmp_path / "nope.json"))
+
+
+def test_explicit_matrix_must_be_valid_json(tmp_path):
+    path = tmp_path / "broken.json"
+    path.write_text("{", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="invalid schema pack matrix"):
+        matrix_packs("tech", "engineering", matrix_path=path)
 
 
 # --------------------------------------------------------------------- derive

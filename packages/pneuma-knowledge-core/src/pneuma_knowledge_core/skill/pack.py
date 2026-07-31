@@ -12,8 +12,9 @@ schema extensions layered onto a built-in base skill:
   per-user contract stays byte-stable per (base, pack-set) and earns the provider cache.
 
 Two pack sources, both conservative (schema-evolve §1.2):
-- `matrix_packs` — pure table lookup over the curated `industry × role` matrix asset. No
-  LLM. Most combinations share a few packs; an empty result is legal (e.g. other×other).
+- `matrix_packs` — pure table lookup over a deployment-owned `industry × role` matrix. The
+  packaged matrix is intentionally empty: examples and deployments opt into their own
+  business vocabulary. No LLM; an empty result is always legal.
 - `derive_pack` — a ONE-shot LLM inference over occupation/bio/interests, constrained to
   0–3 templates each with a one-line reason; the empty inference → no pack. `level` never
   compiles (it is a recall answer-style knob), and a `source == "mock"` synthetic picture
@@ -183,20 +184,31 @@ def _default_matrix_path() -> Path:
 
 
 def _load_matrix(matrix_path: str | Path | None) -> list[dict]:
-    """The curated `packs` list, or [] when the asset is absent/unreadable.
+    """Load the deployment-owned ``packs`` list.
 
-    The matrix asset is written by a parallel workstream; until it lands (or if it is ever
-    malformed) an empty matrix is a legal, silent fallback — the owner simply gets the
-    base skill."""
-    path = Path(matrix_path) if matrix_path is not None else _default_matrix_path()
+    The built-in asset is intentionally empty. Examples and deployments may pass a matrix
+    path to opt into domain-specific filing slots without coupling them to the core package.
+    An absent packaged default degrades to the base skill; an explicitly configured path is
+    part of the deployment contract and therefore fails loud when missing or malformed."""
+    explicit = matrix_path is not None
+    path = Path(matrix_path) if explicit else _default_matrix_path()
     if not path.is_file():
+        if explicit:
+            raise FileNotFoundError(f"schema pack matrix not found: {path}")
         return []
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
+    except (json.JSONDecodeError, OSError) as exc:
+        if explicit:
+            raise ValueError(f"invalid schema pack matrix {path}: {exc}") from exc
         return []
-    packs = data.get("packs", []) if isinstance(data, Mapping) else []
-    return packs if isinstance(packs, list) else []
+    if not isinstance(data, Mapping) or not isinstance(data.get("packs", []), list):
+        if explicit:
+            raise ValueError(
+                f"invalid schema pack matrix {path}: expected an object with a packs list"
+            )
+        return []
+    return data.get("packs", [])
 
 
 def matrix_packs(

@@ -83,7 +83,7 @@ canonical path 和 patch/ref。没有编译数据时显示真实空态，不生�
 | **编译作业** | job、patch、lineage、token、来源、escalation 与 journal 回放。 |
 | **关系换乘** | 基于 `@xyflow/react` + dagre 的 n 度子图，按需 code split。 |
 | **连续问答** | 先冻结证据包，再进行带 citation 的 briefing 多轮问答。 |
-| **工作画像** | OPC 工作语境、回答层级、语言与隐私偏好。 |
+| **工作画像** | 当前租户的工作语境、回答层级、语言与隐私偏好。 |
 | **策略演化** | 审阅可比较、可回滚的策略结构建议。 |
 
 视图间 document、graph node、patch、snapshot、claim 与 source 的跳转使用稳定 ID 契约。

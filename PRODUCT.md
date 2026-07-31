@@ -8,7 +8,9 @@ web
 
 ## Users
 
-主要用户是以“一人公司（OPC）”方式工作的 AI-Native 个人开发者。他们同时承担产品、工程、研究与经营工作，需要把持续产生的对话、文档、决策、实验和项目材料沉淀为可追溯、可演化的个人知识。
+主要用户是需要把持续产生的会议、文档、决策、实验和项目材料沉淀为可追溯、
+可演化知识的个人、团队与 AI 应用开发者。具体行业、人设与工作方式由部署或示例注入，
+不是框架默认。
 
 ## Product Purpose
 
@@ -31,8 +33,8 @@ Pneuma Knowledge Compiler 是一个业务无关的开源个人知识编译器。
 
 - 保留源架构的入库、分块、compile、L0–L3 访问、rag/fast/deep recall、briefing、suggestion、evolve、数据集导入导出、可观测性和部署能力。
 - 所有状态以 `user_id` 为第一隔离维度；canonical 与 derived 必须在类型和存储语义上分离。
-- 默认领域策略服务于 OPC AI-Native 个人开发者，不包含任何特定硬件、消费设备、应用或商业品牌策略。
-- 默认中文人设和模拟数据用于可复现演示，必须明确标注为 synthetic，不构成真实客户、性能或商业证明。
+- 内置策略是业务无关的最小 fallback；领域策略、schema pack、prompt overlay 与人设由应用显式注册。
+- 框架不内置默认业务人设或故事数据；示例合成数据必须明确标注为 synthetic，不构成真实客户、性能或商业证明。
 - 公共包、Python module、环境变量、API、部署资源和 UI 统一使用 Pneuma Knowledge Compiler 命名。
 - 开源版本不承诺托管服务、价格、客户或尚未实现的集成。
 
@@ -40,12 +42,12 @@ Pneuma Knowledge Compiler 是一个业务无关的开源个人知识编译器。
 
 - 产品名为 **Pneuma Knowledge Compiler**，仓库名为 `pneuma-knowledge-compiler`。
 - 视觉与语言属于 Pneuma 开源家族，并以本地 `pneuma-skills` 与 `pneuma-framework` 项目作为已确认的家族证据。
-- 产品语气直接、清晰、工程化，默认中文演示内容；不保留上游私有业务的品牌、硬件或应用标记。
+- 产品语气直接、清晰、工程化；不保留上游私有业务的品牌、硬件或应用标记。
 - Web 工作台同时提供日间与夜间模式：日间是瓷白城市导视图，夜间是午夜珐琅控制室；两种模式共享线路、站点与状态语义，但分别调校表面、阴影和对比度，不以简单反色替代主题设计。
 
 ## Evidence on Hand
 
-- 架构契约、公开测试、合成 OPC 数据与端到端报告是本仓库唯一的事实来源。
+- 架构契约与公开测试是框架的事实来源；应用示例的数据与端到端报告只证明该示例。
 - Pneuma 家族证据来自
   [`pneuma-skills`](https://github.com/pandazki/pneuma-skills) 与
   [`pneuma-framework`](https://github.com/pandazki/pneuma-framework)。

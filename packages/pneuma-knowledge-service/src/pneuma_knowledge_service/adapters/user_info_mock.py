@@ -1,8 +1,8 @@
-"""Keyless UserInfoProvider for the public OPC project.
+"""Keyless, business-neutral UserInfoProvider fallback.
 
-The one named persona is the repository's fictional Chinese solo developer. Any
-other id receives a deterministic OPC-shaped profile derived only from its hash,
-so tests and first-run flows stay stable without unrelated built-in profiles.
+Every id receives a deterministic generic profile derived only from its hash. Product
+examples persist their own profiles before ingestion; the framework adapter therefore
+does not own a named persona, customer, occupation strategy or example storyline.
 """
 
 from __future__ import annotations
@@ -45,110 +45,10 @@ def _color_for(user_id: str) -> str:
     return _PALETTE[_digest("color", user_id) % len(_PALETTE)]
 
 
-# --------------------------------------------------------------------- named personas
-
-
-def _persona(
-    user_id: str,
-    *,
-    display_name: str,
-    initial: str,
-    gender: str | None,
-    birth_year: int,
-    city: str,
-    country: str,
-    timezone: str,
-    language: str,
-    industry: str,
-    role: str,
-    level: str,
-    occupation: str,
-    bio: str,
-    interests: list[str],
-    primary_stack: str,
-    automation_level: str,
-    active_since: str,
-    units: str,
-    privacy_level: str,
-    joined_at: str,
-) -> UserProfile:
-    return UserProfile(
-        user_id=UserId(user_id),
-        display_name=display_name,
-        avatar=Avatar(initial=initial, color=_color_for(user_id)),
-        gender=gender,
-        birth_year=birth_year,
-        locale=Locale(city=city, country=country, timezone=timezone, language=language),
-        industry=industry,
-        role=role,
-        level=level,
-        occupation=occupation,
-        bio=bio,
-        interests=interests,
-        workspace=WorkspaceProfile(
-            operating_mode=(
-                "opc"
-                if role in {"engineering", "product_management", "design", "marketing"}
-                else "independent"
-            ),
-            primary_stack=primary_stack,
-            automation_level=automation_level,
-            active_since=active_since,
-        ),
-        preferences=Preferences(
-            response_language=language, units=units, privacy_level=privacy_level
-        ),
-        joined_at=joined_at,
-        source="mock",
-    )
-
-
-def _build_personas() -> dict[str, UserProfile]:
-    return {
-        # Default synthetic protagonist: an AI-native one-person-company developer.
-        "u-opc-lin": _persona(
-            "u-opc-lin",
-            display_name="Ada Lindqvist",
-            initial="A",
-            gender="female",
-            birth_year=1992,
-            city="Lisbon",
-            country="Portugal",
-            timezone="Europe/Lisbon",
-            language="en-GB",
-            industry="tech",
-            role="engineering",
-            level="senior",
-            occupation="independent AI product developer",
-            bio=(
-                "I build AI products as a one-person company, using several agents to cover "
-                "research, engineering, content and operations; I care about reproducible "
-                "experiments, open-source feedback and cash-flow discipline."
-            ),
-            interests=[
-                "open source",
-                "agents",
-                "product experiments",
-                "developer tools",
-                "long-distance running",
-            ],
-            primary_stack="TypeScript + Python",
-            automation_level="agentic",
-            active_since="2024-03-12",
-            units="metric",
-            privacy_level="standard",
-            joined_at="2024-03-10",
-        ),
-    }
-
-
-_PERSONAS: dict[str, UserProfile] = _build_personas()
-
-
 # --------------------------------------------------------- deterministic synthesis pools
 
-# The public fallback deliberately stays inside the same fictional one-person-company world
-# as the named demo. Names are invented and selected deterministically from the user id.
+# Names are invented and selected deterministically from the user id. The surrounding
+# profile stays deliberately generic; example applications replace it with persisted data.
 _BUCKETS = [
     {
         "language": "en-GB",
@@ -168,7 +68,7 @@ _BUCKETS = [
             ("Valencia", "Spain", "Europe/Madrid"),
             ("Wellington", "New Zealand", "Pacific/Auckland"),
         ],
-        "occupations": ["AI-native independent developer"],
+        "occupations": ["independent software developer"],
         "interests": [
             "open source",
             "agents",
@@ -233,14 +133,14 @@ def _synthesize(user_id: str) -> UserProfile:
         level=_pick(list(LEVELS), "level", user_id),
         occupation=occupation,
         bio=(
-            "I build AI products as a one-person company, using agents to cover research, "
-            "engineering and operations."
+            "I use this workspace to organize technical projects, decisions and "
+            "collaboration notes."
         ),
         interests=interests,
         workspace=WorkspaceProfile(
-            operating_mode="opc",
+            operating_mode="independent",
             primary_stack=_pick(_PRIMARY_STACKS, "stack", user_id),
-            automation_level="agentic",
+            automation_level="assisted",
             active_since=active_at,
         ),
         preferences=Preferences(
@@ -254,10 +154,10 @@ def _synthesize(user_id: str) -> UserProfile:
 
 
 class MockUserInfoProvider:
-    """One named OPC persona plus deterministic OPC synthesis for every other id."""
+    """Injected test personas plus deterministic generic synthesis for other ids."""
 
     def __init__(self, personas: dict[str, UserProfile] | None = None) -> None:
-        self._personas = _PERSONAS if personas is None else dict(personas)
+        self._personas = {} if personas is None else dict(personas)
 
     async def get_profile(self, user_id: UserId) -> UserProfile:
         # async to satisfy the port; the body is pure in-memory lookup + hash synthesis,

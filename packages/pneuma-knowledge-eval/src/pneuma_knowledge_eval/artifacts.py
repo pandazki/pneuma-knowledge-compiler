@@ -572,7 +572,7 @@ def load_repo_trajectory(
 
 
 def load_preset_trajectory(bundle: Path | str) -> Trajectory:
-    """Load a shipped preset bundle (`examples/data/preset/<friendly>`) into a Trajectory.
+    """Load an exported preset bundle into a Trajectory.
 
     Pure file work: the canonical tar is extracted to a temporary directory, walked, and
     discarded; the `pg/*.json.gz` dumps are read straight off disk. No middleware, no

@@ -1,6 +1,6 @@
 """SkillVersion: an immutable vertical-skill asset.
 
-The built-in OPC developer strategy is an immutable, versioned asset. A SkillVersion is
+The built-in personal-knowledge strategy is an immutable, versioned fallback. A SkillVersion is
 instructions + path templates + contract rules; the content hash is system-computed for
 identity/versioning.
 
@@ -20,9 +20,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 _ASSETS = Path(__file__).resolve().parent / "assets"
 
-# Canonical path layout for the built-in OPC developer strategy. The path ownership is
+# Canonical path layout for the built-in personal-knowledge strategy. Path ownership is
 # stable across versions so an upgrade never orphans earlier anchors.
-_OPC_DEVELOPER_TEMPLATES = [
+_PERSONAL_KNOWLEDGE_TEMPLATES = [
     "memory/profile.md",
     "memory/people/{slug}.md",
     "work/products/{slug}.md",
@@ -32,7 +32,7 @@ _OPC_DEVELOPER_TEMPLATES = [
     "materials/{slug}.md",
 ]
 
-_SKILL_ID = "opc-developer-knowledge"
+_SKILL_ID = "personal-knowledge"
 
 # Per-version extra write-contract clauses folded into render_system_contract. These are
 # mechanism refinements (a controlled vocabulary, a presentation convention), not
@@ -134,12 +134,12 @@ def reset_skill_bases() -> None:
 def load_builtin_skill(version: str = "v1") -> SkillVersion:
     """Load a skill base: a business-registered one if present, else the packaged asset.
 
-    `version` selects the asset (`opc_developer_<version>.md`). Versions coexist so
+    `version` selects the asset (`personal_knowledge_<version>.md`). Versions coexist so
     forward-only upgrades can rebuild derived data without rewriting canonical history."""
     registered = _REGISTERED_BASES.get(version)
     if registered is not None:
         return registered
-    asset = _ASSETS / f"opc_developer_{version}.md"
+    asset = _ASSETS / f"personal_knowledge_{version}.md"
     if not asset.is_file():
         raise ValueError(f"unknown built-in skill version: {version!r}")
     instructions = asset.read_text(encoding="utf-8")
@@ -148,9 +148,9 @@ def load_builtin_skill(version: str = "v1") -> SkillVersion:
         skill_id=_SKILL_ID,
         version=version,
         instructions=instructions,
-        path_templates=list(_OPC_DEVELOPER_TEMPLATES),
+        path_templates=list(_PERSONAL_KNOWLEDGE_TEMPLATES),
         contract_rules=rules,
         content_hash=SkillVersion.compute_hash(
-            _SKILL_ID, version, instructions, _OPC_DEVELOPER_TEMPLATES, rules
+            _SKILL_ID, version, instructions, _PERSONAL_KNOWLEDGE_TEMPLATES, rules
         ),
     )

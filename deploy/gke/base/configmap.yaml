@@ -22,8 +22,8 @@ data:
   PNEUMA_KNOWLEDGE_LLM_MODEL_DEEP: "openrouter:openai/gpt-4o-mini"
   PNEUMA_KNOWLEDGE_LLM_MODEL_SKILL: "openrouter:openai/gpt-4o-mini"
 
-  # 1536-dim. MUST stay aligned with the preset bundles' manifest.json vector_dim —
-  # a mismatch makes the shared Qdrant collection dim conflict on import.
+  # Vector dimensions are collection-wide. Changing this model requires rebuilding
+  # the Qdrant collection and all derived vector projections.
   PNEUMA_KNOWLEDGE_EMBEDDING_MODEL: "openrouter:openai/text-embedding-3-small"
   PNEUMA_KNOWLEDGE_CHUNK_STRATEGY: "semantic"
 

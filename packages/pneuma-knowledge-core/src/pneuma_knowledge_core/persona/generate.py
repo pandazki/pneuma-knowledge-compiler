@@ -50,7 +50,7 @@ class DraftPreferences(BaseModel):
 
 
 class DraftWorkspace(BaseModel):
-    operating_mode: Literal["opc", "independent", "team"]
+    operating_mode: Literal["independent", "team", "organization"]
     primary_stack: str
     automation_level: Literal["manual", "assisted", "agentic"]
     active_since: str  # ISO date, e.g. "2024-05-01"
@@ -77,7 +77,7 @@ class ProfileDraft(BaseModel):
     locale: DraftLocale
     preferences: DraftPreferences
     workspace: DraftWorkspace
-    # A URL/filesystem-safe slug derived from the persona, e.g. "u-opc-lin".
+    # A URL/filesystem-safe slug derived from the persona, e.g. "u-ada-lin".
     user_id: str
 
 

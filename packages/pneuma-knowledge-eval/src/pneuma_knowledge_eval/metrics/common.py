@@ -1,8 +1,7 @@
 """Shared primitives for the metric groups: rates, matching, near-duplicate blocking.
 
-Text normalization and similarity are IMPORTED from the existing evaluator
-(`experiments.opc_84d_evaluation`) rather than re-defined, so "these two claims are the
-same statement" means one thing across the whole repository.
+Text normalization and similarity come from the package's business-neutral matching
+module, so "these two claims are the same statement" means one thing everywhere.
 """
 
 from __future__ import annotations
@@ -11,7 +10,7 @@ import math
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Any
 
-from pneuma_knowledge_service.experiments.opc_84d_evaluation import (
+from ..matching import (
     char_similarity,
     normalize_text,
 )

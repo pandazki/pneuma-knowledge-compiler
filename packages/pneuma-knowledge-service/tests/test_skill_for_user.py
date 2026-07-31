@@ -31,7 +31,7 @@ def _profile(uid: str, *, source="user", role="engineering", occupation="后端�
         bio="bio",
         interests=["x"],
         workspace=WorkspaceProfile(
-            operating_mode="opc",
+            operating_mode="independent",
             primary_stack="Python + TypeScript",
             automation_level="agentic",
             active_since="2024-05-01",

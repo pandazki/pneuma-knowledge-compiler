@@ -12,7 +12,7 @@ NOW = datetime(2026, 7, 28, 8, 0, tzinfo=timezone.utc)
 
 def _normalize(payload):
     return normalize_source_contract(
-        parse_source_contract(payload), UserId("opc-lin"), imported_at=NOW
+        parse_source_contract(payload), UserId("test-user"), imported_at=NOW
     )
 
 
@@ -28,7 +28,7 @@ def test_meeting_normalizes_one_block_per_segment_with_declared_owner():
             "timezone": "Asia/Shanghai",
             "owner_participant_ids": ["p1"],
             "participants": [
-                {"participant_id": "p1", "display_name": "林知远"},
+                {"participant_id": "p1", "display_name": "测试用户"},
                 {"participant_id": "p2", "display_name": "陈澄"},
             ],
             "segments": [
@@ -52,7 +52,7 @@ def test_meeting_normalizes_one_block_per_segment_with_declared_owner():
     assert source.raw.kind == "meeting"
     assert source.raw.origin == "mock"
     assert [b.text for b in source.blocks] == [
-        "Owner (林知远): 我周四发方案。",
+        "Owner (测试用户): 我周四发方案。",
         "陈澄: 收到。",
     ]
     assert source.raw.meta["meeting_id"] == "m1"
@@ -126,7 +126,7 @@ def test_im_expands_by_conversation_and_preserves_message_ids():
             "archive_id": "a1",
             "owner_user_ids": ["U1"],
             "users": [
-                {"user_id": "U1", "display_name": "林知远"},
+                {"user_id": "U1", "display_name": "测试用户"},
                 {"user_id": "U2", "display_name": "陈澄"},
             ],
             "conversations": [
@@ -154,7 +154,7 @@ def test_im_expands_by_conversation_and_preserves_message_ids():
     assert result[0].raw.meta["users"] == [
         {
             "user_id": "U1",
-            "display_name": "林知远",
+            "display_name": "测试用户",
             "email": None,
             "is_bot": False,
         },
@@ -183,7 +183,7 @@ def test_email_expands_by_thread_and_marks_owner_side_without_inference():
             "schema": "pneuma.source.email/v1",
             "provider": "mock",
             "archive_id": "mail-1",
-            "owner_addresses": ["lin@example.dev"],
+            "owner_addresses": ["owner@example.test"],
             "threads": [
                 {
                     "thread_id": "t1",
@@ -192,7 +192,10 @@ def test_email_expands_by_thread_and_marks_owner_side_without_inference():
                         {
                             "message_id": "<m1@example.com>",
                             "sent_at": "2026-07-28T12:00:00+08:00",
-                            "from": {"address": "lin@example.dev", "display_name": "林知远"},
+                            "from": {
+                                "address": "owner@example.test",
+                                "display_name": "测试用户",
+                            },
                             "to": [{"address": "client@example.com", "display_name": "陈澄"}],
                             "cc": [],
                             "subject": "试点",
@@ -214,7 +217,9 @@ def test_email_expands_by_thread_and_marks_owner_side_without_inference():
     assert len(result) == 1
     source = result[0]
     assert source.raw.kind == "email"
-    assert source.blocks[0].text.startswith("Owner (林知远 <lin@example.dev>)")
+    assert source.blocks[0].text.startswith(
+        "Owner (测试用户 <owner@example.test>)"
+    )
     assert "Attachments: proposal.pdf" in source.blocks[0].text
     assert source.raw.meta["message_ids"] == ["<m1@example.com>"]
     assert source.raw.meta["messages"] == [
@@ -222,8 +227,8 @@ def test_email_expands_by_thread_and_marks_owner_side_without_inference():
             "message_id": "<m1@example.com>",
             "sent_at": "2026-07-28T12:00:00+08:00",
             "from": {
-                "address": "lin@example.dev",
-                "display_name": "林知远",
+                "address": "owner@example.test",
+                "display_name": "测试用户",
             },
             "to": [
                 {

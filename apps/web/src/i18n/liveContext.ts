@@ -106,9 +106,8 @@ export const liveContext = defineMessages({
     "liveContext.card.expandFailed": "展开失败：{detail}",
     "liveContext.card.detailEmpty": "（空）",
 
-    // Synthetic bench material: three scripted workstreams, written in the front end. The
-    // owner's name is the demo persona's, matching the seeded knowledge base.
-    "liveContext.preset.speaker.owner": "林知远",
+    // Synthetic, business-neutral bench material written in the front end.
+    "liveContext.preset.speaker.owner": "本人",
     "liveContext.preset.speaker.collaborator": "协作者",
     "liveContext.preset.speaker.friend": "朋友",
 
@@ -126,7 +125,7 @@ export const liveContext = defineMessages({
     "liveContext.preset.releaseProgress.summary":
       "讨论里出现一个知识库能直接回答的发布问题，系统应把事实递上来",
     "liveContext.preset.releaseProgress.expect": "期望 fact 卡（事实问答）",
-    "liveContext.preset.releaseProgress.turn1": "Atlas 的公开预览版现在推进到哪一步了？",
+    "liveContext.preset.releaseProgress.turn1": "当前项目的公开预览版推进到哪一步了？",
     "liveContext.preset.releaseProgress.turn2":
       "我记得已经跑过本地导出，但具体还缺哪一道发布检查一时想不起来。",
     "liveContext.preset.releaseProgress.turn3":
@@ -229,10 +228,8 @@ export const liveContext = defineMessages({
     "liveContext.card.expandFailed": "Expansion failed: {detail}",
     "liveContext.card.detailEmpty": "(empty)",
 
-    // Synthetic bench material: three scripted workstreams, written in the front end. The
-    // owner is the demo persona, under the romanisation the seed data already uses
-    // ("林知远 Lin Zhiyuan") — the same person, not a new name.
-    "liveContext.preset.speaker.owner": "Lin Zhiyuan",
+    // Synthetic, business-neutral bench material written in the front end.
+    "liveContext.preset.speaker.owner": "Owner",
     "liveContext.preset.speaker.collaborator": "Collaborator",
     "liveContext.preset.speaker.friend": "Friend",
 
@@ -251,7 +248,7 @@ export const liveContext = defineMessages({
     "liveContext.preset.releaseProgress.summary":
       "a release question the knowledge base can answer directly surfaces; the system should hand the fact over",
     "liveContext.preset.releaseProgress.expect": "expect a fact card (a direct answer)",
-    "liveContext.preset.releaseProgress.turn1": "How far has the public preview of Atlas got?",
+    "liveContext.preset.releaseProgress.turn1": "How far has the current project's public preview got?",
     "liveContext.preset.releaseProgress.turn2":
       "I remember running the local export, but I cannot recall which release check is still outstanding.",
     "liveContext.preset.releaseProgress.turn3":

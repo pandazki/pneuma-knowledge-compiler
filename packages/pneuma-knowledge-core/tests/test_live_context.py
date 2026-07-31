@@ -150,7 +150,7 @@ HANDLES = {"s01": SRC, "s02": "22222222-2222-2222-2222-222222222222"}
 
 # ------------------------------------------------------------- spine byte-stability
 #
-# Public OPC strategy baseline. These digests pin the three business-neutral answer
+# Public framework baseline. These digests pin the three business-neutral answer
 # contracts so later edits cannot silently drift the provider-cache-stable System bytes.
 
 _PUBLIC_BASELINE_SHA256 = {

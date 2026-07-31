@@ -25,10 +25,9 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from pneuma_knowledge_service.experiments.opc_84d_evaluation import _cosine, char_similarity
-
 from .artifacts import Trajectory
 from .errors import EvalDependencyError
+from .matching import char_similarity, cosine
 from .metrics.common import Matcher
 from .truth import TruthSet
 
@@ -57,8 +56,8 @@ class EmbeddingMatcher:
 
     def __call__(self, expected: str, candidate: str) -> float:
         char = char_similarity(expected, candidate)
-        cosine = _cosine(self.vectors.get(expected), self.vectors.get(candidate))
-        return max(char, cosine)
+        semantic = cosine(self.vectors.get(expected), self.vectors.get(candidate))
+        return max(char, semantic)
 
     @property
     def coverage(self) -> int:

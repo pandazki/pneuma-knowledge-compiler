@@ -1,13 +1,13 @@
 # pneuma-knowledge-compiler 架构规格
 
 > 本文是全项目的权威设计规格。实施任何里程碑前先读完本文。
-> 公共核心保持业务无关；默认 `opc_developer` 策略服务 AI-Native 一人公司开发者，
-> 其他领域通过显式 strategy pack 扩展。
+> 公共核心保持业务无关；内置 `personal_knowledge` 只是可运行的中性兜底。
+> 应用通过注册完整 skill、prompt overlay 与 schema pack 声明自己的业务。
 
 ## 0. 定位与两条全程纪律
 
-为 AI-Native 个人开发者提供可审计知识编译能力：会议、层级文档、IM、邮件与各类材料入库，
-编译为结构化个人知识（canonical），支持多级检索与低延迟问答。
+为个人、团队和应用提供可审计知识编译能力：会议、层级文档、IM、邮件与各类材料入库，
+编译为结构化知识（canonical），支持多级检索与低延迟问答。
 
 两条纪律（任何实现不得偏离）：
 
@@ -40,7 +40,10 @@ pneuma-knowledge-compiler/
 ├── apps/web/                       # UI：Pneuma 证据台视觉语言，日/夜双主题
 ├── infra/                          # docker compose：qdrant + postgres + meilisearch
 ├── docs/                           # 本文 + adr/ + api / skill-authoring（随里程碑补齐）
-├── examples/                       # 端到端脚本示例（每个里程碑至少一个）
+├── examples/
+│   ├── opc/                        # 自包含业务示例：资产、数据、评估与独立 Compose
+│   ├── walkthroughs/               # 通用机制演练
+│   └── ops/                        # 显式目标的维护命令
 └── tests/                          # 根级 e2e；单测/集成测试在各包内 tests/
 ```
 

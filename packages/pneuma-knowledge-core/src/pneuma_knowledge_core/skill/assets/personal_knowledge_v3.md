@@ -1,0 +1,102 @@
+# personal-knowledge v3 domain guidance
+
+This fallback strategy serves a person organizing knowledge across projects, collaboration, research and operations. The compile goal is **long-term, traceable knowledge** with the owner as its subject. It is not a transcript summary, and it is not permanent storage of every input.
+
+Ask one question each time: **will this information later be used for action, judgment, explanation, collaboration or audit?** If yes it enters canonical; otherwise it stays in the original source and the retrieval layers.
+
+## 1. High-value meaning
+
+Prefer to keep product hypotheses and positioning, architecture decisions and constraints, experiment design and results, explicit commitments and acceptance conditions, user feedback together with its exact wording, operational facts affecting releases / cash flow / compliance, and stable working preferences. Greetings, repeated broadcasts, unaccepted suggestions, background noise and short-lived detail do not enter long-term knowledge.
+
+- Example: "the first version explicitly excludes team permissions because the current workflow does not require them" → record the scope decision and its reason.
+- Counter-example: writing "felt good today, wrote two extra hours" into long-term knowledge (a one-off state with no future use).
+
+## 2. Evidence tiers
+
+Distinguish these sources for every conclusion:
+
+1. **Direct fact**: supportable verbatim or by a structured field of the source;
+2. **Observation**: logs, interviews, metrics or run results;
+3. **Interpretation**: the owner's or a model's attribution of an observation;
+4. **Hypothesis**: a prediction still needing experimental validation;
+5. **Decision**: a choice the owner explicitly accepted that will shape later action.
+
+Transcripts, model summaries, search results and agent output are all merely observations. Keep the exact words apart from the interpretation; a metric carries its definition, sample and range; a model suggestion is not a decision; an agent log is not a completion; a correlation is not written as a cause.
+
+- Example: "EXP-014 has higher recall than pure vector search on 24 synthetic tasks" → record as an observation, and carry the dataset and sample size.
+- Counter-example: writing "the fused approach is better" as a conclusion without its definition and scope of validity (an observation promoted to a universal fact).
+
+## 3. Product and experiments
+
+Product knowledge evolves forward along "user problem → hypothesis → solution → release → feedback". Experiment knowledge must retain as much as possible of:
+
+- the falsifiable hypothesis and the success/failure threshold;
+- the version, dataset, sample, model, prompt or run conditions;
+- the actual observations and anomalies;
+- the scope of validity of the conclusion;
+- the decision to continue, adjust or stop.
+
+A threshold changed after the fact must be recorded as a NEW decision; the new threshold must never be dressed up as having existed before the experiment. Negative results and failure causes carry the same long-term value as successes.
+
+- Example: "threshold moved from 0.7 to 0.6, because a missed recall costs more" → record as a **new decision**, keeping the original threshold and the time of the change.
+- Counter-example: writing 0.6 straight in as the threshold fixed at design time (an after-the-fact change disguised as a prior setting).
+
+## 4. Identity, attribution and state
+
+People, organizations, products, repositories and projects are not merged by default. Similar names only form a candidate association; an explicit correction, a stable role, or consistent evidence across sources is what confirms one entity. Aliases are only added, never removed.
+
+Only new evidence about the same entity, in the same semantic scope, explicitly describing the current state, may supersede an old state. When updating, keep the old state, the time of change and the source.
+
+The owner relaying someone else's opinion is not the owner agreeing with it; a collaborator proposing a plan is not an accepted decision; an agent generating a candidate is not a fulfilled commitment. Proposal, decision, execution and acceptance stay separate.
+
+- Example: a teammate proposes a plan and the owner says "let's go with this for now" → record as a decision the owner accepted, with the provenance still attributed to the teammate.
+- Counter-example: merging two repositories into one entity merely because their names are similar (a similar name is only a candidate association).
+- Counter-example: recording "a teammate thinks we should switch approaches" as the owner's decision (relaying ≠ agreeing).
+
+## 5. Time and strength tiering
+
+Relative time must be **normalized to an absolute date**, while the original wording is kept; when the reference point is unreliable, keep it pending.
+
+Commitments, decisions and stable relationships use a controlled **strength prefix label**:
+
+- `【firm】`: an owner, a condition/time, or confirmation by both sides is already in place;
+- `【forming】`: the direction is clear but one key slot is missing;
+- `【loose】`: an idea, a hypothesis, a second-hand account, or a proposal not yet accepted.
+
+Strength is re-tiered forward as evidence changes, keeping the old tier and the basis for the change. Use only three tiers; when unsure, drop a tier.
+
+- Example: the material occurred on 2026-07-18 and says "delivery next Monday" → write "due 2026-07-27 (original wording: \"next Monday\")".
+- Example: "a teammate owns the import module, acceptance is end-to-end tests passing" → `【firm】`; merely "a teammate could take a look" → `【loose】`.
+- Counter-example: labelling "maybe we could work on it together some day" as a `【firm】` commitment.
+
+## 6. Privacy and secrets
+
+Keep only the minimum information needed to complete future action. Passwords, verification codes, tokens, private keys, payment credentials, full identity numbers and authentication secrets never enter canonical; express business state without the secret value.
+
+Information touching third parties, health, finances or legal matters must keep its source and its uncertainty; do not derive a diagnosis, an asset position or a legal conclusion from scattered remarks.
+
+- Example: record "the test-environment account is still awaiting the administrator", not the temporary password read out in the conversation.
+- Counter-example: inferring a health condition from "I've been tired lately" and storing it as fact.
+
+## 7. Document organization
+
+- owner profile, long-term preferences and way of working → `memory/profile.md`
+- stable collaborators / contacts → `memory/people/{slug}.md`
+- ongoing product state → `work/products/{slug}.md`
+- experiments, evaluations and hypothesis evolution → `work/experiments/{slug}.md`
+- releases, sales, cash flow and operational matters → `work/operations/{slug}.md`
+- cross-domain topics not yet stably classified → `memory/topics/{slug}.md`
+- important material whose body must live outside → `materials/{slug}.md`
+
+Organize by shared lifecycle, not one document per session. Move forward, one way only, when the classification is accurate; when unsure leave it in topics.
+
+- Example: a product's scope and release gates always go into the same `work/products/<product>.md`, updated forward over time.
+- Counter-example: creating `work/products/<product>-2026-07-18.md` for one review meeting (filing by session scatters one product's state until it can no longer be updated continuously).
+
+## 8. The profile is not material
+
+The registration profile, the schema packs and this strategy are only used to judge relevance and filing location; they cannot be the source of a claim. Every claim must link back to this round's source or to existing canonical.
+
+## 9. Closing self-check
+
+Check citations, evidence tiers, attribution, absolute time, strength tier, reproducibility conditions of experiments, failure causes, entity boundaries, secret exclusion and preserved uncertainty.

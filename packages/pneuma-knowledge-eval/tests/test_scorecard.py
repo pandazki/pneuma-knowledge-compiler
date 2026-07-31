@@ -105,13 +105,13 @@ def _labelled_truth(corpus: Path):
     )
 
 
-def test_a_trajectory_without_l0_declares_every_metric_it_could_not_compute(corpus_84d):
+def test_a_trajectory_without_l0_declares_every_metric_it_could_not_compute(labelled_corpus):
     """The failure this closes: `--git-repo` produced a scorecard indistinguishable from a
     complete one while five metrics had quietly not run. Every one of them now names itself,
     with a reason and a machine-readable cause a caller can group on."""
     from pneuma_knowledge_eval.scorecard import unavailable_because
 
-    scorecard = build_scorecard(_l0_less_trajectory(), truth=_labelled_truth(corpus_84d))
+    scorecard = build_scorecard(_l0_less_trajectory(), truth=_labelled_truth(labelled_corpus))
     l0 = unavailable_because(scorecard, "l0_absent")
 
     assert {row["metric"] for row in l0} == L0_DEPENDENT_METRICS
@@ -123,12 +123,12 @@ def test_a_trajectory_without_l0_declares_every_metric_it_could_not_compute(corp
         assert f"`{metric}`" in report
 
 
-def test_the_same_metrics_are_computed_once_l0_is_present(corpus_84d):
+def test_the_same_metrics_are_computed_once_l0_is_present(labelled_corpus):
     """The complement, so the list above is a statement about L0 and not about these metrics
     being permanently broken."""
     from pneuma_knowledge_eval.scorecard import unavailable_because
 
-    scorecard = build_scorecard(_trajectory(), truth=_labelled_truth(corpus_84d))
+    scorecard = build_scorecard(_trajectory(), truth=_labelled_truth(labelled_corpus))
     assert unavailable_because(scorecard, "l0_absent") == []
 
 
@@ -229,15 +229,15 @@ def test_a_precomputed_group_f_lands_in_the_scorecard_and_clears_the_coverage_fi
     assert "| q-one | durable_facts | yes | 1/1 |" in report
 
 
-def test_a_bound_truth_set_renders_its_admission_series(corpus_84d):
+def test_a_bound_truth_set_renders_its_admission_series(labelled_corpus):
     """Group B was readable only by opening scorecard.json; a bound truth set is exactly the
     input the report exists to show."""
     from pneuma_knowledge_eval.truth import load_truth_set
 
-    scorecard = build_scorecard(_trajectory(), truth=load_truth_set(corpus_84d))
+    scorecard = build_scorecard(_trajectory(), truth=load_truth_set(labelled_corpus))
     report = render_report(scorecard)
     assert "## B · admission" in report
-    assert "truth set: `opc-84d-relayforge`" in report
+    assert "truth set: `generic-longitudinal-fixture`" in report
     assert "recall_similarity" in report
     # mechanical mode has one arm, and the report says which one is missing rather than
     # leaving the single number to read as the whole answer

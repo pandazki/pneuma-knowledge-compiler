@@ -1,7 +1,7 @@
 """`python -m pneuma_knowledge_eval.cli` — the evaluation entry point.
 
     uv run python -m pneuma_knowledge_eval.cli evaluate \
-        --preset examples/data/preset/u-opc-lin --mode mechanical --out var/eval
+        --preset /path/to/exported-bundle --mode mechanical --out var/eval
 
 Mechanical mode is offline and deterministic: same bundle in, same `scorecard.json` out
 (modulo the generation timestamp). Full mode adds the embedding matcher and the judge arm and

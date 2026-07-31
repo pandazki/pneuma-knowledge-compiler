@@ -22,7 +22,7 @@ Injection points (service side, `pneuma-knowledge-service`):
 
 - **compile worker** (`workers/compile_worker.py` `process_job`) — injects for `run_compile`.
 - **API routes** (`api/routes/v1.py`) — inject for `recall` (fast/deep) and briefing `ask`.
-- **examples** (`examples/briefing_e2e.py`) — inject for fast/deep/briefing calls; the
+- **examples** (`examples/walkthroughs/briefing_e2e.py`) — inject for fast/deep/briefing calls; the
   compile examples trace through `drain_user`.
 
 ## Metadata schema (what you can filter by)

@@ -73,7 +73,7 @@ def _doc(path: str, title: str, body_rows: str) -> CanonicalDocument:
 ADA = _doc(
     "memory/people/ada-quill.md",
     "Ada Quill",
-    "- Ada Quill runs the Orion pilot with [Bo Marsh](bo-marsh.md). "
+    "- Ada Quill runs the Delta pilot with [Bo Marsh](bo-marsh.md). "
     f"[cite: src-01 ¶0] <!-- c:{_anchor('ada')} -->",
 )
 BO = _doc(

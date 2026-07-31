@@ -63,7 +63,7 @@ async def test_official_import_expands_natural_citation_units(client):
             "started_at": "2026-07-28T09:00:00+08:00",
             "owner_participant_ids": ["p1"],
             "participants": [
-                {"participant_id": "p1", "display_name": "林知远"},
+                {"participant_id": "p1", "display_name": "测试用户"},
                 {"participant_id": "p2", "display_name": "陈澄"},
             ],
             "segments": [

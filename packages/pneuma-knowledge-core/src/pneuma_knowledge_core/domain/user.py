@@ -71,7 +71,7 @@ class Locale(BaseModel):
 class WorkspaceProfile(BaseModel):
     """How the user operates; no hardware or vendor semantics live here."""
 
-    operating_mode: str  # "opc" | "independent" | "team"
+    operating_mode: str  # deployment-defined mode, e.g. "independent" | "team"
     primary_stack: str  # concise human-readable stack, e.g. "Python + TypeScript"
     automation_level: str  # "manual" | "assisted" | "agentic"
     active_since: str  # ISO date, e.g. "2024-05-01"

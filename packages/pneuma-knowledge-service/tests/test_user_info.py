@@ -1,4 +1,4 @@
-"""Public OPC UserInfoProvider mock: one persona + deterministic synthesis + API shape.
+"""Business-neutral deterministic UserInfoProvider fallback + API shape.
 
 Fully keyless — no middleware, no chat model. The API test mounts the router on a
 bare app with a stub ctx carrying only `user_info`, so it never touches PG/Meili/
@@ -25,23 +25,20 @@ def _provider() -> MockUserInfoProvider:
     return MockUserInfoProvider()
 
 
-async def test_named_persona_opc_developer():
-    p = await _provider().get_profile(UserId("u-opc-lin"))
+async def test_default_mock_profile_is_generic():
+    p = await _provider().get_profile(UserId("u-generic-demo"))
     assert isinstance(p, UserProfile)
-    assert p.user_id == "u-opc-lin"
-    assert p.display_name == "Ada Lindqvist"
+    assert p.user_id == "u-generic-demo"
+    assert p.display_name
     assert p.locale.language == "en-GB"
-    assert p.occupation == "independent AI product developer"
+    assert p.occupation == "independent software developer"
     assert p.source == "mock"
-    assert p.avatar.initial == "A"
+    assert p.workspace.operating_mode == "independent"
     assert p.avatar.color.startswith("#")
     # Structured onboarding core.
-    assert (p.industry, p.role, p.level) == ("tech", "engineering", "senior")
-    assert p.level_style == LEVEL_STYLES["senior"]
-    assert (
-        p.level_style
-        == "Prefers concise, context-aware answers that focus on trade-offs and impact."
-    )
+    assert (p.industry, p.role) == ("tech", "engineering")
+    assert p.level in LEVELS
+    assert p.level_style == LEVEL_STYLES[p.level]
 
 
 async def test_synthesis_is_idempotent():
@@ -70,9 +67,9 @@ async def test_synthesis_is_self_consistent_and_complete():
     assert p.preferences.units == "metric"
     assert p.preferences.privacy_level in ("standard", "strict")
     assert 1900 < (p.birth_year or 0) < 2020
-    assert p.workspace.operating_mode == "opc"
+    assert p.workspace.operating_mode == "independent"
     assert p.workspace.primary_stack
-    assert p.workspace.automation_level == "agentic"
+    assert p.workspace.automation_level == "assisted"
     # joined ISO date parses; active_since is not before it.
     assert p.joined_at <= p.workspace.active_since
     assert p.source == "mock"
@@ -80,7 +77,7 @@ async def test_synthesis_is_self_consistent_and_complete():
     assert p.industry == "tech"
     assert p.role == "engineering"
     assert p.level in LEVELS
-    assert p.occupation == "AI-native independent developer"
+    assert p.occupation == "independent software developer"
     assert p.level_style == LEVEL_STYLES[p.level]
 
 
@@ -122,19 +119,19 @@ def _client(app: FastAPI) -> httpx.AsyncClient:
     )
 
 
-async def test_api_profile_named_persona():
+async def test_api_profile_uses_generic_deterministic_fallback():
     client = _client(_app())
-    resp = await client.get("/v1/users/u-opc-lin/profile")
+    resp = await client.get("/v1/users/u-generic-demo/profile")
     assert resp.status_code == 200
     body = resp.json()
-    assert body["user_id"] == "u-opc-lin"
-    assert body["display_name"] == "Ada Lindqvist"
-    assert body["avatar"]["initial"] == "A"
+    assert body["user_id"] == "u-generic-demo"
+    assert body["display_name"]
+    assert body["avatar"]["initial"]
     assert body["industry"] == "tech"
     assert body["role"] == "engineering"
-    assert body["level"] == "senior"
+    assert body["level"] in LEVELS
     # computed_field is serialized into the response.
-    assert body["level_style"] == LEVEL_STYLES["senior"]
+    assert body["level_style"] == LEVEL_STYLES[body["level"]]
     assert set(body) >= {
         "user_id",
         "display_name",
@@ -183,8 +180,8 @@ async def test_composite_mock_fallback_when_not_persisted():
         return None
 
     prov = PersistedThenMockUserInfoProvider(_none, MockUserInfoProvider())
-    p = await prov.get_profile(UserId("u-opc-lin"))
-    assert p.display_name == "Ada Lindqvist"
+    p = await prov.get_profile(UserId("u-generic-demo"))
+    assert p.display_name
     assert p.source == "mock"
 
 

@@ -49,7 +49,7 @@ async def ctx(tmp_path):
 _ATLAS_BODY = (
     "## 产品计划\n\n"
     "- Atlas Q3 发布。[cite: s-evolve ¶0] <!-- c:aa11 -->\n"
-    "- Atlas 的技术决策由林知远负责。[cite: s-evolve ¶1] <!-- c:bb22 -->"
+    "- Atlas 的技术决策由测试用户负责。[cite: s-evolve ¶1] <!-- c:bb22 -->"
 )
 
 

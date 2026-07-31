@@ -1,6 +1,6 @@
 /**
  * Preset workstreams for the Live Context bench, so the project owner can click instead of
- * type. The synthetic conversations model a solo developer preparing an open-source
+ * type. The synthetic conversations model a project owner preparing a public
  * release. Two carry an explicit expectation; the third exists because silence is the
  * feature's steady state and a bench that only shows firing cases is misleading.
  *

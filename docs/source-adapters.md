@@ -68,23 +68,23 @@ The provider CLI performs translation, canonical validation and ingestion:
 
 ```bash
 # Canonical mock JSON
-uv run python examples/import_source.py mock \
-  examples/data/opc-demo/sources/meeting.json --user u-opc-lin
+uv run python -m examples.ops.import_source mock \
+  /path/to/canonical-meeting.json --user u-me
 
 # Obsidian vault (configuration, plugins, hidden files and symlinks are ignored)
-uv run python examples/import_source.py obsidian /path/to/vault \
+uv run python -m examples.ops.import_source obsidian /path/to/vault \
   --user u-me --library-id my-vault --title "My vault"
 
 # Slack export directory or ZIP
-uv run python examples/import_source.py slack /path/to/slack-export.zip \
+uv run python -m examples.ops.import_source slack /path/to/slack-export.zip \
   --user u-me --owner-user-id U012345
 
 # EML directory/file or mbox
-uv run python examples/import_source.py email /path/to/mail \
+uv run python -m examples.ops.import_source email /path/to/mail \
   --user u-me --owner-address me@example.com
 
 # Zoom WebVTT plus recording metadata JSON
-uv run python examples/import_source.py zoom /path/to/transcript.vtt \
+uv run python -m examples.ops.import_source zoom /path/to/transcript.vtt \
   --metadata /path/to/recording.json --user u-me \
   --owner-address me@example.com
 ```
@@ -107,15 +107,8 @@ joins each metadata envelope to its block by normalized order, so clicking a dis
 item still fetches the exact L0 block. Provider-specific optional fields remain nested
 under `metadata` / `archive_metadata`.
 
-## Synthetic OPC demo
+## Complete application example
 
-`uv run python examples/seed_demo.py` resets `u-opc-lin` and imports four canonical mock
-files. The fixture currently expands to:
-
-- 1 meeting;
-- 5 hierarchical notes;
-- 3 IM conversations;
-- 2 email threads.
-
-It then runs the complete keyless pipeline: 11 L0 sources, 22 index/compile jobs, 11
-canonical documents, 22 claims and 11 Git snapshots. All content is synthetic.
+The self-contained application under [`examples/opc`](../examples/opc/README.md)
+demonstrates all four adapters with synthetic data. Its strategy, profile, data,
+evaluation assets and Compose runtime remain outside the framework packages.

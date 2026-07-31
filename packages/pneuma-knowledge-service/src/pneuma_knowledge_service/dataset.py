@@ -371,7 +371,7 @@ async def build_dataset(
         "export_policy": "full",
         "domains": [
             {
-                "domain_id": "opc-developer-knowledge",
+                "domain_id": "personal-knowledge",
                 "skill_version": None,
                 "ontology": ontology,
             }

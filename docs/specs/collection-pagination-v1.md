@@ -1,6 +1,6 @@
 # Collection pagination v1
 
-Status: accepted for the OPC 84-day scale experiment
+Status: accepted after a 12-week longitudinal scale exercise
 
 ## 1. Problem
 
@@ -186,7 +186,7 @@ export/backward compatibility. Canonical readers request `audit=false`:
 - Integration tests against PostgreSQL prove stable ordering, limits, totals, filters,
   cursor continuation, malformed-cursor failure and cross-user isolation.
 - Web tests prove API query construction and page-state transitions.
-- The OPC 84-day browser rerun proves Sources and Process render at most one page.
+- The longitudinal browser rerun proves Sources and Process render at most one page.
 - The retained regression tests cover API bounds, page-state transitions, DOM size and
   scroll behavior. One-off baseline captures are intentionally not kept as project
   documentation.

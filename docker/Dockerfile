@@ -17,7 +17,7 @@ COPY packages/pneuma-knowledge-service/pyproject.toml packages/pneuma-knowledge-
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --all-packages --no-install-project
 
-# Source (includes infra/schema.sql and examples/data/preset — both needed at runtime).
+# Source (includes infra/schema.sql and runnable example/ops modules).
 COPY . .
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --all-packages
 

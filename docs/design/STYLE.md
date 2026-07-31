@@ -71,10 +71,11 @@ branch, gate, or destination.
   patch/ref from the current dataset.
 - The four-step journey uses the same real model projection.
 - Missing data produces an honest empty route, not fake metrics or placeholder success.
-- Desktop navigation displays `OPEN DEMO / SYNTHETIC · OPC`.
+- Desktop navigation displays an explicit `SYNTHETIC` marker when the selected
+  application says its data is simulated.
 - Mobile navigation displays the full word `SYNTHETIC`.
-- The opening manifest states that the OPC persona and data are deterministic,
-  repository-bundled simulations and not real customers.
+- The opening manifest states when the active persona and data are deterministic
+  simulations and not real customers.
 
 ## Component rules
 

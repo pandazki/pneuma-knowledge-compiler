@@ -55,7 +55,7 @@ async def test_list_reads_canonical_tree_with_one_archive_process(
             "memory/people/b.md": _file(
                 "d-b", "b", "- B。[cite: src-02 ¶0] <!-- c:bb22 -->"
             ),
-            "skill/manifest.json": '{"base_version":"opc-developer-v1"}',
+            "skill/manifest.json": '{"base_version":"personal-knowledge-v1"}',
         },
         message="two docs and metadata",
     )

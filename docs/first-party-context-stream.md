@@ -24,7 +24,7 @@ uv run pytest \
   packages/pneuma-knowledge-core/tests/test_source_types.py \
   packages/pneuma-knowledge-core/tests/test_context_stream_adapter.py -v
 
-uv run python examples/context_stream_ab.py --show-prompt
+uv run python -m examples.walkthroughs.context_stream_ab --show-prompt
 ```
 
 第二条命令只渲染仓库内合成片段对应的 prompt，不调用模型。检查：
@@ -40,7 +40,7 @@ uv run python examples/context_stream_ab.py --show-prompt
 
 ```bash
 docker compose -f infra/docker-compose.yml up -d --wait
-uv run python examples/context_stream_ab.py
+uv run python -m examples.walkthroughs.context_stream_ab
 ```
 
 脚本把同一份合成片段分别作为 `upload` 与 `context_stream` 编译。它是开发者冒烟，

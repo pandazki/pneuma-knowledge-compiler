@@ -28,7 +28,7 @@ test("meeting presentation joins normalized segments to participants and blocks"
       timezone: "Asia/Shanghai",
       owner_participant_ids: ["p1"],
       participants: [
-        { participant_id: "p1", display_name: "林知远" },
+        { participant_id: "p1", display_name: "测试用户" },
         { participant_id: "p2", display_name: "陈澄" },
       ],
       agenda: ["确认范围"],
@@ -45,7 +45,7 @@ test("meeting presentation joins normalized segments to participants and blocks"
       {
         index: 0,
         // The wire format the textualizer emits: `ingest.owner_wrapped` + `ingest.turn_line`.
-        text: "Owner (林知远): 先确认范围。",
+        text: "Owner (测试用户): 先确认范围。",
         section_path: ["2026-07-28"],
       },
     ],
@@ -59,7 +59,7 @@ test("meeting presentation joins normalized segments to participants and blocks"
     blockIndex: 0,
     segmentId: "s1",
     speakerId: "p1",
-    speaker: "林知远",
+    speaker: "测试用户",
     owner: true,
     startedAt: "2026-07-28T09:00:01+08:00",
     endedAt: null,
@@ -74,9 +74,9 @@ test("document presentation preserves vault hierarchy, frontmatter and links", (
     meta: {
       library_id: "vault-1",
       library_title: "工作库",
-      path: "01-Projects/Orion/项目总览.md",
-      frontmatter: { status: "active", owner: "林知远" },
-      tags: ["project/orion"],
+      path: "01-Projects/Nova/项目总览.md",
+      frontmatter: { status: "active", owner: "测试用户" },
+      tags: ["project/nova"],
       links: [{ target: "02-Areas/独立开发", label: null, embedded: false }],
       modified_at: "2026-07-28T10:00:00+08:00",
     },
@@ -91,7 +91,7 @@ test("document presentation preserves vault hierarchy, frontmatter and links", (
 
   assert.equal(result.kind, "document_library");
   if (result.kind !== "document_library") return;
-  assert.deepEqual(result.pathParts, ["01-Projects", "Orion", "项目总览.md"]);
+  assert.deepEqual(result.pathParts, ["01-Projects", "Nova", "项目总览.md"]);
   assert.equal(result.frontmatter.status, "active");
   assert.equal(result.links[0]?.target, "02-Areas/独立开发");
 });
@@ -104,7 +104,7 @@ test("IM presentation resolves senders, thread replies and reactions", () => {
       conversation_type: "channel",
       owner_user_ids: ["U1"],
       users: [
-        { user_id: "U1", display_name: "林知远" },
+        { user_id: "U1", display_name: "测试用户" },
         { user_id: "U2", display_name: "陈澄" },
       ],
       messages: [
@@ -139,12 +139,12 @@ test("email presentation separates RFC-like headers from the citable body", () =
     kind: "email",
     created_at: "2026-07-28T09:00:00+08:00",
     meta: {
-      owner_addresses: ["lin@example.dev"],
+      owner_addresses: ["owner@example.test"],
       messages: [
         {
           message_id: "<m1@example.dev>",
           sent_at: "2026-07-28T12:00:00+08:00",
-          from: { address: "lin@example.dev", display_name: "林知远" },
+          from: { address: "owner@example.test", display_name: "测试用户" },
           to: [{ address: "client@example.dev", display_name: "陈澄" }],
           cc: [],
           subject: "试点",
@@ -165,7 +165,7 @@ test("email presentation separates RFC-like headers from the citable body", () =
         index: 0,
         // `ingest.owner_wrapped` / `ingest.email.subject` / `ingest.email.attachments`.
         text:
-          "Owner (林知远 <lin@example.dev>) → 陈澄 <client@example.dev>\n" +
+          "Owner (测试用户 <owner@example.test>) → 陈澄 <client@example.dev>\n" +
           "Subject: 试点\n" +
           "方案见附件。\n" +
           "Attachments: proposal.pdf (application/pdf, 1024 bytes)",

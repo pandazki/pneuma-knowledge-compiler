@@ -11,20 +11,11 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
-
 from pneuma_knowledge_eval.artifacts import (
     Snapshot,
     SourceRecord,
     Trajectory,
     build_trajectory,
-)
-
-REPO_ROOT = Path(__file__).resolve().parents[3]
-PRESET_BUNDLE = REPO_ROOT / "examples" / "data" / "preset" / "u-opc-lin"
-CORPUS_84D = REPO_ROOT / "examples" / "data" / "opc-84d"
-FROZEN_V2_TRUTH = (
-    REPO_ROOT / "docs" / "experiments" / "opc-84d-v2" / "qa" / "evaluation-v2-truth.json"
 )
 
 EPOCH = datetime(2026, 3, 2, 9, 0, tzinfo=timezone.utc)

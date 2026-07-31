@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from _fixtures import FROZEN_V2_TRUTH, claim, document, source, trajectory
+from _fixtures import claim, document, source, trajectory
 from pneuma_knowledge_eval.errors import EvalDependencyError, EvalInputError
 from pneuma_knowledge_eval.metrics.admission import (
     admission_latency,
@@ -346,12 +346,12 @@ def test_group_entry_point_reports_the_bound_truth_set():
     assert report["latency"]["status"] == "ok"
 
 
-# ─────────────────────────────────────────────────────── the shipped labelled corpora
+# ─────────────────────────────────────────────────────── labelled-corpus adapters
 
 
-def test_the_84d_corpus_loads_with_its_intake_windows(corpus_84d):
-    truth = load_84d_truth_set(corpus_84d)
-    assert truth.corpus_key
+def test_a_longitudinal_corpus_loads_with_its_intake_windows(labelled_corpus):
+    truth = load_84d_truth_set(labelled_corpus)
+    assert truth.corpus_key == "generic-longitudinal-fixture"
     assert len(truth.batches) == 12
     assert len(truth.entries) > 0
     assert len(truth.current_entries()) < len(truth.entries)  # some are superseded
@@ -371,11 +371,9 @@ def test_the_84d_corpus_loads_with_its_intake_windows(corpus_84d):
     )
 
 
-def test_the_frozen_v2_manifest_loads_through_the_same_shape():
-    if not FROZEN_V2_TRUTH.is_file():  # pragma: no cover - ships with the repo
-        pytest.skip("frozen v2 truth asset missing")
-    truth = load_frozen_truth_manifest(FROZEN_V2_TRUTH)
-    assert truth.experiment_id == "opc-84d-v2"
+def test_a_frozen_manifest_loads_through_the_same_shape(frozen_truth_manifest):
+    truth = load_frozen_truth_manifest(frozen_truth_manifest)
+    assert truth.experiment_id == "generic-longitudinal-fixture"
     assert truth.batches == ()  # the frozen asset declares no intake index
     assert all(entry.effective_at is not None for entry in truth.entries)
 
@@ -390,11 +388,11 @@ def test_a_truth_set_with_dangling_references_is_rejected():
         )
 
 
-def test_corpus_mismatch_is_the_callers_guard_not_a_silent_zero(corpus_84d):
-    """The 84d labels against another corpus's canonical would score ~0 and read as a
+def test_corpus_mismatch_is_the_callers_guard_not_a_silent_zero(labelled_corpus):
+    """One corpus's labels against another corpus's canonical would score ~0 and read as a
     catastrophic finding. Group B computes it, but the corpus key is what makes the
     mismatch detectable — see the CLI's --require-corpus."""
-    truth = load_84d_truth_set(corpus_84d)
+    truth = load_84d_truth_set(labelled_corpus)
     report = truth_recall_series(_trajectory(), truth)
     assert report["head_recall"] == 0.0
     assert truth.corpus_key != "fixture"

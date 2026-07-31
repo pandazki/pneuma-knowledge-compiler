@@ -15,8 +15,8 @@ pneuma-knowledge-compiler 跑起来并玩到：建用户 → 入库对话/文档
 - **Docker**（跑三个中间件：Postgres / Qdrant / Meilisearch）。
 - **[uv](https://docs.astral.sh/uv/)**（Python 包管理与运行）。
 - **Node ≥ 18 + [pnpm](https://pnpm.io/)**（跑前端 UI）。
-- **可选：OpenRouter API key**。只有真实 compile、fast/deep 问答与 AI 生成人设需要；
-  mock 编译、preset 导入、浏览和测试均不需要。
+- **可选：模型 provider API key**。只有真实 compile、fast/deep 问答与 AI 生成人设需要；
+  机械导入、浏览和测试均不需要。
 
 ---
 
@@ -26,8 +26,8 @@ pneuma-knowledge-compiler 跑起来并玩到：建用户 → 入库对话/文档
 cp .env.example .env
 ```
 
-如果只跑 keyless demo，可以跳过本节。要连接真实模型时，把 `OPENROUTER_API_KEY` 写入
-本地 `.env`；不要把 `.env` 提交到 Git。
+如果只跑机械路径，可以跳过本节。要连接真实模型时，把 provider key 与各角色的模型路由
+写入本地 `.env`；不要把 `.env` 提交到 Git。
 
 ## 2. 起中间件（Docker）
 
@@ -50,56 +50,28 @@ uv sync --all-packages          # Python：core + service 两个包
 cd apps/web && pnpm install && cd ../..   # 前端
 ```
 
-## 4. 生成 OPC 演示数据
+## 4. 起服务
 
-```bash
-# 零密钥：scripted LLM + fake embedding
-uv run python examples/seed_demo.py
-
-# 真实 provider：读取根目录 .env，真实 compile + semantic chunking + embedding
-uv run python examples/seed_demo.py --real
-```
-
-这不是静态 UI 假数据：四份 canonical mock（会议、层级文档库、IM、邮件）会经过与真实
-provider 相同的契约校验，再实际进入 L0、L1/L2 索引、scripted compile、引用门禁、
-Git canonical 与派生投影。最终生成 `u-opc-lin` 的 11 个引用单元、11 篇文档、
-22 条 claim 和 11 个 Git 快照。重跑默认先清理该合成租户；`--keep` 可验证去重。
-
-`--real` 保留合成来源，但把 semantic chunking、embedding、compile 全部切到 `.env`
-配置的真实 provider；文档数与 claim 数由模型输出决定。该模式 fail-closed：只要任一
-关键 LLM 仍是 `scripted:`，或 embedding 仍是 `fake:`，脚本会在清理租户前直接退出。
-
-## 5. 起服务
-
-分别在两个终端跑：
+分别在三个终端跑：
 
 ```bash
 # ① API（http://127.0.0.1:18000，autoreload）
 bash scripts/dev-api.sh
 
-# ② 前端 UI（http://localhost:5173，vite 把 /v1 反代到 API）
+# ② worker（处理异步 index / compile 任务）
+bash scripts/dev-worker.sh
+
+# ③ 前端 UI（http://localhost:5173，vite 把 /v1 反代到 API）
 cd apps/web && pnpm dev
 ```
 
-演示数据已经处理完成，因此浏览不需要 worker。手动从 UI 新增材料时，再启动
-`bash scripts/dev-worker.sh` 消费异步队列。API 与 worker 都是无状态的。
+API 与 worker 都是无状态进程；权威数据位于 PostgreSQL L0 与 per-user canonical Git。
 
-## 6. 另一条路径：导入已处理 preset
-
-仓库同时带有上述 `u-opc-lin` 的已处理四层 bundle；在干净中间件中可直接导入：
-
-```bash
-uv run python examples/import_presets.py
-```
-
-bundle 随包包含向量，import 不调用 embedding provider。导入是幂等替换。详见
-[examples/README.md](../examples/README.md)。
-
-## 7. 打开 UI
+## 5. 打开 UI
 
 浏览器打开 **http://localhost:5173** ：
 
-1. **工作画像**：检查 OPC 工作方式、技术栈、自动化水平和回答偏好。
+1. **工作画像**：建立或编辑当前租户的画像与回答偏好。
 2. **材料入库**：通过四类 official contract 导入会议、层级文档、IM 或邮件；手工 Markdown
    仍可选择**处理意图**（精读归档 / 要点蒸馏 / 存目索引 / 仅可检索）。
 3. **来源原文 / 编译流水**：看证据与 `索引中 → 编译中 → 已消化` 状态。
@@ -112,26 +84,25 @@ bundle 随包包含向量，import 不调用 embedding provider。导入是幂�
 5. **Canonical / 证据图谱 / 版本历史**展示知识、引用关系和 Git 演化。
 6. 右上角主题按钮在**瓷白线路图**与**午夜控制室**之间切换。
 
-## 8.（可选）纯 API 玩法
+## 6. 导入第一份数据
+
+选择任意业务无关的租户 id，例如 `u-demo`。把 Zoom、Obsidian、Slack 或 email
+导出转换为官方 contract 后导入：
 
 ```bash
-U=u-opc-lin
-# 导入一个 meeting/v1 canonical mock（异步：返回 source_id + 入队）
-curl -s -X POST "http://localhost:18000/v1/users/$U/sources/import" \
-  -H 'content-type: application/json' \
-  --data-binary @examples/data/opc-demo/sources/meeting.json
-
-# 入库是异步的：轮询来源，等 digested_at 非空（= 已编译进 canonical）再做 L3 召回。
-# 队列本身可看 GET /v1/users/$U/jobs（queued/claimed/done）。
-curl -s "http://localhost:18000/v1/users/$U/sources" | python3 -m json.tool
-
-# 召回：fast（claim + 原文窗口，带出处）
-curl -s -X POST "http://localhost:18000/v1/users/$U/recall" \
-  -H 'content-type: application/json' \
-  -d '{"query":"Orion 试点的范围和验收标准是什么","mode":"fast"}'
+uv run python -m examples.ops.import_source zoom /path/to/transcript.vtt \
+  --metadata /path/to/recording.json --user u-demo \
+  --owner-address me@example.com
 ```
 
-真实 provider 的命令行导入方式见 [source-adapters.md](source-adapters.md)。
+四类 contract、真实 adapter 与 canonical JSON API 示例见
+[source-adapters.md](source-adapters.md)。
+
+## 7.（可选）运行完整应用示例
+
+框架根环境不内置任何业务人设或业务数据。需要一套可浏览的合成旅程时，按
+[`examples/opc/README.md`](../examples/opc/README.md) 启动它自己的 Compose。
+该栈使用不同端口、卷、数据库与 Qdrant collection，不会污染上面的根开发环境。
 
 - **交互式 API 文档**：服务起来后打开 **http://localhost:18000/docs**（Swagger UI）或
   取 `http://localhost:18000/openapi.json`——比读源码更快。探活用 `GET /healthz`。
@@ -160,14 +131,13 @@ uv run pytest
 一条命令核对并同时重建某用户的三层：
 
 ```bash
-uv run python examples/rebuild_derived.py u-opc-lin     # 单个用户
-uv run python examples/rebuild_derived.py u-opc-lin
-uv run python examples/rebuild_derived.py --all             # 所有有 L0/canonical 的用户
+uv run python -m examples.ops.rebuild_derived <user-id>
+uv run python -m examples.ops.rebuild_derived --all
 ```
 
 它会打印每层的 before/after（L2 chunk 数、L3 claim 数）供你核对。需要 `.env` 里的真实
 `OPENROUTER_API_KEY`（L2 语义分块 + 重嵌要打 provider）。只想重建 L2 一层用
-`examples/reindex_l2.py <user>`（`rebuild_derived` 的子集）。
+`python -m examples.ops.reindex_l2 <user>`（`rebuild_derived` 的子集）。
 
 **「可重建」≠「字节确定性重建」。** L1、L3 投影是纯机械的，同输入必得同输出。L2 的
 **语义分块要问 LLM 边界**，而 LLM 跨次调用并不可复现（同一份源重跑可能给出 17 vs 19 个 chunk）。
@@ -177,7 +147,7 @@ uv run python examples/rebuild_derived.py --all             # 所有有 L0/canon
 chunk 正文始终是 L0 的逐字切片（invariant I4）。
 
 > 换 embedding 模型改变了向量维度时，Qdrant collection 会按新维度重建；跑一次
-> `rebuild_derived`（或至少 `reindex_l2`）把两层向量重嵌回来即可。
+> `examples.ops.rebuild_derived`（或至少 `examples.ops.reindex_l2`）把两层向量重嵌回来即可。
 
 ---
 
@@ -207,4 +177,4 @@ chunk 正文始终是 L0 的逐字切片（invariant I4）。
 - **换 embedding / LLM 模型**：改 `.env` 对应行即可。注意换 embedding 会改向量维度 → 需重建 Qdrant
   collection 并重嵌——见上面「运维：重建派生索引」（`rebuild_derived.py`，或只重 L2 的 `reindex_l2.py`）。
 - **中间件被清空 / 换了容器版本 / 召回突然变空**：canonical 与 L0 是权威、没丢；跑
-  `uv run python examples/rebuild_derived.py <user_id>` 把 L1/L2/L3 重建回来即可（见「运维」一节）。
+  `uv run python -m examples.ops.rebuild_derived <user_id>` 把 L1/L2/L3 重建回来即可（见「运维」一节）。

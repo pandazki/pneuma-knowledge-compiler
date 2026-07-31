@@ -1,5 +1,5 @@
 # L2 semantic vectors. Derived — rebuildable from PG + canonical git via
-# examples/rebuild_derived.py, so the volume is convenience, not durability.
+# examples.ops.rebuild_derived, so the volume is convenience, not durability.
 #
 # Pinned to v1.18.x to match the qdrant-client>=1.18,<1.19 pin in pneuma-knowledge-service.
 apiVersion: v1

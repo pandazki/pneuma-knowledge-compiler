@@ -2,10 +2,8 @@
 
 This is the one group that needs a labelled corpus, because "should this have been
 admitted?" is not decidable from the artifact alone. The scoring machinery — normalized
-character matching, the truth/negative thresholds, the guarded-statement vocabulary, the
-supersession rule — is IMPORTED from `experiments.opc_84d_evaluation`, the evaluator that
-already reports these numbers on a live stack. Re-implementing it would produce a second
-definition of recall that drifts from the first.
+character matching, truth/negative thresholds and guarded-statement vocabulary — comes
+from the package's generic matching contract.
 
 What this module adds is the TRAJECTORY axis. The existing evaluator reports admission at
 HEAD; that cannot distinguish a knowledge base that has been right since round 3 from one
@@ -46,7 +44,7 @@ from collections import Counter
 from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Any
 
-from pneuma_knowledge_service.experiments.opc_84d_evaluation import (
+from ..matching import (
     NEGATIVE_THRESHOLD,
     TRUTH_THRESHOLD,
     guarded_statement,

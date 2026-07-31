@@ -54,7 +54,7 @@ const LEVELS = ["entry", "junior", "mid", "senior", "staff", "principal"] as con
 const LANGUAGES = ["zh-CN", "en-US", "ja-JP", "ko-KR", "fr-FR", "de-DE", "es-ES"] as const;
 const UNITS = ["metric", "imperial"] as const;
 const PRIVACY = ["standard", "strict"] as const;
-const WORKSPACE_MODES = ["opc", "independent", "team"] as const;
+const WORKSPACE_MODES = ["independent", "team", "organization"] as const;
 const AUTOMATION_LEVELS = ["manual", "assisted", "agentic"] as const;
 
 /**
@@ -135,7 +135,7 @@ function toForm(p: UserProfile): FormState {
     response_language: p.preferences.response_language ?? "zh-CN",
     units: p.preferences.units ?? "metric",
     privacy_level: p.preferences.privacy_level ?? "standard",
-    workspace_mode: p.workspace.operating_mode ?? "opc",
+    workspace_mode: p.workspace.operating_mode ?? "independent",
     workspace_stack: p.workspace.primary_stack ?? "",
     workspace_automation: p.workspace.automation_level ?? "agentic",
     workspace_since: p.workspace.active_since ?? "",
@@ -491,7 +491,7 @@ function ProfileFields({ p }: { p: UserProfile }) {
         },
         {
           term: t("profile.term.workspace"),
-          // The values are wire codes (opc / agentic / a stack string): labelled, not
+          // The values are wire codes (independent / agentic / a stack string): labelled, not
           // translated.
           definition:
             joinParts([

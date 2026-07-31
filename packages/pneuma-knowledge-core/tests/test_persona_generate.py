@@ -17,7 +17,7 @@ from pydantic import ValidationError
 
 def _draft() -> ProfileDraft:
     return ProfileDraft(
-        display_name="林知远 Lin Zhiyuan",
+        display_name="测试用户 Test User",
         gender="male",
         birth_year=1992,
         industry="tech",
@@ -38,12 +38,12 @@ def _draft() -> ProfileDraft:
             "privacy_level": "standard",
         },
         workspace={
-            "operating_mode": "opc",
+            "operating_mode": "independent",
             "primary_stack": "TypeScript + Python",
             "automation_level": "agentic",
             "active_since": "2024-05-01",
         },
-        user_id="u-opc-lin",
+        user_id="u-profile-test",
     )
 
 

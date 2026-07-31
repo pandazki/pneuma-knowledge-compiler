@@ -1,7 +1,7 @@
 """Vertical skill (slug form) + compact system-contract rendering.
 
-architecture.md §1, §8. The reworked smart-context clients skill's content is ported as a
-packaged asset (`assets/opc_developer_v1.md`); Pneuma Compiler's contract/loader machine is not.
+architecture.md §1, §8. The package carries a neutral personal-knowledge fallback;
+deployments register complete domain strategies through the public registration seam.
 `render_system_contract` projects a SkillVersion into a byte-stable SystemMessage (I5).
 """
 

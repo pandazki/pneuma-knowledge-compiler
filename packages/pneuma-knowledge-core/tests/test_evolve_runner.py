@@ -58,7 +58,7 @@ USER = UserId("u-evolve-1")
 ATLAS_BODY = (
     "## 产品计划\n\n"
     "- Atlas Q3 发布。[cite: src-01 ¶2] <!-- c:aa11 -->\n"
-    "- Atlas 的技术决策由林知远负责。[cite: src-01 ¶3] <!-- c:bb22 -->\n"
+    "- Atlas 的技术决策由测试用户负责。[cite: src-01 ¶3] <!-- c:bb22 -->\n"
     "- 冗余：Atlas Q3 发布（重复）。[cite: src-01 ¶2] <!-- c:cc33 -->"
 )
 

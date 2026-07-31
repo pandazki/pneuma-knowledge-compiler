@@ -12,10 +12,8 @@ corpus's labels to another corpus's canonical would report ~0 recall and read as
 finding when it is really a mismatched input, so `TruthSet.corpus_key` exists to be checked
 by the caller and `admission` reports `unavailable` rather than guessing.
 
-The category flattening and the scoring thresholds are IMPORTED from
-`pneuma_knowledge_service.experiments.opc_84d_evaluation`, not re-implemented: one
-definition of "which categories count as truth" and one set of thresholds, shared with the
-existing live evaluator so the two report the same numbers on the same input.
+Category flattening and normalization come from the package's generic matching
+contract. Corpus-specific adapters only translate their assets into this shape.
 """
 
 from __future__ import annotations
@@ -27,16 +25,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from pneuma_knowledge_service.experiments.opc_84d_evaluation import (
-    _TRUTH_CATEGORIES,
+from .matching import (
+    TRUTH_CATEGORIES,
     normalize_text,
     truth_entries,
 )
 
 from .errors import EvalInputError
-
-#: The labelled categories, re-exported so callers do not reach into the private name.
-TRUTH_CATEGORIES: tuple[str, ...] = tuple(_TRUTH_CATEGORIES)
 
 _SUPERSEDED_STATUSES = frozenset({"superseded", "cancelled"})
 
@@ -219,7 +214,7 @@ def _shared_sections(manifest: dict[str, Any]) -> dict[str, Any]:
 
 
 def load_84d_truth_set(corpus_dir: Path | str) -> TruthSet:
-    """Load the generated 84-day corpus (`examples/data/opc-84d`) as a TruthSet.
+    """Load a generated longitudinal corpus directory as a TruthSet.
 
     Reads `manifest.json` for the labels and `index.json` for the 12 weekly intake windows,
     which is what makes admission LATENCY measurable in rounds rather than only pass/fail.
@@ -272,7 +267,11 @@ def load_frozen_truth_manifest(path: Path | str) -> TruthSet:
                 category=str(row["category"]),
                 value=str(row["value"]),
                 status=(str(row["status"]) if row.get("status") is not None else None),
-                effective_at=_timestamp(row.get("effective_from")) or (known[0] if known else None),
+                effective_at=(
+                    _timestamp(row.get("effective_from"))
+                    or _timestamp(row.get("effective_at"))
+                    or (known[0] if known else None)
+                ),
                 source_types=tuple(
                     str(item.get("source_family") or "")
                     for item in row.get("evidence", []) or []
