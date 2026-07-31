@@ -177,6 +177,55 @@
     margin: 1.6em 0;
   }
 
+  /**
+   * 分区滚动 ScrollRegion（滚动总纲）——每视图 = 动线控制区钉住 + 内容区各自滚动。
+   * 溢出区的两条约定都在这里，组件只负责把量出来的边缘状态写成 data 属性：
+   * 1) 上下渐隐用 mask 而非叠一层底色——纸/灯箱两套主题、任何底色下都成立，
+   *    也不需要新 token（黑白在 mask 里是 alpha 通道，不是颜色）；
+   * 2) 溢出时才留出滚动条槽位，槽位一旦留出就常显，不用 hover 才知道能滚。
+   */
+  .scroll-region {
+    --fade: 20px;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    /* Where the platform draws a real scrollbar (Windows, Linux, Firefox) it stays thin
+       and inked in tokens. Where it draws an overlay bar that only exists mid-gesture
+       (macOS), the component paints its own hairline rail instead — see ScrollRegion. */
+    scrollbar-width: thin;
+    scrollbar-color: var(--line-2) transparent;
+  }
+  .scroll-region[data-overflowing="true"] {
+    scrollbar-gutter: stable;
+  }
+  .scroll-region[data-fade="top"] {
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0, black var(--fade));
+    mask-image: linear-gradient(to bottom, transparent 0, black var(--fade));
+  }
+  .scroll-region[data-fade="bottom"] {
+    -webkit-mask-image: linear-gradient(
+      to top,
+      transparent 0,
+      black var(--fade)
+    );
+    mask-image: linear-gradient(to top, transparent 0, black var(--fade));
+  }
+  .scroll-region[data-fade="both"] {
+    -webkit-mask-image: linear-gradient(
+      to bottom,
+      transparent 0,
+      black var(--fade),
+      black calc(100% - var(--fade)),
+      transparent 100%
+    );
+    mask-image: linear-gradient(
+      to bottom,
+      transparent 0,
+      black var(--fade),
+      black calc(100% - var(--fade)),
+      transparent 100%
+    );
+  }
+
   /** 题下导言/lede：比正文略松的呼吸感（kami 的 CN lede 0.03–0.06em 密度补偿）。 */
   .prose-lede {
     font-family: var(--font-serif);

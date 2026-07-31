@@ -5,9 +5,10 @@ import { defineMessages } from "./define";
  * document library / instant messages / email) and the compiler galley behind the second tab.
  *
  * Two notes on what is NOT here:
- *   - source-kind names live in `enums.ts` (`enum.sourceKind.*`), keyed by the wire value;
- *     the heatmap legend keeps its own terser set below because the original copy was terser
- *     there ("IM", not "Instant messages") and the two are tuned for different widths.
+ *   - the names of the closed server vocabularies a catalogue row carries — kind, class and
+ *     origin — all live in `enums.ts`, keyed by the wire value, so the chips, the readers and
+ *     the density tooltip say the same word and an unknown value degrades to the wire value
+ *     instead of to a blank.
  *   - the prefixes the readers parse out of normalised block text ("Owner (…)",
  *     "Attachments:") are NOT copy — they are the backend textualizer's wire format and stay
  *     in `views/sources/sourcePresentation.ts`.
@@ -26,23 +27,41 @@ export const sources = defineMessages({
     "sources.empty.none.description":
       "去「导入 Ingest」添加第一条 source，再回来查看它的校样页。",
     "sources.empty.none.action": "去导入",
-    "sources.empty.pick": "在左侧目录选择一条 source",
     "sources.error.list": "加载原料目录失败",
     "sources.error.detail": "加载 source 详情失败",
 
-    "sources.switchSource": "切换来源",
-    "sources.chooseSource": "选择来源",
-
     "sources.heatmap.title": "来源密度",
-    "sources.heatmap.kind.meeting": "会议",
-    "sources.heatmap.kind.document_library": "文档",
-    "sources.heatmap.kind.im": "IM",
-    "sources.heatmap.kind.email": "邮件",
+    "sources.heatmap.hint": "点一格只看当天",
 
-    "sources.directory.count": "目录 · {total} 条",
+    "sources.filter.aria": "原料过滤",
+    "sources.filter.searchPlaceholder": "按标题搜索…",
+    "sources.filter.searchAria": "按标题搜索原料目录",
+    "sources.filter.count": "目录 · {total} 条",
+    "sources.filter.narrowed": "目录 · {total} → {shown} 条",
+    "sources.filter.clear": "清除过滤",
+    "sources.filter.dimension.kind": "类型",
+    "sources.filter.dimension.source_class": "性质",
+    "sources.filter.dimension.origin": "来路",
+    "sources.filter.chipAria": "{dimension}：{value}，{count} 条",
+    "sources.filter.range": "时间",
+    "sources.filter.rangeFrom": "起始日期",
+    "sources.filter.rangeTo": "截止日期",
+    "sources.filter.loading": "正在载入目录 · {loaded} / {total}",
+    "sources.filter.noHits.title": "没有命中的原料",
+    "sources.filter.noHits.description": "放宽关键词、类型或时间范围，或清除全部过滤。",
+
+    "sources.list.aria": "原料目录",
+    "sources.list.more": "再显示 {count} 条",
+    "sources.list.shown": "已显示 {shown} / {hits} 条",
+    "sources.list.openAria": "打开《{title}》的校样",
+
+    "sources.timeline.occurred": "语料时间",
+    "sources.timeline.ingested": "入库时间",
+    "sources.timeline.ingestedHint": "这条原料没有语料时间，按入库日归位",
+
+    "sources.detail.title": "来源校样",
     "sources.directory.digested": "已消化",
     "sources.directory.undigested": "未消化",
-    "sources.directory.noun": "条 source",
 
     "sources.exactSpan.title": "b{block} · 精确段",
     "sources.tabs.aria": "来源详情视图",
@@ -134,23 +153,43 @@ export const sources = defineMessages({
     "sources.empty.none.description":
       "Add your first source under Ingest, then come back for its galley page.",
     "sources.empty.none.action": "Go to Ingest",
-    "sources.empty.pick": "Choose a source from the catalogue",
     "sources.error.list": "Could not load the material catalogue",
     "sources.error.detail": "Could not load the source detail",
 
-    "sources.switchSource": "Switch source",
-    "sources.chooseSource": "Choose a source",
-
     "sources.heatmap.title": "Source density",
-    "sources.heatmap.kind.meeting": "Meeting",
-    "sources.heatmap.kind.document_library": "Document",
-    "sources.heatmap.kind.im": "IM",
-    "sources.heatmap.kind.email": "Email",
+    "sources.heatmap.hint": "Click a day to see only that day",
 
-    "sources.directory.count": "Catalogue · {total} item{total||s}",
+    "sources.filter.aria": "Catalogue filters",
+    "sources.filter.searchPlaceholder": "Search titles…",
+    "sources.filter.searchAria": "Search the source catalogue by title",
+    "sources.filter.count": "Catalogue · {total}",
+    "sources.filter.narrowed": "Catalogue · {total} → {shown}",
+    "sources.filter.clear": "Clear filters",
+    "sources.filter.dimension.kind": "Kind",
+    "sources.filter.dimension.source_class": "Class",
+    "sources.filter.dimension.origin": "Origin",
+    "sources.filter.chipAria": "{dimension}: {value}, {count} item{count||s}",
+    "sources.filter.range": "Time",
+    "sources.filter.rangeFrom": "From date",
+    "sources.filter.rangeTo": "To date",
+    "sources.filter.loading": "Loading the catalogue · {loaded} / {total}",
+    "sources.filter.noHits.title": "Nothing in the catalogue matches",
+    "sources.filter.noHits.description":
+      "Loosen the terms, the chips or the range — or clear the filter.",
+
+    "sources.list.aria": "Source catalogue",
+    "sources.list.more": "Show {count} more",
+    "sources.list.shown": "Showing {shown} of {hits}",
+    "sources.list.openAria": "Open the galley for {title}",
+
+    "sources.timeline.occurred": "Corpus time",
+    "sources.timeline.ingested": "Ingest time",
+    "sources.timeline.ingestedHint":
+      "This source carries no corpus time — it is placed by its import day",
+
+    "sources.detail.title": "Source galley",
     "sources.directory.digested": "Digested",
     "sources.directory.undigested": "Not digested",
-    "sources.directory.noun": "sources",
 
     "sources.exactSpan.title": "b{block} · exact span",
     "sources.tabs.aria": "Source detail views",

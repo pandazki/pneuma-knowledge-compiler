@@ -124,6 +124,18 @@ export function citationShortLabel(sourceId: string): string {
   return sourceId.length > 12 ? sourceId.slice(0, 8) : sourceId;
 }
 
+/**
+ * A claim as ONE PLAIN LINE: machinery stripped, inline markdown flattened.
+ *
+ * For the dense contexts that show a claim as evidence rather than as prose — the
+ * neighbourhood index and the new-link list, where the sentence is there to say what an edge
+ * means. The link that made the edge flattens to its label, because the row already names the
+ * document it points at.
+ */
+export function claimOneLine(text: string): string {
+  return toPlainText(cleanClaimText(text, "paragraph").md);
+}
+
 /** Flatten inline markdown (links, bold, code) to plain text for dense contexts. */
 export function toPlainText(md: string): string {
   return md

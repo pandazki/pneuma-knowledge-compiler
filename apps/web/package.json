@@ -23,9 +23,7 @@
     "@radix-ui/react-tabs": "^1.1.21",
     "@radix-ui/react-tooltip": "^1.2.16",
     "@radix-ui/react-visually-hidden": "^1.2.11",
-    "@xyflow/react": "^12.11.1",
     "clsx": "^2.1.1",
-    "dagre": "^0.8.5",
     "lucide-react": "^0.454.0",
     "lxgw-wenkai-screen-webfont": "^1.7.0",
     "react": "^18.3.1",
@@ -37,7 +35,6 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.0.0",
-    "@types/dagre": "^0.7.54",
     "@types/node": "^25.9.3",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",

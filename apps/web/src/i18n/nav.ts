@@ -61,6 +61,17 @@ export const nav = defineMessages({
     "nav.snapshot.loadingNote": "加载版本…",
     "nav.snapshot.noneNote": "尚无版本",
 
+    "nav.snapshot.groupLive": "当前",
+    "nav.snapshot.groupFrozen": "冻结快照 · 可问答",
+    "nav.snapshot.groupCommits": "canonical 提交 · 仅浏览",
+    "nav.snapshot.kbScale": "{sources} 份原料 · {claims} 条 claim",
+    "nav.snapshot.kbCreating": "复制中…",
+    "nav.snapshot.kbFailed": "创建失败",
+    "nav.snapshot.kbCreateHint": "输入名称以冻结当前知识库",
+    "nav.snapshot.kbCreateNamed": "冻结当前知识库为「{label}」",
+    "nav.snapshot.kbDelete": "删除快照「{label}」",
+    "nav.snapshot.kbBanner": "冻结快照 · 只读",
+
     "nav.notice.newProfile": "新画像 · 可以用 AI 生成草稿，也可以直接填写",
     "nav.notice.profileSaved": "画像已保存 · 去 Ingest 导入第一条数据",
     "nav.notice.profileSkipped": "已跳过画像设置 · 去 Ingest 导入第一条数据",
@@ -122,6 +133,17 @@ export const nav = defineMessages({
     "nav.snapshot.empty": "No matching snapshot",
     "nav.snapshot.loadingNote": "Loading versions…",
     "nav.snapshot.noneNote": "No versions yet",
+
+    "nav.snapshot.groupLive": "Live",
+    "nav.snapshot.groupFrozen": "Frozen snapshots · answerable",
+    "nav.snapshot.groupCommits": "Canonical commits · browse only",
+    "nav.snapshot.kbScale": "{sources} source(s) · {claims} claim(s)",
+    "nav.snapshot.kbCreating": "copying…",
+    "nav.snapshot.kbFailed": "failed",
+    "nav.snapshot.kbCreateHint": "Type a name to freeze the base as it stands",
+    "nav.snapshot.kbCreateNamed": "Freeze the base as “{label}”",
+    "nav.snapshot.kbDelete": "Delete snapshot “{label}”",
+    "nav.snapshot.kbBanner": "Frozen snapshot · read-only",
 
     "nav.notice.newProfile":
       "New profile · let the AI draft one, or just fill it in yourself",

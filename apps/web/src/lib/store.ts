@@ -11,6 +11,10 @@ import {
   getDatasetRaw,
   getUserProfile,
   listSnapshots,
+  listKbSnapshots,
+  createKbSnapshot,
+  deleteKbSnapshot,
+  type KbSnapshot,
   type SnapshotSummary,
   type RecallHit,
   type RecallAnswer,
@@ -175,6 +179,20 @@ interface AppState {
   /** selected snapshot ref, or null = current HEAD (live). Non-HEAD = history, read-only. */
   currentSnapshot: string | null;
 
+  /**
+   * The user's FROZEN knowledge-base snapshots (GET /kb-snapshots) — a different object from
+   * `snapshots` above: a git commit is canonical-only and browse-only, a kb-snapshot has its
+   * own copies of the retrieval layers and can therefore be ASKED.
+   */
+  kbSnapshots: KbSnapshot[];
+  kbSnapshotsLoading: boolean;
+  kbSnapshotError: string | null;
+  /**
+   * The kb-snapshot the whole app is pinned to, or null = the live base. When set, Recall
+   * sends its id and browsing reads canonical at its pinned commit.
+   */
+  currentKbSnapshot: KbSnapshot | null;
+
   view: ViewName;
   selection: Selection;
   theme: Theme;
@@ -212,6 +230,17 @@ interface AppState {
   loadMoreSnapshots: () => Promise<void>;
   /** select a snapshot (null = HEAD); reloads the dataset at that ref (read-only if history). */
   setSnapshot: (ref: string | null) => void;
+  /** (re)load the user's frozen knowledge-base snapshots from GET /kb-snapshots. */
+  loadKbSnapshots: () => Promise<void>;
+  /**
+   * Pin the whole app to a frozen snapshot (null = back to the live base). Browsing follows
+   * by reading canonical at the snapshot's commit; Recall follows by sending its id.
+   */
+  setKbSnapshot: (snapshot: KbSnapshot | null) => void;
+  /** Freeze the base as it stands now, then poll until the copy pipeline settles. */
+  createSnapshot: (label: string) => Promise<void>;
+  /** Delete a frozen snapshot (unpins it first when it is the pinned one). */
+  removeSnapshot: (snapshotId: string) => Promise<void>;
   /** switch the active pneuma-knowledge user (persists; clears any Sources focus). */
   setUser: (uid: string) => void;
   /**
@@ -252,6 +281,37 @@ let profileToken = 0;
 let datasetToken = 0;
 /** Invalidates an in-flight snapshot page when user context changes. */
 let snapshotToken = 0;
+/** Invalidates an in-flight kb-snapshot list when user context changes. */
+let kbSnapshotToken = 0;
+
+/** How long to wait between polls while a snapshot's copy pipeline runs. */
+const SNAPSHOT_POLL_MS = 1_500;
+/** Give up polling after this long and let the list show whatever status it reports. */
+const SNAPSHOT_POLL_TIMEOUT_MS = 180_000;
+
+/**
+ * Poll a freshly created snapshot until it leaves "creating".
+ *
+ * Polling rather than streaming because the copy is a one-shot background job whose only
+ * observable is the registry row, and the row is already exposed by the list endpoint —
+ * a dedicated progress channel would be a second source of truth for the same status.
+ * Bounded on both axes (interval and total time) so a stuck pipeline degrades to "still
+ * creating" in the picker rather than an endless request loop.
+ */
+async function pollUntilSettled(
+  userId: string,
+  snapshotId: string,
+  stillCurrent: () => boolean,
+): Promise<void> {
+  const deadline = Date.now() + SNAPSHOT_POLL_TIMEOUT_MS;
+  while (Date.now() < deadline && stillCurrent()) {
+    await new Promise((resolve) => setTimeout(resolve, SNAPSHOT_POLL_MS));
+    if (!stillCurrent()) return;
+    const rows = await listKbSnapshots(userId);
+    const row = rows.find((s) => s.snapshot_id === snapshotId);
+    if (!row || row.status !== "creating") return;
+  }
+}
 
 /** In-flight guard for `ensureNames` so a re-render never re-fires a live fetch. */
 const namesInFlight = new Set<string>();
@@ -345,6 +405,10 @@ export const useApp = create<AppState>((set, get) => ({
   snapshotsLoading: false,
   snapshotError: null,
   currentSnapshot: null,
+  kbSnapshots: [],
+  kbSnapshotsLoading: false,
+  kbSnapshotError: null,
+  currentKbSnapshot: null,
   view: "overview",
   selection: null,
   theme: initialTheme(),
@@ -386,6 +450,7 @@ export const useApp = create<AppState>((set, get) => ({
     // "ready" never waits on it (an unreachable /profile degrades gracefully).
     void get().loadProfile();
     await get().loadSnapshots();
+    void get().loadKbSnapshots();
     if (needsCanonicalDataset(get().view)) {
       await get().loadUserDataset();
     }
@@ -559,10 +624,99 @@ export const useApp = create<AppState>((set, get) => ({
 
   setSnapshot: (ref) => {
     datasetToken += 1;
-    set({ currentSnapshot: ref, dataset: null, model: null });
+    // Picking a bare commit is canonical-only browsing, so it also clears any frozen-snapshot
+    // pin: the two are alternative read planes and holding both would make "which base is
+    // answering?" unanswerable.
+    set({
+      currentSnapshot: ref,
+      currentKbSnapshot: null,
+      dataset: null,
+      model: null,
+    });
     if (needsCanonicalDataset(get().view)) {
       void get().loadUserDataset();
     }
+  },
+
+  loadKbSnapshots: async () => {
+    const uid = get().currentUser;
+    if (!uid) {
+      set({ kbSnapshots: [], kbSnapshotError: null, currentKbSnapshot: null });
+      return;
+    }
+    const token = ++kbSnapshotToken;
+    set({ kbSnapshotsLoading: true, kbSnapshotError: null });
+    try {
+      const items = await listKbSnapshots(uid);
+      if (token !== kbSnapshotToken || uid !== get().currentUser) return;
+      // Refresh the pinned snapshot from the list it came from, so a pin taken while the copy
+      // was still running flips to `ready` (or `failed`) without a manual re-select.
+      const pinned = get().currentKbSnapshot;
+      const refreshed = pinned
+        ? (items.find((s) => s.snapshot_id === pinned.snapshot_id) ?? null)
+        : null;
+      set({
+        kbSnapshots: items,
+        kbSnapshotsLoading: false,
+        kbSnapshotError: null,
+        currentKbSnapshot: refreshed,
+      });
+    } catch (error) {
+      if (token !== kbSnapshotToken) return;
+      set({
+        kbSnapshotsLoading: false,
+        kbSnapshotError: (error as Error).message,
+      });
+    }
+  },
+
+  setKbSnapshot: (snapshot) => {
+    datasetToken += 1;
+    set({
+      currentKbSnapshot: snapshot,
+      // Browsing follows the pin by reading canonical at the commit the snapshot froze — the
+      // existing `at=` path, no new endpoint. null → back to HEAD.
+      currentSnapshot: snapshot?.canonical_ref || null,
+      dataset: null,
+      model: null,
+    });
+    if (needsCanonicalDataset(get().view)) {
+      void get().loadUserDataset();
+    }
+  },
+
+  createSnapshot: async (label) => {
+    const uid = get().currentUser;
+    if (!uid || !label.trim()) return;
+    set({ kbSnapshotsLoading: true, kbSnapshotError: null });
+    try {
+      const created = await createKbSnapshot(uid, label.trim());
+      // Show it immediately in status "creating" — the copy runs server-side and the row is
+      // the only honest progress indicator we have.
+      set((s) => ({ kbSnapshots: [created, ...s.kbSnapshots] }));
+      await pollUntilSettled(uid, created.snapshot_id, () => get().currentUser === uid);
+    } catch (error) {
+      set({ kbSnapshotError: (error as Error).message });
+    } finally {
+      set({ kbSnapshotsLoading: false });
+      if (get().currentUser === uid) await get().loadKbSnapshots();
+    }
+  },
+
+  removeSnapshot: async (snapshotId) => {
+    const uid = get().currentUser;
+    if (!uid) return;
+    // Unpin first: continuing to answer over a tenant that is being purged would produce
+    // silently emptying answers rather than an error.
+    if (get().currentKbSnapshot?.snapshot_id === snapshotId) {
+      get().setKbSnapshot(null);
+    }
+    try {
+      await deleteKbSnapshot(uid, snapshotId);
+    } catch (error) {
+      set({ kbSnapshotError: (error as Error).message });
+    }
+    if (get().currentUser === uid) await get().loadKbSnapshots();
   },
 
   loadUserDataset: async () => {
@@ -626,12 +780,18 @@ export const useApp = create<AppState>((set, get) => ({
       snapshotNextCursor: null,
       snapshotsLoading: false,
       snapshotError: null,
+      // A snapshot belongs to one owner, so switching users unpins: carrying a pin across
+      // would ask one user's frozen tenant while the shell named another user.
+      kbSnapshots: [],
+      kbSnapshotError: null,
+      currentKbSnapshot: null,
       // per-user in-memory scratch: never carry one user's recall/ask into another's.
       recallCache: EMPTY_RECALL_CACHE,
       askCache: EMPTY_ASK_CACHE,
       recentUsers: pushRecent(s.recentUsers, uid),
     }));
     void get().loadProfile();
+    void get().loadKbSnapshots();
     void get().loadSnapshots().then(() => {
       if (needsCanonicalDataset(get().view)) {
         return get().loadUserDataset();

@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { PanelLeft } from "lucide-react";
 import { useApp } from "@/lib/store";
+import type { ViewName } from "@/lib/types";
 import { useT } from "@/lib/useT";
 import { Button } from "@/ui/Button";
 import { Callout } from "@/ui/Callout";
@@ -8,11 +9,24 @@ import { Drawer } from "@/ui/Drawer";
 import { IconButton } from "@/ui/IconButton";
 import { Mono } from "@/ui/Mono";
 import { Stamp } from "@/ui/Stamp";
+import { cn } from "@/ui/cn";
 import { TocNav } from "./TocNav";
 import { UserPicker } from "./UserPicker";
 import { SnapshotPicker } from "./SnapshotPicker";
 import { ThemeToggle } from "./ThemeToggle";
 import { LocaleToggle } from "./LocaleToggle";
+
+/**
+ * Views that own their scrolling (the scroll charter): their content column is bounded to
+ * the viewport on wide screens so the view can pin its controls and let each content area
+ * scroll on its own. Every other view keeps the ordinary page scroll, unchanged — the list
+ * grows one view at a time as the charter rolls out.
+ */
+const VIEWPORT_PANE_VIEWS: ReadonlySet<ViewName> = new Set<ViewName>([
+  "library",
+  "recall",
+  "sources",
+]);
 
 /**
  * The app shell: top bar (wordmark + mobile contents button + UserPicker / SnapshotPicker /
@@ -21,11 +35,14 @@ import { LocaleToggle } from "./LocaleToggle";
  * stamp banner all live here.
  */
 export function AppShell({ children }: { children: ReactNode }) {
+  const view = useApp((s) => s.view);
   const notice = useApp((s) => s.notice);
   const dismissNotice = useApp((s) => s.dismissNotice);
   const usersError = useApp((s) => s.usersError);
   const loadUsers = useApp((s) => s.loadUsers);
   const currentSnapshot = useApp((s) => s.currentSnapshot);
+  const currentKbSnapshot = useApp((s) => s.currentKbSnapshot);
+  const setKbSnapshot = useApp((s) => s.setKbSnapshot);
   const setSnapshot = useApp((s) => s.setSnapshot);
   const [tocOpen, setTocOpen] = useState(false);
   const t = useT();
@@ -83,12 +100,34 @@ export function AppShell({ children }: { children: ReactNode }) {
           <TocNav />
         </aside>
         <main className="min-w-0 flex-1">
-          <div className="mx-auto w-full max-w-content px-4 py-6 sm:px-8">
+          <div
+            className={cn(
+              "mx-auto w-full max-w-content px-4 py-6 sm:px-8",
+              // The snapshot banner is inside the box, so the panes below it shrink by
+              // exactly its height instead of guessing at it.
+              VIEWPORT_PANE_VIEWS.has(view) &&
+                "flex flex-col lg:h-[calc(100dvh-3rem)] lg:min-h-0",
+            )}
+          >
             {currentSnapshot && (
-              <div className="mb-6 flex flex-wrap items-center gap-3 border-b border-line pb-4">
-                <Stamp tone="warn">{t("nav.snapshotBanner")}</Stamp>
-                <Mono className="text-13 text-ink-2">{currentSnapshot}</Mono>
-                <Button size="sm" variant="ghost" onClick={() => setSnapshot(null)}>
+              // Same visual language for both read planes, different words: a frozen snapshot
+              // is named by its label (it answers questions), a bare commit by its ref (it is
+              // canonical-only browsing).
+              <div className="mb-6 flex shrink-0 flex-wrap items-center gap-3 border-b border-line pb-4">
+                <Stamp tone="warn">
+                  {t(currentKbSnapshot ? "nav.snapshot.kbBanner" : "nav.snapshotBanner")}
+                </Stamp>
+                <Mono className="text-13 text-ink-2">
+                  {currentKbSnapshot ? currentKbSnapshot.label : currentSnapshot}
+                </Mono>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setKbSnapshot(null);
+                    setSnapshot(null);
+                  }}
+                >
                   {t("nav.backToHead")}
                 </Button>
               </div>

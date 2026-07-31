@@ -22,6 +22,7 @@ import { EmptyState } from "@/ui/EmptyState";
 import { ErrorState } from "@/ui/ErrorState";
 import { Footnote } from "@/ui/Footnote";
 import { Mono } from "@/ui/Mono";
+import { ScrollRegion } from "@/ui/ScrollRegion";
 import { SearchField } from "@/ui/SearchField";
 import { SectionRule } from "@/ui/SectionRule";
 import { SegmentedControl } from "@/ui/SegmentedControl";
@@ -39,6 +40,7 @@ export default function RecallView() {
   const focusSource = useApp((s) => s.focusSource);
   const recallCache = useApp((s) => s.recallCache);
   const setRecallCache = useApp((s) => s.setRecallCache);
+  const currentKbSnapshot = useApp((s) => s.currentKbSnapshot);
   const { query, mode, hits, answer, error } = recallCache;
 
   // liveTrail / searching are transients of the in-flight query; Back need not preserve them.
@@ -76,13 +78,21 @@ export default function RecallView() {
 
   async function onSearch() {
     if (!currentUser || !query.trim()) return;
+    // The header's read-plane pin travels with every question: a frozen snapshot answers from
+    // its own copies of the retrieval layers, so this is the only thing the view has to say.
+    const snapshot = currentKbSnapshot?.snapshot_id ?? null;
     abortRef.current?.abort();
     setSearching(true);
     setRecallCache({ error: null });
     setLiveTrail([]);
     try {
       if (mode === "rag") {
-        const rows = await recall(currentUser, { query: query.trim(), mode, limit: 20 });
+        const rows = await recall(currentUser, {
+          query: query.trim(),
+          mode,
+          limit: 20,
+          snapshot,
+        });
         setRecallCache({ answer: null, hits: rows });
       } else if (mode === "deep") {
         // deep runs over SSE: each tool call appends to liveTrail live, and the final answer
@@ -101,9 +111,14 @@ export default function RecallView() {
             },
           },
           ac.signal,
+          snapshot,
         );
       } else {
-        const a = await recallAnswer(currentUser, { query: query.trim(), mode });
+        const a = await recallAnswer(currentUser, {
+          query: query.trim(),
+          mode,
+          snapshot,
+        });
         setRecallCache({ hits: null, answer: a });
       }
     } catch (e) {
@@ -127,11 +142,16 @@ export default function RecallView() {
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      <PageHeader title={t("recall.title")} description={t("recall.description")} />
+    // Query row and lane switch pinned, results scrolling on their own (scroll charter).
+    <div className="flex min-h-0 flex-1 flex-col gap-6">
+      <PageHeader
+        className="shrink-0"
+        title={t("recall.title")}
+        description={t("recall.description")}
+      />
 
       {/* Query row */}
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex shrink-0 flex-wrap items-center gap-2">
         <SearchField
           wrapperClassName="min-w-56 flex-1"
           value={query}
@@ -167,6 +187,7 @@ export default function RecallView() {
       </div>
 
       {/* Results */}
+      <ScrollRegion className="min-h-0 lg:flex-1">
       {error ? (
         <ErrorState
           title={t("recall.error.title")}
@@ -198,6 +219,7 @@ export default function RecallView() {
       ) : (
         <HitList hits={hits} titles={titles} onJump={jumpToCitation} />
       )}
+      </ScrollRegion>
     </div>
   );
 }

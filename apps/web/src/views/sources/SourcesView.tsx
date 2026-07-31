@@ -1,24 +1,27 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Database, FileText, Layers, PackageOpen } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Database, Layers, PackageOpen } from "lucide-react";
 import {
+  crawlSources,
   fetchLocator,
-  getSourceActivity,
   getSource,
-  listSources,
-  type ActivityDay,
   type SourceDetail,
   type SourceSummary,
 } from "@/lib/api";
-import { fmtTime } from "@/lib/format";
+import { fmtCount, fmtDay, fmtTime } from "@/lib/format";
 import {
-  firstPage,
-  nextPage,
-  previousPage,
-  type CursorPageState,
-  type Page,
-} from "@/lib/pagination";
+  EMPTY_SOURCE_FILTER,
+  filterSources,
+  selectedDay,
+  sortByTimeline,
+  sourceDensity,
+  sourceFacets,
+  sourceTimeline,
+  timelineBounds,
+  toggleDay,
+  type SourceFilter,
+} from "@/lib/sourceFilter";
 import { useApp } from "@/lib/store";
-import { useT } from "@/lib/useT";
+import { useT, useTOr, type TOrFunction } from "@/lib/useT";
 import { Badge } from "@/ui/Badge";
 import { Button } from "@/ui/Button";
 import { Callout } from "@/ui/Callout";
@@ -27,13 +30,14 @@ import { Drawer } from "@/ui/Drawer";
 import { EmptyState } from "@/ui/EmptyState";
 import { ErrorState } from "@/ui/ErrorState";
 import { Mono } from "@/ui/Mono";
+import { ScrollRegion } from "@/ui/ScrollRegion";
 import { SectionRule } from "@/ui/SectionRule";
 import { SkeletonText } from "@/ui/Skeleton";
 import { Tabs } from "@/ui/Tabs";
 import { ActivityHeatmap } from "@/components/ActivityHeatmap";
 import { PageHeader } from "@/components/PageHeader";
-import { PaginationBar } from "@/components/PaginationBar";
 import { cn } from "@/ui/cn";
+import { SourceFilterBar } from "./SourceFilterBar";
 import { SourceKindName, SourceKindSummary, SourceReader } from "./SourceReaders";
 
 /** The block range to highlight on the galley page (inclusive). */
@@ -42,10 +46,19 @@ interface BlockRange {
   end: number;
 }
 
-const PAGE_SIZE = 25;
+/** How many rows enter the DOM at once, and how many more each reveal adds. */
+const REVEAL_STEP = 120;
+
+/**
+ * A calendar wide enough for a corpus's own time. The shared default covers a few months,
+ * which suits a recency read; material replayed out of an archive reaches back further, and
+ * cropping it would hide the very distribution the calendar is there to show.
+ */
+const CALENDAR_WEEKS = 54;
 
 export default function SourcesView() {
   const t = useT();
+  const tOr = useTOr();
   const currentUser = useApp((s) => s.currentUser);
   const sourceFocus = useApp((s) => s.sourceFocus);
   const selection = useApp((s) => s.selection);
@@ -54,111 +67,118 @@ export default function SourcesView() {
 
   const sourceSel = selection?.kind === "source" ? selection : null;
 
-  const [sourcePage, setSourcePage] = useState<Page<SourceSummary> | null>(null);
-  const [pageState, setPageState] = useState<CursorPageState>(firstPage);
+  const [catalogue, setCatalogue] = useState<SourceSummary[] | null>(null);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const [filter, setFilter] = useState<SourceFilter>(EMPTY_SOURCE_FILTER);
+  const [revealed, setRevealed] = useState(REVEAL_STEP);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [directoryOpen, setDirectoryOpen] = useState(false);
-  const [activityDays, setActivityDays] = useState<ActivityDay[]>([]);
-  const detailTopRef = useRef<HTMLDivElement>(null);
 
-  const sources = sourcePage?.items ?? null;
+  const load = useCallback(() => setReloadKey((k) => k + 1), []);
+  const reveal = useCallback(() => setRevealed((n) => n + REVEAL_STEP), []);
 
-  const load = useCallback(() => {
-    setPageState(firstPage());
-    setReloadKey((k) => k + 1);
-  }, []);
+  /**
+   * The whole catalogue, in corpus-time order.
+   *
+   * Held client-side on purpose: the reader's question is a directory lookup over metadata
+   * that is already small, and answering it locally is what makes the search answer as they
+   * type. It arrives page by page and the list paints as it fills, so a five-figure inventory
+   * is readable long before the tail lands.
+   */
+  useEffect(() => {
+    if (!currentUser) {
+      setCatalogue(null);
+      setTotal(0);
+      setSelectedId(null);
+      setListError(null);
+      return;
+    }
+    const controller = new AbortController();
+    setListError(null);
+    setCatalogue(null);
+    setTotal(0);
+    setLoading(true);
+    crawlSources(currentUser, {
+      signal: controller.signal,
+      onProgress: (items, pageTotal) => {
+        if (controller.signal.aborted) return;
+        setCatalogue(sortByTimeline(items));
+        setTotal(pageTotal);
+      },
+    })
+      .then(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      })
+      .catch((e: Error) => {
+        if (controller.signal.aborted) return;
+        setLoading(false);
+        setListError(e.message);
+      });
+    return () => controller.abort();
+  }, [currentUser, reloadKey]);
 
-  const chooseSource = useCallback(
+  // A user switch is a different catalogue, so it is also a different question.
+  useEffect(() => {
+    setFilter(EMPTY_SOURCE_FILTER);
+  }, [currentUser]);
+
+  // Narrowing hands the reader a new list; it must start at its own top.
+  useEffect(() => {
+    setRevealed(REVEAL_STEP);
+  }, [filter]);
+
+  /**
+   * Cross-view landing (a recall hit, an ask citation, a suggestion): `focusSource` hands
+   * over a FRESH focus object every time, so keying the effect on it opens the galley once
+   * per ask. Closing the sheet therefore stays closed — a focus that is still in the store
+   * from an earlier jump is not a standing instruction to reopen.
+   */
+  useEffect(() => {
+    if (sourceFocus) setSelectedId(sourceFocus.sourceId);
+  }, [sourceFocus]);
+
+  // deep link `#/sources/source/<id>/<block?>`: arriving by hash opens that galley.
+  useEffect(() => {
+    if (sourceSel) setSelectedId(sourceSel.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sourceSel?.id, sourceSel?.block]);
+
+  /** Closing gives the address bar back too, so the deep link does not outlive the sheet. */
+  const closeGalley = useCallback(() => {
+    setSelectedId(null);
+    if (useApp.getState().selection?.kind === "source") select(null);
+  }, [select]);
+
+  const openGalley = useCallback(
     (sourceId: string) => {
       setSelectedId(sourceId);
       select({ kind: "source", id: sourceId });
-      setDirectoryOpen(false);
-      requestAnimationFrame(() => {
-        detailTopRef.current?.scrollIntoView({
-          block: "start",
-          behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
-            ? "auto"
-            : "smooth",
-        });
-      });
     },
     [select],
   );
 
-  useEffect(() => {
-    setPageState(firstPage());
-  }, [currentUser]);
-
-  useEffect(() => {
-    if (!currentUser) {
-      setActivityDays([]);
-      return;
+  const sources = catalogue ?? [];
+  const hits = useMemo(() => filterSources(sources, filter), [sources, filter]);
+  const facets = useMemo(() => sourceFacets(sources, filter), [sources, filter]);
+  const bounds = useMemo(() => timelineBounds(sources), [sources]);
+  /**
+   * The calendar answers "where in time is what I am looking at" — so it shows the density
+   * of everything the OTHER controls let through, with the pinned day marked. Redrawing it
+   * from the range as well would leave one lit cell and nowhere to click next.
+   */
+  const density = useMemo(
+    () => sourceDensity(filterSources(sources, { ...filter, from: null, to: null })),
+    [sources, filter],
+  );
+  const kindLabels = useMemo(() => {
+    const labels: Record<string, string> = {};
+    for (const source of sources) {
+      labels[source.kind] ??= tOr(`enum.sourceKind.${source.kind}`, source.kind);
     }
-    let live = true;
-    void getSourceActivity(currentUser)
-      .then((calendar) => {
-        if (live) setActivityDays(calendar.days);
-      })
-      .catch(() => {
-        if (live) setActivityDays([]);
-      });
-    return () => {
-      live = false;
-    };
-  }, [currentUser, reloadKey]);
-
-  // The source catalogue: reloads on a user switch or a manual retry.
-  useEffect(() => {
-    if (!currentUser) {
-      setSourcePage(null);
-      setListError(null);
-      setSelectedId(null);
-      return;
-    }
-    let live = true;
-    setListError(null);
-    setSourcePage(null);
-    listSources(currentUser, { limit: PAGE_SIZE, cursor: pageState.cursor })
-      .then((page) => {
-        if (!live) return;
-        const rows = page.items;
-        setSourcePage(page);
-        // Landing priority: deep-link selection > store.sourceFocus > last pick > first row.
-        setSelectedId((prev) => {
-          if (sourceSel) return sourceSel.id;
-          const focus = sourceFocus?.sourceId;
-          if (focus) return focus;
-          if (prev && rows.some((r) => r.source_id === prev)) return prev;
-          return rows[0]?.source_id ?? null;
-        });
-      })
-      .catch((e: Error) => {
-        if (!live) return;
-        setListError(e.message);
-      });
-    return () => {
-      live = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentUser, pageState.cursor, reloadKey]);
-
-  // Cross-view landing (focusSource from recall/ask/suggestion): select the target source.
-  // Read-only consumption — the hash is left alone.
-  useEffect(() => {
-    if (sourceFocus) {
-      setSelectedId(sourceFocus.sourceId);
-    }
-  }, [sourceFocus]);
-
-  // deep link `#/sources/source/<id>/<block?>`: arriving by hash selects that source.
-  useEffect(() => {
-    if (sourceSel) {
-      setSelectedId(sourceSel.id);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sourceSel?.id, sourceSel?.block]);
+    return labels;
+  }, [sources, tOr]);
 
   // Highlight range: a block carried by the selection wins, then sourceFocus's span.
   const highlight: BlockRange | null =
@@ -185,7 +205,7 @@ export default function SourcesView() {
   if (listError) {
     return <ErrorState title={t("sources.error.list")} error={listError} onRetry={load} />;
   }
-  if (sources == null) {
+  if (catalogue == null) {
     return (
       <div className="flex flex-col gap-4">
         <PageHeader
@@ -196,7 +216,7 @@ export default function SourcesView() {
       </div>
     );
   }
-  if (sources.length === 0) {
+  if (catalogue.length === 0) {
     return (
       <EmptyState
         icon={PackageOpen}
@@ -211,166 +231,226 @@ export default function SourcesView() {
     );
   }
 
-  const directory = (
-    <SourceDirectory
-      sources={sources}
-      total={sourcePage?.page.total ?? sources.length}
-      selectedId={selectedId}
-      pageIndex={pageState.previous.length}
-      hasNext={sourcePage?.page.next_cursor != null}
-      onSelect={chooseSource}
-      onPrevious={() => setPageState((state) => previousPage(state))}
-      onNext={() => {
-        const cursor = sourcePage?.page.next_cursor;
-        if (cursor) setPageState((state) => nextPage(state, cursor));
-      }}
-    />
-  );
-
   return (
     <>
       <PageHeader
+        className="shrink-0"
         title={t("nav.view.sources")}
         description={t("sources.description")}
-        actions={
-          <Button
-            size="sm"
-            variant="ghost"
-            className="xl:hidden"
-            onClick={() => setDirectoryOpen(true)}
-          >
-            <FileText size={14} aria-hidden />
-            {t("sources.switchSource")}
-          </Button>
-        }
       />
       <ActivityHeatmap
-        className="mb-6"
-        days={activityDays}
-        title={t("sources.heatmap.title")}
-        kindLabels={{
-          meeting: t("sources.heatmap.kind.meeting"),
-          document_library: t("sources.heatmap.kind.document_library"),
-          im: t("sources.heatmap.kind.im"),
-          email: t("sources.heatmap.kind.email"),
-        }}
+        className="mb-4 shrink-0"
+        days={density}
+        maxWeeks={CALENDAR_WEEKS}
+        title={`${t("sources.heatmap.title")} · ${t("sources.heatmap.hint")}`}
+        kindLabels={kindLabels}
+        selectedDate={selectedDay(filter)}
+        onSelectDay={(date) => setFilter((current) => toggleDay(current, date))}
       />
-      <div className="xl:grid xl:grid-cols-[18rem_minmax(0,1fr)] xl:items-start xl:gap-8">
-        <aside className="sticky top-16 hidden h-[calc(100dvh-5rem)] min-h-0 overflow-hidden xl:block">
-          {directory}
-        </aside>
+      <SourceFilterBar
+        filter={filter}
+        onChange={setFilter}
+        facets={facets}
+        total={total || sources.length}
+        hits={hits.length}
+        bounds={bounds}
+        loading={loading}
+        loaded={sources.length}
+      />
 
-        <div ref={detailTopRef} className="min-w-0 scroll-mt-16">
-          {selectedId ? (
+      {hits.length === 0 ? (
+        <EmptyState
+          icon={PackageOpen}
+          title={t("sources.filter.noHits.title")}
+          description={t("sources.filter.noHits.description")}
+          action={
+            <Button size="sm" variant="ghost" onClick={() => setFilter(EMPTY_SOURCE_FILTER)}>
+              {t("sources.filter.clear")}
+            </Button>
+          }
+        />
+      ) : (
+        <SourceCatalogue
+          hits={hits}
+          revealed={revealed}
+          onReveal={reveal}
+          selectedId={selectedId}
+          onSelect={openGalley}
+          tOr={tOr}
+        />
+      )}
+
+      <Drawer
+        open={selectedId != null}
+        onOpenChange={(open) => {
+          if (!open) closeGalley();
+        }}
+        side="right"
+        title={t("sources.detail.title")}
+        contentClassName="w-[min(48rem,100vw)]"
+      >
+        {selectedId && (
+          <div className="p-5">
             <SourceGalley
               key={selectedId}
               userId={currentUser}
               sourceId={selectedId}
               highlight={highlight}
             />
-          ) : (
-            <EmptyState icon={FileText} title={t("sources.empty.pick")} />
-          )}
-        </div>
-      </div>
-      <Drawer
-        open={directoryOpen}
-        onOpenChange={setDirectoryOpen}
-        side="bottom"
-        title={t("sources.chooseSource")}
-        contentClassName="h-[min(44rem,85dvh)] max-h-[85dvh]"
-      >
-        <div className="h-full min-h-0 p-4">{directory}</div>
+          </div>
+        )}
       </Drawer>
     </>
   );
 }
 
-function SourceDirectory({
-  sources,
-  total,
+/**
+ * The catalogue list: one scroll region of its own (the scroll charter), revealing a window
+ * of rows at a time. Five thousand buttons in the DOM would make every keystroke pay for
+ * rows nobody has scrolled to; the window grows as the reader reaches the end of it, and a
+ * button does the same job where an observer cannot run.
+ */
+function SourceCatalogue({
+  hits,
+  revealed,
+  onReveal,
   selectedId,
-  pageIndex,
-  hasNext,
   onSelect,
-  onPrevious,
-  onNext,
+  tOr,
 }: {
-  sources: SourceSummary[];
-  total: number;
+  hits: SourceSummary[];
+  revealed: number;
+  onReveal: () => void;
   selectedId: string | null;
-  pageIndex: number;
-  hasNext: boolean;
   onSelect: (sourceId: string) => void;
-  onPrevious: () => void;
-  onNext: () => void;
+  tOr: TOrFunction;
 }) {
   const t = useT();
+  const sentinel = useRef<HTMLLIElement>(null);
+  const shown = Math.min(revealed, hits.length);
+  const more = hits.length - shown;
+
+  useEffect(() => {
+    const node = sentinel.current;
+    if (!node || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) onReveal();
+      },
+      { rootMargin: "400px" },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [onReveal, shown]);
+
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <p className="shrink-0 pb-2 text-12 text-ink-3">
-        {t("sources.directory.count", { total })}
-      </p>
-      <ul className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain border-y border-line">
-        {sources.map((source) => {
-          const selected = source.source_id === selectedId;
-          return (
-            <li key={source.source_id} className="border-b border-line last:border-b-0">
-              <button
-                type="button"
-                aria-current={selected ? "true" : undefined}
-                onClick={() => onSelect(source.source_id)}
-                className={cn(
-                  "relative flex w-full flex-col gap-1.5 px-3 py-2.5 text-left",
-                  "transition-colors duration-120 ease-out",
-                  selected ? "bg-accent-soft" : "hover:bg-hover",
-                )}
-              >
-                {selected && (
-                  <span aria-hidden className="absolute inset-y-0 left-0 w-px bg-accent" />
-                )}
-                <span className="flex min-w-0 items-baseline gap-2">
-                  <span className="min-w-0 flex-1 truncate text-14 font-medium text-ink">
-                    {source.title}
-                  </span>
-                  <Mono className="shrink-0 text-12 text-ink-3">
-                    {source.block_count} blk
-                  </Mono>
-                </span>
-                <span className="flex flex-wrap items-center gap-1.5">
-                  <Badge>
-                    <SourceKindName kind={source.kind} />
-                  </Badge>
-                  <Badge>{source.origin}</Badge>
-                </span>
-                <span className="text-12 text-ink-3">
-                  {source.digested_at ? (
-                    <>
-                      {t("sources.directory.digested")} ·{" "}
-                      <Mono>{fmtTime(source.digested_at)}</Mono>
-                    </>
-                  ) : (
-                    t("sources.directory.undigested")
-                  )}
-                </span>
-              </button>
-            </li>
-          );
+    <>
+      <ScrollRegion
+        as="ul"
+        aria-label={t("sources.list.aria")}
+        className="min-h-0 flex-1 border-b border-line"
+      >
+        {hits.slice(0, shown).map((source) => (
+          <CatalogueRow
+            key={source.source_id}
+            source={source}
+            selected={source.source_id === selectedId}
+            onSelect={onSelect}
+            tOr={tOr}
+          />
+        ))}
+        {more > 0 && (
+          <li ref={sentinel} className="flex justify-center py-3">
+            <Button size="sm" variant="ghost" onClick={onReveal}>
+              {t("sources.list.more", { count: Math.min(more, REVEAL_STEP) })}
+            </Button>
+          </li>
+        )}
+      </ScrollRegion>
+      <p className="shrink-0 pt-2 text-12 text-ink-3">
+        {t("sources.list.shown", {
+          shown: fmtCount(shown),
+          hits: fmtCount(hits.length),
         })}
-      </ul>
-      <div className="shrink-0 pt-3">
-        <PaginationBar
-          pageIndex={pageIndex}
-          limit={PAGE_SIZE}
-          itemCount={sources.length}
-          total={total}
-          hasNext={hasNext}
-          noun={t("sources.directory.noun")}
-          onPrevious={onPrevious}
-          onNext={onNext}
+      </p>
+    </>
+  );
+}
+
+function CatalogueRow({
+  source,
+  selected,
+  onSelect,
+  tOr,
+}: {
+  source: SourceSummary;
+  selected: boolean;
+  onSelect: (sourceId: string) => void;
+  tOr: TOrFunction;
+}) {
+  const t = useT();
+  const timeline = sourceTimeline(source);
+  const digested = source.digested_at != null;
+  return (
+    <li className="border-b border-line last:border-b-0">
+      <button
+        type="button"
+        aria-current={selected ? "true" : undefined}
+        aria-label={t("sources.list.openAria", { title: source.title })}
+        onClick={() => onSelect(source.source_id)}
+        className={cn(
+          // The right padding keeps the digest dot clear of the region's hairline rail.
+          "relative flex w-full items-baseline gap-3 py-2 pl-2 pr-3 text-left",
+          "transition-colors duration-120 ease-out",
+          selected ? "bg-accent-soft" : "hover:bg-hover",
+        )}
+      >
+        {selected && (
+          <span aria-hidden className="absolute inset-y-0 left-0 w-px bg-accent" />
+        )}
+        {/* The day the material happened — and, when that is unknown, a visible admission
+            that the row is placed by its import instead. */}
+        <span
+          className="flex w-[7.5rem] shrink-0 items-baseline gap-1"
+          title={
+            timeline.basis === "occurred"
+              ? t("sources.timeline.occurred")
+              : t("sources.timeline.ingestedHint")
+          }
+        >
+          <Mono
+            className={cn("text-12", timeline.basis === "occurred" ? "text-ink-2" : "text-ink-3")}
+          >
+            {fmtDay(timeline.date)}
+          </Mono>
+          {timeline.basis === "ingested" && (
+            <span className="text-11 text-ink-3" aria-label={t("sources.timeline.ingested")}>
+              ≈
+            </span>
+          )}
+        </span>
+
+        <span className="min-w-0 flex-1 truncate text-14 text-ink">{source.title}</span>
+
+        <span className="hidden shrink-0 items-baseline gap-1.5 sm:flex">
+          <Badge>
+            <SourceKindName kind={source.kind} />
+          </Badge>
+          <Badge>{tOr(`enum.sourceClass.${source.source_class}`, source.source_class)}</Badge>
+        </span>
+        <Mono className="w-14 shrink-0 text-right text-12 text-ink-3">
+          {source.block_count} blk
+        </Mono>
+        <span
+          aria-label={t(digested ? "sources.directory.digested" : "sources.directory.undigested")}
+          title={t(digested ? "sources.directory.digested" : "sources.directory.undigested")}
+          className={cn(
+            "size-1.5 shrink-0 self-center rounded-full border",
+            digested ? "border-accent bg-accent" : "border-line-2",
+          )}
         />
-      </div>
-    </div>
+      </button>
+    </li>
   );
 }
 

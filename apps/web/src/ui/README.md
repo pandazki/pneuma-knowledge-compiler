@@ -210,6 +210,19 @@ visually-hidden native input + 自绘点击/拖放区；选中后显示文件名
 ### DefinitionList
 `items: { term; definition }[]`：术语—定义双栏，行间发丝线（L0–L3 说明用）。
 
+### ScrollRegion（分区滚动总纲的唯一承载）
+`as?: div|nav|section|aside|ol|ul` + 任意 HTML 属性。**高度由调用方给**
+（钉住的分栏里用 `flex-1 min-h-0`，随流布局里用 `max-h-…`；不给高度就永不溢出，
+自然退化成整页滚动，窄屏直接复用同一份标记）。组件只量自己、把边缘状态写成
+`data-fade`（none/top/bottom/both）与 `data-overflowing`；渐隐（mask，不叠底色，
+双主题通吃）与细滚动条槽位都在 `index.css` 的 `.scroll-region` 里。
+边缘算术是纯函数 `lib/scrollRegion.ts`（`scrollFade` / `isOverflowing`）。
+
+约定：每视图 = 动线控制区（页头 / 查询栏 / lane 切换）钉住 + 内容区各自滚动；
+锚跳转落在自己那一区里，不把整页拽走。已铺开：Canonical（目录树 / 正文）、
+Recall（结果区）——两者由 `AppShell` 的 `VIEWPORT_PANE_VIEWS` 在 lg 以上把内容栏
+限到视口高。
+
 ---
 
 ## Composed（src/components/）
@@ -241,7 +254,10 @@ IconButton（Sun/Moon），接 store.toggleTheme。
 
 ### CitationList
 `citations: { sourceId; blockStart?; blockEnd?; title?; description? }[]; onJump?`：
-编号 + 标题/id + block 区间 + 跳转行。
+编号 + 标题/id + block 区间 + 跳转行。**脚注体**：块首一条发丝线，行间不再分线；
+`[n]` 用 mono ink-3（accent 只属于正文里的 Footnote 标记）、标题 12/ink-2、
+描述与右侧 block 区间 / source id 12/ink-3，行距收紧到 1.45。
+弱化只在视觉：整行仍可 hover / 点击回到 source span，hover 时标题抬回 ink。
 
 ### ClaimRow
 `claim: Claim（lib/types）; onJumpCitation?: (c: Citation) => void`：
@@ -257,9 +273,10 @@ serif 正文 + Footnote 序列 + mono 锚点；flags（disputed/open_question/�
 用 `api.getSource` 拉原文（mono 块号 + serif 正文），目标区间 accent-soft 高亮，
 附「fetch 精确段」（`api.fetchLocator`）。recall/ask/suggestion/library 共用。
 
-### GraphCanvas（graph/index.ts）
-`export const GraphCanvas = lazy(() => import("./GraphCanvas"))` —— 当前为空壳，
-视图阶段填充 @xyflow/react + dagre 实现。**只允许经 lazy 引用**（硬性规则 11）。
+### NeighborhoodCard（views/library/）
+`index; path`：文档邻域卡，出向/入向两栏，每行 = 对方标题 + **写出这条链接的
+那句 claim**（`lib/structureLens`）。归档卷并入所属页。禁止用图形渲染库表达
+结构（硬性规则 11）。
 
 ---
 

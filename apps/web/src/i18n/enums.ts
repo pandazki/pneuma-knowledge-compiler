@@ -14,6 +14,10 @@ import { defineMessages } from "./define";
  * Source kinds carry TWO key families on purpose: `citationKind.*` is the terse form used in
  * citation chips, `sourceKind.*` the fuller form used in the Sources readers. Both were
  * already distinct in the original copy and both are still needed.
+ *
+ * `sourceClass.*` and `sourceOrigin.*` complete the trio a catalogue row is filtered by
+ * (`domain/source.py`). Provider origins are proper nouns and read the same in both columns —
+ * translating "Slack" would name a different thing.
  */
 export const enums = defineMessages({
   zh: {
@@ -59,6 +63,17 @@ export const enums = defineMessages({
     "enum.sourceKind.conversation": "对话",
     "enum.sourceKind.document": "文档",
     "enum.sourceKind.structured": "结构化数据",
+
+    "enum.sourceClass.workstream": "工作流",
+    "enum.sourceClass.reference": "参考",
+
+    "enum.sourceOrigin.upload": "上传",
+    "enum.sourceOrigin.context_stream": "上下文流",
+    "enum.sourceOrigin.zoom": "Zoom",
+    "enum.sourceOrigin.obsidian": "Obsidian",
+    "enum.sourceOrigin.slack": "Slack",
+    "enum.sourceOrigin.rfc822": "RFC822",
+    "enum.sourceOrigin.mock": "模拟",
   },
   en: {
     "enum.intakeArchetype.digest.label": "Study and file",
@@ -111,5 +126,16 @@ export const enums = defineMessages({
     "enum.sourceKind.conversation": "Conversation",
     "enum.sourceKind.document": "Document",
     "enum.sourceKind.structured": "Structured data",
+
+    "enum.sourceClass.workstream": "Workstream",
+    "enum.sourceClass.reference": "Reference",
+
+    "enum.sourceOrigin.upload": "Upload",
+    "enum.sourceOrigin.context_stream": "Context stream",
+    "enum.sourceOrigin.zoom": "Zoom",
+    "enum.sourceOrigin.obsidian": "Obsidian",
+    "enum.sourceOrigin.slack": "Slack",
+    "enum.sourceOrigin.rfc822": "RFC822",
+    "enum.sourceOrigin.mock": "Mock",
   },
 });

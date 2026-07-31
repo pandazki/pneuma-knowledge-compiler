@@ -19,9 +19,20 @@ export const library = defineMessages({
 
     "library.toc.aria": "文档目录",
     "library.toc.count": "目录 · {count} 篇",
+    "library.toc.expandDir": "展开 {name} · {count} 篇",
+    "library.toc.collapseDir": "折叠 {name} · {count} 篇",
 
     "library.noDoc.title": "没有文档",
     "library.noDoc.description": "documents 为空——编译尚未产出任何 canonical 文档。",
+
+    "library.neighborhood.title": "邻域",
+    "library.neighborhood.note": "双向脉络索引：每一行都带上写出这条链接的那句 claim。",
+    "library.neighborhood.out": "出向 · {count}",
+    "library.neighborhood.in": "入向 · {count}",
+    "library.neighborhood.emptyOut": "这篇不链向任何文档。",
+    "library.neighborhood.emptyIn": "没有文档链向这篇。",
+    "library.neighborhood.more": "同向另有 {count} 句",
+    "library.neighborhood.volume": "写在归档卷 {name}",
 
     "library.frontmatter.title": "版式信息",
     "library.body.title": "正文",
@@ -44,10 +55,22 @@ export const library = defineMessages({
 
     "library.toc.aria": "Document contents",
     "library.toc.count": "Contents · {count} document{count||s}",
+    "library.toc.expandDir": "Expand {name} · {count} document{count||s}",
+    "library.toc.collapseDir": "Collapse {name} · {count} document{count||s}",
 
     "library.noDoc.title": "No document",
     "library.noDoc.description":
       "documents is empty — the compile has produced no canonical document yet.",
+
+    "library.neighborhood.title": "Neighbourhood",
+    "library.neighborhood.note":
+      "A two-way index of the thread: every row carries the claim that wrote the link.",
+    "library.neighborhood.out": "Out · {count}",
+    "library.neighborhood.in": "In · {count}",
+    "library.neighborhood.emptyOut": "This document links to nothing.",
+    "library.neighborhood.emptyIn": "No document links here.",
+    "library.neighborhood.more": "{count} further sentence{count||s} the same way",
+    "library.neighborhood.volume": "written in archive volume {name}",
 
     "library.frontmatter.title": "Frontmatter",
     "library.body.title": "Body",

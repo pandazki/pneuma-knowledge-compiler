@@ -65,7 +65,13 @@ export interface SourceSummary {
   origin: string;
   source_class: string;
   title: string;
+  /** The ingest wall clock. NOT when the material happened — see `occurred_on`. */
   created_at: string;
+  /**
+   * The day the material happened (`YYYY-MM-DD`), in the subject's own zone. null for a
+   * source that never got one; `lib/sourceFilter.ts` owns the fallback and marks it.
+   */
+  occurred_on: string | null;
   intake_plan: IntakePlan | null;
   block_count: number;
   /** null = not yet compiled into canonical; set once the worker digests it (M3b). */
@@ -246,6 +252,12 @@ function browserCalendarOffset(): number {
   return -new Date().getTimezoneOffset();
 }
 
+/**
+ * Daily source counts by INGEST day, from the service. The Sources view no longer reads it:
+ * its calendar counts corpus time (`occurred_on`) off the catalogue it already holds, so the
+ * calendar, the list order and the range filter cannot disagree about when something happened.
+ * The route stays, and so does its binding.
+ */
 export function getSourceActivity(userId: string): Promise<ActivityCalendar> {
   return req<ActivityCalendar>(
     `/v1/users/${u(userId)}/sources/activity?offset_minutes=${browserCalendarOffset()}`,
@@ -254,12 +266,39 @@ export function getSourceActivity(userId: string): Promise<ActivityCalendar> {
 
 /** Progressive compatibility helper for source pickers that still need a full inventory. */
 export async function listAllSources(userId: string): Promise<SourceSummary[]> {
+  return crawlSources(userId);
+}
+
+/** How many rows one catalogue-crawl round trip asks for (the route's stated ceiling). */
+const CATALOGUE_PAGE = 500;
+
+/**
+ * The whole source catalogue, page by page.
+ *
+ * Filtering a five-figure inventory by title, kind and date is directory lookup over
+ * metadata already on the wire — it belongs in the reader's hands, answering as they type,
+ * not in a round trip per keystroke. `onProgress` is called with the rows so far after each
+ * page so the list can paint while the tail is still arriving, and `signal` lets a user
+ * switch abandon a crawl in flight.
+ */
+export async function crawlSources(
+  userId: string,
+  options: {
+    onProgress?: (items: SourceSummary[], total: number) => void;
+    signal?: AbortSignal;
+  } = {},
+): Promise<SourceSummary[]> {
   const items: SourceSummary[] = [];
   const seen = new Set<string>();
   let cursor: string | null = null;
   do {
-    const page = await listSources(userId, { limit: 100, cursor });
+    if (options.signal?.aborted) return items;
+    const page: Page<SourceSummary> = await listSources(userId, {
+      limit: CATALOGUE_PAGE,
+      cursor,
+    });
     items.push(...page.items);
+    options.onProgress?.(items, page.page.total);
     cursor = page.page.next_cursor;
     if (cursor && seen.has(cursor)) {
       throw new ApiError(tx("service.duplicateCursor"), 500);
@@ -306,7 +345,7 @@ export function importOfficialSource(
 
 export function recall(
   userId: string,
-  body: { query: string; mode?: string; limit?: number },
+  body: { query: string; mode?: string; limit?: number; snapshot?: string | null },
 ): Promise<RecallHit[]> {
   return req<RecallHit[]>(`/v1/users/${u(userId)}/recall`, {
     method: "POST",
@@ -359,13 +398,29 @@ export interface RecallAnswer {
   /** {handle: real_source_id} for the query-local `sNN` markers in `answer` (fast lane).
    * Empty for deep (it cites real ids directly). The UI reverse-binds inline `[cite:]`. */
   citation_handles?: Record<string, string>;
+  /** The frozen snapshot this answer was scoped to; null for the live base. */
+  snapshot?: {
+    snapshot_id: string;
+    label: string;
+    canonical_ref: string;
+    created_at: string | null;
+  } | null;
   token_usage: TokenUsage;
 }
 
-/** fast/deep recall — an answer over capped canonical claims (as_of server-injected). */
+/** fast/deep recall — an answer over capped canonical claims (as_of server-injected).
+ *
+ * `snapshot` (a kb-snapshot id or label) pins the answer to a frozen snapshot; omit it for
+ * the live base. An unknown or not-yet-ready snapshot is an error, never a quiet fallback to
+ * HEAD — see the service's `_resolve_plane`. */
 export function recallAnswer(
   userId: string,
-  body: { query: string; mode: "fast" | "deep"; as_of?: string },
+  body: {
+    query: string;
+    mode: "fast" | "deep";
+    as_of?: string;
+    snapshot?: string | null;
+  },
 ): Promise<RecallAnswer> {
   return req<RecallAnswer>(`/v1/users/${u(userId)}/recall`, {
     method: "POST",
@@ -385,13 +440,14 @@ export async function recallDeepStream(
     onError: (message: string) => void;
   },
   signal?: AbortSignal,
+  snapshot?: string | null,
 ): Promise<void> {
   let res: Response;
   try {
     res = await fetch(`${BASE}/v1/users/${u(userId)}/recall/stream`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ query, mode: "deep" }),
+      body: JSON.stringify({ query, mode: "deep", snapshot: snapshot ?? null }),
       signal,
     });
   } catch (e) {
@@ -976,6 +1032,50 @@ export function listSnapshots(
     cursor: params.cursor,
   });
   return req<Page<SnapshotSummary>>(`/v1/users/${u(userId)}/snapshots${query}`);
+}
+
+/* ------------------------------------- knowledge-base snapshots (frozen tenants) */
+
+/**
+ * A frozen knowledge-base snapshot — the whole base (raw content, both retrieval indexes,
+ * the claim projection) copied under a read-only tenant, plus the canonical commit it pins.
+ *
+ * Not the same object as `SnapshotSummary` above, which is one canonical git commit: that is
+ * free and browse-only, this one can also be ASKED, because its retrieval layers exist.
+ */
+export interface KbSnapshot {
+  snapshot_id: string;
+  label: string;
+  canonical_ref: string;
+  status: "creating" | "ready" | "failed" | string;
+  /** Post-copy scale {sources, blocks, claims, points}; empty while creating. */
+  counts: Record<string, number>;
+  created_at: string | null;
+  ready_at: string | null;
+  /** Why a failed snapshot failed; null otherwise. */
+  detail: string | null;
+}
+
+export function listKbSnapshots(userId: string): Promise<KbSnapshot[]> {
+  return req<KbSnapshot[]>(`/v1/users/${u(userId)}/kb-snapshots`);
+}
+
+/** Freeze the base as it stands now. Returns immediately in status "creating" (202). */
+export function createKbSnapshot(userId: string, label: string): Promise<KbSnapshot> {
+  return req<KbSnapshot>(`/v1/users/${u(userId)}/kb-snapshots`, {
+    method: "POST",
+    body: JSON.stringify({ label }),
+  });
+}
+
+export function deleteKbSnapshot(
+  userId: string,
+  snapshotId: string,
+): Promise<{ deleted: boolean }> {
+  return req<{ deleted: boolean }>(
+    `/v1/users/${u(userId)}/kb-snapshots/${encodeURIComponent(snapshotId)}`,
+    { method: "DELETE" },
+  );
 }
 
 /**

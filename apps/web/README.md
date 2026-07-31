@@ -81,7 +81,7 @@ canonical path 和 patch/ref。没有编译数据时显示真实空态，不生�
 | 视图 | 内容 |
 |---|---|
 | **编译作业** | job、patch、lineage、token、来源、escalation 与 journal 回放。 |
-| **关系换乘** | 基于 `@xyflow/react` + dagre 的 n 度子图，按需 code split。 |
+| **结构透镜** | 集中度 / 连通性 / 族均衡的结构健康表，以及两个快照的结构差。 |
 | **连续问答** | 先冻结证据包，再进行带 citation 的 briefing 多轮问答。 |
 | **工作画像** | 当前租户的工作语境、回答层级、语言与隐私偏好。 |
 | **策略演化** | 审阅可比较、可回滚的策略结构建议。 |
@@ -110,7 +110,6 @@ pnpm preview
 
 ## 技术栈
 
-Vite、React、TypeScript、Tailwind v4、Lucide、`@xyflow/react`、dagre 与
-react-markdown。UI 原语在 `src/components/ui.tsx`；主题 token 在
+Vite、React、TypeScript、Tailwind v4、Lucide 与 react-markdown。UI 原语在 `src/components/ui.tsx`；主题 token 在
 `src/styles/tokens.css`；Knowledge Transit Atlas 构图在
 `src/styles/transit.css`。

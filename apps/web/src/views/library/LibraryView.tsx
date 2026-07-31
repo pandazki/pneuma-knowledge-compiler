@@ -1,8 +1,9 @@
-import { useEffect, useMemo } from "react";
-import { BookMarked, Folder, FileText, Inbox } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { BookMarked, ChevronRight, FileText, Inbox } from "lucide-react";
 import { useApp } from "@/lib/store";
 import type { Claim, DocumentRecord } from "@/lib/types";
 import { claimKey, type DirNode, type Model } from "@/lib/model";
+import { defaultCollapsedDirs, dirFileCount, isDirOpen } from "@/lib/documentTree";
 import { displayClaim, extractClaimLabel } from "@/lib/claim";
 import {
   buildCitationNumbers,
@@ -10,14 +11,17 @@ import {
   presentCitationSource,
 } from "@/lib/citations";
 import { intlTag } from "@/lib/i18n";
+import { buildLinkIndex, lensDocuments, type LinkIndex } from "@/lib/structureLens";
 import { useLocale, useT, useTOr } from "@/lib/useT";
 import { PageHeader } from "@/components/PageHeader";
+import { NeighborhoodCard } from "./NeighborhoodCard";
 import { CitationList, type CitationEntry } from "@/components/CitationList";
 import { Badge } from "@/ui/Badge";
 import { Button } from "@/ui/Button";
 import { EmptyState } from "@/ui/EmptyState";
 import { Footnote } from "@/ui/Footnote";
 import { Mono } from "@/ui/Mono";
+import { ScrollRegion } from "@/ui/ScrollRegion";
 import { SectionRule } from "@/ui/SectionRule";
 import { cn } from "@/ui/cn";
 
@@ -46,10 +50,23 @@ export default function LibraryView() {
 
   const docs = model?.dataset.documents.documents ?? [];
 
+  // The base's two-way link index, built once per projection: the neighbourhood card is an
+  // index over ALL documents' claims, not over the one on screen, so it cannot be derived
+  // inside the proof.
+  const linkIndex = useMemo(
+    () => (model ? buildLinkIndex(lensDocuments(model.dataset.documents.documents)) : null),
+    [model],
+  );
+
   // Resolve the selection: document/node → the document; claim → document + highlight anchor;
   // otherwise the first document.
-  const { activeDoc, highlightAnchor } = useMemo(() => {
-    if (!model) return { activeDoc: null as DocumentRecord | null, highlightAnchor: null as string | null };
+  const { activeDoc, highlightAnchor, askedForPath } = useMemo(() => {
+    if (!model)
+      return {
+        activeDoc: null as DocumentRecord | null,
+        highlightAnchor: null as string | null,
+        askedForPath: null as string | null,
+      };
     let id: string | null = null;
     let anchor: string | null = null;
     if (selection?.kind === "document" || selection?.kind === "node") id = selection.id;
@@ -61,15 +78,49 @@ export default function LibraryView() {
     return {
       activeDoc: byId ?? docs.find((d) => d.document_id) ?? docs[0] ?? null,
       highlightAnchor: anchor,
+      // Only a document someone actually asked for (a click, a deep link) — not the
+      // fallback first document, which must not unfold the contents on arrival.
+      askedForPath: byId?.path ?? null,
     };
   }, [model, selection, docs]);
 
-  // Arriving by deep link (#/library/claim/…): scroll the claim into view.
+  // Arriving by deep link (#/library/claim/…): scroll the claim into view. The body is its
+  // own scroll region, so this moves that region and leaves the rest of the view put.
   useEffect(() => {
     if (!highlightAnchor || !activeDoc) return;
     const el = document.getElementById(`claim-${highlightAnchor}`);
     el?.scrollIntoView({ block: "center" });
   }, [highlightAnchor, activeDoc]);
+
+  /* --------------------------------------------------------- contents folding state */
+
+  // Which directories start folded (>10 files, first level exempt) …
+  const collapsedDefaults = useMemo(
+    () => (model ? defaultCollapsedDirs(model.tree) : new Set<string>()),
+    [model],
+  );
+  // … and what the reader has since decided, remembered for the session.
+  const [openOverrides, setOpenOverrides] = useState<Record<string, boolean>>({});
+  useEffect(() => {
+    setOpenOverrides({});
+  }, [model?.tree]);
+
+  // A document someone asked for must be visible in the contents: unfold its ancestors,
+  // so a deep link into a folded folder does not land on an invisible row.
+  useEffect(() => {
+    if (!askedForPath) return;
+    const parts = askedForPath.split("/").slice(0, -1);
+    if (parts.length === 0) return;
+    setOpenOverrides((prev) => {
+      let next = prev;
+      let dir = "";
+      for (const part of parts) {
+        dir = dir ? `${dir}/${part}` : part;
+        if (next[dir] !== true) next = { ...next, [dir]: true };
+      }
+      return next;
+    });
+  }, [askedForPath]);
 
   if (!dataset || !model) {
     return (
@@ -92,39 +143,50 @@ export default function LibraryView() {
   return (
     <>
       <PageHeader
+        className="shrink-0"
         title={t("library.title")}
         description={t("library.description", { count: docs.length })}
       />
-      <div className="flex flex-col gap-6 md:flex-row md:items-start">
-        {/* Left: the document tree */}
-        <nav
-          aria-label={t("library.toc.aria")}
-          className="max-h-64 w-full shrink-0 overflow-y-auto border-b border-line pb-3 md:max-h-[70vh] md:w-60 md:border-b-0 md:pb-0"
-        >
-          <p className="mb-2 text-12 text-ink-3">
+      {/* Two panes, each scrolling on its own: the contents and the proof (scroll charter). */}
+      <div className="flex min-h-0 flex-1 flex-col gap-6 md:flex-row md:items-stretch">
+        {/* Left: the document tree, its count line pinned above it */}
+        <div className="flex min-h-0 w-full shrink-0 flex-col border-b border-line pb-3 md:w-64 md:border-b-0 md:pb-0">
+          <p className="mb-2 shrink-0 text-12 text-ink-3">
             {t("library.toc.count", { count: docs.length })}
           </p>
-          <ul className="flex flex-col">
-            {model.tree.children.map((node) => (
-              <TreeRow
-                key={node.path || node.name}
-                node={node}
-                depth={0}
-                selectedPath={activeDoc?.path ?? null}
-                onSelect={(doc) =>
-                  select({ kind: "document", id: doc.document_id ?? doc.path })
-                }
-              />
-            ))}
-          </ul>
-        </nav>
+          <ScrollRegion
+            as="nav"
+            aria-label={t("library.toc.aria")}
+            className="max-h-64 min-h-0 md:max-h-[70vh] lg:max-h-none lg:flex-1"
+          >
+            <ul className="flex flex-col">
+              {model.tree.children.map((node) => (
+                <TreeRow
+                  key={node.path || node.name}
+                  node={node}
+                  depth={0}
+                  selectedPath={activeDoc?.path ?? null}
+                  collapsedDefaults={collapsedDefaults}
+                  openOverrides={openOverrides}
+                  onToggle={(path, open) =>
+                    setOpenOverrides((prev) => ({ ...prev, [path]: open }))
+                  }
+                  onSelect={(doc) =>
+                    select({ kind: "document", id: doc.document_id ?? doc.path })
+                  }
+                />
+              ))}
+            </ul>
+          </ScrollRegion>
+        </div>
 
         {/* Right: the selected document, set as a proof */}
-        <div className="min-w-0 flex-1">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           {activeDoc ? (
             <DocumentProof
               doc={activeDoc}
               model={model}
+              linkIndex={linkIndex}
               highlightAnchor={highlightAnchor}
               selectedAnchor={selection?.kind === "claim" ? selection.anchor : null}
             />
@@ -147,35 +209,66 @@ function TreeRow({
   node,
   depth,
   selectedPath,
+  collapsedDefaults,
+  openOverrides,
+  onToggle,
   onSelect,
 }: {
   node: DirNode;
   depth: number;
   selectedPath: string | null;
+  collapsedDefaults: Set<string>;
+  openOverrides: Record<string, boolean>;
+  onToggle: (path: string, open: boolean) => void;
   onSelect: (doc: DocumentRecord) => void;
 }) {
+  const t = useT();
   const pad = { paddingLeft: `${depth * 14}px` };
   if (node.isDir) {
+    const open = isDirOpen(node.path, collapsedDefaults, openOverrides);
+    const count = dirFileCount(node);
     return (
       <li>
-        <div
+        <button
+          type="button"
+          onClick={() => onToggle(node.path, !open)}
+          aria-expanded={open}
+          aria-label={t(open ? "library.toc.collapseDir" : "library.toc.expandDir", {
+            name: node.name,
+            count,
+          })}
           style={pad}
-          className="flex items-center gap-1.5 py-1 text-13 text-ink-2"
+          className="flex w-full items-center gap-1.5 border-l-2 border-transparent py-1 pr-2 text-left text-13 text-ink-2 transition-colors duration-120 hover:bg-hover"
         >
-          <Folder size={13} aria-hidden className="shrink-0 text-ink-3" />
+          <ChevronRight
+            size={12}
+            aria-hidden
+            className={cn(
+              "shrink-0 text-ink-3 transition-transform duration-120",
+              open && "rotate-90",
+            )}
+          />
           <span className="truncate">{node.name}</span>
-        </div>
-        <ul>
-          {node.children.map((c) => (
-            <TreeRow
-              key={c.path || c.name}
-              node={c}
-              depth={depth + 1}
-              selectedPath={selectedPath}
-              onSelect={onSelect}
-            />
-          ))}
-        </ul>
+          {!open && (
+            <span className="ml-auto shrink-0 text-12 text-ink-3">({count})</span>
+          )}
+        </button>
+        {open && (
+          <ul>
+            {node.children.map((c) => (
+              <TreeRow
+                key={c.path || c.name}
+                node={c}
+                depth={depth + 1}
+                selectedPath={selectedPath}
+                collapsedDefaults={collapsedDefaults}
+                openOverrides={openOverrides}
+                onToggle={onToggle}
+                onSelect={onSelect}
+              />
+            ))}
+          </ul>
+        )}
       </li>
     );
   }
@@ -206,11 +299,13 @@ function TreeRow({
 function DocumentProof({
   doc,
   model,
+  linkIndex,
   highlightAnchor,
   selectedAnchor,
 }: {
   doc: DocumentRecord;
   model: Model;
+  linkIndex: LinkIndex | null;
   highlightAnchor: string | null;
   selectedAnchor: string | null;
 }) {
@@ -228,6 +323,17 @@ function DocumentProof({
 
   const fm = doc.frontmatter ?? {};
   const fmEntries = Object.entries(fm);
+  // One line of frontmatter for the pinned masthead; §1 below keeps the full table. doc_id
+  // is already spelled out beside it, so it does not get said twice.
+  const fmSummary = useMemo(
+    () =>
+      fmEntries
+        .filter(([k]) => k !== "doc_id")
+        .slice(0, 4)
+        .map(([k, v]) => `${k} ${Array.isArray(v) ? v.join(", ") : typeof v === "object" && v !== null ? JSON.stringify(v) : String(v)}`)
+        .join("  ·  "),
+    [doc], // fmEntries is derived from doc; recomputing per document is the whole point
+  );
   const patches = doc.document_id
     ? model.patchesByDocId.get(doc.document_id) ?? []
     : model.patchesByPath.get(doc.path) ?? [];
@@ -398,18 +504,39 @@ function DocumentProof({
   };
 
   return (
-    <article className="max-w-measure">
-      <header className="border-b border-line pb-4">
+    <article className="flex min-h-0 min-w-0 flex-1 flex-col">
+      {/* The masthead stays put: which document you are reading is never scrolled away. */}
+      <header className="sticky top-12 z-10 shrink-0 border-b border-line bg-bg pb-4 lg:static">
         <Mono className="text-12 text-ink-3">{doc.path}</Mono>
-        <h2 className="mt-1 font-serif text-30 leading-[1.25] text-balance text-ink">{doc.title}</h2>
-        {doc.document_id && (
-          <Mono className="mt-2 block text-12 text-ink-3">doc_id · {doc.document_id}</Mono>
-        )}
+        <h2 className="mt-1 max-w-measure font-serif text-30 leading-[1.25] text-balance text-ink">
+          {doc.title}
+        </h2>
+        <div className="mt-2 flex flex-wrap items-baseline gap-x-3 text-12 text-ink-3">
+          {doc.document_id && <Mono className="text-12">doc_id · {doc.document_id}</Mono>}
+          {fmSummary && (
+            <Mono className="min-w-0 flex-1 truncate text-12" title={fmSummary}>
+              {fmSummary}
+            </Mono>
+          )}
+        </div>
       </header>
+
+      <ScrollRegion className="min-h-0 lg:flex-1">
+      <div className="max-w-measure">
+      {/* §01 is the way OUT of this page. It leads because a thread is followed from where you
+          landed, and a reader who has to scroll past a 1200-claim ledger to find the exits
+          will not find them. */}
+      {linkIndex && (
+        <section className="mt-5">
+          <SectionRule no={1} title={t("library.neighborhood.title")} />
+          <p className="mt-2 text-12 text-ink-3">{t("library.neighborhood.note")}</p>
+          <NeighborhoodCard index={linkIndex} path={doc.path} />
+        </section>
+      )}
 
       {fmEntries.length > 0 && (
         <section className="mt-5">
-          <SectionRule no={1} title={t("library.frontmatter.title")} />
+          <SectionRule no={2} title={t("library.frontmatter.title")} />
           <dl className="mt-3 flex flex-col">
             {fmEntries.map(([k, v]) => (
               <div key={k} className="flex items-baseline gap-3 border-b border-line py-1.5 last:border-b-0">
@@ -426,7 +553,7 @@ function DocumentProof({
       )}
 
       <section className="mt-6">
-        <SectionRule no={2} title={t("library.body.title")} />
+        <SectionRule no={3} title={t("library.body.title")} />
         <div className="mt-2 divide-y divide-line">
           {groups.map((g, gi) =>
             g.kind === "list" ? (
@@ -449,7 +576,7 @@ function DocumentProof({
 
       {citations.length > 0 && (
         <section className="mt-6">
-          <SectionRule no={3} title={t("library.citations.title")} />
+          <SectionRule no={4} title={t("library.citations.title")} />
           <CitationList
             className="mt-3"
             citations={citations}
@@ -467,7 +594,7 @@ function DocumentProof({
 
       {patches.length > 0 && (
         <section className="mt-6">
-          <SectionRule no={4} title={t("library.patches.title")} />
+          <SectionRule no={5} title={t("library.patches.title")} />
           <ul className="mt-3 flex flex-col">
             {patches.map((p) => (
               <li key={p.patch_id} className="border-b border-line last:border-b-0">
@@ -491,6 +618,8 @@ function DocumentProof({
           </ul>
         </section>
       )}
+      </div>
+      </ScrollRegion>
     </article>
   );
 }

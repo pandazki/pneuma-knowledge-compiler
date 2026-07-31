@@ -50,6 +50,9 @@ export const common = defineMessages({
     "common.pagination.previous": "上一页",
     "common.pagination.next": "下一页",
 
+    "common.list.showAll": "展开全部 {count} 行",
+    "common.list.collapse": "收起",
+
     "common.heatmap.legendAria": "密度图例",
     "common.heatmap.less": "少",
     "common.heatmap.more": "多",
@@ -119,6 +122,9 @@ export const common = defineMessages({
     "common.pagination.page": "Page {current} of {total}",
     "common.pagination.previous": "Previous",
     "common.pagination.next": "Next",
+
+    "common.list.showAll": "Show all {count} row{count||s}",
+    "common.list.collapse": "Collapse",
 
     "common.heatmap.legendAria": "Density legend",
     "common.heatmap.less": "Less",

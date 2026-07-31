@@ -29,9 +29,6 @@ export interface Model {
   patchById: Map<string, PatchRecord>;
   jobById: Map<string, JobRecord>;
   snapshotById: Map<string, Snapshot>;
-  /** ontology type -> ordered index (drives graph shade + legend) */
-  typeIndex: Map<string, number>;
-  types: string[];
   /** document path -> patches that touched it, oldest first */
   patchesByPath: Map<string, PatchRecord[]>;
   /** document_id -> patches that touched it, oldest first */
@@ -42,8 +39,6 @@ export interface Model {
    * rationale that lives only in the process sidecar (P1-3).
    */
   sidecarNotes: Map<string, SidecarNote>;
-  /** adjacency (undirected) for n-degree graph expansion */
-  neighbors: Map<string, Set<string>>;
   tree: DirNode;
 }
 
@@ -72,14 +67,6 @@ export function buildModel(dataset: Dataset): Model {
   const snapshotById = new Map(
     dataset.timeline.snapshots.map((s) => [s.source_id, s]),
   );
-
-  // ontology types: prefer the skill ontology, fall back to node types present.
-  const ont = dataset.workspace.domains.flatMap((d) => d.ontology ?? []);
-  const present = dataset.graph.nodes
-    .map((n) => n.type)
-    .filter((t): t is string => !!t);
-  const typeOrder = Array.from(new Set([...ont, ...present]));
-  const typeIndex = new Map(typeOrder.map((t, i) => [t, i]));
 
   // patches by document, oldest first. Prefer the schema v2 `documents` stable-id
   // interlink; fall back to changed_paths when it is absent.
@@ -130,16 +117,6 @@ export function buildModel(dataset: Dataset): Model {
     }
   }
 
-  // undirected adjacency for expansion.
-  const neighbors = new Map<string, Set<string>>();
-  for (const n of dataset.graph.nodes) neighbors.set(n.id, new Set());
-  for (const e of dataset.graph.edges) {
-    if (!neighbors.has(e.source)) neighbors.set(e.source, new Set());
-    if (!neighbors.has(e.target)) neighbors.set(e.target, new Set());
-    neighbors.get(e.source)!.add(e.target);
-    neighbors.get(e.target)!.add(e.source);
-  }
-
   const tree = buildTree(dataset.documents.documents);
 
   return {
@@ -150,12 +127,9 @@ export function buildModel(dataset: Dataset): Model {
     patchById,
     jobById,
     snapshotById,
-    typeIndex,
-    types: typeOrder,
     patchesByPath,
     patchesByDocId,
     sidecarNotes,
-    neighbors,
     tree,
   };
 }
@@ -226,31 +200,6 @@ export function patchChanges(model: Model | null, patch: PatchRecord): PatchDocC
   });
 }
 
-/** BFS expansion from a center node out to `degree` hops. */
-export function expandNeighborhood(
-  model: Model,
-  center: string,
-  degree: number,
-): { ids: Set<string>; depth: Map<string, number> } {
-  const depth = new Map<string, number>([[center, 0]]);
-  const ids = new Set<string>([center]);
-  let frontier = [center];
-  for (let d = 1; d <= degree; d++) {
-    const next: string[] = [];
-    for (const cur of frontier) {
-      for (const nb of model.neighbors.get(cur) ?? []) {
-        if (!ids.has(nb)) {
-          ids.add(nb);
-          depth.set(nb, d);
-          next.push(nb);
-        }
-      }
-    }
-    frontier = next;
-  }
-  return { ids, depth };
-}
-
 function buildTree(docs: DocumentRecord[]): DirNode {
   const root: DirNode = { name: "", path: "", isDir: true, children: [] };
   const dirMap = new Map<string, DirNode>([["", root]]);
@@ -290,44 +239,4 @@ function buildTree(docs: DocumentRecord[]): DirNode {
   };
   sortRec(root);
   return root;
-}
-
-/** Theme-adaptive ink-alpha shade for an ontology type (monochrome discipline). */
-export function typeShade(model: Model, type: string | null): string {
-  if (!type) return "color-mix(in srgb, var(--color-text) 26%, transparent)";
-  const i = model.typeIndex.get(type) ?? 0;
-  const total = Math.max(model.types.length, 1);
-  // Wider-spaced ramp (35 → 92%) so adjacent types read as distinct ink weights.
-  const pct = Math.round(35 + (57 * i) / Math.max(total - 1, 1));
-  return `color-mix(in srgb, var(--color-text) ${pct}%, transparent)`;
-}
-
-/**
- * Redundant SHAPE per ontology type (P1-2). Monochrome shade alone is
- * near-indistinguishable between adjacent types, so we pair it with a shape the
- * graph and legend both render via typeGlyph.
- */
-export type NodeShape = "circle" | "square" | "diamond" | "triangle" | "pentagon" | "hexagon";
-
-const NODE_SHAPES: NodeShape[] = [
-  "circle",
-  "square",
-  "diamond",
-  "triangle",
-  "pentagon",
-  "hexagon",
-];
-
-export function nodeShape(model: Model, type: string | null): NodeShape {
-  if (!type) return "circle";
-  const i = model.typeIndex.get(type) ?? 0;
-  return NODE_SHAPES[i % NODE_SHAPES.length];
-}
-
-/** Distinguishable per-type encoding shared by the graph nodes and the legend. */
-export function typeGlyph(
-  model: Model,
-  type: string | null,
-): { shade: string; shape: NodeShape } {
-  return { shade: typeShade(model, type), shape: nodeShape(model, type) };
 }

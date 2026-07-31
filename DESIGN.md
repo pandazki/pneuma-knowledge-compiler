@@ -250,7 +250,7 @@ aria label/description、支持 disabled / error / loading / empty、双主题�
 - `CitationList`（引用列表：编号 + source 标题 + block 区间 + 跳转）
 - `GateLedger`（suggestion 门禁账：`unparsed/repeat/uncited/low_confidence/capped`
   五栏计数账页，仅真实状态上色）
-- `GraphCanvas`（lazy 加载 @xyflow/react + dagre；墨色节点 + typeGlyph 形状冗余编码）
+- `NeighborhoodCard`（文档邻域：出向/入向两栏，每行 = 对方标题 + 成边的那句 claim）
 
 ### 4.3 状态规范（全部视图统一）
 
@@ -321,10 +321,21 @@ GateLedger 计数中呈现——门禁的严肃性靠"消失"表达。
 锚点 mono、脚注引用、flag（disputed/open_question）以页边注呈现
 （sidecarNotes）。claim 选中 → deep link `#/library/claim/...`。
 
-### graph 图谱
-lazy GraphCanvas：墨色节点（typeGlyph 形状+墨阶冗余编码，不上彩色）、
-发丝线边、选中节点 + 邻域展开（1–2 度）、右侧详情栏（节点 → 文档/演化
-跳转）。移动端：图谱在上、详情在下纵向排。
+### graph 图谱 · 结构透镜
+不是探索目的地，是对准整个结构的透镜（自由探索 canvas 已移除：全库力导图
+在真实规模下不可读，右栏 id 墙答不了任何问题）。两个 tab：
+
+- **结构健康**（默认）：开头三句话直说"最异常的三件事"，其下 §01 集中度
+  （按 claim 份额排序的主体条形列表 + 头名份额/第一比第二两个大字）、
+  §02 连通性（无入链 / 断头 / 死链 / 孤立 claim，口径与评测 D 组一致）、
+  §03 族均衡（申报族的页数/claim/篇幅份额表 + 零页族点名）。异常条目可点
+  进对应 Canonical 文档。
+- **时间对比**：选两个快照，给指标差值表 + 主体增减清单 + 新增内链
+  （每条带成边句子）。不并排两张图。
+
+**边的信息量 = 成边的那句 claim**：任何展示边的地方都必须带上那句话。
+顺藤摸瓜发生在 Canonical 文档的邻域卡里，不在这里。老 deep link
+`#/graph/node/<id>` 重定向到对应文档（`src:` 前缀则到原料）。
 
 ### history 版本
 Git 时间线：snapshot / job / patch 三类记录的统一账页（mono ref、时间、
@@ -361,10 +372,10 @@ synthetic 用户档案：avatar 字标 + display_name + 核心字段定义表
 4. 一个产品一个强调色（蓝铅笔）；模块不分配各自颜色；语义色只给真实状态。
 5. 不用卡片堆叠、不用 KPI 数字墙、不用渐变/霓虹/玻璃拟态/高饱和蓝紫。
 6. dark 不是反色：两主题独立调校，dark 保留墨阶层次、禁纯黑底。
-7. 宽屏不无限拉长：内容栏 max-width 约束，graph 等宽幅视图单独 breakout。
+7. 宽屏不无限拉长：内容栏 max-width 约束；宽幅视图（表格/清单）自行横向滚动。
 8. 390px 无横向溢出；所有交互在 390px 可达。
 9. `prefers-reduced-motion` 下动效归零。
 10. WCAG 2.2 AA：对比度、focus 可见、键盘全可达。
-11. 图谱依赖（@xyflow/react + dagre）继续 lazy load；主包保持克制。
+11. 不引图形渲染库：结构一律以排印表达（表格/清单/发丝线条形），主包保持克制。
 12. 所有界面文案开源、业务无关、synthetic；禁止真实客户/公司/内部内容。
 13. 删除旧视觉资产：旧 components/views/styles/index.css 不保留为覆盖层。

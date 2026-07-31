@@ -40,6 +40,9 @@ export function ActivityHeatmap({
   kindLabels,
   className,
   compact = false,
+  maxWeeks,
+  selectedDate,
+  onSelectDay,
 }: {
   days: ActivityDay[];
   title: string;
@@ -47,8 +50,18 @@ export function ActivityHeatmap({
   className?: string;
   /** Removes the full-width section chrome so the calendar can sit beside a page heading. */
   compact?: boolean;
+  /**
+   * How far back the grid may reach. The default window suits a recency read; a calendar
+   * showing a whole corpus's own time needs the span the material actually covers, or the
+   * early months are cropped out of the picture the reader came for.
+   */
+  maxWeeks?: number;
+  /** The pinned day, drawn as pressed. */
+  selectedDate?: string | null;
+  /** Makes the lit cells buttons: clicking one is a question about that day. */
+  onSelectDay?: (date: string) => void;
 }) {
-  const grid = buildActivityGrid(days);
+  const grid = buildActivityGrid(days, maxWeeks == null ? undefined : { maxWeeks });
   const t = useT();
 
   return (
@@ -120,19 +133,27 @@ export function ActivityHeatmap({
                   );
                 }
                 const label = activityDescription(cell, kindLabels, t);
+                const pinned = selectedDate === cell.date;
+                const shared = cn(
+                  "h-3 w-3 rounded-1 border outline-none transition-transform duration-120",
+                  "focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1",
+                  "hover:scale-125",
+                  LEVEL_CLASSES[level],
+                  pinned && "ring-2 ring-accent ring-offset-1 scale-125",
+                );
                 return (
                   <Tooltip key={cell.date} content={label}>
-                    <span
-                      tabIndex={0}
-                      role="img"
-                      aria-label={label}
-                      className={cn(
-                        "h-3 w-3 rounded-1 border outline-none transition-transform duration-120",
-                        "focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1",
-                        "hover:scale-125",
-                        LEVEL_CLASSES[level],
-                      )}
-                    />
+                    {onSelectDay ? (
+                      <button
+                        type="button"
+                        aria-label={label}
+                        aria-pressed={pinned}
+                        onClick={() => onSelectDay(cell.date)}
+                        className={shared}
+                      />
+                    ) : (
+                      <span tabIndex={0} role="img" aria-label={label} className={shared} />
+                    )}
                   </Tooltip>
                 );
               })}
