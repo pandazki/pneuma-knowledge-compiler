@@ -28,6 +28,7 @@ a failed selection pass degrades to exactly that. See `fast_recall`.
 from __future__ import annotations
 
 import asyncio
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -46,6 +47,7 @@ from ..ports.lexical_index import LexicalIndex
 from ..ports.vector_index import VectorIndex
 from ..prompts import prompt
 from .citation_alias import alias_sources
+from .scope import SnapshotScope, scope_declaration
 from .spine import CITE_SOURCE_LEVEL, CLOSE_ANSWER_HONESTLY, spine
 from .assembly import (
     Passage,
@@ -57,6 +59,11 @@ from .rag import RecallHit, _rrf_scores, rag_recall, rrf_fuse
 
 DEFAULT_CLAIM_CAP = 40
 DEFAULT_WINDOW_CAP = 8
+
+#: How many claim notes may hang under ONE window when `annotate_windows` is on. Small on
+#: purpose: a footnote stack taller than the excerpt it annotates stops reading as a footnote
+#: and becomes a second claim section wearing an indent.
+DEFAULT_WINDOW_NOTE_CAP = 3
 
 #: How many documents the glance pass may ask to be read in full. Small on purpose: the pass
 #: exists for the question whose answer IS one document, not as a second retrieval channel.
@@ -132,6 +139,11 @@ class FastAnswer:
     # Why the glance pass contributed nothing, when it failed rather than simply selecting
     # nothing: "timeout", "error", or None. Telemetry, never an error surfaced to the owner.
     glance_degraded: str | None = None
+    # The annotation join's yield, both 0 whenever `annotate_windows` is off: how many claims
+    # were MOVED under a window (so `used_claims` is short by exactly this many), and how many
+    # windows ended up carrying at least one note. The measurable of the experiment.
+    annotated_claims: int = 0
+    annotated_windows: int = 0
 
 
 def zero_usage() -> dict[str, int]:
@@ -196,7 +208,10 @@ async def retrieve_claims(
     paths fuses into one hit carrying both path markers.
 
     `query_embedding` (default None = embed here, i.e. today's behavior verbatim) lets a
-    caller that already holds the vector skip the round trip — see `rag_recall`."""
+    caller that already holds the vector skip the round trip — see `rag_recall`.
+
+    Snapshot-scoped recall needs nothing here either (see `rag_recall`): the claim faces are
+    per-tenant, so a frozen snapshot tenant carries its own frozen claim projection."""
     lexical_hits = await claim_lexical.search_claims(user_id, query, limit=limit)
     if query_embedding is None:
         query_embedding = await embeddings.aembed_query(query)
@@ -279,6 +294,108 @@ def _render_window_section(windows: list) -> str:
     return render_windows(windows)
 
 
+# ------------------------------------------------- annotation join (opt-in, default off)
+#
+# The two evidence faces are addressed in disjoint id spaces (claim anchor vs block span),
+# which is why they render as two sections — but they are NOT disjoint in the underlying
+# text: a claim carries `[cite: <source_id> ¶a-b]`, and a window IS a `[cite: <source_id>
+# ¶a-b]`. When those spans overlap, the claim is the compiled reading OF the lines in that
+# window, and the model is being asked to discover that by attending across the whole
+# evidence wall. The join below does it mechanically instead, and MOVES the claim under its
+# window — a move, not a copy, so the claim is stated exactly once and the model is never
+# invited to treat the note and the notes-section entry as two pieces of evidence.
+
+#: The skill's controlled strength prefix (`contract.rule.strength_labels`), which the
+#: compiler writes at the head of a commitment/relationship claim in every locale: the
+#: 【…】 brackets are the fixed shape, the label inside them is the overlay's word.
+_STRENGTH_PREFIX_RE = re.compile(r"^【([^】\n]{1,12})】\s*")
+
+
+def split_strength_label(text: str) -> tuple[str | None, str]:
+    """`("firm", "the rest")` for a labeled claim, `(None, text)` for an unlabeled one.
+
+    Lifted out of the text rather than re-derived: the projection layer already tiers on
+    this prefix, so a footnote that keeps it in its own slot presents the same tiering the
+    rest of the system does, instead of leaving a bracket floating in prose."""
+    match = _STRENGTH_PREFIX_RE.match(text)
+    if not match:
+        return None, text
+    return match.group(1), text[match.end() :]
+
+
+def _overlaps(claim: RetrievedClaim, window) -> bool:
+    """True when any of the claim's cited spans intersects the window's block interval."""
+    return any(
+        str(cit.source_id) == str(window.source_id)
+        and cit.block_start <= window.block_end
+        and window.block_start <= cit.block_end
+        for cit in claim.citations
+    )
+
+
+def join_claims_to_windows(
+    claims: Sequence[RetrievedClaim],
+    windows: Sequence,
+    *,
+    cap: int = DEFAULT_WINDOW_NOTE_CAP,
+) -> tuple[list[RetrievedClaim], list[tuple[object, tuple[RetrievedClaim, ...]]]]:
+    """Move each claim under the FIRST window its citation overlaps; cap `cap` per window.
+
+    Returns `(claims that stayed in the notes section, [(window, its notes)] in window
+    order)`. A claim lands under at most one window even when it overlaps several — it is
+    one statement, and repeating it under each window would re-introduce exactly the
+    duplication this join exists to remove. Deterministic: windows in their given order,
+    claims in retrieval (RRF) order within each window."""
+    taken: set[int] = set()
+    paired: list[tuple[object, tuple[RetrievedClaim, ...]]] = []
+    for window in windows:
+        notes: list[RetrievedClaim] = []
+        for index, claim in enumerate(claims):
+            if len(notes) >= cap:
+                break
+            if index in taken or not _overlaps(claim, window):
+                continue
+            notes.append(claim)
+            taken.add(index)
+        paired.append((window, tuple(notes)))
+    remaining = [c for i, c in enumerate(claims) if i not in taken]
+    return remaining, paired
+
+
+def render_window_notes(notes: Sequence[RetrievedClaim]) -> str:
+    """The footnote block under one window: a count line, then one indented line per claim.
+
+    No `[cite: …]` marker on a note line — the window's own provenance header, three lines
+    above, IS that citation, and a second copy of the same span would only give the model a
+    second thing to transcribe. What the note adds is what the window cannot show: the
+    strength the compiler assigned, the claim's anchor, and the document it was filed into."""
+    lines = [prompt("recall.fast.window_note.header", count=len(notes))]
+    for claim in notes:
+        label, text = split_strength_label(claim.text)
+        key = "recall.fast.window_note.line_labeled" if label else "recall.fast.window_note.line"
+        fields = {
+            "text": text,
+            "anchor": f"c:{claim.anchor}",
+            "document": claim.document_path,
+        }
+        if label:
+            fields["label"] = label
+        lines.append(prompt(key, **fields))
+    return "\n".join(lines)
+
+
+def render_annotated_windows(
+    paired: Sequence[tuple[object, tuple[RetrievedClaim, ...]]]
+) -> str:
+    """The window section with each window's claim notes hung directly beneath it."""
+    parts: list[str] = []
+    for window, notes in paired:
+        parts.append(_render_window_section([window]))
+        if notes:
+            parts.append(render_window_notes(notes))
+    return "\n".join(parts)
+
+
 def render_full_documents(documents: Sequence[CanonicalDocument]) -> str:
     """The whole of each selected document, in supplied order, headed by its path.
 
@@ -301,26 +418,41 @@ def recall_human(
     windows: list | None = None,
     profile: str | None = None,
     glance: str | None = None,
+    snapshot: str | None = None,
     full_documents: Sequence[CanonicalDocument] = (),
+    window_notes: Sequence[tuple[object, tuple[RetrievedClaim, ...]]] | None = None,
 ) -> str:
-    """The volatile Human payload shared by fast and deep: profile → glance → evidence →
-    documents → as_of → input.
+    """The volatile Human payload shared by fast and deep: profile → snapshot → glance →
+    evidence → documents → as_of → input.
 
     Deterministic assembly order (I5 / prompt-cache discipline), input LAST: the owner profile
-    (who is asking — the System tier explains what it is) → the knowledge base glance (the
-    library's shape, which is per-snapshot rather than per-question, so it sits high where a
-    provider cache can reach it) → claim section → window section → any documents selected for
+    (who is asking — the System tier explains what it is) → the snapshot declaration when the
+    question is pinned to a past state of the base → the knowledge base glance (the library's
+    shape, which is per-snapshot rather than per-question, so it sits high where a provider
+    cache can reach it) → claim section → window section → any documents selected for
     full reading → as_of → the owner's input, so the live ask sits in the attention-hot tail
     below the evidence wall instead of above it. Section headers reuse the contract's exact
     names (owner profile / claim notes / raw excerpts) — what each IS is explained once, in the
     stable System tier, never re-explained per turn. Claims and windows live in disjoint id
     spaces (anchor vs block-span), so they are presented as two sections, never cross-fused.
     The profile is the reason it lives in the Human turn, not the byte-stable System (it is
-    per-owner volatile)."""
+    per-owner volatile).
+
+    The snapshot declaration sits immediately ABOVE the glance because it governs everything
+    below it: the glance, both evidence faces and every tool result are that snapshot. It is
+    absent entirely for a HEAD question, so an unpinned prompt is unchanged.
+
+    `window_notes` (default None = the two-section layout above, byte-for-byte) is the opt-in
+    annotated layout: (window, notes) pairs whose claims have already been MOVED out of
+    `claims` by `join_claims_to_windows`, rendered as footnotes under their own window. The
+    two sections still exist and still hold disjoint content — what moves is where a joined
+    claim is stated, not whether the claim section is there."""
     windows = windows or []
     sections: list[str] = []
     if profile:
         sections.append(f"{prompt('recall.section.profile_header')}\n{profile}")
+    if snapshot:
+        sections.append(snapshot)
     if glance:
         sections.append(glance)
     sections.append(
@@ -332,7 +464,11 @@ def recall_human(
         sections.append(
             prompt("recall.section.windows_header", count=len(windows))
             + "\n"
-            + _render_window_section(windows)
+            + (
+                render_annotated_windows(window_notes)
+                if window_notes is not None
+                else _render_window_section(windows)
+            )
         )
     if full_documents:
         sections.append(
@@ -355,9 +491,12 @@ def selector_messages(
     windows: list | None = None,
     profile: str | None = None,
     glance: str | None = None,
+    snapshot: str | None = None,
     full_documents: Sequence[CanonicalDocument] = (),
+    window_notes: Sequence[tuple[object, tuple[RetrievedClaim, ...]]] | None = None,
 ) -> list[BaseMessage]:
-    """[SystemMessage(fixed contract), HumanMessage(profile → glance → evidence → as_of → input)]."""
+    """[SystemMessage(fixed contract), HumanMessage(profile → snapshot → glance → evidence →
+    as_of → input)]."""
     human = recall_human(
         question,
         claims,
@@ -365,7 +504,9 @@ def selector_messages(
         windows=windows,
         profile=profile,
         glance=glance,
+        snapshot=snapshot,
         full_documents=full_documents,
+        window_notes=window_notes,
     )
     return [SystemMessage(content=selector_contract()), HumanMessage(content=human)]
 
@@ -379,7 +520,9 @@ async def answer_with_selector(
     windows: list | None = None,
     profile: str | None = None,
     glance: str | None = None,
+    snapshot: str | None = None,
     full_documents: Sequence[CanonicalDocument] = (),
+    window_notes: Sequence[tuple[object, tuple[RetrievedClaim, ...]]] | None = None,
     callbacks: list | None = None,
     trace_metadata: dict | None = None,
     run_name: str = "recall.fast",
@@ -394,7 +537,9 @@ async def answer_with_selector(
         windows=windows,
         profile=profile,
         glance=glance,
+        snapshot=snapshot,
         full_documents=full_documents,
+        window_notes=window_notes,
     )
     aliased_human, handle_map = alias_sources(human.content)
     response = await model.ainvoke(
@@ -533,14 +678,19 @@ async def assemble_windows(
     *,
     content: ContentStore | None,
     user_id: UserId,
+    order: bool = True,
 ) -> list:
     """Post-retrieval assembly over raw window hits: expand → merge/dedup → per-source cap
     → lost-in-the-middle order. With no ContentStore (langchain-only path) the raw hits are
-    returned unchanged so no caller breaks."""
+    returned unchanged so no caller breaks.
+
+    `order=False` stops one step short, at score-descending order. Only the annotation join
+    wants that: which windows are high-value is not known until the claims have been matched
+    against them, so the positional ordering has to happen after the join, not before it."""
     if content is None or not hits:
         return list(hits)
     passages = await expand_and_merge(hits, content=content, user_id=user_id)
-    return order_lost_in_middle(passages)
+    return order_lost_in_middle(passages) if order else passages
 
 
 async def fast_recall(
@@ -564,6 +714,17 @@ async def fast_recall(
     documents: Sequence[CanonicalDocument] | None = None,
     skill: object | None = None,
     packs: Sequence[object] = (),
+    # The frozen snapshot this answer is pinned to, or None = today's base. It changes ONE
+    # thing in this lane: the prompt states which snapshot is open. The evidence is already
+    # snapshot-scoped upstream — the caller passed the snapshot tenant's indexes and the
+    # document set read at its canonical ref.
+    scope: SnapshotScope | None = None,
+    # OFF by default, and the off path is byte-for-byte the lane above. On: every claim whose
+    # cited span overlaps a retrieved window is MOVED out of the claim-notes section and hung
+    # under that window as a footnote, and annotated windows are ordered as high-value units.
+    # See `join_claims_to_windows` for why it is a move rather than a copy.
+    annotate_windows: bool = False,
+    window_note_cap: int = DEFAULT_WINDOW_NOTE_CAP,
     glance_model: BaseChatModel | None = None,
     glance_pick_cap: int = DEFAULT_GLANCE_PICK_CAP,
     glance_timeout: float | None = DEFAULT_GLANCE_TIMEOUT_SECONDS,
@@ -646,8 +807,15 @@ async def fast_recall(
 
     claims = claims_raw[:cap]
     windows = await assemble_windows(
-        raw_windows, content=content, user_id=user_id
+        raw_windows, content=content, user_id=user_id, order=not annotate_windows
     )
+    window_notes: list[tuple[object, tuple[RetrievedClaim, ...]]] | None = None
+    if annotate_windows:
+        claims, paired = join_claims_to_windows(
+            claims, windows, cap=window_note_cap
+        )
+        window_notes = order_lost_in_middle(paired, priority=lambda p: bool(p[1]))
+        windows = [w for w, _ in window_notes]
     # Reading the selected documents is a local git read the caller already paid for (they
     # are in `documents`), so the expansion costs nothing on the wire.
     expanded = [by_path[path] for path in selected]
@@ -659,7 +827,9 @@ async def fast_recall(
         windows=windows,
         profile=profile,
         glance=glance,
+        snapshot=scope_declaration(scope),
         full_documents=expanded,
+        window_notes=window_notes,
         callbacks=callbacks,
         trace_metadata=trace_metadata,
         run_name="recall.fast",
@@ -673,4 +843,6 @@ async def fast_recall(
         glance_chars=len(glance or ""),
         expanded_documents=selected,
         glance_degraded=degraded,
+        annotated_claims=sum(len(n) for _, n in (window_notes or ())),
+        annotated_windows=sum(1 for _, n in (window_notes or ()) if n),
     )

@@ -98,6 +98,27 @@ class Settings(BaseSettings):
     evolve_trigger_new_claims: int = 30
     evolve_draft_ttl_hours: float = 24.0
 
+    # Document rollover (the `groom` job kind). A canonical document about one long-lived
+    # subject accretes claims for as long as that subject stays alive, and past a point it
+    # stops being usable AS canonical: a full replay produced one 435 KB / 894-claim product
+    # document — 42% of that whole knowledge base in one file — which cannot be read whole by
+    # a recall window and destroys the bird's-eye view canonical exists to give. Rollover is
+    # mechanical maintenance for exactly that, the way log rotation is: size-triggered,
+    # subject unchanged, older volumes frozen and linked. It is orthogonal to evolve, which
+    # reorganizes MEANING (splitting a subject into sub-subjects) rather than rotating size.
+    #   rollover_threshold_chars   — a document written by a compile that exceeds this many
+    #     characters (the whole file, frontmatter included) gets a groom job enqueued on the
+    #     same per-user queue. 0 disables rollover entirely. Only documents this compile
+    #     actually wrote are checked, so an existing oversized document rolls over the next
+    #     time it is touched rather than in a surprise sweep.
+    #   rollover_keep_recent_chars — roughly how much of the most recent tail the active
+    #     document keeps. Approximate on purpose: the cut lands on claim-block boundaries and
+    #     a claim block is never split, so the retained tail is the largest whole-block suffix
+    #     that fits. Must stay well below the threshold, or a rollover would archive almost
+    #     nothing and re-trigger on the next write.
+    rollover_threshold_chars: int = 40_000
+    rollover_keep_recent_chars: int = 12_000
+
     # Dev CORS: allow the vite dev server (any localhost/127.0.0.1 port) to call
     # the API from the browser. Override PNEUMA_KNOWLEDGE_CORS_ALLOW_ORIGIN_REGEX in real
     # deployments; set to "" to disable CORS entirely.

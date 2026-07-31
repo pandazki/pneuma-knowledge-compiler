@@ -1,12 +1,22 @@
-"""Incremental canonical-claim projection: only the content delta reaches indexes."""
+"""Incremental canonical-claim projection: only the content delta reaches indexes.
+
+Plus the three refusals that keep the delta from becoming a demolition — see the guardrail
+section at the bottom, and the module docstring of `projection.py` for the incident that put
+them there.
+"""
 
 from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
 from pneuma_knowledge_core.domain.canonical import CanonicalDocument
 from pneuma_knowledge_core.domain.ids import DocumentId, UserId
-from pneuma_knowledge_service.projection import sync_projection
+from pneuma_knowledge_service.projection import (
+    ProjectionRefused,
+    rebuild_projection,
+    sync_projection,
+)
 
 USER = UserId("u-projection-sync")
 
@@ -176,3 +186,156 @@ async def _rows(claims):
         }
         for claim in claims
     ]
+
+
+# ============================================================================== guardrails
+
+
+class _EmptyCanonical:
+    """What a wrong, missing or freshly-initialized canonical root reads like: no documents."""
+
+    async def list(self, user_id, *, at=None):  # noqa: ARG002
+        return []
+
+    async def snapshots(self, user_id):  # noqa: ARG002
+        return []
+
+
+class _UnreadableCanonical:
+    """A store that cannot resolve the ref — the commit lives in some OTHER repository."""
+
+    async def list(self, user_id, *, at=None):  # noqa: ARG002
+        if at is None:
+            return []
+        raise RuntimeError(f"fatal: bad revision {at.ref!r}")
+
+
+def _empty_ctx(canonical):
+    ctx = _ctx()
+    ctx.canonical = canonical
+    return ctx
+
+
+async def test_rebuilding_from_an_empty_canonical_refuses_to_wipe_the_projection():
+    """The exact shape of the incident: a repair pointed at the wrong root read zero
+    documents, and the whole-table replace carried out "delete everything" without objection."""
+    ctx = _empty_ctx(_EmptyCanonical())
+
+    with pytest.raises(ProjectionRefused) as excinfo:
+        await rebuild_projection(ctx, USER)
+
+    assert excinfo.value.reason == "empty_canonical"
+    assert excinfo.value.facts == {"snapshot_ref": "HEAD", "projected": 3}
+    # The message states the damage it prevented, in numbers.
+    assert "3 projected claims" in str(excinfo.value)
+    assert ctx.store.synced is None  # nothing reached the stores
+
+
+async def test_allow_wipe_is_the_escape_hatch_when_the_repo_really_is_empty():
+    ctx = _empty_ctx(_EmptyCanonical())
+    ctx.store.replace_canonical_claims = _record(ctx, "replaced")
+    ctx.lexical.index_claims = _record(ctx, "indexed")
+    ctx.vectors.delete_claims = _record(ctx, "dropped")
+
+    assert await rebuild_projection(ctx, USER, allow_wipe=True) == 0
+    assert ctx.calls["replaced"] and ctx.calls["indexed"] and ctx.calls["dropped"]
+
+
+async def test_an_empty_canonical_over_an_empty_projection_is_not_a_wipe():
+    """There is nothing to protect, so the guard must not turn a first-ever rebuild into an
+    error the operator has to override."""
+    ctx = _empty_ctx(_EmptyCanonical())
+    ctx.store.list_canonical_claims = _empty_rows
+    ctx.store.replace_canonical_claims = _record(ctx, "replaced")
+    ctx.lexical.index_claims = _record(ctx, "indexed")
+    ctx.vectors.delete_claims = _record(ctx, "dropped")
+
+    assert await rebuild_projection(ctx, USER) == 0
+
+
+async def test_a_ref_this_store_cannot_read_fails_loud_instead_of_projecting():
+    """A ref that does not resolve HERE means the commit landed in a different repository.
+    That is the first observable moment of a root mismatch, and it has no escape hatch — an
+    unreadable ref is never a deliberate operation."""
+    ctx = _empty_ctx(_UnreadableCanonical())
+
+    with pytest.raises(ProjectionRefused) as excinfo:
+        await sync_projection(ctx, USER, "sha-from-another-repo")
+
+    assert excinfo.value.reason == "unresolvable_snapshot_ref"
+    assert excinfo.value.facts["snapshot_ref"] == "sha-from-another-repo"
+    assert "different repository" in str(excinfo.value)
+    assert ctx.store.synced is None
+
+
+async def test_a_sync_that_would_lose_most_of_the_projection_is_refused_and_counts_it():
+    ctx = _ctx()
+    # Canonical now holds ONE of the three projected claims: two anchors would vanish.
+    ctx.canonical = _OneDocCanonical()
+
+    with pytest.raises(ProjectionRefused) as excinfo:
+        await sync_projection(ctx, USER, "sha-current")
+
+    assert excinfo.value.reason == "excessive_claim_loss"
+    assert excinfo.value.facts["lost"] == 2
+    assert excinfo.value.facts["projected"] == 3
+    assert ctx.store.synced is None
+
+    # …and the same sync goes through when the loss is declared intentional.
+    ctx2 = _ctx()
+    ctx2.canonical = _OneDocCanonical()
+    result = await sync_projection(ctx2, USER, "sha-current", allow_wipe=True)
+    assert result.total == 1 and result.deleted == 2
+
+
+async def test_moving_claims_between_documents_is_not_loss_however_large_the_move():
+    """A rollover deletes every key it moves and re-inserts it under the volume's path, so a
+    key-counting guardrail would refuse a groom of a small base as if it were a wipe. Loss is
+    counted in anchors, which survive the move."""
+    ctx = _ctx()
+    ctx.canonical = _ArchivedCanonical()
+
+    result = await sync_projection(ctx, USER, "sha-groomed")
+
+    assert result.deleted == 3 and result.upserted == 3  # every claim re-keyed
+    assert ctx.store.synced is not None
+
+
+class _OneDocCanonical:
+    async def list(self, user_id, *, at=None):  # noqa: ARG002
+        return [
+            _doc(
+                "memory/a.md",
+                "doc-a",
+                "# Facts\n\n- kept [cite: src-a ¶0] <!-- c:aa11 -->",
+            )
+        ]
+
+
+class _ArchivedCanonical:
+    """Every claim moved into an archive volume: same anchors, different document paths."""
+
+    async def list(self, user_id, *, at=None):  # noqa: ARG002
+        return [
+            _doc(
+                "memory/a/a01.md",
+                "doc-a01",
+                "# Facts\n\n"
+                "- kept [cite: src-a ¶0] <!-- c:aa11 -->\n"
+                "- changed before [cite: src-b ¶1] <!-- c:bb22 -->\n"
+                "- remove me <!-- c:dd44 -->",
+            )
+        ]
+
+
+async def _empty_rows(user_id):  # noqa: ARG001
+    return []
+
+
+def _record(ctx, name: str):
+    ctx.calls = getattr(ctx, "calls", {})
+
+    async def _call(*args, **kwargs):  # noqa: ANN002, ANN003, ARG001
+        ctx.calls[name] = True
+
+    return _call

@@ -768,6 +768,67 @@ DEFAULTS: dict[str, str] = {
         "move_claim rejected: target document {to_path} does not exist; create_document first, "
         "then move."
     ),
+    # ─────────────────────────────────────────────── rollover (groom): the history card
+    #
+    # Rollover is mechanical maintenance — size-triggered, subject unchanged, volumes frozen.
+    # The ONE thing a model does in it is write the history card that replaces the archived
+    # claims at the top of the active document, so these are the only groom surfaces there
+    # are: the contract for that single call, its task rendering, and the three strings the
+    # card itself is rendered from (which land in canonical, hence in the catalog).
+    "compile.groom.contract": (
+        "# What you are doing: writing the history card of an archived document\n\n"
+        "A canonical document about one long-lived subject has grown too large to read whole. "
+        "Its oldest entries have just been moved, byte for byte, into a frozen archive volume; "
+        "the document keeps its most recent entries. Nothing was deleted and nothing will be "
+        "rewritten — the volume is permanent and reachable by link.\n\n"
+        "Your only job is the HISTORY CARD that now stands where those entries used to be. "
+        "The card is an index, not a ledger: the ledger is the volume. So a good card lets a "
+        "reader decide whether the archive is worth opening, and tells them which part of it "
+        "to open.\n\n"
+        "# What to write\n\n"
+        "A short list of points, each one statement, in reading order. Prefer:\n\n"
+        "- the threads that ran through the archived material and how they ended up;\n"
+        "- what changed over that period — what replaced what, what was settled, what was "
+        "abandoned;\n"
+        "- the subjects and people the archive keeps coming back to.\n\n"
+        "Avoid: restating individual entries, counting things, or describing the archive "
+        "instead of its content ('this volume contains notes about…').\n\n"
+        "# The one hard rule: every point names its evidence\n\n"
+        "Each entry in the material you are given carries an id, written as an HTML comment: "
+        "`<!-- c:1a2b3c4d -->`. Every point you write must list the ids of the archived "
+        "entries it rests on, in its `anchors` field. A point you cannot ground in specific "
+        "ids is not written at all — leave it out. Do not invent an id, and do not reuse an "
+        "id you were not shown.\n\n"
+        "You are REPLACING the previous card, not appending to it. If a previous card is "
+        "supplied, carry forward whatever is still true (with its ids) and fold the newly "
+        "archived material into it, so the card stays one page rather than growing every time."
+    ),
+    "compile.groom.task_header": (
+        "The document `{path}` is being rolled over: {claims} entries move into the archive "
+        "volume `{volume}`. Write the replacement history card."
+    ),
+    "compile.groom.previous_header": "## The card you are replacing",
+    "compile.groom.previous_empty": "(none — this is the document's first rollover)",
+    "compile.groom.archived_header": "## The entries being archived (with their ids)",
+    "compile.groom.archived_truncated": (
+        "(the earliest {count} line(s) of the archive are omitted here; the most recent "
+        "archived material follows)"
+    ),
+    # The three strings the card is RENDERED from. They land in canonical, so they are prose a
+    # deployment owns like any other — and the `c:` reference form is the write contract's
+    # second legitimate provenance, which is why it is spelled out in the line itself.
+    "compile.groom.overview_heading": "## History (archived)",
+    "compile.groom.volumes_heading": "## Archive volumes",
+    "compile.groom.overview_point": "- {text} (from {anchors})",
+    "compile.groom.volume_entry": (
+        "- Volume {number}: [{title}]({href}) — {claims} archived entry/entries."
+    ),
+    "compile.groom.commit_message": (
+        "groom {path}: rolled over {claims} claim(s) to {volume}"
+    ),
+    "compile.groom.heal_commit_message": (
+        "groom-heal: rewrote {links} volume link(s)"
+    ),
     # ─────────────────────────────────────────────── compile gate feedback
     "gate.feedback_header": (
         "# gate rejected: the mechanical checks below did not pass. Repair with the "
@@ -793,6 +854,19 @@ DEFAULTS: dict[str, str] = {
         "citation [{source_id} ¶{start}-{end}] is out of range (that source has {count} "
         "blocks, legal interval 0..{last})."
     ),
+    "gate.citation_unparsable_marker": (
+        "citation marker `{marker}` does not parse as a locator. A citation is written "
+        "`[cite: <source_id> ¶a]` or `[cite: <source_id> ¶a-b]`, and several spans of the "
+        "same source may be grouped (`[cite: <source_id> ¶1-2,6]`). A marker that looks "
+        "like provenance but carries no readable locator points nowhere for every reader "
+        "downstream — write the full form or remove it."
+    ),
+    "gate.citation_anchor_in_marker": (
+        "citation marker `{marker}` names an existing anchor. Anchor provenance is written "
+        "as plain text, not inside [cite:]: write `c:{anchor}` in the sentence itself. The "
+        "`[cite: …]` brackets take only a `<source_id> ¶a-b` locator into this round's "
+        "supplied material."
+    ),
     "gate.claim_without_provenance": (
         "newly created claim has no provenance at all: \"{preview}…\" (anchor c:{anchor}). "
         "Every claim added this round must link back to its basis — either `[cite: "
@@ -811,6 +885,58 @@ DEFAULTS: dict[str, str] = {
     ),
     "gate.path_not_owned": (
         "path is not within the skill's ownership templates: {templates}."
+    ),
+    "gate.archive_frozen": (
+        "this document is a frozen archive volume of `{owner}` and may not be changed. Its "
+        "entries were moved here whole and are permanent; write new claims to `{owner}` itself."
+    ),
+    # ─────────────────────────────────────────────── rollover (groom) gate feedback
+    #
+    # These are recorded on the job, not fed back to a model for repair: a groom has no repair
+    # round — any violation abandons the whole rollover and leaves the document untouched, and
+    # the next compile that writes the document triggers a fresh attempt.
+    "gate.groom.claims_not_byte_equal": (
+        "rollover refused: the archived volume plus the retained tail do not reproduce the "
+        "document's claim blocks byte for byte outside their links ({before} before, {after} "
+        "after). A rollover moves claims and re-renders the relative links they carry; it may "
+        "never reword or reflow one."
+    ),
+    "gate.groom.link_count_changed": (
+        "rollover refused: claim c:{anchor} carried {before} document link(s) and would carry "
+        "{after} after the move. A rollover re-renders a link's relative form; it may not add "
+        "or drop one."
+    ),
+    "gate.groom.link_target_changed": (
+        "rollover refused: a link of claim c:{anchor} pointed at `{before}` and would point at "
+        "`{after}` after the move. A relative link is only how a target renders from the "
+        "position the text occupies, so a move must re-render it — never repoint it."
+    ),
+    "gate.groom.dead_links_increased": (
+        "rollover refused: the knowledge base would go from {before} unresolvable link(s) to "
+        "{after}. Moving claims may not cost the knowledge graph a single edge."
+    ),
+    "gate.groom.heal_not_byte_equal": (
+        "link heal refused: the rewrite changed something other than a link target. A heal "
+        "re-renders hrefs and touches no other byte."
+    ),
+    "gate.groom.heal_repaired_nothing": (
+        "link heal refused: the unresolvable link count did not fall ({before} before, {after} "
+        "after). A heal that repairs nothing has no business writing a commit."
+    ),
+    "gate.groom.anchor_lost": (
+        "rollover refused: claim anchor c:{anchor} would disappear from the knowledge base."
+    ),
+    "gate.groom.anchor_added": (
+        "rollover refused: anchor c:{anchor} would be invented by the rollover; only the "
+        "history card's own ids may be created here."
+    ),
+    "gate.groom.overview_without_reference": (
+        "rollover refused: history-card point \"{preview}…\" names no archived entry, so it is "
+        "an uncited assertion in the non-rebuildable layer."
+    ),
+    "gate.groom.overview_unknown_reference": (
+        "rollover refused: history-card point \"{preview}…\" references c:{anchor}, which is "
+        "not an archived entry of this document."
     ),
     # ─────────────────────────────────────────────── evolve gate feedback
     "gate.evolve.feedback_header": (
@@ -981,10 +1107,40 @@ DEFAULTS: dict[str, str] = {
     "recall.glance.family_empty": "  (no documents filed here yet)",
     "recall.glance.entry": "- `{path}` — {title} ({claims} claim(s){tail})",
     "recall.glance.entry_tail_updated": ", updated {updated}",
+    # A rolled-over document's frozen archive volumes are COUNTED here rather than listed:
+    # listing them would let one long-lived subject crowd out every other family in the
+    # glance, which is the exact failure the rollover exists to fix. The volumes stay
+    # reachable — the active document links to each of them, so read_document walks there.
+    "recall.glance.entry_tail_archived": ", +{count} archived volume(s)",
     "recall.glance.family_more": "- …and {count} more document(s) in this family",
     "recall.glance.unfiled_heading": "## (documents outside every declared family)",
     "recall.glance.flat_heading": "## Documents",
     "recall.glance.truncated": "…({count} more line(s) omitted at the glance budget)",
+    # ─────────────────────────────────────────────── recall: snapshot-scoped answering
+    # Rendered ONLY when a question is pinned to a frozen snapshot of the knowledge base. The
+    # frame it sets is the opposite of the usual one: a gap in the evidence is not a retrieval
+    # failure to work around, it is the honest state of the base at that moment. So the wording
+    # has to make "this had not happened yet" a reportable answer rather than something the
+    # model papers over with general knowledge. `as_of` (what time it is now) still renders in the
+    # tail and does not conflict: one says when you are, this says which version you are reading.
+    "recall.snapshot.moment": "`{label}` (frozen {at})",
+    "recall.snapshot.moment_undated": "`{label}`",
+    "recall.snapshot.declaration": (
+        "# Snapshot in effect\n"
+        "This answer is scoped to snapshot {snapshot} of the knowledge base — a frozen copy "
+        "that has not changed since it was taken and never will. Everything below (the "
+        "glance, the claim notes, the raw excerpts) and everything the tools return comes "
+        "from that snapshot and nothing newer. Whatever was recorded afterwards is simply not "
+        "here, and you do not know it: never fill such a gap from general knowledge or by "
+        "inferring what probably came next. When the question reaches past the snapshot, say "
+        "that plainly and answer with what the snapshot does hold."
+    ),
+    "recall.snapshot.source_absent": (
+        "Source {source_id} is not part of snapshot {snapshot}, so nothing was fetched — it "
+        "was added to the knowledge base after the snapshot was taken, or never existed. "
+        "This is an absence in the snapshot, not an empty source: report it as such rather "
+        "than treating it as content-free, and do not retry the same fetch."
+    ),
     # ─────────────────────────────────────────────── recall: fast's glance selection pass
     # A single small call that runs CONCURRENTLY with retrieval: given the glance and the
     # question, name the documents worth reading in full. Selecting nothing is the normal
@@ -1013,6 +1169,19 @@ DEFAULTS: dict[str, str] = {
     ),
     "recall.fast.select.documents_header": "# full documents ({count})",
     "recall.fast.select.document_heading": "## {path}",
+    # ─────────────────────────────────────────── recall: fast's window annotations (opt-in)
+    # OFF by default (`fast_recall(annotate_windows=...)`). When on, a claim whose cited span
+    # falls INSIDE a retrieved raw excerpt is MOVED out of the claim-notes section and hung
+    # under that excerpt as a footnote — the compiled reading of the very lines above it,
+    # adjacent instead of a section away. The gesture is a proofreader's footnote, so the
+    # note stays subordinate: indented, marked, and never mistakable for the excerpt's own
+    # text. Each note carries what makes it checkable against the lines above — the strength
+    # label the skill wrote, the claim, its anchor, and the document it was filed into.
+    "recall.fast.window_note.header": "  ⌞ compiled from the lines above ({count}):",
+    "recall.fast.window_note.line": "    · {text}  〔{anchor} · {document}〕",
+    "recall.fast.window_note.line_labeled": (
+        "    · 【{label}】{text}  〔{anchor} · {document}〕"
+    ),
     # ─────────────────────────────────────────────── recall: deep's document tools
     # Same names and same shapes as the compile tool face (one addressing vocabulary across
     # the system): the answerer walks canonical exactly the way the compiler does.

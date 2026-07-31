@@ -57,7 +57,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from .compile.patch import path_allowed
+from .compile.patch import _VOLUME_FILE_RE, path_allowed
+from .compile.rollover import archived_from
 from .domain.canonical import CanonicalDocument
 from .domain.ids import extract_anchors
 from .prompts import prompt
@@ -199,10 +200,53 @@ def render_outline(docs: Sequence[CanonicalDocument]) -> list[str]:
 # ------------------------------------------------------------------------ recall face
 
 
-def glance_entry(doc: CanonicalDocument, updated: Mapping[str, str] | None = None) -> str:
-    """One document's glance line: path, title, claim count, and updated-when if known."""
+def volume_origin(doc: CanonicalDocument, present: Sequence[str] | set[str]) -> str | None:
+    """The active document `doc` is a rollover volume OF, or None.
+
+    Two agreeing signals, because a volume is identified by both its layout and its stamp: the
+    volume lives in its document's history directory (`<document>/aNN.md`) and carries an
+    `archived_from` frontmatter naming it. The frontmatter is authoritative — it survives a
+    move — and the directory is the fallback for a volume whose stamp is missing. Either way the
+    origin must actually EXIST: an orphaned volume keeps being listed on its own rather than
+    being folded into a document that is gone, which would make its claims unreachable here.
+    """
+    origin = archived_from(doc) or None
+    if origin is None:
+        directory, _, filename = doc.path.rpartition("/")
+        if directory and _VOLUME_FILE_RE.match(filename) is not None:
+            origin = f"{directory}.md"
+    return origin if origin in set(present) else None
+
+
+def archive_volume_counts(docs: Sequence[CanonicalDocument]) -> dict[str, int]:
+    """{active document path: how many frozen archive volumes it has}."""
+    present = {doc.path for doc in docs}
+    counts: dict[str, int] = {}
+    for doc in docs:
+        origin = volume_origin(doc, present)
+        if origin is not None:
+            counts[origin] = counts.get(origin, 0) + 1
+    return counts
+
+
+def glance_entry(
+    doc: CanonicalDocument,
+    updated: Mapping[str, str] | None = None,
+    *,
+    archived_volumes: int = 0,
+) -> str:
+    """One document's glance line: path, title, claim count, updated-when, archive count.
+
+    `archived_volumes` is the ROLLOVER collapse: a document that has been rolled over states
+    how much frozen history stands behind it instead of the glance listing each volume as a
+    peer. Listing them would let one long-lived subject crowd out every other family — the
+    exact degradation rollover exists to fix — while the count plus the active document's own
+    volume links keep the archive one hop away.
+    """
     when = document_updated(doc, updated)
     tail = prompt("recall.glance.entry_tail_updated", updated=when) if when else ""
+    if archived_volumes:
+        tail += prompt("recall.glance.entry_tail_archived", count=archived_volumes)
     return prompt(
         "recall.glance.entry",
         path=doc.path,
@@ -244,6 +288,14 @@ def render_canonical_glance(
     if not ordered:
         lines.append(prompt("recall.glance.empty"))
 
+    # Rollover collapse: frozen archive volumes are counted on their active document's line
+    # instead of being listed as documents of their own (see `glance_entry`). They do not
+    # consume the glance budget either — one long-lived subject's history must not be able to
+    # crowd out another family's documents.
+    present = {doc.path for doc in ordered}
+    archived = archive_volume_counts(ordered)
+    ordered = [doc for doc in ordered if volume_origin(doc, present) is None]
+
     grouped: dict[str, list[CanonicalDocument]] = {t: [] for t in templates}
     unfiled: list[CanonicalDocument] = []
     for doc in ordered:
@@ -265,7 +317,9 @@ def render_canonical_glance(
             body.append(prompt("recall.glance.family_empty"))
             continue
         for doc in members[:top_k]:
-            body.append(glance_entry(doc, updated))
+            body.append(
+                glance_entry(doc, updated, archived_volumes=archived.get(doc.path, 0))
+            )
         if len(members) > top_k:
             body.append(
                 prompt("recall.glance.family_more", count=len(members) - top_k)
@@ -279,7 +333,9 @@ def render_canonical_glance(
             else prompt("recall.glance.flat_heading")
         )
         for doc in unfiled[:top_k]:
-            body.append(glance_entry(doc, updated))
+            body.append(
+                glance_entry(doc, updated, archived_volumes=archived.get(doc.path, 0))
+            )
         if len(unfiled) > top_k:
             body.append(prompt("recall.glance.family_more", count=len(unfiled) - top_k))
 
@@ -304,6 +360,7 @@ __all__ = [
     "BLURB_CHARS",
     "FAMILY_TOP_K",
     "GLANCE_BUDGET_CHARS",
+    "archive_volume_counts",
     "claim_count",
     "document_title",
     "document_updated",
@@ -313,4 +370,5 @@ __all__ = [
     "render_canonical_glance",
     "render_outline",
     "section_headings",
+    "volume_origin",
 ]

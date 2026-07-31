@@ -30,6 +30,7 @@ from pneuma_knowledge_core.domain.source import NormalizedSource, RawSource
 from pneuma_knowledge_core.ingest.adapters import MarkdownDocumentAdapter, PlainDocumentInput
 
 from .ingest import IngestResult
+from .snapshot_tenant import assert_writable
 from .wiring import AppContext
 
 DeclaredType = Literal["contract", "novel", "note", "other"]
@@ -237,6 +238,7 @@ async def ingest_document(
     Plan precedence (§4): plan_override (raw knobs) > intake_archetype (named intent) >
     declared_type+size mechanical propose_intake (auto).
     """
+    assert_writable(user_id)  # a frozen snapshot tenant is never written (snapshot_tenant.py)
     source_id = SourceId(uuid.uuid4().hex)
     cls = _default_source_class(declared_type, source_class)
     normalized = _normalize(

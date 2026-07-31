@@ -22,8 +22,9 @@ This module is the standard post-retrieval pipeline, pure and deterministic (lan
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
+from typing import TypeVar
 
 from ..domain.ids import UserId, SourceId
 from ..ports.content_store import ContentStore
@@ -248,17 +249,37 @@ async def expand_and_merge(
 # ------------------------------------------------------------- lost-in-the-middle order
 
 
-def order_lost_in_middle(passages: Sequence[Passage]) -> list[Passage]:
+_Unit = TypeVar("_Unit")
+
+
+def order_lost_in_middle(
+    passages: Sequence[_Unit], *, priority: Callable[[_Unit], bool] | None = None
+) -> list[_Unit]:
     """LongContextReorder: strongest passages to the HEAD and TAIL, weakest in the MIDDLE.
 
     Long-context models attend most to the beginning and end of the context and least to
     the middle (the U-shaped "Lost in the Middle" positional bias, Liu et al. 2023). Given
     passages already sorted by score descending, we place ranked items alternately toward
     the front and back: rank 1 lands at the head, rank 2 at the tail, and the weakest sink
-    into the low-attention middle. Deterministic."""
-    head: list[Passage] = []
-    tail: list[Passage] = []
-    for i, p in enumerate(passages):
+    into the low-attention middle. Deterministic.
+
+    `priority` (default None = the ranking above, unchanged byte-for-byte) marks units whose
+    VALUE does not come from their retrieval score. They are stably lifted ahead of the rest
+    before the alternating placement, so they take the attention-hot end slots and the
+    unmarked ones sink into the middle. fast's annotated windows are the case that needs it:
+    a window carrying claim notes is a fused evidence unit rather than a lone excerpt, and
+    its rank as an excerpt says nothing about that.
+
+    Generic in the unit, not fixed to `Passage`: the caller may order (window, notes) pairs
+    with the same rule rather than having to re-derive the pairing after ordering."""
+    ordered = list(passages)
+    if priority is not None:
+        ordered = [p for p in ordered if priority(p)] + [
+            p for p in ordered if not priority(p)
+        ]
+    head: list[_Unit] = []
+    tail: list[_Unit] = []
+    for i, p in enumerate(ordered):
         (head if i % 2 == 0 else tail).append(p)
     return head + tail[::-1]
 

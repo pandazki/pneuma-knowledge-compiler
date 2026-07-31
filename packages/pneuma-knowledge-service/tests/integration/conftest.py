@@ -71,6 +71,17 @@ async def _reap(settings: Settings) -> None:
             await qdrant.ensure_collection()
 
         for uid in users:
+            # A test user may own frozen snapshot tenants. `list_users` deliberately hides
+            # those (they are not users), so the only way to reach them is through the
+            # owner's registry — and it has to happen BEFORE delete_user drops those rows,
+            # or the tenant data is stranded with nothing naming it.
+            for snapshot in await store.list_kb_snapshots(uid):
+                tenant = UserId(str(snapshot["tenant_id"]))
+                if qdrant is not None:
+                    await qdrant.delete_user(tenant)
+                if meili is not None:
+                    await meili.delete_user(tenant)
+                await store.delete_tenant_rows(tenant)
             await store.delete_user(uid)
             if meili is not None:
                 await meili.delete_user(uid)

@@ -36,12 +36,58 @@ def _template_regex(template: str) -> re.Pattern[str]:
 
 
 def path_allowed(path: str, path_templates: list[str]) -> bool:
-    """True iff `path` matches one of the skill's path templates (path ownership)."""
+    """True iff `path` matches one of the skill's path templates (path ownership).
+
+    This is the WRITE ownership predicate: what `create_document` will accept. It deliberately
+    does NOT recognize a document's history directory (see `history_volume_owner`) — a rollover
+    volume must be unreachable from the compile tool face.
+    """
     return any(_template_regex(t).match(path) for t in path_templates)
 
 
-def _assign_document_id(path: str) -> DocumentId:
+#: A rollover volume's filename inside a document's history directory: `a01.md`, `a02.md`, …
+#: The naming itself belongs to `compile.rollover`; the GRAMMAR lives here because path
+#: ownership is one concern and must be stated in one place.
+_VOLUME_FILE_RE = re.compile(r"^a(\d{2,})\.md$")
+
+
+def history_dir(document_path: str) -> str:
+    """A document's history directory: its own path with `.md` dropped.
+
+    `work/products/aurora-planner.md` → `work/products/aurora-planner/`. Rollover volumes live
+    there, so the archive travels with the document it belongs to and needs no slug of its own.
+    """
+    return document_path.removesuffix(".md")
+
+
+def history_volume_owner(path: str, path_templates: list[str]) -> str | None:
+    """The document that owns `path` as one of its rollover volumes, or None.
+
+    A mechanical derivation, not a second ownership table: `<owned document>/aNN.md` belongs to
+    `<owned document>.md`. It exists because a volume is a real canonical document — it is read
+    off git, projected into L3, and therefore present in every later compile's draft — while
+    being deliberately OUTSIDE the write templates so that no compile tool can create one.
+    Only the groom channel writes here.
+    """
+    directory, _, filename = path.rpartition("/")
+    if not directory or _VOLUME_FILE_RE.match(filename) is None:
+        return None
+    owner = f"{directory}.md"
+    return owner if path_allowed(owner, path_templates) else None
+
+
+def assign_document_id(path: str) -> DocumentId:
+    """Content-addressed document id: derived from the path, never model-supplied.
+
+    Public because the rollover channel mints one for an archive volume through the same
+    function the compile channel uses — two derivations of a document's identity would be
+    two ids for one path.
+    """
     return DocumentId(hashlib.sha256(f"doc:{path}".encode("utf-8")).hexdigest()[:12])
+
+
+#: Historical private spelling, kept so existing call sites read unchanged.
+_assign_document_id = assign_document_id
 
 
 @dataclass

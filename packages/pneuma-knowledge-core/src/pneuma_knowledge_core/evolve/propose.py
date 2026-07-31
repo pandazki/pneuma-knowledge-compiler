@@ -15,10 +15,17 @@ Everything mechanical lives here, never in prose:
   (not a re-implementation): a template that is malformed or would drop a base family makes
   `compose_skill` raise, and the proposal is rejected.
 
-`propose_evolution` returns `(proposal | None, reason)` where reason ∈
+`propose_evolution` returns `(proposal | None, reason, rationale)` where reason ∈
 {"no_change", "parse_error", "invalid_templates", "proposed"} — so a caller (and a test)
 can tell the four outcomes apart without the core having to log. A parse failure degrades
 to "no change" (None), it never raises.
+
+`rationale` is the model's own reasoning text, returned ALONGSIDE the proposal rather than
+only inside it. It used to be reachable only through a proposal, which meant the one outcome
+where the reasoning is the entire product — "no change", where there is no proposal to carry
+it — threw it away: 30 consecutive no-change rounds in a 208-day replay recorded a verdict
+and not one word of why. A caller that persists the outcome can now persist the reason for
+it too.
 """
 
 from __future__ import annotations
@@ -161,16 +168,20 @@ async def propose_evolution(
     doc_paths: Sequence[str],
     callbacks: list | None = None,
     trace_metadata: dict | None = None,
-) -> tuple[EvolveProposal | None, ProposeReason]:
-    """Run the phase-1 inference → `(proposal | None, reason)`.
+) -> tuple[EvolveProposal | None, ProposeReason, str]:
+    """Run the phase-1 inference → `(proposal | None, reason, rationale)`.
 
     - `("no_change")` — the model saw no clear signal, or proposed no families (legal,
-      common; the evolve task then terminates and waits for the next trigger);
+      common; the evolve task then terminates and waits for the next trigger). The rationale
+      is the ONLY product of this outcome, so it is returned even though there is no
+      proposal to hang it on;
     - `("parse_error")` — the structured output failed / the model errored (degrade to no
-      change, never raise);
+      change, never raise); there is nothing to report, so the rationale is empty;
     - `("invalid_templates")` — a proposed template is malformed or would drop a base
-      family (`compose_skill`'s additive assertions reject it);
-    - `("proposed")` — a valid additive pack draft."""
+      family (`compose_skill`'s additive assertions reject it); the reasoning behind the
+      rejected draft is still returned, because "what it was trying to do" is what makes a
+      rejection reviewable;
+    - `("proposed")` — a valid additive pack draft; the rationale equals the proposal's."""
     structured = model.with_structured_output(_EvolveDraft, include_raw=True)
     try:
         raw = await structured.ainvoke(
@@ -183,16 +194,20 @@ async def propose_evolution(
             config=invoke_config("evolve.propose", callbacks, trace_metadata),
         )
     except Exception:  # noqa: BLE001 — a propose failure degrades to "no change", never 500s
-        return None, "parse_error"
+        return None, "parse_error", ""
 
     parsed = raw.get("parsed") if isinstance(raw, Mapping) else raw
     if not isinstance(parsed, _EvolveDraft):
-        return None, "parse_error"
+        return None, "parse_error", ""
 
     if not parsed.needs_change or not parsed.families:
-        return None, "no_change"
+        return None, "no_change", parsed.rationale.strip()
 
     packs = [_pack_from_family(f) for f in parsed.families]
+
+    rationale = (parsed.rationale.strip() + "\n\n") if parsed.rationale.strip() else ""
+    rationale += "\n".join(f.evidence.strip() for f in parsed.families if f.evidence.strip())
+    rationale = rationale.strip()
 
     # Reuse compose_skill's mechanical additive assertions (template shape + base-template
     # superset) rather than re-implementing them: a malformed / non-additive template makes
@@ -200,8 +215,6 @@ async def propose_evolution(
     try:
         compose_skill(current_skill, packs)
     except ValueError:
-        return None, "invalid_templates"
+        return None, "invalid_templates", rationale
 
-    rationale = (parsed.rationale.strip() + "\n\n") if parsed.rationale.strip() else ""
-    rationale += "\n".join(f.evidence.strip() for f in parsed.families if f.evidence.strip())
-    return EvolveProposal(packs=packs, rationale=rationale.strip()), "proposed"
+    return EvolveProposal(packs=packs, rationale=rationale), "proposed", rationale

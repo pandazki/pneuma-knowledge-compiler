@@ -70,7 +70,11 @@ CREATE TABLE IF NOT EXISTS chunk_manifests (
 
 -- compile job queue: per-user_id serial claim via FOR UPDATE SKIP LOCKED (§5).
 -- Generic kind + payload jsonb to match the JobQueue port (enqueue(user, kind,
--- payload)); a compile job's payload carries {"source_ids": [...]}.
+-- payload)); a compile job's payload carries {"source_ids": [...]}, an index job
+-- {"source_id": ...}, an evolve_adopt job {"task_id": ...}, and a groom (document
+-- rollover) job {"path": ...}. Deliberately not an enum: a new pipeline stage rides the
+-- one per-user serial queue without a migration, which is what keeps the git
+-- single-writer guarantee covering every canonical write channel.
 CREATE TABLE IF NOT EXISTS compile_jobs (
     id           text        NOT NULL PRIMARY KEY,
     user_id text        NOT NULL,
@@ -176,6 +180,40 @@ CREATE TABLE IF NOT EXISTS evolve_tasks (
 
 CREATE INDEX IF NOT EXISTS evolve_tasks_user
     ON evolve_tasks (user_id, created_at);
+
+-- kb_snapshots: the knowledge-base snapshot registry (frozen-tenant versioning).
+--
+-- A snapshot is a FROZEN TENANT, not a filter: L0 (sources/blocks), the L1 lexical index, the
+-- L2 vector points and the L3 claim projection are all copied under `tenant_id`, which is
+-- never written again. Tenant isolation is a first-class property of every store already, so
+-- versioning reuses it instead of inventing a per-layer history mechanism. canonical (L3
+-- authority) is the exception and is NOT copied: git already versions it perfectly, so the row
+-- pins `canonical_ref` and reads go to the owner's repo at that ref.
+--
+-- Named `kb_snapshots` rather than `snapshots` on purpose: `snapshot_ref` elsewhere in this
+-- schema (compile_jobs, compile_events, canonical_claims, briefings) means a git commit, and
+-- reusing the bare word would make every one of those columns ambiguous.
+--
+-- status is the lifecycle: 'creating' while the copy pipeline runs, 'ready' once every store
+-- is complete, 'failed' when a step aborted (the row and its partial tenant are RETAINED so
+-- the remains are visible and deletable — a half-copied snapshot must never read as ready).
+-- counts is the post-copy scale {sources, blocks, chunks, claims} shown in the picker.
+CREATE TABLE IF NOT EXISTS kb_snapshots (
+    user_id       text        NOT NULL,
+    snapshot_id   text        NOT NULL,
+    label         text        NOT NULL,
+    tenant_id     text        NOT NULL,
+    canonical_ref text        NOT NULL,
+    status        text        NOT NULL,   -- creating | ready | failed
+    counts        jsonb       NOT NULL DEFAULT '{}'::jsonb,
+    detail        text,
+    created_at    timestamptz NOT NULL DEFAULT now(),
+    ready_at      timestamptz,
+    PRIMARY KEY (user_id, snapshot_id)
+);
+
+CREATE INDEX IF NOT EXISTS kb_snapshots_user
+    ON kb_snapshots (user_id, created_at);
 
 -- user_profiles: onboarding-editable user picture (external-sync + local
 -- override). When a user fills in / edits their profile in the UI it is persisted here

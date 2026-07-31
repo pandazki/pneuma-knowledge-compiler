@@ -304,6 +304,97 @@ class QdrantVectorIndex:
         )
         return result.count
 
+    def _copied_point_id(self, target: UserId, payload: dict[str, Any]) -> str:
+        """The point id a copied point takes under `target` — re-derived, never reused.
+
+        Both id schemes in this collection are `uuid5` over a string that STARTS with the
+        tenant, so a copy cannot keep the source id (it would collide with the source point
+        and the second upsert would overwrite the first). Re-deriving from the payload is
+        also what makes the copy idempotent: a retried copy computes the same ids and
+        overwrites its own earlier points instead of duplicating them."""
+        if payload.get("layer") == LAYER_CLAIM:
+            return _claim_point_id(
+                target,
+                str(payload.get("document_path", "")),
+                str(payload.get("anchor", "")),
+            )
+        # Chunk ids key on the char span (see `upsert_chunks`). Legacy points predate the
+        # char span; fall back to the block interval exactly as `search` does, so a legacy
+        # point copies to one stable id rather than a random one.
+        char_start = payload.get("char_start", payload.get("block_start"))
+        char_end = payload.get("char_end", payload.get("block_end"))
+        return str(
+            uuid.uuid5(
+                _POINT_NS,
+                f"{target}:{payload.get('source_id')}:{char_start}:{char_end}",
+            )
+        )
+
+    async def copy_tenant(
+        self, source: UserId, target: UserId, *, batch_size: int = 256
+    ) -> int:
+        """Copy every point of `source` under `target`, CARRYING THE ORIGINAL VECTORS.
+
+        This is the one copy in the snapshot pipeline that cannot be a rebuild. Re-embedding
+        would defeat the entire point of a frozen snapshot: switching embedding model or
+        re-chunking later would silently change what a "frozen" snapshot retrieves. So the
+        vectors are moved as opaque numbers (`with_vectors=True` → the same list upserted),
+        and nothing in this method knows or cares which model produced them.
+
+        Both layers ride along in one pass — L2 chunks and the L3 claim projection are points
+        in the same collection, distinguished by `payload.layer`, and a snapshot needs both.
+
+        Returns the number of points copied. Idempotent (see `_copied_point_id`), so a failed
+        pipeline can be retried without duplicating anything.
+        """
+        copied = 0
+        offset: Any = None
+        while True:
+            points, offset = await self._client.scroll(
+                self._collection,
+                scroll_filter=_tenant_filter(source),
+                limit=batch_size,
+                offset=offset,
+                with_payload=True,
+                with_vectors=True,
+            )
+            if not points:
+                break
+            batch: list[models.PointStruct] = []
+            for point in points:
+                payload = dict(point.payload or {})
+                vector = point.vector
+                if vector is None:
+                    # A point with no vector cannot participate in semantic search and would
+                    # be rejected by upsert. Skipping it silently is the only wrong answer, so
+                    # it fails the copy loudly instead.
+                    raise RuntimeError(
+                        f"point {point.id} of tenant {source!r} has no vector; "
+                        "the snapshot copy would lose it"
+                    )
+                payload["user_id"] = str(target)
+                batch.append(
+                    models.PointStruct(
+                        id=self._copied_point_id(target, payload),
+                        vector=vector,
+                        payload=payload,
+                    )
+                )
+            await self._client.upsert(self._collection, points=batch, wait=True)
+            copied += len(batch)
+            if offset is None:
+                break
+        return copied
+
+    async def count_points(self, user_id: UserId) -> int:
+        """Every point a tenant owns, both layers (snapshot copy verification)."""
+        result = await self._client.count(
+            self._collection,
+            count_filter=_tenant_filter(user_id),
+            exact=True,
+        )
+        return int(result.count)
+
     async def delete_user(self, user_id: UserId) -> None:
         """Delete all of a user's points via the tenant filter (test-teardown
         hygiene); the single shared collection is left in place."""

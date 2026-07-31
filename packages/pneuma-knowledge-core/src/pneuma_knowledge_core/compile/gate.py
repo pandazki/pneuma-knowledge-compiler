@@ -11,10 +11,15 @@ repair round by the runner):
    carried over verbatim from the base body is grandfathered (it was validated when first
    committed); a later forward-only compile that does not supply that old source must not
    retroactively reject it (M5 Path B: new source compiled while old canonical stands).
+3b. citation SHAPE — anything spelled `[cite: …]` must parse completely as a locator. See
+   `check_citation_shape`: the legality check above can only judge markers it can read, so
+   an unreadable one used to pass as provenance by looking like some.
 4. frontmatter completeness — doc_id / type / slug present.
 4b. anchor coverage — every content block carries an anchor (else it is browse-visible
    canonical text that never enters the L3 claim index — an orphaned claim).
-5. path ownership — every document path matches a skill path template.
+5. path ownership — every document path matches a skill path template, or is one of an owned
+   document's rollover volumes (`<owned document>/aNN.md`; see patch.history_volume_owner).
+5b. frozen archive — a rollover volume may not be modified by a compile.
 
 The gate is the mechanism; there is no prompt asking the model to "please remember".
 """
@@ -31,7 +36,7 @@ from ..domain.source import NormalizedSource
 from ..prompts import prompt
 from .anchor_ops import anchored_blocks, missing_anchors, unanchored_blocks
 from .documents import DOC_ID_KEY, LEGACY_DOC_ID_KEYS
-from .patch import PatchDraft, path_allowed
+from .patch import PatchDraft, history_volume_owner, path_allowed
 
 REQUIRED_FRONTMATTER = (DOC_ID_KEY, "type", "slug")
 
@@ -47,6 +52,16 @@ _FRONTMATTER_READ_ALIASES: dict[str, tuple[str, ...]] = {DOC_ID_KEY: LEGACY_DOC_
 # graph will later try to resolve.
 _MD_LINK_RE = re.compile(r"\]\(([^)]+)\)")
 
+# Anything a reader would take for a citation: the `[cite:` opener through the next `]`.
+# Deliberately looser than `CANONICAL_CITATION_MARKER_RE` — its whole job is to catch the
+# strings that regex does NOT match, which is why it cannot be that regex.
+_CITE_BRACKET_RE = re.compile(r"\[cite:(?P<inner>[^\]]*)\]")
+
+# An anchor reference (`c:<id>`) written where a source locator belongs. It is a legal
+# provenance form in the wrong container, so it gets its own violation text: telling an
+# author "this does not parse" when the fix is "move it outside the brackets" is a riddle.
+_ANCHOR_IN_MARKER_RE = re.compile(r"^\s*c:(?P<anchor>[0-9a-zA-Z_-]+)\s*$")
+
 
 def _resolve_relative(from_path: str, href: str) -> str:
     """Resolve `href` against the linking document's directory (mirrors dataset._resolve_link)."""
@@ -60,6 +75,29 @@ def _resolve_relative(from_path: str, href: str) -> str:
         else:
             stack.append(part)
     return "/".join(stack)
+
+
+def _render_relative(from_path: str, target: str) -> str:
+    """The href that renders `target` from a document at `from_path` — the inverse above.
+
+    Its law is the round trip: `_resolve_relative(from_path, _render_relative(from_path, t))
+    == t` for every repo-relative `t`. That is what makes a relative link MOVABLE: the href
+    is only a rendering of a target from one position, so a document that changes position
+    keeps its links by re-rendering them (compile.rollover), never by leaving the bytes alone.
+
+    It lives next to the resolver because an inverse stated somewhere else is a second
+    spelling of the same fact, and the two would drift.
+    """
+    from_dir = from_path.split("/")[:-1]
+    parts = target.split("/")
+    common = 0
+    while (
+        common < len(from_dir)
+        and common < len(parts) - 1
+        and from_dir[common] == parts[common]
+    ):
+        common += 1
+    return "/".join([".."] * (len(from_dir) - common) + parts[common:])
 
 
 @dataclass(frozen=True)
@@ -126,6 +164,53 @@ def check_anchor_coverage(docs: Mapping[str, object]) -> list[Violation]:
                     "anchor_coverage",
                     path,
                     prompt("gate.anchor_coverage", preview=preview),
+                )
+            )
+    return violations
+
+
+def check_citation_shape(docs: Mapping[str, object]) -> list[Violation]:
+    """Every `[cite: …]` in the repo parses COMPLETELY as a locator, or it is a violation.
+
+    The legality check judges the citations it can read. That is a silent selection: a marker
+    the grammar does not match is not an illegal citation, it is not a citation at all — so
+    it was never judged, and the provenance check three steps down accepted the claim
+    carrying it because a `[cite:` had been typed. A marker with the LOOK of provenance and
+    no readable locator is worse than a missing one: it survives review by resembling an
+    answer, and it resolves to nothing for every reader downstream.
+
+    Judged over the whole repository, with no grandfathering. The malformed markers this was
+    written for are already committed, and exempting them would preserve exactly the state
+    the check exists to end; the next compile that touches such a document is asked to fix
+    it, which is the only channel that can.
+    """
+    violations: list[Violation] = []
+    for path, doc in docs.items():
+        for bracket in _CITE_BRACKET_RE.finditer(doc.body):
+            marker = bracket.group(0)
+            # Full-match, not search: a parse that leaves bytes over inside the brackets read
+            # a locator the author did not write.
+            if CANONICAL_CITATION_MARKER_RE.fullmatch(marker) is not None:
+                continue
+            anchor = _ANCHOR_IN_MARKER_RE.match(bracket.group("inner"))
+            if anchor is not None:
+                violations.append(
+                    Violation(
+                        "citation",
+                        path,
+                        prompt(
+                            "gate.citation_anchor_in_marker",
+                            marker=marker,
+                            anchor=anchor.group("anchor"),
+                        ),
+                    )
+                )
+                continue
+            violations.append(
+                Violation(
+                    "citation",
+                    path,
+                    prompt("gate.citation_unparsable_marker", marker=marker),
                 )
             )
     return violations
@@ -205,6 +290,10 @@ def run_gate(
                         )
                     )
 
+    # 3b. citation SHAPE — before provenance, because provenance counts markers it cannot
+    # read as evidence, and this is what tells the two apart.
+    violations.extend(check_citation_shape(docs))
+
     # 3c. PROVENANCE on newly introduced claims. The one invariant the gate never actually
     # enforced: it validated the citations that existed but never required a claim to have
     # one, so an uncited assertion committed cleanly into the only non-rebuildable layer.
@@ -281,17 +370,43 @@ def run_gate(
     # path from committing unindexed claims.
     violations.extend(check_anchor_coverage(docs))
 
-    # 5. path ownership.
+    # 5. path ownership. A document's ROLLOVER VOLUMES (`<owned document>/aNN.md`) count as
+    # owned here even though they are outside the write templates: a volume is a real canonical
+    # document, so it is read off git into every later compile's draft, and judging it unowned
+    # would make every compile after the first rollover abort on a path it is not even
+    # touching. The write face is unchanged — `create_document` still calls `path_allowed`
+    # alone, so no compile tool can create a volume (only the groom channel writes there).
     for path in docs:
-        if not path_allowed(path, draft.path_templates):
+        if path_allowed(path, draft.path_templates):
+            continue
+        if history_volume_owner(path, draft.path_templates) is not None:
+            continue
+        violations.append(
+            Violation(
+                "path",
+                path,
+                prompt(
+                    "gate.path_not_owned",
+                    templates=", ".join(draft.path_templates),
+                ),
+            )
+        )
+
+    # 5b. a rollover volume is FROZEN. Compile cannot create one, but every volume does sit in
+    # the draft as an ordinary document, so `append_block`/`edit_claim` could otherwise reach
+    # into frozen history. Nothing in a daily compile has any business writing there — the
+    # active document is where new claims belong — so any change to a volume is refused.
+    for path, doc in docs.items():
+        if history_volume_owner(path, draft.path_templates) is None:
+            continue
+        if doc.body != base_bodies.get(path):
             violations.append(
                 Violation(
-                    "path",
+                    "archive_frozen",
                     path,
-                    prompt(
-                        "gate.path_not_owned",
-                        templates=", ".join(draft.path_templates),
-                    ),
+                    prompt("gate.archive_frozen", owner=history_volume_owner(
+                        path, draft.path_templates
+                    )),
                 )
             )
 

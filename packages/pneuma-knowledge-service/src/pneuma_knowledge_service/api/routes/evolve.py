@@ -24,6 +24,7 @@ from ...evolve_service import (
     list_tasks_with_expiry,
 )
 from ...skills import read_manifest, skill_for_user
+from ...snapshot_tenant import assert_writable
 from ...wiring import AppContext
 
 router = APIRouter(prefix="/v1/users/{user_id}")
@@ -160,6 +161,7 @@ async def trigger_evolve(user_id: str, request: Request) -> EnqueuedOut:
     evolve job is already queued/in-flight (single-flight per user)."""
     ctx = _ctx(request)
     user = UserId(user_id)
+    assert_writable(user)  # evolve rewrites canonical; a frozen snapshot has none of its own
     if await has_pending_evolve(ctx, user):
         raise HTTPException(
             status_code=409,
@@ -188,6 +190,11 @@ async def get_evolve(
 
     proposal = task["proposal"] or None
     rationale = proposal.get("rationale") if isinstance(proposal, dict) else None
+    if not rationale and proposal is None and task["status"] == "no_change":
+        # A phase-1 no-change round produces reasoning and no proposal, so its rationale is
+        # persisted on the task itself. Reading it back here keeps ONE field named
+        # `rationale` for the reader, whichever of the two rounds produced it.
+        rationale = task["detail"]
 
     changed: list[ChangedFileOut] = []
     branch = task["branch"]
@@ -234,6 +241,7 @@ async def adopt_evolve(
     rebuild L3). 404 for an unknown task, 409 when it is not a live draft."""
     ctx = _ctx(request)
     user = UserId(user_id)
+    assert_writable(user)
     task = await get_task_with_expiry(ctx, user, task_id)
     if task is None:
         raise HTTPException(status_code=404, detail=f"evolve task not found: {task_id}")

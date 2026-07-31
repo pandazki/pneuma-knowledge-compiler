@@ -32,6 +32,7 @@ from ..evolve_service import (
     maybe_trigger_evolve,
     run_evolve_job,
 )
+from ..groom_service import GROOM_JOB_KIND, maybe_trigger_rollover, run_groom_job
 from ..ingest_document import _summary_chunks
 from ..projection import sync_projection
 from ..settings import Settings
@@ -268,6 +269,12 @@ async def process_job(
             detail=_projection_detail(projection),
             snapshot_ref=result.snapshot.ref,
         )
+        # Mechanical rollover trigger: a document this compile WROTE that is now over the
+        # size threshold gets a groom job on this same per-user queue. Size only — no LLM, no
+        # git read — and only over the paths this compile actually changed.
+        await maybe_trigger_rollover(
+            ctx, user_id, result.files, {e.path for e in result.events}
+        )
         # Passive schema-evolve trigger (schema-evolve §2.1): once committed events land,
         # enqueue an evolve job if the topic/anchor increment cleared the threshold.
         await maybe_trigger_evolve(ctx, user_id)
@@ -404,7 +411,8 @@ async def drain_user(
     """Claim + process this user's queued jobs until the queue is empty.
 
     Kind-agnostic claim (claim_next orders by created_at): dispatch by job.kind —
-    "index" → process_index_job (L1/L2), anything else ("compile") → process_job.
+    "index" → process_index_job (L1/L2), "evolve"/"evolve_adopt" → the schema-evolve flow,
+    "groom" → one document rollover, anything else ("compile") → process_job.
 
     `skill` is the per-USER skill for this drain: pass an explicit SkillVersion to force
     one (upgrade/version tests), or None to load it per-job via `skill_for_user` (the
@@ -425,6 +433,8 @@ async def drain_user(
                 await run_evolve_job(ctx, user_id, job)
             elif kind == "evolve_adopt":
                 await adopt_evolve_job(ctx, user_id, job)
+            elif kind == GROOM_JOB_KIND:
+                await run_groom_job(ctx, user_id, job)
             else:
                 if resolved is None:
                     resolved = await _resolve_user_skill(ctx, user_id, skill_cache)

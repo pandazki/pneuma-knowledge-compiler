@@ -23,6 +23,7 @@ from pneuma_knowledge_core.domain.time_context import TimeContext, time_context_
 from pneuma_knowledge_core.ingest.adapters import CONTEXT_STREAM_MIME, PlainConversationInput
 from pneuma_knowledge_core.ingest.source_types import first_party_type
 
+from .snapshot_tenant import assert_writable
 from .wiring import AppContext
 
 
@@ -82,6 +83,10 @@ async def ingest_conversation(
     meta: dict[str, Any] | None = None,
     origin: SourceOrigin = "upload",
 ) -> IngestResult:
+    # Write protection lives at the SERVICE function, not only at the HTTP route: scripts,
+    # the worker and the experiment harnesses all call this directly, and a frozen snapshot
+    # tenant must be unwritable through every one of them (snapshot_tenant.py).
+    assert_writable(user_id)
     # First-party context_stream carries diarized roles → route to the owner-aware adapter
     # (registered under the context_stream mime); a generic conversation uses the plain path.
     mime = CONTEXT_STREAM_MIME if origin == "context_stream" else "text/plain"

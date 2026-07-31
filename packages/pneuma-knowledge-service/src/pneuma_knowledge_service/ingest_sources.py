@@ -11,6 +11,7 @@ from pneuma_knowledge_core.ingest.canonical_sources import normalize_source_cont
 from pneuma_knowledge_core.ingest.source_contracts import SourceContract
 
 from .ingest import IngestResult, subject_time_context
+from .snapshot_tenant import assert_writable
 from .wiring import AppContext
 
 
@@ -33,6 +34,7 @@ async def ingest_source_contract(
     synchronously, then L1/L2 indexing and L3 compilation are queued.
     """
 
+    assert_writable(user_id)  # a frozen snapshot tenant is never written (snapshot_tenant.py)
     timestamp = imported_at or datetime.now(timezone.utc)
     # Meeting / IM / email contracts cut sections by calendar day; that day is the subject's
     # (domain/time_context.py), not the provider's offset.

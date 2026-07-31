@@ -26,6 +26,8 @@ from pneuma_knowledge_core.recall.projection import ProjectedClaim
 from psycopg.types.json import Json
 from psycopg_pool import AsyncConnectionPool
 
+from ..snapshot_tenant import RESERVED_PREFIX
+
 _SCHEMA_PATH = Path(__file__).resolve().parents[5] / "infra" / "schema.sql"
 
 
@@ -146,10 +148,16 @@ class PostgresStore:
         switcher), not a per-user data read path — it returns only the id set,
         never any user's content, so invariant I1's "no cross-user read of data"
         holds.
+
+        Frozen snapshot tenants are excluded: they hold a copy of some user's rows, so they
+        would otherwise appear in the user switcher as N phantom users owning the same data.
+        A snapshot is reached through its owner's snapshot list, never as a user.
         """
         async with self._pool.connection() as conn:
             rows = await (await conn.execute(
-                "SELECT DISTINCT user_id FROM sources ORDER BY user_id"
+                "SELECT DISTINCT user_id FROM sources "
+                "WHERE user_id NOT LIKE %s ORDER BY user_id",
+                (f"{RESERVED_PREFIX}%",),
             )).fetchall()
         return [r[0] for r in rows]
 
@@ -1049,6 +1057,192 @@ class PostgresStore:
             )).fetchall()
         return [self._claim_row(r) for r in rows]
 
+    # --- kb snapshot registry + tenant copy (frozen-tenant versioning) --------
+    #
+    # The registry is bookkeeping; the interesting part is `copy_tenant_rows`, which is the
+    # PG half of freezing a knowledge base. It is INSERT…SELECT with the user_id rewritten:
+    # the tenant column IS the version axis, so the copy needs no new schema and the frozen
+    # rows are read by exactly the same queries as live ones.
+
+    @staticmethod
+    def _kb_snapshot_row(row: tuple) -> dict[str, Any]:
+        return {
+            "snapshot_id": row[0],
+            "label": row[1],
+            "tenant_id": row[2],
+            "canonical_ref": row[3],
+            "status": row[4],
+            "counts": row[5] or {},
+            "detail": row[6],
+            "created_at": row[7],
+            "ready_at": row[8],
+        }
+
+    _KB_SNAPSHOT_COLUMNS = (
+        "snapshot_id, label, tenant_id, canonical_ref, status, counts, detail, "
+        "created_at, ready_at"
+    )
+
+    async def create_kb_snapshot(
+        self,
+        user_id: UserId,
+        snapshot_id: str,
+        *,
+        label: str,
+        tenant_id: str,
+        canonical_ref: str,
+        created_at: datetime,
+    ) -> None:
+        """Register a snapshot in status 'creating'. The row exists BEFORE any copying so a
+        crashed pipeline leaves a visible, deletable record instead of orphaned tenant rows."""
+        async with self._pool.connection() as conn:
+            await conn.execute(
+                "INSERT INTO kb_snapshots (user_id, snapshot_id, label, tenant_id, "
+                "canonical_ref, status, counts, created_at) "
+                "VALUES (%s, %s, %s, %s, %s, 'creating', '{}'::jsonb, %s)",
+                (
+                    str(user_id),
+                    snapshot_id,
+                    label,
+                    tenant_id,
+                    canonical_ref,
+                    created_at,
+                ),
+            )
+
+    async def finish_kb_snapshot(
+        self,
+        user_id: UserId,
+        snapshot_id: str,
+        *,
+        status: str,
+        counts: dict[str, int] | None = None,
+        detail: str | None = None,
+        ready_at: datetime | None = None,
+        canonical_ref: str | None = None,
+    ) -> None:
+        """Move a snapshot to its terminal status ('ready' or 'failed'). Never partial.
+
+        `canonical_ref` overwrites the provisional commit recorded at creation. It is settled
+        here, not there, because the ref must be no OLDER than the copied claim rows — see
+        `kb_snapshots.run_copy`. None keeps the provisional value (the failure path)."""
+        async with self._pool.connection() as conn:
+            await conn.execute(
+                "UPDATE kb_snapshots SET status = %s, counts = %s, detail = %s, "
+                "ready_at = %s, canonical_ref = COALESCE(%s, canonical_ref) "
+                "WHERE user_id = %s AND snapshot_id = %s",
+                (
+                    status,
+                    Json(counts or {}),
+                    detail,
+                    ready_at,
+                    canonical_ref,
+                    str(user_id),
+                    snapshot_id,
+                ),
+            )
+
+    async def list_kb_snapshots(self, user_id: UserId) -> list[dict[str, Any]]:
+        """This owner's snapshots, newest first. Unpaginated on purpose: snapshots are a
+        low-frequency deliberate act, so the list is small by construction."""
+        async with self._pool.connection() as conn:
+            rows = await (await conn.execute(
+                f"SELECT {self._KB_SNAPSHOT_COLUMNS} FROM kb_snapshots "
+                "WHERE user_id = %s ORDER BY created_at DESC, snapshot_id DESC",
+                (str(user_id),),
+            )).fetchall()
+        return [self._kb_snapshot_row(r) for r in rows]
+
+    async def get_kb_snapshot(
+        self, user_id: UserId, ref: str
+    ) -> dict[str, Any] | None:
+        """One snapshot by id OR by label — both are how a caller names one.
+
+        A label is the human handle the UI shows and a script types; the id is what the API
+        returns. Labels are not unique (nothing stops two snapshots called "before reorg"), so
+        an ambiguous label resolves to the NEWEST match rather than failing: the recent one is
+        what a person means, and the id is always available for an exact pick."""
+        async with self._pool.connection() as conn:
+            rows = await (await conn.execute(
+                f"SELECT {self._KB_SNAPSHOT_COLUMNS} FROM kb_snapshots "
+                "WHERE user_id = %s AND (snapshot_id = %s OR label = %s) "
+                "ORDER BY (snapshot_id = %s) DESC, created_at DESC LIMIT 1",
+                (str(user_id), ref, ref, ref),
+            )).fetchall()
+        return self._kb_snapshot_row(rows[0]) if rows else None
+
+    async def delete_kb_snapshot(self, user_id: UserId, snapshot_id: str) -> None:
+        """Drop the registry row. The tenant's rows are removed by `delete_tenant_rows`."""
+        async with self._pool.connection() as conn:
+            await conn.execute(
+                "DELETE FROM kb_snapshots WHERE user_id = %s AND snapshot_id = %s",
+                (str(user_id), snapshot_id),
+            )
+
+    async def copy_tenant_rows(
+        self, source: UserId, target: UserId
+    ) -> dict[str, int]:
+        """Copy one tenant's L0 + claim-projection rows under `target`, idempotently.
+
+        `ON CONFLICT DO NOTHING` (unqualified, so it covers the sources checksum index as
+        well as each primary key) is what makes a retry after a failed pipeline safe: the
+        rows already copied are left alone and the rest are filled in. All three statements
+        run in ONE transaction, so a mid-copy failure leaves nothing behind for this store.
+
+        `chunk_manifests` is deliberately NOT copied: it exists to make a FUTURE re-chunk
+        byte-deterministic, and a frozen tenant is never re-chunked. Copying it would state a
+        rebuild intent that can never apply.
+        """
+        src, dst = str(source), str(target)
+        async with self._pool.connection() as conn:
+            async with conn.transaction():
+                await conn.execute(
+                    "INSERT INTO sources (user_id, source_id, kind, source_class, title, "
+                    "mime, checksum, created_at, meta, intake_plan, structure_map, "
+                    "digested_at, origin) "
+                    "SELECT %s, source_id, kind, source_class, title, mime, checksum, "
+                    "created_at, meta, intake_plan, structure_map, digested_at, origin "
+                    "FROM sources WHERE user_id = %s ON CONFLICT DO NOTHING",
+                    (dst, src),
+                )
+                await conn.execute(
+                    "INSERT INTO blocks (user_id, source_id, block_index, text, "
+                    "section_path) "
+                    "SELECT %s, source_id, block_index, text, section_path "
+                    "FROM blocks WHERE user_id = %s ON CONFLICT DO NOTHING",
+                    (dst, src),
+                )
+                await conn.execute(
+                    "INSERT INTO canonical_claims (user_id, document_path, anchor, "
+                    "section_path, text, citations, snapshot_ref, updated_at) "
+                    "SELECT %s, document_path, anchor, section_path, text, citations, "
+                    "snapshot_ref, updated_at "
+                    "FROM canonical_claims WHERE user_id = %s ON CONFLICT DO NOTHING",
+                    (dst, src),
+                )
+                counts: dict[str, int] = {}
+                for name, table in (
+                    ("sources", "sources"),
+                    ("blocks", "blocks"),
+                    ("claims", "canonical_claims"),
+                ):
+                    row = await (await conn.execute(
+                        f"SELECT count(*) FROM {table} WHERE user_id = %s", (dst,)
+                    )).fetchone()
+                    counts[name] = int(row[0]) if row else 0
+        return counts
+
+    async def delete_tenant_rows(self, user_id: UserId) -> None:
+        """Remove a snapshot tenant's PG rows (blocks + chunk_manifests cascade)."""
+        async with self._pool.connection() as conn:
+            async with conn.transaction():
+                await conn.execute(
+                    "DELETE FROM canonical_claims WHERE user_id = %s", (str(user_id),)
+                )
+                await conn.execute(
+                    "DELETE FROM sources WHERE user_id = %s", (str(user_id),)
+                )
+
     # --- briefings (M4) -------------------------------------------------------
 
     async def create_briefing(
@@ -1267,6 +1461,10 @@ class PostgresStore:
                 )
                 await conn.execute(
                     "DELETE FROM evolve_tasks WHERE user_id = %s",
+                    (str(user_id),),
+                )
+                await conn.execute(
+                    "DELETE FROM kb_snapshots WHERE user_id = %s",
                     (str(user_id),),
                 )
                 await conn.execute(

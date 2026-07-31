@@ -15,6 +15,7 @@ import hashlib
 from datetime import datetime, timezone
 
 from pneuma_knowledge_core.canonical_glance import (
+    archive_volume_counts,
     document_title,
     family_blurbs,
     render_canonical_glance,
@@ -228,6 +229,73 @@ def test_the_whole_render_stops_at_the_budget_on_a_line_boundary():
     for line in text.splitlines():
         if line.startswith("- `memory/"):
             assert line.count("`") == 2
+
+
+# ------------------------------------------------------------------- rollover collapse
+
+
+def _volume(
+    active_path: str, number: int, claims: int = 4, *, stamped: bool = True
+) -> CanonicalDocument:
+    """A frozen archive volume of `active_path` — one file inside its same-name directory."""
+    path = f"{active_path.removesuffix('.md')}/a{number:02d}.md"
+    rows = "\n".join(
+        f"- Archived fact {i}. [cite: src-01 ¶{i}] <!-- c:{_anchor(path, i)} -->"
+        for i in range(claims)
+    )
+    frontmatter = (
+        {"archived_from": active_path, "rollover_volume": f"{number:02d}"}
+        if stamped
+        else {}
+    )
+    return _doc(path, f"# Archived\n\n## History\n{rows}\n", **frontmatter)
+
+
+def test_archive_volumes_are_counted_on_their_document_rather_than_listed_as_peers():
+    """Listing every volume would let one long-lived subject crowd out every other family —
+    the exact degradation rollover exists to fix. The count plus the active document's own
+    volume links keep the archive one hop away."""
+    active = _people_doc("ada-quill", "Ada Quill", claims=3)
+    docs = [active, _volume(active.path, 1), _volume(active.path, 2)]
+    text = render_canonical_glance(docs, _skill())
+
+    assert "- `memory/people/ada-quill.md` — Ada Quill (3 claim(s), +2 archived volume(s))" in text
+    assert "/a01.md" not in text and "/a02.md" not in text
+    # counted, mechanically, off the volumes' own frontmatter
+    assert archive_volume_counts(docs) == {active.path: 2}
+
+
+def test_a_volume_is_recognized_by_its_directory_even_without_its_frontmatter_stamp():
+    """Two agreeing signals identify a volume — the layout and the stamp — so a volume whose
+    stamp went missing still collapses instead of reappearing as a peer document."""
+    active = _people_doc("ada-quill", "Ada Quill")
+    docs = [active, _volume(active.path, 1, stamped=False)]
+    assert archive_volume_counts(docs) == {active.path: 1}
+    assert "/a01.md" not in render_canonical_glance(docs, _skill())
+
+
+def test_a_document_without_volumes_renders_exactly_as_before():
+    docs = [_people_doc("bo-marsh", "Bo Marsh")]
+    text = render_canonical_glance(docs, _skill())
+    assert "- `memory/people/bo-marsh.md` — Bo Marsh (1 claim(s))" in text
+    assert "archived volume" not in text
+
+
+def test_an_orphaned_volume_is_listed_rather_than_folded_into_a_document_that_is_gone():
+    """A volume whose origin document no longer exists must stay visible: silently hiding it
+    would make its claims unreachable through the glance."""
+    orphan = _volume("memory/people/ada-quill.md", 1)
+    text = render_canonical_glance([orphan], _skill())
+    assert f"- `{orphan.path}`" in text
+    assert archive_volume_counts([orphan]) == {}
+
+
+def test_the_collapse_does_not_touch_the_compile_outline():
+    """The compile face is a byte-stable surface and rollover was not asked to change it: a
+    compiler still needs to see the volumes it must not write into."""
+    active = _people_doc("ada-quill", "Ada Quill")
+    volume = _volume(active.path, 1)
+    assert any(volume.path in line for line in render_outline([active, volume]))
 
 
 def test_the_same_inputs_render_the_same_bytes():

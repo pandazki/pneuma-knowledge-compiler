@@ -11,6 +11,29 @@ derived retrieval stores (invariant I2: fully reconstructable from canonical):
 The normal worker path uses `sync_projection`: it compares the complete projected
 snapshot with PostgreSQL's last successful manifest and synchronizes only the content
 delta, so unchanged claims are not repeatedly embedded.
+
+THE GUARDRAILS BELOW EXIST BECAUSE THIS MODULE ONCE WIPED A LIVE PROJECTION
+--------------------------------------------------------------------------
+A repair script was pointed at the wrong canonical root. The store it read was an EMPTY
+repository, so `project_snapshot_claims` produced nothing, so the projection sync computed
+"every claim you have is gone" and executed it: 3072 claims deleted, then 183 rebuilt from
+the wrong repository's freshly-bootstrapped tree. Nothing in this module objected, because
+each individual step did exactly what it was told.
+
+The lesson is not "be careful with roots" — it is that a derived layer must refuse to
+destroy itself on the say-so of an authority it cannot corroborate. Three refusals follow
+from that, and each one names the moment the incident passed through unchallenged:
+
+  1. an empty canonical tree may not replace a non-empty projection (`rebuild_projection`,
+     the whole-table `replace_canonical_claims` path);
+  2. a snapshot ref that the CURRENT store's canonical repository cannot read is not a
+     snapshot, it is evidence of a misconfiguration — the first place the wrong root became
+     observable;
+  3. a sync that would lose more than `MAX_PROJECTION_LOSS_SHARE` of the projected claims is
+     a wipe wearing a delta's clothes.
+
+Every refusal has the same escape hatch, `allow_wipe=True`, because deleting a projection on
+purpose is a legitimate operation — it just may not happen by accident.
 """
 
 from __future__ import annotations
@@ -31,6 +54,39 @@ from pneuma_knowledge_core.recall.projection import (
 from .wiring import AppContext
 
 ClaimKey = tuple[str, str]
+
+#: How much of a tenant's projected knowledge one sync may LOSE before it is refused.
+#:
+#: WHY A SHARE, AND WHY A HALF. An ordinary delta is a compile's worth of claims — single or
+#: double digits against a base of hundreds to thousands — and the compile gate has no
+#: deletion channel at all, so the honest expected loss on the normal path is exactly zero.
+#: Half is therefore orders of magnitude above anything real traffic produces and far below
+#: the failure it names (the incident above lost 100%). A share rather than an absolute count
+#: because the number that matters is "how much of this knowledge base", which is meaningless
+#: without the base.
+#:
+#: WHY LOSS IS COUNTED IN ANCHORS, NOT IN DELETED KEYS. The projection is keyed by
+#: (document_path, anchor), so a rollover — which MOVES claims from a page into its archive
+#: volume — legitimately deletes every key it moves and re-inserts it under the volume's path.
+#: Counting deleted keys would refuse a groom of a small knowledge base as if it were a wipe.
+#: An anchor is repo-unique and survives the move, so "anchors that were projected and are
+#: projected no longer" is precisely the claims the knowledge base actually lost.
+MAX_PROJECTION_LOSS_SHARE = 0.5
+
+
+class ProjectionRefused(RuntimeError):
+    """A projection write was refused because it would destroy projected claims.
+
+    Structured rather than a bare message: whatever reports this — a job detail, an API error
+    body, an operator's terminal — has to state WHAT was refused and by how much, and a
+    string that must be re-parsed to recover those numbers is not a report. `reason` is the
+    stable machine face; `facts` carries the counts the message renders.
+    """
+
+    def __init__(self, reason: str, message: str, **facts: Any) -> None:
+        self.reason = reason
+        self.facts = facts
+        super().__init__(message)
 
 
 @dataclass(frozen=True)
@@ -92,23 +148,76 @@ def _projection_delta(
     return upserts, deleted, unchanged
 
 
+def _lost_anchors(
+    claims: list[ProjectedClaim], previous: list[dict[str, Any]]
+) -> set[str]:
+    """Anchors that were projected and would be projected no longer — the real loss.
+
+    A rollover re-keys a claim (page → archive volume) without losing it, so this set is
+    empty for a groom and total for a wipe. See MAX_PROJECTION_LOSS_SHARE.
+    """
+    return {str(row["anchor"]) for row in previous} - {
+        str(claim.anchor) for claim in claims
+    }
+
+
 async def sync_projection(
     ctx: AppContext,
     user_id: UserId,
     snapshot_ref: str,
     *,
     strategy: ProjectionStrategy = PROJECTION_V1,
+    allow_wipe: bool = False,
 ) -> ProjectionSyncResult:
     """Synchronize one committed snapshot without re-embedding unchanged claims.
 
     PostgreSQL is the last-successful projection manifest and therefore lands last.
     Remote operations use deterministic ids, so a failure before the manifest advance
     can be retried with the same delta safely.
+
+    Refuses (`ProjectionRefused`) when the ref does not resolve in this store's canonical
+    repository, or when the delta would lose more than `MAX_PROJECTION_LOSS_SHARE` of the
+    tenant's projected claims. `allow_wipe=True` is the deliberate-destruction escape hatch;
+    the ref check has none, because an unreadable ref is never intentional.
     """
-    docs = await ctx.canonical.list(user_id, at=SnapshotRef(ref=snapshot_ref))
+    # The ref must resolve HERE — in the canonical repository this context is wired to. A
+    # compile that committed into a different repository produces a ref that is perfectly
+    # valid somewhere else, and reading it here is the first moment that mismatch is
+    # observable. Failing loud at that moment is the difference between one broken job and a
+    # silently re-projected knowledge base.
+    try:
+        docs = await ctx.canonical.list(user_id, at=SnapshotRef(ref=snapshot_ref))
+    except Exception as exc:  # noqa: BLE001 — every read failure means "cannot corroborate"
+        raise ProjectionRefused(
+            "unresolvable_snapshot_ref",
+            f"snapshot ref {snapshot_ref!r} could not be read from the canonical "
+            f"repository this store is wired to ({type(exc).__name__}: {exc}); the commit "
+            "may live in a different repository, and projecting from an unverified tree "
+            "would rewrite the derived layer from the wrong authority",
+            snapshot_ref=snapshot_ref,
+            error=f"{type(exc).__name__}: {exc}",
+        ) from exc
+
     claims = project_snapshot_claims(docs, strategy)
     previous = await ctx.store.list_canonical_claims(user_id)
     upserts, deleted, unchanged = _projection_delta(claims, previous)
+
+    if previous and not allow_wipe:
+        lost = _lost_anchors(claims, previous)
+        limit = MAX_PROJECTION_LOSS_SHARE * len(previous)
+        if len(lost) > limit:
+            raise ProjectionRefused(
+                "excessive_claim_loss",
+                f"projecting snapshot {snapshot_ref!r} would drop {len(lost)} of "
+                f"{len(previous)} projected claims "
+                f"({len(lost) / len(previous):.1%}, over the "
+                f"{MAX_PROJECTION_LOSS_SHARE:.0%} guardrail); pass allow_wipe=True if the "
+                "loss is intended",
+                snapshot_ref=snapshot_ref,
+                lost=len(lost),
+                projected=len(previous),
+                limit=MAX_PROJECTION_LOSS_SHARE,
+            )
 
     if upserts:
         vectors = await ctx.embeddings.aembed_documents([claim.text for claim in upserts])
@@ -138,6 +247,7 @@ async def rebuild_projection(
     snapshot_ref: str | None = None,
     *,
     strategy: ProjectionStrategy = PROJECTION_V1,
+    allow_wipe: bool = False,
 ) -> int:
     """Re-project the user's claims from a snapshot (default HEAD) onto PG + Meili +
     Qdrant under `strategy`. Returns the projected claim count.
@@ -145,10 +255,29 @@ async def rebuild_projection(
     This is the derived rebuild (invariant I2, milestone M5): a projection/rendering
     strategy upgrade re-materializes every derived row from the SAME frozen canonical —
     canonical git HEAD is read here, never written. Swap `strategy`, call this, and the
-    L3 retrieval face reflects the new strategy with zero canonical churn."""
+    L3 retrieval face reflects the new strategy with zero canonical churn.
+
+    Refuses (`ProjectionRefused`) when the canonical tree is EMPTY while the tenant still
+    has claims projected: an empty tree is what a wrong / uninitialized canonical root looks
+    like, and the whole-table replace below would carry out its instruction — delete
+    everything — without a second reader. `allow_wipe=True` when the emptiness is real."""
     ref = SnapshotRef(ref=snapshot_ref) if snapshot_ref else None
     docs = await ctx.canonical.list(user_id, at=ref)
     claims = project_snapshot_claims(docs, strategy)
+
+    if not docs and not allow_wipe:
+        projected = await ctx.store.list_canonical_claims(user_id)
+        if projected:
+            raise ProjectionRefused(
+                "empty_canonical",
+                f"canonical holds no documents at "
+                f"{snapshot_ref or 'HEAD'!r} while the tenant has {len(projected)} "
+                "projected claims; rebuilding from an empty repo would wipe all of them "
+                "(a missing or misconfigured canonical root reads exactly like this). Pass "
+                "allow_wipe=True if the repository really is empty on purpose",
+                snapshot_ref=snapshot_ref or "HEAD",
+                projected=len(projected),
+            )
 
     if snapshot_ref:
         resolved = snapshot_ref

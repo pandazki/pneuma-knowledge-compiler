@@ -51,28 +51,34 @@ async def _propose(payload):
 
 
 async def test_no_change_returns_none_no_change():
-    proposal, reason = await _propose(_EvolveDraft(needs_change=False, rationale="证据不足"))
+    proposal, reason, rationale = await _propose(_EvolveDraft(needs_change=False, rationale="证据不足"))
     assert proposal is None
     assert reason == "no_change"
+    # The reasoning is the whole product of a no-change round: it must come back even though
+    # there is no proposal to carry it, or the round records a verdict and nothing else.
+    assert rationale == "证据不足"
 
 
 async def test_needs_change_but_empty_families_is_no_change():
-    proposal, reason = await _propose(_EvolveDraft(needs_change=True, families=[]))
+    proposal, reason, rationale = await _propose(_EvolveDraft(needs_change=True, families=[]))
     assert proposal is None
     assert reason == "no_change"
+    assert rationale == ""
 
 
 async def test_garbage_returns_parse_error():
     # A non-schema payload under include_raw → parse_error (degrade, never raise).
-    proposal, reason = await _propose({"unexpected": "shape"})
+    proposal, reason, rationale = await _propose({"unexpected": "shape"})
     assert proposal is None
     assert reason == "parse_error"
+    assert rationale == ""  # nothing was read, so nothing is claimed to have been read
 
 
 async def test_model_exception_returns_parse_error():
-    proposal, reason = await _propose(RuntimeError("boom"))
+    proposal, reason, rationale = await _propose(RuntimeError("boom"))
     assert proposal is None
     assert reason == "parse_error"
+    assert rationale == ""
 
 
 async def test_invalid_template_shape_returns_invalid_templates():
@@ -91,9 +97,12 @@ async def test_invalid_template_shape_returns_invalid_templates():
             )
         ],
     )
-    proposal, reason = await _propose(draft)
+    proposal, reason, rationale = await _propose(draft)
     assert proposal is None
     assert reason == "invalid_templates"
+    # A rejected draft still reports what it was trying to do — that is what makes the
+    # rejection reviewable rather than just recorded.
+    assert "topics 下已积累 3 个个人产品主题。" in rationale
 
 
 async def test_valid_proposal_returns_proposed():
@@ -109,7 +118,7 @@ async def test_valid_proposal_returns_proposed():
             )
         ],
     )
-    proposal, reason = await _propose(draft)
+    proposal, reason, rationale = await _propose(draft)
     assert reason == "proposed"
     assert isinstance(proposal, EvolveProposal)
     assert len(proposal.packs) == 1
@@ -117,3 +126,4 @@ async def test_valid_proposal_returns_proposed():
     assert pack.origin == "evolved"
     assert pack.extra_path_templates == ["memory/products/{slug}.md"]
     assert "Atlas" in proposal.rationale  # per-family evidence merged into the rationale
+    assert rationale == proposal.rationale  # one text, reachable with or without the proposal

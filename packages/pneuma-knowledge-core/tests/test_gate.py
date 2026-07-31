@@ -115,6 +115,88 @@ def test_citation_passes_in_range():
     assert "citation" not in _kinds(run_gate(draft, SOURCES))
 
 
+# --- 3b. citation marker SHAPE ------------------------------------------------
+#
+# The legality check can only judge markers it can parse, so a marker that does NOT parse was
+# never judged at all — and the provenance check accepted the claim carrying it, because a
+# `[cite:` had been typed. Three states: parses, does not parse, and "parses as the other
+# provenance form in the wrong container".
+
+
+def test_every_legal_marker_spelling_passes_the_shape_check():
+    draft = _draft()
+    draft.create_document(
+        "memory/people/a.md",
+        {"type": "person", "slug": "a"},
+        "- single。[cite: src-01 ¶0]\n"
+        "- range。[cite: src-01 ¶1-3]\n"
+        "- grouped。[cite: src-01 ¶0-1,4]\n"
+        "- spaced。[cite: src-01 ¶ 0 - ¶ 4]",
+    )
+    assert "citation" not in _kinds(run_gate(draft, SOURCES))
+
+
+def test_a_marker_with_no_readable_locator_is_rejected():
+    """It has the LOOK of provenance and resolves to nothing — worse than a missing one,
+    because it survives review by resembling an answer."""
+    draft = _draft()
+    draft.create_document(
+        "memory/people/a.md",
+        {"type": "person", "slug": "a"},
+        "- x。[cite: src-01] <!-- c:aa11 -->",
+    )
+    details = [x.detail for x in run_gate(draft, SOURCES) if x.kind == "citation"]
+    shape = [d for d in details if "does not parse as a locator" in d]
+    assert len(shape) == 1
+    assert "[cite: src-01]" in shape[0]
+    # And the claim is uncited after all — an unreadable marker is not provenance, which is
+    # precisely what the provenance check used to be fooled by.
+    assert any("no provenance at all" in d for d in details)
+
+
+def test_a_marker_carrying_trailing_bytes_after_the_locator_is_rejected():
+    """Full-match, not search: a parse that leaves bytes over inside the brackets read a
+    locator the author did not write."""
+    draft = _draft()
+    draft.create_document(
+        "memory/people/a.md",
+        {"type": "person", "slug": "a"},
+        "- x。[cite: src-01 ¶0 and thereabouts] <!-- c:aa11 -->",
+    )
+    assert "citation" in _kinds(run_gate(draft, SOURCES))
+
+
+def test_anchor_provenance_written_inside_the_brackets_gets_its_own_instruction():
+    """The legal second provenance form in the wrong container. Telling the author "this does
+    not parse" when the fix is "move it out of the brackets" is a riddle, so it is a separate
+    violation text."""
+    draft = _draft()
+    draft.create_document(
+        "memory/people/a.md",
+        {"type": "person", "slug": "a"},
+        "- x。[cite: c:8820c773] <!-- c:aa11 -->",
+    )
+    details = [x.detail for x in run_gate(draft, SOURCES) if x.kind == "citation"]
+    shape = [d for d in details if "not inside [cite:]" in d]
+    assert len(shape) == 1
+    assert "c:8820c773" in shape[0]
+    assert not any("does not parse as a locator" in d for d in details)
+
+
+def test_a_malformed_marker_already_in_canonical_is_rejected_rather_than_grandfathered():
+    """The malformed markers this check was written for are ALREADY committed. Exempting a
+    carried-over one would preserve exactly the state the check exists to end, and the next
+    compile that touches the document is the only channel that can repair it."""
+    base = CanonicalDocument(
+        doc_id=DocumentId("d1"),
+        path="memory/people/a.md",
+        frontmatter={"doc_id": "d1", "type": "person", "slug": "a"},
+        body="- 老债。[cite: c:735cd6cf] <!-- c:aa11 -->",
+    )
+    draft = PatchDraft.from_canonical([base], TEMPLATES)
+    assert "citation" in _kinds(run_gate(draft, SOURCES))
+
+
 def test_citation_range_accepts_repeated_marker_and_still_checks_bounds():
     valid = _draft()
     valid.create_document(

@@ -12,6 +12,7 @@ import json
 import re
 import secrets
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Literal
 
@@ -33,17 +34,21 @@ from pneuma_knowledge_core.recall.briefing import (
 from pneuma_knowledge_core.recall.deep import deep_recall
 from pneuma_knowledge_core.recall.fast import fast_recall
 from pneuma_knowledge_core.recall.rag import rag_recall
+from pneuma_knowledge_core.recall.scope import SnapshotScope
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, RootModel
 
+from ... import kb_snapshots
 from ...adapters.user_info_mock import _synthesize
 from ...dataset import build_dataset
 from ...ingest import ingest_conversation
 from ...ingest_document import ingest_document, preview_document
 from ...ingest_sources import ingest_source_contract
+from ...kb_snapshots import KbSnapshot, SnapshotNotFound, SnapshotNotReady
 from ...pagination import CursorError, decode_cursor, encode_cursor
 from ...skills import packs_for_user, skill_for_user
+from ...snapshot_tenant import assert_writable
 from ...wiring import AppContext, llm_call_config
 
 # Valid user_id shape — external key, keep it filesystem/URL-safe (mirrors the web
@@ -91,6 +96,11 @@ class SourceOut(BaseModel):
     source_class: str
     title: str
     created_at: str
+    # The day the MATERIAL happened, in the subject's own zone (`meta["occurred_on"]`,
+    # stamped at ingest). `created_at` is the ingest wall clock and cannot answer it: a
+    # backfill of six months of capture all carries today's date. null = the source never
+    # got one, and the reader is expected to say so rather than pretend.
+    occurred_on: str | None = None
     intake_plan: dict[str, Any] | None
     block_count: int
     # M3b: null = not yet compiled into canonical; set once the worker digests it.
@@ -167,6 +177,18 @@ class RecallIn(BaseModel):
     limit: int = 10
     # fast/deep: relative-time answers resolve against this (server injects now if null).
     as_of: str | None = None
+    # A frozen knowledge-base snapshot to answer over: its id or its label. null = the live
+    # base (HEAD), which is byte-for-byte the pre-snapshot behavior on every lane.
+    snapshot: str | None = None
+
+
+class SnapshotScopeOut(BaseModel):
+    """Which read plane actually answered — echoed so a client can never be in doubt."""
+
+    snapshot_id: str
+    label: str
+    canonical_ref: str
+    created_at: str | None
 
 
 class RecallHitOut(BaseModel):
@@ -212,6 +234,8 @@ class RecallAnswerOut(BaseModel):
     # fast only: why the glance selection pass contributed nothing ("timeout"/"error"), or
     # null — which includes the normal case of it running and selecting nothing.
     glance_degraded: str | None = None
+    # The frozen snapshot this answer was scoped to, or null for the live base.
+    snapshot: SnapshotScopeOut | None = None
     token_usage: dict[str, int]
 
 
@@ -494,11 +518,20 @@ async def post_profile_generate(body: ProfileGenerateIn, request: Request) -> Us
     return UserProfile.model_validate(merged)
 
 
+def _occurred_on(meta: dict[str, Any] | None) -> str | None:
+    """`meta["occurred_on"]` as a plain day string, or None when the source has none."""
+    value = str((meta or {}).get("occurred_on") or "").strip()
+    return value or None
+
+
 @router.get("/sources", response_model=SourcePageOut)
 async def list_sources(
     user_id: str,
     request: Request,
-    limit: int = Query(default=25, ge=1, le=100),
+    # The ceiling is a catalogue-crawl budget, not a page size: a reader that wants to
+    # search and filter its whole inventory client-side pulls it in a handful of round
+    # trips instead of sixty. The row shape is small and the page query is keyset.
+    limit: int = Query(default=25, ge=1, le=500),
     cursor: str | None = None,
     query: str | None = Query(default=None, max_length=200),
     kind: str | None = Query(default=None, max_length=80),
@@ -541,6 +574,7 @@ async def list_sources(
             source_class=r.source_class,
             title=r.title,
             created_at=r.created_at.isoformat(),
+            occurred_on=_occurred_on(r.meta),
             intake_plan=r.intake_plan,
             block_count=counts.get(str(r.source_id), 0),
             digested_at=digested.get(str(r.source_id)),
@@ -652,6 +686,78 @@ async def _glance_inputs(ctx, user: UserId, at: SnapshotRef | None = None) -> di
     return {"documents": documents, "skill": skill, "packs": packs}
 
 
+@dataclass(frozen=True)
+class ReadPlane:
+    """Where one recall reads from — the whole of snapshot routing, in five fields.
+
+    This is the entire read-path cost of snapshot support, and it is small because a snapshot
+    is a frozen TENANT (kb_snapshots.py): `retrieval_user` swaps to that tenant and the L0/L1/
+    L2/claim stack narrows by the per-user isolation it already enforced. Two things stay on
+    the OWNER: canonical (git versions it, so `canonical_at` pins a ref in the owner's repo)
+    and the profile (whose picture is being answered for does not freeze).
+    """
+
+    #: The tenant every L0/L1/L2/claim query runs against — owner, or the snapshot's tenant.
+    retrieval_user: UserId
+    #: The owner, always. Canonical + profile + skill reads use this.
+    owner: UserId
+    #: `at=` for canonical reads: the snapshot's pinned commit, or None = HEAD.
+    canonical_at: SnapshotRef | None
+    #: What the answering prompt states about the snapshot, or None for the live base.
+    scope: SnapshotScope | None
+    #: The registry row, when pinned — for the response echo and the trace metadata.
+    snapshot: KbSnapshot | None
+
+    @property
+    def trace_ref(self) -> str | None:
+        return self.snapshot.canonical_ref if self.snapshot else None
+
+
+async def _resolve_plane(
+    ctx: AppContext, owner: UserId, snapshot: str | None
+) -> ReadPlane:
+    """Resolve the requested snapshot (or HEAD) into the read plane a recall runs on.
+
+    No snapshot requested → every field falls back to today's behavior exactly: the owner is
+    the retrieval tenant, canonical reads HEAD, and no snapshot section is rendered.
+
+    A named snapshot that does not resolve is an ERROR, not a fallback: quietly answering over
+    the live base would present today's knowledge as history — the one outcome this feature
+    exists to make impossible."""
+    if not snapshot:
+        return ReadPlane(
+            retrieval_user=owner,
+            owner=owner,
+            canonical_at=None,
+            scope=None,
+            snapshot=None,
+        )
+    try:
+        resolved = await kb_snapshots.resolve(ctx, owner, snapshot)
+    except SnapshotNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except SnapshotNotReady as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return ReadPlane(
+        retrieval_user=resolved.tenant_id,
+        owner=owner,
+        canonical_at=resolved.canonical_at,
+        scope=SnapshotScope(label=resolved.label, created_at=resolved.created_at),
+        snapshot=resolved,
+    )
+
+
+def _snapshot_out(snapshot: KbSnapshot | None) -> SnapshotScopeOut | None:
+    if snapshot is None:
+        return None
+    return SnapshotScopeOut(
+        snapshot_id=snapshot.snapshot_id,
+        label=snapshot.label,
+        canonical_ref=snapshot.canonical_ref,
+        created_at=snapshot.created_at.isoformat() if snapshot.created_at else None,
+    )
+
+
 async def _render_profile(ctx, user: UserId) -> str | None:
     """Compact owner profile for the recall Human turn's top block: identity (helps the
     model resolve who/what a transcribed ask refers to) + the answer language. Never
@@ -684,13 +790,16 @@ async def _render_profile(ctx, user: UserId) -> str | None:
 async def recall(
     user_id: str, body: RecallIn, request: Request
 ) -> list[RecallHitOut] | RecallAnswerOut:
-    """rag → dual-path hit list; fast/deep → an answer over capped canonical claims."""
+    """rag → dual-path hit list; fast/deep → an answer over capped canonical claims.
+
+    `body.snapshot` pins the whole answer to a frozen snapshot (see `_read_plane`)."""
     ctx = _ctx(request)
     user = UserId(user_id)
+    plane = await _resolve_plane(ctx, user, body.snapshot)
 
     if body.mode == "rag":
         hits = await rag_recall(
-            user,
+            plane.retrieval_user,
             body.query,
             lexical=ctx.lexical,
             vectors=ctx.vectors,
@@ -705,11 +814,15 @@ async def recall(
     as_of = (
         datetime.fromisoformat(body.as_of) if body.as_of else _now()
     )
-    snapshot_ref = await _resolve_snapshot(ctx, user, None) or None
-    glance_inputs = await _glance_inputs(ctx, user)
+    snapshot_ref = (
+        plane.trace_ref
+        if plane.snapshot
+        else (await _resolve_snapshot(ctx, user, None) or None)
+    )
+    glance_inputs = await _glance_inputs(ctx, plane.owner, plane.canonical_at)
     if body.mode == "fast":
         fa = await fast_recall(
-            user,
+            plane.retrieval_user,
             body.query,
             as_of=as_of,
             claim_lexical=ctx.lexical,
@@ -717,15 +830,19 @@ async def recall(
             lexical=ctx.lexical,
             vectors=ctx.vectors,
             content=ctx.store,
-            profile=await _render_profile(ctx, user),
+            profile=await _render_profile(ctx, plane.owner),
             embeddings=ctx.embeddings,
             model=ctx.get_chat_model("recall"),
+            scope=plane.scope,
             **glance_inputs,
             **llm_call_config(
                 ctx,
                 operation="recall.fast",
                 user_id=user_id,
-                extra={"snapshot_ref": snapshot_ref},
+                extra={
+                    "snapshot_ref": snapshot_ref,
+                    "kb_snapshot_id": plane.snapshot.snapshot_id if plane.snapshot else None,
+                },
             ),
         )
         return RecallAnswerOut(
@@ -738,11 +855,12 @@ async def recall(
             glance_chars=fa.glance_chars,
             documents_read=list(fa.expanded_documents),
             glance_degraded=fa.glance_degraded,
+            snapshot=_snapshot_out(plane.snapshot),
             token_usage=fa.token_usage,
         )
 
     da = await deep_recall(
-        user,
+        plane.retrieval_user,
         body.query,
         as_of=as_of,
         claim_lexical=ctx.lexical,
@@ -752,13 +870,17 @@ async def recall(
         embeddings=ctx.embeddings,
         model=ctx.get_chat_model("deep"),
         content=ctx.store,
-        profile=await _render_profile(ctx, user),
+        profile=await _render_profile(ctx, plane.owner),
+        scope=plane.scope,
         **glance_inputs,
         **llm_call_config(
             ctx,
             operation="recall.deep",
             user_id=user_id,
-            extra={"snapshot_ref": snapshot_ref},
+            extra={
+                "snapshot_ref": snapshot_ref,
+                "kb_snapshot_id": plane.snapshot.snapshot_id if plane.snapshot else None,
+            },
         ),
     )
     return RecallAnswerOut(
@@ -770,6 +892,7 @@ async def recall(
         trail=list(da.trail),
         glance_chars=da.glance_chars,
         documents_read=list(da.read_documents),
+        snapshot=_snapshot_out(plane.snapshot),
         token_usage=da.token_usage,
     )
 
@@ -782,9 +905,14 @@ async def recall_stream(user_id: str, body: RecallIn, request: Request) -> Strea
     ctx = _ctx(request)
     user = UserId(user_id)
     as_of = datetime.fromisoformat(body.as_of) if body.as_of else _now()
-    snapshot_ref = await _resolve_snapshot(ctx, user, None) or None
-    profile = await _render_profile(ctx, user)
-    glance_inputs = await _glance_inputs(ctx, user)
+    plane = await _resolve_plane(ctx, user, body.snapshot)
+    snapshot_ref = (
+        plane.trace_ref
+        if plane.snapshot
+        else (await _resolve_snapshot(ctx, user, None) or None)
+    )
+    profile = await _render_profile(ctx, plane.owner)
+    glance_inputs = await _glance_inputs(ctx, plane.owner, plane.canonical_at)
     # Unbounded on purpose — see the on_step contract below.
     events: asyncio.Queue = asyncio.Queue()
 
@@ -803,7 +931,7 @@ async def recall_stream(user_id: str, body: RecallIn, request: Request) -> Strea
     async def produce() -> None:
         try:
             da = await deep_recall(
-                user,
+                plane.retrieval_user,
                 body.query,
                 as_of=as_of,
                 claim_lexical=ctx.lexical,
@@ -814,13 +942,19 @@ async def recall_stream(user_id: str, body: RecallIn, request: Request) -> Strea
                 model=ctx.get_chat_model("deep"),
                 content=ctx.store,
                 profile=profile,
+                scope=plane.scope,
                 on_step=on_step,
                 **glance_inputs,
                 **llm_call_config(
                     ctx,
                     operation="recall.deep",
                     user_id=user_id,
-                    extra={"snapshot_ref": snapshot_ref},
+                    extra={
+                        "snapshot_ref": snapshot_ref,
+                        "kb_snapshot_id": (
+                            plane.snapshot.snapshot_id if plane.snapshot else None
+                        ),
+                    },
                 ),
             )
             events.put_nowait(
@@ -835,6 +969,7 @@ async def recall_stream(user_id: str, body: RecallIn, request: Request) -> Strea
                         trail=list(da.trail),
                         glance_chars=da.glance_chars,
                         documents_read=list(da.read_documents),
+                        snapshot=_snapshot_out(plane.snapshot),
                         token_usage=da.token_usage,
                     ).model_dump(),
                 )
@@ -1163,6 +1298,7 @@ async def post_compile(user_id: str, request: Request) -> CompileOut:
     treatment that is not yet digested is enqueued once)."""
     ctx = _ctx(request)
     user = UserId(user_id)
+    assert_writable(user)  # compile writes canonical; a frozen snapshot has none of its own
     source_ids = await ctx.store.undigested_source_ids(user)
     enqueued: list[str] = []
     for sid in source_ids:
@@ -1229,6 +1365,95 @@ async def list_snapshots(
         items=[SnapshotOut(ref=r.ref, label=r.label) for r in refs],
         page=PageMetaOut(limit=limit, total=total, next_cursor=next_cursor),
     )
+
+
+# ------------------------------------------- knowledge-base snapshots (frozen tenants)
+#
+# Distinct from `/snapshots` above, which pages the canonical GIT HISTORY — every commit,
+# free, canonical-only, browse-only. A kb-snapshot is the whole base frozen: L0 rows, both
+# retrieval indexes and the claim projection copied under a read-only tenant, so it can be
+# ASKED, not just browsed. Two different objects, two different paths, no overloaded word
+# (see kb_snapshots.py and the `kb_snapshots` table comment).
+
+
+class KbSnapshotOut(BaseModel):
+    snapshot_id: str
+    label: str
+    canonical_ref: str
+    status: str  # creating | ready | failed
+    # Post-copy scale {sources, blocks, claims, points}; empty while creating.
+    counts: dict[str, int]
+    created_at: str | None
+    ready_at: str | None
+    # Why a 'failed' snapshot failed; null otherwise.
+    detail: str | None
+
+
+class KbSnapshotCreateIn(BaseModel):
+    # The human handle for this frozen state ("before the Q3 reorg"). Free text: the id is
+    # what identifies a snapshot, the label is what a person recognizes.
+    label: str
+
+
+def _kb_snapshot_out(snapshot: KbSnapshot) -> KbSnapshotOut:
+    return KbSnapshotOut(
+        snapshot_id=snapshot.snapshot_id,
+        label=snapshot.label,
+        canonical_ref=snapshot.canonical_ref,
+        status=snapshot.status,
+        counts=snapshot.counts,
+        created_at=snapshot.created_at.isoformat() if snapshot.created_at else None,
+        ready_at=snapshot.ready_at.isoformat() if snapshot.ready_at else None,
+        detail=snapshot.detail,
+    )
+
+
+@router.get("/kb-snapshots", response_model=list[KbSnapshotOut])
+async def list_kb_snapshots(user_id: str, request: Request) -> list[KbSnapshotOut]:
+    """This user's frozen knowledge-base snapshots, newest first, in every status.
+
+    Unpaginated, and `creating`/`failed` rows are included: taking a snapshot is a deliberate
+    low-frequency act, so the list is short, and hiding an in-progress or failed one would
+    leave the user unable to see why their snapshot is not answerable."""
+    return [
+        _kb_snapshot_out(s)
+        for s in await kb_snapshots.list_snapshots(_ctx(request), UserId(user_id))
+    ]
+
+
+@router.post("/kb-snapshots", response_model=KbSnapshotOut, status_code=202)
+async def post_kb_snapshot(
+    user_id: str, body: KbSnapshotCreateIn, request: Request
+) -> KbSnapshotOut:
+    """Freeze this user's knowledge base as it stands right now. 202 + status 'creating'.
+
+    202, not 201: the row exists immediately but the copy pipeline (three stores) runs in the
+    background, and the snapshot is not answerable until it reports `ready`. Poll the list.
+    Only "now" can be frozen — see `kb_snapshots.create`."""
+    ctx = _ctx(request)
+    user = UserId(user_id)
+    label = body.label.strip()
+    if not label:
+        raise HTTPException(status_code=422, detail="label must not be empty")
+    snapshot = await kb_snapshots.create(ctx, user, label)
+    kb_snapshots.spawn_copy(ctx, user, snapshot)
+    return _kb_snapshot_out(snapshot)
+
+
+@router.delete("/kb-snapshots/{snapshot_id}")
+async def delete_kb_snapshot(
+    user_id: str, snapshot_id: str, request: Request
+) -> dict[str, bool]:
+    """Delete a snapshot: purge its tenant from all three stores, drop the registry row.
+
+    The pinned canonical commit is NOT deleted — it is a commit in the owner's git history,
+    which a snapshot deletion must never rewrite."""
+    deleted = await kb_snapshots.delete(_ctx(request), UserId(user_id), snapshot_id)
+    if not deleted:
+        raise HTTPException(
+            status_code=404, detail=f"snapshot not found: {snapshot_id}"
+        )
+    return {"deleted": True}
 
 
 @router.get("/dataset")

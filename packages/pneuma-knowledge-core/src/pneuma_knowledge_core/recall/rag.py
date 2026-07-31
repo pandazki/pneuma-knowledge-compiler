@@ -81,7 +81,12 @@ async def rag_recall(
     `query_embedding` lets a caller that already holds the vector supply it instead of
     paying another round trip. It defaults to None = embed here, so every existing caller
     is behaviorally untouched. The lever exists for fan-out callers (suggestion evaluates N
-    transcript turns per round and batches all N through one `aembed_documents`)."""
+    transcript turns per round and batches all N through one `aembed_documents`).
+
+    Snapshot-scoped recall needs nothing here: a snapshot is a frozen TENANT (see
+    service/kb_snapshots.py), so answering over one is this same function called with that
+    tenant's `user_id` — the per-user isolation both indexes already enforce is the
+    versioning mechanism."""
     lexical_hits = await lexical.search(user_id, query, limit=limit)
     if query_embedding is None:
         query_embedding = await embeddings.aembed_query(query)

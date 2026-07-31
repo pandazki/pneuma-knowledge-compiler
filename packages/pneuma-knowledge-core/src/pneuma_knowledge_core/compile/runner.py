@@ -282,6 +282,12 @@ def _with_skill_trailer(message: str, skill: SkillVersion) -> str:
     return f"{message}\n\n" + "\n".join(trailers)
 
 
+#: Public spelling for the other canonical write channels (rollover/groom): every commit that
+#: touches canonical should be attributable to the same two identity axes, and a second copy
+#: of the trailer format would be a second thing to keep in step.
+with_skill_trailer = _with_skill_trailer
+
+
 def _render_violations(violations: Sequence[Violation]) -> str:
     lines = [prompt("gate.feedback_header")]
     lines.extend(v.render() for v in violations)

@@ -37,6 +37,7 @@ from pneuma_knowledge_core.prompts import prompt
 from pneuma_knowledge_core.skill import SchemaPack, compose_skill, load_builtin_skill
 from pneuma_knowledge_core.skill.version import SkillVersion
 
+from .groom_service import scan_oversized_documents
 from .projection import rebuild_projection
 from .skills import MANIFEST_PATH, read_manifest, serialize_manifest, skill_for_user
 from .wiring import AppContext, llm_call_config
@@ -154,6 +155,14 @@ async def run_evolve_job(ctx: AppContext, user: UserId, job: object) -> None:
     job_id = getattr(job, "job_id")
     task_id = uuid.uuid4().hex
 
+    # Piggyback: sweep the whole repository for oversized documents before phase 1. The
+    # rollover trigger only sees what a compile wrote, so a page that went quiet above the
+    # threshold is never re-checked — and evolve is the lowest-frequency pass there is, which
+    # makes it the cheapest place to close that gap without adding a second write-path
+    # trigger. Grooming is orthogonal to schema evolution; this run's own decision is
+    # unaffected either way.
+    await scan_oversized_documents(ctx, user)
+
     current_skill = await skill_for_user(ctx, user)
     model = ctx.get_chat_model("evolve")
 
@@ -167,7 +176,7 @@ async def run_evolve_job(ctx: AppContext, user: UserId, job: object) -> None:
     docs = await ctx.canonical.list(user)
     doc_paths = [d.path for d in docs]
 
-    proposal, reason = await propose_evolution(
+    proposal, reason, rationale = await propose_evolution(
         model=model,
         current_skill=current_skill,
         recent_events=recent,
@@ -179,8 +188,18 @@ async def run_evolve_job(ctx: AppContext, user: UserId, job: object) -> None:
     )
 
     if reason != "proposed":
+        # A terminated round records WHY, not just THAT. On a no-change round the phase-1
+        # rationale is the round's entire product — the verdict alone is unreadable after the
+        # fact, and a schema that never moves is exactly the case where the reasoning is what
+        # a reviewer needs. It lands in `detail`, which the task detail endpoint already
+        # surfaces as `rationale` when no proposal exists to carry one.
         status = "no_change" if reason == "no_change" else "aborted"
-        detail = None if reason == "no_change" else f"phase-1 {reason}"
+        if reason == "no_change":
+            detail = rationale or None
+        elif rationale:
+            detail = f"phase-1 {reason}: {rationale}"
+        else:
+            detail = f"phase-1 {reason}"
         await ctx.store.create_evolve_task(user, task_id, status=status, detail=detail)
         await ctx.store.complete(user, job_id, ok=True, detail=f"evolve: {reason}")
         return

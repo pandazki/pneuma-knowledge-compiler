@@ -21,6 +21,14 @@ the compile face's tools, same names and same shapes, because one addressing voc
 across the system is the point (I4) — the answerer navigates canonical the way the compiler
 wrote it.
 
+SNAPSHOT SCOPING COSTS THIS LANE ALMOST NOTHING. A snapshot is a frozen TENANT (see
+service/kb_snapshots.py): the caller hands the tools that tenant's `user_id` and the document
+set read at its pinned canonical ref, and all five tools are then scoped by the per-user
+isolation they already enforced. Only two things are added here: the prompt states which
+snapshot is open (`SnapshotScope`, recall/scope.py), and a `fetch_verbatim` miss under a
+snapshot is reported as "not part of this snapshot" rather than as a generic fetch failure —
+in a frozen tenant those are the same event, and the honest wording is the specific one.
+
 Verification is an agentic act — fetch the cited span and read it — not a fixed batch
 protocol. What stays mechanical (§0 discipline 1): the tool budget (recursion_limit +
 forced finalize, see `agentic.py`), the `trail` record per tool call, and the
@@ -48,6 +56,7 @@ from ..ports.lexical_index import LexicalIndex
 from ..ports.vector_index import VectorIndex
 from ..prompts import prompt
 from .agentic import run_agent_loop
+from .scope import SnapshotScope, out_of_scope_source, scope_declaration
 from .spine import CITE_PRECISE, CLOSE_ANSWER_HONESTLY, spine
 from .assembly import Passage
 from .fast import (
@@ -203,17 +212,27 @@ def _fetch_verbatim_tool(
     user_id: UserId,
     content: ContentStore,
     trail: list[dict],
+    scope: SnapshotScope | None = None,
 ) -> StructuredTool:
     async def fetch_verbatim(source_id: str, locator: dict) -> str:
         """Fetch source text verbatim; see `recall.deep.tool.fetch_verbatim_doc`."""
         try:
             text = await content.fetch(user_id, SourceId(source_id), locator)
         except (KeyError, ValueError) as exc:
+            # Under a snapshot the `user_id` above IS the frozen tenant, so "no such source"
+            # means precisely "this source is not part of the snapshot" — the model copied an
+            # id from somewhere newer. Say that, rather than the generic fetch failure, which
+            # would read as a transport problem and invite a retry.
+            failed = (
+                out_of_scope_source(scope, source_id)
+                if scope is not None and isinstance(exc, KeyError)
+                else prompt("recall.deep.tool.fetch_verbatim_failed", error=exc)
+            )
             trail.append(
                 {"tool": "fetch_verbatim", "source_id": source_id,
-                 "locator": locator, "error": str(exc)}
+                 "locator": locator, "error": str(exc), "result": failed}
             )
-            return prompt("recall.deep.tool.fetch_verbatim_failed", error=exc)
+            return failed
         out = text if text else prompt("recall.deep.tool.fetch_verbatim_empty")
         trail.append(
             {"tool": "fetch_verbatim", "source_id": source_id, "locator": locator,
@@ -333,6 +352,10 @@ async def deep_recall(
     documents: Sequence[CanonicalDocument] = (),
     skill: object | None = None,
     packs: Sequence[object] = (),
+    # The frozen snapshot this answer is pinned to, or None = today's base. The tools are
+    # already scoped by the caller's choice of tenant + document set (see module docstring);
+    # this adds the prompt's snapshot declaration and the wording of a fetch miss.
+    scope: SnapshotScope | None = None,
     on_step: "Callable[[dict], None] | None" = None,
     cap: int = DEFAULT_CLAIM_CAP,
     window_cap: int = DEFAULT_WINDOW_CAP,
@@ -402,7 +425,7 @@ async def deep_recall(
             found=found_windows,
             trail=trail,
         ),
-        _fetch_verbatim_tool(user_id, content, trail),
+        _fetch_verbatim_tool(user_id, content, trail, scope),
         _list_documents_tool(documents, trail),
         _read_document_tool(documents, read_paths, trail),
     ]
@@ -419,6 +442,7 @@ async def deep_recall(
             windows=seed_windows,
             profile=profile,
             glance=glance,
+            snapshot=scope_declaration(scope),
         ),
         tool_budget=_DEEP_TOOL_BUDGET,
         run_name="recall.deep",
