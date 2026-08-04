@@ -1,21 +1,31 @@
 """claim_labels_for: the skill-declared claim-prefix vocabulary (labels.py).
 
-v1 has no §5 → no labels; v2/v3 declare the strength-prefix clause → the three-tier
-强/中/弱 vocabulary; a composed `v3+packs.*` inherits the body → the same three. Detection
-is mechanical over content, so no per-version table needs upkeep."""
+The reference contract declares the strength-prefix clause → the three-tier vocabulary;
+a skill without that clause declares nothing; a composed `v1+packs.*` inherits the body →
+the same three. Detection is mechanical over content, so no per-version table needs
+upkeep."""
 
 from __future__ import annotations
 
-from pneuma_knowledge_core.skill import ClaimLabel, claim_labels_for, load_builtin_skill
+from pneuma_knowledge_core.skill import ClaimLabel, claim_labels_for, load_skill_base
 from pneuma_knowledge_core.skill.pack import SchemaPack, compose_skill
 
 
-def test_v1_declares_no_labels() -> None:
-    assert claim_labels_for(load_builtin_skill("v1")) == []
+def test_clauseless_skill_declares_no_labels() -> None:
+    base = load_skill_base("v1")
+    from pneuma_knowledge_core.skill import SkillVersion
+
+    bare = SkillVersion.from_parts(
+        skill_id=base.skill_id,
+        version="bare",
+        instructions="# minimal\n\nNothing about strength here.",
+        path_templates=base.path_templates,
+    )
+    assert claim_labels_for(bare) == []
 
 
-def test_v3_declares_three_tier_strength_labels() -> None:
-    labels = claim_labels_for(load_builtin_skill("v3"))
+def test_reference_declares_three_tier_strength_labels() -> None:
+    labels = claim_labels_for(load_skill_base("v1"))
     assert [x.label for x in labels] == ["firm", "forming", "loose"]
     assert [x.tier for x in labels] == ["solid", "outline", "muted"]
     assert all(isinstance(x, ClaimLabel) for x in labels)
@@ -26,13 +36,8 @@ def test_v3_declares_three_tier_strength_labels() -> None:
     assert all("【" not in x.label and "】" not in x.label for x in labels)
 
 
-def test_v2_also_declares_the_three_labels() -> None:
-    # v2 carries the clause in contract_rules; the same vocabulary results.
-    assert [x.label for x in claim_labels_for(load_builtin_skill("v2"))] == ["firm", "forming", "loose"]
-
-
-def test_composed_v3_plus_packs_inherits_the_labels() -> None:
-    base = load_builtin_skill("v3")
+def test_composed_reference_plus_packs_inherits_the_labels() -> None:
+    base = load_skill_base("v1")
     pack = SchemaPack(
         pack_id="role-engineering",
         origin="matrix",
@@ -40,12 +45,12 @@ def test_composed_v3_plus_packs_inherits_the_labels() -> None:
         extra_path_templates=["memory/decisions/{slug}.md"],
     )
     composed = compose_skill(base, [pack])
-    assert composed.version.startswith("v3+packs.")
+    assert composed.version.startswith("v1+packs.")
     assert [x.label for x in claim_labels_for(composed)] == ["firm", "forming", "loose"]
 
 
 def test_labels_call_returns_a_fresh_list() -> None:
-    skill = load_builtin_skill("v3")
+    skill = load_skill_base("v1")
     a = claim_labels_for(skill)
     a.append(a[0])
     # mutating one call's list must not leak into the next.

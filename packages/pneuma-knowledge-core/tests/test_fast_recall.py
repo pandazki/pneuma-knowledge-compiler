@@ -193,6 +193,19 @@ async def test_no_raw_indices_means_no_windows_backcompat():
     assert result.used_windows == ()
 
 
+def test_contract_treats_grounded_date_reasoning_as_in_scope_not_refusal():
+    """The answering posture above the no-fabrication floor: simple calendar reasoning over
+    dates present in the evidence (ordering, earliest/latest, inclusive span counting) is
+    in-scope competence, an inference-based answer says it is derived, and "no relevant
+    record" is reserved for grounding that is genuinely absent — not for answers the
+    evidence supports without stating word for word."""
+    contract = selector_contract()
+    assert "nothing may be fabricated" in contract
+    assert "calendar reasoning" in contract
+    assert "counting a span out inclusively" in contract
+    assert "genuinely absent" in contract
+
+
 async def test_selector_system_message_byte_stable_across_as_of():
     claims = (await fast_recall(  # reuse retrieval to get RetrievedClaim objects
         _USER,
@@ -211,3 +224,99 @@ async def test_selector_system_message_byte_stable_across_as_of():
     assert a[0].content == b[0].content == selector_contract()
     assert "2026-01-01" not in a[0].content
     assert "2026-01-01T09:00:00" in a[1].content
+
+
+# ----------------------------------------------------- reasoning-effort pass-through
+
+
+class _KwargRecordingModel(GenericFakeChatModel):
+    """A fake chat model that records the per-invoke kwargs the client would receive.
+
+    `.bind(extra_body=...)` merges its kwargs into the underlying `_generate` call —
+    exactly the seam a real ChatOpenAI forwards into the provider request payload — so
+    asserting on these kwargs asserts what would ride the wire."""
+
+    recorded: list[dict] = []
+
+    def _generate(self, messages, stop=None, run_manager=None, **kwargs):  # noqa: ANN001
+        type(self).recorded.append(dict(kwargs))
+        return super()._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
+
+
+def _recording_model(answer: str) -> _KwargRecordingModel:
+    _KwargRecordingModel.recorded = []
+    return _KwargRecordingModel(messages=iter([AIMessage(content=answer)]))
+
+
+async def test_reasoning_effort_default_none_sends_nothing():
+    """Default None = the request kwargs are byte-identical to the pre-knob behaviour:
+    no `extra_body`, no `reasoning` key anywhere."""
+    model = _recording_model("y")
+    result = await fast_recall(
+        _USER,
+        "q",
+        as_of=datetime(2026, 7, 20, 12, 0, 0),
+        claim_lexical=FakeClaimIndex([ClaimStub("aaaa", "p1", "x")]),
+        claim_vectors=FakeClaimIndex([]),
+        embeddings=FakeEmbeddings(),
+        model=model,
+    )
+    assert result.answer == "y"
+    assert len(_KwargRecordingModel.recorded) == 1
+    assert "extra_body" not in _KwargRecordingModel.recorded[0]
+    assert "reasoning" not in _KwargRecordingModel.recorded[0]
+
+
+async def test_reasoning_effort_rides_extra_body_on_answer_call_only():
+    """Set → the ANSWERING invoke carries OpenRouter's wire shape
+    `extra_body={"reasoning": {"effort": ...}}`; nothing else about the call changes."""
+    model = _recording_model("y")
+    result = await fast_recall(
+        _USER,
+        "q",
+        as_of=datetime(2026, 7, 20, 12, 0, 0),
+        claim_lexical=FakeClaimIndex([ClaimStub("aaaa", "p1", "x")]),
+        claim_vectors=FakeClaimIndex([]),
+        embeddings=FakeEmbeddings(),
+        model=model,
+        reasoning_effort="xhigh",
+    )
+    assert result.answer == "y"
+    assert len(_KwargRecordingModel.recorded) == 1
+    assert _KwargRecordingModel.recorded[0].get("extra_body") == {
+        "reasoning": {"effort": "xhigh"}
+    }
+
+
+async def test_reasoning_effort_never_reaches_the_glance_pass():
+    """With documents supplied the glance selection pass runs too; only the answering
+    call may carry the override."""
+    from pneuma_knowledge_core.domain.canonical import CanonicalDocument
+    from pneuma_knowledge_core.domain.ids import DocumentId
+
+    doc = CanonicalDocument(
+        doc_id=DocumentId("d-p1"),
+        path="areas/p1.md",
+        frontmatter={"title": "P1"},
+        body="# P1\n\ncontent",
+    )
+    model = _recording_model("y")
+    # Same recorder class: every invoke (glance selection included) lands in one list.
+    glance_model = _KwargRecordingModel(messages=iter([AIMessage(content="{}")]))
+
+    result = await fast_recall(
+        _USER,
+        "q",
+        as_of=datetime(2026, 7, 20, 12, 0, 0),
+        claim_lexical=FakeClaimIndex([ClaimStub("aaaa", "areas/p1.md", "x")]),
+        claim_vectors=FakeClaimIndex([]),
+        embeddings=FakeEmbeddings(),
+        model=model,
+        documents=[doc],
+        glance_model=glance_model,
+        reasoning_effort="xhigh",
+    )
+    assert result.answer == "y"
+    answer_calls = [k for k in _KwargRecordingModel.recorded if k.get("extra_body")]
+    assert len(answer_calls) == 1
+    assert answer_calls[0]["extra_body"] == {"reasoning": {"effort": "xhigh"}}

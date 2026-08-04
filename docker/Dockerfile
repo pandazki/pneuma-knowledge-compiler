@@ -14,6 +14,8 @@ ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 COPY pyproject.toml uv.lock ./
 COPY packages/pneuma-knowledge-core/pyproject.toml packages/pneuma-knowledge-core/
 COPY packages/pneuma-knowledge-service/pyproject.toml packages/pneuma-knowledge-service/
+COPY packages/pneuma-knowledge-eval/pyproject.toml packages/pneuma-knowledge-eval/
+COPY packages/pneuma-knowledge-strategies/pyproject.toml packages/pneuma-knowledge-strategies/
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --all-packages --no-install-project
 

@@ -71,6 +71,7 @@ def _request() -> SimpleNamespace:
         embeddings=None,
         store=None,
         get_chat_model=lambda role="default": None,
+        settings=SimpleNamespace(recall_answer_style="conversational"),
     )
     return SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(ctx=ctx)))
 

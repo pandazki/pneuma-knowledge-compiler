@@ -2,6 +2,7 @@
 .venv
 # Root-anchored — must NOT match examples/data/preset (the shipped demo bundles).
 /data
+examples/opc/data
 apps/web/node_modules
 apps/web/dist
 **/__pycache__

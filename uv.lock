@@ -13,6 +13,7 @@ members = [
     "pneuma-knowledge-core",
     "pneuma-knowledge-eval",
     "pneuma-knowledge-service",
+    "pneuma-knowledge-strategies",
 ]
 
 [[package]]
@@ -1128,6 +1129,20 @@ requires-dist = [
     { name = "qdrant-client", specifier = ">=1.18,<1.19" },
     { name = "uvicorn", extras = ["standard"] },
 ]
+provides-extras = ["dev"]
+
+[[package]]
+name = "pneuma-knowledge-strategies"
+version = "0.6.0"
+source = { editable = "packages/pneuma-knowledge-strategies" }
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "pytest", marker = "extra == 'dev'" }]
 provides-extras = ["dev"]
 
 [[package]]

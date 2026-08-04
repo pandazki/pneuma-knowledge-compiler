@@ -7,9 +7,9 @@ from pneuma_knowledge_core.evolve.propose import (
     _ProposedFamily,
     propose_evolution,
 )
-from pneuma_knowledge_core.skill import load_builtin_skill
+from pneuma_knowledge_core.skill import load_skill_base
 
-SKILL = load_builtin_skill()
+SKILL = load_skill_base("v1")
 
 RECENT_EVENTS = [
     {"type": "claim_added", "path": "memory/topics/atlas.md"},

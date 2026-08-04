@@ -137,7 +137,7 @@ async def test_trigger_review_adopt_full_cycle(env):
     skill0 = r.json()
     assert "memory/products/{slug}.md" not in skill0["path_templates"]
     assert skill0["base_version"]
-    # skill declares the §5强/中/弱 claim-prefix vocabulary — the UI's generic badge词表.
+    # skill declares the §5强/中/弱 claim-prefix vocabulary — the UI's generic badge vocabulary.
     assert [x["label"] for x in skill0["claim_labels"]] == ["firm", "forming", "loose"]
     assert all(
         {"label", "name", "description", "tier"} <= x.keys() for x in skill0["claim_labels"]

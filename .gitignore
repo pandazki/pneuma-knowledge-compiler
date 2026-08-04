@@ -1,5 +1,6 @@
 __pycache__/
 *.pyc
+*.pyo
 .venv/
 .pytest_cache/
 .ruff_cache/
@@ -8,14 +9,30 @@ node_modules/
 *.tsbuildinfo
 .env
 .DS_Store
+
+# Editor / merge detritus — never part of a change, and easy to stage by accident.
+*.swp
+*~
+*.orig
+*.rej
+.idea/
+
 # Root canonical git repos (per-user, large and rebuildable).
 /data/
 
-# Seed-bench raw run outputs — kept locally, not shipped (only the curated
-# examples/seed-bench/README.md is tracked). Other experiment data stays local too.
-examples/seed-bench/runs/
+# Per-example local state: credentials and raw run output, kept locally, never shipped.
 examples/opc/.env
 examples/opc/var/
+
+# evals/ runtime. The benchmark corpora are third-party (LoCoMo is CC BY-NC; the
+# EverMemBench code repo ships no LICENSE) and are fetched, never vendored; run outputs and
+# the derived per-conversation configs are large and regenerable.
+evals/.env
+evals/datasets/
+evals/runs/
+evals/*/.generated/
+evals/*/strategist/
+evals/*/scenario.strategist.yaml
 
 # Pneuma workspace (project config + session state) — local, not part of the codebase.
 .pneuma/
@@ -24,3 +41,10 @@ examples/opc/var/
 # experiments (raw captures, prepared payloads, prep scripts, derived memory).
 # NEVER shipped — the open repository carries only synthetic fixtures.
 /local/
+
+# 设计工具的本机工作状态（不随仓库发布）
+.impeccable/
+/archive/
+
+# keyed .env variants (a real key almost reached a public commit once — never again)
+.env.keyed

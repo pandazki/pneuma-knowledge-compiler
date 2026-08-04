@@ -180,6 +180,9 @@ class RecallIn(BaseModel):
     # A frozen knowledge-base snapshot to answer over: its id or its label. null = the live
     # base (HEAD), which is byte-for-byte the pre-snapshot behavior on every lane.
     snapshot: str | None = None
+    # fast/deep: answer-style preset override for this call; null = the deployment's
+    # PNEUMA_KNOWLEDGE_RECALL_ANSWER_STYLE.
+    answer_style: Literal["concise", "conversational", "detailed"] | None = None
 
 
 class SnapshotScopeOut(BaseModel):
@@ -811,6 +814,21 @@ async def recall(
     if body.mode not in ("fast", "deep"):
         raise HTTPException(status_code=400, detail=f"unknown mode {body.mode!r}")
 
+    # A deployment may run keyless on purpose (browsing stays fully served); the answering
+    # lanes are the one thing that cannot. Say so, instead of handing an empty model spec
+    # to the model builder and 500ing on its TypeError.
+    from ...wiring import resolve_model_name
+
+    if not resolve_model_name(ctx.settings, "recall" if body.mode == "fast" else "deep"):
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "recall needs a configured chat model — this deployment is running "
+                "keyless (browsing only). Set OPENROUTER_API_KEY (or a "
+                "PNEUMA_KNOWLEDGE_LLM_MODEL* spec) and restart."
+            ),
+        )
+
     as_of = (
         datetime.fromisoformat(body.as_of) if body.as_of else _now()
     )
@@ -834,6 +852,12 @@ async def recall(
             embeddings=ctx.embeddings,
             model=ctx.get_chat_model("recall"),
             scope=plane.scope,
+            cap=ctx.settings.recall_claim_cap,
+            window_cap=ctx.settings.recall_window_cap,
+            answer_style=body.answer_style or ctx.settings.recall_answer_style,
+            plan_queries_cap=ctx.settings.recall_plan_queries,
+            reranker=ctx.get_reranker(),
+            rerank_candidates=ctx.settings.recall_rerank_candidates,
             **glance_inputs,
             **llm_call_config(
                 ctx,
@@ -872,6 +896,7 @@ async def recall(
         content=ctx.store,
         profile=await _render_profile(ctx, plane.owner),
         scope=plane.scope,
+        answer_style=body.answer_style or ctx.settings.recall_answer_style,
         **glance_inputs,
         **llm_call_config(
             ctx,
@@ -943,6 +968,7 @@ async def recall_stream(user_id: str, body: RecallIn, request: Request) -> Strea
                 content=ctx.store,
                 profile=profile,
                 scope=plane.scope,
+                answer_style=body.answer_style or ctx.settings.recall_answer_style,
                 on_step=on_step,
                 **glance_inputs,
                 **llm_call_config(

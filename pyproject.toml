@@ -17,11 +17,13 @@ members = [
     "packages/pneuma-knowledge-core",
     "packages/pneuma-knowledge-service",
     "packages/pneuma-knowledge-eval",
+    "packages/pneuma-knowledge-strategies",
 ]
 
 [tool.uv.sources]
 pneuma-knowledge-core = { workspace = true }
 pneuma-knowledge-service = { workspace = true }
+pneuma-knowledge-strategies = { workspace = true }
 
 [tool.pytest.ini_options]
 # core and service are async top to bottom (ports are async Protocols), so essentially
@@ -33,4 +35,5 @@ testpaths = [
     "packages/pneuma-knowledge-core/tests",
     "packages/pneuma-knowledge-service/tests",
     "packages/pneuma-knowledge-eval/tests",
+    "packages/pneuma-knowledge-strategies/tests",
 ]

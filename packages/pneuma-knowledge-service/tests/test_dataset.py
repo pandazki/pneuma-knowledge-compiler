@@ -90,7 +90,7 @@ def _ctx(store=None):
         canonical=_FakeCanonical(),
         store=store or _FakeStore(),
         settings=SimpleNamespace(
-            llm_model="scripted:demo", user_schema_base_version="v3"
+            llm_model="scripted:demo", user_schema_base_version="v1"
         ),
     )
 

@@ -3,7 +3,7 @@
 Drives the evolve queue jobs directly (no HTTP): the four phase-1 outcomes each land the
 right task status; a proposed run lands a branch with the evolved manifest in its tree and a
 correct summary; an adopt merges onto main (HEAD advances), rebuilds the L3 projection (spy),
-flips the composed skill (manifest闭环), decides the task adopted and deletes the branch.
+flips the composed skill (manifest round-trip), decides the task adopted and deletes the branch.
 """
 
 from __future__ import annotations
@@ -228,7 +228,7 @@ async def test_evolve_proposed_lands_draft_branch_with_manifest(ctx):
     await ctx.store.delete_user(user)
 
 
-# ------------------------------------------------------------------- adopt闭环
+# ------------------------------------------------------------------- adopt loop
 
 
 async def test_adopt_merges_flips_skill_and_deletes_branch(ctx, monkeypatch):
@@ -273,7 +273,7 @@ async def test_adopt_merges_flips_skill_and_deletes_branch(ctx, monkeypatch):
     main_docs = {d.path: d for d in await ctx.canonical.list(user)}
     assert "c:aa11" in main_docs["memory/products/atlas.md"].body
 
-    # skill_for_user now composes the evolved pack (manifest闭环).
+    # skill_for_user now composes the evolved pack (manifest round-trip).
     after_skill = await skill_for_user(ctx, user)
     assert "memory/products/{slug}.md" in after_skill.path_templates
 

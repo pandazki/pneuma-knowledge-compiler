@@ -1,99 +1,70 @@
-# OPC example environment
+# OPC — a complete, agent-built knowledge base
 
-This directory is a self-contained example application built on top of
-`pneuma-knowledge-core` and `pneuma-knowledge-service`. It is the only owner of
-the fictional OPC developer, the Seamlog 84-day story, its Chinese strategy
-wording, and the experiment-specific quality contract.
+**English** | [简体中文](README.zh-CN.md)
 
-The framework packages provide mechanisms only. They must not import this
-directory or name its persona, companies, projects, story beats, evaluation
-truth, or experiment identifiers.
+This directory is exactly what the scaffold flow produces: a knowledge-base project for one synthetic owner — 林舟 (Lin Zhou), an indie developer building a change-evidence product called Seamlog — compiled from 190 pieces of his material into 29 canonical documents and 754 cited claims. The library ships with the project; you can open it in a browser in about a minute, without an API key.
 
-## Runtime contract
+## Where this came from
 
-The example declares every deployment-owned input in one place:
+The library was built by an **autonomous agent** (Claude Opus 5 running in Claude Code) that started from a pristine copy of [`scaffold/`](../../scaffold/), followed [`AGENT-GUIDE.md`](../../scaffold/AGENT-GUIDE.md), and received exactly two inputs: the material in `my-data/` and a three-sentence owner self-introduction. It read all 190 files, derived the [`contract.md`](contract.md) from what it read, compiled, judged the result against the [acceptance loop](../../docs/guides/compile-contract.md#5-the-acceptance-loop), and spent its one allowed revision when the first build violated a rule the material itself states. The full record is in [`build-record/`](build-record/): the verbatim task book that started it, its build log, and its complete conversation transcript.
 
-- `assets/profile.json` — the fictional owner profile and locale;
-- `assets/strategy.md` — the OPC compilation strategy registered as
-  `opc-example-v1`;
-- `assets/schema-matrix.json` — additive profile-derived filing families;
-- `assets/prompt-overlay.json` — Chinese wording for selected model-visible
-  surfaces; unspecified catalog keys retain the framework defaults;
-- `.env.example` — operation-level model routes, chunking, schema-evolve and
-  isolated infrastructure settings;
-- `compose.yaml` — an isolated Postgres, Qdrant, Meilisearch, API, worker and
-  Web UI stack;
-- `nginx.conf` — same-origin API, SSE and WebSocket proxying for the example Web UI;
-- `data/demo/` — the small four-source keyless walkthrough;
-- `data/84-day/` — the frozen 28-group longitudinal corpus and evaluation truth.
-- `evaluation-v1.md` — the experiment-specific evaluation contract.
+Treat this build as a **reference line, not a ceiling**: it is what one agent generation produced on one day. Point a stronger agent at the same data and the same guide, and your library may well come out better — the contract judgement is where agents differ.
 
-`environment.configure_example()` must run before the API, worker, CLI or
-experiment code asks the framework to load a skill or render a prompt.
-Configuration is process-local and deterministic. Canonical commits therefore
-record both the example skill content hash and the prompt overlay hash.
+## Try it
 
-## Commands
-
-All commands run from the repository root:
+**1. Browse — no API key**
 
 ```bash
-# Inspect the command surface without starting infrastructure.
-uv run python -m examples.opc --help
-
-# Start the isolated browsing stack (the demo seeder compiles in-process).
-docker compose -f examples/opc/compose.yaml up -d --build
-
-# Populate the small four-source tenant with deterministic local models.
-docker compose -f examples/opc/compose.yaml --profile tools run --rm cli seed
-
-# For normal asynchronous ingestion, enable the long-running compile worker.
-docker compose -f examples/opc/compose.yaml --profile worker up -d worker
-
-# Run a fresh keyless 84-day tenant in the same isolated stack.
-# Reports are written to examples/opc/var/reports on the host.
-docker compose -f examples/opc/compose.yaml --profile tools run --rm cli \
-  run --mode keyless
-
-# Run and evaluate a real-provider tenant after configuring examples/opc/.env.
-docker compose --env-file examples/opc/.env -f examples/opc/compose.yaml \
-  --profile tools run --rm cli \
-  run --mode real
-docker compose --env-file examples/opc/.env -f examples/opc/compose.yaml \
-  --profile tools run --rm cli \
-  evaluate --mode real --user <run-user-id>
-
-# Browse and query the real-provider collection through the API/Web stack.
-PNEUMA_OPC_EXAMPLE_MODE=real \
-  docker compose --env-file examples/opc/.env -f examples/opc/compose.yaml \
-  up -d --build
+cp .env.example .env
+./app.py up && ./bootstrap.py
+docker compose --profile web up -d --build api web   # first image build takes a few minutes
 ```
 
-Copy `.env.example` to `.env` only when real providers are needed. The checked-in
-configuration contains no credential and defaults to deterministic local
-models. Real mode fails before mutating a tenant if any routed chat model is
-scripted, the embedding model is fake, or an OpenRouter route has no key. To
-reuse the repository root `.env` instead, replace
-`--env-file examples/opc/.env` with `--env-file .env`.
+Open <http://127.0.0.1:24173>. Everything is drillable: 190 sources verbatim, the compile history (170 commits), every claim's citations back to the exact source passage, and a real frozen archive volume that a rollover produced during the build.
 
-The keyless 84-day run is a plumbing control, not a semantic-quality result. It
-compiles only blocks containing the frozen truth set's reviewed evidence quotes,
-never injects evaluator-authored truth paraphrases, and is expected to score poorly
-on semantic recall with fake embeddings. Use it to verify ingestion, projections,
-versioning and citation replay; use real mode for knowledge-quality experiments.
+**2. Ask — needs a key**
 
-## Isolation invariants
+Put an OpenRouter key into `.env` (`OPENROUTER_API_KEY`), then either ask from the CLI or restart the api container so the web recall lanes pick it up:
 
-1. The Compose project, ports, database, Qdrant collection, Meilisearch key,
-   canonical volume and user-id prefix are distinct from the root development
-   stack. Keyless and real modes additionally use separate Qdrant collections,
-   because fake and provider embeddings can have different dimensions.
-2. A run creates a fresh `u-opc-seamlog-v2-*` tenant unless an explicit reserved
-   experiment id is supplied. It never resets an arbitrary user.
-3. The frozen 84-day corpus is imported from final accepted groups only.
-   Authoring drafts, superseded reviews and failed run logs are not runtime
-   assets.
-4. `examples.opc` may import public framework contracts. Framework packages
-   must never import `examples.opc`.
-5. Keyless and real modes use the same source contracts, profile, strategy,
-   prompt overlay and filing schema; only provider bindings differ.
+```bash
+./app.py ask '第一条证据链现在卡在什么条件上？' --sources
+docker compose --profile web up -d api                # web Q&A with the key
+```
+
+**3. Recompile with your own parameters — needs a key, costs real money**
+
+Edit `contract.md` (or swap the model in `.env`), then rebuild from the same material. The reference build took ~21M tokens with `gpt-5.6-luna`:
+
+```bash
+./app.py down --volumes && rm -rf data/
+./app.py up && ./app.py init
+./app.py ingest my-data && ./app.py compile
+```
+
+`./demo.sh` wraps all three stages in an interactive menu.
+
+## The corpus
+
+`my-data/` is 84 days of one person's working life, fully synthetic (no real people, brands or credentials): 18 meetings and 48 IM conversations as transcripts, 81 notes and 43 mail threads as documents. Its defining trait — and the reason it makes a good test of this framework — is that half of its information is **negative facts**: what was not approved, not signed, not confirmed, not found. A compiler that flattens "proposed" into "decided" turns this corpus into fiction; the shipped contract exists to prevent exactly that.
+
+## Reproduce it with your own agent
+
+The whole point of this example is that you can. Give a coding agent the scaffold, the two guides ([contract](../../docs/guides/compile-contract.md), [AGENT-GUIDE](../../scaffold/AGENT-GUIDE.md)) and `my-data/`, and let it walk the same road — `build-record/TASKBOOK.md` is the exact instruction that started the reference build. Expect a library of a similar shape, not an identical one: the families and calibers it derives are its judgement.
+
+## What's next
+
+- Write a contract for **your** domain: [docs/guides/compile-contract.md](../../docs/guides/compile-contract.md)
+- Build your own project from your own data: [`scaffold/`](../../scaffold/README.md)
+- Understand the machine underneath: [docs/architecture.md](../../docs/architecture.md)
+
+## Files
+
+| File | What it is |
+|---|---|
+| `app.py`, `start.sh`, `docker-compose.yml` (middleware part) | byte copies of `scaffold/templates/` — the replay story is literal |
+| `contract.md`, `profile.yaml` | the agent's authored contract and the owner profile |
+| `my-data/` | the synthetic corpus, in scaffold ingest format |
+| `prebuilt/canonical.bundle`, `prebuilt/l0.jsonl.gz` | the two authorities from the build: the compiled canonical library (git bundle) and the verbatim L0 source rows its citations bind to (source ids are system-assigned, so a re-ingest could never reproduce them) |
+| `bootstrap.py` | keyless restore: canonical bundle + L0 dump + derived rebuild |
+| `server.py`, `Dockerfile.web`, `nginx.conf`, compose `web` profile | the browsing layer — this example's one divergence from the plain scaffold |
+| `build-record/` | task book, build log, full agent transcript |

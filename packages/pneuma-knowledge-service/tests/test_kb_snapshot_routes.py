@@ -94,6 +94,20 @@ def _request(row: dict | None) -> SimpleNamespace:
         ),
         get_chat_model=lambda role="default": None,
         canonical_reads=canonical_reads,
+        # The route forwards the configured retrieval budget + opt-in stages into fast_recall.
+        settings=SimpleNamespace(
+            recall_claim_cap=40,
+            recall_window_cap=8,
+            recall_plan_queries=0,
+            recall_rerank_candidates=120,
+            recall_answer_style="conversational",
+            # The route refuses keyless deployments up front; the stub declares a model
+            # so the lanes under test actually run.
+            llm_model="scripted:stub",
+            llm_model_recall="",
+            llm_model_deep="",
+        ),
+        get_reranker=lambda: None,
     )
     return SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(ctx=ctx)))
 
@@ -195,3 +209,16 @@ async def test_compile_refuses_a_snapshot_tenant():
 async def test_compile_still_works_for_a_real_owner():
     out = await post_compile(OWNER, _request(None))
     assert out.source_ids == []
+
+
+async def test_a_keyless_deployment_refuses_the_answering_lanes_with_a_clear_503(captured):
+    # Browsing endpoints stay fully served keyless; the answering lanes are the one thing
+    # that cannot run. The failure mode this guards: handing an empty model spec to the
+    # model builder and surfacing its TypeError as a bare 500.
+    request = _request(_row())
+    request.app.state.ctx.settings.llm_model = ""
+    with pytest.raises(HTTPException) as excinfo:
+        await recall(OWNER, RecallIn(query="q", mode="fast"), request)
+    assert excinfo.value.status_code == 503
+    assert "keyless" in excinfo.value.detail
+    assert "user" not in captured  # no lane ran

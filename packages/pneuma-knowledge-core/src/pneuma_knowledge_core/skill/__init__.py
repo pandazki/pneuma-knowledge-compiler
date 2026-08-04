@@ -1,8 +1,12 @@
 """Vertical skill (slug form) + compact system-contract rendering.
 
-architecture.md §1, §8. The package carries a neutral personal-knowledge fallback;
-deployments register complete domain strategies through the public registration seam.
-`render_system_contract` projects a SkillVersion into a byte-stable SystemMessage (I5).
+architecture.md §1, §8. The package carries NO domain contract: deployments register a
+complete domain strategy through the public registration seam, and `load_skill_base` fails
+loudly rather than substituting one. `render_system_contract` projects a SkillVersion into
+a byte-stable SystemMessage (I5).
+
+  contract file format and judgement: `docs/guides/compile-contract.md` (repository root)
+  reference contracts:  `packages/pneuma-knowledge-strategies/`
 """
 
 from __future__ import annotations
@@ -18,8 +22,11 @@ from .pack import (
     packs_for_profile,
 )
 from .version import (
+    CITATION_GRANULARITY_RULE,
+    CITATION_SHAPE_RULE,
+    STRENGTH_LABEL_RULE,
     SkillVersion,
-    load_builtin_skill,
+    load_skill_base,
     register_skill_base,
     registered_skill_bases,
     reset_skill_bases,
@@ -27,7 +34,10 @@ from .version import (
 
 __all__ = [
     "SkillVersion",
-    "load_builtin_skill",
+    "CITATION_GRANULARITY_RULE",
+    "CITATION_SHAPE_RULE",
+    "STRENGTH_LABEL_RULE",
+    "load_skill_base",
     "register_skill_base",
     "registered_skill_bases",
     "reset_skill_bases",

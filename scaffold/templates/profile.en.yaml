@@ -1,0 +1,39 @@
+# Owner profile — "registration-level" information only: how to address you, occupation,
+# language/timezone — the stable self-introduction. Facts that live in your material
+# (who owns what, what was decided) are the compiler's job to learn; keep them out of here.
+#
+# The three locale fields (timezone/language/region) are auto-detected by `./app.py init`
+# (/etc/localtime symlink, $LANG), and the provenance block below records honestly how each
+# value was obtained:
+#   - deployment_default = detected from the system. Compiles state as much ("a detected
+#     value, not the owner's own setting"); the timezone then acts only as a default and is
+#     not written into the owner profile.
+#   - profile = you (or your AI guide) confirmed or edited the value yourself. Flip the
+#     matching provenance entry to profile after confirming — only then does it count as
+#     your own setting.
+#   - unstated = not yet detected, not yet declared.
+
+display_name: "{{DISPLAY_NAME}}"   # how the owner is addressed
+occupation: "{{OCCUPATION}}"       # one-line occupation
+bio: "{{BIO}}"                     # a sentence or two of background for the compiler's benefit
+interests: {{INTERESTS}}           # long-term interest keywords
+
+# The three enums below only shape answer style; they never affect admission judgement.
+# Personal/hobby scenarios need not force a fit: put other for industry/role, keep level mid.
+industry: {{INDUSTRY}}    # tech / finance / sports / creative / education / healthcare / marketing / other
+role: {{ROLE}}            # engineering / marketing / product_management / sales / design / support / admin / other
+level: {{LEVEL}}          # entry / junior / mid / senior / staff / principal
+
+locale:
+  city: ""            # home city (may stay empty)
+  country: ""         # ISO country/region code, e.g. CN, US — init detects from $LANG
+  timezone: ""        # IANA timezone, e.g. Asia/Shanghai — init detects from /etc/localtime
+  language: ""        # BCP-47, e.g. zh-CN — init detects from $LANG
+
+provenance:           # where each detected value above came from (meanings in the header)
+  timezone: unstated
+  language: unstated
+  region: unstated
+
+preferences:
+  response_language: ""   # language the AI should answer in; empty follows locale.language

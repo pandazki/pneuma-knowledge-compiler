@@ -3,6 +3,7 @@ import { useApp } from "./lib/store";
 import { useT } from "./lib/useT";
 import type { ViewName } from "./lib/types";
 import { AppShell } from "./components/AppShell";
+import { SourceSpanSheet } from "./components/SourceSpanSheet";
 import { ErrorState } from "./ui/ErrorState";
 import { Skeleton, SkeletonText } from "./ui/Skeleton";
 import OverviewView from "./views/overview/OverviewView";
@@ -90,6 +91,10 @@ export function App() {
   const View = VIEWS[view] ?? OverviewView;
   return (
     <AppShell>
+      {/* The citation landing rail is global: a [cite] click anywhere opens the source
+          galley in place — jumping the whole workspace to the Sources view for what is
+          essentially a footnote lookup threw the reader out of their task. */}
+      <GlobalSourceSheet />
       <Suspense
         fallback={
           <div className="px-4 py-6 sm:px-8">
@@ -103,5 +108,21 @@ export function App() {
         <View />
       </Suspense>
     </AppShell>
+  );
+}
+
+function GlobalSourceSheet() {
+  const sourceFocus = useApp((s) => s.sourceFocus);
+  const clearSourceFocus = useApp((s) => s.clearSourceFocus);
+  return (
+    <SourceSpanSheet
+      open={sourceFocus != null}
+      onOpenChange={(open) => {
+        if (!open) clearSourceFocus();
+      }}
+      sourceId={sourceFocus?.sourceId ?? null}
+      blockStart={sourceFocus?.blockStart ?? null}
+      blockEnd={sourceFocus?.blockEnd ?? null}
+    />
   );
 }

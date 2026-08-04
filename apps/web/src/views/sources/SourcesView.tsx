@@ -60,7 +60,6 @@ export default function SourcesView() {
   const t = useT();
   const tOr = useTOr();
   const currentUser = useApp((s) => s.currentUser);
-  const sourceFocus = useApp((s) => s.sourceFocus);
   const selection = useApp((s) => s.selection);
   const select = useApp((s) => s.select);
   const setView = useApp((s) => s.setView);
@@ -129,17 +128,8 @@ export default function SourcesView() {
     setRevealed(REVEAL_STEP);
   }, [filter]);
 
-  /**
-   * Cross-view landing (a recall hit, an ask citation, a suggestion): `focusSource` hands
-   * over a FRESH focus object every time, so keying the effect on it opens the galley once
-   * per ask. Closing the sheet therefore stays closed — a focus that is still in the store
-   * from an earlier jump is not a standing instruction to reopen.
-   */
-  useEffect(() => {
-    if (sourceFocus) setSelectedId(sourceFocus.sourceId);
-  }, [sourceFocus]);
-
   // deep link `#/sources/source/<id>/<block?>`: arriving by hash opens that galley.
+  // (Citation jumps no longer land here — they open the global source sheet in place.)
   useEffect(() => {
     if (sourceSel) setSelectedId(sourceSel.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -180,18 +170,12 @@ export default function SourcesView() {
     return labels;
   }, [sources, tOr]);
 
-  // Highlight range: a block carried by the selection wins, then sourceFocus's span.
+  // Highlight range: a block carried by the selection (deep link) drives the galley;
+  // citation jumps open the global source sheet and never pass through this view.
   const highlight: BlockRange | null =
     sourceSel && sourceSel.id === selectedId && sourceSel.block != null
       ? { start: sourceSel.block, end: sourceSel.block }
-      : sourceFocus &&
-          sourceFocus.sourceId === selectedId &&
-          sourceFocus.blockStart != null
-        ? {
-            start: sourceFocus.blockStart,
-            end: sourceFocus.blockEnd ?? sourceFocus.blockStart,
-          }
-        : null;
+      : null;
 
   if (!currentUser) {
     return (

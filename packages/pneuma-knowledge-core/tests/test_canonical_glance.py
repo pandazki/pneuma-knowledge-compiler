@@ -290,12 +290,38 @@ def test_an_orphaned_volume_is_listed_rather_than_folded_into_a_document_that_is
     assert archive_volume_counts([orphan]) == {}
 
 
-def test_the_collapse_does_not_touch_the_compile_outline():
-    """The compile face is a byte-stable surface and rollover was not asked to change it: a
-    compiler still needs to see the volumes it must not write into."""
+def test_the_compile_outline_lists_a_volume_but_marks_it_frozen_and_read_only():
+    """A compiler still needs to see the volumes it may read — but the outline is the
+    compiler's working-set map, and a volume line that reads like an editable peer document
+    is how a compile ends up path-addressing frozen history. The line itself must state the
+    freeze and name the active page that takes writes."""
     active = _people_doc("ada-quill", "Ada Quill")
     volume = _volume(active.path, 1)
-    assert any(volume.path in line for line in render_outline([active, volume]))
+    lines = render_outline([active, volume])
+    volume_lines = [line for line in lines if volume.path in line]
+    assert volume_lines == [
+        prompt(
+            "compile.task.outline_entry_volume",
+            path=volume.path,
+            owner=active.path,
+            claims=4,
+        )
+    ]
+    assert "frozen archive volume" in volume_lines[0]
+    assert active.path in volume_lines[0]
+    # the active page's own line is untouched — it still renders as an ordinary document
+    assert any(line.startswith(f"- `{active.path}` (type=person") for line in lines)
+
+
+def test_an_unstamped_volume_is_still_marked_frozen_in_the_outline_by_its_directory():
+    """Same two agreeing signals as the glance collapse: a volume whose `archived_from`
+    stamp went missing must not resurface in the compile outline as an editable peer."""
+    active = _people_doc("ada-quill", "Ada Quill")
+    volume = _volume(active.path, 1, stamped=False)
+    lines = render_outline([active, volume])
+    assert any(
+        volume.path in line and "frozen archive volume" in line for line in lines
+    )
 
 
 def test_the_same_inputs_render_the_same_bytes():

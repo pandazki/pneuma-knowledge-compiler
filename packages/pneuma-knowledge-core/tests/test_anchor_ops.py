@@ -122,6 +122,104 @@ def test_assign_document_anchors_anchors_every_claim_deterministically():
     assert extract_anchors(assign_document_anchors(body, "memory/people/cheng-ye.md")) == anchors
 
 
+# ---- _block_span anchor-boundary regression (evermembench model-compare-01) ----
+# A blank-line-free run of adjacent single-line anchored claims: editing one claim's
+# block must never swallow a neighboring claim's anchored line. Reproduced defect:
+# editing the run's LAST claim (c:563837bc) computed the block as the whole run and
+# silently deleted the four anchors above it.
+
+PACKED_DOC = """\
+# 碳排放核算平台
+
+## Key participants and responsibilities
+
+张伟华 任项目负责人。[cite: src-01 ¶2] <!-- c:08fd9324 -->
+李明志 负责技术线。[cite: src-01 ¶3] <!-- c:9319210c -->
+黄建国 负责运营线。[cite: src-01 ¶4] <!-- c:a1480228 -->
+周丽珍 负责财务线。[cite: src-01 ¶5] <!-- c:fca40036 -->
+苏宇 与 侯鹏 负责数据接入。[cite: src-01 ¶6] <!-- c:563837bc -->
+
+## 关联
+
+- [承诺](../commitments.md)
+"""
+
+PACKED_NEIGHBOR_LINES = [
+    "张伟华 任项目负责人。[cite: src-01 ¶2] <!-- c:08fd9324 -->",
+    "李明志 负责技术线。[cite: src-01 ¶3] <!-- c:9319210c -->",
+    "黄建国 负责运营线。[cite: src-01 ¶4] <!-- c:a1480228 -->",
+    "周丽珍 负责财务线。[cite: src-01 ¶5] <!-- c:fca40036 -->",
+]
+
+
+def test_edit_last_claim_in_packed_anchored_run_preserves_neighbor_anchors():
+    # The exact reproduced case: one legal edit_claim on the run's last claim.
+    out = edit_claim_text(
+        PACKED_DOC, "563837bc", "苏宇 与 侯鹏 已确认 ERP 视图权限。[cite: src-02 ¶4]"
+    )
+    # The four neighboring anchored lines survive byte-identical.
+    out_lines = out.split("\n")
+    for line in PACKED_NEIGHBOR_LINES:
+        assert line in out_lines
+    assert "苏宇 与 侯鹏 已确认 ERP 视图权限。[cite: src-02 ¶4] <!-- c:563837bc -->" in out_lines
+    assert "负责数据接入" not in out
+    assert extract_anchors(out) == [
+        "08fd9324",
+        "9319210c",
+        "a1480228",
+        "fca40036",
+        "563837bc",
+    ]
+    # The write-time conservation check (the gate's anchor_continuity source) is clean.
+    assert missing_anchors(PACKED_DOC, out) == []
+
+
+def test_edit_middle_claim_in_packed_run_touches_only_its_line():
+    out = edit_claim_text(PACKED_DOC, "a1480228", "黄建国 转岗至合规线。[cite: src-02 ¶7]")
+    out_lines = out.split("\n")
+    for line in PACKED_NEIGHBOR_LINES:
+        if "a1480228" in line:
+            continue
+        assert line in out_lines
+    assert "苏宇 与 侯鹏 负责数据接入。[cite: src-01 ¶6] <!-- c:563837bc -->" in out_lines
+    assert "黄建国 转岗至合规线。[cite: src-02 ¶7] <!-- c:a1480228 -->" in out_lines
+    assert "负责运营线" not in out
+    assert missing_anchors(PACKED_DOC, out) == []
+
+
+def test_blank_line_separated_paragraph_span_unchanged():
+    # Non-anchored span semantics are untouched: a multi-line paragraph still folds its
+    # unanchored continuation lines upward to the blank-line boundary, and blank-line
+    # separated neighbors are never part of the span.
+    doc = (
+        "# 主题\n"
+        "\n"
+        "## 进展\n"
+        "\n"
+        "第一段首行续写,\n"
+        "第一段收尾。[cite: src-01 ¶1] <!-- c:aaaa1111 -->\n"
+        "\n"
+        "第二段独立成块。[cite: src-01 ¶2] <!-- c:bbbb2222 -->\n"
+    )
+    out = edit_claim_text(doc, "aaaa1111", "第一段改写后的单行。[cite: src-02 ¶1]")
+    # Both lines of the multi-line paragraph were replaced (upward fold preserved)...
+    assert "首行续写" not in out and "收尾" not in out
+    assert "第一段改写后的单行。[cite: src-02 ¶1] <!-- c:aaaa1111 -->" in out
+    # ...and the blank-line-separated neighbor is byte-identical.
+    assert "第二段独立成块。[cite: src-01 ¶2] <!-- c:bbbb2222 -->" in out.split("\n")
+    assert missing_anchors(doc, out) == []
+
+
+def test_anchor_conservation_holds_for_every_edit_in_packed_run():
+    # Property: for EVERY claim in the packed run, a legal edit conserves all anchors.
+    anchors = extract_anchors(PACKED_DOC)
+    assert len(anchors) == 5
+    for anchor in anchors:
+        out = edit_claim_text(PACKED_DOC, anchor, f"更新后的第 {anchor} 条内容。[cite: src-02 ¶1]")
+        assert missing_anchors(PACKED_DOC, out) == []
+        assert extract_anchors(out) == anchors
+
+
 def test_append_block_anchors_every_block_not_just_last():
     # A multi-paragraph append must anchor EACH block, or the earlier ones are orphaned
     # (browse-visible, never indexed as claims).

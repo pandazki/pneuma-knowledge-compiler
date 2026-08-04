@@ -65,14 +65,16 @@ class ProjectedClaim:
 def _anchor_block(lines: list[str], anchor_line: int) -> tuple[int, int]:
     """The natural block [start, end) holding the anchor (mirrors anchor_ops._block_span
     and dataset._anchor_block: list items stand alone, a paragraph extends upward to a
-    blank/heading/list boundary)."""
+    blank/heading/list boundary, and any line carrying another anchor is a hard stop —
+    an anchor sits on its block's last line, so an anchored line above the target is
+    another claim's end and must not fold into this claim's text)."""
     end = anchor_line + 1
     if _LIST_ITEM_RE.match(lines[anchor_line]):
         return anchor_line, end
     start = anchor_line
     while start > 0:
         prev = lines[start - 1]
-        if not prev.strip() or _HEADING_RE.match(prev):
+        if not prev.strip() or _HEADING_RE.match(prev) or ANCHOR_MARK_RE.search(prev):
             break
         start -= 1
         if _LIST_ITEM_RE.match(prev):

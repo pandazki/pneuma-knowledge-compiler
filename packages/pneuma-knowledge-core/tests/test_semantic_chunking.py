@@ -283,3 +283,71 @@ async def test_prompt_assembly_system_rubric_and_numbered_blocks():
     assert config["run_name"] == "chunk.semantic"
     assert config["callbacks"] == [cb]
     assert config["metadata"] == {"operation": "chunk.semantic"}
+
+
+# ---------------------------------------------------------------------------
+# Prompt preview rendering (_number_blocks): head+tail truncation boundaries.
+# The preview only shapes what the model READS; chunk text elsewhere is asserted
+# to be verbatim slices of the full blocks, so these tests pin the prompt side.
+# ---------------------------------------------------------------------------
+
+from pneuma_knowledge_core.ingest.semantic import (  # noqa: E402
+    _PREVIEW_HEAD_CHARS,
+    _PREVIEW_TAIL_CHARS,
+    _number_blocks,
+)
+
+_BUDGET = _PREVIEW_HEAD_CHARS + _PREVIEW_TAIL_CHARS
+
+
+def test_preview_at_budget_is_verbatim_and_unmarked():
+    text = "x" * _BUDGET  # exactly at budget: shown whole, no marker
+    line = _number_blocks(_blocks([text]), 0)
+    assert line == f"0:{text}"
+    assert "truncated" not in line
+
+
+def test_preview_one_over_budget_elides_exactly_the_middle_char():
+    text = "a" * _PREVIEW_HEAD_CHARS + "M" + "b" * _PREVIEW_TAIL_CHARS
+    line = _number_blocks(_blocks([text]), 0)
+    head, sep, tail = line.partition(" …(1 chars truncated)… ")
+    assert sep, f"expected a labeled gap in: {line[:80]}…"
+    assert head == "0:" + "a" * _PREVIEW_HEAD_CHARS
+    assert tail == "b" * _PREVIEW_TAIL_CHARS
+    assert "M" not in head and "M" not in tail
+
+
+def test_preview_head_tail_are_verbatim_slices_and_count_is_exact():
+    text = "".join(chr(ord("a") + i % 26) for i in range(2000))
+    omitted = 2000 - _BUDGET
+    marker = f" …({omitted} chars truncated)… "
+    line = _number_blocks(_blocks([text]), 0)
+    assert marker in line
+    head, tail = line[len("0:") :].split(marker)
+    assert head == text[:_PREVIEW_HEAD_CHARS]
+    assert tail == text[-_PREVIEW_TAIL_CHARS:]
+
+
+def test_preview_counts_characters_not_bytes_for_cjk():
+    text = "知" * (_BUDGET + 5)  # 3 bytes per char in UTF-8; count must be by char
+    line = _number_blocks(_blocks([text]), 0)
+    marker = " …(5 chars truncated)… "
+    assert marker in line
+    head, tail = line[len("0:") :].split(marker)
+    assert head == "知" * _PREVIEW_HEAD_CHARS
+    assert tail == "知" * _PREVIEW_TAIL_CHARS
+
+
+def test_preview_measures_after_whitespace_collapse():
+    # Collapse happens BEFORE measuring: raw text far over budget can still fit whole.
+    raw = ("word  \n" * 90).strip()  # collapses to 90 space-joined words (449 chars)
+    collapsed = " ".join(raw.split())
+    assert len(collapsed) <= _BUDGET < len(raw)
+    line = _number_blocks(_blocks([raw]), 0)
+    assert line == f"0:{collapsed}"
+    assert "truncated" not in line
+
+
+def test_preview_numbering_uses_global_offset_over_windows():
+    lines = _number_blocks(_blocks(["a", "b"]), 40).splitlines()
+    assert lines == ["40:a", "41:b"]

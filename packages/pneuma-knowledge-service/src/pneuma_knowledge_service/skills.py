@@ -26,7 +26,7 @@ from pneuma_knowledge_core.domain.ids import UserId
 from pneuma_knowledge_core.skill import (
     SchemaPack,
     compose_skill,
-    load_builtin_skill,
+    load_skill_base,
     packs_for_profile,
 )
 from pneuma_knowledge_core.skill.version import SkillVersion
@@ -111,18 +111,18 @@ async def skill_for_user(ctx, user_id: UserId) -> SkillVersion:
     """The SkillVersion this user compiles with (see module docstring)."""
     settings = ctx.settings
     if not settings.user_schema_packs:
-        return load_builtin_skill(settings.user_schema_base_version)
+        return load_skill_base(settings.user_schema_base_version)
 
     manifest = await _read_manifest(ctx, user_id)
     if manifest is not None:
-        base = load_builtin_skill(
+        base = load_skill_base(
             str(manifest.get("base_version") or settings.user_schema_base_version)
         )
         packs = [SchemaPack(**p) for p in manifest.get("packs", [])]
         return compose_skill(base, packs)
 
     # First compile for this user: materialize the manifest now.
-    base = load_builtin_skill(settings.user_schema_base_version)
+    base = load_skill_base(settings.user_schema_base_version)
     profile = await ctx.user_info.get_profile(user_id)
     # derive needs an LLM; a build/route failure degrades to matrix-only packs.
     try:

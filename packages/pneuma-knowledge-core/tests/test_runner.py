@@ -7,19 +7,21 @@
 from datetime import datetime, timezone
 from itertools import count
 
+import pytest
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 from pydantic import PrivateAttr
 
-from pneuma_knowledge_core.compile.anchor_ops import assign_document_anchors
-from pneuma_knowledge_core.compile.documents import parse_document
-from pneuma_knowledge_core.compile.runner import run_compile
+from pneuma_knowledge_core.compile.anchor_ops import AnchorToolError, assign_document_anchors
+from pneuma_knowledge_core.compile.documents import parse_document, render_document
+from pneuma_knowledge_core.compile.patch import PatchDraft
+from pneuma_knowledge_core.compile.runner import _build_tools, run_compile
 from pneuma_knowledge_core.domain.canonical import CanonicalDocument
 from pneuma_knowledge_core.domain.ids import DocumentId, UserId, SourceId, extract_anchors
 from pneuma_knowledge_core.domain.snapshot import SnapshotRef
 from pneuma_knowledge_core.domain.source import NormalizedBlock, NormalizedSource, RawSource, StructureMap
-from pneuma_knowledge_core.skill import load_builtin_skill
+from pneuma_knowledge_core.skill import load_skill_base
 
 _ids = count()
 
@@ -107,7 +109,7 @@ def _source(source_id: str, n_blocks: int) -> NormalizedSource:
 
 
 USER = UserId("u-compile-1")
-SKILL = load_builtin_skill()
+SKILL = load_skill_base("v1")
 
 
 async def test_scenario_1_clean_compile_two_documents():
@@ -260,3 +262,107 @@ async def test_scenario_1_editing_existing_base_document_preserves_anchor():
     assert types == ["claim_added", "claim_revised"]
     # aa11 preserved through the edit.
     assert "c:aa11" in result.files["memory/people/cheng-ye.md"]
+
+
+# ------------------------------------------------- compiling a rolled-over subject
+
+
+def _rolled_over_base() -> list[CanonicalDocument]:
+    """An active page plus one frozen history volume, as a compile after a groom sees them."""
+    active_path = "work/products/aurora-planner.md"
+    active = CanonicalDocument(
+        doc_id=DocumentId("d-aurora"),
+        path=active_path,
+        frontmatter={"doc_id": "d-aurora", "type": "product", "slug": "aurora-planner"},
+        body=(
+            "# Aurora planner\n\n## Delivery\n\n"
+            "- Sprint 9: checklist advanced. [cite: src-00 ¶0] <!-- c:aaaa1111 -->\n"
+        ),
+    )
+    volume = CanonicalDocument(
+        doc_id=DocumentId("d-aurora-a01"),
+        path="work/products/aurora-planner/a01.md",
+        frontmatter={
+            "doc_id": "d-aurora-a01",
+            "type": "product",
+            "slug": "a01",
+            "archived_from": active_path,
+            "rollover_volume": "01",
+        },
+        body=(
+            "# Aurora planner\n\n## Delivery\n\n"
+            "- Sprint 1: checklist started. [cite: src-00 ¶0] <!-- c:bbbb2222 -->\n"
+        ),
+    )
+    return [active, volume]
+
+
+def test_the_compile_tool_face_marks_a_volume_read_only_and_refuses_writes_early():
+    """The two working-set surfaces a compile model actually sees: read_document says the
+    volume is frozen (while staying fully readable), and the write tools refuse a volume
+    path with the active-page redirect instead of letting the attempt run to the gate."""
+    base = _rolled_over_base()
+    active_path, volume_path = base[0].path, base[1].path
+    draft = PatchDraft.from_canonical(base, SKILL.path_templates)
+    tools = {t.name: t for t in _build_tools(draft)}
+
+    read = tools["read_document"].func(path=volume_path)
+    assert read.startswith("(this document is a frozen archive volume of")
+    assert f"`{active_path}`" in read
+    assert "Sprint 1: checklist started." in read  # deep-reading history stays allowed
+    # an ordinary document reads without any banner
+    assert tools["read_document"].func(path=active_path).startswith("---")
+
+    with pytest.raises(AnchorToolError) as err:
+        tools["edit_claim"].func(path=volume_path, anchor_id="bbbb2222", new_text="- x")
+    assert "frozen history volume" in str(err.value)
+    assert f"active page: use edit_claim / append_block on `{active_path}`" in str(err.value)
+    with pytest.raises(AnchorToolError):
+        tools["append_block"].func(path=volume_path, heading="Delivery", text="- x")
+    assert not draft.is_dirty()
+
+
+async def test_a_compile_on_a_rolled_over_subject_lands_on_the_active_page_not_the_volume():
+    """The live trap, end to end: this round's material updates a subject whose history was
+    rolled over. The first attempt path-addresses the frozen volume and is refused by the
+    TOOL inside the same round; the compile then lands the claim on the active page and
+    commits, with the volume byte-identical."""
+    base = _rolled_over_base()
+    store = FakeCanonicalStore(base)
+    sources = [_source("src-01", 5)]
+    active_path, volume_path = base[0].path, base[1].path
+    volume_file_before = render_document(base[1].frontmatter, base[1].body)
+    model = ScriptedChatModel(
+        turns=[
+            # the trap: the model tries to update the archived claim inside the volume
+            [
+                tc(
+                    "edit_claim",
+                    path=volume_path,
+                    anchor_id="bbbb2222",
+                    new_text="- Sprint 1: shipped after all. [cite: src-01 ¶1]",
+                ),
+            ],
+            # the refusal named the active page; the model redirects there and finishes
+            [
+                tc(
+                    "append_block",
+                    path=active_path,
+                    heading="Delivery",
+                    text="- Sprint 10: kickoff confirmed. [cite: src-01 ¶1]",
+                ),
+                tc("finish_compile"),
+            ],
+        ]
+    )
+    result = await run_compile(
+        user_id=USER, model=model, store=store, sources=sources, skill=SKILL
+    )
+    assert result.status == "committed"
+    assert result.rounds == 1  # caught at the tool face, not spent on a gate repair round
+    assert result.violations == []
+    # the volume is byte-identical to what the groom froze...
+    assert result.files[volume_path] == volume_file_before
+    # ...and the new claim landed on the active page
+    assert "Sprint 10: kickoff confirmed." in result.files[active_path]
+    assert len(result.events) == 1 and result.events[0].type == "claim_added"

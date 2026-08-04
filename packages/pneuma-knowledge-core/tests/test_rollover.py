@@ -974,14 +974,36 @@ def test_a_compile_after_a_rollover_does_not_trip_over_the_volume_it_is_not_touc
     assert run_gate(_draft_after_rollover(result.files), []) == []
 
 
-def test_a_compile_that_writes_into_a_frozen_volume_is_refused():
+def test_the_write_tools_refuse_a_frozen_volume_before_the_gate_ever_sees_it():
+    """The trap observed live: a compile whose material updates a rolled-over subject
+    path-addresses the volume, and the first "frozen" it used to hear was the gate's — after
+    the whole round was spent. The tool face now refuses up front, teachably, naming the
+    active page that takes writes."""
     active = _active(30)
     plan, result = _roll([active], active, [_point(0)])
     draft = _draft_after_rollover(result.files)
-    draft.append_block(plan.volume_path, "Delivery", "A new claim. [cite: src-01 ¶0]")
+    with pytest.raises(AnchorToolError) as err:
+        draft.append_block(plan.volume_path, "Delivery", "A new claim. [cite: src-01 ¶0]")
+    assert "frozen history volume" in str(err.value)
+    assert ACTIVE in str(err.value)
+    with pytest.raises(AnchorToolError):
+        draft.edit_claim(plan.volume_path, _anchor("claim-0"), "Rewritten. [cite: src-01 ¶0]")
+    assert run_gate(draft, []) == []  # nothing got through, so the draft is still clean
+
+
+def test_a_compile_that_tampers_with_a_frozen_volume_is_still_refused_by_the_gate():
+    """Gate 5b is the final arbiter behind the tool-level refusal: a volume change that
+    reaches the draft WITHOUT going through the claim tools is refused all the same, and the
+    violation feedback states the corrective action — write to the active page."""
+    active = _active(30)
+    plan, result = _roll([active], active, [_point(0)])
+    draft = _draft_after_rollover(result.files)
+    volume = draft.read(plan.volume_path)
+    volume.body = volume.body.replace("Sprint 0:", "Sprint zero:")
     violations = run_gate(draft, [])
     assert [v.kind for v in violations] == ["archive_frozen"]
     assert violations[0].detail == prompt("gate.archive_frozen", owner=ACTIVE)
+    assert f"active page `{ACTIVE}`" in violations[0].detail  # the repair-round redirect
 
 
 def test_a_compile_cannot_create_a_volume_at_all():

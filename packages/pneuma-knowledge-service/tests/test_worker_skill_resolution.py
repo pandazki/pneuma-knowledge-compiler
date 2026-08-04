@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 import pneuma_knowledge_service.workers.compile_worker as worker
 from pneuma_knowledge_core.domain.ids import UserId
-from pneuma_knowledge_core.skill import load_builtin_skill
+from pneuma_knowledge_core.skill import load_skill_base
 from pneuma_knowledge_service.workers.compile_worker import _resolve_user_skill
 
 
@@ -20,7 +20,7 @@ async def test_resolve_uses_cache_and_calls_skill_for_user_once(monkeypatch):
 
     async def fake_skill_for_user(ctx, user_id):
         calls.append(str(user_id))
-        return load_builtin_skill("v2")
+        return load_skill_base("v1")
 
     monkeypatch.setattr(worker, "skill_for_user", fake_skill_for_user)
 
@@ -44,7 +44,7 @@ async def test_resolve_without_cache_reads_each_time(monkeypatch):
 
     async def fake_skill_for_user(ctx, user_id):
         calls.append(str(user_id))
-        return load_builtin_skill("v1")
+        return load_skill_base("v1")
 
     monkeypatch.setattr(worker, "skill_for_user", fake_skill_for_user)
 

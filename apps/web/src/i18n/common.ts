@@ -77,6 +77,7 @@ export const common = defineMessages({
     "common.sourceSpan.title": "原文",
     "common.sourceSpan.fetchExact": "fetch 精确段",
     "common.sourceSpan.fetchFailed": "fetch 失败：{detail}",
+    "common.sourceSpan.openInSources": "在原料页打开",
 
     "common.placeholder.title": "本篇正在排版",
     "common.placeholder.description":
@@ -150,6 +151,7 @@ export const common = defineMessages({
     "common.sourceSpan.title": "Original text",
     "common.sourceSpan.fetchExact": "Fetch exact span",
     "common.sourceSpan.fetchFailed": "Fetch failed: {detail}",
+    "common.sourceSpan.openInSources": "Open in Sources",
 
     "common.placeholder.title": "This chapter is still being typeset",
     "common.placeholder.description":

@@ -1,44 +1,39 @@
-"""SkillVersion: an immutable vertical-skill asset.
+"""SkillVersion: an immutable vertical-skill asset, and the registry an application fills.
 
-The built-in personal-knowledge strategy is an immutable, versioned fallback. A SkillVersion is
-instructions + path templates + contract rules; the content hash is system-computed for
-identity/versioning.
+A SkillVersion is instructions + path templates + contract rules; the content hash is
+system-computed for identity/versioning.
 
-Multiple built-in versions coexist (milestone M5): `load_builtin_skill(version=...)`
-returns whichever packaged asset is asked for. A skill upgrade is forward-only — new
-compiles use the new version; existing canonical is never re-written (invariant I2).
-Each version's `content_hash` is independent and byte-stable, so the version used to
-compile a snapshot can be stamped into the commit trailer as a free git audit trace.
+THE FRAMEWORK SHIPS NO CONTRACT. This module used to package three worked contracts for
+one domain ("personal knowledge") and hand one of them to any caller who did not choose —
+`load_builtin_skill()` defaulted to v1, `settings.user_schema_base_version` to v3. A
+framework has no business holding an opinion about someone else's domain, and a default
+that quietly supplies one is worse than no default: the resulting knowledge base looks
+like it was designed for the subject when it was designed for someone else. So the
+contracts moved out (to `pneuma-knowledge-strategies`, as reference starting points), and
+what remains here is the mechanism: an application builds a SkillVersion and registers it
+under a version string, and `load_skill_base` returns it — or fails loudly, naming the
+format doc and the shipped examples.
+
+Multiple versions coexist (milestone M5). A skill upgrade is forward-only — new compiles
+use the new version; existing canonical is never re-written (invariant I2). Each version's
+`content_hash` is independent and byte-stable, so the version used to compile a snapshot
+can be stamped into the commit trailer as a free git audit trace.
+
+  how to write one (format and judgement): docs/guides/compile-contract.md
+  reference contracts:       packages/pneuma-knowledge-strategies/
 """
 
 from __future__ import annotations
 
 import hashlib
-from pathlib import Path
+from collections.abc import Sequence
 
 from pydantic import BaseModel, ConfigDict, Field
 
-_ASSETS = Path(__file__).resolve().parent / "assets"
-
-# Canonical path layout for the built-in personal-knowledge strategy. Path ownership is
-# stable across versions so an upgrade never orphans earlier anchors.
-_PERSONAL_KNOWLEDGE_TEMPLATES = [
-    "memory/profile.md",
-    "memory/people/{slug}.md",
-    "work/products/{slug}.md",
-    "work/experiments/{slug}.md",
-    "work/operations/{slug}.md",
-    "memory/topics/{slug}.md",
-    "materials/{slug}.md",
-]
-
-_SKILL_ID = "personal-knowledge"
-
-# Per-version extra write-contract clauses folded into render_system_contract. These are
-# mechanism refinements (a controlled vocabulary, a presentation convention), not
-# persuasion (§0 discipline 1). v1 carries none; v2 adds a citation-presentation rule that
-# shapes how future compiles cite. The rules ride the byte-stable SystemMessage, so they
-# are part of the version's identity.
+# Extra write-contract clauses a SkillVersion may fold into render_system_contract. These
+# are mechanism refinements (a controlled vocabulary, a presentation convention), not
+# persuasion (§0 discipline 1), and they ride the byte-stable SystemMessage, so they are
+# part of the version's identity.
 #
 # The values are prompt-catalog KEYS, not sentences: `render_system_contract` resolves each
 # through `resolve_or_verbatim`, so a deployment rewrites a clause through the same seam as
@@ -58,16 +53,6 @@ CITATION_SHAPE_RULE = "contract.rule.citation_shape"
 _CITATION_GRANULARITY_RULE = CITATION_GRANULARITY_RULE
 _STRENGTH_LABEL_RULE = STRENGTH_LABEL_RULE
 _CITATION_SHAPE_RULE = CITATION_SHAPE_RULE
-
-_CONTRACT_RULES: dict[str, tuple[str, ...]] = {
-    "v1": (),
-    "v2": (_CITATION_GRANULARITY_RULE, _STRENGTH_LABEL_RULE),
-    # v3 previously had NO entry, so `.get(version, ())` silently gave it zero rules — and
-    # v3 is the configured default base (settings.user_schema_base_version). The citation
-    # rules therefore never reached the model on the default path, while v3's body restates
-    # only the strength-label convention. Carried forward explicitly, plus the shape rule.
-    "v3": (_CITATION_GRANULARITY_RULE, _CITATION_SHAPE_RULE, _STRENGTH_LABEL_RULE),
-}
 
 
 class SkillVersion(BaseModel):
@@ -100,23 +85,49 @@ class SkillVersion(BaseModel):
         h.update("\n".join(contract_rules).encode("utf-8"))
         return h.hexdigest()
 
+    @classmethod
+    def from_parts(
+        cls,
+        *,
+        skill_id: str,
+        version: str,
+        instructions: str,
+        path_templates: Sequence[str],
+        contract_rules: Sequence[str] = (),
+    ) -> SkillVersion:
+        """Build a SkillVersion and compute its `content_hash` from the same four parts.
 
-# Business-registered skill bases, keyed by version string. The skill BODY is a versioned
-# asset rather than a prompt surface — it is domain content whose length and structure the
-# deployment owns — so it has its own registration seam instead of riding the prompt
-# catalog. Registering `v3` replaces the packaged v3 body everywhere `base_version` points
-# at it, and `content_hash` keeps working unchanged (it is computed from whatever
-# instructions are loaded).
+        Every application that owns a contract has to do this, and every one of them was
+        hand-rolling the `compute_hash(...)` call with the arguments repeated — a shape in
+        which one transposed argument yields a wrong-but-plausible provenance hash that
+        nothing downstream can catch. The parts are supplied once here.
+        """
+        templates = list(path_templates)
+        rules = tuple(contract_rules)
+        return cls(
+            skill_id=skill_id,
+            version=version,
+            instructions=instructions,
+            path_templates=templates,
+            contract_rules=rules,
+            content_hash=cls.compute_hash(skill_id, version, instructions, templates, rules),
+        )
+
+
+# The registered skill bases, keyed by version string — the ONLY place a contract can come
+# from. The skill BODY is a versioned asset rather than a prompt surface (it is domain
+# content whose length and structure the deployment owns), so it has its own registration
+# seam instead of riding the prompt catalog.
 _REGISTERED_BASES: dict[str, SkillVersion] = {}
 
 
 def register_skill_base(version: str, skill: SkillVersion) -> None:
-    """Register (or replace) the skill base loaded for `version` — the business seam.
+    """Register (or replace) the skill base loaded for `version` — the application seam.
 
-    Call at startup (wiring), before any compile. `load_builtin_skill(version)` then returns
-    this SkillVersion instead of reading the packaged asset, so a deployment can ship its
-    own full skill body (its own language, its own domain sections) while every manifest,
-    trailer and `base_version` reference keeps naming the same version string.
+    Call at startup (wiring), before any compile. `load_skill_base(version)` then returns
+    this SkillVersion, so a deployment ships its own full skill body (its own language, its
+    own domain sections) while every manifest, trailer and `base_version` reference keeps
+    naming the same version string.
     """
     _REGISTERED_BASES[version] = skill
 
@@ -131,26 +142,34 @@ def reset_skill_bases() -> None:
     _REGISTERED_BASES.clear()
 
 
-def load_builtin_skill(version: str = "v1") -> SkillVersion:
-    """Load a skill base: a business-registered one if present, else the packaged asset.
+def _unregistered_message(version: str) -> str:
+    """The failure a caller sees when nothing was wired — it has to be actionable.
 
-    `version` selects the asset (`personal_knowledge_<version>.md`). Versions coexist so
-    forward-only upgrades can rebuild derived data without rewriting canonical history."""
-    registered = _REGISTERED_BASES.get(version)
-    if registered is not None:
-        return registered
-    asset = _ASSETS / f"personal_knowledge_{version}.md"
-    if not asset.is_file():
-        raise ValueError(f"unknown built-in skill version: {version!r}")
-    instructions = asset.read_text(encoding="utf-8")
-    rules = _CONTRACT_RULES.get(version, ())
-    return SkillVersion(
-        skill_id=_SKILL_ID,
-        version=version,
-        instructions=instructions,
-        path_templates=list(_PERSONAL_KNOWLEDGE_TEMPLATES),
-        contract_rules=rules,
-        content_hash=SkillVersion.compute_hash(
-            _SKILL_ID, version, instructions, _PERSONAL_KNOWLEDGE_TEMPLATES, rules
-        ),
+    The old behaviour on this path was to return a packaged personal-knowledge contract,
+    which is why it needs saying explicitly: not choosing is not a state this framework can
+    resolve on the caller's behalf, and the message names every door out.
+    """
+    known = ", ".join(sorted(_REGISTERED_BASES)) or "(none)"
+    subject = f"version {version!r}" if version.strip() else "an empty version string"
+    return (
+        f"no skill base registered for {subject}. This framework ships no domain contract: "
+        "an application must build a SkillVersion and call "
+        "register_skill_base(version, skill) at startup (services read the version from "
+        "settings.user_schema_base_version, which has no default either).\n"
+        f"  registered versions: {known}\n"
+        "  how to write one (format and judgement): docs/guides/compile-contract.md\n"
+        "  reference contracts to start from: packages/pneuma-knowledge-strategies/ "
+        "(personal-knowledge)"
     )
+
+
+def load_skill_base(version: str) -> SkillVersion:
+    """The registered skill base for `version`, or a loud LookupError.
+
+    `version` is required and must be non-blank: there is no built-in contract to fall back
+    to, and inventing one would be inventing a domain for the caller.
+    """
+    registered = _REGISTERED_BASES.get(version)
+    if registered is None:
+        raise LookupError(_unregistered_message(version))
+    return registered

@@ -38,7 +38,7 @@ from pneuma_knowledge_core.prompts import (
     prompt,
     reset_prompt_overrides,
 )
-from pneuma_knowledge_core.skill import load_builtin_skill, render_system_contract
+from pneuma_knowledge_core.skill import load_skill_base, render_system_contract
 
 TOKYO = ZoneInfo("Asia/Tokyo")
 SHANGHAI = ZoneInfo("Asia/Shanghai")
@@ -76,7 +76,7 @@ def _section(contract: str) -> str:
 
 
 def _render(owner: object | None, time: TimeContext | None) -> str:
-    return _section(render_system_contract(load_builtin_skill("v3"), owner, time=time))
+    return _section(render_system_contract(load_skill_base("v1"), owner, time=time))
 
 
 def _timezone_line(section: str) -> str:
@@ -157,7 +157,7 @@ def test_a_bare_time_context_declares_its_zone_without_inventing_a_provenance():
 
 def test_the_write_language_rule_reaches_the_system_contract():
     contract = render_system_contract(
-        load_builtin_skill("v3"),
+        load_skill_base("v1"),
         _Owner(_Locale(language="ja-JP")),
         time=TimeContext(now_utc=NOW, zone=TOKYO, zone_source="profile"),
     )
@@ -165,8 +165,23 @@ def test_the_write_language_rule_reaches_the_system_contract():
     assert prompt("compile.owner_env.day_grouping") in contract
     # …and it reaches the no-profile path too, where the default is what is being enforced.
     assert prompt("compile.owner_env.write_language") in render_system_contract(
-        load_builtin_skill("v3")
+        load_skill_base("v1")
     )
+
+
+def test_the_contract_never_asserts_that_a_round_is_one_calendar_day():
+    """The byte-stable contract cannot know the round's grouping, so it must not claim one.
+
+    It used to say "the material of each round is grouped by calendar day" — true under
+    `group_by: day|source`, FALSE under a batched round, and false in the direction that
+    makes the compiler trust a single implied day for material spanning several. The shape
+    is a per-round fact and lives in the task; this line only names the zone and points at
+    the per-source dates.
+    """
+    line = prompt("compile.owner_env.day_grouping")
+    assert "grouped by calendar day" not in line
+    assert "one day of material or several" in line
+    assert "each source states its own date" in line
 
 
 def test_the_locale_is_declared_once_and_not_repeated_as_a_profile_line():
@@ -190,7 +205,7 @@ def test_the_block_is_byte_stable_across_instants_of_the_same_job_shape():
     every job would render a new SystemMessage and the provider cache would be spent for nothing.
     """
     owner = _Owner(_Locale(city="Bayside", timezone="Asia/Tokyo", language="ja-JP"))
-    skill = load_builtin_skill("v3")
+    skill = load_skill_base("v1")
     early = render_system_contract(
         skill, owner, time=TimeContext(now_utc=NOW, zone=TOKYO, zone_source="profile")
     )
@@ -208,7 +223,7 @@ def test_a_different_zone_provenance_is_a_different_contract():
     """The counterpart: provenance is content, not decoration. Same zone, different answer to
     "who said so", different bytes — because the model is being told something different."""
     owner = _Owner(_Locale(city="Bayside", language="ja-JP"))
-    skill = load_builtin_skill("v3")
+    skill = load_skill_base("v1")
     from_profile = render_system_contract(
         skill, owner, time=TimeContext(now_utc=NOW, zone=TOKYO, zone_source="profile")
     )
@@ -296,7 +311,7 @@ async def test_the_jobs_resolved_zone_and_its_provenance_reach_the_system_messag
         model=model,
         store=_EmptyStore(),
         sources=[source],
-        skill=load_builtin_skill("v3"),
+        skill=load_skill_base("v1"),
         owner=_Owner(_Locale(city="Bayside", language="ja-JP")),
         time=TimeContext(now_utc=NOW, zone=SHANGHAI, zone_source="deployment_default"),
     )

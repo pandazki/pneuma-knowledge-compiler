@@ -115,6 +115,64 @@ def test_there_is_no_whole_file_rewrite_operation():
     assert not hasattr(PatchDraft, "replace_document")
 
 
+def _rolled_over_world() -> tuple[PatchDraft, str, str]:
+    """An active page plus one of its frozen history volumes, as a later draft sees them."""
+    active_path = "memory/topics/orion.md"
+    volume_path = "memory/topics/orion/a01.md"
+    active = CanonicalDocument(
+        doc_id=DocumentId("d-orion"),
+        path=active_path,
+        frontmatter={"doc_id": "d-orion", "type": "topic", "slug": "orion"},
+        body="# Orion\n\n## Delivery\n\n- Sprint 9 done. [cite: src-01 ¶0] <!-- c:aaaa1111 -->\n",
+    )
+    volume = CanonicalDocument(
+        doc_id=DocumentId("d-orion-a01"),
+        path=volume_path,
+        frontmatter={
+            "doc_id": "d-orion-a01",
+            "type": "topic",
+            "slug": "a01",
+            "archived_from": active_path,
+            "rollover_volume": "01",
+        },
+        body="# Orion\n\n## Delivery\n\n- Sprint 1 done. [cite: src-01 ¶0] <!-- c:bbbb2222 -->\n",
+    )
+    return _draft(active, volume), active_path, volume_path
+
+
+def test_every_claim_mutation_refuses_a_frozen_history_volume_early_and_teachably():
+    """The write tools are where the frozen-volume trap must be caught: before this guard the
+    first "frozen" a model heard came from the gate, after the whole round was spent. The
+    refusal is early, names the volume's owner, and states the corrective action — write to
+    the active page — so a repair round has something to act on."""
+    draft, active_path, volume_path = _rolled_over_world()
+
+    with pytest.raises(AnchorToolError, match="frozen history volume") as err:
+        draft.edit_claim(volume_path, "bbbb2222", "- Sprint 1 shipped. [cite: src-02 ¶0]")
+    assert "edit_claim rejected" in str(err.value)
+    assert f"active page: use edit_claim / append_block on `{active_path}`" in str(err.value)
+
+    with pytest.raises(AnchorToolError, match="frozen history volume"):
+        draft.append_block(volume_path, "Delivery", "- New fact. [cite: src-02 ¶1]")
+    # the evolve-only merge channel is bound by the same freeze, in both directions
+    with pytest.raises(AnchorToolError, match="frozen history volume"):
+        draft.move_claim(volume_path, "bbbb2222", active_path, "Delivery")
+    with pytest.raises(AnchorToolError, match="frozen history volume"):
+        draft.move_claim(active_path, "aaaa1111", volume_path, "Delivery")
+    with pytest.raises(AnchorToolError, match="frozen history volume"):
+        draft.delete_claim(volume_path, "bbbb2222")
+
+    # nothing above touched the draft, and the active page itself still takes writes
+    assert not draft.is_dirty()
+    draft.append_block(active_path, "Delivery", "- Sprint 10 kicked off. [cite: src-02 ¶2]")
+    assert draft.is_dirty()
+
+
+def test_the_volume_stays_readable_even_though_it_is_frozen():
+    draft, _, volume_path = _rolled_over_world()
+    assert "Sprint 1 done." in draft.read(volume_path).body
+
+
 def test_from_canonical_seeds_base_and_working():
     base = CanonicalDocument(
         doc_id=DocumentId("abc123"),

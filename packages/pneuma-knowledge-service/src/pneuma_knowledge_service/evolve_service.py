@@ -34,7 +34,7 @@ from pneuma_knowledge_core.domain.ids import UserId, SourceId, extract_anchors
 from pneuma_knowledge_core.domain.snapshot import SnapshotRef
 from pneuma_knowledge_core.evolve import propose_evolution, run_evolve
 from pneuma_knowledge_core.prompts import prompt
-from pneuma_knowledge_core.skill import SchemaPack, compose_skill, load_builtin_skill
+from pneuma_knowledge_core.skill import SchemaPack, compose_skill, load_skill_base
 from pneuma_knowledge_core.skill.version import SkillVersion
 
 from .groom_service import scan_oversized_documents
@@ -46,10 +46,6 @@ from .wiring import AppContext, llm_call_config
 def _recovery_heading() -> str:
     """Section heading the adopt catch-up files a main-branch-only claim under."""
     return prompt("evolve.recovery_heading")
-
-
-def _is_topic(path: str) -> bool:
-    return path.startswith("memory/topics/")
 
 
 def _dropped_json(dropped) -> list[dict]:
@@ -138,7 +134,7 @@ async def _compose_new_skill(
     else:
         base_version = ctx.settings.user_schema_base_version
         base_packs = []
-    base_skill = load_builtin_skill(base_version)
+    base_skill = load_skill_base(base_version)
     all_packs = base_packs + list(evolved_packs)
     new_skill = compose_skill(base_skill, all_packs)
     return new_skill, serialize_manifest(base_skill, all_packs, new_skill)
@@ -513,9 +509,14 @@ async def has_pending_evolve(ctx: AppContext, user: UserId) -> bool:
 
 async def maybe_trigger_evolve(ctx: AppContext, user: UserId) -> str | None:
     """Passive trigger (schema-evolve §2.1): after a committed compile, fire an evolve job
-    when — since the last evolve task — enough NEW topic docs AND new anchors accrued, and no
-    evolve is already in flight. All statistics come from compile_events (no git read).
-    Returns the enqueued job id, or None."""
+    when — since the last evolve task — enough NEW documents AND new anchors accrued, and no
+    evolve is already in flight. New documents are counted across ALL families (any path a
+    compile has written), not just memory/topics/: evolve reorganizes the whole KB, so the
+    growth that warrants it is whole-KB growth — a corpus whose contract files everything
+    under e.g. work/products/ or memory/people/ deserves structural re-examination exactly
+    as much as a topics-heavy one, and counting only one family left such corpora unable to
+    ever trigger. All statistics come from compile_events (no git read). Returns the
+    enqueued job id, or None."""
     settings = ctx.settings
     if not settings.evolve_auto_trigger:
         return None
@@ -531,19 +532,16 @@ async def maybe_trigger_evolve(ctx: AppContext, user: UserId) -> str | None:
 
     window = [e for e in events if after(e)]
     new_claims = sum(1 for e in window if e["type"] == "claim_added")
-    # New topic docs: topic paths first seen strictly in the window (no event at/before it).
-    topics_before = {
-        e["path"] for e in events if not after(e) and _is_topic(e["path"])
+    # New documents (any family): paths first seen strictly in the window (no event
+    # at/before the baseline).
+    docs_before = {e["path"] for e in events if not after(e)}
+    docs_after = {
+        e["path"] for e in window if e["type"] == "claim_added"
     }
-    topics_after = {
-        e["path"]
-        for e in window
-        if e["type"] == "claim_added" and _is_topic(e["path"])
-    }
-    new_topic_docs = topics_after - topics_before
+    new_docs = docs_after - docs_before
 
     if (
-        len(new_topic_docs) >= settings.evolve_trigger_topic_docs
+        len(new_docs) >= settings.evolve_trigger_topic_docs
         and new_claims >= settings.evolve_trigger_new_claims
     ):
         return await ctx.store.enqueue(user, "evolve", {})

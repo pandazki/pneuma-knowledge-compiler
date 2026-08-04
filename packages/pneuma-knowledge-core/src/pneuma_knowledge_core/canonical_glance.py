@@ -26,8 +26,9 @@ sees" cannot drift into two different maps of the same repo.
 They are not the same bytes, because they answer different questions. Compile is deciding
 WHERE TO WRITE, so its line carries the document type and its section headings. Recall is
 deciding WHAT TO READ, so its line carries the title and how recently the document moved.
-`render_outline` is byte-for-byte what the compile task rendered before this module existed
-(its prompt keys are unchanged), which is what keeps the compile side a pure refactor.
+`render_outline` keeps the compile task's original line grammar (its prompt keys are
+unchanged) with one deliberate exception: a frozen rollover volume's line says so — see the
+function's own docstring.
 
 WHERE THE ONE-LINE BLURBS COME FROM
 -----------------------------------
@@ -169,15 +170,34 @@ def family_of(path: str, templates: Sequence[str]) -> str | None:
 def render_outline(docs: Sequence[CanonicalDocument]) -> list[str]:
     """Existing canonical as the compile task's OUTLINE — one line per document.
 
-    Byte-for-byte the render the compile task has always emitted (same prompt keys, same
-    sort, same fields): path, frontmatter type, claim count, and the section headings that
-    tell a writer where a new claim belongs. Lives here so the outline and the glance derive
-    "what a document is" from one place.
+    Same render the compile task has always emitted (same prompt keys, same sort, same
+    fields) — path, frontmatter type, claim count, and the section headings that tell a
+    writer where a new claim belongs — with ONE deliberate exception: a rollover volume's
+    line states that it is a frozen archive of its active document and read-only, instead of
+    presenting it as an editable peer. The outline is the compiler's working-set map, and it
+    used to be the surface that taught the trap: a rolled-over subject showed up twice, and
+    nothing on the volume's line said which of the two takes writes. The volume stays listed
+    (a compiler must see the history it may read), identified the way the recall glance
+    identifies one (`volume_origin`: the `archived_from` stamp, path shape as fallback).
+
+    Lives here so the outline and the glance derive "what a document is" from one place.
     """
     if not docs:
         return [prompt("compile.task.outline_empty")]
+    present = {doc.path for doc in docs}
     lines: list[str] = []
     for doc in sorted(docs, key=lambda d: d.path):
+        origin = volume_origin(doc, present)
+        if origin is not None:
+            lines.append(
+                prompt(
+                    "compile.task.outline_entry_volume",
+                    path=doc.path,
+                    owner=origin,
+                    claims=claim_count(doc),
+                )
+            )
+            continue
         headings = section_headings(doc)
         doc_type = str((doc.frontmatter or {}).get("type") or "?")
         tail = (

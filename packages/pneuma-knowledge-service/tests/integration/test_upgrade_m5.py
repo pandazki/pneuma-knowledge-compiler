@@ -24,7 +24,7 @@ from pneuma_knowledge_core.domain.ids import UserId
 from pneuma_knowledge_core.domain.snapshot import SnapshotRef
 from pneuma_knowledge_core.domain.source import ConversationTurn
 from pneuma_knowledge_core.recall.projection import PROJECTION_V2
-from pneuma_knowledge_core.skill import load_builtin_skill
+from pneuma_knowledge_core.skill import load_skill_base
 from pneuma_knowledge_service.adapters.scripted_model import ScriptedChatModel
 from pneuma_knowledge_service.ingest import ingest_conversation
 from pneuma_knowledge_service.projection import rebuild_projection
@@ -60,8 +60,28 @@ def _turn(text: str) -> ConversationTurn:
     )
 
 
+def _register_v2_variant() -> None:
+    """The catalog ships one contract; the forward-upgrade path needs a second version,
+    so the test registers a local v2 derived from it (exactly what an application does)."""
+    from pneuma_knowledge_core.skill import SkillVersion, register_skill_base
+
+    v1 = load_skill_base("v1")
+    register_skill_base(
+        "v2",
+        SkillVersion.from_parts(
+            skill_id=v1.skill_id,
+            version="v2",
+            instructions=v1.instructions + "\n\n## Local v2 addendum\n\nForward-only upgrade probe.",
+            path_templates=v1.path_templates,
+            contract_rules=v1.contract_rules,
+        ),
+    )
+
+
 async def _compile(ctx, user, text: str, *, path: str, slug: str, version: str) -> str:
     """Ingest one conversation and compile it with skill `version` (scripted model)."""
+    if version == "v2":
+        _register_v2_variant()
     res = await ingest_conversation(ctx, user, [_turn(text)], title="c")
     sid = str(res.source_id)
     model = ScriptedChatModel(
@@ -80,7 +100,7 @@ async def _compile(ctx, user, text: str, *, path: str, slug: str, version: str) 
         ]
     )
     # Drains two jobs: the "index" job (L1/L2) then the "compile" job.
-    assert await drain_user(ctx, model, load_builtin_skill(version), user) == 2
+    assert await drain_user(ctx, model, load_skill_base(version), user) == 2
     return sid
 
 

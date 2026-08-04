@@ -18,7 +18,7 @@ from pneuma_knowledge_core.domain.canonical import CanonicalDocument
 from pneuma_knowledge_core.domain.ids import DocumentId, UserId
 from pneuma_knowledge_core.evolve.propose import EvolveProposal
 from pneuma_knowledge_core.evolve.runner import run_evolve
-from pneuma_knowledge_core.skill import compose_skill, load_builtin_skill
+from pneuma_knowledge_core.skill import compose_skill, load_skill_base
 from pneuma_knowledge_core.skill.pack import SchemaPack
 
 _ids = count()
@@ -107,7 +107,7 @@ async def _bounds(source_id: str) -> int | None:
 
 
 async def test_reorganization_walk_create_move_delete_finish():
-    new_skill = compose_skill(load_builtin_skill(), _proposal().packs)
+    new_skill = compose_skill(load_skill_base("v1"), _proposal().packs)
     search = _RecordingSearch()
     fetch = _RecordingFetch()
     model = ScriptedChatModel(
@@ -180,7 +180,7 @@ async def test_reorganization_walk_create_move_delete_finish():
 async def test_missing_move_target_reported_but_does_not_crash():
     # move to a non-existent doc → the tool returns an AnchorToolError message (no create
     # first); the claim stays put, nothing lands as moved.
-    new_skill = compose_skill(load_builtin_skill(), _proposal().packs)
+    new_skill = compose_skill(load_skill_base("v1"), _proposal().packs)
     model = ScriptedChatModel(
         turns=[
             [
@@ -212,7 +212,7 @@ async def test_missing_move_target_reported_but_does_not_crash():
 def test_compile_tool_face_excludes_evolve_only_tools():
     # Regression guard: the daily compile face never exposes the destructive channels that
     # only whole-KB reorganization (evolve, behind its own human gate) is allowed to use.
-    draft = PatchDraft.from_canonical([], load_builtin_skill().path_templates)
+    draft = PatchDraft.from_canonical([], load_skill_base("v1").path_templates)
     names = {t.name for t in _build_tools(draft)}
     assert "move_claim" not in names
     assert "delete_claim" not in names

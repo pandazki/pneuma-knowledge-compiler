@@ -9,10 +9,12 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+
 import pneuma_knowledge_service.skills as skills_mod
 from pneuma_knowledge_core.domain.ids import UserId
 from pneuma_knowledge_core.domain.user import Avatar, Locale, Preferences, UserProfile, WorkspaceProfile
-from pneuma_knowledge_core.skill import SchemaPack, load_builtin_skill, render_system_contract
+from pneuma_knowledge_core.skill import SchemaPack, load_skill_base, render_system_contract
 from pneuma_knowledge_service.adapters.git_canonical import GitCanonicalStore
 from pneuma_knowledge_service.settings import Settings
 from pneuma_knowledge_service.skills import skill_for_user
@@ -77,9 +79,9 @@ def _ctx(tmp_path, *, profiles, model, **settings_over):
 async def test_switch_off_returns_bare_base(tmp_path):
     uid = "u-off"
     ctx = _ctx(tmp_path, profiles={uid: _profile(uid)}, model=_CountingDerive(),
-               user_schema_packs=False, user_schema_base_version="v2")
+               user_schema_packs=False, user_schema_base_version="v1")
     skill = await skill_for_user(ctx, UserId(uid))
-    assert skill.content_hash == load_builtin_skill("v2").content_hash
+    assert skill.content_hash == load_skill_base("v1").content_hash
     # No manifest written when the switch is off.
     assert await ctx.canonical.read_meta(UserId(uid), "skill/manifest.json") is None
 
@@ -87,12 +89,12 @@ async def test_switch_off_returns_bare_base(tmp_path):
 async def test_materializes_manifest_and_no_rederive_on_reload(tmp_path):
     uid = "u-mat"
     model = _CountingDerive()
-    ctx = _ctx(tmp_path, profiles={uid: _profile(uid)}, model=model, user_schema_base_version="v2")
+    ctx = _ctx(tmp_path, profiles={uid: _profile(uid)}, model=model, user_schema_base_version="v1")
 
     first = await skill_for_user(ctx, UserId(uid))
     assert model.calls == 1  # derive ran once at first compile
     manifest = await ctx.canonical.read_meta(UserId(uid), "skill/manifest.json")
-    assert manifest is not None and '"base_version": "v2"' in manifest
+    assert manifest is not None and '"base_version": "v1"' in manifest
 
     second = await skill_for_user(ctx, UserId(uid))
     assert model.calls == 1  # reload composes from manifest — derive NOT re-run
@@ -116,7 +118,7 @@ async def test_deployment_matrix_path_reaches_auto_resolution(tmp_path):
 
     uid = "u-matrix"
     ctx = _ctx(tmp_path, profiles={uid: _profile(uid)}, model=_CountingDerive(),
-               user_schema_base_version="v2", user_schema_matrix_path=str(matrix))
+               user_schema_base_version="v1", user_schema_matrix_path=str(matrix))
     skill = await skill_for_user(ctx, UserId(uid))
 
     contract = render_system_contract(skill)
@@ -142,7 +144,7 @@ async def test_per_user_contracts_differ_and_are_stable(tmp_path, monkeypatch):
         "u-eng": _profile("u-eng", role="engineering"),
         "u-sales": _profile("u-sales", role="sales"),
     }
-    ctx = _ctx(tmp_path, profiles=profiles, model=_CountingDerive(), user_schema_base_version="v2")
+    ctx = _ctx(tmp_path, profiles=profiles, model=_CountingDerive(), user_schema_base_version="v1")
 
     eng = await skill_for_user(ctx, UserId("u-eng"))
     sales = await skill_for_user(ctx, UserId("u-sales"))
@@ -154,3 +156,36 @@ async def test_per_user_contracts_differ_and_are_stable(tmp_path, monkeypatch):
     # Each user's contract is byte-stable across reloads (reads back from its manifest).
     assert render_system_contract(await skill_for_user(ctx, UserId("u-eng"))) == c_eng
     assert render_system_contract(await skill_for_user(ctx, UserId("u-sales"))) == c_sales
+
+
+# --- the deployment must choose a contract ------------------------------------------
+
+
+async def test_unset_base_version_fails_loud_instead_of_picking_a_contract(tmp_path):
+    """`user_schema_base_version` has no default, and the miss must be self-explaining.
+
+    It used to default to "v3", so a deployment that never chose one still compiled every
+    user against this project's own personal-knowledge contract — and the manifest it then
+    materialized recorded that choice as if it had been made. Failing here costs one
+    startup; the old behaviour cost a knowledge base modelled for somebody else.
+    """
+    uid = "u-unset"
+    ctx = _ctx(tmp_path, profiles={uid: _profile(uid)}, model=_CountingDerive(),
+               user_schema_base_version="")
+    with pytest.raises(LookupError) as excinfo:
+        await skill_for_user(ctx, UserId(uid))
+    message = str(excinfo.value)
+    assert "register_skill_base" in message
+    assert "packages/pneuma-knowledge-strategies/" in message
+    # and it failed before writing anything into the user's repo
+    assert await ctx.canonical.read_meta(UserId(uid), "skill/manifest.json") is None
+
+
+async def test_unregistered_base_version_fails_loud_too(tmp_path):
+    """A version string nobody registered is the same mistake, one step later."""
+    uid = "u-unregistered"
+    ctx = _ctx(tmp_path, profiles={uid: _profile(uid)}, model=_CountingDerive(),
+               user_schema_base_version="v-nope")
+    with pytest.raises(LookupError) as excinfo:
+        await skill_for_user(ctx, UserId(uid))
+    assert "v-nope" in str(excinfo.value)

@@ -101,3 +101,35 @@ def test_llm_call_config_drops_none_extras_and_injects_handler():
     md = cfg["trace_metadata"]
     assert md["skill_version"] == "v1"
     assert "snapshot_ref" not in md  # None-valued extra dropped
+
+
+def test_openrouter_provider_pin_rides_extra_body(monkeypatch):
+    """The provider pin must reach the request payload; empty setting adds nothing."""
+    from pneuma_knowledge_service.settings import Settings
+    from pneuma_knowledge_service.wiring import _build_from_name
+
+    captured: dict = {}
+
+    def fake_init_chat_model(model, **kwargs):
+        captured.clear()
+        captured.update(kwargs)
+        return object()
+
+    import pneuma_knowledge_service.wiring as wiring
+    import langchain.chat_models as lcm
+
+    monkeypatch.setattr(lcm, "init_chat_model", fake_init_chat_model)
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+    pinned = Settings(
+        openrouter_provider_order="openai",
+        user_schema_base_version="v1",
+    )
+    _build_from_name("openrouter:openai/gpt-5.6-luna", pinned)
+    assert captured["extra_body"] == {
+        "provider": {"order": ["openai"], "allow_fallbacks": False}
+    }
+
+    unpinned = Settings(user_schema_base_version="v1")
+    _build_from_name("openrouter:openai/gpt-5.6-luna", unpinned)
+    assert "extra_body" not in captured

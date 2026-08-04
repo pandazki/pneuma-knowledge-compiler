@@ -1,103 +1,81 @@
-# pneuma-knowledge-compiler
+# Pneuma Knowledge Compiler
 
-业务无关的开源知识编译器：把会议、层级文档库、IM、邮件与工作记录编译成带来源引用、可版本化演进的 canonical knowledge。
+**English** | [简体中文](README.zh-CN.md)
 
-它不是又一个聊天记录仓库。Pneuma Knowledge Compiler 把知识分成四个可访问层级：
+Compile the raw material of your domain — meetings, documents, chat, email — into an evolvable, citation-backed knowledge base where nothing can be fabricated.
 
-- **L0 · Source**：原始材料与结构化定位；
-- **L1 · Lexical**：Meilisearch 全量词法索引；
-- **L2 · Semantic**：Qdrant 语义分块与向量索引；
-- **L3 · Canonical**：经过引用门禁的结构化知识，存入每用户独立的 Git repository。
+### Domain-oriented modeling
 
-Canonical 与原文是权威，派生索引可以随时重建；模型只能提出变更，身份、引用、路径、冲突与提交由程序机制校验。
+Different domains carry different concepts and different usage; their knowledge bases should not be built the same way. What gets recorded, and in what structure, is defined by a compile contract you write. The framework provides only the domain-agnostic substrate: indexing, retrieval, and enforcement.
 
-## 本地开发
+### An evolvable model
 
-需要 Python 3.12、[uv](https://docs.astral.sh/uv/)、Docker、Node 18+ 与 pnpm。
+No business stands still. Any model fixed up front degrades as data accumulates, distributions shift, and the business pivots. The framework ships evolution as infrastructure — proposals mined from compile history, diff review, data migration — and the business drives model iteration at its own pace.
 
-```bash
-uv sync --all-packages
-docker compose -f infra/docker-compose.yml up -d --wait
-```
+### Provenance enforced by the framework
 
-接着分别运行 `scripts/dev-api.sh`、`scripts/dev-worker.sh` 与
-`cd apps/web && pnpm dev`。更完整的通用开发路径见
-[docs/getting-started.md](docs/getting-started.md)。
+Every piece of knowledge must carry citations that resolve to exact passages of the source material, verified mechanically at write time; whatever fails verification is rejected. Provenance is not a prompt convention here but a write-layer constraint: nothing can be fabricated, and nothing loses its source.
 
-需要一套可浏览的完整应用与合成数据时，使用
-[examples/opc](examples/opc/README.md)。它拥有独立 Compose、端口、卷、collection、
-策略、画像、数据与评估，不会写入根开发栈。
+### What this is not
 
-## 能力
+> This is not an agent memory system. A knowledge base and a memory are two different things. What an agent should remember is that it **has** a knowledge base — its construction philosophy, a top-level overview, how to query it, how to maintain it — not the knowledge base itself as memory.
 
-- 会议、Obsidian 层级文档库、Slack IM 与 RFC 5322 邮件的官方 canonical contract；
-- Zoom WebVTT、Obsidian vault、Slack JSON export、EML/mbox 真实适配器，以及同约束 mock adapter；
-- 异步 `index` / `compile` worker 与按用户串行写入；
-- `rag`、`fast`、`deep` 三种召回，以及连续 Briefing 问答；
-- Live Context 即时上下文、引用闸门与原文 `want_more`；
-- Git canonical、快照、知识图谱、编译审计与 schema evolve；
-- 用户画像与可组合的版本化知识策略；
-- 数据集导入、全量 derived rebuild、Docker 与 GKE 部署；
-- React/Vite 操作台，支持瓷白城市导视图与午夜珐琅控制室两套完整主题。
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/history-dark.png">
+  <img alt="Compile history: commit timeline with per-claim diffs and their supporting sources" src="docs/assets/history-light.png">
+</picture>
 
-## 架构
+## See it in three minutes
 
-```text
-raw material
-    │
-    ├── PostgreSQL ─────────────── L0 source + jobs + audit
-    ├── Meilisearch ────────────── L1 lexical projection
-    ├── Qdrant ─────────────────── L2 semantic projection
-    └── compile gate → per-user Git
-                          │
-                          └─────── L3 canonical + rebuildable projections
-```
-
-- `packages/pneuma-knowledge-core`：纯领域逻辑与 Protocol 端口；
-- `packages/pneuma-knowledge-service`：FastAPI、adapter、worker 与数据集投影；
-- `apps/web`：Pneuma 操作台；
-- `infra` / `docker` / `deploy`：本地与云端运行资产；
-- `examples/opc`：自包含 OPC 应用、独立 Compose、数据与评估；
-- `examples/walkthroughs` / `examples/ops`：通用机制演练与显式运维命令。
-
-四类数据契约与导入方式见 [docs/source-adapters.md](docs/source-adapters.md)；关键不变式与完整设计见 [docs/architecture.md](docs/architecture.md)，迁移验收契约见 [docs/specs/open-source-migration.md](docs/specs/open-source-migration.md)。
-
-## 使用真实模型
-
-测试与机械处理路径无需密钥。需要真实 compile、fast/deep 或 persona generation 时，
-从根目录示例配置开始：
+No API key required — `examples/opc` ships a real, agent-built library (190 synthetic sources, 754 claims) that restores locally in about a minute:
 
 ```bash
-cp .env.example .env
-# 在本地 .env 中设置 provider 路由与 key
+cd examples/opc && cp .env.example .env
+./app.py up && ./bootstrap.py
+docker compose --profile web up -d --build api web   # first build takes a few minutes
 ```
 
-不要提交 `.env`、密钥、真实个人材料或运行时 canonical。
+Open <http://127.0.0.1:24173> and walk the whole pipeline in the browser: sources, compile history, the canonical library with per-claim citations and a frozen archive volume, and the retrieval surfaces. Asking questions needs an OpenRouter key in `.env`; browsing doesn't.
 
-## 验证
+## Build one from your own data
+
+`scaffold/` is a project generator — an interactive guided setup (or a single command with an answers file) that produces a complete knowledge-base project in a directory of your choosing, middleware ports auto-probed and collision-free:
 
 ```bash
-uv run pytest
-cd apps/web && pnpm run build
+cd scaffold && ./init.py     # interactive: defaults at every step, bundled demo data to start with
+cd ~/my-kb && ./start.sh     # stack, ingest, compile, cited demo answers — one command
 ```
 
-真实中间件集成测试会在 Postgres、Qdrant 与 Meilisearch 可达时运行；否则只会因明确的“middleware unreachable”原因跳过。
+Then make it yours: feed your `.md` material to `./app.py ingest <dir>`, edit `contract.md` (what deserves to be recorded) and `profile.yaml` (whose library this is), recompile and review.
 
-OPC 应用的浏览器旅程、数据计数与日夜截图随应用保存在
-[examples/opc/e2e](examples/opc/e2e/README.md)；界面的长期视觉规则见 [DESIGN.md](DESIGN.md)。
+Prefer to be guided? Hand `scaffold/AGENT-GUIDE.md` to your coding agent and it will walk you through building a library from your own data, step by step.
 
-## Pneuma 开源家族
+## How it works
 
-- [pneuma-skills](https://github.com/pandazki/pneuma-skills)
-- [pneuma-framework](https://github.com/pandazki/pneuma-framework)
+Source material is kept verbatim and stays reachable at four levels: L0 raw fetch, L1 lexical search, L2 semantic search, L3 canonical knowledge. Only two things are authoritative — the raw sources, and the canonical library: a per-user Git repository where every compile is a commit and every piece of knowledge carries its citations. Everything else (indexes, projections) is derived and rebuildable. Your compile contract decides what becomes canonical; a mechanical gate verifies every citation at write time and rejects whatever cannot be resolved back to the source.
 
-## 致谢
+## How evolution happens
 
-- [霞鹜文楷 LXGW WenKai](https://github.com/lxgw/LxgwWenKai)（屏幕阅读版）——Web UI
-  阅读面的中文衬线字体，SIL Open Font License 1.1，可自由商用与再分发。
-- [kami](https://github.com/tw93/kami)——文档排版约束系统；其"单一衬线撑起整页"
-  的字体决策启发了本项目阅读面的字体选型（注意：kami 中文默认字体仓耳今楷 02
-  仅限个人免费使用，商用需另行向仓耳授权，本项目因此未采用）。
+The compiler records what happened during each compile. From that history the framework drafts schema changes on a branch — new document families, revised path templates, restructured pages — and puts the diff in front of you. Adopt, and a mechanical reconciliation merges it; drop, and nothing changed. An upgrade never rewrites existing knowledge: evolution moves the model, not the facts.
+
+## Repository layout
+
+```
+packages/pneuma-knowledge-core        # domain logic + async ports (pydantic + langchain only)
+packages/pneuma-knowledge-service     # FastAPI service, adapters (Postgres/Qdrant/Meilisearch/Git), workers
+packages/pneuma-knowledge-strategies  # reference compile contracts (data package; never imported by the framework)
+packages/pneuma-knowledge-eval        # judgement-quality metrics
+apps/web                              # bilingual web UI
+scaffold/                             # copy-out application template for your own knowledge base
+examples/                             # opc: a complete agent-built example project with a prebuilt library
+infra/                                # local dev stack (Postgres, Qdrant, Meilisearch)
+```
+
+Full documentation is being rebuilt along the axis of this README and will land under `docs/`.
+
+## Acknowledgements
+
+The web reading face embeds LXGW WenKai Screen (OFL 1.1). Its typography discipline borrows from [kami](https://github.com/tw93/kami) — whose default Chinese face (TsangerJinKai 02) is free for personal use only, which is why this project ships an OFL face instead. Semantic chunking's boundary-detection philosophy is inspired by [nemori](https://github.com/nemori-ai/nemori).
 
 ## License
 

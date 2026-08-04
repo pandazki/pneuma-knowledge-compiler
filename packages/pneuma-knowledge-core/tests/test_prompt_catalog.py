@@ -24,20 +24,51 @@ from pneuma_knowledge_core.prompts import (
 )
 from pneuma_knowledge_core.skill import (
     SkillVersion,
-    load_builtin_skill,
+    load_skill_base,
     register_skill_base,
     registered_skill_bases,
     render_system_contract,
     reset_skill_bases,
 )
 from pneuma_knowledge_core.skill.version import STRENGTH_LABEL_RULE
+from pneuma_knowledge_strategies import list_strategies
+
+
+def register_reference_skill_bases() -> dict[str, SkillVersion]:
+    """The startup wiring an application does, spelled out because this module tests it.
+
+    The suite's root conftest does the same thing for everyone else; here it is inline so
+    the reset-then-register sequence these tests depend on is visible in one file.
+    """
+    bases = {
+        s.version: SkillVersion.from_parts(
+            skill_id=s.skill_id,
+            version=s.version,
+            instructions=s.read_text(),
+            path_templates=s.path_templates,
+            contract_rules=s.contract_rules,
+        )
+        for s in list_strategies("personal-knowledge")
+    }
+    for version, skill in bases.items():
+        register_skill_base(version, skill)
+    return bases
 
 
 @pytest.fixture(autouse=True)
 def _clean_registries():
+    """Both registries back to a known state around every test in this module.
+
+    The skill registry is emptied and then re-wired with the suite's reference bases,
+    rather than merely emptied: nothing is built in any more, so an empty registry means
+    `load_skill_base` raises and these tests would have no contract to render at all. The
+    re-registration is what an application does at startup — and it also has to happen
+    AFTER the reset, which is why this fixture owns both halves.
+    """
     reset_prompt_overrides()
     reset_skill_bases()
-    yield
+    reference = register_reference_skill_bases()
+    yield reference
     reset_prompt_overrides()
     reset_skill_bases()
 
@@ -158,9 +189,9 @@ def test_resolve_or_verbatim_resolves_a_key_and_passes_a_literal_through():
 def test_contract_rules_hold_catalog_keys_and_render_resolved():
     """Mechanism C: the per-version clause is a key, so it is overridable — but the
     rendered contract must contain the PROSE, never the key."""
-    v3 = load_builtin_skill("v3")
-    assert STRENGTH_LABEL_RULE in v3.contract_rules
-    contract = render_system_contract(v3)
+    v1 = load_skill_base("v1")
+    assert STRENGTH_LABEL_RULE in v1.contract_rules
+    contract = render_system_contract(v1)
     assert STRENGTH_LABEL_RULE not in contract
     assert prompt(STRENGTH_LABEL_RULE) in contract
 
@@ -183,7 +214,7 @@ def test_business_authored_literal_clause_still_renders_verbatim():
 def test_override_reaches_the_rendered_contract_and_stays_byte_stable():
     """The acceptance shape of the whole task: a business registers one Chinese override at
     startup, the compile contract carries it, and two renders are byte-identical (I5)."""
-    skill = load_builtin_skill("v3")
+    skill = load_skill_base("v1")
     before = render_system_contract(skill)
     override_prompt("compile.rules_header", "## 要可呈现 → 本版本附加呈现规则")
     after_a = render_system_contract(skill)
@@ -208,7 +239,7 @@ def test_owner_section_and_field_labels_are_overridable_together():
             "compile.owner_field.name": "- **姓名**：{value}",
         }
     )
-    contract = render_system_contract(load_builtin_skill("v1"), owner=_Owner())
+    contract = render_system_contract(load_skill_base("v1"), owner=_Owner())
     assert "# 二、为谁编译" in contract
     assert "- **姓名**：Owner Name" in contract
 
@@ -216,32 +247,36 @@ def test_owner_section_and_field_labels_are_overridable_together():
 # -------------------------------------------------------- mechanism B: skill bases
 
 
-def test_register_skill_base_replaces_the_packaged_asset():
-    packaged = load_builtin_skill("v3")
-    mine = SkillVersion(
-        skill_id=packaged.skill_id,
-        version="v3",
-        instructions="# 五、领域判断（业务全文版）\n\n强度前缀标签用【强】/【中】/【弱】。",
-        path_templates=list(packaged.path_templates),
-        contract_rules=packaged.contract_rules,
-        content_hash=SkillVersion.compute_hash(
-            packaged.skill_id,
-            "v3",
-            "# 五、领域判断（业务全文版）\n\n强度前缀标签用【强】/【中】/【弱】。",
-            list(packaged.path_templates),
-            packaged.contract_rules,
-        ),
+def test_register_skill_base_replaces_a_version_and_leaves_the_others_alone():
+    reference = load_skill_base("v1")
+    aux = SkillVersion.from_parts(
+        skill_id=reference.skill_id,
+        version="aux",
+        instructions=reference.instructions,
+        path_templates=reference.path_templates,
+        contract_rules=reference.contract_rules,
     )
-    register_skill_base("v3", mine)
-    loaded = load_builtin_skill("v3")
+    register_skill_base("aux", aux)
+    body = "# 五、领域判断（业务全文版）\n\n强度前缀标签用【强】/【中】/【弱】。"
+    mine = SkillVersion.from_parts(
+        skill_id=reference.skill_id,
+        version="v1",
+        instructions=body,
+        path_templates=reference.path_templates,
+        contract_rules=reference.contract_rules,
+    )
+    register_skill_base("v1", mine)
+    loaded = load_skill_base("v1")
     assert loaded is mine
     assert "业务全文版" in render_system_contract(loaded)
-    assert registered_skill_bases() == {"v3": mine}
-    # other versions are untouched by a v3 registration
-    assert load_builtin_skill("v1").version == "v1"
-    assert "业务全文版" not in load_builtin_skill("v1").instructions
+    assert registered_skill_bases()["v1"] is mine
+    # other versions are untouched by a v1 registration
+    assert load_skill_base("aux") is aux
+    assert "业务全文版" not in load_skill_base("aux").instructions
+    # and there is nothing underneath: a reset leaves no packaged body to fall back to.
     reset_skill_bases()
-    assert load_builtin_skill("v3").instructions == packaged.instructions
+    with pytest.raises(LookupError):
+        load_skill_base("v1")
 
 
 def test_registered_base_keeps_claim_labels_working_under_a_chinese_overlay():
@@ -274,7 +309,7 @@ def test_registered_base_keeps_claim_labels_working_under_a_chinese_overlay():
 def test_overlay_hash_rides_the_commit_trailer_only_when_something_is_overridden():
     from pneuma_knowledge_core.compile.runner import _with_skill_trailer
 
-    skill = load_builtin_skill("v3")
+    skill = load_skill_base("v1")
     assert "Prompt-Overlay-Hash:" not in _with_skill_trailer("compile", skill)
     override_prompt("compile.rules_header", "## 覆盖")
     trailer = _with_skill_trailer("compile", skill)

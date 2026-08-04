@@ -63,7 +63,7 @@ from pneuma_knowledge_core.recall.projection import (
     ProjectedClaim,
     project_snapshot_claims,
 )
-from pneuma_knowledge_core.skill import load_builtin_skill
+from pneuma_knowledge_core.skill import load_skill_base, registered_skill_bases
 
 from .errors import EvalInputError
 
@@ -321,21 +321,29 @@ def build_trajectory(
 def _templates_for(checkpoints: Sequence[Checkpoint]) -> tuple[str, ...]:
     """The skill families in force at HEAD, taken from the commit trailer when present.
 
-    The trailer records `Skill-Version`, so a bundle compiled under v1 is judged against
-    v1's families rather than whatever the current default happens to be. An unknown or
-    absent version falls back to v1 (the only version whose family list every later version
-    is a superset of).
+    The trailer records `Skill-Version`, so a bundle compiled under one contract is judged
+    against that contract's families rather than whatever the harness happens to have wired
+    last. There is no built-in contract to fall back on: if the declared version was never
+    registered in this process, the harness's first registered base is the closest thing to
+    a statement of what it is judging, and with nothing registered at all the honest answer
+    is "no family judgement available" — an empty tuple, which `unowned_paths` and the
+    navigability metrics already treat as "path ownership unknown" rather than "everything
+    is unowned".
     """
-    version = "v1"
+    version = ""
     for checkpoint in reversed(checkpoints):
         declared = str(checkpoint.trailers.get("Skill-Version") or "").strip()
         if declared:
             version = declared
             break
-    try:
-        return tuple(load_builtin_skill(version).path_templates)
-    except ValueError:
-        return tuple(load_builtin_skill("v1").path_templates)
+    if version:
+        try:
+            return tuple(load_skill_base(version).path_templates)
+        except LookupError:
+            pass
+    for base in registered_skill_bases().values():
+        return tuple(base.path_templates)
+    return ()
 
 
 # ─────────────────────────────────────────────────────────────────────── git loading

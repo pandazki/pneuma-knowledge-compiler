@@ -1,0 +1,4 @@
+# Local runtime artifacts and secrets — never committed.
+.env
+data/
+__pycache__/

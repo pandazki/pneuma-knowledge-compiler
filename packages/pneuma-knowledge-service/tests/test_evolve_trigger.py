@@ -1,8 +1,10 @@
 """Passive schema-evolve trigger (schema-evolve §2.1, C5): the post-compile threshold gate,
 driven off a fake store (compile_events only, no git / no docker).
 
-Fires only when BOTH the new-topic-doc count AND the new-anchor count clear their thresholds
-since the last evolve task, and nothing evolve-shaped is already in flight."""
+Fires only when BOTH the new-doc count (across ALL families — evolve reorganizes the whole
+KB, so whole-KB growth is what warrants it, not memory/topics/ growth alone) AND the
+new-anchor count clear their thresholds since the last evolve task, and nothing
+evolve-shaped is already in flight."""
 
 from __future__ import annotations
 
@@ -34,7 +36,7 @@ class _FakeStore:
         return "job-x"
 
 
-def _events(n_docs: int, per_doc: int):
+def _events(n_docs: int, per_doc: int, family: str = "memory/topics"):
     now = datetime.now(timezone.utc)
     out = []
     for d in range(n_docs):
@@ -42,7 +44,7 @@ def _events(n_docs: int, per_doc: int):
             out.append(
                 {
                     "type": "claim_added",
-                    "path": f"memory/topics/t{d}.md",
+                    "path": f"{family}/t{d}.md",
                     "created_at": now,
                 }
             )
@@ -60,8 +62,30 @@ async def test_fires_when_both_thresholds_cleared():
     assert store.enqueued == [("evolve", {})]
 
 
-async def test_no_fire_below_topic_threshold():
-    store = _FakeStore(_events(4, 10))  # only 4 topic docs (40 claims)
+async def test_no_fire_below_doc_threshold():
+    store = _FakeStore(_events(4, 10))  # only 4 new docs (40 claims)
+    assert await maybe_trigger_evolve(_ctx(store), "u-x") is None
+    assert store.enqueued == []
+
+
+async def test_fires_on_non_topic_family_growth():
+    # A corpus whose contract files under work/products/ + memory/people/ (zero topics)
+    # must be able to trigger: 3 + 2 = 5 new docs, 18 + 12 = 30 new anchors.
+    events = _events(3, 6, family="work/products") + _events(
+        2, 6, family="memory/people"
+    )
+    store = _FakeStore(events)
+    job_id = await maybe_trigger_evolve(_ctx(store), "u-x")
+    assert job_id == "job-x"
+    assert store.enqueued == [("evolve", {})]
+
+
+async def test_no_fire_below_threshold_non_topic_families():
+    # Same families, below both bars: 4 docs / 24 anchors — stays silent.
+    events = _events(2, 6, family="work/products") + _events(
+        2, 6, family="memory/people"
+    )
+    store = _FakeStore(events)
     assert await maybe_trigger_evolve(_ctx(store), "u-x") is None
     assert store.enqueued == []
 
