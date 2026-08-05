@@ -40,3 +40,10 @@ for _routing_var in (
 # must not share the app's real-embedding collection (e.g. 1536-dim openai) or every upsert
 # hits a dim mismatch.
 os.environ["PNEUMA_KNOWLEDGE_QDRANT_COLLECTION"] = "pneuma_knowledge_chunks_test"
+# The compile contract this session's "deployment" chose. `user_schema_base_version` has NO
+# default — the framework ships no domain contract and will not pick one for a caller — so
+# a bare `Settings()` in a test would otherwise fail at the first skill resolution. "v1"
+# names one of the reference bases the root conftest.py registers, and is the version the
+# published evaluations ran. A test that wants the unchosen state passes
+# `Settings(user_schema_base_version="")` explicitly; init kwargs outrank this.
+os.environ["PNEUMA_KNOWLEDGE_USER_SCHEMA_BASE_VERSION"] = "v1"

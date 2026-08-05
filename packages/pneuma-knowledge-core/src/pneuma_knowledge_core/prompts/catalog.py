@@ -397,6 +397,24 @@ forms of evidence:
   carrying provenance, exactly as trustworthy as claim notes and usable directly as the
   basis of an answer.
 
+The bottom line of this knowledge base is that nothing may be fabricated — and that floor
+is exactly what makes reasoning above it safe: a reasonable inference grounded in the
+recorded facts is expected intelligence, not overreach. When the evidence carries dates or
+dated spans that bear on the question, straightforward calendar reasoning over them —
+ordering events, picking the earliest or latest, counting a span out inclusively — is part
+of answering, as are other simple derivations from recorded facts. When an answer rests on
+such an inference rather than on a verbatim record, say so briefly. Reserve "no relevant
+record" for grounding that is genuinely absent, not for answers the evidence supports but
+does not state word for word.
+
+The same floor extends to attribution. Before answering about a named person or other
+named subject, confirm the supporting evidence is actually about that subject: a fact the
+records attribute to a different subject is not an answer about the one asked, however
+closely it matches the thing asked about. In that case say the records do not support it
+for the asked subject — and, when it would help, note whom or what the record does
+concern. A question that presupposes something the records attribute to a different
+subject deserves that same correction, not an answer built on the other subject's record.
+
 """
 
 _DEEP_CONTRACT_HEAD = """\
@@ -561,6 +579,30 @@ DEFAULTS: dict[str, str] = {
         "disagree with the subject profile in §2, **§2 wins**: domain settings only supply "
         "filing conventions, they do not define who the subject is."
     ),
+    # ───────────────────────────────── compile: post-compile coverage challenge
+    "compile.challenge.questions_system": (
+        "You audit coverage for a knowledge compile. You see raw source material and the "
+        "compile contract below — deliberately NOT the compiled result. Ask the questions "
+        "this material's future uses would need answered: timelines, responsibilities, "
+        "start points, handovers, acceptance conditions, attributions. Ask only questions "
+        "whose answers the material itself supports; do not answer them, and do not ask "
+        "about anything the material does not contain.\n\nThe compile contract:\n\n{contract}"
+    ),
+    "compile.challenge.reflect_system": (
+        "You judge coverage gaps after a knowledge compile. For each question you see the "
+        "recorded claims closest to it, with the raw source material as ground truth. A "
+        "gap exists only when the material supports an answer AND the recorded claims do "
+        "not carry the needed fact. A fact the claims already carry is not a gap; a "
+        "question the material cannot answer is not a gap. For each gap report the "
+        "concrete missing fact, quoting the material's wording where possible. Set "
+        "exhausted=true when no valuable question angle remains beyond what is recorded."
+    ),
+    "compile.challenge.compensation_preamble": (
+        "A coverage audit of the previous compile of this source found facts its future "
+        "uses will need that are not yet recorded:\n\n{gaps}\n\nRecord the ones the "
+        "material actually supports, with citations, in their proper documents; skip any "
+        "the material does not support."
+    ),
     # owner profile lines
     "compile.owner_field.name": "- **Name**: {value}",
     "compile.owner_field.occupation": "- **Occupation**: {value}",
@@ -617,9 +659,20 @@ DEFAULTS: dict[str, str] = {
     # Deliberately does NOT restate "every date you write is a day in that zone" — the task's
     # time anchor (compile.task.time_now) already says that, next to the actual date. This line
     # answers the other half, the one no anchor can: WHY this zone and not another.
+    #
+    # It also must NOT assert a grouping. This line used to say "the material of each round is
+    # grouped by calendar day", which is a deployment's `group_by` setting, not a law: a batched
+    # round carries several days at once and the sentence was then simply false — and worse,
+    # false in the direction that makes the model trust a single implied day. The round's REAL
+    # shape is a per-round fact and therefore belongs in the task (compile.task.time_window /
+    # time_multi_day, plus each source's own dated preamble), not in this byte-stable contract
+    # (invariant I5). All this line does now is name the zone the days are counted in and point
+    # at the two places that state the shape.
     "compile.owner_env.day_grouping": (
-        "The material of each round is grouped by calendar day in the timezone declared "
-        "above; the task's time frame states which day \"today\" is in that zone."
+        "Calendar days are counted in the timezone declared above. A round may carry one day "
+        "of material or several: the task's time frame states the period this round covers, "
+        "and each source states its own date — read a source's date off that source, never "
+        "off the round."
     ),
     # ─────────────────────────────────────────────── compile: per-source treatments
     "compile.treatment.full": _TREATMENT_FULL,
@@ -641,6 +694,15 @@ DEFAULTS: dict[str, str] = {
         "rewritten — read them in that zone, and do not \"correct\" them."
     ),
     "compile.task.time_window": "- **This round's material occurred on**: {span} ({days} day(s))",
+    # Emitted ONLY when the round actually spans more than one day — the mechanical statement
+    # of the round's real shape, replacing the contract's old blanket "grouped by calendar day"
+    # assertion. Without it a batched round hands the model a span and no way to place any
+    # individual source inside it.
+    "compile.task.time_multi_day": (
+        "- **This round is not a single day**: it bundles {sources} source(s) across {days} "
+        "calendar days. Each source's own date is stated in its provenance line below — "
+        "resolve anything a source says against THAT date, not against the span above."
+    ),
     "compile.task.time_relative_rule": (
         "- Normalize relative time in the material (\"yesterday\", \"last week\", \"next "
         "Monday\") to absolute dates **against the material's own occurrence date**, not "
@@ -666,6 +728,12 @@ DEFAULTS: dict[str, str] = {
     "compile.task.outline_empty": "(no existing canonical yet; create documents with create_document)",
     "compile.task.outline_entry": "- `{path}` (type={doc_type}, {claims} claim(s)){tail}",
     "compile.task.outline_entry_tail": ": {headings}",
+    # A rollover volume's outline line. The volume is still LISTED — a compiler must see the
+    # frozen history it may read but not write — while the line itself states the freeze and
+    # the redirect, so the working set never presents a volume as an editable peer document.
+    "compile.task.outline_entry_volume": (
+        "- `{path}` (frozen archive volume of `{owner}` — read-only; {claims} claim(s))"
+    ),
     "compile.task.retrieved_header": (
         "\n# Existing claims related to this round's material (auto-recalled, for alignment "
         "and updating)\n"
@@ -679,6 +747,14 @@ DEFAULTS: dict[str, str] = {
     # ─────────────────────────────────────────────── compile: tool descriptions
     "compile.tool.list_documents": "List the existing canonical document paths.",
     "compile.tool.read_document": "Read one document in full (anchors included).",
+    # Prepended to a read_document result when the path is a frozen archive volume: reading
+    # stays fully allowed (deep reads of history are legitimate), but the very surface that
+    # shows the model the content also tells it the content is not a write target.
+    "compile.tool.read_document_frozen_notice": (
+        "(this document is a frozen archive volume of `{owner}` — read-only. Read and cite "
+        "it freely, but never edit it; new and updated claims about this subject belong on "
+        "the active page `{owner}`.)"
+    ),
     "compile.tool.create_document": (
         "Create a document; the system assigns the doc_id and every anchor."
     ),
@@ -767,6 +843,14 @@ DEFAULTS: dict[str, str] = {
     "compile.patch.move_target_missing": (
         "move_claim rejected: target document {to_path} does not exist; create_document first, "
         "then move."
+    ),
+    # The early, teachable refusal for any write aimed at a rollover volume. It fires at the
+    # tool face — before the model spends the round — and states the corrective action, not
+    # just the rule; the compile gate's 5b check stays behind it as the final arbiter.
+    "compile.patch.volume_frozen": (
+        "{op} rejected: `{path}` is a frozen history volume of `{owner}` and is never "
+        "written — its entries are a permanent archive. New and updated claims about this "
+        "subject belong on the active page: use edit_claim / append_block on `{owner}`."
     ),
     # ─────────────────────────────────────────────── rollover (groom): the history card
     #
@@ -887,8 +971,10 @@ DEFAULTS: dict[str, str] = {
         "path is not within the skill's ownership templates: {templates}."
     ),
     "gate.archive_frozen": (
-        "this document is a frozen archive volume of `{owner}` and may not be changed. Its "
-        "entries were moved here whole and are permanent; write new claims to `{owner}` itself."
+        "this document is a frozen archive volume of `{owner}` and may not be changed: its "
+        "entries were moved here whole and are permanent. Write the new or updated claims to "
+        "the active page `{owner}` instead — use edit_claim / append_block on `{owner}` — and "
+        "restore any volume claim you rewrote to its previous text."
     ),
     # ─────────────────────────────────────────────── rollover (groom) gate feedback
     #
@@ -994,6 +1080,11 @@ DEFAULTS: dict[str, str] = {
     "source.preamble.document_title": ", titled \"{title}\"",
     "source.preamble.document_parent": ", filed under the parent document \"{parent_title}\"",
     "source.preamble.document_created": "created on {created}",
+    # An authored document with no authoring timestamp, but with the framework's own
+    # authoritative occurrence day (`meta["occurred_on"]`). Deliberately worded as "dated"
+    # rather than "created on": the day is when the material happened, not when someone
+    # opened an editor.
+    "source.preamble.document_occurred": "dated {when}",
     "source.preamble.document_updated": "last updated {updated}",
     "source.preamble.document_created_and_updated": "{created}, {updated}",
     "source.preamble.document_lead": "This is a {kind} by {who}{when}{title}{parent}. ",
@@ -1018,6 +1109,28 @@ DEFAULTS: dict[str, str] = {
         "This is a piece of material{title} in {owner}'s knowledge base; the material supplies "
         "no provenance and no time, so attribution and time both stay pending."
     ),
+    # ── the three above, for a source the framework HAS dated (`meta["occurred_on"]`) ──
+    # Same sentences, same stance, one thing added: the source's own day, stated as a fact
+    # rather than left for the round's span to imply. A round that bundles several days
+    # cannot imply it, and a compiler asked to resolve "yesterday" without ever being shown
+    # this source's date can only mark the result unconfirmed. The attribution half of each
+    # sentence degrades exactly as before — a date is not authorship.
+    "source.preamble.reference_dated": (
+        "This is external material{title} from {when}, supplied for {owner} to consult, not "
+        "their own statement. The claims in it belong to its author; compile it only where it "
+        "really constitutes a fact useful to them later, and label the source as it stands. "
+        "Relative time inside it resolves against {when}."
+    ),
+    "source.preamble.document_unknown_dated": (
+        "This is a document{title} from {when}, imported by {owner}; the material supplies no "
+        "author, so judgments in it must not be assumed to be their own. That date is the "
+        "material's own, and relative time inside it resolves against it."
+    ),
+    "source.preamble.fallback_dated": (
+        "This is a piece of material{title} from {when} in {owner}'s knowledge base; the "
+        "material supplies no author, so attribution stays pending. That date is the "
+        "material's own, and relative time inside it resolves against it."
+    ),
     "source.preamble.title_quoted": " \"{title}\"",
     # ─────────────────────────────────────────────── ingest rendering
     "ingest.owner_label": "Owner",
@@ -1041,10 +1154,51 @@ DEFAULTS: dict[str, str] = {
         "not) — it is a thread left for later tracing, not a hard target of this scenario."
     ),
     "recall.cite.precise": "cite down to the paragraph (`[cite: <source_id> ¶a-b]`).",
+    # Two-tier honesty, measured not assumed: an answering lane that abstains whenever the
+    # evidence stops one inference short of the question systematically under-serves
+    # multi-hop and open questions (LoCoMo-refined tuning runs: +3.6pp / p=0.001, reproduced
+    # +4.3pp / p=0.0001 on a different retrieval base, abstention 4.8%→1.3% with no
+    # fabrication signature). The red line is unchanged: assertion strength tracks evidence
+    # strength — an inference must present itself as one, and nothing is asserted without
+    # footing.
     "recall.close.answer_honestly": (
-        "- When the evidence in front of you does not cover what the owner is asking for, \"no "
-        "relevant record\" is the faithful answer; do not restate the input or add prefixes\n"
-        "  like \"according to the records\"."
+        "- When the evidence in front of you does not state what the owner is asking for but "
+        "does support a reasonable inference, give the best-supported inference and make "
+        "plain what it rests on; when there is no footing at all, \"no relevant record\" is "
+        "the faithful answer. Do not restate the input or add prefixes\n"
+        "  like \"according to the records\".\n"
+        "- Relative time inside recorded material has almost always expired by the time it is "
+        "read: its \"yesterday\" points at the material's moment, not this one. Unless you "
+        "know both when the material was written and, explicitly, what the current moment "
+        "is, treat \"now\" as unknown — so always convert to absolute dates to reason and "
+        "to answer, keeping an anchored span (\"the week before June 9, 2023\") when that "
+        "is all the evidence supports. Never emit a bare relative expression."
+    ),
+    # ─────────────────────────── recall: answer-style presets (fast/deep third clause)
+    #
+    # Three deployment-facing presets for the SHAPE of an answer — not its truth
+    # discipline: the red line, citations, and the honest close above are style-
+    # independent. Appended after the spine by the Q&A contracts (fast/deep); chosen per
+    # deployment (PNEUMA_KNOWLEDGE_RECALL_ANSWER_STYLE) or per request.
+    "recall.style.concise": (
+        "\nAnswer style — precise and concise. Reply with the shortest phrase or sentence "
+        "that fully answers the question: the exact value, name, date, span, or list asked "
+        "for, keeping a qualifier only when it is decisive (a negation, an approximation, "
+        "a boundary). Add nothing else — no related facts, no background, no restated "
+        "question, no process notes.\n"
+    ),
+    "recall.style.conversational": (
+        "\nAnswer style — natural conversation. Reply the way one person answers another "
+        "in a chat: lead with the answer in a natural sentence, add the one or two details "
+        "that make it genuinely useful, and stop. No headings, and no lists unless the "
+        "owner asked for an enumeration.\n"
+    ),
+    "recall.style.detailed": (
+        "\nAnswer style — detailed written reply. Reply as a self-contained written note: "
+        "open with the direct answer, then lay out the supporting details, dates, and "
+        "context the records provide, organized for reading — short paragraphs or lists "
+        "are welcome when they help. Thoroughness means surfacing more of the evidence, "
+        "never speculating past it.\n"
     ),
     "recall.close.suggestion": (
         "- A context card is an unsolicited addition to the context. It has to stand on its\n"
@@ -1084,6 +1238,16 @@ DEFAULTS: dict[str, str] = {
         "# Already surfaced in this conversation (do not repeat a card)"
     ),
     "recall.section.passages_header": "raw excerpts",
+    # ─────────────────────────────────────────────── recall: subject timelines (opt-in)
+    # The timeline-expansion section (`fast_recall(timeline_expand=N)`): for each document a
+    # retrieved claim hit lives in, its sibling claims are rendered together in document
+    # order. The header explains the section inline because the byte-stable System contract
+    # (I5) predates it and must not change under an experiment flag.
+    "recall.section.timelines_header": (
+        "# subject timelines ({count} document(s)) — for each document below, its claims are "
+        "listed together in document order (oldest first); claims carry their own dates"
+    ),
+    "recall.fast.timeline.document": "## {path} — {shown}/{total} claims",
     "recall.passage_truncated": (
         "\n…(truncated; this block is long — deep can fetch the full text with fetch_verbatim)"
     ),
@@ -1169,6 +1333,51 @@ DEFAULTS: dict[str, str] = {
     ),
     "recall.fast.select.documents_header": "# full documents ({count})",
     "recall.fast.select.document_heading": "## {path}",
+    # ──────────────────────────── recall: LLM claim reranker (service adapter's wording)
+    # Used by the LLMReranker adapter — a cheap non-reasoning chat call that plays the
+    # cross-encoder's role: read the actual candidate texts against the question and say
+    # which ones bear on answering. Output is consumed mechanically (indexes; out-of-range
+    # discarded; pool order backfills), so the pass can only reorder retrieved evidence.
+    "recall.rerank.llm.system": (
+        "You are given one question and a numbered list of candidate notes retrieved from a "
+        "personal knowledge base. Your only job is to pick the notes that actually bear on "
+        "answering the question, most relevant first.\n\n"
+        "You are not answering the question. Judge each note by whether the FACT it states "
+        "would be used to answer — sharing a keyword with the question is not relevance, and "
+        "a note that states the answer in entirely different words is. Prefer notes that "
+        "state the asked-about fact directly; then notes that pin down its time, people or "
+        "place; drop notes that merely orbit the topic.\n\n"
+        "Return the indexes of the chosen notes, most relevant first, at most {cap}. Indexes "
+        "not in the list are discarded."
+    ),
+    "recall.rerank.llm.request": (
+        "{candidates}\n\nQuestion: {query}\n\n"
+        "Indexes of the notes that bear on answering, most relevant first, at most {cap}."
+    ),
+    # ──────────────────────────────── recall: fast's retrieval planning pass (opt-in)
+    # OFF by default (`fast_recall(plan_queries_cap=0)`). One small call BEFORE retrieval:
+    # derive extra search queries from the question so a multi-aspect question fans out
+    # into several retrieval passes instead of one blended embedding. Planning sees only
+    # the question — result-dependent iteration belongs to deep recall, not here.
+    "recall.fast.plan.contract": (
+        "You are given one question about a personal knowledge base. Your only job is to "
+        "derive EXTRA search queries that a keyword/semantic retrieval engine should run "
+        "alongside the question itself.\n\n"
+        "You are not answering and you are not searching. The question is always searched "
+        "verbatim; you exist for what that single query cannot do: a question that asks about "
+        "several things at once (two people, an event and its date, a cause and its effect) "
+        "matches each of them only half-well as one query. Split such a question into the "
+        "distinct things that must be found, one short keyword-style query per thing — names, "
+        "places, dates and concrete nouns beat full sentences.\n\n"
+        "Return an empty list when the question is already one sharp query. That is the "
+        "normal result, not a failure: extra near-duplicate queries only dilute retrieval. "
+        "At most {cap} queries, most important first, in the language of the material."
+    ),
+    "recall.fast.plan.request": (
+        "Question: {question}\n\n"
+        "Extra retrieval queries for whatever this question needs found separately — at most "
+        "{cap}, empty if the question suffices on its own."
+    ),
     # ─────────────────────────────────────────── recall: fast's window annotations (opt-in)
     # OFF by default (`fast_recall(annotate_windows=...)`). When on, a claim whose cited span
     # falls INSIDE a retrieved raw excerpt is MOVED out of the claim-notes section and hung

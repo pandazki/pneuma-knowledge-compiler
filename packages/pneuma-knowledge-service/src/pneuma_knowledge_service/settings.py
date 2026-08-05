@@ -5,6 +5,8 @@ Env prefix: PNEUMA_KNOWLEDGE_. e.g. PNEUMA_KNOWLEDGE_PG_DSN, PNEUMA_KNOWLEDGE_QD
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -39,15 +41,18 @@ class Settings(BaseSettings):
     # declares it as this deployment's default (compile.owner_env.timezone_default).
     default_timezone: str = "UTC"
 
-    # L2 chunking. `sentence` = chonkie SentenceChunker with CJK-aware delimiters and
-    # real overlap (shipped default); `recursive` = chonkie RecursiveChunker for
-    # structure-heavy docs. `semantic` = configured LLM topic/entity boundary detection over
-    # the numbered blocks (ideally one topic/one person = one chunk) with a sentence
-    # chunker sub-splitting any over-long unit — opt-in via PNEUMA_KNOWLEDGE_CHUNK_STRATEGY=semantic;
-    # only actual L2 ingest calls the LLM (preview stays mechanical). See ingest/semantic.py.
+    # L2 chunking. `semantic` (shipped default) = configured LLM topic/entity boundary
+    # detection over the numbered blocks (ideally one topic/one person = one chunk),
+    # inspired by nemori's boundary-detection philosophy (https://github.com/nemori-ai/nemori)
+    # but returning block indexes only — chunk text stays a verbatim slice of the source.
+    # A sentence chunker sub-splits over-long units; only actual L2 ingest calls the LLM
+    # (preview stays mechanical), and scripted/keyless base models automatically fall back
+    # to mechanical sentence chunking (see wiring). See ingest/semantic.py.
+    # Mechanical opt-outs: `sentence` = chonkie SentenceChunker with CJK-aware delimiters
+    # and real overlap; `recursive` = chonkie RecursiveChunker for structure-heavy docs.
     # chonkie counts in tokens; its default character tokenizer is ~1 token/char for CJK,
     # so chunk_size 768 ≈ the prior ~800-char sizing. See ingest/chunking.py.
-    chunk_strategy: str = "sentence"
+    chunk_strategy: str = "semantic"
     chunk_size: int = 768
     chunk_overlap: int = 128
 
@@ -74,11 +79,16 @@ class Settings(BaseSettings):
     # LLM derive), persisted in their canonical repo's skill/manifest.json and loaded
     # per-job. Off → every user compiles with the bare base version (no packs, no manifest).
     #   user_schema_packs        — master switch for per-user schema composition
-    #   user_schema_base_version — the built-in skill version packs compose onto. Decoupled
-    #     from load_builtin_skill()'s "v1" default so the base can advance (→ "v3") without
-    #     touching existing callers; flip this knob, not the loader default.
+    #   user_schema_base_version — which registered skill base packs compose onto. NO
+    #     DEFAULT, deliberately: it used to default to "v3", which meant a deployment that
+    #     never chose a contract silently compiled everyone's knowledge against the
+    #     personal-knowledge contract this project happened to develop for itself. The
+    #     framework has no domain opinion to fall back on, so a deployment states the
+    #     version string it registered with `register_skill_base` — and leaving it blank
+    #     fails loudly at the first compile, naming the format doc and the shipped
+    #     reference contracts, rather than producing someone else's knowledge base.
     user_schema_packs: bool = True
-    user_schema_base_version: str = "v3"
+    user_schema_base_version: str = ""
     # Path to a deployment-supplied pack matrix (the JSON asset packs_for_profile reads on
     # the first-compile auto-resolution path). None → the packaged built-in matrix. This is
     # the prose seam for branch-3 skill materialization: without it a deployment could only
@@ -86,11 +96,33 @@ class Settings(BaseSettings):
     # REPLACES auto-resolution instead of layering on it.
     user_schema_matrix_path: str | None = None
 
+    # OpenRouter provider routing pin, applied to every `openrouter:<model>` chat spec.
+    # Empty = OpenRouter's own routing. A comma list (e.g. "openai") restricts serving to
+    # those upstream providers; with allow_fallbacks=False the request fails rather than
+    # silently landing on a third-party reseller of the same model.
+    openrouter_provider_order: str = ""
+    openrouter_allow_fallbacks: bool = False
+
+    # Post-compile coverage challenge (opt-in): blind question generation over the just-
+    # compiled material, claim-face probing, and one compensation compile for confirmed
+    # gaps. Mechanizes the acceptance loop's "ask real questions" step
+    # (docs/guides/compile-contract.md §5). Off by default: it spends extra model calls
+    # per compile job.
+    # Model role for the challenge's question generation and reflection; empty borrows
+    # the compile role (same material, same judgement register). One hop, like evolve.
+    llm_model_challenge: str = ""
+    challenge_enabled: bool = False
+    challenge_max_rounds: int = 2
+    challenge_max_questions: int = 6
+    challenge_compensate: bool = True
+
     # Schema evolve (schema-evolve §2). The whole-KB reorganization flow: a strong model
     # proposes new schema families off accrued compile evidence, an agentic pass reorganizes
     # the KB onto an evolve/<task> branch, and a human adopts/drops within a review window.
     #   evolve_auto_trigger      — master switch for the passive (post-compile) trigger
-    #   evolve_trigger_topic_docs — new memory/topics/ docs since the last evolve to fire
+    #   evolve_trigger_topic_docs — new docs (ANY family, not just memory/topics/ — evolve
+    #                               examines whole-KB growth) since the last evolve to fire;
+    #                               name kept for config compatibility
     #   evolve_trigger_new_claims — new anchors since the last evolve to fire (AND with above)
     #   evolve_draft_ttl_hours    — a draft older than this is lazily expired (auto-dropped)
     evolve_auto_trigger: bool = True
@@ -119,6 +151,39 @@ class Settings(BaseSettings):
     rollover_threshold_chars: int = 40_000
     rollover_keep_recent_chars: int = 12_000
 
+    # Fast-recall retrieval budget (PNEUMA_KNOWLEDGE_RECALL_CLAIM_CAP / _RECALL_WINDOW_CAP).
+    # How many claims and body windows one fast_recall ask may pull into the prompt. The
+    # defaults mirror the core constants (DEFAULT_CLAIM_CAP / DEFAULT_WINDOW_CAP) so an
+    # unset deployment behaves byte-for-byte as before; benchmark harnesses raise them to
+    # measure where retrieval saturates instead of patching core constants.
+    recall_claim_cap: int = 64
+    recall_window_cap: int = 8
+
+    # Fast-recall retrieval planning (PNEUMA_KNOWLEDGE_RECALL_PLAN_QUERIES). 0 = off
+    # (byte-for-byte the single-query lane). N > 0: one small call on the recall model
+    # derives up to N extra retrieval queries before retrieval, and the claim face pools
+    # every query through one RRF fusion — the fast lane's answer to multi-aspect
+    # questions. Result-driven multi-round retrieval stays deep recall's job.
+    recall_plan_queries: int = 0
+
+    # Fast-recall claim rerank (PNEUMA_KNOWLEDGE_RECALL_RERANK_MODEL / _CANDIDATES).
+    # Empty = off. "llm" = LLM reranker on the recall-role model pinned to reasoning
+    # effort none (the default provider: input-heavy, output-tiny, an order of magnitude
+    # cheaper than per-search-unit /rerank billing); "llm:<spec>" picks the chat model; a
+    # bare model name (e.g. "cohere/rerank-4-pro") uses the OpenRouter /rerank endpoint.
+    # Reranking deepens claim retrieval to `recall_rerank_candidates` per query per face
+    # and scores the FULL deduped union against the original question; the winners fill
+    # `recall_claim_cap`. RRF stays the candidate generator (dedup + failure fallback).
+    recall_rerank_model: str = ""
+    recall_rerank_candidates: int = 120
+
+    # Answer-style preset for the answering lanes (PNEUMA_KNOWLEDGE_RECALL_ANSWER_STYLE):
+    # "concise" = the bare exact value/phrase a grader or script expects;
+    # "conversational" = a natural chat reply (default); "detailed" = a self-contained
+    # written note. Shape only — truth discipline (red line, citations, honest close)
+    # is style-independent. A recall request may override it per call.
+    recall_answer_style: Literal["concise", "conversational", "detailed"] = "conversational"
+
     # Dev CORS: allow the vite dev server (any localhost/127.0.0.1 port) to call
     # the API from the browser. Override PNEUMA_KNOWLEDGE_CORS_ALLOW_ORIGIN_REGEX in real
     # deployments; set to "" to disable CORS entirely.
@@ -128,7 +193,7 @@ class Settings(BaseSettings):
     llm_model: str = "openai:gpt-4o-mini"
     # Per-operation model routing (PNEUMA_KNOWLEDGE_LLM_MODEL_COMPILE / _RECALL / _DEEP / _SKILL).
     # Empty → falls back to llm_model, so scripted-model tests (which set llm_model only)
-    # keep routing everything to the scripted model. See docs/observability.md.
+    # keep routing everything to the scripted model. See docs/reference/observability.md.
     llm_model_compile: str = ""  # compile agent
     llm_model_recall: str = ""  # fast recall + briefing ask
     llm_model_deep: str = ""  # deep recall (agentic search)
@@ -162,7 +227,7 @@ class Settings(BaseSettings):
     # convention as OPENROUTER_API_KEY) so the local Langfuse project's own variable
     # names work verbatim. All three default empty → tracing degrades to a no-op
     # (wiring.build_langfuse_handler returns None; every LLM call runs callbacks-free).
-    # See docs/observability.md.
+    # See docs/reference/observability.md.
     langfuse_secret_key: str = Field(default="", validation_alias="LANGFUSE_SECRET_KEY")
     langfuse_public_key: str = Field(default="", validation_alias="LANGFUSE_PUBLIC_KEY")
     langfuse_base_url: str = Field(default="", validation_alias="LANGFUSE_BASE_URL")

@@ -138,6 +138,23 @@ class PatchDraft:
 
     # --- claim-level mutations ------------------------------------------------
 
+    def _refuse_frozen_volume(self, path: str, op: str) -> None:
+        """Refuse, EARLY and teachably, any mutation aimed at a rollover volume.
+
+        A volume sits in the working set like any other document (it must: the gate and the
+        projection read it), so before this guard the first thing telling a model "frozen"
+        was gate 5b — after the whole round was spent. The refusal happens here, at the one
+        place every claim mutation passes through, using the same ownership derivation as
+        the gate (`history_volume_owner`), and it names the corrective action: the active
+        page the volume was cut out of. The gate's 5b check stays as the final arbiter for
+        anything that reaches a draft without going through these tools.
+        """
+        owner = history_volume_owner(path, self.path_templates)
+        if owner is not None:
+            raise AnchorToolError(
+                prompt("compile.patch.volume_frozen", op=op, path=path, owner=owner)
+            )
+
     def create_document(self, path: str, frontmatter: dict, body: str) -> DraftDoc:
         if not path_allowed(path, self.path_templates):
             raise AnchorToolError(
@@ -162,11 +179,13 @@ class PatchDraft:
         return doc
 
     def edit_claim(self, path: str, anchor_id: str, new_text: str) -> DraftDoc:
+        self._refuse_frozen_volume(path, "edit_claim")
         doc = self.read(path)
         doc.body = edit_claim_text(doc.body, anchor_id, new_text)
         return doc
 
     def append_block(self, path: str, heading: str, text: str) -> DraftDoc:
+        self._refuse_frozen_volume(path, "append_block")
         doc = self.read(path)
         doc.body = append_block_text(doc.body, heading, text, document_path=path)
         return doc
@@ -182,6 +201,8 @@ class PatchDraft:
         `heading` section — VERBATIM, anchor unchanged. The block is removed from the source
         (a re-section within the same document is allowed). The target must already exist;
         the model must `create_document` it first."""
+        self._refuse_frozen_volume(from_path, "move_claim")
+        self._refuse_frozen_volume(to_path, "move_claim")
         src = self.read(from_path)  # refuses if source missing / anchor missing
         if to_path not in self._working:
             raise AnchorToolError(
@@ -201,6 +222,7 @@ class PatchDraft:
         """Remove a whole anchored claim block (the evolve-only merge outcome). The anchor
         disappears — `run_evolve_gate` surfaces it in the dropped-anchors list rather than
         rejecting it (a redundant claim merged away)."""
+        self._refuse_frozen_volume(path, "delete_claim")
         doc = self.read(path)
         _, doc.body = remove_claim_block(doc.body, anchor_id)
         return doc

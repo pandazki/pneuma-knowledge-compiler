@@ -1,6 +1,6 @@
 """Versioned, provider-neutral contracts for official Pneuma source adapters.
 
-The matching JSON Schemas under ``docs/specs/source-contracts`` are the public wire
+The matching JSON Schemas under ``docs/reference/source-contracts`` are the public wire
 contracts. These strict Pydantic models enforce the cross-record invariants that JSON
 Schema cannot express conveniently (identity references, timezone awareness and safe
 vault paths).

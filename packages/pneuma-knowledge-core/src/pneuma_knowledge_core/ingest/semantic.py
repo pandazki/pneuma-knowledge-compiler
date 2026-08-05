@@ -2,7 +2,8 @@
 
 Motivation: an interview compilation has each candidate as a natural unit but NO
 headings, so sentence/token chunking splits mid-candidate or merges two. This module
-adopts nemori's *boundary-detection philosophy* — a topic/entity change is a boundary;
+adopts the *boundary-detection philosophy* of nemori
+(https://github.com/nemori-ai/nemori) — a topic/entity change is a boundary;
 ignore filler/pleasantries; do not over-split; aim for coherent units — but NOT its
 implementation: nemori rewrites content into narrative and loses provenance. Here the
 LLM only returns BLOCK-INDEX boundaries over the EXISTING numbered blocks; chunk text is
@@ -38,7 +39,13 @@ from .chunking import (
 
 # Each block's PROMPT preview is truncated to bound prompt size; the returned boundaries
 # still index the REAL full blocks (only the preview the LLM reads is shortened).
-_PREVIEW_CHARS = 240
+# A long block keeps BOTH ends: the head is where a new topic announces itself, the tail
+# is where the block has drifted to — the signal for whether the NEXT block starts
+# something new. Blocks within the budget are shown whole; only the rare long block pays
+# the ellipsis. Units are str characters (code points), not tokens — for CJK that is
+# roughly 1 token per character.
+_PREVIEW_HEAD_CHARS = 320
+_PREVIEW_TAIL_CHARS = 160
 # Default cap on blocks per LLM call; larger docs are processed in sequential windows.
 DEFAULT_MAX_BLOCKS_PER_CALL = 200
 # A single coherent segment longer than this many chars is sentence-sub-split so its
@@ -90,8 +97,15 @@ def _number_blocks(window: list[NormalizedBlock], offset: int) -> str:
     for local, b in enumerate(window):
         pos = offset + local
         preview = " ".join(b.text.split())  # collapse whitespace/newlines for the preview
-        if len(preview) > _PREVIEW_CHARS:
-            preview = preview[:_PREVIEW_CHARS] + "…"
+        if len(preview) > _PREVIEW_HEAD_CHARS + _PREVIEW_TAIL_CHARS:
+            omitted = len(preview) - _PREVIEW_HEAD_CHARS - _PREVIEW_TAIL_CHARS
+            # The gap is labeled with its size: "how much is missing" is itself boundary
+            # signal (a huge elision means the block is long and has room to drift).
+            preview = (
+                preview[:_PREVIEW_HEAD_CHARS]
+                + f" …({omitted} chars truncated)… "
+                + preview[-_PREVIEW_TAIL_CHARS:]
+            )
         lines.append(f"{pos}:{preview}")
     return "\n".join(lines)
 

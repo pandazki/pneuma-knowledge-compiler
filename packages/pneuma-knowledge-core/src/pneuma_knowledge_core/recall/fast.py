@@ -30,7 +30,7 @@ from __future__ import annotations
 import asyncio
 import re
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -44,21 +44,41 @@ from ..domain.ids import AnchorId, UserId, SourceId
 from ..ports.claim_index import ClaimLexicalIndex, ClaimVectorIndex
 from ..ports.content_store import ContentStore
 from ..ports.lexical_index import LexicalIndex
+from ..ports.reranker import Reranker
 from ..ports.vector_index import VectorIndex
 from ..prompts import prompt
 from .citation_alias import alias_sources
 from .scope import SnapshotScope, scope_declaration
-from .spine import CITE_SOURCE_LEVEL, CLOSE_ANSWER_HONESTLY, spine
+from .spine import (
+    CITE_SOURCE_LEVEL,
+    CLOSE_ANSWER_HONESTLY,
+    DEFAULT_ANSWER_STYLE,
+    spine,
+    style_clause,
+)
 from .assembly import (
     Passage,
     expand_and_merge,
     order_lost_in_middle,
     render_passages,
 )
+from .projection import PROJECTION_V1, ProjectedClaim, project_document_claims
 from .rag import RecallHit, _rrf_scores, rag_recall, rrf_fuse
 
-DEFAULT_CLAIM_CAP = 40
+# Release default 64, sitting inside the measured sweet band: on LoCoMo-refined the
+# budget curve is an inverted U — 40→80 a significant gain (+2.75pp, p=0.008,
+# concentrated on multi-hop/open questions), 80→120 a significant loss (long-context
+# dilution). 40 under-serves and 120 over-stuffs; 64 trades a sliver of the measured
+# optimum (80) for ~20% less prompt spend on every ask. Raise to 80 when answer quality
+# outranks token cost; pair a reranker at 40 for equal quality at the lowest spend.
+DEFAULT_CLAIM_CAP = 64
 DEFAULT_WINDOW_CAP = 8
+
+#: How many hit documents `timeline_expand` may expand into sibling timelines. Together with
+#: the per-document sibling cap this bounds the section's total size mechanically:
+#: ≤ timeline_expand × DEFAULT_TIMELINE_DOC_CAP claims (~55 tokens each), never "whatever the
+#: retrieval happened to touch".
+DEFAULT_TIMELINE_DOC_CAP = 4
 
 #: How many claim notes may hang under ONE window when `annotate_windows` is on. Small on
 #: purpose: a footnote stack taller than the excerpt it annotates stops reading as a footnote
@@ -95,14 +115,17 @@ def invoke_config(
     }
 
 
-def selector_contract() -> str:
-    """The fast lane's System contract: head + shared spine.
+def selector_contract(answer_style: str = DEFAULT_ANSWER_STYLE) -> str:
+    """The fast lane's System contract: head + shared spine + answer-style clause.
 
-    I5: byte-stable per prompt overlay. No timestamp, no question, no claim/window content —
-    posture only. Assembled per call rather than at import so a startup-registered overlay
-    reaches it."""
-    return prompt("recall.fast.contract_head") + spine(
-        CITE_SOURCE_LEVEL, CLOSE_ANSWER_HONESTLY
+    I5: byte-stable per prompt overlay and per `answer_style` — a deployment picks one
+    style and every ask shares those bytes. No timestamp, no question, no claim/window
+    content — posture only. Assembled per call rather than at import so a
+    startup-registered overlay reaches it."""
+    return (
+        prompt("recall.fast.contract_head")
+        + spine(CITE_SOURCE_LEVEL, CLOSE_ANSWER_HONESTLY)
+        + style_clause(answer_style)
     )
 
 
@@ -144,6 +167,18 @@ class FastAnswer:
     # windows ended up carrying at least one note. The measurable of the experiment.
     annotated_claims: int = 0
     annotated_windows: int = 0
+    # The timeline expansion's yield, both empty/0 whenever `timeline_expand` is off: which
+    # hit documents were expanded into sibling timelines, and how many sibling claims the
+    # timeline section carries in total. The measurable of that experiment.
+    timeline_documents: tuple[str, ...] = field(default_factory=tuple)
+    timeline_claims: int = 0
+    # The planning pass's yield, empty whenever `plan_queries_cap` is 0: the extra retrieval
+    # queries the model derived (the question itself is always searched and never listed).
+    planned_queries: tuple[str, ...] = field(default_factory=tuple)
+    # Why the planning / rerank passes contributed nothing, when they failed rather than
+    # simply choosing nothing: "timeout", "error", or None. Telemetry, like glance_degraded.
+    plan_degraded: str | None = None
+    rerank_degraded: str | None = None
 
 
 def zero_usage() -> dict[str, int]:
@@ -192,6 +227,72 @@ def _claim_from_hit(hit, paths: list[str], score: float) -> RetrievedClaim:
     )
 
 
+def _dedup_by_containment(claims: list[RetrievedClaim]) -> list[RetrievedClaim]:
+    """Drop claims whose text is equal to, or contained in, another claim's text —
+    keeping the more complete one at the better (earlier) rank of the pair.
+
+    Anchor-level dedup cannot see these: the same fact re-filed by a later compile (a
+    compensation round, a second document) carries a different anchor but adds nothing
+    the longer statement doesn't already say, and every duplicate burns one slot of the
+    claim budget. Containment is judged on stripped text; the kept claim keeps its own
+    provenance (equal texts state the same fact, and the surviving statement's citation
+    is a valid trail for it)."""
+    kept: list[RetrievedClaim] = []
+    kept_texts: list[str] = []
+    for claim in claims:
+        text = claim.text.strip()
+        replaced = False
+        for position, existing in enumerate(kept_texts):
+            if text == existing or text in existing:
+                replaced = True  # an equal or more complete statement is already ranked
+                break
+            if existing in text:
+                kept[position] = claim  # more complete version takes the better rank
+                kept_texts[position] = text
+                replaced = True
+                break
+        if not replaced:
+            kept.append(claim)
+            kept_texts.append(text)
+    return kept
+
+
+def _fuse_claim_hits(
+    labeled_hits: Sequence[tuple[str, Sequence]], limit: int
+) -> list[RetrievedClaim]:
+    """RRF-fuse any number of labeled hit lists into one claim ranking, deduped by
+    (document_path, anchor) and then by text containment (`_dedup_by_containment`) before
+    the cap — a slot freed by a duplicate refills from the fused tail. A claim keyed the
+    same in several lists fuses into one hit carrying every path marker it appeared under.
+    Shared by the single-query pair (lexical, vector) and the multi-query pool — one
+    fusion, however many rankings."""
+    info: dict[tuple, dict] = {}
+    rankings: list[list[str]] = []
+    for label, hits in labeled_hits:
+        ranking: list[str] = []
+        for hit in hits:
+            key = (hit.document_path, hit.anchor)
+            ranking.append(repr(key))
+            entry = info.setdefault(key, {"hit": hit, "paths": []})
+            if label not in entry["paths"]:
+                entry["paths"].append(label)
+        rankings.append(ranking)
+
+    fused = rrf_fuse(rankings)
+    scores = _rrf_scores(rankings, 60)
+    by_repr = {repr(k): k for k in info}
+
+    claims: list[RetrievedClaim] = []
+    for key_repr in fused:
+        entry = info[by_repr[key_repr]]
+        claims.append(
+            _claim_from_hit(entry["hit"], entry["paths"], scores[key_repr])
+        )
+    # Containment dedup runs over the FULL fused ranking before the cap, so a slot freed
+    # by a duplicate refills from the tail instead of shrinking the budget.
+    return _dedup_by_containment(claims)[:limit]
+
+
 async def retrieve_claims(
     user_id: UserId,
     query: str,
@@ -218,37 +319,48 @@ async def retrieve_claims(
     vector_hits = await claim_vectors.search_claims(
         user_id, query_embedding, limit=limit
     )
+    return _fuse_claim_hits(
+        [("lexical", lexical_hits), ("vector", vector_hits)], limit
+    )
 
-    info: dict[tuple, dict] = {}
-    lexical_ranking: list[str] = []
-    for hit in lexical_hits:
-        key = (hit.document_path, hit.anchor)
-        lexical_ranking.append(repr(key))
-        entry = info.setdefault(key, {"hit": hit, "paths": []})
-        if "lexical" not in entry["paths"]:
-            entry["paths"].append("lexical")
 
-    vector_ranking: list[str] = []
-    for hit in vector_hits:
-        key = (hit.document_path, hit.anchor)
-        vector_ranking.append(repr(key))
-        entry = info.setdefault(key, {"hit": hit, "paths": []})
-        if "vector" not in entry["paths"]:
-            entry["paths"].append("vector")
+async def retrieve_claims_multi(
+    user_id: UserId,
+    queries: Sequence[str],
+    *,
+    claim_lexical: ClaimLexicalIndex,
+    claim_vectors: ClaimVectorIndex,
+    embeddings,  # langchain_core.embeddings.Embeddings
+    limit: int = DEFAULT_CLAIM_CAP,
+    pool_cap: int | None = None,
+) -> list[RetrievedClaim]:
+    """Pooled multi-query claim retrieval: every query contributes its own lexical and
+    vector rankings, and ONE RRF fusion ranks the union.
 
-    fused = rrf_fuse([lexical_ranking, vector_ranking])
-    scores = _rrf_scores([lexical_ranking, vector_ranking], 60)
-    by_repr = {repr(k): k for k in info}
+    This is the retrieval half of the planned fan-out (`plan_retrieval_queries`): a
+    multi-aspect question retrieves each aspect at full strength instead of blending them
+    into one query. With a single query this is byte-for-byte `retrieve_claims`. Queries
+    run concurrently; per-query rank order is preserved into the fusion in query order,
+    so the result is deterministic for a given hit set.
 
-    claims: list[RetrievedClaim] = []
-    for key_repr in fused:
-        entry = info[by_repr[key_repr]]
-        claims.append(
-            _claim_from_hit(entry["hit"], entry["paths"], scores[key_repr])
-        )
-        if len(claims) >= limit:
-            break
-    return claims
+    `limit` is the per-query, per-face retrieval depth; the fused result is truncated to
+    `pool_cap` (default None = `limit`, today's behavior). A reranking caller passes a
+    LARGER pool_cap so RRF — which is score-blind — never discards a candidate the
+    reranker was going to judge: fusion order then only decides dedup, the failure
+    fallback, and which tail falls off the hard cap."""
+
+    async def one(query: str) -> tuple[Sequence, Sequence]:
+        lexical_hits = await claim_lexical.search_claims(user_id, query, limit=limit)
+        vector = await embeddings.aembed_query(query)
+        vector_hits = await claim_vectors.search_claims(user_id, vector, limit=limit)
+        return lexical_hits, vector_hits
+
+    per_query = await asyncio.gather(*(one(q) for q in queries))
+    labeled: list[tuple[str, Sequence]] = []
+    for lexical_hits, vector_hits in per_query:
+        labeled.append(("lexical", lexical_hits))
+        labeled.append(("vector", vector_hits))
+    return _fuse_claim_hits(labeled, pool_cap if pool_cap is not None else limit)
 
 
 def render_claims(claims: list[RetrievedClaim]) -> str:
@@ -396,6 +508,183 @@ def render_annotated_windows(
     return "\n".join(parts)
 
 
+# --------------------------------------------- subject-timeline expansion (opt-in, default off)
+#
+# Retrieval surfaces a subject's dated facts one at a time — whichever claims happened to
+# match the question's wording — while an interval/ordering question ("when did X first…",
+# "what changed between…") is answered by the subject's dated facts arriving TOGETHER, in
+# order. Claims are compiled into per-subject documents whose body order approximates
+# chronology (the compiler appends as the record grows), and every claim carries its dates in
+# its own text. So when a retrieved claim proves a document relevant, the expansion below
+# re-projects that document's sibling claims (recall/projection.py — the same parse the L3
+# index was built from) and renders them as one compact timeline block per document. The
+# expansion is VOLUME-AWARE: a rolled-over subject is one file plus a same-name directory of
+# frozen `aNN.md` volumes (compile/rollover.py), and a hit on ANY of those shards expands the
+# subject's whole timeline — volumes oldest-first, then the active page — as one block.
+# Additive: the claim-notes section is untouched, and `timeline_expand=0` is byte-for-byte
+# the lane without this section.
+
+
+@dataclass(frozen=True)
+class TimelineBlock:
+    """One hit subject's sibling claims, in document (projection) order.
+
+    `document_path` is the subject's ACTIVE page. For a rolled-over subject the claims span
+    its frozen history volumes (oldest first) plus the active page — one subject, one block."""
+
+    document_path: str
+    claims: tuple[ProjectedClaim, ...]
+    total_claims: int  # the subject's full claim count (all pages), before the per-subject cap
+
+
+#: A rollover volume's filename inside a subject's history directory (`<page>/aNN.md`).
+#: Mirrors `compile.patch._VOLUME_FILE_RE` mechanically: recall reads the layout the groom
+#: channel produces without importing the write channel.
+_TIMELINE_VOLUME_FILE_RE = re.compile(r"^a\d{2,}\.md$")
+
+
+def timeline_subject(path: str, documents_by_path: Mapping[str, CanonicalDocument]) -> str:
+    """The active page whose timeline `path` belongs to.
+
+    A rollover volume (`work/products/x/a01.md`) belongs to its active page
+    (`work/products/x.md`) when that page is in the supplied canonical set; every other path
+    — including a volume whose active page is absent — is its own subject. Mechanical, like
+    `compile.patch.history_volume_owner`, but keyed off the supplied documents rather than
+    the write templates: the canonical set is this lane's authority (never the hit's path)."""
+    directory, _, filename = path.rpartition("/")
+    if directory and _TIMELINE_VOLUME_FILE_RE.match(filename):
+        owner = f"{directory}.md"
+        if owner in documents_by_path:
+            return owner
+    return path
+
+
+def subject_timeline_paths(
+    subject: str, documents_by_path: Mapping[str, CanonicalDocument]
+) -> list[str]:
+    """The subject's pages oldest-first: frozen volumes in volume order, then the active page.
+
+    Rollover archives the OLDEST claim blocks (`compile.rollover`), so reading a01, a02, …,
+    then the active page keeps the concatenated projection in approximate chronological
+    order — exactly the order the timeline section renders."""
+    prefix = subject.removesuffix(".md") + "/"
+    volumes = sorted(
+        p
+        for p in documents_by_path
+        if p.startswith(prefix) and _TIMELINE_VOLUME_FILE_RE.match(p[len(prefix) :])
+    )
+    return [*volumes, subject]
+
+
+def select_timeline_claims(
+    doc_claims: Sequence[ProjectedClaim],
+    hit_anchors: set[str],
+    cap: int,
+) -> list[ProjectedClaim]:
+    """The ≤`cap` sibling claims kept for one document, in document order.
+
+    A document at or under the cap is kept whole — the timeline IS the point. Over the cap,
+    the kept set is the claims nearest (by document-order distance) to a retrieved hit: the
+    hits anchor which stretch of the subject's history the question touched, and the window
+    around them is that stretch's before/after context. Deterministic ties: the earlier claim
+    wins. The result is re-sorted into document order, so the rendered block always reads
+    oldest → newest regardless of which claims were kept."""
+    if cap <= 0 or not doc_claims:
+        return []
+    if len(doc_claims) <= cap:
+        return list(doc_claims)
+    hit_positions = [
+        i for i, claim in enumerate(doc_claims) if str(claim.anchor) in hit_anchors
+    ] or [0]
+    ranked = sorted(
+        range(len(doc_claims)),
+        key=lambda i: (min(abs(i - h) for h in hit_positions), i),
+    )
+    kept = sorted(ranked[:cap])
+    return [doc_claims[i] for i in kept]
+
+
+def build_subject_timelines(
+    hits: Sequence[RetrievedClaim],
+    documents_by_path: Mapping[str, CanonicalDocument],
+    *,
+    per_doc: int,
+    doc_cap: int = DEFAULT_TIMELINE_DOC_CAP,
+) -> list[TimelineBlock]:
+    """The timeline blocks for the subjects the retrieval hit, most-hit subjects first.
+
+    VOLUME-AWARE: a hit on any shard of a rolled-over subject — its active page or one of
+    its frozen `aNN.md` history volumes — counts toward ONE subject, and expanding that
+    subject projects its whole timeline: volumes oldest-first, then the active page. Without
+    this, a retrieval that lands on an archive shard used to expand only that shard and miss
+    the sibling volumes (and the active tail) of the very subject the question is about.
+
+    Subjects are ranked by (hit count desc, first-hit RRF position) and the top `doc_cap`
+    expanded — a subject the retrieval touched three times is more load-bearing for the
+    question than one it grazed once. Only hits whose path is actually present in
+    `documents_by_path` count (the hit's path is derived data; the canonical set is the
+    authority). The caps are unchanged: `per_doc` bounds the claims kept per SUBJECT (all its
+    pages together), so total size stays mechanically ≤ `per_doc × doc_cap` claims."""
+    if per_doc <= 0 or doc_cap <= 0 or not hits or not documents_by_path:
+        return []
+    hit_count: dict[str, int] = {}
+    first_seen: dict[str, int] = {}
+    for position, hit in enumerate(hits):
+        path = hit.document_path
+        if path not in documents_by_path:
+            continue
+        subject = timeline_subject(path, documents_by_path)
+        hit_count[subject] = hit_count.get(subject, 0) + 1
+        first_seen.setdefault(subject, position)
+    ordered = sorted(hit_count, key=lambda p: (-hit_count[p], first_seen[p]))
+
+    hit_anchors = {str(hit.anchor) for hit in hits}
+    blocks: list[TimelineBlock] = []
+    for subject in ordered[:doc_cap]:
+        doc_claims: list[ProjectedClaim] = []
+        for page in subject_timeline_paths(subject, documents_by_path):
+            doc_claims.extend(
+                project_document_claims(documents_by_path[page], PROJECTION_V1)
+            )
+        kept = select_timeline_claims(doc_claims, hit_anchors, per_doc)
+        if kept:
+            blocks.append(
+                TimelineBlock(
+                    document_path=subject,
+                    claims=tuple(kept),
+                    total_claims=len(doc_claims),
+                )
+            )
+    return blocks
+
+
+def render_subject_timelines(blocks: Sequence[TimelineBlock]) -> str:
+    """The timeline section: a self-describing header, then one dated block per document.
+
+    Each line keeps the claim's text (its dates live there), its FIRST citation — enough for
+    the answer to cite the span, without repeating a multi-citation tail that can outweigh the
+    claim itself — and its anchor. The header explains the section inline because the
+    byte-stable System contract (I5) must not change under an experiment flag."""
+    parts = [prompt("recall.section.timelines_header", count=len(blocks))]
+    for block in blocks:
+        parts.append(
+            prompt(
+                "recall.fast.timeline.document",
+                path=block.document_path,
+                shown=len(block.claims),
+                total=block.total_claims,
+            )
+        )
+        for claim in block.claims:
+            line = f"- {claim.text}"
+            if claim.citations:
+                cit = claim.citations[0]
+                line += f" [cite: {cit.source_id} ¶{cit.block_start}-{cit.block_end}]"
+            line += f" 〔c:{claim.anchor}〕"
+            parts.append(line)
+    return "\n".join(parts)
+
+
 def render_full_documents(documents: Sequence[CanonicalDocument]) -> str:
     """The whole of each selected document, in supplied order, headed by its path.
 
@@ -421,6 +710,7 @@ def recall_human(
     snapshot: str | None = None,
     full_documents: Sequence[CanonicalDocument] = (),
     window_notes: Sequence[tuple[object, tuple[RetrievedClaim, ...]]] | None = None,
+    timelines: Sequence[TimelineBlock] = (),
 ) -> str:
     """The volatile Human payload shared by fast and deep: profile → snapshot → glance →
     evidence → documents → as_of → input.
@@ -446,7 +736,11 @@ def recall_human(
     annotated layout: (window, notes) pairs whose claims have already been MOVED out of
     `claims` by `join_claims_to_windows`, rendered as footnotes under their own window. The
     two sections still exist and still hold disjoint content — what moves is where a joined
-    claim is stated, not whether the claim section is there."""
+    claim is stated, not whether the claim section is there.
+
+    `timelines` (default () = no section, byte-for-byte the layout above) is the opt-in
+    subject-timeline expansion: one dated block per hit document, rendered directly below the
+    claim notes it expands on, above the raw excerpts."""
     windows = windows or []
     sections: list[str] = []
     if profile:
@@ -460,6 +754,8 @@ def recall_human(
         + "\n"
         + (render_claims(claims) or prompt("recall.section.claims_empty"))
     )
+    if timelines:
+        sections.append(render_subject_timelines(timelines))
     if windows:
         sections.append(
             prompt("recall.section.windows_header", count=len(windows))
@@ -494,6 +790,8 @@ def selector_messages(
     snapshot: str | None = None,
     full_documents: Sequence[CanonicalDocument] = (),
     window_notes: Sequence[tuple[object, tuple[RetrievedClaim, ...]]] | None = None,
+    timelines: Sequence[TimelineBlock] = (),
+    answer_style: str = DEFAULT_ANSWER_STYLE,
 ) -> list[BaseMessage]:
     """[SystemMessage(fixed contract), HumanMessage(profile → snapshot → glance → evidence →
     as_of → input)]."""
@@ -507,8 +805,12 @@ def selector_messages(
         snapshot=snapshot,
         full_documents=full_documents,
         window_notes=window_notes,
+        timelines=timelines,
     )
-    return [SystemMessage(content=selector_contract()), HumanMessage(content=human)]
+    return [
+        SystemMessage(content=selector_contract(answer_style)),
+        HumanMessage(content=human),
+    ]
 
 
 async def answer_with_selector(
@@ -523,13 +825,24 @@ async def answer_with_selector(
     snapshot: str | None = None,
     full_documents: Sequence[CanonicalDocument] = (),
     window_notes: Sequence[tuple[object, tuple[RetrievedClaim, ...]]] | None = None,
+    timelines: Sequence[TimelineBlock] = (),
     callbacks: list | None = None,
     trace_metadata: dict | None = None,
     run_name: str = "recall.fast",
+    reasoning_effort: str | None = None,
+    answer_style: str = DEFAULT_ANSWER_STYLE,
 ) -> tuple[str, dict[str, int], dict[str, str]]:
     """One selector round: assemble → (pre-hook: alias source ids) → invoke → (answer,
     usage, handle→real_id map). The LLM only ever sees/copies short query-local `sNN`
-    handles; the caller reverse-binds them (business side / UI)."""
+    handles; the caller reverse-binds them (business side / UI).
+
+    `reasoning_effort` — optional override of the answering model's reasoning effort
+    (e.g. "high"/"xhigh"). None (the default) sends NOTHING: the request body is
+    byte-identical to the pre-knob behavior and the provider default applies. When set,
+    it rides the OpenAI-compatible `extra_body` as `{"reasoning": {"effort": ...}}` —
+    the wire shape OpenRouter expects — bound to THIS answer invoke only (the glance
+    pass and every other call are untouched). Measurement plumbing; product callers
+    pass nothing."""
     system, human = selector_messages(
         question,
         claims,
@@ -540,9 +853,18 @@ async def answer_with_selector(
         snapshot=snapshot,
         full_documents=full_documents,
         window_notes=window_notes,
+        timelines=timelines,
+        answer_style=answer_style,
     )
     aliased_human, handle_map = alias_sources(human.content)
-    response = await model.ainvoke(
+    # `bind` rather than a constructor knob: the client instance is shared across roles
+    # (wiring caches by model spec), so the override must live on this call, not the client.
+    answering_model = (
+        model.bind(extra_body={"reasoning": {"effort": reasoning_effort}})
+        if reasoning_effort
+        else model
+    )
+    response = await answering_model.ainvoke(
         [system, HumanMessage(content=aliased_human)],
         config=invoke_config(run_name, callbacks, trace_metadata),
     )
@@ -648,6 +970,132 @@ async def select_glance_documents(
     return tuple(picked), usage, None
 
 
+# ------------------------- the retrieval planning + claim rerank passes (both opt-in)
+
+DEFAULT_PLAN_TIMEOUT_SECONDS = 15.0
+DEFAULT_RERANK_TIMEOUT_SECONDS = 30.0
+
+#: Safety ceiling on how many pooled candidates one rerank call may score. When a reranker
+#: is on, the pool handed to it is the FULL deduped union of every query's hits — RRF is
+#: score-blind, so pre-truncating with it would discard candidates the reranker exists to
+#: judge. This cap only guards the provider's own per-call document limit (Cohere rerank
+#: accepts up to 1000); the RRF head is what survives if the union ever exceeds it.
+RERANK_POOL_HARD_CAP = 1000
+
+
+class QueryPlan(BaseModel):
+    """Structured output of the planning pass: 0..K extra retrieval queries.
+
+    A list of strings consumed mechanically (deduped against the question and each other,
+    truncated to the cap) — the pass proposes searches, it never controls anything else."""
+
+    queries: list[str] = Field(default_factory=list)
+
+
+
+
+async def plan_retrieval_queries(
+    model: BaseChatModel,
+    question: str,
+    *,
+    cap: int,
+    timeout: float | None = DEFAULT_PLAN_TIMEOUT_SECONDS,
+    callbacks: list | None = None,
+    trace_metadata: dict | None = None,
+) -> tuple[tuple[str, ...], dict[str, int], str | None]:
+    """One small structured call BEFORE retrieval: question → extra search queries.
+
+    The fast lane's answer to multi-aspect questions without result-driven loops (those
+    belong to deep recall): the model splits the question into the distinct things that
+    must be found, each retrieved at full strength alongside the verbatim question.
+    Fail-soft like the glance pass: timeout/provider error/non-schema reply all degrade to
+    planning nothing, and an empty plan is the normal outcome for a single-aspect question.
+    """
+    messages = [
+        SystemMessage(content=prompt("recall.fast.plan.contract", cap=cap)),
+        HumanMessage(content=prompt("recall.fast.plan.request", question=question, cap=cap)),
+    ]
+    config = invoke_config("recall.fast.plan", callbacks, trace_metadata)
+    try:
+        structured = model.with_structured_output(QueryPlan, include_raw=True)
+        call = structured.ainvoke(messages, config=config)
+        raw = await (asyncio.wait_for(call, timeout) if timeout else call)
+    except asyncio.TimeoutError:
+        return (), zero_usage(), "timeout"
+    except Exception:  # noqa: BLE001 — an additive pass never fails the answer
+        return (), zero_usage(), "error"
+
+    usage = zero_usage()
+    parsed: object = raw
+    if isinstance(raw, Mapping):
+        response = raw.get("raw")
+        if isinstance(response, BaseMessage):
+            usage = extract_usage(response)
+        parsed = raw.get("parsed")
+    if not isinstance(parsed, QueryPlan):
+        return (), usage, "error"
+
+    seen = {question.strip().casefold()}
+    picked: list[str] = []
+    for raw_query in parsed.queries:
+        query = str(raw_query or "").strip()
+        if not query or query.casefold() in seen:
+            continue
+        seen.add(query.casefold())
+        picked.append(query)
+        if len(picked) >= cap:
+            break
+    return tuple(picked), usage, None
+
+
+async def rerank_claims(
+    reranker: "Reranker",
+    question: str,
+    candidates: Sequence[RetrievedClaim],
+    *,
+    cap: int,
+    timeout: float | None = DEFAULT_RERANK_TIMEOUT_SECONDS,
+) -> tuple[list[RetrievedClaim], str | None]:
+    """Score the pooled candidates with a dedicated reranker and keep the best `cap`.
+
+    RRF stays the candidate generator (cheap, score-blind); a cross-encoder reranker reads
+    question and claim text together and returns real relevance scores — the magnitude
+    judgement fusion cannot make. The answering model is deliberately NOT used here: it
+    already reads every surviving claim while answering, so asking it to rank first would
+    be the same judgement twice (a caller wanting deeper answer-time judgement raises
+    `reasoning_effort` instead).
+
+    Mechanics: valid scored indexes lead (score order, stamped into `.score`), the pool's
+    own order backfills to the cap — so a sparse or partial rerank reorders evidence but
+    never loses recall relative to the un-reranked lane. Fail-soft: timeout or provider
+    error returns the pool head unchanged with a degradation marker."""
+    if not candidates:
+        return [], None
+    fallback = list(candidates[:cap])
+    try:
+        call = reranker.rerank(
+            question, [c.text for c in candidates], top_n=len(candidates)
+        )
+        results = await (asyncio.wait_for(call, timeout) if timeout else call)
+    except asyncio.TimeoutError:
+        return fallback, "timeout"
+    except Exception:  # noqa: BLE001 — an additive pass never fails the answer
+        return fallback, "error"
+
+    scored: dict[int, float] = {}
+    for result in results:
+        index = int(result.index)
+        if 0 <= index < len(candidates) and index not in scored:
+            scored[index] = float(result.score)
+    chosen = sorted(scored, key=lambda i: scored[i], reverse=True)[:cap]
+    remainder = [i for i in range(len(candidates)) if i not in scored]
+    ordered = [
+        replace(candidates[i], score=scored[i]) if i in scored else candidates[i]
+        for i in (*chosen, *remainder)
+    ][:cap]
+    return ordered, None
+
+
 async def retrieve_windows(
     user_id: UserId,
     query: str,
@@ -679,6 +1127,7 @@ async def assemble_windows(
     content: ContentStore | None,
     user_id: UserId,
     order: bool = True,
+    assembly: Mapping[str, int] | None = None,
 ) -> list:
     """Post-retrieval assembly over raw window hits: expand → merge/dedup → per-source cap
     → lost-in-the-middle order. With no ContentStore (langchain-only path) the raw hits are
@@ -686,10 +1135,19 @@ async def assemble_windows(
 
     `order=False` stops one step short, at score-descending order. Only the annotation join
     wants that: which windows are high-value is not known until the claims have been matched
-    against them, so the positional ordering has to happen after the join, not before it."""
+    against them, so the positional ordering has to happen after the join, not before it.
+
+    `assembly` (default None = `expand_and_merge`'s own defaults, byte-for-byte) is an
+    override mapping forwarded verbatim to `expand_and_merge` — the assembly caps
+    (`per_source_cap`, `forward_blocks`, `forward_char_budget`, `max_passage_chars`,
+    `merge_gap_blocks`) stay defined in ONE place, and an unknown key fails loudly as a
+    TypeError rather than being silently dropped. It exists for measurement work (the
+    eval bench sweeps these caps); product callers pass nothing and are unchanged."""
     if content is None or not hits:
         return list(hits)
-    passages = await expand_and_merge(hits, content=content, user_id=user_id)
+    passages = await expand_and_merge(
+        hits, content=content, user_id=user_id, **dict(assembly or {})
+    )
     return order_lost_in_middle(passages) if order else passages
 
 
@@ -708,6 +1166,10 @@ async def fast_recall(
     profile: str | None = None,
     cap: int = DEFAULT_CLAIM_CAP,
     window_cap: int = DEFAULT_WINDOW_CAP,
+    # The SHAPE of the answer: "concise" (the bare exact value — graders, scripts),
+    # "conversational" (a natural chat reply, the default), or "detailed" (a
+    # self-contained written note). Style only — truth discipline is style-independent.
+    answer_style: str = DEFAULT_ANSWER_STYLE,
     # The canonical documents at the answering snapshot. Supplied → the glance is rendered
     # into the prompt and the glance pass runs; omitted (None) → byte-for-byte the
     # retrieval-only lane, so no caller is forced to load canonical to ask a question.
@@ -725,9 +1187,42 @@ async def fast_recall(
     # See `join_claims_to_windows` for why it is a move rather than a copy.
     annotate_windows: bool = False,
     window_note_cap: int = DEFAULT_WINDOW_NOTE_CAP,
+    # None by default = `expand_and_merge`'s own assembly defaults, byte-for-byte. A mapping
+    # here is forwarded verbatim through `assemble_windows` to `expand_and_merge` (e.g.
+    # {"per_source_cap": 6}); the defaults stay defined in one place, and an unknown key
+    # raises rather than silently doing nothing. Measurement plumbing — product callers
+    # pass nothing.
+    window_assembly: Mapping[str, int] | None = None,
+    # OFF by default (0), and the off path is byte-for-byte the lane above. N > 0: every
+    # document a retrieved claim lives in (top `timeline_doc_cap` by hit count, and only when
+    # `documents` was supplied — the expansion reads canonical, never the index) is expanded
+    # into a subject-timeline block of up to N sibling claims in document order. See
+    # `build_subject_timelines`.
+    timeline_expand: int = 0,
+    timeline_doc_cap: int = DEFAULT_TIMELINE_DOC_CAP,
     glance_model: BaseChatModel | None = None,
     glance_pick_cap: int = DEFAULT_GLANCE_PICK_CAP,
     glance_timeout: float | None = DEFAULT_GLANCE_TIMEOUT_SECONDS,
+    # OFF by default (0), and the off path is byte-for-byte the lane above. N > 0: one
+    # planning call (on `plan_model`, falling back to `model`) derives up to N extra
+    # retrieval queries BEFORE retrieval, and the claim face pools all queries through one
+    # RRF fusion (`retrieve_claims_multi`). Planning sees only the question — result-driven
+    # multi-round retrieval belongs to deep recall, not this lane.
+    plan_queries_cap: int = 0,
+    plan_model: BaseChatModel | None = None,
+    plan_timeout: float | None = DEFAULT_PLAN_TIMEOUT_SECONDS,
+    # OFF by default (None/0), and the off path is byte-for-byte the lane above. A Reranker
+    # plus N > 0 widens claim retrieval to an N-candidate pool and lets the reranker's real
+    # relevance scores pick the `cap` that survive (see `rerank_claims` for why the
+    # answering model is not used for this).
+    reranker: Reranker | None = None,
+    rerank_candidates: int = 0,
+    rerank_timeout: float | None = DEFAULT_RERANK_TIMEOUT_SECONDS,
+    # None by default = nothing sent, byte-for-byte the request above. A value (e.g.
+    # "xhigh") overrides the ANSWERING call's reasoning effort via OpenRouter's
+    # `{"reasoning": {"effort": ...}}` extra_body — see `answer_with_selector`. The
+    # glance pass never takes it. Measurement plumbing — product callers pass nothing.
+    reasoning_effort: str | None = None,
     callbacks: list | None = None,
     trace_metadata: dict | None = None,
 ) -> FastAnswer:
@@ -759,16 +1254,52 @@ async def fast_recall(
     instead of stacking. `gather` returns results in argument order, so `claims` and
     `raw_windows` bind exactly as they did under the previous thread-pool fan-out."""
 
-    async def retrieval_branch() -> tuple[list[RetrievedClaim], list[RecallHit]]:
-        return await asyncio.gather(  # type: ignore[return-value]
-            retrieve_claims(
+    # The planning pass runs BEFORE retrieval (its whole output is retrieval input), so it
+    # is the one stage that adds sequential wall-clock — which is why it is opt-in.
+    planned: tuple[str, ...] = ()
+    plan_usage = zero_usage()
+    plan_degraded: str | None = None
+    if plan_queries_cap > 0:
+        planned, plan_usage, plan_degraded = await plan_retrieval_queries(
+            plan_model or model,
+            question,
+            cap=plan_queries_cap,
+            timeout=plan_timeout,
+            callbacks=callbacks,
+            trace_metadata=trace_metadata,
+        )
+
+    # With a reranker on, the claim face retrieves a wider pool: `rerank_candidates` is the
+    # per-query/per-face retrieval depth, and the reranker judges the FULL deduped union
+    # against the original question (RRF pre-truncation would silently drop candidates it
+    # never saw — fusion order is kept only for dedup, backfill and the failure fallback).
+    # Without a reranker the pool IS the cap and nothing downstream changes.
+    reranking = reranker is not None and rerank_candidates > 0
+    claim_pool = rerank_candidates if reranking else cap
+
+    async def retrieve_claim_face() -> list[RetrievedClaim]:
+        if planned or reranking:
+            return await retrieve_claims_multi(
                 user_id,
-                question,
+                (question, *planned),
                 claim_lexical=claim_lexical,
                 claim_vectors=claim_vectors,
                 embeddings=embeddings,
-                limit=cap,
-            ),
+                limit=claim_pool,
+                pool_cap=RERANK_POOL_HARD_CAP if reranking else None,
+            )
+        return await retrieve_claims(
+            user_id,
+            question,
+            claim_lexical=claim_lexical,
+            claim_vectors=claim_vectors,
+            embeddings=embeddings,
+            limit=claim_pool,
+        )
+
+    async def retrieval_branch() -> tuple[list[RetrievedClaim], list[RecallHit]]:
+        return await asyncio.gather(  # type: ignore[return-value]
+            retrieve_claim_face(),
             retrieve_windows(
                 user_id,
                 question,
@@ -805,9 +1336,27 @@ async def fast_recall(
     else:
         claims_raw, raw_windows = await retrieval_branch()
 
-    claims = claims_raw[:cap]
+    rerank_degraded: str | None = None
+    if reranking:
+        claims, rerank_degraded = await rerank_claims(
+            reranker, question, claims_raw, cap=cap, timeout=rerank_timeout
+        )
+    else:
+        claims = claims_raw[:cap]
+    # Built from the FULL capped hit set, before the annotation join may move claims out of
+    # the notes section: which documents the retrieval touched is a property of retrieval,
+    # not of where a claim happens to be rendered.
+    timelines: list[TimelineBlock] = []
+    if timeline_expand > 0 and by_path:
+        timelines = build_subject_timelines(
+            claims, by_path, per_doc=timeline_expand, doc_cap=timeline_doc_cap
+        )
     windows = await assemble_windows(
-        raw_windows, content=content, user_id=user_id, order=not annotate_windows
+        raw_windows,
+        content=content,
+        user_id=user_id,
+        order=not annotate_windows,
+        assembly=window_assembly,
     )
     window_notes: list[tuple[object, tuple[RetrievedClaim, ...]]] | None = None
     if annotate_windows:
@@ -830,14 +1379,17 @@ async def fast_recall(
         snapshot=scope_declaration(scope),
         full_documents=expanded,
         window_notes=window_notes,
+        timelines=timelines,
         callbacks=callbacks,
         trace_metadata=trace_metadata,
         run_name="recall.fast",
+        reasoning_effort=reasoning_effort,
+        answer_style=answer_style,
     )
     return FastAnswer(
         answer=answer,
         used_claims=tuple(claims),
-        token_usage=add_usage(usage, select_usage),
+        token_usage=add_usage(add_usage(usage, select_usage), plan_usage),
         used_windows=tuple(windows),
         citation_handles=citation_handles,
         glance_chars=len(glance or ""),
@@ -845,4 +1397,9 @@ async def fast_recall(
         glance_degraded=degraded,
         annotated_claims=sum(len(n) for _, n in (window_notes or ())),
         annotated_windows=sum(1 for _, n in (window_notes or ()) if n),
+        timeline_documents=tuple(block.document_path for block in timelines),
+        timeline_claims=sum(len(block.claims) for block in timelines),
+        planned_queries=planned,
+        plan_degraded=plan_degraded,
+        rerank_degraded=rerank_degraded,
     )

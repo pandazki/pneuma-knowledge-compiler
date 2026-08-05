@@ -1,257 +1,138 @@
-# pneuma-knowledge-compiler 架构规格
+# Architecture
 
-> 本文是全项目的权威设计规格。实施任何里程碑前先读完本文。
-> 公共核心保持业务无关；内置 `personal_knowledge` 只是可运行的中性兜底。
-> 应用通过注册完整 skill、prompt overlay 与 schema pack 声明自己的业务。
+**English** | [简体中文](architecture.zh-CN.md)
 
-## 0. 定位与两条全程纪律
+The whole system on one page: what it commits to, how data flows, and what is mechanically enforced. Everything else under `docs/` elaborates a section of this page.
 
-为个人、团队和应用提供可审计知识编译能力：会议、层级文档、IM、邮件与各类材料入库，
-编译为结构化知识（canonical），支持多级检索与低延迟问答。
+## 1. Design stance
 
-两条纪律（任何实现不得偏离）：
+Three commitments define the system; each is enforced by a mechanism, not by convention.
 
-1. **机制化而非劝说**：凡靠 prompt 劝模型"记得做 X"的路线均已被实验证伪。
-   约束必须是机械机制：写时拒绝、系统分配 ID、确定性正规化、类型区分。
-   发现自己在写"请务必"类 prompt 文案时，就是走错了。
-2. **成本线与分数线分开验收**：性能/成本指标与质量指标分开立项、分开度量；
-   任何质量结论必须先有同 harness 对照；度量启用前先审"它在测什么"。
+**Domain-oriented modeling.** The framework holds no domain opinion. `load_skill_base` raises unless the deployment has registered a compile contract, and the only required setting (`PNEUMA_KNOWLEDGE_USER_SCHEMA_BASE_VERSION`) exists to force that declaration. What gets recorded and in what structure lives in a contract you write — a markdown file plus path templates — while the framework supplies only domain-agnostic machinery: normalization, indexing, retrieval, verification.
 
-## 1. 仓库结构
+**An evolvable model.** Any model fixed up front degrades as data accumulates, distributions shift, and the business pivots. Evolution is therefore infrastructure, not an afterthought: the compiler records events as it works; the framework drafts schema changes from that history on a branch; a human reviews the diff; a mechanical, LLM-free reconciliation merges what was adopted (§8).
 
-```text
-pneuma-knowledge-compiler/
-├── pyproject.toml                  # uv workspace（虚拟根）
-├── packages/
-│   ├── pneuma-knowledge-core/               # 纯逻辑 + 端口抽象。零中间件依赖（pydantic + langchain-core + langchain）
-│   │   └── src/pneuma_knowledge_core/
-│   │       ├── domain/             # 领域模型：ids / source / canonical / intake / skill / snapshot
-│   │       ├── ingest/             # SourceAdapter 注册表 + IntakePolicy + 归一化
-│   │       ├── skill/              # 版本化策略 + 可组合 pack + 紧凑投影渲染
-│   │       ├── compile/            # patch→gate→salvage + claim 级写机制（纯函数，store 走端口）
-│   │       ├── recall/             # rag / fast / deep 三 mode + briefing
-│   │       └── ports/              # 全部 Protocol 端口（见 §6）
-│   └── pneuma-knowledge-service/            # 云原生服务：端口实现 + API + worker
-│       └── src/pneuma_knowledge_service/
-│           ├── api/                # FastAPI：/v1/users/{user_id}/…
-│           ├── adapters/           # git_canonical / qdrant / meilisearch / postgres / content_mock
-│           ├── workers/            # compile worker（消费 PG 任务队列）
-│           └── settings.py         # 12-factor，全走环境变量
-├── apps/web/                       # UI：Pneuma 证据台视觉语言，日/夜双主题
-├── infra/                          # docker compose：qdrant + postgres + meilisearch
-├── docs/                           # 本文 + adr/ + api / skill-authoring（随里程碑补齐）
-├── examples/
-│   ├── opc/                        # 自包含业务示例：资产、数据、评估与独立 Compose
-│   ├── walkthroughs/               # 通用机制演练
-│   └── ops/                        # 显式目标的维护命令
-└── tests/                          # 根级 e2e；单测/集成测试在各包内 tests/
+**Provenance enforced at the write layer.** The compile model has no whole-file write tool. It can only edit or append individual claims, every claim must carry citations that resolve to exact passages of source material, and a gate verifies this mechanically before anything is committed (§5). Fabrication is not discouraged; it is structurally impossible.
+
+One boundary: this is not an agent memory system. An agent's memory should record that it *has* a knowledge base — how it is built, what it roughly contains, how to query and maintain it — not the knowledge base itself.
+
+And one project-wide discipline behind all three: **mechanism over persuasion**. A constraint that matters is implemented as write-time rejection, system-assigned identity, or deterministic normalization — never as prompt copy asking the model to please remember. If you find yourself writing that prompt, the design is wrong.
+
+## 2. The shape of the system
+
+```
+ raw material ──▶ SourceAdapter ──▶ NormalizedSource ──▶ IntakePlan
+                                                            │
+              ┌─────────────────────────────────────────────┤
+              ▼                                             ▼
+        index jobs (L1/L2)                          compile jobs (L3)
+              │                                             │
+              ▼                                             ▼
+   Meilisearch / Qdrant                     canonical library (versioned)
+              │                                             │
+              └────────────────┬────────────────────────────┘
+                               ▼
+            retrieval lanes: rag · fast · deep · briefing · live context
 ```
 
-依赖方向唯一合法：`service → core`、`apps/web → service API`。core 永不 import 任何
-中间件客户端；LLM/Embeddings 不自建抽象，core 函数签名直接收 langchain-core 的
-`BaseChatModel` / `Embeddings`，service 用 `init_chat_model` 从配置装配。agentic 循环
-（deep / briefing ask）用 langchain 的 `create_agent`（langgraph ReAct），不手搓工具循环。
+Four packages, one-way dependencies:
 
-**全栈异步**（见 [adr/003](adr/003-full-stack-async.md)）：端口是 async `Protocol`，core 中
-碰端口或模型的函数、全部 adapter、全部路由、compile worker 一路异步到底。边界纪律：**凡不
-await 任何东西的就不是协程**——`spine` / `citation_alias` / `projection` / `gate` / `patch` /
-`domain` 与各 render 助手保持同步。少数无法真异步的（git subprocess、langfuse flush、chonkie
-分块）在 adapter 内 `to_thread`，并在代码里注明它不是真异步。
+- `pneuma-knowledge-core` — pure domain logic and async `Protocol` ports. Depends on pydantic, langchain-core, langchain, chonkie; **no middleware clients**. LLMs and embeddings enter as langchain-core types (`BaseChatModel`, duck-typed `Embeddings`).
+- `pneuma-knowledge-service` — the port implementations: FastAPI app, adapters (Postgres, Qdrant, Meilisearch, Git-via-subprocess), the background worker, settings.
+- `pneuma-knowledge-strategies` — reference compile contracts as a data package. The framework never imports it.
+- `apps/web` — a SPA speaking only the HTTP API.
 
-## 2. 领域不变式（违反任何一条 = review 打回）
+Direction is strict: `service → core`, `web → service API`. Core never imports a middleware client; service never reimplements domain logic.
 
-- **I1 user_id 隔离**：一切数据、一切端口方法、一切存储布局都以 user_id
-  为第一维隔离。git repo per-user、Meilisearch index per-user、Qdrant 单 collection +
-  强制 tenant filter（adapter 层机械注入，业务层无法绕过）、PG 行级 user 键。
-  不存在任何跨 user 读路径。
-- **I2 canonical vs derived 类型区分**：canonical（git 权威层 + 原始 content）是唯一
-  不可重建物；投影、索引、注记全部是 derived，声明为可全量重建。策略/渲染升级只触发
-  derived 重建，**永不改写 canonical**（需求 6 的机制位）。两类对象在 domain 层用类型区分。
-- **I3 L0/L1 无条件可达**：任何素材无论 IntakePlan 如何，raw 原文直取与词法全文检索
-  永远可用。索引深度可随策略递减，可达性永不归零。
-- **I4 provenance 统一**：一切知识回链 `source_id + ¶span`。claim citation、语义 chunk、
-  词法命中、结构地图使用同一寻址体系，逐级钻取靠它白拿。
-- **I5 上下文装配纪律**：SystemMessage 逐字节稳定，**绝不含时间戳等易变内容**；
-  问题、as_of、会话增量全走 HumanMessage。cache 命中是装配顺序正确白拿的，不是优化出来的。
-- **I6 泄漏纪律**：任何评测的答案/评分细则/证据字段永不进入 compile 或 recall 的输入。
+## 3. Four access levels
 
-## 3. 四级数据访问模型
+Every source is kept verbatim and stays reachable at four levels over the same block sequence. These are parallel views, not fallbacks.
 
-同一 source 的四个平行视图（平行可用，不是只降级兜底）：
-
-| 级 | 视图 | 覆盖 | 产生方 |
+| Level | What | Store | When |
 |---|---|---|---|
-| L0 | raw 原文直取：`fetch(user, source_id, locator)`，locator 支持结构寻址（章/节/¶区间） | 无条件 | adapter 结构地图 |
-| L1 | 词法全文检索（关键词/稀疏） | 无条件 | 入库即索引（Meilisearch） |
-| L2 | 语义检索（embedding chunk，Qdrant） | 按 IntakePlan | projection indexer |
-| L3 | canonical 知识（compile 后 claims，fast/deep 消费） | 按 IntakePlan | compile 管线 |
+| L0 | verbatim blocks + structure map, fetched by locator | Postgres | unconditional |
+| L1 | lexical full-text over blocks | Meilisearch (index per user) | unconditional |
+| L2 | semantic chunks | Qdrant (one collection, tenant filter injected in the adapter) | per IntakePlan |
+| L3 | canonical knowledge compiled under the contract | canonical library (versioned; + derived projections) | per IntakePlan |
 
-`recall(mode=rag)` = L2 + L1 双路召回 + RRF 融合；素材无 L2 时词法路仍覆盖，检索面无洞。
-问答 agent 工具面 = 四级各一个工具，按意图选级（事实性→L3/L2，找原话→L1，要原件→L0）。
+An `IntakePlan` is two knobs — `canonical_treatment` (full / distill / card / none) × `semantic_indexing` (full / summary / none) — proposed mechanically from the shape of the source, overridable by the user, and audited. The user-facing intake archetypes name processing intent, not genre — genres are an open set no list can close; an archetype is a named preset of the two knobs. Ingest itself is cheap and synchronous: an import writes L0 and enqueues `index` and `compile` jobs; everything expensive happens in the worker.
 
-## 4. Intake：三层抽象
+## 4. Authoritative vs derived
 
-**纪律：数据类型的多样性只允许被吸收在 adapter 层；策略词表与执行路径封闭且极小。**
+Only two things are authoritative: the L0 sources, and the canonical library. The canonical library is a **versioned, append-only history**: every compile appends a version, any past state can be snapshotted or rolled back, evolution is reviewed on its own branch, and every version is stamped with the hash of the contract that produced it. Everything else — L1/L2 indexes, L3 projections, glances — is derived and rebuildable from those two.
 
-```text
-任意输入（会议 / 层级文档库 / IM / 邮件 / 用户上传文件）
-  → ① SourceAdapter（唯一允许随类型增长的层）
-       产出 NormalizedSource：分块正文(blocks) + 结构地图(章节→¶span) + 元数据 + checksum
-       只懂"这是什么形态"，不懂"该记住什么"
-  → ② IntakePolicy（封闭词表）
-       NormalizedSource + 用户覆盖 → IntakePlan（两旋钮）
-       v1 判定 = adapter 申报默认 + 体量阈值等机械规则；LLM 分类器留待有真实误分样本
-  → ③ 执行路径（固定三条，永不新增）
-       workstream compile / reference compile（卡片+定向蒸馏）/ projection indexer
-```
+(The shipped implementation: L0 lives in Postgres; the canonical library is one Git repository per user, whose commit/tag/revert/branch map one-to-one onto the semantics above. That is an adapter behind the `CanonicalStore` port, not an architectural commitment.)
 
-官方输入边界是四个 provider-neutral、版本化 contract；真实与 mock 适配器都必须先通过
-同一 contract 校验，再进入 `NormalizedSource`：
+Two consequences worth internalizing:
 
-| Contract | 真实 adapter | 自然引用单元 |
-|---|---|---|
-| `meeting/v1` | Zoom metadata + WebVTT | meeting |
-| `document-library/v1` | Obsidian vault | note |
-| `im/v1` | Slack JSON export | conversation |
-| `email/v1` | RFC 5322 EML/mbox | thread |
+- Rebuilds are byte-deterministic even where an LLM was involved. Semantic chunking (the default `semantic` strategy; its boundary-detection philosophy is inspired by [nemori](https://github.com/nemori-ai/nemori)) uses an LLM to detect topic/episode boundaries, but the model only returns block indexes — chunk text is always a verbatim slice of the source, addressed exactly like mechanical chunks; first-time boundaries are recorded in a manifest (content digest + model lineage) and replayed on rebuild instead of being recomputed. Under scripted keyless models it falls back to mechanical sentence chunking automatically.
+- Upgrades never rewrite the canonical layer. A new projection strategy, a new index, a new render — all rebuild derived artifacts; the canonical history stands.
+- The routine commit path syncs projections incrementally: the fresh snapshot is diffed against the last recorded projection manifest and only the delta lands in the indexes (only added or changed claims are re-embedded). The full rebuild (`scripts/ops/rebuild_derived.py`) is the explicit repair and migration path, not the daily one — and either way, the increment is a cost optimization, never a new source of truth.
 
-Schema 与导入方式见 [source-adapters.md](source-adapters.md)。旧
-`sources/conversation` 仅保留兼容，不是默认个人知识来源。
+## 5. Canonical write mechanics
 
-IntakePlan 两旋钮（只管 L2/L3；L0/L1 是不变式不在词表内）：
+The unit of canonical knowledge is a **claim**: a text block carrying an **anchor** (an HTML comment `<!-- c:xxxx -->` embedded in the markdown) and one or more **citations** written `[cite: <source-id> ¶a-b]`, where `¶a-b` is a block span in the cited source. Anchors are content-addressed and system-assigned — the model never mints one — and once assigned they are immutable.
 
-- `canonical_treatment`: `full | distill | card | none`
-- `semantic_indexing`: `full | summary | none`
+The compile model works through claim-level tools only (`edit_claim`, `append_block`, `create_document`, plus read tools), against an in-memory patch draft. Before a draft becomes a commit it must pass the **gate**: a mechanical check of anchor continuity and uniqueness, citation resolvability and shape, provenance on every new claim, link-target existence, frontmatter completeness, path ownership under the contract's templates, and the immutability of frozen archive volumes. Citation checks apply to what this round introduces — citations carried verbatim from earlier commits are grandfathered (they were verified when first written), so a forward compile is never rejected over a source it was not given; anchor uniqueness, by contrast, is checked repository-wide with no grandfathering. Violations trigger one repair round; if violations remain, the compile aborts and the canonical layer is untouched.
 
-**用户面的处理意图（archetype）**：文档 intake 不让用户猜"体裁"（note/contract/novel 这类
-开放且不可枚举的集合），而是选一个**命名的处理意图**——它就是两旋钮的一个预设：精读归档
-（full/full）、要点蒸馏（distill/full）、存目索引（card/summary）、仅可检索（none/none），
-外加「让系统判断」（走机械 `propose_intake`）。这套原型是单一事实源，定义在 core
-（`domain/intake.py` 的 `INTAKE_ARCHETYPES`），经 `GET /v1/intake/archetypes` 提供给前端。
-旧的 `declared_type`（note/contract/novel）降为后向兼容的机械 hint，不再是用户轴。
+Documents that grow past a size threshold are rolled over: older claims move byte-for-byte into frozen archive volumes (`<doc>/aNN.md`), the active document keeps a recent tail plus a machine-managed overview, and a dedicated gate asserts byte conservation and exact anchor survival across the move.
 
-基准矩阵（机械 auto 路径的判定依据）：
+An optional **coverage challenge** (off by default) audits each compile right after it lands: questions are generated blind — from the material and the contract, never from the compiled result — probed against the recorded claims, and judged with the material as ground truth. Confirmed gaps feed one compensation compile whose writes pass the same gate as any other; the audit points, the gate enforces.
 
-| 数据 | treatment | semantic | 说明 |
-|---|---|---|---|
-| 上下文流（第一方） | full | full | 主路径 |
-| 手写 note | full | full | 都重要，尽量全 compile |
-| 合同类重要文书 | distill | full | 关键信息蒸馏进 canonical，正文外置为可检索资料 |
-| 小说等大部头 | card | summary | 只留卡片与元信息；正文仍 L0/L1 可达 |
-| 结构化流（日历/通知，未来） | distill | summary | 周期蒸馏成事实，不索原始流水 |
+## 6. The compile contract (skill)
 
-职责边界：**intake 决定"怎么消化"，skill 决定"什么该记"**（准入/敏感/秘密排除在
-compile 时的 skill 层）。IntakePlan 是提案：UI 预览、用户可改、落库留审计。
-新类型无法用现有词表表达时 = 触发设计评审，不是加分支。词表每加一个值需项目主人确认。
+A contract is registered as a `SkillVersion`: skill id, version, instructions (the judgement — what deserves to be recorded, at what granularity, under what wording), path templates (the directory skeleton of the library, and the sole basis of write permission), and contract rules. The whole thing is hashed; the hash is stamped into every canonical commit, so any library state is attributable to the exact contract text that produced it.
 
-## 5. 状态归属
+Per-user extension happens through **schema packs** — additive fragments composed onto the base contract deterministically (a pack can add families, never remove them). Every model-visible string in the framework lives in a prompt catalog and can be overridden at startup; the override set is hashed and stamped alongside the skill hash, giving each deployment a two-axis identity: *which contract, which wording*.
 
-| 状态 | 归属 | 性质 |
-|---|---|---|
-| canonical | per-user git repo（共享存储） | 权威，不可重建 |
-| 原始 content + 结构地图 | PG（append-only）+ 文件/对象存储 payload | 权威输入 |
-| 词法索引 | Meilisearch（index per user） | derived，可重建 |
-| 语义索引 | Qdrant（tenant filter） | derived，可重建 |
-| 投影/注记 | PG | derived，可重建 |
-| compile 任务队列 | PG（`FOR UPDATE SKIP LOCKED`，按 user_id 串行） | 运行时 |
-| service / worker 进程 | 无状态 | 任意扩缩 |
+The rendered system message is byte-stable: no timestamps, no task content — those travel in the human message. This is what makes provider prompt caching effective and compile behaviour attributable.
 
-快照 = git commit/tag（`SnapshotRef`），白拿。v1 不引 Redis。
+How to actually write a contract is a craft of its own: see [guides/compile-contract.md](guides/compile-contract.md).
 
-## 6. 端口（core/ports，全部 Protocol，第一参数一律 user_id）
+## 7. Retrieval
 
-- `ContentStore`：add / get / list / `fetch(user, source_id, locator)`（L0）
-- `LexicalIndex`：index_blocks / search（L1，无条件覆盖全部素材，支持中日文分词）
-- `VectorIndex`：upsert_chunks / search（L2；adapter 内机械注入 tenant filter）
-- `ProjectionStore`：投影读写（derived）
-- `CanonicalStore`：read/list documents（支持 `at: SnapshotRef`）/ commit_patch / snapshots / tag
-- `JobQueue`：enqueue / claim_next（per-user 串行）/ complete
-- `ContentProvider`：未来外部内容微服务的只读抽象（fetch by ref）
-- `UserInfoProvider`：user_id → 用户画像（persisted-first 组合：已存画像优先，未设置时回落到 mock 具名人设）
+Four lanes over the same library, increasing in cost:
 
-## 7. recall 能力与 Briefing
+- **rag** — L1 + L2 in parallel, fused by reciprocal rank; returns hits, no LLM.
+- **fast** — one LLM call over assembled evidence: a glance of the library, L3 claims, and L1/L2 body windows.
+- **deep** — a bounded agentic loop seeded with fast's evidence, with search/fetch/read tools and a forced conclusion when the budget runs out; returns its trail.
+- **briefing** — a byte-stable evidence pack built once on a pinned snapshot, then asked many times.
 
-`recall(user, query, mode)`，mode ∈ `rag | fast | deep`，另有 Briefing 连续问答：
+The fast lane's claim face carries two opt-in stages around its dual-path retrieval (both off by default; the off path is byte-identical). **Planning** (`RECALL_PLAN_QUERIES`): one small call derives extra keyword queries from a multi-aspect question, every query retrieves at full strength, and one RRF fusion pools the union — result-driven multi-round retrieval stays deep's job. **Reranking** (`RECALL_RERANK_MODEL`): a `Reranker` port (core) scores the pooled candidates against the original question and the best `RECALL_CLAIM_CAP` enter the prompt — rank-then-drop, with RRF kept only for dedup, backfill, and the failure fallback. Two providers ship: `llm` (default — the recall-role model pinned to reasoning effort `none`; input-heavy, output-tiny, no extra service) and an OpenRouter `/rerank` endpoint model name (dedicated cross-encoder, billed per search unit). The knob defaults off for a measured reason: on LoCoMo-refined neither provider beat plain capped retrieval — the answering model's own attention over a well-sized claim budget (release default 64, measured sweet band 40–80) is already the effective reranker. Candidate pools are also deduplicated by text containment: an equal or contained claim statement is dropped for the more complete one, which keeps re-filed facts from burning budget slots.
 
-- **rag**：L2+L1 双路 RRF 融合；命中经重叠去重（同区域的词法/向量命中合并成一条、分数相加）。
-- **fast**：claim 注记 + 原文 window 双面融合作答。两面各自 RRF、**并行召回**；原文 window 走
-  **后处理装配管线**——forward-only 上下文扩展 → 近邻合并/去重 → 每源限流 →
-  lost-in-the-middle 排序 → 带「来源:材料名·¶块号」标注渲染。作答契约是"姿态陈述"而非规则清单，
-  带入本人画像（含回复语言）与 ASR 音近容错，问题放 Human turn 末尾。
-- **deep**：有界 **agentic 深查**——fast 的种子召回 + 三工具面（search_claims / search_content /
-  fetch_verbatim），`create_agent` 循环 + recursion_limit 封顶；核验是 agentic 行为（回 L0 核对
-  出处），每步经 SSE **流式**推到前端（`POST …/recall/stream`）。
+Plus **live context**: given an ongoing conversation window, propose zero or more grounded suggestion cards, filtered through mechanical gates — silence is the norm, not a failure.
 
-### Live Context 即时上下文
+Everything resolves through one addressing scheme — `source_id + block span` — so a lexical hit, a semantic chunk, a claim citation, and a verbatim fetch all point into the same block sequence. Answers cite via query-local handles (`s01`, `s02`…) that never leak across one evaluation. Retrieval can be pinned to a snapshot — either a past version (read-only browse) or a frozen copy of the whole tenant — and a pinned query never silently falls back to live data.
 
-上面四种都由一个提问触发。**Live Context 的触发方向相反**：会议、消息或其他工作流片段
-持续进入，系统自动检索并融合相关知识；没有人在提问，所以产物是零张或几张结构化提示而非
-一段答案，**默认必须沉默**。
+## 8. Evolution
 
-- **两种卡片**：`concept`（对话里出现了知识库里有的概念/人/事，说明它是什么）与
-  `fact`（对话里出现了知识库能直接回答的问题，给出答案）。
-- **focus** ∈ `general | owner | other`（通用 / 仅我的关键词 / 仅他人关键词）：
-  **绝不按说话人过滤转录**——过滤会摧毁上下文理解。整段永远全量进入，focus 只表达为
-  System 层三份定值契约的注意力指向。
-- **沉默是机械的**（§0 纪律 1）：五道闸门——已展示去重 → 解析失败即沉默 →
-  **引用闸门**（body 里没有可解析回真实来源的 `[cite:]` 即丢弃；未接地的提示按定义不是上下文）
-  → **信心闸门**（LLM 为每条打 1-10，阈值过滤在程序侧，故中途调阈值无需重跑）→ 按信心截断。
-- **检索不跨轮 RRF 融合**：RRF 是为「同一 query 多路」设计的，跨轮融合会让每轮都排中游的
-  泛泛来源压过「只在某一轮排第一」的尖锐信号。改为每轮取 top-k 后并集并标记触发轮次
-  （`trigger` 字段即由此而来），并集后再 coalesce 一次，`expand_and_merge` 只跑一次。
-- **两种传输**：`POST …/live-context/stream`（一次性 SSE，去重在客户端）与
-  `WS …/live-context/ws`（长连接，服务端持窗口与节流；**客户端仍是去重权威**，
-  重连时回传近期轮次与已展示项——service 进程因此保持无状态，见 §5）。
-- **want_more**：把已收到的卡片传回，按它自己的引用直取 L0 原文扩写。零检索、零 embedding。
+The evolution loop, end to end:
 
-**分块（L2）**：chonkie；`PNEUMA_KNOWLEDGE_CHUNK_STRATEGY` 默认 `semantic`（LLM 判「一人一段/一主题一段」
-的块边界，只回整数边界），`sentence` 为机械回退；任何超长 chunk 按字符硬切（`enforce_max_chars`），
-保证可嵌入且有界。语义边界是 LLM 输出、跨次调用不可复现，故首次分块把段边界连同内容 digest +
-模型血缘落进 PG `chunk_manifests`；重建时（内容 × 策略 × 模型）不变即回放记录的边界而非重新检测——
-使 derived L2 从「可重建」升为「字节确定性重建」（I2 仍成立：正文始终是 L0 逐字切片，manifest 只钉住
-那一步非确定性）。
+1. Compile events accumulate (what was added, revised, where).
+2. A trigger fires — thresholds of new documents and claims since the last look, or a manual request.
+3. The framework drafts a proposal: revised families, path templates, page restructuring — and rebuilds the library accordingly on an `evolve/<task-id>` branch.
+4. A human reviews the diff: rationale, changed files, and any anchors that would be dropped, surfaced explicitly.
+5. Adopt merges via a three-way, LLM-free reconciliation and rebuilds derived layers; drop deletes the branch. Drafts expire on a TTL.
 
-**入库异步**：`sources/import`（四类 official contract）与兼容的手工 document/conversation
-入口只落 L0 + 入队 `index`（L1/L2）与 `compile`（L3）两类任务；worker 后台处理，
-并在重启时自愈卡住的任务。
+Claims are never rewritten by evolution; what evolves is the model — the contract, the families, the shape of the library.
 
-**Briefing**（预加载问答会话）：`brief(user, scope, snapshot) → Briefing`，
-`briefing.ask(question, as_of)` 连续问答复用稳定上下文包。
+## 9. Invariants
 
-- `scope.query`：一次 recall 取料 + 预算截断；
-- `scope.source_ids`：**锚定历史 raw data**——装入该 source 的 material 卡片 + 引用它的
-  全部 canonical claims（citation 反查）+ 原文相关片段；
-- 装配守 I5：知识包进 System（逐字节稳定），问题/as_of 走 Human turn；
-- agent 工具面：search_knowledge（包内检索）+ fetch_verbatim（L0 逐字直取，"合同第一章原封发给我"场景）。
+Five guarantees that hold everywhere in the code — safe to build on, and they take precedence over any local trade-off when changing the framework.
 
-## 8. 复用的架构资产与明确拒绝的反模式
+1. **User isolation everywhere.** `user_id` is the first parameter of every port method; each user gets their own canonical library and lexical indexes; the vector store's tenant filter is injected inside the adapter with no unfiltered public path.
+2. **Canonical and derived are distinct types.** Strategy or render upgrades rebuild derived artifacts only.
+3. **L0/L1 reachability is unconditional**, regardless of what the IntakePlan decides about L2/L3.
+4. **One addressing scheme.** All knowledge links back via `source_id + block span`; one citation syntax with one shared parser.
+5. **The system message is byte-stable.** Volatile content travels in the human message.
 
-复用：git-canonical + 机械 Gate + claim 级 citation/provenance；claim 级写机制
-（anchor preflight + edit_claim/append_block）；salvage 确定性打捞；Deep 有界核验；
-紧凑投影渲染（render_v2 思路）；materials 三层框架；rag-v1 混合检索思路；
-可组合 strategy pack（slug 形态：按主体与工作流分文件）。
+## 10. Process topology
 
-`append_block` 拥有 Markdown 小节语法：模型只提供标题文本，即使误带 `##` 也在
-写入边界机械剥离，避免增量编译产生 `## ##` 层级漂移。canonical citation 统一输出
-`[cite: <sid> ¶a-b]`，解析/机械 gate 同时容忍模型自然生成的 `¶a-¶b` 与空白变体；
-两者共用一份语法，不能出现 gate 放过但 derived projection 丢失出处的分叉。
+Three middleware containers (Postgres, Qdrant, Meilisearch) plus two stateless processes:
 
-不移植：Fusion 评审机器；skill YAML 整体 dump 进 prompt；固定 5 文件 ownership；
-指令式 transition 簿记（transition 由系统从 diff 机械推导）；consumer/retrieval_intents
-渲染进编译 prompt。
+- **API** (FastAPI / uvicorn) — ingest, retrieval, review surfaces; also serves SSE streams and the live-context WebSocket.
+- **Worker** — drains the job queue per user, strictly serially (`FOR UPDATE SKIP LOCKED`; one in-flight job per user doubles as the single-writer guarantee for the canonical store). Six job kinds: `compile`, `index`, `challenge`, `evolve`, `evolve_adopt`, `groom`. On restart it re-queues orphaned jobs; any exception completes the job as failed rather than leaving it claimed.
 
-## 9. 已交付（0.1.0）
+The Git binary is a runtime requirement (the canonical adapter shells out). Async discipline is full-stack: ports and everything touching them are `async`; pure helpers stay sync; unavoidably blocking work (git subprocess, chunking) is wrapped in threads inside adapters.
 
-- **骨架**：uv workspace（core/service 两包）+ compose 三中间件 + keyless 测试脚手架。
-- **入库**：对话 + 文档（处理意图 archetype）；**异步**入队，worker 处理 L1/L2/L3。
-- **compile**：claim 级写工具 + 机械 gate + salvage + 四视图投影；git per-user canonical。
-- **分块**：chonkie `sentence` + `semantic`（LLM 判「一人一段」边界）+ 超长硬切兜底。
-- **embedding**：OpenRouter（`openai/text-embedding-3-small`，连接池复用）。
-- **recall**：`rag` / `fast`（claim+window 融合 + 装配管线）/ `deep`（agentic + SSE 流式）/
-  `Briefing`；作答契约带本人画像（回复语言）+ ASR 音近容错。
-- **Live Context**：实时工作流触发上下文融合（concept / fact 两型，focus 三档，五道机械闸门，
-  SSE + WebSocket 双传输，want_more 按引用直取原文扩写）。
-- **UI**：Pneuma 瓷白城市导视图 / 午夜珐琅控制室双主题；工作画像、来源、入库、编译、
-  召回、问答、提示、Canonical、图谱、历史与演化全流程。
-- **可观测**：Langfuse（可选，优雅降级）。**升级演练**：skill v1→v2 零 canonical 重写、
-  derived 全量重建。
+Model wiring is role-based — compile, recall, deep, skill, evolve, challenge, live-context — each independently configurable, with a single one-hop fallback and a shared default. A `scripted:` model spec replays recorded responses for keyless, deterministic runs; embeddings accept a deterministic `fake:<dim>` for the same purpose. Tracing (Langfuse) is a no-op unless fully configured.

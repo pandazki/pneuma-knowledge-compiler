@@ -32,6 +32,11 @@ from ..evolve_service import (
     maybe_trigger_evolve,
     run_evolve_job,
 )
+from ..challenge_service import (
+    CHALLENGE_JOB_KIND,
+    maybe_trigger_challenge,
+    run_challenge_job,
+)
 from ..groom_service import GROOM_JOB_KIND, maybe_trigger_rollover, run_groom_job
 from ..ingest_document import _summary_chunks
 from ..projection import sync_projection
@@ -201,6 +206,14 @@ async def process_job(
         str(s.raw.source_id): describe_source(s.raw, len(s.blocks), owner_name)
         for s in sources
     }
+    # A compensation compile (post-challenge) carries the confirmed gap list as guidance.
+    # It rides the per-source preamble — plain context for the model; the writes it leads
+    # to still pass the ordinary citation gate.
+    challenge_guidance = str(payload.get("challenge_guidance") or "")
+    if challenge_guidance:
+        source_preamble = {
+            sid: f"{text}\n\n{challenge_guidance}" for sid, text in source_preamble.items()
+        }
 
     # Context the model starts with: the outline (rendered in core from base_docs) plus the
     # claims actually related to this job's material. Both replace the former practice of
@@ -276,8 +289,10 @@ async def process_job(
             ctx, user_id, result.files, {e.path for e in result.events}
         )
         # Passive schema-evolve trigger (schema-evolve §2.1): once committed events land,
-        # enqueue an evolve job if the topic/anchor increment cleared the threshold.
+        # enqueue an evolve job if the whole-KB doc/anchor increment cleared the threshold.
         await maybe_trigger_evolve(ctx, user_id)
+        # Optional post-compile coverage challenge (never on a compensation compile).
+        await maybe_trigger_challenge(ctx, user_id, payload, source_ids)
     elif result.status == "noop":
         # A retry after canonical commit + projection failure is a canonical noop.
         # Reconcile HEAD before digestion so the same normal retry repairs derived
@@ -435,6 +450,12 @@ async def drain_user(
                 await adopt_evolve_job(ctx, user_id, job)
             elif kind == GROOM_JOB_KIND:
                 await run_groom_job(ctx, user_id, job)
+            elif kind == CHALLENGE_JOB_KIND:
+                if resolved is None:
+                    resolved = await _resolve_user_skill(ctx, user_id, skill_cache)
+                await run_challenge_job(
+                    ctx, ctx.get_chat_model("challenge"), resolved, user_id, job
+                )
             else:
                 if resolved is None:
                     resolved = await _resolve_user_skill(ctx, user_id, skill_cache)

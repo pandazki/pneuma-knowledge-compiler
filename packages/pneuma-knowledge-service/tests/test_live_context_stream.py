@@ -9,7 +9,7 @@ property this endpoint has.
 
 `run_evaluation` is monkeypatched throughout. The subject is the streaming machinery —
 frame shapes, terminal events, producer cleanup — not the suggestion evaluation, which
-`packages/pneuma-knowledge-core/tests/test_suggestion.py` covers against fake ports.
+`packages/pneuma-knowledge-core/tests/test_live_context.py` covers against fake ports.
 """
 
 from __future__ import annotations

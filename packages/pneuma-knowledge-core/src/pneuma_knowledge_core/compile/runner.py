@@ -41,7 +41,7 @@ from ..skill.version import SkillVersion
 from .anchor_ops import AnchorToolError
 from .documents import render_document
 from .gate import Violation, run_gate
-from .patch import PatchDraft
+from .patch import PatchDraft, history_volume_owner
 from .transitions import CompileEvent, derive_events
 
 # Injected read ports, mirroring evolve/runner.py's shape. compile was the only agentic
@@ -152,6 +152,19 @@ def _render_time_anchor(
         lines.append(
             prompt("compile.task.time_window", span=span_text, days=len(dates))
         )
+        # A round of ONE day needs nothing more: the span above IS every source's date. A
+        # round of several (a deployment batching sources into one job) must say so, because
+        # the span alone cannot place a source inside it and the relative-time rule below is
+        # then mechanically unexecutable. The per-source preambles carry the actual dates;
+        # this line is what tells the model to go read them.
+        if len(dates) > 1:
+            lines.append(
+                prompt(
+                    "compile.task.time_multi_day",
+                    sources=len(sources),
+                    days=len(dates),
+                )
+            )
         lines.append(prompt("compile.task.time_relative_rule"))
     else:
         lines.append(prompt("compile.task.time_unknown"))
@@ -309,7 +322,16 @@ def _build_tools(
 
     def read_document(path: str) -> str:
         doc = draft.read(path)
-        return render_document(doc.frontmatter, doc.body)
+        rendered = render_document(doc.frontmatter, doc.body)
+        # A frozen rollover volume stays fully READABLE (deep reads of history are the
+        # point of keeping it), but the read result itself must say the content is not a
+        # write target — otherwise the one surface that shows the model a volume's claims
+        # presents them exactly like editable ones.
+        owner = history_volume_owner(path, draft.path_templates)
+        if owner is not None:
+            notice = prompt("compile.tool.read_document_frozen_notice", owner=owner)
+            return f"{notice}\n{rendered}"
+        return rendered
 
     def create_document(path: str, frontmatter: dict, body: str) -> str:
         doc = draft.create_document(path, frontmatter, body)

@@ -15,7 +15,7 @@ import pytest
 from pneuma_knowledge_core.compile.documents import render_document
 from pneuma_knowledge_core.domain.ids import UserId
 from pneuma_knowledge_core.domain.source import ConversationTurn
-from pneuma_knowledge_core.skill import load_builtin_skill
+from pneuma_knowledge_core.skill import load_skill_base
 from pneuma_knowledge_service.adapters.scripted_model import ScriptedChatModel
 from pneuma_knowledge_service.ingest import ingest_conversation
 from pneuma_knowledge_service.projection import rebuild_projection, sync_projection
@@ -70,7 +70,7 @@ async def _ingest_and_compile(ctx, user, text: str) -> str:
         ]
     )
     # Drains two jobs: the "index" job (L1/L2) then the "compile" job.
-    assert await drain_user(ctx, model, load_builtin_skill(), user) == 2
+    assert await drain_user(ctx, model, load_skill_base("v1"), user) == 2
     return sid
 
 

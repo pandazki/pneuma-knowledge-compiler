@@ -1,10 +1,10 @@
 /**
- * Tailwind v4 入口。tokens 经 @theme inline 映射为 utilities（bg-surface /
- * text-ink-2 / border-line / rounded-2 / text-24 / max-w-content …），
- * 组件内只允许使用这些 utilities，不写一次性 CSS 文件。
+ * Tailwind v4 entry point. Tokens are mapped to utilities via @theme inline
+ * (bg-surface / text-ink-2 / border-line / rounded-2 / text-24 / max-w-content …);
+ * components may only use those utilities — never a one-off CSS file.
  */
 @import "tailwindcss";
-/* 霞鹜文楷屏幕版（OFL）：unicode-range 分包，浏览器只下载用到的字形 */
+/* LXGW WenKai Screen (OFL): split by unicode-range, so the browser downloads only the glyphs in use */
 @import "lxgw-wenkai-screen-webfont/lxgwwenkaiscreen.css";
 @import "./styles/tokens.css";
 
@@ -63,13 +63,17 @@
 
 @layer components {
   /**
-   * 阅读层 Prose（DESIGN.md §4.3）——一切 serif 阅读面的统一排版：
-   * 答案、claim 正文、source 原文、引用段、suggestion 卡片正文。
-   * 规则借鉴 kami（github.com/tw93/kami）的 print 排版纪律：
-   * CJK 屏读行高 1.65、中文密度补偿 0.015em、strong 锁 500 防合成粗体、
-   * 标题邻近律（上距 ≥ 2× 下距）、原生 marker 上 accent、引文 2px accent 左边条、
-   * 行内 code 淡 accent 底、pre 填充无框、表格发丝线无框、链接 accent 无下划线。
-   * 组件层定义，外层可用 text-14 / text-ink-2 等 utilities 覆盖尺寸与颜色。
+   * Reading-layer Prose (DESIGN.md §2.4) — one typographic system for every serif
+   * reading surface: answers, claim bodies, source verbatim text, quoted spans,
+   * suggestion card bodies.
+   * The rules borrow kami's (github.com/tw93/kami) print typography discipline:
+   * 1.65 line-height for on-screen CJK, 0.015em density compensation for Chinese,
+   * strong pinned to 500 to prevent synthetic bold, heading proximity (space above
+   * ≥ 2× space below), accent on native list markers, 2px accent left rule on
+   * quotes, faint accent ground behind inline code, padded frameless pre,
+   * hairline frameless tables, accent links with no underline.
+   * Defined at the component layer; callers may override size and color with
+   * utilities such as text-14 / text-ink-2.
    */
   .prose {
     font-family: var(--font-serif);
@@ -178,11 +182,15 @@
   }
 
   /**
-   * 分区滚动 ScrollRegion（滚动总纲）——每视图 = 动线控制区钉住 + 内容区各自滚动。
-   * 溢出区的两条约定都在这里，组件只负责把量出来的边缘状态写成 data 属性：
-   * 1) 上下渐隐用 mask 而非叠一层底色——纸/灯箱两套主题、任何底色下都成立，
-   *    也不需要新 token（黑白在 mask 里是 alpha 通道，不是颜色）；
-   * 2) 溢出时才留出滚动条槽位，槽位一旦留出就常显，不用 hover 才知道能滚。
+   * Partitioned scrolling — ScrollRegion (the scrolling charter): every view pins its
+   * navigation/control region and lets each content region scroll on its own.
+   * Both overflow conventions live here; components only measure the edge state and
+   * write it out as data attributes:
+   * 1) top/bottom fades use a mask instead of an overlaid ground color — this holds
+   *    under both Paper and Lightbox themes and over any ground color, and needs no
+   *    new token (black/white inside a mask is the alpha channel, not a color);
+   * 2) the scrollbar gutter is reserved only once the region overflows, and once
+   *    reserved it stays visible — you shouldn't have to hover to learn it scrolls.
    */
   .scroll-region {
     --fade: 20px;
@@ -226,7 +234,7 @@
     );
   }
 
-  /** 题下导言/lede：比正文略松的呼吸感（kami 的 CN lede 0.03–0.06em 密度补偿）。 */
+  /** Lede under a heading: slightly airier than body text (kami's CN lede 0.03–0.06em density compensation). */
   .prose-lede {
     font-family: var(--font-serif);
     font-size: var(--fs-16);
@@ -262,7 +270,7 @@
     text-rendering: optimizeLegibility;
   }
 
-  /* ---- 原生控件外观清除（DESIGN.md 硬性规则 2）---- */
+  /* ---- Strip native control appearance (DESIGN.md hard rule 2) ---- */
   button,
   input,
   select,
@@ -325,7 +333,7 @@
     margin: 0;
   }
 
-  /* 去 autofill 黄底，换为 surface/ink */
+  /* Replace the yellow autofill background with surface/ink */
   input:-webkit-autofill,
   input:-webkit-autofill:hover,
   input:-webkit-autofill:focus,
@@ -346,7 +354,7 @@
     cursor: not-allowed;
   }
 
-  /* ---- focus-visible 全局规范：accent 2px outline + 2px offset ---- */
+  /* ---- Global focus-visible standard: 2px accent outline + 2px offset ---- */
   :focus {
     outline: none;
   }
@@ -356,7 +364,7 @@
     border-radius: var(--r-1);
   }
 
-  /* ---- 滚动条细线化 ---- */
+  /* ---- Thin, hairline scrollbars ---- */
   ::-webkit-scrollbar {
     width: 8px;
     height: 8px;
@@ -383,7 +391,7 @@
     opacity: 1;
   }
 
-  /* ---- reduced motion：动效归零 ---- */
+  /* ---- reduced motion: zero out all animation ---- */
   @media (prefers-reduced-motion: reduce) {
     *,
     ::before,
@@ -394,4 +402,46 @@
       scroll-behavior: auto !important;
     }
   }
+}
+
+/* ---- drawer & citation-landing motion ----------------------------------------------
+   Radix keeps the portal mounted while an exit animation runs, so open/close both get a
+   frame: the sheet slides on the axis it lives on (the classic sheet ease in, a quicker
+   plain ease out), the overlay only fades. The cited span announces itself once with a
+   soft accent pulse. All of it collapses to ~0ms under prefers-reduced-motion above. */
+@layer components {
+  @keyframes overlay-in { from { opacity: 0; } }
+  @keyframes overlay-out { to { opacity: 0; } }
+  @keyframes drawer-in-right { from { transform: translateX(100%); } }
+  @keyframes drawer-out-right { to { transform: translateX(100%); } }
+  @keyframes drawer-in-left { from { transform: translateX(-100%); } }
+  @keyframes drawer-out-left { to { transform: translateX(-100%); } }
+  @keyframes drawer-in-bottom { from { transform: translateY(100%); } }
+  @keyframes drawer-out-bottom { to { transform: translateY(100%); } }
+  @keyframes cite-pulse {
+    0% { background-color: color-mix(in srgb, var(--accent) 26%, transparent); }
+    100% { background-color: transparent; }
+  }
+
+  .drawer-overlay[data-state="open"] { animation: overlay-in 240ms cubic-bezier(0.32, 0.72, 0, 1); }
+  .drawer-overlay[data-state="closed"] { animation: overlay-out 180ms ease-in forwards; }
+
+  .drawer-content { will-change: transform; }
+  .drawer-content[data-state="open"] {
+    animation-duration: 300ms;
+    animation-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
+  }
+  .drawer-content[data-state="closed"] {
+    animation-duration: 200ms;
+    animation-timing-function: cubic-bezier(0.4, 0, 1, 1);
+    animation-fill-mode: forwards;
+  }
+  .drawer-content--right[data-state="open"] { animation-name: drawer-in-right; }
+  .drawer-content--right[data-state="closed"] { animation-name: drawer-out-right; }
+  .drawer-content--left[data-state="open"] { animation-name: drawer-in-left; }
+  .drawer-content--left[data-state="closed"] { animation-name: drawer-out-left; }
+  .drawer-content--bottom[data-state="open"] { animation-name: drawer-in-bottom; }
+  .drawer-content--bottom[data-state="closed"] { animation-name: drawer-out-bottom; }
+
+  .cite-pulse { animation: cite-pulse 1400ms ease-out 240ms backwards; }
 }

@@ -57,7 +57,13 @@ from ..ports.vector_index import VectorIndex
 from ..prompts import prompt
 from .agentic import run_agent_loop
 from .scope import SnapshotScope, out_of_scope_source, scope_declaration
-from .spine import CITE_PRECISE, CLOSE_ANSWER_HONESTLY, spine
+from .spine import (
+    CITE_PRECISE,
+    CLOSE_ANSWER_HONESTLY,
+    DEFAULT_ANSWER_STYLE,
+    spine,
+    style_clause,
+)
 from .assembly import Passage
 from .fast import (
     DEFAULT_CLAIM_CAP,
@@ -100,13 +106,15 @@ def _trail_preview(text: str) -> str:
     return text[:_TRAIL_PREVIEW_CHARS].rstrip() + "\n…(truncated)"
 
 
-def deep_contract() -> str:
-    """The deep lane's System contract: head + shared spine.
+def deep_contract(answer_style: str = DEFAULT_ANSWER_STYLE) -> str:
+    """The deep lane's System contract: head + shared spine + answer-style clause.
 
-    I5: byte-stable per prompt overlay. No timestamp, no input, no evidence content — posture
-    only."""
-    return prompt("recall.deep.contract_head") + spine(
-        CITE_PRECISE, CLOSE_ANSWER_HONESTLY
+    I5: byte-stable per prompt overlay and per `answer_style`. No timestamp, no input, no
+    evidence content — posture only."""
+    return (
+        prompt("recall.deep.contract_head")
+        + spine(CITE_PRECISE, CLOSE_ANSWER_HONESTLY)
+        + style_clause(answer_style)
     )
 
 
@@ -359,6 +367,9 @@ async def deep_recall(
     on_step: "Callable[[dict], None] | None" = None,
     cap: int = DEFAULT_CLAIM_CAP,
     window_cap: int = DEFAULT_WINDOW_CAP,
+    # The SHAPE of the answer ("concise" / "conversational" / "detailed") — see
+    # `fast_recall`. Style only; truth discipline is style-independent.
+    answer_style: str = DEFAULT_ANSWER_STYLE,
     callbacks: list | None = None,
     trace_metadata: dict | None = None,
 ) -> DeepAnswer:
@@ -434,7 +445,7 @@ async def deep_recall(
     answer, usage, _transcript = await run_agent_loop(
         model,
         tools,
-        system_prompt=deep_contract(),
+        system_prompt=deep_contract(answer_style),
         human=recall_human(
             question,
             seed_claims,

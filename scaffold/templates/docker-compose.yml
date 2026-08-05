@@ -1,0 +1,75 @@
+# This project's own middleware stack (Postgres / Qdrant / Meilisearch), isolated from
+# every other stack on the machine:
+#   - project name and ports come from .env (scaffold/init.py probes free ports at
+#     generation and writes them; app.py up echoes them). The project name owns the
+#     volumes and network — renaming orphans the old volumes;
+#   - everything binds 127.0.0.1 only.
+# app.py asserts before connecting that the targets are exactly the ports .env declares.
+#
+#   docker compose -f docker-compose.yml up -d --wait
+
+name: ${PNEUMA_APP_COMPOSE_PROJECT:-pneuma-app}
+
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: pneuma_knowledge
+      POSTGRES_USER: pneuma_knowledge
+      POSTGRES_PASSWORD: ${PNEUMA_APP_PG_PASSWORD:-pneuma_knowledge}
+    ports:
+      - "127.0.0.1:${PNEUMA_APP_PG_PORT:-15436}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pneuma_knowledge -d pneuma_knowledge"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  qdrant:
+    image: qdrant/qdrant:v1.18.0
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${PNEUMA_APP_QDRANT_PORT:-16373}:6333"
+      - "127.0.0.1:${PNEUMA_APP_QDRANT_GRPC_PORT:-16374}:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  meilisearch:
+    image: getmeili/meilisearch:v1.11
+    restart: unless-stopped
+    environment:
+      MEILI_MASTER_KEY: ${PNEUMA_APP_MEILI_KEY:-masterKey_change_me}
+      MEILI_NO_ANALYTICS: "true"
+    ports:
+      - "127.0.0.1:${PNEUMA_APP_MEILI_PORT:-17704}:7700"
+    volumes:
+      - meili_data:/meili_data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7700/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  postgres_data:
+  qdrant_data:
+  meili_data:
+
+# An explicit subnet instead of Docker's default address pools: every compose project
+# normally consumes one pool subnet, and a machine with many projects runs the pools dry
+# ("all predefined address pools have been fully subnetted"). The generator probes a
+# random unused 10.x.y.0/24 against the host routing table and writes it into .env; the
+# fixed fallback below only serves hand-assembled projects.
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: ${PNEUMA_APP_SUBNET:-10.222.222.0/24}

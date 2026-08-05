@@ -12,7 +12,7 @@ from urllib.parse import urlparse
 import httpx
 import pytest
 from pneuma_knowledge_core.domain.ids import UserId
-from pneuma_knowledge_core.skill import load_builtin_skill
+from pneuma_knowledge_core.skill import load_skill_base
 from pneuma_knowledge_service.adapters.scripted_model import ScriptedChatModel
 from pneuma_knowledge_service.api.app import create_app
 from pneuma_knowledge_service.settings import Settings
@@ -256,7 +256,7 @@ async def test_fast_deep_and_briefing_flow(scripted_client):
         ]
     )
     # Two jobs drain: the "index" job (L1/L2) then the ingest-enqueued "compile" job.
-    processed = await drain_user(ctx, compile_model, load_builtin_skill(), user)
+    processed = await drain_user(ctx, compile_model, load_skill_base("v1"), user)
     assert processed == 2
 
     # L3 projection landed the claim in PG canonical_claims.

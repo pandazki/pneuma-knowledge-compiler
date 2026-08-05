@@ -112,6 +112,14 @@ def _block_span(lines: list[str], anchor_line: int) -> tuple[int, int]:
     the block runs up to the anchor line; a paragraph block extends upward to a
     blank/heading/list boundary; a multi-line list item's continuation lines fold up to
     their bullet line.
+
+    A line carrying ANY anchor mark is a hard boundary in both directions: the format
+    puts an anchor on its block's last line, so an anchored line above the target is by
+    definition another claim's end — the span must never swallow it. Without this stop,
+    a blank-line-free run of adjacent single-line anchored claims made a legal edit of
+    the run's last claim replace the whole run, silently deleting the neighbors' anchors
+    (evermembench model-compare-01, anchor_violations.md). Downward the stop holds by
+    construction: the span never extends past the target's own anchor line.
     """
     end = anchor_line + 1
     if _LIST_ITEM_RE.match(lines[anchor_line]):
@@ -119,7 +127,7 @@ def _block_span(lines: list[str], anchor_line: int) -> tuple[int, int]:
     start = anchor_line
     while start > 0:
         prev = lines[start - 1]
-        if not prev.strip() or _HEADING_RE.match(prev):
+        if not prev.strip() or _HEADING_RE.match(prev) or ANCHOR_MARK_RE.search(prev):
             break
         start -= 1
         if _LIST_ITEM_RE.match(prev):

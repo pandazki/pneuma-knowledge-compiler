@@ -14,7 +14,7 @@ from urllib.parse import urlparse
 import pytest
 from pneuma_knowledge_core.domain.ids import UserId
 from pneuma_knowledge_core.domain.source import ConversationTurn
-from pneuma_knowledge_core.skill import load_builtin_skill
+from pneuma_knowledge_core.skill import load_skill_base
 from pneuma_knowledge_service.adapters.scripted_model import ScriptedChatModel
 from pneuma_knowledge_service.dataset import build_dataset
 from pneuma_knowledge_service.ingest import ingest_conversation
@@ -87,7 +87,7 @@ async def test_worker_compiles_one_job_end_to_end(ctx):
     )
 
     # Two jobs now drain: the "index" job (L1/L2, enqueued first) then the "compile" job.
-    processed = await drain_user(ctx, model, load_builtin_skill(), user)
+    processed = await drain_user(ctx, model, load_skill_base("v1"), user)
     assert processed == 2
 
     # git commit exists on the canonical layer.
@@ -164,7 +164,7 @@ async def test_projection_failure_keeps_source_retryable_and_noop_repairs_it(
 
     try:
         # The canonical commit succeeds, but its first derived projection fails.
-        assert await drain_user(ctx, model, load_builtin_skill(), user) == 2
+        assert await drain_user(ctx, model, load_skill_base("v1"), user) == 2
         assert (await ctx.store.digested_map(user))[sid] is None
         failed = [
             job
@@ -178,7 +178,7 @@ async def test_projection_failure_keeps_source_retryable_and_noop_repairs_it(
         # canonical noop, but must repair all derived stores before digestion.
         assert await ctx.store.undigested_source_ids(user) == [sid]
         await ctx.store.enqueue(user, "compile", {"source_ids": [sid]})
-        assert await drain_user(ctx, model, load_builtin_skill(), user) == 1
+        assert await drain_user(ctx, model, load_skill_base("v1"), user) == 1
 
         assert calls == 2
         assert (await ctx.store.digested_map(user))[sid] is not None

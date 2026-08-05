@@ -259,6 +259,27 @@ def _fmt_when(value: object) -> str:
     return text[:16] if len(text) >= 16 else text[:10]
 
 
+def occurred_on(raw: RawSource) -> str:
+    """The source's AUTHORITATIVE occurrence day, or "" when it genuinely has none.
+
+    One field, one spelling: `meta["occurred_on"]`. Every ingest path in the framework
+    stamps it — `ingest.adapters.stamp_occurred_on` computes it from the material's own
+    timestamps in the SUBJECT's zone (conversation, context_stream) and every contract
+    normalizer (meeting / im / email / document_library) calls that same stamper — and an
+    integration that knows the true day may supply it explicitly, in which case it is never
+    overwritten. `RawSource.created_at` is deliberately NOT consulted: that is the ingest
+    wall clock, so material captured weeks ago would be announced as happening today.
+
+    This is read by the preambles below because the compile task's round-level time frame
+    can only state the SPAN of a round. Under a per-day round the span IS the source's day,
+    so a missing per-source date was invisible; under a batched round (several days in one
+    job) a source whose only date lives here rendered as "supplies no time", and the
+    compiler was then asked to resolve relative time against a date it had never been
+    shown.
+    """
+    return str((raw.meta or {}).get("occurred_on") or "").strip()
+
+
 def _context_stream_preamble(raw: RawSource, blocks_count: int, owner_name: str) -> str:
     """A diarized stream → one sentence with the owner as subject.
 
@@ -340,6 +361,15 @@ def _document_preamble(raw: RawSource, owner_name: str) -> str:
         )
     else:
         when = created_part or updated_part
+    # An authored document that carries no authoring timestamp can still have an
+    # authoritative occurrence day (this path is reached whenever `author` alone is set).
+    # Falling through with an empty `when` would print a dateless sentence about a source
+    # whose date the framework is holding. Only used when nothing better was stated — a
+    # document that already declares created/updated keeps its wording byte-for-byte.
+    if not when:
+        occurred = occurred_on(raw)
+        if occurred:
+            when = prompt("source.preamble.document_occurred", when=occurred)
     parent = (
         prompt("source.preamble.document_parent", parent_title=meta.get("parent_title"))
         if meta.get("parent_title")
@@ -366,10 +396,13 @@ def _document_preamble(raw: RawSource, owner_name: str) -> str:
 def _reference_preamble(raw: RawSource, owner_name: str) -> str:
     """`source_class == "reference"` with no authorship metadata: external material. The
     stance clause matters more than the provenance detail — it must not be read as the
-    owner's own words."""
-    return prompt(
-        "source.preamble.reference", owner=owner_name, title=_title_part(raw)
+    owner's own words. External material can still be dated, and when it is, the date is
+    said: unknown authorship is not a reason to withhold a time the framework holds."""
+    when = occurred_on(raw)
+    key = (
+        "source.preamble.reference_dated" if when else "source.preamble.reference"
     )
+    return prompt(key, owner=owner_name, title=_title_part(raw), when=when)
 
 
 def register_source_type(source_type: FirstPartySourceType) -> None:
@@ -416,6 +449,13 @@ def describe_source(
         This is a work note by a teammate created on 2026-07-10 14:05, titled "…".
         The owner is a reader and not the author; judgments in it belong to a teammate and
         must not be recorded as their own decisions.
+      any source the framework has dated but cannot attribute (`meta["occurred_on"]`)
+        This is material from 2026-07-18 in the owner's knowledge base; the material
+        supplies no author, so attribution stays pending — but the date above is the
+        source's own and relative time in it resolves against that day.
+      a source with no date at all — the wording degrades, as it must
+        This is a piece of material in the owner's knowledge base; the material supplies no
+        provenance and no time, so attribution and time both stay pending.
     """
     if owner_name is None:
         owner_name = prompt("source.preamble.owner_default")
@@ -430,19 +470,26 @@ def _describe(raw: RawSource, blocks_count: int, owner_name: str) -> str:
     if callable(describe):
         return describe(raw, blocks_count, owner_name)
     meta = raw.meta or {}
+    # The authoritative day, read ONCE for every branch below: whichever sentence this
+    # source ends up with, if the framework holds its date the sentence states it. Only a
+    # source that genuinely has no date degrades to the "time stays pending" wording.
+    when = occurred_on(raw)
     if raw.kind == "document":
         if meta.get("author") or meta.get("created_at") or meta.get("authored_by_owner"):
             return _document_preamble(raw, owner_name)
         if raw.source_class == "reference":
             return _reference_preamble(raw, owner_name)
-        return prompt(
-            "source.preamble.document_unknown",
-            owner=owner_name,
-            title=_title_part(raw),
+        key = (
+            "source.preamble.document_unknown_dated"
+            if when
+            else "source.preamble.document_unknown"
         )
-    return prompt(
-        "source.preamble.fallback", owner=owner_name, title=_title_part(raw)
-    )
+        return prompt(key, owner=owner_name, title=_title_part(raw), when=when)
+    # Everything that is not a document: conversation, meeting, im, email, structured,
+    # document_library — every one of them is stamped with `occurred_on` at ingest, so this
+    # is the branch the batched-round date suppression was actually hiding behind.
+    key = "source.preamble.fallback_dated" if when else "source.preamble.fallback"
+    return prompt(key, owner=owner_name, title=_title_part(raw), when=when)
 
 
 # origin → first-party type. `upload` is absent (the generic default path handles it).

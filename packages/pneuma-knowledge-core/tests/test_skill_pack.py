@@ -17,7 +17,7 @@ from pneuma_knowledge_core.skill import (
     SchemaPack,
     compose_skill,
     derive_pack,
-    load_builtin_skill,
+    load_skill_base,
     matrix_packs,
     packs_for_profile,
     render_system_contract,
@@ -65,18 +65,18 @@ def _profile(source: str = "user", **over) -> UserProfile:
 
 
 def test_empty_packs_returns_base_bytewise():
-    for version in ("v1", "v2"):
-        base = load_builtin_skill(version)
+    for version in ("v1",):
+        base = load_skill_base(version)
         composed = compose_skill(base, [])
         assert composed is base
         # I5 continuity: a no-pack user's contract == the built-in version's, byte-for-byte.
-        want = render_system_contract(load_builtin_skill(version))
+        want = render_system_contract(load_skill_base(version))
         got = render_system_contract(composed)
         assert hashlib.sha256(got.encode()).hexdigest() == hashlib.sha256(want.encode()).hexdigest()
 
 
 def test_compose_is_deterministic_and_order_independent():
-    base = load_builtin_skill("v2")
+    base = load_skill_base("v1")
     p1 = _pack("a-pack", instr="A", templates=["memory/projects/{slug}.md"], rules=("ra",))
     p2 = _pack("b-pack", instr="B", templates=["memory/tech-notes/{slug}.md"], rules=("rb",))
     p3 = _pack("c-pack", instr="C", templates=["notes.md"])
@@ -94,11 +94,11 @@ def test_compose_is_deterministic_and_order_independent():
     # A second compose of the same set reproduces the same hash.
     assert compose_skill(base, [p1, p2, p3]).content_hash == c_fwd.content_hash
     # Version is base + pack digest.
-    assert c_fwd.version.startswith("v2+packs.")
+    assert c_fwd.version.startswith("v1+packs.")
 
 
 def test_compose_is_additive_over_base_templates():
-    base = load_builtin_skill("v2")
+    base = load_skill_base("v1")
     composed = compose_skill(base, [_pack("p", templates=["memory/projects/{slug}.md"])])
     assert set(base.path_templates) <= set(composed.path_templates)
     assert "memory/projects/{slug}.md" in composed.path_templates
@@ -107,7 +107,7 @@ def test_compose_is_additive_over_base_templates():
 
 
 def test_compose_dedupes_templates_and_rules():
-    base = load_builtin_skill("v1")
+    base = load_skill_base("v1")
     p1 = _pack("a", templates=["memory/profile.md", "shared/{slug}.md"], rules=("r", "r"))
     p2 = _pack("b", templates=["shared/{slug}.md"], rules=("r",))
     composed = compose_skill(base, [p1, p2])
@@ -118,7 +118,7 @@ def test_compose_dedupes_templates_and_rules():
 
 
 def test_compose_rejects_malformed_extra_template():
-    base = load_builtin_skill("v2")
+    base = load_skill_base("v1")
     # A brace that is not {slug} is a malformed template → additive assertion raises.
     with pytest.raises(ValueError):
         compose_skill(base, [_pack("bad", templates=["memory/{bogus}/x.md"])])
@@ -276,7 +276,7 @@ async def test_packs_for_profile_real_matrix_plus_derive(tmp_path):
     assert "role-engineering" in ids  # matrix
     assert any(p.origin == "derived" for p in packs)  # derive
     # Composes cleanly onto the base.
-    composed = compose_skill(load_builtin_skill("v2"), packs)
+    composed = compose_skill(load_skill_base("v1"), packs)
     assert "memory/deals/{slug}.md" in composed.path_templates
 
 

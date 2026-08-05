@@ -1,32 +1,34 @@
 /**
- * Pneuma Knowledge Compiler · 设计 tokens（DESIGN.md §2，唯一 source of truth）。
+ * Pneuma Knowledge Compiler · design tokens (DESIGN.md §2, the single source of truth).
  *
- * 硬性规则：全部颜色只允许出现在本文件；组件内零 hex、零 rgb()/hsl() 字面值。
- * 派生色一律用 color-mix 自既有变量推导，不引入新 hex。
- * 双主题非反色：light「纸 Paper」/ dark「灯箱 Lightbox」独立调校。
+ * Hard rule: every color may appear only in this file; components carry zero hex and
+ * zero rgb()/hsl() literals.
+ * Derived colors are always computed with color-mix from existing variables, never a new hex.
+ * The two themes are not inversions of each other: light "Paper" and dark "Lightbox"
+ * are tuned independently.
  */
 
 :root[data-theme="light"] {
   color-scheme: light;
 
-  --bg: #f6f5f1; /* 页面纸底 */
-  --surface: #fbfaf7; /* 阅读面 / 面板底 */
-  --raised: #ffffff; /* 浮层（popover / dialog / menu） */
-  --ink: #20201d; /* 主文字 */
-  --ink-2: #57554e; /* 次级文字 */
-  --ink-3: #8b887e; /* 弱化文字 / 占位 */
-  --line: #e3e1d9; /* 发丝线 */
-  --line-2: #cfcdc3; /* 强调分隔线 / 控件边框 */
-  --accent: #3d5a99; /* 蓝铅笔：链接、选中、脚注编号、focus */
-  --accent-ink: #fbfaf7; /* accent 底上的文字 */
+  --bg: #f6f5f1; /* page paper ground */
+  --surface: #fbfaf7; /* reading surface / panel ground */
+  --raised: #ffffff; /* overlays (popover / dialog / menu) */
+  --ink: #20201d; /* primary text */
+  --ink-2: #57554e; /* secondary text */
+  --ink-3: #8b887e; /* muted text / placeholder */
+  --line: #e3e1d9; /* hairline rule */
+  --line-2: #cfcdc3; /* emphasized divider / control border */
+  --accent: #3d5a99; /* blue pencil: links, selection, footnote numbers, focus */
+  --accent-ink: #fbfaf7; /* text on an accent ground */
   --ok: #4a7257;
   --warn: #94650f;
   --danger: #a03d2c;
 
-  /* 派生（color-mix，不写新 hex） */
-  --accent-soft: color-mix(in srgb, var(--accent) 10%, var(--bg)); /* 选中底 */
-  --accent-line: color-mix(in srgb, var(--accent) 35%, var(--bg)); /* 选中边 */
-  --hover: color-mix(in srgb, var(--ink) 4%, transparent); /* 悬停底（叠层） */
+  /* Derived (color-mix, no new hex) */
+  --accent-soft: color-mix(in srgb, var(--accent) 10%, var(--bg)); /* selected ground */
+  --accent-line: color-mix(in srgb, var(--accent) 35%, var(--bg)); /* selected border */
+  --hover: color-mix(in srgb, var(--ink) 4%, transparent); /* hover ground (overlay) */
   --active: color-mix(in srgb, var(--ink) 7%, transparent);
   --ok-soft: color-mix(in srgb, var(--ok) 10%, var(--bg));
   --warn-soft: color-mix(in srgb, var(--warn) 10%, var(--bg));
@@ -64,16 +66,17 @@
 }
 
 :root {
-  /* 字体栈（编辑—文本—机器三层分工） */
+  /* Font stacks (a three-way split: editorial UI — reading text — machine) */
   --font-sans: system-ui, -apple-system, "PingFang SC", "Hiragino Sans GB",
     "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
-  /* 阅读面首选霞鹜文楷屏幕版（随包内嵌、OFL 可商用，index.css 引入；
-     未加载/缺字形时回落系统宋体） */
+  /* Reading surfaces prefer LXGW WenKai Screen (bundled with the package, OFL and
+     usable commercially, imported in index.css; falls back to the system Song/serif
+     face when it hasn't loaded or a glyph is missing) */
   --font-serif: "LXGW WenKai Screen", "Songti SC", "Noto Serif SC",
     "Source Han Serif SC", Georgia, "Times New Roman", serif;
   --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
 
-  /* 字号阶（px）：中文可见文本最小 12 */
+  /* Type scale (px): 12 is the floor for visible Chinese text */
   --fs-12: 12px;
   --fs-13: 13px;
   --fs-14: 14px;
@@ -83,22 +86,22 @@
   --fs-30: 30px;
   --fs-38: 38px;
 
-  /* 形状：编辑感 = 近乎直角 */
+  /* Shape: the editorial feel comes from near-square corners */
   --r-1: 2px;
   --r-2: 4px;
   --r-3: 8px;
 
-  /* 动效：仅 fade / 2–4px 位移 */
+  /* Motion: fade only, or a 2–4px shift */
   --dur-1: 120ms;
   --dur-2: 200ms;
   --ease: ease-out;
 
-  /* z 轴 */
+  /* z axis */
   --z-nav: 40;
   --z-overlay: 50;
   --z-toast: 60;
 
-  /* 阅读宽度 / 内容栏宽 */
+  /* Reading measure / content column width */
   --measure: 68ch;
   --content-max: 1080px;
 }

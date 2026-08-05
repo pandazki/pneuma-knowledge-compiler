@@ -26,7 +26,7 @@ from pneuma_knowledge_core.domain.snapshot import SnapshotRef
 from pneuma_knowledge_core.recall.briefing import Briefing, briefing_ask
 from pneuma_knowledge_core.recall.deep import deep_recall
 from pneuma_knowledge_core.recall.fast import fast_recall
-from pneuma_knowledge_core.skill import load_builtin_skill
+from pneuma_knowledge_core.skill import load_skill_base
 
 # Reuse the compile scenario fakes and the recall index/embedding/content stubs.
 from test_runner import FakeCanonicalStore, ScriptedChatModel, _source, tc
@@ -114,7 +114,7 @@ async def test_run_compile_propagates_callbacks_and_run_name():
         model=model,
         store=store,
         sources=sources,
-        skill=load_builtin_skill(),
+        skill=load_skill_base("v1"),
         callbacks=[handler],
         trace_metadata=_META,
     )

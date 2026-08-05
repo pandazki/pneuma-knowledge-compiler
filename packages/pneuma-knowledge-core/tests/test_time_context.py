@@ -360,11 +360,11 @@ def test_the_write_contract_states_the_local_calendar_day_convention():
     """The time frame names the zone per round; the CONTRACT is where the rule that a
     canonical date means a day in that zone lives, so it is stated once and byte-stably."""
     from pneuma_knowledge_core.prompts import prompt
-    from pneuma_knowledge_core.skill import load_builtin_skill, render_system_contract
+    from pneuma_knowledge_core.skill import load_skill_base, render_system_contract
 
     clause = "a date in canonical is a calendar day in the\nknowledge subject's own timezone"
     assert clause in prompt("compile.write_contract")
-    assert clause in render_system_contract(load_builtin_skill("v3"))
+    assert clause in render_system_contract(load_skill_base("v1"))
 
 
 class _Profile:

@@ -164,6 +164,7 @@ _ROLE_FIELDS = {
     "skill": "llm_model_skill",
     "live_context": "llm_model_live_context",  # evaluation + its want_more expansion
     "evolve": "llm_model_evolve",  # schema evolve (propose + reorganize)
+    "challenge": "llm_model_challenge",  # post-compile coverage challenge (questions + reflection)
 }
 
 # A role whose own field is empty may borrow ANOTHER role's field before falling all the
@@ -174,7 +175,7 @@ _ROLE_FIELDS = {
 # `evolve` borrows `compile`'s model when its own field is empty: schema evolve is the same
 # heavy write-side reasoning as a compile (whole-KB reorganization), so a deployment that
 # already pointed compile at a strong model should not have to name it twice. One hop.
-_ROLE_FALLBACK = {"live_context": "recall", "evolve": "compile"}
+_ROLE_FALLBACK = {"live_context": "recall", "evolve": "compile", "challenge": "compile"}
 
 
 def resolve_model_name(settings: Settings, role: str = "default") -> str:
@@ -213,12 +214,19 @@ def _provider_guardrails(settings: Settings) -> dict:
     return {"timeout": settings.llm_timeout, "max_retries": settings.llm_max_retries}
 
 
-def _build_from_name(name: str, settings: Settings) -> BaseChatModel:
+def _build_from_name(
+    name: str, settings: Settings, *, reasoning_effort: str | None = None
+) -> BaseChatModel:
     """Assemble a chat model from a spec.
 
     `scripted:<path>` → a keyless ScriptedChatModel from a JSON script (tests / demos,
     no provider key). `openrouter:<model>` → the OpenAI-compatible OpenRouter endpoint.
     Anything else goes through langchain `init_chat_model` (e.g. `anthropic:claude-sonnet-5`).
+
+    `reasoning_effort` pins the model's reasoning effort at construction (OpenRouter
+    `{"reasoning": {"effort": ...}}`) — used for auxiliary calls that must stay cheap,
+    like the LLM reranker's `none`. OpenRouter specs only; scripted models ignore it and
+    other providers do not take the field.
 
     Every REAL model (both branches, hence every role) is built with the same two provider
     guardrails from settings — see `_provider_guardrails`. The scripted model is local
@@ -235,11 +243,31 @@ def _build_from_name(name: str, settings: Settings) -> BaseChatModel:
         key = settings.openrouter_api_key
         if not key:
             raise RuntimeError("openrouter:<model> requires OPENROUTER_API_KEY")
+        extra: dict = {}
+        if reasoning_effort:
+            extra["extra_body"] = {"reasoning": {"effort": reasoning_effort}}
+        if settings.openrouter_provider_order.strip():
+            # OpenRouter provider routing pin: restrict which upstream providers may
+            # serve the request. Without it OpenRouter can fall back to third-party
+            # resellers of the same model — different quantization, different behavior,
+            # silently. https://openrouter.ai/docs/features/provider-routing
+            extra.setdefault("extra_body", {})
+            extra["extra_body"] |= {
+                "provider": {
+                    "order": [
+                        part.strip()
+                        for part in settings.openrouter_provider_order.split(",")
+                        if part.strip()
+                    ],
+                    "allow_fallbacks": settings.openrouter_allow_fallbacks,
+                }
+            }
         return init_chat_model(
             name.split(":", 1)[1],
             model_provider="openai",
             base_url="https://openrouter.ai/api/v1",
             api_key=key,
+            **extra,
             **guardrails,
         )
     return init_chat_model(name, **guardrails)
@@ -259,7 +287,7 @@ def build_chat_model(settings: Settings) -> BaseChatModel:
 #
 # Langfuse is a *service* dependency only — core never imports it (architecture.md §2).
 # The service builds a langchain CallbackHandler and injects it into the core LLM call
-# sites via `callbacks`. See docs/observability.md.
+# sites via `callbacks`. See docs/reference/observability.md.
 
 
 def _import_langfuse():  # pragma: no cover - thin import shim (monkeypatched in tests)
@@ -310,9 +338,9 @@ def llm_call_config(
 
     Unified trace metadata (filterable in Langfuse): operation, user_id, env, app,
     plus caller `extra` (skill_version for compile; snapshot_ref for recall/briefing).
-    Trace-size discipline (docs/observability.md): ids / counts only — never a key, never
-    a slab of canonical body. None-valued extras are dropped. When tracing is off the
-    callbacks list is empty and the core call runs exactly as before.
+    Trace-size discipline (docs/reference/observability.md): ids / counts only — never a
+    key, never a slab of canonical body. None-valued extras are dropped. When tracing is
+    off the callbacks list is empty and the core call runs exactly as before.
     """
     handler = ctx.langfuse_handler()
     metadata: dict = {
@@ -360,6 +388,45 @@ class AppContext:
     # `_langfuse_built` distinguishes "not yet attempted" from "attempted, no keys → None".
     _langfuse_handler: object | None = field(default=None, repr=False)
     _langfuse_built: bool = field(default=False, repr=False)
+    # Lazily built claim reranker (core Reranker port), or None while
+    # settings.recall_rerank_model is empty — the fast lane treats None as "pass off".
+    _reranker: object | None = field(default=None, repr=False)
+
+    def get_reranker(self):
+        """The configured claim reranker, or None when reranking is off (empty model).
+
+        Provider selection by spec shape:
+          "llm"        → LLMReranker on the recall-role model, reasoning effort pinned to
+                         none — the default provider (input-heavy, output-tiny, no extra
+                         service dependency).
+          "llm:<spec>" → LLMReranker on that chat spec, same effort pin.
+          "<model>"    → the OpenRouter /rerank endpoint (e.g. cohere/rerank-4-pro) — a
+                         dedicated cross-encoder billed per search unit, for workloads
+                         where a purpose-built scorer earns its fee.
+        Measured on LoCoMo-refined: neither provider beat plain capped retrieval, which
+        is why the knob itself defaults OFF."""
+        spec = self.settings.recall_rerank_model.strip()
+        if not spec:
+            return None
+        if self._reranker is None:
+            if spec == "llm" or spec.startswith("llm:"):
+                from .adapters.llm_rerank import LLMReranker
+
+                model_spec = (
+                    spec.split(":", 1)[1]
+                    if ":" in spec
+                    else resolve_model_name(self.settings, "recall")
+                )
+                self._reranker = LLMReranker(
+                    _build_from_name(model_spec, self.settings, reasoning_effort="none")
+                )
+            else:
+                from .adapters.openrouter_rerank import OpenRouterReranker
+
+                self._reranker = OpenRouterReranker(
+                    spec, self.settings.openrouter_api_key
+                )
+        return self._reranker
 
     def get_chat_model(self, role: str = "default") -> BaseChatModel:
         # Keyed by resolved model spec, not role: roles sharing a spec (all-scripted,
@@ -401,6 +468,8 @@ class AppContext:
         await self.store.aclose()
         await self.lexical.aclose()
         await self.vectors.aclose()
+        if self._reranker is not None:
+            await self._reranker.aclose()
 
 
 async def build_context(settings: Settings) -> AppContext:

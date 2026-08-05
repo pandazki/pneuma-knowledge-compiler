@@ -1,0 +1,26 @@
+{
+  "skill_id": "personal-knowledge",
+  "domain": "Personal knowledge: one person's long-term, traceable knowledge across projects, collaboration, research and operations",
+  "summary": "Compiles what will later be used for action, judgment, explanation, collaboration or audit into long-term knowledge with the owner as its subject; not a transcript summary, and not permanent storage of every input.",
+  "path_templates": [
+    "memory/profile.md",
+    "memory/people/{slug}.md",
+    "work/products/{slug}.md",
+    "work/experiments/{slug}.md",
+    "work/operations/{slug}.md",
+    "memory/topics/{slug}.md",
+    "materials/{slug}.md"
+  ],
+  "generations": [
+    {
+      "version": "v1",
+      "file": "v1.md",
+      "summary": "Evidence tiers, worked examples and counter-examples, frozen history volumes, first-class beginnings, and a closing self-check. Distills the three-generation lineage this project's own experiments ran.",
+      "contract_rules": [
+        "contract.rule.citation_granularity",
+        "contract.rule.citation_shape",
+        "contract.rule.strength_labels"
+      ]
+    }
+  ]
+}

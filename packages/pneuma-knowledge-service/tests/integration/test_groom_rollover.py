@@ -32,7 +32,7 @@ from pneuma_knowledge_core.compile.rollover import (
 from pneuma_knowledge_core.domain.ids import ANCHOR_MARK_RE, UserId, extract_anchors
 from pneuma_knowledge_core.domain.source import ConversationTurn
 from pneuma_knowledge_core.prompts import prompt
-from pneuma_knowledge_core.skill import load_builtin_skill
+from pneuma_knowledge_core.skill import load_skill_base
 from pneuma_knowledge_service.adapters.scripted_model import ScriptedChatModel
 from pneuma_knowledge_service.dataset import build_dataset
 from pneuma_knowledge_service.groom_service import GROOM_JOB_KIND
@@ -146,7 +146,7 @@ async def test_compile_triggers_a_rollover_that_moves_claims_and_reprojects(ctx)
 
     await ctx.store.enqueue(user, "compile", {"source_ids": [sid]})
     # index job, compile job, and the groom the compile enqueues — one serial sweep.
-    processed = await drain_user(ctx, compile_model, load_builtin_skill("v3"), user)
+    processed = await drain_user(ctx, compile_model, load_skill_base("v1"), user)
     assert processed >= 3
 
     jobs = await ctx.store.list_jobs(user)
@@ -202,13 +202,13 @@ async def test_compile_triggers_a_rollover_that_moves_claims_and_reprojects(ctx)
     assert {"source": ids[ACTIVE], "target": ids[VOLUME], "type": "link"} in dataset["graph"][
         "edges"
     ]
-    glance = render_canonical_glance(docs, load_builtin_skill("v3"))
+    glance = render_canonical_glance(docs, load_skill_base("v1"))
     assert "+1 archived volume(s)" in glance
     assert VOLUME not in glance
 
     # ---- and a NEXT compile is not tripped up by the volume it must not write --------------
     await ctx.store.enqueue(user, "compile", {"source_ids": [sid]})
-    await drain_user(ctx, ScriptedChatModel(turns=[]), load_builtin_skill("v3"), user)
+    await drain_user(ctx, ScriptedChatModel(turns=[]), load_skill_base("v1"), user)
     follow_up = [j for j in await ctx.store.list_jobs(user) if j["kind"] == "compile"][0]
     assert follow_up["ok"] is True, follow_up["detail"]
 

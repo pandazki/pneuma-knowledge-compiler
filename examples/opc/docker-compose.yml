@@ -1,0 +1,155 @@
+# This project's own middleware stack (Postgres / Qdrant / Meilisearch), isolated from
+# every other stack on the machine:
+#   - project name and ports come from .env (scaffold/init.py probes free ports at
+#     generation and writes them; app.py up echoes them). The project name owns the
+#     volumes and network — renaming orphans the old volumes;
+#   - everything binds 127.0.0.1 only.
+# app.py asserts before connecting that the targets are exactly the ports .env declares.
+#
+#   docker compose -f docker-compose.yml up -d --wait
+
+name: ${PNEUMA_APP_COMPOSE_PROJECT:-pneuma-app}
+
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: pneuma_knowledge
+      POSTGRES_USER: pneuma_knowledge
+      POSTGRES_PASSWORD: ${PNEUMA_APP_PG_PASSWORD:-pneuma_knowledge}
+    ports:
+      - "127.0.0.1:${PNEUMA_APP_PG_PORT:-15436}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pneuma_knowledge -d pneuma_knowledge"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  qdrant:
+    image: qdrant/qdrant:v1.18.0
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${PNEUMA_APP_QDRANT_PORT:-16373}:6333"
+      - "127.0.0.1:${PNEUMA_APP_QDRANT_GRPC_PORT:-16374}:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  meilisearch:
+    image: getmeili/meilisearch:v1.11
+    restart: unless-stopped
+    environment:
+      MEILI_MASTER_KEY: ${PNEUMA_APP_MEILI_KEY:-masterKey_change_me}
+      MEILI_NO_ANALYTICS: "true"
+    ports:
+      - "127.0.0.1:${PNEUMA_APP_MEILI_PORT:-17704}:7700"
+    volumes:
+      - meili_data:/meili_data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7700/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+
+  # ── Browsing layer (this example's one divergence from the plain scaffold) ──
+  # The scaffold flow is CLI-only; this example adds the framework API + web UI so the
+  # prebuilt library can be explored in a browser. Started via: --profile web
+  api:
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile
+    command: ["uv", "run", "python", "examples/opc/server.py"]
+    profiles: ["web"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      meilisearch:
+        condition: service_healthy
+    environment:
+      PNEUMA_KNOWLEDGE_PG_DSN: postgresql://pneuma_knowledge:pneuma_knowledge@postgres:5432/pneuma_knowledge
+      PNEUMA_KNOWLEDGE_QDRANT_URL: http://qdrant:6333
+      PNEUMA_KNOWLEDGE_MEILI_URL: http://meilisearch:7700
+      PNEUMA_KNOWLEDGE_MEILI_KEY: ${PNEUMA_APP_MEILI_KEY:-masterKey_change_me}
+      PNEUMA_KNOWLEDGE_CANONICAL_ROOT: /data/canonical
+      PNEUMA_KNOWLEDGE_EMBEDDING_MODEL: ${PNEUMA_APP_EMBEDDING_MODEL:-fake:1536}
+      PNEUMA_KNOWLEDGE_LLM_MODEL_RECALL: ${PNEUMA_APP_RECALL_MODEL:-}
+      PNEUMA_KNOWLEDGE_LLM_MODEL_DEEP: ${PNEUMA_APP_DEEP_MODEL:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+    volumes:
+      - ./:/app/examples/opc
+      - ./data/canonical:/data/canonical
+    ports:
+      - "127.0.0.1:${PNEUMA_APP_API_PORT:-28000}:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8080/healthz"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+
+  # The queue's doctor: ingest (CLI or browser upload) only enqueues; this worker drains.
+  # Part of the default web profile on purpose — an idle worker costs nothing, while a
+  # missing one leaves every browser upload sitting on "queued" forever. Keyless
+  # deployments that never upload simply keep an idle worker.
+  worker:
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile
+    command: ["uv", "run", "python", "examples/opc/worker.py"]
+    profiles: ["web"]
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      meilisearch:
+        condition: service_healthy
+    environment:
+      PNEUMA_KNOWLEDGE_PG_DSN: postgresql://pneuma_knowledge:pneuma_knowledge@postgres:5432/pneuma_knowledge
+      PNEUMA_KNOWLEDGE_QDRANT_URL: http://qdrant:6333
+      PNEUMA_KNOWLEDGE_MEILI_URL: http://meilisearch:7700
+      PNEUMA_KNOWLEDGE_MEILI_KEY: ${PNEUMA_APP_MEILI_KEY:-masterKey_change_me}
+      PNEUMA_KNOWLEDGE_CANONICAL_ROOT: /data/canonical
+      PNEUMA_KNOWLEDGE_EMBEDDING_MODEL: ${PNEUMA_APP_EMBEDDING_MODEL:-fake:1536}
+      PNEUMA_KNOWLEDGE_LLM_MODEL_COMPILE: ${PNEUMA_APP_COMPILE_MODEL:-}
+      PNEUMA_KNOWLEDGE_LLM_MODEL_RECALL: ${PNEUMA_APP_RECALL_MODEL:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+    volumes:
+      - ./:/app/examples/opc
+      - ./data/canonical:/data/canonical
+
+  web:
+    build:
+      context: ../..
+      dockerfile: examples/opc/Dockerfile.web
+    profiles: ["web"]
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${PNEUMA_APP_WEB_PORT:-24173}:80"
+
+volumes:
+  postgres_data:
+  qdrant_data:
+  meili_data:
+
+# An explicit subnet instead of Docker's default address pools — same rationale as the
+# scaffold template; this example pins its own fixed one (distinct from the template
+# fallback) so it coexists with generated projects.
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: ${PNEUMA_APP_SUBNET:-10.222.223.0/24}

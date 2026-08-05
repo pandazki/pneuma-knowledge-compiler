@@ -244,3 +244,47 @@ def test_render_passages_marker_has_full_source_id_even_without_title():
     # full source_id in the marker (never truncated), no readable context when no title.
     assert "[cite: abcdef1234 ¶1-1]" in out
     assert not out.startswith("#")  # empty header → no title line
+
+
+async def test_assemble_windows_assembly_override_passthrough():
+    """`assemble_windows(assembly=...)` forwards overrides to `expand_and_merge` verbatim:
+    None keeps today's behavior byte-for-byte, an override lifts exactly the named cap, and
+    an unknown key fails loudly instead of silently doing nothing (measurement plumbing —
+    a typo'd sweep knob must not masquerade as a null result)."""
+    import pytest
+
+    from pneuma_knowledge_core.recall.fast import assemble_windows
+
+    blocks = [f"b{i}" for i in range(30)]
+    content = FakeContent({"s1": _ns("s1", blocks, title="doc")})
+    hits = [_hit("s1", i, i, f"b{i}", score=1.0 - i / 100) for i in range(0, 30, 5)]
+
+    # No expansion/merge in play → the default per_source_cap=3 is what binds.
+    capped = await assemble_windows(
+        hits,
+        content=content,
+        user_id=_USER,
+        assembly={"forward_blocks": 0, "merge_gap_blocks": 0},
+    )
+    assert len(capped) == 3
+
+    # Same call + per_source_cap=6 → all six far-apart hits survive.
+    raised = await assemble_windows(
+        hits,
+        content=content,
+        user_id=_USER,
+        assembly={"forward_blocks": 0, "merge_gap_blocks": 0, "per_source_cap": 6},
+    )
+    assert len(raised) == 6
+
+    # assembly=None is byte-for-byte the no-argument call (the product default path).
+    default = await assemble_windows(hits, content=content, user_id=_USER)
+    explicit_none = await assemble_windows(hits, content=content, user_id=_USER, assembly=None)
+    assert [
+        (p.source_id, p.block_start, p.block_end, p.text) for p in default
+    ] == [(p.source_id, p.block_start, p.block_end, p.text) for p in explicit_none]
+
+    with pytest.raises(TypeError):
+        await assemble_windows(
+            hits, content=content, user_id=_USER, assembly={"per_source_caps": 6}
+        )

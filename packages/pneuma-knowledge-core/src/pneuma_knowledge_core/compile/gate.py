@@ -393,9 +393,12 @@ def run_gate(
         )
 
     # 5b. a rollover volume is FROZEN. Compile cannot create one, but every volume does sit in
-    # the draft as an ordinary document, so `append_block`/`edit_claim` could otherwise reach
-    # into frozen history. Nothing in a daily compile has any business writing there — the
-    # active document is where new claims belong — so any change to a volume is refused.
+    # the draft as an ordinary document. The claim-mutation tools now refuse a volume path
+    # up front (PatchDraft._refuse_frozen_volume, same ownership derivation), so in the tool
+    # loop this check should never be the FIRST thing to say "frozen" — but it stays as the
+    # final arbiter over the produced draft: nothing in a daily compile has any business
+    # writing there — the active document is where new claims belong — so any change to a
+    # volume, however it got into the draft, is refused.
     for path, doc in docs.items():
         if history_volume_owner(path, draft.path_templates) is None:
             continue

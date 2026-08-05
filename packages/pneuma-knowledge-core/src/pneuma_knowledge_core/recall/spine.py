@@ -34,6 +34,24 @@ CITE_PRECISE = "recall.cite.precise"
 CLOSE_ANSWER_HONESTLY = "recall.close.answer_honestly"
 CLOSE_SUGGESTION = "recall.close.suggestion"
 
+# The third injection point, appended AFTER the spine by the Q&A contracts (fast/deep):
+# the SHAPE of an answer. Three deployment presets — a grader or script wants the bare
+# exact value, a chat surface wants a natural sentence, a written report wants the full
+# context. Deliberately outside the spine: suggestion and briefing have their own genre,
+# and truth discipline (red line / citations / honest close) must not vary with style.
+ANSWER_STYLES: tuple[str, ...] = ("concise", "conversational", "detailed")
+DEFAULT_ANSWER_STYLE = "conversational"
+
+
+def style_clause(answer_style: str) -> str:
+    """Resolve an answer-style preset to its contract clause; an unknown name raises
+    instead of silently answering in the default voice."""
+    if answer_style not in ANSWER_STYLES:
+        raise ValueError(
+            f"unknown answer style {answer_style!r} (expected one of {ANSWER_STYLES})"
+        )
+    return prompt(f"recall.style.{answer_style}")
+
 
 def spine(cite: str, close: str) -> str:
     """The shared spine with a mode's citation-granularity + closing clauses injected.

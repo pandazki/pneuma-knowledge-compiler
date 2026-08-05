@@ -253,8 +253,11 @@ interface AppState {
   createUser: (uid: string) => void;
   /** Leave new-profile onboarding and continue to the first-source import step. */
   finishProfileCreation: (saved: boolean) => void;
-  /** jump to the Sources panel focused on a source (+ optional block range). */
+  /** open the global source galley sheet on a source (+ optional block range), in place —
+   * no view switch: a citation is a footnote to follow, not a navigation. */
   focusSource: (sourceId: string, range?: { start: number; end: number } | null) => void;
+  /** close the global source galley sheet. */
+  clearSourceFocus: () => void;
   /** merge a partial into the Recall view cache (inputs / last result). */
   setRecallCache: (patch: Partial<RecallCache>) => void;
   /** merge a partial into the Ask view cache (build inputs / conversation). */
@@ -827,15 +830,15 @@ export const useApp = create<AppState>((set, get) => ({
 
   focusSource: (sourceId, range) => {
     set({
-      view: "sources",
       sourceFocus: {
         sourceId,
         blockStart: range?.start ?? null,
         blockEnd: range?.end ?? null,
       },
     });
-    writeHash("sources", get().selection);
   },
+
+  clearSourceFocus: () => set({ sourceFocus: null }),
 
   setRecallCache: (patch) => set((s) => ({ recallCache: { ...s.recallCache, ...patch } })),
   setAskCache: (patch) => set((s) => ({ askCache: { ...s.askCache, ...patch } })),
@@ -849,7 +852,12 @@ export const useApp = create<AppState>((set, get) => ({
   },
   select: (selection) => {
     set({ selection });
-    writeHash(get().view, selection);
+    // Replace, not push: opening/closing a galley or picking a row is state WITHIN the
+    // current page. Pushing every selection filled history with drawer-toggle entries,
+    // so Back appeared dead — it was walking invisible selection states instead of
+    // leaving the view. Cross-view jumps (jump/setView) still push; Back always returns
+    // to the previous VIEW in one step, and the address bar stays deep-linkable.
+    writeHash(get().view, selection, true);
   },
   jump: (selection, view) => {
     const nextView = view ?? get().view;

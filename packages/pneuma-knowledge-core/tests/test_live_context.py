@@ -154,9 +154,32 @@ HANDLES = {"s01": SRC, "s02": "22222222-2222-2222-2222-222222222222"}
 # contracts so later edits cannot silently drift the provider-cache-stable System bytes.
 
 _PUBLIC_BASELINE_SHA256 = {
-    "fast": "ee16c57c45894ca4d808bfdc809ca572a013e0fb27246505d1aa567efe4586a7",
-    "deep": "a28fddeefd5f3b87e71a37958cbec02ff94188a6854bdf17828e17c5bee9249b",
-    "briefing": "01632bcbdde35a0357af4ce0654206e53b095de4c583859211af46df739ae20e",
+    # 2026-08: the fast head gained the grounded-inference paragraph (no-fabrication floor →
+    # calendar reasoning over dated evidence is in-scope competence, inference-based answers
+    # say so, refusal reserved for genuinely absent grounding).
+    # 2026-08-01: the fast head gained the subject-attribution paragraph (the same
+    # no-fabrication floor extends to attribution — a fact the records attribute to a
+    # different subject does not answer a question about the asked subject; say the records
+    # do not support it for that subject, and correct presuppositions attributed otherwise).
+    # 2026-08-04: the shared honest-close became two-tier (recall.close.answer_honestly):
+    # evidence supporting a reasonable inference → give the best-supported inference and
+    # say what it rests on; no footing at all → "no relevant record" stays the faithful
+    # answer. Measured on LoCoMo-refined: +3.6pp (p=0.001), reproduced +4.3pp (p=0.0001)
+    # on a different retrieval base; abstention 4.8%→1.3% with no fabrication signature.
+    # 2026-08-05: the honest-close gained the absolute-time law: relative time inside
+    # material has expired by reading time and "now" is unknown unless explicitly given,
+    # so answers reason in absolute dates (anchored spans when that is all the evidence
+    # supports) and never emit a bare relative expression. Three independent conv-26 runs
+    # showed the library normalizing perfectly while the answering layer still emitted
+    # "Yesterday." — the floor belongs in the contract, not in every harness author's head.
+    # 2026-08-05 (2): the fast/deep contracts gained the answer-style clause — three
+    # deployment presets (concise / conversational / detailed) appended after the spine;
+    # the default is "conversational" and these digests pin that default. Briefing keeps
+    # its own genre and is unchanged. Style shapes the answer only; truth discipline
+    # (red line, citations, honest close) is style-independent by construction.
+    "fast": "d64e6b0b17a949f554d6fdecd3b46d39dc23defa8585af6f2f56514aa175a985",
+    "deep": "a71892e9edb5c2a6c981a2938f93274ba9b16326db45a68407b883c39fd6f05f",
+    "briefing": "dde4f54613424f65ce58e1fe4332907e2a190eb994cb0ab3c71f537bbd445344",
 }
 
 
@@ -171,6 +194,53 @@ _ANSWER_CONTRACTS = {
 def test_public_answer_contracts_are_byte_stable(name):
     digest = hashlib.sha256(_ANSWER_CONTRACTS[name].encode()).hexdigest()
     assert digest == _PUBLIC_BASELINE_SHA256[name]
+
+
+@pytest.mark.parametrize("contract", [selector_contract, deep_contract])
+def test_answer_style_presets_swap_exactly_the_style_clause(contract):
+    """Each preset yields a distinct contract; the default IS "conversational"; and the
+    three variants share every byte except the style clause (truth discipline never
+    varies with style). Unknown names raise instead of answering in the default voice."""
+    from pneuma_knowledge_core.recall.spine import ANSWER_STYLES, style_clause
+
+    variants = {s: contract(answer_style=s) for s in ANSWER_STYLES}
+    assert len(set(variants.values())) == 3
+    assert contract() == variants["conversational"]
+    for style, text in variants.items():
+        clause = style_clause(style)
+        assert text.endswith(clause)
+        assert text.removesuffix(clause) == variants["concise"].removesuffix(
+            style_clause("concise")
+        )
+    with pytest.raises(ValueError):
+        contract(answer_style="terse")
+
+
+def test_fast_contract_extends_the_no_fabrication_floor_to_attribution():
+    """2026-08-01: a true fact the records attribute to a different subject is not an
+    answer about the asked subject. The fast head must say so in so many words — confirm
+    the evidence is about the asked subject, refuse for that subject on a mismatch, and
+    give a presupposing question the same correction — without displacing the existing
+    grounded-inference and refusal clauses."""
+    text = " ".join(selector_contract().split())
+    # the attribution paragraph
+    assert "The same floor extends to attribution" in text
+    assert (
+        "confirm the supporting evidence is actually about that subject" in text
+    )
+    assert (
+        "a fact the records attribute to a different subject is not an answer about "
+        "the one asked" in text
+    )
+    assert "say the records do not support it for the asked subject" in text
+    assert (
+        "A question that presupposes something the records attribute to a different "
+        "subject deserves that same correction" in text
+    )
+    # the pre-existing clauses stay intact around it
+    assert "nothing may be fabricated" in text
+    assert "a reasonable inference grounded in the recorded facts" in text
+    assert 'Reserve "no relevant record" for grounding that is genuinely absent' in text
 
 
 def test_live_context_contract_drops_the_qa_close_and_keeps_the_red_lines():

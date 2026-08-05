@@ -19,7 +19,7 @@ from pneuma_knowledge_core.domain.canonical import (
 )
 from pneuma_knowledge_core.domain.ids import ANCHOR_MARK_RE, UserId, extract_anchors
 from pneuma_knowledge_core.domain.snapshot import SnapshotRef
-from pneuma_knowledge_core.skill import claim_labels_for, load_builtin_skill
+from pneuma_knowledge_core.skill import claim_labels_for, load_skill_base
 
 from .skills import read_manifest
 from .wiring import AppContext, resolve_model_name
@@ -389,7 +389,7 @@ async def build_dataset(
     base_version = str(
         (manifest or {}).get("base_version") or ctx.settings.user_schema_base_version
     )
-    skill = load_builtin_skill(base_version)
+    skill = load_skill_base(base_version)
     claim_labels = [label.model_dump() for label in claim_labels_for(skill)]
 
     return {
