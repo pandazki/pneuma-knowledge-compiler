@@ -1,0 +1,341 @@
+2026-08-06T09:35:54Z [app-01] START conversation idx=0 sessions=19
+== Starting the middleware stack (postgres / qdrant / meilisearch) ==
+ Container pneuma-lcr-01-ca51-postgres-1  Running
+ Container pneuma-lcr-01-ca51-qdrant-1  Running
+ Container pneuma-lcr-01-ca51-meilisearch-1  Running
+ Container pneuma-lcr-01-ca51-qdrant-1  Waiting
+ Container pneuma-lcr-01-ca51-meilisearch-1  Waiting
+ Container pneuma-lcr-01-ca51-postgres-1  Waiting
+ Container pneuma-lcr-01-ca51-postgres-1  Healthy
+ Container pneuma-lcr-01-ca51-qdrant-1  Healthy
+ Container pneuma-lcr-01-ca51-meilisearch-1  Healthy
+  Stack ready: pg :44413  qdrant :22050  meili :42109
+2026-08-06T09:35:55Z [app-01] session 1/19: convert
+conv-26 session 1/19 -> /data/qiwei/lcr-final/app-01/material/s001/session-001.md (18 messages, round trip verified)
+2026-08-06T09:35:55Z [app-01] session 1/19: ingest
+== Ingesting 1 materials (user=u-app-owner, timezone Etc/UTC) ==
+  session-001.md → source c6997db0… 
+  Ingest done. Index and compile jobs queued — next: `./app.py compile`.
+2026-08-06T09:36:04Z [app-01] session 1/19: compile
+== Draining the compile queue (user=u-app-owner, contract lcr-01-knowledge@lcr-01-v1) ==
+  job 1/2: Caroline & Melanie — session 1 of 19, 1:56 pm on 8 May, 2023 indexed (~14s left)
+  job 2/3: Caroline & Melanie — session 1 of 19, 1:56 pm on 8 May, 2023 +11 claims (~12s left)
+  job 3/4: Caroline & Melanie — session 1 of 19, 1:56 pm on 8 May, 2023 done (~13s left)
+  job 4/4: Caroline & Melanie — session 1 of 19, 1:56 pm on 8 May, 2023 +5 claims
+  Processed 4 jobs in 60.2s; 6 canonical documents, 14 claims.
+  Compile-model tokens: input=56735 output=4085 total=60820
+2026-08-06T09:38:10Z [app-01] session 1/19: done in 135s (claims=14 docs=6)
+2026-08-06T09:38:10Z [app-01] session 2/19: convert
+conv-26 session 2/19 -> /data/qiwei/lcr-final/app-01/material/s002/session-002.md (17 messages, round trip verified)
+2026-08-06T09:38:10Z [app-01] session 2/19: ingest
+== Ingesting 1 materials (user=u-app-owner, timezone Etc/UTC) ==
+  session-002.md → source 3165d3ab… 
+  Ingest done. Index and compile jobs queued — next: `./app.py compile`.
+2026-08-06T09:38:21Z [app-01] session 2/19: compile
+== Draining the compile queue (user=u-app-owner, contract lcr-01-knowledge@lcr-01-v1) ==
+  job 1/2: Caroline & Melanie — session 2 of 19, 1:14 pm on 25 May, 2023 indexed (~6s left)
+  job 2/3: Caroline & Melanie — session 2 of 19, 1:14 pm on 25 May, 2023 +9 claims (~17s left)
+  job 3/3: Caroline & Melanie — session 2 of 19, 1:14 pm on 25 May, 2023 done
+  Processed 3 jobs in 42.2s; 9 canonical documents, 23 claims.
+  Compile-model tokens: input=76544 output=2747 total=79291
+2026-08-06T09:40:02Z [app-01] session 2/19: done in 112s (claims=23 docs=9)
+2026-08-06T09:40:02Z [app-01] session 3/19: convert
+conv-26 session 3/19 -> /data/qiwei/lcr-final/app-01/material/s003/session-003.md (23 messages, round trip verified)
+2026-08-06T09:40:02Z [app-01] session 3/19: ingest
+== Ingesting 1 materials (user=u-app-owner, timezone Etc/UTC) ==
+  session-003.md → source ee10f9f1… 
+  Ingest done. Index and compile jobs queued — next: `./app.py compile`.
+2026-08-06T09:40:12Z [app-01] session 3/19: compile
+== Draining the compile queue (user=u-app-owner, contract lcr-01-knowledge@lcr-01-v1) ==
+  job 1/2: Caroline & Melanie — session 3 of 19, 7:55 pm on 9 June, 2023 indexed (~8s left)
+  job 2/3: Caroline & Melanie — session 3 of 19, 7:55 pm on 9 June, 2023 +11 claims (~25s left)
+  job 3/3: Caroline & Melanie — session 3 of 19, 7:55 pm on 9 June, 2023 done
+  Processed 3 jobs in 64.3s; 10 canonical documents, 34 claims.
+  Compile-model tokens: input=58613 output=4380 total=62993
+2026-08-06T09:42:31Z [app-01] session 3/19: done in 149s (claims=34 docs=10)
+2026-08-06T09:42:31Z [app-01] session 4/19: convert
+conv-26 session 4/19 -> /data/qiwei/lcr-final/app-01/material/s004/session-004.md (18 messages, round trip verified)
+2026-08-06T09:42:32Z [app-01] session 4/19: ingest
+== Ingesting 1 materials (user=u-app-owner, timezone Etc/UTC) ==
+  session-004.md → source d499b649… 
+  Ingest done. Index and compile jobs queued — next: `./app.py compile`.
+2026-08-06T09:42:54Z [app-01] session 4/19: compile
+== Draining the compile queue (user=u-app-owner, contract lcr-01-knowledge@lcr-01-v1) ==
+  job 1/2: Caroline & Melanie — session 4 of 19, 10:37 am on 27 June, 2023 indexed (~11s left)
+  job 2/3: Caroline & Melanie — session 4 of 19, 10:37 am on 27 June, 2023 +11 claims (~18s left)
+  job 3/4: Caroline & Melanie — session 4 of 19, 10:37 am on 27 June, 2023 done (~18s left)
+  job 4/4: Caroline & Melanie — session 4 of 19, 10:37 am on 27 June, 2023 +7 claims
+  Processed 4 jobs in 79.0s; 12 canonical documents, 43 claims.
+  Compile-model tokens: input=136355 output=6105 total=142460
+2026-08-06T09:46:02Z [app-01] session 4/19: done in 211s (claims=43 docs=12)
+2026-08-06T09:46:02Z [app-01] session 5/19: convert
+conv-26 session 5/19 -> /data/qiwei/lcr-final/app-01/material/s005/session-005.md (16 messages, round trip verified)
+2026-08-06T09:46:02Z [app-01] session 5/19: ingest
+== Ingesting 1 materials (user=u-app-owner, timezone Etc/UTC) ==
+  session-005.md → source 2242bc21… 
+  Ingest done. Index and compile jobs queued — next: `./app.py compile`.
+2026-08-06T09:46:14Z [app-01] session 5/19: compile
+== Draining the compile queue (user=u-app-owner, contract lcr-01-knowledge@lcr-01-v1) ==
+  job 1/2: Caroline & Melanie — session 5 of 19, 1:36 pm on 3 July, 2023 indexed (~8s left)
+  job 2/3: Caroline & Melanie — session 5 of 19, 1:36 pm on 3 July, 2023 +12 claims (~21s left)
+  job 3/4: Caroline & Melanie — session 5 of 19, 1:36 pm on 3 July, 2023 done (~19s left)
+  job 4/4: Caroline & Melanie — session 5 of 19, 1:36 pm on 3 July, 2023 +1 claims
+  Processed 4 jobs in 70.3s; 15 canonical documents, 53 claims.
+  Compile-model tokens: input=110395 output=4461 total=114856
+2026-08-06T09:49:34Z [app-01] session 5/19: done in 212s (claims=53 docs=15)
+2026-08-06T09:49:34Z [app-01] EVOLVE fire  session=5 new_claims=53 sessions_since=5 force=0
+== Draining the compile queue (user=u-app-owner, contract lcr-01-knowledge@lcr-01-v1) ==
+  job 1/1: (no matching material) done
+  Processed 1 jobs in 6.1s; 15 canonical documents, 53 claims.
+  Compile-model tokens: input=3329 output=138 total=3467
+evolve step: no draft produced (no_change or below thresholds).
+== Draining the compile queue (user=u-app-owner, contract lcr-01-knowledge@lcr-01-v1) ==
+  Processed 0 jobs in 2.2s; 15 canonical documents, 53 claims.
+  Compile-model tokens: input=0 output=0 total=0
+2026-08-06T09:50:30Z [app-01] session 6/19: convert
+conv-26 session 6/19 -> /data/qiwei/lcr-final/app-01/material/s006/session-006.md (16 messages, round trip verified)
+2026-08-06T09:50:30Z [app-01] session 6/19: ingest
+== Ingesting 1 materials (user=u-app-owner, timezone Etc/UTC) ==
+  session-006.md → source 16fada7f… 
+  Ingest done. Index and compile jobs queued — next: `./app.py compile`.
+2026-08-06T09:50:39Z [app-01] session 6/19: compile
+== Draining the compile queue (user=u-app-owner, contract lcr-01-knowledge@lcr-01-v1) ==
+  job 1/2: Caroline & Melanie — session 6 of 19, 8:18 pm on 6 July, 2023 indexed (~10s left)
+  job 2/3: Caroline & Melanie — session 6 of 19, 8:18 pm on 6 July, 2023 +12 claims (~50s left)
+  job 3/4: Caroline & Melanie — session 6 of 19, 8:18 pm on 6 July, 2023 done (~36s left)
+  job 4/4: Caroline & Melanie — session 6 of 19, 8:18 pm on 6 July, 2023 +3 claims
+  Processed 4 jobs in 124.5s; 16 canonical documents, 63 claims.
+  Compile-model tokens: input=120342 output=6356 total=126698
+2026-08-06T09:53:29Z [app-01] session 6/19: done in 179s (claims=63 docs=16)
+2026-08-06T09:53:29Z [app-01] session 7/19: convert
+conv-26 session 7/19 -> /data/qiwei/lcr-final/app-01/material/s007/session-007.md (27 messages, round trip verified)
+2026-08-06T09:53:29Z [app-01] session 7/19: ingest
+== Ingesting 1 materials (user=u-app-owner, timezone Etc/UTC) ==
+  session-007.md → source 3ce1d9b8… 
+  Ingest done. Index and compile jobs queued — next: `./app.py compile`.
+2026-08-06T09:53:39Z [app-01] session 7/19: compile
+== Draining the compile queue (user=u-app-owner, contract lcr-01-knowledge@lcr-01-v1) ==
+  job 1/2: Caroline & Melanie — session 7 of 19, 4:33 pm on 12 July, 2023 indexed (~8s left)
+  job 2/3: Caroline & Melanie — session 7 of 19, 4:33 pm on 12 July, 2023 +15 claims (~24s left)
+  job 3/4: Caroline & Melanie — session 7 of 19, 4:33 pm on 12 July, 2023 done (~20s left)
+  job 4/4: Caroline & Melanie — session 7 of 19, 4:33 pm on 12 July, 2023 +6 claims
+  Processed 4 jobs in 80.4s; 19 canonical documents, 80 claims.
+  Compile-model tokens: input=187046 output=7380 total=194426
+2026-08-06T09:55:45Z [app-01] session 7/19: done in 136s (claims=80 docs=19)
+2026-08-06T09:55:45Z [app-01] session 8/19: convert
+conv-26 session 8/19 -> /data/qiwei/lcr-final/app-01/material/s008/session-008.md (39 messages, round trip verified)
+2026-08-06T09:55:45Z [app-01] session 8/19: ingest
+== Ingesting 1 materials (user=u-app-owner, timezone Etc/UTC) ==
+  session-008.md → source 5375dcb6… 
+  Ingest done. Index and compile jobs queued — next: `./app.py compile`.
+2026-08-06T09:55:54Z [app-01] session 8/19: compile
+== Draining the compile queue (user=u-app-owner, contract lcr-01-knowledge@lcr-01-v1) ==
+  job 1/2: Caroline & Melanie — session 8 of 19, 1:51 pm on 15 July, 2023 indexed (~16s left)
+  job 2/3: Caroline & Melanie — session 8 of 19, 1:51 pm on 15 July, 2023 +13 claims (~26s left)
+  job 3/4: Caroline & Melanie — session 8 of 19, 1:51 pm on 15 July, 2023 done (~23s left)
+  job 4/4: Caroline & Melanie — session 8 of 19, 1:51 pm on 15 July, 2023 +7 claims
+  Processed 4 jobs in 82.8s; 20 canonical documents, 95 claims.
+  Compile-model tokens: input=170260 output=7003 total=177263
+2026-08-06T09:58:10Z [app-01] session 8/19: done in 145s (claims=95 docs=20)
+2026-08-06T09:58:10Z [app-01] session 9/19: convert
+conv-26 session 9/19 -> /data/qiwei/lcr-final/app-01/material/s009/session-009.md (17 messages, round trip verified)
+2026-08-06T09:58:10Z [app-01] session 9/19: ingest
+== Ingesting 1 materials (user=u-app-owner, timezone Etc/UTC) ==
+  session-009.md → source 5eb35ad9… 
+  Ingest done. Index and compile jobs queued — next: `./app.py compile`.
+2026-08-06T09:58:23Z [app-01] session 9/19: compile
+== Draining the compile queue (user=u-app-owner, contract lcr-01-knowledge@lcr-01-v1) ==
+  job 1/2: Caroline & Melanie — session 9 of 19, 2:31 pm on 17 July, 2023 indexed (~8s left)
+  job 2/3: Caroline & Melanie — session 9 of 19, 2:31 pm on 17 July, 2023 +13 claims (~20s left)
+  job 3/4: Caroline & Melanie — session 9 of 19, 2:31 pm on 17 July, 2023 done (~19s left)
+  job 4/4: Caroline & Melanie — session 9 of 19, 2:31 pm on 17 July, 2023 +7 claims
+  Processed 4 jobs in 78.3s; 22 canonical documents, 110 claims.
+  Compile-model tokens: input=190626 output=5880 total=196506
+2026-08-06T10:00:29Z [app-01] session 9/19: done in 139s (claims=110 docs=22)
+2026-08-06T10:00:29Z [app-01] EVOLVE fire  session=9 new_claims=57 sessions_since=4 force=0
+== Draining the compile queue (user=u-app-owner, contract lcr-01-knowledge@lcr-01-v1) ==
+  job 1/1: (no matching material) done
+  Processed 1 jobs in 8.3s; 22 canonical documents, 110 claims.
+  Compile-model tokens: input=3406 output=121 total=3527
+evolve step: no draft produced (no_change or below thresholds).
+== Draining the compile queue (user=u-app-owner, contract lcr-01-knowledge@lcr-01-v1) ==
+  Processed 0 jobs in 2.2s; 22 canonical documents, 110 claims.
+  Compile-model tokens: input=0 output=0 total=0
+2026-08-06T10:01:37Z [app-01] session 10/19: convert
+conv-26 session 10/19 -> /data/qiwei/lcr-final/app-01/material/s010/session-010.md (24 messages, round trip verified)
+2026-08-06T10:01:37Z [app-01] session 10/19: ingest
+== Ingesting 1 materials (user=u-app-owner, timezone Etc/UTC) ==
+  session-010.md → source ba42d91e… 
+  Ingest done. Index and compile jobs queued — next: `./app.py compile`.
+2026-08-06T10:01:50Z [app-01] session 10/19: compile
+== Draining the compile queue (user=u-app-owner, contract lcr-01-knowledge@lcr-01-v1) ==
+  job 1/2: Caroline & Melanie — session 10 of 19, 8:56 pm on 20 July, 2023 indexed (~8s left)
+  job 2/3: Caroline & Melanie — session 10 of 19, 8:56 pm on 20 July, 2023 +12 claims (~15s left)
+  job 3/4: Caroline & Melanie — session 10 of 19, 8:56 pm on 20 July, 2023 done (~17s left)
+  job 4/4: Caroline & Melanie — session 10 of 19, 8:56 pm on 20 July, 2023 +6 claims
+  Processed 4 jobs in 72.8s; 23 canonical documents, 122 claims.
+  Compile-model tokens: input=203529 output=4795 total=208324
+2026-08-06T10:03:58Z [app-01] session 10/19: done in 141s (claims=122 docs=23)
+2026-08-06T10:03:58Z [app-01] session 11/19: convert
+conv-26 session 11/19 -> /data/qiwei/lcr-final/app-01/material/s011/session-011.md (17 messages, round trip verified)
+2026-08-06T10:03:58Z [app-01] session 11/19: ingest
+== Ingesting 1 materials (user=u-app-owner, timezone Etc/UTC) ==
+  session-011.md → source 0616cb39… 
+  Ingest done. Index and compile jobs queued — next: `./app.py compile`.
+2026-08-06T10:04:08Z [app-01] session 11/19: compile
+== Draining the compile queue (user=u-app-owner, contract lcr-01-knowledge@lcr-01-v1) ==
+  job 1/2: Caroline & Melanie — session 11 of 19, 2:24 pm on 14 August, 2023 indexed (~8s left)
+  job 2/3: Caroline & Melanie — session 11 of 19, 2:24 pm on 14 August, 2023 +7 claims (~13s left)
+  job 3/4: Caroline & Melanie — session 11 of 19, 2:24 pm on 14 August, 2023 done (~18s left)
+  job 4/4: Caroline & Melanie — session 11 of 19, 2:24 pm on 14 August, 2023 +3 claims
+  Processed 4 jobs in 70.6s; 25 canonical documents, 132 claims.
+  Compile-model tokens: input=162244 output=4041 total=166285
+2026-08-06T10:06:23Z [app-01] session 11/19: done in 145s (claims=132 docs=25)
+2026-08-06T10:06:23Z [app-01] session 12/19: convert
+conv-26 session 12/19 -> /data/qiwei/lcr-final/app-01/material/s012/session-012.md (21 messages, round trip verified)
+2026-08-06T10:06:23Z [app-01] session 12/19: ingest
+== Ingesting 1 materials (user=u-app-owner, timezone Etc/UTC) ==
+  session-012.md → source 003ef511… 
+  Ingest done. Index and compile jobs queued — next: `./app.py compile`.
+2026-08-06T10:06:36Z [app-01] session 12/19: compile
+== Draining the compile queue (user=u-app-owner, contract lcr-01-knowledge@lcr-01-v1) ==
+  job 1/2: Caroline & Melanie — session 12 of 19, 1:50 pm on 17 August, 2023 indexed (~8s left)
+  job 2/3: Caroline & Melanie — session 12 of 19, 1:50 pm on 17 August, 2023 +6 claims (~14s left)
+  job 3/4: Caroline & Melanie — session 12 of 19, 1:50 pm on 17 August, 2023 done (~15s left)
+  job 4/4: Caroline & Melanie — session 12 of 19, 1:50 pm on 17 August, 2023 +7 claims
+  Processed 4 jobs in 82.6s; 27 canonical documents, 142 claims.
+  Compile-model tokens: input=142749 output=4263 total=147012
+2026-08-06T10:09:10Z [app-01] session 12/19: done in 167s (claims=142 docs=27)
+2026-08-06T10:09:10Z [app-01] session 13/19: convert
+conv-26 session 13/19 -> /data/qiwei/lcr-final/app-01/material/s013/session-013.md (18 messages, round trip verified)
+2026-08-06T10:09:10Z [app-01] session 13/19: ingest
+== Ingesting 1 materials (user=u-app-owner, timezone Etc/UTC) ==
+  session-013.md → source faf82e69… 
+  Ingest done. Index and compile jobs queued — next: `./app.py compile`.
+2026-08-06T10:09:23Z [app-01] session 13/19: compile
+== Draining the compile queue (user=u-app-owner, contract lcr-01-knowledge@lcr-01-v1) ==
+  job 1/2: Caroline & Melanie — session 13 of 19, 3:31 pm on 23 August, 2023 indexed (~18s left)
+  job 2/3: Caroline & Melanie — session 13 of 19, 3:31 pm on 23 August, 2023 +16 claims (~32s left)
+  job 3/4: Caroline & Melanie — session 13 of 19, 3:31 pm on 23 August, 2023 done (~25s left)
+  job 4/4: Caroline & Melanie — session 13 of 19, 3:31 pm on 23 August, 2023 +3 claims
+  Processed 4 jobs in 92.8s; 31 canonical documents, 158 claims.
+  Compile-model tokens: input=238657 output=5604 total=244261
+2026-08-06T10:11:52Z [app-01] session 13/19: done in 162s (claims=158 docs=31)
+2026-08-06T10:11:52Z [app-01] session 14/19: convert
+conv-26 session 14/19 -> /data/qiwei/lcr-final/app-01/material/s014/session-014.md (35 messages, round trip verified)
+2026-08-06T10:11:52Z [app-01] session 14/19: ingest
+== Ingesting 1 materials (user=u-app-owner, timezone Etc/UTC) ==
+  session-014.md → source b0ec34fd… 
+  Ingest done. Index and compile jobs queued — next: `./app.py compile`.
+2026-08-06T10:12:01Z [app-01] session 14/19: compile
+== Draining the compile queue (user=u-app-owner, contract lcr-01-knowledge@lcr-01-v1) ==
+  job 1/2: Caroline & Melanie — session 14 of 19, 1:33 pm on 25 August, 2023 indexed (~10s left)
+  job 2/3: Caroline & Melanie — session 14 of 19, 1:33 pm on 25 August, 2023 +20 claims (~18s left)
+  job 3/4: Caroline & Melanie — session 14 of 19, 1:33 pm on 25 August, 2023 done (~19s left)
+  job 4/4: Caroline & Melanie — session 14 of 19, 1:33 pm on 25 August, 2023 +3 claims
+  Processed 4 jobs in 70.7s; 34 canonical documents, 178 claims.
+  Compile-model tokens: input=195757 output=4831 total=200588
+2026-08-06T10:13:59Z [app-01] session 14/19: done in 127s (claims=178 docs=34)
+2026-08-06T10:13:59Z [app-01] EVOLVE fire  session=14 new_claims=68 sessions_since=5 force=0
+== Draining the compile queue (user=u-app-owner, contract lcr-01-knowledge@lcr-01-v1) ==
+  job 1/1: (no matching material) done
+  Processed 1 jobs in 6.1s; 34 canonical documents, 178 claims.
+  Compile-model tokens: input=3624 output=193 total=3817
+evolve step: no draft produced (no_change or below thresholds).
+== Draining the compile queue (user=u-app-owner, contract lcr-01-knowledge@lcr-01-v1) ==
+  Processed 0 jobs in 2.1s; 34 canonical documents, 178 claims.
+  Compile-model tokens: input=0 output=0 total=0
+2026-08-06T10:14:35Z [app-01] session 15/19: convert
+conv-26 session 15/19 -> /data/qiwei/lcr-final/app-01/material/s015/session-015.md (28 messages, round trip verified)
+2026-08-06T10:14:35Z [app-01] session 15/19: ingest
+== Ingesting 1 materials (user=u-app-owner, timezone Etc/UTC) ==
+  session-015.md → source 03f69f13… 
+  Ingest done. Index and compile jobs queued — next: `./app.py compile`.
+2026-08-06T10:14:43Z [app-01] session 15/19: compile
+== Draining the compile queue (user=u-app-owner, contract lcr-01-knowledge@lcr-01-v1) ==
+  job 1/2: Caroline & Melanie — session 15 of 19, 3:19 pm on 28 August, 2023 indexed (~8s left)
+  job 2/3: Caroline & Melanie — session 15 of 19, 3:19 pm on 28 August, 2023 +12 claims (~15s left)
+  job 3/4: Caroline & Melanie — session 15 of 19, 3:19 pm on 28 August, 2023 done (~15s left)
+  job 4/4: Caroline & Melanie — session 15 of 19, 3:19 pm on 28 August, 2023 +6 claims
+  Processed 4 jobs in 62.5s; 34 canonical documents, 190 claims.
+  Compile-model tokens: input=132645 output=5249 total=137894
+2026-08-06T10:16:21Z [app-01] session 15/19: done in 106s (claims=190 docs=34)
+2026-08-06T10:16:21Z [app-01] session 16/19: convert
+conv-26 session 16/19 -> /data/qiwei/lcr-final/app-01/material/s016/session-016.md (20 messages, round trip verified)
+2026-08-06T10:16:21Z [app-01] session 16/19: ingest
+== Ingesting 1 materials (user=u-app-owner, timezone Etc/UTC) ==
+  session-016.md → source 62569c4f… 
+  Ingest done. Index and compile jobs queued — next: `./app.py compile`.
+2026-08-06T10:16:30Z [app-01] session 16/19: compile
+== Draining the compile queue (user=u-app-owner, contract lcr-01-knowledge@lcr-01-v1) ==
+  job 1/2: Caroline & Melanie — session 16 of 19, 12:09 am on 13 September, 2023 indexed (~10s left)
+  job 2/3: Caroline & Melanie — session 16 of 19, 12:09 am on 13 September, 2023 +12 claims (~18s left)
+  job 3/4: Caroline & Melanie — session 16 of 19, 12:09 am on 13 September, 2023 done (~22s left)
+  job 4/4: Caroline & Melanie — session 16 of 19, 12:09 am on 13 September, 2023 +4 claims
+  Processed 4 jobs in 82.5s; 35 canonical documents, 205 claims.
+  Compile-model tokens: input=158565 output=4218 total=162783
+2026-08-06T10:18:28Z [app-01] session 16/19: done in 127s (claims=205 docs=35)
+2026-08-06T10:18:28Z [app-01] session 17/19: convert
+conv-26 session 17/19 -> /data/qiwei/lcr-final/app-01/material/s017/session-017.md (26 messages, round trip verified)
+2026-08-06T10:18:28Z [app-01] session 17/19: ingest
+== Ingesting 1 materials (user=u-app-owner, timezone Etc/UTC) ==
+  session-017.md → source 215833db… 
+  Ingest done. Index and compile jobs queued — next: `./app.py compile`.
+2026-08-06T10:18:34Z [app-01] session 17/19: compile
+== Draining the compile queue (user=u-app-owner, contract lcr-01-knowledge@lcr-01-v1) ==
+  job 1/2: Caroline & Melanie — session 17 of 19, 10:31 am on 13 October, 2023 indexed (~6s left)
+  job 2/3: Caroline & Melanie — session 17 of 19, 10:31 am on 13 October, 2023 +16 claims (~22s left)
+  job 3/4: Caroline & Melanie — session 17 of 19, 10:31 am on 13 October, 2023 done (~19s left)
+  job 4/4: Caroline & Melanie — session 17 of 19, 10:31 am on 13 October, 2023 +5 claims
+  Processed 4 jobs in 76.5s; 37 canonical documents, 221 claims.
+  Compile-model tokens: input=217320 output=4863 total=222183
+2026-08-06T10:20:24Z [app-01] session 17/19: done in 116s (claims=221 docs=37)
+2026-08-06T10:20:24Z [app-01] session 18/19: convert
+conv-26 session 18/19 -> /data/qiwei/lcr-final/app-01/material/s018/session-018.md (24 messages, round trip verified)
+2026-08-06T10:20:24Z [app-01] session 18/19: ingest
+== Ingesting 1 materials (user=u-app-owner, timezone Etc/UTC) ==
+  session-018.md → source c0ab1cd0… 
+  Ingest done. Index and compile jobs queued — next: `./app.py compile`.
+2026-08-06T10:20:31Z [app-01] session 18/19: compile
+== Draining the compile queue (user=u-app-owner, contract lcr-01-knowledge@lcr-01-v1) ==
+  job 1/2: Caroline & Melanie — session 18 of 19, 6:55 pm on 20 October, 2023 indexed (~6s left)
+  job 2/3: Caroline & Melanie — session 18 of 19, 6:55 pm on 20 October, 2023 +5 claims (~10s left)
+  job 3/4: Caroline & Melanie — session 18 of 19, 6:55 pm on 20 October, 2023 done (~13s left)
+  job 4/4: Caroline & Melanie — session 18 of 19, 6:55 pm on 20 October, 2023 +6 claims
+  Processed 4 jobs in 68.3s; 37 canonical documents, 232 claims.
+  Compile-model tokens: input=104528 output=3360 total=107888
+2026-08-06T10:22:08Z [app-01] session 18/19: done in 104s (claims=232 docs=37)
+2026-08-06T10:22:08Z [app-01] EVOLVE fire  session=18 new_claims=54 sessions_since=4 force=0
+== Draining the compile queue (user=u-app-owner, contract lcr-01-knowledge@lcr-01-v1) ==
+  job 1/1: (no matching material) done
+  Processed 1 jobs in 6.1s; 37 canonical documents, 232 claims.
+  Compile-model tokens: input=3451 output=122 total=3573
+evolve step: no draft produced (no_change or below thresholds).
+== Draining the compile queue (user=u-app-owner, contract lcr-01-knowledge@lcr-01-v1) ==
+  Processed 0 jobs in 2.1s; 37 canonical documents, 232 claims.
+  Compile-model tokens: input=0 output=0 total=0
+2026-08-06T10:22:37Z [app-01] session 19/19: convert
+conv-26 session 19/19 -> /data/qiwei/lcr-final/app-01/material/s019/session-019.md (15 messages, round trip verified)
+2026-08-06T10:22:37Z [app-01] session 19/19: ingest
+== Ingesting 1 materials (user=u-app-owner, timezone Etc/UTC) ==
+  session-019.md → source a41748d3… 
+  Ingest done. Index and compile jobs queued — next: `./app.py compile`.
+2026-08-06T10:22:42Z [app-01] session 19/19: compile
+== Draining the compile queue (user=u-app-owner, contract lcr-01-knowledge@lcr-01-v1) ==
+  job 1/2: Caroline & Melanie — session 19 of 19, 9:55 am on 22 October, 2023 indexed (~6s left)
+  job 2/3: Caroline & Melanie — session 19 of 19, 9:55 am on 22 October, 2023 +5 claims (~37s left)
+  job 3/4: Caroline & Melanie — session 19 of 19, 9:55 am on 22 October, 2023 done (~30s left)
+  job 4/4: Caroline & Melanie — session 19 of 19, 9:55 am on 22 October, 2023 +6 claims
+  Processed 4 jobs in 116.4s; 38 canonical documents, 243 claims.
+  Compile-model tokens: input=157258 output=4036 total=161294
+2026-08-06T10:25:07Z [app-01] session 19/19: done in 150s (claims=243 docs=38)
+2026-08-06T10:25:13Z [app-01] EVOLVE fire  session=19 new_claims=11 sessions_since=1 force=1
+== Draining the compile queue (user=u-app-owner, contract lcr-01-knowledge@lcr-01-v1) ==
+  job 1/1: (no matching material) done
+  Processed 1 jobs in 4.1s; 38 canonical documents, 243 claims.
+  Compile-model tokens: input=3374 output=118 total=3492
+evolve step: no draft produced (no_change or below thresholds).
+== Draining the compile queue (user=u-app-owner, contract lcr-01-knowledge@lcr-01-v1) ==
+  Processed 0 jobs in 2.1s; 38 canonical documents, 243 claims.
+  Compile-model tokens: input=0 output=0 total=0
+2026-08-06T10:25:54Z [app-01] FINISH conversation idx=0 claims=243 documents=38

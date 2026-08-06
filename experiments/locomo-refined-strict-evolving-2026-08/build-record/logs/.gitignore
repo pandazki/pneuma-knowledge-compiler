@@ -1,0 +1,4 @@
+# The repository root ignores *.log (agent session logs). These are the experiment's own
+# build and answering logs — they are the evidence behind the report's numbers, so they
+# are checked in deliberately.
+!*.log

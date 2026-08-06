@@ -1,0 +1,47 @@
+[
+  {
+    "user_id": "u-app-owner",
+    "operation": "chunk.semantic",
+    "calls": 819,
+    "input": 420957,
+    "output": 129146,
+    "total": 550103,
+    "cost_usd": 0.256803769954
+  },
+  {
+    "user_id": "u-app-owner",
+    "operation": "compile",
+    "calls": 2421,
+    "input": 41762899,
+    "output": 1073564,
+    "total": 42836463,
+    "cost_usd": 3.8747955195989996
+  },
+  {
+    "user_id": "u-app-owner",
+    "operation": "compile.challenge",
+    "calls": 5470,
+    "input": 2207334,
+    "output": 347796,
+    "total": 2555130,
+    "cost_usd": 0.8347162699009999
+  },
+  {
+    "user_id": "u-app-owner",
+    "operation": "evolve.propose",
+    "calls": 680,
+    "input": 230812,
+    "output": 9824,
+    "total": 240636,
+    "cost_usd": 0.06948159999200001
+  },
+  {
+    "user_id": "u-app-owner",
+    "operation": "recall.fast",
+    "calls": 1383,
+    "input": 13921153,
+    "output": 92241,
+    "total": 14013394,
+    "cost_usd": 3.2175531398149992
+  }
+]

@@ -1,0 +1,21 @@
+# Answering. Style is shape only — the truth discipline (citations, no invention, an honest
+# "the material does not say") is the same in all three.
+#
+#   concise        the bare exact value a grader or a script expects
+#   conversational a natural chat reply
+#   detailed       a self-contained written note
+#
+# Override for one question: ./app.py ask '...' --style concise
+answer_style: conversational
+
+# Retrieval budget per question: how many compiled claims and how many raw source windows
+# may enter the prompt.
+claim_cap: 64
+window_cap: 8
+# 0 = one query per question. N > 0 spends one small model call to derive up to N extra
+# retrieval queries, pooled into one ranking — worth it for multi-part questions.
+plan_queries: 0
+# Empty = no reranking (measured: no gain on claim-level retrieval). "llm" reranks with the
+# recall model; a bare model name uses OpenRouter's /rerank endpoint.
+rerank_model: ""
+rerank_candidates: 120

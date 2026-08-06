@@ -1,0 +1,35 @@
+# 主体档案 —— 只放「注册级」信息：称呼、职业、语言时区这类稳定的自我介绍。
+# 材料里的事实（谁负责什么、决定了什么）让编译自己去学，不要写进这里。
+#
+# locale 三项（时区/语言/地区）由 `./app.py init` 从系统自动检测（/etc/localtime
+# 软链、$LANG），并在下面的 provenance 块里如实标注每一项是怎么来的：
+#   - deployment_default = 从系统检测出来的默认值。编译会照实声明"这是检测值，
+#     不是主人自己的设定"；此时时区不写入主体档案，只作为默认时区生效。
+#   - profile = 你（或你的 AI 向导）亲自确认或改过这一项。确认后把对应
+#     provenance 改成 profile，它才会作为你自己的设定写入档案。
+#   - unstated = 尚未检测、尚未声明。
+
+display_name: "Someone"   # 主人的称呼
+occupation: ""       # 一句话职业描述
+bio: ""                     # 一两句背景，帮编译理解你的视角
+interests: []           # 长期兴趣关键词
+
+# 三个枚举只影响回答风格，不影响入册判断。
+# 个人/爱好场景不用对号入座：industry、role 就写 other，level 保持 mid 即可。
+industry: other    # tech / finance / sports / creative / education / healthcare / marketing / other
+role: other            # engineering / marketing / product_management / sales / design / support / admin / other
+level: mid          # entry / junior / mid / senior / staff / principal
+
+locale:
+  city: ""            # 常驻城市（可留空）
+  country: "US"         # ISO 国家/地区码，如 CN、US —— init 从 $LANG 检测
+  timezone: "Etc/UTC"        # IANA 时区，如 Asia/Shanghai —— init 从 /etc/localtime 检测
+  language: "en-US"        # BCP-47，如 zh-CN —— init 从 $LANG 检测
+
+provenance:           # 上面三项检测值的来源标注（取值含义见文件头注释）
+  timezone: profile
+  language: profile
+  region: profile
+
+preferences:
+  response_language: "en-US"   # 希望 AI 用什么语言回答；留空跟随 locale.language
