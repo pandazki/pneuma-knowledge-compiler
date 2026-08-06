@@ -1,0 +1,21 @@
+# Prompt overlays: catalog key → the clause that replaces it, applied when a process starts.
+# This is the framework's extension point for model-visible wording — you can rewrite what
+# the models are told without forking anything.
+#
+# `language` picks which language the FRAMEWORK's own clauses arrive in — the layer your
+# overrides below sit on. en = the English catalog, the baseline every measurement in the
+# framework repository was taken on; zh = the shipped Chinese language pack, for readability
+# and Chinese material, with scoring equivalence unverified. It does NOT decide what language
+# this library is written in: that follows the owner profile's declared language.
+language: en
+#
+# Whole-clause replacement only, and an unknown key is refused rather than ignored (a
+# half-applied override would leave the framework's wording reaching the model while you
+# believed it did not). `GET /v1/engine/schema` lists every key that can be overridden.
+#
+# Empty is the right default: the framework's own wording is business-neutral, and your
+# domain judgement belongs in compile/contract.md, not in a prompt rewrite.
+overlays:
+  gate.claim_without_provenance: |
+    Every claim cites its blocks: "{preview}…" (c:{anchor}).
+

@@ -27,15 +27,15 @@
 
 ## 三分钟看见它
 
-不需要任何 API key——`examples/opc` 随仓附带一座真实的、由代理建成的库（190 份合成材料、754 条知识），本地一分钟左右即可恢复：
+不需要 API key，也不需要回答任何问题。一条命令生成一个「已经编好库」的真实项目（190 份合成材料、754 条知识），起好，并告诉你去哪看：
 
 ```bash
-cd examples/opc && cp .env.example .env
-./app.py up && ./bootstrap.py
-docker compose --profile web up -d --build api web   # 首次构建镜像需要几分钟
+cd scaffold && ./init.py --demo      # 落在一个新建临时目录；用 --target DIR 自己指定
 ```
 
-打开 <http://127.0.0.1:24173>，在浏览器里走完整条流水线：原始材料、编译历史、带逐条引用的正本文库（还有一卷真实的冻结归档）、以及各检索面。浏览零成本；问答需要在 `.env` 里填 OpenRouter key。
+它会打印一个 `http://127.0.0.1:<端口>`。在浏览器里走完整条流水线：原始材料、编译历史、带逐条引用的正本文库（还有一卷真实的冻结归档）、各检索面，以及**引擎控制台**——在那里改一个策略配置、看清它的影响范围，然后作为一个版本 apply 出去。以上都不需要 key；问答需要。
+
+它自带的那座库来自 [`examples/opc`](examples/opc/README.zh-CN.md)——一个由代理建成的示例，也可以就地跑（`cd examples/opc && ./demo.sh`）。
 
 ## 用你自己的数据建库
 
@@ -46,7 +46,7 @@ cd scaffold && ./init.py     # 交互式：每一步给默认值，可先用内�
 cd ~/my-kb && ./start.sh     # 起栈、摄入、编译、带引用的问答演示，一条命令
 ```
 
-然后换成你自己的：把 `.md` 材料交给 `./app.py ingest <目录>`，改 `contract.md`（什么值得记）和 `profile.yaml`（这座库属于谁），重编验收。
+然后换成你自己的：把 `.md` 材料交给 `./app.py ingest <目录>`，改 `engine/compile/contract.md`（什么值得记）和 `engine/persona/profile.yaml`（这座库属于谁），重编验收。
 
 想有人带着走？把 `scaffold/AGENT-GUIDE.md` 交给你的 coding agent，它会一步步陪你用自己的数据建完。
 

@@ -97,3 +97,18 @@
 |---|---|---|
 | POST | `/…/live-context/stream` | 对一段转写窗口的一次性 SSE：每张存活卡片一条 `event: suggestion`，末尾 `done` 带闸门统计 |
 | WS | `/…/live-context/ws` | 长连接监听。客户端发 `config` / `turn` / `flush` / `want_more` / `ping`；服务端发 `ready` / `suggestion` / `suggestion_detail` / `stats` / `error`（永不致命）/ `ping`（约 30 秒保活）。完整协议见 [`api/routes/live_context.py`](../../packages/pneuma-knowledge-service/src/pneuma_knowledge_service/api/routes/live_context.py) 的模块 docstring |
+
+## 引擎控制台
+
+按部署划分，不按用户：引擎目录是这套安装自己的配置，而不是某个租户的知识，路径里没有 `user_id`，因为这里能拿到的东西没有一样属于用户（不变量 I1 不受影响）。除非 `PNEUMA_KNOWLEDGE_ENGINE_DIR` 有值，否则每条路由都返回 **404**——没有采用这个概念的部署一点新界面也不会多出来。设计见 [design/engine-console.zh-CN.md](../design/engine-console.zh-CN.md)。
+
+| 方法 | 路径 | 用途 |
+|---|---|---|
+| GET | `/v1/engine/schema` | 导出的引擎 schema：各阶段、各旋钮（env 名、默认值、枚举、生效语义、双语标签）、流水线连边 `edges`，以及四层访问路线 `access_routes` |
+| GET | `/v1/engine/state` | `files`（引擎相对路径 → 内容）、`skipped`（路径 → 它为什么不在 `files` 里：过大、非 UTF-8、读不了——一个有名字的缺口，因为静默的缺口读起来就是一个空文件）、`values` 与 `resolution`（`<stage>.<key>` → 值 / `env`\|`engine`\|`default`）、`version`（`head`、`dirty`）。每次请求都重读磁盘；文档只出现在 `files` 里 |
+| GET | `/v1/engine/file?path=…` | 单个引擎文件原样返回，不经任何解析——`/state` 解析不出来时的修复通道：`{path, content}`。寻址方式与 apply 完全一致（一种规范写法、必须在目录内、不含点文件）；什么都没有时 **404**，目录拒绝的路径或交不回文本的文件是 **400** |
+| GET | `/v1/engine/history?limit=50` | 提交列表，最新在前：`sha`、`label`、`at`、`files` |
+| GET | `/v1/engine/history/{sha}/files` | 某个版本当时的引擎文件：`{sha, files: {path: content}}`，走 `git show` 读对象库，不动 HEAD、也不动工作区。正是它让「撤销」变成一次普通 apply：把某个版本的内容载入草稿、复核、带标签 apply；没有 revert 原语，也不改写历史。`sha` 可以是缩写，返回时回显解析后的完整值。清单按与「读取目录」完全相同的寻址规则过滤（不含点文件、不含过大文件、不含非 UTF-8 文本），所以一个版本永远不会交出 apply 路径会拒收的内容。本仓库没有这个 sha 时 **404**，git 自己会求值的版本表达式（`HEAD~1`、`main@{yesterday}`）同样 **404**——这条路由解析的是提交 id，不是 git 的版本语法 |
+| GET | `/v1/engine/prompts` | 提示词工作台的读取面：`{surfaces: [{id, group, kind: "assembled"\|"fragments", title{en,zh}, summary{en,zh}, note{en,zh}\|null, segments: [{key, label{en,zh}, context{en,zh}\|null, framework_text, override_text\|null, placeholders, shared_with}], assembled_framework, assembled_effective}]}`。一个**面**（surface）是由有序目录段组成的、模型可见的提示词——覆盖的单位仍然是目录键，理解的单位变成它落进去的那条提示词。`kind: "assembled"` 的面携带组装函数真正产出的字节（在 core 里被逐字节 pin）；`kind: "fragments"` 的面是模型**一次只收一条**的子句族（条件式引言、工具面、闸门的拒绝行）——两个组装字符串都是 `""`，因为把替代项拼起来会展示出模型从未收到过的文案，而每条子句自带 `context`：一句双语的适用语境（只有当子句在组装中的位置已经说明了这一点时才为 `null`）。解析对象是引擎目录磁盘上的覆盖文件（不是运行进程已注册的覆盖，也不是客户端未保存的草稿——草稿走普通 apply）。运行时占位符在组装文本里保持字面，并逐段报告；而 `note` 就是拦住读者把它当成最终消息的那句话：一段双语横幅，说明每次调用时框架会代入什么（当时生效的契约、主体档案）、哪一条子句是由旋钮挑出来的、以及有什么东西是随人类消息单独到达的。`null` 表示这些字节确实就是模型收到的原貌——14 个组装面里有 13 个带 note，碎片族则永远不带，因为它没有可加注的组装文本。覆盖文件解析不了时 **400**；另一个坏掉的阶段文件不会让这条路由失去答案 |
+| POST | `/v1/engine/prompts/rewrite` | `{key, intent, locale: "zh"\|"en"}` → `{draft, notes}`——用部署的召回角色模型起草一段替换文案，输入包含这段文案在它所属面里的位置、紧邻前后段、**按引擎自己的语言包给出的**框架原文、当前生效的覆盖，以及它必须保留的插槽契约。写成哪种语言由语言包决定，而不是由 `locale` 决定（`locale` 只决定 `notes` 写给谁看），并且提示里点名了必须存活下来的术语，这样中文包就不会经由助手退化成英文行话。**绝不写盘**：草稿回到普通的「草稿 → 复核 → 带标签 apply」。部署无密钥时 **503**（浏览与编辑照常可用），提示词目录里没有这个键时 **400**，模型没给出可用文案时 **502** |
+| POST | `/v1/engine/apply` | `{changes: [{path, content}], label, expected_head?}` → `{sha, effects: [{key, apply}]}`。先写文件，再以引擎仓库自己的身份**只提交这些路径**——目录里其余的脏东西仍然是脏的，也进不了这个版本。每个部署同时只有一次 apply 在跑。`expected_head` 对不上时 **409**（是读旧了，不是请求错了；`null`/不传 = 没有前置条件）。**400**：路径要逃出去或藏起来（穿越、绝对路径、点文件、符号链接逃逸）、不是文件的规范写法（`./x`、`x//y`）、形似密钥的内容、超过 512 KiB 引擎文件上限的内容、阶段未声明的键、超出枚举或类型不对的值（`int` 旋钮就是整数）、坏掉的 YAML、提示词目录里没有的覆盖键、丢掉或凭空多出原文未声明的具名插槽的覆盖、以及会让目录解析不成 settings 的变更集——全部在写第一个字节之前校验完。什么都没改的变更集不会造出提交，返回当前 head 且 effects 为空 |

@@ -11,7 +11,7 @@ import { defineMessages } from "./define";
  */
 export const graph = defineMessages({
   zh: {
-    "graph.description": "正典结构的透镜：集中度、连通性、族均衡，以及两次快照之间的结构差。",
+    "graph.description": "正本结构的透镜：集中度、连通性、族均衡，以及两次快照之间的结构差。",
 
     "graph.tab.aria": "结构透镜",
     "graph.tab.health": "结构健康",
@@ -19,37 +19,37 @@ export const graph = defineMessages({
 
     "graph.empty.title": "还没有结构可读",
     "graph.empty.description":
-      "这个知识库尚未编译——先去「导入 Ingest」添加原料并编译，结构随正典一起产出。",
+      "这个知识库尚未编译——先去「导入」添加原料并编译，结构随正本一起产出。",
     "graph.empty.action": "去导入",
 
     /* ------------------------------------------------------------------ health */
 
     "graph.health.summary":
-      "{files} 个文件归并为 {subjects} 个主体 · {claims} 条 claim · {edges} 条内链。",
+      "{files} 个文件归并为 {subjects} 个主体 · {claims} 条断言（claim）· {edges} 条内链。",
     "graph.health.headline": "最异常的 {count} 件事",
     "graph.health.clean": "没有越线的指标：没有单点集中，没有失衡族，也没有不可达的主体。",
     "graph.health.rest": "另有 {count} 项越线指标，见下面各节。",
     "graph.health.openDocument": "打开这篇文档",
 
-    "graph.anomaly.concentration": "单个主体「{title}」独占全库 {share} 的 claim{ratio}",
+    "graph.anomaly.concentration": "单个主体「{title}」独占全库 {share} 的断言{ratio}",
     "graph.anomaly.concentration.ratio": "，是第二名的 {ratio} 倍",
     "graph.anomaly.familyImbalance":
-      "族 {family} 只有 {pages} 页，却装下 {share} 的 claim——是它页数份额的 {factor} 倍",
+      "族 {family} 只有 {pages} 页，却装下 {share} 的断言——是它页数份额的 {factor} 倍",
     "graph.anomaly.zeroPageFamilies": "{count} 个申报族至今零页（共申报 {declared} 族）",
     "graph.anomaly.arrivalBlind": "{count} 个主体无入链（{share}）——只能靠已经知道名字才找得到",
     "graph.anomaly.deadEnd": "{count} 个主体断头（{share}）——线索走到这里就断了",
-    "graph.anomaly.orphanClaims": "{count} 条 claim 落在无入链的主体里（{share}）",
+    "graph.anomaly.orphanClaims": "{count} 条断言落在无入链的主体里（{share}）",
     "graph.anomaly.deadLink": "{count} 条链接指向不存在的文档",
 
     "graph.concentration.title": "集中度",
     "graph.concentration.note":
-      "按 claim 份额排序的主体；归档卷并入所属页计算，因为读者眼里那是同一个主体。",
+      "按断言份额排序的主体；归档卷并入所属页计算，因为读者眼里那是同一个主体。",
     "graph.concentration.lead": "头名份额",
     "graph.concentration.ratio": "第一 / 第二",
     "graph.concentration.tail": "其余 {units} 个主体",
     "graph.concentration.claims": "{count} 条",
     "graph.concentration.volumes": "并入 {count} 卷归档",
-    "graph.concentration.shareAria": "claim 份额 {share}",
+    "graph.concentration.shareAria": "断言份额 {share}",
 
     "graph.connectivity.title": "连通性",
     "graph.connectivity.note":
@@ -57,7 +57,7 @@ export const graph = defineMessages({
     "graph.connectivity.arrivalBlind": "无入链主体",
     "graph.connectivity.deadEnd": "断头主体",
     "graph.connectivity.deadLinks": "死链",
-    "graph.connectivity.orphanClaims": "孤立 claim",
+    "graph.connectivity.orphanClaims": "孤立断言",
     "graph.connectivity.arrivalBlindList": "无入链 · 没有任何文档链向它们",
     "graph.connectivity.deadEndList": "断头 · 它们不链向任何文档",
     "graph.connectivity.isolated": "其中 {count} 个两头皆无。",
@@ -68,8 +68,8 @@ export const graph = defineMessages({
       "族由技能申报的路径模板定义。零页族是申报了却一直没用起来的归档位，所以它留在表里。",
     "graph.families.family": "族",
     "graph.families.pages": "页数",
-    "graph.families.claims": "claim",
-    "graph.families.claimShare": "claim 份额",
+    "graph.families.claims": "断言",
+    "graph.families.claimShare": "断言份额",
     "graph.families.textShare": "篇幅份额",
     "graph.families.zeroPage": "零页族 · {count}",
     "graph.families.unowned": "{count} 个主体不属于任何申报族。",
@@ -78,14 +78,14 @@ export const graph = defineMessages({
     /* ----------------------------------------------------------------- compare */
 
     "graph.compare.note":
-      "两次 canonical 投影的差，读成表格与清单——两张读不懂的图并排只会更读不懂。",
+      "两次正本投影的差，读成表格与清单——两张读不懂的图并排只会更读不懂。",
     "graph.compare.before": "基准",
     "graph.compare.after": "对照",
     "graph.compare.head": "HEAD · 实时",
     "graph.compare.run": "对比",
     "graph.compare.same": "两侧选的是同一个快照。",
     "graph.compare.none": "这个知识库还没有可比的快照。",
-    "graph.compare.loading": "正在读取两侧的 canonical 投影……",
+    "graph.compare.loading": "正在读取两侧的正本投影……",
     "graph.compare.error": "读取快照失败",
     "graph.compare.deltaTitle": "指标差",
     "graph.compare.docsTitle": "主体增减",
@@ -99,11 +99,11 @@ export const graph = defineMessages({
 
     "graph.metric.files": "文件",
     "graph.metric.subjects": "主体",
-    "graph.metric.claims": "claim",
+    "graph.metric.claims": "断言",
     "graph.metric.edges": "内链",
     "graph.metric.arrivalBlind": "无入链主体",
     "graph.metric.deadEnd": "断头主体",
-    "graph.metric.orphanClaims": "孤立 claim",
+    "graph.metric.orphanClaims": "孤立断言",
     "graph.metric.deadLinks": "死链",
     "graph.metric.leadShare": "头名份额 %",
     "graph.metric.leadRatio": "第一 / 第二",

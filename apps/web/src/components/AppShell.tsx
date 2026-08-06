@@ -26,6 +26,7 @@ const VIEWPORT_PANE_VIEWS: ReadonlySet<ViewName> = new Set<ViewName>([
   "library",
   "recall",
   "sources",
+  "engine_console",
 ]);
 
 /**
@@ -102,10 +103,13 @@ export function AppShell({ children }: { children: ReactNode }) {
         <main className="min-w-0 flex-1">
           <div
             className={cn(
-              "mx-auto w-full max-w-content px-4 py-6 sm:px-8",
+              "w-full",
+              view === "engine_console"
+                ? "flex h-[calc(100dvh-3rem)] min-h-0 flex-col overflow-hidden"
+                : "mx-auto max-w-content px-4 py-6 sm:px-8",
               // The snapshot banner is inside the box, so the panes below it shrink by
               // exactly its height instead of guessing at it.
-              VIEWPORT_PANE_VIEWS.has(view) &&
+              VIEWPORT_PANE_VIEWS.has(view) && view !== "engine_console" &&
                 "flex flex-col lg:h-[calc(100dvh-3rem)] lg:min-h-0",
             )}
           >
@@ -113,7 +117,12 @@ export function AppShell({ children }: { children: ReactNode }) {
               // Same visual language for both read planes, different words: a frozen snapshot
               // is named by its label (it answers questions), a bare commit by its ref (it is
               // canonical-only browsing).
-              <div className="mb-6 flex shrink-0 flex-wrap items-center gap-3 border-b border-line pb-4">
+              <div
+                className={cn(
+                  "flex shrink-0 flex-wrap items-center gap-3 border-b border-line",
+                  view === "engine_console" ? "px-4 py-3" : "mb-6 pb-4",
+                )}
+              >
                 <Stamp tone="warn">
                   {t(currentKbSnapshot ? "nav.snapshot.kbBanner" : "nav.snapshotBanner")}
                 </Stamp>

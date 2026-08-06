@@ -48,3 +48,14 @@ evals/*/scenario.strategist.yaml
 
 # keyed .env variants (a real key almost reached a public commit once — never again)
 .env.keyed
+
+# Agent session logs and one-wave handoff notes. Useful while a wave is in flight, never a
+# product asset: a session transcript is not documentation, and a root-level design or summary
+# note with no bilingual mirror contradicts the docs convention and duplicates the authority
+# under docs/design/. Durable content belongs in docs/, in both languages.
+*.log
+/ENGINE-DESIGN.md
+/ENGINE-CONSOLE-UI-BRIEF.md
+/SUMMARY-*.md
+/CODEX-*.md
+/.codex-review*

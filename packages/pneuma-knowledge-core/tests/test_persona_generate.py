@@ -113,6 +113,33 @@ async def test_run_name_and_trace_metadata_pass_through():
     assert cfg["metadata"] == {"operation": "profile.generate"}
 
 
+def test_the_instruction_refuses_to_invent_an_identity():
+    """VERIFY #6: it used to tell the model to "use a natural name that fits the person's
+    region and culture" and to set the remaining fields "plausibly". A system whose promise is
+    that nothing in it is fabricated cannot open by teaching a model to fabricate a name — and
+    the profile is what every later compile reads to decide whose knowledge this is.
+
+    Asserted in both packs, because the pack is what the model actually receives."""
+    from pneuma_knowledge_core.prompts import chinese_overlay, default_catalog
+
+    english = default_catalog()["persona.profile_instruction"]
+    chinese = chinese_overlay()["persona.profile_instruction"]
+
+    assert "Invent no identity" in english
+    assert "不要编造身份" in chinese
+    # The exact instruction that produced the defect, now inverted rather than deleted: the
+    # model is told not to do the thing it used to be told to do.
+    assert 'produce a name because one would "fit" the region or the culture' in english
+    assert "绝不因为某个名字「契合此人的地域" in chinese
+    # Unknown means empty, and empty means "still to confirm" rather than a silent guess.
+    assert "left EMPTY" in english and "still to confirm" in english
+    assert "留空" in chinese and "待确认" in chinese
+    # Normalization survives, but only where it is a fact: one city determines one timezone.
+    assert "Asia/Shanghai" in english and "Asia/Shanghai" in chinese
+    for pack in (english, chinese):
+        assert "placeholder" in pack or "占位" in pack
+
+
 def test_draft_enums_track_the_domain_tuples():
     # The Literal-from-tuple constraint carries the exact domain enum into the schema.
     props = ProfileDraft.model_json_schema()["properties"]

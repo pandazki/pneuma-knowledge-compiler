@@ -17,6 +17,7 @@ from ..settings import Settings, get_settings
 from ..snapshot_tenant import SnapshotTenantWriteError
 from ..wiring import build_context
 from .routes.live_context import root_router as live_context_root_router, router as live_context_router
+from .routes.engine import router as engine_router
 from .routes.evolve import router as evolve_router
 from .routes.v1 import root_router, router as v1_router
 
@@ -33,6 +34,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await app.state.ctx.aclose()
 
     app = FastAPI(title="pneuma-knowledge-service", version=__version__, lifespan=lifespan)
+    # The settings this app was built with, available to routes that need configuration but
+    # no middleware (the engine console reads a directory, not a database) — so they stay
+    # serveable and testable without a live AppContext behind them.
+    app.state.settings = settings
 
     if settings.cors_allow_origin_regex:
         app.add_middleware(
@@ -62,6 +67,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(root_router)
     app.include_router(v1_router)
     app.include_router(evolve_router)
+    # Engine Console: deployment-scoped (no user_id — see the module docstring) and a 404
+    # surface unless PNEUMA_KNOWLEDGE_ENGINE_DIR names a directory.
+    app.include_router(engine_router)
     # Live Context: same two prefixes, kept in its own module because the WS
     # session machinery has nothing in common with the request/response surface above.
     app.include_router(live_context_root_router)

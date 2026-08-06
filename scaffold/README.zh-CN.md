@@ -7,10 +7,17 @@ scaffold 是一个**生成器**：一个入口脚本，问你几个问题（或�
 一套探测空闲端口自动配好的独立中间件栈。
 
 ```bash
+./init.py --demo                           # 零交互零 key：直接给你一个「已经编好库」的项目并起好
 ./init.py                                  # 交互式：一步步引导，每个岔路都可用内置演示数据
 ./init.py --answers my.toml --target DIR   # 单命令：给编码代理和 CI 用
 ./init.py --print-schema                   # 打印带注释的 answers 文件模板
 ```
+
+**只想先看看一座编好的知识库长什么样？** `./init.py --demo` 会在一个新建临时目录里生成一个
+真实项目，起好中间件与浏览层，并把 [`examples/opc`](../examples/opc/README.zh-CN.md) 的库装进去
+——190 份材料、29 篇正本文档、每条结论都能点回原文的那一段——**完全不需要 API key**
+（`--target DIR` 指定目录，`--no-start` 只生成不启动）。它就是一个普通的生成项目，只是自带
+一座库；你在里面学到的东西，直接适用于你自己的库。
 
 两种模式跑的是同一个生成器；交互流只是把 answers 文件里的答案逐个问出来。
 流程里没有任何问题需要前置知识：每一步先讲清这个东西是干什么的，给一个合理的
@@ -28,15 +35,17 @@ Cursor 都行），把这句话粘给它：
 
 ```
 my-kb/
-  contract.md        # 你的 —— 编译契约（什么值得记、记到哪一页）
-  profile.yaml       # 你的 —— 主人档案
-  .env               # 你的 —— key、模型、自动探测的端口（已 gitignore）
+  engine/            # 你的 —— 引擎本身，自带一个 git 仓库：模型角色、切块、回答风格、
+                     #   编译契约、主体档案、prompt 覆盖
+  .env               # 你的 —— key 与这台机器的基础设施（已 gitignore）
   my-data/           # 你的 —— 材料（.md；选了演示数据的话已经填好）
   README.md          # 按你选的语言生成，写明上述边界
   AGENTS.md          # 告诉任何编码代理同样的边界 + 指南在哪
   app.py             # 机器件 —— 运行时驱动（别改）
   start.sh           # 机器件 —— 端到端演示（别改）
   docker-compose.yml # 机器件 —— 本项目专属中间件栈（别改）
+  server.py          # 机器件 —— 浏览层的 API 入口（别改）
+  worker.py          # 机器件 —— 浏览层的编译 worker（别改）
 ```
 
 机器件是 `templates/` 的字节拷贝——升级它们就是重新生成一个项目（或拷最新模板
@@ -48,6 +57,8 @@ my-kb/
 cd my-kb
 $EDITOR .env       # 填 OPENROUTER_API_KEY（交互时输过就不用了）
 ./start.sh         # 起栈 → 摄入 → 编译 → 带引用的演示问答 → 库的鸟瞰
+
+docker compose --profile console up -d --wait   # 想在浏览器里干活：文库、原料、引擎控制台
 ```
 
 ## 这个目录里有什么
@@ -61,7 +72,7 @@ $EDITOR .env       # 填 OPENROUTER_API_KEY（交互时输过就不用了）
 
 ## 判断力写在哪
 
-编译模型的全部判断依据都写在生成项目的 `contract.md` 里。写好一份契约的完整实践
+编译模型的全部判断依据都写在生成项目的 `engine/compile/contract.md` 里。写好一份契约的完整实践
 ——类型→隐含用法的推导、主体粒度、验收环——在
 [docs/guides/compile-contract.zh-CN.md](../docs/guides/compile-contract.zh-CN.md)，
 那是这件事的唯一权威。

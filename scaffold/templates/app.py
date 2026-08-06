@@ -11,6 +11,8 @@ One command per action; `demo` runs the whole chain end to end:
     ./app.py compile            # drain the compile queue (real models)
     ./app.py ask "question"     # fast-path Q&A (--sources also prints the cited raw text)
     ./app.py glance             # print an overview of the current library (no re-ingest)
+    ./app.py restore            # restore the library shipped in prebuilt/, if this project
+                                #   ships one (no API key needed — nothing here calls a model)
     ./app.py evolve [action]    # schema evolution: list / run / show / adopt / drop proposals
     ./app.py status             # stack and library status
     ./app.py demo [--yes]       # up → init → ingest → compile → demo questions (if any) → glance
@@ -22,6 +24,14 @@ repository: while the scaffold lives inside the repository the parent directorie
 automatically; once copied outside it, set PNEUMA_APP_FRAMEWORK_REPO in .env. The top level of
 this file uses the standard library only — every framework import is deferred into a subcommand,
 and when the environment is missing the process re-execs itself via `uv run --project`.
+
+Strategy is NOT configured here and not in `.env`: it lives in `engine/` — the project's own
+versioned unit holding the model roles, chunking, answering, challenge and evolve knobs, the
+compile contract, the owner profile and any prompt overlays (see `engine/README.md`). This
+driver resolves them through the framework's own precedence chain — process environment >
+engine file > framework default — so the CLI, the API and the Engine Console can never
+disagree about what this engine is configured to do. `.env` holds only the API key and this
+machine's infrastructure.
 """
 
 from __future__ import annotations
@@ -45,11 +55,19 @@ os.environ.setdefault("PYTHONDONTWRITEBYTECODE", "1")
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 ENV_PATH = PROJECT_ROOT / ".env"
-PROFILE_PATH = PROJECT_ROOT / "profile.yaml"
-CONTRACT_PATH = PROJECT_ROOT / "contract.md"
+# The engine: one versioned directory (its own git repository) holding everything that IS
+# this project's engine. The two documents inside it are addressed directly because this
+# driver parses them itself; the strategy files are read through the framework's resolver.
+ENGINE_DIR = PROJECT_ROOT / "engine"
+PROFILE_PATH = ENGINE_DIR / "persona" / "profile.yaml"
+CONTRACT_PATH = ENGINE_DIR / "compile" / "contract.md"
 MY_DATA_DIR = PROJECT_ROOT / "my-data"
 DATA_ROOT = PROJECT_ROOT / "data"
 COMPOSE_FILE = PROJECT_ROOT / "docker-compose.yml"
+# Optional: a library that ships with the project (canonical.bundle + l0.jsonl.gz — the two
+# authorities). Present in a project generated with `init.py --demo`, absent otherwise;
+# `./app.py restore` says so rather than failing obscurely.
+PREBUILT_DIR = PROJECT_ROOT / "prebuilt"
 # Optional, written by the generator when the project starts from the example dataset:
 # one demo question per line, asked at the end of `demo`. Absent → demo skips the Q&A tail.
 DEMO_QUESTIONS_PATH = PROJECT_ROOT / "demo-questions.txt"
@@ -60,6 +78,12 @@ DEMO_QUESTIONS_PATH = PROJECT_ROOT / "demo-questions.txt"
 DEFAULT_PG_PORT = 15436
 DEFAULT_QDRANT_PORT = 16373
 DEFAULT_MEILI_PORT = 17704
+
+# The deterministic embedding used when no API key is present. Its dimension matches the
+# recommended default embedding model, so a vector collection built keyless stays usable
+# after a key arrives. An engine that names an embedding model of a different dimension sets
+# PNEUMA_APP_KEYLESS_EMBEDDING=fake:<that dimension> in .env.
+KEYLESS_EMBEDDING = "fake:1536"
 
 CONTRACT_RULES = (
     "contract.rule.citation_granularity",
@@ -463,32 +487,103 @@ def user_id() -> str:
     return os.environ.get("PNEUMA_APP_USER_ID", "u-app-owner").strip() or "u-app-owner"
 
 
-def require_models() -> dict[str, str]:
-    missing = []
+def engine_strategy() -> dict:
+    """Every strategy knob the engine directory resolves, as `Settings` init kwargs.
+
+    The framework's own resolver is used rather than a second reading of the same YAML:
+    precedence (process environment > engine file > framework default) then has exactly one
+    implementation across this CLI, the API and the Engine Console. Note that `.env` is
+    loaded into the process environment before anything here runs, so a PNEUMA_KNOWLEDGE_*
+    strategy key placed there would outrank the engine file — which is precisely why the
+    generated `.env` carries none."""
+    from pneuma_knowledge_service.engine.resolve import engine_overrides
+
+    overrides, _resolution = engine_overrides(ENGINE_DIR, os.environ)
+    return overrides
+
+
+def apply_prompt_overlays() -> int:
+    """engine/prompts/overlays.yaml → the framework's prompt catalog. Returns how many
+    clauses were replaced.
+
+    Two layers, in this order: the `language` knob's language pack becomes the framework's
+    own wording, and then this project's overlay clauses are registered on top of it. The
+    order is the point — a clause written here must survive the pack, not be taken back by
+    it.
+
+    Without this call both would be decoration. An unknown catalog key raises rather than
+    being ignored: a silent no-op override is the worst outcome, because the framework's own
+    wording keeps reaching the model while the project believes it does not."""
+    from pneuma_knowledge_service.engine.files import parse_overlays, read_mapping
+    from pneuma_knowledge_service.engine.prompts import active_language, apply_prompt_stack
+
+    overlays = parse_overlays(
+        "prompts/overlays.yaml", read_mapping(ENGINE_DIR, "prompts/overlays.yaml")
+    )
+    return apply_prompt_stack(active_language(ENGINE_DIR, os.environ), overlays)
+
+
+def keyless_env(env) -> list[str]:
+    """Without an API key, configure the whole model-free path. Returns lines to print.
+
+    Browsing a compiled library must never depend on a credential. Chat-model roles are
+    deliberately NOT blanked here: the framework treats "openrouter spec without a key"
+    as unusable at every dispatch point (asking answers 503, semantic chunking degrades
+    mechanically), so the engine file keeps naming this project's models and the console
+    shows that truth instead of an env lock. Only the embedding is pinned: its probe runs
+    eagerly at startup and the vector collection's dimension is fixed at creation, so the
+    keyless process must state a deterministic one.
+
+    Shared by the read-only CLI commands and the compose entrypoints (server.py / worker.py),
+    so "what keyless means" has exactly one definition."""
+    if env.get("OPENROUTER_API_KEY", "").strip():
+        return []
+    embedding = env.get("PNEUMA_APP_KEYLESS_EMBEDDING", "").strip() or KEYLESS_EMBEDDING
+    env["PNEUMA_KNOWLEDGE_EMBEDDING_MODEL"] = embedding
+    return [
+        f"  (no OPENROUTER_API_KEY: browsing only — deterministic embeddings {embedding},",
+        "   mechanical chunking. The library, its sources and every citation are fully",
+        "   readable; asking questions, compiling and AI rewrite need a key.)",
+    ]
+
+
+def require_models(*, require_key: bool = True) -> dict[str, str]:
+    """The four model roles as the engine resolves them, or a loud exit naming what is
+    missing. `deep` empty legitimately borrows the recall role.
+
+    `require_key=False` is for the paths that call no chat model at all (restore, status,
+    glance): there, blank roles are the configuration, not an error."""
+    from pneuma_knowledge_service.engine.resolve import resolve_engine
+
+    values = resolve_engine(ENGINE_DIR, os.environ).values
     roles = {
-        "compile": os.environ.get("PNEUMA_APP_COMPILE_MODEL", "").strip(),
-        "recall": os.environ.get("PNEUMA_APP_RECALL_MODEL", "").strip(),
-        "embedding": os.environ.get("PNEUMA_APP_EMBEDDING_MODEL", "").strip(),
+        role: str(values.get(f"models.{role}") or "").strip()
+        for role in ("compile", "recall", "embedding")
     }
-    for role, value in roles.items():
-        if not value:
-            missing.append(f"PNEUMA_APP_{role.upper()}_MODEL" if role != "embedding" else "PNEUMA_APP_EMBEDDING_MODEL")
+    missing = [f"engine.yaml: {role}" for role, value in roles.items() if not value]
     if not os.environ.get("OPENROUTER_API_KEY", "").strip():
-        missing.append("OPENROUTER_API_KEY")
-    if missing:
-        sys.exit("error: .env is missing required settings:\n  " + "\n  ".join(missing) + "\nSee README.md for the key names.")
-    roles["deep"] = os.environ.get("PNEUMA_APP_DEEP_MODEL", "").strip() or roles["recall"]
+        missing.append(".env: OPENROUTER_API_KEY")
+    if missing and require_key:
+        sys.exit(
+            "error: this engine is missing required settings:\n  "
+            + "\n  ".join(missing)
+            + "\nModels live in engine/engine.yaml; the key lives in .env. See README.md."
+        )
+    roles["deep"] = str(values.get("models.deep") or "").strip() or roles["recall"]
     return roles
 
 
-def build_settings(base_version: str = ""):
-    """App-wide Settings. `base_version` must be the registered contract version whenever
-    the worker may process job kinds beyond `compile` (groom/evolve/challenge): those
-    resolve their skill from settings rather than from the explicitly passed one, and an
-    empty version fails loudly at the first such job."""
+def build_settings(base_version: str = "", *, require_key: bool = True):
+    """App-wide Settings: this machine's infrastructure + everything the engine resolves.
+
+    `base_version` must be the registered contract version whenever the worker may process
+    job kinds beyond `compile` (groom/evolve/challenge): those resolve their skill from
+    settings rather than from the explicitly passed one, and an empty version fails loudly
+    at the first such job."""
     from pneuma_knowledge_service.settings import Settings
 
-    models = require_models()
+    models = require_models(require_key=require_key)
+    apply_prompt_overlays()
     profile = load_profile()
     zone, _source = resolved_timezone(profile)
     pg_port = stack_port("PNEUMA_APP_PG_PORT", DEFAULT_PG_PORT)
@@ -496,7 +591,9 @@ def build_settings(base_version: str = ""):
     meili_port = stack_port("PNEUMA_APP_MEILI_PORT", DEFAULT_MEILI_PORT)
     canonical = DATA_ROOT / "canonical"
     canonical.mkdir(parents=True, exist_ok=True)
-    settings = Settings(
+    kwargs = engine_strategy()
+    kwargs.update(
+        engine_dir=str(ENGINE_DIR),
         pg_dsn=(
             "postgresql://pneuma_knowledge:"
             f"{os.environ.get('PNEUMA_APP_PG_PASSWORD', 'pneuma_knowledge')}"
@@ -508,19 +605,18 @@ def build_settings(base_version: str = ""):
         meili_key=os.environ.get("PNEUMA_APP_MEILI_KEY", "masterKey_change_me"),
         canonical_root=str(canonical),
         default_timezone=zone,
-        chunk_strategy=os.environ.get("PNEUMA_APP_CHUNK_STRATEGY", "semantic"),
-        evolve_auto_trigger=False,
         user_schema_packs=False,
         user_schema_base_version=base_version,
+        # The base spec and the roles nobody chose in engine.yaml: compile is the strongest
+        # thing this project has, so it is the sane fallback, and `deep` empty means "answer
+        # deep questions with the recall model".
         llm_model=models["compile"],
-        llm_model_compile=models["compile"],
-        llm_model_recall=models["recall"],
         llm_model_deep=models["deep"],
         llm_model_skill="",
         llm_model_evolve="",
         llm_model_live_context="",
-        embedding_model=models["embedding"],
     )
+    settings = Settings(**kwargs)
     problems = isolation_problems(
         settings.pg_dsn, settings.qdrant_url, settings.meili_url, settings.canonical_root
     )
@@ -1157,8 +1253,10 @@ async def _status() -> int:
     subprocess.run(
         ["docker", "compose", "-f", str(COMPOSE_FILE), "ps"], cwd=PROJECT_ROOT, check=False
     )
+    for line in keyless_env(os.environ):  # counting what is there needs no model
+        print(line)
     try:
-        settings = build_settings()
+        settings = build_settings(require_key=False)
         ctx = await build_context(settings)
     except SystemExit:
         raise
@@ -1187,12 +1285,14 @@ def cmd_status(_args) -> int:
 
 async def _glance() -> int:
     """The same overview demo prints at the end, available on its own at any time: it only
-    reads the current library — no re-ingest, no compile."""
+    reads the current library — no re-ingest, no compile, and no key needed."""
     from pneuma_knowledge_core.domain.ids import UserId
     from pneuma_knowledge_service.wiring import build_context
 
+    for line in keyless_env(os.environ):
+        print(line)
     skill = load_contract_skill()
-    settings = build_settings(base_version=skill.version)
+    settings = build_settings(base_version=skill.version, require_key=False)
     ctx = await build_context(settings)
     try:
         uid = UserId(user_id())
@@ -1205,6 +1305,63 @@ async def _glance() -> int:
 
 def cmd_glance(_args) -> int:
     return asyncio.run(_glance())
+
+
+async def _restore() -> int:
+    """Restore the library this project ships (prebuilt/) into the running stack.
+
+    Model-free by construction: a restore must cost nothing and reproduce the shipped library
+    rather than recompute it, so the chat roles are cleared for this process even when a key
+    is present. The framework owns the actual restore (canonical bundle + verbatim L0 in,
+    derived state rebuilt); this command only supplies the settings and the report."""
+    from pneuma_knowledge_core.domain.ids import UserId
+    from pneuma_knowledge_service.prebuilt import PrebuiltUnavailable, restore_prebuilt
+    from pneuma_knowledge_service.wiring import build_context
+
+    for line in keyless_env(os.environ):
+        print(line)
+    # Even WITH a key this process stays model-free: a restore reproduces the shipped
+    # library (its vectors are the shipped deterministic embedding, its chunk boundaries
+    # replay mechanically), so chat roles are cleared for THIS process and the embedding
+    # pinned to the keyless one. The engine file is untouched — env outranks it only here.
+    for role in ("", "_COMPILE", "_RECALL", "_DEEP", "_SKILL", "_EVOLVE", "_LIVE_CONTEXT", "_CHALLENGE"):
+        os.environ[f"PNEUMA_KNOWLEDGE_LLM_MODEL{role}"] = ""
+    os.environ["PNEUMA_KNOWLEDGE_EMBEDDING_MODEL"] = (
+        os.environ.get("PNEUMA_APP_KEYLESS_EMBEDDING", "").strip() or KEYLESS_EMBEDDING
+    )
+    skill = load_contract_skill()
+    settings = build_settings(base_version=skill.version, require_key=False)
+    ctx = await build_context(settings)
+    try:
+        uid = UserId(user_id())
+        print("== Restoring the prebuilt library (no model calls) ==")
+        await upsert_owner_profile(ctx, uid)
+        try:
+            report = await restore_prebuilt(ctx, uid, PREBUILT_DIR, log=print)
+        except PrebuiltUnavailable as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        print(
+            f"\nRestored: {report.documents} canonical document(s), {report.claims} claim(s), "
+            f"{report.sources} source(s) — all readable without an API key."
+        )
+        print("  ./app.py glance            # the library overview")
+        print("  ./app.py ask '...'         # needs a key (asking calls a model)")
+    finally:
+        await ctx.aclose()
+    return 0
+
+
+def cmd_restore(_args) -> int:
+    if not PREBUILT_DIR.is_dir():
+        print(
+            f"no prebuilt library in this project ({PREBUILT_DIR} does not exist) — nothing to\n"
+            "restore. Projects that ship one carry prebuilt/canonical.bundle and\n"
+            "prebuilt/l0.jsonl.gz; yours is built from my-data/ with ./app.py ingest + compile.",
+            file=sys.stderr,
+        )
+        return 1
+    return asyncio.run(_restore())
 
 
 def cmd_preflight(_args) -> int:
@@ -1300,6 +1457,7 @@ def cmd_demo(args) -> int:
     print("\nYour turn:")
     print("  ./app.py ask '...'         # ask anything (--sources also shows the cited raw text)")
     print("  ./app.py glance            # look at the library overview any time")
+    print("  engine/                    # this engine's strategy and contract, versioned (see engine/README.md)")
     print("  Switching to your own data: see README.md (or let your AI guide walk you through)")
     print("  Reset and start over: ./app.py down --volumes && rm -rf data/")
     return 0
@@ -1342,6 +1500,9 @@ def main() -> int:
         help="answer style for this ask (default: PNEUMA_KNOWLEDGE_RECALL_ANSWER_STYLE in .env)",
     )
     sub.add_parser("glance", help="print the library overview (no re-ingest)")
+    sub.add_parser(
+        "restore", help="restore the library this project ships in prebuilt/ (no key needed)"
+    )
     evolve = sub.add_parser("evolve", help="schema evolution: list / run / show / adopt / drop proposals")
     evolve.add_argument("action", nargs="?", default="list",
                         choices=["list", "run", "show", "adopt", "drop"])
@@ -1366,6 +1527,7 @@ def main() -> int:
         "compile": cmd_compile,
         "ask": cmd_ask,
         "glance": cmd_glance,
+        "restore": cmd_restore,
         "evolve": cmd_evolve,
         "status": cmd_status,
         "demo": cmd_demo,

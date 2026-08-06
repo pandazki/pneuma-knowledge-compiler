@@ -25,7 +25,7 @@ export const enums = defineMessages({
     "enum.intakeArchetype.digest.summary": "全文编译进知识库",
     "enum.intakeArchetype.digest.examples": "手写笔记、工作产出、短但重要的材料",
     "enum.intakeArchetype.distill.label": "提炼要点",
-    "enum.intakeArchetype.distill.summary": "要点进正典，正文留在外部可检索",
+    "enum.intakeArchetype.distill.summary": "要点进正本，正文留在外部可检索",
     "enum.intakeArchetype.distill.examples": "合同、报告、规格说明",
     "enum.intakeArchetype.archive.label": "仅编目",
     "enum.intakeArchetype.archive.summary": "只留卡片与元数据，正文仍可回溯",

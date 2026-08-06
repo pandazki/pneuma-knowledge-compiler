@@ -30,15 +30,19 @@ if [ ! -f .env ]; then
   exit 1
 fi
 
-unfilled=()
-for key in OPENROUTER_API_KEY PNEUMA_APP_COMPILE_MODEL PNEUMA_APP_RECALL_MODEL PNEUMA_APP_EMBEDDING_MODEL; do
-  value="$(grep -E "^${key}=" .env | head -n1 | cut -d= -f2- | tr -d '"' | tr -d "'" | tr -d '[:space:]' || true)"
-  [ -n "$value" ] || unfilled+=("$key")
-done
-if [ ${#unfilled[@]} -gt 0 ]; then
-  echo "These .env entries are still empty:"
-  printf '  %s=\n' "${unfilled[@]}"
-  echo "Fill them in, then run ./start.sh again."
+# The key is the only thing a person has to fill in by hand. Models are strategy and live in
+# engine/engine.yaml, where app.py checks them and names what is missing.
+key="$(grep -E "^OPENROUTER_API_KEY=" .env | head -n1 | cut -d= -f2- | tr -d '"' | tr -d "'" | tr -d '[:space:]' || true)"
+if [ -z "$key" ]; then
+  echo "OPENROUTER_API_KEY= in .env is still empty."
+  echo "Fill it in (https://openrouter.ai/keys), then run ./start.sh again."
+  exit 1
+fi
+
+if [ ! -f engine/engine.yaml ]; then
+  echo "engine/ is missing or incomplete: this project's strategy, compile contract and"
+  echo "profile all live there. Regenerate the project with the framework repo's"
+  echo "scaffold/init.py, or restore engine/ from its own git history."
   exit 1
 fi
 

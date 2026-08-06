@@ -12,6 +12,7 @@
 | 接入会议 / 文档库 / IM / 邮件数据 | [reference/source-contracts.zh-CN.md](reference/source-contracts.zh-CN.md) |
 | 基于 HTTP API 开发 | [reference/http-api.zh-CN.md](reference/http-api.zh-CN.md) |
 | 部署与调参 | [reference/configuration.zh-CN.md](reference/configuration.zh-CN.md) |
+| 把一台引擎的策略当成一个被版本化的单元来配置 | [design/engine-console.zh-CN.md](design/engine-console.zh-CN.md) |
 | 接入追踪 | [reference/observability.zh-CN.md](reference/observability.zh-CN.md) |
 | 容器化部署 | [reference/deployment.zh-CN.md](reference/deployment.zh-CN.md) |
 

@@ -3,10 +3,12 @@
  * (bg-surface / text-ink-2 / border-line / rounded-2 / text-24 / max-w-content …);
  * components may only use those utilities — never a one-off CSS file.
  */
+@import "@xyflow/react/dist/style.css" layer(base);
 @import "tailwindcss";
 /* LXGW WenKai Screen (OFL): split by unicode-range, so the browser downloads only the glyphs in use */
 @import "lxgw-wenkai-screen-webfont/lxgwwenkaiscreen.css";
 @import "./styles/tokens.css";
+@import "./views/engine_console/engineConsole.css";
 
 @theme inline {
   --color-bg: var(--bg);

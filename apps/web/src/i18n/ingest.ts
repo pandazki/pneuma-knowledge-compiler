@@ -20,7 +20,7 @@ export const ingest = defineMessages({
   zh: {
     "ingest.pageTitle": "导入 Ingest",
     "ingest.pageDescription":
-      "会议、文档库、即时消息与邮件共用一套可审计入口；canonical contract 预检通过后才进入编译流水线。",
+      "会议、文档库、即时消息与邮件共用一套可审计入口；标准来源契约预检通过后才进入编译流水线。",
     "ingest.noUser.title": "未选择用户",
     "ingest.noUser.description": "先在顶栏选择或新建一个 user_id，导入的原料归属于该用户。",
     "ingest.readOnly.title": "历史快照 · 只读",
@@ -32,11 +32,11 @@ export const ingest = defineMessages({
     "ingest.official.step1": "选择来源协议",
     "ingest.official.kindAria": "官方 source 类型",
     "ingest.official.optionDescription": "{description} 引用单元：{citationUnit}。",
-    "ingest.official.step2": "载入 canonical JSON",
+    "ingest.official.step2": "载入标准化 JSON",
     "ingest.official.file.label": "选择 JSON 文件（可选）",
     "ingest.official.file.hint":
       "上传后按 schema 自动切换来源类型；文件只在本地读取，确认导入时才发送。",
-    "ingest.official.contract.hint": "可直接粘贴 provider adapter 产出的 canonical JSON。",
+    "ingest.official.contract.hint": "可直接粘贴来源适配器产出的标准化 JSON。",
     "ingest.official.loadSample": "载入合成示例",
     "ingest.official.preflight": "预检结构",
     "ingest.official.step3": "确认导入",

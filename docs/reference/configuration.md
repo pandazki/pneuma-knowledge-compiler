@@ -4,6 +4,8 @@
 
 All framework settings are environment variables with the `PNEUMA_KNOWLEDGE_` prefix (a local `.env` is read; unknown keys are ignored). Names below drop the prefix. Copy [`.env.example`](../../.env.example) to start.
 
+One optional layer sits between environment and default: the **engine directory** (`ENGINE_DIR`, [architecture §11](../architecture.md#11-the-engine-directory)). Precedence is **process env > engine file > framework default**, and it is enforced at settings assembly: the engine file's values reach `Settings` only for keys `os.environ` leaves unstated. Two consequences worth knowing: an entry present-but-empty in the environment is still an environment-level statement, and a value from a `.env` FILE is not process env, so it ranks BELOW the engine file. `ENGINE_DIR` unset (the default) means the whole layer does not exist and every setting resolves exactly as it did before the concept.
+
 ## Required
 
 | Setting | Meaning |
@@ -20,6 +22,7 @@ All framework settings are environment variables with the `PNEUMA_KNOWLEDGE_` pr
 | `MEILI_URL` | `http://localhost:17700` | lexical index |
 | `MEILI_KEY` | `masterKey_change_me` | change in production |
 | `CANONICAL_ROOT` | `./data/canonical` | canonical store root (one repository per user); `/data/canonical` in the container image |
+| `ENGINE_DIR` | (empty) | the engine directory: one versioned unit holding this deployment's strategy files, compile contract, prompt overlays and owner profile ([architecture §11](../architecture.md#11-the-engine-directory), [design](../design/engine-console.md)). Empty = the deployment has none: zero behavior change, and `/v1/engine/*` returns 404. Set it and those four routes serve the directory; every strategy setting below that the directory states resolves from it unless the process environment says otherwise |
 
 ## Models
 
@@ -58,6 +61,20 @@ Model spec forms: `scripted:<path>` (local replay, keyless — and it hard-overr
 | `RECALL_RERANK_CANDIDATES` | `120` | per-query/per-face retrieval depth when reranking; the reranker scores the full deduped union (hard cap 1000) |
 | `RECALL_ANSWER_STYLE` | `conversational` | answer-style preset for fast/deep answers: `concise` = the bare exact value/phrase (graders, scripts), `conversational` = a natural chat reply, `detailed` = a self-contained written note. Shape only — truth discipline is style-independent. A recall request may override per call (`answer_style`) |
 
+## Prompt language
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `PROMPT_LANGUAGE` | `en` | which language the FRAMEWORK's own prompt clauses arrive in: `en` = the English catalog, `zh` = core's Chinese language pack (`prompts.lang_zh.chinese_overlay()`, every catalog key translated with the same placeholders). Applied as an overlay UNDER a deployment's own overlays, so a hand-written clause always wins over the pack. `en` registers no overlay at all, so it is byte-for-byte the pre-language-pack behavior |
+
+It changes the prose the models read, and nothing else — no policy, no mechanism, no
+placeholder contract. In particular it does **not** decide what language a knowledge base is
+written in: that follows the subject's own declared language (`compile.owner_env.write_language`).
+
+**English is the baseline.** Every measurement published in this repository was taken on the
+English catalog. The Chinese pack exists for readability and for fitting a Chinese material
+domain; its scoring equivalence is unverified. See [engine console design](../design/engine-console.md#the-language-pack).
+
 ## Post-compile coverage challenge
 
 | Setting | Default | Meaning |
@@ -65,6 +82,7 @@ Model spec forms: `scripted:<path>` (local replay, keyless — and it hard-overr
 | `CHALLENGE_ENABLED` | `false` | after each committed compile, run a coverage audit: blind question generation over the material, claim-face probing, reflection |
 | `CHALLENGE_MAX_ROUNDS` | `2` | question/reflection rounds per audit (either stage can end early by declaring exhaustion) |
 | `CHALLENGE_MAX_QUESTIONS` | `6` | questions per round |
+| `CHALLENGE_MAX_OUTPUT_TOKENS` | `32768` | completion budget for the audit's structured passes — a runaway generation fails cheaply instead of at the provider ceiling (observed live: 65,536 tokens); `0` = provider default |
 | `CHALLENGE_COMPENSATE` | `true` | confirmed gaps enqueue one compensation compile (its writes pass the ordinary citation gate) |
 | `LLM_MODEL_CHALLENGE` | empty | model for question generation and reflection; empty borrows the compile role |
 

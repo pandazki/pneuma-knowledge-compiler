@@ -1,0 +1,3172 @@
+"""The prompt SURFACE registry: what the model actually receives, key by key.
+
+WHY THIS EXISTS
+---------------
+`catalog.py` is the auditable inventory of model-visible prose, addressed by key. That is
+the right unit to OVERRIDE and the wrong unit to UNDERSTAND: a person looking at
+`recall.cite.source_level` cannot tell which prompt it lands in, what stands before and
+after it, or whether rewriting it also changes the deep lane. So the override unit stays
+the catalog key and the *understanding* unit becomes the **surface** — one assembled,
+model-visible prompt (the fast-recall System contract, the compile SystemMessage, the
+coverage audit's question pass …) composed from ordered catalog segments.
+
+TWO KINDS OF SURFACE
+--------------------
+Not every group of keys is a prose prompt. `source.preamble.*` is 28 CONDITIONAL
+ALTERNATIVES and word fillers — at runtime one lead sentence is chosen and a few fillers
+substituted into it — so concatenating them produced "the ownera conversationThis is…",
+a sentence no model has ever received. A map that renders that is worse than no map: it
+teaches a newcomer something false. So a surface declares its `kind`:
+
+* `assembled` — a real composition function produces exactly these bytes in exactly this
+  order. Every one of them is byte-pinned against that function (see below), which is why
+  `kind` cannot be claimed: `pinned` and `kind == "assembled"` are the same set, enforced.
+* `fragments` — a family of INDEPENDENT clauses that reach the model one at a time: the
+  alternative preambles, a tool face, the sections of a human turn, a gate's rejection
+  lines. There is no assembled text, so the registry refuses to render one, the payload
+  carries empty strings, and every fragment states IN WORDS when it is used.
+
+`Segment.context_*` is that statement — "this clause is emitted when …", bilingual. It is
+required (mechanically) of every fragment and of every `VARIANT` segment, because those
+are precisely the clauses whose position in a prompt does not explain them.
+
+This module is a mechanism, not documentation, because four tests keep it from being a
+second-hand description of the code:
+
+* **byte pin** — for every surface of kind `assembled`, the registry's own render and the
+  real composition function (`selector_contract()`, `render_system_contract()`, …) must be
+  byte-for-byte equal. A contract that grows a section, loses a clause, or reorders two of
+  them fails until the map says the same thing.
+* **kind pin** — the pinned set and the `assembled` set are identical, so a family nobody
+  can pin is a family the studio shows as fragments rather than as prose.
+* **context pin** — no fragment and no variant without its bilingual "when is this used".
+* **coverage pin** — every catalog key belongs to at least one surface. A new key with no
+  surface is a piece of prose nobody can find in the studio, so it fails the test on the
+  commit that introduces it rather than on the day somebody goes looking for it.
+* **note pin** — an assembly whose byte pin had to SUPPLY runtime fields, or that offers a
+  clause the deployment picks between, is an assembly template rather than a finished
+  message. Those must carry `note_*`, so the console cannot present a template as "what the
+  model received". The pin reads the same field table the byte pin uses, which is why the
+  note cannot be forgotten on the surface that most needed it.
+
+COMPOSITION MODEL
+-----------------
+An `assembled` surface is an ordered list of `Segment`s, each naming one catalog key, in
+one of three roles:
+
+* `BLOCK` — concatenated into the assembled text, in order, with its literal `prefix` /
+  `suffix` glue (the `"\\n\\n"` between the contract and the skill header, and so on).
+* `SLOT` — not concatenated: substituted into a named placeholder of a sibling segment
+  (`recall.spine`'s `{cite}` and `{close}`). Fillers nest, so a slot's filler may itself
+  declare slots.
+* `VARIANT` — listed but not rendered: the two answer styles this assembly did not pick,
+  the owner-profile section that only appears when a profile was supplied, the per-version
+  contract clauses. They belong to the surface (that is where a person edits them) without
+  claiming to be in this particular rendering of it.
+
+A `fragments` surface uses none of that: its segments are a flat list, in the order a
+person is best served reading them, each carrying its own context sentence.
+
+Placeholders the framework fills from RUNTIME data (a skill's path templates, the round's
+material, the owner's own fields) are deliberately left unsubstituted by default: the
+studio renders them as visible chips, and `render_surface(..., fields=…)` is what the byte
+pin uses to supply them. Nothing here awaits anything, so nothing here is a coroutine.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from dataclasses import dataclass, field
+from typing import Iterator
+
+from . import prompt, substitute, template_fields
+from .catalog import DEFAULTS
+
+__all__ = [
+    "ASSEMBLED",
+    "BLOCK",
+    "FRAGMENTS",
+    "SLOT",
+    "VARIANT",
+    "GROUPS",
+    "SURFACES",
+    "Segment",
+    "Slot",
+    "Surface",
+    "group_titles",
+    "render_surface",
+    "segment_context",
+    "segment_label",
+    "segments_missing_context",
+    "shared_with",
+    "surface_by_id",
+    "surface_keys",
+    "surface_note",
+    "surfaces_missing_note",
+    "variant_keys",
+]
+
+BLOCK = "block"
+SLOT = "slot"
+VARIANT = "variant"
+
+# The two kinds of surface. `assembled` is prose the model receives in this exact order;
+# `fragments` is a family of clauses it receives one at a time.
+ASSEMBLED = "assembled"
+FRAGMENTS = "fragments"
+
+
+@dataclass(frozen=True)
+class Slot:
+    """One named placeholder of a segment, filled from other catalog keys.
+
+    `keys` is a list rather than a single key because a real assembly sometimes joins
+    several clauses into one placeholder (the subject-environment section's three declared
+    fields), and `join` is the separator that assembly uses.
+    """
+
+    name: str
+    keys: tuple[str, ...]
+    join: str = ""
+
+
+@dataclass(frozen=True)
+class Segment:
+    """One catalog key inside one surface, with the role it plays in the assembly.
+
+    `context_en/zh` answers "when does the model actually receive this clause". An
+    assembled surface answers that by position, so its blocks leave it empty; a fragment
+    and a variant have no position to speak for them, so they must fill it in.
+    """
+
+    key: str
+    role: str = BLOCK
+    slots: tuple[Slot, ...] = ()
+    # Literal glue emitted around this segment's text. May itself carry runtime
+    # placeholders (the compile contract's trailing `{instructions}`), substituted from
+    # the same `fields` mapping.
+    prefix: str = ""
+    suffix: str = ""
+    context_en: str = ""
+    context_zh: str = ""
+
+
+@dataclass(frozen=True)
+class Surface:
+    """One model-visible prompt (or one family of clauses): group, titles, segments.
+
+    `kind == ASSEMBLED` means a real composition function produces exactly these bytes in
+    exactly this order, and `pinned` says a test proves it — the two are the same set, so
+    the only way a surface earns the assembled reading is to be checked against the code.
+
+    `kind == FRAGMENTS` means the clauses reach the model independently (alternative
+    preambles, a tool face, gate rejections, the sections of a human turn). There is no
+    assembled text for those, so `render_surface` refuses to invent one.
+
+    `note_en/zh` is the honesty banner: an assembled surface is an assembly TEMPLATE, and
+    for most of them the bytes shown are not the finished message of any one call. What the
+    framework substitutes per call (the active contract's instructions, the owner profile,
+    the round's dates), which alternative a knob selects, and what arrives separately in the
+    HumanMessage all belong in it. A surface with no note is one whose rendered bytes really
+    are what the model receives, and the console may say so.
+    """
+
+    id: str
+    group: str
+    title_en: str
+    title_zh: str
+    summary_en: str
+    summary_zh: str
+    segments: tuple[Segment, ...] = field(default_factory=tuple)
+    kind: str = FRAGMENTS
+    pinned: bool = False
+    note_en: str = ""
+    note_zh: str = ""
+
+
+# ─────────────────────────────────────────────────────────────────── lifecycle groups
+
+GROUPS: tuple[tuple[str, str, str], ...] = (
+    ("intake", "Intake", "接收"),
+    ("compile", "Compile", "编译"),
+    ("challenge", "Coverage audit", "覆盖质询"),
+    ("evolve", "Schema evolve", "模式演进"),
+    ("recall", "Recall", "召回"),
+    ("persona", "Owner profile", "主人档案"),
+    ("skill", "Skill", "领域契约"),
+    ("feedback", "Rejection wording", "反馈文案"),
+    ("eval", "Evaluation", "评测"),
+)
+
+
+def group_titles() -> dict[str, dict[str, str]]:
+    """group id → bilingual title, in the order the console lists them."""
+    return {gid: {"en": en, "zh": zh} for gid, en, zh in GROUPS}
+
+
+# ────────────────────────────────────────────────────────────────────── segment labels
+#
+# 338 hand-written bilingual labels would be 338 chances to rot. Instead: one bilingual
+# name per key-prefix family (longest prefix wins), plus the humanized key tail — so a key
+# added tomorrow already reads as "Compile gate · anchor coverage" / "编译闸门 · anchor
+# coverage". `_LABELS` then refines the surfaces a person actually opens and edits.
+
+_LABEL_FAMILIES: tuple[tuple[str, str, str], ...] = (
+    ("compile.owner_env.", "Subject environment", "主体环境"),
+    ("compile.owner_field.", "Subject profile line", "主体档案行"),
+    ("compile.task.", "Compile task", "编译任务"),
+    ("compile.tool.", "Compile tool", "编译工具"),
+    ("compile.anchor.", "Claim write rejection", "断言写入拒绝"),
+    ("compile.patch.", "Document write rejection", "文档写入拒绝"),
+    ("compile.treatment.", "Source treatment", "源处理档位"),
+    ("compile.groom.", "Rollover", "归档轮换"),
+    ("compile.challenge.", "Coverage audit", "覆盖审计"),
+    ("compile.worker.", "Compile retrieval reply", "编译检索回复"),
+    ("compile.", "Compile contract", "编译契约"),
+    ("contract.rule.", "Version contract clause", "版本契约条款"),
+    ("gate.groom.", "Rollover gate", "归档闸门"),
+    ("gate.evolve.", "Evolve gate", "演进闸门"),
+    ("gate.", "Compile gate", "编译闸门"),
+    ("source.preamble.", "Source preamble", "源引言"),
+    ("source.context_stream.", "Context-stream notes", "上下文流说明"),
+    ("source.", "Source guidance", "源指引"),
+    ("ingest.semantic.", "Semantic segmentation", "语义切分"),
+    ("ingest.email.", "Email rendering", "邮件渲染"),
+    ("ingest.", "Transcript rendering", "转写渲染"),
+    ("recall.fast.select.", "Full-document selection", "整篇选取"),
+    ("recall.fast.plan.", "Retrieval planning", "检索规划"),
+    ("recall.fast.window_note.", "Window annotation", "窗口批注"),
+    ("recall.fast.timeline.", "Subject timeline", "主题时间线"),
+    ("recall.fast.", "Fast recall", "快速召回"),
+    ("recall.deep.tool.", "Deep tool", "深度工具"),
+    ("recall.deep.", "Deep recall", "深度召回"),
+    ("recall.briefing.tool.", "Briefing tool", "简报工具"),
+    ("recall.briefing.", "Briefing", "简报"),
+    ("recall.suggestion.focus.", "Attention scope", "注意范围"),
+    ("recall.suggestion.", "Live context", "实时上下文"),
+    ("recall.section.", "Evidence section", "证据分节"),
+    ("recall.glance.", "Library glance", "知识库一览"),
+    ("recall.profile.", "Owner profile line", "主人档案行"),
+    ("recall.snapshot.", "Snapshot scope", "快照范围"),
+    ("recall.style.", "Answer style", "回答风格"),
+    ("recall.cite.", "Citation granularity", "引用粒度"),
+    ("recall.close.", "Closing clause", "收尾条款"),
+    ("recall.rerank.", "Claim reranker", "断言重排"),
+    ("recall.agentic.", "Agentic budget", "代理预算"),
+    ("recall.", "Recall", "召回"),
+    ("evolve.propose.", "Evolve proposal", "演进提案"),
+    ("evolve.tool.", "Evolve tool", "演进工具"),
+    ("evolve.task.", "Evolve task", "演进任务"),
+    ("evolve.service.", "Evolve retrieval reply", "演进检索回复"),
+    ("evolve.", "Evolve", "演进"),
+    ("skill.claim_label.", "Claim strength label", "断言强度标签"),
+    ("skill.derive.", "Skill derivation", "契约推导"),
+    ("skill.", "Skill", "领域契约"),
+    ("persona.", "Owner profile", "主人档案"),
+    ("eval.qa.", "Answer judge", "回答评判"),
+    ("eval.truth_judge.", "Claim judge", "断言评判"),
+    ("eval.", "Evaluation", "评测"),
+)
+
+# The refinements: the segments somebody actually opens, reads and rewrites. Everything
+# else derives (see above) — a label is a wayfinding aid, and the key is always shown too.
+_LABELS: dict[str, tuple[str, str]] = {
+    "compile.write_contract": ("The write contract", "写入契约"),
+    "compile.owner_section": ("§2 the knowledge subject", "§2 知识主体"),
+    "compile.owner_unknown": ("§2 no profile supplied", "§2 未提供档案"),
+    "compile.owner_env.section": ("§2 declared environment", "§2 环境声明"),
+    "compile.owner_env.write_language": ("Write in the subject's language", "用主体的语言书写"),
+    "compile.owner_env.day_grouping": ("Which zone days are counted in", "日历日按哪个时区计"),
+    "compile.rules_header": ("Extra presentation rules header", "额外呈现规则标题"),
+    "compile.skill_header": ("§5 domain judgment header", "§5 领域判断标题"),
+    "compile.skill_lede": ("§5 lede", "§5 引言"),
+    "compile.treatment.full": ("treatment=full", "档位 full"),
+    "compile.treatment.distill": ("treatment=distill", "档位 distill"),
+    "compile.treatment.card": ("treatment=card", "档位 card"),
+    "compile.groom.contract": ("The history-card contract", "历史卡片契约"),
+    "compile.challenge.questions_system": ("Blind question generation", "盲出问题"),
+    "compile.challenge.reflect_system": ("Gap judgement", "缺口判定"),
+    "compile.challenge.compensation_preamble": ("Compensation preamble", "补偿编译前言"),
+    "recall.spine": ("The shared answer spine", "共享回答脊柱"),
+    "recall.cite.source_level": ("Cite to the source", "引到源级"),
+    "recall.cite.precise": ("Cite to the block span", "引到块区间"),
+    "recall.close.answer_honestly": ("Close: answer honestly", "收尾：诚实作答"),
+    "recall.close.suggestion": ("Close: an unsolicited card", "收尾：不请自来的卡片"),
+    "recall.style.concise": ("Style: concise", "风格：精确简短"),
+    "recall.style.conversational": ("Style: conversational", "风格：自然对话"),
+    "recall.style.detailed": ("Style: detailed", "风格：详尽书面"),
+    "recall.fast.contract_head": ("Fast lane head", "快速车道开头"),
+    "recall.deep.contract_head": ("Deep lane head", "深度车道开头"),
+    "recall.briefing.contract_head": ("Briefing session head", "简报会话开头"),
+    "recall.suggestion.contract_head": ("Live-context head", "实时上下文开头"),
+    "recall.suggestion.detail_contract": ("Card expansion contract", "卡片展开契约"),
+    "recall.suggestion.focus.general": ("Scope: the whole stream", "范围：整条流"),
+    "recall.suggestion.focus.owner": ("Scope: the owner only", "范围：只看主人"),
+    "recall.suggestion.focus.other": ("Scope: participants only", "范围：只看参与者"),
+    "evolve.phase1_contract": ("Phase 1 — schema draft", "第一阶段 — 结构草案"),
+    "evolve.phase2_contract": ("Phase 2 — reorganization", "第二阶段 — 全库重组"),
+    "skill.derive_contract": ("Skill derivation contract", "契约推导合约"),
+    "persona.profile_instruction": ("Profile expansion", "档案扩写"),
+    "source.guidance_header": ("First-party data notes", "第一方数据说明"),
+    "ingest.semantic.rubric": ("Segmentation rubric", "切分准则"),
+    "ingest.semantic.human": ("Segmentation request", "切分请求"),
+    "gate.feedback_header": ("Gate rejection header", "闸门拒绝标题"),
+    "gate.evolve.feedback_header": ("Evolve gate rejection header", "演进闸门拒绝标题"),
+}
+
+
+def _humanize(tail: str) -> str:
+    words = tail.replace("_", " ").replace(".", " ").strip()
+    return words[:1].upper() + words[1:] if words else tail
+
+
+def segment_label(key: str) -> dict[str, str]:
+    """The bilingual label of one catalog key: refined if it has one, else derived."""
+    refined = _LABELS.get(key)
+    if refined is not None:
+        return {"en": refined[0], "zh": refined[1]}
+    for prefix, en, zh in sorted(_LABEL_FAMILIES, key=lambda f: -len(f[0])):
+        if key.startswith(prefix):
+            tail = _humanize(key[len(prefix) :])
+            return {"en": f"{en} · {tail}", "zh": f"{zh} · {tail}"}
+    return {"en": _humanize(key), "zh": _humanize(key)}
+
+
+# ═══════════════════════════════════════════════════════════════════ the registry
+
+# Shorthands so the declarations below read as composition rather than as constructor
+# noise. `b` = block, `s` = slot filler, `v` = variant, `f` = one clause of a fragment
+# family. `v` and `f` take their context sentence positionally, because a variant or a
+# fragment without one is the defect this registry exists to prevent.
+def b(key: str, *, slots: tuple[Slot, ...] = (), prefix: str = "", suffix: str = "") -> Segment:
+    return Segment(key=key, role=BLOCK, slots=slots, prefix=prefix, suffix=suffix)
+
+
+def s(key: str, *, slots: tuple[Slot, ...] = ()) -> Segment:
+    return Segment(key=key, role=SLOT, slots=slots)
+
+
+def v(key: str, en: str, zh: str) -> Segment:
+    return Segment(key=key, role=VARIANT, context_en=en, context_zh=zh)
+
+
+def f(key: str, en: str, zh: str) -> Segment:
+    return Segment(key=key, role=BLOCK, context_en=en, context_zh=zh)
+
+
+# ── the shared recall spine, as three segments. `spine(cite, close)` is one function with
+# two injected clauses, so every mode that uses it repeats these three lines with its own
+# pair. The repetition is the map: `shared_with` then tells a person editing the spine that
+# four surfaces move at once.
+def _spine(cite: str, close: str) -> tuple[Segment, ...]:
+    return (
+        b(
+            "recall.spine",
+            slots=(Slot("cite", (cite,)), Slot("close", (close,))),
+        ),
+        s(cite),
+        s(close),
+    )
+
+
+# The three answer styles are a knob: one is appended to the contract, the other two are
+# the branches this deployment did not pick. Which one is rendered follows the deployment's
+# `answer_style` setting, so the variants say that rather than repeating the style itself.
+_ANSWER_STYLE = (
+    b("recall.style.conversational"),
+    v(
+        "recall.style.concise",
+        "Appended instead of the style above when this deployment's answer style is "
+        "`concise`.",
+        "当本部署的回答风格设为 `concise` 时，取代上面那一段风格附在契约末尾。",
+    ),
+    v(
+        "recall.style.detailed",
+        "Appended instead of the style above when this deployment's answer style is "
+        "`detailed`.",
+        "当本部署的回答风格设为 `detailed` 时，取代上面那一段风格附在契约末尾。",
+    ),
+)
+
+
+SURFACES: tuple[Surface, ...] = (
+    # ─────────────────────────────────────────────────────────────────────── intake
+    Surface(
+        id="intake.semantic",
+        group="intake",
+        title_en="Semantic segmentation",
+        title_zh="语义切分",
+        summary_en=(
+            "How the compile-role model is asked to cut a source into topic units. It "
+            "returns block indexes only — the chunk text stays a verbatim slice."
+        ),
+        summary_zh=(
+            "编译角色模型被如何要求把一份材料切成话题单元。它只返回块下标——"
+            "切出来的文本始终是原文的逐字片段。"
+        ),
+        segments=(
+            f(
+                "ingest.semantic.rubric",
+                "The SystemMessage of every segmentation call: the standard for where one "
+                "topic ends and the next begins.",
+                "每次切分调用的系统消息：一个话题在哪里结束、下一个从哪里开始的判准。",
+            ),
+            f(
+                "ingest.semantic.human",
+                "The HumanMessage of the same call, once per window of blocks: the numbered "
+                "lines, and the demand for start numbers only.",
+                "同一次调用的人类消息，每个块窗口一次：带编号的行，以及「只返回起始编号」的要求。",
+            ),
+        ),
+        kind=FRAGMENTS,
+    ),
+    Surface(
+        id="intake.source_guidance",
+        group="intake",
+        title_en="First-party data notes",
+        title_zh="第一方数据说明",
+        summary_en=(
+            "The per-source-type preface that rides the compile human turn: what the "
+            "data's fields mean, and what the stream is for."
+        ),
+        summary_zh=(
+            "随编译人类回合出现的按源类型前言：数据的字段是什么意思，这条流是干什么用的。"
+        ),
+        segments=(
+            b(
+                "source.guidance_header",
+                slots=(
+                    Slot("data_context", ("source.context_stream.data_context",)),
+                    Slot("app_context", ("source.context_stream.app_context",)),
+                ),
+            ),
+            s("source.context_stream.data_context"),
+            s("source.context_stream.app_context"),
+        ),
+        kind=ASSEMBLED,
+        pinned=True,
+    ),
+    Surface(
+        id="intake.source_preamble",
+        group="intake",
+        title_en="Source provenance preambles",
+        title_zh="源出处引言",
+        summary_en=(
+            "One sentence in front of every source in the compile task, stating who wrote "
+            "it, when, and whether its judgements belong to the subject. Which sentence is "
+            "chosen depends on what the material actually supplies."
+        ),
+        summary_zh=(
+            "编译任务里每份源材料前面的一句话：谁写的、什么时候、里面的判断算不算主体自己的。"
+            "选哪一句取决于材料真正提供了什么。"
+        ),
+        segments=(
+            # Two fillers every branch below can use.
+            f(
+                "source.preamble.owner_default",
+                "Substituted for the subject's name in every sentence below, whenever the "
+                "caller does not know their display name.",
+                "在下面每一句里代替主体的名字——当调用方不知道主体的显示名时使用。",
+            ),
+            f(
+                "source.preamble.title_quoted",
+                "Fills `{title}` of the external-material, unattributed-document and "
+                "everything-else sentences when the material has a title; empty when it "
+                "has none.",
+                "材料有标题时，填「外部材料」「无署名文档」「其余材料」这几句的 `{title}`；"
+                "没有标题就为空。",
+            ),
+            # ── a diarized stream (chat, meeting, call): stream_tail is the sentence.
+            f(
+                "source.preamble.stream_tail",
+                "The finished sentence for a diarized stream: the lead, then the subject's "
+                "role in it.",
+                "一条带发言人的流最终成句的形状：先是开头，再是主体在其中的角色。",
+            ),
+            f(
+                "source.preamble.stream_lead",
+                "Fills `{lead}` above — who, when, in what scene, how many messages.",
+                "填上面的 `{lead}`：谁、什么时候、在什么场景、多少条消息。",
+            ),
+            f(
+                "source.preamble.stream_scene_default",
+                "Fills `{scene}` of the lead when the ingest side supplied no scene phrase — "
+                "core never guesses the medium.",
+                "当接收侧没有给出场景说法时，填开头的 `{scene}`——core 从不猜测媒介。",
+            ),
+            f(
+                "source.preamble.stream_part",
+                "Appended to the lead only when that day's stream was split into several "
+                "parts.",
+                "只有当那一天的流被切成多个部分时，才追加到开头里。",
+            ),
+            f(
+                "source.preamble.stream_role_spoke",
+                "Fills `{role}` when the subject spoke at least once in this part.",
+                "当主体在这一部分里至少发言一次时，填 `{role}`。",
+            ),
+            f(
+                "source.preamble.stream_role_silent",
+                "The alternative `{role}` when the subject was present but said nothing.",
+                "主体在场却没有发言时，`{role}` 换成这一句。",
+            ),
+            f(
+                "source.preamble.stream_mentions",
+                "Appended to the role clause when the subject was @-mentioned at least once.",
+                "当主体被 @ 提及至少一次时，追加到角色小句后面。",
+            ),
+            f(
+                "source.preamble.stream_replies",
+                "Appended to the role clause when at least one message replies to the subject.",
+                "当至少有一条消息是在回复主体时，追加到角色小句后面。",
+            ),
+            # ── a document that states authorship or a timestamp.
+            f(
+                "source.preamble.document_lead",
+                "The sentence for a document whose metadata states an author, a creation "
+                "time, or that the subject wrote it.",
+                "当文档元数据说明了作者、创建时间、或「主体自己写的」时，用这一句。",
+            ),
+            f(
+                "source.preamble.document_kind_default",
+                "Fills `{kind}` above when the metadata declares no document kind.",
+                "元数据没有声明文档类型时，填上面的 `{kind}`。",
+            ),
+            f(
+                "source.preamble.document_other_author",
+                "Fills `{who}` when the document is not the subject's and the author's name "
+                "is not supplied.",
+                "当文档不属于主体、而且没有给出作者名字时，填 `{who}`。",
+            ),
+            f(
+                "source.preamble.document_title",
+                "Fills `{title}` of the document sentence when the source has a title.",
+                "材料有标题时，填文档那一句的 `{title}`。",
+            ),
+            f(
+                "source.preamble.document_parent",
+                "Fills `{parent}` when the metadata names the document this one is filed "
+                "under.",
+                "当元数据说明了这份文档挂在哪份父文档下时，填 `{parent}`。",
+            ),
+            f(
+                "source.preamble.document_created",
+                "The time clause when the metadata carries a creation timestamp.",
+                "元数据带有创建时间时，时间小句用这一条。",
+            ),
+            f(
+                "source.preamble.document_updated",
+                "Added when the last-updated day differs from the creation day — an edited "
+                "document is a different fact from a written one.",
+                "当最后更新日与创建日不是同一天时追加——「改过的文档」和「写下的文档」是两件事。",
+            ),
+            f(
+                "source.preamble.document_created_and_updated",
+                "Joins the two clauses above when the document carries both timestamps.",
+                "当两个时间戳都有时，把上面两条小句连起来。",
+            ),
+            f(
+                "source.preamble.document_occurred",
+                "The time clause when the document states no timestamp of its own but the "
+                "framework holds its occurrence day.",
+                "文档自己没有时间戳、但框架握有它的发生日时，时间小句用这一条。",
+            ),
+            f(
+                "source.preamble.document_when",
+                "Wraps whichever time clause was built, into `{when}` of the document "
+                "sentence; empty when the document has no date at all.",
+                "把上面选中的时间小句包进文档那一句的 `{when}`；文档完全没有日期时为空。",
+            ),
+            f(
+                "source.preamble.document_stance_owner",
+                "Closes the document sentence when the subject is the author: its judgements "
+                "count as theirs.",
+                "当主体就是作者时，用它收束文档那一句：里面的判断算主体自己的。",
+            ),
+            f(
+                "source.preamble.document_stance_other",
+                "The alternative close when somebody else wrote it — the clause that keeps "
+                "another person's decisions out of the subject's record.",
+                "文档由别人所写时的另一种收束——正是这一句拦住「把别人的决定记成主体的」。",
+            ),
+            # ── external material supplied for the subject to read.
+            f(
+                "source.preamble.reference",
+                "Replaces the whole sentence for `source_class=reference` with no authorship "
+                "metadata and no date.",
+                "当 `source_class=reference` 且既无署名元数据也无日期时，整句换成这一条。",
+            ),
+            f(
+                "source.preamble.reference_dated",
+                "The same external-material sentence when the framework does hold its date.",
+                "同样是外部材料，但框架握有它的日期时用这一条。",
+            ),
+            # ── a document with no authorship metadata at all.
+            f(
+                "source.preamble.document_unknown",
+                "A document whose material supplies neither author nor authoring time.",
+                "材料既没有作者、也没有写作时间的文档。",
+            ),
+            f(
+                "source.preamble.document_unknown_dated",
+                "The same case with an occurrence day the framework holds — relative time in "
+                "it resolves against that day.",
+                "同样的情况，但框架握有发生日——材料里的相对时间以那一天为基准解析。",
+            ),
+            # ── everything that is not a document.
+            f(
+                "source.preamble.fallback",
+                "Every non-document source (conversation, im, email, structured, library) "
+                "carrying no date: attribution and time both stay pending.",
+                "所有非文档材料（对话、IM、邮件、结构化、文档库）且没有日期时：署名与时间都悬置。",
+            ),
+            f(
+                "source.preamble.fallback_dated",
+                "The same, dated — the ordinary path, since ingest stamps every non-document "
+                "source with its occurrence day.",
+                "同样的情况但有日期——这是常规路径，因为接收时每份非文档材料都被打上了发生日。",
+            ),
+        ),
+        kind=FRAGMENTS,
+    ),
+    Surface(
+        id="intake.rendering",
+        group="intake",
+        title_en="Transcript and email rendering",
+        title_zh="转写与邮件渲染",
+        summary_en=(
+            "The labels a normalized source is rendered with before any model reads it: "
+            "who is the owner, how a participant is numbered, how a turn line is written."
+        ),
+        summary_zh=(
+            "任何模型读到之前，规范化材料被渲染成的标签：谁是主人、参与者怎么编号、"
+            "一轮发言怎么写成一行。"
+        ),
+        segments=(
+            f(
+                "ingest.owner_label",
+                "The name the subject's own turns are labelled with, in every transcript and "
+                "in the live-context stream.",
+                "主体自己的发言在每份转写、以及实时上下文流里被标成的名字。",
+            ),
+            f(
+                "ingest.other_label",
+                "How anybody who is not the subject is labelled: numbered in first-appearance "
+                "order, so no real name has to be invented.",
+                "非主体的人被标成什么：按首次出现顺序编号，从而不必编造任何真实姓名。",
+            ),
+            f(
+                "ingest.speaker_alias",
+                "Appended to a participant's label when the material carries a stable speaker "
+                "id, so the same person stays the same person across parts.",
+                "当材料带有稳定的说话人 id 时，追加到参与者标签后面，让同一个人跨部分保持同一个人。",
+            ),
+            f(
+                "ingest.owner_wrapped",
+                "Used instead when the material already names the subject: their own name is "
+                "kept and marked as the subject's.",
+                "当材料本身已经给出主体的名字时改用这一条：保留原名，并标明这是主体。",
+            ),
+            f(
+                "ingest.turn_line",
+                "One line of a rendered transcript — every turn of every stream goes through "
+                "this shape before any model reads it.",
+                "转写中的一行——任何模型读到之前，每条流的每一轮发言都先过这个形状。",
+            ),
+            f(
+                "ingest.email.subject",
+                "The first line of a rendered email, before its body.",
+                "渲染一封邮件时正文之前的第一行。",
+            ),
+            f(
+                "ingest.email.attachments",
+                "Added to a rendered email only when it carries attachments, followed by their "
+                "filenames.",
+                "只有当邮件带附件时才追加，后面接附件文件名。",
+            ),
+        ),
+        kind=FRAGMENTS,
+    ),
+    # ────────────────────────────────────────────────────────────────────── compile
+    Surface(
+        id="compile.system",
+        group="compile",
+        title_en="The compile SystemMessage",
+        title_zh="编译系统消息",
+        summary_en=(
+            "The whole constitution the compile agent reads before it writes anything: "
+            "what knowledge compilation is, who the subject is, the one criterion, the "
+            "four mechanisms, and this engine's own domain section. Byte-stable per "
+            "(skill, subject, overlay) — invariant I5."
+        ),
+        summary_zh=(
+            "编译代理写下任何东西之前读到的整部宪法：什么是知识编译、主体是谁、唯一判准、"
+            "四组机制，以及本引擎自己的领域段。按 (契约, 主体, 覆盖) 三元组逐字节稳定"
+            "——不变量 I5。"
+        ),
+        segments=(
+            b(
+                "compile.write_contract",
+                slots=(Slot("owner", ("compile.owner_unknown",)),),
+                suffix="\n",
+            ),
+            s(
+                "compile.owner_unknown",
+                slots=(Slot("environment", ("compile.owner_env.section",)),),
+            ),
+            s(
+                "compile.owner_env.section",
+                slots=(
+                    Slot(
+                        "lines",
+                        (
+                            "compile.owner_env.region_unknown",
+                            "compile.owner_env.timezone_unknown",
+                            "compile.owner_env.language_unknown",
+                        ),
+                        join="\n",
+                    ),
+                    Slot(
+                        "policy",
+                        (
+                            "compile.owner_env.write_language",
+                            "compile.owner_env.day_grouping",
+                        ),
+                        join="\n",
+                    ),
+                ),
+            ),
+            s("compile.owner_env.region_unknown"),
+            s("compile.owner_env.timezone_unknown"),
+            s("compile.owner_env.language_unknown"),
+            s("compile.owner_env.write_language"),
+            s("compile.owner_env.day_grouping"),
+            b("compile.skill_header", suffix="\n\n"),
+            b("compile.skill_lede", suffix="\n\n{instructions}\n"),
+            # Rendered instead of the "no profile" section as soon as a subject profile is
+            # supplied, with its identity lines built from the field templates below.
+            v(
+                "compile.owner_section",
+                "Replaces §2 above as soon as a subject profile is supplied; its identity "
+                "lines come from the field templates below.",
+                "一旦提供了主体档案，就整段替换上面的 §2；里面的身份行由下面那些字段模板拼出。",
+            ),
+            v(
+                "compile.owner_field.name",
+                "One identity line of §2, when the profile states a name.",
+                "§2 的一行身份信息，当档案里有名字时出现。",
+            ),
+            v(
+                "compile.owner_field.occupation",
+                "One identity line of §2, when the profile states an occupation.",
+                "§2 的一行身份信息，当档案里有职业时出现。",
+            ),
+            v(
+                "compile.owner_field.industry_role",
+                "One identity line of §2, when the profile states an industry and a role.",
+                "§2 的一行身份信息，当档案里有行业与角色时出现。",
+            ),
+            v(
+                "compile.owner_field.working_style",
+                "One identity line of §2, when the profile states how the subject works.",
+                "§2 的一行身份信息，当档案说明了主体的工作方式时出现。",
+            ),
+            v(
+                "compile.owner_field.collab_mode",
+                "Folded into the way-of-working line when the profile also states a "
+                "collaboration mode.",
+                "当档案还说明了协作模式时，并进「工作方式」那一行。",
+            ),
+            v(
+                "compile.owner_field.background",
+                "One identity line of §2, when the profile carries a background note.",
+                "§2 的一行身份信息，当档案带有背景说明时出现。",
+            ),
+            v(
+                "compile.owner_field.interests",
+                "One identity line of §2, when the profile lists long-standing interests.",
+                "§2 的一行身份信息，当档案列出了长期兴趣时出现。",
+            ),
+            v(
+                "compile.owner_field.unspecified",
+                "Stands in for a field the profile leaves blank — §2 says "
+                "\"not provided\" rather than dropping the line silently.",
+                "代替档案里留空的字段——§2 会明说「未提供」，而不是静默地少一行。",
+            ),
+            v(
+                "compile.owner_field.unlabeled",
+                "Stands in for a labelled sub-field whose label is missing, so a half-filled "
+                "profile still reads as a sentence.",
+                "代替缺了标签的子字段，让填了一半的档案仍然读得通。",
+            ),
+            v(
+                "compile.owner_field.list_separator",
+                "Joins the items of a list-valued profile field (interests, for instance).",
+                "连接列表型档案字段的各项（例如兴趣）。",
+            ),
+            v(
+                "compile.owner_field.detail_separator",
+                "Joins the several details inside one identity line.",
+                "连接同一行身份信息里的多个细节。",
+            ),
+            # The declared-environment lines for the states a profile DOES supply.
+            v(
+                "compile.owner_env.region",
+                "The declared-environment line when the profile does state a region.",
+                "档案确实写明了地区时，环境声明里的那一行。",
+            ),
+            v(
+                "compile.owner_env.timezone_provider",
+                "The timezone line when this deployment resolved the zone for the material "
+                "itself.",
+                "当本部署为这批材料自己解析出时区时，用这一行。",
+            ),
+            v(
+                "compile.owner_env.timezone_profile",
+                "The timezone line when the zone is on record in the subject's profile.",
+                "当时区记录在主体档案里时，用这一行。",
+            ),
+            v(
+                "compile.owner_env.timezone_default",
+                "The timezone line when nothing is on record and the deployment's default is "
+                "in use — it says so, because dates are still counted in it.",
+                "当没有任何记录、只能用部署默认时区时的那一行——它会明说，因为日期仍按该时区计。",
+            ),
+            v(
+                "compile.owner_env.timezone_unstated",
+                "The bare timezone line, for a caller that supplies a zone with no account of "
+                "where it came from.",
+                "最简的时区行：调用方给了时区，但没有说明它从何而来。",
+            ),
+            v(
+                "compile.owner_env.language",
+                "The declared-environment line when the profile does state a language.",
+                "档案确实写明了语言时，环境声明里的那一行。",
+            ),
+            # Emitted only by a skill version that declares extra contract clauses.
+            v(
+                "compile.rules_header",
+                "Opens an extra section, only for a skill version that declares presentation "
+                "rules of its own.",
+                "只有当某个契约版本自己声明了呈现规则时，才开出这一节。",
+            ),
+            v(
+                "contract.rule.citation_granularity",
+                "One such rule, emitted only by a skill version that declares it.",
+                "其中一条规则，只有声明了它的契约版本才发出。",
+            ),
+            v(
+                "contract.rule.citation_shape",
+                "One such rule, emitted only by a skill version that declares it.",
+                "其中一条规则，只有声明了它的契约版本才发出。",
+            ),
+            v(
+                "contract.rule.strength_labels",
+                "One such rule, emitted only by a skill version that declares it — it is what "
+                "puts the three strength labels in force.",
+                "其中一条规则，只有声明了它的契约版本才发出——正是它让三档强度标签生效。",
+            ),
+        ),
+        kind=ASSEMBLED,
+        pinned=True,
+        note_en=(
+            "What you are reading is the ASSEMBLY TEMPLATE, not the finished message of any "
+            "one compile. Four values are substituted per call from the compile contract in "
+            "force: `{skill_id}`, `{version}`, `{templates}` (its path families) and "
+            "`{instructions}` (its whole domain section). §2 is the owner section: it reads "
+            "\"no profile supplied\" here, and is replaced wholesale by the profile section "
+            "— built from the field and environment clauses listed below — as soon as the "
+            "engine directory holds one. `{slug}` is the one brace that is NOT an injection "
+            "point: it is part of a path template the model is meant to read literally. This "
+            "round's material, time frame and existing outline are not here at all; they "
+            "arrive in the HumanMessage (see 编译回合), which is what keeps this message "
+            "byte-stable — invariant I5."
+        ),
+        note_zh=(
+            "你读到的是**装配模板**，不是某一次编译的最终消息。每次调用会从当时生效的编译契约代入"
+            "四个值：`{skill_id}`、`{version}`、`{templates}`（它的路径家族）与 `{instructions}`"
+            "（它完整的领域段）。§2 是主体档案段：这里显示的是「本轮没有提供主体档案」，一旦引擎"
+            "目录里有档案，它就会被整段换成由下面那些字段与环境子句拼出的档案段。`{slug}` 是唯一"
+            "不属于注入点的花括号——它是路径模板的一部分，本来就要让模型逐字读到。本轮材料、时间"
+            "框与既有提纲根本不在这里，它们随人类消息到达（见「编译回合」）；正是这一点让这条消息"
+            "逐字节稳定——不变量 I5。"
+        ),
+    ),
+    Surface(
+        id="compile.task",
+        group="compile",
+        title_en="The compile round (human turn)",
+        title_zh="编译回合（人类消息）",
+        summary_en=(
+            "Everything that changes round to round: the time frame, the treatments in "
+            "use, this round's material, the outline of existing canonical, and the "
+            "auto-recalled claims to align against."
+        ),
+        summary_zh=(
+            "每一轮都会变的东西：时间框架、这一轮用到的处理档位、本轮材料、"
+            "既有正本的大纲，以及用来对齐的自动召回断言。"
+        ),
+        segments=(
+            f(
+                "compile.task.guidance_header",
+                "Opens the source-type notes, when this round's material has any.",
+                "当本轮材料带有按源类型的说明时，开出那一节。",
+            ),
+            f(
+                "compile.task.treatment_header",
+                "Opens the treatment section, listing only the treatments this round actually "
+                "uses.",
+                "开出处理档位那一节，只列出本轮真正用到的档位。",
+            ),
+            f(
+                "compile.treatment.full",
+                "Explains `treatment=full`, when at least one source this round is set to it.",
+                "当本轮至少有一份材料是 `treatment=full` 时，解释这个档位。",
+            ),
+            f(
+                "compile.treatment.distill",
+                "Explains `treatment=distill`, when at least one source this round is set to it.",
+                "当本轮至少有一份材料是 `treatment=distill` 时，解释这个档位。",
+            ),
+            f(
+                "compile.treatment.card",
+                "Explains `treatment=card`, when at least one source this round is set to it.",
+                "当本轮至少有一份材料是 `treatment=card` 时，解释这个档位。",
+            ),
+            f(
+                "compile.task.time_header",
+                "Opens the time frame — always present, because every date the agent writes is "
+                "resolved against it.",
+                "开出时间框架那一节——始终出现，因为代理写下的每个日期都以它为基准解析。",
+            ),
+            f(
+                "compile.task.time_now",
+                "The compile date and the subject's own zone: always stated.",
+                "编译日期与主体自己的时区：总是说明。",
+            ),
+            f(
+                "compile.task.time_zone_changed",
+                "Added only when the subject's timezone changed, so already-normalized dates "
+                "are not re-read under the new zone.",
+                "只有当主体的时区变更过时才追加，避免已归一化的日期被按新时区重读。",
+            ),
+            f(
+                "compile.task.time_window",
+                "Added when the round's material has a known occurrence span.",
+                "当本轮材料有已知的发生时间跨度时追加。",
+            ),
+            f(
+                "compile.task.time_multi_day",
+                "Added when one round bundles sources from several calendar days.",
+                "当一轮里打包了跨多个日历日的材料时追加。",
+            ),
+            f(
+                "compile.task.time_relative_rule",
+                "The rule for turning \"yesterday\" into a date: present whenever the material "
+                "has a date to resolve against.",
+                "把「昨天」换算成具体日期的规则：只要材料有可用的基准日期就出现。",
+            ),
+            f(
+                "compile.task.time_unknown",
+                "Replaces the dated lines when the material carries no occurrence time at all "
+                "— then no absolute date may be inferred.",
+                "当材料完全没有发生时间时，取代上面那些带日期的行——此时不得推断任何绝对日期。",
+            ),
+            f(
+                "compile.task.sources_header",
+                "Opens this round's material.",
+                "开出本轮材料那一节。",
+            ),
+            f(
+                "compile.task.source_heading",
+                "The heading of each source — this is where the `source_id` a citation must "
+                "name is shown.",
+                "每份材料的标题行——引用要写的 `source_id` 就在这里出现。",
+            ),
+            f(
+                "compile.task.treatment_tag",
+                "Marks one source's treatment under its heading.",
+                "在某份材料的标题行下标出它的处理档位。",
+            ),
+            f(
+                "compile.task.block_line",
+                "One numbered block of source text, once per block — the `¶` numbers a "
+                "citation's span refers to.",
+                "材料原文的一个编号块，每块一次——引用区间指的就是这些 `¶` 编号。",
+            ),
+            f(
+                "compile.task.outline_header",
+                "Opens the outline of everything already in canonical.",
+                "开出「既有正本全貌」那一节。",
+            ),
+            f(
+                "compile.task.outline_note",
+                "The instruction that goes with the outline: update an existing subject in "
+                "place instead of opening a second document about it.",
+                "跟着大纲的那条指令：既有主题就地更新，不要再开第二份文档写同一件事。",
+            ),
+            f(
+                "compile.task.outline_empty",
+                "Replaces the outline when the knowledge base is still empty.",
+                "知识库还是空的时候，取代大纲本身。",
+            ),
+            f(
+                "compile.task.outline_entry",
+                "One line of the outline, once per existing document.",
+                "大纲里的一行，每份既有文档一次。",
+            ),
+            f(
+                "compile.task.outline_entry_tail",
+                "Appended to an outline line to list that document's section headings.",
+                "追加到大纲行后面，列出那份文档的小节标题。",
+            ),
+            f(
+                "compile.task.outline_entry_volume",
+                "The outline line of a frozen archive volume instead — read-only, citable, "
+                "never written to.",
+                "换成冻结归档卷的大纲行：只读、可引用、永不写入。",
+            ),
+            f(
+                "compile.task.retrieved_header",
+                "Opens the auto-recalled existing claims, when the retrieval found any.",
+                "当自动召回有命中时，开出「既有相关断言」那一节。",
+            ),
+            f(
+                "compile.task.retrieved_note",
+                "The clause that keeps those claims from being mistaken for evidence: they are "
+                "there to be updated, not to be cited.",
+                "拦住「把这些断言当成本轮证据」的那一句：它们是待更新的对象，不是引用来源。",
+            ),
+        ),
+        kind=FRAGMENTS,
+    ),
+    Surface(
+        id="compile.tools",
+        group="compile",
+        title_en="Compile tool face",
+        title_zh="编译工具面",
+        summary_en=(
+            "The tool descriptions the compile agent chooses from, and the replies it "
+            "reads back. A reply is as model-visible as a description: the agent decides "
+            "its next call from it."
+        ),
+        summary_zh=(
+            "编译代理据以选择的工具描述，以及它读回的结果。结果和描述一样是模型可见的："
+            "代理正是据此决定下一次调用。"
+        ),
+        segments=(
+            f(
+                "compile.tool.list_documents",
+                "The description of `list_documents` in the tool list, every round.",
+                "工具清单里 `list_documents` 的描述，每轮都在。",
+            ),
+            f(
+                "compile.tool.read_document",
+                "The description of `read_document` in the tool list, every round.",
+                "工具清单里 `read_document` 的描述，每轮都在。",
+            ),
+            f(
+                "compile.tool.read_document_frozen_notice",
+                "Prefixed to a `read_document` reply when the path read is a frozen archive "
+                "volume: cite it, never edit it.",
+                "当读到的路径是冻结归档卷时，加在 `read_document` 回复前面：可引用，不可编辑。",
+            ),
+            f(
+                "compile.tool.create_document",
+                "The description of `create_document` — it also states that the system, not "
+                "the model, assigns every id.",
+                "`create_document` 的描述——它同时说明 id 全部由系统而非模型分配。",
+            ),
+            f(
+                "compile.tool.edit_claim",
+                "The description of `edit_claim`: rewrite one claim in place, anchor preserved.",
+                "`edit_claim` 的描述：就地重写一条断言，锚点保持不变。",
+            ),
+            f(
+                "compile.tool.append_block",
+                "The description of `append_block`: add one claim, anchor assigned by the "
+                "system.",
+                "`append_block` 的描述：新增一条断言，锚点由系统分配。",
+            ),
+            f(
+                "compile.tool.finish_compile",
+                "The description of `finish_compile` — the call that submits the round to the "
+                "citation gate.",
+                "`finish_compile` 的描述——正是这次调用把本轮提交给引用闸门。",
+            ),
+            f(
+                "compile.tool.search_knowledge",
+                "The description of `search_knowledge`, present only when an L3 retrieval port "
+                "is wired.",
+                "`search_knowledge` 的描述，只有接上了 L3 检索端口时才出现。",
+            ),
+            f(
+                "compile.tool.search_source",
+                "The description of `search_source`, present only when an L1/L2 retrieval port "
+                "is wired.",
+                "`search_source` 的描述，只有接上了 L1/L2 检索端口时才出现。",
+            ),
+            f(
+                "compile.tool.search_knowledge_unavailable",
+                "Takes that description's place when no L3 port is wired — the agent is told "
+                "what it may do instead.",
+                "没有接 L3 端口时取代上面那条描述——并告诉代理改用什么。",
+            ),
+            f(
+                "compile.tool.search_source_unavailable",
+                "Takes the L1/L2 description's place when no such port is wired.",
+                "没有接 L1/L2 端口时，取代那条描述。",
+            ),
+            f(
+                "compile.tool.list_documents_empty",
+                "The `list_documents` reply when the knowledge base holds no documents yet.",
+                "知识库里还没有文档时，`list_documents` 的回复。",
+            ),
+            f(
+                "compile.tool.create_document_result",
+                "The `create_document` reply: the path, and the anchors the system just "
+                "assigned.",
+                "`create_document` 的回复：路径，以及系统刚分配的锚点。",
+            ),
+            f(
+                "compile.tool.edit_claim_result",
+                "The `edit_claim` reply, confirming the anchor survived the rewrite.",
+                "`edit_claim` 的回复，确认重写后锚点仍然保留。",
+            ),
+            f(
+                "compile.tool.append_block_result",
+                "The `append_block` reply, naming the anchor the system assigned.",
+                "`append_block` 的回复，点明系统分配的锚点。",
+            ),
+            f(
+                "compile.tool.finish_compile_result",
+                "The `finish_compile` reply, once the gate accepted the round.",
+                "闸门接受本轮后，`finish_compile` 的回复。",
+            ),
+            f(
+                "compile.tool.unknown_tool",
+                "The reply to a call naming a tool that does not exist.",
+                "当调用了一个并不存在的工具时的回复。",
+            ),
+            f(
+                "compile.tool.call_failed",
+                "The reply when a tool call raised — the agent reads the error and decides its "
+                "next call from it.",
+                "工具调用抛错时的回复——代理读到这段错误，并据此决定下一步。",
+            ),
+            f(
+                "compile.anchor.none",
+                "Stands in for an empty anchor list inside those replies.",
+                "在上面那些回复里，代替空的锚点列表。",
+            ),
+            f(
+                "compile.worker.search_failed",
+                "Returned in place of results when the retrieval call itself failed.",
+                "检索调用本身失败时，取代结果返回。",
+            ),
+            f(
+                "compile.worker.knowledge_empty",
+                "Returned when a `search_knowledge` query matched no existing claim.",
+                "`search_knowledge` 查询没有命中任何既有断言时返回。",
+            ),
+            f(
+                "compile.worker.source_empty",
+                "Returned when a `search_source` query matched no raw material.",
+                "`search_source` 查询没有命中任何原始材料时返回。",
+            ),
+        ),
+        kind=FRAGMENTS,
+    ),
+    Surface(
+        id="compile.groom_contract",
+        group="compile",
+        title_en="Rollover — the history card",
+        title_zh="归档轮换 — 历史卡片",
+        summary_en=(
+            "The one model call inside document rollover: a document grew too large, its "
+            "oldest entries moved verbatim into a frozen volume, and this writes the card "
+            "that stands where they were."
+        ),
+        summary_zh=(
+            "文档归档轮换里唯一的模型调用：一份文档太大了，最早的条目被逐字搬进冻结卷，"
+            "这次调用写的是站在它们原处的那张卡片。"
+        ),
+        segments=(b("compile.groom.contract"),),
+        kind=ASSEMBLED,
+        pinned=True,
+        note_en=(
+            "The SystemMessage only, and nothing is substituted into it. What changes per rollover "
+            "arrives in the HumanMessage: which document, the card being replaced, and the "
+            "entries moving into the frozen volume (see 归档轮换 — 任务与卡片渲染)."
+        ),
+        note_zh=(
+            "这里只有系统消息，而且没有任何东西被代入其中。每次归档会变的东西随人类消息到达："
+            "哪份文档、正在被替换的卡片、以及要搬进冻结卷的那些条目（见「归档轮换 — 任务与卡片渲染」）。"
+        ),
+    ),
+    Surface(
+        id="compile.groom_task",
+        group="compile",
+        title_en="Rollover — task and card rendering",
+        title_zh="归档轮换 — 任务与卡片渲染",
+        summary_en=(
+            "What the rollover call is shown (the document, the previous card, the "
+            "entries being archived) and the three strings its answer is rendered into — "
+            "which land in canonical, so they are prose a deployment owns."
+        ),
+        summary_zh=(
+            "归档调用看到的东西（文档、上一张卡片、正在被归档的条目），"
+            "以及它的回答被渲染成的那几个字符串——它们会落进正本，所以属于部署方自己的文案。"
+        ),
+        segments=(
+            f(
+                "compile.groom.task_header",
+                "Opens the rollover request: which document, how many entries, which volume "
+                "they move into.",
+                "开出归档请求：哪份文档、多少条目、搬进哪一卷。",
+            ),
+            f(
+                "compile.groom.previous_header",
+                "Introduces the card being replaced, when this document has been rolled over "
+                "before.",
+                "当这份文档以前归档过时，引出正在被替换的那张卡片。",
+            ),
+            f(
+                "compile.groom.previous_empty",
+                "Takes its place on a document's first rollover.",
+                "文档第一次归档时取代上一条。",
+            ),
+            f(
+                "compile.groom.archived_header",
+                "Introduces the entries being archived, with the ids the card must reference.",
+                "引出正在被归档的条目，附上卡片必须引用的那些 id。",
+            ),
+            f(
+                "compile.groom.archived_truncated",
+                "Added when the archive is too long to show whole — the oldest lines are "
+                "omitted, and the model is told so.",
+                "当归档太长无法整体展示时追加——最早的行被省略，并明确告知模型。",
+            ),
+            f(
+                "compile.groom.overview_heading",
+                "Not read by the model but WRITTEN INTO canonical: the heading the card lands "
+                "under in the document.",
+                "不是给模型读的，而是写进正本：卡片在文档里落在哪个标题下。",
+            ),
+            f(
+                "compile.groom.overview_point",
+                "Also written into canonical: one point of the card, with the archived entries "
+                "it stands for.",
+                "同样写进正本：卡片里的一个要点，附上它所代表的归档条目。",
+            ),
+            f(
+                "compile.groom.volumes_heading",
+                "Written into canonical: the heading of the volume index left behind in the "
+                "active document.",
+                "写进正本：留在活动文档里的卷索引的标题。",
+            ),
+            f(
+                "compile.groom.volume_entry",
+                "Written into canonical: one line of that index, the link a reader follows into "
+                "the frozen volume.",
+                "写进正本：卷索引里的一行，读者顺着它进入冻结卷。",
+            ),
+            f(
+                "compile.groom.commit_message",
+                "The git commit message of a successful rollover — canonical's own history, so "
+                "a deployment owns this wording too.",
+                "一次成功归档的 git 提交信息——这是正本自己的历史，所以这段文案也归部署方所有。",
+            ),
+            f(
+                "compile.groom.heal_commit_message",
+                "The commit message of a link heal: the follow-up pass that re-renders links "
+                "the move invalidated.",
+                "链接修复的提交信息：那一趟后续修复重新渲染了被搬迁弄失效的链接。",
+            ),
+        ),
+        kind=FRAGMENTS,
+    ),
+    # ──────────────────────────────────────────────────────────────────── challenge
+    Surface(
+        id="challenge.questions",
+        group="challenge",
+        title_en="Blind question generation",
+        title_zh="盲出问题",
+        summary_en=(
+            "The audit's first pass: it sees the raw material and the compile contract, "
+            "deliberately NOT the compiled result, and asks what this material's future "
+            "uses would need answered."
+        ),
+        summary_zh=(
+            "审计的第一趟：它看到原始材料和编译契约，刻意看不到编译结果，"
+            "然后问出这份材料未来的用途需要被回答的问题。"
+        ),
+        segments=(b("compile.challenge.questions_system"),),
+        kind=ASSEMBLED,
+        pinned=True,
+        note_en=(
+            "An assembly template: `{contract}` is where the deployment's own compile "
+            "contract is substituted at call time, so the audit asks its questions under the "
+            "same domain rules the compile ran under. The material itself arrives in the "
+            "HumanMessage — and the compiled result deliberately never does."
+        ),
+        note_zh=(
+            "这是装配模板：`{contract}` 处在调用时代入本部署自己的编译契约，"
+            "使质询与编译在同一套领域规则下出题。材料随人类消息到达——"
+            "而编译结果刻意永不到达。"
+        ),
+    ),
+    Surface(
+        id="challenge.reflect",
+        group="challenge",
+        title_en="Gap judgement",
+        title_zh="缺口判定",
+        summary_en=(
+            "The audit's second pass: per question, the closest recorded claims against "
+            "the material as ground truth. A gap exists only when the material supports "
+            "an answer the claims do not carry."
+        ),
+        summary_zh=(
+            "审计的第二趟：每个问题配上最接近的已记录断言，以材料为真值。"
+            "只有当材料支持某个答案、而断言没有承载它时，才算缺口。"
+        ),
+        segments=(b("compile.challenge.reflect_system"),),
+        kind=ASSEMBLED,
+        pinned=True,
+        note_en=(
+            "The SystemMessage only, and nothing is substituted into it. One question at a "
+            "time, the closest recorded claims and the material "
+            "they are judged against all arrive in the HumanMessage."
+        ),
+        note_zh=(
+            "这里只有系统消息，而且没有任何东西被代入其中。"
+            "每次一个问题、最接近的已记录断言、以及作为真值的材料，都随人类消息到达。"
+        ),
+    ),
+    Surface(
+        id="challenge.compensation",
+        group="challenge",
+        title_en="Compensation preamble",
+        title_zh="补偿编译前言",
+        summary_en=(
+            "Confirmed gaps, handed to one extra compile over the same material. Its "
+            "writes pass the ordinary citation gate like any other."
+        ),
+        summary_zh=(
+            "确认的缺口，交给对同一份材料的一次额外编译。它的写入和其他写入一样要过"
+            "普通的引用闸门。"
+        ),
+        segments=(b("compile.challenge.compensation_preamble"),),
+        kind=ASSEMBLED,
+        pinned=True,
+        note_en=(
+            "An assembly template, and only a preamble: `{gaps}` is where this audit's "
+            "confirmed gaps are substituted, and the text then rides an ordinary compile "
+            "round. So the model's actual message is the compile SystemMessage plus the "
+            "compile human turn with this preamble in it — never this text on its own."
+        ),
+        note_zh=(
+            "这是装配模板，而且只是一段前言：`{gaps}` 处代入本次质询确认的缺口，"
+            "然后这段文字随一次普通编译回合发出。所以模型真正收到的是"
+            "「编译系统消息 + 带这段前言的编译人类消息」，而不是这段文字本身。"
+        ),
+    ),
+    # ─────────────────────────────────────────────────────────────────────── evolve
+    Surface(
+        id="evolve.phase1",
+        group="evolve",
+        title_en="Phase 1 — the schema draft",
+        title_zh="第一阶段 — 结构草案",
+        summary_en=(
+            "A strong model proposes how the library's structure should change, on a "
+            "branch, for a human to adopt or drop. Ships as a packaged asset; the key "
+            "makes it replaceable through the same seam as everything else."
+        ),
+        summary_zh=(
+            "强模型在分支上提出知识库结构该怎么变，等人来采纳或丢弃。"
+            "它以打包资产的形式发布；这个键让它能走和其他文案一样的替换缝。"
+        ),
+        segments=(b("evolve.phase1_contract"),),
+        kind=ASSEMBLED,
+        pinned=True,
+        note_en=(
+            "The SystemMessage as the model receives it — but not the library it reasons "
+            "over. The full document list, the current path families and the basis for this "
+            "evolve arrive in the HumanMessage (see 演进回合). `{slug}` here is not an "
+            "injection point: it is part of a path template the model is meant to read "
+            "literally."
+        ),
+        note_zh=(
+            "这是模型收到的系统消息——但它据以推理的知识库不在这里。"
+            "完整文档清单、当前路径家族与本次演进的依据随人类消息到达（见「演进回合」）。"
+            "这里的 `{slug}` 不是注入点：它是路径模板的一部分，本来就要让模型逐字读到。"
+        ),
+    ),
+    Surface(
+        id="evolve.phase2",
+        group="evolve",
+        title_en="Phase 2 — whole-library reorganization",
+        title_zh="第二阶段 — 全库重组",
+        summary_en=(
+            "The adopted draft executed claim by claim: claims move verbatim with their "
+            "anchors, and the evolve gate refuses anything else."
+        ),
+        summary_zh=(
+            "被采纳的草案被逐条断言执行：断言带着锚点原样搬迁，其余一切由演进闸门拒绝。"
+        ),
+        segments=(b("evolve.phase2_contract"),),
+        kind=ASSEMBLED,
+        pinned=True,
+        note_en=(
+            "The SystemMessage as the model receives it. The adopted draft, every existing "
+            "document and the newly added families are not in it — they arrive per round in "
+            "the HumanMessage (see 演进回合)."
+        ),
+        note_zh=(
+            "这是模型收到的系统消息。被采纳的草案、全部既有文档与新增家族都不在其中——"
+            "它们每轮随人类消息到达（见「演进回合」）。"
+        ),
+    ),
+    Surface(
+        id="evolve.task",
+        group="evolve",
+        title_en="The evolve round (human turn)",
+        title_zh="演进回合（人类消息）",
+        summary_en=(
+            "What one reorganization round is shown: every existing document, the basis "
+            "for this evolve, and the newly added template families to file into."
+        ),
+        summary_zh=(
+            "一次重组回合看到的东西：全部既有文档、本次演进的依据，以及新增的模板家族。"
+        ),
+        segments=(
+            f(
+                "evolve.task_header",
+                "Opens the reorganization round.",
+                "开出重组回合。",
+            ),
+            f(
+                "evolve.task.docs_header",
+                "Introduces the full document list — evolve sees all of canonical, not a "
+                "retrieved slice of it.",
+                "引出完整文档清单——演进看到的是全部正本，而不是检索出来的一部分。",
+            ),
+            f(
+                "evolve.task.docs_empty",
+                "Takes its place when there is nothing to reorganize yet.",
+                "还没有任何东西可重组时取代上一条。",
+            ),
+            f(
+                "evolve.task.rationale_header",
+                "Introduces the adopted proposal: the basis this round is executing.",
+                "引出被采纳的提案：本轮据以执行的依据。",
+            ),
+            f(
+                "evolve.task.families_header",
+                "Introduces the newly added path families, which is where moved meaning is "
+                "meant to land.",
+                "引出新增的路径家族——被搬迁的内容应该落到那里。",
+            ),
+            f(
+                "evolve.task.families_empty",
+                "Takes its place when the proposal added no new family.",
+                "提案没有新增家族时取代上一条。",
+            ),
+            f(
+                "evolve.recovery_heading",
+                "Written INTO canonical, not read: the section a recovered claim is filed "
+                "under when its original home is gone.",
+                "写进正本而非被读取：当某条断言原本的归处已不存在时，它被安置在这个小节下。",
+            ),
+            f(
+                "evolve.commit_message",
+                "The git commit message of a completed evolve — canonical's own history.",
+                "一次完成的演进的 git 提交信息——这是正本自己的历史。",
+            ),
+        ),
+        kind=FRAGMENTS,
+    ),
+    Surface(
+        id="evolve.tools",
+        group="evolve",
+        title_en="Evolve tool face",
+        title_zh="演进工具面",
+        summary_en=(
+            "The reorganization tools and their replies — including the one channel that "
+            "exists nowhere else, `delete_claim`, and only for merging equivalent "
+            "redundancy."
+        ),
+        summary_zh=(
+            "重组用的工具及其回复——包括系统中别处都没有的那一条通道 `delete_claim`，"
+            "而且只用于合并等价冗余。"
+        ),
+        segments=(
+            f(
+                "evolve.tool.list_documents",
+                "The description of `list_documents` in the tool list, every round.",
+                "工具清单里 `list_documents` 的描述，每轮都在。",
+            ),
+            f(
+                "evolve.tool.read_document",
+                "The description of `read_document` in the tool list, every round.",
+                "工具清单里 `read_document` 的描述，每轮都在。",
+            ),
+            f(
+                "evolve.tool.create_document",
+                "The description of `create_document` — the new homes a reorganization files "
+                "into have to be created first.",
+                "`create_document` 的描述——重组要归入的新归处必须先被创建出来。",
+            ),
+            f(
+                "evolve.tool.move_claim",
+                "The description of `move_claim`, the tool this whole lane exists for: the "
+                "claim moves verbatim, anchor unchanged.",
+                "`move_claim` 的描述，整条车道正是为它而存在：断言原样搬迁，锚点不变。",
+            ),
+            f(
+                "evolve.tool.edit_claim",
+                "The description of `edit_claim`: rewrite one claim in place, anchor preserved.",
+                "`edit_claim` 的描述：就地重写一条断言，锚点保持不变。",
+            ),
+            f(
+                "evolve.tool.append_block",
+                "The description of `append_block`: add one claim, anchor assigned by the "
+                "system.",
+                "`append_block` 的描述：新增一条断言，锚点由系统分配。",
+            ),
+            f(
+                "evolve.tool.delete_claim",
+                "The description of `delete_claim` — the only deletion channel in the system, "
+                "and it says out loud that it is for merging equivalents only.",
+                "`delete_claim` 的描述——系统中唯一的删除通道，而且它明说只用于合并等价内容。",
+            ),
+            f(
+                "evolve.tool.search_knowledge",
+                "The description of `search_knowledge`, present only when a retrieval port is "
+                "wired.",
+                "`search_knowledge` 的描述，只有接上了检索端口时才出现。",
+            ),
+            f(
+                "evolve.tool.fetch_source",
+                "The description of `fetch_source`: the L0 route for checking a citation "
+                "before moving the claim that carries it.",
+                "`fetch_source` 的描述：搬迁一条断言之前，用来核对它的引用的 L0 通道。",
+            ),
+            f(
+                "evolve.tool.finish_evolve",
+                "The description of `finish_evolve` — the call that submits the round to the "
+                "evolve gate.",
+                "`finish_evolve` 的描述——正是这次调用把本轮提交给演进闸门。",
+            ),
+            f(
+                "evolve.tool.search_unavailable",
+                "Takes the search description's place when no retrieval port is wired.",
+                "没有接检索端口时，取代检索工具的描述。",
+            ),
+            f(
+                "evolve.tool.fetch_unavailable",
+                "Takes the fetch description's place when no source-text port is wired.",
+                "没有接原文端口时，取代取原文工具的描述。",
+            ),
+            f(
+                "evolve.tool.list_documents_empty",
+                "The `list_documents` reply when there are no documents.",
+                "没有任何文档时，`list_documents` 的回复。",
+            ),
+            f(
+                "evolve.tool.create_document_result",
+                "The `create_document` reply: the path, and the system-assigned anchors.",
+                "`create_document` 的回复：路径，以及系统分配的锚点。",
+            ),
+            f(
+                "evolve.tool.move_claim_result",
+                "The `move_claim` reply, confirming the anchor moved verbatim with the claim.",
+                "`move_claim` 的回复，确认锚点随断言原样搬走。",
+            ),
+            f(
+                "evolve.tool.edit_claim_result",
+                "The `edit_claim` reply, confirming the anchor survived the rewrite.",
+                "`edit_claim` 的回复，确认重写后锚点仍然保留。",
+            ),
+            f(
+                "evolve.tool.append_block_result",
+                "The `append_block` reply, naming the anchor the system assigned.",
+                "`append_block` 的回复，点明系统分配的锚点。",
+            ),
+            f(
+                "evolve.tool.delete_claim_result",
+                "The `delete_claim` reply — it states that the anchor enters the dropped list, "
+                "so the deletion stays traceable.",
+                "`delete_claim` 的回复——它说明锚点会进入「消失锚点清单」，让这次删除仍然可追溯。",
+            ),
+            f(
+                "evolve.tool.finish_evolve_result",
+                "The `finish_evolve` reply, once the evolve gate accepted the round.",
+                "演进闸门接受本轮后，`finish_evolve` 的回复。",
+            ),
+            f(
+                "evolve.tool.anchors_none",
+                "Stands in for an empty anchor list inside those replies.",
+                "在上面那些回复里，代替空的锚点列表。",
+            ),
+            f(
+                "evolve.tool.unknown_tool",
+                "The reply to a call naming a tool that does not exist.",
+                "当调用了一个并不存在的工具时的回复。",
+            ),
+            f(
+                "evolve.tool.call_failed",
+                "The reply when a tool call raised.",
+                "工具调用抛错时的回复。",
+            ),
+            f(
+                "evolve.service.fetch_failed",
+                "Returned in place of source text when the L0 fetch itself failed.",
+                "L0 取原文本身失败时，取代原文返回。",
+            ),
+            f(
+                "evolve.service.search_empty",
+                "Returned when a query matched no raw fragment.",
+                "查询没有命中任何原始片段时返回。",
+            ),
+        ),
+        kind=FRAGMENTS,
+    ),
+    Surface(
+        id="evolve.propose",
+        group="evolve",
+        title_en="Evolve proposal input",
+        title_zh="演进提案输入",
+        summary_en=(
+            "What the proposal pass reads: the current composed contract, the path "
+            "families, the compile events since the last evolve, and the document list."
+        ),
+        summary_zh=(
+            "提案那一趟读到的东西：当前组合出的契约、路径家族、"
+            "距上次演进以来的编译事件，以及文档清单。"
+        ),
+        segments=(
+            f(
+                "evolve.propose.skill_header",
+                "Introduces the contract as it currently composes — a proposal has to start "
+                "from the structure actually in force.",
+                "引出当前组合出的契约——提案必须从真正生效的结构出发。",
+            ),
+            f(
+                "evolve.propose.templates_header",
+                "Introduces the path families in force, the ownership rules a new structure "
+                "has to respect.",
+                "引出当前生效的路径家族：新结构必须遵守的归属规则。",
+            ),
+            f(
+                "evolve.propose.events_header",
+                "Introduces what compiling has been doing since the last evolve — where the "
+                "pressure to reorganize comes from.",
+                "引出上次演进以来编译都做了什么——重组的压力正是从这里来的。",
+            ),
+            f(
+                "evolve.propose.events_empty",
+                "Takes its place when nothing has been compiled since the last evolve.",
+                "上次演进以来没有任何编译时取代上一条。",
+            ),
+            f(
+                "evolve.propose.event_line",
+                "One line of that record, once per document touched.",
+                "那份记录里的一行，每份被改动过的文档一次。",
+            ),
+            f(
+                "evolve.propose.unknown_path",
+                "Stands in on such a line when the event carries no resolvable path.",
+                "当某个事件没有可解析的路径时，在那一行里代替路径。",
+            ),
+            f(
+                "evolve.propose.docs_header",
+                "Introduces the current document list.",
+                "引出当前的文档清单。",
+            ),
+            f(
+                "evolve.propose.docs_empty",
+                "Takes its place when the knowledge base holds no documents.",
+                "知识库里没有文档时取代上一条。",
+            ),
+        ),
+        kind=FRAGMENTS,
+    ),
+    # ─────────────────────────────────────────────────────────────────────── recall
+    Surface(
+        id="recall.fast",
+        group="recall",
+        title_en="Fast recall contract",
+        title_zh="快速召回契约",
+        summary_en=(
+            "The everyday answering lane's System contract: head + the shared spine (with "
+            "source-level citation and the honest close) + the deployment's answer style."
+        ),
+        summary_zh=(
+            "日常回答车道的系统契约：开头 + 共享脊柱（源级引用 + 诚实收尾）+ 部署选定的回答风格。"
+        ),
+        segments=(
+            b("recall.fast.contract_head"),
+            *_spine("recall.cite.source_level", "recall.close.answer_honestly"),
+            *_ANSWER_STYLE,
+        ),
+        kind=ASSEMBLED,
+        pinned=True,
+        note_en=(
+            "One resolution of a template, not the whole call. The style clause at the end is "
+            "chosen by this deployment's `answer_style` — `conversational` is rendered here, "
+            "and the two alternatives below take its place instead; exactly one is ever "
+            "appended. The question, the `as_of` date, the owner profile and the retrieved "
+            "evidence are not part of the contract at all: they arrive in the HumanMessage "
+            "(see 证据分节), which is what keeps this message byte-stable — invariant I5."
+        ),
+        note_zh=(
+            "这是模板的一次取值，不是一整次调用。末尾的风格段由本部署的 `answer_style` 选定"
+            "——这里渲染的是 `conversational`，下面两条替代项会取代它；每次只会附上其中一条。"
+            "问题、`as_of` 日期、主人档案与召回到的证据都不属于契约：它们随人类消息到达"
+            "（见「证据分节」）；正是这一点让这条消息逐字节稳定——不变量 I5。"
+        ),
+    ),
+    Surface(
+        id="recall.deep",
+        group="recall",
+        title_en="Deep verification contract",
+        title_zh="深度校验契约",
+        summary_en=(
+            "The agentic lane's System contract: the same spine, but citing down to the "
+            "block span, because deep can and must check a conclusion against the original."
+        ),
+        summary_zh=(
+            "代理式车道的系统契约：同一条脊柱，但要求引到块区间——"
+            "因为深度召回能够、也必须拿结论去比对原文。"
+        ),
+        segments=(
+            b("recall.deep.contract_head"),
+            *_spine("recall.cite.precise", "recall.close.answer_honestly"),
+            *_ANSWER_STYLE,
+        ),
+        kind=ASSEMBLED,
+        pinned=True,
+        note_en=(
+            "One resolution of a template, not the whole call. The style clause at the end "
+            "follows this deployment's `answer_style` (`conversational` rendered here; "
+            "exactly one of the three is ever appended). The question and the starting "
+            "evidence arrive in the HumanMessage, and the three search tools reach the model "
+            "as tool schemas rather than as prose in this contract (see 深度召回工具面)."
+        ),
+        note_zh=(
+            "这是模板的一次取值，不是一整次调用。末尾的风格段跟随本部署的 `answer_style`"
+            "（这里渲染的是 `conversational`；三条里每次只附上一条）。问题与起始证据随人类消息"
+            "到达；三个检索工具是以工具 schema 的形式到达模型的，而不是作为这份契约里的文字"
+            "（见「深度召回工具面」）。"
+        ),
+    ),
+    Surface(
+        id="recall.briefing",
+        group="recall",
+        title_en="Briefing session contract",
+        title_zh="简报会话契约",
+        summary_en=(
+            "A continuous session built around one fixed knowledge pack, with two routes "
+            "out of it: search within the pack's range, and verbatim L0 fetch."
+        ),
+        summary_zh=(
+            "围绕一个固定知识包构建的持续会话，并留了两条出口："
+            "在包的范围内再检索，以及 L0 逐字取原文。"
+        ),
+        segments=(
+            b("recall.briefing.contract_head"),
+            *_spine("recall.cite.precise", "recall.close.answer_honestly"),
+        ),
+        kind=ASSEMBLED,
+        pinned=True,
+        note_en=(
+            "The FIXED half of the session's SystemMessage — this is the part that is "
+            "byte-stable. At session build time the knowledge pack is appended after it, and "
+            "the pack changes with the scope and the snapshot; each ask's question then "
+            "arrives in the HumanMessage. So a real briefing call is this text plus a pack "
+            "that is not shown here (see 简报知识包与工具)."
+        ),
+        note_zh=(
+            "这是会话系统消息里**固定的那一半**——逐字节稳定的部分就是它。"
+            "会话构建时，知识包会被接在它后面，而包会随范围与快照变化；"
+            "每次提问的问题再随人类消息到达。所以一次真实的简报调用是"
+            "「这段文字 + 这里没有展示的知识包」（见「简报知识包与工具」）。"
+        ),
+    ),
+    Surface(
+        id="recall.suggestion",
+        group="recall",
+        title_en="Live-context contract",
+        title_zh="实时上下文契约",
+        summary_en=(
+            "The listening mode: nobody asked a question, so the spine's closing clause "
+            "is the one that says an empty list is this interface's normal return value."
+        ),
+        summary_zh=(
+            "旁听模式：没有人在提问，所以脊柱的收尾条款换成了"
+            "「空列表就是这个接口的正常返回值」的那一条。"
+        ),
+        segments=(
+            b(
+                "recall.suggestion.contract_head",
+                slots=(Slot("focus", ("recall.suggestion.focus.general",)),),
+            ),
+            s("recall.suggestion.focus.general"),
+            v(
+                "recall.suggestion.focus.owner",
+                "Fills the focus slot instead when the caller scopes this round to the owner's "
+                "own contributions.",
+                "当调用方把这一轮的注意范围限定为主人自己的输入时，改由它填注意范围插槽。",
+            ),
+            v(
+                "recall.suggestion.focus.other",
+                "Fills the focus slot instead when the caller scopes this round to the other "
+                "participants.",
+                "当调用方把这一轮的注意范围限定为其他参与者时，改由它填注意范围插槽。",
+            ),
+            *_spine("recall.cite.precise", "recall.close.suggestion"),
+        ),
+        kind=ASSEMBLED,
+        pinned=True,
+        note_en=(
+            "One resolution of a template. The head's focus slot is filled per call: the "
+            "general phrasing is rendered here, and the two alternatives below take its place "
+            "when the round is scoped to the owner's own turns or to the other participants. "
+            "The live transcript window arrives in the HumanMessage."
+        ),
+        note_zh=(
+            "这是模板的一次取值。开头的注意范围插槽按调用填充：这里渲染的是通用说法，"
+            "当这一轮被限定为主人自己的发言、或其他参与者时，下面两条替代项会取代它。"
+            "实时转写窗口随人类消息到达。"
+        ),
+    ),
+    Surface(
+        id="recall.suggestion_detail",
+        group="recall",
+        title_en="Card expansion contract",
+        title_zh="卡片展开契约",
+        summary_en=(
+            "The owner tapped one card. Deliberately NOT built on the spine: there is no "
+            "wide recall here, only the card and the verbatim source text it cites."
+        ),
+        summary_zh=(
+            "主人点开了一张卡片。刻意不建立在脊柱之上：这里没有宽召回，"
+            "只有这张卡片和它引用的逐字原文。"
+        ),
+        segments=(b("recall.suggestion.detail_contract"),),
+        kind=ASSEMBLED,
+        pinned=True,
+        note_en=(
+            "The SystemMessage only, and nothing is substituted into it. The card being expanded and "
+            "the verbatim source text it cites are the HumanMessage, assembled per call (see "
+            "卡片展开输入) — including the branch for a card whose citation cannot be fetched."
+        ),
+        note_zh=(
+            "这里只有系统消息，而且没有任何东西被代入其中。正在被展开的卡片、以及它引用的逐字原文"
+            "构成人类消息，按次装配（见「卡片展开输入」）——包括「卡片的引用取不回来」那个分支。"
+        ),
+    ),
+    Surface(
+        id="recall.evidence",
+        group="recall",
+        title_en="Evidence sections (human turn)",
+        title_zh="证据分节（人类消息）",
+        summary_en=(
+            "How the retrieved evidence is laid out for the answering model: the owner "
+            "profile block, claim notes, raw excerpts, subject timelines, the input itself."
+        ),
+        summary_zh=(
+            "召回到的证据以什么形式摆到回答模型面前：主人档案块、断言笔记、原文摘录、"
+            "主题时间线，以及输入本身。"
+        ),
+        segments=(
+            f(
+                "recall.section.profile_header",
+                "Opens the owner-profile block, when the deployment supplies a profile.",
+                "当部署提供了档案时，开出主人档案那一块。",
+            ),
+            f(
+                "recall.profile.name",
+                "One line of that block, when the profile states a name.",
+                "档案里有名字时，那一块里的一行。",
+            ),
+            f(
+                "recall.profile.industry_role",
+                "One line of that block, when the profile states an industry and role.",
+                "档案里有行业与角色时，那一块里的一行。",
+            ),
+            f(
+                "recall.profile.occupation",
+                "One line of that block, when the profile states an occupation.",
+                "档案里有职业时，那一块里的一行。",
+            ),
+            f(
+                "recall.profile.location",
+                "One line of that block, when the profile states where the owner is based.",
+                "档案里有常驻地时，那一块里的一行。",
+            ),
+            f(
+                "recall.profile.response_language",
+                "One line of that block, when the profile states a reply language — the input "
+                "itself can still override it.",
+                "档案里有回复语言时，那一块里的一行——但这次输入本身仍可覆盖它。",
+            ),
+            f(
+                "recall.section.claims_header",
+                "Opens the compiled claim notes retrieved for this question.",
+                "开出为这个问题召回的断言笔记。",
+            ),
+            f(
+                "recall.section.claims_empty",
+                "Takes its place when the claim retrieval returned nothing — an honest empty, "
+                "not a silent omission.",
+                "断言检索什么都没找到时取代上一条——诚实地说空，而不是悄悄省掉这一节。",
+            ),
+            f(
+                "recall.section.windows_header",
+                "Opens the raw excerpts (L2 chunks) in the fast lane's evidence.",
+                "在快速车道的证据里，开出原文摘录（L2 片段）那一节。",
+            ),
+            f(
+                "recall.section.passages_header",
+                "The same excerpts under a nested heading, where they hang under a source "
+                "rather than standing alone.",
+                "同样的摘录，但挂在某份材料下面而不是独立成节时用的嵌套标题。",
+            ),
+            f(
+                "recall.passage_truncated",
+                "Marks an excerpt cut at the budget, and names the tool that can pull the rest.",
+                "标出被预算截断的摘录，并点明可以用哪个工具取回其余部分。",
+            ),
+            f(
+                "recall.section.timelines_header",
+                "Opens the subject timelines, when whole documents were selected to be read in "
+                "document order.",
+                "当有整篇文档被选中、按文档顺序阅读时，开出主题时间线那一节。",
+            ),
+            f(
+                "recall.fast.timeline.document",
+                "The heading of one such timeline, once per selected document.",
+                "其中一条时间线的标题，每份被选中的文档一次。",
+            ),
+            f(
+                "recall.fast.window_note.header",
+                "Introduces the claims compiled FROM the excerpt just above — the seam between "
+                "raw material and recorded knowledge.",
+                "引出「由上面这段原文编译出来的断言」——原始材料与已记录知识之间的接缝。",
+            ),
+            f(
+                "recall.fast.window_note.line",
+                "One such claim, with its anchor and the document it lives in.",
+                "其中一条断言，带上它的锚点和所在文档。",
+            ),
+            f(
+                "recall.fast.window_note.line_labeled",
+                "The same line when the claim opens with a strength label, which is then shown.",
+                "同一行，但断言带有强度标签时把标签一起显示出来。",
+            ),
+            f(
+                "recall.section.transcript_header",
+                "Opens the recent turns of the live stream — live-context mode only.",
+                "开出实时流最近几轮发言——只在实时上下文模式下出现。",
+            ),
+            f(
+                "recall.section.already_shown_header",
+                "Lists the cards already surfaced in this conversation, so the same card is not "
+                "offered twice.",
+                "列出本次对话里已经推过的卡片，避免同一张卡片重复出现。",
+            ),
+            f(
+                "recall.section.input",
+                "Labels the owner's own input at the end of the evidence — invariant I5: the "
+                "question travels in the human turn, never in the System contract.",
+                "在证据末尾标出主人自己的输入——不变量 I5：问题走人类消息，绝不进系统契约。",
+            ),
+        ),
+        kind=FRAGMENTS,
+    ),
+    Surface(
+        id="recall.glance",
+        group="recall",
+        title_en="Knowledge base at a glance",
+        title_zh="知识库一览",
+        summary_en=(
+            "The library's SHAPE, present for every question: which filing families "
+            "exist, what is filed under each, how developed each document is."
+        ),
+        summary_zh=(
+            "每个问题都会带上的知识库形状：有哪些归档家族、每个家族下面放了什么、"
+            "每份文档发育到什么程度。"
+        ),
+        segments=(
+            f(
+                "recall.glance.header",
+                "Opens the glance, which every question carries.",
+                "开出一览——每个问题都会带上它。",
+            ),
+            f(
+                "recall.glance.note",
+                "Says what the glance is and is not: the shape of the base, not its contents.",
+                "说明一览是什么、不是什么：它是知识库的形状，不是内容。",
+            ),
+            f(
+                "recall.glance.empty",
+                "Takes the document list's place when nothing has been filed yet — the families "
+                "are still shown, as the places material will go.",
+                "还没有归档任何东西时取代文档清单——家族仍然列出，作为材料将来的归处。",
+            ),
+            f(
+                "recall.glance.family_heading",
+                "The heading of one filing family, once per family the contract declares.",
+                "一个归档家族的标题，契约声明的每个家族一次。",
+            ),
+            f(
+                "recall.glance.family_blurb",
+                "Added under that heading when the family declares a description of its own.",
+                "当某个家族自己声明了说明文字时，加在它的标题下面。",
+            ),
+            f(
+                "recall.glance.family_empty",
+                "Added under a family that has no documents filed under it yet.",
+                "某个家族下面还没有文档时，加在它下面。",
+            ),
+            f(
+                "recall.glance.entry",
+                "One document of the glance, once per document.",
+                "一览里的一份文档，每份文档一次。",
+            ),
+            f(
+                "recall.glance.entry_tail_updated",
+                "Appended to that line when the document carries a last-updated day.",
+                "当文档带有最后更新日时，追加到那一行后面。",
+            ),
+            f(
+                "recall.glance.entry_tail_archived",
+                "Appended when the document has frozen archive volumes behind it.",
+                "当文档背后有冻结归档卷时追加。",
+            ),
+            f(
+                "recall.glance.family_more",
+                "Closes a family whose documents exceed the per-family display cap.",
+                "当某个家族的文档数超过单家族展示上限时，用它收束。",
+            ),
+            f(
+                "recall.glance.unfiled_heading",
+                "Heads the documents that fall outside every declared family — the glance shows "
+                "them rather than hiding a filing gap.",
+                "为落在所有已声明家族之外的文档立一个标题——一览把归档缺口显示出来而不是藏起来。",
+            ),
+            f(
+                "recall.glance.flat_heading",
+                "Used instead of family headings when the contract declares no families at all.",
+                "当契约完全没有声明家族时，用它代替家族标题。",
+            ),
+            f(
+                "recall.glance.truncated",
+                "Closes the glance when it hit its overall line budget.",
+                "当一览撞到总行数预算时，用它收束。",
+            ),
+        ),
+        kind=FRAGMENTS,
+    ),
+    Surface(
+        id="recall.snapshot",
+        group="recall",
+        title_en="Snapshot-scoped answering",
+        title_zh="快照范围内作答",
+        summary_en=(
+            "Rendered only when a question is pinned to a frozen snapshot. It inverts the "
+            "usual frame: a gap in the evidence is the honest state of the base at that "
+            "moment, not a retrieval failure to work around."
+        ),
+        summary_zh=(
+            "只有当提问被钉在冻结快照上时才渲染。它把平时的框架反了过来："
+            "证据里的空白是知识库在那一刻的诚实状态，而不是需要绕开的检索失败。"
+        ),
+        segments=(
+            f(
+                "recall.snapshot.declaration",
+                "Prefixed to the evidence whenever the question is pinned to a snapshot; absent "
+                "entirely otherwise.",
+                "只要提问被钉在某个快照上，就加在证据前面；否则完全不出现。",
+            ),
+            f(
+                "recall.snapshot.moment",
+                "Names the snapshot inside that declaration, when the snapshot carries a freeze "
+                "time.",
+                "在那段声明里点名快照——当快照带有冻结时间时。",
+            ),
+            f(
+                "recall.snapshot.moment_undated",
+                "Names it without a time, when the snapshot carries none.",
+                "快照没有时间时，只点名不带时间。",
+            ),
+            f(
+                "recall.snapshot.source_absent",
+                "Returned by a verbatim fetch for a source the snapshot does not contain — the "
+                "absence is the answer, not a retrieval failure.",
+                "当逐字取原文的目标不在快照里时返回——这份缺失本身就是答案，不是检索失败。",
+            ),
+        ),
+        kind=FRAGMENTS,
+    ),
+    Surface(
+        id="recall.deep_tools",
+        group="recall",
+        title_en="Deep recall tool face",
+        title_zh="深度召回工具面",
+        summary_en=(
+            "The agentic search tools and their replies: `search_claims`, `search_content`, "
+            "`fetch_verbatim`. Their own names — the compile face reads and writes, so it has "
+            "its own — but the same addressing vocabulary, source id plus block span, which "
+            "is what lets a result found here be checked against the original."
+        ),
+        summary_zh=(
+            "代理式检索的工具及其回复：`search_claims`、`search_content`、`fetch_verbatim`。"
+            "名字是它自己的一套——编译面既读也写，所以那边另有一套——但寻址词汇是同一套："
+            "来源 id 加块区间，正是它让这里查到的结果能拿回原文核对。"
+        ),
+        segments=(
+            f(
+                "recall.deep.tool.search_claims",
+                "The one-line description of `search_claims` in the tool list.",
+                "工具清单里 `search_claims` 的一行描述。",
+            ),
+            f(
+                "recall.deep.tool.search_claims_doc",
+                "The fuller docstring of the same tool — both reach the model, in the tool "
+                "schema the agent reads before choosing.",
+                "同一个工具更完整的文档串——两者都会到达模型，在代理选择前读到的工具 schema 里。",
+            ),
+            f(
+                "recall.deep.tool.search_claims_empty",
+                "The reply when that search matched no claim, and it points at the other face "
+                "to try.",
+                "这次检索没有命中断言时的回复，并指向另一个可以试的面。",
+            ),
+            f(
+                "recall.deep.tool.search_content",
+                "The one-line description of `search_content` in the tool list.",
+                "工具清单里 `search_content` 的一行描述。",
+            ),
+            f(
+                "recall.deep.tool.search_content_doc",
+                "The fuller docstring of the same tool.",
+                "同一个工具更完整的文档串。",
+            ),
+            f(
+                "recall.deep.tool.search_content_empty",
+                "The reply when no raw fragment matched.",
+                "没有命中任何原始片段时的回复。",
+            ),
+            f(
+                "recall.deep.tool.fetch_verbatim",
+                "The one-line description of `fetch_verbatim` — the L0 route that makes deep "
+                "verification possible at all.",
+                "`fetch_verbatim` 的一行描述——正是这条 L0 通道让深度校验成为可能。",
+            ),
+            f(
+                "recall.deep.tool.fetch_verbatim_doc",
+                "Its fuller docstring, including the shape of a locator.",
+                "它更完整的文档串，包含定位符的形状。",
+            ),
+            f(
+                "recall.deep.tool.fetch_verbatim_failed",
+                "The reply to a malformed or unresolvable fetch — it teaches the locator shape "
+                "instead of only refusing.",
+                "定位符写错或无法解析时的回复——它顺手教会定位符的形状，而不只是拒绝。",
+            ),
+            f(
+                "recall.deep.tool.fetch_verbatim_empty",
+                "The reply when a well-formed locator addressed nothing.",
+                "定位符格式正确但没有对应内容时的回复。",
+            ),
+            f(
+                "recall.deep.tool.list_documents",
+                "The one-line description of `list_documents` in the tool list.",
+                "工具清单里 `list_documents` 的一行描述。",
+            ),
+            f(
+                "recall.deep.tool.list_documents_doc",
+                "Its fuller docstring, which names when to use it: a truncated glance, or an "
+                "exact path spelling.",
+                "它更完整的文档串，点明什么时候该用它：一览被截断，或需要路径的准确写法。",
+            ),
+            f(
+                "recall.deep.tool.list_documents_empty",
+                "The reply when the knowledge base holds no documents.",
+                "知识库里没有文档时的回复。",
+            ),
+            f(
+                "recall.deep.tool.read_document",
+                "The one-line description of `read_document` in the tool list.",
+                "工具清单里 `read_document` 的一行描述。",
+            ),
+            f(
+                "recall.deep.tool.read_document_doc",
+                "Its fuller docstring — including that a document's links can be followed by "
+                "reading their targets.",
+                "它更完整的文档串——包括「文档里的链接可以顺着读它的目标」这一点。",
+            ),
+            f(
+                "recall.deep.tool.read_document_not_found",
+                "The reply when no document sits at the requested path.",
+                "请求的路径上没有文档时的回复。",
+            ),
+            f(
+                "recall.agentic.budget_notice",
+                "Injected once the retrieval budget is spent: the loop ends by answering from "
+                "what it already has, not by stopping mid-air.",
+                "检索预算用尽时注入：循环以「用已有证据作答」收束，而不是半空中停住。",
+            ),
+        ),
+        kind=FRAGMENTS,
+    ),
+    Surface(
+        id="recall.briefing_pack",
+        group="recall",
+        title_en="Briefing pack and tools",
+        title_zh="简报知识包与工具",
+        summary_en=(
+            "How the fixed knowledge pack is laid out for a briefing session, and the two "
+            "tools that reach past the SAMPLE it laid out — one searching the session's own "
+            "source range again, one fetching any source verbatim by id."
+        ),
+        summary_zh=(
+            "固定知识包在简报会话里怎么摆开，以及那两个能越过「已摊开的样本」的工具——"
+            "一个在本次会话自己的来源范围内再检索，一个按 id 逐字取回任意来源。"
+        ),
+        segments=(
+            f(
+                "recall.briefing.query_section_header",
+                "Opens the query half of the pack, when the session was scoped by a query.",
+                "当会话是按查询划定范围时，开出知识包里「按查询」那一半。",
+            ),
+            f(
+                "recall.briefing.query_claims_header",
+                "Introduces the claims that query retrieved.",
+                "引出那次查询召回的断言。",
+            ),
+            f(
+                "recall.briefing.query_excerpts_header",
+                "Introduces the raw excerpts that query retrieved.",
+                "引出那次查询召回的原文摘录。",
+            ),
+            f(
+                "recall.briefing.source_section_header",
+                "Opens the source half of the pack, when the session was scoped to named "
+                "sources.",
+                "当会话是按指定材料划定范围时，开出知识包里「按材料」那一半。",
+            ),
+            f(
+                "recall.briefing.source_heading",
+                "The heading of one such source, once per source in scope.",
+                "其中一份材料的标题，范围内每份材料一次。",
+            ),
+            f(
+                "recall.briefing.material_cards_header",
+                "Introduces that source's material cards, when it has any.",
+                "当那份材料有材料卡片时，引出它们。",
+            ),
+            f(
+                "recall.briefing.citing_claims_header",
+                "Introduces the claims that cite that source — the compiled reading of it.",
+                "引出引用了那份材料的断言——也就是它被编译后的读法。",
+            ),
+            f(
+                "recall.briefing.outline_header",
+                "Introduces that source's section outline, for a source that has structure.",
+                "对有结构的材料，引出它的小节大纲。",
+            ),
+            f(
+                "recall.briefing.outline_more",
+                "Closes an outline cut at its display cap.",
+                "当大纲撞到展示上限被截断时收束它。",
+            ),
+            f(
+                "recall.briefing.excerpts_header",
+                "Introduces the verbatim excerpts of that source.",
+                "引出那份材料的逐字摘录。",
+            ),
+            f(
+                "recall.briefing.provenance_suffix",
+                "Appended to a claim in the pack, naming the sources it cites, so a citation "
+                "can be followed from inside the session.",
+                "追加在知识包里的断言后面，点明它引用了哪些材料，让引用能在会话内被追下去。",
+            ),
+            f(
+                "recall.briefing.budget_truncated",
+                "Marks the point where the pack hit its token budget.",
+                "标出知识包撞到 token 预算的位置。",
+            ),
+            f(
+                "recall.briefing.tool.search_knowledge",
+                "The one-line description of the in-pack search tool.",
+                "包内检索工具的一行描述。",
+            ),
+            f(
+                "recall.briefing.tool.search_knowledge_doc",
+                "Its fuller docstring — both reach the model through the tool schema.",
+                "它更完整的文档串——两者都通过工具 schema 到达模型。",
+            ),
+            f(
+                "recall.briefing.tool.claims_header",
+                "Introduces the claim hits inside that tool's reply.",
+                "在该工具的回复里，引出命中的断言。",
+            ),
+            f(
+                "recall.briefing.tool.passages_header",
+                "Introduces the excerpt hits inside the same reply.",
+                "在同一条回复里，引出命中的原文摘录。",
+            ),
+            f(
+                "recall.briefing.tool.search_empty",
+                "The reply when nothing inside the pack's range matched.",
+                "包的范围内什么都没命中时的回复。",
+            ),
+            f(
+                "recall.briefing.tool.fetch_verbatim",
+                "The one-line description of the L0 fetch tool — the second way out of the "
+                "fixed pack.",
+                "L0 取原文工具的一行描述——从固定知识包伸出去的第二条通道。",
+            ),
+            f(
+                "recall.briefing.tool.fetch_verbatim_doc",
+                "Its fuller docstring, including the shape of a locator.",
+                "它更完整的文档串，包含定位符的形状。",
+            ),
+            f(
+                "recall.briefing.tool.fetch_verbatim_failed",
+                "The reply when that fetch failed.",
+                "取原文失败时的回复。",
+            ),
+        ),
+        kind=FRAGMENTS,
+    ),
+    Surface(
+        id="recall.suggestion_detail_pack",
+        group="recall",
+        title_en="Card expansion input",
+        title_zh="卡片展开输入",
+        summary_en=(
+            "The card being expanded and the verbatim source text it cites — fetched, not "
+            "retrieved, which is why the expansion contract carries no spine. When the "
+            "citation cannot be fetched there is no source text at all, and the last clause "
+            "here is what makes the card itself the boundary instead."
+        ),
+        summary_zh=(
+            "正在被展开的卡片，以及它引用的逐字原文——是取来的、不是检索来的，"
+            "这正是展开契约不带脊柱的原因。引用取不回来时就完全没有原文，"
+            "此时是这里的最后一条把边界改成「卡片本身」。"
+        ),
+        segments=(
+            f(
+                "recall.suggestion.detail_card",
+                "The card being expanded, always first: kind, title, body, and the fragment "
+                "that triggered it.",
+                "正在被展开的卡片，总是第一段：类型、标题、正文，以及触发它的那段原文。",
+            ),
+            f(
+                "recall.suggestion.detail_sources_header",
+                "Introduces the verbatim source text the card cites, when the citation resolves.",
+                "当引用能被解析时，引出卡片引用的逐字原文。",
+            ),
+            f(
+                "recall.suggestion.detail_source_head",
+                "Labels one such passage with its source id and block span.",
+                "为其中一段原文标上材料 id 与块区间。",
+            ),
+            f(
+                "recall.suggestion.detail_no_sources",
+                "Takes that section's place when the card has no fetchable citation — then the "
+                "expansion may only work from the card itself.",
+                "当卡片没有可取回的引用时取代那一节——此时只能就着卡片本身展开。",
+            ),
+        ),
+        kind=FRAGMENTS,
+    ),
+    Surface(
+        id="recall.fast_select",
+        group="recall",
+        title_en="Full-document selection pass",
+        title_zh="整篇文档选取",
+        summary_en=(
+            "A small call running concurrently with retrieval: from the glance alone, "
+            "name the documents that must be read IN FULL. Selecting nothing is the "
+            "normal answer."
+        ),
+        summary_zh=(
+            "与检索并发的一次小调用：只看一览，指出哪些文档必须整篇读。"
+            "什么都不选是正常结果。"
+        ),
+        segments=(
+            f(
+                "recall.fast.select.contract",
+                "The SystemMessage of the selection call: name documents, answer nothing.",
+                "选取调用的系统消息：只指出文档，不回答问题。",
+            ),
+            f(
+                "recall.fast.select.request",
+                "Its HumanMessage: the glance, the question, and the cap on how many may be "
+                "selected.",
+                "它的人类消息：一览、问题，以及最多可选几份的上限。",
+            ),
+            f(
+                "recall.fast.select.documents_header",
+                "Not part of that call — it opens the selected documents inside the ANSWERING "
+                "model's evidence.",
+                "不属于这次调用——它在回答模型的证据里开出「整篇文档」那一节。",
+            ),
+            f(
+                "recall.fast.select.document_heading",
+                "The heading of one selected document there, once per document read in full.",
+                "那一节里某份被选中文档的标题，每份整篇读入的文档一次。",
+            ),
+        ),
+        kind=FRAGMENTS,
+    ),
+    Surface(
+        id="recall.fast_plan",
+        group="recall",
+        title_en="Retrieval planning pass",
+        title_zh="检索规划",
+        summary_en=(
+            "Off by default. One call before retrieval derives extra search queries, so a "
+            "multi-aspect question fans out instead of blending into one embedding."
+        ),
+        summary_zh=(
+            "默认关闭。检索之前的一次调用推导出额外的搜索查询，"
+            "让多面向的问题散开检索，而不是揉成一个向量。"
+        ),
+        segments=(
+            f(
+                "recall.fast.plan.contract",
+                "The SystemMessage of the planning call, only when this deployment turns "
+                "retrieval planning on.",
+                "规划调用的系统消息，只有当本部署开启了检索规划时才存在。",
+            ),
+            f(
+                "recall.fast.plan.request",
+                "Its HumanMessage: the question, and the cap on extra queries — an empty answer "
+                "is a valid one.",
+                "它的人类消息：问题，以及额外查询的上限——返回空也是合法答案。",
+            ),
+        ),
+        kind=FRAGMENTS,
+    ),
+    Surface(
+        id="recall.rerank",
+        group="recall",
+        title_en="LLM claim reranker",
+        title_zh="LLM 断言重排",
+        summary_en=(
+            "A cheap non-reasoning call playing the cross-encoder's role. Its output is "
+            "consumed mechanically (indexes), so the pass can only reorder evidence."
+        ),
+        summary_zh=(
+            "一次廉价的非推理调用，扮演 cross-encoder 的角色。它的输出被机械消费（下标），"
+            "所以这一趟只能重排证据。"
+        ),
+        segments=(
+            f(
+                "recall.rerank.llm.system",
+                "The SystemMessage of the rerank call, only when this deployment's reranker is "
+                "the LLM one.",
+                "重排调用的系统消息，只有当本部署的重排器选了 LLM 这一种时才存在。",
+            ),
+            f(
+                "recall.rerank.llm.request",
+                "Its HumanMessage: the numbered candidates and the question. The answer is read "
+                "as indexes, so this pass can only reorder.",
+                "它的人类消息：编号候选与问题。回答被当成下标消费，所以这一趟只能重排。",
+            ),
+        ),
+        kind=FRAGMENTS,
+    ),
+    # ────────────────────────────────────────────────────────────── persona / skill
+    Surface(
+        id="persona.profile",
+        group="persona",
+        title_en="Profile expansion",
+        title_zh="档案扩写",
+        summary_en=(
+            "One sentence a person typed, turned into a profile draft they then confirm "
+            "field by field. It fills only what the sentence supports and leaves the rest "
+            "empty — no invented name, city or country. Never persisted by this call."
+        ),
+        summary_zh=(
+            "一个人自己写的一句话，变成一份由他逐字段确认的档案草稿。"
+            "只填这句话支持得住的部分，其余留空——不编造姓名、城市或国家。这次调用本身从不落库。"
+        ),
+        segments=(b("persona.profile_instruction"),),
+        kind=ASSEMBLED,
+        pinned=True,
+        note_en=(
+            "The SystemMessage only. The one sentence being expanded arrives in the "
+            "HumanMessage, and the field names plus the closed enums the draft must choose "
+            "from reach the model as the structured-output schema rather than as prose here — "
+            "which is why this text names them without listing their members. Nothing on this "
+            "path is written anywhere: the endpoint returns a draft, and a person confirms it "
+            "field by field before it becomes a profile."
+        ),
+        note_zh=(
+            "这里只有系统消息。被扩写的那句话随人类消息到达；字段名与草稿必须从中取值的封闭枚举"
+            "是以结构化输出 schema 的形式到达模型的，而不是这段文字里的文案——"
+            "所以这里只点名它们，不列举成员。这条路径上什么都不会被写下：接口返回的是草稿，"
+            "要由人逐字段确认之后才成为档案。"
+        ),
+    ),
+    Surface(
+        id="skill.derive",
+        group="skill",
+        title_en="Skill derivation",
+        title_zh="领域契约推导",
+        summary_en=(
+            "Inferring a starting domain contract from what is known about the subject — "
+            "occupation, bio, interests."
+        ),
+        summary_zh="从对主体的已知信息（职业、简介、兴趣）推导出一份起步的领域契约。",
+        segments=(
+            f(
+                "skill.derive_contract",
+                "The SystemMessage of the derivation call: the judgement of whether this "
+                "subject's work produces a distinct class of knowledge at all.",
+                "推导调用的系统消息：判断这位主体的工作是否真的产生一类与众不同的知识。",
+            ),
+            f(
+                "skill.derive.human",
+                "Its HumanMessage: the three things known about the subject, and nothing else.",
+                "它的人类消息：关于主体已知的三项信息，别无其他。",
+            ),
+            f(
+                "skill.derive.empty",
+                "Stands in for whichever of those three the profile does not supply.",
+                "档案没有提供那三项中的哪一项，就用它代替那一项。",
+            ),
+            f(
+                "skill.derive.interest_separator",
+                "Joins the interests into one line of that message.",
+                "把多个兴趣连成那条消息里的一行。",
+            ),
+        ),
+        kind=FRAGMENTS,
+    ),
+    Surface(
+        id="skill.claim_labels",
+        group="skill",
+        title_en="Claim strength labels",
+        title_zh="断言强度标签",
+        summary_en=(
+            "The controlled three-tier vocabulary a claim may open with. The projection "
+            "layer tiers the presentation from it, so the tiers are a closed set."
+        ),
+        summary_zh=(
+            "断言可以用来开头的三档受控词汇。投影层据此分层呈现，所以这三档是封闭集合。"
+        ),
+        segments=(
+            f(
+                "skill.claim_label.clause_marker",
+                "Not sent to any model: the phrase whose presence in a contract decides "
+                "MECHANICALLY that this version emits strength labels at all.",
+                "不发给任何模型：它是否出现在契约里，机械地决定了这个版本到底会不会用强度标签。",
+            ),
+            f(
+                "skill.claim_label.strong.label",
+                "The literal prefix of the firm tier, as the reading side and the dataset "
+                "record it. What makes the model WRITE it is the contract clause "
+                "`contract.rule.strength_labels`.",
+                "确定档的字面前缀，阅读侧与数据集按它记录。真正让模型写出这个前缀的是契约条款 "
+                "`contract.rule.strength_labels`。",
+            ),
+            f(
+                "skill.claim_label.strong.name",
+                "That tier's display name, shown by `GET /skill` and the reading UI — it "
+                "reaches no model.",
+                "该档的显示名，由 `GET /skill` 与阅读界面使用——它不会到达任何模型。",
+            ),
+            f(
+                "skill.claim_label.strong.description",
+                "That tier's meaning as the reading UI explains it: when it applies, and how a "
+                "claim is re-tiered forward instead of rewritten.",
+                "阅读界面对该档含义的解释：什么情况算这一档，以及断言如何向前重新分档而不是被改写历史。",
+            ),
+            f(
+                "skill.claim_label.medium.label",
+                "The literal prefix of the in-progress tier — direction clear, one key slot "
+                "still missing.",
+                "进行中档的字面前缀——方向明确，但还缺一个关键要素。",
+            ),
+            f(
+                "skill.claim_label.medium.name",
+                "That tier's display name on the same read path.",
+                "该档在同一条阅读路径上的显示名。",
+            ),
+            f(
+                "skill.claim_label.medium.description",
+                "That tier's meaning on the same read path, including what promotes a claim out "
+                "of it.",
+                "该档在同一条阅读路径上的含义，包括什么条件会让断言升档。",
+            ),
+            f(
+                "skill.claim_label.weak.label",
+                "The literal prefix of the mentioned-only tier: a one-off, a hypothesis, a "
+                "second-hand account.",
+                "仅被提及档的字面前缀：一次性提及、假设、二手转述。",
+            ),
+            f(
+                "skill.claim_label.weak.name",
+                "That tier's display name on the same read path.",
+                "该档在同一条阅读路径上的显示名。",
+            ),
+            f(
+                "skill.claim_label.weak.description",
+                "That tier's meaning on the same read path, including the rule to drop a tier "
+                "when unsure rather than raise one.",
+                "该档在同一条阅读路径上的含义，包括「不确定时降一档而不是升一档」这条规则。",
+            ),
+        ),
+        kind=FRAGMENTS,
+    ),
+    # ───────────────────────────────────────────────────────────── rejection wording
+    Surface(
+        id="feedback.compile_gate",
+        group="feedback",
+        title_en="Compile gate rejections",
+        title_zh="编译闸门拒绝",
+        summary_en=(
+            "What the compile agent reads when the mechanical checks refuse its round. "
+            "Each line names one violation and the repair; the agent gets one repair round."
+        ),
+        summary_zh=(
+            "机械检查拒绝这一轮时，编译代理读到的东西。每一条点名一处违规和它的修复方式；"
+            "代理有一次修复回合。"
+        ),
+        segments=(
+            f(
+                "gate.feedback_header",
+                "Opens every rejection, whichever checks failed, and names the repair route.",
+                "无论是哪些检查没过，每次拒绝都以它开头，并指出修复通道。",
+            ),
+            f(
+                "gate.anchor_continuity",
+                "When an anchor that existed before this round is gone after it — v1 has no "
+                "deletion channel.",
+                "当本轮之前存在的某个锚点在本轮之后消失时——v1 没有删除通道。",
+            ),
+            f(
+                "gate.anchor_uniqueness",
+                "When the same anchor id occurs in two places; an anchor is a repo-unique "
+                "identity.",
+                "当同一个锚点 id 出现在两处时；锚点是全库唯一的身份。",
+            ),
+            f(
+                "gate.anchor_coverage",
+                "When a content block carries no anchor, so it would never enter the claim index.",
+                "当某个内容块没有锚点、因而永远进不了断言索引时。",
+            ),
+            f(
+                "gate.frontmatter_missing",
+                "When a document's frontmatter lacks a required field.",
+                "当某份文档的 frontmatter 缺少必填字段时。",
+            ),
+            f(
+                "gate.claim_without_provenance",
+                "When a newly written claim links back to nothing — this is the citation gate "
+                "itself, the check that makes fabrication structurally impossible.",
+                "当新写的断言没有任何回溯依据时——这就是引用闸门本身，让编造在结构上不可能的那道检查。",
+            ),
+            f(
+                "gate.citation_unknown_source",
+                "When a citation names a source that was not supplied this round.",
+                "当引用指向本轮并未提供的材料时。",
+            ),
+            f(
+                "gate.citation_out_of_range",
+                "When a citation's block span falls outside the source's actual block count.",
+                "当引用的块区间超出材料真实块数时。",
+            ),
+            f(
+                "gate.citation_unparsable_marker",
+                "When a `[cite: …]` marker does not parse as a locator; it restates the legal "
+                "shape.",
+                "当 `[cite: …]` 标记无法解析成定位符时；它顺带重述合法写法。",
+            ),
+            f(
+                "gate.citation_anchor_in_marker",
+                "When an anchor id was written inside a `[cite: …]` marker — anchor provenance "
+                "is plain text, source provenance is the bracket.",
+                "当锚点 id 被写进了 `[cite: …]` 里——锚点依据写成正文，材料依据才用方括号。",
+            ),
+            f(
+                "gate.link_self_reference",
+                "When a document links to itself.",
+                "当一份文档链接到它自己时。",
+            ),
+            f(
+                "gate.link_dead",
+                "When a link points at a document that does not exist.",
+                "当链接指向一份并不存在的文档时。",
+            ),
+            f(
+                "gate.path_not_owned",
+                "When a write lands outside the contract's ownership templates.",
+                "当写入落在契约的归属模板之外时。",
+            ),
+            f(
+                "gate.archive_frozen",
+                "When a write targets a frozen archive volume, and it names the active page to "
+                "write to instead.",
+                "当写入的目标是冻结归档卷时，并指出应该改写哪个活动页面。",
+            ),
+        ),
+        kind=FRAGMENTS,
+    ),
+    Surface(
+        id="feedback.compile_writes",
+        group="feedback",
+        title_en="Write-tool rejections",
+        title_zh="写入工具拒绝",
+        summary_en=(
+            "The early, teachable refusals at the tool face — before the round is spent. "
+            "They state the corrective action, not just the rule."
+        ),
+        summary_zh=(
+            "工具面上早期、可教学的拒绝——在这一轮被花掉之前。它们说的是该怎么改，"
+            "而不只是规则本身。"
+        ),
+        segments=(
+            f(
+                "compile.anchor.edit_unknown_anchor",
+                "`edit_claim` naming an anchor that is not in that document; the reply lists the "
+                "anchors that are.",
+                "`edit_claim` 点了一个不在该文档里的锚点；回复会列出真正存在的锚点。",
+            ),
+            f(
+                "compile.anchor.edit_duplicate_anchor",
+                "`edit_claim` on an anchor that occurs twice in the document — the duplicate is "
+                "fixed first.",
+                "`edit_claim` 指向在文档里出现了两次的锚点——先把重复修掉。",
+            ),
+            f(
+                "compile.anchor.edit_extra_anchor",
+                "`edit_claim` whose new text carries other anchors: one edit rewrites exactly "
+                "one claim.",
+                "`edit_claim` 的新文本里带了别的锚点：一次编辑只重写一条断言。",
+            ),
+            f(
+                "compile.anchor.append_empty_heading",
+                "`append_block` with an empty section heading.",
+                "`append_block` 的小节标题为空。",
+            ),
+            f(
+                "compile.anchor.append_anchor_present",
+                "`append_block` whose new text carries an anchor — the system assigns anchors, "
+                "never the model.",
+                "`append_block` 的新文本自带锚点——锚点由系统分配，从不由模型分配。",
+            ),
+            f(
+                "compile.anchor.move_unknown_anchor",
+                "A claim move/merge naming an anchor that is not in the source document.",
+                "断言搬迁/合并点了一个不在源文档里的锚点。",
+            ),
+            f(
+                "compile.anchor.move_duplicate_anchor",
+                "A claim move/merge on an anchor that occurs twice.",
+                "断言搬迁/合并指向出现了两次的锚点。",
+            ),
+            f(
+                "compile.anchor.move_missing_anchor",
+                "A claim move whose target block carries no anchor, so it is not an existing "
+                "claim to move.",
+                "断言搬迁的目标块没有锚点，因而它不是一条可搬迁的既有断言。",
+            ),
+            f(
+                "compile.patch.read_missing",
+                "`read_document` on a path that does not exist.",
+                "`read_document` 读了一个不存在的路径。",
+            ),
+            f(
+                "compile.patch.create_path_not_allowed",
+                "`create_document` outside the contract's ownership templates; the reply lists "
+                "the allowed ones.",
+                "`create_document` 落在契约归属模板之外；回复会列出允许的模板。",
+            ),
+            f(
+                "compile.patch.create_exists",
+                "`create_document` on a path that already exists, and it names the two tools to "
+                "use instead.",
+                "`create_document` 的路径已经存在，并指出该改用哪两个工具。",
+            ),
+            f(
+                "compile.patch.move_target_missing",
+                "`move_claim` into a document that has not been created yet.",
+                "`move_claim` 的目标文档还没被创建。",
+            ),
+            f(
+                "compile.patch.volume_frozen",
+                "Any write against a frozen history volume, whichever tool attempted it.",
+                "任何针对冻结历史卷的写入，无论是哪个工具发起的。",
+            ),
+        ),
+        kind=FRAGMENTS,
+    ),
+    Surface(
+        id="feedback.groom_gate",
+        group="feedback",
+        title_en="Rollover gate refusals",
+        title_zh="归档闸门拒绝",
+        summary_en=(
+            "Recorded on the job rather than fed back: a rollover has no repair round. "
+            "Any violation abandons the whole rollover and leaves the document untouched."
+        ),
+        summary_zh=(
+            "记在作业上而不是喂回模型：归档没有修复回合。任何违规都会放弃整次归档，"
+            "文档原样不动。"
+        ),
+        segments=(
+            f(
+                "gate.groom.claims_not_byte_equal",
+                "When the volume plus the retained tail do not reproduce the original claim "
+                "blocks byte for byte — a rollover moves text, it does not rewrite it.",
+                "当归档卷加保留的尾部无法逐字节复现原来的断言块时——归档只搬文本，不重写文本。",
+            ),
+            f(
+                "gate.groom.link_count_changed",
+                "When the move would add or drop one of a claim's outgoing links.",
+                "当这次搬迁会给某条断言增加或减少一条外链时。",
+            ),
+            f(
+                "gate.groom.link_target_changed",
+                "When a link's re-rendered relative form would point somewhere else.",
+                "当某条链接被重新渲染后的相对写法指向了别处时。",
+            ),
+            f(
+                "gate.groom.dead_links_increased",
+                "When the rollover would cost the knowledge graph an edge.",
+                "当这次归档会让知识图谱丢掉一条边时。",
+            ),
+            f(
+                "gate.groom.heal_not_byte_equal",
+                "When the follow-up link heal changed any byte other than a link target.",
+                "当后续的链接修复改动了除链接目标以外的任何字节时。",
+            ),
+            f(
+                "gate.groom.heal_repaired_nothing",
+                "When a heal did not lower the unresolvable-link count, so it has no business "
+                "writing a commit.",
+                "当一次修复并没有降低失效链接数时——那它就没有理由写下一个提交。",
+            ),
+            f(
+                "gate.groom.anchor_lost",
+                "When an anchor would disappear from the knowledge base.",
+                "当某个锚点会从知识库里消失时。",
+            ),
+            f(
+                "gate.groom.anchor_added",
+                "When the rollover would invent an anchor; only the new history card's own ids "
+                "may be created here.",
+                "当这次归档会凭空造出一个锚点时；这里只允许创建新历史卡片自己的 id。",
+            ),
+            f(
+                "gate.groom.overview_without_reference",
+                "When a point of the history card cites no archived entry — an uncited assertion "
+                "in the one layer that is not rebuildable.",
+                "当历史卡片里的某个要点没有引用任何归档条目时——那是在唯一不可重建的层里写了无依据断言。",
+            ),
+            f(
+                "gate.groom.overview_unknown_reference",
+                "When such a point references an id that is not an archived entry of this "
+                "document.",
+                "当某个要点引用的 id 并不是这份文档的归档条目时。",
+            ),
+        ),
+        kind=FRAGMENTS,
+    ),
+    Surface(
+        id="feedback.evolve_gate",
+        group="feedback",
+        title_en="Evolve gate rejections",
+        title_zh="演进闸门拒绝",
+        summary_en=(
+            "The reorganization's own mechanical checks: citations must still resolve, "
+            "and every path must belong to the new skill's ownership templates."
+        ),
+        summary_zh=(
+            "重组自己的机械检查：引用仍然要能解析，每条路径都要落在新契约的归属模板里。"
+        ),
+        segments=(
+            f(
+                "gate.evolve.feedback_header",
+                "Opens every evolve rejection and names the repair route.",
+                "每次演进拒绝都以它开头，并指出修复通道。",
+            ),
+            f(
+                "gate.evolve.citation_unknown_source",
+                "When a moved claim's citation names a source that is not in the store at all "
+                "— the whole store, not just this round's material.",
+                "当被搬迁断言的引用指向存储中根本不存在的材料时——这里比对的是整个存储，不只是本轮材料。",
+            ),
+            f(
+                "gate.evolve.citation_out_of_range",
+                "When a moved claim's citation span falls outside that source's block count.",
+                "当被搬迁断言的引用区间超出该材料的块数时。",
+            ),
+            f(
+                "gate.evolve.path_not_owned",
+                "When a claim was filed outside the NEW contract's ownership templates.",
+                "当断言被归到新契约的归属模板之外时。",
+            ),
+        ),
+        kind=FRAGMENTS,
+    ),
+    # ─────────────────────────────────────────────────────────────────────── eval
+    Surface(
+        id="eval.answer_judge",
+        group="eval",
+        title_en="Answer judge",
+        title_zh="回答评判",
+        summary_en=(
+            "The evaluation package's optional answer-grading arm (full mode only). Its "
+            "mechanical mode emits no model-visible prose at all."
+        ),
+        summary_zh=(
+            "评测包可选的回答判分臂（只在 full 模式下）。它的机械模式完全不产生模型可见文案。"
+        ),
+        segments=(
+            f(
+                "eval.qa.judge_system",
+                "The SystemMessage of one grading call, only in the evaluation package's full "
+                "mode — never on any knowledge path.",
+                "一次判分调用的系统消息，只出现在评测包的 full 模式里——绝不出现在任何知识路径上。",
+            ),
+            f(
+                "eval.qa.judge_user",
+                "Its HumanMessage: the question, the expected statement, and the answer under "
+                "grading.",
+                "它的人类消息：问题、期望陈述，以及被判分的回答。",
+            ),
+            f(
+                "eval.qa.judge_verdict_yes",
+                "The exact token counted as a pass — the verdict is read mechanically, so this "
+                "string IS the scoring rule.",
+                "被算作通过的那个确切标记——判决是机械读取的，所以这个字符串本身就是计分规则。",
+            ),
+        ),
+        kind=FRAGMENTS,
+    ),
+    Surface(
+        id="eval.claim_judge",
+        group="eval",
+        title_en="Claim judge",
+        title_zh="断言评判",
+        summary_en=(
+            "Grades a CANONICAL CLAIM against a labelled fact — a claim is written for a "
+            "reader, not for a question, which is why it gets its own prose."
+        ),
+        summary_zh=(
+            "拿一条正本断言去比对一个标注事实——断言是写给读者的、不是写给问题的，"
+            "所以它有自己的文案。"
+        ),
+        segments=(
+            f(
+                "eval.truth_judge.system",
+                "The SystemMessage of one claim-grading call, in the evaluation package only.",
+                "一次断言判分调用的系统消息，只在评测包里出现。",
+            ),
+            f(
+                "eval.truth_judge.user",
+                "Its HumanMessage: the labelled fact, and the claim being checked against it.",
+                "它的人类消息：标注事实，以及被拿来比对的那条断言。",
+            ),
+            f(
+                "eval.truth_judge.verdict_yes",
+                "The exact token counted as a match; the verdict is read mechanically.",
+                "被算作命中的那个确切标记；判决是机械读取的。",
+            ),
+        ),
+        kind=FRAGMENTS,
+    ),
+)
+
+
+# ═══════════════════════════════════════════════════════════════════ query + render
+
+
+def surface_by_id(surface_id: str) -> Surface:
+    for surface in SURFACES:
+        if surface.id == surface_id:
+            return surface
+    raise KeyError(f"unknown prompt surface: {surface_id!r}")
+
+
+def surface_keys(surface: Surface) -> tuple[str, ...]:
+    """Every catalog key this surface holds, in declaration order."""
+    return tuple(segment.key for segment in surface.segments)
+
+
+def iter_segments() -> Iterator[tuple[Surface, Segment]]:
+    for surface in SURFACES:
+        for segment in surface.segments:
+            yield surface, segment
+
+
+def shared_with(surface_id: str, key: str) -> tuple[str, ...]:
+    """The OTHER surfaces that also hold `key` — what "editing this moves four prompts"
+    is made of. The spine and its two injected clauses are the whole reason this exists."""
+    return tuple(
+        other.id
+        for other in SURFACES
+        if other.id != surface_id and key in surface_keys(other)
+    )
+
+
+def _segments_by_key(surface: Surface) -> dict[str, Segment]:
+    return {segment.key: segment for segment in surface.segments}
+
+
+def _resolve(key: str, catalog: Mapping[str, str] | None) -> str:
+    """One catalog key's effective template.
+
+    `catalog=None` means "whatever this process resolves", i.e. `prompt()` — that is the
+    path the byte pin compares against the real composition functions. A supplied mapping
+    is a deployment's own resolution (defaults + its engine directory's overlays), which
+    is what the console renders without registering anything into this process.
+    """
+    if catalog is None:
+        return prompt(key)
+    try:
+        return catalog[key]
+    except KeyError:
+        raise KeyError(f"unknown prompt key: {key!r}") from None
+
+
+def _render_segment(
+    segment: Segment,
+    by_key: Mapping[str, Segment],
+    catalog: Mapping[str, str] | None,
+    fields: Mapping[str, str],
+) -> str:
+    template = _resolve(segment.key, catalog)
+    values: dict[str, str] = {}
+    for slot in segment.slots:
+        parts = []
+        for key in slot.keys:
+            filler = by_key.get(key)
+            if filler is None:
+                raise KeyError(
+                    f"segment {segment.key!r} fills {{{slot.name}}} from {key!r}, which is "
+                    "not a segment of this surface"
+                )
+            parts.append(_render_segment(filler, by_key, catalog, fields))
+        values[slot.name] = slot.join.join(parts)
+    for name in template_fields(template):
+        if name not in values and name in fields:
+            values[name] = fields[name]
+    return substitute(template, values) if values else template
+
+
+def render_surface(
+    surface: Surface,
+    *,
+    catalog: Mapping[str, str] | None = None,
+    fields: Mapping[str, str] | None = None,
+) -> str:
+    """Assemble a surface: its block segments in order, with their slots filled.
+
+    Placeholders the framework fills from runtime data are left literal unless `fields`
+    names them — the console wants `{question}` visible as a chip, and the byte pin
+    supplies exactly what the real composition function would.
+
+    A `fragments` surface has no assembled form and this refuses to fabricate one. That
+    refusal is the whole fix for "the ownera conversationThis is…": the concatenation is
+    not available to be shown, in the studio or anywhere else.
+    """
+    if surface.kind == FRAGMENTS:
+        raise ValueError(
+            f"{surface.id!r} is a fragment family, not an assembly: its clauses reach the "
+            "model one at a time, so there is no assembled text to render"
+        )
+    by_key = _segments_by_key(surface)
+    supplied = dict(fields or {})
+    out: list[str] = []
+    for segment in surface.segments:
+        if segment.role != BLOCK:
+            continue
+        out.append(substitute(segment.prefix, supplied))
+        out.append(_render_segment(segment, by_key, catalog, supplied))
+        out.append(substitute(segment.suffix, supplied))
+    return "".join(out)
+
+
+def segment_context(segment: Segment) -> dict[str, str] | None:
+    """This clause's bilingual "when is it used", or None when its position says it.
+
+    None is not a hole: a block of an assembled surface is explained by standing where it
+    stands. Fragments and variants have no such position, and `segments_missing_context`
+    is the test that says so.
+    """
+    if not segment.context_en or not segment.context_zh:
+        return None
+    return {"en": segment.context_en, "zh": segment.context_zh}
+
+
+def segments_missing_context() -> tuple[tuple[str, str], ...]:
+    """(surface id, key) for every clause that owes a context sentence and has none.
+
+    Owed by every clause of a fragment family and by every variant anywhere — the two
+    cases where a reader cannot infer "when does the model see this" from the layout.
+    """
+    return tuple(
+        (surface.id, segment.key)
+        for surface, segment in iter_segments()
+        if (surface.kind == FRAGMENTS or segment.role == VARIANT)
+        and segment_context(segment) is None
+    )
+
+
+def surface_note(surface: Surface) -> dict[str, str] | None:
+    """This surface's bilingual "what you are looking at is a template" banner, or None.
+
+    None means the assembled bytes are the message: no runtime substitution, no clause the
+    deployment picks between. The console may then say the preview is what the model
+    receives — and must not say it whenever this returns a sentence.
+    """
+    if not surface.note_en or not surface.note_zh:
+        return None
+    return {"en": surface.note_en, "zh": surface.note_zh}
+
+
+def variant_keys(surface: Surface) -> tuple[str, ...]:
+    """The clauses of `surface` that some knob or caller state picks INSTEAD of a rendered
+    one. A surface with any of these renders one branch, so the preview is a branch."""
+    return tuple(
+        segment.key for segment in surface.segments if segment.role == VARIANT
+    )
+
+
+def surfaces_missing_note(runtime_fields: Mapping[str, bool]) -> tuple[str, ...]:
+    """Assembled surfaces that owe a note and have none — the note pin's failure message.
+
+    `runtime_fields` maps surface id → "its byte pin had to supply runtime values", which
+    only the pin table knows. A surface owes a note when that is true, or when it declares a
+    variant: both mean the rendered bytes are one resolution of a template rather than the
+    message itself.
+    """
+    return tuple(
+        surface.id
+        for surface in SURFACES
+        if surface.kind == ASSEMBLED
+        and (runtime_fields.get(surface.id) or variant_keys(surface))
+        and surface_note(surface) is None
+    )
+
+
+def covered_keys() -> frozenset[str]:
+    """Every catalog key that belongs to at least one surface."""
+    return frozenset(segment.key for _, segment in iter_segments())
+
+
+def uncovered_keys() -> tuple[str, ...]:
+    """Catalog keys no surface holds — the coverage pin's failure message, sorted."""
+    return tuple(sorted(set(DEFAULTS) - covered_keys()))

@@ -30,6 +30,13 @@ stay reproducible on two axes (skill hash × overlay hash) and any drift is audi
 Invariant I5 (byte-stable SystemMessage) survives because resolution is a pure dict
 lookup: the same (skill, owner, overlay) renders the same bytes every time.
 
+LANGUAGE PACKS
+--------------
+`chinese_overlay()` (`prompts.lang_zh`) is a TOTAL overlay: every catalog key translated,
+same placeholders. It goes through this same seam, and it goes through it FIRST — a
+deployment's own clauses are registered after it and win over it. So the layering a person
+sees is: English catalog → active language pack (the "framework text") → their overrides.
+
 FIELD SUBSTITUTION
 ------------------
 `prompt(key)` with no fields returns the template verbatim — never formatted — so a
@@ -50,15 +57,19 @@ import re
 from collections.abc import Iterator, Mapping
 
 from .catalog import DEFAULTS
+from .lang_zh import chinese_overlay
 
 __all__ = [
     "catalog",
+    "chinese_overlay",
+    "default_catalog",
     "override_prompt",
     "override_prompts",
     "prompt",
     "prompt_overlay_hash",
     "reset_prompt_overrides",
     "resolve_or_verbatim",
+    "substitute",
     "template_fields",
 ]
 
@@ -75,14 +86,23 @@ def template_fields(template: str) -> frozenset[str]:
     return frozenset(_FIELD_RE.findall(template))
 
 
-def _substitute(template: str, fields: Mapping[str, object]) -> str:
-    """Replace `{name}` for each supplied name; leave every other brace verbatim."""
+def substitute(template: str, fields: Mapping[str, object]) -> str:
+    """Replace `{name}` for each supplied name; leave every other brace verbatim.
+
+    Public because `prompts.surfaces` composes a surface out of several catalog templates
+    and has to substitute into a template it resolved itself (from a deployment's overlay
+    map rather than from the process's registered overrides). One substitution rule for
+    both, or the studio's preview is a paraphrase of what the model receives.
+    """
 
     def repl(match: re.Match[str]) -> str:
         name = match.group(1)
         return str(fields[name]) if name in fields else match.group(0)
 
     return _FIELD_RE.sub(repl, template)
+
+
+_substitute = substitute
 
 
 def prompt(key: str, /, **fields: object) -> str:

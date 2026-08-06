@@ -817,9 +817,9 @@ async def recall(
     # A deployment may run keyless on purpose (browsing stays fully served); the answering
     # lanes are the one thing that cannot. Say so, instead of handing an empty model spec
     # to the model builder and 500ing on its TypeError.
-    from ...wiring import resolve_model_name
+    from ...wiring import usable_model_name
 
-    if not resolve_model_name(ctx.settings, "recall" if body.mode == "fast" else "deep"):
+    if not usable_model_name(ctx.settings, "recall" if body.mode == "fast" else "deep"):
         raise HTTPException(
             status_code=503,
             detail=(

@@ -7,6 +7,9 @@
 # app.py asserts before connecting that the targets are exactly the ports .env declares.
 #
 #   docker compose -f docker-compose.yml up -d --wait
+#
+# An optional `console` profile adds the browsing layer — the framework API over this
+# project's engine/ directory, a compile worker, and the web UI. See the bottom of this file.
 
 name: ${PNEUMA_APP_COMPOSE_PROJECT:-pneuma-app}
 
@@ -57,6 +60,99 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+
+  # ── Optional: the browsing layer (API + worker + web UI) ─────────────────────
+  # The everyday flow (ingest / compile / ask) is the CLI and needs none of this. Start it
+  # when you want this project in a browser — the library, every citation back to the raw
+  # material, and the Engine Console over engine/:
+  #
+  #   docker compose --profile console up -d --wait     # first build takes a few minutes
+  #   open http://127.0.0.1:${PNEUMA_APP_WEB_PORT}
+  #
+  # All three services build from the framework repository named in .env. The project
+  # directory is mounted at /project so the API and the worker run THIS project's own
+  # entrypoints (server.py / worker.py), which register its compile contract — without that
+  # the API could serve sources but never a skill.
+  api:
+    build:
+      context: ${PNEUMA_APP_FRAMEWORK_REPO:-../..}
+      dockerfile: docker/Dockerfile
+    command: ["python", "/project/server.py"]
+    profiles: ["console"]
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      meilisearch:
+        condition: service_healthy
+    environment:
+      # The engine directory, mounted below. This one variable is what turns the console on.
+      # Read-write because applying a change writes files and commits them in the engine's
+      # own git repository.
+      PNEUMA_KNOWLEDGE_ENGINE_DIR: /project/engine
+      # Service-name hosts: correct inside the compose network, unlike .env's localhost ports.
+      PNEUMA_KNOWLEDGE_PG_DSN: postgresql://pneuma_knowledge:${PNEUMA_APP_PG_PASSWORD:-pneuma_knowledge}@postgres:5432/pneuma_knowledge
+      PNEUMA_KNOWLEDGE_QDRANT_URL: http://qdrant:6333
+      PNEUMA_KNOWLEDGE_QDRANT_COLLECTION: ${PNEUMA_APP_QDRANT_COLLECTION:-pneuma_app_chunks}
+      PNEUMA_KNOWLEDGE_MEILI_URL: http://meilisearch:7700
+      PNEUMA_KNOWLEDGE_MEILI_KEY: ${PNEUMA_APP_MEILI_KEY:-masterKey_change_me}
+      PNEUMA_KNOWLEDGE_CANONICAL_ROOT: /project/data/canonical
+      PNEUMA_APP_KEYLESS_EMBEDDING: ${PNEUMA_APP_KEYLESS_EMBEDDING:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+    volumes:
+      - ./:/project
+    ports:
+      - "127.0.0.1:${PNEUMA_APP_API_PORT:-18080}:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8080/healthz"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  # The queue's doctor: ingesting from the browser only enqueues work, and a queue without a
+  # worker leaves every upload sitting on "queued" forever. An idle worker costs nothing.
+  worker:
+    build:
+      context: ${PNEUMA_APP_FRAMEWORK_REPO:-../..}
+      dockerfile: docker/Dockerfile
+    command: ["python", "/project/worker.py"]
+    profiles: ["console"]
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      meilisearch:
+        condition: service_healthy
+    environment:
+      PNEUMA_KNOWLEDGE_ENGINE_DIR: /project/engine
+      PNEUMA_KNOWLEDGE_PG_DSN: postgresql://pneuma_knowledge:${PNEUMA_APP_PG_PASSWORD:-pneuma_knowledge}@postgres:5432/pneuma_knowledge
+      PNEUMA_KNOWLEDGE_QDRANT_URL: http://qdrant:6333
+      PNEUMA_KNOWLEDGE_QDRANT_COLLECTION: ${PNEUMA_APP_QDRANT_COLLECTION:-pneuma_app_chunks}
+      PNEUMA_KNOWLEDGE_MEILI_URL: http://meilisearch:7700
+      PNEUMA_KNOWLEDGE_MEILI_KEY: ${PNEUMA_APP_MEILI_KEY:-masterKey_change_me}
+      PNEUMA_KNOWLEDGE_CANONICAL_ROOT: /project/data/canonical
+      PNEUMA_APP_KEYLESS_EMBEDDING: ${PNEUMA_APP_KEYLESS_EMBEDDING:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+    volumes:
+      - ./:/project
+
+  # The UI: the framework's SPA served by nginx, which also proxies /v1 to the api service
+  # above — same origin, so no CORS surface and no build-time API URL.
+  web:
+    build:
+      context: ${PNEUMA_APP_FRAMEWORK_REPO:-../..}
+      dockerfile: docker/compose-web.Dockerfile
+    profiles: ["console"]
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${PNEUMA_APP_WEB_PORT:-18081}:80"
 
 volumes:
   postgres_data:

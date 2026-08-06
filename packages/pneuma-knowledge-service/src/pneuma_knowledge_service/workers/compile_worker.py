@@ -40,7 +40,7 @@ from ..challenge_service import (
 from ..groom_service import GROOM_JOB_KIND, maybe_trigger_rollover, run_groom_job
 from ..ingest_document import _summary_chunks
 from ..projection import sync_projection
-from ..settings import Settings
+from ..settings import Settings, get_settings
 from ..skills import skill_for_user
 from ..wiring import (
     AppContext,
@@ -512,7 +512,7 @@ async def compile_pending(
 
 
 async def run_forever() -> None:
-    settings = Settings()
+    settings = get_settings()
     ctx = await build_context(settings)
     chat_model = build_chat_model_for(settings, "compile")
     # No single global skill: each job loads its user's own composed skill (skill=None).

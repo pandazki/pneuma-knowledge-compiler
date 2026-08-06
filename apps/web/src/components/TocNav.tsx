@@ -53,11 +53,14 @@ export const TOC: TocGroup[] = [
   },
   {
     group: "nav.group.evolution",
-    items: [{ view: "evolve", no: "11", label: "nav.view.evolve" }],
+    items: [
+      { view: "evolve", no: "11", label: "nav.view.evolve" },
+      { view: "engine_console", no: "12", label: "nav.view.engine_console" },
+    ],
   },
   {
     group: "nav.group.back",
-    items: [{ view: "profile", no: "12", label: "nav.view.profile" }],
+    items: [{ view: "profile", no: "13", label: "nav.view.profile" }],
   },
 ];
 

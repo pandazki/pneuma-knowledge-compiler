@@ -8,13 +8,13 @@ import { defineMessages } from "./define";
  */
 export const library = defineMessages({
   zh: {
-    "library.title": "正典 Canonical",
-    "library.description": "{count} 篇文档 · 每个 claim 都能回到精确 source span。",
-    "library.descriptionShort": "编译产出的 canonical 文档：serif 版样、claim 锚点、脚注引用。",
+    "library.title": "正本",
+    "library.description": "{count} 篇文档 · 每个断言（claim）都能回到原文精确段。",
+    "library.descriptionShort": "编译产出的正本文档：版样、断言（claim）锚点、脚注引用。",
 
-    "library.empty.title": "还没有正典",
+    "library.empty.title": "还没有正本",
     "library.empty.description":
-      "这个知识库尚未编译出 canonical 文档——先去「导入 Ingest」添加原料，再在「工序 Process」里编译。",
+      "这个知识库尚未编译出正本文档——先去「导入」添加原料，再在「工序」里编译。",
     "library.empty.action": "去导入",
 
     "library.toc.aria": "文档目录",
@@ -23,10 +23,10 @@ export const library = defineMessages({
     "library.toc.collapseDir": "折叠 {name} · {count} 篇",
 
     "library.noDoc.title": "没有文档",
-    "library.noDoc.description": "documents 为空——编译尚未产出任何 canonical 文档。",
+    "library.noDoc.description": "文档列表为空——编译尚未产出任何正本文档。",
 
     "library.neighborhood.title": "邻域",
-    "library.neighborhood.note": "双向脉络索引：每一行都带上写出这条链接的那句 claim。",
+    "library.neighborhood.note": "双向脉络索引：每一行都带上写出这条链接的那句断言。",
     "library.neighborhood.out": "出向 · {count}",
     "library.neighborhood.in": "入向 · {count}",
     "library.neighborhood.emptyOut": "这篇不链向任何文档。",
@@ -36,7 +36,7 @@ export const library = defineMessages({
 
     "library.frontmatter.title": "版式信息",
     "library.body.title": "正文",
-    "library.body.empty": "该文档没有可追溯 claim 块。",
+    "library.body.empty": "该文档没有可追溯断言。",
     "library.citations.title": "出处",
     "library.patches.title": "版次轨迹",
     "library.patches.changed": "{count} 处变更",
@@ -48,7 +48,7 @@ export const library = defineMessages({
     "library.descriptionShort":
       "The canonical documents the compiler produced: serif proofs, claim anchors, footnote citations.",
 
-    "library.empty.title": "No canon yet",
+    "library.empty.title": "No canonical knowledge yet",
     "library.empty.description":
       "This knowledge base has not compiled a canonical document yet — add material through Ingest, then compile it in Process.",
     "library.empty.action": "Go to Ingest",

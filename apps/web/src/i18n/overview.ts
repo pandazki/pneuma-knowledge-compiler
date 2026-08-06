@@ -18,16 +18,16 @@ export const overview = defineMessages({
     "overview.hero.title": "把持续产生的材料，编译成可追溯的知识。",
     "overview.hero.lede":
       "这是一台知识编译器：对话、文档与实验材料先落成可定位的原料（source），" +
-      "经编译工序取证、合并、标注争议，产出带稳定锚点的正典（canonical），" +
-      "再经检索、问答与主动提示三个取用面回到手边。每个 claim 都能回到精确的 " +
-      "source span，取用面受引用门禁约束——没有出处的内容不会被当作事实递出。" +
+      "经编译工序取证、合并、标注争议，产出带稳定锚点的正本，" +
+      "再经检索、问答与主动提示三个取用面回到手边。每个断言（claim）都能回到" +
+      "原文精确段，取用面受引用门禁约束——没有出处的内容不会被当作事实递出。" +
       "本页与全部演示数据均为可复现的合成数据。",
 
     "overview.section.flow": "生产流程",
     "overview.section.layers": "四层结构",
     "overview.section.guide": "翻阅指引",
 
-    "overview.flow.aria": "生产流程：原料、编译、正典、取用",
+    "overview.flow.aria": "生产流程：原料、编译、正本、取用",
     "overview.flow.enter": "进入本篇",
     "overview.flow.countNote": "计数来自当前选中用户的实时数据；未选择用户或尚无数据时显示 —。",
 
@@ -37,9 +37,9 @@ export const overview = defineMessages({
     "overview.flow.process.name": "编译",
     "overview.flow.process.caption": "compile job 取证与合并",
     "overview.flow.process.unit": "个 job",
-    "overview.flow.library.name": "正典",
-    "overview.flow.library.caption": "canonical 文档与 claim",
-    "overview.flow.library.unit": "文档 + claim",
+    "overview.flow.library.name": "正本",
+    "overview.flow.library.caption": "正本文档与断言",
+    "overview.flow.library.unit": "文档 + 断言",
     "overview.flow.recall.name": "取用",
     "overview.flow.recall.caption": "检索 / 问答 / 提示，带门禁",
     "overview.flow.recall.unit": "个版本快照",
@@ -51,7 +51,7 @@ export const overview = defineMessages({
     "overview.layer.l2":
       "语义索引。向量召回与 L1 融合排序，补上字面之外的邻近；同为可重建投影。",
     "overview.layer.l3":
-      "canonical Git 仓库。编译产物的唯一事实形态——文档、claim 锚点与 patch 全部进 Git，可审阅、比较、回滚、快照。",
+      "正本 Git 仓库。编译产物的唯一事实形态——文档、断言锚点与补丁全部进 Git，可审阅、比较、回滚、快照。",
 
     "overview.guide.ingest.title": "导入一份材料",
     "overview.guide.ingest.body":
@@ -59,9 +59,9 @@ export const overview = defineMessages({
     "overview.guide.process.title": "看编译如何发生",
     "overview.guide.process.body":
       "每次 compile 都是一行账：来源、状态、耗时与模型 lineage，逐条可查。",
-    "overview.guide.library.title": "读编译出的正典",
+    "overview.guide.library.title": "读编译出的正本",
     "overview.guide.library.body":
-      "每条 claim 带稳定锚点与脚注，随手一条都能回到精确的 source span。",
+      "每条断言带稳定锚点与脚注，随手一条都能回到原文精确段。",
     "overview.guide.recall.title": "试三个取用面",
     "overview.guide.recall.body":
       "同一句问题，对比检索、连续问答与主动提示——全都受引用门禁约束。",
@@ -70,10 +70,10 @@ export const overview = defineMessages({
       "快照、job 与 patch 在同一条 Git 时间线上，任何版本都可只读回看。",
     "overview.guide.evolve.title": "看 skill 如何演化",
     "overview.guide.evolve.body":
-      "schema-evolve 的提案、对照与采纳 / 放弃，决定正典下一步怎么长。",
+      "模式演化的提案、对照与采纳 / 放弃，决定正本下一步怎么长。",
 
     "overview.synthetic.body":
-      "演示数据全部可复现合成：用户画像、source、canonical 与版本历史均由确定性生成器产出，" +
+      "演示数据全部可复现合成：用户画像、原料、正本与版本历史均由确定性生成器产出，" +
       "可在本地完整重放，不包含任何真实用户内容。",
   },
   en: {
@@ -96,7 +96,7 @@ export const overview = defineMessages({
     "overview.section.layers": "Four layers",
     "overview.section.guide": "Reading guide",
 
-    "overview.flow.aria": "Production line: materials, compile, canon, retrieval",
+    "overview.flow.aria": "Production line: materials, compile, canonical, retrieval",
     "overview.flow.enter": "Open this chapter",
     "overview.flow.countNote":
       "The counts are live for the selected user; a dash means no user is selected, or no data yet.",
@@ -107,7 +107,7 @@ export const overview = defineMessages({
     "overview.flow.process.name": "Compile",
     "overview.flow.process.caption": "compile jobs gather and merge",
     "overview.flow.process.unit": "jobs",
-    "overview.flow.library.name": "Canon",
+    "overview.flow.library.name": "Canonical",
     "overview.flow.library.caption": "canonical documents and claims",
     "overview.flow.library.unit": "documents + claims",
     "overview.flow.recall.name": "Retrieval",
@@ -129,7 +129,7 @@ export const overview = defineMessages({
     "overview.guide.process.title": "Watch a compile happen",
     "overview.guide.process.body":
       "Each compile is one line of the ledger: source, status, duration and model lineage, all inspectable.",
-    "overview.guide.library.title": "Read the compiled canon",
+    "overview.guide.library.title": "Read the compiled canonical knowledge",
     "overview.guide.library.body":
       "Every claim carries a stable anchor and a footnote; any one of them leads back to an exact source span.",
     "overview.guide.recall.title": "Try the three retrieval surfaces",

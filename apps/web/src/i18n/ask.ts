@@ -13,7 +13,7 @@ export const ask = defineMessages({
   zh: {
     "ask.title": "问答 Ask",
     "ask.description":
-      "把一批 claim 冻结成 briefing 知识包，再对它连续提问——每轮答案都带引用脚注与 token 账。",
+      "把一批断言（claim）冻结成 briefing 知识包，再对它连续提问——每轮答案都带引用脚注与 token 账。",
     "ask.descriptionShort": "构建 briefing，然后连续提问。",
 
     "ask.noUser.title": "未选择用户",

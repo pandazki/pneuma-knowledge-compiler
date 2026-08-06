@@ -4,6 +4,8 @@
 
 框架的全部配置都是带 `PNEUMA_KNOWLEDGE_` 前缀的环境变量（读取本地 `.env`；未知键忽略）。下表省略前缀。起步可以拷贝 [`.env.example`](../../.env.example)。
 
+环境变量与默认值之间可以插入一层：**引擎目录**（`ENGINE_DIR`，见[架构 §11](../architecture.zh-CN.md#11-引擎目录)）。优先级是**进程 env > 引擎文件 > 框架默认**，并且在 settings 装配处被机械执行：引擎文件的值只在 `os.environ` 未表态的键上被交给 `Settings`。两个值得知道的推论：环境变量存在但为空，仍然算环境层的一次表态；而来自 `.env` **文件**的值不是进程 env，因此排在引擎文件**之下**。`ENGINE_DIR` 不设（默认）就表示这一层根本不存在，每一项配置的解析与这个概念出现之前完全一致。
+
 ## 必填
 
 | 配置 | 含义 |
@@ -20,6 +22,7 @@
 | `MEILI_URL` | `http://localhost:17700` | 词法索引 |
 | `MEILI_KEY` | `masterKey_change_me` | 生产必须改 |
 | `CANONICAL_ROOT` | `./data/canonical` | 正本存储根（每用户一仓）；容器镜像里为 `/data/canonical` |
+| `ENGINE_DIR` | （空） | 引擎目录：一个被版本化的单元，装着本部署的策略文件、编译契约、提示词覆盖与主人档案（见[架构 §11](../architecture.zh-CN.md#11-引擎目录)、[设计文档](../design/engine-console.zh-CN.md)）。空 = 本部署没有引擎目录：行为零变化，且 `/v1/engine/*` 返回 404。设上之后那四条路由就服务这个目录；下表里凡是被这个目录声明过的策略配置，只要进程环境不表态，就都从它解析 |
 
 ## 模型
 
@@ -58,6 +61,16 @@
 | `RECALL_RERANK_CANDIDATES` | `120` | 重排时每查询每路的检索深度；reranker 对完整去重并集打分（硬上限 1000） |
 | `RECALL_ANSWER_STYLE` | `conversational` | fast/deep 回答的输出风格预设：`concise` = 只给所问的精确值/短语（判分器、脚本消费），`conversational` = 自然对话式回答，`detailed` = 自成一体的书面纪要。只管形态——红线/引用/诚实收尾与风格无关。recall 请求可逐次覆盖（`answer_style`） |
 
+## 提示词语言
+
+| 配置 | 默认 | 含义 |
+|---|---|---|
+| `PROMPT_LANGUAGE` | `en` | **框架自身**提示词文案用哪种语言：`en` = 英文目录，`zh` = 核心自带的中文语言包（`prompts.lang_zh.chinese_overlay()`，目录里每个键都有译文、插槽完全一致）。它作为一层 overlay 铺在**部署自己的 overlay 之下**，所以手写的文案永远盖过语言包。`en` 一条 overlay 都不注册，因此与语言包之前的行为逐字节相同 |
+
+它只改模型读到的文案，别的都不改——不改策略、不改机制、不改插槽契约。特别地，它**不**决定文库用什么语言写：那取决于知识主体自己声明的语言（`compile.owner_env.write_language`）。
+
+**英文是基线。** 本仓库公布的每一项测量都是在英文目录上做的。中文包的用途是可读性与贴合中文材料域，跑分等价性未经验证。见[引擎控制台设计](../design/engine-console.zh-CN.md#语言包)。
+
 ## 编译后覆盖挑战
 
 | 配置 | 默认 | 含义 |
@@ -65,6 +78,7 @@
 | `CHALLENGE_ENABLED` | `false` | 每次编译落地后跑一轮覆盖审计：对材料盲出题、探针查 claim 面、反思判缺口 |
 | `CHALLENGE_MAX_ROUNDS` | `2` | 每次审计的出题/反思轮数（任一阶段自认无题即提前结束） |
 | `CHALLENGE_MAX_QUESTIONS` | `6` | 每轮出题上限 |
+| `CHALLENGE_MAX_OUTPUT_TOKENS` | `32768` | 审计结构化调用的完成预算——失控生成会便宜地早失败，而不是跑满供应商上限（实测出现过 65,536 token）；`0` = 供应商默认 |
 | `CHALLENGE_COMPENSATE` | `true` | 确认的缺口入队一次补偿编译（写入照常过引用闸门） |
 | `LLM_MODEL_CHALLENGE` | 空 | 出题与反思用的模型；留空借用编译角色 |
 

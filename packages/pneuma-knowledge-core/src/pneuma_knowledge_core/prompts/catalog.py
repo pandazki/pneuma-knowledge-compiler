@@ -47,17 +47,24 @@ _WRITE_CONTRACT = """\
 A person's conversations, documents, decisions, experiments and operational records
 accumulate far faster than that person can ever organize them. Knowledge compilation
 **compiles** this raw material into structured, citable, long-lived knowledge — the way a
-compiler turns source code into an executable: the source is always the authority, the
-artifact can be rebuilt, but the artifact is the form that can actually be used.
+compiler turns source code into an executable: the raw material is never edited and never
+thrown away, and the compiled form is the one that can actually be used. Where the analogy
+stops matters more than where it holds: an executable can be regenerated from source at any
+time, and what you write here cannot. It is produced by judgement, once, and carries
+authority of its own.
 
 Knowledge lives in four levels, each independently addressable:
 
 - **L0 raw**: the original material with structural addressing (¶ blocks). **Authoritative**,
   never rewritten.
-- **L1 lexical**: the full-text search index. Derived, rebuildable at any time.
-- **L2 semantic**: the vector search index. Derived, rebuildable at any time.
+- **L1 lexical**: the full-text search index. Derived, rebuildable at any time, and built for
+  every source.
+- **L2 semantic**: the vector search index. Derived, rebuildable at any time; whether a given
+  source is in it follows that source's intake plan, so it may be absent for some.
 - **L3 canonical**: structured knowledge, every entry carrying a source citation, stored in
-  a versioned repository. **Authoritative and NOT rebuildable.**
+  a versioned repository. **Authoritative and NOT rebuildable** — the two authoritative
+  levels are this one and L0; the two index levels are the ones that can be thrown away and
+  rebuilt.
 
 The four levels are used **in parallel**; they are not a degradation chain. Answering a
 question **fuses** lexical hits, semantic hits and canonical notes, choosing the level that
@@ -69,9 +76,9 @@ canonical.**
 
 So be clear about which job canonical carries inside that fusion: **it is the layer of
 threads and indexes, not a full-text store.** It is not responsible for preserving every
-detail, because no detail was ever lost — L0 is never rewritten, L1/L2 index it
-unconditionally, and a single word pulls the original back. What canonical has to supply is
-the two things lexical and semantic **cannot**:
+detail, because no detail was ever lost — L0 is never rewritten, full-text indexing covers
+every source of it, and a single word pulls the original back. What canonical has to supply is
+the two things lexical and semantic retrieval **cannot**:
 
 - **Following the thread when direct retrieval fails.** The owner cannot recall the keyword,
   phrased it differently, or the thing was never stated outright — then the only route left
@@ -98,13 +105,15 @@ became the basis for some decision. Copying the amount into canonical does not m
 system able to answer anything more; it only adds one more duplicate to maintain in the one
 layer that cannot be rebuilt.
 
-Why the constraints are tighter here than elsewhere: canonical is the **only
-non-rebuildable** layer. A claim written into it is cited downstream as established thread,
-and it must be possible to follow that citation back to the L0 original. So a claim that
-cannot get back to the original is not "slightly lower quality" — it manufactures an
-uncheckable assertion inside this layer. A missed claim can be filled in by later material,
-or recovered from the original through L1/L2; a wrongly written one has to be paid back with
-retractions and clarifications.
+Why the constraints are tighter here than elsewhere: canonical is the only layer written by
+judgement, and nothing can regenerate it. L1 and L2 are indexes — throw them away and they
+are rebuilt from L0; L0 itself is never touched. What you write here has no such source to
+come back from. A claim written into it is cited downstream as established thread, and it
+must be possible to follow that citation back to the L0 original. So a claim that cannot get
+back to the original is not "slightly lower quality" — it manufactures an uncheckable
+assertion inside this layer. A missed claim can be filled in by later material, or recovered
+from the original by searching it; a wrongly written one has to be paid back with retractions
+and clarifications.
 
 And one more thing decides every judgment in this step: **canonical is ONE PERSON's
 knowledge base, not an objective archive.** The same meeting, the same document, compiled
@@ -144,8 +153,8 @@ Every time you write, ask a single question:
 > change or advance the state of some subject?**
 
 If yes, it enters canonical. If not, it stays in L0 and the retrieval layers: **that is not
-discarding it** — lexical and semantic retrieval will still hit it and hand the original
-back. So judgment does not show up as "how much was filtered out" or "how much was
+discarding it** — full-text search still hits it and hands the original back, and semantic
+search does too wherever this material was indexed. So judgment does not show up as "how much was filtered out" or "how much was
 written"; it shows up as **whether the layering is right** — threads into canonical, details
 left with the original.
 
@@ -154,9 +163,9 @@ Two kinds do not belong in canonical, for different reasons:
 - **No thread significance**: assistant greetings, system notifications, pure status
   broadcasts, bystander chatter unrelated to the owner. They establish nothing.
 - **Real content, but detail**: specific amounts, verbatim error text, links and parameters
-  read out during a discussion. They have value, but that value is delivered by L1/L2 —
-  copying them into canonical only adds duplication and maintenance burden to the
-  non-rebuildable layer.
+  read out during a discussion. They have value, but that value is delivered by the retrieval
+  layers — copying them into canonical only adds duplication and maintenance burden to the
+  layer nothing can regenerate.
 
 **"Writing nothing this round" is a legitimate outcome, not a failure.** Do not manufacture
 output so that it "looks like every source was handled": writing two or three claims for
@@ -327,12 +336,14 @@ _TREATMENT_FULL = (
 _TREATMENT_DISTILL = (
     "[treatment=distill · targeted distillation] The body of this source does not enter "
     "canonical; being reachable through L0/L1 is enough. "
-    "**Note: making this source \"findable\" is not your job — L1/L2 already do that.** "
+    "**Note: making this source \"findable\" is not your job — full-text indexing already "
+    "covers every source, whatever else is switched on.** "
     "You have exactly one thing to do: judge whether it **changes or advances some thread**, "
     "and if it does, write that one point into **the existing document of the relevant "
     "subject** (`edit_claim` / `append_block`). "
     "If it does not, write nothing — creating a card that merely summarizes a source "
-    "duplicates L1/L2 in function and only adds a copy to the non-rebuildable layer. "
+    "duplicates the retrieval layers in function and only adds a copy to the layer nothing "
+    "can regenerate. "
     "Only when the material **itself** is a subject that will need to be pointed at long "
     "term (an external report, a contract, a specification, an evaluation set) do you create "
     "`materials/{slug}.md`, stating which thread it belongs to and which decision it supports."
@@ -341,8 +352,8 @@ _TREATMENT_DISTILL = (
 _TREATMENT_CARD = (
     "[treatment=card · registration only] Record only that this material **existed and which "
     "thread it belongs to**; do not copy content details. "
-    "**If it hangs off no thread, do not register it** — \"stored so it can be found\" is "
-    "L1/L2's job. Take the slug from the subject."
+    "**If it hangs off no thread, do not register it** — \"stored so it can be found\" is the "
+    "retrieval layers' job. Take the slug from the subject."
 )
 
 # ═══════════════════════════════════════════════════════════════════════ recall spine
@@ -451,14 +462,15 @@ knowledge, with anchors and provenance), raw excerpts (uncompiled fragments of o
 content, with provenance), plus material cards and section outlines for the anchored
 sources.
 
-The pack lays out a sample, not everything. For what lies outside it there are two routes
-available at any time:
+The pack lays out a SAMPLE, not everything, and two routes reach past what it laid out —
+available at any time, and they reach different distances:
 
-- `search_knowledge(query)`: search again within the range the pack covers — an entry the
-  pack did not lay out (a record in the middle of some document, say) is reachable this way.
-- `fetch_verbatim(source_id, locator)`: pull a source's original text verbatim, with a
-  locator shaped like {"blocks": [start, end]} or {"section": [...]} — the route for
-  checking provenance, or when the owner asks for the original.
+- `search_knowledge(query)`: search the session's source range again. That range is what the
+  pack sampled, so an entry the pack did not lay out (a record in the middle of some document,
+  say) is reachable this way; a subject the session was never scoped to is not.
+- `fetch_verbatim(source_id, locator)`: pull any source's original text verbatim by id, with a
+  locator shaped like {"blocks": [start, end]} or {"section": [...]} — the route for checking
+  provenance, or when the owner asks for the original.
 
 """
 
@@ -522,16 +534,16 @@ conditions, numbers and provenance context the card had to leave out for space.
 
 _SEGMENTER_RUBRIC = """\
 You are segmenting a sequentially numbered stretch of content for a personal knowledge base.
-Goal: cut it into "semantic segments", ideally one natural unit (one candidate, one topic)
+Goal: cut it into "semantic segments", ideally one natural unit (one subject, one topic)
 per segment.
 
 Segmentation rules, in priority order:
 - The highest-priority cut point is a change of substantive topic / subject (a different
-  candidate, a different concrete topic).
+  subject, a different concrete topic).
 - Ignore greetings, transitions and pleasantries; do not cut because of them.
 - Do not over-segment — merge consecutive content belonging to the same subject or topic
   into one segment.
-- Keep each natural unit (for example one complete assessment of one candidate) inside a
+- Keep each natural unit (for example one complete account of one subject) inside a
   single segment as far as possible.
 
 Return only the "start block number" of each semantic segment (`segments`, ascending
@@ -543,24 +555,42 @@ listing.
 # ═══════════════════════════════════════════════════════════════════════════ personas
 
 _PROFILE_INSTRUCTION = """\
-You expand user profiles. Given one sentence from the user, expand it into a complete,
-self-consistent, believable user profile.
+You turn one sentence a person typed about themselves into a profile DRAFT. The draft goes
+back to that person to confirm, field by field, before anything is stored — so its job is to
+carry what the sentence supports, and to leave the rest visibly open.
+
+**Invent no identity.** No name, no city, no country, no employer, no birth year the sentence
+does not state or plainly imply. This is a knowledge base whose whole promise is that nothing
+in it is fabricated, and the profile is what every later compile reads to decide whose
+knowledge this is. A blank field asks to be filled; a plausible invented one never gets
+questioned again.
 
 Rules:
-- industry / role / level must each be the closest match from the given enum; when unsure
-  pick other for industry/role and mid for level.
-- Set the remaining fields plausibly from that sentence and keep them consistent with each
-  other: for example "a salesperson in Lisbon" → city Lisbon / country Portugal / timezone
-  Europe/Lisbon / language pt-PT.
-- Use a natural name that fits the person's region and culture for display_name.
-- Write bio in the first person, two or three sentences, concrete rather than vague.
-- Give 3-5 interests.
-- Use a `u-` prefix plus a short latin-script slug for user_id (letters, digits and hyphens
-  only).
-- workspace describes how they work; use a concise deployment-neutral operating_mode and
-  reserve automation_level=agentic for explicit autonomous-agent usage.
-- Use IANA names for timezone, BCP-47 tags for language / response_language, and an ISO date
-  for workspace.active_since.
+- A field the sentence does not support is left EMPTY — `""` for text, an empty list, and
+  omitted for the optional ones. Empty is how the form shows "still to confirm", which is the
+  truth about it.
+- display_name: only a name the sentence actually gives. It gives none → leave it empty. Never
+  produce a name because one would "fit" the region or the culture.
+- locale: normalize only what is stated, and only where the normalization is a fact rather
+  than a guess. "a product manager in Shanghai" → city Shanghai, country China, timezone
+  Asia/Shanghai (a city determines its zone), and language only if the sentence indicates it.
+  "a product manager" on its own → all four empty.
+- occupation / bio: rephrase what the sentence says, in the first person. Add no employer, no
+  years of experience, no projects, no achievements it did not mention. One accurate sentence
+  is better than three invented ones.
+- interests: only interests the sentence names. None named → an empty list.
+- industry / role / level must each be a member of the given enum. When the sentence indicates
+  none, take `other` for industry/role and `mid` for level — as an explicit placeholder, not
+  as a claim about this person.
+- preferences / workspace: their enums have no "unknown" member either, so where the sentence
+  is silent take the most neutral value (`metric`, `standard`, `independent`, `assisted`)
+  rather than a characterization it does not support, and leave their free-text fields
+  (primary_stack, active_since) empty.
+- user_id: a `u-` prefix plus a short latin-script slug derived from what the sentence DOES
+  say (letters, digits and hyphens only); empty when there is nothing to derive one from — the
+  system then assigns an id.
+- For the values you do fill: IANA names for timezone, BCP-47 tags for language /
+  response_language, an ISO date for workspace.active_since.
 """
 
 # ═════════════════════════════════════════════════════════════════════════ the catalog
@@ -1506,9 +1536,15 @@ DEFAULTS: dict[str, str] = {
     "recall.suggestion.detail_source_head": (
         "source {source_id} blocks [{block_start}, {block_end}]"
     ),
+    # The contract above promises the expansion stays inside the cited source text. This is
+    # the branch where there is none, so it says what the boundary becomes instead — otherwise
+    # "within the bounds of that source text" would be read as an absent bound.
     "recall.suggestion.detail_no_sources": (
-        "# Cited source text\n(this card has no directly fetchable citation, so it can only be "
-        "expanded from the card itself)"
+        "# Cited source text\n"
+        "(this card has no directly fetchable citation, so there is no source text this time. "
+        "The card itself is then the whole boundary: expand what it states, add no detail, "
+        "number, name or conclusion it does not carry, and say plainly that the original could "
+        "not be pulled for this one.)"
     ),
     # ─────────────────────────────────────────────── persona generation
     "persona.profile_instruction": _PROFILE_INSTRUCTION,

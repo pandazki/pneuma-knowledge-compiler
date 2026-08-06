@@ -13,7 +13,7 @@ export const nav = defineMessages({
     "nav.group.materials": "原料篇",
     "nav.group.process": "工序篇",
     "nav.group.retrieval": "取用篇",
-    "nav.group.canon": "正典篇",
+    "nav.group.canon": "正本篇",
     "nav.group.evolution": "演化篇",
     "nav.group.back": "卷末",
 
@@ -24,10 +24,11 @@ export const nav = defineMessages({
     "nav.view.recall": "检索 Recall",
     "nav.view.ask": "问答 Ask",
     "nav.view.live_context": "即时上下文 Live Context",
-    "nav.view.library": "正典 Canonical",
+    "nav.view.library": "正本",
     "nav.view.graph": "图谱 Graph",
     "nav.view.history": "版本 History",
     "nav.view.evolve": "演化 Evolve",
+    "nav.view.engine_console": "引擎控制台 Engine",
     "nav.view.profile": "画像 Profile",
 
     "nav.offline": "无法连接 pneuma-knowledge 服务，面板已降级。",
@@ -63,8 +64,8 @@ export const nav = defineMessages({
 
     "nav.snapshot.groupLive": "当前",
     "nav.snapshot.groupFrozen": "冻结快照 · 可问答",
-    "nav.snapshot.groupCommits": "canonical 提交 · 仅浏览",
-    "nav.snapshot.kbScale": "{sources} 份原料 · {claims} 条 claim",
+    "nav.snapshot.groupCommits": "正本提交 · 仅浏览",
+    "nav.snapshot.kbScale": "{sources} 份原料 · {claims} 条断言（claim）",
     "nav.snapshot.kbCreating": "复制中…",
     "nav.snapshot.kbFailed": "创建失败",
     "nav.snapshot.kbCreateHint": "输入名称以冻结当前知识库",
@@ -84,7 +85,7 @@ export const nav = defineMessages({
     "nav.group.materials": "Materials",
     "nav.group.process": "Process",
     "nav.group.retrieval": "Retrieval",
-    "nav.group.canon": "Canon",
+    "nav.group.canon": "Canonical",
     "nav.group.evolution": "Evolution",
     "nav.group.back": "Back matter",
 
@@ -101,6 +102,7 @@ export const nav = defineMessages({
     "nav.view.graph": "Graph",
     "nav.view.history": "History",
     "nav.view.evolve": "Evolve",
+    "nav.view.engine_console": "Engine Console",
     "nav.view.profile": "Profile",
 
     "nav.offline": "Cannot reach the pneuma-knowledge service; the panels are degraded.",

@@ -1,10 +1,16 @@
 """Service settings — 12-factor, all via environment (architecture.md §1, §5).
 
 Env prefix: PNEUMA_KNOWLEDGE_. e.g. PNEUMA_KNOWLEDGE_PG_DSN, PNEUMA_KNOWLEDGE_QDRANT_URL.
+
+One optional layer sits between environment and default: the engine directory
+(`PNEUMA_KNOWLEDGE_ENGINE_DIR`, architecture.md §11). Its strategy files supply the values
+the process environment does not state — see `get_settings` at the bottom of this file, and
+`engine/resolve.py` for the precedence rule and why it is that way round.
 """
 
 from __future__ import annotations
 
+import os
 from typing import Literal
 
 from pydantic import Field
@@ -31,6 +37,15 @@ class Settings(BaseSettings):
     meili_key: str = "masterKey_change_me"
 
     canonical_root: str = "./data/canonical"
+
+    # The engine directory: one versioned unit holding this deployment's strategy files,
+    # compile contract, prompt overlays and owner profile (architecture.md §11,
+    # docs/design/engine-console.md). Empty (the default) means this deployment has none —
+    # every strategy key then resolves exactly as it did before the concept existed, and the
+    # /v1/engine/* console surface returns 404 rather than pretending to serve a directory.
+    # It is deliberately NOT itself an engine knob: nothing inside the directory can say
+    # where the directory is.
+    engine_dir: str = ""
 
     # The timezone this installation counts calendar days in for a subject whose profile does
     # not state one — the last link of `domain.time_context.resolve_zone_with_source`
@@ -115,6 +130,13 @@ class Settings(BaseSettings):
     challenge_max_rounds: int = 2
     challenge_max_questions: int = 6
     challenge_compensate: bool = True
+    # Completion budget for the challenge's structured passes
+    # (PNEUMA_KNOWLEDGE_CHALLENGE_MAX_OUTPUT_TOKENS). A healthy question/reflection
+    # reply is small and bounded by max_questions; without a cap, one runaway
+    # generation runs to the provider ceiling (observed live: 65,536 tokens) before
+    # failing to parse. The cap turns that into a cheap, soft-degraded round.
+    # 0 = provider default (no cap).
+    challenge_max_output_tokens: int = 32768
 
     # Schema evolve (schema-evolve §2). The whole-KB reorganization flow: a strong model
     # proposes new schema families off accrued compile evidence, an agentic pass reorganizes
@@ -184,6 +206,15 @@ class Settings(BaseSettings):
     # is style-independent. A recall request may override it per call.
     recall_answer_style: Literal["concise", "conversational", "detailed"] = "conversational"
 
+    # Which language the FRAMEWORK's own prompt wording arrives in
+    # (PNEUMA_KNOWLEDGE_PROMPT_LANGUAGE): "en" is the English catalog, "zh" applies core's
+    # Chinese language pack under whatever this deployment overrides itself. It changes the
+    # prose the models read, nothing else — no policy, no mechanism, and not the language a
+    # knowledge base is written in (that follows the subject's own declared language). Every
+    # published measurement in this repository was taken on "en"; see
+    # docs/design/engine-console.md.
+    prompt_language: Literal["en", "zh"] = "en"
+
     # Dev CORS: allow the vite dev server (any localhost/127.0.0.1 port) to call
     # the API from the browser. Override PNEUMA_KNOWLEDGE_CORS_ALLOW_ORIGIN_REGEX in real
     # deployments; set to "" to disable CORS entirely.
@@ -234,4 +265,23 @@ class Settings(BaseSettings):
 
 
 def get_settings() -> Settings:
-    return Settings()
+    """Settings with the engine directory layered in: env > engine file > framework default.
+
+    Two constructions, deliberately: the first one is the only thing that knows where the
+    engine directory is (it may have been named in a `.env` file rather than in the process
+    environment), the second one applies what that directory states. `Settings` init kwargs
+    outrank both environment and dotenv in pydantic-settings, so `engine_overrides` hands
+    over ONLY the keys the process environment leaves unstated — that is where the precedence
+    rule is mechanically enforced, rather than in a comment asking callers to be careful.
+
+    With no engine directory configured this is `Settings()` and nothing more.
+    """
+    base = Settings()
+    if not base.engine_dir.strip():
+        return base
+    from .engine.resolve import engine_overrides  # local: engine imports Settings
+
+    overrides, _resolution = engine_overrides(base.engine_dir.strip(), os.environ)
+    if not overrides:
+        return base
+    return Settings(**overrides)

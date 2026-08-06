@@ -57,7 +57,7 @@ export const liveContext = defineMessages({
     "liveContext.sse.params.title": "评估参数",
     "liveContext.sse.minConfidence.label": "min_confidence（服务端闸门）",
     "liveContext.sse.minConfidence.hint":
-      "低于该置信度的卡片不会下发，计入 dropped.low_confidence。",
+      "低于该置信度的卡片不会下发，计入丢弃原因 low_confidence。",
     "liveContext.sse.run": "送整段评估一次",
     "liveContext.sse.errorTitle": "评估失败",
     "liveContext.sse.cards.title": "上下文提示（{visible} / 已生成 {total}）",
