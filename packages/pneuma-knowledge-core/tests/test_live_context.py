@@ -177,9 +177,14 @@ _PUBLIC_BASELINE_SHA256 = {
     # the default is "conversational" and these digests pin that default. Briefing keeps
     # its own genre and is unchanged. Style shapes the answer only; truth discipline
     # (red line, citations, honest close) is style-independent by construction.
+    # 2026-08-06: briefing only — the head said the pack's two routes were "for what lies
+    # outside it" and then defined the first as searching "within the range the pack covers",
+    # which is a contradiction the model had to resolve for itself. Reworded to the tools'
+    # real reach: `search_knowledge` searches the session's SOURCE RANGE again (the pack
+    # sampled it), `fetch_verbatim` reaches any source by id. No capability changed.
     "fast": "d64e6b0b17a949f554d6fdecd3b46d39dc23defa8585af6f2f56514aa175a985",
     "deep": "a71892e9edb5c2a6c981a2938f93274ba9b16326db45a68407b883c39fd6f05f",
-    "briefing": "dde4f54613424f65ce58e1fe4332907e2a190eb994cb0ab3c71f537bbd445344",
+    "briefing": "57c3e181800cd662e28d91567d94309e07bb7904a35648a7c4ae127ee0e486e9",
 }
 
 
