@@ -21,6 +21,7 @@ const LibraryView = lazy(() => import("./views/library/LibraryView"));
 const GraphView = lazy(() => import("./views/graph/GraphView"));
 const HistoryView = lazy(() => import("./views/history/HistoryView"));
 const EvolveView = lazy(() => import("./views/evolve/EvolveView"));
+const EngineConsoleView = lazy(() => import("./views/engine_console/EngineConsoleView"));
 const ComponentsGallery = lazy(() => import("./views/components/ComponentsGallery"));
 
 const VIEWS: Record<ViewName, ComponentType> = {
@@ -36,6 +37,7 @@ const VIEWS: Record<ViewName, ComponentType> = {
   graph: GraphView,
   history: HistoryView,
   evolve: EvolveView,
+  engine_console: EngineConsoleView,
   components: ComponentsGallery,
 };
 

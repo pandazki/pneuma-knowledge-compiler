@@ -74,10 +74,16 @@ export const common = defineMessages({
     "common.gate.low_confidence": "低置信",
     "common.gate.capped": "超限",
 
-    "common.sourceSpan.title": "原文",
-    "common.sourceSpan.fetchExact": "fetch 精确段",
-    "common.sourceSpan.fetchFailed": "fetch 失败：{detail}",
+    "common.sourceSpan.title": "原文精确段",
+    "common.sourceSpan.fetchExact": "取回原文精确段",
+    "common.sourceSpan.fetchFailed": "取回失败：{detail}",
     "common.sourceSpan.openInSources": "在原料页打开",
+    "common.sourceSpan.metadata.occurredOn": "语料日期",
+    "common.sourceSpan.metadata.author": "作者",
+    "common.sourceSpan.metadata.createdAt": "创作时间",
+    "common.sourceSpan.metadata.updatedAt": "更新时间",
+    "common.sourceSpan.metadata.timezone": "时区",
+    "common.sourceSpan.metadata.participants": "参与者",
 
     "common.placeholder.title": "本篇正在排版",
     "common.placeholder.description":
@@ -148,10 +154,16 @@ export const common = defineMessages({
     "common.gate.low_confidence": "Low confidence",
     "common.gate.capped": "Capped",
 
-    "common.sourceSpan.title": "Original text",
-    "common.sourceSpan.fetchExact": "Fetch exact span",
+    "common.sourceSpan.title": "Exact source span",
+    "common.sourceSpan.fetchExact": "Fetch exact source span",
     "common.sourceSpan.fetchFailed": "Fetch failed: {detail}",
     "common.sourceSpan.openInSources": "Open in Sources",
+    "common.sourceSpan.metadata.occurredOn": "Material date",
+    "common.sourceSpan.metadata.author": "Author",
+    "common.sourceSpan.metadata.createdAt": "Created",
+    "common.sourceSpan.metadata.updatedAt": "Updated",
+    "common.sourceSpan.metadata.timezone": "Time zone",
+    "common.sourceSpan.metadata.participants": "Participants",
 
     "common.placeholder.title": "This chapter is still being typeset",
     "common.placeholder.description":

@@ -61,7 +61,7 @@ export const gallery = defineMessages({
     "gallery.text.disabledValue": "不可编辑",
 
     "gallery.search.value": "脚注",
-    "gallery.search.placeholder": "检索 canonical…",
+    "gallery.search.placeholder": "检索正本…",
     "gallery.search.emptyPlaceholder": "空值占位",
 
     "gallery.textArea.value": "纸、墨、发丝线、脚注。",
@@ -135,19 +135,19 @@ export const gallery = defineMessages({
 
     "gallery.stamp.snapshot": "历史快照 · 只读",
 
-    "gallery.footnote.lead": "每个 claim 都能回到精确的 source span",
+    "gallery.footnote.lead": "每个断言（claim）都能回到原文精确段",
     "gallery.footnote.tail": "，这是引用门禁成立的前提",
     "gallery.footnote.stop": "。",
     "gallery.footnote.citationTitle": "编译器原理笔记",
     "gallery.footnote.citationSnippet": "溯源不是功能，是这套系统的地基。",
 
     "gallery.level.l0": "原始材料：对话、文档、实验记录。",
-    "gallery.level.l1": "source 块索引：可定位、可 fetch。",
+    "gallery.level.l1": "原料块索引：可定位、可取回。",
     "gallery.level.l2": "语义索引：recall 的命中面。",
-    "gallery.level.l3": "canonical knowledge：带引用的正典。",
+    "gallery.level.l3": "正本知识：每条断言都带引用。",
 
     "gallery.dialog.title": "确认编译",
-    "gallery.dialog.description": "把当前未消化的 source 编译进 canonical。",
+    "gallery.dialog.description": "把当前未消化的原料编译进正本。",
     "gallery.dialog.cancel": "取消",
     "gallery.dialog.body": "正文区：表单或说明文字。",
     "gallery.drawer.title": "侧栏抽屉",
@@ -290,10 +290,10 @@ export const gallery = defineMessages({
     "gallery.level.l0": "Raw material: conversations, documents, experiment logs.",
     "gallery.level.l1": "Source block index: locatable, fetchable.",
     "gallery.level.l2": "Semantic index: the surface recall hits.",
-    "gallery.level.l3": "Canonical knowledge: the canon, with citations.",
+    "gallery.level.l3": "Canonical knowledge, with citations.",
 
     "gallery.dialog.title": "Confirm compile",
-    "gallery.dialog.description": "Compile the undigested sources into canonical.",
+    "gallery.dialog.description": "Compile the undigested sources into canonical knowledge.",
     "gallery.dialog.cancel": "Cancel",
     "gallery.dialog.body": "Body area: a form, or explanatory copy.",
     "gallery.drawer.title": "Side drawer",

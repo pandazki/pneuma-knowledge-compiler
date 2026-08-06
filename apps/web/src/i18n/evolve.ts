@@ -16,8 +16,8 @@ import { defineMessages } from "./define";
 export const evolve = defineMessages({
   zh: {
     "evolve.title": "演化 Evolve",
-    "evolve.description": "演化时间线 · 草案评审（采用 / 放弃）· family 与路径模板的累积轴。",
-    "evolve.descriptionShort": "schema 重组提案的评审台与 family 累积轴。",
+    "evolve.description": "演化时间线 · 审阅重组如何搬移断言（claim）、归档族与路径模板。",
+    "evolve.descriptionShort": "模式重组提案的评审台与归档族累积轴。",
     "evolve.trigger": "触发演化",
     "evolve.readOnlyHint": "历史快照为只读",
     "evolve.listSeparator": "、",
@@ -91,14 +91,14 @@ export const evolve = defineMessages({
     "evolve.dropped.awaiting": "等人裁决",
     "evolve.dropped.allKept": "锚全部保留",
     "evolve.dropped.empty":
-      "这次重组没有让任何 claim 锚消失——每一条都带原锚搬到了新 family。",
+      "这次重组没有让任何断言锚点消失——每一条都带原锚点搬到了新归档族。",
     "evolve.dropped.calloutTitle": "这是本次评审的重点",
     "evolve.dropped.calloutBody":
-      "下面 {count} 条 claim 的锚在新库里已找不到（被合并或删除）。锚消失意味着 L3 / 事件 / git blame 上的引用链在这里断开，采用前请逐条确认这是你要的结果。",
+      "下面 {count} 条断言的锚点在新库里已找不到（被合并或删除）。锚点消失意味着 L3、事件与版本追溯中的引用链在这里断开，采用前请逐条确认这是你要的结果。",
 
     "evolve.stat.newDocuments": "新建文档",
-    "evolve.stat.movedClaims": "搬移 claim",
-    "evolve.stat.mergedClaims": "合并 claim",
+    "evolve.stat.movedClaims": "搬移断言",
+    "evolve.stat.mergedClaims": "合并断言",
     "evolve.summary.empty": "本任务无机械摘要。",
     "evolve.summary.adoptedCount": "收编 {count} 条",
 
@@ -124,7 +124,7 @@ export const evolve = defineMessages({
 
     "evolve.axis.currentSkill": "当前生效 skill",
     "evolve.axis.familyCount": "共 {total} 个，其中 {evolved} 个由演化加入",
-    "evolve.axis.claimLabels": "claim 标签词表 · {count}",
+    "evolve.axis.claimLabels": "断言标签词表 · {count}",
     "evolve.axis.labelAria": "{name}：{description}",
 
     "evolve.axis.stationsTitle": "累积轴 · {count} 刻度",

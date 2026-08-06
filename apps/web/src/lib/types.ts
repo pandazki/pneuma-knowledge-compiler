@@ -299,5 +299,7 @@ export type ViewName =
   | "graph"
   // schema-evolve review + the tailored-skill surface
   | "evolve"
+  // engine console: the compilation lifecycle as a navigable, editable pipeline map
+  | "engine_console"
   // hidden route: the primitives state-matrix page (acceptance shots; not in contents)
   | "components";

@@ -63,7 +63,7 @@ export const sources = defineMessages({
     "sources.directory.digested": "已消化",
     "sources.directory.undigested": "未消化",
 
-    "sources.exactSpan.title": "b{block} · 精确段",
+    "sources.exactSpan.title": "b{block} · 原文精确段",
     "sources.tabs.aria": "来源详情视图",
     "sources.tabs.source": "来源视图",
     "sources.tabs.compiler": "编译校样",
@@ -74,10 +74,10 @@ export const sources = defineMessages({
     "sources.compiler.proposed": "系统提案（未人工确认）",
     "sources.compiler.structure": "结构地图",
     "sources.compiler.blocks": "归一化原文 · {count} blocks",
-    "sources.compiler.blocksHint": "点击块号取精确段",
+    "sources.compiler.blocksHint": "点击块号取原文精确段",
 
-    "sources.block.fetchAria": "取 block {index} 精确段",
-    "sources.block.fetchTitle": "取精确原文段",
+    "sources.block.fetchAria": "取 block {index} 的原文精确段",
+    "sources.block.fetchTitle": "取原文精确段",
     "sources.blockCount": "{count} blocks",
     "sources.owner": "本人",
 
@@ -94,7 +94,7 @@ export const sources = defineMessages({
     "sources.meeting.agenda": "议程",
     "sources.meeting.noAgenda": "未提供会议议程",
     "sources.meeting.verbatim": "逐字稿",
-    "sources.meeting.blockHint": "点击 block 编号取精确段",
+    "sources.meeting.blockHint": "点击 block 编号取原文精确段",
 
     "sources.document.location": "Vault 定位",
     "sources.document.libraryFallback": "文档库",
@@ -191,7 +191,7 @@ export const sources = defineMessages({
     "sources.directory.digested": "Digested",
     "sources.directory.undigested": "Not digested",
 
-    "sources.exactSpan.title": "b{block} · exact span",
+    "sources.exactSpan.title": "b{block} · exact source span",
     "sources.tabs.aria": "Source detail views",
     "sources.tabs.source": "Source view",
     "sources.tabs.compiler": "Compiler galley",
@@ -202,10 +202,10 @@ export const sources = defineMessages({
     "sources.compiler.proposed": "System proposal (not confirmed by hand)",
     "sources.compiler.structure": "Structure map",
     "sources.compiler.blocks": "Normalised text · {count} block{count||s}",
-    "sources.compiler.blocksHint": "Click a block number for its exact span",
+    "sources.compiler.blocksHint": "Click a block number for its exact source span",
 
-    "sources.block.fetchAria": "Fetch the exact span of block {index}",
-    "sources.block.fetchTitle": "Fetch the exact original span",
+    "sources.block.fetchAria": "Fetch the exact source span for block {index}",
+    "sources.block.fetchTitle": "Fetch the exact source span",
     "sources.blockCount": "{count} block{count||s}",
     "sources.owner": "owner",
 
@@ -222,7 +222,7 @@ export const sources = defineMessages({
     "sources.meeting.agenda": "Agenda",
     "sources.meeting.noAgenda": "No agenda provided",
     "sources.meeting.verbatim": "Verbatim transcript",
-    "sources.meeting.blockHint": "Click a block number for its exact span",
+    "sources.meeting.blockHint": "Click a block number for its exact source span",
 
     "sources.document.location": "Vault location",
     "sources.document.libraryFallback": "Document library",

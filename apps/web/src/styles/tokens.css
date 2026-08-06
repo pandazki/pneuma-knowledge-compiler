@@ -35,6 +35,22 @@
   --danger-soft: color-mix(in srgb, var(--danger) 10%, var(--bg));
 
   --shadow-overlay: 0 1px 2px rgb(0 0 0 / 0.06), 0 8px 24px rgb(0 0 0 / 0.08);
+
+  /* Engine Console · pale instrument panel, independently tuned from the paper theme. */
+  --engine-canvas: #edf2ef;
+  --engine-panel: #f8faf8;
+  --engine-raised: #ffffff;
+  --engine-ink: #17231f;
+  --engine-ink-2: #52625b;
+  --engine-ink-3: #627168;
+  --engine-line: #d4ddd8;
+  --engine-line-2: #bbc8c1;
+  --engine-grid: #b9c8c0;
+  --engine-accent: #147765;
+  --engine-accent-ink: #ffffff;
+  --engine-accent-soft: #dceee8;
+  --engine-accent-line: #85b6a8;
+  --engine-node-shadow: 0 12px 32px rgb(22 45 37 / 0.1), 0 2px 8px rgb(22 45 37 / 0.08);
 }
 
 :root[data-theme="dark"] {
@@ -63,6 +79,60 @@
   --danger-soft: color-mix(in srgb, var(--danger) 12%, var(--bg));
 
   --shadow-overlay: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px rgb(0 0 0 / 0.5);
+
+  /* Engine Console · graphite instrument panel, not a colour inversion. */
+  --engine-canvas: #101815;
+  --engine-panel: #151f1b;
+  --engine-raised: #1b2823;
+  --engine-ink: #e7f0ec;
+  --engine-ink-2: #a7b8b0;
+  --engine-ink-3: #7b9187;
+  --engine-line: #273630;
+  --engine-line-2: #3a4c44;
+  --engine-grid: #33473e;
+  --engine-accent: #62c5aa;
+  --engine-accent-ink: #0d1814;
+  --engine-accent-soft: #1b3b32;
+  --engine-accent-line: #3a7867;
+  --engine-node-shadow: 0 16px 40px rgb(0 0 0 / 0.34), 0 3px 10px rgb(0 0 0 / 0.24);
+}
+
+/* Before the store writes an explicit preference, Engine Console follows the OS. The
+   data-theme selectors above always win once a person chooses either direction. */
+:root:not([data-theme]) {
+  --engine-canvas: #edf2ef;
+  --engine-panel: #f8faf8;
+  --engine-raised: #ffffff;
+  --engine-ink: #17231f;
+  --engine-ink-2: #52625b;
+  --engine-ink-3: #627168;
+  --engine-line: #d4ddd8;
+  --engine-line-2: #bbc8c1;
+  --engine-grid: #b9c8c0;
+  --engine-accent: #147765;
+  --engine-accent-ink: #ffffff;
+  --engine-accent-soft: #dceee8;
+  --engine-accent-line: #85b6a8;
+  --engine-node-shadow: 0 12px 32px rgb(22 45 37 / 0.1), 0 2px 8px rgb(22 45 37 / 0.08);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --engine-canvas: #101815;
+    --engine-panel: #151f1b;
+    --engine-raised: #1b2823;
+    --engine-ink: #e7f0ec;
+    --engine-ink-2: #a7b8b0;
+    --engine-ink-3: #7b9187;
+    --engine-line: #273630;
+    --engine-line-2: #3a4c44;
+    --engine-grid: #33473e;
+    --engine-accent: #62c5aa;
+    --engine-accent-ink: #0d1814;
+    --engine-accent-soft: #1b3b32;
+    --engine-accent-line: #3a7867;
+    --engine-node-shadow: 0 16px 40px rgb(0 0 0 / 0.34), 0 3px 10px rgb(0 0 0 / 0.24);
+  }
 }
 
 :root {
