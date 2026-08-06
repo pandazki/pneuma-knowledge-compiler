@@ -66,9 +66,14 @@ async def full_l2_chunks(ctx: "AppContext", source_id, blocks, structure, user_i
     # over it — the AI suggestion path depends on exactly that. The reason is narrower: a fixed
     # replay script cannot know where the boundaries in an arbitrary document are, so
     # scripted semantic chunking would emit segments unrelated to the input.
+    # Keyless deployments (no usable compile model — an openrouter spec without a key,
+    # or no spec at all) fall back the same way: the engine file keeps saying
+    # "semantic" as the durable strategy, and this dispatch point is where the missing
+    # model degrades it mechanically for THIS process — not an env pin upstream.
     semantic = (
         ctx.settings.chunk_strategy == "semantic"
         and not ctx.settings.llm_model.startswith("scripted:")
+        and bool(usable_model_name(ctx.settings, "compile"))
     )
     if semantic:
         from pneuma_knowledge_core.ingest.semantic import (
@@ -134,6 +139,27 @@ async def full_l2_chunks(ctx: "AppContext", source_id, blocks, structure, user_i
     return await chunk_source(source_id, blocks, structure, chunker=chunker)
 
 
+async def plan_l2_chunks(ctx: "AppContext", source_id, normalized, user_id):
+    """The L2 chunks a source's OWN IntakePlan asks for — the ingest path's dispatch.
+
+    `full` → `full_l2_chunks` (strategy dispatch above); `summary` → section heads;
+    anything else → no L2 at all (the plan says this source is not semantically indexed).
+    Centralized here because every rebuild path (the ops re-index scripts, a prebuilt
+    library restore) must reproduce what a fresh ingest would have written — a rebuild that
+    ignored the plan would over-index sources the plan deliberately kept out of L2."""
+    from .ingest_document import _summary_chunks
+
+    plan = normalized.raw.intake_plan or {}
+    semantic = plan.get("semantic_indexing", "full")
+    if semantic == "full":
+        return await full_l2_chunks(
+            ctx, source_id, normalized.blocks, normalized.structure, user_id
+        )
+    if semantic == "summary":
+        return _summary_chunks(source_id, normalized)
+    return []
+
+
 def build_embeddings(settings: Settings) -> Embeddings:
     """Assemble the embeddings model from settings.embedding_model.
 
@@ -195,6 +221,20 @@ def resolve_model_name(settings: Settings, role: str = "default") -> str:
     return settings.llm_model
 
 
+def usable_model_name(settings: Settings, role: str = "default") -> str:
+    """The resolved model spec for a role, or "" when THIS process cannot run it.
+
+    An `openrouter:` spec without OPENROUTER_API_KEY is the keyless state: the engine
+    file keeps naming the models the deployment would use with a key (the durable,
+    console-visible truth), and every dispatch point that would otherwise build the
+    model asks THIS function instead of pinning empty roles into the environment —
+    which used to hide the engine's values behind an env lock in the console."""
+    name = resolve_model_name(settings, role)
+    if name.startswith("openrouter:") and not settings.openrouter_api_key.strip():
+        return ""
+    return name
+
+
 def _provider_guardrails(settings: Settings) -> dict:
     """The `timeout` / `max_retries` kwargs every real chat model is constructed with.
 
@@ -215,7 +255,11 @@ def _provider_guardrails(settings: Settings) -> dict:
 
 
 def _build_from_name(
-    name: str, settings: Settings, *, reasoning_effort: str | None = None
+    name: str,
+    settings: Settings,
+    *,
+    reasoning_effort: str | None = None,
+    max_tokens: int | None = None,
 ) -> BaseChatModel:
     """Assemble a chat model from a spec.
 
@@ -227,6 +271,11 @@ def _build_from_name(
     `{"reasoning": {"effort": ...}}`) — used for auxiliary calls that must stay cheap,
     like the LLM reranker's `none`. OpenRouter specs only; scripted models ignore it and
     other providers do not take the field.
+
+    `max_tokens` pins a completion budget at construction — used for auxiliary calls
+    whose healthy output is small and bounded (the challenge's structured passes), so a
+    runaway generation fails cheaply instead of at the provider ceiling. Scripted models
+    are local replay and ignore it.
 
     Every REAL model (both branches, hence every role) is built with the same two provider
     guardrails from settings — see `_provider_guardrails`. The scripted model is local
@@ -244,6 +293,8 @@ def _build_from_name(
         if not key:
             raise RuntimeError("openrouter:<model> requires OPENROUTER_API_KEY")
         extra: dict = {}
+        if max_tokens:
+            extra["max_tokens"] = max_tokens
         if reasoning_effort:
             extra["extra_body"] = {"reasoning": {"effort": reasoning_effort}}
         if settings.openrouter_provider_order.strip():
@@ -270,6 +321,8 @@ def _build_from_name(
             **extra,
             **guardrails,
         )
+    if max_tokens:
+        guardrails = {**guardrails, "max_tokens": max_tokens}
     return init_chat_model(name, **guardrails)
 
 
@@ -433,9 +486,21 @@ class AppContext:
         # or compile+recall both on one model) share one instance — which also keeps a
         # scripted model's replay cursor shared across roles, as tests expect.
         name = resolve_model_name(self.settings, role)
-        if name not in self._chat_models:
-            self._chat_models[name] = _build_from_name(name, self.settings)
-        return self._chat_models[name]
+        # The challenge role carries its completion budget (see the settings comment):
+        # keyed as spec+cap so a compile/recall role sharing the same spec keeps its
+        # uncapped instance. Scripted models stay on the plain key — they are local
+        # replay, and a forked instance would split the shared cursor tests rely on.
+        max_tokens = (
+            self.settings.challenge_max_output_tokens
+            if role == "challenge" and not name.startswith("scripted:")
+            else 0
+        )
+        key = f"{name}#max_tokens={max_tokens}" if max_tokens else name
+        if key not in self._chat_models:
+            self._chat_models[key] = _build_from_name(
+                name, self.settings, max_tokens=max_tokens or None
+            )
+        return self._chat_models[key]
 
     def langfuse_handler(self):
         """The reusable langfuse CallbackHandler, or None when tracing is unconfigured."""

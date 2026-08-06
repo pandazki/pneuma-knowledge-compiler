@@ -42,9 +42,17 @@ class GitCanonicalStore:
 
     # --- repo plumbing --------------------------------------------------------
 
+    def repo_path(self, user_id: UserId) -> Path:
+        """Where this user's canonical repository lives — without creating it.
+
+        Public because restoring a library that ships prebuilt has to write the repository
+        before this store ever reads it, and the addressing (I1: derived from user_id only)
+        must have exactly one implementation."""
+        return self._root / _UID_SAFE.sub("_", str(user_id))
+
     def _repo(self, user_id: UserId) -> Path:
         # I1: path derived from user_id only.
-        repo = self._root / _UID_SAFE.sub("_", str(user_id))
+        repo = self.repo_path(user_id)
         if not (repo / ".git").is_dir():
             repo.mkdir(parents=True, exist_ok=True)
             self._run(repo, "init", "-q")

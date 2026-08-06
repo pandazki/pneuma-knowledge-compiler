@@ -1,0 +1,940 @@
+{
+  "schema_version": 1,
+  "stages": [
+    {
+      "id": "intake",
+      "title": {
+        "en": "Intake",
+        "zh": "接收"
+      },
+      "summary": {
+        "en": "Material arrives verbatim (L0) and is cut into semantic units for the vector index (L2). Only the cutting is a choice — the text stays a verbatim slice.",
+        "zh": "材料逐字入库（L0），并被切成语义单元供向量索引（L2）使用。可选的只有怎么切——切出来的文本始终是原文的逐字片段。"
+      },
+      "doc": "docs/reference/configuration.md#l2-chunking",
+      "file": "intake/intake.yaml",
+      "knobs": [
+        {
+          "key": "chunk_strategy",
+          "env": "PNEUMA_KNOWLEDGE_CHUNK_STRATEGY",
+          "type": "enum",
+          "enum": [
+            "semantic",
+            "sentence",
+            "recursive"
+          ],
+          "default": "semantic",
+          "apply": "derived_rebuild",
+          "label": {
+            "en": "Chunk strategy",
+            "zh": "切块策略"
+          },
+          "description": {
+            "en": "semantic = the compile-role model detects topic/episode boundaries and returns block indexes only; sentence / recursive = mechanical chonkie chunkers with no model cost. Existing content keeps its recorded boundaries until rebuild_derived runs.",
+            "zh": "semantic = 由编译角色模型判断话题/情节边界，只返回块下标；sentence / recursive = 机械切分，不花模型钱。已有内容会保留既有边界，直到跑 rebuild_derived 才真正改变。"
+          }
+        }
+      ]
+    },
+    {
+      "id": "compile",
+      "title": {
+        "en": "Compile",
+        "zh": "编译"
+      },
+      "summary": {
+        "en": "The model reads the material and writes canonical documents under this engine's contract. Every write passes the citation gate.",
+        "zh": "模型在本引擎的契约之下阅读材料、写出正本文档。每一次写入都要过引用闸门。"
+      },
+      "doc": "docs/guides/compile-contract.md",
+      "file": "compile/contract.md",
+      "knobs": [
+        {
+          "key": "contract",
+          "env": "",
+          "type": "document",
+          "default": "",
+          "apply": "future_compiles",
+          "label": {
+            "en": "Compile contract",
+            "zh": "编译契约"
+          },
+          "description": {
+            "en": "The constitution: what deserves long-term memory in this domain, and on which page. A judgement document — never decomposed into toggles. Rewriting it governs future compiles only; canonical is never rewritten.",
+            "zh": "宪法：在这个领域里什么值得被长期记住、该记在哪一页。它是判断力文档——永远不会被拆成开关。改写它只管未来的编译；正本永不被回溯重写。"
+          }
+        }
+      ]
+    },
+    {
+      "id": "challenge",
+      "title": {
+        "en": "Coverage challenge",
+        "zh": "覆盖质询"
+      },
+      "summary": {
+        "en": "After a committed compile, blind questions are generated over the same material and the canon is probed for gaps; confirmed gaps can trigger one compensation compile.",
+        "zh": "编译提交后，对同一份材料盲出问题、拿着问题查正本的缺口；确认的缺口可以触发一次补偿编译。"
+      },
+      "doc": "docs/reference/configuration.md#post-compile-coverage-challenge",
+      "file": "compile/challenge.yaml",
+      "knobs": [
+        {
+          "key": "enabled",
+          "env": "PNEUMA_KNOWLEDGE_CHALLENGE_ENABLED",
+          "type": "bool",
+          "default": false,
+          "apply": "future_compiles",
+          "label": {
+            "en": "Audit after every compile",
+            "zh": "每次编译后审计"
+          },
+          "description": {
+            "en": "Off by default: the audit spends extra model calls per compile job. On, it mechanizes the contract guide's \"ask real questions\" acceptance step.",
+            "zh": "默认关：审计会为每个编译作业额外花模型调用。开启后，它把契约指南里「拿真问题去问」这一步验收机械化。"
+          }
+        },
+        {
+          "key": "max_rounds",
+          "env": "PNEUMA_KNOWLEDGE_CHALLENGE_MAX_ROUNDS",
+          "type": "int",
+          "default": 2,
+          "apply": "future_compiles",
+          "label": {
+            "en": "Max rounds",
+            "zh": "最多轮数"
+          },
+          "description": {
+            "en": "Question/reflection rounds per audit. Either stage may end early by declaring itself exhausted.",
+            "zh": "每次审计的出题/反思轮数。任一阶段都可以自称穷尽而提前结束。"
+          }
+        },
+        {
+          "key": "max_questions",
+          "env": "PNEUMA_KNOWLEDGE_CHALLENGE_MAX_QUESTIONS",
+          "type": "int",
+          "default": 6,
+          "apply": "future_compiles",
+          "label": {
+            "en": "Questions per round",
+            "zh": "每轮问题数"
+          },
+          "description": {
+            "en": "How many blind questions one round generates.",
+            "zh": "一轮盲出多少个问题。"
+          }
+        },
+        {
+          "key": "max_output_tokens",
+          "env": "PNEUMA_KNOWLEDGE_CHALLENGE_MAX_OUTPUT_TOKENS",
+          "type": "int",
+          "default": 32768,
+          "apply": "future_compiles",
+          "label": {
+            "en": "Output budget (tokens)",
+            "zh": "输出预算（token）"
+          },
+          "description": {
+            "en": "Completion cap for the audit's structured passes. A healthy reply is small; without a cap a runaway generation runs to the provider ceiling before failing to parse. 0 = provider default.",
+            "zh": "审计结构化调用的完成上限。健康回复很小；不设上限时一次失控生成会跑满供应商上限才解析失败。0 = 供应商默认。"
+          }
+        },
+        {
+          "key": "compensate",
+          "env": "PNEUMA_KNOWLEDGE_CHALLENGE_COMPENSATE",
+          "type": "bool",
+          "default": true,
+          "apply": "future_compiles",
+          "label": {
+            "en": "Compensation compile",
+            "zh": "补偿编译"
+          },
+          "description": {
+            "en": "Confirmed gaps enqueue one extra compile over the same material; its writes pass the ordinary citation gate like any other.",
+            "zh": "确认的缺口会为同一份材料再排一次编译；它的写入和其他写入一样要过普通的引用闸门。"
+          }
+        }
+      ]
+    },
+    {
+      "id": "evolve",
+      "title": {
+        "en": "Schema evolve",
+        "zh": "模式演进"
+      },
+      "summary": {
+        "en": "Once enough new material has accrued, a strong model proposes reorganizing the library's structure on a branch and waits for a human to adopt or drop it.",
+        "zh": "积累够多新材料后，强模型会在分支上提出重组知识库结构的方案，等人来采纳或丢弃。"
+      },
+      "doc": "docs/guides/evolution.md",
+      "file": "evolve/evolve.yaml",
+      "knobs": [
+        {
+          "key": "auto_trigger",
+          "env": "PNEUMA_KNOWLEDGE_EVOLVE_AUTO_TRIGGER",
+          "type": "bool",
+          "default": true,
+          "apply": "future_compiles",
+          "label": {
+            "en": "Passive trigger",
+            "zh": "被动触发"
+          },
+          "description": {
+            "en": "Whether compiles may fire an evolve round. Off leaves evolution entirely manual; nothing is ever reorganized without a review either way.",
+            "zh": "编译是否可以触发演进。关掉后演进全靠手动；无论开关如何，没有评审就不会有任何重组落地。"
+          }
+        },
+        {
+          "key": "trigger_topic_docs",
+          "env": "PNEUMA_KNOWLEDGE_EVOLVE_TRIGGER_TOPIC_DOCS",
+          "type": "int",
+          "default": 5,
+          "apply": "future_compiles",
+          "label": {
+            "en": "New documents threshold",
+            "zh": "新文档阈值"
+          },
+          "description": {
+            "en": "New canonical documents since the last evolve needed to fire (AND-ed with the claim threshold). Lower it for a slow-trickle library.",
+            "zh": "距上次演进新增多少正本文档才触发（与断言阈值取与）。材料细水长流的库可以调低。"
+          }
+        },
+        {
+          "key": "trigger_new_claims",
+          "env": "PNEUMA_KNOWLEDGE_EVOLVE_TRIGGER_NEW_CLAIMS",
+          "type": "int",
+          "default": 30,
+          "apply": "future_compiles",
+          "label": {
+            "en": "New claims threshold",
+            "zh": "新断言阈值"
+          },
+          "description": {
+            "en": "New anchors since the last evolve needed to fire.",
+            "zh": "距上次演进新增多少锚点才触发。"
+          }
+        },
+        {
+          "key": "draft_ttl_hours",
+          "env": "PNEUMA_KNOWLEDGE_EVOLVE_DRAFT_TTL_HOURS",
+          "type": "int",
+          "default": 24,
+          "apply": "future_compiles",
+          "label": {
+            "en": "Draft lifetime (hours)",
+            "zh": "草案存活时长（小时）"
+          },
+          "description": {
+            "en": "A draft older than this is lazily expired the next time the list is read. The setting accepts fractions; the console steps in whole hours.",
+            "zh": "超过这个时长的草案会在下次读列表时被惰性过期。设置本身接受小数，控制台按整小时步进。"
+          }
+        }
+      ]
+    },
+    {
+      "id": "recall",
+      "title": {
+        "en": "Recall",
+        "zh": "召回"
+      },
+      "summary": {
+        "en": "The answering lanes: retrieval over claims and source windows, then an answer whose every conclusion carries a citation.",
+        "zh": "回答车道：在断言与源窗口上检索，然后给出每条结论都带引用的回答。"
+      },
+      "doc": "docs/architecture.md#7-retrieval",
+      "file": "recall/recall.yaml",
+      "knobs": [
+        {
+          "key": "answer_style",
+          "env": "PNEUMA_KNOWLEDGE_RECALL_ANSWER_STYLE",
+          "type": "enum",
+          "enum": [
+            "concise",
+            "conversational",
+            "detailed"
+          ],
+          "default": "conversational",
+          "apply": "hot",
+          "label": {
+            "en": "Answer style",
+            "zh": "回答风格"
+          },
+          "description": {
+            "en": "Shape only: concise = the bare exact value a grader or script expects; conversational = a natural chat reply; detailed = a self-contained note. Truth discipline is style-independent.",
+            "zh": "只影响形状：concise = 评分器或脚本要的那个确切值；conversational = 自然的对话回复；detailed = 自成一体的书面笔记。真话纪律与风格无关。"
+          }
+        },
+        {
+          "key": "claim_cap",
+          "env": "PNEUMA_KNOWLEDGE_RECALL_CLAIM_CAP",
+          "type": "int",
+          "default": 64,
+          "apply": "hot",
+          "label": {
+            "en": "Claim budget",
+            "zh": "断言预算"
+          },
+          "description": {
+            "en": "How many claims one fast ask may pull into the prompt. The default sits inside the measured 40–80 sweet band.",
+            "zh": "一次快速问答最多把多少断言放进提示词。默认值落在实测的 40–80 甜区内。"
+          }
+        },
+        {
+          "key": "window_cap",
+          "env": "PNEUMA_KNOWLEDGE_RECALL_WINDOW_CAP",
+          "type": "int",
+          "default": 8,
+          "apply": "hot",
+          "label": {
+            "en": "Source window budget",
+            "zh": "源窗口预算"
+          },
+          "description": {
+            "en": "How many raw source windows one fast ask may pull in.",
+            "zh": "一次快速问答最多把多少原始源窗口放进来。"
+          }
+        },
+        {
+          "key": "plan_queries",
+          "env": "PNEUMA_KNOWLEDGE_RECALL_PLAN_QUERIES",
+          "type": "int",
+          "default": 0,
+          "apply": "hot",
+          "label": {
+            "en": "Planned extra queries",
+            "zh": "规划的额外查询数"
+          },
+          "description": {
+            "en": "0 = the single-query lane, byte-for-byte. N > 0: one small call derives up to N extra retrieval queries, all pooled through one RRF fusion.",
+            "zh": "0 = 单查询车道，逐字节不变。N > 0：一次小调用推导出最多 N 个额外检索查询，全部经一次 RRF 融合汇总。"
+          }
+        },
+        {
+          "key": "rerank_model",
+          "env": "PNEUMA_KNOWLEDGE_RECALL_RERANK_MODEL",
+          "type": "string",
+          "default": "",
+          "apply": "hot",
+          "label": {
+            "en": "Claim reranker",
+            "zh": "断言重排模型"
+          },
+          "description": {
+            "en": "Empty = off (measured: no gain on claim-level retrieval). \"llm\" = LLM reranker on the recall model; \"llm:<spec>\" picks the model; a bare model name uses the OpenRouter /rerank endpoint.",
+            "zh": "空 = 关（实测：断言级检索上没有增益）。\"llm\" = 用召回模型做 LLM 重排；\"llm:<spec>\" 指定模型；裸模型名走 OpenRouter /rerank 端点。"
+          }
+        },
+        {
+          "key": "rerank_candidates",
+          "env": "PNEUMA_KNOWLEDGE_RECALL_RERANK_CANDIDATES",
+          "type": "int",
+          "default": 120,
+          "apply": "hot",
+          "label": {
+            "en": "Rerank candidate depth",
+            "zh": "重排候选深度"
+          },
+          "description": {
+            "en": "Retrieval depth per query per face when reranking; the reranker then scores the full deduped union.",
+            "zh": "开启重排时每个查询、每个面的检索深度；重排器随后对整个去重并集打分。"
+          }
+        }
+      ]
+    },
+    {
+      "id": "models",
+      "title": {
+        "en": "Models",
+        "zh": "模型"
+      },
+      "summary": {
+        "en": "The engine's four model roles. The compile model is the one real quality lever — a stronger model directly produces a better library.",
+        "zh": "引擎的四个模型角色。编译模型是唯一真正的质量杠杆——更强的模型直接产出更好的库。"
+      },
+      "doc": "docs/reference/configuration.md#models",
+      "file": "engine.yaml",
+      "knobs": [
+        {
+          "key": "compile",
+          "env": "PNEUMA_KNOWLEDGE_LLM_MODEL_COMPILE",
+          "type": "string",
+          "default": "",
+          "apply": "restart",
+          "label": {
+            "en": "Compile model",
+            "zh": "编译模型"
+          },
+          "description": {
+            "en": "Must support tool calling: the compile agent writes through tools. The quality lever of the whole engine.",
+            "zh": "必须支持工具调用：编译代理是通过工具写入的。整个引擎的质量杠杆。"
+          }
+        },
+        {
+          "key": "recall",
+          "env": "PNEUMA_KNOWLEDGE_LLM_MODEL_RECALL",
+          "type": "string",
+          "default": "",
+          "apply": "restart",
+          "label": {
+            "en": "Recall model",
+            "zh": "召回模型"
+          },
+          "description": {
+            "en": "Fast recall and the briefing ask. Fast and cheap is fine.",
+            "zh": "快速召回与简报问答。又快又便宜就够了。"
+          }
+        },
+        {
+          "key": "deep",
+          "env": "PNEUMA_KNOWLEDGE_LLM_MODEL_DEEP",
+          "type": "string",
+          "default": "",
+          "apply": "restart",
+          "label": {
+            "en": "Deep-recall model",
+            "zh": "深度召回模型"
+          },
+          "description": {
+            "en": "The agentic search lane. Empty borrows the recall role.",
+            "zh": "代理式搜索车道。留空则借用召回角色。"
+          }
+        },
+        {
+          "key": "embedding",
+          "env": "PNEUMA_KNOWLEDGE_EMBEDDING_MODEL",
+          "type": "string",
+          "default": "fake:384",
+          "apply": "restart",
+          "label": {
+            "en": "Embedding model",
+            "zh": "向量模型"
+          },
+          "description": {
+            "en": "fake:<dim> is deterministic and keyless. A vector collection's dimension is fixed at creation, so switching real models means a new collection.",
+            "zh": "fake:<dim> 确定且无需密钥。向量集合的维度在创建时就固定了，所以换真实模型意味着换一个新集合。"
+          }
+        }
+      ]
+    },
+    {
+      "id": "persona",
+      "title": {
+        "en": "Owner profile",
+        "zh": "主人档案"
+      },
+      "summary": {
+        "en": "Whose viewpoint the material is written from. Compiles read it to know how to address the owner and which calendar day a timestamp falls on — facts stay in the material.",
+        "zh": "材料是从谁的视角写的。编译读它来知道该怎么称呼主人、时间戳算在哪一个日历日上——事实本身仍然只住在材料里。"
+      },
+      "doc": "docs/architecture.md#6-the-compile-contract-skill",
+      "file": "persona/profile.yaml",
+      "knobs": [
+        {
+          "key": "profile",
+          "env": "",
+          "type": "document",
+          "default": "",
+          "apply": "future_compiles",
+          "label": {
+            "en": "Profile document",
+            "zh": "档案文档"
+          },
+          "description": {
+            "en": "The owner's own file: name, occupation, locale, and the provenance of each detected value. A detected value is never presented as the owner's own setting until its provenance says so.",
+            "zh": "主人自己的文件：称呼、职业、地区设置，以及每个探测值的来源标记。探测出来的值在来源标记改写之前，永远不会被当成主人自己的设定。"
+          }
+        }
+      ]
+    },
+    {
+      "id": "prompts",
+      "title": {
+        "en": "Prompt overlays",
+        "zh": "提示词覆盖"
+      },
+      "summary": {
+        "en": "The framework's extension point for model-visible wording: pick the language the framework's own clauses arrive in, and replace any catalog key's clause wholesale, without forking the framework.",
+        "zh": "框架为「模型可见文案」留的扩展点：选定框架自身文案的语言，并整段替换目录里任一键的措辞，不必分叉框架。"
+      },
+      "doc": "docs/architecture.md#11-the-engine-directory",
+      "file": "prompts/overlays.yaml",
+      "knobs": [
+        {
+          "key": "language",
+          "env": "PNEUMA_KNOWLEDGE_PROMPT_LANGUAGE",
+          "type": "enum",
+          "enum": [
+            "en",
+            "zh"
+          ],
+          "default": "en",
+          "apply": "restart",
+          "label": {
+            "en": "Prompt language",
+            "zh": "提示词语言"
+          },
+          "description": {
+            "en": "The language of the FRAMEWORK's own clauses — the layer your overrides sit on. en = the English catalog, the baseline every measurement in this repository was taken on; zh = core's Chinese language pack, for readability and Chinese material, with scoring equivalence unverified. It does not decide what language a knowledge base is written in: that follows the subject's own declared language.",
+            "zh": "**框架自身**文案的语言——也就是你的覆盖所叠在的那一层。en = 英文目录，本仓库所有跑分的基线；zh = 核心自带的中文语言包，面向可读性与中文材料，跑分等价性未经验证。它不决定文库用什么语言写：那取决于知识主体自己声明的语言。"
+          }
+        },
+        {
+          "key": "overlays",
+          "env": "",
+          "type": "overlay_map",
+          "enum": [
+            "compile.anchor.append_anchor_present",
+            "compile.anchor.append_empty_heading",
+            "compile.anchor.edit_duplicate_anchor",
+            "compile.anchor.edit_extra_anchor",
+            "compile.anchor.edit_unknown_anchor",
+            "compile.anchor.move_duplicate_anchor",
+            "compile.anchor.move_missing_anchor",
+            "compile.anchor.move_unknown_anchor",
+            "compile.anchor.none",
+            "compile.challenge.compensation_preamble",
+            "compile.challenge.questions_system",
+            "compile.challenge.reflect_system",
+            "compile.groom.archived_header",
+            "compile.groom.archived_truncated",
+            "compile.groom.commit_message",
+            "compile.groom.contract",
+            "compile.groom.heal_commit_message",
+            "compile.groom.overview_heading",
+            "compile.groom.overview_point",
+            "compile.groom.previous_empty",
+            "compile.groom.previous_header",
+            "compile.groom.task_header",
+            "compile.groom.volume_entry",
+            "compile.groom.volumes_heading",
+            "compile.owner_env.day_grouping",
+            "compile.owner_env.language",
+            "compile.owner_env.language_unknown",
+            "compile.owner_env.region",
+            "compile.owner_env.region_unknown",
+            "compile.owner_env.section",
+            "compile.owner_env.timezone_default",
+            "compile.owner_env.timezone_profile",
+            "compile.owner_env.timezone_provider",
+            "compile.owner_env.timezone_unknown",
+            "compile.owner_env.timezone_unstated",
+            "compile.owner_env.write_language",
+            "compile.owner_field.background",
+            "compile.owner_field.collab_mode",
+            "compile.owner_field.detail_separator",
+            "compile.owner_field.industry_role",
+            "compile.owner_field.interests",
+            "compile.owner_field.list_separator",
+            "compile.owner_field.name",
+            "compile.owner_field.occupation",
+            "compile.owner_field.unlabeled",
+            "compile.owner_field.unspecified",
+            "compile.owner_field.working_style",
+            "compile.owner_section",
+            "compile.owner_unknown",
+            "compile.patch.create_exists",
+            "compile.patch.create_path_not_allowed",
+            "compile.patch.move_target_missing",
+            "compile.patch.read_missing",
+            "compile.patch.volume_frozen",
+            "compile.rules_header",
+            "compile.skill_header",
+            "compile.skill_lede",
+            "compile.task.block_line",
+            "compile.task.guidance_header",
+            "compile.task.outline_empty",
+            "compile.task.outline_entry",
+            "compile.task.outline_entry_tail",
+            "compile.task.outline_entry_volume",
+            "compile.task.outline_header",
+            "compile.task.outline_note",
+            "compile.task.retrieved_header",
+            "compile.task.retrieved_note",
+            "compile.task.source_heading",
+            "compile.task.sources_header",
+            "compile.task.time_header",
+            "compile.task.time_multi_day",
+            "compile.task.time_now",
+            "compile.task.time_relative_rule",
+            "compile.task.time_unknown",
+            "compile.task.time_window",
+            "compile.task.time_zone_changed",
+            "compile.task.treatment_header",
+            "compile.task.treatment_tag",
+            "compile.tool.append_block",
+            "compile.tool.append_block_result",
+            "compile.tool.call_failed",
+            "compile.tool.create_document",
+            "compile.tool.create_document_result",
+            "compile.tool.edit_claim",
+            "compile.tool.edit_claim_result",
+            "compile.tool.finish_compile",
+            "compile.tool.finish_compile_result",
+            "compile.tool.list_documents",
+            "compile.tool.list_documents_empty",
+            "compile.tool.read_document",
+            "compile.tool.read_document_frozen_notice",
+            "compile.tool.search_knowledge",
+            "compile.tool.search_knowledge_unavailable",
+            "compile.tool.search_source",
+            "compile.tool.search_source_unavailable",
+            "compile.tool.unknown_tool",
+            "compile.treatment.card",
+            "compile.treatment.distill",
+            "compile.treatment.full",
+            "compile.worker.knowledge_empty",
+            "compile.worker.search_failed",
+            "compile.worker.source_empty",
+            "compile.write_contract",
+            "contract.rule.citation_granularity",
+            "contract.rule.citation_shape",
+            "contract.rule.strength_labels",
+            "eval.qa.judge_system",
+            "eval.qa.judge_user",
+            "eval.qa.judge_verdict_yes",
+            "eval.truth_judge.system",
+            "eval.truth_judge.user",
+            "eval.truth_judge.verdict_yes",
+            "evolve.commit_message",
+            "evolve.phase1_contract",
+            "evolve.phase2_contract",
+            "evolve.propose.docs_empty",
+            "evolve.propose.docs_header",
+            "evolve.propose.event_line",
+            "evolve.propose.events_empty",
+            "evolve.propose.events_header",
+            "evolve.propose.skill_header",
+            "evolve.propose.templates_header",
+            "evolve.propose.unknown_path",
+            "evolve.recovery_heading",
+            "evolve.service.fetch_failed",
+            "evolve.service.search_empty",
+            "evolve.task.docs_empty",
+            "evolve.task.docs_header",
+            "evolve.task.families_empty",
+            "evolve.task.families_header",
+            "evolve.task.rationale_header",
+            "evolve.task_header",
+            "evolve.tool.anchors_none",
+            "evolve.tool.append_block",
+            "evolve.tool.append_block_result",
+            "evolve.tool.call_failed",
+            "evolve.tool.create_document",
+            "evolve.tool.create_document_result",
+            "evolve.tool.delete_claim",
+            "evolve.tool.delete_claim_result",
+            "evolve.tool.edit_claim",
+            "evolve.tool.edit_claim_result",
+            "evolve.tool.fetch_source",
+            "evolve.tool.fetch_unavailable",
+            "evolve.tool.finish_evolve",
+            "evolve.tool.finish_evolve_result",
+            "evolve.tool.list_documents",
+            "evolve.tool.list_documents_empty",
+            "evolve.tool.move_claim",
+            "evolve.tool.move_claim_result",
+            "evolve.tool.read_document",
+            "evolve.tool.search_knowledge",
+            "evolve.tool.search_unavailable",
+            "evolve.tool.unknown_tool",
+            "gate.anchor_continuity",
+            "gate.anchor_coverage",
+            "gate.anchor_uniqueness",
+            "gate.archive_frozen",
+            "gate.citation_anchor_in_marker",
+            "gate.citation_out_of_range",
+            "gate.citation_unknown_source",
+            "gate.citation_unparsable_marker",
+            "gate.claim_without_provenance",
+            "gate.evolve.citation_out_of_range",
+            "gate.evolve.citation_unknown_source",
+            "gate.evolve.feedback_header",
+            "gate.evolve.path_not_owned",
+            "gate.feedback_header",
+            "gate.frontmatter_missing",
+            "gate.groom.anchor_added",
+            "gate.groom.anchor_lost",
+            "gate.groom.claims_not_byte_equal",
+            "gate.groom.dead_links_increased",
+            "gate.groom.heal_not_byte_equal",
+            "gate.groom.heal_repaired_nothing",
+            "gate.groom.link_count_changed",
+            "gate.groom.link_target_changed",
+            "gate.groom.overview_unknown_reference",
+            "gate.groom.overview_without_reference",
+            "gate.link_dead",
+            "gate.link_self_reference",
+            "gate.path_not_owned",
+            "ingest.email.attachments",
+            "ingest.email.subject",
+            "ingest.other_label",
+            "ingest.owner_label",
+            "ingest.owner_wrapped",
+            "ingest.semantic.human",
+            "ingest.semantic.rubric",
+            "ingest.speaker_alias",
+            "ingest.turn_line",
+            "persona.profile_instruction",
+            "recall.agentic.budget_notice",
+            "recall.briefing.budget_truncated",
+            "recall.briefing.citing_claims_header",
+            "recall.briefing.contract_head",
+            "recall.briefing.excerpts_header",
+            "recall.briefing.material_cards_header",
+            "recall.briefing.outline_header",
+            "recall.briefing.outline_more",
+            "recall.briefing.provenance_suffix",
+            "recall.briefing.query_claims_header",
+            "recall.briefing.query_excerpts_header",
+            "recall.briefing.query_section_header",
+            "recall.briefing.source_heading",
+            "recall.briefing.source_section_header",
+            "recall.briefing.tool.claims_header",
+            "recall.briefing.tool.fetch_verbatim",
+            "recall.briefing.tool.fetch_verbatim_doc",
+            "recall.briefing.tool.fetch_verbatim_failed",
+            "recall.briefing.tool.passages_header",
+            "recall.briefing.tool.search_empty",
+            "recall.briefing.tool.search_knowledge",
+            "recall.briefing.tool.search_knowledge_doc",
+            "recall.cite.precise",
+            "recall.cite.source_level",
+            "recall.close.answer_honestly",
+            "recall.close.suggestion",
+            "recall.deep.contract_head",
+            "recall.deep.tool.fetch_verbatim",
+            "recall.deep.tool.fetch_verbatim_doc",
+            "recall.deep.tool.fetch_verbatim_empty",
+            "recall.deep.tool.fetch_verbatim_failed",
+            "recall.deep.tool.list_documents",
+            "recall.deep.tool.list_documents_doc",
+            "recall.deep.tool.list_documents_empty",
+            "recall.deep.tool.read_document",
+            "recall.deep.tool.read_document_doc",
+            "recall.deep.tool.read_document_not_found",
+            "recall.deep.tool.search_claims",
+            "recall.deep.tool.search_claims_doc",
+            "recall.deep.tool.search_claims_empty",
+            "recall.deep.tool.search_content",
+            "recall.deep.tool.search_content_doc",
+            "recall.deep.tool.search_content_empty",
+            "recall.fast.contract_head",
+            "recall.fast.plan.contract",
+            "recall.fast.plan.request",
+            "recall.fast.select.contract",
+            "recall.fast.select.document_heading",
+            "recall.fast.select.documents_header",
+            "recall.fast.select.request",
+            "recall.fast.timeline.document",
+            "recall.fast.window_note.header",
+            "recall.fast.window_note.line",
+            "recall.fast.window_note.line_labeled",
+            "recall.glance.empty",
+            "recall.glance.entry",
+            "recall.glance.entry_tail_archived",
+            "recall.glance.entry_tail_updated",
+            "recall.glance.family_blurb",
+            "recall.glance.family_empty",
+            "recall.glance.family_heading",
+            "recall.glance.family_more",
+            "recall.glance.flat_heading",
+            "recall.glance.header",
+            "recall.glance.note",
+            "recall.glance.truncated",
+            "recall.glance.unfiled_heading",
+            "recall.passage_truncated",
+            "recall.profile.industry_role",
+            "recall.profile.location",
+            "recall.profile.name",
+            "recall.profile.occupation",
+            "recall.profile.response_language",
+            "recall.rerank.llm.request",
+            "recall.rerank.llm.system",
+            "recall.section.already_shown_header",
+            "recall.section.claims_empty",
+            "recall.section.claims_header",
+            "recall.section.input",
+            "recall.section.passages_header",
+            "recall.section.profile_header",
+            "recall.section.timelines_header",
+            "recall.section.transcript_header",
+            "recall.section.windows_header",
+            "recall.snapshot.declaration",
+            "recall.snapshot.moment",
+            "recall.snapshot.moment_undated",
+            "recall.snapshot.source_absent",
+            "recall.spine",
+            "recall.style.concise",
+            "recall.style.conversational",
+            "recall.style.detailed",
+            "recall.suggestion.contract_head",
+            "recall.suggestion.detail_card",
+            "recall.suggestion.detail_contract",
+            "recall.suggestion.detail_no_sources",
+            "recall.suggestion.detail_source_head",
+            "recall.suggestion.detail_sources_header",
+            "recall.suggestion.focus.general",
+            "recall.suggestion.focus.other",
+            "recall.suggestion.focus.owner",
+            "skill.claim_label.clause_marker",
+            "skill.claim_label.medium.description",
+            "skill.claim_label.medium.label",
+            "skill.claim_label.medium.name",
+            "skill.claim_label.strong.description",
+            "skill.claim_label.strong.label",
+            "skill.claim_label.strong.name",
+            "skill.claim_label.weak.description",
+            "skill.claim_label.weak.label",
+            "skill.claim_label.weak.name",
+            "skill.derive.empty",
+            "skill.derive.human",
+            "skill.derive.interest_separator",
+            "skill.derive_contract",
+            "source.context_stream.app_context",
+            "source.context_stream.data_context",
+            "source.guidance_header",
+            "source.preamble.document_created",
+            "source.preamble.document_created_and_updated",
+            "source.preamble.document_kind_default",
+            "source.preamble.document_lead",
+            "source.preamble.document_occurred",
+            "source.preamble.document_other_author",
+            "source.preamble.document_parent",
+            "source.preamble.document_stance_other",
+            "source.preamble.document_stance_owner",
+            "source.preamble.document_title",
+            "source.preamble.document_unknown",
+            "source.preamble.document_unknown_dated",
+            "source.preamble.document_updated",
+            "source.preamble.document_when",
+            "source.preamble.fallback",
+            "source.preamble.fallback_dated",
+            "source.preamble.owner_default",
+            "source.preamble.reference",
+            "source.preamble.reference_dated",
+            "source.preamble.stream_lead",
+            "source.preamble.stream_mentions",
+            "source.preamble.stream_part",
+            "source.preamble.stream_replies",
+            "source.preamble.stream_role_silent",
+            "source.preamble.stream_role_spoke",
+            "source.preamble.stream_scene_default",
+            "source.preamble.stream_tail",
+            "source.preamble.title_quoted"
+          ],
+          "default": {},
+          "apply": "restart",
+          "label": {
+            "en": "Catalog overrides",
+            "zh": "目录覆盖"
+          },
+          "description": {
+            "en": "Catalog key → replacement clause, applied at startup via override_prompts. Whole-clause replacement only: there is no templating seam, because a half-replaced prompt is a prompt nobody can audit.",
+            "zh": "目录键 → 替换文案，启动时经 override_prompts 生效。只支持整段替换：这里没有模板拼接的缝，因为半替换的提示词是没人审得清的提示词。"
+          }
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "intake",
+      "to": "compile",
+      "label": {
+        "en": "verbatim blocks",
+        "zh": "逐字块"
+      }
+    },
+    {
+      "from": "compile",
+      "to": "challenge",
+      "condition": "challenge.enabled",
+      "label": {
+        "en": "audit the committed compile",
+        "zh": "审计已提交的编译"
+      }
+    },
+    {
+      "from": "challenge",
+      "to": "compile",
+      "condition": "challenge.compensate",
+      "label": {
+        "en": "compensation compile",
+        "zh": "补偿编译"
+      }
+    },
+    {
+      "from": "compile",
+      "to": "evolve",
+      "condition": "evolve.auto_trigger",
+      "label": {
+        "en": "enough new material accrued",
+        "zh": "新材料积累够了"
+      }
+    },
+    {
+      "from": "compile",
+      "to": "recall",
+      "label": {
+        "en": "canonical claims answer questions",
+        "zh": "正本断言回答问题"
+      }
+    }
+  ],
+  "access_routes": [
+    {
+      "id": "l0",
+      "from": "intake",
+      "to": "recall",
+      "title": {
+        "en": "L0 · verbatim",
+        "zh": "L0 · 逐字原文"
+      },
+      "summary": {
+        "en": "The original text with block addressing, stored once and never rewritten. Every citation anywhere in the system ends here, so recall can always fetch the exact blocks a claim points at. Authoritative; nothing regenerates it.",
+        "zh": "带块寻址的原文，只存一次，永不改写。系统里任何一处引用最终都落到这里，所以召回随时能取回某条断言指向的那几块原文。它是权威层；没有任何东西能重建它。"
+      }
+    },
+    {
+      "id": "l1",
+      "from": "intake",
+      "to": "recall",
+      "title": {
+        "en": "L1 · full-text",
+        "zh": "L1 · 全文检索"
+      },
+      "summary": {
+        "en": "A lexical index over every source, built for all of them without exception (invariant I3) — which is what lets compile leave a detail in the original: one word still pulls it back. Derived, and rebuildable from L0 at any time.",
+        "zh": "覆盖每一份来源的词法索引，无一例外地都建（不变量 I3）——正是它让编译可以把细节留在原文里：一个词就能把它调回来。派生层，随时可从 L0 重建。"
+      }
+    },
+    {
+      "id": "l2",
+      "from": "intake",
+      "to": "recall",
+      "condition": "intake_plan.semantic_indexing",
+      "title": {
+        "en": "L2 · semantic",
+        "zh": "L2 · 语义检索"
+      },
+      "summary": {
+        "en": "Vector search over chunks cut at topic boundaries — the route for a question that does not share the material's wording. Per source: the intake plan decides whether this source is indexed at all, so unlike L1 it can be absent for some. Derived, and rebuilt from the recorded boundaries byte-identically.",
+        "zh": "在按话题边界切出的片段上做向量检索——问题和材料用词不同时走的就是这条路。它是按来源的：某份来源到底建不建，由接收方案决定，所以和 L1 不同，它对某些来源可能根本不存在。派生层，可依据已记录的边界逐字节重建。"
+      }
+    },
+    {
+      "id": "l3",
+      "from": "compile",
+      "to": "recall",
+      "condition": "intake_plan.canonical_treatment",
+      "title": {
+        "en": "L3 · canonical",
+        "zh": "L3 · 正本"
+      },
+      "summary": {
+        "en": "The only level a model writes: threads and relations between subjects, each claim carrying a citation back to L0. It exists for the two things retrieval cannot do — follow a thread when direct search misses, and survey the whole base cheaply. Per source: the intake plan decides how much of it enters canonical, or none. Authoritative, and nothing can regenerate it.",
+        "zh": "唯一由模型写入的层：主体之间的脉络与关系，每条断言都带一条回到 L0 的引用。它的存在是为了检索做不到的那两件事——直取失败时把线索接下去，以及廉价地通览全局。它是按来源的：某份来源有多少东西进正本、甚至一点都不进，由接收方案决定。它是权威层；没有任何东西能重建它。"
+      }
+    }
+  ]
+}
