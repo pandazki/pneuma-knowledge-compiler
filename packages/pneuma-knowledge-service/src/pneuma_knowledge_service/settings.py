@@ -71,6 +71,18 @@ class Settings(BaseSettings):
     chunk_size: int = 768
     chunk_overlap: int = 128
 
+    # Whether a semantic segment may share its hinge blocks with its neighbour.
+    # `smart` (shipped default) asks the model for closed intervals, so the sentence that
+    # closes one topic while opening the next is indexed as part of both — overlap where the
+    # content earns it, decided per boundary, not a fixed stride. `off` is the original
+    # zero-overlap contract: it is what every semantic-chunking measurement so far was taken
+    # with, so it stays available as the A/B baseline rather than being deleted.
+    # Degeneracy ("make every segment the whole document") is refused mechanically by the
+    # gates in ingest/semantic.py, never argued against in the prompt. Only meaningful when
+    # chunk_strategy is `semantic`; the mechanical chunkers have their own token overlap
+    # (chunk_overlap). See ingest/semantic.py.
+    semantic_overlap: Literal["off", "smart"] = "smart"
+
     # First-party context_stream preprocessing switches. Role rendering and compile
     # guidance are independent because deployments may want raw speaker labels, generic
     # compile behavior, or both. Toggling is per-stage: rendering is applied at ingest

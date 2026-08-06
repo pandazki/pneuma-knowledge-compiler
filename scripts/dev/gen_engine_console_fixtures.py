@@ -38,6 +38,8 @@ from pneuma_knowledge_service.engine.prompts import (  # noqa: E402
 )
 from pneuma_knowledge_service.engine.resolve import resolve_engine  # noqa: E402
 from pneuma_knowledge_service.engine.schema import load_schema  # noqa: E402
+from pneuma_knowledge_service.settings import Settings  # noqa: E402
+from pneuma_knowledge_service.wiring import usable_model_name  # noqa: E402
 
 # One env-pinned knob so the console demonstrates the `env` origin badge.
 DEMO_ENV = {"PNEUMA_KNOWLEDGE_RECALL_CLAIM_CAP": "80"}
@@ -121,8 +123,18 @@ def main() -> None:
                 for rel in listing
             }
 
+        # `keyless` exactly as `GET /v1/engine/state` computes it. The fixture demonstrates a
+        # KEYED deployment — the keyless notice has its own test with its own fixture state —
+        # so the key a real deployment keeps in .env is supplied here as an init argument,
+        # which also keeps the field independent of whatever .env this machine happens to have.
+        # (the field's validation alias is the bare variable name, so that is how it is passed)
+        keyless = not usable_model_name(
+            Settings(**resolved.overrides, OPENROUTER_API_KEY="demo-key"), "recall"
+        )
+
         _dump("schema.json", load_schema())
         _dump("state.json", {
+            "keyless": keyless,
             "files": files,
             "values": resolved.values,
             "resolution": resolved.resolution,

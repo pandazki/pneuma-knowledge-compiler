@@ -41,8 +41,17 @@ Model spec forms: `scripted:<path>` (local replay, keyless — and it hard-overr
 | Setting | Default | Meaning |
 |---|---|---|
 | `CHUNK_STRATEGY` | `semantic` | `semantic` = LLM topic/episode boundary detection (compile-role model; falls back to `sentence` automatically under `scripted:` models); `sentence` / `recursive` = mechanical, zero LLM cost |
+| `SEMANTIC_OVERLAP` | `smart` | `semantic` only. `smart` = the model returns closed block intervals, so a hinge block belongs to both neighbouring segments; `off` = the original zero-overlap cut |
 | `CHUNK_SIZE` | `768` | tokens; ~1 token/char for CJK |
 | `CHUNK_OVERLAP` | `128` | tokens |
+
+**`SEMANTIC_OVERLAP`.** A hinge — the sentence that closes one topic while opening the next, the answer that also sets up the following question — reads as part of both segments, and a cut has to put it in one of them. `smart` stops making that choice: the model returns `[start, end]` pairs instead of start numbers, and neighbouring pairs may share the hinge. How much to share is judged per boundary, not a fixed stride.
+
+The degenerate reading of "segments may overlap" is that every segment should be the whole document, which would guarantee each one contains the answer and collapse L2 into N copies of the source. That is refused by a gate, not by prompt wording: every returned interval list must have real ordered endpoints, strictly increasing starts, gapless cover of the window, at most **three** shared blocks between neighbours, and no more segments than blocks. One violation rejects the whole output, and that window degrades to the zero-overlap partition built from the starts the model did report — the overlap is refused, the segmentation is not.
+
+`off` is the shape all existing semantic-chunking measurements were taken with, and its request bytes are pinned by test, so it remains the baseline for a same-harness A/B against `smart`. `smart` ships as the factory default on design grounds; it has **not** yet been measured against `off` on the same harness.
+
+Overlap duplicates a block across two L2 chunks. That duplication is derived-layer only: L0 is untouched, both chunks address the same source blocks through the one addressing scheme, and retrieval already coalesces overlapping windows into a single passage, so a hinge retrieved through both chunks reads once. The chunk manifest records which mode produced its spans, so flipping this knob and running `rebuild_derived` genuinely re-cuts instead of replaying the old layout; records written before the mode existed replay exactly as written.
 
 ## Evolution and grooming
 

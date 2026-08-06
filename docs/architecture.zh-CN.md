@@ -65,7 +65,9 @@
 
 两个值得内化的推论：
 
-- 即使有 LLM 参与，重建也是字节确定的。语义分块（默认的 `semantic` 策略，边界检测哲学受 [nemori](https://github.com/nemori-ai/nemori) 启发）用 LLM 检测主题/情节边界，但模型只返回块索引——chunk 文本永远是原文的逐字切片，出处寻址与机械切块完全一致；首次检测出的边界连同内容摘要与模型来历记进清单，重建时回放而不是重算。keyless/scripted 模型下自动回落机械句切。
+- 即使有 LLM 参与，重建也是字节确定的。语义分块（默认的 `semantic` 策略，边界检测哲学受 [nemori](https://github.com/nemori-ai/nemori) 启发）用 LLM 检测主题/情节边界，但模型只返回块索引——chunk 文本永远是原文的逐字切片，出处寻址与机械切块完全一致；首次检测出的边界连同内容摘要、模型来历与产出它的输出契约一并记进清单，重建时回放而不是重算。keyless/scripted 模型下自动回落机械句切。
+
+  段与段之间还可以*重叠*（`SEMANTIC_OVERLAP`，出厂默认 `smart`）：模型返回前闭后闭的块区间，于是转折句——那句既收束上一话题、又开启下一话题的话——同时被索引进相邻两段；共享多少由模型逐个边界判断，而不是固定步长。它会不会退化，不交给提示词管：五道写入期闸门（端点真实且有序、起点严格递增、无缝隙覆盖、相邻最多共享三块、段数不超过块数）会整份拒收违规输出，该窗口退回零重叠切分。转折块带来的重复完全在派生层——两个 chunk 指向同一批源块（I4），检索侧会把重叠窗口合并成一段。`off` 是此前全部测量所用的零重叠契约，其请求字节有测试钉住，因此保留为同 harness A/B 的基线；`smart` 基于设计判断出厂，尚未与它对比测量。
 - 升级永不改写正本层。新的投影策略、新的索引、新的渲染——重建的都是派生物；正本历史原地不动。
 - 日常提交路径的投影是增量同步：新快照与上一次记录的投影清单做 diff，只有增量落进索引（只对新增或变更的 claim 重算 embedding）。全量重建（`scripts/ops/rebuild_derived.py`）是显式的修复与迁移路径，不是日常路径——无论哪条路，增量都只是成本优化，绝不是新的事实源。
 
@@ -144,7 +146,7 @@ Git 二进制是运行时必备（正本适配器通过子进程调用它）。�
 ```
 engine/                    # 自己的 git 仓库；每次 apply 一个提交
   engine.yaml              # 四个模型角色（compile / recall / deep / embedding）
-  intake/intake.yaml       # chunk_strategy
+  intake/intake.yaml       # chunk_strategy, semantic_overlap
   compile/contract.md      # 宪法——一份文档，永不被拆成旋钮
   compile/challenge.yaml   # 覆盖质询的旋钮
   evolve/evolve.yaml       # 演进触发的旋钮

@@ -231,10 +231,14 @@ class PostgresStore:
         strategy: str,
         model: str,
         content_digest: str,
-        segments: list,
+        segments: dict | list,
         result_digest: str,
     ) -> None:
-        """Upsert the segmentation the LLM produced for this (source, strategy, model)."""
+        """Upsert the segmentation the LLM produced for this (source, strategy, model).
+
+        `segments` is whatever `ingest.semantic.encode_manifest_segments` produced — today a
+        versioned envelope, historically a bare list. The column is jsonb and the adapter
+        stores it opaquely: what a record MEANS is core's business, not the store's."""
         async with self._pool.connection() as conn:
             await conn.execute(
                 "INSERT INTO chunk_manifests (user_id, source_id, strategy, "

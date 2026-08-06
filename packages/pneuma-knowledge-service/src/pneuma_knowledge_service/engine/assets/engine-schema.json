@@ -33,6 +33,25 @@
             "en": "semantic = the compile-role model detects topic/episode boundaries and returns block indexes only; sentence / recursive = mechanical chonkie chunkers with no model cost. Existing content keeps its recorded boundaries until rebuild_derived runs.",
             "zh": "semantic = 由编译角色模型判断话题/情节边界，只返回块下标；sentence / recursive = 机械切分，不花模型钱。已有内容会保留既有边界，直到跑 rebuild_derived 才真正改变。"
           }
+        },
+        {
+          "key": "semantic_overlap",
+          "env": "PNEUMA_KNOWLEDGE_SEMANTIC_OVERLAP",
+          "type": "enum",
+          "enum": [
+            "off",
+            "smart"
+          ],
+          "default": "smart",
+          "apply": "derived_rebuild",
+          "label": {
+            "en": "Segment overlap",
+            "zh": "段落重叠"
+          },
+          "description": {
+            "en": "Only for the semantic strategy. smart = the model returns closed intervals, so a hinge — the sentence that closes one topic while opening the next — is indexed as part of both segments; how much to share is decided per boundary, and at most three blocks ever, which is what stops the model from making every segment the whole document. off = the original zero-overlap cut, kept as the baseline every measurement so far was taken with. Existing content keeps its recorded boundaries until rebuild_derived runs.",
+            "zh": "只对 semantic 策略有意义。smart = 模型返回前闭后闭区间，转折句——那句既收束上一话题、又开启下一话题的话——同时被索引进前后两段；共享多少由模型逐个边界判断，且最多三块，正是这个上限让模型无法把每一段都写成全文。off = 原来的零重叠切法，作为此前全部测量所用的基线保留。已有内容会保留既有边界，直到跑 rebuild_derived 才真正改变。"
+          }
         }
       ]
     },
@@ -671,7 +690,9 @@
             "ingest.owner_label",
             "ingest.owner_wrapped",
             "ingest.semantic.human",
+            "ingest.semantic.human_overlap",
             "ingest.semantic.rubric",
+            "ingest.semantic.rubric_overlap",
             "ingest.speaker_alias",
             "ingest.turn_line",
             "persona.profile_instruction",

@@ -10,6 +10,17 @@ LLM only returns BLOCK-INDEX boundaries over the EXISTING numbered blocks; chunk
 always a verbatim slice of the block-joined string, so invariant I4 (dual char/block
 addressing) is preserved exactly as on the chonkie path.
 
+**Two output contracts, one philosophy** (`semantic_overlap`, the `PNEUMA_KNOWLEDGE_SEMANTIC_OVERLAP`
+setting). `off` is the original: the model returns start block numbers, segment i runs to
+the block before segment i+1, and overlap is impossible by construction. `smart` asks for
+closed intervals instead, so a hinge block — the sentence that closes one topic while
+opening the next — can belong to BOTH neighbouring segments. Overlap is a judgement the
+model makes per boundary, not a fixed stride: the degenerate answer ("every segment is the
+whole document") is not argued out of the model, it is refused by `overlap_rejection`
+below, whose five gates every returned interval list must pass or be replaced by the
+zero-overlap partition. `off` is the mode all existing measurements were taken in and its
+request bytes are pinned; `smart` is the shipped default awaiting a same-harness A/B.
+
 **Middleware-free (architecture.md §2).** Like recall/fast.py and persona/generate.py,
 this depends only on langchain's `BaseChatModel` abstraction + `invoke_config`; the model
 (the configured provider model) and any callbacks/trace metadata are injected by the service. A test
@@ -52,6 +63,28 @@ DEFAULT_MAX_BLOCKS_PER_CALL = 200
 # embedding stays meaningful (an over-long unit is graceful-degraded, never dropped).
 DEFAULT_MAX_CHUNK_CHARS = 2000
 
+# The two segmentation output contracts. `off` is the historical (and measured) one.
+OVERLAP_OFF = "off"
+OVERLAP_SMART = "smart"
+OVERLAP_MODES = (OVERLAP_OFF, OVERLAP_SMART)
+
+# Ceiling on how many blocks two neighbouring segments may share, in `smart` mode.
+#
+# This is the anti-degeneracy gate, and it is a gate rather than a sentence in the rubric
+# for a mechanical reason: "segments may overlap where the content serves both" has a
+# trivially optimal reading — make every segment the whole document, and every segment is
+# then guaranteed to contain the answer. A model that reads the rubric that way would
+# collapse L2 into N copies of the source, and no amount of prompt wording makes that
+# reading unavailable. A hard bound does. Three is one more than the "one or two blocks"
+# the rubric describes as a hinge, so an honest hinge is never rejected for being one block
+# generous, while a swallowed neighbour always is.
+MAX_OVERLAP_BLOCKS = 3
+
+# The manifest envelope version. v2 is the first that records WHICH output contract
+# produced the spans; anything recorded before it is a bare list (see
+# `decode_manifest_segments`), which stays replayable exactly as written.
+MANIFEST_VERSION = 2
+
 
 def blocks_content_digest(blocks: list[NormalizedBlock]) -> str:
     """sha256 of the block-joined source text — the exact input to semantic chunking.
@@ -71,6 +104,75 @@ def chunk_result_digest(chunks: list[Chunk]) -> str:
     return hashlib.sha256(joined.encode("utf-8")).hexdigest()
 
 
+# ─────────────────────────────────────────────────────── the chunk-manifest record shape
+
+
+def encode_manifest_segments(
+    segments: list[tuple[int, int]], *, overlap: str
+) -> dict:
+    """The versioned record a first detection writes into `chunk_manifests.segments`.
+
+    The mode rides WITH the spans rather than beside them because it is a property of how
+    these spans were produced, not of the deployment that reads them later: replay compares
+    the recorded mode with the current one, and a mismatch re-detects. That is what makes
+    `semantic_overlap` honestly a `derived_rebuild` knob — flipping it and rebuilding
+    actually re-cuts, instead of replaying yesterday's layout forever."""
+    return {
+        "version": MANIFEST_VERSION,
+        "overlap": overlap,
+        "spans": [[int(s), int(e)] for s, e in segments],
+    }
+
+
+def decode_manifest_segments(
+    recorded, *, block_indices: list[int]
+) -> tuple[list[tuple[int, int]], str] | None:
+    """A recorded manifest → `(segments, the mode that produced them)`, or None if unusable.
+
+    Three shapes are accepted, and the two legacy ones replay exactly as written — a record
+    from before this envelope existed is a rebuild that must stay byte-identical, so it is
+    read, never migrated:
+
+    * `{"version": 2, "overlap": …, "spans": [[s, e], …]}` — what is written today.
+    * `[[s, e], …]` — the pre-envelope record. Its mode is read off the data itself
+      (touching neighbours = `off`, overlapping = `smart`) rather than assumed, so a
+      deployment already running the shipped default does not re-detect its whole library
+      to learn what the spans already say.
+    * `[i, i, …]` — bare start block numbers, the oldest shape; expanded through the same
+      partition rule the start-only contract has always used.
+
+    Anything else (a future version, a malformed blob) returns None: no replay, re-detect.
+    That is the safe direction — a wrong replay is a silently wrong index, a re-detect is
+    one model call.
+    """
+    if isinstance(recorded, dict):
+        if recorded.get("version") != MANIFEST_VERSION:
+            return None
+        mode = recorded.get("overlap")
+        if mode not in OVERLAP_MODES:
+            return None
+        spans = _coerce_spans(recorded.get("spans"))
+        return (spans, mode) if spans else None
+    if not isinstance(recorded, list) or not recorded:
+        return None
+    if all(isinstance(item, int) and not isinstance(item, bool) for item in recorded):
+        order = list(block_indices)
+        positions = sorted({order.index(i) for i in recorded if i in set(order)})
+        if not positions:
+            return None
+        expanded = _partition_from_starts(positions, 0, len(order) - 1)
+        return ([(order[s], order[e]) for s, e in expanded], OVERLAP_OFF)
+    spans = _coerce_spans(recorded)
+    if len(spans) != len(recorded):
+        return None
+    mode = (
+        OVERLAP_SMART
+        if any(e >= s_next for (_, e), (s_next, _) in zip(spans, spans[1:]))
+        else OVERLAP_OFF
+    )
+    return spans, mode
+
+
 class Segments(BaseModel):
     """The structured-output contract: the ascending list of segment START BLOCK NUMBERS.
 
@@ -82,6 +184,19 @@ class Segments(BaseModel):
     job is boundary detection — it must not regenerate/summarize content."""
 
     segments: list[int] = Field(default_factory=list)
+
+
+class SegmentSpans(BaseModel):
+    """The `semantic_overlap="smart"` structured-output contract: CLOSED block intervals.
+
+    `segments` is a list of `[start, end]` pairs, both ends inclusive, ordered by start.
+    Still integers only, still no content: the extra freedom the model gets over `Segments`
+    is exactly one degree — a segment may end AFTER the next one starts, so a hinge block is
+    read once as the close of what came before and once as the opening of what follows.
+    Everything the pairs are allowed to be is enforced by `overlap_rejection`, not asked for
+    in prose."""
+
+    segments: list[list[int]] = Field(default_factory=list)
 
 
 # Byte-stable, volatile-free rubric (I5 / prompt-cache discipline), resolved from the prompt
@@ -151,6 +266,133 @@ async def _segment_window_starts(
     return starts
 
 
+# ───────────────────────────────────────────── smart overlap: the gate and the fallback
+
+
+def _coerce_spans(raw) -> list[tuple[int, int]]:
+    """Structured output → `[(start, end), …]`, dropping only what is not a pair of ints.
+
+    Shape coercion ONLY: an endpoint outside the window, a reversed pair, a start that goes
+    backwards — none of that is repaired here, because every one of those is a gate below
+    and repairing it silently would be the gate's opposite. A dropped malformed entry turns
+    into a coverage hole, which the gate then catches."""
+    spans: list[tuple[int, int]] = []
+    for item in raw or []:
+        pair = list(item) if isinstance(item, (list, tuple)) else None
+        if pair is None or len(pair) != 2:
+            continue
+        try:
+            spans.append((int(pair[0]), int(pair[1])))
+        except (TypeError, ValueError):
+            continue
+    return spans
+
+
+def overlap_rejection(
+    spans: list[tuple[int, int]],
+    lo: int,
+    hi: int,
+    *,
+    max_overlap: int = MAX_OVERLAP_BLOCKS,
+) -> str:
+    """"" when this interval list is acceptable, else the reason it is refused.
+
+    Five mechanical gates over one window of blocks `lo..hi`. They are written as a total
+    check on the returned data rather than as instructions the model is trusted to have
+    followed, and a single violation rejects the WHOLE output — a partly-honoured contract
+    is not a weaker contract, it is an unknown one.
+
+    1. **Real, ordered endpoints** — every number is a block that was actually in the
+       listing, and no interval ends before it starts.
+    2. **Strictly increasing starts** — one segment opens per position, in reading order.
+    3. **Gapless cover** — the first starts at `lo`, the last ends at `hi`, and no segment
+       opens more than one block past the previous one's end. No block of the source may
+       fall out of L2 because the model forgot it.
+    4. **Bounded overlap** — neighbours share at most `max_overlap` blocks. See
+       `MAX_OVERLAP_BLOCKS`: without this, "the whole document, N times" satisfies gates
+       1-3 perfectly.
+    5. **Sane segment count** — never more segments than there are blocks, the same
+       implicit bound the start-only contract gets for free from deduplicating positions.
+    """
+    if not spans:
+        return "no segments returned"
+    blocks = hi - lo + 1
+    if len(spans) > blocks:
+        return f"{len(spans)} segments over {blocks} blocks"
+    for s, e in spans:
+        if not (lo <= s <= hi) or not (lo <= e <= hi):
+            return f"segment [{s}, {e}] leaves the block range {lo}..{hi}"
+        if e < s:
+            return f"segment [{s}, {e}] ends before it starts"
+    if spans[0][0] != lo:
+        return f"first segment starts at {spans[0][0]}, not at block {lo}"
+    if spans[-1][1] != hi:
+        return f"last segment ends at {spans[-1][1]}, not at block {hi}"
+    for (s, e), (s_next, _) in zip(spans, spans[1:]):
+        if s_next <= s:
+            return f"segment starts are not strictly increasing at {s_next}"
+        if s_next > e + 1:
+            return f"blocks {e + 1}..{s_next - 1} are covered by no segment"
+        shared = e - s_next + 1
+        if shared > max_overlap:
+            return f"segments share {shared} blocks at {s_next}, over the {max_overlap} allowed"
+    return ""
+
+
+def _partition_from_starts(starts, lo: int, hi: int) -> list[tuple[int, int]]:
+    """Start positions → the zero-overlap partition of `lo..hi` they imply.
+
+    The repair the start-only contract has always run, factored out because it is also the
+    FALLBACK the overlap gate falls back TO: a rejected interval list still told us where
+    the model thought segments began, and the partition built from those starts is the
+    behavior this deployment would have had with `semantic_overlap` off. So a refused output
+    costs the overlap, never the segmentation."""
+    positions = sorted({p for p in starts if lo <= p <= hi})
+    if not positions or positions[0] != lo:
+        positions = [lo, *positions]
+    return [
+        (p, positions[i + 1] - 1 if i + 1 < len(positions) else hi)
+        for i, p in enumerate(positions)
+    ]
+
+
+async def _segment_window_spans(
+    window: list[NormalizedBlock],
+    offset: int,
+    *,
+    model: BaseChatModel,
+    callbacks: list | None,
+    trace_metadata: dict | None,
+) -> list[tuple[int, int]]:
+    """Ask the model for closed segment intervals over one window; gate them, or degrade.
+
+    Positions are global (offset..offset+len-1). The gate covers the WINDOW, because the
+    window is what the model was shown: it is the only range in which "you left block 7 out"
+    is a statement about this call rather than about the document."""
+    listing = _number_blocks(window, offset)
+    lo, hi = offset, offset + len(window) - 1
+    human = prompt(
+        "ingest.semantic.human_overlap",
+        lo=lo,
+        hi=hi,
+        count=len(window),
+        listing=listing,
+    )
+    messages = [
+        SystemMessage(content=prompt("ingest.semantic.rubric_overlap")),
+        HumanMessage(content=human),
+    ]
+    structured = model.with_structured_output(SegmentSpans)
+    result = await structured.ainvoke(
+        messages,
+        config=invoke_config("chunk.semantic", callbacks, trace_metadata),
+    )
+    spans = _coerce_spans(getattr(result, "segments", []))
+    if overlap_rejection(spans, lo, hi):
+        return _partition_from_starts((s for s, _ in spans), lo, hi)
+    return spans
+
+
 async def semantic_segments(
     blocks: list[NormalizedBlock],
     *,
@@ -158,31 +400,59 @@ async def semantic_segments(
     callbacks: list | None = None,
     trace_metadata: dict | None = None,
     max_blocks_per_call: int = DEFAULT_MAX_BLOCKS_PER_CALL,
+    overlap: str = OVERLAP_OFF,
 ) -> list[tuple[int, int]]:
-    """LLM boundary detection → contiguous inclusive block intervals covering ALL blocks.
+    """LLM boundary detection → inclusive block intervals covering ALL blocks.
 
-    Segment i = [start_i, end_i] with end_i = start_{i+1} - 1 and the last ending at the
-    final block, so the intervals partition the blocks with no gaps or overlaps.
+    With `overlap="off"` (the historical contract) segment i = [start_i, end_i] with
+    end_i = start_{i+1} - 1 and the last ending at the final block, so the intervals
+    partition the blocks with no gaps or overlaps. With `overlap="smart"` the model returns
+    the intervals itself and neighbours may share up to `MAX_OVERLAP_BLOCKS` hinge blocks;
+    coverage is still total and gapless, enforced per window by `overlap_rejection`.
 
     **Large-doc windowing (nemori-style incremental carry).** When there are more than
-    `max_blocks_per_call` blocks, the blocks are processed in sequential windows. Only the
-    very first block (position 0) is a *forced* boundary; a later window's first block is
-    NOT forced to start a segment, so an open segment carries across the window boundary
-    unless the model itself reports a new start there. Start positions from every window
-    are unioned, then repaired (dedup, clamp, ensure 0) into the final partition.
+    `max_blocks_per_call` blocks, the blocks are processed in sequential windows. In `off`
+    mode only the very first block (position 0) is a *forced* boundary; a later window's
+    first block is NOT forced to start a segment, so an open segment carries across the
+    window boundary unless the model itself reports a new start there. Start positions from
+    every window are unioned, then repaired (dedup, clamp, ensure 0) into the final
+    partition. `smart` mode cannot carry an open segment across a window: gate 3 requires
+    each window's intervals to cover that window exactly, which is the only range the model
+    was shown and therefore the only range its output can be judged against. A window
+    boundary is a segment boundary there — the same cost the windowing already pays for
+    prompt size, made explicit.
 
-    **Repair.** Returned starts are coerced to ints, clamped to the valid position range,
-    deduped, sorted ascending, and 0 is guaranteed present — so a non-ascending /
-    out-of-range / missing-0 model output still yields a sane partition.
+    **Repair.** In `off` mode returned starts are coerced to ints, clamped to the valid
+    position range, deduped, sorted ascending, and 0 is guaranteed present — so a
+    non-ascending / out-of-range / missing-0 model output still yields a sane partition. In
+    `smart` mode a window whose intervals fail any gate falls back to exactly that repair
+    over the starts it did report: the overlap is refused, the segmentation is not.
 
     The returned intervals are in REAL block-index space (mapped from ordered positions),
     so they compose with `join_blocks` / `_effective_sections` / `_covering_blocks`.
     """
+    if overlap not in OVERLAP_MODES:
+        raise ValueError(f"unknown semantic_overlap mode {overlap!r}; expected one of {OVERLAP_MODES}")
     ordered = sorted(blocks, key=lambda b: b.index)
     n = len(ordered)
     if n == 0:
         return []
     idx = [b.index for b in ordered]
+
+    if overlap == OVERLAP_SMART:
+        spans: list[tuple[int, int]] = []
+        for w_start in range(0, n, max_blocks_per_call):
+            w_end = min(w_start + max_blocks_per_call, n)  # exclusive
+            spans.extend(
+                await _segment_window_spans(
+                    ordered[w_start:w_end],
+                    w_start,
+                    model=model,
+                    callbacks=callbacks,
+                    trace_metadata=trace_metadata,
+                )
+            )
+        return [(idx[s], idx[e]) for s, e in spans]
 
     start_positions: set[int] = {0}  # position 0 is always a boundary (first must be 0)
     for w_start in range(0, n, max_blocks_per_call):
@@ -196,14 +466,34 @@ async def semantic_segments(
             trace_metadata=trace_metadata,
         )
 
-    positions = sorted(p for p in start_positions if 0 <= p < n)
-    if not positions or positions[0] != 0:
-        positions = [0, *positions]  # defensive: guarantee the first boundary
-    intervals: list[tuple[int, int]] = []
-    for i, p in enumerate(positions):
-        e = positions[i + 1] - 1 if i + 1 < len(positions) else n - 1
-        intervals.append((idx[p], idx[e]))
-    return intervals
+    return [
+        (idx[p], idx[e]) for p, e in _partition_from_starts(start_positions, 0, n - 1)
+    ]
+
+
+def _close_gaps(
+    block_indices: list[int], seg_intervals: list[tuple[int, int]]
+) -> list[tuple[int, int]]:
+    """Segments → segments that between them touch every block, ends only ever extended.
+
+    Both contracts already guarantee total coverage (`off` by construction, `smart` by gate
+    3), so on real input this is the identity. It exists for the one caller that is not a
+    contract — `segments=` handed in directly, e.g. a manifest written by an older build —
+    where a hole would silently drop source blocks out of L2. A hole is closed by extending
+    the interval BEFORE it, never by inventing one, so overlap is untouched."""
+    first, last = block_indices[0], block_indices[-1]
+    segs = sorted((int(s), int(e)) for s, e in seg_intervals)
+    if not segs:
+        return [(first, last)]
+    if segs[0][0] > first:
+        segs.insert(0, (first, segs[0][0] - 1))
+    closed = [
+        (s, max(e, segs[i + 1][0] - 1) if i + 1 < len(segs) else e)
+        for i, (s, e) in enumerate(segs)
+    ]
+    if closed[-1][1] < last:
+        closed[-1] = (closed[-1][0], last)
+    return closed
 
 
 def _refine_by_sections(
@@ -213,25 +503,31 @@ def _refine_by_sections(
 ) -> list[tuple[int, int]]:
     """Common refinement of the LLM segments and the StructureMap sections.
 
-    A new boundary is opened at every segment start AND every section start, so the
-    result never crosses a section (section starts are cuts) while otherwise following the
-    LLM's segment boundaries. For a headingless doc (one big section) the only section cut
-    is the first block, so the LLM boundaries fully drive it (a no-op)."""
-    cuts = {iv[0] for iv in seg_intervals} | {iv[0] for iv in sections}
+    Each segment is cut at every section start that falls inside it, so no chunk ever
+    crosses a section, while the LLM's own boundaries otherwise stand. For a headingless doc
+    (one big section) the only section start is the first block, so the LLM boundaries fully
+    drive it (a no-op).
+
+    Refinement is per SEGMENT rather than over a global set of cut points, which for a
+    partition is the same thing and for overlapping segments is the only correct thing: a
+    neighbour's start falling inside a segment is exactly the hinge the overlap was asked
+    for, so it must not also be read as a cut."""
+    section_starts = {iv[0] for iv in sections}
     result: list[tuple[int, int]] = []
-    cur_start: int | None = None
-    prev: int | None = None
-    for i in block_indices:
-        if cur_start is None:
-            cur_start, prev = i, i
-        elif i in cuts:
-            result.append((cur_start, prev))  # type: ignore[arg-type]
-            cur_start, prev = i, i
-        else:
+    for seg_start, seg_end in _close_gaps(block_indices, seg_intervals):
+        present = [i for i in block_indices if seg_start <= i <= seg_end]
+        if not present:
+            continue
+        cur, prev = present[0], present[0]
+        for i in present[1:]:
+            if i in section_starts:
+                result.append((cur, prev))
+                cur = i
             prev = i
-    if cur_start is not None:
-        result.append((cur_start, prev))  # type: ignore[arg-type]
-    return result
+        result.append((cur, prev))
+    # Two identical intervals would embed and store the same text twice under the same
+    # span — not overlap, just a duplicate. Order is preserved (dict, not set).
+    return list(dict.fromkeys(result))
 
 
 async def semantic_chunk_source(
@@ -246,6 +542,7 @@ async def semantic_chunk_source(
     callbacks: list | None = None,
     trace_metadata: dict | None = None,
     max_blocks_per_call: int = DEFAULT_MAX_BLOCKS_PER_CALL,
+    overlap: str = OVERLAP_OFF,
 ) -> list[Chunk]:
     """One Chunk per coherent unit, with exact char/block provenance (I4).
 
@@ -262,6 +559,11 @@ async def semantic_chunk_source(
     - **Over-long safeguard:** a segment whose joined text exceeds `max_chunk_chars` is
       sentence-sub-split with `sub_chunker` (the chonkie SentenceChunker built from
       settings) so embeddings stay meaningful; the sub-chunks keep exact char/block spans.
+    - **Overlap** (`overlap="smart"`) puts a hinge block into two chunks. That duplication
+      lives entirely in the derived layer (I2): L0 is untouched, both chunks address the
+      same source blocks through the one addressing scheme (I4), and retrieval already
+      coalesces overlapping windows into a single passage (`recall/assembly.py`), so a hinge
+      retrieved through both of its chunks reads once.
 
     Deterministic given a fixed model output.
     """
@@ -283,6 +585,7 @@ async def semantic_chunk_source(
             callbacks=callbacks,
             trace_metadata=trace_metadata,
             max_blocks_per_call=max_blocks_per_call,
+            overlap=overlap,
         )
     sections = _effective_sections(block_indices, structure)
     intervals = _refine_by_sections(block_indices, segments, sections)

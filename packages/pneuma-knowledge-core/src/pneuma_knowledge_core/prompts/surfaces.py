@@ -310,6 +310,14 @@ _LABELS: dict[str, tuple[str, str]] = {
     "source.guidance_header": ("First-party data notes", "第一方数据说明"),
     "ingest.semantic.rubric": ("Segmentation rubric", "切分准则"),
     "ingest.semantic.human": ("Segmentation request", "切分请求"),
+    "ingest.semantic.rubric_overlap": (
+        "Segmentation rubric — overlapping",
+        "切分准则 — 允许重叠",
+    ),
+    "ingest.semantic.human_overlap": (
+        "Segmentation request — overlapping",
+        "切分请求 — 允许重叠",
+    ),
     "gate.feedback_header": ("Gate rejection header", "闸门拒绝标题"),
     "gate.evolve.feedback_header": ("Evolve gate rejection header", "演进闸门拒绝标题"),
 }
@@ -398,11 +406,13 @@ SURFACES: tuple[Surface, ...] = (
         title_zh="语义切分",
         summary_en=(
             "How the compile-role model is asked to cut a source into topic units. It "
-            "returns block indexes only — the chunk text stays a verbatim slice."
+            "returns block indexes only — the chunk text stays a verbatim slice. Two "
+            "output contracts share one boundary philosophy; `semantic_overlap` picks."
         ),
         summary_zh=(
             "编译角色模型被如何要求把一份材料切成话题单元。它只返回块下标——"
-            "切出来的文本始终是原文的逐字片段。"
+            "切出来的文本始终是原文的逐字片段。两套输出契约共用同一份边界哲学，"
+            "由 `semantic_overlap` 决定用哪一套。"
         ),
         segments=(
             f(
@@ -416,6 +426,21 @@ SURFACES: tuple[Surface, ...] = (
                 "The HumanMessage of the same call, once per window of blocks: the numbered "
                 "lines, and the demand for start numbers only.",
                 "同一次调用的人类消息，每个块窗口一次：带编号的行，以及「只返回起始编号」的要求。",
+            ),
+            f(
+                "ingest.semantic.rubric_overlap",
+                "The SystemMessage instead of the one above when `semantic_overlap` is "
+                "`smart`: the same boundary philosophy, but segments come back as closed "
+                "intervals that may share a hinge block with their neighbour.",
+                "当 `semantic_overlap` 为 `smart` 时，取代上面那条系统消息："
+                "边界哲学不变，但段以前闭后闭区间返回，相邻两段可以共享转折块。",
+            ),
+            f(
+                "ingest.semantic.human_overlap",
+                "The HumanMessage that rides with the overlapping rubric, once per window "
+                "of blocks: the same numbered lines, asking for start/end pairs.",
+                "与「允许重叠」准则同行的人类消息，每个块窗口一次："
+                "同样带编号的行，但要求返回起止编号对。",
             ),
         ),
         kind=FRAGMENTS,

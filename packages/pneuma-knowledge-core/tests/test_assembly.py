@@ -288,3 +288,50 @@ async def test_assemble_windows_assembly_override_passthrough():
         await assemble_windows(
             hits, content=content, user_id=_USER, assembly={"per_source_caps": 6}
         )
+
+
+async def test_overlapping_l2_chunks_coalesce_into_one_passage():
+    """`semantic_overlap="smart"` puts a hinge block into two L2 chunks, so a query near the
+    hinge retrieves both. This is the reason no retrieval-side change was needed for it: the
+    merge step already coalesces overlapping windows, and passage text is REBUILT from the
+    source blocks rather than concatenated from the hits — so the hinge is read once, and
+    the duplication stays where it belongs, in the derived index."""
+    blocks = [f"b{i}" for i in range(10)]
+    content = FakeContent({"s1": _ns("s1", blocks, title="doc")})
+
+    # The two chunks smart overlap produces for the rubric's own example: 0-4 and 3-9,
+    # sharing blocks 3 and 4. Both come back as hits.
+    passages = await expand_and_merge(
+        [
+            _hit("s1", 0, 4, "\n".join(blocks[0:5]), 0.9, paths=("vector",)),
+            _hit("s1", 3, 9, "\n".join(blocks[3:10]), 0.7, paths=("vector",)),
+        ],
+        content=content,
+        user_id=_USER,
+        forward_blocks=0,
+        merge_gap_blocks=0,
+    )
+    assert len(passages) == 1
+    p = passages[0]
+    assert (p.block_start, p.block_end) == (0, 9)
+    assert p.text == "\n".join(blocks)  # each block exactly once — no doubled hinge
+    assert p.text.count("b3") == 1 and p.text.count("b4") == 1
+    assert p.score == 0.9  # the stronger of the two overlapping chunks
+
+
+async def test_two_overlapping_chunks_are_not_two_passages_worth_of_budget():
+    """The failure mode overlap could plausibly have introduced: the per-source cap being
+    spent on near-duplicates of one region while the rest of the document goes unread. The
+    merge runs before the cap, so a hinge retrieved twice costs one passage, not two."""
+    blocks = [f"b{i}" for i in range(30)]
+    content = FakeContent({"s1": _ns("s1", blocks, title="doc")})
+    hits = [
+        _hit("s1", 0, 4, "x", 0.95),
+        _hit("s1", 3, 9, "x", 0.94),   # overlaps the first
+        _hit("s1", 14, 18, "x", 0.80),
+        _hit("s1", 17, 22, "x", 0.79),  # overlaps the third
+    ]
+    passages = await expand_and_merge(
+        hits, content=content, user_id=_USER, forward_blocks=0, merge_gap_blocks=0
+    )
+    assert [(p.block_start, p.block_end) for p in passages] == [(0, 9), (14, 22)]

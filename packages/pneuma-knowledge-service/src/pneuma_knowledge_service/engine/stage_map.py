@@ -148,6 +148,33 @@ STAGES: tuple[Stage, ...] = (
                     "直到跑 rebuild_derived 才真正改变。"
                 ),
             ),
+            Knob(
+                key="semantic_overlap",
+                type="enum",
+                enum=("off", "smart"),
+                apply="derived_rebuild",
+                env="PNEUMA_KNOWLEDGE_SEMANTIC_OVERLAP",
+                setting="semantic_overlap",
+                label_en="Segment overlap",
+                label_zh="段落重叠",
+                description_en=(
+                    "Only for the semantic strategy. smart = the model returns closed "
+                    "intervals, so a hinge — the sentence that closes one topic while "
+                    "opening the next — is indexed as part of both segments; how much to "
+                    "share is decided per boundary, and at most three blocks ever, which "
+                    "is what stops the model from making every segment the whole document. "
+                    "off = the original zero-overlap cut, kept as the baseline every "
+                    "measurement so far was taken with. Existing content keeps its recorded "
+                    "boundaries until rebuild_derived runs."
+                ),
+                description_zh=(
+                    "只对 semantic 策略有意义。smart = 模型返回前闭后闭区间，"
+                    "转折句——那句既收束上一话题、又开启下一话题的话——同时被索引进前后两段；"
+                    "共享多少由模型逐个边界判断，且最多三块，正是这个上限让模型无法把每一段"
+                    "都写成全文。off = 原来的零重叠切法，作为此前全部测量所用的基线保留。"
+                    "已有内容会保留既有边界，直到跑 rebuild_derived 才真正改变。"
+                ),
+            ),
         ),
     ),
     Stage(

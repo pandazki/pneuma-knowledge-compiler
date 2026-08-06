@@ -532,7 +532,12 @@ conditions, numbers and provenance context the card had to leave out for space.
 
 # ═══════════════════════════════════════════════════════════════════════ ingest prompts
 
-_SEGMENTER_RUBRIC = """\
+# The two segmentation rubrics share their whole first half — the boundary philosophy — and
+# differ only in the output contract that follows it. The shared half is a Python constant
+# rather than copied prose so the two cannot drift apart; the split is here, and not one key
+# per half, because `ingest.semantic.rubric` is the SystemMessage every measured semantic
+# chunking baseline was taken with, and re-keying it would silently retire that baseline.
+_SEGMENTER_PHILOSOPHY = """\
 You are segmenting a sequentially numbered stretch of content for a personal knowledge base.
 Goal: cut it into "semantic segments", ideally one natural unit (one subject, one topic)
 per segment.
@@ -546,10 +551,35 @@ Segmentation rules, in priority order:
 - Keep each natural unit (for example one complete account of one subject) inside a
   single segment as far as possible.
 
+"""
+
+_SEGMENTER_RUBRIC = _SEGMENTER_PHILOSOPHY + """\
 Return only the "start block number" of each semantic segment (`segments`, ascending
 integers). Segment i covers [start_i, start_{i+1}-1] and the last runs to the final block, so
 you never give end numbers. Every number must be a block number that actually appears in the
 listing.
+"""
+
+# The `semantic_overlap = "smart"` output contract. Nothing here asks the model to behave —
+# every rule below is also a write-time gate in ingest/semantic.py, and an output that
+# breaks one is rejected and replaced by the zero-overlap partition. The wording exists so
+# a model that reads it lands inside the gate on the first try, not so the gate can relax.
+_SEGMENTER_RUBRIC_OVERLAP = _SEGMENTER_PHILOSOPHY + """\
+Return each semantic segment as a closed interval of block numbers — a start and an end,
+both inclusive (`segments`, a list of two-number pairs ordered by start). Both numbers must
+be block numbers that actually appear in the listing, and the end is never below the start.
+
+Segments MAY overlap, and that is what this format is for. A hinge — the sentence that
+closes one topic while opening the next, the answer that also sets up the following
+question — belongs to both segments, so give it to both. Over ten blocks whose blocks 3 and
+4 turn the conversation, the intervals 0-4 and 3-9 are the right answer: the turn is read
+once as the end of what came before and once as the start of what follows.
+
+Overlap only where the content genuinely serves both sides. One or two shared blocks is the
+size of a hinge; three is the most that is ever allowed, and a segment that swallows its
+neighbour is not a segment. The intervals must also leave no hole: the first segment starts
+at the first block, the last ends at the last block, every start is above the one before
+it, and no segment starts more than one block after the previous segment's end.
 """
 
 # ═══════════════════════════════════════════════════════════════════════════ personas
@@ -1175,6 +1205,12 @@ DEFAULTS: dict[str, str] = {
         "Below are content blocks numbered {lo}..{hi} ({count} blocks). Each line is "
         "\"number:content\" (the number before the colon, as with grep -n). Return the start "
         "number of each semantic segment:\n\n{listing}"
+    ),
+    "ingest.semantic.rubric_overlap": _SEGMENTER_RUBRIC_OVERLAP,
+    "ingest.semantic.human_overlap": (
+        "Below are content blocks numbered {lo}..{hi} ({count} blocks). Each line is "
+        "\"number:content\" (the number before the colon, as with grep -n). Return each "
+        "semantic segment as a start/end pair of block numbers:\n\n{listing}"
     ),
     # ─────────────────────────────────────────────── recall: the shared spine
     "recall.spine": _SPINE,
