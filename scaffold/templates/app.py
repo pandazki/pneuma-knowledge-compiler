@@ -989,6 +989,13 @@ async def _compile() -> tuple[int, dict[str, int]]:
     try:
         uid = UserId(user_id())
         await upsert_owner_profile(ctx, uid)
+        # A drain killed mid-job (Ctrl-C, agent timeout, machine sleep) leaves its claim
+        # orphaned, and claim_next then refuses this user's queue forever — the worker
+        # service self-heals on startup, but this in-process drain is many users' ONLY
+        # drain path, so it must heal too or one interrupted compile bricks the project.
+        from pneuma_knowledge_service.workers.compile_worker import requeue_orphaned_jobs
+
+        await requeue_orphaned_jobs(ctx, label="app-compile")
         model = ctx.get_chat_model("compile")
         tracker = _attach_usage_tracker(model)
         print(f"== Draining the compile queue (user={uid}, contract {skill.skill_id}@{skill.version}) ==")

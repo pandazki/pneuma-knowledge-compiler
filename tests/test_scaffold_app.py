@@ -702,3 +702,15 @@ async def test_evolve_step_surfaces_a_failed_adopt_instead_of_claiming_progress(
     )
     assert code == 2
     assert calls == [("evolve_adopt", {"task_id": "t-4"})]
+
+
+def test_compile_drain_heals_orphaned_claims_first():
+    """An interrupted `./app.py compile` leaves its job 'claimed'; claim_next then skips
+    that user's queue forever. For a scaffold project this in-process drain is the ONLY
+    drain path (no worker restart to self-heal), so it must requeue orphans before
+    draining — without this, one Ctrl-C mid-compile bricks the project permanently."""
+    src = APP_PATH.read_text(encoding="utf-8")
+    compile_body = src.split("async def _compile(")[1].split("\nasync def ")[0]
+    heal = compile_body.index("requeue_orphaned_jobs")
+    drain = compile_body.index("_drain_with_progress")
+    assert heal < drain
