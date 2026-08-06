@@ -26,7 +26,7 @@ stated next to it.
 engine/                    # its own git repo; one commit per apply
   README.md                # orientation: what the engine is, each file's blast radius
   engine.yaml              # the four model roles — quality levers are strategy
-  intake/intake.yaml       # chunk_strategy
+  intake/intake.yaml       # chunk_strategy, semantic_overlap
   compile/contract.md      # the constitution — a DOCUMENT, never decomposed into knobs
   compile/challenge.yaml   # enabled, max_rounds, max_questions, compensate
   evolve/evolve.yaml       # auto_trigger, trigger_topic_docs, trigger_new_claims, draft_ttl_hours
@@ -164,7 +164,7 @@ I2 surfaced in UI copy:
 | `hot` | the next process to read the engine files picks it up — no rebuild, no migration. In the scaffold flow (a CLI that reads the directory per command) this means the next command; a long-running API process reads its settings once at boot, so there it means the next start |
 | `restart` | API/worker rewiring (model roles, prompt overlays) |
 | `future_compiles` | governs future compiles only; canonical is never rewritten (the contract, challenge, evolve, the owner profile) |
-| `derived_rebuild` | new material at once, existing material after `scripts/ops/rebuild_derived.py` (`chunk_strategy`) |
+| `derived_rebuild` | new material at once, existing material after `scripts/ops/rebuild_derived.py` (`chunk_strategy`, `semantic_overlap`) |
 
 The console states both halves of `hot` rather than the flattering half: a CLI re-reads the
 directory per command, a long-running API or worker reads its settings once at boot. And the I2

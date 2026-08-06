@@ -400,7 +400,10 @@ _DETAIL_CONTRACT = """\
 
 # ═══════════════════════════════════════════════════════════════════════ ingest prompts
 
-_SEGMENTER_RUBRIC_ZH = """\
+# Mirrors the English catalog's split: the boundary philosophy is one shared constant, the
+# output contract is what the two rubrics differ in. `ingest.semantic.rubric` stays
+# byte-identical to what it was — it is the measured baseline's SystemMessage.
+_SEGMENTER_PHILOSOPHY_ZH = """\
 你正在为一座个人知识库切分一段按顺序编号的内容。目标：把它切成「语义段」，理想情况下一段
 只装一个自然单元（一个主体、一个话题）。
 
@@ -410,9 +413,29 @@ _SEGMENTER_RUBRIC_ZH = """\
 - 不要切得过碎——属于同一主体或同一话题的连续内容合并成一段。
 - 尽量把每个自然单元（例如对一个主体的一次完整评述）留在同一段之内。
 
+"""
+
+_SEGMENTER_RUBRIC_ZH = _SEGMENTER_PHILOSOPHY_ZH + """\
 只返回每个语义段的「起始块编号」（`segments`，升序整数）。第 i 段覆盖
 [start_i, start_{i+1}-1]，最后一段延伸到最后一块，因此你从不给出结束编号。每个编号都必须是
 列表中真实出现过的块编号。
+"""
+
+# `semantic_overlap = "smart"` 的输出契约。这里没有一句是请求模型配合：下面每一条同时是
+# ingest/semantic.py 里的写入期闸门，违反任何一条的输出会被整份拒收、退回零重叠切分。
+_SEGMENTER_RUBRIC_OVERLAP_ZH = _SEGMENTER_PHILOSOPHY_ZH + """\
+把每个语义段作为一个前闭后闭的块编号区间返回——一个起点、一个终点，两端都包含
+（`segments`，按起点升序排列的两元数对列表）。两个编号都必须是列表中真实出现过的块编号，
+终点不得小于起点。
+
+段与段之间**可以**重叠，这正是这个格式的用意。转折处——那句既收束上一个话题、又开启下一个
+话题的话，那个既回答了上一问、又引出下一问的回应——同时属于两段，就同时给两段。十块内容里
+如果第 3、4 块是转折，正确答案是 0-4 与 3-9 这两个区间：转折被读两次，一次作为前文的收束，
+一次作为后文的开端。
+
+只在内容确实同时服务两段的地方重叠，别处不要。共享一到两块是转折的常见体量；三块是上限；
+把邻段整个吞掉的不叫段。区间还必须不留空洞：第一段从第一块开始，最后一段到最后一块结束，
+每个起点都严格大于前一个起点，且任何一段的起点都不得比前一段的终点晚超过一块。
 """
 
 # ═══════════════════════════════════════════════════════════════════════════ personas
@@ -896,6 +919,11 @@ _ZH: dict[str, str] = {
     "ingest.semantic.human": (
         "以下是编号 {lo}..{hi} 的内容块（共 {count} 块）。每行形如「编号:内容」（冒号前是"
         "编号，如 grep -n）。返回每个语义段的起始编号：\n\n{listing}"
+    ),
+    "ingest.semantic.rubric_overlap": _SEGMENTER_RUBRIC_OVERLAP_ZH,
+    "ingest.semantic.human_overlap": (
+        "以下是编号 {lo}..{hi} 的内容块（共 {count} 块）。每行形如「编号:内容」（冒号前是"
+        "编号，如 grep -n）。把每个语义段作为一对起止块编号返回：\n\n{listing}"
     ),
     # ─────────────────────────────────────────────── recall: the shared spine
     "recall.spine": _SPINE,

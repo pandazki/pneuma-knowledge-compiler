@@ -79,6 +79,8 @@ async def full_l2_chunks(ctx: "AppContext", source_id, blocks, structure, user_i
         from pneuma_knowledge_core.ingest.semantic import (
             blocks_content_digest,
             chunk_result_digest,
+            decode_manifest_segments,
+            encode_manifest_segments,
             semantic_chunk_source,
             semantic_segments,
         )
@@ -96,19 +98,31 @@ async def full_l2_chunks(ctx: "AppContext", source_id, blocks, structure, user_i
         # segments instead of re-detecting — a re-index is then byte-identical (I2). Only
         # a first ingest or a genuine change (edited source, model swap) calls the LLM.
         model_spec = resolve_model_name(ctx.settings, "compile")
+        overlap = ctx.settings.semantic_overlap
         digest = blocks_content_digest(blocks)
         manifest = await ctx.store.get_chunk_manifest(user_id, source_id)
-        replay = (
-            manifest is not None
+        # The recorded output contract is part of the replay key. `semantic_overlap` is
+        # declared a `derived_rebuild` knob, and a replay that ignored the mode would make
+        # that a lie: flipping the knob and rebuilding would faithfully reproduce the layout
+        # the OLD mode produced, forever. A mismatch re-detects — which is exactly what
+        # "takes effect on the next rebuild" means.
+        recorded = (
+            decode_manifest_segments(
+                manifest["segments"],
+                block_indices=sorted(b.index for b in blocks),
+            )
+            if manifest is not None
             and manifest["strategy"] == "semantic"
             and manifest["model"] == model_spec
             and manifest["content_digest"] == digest
+            else None
         )
+        replay = recorded is not None and recorded[1] == overlap
         if replay:
-            segments = [tuple(s) for s in manifest["segments"]]
+            segments = recorded[0]
         else:
             segments = await semantic_segments(
-                blocks, model=ctx.get_chat_model("compile"), **cfg
+                blocks, model=ctx.get_chat_model("compile"), overlap=overlap, **cfg
             )
         chunks = await semantic_chunk_source(
             source_id,
@@ -124,7 +138,7 @@ async def full_l2_chunks(ctx: "AppContext", source_id, blocks, structure, user_i
                 strategy="semantic",
                 model=model_spec,
                 content_digest=digest,
-                segments=[list(s) for s in segments],
+                segments=encode_manifest_segments(segments, overlap=overlap),
                 result_digest=chunk_result_digest(chunks),
             )
         return chunks

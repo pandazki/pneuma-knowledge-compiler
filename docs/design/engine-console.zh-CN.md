@@ -16,7 +16,7 @@
 engine/                    # 自己的 git 仓库；每次 apply 一个提交
   README.md                # 导览：引擎是什么，每个文件的影响半径
   engine.yaml              # 四个模型角色——质量杠杆本身就是策略
-  intake/intake.yaml       # chunk_strategy
+  intake/intake.yaml       # chunk_strategy, semantic_overlap
   compile/contract.md      # 宪法——一份文档，永不被拆成旋钮
   compile/challenge.yaml   # enabled、max_rounds、max_questions、compensate
   evolve/evolve.yaml       # auto_trigger、trigger_topic_docs、trigger_new_claims、draft_ttl_hours
@@ -104,7 +104,7 @@ uv run python scripts/generate_engine_schema.py --check   # 过期则退出码 1
 | `hot` | 下一个读引擎文件的进程即生效——不重建、不迁移。在 scaffold 的用法里（CLI 每条命令都重读目录）就是下一条命令；长驻的 API 进程只在启动时读一次 settings，所以在那里等于下次启动 |
 | `restart` | API/worker 需要重新接线（模型角色、提示词覆盖） |
 | `future_compiles` | 只管未来的编译；正典永不被回溯重写（契约、challenge、evolve、主人档案） |
-| `derived_rebuild` | 新材料立刻生效，已有材料要跑 `scripts/ops/rebuild_derived.py`（`chunk_strategy`） |
+| `derived_rebuild` | 新材料立刻生效，已有材料要跑 `scripts/ops/rebuild_derived.py`（`chunk_strategy`、`semantic_overlap`） |
 
 控制台把 `hot` 的两半都说出来，而不是只说好听的那一半：CLI 每条命令都重读这个目录，长驻的 API / worker 在启动时读一次 settings。而 I2 那句「正典永不被重写」只出现在 `future_compiles` / `derived_rebuild` 旋钮下——只有这两种生效语义真的是在谈已经记录下来的知识；挂在一个模型名下面它不是安心，是噪音，而噪音正是老实话开始没人看的方式。
 

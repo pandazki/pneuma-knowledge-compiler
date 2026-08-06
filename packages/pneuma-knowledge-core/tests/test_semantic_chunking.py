@@ -12,9 +12,15 @@ from pneuma_knowledge_core.domain.ids import SourceId
 from pneuma_knowledge_core.domain.source import NormalizedBlock, SectionSpan, StructureMap
 from pneuma_knowledge_core.ingest.chunking import build_chunker, join_blocks
 from pneuma_knowledge_core.ingest.semantic import (
+    MANIFEST_VERSION,
+    MAX_OVERLAP_BLOCKS,
     Segments,
+    SegmentSpans,
     blocks_content_digest,
     chunk_result_digest,
+    decode_manifest_segments,
+    encode_manifest_segments,
+    overlap_rejection,
     semantic_chunk_source,
     semantic_segments,
 )
@@ -351,3 +357,354 @@ def test_preview_measures_after_whitespace_collapse():
 def test_preview_numbering_uses_global_offset_over_windows():
     lines = _number_blocks(_blocks(["a", "b"]), 40).splitlines()
     assert lines == ["40:a", "41:b"]
+
+
+# ═════════════════════════════════════════════ semantic_overlap="smart": the second contract
+#
+# `off` above is the contract every semantic-chunking measurement so far was taken with, so
+# the first thing pinned here is that it did not move. Everything after that is the new one:
+# five gates that refuse a bad interval list mechanically, the degradation a refusal falls
+# back to, and the overlapping chunks a good one produces.
+
+import hashlib  # noqa: E402
+
+from pneuma_knowledge_core.prompts import chinese_overlay, default_catalog, prompt  # noqa: E402
+
+# ────────────────────────────────────────────────── the `off` request, pinned to the byte
+
+# sha256 of the two clauses the zero-overlap segmentation call is built from, in both packs.
+# Not "the prompt still reads sensibly" — the exact bytes. Every measured semantic-chunking
+# result is a measurement OF these bytes, and a reworded rubric silently retires the
+# baseline the overlap A/B is supposed to be measured against. Adding a mode must therefore
+# cost the old mode nothing, and that is checkable rather than reviewable.
+_OFF_PROMPT_DIGESTS = {
+    "en": {
+        "ingest.semantic.rubric":
+            "c36de4de20a9dcf52a4cd169a52d9e0ca2391be471c587fa38057a9cb4c83815",
+        "ingest.semantic.human":
+            "5f6cf30ea34ef91d1f67b2e1ea66f17f866e7cb03d137611c6e8f8b551d7b0cd",
+    },
+    "zh": {
+        "ingest.semantic.rubric":
+            "21c215e39e25ed2ee37cbfb85307cb7c63ae68bdf10ffb11d2cb9f6c3ee9dd95",
+        "ingest.semantic.human":
+            "f58a96b7e62b33b3381ad72ec0a027b3882ec8c49a4b165c01015a824e40cb2a",
+    },
+}
+
+
+def test_the_off_mode_clauses_are_byte_for_byte_the_measured_baseline():
+    for pack, catalog in (("en", default_catalog()), ("zh", chinese_overlay())):
+        for key, digest in _OFF_PROMPT_DIGESTS[pack].items():
+            actual = hashlib.sha256(catalog[key].encode("utf-8")).hexdigest()
+            assert actual == digest, (
+                f"{pack} {key} changed. It is the SystemMessage/HumanMessage every semantic "
+                "chunking measurement was taken with — changing it retires those numbers."
+            )
+
+
+async def test_the_off_mode_request_is_assembled_from_exactly_those_clauses():
+    """The digests pin the wording; this pins that the `off` call still sends that wording,
+    with the start-only schema and nothing added."""
+    blocks = _blocks(["候选人甲评价", "候选人乙评价"])
+    model = _FakeModel([0, 1])
+    await semantic_segments(blocks, model=model)
+    msgs, _ = model.structured.calls[0]
+    assert model.schema is Segments
+    assert len(msgs) == 2
+    assert msgs[0].content == prompt("ingest.semantic.rubric")
+    assert msgs[1].content == prompt(
+        "ingest.semantic.human",
+        lo=0,
+        hi=1,
+        count=2,
+        listing="0:候选人甲评价\n1:候选人乙评价",
+    )
+
+
+def test_both_rubrics_state_the_same_boundary_philosophy():
+    """The two contracts differ in their output format and in nothing else. The shared half
+    is one Python constant precisely so this holds; the pin is here so a later edit to one
+    rubric's philosophy cannot quietly leave the other's behind."""
+    for catalog in (default_catalog(), chinese_overlay()):
+        base = catalog["ingest.semantic.rubric"]
+        overlap = catalog["ingest.semantic.rubric_overlap"]
+        shared = base.split("\n\n")[:2]  # the intro and the rules list, not the output half
+        assert shared, "the rubric lost its philosophy section"
+        for paragraph in shared:
+            assert paragraph in overlap
+        assert base != overlap
+
+
+# ────────────────────────────────────────────────────── the five gates, one red test each
+#
+# Each red breaks exactly ONE rule and leaves the other four satisfied, so a passing suite
+# means five independent refusals rather than one catch-all rejection firing five times.
+
+VALID = [(0, 4), (3, 9)]  # the rubric's own example, over blocks 0..9
+
+
+def test_a_valid_interval_list_passes_every_gate():
+    assert overlap_rejection(VALID, 0, 9) == ""
+
+
+def test_gate1_an_endpoint_that_is_not_a_block_in_the_listing():
+    assert "block range" in overlap_rejection([(0, 4), (3, 12)], 0, 9)
+    # …and its other half: an interval that ends before it starts.
+    assert "ends before it starts" in overlap_rejection([(4, 0)], 0, 4)
+
+
+def test_gate2_starts_that_do_not_strictly_increase():
+    # 0,1,1 — every other rule holds: cover is gapless, the widest overlap is 3, the count
+    # is under the block count, every endpoint is real.
+    spans = [(0, 2), (1, 3), (1, 5)]
+    assert "strictly increasing" in overlap_rejection(spans, 0, 5)
+    # The other four hold for the same list with the third start nudged forward.
+    assert overlap_rejection([(0, 2), (1, 3), (2, 5)], 0, 5) == ""
+
+
+def test_gate3_a_hole_no_segment_covers():
+    assert "covered by no segment" in overlap_rejection([(0, 2), (5, 9)], 0, 9)
+
+
+def test_gate3_the_cover_must_reach_both_ends():
+    assert "not at block 0" in overlap_rejection([(1, 9)], 0, 9)
+    assert "not at block 9" in overlap_rejection([(0, 8)], 0, 9)
+
+
+def test_gate4_overlap_beyond_the_bound_is_the_degeneracy_guard():
+    # Neighbours sharing 5 blocks — everything else is impeccable. Unbounded, the winning
+    # move is "every segment is the whole document", which is why this is a number.
+    assert "over the 3 allowed" in overlap_rejection([(0, 5), (1, 9)], 0, 9)
+    # Exactly at the bound is allowed: the gate refuses degeneracy, not generosity.
+    assert overlap_rejection([(0, 4), (2, 9)], 0, 9) == ""
+    assert MAX_OVERLAP_BLOCKS == 3
+
+
+def test_gate5_more_segments_than_blocks():
+    assert "3 segments over 2 blocks" in overlap_rejection([(0, 0), (1, 1), (0, 1)], 0, 1)
+
+
+# ────────────────────────────────────────────────────────────── smart mode, end to end
+
+
+class _FakeSpanStructured:
+    def __init__(self, spans) -> None:
+        self._spans = spans
+        self.calls: list[tuple] = []
+
+    async def ainvoke(self, messages, config=None):  # noqa: ANN001
+        self.calls.append((messages, config))
+        return SegmentSpans(segments=[list(p) for p in self._spans])
+
+
+class _FakeSpanModel:
+    """Returns the SAME fixed intervals on every window call (windows are asserted
+    separately with per-window spans)."""
+
+    def __init__(self, spans) -> None:
+        self.schema = None
+        self.structured = _FakeSpanStructured(spans)
+
+    def with_structured_output(self, schema):  # noqa: ANN001
+        self.schema = schema
+        return self.structured
+
+
+class _FakeWindowSpanModel:
+    """A different interval list per window call — how a real segmenter behaves when the
+    document is longer than one prompt."""
+
+    def __init__(self, per_call) -> None:
+        self._per_call = list(per_call)
+        self._n = 0
+        self.structured = None
+
+    def with_structured_output(self, schema):  # noqa: ANN001
+        spans = self._per_call[min(self._n, len(self._per_call) - 1)]
+        self._n += 1
+        self.structured = _FakeSpanStructured(spans)
+        return self.structured
+
+
+async def test_smart_mode_asks_for_intervals_with_the_overlap_clauses():
+    blocks = _blocks(["甲", "乙", "丙"])
+    model = _FakeSpanModel([(0, 1), (1, 2)])
+    await semantic_segments(blocks, model=model, overlap="smart")
+    msgs, config = model.structured.calls[0]
+    assert model.schema is SegmentSpans
+    assert msgs[0].content == prompt("ingest.semantic.rubric_overlap")
+    assert msgs[1].content == prompt(
+        "ingest.semantic.human_overlap", lo=0, hi=2, count=3, listing="0:甲\n1:乙\n2:丙"
+    )
+    assert config["run_name"] == "chunk.semantic"
+
+
+async def test_smart_mode_produces_the_hinge_twice_with_verbatim_provenance():
+    # The rubric's own example: ten blocks, the turn is at 3-4, so 0-4 and 3-9.
+    blocks = _blocks([f"第{i}块内容。" for i in range(10)])
+    model = _FakeSpanModel([(0, 4), (3, 9)])
+    segments = await semantic_segments(blocks, model=model, overlap="smart")
+    assert segments == [(0, 4), (3, 9)]
+
+    chunks = await semantic_chunk_source(
+        SID, blocks, StructureMap(), model=_FakeSpanModel([(0, 4), (3, 9)]), overlap="smart"
+    )
+    assert [(c.block_start, c.block_end) for c in chunks] == [(0, 4), (3, 9)]
+    # The hinge blocks are in BOTH chunks; every other block is in exactly one.
+    seen = [i for c in chunks for i in range(c.block_start, c.block_end + 1)]
+    assert [i for i in range(10) if seen.count(i) == 2] == [3, 4]
+    assert all(seen.count(i) == 1 for i in (0, 1, 2, 5, 6, 7, 8, 9))
+    # I4 is untouched by the duplication: both chunks are verbatim slices addressed by
+    # char offsets into the same block-joined string.
+    g = _global(blocks)
+    for c in chunks:
+        assert g[c.char_start : c.char_end] == c.text
+
+
+async def test_smart_mode_falls_back_to_the_partition_when_a_gate_refuses():
+    # A hole at blocks 3-4: the interval list is refused whole, and the window degrades to
+    # the zero-overlap partition of the starts the model did report — the overlap is lost,
+    # the segmentation is not, and no block falls out of L2.
+    blocks = _blocks([SENT] * 8)
+    model = _FakeSpanModel([(0, 2), (5, 7)])
+    segments = await semantic_segments(blocks, model=model, overlap="smart")
+    assert segments == [(0, 4), (5, 7)]
+    covered = [i for s, e in segments for i in range(s, e + 1)]
+    assert covered == list(range(8))
+
+
+async def test_smart_mode_refusal_with_nothing_usable_still_covers_everything():
+    blocks = _blocks([SENT] * 4)
+    model = _FakeSpanModel([])  # the model returned nothing at all
+    assert await semantic_segments(blocks, model=model, overlap="smart") == [(0, 3)]
+
+
+async def test_smart_mode_windows_cover_their_own_window_exactly():
+    # 6 blocks, window size 3 → two calls. Each window's intervals must cover that window
+    # (gate 3 judges the range the model was actually shown), so a window boundary is a
+    # segment boundary in this mode — unlike `off`, where an open segment carries across.
+    blocks = _blocks([SENT] * 6)
+    model = _FakeWindowSpanModel([[(0, 1), (1, 2)], [(3, 4), (4, 5)]])
+    segments = await semantic_segments(
+        blocks, model=model, max_blocks_per_call=3, overlap="smart"
+    )
+    assert segments == [(0, 1), (1, 2), (3, 4), (4, 5)]
+
+
+async def test_an_unknown_overlap_mode_is_refused_rather_than_guessed():
+    import pytest
+
+    with pytest.raises(ValueError, match="semantic_overlap"):
+        await semantic_segments(_blocks(["a"]), model=_FakeModel([0]), overlap="fixed-2")
+
+
+async def test_off_mode_is_untouched_by_the_new_contract():
+    """Same blocks, same fake starts, both before and after: the partition is a partition."""
+    blocks = _blocks([SENT] * 6)
+    segments = await semantic_segments(blocks, model=_FakeModel([0, 2, 4]))
+    assert segments == [(0, 1), (2, 3), (4, 5)]
+
+
+async def test_sections_clip_overlapping_segments_without_flattening_them():
+    # Two sections, and segments that straddle the boundary. No chunk may cross a section;
+    # the overlap INSIDE a section must survive, because a neighbour's start falling inside
+    # a segment is the hinge, not a cut.
+    blocks = _blocks([SENT] * 6)
+    structure = StructureMap(
+        sections=[
+            SectionSpan(path=["A"], start_block=0, end_block=2),
+            SectionSpan(path=["B"], start_block=3, end_block=5),
+        ]
+    )
+    chunks = await semantic_chunk_source(
+        SID, blocks, structure, segments=[(0, 3), (2, 5)]
+    )
+    spans = [(c.block_start, c.block_end) for c in chunks]
+    assert spans == [(0, 2), (3, 3), (2, 2), (3, 5)]
+    for start, end in spans:
+        assert (end <= 2) or (start >= 3), (start, end)  # never crosses the section
+    seen = [i for s, e in spans for i in range(s, e + 1)]
+    assert seen.count(2) == 2 and seen.count(3) == 2  # the overlap survived the clip
+
+
+async def test_a_segment_repeated_identically_is_stored_once():
+    """Overlap is two segments sharing blocks, not one segment stored twice — the second
+    copy would embed the same text under the same span and buy nothing."""
+    blocks = _blocks([SENT] * 3)
+    chunks = await semantic_chunk_source(
+        SID, blocks, StructureMap(), segments=[(0, 1), (0, 1), (2, 2)]
+    )
+    assert [(c.block_start, c.block_end) for c in chunks] == [(0, 1), (2, 2)]
+
+
+# ─────────────────────────────────────────────────────── the versioned manifest record
+
+
+async def test_the_manifest_envelope_round_trips_with_its_mode():
+    segments = [(0, 4), (3, 9)]
+    record = encode_manifest_segments(segments, overlap="smart")
+    assert record == {"version": MANIFEST_VERSION, "overlap": "smart", "spans": [[0, 4], [3, 9]]}
+    assert decode_manifest_segments(record, block_indices=list(range(10))) == (
+        segments,
+        "smart",
+    )
+
+
+async def test_a_replayed_envelope_reproduces_the_chunks_byte_for_byte():
+    blocks = _blocks([SENT * 2] * 10)
+    detected = await semantic_segments(
+        blocks, model=_FakeSpanModel([(0, 4), (3, 9)]), overlap="smart"
+    )
+    first = await semantic_chunk_source(SID, blocks, StructureMap(), segments=detected)
+    record = encode_manifest_segments(detected, overlap="smart")
+    replayed_segments, mode = decode_manifest_segments(
+        record, block_indices=[b.index for b in blocks]
+    )
+    replayed = await semantic_chunk_source(
+        SID, blocks, StructureMap(), segments=replayed_segments
+    )
+    assert mode == "smart"
+    assert chunk_result_digest(first) == chunk_result_digest(replayed)
+    assert first == replayed
+
+
+def test_a_pre_envelope_pair_list_replays_as_written():
+    """The shape written before the envelope existed. Its mode is read off the data — a
+    touching partition is what `off` produces, overlapping pairs are what `smart` produces —
+    so a library recorded under either does not re-detect to learn what it already says."""
+    idx = list(range(6))
+    assert decode_manifest_segments([[0, 2], [3, 5]], block_indices=idx) == (
+        [(0, 2), (3, 5)],
+        "off",
+    )
+    assert decode_manifest_segments([[0, 3], [2, 5]], block_indices=idx) == (
+        [(0, 3), (2, 5)],
+        "smart",
+    )
+
+
+def test_a_pre_envelope_starts_only_list_expands_through_the_old_partition_rule():
+    idx = [0, 1, 2, 3, 4, 5]
+    assert decode_manifest_segments([0, 2, 4], block_indices=idx) == (
+        [(0, 1), (2, 3), (4, 5)],
+        "off",
+    )
+    # Non-contiguous block indexes (a source with holes) map through positions, not maths.
+    sparse = [0, 3, 7, 9]
+    assert decode_manifest_segments([0, 7], block_indices=sparse) == (
+        [(0, 3), (7, 9)],
+        "off",
+    )
+
+
+def test_an_unreadable_manifest_declines_to_replay_rather_than_guessing():
+    idx = list(range(4))
+    assert decode_manifest_segments({"version": 99, "spans": [[0, 3]]}, block_indices=idx) is None
+    assert decode_manifest_segments(
+        {"version": MANIFEST_VERSION, "overlap": "fixed", "spans": [[0, 3]]},
+        block_indices=idx,
+    ) is None
+    assert decode_manifest_segments([], block_indices=idx) is None
+    assert decode_manifest_segments(None, block_indices=idx) is None
+    assert decode_manifest_segments([[0, 1, 2]], block_indices=idx) is None

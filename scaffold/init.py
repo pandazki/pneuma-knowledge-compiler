@@ -194,6 +194,8 @@ deep = "openrouter:openai/gpt-5.6-terra"  # deep-recall (agentic) model; empty f
 [advanced]
 user_id = "u-app-owner"    # tenant id: a different id is a different, empty library
 chunk_strategy = "semantic"  # semantic = LLM boundary detection (default) | sentence = mechanical
+semantic_overlap = "smart" # semantic only: smart = neighbouring segments may share a hinge
+                           # block (default) | off = zero overlap, the measured baseline
 challenge_enabled = false  # post-compile coverage challenge (extra model calls per compile)
 answer_style = "conversational"  # how Q&A answers read: concise = the bare exact answer
                            # (graders/scripts) | conversational = natural chat reply |
@@ -433,6 +435,9 @@ def build_config(answers: dict, *, target: str | None) -> dict:
     chunk_strategy = str(advanced_in.get("chunk_strategy") or "semantic")
     if chunk_strategy not in ("semantic", "sentence"):
         sys.exit(f"error: advanced.chunk_strategy must be semantic / sentence, got {chunk_strategy!r}")
+    semantic_overlap = str(advanced_in.get("semantic_overlap") or "smart")
+    if semantic_overlap not in ("off", "smart"):
+        sys.exit(f"error: advanced.semantic_overlap must be off / smart, got {semantic_overlap!r}")
     answer_style = str(advanced_in.get("answer_style") or "conversational")
     if answer_style not in ("concise", "conversational", "detailed"):
         sys.exit(
@@ -458,6 +463,7 @@ def build_config(answers: dict, *, target: str | None) -> dict:
         "models": models,
         "user_id": str(advanced_in.get("user_id") or "u-app-owner"),
         "chunk_strategy": chunk_strategy,
+        "semantic_overlap": semantic_overlap,
         "answer_style": answer_style,
         "prompt_language": prompt_language,
         "challenge_enabled": bool(advanced_in.get("challenge_enabled") or False),
@@ -610,6 +616,17 @@ embedding: {models["embedding"]}
 # boundaries recorded for it until the framework's rebuild_derived is run, so a switch is
 # never a silent partial migration.
 chunk_strategy: {config["chunk_strategy"]}
+
+# Whether two neighbouring semantic segments may share a block (semantic strategy only).
+#
+#   smart     the model returns start/end pairs, so a hinge — the sentence that closes one
+#             topic while opening the next — is indexed as part of BOTH segments. How much
+#             to share is judged per boundary, never a fixed stride, and at most three
+#             blocks: that ceiling is what keeps "every segment is the whole document" out
+#             of reach rather than merely discouraged.
+#   off       the original zero-overlap cut. Every measurement of semantic chunking so far
+#             was taken this way, so it stays here as the A/B baseline.
+semantic_overlap: {config["semantic_overlap"]}
 """,
         "compile/contract.md": contract,
         "compile/challenge.yaml": f"""\

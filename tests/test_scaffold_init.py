@@ -232,9 +232,9 @@ def test_demo_generates_a_project_that_already_has_a_library(tmp_path):
     assert "embedding: fake:1536" in (target / "engine" / "engine.yaml").read_text(
         encoding="utf-8"
     )
-    assert "chunk_strategy: semantic" in (
-        target / "engine" / "intake" / "intake.yaml"
-    ).read_text(encoding="utf-8")
+    intake = (target / "engine" / "intake" / "intake.yaml").read_text(encoding="utf-8")
+    assert "chunk_strategy: semantic" in intake
+    assert "semantic_overlap: smart" in intake
 
     # .env has the same shape as any project's, with the shipped library's tenant id and no
     # key — the demo never asks for one.

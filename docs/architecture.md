@@ -65,7 +65,9 @@ Only two things are authoritative: the L0 sources, and the canonical library. Th
 
 Two consequences worth internalizing:
 
-- Rebuilds are byte-deterministic even where an LLM was involved. Semantic chunking (the default `semantic` strategy; its boundary-detection philosophy is inspired by [nemori](https://github.com/nemori-ai/nemori)) uses an LLM to detect topic/episode boundaries, but the model only returns block indexes — chunk text is always a verbatim slice of the source, addressed exactly like mechanical chunks; first-time boundaries are recorded in a manifest (content digest + model lineage) and replayed on rebuild instead of being recomputed. Under scripted keyless models it falls back to mechanical sentence chunking automatically.
+- Rebuilds are byte-deterministic even where an LLM was involved. Semantic chunking (the default `semantic` strategy; its boundary-detection philosophy is inspired by [nemori](https://github.com/nemori-ai/nemori)) uses an LLM to detect topic/episode boundaries, but the model only returns block indexes — chunk text is always a verbatim slice of the source, addressed exactly like mechanical chunks; first-time boundaries are recorded in a manifest (content digest + model lineage + the output contract that produced them) and replayed on rebuild instead of being recomputed. Under scripted keyless models it falls back to mechanical sentence chunking automatically.
+
+  Segments may also *overlap* (`SEMANTIC_OVERLAP`, factory default `smart`): the model returns closed block intervals, so a hinge — the sentence that closes one topic while opening the next — is indexed as part of both neighbouring segments, judged per boundary rather than as a fixed stride. Whether that is allowed to degenerate is not left to the prompt: five write-time gates (real ordered endpoints, strictly increasing starts, gapless cover, at most three shared blocks, no more segments than blocks) reject the whole output, and the window falls back to the zero-overlap partition. The duplication a hinge causes is purely derived — both chunks address the same source blocks (I4), and retrieval coalesces overlapping windows into one passage. `off` is the zero-overlap contract every measurement so far was taken with and its request bytes are pinned, so it stays the same-harness A/B baseline; `smart` ships on design grounds and is not yet measured against it.
 - Upgrades never rewrite the canonical layer. A new projection strategy, a new index, a new render — all rebuild derived artifacts; the canonical history stands.
 - The routine commit path syncs projections incrementally: the fresh snapshot is diffed against the last recorded projection manifest and only the delta lands in the indexes (only added or changed claims are re-embedded). The full rebuild (`scripts/ops/rebuild_derived.py`) is the explicit repair and migration path, not the daily one — and either way, the increment is a cost optimization, never a new source of truth.
 
@@ -144,7 +146,7 @@ Everything that IS a deployment's engine — strategy, the compile contract, pro
 ```
 engine/                    # its own git repo; one commit per apply
   engine.yaml              # the four model roles (compile / recall / deep / embedding)
-  intake/intake.yaml       # chunk_strategy
+  intake/intake.yaml       # chunk_strategy, semantic_overlap
   compile/contract.md      # the constitution — a DOCUMENT, never decomposed into knobs
   compile/challenge.yaml   # coverage-challenge knobs
   evolve/evolve.yaml       # evolve trigger knobs
