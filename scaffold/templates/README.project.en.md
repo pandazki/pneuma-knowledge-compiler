@@ -36,7 +36,8 @@ framework repository; to upgrade, regenerate a project with the framework repo's
 ./app.py ask 'question'      # fast-path Q&A (--sources also prints the cited raw passages;
                              #   --style concise|conversational|detailed overrides the answer style)
 ./app.py glance              # bird's-eye view of the library (no key needed)
-./app.py evolve [action]     # schema evolution: list / run / show / adopt / drop proposals
+./app.py evolve [action]     # schema evolution: list / step / run / show / adopt / drop
+                             #   (step = idempotent one-shot for scripts: run + dispose per --policy)
 ./app.py status              # stack and library status (no key needed)
 ./app.py restore             # restore the prebuilt library this project ships, when it ships
                              #   one (prebuilt/ — no key needed)

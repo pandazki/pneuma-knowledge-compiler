@@ -218,6 +218,11 @@ git -C engine add -A && git -C engine commit -m "contract: <改了什么，用�
   ./app.py evolve adopt <id> # 采纳——合并分支、重建派生层
   ./app.py evolve drop <id>  # 拒绝——删分支，正本不动
   ./app.py evolve run        # 不等触发器，手动跑一轮
+  ./app.py evolve step       # 无人值守管道用这个：幂等——有待处置的 draft 就按 --policy
+                             #   处置（默认 adopt-clean，可选 keep），没有就跑一轮并处置
+                             #   结果。`run` 在有 draft 待审时会拒绝，脚本自己组合
+                             #   run/adopt 等于手搓状态机——循环里调 step 即可。
+                             #   退出码：0 有进展/无事可做，2 draft 留给人审。
   ```
 
   每份提案采纳前都和用户过一遍（原则 5 对结构同样生效）。看提案零成本，采纳会重组页面。

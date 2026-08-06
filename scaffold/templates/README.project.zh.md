@@ -33,7 +33,8 @@
 ./app.py ask '问题'          # 快通道问答（--sources 连引用原文一起打印；
                              #   --style concise|conversational|detailed 覆盖输出风格）
 ./app.py glance              # 库的鸟瞰（不需要 key）
-./app.py evolve [action]     # 结构演进：list / run / show / adopt / drop 提案
+./app.py evolve [action]     # 结构演进：list / step / run / show / adopt / drop
+                             #   （step = 脚本用的幂等一步式：跑一轮并按 --policy 处置）
 ./app.py status              # 栈与库的状态（不需要 key）
 ./app.py restore             # 恢复本项目自带的预编译库（只在有 prebuilt/ 时可用，不需要 key）
 ./app.py down [--volumes]    # 停栈（--volumes 连数据卷一起删）

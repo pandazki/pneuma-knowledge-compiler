@@ -227,6 +227,13 @@ for each is part of your job:
   ./app.py evolve adopt <id> # accept — merge the branch, rebuild derived layers
   ./app.py evolve drop <id>  # decline — branch deleted, canon untouched
   ./app.py evolve run        # fire a round manually instead of waiting for the trigger
+  ./app.py evolve step       # UNATTENDED pipelines use this one: idempotent — disposes a
+                             #   pending draft per --policy (adopt-clean default / keep),
+                             #   else runs a round and disposes the result. `run` refuses
+                             #   while a draft awaits review, so scripts composing
+                             #   run/adopt by hand end up hand-rolling this state machine
+                             #   — call step in a loop instead. Exit 0 progressed/no-op,
+                             #   2 draft kept for human review.
   ```
 
   Walk every proposal through with the user before adopting (principle 5 applies to
