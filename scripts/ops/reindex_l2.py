@@ -31,23 +31,13 @@ import _env  # noqa: F401  (import for side effect)
 
 from pneuma_knowledge_core.domain.ids import UserId
 from pneuma_knowledge_core.ingest.chunking import EmbeddedChunk
-from pneuma_knowledge_service.ingest_document import _summary_chunks
-from pneuma_knowledge_service.settings import Settings
-from pneuma_knowledge_service.wiring import build_context, full_l2_chunks
+from pneuma_knowledge_service.settings import Settings, get_settings
+from pneuma_knowledge_service.wiring import build_context, plan_l2_chunks
 
-async def _chunks_for(ctx, source_id, normalized, user_id):
-    """Mirror the ingest L2 path: full → strategy dispatch (sentence/recursive/semantic);
-    summary → section heads. `full_l2_chunks` routes to the semantic LLM segmenter when
-    PNEUMA_KNOWLEDGE_CHUNK_STRATEGY=semantic, so re-index matches a fresh ingest under any strategy."""
-    plan = normalized.raw.intake_plan or {}
-    semantic = plan.get("semantic_indexing", "full")
-    if semantic == "full":
-        return await full_l2_chunks(
-            ctx, source_id, normalized.blocks, normalized.structure, user_id
-        )
-    if semantic == "summary":
-        return _summary_chunks(source_id, normalized)
-    return []
+# The plan dispatch itself lives in the framework (wiring.plan_l2_chunks), so this script,
+# rebuild_derived and a prebuilt-library restore cannot drift apart. Kept under the old name
+# because rebuild_derived.py imports it from here.
+_chunks_for = plan_l2_chunks
 
 
 async def reindex_user(ctx, user_id: UserId) -> None:
@@ -115,7 +105,7 @@ async def main() -> int:
         print(__doc__)
         return 2
     users = [UserId(u) for u in sys.argv[1:]]
-    settings = Settings()
+    settings = get_settings()
     ctx = await build_context(settings)
     # Do NOT pre-build a chunker here: strategy="semantic" has no standalone chonkie
     # chunker (build_chunker would raise). full_l2_chunks owns the per-strategy dispatch.

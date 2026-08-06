@@ -12,6 +12,8 @@ import importlib.util
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 APP_PATH = ROOT / "scaffold" / "templates" / "app.py"
 
@@ -58,7 +60,14 @@ def test_machinery_speaks_english_only():
     # allowed Han occurrences are functional Unicode ranges inside regex patterns.
     import re
 
-    for name in ("app.py", "start.sh", "docker-compose.yml", "gitignore"):
+    for name in (
+        "app.py",
+        "start.sh",
+        "docker-compose.yml",
+        "gitignore",
+        "server.py",
+        "worker.py",
+    ):
         text = (ROOT / "scaffold" / "templates" / name).read_text(encoding="utf-8")
         lines = [
             line
@@ -345,6 +354,95 @@ def test_glance_command_exists_in_the_cli():
     assert result.returncode == 0
     assert "glance" in result.stdout
     assert "preflight" in result.stdout
+    assert "restore" in result.stdout
+
+
+# ------------------------------------------------- the browsing layer (console profile)
+
+
+def test_console_profile_starts_api_worker_and_web_over_this_project():
+    """One `--profile console up` must give a browser the whole project.
+
+    The three services build from the framework repository, and the API/worker run THIS
+    project's entrypoints so its compile contract is registered — an API without it can serve
+    sources but never a skill."""
+    import yaml
+
+    compose = yaml.safe_load(
+        (ROOT / "scaffold" / "templates" / "docker-compose.yml").read_text(encoding="utf-8")
+    )
+    services = compose["services"]
+    for name in ("api", "worker", "web"):
+        assert services[name]["profiles"] == ["console"], name
+        assert "${PNEUMA_APP_FRAMEWORK_REPO" in services[name]["build"]["context"], name
+
+    assert services["api"]["command"] == ["python", "/project/server.py"]
+    assert services["worker"]["command"] == ["python", "/project/worker.py"]
+    # The whole project is mounted: server.py, app.py, engine/ and data/ are all one unit.
+    for name in ("api", "worker"):
+        assert services[name]["volumes"] == ["./:/project"]
+        env = services[name]["environment"]
+        assert env["PNEUMA_KNOWLEDGE_ENGINE_DIR"] == "/project/engine"
+        assert env["PNEUMA_KNOWLEDGE_CANONICAL_ROOT"] == "/project/data/canonical"
+
+    # The web image is the framework's shared compose asset, on its own probed port, and it
+    # waits for a healthy API (nginx proxies /v1 to it).
+    web = services["web"]
+    assert web["build"]["dockerfile"] == "docker/compose-web.Dockerfile"
+    assert (ROOT / "docker" / "compose-web.Dockerfile").is_file()
+    assert (ROOT / "docker" / "nginx.compose.conf").is_file()
+    assert web["ports"] == ["127.0.0.1:${PNEUMA_APP_WEB_PORT:-18081}:80"]
+    assert web["depends_on"] == {"api": {"condition": "service_healthy"}}
+
+
+def test_the_compose_web_image_talks_to_the_real_engine_routes():
+    """The console UI defaults to mock fixtures so it could be built before the API existed.
+    A project image always has the API beside it, so its build states the real routes."""
+    dockerfile = (ROOT / "docker" / "compose-web.Dockerfile").read_text(encoding="utf-8")
+    assert "ARG VITE_ENGINE_FIXTURES=false" in dockerfile
+    assert "docker/nginx.compose.conf" in dockerfile
+    nginx = (ROOT / "docker" / "nginx.compose.conf").read_text(encoding="utf-8")
+    # The upstream is a VARIABLE on purpose: a literal hostname is resolved once at
+    # startup and goes stale when the api container is recreated (502s until restart).
+    assert "set $api_upstream http://api:8080" in nginx
+    assert "proxy_pass $api_upstream" in nginx
+    assert "resolver 127.0.0.11" in nginx
+    # index.html must not be cached: the SPA navigates by hash and would otherwise keep
+    # running a stale bundle in a long-lived tab.
+    assert 'location = /index.html' in nginx and 'Cache-Control "no-cache"' in nginx
+
+
+def test_keyless_means_model_free_deterministic_and_stated_in_the_environment():
+    """No key is a first-class state: nothing may call a model, embeddings are deterministic,
+    and the values are stated in the ENVIRONMENT so the engine file keeps saying what this
+    project would use with a key (env outranks the engine file by framework design)."""
+    env = {"OPENROUTER_API_KEY": ""}
+    notes = app.keyless_env(env)
+    assert notes, "a keyless run must say so"
+    assert env["PNEUMA_KNOWLEDGE_EMBEDDING_MODEL"] == app.KEYLESS_EMBEDDING
+    # Chunking is deliberately NOT env-pinned: the framework's L2 dispatch degrades
+    # semantic mechanically when no compile model resolves, so the engine file stays
+    # the console-visible truth.
+    assert "PNEUMA_KNOWLEDGE_CHUNK_STRATEGY" not in env
+    # Chat-model roles are deliberately NOT blanked: dispatch-level keyless handling
+    # (usable_model_name) keeps the engine file the console-visible truth.
+    assert not any(k.startswith("PNEUMA_KNOWLEDGE_LLM_MODEL") for k in env)
+
+    # A collection built with another dimension can say so.
+    env = {"OPENROUTER_API_KEY": "", "PNEUMA_APP_KEYLESS_EMBEDDING": "fake:3072"}
+    app.keyless_env(env)
+    assert env["PNEUMA_KNOWLEDGE_EMBEDDING_MODEL"] == "fake:3072"
+
+    # With a key it is a no-op: the engine's own models are used, untouched.
+    env = {"OPENROUTER_API_KEY": "sk-or-test-not-a-real-key"}
+    assert app.keyless_env(env) == []
+    assert env == {"OPENROUTER_API_KEY": "sk-or-test-not-a-real-key"}
+
+
+def test_restore_says_so_when_the_project_ships_no_prebuilt_library(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(app, "PREBUILT_DIR", tmp_path / "prebuilt")
+    assert app.cmd_restore(None) == 1
+    assert "no prebuilt library" in capsys.readouterr().err
 
 
 def _run_preflight(cwd: Path, extra_env: dict[str, str]) -> "subprocess.CompletedProcess":
@@ -383,20 +481,168 @@ def test_preflight_catches_project_generated_outside_the_repo(tmp_path):
     assert result.returncode == 0
 
 
+# ------------------------------------------------------------------- the engine directory
+
+
+ENGINE_FILES = {
+    "engine.yaml": 'compile: openrouter:openai/x\nrecall: openrouter:openai/x\ndeep: ""\nembedding: openrouter:openai/y\n',
+    "intake/intake.yaml": "chunk_strategy: sentence\n",
+    "compile/challenge.yaml": "enabled: true\nmax_rounds: 3\nmax_questions: 6\ncompensate: true\n",
+    "evolve/evolve.yaml": "auto_trigger: false\ntrigger_topic_docs: 5\ntrigger_new_claims: 30\ndraft_ttl_hours: 24\n",
+    "recall/recall.yaml": 'answer_style: concise\nclaim_cap: 80\nwindow_cap: 8\nplan_queries: 2\nrerank_model: ""\nrerank_candidates: 120\n',
+    "persona/profile.yaml": 'display_name: "T"\n',
+}
+
+
+def _engine(monkeypatch, tmp_path, files: dict[str, str] | None = None) -> Path:
+    """A generated project's engine directory, pointed at by the driver under test.
+
+    In a real project `engine/` sits beside app.py; loaded from `templates/` there is none,
+    so one is materialized here and the module's paths are redirected at it.
+    """
+    engine = tmp_path / "engine"
+    for rel, text in (ENGINE_FILES if files is None else files).items():
+        path = engine / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+    monkeypatch.setattr(app, "ENGINE_DIR", engine)
+    monkeypatch.setattr(app, "PROFILE_PATH", engine / "persona" / "profile.yaml")
+    monkeypatch.setattr(app, "CONTRACT_PATH", engine / "compile" / "contract.md")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+    for name in (
+        "PNEUMA_KNOWLEDGE_CHUNK_STRATEGY",
+        "PNEUMA_KNOWLEDGE_EMBEDDING_MODEL",
+        "PNEUMA_KNOWLEDGE_RECALL_ANSWER_STYLE",
+        "PNEUMA_KNOWLEDGE_RECALL_CLAIM_CAP",
+        "PNEUMA_KNOWLEDGE_LLM_MODEL_COMPILE",
+        "PNEUMA_KNOWLEDGE_LLM_MODEL_RECALL",
+        "PNEUMA_KNOWLEDGE_LLM_MODEL_DEEP",
+        "PNEUMA_KNOWLEDGE_PROMPT_LANGUAGE",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    return engine
+
+
+def test_driver_addresses_the_contract_and_profile_inside_the_engine():
+    assert app.CONTRACT_PATH == app.ENGINE_DIR / "compile" / "contract.md"
+    assert app.PROFILE_PATH == app.ENGINE_DIR / "persona" / "profile.yaml"
+    assert app.ENGINE_DIR == app.PROJECT_ROOT / "engine"
+
+
+def test_build_settings_resolves_strategy_from_the_engine_directory(monkeypatch, tmp_path):
+    _engine(monkeypatch, tmp_path)
+    settings = app.build_settings()
+    assert settings.engine_dir == str(tmp_path / "engine")
+    assert settings.chunk_strategy == "sentence"
+    assert settings.recall_answer_style == "concise"
+    assert settings.recall_claim_cap == 80
+    assert settings.recall_plan_queries == 2
+    assert settings.challenge_enabled is True
+    assert settings.challenge_max_rounds == 3
+    assert settings.evolve_auto_trigger is False
+    assert settings.llm_model_compile == "openrouter:openai/x"
+    assert settings.embedding_model == "openrouter:openai/y"
+    # `deep` empty in the engine file means "answer deep questions with the recall model".
+    assert settings.llm_model_deep == "openrouter:openai/x"
+
+
+def test_the_environment_still_outranks_the_engine_file_in_the_driver(monkeypatch, tmp_path):
+    """The precedence rule is the framework's, and the driver uses the framework's resolver
+    rather than a second reading — so a one-off experiment works the same way everywhere."""
+    _engine(monkeypatch, tmp_path)
+    monkeypatch.setenv("PNEUMA_KNOWLEDGE_RECALL_CLAIM_CAP", "128")
+    monkeypatch.setenv("PNEUMA_KNOWLEDGE_CHUNK_STRATEGY", "semantic")
+    settings = app.build_settings()
+    assert settings.recall_claim_cap == 128
+    assert settings.chunk_strategy == "semantic"
+    assert settings.recall_answer_style == "concise"  # untouched by the environment
+
+
+def test_missing_models_name_the_engine_file_not_the_env(monkeypatch, tmp_path):
+    files = dict(ENGINE_FILES)
+    files["engine.yaml"] = 'compile: ""\nrecall: ""\nembedding: ""\n'
+    _engine(monkeypatch, tmp_path, files)
+    with pytest.raises(SystemExit) as exc:
+        app.require_models()
+    message = str(exc.value)
+    assert "engine.yaml: compile" in message
+    assert "engine/engine.yaml" in message
+
+
+def test_prompt_overlays_reach_the_framework_catalog(monkeypatch, tmp_path):
+    from pneuma_knowledge_core.prompts import catalog, reset_prompt_overrides
+
+    key = "compile.challenge.questions_system"
+    files = dict(ENGINE_FILES)
+    files["prompts/overlays.yaml"] = f'overlays:\n  {key}: "ask the hard ones"\n'
+    _engine(monkeypatch, tmp_path, files)
+    try:
+        assert app.apply_prompt_overlays() == 1
+        assert catalog()[key] == "ask the hard ones"
+    finally:
+        # The catalog is process-global; restore it so no later test inherits the overlay.
+        reset_prompt_overrides()
+
+
+def test_the_language_pack_is_the_framework_text_and_the_project_overrides_it(
+    monkeypatch, tmp_path
+):
+    """Two layers in one call, in this order. The project's own clause has to survive the
+    pack — a pack applied afterwards would take it back, silently, in the layer nobody
+    re-reads."""
+    from pneuma_knowledge_core.prompts import (
+        catalog,
+        chinese_overlay,
+        reset_prompt_overrides,
+    )
+
+    key = "compile.challenge.questions_system"
+    files = dict(ENGINE_FILES)
+    files["prompts/overlays.yaml"] = (
+        f'language: zh\noverlays:\n  {key}: "ask the hard ones"\n'
+    )
+    _engine(monkeypatch, tmp_path, files)
+    try:
+        assert app.apply_prompt_overlays() == 1
+        effective = catalog()
+        assert effective[key] == "ask the hard ones"
+        assert effective["compile.rules_header"] == chinese_overlay()["compile.rules_header"]
+    finally:
+        reset_prompt_overrides()
+
+
+def test_the_environment_can_pin_the_prompt_language_for_one_run(monkeypatch, tmp_path):
+    from pneuma_knowledge_core.prompts import (
+        catalog,
+        default_catalog,
+        reset_prompt_overrides,
+    )
+
+    files = dict(ENGINE_FILES)
+    files["prompts/overlays.yaml"] = "language: zh\noverlays: {}\n"
+    _engine(monkeypatch, tmp_path, files)
+    monkeypatch.setenv("PNEUMA_KNOWLEDGE_PROMPT_LANGUAGE", "en")
+    try:
+        assert app.apply_prompt_overlays() == 0
+        assert catalog()["compile.rules_header"] == default_catalog()["compile.rules_header"]
+    finally:
+        reset_prompt_overrides()
+
+
+def test_an_unknown_overlay_key_is_refused_rather_than_ignored(monkeypatch, tmp_path):
+    files = dict(ENGINE_FILES)
+    files["prompts/overlays.yaml"] = 'overlays:\n  not.a.real.key: "x"\n'
+    _engine(monkeypatch, tmp_path, files)
+    with pytest.raises(ValueError, match="unknown prompt key"):
+        app.apply_prompt_overlays()
+
+
 def test_build_settings_carries_the_contract_version(monkeypatch, tmp_path):
     """Job kinds beyond `compile` (groom/evolve/challenge) resolve their skill from
     settings.user_schema_base_version — an empty version bricks the first groom job.
     Found by the clean-room example build: a document crossed the rollover threshold
     and the groom job died on `no skill base registered for an empty version string`."""
-    # In a generated project profile.yaml sits beside app.py; under templates/ it is a
-    # language-variant template, so materialize one for the settings assembly to read.
-    profile = tmp_path / "profile.yaml"
-    profile.write_text('display_name: "T"\n', encoding="utf-8")
-    monkeypatch.setattr(app, "PROFILE_PATH", profile)
-    monkeypatch.setenv("PNEUMA_APP_COMPILE_MODEL", "openrouter:openai/x")
-    monkeypatch.setenv("PNEUMA_APP_RECALL_MODEL", "openrouter:openai/x")
-    monkeypatch.setenv("PNEUMA_APP_EMBEDDING_MODEL", "openrouter:openai/y")
-    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+    _engine(monkeypatch, tmp_path)
     settings = app.build_settings(base_version="app-v7")
     assert settings.user_schema_base_version == "app-v7"
     # And the default stays deliberately empty: compile passes its skill explicitly,

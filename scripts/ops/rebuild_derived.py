@@ -39,7 +39,7 @@ import _env  # noqa: F401  (import for side effect)
 from pneuma_knowledge_core.domain.ids import UserId
 from pneuma_knowledge_core.ingest.chunking import EmbeddedChunk
 from pneuma_knowledge_service.projection import rebuild_projection
-from pneuma_knowledge_service.settings import Settings
+from pneuma_knowledge_service.settings import Settings, get_settings
 from pneuma_knowledge_service.wiring import build_context
 
 from reindex_l2 import _chunks_for
@@ -98,7 +98,7 @@ async def rebuild_user(ctx, user_id: UserId) -> None:
 
 async def main() -> int:
     args = sys.argv[1:]
-    settings = Settings()
+    settings = get_settings()
     ctx = await build_context(settings)
     print(
         f"chunk_strategy={settings.chunk_strategy}  "

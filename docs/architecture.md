@@ -136,3 +136,28 @@ Three middleware containers (Postgres, Qdrant, Meilisearch) plus two stateless p
 The Git binary is a runtime requirement (the canonical adapter shells out). Async discipline is full-stack: ports and everything touching them are `async`; pure helpers stay sync; unavoidably blocking work (git subprocess, chunking) is wrapped in threads inside adapters.
 
 Model wiring is role-based — compile, recall, deep, skill, evolve, challenge, live-context — each independently configurable, with a single one-hop fallback and a shared default. A `scripted:` model spec replays recorded responses for keyless, deterministic runs; embeddings accept a deterministic `fake:<dim>` for the same purpose. Tracing (Langfuse) is a no-op unless fully configured.
+
+## 11. The engine directory
+
+Everything that IS a deployment's engine — strategy, the compile contract, prompt overlays, the owner profile — can live in one directory, versioned as its own git repository, separate from data, secrets and machinery. `PNEUMA_KNOWLEDGE_ENGINE_DIR` points at it; unset (the default) means the deployment has none and every strategy key resolves exactly as it did before the concept existed.
+
+```
+engine/                    # its own git repo; one commit per apply
+  engine.yaml              # the four model roles (compile / recall / deep / embedding)
+  intake/intake.yaml       # chunk_strategy
+  compile/contract.md      # the constitution — a DOCUMENT, never decomposed into knobs
+  compile/challenge.yaml   # coverage-challenge knobs
+  evolve/evolve.yaml       # evolve trigger knobs
+  recall/recall.yaml       # answer style and retrieval budgets
+  persona/profile.yaml     # the owner profile
+  prompts/overlays.yaml    # prompt language + catalog key → replacement clause
+                           # (the prompt extension point)
+```
+
+Three properties make it a mechanism rather than a convention:
+
+- **Precedence is fixed at three levels: process env > engine file > framework default.** Explicit environment wins so a benchmark harness can override per run without dirtying the versioned unit; the engine file is the durable truth a person edits. It is enforced at settings assembly — the engine file's values are handed to `Settings` only for keys the environment leaves unstated.
+- **Secrets and infrastructure never enter it.** Connection targets, ports and API keys stay in the deployment's environment; every write refuses a dotfile path and API-key-shaped content.
+- **The picture is derived, never drawn.** A machine-readable engine schema (stages, knobs with their defaults and env names, apply semantics, pipeline edges) is generated from `Settings` metadata plus a hand-authored stage map, and a test pins the two in sync — adding a strategy knob without covering it fails the suite.
+
+Each edit states its blast radius, which is invariant I2 made visible: `hot` (the next process to read the files picks it up), `restart` (API/worker rewiring), `future_compiles` (governs future compiles only; canonical is never rewritten), `derived_rebuild` (takes full effect for existing content after `rebuild_derived`). The contract stays a document with version history and an editor, never a form of toggles: knowledge modelling is judgement, and pretending it is checkbox configuration would be the one lie this framework cannot afford. Full design: [docs/design/engine-console.md](design/engine-console.md).

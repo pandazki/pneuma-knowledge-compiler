@@ -132,7 +132,12 @@ services:
   web:
     build:
       context: ../..
-      dockerfile: examples/opc/Dockerfile.web
+      dockerfile: docker/compose-web.Dockerfile
+      args:
+        # This example's api service serves no engine directory (it predates the concept),
+        # so the Engine Console view stays on its mock fixtures here. A scaffold-generated
+        # project takes the default and talks to the real /v1/engine/* routes.
+        VITE_ENGINE_FIXTURES: "true"
     profiles: ["web"]
     depends_on:
       api:

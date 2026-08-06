@@ -12,6 +12,7 @@ Everything else is a lookup, not a read-through:
 | Feeding in meeting / library / IM / email data | [reference/source-contracts.md](reference/source-contracts.md) |
 | Building against the HTTP API | [reference/http-api.md](reference/http-api.md) |
 | Deploying or tuning | [reference/configuration.md](reference/configuration.md) |
+| Configuring an engine's strategy as one versioned unit | [design/engine-console.md](design/engine-console.md) |
 | Wiring up tracing | [reference/observability.md](reference/observability.md) |
 | Containerizing / running it anywhere | [reference/deployment.md](reference/deployment.md) |
 

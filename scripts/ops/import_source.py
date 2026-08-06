@@ -23,7 +23,7 @@ from pneuma_knowledge_service.adapters.source_imports import (
     ZoomVttAdapter,
 )
 from pneuma_knowledge_service.ingest_sources import ingest_source_contract
-from pneuma_knowledge_service.settings import Settings
+from pneuma_knowledge_service.settings import Settings, get_settings
 from pneuma_knowledge_service.wiring import build_context
 
 
@@ -57,7 +57,7 @@ def _contract(args):
 
 async def run(args) -> int:
     contract = _contract(args)
-    ctx = await build_context(Settings())
+    ctx = await build_context(get_settings())
     try:
         result = await ingest_source_contract(ctx, UserId(args.user), contract)
         print(f"contract={result.contract_schema} units={len(result.sources)}")

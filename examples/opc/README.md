@@ -66,5 +66,5 @@ The whole point of this example is that you can. Give a coding agent the scaffol
 | `my-data/` | the synthetic corpus, in scaffold ingest format |
 | `prebuilt/canonical.bundle`, `prebuilt/l0.jsonl.gz` | the two authorities from the build: the compiled canonical library (git bundle) and the verbatim L0 source rows its citations bind to (source ids are system-assigned, so a re-ingest could never reproduce them) |
 | `bootstrap.py` | keyless restore: canonical bundle + L0 dump + derived rebuild |
-| `server.py`, `Dockerfile.web`, `nginx.conf`, compose `web` profile | the browsing layer — this example's one divergence from the plain scaffold |
+| `server.py`, compose `web` profile (image: framework `docker/compose-web.Dockerfile`) | the browsing layer — this example's one divergence from the plain scaffold |
 | `build-record/` | task book, build log, full agent transcript |

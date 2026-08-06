@@ -27,15 +27,15 @@ Every piece of knowledge must carry citations that resolve to exact passages of 
 
 ## See it in three minutes
 
-No API key required — `examples/opc` ships a real, agent-built library (190 synthetic sources, 754 claims) that restores locally in about a minute:
+No API key, no questions asked. One command generates a real project that already has a compiled library (190 synthetic sources, 754 claims), starts it, and tells you where to look:
 
 ```bash
-cd examples/opc && cp .env.example .env
-./app.py up && ./bootstrap.py
-docker compose --profile web up -d --build api web   # first build takes a few minutes
+cd scaffold && ./init.py --demo      # lands in a fresh temp directory; --target DIR to choose
 ```
 
-Open <http://127.0.0.1:24173> and walk the whole pipeline in the browser: sources, compile history, the canonical library with per-claim citations and a frozen archive volume, and the retrieval surfaces. Asking questions needs an OpenRouter key in `.env`; browsing doesn't.
+It prints a `http://127.0.0.1:<port>` address. Walk the whole pipeline in the browser: sources, compile history, the canonical library with per-claim citations and a frozen archive volume, the retrieval surfaces, and the Engine Console — where you change a strategy knob, read its stated blast radius, and apply it as a version. Asking questions needs an OpenRouter key; everything above doesn't.
+
+The library it ships is [`examples/opc`](examples/opc/README.md) — an agent-built example you can also run in place (`cd examples/opc && ./demo.sh`).
 
 ## Build one from your own data
 
@@ -46,7 +46,7 @@ cd scaffold && ./init.py     # interactive: defaults at every step, bundled demo
 cd ~/my-kb && ./start.sh     # stack, ingest, compile, cited demo answers — one command
 ```
 
-Then make it yours: feed your `.md` material to `./app.py ingest <dir>`, edit `contract.md` (what deserves to be recorded) and `profile.yaml` (whose library this is), recompile and review.
+Then make it yours: feed your `.md` material to `./app.py ingest <dir>`, edit `engine/compile/contract.md` (what deserves to be recorded) and `engine/persona/profile.yaml` (whose library this is), recompile and review.
 
 Prefer to be guided? Hand `scaffold/AGENT-GUIDE.md` to your coding agent and it will walk you through building a library from your own data, step by step.
 

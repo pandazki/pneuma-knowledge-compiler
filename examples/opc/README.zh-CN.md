@@ -66,5 +66,5 @@ docker compose --profile web up -d api                # Web 问答生效
 | `my-data/` | 合成语料，scaffold 摄入格式 |
 | `prebuilt/canonical.bundle`、`prebuilt/l0.jsonl.gz` | 构建期的两个权威：编译好的正本文库（git bundle）与其引用所绑定的 L0 原始来源逐字行（source id 是系统分配的，重摄入不可能复现） |
 | `bootstrap.py` | 无钥恢复：正本 bundle + L0 dump + 派生层重建 |
-| `server.py`、`Dockerfile.web`、`nginx.conf`、compose 的 `web` profile | 浏览层——本示例与纯 scaffold 的唯一分叉 |
+| `server.py`、compose 的 `web` profile（镜像用框架的 `docker/compose-web.Dockerfile`） | 浏览层——本示例与纯 scaffold 的唯一分叉 |
 | `build-record/` | 任务书、构建日志、代理完整轨迹 |

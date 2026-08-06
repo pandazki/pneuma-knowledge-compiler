@@ -136,3 +136,27 @@ fast 面的 claim 检索带两个可选阶段（都默认关；关闭路径字�
 Git 二进制是运行时必备（正本适配器通过子进程调用它）。异步纪律贯穿全栈：端口及一切触及端口的代码都是 `async`；纯计算辅助函数保持同步；不可避免的阻塞操作（git 子进程、分块）在适配器内包线程执行。
 
 模型接线按角色划分——compile、recall、deep、skill、evolve、challenge、live-context——各自独立可配，带一跳回退和共享默认值。`scripted:` 模型规格回放录制好的响应，用于零密钥、确定性的运行；向量模型同理接受确定性的 `fake:<dim>`。追踪（Langfuse）在未完整配置时整体为空操作。
+
+## 11. 引擎目录
+
+一个部署里「构成引擎本身」的东西——策略、编译契约、提示词覆盖、主人档案——可以住在同一个目录里，作为它自己的 git 仓库被版本化，与数据、密钥、机械件分开。`PNEUMA_KNOWLEDGE_ENGINE_DIR` 指向它；不设（默认）就表示这个部署没有引擎目录，所有策略键的解析与这个概念存在之前逐字节一致。
+
+```
+engine/                    # 自己的 git 仓库；每次 apply 一个提交
+  engine.yaml              # 四个模型角色（compile / recall / deep / embedding）
+  intake/intake.yaml       # chunk_strategy
+  compile/contract.md      # 宪法——一份文档，永不被拆成旋钮
+  compile/challenge.yaml   # 覆盖质询的旋钮
+  evolve/evolve.yaml       # 演进触发的旋钮
+  recall/recall.yaml       # 回答风格与检索预算
+  persona/profile.yaml     # 主人档案
+  prompts/overlays.yaml    # 提示词语言 + 目录键 → 替换文案（提示词扩展点）
+```
+
+三条性质让它成为机制而不是约定：
+
+- **优先级固定为三级：进程 env > 引擎文件 > 框架默认。** 显式环境变量优先，好让基准测试可以逐次覆盖而不脏化被版本化的单元；引擎文件是人真正在编辑的、持久的那份真相。这条规则在 settings 装配处被机械执行——引擎文件的值只在环境未表态的键上被交给 `Settings`。
+- **密钥与基础设施永不进入。** 连接地址、端口、API key 留在部署的环境里；任何写入都会拒绝点文件路径与形似 API key 的内容。
+- **图是导出的，不是画出来的。** 一份机器可读的引擎 schema（各阶段、带默认值与 env 名的旋钮、生效语义、流水线连边）由 `Settings` 元数据加一份手写的阶段地图生成，并有测试把两者钉在一起——新增策略旋钮而未被覆盖，测试就红。
+
+每一次编辑都要说出自己的影响半径，这就是把不变量 I2 摆到明面上：`hot`（下一个读这些文件的进程即生效）、`restart`（API/worker 需要重新接线）、`future_compiles`（只管未来的编译；正典永不被回溯重写）、`derived_rebuild`（对已有内容要跑 `rebuild_derived` 才完全生效）。契约始终是一份带版本历史和编辑器的文档，绝不是一堆开关：知识建模是判断力，把它装成打勾式配置，是这个框架唯一负担不起的谎。完整设计见 [docs/design/engine-console.zh-CN.md](design/engine-console.zh-CN.md)。
