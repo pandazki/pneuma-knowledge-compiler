@@ -648,3 +648,57 @@ def test_build_settings_carries_the_contract_version(monkeypatch, tmp_path):
     # And the default stays deliberately empty: compile passes its skill explicitly,
     # so a version only matters when the caller registered one.
     assert app.build_settings().user_schema_base_version == ""
+
+
+async def _run_step(monkeypatch, *, drafts, enqueue_codes, policy="adopt-clean"):
+    """Drive _evolve_step against a scripted draft/enqueue sequence; returns
+    (exit_code, enqueue_calls). `drafts` is what successive pending-draft checks see."""
+    draft_seq = list(drafts)
+    codes = list(enqueue_codes)
+    calls: list[tuple[str, dict]] = []
+
+    async def fake_pending():
+        return draft_seq.pop(0) if draft_seq else None
+
+    async def fake_enqueue(kind, payload):
+        calls.append((kind, payload))
+        return codes.pop(0) if codes else 0
+
+    monkeypatch.setattr(app, "_evolve_pending_draft", fake_pending)
+    monkeypatch.setattr(app, "_evolve_enqueue", fake_enqueue)
+    return await app._evolve_step(policy), calls
+
+
+async def test_evolve_step_disposes_a_stuck_pending_draft_instead_of_hammering_run(monkeypatch):
+    """The observed live failure: a retry loop calling `evolve run` eight times against
+    the same pending draft. `step` adopts it and never touches `run`."""
+    code, calls = await _run_step(
+        monkeypatch, drafts=["t-1", None], enqueue_codes=[0]
+    )
+    assert code == 0
+    assert calls == [("evolve_adopt", {"task_id": "t-1"})]
+
+
+async def test_evolve_step_runs_then_disposes_the_new_draft(monkeypatch):
+    code, calls = await _run_step(
+        monkeypatch, drafts=[None, "t-2", None], enqueue_codes=[0, 0]
+    )
+    assert code == 0
+    assert calls == [("evolve", {}), ("evolve_adopt", {"task_id": "t-2"})]
+
+
+async def test_evolve_step_reports_nothing_to_do_and_keep_policy(monkeypatch):
+    code, calls = await _run_step(monkeypatch, drafts=[None, None], enqueue_codes=[0])
+    assert code == 0 and calls == [("evolve", {})]
+
+    code, calls = await _run_step(monkeypatch, drafts=["t-3"], enqueue_codes=[], policy="keep")
+    assert code == 2 and calls == []
+
+
+async def test_evolve_step_surfaces_a_failed_adopt_instead_of_claiming_progress(monkeypatch):
+    # Adopt job ran (code 0) but the draft is still pending afterwards → exit 2.
+    code, calls = await _run_step(
+        monkeypatch, drafts=["t-4", "t-4"], enqueue_codes=[0]
+    )
+    assert code == 2
+    assert calls == [("evolve_adopt", {"task_id": "t-4"})]

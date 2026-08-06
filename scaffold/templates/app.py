@@ -1139,6 +1139,63 @@ async def _evolve_drop(task_id: str) -> int:
     return 0
 
 
+async def _evolve_pending_draft():
+    """The live draft's task_id, or None. One place answers "is something awaiting review"."""
+    from pneuma_knowledge_service.evolve_service import list_tasks_with_expiry
+
+    ctx, uid = await _evolve_ctx()
+    try:
+        tasks = await list_tasks_with_expiry(ctx, uid)
+    finally:
+        await ctx.aclose()
+    for task in tasks:
+        if task["status"] == "draft":
+            return str(task["task_id"])
+    return None
+
+
+async def _evolve_step(policy: str) -> int:
+    """One idempotent evolution step — the verb unattended pipelines should call.
+
+    `evolve run` refuses while a draft awaits review, so a script composing run/adopt by
+    hand must carry that state machine itself; every automation writing it fresh is a
+    bug factory (observed live: a retry loop hammering `run` against the same pending
+    draft eight times). `step` owns the whole cycle instead:
+
+      pending draft?  → dispose it per --policy (adopt-clean: adopt now; keep: leave it
+                        and say so with exit 2)
+      no draft        → trigger one evolve run, then dispose any NEW draft the same way
+
+    Safe to call repeatedly from a loop or a data-driven trigger: every invocation either
+    makes progress, reports "nothing to do", or names the draft a human must look at.
+    Exit codes: 0 progressed / nothing to do · 1 real failure · 2 draft kept for review.
+    """
+    pending = await _evolve_pending_draft()
+    if pending is None:
+        code = await _evolve_enqueue("evolve", {})
+        if code != 0:
+            return code
+        pending = await _evolve_pending_draft()
+        if pending is None:
+            print("evolve step: no draft produced (no_change or below thresholds).")
+            return 0
+    if policy == "keep":
+        print(f"evolve step: draft {pending} awaits review (policy=keep). "
+              f"Inspect: ./app.py evolve show {pending}")
+        return 2
+    # adopt-clean: adoption itself runs the ordinary gate; a failing adopt leaves the
+    # draft in place and this returns nonzero rather than pretending progress.
+    code = await _evolve_enqueue("evolve_adopt", {"task_id": pending})
+    if code != 0:
+        return code
+    if await _evolve_pending_draft() == pending:
+        print(f"evolve step: adopt did not land; draft {pending} kept for review.",
+              file=sys.stderr)
+        return 2
+    print(f"evolve step: draft {pending} adopted.")
+    return 0
+
+
 def cmd_evolve(args) -> int:
     action = args.action or "list"
     if action in ("show", "adopt", "drop") and not args.task_id:
@@ -1149,6 +1206,8 @@ def cmd_evolve(args) -> int:
         return asyncio.run(_evolve_show(args.task_id))
     if action == "run":
         return asyncio.run(_evolve_enqueue("evolve", {}))
+    if action == "step":
+        return asyncio.run(_evolve_step(getattr(args, "policy", "adopt-clean") or "adopt-clean"))
     if action == "adopt":
         return asyncio.run(_evolve_enqueue("evolve_adopt", {"task_id": args.task_id}))
     if action == "drop":
@@ -1503,10 +1562,16 @@ def main() -> int:
     sub.add_parser(
         "restore", help="restore the library this project ships in prebuilt/ (no key needed)"
     )
-    evolve = sub.add_parser("evolve", help="schema evolution: list / run / show / adopt / drop proposals")
+    evolve = sub.add_parser("evolve", help="schema evolution: list / step / run / show / adopt / drop")
     evolve.add_argument("action", nargs="?", default="list",
-                        choices=["list", "run", "show", "adopt", "drop"])
+                        choices=["list", "step", "run", "show", "adopt", "drop"])
     evolve.add_argument("task_id", nargs="?")
+    evolve.add_argument(
+        "--policy",
+        choices=["adopt-clean", "keep"],
+        default="adopt-clean",
+        help="evolve step only: dispose a draft by adopting it (gate decides), or keep it for review (exit 2)",
+    )
     sub.add_parser("status", help="stack and library status")
     demo = sub.add_parser("demo", help="end to end: up → init → ingest → compile → Q&A")
     demo.add_argument("--yes", action="store_true", help="no prompts, take every default (CI/non-interactive)")
