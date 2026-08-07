@@ -225,6 +225,43 @@ def _number_blocks(window: list[NormalizedBlock], offset: int) -> str:
     return "\n".join(lines)
 
 
+async def _ask_structured(
+    model: BaseChatModel,
+    schema: type,
+    messages: list,
+    *,
+    callbacks: list | None,
+    trace_metadata: dict | None,
+    attempts: int = 2,
+):
+    """One structured-output round trip, degrading instead of raising.
+
+    The window gates below judge what the model SAID; they never see a call whose reply
+    could not be decoded at all — a truncated or prose-wrapped tool-call payload makes
+    `with_structured_output` raise while parsing, upstream of every gate. That exception
+    used to escape the chunker and kill the whole index job, permanently: nothing retries
+    an index job, so one malformed reply left a source unindexed for good (seen on a real
+    corpus — the same window parsed fine on a plain re-run).
+
+    So the discipline the gates already follow — the model not cooperating degrades the
+    result, never the run — is extended one layer out: retry once, then give up on THIS
+    window and return None. A None reply reports no boundaries for the window, which the
+    existing repair reads as "one segment here", and an over-long segment is already
+    sentence-sub-split downstream (DEFAULT_MAX_CHUNK_CHARS). Coarser chunking for one
+    window, instead of a source that never gets indexed at all."""
+    structured = model.with_structured_output(schema)
+    config = invoke_config("chunk.semantic", callbacks, trace_metadata)
+    for attempt in range(attempts):
+        try:
+            return await structured.ainvoke(messages, config=config)
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            raise
+        except Exception:  # noqa: BLE001 — any undecodable reply degrades this window
+            if attempt == attempts - 1:
+                return None
+    return None
+
+
 async def _segment_window_starts(
     window: list[NormalizedBlock],
     offset: int,
@@ -250,10 +287,12 @@ async def _segment_window_starts(
         SystemMessage(content=prompt("ingest.semantic.rubric")),
         HumanMessage(content=human),
     ]
-    structured = model.with_structured_output(Segments)
-    result = await structured.ainvoke(
+    result = await _ask_structured(
+        model,
+        Segments,
         messages,
-        config=invoke_config("chunk.semantic", callbacks, trace_metadata),
+        callbacks=callbacks,
+        trace_metadata=trace_metadata,
     )
     starts: set[int] = set()
     for seg in getattr(result, "segments", []) or []:
@@ -382,10 +421,12 @@ async def _segment_window_spans(
         SystemMessage(content=prompt("ingest.semantic.rubric_overlap")),
         HumanMessage(content=human),
     ]
-    structured = model.with_structured_output(SegmentSpans)
-    result = await structured.ainvoke(
+    result = await _ask_structured(
+        model,
+        SegmentSpans,
         messages,
-        config=invoke_config("chunk.semantic", callbacks, trace_metadata),
+        callbacks=callbacks,
+        trace_metadata=trace_metadata,
     )
     spans = _coerce_spans(getattr(result, "segments", []))
     if overlap_rejection(spans, lo, hi):

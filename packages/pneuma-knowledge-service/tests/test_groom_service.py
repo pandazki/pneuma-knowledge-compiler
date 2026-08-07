@@ -467,3 +467,83 @@ async def test_a_second_groom_opens_the_next_volume_and_leaves_the_first_frozen(
     assert render_document(*parse_document(files["work/products/aurora-planner/a01.md"])) == (
         files["work/products/aurora-planner/a01.md"]
     )
+
+
+class _FlakyStructured:
+    """First card is ungroundable (names an anchor it may not name), the second is clean."""
+
+    def __init__(self, bad, good) -> None:
+        self._replies = [bad, good]
+        self.calls = 0
+
+    async def ainvoke(self, messages, config=None):  # noqa: ARG002
+        self.calls += 1
+        return {"parsed": self._replies[min(self.calls - 1, len(self._replies) - 1)]}
+
+
+class _FlakyModel:
+    def __init__(self, bad, good) -> None:
+        self.structured = _FlakyStructured(bad, good)
+
+    def with_structured_output(self, schema, include_raw=False):  # noqa: ARG002
+        return self.structured
+
+
+async def test_a_refused_history_card_is_rewritten_once_before_the_groom_is_abandoned(
+    monkeypatch,
+):
+    """A rollover refused by the gate must get the same second chance a compile gets.
+
+    Nothing retries a groom job: a failed one stays failed, its document stays oversized, and
+    every later drain keeps reporting the same unresolved failure (seen on a real corpus,
+    where the identical card passed on a plain re-run). One rewrite, then judge again."""
+    active = _active(30)
+    store, canonical = _FakeStore(), _FakeCanonical([active])
+    calls = _install_stubs(monkeypatch)
+    ungroundable = _OverviewDraft(
+        points=[
+            _OverviewPointDraft(
+                text="Cites a claim that is not being archived.",
+                anchors=[_anchor("claim-not-in-this-rollover")],
+            )
+        ]
+    )
+    clean = _OverviewDraft(
+        points=[
+            _OverviewPointDraft(
+                text="The launch checklist was driven to done.",
+                anchors=[_anchor("claim-0"), _anchor("claim-3")],
+            )
+        ]
+    )
+    model = _FlakyModel(ungroundable, clean)
+    ctx = _ctx(store, canonical, model, rollover_keep_recent_chars=400)
+
+    await run_groom_job(ctx, "u-x", _job())
+
+    assert model.structured.calls == 2  # rewritten exactly once
+    assert len(canonical.commits) == 1  # and the retry's card is what got committed
+    assert store.completed[-1]["ok"] is True
+    assert calls["synced_ref"] == "sha-groomed"
+
+
+async def test_a_twice_refused_history_card_still_fails_the_job(monkeypatch):
+    active = _active(30)
+    store, canonical = _FakeStore(), _FakeCanonical([active])
+    _install_stubs(monkeypatch)
+    ungroundable = _OverviewDraft(
+        points=[
+            _OverviewPointDraft(
+                text="Cites a claim that is not being archived.",
+                anchors=[_anchor("claim-not-in-this-rollover")],
+            )
+        ]
+    )
+    model = _FlakyModel(ungroundable, ungroundable)
+    ctx = _ctx(store, canonical, model, rollover_keep_recent_chars=400)
+
+    await run_groom_job(ctx, "u-x", _job())
+
+    assert model.structured.calls == 2
+    assert canonical.commits == []
+    assert store.completed[-1]["ok"] is False

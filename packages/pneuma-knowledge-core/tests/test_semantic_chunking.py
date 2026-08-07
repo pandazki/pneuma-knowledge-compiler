@@ -8,6 +8,8 @@ over-long sub-splitting, windowing, determinism, and boundary repair.
 
 from __future__ import annotations
 
+import json
+
 from pneuma_knowledge_core.domain.ids import SourceId
 from pneuma_knowledge_core.domain.source import NormalizedBlock, SectionSpan, StructureMap
 from pneuma_knowledge_core.ingest.chunking import build_chunker, join_blocks
@@ -708,3 +710,52 @@ def test_an_unreadable_manifest_declines_to_replay_rather_than_guessing():
     assert decode_manifest_segments([], block_indices=idx) is None
     assert decode_manifest_segments(None, block_indices=idx) is None
     assert decode_manifest_segments([[0, 1, 2]], block_indices=idx) is None
+
+
+class _UndecodableStructured:
+    """`with_structured_output(...)` that raises the way a truncated tool-call payload does:
+    the failure happens while DECODING the reply, before any segment reaches the gates."""
+
+    def __init__(self, fail_times: int) -> None:
+        self.fail_times = fail_times
+        self.calls = 0
+
+    async def ainvoke(self, messages, config=None):  # noqa: ANN001
+        self.calls += 1
+        if self.calls <= self.fail_times:
+            raise json.JSONDecodeError("Expecting value", "{\n", 2)
+        return Segments(segments=[0])
+
+
+class _UndecodableModel:
+    def __init__(self, fail_times: int) -> None:
+        self.structured = _UndecodableStructured(fail_times)
+
+    def with_structured_output(self, schema):  # noqa: ANN001
+        return self.structured
+
+
+async def test_undecodable_reply_retries_once_then_degrades_instead_of_raising():
+    """A reply that cannot be decoded must not kill the run.
+
+    The window gates judge what the model SAID; a truncated tool-call payload never reaches
+    them — `with_structured_output` raises while parsing. That exception used to escape the
+    chunker and fail the index job permanently (nothing retries an index job), leaving the
+    source unindexed for good. One retry, then this window degrades to a single segment."""
+    blocks = _blocks(["one.", "two.", "three."])
+
+    # Transient: the retry succeeds, so segmentation is the model's own.
+    transient = _UndecodableModel(fail_times=1)
+    assert await semantic_segments(blocks, model=transient) == [(0, 2)]
+    assert transient.structured.calls == 2
+
+    # Persistent: both attempts fail — no exception, total coverage preserved.
+    persistent = _UndecodableModel(fail_times=99)
+    segments = await semantic_segments(blocks, model=persistent)
+    assert segments == [(0, 2)]
+    assert persistent.structured.calls == 2
+
+    # Same discipline on the smart-overlap contract.
+    smart = _UndecodableModel(fail_times=99)
+    assert await semantic_segments(blocks, model=smart, overlap="smart") == [(0, 2)]
+    assert smart.structured.calls == 2

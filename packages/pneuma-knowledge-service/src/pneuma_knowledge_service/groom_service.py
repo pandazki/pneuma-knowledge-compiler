@@ -51,6 +51,11 @@ from .wiring import AppContext, llm_call_config
 #: The job kind. On the shared per-user queue next to compile / index / evolve.
 GROOM_JOB_KIND = "groom"
 
+# How many times the history card may be written before a rollover is recorded as failed.
+# Same shape as the compile gate's one repair round: the first refusal is usually this one
+# output being wrong, not the plan.
+GROOM_CARD_ATTEMPTS = 2
+
 
 async def _enqueue_oversized(
     ctx: AppContext, user: UserId, candidates: Mapping[str, str]
@@ -210,37 +215,45 @@ async def run_groom_job(ctx: AppContext, user: UserId, job: object) -> None:
         if volume is not None:
             known |= set(extract_anchors(volume.body))
 
-    points, reason = await write_overview(
-        model=ctx.get_chat_model("compile"),
-        plan=plan,
-        known_anchors=known,
-        **llm_call_config(
-            ctx,
-            operation="compile.groom",
-            user_id=str(user),
-            extra={
-                "job_id": str(job_id),
-                "document_path": path,
-                "volume_path": plan.volume_path,
-                "archived_claims": plan.archived_claims,
-                "skill_version": skill.version,
-            },
-        ),
-    )
-    if reason != "written":
-        await ctx.store.complete(
-            user, job_id, ok=False, detail=f"groom: history card {reason}"
+    # Both remaining failures are one model output's fault — a card that came back unwritable,
+    # or one the gate refused (an overview point naming an anchor it may not name is the
+    # observed shape). Nothing retries a groom job afterwards: a failed one stays failed, its
+    # document stays oversized, and every later drain reports the same unresolved failure. So
+    # the card gets the same second chance a gate-rejected compile gets — regenerate once, judge
+    # again — and only a twice-refused card is recorded as the failure.
+    result = None
+    detail = ""
+    for attempt in range(GROOM_CARD_ATTEMPTS):
+        points, reason = await write_overview(
+            model=ctx.get_chat_model("compile"),
+            plan=plan,
+            known_anchors=known,
+            **llm_call_config(
+                ctx,
+                operation="compile.groom",
+                user_id=str(user),
+                extra={
+                    "job_id": str(job_id),
+                    "document_path": path,
+                    "volume_path": plan.volume_path,
+                    "archived_claims": plan.archived_claims,
+                    "skill_version": skill.version,
+                    "attempt": attempt + 1,
+                },
+            ),
         )
-        return
+        if reason != "written":
+            result, detail = None, f"groom: history card {reason}"
+            continue
+        candidate = build_rollover(plan, points, docs, path_templates=skill.path_templates)
+        if candidate.status == "rejected":
+            result, detail = None, "; ".join(v.render() for v in candidate.violations)
+            continue
+        result = candidate
+        break
 
-    result = build_rollover(plan, points, docs, path_templates=skill.path_templates)
-    if result.status == "rejected":
-        await ctx.store.complete(
-            user,
-            job_id,
-            ok=False,
-            detail="; ".join(v.render() for v in result.violations),
-        )
+    if result is None:
+        await ctx.store.complete(user, job_id, ok=False, detail=detail)
         return
 
     snapshot = await ctx.canonical.commit_patch(
