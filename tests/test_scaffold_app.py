@@ -702,3 +702,29 @@ async def test_evolve_step_surfaces_a_failed_adopt_instead_of_claiming_progress(
     )
     assert code == 2
     assert calls == [("evolve_adopt", {"task_id": "t-4"})]
+
+
+def test_compile_drain_heals_orphaned_claims_first():
+    """An interrupted `./app.py compile` leaves its job 'claimed'; claim_next then skips
+    that user's queue forever. For a scaffold project this in-process drain is the ONLY
+    drain path (no worker restart to self-heal), so it must requeue orphans before
+    draining — without this, one Ctrl-C mid-compile bricks the project permanently."""
+    src = APP_PATH.read_text(encoding="utf-8")
+    compile_body = src.split("async def _compile(")[1].split("\nasync def ")[0]
+    heal = compile_body.index("requeue_orphaned_jobs")
+    drain = compile_body.index("_drain_with_progress")
+    assert heal < drain
+
+
+def test_gate_retry_carries_the_per_source_treatments():
+    """The one retry round must not overrule the intake decision.
+
+    A compile job's payload can carry `treatments` — per source, whether it is digested in
+    full or only distilled. Re-enqueuing with source_ids alone drops that map, so the retry
+    compiles at the plan's default and a distil-only source gets fully digested. The retry
+    is a second attempt at the SAME job, not a different one."""
+    src = APP_PATH.read_text(encoding="utf-8")
+    body = src.split("async def _compile(")[1].split("\nasync def ")[0]
+    retry = body[body.index("rejected by the gate") : body.index("_drain_with_progress", body.index("rejected by the gate"))]
+    assert "treatments" in retry, "the retry drops the per-source treatments map"
+    assert 'ctx.store.enqueue(uid, "compile", {"source_ids": sources})' not in retry

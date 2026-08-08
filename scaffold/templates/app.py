@@ -989,6 +989,13 @@ async def _compile() -> tuple[int, dict[str, int]]:
     try:
         uid = UserId(user_id())
         await upsert_owner_profile(ctx, uid)
+        # A drain killed mid-job (Ctrl-C, agent timeout, machine sleep) leaves its claim
+        # orphaned, and claim_next then refuses this user's queue forever — the worker
+        # service self-heals on startup, but this in-process drain is many users' ONLY
+        # drain path, so it must heal too or one interrupted compile bricks the project.
+        from pneuma_knowledge_service.workers.compile_worker import requeue_orphaned_jobs
+
+        await requeue_orphaned_jobs(ctx, label="app-compile")
         model = ctx.get_chat_model("compile")
         tracker = _attach_usage_tracker(model)
         print(f"== Draining the compile queue (user={uid}, contract {skill.skill_id}@{skill.version}) ==")
@@ -1003,15 +1010,27 @@ async def _compile() -> tuple[int, dict[str, int]]:
             print(f"  {len(retriable)} compile jobs rejected by the gate — one retry round…")
             seen: set[str] = set()
             for job in retriable:
+                payload = job.get("payload") or {}
                 sources = [
                     str(s)
-                    for s in (job.get("payload") or {}).get("source_ids", [])
+                    for s in payload.get("source_ids", [])
                     if str(s) not in seen
                 ]
                 if not sources:
                     continue
                 seen.update(sources)
-                await ctx.store.enqueue(uid, "compile", {"source_ids": sources})
+                # Carry the per-source treatments over: without them the retry compiles at
+                # the plan's default, so a source the caller asked to only DISTIL gets
+                # digested in full — the retry would quietly overrule the intake decision.
+                treatments = {
+                    sid: t
+                    for sid, t in (payload.get("treatments") or {}).items()
+                    if str(sid) in set(sources)
+                }
+                retry_payload = {"source_ids": sources}
+                if treatments:
+                    retry_payload["treatments"] = treatments
+                await ctx.store.enqueue(uid, "compile", retry_payload)
             processed += await _drain_with_progress(ctx, model, skill, uid)
             failures = _unresolved_failures(await ctx.store.list_jobs(uid))
         elapsed = time.perf_counter() - started
