@@ -765,6 +765,33 @@ def _anchored(block: str, anchor: str) -> str:
     return f"{block.rstrip()} <!-- c:{anchor} -->"
 
 
+# A trailing parenthetical (either bracket family) whose contents carry anchors.
+_EVIDENCE_TAIL_RE = re.compile(r"[（(][^（()）]*[)）]\s*$")
+
+
+def _without_duplicate_evidence_tail(text: str, anchors: Sequence[str]) -> str:
+    """Drop a trailing evidence parenthetical the renderer is about to write anyway.
+
+    A second rollover of the same document shows the model the card it is replacing, whose
+    lines already END in the rendered evidence tail. The model merges those lines and carries
+    the tail into its `text`, so the renderer appended a second one and the line came out
+    reading `…（依据 c:a, c:b）（依据 c:b, c:c）` (observed on a real library).
+
+    Only a tail whose anchors are all anchors of THIS point is removed: that makes it a
+    verbatim duplicate of what gets appended. A tail naming anything else is left alone —
+    prose may legitimately cite an anchor, and the gate is what judges those."""
+    if not anchors:
+        return text
+    match = _EVIDENCE_TAIL_RE.search(text)
+    if match is None:
+        return text
+    tail = match.group(0)
+    cited = set(re.findall(r"c:([0-9a-f]+)", tail))
+    if not cited or not cited <= set(anchors):
+        return text
+    return text[: match.start()].rstrip()
+
+
 def render_overview_blocks(
     plan: RolloverPlan, points: Sequence[OverviewPoint]
 ) -> tuple[list[str], list[str]]:
@@ -782,7 +809,7 @@ def render_overview_blocks(
         taken.add(anchor)
         line = prompt(
             "compile.groom.overview_point",
-            text=point.text,
+            text=_without_duplicate_evidence_tail(point.text, point.anchors),
             anchors=", ".join(f"c:{a}" for a in point.anchors),
         )
         blocks.append(_anchored(line, anchor))

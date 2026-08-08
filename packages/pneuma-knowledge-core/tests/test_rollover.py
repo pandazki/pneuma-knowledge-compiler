@@ -1113,3 +1113,37 @@ def test_the_heal_commit_subject_names_how_many_links_it_rewrote():
     assert heal_commit_message(556) == prompt(
         "compile.groom.heal_commit_message", links=556
     )
+
+
+def test_a_card_line_is_not_given_two_evidence_tails():
+    """A re-rolled card must not read `…（依据 c:a, c:b）（依据 c:b, c:c）`.
+
+    The second rollover of a document shows the model the card it is replacing, whose lines
+    already end in the rendered evidence tail; the model merges those lines and carries the
+    tail into its own `text`, so the renderer appended a second one (observed on a real
+    library: eight such lines on one page). The renderer owns that tail, so a copy of it
+    inside the text is noise — but only when it names anchors this very point already
+    carries, because prose may legitimately cite some OTHER anchor and the gate judges those."""
+    docs, active = [_active(30)], None
+    active = docs[0]
+    a0, a3 = _anchor("claim-0"), _anchor("claim-3")
+
+    # The duplicate the model carried over: a tail naming this point's own anchors.
+    carried = OverviewPoint(
+        text=f"The checklist was driven to done.（依据 c:{a0}, c:{a3}）",
+        anchors=(a0, a3),
+    )
+    _plan, result = _roll(docs, active, [carried])
+    assert result.status == "ready"
+    line = next(
+        ln for ln in result.files[ACTIVE].splitlines() if "driven to done" in ln
+    )
+    assert line.count("依据") + line.count("(from") == 1
+
+    # A tail naming something else is not a duplicate: left for the gate to judge.
+    from pneuma_knowledge_core.compile.rollover import _without_duplicate_evidence_tail
+
+    prose = f"Driven to done.（依据 c:{_anchor('claim-29')}）"
+    assert _without_duplicate_evidence_tail(prose, (a0, a3)) == prose
+    # …and with no anchors at all there is nothing to deduplicate against.
+    assert _without_duplicate_evidence_tail(prose, ()) == prose
