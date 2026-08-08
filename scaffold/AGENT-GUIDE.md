@@ -115,14 +115,22 @@ cd ~/my-knowledge && ./start.sh
 
 **4.2 Read the sample and derive four things yourself** — never ask "what kind of data is this":
 
-- **Material shape**: source channels, arrival rhythm (daily? weekly? in batches?), item size, language, where the authoritative timestamp lives;
+- **Material shape**: source channels, arrival rhythm (daily? weekly? in batches?), item size, language, modalities (text / image / audio / files), where the authoritative timestamp lives, and which representations are original versus machine-derived;
 - **Recurring long-lived subjects**: which people, projects, products, topics keep evolving? "A thing that evolves independently = one document" is the first law of filing — one basket for everything crushes the library;
 - **Who the owner is**: whose viewpoint is this material written from? What do they roughly do?
 - **How it will be asked**: work backwards from the material to what they'll come back for (what happened / who owns it / when / how it changed).
 
-**4.3 Ask for what's left.** Done right, usually three gaps remain: name/address-as, preferred answering language, and "what do you most want this library to remember for you". Plus the principle-4 confirmations (timezone, language).
+**4.3 Design context assembly after choosing the compile model — never before.** A model's multimodal capability only counts when the active provider and request path actually deliver native media content blocks; an image URL flattened into a text string is not vision.
 
-**Done when**: the detected values in `engine/persona/profile.yaml` are confirmed with `provenance` flipped to `profile`, and you can name the long-lived subjects in the material.
+1. Read the compile role from `engine/engine.yaml` and verify the selected model *and routed provider* against current capability documentation. For example, OpenAI's GPT-5.6 family — Sol, Terra and Luna — accepts image inputs, so an OpenAI route can assemble one turn from ordered text plus native `input_image` blocks. Still verify the provider route: a gateway may expose the model while flattening or rejecting the image part.
+2. Match the representation to that verified capability. When native image input is available, keep the original image retrievable at a stable L0 address and pass it in the same message/turn as its text; captions, OCR and search queries remain explicitly labelled auxiliary representations. When the compile path is text-only, produce caption/OCR through a separate capable preprocessing step, retain its producer and link to the original media, and tell the user that the compile model did not see the original. A bare URL is neither a caption nor visual evidence.
+3. Choose fidelity from the use: low detail for broad scene context, higher/original detail for small text, charts, spatial relations or other fine evidence, while measuring image tokens and latency. Prove the path with one minimal real call containing an actual media block before the full build. If the current SourceAdapter or model adapter cannot preserve it, surface that as a framework gap and either add the missing adapter path or use the labelled derived representation — never call a text-only run multimodal.
+
+This is context construction, not compile-contract prose. The contract may say how direct visual evidence differs from a generated caption; it cannot make an image reach a model.
+
+**4.4 Ask for what's left.** Done right, usually three gaps remain: name/address-as, preferred answering language, and "what do you most want this library to remember for you". Plus the principle-4 confirmations (timezone, language).
+
+**Done when**: the detected values in `engine/persona/profile.yaml` are confirmed with `provenance` flipped to `profile`, you can name the long-lived subjects in the material, and every source modality has an explicit, capability-verified context path with original and derived representations distinguished.
 
 ---
 

@@ -16,7 +16,8 @@ Why ship any, then? Because facing an empty file is the most expensive step of a
 
 | Directory | skill_id | Version | What it is |
 | --- | --- | --- | --- |
-| `strategies/personal-knowledge/` | `personal-knowledge` | `v1` | One person's long-term knowledge across projects, collaboration, research and operations: evidence tiers, worked examples and counter-examples, frozen history volumes, first-class beginnings, a closing self-check. |
+| `strategies/personal-knowledge/` | `personal-knowledge` | `v1` | The original personal-knowledge reference: evidence tiers, worked examples and counter-examples, frozen history volumes, first-class beginnings, a closing self-check. |
+| `strategies/personal-knowledge/` | `personal-knowledge` | `v2` | The current reference; adds modality-aware provenance so original media and derived captions/OCR cannot be confused. |
 
 One contract per domain, deliberately. **Serving a different kind of user means adding a strategy — a new directory — not stacking versions of an existing one.** A version bump happens only when a contract's own judgement is revised.
 
@@ -30,11 +31,11 @@ from pneuma_knowledge_strategies import list_strategies, get_strategy, load_stra
 for s in list_strategies():
     print(s.skill_id, s.version, s.domain, s.summary)
 
-s = get_strategy("personal-knowledge", "v1")
+s = get_strategy("personal-knowledge", "v2")
 body = s.read_text()          # the contract body, verbatim
 s.path_templates              # the contract's on-disk path templates
 s.contract_rules              # extra contract clauses (prompt catalog keys)
-text = load_strategy_text("personal-knowledge", "v1")   # equivalent shortcut
+text = load_strategy_text("personal-knowledge", "v2")   # equivalent shortcut
 ```
 
 `Strategy` carries `skill_id` / `version` / `path_templates` / `contract_rules` alongside the body because those four fields plus the body are the contract's identity: a consumer hashes them together into the `Skill-Content-Hash` stamped on every canonical commit. Making callers retype them is how a provenance hash silently stops matching.
@@ -47,7 +48,7 @@ The framework will not choose a contract for you. The application converts a str
 from pneuma_knowledge_core.skill import SkillVersion, register_skill_base
 from pneuma_knowledge_strategies import get_strategy
 
-s = get_strategy("personal-knowledge", "v1")
+s = get_strategy("personal-knowledge", "v2")
 register_skill_base(
     s.version,
     SkillVersion.from_parts(

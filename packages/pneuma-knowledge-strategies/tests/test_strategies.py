@@ -22,12 +22,13 @@ from pneuma_knowledge_strategies import (
 
 # sha256 of each contract body. Pinned so an edit cannot happen silently: changing a
 # contract fails this test until the change is acknowledged here, in a commit saying why.
-# Lineage: on 2026-08-03 (pre-release) the three-generation v1/v2/v3 catalog was
-# collapsed to this single contract — mechanism prose stripped, first-class beginnings
-# and obligation chains added. Historical body hashes: v1 bedea7b4…, v2 aeae8203…,
-# v3 187d0201… (full values in git history).
+# Lineage: on 2026-08-03 (pre-release) the old three-generation catalog was collapsed to
+# v1 — mechanism prose stripped, first-class beginnings and obligation chains added.
+# v2 adds modality provenance without changing the bytes named by v1. Retired historical
+# body hashes: v1 bedea7b4…, v2 aeae8203…, v3 187d0201… (full values in git history).
 FROZEN_BODY_SHA256 = {
     "v1": "b81c08e9184f2dc7a502d620203b8bf2386f548b0a77edb19d381498767ba9b1",
+    "v2": "cc0cd1e0813834dbc021bfb08e87c7f979e825b9898f62f6cf6e42608aef9be7",
 }
 
 PERSONAL_KNOWLEDGE_TEMPLATES = (
@@ -43,7 +44,7 @@ PERSONAL_KNOWLEDGE_TEMPLATES = (
 
 def test_the_personal_knowledge_contract_is_listed():
     listed = list_strategies("personal-knowledge")
-    assert [s.version for s in listed] == ["v1"]
+    assert [s.version for s in listed] == ["v1", "v2"]
     assert {s.skill_id for s in listed} == {"personal-knowledge"}
     # a listing is only useful if it says what each one is
     assert all(s.domain.strip() and s.summary.strip() for s in listed)
@@ -65,9 +66,15 @@ def test_bodies_cannot_change_silently():
 def test_structural_metadata_rides_with_the_body():
     """`path_templates` and `contract_rules` are part of the contract's identity, so the
     package carries them rather than making every consumer retype them."""
-    for strategy in list_strategies("personal-knowledge"):
+    strategies = list_strategies("personal-knowledge")
+    for strategy in strategies:
         assert strategy.path_templates == PERSONAL_KNOWLEDGE_TEMPLATES
-    assert get_strategy("personal-knowledge", "v1").contract_rules == (
+        assert strategy.contract_rules == (
+            "contract.rule.citation_granularity",
+            "contract.rule.citation_shape",
+            "contract.rule.strength_labels",
+        )
+    assert get_strategy("personal-knowledge", "v2").contract_rules == (
         "contract.rule.citation_granularity",
         "contract.rule.citation_shape",
         "contract.rule.strength_labels",
@@ -87,6 +94,7 @@ def test_unknown_lookup_fails_loud_and_says_what_exists():
     with pytest.raises(LookupError) as excinfo:
         get_strategy("personal-knowledge", "v9")
     assert "personal-knowledge@v1" in str(excinfo.value)
+    assert "personal-knowledge@v2" in str(excinfo.value)
     with pytest.raises(LookupError):
         get_strategy("no-such-domain", "v1")
 

@@ -18,6 +18,9 @@ Acknowledged lineage:
   v1 2b49f0d6a7cb83d25d832457833ad4436fada35a5a1f608bb64fd14f664abdc3,
   v2 f30445fad2a0c25e542fc6528f3495df6ca06650e5e0487bb0f0fc17c609b9cd,
   v3 fee20edb143a511a4007f1e42225d2810601e6fd98828d84490aea1959f2588c.
+- 2026-08-08: `v2` made modality provenance explicit. Direct inspection requires media
+  delivered natively and retrievable through the cited L0 address; captions/OCR remain
+  attributed derived observations. `v1` stays byte-for-byte unchanged.
 
 This also covers the seam end to end: a shipped strategy reconstitutes into exactly the
 SkillVersion the framework hands out, with no framework-side domain knowledge left.
@@ -30,6 +33,7 @@ from pneuma_knowledge_strategies import get_strategy, list_strategies
 
 PINNED_CONTENT_HASH = {
     "v1": "4318897b183649a1aee85d6751c10a2d7a91120b4e9319605765471f56e057ab",
+    "v2": "822e95cfd2646582b487fd10864817a4bfbfe1a895f2182df9bb0d8f5920dbb5",
 }
 
 
@@ -58,4 +62,6 @@ def test_every_shipped_generation_is_covered_by_a_pinned_hash():
 def test_skill_id_still_reads_personal_knowledge():
     """The skill_id is hashed too — renaming the domain would break the trailers as surely
     as editing the body."""
-    assert get_strategy("personal-knowledge", "v1").skill_id == "personal-knowledge"
+    assert {
+        strategy.skill_id for strategy in list_strategies("personal-knowledge")
+    } == {"personal-knowledge"}

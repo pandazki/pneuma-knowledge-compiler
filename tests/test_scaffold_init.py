@@ -583,8 +583,10 @@ def test_reference_contract_keeps_the_users_own_identity(tmp_path):
 def test_strategies_catalog_reads_the_shipped_data():
     catalog = init.strategies_catalog(ROOT)
     assert catalog, "the framework repo ships at least one reference strategy"
-    entry = next(e for e in catalog if e["skill_id"] == "personal-knowledge")
-    assert entry["version"] == "v1"
+    personal = [e for e in catalog if e["skill_id"] == "personal-knowledge"]
+    assert [entry["version"] for entry in personal] == ["v1", "v2"]
+    entry = personal[-1]
+    assert entry["version"] == "v2"
     assert entry["path_templates"], "templates ride with the manifest"
     assert entry["body_path"].is_file()
 

@@ -21,6 +21,16 @@
         "contract.rule.citation_shape",
         "contract.rule.strength_labels"
       ]
+    },
+    {
+      "version": "v2",
+      "file": "v2.md",
+      "summary": "Adds modality-aware provenance: original media must be delivered natively and remain addressable, while captions, transcripts, OCR and queries stay attributed derived observations.",
+      "contract_rules": [
+        "contract.rule.citation_granularity",
+        "contract.rule.citation_shape",
+        "contract.rule.strength_labels"
+      ]
     }
   ]
 }

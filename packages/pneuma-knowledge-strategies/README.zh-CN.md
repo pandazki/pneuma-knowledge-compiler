@@ -16,7 +16,8 @@
 
 | 目录 | skill_id | 版本 | 说明 |
 | --- | --- | --- | --- |
-| `strategies/personal-knowledge/` | `personal-knowledge` | `v1` | 一个人横跨项目、协作、研究与运营的长期知识：证据分级、正反例、冻结历史卷、一等公民的起点、收尾自检。 |
+| `strategies/personal-knowledge/` | `personal-knowledge` | `v1` | 最初的个人知识参考策略：证据分级、正反例、冻结历史卷、一等公民的起点、收尾自检。 |
+| `strategies/personal-knowledge/` | `personal-knowledge` | `v2` | 当前参考策略；新增多模态 provenance，避免混淆原始媒体与派生 caption/OCR。 |
 
 刻意保持一个领域一份契约。**要服务另一类用户，就新增一个策略（一个新目录），而不是给现有策略堆版本。** 只有契约自身的判断被修订时才升版本。
 
@@ -30,11 +31,11 @@ from pneuma_knowledge_strategies import list_strategies, get_strategy, load_stra
 for s in list_strategies():
     print(s.skill_id, s.version, s.domain, s.summary)
 
-s = get_strategy("personal-knowledge", "v1")
+s = get_strategy("personal-knowledge", "v2")
 body = s.read_text()          # 契约正文（原文，逐字节）
 s.path_templates              # 这份契约的落盘路径模板
 s.contract_rules              # 附加的写契约条款（prompt catalog key）
-text = load_strategy_text("personal-knowledge", "v1")   # 等价捷径
+text = load_strategy_text("personal-knowledge", "v2")   # 等价捷径
 ```
 
 `Strategy` 同时带 `skill_id` / `version` / `path_templates` / `contract_rules`，因为这四项和正文一起构成契约的身份：消费方要用它们算出 `Skill-Content-Hash` 并盖进 canonical commit trailer。让调用方自己重敲一遍，就是 provenance 哈希悄悄对不上的开始。
@@ -47,7 +48,7 @@ text = load_strategy_text("personal-knowledge", "v1")   # 等价捷径
 from pneuma_knowledge_core.skill import SkillVersion, register_skill_base
 from pneuma_knowledge_strategies import get_strategy
 
-s = get_strategy("personal-knowledge", "v1")
+s = get_strategy("personal-knowledge", "v2")
 register_skill_base(
     s.version,
     SkillVersion.from_parts(

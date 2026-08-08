@@ -63,6 +63,10 @@ Three calibers extend the same judgement, and the pattern is always *ask the use
 - **Time.** Normalize relative time ("next Monday") to absolute dates while keeping the original phrase; the material's own occurrence date governs, and uncertainty is marked rather than guessed.
 - **Privacy.** Credentials and identity numbers are framework red lines; add what your domain must never record on top.
 
+**Modality enters through the evidence chain, not by flattening everything to text.** Choose the context assembly only after the compile model and its actual provider route are known. If that path accepts native media, preserve message order, keep the original media retrievable at a stable L0 address, and bind each image/audio/file content block to the text turn that introduced it. If it does not, use an explicitly derived caption, transcript or OCR representation that names its producer and still links to the original media. A URL rendered as text is not equivalent to an image input. As a concrete example, OpenAI's [GPT-5.6 image-input family](https://developers.openai.com/api/docs/guides/images-vision) — Sol, Terra and Luna — can receive native images; use detail appropriate to the evidence needed and measure the resulting tokens and latency. Provider gateways still need an end-to-end capability check.
+
+The contract's job is the judgement at the end of that path: say whether a family may treat direct inspection of original media as evidence, how derived captions/OCR are attributed, and what uncertainty they retain. The contract cannot repair a context builder that never delivered the media.
+
 **Density is the health check for this section.** When a batch of material compiles into far fewer claims than common sense expects, that is rarely restraint — usually some family's obligations are not landing, and timelines and multi-hop questions will go quiet with them.
 
 ## 4. Mechanism stays out

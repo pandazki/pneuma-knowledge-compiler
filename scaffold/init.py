@@ -183,7 +183,7 @@ mode = "auto"              # auto = follow the data (example data → demo contr
                            # skeleton = TODO-slot skeleton | example = bundled demo contract
                            # demo = the example project's real, agent-authored contract
                            # reference = start from a built-in strategy (fill reference below)
-reference = ""             # e.g. "personal-knowledge@v1" (list with ./init.py --list-references)
+reference = ""             # e.g. "personal-knowledge@v2" (list with ./init.py --list-references)
 
 [models]
 compile = "openrouter:openai/gpt-5.6-luna"        # compile model (must support tool calling; the quality lever)
