@@ -17,7 +17,7 @@ Why ship any, then? Because facing an empty file is the most expensive step of a
 | Directory | skill_id | Version | What it is |
 | --- | --- | --- | --- |
 | `strategies/personal-knowledge/` | `personal-knowledge` | `v1` | The original personal-knowledge reference: evidence tiers, worked examples and counter-examples, frozen history volumes, first-class beginnings, a closing self-check. |
-| `strategies/personal-knowledge/` | `personal-knowledge` | `v2` | The current reference; adds modality-aware provenance so original media and derived captions/OCR cannot be confused. |
+| `strategies/personal-knowledge/` | `personal-knowledge` | `v2` | The multimodal reference: distinguishes original media from derived captions/OCR while keeping labelled derived representations usable evidence. |
 
 One contract per domain, deliberately. **Serving a different kind of user means adding a strategy — a new directory — not stacking versions of an existing one.** A version bump happens only when a contract's own judgement is revised.
 

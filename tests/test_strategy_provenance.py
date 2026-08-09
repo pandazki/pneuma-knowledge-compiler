@@ -18,9 +18,11 @@ Acknowledged lineage:
   v1 2b49f0d6a7cb83d25d832457833ad4436fada35a5a1f608bb64fd14f664abdc3,
   v2 f30445fad2a0c25e542fc6528f3495df6ca06650e5e0487bb0f0fc17c609b9cd,
   v3 fee20edb143a511a4007f1e42225d2810601e6fd98828d84490aea1959f2588c.
-- 2026-08-08: `v2` made modality provenance explicit. Direct inspection requires media
-  delivered natively and retrievable through the cited L0 address; captions/OCR remain
-  attributed derived observations. `v1` stays byte-for-byte unchanged.
+- 2026-08-09 (pre-merge): `v2` made modality provenance explicit. Direct inspection
+  requires media delivered natively and retrievable through the cited L0 address;
+  captions/OCR remain attributed but usable derived observations. The first experiment
+  ran provisional content hash 822e95c3…; its over-conservative wording was corrected
+  before merge. `v1` stays byte-for-byte unchanged.
 
 This also covers the seam end to end: a shipped strategy reconstitutes into exactly the
 SkillVersion the framework hands out, with no framework-side domain knowledge left.
@@ -33,7 +35,7 @@ from pneuma_knowledge_strategies import get_strategy, list_strategies
 
 PINNED_CONTENT_HASH = {
     "v1": "4318897b183649a1aee85d6751c10a2d7a91120b4e9319605765471f56e057ab",
-    "v2": "822e95cfd2646582b487fd10864817a4bfbfe1a895f2182df9bb0d8f5920dbb5",
+    "v2": "ee69e8852512893640b6fac9af7e1264319353907f5197cb2ffb8d1aee1f5b61",
 }
 
 

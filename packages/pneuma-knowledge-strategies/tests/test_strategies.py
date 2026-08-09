@@ -24,11 +24,13 @@ from pneuma_knowledge_strategies import (
 # contract fails this test until the change is acknowledged here, in a commit saying why.
 # Lineage: on 2026-08-03 (pre-release) the old three-generation catalog was collapsed to
 # v1 — mechanism prose stripped, first-class beginnings and obligation chains added.
-# v2 adds modality provenance without changing the bytes named by v1. Retired historical
-# body hashes: v1 bedea7b4…, v2 aeae8203…, v3 187d0201… (full values in git history).
+# v2 adds modality provenance without changing the bytes named by v1. Its pre-merge
+# experiment used body hash cc0cd1e0…; the final body keeps derived representations usable.
+# Retired historical body hashes: v1 bedea7b4…, v2 aeae8203…, v3 187d0201… (full values
+# in git history).
 FROZEN_BODY_SHA256 = {
     "v1": "b81c08e9184f2dc7a502d620203b8bf2386f548b0a77edb19d381498767ba9b1",
-    "v2": "cc0cd1e0813834dbc021bfb08e87c7f979e825b9898f62f6cf6e42608aef9be7",
+    "v2": "0f22fc741626ebd093261215f63b2a4d65d338d8bffd73412d5795e84613e78e",
 }
 
 PERSONAL_KNOWLEDGE_TEMPLATES = (

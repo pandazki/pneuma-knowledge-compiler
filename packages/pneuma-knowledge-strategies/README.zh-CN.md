@@ -17,7 +17,7 @@
 | 目录 | skill_id | 版本 | 说明 |
 | --- | --- | --- | --- |
 | `strategies/personal-knowledge/` | `personal-knowledge` | `v1` | 最初的个人知识参考策略：证据分级、正反例、冻结历史卷、一等公民的起点、收尾自检。 |
-| `strategies/personal-knowledge/` | `personal-knowledge` | `v2` | 当前参考策略；新增多模态 provenance，避免混淆原始媒体与派生 caption/OCR。 |
+| `strategies/personal-knowledge/` | `personal-knowledge` | `v2` | 多模态参考策略：区分原始媒体与派生 caption/OCR，同时保留带标签派生表示的证据价值。 |
 
 刻意保持一个领域一份契约。**要服务另一类用户，就新增一个策略（一个新目录），而不是给现有策略堆版本。** 只有契约自身的判断被修订时才升版本。
 
