@@ -1268,7 +1268,12 @@ async def _ask(
 ) -> tuple[int, dict[str, int]]:
     from pneuma_knowledge_core.domain.ids import UserId
     from pneuma_knowledge_core.recall.fast import fast_recall
-    from pneuma_knowledge_service.wiring import build_context, llm_call_config
+    from pneuma_knowledge_service.wiring import (
+        build_context,
+        llm_call_config,
+        resolve_image_mode,
+        resolve_model_name,
+    )
 
     skill = load_contract_skill()
     settings = build_settings(base_version=skill.version)
@@ -1276,6 +1281,7 @@ async def _ask(
     try:
         uid = UserId(user_id())
         started = time.perf_counter()
+        recall_model = ctx.get_chat_model("recall")
         answer = await fast_recall(
             uid,
             question,
@@ -1285,8 +1291,12 @@ async def _ask(
             lexical=ctx.lexical,
             vectors=ctx.vectors,
             content=ctx.store,
+            media=ctx.media,
+            image_mode=resolve_image_mode(
+                "auto", recall_model, resolve_model_name(settings, "recall")
+            ),
             embeddings=ctx.embeddings,
-            model=ctx.get_chat_model("recall"),
+            model=recall_model,
             cap=settings.recall_claim_cap,
             window_cap=settings.recall_window_cap,
             answer_style=style or settings.recall_answer_style,

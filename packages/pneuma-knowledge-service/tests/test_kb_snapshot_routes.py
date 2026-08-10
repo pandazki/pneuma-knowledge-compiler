@@ -120,6 +120,8 @@ def captured(monkeypatch):
     async def fake_fast_recall(user, question, **kwargs):  # noqa: ANN001
         seen["user"] = str(user)
         seen["scope"] = kwargs.get("scope")
+        seen["image_mode"] = kwargs.get("image_mode")
+        seen["media"] = kwargs.get("media")
         return _FakeFastAnswer()
 
     async def fake_rag_recall(user, query, **kwargs):  # noqa: ANN001
@@ -142,6 +144,8 @@ async def test_without_a_snapshot_the_owner_answers_and_nothing_is_pinned(captur
     out = await recall(OWNER, RecallIn(query="q", mode="fast"), request)
     assert captured["user"] == OWNER
     assert captured["scope"] is None
+    assert captured["image_mode"] == "caption"
+    assert captured["media"] is None
     assert out.snapshot is None
     # canonical read against the owner, at HEAD — today's behavior exactly.
     assert request.app.state.ctx.canonical_reads == [(OWNER, None)]

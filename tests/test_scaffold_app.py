@@ -390,6 +390,15 @@ def test_console_profile_starts_api_worker_and_web_over_this_project():
         assert env["PNEUMA_KNOWLEDGE_ENGINE_DIR"] == "/project/engine"
         assert env["PNEUMA_KNOWLEDGE_CANONICAL_ROOT"] == "/project/data/canonical"
         assert env["PNEUMA_KNOWLEDGE_MEDIA_S3_ENDPOINT_URL"] == "http://rustfs:9000"
+        assert env["LANGFUSE_SECRET_KEY"] == "${LANGFUSE_SECRET_KEY:-}"
+        assert env["LANGFUSE_PUBLIC_KEY"] == "${LANGFUSE_PUBLIC_KEY:-}"
+        assert env["LANGFUSE_BASE_URL"] == (
+            "${PNEUMA_APP_LANGFUSE_BASE_URL_CONTAINER:-${LANGFUSE_BASE_URL:-}}"
+        )
+        assert services[name]["extra_hosts"] == [
+            "host.docker.internal:host-gateway",
+            "localhost:${PNEUMA_APP_LANGFUSE_LOCALHOST_GATEWAY:-127.0.0.1}",
+        ]
 
     # The web image is the framework's shared compose asset, on its own probed port, and it
     # waits for a healthy API (nginx proxies /v1 to it).
@@ -399,6 +408,15 @@ def test_console_profile_starts_api_worker_and_web_over_this_project():
     assert (ROOT / "docker" / "nginx.compose.conf").is_file()
     assert web["ports"] == ["127.0.0.1:${PNEUMA_APP_WEB_PORT:-18081}:80"]
     assert web["depends_on"] == {"api": {"condition": "service_healthy"}}
+
+
+def test_cli_ask_replays_recalled_images_using_the_recall_models_capability():
+    app = (ROOT / "scaffold" / "templates" / "app.py").read_text(encoding="utf-8")
+    ask = app[app.index("async def _ask(") : app.index("async def _status()")]
+    assert "media=ctx.media" in ask
+    assert 'resolve_model_name(settings, "recall")' in ask
+    assert "resolve_image_mode(" in ask
+    assert '"auto", recall_model' in ask
 
 
 def test_the_compose_web_image_talks_to_the_real_engine_routes():

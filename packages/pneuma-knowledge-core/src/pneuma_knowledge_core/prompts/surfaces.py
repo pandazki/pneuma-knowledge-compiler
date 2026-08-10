@@ -1974,6 +1974,16 @@ SURFACES: tuple[Surface, ...] = (
                 "在快速车道的证据里，开出原文摘录（L2 片段）那一节。",
             ),
             f(
+                "recall.section.images_header",
+                "Opens images aligned to the raw excerpts selected for this question.",
+                "开出与本次问题所选原文摘录对齐的图片。",
+            ),
+            f(
+                "recall.fast.image_locator",
+                "Binds one recalled image to its exact citable source block.",
+                "把一张召回图片绑定到可引用的确切来源块。",
+            ),
+            f(
                 "recall.section.passages_header",
                 "The same excerpts under a nested heading, where they hang under a source "
                 "rather than standing alone.",

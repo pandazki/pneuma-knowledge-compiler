@@ -127,8 +127,14 @@ services:
       PNEUMA_KNOWLEDGE_CANONICAL_ROOT: /project/data/canonical
       PNEUMA_APP_KEYLESS_EMBEDDING: ${PNEUMA_APP_KEYLESS_EMBEDDING:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_BASE_URL: ${PNEUMA_APP_LANGFUSE_BASE_URL_CONTAINER:-${LANGFUSE_BASE_URL:-}}
     volumes:
       - ./:/project
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+      - "localhost:${PNEUMA_APP_LANGFUSE_LOCALHOST_GATEWAY:-127.0.0.1}"
     ports:
       - "127.0.0.1:${PNEUMA_APP_API_PORT:-18080}:8080"
     healthcheck:
@@ -168,8 +174,14 @@ services:
       PNEUMA_KNOWLEDGE_CANONICAL_ROOT: /project/data/canonical
       PNEUMA_APP_KEYLESS_EMBEDDING: ${PNEUMA_APP_KEYLESS_EMBEDDING:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_BASE_URL: ${PNEUMA_APP_LANGFUSE_BASE_URL_CONTAINER:-${LANGFUSE_BASE_URL:-}}
     volumes:
       - ./:/project
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+      - "localhost:${PNEUMA_APP_LANGFUSE_LOCALHOST_GATEWAY:-127.0.0.1}"
 
   # The UI: the framework's SPA served by nginx, which also proxies /v1 to the api service
   # above — same origin, so no CORS surface and no build-time API URL.

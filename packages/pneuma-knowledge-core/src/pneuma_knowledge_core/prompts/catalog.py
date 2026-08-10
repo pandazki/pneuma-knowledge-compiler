@@ -1309,6 +1309,11 @@ DEFAULTS: dict[str, str] = {
     "recall.section.claims_header": "# claim notes ({count})",
     "recall.section.claims_empty": "(no hits this retrieval)",
     "recall.section.windows_header": "# raw excerpts ({count})",
+    "recall.section.images_header": "# image evidence ({count})",
+    "recall.fast.image_locator": (
+        "[cite: {source_id} ¶{index}-{index}] Image {image_id} is aligned to this exact "
+        "source block."
+    ),
     "recall.section.input": "Owner input: {question}",
     "recall.section.transcript_header": "# Stream transcript (last {turns} turn(s))",
     "recall.section.already_shown_header": (

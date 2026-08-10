@@ -14,6 +14,13 @@ Three **unprefixed** variables (same convention as `OPENROUTER_API_KEY`, so a La
 | `LANGFUSE_PUBLIC_KEY` | project public key |
 | `LANGFUSE_BASE_URL` | Langfuse host (e.g. `http://localhost:3000`) |
 
+A scaffold project passes these variables into both the API and worker containers. For a
+self-hosted Langfuse bound to the Docker host, keep the host-facing value unchanged and set
+`PNEUMA_APP_LANGFUSE_BASE_URL_CONTAINER=http://host.docker.internal:<port>`. If that Langfuse
+also signs media-upload URLs with `localhost`, set
+`PNEUMA_APP_LANGFUSE_LOCALHOST_GATEWAY=host-gateway`; this explicit opt-in lets the
+containers upload traced image attachments without rewriting credentials or signed URLs.
+
 `build_langfuse_handler(settings)` returns a handler only when **all three** are non-empty; otherwise it returns `None`. Missing one is treated as **off, not as an error**: `llm_call_config` yields `callbacks: []`, every core call runs exactly as it did before tracing existed, and `flush_traces()` opens no socket. Values are never logged or echoed.
 
 Because a partially configured trace looks identical to a working one until the spans turn out to be missing, treat the three variables as all-or-nothing in any paid pipeline.
@@ -62,7 +69,8 @@ Per-operation additions (`extra`; `None`-valued entries are dropped, so an absen
 | `compile.groom` | `job_id`, `document_path`, `volume_path`, `archived_claims`, `skill_version` |
 | `evolve.propose` | `skill_version` |
 | `evolve.reorganize` | `task_id`, `skill_version` |
-| `recall.fast` / `recall.deep` | `snapshot_ref`, `kb_snapshot_id` |
+| `recall.fast` | `snapshot_ref`, `kb_snapshot_id`, `image_count`, `image_mode` (answer call) |
+| `recall.deep` | `snapshot_ref`, `kb_snapshot_id` |
 | `briefing.ask` | `snapshot_ref`, `briefing_id` |
 | `live_context.evaluate` | `focus`, `briefing_id` |
 | `chunk.semantic`, `profile.generate`, `live_context.expand` | none |

@@ -49,6 +49,7 @@ from ..wiring import (
     build_context,
     full_l2_chunks,
     llm_call_config,
+    resolve_image_mode,
     resolve_model_name,
 )
 
@@ -61,21 +62,10 @@ def _projection_detail(projection: object) -> str:
 
 def resolve_compile_image_mode(settings: Settings, model: object) -> str:
     """Resolve `auto` from the model actually used by the compile role."""
-
-    if settings.compile_image_mode != "auto":
-        return settings.compile_image_mode
-    profile = getattr(model, "profile", None) or {}
-    if bool(profile.get("image_inputs")):
-        return "native"
-    compile_spec = (settings.llm_model_compile or settings.llm_model).strip().lower()
-    known_visual_prefixes = (
-        "openai:gpt-5.6",
-        "openrouter:openai/gpt-5.6",
-    )
-    return (
-        "native"
-        if compile_spec.startswith(known_visual_prefixes)
-        else "caption"
+    return resolve_image_mode(
+        settings.compile_image_mode,
+        model,
+        resolve_model_name(settings, "compile"),
     )
 
 

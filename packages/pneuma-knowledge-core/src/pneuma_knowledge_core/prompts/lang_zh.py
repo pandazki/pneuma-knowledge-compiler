@@ -999,6 +999,10 @@ _ZH: dict[str, str] = {
     "recall.section.claims_header": "# 断言笔记（{count} 条）",
     "recall.section.claims_empty": "（本次检索无命中）",
     "recall.section.windows_header": "# 原文摘录（{count} 条）",
+    "recall.section.images_header": "# 图片证据（{count} 张）",
+    "recall.fast.image_locator": (
+        "[cite: {source_id} ¶{index}-{index}] 图片 {image_id} 与这个确切来源块对齐。"
+    ),
     "recall.section.input": "知识主体输入：{question}",
     "recall.section.transcript_header": "# 流的转写（最近 {turns} 轮）",
     "recall.section.already_shown_header": "# 本次会话中已经浮出过的（不要重复出卡）",

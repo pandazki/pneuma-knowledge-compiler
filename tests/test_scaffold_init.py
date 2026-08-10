@@ -130,6 +130,8 @@ def test_generated_env_carries_free_distinct_ports_and_framework_repo(tmp_path):
     assert "OPENROUTER_API_KEY=\n" in example
     assert values["PNEUMA_APP_RUSTFS_ACCESS_KEY"]
     assert values["PNEUMA_APP_RUSTFS_SECRET_KEY"]
+    assert "PNEUMA_APP_LANGFUSE_BASE_URL_CONTAINER=" in env
+    assert "PNEUMA_APP_LANGFUSE_LOCALHOST_GATEWAY=" in env
     assert "PNEUMA_APP_RUSTFS_ACCESS_KEY=\n" in example
     assert "PNEUMA_APP_RUSTFS_SECRET_KEY=\n" in example
     assert values["PNEUMA_APP_RUSTFS_ACCESS_KEY"] not in example

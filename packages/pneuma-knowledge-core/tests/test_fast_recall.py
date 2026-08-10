@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
 from pneuma_knowledge_core.domain.ids import UserId, SourceId
+from pneuma_knowledge_core.domain.source import BlockImage, NormalizedSource
 from pneuma_knowledge_core.recall.fast import (
+    RecallImage,
     selector_contract,
     fast_recall,
     selector_messages,
@@ -177,6 +181,148 @@ async def test_windows_surface_when_claims_irrelevant_the_jack_regression():
     # claims were empty, yet the body carried the answer.
     assert result.used_claims == ()
     assert result.answer == "张三"
+
+
+async def test_native_images_aligned_to_recalled_windows_reach_the_answer_model():
+    image_bytes = b"\xff\xd8\xffnative-recall-image"
+    digest = hashlib.sha256(image_bytes).hexdigest()
+    source = NormalizedSource.model_validate(
+        {
+            "raw": {
+                "source_id": "src-image",
+                "user_id": str(_USER),
+                "kind": "im",
+                "origin": "mock",
+                "title": "image conversation",
+                "mime": "application/json",
+                "checksum": "fixture",
+                "created_at": "2026-07-20T12:00:00Z",
+            },
+            "blocks": [
+                {
+                    "index": 4,
+                    "text": "Caroline shared a picture.",
+                    "images": [
+                        {
+                            "image_id": "image-1",
+                            "mime_type": "image/jpeg",
+                            "sha256": digest,
+                            "size_bytes": len(image_bytes),
+                            "storage_key": "tenant/image-1",
+                            "derived": [
+                                {
+                                    "kind": "caption",
+                                    "text": "a dog walking past a wall with a painting",
+                                    "producer": "fixture-captioner",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ],
+            "structure": {"sections": []},
+        }
+    )
+
+    class Content:
+        async def get(self, user_id, source_id):  # noqa: ANN001
+            assert user_id == _USER
+            assert source_id == SourceId("src-image")
+            return source
+
+        async def fetch(self, user_id, source_id, locator):  # noqa: ANN001
+            return source.blocks[0].text
+
+    class Media:
+        async def get(self, user_id, storage_key):  # noqa: ANN001
+            assert user_id == _USER
+            assert storage_key == "tenant/image-1"
+            return image_bytes
+
+    captured: dict[str, Any] = {}
+
+    class CapturingModel(GenericFakeChatModel):
+        async def ainvoke(self, messages, *args, **kwargs):  # noqa: ANN001, ANN002
+            captured["human"] = messages[1].content
+            captured["metadata"] = kwargs["config"]["metadata"]
+            return AIMessage(content="A dog, walking past a painted wall. [cite: s01 ¶4-4]")
+
+    hit = "Caroline shared a picture. a dog walking past a wall with a painting"
+    result = await fast_recall(
+        _USER,
+        "What animal was in the picture?",
+        as_of=datetime(2026, 7, 20, 12, 0, 0),
+        claim_lexical=FakeClaimIndex([]),
+        claim_vectors=FakeClaimIndex([]),
+        lexical=FakeLexical([LexHit(SourceId("src-image"), 4, hit)]),
+        vectors=FakeVector([VecHit(SourceId("src-image"), 4, 4, hit)]),
+        embeddings=FakeEmbeddings(),
+        model=CapturingModel(messages=iter(())),
+        content=Content(),
+        media=Media(),
+        image_mode="native",
+        trace_metadata={"operation": "recall.fast"},
+    )
+
+    human = captured["human"]
+    assert isinstance(human, list)
+    assert any(
+        block.get("type") == "image"
+        and block.get("base64") == base64.b64encode(image_bytes).decode("ascii")
+        for block in human
+    )
+    rendered_text = "\n".join(
+        block["text"] for block in human if block.get("type") == "text"
+    )
+    assert "a dog walking past a wall with a painting" in rendered_text
+    assert "[cite: s01 ¶4-4]" in rendered_text
+    assert "src-image" not in rendered_text
+    assert human[-1]["type"] == "text"
+    assert human[-1]["text"].rstrip().endswith("What animal was in the picture?")
+    assert captured["metadata"]["image_mode"] == "native"
+    assert captured["metadata"]["image_count"] == 1
+    assert result.image_count == 1
+    assert result.answer.startswith("A dog")
+
+
+def test_caption_image_mode_keeps_derived_text_labelled_and_question_last():
+    image = BlockImage.model_validate(
+        {
+            "image_id": "image-1",
+            "mime_type": "image/jpeg",
+            "sha256": "a" * 64,
+            "size_bytes": 123,
+            "storage_key": "tenant/image-1",
+            "derived": [
+                {
+                    "kind": "caption",
+                    "text": "a dog walking past a painted wall",
+                    "producer": "fixture-captioner",
+                }
+            ],
+        }
+    )
+
+    messages = selector_messages(
+        "What animal was in the picture?",
+        [],
+        as_of=datetime(2026, 7, 20, 12, 0, 0),
+        images=[
+            RecallImage(
+                source_id=SourceId("src-image"),
+                block_index=4,
+                image=image,
+            )
+        ],
+        image_mode="caption",
+    )
+
+    human = messages[1].content
+    assert isinstance(human, str)
+    assert "caption; producer=fixture-captioner" in human
+    assert "a dog walking past a painted wall" in human
+    assert "src-image" in human
+    assert human.rstrip().endswith("What animal was in the picture?")
 
 
 async def test_no_raw_indices_means_no_windows_backcompat():

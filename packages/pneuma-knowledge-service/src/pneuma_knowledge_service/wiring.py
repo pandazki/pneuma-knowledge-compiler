@@ -236,6 +236,21 @@ def resolve_model_name(settings: Settings, role: str = "default") -> str:
     return settings.llm_model
 
 
+def resolve_image_mode(requested: str, model: object, model_spec: str) -> str:
+    """Resolve auto image delivery against the model that will receive the message."""
+
+    if requested != "auto":
+        return requested
+    profile = getattr(model, "profile", None) or {}
+    if bool(profile.get("image_inputs")):
+        return "native"
+    known_visual_prefixes = (
+        "openai:gpt-5.6",
+        "openrouter:openai/gpt-5.6",
+    )
+    return "native" if model_spec.strip().lower().startswith(known_visual_prefixes) else "caption"
+
+
 def usable_model_name(settings: Settings, role: str = "default") -> str:
     """The resolved model spec for a role, or "" when THIS process cannot run it.
 

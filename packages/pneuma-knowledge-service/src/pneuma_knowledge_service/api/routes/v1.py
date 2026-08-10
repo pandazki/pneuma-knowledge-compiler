@@ -51,7 +51,7 @@ from ...kb_snapshots import KbSnapshot, SnapshotNotFound, SnapshotNotReady
 from ...pagination import CursorError, decode_cursor, encode_cursor
 from ...skills import packs_for_user, skill_for_user
 from ...snapshot_tenant import assert_writable
-from ...wiring import AppContext, llm_call_config
+from ...wiring import AppContext, llm_call_config, resolve_image_mode, resolve_model_name
 
 # Valid user_id shape — external key, keep it filesystem/URL-safe (mirrors the web
 # USER_ID_RE in ProfileCard.tsx). Used to accept/derive the AI-generated persona's id.
@@ -915,6 +915,7 @@ async def recall(
     )
     glance_inputs = await _glance_inputs(ctx, plane.owner, plane.canonical_at)
     if body.mode == "fast":
+        recall_model = ctx.get_chat_model("recall")
         fa = await fast_recall(
             plane.retrieval_user,
             body.query,
@@ -924,9 +925,13 @@ async def recall(
             lexical=ctx.lexical,
             vectors=ctx.vectors,
             content=ctx.store,
+            media=getattr(ctx, "media", None),
+            image_mode=resolve_image_mode(
+                "auto", recall_model, resolve_model_name(ctx.settings, "recall")
+            ),
             profile=await _render_profile(ctx, plane.owner),
             embeddings=ctx.embeddings,
-            model=ctx.get_chat_model("recall"),
+            model=recall_model,
             scope=plane.scope,
             cap=ctx.settings.recall_claim_cap,
             window_cap=ctx.settings.recall_window_cap,

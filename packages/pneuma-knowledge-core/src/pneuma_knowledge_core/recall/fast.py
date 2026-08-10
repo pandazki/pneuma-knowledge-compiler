@@ -28,26 +28,32 @@ a failed selection pass degrades to exactly that. See `fast_recall`.
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import datetime
+from typing import Literal
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
+from langchain_core.messages.content import create_image_block
 from pydantic import BaseModel, Field
 
 from ..canonical_glance import render_canonical_glance
 from ..compile.documents import render_document
 from ..domain.canonical import CanonicalDocument, Citation
 from ..domain.ids import AnchorId, UserId, SourceId
+from ..domain.source import BlockImage
 from ..ports.claim_index import ClaimLexicalIndex, ClaimVectorIndex
 from ..ports.content_store import ContentStore
 from ..ports.lexical_index import LexicalIndex
+from ..ports.media_store import MediaStore
 from ..ports.reranker import Reranker
 from ..ports.vector_index import VectorIndex
 from ..prompts import prompt
-from .citation_alias import alias_sources
+from .citation_alias import SessionAliaser, alias_sources
 from .scope import SnapshotScope, scope_declaration
 from .spine import (
     CITE_SOURCE_LEVEL,
@@ -73,6 +79,7 @@ from .rag import RecallHit, _rrf_scores, rag_recall, rrf_fuse
 # outranks token cost; pair a reranker at 40 for equal quality at the lowest spend.
 DEFAULT_CLAIM_CAP = 64
 DEFAULT_WINDOW_CAP = 8
+DEFAULT_IMAGE_CAP = 8
 
 #: How many hit documents `timeline_expand` may expand into sibling timelines. Together with
 #: the per-document sibling cap this bounds the section's total size mechanically:
@@ -179,6 +186,20 @@ class FastAnswer:
     # simply choosing nothing: "timeout", "error", or None. Telemetry, like glance_degraded.
     plan_degraded: str | None = None
     rerank_degraded: str | None = None
+    # Images aligned to the selected raw windows and actually supplied to the answer call.
+    # Bytes never leave the model boundary; this count is safe response/trace telemetry.
+    image_count: int = 0
+    image_mode: str = "caption"
+
+
+@dataclass(frozen=True)
+class RecallImage:
+    """One immutable image aligned to a recalled source block."""
+
+    source_id: SourceId
+    block_index: int
+    image: BlockImage
+    data: bytes | None = None
 
 
 def zero_usage() -> dict[str, int]:
@@ -404,6 +425,105 @@ def _render_window_section(windows: list) -> str:
     if windows and hasattr(windows[0], "section_path"):
         return render_passages(windows, header="")
     return render_windows(windows)
+
+
+def _render_recall_image(image: RecallImage) -> str:
+    """Textual locator and derived representations that travel with one image."""
+
+    lines = [
+        prompt(
+            "recall.fast.image_locator",
+            source_id=image.source_id,
+            index=image.block_index,
+            image_id=image.image.image_id,
+        )
+    ]
+    if image.image.derived:
+        lines.extend(
+            prompt(
+                "compile.task.image_derived",
+                image_id=image.image.image_id,
+                kind=derived.kind,
+                producer=derived.producer,
+                text=derived.text,
+            )
+            for derived in image.image.derived
+        )
+    else:
+        lines.append(
+            prompt(
+                "compile.task.image_without_derived",
+                image_id=image.image.image_id,
+            )
+        )
+    return "\n".join(lines)
+
+
+async def collect_window_images(
+    user_id: UserId,
+    windows: Sequence,
+    *,
+    content: ContentStore | None,
+    media: MediaStore | None,
+    image_mode: Literal["caption", "native"],
+    cap: int = DEFAULT_IMAGE_CAP,
+) -> list[RecallImage]:
+    """Load images whose blocks overlap selected windows, deduped by immutable digest.
+
+    Caption mode reads only the L0 image manifests and their labelled derived text. Native
+    mode additionally retrieves and verifies the original bytes before they can reach the
+    model. The selected windows are the mechanical relevance gate: an unrelated image in the
+    same source is never attached merely because that source had one hit elsewhere.
+    """
+
+    if content is None or not windows or cap <= 0:
+        return []
+    if image_mode == "native" and media is None:
+        raise RuntimeError("native image recall requires a media store")
+
+    spans: dict[SourceId, list[tuple[int, int]]] = {}
+    source_order: list[SourceId] = []
+    for window in windows:
+        source_id = SourceId(str(window.source_id))
+        if source_id not in spans:
+            spans[source_id] = []
+            source_order.append(source_id)
+        spans[source_id].append((int(window.block_start), int(window.block_end)))
+
+    result: list[RecallImage] = []
+    seen_digests: set[str] = set()
+    for source_id in source_order:
+        source = await content.get(user_id, source_id)
+        for block in source.blocks:
+            if not any(start <= block.index <= end for start, end in spans[source_id]):
+                continue
+            for image in block.images:
+                if image.sha256 in seen_digests:
+                    continue
+                data: bytes | None = None
+                if image_mode == "native":
+                    assert media is not None
+                    data = await media.get(user_id, image.storage_key)
+                    if len(data) != image.size_bytes:
+                        raise ValueError(
+                            f"stored image {image.image_id!r} size no longer matches L0 manifest"
+                        )
+                    if hashlib.sha256(data).hexdigest() != image.sha256:
+                        raise ValueError(
+                            f"stored image {image.image_id!r} digest no longer matches L0 manifest"
+                        )
+                result.append(
+                    RecallImage(
+                        source_id=source_id,
+                        block_index=block.index,
+                        image=image,
+                        data=data,
+                    )
+                )
+                seen_digests.add(image.sha256)
+                if len(result) >= cap:
+                    return result
+    return result
 
 
 # ------------------------------------------------- annotation join (opt-in, default off)
@@ -741,6 +861,31 @@ def recall_human(
     `timelines` (default () = no section, byte-for-byte the layout above) is the opt-in
     subject-timeline expansion: one dated block per hit document, rendered directly below the
     claim notes it expands on, above the raw excerpts."""
+    return _recall_human_evidence(
+        claims,
+        windows=windows,
+        profile=profile,
+        glance=glance,
+        snapshot=snapshot,
+        full_documents=full_documents,
+        window_notes=window_notes,
+        timelines=timelines,
+    ) + _recall_human_tail(question, as_of)
+
+
+def _recall_human_evidence(
+    claims: list[RetrievedClaim],
+    *,
+    windows: list | None = None,
+    profile: str | None = None,
+    glance: str | None = None,
+    snapshot: str | None = None,
+    full_documents: Sequence[CanonicalDocument] = (),
+    window_notes: Sequence[tuple[object, tuple[RetrievedClaim, ...]]] | None = None,
+    timelines: Sequence[TimelineBlock] = (),
+) -> str:
+    """Everything before the volatile clock/question tail in the Human message."""
+
     windows = windows or []
     sections: list[str] = []
     if profile:
@@ -772,10 +917,14 @@ def recall_human(
             + "\n"
             + render_full_documents(full_documents)
         )
-    return (
-        "\n\n".join(sections)
-        + f"\n\nas_of: {as_of.isoformat()}\n"
-        + prompt("recall.section.input", question=question)
+    return "\n\n".join(sections)
+
+
+def _recall_human_tail(question: str, as_of: datetime) -> str:
+    """Attention-hot Human tail, shared by text-only and native-image messages."""
+
+    return f"\n\nas_of: {as_of.isoformat()}\n" + prompt(
+        "recall.section.input", question=question
     )
 
 
@@ -791,14 +940,14 @@ def selector_messages(
     full_documents: Sequence[CanonicalDocument] = (),
     window_notes: Sequence[tuple[object, tuple[RetrievedClaim, ...]]] | None = None,
     timelines: Sequence[TimelineBlock] = (),
+    images: Sequence[RecallImage] = (),
+    image_mode: Literal["caption", "native"] = "caption",
     answer_style: str = DEFAULT_ANSWER_STYLE,
 ) -> list[BaseMessage]:
     """[SystemMessage(fixed contract), HumanMessage(profile → snapshot → glance → evidence →
     as_of → input)]."""
-    human = recall_human(
-        question,
+    evidence = _recall_human_evidence(
         claims,
-        as_of=as_of,
         windows=windows,
         profile=profile,
         glance=glance,
@@ -807,6 +956,38 @@ def selector_messages(
         window_notes=window_notes,
         timelines=timelines,
     )
+    tail = _recall_human_tail(question, as_of)
+    if not images:
+        human: str | list[dict] = evidence + tail
+    else:
+        header = prompt("recall.section.images_header", count=len(images))
+        if image_mode == "caption":
+            human = (
+                evidence
+                + "\n\n"
+                + header
+                + "\n"
+                + "\n".join(_render_recall_image(image) for image in images)
+                + tail
+            )
+        else:
+            human = [{"type": "text", "text": evidence + "\n\n" + header}]
+            for recall_image in images:
+                if recall_image.data is None:
+                    raise ValueError(
+                        f"native image payload is missing for {recall_image.image.image_id!r}"
+                    )
+                human.append(
+                    {"type": "text", "text": _render_recall_image(recall_image)}
+                )
+                human.append(
+                    create_image_block(
+                        base64=base64.b64encode(recall_image.data).decode("ascii"),
+                        mime_type=recall_image.image.mime_type,
+                        id=recall_image.image.image_id,
+                    )
+                )
+            human.append({"type": "text", "text": tail})
     return [
         SystemMessage(content=selector_contract(answer_style)),
         HumanMessage(content=human),
@@ -826,6 +1007,8 @@ async def answer_with_selector(
     full_documents: Sequence[CanonicalDocument] = (),
     window_notes: Sequence[tuple[object, tuple[RetrievedClaim, ...]]] | None = None,
     timelines: Sequence[TimelineBlock] = (),
+    images: Sequence[RecallImage] = (),
+    image_mode: Literal["caption", "native"] = "caption",
     callbacks: list | None = None,
     trace_metadata: dict | None = None,
     run_name: str = "recall.fast",
@@ -854,9 +1037,23 @@ async def answer_with_selector(
         full_documents=full_documents,
         window_notes=window_notes,
         timelines=timelines,
+        images=images,
+        image_mode=image_mode,
         answer_style=answer_style,
     )
-    aliased_human, handle_map = alias_sources(human.content)
+    if isinstance(human.content, str):
+        aliased_human, handle_map = alias_sources(human.content)
+    else:
+        aliaser = SessionAliaser()
+        aliased_human = []
+        for block in human.content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                aliased_human.append(
+                    {**block, "text": aliaser.alias(str(block.get("text") or ""))}
+                )
+            else:
+                aliased_human.append(block)
+        handle_map = aliaser.handle_map
     # `bind` rather than a constructor knob: the client instance is shared across roles
     # (wiring caches by model spec), so the override must live on this call, not the client.
     answering_model = (
@@ -1163,6 +1360,9 @@ async def fast_recall(
     lexical: LexicalIndex | None = None,
     vectors: VectorIndex | None = None,
     content: ContentStore | None = None,
+    media: MediaStore | None = None,
+    image_mode: Literal["caption", "native"] = "caption",
+    image_cap: int = DEFAULT_IMAGE_CAP,
     profile: str | None = None,
     cap: int = DEFAULT_CLAIM_CAP,
     window_cap: int = DEFAULT_WINDOW_CAP,
@@ -1358,6 +1558,14 @@ async def fast_recall(
         order=not annotate_windows,
         assembly=window_assembly,
     )
+    images = await collect_window_images(
+        user_id,
+        windows,
+        content=content,
+        media=media,
+        image_mode=image_mode,
+        cap=image_cap,
+    )
     window_notes: list[tuple[object, tuple[RetrievedClaim, ...]]] | None = None
     if annotate_windows:
         claims, paired = join_claims_to_windows(
@@ -1368,6 +1576,11 @@ async def fast_recall(
     # Reading the selected documents is a local git read the caller already paid for (they
     # are in `documents`), so the expansion costs nothing on the wire.
     expanded = [by_path[path] for path in selected]
+    answer_trace_metadata = {
+        **(trace_metadata or {}),
+        "image_count": len(images),
+        "image_mode": image_mode,
+    }
     answer, usage, citation_handles = await answer_with_selector(
         model,
         question,
@@ -1380,8 +1593,10 @@ async def fast_recall(
         full_documents=expanded,
         window_notes=window_notes,
         timelines=timelines,
+        images=images,
+        image_mode=image_mode,
         callbacks=callbacks,
-        trace_metadata=trace_metadata,
+        trace_metadata=answer_trace_metadata,
         run_name="recall.fast",
         reasoning_effort=reasoning_effort,
         answer_style=answer_style,
@@ -1402,4 +1617,6 @@ async def fast_recall(
         planned_queries=planned,
         plan_degraded=plan_degraded,
         rerank_degraded=rerank_degraded,
+        image_count=len(images),
+        image_mode=image_mode,
     )
