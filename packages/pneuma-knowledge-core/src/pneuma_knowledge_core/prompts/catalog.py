@@ -777,6 +777,17 @@ DEFAULTS: dict[str, str] = {
     "compile.task.source_heading": "## source {source_id} — {title}",
     "compile.task.treatment_tag": "→ Treatment: **treatment={treatment}** (explained above)",
     "compile.task.block_line": "¶{index} {text}",
+    "compile.task.image_derived": (
+        "  [image {image_id}; {kind}; producer={producer}] {text}"
+    ),
+    "compile.task.image_without_derived": (
+        "  [image {image_id}; no caption or OCR representation was supplied]"
+    ),
+    "compile.task.native_images_header": "# Native image evidence\n",
+    "compile.task.native_image_locator": (
+        "Native image {image_id}; citation address: source {source_id} ¶{index}. "
+        "It belongs to this exact block: ¶{index} {text}"
+    ),
     "compile.task.outline_header": "# The whole of existing canonical (outline)\n",
     "compile.task.outline_note": (
         "These are all the documents currently in the owner's knowledge base, structure only, "

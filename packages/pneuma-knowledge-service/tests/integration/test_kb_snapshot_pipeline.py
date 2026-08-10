@@ -1,4 +1,4 @@
-"""Freezing a knowledge base across the real three stores, and cleaning it up again.
+"""Freezing a knowledge base across the real four stores, and cleaning it up again.
 
 The unit tests prove the pipeline's shape against stand-ins. What only the real stores can
 prove is that a copy is actually READABLE afterwards through the ordinary retrieval face —
@@ -78,6 +78,7 @@ async def frozen_ctx(pg_store, meili, qdrant, embeddings, user):
         lexical=meili,
         vectors=qdrant,
         canonical=_Canonical("sha-head-int"),
+        media=None,
     )
     first = _source(user, "pilot notes", ["the pilot shipped in March", "owner acked"])
     second = _source(user, "budget notes", ["the budget was approved"])
@@ -152,7 +153,7 @@ async def test_freeze_then_read_then_delete(frozen_ctx, embeddings):
     # A frozen tenant never shows up as a user.
     assert str(tenant) not in await ctx.store.list_users()
 
-    # Delete leaves all three stores clean and the owner untouched.
+    # Delete leaves all four stores clean and the owner untouched.
     assert await kb_snapshots.delete(ctx, owner, ready.snapshot_id)
     created.remove(ready.snapshot_id)
     assert await ctx.store.list(tenant) == []

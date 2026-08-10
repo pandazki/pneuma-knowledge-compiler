@@ -389,6 +389,26 @@
           }
         },
         {
+          "key": "image_mode",
+          "env": "PNEUMA_KNOWLEDGE_COMPILE_IMAGE_MODE",
+          "type": "enum",
+          "enum": [
+            "auto",
+            "caption",
+            "native"
+          ],
+          "default": "auto",
+          "apply": "restart",
+          "label": {
+            "en": "Compile image delivery",
+            "zh": "编译图片传递方式"
+          },
+          "description": {
+            "en": "caption sends labelled caption/OCR text only; native sends those labels plus actual image content blocks; auto uses the active model profile and falls back to caption when capability is unknown.",
+            "zh": "caption 只发送带来源标签的图片描述/OCR；native 在这些标签之外还发送真正的图片内容块；auto 读取当前模型的能力档案，能力未知时回落到 caption。"
+          }
+        },
+        {
           "key": "recall",
           "env": "PNEUMA_KNOWLEDGE_LLM_MODEL_RECALL",
           "type": "string",
@@ -561,6 +581,10 @@
             "compile.skill_lede",
             "compile.task.block_line",
             "compile.task.guidance_header",
+            "compile.task.image_derived",
+            "compile.task.image_without_derived",
+            "compile.task.native_image_locator",
+            "compile.task.native_images_header",
             "compile.task.outline_empty",
             "compile.task.outline_entry",
             "compile.task.outline_entry_tail",

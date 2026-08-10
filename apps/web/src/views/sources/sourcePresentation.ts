@@ -16,6 +16,27 @@ export interface PresentableBlock {
   index: number;
   text: string;
   section_path: string[];
+  images?: PresentableImage[];
+}
+
+export interface PresentableImage {
+  image_id: string;
+  mime_type: string;
+  sha256: string;
+  size_bytes: number;
+  url: string;
+  metadata?: Record<string, unknown>;
+  derived: { kind: "caption" | "ocr"; text: string; producer: string }[];
+}
+
+export interface ImagePresentation {
+  imageId: string;
+  mimeType: string;
+  sha256: string;
+  sizeBytes: number;
+  url: string;
+  metadata: Record<string, unknown>;
+  derived: { kind: "caption" | "ocr"; text: string; producer: string }[];
 }
 
 export interface PresentableSource {
@@ -67,6 +88,7 @@ export interface MessagePresentation {
   reactions: { name: string; count: number }[];
   text: string;
   date: string | null;
+  images: ImagePresentation[];
 }
 
 export interface EmailMessagePresentation {
@@ -178,6 +200,24 @@ function booleanValue(value: unknown): boolean {
 
 function numberValue(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function imageValue(value: PresentableImage): ImagePresentation {
+  return {
+    imageId: value.image_id,
+    mimeType: value.mime_type,
+    sha256: value.sha256,
+    sizeBytes: value.size_bytes,
+    url: value.url,
+    metadata: value.metadata ?? {},
+    derived: Array.isArray(value.derived)
+      ? value.derived.map((item) => ({
+          kind: item.kind,
+          text: item.text,
+          producer: item.producer,
+        }))
+      : [],
+  };
 }
 
 function durationMinutes(startedAt: string, endedAt: string | null): number | null {
@@ -360,6 +400,7 @@ function buildIm(
       })),
       text: fallback.body,
       date: block.section_path[0] ?? null,
+      images: (block.images ?? []).map(imageValue),
     };
   });
   return {

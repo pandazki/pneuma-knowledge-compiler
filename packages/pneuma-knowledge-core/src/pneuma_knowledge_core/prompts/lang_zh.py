@@ -588,6 +588,17 @@ _ZH: dict[str, str] = {
     "compile.task.source_heading": "## 来源 {source_id} —— {title}",
     "compile.task.treatment_tag": "→ 处理方式：**treatment={treatment}**（含义见上）",
     "compile.task.block_line": "¶{index} {text}",
+    "compile.task.image_derived": (
+        "  [图片 {image_id}；{kind}；生成者={producer}] {text}"
+    ),
+    "compile.task.image_without_derived": (
+        "  [图片 {image_id}；未提供 caption 或 OCR 表示]"
+    ),
+    "compile.task.native_images_header": "# 原生图片证据\n",
+    "compile.task.native_image_locator": (
+        "原生图片 {image_id}；引用地址：来源 {source_id} ¶{index}。"
+        "它属于这个确切块：¶{index} {text}"
+    ),
     "compile.task.outline_header": "# 已有正本的全貌（提纲）\n",
     "compile.task.outline_note": (
         "下面是知识主体文库里当前的全部文档，只有结构，没有正文。先在这里看某个主体是否已经存"

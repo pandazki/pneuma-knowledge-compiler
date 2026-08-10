@@ -526,6 +526,25 @@ STAGES: tuple[Stage, ...] = (
                 ),
             ),
             Knob(
+                key="image_mode",
+                type="enum",
+                enum=("auto", "caption", "native"),
+                apply="restart",
+                env="PNEUMA_KNOWLEDGE_COMPILE_IMAGE_MODE",
+                setting="compile_image_mode",
+                label_en="Compile image delivery",
+                label_zh="编译图片传递方式",
+                description_en=(
+                    "caption sends labelled caption/OCR text only; native sends those labels "
+                    "plus actual image content blocks; auto uses the active model profile and "
+                    "falls back to caption when capability is unknown."
+                ),
+                description_zh=(
+                    "caption 只发送带来源标签的图片描述/OCR；native 在这些标签之外还发送真正的"
+                    "图片内容块；auto 读取当前模型的能力档案，能力未知时回落到 caption。"
+                ),
+            ),
+            Knob(
                 key="recall",
                 type="string",
                 apply="restart",
@@ -798,6 +817,12 @@ NON_ENGINE_SETTINGS: frozenset[str] = frozenset(
         "qdrant_collection",
         "meili_url",
         "meili_key",
+        "media_s3_endpoint_url",
+        "media_s3_access_key",
+        "media_s3_secret_key",
+        "media_s3_bucket",
+        "media_s3_region",
+        "media_max_image_bytes",
         "canonical_root",
         "cors_allow_origin_regex",
         # Secrets. They never enter the versioned unit, by construction.

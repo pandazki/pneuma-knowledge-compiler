@@ -37,7 +37,8 @@
 | POST | `/…/sources/conversation` | 会话摄入——**已弃用**，请改用契约 |
 | GET | `/…/sources` | 目录，keyset 游标分页（`limit` 1–500、`cursor`、`query`、`kind`） |
 | GET | `/…/sources/activity` | 摄入日历热力图（`offset_minutes` −840…840） |
-| GET | `/…/sources/{source_id}` | 详情：元信息、结构图、blocks |
+| GET | `/…/sources/{source_id}` | 详情：元信息、结构图、blocks 与块级图片清单 |
+| GET | `/…/sources/{source_id}/blocks/{block_index}/images/{image_id}` | 私有图片字节；校验 source/block/image 归属与已存摘要 |
 | POST | `/…/sources/{source_id}/fetch` | 按 `locator` 逐字取 L0 原文 |
 | GET | `/…/summary` | 工作区计数：sources、jobs、documents、claims、snapshots |
 
@@ -49,6 +50,8 @@
 | POST | `/…/recall/stream` | 仅 deep；SSE——每完成一次工具调用发一条 `event: step`，最后 `done`（或 `error`）。步骤级流式，不是 token 流 |
 
 `rag` 返回命中列表（`source_id`、块区间、文本、路径、分数）。`fast`/`deep` 返回答案及其证据：`used_claims`、`used_windows`、`trail`（deep）、`citation_handles`（`sNN` → 真实 source id）、`documents_read`、`snapshot`、`token_usage`。
+
+Source 详情绝不暴露对象存储 key。每条图片清单只给 `image_id`、MIME 类型、SHA-256、大小、带标签的派生表示和 API URL。浏览器与引用抽屉经服务取这个 URL；S3/RustFS bucket 保持私有。
 
 ## 编译、任务、历史
 

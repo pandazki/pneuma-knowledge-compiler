@@ -37,7 +37,8 @@ Conventions:
 | POST | `/…/sources/conversation` | conversation ingest — **deprecated**, prefer contracts |
 | GET | `/…/sources` | catalog, keyset-cursor pagination (`limit` 1–500, `cursor`, `query`, `kind`) |
 | GET | `/…/sources/activity` | ingest calendar heatmap (`offset_minutes` −840…840) |
-| GET | `/…/sources/{source_id}` | detail: meta, structure map, blocks |
+| GET | `/…/sources/{source_id}` | detail: meta, structure map, blocks, and block-aligned image manifests |
+| GET | `/…/sources/{source_id}/blocks/{block_index}/images/{image_id}` | tenant-scoped private image bytes; validates source/block/image membership and the stored digest |
 | POST | `/…/sources/{source_id}/fetch` | verbatim L0 fetch by `locator` |
 | GET | `/…/summary` | workspace counts: sources, jobs, documents, claims, snapshots |
 
@@ -49,6 +50,8 @@ Conventions:
 | POST | `/…/recall/stream` | deep only; SSE — one `event: step` per finished tool call, then `done` (or `error`). Step-level streaming, not token streaming |
 
 `rag` returns hit lists (`source_id`, block span, text, paths, score). `fast`/`deep` return an answer plus its evidence: `used_claims`, `used_windows`, `trail` (deep), `citation_handles` (`sNN` → real source id), `documents_read`, `snapshot`, `token_usage`.
+
+Source detail never exposes an object-store key. Each image manifest contains `image_id`, MIME type, SHA-256, size, labelled derived representations and an API URL. The browser and citation sheet fetch that URL through the service; the S3/RustFS bucket remains private.
 
 ## Compile, jobs, history
 

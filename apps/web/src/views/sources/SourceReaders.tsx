@@ -17,7 +17,7 @@ import {
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-import type { SourceDetail } from "@/lib/api";
+import type { SourceDetail, SourceImage } from "@/lib/api";
 import { fmtDate, fmtTime } from "@/lib/format";
 import { intlTag } from "@/lib/i18n";
 import { useLocale, useT, useTOr, type TFunction, type TOrFunction } from "@/lib/useT";
@@ -78,6 +78,48 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+export function SourceImageGallery({ images }: { images: SourceImage[] }) {
+  const t = useT();
+  if (images.length === 0) return null;
+  return (
+    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+      {images.map((image) => {
+        const caption = image.derived.find((item) => item.kind === "caption");
+        return (
+          <figure key={image.image_id} className="overflow-hidden rounded-2 border border-line bg-surface">
+            <a href={image.url} target="_blank" rel="noreferrer" className="block bg-canvas">
+              <img
+                src={image.url}
+                alt={caption?.text ?? t("sources.image.alt", { imageId: image.image_id })}
+                loading="lazy"
+                className="max-h-[32rem] w-full object-contain"
+              />
+            </a>
+            <figcaption className="flex flex-col gap-2 border-t border-line p-2.5">
+              <p className="flex flex-wrap items-center gap-2 text-12 text-ink-3">
+                <Mono>{image.image_id}</Mono>
+                <span>{image.mime_type}</span>
+                <span>{formatBytes(image.size_bytes)}</span>
+              </p>
+              {image.derived.map((derived, index) => (
+                <div key={`${derived.kind}-${derived.producer}-${index}`} className="text-12 leading-relaxed text-ink-2">
+                  <p className="flex flex-wrap items-center gap-1.5">
+                    <Badge>{t(`sources.image.${derived.kind}`)}</Badge>
+                    <span className="text-ink-3">
+                      {t("sources.image.producer", { producer: derived.producer })}
+                    </span>
+                  </p>
+                  <p className="mt-1 whitespace-pre-wrap">{derived.text}</p>
+                </div>
+              ))}
+            </figcaption>
+          </figure>
+        );
+      })}
+    </div>
+  );
 }
 
 function BlockLocator({
@@ -515,6 +557,19 @@ function ImReader({
                       )}
                     </p>
                     <p className="prose mt-1 text-14">{message.text}</p>
+                    <SourceImageGallery images={message.images.map((image) => ({
+                      image_id: image.imageId,
+                      mime_type: image.mimeType,
+                      sha256: image.sha256,
+                      size_bytes: image.sizeBytes,
+                      url: image.url,
+                      metadata: image.metadata,
+                      derived: image.derived.map((item) => ({
+                        kind: item.kind,
+                        text: item.text,
+                        producer: item.producer,
+                      })),
+                    }))} />
                     {message.reactions.length > 0 && (
                       <p className="mt-2 flex flex-wrap gap-1">
                         {message.reactions.map((reaction) => (

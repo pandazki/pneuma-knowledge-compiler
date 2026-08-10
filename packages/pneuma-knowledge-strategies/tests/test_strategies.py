@@ -26,11 +26,13 @@ from pneuma_knowledge_strategies import (
 # v1 — mechanism prose stripped, first-class beginnings and obligation chains added.
 # v2 adds modality provenance without changing the bytes named by v1. Its pre-merge
 # experiment used body hash cc0cd1e0…; the final body keeps derived representations usable.
+# On 2026-08-10 it was narrowed to the image types the runtime actually supports and names
+# audio/video/files as unsupported, replacing the earlier aspirational generic-media line.
 # Retired historical body hashes: v1 bedea7b4…, v2 aeae8203…, v3 187d0201… (full values
 # in git history).
 FROZEN_BODY_SHA256 = {
     "v1": "b81c08e9184f2dc7a502d620203b8bf2386f548b0a77edb19d381498767ba9b1",
-    "v2": "0f22fc741626ebd093261215f63b2a4d65d338d8bffd73412d5795e84613e78e",
+    "v2": "3e75f9d4b261b52d32ee001d8502c44a5defcd9190a15f023f1ea075c22a52a1",
 }
 
 PERSONAL_KNOWLEDGE_TEMPLATES = (

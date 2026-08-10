@@ -23,6 +23,10 @@ Acknowledged lineage:
   captions/OCR remain attributed but usable derived observations. The first experiment
   ran provisional content hash 822e95c3…; its over-conservative wording was corrected
   before merge. `v1` stays byte-for-byte unchanged.
+- 2026-08-10 (pre-merge): `v2` now names the runtime boundary it actually implements:
+  JPEG/PNG/WebP/GIF on IM message blocks, with audio/video/files explicitly unsupported.
+  This replaces an aspirational generic-media sentence without minting another version;
+  `v1` remains unchanged.
 
 This also covers the seam end to end: a shipped strategy reconstitutes into exactly the
 SkillVersion the framework hands out, with no framework-side domain knowledge left.
@@ -35,7 +39,7 @@ from pneuma_knowledge_strategies import get_strategy, list_strategies
 
 PINNED_CONTENT_HASH = {
     "v1": "4318897b183649a1aee85d6751c10a2d7a91120b4e9319605765471f56e057ab",
-    "v2": "ee69e8852512893640b6fac9af7e1264319353907f5197cb2ffb8d1aee1f5b61",
+    "v2": "2d520edda46b6869b6019a168876cf3611ae03babeb5f9286409ca71e8ea41e3",
 }
 
 

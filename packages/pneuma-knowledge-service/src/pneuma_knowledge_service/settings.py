@@ -36,6 +36,20 @@ class Settings(BaseSettings):
     # override via PNEUMA_KNOWLEDGE_MEILI_KEY in any real deployment.
     meili_key: str = "masterKey_change_me"
 
+    # Private L0 image storage. RustFS is the shipped local S3-compatible service; the
+    # adapter itself only speaks S3 and can point at any compatible deployment. Objects
+    # are never public: the API authorizes a source/block/image tuple and proxies bytes.
+    media_s3_endpoint_url: str = "http://localhost:19000"
+    media_s3_access_key: str = "pneuma_media_dev"
+    media_s3_secret_key: str = "pneuma_media_dev_secret_change_me"
+    media_s3_bucket: str = "pneuma-media"
+    media_s3_region: str = "us-east-1"
+    media_max_image_bytes: int = 20 * 1024 * 1024
+    # `caption` sends only labelled derived text, `native` sends that text plus actual
+    # image content blocks, and `auto` trusts the active LangChain model profile. Unknown
+    # profiles fall back to caption rather than pretending a text request used vision.
+    compile_image_mode: Literal["auto", "caption", "native"] = "auto"
+
     canonical_root: str = "./data/canonical"
 
     # The engine directory: one versioned unit holding this deployment's strategy files,

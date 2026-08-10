@@ -118,6 +118,10 @@ export const sources = defineMessages({
     "sources.im.unknownDate": "日期未知",
     "sources.im.edited": "已编辑",
     "sources.im.threadReply": "线程回复",
+    "sources.image.alt": "来源图片 {imageId}",
+    "sources.image.caption": "图片描述",
+    "sources.image.ocr": "OCR 文本",
+    "sources.image.producer": "生成者：{producer}",
 
     "sources.email.thread": "邮件线程",
     "sources.email.countTerm": "邮件",
@@ -246,6 +250,10 @@ export const sources = defineMessages({
     "sources.im.unknownDate": "Date unknown",
     "sources.im.edited": "Edited",
     "sources.im.threadReply": "Thread reply",
+    "sources.image.alt": "Source image {imageId}",
+    "sources.image.caption": "Caption",
+    "sources.image.ocr": "OCR text",
+    "sources.image.producer": "Produced by {producer}",
 
     "sources.email.thread": "Email thread",
     "sources.email.countTerm": "Emails",

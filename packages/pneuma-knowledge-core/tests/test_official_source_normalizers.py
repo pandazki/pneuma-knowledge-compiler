@@ -3,6 +3,7 @@
 from datetime import datetime, timezone
 
 from pneuma_knowledge_core.domain.ids import UserId
+from pneuma_knowledge_core.domain.source import BlockImage, DerivedMediaText
 from pneuma_knowledge_core.ingest.canonical_sources import normalize_source_contract
 from pneuma_knowledge_core.ingest.source_contracts import parse_source_contract
 
@@ -175,6 +176,80 @@ def test_im_expands_by_conversation_and_preserves_message_ids():
             "reactions": [],
         }
     ]
+
+
+def test_im_image_is_block_aligned_and_keeps_native_and_derived_representations():
+    contract = parse_source_contract(
+        {
+            "schema": "pneuma.source.im/v1",
+            "provider": "mock",
+            "archive_id": "a-images",
+            "owner_user_ids": ["U1"],
+            "users": [
+                {"user_id": "U1", "display_name": "Test User"},
+                {"user_id": "U2", "display_name": "Alex"},
+            ],
+            "conversations": [
+                {
+                    "conversation_id": "C1",
+                    "conversation_type": "dm",
+                    "title": "Alex",
+                    "member_ids": ["U1", "U2"],
+                    "messages": [
+                        {
+                            "message_id": "1.1",
+                            "sender_id": "U2",
+                            "sent_at": "2026-07-28T11:00:00+08:00",
+                            "text": "This is the latest layout.",
+                            "images": [
+                                {
+                                    "image_id": "img-layout",
+                                    "mime_type": "image/png",
+                                    "source": {
+                                        "type": "base64",
+                                        "data": "aW1hZ2UtYnl0ZXM=",
+                                        "sha256": "2c8648d103e3dd7ad87660da0f126a1443b6d21ac1bd3ec000c5e24e2373a90c",
+                                    },
+                                    "derived": [
+                                        {
+                                            "kind": "caption",
+                                            "text": "A dashboard with three project columns.",
+                                            "producer": "mock-captioner",
+                                        }
+                                    ],
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+    stored = BlockImage(
+        image_id="img-layout",
+        mime_type="image/png",
+        sha256="2c8648d103e3dd7ad87660da0f126a1443b6d21ac1bd3ec000c5e24e2373a90c",
+        size_bytes=11,
+        storage_key="users/test-user/images/26/dd/26dd470a",
+        derived=[
+            DerivedMediaText(
+                kind="caption",
+                text="A dashboard with three project columns.",
+                producer="mock-captioner",
+            )
+        ],
+    )
+
+    result = normalize_source_contract(
+        contract,
+        UserId("test-user"),
+        imported_at=NOW,
+        materialized_images={"img-layout": stored},
+    )
+
+    assert result[0].blocks[0].images == [stored]
+    assert result[0].blocks[0].text == "Alex: This is the latest layout."
+    assert result[0].raw.meta["messages"][0]["image_ids"] == ["img-layout"]
 
 
 def test_email_expands_by_thread_and_marks_owner_side_without_inference():

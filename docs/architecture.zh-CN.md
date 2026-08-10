@@ -38,7 +38,7 @@
 四个包，单向依赖：
 
 - `pneuma-knowledge-core` —— 纯领域逻辑 + 异步 `Protocol` 端口。只依赖 pydantic、langchain-core、langchain、chonkie，**不含任何中间件客户端**。LLM 与向量模型以 langchain-core 类型入参（`BaseChatModel`、鸭子类型的 `Embeddings`）。
-- `pneuma-knowledge-service` —— 端口实现：FastAPI 应用、适配器（Postgres、Qdrant、Meilisearch、Git 子进程）、后台 worker、配置。
+- `pneuma-knowledge-service` —— 端口实现：FastAPI 应用、适配器（Postgres、Qdrant、Meilisearch、S3 兼容媒体、Git 子进程）、后台 worker、配置。
 - `pneuma-knowledge-strategies` —— 参考编译契约，纯数据包。框架永不 import 它。
 - `apps/web` —— 只对 HTTP API 说话的 SPA。
 
@@ -50,7 +50,7 @@
 
 | 层 | 内容 | 存储 | 条件 |
 |---|---|---|---|
-| L0 | 逐字块 + 结构图，按 locator 直取 | Postgres | 无条件 |
+| L0 | 逐字块 + 结构图 + 与块对齐的原始媒体，按 locator 直取 | Postgres + 私有 S3 兼容对象存储 | 无条件 |
 | L1 | 块级词法全文检索 | Meilisearch（每用户一索引） | 无条件 |
 | L2 | 语义分块 | Qdrant（单 collection，租户过滤在适配器内注入） | 按 IntakePlan |
 | L3 | 契约之下编译出的正本知识 | 正本文库（版本化；+ 派生投影） | 按 IntakePlan |
@@ -61,7 +61,7 @@
 
 权威的只有两样：L0 原始材料，和正本文库。正本文库是一部**版本化、只追加的历史**：每次编译追加一个版本，任何历史状态可以打快照、可以回滚，演进在独立分支上接受评审，每个版本都盖着产生它的契约哈希。其余一切——L1/L2 索引、L3 投影、鸟瞰——都是派生物，可以从这两样完整重建。
 
-（出厂实现：L0 存 Postgres；正本文库是每用户一个 Git 仓库，commit/tag/revert/branch 恰好一一映射上述语义。这是 `CanonicalStore` 端口的一个适配器，不是架构承诺。）
+（出厂实现：L0 文本、结构与媒体清单存 Postgres，不可变媒体字节存私有 S3 兼容对象存储——本地栈使用 RustFS——并藏在 `MediaStore` 端口之后；正本文库是每用户一个 Git 仓库，commit/tag/revert/branch 恰好一一映射上述语义。它们是适配器，不是架构承诺。）
 
 两个值得内化的推论：
 
@@ -74,6 +74,8 @@
 ## 5. 正本写入机制
 
 正本知识的单位是 **claim**：一段携带**锚点**（嵌在 markdown 里的 HTML 注释 `<!-- c:xxxx -->`）和一条以上**引用**的文本，引用写作 `[cite: <source-id> ¶a-b]`，`¶a-b` 是被引材料里的块区间。锚点内容寻址、系统分配——模型永远不铸造锚点——一经分配不可变。
+
+图片不发明第二套引用语言。图片附着在消息原有的块上，因此同一个 `source_id + ¶ 块区间` 可以解析出逐字文本、原图字节、摘要、MIME 类型，以及带明确标签和 producer 的 caption/OCR 表示。编译路径根据当前编译模型发送 caption/OCR，或发送真实图片 content block；原生模式在模型调用前重新读取并校验已存字节。caption 始终是派生证据，绝不冒充模型直接看过原图。
 
 编译模型只能通过 claim 级工具工作（`edit_claim`、`append_block`、`create_document`，外加读工具），操作对象是内存中的补丁草稿。草稿成为 commit 之前必须通过**闸门**：机械检查锚点连续与唯一、引用可解析且形状合法、每条新 claim 有出处、链接目标存在、frontmatter 完整、路径归属于契约模板、冻结归档卷不可写。引用校验只针对本轮新引入的引用——旧提交里逐字保留的引用被豁免（它们在首次写入时已校验过），所以前向编译永远不会因为一个本轮没给它的来源而被拒；锚点唯一性则相反，全库校验、无豁免。有违规给一轮修复；仍有违规则编译中止，正本层分毫未动。
 
@@ -104,7 +106,7 @@ fast 面的 claim 检索带两个可选阶段（都默认关；关闭路径字�
 
 另有 **live context**：给定进行中的对话窗口，提出零到多张有据可依的建议卡，经机械闸门过滤——沉默是常态，不是失败。
 
-一切经由同一寻址方案解析——`source_id + 块区间`——词法命中、语义分块、claim 引用、逐字取文指向同一块序列。答案通过查询局部句柄（`s01`、`s02`…）引用来源，句柄绝不跨一次求值泄漏。检索可以钉在快照上——某个历史版本（只读浏览）或整租户的冻结副本——钉住的查询绝不静默回退到活数据。
+一切经由同一寻址方案解析——`source_id + 块区间`——词法命中、语义分块、claim 引用、逐字取文和块级媒体指向同一块序列。答案通过查询局部句柄（`s01`、`s02`…）引用来源，句柄绝不跨一次求值泄漏。检索可以钉在快照上——某个历史版本（只读浏览）或整租户的冻结副本——钉住的查询绝不静默回退到活数据。
 
 ## 8. 演进
 
@@ -125,12 +127,12 @@ fast 面的 claim 检索带两个可选阶段（都默认关；关闭路径字�
 1. **处处用户隔离。** `user_id` 是每个端口方法的第一参数；每用户独立的正本文库与词法索引；向量库的租户过滤在适配器内部注入，不存在无过滤的公开路径。
 2. **正本与派生是不同的类型。** 策略或渲染升级只重建派生物。
 3. **L0/L1 可达性无条件**，与 IntakePlan 对 L2/L3 的决定无关。
-4. **一套寻址方案。** 一切知识经 `source_id + 块区间` 回链原文；一种引用语法，一个共享解析器。
+4. **一套寻址方案。** 一切知识经 `source_id + 块区间` 回链原文；一种引用语法，一个共享解析器。块级媒体经同一地址解析，不走未引用的旁路。
 5. **System message 字节稳定。** 易变内容走 human message。
 
 ## 10. 进程拓扑
 
-三个中间件容器（Postgres、Qdrant、Meilisearch）加两个无状态进程：
+四个中间件容器（Postgres、Qdrant、Meilisearch、RustFS）加两个无状态进程：
 
 - **API**（FastAPI / uvicorn）—— 摄入、检索、评审界面；同时承载 SSE 流与 live-context WebSocket。
 - **Worker** —— 按用户严格串行地排空任务队列（`FOR UPDATE SKIP LOCKED`；每用户同时至多一个在飞任务，这同时就是正本库的单写者保证）。六种任务：`compile`、`index`、`challenge`、`evolve`、`evolve_adopt`、`groom`。重启时自动回收孤儿任务；任何异常都以失败完结，绝不留下悬挂的占用。
@@ -145,7 +147,7 @@ Git 二进制是运行时必备（正本适配器通过子进程调用它）。�
 
 ```
 engine/                    # 自己的 git 仓库；每次 apply 一个提交
-  engine.yaml              # 四个模型角色（compile / recall / deep / embedding）
+  engine.yaml              # 模型角色 + 编译图片交付模式
   intake/intake.yaml       # chunk_strategy, semantic_overlap
   compile/contract.md      # 宪法——一份文档，永不被拆成旋钮
   compile/challenge.yaml   # 覆盖质询的旋钮

@@ -25,7 +25,7 @@
     {
       "version": "v2",
       "file": "v2.md",
-      "summary": "Adds modality-aware provenance while keeping labelled captions, transcripts, OCR and queries usable when native media is unavailable.",
+      "summary": "Adds end-to-end image provenance: native IM images or labelled caption/OCR evidence share the cited L0 block; other native media remain explicitly unsupported.",
       "contract_rules": [
         "contract.rule.citation_granularity",
         "contract.rule.citation_shape",

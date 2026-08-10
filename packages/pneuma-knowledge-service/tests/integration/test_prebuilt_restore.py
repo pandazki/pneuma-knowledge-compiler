@@ -9,6 +9,8 @@ still binds), canonical documents, projected claims, L1/L2 rebuilt, nothing left
 from __future__ import annotations
 
 import gzip
+import base64
+import hashlib
 import json
 import socket
 import subprocess
@@ -17,14 +19,17 @@ from datetime import datetime, timezone
 from urllib.parse import urlparse
 
 import pytest
-from pneuma_knowledge_core.domain.ids import UserId
+from pneuma_knowledge_core.domain.ids import SourceId, UserId
 from pneuma_knowledge_core.domain.source import ConversationTurn
+from pneuma_knowledge_core.ingest.source_contracts import parse_source_contract
 from pneuma_knowledge_core.skill import load_skill_base
 from pneuma_knowledge_service.adapters.scripted_model import ScriptedChatModel
 from pneuma_knowledge_service.ingest import ingest_conversation
+from pneuma_knowledge_service.ingest_sources import ingest_source_contract
 from pneuma_knowledge_service.prebuilt import (
     BUNDLE_NAME,
     L0_DUMP_NAME,
+    L0_MEDIA_DIR_NAME,
     SETTLED_DETAIL,
     PrebuiltUnavailable,
     restore_prebuilt,
@@ -32,6 +37,11 @@ from pneuma_knowledge_service.prebuilt import (
 from pneuma_knowledge_service.settings import Settings
 from pneuma_knowledge_service.wiring import build_context
 from pneuma_knowledge_service.workers.compile_worker import drain_user
+
+
+PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+)
 
 
 def _open(url: str, default: int) -> bool:
@@ -87,7 +97,7 @@ async def _build_library(ctx, user: UserId) -> str:
 
 
 async def _export_authorities(ctx, user: UserId, directory) -> None:
-    """Write the two files a project ships: the canonical bundle and the L0 dump."""
+    """Write canonical, L0 manifests, and any immutable L0 media originals."""
     directory.mkdir(parents=True, exist_ok=True)
     repo = ctx.canonical.repo_path(user)
     subprocess.run(
@@ -100,6 +110,86 @@ async def _export_authorities(ctx, user: UserId, directory) -> None:
         for raw in await ctx.store.list(user):
             normalized = await ctx.store.get(user, raw.source_id)
             handle.write(json.dumps(normalized.model_dump(mode="json")) + "\n")
+            for block in normalized.blocks:
+                for image in block.images:
+                    payload = (
+                        directory
+                        / L0_MEDIA_DIR_NAME
+                        / "sha256"
+                        / image.sha256[:2]
+                        / image.sha256
+                    )
+                    payload.parent.mkdir(parents=True, exist_ok=True)
+                    payload.write_bytes(await ctx.media.get(user, image.storage_key))
+
+
+async def _build_image_library(ctx, user: UserId) -> str:
+    digest = hashlib.sha256(PNG).hexdigest()
+    contract = parse_source_contract(
+        {
+            "schema": "pneuma.source.im/v1",
+            "provider": "mock",
+            "archive_id": "prebuilt-image",
+            "owner_user_ids": ["owner"],
+            "users": [{"user_id": "owner", "display_name": "Owner"}],
+            "conversations": [
+                {
+                    "conversation_id": "visual",
+                    "conversation_type": "dm",
+                    "title": "Visual",
+                    "member_ids": ["owner"],
+                    "messages": [
+                        {
+                            "message_id": "m1",
+                            "sender_id": "owner",
+                            "sent_at": "2026-08-10T00:00:00Z",
+                            "text": "The diagram is the launch marker.",
+                            "images": [
+                                {
+                                    "image_id": "marker",
+                                    "mime_type": "image/png",
+                                    "source": {
+                                        "type": "base64",
+                                        "data": base64.b64encode(PNG).decode("ascii"),
+                                        "sha256": digest,
+                                    },
+                                    "derived": [
+                                        {
+                                            "kind": "caption",
+                                            "text": "A launch marker.",
+                                            "producer": "test-fixture",
+                                        }
+                                    ],
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+    ingested = await ingest_source_contract(ctx, user, contract)
+    source_id = str(ingested.sources[0].source_id)
+    model = ScriptedChatModel(
+        turns=[
+            [
+                {
+                    "name": "create_document",
+                    "args": {
+                        "path": "memory/topics/visual.md",
+                        "frontmatter": {"type": "topic", "slug": "visual"},
+                        "body": (
+                            "## Visual\n\n- The diagram is the launch marker"
+                            f"[cite: {source_id} ¶0]"
+                        ),
+                    },
+                },
+                {"name": "finish_compile"},
+            ]
+        ]
+    )
+    assert await drain_user(ctx, model, load_skill_base("v1"), user) == 2
+    return source_id
 
 
 async def test_a_shipped_library_restores_for_another_user_without_a_model(ctx, tmp_path):
@@ -141,6 +231,33 @@ async def test_a_shipped_library_restores_for_another_user_without_a_model(ctx, 
         assert len(await ctx.canonical.list(builder)) == 1
     finally:
         for user in (builder, owner):
+            await ctx.store.delete_user(user)
+            await ctx.lexical.delete_user(user)
+            await ctx.vectors.delete_user(user)
+
+
+async def test_an_image_prebuilt_restores_original_bytes_under_the_new_tenant(ctx, tmp_path):
+    if not _open(ctx.settings.media_s3_endpoint_url, 9000):
+        pytest.skip("RustFS unreachable")
+    builder = UserId(f"u-it-prebuilt-img-src-{uuid.uuid4().hex[:8]}")
+    owner = UserId(f"u-it-prebuilt-img-dst-{uuid.uuid4().hex[:8]}")
+    prebuilt = tmp_path / "prebuilt-image"
+    try:
+        source_id = await _build_image_library(ctx, builder)
+        await _export_authorities(ctx, builder, prebuilt)
+
+        report = await restore_prebuilt(ctx, owner, prebuilt)
+        assert report.images == 1
+        built = await ctx.store.get(builder, SourceId(source_id))
+        restored = await ctx.store.get(owner, SourceId(source_id))
+        assert built is not None and restored is not None
+        built_image = built.blocks[0].images[0]
+        restored_image = restored.blocks[0].images[0]
+        assert restored_image.storage_key != built_image.storage_key
+        assert await ctx.media.get(owner, restored_image.storage_key) == PNG
+    finally:
+        for user in (builder, owner):
+            await ctx.media.delete_user(user)
             await ctx.store.delete_user(user)
             await ctx.lexical.delete_user(user)
             await ctx.vectors.delete_user(user)

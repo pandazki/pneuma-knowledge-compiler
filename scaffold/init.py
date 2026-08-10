@@ -45,6 +45,7 @@ import getpass
 import json
 import random
 import re
+import secrets
 import shutil
 import socket
 from pathlib import Path
@@ -197,6 +198,8 @@ chunk_strategy = "semantic"  # semantic = LLM boundary detection (default) | sen
 semantic_overlap = "smart" # semantic only: smart = neighbouring segments may share a hinge
                            # block (default) | off = zero overlap, the measured baseline
 challenge_enabled = false  # post-compile coverage challenge (extra model calls per compile)
+compile_image_mode = "auto" # auto = use model profile | native = send image blocks |
+                           # caption = labelled caption/OCR text only
 answer_style = "conversational"  # how Q&A answers read: concise = the bare exact answer
                            # (graders/scripts) | conversational = natural chat reply |
                            # detailed = self-contained written note
@@ -447,6 +450,20 @@ def build_config(answers: dict, *, target: str | None) -> dict:
     prompt_language = str(advanced_in.get("prompt_language") or "en")
     if prompt_language not in ("en", "zh"):
         sys.exit(f"error: advanced.prompt_language must be en / zh, got {prompt_language!r}")
+    compile_image_mode = str(advanced_in.get("compile_image_mode") or "auto")
+    if compile_image_mode not in ("auto", "caption", "native"):
+        sys.exit(
+            "error: advanced.compile_image_mode must be auto / caption / native, "
+            f"got {compile_image_mode!r}"
+        )
+    # OpenRouter model ids do not always carry LangChain model profiles. The shipped compile
+    # default is an explicitly multimodal GPT-5.6 route, so record that declaration in the
+    # generated project instead of silently degrading its image inputs to caption-only.
+    if (
+        compile_image_mode == "auto"
+        and models["compile"].startswith("openrouter:openai/gpt-5.6")
+    ):
+        compile_image_mode = "native"
 
     return {
         "language": language,
@@ -466,6 +483,7 @@ def build_config(answers: dict, *, target: str | None) -> dict:
         "semantic_overlap": semantic_overlap,
         "answer_style": answer_style,
         "prompt_language": prompt_language,
+        "compile_image_mode": compile_image_mode,
         "challenge_enabled": bool(advanced_in.get("challenge_enabled") or False),
         "api_key": "",
     }
@@ -507,6 +525,10 @@ def make_env_text(config: dict, ports: dict[str, int], compose_project: str, rep
             f"PNEUMA_APP_QDRANT_PORT={ports['qdrant']}",
             f"PNEUMA_APP_QDRANT_GRPC_PORT={ports['qdrant_grpc']}",
             f"PNEUMA_APP_MEILI_PORT={ports['meili']}",
+            f"PNEUMA_APP_RUSTFS_PORT={ports['rustfs']}",
+            f"PNEUMA_APP_RUSTFS_CONSOLE_PORT={ports['rustfs_console']}",
+            f"PNEUMA_APP_RUSTFS_ACCESS_KEY={config['rustfs_access_key']}",
+            f"PNEUMA_APP_RUSTFS_SECRET_KEY={config['rustfs_secret_key']}",
             "# The browsing layer (framework API + web UI), started only by the optional",
             "# `console` compose profile:  docker compose --profile console up -d --wait",
             f"PNEUMA_APP_API_PORT={ports['api']}",
@@ -597,6 +619,9 @@ def engine_files(config: dict, contract: str, profile: str) -> dict[str, str]:
 # default. The matching variables here are PNEUMA_KNOWLEDGE_LLM_MODEL_COMPILE / _RECALL /
 # _DEEP and PNEUMA_KNOWLEDGE_EMBEDDING_MODEL.
 compile: {models["compile"]}
+# How images reach the compile model: native sends real image content blocks; caption sends
+# only labelled caption/OCR text; auto trusts the active model profile.
+image_mode: {config["compile_image_mode"]}
 recall: {models["recall"]}
 # Deep recall (the agentic search lane). Empty borrows the recall role.
 deep: {deep if deep else '""'}
@@ -775,16 +800,20 @@ def generate(config: dict) -> Path:
     target.mkdir(parents=True, exist_ok=True)
 
     zh = config["language"] == "zh"
-    pg, qdrant, qdrant_grpc, meili, api, web = probe_free_ports(6)
+    pg, qdrant, qdrant_grpc, meili, rustfs, rustfs_console, api, web = probe_free_ports(8)
     ports = {
         "pg": pg,
         "qdrant": qdrant,
         "qdrant_grpc": qdrant_grpc,
         "meili": meili,
+        "rustfs": rustfs,
+        "rustfs_console": rustfs_console,
         "api": api,
         "web": web,
     }
     config["subnet"] = probe_free_subnet()
+    config["rustfs_access_key"] = f"pneuma-{secrets.token_hex(8)}"
+    config["rustfs_secret_key"] = secrets.token_urlsafe(32)
     compose_project = f"pneuma-{config['project_name']}-{random.randrange(16**4):04x}"
 
     # 1) machinery, verbatim
@@ -860,6 +889,11 @@ def generate(config: dict) -> Path:
     (target / ".env").write_text(env_text, encoding="utf-8")
     os.chmod(target / ".env", 0o600)
     example_text = re.sub(r"(?m)^OPENROUTER_API_KEY=.*$", "OPENROUTER_API_KEY=", env_text)
+    example_text = re.sub(
+        r"(?m)^PNEUMA_APP_RUSTFS_(?:ACCESS|SECRET)_KEY=.*$",
+        lambda match: match.group(0).split("=", 1)[0] + "=",
+        example_text,
+    )
     (target / ".env.example").write_text(example_text, encoding="utf-8")
     for name in EXECUTABLE:
         os.chmod(target / name, 0o755)
@@ -867,7 +901,7 @@ def generate(config: dict) -> Path:
     # 6) next steps
     say()
     say(bold(f"✓ Project generated: {target}"))
-    say(dim(f"  stack: compose project {compose_project} · ports pg {pg} / qdrant {qdrant},{qdrant_grpc} / meili {meili} / api {api} / web {web} · subnet {config['subnet']}"))
+    say(dim(f"  stack: compose project {compose_project} · ports pg {pg} / qdrant {qdrant},{qdrant_grpc} / meili {meili} / rustfs {rustfs},{rustfs_console} / api {api} / web {web} · subnet {config['subnet']}"))
     say(dim("  (ports were probed free and written into .env — nothing for you to manage)"))
     say(dim(f"  {engine_note}"))
     if config["demo"]:

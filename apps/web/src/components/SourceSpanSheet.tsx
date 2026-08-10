@@ -10,6 +10,7 @@ import { ErrorState } from "@/ui/ErrorState";
 import { Mono } from "@/ui/Mono";
 import { SkeletonText } from "@/ui/Skeleton";
 import { cn } from "@/ui/cn";
+import { SourceImageGallery } from "@/views/sources/SourceReaders";
 
 export interface SourceSpanSheetProps {
   open: boolean;
@@ -242,9 +243,10 @@ export function SourceSpanSheet({
                   <Mono className="w-8 shrink-0 pt-0.5 text-right text-12 text-ink-3">
                     b{b.index}
                   </Mono>
-                  <p className="prose min-w-0 text-14 whitespace-pre-wrap">
-                    {b.text}
-                  </p>
+                  <div className="min-w-0 flex-1">
+                    <p className="prose text-14 whitespace-pre-wrap">{b.text}</p>
+                    <SourceImageGallery images={b.images} />
+                  </div>
                 </li>
               ))}
             </ol>

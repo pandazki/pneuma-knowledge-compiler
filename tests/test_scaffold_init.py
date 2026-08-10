@@ -111,11 +111,13 @@ def test_generated_env_carries_free_distinct_ports_and_framework_repo(tmp_path):
             "PNEUMA_APP_QDRANT_PORT",
             "PNEUMA_APP_QDRANT_GRPC_PORT",
             "PNEUMA_APP_MEILI_PORT",
+            "PNEUMA_APP_RUSTFS_PORT",
+            "PNEUMA_APP_RUSTFS_CONSOLE_PORT",
             "PNEUMA_APP_API_PORT",
             "PNEUMA_APP_WEB_PORT",
         )
     ]
-    assert len(set(ports)) == 6
+    assert len(set(ports)) == 8
     for port in ports:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
             probe.bind(("127.0.0.1", port))  # still free right after generation
@@ -126,6 +128,12 @@ def test_generated_env_carries_free_distinct_ports_and_framework_repo(tmp_path):
     # And a key-blank .env.example rides along as the recovery/reference copy.
     example = (target / ".env.example").read_text(encoding="utf-8")
     assert "OPENROUTER_API_KEY=\n" in example
+    assert values["PNEUMA_APP_RUSTFS_ACCESS_KEY"]
+    assert values["PNEUMA_APP_RUSTFS_SECRET_KEY"]
+    assert "PNEUMA_APP_RUSTFS_ACCESS_KEY=\n" in example
+    assert "PNEUMA_APP_RUSTFS_SECRET_KEY=\n" in example
+    assert values["PNEUMA_APP_RUSTFS_ACCESS_KEY"] not in example
+    assert values["PNEUMA_APP_RUSTFS_SECRET_KEY"] not in example
     assert example.replace("OPENROUTER_API_KEY=", "OPENROUTER_API_KEY=", 1).splitlines()[5:] == env.splitlines()[5:] or True
     assert values["PNEUMA_APP_PG_PORT"] in example
     # A project-private subnet is probed and written (default address pools are finite).
@@ -158,6 +166,7 @@ def test_generated_console_profile_renders_under_real_docker_compose(tmp_path):
         "postgres",
         "qdrant",
         "meilisearch",
+        "rustfs",
         "api",
         "worker",
         "web",

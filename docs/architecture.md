@@ -38,7 +38,7 @@ And one project-wide discipline behind all three: **mechanism over persuasion**.
 Four packages, one-way dependencies:
 
 - `pneuma-knowledge-core` — pure domain logic and async `Protocol` ports. Depends on pydantic, langchain-core, langchain, chonkie; **no middleware clients**. LLMs and embeddings enter as langchain-core types (`BaseChatModel`, duck-typed `Embeddings`).
-- `pneuma-knowledge-service` — the port implementations: FastAPI app, adapters (Postgres, Qdrant, Meilisearch, Git-via-subprocess), the background worker, settings.
+- `pneuma-knowledge-service` — the port implementations: FastAPI app, adapters (Postgres, Qdrant, Meilisearch, S3-compatible media, Git-via-subprocess), the background worker, settings.
 - `pneuma-knowledge-strategies` — reference compile contracts as a data package. The framework never imports it.
 - `apps/web` — a SPA speaking only the HTTP API.
 
@@ -50,7 +50,7 @@ Every source is kept verbatim and stays reachable at four levels over the same b
 
 | Level | What | Store | When |
 |---|---|---|---|
-| L0 | verbatim blocks + structure map, fetched by locator | Postgres | unconditional |
+| L0 | verbatim blocks + structure map + block-aligned original media, fetched by locator | Postgres + private S3-compatible object storage | unconditional |
 | L1 | lexical full-text over blocks | Meilisearch (index per user) | unconditional |
 | L2 | semantic chunks | Qdrant (one collection, tenant filter injected in the adapter) | per IntakePlan |
 | L3 | canonical knowledge compiled under the contract | canonical library (versioned; + derived projections) | per IntakePlan |
@@ -61,7 +61,7 @@ An `IntakePlan` is two knobs — `canonical_treatment` (full / distill / card / 
 
 Only two things are authoritative: the L0 sources, and the canonical library. The canonical library is a **versioned, append-only history**: every compile appends a version, any past state can be snapshotted or rolled back, evolution is reviewed on its own branch, and every version is stamped with the hash of the contract that produced it. Everything else — L1/L2 indexes, L3 projections, glances — is derived and rebuildable from those two.
 
-(The shipped implementation: L0 lives in Postgres; the canonical library is one Git repository per user, whose commit/tag/revert/branch map one-to-one onto the semantics above. That is an adapter behind the `CanonicalStore` port, not an architectural commitment.)
+(The shipped implementation: L0 text, structure and media manifests live in Postgres, while immutable media bytes live in private S3-compatible storage (RustFS in the local stack) behind the `MediaStore` port. The canonical library is one Git repository per user, whose commit/tag/revert/branch map one-to-one onto the semantics above. These are adapters, not architectural commitments.)
 
 Two consequences worth internalizing:
 
@@ -74,6 +74,8 @@ Two consequences worth internalizing:
 ## 5. Canonical write mechanics
 
 The unit of canonical knowledge is a **claim**: a text block carrying an **anchor** (an HTML comment `<!-- c:xxxx -->` embedded in the markdown) and one or more **citations** written `[cite: <source-id> ¶a-b]`, where `¶a-b` is a block span in the cited source. Anchors are content-addressed and system-assigned — the model never mints one — and once assigned they are immutable.
+
+An image does not invent a second citation language. It is attached to the message's ordinary block, so the same `source_id + ¶ span` resolves the verbatim text, original image bytes, digest, MIME type, and any explicitly labelled caption/OCR representation with its producer. The compile path can send caption/OCR only or real image content blocks according to the active compile model; native mode re-reads and verifies the stored bytes before the model call. A caption remains derived evidence and never impersonates direct image inspection.
 
 The compile model works through claim-level tools only (`edit_claim`, `append_block`, `create_document`, plus read tools), against an in-memory patch draft. Before a draft becomes a commit it must pass the **gate**: a mechanical check of anchor continuity and uniqueness, citation resolvability and shape, provenance on every new claim, link-target existence, frontmatter completeness, path ownership under the contract's templates, and the immutability of frozen archive volumes. Citation checks apply to what this round introduces — citations carried verbatim from earlier commits are grandfathered (they were verified when first written), so a forward compile is never rejected over a source it was not given; anchor uniqueness, by contrast, is checked repository-wide with no grandfathering. Violations trigger one repair round; if violations remain, the compile aborts and the canonical layer is untouched.
 
@@ -104,7 +106,7 @@ The fast lane's claim face carries two opt-in stages around its dual-path retrie
 
 Plus **live context**: given an ongoing conversation window, propose zero or more grounded suggestion cards, filtered through mechanical gates — silence is the norm, not a failure.
 
-Everything resolves through one addressing scheme — `source_id + block span` — so a lexical hit, a semantic chunk, a claim citation, and a verbatim fetch all point into the same block sequence. Answers cite via query-local handles (`s01`, `s02`…) that never leak across one evaluation. Retrieval can be pinned to a snapshot — either a past version (read-only browse) or a frozen copy of the whole tenant — and a pinned query never silently falls back to live data.
+Everything resolves through one addressing scheme — `source_id + block span` — so a lexical hit, a semantic chunk, a claim citation, a verbatim fetch, and block-aligned media all point into the same block sequence. Answers cite via query-local handles (`s01`, `s02`…) that never leak across one evaluation. Retrieval can be pinned to a snapshot — either a past version (read-only browse) or a frozen copy of the whole tenant — and a pinned query never silently falls back to live data.
 
 ## 8. Evolution
 
@@ -125,12 +127,12 @@ Five guarantees that hold everywhere in the code — safe to build on, and they 
 1. **User isolation everywhere.** `user_id` is the first parameter of every port method; each user gets their own canonical library and lexical indexes; the vector store's tenant filter is injected inside the adapter with no unfiltered public path.
 2. **Canonical and derived are distinct types.** Strategy or render upgrades rebuild derived artifacts only.
 3. **L0/L1 reachability is unconditional**, regardless of what the IntakePlan decides about L2/L3.
-4. **One addressing scheme.** All knowledge links back via `source_id + block span`; one citation syntax with one shared parser.
+4. **One addressing scheme.** All knowledge links back via `source_id + block span`; one citation syntax with one shared parser. Block-aligned media resolves through that address rather than through an uncited side channel.
 5. **The system message is byte-stable.** Volatile content travels in the human message.
 
 ## 10. Process topology
 
-Three middleware containers (Postgres, Qdrant, Meilisearch) plus two stateless processes:
+Four middleware containers (Postgres, Qdrant, Meilisearch, RustFS) plus two stateless processes:
 
 - **API** (FastAPI / uvicorn) — ingest, retrieval, review surfaces; also serves SSE streams and the live-context WebSocket.
 - **Worker** — drains the job queue per user, strictly serially (`FOR UPDATE SKIP LOCKED`; one in-flight job per user doubles as the single-writer guarantee for the canonical store). Six job kinds: `compile`, `index`, `challenge`, `evolve`, `evolve_adopt`, `groom`. On restart it re-queues orphaned jobs; any exception completes the job as failed rather than leaving it claimed.
@@ -145,7 +147,7 @@ Everything that IS a deployment's engine — strategy, the compile contract, pro
 
 ```
 engine/                    # its own git repo; one commit per apply
-  engine.yaml              # the four model roles (compile / recall / deep / embedding)
+  engine.yaml              # model roles + compile image delivery mode
   intake/intake.yaml       # chunk_strategy, semantic_overlap
   compile/contract.md      # the constitution — a DOCUMENT, never decomposed into knobs
   compile/challenge.yaml   # coverage-challenge knobs

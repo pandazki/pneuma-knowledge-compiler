@@ -58,7 +58,7 @@
 
 | 操作 | 附加键 |
 |---|---|
-| `compile` | `skill_version`、`skill_id`、`job_id`、`source_count` |
+| `compile` | `skill_version`、`skill_id`、`job_id`、`source_count`、`image_count`、`image_mode` |
 | `compile.challenge` | `job_id` |
 | `compile.groom` | `job_id`、`document_path`、`volume_path`、`archived_claims`、`skill_version` |
 | `evolve.propose` | `skill_version` |
@@ -81,7 +81,7 @@ langchain 会另外折入自己的 `ls_*` / `lc_versions` 键；我们的键与�
 
 ## trace-size 纪律
 
-**metadata 只放 id 与计数——永不放 key，永不放 canonical 正文。** `user_id`、`job_id`、`snapshot_ref`、`source_count`、`archived_claims`：足够切分 trace，不会撑爆它，也不泄露任何密钥。langchain 作为 span 内容上报的 prompt / 响应正文是模型 I/O 本身，不是 metadata；我们自己加的 metadata 就该止步于标识符。新增 `extra` 键时的判据是：它是不是一个标识符或数字——如果是人会去读的正文，就不该放这里。
+**metadata 只放 id、计数与有限模式枚举——永不放 key，永不放 canonical 正文。** `user_id`、`job_id`、`snapshot_ref`、`source_count`、`archived_claims`、`image_mode`：足够切分 trace，不会撑爆它，也不泄露任何密钥。langchain 作为 span 内容上报的 prompt / 响应正文是模型 I/O 本身，不是 metadata；我们自己加的 metadata 就止步于标识符与有限机器状态。若 `extra` 的值是给人阅读的正文，就不该放这里。
 
 ## flush 策略（按进程类型）
 

@@ -22,6 +22,7 @@ from .adapters.git_canonical import GitCanonicalStore
 from .adapters.meilisearch import MeiliLexicalIndex
 from .adapters.postgres import PostgresStore
 from .adapters.qdrant import QdrantVectorIndex
+from .adapters.s3_media import S3MediaStore
 from .adapters.scripted_model import load_scripted_model
 from .adapters.user_info_mock import MockUserInfoProvider
 from .adapters.user_info_provider_composite import PersistedThenMockUserInfoProvider
@@ -443,6 +444,7 @@ class AppContext:
     vectors: QdrantVectorIndex
     embeddings: Embeddings
     registry: AdapterRegistry
+    media: S3MediaStore | None = None
     # user_id → UserProfile. Persisted-first (user-filled), mock-fallback;
     # build_context wires the persisted lookup to PG. The default is the bare keyless mock
     # so an AppContext built without a store (some unit tests) still resolves profiles.
@@ -547,6 +549,8 @@ class AppContext:
         await self.store.aclose()
         await self.lexical.aclose()
         await self.vectors.aclose()
+        if self.media is not None:
+            await self.media.aclose()
         if self._reranker is not None:
             await self._reranker.aclose()
 
@@ -567,6 +571,13 @@ async def build_context(settings: Settings) -> AppContext:
     vectors = QdrantVectorIndex(settings.qdrant_url, dim, collection=settings.qdrant_collection)
     await vectors.ensure_collection()
     canonical = GitCanonicalStore(settings.canonical_root)
+    media = S3MediaStore(
+        bucket=settings.media_s3_bucket,
+        endpoint_url=settings.media_s3_endpoint_url,
+        access_key=settings.media_s3_access_key,
+        secret_key=settings.media_s3_secret_key,
+        region=settings.media_s3_region,
+    )
 
     registry = AdapterRegistry()
     registry.register(PlainConversationAdapter(), kind="conversation")
@@ -591,5 +602,6 @@ async def build_context(settings: Settings) -> AppContext:
         vectors=vectors,
         embeddings=embeddings,
         registry=registry,
+        media=media,
         user_info=user_info,
     )

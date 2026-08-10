@@ -1020,6 +1020,26 @@ SURFACES: tuple[Surface, ...] = (
                 "材料原文的一个编号块，每块一次——引用区间指的就是这些 `¶` 编号。",
             ),
             f(
+                "compile.task.image_derived",
+                "A labelled caption or OCR representation aligned to the preceding block.",
+                "与上一编号块对齐、并明确标注的 caption 或 OCR 表示。",
+            ),
+            f(
+                "compile.task.image_without_derived",
+                "States that an image exists even when no textual representation was supplied.",
+                "即使没有文本表示，也明确说明该编号块带有图片。",
+            ),
+            f(
+                "compile.task.native_images_header",
+                "Opens the native image content-block section when native delivery is active.",
+                "启用原生图片传递时，开出图片内容块一节。",
+            ),
+            f(
+                "compile.task.native_image_locator",
+                "Binds each following native image block to its exact citable source block.",
+                "把紧随其后的原生图片块绑定到可引用的确切来源块。",
+            ),
+            f(
                 "compile.task.outline_header",
                 "Opens the outline of everything already in canonical.",
                 "开出「既有正本全貌」那一节。",

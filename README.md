@@ -54,6 +54,8 @@ Prefer to be guided? Hand `scaffold/AGENT-GUIDE.md` to your coding agent and it 
 
 Source material is kept verbatim and stays reachable at four levels: L0 raw fetch, L1 lexical search, L2 semantic search, L3 canonical knowledge. Only two things are authoritative — the raw sources, and the canonical library: a per-user Git repository where every compile is a commit and every piece of knowledge carries its citations. Everything else (indexes, projections) is derived and rebuildable. Your compile contract decides what becomes canonical; a mechanical gate verifies every citation at write time and rejects whatever cannot be resolved back to the source.
 
+Native media starts deliberately narrow and complete: IM messages may carry JPEG, PNG, WebP or GIF originals. They live in private S3-compatible L0 storage (RustFS locally), reach the compile model either as labelled caption/OCR or real image blocks, resolve through the message's ordinary block citation, and render in both source readers and citation views. Other media types are not yet declared as supported.
+
 ## How evolution happens
 
 The compiler records what happened during each compile. From that history the framework drafts schema changes on a branch — new document families, revised path templates, restructured pages — and puts the diff in front of you. Adopt, and a mechanical reconciliation merges it; drop, and nothing changed. An upgrade never rewrites existing knowledge: evolution moves the model, not the facts.
@@ -62,13 +64,13 @@ The compiler records what happened during each compile. From that history the fr
 
 ```
 packages/pneuma-knowledge-core        # domain logic + async ports (pydantic + langchain only)
-packages/pneuma-knowledge-service     # FastAPI service, adapters (Postgres/Qdrant/Meilisearch/Git), workers
+packages/pneuma-knowledge-service     # FastAPI service, adapters (Postgres/Qdrant/Meilisearch/S3/Git), workers
 packages/pneuma-knowledge-strategies  # reference compile contracts (data package; never imported by the framework)
 packages/pneuma-knowledge-eval        # judgement-quality metrics
 apps/web                              # bilingual web UI
 scaffold/                             # copy-out application template for your own knowledge base
 examples/                             # opc: a complete agent-built example project with a prebuilt library
-infra/                                # local dev stack (Postgres, Qdrant, Meilisearch)
+infra/                                # local dev stack (Postgres, Qdrant, Meilisearch, RustFS)
 ```
 
 Full documentation is being rebuilt along the axis of this README and will land under `docs/`.

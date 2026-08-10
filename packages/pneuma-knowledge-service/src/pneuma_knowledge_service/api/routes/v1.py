@@ -8,6 +8,7 @@ agentic search) and briefing ask; deep also streams its steps over SSE (/recall/
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import re
 import secrets
@@ -15,6 +16,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Literal
+from urllib.parse import quote
 
 from pneuma_knowledge_core.domain.ids import UserId, SourceId
 from pneuma_knowledge_core.domain.intake import INTAKE_ARCHETYPES, IntakeArchetype
@@ -36,7 +38,7 @@ from pneuma_knowledge_core.recall.fast import fast_recall
 from pneuma_knowledge_core.recall.rag import rag_recall
 from pneuma_knowledge_core.recall.scope import SnapshotScope
 from fastapi import APIRouter, HTTPException, Query, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, RootModel
 
 from ... import kb_snapshots
@@ -136,10 +138,27 @@ class WorkspaceSummaryOut(BaseModel):
     snapshots: int
 
 
+class DerivedMediaTextOut(BaseModel):
+    kind: str
+    text: str
+    producer: str
+
+
+class BlockImageOut(BaseModel):
+    image_id: str
+    mime_type: str
+    sha256: str
+    size_bytes: int
+    derived: list[DerivedMediaTextOut]
+    metadata: dict[str, Any]
+    url: str
+
+
 class BlockOut(BaseModel):
     index: int
     text: str
     section_path: list[str]
+    images: list[BlockImageOut]
 
 
 class SourceDetailOut(BaseModel):
@@ -648,9 +667,66 @@ async def get_source(user_id: str, source_id: str, request: Request) -> SourceDe
         intake_plan=raw.intake_plan,
         structure=ns.structure.model_dump(),
         blocks=[
-            BlockOut(index=b.index, text=b.text, section_path=list(b.section_path))
+            BlockOut(
+                index=b.index,
+                text=b.text,
+                section_path=list(b.section_path),
+                images=[
+                    BlockImageOut(
+                        image_id=image.image_id,
+                        mime_type=image.mime_type,
+                        sha256=image.sha256,
+                        size_bytes=image.size_bytes,
+                        derived=[
+                            DerivedMediaTextOut(**derived.model_dump())
+                            for derived in image.derived
+                        ],
+                        metadata=image.metadata,
+                        url=(
+                            f"/v1/users/{quote(user_id, safe='')}/sources/"
+                            f"{quote(source_id, safe='')}/blocks/{b.index}/images/"
+                            f"{quote(image.image_id, safe='')}"
+                        ),
+                    )
+                    for image in b.images
+                ],
+            )
             for b in ns.blocks
         ],
+    )
+
+
+@router.get("/sources/{source_id}/blocks/{block_index}/images/{image_id}")
+async def get_source_image(
+    user_id: str,
+    source_id: str,
+    block_index: int,
+    image_id: str,
+    request: Request,
+) -> Response:
+    """Resolve a block-aligned image through the same tenant and citation address."""
+
+    ctx = _ctx(request)
+    user = UserId(user_id)
+    try:
+        source = await ctx.store.get(user, SourceId(source_id))
+        block = next(item for item in source.blocks if item.index == block_index)
+        image = next(item for item in block.images if item.image_id == image_id)
+    except (KeyError, StopIteration) as exc:
+        raise HTTPException(status_code=404, detail="source image not found") from exc
+    if ctx.media is None:
+        raise HTTPException(status_code=503, detail="media store is not configured")
+    data = await ctx.media.get(user, image.storage_key)
+    if len(data) != image.size_bytes or hashlib.sha256(data).hexdigest() != image.sha256:
+        raise HTTPException(status_code=500, detail="stored source image failed integrity check")
+    return Response(
+        content=data,
+        media_type=image.mime_type,
+        headers={
+            "Cache-Control": "private, max-age=31536000, immutable",
+            "ETag": f'"sha256:{image.sha256}"',
+            "X-Content-Type-Options": "nosniff",
+        },
     )
 
 
@@ -1453,7 +1529,7 @@ async def post_kb_snapshot(
 ) -> KbSnapshotOut:
     """Freeze this user's knowledge base as it stands right now. 202 + status 'creating'.
 
-    202, not 201: the row exists immediately but the copy pipeline (three stores) runs in the
+    202, not 201: the row exists immediately but the copy pipeline (four stores) runs in the
     background, and the snapshot is not answerable until it reports `ready`. Poll the list.
     Only "now" can be frozen — see `kb_snapshots.create`."""
     ctx = _ctx(request)
@@ -1470,7 +1546,7 @@ async def post_kb_snapshot(
 async def delete_kb_snapshot(
     user_id: str, snapshot_id: str, request: Request
 ) -> dict[str, bool]:
-    """Delete a snapshot: purge its tenant from all three stores, drop the registry row.
+    """Delete a snapshot: purge its tenant from all four stores, drop the registry row.
 
     The pinned canonical commit is NOT deleted — it is a commit in the owner's git history,
     which a snapshot deletion must never rewrite."""

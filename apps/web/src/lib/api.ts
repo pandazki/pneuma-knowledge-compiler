@@ -92,6 +92,23 @@ export interface SourceBlock {
   index: number;
   text: string;
   section_path: string[];
+  images: SourceImage[];
+}
+
+export interface DerivedMediaText {
+  kind: "caption" | "ocr";
+  text: string;
+  producer: string;
+}
+
+export interface SourceImage {
+  image_id: string;
+  mime_type: string;
+  sha256: string;
+  size_bytes: number;
+  derived: DerivedMediaText[];
+  metadata: Record<string, unknown>;
+  url: string;
 }
 
 export interface SectionSpan {

@@ -13,6 +13,7 @@ the canonical layer is untouched (runner made no commit).
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 from dataclasses import asdict
 
@@ -56,6 +57,48 @@ def _projection_detail(projection: object) -> str:
     return "projection:" + json.dumps(
         asdict(projection), sort_keys=True, separators=(",", ":")
     )
+
+
+def resolve_compile_image_mode(settings: Settings, model: object) -> str:
+    """Resolve `auto` from the model actually used by the compile role."""
+
+    if settings.compile_image_mode != "auto":
+        return settings.compile_image_mode
+    profile = getattr(model, "profile", None) or {}
+    if bool(profile.get("image_inputs")):
+        return "native"
+    compile_spec = (settings.llm_model_compile or settings.llm_model).strip().lower()
+    known_visual_prefixes = (
+        "openai:gpt-5.6",
+        "openrouter:openai/gpt-5.6",
+    )
+    return (
+        "native"
+        if compile_spec.startswith(known_visual_prefixes)
+        else "caption"
+    )
+
+
+async def _native_image_payloads(
+    ctx: AppContext, user_id: UserId, sources: list[NormalizedSource]
+) -> dict[str, bytes]:
+    if ctx.media is None:
+        raise RuntimeError("native image compile requires a media store")
+    payloads: dict[str, bytes] = {}
+    for source in sources:
+        for block in source.blocks:
+            for image in block.images:
+                data = await ctx.media.get(user_id, image.storage_key)
+                if len(data) != image.size_bytes:
+                    raise ValueError(
+                        f"stored image {image.image_id!r} size no longer matches L0 manifest"
+                    )
+                if hashlib.sha256(data).hexdigest() != image.sha256:
+                    raise ValueError(
+                        f"stored image {image.image_id!r} digest no longer matches L0 manifest"
+                    )
+                payloads[image.storage_key] = data
+    return payloads
 
 
 def _search_knowledge_port(ctx: AppContext, user_id: UserId):
@@ -230,6 +273,14 @@ async def process_job(
         user_id, owner, default_timezone=ctx.settings.default_timezone
     )
 
+    image_count = sum(len(block.images) for source in sources for block in source.blocks)
+    image_mode = resolve_compile_image_mode(ctx.settings, chat_model)
+    image_payloads = (
+        await _native_image_payloads(ctx, user_id, sources)
+        if image_mode == "native" and image_count
+        else {}
+    )
+
     trace_cfg = llm_call_config(
         ctx,
         operation="compile",
@@ -239,6 +290,8 @@ async def process_job(
             "skill_id": skill.skill_id,
             "job_id": str(job_id),
             "source_count": len(sources),
+            "image_count": image_count,
+            "image_mode": image_mode,
         },
     )
     result = await run_compile(
@@ -257,6 +310,8 @@ async def process_job(
         search_source=_search_source_port(ctx, user_id),
         time=time,
         commit_message=f"compile {job_id}",
+        image_mode=image_mode,
+        image_payloads=image_payloads,
         **trace_cfg,
     )
 

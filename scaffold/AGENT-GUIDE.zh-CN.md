@@ -75,7 +75,7 @@ cd <本仓库>/scaffold
 cd ~/my-knowledge && ./start.sh
 ```
 
-- `== Starting the middleware stack ==` — 本机拉起三个数据库容器（Postgres / Qdrant / Meilisearch）；第一次要下载镜像，会慢。若 Docker 报 `all predefined address pools have been fully subnetted`，是本机其他 compose 项目把默认子网用光了：要么请用户清理废弃网络（`docker network prune`，由他决定），要么只在本项目 compose 的默认网络下声明一个未占用的显式子网——绝不动别的项目的网络。
+- `== Starting the middleware stack ==` — 本机拉起 Postgres、Qdrant、Meilisearch 与私有 RustFS 对象存储；第一次要下载容器镜像，会慢。若 Docker 报 `all predefined address pools have been fully subnetted`，是本机其他 compose 项目把默认子网用光了：要么请用户清理废弃网络（`docker network prune`，由他决定），要么只在本项目 compose 的默认网络下声明一个未占用的显式子网——绝不动别的项目的网络。
 - `== Detecting system environment ==` — 自动探到时区/语言，这只是系统检测值，第 4 步再跟他确认（见原则 4）。
 - `== One thing to confirm first: this library's primary language ==` — 只在材料语言与系统语言不一致时出现，回车即按材料语言继续。
 - `== Ingesting N materials ==` — 原文逐字入库，然后给索引和编译排队。
@@ -121,6 +121,8 @@ cd ~/my-knowledge && ./start.sh
 - **将来会怎么问**：从材料反推他日后最可能回头查什么（发生过什么／谁负责／什么时候／怎么变的）。
 
 **4.3 先选定编译模型，再设计上下文拼接——次序不能反。** 模型支持多模态，不等于当前管道已经使用多模态；只有实际 provider 与请求路径把媒体作为原生 content block 送达模型，能力才算被用上。把图片 URL 压成一段字符串不叫视觉输入。
+
+出厂原生媒体边界是明确的：`pneuma.source.im/v1` 支持消息上的 JPEG、PNG、WebP、GIF 图片，原图私有存入 RustFS/S3，caption/OCR 作为带标签的派生表示保留，以 `caption` 或 `native` 图片模式编译，并在 Web 阅读器里经同一个被引用的 source block 解析原图。音频、视频与通用文件还不是原生输入；必须如实说明，不能暗示已经支持。
 
 1. 读取 `engine/engine.yaml` 的 compile 角色，对照最新能力文档核验所选模型和**实际路由到的 provider**。例如 OpenAI GPT-5.6 全系——Sol、Terra、Luna——都接受图片输入，因此直连 OpenAI 时可以把同一轮消息组织成有序的文字与原生 `input_image` 块。仍要验证实际路由：网关可能虽然暴露同名模型，却把图片部分压平或拒绝。
 2. 按核实后的能力选择表示。原生图像输入可用时，让原图可从稳定的 L0 地址取回，并与所属文字放在同一消息／轮次里送入；caption、OCR、搜索 query 只能作为明确标注的辅助表示。编译路径只支持文本时，另用具备能力的预处理步骤生成 caption/OCR，保留生成者与原媒体的链接，并向用户说明编译模型没看过原图。裸 URL 既不是 caption，也不是视觉证据。原生媒体不可用时，带标签的 caption/OCR 仍是可用证据：保留其 provenance，但不能压掉实质观察，也不能给每条由此产生的 claim 和回答都套上通用保留语。

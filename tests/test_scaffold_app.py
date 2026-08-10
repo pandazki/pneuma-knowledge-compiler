@@ -372,6 +372,11 @@ def test_console_profile_starts_api_worker_and_web_over_this_project():
         (ROOT / "scaffold" / "templates" / "docker-compose.yml").read_text(encoding="utf-8")
     )
     services = compose["services"]
+    assert services["rustfs"]["image"].startswith("rustfs/rustfs@sha256:")
+    assert services["rustfs"]["ports"] == [
+        "127.0.0.1:${PNEUMA_APP_RUSTFS_PORT:-19004}:9000",
+        "127.0.0.1:${PNEUMA_APP_RUSTFS_CONSOLE_PORT:-19005}:9001",
+    ]
     for name in ("api", "worker", "web"):
         assert services[name]["profiles"] == ["console"], name
         assert "${PNEUMA_APP_FRAMEWORK_REPO" in services[name]["build"]["context"], name
@@ -384,6 +389,7 @@ def test_console_profile_starts_api_worker_and_web_over_this_project():
         env = services[name]["environment"]
         assert env["PNEUMA_KNOWLEDGE_ENGINE_DIR"] == "/project/engine"
         assert env["PNEUMA_KNOWLEDGE_CANONICAL_ROOT"] == "/project/data/canonical"
+        assert env["PNEUMA_KNOWLEDGE_MEDIA_S3_ENDPOINT_URL"] == "http://rustfs:9000"
 
     # The web image is the framework's shared compose asset, on its own probed port, and it
     # waits for a healthy API (nginx proxies /v1 to it).

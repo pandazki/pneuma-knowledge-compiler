@@ -8,6 +8,9 @@ vault paths).
 
 from __future__ import annotations
 
+import base64
+import binascii
+import hashlib
 from datetime import datetime
 from pathlib import PurePosixPath
 from typing import Annotated, Any, Literal
@@ -16,6 +19,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    HttpUrl,
     TypeAdapter,
     field_validator,
     model_validator,
@@ -174,6 +178,54 @@ class ImReaction(ContractModel):
     count: int = Field(ge=1)
 
 
+class ImageDerivedText(ContractModel):
+    kind: Literal["caption", "ocr"]
+    text: str = Field(min_length=1)
+    producer: str = Field(min_length=1)
+
+
+class Base64ImageSource(ContractModel):
+    type: Literal["base64"]
+    data: str = Field(min_length=1)
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def digest_matches_payload(self) -> "Base64ImageSource":
+        try:
+            payload = base64.b64decode(self.data, validate=True)
+        except (ValueError, binascii.Error) as exc:
+            raise ValueError("image data must be canonical base64") from exc
+        if hashlib.sha256(payload).hexdigest() != self.sha256:
+            raise ValueError("image sha256 does not match decoded data")
+        return self
+
+
+class UrlImageSource(ContractModel):
+    type: Literal["url"]
+    url: HttpUrl
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+    @field_validator("url")
+    @classmethod
+    def https_only(cls, value: HttpUrl) -> HttpUrl:
+        if value.scheme != "https":
+            raise ValueError("remote image URLs must use https")
+        return value
+
+
+ImageSource = Annotated[
+    Base64ImageSource | UrlImageSource, Field(discriminator="type")
+]
+
+
+class ImImage(ContractModel):
+    image_id: str = Field(pattern=r"^[A-Za-z0-9._:-]+$")
+    mime_type: Literal["image/jpeg", "image/png", "image/webp", "image/gif"]
+    source: ImageSource
+    derived: list[ImageDerivedText] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class ImMessage(ContractModel):
     message_id: str = Field(min_length=1)
     sender_id: str = Field(min_length=1)
@@ -182,10 +234,18 @@ class ImMessage(ContractModel):
     thread_id: str | None = None
     edited_at: datetime | None = None
     reactions: list[ImReaction] = Field(default_factory=list)
+    images: list[ImImage] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     _aware_sent = field_validator("sent_at")(_require_aware)
     _aware_edited = field_validator("edited_at")(_require_aware)
+
+    @model_validator(mode="after")
+    def unique_images(self) -> "ImMessage":
+        ids = [item.image_id for item in self.images]
+        if duplicates := _duplicates(ids):
+            raise ValueError(f"duplicate image ids: {sorted(duplicates)}")
+        return self
 
 
 class ImConversation(ContractModel):
@@ -235,6 +295,14 @@ class ImSource(ContractModel):
                     f"conversation {conversation.conversation_id} has unknown sender ids: "
                     f"{sorted(unknown)}"
                 )
+        image_ids = [
+            image.image_id
+            for conversation in self.conversations
+            for message in conversation.messages
+            for image in message.images
+        ]
+        if duplicates := _duplicates(image_ids):
+            raise ValueError(f"duplicate image ids across archive: {sorted(duplicates)}")
         return self
 
 

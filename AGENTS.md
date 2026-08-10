@@ -13,7 +13,7 @@ Pneuma Knowledge Compiler turns the raw material of a domain — meetings, docum
 ```bash
 # Setup (Python 3.12 + uv + Docker + Node 18+ + pnpm)
 uv sync --all-packages
-docker compose -f infra/docker-compose.yml up -d --wait   # Postgres :15432, Qdrant :16333, Meilisearch :17700
+docker compose -f infra/docker-compose.yml up -d --wait   # Postgres :15432, Qdrant :16333, Meilisearch :17700, RustFS :19000
 cd apps/web && pnpm install
 
 # Run locally (three terminals)
@@ -33,7 +33,7 @@ cd apps/web && pnpm run build    # tsc -b && vite build — run before committin
 cd apps/web && pnpm test         # node --test tests/*.test.mjs
 ```
 
-Real-middleware integration tests run when Postgres/Qdrant/Meilisearch are reachable; otherwise they skip with an explicit "middleware unreachable" reason. Real model calls need `.env` (copy from `.env.example`); never commit `.env`.
+Real-middleware integration tests run when Postgres/Qdrant/Meilisearch are reachable; image round-trip tests additionally require RustFS. Otherwise they skip with an explicit "middleware unreachable" reason. Real model calls need `.env` (copy from `.env.example`); never commit `.env`.
 
 ## Workspace layout
 

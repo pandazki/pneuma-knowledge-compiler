@@ -13,6 +13,7 @@ the tools and the gate (architecture.md §0 discipline 1).
 
 from __future__ import annotations
 
+import base64
 import inspect
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -25,6 +26,7 @@ from langchain_core.messages import (
     SystemMessage,
     ToolMessage,
 )
+from langchain_core.messages.content import create_image_block
 from langchain_core.tools import StructuredTool
 
 from ..canonical_glance import render_outline
@@ -260,6 +262,25 @@ def _render_task(
         parts.append(prompt("compile.task.treatment_tag", treatment=treatment))
         for b in s.blocks:
             parts.append(prompt("compile.task.block_line", index=b.index, text=b.text))
+            for image in b.images:
+                if image.derived:
+                    for derived in image.derived:
+                        parts.append(
+                            prompt(
+                                "compile.task.image_derived",
+                                image_id=image.image_id,
+                                kind=derived.kind,
+                                producer=derived.producer,
+                                text=derived.text,
+                            )
+                        )
+                else:
+                    parts.append(
+                        prompt(
+                            "compile.task.image_without_derived",
+                            image_id=image.image_id,
+                        )
+                    )
         parts.append("")
     parts.append(prompt("compile.task.outline_header"))
     parts.append(prompt("compile.task.outline_note"))
@@ -272,6 +293,75 @@ def _render_task(
         parts.append("")
         parts.append(retrieved.rstrip())
     return "\n".join(parts)
+
+
+def _render_task_content(
+    sources: Sequence[NormalizedSource],
+    base_docs: list[CanonicalDocument],
+    treatments: Mapping[str, str] | None = None,
+    source_guidance: Mapping[str, str] | None = None,
+    source_preamble: Mapping[str, str] | None = None,
+    retrieved: str | None = None,
+    time: TimeContext | None = None,
+    *,
+    image_mode: Literal["caption", "native"] = "caption",
+    image_payloads: Mapping[str, bytes] | None = None,
+) -> str | list[dict]:
+    """Render caption-only text or standard LangChain native image content blocks."""
+
+    task = _render_task(
+        sources,
+        base_docs,
+        treatments,
+        source_guidance,
+        source_preamble,
+        retrieved,
+        time,
+    )
+    images = [
+        (source, block, image)
+        for source in sources
+        for block in source.blocks
+        for image in block.images
+    ]
+    if image_mode == "caption":
+        missing = [image.image_id for _, _, image in images if not image.derived]
+        if missing:
+            raise ValueError(
+                "caption mode requires a labelled caption or OCR representation for "
+                f"every image; missing: {', '.join(missing)}"
+            )
+        return task
+    payloads = image_payloads or {}
+    if not images:
+        return task
+    content: list[dict] = [{"type": "text", "text": task}]
+    content.append({"type": "text", "text": prompt("compile.task.native_images_header")})
+    for source, block, image in images:
+        if image.storage_key not in payloads:
+            raise ValueError(
+                f"native image payload is missing for {image.image_id!r}"
+            )
+        content.append(
+            {
+                "type": "text",
+                "text": prompt(
+                    "compile.task.native_image_locator",
+                    image_id=image.image_id,
+                    source_id=source.raw.source_id,
+                    index=block.index,
+                    text=block.text,
+                ),
+            }
+        )
+        content.append(
+            create_image_block(
+                base64=base64.b64encode(payloads[image.storage_key]).decode("ascii"),
+                mime_type=image.mime_type,
+                id=image.image_id,
+            )
+        )
+    return content
 
 
 def _with_skill_trailer(message: str, skill: SkillVersion) -> str:
@@ -422,6 +512,8 @@ async def run_compile(
     time: TimeContext | None = None,
     callbacks: list | None = None,
     trace_metadata: dict | None = None,
+    image_mode: Literal["caption", "native"] = "caption",
+    image_payloads: Mapping[str, bytes] | None = None,
 ) -> CompileResult:
     # Compile-boundary citation aliasing: the model mis-copies 32-char UUID source ids into
     # `[cite:]` markers (blind audit: a whole source was lost when the compiler mis-typed
@@ -468,7 +560,7 @@ async def run_compile(
         # SystemMessage stays byte-stable per (skill, owner, zone, overlay).
         SystemMessage(content=render_system_contract(skill, owner=owner, time=time)),
         HumanMessage(
-            content=_render_task(
+            content=_render_task_content(
                 a_sources,
                 base_docs,
                 treatments,
@@ -476,6 +568,8 @@ async def run_compile(
                 source_preamble,
                 retrieved,
                 time,
+                image_mode=image_mode,
+                image_payloads=image_payloads,
             )
         ),
     ]

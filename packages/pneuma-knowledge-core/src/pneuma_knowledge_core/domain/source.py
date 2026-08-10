@@ -85,10 +85,43 @@ class RawSource(BaseModel):
     intake_plan: dict[str, Any] | None = None
 
 
+class DerivedMediaText(BaseModel):
+    """Searchable text derived from a media asset without replacing the asset."""
+
+    kind: Literal["caption", "ocr"]
+    text: str
+    producer: str
+
+
+class BlockImage(BaseModel):
+    """An immutable L0 image aligned to the block covered by its citation."""
+
+    image_id: str = Field(pattern=r"^[A-Za-z0-9._:-]+$")
+    mime_type: Literal["image/jpeg", "image/png", "image/webp", "image/gif"]
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    size_bytes: int = Field(ge=1)
+    storage_key: str = Field(min_length=1)
+    derived: list[DerivedMediaText] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class NormalizedBlock(BaseModel):
     index: int
     text: str
     section_path: list[str] = Field(default_factory=list)
+    images: list[BlockImage] = Field(default_factory=list)
+
+    def index_text(self) -> str:
+        """Textual L1 view: verbatim block plus labelled media representations."""
+
+        lines = [self.text]
+        for image in self.images:
+            for derived in image.derived:
+                lines.append(
+                    f"[image {image.image_id}; {derived.kind}; "
+                    f"producer={derived.producer}] {derived.text}"
+                )
+        return "\n".join(lines)
 
 
 class SectionSpan(BaseModel):
