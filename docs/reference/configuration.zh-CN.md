@@ -49,7 +49,7 @@
 |---|---|---|
 | `CHUNK_STRATEGY` | `semantic` | `semantic` = LLM 主题/情节边界检测（用编译角色模型；`scripted:` 模型下自动回落 `sentence`）；`sentence` / `recursive` = 机械切分，零 LLM 成本 |
 | `SEMANTIC_OVERLAP` | `smart` | 只对 `semantic` 有意义。`smart` = 模型返回前闭后闭区间，转折块同时属于前后两段；`off` = 原来的零重叠切法 |
-| `CHUNK_SIZE` | `768` | token 计；CJK 约 1 token/字 |
+| `CHUNK_SIZE` | `768` | 语义边界检测后的 embedding 单元上限；按 token 计，CJK 约 1 token/字 |
 | `CHUNK_OVERLAP` | `128` | token 计 |
 
 **`SEMANTIC_OVERLAP`。** 转折句——那句既收束上一话题、又开启下一话题的话，那个既回答了上一问、又引出下一问的回应——本来就同时属于两段，而一刀切必须把它判给其中一段。`smart` 不再做这个取舍：模型返回 `[起, 止]` 数对而不是起始编号，相邻两段可以共享转折块。共享多少由模型逐个边界判断，不是固定步长。

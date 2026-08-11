@@ -49,7 +49,7 @@ Model spec forms: `scripted:<path>` (local replay, keyless — and it hard-overr
 |---|---|---|
 | `CHUNK_STRATEGY` | `semantic` | `semantic` = LLM topic/episode boundary detection (compile-role model; falls back to `sentence` automatically under `scripted:` models); `sentence` / `recursive` = mechanical, zero LLM cost |
 | `SEMANTIC_OVERLAP` | `smart` | `semantic` only. `smart` = the model returns closed block intervals, so a hinge block belongs to both neighbouring segments; `off` = the original zero-overlap cut |
-| `CHUNK_SIZE` | `768` | tokens; ~1 token/char for CJK |
+| `CHUNK_SIZE` | `768` | maximum embedding-unit size after semantic boundary detection; tokens, ~1 token/char for CJK |
 | `CHUNK_OVERLAP` | `128` | tokens |
 
 **`SEMANTIC_OVERLAP`.** A hinge — the sentence that closes one topic while opening the next, the answer that also sets up the following question — reads as part of both segments, and a cut has to put it in one of them. `smart` stops making that choice: the model returns `[start, end]` pairs instead of start numbers, and neighbouring pairs may share the hinge. How much to share is judged per boundary, not a fixed stride.

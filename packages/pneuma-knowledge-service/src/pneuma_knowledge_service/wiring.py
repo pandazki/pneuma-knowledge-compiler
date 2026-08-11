@@ -8,6 +8,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from langchain_core.embeddings import DeterministicFakeEmbedding, Embeddings
+from langchain_core.language_models.chat_models import BaseChatModel
+from pneuma_knowledge_core.domain.source import NormalizedSource
 from pneuma_knowledge_core.ingest.adapters import (
     CONTEXT_STREAM_MIME,
     AdapterRegistry,
@@ -15,8 +18,11 @@ from pneuma_knowledge_core.ingest.adapters import (
     MarkdownDocumentAdapter,
     PlainConversationAdapter,
 )
-from langchain_core.embeddings import DeterministicFakeEmbedding, Embeddings
-from langchain_core.language_models.chat_models import BaseChatModel
+from pneuma_knowledge_core.ingest.chunking import (
+    Chunk,
+    EmbeddedChunk,
+    embedding_text_for_chunk,
+)
 
 from .adapters.git_canonical import GitCanonicalStore
 from .adapters.meilisearch import MeiliLexicalIndex
@@ -131,8 +137,10 @@ async def full_l2_chunks(ctx: "AppContext", source_id, blocks, structure, user_i
             structure,
             segments=segments,
             sub_chunker=sub_chunker,
+            max_chunk_chars=ctx.settings.chunk_size,
         )
-        if not replay:
+        result_digest = chunk_result_digest(chunks)
+        if not replay or manifest.get("result_digest") != result_digest:
             await ctx.store.put_chunk_manifest(
                 user_id,
                 source_id,
@@ -140,7 +148,7 @@ async def full_l2_chunks(ctx: "AppContext", source_id, blocks, structure, user_i
                 model=model_spec,
                 content_digest=digest,
                 segments=encode_manifest_segments(segments, overlap=overlap),
-                result_digest=chunk_result_digest(chunks),
+                result_digest=result_digest,
             )
         return chunks
     # Mechanical chonkie path. A "semantic" strategy that reached here (scripted/keyless
@@ -173,6 +181,42 @@ async def plan_l2_chunks(ctx: "AppContext", source_id, normalized, user_id):
     if semantic == "summary":
         return _summary_chunks(source_id, normalized)
     return []
+
+
+async def embed_l2_chunks(
+    ctx: "AppContext",
+    chunks: list[Chunk],
+    normalized: NormalizedSource,
+) -> list[EmbeddedChunk]:
+    """Embed L2 chunks through the one media-aware, provenance-safe path.
+
+    Source occurrence context and caption/OCR text change vector meaning only. Qdrant
+    still stores the verbatim chunk and its exact L0 char span, so retrieval and citation
+    drill-down cannot mistake metadata or a derived representation for source prose.
+    """
+
+    vectors = await ctx.embeddings.aembed_documents(
+        [
+            embedding_text_for_chunk(
+                chunk,
+                normalized.blocks,
+                raw=normalized.raw,
+            )
+            for chunk in chunks
+        ]
+    )
+    return [
+        EmbeddedChunk(
+            source_id=chunk.source_id,
+            block_start=chunk.block_start,
+            block_end=chunk.block_end,
+            text=chunk.text,
+            char_start=chunk.char_start,
+            char_end=chunk.char_end,
+            embedding=vector,
+        )
+        for chunk, vector in zip(chunks, vectors)
+    ]
 
 
 def build_embeddings(settings: Settings) -> Embeddings:

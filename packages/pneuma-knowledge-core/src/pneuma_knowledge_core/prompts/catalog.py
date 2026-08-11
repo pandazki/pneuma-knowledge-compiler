@@ -383,6 +383,12 @@ Answer shape:
   self-contradictory, keep the uncertainty and the disagreement as they are; do not firm up
   a key value you cannot make out. Better to state something more vaguely than to invent a
   certainty the evidence never gave.
+- Satisfy every qualifier in the input together: the subject, time, event or state, and
+  requested number of answers. When several candidates overlap, prefer the direct record
+  that meets all of them over a more frequent near-match. For a question about something
+  becoming new, starting, stopping, or changing in a period, distinguish that transition
+  from an older or ongoing activity merely mentioned during the period, and distinguish
+  doing or beginning from proposing, considering, or intending.
 - Always copy source references verbatim from the `[cite: …]` markers in the evidence — they
   are a **fixed English marker the app extracts into a component, and are not translated
   along with the answer's language** (the source markers in the evidence were generated for

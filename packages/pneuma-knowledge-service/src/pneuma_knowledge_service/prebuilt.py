@@ -41,11 +41,10 @@ from typing import Callable
 
 from pneuma_knowledge_core.domain.ids import UserId
 from pneuma_knowledge_core.domain.source import NormalizedSource
-from pneuma_knowledge_core.ingest.chunking import EmbeddedChunk
 
 from .media_ingest import matches_declared_image_type
 from .projection import rebuild_projection
-from .wiring import AppContext, plan_l2_chunks
+from .wiring import AppContext, embed_l2_chunks, plan_l2_chunks
 
 BUNDLE_NAME = "canonical.bundle"
 L0_DUMP_NAME = "l0.jsonl.gz"
@@ -380,21 +379,9 @@ async def rebuild_source_indexes(ctx: AppContext, user_id: UserId) -> int:
         chunks = await plan_l2_chunks(ctx, raw.source_id, normalized, user_id)
         if not chunks:
             continue
-        vectors = await ctx.embeddings.aembed_documents([c.text for c in chunks])
         await ctx.vectors.upsert_chunks(
             user_id,
-            [
-                EmbeddedChunk(
-                    source_id=c.source_id,
-                    block_start=c.block_start,
-                    block_end=c.block_end,
-                    text=c.text,
-                    char_start=c.char_start,
-                    char_end=c.char_end,
-                    embedding=vector,
-                )
-                for c, vector in zip(chunks, vectors)
-            ],
+            await embed_l2_chunks(ctx, chunks, normalized),
         )
     return len(sources)
 

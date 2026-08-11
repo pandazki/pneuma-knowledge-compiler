@@ -182,9 +182,12 @@ _PUBLIC_BASELINE_SHA256 = {
     # which is a contradiction the model had to resolve for itself. Reworded to the tools'
     # real reach: `search_knowledge` searches the session's SOURCE RANGE again (the pack
     # sampled it), `fetch_verbatim` reaches any source by id. No capability changed.
-    "fast": "d64e6b0b17a949f554d6fdecd3b46d39dc23defa8585af6f2f56514aa175a985",
-    "deep": "a71892e9edb5c2a6c981a2938f93274ba9b16326db45a68407b883c39fd6f05f",
-    "briefing": "57c3e181800cd662e28d91567d94309e07bb7904a35648a7c4ae127ee0e486e9",
+    # 2026-08-11: the shared spine now resolves every question qualifier together and
+    # distinguishes a transition in the asked period from an older activity merely
+    # mentioned then. This is general temporal/evidence discipline, shared by all three.
+    "fast": "d073bc2c039984b38af3ce651171f6327afcbdef6594b8725afe09c918f3ab26",
+    "deep": "c4b653d0fbd45d08e700177a0e32ae535e04041c0289a2691d6c39de77de8220",
+    "briefing": "cd73165514cd34a1308816144e5e7df6a22122d7d9325501ed44a3dae134bb7e",
 }
 
 

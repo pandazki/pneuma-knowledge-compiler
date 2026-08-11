@@ -352,6 +352,13 @@ def test_contract_treats_grounded_date_reasoning_as_in_scope_not_refusal():
     assert "genuinely absent" in contract
 
 
+def test_contract_resolves_all_question_qualifiers_before_a_near_match():
+    contract = selector_contract()
+    assert "Satisfy every qualifier in the input together" in contract
+    assert "older or ongoing activity merely mentioned" in contract
+    assert "doing or beginning from proposing, considering, or intending" in contract
+
+
 async def test_selector_system_message_byte_stable_across_as_of():
     claims = (await fast_recall(  # reuse retrieval to get RetrievedClaim objects
         _USER,

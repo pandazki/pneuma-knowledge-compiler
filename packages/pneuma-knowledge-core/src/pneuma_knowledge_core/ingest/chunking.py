@@ -29,7 +29,7 @@ import asyncio
 from dataclasses import dataclass
 
 from ..domain.ids import SourceId
-from ..domain.source import NormalizedBlock, StructureMap
+from ..domain.source import NormalizedBlock, RawSource, StructureMap
 
 # chonkie's default 'character' tokenizer counts ~1 token/char, so for CJK text chunk_size
 # is effectively a character budget (768 ≈ a comfortable paragraph). See build_chunker.
@@ -84,6 +84,33 @@ class EmbeddedChunk:
     char_start: int
     char_end: int
     embedding: list[float]
+
+
+def embedding_text_for_chunk(
+    chunk: Chunk,
+    blocks: list[NormalizedBlock],
+    *,
+    raw: RawSource | None = None,
+) -> str:
+    """The L2 vector input for one verbatim chunk.
+
+    The stored chunk text and its exact char span remain a byte-for-byte L0 slice.
+    Source title/occurrence context and labelled caption/OCR text attached to any covered
+    block are appended only to the embedding input. Semantic search can therefore find a
+    dated episode or image by meaning without turning metadata/derived text into fake
+    source prose or inventing a second citation space.
+    """
+
+    context_lines = raw.retrieval_context_lines() if raw is not None else []
+    media_lines = [
+        line
+        for block in sorted(blocks, key=lambda item: item.index)
+        if chunk.block_start <= block.index <= chunk.block_end
+        for line in block.derived_media_index_lines()
+    ]
+    if not context_lines and not media_lines:
+        return chunk.text
+    return "\n".join([*context_lines, chunk.text, *media_lines])
 
 
 def build_chunker(

@@ -16,8 +16,8 @@ This module is the standard post-retrieval pipeline, pure and deterministic (lan
 - **order_lost_in_middle** places the strongest passages at the head and tail and the
   weakest in the middle (the U-shaped "Lost in the Middle" positional bias).
 - **render_passages** renders each passage with a human-readable provenance header
-  (source *title*, section breadcrumb, exact block interval) so the model can attribute
-  and discriminate between records.
+  (source *title* and occurrence date, section breadcrumb, exact block interval) so the
+  model can attribute, time-anchor and discriminate between records.
 """
 
 from __future__ import annotations
@@ -38,8 +38,9 @@ class Passage:
 
     The block interval `[block_start, block_end]` is exact provenance (citation round-trip
     and UI drill-down) even when `text` is truncated for payload bounding. `source_title`
-    is the human title of the owning source for a readable provenance label; `section_path`
-    is the section breadcrumb of the highest-scoring seed hit."""
+    is the human title of the owning source for a readable provenance label;
+    `source_occurred_on` is the source's own occurrence label (never ingest time); and
+    `section_path` is the section breadcrumb of the highest-scoring seed hit."""
 
     source_id: SourceId
     block_start: int
@@ -49,6 +50,7 @@ class Passage:
     score: float
     section_path: tuple[str, ...] = ()
     source_title: str = ""
+    source_occurred_on: str = ""
 
 
 # ------------------------------------------------------------------- expand + merge
@@ -190,6 +192,7 @@ async def expand_and_merge(
                         score=h.score,
                         section_path=(),
                         source_title="",
+                        source_occurred_on="",
                     )
                 )
             continue
@@ -197,6 +200,7 @@ async def expand_and_merge(
         block_map = {b.index: b.text for b in ns.blocks}
         section_map = {b.index: tuple(b.section_path) for b in ns.blocks}
         title = getattr(ns.raw, "title", "") or ""
+        occurred_on = ns.raw.occurred_on()
 
         # Expand each hit, then merge left-to-right over sorted intervals.
         intervals = [
@@ -236,6 +240,7 @@ async def expand_and_merge(
                 score=iv.score,
                 section_path=iv.section_path,
                 source_title=title,
+                source_occurred_on=occurred_on,
             )
             for iv in merged
         ]
@@ -298,6 +303,11 @@ def _provenance(passage: Passage) -> str:
     ctx: list[str] = []
     if passage.source_title.strip():
         ctx.append(passage.source_title.strip())
+    if (
+        passage.source_occurred_on.strip()
+        and passage.source_occurred_on not in passage.source_title
+    ):
+        ctx.append(f"occurred_on={passage.source_occurred_on.strip()}")
     if passage.section_path:
         ctx.append(" › ".join(passage.section_path))
     return f"{token} {' · '.join(ctx)}".rstrip()

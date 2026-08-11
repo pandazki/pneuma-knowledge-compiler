@@ -3,6 +3,8 @@
 from dataclasses import dataclass
 
 from pneuma_knowledge_core.domain.ids import UserId, SourceId
+from pneuma_knowledge_core.recall import fast as fast_module
+from pneuma_knowledge_core.recall.fast import retrieve_windows
 from pneuma_knowledge_core.recall.rag import rag_recall
 
 USER = UserId("u-test")
@@ -105,3 +107,74 @@ async def test_limit_is_respected():
         USER, "q", lexical=lexical, vectors=vectors, embeddings=FakeEmbeddings(), limit=3
     )
     assert len(hits) == 3
+
+
+async def test_semantic_floor_keeps_deep_vector_hits_from_rrf_interleaving():
+    """Fast/deep raw evidence may reserve its whole budget for semantic episodes.
+
+    With disjoint lexical and vector spans, ordinary equal-weight RRF alternates the
+    two lists and drops the lower half of the vector top-k.  The explicit floor keeps
+    all top semantic episodes while still letting lexical agreement affect their score.
+    """
+    lexical = FakeLexical(
+        [FakeLexHit(SourceId("lex"), i, f"lexical {i}", 1.0) for i in range(8)]
+    )
+    vectors = FakeVector(
+        [FakeVecHit(SourceId("vec"), i, i, f"semantic {i}", 1.0) for i in range(8)]
+    )
+
+    hits = await rag_recall(
+        USER,
+        "q",
+        lexical=lexical,
+        vectors=vectors,
+        embeddings=FakeEmbeddings(),
+        limit=8,
+        semantic_floor=8,
+    )
+
+    assert [h.text for h in hits] == [f"semantic {i}" for i in range(8)]
+
+
+async def test_semantic_floor_backfills_from_lexical_when_vectors_are_sparse():
+    lexical = FakeLexical(
+        [FakeLexHit(SourceId("lex"), i, f"lexical {i}", 1.0) for i in range(5)]
+    )
+    vectors = FakeVector(
+        [FakeVecHit(SourceId("vec"), i, i, f"semantic {i}", 1.0) for i in range(2)]
+    )
+
+    hits = await rag_recall(
+        USER,
+        "q",
+        lexical=lexical,
+        vectors=vectors,
+        embeddings=FakeEmbeddings(),
+        limit=5,
+        semantic_floor=5,
+    )
+
+    assert {h.text for h in hits} >= {"semantic 0", "semantic 1"}
+    assert len(hits) == 5
+
+
+async def test_answer_windows_reserve_three_quarters_not_the_whole_budget(monkeypatch):
+    seen: dict[str, int] = {}
+
+    async def fake_rag_recall(*args, **kwargs):  # noqa: ANN002, ANN003
+        seen.update(
+            limit=kwargs["limit"], semantic_floor=kwargs["semantic_floor"]
+        )
+        return []
+
+    monkeypatch.setattr(fast_module, "rag_recall", fake_rag_recall)
+    await retrieve_windows(
+        USER,
+        "q",
+        lexical=FakeLexical([]),
+        vectors=FakeVector([]),
+        embeddings=FakeEmbeddings(),
+        limit=8,
+    )
+
+    assert seen == {"limit": 8, "semantic_floor": 6}

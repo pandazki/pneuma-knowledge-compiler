@@ -84,11 +84,17 @@ class _Store:
         }
 
 
-def _ctx(model: _FakeModel | None, *, overlap: str, store: _Store) -> SimpleNamespace:
+def _ctx(
+    model: _FakeModel | None,
+    *,
+    overlap: str,
+    store: _Store,
+    chunk_size: int = 768,
+) -> SimpleNamespace:
     settings = SimpleNamespace(
         chunk_strategy="semantic",
         semantic_overlap=overlap,
-        chunk_size=768,
+        chunk_size=chunk_size,
         chunk_overlap=128,
         openrouter_api_key="k",
         llm_model="openrouter:test/base",
@@ -155,6 +161,29 @@ async def test_an_off_detection_records_a_partition_and_replays_the_same_way():
     assert model.schemas == [Segments]
     assert _record(store)["segments"]["overlap"] == "off"
     assert await _chunks(_ctx(None, overlap="off", store=store)) == first
+
+
+async def test_replay_subsplits_an_episode_at_the_deployment_chunk_size():
+    store = _Store()
+    first = await _chunks(
+        _ctx(
+            _FakeModel(starts=[], spans=[(0, 9)]),
+            overlap="smart",
+            store=store,
+        )
+    )
+    first_digest = _record(store)["result_digest"]
+    assert len(first) == 1
+
+    # The semantic episode is replayed without another model call, but the configured
+    # embedding-unit ceiling is a derived rebuild knob and must take effect.
+    rebuilt = await _chunks(
+        _ctx(None, overlap="smart", store=store, chunk_size=160)
+    )
+
+    assert len(rebuilt) > 1
+    assert max(len(chunk.text) for chunk in rebuilt) <= 160
+    assert _record(store)["result_digest"] != first_digest
 
 
 # ─────────────────────────────────────────────────────────────────── the knob actually applies

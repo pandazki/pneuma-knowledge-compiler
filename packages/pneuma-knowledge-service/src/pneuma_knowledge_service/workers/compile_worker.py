@@ -22,7 +22,6 @@ from pneuma_knowledge_core.domain.ids import UserId, SourceId
 from pneuma_knowledge_core.domain.intake import IntakePlan
 from pneuma_knowledge_core.domain.source import NormalizedSource
 from pneuma_knowledge_core.domain.time_context import time_context_for
-from pneuma_knowledge_core.ingest.chunking import EmbeddedChunk
 from pneuma_knowledge_core.ingest.source_types import describe_source, first_party_type
 from pneuma_knowledge_core.prompts import prompt
 from pneuma_knowledge_core.skill.version import SkillVersion
@@ -47,6 +46,7 @@ from ..wiring import (
     AppContext,
     build_chat_model_for,
     build_context,
+    embed_l2_chunks,
     full_l2_chunks,
     llm_call_config,
     resolve_image_mode,
@@ -401,19 +401,7 @@ async def process_index_job(
     else:
         chunks = []
     if chunks:
-        vectors = await ctx.embeddings.aembed_documents([c.text for c in chunks])
-        embedded = [
-            EmbeddedChunk(
-                source_id=c.source_id,
-                block_start=c.block_start,
-                block_end=c.block_end,
-                text=c.text,
-                char_start=c.char_start,
-                char_end=c.char_end,
-                embedding=vec,
-            )
-            for c, vec in zip(chunks, vectors)
-        ]
+        embedded = await embed_l2_chunks(ctx, chunks, ns)
         await ctx.vectors.upsert_chunks(user_id, embedded)
 
     await ctx.store.complete(user_id, job_id, ok=True, detail="indexed")

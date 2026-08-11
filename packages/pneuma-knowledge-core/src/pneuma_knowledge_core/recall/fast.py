@@ -81,6 +81,12 @@ DEFAULT_CLAIM_CAP = 64
 DEFAULT_WINDOW_CAP = 8
 DEFAULT_IMAGE_CAP = 8
 
+# Raw evidence is semantic-primary, not semantic-only. At least three quarters of the
+# bounded window budget follow L2 episode rank; the remainder stays available to RRF
+# agreement and exact L1-only matches (identifiers and dates are where that matters most).
+SEMANTIC_WINDOW_FLOOR_NUMERATOR = 3
+SEMANTIC_WINDOW_FLOOR_DENOMINATOR = 4
+
 #: How many hit documents `timeline_expand` may expand into sibling timelines. Together with
 #: the per-document sibling cap this bounds the section's total size mechanically:
 #: ≤ timeline_expand × DEFAULT_TIMELINE_DOC_CAP claims (~55 tokens each), never "whatever the
@@ -1340,8 +1346,11 @@ async def retrieve_windows(
 ) -> list[RecallHit]:
     """L1+L2 body windows for the answer's recall face (empty if raw indices absent).
 
-    Reuses rag_recall verbatim; capped by count so uncompiled content still surfaces
-    even when a source produced only abstract meta-claims."""
+    Semantic episodes reserve most of the capped raw-evidence budget; L1 agreement can
+    still strengthen/coalesce them, and the remainder admits exact lexical-only hits. This
+    keeps lower-ranked semantic evidence from being silently halved by disjoint RRF
+    interleaving without turning the answer lane into vector-only retrieval.
+    """
     if lexical is None or vectors is None or limit <= 0:
         return []
     return await rag_recall(
@@ -1351,6 +1360,15 @@ async def retrieve_windows(
         vectors=vectors,
         embeddings=embeddings,
         limit=limit,
+        semantic_floor=max(
+            1,
+            (
+                limit * SEMANTIC_WINDOW_FLOOR_NUMERATOR
+                + SEMANTIC_WINDOW_FLOOR_DENOMINATOR
+                - 1
+            )
+            // SEMANTIC_WINDOW_FLOOR_DENOMINATOR,
+        ),
     )
 
 

@@ -73,6 +73,7 @@ async def rag_recall(
     embeddings,  # langchain_core.embeddings.Embeddings
     limit: int = 10,
     query_embedding: list[float] | None = None,
+    semantic_floor: int = 0,
 ) -> list[RecallHit]:
     """L1 + L2 dual-path recall fused by RRF (§7). No source with L1 coverage is
     ever invisible: the lexical path covers the retrieval surface even when a
@@ -82,6 +83,11 @@ async def rag_recall(
     paying another round trip. It defaults to None = embed here, so every existing caller
     is behaviorally untouched. The lever exists for fan-out callers (suggestion evaluates N
     transcript turns per round and batches all N through one `aembed_documents`).
+
+    ``semantic_floor`` reserves up to that many result slots for the semantic ranking
+    before fused lexical-only hits backfill the remainder.  It is opt-in: ordinary rag
+    keeps equal-path RRF, while answer lanes can make semantic episodes a dependable raw
+    evidence floor instead of losing the lower half of vector top-k to interleaving.
 
     Snapshot-scoped recall needs nothing here: a snapshot is a frozen TENANT (see
     service/kb_snapshots.py), so answering over one is this same function called with that
@@ -140,7 +146,52 @@ async def rag_recall(
     # within a source, then take the strongest `limit`.
     merged = _coalesce_overlapping(raw)
     merged.sort(key=lambda h: (-h.score, str(h.source_id), h.block_start))
-    return merged[:limit]
+    if semantic_floor <= 0:
+        return merged[:limit]
+    return _with_semantic_floor(
+        merged,
+        semantic_hits,
+        limit=limit,
+        semantic_floor=semantic_floor,
+    )
+
+
+def _with_semantic_floor(
+    fused: list[RecallHit],
+    semantic_hits: Sequence,
+    *,
+    limit: int,
+    semantic_floor: int,
+) -> list[RecallHit]:
+    """Reserve semantic-ranked regions, then backfill in ordinary fused order."""
+
+    if limit <= 0:
+        return []
+    reserved_cap = min(limit, max(0, semantic_floor))
+    selected: list[RecallHit] = []
+
+    # Coalescing may widen or merge overlapping vector regions, so map each original
+    # semantic rank to the fused region that contains it instead of comparing exact spans.
+    for semantic in semantic_hits:
+        for candidate in fused:
+            if (
+                "vector" in candidate.paths
+                and candidate.source_id == semantic.source_id
+                and candidate.block_start <= semantic.block_end
+                and semantic.block_start <= candidate.block_end
+            ):
+                if candidate not in selected:
+                    selected.append(candidate)
+                break
+        if len(selected) >= reserved_cap:
+            break
+
+    for candidate in fused:
+        if candidate not in selected:
+            selected.append(candidate)
+        if len(selected) >= limit:
+            break
+    return selected[:limit]
 
 
 def _coalesce_overlapping(hits: list[RecallHit]) -> list[RecallHit]:

@@ -65,7 +65,7 @@ Only two things are authoritative: the L0 sources, and the canonical library. Th
 
 Two consequences worth internalizing:
 
-- Rebuilds are byte-deterministic even where an LLM was involved. Semantic chunking (the default `semantic` strategy; its boundary-detection philosophy is inspired by [nemori](https://github.com/nemori-ai/nemori)) uses an LLM to detect topic/episode boundaries, but the model only returns block indexes — chunk text is always a verbatim slice of the source, addressed exactly like mechanical chunks; first-time boundaries are recorded in a manifest (content digest + model lineage + the output contract that produced them) and replayed on rebuild instead of being recomputed. Under scripted keyless models it falls back to mechanical sentence chunking automatically.
+- Rebuilds are byte-deterministic even where an LLM was involved. Semantic chunking (the default `semantic` strategy; its boundary-detection philosophy is inspired by [nemori](https://github.com/nemori-ai/nemori)) uses an LLM to detect topic/episode boundaries, but the model only returns block indexes — chunk text is always a verbatim slice of the source, addressed exactly like mechanical chunks; first-time boundaries are recorded in a manifest (content digest + model lineage + the output contract that produced them) and replayed on rebuild instead of being recomputed. An episode longer than the deployment's `CHUNK_SIZE` is sentence-sub-split before embedding, so a coherent boundary cannot become a diluted multi-thousand-character search unit. Under scripted keyless models the boundary pass falls back to mechanical sentence chunking automatically. The vector input for each verbatim chunk also carries its source title, known occurrence day, and labelled caption/OCR text attached to the blocks it covers; Qdrant still stores the verbatim chunk and its exact span. Time and media meaning are therefore searchable without turning metadata or a derived representation into source prose or a new citation scheme.
 
   Segments may also *overlap* (`SEMANTIC_OVERLAP`, factory default `smart`): the model returns closed block intervals, so a hinge — the sentence that closes one topic while opening the next — is indexed as part of both neighbouring segments, judged per boundary rather than as a fixed stride. Whether that is allowed to degenerate is not left to the prompt: five write-time gates (real ordered endpoints, strictly increasing starts, gapless cover, at most three shared blocks, no more segments than blocks) reject the whole output, and the window falls back to the zero-overlap partition. The duplication a hinge causes is purely derived — both chunks address the same source blocks (I4), and retrieval coalesces overlapping windows into one passage. `off` is the zero-overlap contract every measurement so far was taken with and its request bytes are pinned, so it stays the same-harness A/B baseline; `smart` ships on design grounds and is not yet measured against it.
 - Upgrades never rewrite the canonical layer. A new projection strategy, a new index, a new render — all rebuild derived artifacts; the canonical history stands.
@@ -101,6 +101,13 @@ Four lanes over the same library, increasing in cost:
 - **fast** — one LLM call over assembled evidence: a glance of the library, L3 claims, and L1/L2 body windows.
 - **deep** — a bounded agentic loop seeded with fast's evidence, with search/fetch/read tools and a forced conclusion when the budget runs out; returns its trail.
 - **briefing** — a byte-stable evidence pack built once on a pinned snapshot, then asked many times.
+
+The answer lanes reserve three quarters of their capped raw-window budget as a dependable
+semantic-episode floor. L1 agreement still strengthens and coalesces a region, while the
+remaining quarter admits exact lexical-only matches (especially identifiers and dates). This
+prevents equal-path RRF from silently discarding the lower half of semantic top-k merely
+because the lexical and vector spans do not overlap, without turning the lane into
+vector-only retrieval. The standalone `rag` surface keeps ordinary equal-path fusion.
 
 Answering recall never includes original media merely because its model can consume it. The
 query tool owns that cost/attention decision through the enum-list argument

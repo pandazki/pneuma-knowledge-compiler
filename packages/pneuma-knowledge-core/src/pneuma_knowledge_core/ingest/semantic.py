@@ -247,7 +247,7 @@ async def _ask_structured(
     result, never the run — is extended one layer out: retry once, then give up on THIS
     window and return None. A None reply reports no boundaries for the window, which the
     existing repair reads as "one segment here", and an over-long segment is already
-    sentence-sub-split downstream (DEFAULT_MAX_CHUNK_CHARS). Coarser chunking for one
+    sentence-sub-split downstream at the deployment's chunk-size ceiling. Coarser chunking for one
     window, instead of a source that never gets indexed at all."""
     structured = model.with_structured_output(schema)
     config = invoke_config("chunk.semantic", callbacks, trace_metadata)

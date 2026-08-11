@@ -24,7 +24,14 @@ from pneuma_knowledge_core.recall.rag import RecallHit
 _USER = UserId("u-asm")
 
 
-def _ns(source_id: str, block_texts: list[str], *, title: str, section_path=None):
+def _ns(
+    source_id: str,
+    block_texts: list[str],
+    *,
+    title: str,
+    section_path=None,
+    occurred_on: str = "",
+):
     raw = RawSource(
         source_id=SourceId(source_id),
         user_id=_USER,
@@ -33,6 +40,7 @@ def _ns(source_id: str, block_texts: list[str], *, title: str, section_path=None
         mime="text/plain",
         checksum="x",
         created_at=datetime(2026, 7, 20, tzinfo=timezone.utc),
+        meta={"occurred_on": occurred_on} if occurred_on else {},
     )
     sp = section_path or []
     blocks = [
@@ -229,6 +237,30 @@ def test_render_passages_carries_readable_provenance_header():
     assert "[cite: abcdef1234 ¶2-4]" in out
     assert "面试记录 · 候选人 › 孙羽" in out
     assert "正文内容" in out
+
+
+async def test_passage_renders_occurrence_date_separately_from_ingest_time():
+    content = FakeContent(
+        {
+            "s1": _ns(
+                "s1",
+                ["They went hiking."],
+                title="Conversation",
+                occurred_on="2023-10-19",
+            )
+        }
+    )
+    passages = await expand_and_merge(
+        [_hit("s1", 0, 0, "They went hiking.", 0.9)],
+        content=content,
+        user_id=_USER,
+        forward_blocks=0,
+    )
+
+    rendered = render_passages(passages, header="")
+
+    assert "Conversation · occurred_on=2023-10-19" in rendered
+    assert "2026-07-20" not in rendered
 
 
 def test_render_passages_marker_has_full_source_id_even_without_title():
