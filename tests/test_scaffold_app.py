@@ -410,13 +410,14 @@ def test_console_profile_starts_api_worker_and_web_over_this_project():
     assert web["depends_on"] == {"api": {"condition": "service_healthy"}}
 
 
-def test_cli_ask_replays_recalled_images_using_the_recall_models_capability():
+def test_cli_ask_replays_original_modalities_only_when_the_caller_requests_them():
     app = (ROOT / "scaffold" / "templates" / "app.py").read_text(encoding="utf-8")
     ask = app[app.index("async def _ask(") : app.index("async def _status()")]
-    assert "media=ctx.media" in ask
-    assert 'resolve_model_name(settings, "recall")' in ask
-    assert "resolve_image_mode(" in ask
-    assert '"auto", recall_model' in ask
+    assert 'include_original_images = "image" in include_original_modalities' in ask
+    assert "media=ctx.media if include_original_images else None" in ask
+    assert 'image_mode="native" if include_original_images else "caption"' in ask
+    assert '"--include-original"' in app
+    assert 'choices=["image"]' in app
 
 
 def test_the_compose_web_image_talks_to_the_real_engine_routes():

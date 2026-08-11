@@ -102,7 +102,7 @@
 - **deep** —— 以 fast 的证据为种子的有界代理循环，带检索/取原文/读文档工具，预算耗尽强制收束；返回全程轨迹。
 - **briefing** —— 在钉住的快照上构建一次、之后反复提问的字节稳定证据包。
 
-fast recall 也会重放附着在已选 L1/L2 正文窗口上的图片。caption 模式保留每条派生表示及其 producer 标签；原生模式则先重新读取并校验不可变的 L0 字节，再加入真实图片 content block。落在已选窗口之外的图片绝不进入调用，相同摘要的图片会去重，易变的问题仍位于 human message 的最后一个内容块。
+召回答题绝不因为模型「能看」就自动带入原始媒体。这个成本/注意力决策归属查询 tool，通过枚举列表参数 `include_original_modalities` 明确选择（默认为空；当前支持 `image`）。选中 `image` 时，fast 与 deep 的初始证据会重放附着在已选 L1/L2 正文窗口上的图片：先重新读取并校验不可变的 L0 字节，再加入真实图片 content block。未选中时，fast 仅以文本形式保留带 producer 标签的 caption/OCR 表示，不读取任何原始媒体字节。落在已选窗口之外的图片绝不进入调用，相同摘要的图片会去重，易变的问题仍位于 human message 的最后一个内容块。
 
 fast 面的 claim 检索带两个可选阶段（都默认关；关闭路径字节不变）。**规划**（`RECALL_PLAN_QUERIES`）：一次小调用把多面问题拆成额外的关键词查询，每条查询全强度检索，单次 RRF 融合成池——基于结果的多轮检索仍归 deep。**重排**（`RECALL_RERANK_MODEL`）：core 的 `Reranker` port 对候选池按原始问题打分，最优的 `RECALL_CLAIM_CAP` 条进入提示词——先排后裁，RRF 只保留去重、回填与失败兜底三个职责。内置两个 provider：`llm`（默认——召回角色模型钉在 reasoning effort `none`；输入重、输出微，零额外服务依赖）与 OpenRouter `/rerank` 端点模型名（专用 cross-encoder，按搜索单元计费）。旋钮默认关有实测依据：LoCoMo-refined 上两种 provider 都没有胜过纯截断检索——答题模型自己的注意力配上合适的 claim 预算（release 默认 64，实测甜区 40–80）就是有效的重排器。候选池另做内容包含去重：相同或被包含的 claim 只留更完整的一条，避免重复入册的事实空耗预算名额。
 

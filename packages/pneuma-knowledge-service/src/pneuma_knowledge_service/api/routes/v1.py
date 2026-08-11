@@ -39,7 +39,7 @@ from pneuma_knowledge_core.recall.rag import rag_recall
 from pneuma_knowledge_core.recall.scope import SnapshotScope
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import Response, StreamingResponse
-from pydantic import BaseModel, RootModel
+from pydantic import BaseModel, Field, RootModel
 
 from ... import kb_snapshots
 from ...adapters.user_info_mock import _synthesize
@@ -51,7 +51,7 @@ from ...kb_snapshots import KbSnapshot, SnapshotNotFound, SnapshotNotReady
 from ...pagination import CursorError, decode_cursor, encode_cursor
 from ...skills import packs_for_user, skill_for_user
 from ...snapshot_tenant import assert_writable
-from ...wiring import AppContext, llm_call_config, resolve_image_mode, resolve_model_name
+from ...wiring import AppContext, llm_call_config
 
 # Valid user_id shape — external key, keep it filesystem/URL-safe (mirrors the web
 # USER_ID_RE in ProfileCard.tsx). Used to accept/derive the AI-generated persona's id.
@@ -202,6 +202,18 @@ class RecallIn(BaseModel):
     # fast/deep: answer-style preset override for this call; null = the deployment's
     # PNEUMA_KNOWLEDGE_RECALL_ANSWER_STYLE.
     answer_style: Literal["concise", "conversational", "detailed"] | None = None
+    include_original_modalities: list[Literal["image"]] = Field(
+        default_factory=list,
+        description=(
+            "Original multimodal evidence to include from selected source windows in "
+            "fast/deep answering modes. "
+            "Currently supports 'image'; request it only when answering requires direct "
+            "visual inspection (for example objects, colours, layout, or whether something "
+            "appears in an image). Leave the list empty for textual facts such as dates, "
+            "names, plans, and events. Labelled derived representations remain available "
+            "when their original modality is omitted."
+        ),
+    )
 
 
 class SnapshotScopeOut(BaseModel):
@@ -258,6 +270,10 @@ class RecallAnswerOut(BaseModel):
     glance_degraded: str | None = None
     # The frozen snapshot this answer was scoped to, or null for the live base.
     snapshot: SnapshotScopeOut | None = None
+    # Query-local original-media delivery telemetry, kept generic so adding audio/video does
+    # not change the public tool shape.
+    included_original_modalities: list[Literal["image"]] = Field(default_factory=list)
+    original_modality_counts: dict[str, int] = Field(default_factory=dict)
     token_usage: dict[str, int]
 
 
@@ -865,6 +881,29 @@ async def _render_profile(ctx, user: UserId) -> str | None:
     return "\n".join(lines)
 
 
+def _recall_image_args(ctx: AppContext, body: RecallIn) -> dict[str, Any]:
+    """Translate the generic tool field into today's image-specific core arguments."""
+
+    if "image" not in body.include_original_modalities:
+        return {"image_mode": "caption", "media": None}
+    media = getattr(ctx, "media", None)
+    if media is None:
+        raise HTTPException(
+            status_code=503,
+            detail="original image recall was requested, but this deployment has no media store",
+        )
+    return {"image_mode": "native", "media": media}
+
+
+def _original_modality_telemetry(answer: Any) -> dict[str, Any]:
+    count = int(getattr(answer, "image_count", 0) or 0)
+    native = getattr(answer, "image_mode", "caption") == "native"
+    return {
+        "included_original_modalities": ["image"] if native and count else [],
+        "original_modality_counts": {"image": count} if native and count else {},
+    }
+
+
 @router.post("/recall")
 async def recall(
     user_id: str, body: RecallIn, request: Request
@@ -874,6 +913,14 @@ async def recall(
     `body.snapshot` pins the whole answer to a frozen snapshot (see `_read_plane`)."""
     ctx = _ctx(request)
     user = UserId(user_id)
+    if body.mode == "rag" and body.include_original_modalities:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "include_original_modalities is available only in fast/deep answering "
+                "modes; rag returns text retrieval hits"
+            ),
+        )
     plane = await _resolve_plane(ctx, user, body.snapshot)
 
     if body.mode == "rag":
@@ -925,10 +972,7 @@ async def recall(
             lexical=ctx.lexical,
             vectors=ctx.vectors,
             content=ctx.store,
-            media=getattr(ctx, "media", None),
-            image_mode=resolve_image_mode(
-                "auto", recall_model, resolve_model_name(ctx.settings, "recall")
-            ),
+            **_recall_image_args(ctx, body),
             profile=await _render_profile(ctx, plane.owner),
             embeddings=ctx.embeddings,
             model=recall_model,
@@ -962,8 +1006,10 @@ async def recall(
             glance_degraded=fa.glance_degraded,
             snapshot=_snapshot_out(plane.snapshot),
             token_usage=fa.token_usage,
+            **_original_modality_telemetry(fa),
         )
 
+    deep_model = ctx.get_chat_model("deep")
     da = await deep_recall(
         plane.retrieval_user,
         body.query,
@@ -973,8 +1019,9 @@ async def recall(
         lexical=ctx.lexical,
         vectors=ctx.vectors,
         embeddings=ctx.embeddings,
-        model=ctx.get_chat_model("deep"),
+        model=deep_model,
         content=ctx.store,
+        **_recall_image_args(ctx, body),
         profile=await _render_profile(ctx, plane.owner),
         scope=plane.scope,
         answer_style=body.answer_style or ctx.settings.recall_answer_style,
@@ -1000,6 +1047,7 @@ async def recall(
         documents_read=list(da.read_documents),
         snapshot=_snapshot_out(plane.snapshot),
         token_usage=da.token_usage,
+        **_original_modality_telemetry(da),
     )
 
 
@@ -1009,6 +1057,9 @@ async def recall_stream(user_id: str, body: RecallIn, request: Request) -> Strea
     completes (so the UI grows the deep-search trail live), then a final `done` event with the
     full answer. Step-level streaming, not token streaming. deep only."""
     ctx = _ctx(request)
+    if body.mode != "deep":
+        raise HTTPException(status_code=400, detail="streaming recall supports deep mode only")
+    image_args = _recall_image_args(ctx, body)
     user = UserId(user_id)
     as_of = datetime.fromisoformat(body.as_of) if body.as_of else _now()
     plane = await _resolve_plane(ctx, user, body.snapshot)
@@ -1047,6 +1098,7 @@ async def recall_stream(user_id: str, body: RecallIn, request: Request) -> Strea
                 embeddings=ctx.embeddings,
                 model=ctx.get_chat_model("deep"),
                 content=ctx.store,
+                **image_args,
                 profile=profile,
                 scope=plane.scope,
                 answer_style=body.answer_style or ctx.settings.recall_answer_style,
@@ -1078,6 +1130,7 @@ async def recall_stream(user_id: str, body: RecallIn, request: Request) -> Strea
                         documents_read=list(da.read_documents),
                         snapshot=_snapshot_out(plane.snapshot),
                         token_usage=da.token_usage,
+                        **_original_modality_telemetry(da),
                     ).model_dump(),
                 )
             )

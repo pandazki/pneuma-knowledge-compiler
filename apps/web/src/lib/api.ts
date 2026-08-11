@@ -422,8 +422,13 @@ export interface RecallAnswer {
     canonical_ref: string;
     created_at: string | null;
   } | null;
+  /** Original multimodal evidence actually delivered for this query. */
+  included_original_modalities?: OriginalModality[];
+  original_modality_counts?: Record<string, number>;
   token_usage: TokenUsage;
 }
+
+export type OriginalModality = "image";
 
 /** fast/deep recall — an answer over capped canonical claims (as_of server-injected).
  *
@@ -437,6 +442,7 @@ export function recallAnswer(
     mode: "fast" | "deep";
     as_of?: string;
     snapshot?: string | null;
+    include_original_modalities?: OriginalModality[];
   },
 ): Promise<RecallAnswer> {
   return req<RecallAnswer>(`/v1/users/${u(userId)}/recall`, {
@@ -458,13 +464,19 @@ export async function recallDeepStream(
   },
   signal?: AbortSignal,
   snapshot?: string | null,
+  includeOriginalModalities: OriginalModality[] = [],
 ): Promise<void> {
   let res: Response;
   try {
     res = await fetch(`${BASE}/v1/users/${u(userId)}/recall/stream`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ query, mode: "deep", snapshot: snapshot ?? null }),
+      body: JSON.stringify({
+        query,
+        mode: "deep",
+        snapshot: snapshot ?? null,
+        include_original_modalities: includeOriginalModalities,
+      }),
       signal,
     });
   } catch (e) {

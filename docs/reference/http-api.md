@@ -46,10 +46,20 @@ Conventions:
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/…/recall` | body `{query, mode: rag\|fast\|deep, limit, as_of?, snapshot?}` |
+| POST | `/…/recall` | body `{query, mode: rag\|fast\|deep, limit, as_of?, snapshot?, include_original_modalities?: ("image")[]}` |
 | POST | `/…/recall/stream` | deep only; SSE — one `event: step` per finished tool call, then `done` (or `error`). Step-level streaming, not token streaming |
 
 `rag` returns hit lists (`source_id`, block span, text, paths, score). `fast`/`deep` return an answer plus its evidence: `used_claims`, `used_windows`, `trail` (deep), `citation_handles` (`sNN` → real source id), `documents_read`, `snapshot`, `token_usage`.
+
+`include_original_modalities` is the query tool's explicit cost/attention choice, not a
+deployment default inferred from model capability. It is an enum list so the signature can
+grow to audio/video without changing shape; today the sole value is `"image"`. Leave it empty
+for textual questions. Use `["image"]` when direct visual inspection is necessary, such as
+whether an object appears in a picture, its colours, text or layout. Labelled derived
+representations remain usable when originals are omitted. The answer echoes what was actually
+included through `included_original_modalities` and `original_modality_counts`. Original
+delivery applies to `fast` and `deep`; `rag` returns text retrieval hits and rejects a
+non-empty list.
 
 Source detail never exposes an object-store key. Each image manifest contains `image_id`, MIME type, SHA-256, size, labelled derived representations and an API URL. The browser and citation sheet fetch that URL through the service; the S3/RustFS bucket remains private.
 

@@ -41,6 +41,8 @@ class _FakeFastAnswer:
     glance_chars: int = 0
     expanded_documents: tuple = ()
     glance_degraded: str | None = None
+    image_count: int = 0
+    image_mode: str = "caption"
     token_usage: dict = field(default_factory=lambda: {"total_tokens": 3})
 
 
@@ -87,6 +89,7 @@ def _request(row: dict | None) -> SimpleNamespace:
         lexical=None,
         vectors=None,
         embeddings=None,
+        media=object(),
         store=SimpleNamespace(
             get_kb_snapshot=get_kb_snapshot,
             undigested_source_ids=undigested,
@@ -122,7 +125,10 @@ def captured(monkeypatch):
         seen["scope"] = kwargs.get("scope")
         seen["image_mode"] = kwargs.get("image_mode")
         seen["media"] = kwargs.get("media")
-        return _FakeFastAnswer()
+        return _FakeFastAnswer(
+            image_count=2 if kwargs.get("image_mode") == "native" else 0,
+            image_mode=kwargs.get("image_mode") or "caption",
+        )
 
     async def fake_rag_recall(user, query, **kwargs):  # noqa: ANN001
         seen["user"] = str(user)
@@ -139,6 +145,16 @@ async def _none():
     return None
 
 
+def test_recall_tool_schema_exposes_extensible_original_modality_enum_list():
+    field = RecallIn.model_json_schema()["properties"]["include_original_modalities"]
+    assert field["type"] == "array"
+    # JSON Schema represents today's one-value enum as `const`; widening the Literal later
+    # naturally turns it into `enum` without changing the surrounding list-shaped field.
+    assert field["items"].get("enum", [field["items"].get("const")]) == ["image"]
+    assert "direct visual inspection" in field["description"]
+    assert RecallIn(query="q").include_original_modalities == []
+
+
 async def test_without_a_snapshot_the_owner_answers_and_nothing_is_pinned(captured):
     request = _request(_row())
     out = await recall(OWNER, RecallIn(query="q", mode="fast"), request)
@@ -149,6 +165,39 @@ async def test_without_a_snapshot_the_owner_answers_and_nothing_is_pinned(captur
     assert out.snapshot is None
     # canonical read against the owner, at HEAD — today's behavior exactly.
     assert request.app.state.ctx.canonical_reads == [(OWNER, None)]
+
+
+async def test_original_modalities_are_an_explicit_query_tool_choice(captured):
+    request = _request(_row())
+    out = await recall(
+        OWNER,
+        RecallIn(
+            query="Does the painting contain a dog?",
+            mode="fast",
+            include_original_modalities=["image"],
+        ),
+        request,
+    )
+
+    assert captured["image_mode"] == "native"
+    assert captured["media"] is request.app.state.ctx.media
+    assert out.included_original_modalities == ["image"]
+    assert out.original_modality_counts == {"image": 2}
+
+
+async def test_raw_rag_hits_reject_original_modality_delivery(captured):
+    request = _request(_row())
+    with pytest.raises(HTTPException, match="fast/deep answering modes") as exc:
+        await recall(
+            OWNER,
+            RecallIn(
+                query="Does the painting contain a dog?",
+                mode="rag",
+                include_original_modalities=["image"],
+            ),
+            request,
+        )
+    assert exc.value.status_code == 400
 
 
 async def test_a_ready_snapshot_swaps_the_retrieval_tenant_and_pins_canonical(captured):

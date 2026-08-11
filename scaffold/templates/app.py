@@ -1264,15 +1264,17 @@ async def _glance_text(ctx, uid, skill) -> str:
 
 
 async def _ask(
-    question: str, *, show_sources: bool = False, style: str | None = None
+    question: str,
+    *,
+    show_sources: bool = False,
+    style: str | None = None,
+    include_original_modalities: tuple[str, ...] = (),
 ) -> tuple[int, dict[str, int]]:
     from pneuma_knowledge_core.domain.ids import UserId
     from pneuma_knowledge_core.recall.fast import fast_recall
     from pneuma_knowledge_service.wiring import (
         build_context,
         llm_call_config,
-        resolve_image_mode,
-        resolve_model_name,
     )
 
     skill = load_contract_skill()
@@ -1282,6 +1284,7 @@ async def _ask(
         uid = UserId(user_id())
         started = time.perf_counter()
         recall_model = ctx.get_chat_model("recall")
+        include_original_images = "image" in include_original_modalities
         answer = await fast_recall(
             uid,
             question,
@@ -1291,10 +1294,8 @@ async def _ask(
             lexical=ctx.lexical,
             vectors=ctx.vectors,
             content=ctx.store,
-            media=ctx.media,
-            image_mode=resolve_image_mode(
-                "auto", recall_model, resolve_model_name(settings, "recall")
-            ),
+            media=ctx.media if include_original_images else None,
+            image_mode="native" if include_original_images else "caption",
             embeddings=ctx.embeddings,
             model=recall_model,
             cap=settings.recall_claim_cap,
@@ -1351,7 +1352,12 @@ async def _ask(
 
 def cmd_ask(args) -> int:
     code, _usage = asyncio.run(
-        _ask(args.question, show_sources=args.sources, style=args.style)
+        _ask(
+            args.question,
+            show_sources=args.sources,
+            style=args.style,
+            include_original_modalities=tuple(args.include_original),
+        )
     )
     return code
 
@@ -1611,6 +1617,17 @@ def main() -> int:
         "--style",
         choices=["concise", "conversational", "detailed"],
         help="answer style for this ask (default: PNEUMA_KNOWLEDGE_RECALL_ANSWER_STYLE in .env)",
+    )
+    ask.add_argument(
+        "--include-original",
+        action="append",
+        choices=["image"],
+        default=[],
+        metavar="MODALITY",
+        help=(
+            "include one original modality in this ask; currently: image. Repeatable for "
+            "future modalities. Omit it to use labelled derived representations only"
+        ),
     )
     sub.add_parser("glance", help="print the library overview (no re-ingest)")
     sub.add_parser(

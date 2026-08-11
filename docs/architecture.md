@@ -102,11 +102,14 @@ Four lanes over the same library, increasing in cost:
 - **deep** — a bounded agentic loop seeded with fast's evidence, with search/fetch/read tools and a forced conclusion when the budget runs out; returns its trail.
 - **briefing** — a byte-stable evidence pack built once on a pinned snapshot, then asked many times.
 
-Fast recall also replays images attached to the selected L1/L2 body windows. Caption mode
-keeps each derived representation labelled with its producer; native mode re-reads and
-verifies the immutable L0 bytes before adding real image content blocks. Images outside the
-selected windows never enter the call, duplicate digests are collapsed, and the volatile
-question remains the final human-message content block.
+Answering recall never includes original media merely because its model can consume it. The
+query tool owns that cost/attention decision through the enum-list argument
+`include_original_modalities` (empty by default; currently `image`). When `image` is selected,
+fast and deep's seed evidence replay images attached to the selected L1/L2 body windows:
+immutable L0 bytes are re-read and verified before becoming real image content blocks. When it
+is omitted, fast keeps labelled caption/OCR representations in text form and no original media
+bytes are read. Images outside the selected windows never enter the call, duplicate digests are
+collapsed, and the volatile question remains the final human-message content block.
 
 The fast lane's claim face carries two opt-in stages around its dual-path retrieval (both off by default; the off path is byte-identical). **Planning** (`RECALL_PLAN_QUERIES`): one small call derives extra keyword queries from a multi-aspect question, every query retrieves at full strength, and one RRF fusion pools the union — result-driven multi-round retrieval stays deep's job. **Reranking** (`RECALL_RERANK_MODEL`): a `Reranker` port (core) scores the pooled candidates against the original question and the best `RECALL_CLAIM_CAP` enter the prompt — rank-then-drop, with RRF kept only for dedup, backfill, and the failure fallback. Two providers ship: `llm` (default — the recall-role model pinned to reasoning effort `none`; input-heavy, output-tiny, no extra service) and an OpenRouter `/rerank` endpoint model name (dedicated cross-encoder, billed per search unit). The knob defaults off for a measured reason: on LoCoMo-refined neither provider beat plain capped retrieval — the answering model's own attention over a well-sized claim budget (release default 64, measured sweet band 40–80) is already the effective reranker. Candidate pools are also deduplicated by text containment: an equal or contained claim statement is dropped for the more complete one, which keeps re-filed facts from burning budget slots.
 

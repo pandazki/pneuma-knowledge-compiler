@@ -946,6 +946,46 @@ def selector_messages(
 ) -> list[BaseMessage]:
     """[SystemMessage(fixed contract), HumanMessage(profile → snapshot → glance → evidence →
     as_of → input)]."""
+    human = recall_human_content(
+        question,
+        claims,
+        as_of=as_of,
+        windows=windows,
+        profile=profile,
+        glance=glance,
+        snapshot=snapshot,
+        full_documents=full_documents,
+        window_notes=window_notes,
+        timelines=timelines,
+        images=images,
+        image_mode=image_mode,
+    )
+    return [
+        SystemMessage(content=selector_contract(answer_style)),
+        HumanMessage(content=human),
+    ]
+
+
+def recall_human_content(
+    question: str,
+    claims: list[RetrievedClaim],
+    *,
+    as_of: datetime,
+    windows: list | None = None,
+    profile: str | None = None,
+    glance: str | None = None,
+    snapshot: str | None = None,
+    full_documents: Sequence[CanonicalDocument] = (),
+    window_notes: Sequence[tuple[object, tuple[RetrievedClaim, ...]]] | None = None,
+    timelines: Sequence[TimelineBlock] = (),
+    images: Sequence[RecallImage] = (),
+    image_mode: Literal["caption", "native"] = "caption",
+) -> str | list[dict]:
+    """Build the volatile Human content shared by direct and agentic recall.
+
+    Original image bytes enter only when the query caller explicitly selected native
+    delivery. Caption mode keeps the same block-aligned derived evidence in text form.
+    """
     evidence = _recall_human_evidence(
         claims,
         windows=windows,
@@ -958,40 +998,36 @@ def selector_messages(
     )
     tail = _recall_human_tail(question, as_of)
     if not images:
-        human: str | list[dict] = evidence + tail
-    else:
-        header = prompt("recall.section.images_header", count=len(images))
-        if image_mode == "caption":
-            human = (
-                evidence
-                + "\n\n"
-                + header
-                + "\n"
-                + "\n".join(_render_recall_image(image) for image in images)
-                + tail
+        return evidence + tail
+    header = prompt("recall.section.images_header", count=len(images))
+    if image_mode == "caption":
+        return (
+            evidence
+            + "\n\n"
+            + header
+            + "\n"
+            + "\n".join(_render_recall_image(image) for image in images)
+            + tail
+        )
+
+    human: list[dict] = [{"type": "text", "text": evidence + "\n\n" + header}]
+    for recall_image in images:
+        if recall_image.data is None:
+            raise ValueError(
+                f"native image payload is missing for {recall_image.image.image_id!r}"
             )
-        else:
-            human = [{"type": "text", "text": evidence + "\n\n" + header}]
-            for recall_image in images:
-                if recall_image.data is None:
-                    raise ValueError(
-                        f"native image payload is missing for {recall_image.image.image_id!r}"
-                    )
-                human.append(
-                    {"type": "text", "text": _render_recall_image(recall_image)}
-                )
-                human.append(
-                    create_image_block(
-                        base64=base64.b64encode(recall_image.data).decode("ascii"),
-                        mime_type=recall_image.image.mime_type,
-                        id=recall_image.image.image_id,
-                    )
-                )
-            human.append({"type": "text", "text": tail})
-    return [
-        SystemMessage(content=selector_contract(answer_style)),
-        HumanMessage(content=human),
-    ]
+        human.append(
+            {"type": "text", "text": _render_recall_image(recall_image)}
+        )
+        human.append(
+            create_image_block(
+                base64=base64.b64encode(recall_image.data).decode("ascii"),
+                mime_type=recall_image.image.mime_type,
+                id=recall_image.image.image_id,
+            )
+        )
+    human.append({"type": "text", "text": tail})
+    return human
 
 
 async def answer_with_selector(

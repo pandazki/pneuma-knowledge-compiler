@@ -48,7 +48,7 @@ async def run_agent_loop(
     tools: list,
     *,
     system_prompt: str,
-    human: str,
+    human: str | list[dict],
     tool_budget: int,
     run_name: str,
     callbacks: list | None = None,

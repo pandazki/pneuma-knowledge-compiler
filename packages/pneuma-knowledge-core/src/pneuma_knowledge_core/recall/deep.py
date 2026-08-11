@@ -42,6 +42,7 @@ import asyncio
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Literal
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.tools import StructuredTool
@@ -53,6 +54,7 @@ from ..domain.ids import UserId, SourceId
 from ..ports.claim_index import ClaimLexicalIndex, ClaimVectorIndex
 from ..ports.content_store import ContentStore
 from ..ports.lexical_index import LexicalIndex
+from ..ports.media_store import MediaStore
 from ..ports.vector_index import VectorIndex
 from ..prompts import prompt
 from .agentic import run_agent_loop
@@ -67,11 +69,13 @@ from .spine import (
 from .assembly import Passage
 from .fast import (
     DEFAULT_CLAIM_CAP,
+    DEFAULT_IMAGE_CAP,
     DEFAULT_WINDOW_CAP,
     RetrievedClaim,
     _render_window_section,
     assemble_windows,
-    recall_human,
+    collect_window_images,
+    recall_human_content,
     render_claims,
     retrieve_claims,
     retrieve_windows,
@@ -134,6 +138,10 @@ class DeepAnswer:
     # Documents the loop actually opened with read_document, in first-read order — the
     # follow-the-thread walk, drill-downable for the UI.
     read_documents: tuple[str, ...] = ()
+    # Images aligned to the seed windows and actually supplied to the model. Original bytes
+    # are query opt-in; caption mode never reads the media store.
+    image_count: int = 0
+    image_mode: str = "caption"
 
 
 def _search_claims_tool(
@@ -350,6 +358,9 @@ async def deep_recall(
     embeddings,  # langchain_core.embeddings.Embeddings
     model: BaseChatModel,
     content: ContentStore,
+    media: MediaStore | None = None,
+    image_mode: Literal["caption", "native"] = "caption",
+    image_cap: int = DEFAULT_IMAGE_CAP,
     lexical: LexicalIndex | None = None,
     vectors: VectorIndex | None = None,
     profile: str | None = None,
@@ -411,6 +422,18 @@ async def deep_recall(
     seed_windows = await assemble_windows(
         raw_windows, content=content, user_id=user_id
     )
+    images = (
+        await collect_window_images(
+            user_id,
+            seed_windows,
+            content=content,
+            media=media,
+            image_mode=image_mode,
+            cap=image_cap,
+        )
+        if image_mode == "native"
+        else []
+    )
 
     found_claims: list[RetrievedClaim] = []
     found_windows: list = []
@@ -442,11 +465,16 @@ async def deep_recall(
     ]
 
     glance = render_canonical_glance(documents, skill, packs=packs) if documents else None
+    answer_trace_metadata = {
+        **(trace_metadata or {}),
+        "image_count": len(images),
+        "image_mode": image_mode,
+    }
     answer, usage, _transcript = await run_agent_loop(
         model,
         tools,
         system_prompt=deep_contract(answer_style),
-        human=recall_human(
+        human=recall_human_content(
             question,
             seed_claims,
             as_of=as_of,
@@ -454,11 +482,13 @@ async def deep_recall(
             profile=profile,
             glance=glance,
             snapshot=scope_declaration(scope),
+            images=images,
+            image_mode=image_mode,
         ),
         tool_budget=_DEEP_TOOL_BUDGET,
         run_name="recall.deep",
         callbacks=callbacks,
-        trace_metadata=trace_metadata,
+        trace_metadata=answer_trace_metadata,
     )
 
     return DeepAnswer(
@@ -469,4 +499,6 @@ async def deep_recall(
         trail=tuple(trail),
         glance_chars=len(glance or ""),
         read_documents=tuple(read_paths),
+        image_count=len(images),
+        image_mode=image_mode,
     )

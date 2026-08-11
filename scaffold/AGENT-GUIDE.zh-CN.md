@@ -260,6 +260,9 @@ git -C engine add -A && git -C engine commit -m "contract: <改了什么，用�
   对话式回答（默认），`detailed` = 自成一体的书面纪要。按答案的消费方来选——人在
   聊天用 `conversational`；脚本、判分器或评测判官期待精确短答案时用 `concise`；
   书面纪要用 `detailed`。风格只改形态，永远不改真实性纪律。
+  原始媒体是逐次查询的选择，默认关闭：只在问题必须直接视觉核验（物体、颜色、文字、布局）
+  时加 `--include-original image`。tool/API 调用方用同一选择
+  `include_original_modalities: ["image"]`；纯文本事实保持空枚举列表，继续使用带标签的派生表示。
 - 随时看：`./app.py glance`、`./app.py status`、`./app.py evolve`。
 - 也看引擎本身：`git -C engine log --oneline` 就是你们俩关于「这座库怎么思考」所做过的每一个决定。
 - 长文档会自动滚动归档（历史进只读卷）。

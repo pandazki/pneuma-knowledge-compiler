@@ -278,6 +278,10 @@ contract instead.
   note. Pick for the consumer of the answers — a person chatting wants `conversational`; a
   script, grader, or benchmark judge that expects the exact short answer wants `concise`;
   written digests want `detailed`. Style never changes the truth discipline, only the shape.
+  Original media is query-local and off by default: add `--include-original image` only when
+  the question requires direct visual inspection (objects, colours, text, layout). Tool/API
+  callers make the same choice with `include_original_modalities: ["image"]`; textual facts
+  leave the enum list empty and continue using labelled derived representations.
 - Look any time: `./app.py glance`, `./app.py status`, `./app.py evolve`.
 - Look at the engine itself: `git -C engine log --oneline` is the history of every decision
   you two made about how this library thinks.
