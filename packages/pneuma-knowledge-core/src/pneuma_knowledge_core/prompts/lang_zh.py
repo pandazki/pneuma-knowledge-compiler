@@ -419,18 +419,33 @@ _SEGMENTER_PHILOSOPHY_ZH = """\
 
 """
 
-_SEGMENTER_RUBRIC_ZH = _SEGMENTER_PHILOSOPHY_ZH + """\
-只返回每个语义段的「起始块编号」（`segments`，升序整数）。第 i 段覆盖
-[start_i, start_{i+1}-1]，最后一段延伸到最后一块，因此你从不给出结束编号。每个编号都必须是
-列表中真实出现过的块编号。
+_EPISODE_REPRESENTATION_ZH = """\
+每个语义段还要产生一份只以该段覆盖块为根据、面向检索的 episode 表示：
+- `title`：精炼、具体、便于搜索的标题（约 10-20 个词），写出能区分该 episode 的具体
+  人物、活动、地点或物件。
+- `description`：第三人称的详细事实记录。保留覆盖块实际写明的具体参与者、时间、
+  地点、事件、决定、情绪、原因、计划和结果；保持时序与因果关系；原文支持时用具体
+  姓名代替指代不清的代词。
+- 不得编造缺失的事实或身份。来源上下文给出发生日期时，既保留相对时间原话，又换算出
+  绝对日期；没有日期时保留相对表达，不得猜测绝对日期。
+
+标题和描述只是派生检索文本，不会替换或改写来源；系统仍将所覆盖块的逐字原文作为可引用 chunk。
+
+"""
+
+_SEGMENTER_RUBRIC_ZH = _SEGMENTER_PHILOSOPHY_ZH + _EPISODE_REPRESENTATION_ZH + """\
+把 `segments` 返回为对象数组。每个对象的字段顺序固定为：`title`、`description`、`start`。
+`start` 是该段的起始块编号。第 i 段覆盖 [start_i, start_{i+1}-1]，最后一段延伸到
+最后一块，因此不给出结束编号。每个起始编号都必须在列表中真实出现。
 """
 
 # `semantic_overlap = "smart"` 的输出契约。这里没有一句是请求模型配合：下面每一条同时是
 # ingest/semantic.py 里的写入期闸门，违反任何一条的输出会被整份拒收、退回零重叠切分。
-_SEGMENTER_RUBRIC_OVERLAP_ZH = _SEGMENTER_PHILOSOPHY_ZH + """\
-把每个语义段作为一个前闭后闭的块编号区间返回——一个起点、一个终点，两端都包含
-（`segments`，按起点升序排列的两元数对列表）。两个编号都必须是列表中真实出现过的块编号，
-终点不得小于起点。
+_SEGMENTER_RUBRIC_OVERLAP_ZH = (
+    _SEGMENTER_PHILOSOPHY_ZH + _EPISODE_REPRESENTATION_ZH + """\
+把 `segments` 返回为对象数组。每个对象的字段顺序固定为：`title`、`description`、`start`、`end`。
+`start` 与 `end` 组成两端都包含的块编号闭区间。两者都必须在列表中真实出现，且终点
+不得小于起点。
 
 段与段之间**可以**重叠，这正是这个格式的用意。转折处——那句既收束上一个话题、又开启下一个
 话题的话，那个既回答了上一问、又引出下一问的回应——同时属于两段，就同时给两段。十块内容里
@@ -440,6 +455,13 @@ _SEGMENTER_RUBRIC_OVERLAP_ZH = _SEGMENTER_PHILOSOPHY_ZH + """\
 只在内容确实同时服务两段的地方重叠，别处不要。共享一到两块是转折的常见体量；三块是上限；
 把邻段整个吞掉的不叫段。区间还必须不留空洞：第一段从第一块开始，最后一段到最后一块结束，
 每个起点都严格大于前一个起点，且任何一段的起点都不得比前一段的终点晚超过一块。
+"""
+)
+
+_EPISODE_DESCRIBE_RUBRIC_ZH = _EPISODE_REPRESENTATION_ZH + """\
+本次调用里的来源区间已由旧边界 manifest 固定。不得合并、拆分、扩大、缩小或重新编号。
+每个给定区间恰好返回一个对象，字段顺序为：`title`、`description`、`start`、`end`。
+逐字复制每对 start/end；系统会机械忽略任何更改过坐标的对象。
 """
 
 # ═══════════════════════════════════════════════════════════════════════════ personas
@@ -932,13 +954,21 @@ _ZH: dict[str, str] = {
     "ingest.email.attachments": "附件：",
     "ingest.semantic.rubric": _SEGMENTER_RUBRIC_ZH,
     "ingest.semantic.human": (
-        "以下是编号 {lo}..{hi} 的内容块（共 {count} 块）。每行形如「编号:内容」（冒号前是"
-        "编号，如 grep -n）。返回每个语义段的起始编号：\n\n{listing}"
+        "{source_context}以下是编号 {lo}..{hi} 的内容块（共 {count} 块）。每行形如「编号:内容」（冒号前是"
+        "编号，如 grep -n）。返回每个语义段的起始编号与检索表示：\n\n{listing}"
+    ),
+    "ingest.semantic.source_context": (
+        "来源上下文（检索元数据，不是来源正文）：\n{context}\n\n"
     ),
     "ingest.semantic.rubric_overlap": _SEGMENTER_RUBRIC_OVERLAP_ZH,
     "ingest.semantic.human_overlap": (
-        "以下是编号 {lo}..{hi} 的内容块（共 {count} 块）。每行形如「编号:内容」（冒号前是"
-        "编号，如 grep -n）。把每个语义段作为一对起止块编号返回：\n\n{listing}"
+        "{source_context}以下是编号 {lo}..{hi} 的内容块（共 {count} 块）。每行形如「编号:内容」（冒号前是"
+        "编号，如 grep -n）。返回每个语义段的检索表示与起止块编号：\n\n{listing}"
+    ),
+    "ingest.semantic.describe_rubric": _EPISODE_DESCRIBE_RUBRIC_ZH,
+    "ingest.semantic.describe_human": (
+        "{source_context}以下 episode 边界已固定：\n{boundaries}\n\n"
+        "根据下面带编号的来源块，为每个区间写出有根据的检索表示：\n\n{listing}"
     ),
     # ─────────────────────────────────────────────── recall: the shared spine
     "recall.spine": _SPINE,

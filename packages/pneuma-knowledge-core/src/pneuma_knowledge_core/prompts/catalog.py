@@ -559,21 +559,39 @@ Segmentation rules, in priority order:
 
 """
 
-_SEGMENTER_RUBRIC = _SEGMENTER_PHILOSOPHY + """\
-Return only the "start block number" of each semantic segment (`segments`, ascending
-integers). Segment i covers [start_i, start_{i+1}-1] and the last runs to the final block, so
-you never give end numbers. Every number must be a block number that actually appears in the
-listing.
+_EPISODE_REPRESENTATION = """\
+For every segment, produce a retrieval-oriented episode representation grounded only in
+the blocks that segment covers:
+- `title`: a concise, descriptive, search-friendly title (roughly 10-20 words) naming the
+  specific people, activities, places or objects that distinguish this episode.
+- `description`: a detailed factual record in third-person narrative. Preserve the concrete
+  participants, time, place, events, decisions, emotions, reasons, plans and outcomes that
+  the covered blocks actually state; keep chronological and causal relationships; use
+  specific names rather than ambiguous pronouns where the source supports them.
+- Never invent a missing fact or identity. When source context supplies an occurrence date,
+  preserve a relative time expression and also resolve it to an absolute date. When no date
+  is supplied, keep the relative expression and do not guess an absolute date.
+
+The title and description are derived retrieval text. They do not replace or rewrite the
+source; the system keeps the covered blocks verbatim as the citable chunk.
+
+"""
+
+_SEGMENTER_RUBRIC = _SEGMENTER_PHILOSOPHY + _EPISODE_REPRESENTATION + """\
+Return `segments` as an array of objects. Keep each object's fields in this order:
+`title`, `description`, `start`. `start` is the segment's start block number. Segment i
+covers [start_i, start_{i+1}-1] and the last runs to the final block, so you never give end
+numbers. Every start must be a block number that actually appears in the listing.
 """
 
 # The `semantic_overlap = "smart"` output contract. Nothing here asks the model to behave —
 # every rule below is also a write-time gate in ingest/semantic.py, and an output that
 # breaks one is rejected and replaced by the zero-overlap partition. The wording exists so
 # a model that reads it lands inside the gate on the first try, not so the gate can relax.
-_SEGMENTER_RUBRIC_OVERLAP = _SEGMENTER_PHILOSOPHY + """\
-Return each semantic segment as a closed interval of block numbers — a start and an end,
-both inclusive (`segments`, a list of two-number pairs ordered by start). Both numbers must
-be block numbers that actually appear in the listing, and the end is never below the start.
+_SEGMENTER_RUBRIC_OVERLAP = _SEGMENTER_PHILOSOPHY + _EPISODE_REPRESENTATION + """\
+Return `segments` as an array of objects. Keep each object's fields in this order:
+`title`, `description`, `start`, `end`. `start` and `end` form a closed interval of block
+numbers, both inclusive. Both must appear in the listing, and end is never below start.
 
 Segments MAY overlap, and that is what this format is for. A hinge — the sentence that
 closes one topic while opening the next, the answer that also sets up the following
@@ -586,6 +604,13 @@ size of a hinge; three is the most that is ever allowed, and a segment that swal
 neighbour is not a segment. The intervals must also leave no hole: the first segment starts
 at the first block, the last ends at the last block, every start is above the one before
 it, and no segment starts more than one block after the previous segment's end.
+"""
+
+_EPISODE_DESCRIBE_RUBRIC = _EPISODE_REPRESENTATION + """\
+The source intervals in this call are already fixed by an older boundary manifest. Do not
+merge, split, expand, shrink or renumber them. Return exactly one object per supplied
+interval, with fields in this order: `title`, `description`, `start`, `end`. Copy each
+start/end pair exactly; the system mechanically ignores an object whose pair changed.
 """
 
 # ═══════════════════════════════════════════════════════════════════════════ personas
@@ -1219,15 +1244,24 @@ DEFAULTS: dict[str, str] = {
     "ingest.email.attachments": "Attachments: ",
     "ingest.semantic.rubric": _SEGMENTER_RUBRIC,
     "ingest.semantic.human": (
-        "Below are content blocks numbered {lo}..{hi} ({count} blocks). Each line is "
+        "{source_context}Below are content blocks numbered {lo}..{hi} ({count} blocks). Each line is "
         "\"number:content\" (the number before the colon, as with grep -n). Return the start "
-        "number of each semantic segment:\n\n{listing}"
+        "and retrieval representation of each semantic segment:\n\n{listing}"
+    ),
+    "ingest.semantic.source_context": (
+        "Source context (retrieval metadata, not source prose):\n{context}\n\n"
     ),
     "ingest.semantic.rubric_overlap": _SEGMENTER_RUBRIC_OVERLAP,
     "ingest.semantic.human_overlap": (
-        "Below are content blocks numbered {lo}..{hi} ({count} blocks). Each line is "
+        "{source_context}Below are content blocks numbered {lo}..{hi} ({count} blocks). Each line is "
         "\"number:content\" (the number before the colon, as with grep -n). Return each "
-        "semantic segment as a start/end pair of block numbers:\n\n{listing}"
+        "semantic segment's retrieval representation and start/end block numbers:\n\n{listing}"
+    ),
+    "ingest.semantic.describe_rubric": _EPISODE_DESCRIBE_RUBRIC,
+    "ingest.semantic.describe_human": (
+        "{source_context}The following episode boundaries are fixed:\n{boundaries}\n\n"
+        "Write a grounded retrieval representation for each one from these numbered source "
+        "blocks:\n\n{listing}"
     ),
     # ─────────────────────────────────────────────── recall: the shared spine
     "recall.spine": _SPINE,

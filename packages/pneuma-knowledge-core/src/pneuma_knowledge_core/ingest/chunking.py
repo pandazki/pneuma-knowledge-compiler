@@ -71,6 +71,11 @@ class Chunk:
     text: str
     char_start: int
     char_end: int
+    # Optional derived retrieval representation. Semantic chunking fills these from the
+    # same model response that chose the episode boundary; mechanical chunkers leave them
+    # empty. They enrich vector meaning only and are never source text or citation evidence.
+    episode_title: str = ""
+    episode_description: str = ""
 
 
 @dataclass(frozen=True)
@@ -95,22 +100,27 @@ def embedding_text_for_chunk(
     """The L2 vector input for one verbatim chunk.
 
     The stored chunk text and its exact char span remain a byte-for-byte L0 slice.
-    Source title/occurrence context and labelled caption/OCR text attached to any covered
-    block are appended only to the embedding input. Semantic search can therefore find a
-    dated episode or image by meaning without turning metadata/derived text into fake
-    source prose or inventing a second citation space.
+    Source context, the model-written episode representation, and labelled caption/OCR text
+    attached to covered blocks are added only to the embedding input. The verbatim evidence
+    remains the final section and the only text stored in Qdrant. Semantic search can find a
+    dated episode or image by meaning without turning derived text into source prose.
     """
 
     context_lines = raw.retrieval_context_lines() if raw is not None else []
+    episode_lines = []
+    if chunk.episode_title:
+        episode_lines.append(f"[episode title] {chunk.episode_title}")
+    if chunk.episode_description:
+        episode_lines.append(f"[episode description] {chunk.episode_description}")
     media_lines = [
         line
         for block in sorted(blocks, key=lambda item: item.index)
         if chunk.block_start <= block.index <= chunk.block_end
         for line in block.derived_media_index_lines()
     ]
-    if not context_lines and not media_lines:
+    if not context_lines and not episode_lines and not media_lines:
         return chunk.text
-    return "\n".join([*context_lines, chunk.text, *media_lines])
+    return "\n".join([*context_lines, *episode_lines, *media_lines, chunk.text])
 
 
 def build_chunker(
@@ -250,6 +260,8 @@ def enforce_max_chars(
                     text=sub,
                     char_start=cs,
                     char_end=ce,
+                    episode_title=ch.episode_title,
+                    episode_description=ch.episode_description,
                 )
             )
     return out

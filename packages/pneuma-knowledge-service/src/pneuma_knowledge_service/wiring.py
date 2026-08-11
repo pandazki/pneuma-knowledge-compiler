@@ -48,16 +48,19 @@ def build_chunker(settings: Settings):
     )
 
 
-async def full_l2_chunks(ctx: "AppContext", source_id, blocks, structure, user_id):
+async def full_l2_chunks(
+    ctx: "AppContext", source_id, blocks, structure, user_id, *, raw=None
+):
     """Build the ``semantic_indexing="full"`` L2 chunks per the configured strategy.
 
     - ``chunk_strategy`` in {``sentence``, ``recursive``} → the pure chonkie
       ``chunk_source`` (mechanical, no LLM).
     - ``chunk_strategy == "semantic"`` → ``semantic_chunk_source`` with the configured model (the
-      ``compile`` role model via OpenRouter) detecting topic/entity boundaries, and a
-      chonkie SentenceChunker (built from settings) as the over-long-segment sub-splitter.
-      The LLM boundary call runs ONLY here (actual L2 indexing) — preview never reaches
-      this helper, so preview stays cheap/mechanical.
+      ``compile`` role model via OpenRouter) returning topic/entity boundaries plus a
+      derived episode title/description in one structured response, and a chonkie
+      SentenceChunker (built from settings) as the over-long-segment sub-splitter. The LLM
+      episode call runs ONLY here (actual L2 indexing) — preview never reaches this helper,
+      so preview stays cheap/mechanical.
 
     Centralized so both ingest flows and the re-index script share one dispatch."""
     from pneuma_knowledge_core.ingest.chunking import build_chunker as _build
@@ -84,12 +87,14 @@ async def full_l2_chunks(ctx: "AppContext", source_id, blocks, structure, user_i
     )
     if semantic:
         from pneuma_knowledge_core.ingest.semantic import (
+            MANIFEST_VERSION,
             blocks_content_digest,
             chunk_result_digest,
-            decode_manifest_segments,
-            encode_manifest_segments,
+            decode_manifest_episodes,
+            describe_semantic_episodes,
+            encode_manifest_episodes,
             semantic_chunk_source,
-            semantic_segments,
+            semantic_episodes,
         )
 
         # Sub-splitter for over-long single units: always the sentence chunker (with
@@ -100,10 +105,10 @@ async def full_l2_chunks(ctx: "AppContext", source_id, blocks, structure, user_i
         cfg = llm_call_config(
             ctx, operation="chunk.semantic", user_id=str(user_id)
         )
-        # Manifest-anchored determinism: the LLM boundary call is non-reproducible, so a
+        # Manifest-anchored determinism: the LLM episode call is non-reproducible, so a
         # source whose content + strategy + model is unchanged REPLAYS its recorded
-        # segments instead of re-detecting — a re-index is then byte-identical (I2). Only
-        # a first ingest or a genuine change (edited source, model swap) calls the LLM.
+        # episodes instead of regenerating them — a re-index is then byte-identical (I2).
+        # Only a first ingest or a genuine change (edited source, model swap) calls the LLM.
         model_spec = resolve_model_name(ctx.settings, "compile")
         overlap = ctx.settings.semantic_overlap
         digest = blocks_content_digest(blocks)
@@ -114,7 +119,7 @@ async def full_l2_chunks(ctx: "AppContext", source_id, blocks, structure, user_i
         # the OLD mode produced, forever. A mismatch re-detects — which is exactly what
         # "takes effect on the next rebuild" means.
         recorded = (
-            decode_manifest_segments(
+            decode_manifest_episodes(
                 manifest["segments"],
                 block_indices=sorted(b.index for b in blocks),
             )
@@ -125,29 +130,58 @@ async def full_l2_chunks(ctx: "AppContext", source_id, blocks, structure, user_i
             else None
         )
         replay = recorded is not None and recorded[1] == overlap
+        migrated_legacy = False
         if replay:
-            segments = recorded[0]
+            episodes = recorded[0]
+            envelope = manifest.get("segments")
+            if not (
+                isinstance(envelope, dict)
+                and envelope.get("version") == MANIFEST_VERSION
+            ):
+                describe_cfg = llm_call_config(
+                    ctx,
+                    operation="chunk.semantic.describe",
+                    user_id=str(user_id),
+                )
+                episodes = await describe_semantic_episodes(
+                    blocks,
+                    episodes,
+                    model=ctx.get_chat_model("compile"),
+                    source_context=(
+                        raw.retrieval_context_lines() if raw is not None else None
+                    ),
+                    **describe_cfg,
+                )
+                migrated_legacy = True
         else:
-            segments = await semantic_segments(
-                blocks, model=ctx.get_chat_model("compile"), overlap=overlap, **cfg
+            episodes = await semantic_episodes(
+                blocks,
+                model=ctx.get_chat_model("compile"),
+                overlap=overlap,
+                source_context=(raw.retrieval_context_lines() if raw is not None else None),
+                **cfg,
             )
         chunks = await semantic_chunk_source(
             source_id,
             blocks,
             structure,
-            segments=segments,
+            episodes=episodes,
             sub_chunker=sub_chunker,
             max_chunk_chars=ctx.settings.chunk_size,
         )
         result_digest = chunk_result_digest(chunks)
-        if not replay or manifest.get("result_digest") != result_digest:
+        if (
+            not replay
+            or migrated_legacy
+            or manifest.get("result_digest") != result_digest
+        ):
             await ctx.store.put_chunk_manifest(
                 user_id,
                 source_id,
                 strategy="semantic",
                 model=model_spec,
                 content_digest=digest,
-                segments=encode_manifest_segments(segments, overlap=overlap),
+                segments=encode_manifest_episodes(episodes, overlap=overlap),
                 result_digest=result_digest,
             )
         return chunks
@@ -176,7 +210,12 @@ async def plan_l2_chunks(ctx: "AppContext", source_id, normalized, user_id):
     semantic = plan.get("semantic_indexing", "full")
     if semantic == "full":
         return await full_l2_chunks(
-            ctx, source_id, normalized.blocks, normalized.structure, user_id
+            ctx,
+            source_id,
+            normalized.blocks,
+            normalized.structure,
+            user_id,
+            raw=normalized.raw,
         )
     if semantic == "summary":
         return _summary_chunks(source_id, normalized)

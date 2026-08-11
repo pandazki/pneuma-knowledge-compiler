@@ -9,6 +9,7 @@ over-long sub-splitting, windowing, determinism, and boundary repair.
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 from pneuma_knowledge_core.domain.ids import SourceId
 from pneuma_knowledge_core.domain.source import NormalizedBlock, SectionSpan, StructureMap
@@ -16,11 +17,15 @@ from pneuma_knowledge_core.ingest.chunking import build_chunker, join_blocks
 from pneuma_knowledge_core.ingest.semantic import (
     MANIFEST_VERSION,
     MAX_OVERLAP_BLOCKS,
+    SemanticEpisode,
     Segments,
     SegmentSpans,
     blocks_content_digest,
     chunk_result_digest,
     decode_manifest_segments,
+    decode_manifest_episodes,
+    describe_semantic_episodes,
+    encode_manifest_episodes,
     encode_manifest_segments,
     overlap_rejection,
     semantic_chunk_source,
@@ -66,8 +71,90 @@ class _FakeModel:
         return self.structured
 
 
+class _EpisodeStructured:
+    def __init__(self) -> None:
+        self.calls: list[tuple] = []
+
+    async def ainvoke(self, messages, config=None):  # noqa: ANN001
+        self.calls.append((messages, config))
+        return SimpleNamespace(
+            segments=[
+                SimpleNamespace(
+                    start=0,
+                    title="Weekend kayaking and safety planning",
+                    description=(
+                        "Caroline discussed a weekend kayaking trip and the safety "
+                        "equipment she planned to bring."
+                    ),
+                )
+            ]
+        )
+
+
+class _EpisodeModel:
+    def __init__(self) -> None:
+        self.schema = None
+        self.structured = _EpisodeStructured()
+
+    def with_structured_output(self, schema):  # noqa: ANN001
+        self.schema = schema
+        return self.structured
+
+
 # A CJK unit ending with 。 so the sub-splitter's CJK-aware delimiter can split it.
 SENT = "记录显示候选人在这个项目里表现优异。"
+
+
+async def test_one_structured_pass_adds_episode_representation_without_rewriting_source():
+    blocks = _blocks(
+        [
+            "Caroline said she planned to go kayaking this weekend.",
+            "Melanie reminded Caroline to bring a life jacket.",
+        ]
+    )
+    model = _EpisodeModel()
+
+    chunks = await semantic_chunk_source(
+        SID,
+        blocks,
+        StructureMap(),
+        model=model,
+        source_context=["[source occurred_on] 2023-08-12"],
+    )
+
+    assert len(model.structured.calls) == 1
+    assert len(chunks) == 1
+    assert chunks[0].text == "\n".join(block.text for block in blocks)
+    assert chunks[0].episode_title == "Weekend kayaking and safety planning"
+    assert "safety equipment" in chunks[0].episode_description
+
+
+async def test_episode_schema_and_prompt_put_meaning_before_grounding_coordinates():
+    blocks = _blocks(["Caroline went kayaking yesterday."])
+    model = _EpisodeModel()
+
+    await semantic_chunk_source(
+        SID,
+        blocks,
+        StructureMap(),
+        model=model,
+        source_context=["[source occurred_on] 2023-08-12"],
+    )
+
+    item_schema = model.schema.model_json_schema()["$defs"]["SegmentStart"]
+    assert list(item_schema["properties"]) == ["title", "description", "start"]
+    span_schema = SegmentSpans.model_json_schema()["$defs"]["SegmentSpan"]
+    assert list(span_schema["properties"]) == [
+        "title",
+        "description",
+        "start",
+        "end",
+    ]
+    messages, _ = model.structured.calls[0]
+    assert "detailed factual record" in messages[0].content
+    assert "third-person narrative" in messages[0].content
+    assert "relative" in messages[0].content
+    assert "[source occurred_on] 2023-08-12" in messages[1].content
 
 
 async def test_one_chunk_per_segment_headingless_multi_entity():
@@ -363,10 +450,9 @@ def test_preview_numbering_uses_global_offset_over_windows():
 
 # ═════════════════════════════════════════════ semantic_overlap="smart": the second contract
 #
-# `off` above is the contract every semantic-chunking measurement so far was taken with, so
-# the first thing pinned here is that it did not move. Everything after that is the new one:
-# five gates that refuse a bad interval list mechanically, the degradation a refusal falls
-# back to, and the overlapping chunks a good one produces.
+# The episode-representation addition intentionally retires the old boundary-only prompt.
+# These pins establish the new one-call baseline: future edits cannot silently mix numbers
+# measured with different segmentation/description instructions.
 
 import hashlib  # noqa: E402
 
@@ -375,39 +461,36 @@ from pneuma_knowledge_core.prompts import chinese_overlay, default_catalog, prom
 # ────────────────────────────────────────────────── the `off` request, pinned to the byte
 
 # sha256 of the two clauses the zero-overlap segmentation call is built from, in both packs.
-# Not "the prompt still reads sensibly" — the exact bytes. Every measured semantic-chunking
-# result is a measurement OF these bytes, and a reworded rubric silently retires the
-# baseline the overlap A/B is supposed to be measured against. Adding a mode must therefore
-# cost the old mode nothing, and that is checkable rather than reviewable.
+# Not "the prompt still reads sensibly" — the exact bytes. Any rewording retires measurements
+# made with this episode-producing baseline, and that is checkable rather than reviewable.
 _OFF_PROMPT_DIGESTS = {
     "en": {
         "ingest.semantic.rubric":
-            "c36de4de20a9dcf52a4cd169a52d9e0ca2391be471c587fa38057a9cb4c83815",
+            "ee56af5f99b3d8028b4b4ba71b18dc6b3ceb3a5a432924c08991ee438961b9da",
         "ingest.semantic.human":
-            "5f6cf30ea34ef91d1f67b2e1ea66f17f866e7cb03d137611c6e8f8b551d7b0cd",
+            "6e14703eb93128ede56f322995c98ff94663cba1ebf8762c7edac327c7f0cab2",
     },
     "zh": {
         "ingest.semantic.rubric":
-            "21c215e39e25ed2ee37cbfb85307cb7c63ae68bdf10ffb11d2cb9f6c3ee9dd95",
+            "b5ec53be7247312ca3113d61bbff0971c6ca325fc8adef852c6bc28b8405e3be",
         "ingest.semantic.human":
-            "f58a96b7e62b33b3381ad72ec0a027b3882ec8c49a4b165c01015a824e40cb2a",
+            "3c55210d506b3606ef4e873b5c38183168829e26954b2240425df6b008e1ad47",
     },
 }
 
 
-def test_the_off_mode_clauses_are_byte_for_byte_the_measured_baseline():
+def test_the_off_mode_clauses_are_byte_for_byte_the_episode_baseline():
     for pack, catalog in (("en", default_catalog()), ("zh", chinese_overlay())):
         for key, digest in _OFF_PROMPT_DIGESTS[pack].items():
             actual = hashlib.sha256(catalog[key].encode("utf-8")).hexdigest()
             assert actual == digest, (
-                f"{pack} {key} changed. It is the SystemMessage/HumanMessage every semantic "
-                "chunking measurement was taken with — changing it retires those numbers."
+                f"{pack} {key} changed. It is the pinned episode-producing semantic "
+                "baseline — changing it retires measurements made with these bytes."
             )
 
 
 async def test_the_off_mode_request_is_assembled_from_exactly_those_clauses():
-    """The digests pin the wording; this pins that the `off` call still sends that wording,
-    with the start-only schema and nothing added."""
+    """The digests pin the wording; this pins the zero-overlap episode call assembly."""
     blocks = _blocks(["候选人甲评价", "候选人乙评价"])
     model = _FakeModel([0, 1])
     await semantic_segments(blocks, model=model)
@@ -421,6 +504,7 @@ async def test_the_off_mode_request_is_assembled_from_exactly_those_clauses():
         hi=1,
         count=2,
         listing="0:候选人甲评价\n1:候选人乙评价",
+        source_context="",
     )
 
 
@@ -537,7 +621,12 @@ async def test_smart_mode_asks_for_intervals_with_the_overlap_clauses():
     assert model.schema is SegmentSpans
     assert msgs[0].content == prompt("ingest.semantic.rubric_overlap")
     assert msgs[1].content == prompt(
-        "ingest.semantic.human_overlap", lo=0, hi=2, count=3, listing="0:甲\n1:乙\n2:丙"
+        "ingest.semantic.human_overlap",
+        lo=0,
+        hi=2,
+        count=3,
+        listing="0:甲\n1:乙\n2:丙",
+        source_context="",
     )
     assert config["run_name"] == "chunk.semantic"
 
@@ -646,11 +735,53 @@ async def test_a_segment_repeated_identically_is_stored_once():
 async def test_the_manifest_envelope_round_trips_with_its_mode():
     segments = [(0, 4), (3, 9)]
     record = encode_manifest_segments(segments, overlap="smart")
-    assert record == {"version": MANIFEST_VERSION, "overlap": "smart", "spans": [[0, 4], [3, 9]]}
+    assert record == {
+        "version": MANIFEST_VERSION,
+        "overlap": "smart",
+        "episodes": [
+            {"title": "", "description": "", "start": 0, "end": 4},
+            {"title": "", "description": "", "start": 3, "end": 9},
+        ],
+    }
     assert decode_manifest_segments(record, block_indices=list(range(10))) == (
         segments,
         "smart",
     )
+
+
+def test_manifest_round_trips_episode_representation_in_meaning_first_order():
+    episodes = [
+        SemanticEpisode(
+            title="Weekend kayaking and safety planning",
+            description="Caroline discussed a kayaking trip and safety equipment.",
+            start=3,
+            end=8,
+        )
+    ]
+
+    record = encode_manifest_episodes(episodes, overlap="smart")
+
+    assert list(record["episodes"][0]) == ["title", "description", "start", "end"]
+    assert decode_manifest_episodes(record, block_indices=list(range(10))) == (
+        episodes,
+        "smart",
+    )
+
+
+async def test_legacy_description_upgrade_cannot_change_recorded_boundaries():
+    blocks = _blocks([SENT] * 4)
+    recorded = [
+        SemanticEpisode(title="", description="", start=0, end=1),
+        SemanticEpisode(title="", description="", start=2, end=3),
+    ]
+    # The model tries to replace both fixed episodes with one broad episode. Migration must
+    # ignore that span instead of silently re-segmenting the source.
+    model = _FakeSpanModel([(0, 3)])
+
+    upgraded = await describe_semantic_episodes(blocks, recorded, model=model)
+
+    assert [(episode.start, episode.end) for episode in upgraded] == [(0, 1), (2, 3)]
+    assert all(not episode.description for episode in upgraded)
 
 
 async def test_a_replayed_envelope_reproduces_the_chunks_byte_for_byte():

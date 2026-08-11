@@ -30,8 +30,8 @@
             "zh": "切块策略"
           },
           "description": {
-            "en": "semantic = the compile-role model detects topic/episode boundaries and returns block indexes only; sentence / recursive = mechanical chonkie chunkers with no model cost. Existing content keeps its recorded boundaries until rebuild_derived runs.",
-            "zh": "semantic = 由编译角色模型判断话题/情节边界，只返回块下标；sentence / recursive = 机械切分，不花模型钱。已有内容会保留既有边界，直到跑 rebuild_derived 才真正改变。"
+            "en": "semantic = the compile-role model detects topic/episode boundaries and returns each segment with a derived episode title/description for embedding; sentence / recursive = mechanical chonkie chunkers with no model cost. Citable chunk text always stays verbatim.",
+            "zh": "semantic = 由编译角色模型判断话题/情节边界，并为每个段返回用于 embedding 的派生 episode 标题/描述；sentence / recursive = 机械切分，不花模型钱。可引用 chunk 文本始终保持逐字原文。"
           }
         },
         {
@@ -49,8 +49,8 @@
             "zh": "段落重叠"
           },
           "description": {
-            "en": "Only for the semantic strategy. smart = the model returns closed intervals, so a hinge — the sentence that closes one topic while opening the next — is indexed as part of both segments; how much to share is decided per boundary, and at most three blocks ever, which is what stops the model from making every segment the whole document. off = the original zero-overlap cut, kept as the baseline every measurement so far was taken with. Existing content keeps its recorded boundaries until rebuild_derived runs.",
-            "zh": "只对 semantic 策略有意义。smart = 模型返回前闭后闭区间，转折句——那句既收束上一话题、又开启下一话题的话——同时被索引进前后两段；共享多少由模型逐个边界判断，且最多三块，正是这个上限让模型无法把每一段都写成全文。off = 原来的零重叠切法，作为此前全部测量所用的基线保留。已有内容会保留既有边界，直到跑 rebuild_derived 才真正改变。"
+            "en": "Only for the semantic strategy. smart = each returned episode object ends with closed-interval start/end coordinates, so a hinge — the sentence that closes one topic while opening the next — is indexed as part of both segments; how much to share is decided per boundary, and at most three blocks ever, which is what stops the model from making every segment the whole document. off = the original zero-overlap geometry. Episode descriptions created a new prompt baseline, so older boundary-only measurements are not same-harness comparisons. Existing content keeps its recorded boundaries until rebuild_derived runs.",
+            "zh": "只对 semantic 策略有意义。smart = 每个 episode 对象末尾返回 start/end 前闭后闭坐标，转折句——那句既收束上一话题、又开启下一话题的话——同时被索引进前后两段；共享多少由模型逐个边界判断，且最多三块，正是这个上限让模型无法把每一段都写成全文。off = 原来的零重叠几何形状。episode 描述产生了新提示词基线，旧的 boundary-only 测量不属于同一 harness。已有内容会保留既有边界，直到跑 rebuild_derived 才真正改变。"
           }
         }
       ]
@@ -713,10 +713,13 @@
             "ingest.other_label",
             "ingest.owner_label",
             "ingest.owner_wrapped",
+            "ingest.semantic.describe_human",
+            "ingest.semantic.describe_rubric",
             "ingest.semantic.human",
             "ingest.semantic.human_overlap",
             "ingest.semantic.rubric",
             "ingest.semantic.rubric_overlap",
+            "ingest.semantic.source_context",
             "ingest.speaker_alias",
             "ingest.turn_line",
             "persona.profile_instruction",

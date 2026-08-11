@@ -53,6 +53,10 @@ async def test_shared_l2_writer_augments_vector_input_and_keeps_payload_verbatim
         text=block.text,
         char_start=0,
         char_end=len(block.text),
+        episode_title="October running-shoe purchase",
+        episode_description=(
+            "Melanie shared newly purchased running shoes in an October conversation."
+        ),
     )
     embeddings = RecordingEmbeddings()
     ctx = SimpleNamespace(embeddings=embeddings)
@@ -74,8 +78,11 @@ async def test_shared_l2_writer_augments_vector_input_and_keeps_payload_verbatim
     embedded = await embed_l2_chunks(ctx, [chunk], normalized)
 
     assert "newly purchased running shoes" in embeddings.documents[0]
+    assert "[episode title] October running-shoe purchase" in embeddings.documents[0]
+    assert "[episode description] Melanie shared" in embeddings.documents[0]
     assert "2023-10-19" in embeddings.documents[0]
     assert embedded[0].text == block.text
     assert "running shoes" not in embedded[0].text
+    assert "October running-shoe purchase" not in embedded[0].text
     assert embedded[0].char_start == 0
     assert embedded[0].char_end == len(block.text)

@@ -15,10 +15,16 @@ model stands in for the compile role, and any unexpected model build is an asser
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 from pneuma_knowledge_core.domain.ids import SourceId, UserId
-from pneuma_knowledge_core.domain.source import NormalizedBlock, SectionSpan, StructureMap
+from pneuma_knowledge_core.domain.source import (
+    NormalizedBlock,
+    RawSource,
+    SectionSpan,
+    StructureMap,
+)
 from pneuma_knowledge_core.ingest.semantic import (
     MANIFEST_VERSION,
     SegmentSpans,
@@ -40,8 +46,10 @@ STRUCTURE = StructureMap(sections=[SectionSpan(path=["S"], start_block=0, end_bl
 class _FakeStructured:
     def __init__(self, payload) -> None:
         self._payload = payload
+        self.calls: list[tuple] = []
 
     async def ainvoke(self, messages, config=None):  # noqa: ANN001
+        self.calls.append((messages, config))
         return self._payload
 
 
@@ -61,6 +69,30 @@ class _FakeModel:
             if schema is SegmentSpans
             else Segments(segments=list(self._starts))
         )
+
+
+class _EpisodeModel:
+    def __init__(self) -> None:
+        self.schemas: list[object] = []
+        self.structured = None
+
+    def with_structured_output(self, schema):  # noqa: ANN001
+        self.schemas.append(schema)
+        self.structured = _FakeStructured(
+            SegmentSpans(
+                segments=[
+                    {
+                        "title": "Weekend kayaking and safety planning",
+                        "description": (
+                            "Caroline discussed a kayaking trip and safety equipment."
+                        ),
+                        "start": 0,
+                        "end": 9,
+                    }
+                ]
+            )
+        )
+        return self.structured
 
 
 class _Store:
@@ -120,8 +152,8 @@ def _ctx(
     )
 
 
-async def _chunks(ctx) -> list:
-    return await full_l2_chunks(ctx, SID, _blocks(10), STRUCTURE, USER)
+async def _chunks(ctx, *, raw=None) -> list:  # noqa: ANN001
+    return await full_l2_chunks(ctx, SID, _blocks(10), STRUCTURE, USER, raw=raw)
 
 
 def _record(store: _Store) -> dict:
@@ -142,7 +174,10 @@ async def test_a_smart_detection_is_recorded_with_its_mode_and_then_replayed():
     assert record["segments"] == {
         "version": MANIFEST_VERSION,
         "overlap": "smart",
-        "spans": [[0, 4], [3, 9]],
+        "episodes": [
+            {"title": "", "description": "", "start": 0, "end": 4},
+            {"title": "", "description": "", "start": 3, "end": 9},
+        ],
     }
 
     # The rebuild: same content, same model spec, same mode → no model at all, and the
@@ -150,6 +185,44 @@ async def test_a_smart_detection_is_recorded_with_its_mode_and_then_replayed():
     rebuilt = await _chunks(_ctx(None, overlap="smart", store=store))
     assert rebuilt == first
     assert _record(store) == record  # replay does not rewrite the manifest
+
+
+async def test_episode_representation_is_recorded_and_replayed_without_a_model():
+    store = _Store()
+    first = await _chunks(_ctx(_EpisodeModel(), overlap="smart", store=store))
+
+    assert first[0].episode_title == "Weekend kayaking and safety planning"
+    assert "safety equipment" in first[0].episode_description
+    assert list(_record(store)["segments"]["episodes"][0]) == [
+        "title",
+        "description",
+        "start",
+        "end",
+    ]
+
+    rebuilt = await _chunks(_ctx(None, overlap="smart", store=store))
+    assert rebuilt == first
+
+
+async def test_source_occurrence_context_reaches_the_episode_generation_call():
+    store = _Store()
+    model = _EpisodeModel()
+    raw = RawSource(
+        source_id=SID,
+        user_id=USER,
+        kind="im",
+        title="Saturday lake conversation",
+        mime="application/json",
+        checksum="checksum",
+        created_at=datetime(2026, 8, 11, tzinfo=timezone.utc),
+        meta={"occurred_on": "2023-08-12"},
+    )
+
+    await _chunks(_ctx(model, overlap="smart", store=store), raw=raw)
+
+    messages, _ = model.structured.calls[0]
+    assert "[source title] Saturday lake conversation" in messages[1].content
+    assert "[source occurred_on] 2023-08-12" in messages[1].content
 
 
 async def test_an_off_detection_records_a_partition_and_replays_the_same_way():
@@ -204,7 +277,10 @@ async def test_flipping_the_knob_re_detects_instead_of_replaying_the_old_layout(
     assert _record(store)["segments"] == {
         "version": MANIFEST_VERSION,
         "overlap": "smart",
-        "spans": [[0, 4], [3, 9]],
+        "episodes": [
+            {"title": "", "description": "", "start": 0, "end": 4},
+            {"title": "", "description": "", "start": 3, "end": 9},
+        ],
     }
     # And back again: the same flip in the other direction re-detects too.
     back = _FakeModel(starts=[0, 5], spans=[])
@@ -228,28 +304,55 @@ def _seed(store: _Store, segments) -> None:
     }
 
 
-async def test_a_pre_envelope_pair_list_replays_without_asking_a_model():
+async def test_a_pre_envelope_pair_list_keeps_boundaries_while_adding_descriptions():
     """The shape written before the envelope existed. Overlapping pairs can only have come
     from the overlapping contract, so under `smart` they replay as written — an upgrade
-    does not re-detect a library to learn what its own record already says."""
+    does not re-detect a library to learn what its own record already says. One migration
+    call may add retrieval descriptions to those fixed boundaries."""
     store = _Store()
     _seed(store, [[0, 4], [3, 9]])
-    chunks = await _chunks(_ctx(None, overlap="smart", store=store))
+    model = _FakeModel(starts=[], spans=[(0, 4), (3, 9)])
+    chunks = await _chunks(_ctx(model, overlap="smart", store=store))
     assert [(c.block_start, c.block_end) for c in chunks] == [(0, 4), (3, 9)]
+    assert model.schemas == [SegmentSpans]
+
+
+async def test_a_boundary_only_envelope_gets_descriptions_without_resegmentation():
+    store = _Store()
+    _seed(
+        store,
+        {
+            "version": 2,
+            "overlap": "smart",
+            "spans": [[0, 9]],
+        },
+    )
+    model = _EpisodeModel()
+
+    chunks = await _chunks(_ctx(model, overlap="smart", store=store))
+
+    assert [(chunk.block_start, chunk.block_end) for chunk in chunks] == [(0, 9)]
+    assert chunks[0].episode_title == "Weekend kayaking and safety planning"
+    assert _record(store)["segments"]["version"] == MANIFEST_VERSION
+    assert "already fixed" in model.structured.calls[0][0][0].content
 
 
 async def test_a_pre_envelope_partition_replays_under_off():
     store = _Store()
     _seed(store, [[0, 4], [5, 9]])
-    chunks = await _chunks(_ctx(None, overlap="off", store=store))
+    model = _FakeModel(starts=[], spans=[(0, 4), (5, 9)])
+    chunks = await _chunks(_ctx(model, overlap="off", store=store))
     assert [(c.block_start, c.block_end) for c in chunks] == [(0, 4), (5, 9)]
+    assert model.schemas == [SegmentSpans]
 
 
 async def test_a_starts_only_record_expands_through_the_partition_rule():
     store = _Store()
     _seed(store, [0, 5])
-    chunks = await _chunks(_ctx(None, overlap="off", store=store))
+    model = _FakeModel(starts=[], spans=[(0, 4), (5, 9)])
+    chunks = await _chunks(_ctx(model, overlap="off", store=store))
     assert [(c.block_start, c.block_end) for c in chunks] == [(0, 4), (5, 9)]
+    assert model.schemas == [SegmentSpans]
 
 
 async def test_an_unreadable_record_re_detects_rather_than_indexing_something_wrong():

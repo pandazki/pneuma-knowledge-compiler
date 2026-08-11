@@ -394,7 +394,7 @@ async def process_index_job(
     # L2: by IntakePlan (semantic_indexing knob).
     if semantic == "full":
         chunks = await full_l2_chunks(
-            ctx, source_id, ns.blocks, ns.structure, user_id
+            ctx, source_id, ns.blocks, ns.structure, user_id, raw=ns.raw
         )
     elif semantic == "summary":
         chunks = _summary_chunks(source_id, ns)

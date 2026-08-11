@@ -194,9 +194,9 @@ deep = "openrouter:openai/gpt-5.6-terra"  # deep-recall (agentic) model; empty f
 
 [advanced]
 user_id = "u-app-owner"    # tenant id: a different id is a different, empty library
-chunk_strategy = "semantic"  # semantic = LLM boundary detection (default) | sentence = mechanical
+chunk_strategy = "semantic"  # semantic = LLM episode boundary + retrieval description | sentence = mechanical
 semantic_overlap = "smart" # semantic only: smart = neighbouring segments may share a hinge
-                           # block (default) | off = zero overlap, the measured baseline
+                           # block (default) | off = original zero-overlap geometry
 challenge_enabled = false  # post-compile coverage challenge (extra model calls per compile)
 compile_image_mode = "auto" # auto = use model profile | native = send image blocks |
                            # caption = labelled caption/OCR text only
@@ -636,11 +636,11 @@ deep: {deep if deep else '""'}
 embedding: {models["embedding"]}
 """,
         "intake/intake.yaml": f"""\
-# How material is cut into the semantic units the vector index searches. The text of a unit
-# is always a verbatim slice of your material — only the cutting is a choice.
+# How material becomes the semantic units the vector index searches. Citable unit text is
+# always a verbatim slice; derived titles/descriptions affect embedding only.
 #
-#   semantic  the compile-role model detects topic/episode boundaries and returns block
-#             indexes only. Costs one small model call per source.
+#   semantic  one compile-role call returns topic/episode boundaries plus a grounded title
+#             and description for each episode. Costs one small model call per source.
 #   sentence  mechanical sentence chunking with overlap. No model cost at all.
 #
 # Changing this governs new material immediately; material already indexed keeps the

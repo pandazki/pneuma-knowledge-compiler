@@ -73,10 +73,11 @@ class Settings(BaseSettings):
     # L2 chunking. `semantic` (shipped default) = configured LLM topic/entity boundary
     # detection over the numbered blocks (ideally one topic/one person = one chunk),
     # inspired by nemori's boundary-detection philosophy (https://github.com/nemori-ai/nemori)
-    # but returning block indexes only — chunk text stays a verbatim slice of the source.
-    # A sentence chunker sub-splits over-long units; only actual L2 ingest calls the LLM
-    # (preview stays mechanical), and scripted/keyless base models automatically fall back
-    # to mechanical sentence chunking (see wiring). See ingest/semantic.py.
+    # and returning each boundary with a derived episode title/description in the SAME
+    # structured response. Those fields enrich embedding input only; chunk text stays a
+    # verbatim source slice. A sentence chunker sub-splits over-long units; only actual L2
+    # ingest calls the LLM (preview stays mechanical), and scripted/keyless base models
+    # automatically fall back to mechanical sentence chunking. See ingest/semantic.py.
     # Mechanical opt-outs: `sentence` = chonkie SentenceChunker with CJK-aware delimiters
     # and real overlap; `recursive` = chonkie RecursiveChunker for structure-heavy docs.
     # chonkie counts in tokens; its default character tokenizer is ~1 token/char for CJK,
@@ -88,9 +89,9 @@ class Settings(BaseSettings):
     # Whether a semantic segment may share its hinge blocks with its neighbour.
     # `smart` (shipped default) asks the model for closed intervals, so the sentence that
     # closes one topic while opening the next is indexed as part of both — overlap where the
-    # content earns it, decided per boundary, not a fixed stride. `off` is the original
-    # zero-overlap contract: it is what every semantic-chunking measurement so far was taken
-    # with, so it stays available as the A/B baseline rather than being deleted.
+    # content earns it, decided per boundary, not a fixed stride. `off` retains the original
+    # zero-overlap GEOMETRY; adding episode descriptions intentionally created a new prompt
+    # baseline, so results measured with the older boundary-only prompt are not comparable.
     # Degeneracy ("make every segment the whole document") is refused mechanically by the
     # gates in ingest/semantic.py, never argued against in the prompt. Only meaningful when
     # chunk_strategy is `semantic`; the mechanical chunkers have their own token overlap

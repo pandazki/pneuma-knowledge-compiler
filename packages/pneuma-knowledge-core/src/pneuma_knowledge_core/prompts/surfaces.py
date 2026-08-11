@@ -406,12 +406,14 @@ SURFACES: tuple[Surface, ...] = (
         title_zh="语义切分",
         summary_en=(
             "How the compile-role model is asked to cut a source into topic units. It "
-            "returns block indexes only — the chunk text stays a verbatim slice. Two "
-            "output contracts share one boundary philosophy; `semantic_overlap` picks."
+            "returns each boundary together with a derived episode title/description; "
+            "the citable chunk text stays a verbatim slice. Two output contracts share "
+            "one boundary philosophy; `semantic_overlap` picks."
         ),
         summary_zh=(
-            "编译角色模型被如何要求把一份材料切成话题单元。它只返回块下标——"
-            "切出来的文本始终是原文的逐字片段。两套输出契约共用同一份边界哲学，"
+            "编译角色模型被如何要求把一份材料切成话题单元，并为每个边界同时返回"
+            "派生 episode 标题/描述；可引用 chunk 始终是原文的逐字片段。两套输出契约"
+            "共用同一份边界哲学，"
             "由 `semantic_overlap` 决定用哪一套。"
         ),
         segments=(
@@ -424,8 +426,13 @@ SURFACES: tuple[Surface, ...] = (
             f(
                 "ingest.semantic.human",
                 "The HumanMessage of the same call, once per window of blocks: the numbered "
-                "lines, and the demand for start numbers only.",
-                "同一次调用的人类消息，每个块窗口一次：带编号的行，以及「只返回起始编号」的要求。",
+                "lines plus each episode's retrieval representation and start number.",
+                "同一次调用的人类消息，每个块窗口一次：带编号的行，以及每个 episode 的检索表示和起始编号。",
+            ),
+            f(
+                "ingest.semantic.source_context",
+                "The optional source title/date metadata placed in the HumanMessage.",
+                "放入人类消息的可选来源标题/日期元数据。",
             ),
             f(
                 "ingest.semantic.rubric_overlap",
@@ -438,9 +445,21 @@ SURFACES: tuple[Surface, ...] = (
             f(
                 "ingest.semantic.human_overlap",
                 "The HumanMessage that rides with the overlapping rubric, once per window "
-                "of blocks: the same numbered lines, asking for start/end pairs.",
+                "of blocks: the same numbered lines, asking for episode representations "
+                "and start/end coordinates.",
                 "与「允许重叠」准则同行的人类消息，每个块窗口一次："
-                "同样带编号的行，但要求返回起止编号对。",
+                "同样带编号的行，但要求返回 episode 表示和起止编号。",
+            ),
+            f(
+                "ingest.semantic.describe_rubric",
+                "The one-time legacy-manifest contract: describe fixed spans without "
+                "changing their coordinates.",
+                "旧 manifest 的一次性契约：为固定区间补描述，不改变坐标。",
+            ),
+            f(
+                "ingest.semantic.describe_human",
+                "The fixed spans and numbered source blocks for that migration call.",
+                "该迁移调用中的固定区间与带编号来源块。",
             ),
         ),
         kind=FRAGMENTS,

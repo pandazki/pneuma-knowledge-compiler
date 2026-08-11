@@ -6,9 +6,10 @@ adopts the *boundary-detection philosophy* of nemori
 (https://github.com/nemori-ai/nemori) — a topic/entity change is a boundary;
 ignore filler/pleasantries; do not over-split; aim for coherent units — but NOT its
 implementation: nemori rewrites content into narrative and loses provenance. Here the
-LLM only returns BLOCK-INDEX boundaries over the EXISTING numbered blocks; chunk text is
-always a verbatim slice of the block-joined string, so invariant I4 (dual char/block
-addressing) is preserved exactly as on the chonkie path.
+LLM returns each BLOCK-INDEX boundary together with a title and factual episode description.
+Those derived fields enrich the vector input only; chunk text is always a verbatim slice of
+the block-joined string, so invariant I4 (dual char/block addressing) is preserved exactly
+as on the chonkie path and generated prose never becomes citation evidence.
 
 **Two output contracts, one philosophy** (`semantic_overlap`, the `PNEUMA_KNOWLEDGE_SEMANTIC_OVERLAP`
 setting). `off` is the original: the model returns start block numbers, segment i runs to
@@ -31,10 +32,11 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+from dataclasses import dataclass
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from ..domain.source import NormalizedBlock, StructureMap
 from ..domain.ids import SourceId
@@ -63,6 +65,11 @@ DEFAULT_MAX_BLOCKS_PER_CALL = 200
 # embedding stays meaningful (an over-long unit is graceful-degraded, never dropped).
 DEFAULT_MAX_CHUNK_CHARS = 2000
 
+# A description is an embedding aid, not a second copy of the source. These mechanical
+# ceilings bound vector input and manifest growth even if a provider ignores the prompt.
+MAX_EPISODE_TITLE_CHARS = 200
+MAX_EPISODE_DESCRIPTION_CHARS = 1600
+
 # The two segmentation output contracts. `off` is the historical (and measured) one.
 OVERLAP_OFF = "off"
 OVERLAP_SMART = "smart"
@@ -80,10 +87,10 @@ OVERLAP_MODES = (OVERLAP_OFF, OVERLAP_SMART)
 # generous, while a swallowed neighbour always is.
 MAX_OVERLAP_BLOCKS = 3
 
-# The manifest envelope version. v2 is the first that records WHICH output contract
-# produced the spans; anything recorded before it is a bare list (see
-# `decode_manifest_segments`), which stays replayable exactly as written.
-MANIFEST_VERSION = 2
+# The manifest envelope version. v2 first recorded the boundary contract; v3 adds the
+# title/description produced in the same segmentation response. Older spans remain readable.
+MANIFEST_VERSION = 3
+_BOUNDARY_ONLY_MANIFEST_VERSION = 2
 
 
 def blocks_content_digest(blocks: list[NormalizedBlock]) -> str:
@@ -107,10 +114,10 @@ def chunk_result_digest(chunks: list[Chunk]) -> str:
 # ─────────────────────────────────────────────────────── the chunk-manifest record shape
 
 
-def encode_manifest_segments(
-    segments: list[tuple[int, int]], *, overlap: str
+def encode_manifest_episodes(
+    episodes: list[SemanticEpisode], *, overlap: str
 ) -> dict:
-    """The versioned record a first detection writes into `chunk_manifests.segments`.
+    """Persist one segmentation response, including its derived retrieval representation.
 
     The mode rides WITH the spans rather than beside them because it is a property of how
     these spans were produced, not of the deployment that reads them later: replay compares
@@ -120,20 +127,41 @@ def encode_manifest_segments(
     return {
         "version": MANIFEST_VERSION,
         "overlap": overlap,
-        "spans": [[int(s), int(e)] for s, e in segments],
+        "episodes": [
+            {
+                "title": episode.title,
+                "description": episode.description,
+                "start": int(episode.start),
+                "end": int(episode.end),
+            }
+            for episode in episodes
+        ],
     }
 
 
-def decode_manifest_segments(
+def encode_manifest_segments(
+    segments: list[tuple[int, int]], *, overlap: str
+) -> dict:
+    """Compatibility encoder for callers that only hold spans."""
+    return encode_manifest_episodes(
+        [
+            SemanticEpisode(title="", description="", start=start, end=end)
+            for start, end in segments
+        ],
+        overlap=overlap,
+    )
+
+
+def decode_manifest_episodes(
     recorded, *, block_indices: list[int]
-) -> tuple[list[tuple[int, int]], str] | None:
-    """A recorded manifest → `(segments, the mode that produced them)`, or None if unusable.
+) -> tuple[list[SemanticEpisode], str] | None:
+    """A manifest → `(episodes, boundary mode)`, preserving every legacy span.
 
-    Three shapes are accepted, and the two legacy ones replay exactly as written — a record
-    from before this envelope existed is a rebuild that must stay byte-identical, so it is
-    read, never migrated:
+    v3 carries episode representations. v2 and the two bare-list shapes carry boundaries
+    only; they decode to episodes with empty derived text so their layout replays exactly.
 
-    * `{"version": 2, "overlap": …, "spans": [[s, e], …]}` — what is written today.
+    * `{"version": 3, "overlap": …, "episodes": […]}` — what is written today.
+    * `{"version": 2, "overlap": …, "spans": [[s, e], …]}` — boundary-only envelope.
     * `[[s, e], …]` — the pre-envelope record. Its mode is read off the data itself
       (touching neighbours = `off`, overlapping = `smart`) rather than assumed, so a
       deployment already running the shipped default does not re-detect its whole library
@@ -146,13 +174,48 @@ def decode_manifest_segments(
     one model call.
     """
     if isinstance(recorded, dict):
-        if recorded.get("version") != MANIFEST_VERSION:
-            return None
         mode = recorded.get("overlap")
         if mode not in OVERLAP_MODES:
             return None
+        version = recorded.get("version")
+        if version == MANIFEST_VERSION:
+            raw_episodes = recorded.get("episodes")
+            if not isinstance(raw_episodes, list) or not raw_episodes:
+                return None
+            episodes: list[SemanticEpisode] = []
+            for item in raw_episodes:
+                if not isinstance(item, dict):
+                    return None
+                try:
+                    start, end = int(item["start"]), int(item["end"])
+                except (KeyError, TypeError, ValueError):
+                    return None
+                episodes.append(
+                    SemanticEpisode(
+                        title=_clean_episode_text(
+                            item.get("title", ""), limit=MAX_EPISODE_TITLE_CHARS
+                        ),
+                        description=_clean_episode_text(
+                            item.get("description", ""),
+                            limit=MAX_EPISODE_DESCRIPTION_CHARS,
+                        ),
+                        start=start,
+                        end=end,
+                    )
+                )
+            return episodes, mode
+        if version != _BOUNDARY_ONLY_MANIFEST_VERSION:
+            return None
         spans = _coerce_spans(recorded.get("spans"))
-        return (spans, mode) if spans else None
+        if not spans:
+            return None
+        return (
+            [
+                SemanticEpisode(title="", description="", start=start, end=end)
+                for start, end in spans
+            ],
+            mode,
+        )
     if not isinstance(recorded, list) or not recorded:
         return None
     if all(isinstance(item, int) and not isinstance(item, bool) for item in recorded):
@@ -161,7 +224,14 @@ def decode_manifest_segments(
         if not positions:
             return None
         expanded = _partition_from_starts(positions, 0, len(order) - 1)
-        return ([(order[s], order[e]) for s, e in expanded], OVERLAP_OFF)
+        spans = [(order[s], order[e]) for s, e in expanded]
+        return (
+            [
+                SemanticEpisode(title="", description="", start=start, end=end)
+                for start, end in spans
+            ],
+            OVERLAP_OFF,
+        )
     spans = _coerce_spans(recorded)
     if len(spans) != len(recorded):
         return None
@@ -170,33 +240,100 @@ def decode_manifest_segments(
         if any(e >= s_next for (_, e), (s_next, _) in zip(spans, spans[1:]))
         else OVERLAP_OFF
     )
-    return spans, mode
+    return (
+        [
+            SemanticEpisode(title="", description="", start=start, end=end)
+            for start, end in spans
+        ],
+        mode,
+    )
+
+
+def decode_manifest_segments(
+    recorded, *, block_indices: list[int]
+) -> tuple[list[tuple[int, int]], str] | None:
+    """Compatibility view over `decode_manifest_episodes`: boundaries only."""
+    decoded = decode_manifest_episodes(recorded, block_indices=block_indices)
+    if decoded is None:
+        return None
+    episodes, mode = decoded
+    return [(episode.start, episode.end) for episode in episodes], mode
+
+
+@dataclass(frozen=True)
+class SemanticEpisode:
+    """One model-detected topic unit plus its derived retrieval representation.
+
+    Field order is deliberate and shared with the structured-output schema and manifest:
+    a person reads what the episode means before the source interval that grounds it.
+    ``title`` and ``description`` are derived search aids, never source or citation text.
+    """
+
+    title: str
+    description: str
+    start: int
+    end: int
+
+
+class SegmentStart(BaseModel):
+    """One zero-overlap episode; its end is implied by the next start."""
+
+    title: str = ""
+    description: str = ""
+    start: int
 
 
 class Segments(BaseModel):
-    """The structured-output contract: the ascending list of segment START BLOCK NUMBERS.
+    """The zero-overlap structured output: episode representations plus start blocks."""
 
-    The model returns ONLY integers (the block index each segment opens at) — never any
-    content, never titles. Segment i spans [start_i, start_{i+1} - 1], the last to the
-    final block — so gaps/overlaps are impossible by construction; any disorder is
-    repaired mechanically in `semantic_segments`. Keeping the output a bare int list is
-    deliberate: chunk text is always a verbatim slice of the source, so the LLM's only
-    job is boundary detection — it must not regenerate/summarize content."""
+    segments: list[SegmentStart] = Field(default_factory=list)
 
-    segments: list[int] = Field(default_factory=list)
+    @model_validator(mode="before")
+    @classmethod
+    def _read_legacy_integer_tests(cls, value):  # noqa: ANN001
+        """Keep old recorded/fake starts constructible; the model schema remains objects."""
+        if isinstance(value, dict) and isinstance(value.get("segments"), list):
+            value = dict(value)
+            value["segments"] = [
+                {"start": item} if isinstance(item, int) and not isinstance(item, bool) else item
+                for item in value["segments"]
+            ]
+        return value
+
+
+class SegmentSpan(BaseModel):
+    """One smart-overlap episode with an explicit closed source interval."""
+
+    title: str = ""
+    description: str = ""
+    start: int
+    end: int
 
 
 class SegmentSpans(BaseModel):
     """The `semantic_overlap="smart"` structured-output contract: CLOSED block intervals.
 
-    `segments` is a list of `[start, end]` pairs, both ends inclusive, ordered by start.
-    Still integers only, still no content: the extra freedom the model gets over `Segments`
-    is exactly one degree — a segment may end AFTER the next one starts, so a hinge block is
-    read once as the close of what came before and once as the opening of what follows.
-    Everything the pairs are allowed to be is enforced by `overlap_rejection`, not asked for
-    in prose."""
+    The extra boundary freedom over `Segments` is exactly one degree — a segment may end
+    after the next one starts, so a hinge block is read as both close and opening. The title
+    and description remain derived retrieval text; every boundary rule is still enforced by
+    `overlap_rejection`, not trusted to prose."""
 
-    segments: list[list[int]] = Field(default_factory=list)
+    segments: list[SegmentSpan] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _read_legacy_pair_tests(cls, value):  # noqa: ANN001
+        """Keep old pair-shaped fakes constructible without exposing a union to the model."""
+        if isinstance(value, dict) and isinstance(value.get("segments"), list):
+            value = dict(value)
+            converted = []
+            for item in value["segments"]:
+                if isinstance(item, (list, tuple)) and len(item) == 2:
+                    converted.append({"start": item[0], "end": item[1]})
+                else:
+                    converted.append(item)
+            value["segments"] = converted
+        return value
 
 
 # Byte-stable, volatile-free rubric (I5 / prompt-cache discipline), resolved from the prompt
@@ -204,13 +341,15 @@ class SegmentSpans(BaseModel):
 # numbered blocks ride the Human turn.
 
 
-def _number_blocks(window: list[NormalizedBlock], offset: int) -> str:
+def _number_blocks(
+    window: list[NormalizedBlock], offset: int, *, use_block_indices: bool = False
+) -> str:
     """`<lineno>:<preview>` listing over a window (grep -n / git grep convention — the
     standard way to express line numbers, not an invented `#N` format). The number before
     the colon is the block's global position; that is exactly what the model returns."""
     lines: list[str] = []
     for local, b in enumerate(window):
-        pos = offset + local
+        pos = b.index if use_block_indices else offset + local
         preview = " ".join(b.text.split())  # collapse whitespace/newlines for the preview
         if len(preview) > _PREVIEW_HEAD_CHARS + _PREVIEW_TAIL_CHARS:
             omitted = len(preview) - _PREVIEW_HEAD_CHARS - _PREVIEW_TAIL_CHARS
@@ -225,6 +364,32 @@ def _number_blocks(window: list[NormalizedBlock], offset: int) -> str:
     return "\n".join(lines)
 
 
+def _clean_episode_text(value, *, limit: int) -> str:  # noqa: ANN001
+    """Normalize one model-written retrieval field without making it source evidence."""
+    if not isinstance(value, str):
+        return ""
+    return " ".join(value.split())[:limit].strip()
+
+
+def _episode_fields(item) -> tuple[str, str]:  # noqa: ANN001
+    return (
+        _clean_episode_text(
+            getattr(item, "title", ""), limit=MAX_EPISODE_TITLE_CHARS
+        ),
+        _clean_episode_text(
+            getattr(item, "description", ""),
+            limit=MAX_EPISODE_DESCRIPTION_CHARS,
+        ),
+    )
+
+
+def _source_context_section(lines: list[str] | None) -> str:
+    cleaned = [" ".join(line.split()) for line in (lines or []) if line.strip()]
+    if not cleaned:
+        return ""
+    return prompt("ingest.semantic.source_context", context="\n".join(cleaned))
+
+
 async def _ask_structured(
     model: BaseChatModel,
     schema: type,
@@ -233,6 +398,7 @@ async def _ask_structured(
     callbacks: list | None,
     trace_metadata: dict | None,
     attempts: int = 2,
+    operation: str = "chunk.semantic",
 ):
     """One structured-output round trip, degrading instead of raising.
 
@@ -250,7 +416,7 @@ async def _ask_structured(
     sentence-sub-split downstream at the deployment's chunk-size ceiling. Coarser chunking for one
     window, instead of a source that never gets indexed at all."""
     structured = model.with_structured_output(schema)
-    config = invoke_config("chunk.semantic", callbacks, trace_metadata)
+    config = invoke_config(operation, callbacks, trace_metadata)
     for attempt in range(attempts):
         try:
             return await structured.ainvoke(messages, config=config)
@@ -269,11 +435,12 @@ async def _segment_window_starts(
     model: BaseChatModel,
     callbacks: list | None,
     trace_metadata: dict | None,
-) -> set[int]:
-    """Ask the model for segment start positions within one window; return the clamped set.
+    source_context: list[str] | None,
+) -> dict[int, tuple[str, str]]:
+    """Ask for episode starts plus retrieval descriptions within one window.
 
     Positions are global (offset..offset+len-1). Out-of-window / non-int starts are
-    dropped here; ascending/dedup/ensure-0 is finished by `semantic_segments`."""
+    dropped here; ascending/dedup/ensure-0 is finished by `semantic_episodes`."""
     listing = _number_blocks(window, offset)
     lo, hi = offset, offset + len(window) - 1
     human = prompt(
@@ -282,6 +449,7 @@ async def _segment_window_starts(
         hi=hi,
         count=len(window),
         listing=listing,
+        source_context=_source_context_section(source_context),
     )
     messages = [
         SystemMessage(content=prompt("ingest.semantic.rubric")),
@@ -294,14 +462,16 @@ async def _segment_window_starts(
         callbacks=callbacks,
         trace_metadata=trace_metadata,
     )
-    starts: set[int] = set()
+    starts: dict[int, tuple[str, str]] = {}
     for seg in getattr(result, "segments", []) or []:
         try:
-            s = int(seg)
+            s = int(getattr(seg, "start", seg))
         except (TypeError, ValueError):
             continue
         if lo <= s <= hi:
-            starts.add(s)
+            title, description = _episode_fields(seg)
+            previous = starts.get(s, ("", ""))
+            starts[s] = (title or previous[0], description or previous[1])
     return starts
 
 
@@ -317,7 +487,10 @@ def _coerce_spans(raw) -> list[tuple[int, int]]:
     into a coverage hole, which the gate then catches."""
     spans: list[tuple[int, int]] = []
     for item in raw or []:
-        pair = list(item) if isinstance(item, (list, tuple)) else None
+        if hasattr(item, "start") and hasattr(item, "end"):
+            pair = [getattr(item, "start"), getattr(item, "end")]
+        else:
+            pair = list(item) if isinstance(item, (list, tuple)) else None
         if pair is None or len(pair) != 2:
             continue
         try:
@@ -402,8 +575,9 @@ async def _segment_window_spans(
     model: BaseChatModel,
     callbacks: list | None,
     trace_metadata: dict | None,
-) -> list[tuple[int, int]]:
-    """Ask the model for closed segment intervals over one window; gate them, or degrade.
+    source_context: list[str] | None,
+) -> list[SemanticEpisode]:
+    """Ask for closed episode intervals and descriptions; gate them, or degrade.
 
     Positions are global (offset..offset+len-1). The gate covers the WINDOW, because the
     window is what the model was shown: it is the only range in which "you left block 7 out"
@@ -416,6 +590,7 @@ async def _segment_window_spans(
         hi=hi,
         count=len(window),
         listing=listing,
+        source_context=_source_context_section(source_context),
     )
     messages = [
         SystemMessage(content=prompt("ingest.semantic.rubric_overlap")),
@@ -428,13 +603,35 @@ async def _segment_window_spans(
         callbacks=callbacks,
         trace_metadata=trace_metadata,
     )
-    spans = _coerce_spans(getattr(result, "segments", []))
+    items = getattr(result, "segments", []) or []
+    spans = _coerce_spans(items)
+    fields_by_start: dict[int, tuple[str, str]] = {}
+    for item in items:
+        try:
+            raw_start = (
+                getattr(item, "start")
+                if hasattr(item, "start")
+                else item[0]
+            )
+            start = int(raw_start)
+        except (TypeError, ValueError, IndexError):
+            continue
+        title, description = _episode_fields(item)
+        fields_by_start[start] = (title, description)
     if overlap_rejection(spans, lo, hi):
-        return _partition_from_starts((s for s, _ in spans), lo, hi)
-    return spans
+        spans = _partition_from_starts((s for s, _ in spans), lo, hi)
+    return [
+        SemanticEpisode(
+            title=fields_by_start.get(start, ("", ""))[0],
+            description=fields_by_start.get(start, ("", ""))[1],
+            start=start,
+            end=end,
+        )
+        for start, end in spans
+    ]
 
 
-async def semantic_segments(
+async def semantic_episodes(
     blocks: list[NormalizedBlock],
     *,
     model: BaseChatModel,
@@ -442,8 +639,9 @@ async def semantic_segments(
     trace_metadata: dict | None = None,
     max_blocks_per_call: int = DEFAULT_MAX_BLOCKS_PER_CALL,
     overlap: str = OVERLAP_OFF,
-) -> list[tuple[int, int]]:
-    """LLM boundary detection → inclusive block intervals covering ALL blocks.
+    source_context: list[str] | None = None,
+) -> list[SemanticEpisode]:
+    """One LLM pass → grounded episode representations covering ALL blocks.
 
     With `overlap="off"` (the historical contract) segment i = [start_i, end_i] with
     end_i = start_{i+1} - 1 and the last ending at the final block, so the intervals
@@ -469,8 +667,8 @@ async def semantic_segments(
     `smart` mode a window whose intervals fail any gate falls back to exactly that repair
     over the starts it did report: the overlap is refused, the segmentation is not.
 
-    The returned intervals are in REAL block-index space (mapped from ordered positions),
-    so they compose with `join_blocks` / `_effective_sections` / `_covering_blocks`.
+    The returned episodes are in REAL block-index space (mapped from ordered positions).
+    Their title/description are derived retrieval text; source chunks remain verbatim.
     """
     if overlap not in OVERLAP_MODES:
         raise ValueError(f"unknown semantic_overlap mode {overlap!r}; expected one of {OVERLAP_MODES}")
@@ -481,35 +679,179 @@ async def semantic_segments(
     idx = [b.index for b in ordered]
 
     if overlap == OVERLAP_SMART:
-        spans: list[tuple[int, int]] = []
+        episodes: list[SemanticEpisode] = []
         for w_start in range(0, n, max_blocks_per_call):
             w_end = min(w_start + max_blocks_per_call, n)  # exclusive
-            spans.extend(
+            episodes.extend(
                 await _segment_window_spans(
                     ordered[w_start:w_end],
                     w_start,
                     model=model,
                     callbacks=callbacks,
                     trace_metadata=trace_metadata,
+                    source_context=source_context,
                 )
             )
-        return [(idx[s], idx[e]) for s, e in spans]
+        return [
+            SemanticEpisode(
+                title=episode.title,
+                description=episode.description,
+                start=idx[episode.start],
+                end=idx[episode.end],
+            )
+            for episode in episodes
+        ]
 
-    start_positions: set[int] = {0}  # position 0 is always a boundary (first must be 0)
+    # position 0 is always a boundary (first must be 0). The empty representation is
+    # replaced by the model's value when it correctly returns the first episode.
+    starts: dict[int, tuple[str, str]] = {0: ("", "")}
     for w_start in range(0, n, max_blocks_per_call):
         w_end = min(w_start + max_blocks_per_call, n)  # exclusive
         window = ordered[w_start:w_end]
-        start_positions |= await _segment_window_starts(
+        detected = await _segment_window_starts(
             window,
             w_start,
             model=model,
             callbacks=callbacks,
             trace_metadata=trace_metadata,
+            source_context=source_context,
         )
+        for start, fields in detected.items():
+            previous = starts.get(start, ("", ""))
+            starts[start] = (fields[0] or previous[0], fields[1] or previous[1])
 
     return [
-        (idx[p], idx[e]) for p, e in _partition_from_starts(start_positions, 0, n - 1)
+        SemanticEpisode(
+            title=starts.get(position, ("", ""))[0],
+            description=starts.get(position, ("", ""))[1],
+            start=idx[position],
+            end=idx[end],
+        )
+        for position, end in _partition_from_starts(starts, 0, n - 1)
     ]
+
+
+async def semantic_segments(
+    blocks: list[NormalizedBlock],
+    *,
+    model: BaseChatModel,
+    callbacks: list | None = None,
+    trace_metadata: dict | None = None,
+    max_blocks_per_call: int = DEFAULT_MAX_BLOCKS_PER_CALL,
+    overlap: str = OVERLAP_OFF,
+    source_context: list[str] | None = None,
+) -> list[tuple[int, int]]:
+    """Compatibility view over `semantic_episodes`: return only grounded block spans."""
+    episodes = await semantic_episodes(
+        blocks,
+        model=model,
+        callbacks=callbacks,
+        trace_metadata=trace_metadata,
+        max_blocks_per_call=max_blocks_per_call,
+        overlap=overlap,
+        source_context=source_context,
+    )
+    return [(episode.start, episode.end) for episode in episodes]
+
+
+async def describe_semantic_episodes(
+    blocks: list[NormalizedBlock],
+    episodes: list[SemanticEpisode],
+    *,
+    model: BaseChatModel,
+    callbacks: list | None = None,
+    trace_metadata: dict | None = None,
+    source_context: list[str] | None = None,
+    max_blocks_per_call: int = DEFAULT_MAX_BLOCKS_PER_CALL,
+) -> list[SemanticEpisode]:
+    """Add retrieval text to fixed legacy boundaries without permitting re-segmentation.
+
+    New sources get boundaries and descriptions in one call through `semantic_episodes`.
+    This compatibility path exists only for boundary-only manifests. It batches fixed
+    episodes while keeping a hard source-block budget; a provider reply contributes text
+    only when its `(start, end)` exactly matches a recorded pair. Any changed or omitted
+    coordinate leaves that episode's representation empty and its boundary untouched.
+    """
+    if not episodes:
+        return []
+    ordered_blocks = sorted(blocks, key=lambda block: block.index)
+    by_index = {block.index: block for block in ordered_blocks}
+    upgraded = list(episodes)
+
+    groups: list[list[int]] = []
+    current: list[int] = []
+    current_blocks: set[int] = set()
+    for position, episode in enumerate(episodes):
+        covered = {
+            index
+            for index in by_index
+            if episode.start <= index <= episode.end
+        }
+        # A legacy episode wider than the normal segmentation window is left verbatim-only:
+        # silently truncating it would invite a confident but incomplete description.
+        if len(covered) > max_blocks_per_call:
+            if current:
+                groups.append(current)
+                current, current_blocks = [], set()
+            continue
+        if current and len(current_blocks | covered) > max_blocks_per_call:
+            groups.append(current)
+            current, current_blocks = [], set()
+        current.append(position)
+        current_blocks |= covered
+    if current:
+        groups.append(current)
+
+    for positions in groups:
+        fixed = [episodes[position] for position in positions]
+        wanted = {(episode.start, episode.end) for episode in fixed}
+        selected = [
+            block
+            for block in ordered_blocks
+            if any(ep.start <= block.index <= ep.end for ep in fixed)
+        ]
+        listing = _number_blocks(selected, 0, use_block_indices=True)
+        boundaries = "\n".join(
+            f"- start={episode.start}, end={episode.end}" for episode in fixed
+        )
+        human = prompt(
+            "ingest.semantic.describe_human",
+            source_context=_source_context_section(source_context),
+            boundaries=boundaries,
+            listing=listing,
+        )
+        result = await _ask_structured(
+            model,
+            SegmentSpans,
+            [
+                SystemMessage(content=prompt("ingest.semantic.describe_rubric")),
+                HumanMessage(content=human),
+            ],
+            callbacks=callbacks,
+            trace_metadata=trace_metadata,
+            operation="chunk.semantic.describe",
+        )
+        returned: dict[tuple[int, int], tuple[str, str]] = {}
+        for item in getattr(result, "segments", []) or []:
+            try:
+                span = (int(getattr(item, "start")), int(getattr(item, "end")))
+            except (AttributeError, TypeError, ValueError):
+                continue
+            if span in wanted:
+                returned[span] = _episode_fields(item)
+        for position in positions:
+            episode = episodes[position]
+            title, description = returned.get(
+                (episode.start, episode.end),
+                (episode.title, episode.description),
+            )
+            upgraded[position] = SemanticEpisode(
+                title=title,
+                description=description,
+                start=episode.start,
+                end=episode.end,
+            )
+    return upgraded
 
 
 def _close_gaps(
@@ -578,19 +920,20 @@ async def semantic_chunk_source(
     *,
     model: BaseChatModel | None = None,
     segments: list[tuple[int, int]] | None = None,
+    episodes: list[SemanticEpisode] | None = None,
     sub_chunker=None,
     max_chunk_chars: int = DEFAULT_MAX_CHUNK_CHARS,
     callbacks: list | None = None,
     trace_metadata: dict | None = None,
     max_blocks_per_call: int = DEFAULT_MAX_BLOCKS_PER_CALL,
     overlap: str = OVERLAP_OFF,
+    source_context: list[str] | None = None,
 ) -> list[Chunk]:
     """One Chunk per coherent unit, with exact char/block provenance (I4).
 
-    - Segments come from `semantic_segments` (LLM boundaries over the numbered blocks) —
-      UNLESS `segments` is supplied (a manifest replay), which skips the LLM entirely for
-      a byte-deterministic rebuild. Everything downstream of segmentation is deterministic,
-      so replaying the recorded segments reproduces the exact same chunks.
+    - Episodes come from one `semantic_episodes` call: the model returns each boundary plus
+      a search-oriented title and factual description. A manifest replay supplies recorded
+      `episodes` and skips the LLM entirely; legacy callers may still supply bare `segments`.
     - Segments are refined against `_effective_sections`: a segment is clipped at section
       boundaries when the doc HAS real sections, so a chunk never crosses a section; a
       headingless doc (one implicit section) is fully driven by the LLM boundaries.
@@ -614,25 +957,53 @@ async def semantic_chunk_source(
     block_indices = sorted(by_index)
     global_text, ranges = join_blocks(blocks)
 
-    if segments is None:
+    if episodes is not None and segments is not None:
+        raise ValueError("pass either `episodes` or legacy `segments`, not both")
+    if episodes is None and segments is not None:
+        episodes = [
+            SemanticEpisode(title="", description="", start=start, end=end)
+            for start, end in segments
+        ]
+    if episodes is None:
         if model is None:
             raise ValueError(
-                "semantic_chunk_source needs either precomputed `segments` "
+                "semantic_chunk_source needs precomputed `episodes`/`segments` "
                 "(manifest replay) or a `model` to detect them"
             )
-        segments = await semantic_segments(
+        episodes = await semantic_episodes(
             blocks,
             model=model,
             callbacks=callbacks,
             trace_metadata=trace_metadata,
             max_blocks_per_call=max_blocks_per_call,
             overlap=overlap,
+            source_context=source_context,
         )
     sections = _effective_sections(block_indices, structure)
-    intervals = _refine_by_sections(block_indices, segments, sections)
+    intervals = _refine_by_sections(
+        block_indices,
+        [(episode.start, episode.end) for episode in episodes],
+        sections,
+    )
+
+    def representation_for(start: int, end: int) -> tuple[str, str]:
+        # Exact-start wins in an overlap hinge; containment is the section/sub-split path.
+        candidates = [
+            episode
+            for episode in episodes
+            if episode.start <= start and end <= episode.end
+        ]
+        if not candidates:
+            return "", ""
+        episode = next(
+            (candidate for candidate in candidates if candidate.start == start),
+            candidates[0],
+        )
+        return episode.title, episode.description
 
     chunks: list[Chunk] = []
     for seg_start, seg_end in intervals:
+        episode_title, episode_description = representation_for(seg_start, seg_end)
         present = [i for i in range(seg_start, seg_end + 1) if i in by_index]
         if not present:
             continue
@@ -657,6 +1028,8 @@ async def semantic_chunk_source(
                         text=piece.text,
                         char_start=cs,
                         char_end=ce,
+                        episode_title=episode_title,
+                        episode_description=episode_description,
                     )
                 )
         else:
@@ -669,6 +1042,8 @@ async def semantic_chunk_source(
                     text=seg_text,
                     char_start=base,
                     char_end=end,
+                    episode_title=episode_title,
+                    episode_description=episode_description,
                 )
             )
     return enforce_max_chars(chunks, ranges)
