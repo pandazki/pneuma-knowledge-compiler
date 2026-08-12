@@ -657,7 +657,7 @@ chunk_strategy: {config["chunk_strategy"]}
 #             of reach rather than merely discouraged.
 #   off       the original zero-overlap cut. Every measurement of semantic chunking so far
 #             was taken this way, so it stays here as the A/B baseline.
-semantic_overlap: {config["semantic_overlap"]}
+semantic_overlap: "{config["semantic_overlap"]}"
 """,
         "compile/contract.md": contract,
         "compile/challenge.yaml": f"""\

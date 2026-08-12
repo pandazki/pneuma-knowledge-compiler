@@ -1,4 +1,4 @@
-"""Post-retrieval assembly pipeline: expand → merge/dedup(+bridge) → cap → order → render."""
+"""Post-retrieval assembly pipeline: lexical expansion → overlap dedup → cap → order → render."""
 
 from __future__ import annotations
 
@@ -66,7 +66,15 @@ class FakeContent:
             raise KeyError(source_id) from exc
 
 
-def _hit(sid: str, start: int, end: int, text: str, score: float, paths=("lexical",)):
+def _hit(
+    sid: str,
+    start: int,
+    end: int,
+    text: str,
+    score: float,
+    paths=("lexical",),
+    representations=(),
+):
     return RecallHit(
         source_id=SourceId(sid),
         block_start=start,
@@ -74,6 +82,7 @@ def _hit(sid: str, start: int, end: int, text: str, score: float, paths=("lexica
         text=text,
         paths=tuple(paths),
         score=score,
+        representations=tuple(representations),
     )
 
 
@@ -100,6 +109,49 @@ async def test_bare_block_expands_forward_to_its_own_record():
     assert blocks[2] not in p.text  # previous record NOT dragged in
     assert p.section_path == ("候选人",)
     assert p.source_title == "面试记录"
+
+
+async def test_semantic_natural_unit_is_not_expanded_a_second_time():
+    blocks = [f"topic-{i}" for i in range(8)]
+    content = FakeContent({"s1": _ns("s1", blocks, title="conversation")})
+
+    passages = await expand_and_merge(
+        [
+            _hit(
+                "s1",
+                2,
+                3,
+                "topic-2\ntopic-3",
+                0.9,
+                paths=("vector",),
+                representations=("raw", "episode"),
+            )
+        ],
+        content=content,
+        user_id=_USER,
+    )
+
+    assert [(p.block_start, p.block_end) for p in passages] == [(2, 3)]
+    assert passages[0].text == "topic-2\ntopic-3"
+
+
+async def test_default_does_not_bridge_disjoint_semantic_episodes():
+    blocks = [f"topic-{i}" for i in range(8)]
+    content = FakeContent({"s1": _ns("s1", blocks, title="conversation")})
+    hits = [
+        _hit(
+            "s1", 0, 1, "x", 0.9,
+            paths=("vector",), representations=("raw", "episode"),
+        ),
+        _hit(
+            "s1", 2, 3, "y", 0.8,
+            paths=("vector",), representations=("raw", "episode"),
+        ),
+    ]
+
+    passages = await expand_and_merge(hits, content=content, user_id=_USER)
+
+    assert [(p.block_start, p.block_end) for p in passages] == [(0, 1), (2, 3)]
 
 
 async def test_adjacent_hits_merge_into_one_passage():
@@ -335,13 +387,17 @@ async def test_overlapping_l2_chunks_coalesce_into_one_passage():
     # sharing blocks 3 and 4. Both come back as hits.
     passages = await expand_and_merge(
         [
-            _hit("s1", 0, 4, "\n".join(blocks[0:5]), 0.9, paths=("vector",)),
-            _hit("s1", 3, 9, "\n".join(blocks[3:10]), 0.7, paths=("vector",)),
+            _hit(
+                "s1", 0, 4, "\n".join(blocks[0:5]), 0.9,
+                paths=("vector",), representations=("raw", "episode"),
+            ),
+            _hit(
+                "s1", 3, 9, "\n".join(blocks[3:10]), 0.7,
+                paths=("vector",), representations=("raw", "episode"),
+            ),
         ],
         content=content,
         user_id=_USER,
-        forward_blocks=0,
-        merge_gap_blocks=0,
     )
     assert len(passages) == 1
     p = passages[0]

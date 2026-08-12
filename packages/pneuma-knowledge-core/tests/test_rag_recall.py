@@ -176,6 +176,29 @@ async def test_lexical_raw_agreement_is_not_displaced_by_an_episode_only_hit():
     assert {hit.source_id for hit in hits} == {SourceId("exact"), SourceId("broad")}
 
 
+async def test_raw_natural_unit_owns_overlapping_lexical_only_block():
+    lexical = FakeLexical([FakeLexHit(SourceId("s1"), 20, "candidate name", 1.0)])
+    vectors = FakeVector(
+        [
+            FakeVecHit(
+                SourceId("s1"), 20, 21,
+                "candidate name\nstrong evaluation", 1.0, "raw",
+            )
+        ],
+        [],
+    )
+
+    hits = await rag_recall(
+        USER, "candidate name", lexical=lexical, vectors=vectors,
+        embeddings=FakeEmbeddings(), limit=8,
+    )
+
+    assert len(hits) == 1
+    assert (hits[0].block_start, hits[0].block_end) == (20, 21)
+    assert hits[0].text == "candidate name\nstrong evaluation"
+    assert set(hits[0].representations) == {"lexical", "raw"}
+
+
 async def test_post_retrieval_dedup_does_not_chain_overlapping_episodes_into_one_window():
     lexical = FakeLexical([])
     vectors = FakeVector(

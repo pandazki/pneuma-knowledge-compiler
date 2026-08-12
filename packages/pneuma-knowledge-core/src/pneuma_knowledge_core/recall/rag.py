@@ -178,8 +178,10 @@ def _suppress_overlapping(hits: list[RecallHit]) -> list[RecallHit]:
     spans, keep the stronger candidate's source text/span/score, copy only the path markers
     from suppressed duplicates, and continue. One exception is structural rather than
     score-based: episode-only hits are derived routing text, so an overlapping raw/caption
-    or lexical span always owns the citable result. The episode can raise that result to its
-    own score but cannot replace its exact evidence. Two disjoint candidates survive even
+    or lexical span always owns the citable result. Between two direct representations, a
+    raw semantic chunk owns an overlapping lexical-only block: both are verbatim, but the
+    raw span is the natural unit selected at ingest. The episode can raise the winning
+    result's score but cannot replace its exact evidence. Two disjoint candidates survive even
     when a broad episode overlaps both, so overlap cannot create a transitive mega-window.
     """
 
@@ -199,9 +201,9 @@ def _suppress_overlapping(hits: list[RecallHit]) -> list[RecallHit]:
             kept.append(candidate)
             continue
         prior = kept[duplicate_index]
-        prior_is_evidence = _has_direct_evidence(prior)
-        candidate_is_evidence = _has_direct_evidence(candidate)
-        winner = candidate if candidate_is_evidence and not prior_is_evidence else prior
+        prior_priority = _evidence_priority(prior)
+        candidate_priority = _evidence_priority(candidate)
+        winner = candidate if candidate_priority > prior_priority else prior
         paths = tuple(dict.fromkeys((*prior.paths, *candidate.paths)))
         representations = tuple(
             dict.fromkeys((*prior.representations, *candidate.representations))
@@ -220,13 +222,17 @@ def _suppress_overlapping(hits: list[RecallHit]) -> list[RecallHit]:
     return kept
 
 
-def _has_direct_evidence(hit: RecallHit) -> bool:
-    """Whether a hit was found through verbatim text rather than episode routing alone.
+def _evidence_priority(hit: RecallHit) -> int:
+    """Structural ownership of an overlapping citable span.
 
-    Empty metadata is the compatibility shape of hand-built/legacy RecallHits and remains
-    direct evidence. Every hit built by ``rag_recall`` carries explicit representations.
+    Raw semantic chunks and lexical hits are both verbatim evidence. Raw wins between them
+    because it already carries the source's ingest-time natural-unit boundary; lexical wins
+    over episode-only routing prose. Empty legacy metadata remains direct lexical-shaped
+    evidence for compatibility.
     """
 
-    return not hit.representations or any(
-        representation in {"lexical", "raw"} for representation in hit.representations
-    )
+    if "raw" in hit.representations:
+        return 2
+    if not hit.representations or "lexical" in hit.representations:
+        return 1
+    return 0

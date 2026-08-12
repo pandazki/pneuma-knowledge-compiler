@@ -1368,7 +1368,7 @@ async def assemble_windows(
     order: bool = True,
     assembly: Mapping[str, int] | None = None,
 ) -> list:
-    """Post-retrieval assembly over raw window hits: expand → merge/dedup → per-source cap
+    """Post-retrieval assembly over raw window hits: lexical expansion → overlap dedup → per-source cap
     → lost-in-the-middle order. With no ContentStore (langchain-only path) the raw hits are
     returned unchanged so no caller breaks.
 

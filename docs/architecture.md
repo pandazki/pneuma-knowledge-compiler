@@ -111,6 +111,10 @@ raw/caption or lexical span always owns the citable result over an episode-only 
 episode may raise its rank, but cannot replace its more precise evidence. Multiple
 representations therefore improve rank without consuming duplicate answer-window slots or
 chaining overlapping episodes into a mega-window. No retrieval path receives a fixed quota.
+During context assembly, semantic raw/episode spans remain the natural units recorded at
+ingest: they are not expanded a second time, and only genuinely overlapping spans coalesce by
+default. Forward expansion remains available for a bare lexical-only block hit; bridging
+disjoint nearby spans requires an explicit measured override.
 
 Answering recall never includes original media merely because its model can consume it. The
 query tool owns that cost/attention decision through the enum-list argument

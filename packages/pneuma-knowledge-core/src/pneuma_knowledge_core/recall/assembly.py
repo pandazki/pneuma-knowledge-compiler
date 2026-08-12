@@ -7,12 +7,14 @@ briefing packs only a 4-block sample. That is a missing *assembly* stage, not a 
 
 This module is the standard post-retrieval pipeline, pure and deterministic (langchain-free):
 
-    expand → merge/dedup(+bridge) → per-source cap → lost-in-the-middle order → labeled render
+    expand → overlap-dedup → per-source cap → lost-in-the-middle order → labeled render
 
-- **expand_and_merge** grows each bare hit FORWARD only (anchored at its own block — a
+- **expand_and_merge** grows a bare lexical-only hit FORWARD (anchored at its own block — a
   record flows forward from its match, so backward expansion would bleed the previous
-  record in), coalesces near-contiguous windows within a source into one continuous passage
-  (bridging small holes), caps per source, and rebuilds each passage's text from the blocks.
+  record in). Semantic raw/episode hits are already natural units and are not expanded
+  again. Truly overlapping windows within a source coalesce; disjoint episodes never acquire
+  unretrieved bridge blocks merely because they are nearby. The result is capped per source
+  and rebuilt from authoritative blocks.
 - **order_lost_in_middle** places the strongest passages at the head and tail and the
   weakest in the middle (the U-shaped "Lost in the Middle" positional bias).
 - **render_passages** renders each passage with a human-readable provenance header
@@ -108,6 +110,17 @@ def _expand_one(
     first), clamped to the source boundary. This pulls a bare name block into its own evaluation
     without dragging in the neighbour above it."""
     start, end = hit.block_start, hit.block_end
+    # Semantic raw and episode hits already cover the natural unit chosen at ingest. The
+    # older generic assembly default predates those representations and expanded every hit
+    # five blocks forward, turning an exact two-block episode into most of a chat session.
+    # Keep forward context only for a lexical-only block hit, which is the case expansion
+    # was designed to rescue in the first place. Empty representation metadata is the legacy
+    # and hand-built-test shape, so it keeps the historical lexical expansion behavior.
+    if hit.representations and any(
+        representation in {"raw", "episode"}
+        for representation in hit.representations
+    ):
+        forward_blocks = 0
     fwd_chars = fwd_count = 0
     while fwd_count < forward_blocks and fwd_chars < forward_char_budget:
         nxt = end + 1
@@ -142,21 +155,22 @@ async def expand_and_merge(
     forward_char_budget: int = 700,
     max_passage_chars: int = 2500,
     per_source_cap: int = 3,
-    merge_gap_blocks: int = 2,
+    merge_gap_blocks: int = -1,
 ) -> list[Passage]:
-    """Standard expand → merge/dedup(+bridge) → per-source cap over fused recall hits.
+    """Standard expand → overlap-dedup → per-source cap over fused recall hits.
 
     Groups hits by source; fetches each source once (cached). For each source it expands
-    every hit FORWARD only (anchoring at the hit's own block — never bleeding backward into
-    the previous record; see `_expand_one`), then coalesces windows whose block gap ≤
-    `merge_gap_blocks` into one continuous passage — bridging the in-between blocks so the
-    passage reads without holes. Merged passages take the max score, the union of retrieval
-    paths, and the section breadcrumb of their highest-scoring seed. Text is rebuilt from the
-    source's blocks and truncated (head+tail) past `max_passage_chars` while the block
-    interval stays exact. At most `per_source_cap` passages survive per source (highest score
-    first) so one document can't flood the context. Deterministic throughout: stable tie-break
-    by (source_id, block_start). Falls back to the hit's own text/span for a source that can't
-    be fetched (missing source or `content is None`)."""
+    lexical-only hits FORWARD (anchoring at the hit's own block — never bleeding backward
+    into the previous record; see `_expand_one`). Semantic raw/episode hits keep their
+    recorded span. The default `merge_gap_blocks=-1` coalesces only overlapping intervals;
+    callers can explicitly request bridge blocks for a measured domain that needs them.
+    Merged passages take the max score, the union of retrieval paths, and the section
+    breadcrumb of their highest-scoring seed. Text is rebuilt from the source's blocks and
+    truncated past `max_passage_chars` while the block interval stays exact. At most
+    `per_source_cap` passages survive per source (highest score first) so one document can't
+    flood the context. Deterministic throughout: stable tie-break by (source_id, block_start).
+    Falls back to the hit's own text/span for a source that can't be fetched (missing source
+    or `content is None`)."""
     # Group hits by source, preserving fused order for stability.
     by_source: dict[str, list[RecallHit]] = {}
     for hit in hits:

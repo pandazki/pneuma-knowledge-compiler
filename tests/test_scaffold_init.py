@@ -245,7 +245,7 @@ def test_demo_generates_a_project_that_already_has_a_library(tmp_path):
     )
     intake = (target / "engine" / "intake" / "intake.yaml").read_text(encoding="utf-8")
     assert "chunk_strategy: semantic" in intake
-    assert "semantic_overlap: smart" in intake
+    assert 'semantic_overlap: "smart"' in intake
 
     # .env has the same shape as any project's, with the shipped library's tenant id and no
     # key — the demo never asks for one.
@@ -459,6 +459,7 @@ def test_generated_engine_files_are_exactly_what_the_framework_schema_declares(t
             "data": {"mode": "none"},
             "advanced": {
                 "chunk_strategy": "sentence",
+                "semantic_overlap": "off",
                 "answer_style": "detailed",
                 "challenge_enabled": True,
             },
@@ -471,6 +472,16 @@ def test_generated_engine_files_are_exactly_what_the_framework_schema_declares(t
         if p.is_file() and ".git" not in p.parts
     ]
     validate(engine, changes)
+
+    # YAML 1.1 treats an unquoted `off` as boolean false. The generator must preserve this
+    # enum as a string so a legitimate zero-overlap project resolves before first ingest.
+    from pneuma_knowledge_service.engine.resolve import resolve_engine
+
+    resolved = resolve_engine(engine, {})
+    assert resolved.values["intake.semantic_overlap"] == "off"
+    assert 'semantic_overlap: "off"' in (
+        engine / "intake" / "intake.yaml"
+    ).read_text(encoding="utf-8")
 
 
 def test_answers_land_in_the_engine_and_resolve_through_the_framework(tmp_path, monkeypatch):

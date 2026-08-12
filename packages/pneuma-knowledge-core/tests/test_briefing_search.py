@@ -132,9 +132,17 @@ async def test_search_knowledge_reaches_mid_document_item_absent_from_static_pac
         claim_vectors=FakeClaimIndex([]),
         embeddings=FakeEmbeddings(),
         lexical=FakeLexical([LexHit(SourceId(_SID), 20, "孙羽")]),
-        vectors=FakeVector([VecHit(SourceId(_SID), 20, 20, "孙羽")]),
+        vectors=FakeVector(
+            [
+                VecHit(
+                    SourceId(_SID), 20, 21,
+                    "孙羽\n架构能力强，主导过大型系统迁移，强烈推荐进入终面。",
+                )
+            ]
+        ),
     )
-    # search_knowledge surfaced the deep evaluation (context-expanded around the name block).
+    # The raw semantic natural unit wins over the overlapping lexical-only name block, so
+    # search_knowledge surfaces the deep evaluation without guessing a forward radius.
     assert "强烈推荐进入终面" in ans.answer
     # rendered with the readable source title alongside the [cite: …] marker.
     assert "面试记录" in ans.answer
