@@ -190,7 +190,9 @@ _PUBLIC_BASELINE_SHA256 = {
     # its source occurrence clock; only the owner's live input uses the ask clock. An
     # ambiguous calendar period keeps that absolute anchor rather than fabricating exact
     # endpoints.
-    "fast": "14fd845a66620c5c7b47d0b3ff39f53a03c10b0e3cd5c1e985ea72b037a87e39",
+    # 2026-08-12: fast also receives source-addressed L2 episode descriptions as an
+    # explicitly labelled derived summary face, alongside claims and verbatim excerpts.
+    "fast": "a31e17d2a2e20ba1d474cc2b597cf393abdff81eaf3e929777ea29672aeda8b8",
     "deep": "1b04985e05e20b0d1b895c06493f92c5d9cd724183ed47b99f64447267840e94",
     "briefing": "b2be86ca8606007e2007508a065a7f9cae4222460e9b52299214cc5c826b29fc",
 }

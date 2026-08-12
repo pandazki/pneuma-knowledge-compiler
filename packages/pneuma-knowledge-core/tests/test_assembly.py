@@ -111,6 +111,20 @@ async def test_bare_block_expands_forward_to_its_own_record():
     assert p.source_title == "面试记录"
 
 
+async def test_default_lexical_expansion_adds_only_one_following_block():
+    blocks = [f"record-{i}" for i in range(8)]
+    content = FakeContent({"s1": _ns("s1", blocks, title="records")})
+
+    passages = await expand_and_merge(
+        [_hit("s1", 3, 3, "record-3", 0.9)],
+        content=content,
+        user_id=_USER,
+    )
+
+    assert [(p.block_start, p.block_end) for p in passages] == [(3, 4)]
+    assert passages[0].text == "record-3\nrecord-4"
+
+
 async def test_semantic_natural_unit_is_not_expanded_a_second_time():
     blocks = [f"topic-{i}" for i in range(8)]
     content = FakeContent({"s1": _ns("s1", blocks, title="conversation")})

@@ -26,6 +26,7 @@ class FakeVecHit:
     text: str
     score: float
     representation: str = "raw"
+    episode_summary_text: str = ""
 
 
 class FakeLexical:
@@ -118,7 +119,17 @@ async def test_raw_and_episode_rank_independently_then_deduplicate_by_source_spa
     lexical = FakeLexical([])
     vectors = FakeVector(
         [FakeVecHit(SourceId("s1"), 2, 3, "verbatim episode", 0.9, "raw")],
-        [FakeVecHit(SourceId("s1"), 2, 3, "verbatim episode", 0.8, "episode")],
+        [
+            FakeVecHit(
+                SourceId("s1"),
+                2,
+                3,
+                "verbatim episode",
+                0.8,
+                "episode",
+                "[episode description] Weekend kayaking and safety planning",
+            )
+        ],
     )
 
     hits = await rag_recall(
@@ -131,6 +142,13 @@ async def test_raw_and_episode_rank_independently_then_deduplicate_by_source_spa
     )
     assert hits[0].paths == ("vector",)
     assert set(hits[0].representations) == {"raw", "episode"}
+    summary = hits[0].episode_summaries[0]
+    assert (summary.source_id, summary.block_start, summary.block_end) == (
+        SourceId("s1"),
+        2,
+        3,
+    )
+    assert summary.text == "[episode description] Weekend kayaking and safety planning"
 
 
 async def test_broad_episode_ranking_signal_cannot_displace_precise_raw_evidence():
@@ -140,7 +158,12 @@ async def test_broad_episode_ranking_signal_cannot_displace_precise_raw_evidence
             FakeVecHit(SourceId("other"), 0, 0, "other raw", 1.0, "raw"),
             FakeVecHit(SourceId("s1"), 3, 3, "precise caption and raw", 0.9, "raw"),
         ],
-        [FakeVecHit(SourceId("s1"), 2, 5, "broad episode", 1.0, "episode")],
+        [
+            FakeVecHit(
+                SourceId("s1"), 2, 5, "broad episode", 1.0, "episode",
+                "[episode description] One broad but dense episode summary",
+            )
+        ],
     )
 
     hits = await rag_recall(
@@ -155,6 +178,12 @@ async def test_broad_episode_ranking_signal_cannot_displace_precise_raw_evidence
         "precise caption and raw",
     )
     assert set(kept.representations) == {"raw", "episode"}
+    # Ranking may attach an episode signal to the precise raw winner, but the summary keeps
+    # the episode's own truthful source interval rather than inheriting the raw slice.
+    assert (
+        kept.episode_summaries[0].block_start,
+        kept.episode_summaries[0].block_end,
+    ) == (2, 5)
     # The episode still contributes prominence, but overlap does not multiply scores.
     assert kept.score == 1 / 60
 

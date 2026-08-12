@@ -3,7 +3,7 @@
 Three seals, all mechanical (§0 discipline 1), not prose pleas:
 
 1. **Fixed answer contract.** The SystemMessage is `selector_contract()` verbatim — a
-   byte-stable string (I5). It is a top-down account (identity → the two evidence forms
+   byte-stable string (I5). It is a top-down account (identity → the three evidence forms
    → world-facts about the evidence → answer shape), not a rule list; it never carries
    a timestamp, the question, or claim content, so the provider cache is earned by
    assembly order.
@@ -11,7 +11,8 @@ Three seals, all mechanical (§0 discipline 1), not prose pleas:
    Qdrant claim layer) fused by RRF, deduped by (document_path, anchor), then capped to
    `cap` (default 40) before rendering.
 3. **Everything volatile in the Human turn, question LAST.** Evidence sections render
-   first (glance → claim notes → raw excerpts → any fully-read documents), then as_of +
+   first (glance → claim notes → derived episode summaries → raw excerpts → any fully-read
+   documents), then as_of +
    question close the message — the live ask sits in the attention-hot tail instead of
    drowning above a 40-claim wall.
 
@@ -69,16 +70,18 @@ from .assembly import (
     render_passages,
 )
 from .projection import PROJECTION_V1, ProjectedClaim, project_document_claims
-from .rag import RecallHit, _rrf_scores, rag_recall, rrf_fuse
+from .rag import EpisodeSummarySignal, RecallHit, _rrf_scores, rag_recall, rrf_fuse
 
-# Release default 64, sitting inside the measured sweet band: on LoCoMo-refined the
-# budget curve is an inverted U — 40→80 a significant gain (+2.75pp, p=0.008,
-# concentrated on multi-hop/open questions), 80→120 a significant loss (long-context
-# dilution). 40 under-serves and 120 over-stuffs; 64 trades a sliver of the measured
-# optimum (80) for ~20% less prompt spend on every ask. Raise to 80 when answer quality
-# outranks token cost; pair a reranker at 40 for equal quality at the lowest spend.
-DEFAULT_CLAIM_CAP = 64
-DEFAULT_WINDOW_CAP = 8
+# Product defaults separate cheap retrieval breadth from expensive answer evidence. The
+# values are intentionally corpus-agnostic: retrieve enough tail for lexical/semantic
+# disagreement and post-dedup backfill, then keep the final wall small enough for an
+# interactive personal or team knowledge base. A deployment may tune each boundary without
+# changing the mechanism.
+DEFAULT_CLAIM_CANDIDATE_CAP = 80
+DEFAULT_CLAIM_CAP = 40
+DEFAULT_WINDOW_CANDIDATE_CAP = 60
+DEFAULT_EPISODE_SUMMARY_CAP = 24
+DEFAULT_WINDOW_CAP = 6
 DEFAULT_IMAGE_CAP = 8
 
 #: How many hit documents `timeline_expand` may expand into sibling timelines. Together with
@@ -190,6 +193,29 @@ class FastAnswer:
     # Bytes never leave the model boundary; this count is safe response/trace telemetry.
     image_count: int = 0
     image_mode: str = "caption"
+    # Candidate-vs-evidence telemetry makes the two budgets observable without exposing any
+    # generated navigation text or source content.
+    claim_candidates: int = 0
+    window_candidates: int = 0
+    used_episode_summaries: tuple["EpisodeSummary", ...] = field(default_factory=tuple)
+
+
+@dataclass(frozen=True)
+class EpisodeSummary:
+    """One explicitly derived, source-addressed episode description shown to the answer.
+
+    `text` is model-generated compression, never verbatim source. The remaining fields are
+    mechanical metadata from L0 plus the exact span that the episode representation indexes.
+    """
+
+    source_id: SourceId
+    block_start: int
+    block_end: int
+    text: str
+    score: float
+    source_title: str = ""
+    source_occurred_on: str = ""
+    section_path: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -422,6 +448,107 @@ def render_windows(windows: list[RecallHit]) -> str:
         # so a window-sourced citation resolves like a claim's.
         lines.append(f"[cite: {w.source_id} ¶{w.block_start}-{w.block_end}] {w.text}")
     return "\n".join(lines)
+
+
+async def build_episode_summaries(
+    hits: Sequence[RecallHit],
+    *,
+    content: ContentStore | None,
+    user_id: UserId,
+    cap: int = DEFAULT_EPISODE_SUMMARY_CAP,
+) -> list[EpisodeSummary]:
+    """Lift dense derived episode text from a wide window pool and add mechanical L0 metadata.
+
+    Rank and cap follow the fused source-hit order. Exact `(source, span, text)` duplicates are
+    removed. L0 metadata is best-effort (the core-only path may have no ContentStore), but the
+    source id and block span are always present because they are the vector point's address.
+    """
+
+    if cap <= 0:
+        return []
+    selected: list[tuple[RecallHit, EpisodeSummarySignal, str]] = []
+    seen: set[tuple[str, int, int, str]] = set()
+    for hit in hits:
+        for signal in hit.episode_summaries:
+            text = signal.text.strip()
+            key = (
+                str(signal.source_id),
+                signal.block_start,
+                signal.block_end,
+                text,
+            )
+            if not text or key in seen:
+                continue
+            seen.add(key)
+            selected.append((hit, signal, text))
+            if len(selected) >= cap:
+                break
+        if len(selected) >= cap:
+            break
+
+    source_ids = tuple(
+        dict.fromkeys(str(signal.source_id) for _, signal, _ in selected)
+    )
+
+    async def load_source(source_id: str):
+        if content is None:
+            return None
+        try:
+            return await content.get(user_id, SourceId(source_id))
+        except KeyError:
+            return None
+
+    loaded = await asyncio.gather(*(load_source(source_id) for source_id in source_ids))
+    cache = dict(zip(source_ids, loaded))
+
+    summaries: list[EpisodeSummary] = []
+    for hit, signal, text in selected:
+        source = cache[str(signal.source_id)]
+        source_title = ""
+        source_occurred_on = ""
+        section_path: tuple[str, ...] = ()
+        if source is not None:
+            source_title = getattr(source.raw, "title", "") or ""
+            source_occurred_on = source.raw.occurred_on()
+            section_path = next(
+                (
+                    tuple(block.section_path)
+                    for block in source.blocks
+                    if block.index == signal.block_start
+                ),
+                (),
+            )
+        summaries.append(
+            EpisodeSummary(
+                source_id=signal.source_id,
+                block_start=signal.block_start,
+                block_end=signal.block_end,
+                text=text,
+                score=hit.score,
+                source_title=source_title,
+                source_occurred_on=source_occurred_on,
+                section_path=section_path,
+            )
+        )
+    return summaries
+
+
+def render_episode_summaries(summaries: Sequence[EpisodeSummary]) -> str:
+    """Render derived compression with an explicit identity and enough source metadata."""
+
+    return "\n\n".join(
+        prompt(
+            "recall.fast.episode_summary.item",
+            source_id=summary.source_id,
+            start=summary.block_start,
+            end=summary.block_end,
+            source_title=summary.source_title,
+            occurred_on=summary.source_occurred_on,
+            section=" › ".join(summary.section_path),
+            text=summary.text,
+        )
+        for summary in summaries
+    )
 
 
 def _render_window_section(windows: list) -> str:
@@ -829,6 +956,7 @@ def recall_human(
     *,
     as_of: datetime,
     windows: list | None = None,
+    episode_summaries: Sequence[EpisodeSummary] = (),
     profile: str | None = None,
     glance: str | None = None,
     snapshot: str | None = None,
@@ -868,6 +996,7 @@ def recall_human(
     return _recall_human_evidence(
         claims,
         windows=windows,
+        episode_summaries=episode_summaries,
         profile=profile,
         glance=glance,
         snapshot=snapshot,
@@ -881,6 +1010,7 @@ def _recall_human_evidence(
     claims: list[RetrievedClaim],
     *,
     windows: list | None = None,
+    episode_summaries: Sequence[EpisodeSummary] = (),
     profile: str | None = None,
     glance: str | None = None,
     snapshot: str | None = None,
@@ -903,6 +1033,15 @@ def _recall_human_evidence(
         + "\n"
         + (render_claims(claims) or prompt("recall.section.claims_empty"))
     )
+    if episode_summaries:
+        sections.append(
+            prompt(
+                "recall.section.episode_summaries_header",
+                count=len(episode_summaries),
+            )
+            + "\n"
+            + render_episode_summaries(episode_summaries)
+        )
     if timelines:
         sections.append(render_subject_timelines(timelines))
     if windows:
@@ -938,6 +1077,7 @@ def selector_messages(
     *,
     as_of: datetime,
     windows: list | None = None,
+    episode_summaries: Sequence[EpisodeSummary] = (),
     profile: str | None = None,
     glance: str | None = None,
     snapshot: str | None = None,
@@ -955,6 +1095,7 @@ def selector_messages(
         claims,
         as_of=as_of,
         windows=windows,
+        episode_summaries=episode_summaries,
         profile=profile,
         glance=glance,
         snapshot=snapshot,
@@ -976,6 +1117,7 @@ def recall_human_content(
     *,
     as_of: datetime,
     windows: list | None = None,
+    episode_summaries: Sequence[EpisodeSummary] = (),
     profile: str | None = None,
     glance: str | None = None,
     snapshot: str | None = None,
@@ -993,6 +1135,7 @@ def recall_human_content(
     evidence = _recall_human_evidence(
         claims,
         windows=windows,
+        episode_summaries=episode_summaries,
         profile=profile,
         glance=glance,
         snapshot=snapshot,
@@ -1041,6 +1184,7 @@ async def answer_with_selector(
     *,
     as_of: datetime,
     windows: list | None = None,
+    episode_summaries: Sequence[EpisodeSummary] = (),
     profile: str | None = None,
     glance: str | None = None,
     snapshot: str | None = None,
@@ -1071,6 +1215,7 @@ async def answer_with_selector(
         claims,
         as_of=as_of,
         windows=windows,
+        episode_summaries=episode_summaries,
         profile=profile,
         glance=glance,
         snapshot=snapshot,
@@ -1399,6 +1544,7 @@ async def fast_recall(
     claim_vectors: ClaimVectorIndex,
     embeddings,  # langchain_core.embeddings.Embeddings
     model: BaseChatModel,
+    answer_model: BaseChatModel | None = None,
     lexical: LexicalIndex | None = None,
     vectors: VectorIndex | None = None,
     content: ContentStore | None = None,
@@ -1407,7 +1553,10 @@ async def fast_recall(
     image_cap: int = DEFAULT_IMAGE_CAP,
     profile: str | None = None,
     cap: int = DEFAULT_CLAIM_CAP,
+    claim_candidate_cap: int = DEFAULT_CLAIM_CANDIDATE_CAP,
     window_cap: int = DEFAULT_WINDOW_CAP,
+    window_candidate_cap: int = DEFAULT_WINDOW_CANDIDATE_CAP,
+    episode_summary_cap: int = DEFAULT_EPISODE_SUMMARY_CAP,
     # The SHAPE of the answer: "concise" (the bare exact value — graders, scripts),
     # "conversational" (a natural chat reply, the default), or "detailed" (a
     # self-contained written note). Style only — truth discipline is style-independent.
@@ -1460,8 +1609,9 @@ async def fast_recall(
     reranker: Reranker | None = None,
     rerank_candidates: int = 0,
     rerank_timeout: float | None = DEFAULT_RERANK_TIMEOUT_SECONDS,
-    # None by default = nothing sent, byte-for-byte the request above. A value (e.g.
-    # "xhigh") overrides the ANSWERING call's reasoning effort via OpenRouter's
+    # `answer_model` splits the final generation from the cheap recall-role model used by
+    # planning/glance. None preserves the historical one-model lane. A None reasoning effort
+    # sends nothing; a value (e.g. "xhigh") overrides the ANSWERING call via OpenRouter's
     # `{"reasoning": {"effort": ...}}` extra_body — see `answer_with_selector`. The
     # glance pass never takes it. Measurement plumbing — product callers pass nothing.
     reasoning_effort: str | None = None,
@@ -1511,13 +1661,19 @@ async def fast_recall(
             trace_metadata=trace_metadata,
         )
 
-    # With a reranker on, the claim face retrieves a wider pool: `rerank_candidates` is the
+    # The claim face always retrieves beyond the final evidence wall. This is cheap index
+    # work and leaves enough tail for containment dedup and multi-path disagreement. With a
+    # reranker on, `rerank_candidates` may widen it further: it is the
     # per-query/per-face retrieval depth, and the reranker judges the FULL deduped union
     # against the original question (RRF pre-truncation would silently drop candidates it
     # never saw — fusion order is kept only for dedup, backfill and the failure fallback).
-    # Without a reranker the pool IS the cap and nothing downstream changes.
+    # The final `cap` remains independent from either candidate depth.
     reranking = reranker is not None and rerank_candidates > 0
-    claim_pool = rerank_candidates if reranking else cap
+    claim_pool = max(
+        cap,
+        claim_candidate_cap,
+        rerank_candidates if reranking else 0,
+    )
 
     async def retrieve_claim_face() -> list[RetrievedClaim]:
         if planned or reranking:
@@ -1548,7 +1704,7 @@ async def fast_recall(
                 lexical=lexical,
                 vectors=vectors,
                 embeddings=embeddings,
-                limit=window_cap,
+                limit=max(window_cap, window_candidate_cap),
             ),
         )
 
@@ -1593,8 +1749,14 @@ async def fast_recall(
         timelines = build_subject_timelines(
             claims, by_path, per_doc=timeline_expand, doc_cap=timeline_doc_cap
         )
-    windows = await assemble_windows(
+    episode_summaries = await build_episode_summaries(
         raw_windows,
+        content=content,
+        user_id=user_id,
+        cap=episode_summary_cap,
+    )
+    windows = await assemble_windows(
+        raw_windows[:window_cap],
         content=content,
         user_id=user_id,
         order=not annotate_windows,
@@ -1624,11 +1786,12 @@ async def fast_recall(
         "image_mode": image_mode,
     }
     answer, usage, citation_handles = await answer_with_selector(
-        model,
+        answer_model or model,
         question,
         claims,
         as_of=as_of,
         windows=windows,
+        episode_summaries=episode_summaries,
         profile=profile,
         glance=glance,
         snapshot=scope_declaration(scope),
@@ -1661,4 +1824,7 @@ async def fast_recall(
         rerank_degraded=rerank_degraded,
         image_count=len(images),
         image_mode=image_mode,
+        claim_candidates=len(claims_raw),
+        window_candidates=len(raw_windows),
+        used_episode_summaries=tuple(episode_summaries),
     )

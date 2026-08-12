@@ -284,33 +284,78 @@
           }
         },
         {
+          "key": "claim_candidate_cap",
+          "env": "PNEUMA_KNOWLEDGE_RECALL_CLAIM_CANDIDATE_CAP",
+          "type": "int",
+          "default": 80,
+          "apply": "hot",
+          "label": {
+            "en": "Claim candidate depth",
+            "zh": "断言候选深度"
+          },
+          "description": {
+            "en": "How many claims each retrieval face may consider before dedup, optional reranking, and the final answer cap. Index breadth is cheaper than model context.",
+            "zh": "每条检索路径在去重、可选重排与最终回答上限之前可考虑多少断言。索引广度比模型上下文便宜。"
+          }
+        },
+        {
           "key": "claim_cap",
           "env": "PNEUMA_KNOWLEDGE_RECALL_CLAIM_CAP",
           "type": "int",
-          "default": 64,
+          "default": 40,
           "apply": "hot",
           "label": {
             "en": "Claim budget",
             "zh": "断言预算"
           },
           "description": {
-            "en": "How many claims one fast ask may pull into the prompt. The default sits inside the measured 40–80 sweet band.",
-            "zh": "一次快速问答最多把多少断言放进提示词。默认值落在实测的 40–80 甜区内。"
+            "en": "How many compiled claims may enter the final answer context after broad candidate retrieval.",
+            "zh": "宽候选召回之后，最多有多少条已编译断言可进入最终回答上下文。"
+          }
+        },
+        {
+          "key": "window_candidate_cap",
+          "env": "PNEUMA_KNOWLEDGE_RECALL_WINDOW_CANDIDATE_CAP",
+          "type": "int",
+          "default": 60,
+          "apply": "hot",
+          "label": {
+            "en": "Source-window candidate depth",
+            "zh": "源窗口候选深度"
+          },
+          "description": {
+            "en": "How many fused lexical/raw/episode source spans survive retrieval for the episode-summary and verbatim context faces.",
+            "zh": "有多少条词法／raw／episode 融合源区间可从检索进入 episode 摘要与逐字上下文两面。"
+          }
+        },
+        {
+          "key": "episode_summary_cap",
+          "env": "PNEUMA_KNOWLEDGE_RECALL_EPISODE_SUMMARY_CAP",
+          "type": "int",
+          "default": 24,
+          "apply": "hot",
+          "label": {
+            "en": "Episode summary budget",
+            "zh": "Episode 摘要预算"
+          },
+          "description": {
+            "en": "How many dense, explicitly derived episode summaries may enter the final answer context alongside exact source metadata.",
+            "zh": "最多有多少条高密度、明确标为派生内容的 episode 摘要可连同精确来源元数据进入最终回答上下文。"
           }
         },
         {
           "key": "window_cap",
           "env": "PNEUMA_KNOWLEDGE_RECALL_WINDOW_CAP",
           "type": "int",
-          "default": 8,
+          "default": 6,
           "apply": "hot",
           "label": {
             "en": "Source window budget",
             "zh": "源窗口预算"
           },
           "description": {
-            "en": "How many raw source windows one fast ask may pull in.",
-            "zh": "一次快速问答最多把多少原始源窗口放进来。"
+            "en": "How many exact verbatim source windows may enter the final answer context.",
+            "zh": "最多有多少个精确逐字源窗口可进入最终回答上下文。"
           }
         },
         {
@@ -367,8 +412,8 @@
         "zh": "模型"
       },
       "summary": {
-        "en": "The engine's four model roles. The compile model is the one real quality lever — a stronger model directly produces a better library.",
-        "zh": "引擎的四个模型角色。编译模型是唯一真正的质量杠杆——更强的模型直接产出更好的库。"
+        "en": "The engine's model roles. The compile model is the one real quality lever — a stronger model directly produces a better library.",
+        "zh": "引擎的模型角色。编译模型是唯一真正的质量杠杆——更强的模型直接产出更好的库。"
       },
       "doc": "docs/reference/configuration.md#models",
       "file": "engine.yaml",
@@ -419,8 +464,48 @@
             "zh": "召回模型"
           },
           "description": {
-            "en": "Fast recall and the briefing ask. Fast and cheap is fine.",
-            "zh": "快速召回与简报问答。又快又便宜就够了。"
+            "en": "Retrieval planning/glance and the briefing ask. Fast and cheap is fine.",
+            "zh": "检索规划/概览与简报问答。又快又便宜就够了。"
+          }
+        },
+        {
+          "key": "answer",
+          "env": "PNEUMA_KNOWLEDGE_LLM_MODEL_ANSWER",
+          "type": "string",
+          "default": "",
+          "apply": "restart",
+          "label": {
+            "en": "Answer model",
+            "zh": "答题模型"
+          },
+          "description": {
+            "en": "Final fast-answer generation only. Empty borrows the recall role.",
+            "zh": "只负责快速召回的最终答案。留空则借用召回角色。"
+          }
+        },
+        {
+          "key": "answer_reasoning_effort",
+          "env": "PNEUMA_KNOWLEDGE_ANSWER_REASONING_EFFORT",
+          "type": "enum",
+          "enum": [
+            "",
+            "none",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "default": "",
+          "apply": "restart",
+          "label": {
+            "en": "Answer reasoning effort",
+            "zh": "答题推理强度"
+          },
+          "description": {
+            "en": "Reasoning effort sent only on the final fast-answer call; empty keeps the provider default.",
+            "zh": "只在快速召回的最终答题调用中发送；留空则沿用模型供应商默认值。"
           }
         },
         {
@@ -767,6 +852,7 @@
             "recall.deep.tool.search_content_doc",
             "recall.deep.tool.search_content_empty",
             "recall.fast.contract_head",
+            "recall.fast.episode_summary.item",
             "recall.fast.image_locator",
             "recall.fast.plan.contract",
             "recall.fast.plan.request",
@@ -802,6 +888,7 @@
             "recall.section.already_shown_header",
             "recall.section.claims_empty",
             "recall.section.claims_header",
+            "recall.section.episode_summaries_header",
             "recall.section.images_header",
             "recall.section.input",
             "recall.section.passages_header",

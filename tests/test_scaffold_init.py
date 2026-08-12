@@ -88,12 +88,23 @@ def test_generates_a_complete_project_from_answers(tmp_path):
     assert list((target / "my-data").glob("*.md"))
     # No unresolved template slots anywhere.
     for path in target.rglob("*"):
+        # `engine/` is a real git repository. Its compressed object database is binary
+        # implementation state, not generated project text, and arbitrary byte pairs can
+        # naturally spell a template delimiter.
+        if ".git" in path.parts:
+            continue
         if path.is_file() and path.suffix in (".md", ".yaml", ""):
             assert "{{" not in path.read_text(encoding="utf-8", errors="ignore"), path
     # Owner values landed in the profile.
     profile = (target / "engine" / "persona" / "profile.yaml").read_text(encoding="utf-8")
     assert 'display_name: "测试"' in profile
     assert '["a", "b"]' in profile
+    recall = (target / "engine" / "recall" / "recall.yaml").read_text(encoding="utf-8")
+    assert "claim_candidate_cap: 80" in recall
+    assert "claim_cap: 40" in recall
+    assert "window_candidate_cap: 60" in recall
+    assert "episode_summary_cap: 24" in recall
+    assert "window_cap: 6" in recall
 
 
 def test_generated_env_carries_free_distinct_ports_and_framework_repo(tmp_path):
@@ -508,6 +519,8 @@ def test_answers_land_in_the_engine_and_resolve_through_the_framework(tmp_path, 
         "PNEUMA_KNOWLEDGE_EMBEDDING_MODEL",
         "PNEUMA_KNOWLEDGE_LLM_MODEL_COMPILE",
         "PNEUMA_KNOWLEDGE_LLM_MODEL_RECALL",
+        "PNEUMA_KNOWLEDGE_LLM_MODEL_ANSWER",
+        "PNEUMA_KNOWLEDGE_ANSWER_REASONING_EFFORT",
         "PNEUMA_KNOWLEDGE_LLM_MODEL_DEEP",
     ):
         monkeypatch.delenv(name, raising=False)
@@ -516,6 +529,8 @@ def test_answers_land_in_the_engine_and_resolve_through_the_framework(tmp_path, 
     assert resolved.values["recall.answer_style"] == "concise"
     assert resolved.values["challenge.enabled"] is True
     assert resolved.values["models.compile"] == "openrouter:x/strong"
+    assert resolved.values["models.answer"] == "openrouter:openai/gpt-5.6-luna-pro"
+    assert resolved.values["models.answer_reasoning_effort"] == "high"
     assert resolved.values["models.deep"] == "openrouter:x/deep"
     assert resolved.values["prompts.language"] == "zh"
     # Every generated value is STATED, not inherited: a person can read what their engine

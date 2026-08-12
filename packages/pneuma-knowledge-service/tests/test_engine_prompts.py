@@ -179,7 +179,7 @@ async def test_an_assembled_surface_still_carries_the_bytes_the_model_receives(t
         assert surface["assembled_framework"].strip(), surface["id"]
         assert surface["assembled_effective"].strip(), surface["id"]
     fragments = [s for s in body["surfaces"] if s["kind"] == "fragments"]
-    assert len(fragments) == 26
+    assert len(fragments) == 27
 
 
 async def test_a_template_preview_carries_the_banner_that_stops_it_reading_as_the_message(

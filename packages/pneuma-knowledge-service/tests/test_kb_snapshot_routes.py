@@ -37,6 +37,20 @@ class _FakeFastAnswer:
     answer: str = "答案"
     used_claims: tuple = ()
     used_windows: tuple = ()
+    used_episode_summaries: tuple = field(
+        default_factory=lambda: (
+            SimpleNamespace(
+                source_id="src-episode",
+                block_start=3,
+                block_end=8,
+                text="Weekend kayaking and safety planning. Caroline discussed equipment.",
+                score=0.75,
+                source_title="Saturday conversation",
+                source_occurred_on="2025-06-14",
+                section_path=("Caroline", "weekend"),
+            ),
+        )
+    )
     citation_handles: dict = field(default_factory=dict)
     glance_chars: int = 0
     expanded_documents: tuple = ()
@@ -99,15 +113,20 @@ def _request(row: dict | None) -> SimpleNamespace:
         canonical_reads=canonical_reads,
         # The route forwards the configured retrieval budget + opt-in stages into fast_recall.
         settings=SimpleNamespace(
+            recall_claim_candidate_cap=80,
             recall_claim_cap=40,
-            recall_window_cap=8,
+            recall_window_candidate_cap=60,
+            recall_episode_summary_cap=24,
+            recall_window_cap=6,
             recall_plan_queries=0,
             recall_rerank_candidates=120,
             recall_answer_style="conversational",
+            answer_reasoning_effort="high",
             # The route refuses keyless deployments up front; the stub declares a model
             # so the lanes under test actually run.
             llm_model="scripted:stub",
             llm_model_recall="",
+            llm_model_answer="",
             llm_model_deep="",
         ),
         get_reranker=lambda: None,
@@ -125,6 +144,7 @@ def captured(monkeypatch):
         seen["scope"] = kwargs.get("scope")
         seen["image_mode"] = kwargs.get("image_mode")
         seen["media"] = kwargs.get("media")
+        seen["reasoning_effort"] = kwargs.get("reasoning_effort")
         return _FakeFastAnswer(
             image_count=2 if kwargs.get("image_mode") == "native" else 0,
             image_mode=kwargs.get("image_mode") or "caption",
@@ -162,7 +182,17 @@ async def test_without_a_snapshot_the_owner_answers_and_nothing_is_pinned(captur
     assert captured["scope"] is None
     assert captured["image_mode"] == "caption"
     assert captured["media"] is None
+    assert captured["reasoning_effort"] == "high"
     assert out.snapshot is None
+    assert len(out.used_episode_summaries) == 1
+    summary = out.used_episode_summaries[0]
+    assert summary.source_id == "src-episode"
+    assert (summary.block_start, summary.block_end) == (3, 8)
+    assert summary.source_title == "Saturday conversation"
+    assert summary.source_occurred_on == "2025-06-14"
+    assert summary.section_path == ["Caroline", "weekend"]
+    assert summary.derived is True
+    assert summary.verbatim is False
     # canonical read against the owner, at HEAD — today's behavior exactly.
     assert request.app.state.ctx.canonical_reads == [(OWNER, None)]
 

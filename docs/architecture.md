@@ -65,7 +65,7 @@ Only two things are authoritative: the L0 sources, and the canonical library. Th
 
 Two consequences worth internalizing:
 
-- Rebuilds are byte-deterministic even where an LLM was involved. Semantic chunking (the default `semantic` strategy; its boundary philosophy is inspired by [nemori](https://github.com/nemori-ai/nemori)) uses one structured LLM response to return each topic/episode's search-friendly title, factual third-person description, and block coordinates. The description preserves concrete participants, time, place, events, decisions, emotions, reasons, plans and outcomes that the covered blocks support; known source occurrence dates anchor relative-time normalization, and absent dates are never guessed. This generated representation is derived retrieval text, not source: chunk text remains a verbatim slice addressed exactly like mechanical chunks. The v3 manifest records coordinates plus title/description and replays them on rebuild. A boundary-only older manifest is upgraded once by describing its **fixed** spans; a mechanical equality check refuses any attempted boundary change. An episode longer than `CHUNK_SIZE` is sentence-sub-split before embedding. Scripted/keyless models still fall back to mechanical sentence chunking. L2 stores two independently ranked representations: raw vectors embed source context plus labelled caption/OCR and the verbatim chunk, while one episode vector embeds source context plus the title/description. Every point resolves to its corresponding verbatim L0 span; generated prose is never stored or shown as evidence. Retrieval fuses lexical, raw-vector and episode-vector rankings with ordinary RRF, then suppresses lower-ranked overlapping source spans without widening the winner or adding duplicate score. Better search meaning therefore never dilutes the raw vector or creates a second authority or citation space.
+- Rebuilds are byte-deterministic even where an LLM was involved. Semantic chunking (the default `semantic` strategy; its boundary philosophy is inspired by [nemori](https://github.com/nemori-ai/nemori)) uses one structured LLM response to return each topic/episode's search-friendly title, factual third-person description, and block coordinates. The description preserves concrete participants, time, place, events, decisions, emotions, reasons, plans and outcomes that the covered blocks support; known source occurrence dates anchor relative-time normalization, and absent dates are never guessed. This generated representation is derived L2 content, not source: chunk text remains a verbatim slice addressed exactly like mechanical chunks. The v3 manifest records coordinates plus title/description and replays them on rebuild. A boundary-only older manifest is upgraded once by describing its **fixed** spans; a mechanical equality check refuses any attempted boundary change. An episode longer than `CHUNK_SIZE` is sentence-sub-split before embedding. Scripted/keyless models still fall back to mechanical sentence chunking. L2 stores two independently ranked representations: raw vectors embed source context plus labelled caption/OCR and the verbatim chunk, while one episode vector embeds source context plus the title/description and retains that dense description as derived payload. Every point resolves to its corresponding verbatim L0 span. Fast recall may surface high-ranked descriptions as a third, explicitly labelled **derived episode summary** context face, enriched mechanically with source title, occurrence time, section and exact block span; it never presents one as verbatim or canonical, and direct raw/claim evidence wins any exact-detail conflict. Retrieval fuses lexical, raw-vector and episode-vector rankings with ordinary RRF, then suppresses lower-ranked overlapping source spans without widening the winner or adding duplicate score. Better search meaning therefore never dilutes the raw vector or creates a second authority or citation space.
 
   Segments may also *overlap* (`SEMANTIC_OVERLAP`, factory default `smart`): the model returns closed block intervals, so a hinge — the sentence that closes one topic while opening the next — is indexed as part of both neighbouring segments, judged per boundary rather than as a fixed stride. Whether that is allowed to degenerate is not left to the prompt: five write-time gates (real ordered endpoints, strictly increasing starts, gapless cover, at most three shared blocks, no more segments than blocks) reject the whole output, and the window falls back to the zero-overlap partition. The duplication a hinge causes is purely derived — both chunks address the same source blocks (I4), and retrieval suppresses the lower-ranked overlapping result. `off` retains the zero-overlap geometry, but adding the episode representation intentionally creates a new prompt baseline; earlier boundary-only measurements are not presented as same-harness results for this version.
 - Upgrades never rewrite the canonical layer. A new projection strategy, a new index, a new render — all rebuild derived artifacts; the canonical history stands.
@@ -98,7 +98,7 @@ How to actually write a contract is a craft of its own: see [guides/compile-cont
 Four lanes over the same library, increasing in cost:
 
 - **rag** — L1 + L2 in parallel, fused by reciprocal rank; returns hits, no LLM.
-- **fast** — one LLM call over assembled evidence: a glance of the library, L3 claims, and L1/L2 body windows.
+- **fast** — one LLM call over assembled context: a glance of the library, L3 claims, derived L2 episode summaries, and L1/L2 verbatim windows.
 - **deep** — a bounded agentic loop seeded with fast's evidence, with search/fetch/read tools and a forced conclusion when the budget runs out; returns its trail.
 - **briefing** — a byte-stable evidence pack built once on a pinned snapshot, then asked many times.
 
@@ -111,10 +111,20 @@ raw/caption or lexical span always owns the citable result over an episode-only 
 episode may raise its rank, but cannot replace its more precise evidence. Multiple
 representations therefore improve rank without consuming duplicate answer-window slots or
 chaining overlapping episodes into a mega-window. No retrieval path receives a fixed quota.
+Fast then separates cheap breadth from expensive context: the product defaults retrieve up
+to 80 claim candidates and 60 fused source-span candidates, while the final call receives at
+most 40 claims, 24 explicitly derived episode summaries, and 6 verbatim windows. These are
+corpus-agnostic operating values for an interactive personal/team knowledge base, not rules
+about any particular corpus or question category. The summary face keeps the episode description's
+information density; the smaller raw face keeps exact wording and direct verification.
+The fast response echoes all admitted summaries as `used_episode_summaries`, with mechanical
+`derived=true` and `verbatim=false` labels; the Recall UI renders the same metadata and links
+each summary back to its exact L0 span.
 During context assembly, semantic raw/episode spans remain the natural units recorded at
 ingest: they are not expanded a second time, and only genuinely overlapping spans coalesce by
-default. Forward expansion remains available for a bare lexical-only block hit; bridging
-disjoint nearby spans requires an explicit measured override.
+default. A bare lexical-only block hit expands by just one following block by default;
+bridging
+disjoint nearby spans requires an explicit, domain-validated override.
 
 Answering recall never includes original media merely because its model can consume it. The
 query tool owns that cost/attention decision through the enum-list argument
@@ -125,7 +135,7 @@ is omitted, fast keeps labelled caption/OCR representations in text form and no 
 bytes are read. Images outside the selected windows never enter the call, duplicate digests are
 collapsed, and the volatile question remains the final human-message content block.
 
-The fast lane's claim face carries two opt-in stages around its dual-path retrieval (both off by default; the off path is byte-identical). **Planning** (`RECALL_PLAN_QUERIES`): one small call derives extra keyword queries from a multi-aspect question, every query retrieves at full strength, and one RRF fusion pools the union — result-driven multi-round retrieval stays deep's job. **Reranking** (`RECALL_RERANK_MODEL`): a `Reranker` port (core) scores the pooled candidates against the original question and the best `RECALL_CLAIM_CAP` enter the prompt — rank-then-drop, with RRF kept only for dedup, backfill, and the failure fallback. Two providers ship: `llm` (default — the recall-role model pinned to reasoning effort `none`; input-heavy, output-tiny, no extra service) and an OpenRouter `/rerank` endpoint model name (dedicated cross-encoder, billed per search unit). The knob defaults off for a measured reason: on LoCoMo-refined neither provider beat plain capped retrieval — the answering model's own attention over a well-sized claim budget (release default 64, measured sweet band 40–80) is already the effective reranker. Candidate pools are also deduplicated by text containment: an equal or contained claim statement is dropped for the more complete one, which keeps re-filed facts from burning budget slots.
+The fast lane's claim face carries two opt-in stages around its dual-path retrieval (both off by default; the off path is byte-identical). **Planning** (`RECALL_PLAN_QUERIES`): one small call derives extra keyword queries from a multi-aspect question, every query retrieves at full strength, and one RRF fusion pools the union — result-driven multi-round retrieval stays deep's job. **Reranking** (`RECALL_RERANK_MODEL`): a `Reranker` port (core) scores the pooled candidates against the original question and the best `RECALL_CLAIM_CAP` enter the prompt — rank-then-drop, with RRF kept only for dedup, backfill, and the failure fallback. Two providers ship: `llm` (the recall-role model pinned to reasoning effort `none`; input-heavy, output-tiny, no extra service) and an OpenRouter `/rerank` endpoint model name (dedicated cross-encoder, billed per search unit). Reranking is off by default because the ordinary lane already separates a wide candidate pool from a bounded final context; deployments turn it on only after same-harness measurement. Candidate pools are also deduplicated by text containment: an equal or contained claim statement is dropped for the more complete one, which keeps re-filed facts from burning budget slots.
 
 Plus **live context**: given an ongoing conversation window, propose zero or more grounded suggestion cards, filtered through mechanical gates — silence is the norm, not a failure.
 
@@ -162,7 +172,7 @@ Four middleware containers (Postgres, Qdrant, Meilisearch, RustFS) plus two stat
 
 The Git binary is a runtime requirement (the canonical adapter shells out). Async discipline is full-stack: ports and everything touching them are `async`; pure helpers stay sync; unavoidably blocking work (git subprocess, chunking) is wrapped in threads inside adapters.
 
-Model wiring is role-based — compile, recall, deep, skill, evolve, challenge, live-context — each independently configurable, with a single one-hop fallback and a shared default. A `scripted:` model spec replays recorded responses for keyless, deterministic runs; embeddings accept a deterministic `fake:<dim>` for the same purpose. Tracing (Langfuse) is a no-op unless fully configured.
+Model wiring is role-based — compile, recall, answer, deep, skill, evolve, challenge, live-context — each independently configurable, with a single one-hop fallback and a shared default. `recall` owns retrieval planning/glance while `answer` owns only the final fast-answer generation, so quality-first reasoning never taxes every retrieval helper. A `scripted:` model spec replays recorded responses for keyless, deterministic runs; embeddings accept a deterministic `fake:<dim>` for the same purpose. Tracing (Langfuse) is a no-op unless fully configured.
 
 ## 11. The engine directory
 
@@ -183,7 +193,7 @@ engine/                    # its own git repo; one commit per apply
 
 Three properties make it a mechanism rather than a convention:
 
-- **Precedence is fixed at three levels: process env > engine file > framework default.** Explicit environment wins so a benchmark harness can override per run without dirtying the versioned unit; the engine file is the durable truth a person edits. It is enforced at settings assembly — the engine file's values are handed to `Settings` only for keys the environment leaves unstated.
+- **Precedence is fixed at three levels: process env > engine file > framework default.** Explicit environment wins so operators can apply a temporary process-local override without dirtying the versioned unit; the engine file is the durable truth a person edits. It is enforced at settings assembly — the engine file's values are handed to `Settings` only for keys the environment leaves unstated.
 - **Secrets and infrastructure never enter it.** Connection targets, ports and API keys stay in the deployment's environment; every write refuses a dotfile path and API-key-shaped content.
 - **The picture is derived, never drawn.** A machine-readable engine schema (stages, knobs with their defaults and env names, apply semantics, pipeline edges) is generated from `Settings` metadata plus a hand-authored stage map, and a test pins the two in sync — adding a strategy knob without covering it fails the suite.
 

@@ -510,11 +510,11 @@ def test_preflight_catches_project_generated_outside_the_repo(tmp_path):
 
 
 ENGINE_FILES = {
-    "engine.yaml": 'compile: openrouter:openai/x\nrecall: openrouter:openai/x\ndeep: ""\nembedding: openrouter:openai/y\n',
+    "engine.yaml": 'compile: openrouter:openai/x\nrecall: openrouter:openai/x\nanswer: openrouter:openai/x-pro\nanswer_reasoning_effort: high\ndeep: ""\nembedding: openrouter:openai/y\n',
     "intake/intake.yaml": "chunk_strategy: sentence\n",
     "compile/challenge.yaml": "enabled: true\nmax_rounds: 3\nmax_questions: 6\ncompensate: true\n",
     "evolve/evolve.yaml": "auto_trigger: false\ntrigger_topic_docs: 5\ntrigger_new_claims: 30\ndraft_ttl_hours: 24\n",
-    "recall/recall.yaml": 'answer_style: concise\nclaim_cap: 80\nwindow_cap: 8\nplan_queries: 2\nrerank_model: ""\nrerank_candidates: 120\n',
+    "recall/recall.yaml": 'answer_style: concise\nclaim_candidate_cap: 100\nclaim_cap: 50\nwindow_candidate_cap: 70\nepisode_summary_cap: 30\nwindow_cap: 7\nplan_queries: 2\nrerank_model: ""\nrerank_candidates: 120\n',
     "persona/profile.yaml": 'display_name: "T"\n',
 }
 
@@ -538,9 +538,15 @@ def _engine(monkeypatch, tmp_path, files: dict[str, str] | None = None) -> Path:
         "PNEUMA_KNOWLEDGE_CHUNK_STRATEGY",
         "PNEUMA_KNOWLEDGE_EMBEDDING_MODEL",
         "PNEUMA_KNOWLEDGE_RECALL_ANSWER_STYLE",
+        "PNEUMA_KNOWLEDGE_RECALL_CLAIM_CANDIDATE_CAP",
         "PNEUMA_KNOWLEDGE_RECALL_CLAIM_CAP",
+        "PNEUMA_KNOWLEDGE_RECALL_WINDOW_CANDIDATE_CAP",
+        "PNEUMA_KNOWLEDGE_RECALL_EPISODE_SUMMARY_CAP",
+        "PNEUMA_KNOWLEDGE_RECALL_WINDOW_CAP",
         "PNEUMA_KNOWLEDGE_LLM_MODEL_COMPILE",
         "PNEUMA_KNOWLEDGE_LLM_MODEL_RECALL",
+        "PNEUMA_KNOWLEDGE_LLM_MODEL_ANSWER",
+        "PNEUMA_KNOWLEDGE_ANSWER_REASONING_EFFORT",
         "PNEUMA_KNOWLEDGE_LLM_MODEL_DEEP",
         "PNEUMA_KNOWLEDGE_PROMPT_LANGUAGE",
     ):
@@ -560,12 +566,18 @@ def test_build_settings_resolves_strategy_from_the_engine_directory(monkeypatch,
     assert settings.engine_dir == str(tmp_path / "engine")
     assert settings.chunk_strategy == "sentence"
     assert settings.recall_answer_style == "concise"
-    assert settings.recall_claim_cap == 80
+    assert settings.recall_claim_candidate_cap == 100
+    assert settings.recall_claim_cap == 50
+    assert settings.recall_window_candidate_cap == 70
+    assert settings.recall_episode_summary_cap == 30
+    assert settings.recall_window_cap == 7
     assert settings.recall_plan_queries == 2
     assert settings.challenge_enabled is True
     assert settings.challenge_max_rounds == 3
     assert settings.evolve_auto_trigger is False
     assert settings.llm_model_compile == "openrouter:openai/x"
+    assert settings.llm_model_answer == "openrouter:openai/x-pro"
+    assert settings.answer_reasoning_effort == "high"
     assert settings.embedding_model == "openrouter:openai/y"
     # `deep` empty in the engine file means "answer deep questions with the recall model".
     assert settings.llm_model_deep == "openrouter:openai/x"

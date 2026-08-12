@@ -213,7 +213,11 @@ Then ask 2–3 questions they actually care about with `./app.py ask '…' --sou
 
 When there's too much material to question by hand, the coverage challenge can serve as a first sieve: set `enabled: true` in `engine/compile/challenge.yaml`, and every committed compile then blind-generates questions, audits the canon for gaps, and compensates for what the material actually supports (writes still pass the gate). It does not replace looking together — it audits "was the recordable recorded"; whether the modelling is right still takes human eyes.
 
-**One experiment at a time, and measure it.** When you want to try a retrieval setting rather than decide it, the environment overrides the engine file for exactly one run — `PNEUMA_KNOWLEDGE_RECALL_CLAIM_CAP=128 ./app.py ask '…'` — so you can compare two answers without touching a versioned file. Write the winner into `engine/recall/recall.yaml` and commit it; leave the loser out. That split (environment for measuring, engine file for deciding) is what keeps the history a record of decisions instead of a record of fiddling.
+**Use the recall layers to fix the actual failure, not to mask it.** Candidate caps are cheap search breadth (`claim_candidate_cap`, `window_candidate_cap`). Final context is three deliberately different faces: compiled `claim_cap`, dense `episode_summary_cap`, and exact `window_cap`. An episode summary is generated L2 content, not a quotation: the answer sees it under an explicit `derived episode summaries` heading with source title, occurrence time, section and exact block span. A small raw-window budget is therefore intentional — summaries carry broad meaning, raw windows carry exact wording.
+
+The Recall view shows the claims, derived episode summaries, and verbatim excerpts actually supplied for each answer. Use that ledger with `./app.py ask '…' --sources`: do not infer a retrieval failure from the final prose alone.
+
+Diagnose from the user's symptom. If a relevant episode is absent altogether, inspect semantic indexing and candidate breadth. If the summary finds the right event but the answer lacks an exact number or phrase, admit a little more verbatim context. If answers are noisy, reduce final claims/summaries/windows before narrowing the search pool. If no episode summaries exist, changing `episode_summary_cap` cannot create them: use semantic chunking and rebuild the derived layer. If the right facts consistently land under the wrong subjects, fix the compile contract — recall settings cannot repair a bad knowledge model.
 
 **Done when**: within two or three rounds the library "looks right" — that's delivery.
 
@@ -277,9 +281,9 @@ contract instead.
   Answers follow the engine's answer-style preset (`answer_style` in
   `engine/recall/recall.yaml`, or per ask with `--style`): `concise` = the bare exact value,
   `conversational` = a natural chat reply (default), `detailed` = a self-contained written
-  note. Pick for the consumer of the answers — a person chatting wants `conversational`; a
-  script, grader, or benchmark judge that expects the exact short answer wants `concise`;
-  written digests want `detailed`. Style never changes the truth discipline, only the shape.
+  note. Pick for the consumer of the answers — a person chatting wants `conversational`; an
+  API client or automation that expects one compact value wants `concise`; written digests
+  want `detailed`. Style never changes the truth discipline, only the shape.
   Original media is query-local and off by default: add `--include-original image` only when
   the question requires direct visual inspection (objects, colours, text, layout). Tool/API
   callers make the same choice with `include_original_modalities: ["image"]`; textual facts

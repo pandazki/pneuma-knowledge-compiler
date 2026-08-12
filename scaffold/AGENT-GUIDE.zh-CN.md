@@ -207,7 +207,11 @@ git -C engine add -A && git -C engine commit -m "contract: <改了什么，用�
 
 材料多、人工问不过来时，可以开覆盖挑战当第一道筛子：把 `engine/compile/challenge.yaml` 里的 `enabled` 改成 `true`，之后每次编译落地都会自动盲出题、对照册面判缺口、把材料确实支持的补编进去（写入照样过闸门）。它替代不了你们一起看——它审计的是「该记的记没记」，建模对不对仍要人判。
 
-**一次只做一个实验，而且要量。** 想试某个检索设置而不是拍板定下它时，环境变量可以只为这一次运行盖过引擎文件——`PNEUMA_KNOWLEDGE_RECALL_CLAIM_CAP=128 ./app.py ask '…'`——于是你能比较两个答案而完全不碰被版本化的文件。赢的那个写进 `engine/recall/recall.yaml` 并提交，输的那个不写。这条分工（环境变量用来量，引擎文件用来定）正是让历史成为一份决定的记录、而不是一份瞎调的记录的原因。
+**用召回各层修真正的问题，不要拿参数掩盖它。** 候选上限是廉价的搜索广度（`claim_candidate_cap`、`window_candidate_cap`）；最终上下文则明确分成三面：已编译的 `claim_cap`、高密度 `episode_summary_cap` 与精确逐字 `window_cap`。episode 摘要是生成的 L2 内容，不是引文：回答模型会在明确的「派生 episode 摘要」章节里看到它，并同时拿到来源标题、发生时间、章节和精确块区间。因此较小的原文窗口预算是有意的——摘要负责宽泛语义，原文负责精确措辞。
+
+Recall 页会列出每次回答实际收到的 claims、派生 episode 摘要和逐字原文。把这份账本和 `./app.py ask '……' --sources` 一起看；不要只凭最终回答文案猜是不是召回丢了。
+
+从用户遇到的症状开始诊断。相关 episode 完全没出现，就查 semantic indexing 与候选广度；摘要已经找对事件、回答却缺精确数字或措辞，就多准入一点逐字上下文；答案太吵，先收紧最终 claims／摘要／原文，不要先砍搜索池；根本没有 episode 摘要时，调高 `episode_summary_cap` 也不会凭空生成它——应启用 semantic chunking 并重建派生层；正确事实持续落在错误主体下时，改 compile contract，recall 参数修不了坏掉的知识模型。
 
 **完成标志**：两三轮内库会「看着对了」，那就是交付。
 
@@ -259,7 +263,7 @@ git -C engine add -A && git -C engine commit -m "contract: <改了什么，用�
   回答遵循引擎的输出风格预设（`engine/recall/recall.yaml` 里的 `answer_style`，
   或逐次用 `--style` 覆盖）：`concise` = 只给所问的精确值，`conversational` = 自然
   对话式回答（默认），`detailed` = 自成一体的书面纪要。按答案的消费方来选——人在
-  聊天用 `conversational`；脚本、判分器或评测判官期待精确短答案时用 `concise`；
+  聊天用 `conversational`；API 客户端或自动化流程只需要一个紧凑值时用 `concise`；
   书面纪要用 `detailed`。风格只改形态，永远不改真实性纪律。
   原始媒体是逐次查询的选择，默认关闭：只在问题必须直接视觉核验（物体、颜色、文字、布局）
   时加 `--include-original image`。tool/API 调用方用同一选择

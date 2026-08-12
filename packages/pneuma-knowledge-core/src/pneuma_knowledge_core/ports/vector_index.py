@@ -24,6 +24,7 @@ class SemanticChunk(Protocol):
     text: str
     embedding: list[float]
     representation: Literal["raw", "episode"]
+    episode_summary_text: str
 
 
 class SemanticHit(Protocol):
@@ -35,6 +36,7 @@ class SemanticHit(Protocol):
     text: str
     score: float
     representation: Literal["raw", "episode"]
+    episode_summary_text: str
 
 
 class VectorIndex(Protocol):

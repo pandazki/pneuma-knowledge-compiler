@@ -11,12 +11,18 @@ from typing import Any
 from pneuma_knowledge_core.domain.ids import UserId, SourceId
 from pneuma_knowledge_core.domain.source import BlockImage, NormalizedSource
 from pneuma_knowledge_core.recall.fast import (
+    DEFAULT_CLAIM_CANDIDATE_CAP,
+    DEFAULT_CLAIM_CAP,
+    DEFAULT_EPISODE_SUMMARY_CAP,
+    DEFAULT_WINDOW_CANDIDATE_CAP,
+    DEFAULT_WINDOW_CAP,
     RecallImage,
     retrieve_claims,
     selector_contract,
     fast_recall,
     selector_messages,
 )
+from pneuma_knowledge_core.recall.rag import EpisodeSummarySignal, RecallHit
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
@@ -93,6 +99,14 @@ def _model(answer: str) -> GenericFakeChatModel:
 
 
 _USER = UserId("u-fast")
+
+
+def test_generic_fast_defaults_separate_candidate_recall_from_answer_evidence():
+    assert DEFAULT_CLAIM_CANDIDATE_CAP == 80
+    assert DEFAULT_CLAIM_CAP == 40
+    assert DEFAULT_WINDOW_CANDIDATE_CAP == 60
+    assert DEFAULT_EPISODE_SUMMARY_CAP == 24
+    assert DEFAULT_WINDOW_CAP == 6
 
 
 async def test_zero_claim_budget_short_circuits_both_indexes_and_embedding():
@@ -199,6 +213,110 @@ async def test_windows_surface_when_claims_irrelevant_the_jack_regression():
     # claims were empty, yet the body carried the answer.
     assert result.used_claims == ()
     assert result.answer == "张三"
+
+
+async def test_episode_summaries_reach_answer_with_metadata_beside_fewer_verbatim_windows(
+    monkeypatch,
+):
+    candidates = [
+        RecallHit(
+            source_id=SourceId(f"src-{index}"),
+            block_start=index,
+            block_end=index,
+            text=f"verbatim-{index}",
+            paths=("vector",),
+            score=1.0 - index / 100,
+            representations=("raw", "episode"),
+            episode_summaries=(
+                EpisodeSummarySignal(
+                    source_id=SourceId(f"src-{index}"),
+                    block_start=index,
+                    block_end=index,
+                    text=(
+                        f"[episode title] Episode {index}\n"
+                        f"[episode description] Dense factual summary {index}"
+                    ),
+                ),
+            ),
+        )
+        for index in range(10)
+    ]
+    seen: dict[str, Any] = {}
+
+    async def fake_retrieve_windows(*args, **kwargs):  # noqa: ANN002, ANN003
+        seen["retrieval_limit"] = kwargs["limit"]
+        return candidates[: kwargs["limit"]]
+
+    from pneuma_knowledge_core.recall import fast as fast_module
+
+    monkeypatch.setattr(fast_module, "retrieve_windows", fake_retrieve_windows)
+
+    sources = {
+        f"src-{index}": NormalizedSource.model_validate(
+            {
+                "raw": {
+                    "source_id": f"src-{index}",
+                    "user_id": str(_USER),
+                    "kind": "im",
+                    "origin": "mock",
+                    "title": f"Conversation {index}",
+                    "mime": "application/json",
+                    "checksum": f"fixture-{index}",
+                    "created_at": "2026-07-20T12:00:00Z",
+                    "meta": {"occurred_on": f"2026-07-{index + 1:02d}"},
+                },
+                "blocks": [
+                    {
+                        "index": index,
+                        "text": f"verbatim-{index}",
+                        "section_path": ["session", str(index)],
+                    }
+                ],
+                "structure": {"sections": []},
+            }
+        )
+        for index in range(10)
+    }
+
+    class Content:
+        async def get(self, user_id, source_id):  # noqa: ANN001
+            return sources[str(source_id)]
+
+    class AnswerModel(GenericFakeChatModel):
+        async def ainvoke(self, messages, *args, **kwargs):  # noqa: ANN001, ANN002
+            seen["answer_human"] = messages[1].content
+            return AIMessage(content="answer")
+
+    result = await fast_recall(
+        _USER,
+        "Which episode matters?",
+        as_of=datetime(2026, 7, 20, 12, 0, 0),
+        claim_lexical=FakeClaimIndex([]),
+        claim_vectors=FakeClaimIndex([]),
+        lexical=FakeLexical([]),
+        vectors=FakeVector([]),
+        embeddings=FakeEmbeddings(),
+        model=AnswerModel(messages=iter(())),
+        answer_model=AnswerModel(messages=iter(())),
+        content=Content(),
+        window_candidate_cap=10,
+        episode_summary_cap=4,
+        window_cap=2,
+    )
+
+    assert seen["retrieval_limit"] == 10
+    assert "# derived episode summaries (4)" in seen["answer_human"]
+    for index in range(4):
+        assert f"Dense factual summary {index}" in seen["answer_human"]
+        assert f"Conversation {index}" in seen["answer_human"]
+        assert f"2026-07-{index + 1:02d}" in seen["answer_human"]
+    assert "Dense factual summary 4" not in seen["answer_human"]
+    assert [str(window.source_id) for window in result.used_windows] == ["src-0", "src-1"]
+    assert "verbatim-0" in seen["answer_human"]
+    assert "verbatim-1" in seen["answer_human"]
+    assert "verbatim-2" not in seen["answer_human"]
+    assert len(result.used_episode_summaries) == 4
+    assert result.window_candidates == 10
 
 
 async def test_native_images_aligned_to_recalled_windows_reach_the_answer_model():
@@ -457,6 +575,30 @@ async def test_reasoning_effort_rides_extra_body_on_answer_call_only():
     assert _KwargRecordingModel.recorded[0].get("extra_body") == {
         "reasoning": {"effort": "xhigh"}
     }
+
+
+async def test_dedicated_answer_model_receives_only_the_final_answer_call():
+    """A cheap recall model may serve planning/glance while a quality-first model serves
+    only the final answer. With auxiliary passes off, the recall model is never invoked."""
+    recall_model = GenericFakeChatModel(messages=iter([AIMessage(content="wrong model")]))
+    answer_model = _recording_model("answer model")
+
+    result = await fast_recall(
+        _USER,
+        "q",
+        as_of=datetime(2026, 7, 20, 12, 0, 0),
+        claim_lexical=FakeClaimIndex([ClaimStub("aaaa", "p1", "x")]),
+        claim_vectors=FakeClaimIndex([]),
+        embeddings=FakeEmbeddings(),
+        model=recall_model,
+        answer_model=answer_model,
+        reasoning_effort="high",
+    )
+
+    assert result.answer == "answer model"
+    assert _KwargRecordingModel.recorded == [
+        {"extra_body": {"reasoning": {"effort": "high"}}}
+    ]
 
 
 async def test_reasoning_effort_never_reaches_the_glance_pass():

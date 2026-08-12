@@ -83,6 +83,10 @@ DEMO_MATERIAL = (
 DEFAULT_MODELS = {
     "compile": "openrouter:openai/gpt-5.6-luna",
     "recall": "openrouter:openai/gpt-5.6-luna",
+    # Pro mode and high reasoning are reserved for the final answer; the high-volume recall
+    # helpers stay on standard Luna.
+    "answer": "openrouter:openai/gpt-5.6-luna-pro",
+    "answer_reasoning_effort": "high",
     "embedding": "openrouter:openai/text-embedding-3-small",
     # The agentic deep-search lane defaults to the stronger sibling: it reasons across
     # multiple retrieval rounds, where the model tier is worth its price.
@@ -188,7 +192,9 @@ reference = ""             # e.g. "personal-knowledge@v2" (list with ./init.py -
 
 [models]
 compile = "openrouter:openai/gpt-5.6-luna"        # compile model (must support tool calling; the quality lever)
-recall = "openrouter:openai/gpt-5.6-luna"         # Q&A model (fast and cheap is fine)
+recall = "openrouter:openai/gpt-5.6-luna"         # retrieval planning/glance model
+answer = "openrouter:openai/gpt-5.6-luna-pro"     # final answer only (pro reasoning mode)
+answer_reasoning_effort = "high"                  # explicit for reproducible answer quality
 embedding = "openrouter:openai/text-embedding-3-small"
 deep = "openrouter:openai/gpt-5.6-terra"  # deep-recall (agentic) model; empty falls back to recall
 
@@ -200,11 +206,11 @@ semantic_overlap = "smart" # semantic only: smart = neighbouring segments may sh
 challenge_enabled = false  # post-compile coverage challenge (extra model calls per compile)
 compile_image_mode = "auto" # auto = use model profile | native = send image blocks |
                            # caption = labelled caption/OCR text only
-answer_style = "conversational"  # how Q&A answers read: concise = the bare exact answer
-                           # (graders/scripts) | conversational = natural chat reply |
+answer_style = "conversational"  # how Q&A answers read: concise = one compact value
+                           # for API/automation consumers | conversational = natural chat reply |
                            # detailed = self-contained written note
-prompt_language = "en"     # language of the FRAMEWORK's own prompts: en (the measured
-                           # baseline) | zh (Chinese language pack). Not the language your
+prompt_language = "en"     # language of the FRAMEWORK's own prompts: en (default) |
+                           # zh (Chinese language pack). Not the language your
                            # library is written in — that follows the owner profile.
 """
 
@@ -506,7 +512,7 @@ def make_env_text(config: dict, ports: dict[str, int], compose_project: str, rep
             "# and your profile all live in engine/ — this project's own versioned unit (see",
             "# engine/README.md). This file holds only the key and this machine's infrastructure.",
             "# app.py loads it into the process environment, so a PNEUMA_KNOWLEDGE_* strategy key",
-            "# placed here would outrank the engine file — use it for one-off experiments only.",
+            "# placed here would outrank the engine file — reserve that for temporary operations.",
             "",
             "# OpenRouter API key (https://openrouter.ai/keys)",
             f"OPENROUTER_API_KEY={config['api_key']}",
@@ -623,12 +629,16 @@ def engine_files(config: dict, contract: str, profile: str) -> dict[str, str]:
 #
 # Precedence for every key in this directory: process environment > this file > framework
 # default. The matching variables here are PNEUMA_KNOWLEDGE_LLM_MODEL_COMPILE / _RECALL /
-# _DEEP and PNEUMA_KNOWLEDGE_EMBEDDING_MODEL.
+# _ANSWER / _DEEP, PNEUMA_KNOWLEDGE_ANSWER_REASONING_EFFORT and
+# PNEUMA_KNOWLEDGE_EMBEDDING_MODEL.
 compile: {models["compile"]}
 # How images reach the compile model: native sends real image content blocks; caption sends
 # only labelled caption/OCR text; auto trusts the active model profile.
 image_mode: {config["compile_image_mode"]}
 recall: {models["recall"]}
+# Retrieval helpers stay cheap; only the final answer uses the quality-first role below.
+answer: {models["answer"]}
+answer_reasoning_effort: {models["answer_reasoning_effort"]}
 # Deep recall (the agentic search lane). Empty borrows the recall role.
 deep: {deep if deep else '""'}
 # A vector collection's dimension is fixed when it is created, so switching to a model of a
@@ -637,7 +647,7 @@ embedding: {models["embedding"]}
 """,
         "intake/intake.yaml": f"""\
 # How material becomes the semantic units the vector index searches. Citable unit text is
-# always a verbatim slice; derived titles/descriptions affect embedding only.
+# always a verbatim slice; derived titles/descriptions form a separate dense L2 context face.
 #
 #   semantic  one compile-role call returns topic/episode boundaries plus a grounded title
 #             and description for each episode. Costs one small model call per source.
@@ -655,8 +665,8 @@ chunk_strategy: {config["chunk_strategy"]}
 #             to share is judged per boundary, never a fixed stride, and at most three
 #             blocks: that ceiling is what keeps "every segment is the whole document" out
 #             of reach rather than merely discouraged.
-#   off       the original zero-overlap cut. Every measurement of semantic chunking so far
-#             was taken this way, so it stays here as the A/B baseline.
+#   off       a zero-overlap cut for domains where every block must belong to exactly one
+#             semantic segment.
 semantic_overlap: "{config["semantic_overlap"]}"
 """,
         "compile/contract.md": contract,
@@ -693,22 +703,27 @@ draft_ttl_hours: 24
 # Answering. Style is shape only — the truth discipline (citations, no invention, an honest
 # "the material does not say") is the same in all three.
 #
-#   concise        the bare exact value a grader or a script expects
+#   concise        one compact value for an API client or automation
 #   conversational a natural chat reply
 #   detailed       a self-contained written note
 #
 # Override for one question: ./app.py ask '...' --style concise
 answer_style: {config["answer_style"]}
 
-# Retrieval budget per question: how many compiled claims and how many raw source windows
-# may enter the prompt.
-claim_cap: 64
-window_cap: 8
+# Retrieval breadth is cheap; answer evidence is expensive. Candidate caps search a broad
+# lexical/semantic tail. Up to 24 dense episode summaries enter as explicitly derived,
+# source-addressed context; six exact raw spans remain beside them for verbatim evidence.
+claim_candidate_cap: 80
+claim_cap: 40
+window_candidate_cap: 60
+episode_summary_cap: 24
+window_cap: 6
 # 0 = one query per question. N > 0 spends one small model call to derive up to N extra
 # retrieval queries, pooled into one ranking — worth it for multi-part questions.
 plan_queries: 0
-# Empty = no reranking (measured: no gain on claim-level retrieval). "llm" reranks with the
-# recall model; a bare model name uses OpenRouter's /rerank endpoint.
+# Empty = no reranking. Configure it only when validation on your own domain shows that
+# relevance order needs a second-stage scorer. "llm" uses the recall model; a bare model
+# name uses OpenRouter's /rerank endpoint.
 rerank_model: ""
 rerank_candidates: 120
 """,
@@ -719,9 +734,8 @@ rerank_candidates: 120
 # the models are told without forking anything.
 #
 # `language` picks which language the FRAMEWORK's own clauses arrive in — the layer your
-# overrides below sit on. en = the English catalog, the baseline every measurement in the
-# framework repository was taken on; zh = the shipped Chinese language pack, for readability
-# and Chinese material, with scoring equivalence unverified. It does NOT decide what language
+# overrides below sit on. en = the default English catalog; zh = the shipped Chinese language
+# pack, for readability and Chinese material. It does NOT decide what language
 # this library is written in: that follows the owner profile's declared language.
 language: {config["prompt_language"]}
 #
@@ -1072,8 +1086,7 @@ def interactive(preset_lang: str | None) -> dict:
     say(dim("  The generated README / contract guidance can be Chinese or English."))
     lang = preset_lang or ("zh" if ask("1) 中文  2) English", "2") == "1" else "en")
     say(dim("  The prompts the MODELS read are a separate knob (engine/prompts/overlays.yaml,"))
-    say(dim("  `language`) and stay English by default — that is the measured baseline; a"))
-    say(dim("  Chinese pack ships too."))
+    say(dim("  `language`) and stay English by default; a Chinese pack ships too."))
     echo_choice("language", "中文" if lang == "zh" else "English")
 
     header(3, total, "Owner")
@@ -1107,8 +1120,8 @@ def interactive(preset_lang: str | None) -> dict:
             echo_choice("data", "empty for now")
 
     header(5, total, "Answer style")
-    say(dim("  How Q&A answers read. 1) concise — the bare exact answer (for graders and"))
-    say(dim("  scripts)  2) conversational — a natural chat reply (default)  3) detailed —"))
+    say(dim("  How Q&A answers read. 1) concise — one compact value for API/automation"))
+    say(dim("  consumers  2) conversational — a natural chat reply (default)  3) detailed —"))
     say(dim("  a self-contained written note. Changeable later in engine/recall/recall.yaml"))
     say(dim("  (or the Engine Console), and per question with ./app.py ask --style."))
     style_pick = ask("Answer style (1/2/3)", "2").strip()
@@ -1120,7 +1133,7 @@ def interactive(preset_lang: str | None) -> dict:
     header(6, total, "Models & key")
     say(dim("  Everything runs through OpenRouter with one key. The compile model is the only"))
     say(dim("  quality lever — defaults are sensible, and engine/engine.yaml is where you change"))
-    say(dim("  the four model roles later (the Engine Console edits the same file)."))
+    say(dim("  the model roles later (the Engine Console edits the same file)."))
     echo_choice("models", f"compile/recall {DEFAULT_MODELS['compile'].split(':', 1)[1]}, embeddings {DEFAULT_MODELS['embedding'].split(':', 1)[1]}")
     try:
         api_key = getpass.getpass("  OpenRouter API key (hidden; Enter to skip — .env holds the key) > ").strip()

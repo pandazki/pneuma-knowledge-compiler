@@ -2501,6 +2501,33 @@ SURFACES: tuple[Surface, ...] = (
         kind=FRAGMENTS,
     ),
     Surface(
+        id="recall.fast_episode_summaries",
+        group="recall",
+        title_en="Derived episode summaries",
+        title_zh="派生 episode 摘要",
+        summary_en=(
+            "Dense episode descriptions enter answer context as explicitly derived summaries "
+            "with source title, occurrence time, section, and exact source span."
+        ),
+        summary_zh=(
+            "高密度 episode 描述以明确标注的派生摘要进入回答上下文，并带来源标题、发生时间、"
+            "章节和精确源区间。"
+        ),
+        segments=(
+            f(
+                "recall.section.episode_summaries_header",
+                "The section header states plainly that these entries are derived episode summaries.",
+                "章节标题明确声明这些条目是派生 episode 摘要。",
+            ),
+            f(
+                "recall.fast.episode_summary.item",
+                "One derived summary with source metadata and its exact citable block span.",
+                "一条带来源元数据和精确可引用块区间的派生摘要。",
+            ),
+        ),
+        kind=FRAGMENTS,
+    ),
+    Surface(
         id="recall.fast_plan",
         group="recall",
         title_en="Retrieval planning pass",

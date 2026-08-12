@@ -114,7 +114,7 @@ def _expand_one(
     # older generic assembly default predates those representations and expanded every hit
     # five blocks forward, turning an exact two-block episode into most of a chat session.
     # Keep forward context only for a lexical-only block hit, which is the case expansion
-    # was designed to rescue in the first place. Empty representation metadata is the legacy
+    # was designed to handle in the first place. Empty representation metadata is the legacy
     # and hand-built-test shape, so it keeps the historical lexical expansion behavior.
     if hit.representations and any(
         representation in {"raw", "episode"}
@@ -151,7 +151,7 @@ async def expand_and_merge(
     *,
     content: ContentStore | None,
     user_id: UserId,
-    forward_blocks: int = 5,
+    forward_blocks: int = 1,
     forward_char_budget: int = 700,
     max_passage_chars: int = 2500,
     per_source_cap: int = 3,

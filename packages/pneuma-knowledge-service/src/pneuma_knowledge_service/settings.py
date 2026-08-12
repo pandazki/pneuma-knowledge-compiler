@@ -200,13 +200,15 @@ class Settings(BaseSettings):
     rollover_threshold_chars: int = 40_000
     rollover_keep_recent_chars: int = 12_000
 
-    # Fast-recall retrieval budget (PNEUMA_KNOWLEDGE_RECALL_CLAIM_CAP / _RECALL_WINDOW_CAP).
-    # How many claims and body windows one fast_recall ask may pull into the prompt. The
-    # defaults mirror the core constants (DEFAULT_CLAIM_CAP / DEFAULT_WINDOW_CAP) so an
-    # unset deployment behaves byte-for-byte as before; benchmark harnesses raise them to
-    # measure where retrieval saturates instead of patching core constants.
-    recall_claim_cap: int = 64
-    recall_window_cap: int = 8
+    # Fast-recall candidate breadth vs final evidence. Candidate caps are cheap index depth;
+    # answer caps bound model context. Episode-summary cap is the dense derived-context
+    # boundary; every summary remains explicitly labelled and source-addressed. These are
+    # generic product defaults, not benchmark-specific rules.
+    recall_claim_candidate_cap: int = 80
+    recall_claim_cap: int = 40
+    recall_window_candidate_cap: int = 60
+    recall_episode_summary_cap: int = 24
+    recall_window_cap: int = 6
 
     # Fast-recall retrieval planning (PNEUMA_KNOWLEDGE_RECALL_PLAN_QUERIES). 0 = off
     # (byte-for-byte the single-query lane). N > 0: one small call on the recall model
@@ -249,11 +251,19 @@ class Settings(BaseSettings):
 
     # Default / fallback chat model. Per-operation routing below overrides it when set.
     llm_model: str = "openai:gpt-4o-mini"
-    # Per-operation model routing (PNEUMA_KNOWLEDGE_LLM_MODEL_COMPILE / _RECALL / _DEEP / _SKILL).
+    # Per-operation model routing (PNEUMA_KNOWLEDGE_LLM_MODEL_COMPILE / _RECALL / _ANSWER /
+    # _DEEP / _SKILL).
     # Empty → falls back to llm_model, so scripted-model tests (which set llm_model only)
     # keep routing everything to the scripted model. See docs/reference/observability.md.
     llm_model_compile: str = ""  # compile agent
-    llm_model_recall: str = ""  # fast recall + briefing ask
+    llm_model_recall: str = ""  # retrieval planning/glance + briefing ask
+    # Final fast-answer generation. Empty borrows recall, preserving existing deployments.
+    llm_model_answer: str = ""
+    # Empty preserves provider defaults. A generated engine states this explicitly so an
+    # evaluation does not silently change when a provider changes its default.
+    answer_reasoning_effort: Literal[
+        "", "none", "minimal", "low", "medium", "high", "xhigh", "max"
+    ] = ""
     llm_model_deep: str = ""  # deep recall (agentic search)
     llm_model_skill: str = ""  # skill synthesis (future)
     llm_model_evolve: str = ""  # schema evolve (phase-1 propose + phase-2 reorganize)

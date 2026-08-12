@@ -6,6 +6,7 @@ import {
   recall,
   recallAnswer,
   recallDeepStream,
+  type EpisodeSummary,
   type RecallAnswer,
   type RecallHit,
   type TokenUsage,
@@ -391,6 +392,51 @@ function UsedClaimRow({
   );
 }
 
+function EpisodeSummaryRow({
+  summary,
+  onJump,
+}: {
+  summary: EpisodeSummary;
+  onJump: (c: CitationEntry) => void;
+}) {
+  const t = useT();
+  const citation = {
+    sourceId: summary.source_id,
+    blockStart: summary.block_start,
+    blockEnd: summary.block_end,
+    title: summary.source_title,
+    snippet: summary.text.slice(0, 160),
+  };
+  return (
+    <div className="border-b border-line py-3">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <Badge>{t("recall.episodeSummaries.derived")}</Badge>
+        <span className="text-13 font-medium text-ink">
+          {summary.source_title || summary.source_id}
+        </span>
+        <Mono className="text-12 text-ink-3">{summary.source_id}</Mono>
+        <Mono className="text-12 text-ink-3">
+          b{summary.block_start}–b{summary.block_end}
+        </Mono>
+        {summary.source_occurred_on && (
+          <Mono className="text-12 text-ink-3">{summary.source_occurred_on}</Mono>
+        )}
+        {summary.section_path.length > 0 && (
+          <span className="text-12 text-ink-3">{summary.section_path.join(" / ")}</span>
+        )}
+        <Mono className="ml-auto text-12 text-ink-3">score {summary.score.toFixed(4)}</Mono>
+      </div>
+      <button
+        type="button"
+        onClick={() => onJump(citation)}
+        className="prose mt-1 block max-w-measure text-left text-14 text-ink-2 transition-colors duration-120 hover:text-ink"
+      >
+        {summary.text}
+      </button>
+    </div>
+  );
+}
+
 function AnswerPanel({
   answer,
   titles,
@@ -402,6 +448,7 @@ function AnswerPanel({
 }) {
   const t = useT();
   const trail = answer.trail ?? [];
+  const episodeSummaries = answer.used_episode_summaries ?? [];
   const windows = answer.used_windows ?? [];
   return (
     <div className="flex flex-col gap-6">
@@ -448,9 +495,30 @@ function AnswerPanel({
         </section>
       )}
 
+      {episodeSummaries.length > 0 && (
+        <section>
+          <SectionRule
+            no={3}
+            title={t("recall.episodeSummaries.title", { count: episodeSummaries.length })}
+          />
+          <p className="mt-2 text-12 text-ink-3">
+            {t("recall.episodeSummaries.description")}
+          </p>
+          <div className="mt-2 border-t border-line">
+            {episodeSummaries.map((summary, index) => (
+              <EpisodeSummaryRow
+                key={`${summary.source_id}:${summary.block_start}:${summary.block_end}:${index}`}
+                summary={summary}
+                onJump={onJump}
+              />
+            ))}
+          </div>
+        </section>
+      )}
+
       {windows.length > 0 && (
         <section>
-          <SectionRule no={3} title={t("recall.windows.title", { count: windows.length })} />
+          <SectionRule no={4} title={t("recall.windows.title", { count: windows.length })} />
           <p className="mt-2 text-12 text-ink-3">{t("recall.windows.description")}</p>
           <div className="mt-2">
             <HitList hits={windows} titles={titles} onJump={onJump} />

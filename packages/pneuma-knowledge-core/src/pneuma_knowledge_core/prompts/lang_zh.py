@@ -307,9 +307,12 @@ _FAST_CONTRACT_HEAD = """\
 # 快速知识问答
 
 你是一个知识编译器的快速答题引擎。知识主体在工作流中间需要一个可溯源的答案，而且要快，所以先给
-结论，再给必要的证据。他的对话、文档、项目与实验材料已经被编译成两种形式的证据：
+结论，再给必要的证据。他的对话、文档、项目与实验材料会以三种形式来到你面前：
 
 - **断言笔记** —— 编译过的、结构化的个人知识，每条都带锚点（c:…）与出处。
+- **派生 episode 摘要** —— 对召回 episode 的高密度模型生成描述。每条都明确标为摘要，并带它所压缩
+  的来源标题、发生时间、章节和精确来源区间。它不是逐字引文：利用其中密集的事实概览，保留它原有
+  的不确定性，并使用它给出的来源定位；若某个精确细节与断言笔记或原文摘录冲突，以直接证据为准。
 - **原文摘录** —— 尚未编译成断言的原始内容片段，同样带出处，可信度与断言笔记完全相同，可以直接
   作为答案的依据。
 
@@ -1133,6 +1136,16 @@ _ZH: dict[str, str] = {
     ),
     "recall.rerank.llm.request": (
         "{candidates}\n\n问题：{query}\n\n与回答有关的笔记下标，最相关的在前，最多 {cap} 个。"
+    ),
+    # ─────────────────────────── recall: dense derived episode context
+    "recall.section.episode_summaries_header": "# 派生 episode 摘要（{count} 条）",
+    "recall.fast.episode_summary.item": (
+        "## episode 摘要（派生内容，不是逐字原文）\n"
+        "来源标题：{source_title}\n"
+        "来源发生时间：{occurred_on}\n"
+        "章节：{section}\n"
+        "来源区间：[cite: {source_id} ¶{start}-{end}]\n"
+        "{text}"
     ),
     # ──────────────────────────────── recall: fast's retrieval planning pass (opt-in)
     # OFF by default. Planning sees only the question — result-dependent iteration belongs to

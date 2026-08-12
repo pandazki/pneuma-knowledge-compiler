@@ -561,8 +561,8 @@ def keyless_env(env) -> list[str]:
 
 
 def require_models(*, require_key: bool = True) -> dict[str, str]:
-    """The four model roles as the engine resolves them, or a loud exit naming what is
-    missing. `deep` empty legitimately borrows the recall role.
+    """The model roles as the engine resolves them, or a loud exit naming what is
+    missing. `answer` and `deep` may legitimately borrow the recall role.
 
     `require_key=False` is for the paths that call no chat model at all (restore, status,
     glance): there, blank roles are the configuration, not an error."""
@@ -582,6 +582,7 @@ def require_models(*, require_key: bool = True) -> dict[str, str]:
             + "\n  ".join(missing)
             + "\nModels live in engine/engine.yaml; the key lives in .env. See README.md."
         )
+    roles["answer"] = str(values.get("models.answer") or "").strip() or roles["recall"]
     roles["deep"] = str(values.get("models.deep") or "").strip() or roles["recall"]
     return roles
 
@@ -1284,6 +1285,7 @@ async def _ask(
         uid = UserId(user_id())
         started = time.perf_counter()
         recall_model = ctx.get_chat_model("recall")
+        answer_model = ctx.get_chat_model("answer")
         include_original_images = "image" in include_original_modalities
         answer = await fast_recall(
             uid,
@@ -1298,21 +1300,39 @@ async def _ask(
             image_mode="native" if include_original_images else "caption",
             embeddings=ctx.embeddings,
             model=recall_model,
+            answer_model=answer_model,
             cap=settings.recall_claim_cap,
+            claim_candidate_cap=settings.recall_claim_candidate_cap,
             window_cap=settings.recall_window_cap,
+            window_candidate_cap=settings.recall_window_candidate_cap,
+            episode_summary_cap=settings.recall_episode_summary_cap,
             answer_style=style or settings.recall_answer_style,
             plan_queries_cap=settings.recall_plan_queries,
             reranker=ctx.get_reranker(),
             rerank_candidates=settings.recall_rerank_candidates,
+            reasoning_effort=settings.answer_reasoning_effort or None,
             **llm_call_config(ctx, operation="recall.fast", user_id=str(uid)),
         )
         elapsed = time.perf_counter() - started
         print(f"\nQ: {question}")
         print(f"A: {answer.answer}")
         print(
-            f"  ({elapsed:.1f}s, {len(answer.used_claims)} claims / "
-            f"{len(answer.used_windows)} source windows hit, tokens {answer.token_usage})"
+            f"  ({elapsed:.1f}s, {answer.claim_candidates}→{len(answer.used_claims)} claims / "
+            f"{len(answer.used_episode_summaries)} episode summaries / "
+            f"{answer.window_candidates}→{len(answer.used_windows)} source windows, "
+            f"tokens {answer.token_usage})"
         )
+        if show_sources and answer.used_episode_summaries:
+            print("  Derived episode summaries supplied to the answer (not verbatim):")
+            for summary in answer.used_episode_summaries:
+                section = " / ".join(summary.section_path) or "(root)"
+                occurred_on = summary.source_occurred_on or "(unknown date)"
+                print(
+                    f"    [{summary.source_id} ¶{summary.block_start}-{summary.block_end}] "
+                    f"{summary.source_title or '(untitled)'} · {occurred_on} · {section}"
+                )
+                for text_line in summary.text.strip().splitlines():
+                    print(f"      {text_line}")
         # Citation legend: map each [cite: s01 ¶…] short handle in the answer back to its
         # material's title and date, so a citation is something you can actually follow rather
         # than a string of secret codes.

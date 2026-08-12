@@ -33,13 +33,14 @@
 | 配置 | 默认 | 含义 |
 |---|---|---|
 | `LLM_MODEL` | `openai:gpt-4o-mini` | 基础模型规格，也是所有角色的兜底 |
-| `LLM_MODEL_COMPILE` / `_RECALL` / `_DEEP` / `_SKILL` / `_EVOLVE` / `_LIVE_CONTEXT` / `_CHALLENGE` | 空 | 按角色覆盖 |
+| `LLM_MODEL_COMPILE` / `_RECALL` / `_ANSWER` / `_DEEP` / `_SKILL` / `_EVOLVE` / `_LIVE_CONTEXT` / `_CHALLENGE` | 空 | 按角色覆盖；`answer` 只负责 fast 的最终答题，留空则借用 `recall` |
+| `ANSWER_REASONING_EFFORT` | 空 | 只在 fast 最终答题调用中发送的推理强度；空则保持 provider 默认。生成项目明确写为 `high` |
 | `LLM_TIMEOUT` | `600` | 秒；防挂死，不防慢 |
 | `LLM_MAX_RETRIES` | `3` | 瞬时错误重试（langchain） |
 | `EMBEDDING_MODEL` | `fake:384` | `fake:<维度>`（确定性、零密钥）或 `openrouter:<模型>` |
 | `COMPILE_IMAGE_MODE` | `auto` | `caption` = 只送带标签的 caption/OCR；`native` = 派生文本加真实图片块；`auto` = 读取编译模型 profile，未知则回落 `caption`。引擎键：`models.image_mode` |
 
-模型规格三种形态：`scripted:<路径>`（本地回放、零密钥——且硬覆盖所有角色，scripted 运行完全确定）；`openrouter:<模型>`（需要 `OPENROUTER_API_KEY`）；以及 `init_chat_model` 认识的任意 provider 前缀（如 `anthropic:claude-sonnet-5`、`openai:gpt-4o-mini`）。角色回退只有一跳：`live_context → recall`、`evolve → compile`、`challenge → compile`，然后是 `LLM_MODEL`。
+模型规格三种形态：`scripted:<路径>`（本地回放、零密钥——且硬覆盖所有角色，scripted 运行完全确定）；`openrouter:<模型>`（需要 `OPENROUTER_API_KEY`）；以及 `init_chat_model` 认识的任意 provider 前缀（如 `anthropic:claude-sonnet-5`、`openai:gpt-4o-mini`）。角色回退只有一跳：`answer → recall`、`live_context → recall`、`evolve → compile`、`challenge → compile`，然后是 `LLM_MODEL`。脚手架让检索规划/概览继续跑 standard Luna，只把最终答题送到显式 `high` effort 的 Luna Pro。
 
 `native` 是一次明确断言：选中的模型和实际路由 provider 能接收 LangChain 图片 content block；不兼容就失败，不会悄悄把图片压成文本。`caption` 要求 importer 提供带标签的 `caption`/`ocr` 表示，也绝不声称编译模型看过原图。`auto` 会把直连 OpenAI 和 OpenRouter 上的 GPT-5.6 全系识别为原生图片模型，即使网关没有附 LangChain model profile；其他能力未知的 profile 保持保守的 `auto → caption`。
 
@@ -47,14 +48,14 @@
 
 | 配置 | 默认 | 含义 |
 |---|---|---|
-| `CHUNK_STRATEGY` | `semantic` | `semantic` = 一次编译角色调用同时返回主题/episode 边界和用于 embedding 的有根据标题/描述（`scripted:` 模型下回落 `sentence`）；`sentence` / `recursive` = 机械切分，零 LLM 成本 |
+| `CHUNK_STRATEGY` | `semantic` | `semantic` = 一次编译角色调用同时返回主题/episode 边界和用于 L2 检索与派生回答上下文的有根据标题/描述（`scripted:` 模型下回落 `sentence`）；`sentence` / `recursive` = 机械切分，零 LLM 成本 |
 | `SEMANTIC_OVERLAP` | `smart` | 只对 `semantic` 有意义。`smart` = 模型返回前闭后闭区间，转折块同时属于前后两段；`off` = 原来的零重叠切法 |
 | `CHUNK_SIZE` | `768` | 语义边界检测后的 embedding 单元上限；按 token 计，CJK 约 1 token/字 |
 | `CHUNK_OVERLAP` | `128` | token 计 |
 
 **`SEMANTIC_OVERLAP`。** 转折句——那句既收束上一话题、又开启下一话题的话，那个既回答了上一问、又引出下一问的回应——本来就同时属于两段，而一刀切必须把它判给其中一段。`smart` 不再做这个取舍：每个 episode 对象末尾返回 `start`、`end` 前闭后闭坐标，相邻区间可以共享转折块。共享多少由模型逐个边界判断，不是固定步长。
 
-**Episode 表示。** 同一份结构化响应里，每个语义段按「语义在前」的顺序返回 `title`、`description`，再返回 `start`/`end` 坐标（`off` 的 `end` 由下一个 start 推导，因此省略）。描述只跟随来源：具体人物、时间、地点、事件、决定、情绪、原因、计划与结果。已知来源发生日期只负责锚定相对时间；只有日历口径无歧义时才写精确周期端点。raw/caption 文本与 episode 标题/描述作为两套独立的 L2 表示分别做 embedding 和排序，再经普通 RRF 与保序来源区间重叠抑制；纯 episode 命中与 raw/caption 或词法证据重叠时，保留精确证据区间，并让它至多继承 episode 的排名。上下文组装不再扩张 semantic 区间，默认也只合并真正重叠的区间；纯词法单块命中仍可向前取上下文。两种表示最终都解析到逐字来源证据。新 v3 manifest 无模型回放坐标与表示；只有边界的旧 manifest 会执行一次固定区间补描述，返回坐标必须逐一完全相等。
+**Episode 表示。** 同一份结构化响应里，每个语义段按「语义在前」的顺序返回 `title`、`description`，再返回 `start`/`end` 坐标（`off` 的 `end` 由下一个 start 推导，因此省略）。描述只跟随来源：具体人物、时间、地点、事件、决定、情绪、原因、计划与结果。已知来源发生日期只负责锚定相对时间；只有日历口径无歧义时才写精确周期端点。raw/caption 文本与 episode 标题/描述作为两套独立的 L2 表示分别做 embedding 和排序；episode point 还会保留标题/描述作为高密度的**派生 L2 内容**。普通 RRF 之后执行保序来源区间重叠抑制；纯 episode 命中与 raw/caption 或词法证据重叠时，保留精确证据区间，并让它至多继承 episode 的排名。fast recall 可以把最多 `RECALL_EPISODE_SUMMARY_CAP` 条高排名描述渲染进独立的 `派生 episode 摘要` 章节。每条都直说它是生成摘要而非逐字原文，并机械附上来源标题、发生时间、章节与精确 `source_id + block span`；任何精确细节冲突都以 raw/claim 证据为准。上下文组装不再扩张 semantic 区间，默认只合并真正重叠的区间；纯词法单块命中默认只向前扩一块。新 v3 manifest 无模型回放坐标与描述；只有边界的旧 manifest 会执行一次固定区间补描述，返回坐标必须逐一完全相等。
 
 「段与段可以重叠」有一种退化读法：把每一段都写成全文，这样每一段都保证包含答案，L2 也就退化成源文的 N 份副本。挡住它的是闸门，不是提示词措辞：返回的每一份区间列表都必须端点真实且有序、起点严格递增、无缝隙覆盖整个窗口、相邻两段最多共享 **3** 块、段数不超过块数。违反任何一条即整份拒收，该窗口退回用模型自己报出的起点构造的零重叠切分——被拒掉的是重叠，不是切分。
 
@@ -72,10 +73,13 @@
 | `EVOLVE_DRAFT_TTL_HOURS` | `24` | 草稿存活时长 |
 | `ROLLOVER_THRESHOLD_CHARS` | `40000` | 文档超过此字符数入队轮转；`0` 关闭 |
 | `ROLLOVER_KEEP_RECENT_CHARS` | `12000` | 活动文档保留的近期尾部 |
-| `RECALL_CLAIM_CAP` | `64` | fast recall 每问的 claim 预算（release 默认，处于实测 40–80 甜区内；不计 token 成本时 80 为实测最优） |
-| `RECALL_WINDOW_CAP` | `8` | fast recall 每问的原文窗口预算 |
+| `RECALL_CLAIM_CANDIDATE_CAP` | `80` | 内容包含去重、可选重排与最终上下文裁剪之前的 claim 检索深度 |
+| `RECALL_CLAIM_CAP` | `40` | 进入 fast 最终回答上下文的已编译 claim 数 |
+| `RECALL_WINDOW_CANDIDATE_CAP` | `60` | 检索后保留的词法/raw/episode 融合源区间数 |
+| `RECALL_EPISODE_SUMMARY_CAP` | `24` | 进入最终上下文、明确标为派生内容且元数据完整的 episode 摘要数 |
+| `RECALL_WINDOW_CAP` | `6` | 进入最终上下文的精确逐字源窗口数 |
 | `RECALL_PLAN_QUERIES` | `0` | `0` 关；N>0 = 一次规划调用派生至多 N 条额外检索查询，单次 RRF 融合成池 |
-| `RECALL_RERANK_MODEL` | （空） | 空为关（默认：实测对 claim 级检索无增益）；`llm` = 召回模型 + reasoning effort `none` 做 LLM 重排（默认 provider）；`llm:<spec>` 指定模型；裸模型名（如 `cohere/rerank-4-pro`）走 OpenRouter `/rerank` 端点 |
+| `RECALL_RERANK_MODEL` | （空） | 空为关；`llm` = 召回模型 + reasoning effort `none` 做 LLM 重排；`llm:<spec>` 指定模型；裸模型名（如 `cohere/rerank-4-pro`）走 OpenRouter `/rerank` 端点 |
 | `RECALL_RERANK_CANDIDATES` | `120` | 重排时每查询每路的检索深度；reranker 对完整去重并集打分（硬上限 1000） |
 | `RECALL_ANSWER_STYLE` | `conversational` | fast/deep 回答的输出风格预设：`concise` = 只给所问的精确值/短语（判分器、脚本消费），`conversational` = 自然对话式回答，`detailed` = 自成一体的书面纪要。只管形态——红线/引用/诚实收尾与风格无关。recall 请求可逐次覆盖（`answer_style`） |
 

@@ -27,6 +27,9 @@ Acknowledged lineage:
   JPEG/PNG/WebP/GIF on IM message blocks, with audio/video/files explicitly unsupported.
   This replaces an aspirational generic-media sentence without minting another version;
   `v1` remains unchanged.
+- 2026-08-12 (pre-merge): `v2` anchors relative time to the material occurrence date and
+  refuses invented calendar endpoints when the convention is ambiguous. This aligns the
+  reference contract with the framework's source-clock semantics; `v1` remains unchanged.
 
 This also covers the seam end to end: a shipped strategy reconstitutes into exactly the
 SkillVersion the framework hands out, with no framework-side domain knowledge left.
@@ -39,7 +42,7 @@ from pneuma_knowledge_strategies import get_strategy, list_strategies
 
 PINNED_CONTENT_HASH = {
     "v1": "4318897b183649a1aee85d6751c10a2d7a91120b4e9319605765471f56e057ab",
-    "v2": "2d520edda46b6869b6019a168876cf3611ae03babeb5f9286409ca71e8ea41e3",
+    "v2": "a521ce4a0d487bfe5955d674a2b438ce69da8d79c81a8167a69d4d400e353705",
 }
 
 

@@ -7,7 +7,7 @@
 这里不放任何秘密：API key 和这台机器的端口留在 `../.env`，那个文件永不被版本化。
 
 ```
-engine.yaml              四个模型角色：compile / recall / deep / embedding
+engine.yaml              模型角色：compile / recall / answer / deep / embedding
 intake/intake.yaml       材料怎么切成语义单元
 compile/contract.md      宪法——什么值得被记住、记在哪一页
 compile/challenge.yaml   编译后的覆盖审计
@@ -32,14 +32,18 @@ prompts/overlays.yaml    框架自身提示词用哪种语言，以及替换其�
 | 契约、challenge、evolve | 只管未来的编译——已记录的知识永不被回溯重写 |
 | 切块策略 | 新材料立刻生效；已有材料要等派生层重建 |
 
+`recall/recall.yaml` 把廉价的检索广度与最终模型上下文分开。`claim_candidate_cap` 与
+`window_candidate_cap` 负责宽搜；`claim_cap`、`episode_summary_cap` 与 `window_cap` 分别准入三种
+不同内容。episode 摘要是高密度的生成 L2 内容，会在明确的派生标签下展示，并带来源标题、发生时间、
+章节和精确区间。它不会被冒充成逐字原文；较小的 raw 窗口预算仍是精确文本那一面。
+
 **提示词语言是你的覆盖所叠在的那一层。** `prompts/overlays.yaml` 开头是 `language:`——`en` 是框架
-的英文目录，也是框架仓库里所有跑分的基线；`zh` 换成随框架发布的中文语言包，面向可读性与中文材料，
-跑分等价性未经验证。两种情况下，你写在 `overlays:` 下的文案都在它**之后**生效、并盖过它。它不决定
+默认的英文目录；`zh` 换成随框架发布的中文语言包，面向可读性与中文材料。两种情况下，你写在 `overlays:` 下的文案都在它**之后**生效、并盖过它。它不决定
 这座文库用什么语言写：那取决于主人档案里声明的语言。
 
 **任何一项都可以被环境变量为单次运行覆盖。** 顺序是：进程环境变量（`PNEUMA_KNOWLEDGE_*`）优先于
-这个目录，这个目录优先于框架默认值。这是给实验用的——`PNEUMA_KNOWLEDGE_RECALL_CLAIM_CAP=128
-./app.py ask '…'` 能量一次数，而不脏化被版本化的文件。真正长期的答案要写进文件里。
+这个目录，这个目录优先于框架默认值。它支持一次性诊断——`PNEUMA_KNOWLEDGE_RECALL_WINDOW_CANDIDATE_CAP=80
+./app.py ask '…'` 可以检查材料缺失是不是搜索深度问题，而不脏化被版本化的文件。长期运行决定要写进文件里。
 
 ## 怎么改
 

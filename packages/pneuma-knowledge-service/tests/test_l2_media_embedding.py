@@ -93,6 +93,11 @@ async def test_shared_l2_writer_separates_raw_media_from_episode_representation(
     assert "2023-10-19" in embeddings.documents[1]
 
     assert raw.text == episode.text == block.text
+    assert raw.episode_summary_text == ""
+    assert "[episode title] October running-shoe purchase" in episode.episode_summary_text
+    assert "[episode description] Melanie shared" in episode.episode_summary_text
+    assert "[source title]" not in episode.episode_summary_text
+    assert "[source occurred_on]" not in episode.episode_summary_text
     assert raw.char_start == episode.char_start == 0
     assert raw.char_end == episode.char_end == len(block.text)
 

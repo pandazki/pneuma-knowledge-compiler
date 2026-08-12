@@ -98,6 +98,10 @@ class EmbeddedChunk:
     char_end: int
     embedding: list[float]
     representation: Literal["raw", "episode"] = "raw"
+    # Dense derived L2 content. Raw points leave it empty; episode points carry the same
+    # representation that was embedded. Recall labels it explicitly as a generated episode
+    # summary and adds L0 metadata; it never masquerades as verbatim source.
+    episode_summary_text: str = ""
 
 
 def embedding_text_for_chunk(
@@ -128,17 +132,8 @@ def embedding_text_for_chunk(
     return "\n".join([*context_lines, *media_lines, chunk.text])
 
 
-def embedding_text_for_episode(
-    chunk: Chunk,
-    *,
-    raw: RawSource | None = None,
-) -> str | None:
-    """The episode-only L2 vector input, or ``None`` for a mechanical chunk.
-
-    It contains no verbatim chunk and no caption/OCR payload.  Those have their own raw
-    vectors.  The vector still resolves to the parent episode's exact L0 span, so retrieval
-    can return citable source text instead of treating generated prose as evidence.
-    """
+def episode_summary_text_for_chunk(chunk: Chunk) -> str | None:
+    """Dense generated episode content without independently resolved source metadata."""
 
     episode_lines = []
     if chunk.episode_title:
@@ -147,8 +142,26 @@ def embedding_text_for_episode(
         episode_lines.append(f"[episode description] {chunk.episode_description}")
     if not episode_lines:
         return None
+    return "\n".join(episode_lines)
+
+
+def embedding_text_for_episode(
+    chunk: Chunk,
+    *,
+    raw: RawSource | None = None,
+) -> str | None:
+    """The episode-only L2 vector input, or ``None`` for a mechanical chunk.
+
+    It contains no verbatim chunk and no caption/OCR payload. Those have their own raw
+    vectors. Source metadata enriches embedding meaning but is not copied into the retained
+    summary payload; recall resolves current metadata mechanically from L0.
+    """
+
+    summary = episode_summary_text_for_chunk(chunk)
+    if summary is None:
+        return None
     context_lines = raw.retrieval_context_lines() if raw is not None else []
-    return "\n".join([*context_lines, *episode_lines])
+    return "\n".join([*context_lines, summary])
 
 
 def build_chunker(

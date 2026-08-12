@@ -390,6 +390,21 @@ export interface UsedClaim {
   score: number;
 }
 
+/** Dense generated L2 content used by fast recall. It locates back to source blocks but is
+ * deliberately not represented as a verbatim excerpt. */
+export interface EpisodeSummary {
+  source_id: string;
+  block_start: number;
+  block_end: number;
+  text: string;
+  score: number;
+  source_title: string;
+  source_occurred_on: string;
+  section_path: string[];
+  derived: true;
+  verbatim: false;
+}
+
 /** One agentic step in a deep recall: which tool ran, with what query/locator, and the
  * (preview-capped) result it returned. */
 export interface TrailStep {
@@ -408,6 +423,8 @@ export interface RecallAnswer {
   answer: string;
   as_of: string;
   used_claims: UsedClaim[];
+  /** fast only: generated, source-addressed L2 episode descriptions shown to the model. */
+  used_episode_summaries?: EpisodeSummary[];
   /** L1/L2 body windows fused into the answer — uncompiled content, drill-downable. */
   used_windows?: RecallHit[];
   /** deep only: the agentic search trace, one record per tool call in execution order. */

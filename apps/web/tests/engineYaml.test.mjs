@@ -197,7 +197,10 @@ test("add → edit → remove over the scaffold file produces the pinned contrac
   let out = setOverlayEntry(scaffoldOverlays, "gate.claim_without_provenance", "Every claim cites its blocks: \"{preview}…\" (c:{anchor}).\nOr the gate rejects it.");
   out = setOverlayEntry(out, "gate.claim_without_provenance", "Every claim cites its blocks: \"{preview}…\" (c:{anchor}).");
   out = removeOverlayEntry(out, "recall.close.answer_honestly");
-  const expected = await readFile(new URL("./contract/overlays.expected.yaml", import.meta.url), "utf8");
+  // The editor keeps one separating blank line after the final block scalar. The fixture
+  // stores the meaningful YAML through its content line; append that structural separator
+  // explicitly so ordinary editors cannot silently eat the byte-level contract at EOF.
+  const expected = `${await readFile(new URL("./contract/overlays.expected.yaml", import.meta.url), "utf8")}\n`;
   assert.equal(out, expected);
   assert.deepEqual(getOverlayMap(out), {
     "gate.claim_without_provenance": "Every claim cites its blocks: \"{preview}…\" (c:{anchor}).\n",

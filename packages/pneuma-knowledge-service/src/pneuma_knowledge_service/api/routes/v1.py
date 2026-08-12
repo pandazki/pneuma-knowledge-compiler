@@ -244,13 +244,33 @@ class UsedClaimOut(BaseModel):
     score: float
 
 
+class EpisodeSummaryOut(BaseModel):
+    """One generated L2 episode description actually shown to the answer model."""
+
+    source_id: str
+    block_start: int
+    block_end: int
+    text: str
+    score: float
+    source_title: str
+    source_occurred_on: str
+    section_path: list[str]
+    # Mechanical truth labels keep a generic client from presenting generated compression
+    # as source text, even if it ignores the field name or surrounding UI copy.
+    derived: Literal[True] = True
+    verbatim: Literal[False] = False
+
+
 class RecallAnswerOut(BaseModel):
-    """fast/deep recall result — an answer over capped claims + body windows."""
+    """fast/deep recall result — an answer over claims, L2 summaries and body windows."""
 
     mode: str
     answer: str
     as_of: str
     used_claims: list[UsedClaimOut]
+    # fast only: generated L2 episode descriptions used as dense context. These are
+    # source-addressed but explicitly not verbatim excerpts.
+    used_episode_summaries: list[EpisodeSummaryOut] = Field(default_factory=list)
     # L1/L2 body windows fused into the answer — uncompiled content, drill-downable.
     used_windows: list[RecallHitOut] = []
     # deep only: the agentic search trace — one record per tool call, execution order.
@@ -304,6 +324,19 @@ def _used_claim_out(c: Any) -> UsedClaimOut:
         ],
         paths=list(c.paths),
         score=c.score,
+    )
+
+
+def _episode_summary_out(summary: Any) -> EpisodeSummaryOut:
+    return EpisodeSummaryOut(
+        source_id=str(summary.source_id),
+        block_start=summary.block_start,
+        block_end=summary.block_end,
+        text=summary.text,
+        score=summary.score,
+        source_title=summary.source_title,
+        source_occurred_on=summary.source_occurred_on,
+        section_path=list(summary.section_path),
     )
 
 
@@ -942,7 +975,8 @@ async def recall(
     # to the model builder and 500ing on its TypeError.
     from ...wiring import usable_model_name
 
-    if not usable_model_name(ctx.settings, "recall" if body.mode == "fast" else "deep"):
+    required_roles = ("recall", "answer") if body.mode == "fast" else ("deep",)
+    if any(not usable_model_name(ctx.settings, role) for role in required_roles):
         raise HTTPException(
             status_code=503,
             detail=(
@@ -963,6 +997,7 @@ async def recall(
     glance_inputs = await _glance_inputs(ctx, plane.owner, plane.canonical_at)
     if body.mode == "fast":
         recall_model = ctx.get_chat_model("recall")
+        answer_model = ctx.get_chat_model("answer")
         fa = await fast_recall(
             plane.retrieval_user,
             body.query,
@@ -976,13 +1011,18 @@ async def recall(
             profile=await _render_profile(ctx, plane.owner),
             embeddings=ctx.embeddings,
             model=recall_model,
+            answer_model=answer_model,
             scope=plane.scope,
             cap=ctx.settings.recall_claim_cap,
+            claim_candidate_cap=ctx.settings.recall_claim_candidate_cap,
             window_cap=ctx.settings.recall_window_cap,
+            window_candidate_cap=ctx.settings.recall_window_candidate_cap,
+            episode_summary_cap=ctx.settings.recall_episode_summary_cap,
             answer_style=body.answer_style or ctx.settings.recall_answer_style,
             plan_queries_cap=ctx.settings.recall_plan_queries,
             reranker=ctx.get_reranker(),
             rerank_candidates=ctx.settings.recall_rerank_candidates,
+            reasoning_effort=ctx.settings.answer_reasoning_effort or None,
             **glance_inputs,
             **llm_call_config(
                 ctx,
@@ -999,6 +1039,9 @@ async def recall(
             answer=fa.answer,
             as_of=as_of.isoformat(),
             used_claims=[_used_claim_out(c) for c in fa.used_claims],
+            used_episode_summaries=[
+                _episode_summary_out(summary) for summary in fa.used_episode_summaries
+            ],
             used_windows=[_recall_hit_out(w) for w in fa.used_windows],
             citation_handles=fa.citation_handles,
             glance_chars=fa.glance_chars,

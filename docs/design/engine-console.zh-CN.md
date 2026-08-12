@@ -15,12 +15,12 @@
 ```
 engine/                    # 自己的 git 仓库；每次 apply 一个提交
   README.md                # 导览：引擎是什么，每个文件的影响半径
-  engine.yaml              # 四个模型角色——质量杠杆本身就是策略
+  engine.yaml              # 模型角色——质量杠杆本身就是策略
   intake/intake.yaml       # chunk_strategy, semantic_overlap
   compile/contract.md      # 宪法——一份文档，永不被拆成旋钮
   compile/challenge.yaml   # enabled、max_rounds、max_questions、compensate
   evolve/evolve.yaml       # auto_trigger、trigger_topic_docs、trigger_new_claims、draft_ttl_hours
-  recall/recall.yaml       # answer_style、claim_cap、window_cap、plan_queries、rerank_*
+  recall/recall.yaml       # 候选上限、claim、episode 摘要、原文窗口、规划／重排
   persona/profile.yaml     # 主人档案
   prompts/overlays.yaml    # 目录键 → 替换文案（提示词扩展点）
 ```
@@ -29,7 +29,7 @@ engine/                    # 自己的 git 仓库；每次 apply 一个提交
 
 **文件形状只有一条规则，且到处一样。** 除文档以外，每个阶段文件都是一份**扁平**的 YAML 映射，键就是该阶段的旋钮键——不嵌套、没有针对某个文件的特例、只有一个解析器。`prompts/overlays.yaml` 里放一个 `overlays` 键、它的值是那张映射表，这仍然是同一条规则（一份扁平映射，只是值恰好是映射）。`compile/contract.md` 与 `persona/profile.yaml` 是文档：原始文本，永不作为旋钮解析。
 
-**优先级：进程 env > 引擎文件 > 框架默认。** 显式环境变量优先，好让基准测试可以逐次覆盖任意旋钮而不脏化被版本化的单元；引擎文件是人真正在编辑的、持久的那份真相；哪儿都没设就落到框架默认值——这也正是为什么空的（或不存在的）引擎目录与这个概念出现之前逐字节一致。这条规则在 settings 装配处执行（`get_settings` → `engine_overrides`）：引擎的值只在 `os.environ` 未表态的键上作为 init kwargs 交给 `Settings`，因为在 pydantic-settings 里 init kwargs 高于环境变量。环境变量存在但为空，算环境层的一次表态；而来自 `.env` **文件**的值不是进程 env，排在引擎文件之下。
+**优先级：进程 env > 引擎文件 > 框架默认。** 显式环境变量优先，好让一次性诊断运行可以覆盖任意旋钮而不脏化被版本化的单元；引擎文件是人真正在编辑的、持久的那份真相；哪儿都没设就落到框架默认值——这也正是为什么空的（或不存在的）引擎目录与这个概念出现之前逐字节一致。这条规则在 settings 装配处执行（`get_settings` → `engine_overrides`）：引擎的值只在 `os.environ` 未表态的键上作为 init kwargs 交给 `Settings`，因为在 pydantic-settings 里 init kwargs 高于环境变量。环境变量存在但为空，算环境层的一次表态；而来自 `.env` **文件**的值不是进程 env，排在引擎文件之下。
 
 ## 裁定 2 —— 契约是文档，不是旋钮
 

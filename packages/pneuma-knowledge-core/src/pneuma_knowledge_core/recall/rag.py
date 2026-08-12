@@ -47,6 +47,16 @@ def _rrf_scores(rankings: Sequence[Sequence[str]], k: int) -> dict[str, float]:
 
 
 @dataclass(frozen=True)
+class EpisodeSummarySignal:
+    """Derived episode content with the episode's own immutable L0 address."""
+
+    source_id: SourceId
+    block_start: int
+    block_end: int
+    text: str
+
+
+@dataclass(frozen=True)
 class RecallHit:
     """One fused recall result, addressed by an inclusive block interval (I4).
 
@@ -68,6 +78,9 @@ class RecallHit:
     # that an episode-only hit is derived routing text and must not displace an overlapping
     # raw/caption or lexical evidence span.
     representations: tuple[str, ...] = ()  # subset of ("lexical", "raw", "episode")
+    # Derived episode representations that contributed retrieval signal to this evidence
+    # span. Fast recall may surface them as explicitly labelled, source-addressed summaries.
+    episode_summaries: tuple[EpisodeSummarySignal, ...] = ()
 
 
 async def rag_recall(
@@ -139,6 +152,19 @@ async def rag_recall(
             representations = entry.setdefault("representations", [])
             if representation not in representations:
                 representations.append(representation)
+            episode_summary_text = str(
+                getattr(hit, "episode_summary_text", "") or ""
+            ).strip()
+            if representation == "episode" and episode_summary_text:
+                signal = EpisodeSummarySignal(
+                    source_id=SourceId(str(hit.source_id)),
+                    block_start=int(hit.block_start),
+                    block_end=int(hit.block_end),
+                    text=episode_summary_text,
+                )
+                episode_summaries = entry.setdefault("episode_summaries", [])
+                if signal not in episode_summaries:
+                    episode_summaries.append(signal)
         vector_rankings.append(ranking)
 
     rankings = [lexical_ranking, *vector_rankings]
@@ -162,6 +188,7 @@ async def rag_recall(
                 char_start=entry.get("char_start"),
                 char_end=entry.get("char_end"),
                 representations=tuple(entry.get("representations", ())),
+                episode_summaries=tuple(entry.get("episode_summaries", ())),
             )
         )
     # Dedup the two faces of the same region AFTER fusion. Rank-order suppression is
@@ -208,6 +235,9 @@ def _suppress_overlapping(hits: list[RecallHit]) -> list[RecallHit]:
         representations = tuple(
             dict.fromkeys((*prior.representations, *candidate.representations))
         )
+        episode_summaries = tuple(
+            dict.fromkeys((*prior.episode_summaries, *candidate.episode_summaries))
+        )
         kept[duplicate_index] = RecallHit(
             source_id=winner.source_id,
             block_start=winner.block_start,
@@ -218,6 +248,7 @@ def _suppress_overlapping(hits: list[RecallHit]) -> list[RecallHit]:
             char_start=winner.char_start,
             char_end=winner.char_end,
             representations=representations,
+            episode_summaries=episode_summaries,
         )
     return kept
 

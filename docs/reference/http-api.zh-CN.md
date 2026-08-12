@@ -49,7 +49,7 @@
 | POST | `/…/recall` | body `{query, mode: rag\|fast\|deep, limit, as_of?, snapshot?, include_original_modalities?: ("image")[]}` |
 | POST | `/…/recall/stream` | 仅 deep；SSE——每完成一次工具调用发一条 `event: step`，最后 `done`（或 `error`）。步骤级流式，不是 token 流 |
 
-`rag` 返回命中列表（`source_id`、块区间、文本、路径、分数）。`fast`/`deep` 返回答案及其证据：`used_claims`、`used_windows`、`trail`（deep）、`citation_handles`（`sNN` → 真实 source id）、`documents_read`、`snapshot`、`token_usage`。
+`rag` 返回命中列表（`source_id`、块区间、文本、路径、分数）。`fast`/`deep` 返回答案及其证据：`used_claims`、`used_episode_summaries`（fast）、`used_windows`、`trail`（deep）、`citation_handles`（`sNN` → 真实 source id）、`documents_read`、`snapshot`、`token_usage`。每条 episode 摘要都带来源标题、发生时间、章节与精确块区间，并固定标记 `derived: true` / `verbatim: false`，让客户端不会把生成的 L2 压缩内容当成原文。
 
 `include_original_modalities` 是查询 tool 对成本/注意力的显式选择，不是根据模型能力猜出来的部署默认值。它使用枚举列表，以便未来增加音频/视频时不改 tool 形状；当前唯一值是 `"image"`。纯文本问题保持空列表；只有必须直接视觉核验时才传 `["image"]`，例如判断画中是否出现某物、颜色、文字或布局。未要求原始媒体时，带标签的派生表示仍可使用。答案通过 `included_original_modalities` 与 `original_modality_counts` 回显实际带入的原始模态。原始媒体只适用于 `fast` 与 `deep`；`rag` 返回文本检索命中，非空列表会被拒绝。
 

@@ -420,6 +420,23 @@ STAGES: tuple[Stage, ...] = (
                 ),
             ),
             Knob(
+                key="claim_candidate_cap",
+                type="int",
+                apply="hot",
+                env="PNEUMA_KNOWLEDGE_RECALL_CLAIM_CANDIDATE_CAP",
+                setting="recall_claim_candidate_cap",
+                label_en="Claim candidate depth",
+                label_zh="断言候选深度",
+                description_en=(
+                    "How many claims each retrieval face may consider before dedup, optional "
+                    "reranking, and the final answer cap. Index breadth is cheaper than model context."
+                ),
+                description_zh=(
+                    "每条检索路径在去重、可选重排与最终回答上限之前可考虑多少断言。索引广度比模型"
+                    "上下文便宜。"
+                ),
+            ),
+            Knob(
                 key="claim_cap",
                 type="int",
                 apply="hot",
@@ -428,11 +445,44 @@ STAGES: tuple[Stage, ...] = (
                 label_en="Claim budget",
                 label_zh="断言预算",
                 description_en=(
-                    "How many claims one fast ask may pull into the prompt. The default sits "
-                    "inside the measured 40–80 sweet band."
+                    "How many compiled claims may enter the final answer context after broad "
+                    "candidate retrieval."
                 ),
                 description_zh=(
-                    "一次快速问答最多把多少断言放进提示词。默认值落在实测的 40–80 甜区内。"
+                    "宽候选召回之后，最多有多少条已编译断言可进入最终回答上下文。"
+                ),
+            ),
+            Knob(
+                key="window_candidate_cap",
+                type="int",
+                apply="hot",
+                env="PNEUMA_KNOWLEDGE_RECALL_WINDOW_CANDIDATE_CAP",
+                setting="recall_window_candidate_cap",
+                label_en="Source-window candidate depth",
+                label_zh="源窗口候选深度",
+                description_en=(
+                    "How many fused lexical/raw/episode source spans survive retrieval for the "
+                    "episode-summary and verbatim context faces."
+                ),
+                description_zh=(
+                    "有多少条词法／raw／episode 融合源区间可从检索进入 episode 摘要与逐字上下文两面。"
+                ),
+            ),
+            Knob(
+                key="episode_summary_cap",
+                type="int",
+                apply="hot",
+                env="PNEUMA_KNOWLEDGE_RECALL_EPISODE_SUMMARY_CAP",
+                setting="recall_episode_summary_cap",
+                label_en="Episode summary budget",
+                label_zh="Episode 摘要预算",
+                description_en=(
+                    "How many dense, explicitly derived episode summaries may enter the final "
+                    "answer context alongside exact source metadata."
+                ),
+                description_zh=(
+                    "最多有多少条高密度、明确标为派生内容的 episode 摘要可连同精确来源元数据进入最终"
+                    "回答上下文。"
                 ),
             ),
             Knob(
@@ -443,8 +493,10 @@ STAGES: tuple[Stage, ...] = (
                 setting="recall_window_cap",
                 label_en="Source window budget",
                 label_zh="源窗口预算",
-                description_en="How many raw source windows one fast ask may pull in.",
-                description_zh="一次快速问答最多把多少原始源窗口放进来。",
+                description_en=(
+                    "How many exact verbatim source windows may enter the final answer context."
+                ),
+                description_zh="最多有多少个精确逐字源窗口可进入最终回答上下文。",
             ),
             Knob(
                 key="plan_queries",
@@ -504,11 +556,11 @@ STAGES: tuple[Stage, ...] = (
         title_en="Models",
         title_zh="模型",
         summary_en=(
-            "The engine's four model roles. The compile model is the one real quality lever "
+            "The engine's model roles. The compile model is the one real quality lever "
             "— a stronger model directly produces a better library."
         ),
         summary_zh=(
-            "引擎的四个模型角色。编译模型是唯一真正的质量杠杆——更强的模型直接产出更好的库。"
+            "引擎的模型角色。编译模型是唯一真正的质量杠杆——更强的模型直接产出更好的库。"
         ),
         doc="docs/reference/configuration.md#models",
         file="engine.yaml",
@@ -556,8 +608,38 @@ STAGES: tuple[Stage, ...] = (
                 setting="llm_model_recall",
                 label_en="Recall model",
                 label_zh="召回模型",
-                description_en="Fast recall and the briefing ask. Fast and cheap is fine.",
-                description_zh="快速召回与简报问答。又快又便宜就够了。",
+                description_en="Retrieval planning/glance and the briefing ask. Fast and cheap is fine.",
+                description_zh="检索规划/概览与简报问答。又快又便宜就够了。",
+            ),
+            Knob(
+                key="answer",
+                type="string",
+                apply="restart",
+                env="PNEUMA_KNOWLEDGE_LLM_MODEL_ANSWER",
+                setting="llm_model_answer",
+                label_en="Answer model",
+                label_zh="答题模型",
+                description_en=(
+                    "Final fast-answer generation only. Empty borrows the recall role."
+                ),
+                description_zh="只负责快速召回的最终答案。留空则借用召回角色。",
+            ),
+            Knob(
+                key="answer_reasoning_effort",
+                type="enum",
+                enum=("", "none", "minimal", "low", "medium", "high", "xhigh", "max"),
+                apply="restart",
+                env="PNEUMA_KNOWLEDGE_ANSWER_REASONING_EFFORT",
+                setting="answer_reasoning_effort",
+                label_en="Answer reasoning effort",
+                label_zh="答题推理强度",
+                description_en=(
+                    "Reasoning effort sent only on the final fast-answer call; empty keeps "
+                    "the provider default."
+                ),
+                description_zh=(
+                    "只在快速召回的最终答题调用中发送；留空则沿用模型供应商默认值。"
+                ),
             ),
             Knob(
                 key="deep",
@@ -842,7 +924,7 @@ NON_ENGINE_SETTINGS: frozenset[str] = frozenset(
         "llm_timeout",
         "llm_max_retries",
         # The base model spec and the single-hop role fallbacks. `engine.yaml` states the
-        # four roles a person actually chooses; these exist so a role can be split off by
+        # roles a person actually chooses; these exist so a role can be split off by
         # a deployment (or a benchmark harness) without inventing an engine file for it.
         "llm_model",
         "llm_model_skill",

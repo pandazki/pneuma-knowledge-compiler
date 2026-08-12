@@ -50,6 +50,10 @@ export const recall = defineMessages({
     "recall.answer.title": "答案",
     "recall.answer.blank": "（空）",
     "recall.usedClaims.title": "依据断言（{count}）",
+    "recall.episodeSummaries.title": "派生 Episode 摘要（{count}）",
+    "recall.episodeSummaries.description":
+      "回答实际使用的高密度 L2 派生内容；不是逐字原文，每条都带原始来源位置。",
+    "recall.episodeSummaries.derived": "派生摘要 · 非逐字",
     "recall.windows.title": "原文摘录（{count}）",
     "recall.windows.description": "未编译为断言的原始内容，同样可定位回原文。",
   },
@@ -98,6 +102,10 @@ export const recall = defineMessages({
     "recall.answer.title": "Answer",
     "recall.answer.blank": "(empty)",
     "recall.usedClaims.title": "Claims used ({count})",
+    "recall.episodeSummaries.title": "Derived episode summaries ({count})",
+    "recall.episodeSummaries.description":
+      "Dense generated L2 content actually used for this answer; not verbatim, and every item locates back to its source.",
+    "recall.episodeSummaries.derived": "derived summary · not verbatim",
     "recall.windows.title": "Source excerpts ({count})",
     "recall.windows.description":
       "Raw content not compiled into claims; it still locates back to the original.",

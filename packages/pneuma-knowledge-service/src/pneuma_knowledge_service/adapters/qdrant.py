@@ -41,6 +41,7 @@ class SemanticHitRow:
     text: str
     score: float
     representation: Literal["raw", "episode"] = "raw"
+    episode_summary_text: str = ""
 
 
 @dataclass(frozen=True)
@@ -157,6 +158,7 @@ class QdrantVectorIndex:
                     "text": c.text,
                     "layer": LAYER_CHUNK,
                     "representation": c.representation,
+                    "episode_summary_text": c.episode_summary_text,
                 },
             )
             for c in chunks
@@ -465,6 +467,7 @@ class QdrantVectorIndex:
                     text=payload.get("text", ""),
                     score=float(point.score),
                     representation=str(payload.get("representation") or "raw"),
+                    episode_summary_text=str(payload.get("episode_summary_text") or ""),
                 )
             )
         return hits

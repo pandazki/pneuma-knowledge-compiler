@@ -410,11 +410,15 @@ _FAST_CONTRACT_HEAD = """\
 
 You are the fast answering engine of a knowledge compiler. The owner needs a traceable
 answer quickly, mid-workflow, so give the conclusion first and the necessary evidence after.
-Their conversations, documents, project and experiment material have been compiled into two
-forms of evidence:
+Their conversations, documents, project and experiment material reach you in three forms:
 
 - **claim notes** — compiled, structured personal knowledge, each entry carrying an anchor
   (c:…) and provenance.
+- **derived episode summaries** — dense model-generated descriptions of retrieved episodes.
+  Each is explicitly labelled as a summary and carries the source title, occurrence time,
+  section and exact source span it compresses. It is not a verbatim quotation: use its dense
+  factual overview, preserve its uncertainty, and use the source locator it supplies; when a
+  claim note or raw excerpt conflicts with it on an exact detail, the direct evidence wins.
 - **raw excerpts** — fragments of original content not yet compiled into claims, also
   carrying provenance, exactly as trustworthy as claim notes and usable directly as the
   basis of an answer.
@@ -1486,6 +1490,16 @@ DEFAULTS: dict[str, str] = {
     "recall.rerank.llm.request": (
         "{candidates}\n\nQuestion: {query}\n\n"
         "Indexes of the notes that bear on answering, most relevant first, at most {cap}."
+    ),
+    # ─────────────────────────── recall: dense derived episode context
+    "recall.section.episode_summaries_header": "# derived episode summaries ({count})",
+    "recall.fast.episode_summary.item": (
+        "## episode summary (derived, not verbatim)\n"
+        "source title: {source_title}\n"
+        "source occurred_on: {occurred_on}\n"
+        "section: {section}\n"
+        "source span: [cite: {source_id} ¶{start}-{end}]\n"
+        "{text}"
     ),
     # ──────────────────────────────── recall: fast's retrieval planning pass (opt-in)
     # OFF by default (`fast_recall(plan_queries_cap=0)`). One small call BEFORE retrieval:

@@ -49,7 +49,7 @@ Conventions:
 | POST | `/…/recall` | body `{query, mode: rag\|fast\|deep, limit, as_of?, snapshot?, include_original_modalities?: ("image")[]}` |
 | POST | `/…/recall/stream` | deep only; SSE — one `event: step` per finished tool call, then `done` (or `error`). Step-level streaming, not token streaming |
 
-`rag` returns hit lists (`source_id`, block span, text, paths, score). `fast`/`deep` return an answer plus its evidence: `used_claims`, `used_windows`, `trail` (deep), `citation_handles` (`sNN` → real source id), `documents_read`, `snapshot`, `token_usage`.
+`rag` returns hit lists (`source_id`, block span, text, paths, score). `fast`/`deep` return an answer plus its evidence: `used_claims`, `used_episode_summaries` (fast), `used_windows`, `trail` (deep), `citation_handles` (`sNN` → real source id), `documents_read`, `snapshot`, `token_usage`. Every episode-summary item carries source title, occurrence time, section and exact block span, plus constant `derived: true` / `verbatim: false` labels so clients cannot mistake generated L2 compression for source text.
 
 `include_original_modalities` is the query tool's explicit cost/attention choice, not a
 deployment default inferred from model capability. It is an enum list so the signature can

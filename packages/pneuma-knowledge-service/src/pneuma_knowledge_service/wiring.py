@@ -23,6 +23,7 @@ from pneuma_knowledge_core.ingest.chunking import (
     EmbeddedChunk,
     embedding_text_for_episode,
     embedding_text_for_chunk,
+    episode_summary_text_for_chunk,
     join_blocks,
 )
 
@@ -250,6 +251,7 @@ async def embed_l2_chunks(
             char_end=chunk.char_end,
             embedding=[],
             representation="raw",
+            episode_summary_text="",
         )
         for chunk in chunks
     ]
@@ -296,6 +298,7 @@ async def embed_l2_chunks(
                 char_end=episode_char_end,
                 embedding=[],
                 representation="episode",
+                episode_summary_text=episode_summary_text_for_chunk(chunk) or "",
             )
         )
 
@@ -311,6 +314,7 @@ async def embed_l2_chunks(
             char_end=point.char_end,
             embedding=vector,
             representation=point.representation,
+            episode_summary_text=point.episode_summary_text,
         )
         for point, vector in zip(points, vectors)
     ]
@@ -341,7 +345,8 @@ def build_embeddings(settings: Settings) -> Embeddings:
 # Per-operation → settings field. Empty field falls back to settings.llm_model.
 _ROLE_FIELDS = {
     "compile": "llm_model_compile",
-    "recall": "llm_model_recall",  # fast recall + briefing ask
+    "recall": "llm_model_recall",  # retrieval planning/glance + briefing ask
+    "answer": "llm_model_answer",  # final fast-answer generation
     "deep": "llm_model_deep",
     "skill": "llm_model_skill",
     "live_context": "llm_model_live_context",  # evaluation + its want_more expansion
@@ -357,7 +362,12 @@ _ROLE_FIELDS = {
 # `evolve` borrows `compile`'s model when its own field is empty: schema evolve is the same
 # heavy write-side reasoning as a compile (whole-KB reorganization), so a deployment that
 # already pointed compile at a strong model should not have to name it twice. One hop.
-_ROLE_FALLBACK = {"live_context": "recall", "evolve": "compile", "challenge": "compile"}
+_ROLE_FALLBACK = {
+    "answer": "recall",
+    "live_context": "recall",
+    "evolve": "compile",
+    "challenge": "compile",
+}
 
 
 def resolve_model_name(settings: Settings, role: str = "default") -> str:
