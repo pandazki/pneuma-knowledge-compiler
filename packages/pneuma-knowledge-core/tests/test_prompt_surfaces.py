@@ -376,3 +376,23 @@ def test_the_shared_spine_reports_the_four_surfaces_it_moves():
         "recall.suggestion",
     }
     assert shared_with("recall.fast", "recall.fast.contract_head") == ()
+
+
+def test_shared_spine_uses_source_time_for_recorded_relative_expressions():
+    """The evidence clock and live-input clock must never collapse into one as_of clock."""
+    english = DEFAULTS["recall.spine"]
+    assert "expressions in recorded evidence" in english
+    assert "source's occurrence date" in english
+    assert "owner's live input use the as_of value" in english
+    assert "old source's \"yesterday\" or \"last week\"" in english
+    assert "unambiguous calendar convention" in english
+    assert "instead of inventing endpoints" in english
+
+    from pneuma_knowledge_core.prompts import chinese_overlay
+
+    chinese = chinese_overlay()["recall.spine"]
+    assert "已记录证据里的表达以该来源的发生日" in chinese
+    assert "本轮输入里的表达才以输入旁边标注的 as_of 值" in chinese
+    assert "不能用本轮提问时间重新解释旧来源" in chinese
+    assert "只有证据给出了无歧义的日历口径" in chinese
+    assert "不要编造区间端点" in chinese

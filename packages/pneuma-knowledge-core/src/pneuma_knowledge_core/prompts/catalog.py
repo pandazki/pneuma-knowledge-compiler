@@ -395,8 +395,13 @@ Answer shape:
   this very answer, so copy them directly); {cite}
 - Unless the owner explicitly asks for another language this time, answer in the language
   the profile names as their usual one.
-- Convert relative time (yesterday, last week, next month) into absolute dates using the
-  as_of value marked alongside the input.
+- Resolve relative time against the clock it belongs to: expressions in recorded evidence
+  use that source's occurrence date or other provenance anchor, while expressions in the
+  owner's live input use the as_of value marked alongside the input. Never reinterpret an
+  old source's "yesterday" or "last week" against the current ask time. Resolve an exact
+  date or span only when the evidence supplies an unambiguous calendar convention; otherwise
+  keep the period anchored to the known date (for example, "last week relative to June 9,
+  2023") instead of inventing endpoints.
 {close}
 """
 
@@ -569,8 +574,10 @@ the blocks that segment covers:
   the covered blocks actually state; keep chronological and causal relationships; use
   specific names rather than ambiguous pronouns where the source supports them.
 - Never invent a missing fact or identity. When source context supplies an occurrence date,
-  preserve a relative time expression and also resolve it to an absolute date. When no date
-  is supplied, keep the relative expression and do not guess an absolute date.
+  preserve a relative time expression and resolve it exactly only when its calendar meaning
+  is unambiguous. If a period boundary convention is not supplied (for example what days
+  "last week" covers), retain the expression with its absolute anchor instead of inventing
+  endpoints. When no anchor is supplied, keep the relative expression and do not guess one.
 
 The title and description are derived retrieval text. They do not replace or rewrite the
 source; the system keeps the covered blocks verbatim as the citable chunk.
@@ -797,8 +804,11 @@ DEFAULTS: dict[str, str] = {
     "compile.task.time_relative_rule": (
         "- Normalize relative time in the material (\"yesterday\", \"last week\", \"next "
         "Monday\") to absolute dates **against the material's own occurrence date**, not "
-        "against the compile date; when the reference point is unreliable, keep the original "
-        "wording and mark it as unconfirmed."
+        "against the compile date. Resolve an exact date or span only when the material or "
+        "the owner's calendar supplies an unambiguous convention; otherwise preserve the "
+        "original wording with its absolute anchor rather than inventing period endpoints. "
+        "When the reference point itself is unreliable, keep the wording and mark it as "
+        "unconfirmed."
     ),
     "compile.task.time_unknown": (
         "- **This round's material carries no occurrence time**: do not infer absolute dates; "
@@ -1287,9 +1297,10 @@ DEFAULTS: dict[str, str] = {
         "- Relative time inside recorded material has almost always expired by the time it is "
         "read: its \"yesterday\" points at the material's moment, not this one. Unless you "
         "know both when the material was written and, explicitly, what the current moment "
-        "is, treat \"now\" as unknown — so always convert to absolute dates to reason and "
-        "to answer, keeping an anchored span (\"the week before June 9, 2023\") when that "
-        "is all the evidence supports. Never emit a bare relative expression."
+        "is, treat \"now\" as unknown. Anchor the expression to the material's absolute date "
+        "to reason and answer; resolve exact dates or span endpoints only when the calendar "
+        "convention is unambiguous, and otherwise keep an anchored period (\"the week before "
+        "June 9, 2023\"). Never emit a bare relative expression."
     ),
     # ─────────────────────────── recall: answer-style presets (fast/deep third clause)
     #

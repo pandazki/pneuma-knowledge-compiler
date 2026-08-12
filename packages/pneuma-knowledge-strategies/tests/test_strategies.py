@@ -28,11 +28,13 @@ from pneuma_knowledge_strategies import (
 # experiment used body hash cc0cd1e0…; the final body keeps derived representations usable.
 # On 2026-08-10 it was narrowed to the image types the runtime actually supports and names
 # audio/video/files as unsupported, replacing the earlier aspirational generic-media line.
+# On 2026-08-12 v2 stopped fabricating exact endpoints for relative periods whose calendar
+# convention is not supplied. v1 remains byte-stable; the retired v2 body was 3e75f9d4….
 # Retired historical body hashes: v1 bedea7b4…, v2 aeae8203…, v3 187d0201… (full values
 # in git history).
 FROZEN_BODY_SHA256 = {
     "v1": "b81c08e9184f2dc7a502d620203b8bf2386f548b0a77edb19d381498767ba9b1",
-    "v2": "3e75f9d4b261b52d32ee001d8502c44a5defcd9190a15f023f1ea075c22a52a1",
+    "v2": "9f04453f638ab1046600be73f157d76854d63c4f737a215776f6a17d3248c9a0",
 }
 
 PERSONAL_KNOWLEDGE_TEMPLATES = (

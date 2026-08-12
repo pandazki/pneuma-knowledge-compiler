@@ -25,30 +25,35 @@ class FakeVecHit:
     block_end: int
     text: str
     score: float
+    representation: str = "raw"
 
 
 class FakeLexical:
     def __init__(self, hits):
         self._hits = hits
+        self.limits = []
 
     async def index_blocks(self, *a, **k):  # unused
         raise NotImplementedError
 
     async def search(self, user_id, query, *, limit=20):
         assert user_id == USER
+        self.limits.append(limit)
         return self._hits[:limit]
 
 
 class FakeVector:
-    def __init__(self, hits):
-        self._hits = hits
+    def __init__(self, raw_hits, episode_hits=()):
+        self._hits = {"raw": list(raw_hits), "episode": list(episode_hits)}
+        self.limits = []
 
     async def upsert_chunks(self, *a, **k):  # unused
         raise NotImplementedError
 
-    async def search(self, user_id, embedding, *, limit=20):
+    async def search(self, user_id, embedding, *, limit=20, representation="raw"):
         assert user_id == USER
-        return self._hits[:limit]
+        self.limits.append((representation, limit))
+        return self._hits[representation][:limit]
 
 
 class FakeEmbeddings:
@@ -109,62 +114,122 @@ async def test_limit_is_respected():
     assert len(hits) == 3
 
 
-async def test_semantic_floor_keeps_deep_vector_hits_from_rrf_interleaving():
-    """Fast/deep raw evidence may reserve its whole budget for semantic episodes.
-
-    With disjoint lexical and vector spans, ordinary equal-weight RRF alternates the
-    two lists and drops the lower half of the vector top-k.  The explicit floor keeps
-    all top semantic episodes while still letting lexical agreement affect their score.
-    """
-    lexical = FakeLexical(
-        [FakeLexHit(SourceId("lex"), i, f"lexical {i}", 1.0) for i in range(8)]
-    )
+async def test_raw_and_episode_rank_independently_then_deduplicate_by_source_span():
+    lexical = FakeLexical([])
     vectors = FakeVector(
-        [FakeVecHit(SourceId("vec"), i, i, f"semantic {i}", 1.0) for i in range(8)]
+        [FakeVecHit(SourceId("s1"), 2, 3, "verbatim episode", 0.9, "raw")],
+        [FakeVecHit(SourceId("s1"), 2, 3, "verbatim episode", 0.8, "episode")],
     )
 
     hits = await rag_recall(
-        USER,
-        "q",
-        lexical=lexical,
-        vectors=vectors,
-        embeddings=FakeEmbeddings(),
-        limit=8,
-        semantic_floor=8,
+        USER, "q", lexical=lexical, vectors=vectors, embeddings=FakeEmbeddings(), limit=8
     )
 
-    assert [h.text for h in hits] == [f"semantic {i}" for i in range(8)]
-
-
-async def test_semantic_floor_backfills_from_lexical_when_vectors_are_sparse():
-    lexical = FakeLexical(
-        [FakeLexHit(SourceId("lex"), i, f"lexical {i}", 1.0) for i in range(5)]
+    assert len(hits) == 1
+    assert (hits[0].source_id, hits[0].block_start, hits[0].block_end) == (
+        SourceId("s1"), 2, 3
     )
+    assert hits[0].paths == ("vector",)
+    assert set(hits[0].representations) == {"raw", "episode"}
+
+
+async def test_broad_episode_ranking_signal_cannot_displace_precise_raw_evidence():
+    lexical = FakeLexical([])
     vectors = FakeVector(
-        [FakeVecHit(SourceId("vec"), i, i, f"semantic {i}", 1.0) for i in range(2)]
+        [
+            FakeVecHit(SourceId("other"), 0, 0, "other raw", 1.0, "raw"),
+            FakeVecHit(SourceId("s1"), 3, 3, "precise caption and raw", 0.9, "raw"),
+        ],
+        [FakeVecHit(SourceId("s1"), 2, 5, "broad episode", 1.0, "episode")],
     )
 
     hits = await rag_recall(
-        USER,
-        "q",
-        lexical=lexical,
-        vectors=vectors,
-        embeddings=FakeEmbeddings(),
-        limit=5,
-        semantic_floor=5,
+        USER, "q", lexical=lexical, vectors=vectors, embeddings=FakeEmbeddings(), limit=8
     )
 
-    assert {h.text for h in hits} >= {"semantic 0", "semantic 1"}
-    assert len(hits) == 5
+    by_source = {hit.source_id: hit for hit in hits}
+    kept = by_source[SourceId("s1")]
+    assert (kept.block_start, kept.block_end, kept.text) == (
+        3,
+        3,
+        "precise caption and raw",
+    )
+    assert set(kept.representations) == {"raw", "episode"}
+    # The episode still contributes prominence, but overlap does not multiply scores.
+    assert kept.score == 1 / 60
 
 
-async def test_answer_windows_reserve_three_quarters_not_the_whole_budget(monkeypatch):
+async def test_lexical_raw_agreement_is_not_displaced_by_an_episode_only_hit():
+    lexical = FakeLexical([FakeLexHit(SourceId("exact"), 4, "March 17", 1.0)])
+    vectors = FakeVector(
+        [FakeVecHit(SourceId("exact"), 4, 4, "March 17", 1.0, "raw")],
+        [FakeVecHit(SourceId("broad"), 8, 12, "A broad timeline episode", 1.0, "episode")],
+    )
+
+    hits = await rag_recall(
+        USER, "March 17", lexical=lexical, vectors=vectors,
+        embeddings=FakeEmbeddings(), limit=2
+    )
+
+    assert hits[0].source_id == SourceId("exact")
+    assert set(hits[0].paths) == {"lexical", "vector"}
+    assert {hit.source_id for hit in hits} == {SourceId("exact"), SourceId("broad")}
+
+
+async def test_post_retrieval_dedup_does_not_chain_overlapping_episodes_into_one_window():
+    lexical = FakeLexical([])
+    vectors = FakeVector(
+        [
+            FakeVecHit(SourceId("s1"), 0, 2, "raw A", 1.0, "raw"),
+            FakeVecHit(SourceId("s1"), 4, 6, "raw C", 0.9, "raw"),
+        ],
+        [FakeVecHit(SourceId("s1"), 2, 4, "episode B", 1.0, "episode")],
+    )
+
+    hits = await rag_recall(
+        USER, "q", lexical=lexical, vectors=vectors, embeddings=FakeEmbeddings(), limit=8
+    )
+
+    # B overlaps A and C, but A and C are distinct evidence. Greedy rank-order suppression
+    # drops the duplicate bridge instead of transitively expanding A+B+C into [0, 6].
+    assert [(hit.block_start, hit.block_end) for hit in hits] == [(0, 2), (4, 6)]
+
+
+async def test_each_path_overfetches_before_post_retrieval_dedup():
+    lexical = FakeLexical([])
+    vectors = FakeVector([], [])
+
+    await rag_recall(
+        USER, "q", lexical=lexical, vectors=vectors, embeddings=FakeEmbeddings(), limit=8
+    )
+
+    assert lexical.limits == [16]
+    assert vectors.limits == [("raw", 16), ("episode", 16)]
+
+
+async def test_overlapping_representation_does_not_multiply_the_winning_span_score():
+    lexical = FakeLexical([FakeLexHit(SourceId("s1"), 3, "exact", 1.0)])
+    vectors = FakeVector(
+        [FakeVecHit(SourceId("s1"), 3, 3, "exact", 1.0, "raw")],
+        [FakeVecHit(SourceId("s1"), 2, 4, "broad episode", 1.0, "episode")],
+    )
+
+    hits = await rag_recall(
+        USER, "q", lexical=lexical, vectors=vectors, embeddings=FakeEmbeddings(), limit=8
+    )
+
+    assert len(hits) == 1
+    assert (hits[0].block_start, hits[0].block_end) == (3, 3)
+    assert hits[0].score == 2 / 60
+    assert set(hits[0].paths) == {"lexical", "vector"}
+
+
+async def test_answer_windows_use_ordinary_fusion_without_semantic_quota(monkeypatch):
     seen: dict[str, int] = {}
 
     async def fake_rag_recall(*args, **kwargs):  # noqa: ANN002, ANN003
-        seen.update(
-            limit=kwargs["limit"], semantic_floor=kwargs["semantic_floor"]
-        )
+        seen.update(limit=kwargs["limit"])
+        assert "semantic_floor" not in kwargs
         return []
 
     monkeypatch.setattr(fast_module, "rag_recall", fake_rag_recall)
@@ -177,4 +242,4 @@ async def test_answer_windows_reserve_three_quarters_not_the_whole_budget(monkey
         limit=8,
     )
 
-    assert seen == {"limit": 8, "semantic_floor": 6}
+    assert seen == {"limit": 8}

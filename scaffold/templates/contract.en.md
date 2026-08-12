@@ -77,9 +77,10 @@ TODO: write down where "it counts" ends and "just talk" begins in your domain.
 
 ## 4. Time
 
-<!-- Relative time ("next Monday") must be normalized to absolute dates with the original
-     wording kept; the material's own occurrence date is authoritative; mark uncertainty
-     explicitly. What other time calibers should the compiler watch for in your domain? -->
+<!-- Relative time ("next Monday") must be anchored to the material's own occurrence date
+     with the original wording kept. Resolve exact dates or spans only under an unambiguous
+     calendar convention; otherwise retain the anchored expression instead of inventing
+     endpoints. What other time calibers should the compiler watch for in your domain? -->
 
 TODO: write your time calibers.
 

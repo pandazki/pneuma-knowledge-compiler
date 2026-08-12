@@ -463,16 +463,19 @@ from pneuma_knowledge_core.prompts import chinese_overlay, default_catalog, prom
 # sha256 of the two clauses the zero-overlap segmentation call is built from, in both packs.
 # Not "the prompt still reads sensibly" — the exact bytes. Any rewording retires measurements
 # made with this episode-producing baseline, and that is checkable rather than reviewable.
+# 2026-08-12: ambiguous periods now keep their absolute source anchor instead of fabricating
+# exact endpoints under an unstated calendar convention. Earlier episode measurements use
+# the retired en ee56af5f… / zh b5ec53be… rubric bytes.
 _OFF_PROMPT_DIGESTS = {
     "en": {
         "ingest.semantic.rubric":
-            "ee56af5f99b3d8028b4b4ba71b18dc6b3ceb3a5a432924c08991ee438961b9da",
+            "0548ff9f42667924ffa9119aa7f89842bc66174c56674b218cb18f5f5edcd903",
         "ingest.semantic.human":
             "6e14703eb93128ede56f322995c98ff94663cba1ebf8762c7edac327c7f0cab2",
     },
     "zh": {
         "ingest.semantic.rubric":
-            "b5ec53be7247312ca3113d61bbff0971c6ca325fc8adef852c6bc28b8405e3be",
+            "3b3489d1b6580bd16ed2830ca7a2a6725321155681ff9fac5fabe99e5d805e83",
         "ingest.semantic.human":
             "3c55210d506b3606ef4e873b5c38183168829e26954b2240425df6b008e1ad47",
     },

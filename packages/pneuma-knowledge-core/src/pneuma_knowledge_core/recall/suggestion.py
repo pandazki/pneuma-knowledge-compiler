@@ -22,9 +22,9 @@ retrievers over ONE query; fusing across DIFFERENT queries introduces ubiquity b
 source that ranks mid-table on every turn (the owner profile doc, a long background
 transcript) accumulates past the source that ranked #1 on exactly one turn, and that
 sharp single-turn signal is precisely the one worth surfacing. So: top-k per turn,
-then union. The window union is re-`_coalesce_overlapping`d because each turn's
-`rag_recall` coalesced only within itself — turn A's `[6,7]` and turn B's `[6,9]` are
-different keys and would otherwise render as two near-duplicate passages.
+then union. The window union is re-`_suppress_overlapping`d because each turn's
+`rag_recall` suppressed duplicates only within itself — turn A's `[6,7]` and turn B's
+`[6,9]` are different keys and would otherwise render as two near-duplicate passages.
 `expand_and_merge` runs ONCE over the union (it rebuilds its source cache per call, so
 per-turn calls would multiply PG loads by N).
 
@@ -71,7 +71,7 @@ from .fast import (
     retrieve_claims,
     zero_usage,
 )
-from .rag import RecallHit, _coalesce_overlapping, rag_recall
+from .rag import RecallHit, _suppress_overlapping, rag_recall
 from .spine import CITE_PRECISE, CLOSE_SUGGESTION, spine
 
 DEFAULT_TURN_WINDOW = 3
@@ -282,8 +282,8 @@ async def gather_evidence(
             for cit in claim.citations:
                 source_turn.setdefault(str(cit.source_id), turn_index)
 
-    # Window union: concatenate, then re-coalesce ACROSS turns (each rag_recall only
-    # coalesced within its own call), then one assembly pass over the whole union.
+    # Window union: concatenate, then suppress duplicates ACROSS turns (each rag_recall
+    # only suppressed within its own call), then one assembly pass over the whole union.
     raw_hits: list[RecallHit] = []
     for turn_index, batch in enumerate(window_lists):
         for hit in batch:
@@ -292,8 +292,8 @@ async def gather_evidence(
 
     windows: list = []
     if raw_hits:
-        merged = _coalesce_overlapping(raw_hits)
-        merged.sort(key=lambda h: (-h.score, str(h.source_id), h.block_start))
+        raw_hits.sort(key=lambda h: (-h.score, str(h.source_id), h.block_start))
+        merged = _suppress_overlapping(raw_hits)
         if content is None:
             windows = merged
         else:

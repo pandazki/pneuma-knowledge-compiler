@@ -945,9 +945,9 @@ async def semantic_chunk_source(
       settings) so embeddings stay meaningful; the sub-chunks keep exact char/block spans.
     - **Overlap** (`overlap="smart"`) puts a hinge block into two chunks. That duplication
       lives entirely in the derived layer (I2): L0 is untouched, both chunks address the
-      same source blocks through the one addressing scheme (I4), and retrieval already
-      coalesces overlapping windows into a single passage (`recall/assembly.py`), so a hinge
-      retrieved through both of its chunks reads once.
+      same source blocks through the one addressing scheme (I4), and retrieval suppresses
+      the lower-ranked overlapping result before passage assembly, so a hinge retrieved
+      through both of its chunks reads once.
 
     Deterministic given a fixed model output.
     """
@@ -986,7 +986,7 @@ async def semantic_chunk_source(
         sections,
     )
 
-    def representation_for(start: int, end: int) -> tuple[str, str]:
+    def representation_for(start: int, end: int) -> SemanticEpisode | None:
         # Exact-start wins in an overlap hinge; containment is the section/sub-split path.
         candidates = [
             episode
@@ -994,19 +994,27 @@ async def semantic_chunk_source(
             if episode.start <= start and end <= episode.end
         ]
         if not candidates:
-            return "", ""
-        episode = next(
+            return None
+        return next(
             (candidate for candidate in candidates if candidate.start == start),
             candidates[0],
         )
-        return episode.title, episode.description
 
     chunks: list[Chunk] = []
     for seg_start, seg_end in intervals:
-        episode_title, episode_description = representation_for(seg_start, seg_end)
+        episode = representation_for(seg_start, seg_end)
+        episode_title = episode.title if episode is not None else ""
+        episode_description = episode.description if episode is not None else ""
         present = [i for i in range(seg_start, seg_end + 1) if i in by_index]
         if not present:
             continue
+        # The parent identity is the effective interval after StructureMap refinement, not
+        # necessarily the model's wider episode.  That keeps the independently ranked
+        # episode point inside the same section boundary as every raw child chunk.
+        episode_block_start = present[0] if episode is not None else None
+        episode_block_end = present[-1] if episode is not None else None
+        episode_char_start = ranges[present[0]][0] if episode is not None else None
+        episode_char_end = ranges[present[-1]][1] if episode is not None else None
         base = ranges[present[0]][0]
         end = ranges[present[-1]][1]
         seg_text = global_text[base:end]
@@ -1030,6 +1038,10 @@ async def semantic_chunk_source(
                         char_end=ce,
                         episode_title=episode_title,
                         episode_description=episode_description,
+                        episode_block_start=episode_block_start,
+                        episode_block_end=episode_block_end,
+                        episode_char_start=episode_char_start,
+                        episode_char_end=episode_char_end,
                     )
                 )
         else:
@@ -1044,6 +1056,10 @@ async def semantic_chunk_source(
                     char_end=end,
                     episode_title=episode_title,
                     episode_description=episode_description,
+                    episode_block_start=episode_block_start,
+                    episode_block_end=episode_block_end,
+                    episode_char_start=episode_char_start,
+                    episode_char_end=episode_char_end,
                 )
             )
     return enforce_max_chars(chunks, ranges)

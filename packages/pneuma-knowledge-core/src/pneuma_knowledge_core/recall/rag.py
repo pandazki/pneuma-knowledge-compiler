@@ -1,10 +1,10 @@
-"""rag mode: dual-path (L2 semantic + L1 lexical) recall with RRF fusion (§7).
+"""rag mode: L1 lexical plus independent L2 raw/episode recall with RRF (§7).
 
-`recall(mode=rag)` runs both retrieval paths and fuses them with Reciprocal Rank
-Fusion. Both paths address into the same block space (invariant I4), so a hit is
+`recall(mode=rag)` runs all three rankings and fuses them with Reciprocal Rank
+Fusion. Every representation addresses the same block space (invariant I4), so a hit is
 keyed by `(source_id, block_start, block_end)`; a lexical hit spans a single block
-`[i, i]`. When both paths surface the exact same span it fuses into one hit carrying
-both source markers; otherwise the union is returned in fused order.
+`[i, i]`. Exact spans fuse and lower-ranked overlapping spans are suppressed after retrieval, so an
+episode representation can improve rank without becoming evidence or consuming a duplicate.
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ from ..ports.lexical_index import LexicalIndex
 from ..ports.vector_index import VectorIndex
 
 RRF_K = 60
+POST_DEDUP_CANDIDATE_MULTIPLIER = 2
 
 
 def rrf_fuse(rankings: Sequence[Sequence[str]], k: int = RRF_K) -> list[str]:
@@ -62,6 +63,11 @@ class RecallHit:
     score: float  # fused RRF score
     char_start: int | None = None
     char_end: int | None = None
+    # Internal provenance of the ranking signal. Public APIs keep the stable coarse
+    # `paths` vocabulary (lexical/vector), while post-retrieval suppression needs to know
+    # that an episode-only hit is derived routing text and must not displace an overlapping
+    # raw/caption or lexical evidence span.
+    representations: tuple[str, ...] = ()  # subset of ("lexical", "raw", "episode")
 
 
 async def rag_recall(
@@ -73,9 +79,8 @@ async def rag_recall(
     embeddings,  # langchain_core.embeddings.Embeddings
     limit: int = 10,
     query_embedding: list[float] | None = None,
-    semantic_floor: int = 0,
 ) -> list[RecallHit]:
-    """L1 + L2 dual-path recall fused by RRF (§7). No source with L1 coverage is
+    """L1 + two L2 representations fused by ordinary RRF (§7). No source with L1 coverage is
     ever invisible: the lexical path covers the retrieval surface even when a
     source has no L2 chunks.
 
@@ -84,19 +89,24 @@ async def rag_recall(
     is behaviorally untouched. The lever exists for fan-out callers (suggestion evaluates N
     transcript turns per round and batches all N through one `aembed_documents`).
 
-    ``semantic_floor`` reserves up to that many result slots for the semantic ranking
-    before fused lexical-only hits backfill the remainder.  It is opt-in: ordinary rag
-    keeps equal-path RRF, while answer lanes can make semantic episodes a dependable raw
-    evidence floor instead of losing the lower half of vector top-k to interleaving.
-
     Snapshot-scoped recall needs nothing here: a snapshot is a frozen TENANT (see
     service/kb_snapshots.py), so answering over one is this same function called with that
     tenant's `user_id` — the per-user isolation both indexes already enforce is the
     versioning mechanism."""
-    lexical_hits = await lexical.search(user_id, query, limit=limit)
+    # Over-fetch each path before post-retrieval suppression. Semantic overlaps and the
+    # independent raw/episode representations can legitimately surface the same region;
+    # asking each backend for only the final cap would let duplicates shrink recall rather
+    # than backfill from the tail (Nemori's hybrid path uses the same 2× candidate shape).
+    candidate_limit = limit * POST_DEDUP_CANDIDATE_MULTIPLIER
+    lexical_hits = await lexical.search(user_id, query, limit=candidate_limit)
     if query_embedding is None:
         query_embedding = await embeddings.aembed_query(query)
-    semantic_hits = await vectors.search(user_id, query_embedding, limit=limit)
+    raw_hits = await vectors.search(
+        user_id, query_embedding, limit=candidate_limit, representation="raw"
+    )
+    episode_hits = await vectors.search(
+        user_id, query_embedding, limit=candidate_limit, representation="episode"
+    )
 
     # key = (source_id, block_start, block_end); lexical block -> [i, i].
     info: dict[tuple, dict] = {}
@@ -107,21 +117,33 @@ async def rag_recall(
         entry = info.setdefault(key, {"text": hit.text, "paths": []})
         if "lexical" not in entry["paths"]:
             entry["paths"].append("lexical")
+        entry.setdefault("representations", []).append("lexical")
 
-    semantic_ranking: list[str] = []
-    for hit in semantic_hits:
-        key = (str(hit.source_id), hit.block_start, hit.block_end)
-        semantic_ranking.append(repr(key))
-        entry = info.setdefault(key, {"text": hit.text, "paths": []})
-        # Carry the exact char span for provenance; the first semantic hit on a block
-        # interval wins the span (same rule as its text).
-        entry.setdefault("char_start", getattr(hit, "char_start", None))
-        entry.setdefault("char_end", getattr(hit, "char_end", None))
-        if "vector" not in entry["paths"]:
-            entry["paths"].append("vector")
+    vector_rankings: list[list[str]] = []
+    for representation, vector_hits in (("raw", raw_hits), ("episode", episode_hits)):
+        ranking: list[str] = []
+        for hit in vector_hits:
+            key = (str(hit.source_id), hit.block_start, hit.block_end)
+            key_repr = repr(key)
+            # One representation can never contribute twice to the same source span. This
+            # is the post-retrieval dedup boundary: raw and episode rank independently, but
+            # repeated/sub-chunked points cannot consume several fused candidates.
+            if key_repr in ranking:
+                continue
+            ranking.append(key_repr)
+            entry = info.setdefault(key, {"text": hit.text, "paths": []})
+            entry.setdefault("char_start", getattr(hit, "char_start", None))
+            entry.setdefault("char_end", getattr(hit, "char_end", None))
+            if "vector" not in entry["paths"]:
+                entry["paths"].append("vector")
+            representations = entry.setdefault("representations", [])
+            if representation not in representations:
+                representations.append(representation)
+        vector_rankings.append(ranking)
 
-    fused_keys = rrf_fuse([lexical_ranking, semantic_ranking])
-    scores = _rrf_scores([lexical_ranking, semantic_ranking], RRF_K)
+    rankings = [lexical_ranking, *vector_rankings]
+    fused_keys = rrf_fuse(rankings)
+    scores = _rrf_scores(rankings, RRF_K)
 
     by_repr = {repr(k): k for k in info}
     raw: list[RecallHit] = []
@@ -139,111 +161,72 @@ async def rag_recall(
                 score=scores[key_repr],
                 char_start=entry.get("char_start"),
                 char_end=entry.get("char_end"),
+                representations=tuple(entry.get("representations", ())),
             )
         )
-    # Dedup the two faces of the same region: a lexical [6,6] and the vector chunk [6,7]
-    # that contains it are one candidate, not two hits. Coalesce block-overlapping hits
-    # within a source, then take the strongest `limit`.
-    merged = _coalesce_overlapping(raw)
-    merged.sort(key=lambda h: (-h.score, str(h.source_id), h.block_start))
-    if semantic_floor <= 0:
-        return merged[:limit]
-    return _with_semantic_floor(
-        merged,
-        semantic_hits,
-        limit=limit,
-        semantic_floor=semantic_floor,
-    )
+    # Dedup the two faces of the same region AFTER fusion. Rank-order suppression is
+    # intentionally not an interval union: smart-overlap episodes can form A↔B↔C chains,
+    # and unioning the chain would turn several distinct memories into one giant passage.
+    raw.sort(key=lambda h: (-h.score, str(h.source_id), h.block_start))
+    return _suppress_overlapping(raw)[:limit]
 
 
-def _with_semantic_floor(
-    fused: list[RecallHit],
-    semantic_hits: Sequence,
-    *,
-    limit: int,
-    semantic_floor: int,
-) -> list[RecallHit]:
-    """Reserve semantic-ranked regions, then backfill in ordinary fused order."""
+def _suppress_overlapping(hits: list[RecallHit]) -> list[RecallHit]:
+    """Greedy rank-order overlap suppression without score or interval inflation.
 
-    if limit <= 0:
-        return []
-    reserved_cap = min(limit, max(0, semantic_floor))
-    selected: list[RecallHit] = []
+    Exact spans have already fused through their common RRF key. For merely overlapping
+    spans, keep the stronger candidate's source text/span/score, copy only the path markers
+    from suppressed duplicates, and continue. One exception is structural rather than
+    score-based: episode-only hits are derived routing text, so an overlapping raw/caption
+    or lexical span always owns the citable result. The episode can raise that result to its
+    own score but cannot replace its exact evidence. Two disjoint candidates survive even
+    when a broad episode overlaps both, so overlap cannot create a transitive mega-window.
+    """
 
-    # Coalescing may widen or merge overlapping vector regions, so map each original
-    # semantic rank to the fused region that contains it instead of comparing exact spans.
-    for semantic in semantic_hits:
-        for candidate in fused:
-            if (
-                "vector" in candidate.paths
-                and candidate.source_id == semantic.source_id
-                and candidate.block_start <= semantic.block_end
-                and semantic.block_start <= candidate.block_end
-            ):
-                if candidate not in selected:
-                    selected.append(candidate)
-                break
-        if len(selected) >= reserved_cap:
-            break
-
-    for candidate in fused:
-        if candidate not in selected:
-            selected.append(candidate)
-        if len(selected) >= limit:
-            break
-    return selected[:limit]
-
-
-def _coalesce_overlapping(hits: list[RecallHit]) -> list[RecallHit]:
-    """Merge hits whose block spans OVERLAP within a source into one hit.
-
-    Dedups the lexical vs vector faces of the same region. Overlap is strict (shared
-    blocks), never mere adjacency, so two distinct back-to-back candidates stay separate.
-    The widest member keeps its text/char-span (it contains the narrower); `paths` union;
-    scores SUM so a region surfaced by both paths outranks a single-path hit (and reads as
-    a stronger match than the RRF-rank cap of one list)."""
-    by_source: dict[str, list[RecallHit]] = {}
-    for h in hits:
-        by_source.setdefault(str(h.source_id), []).append(h)
-
-    out: list[RecallHit] = []
-    for sid, group in by_source.items():
-        group.sort(key=lambda h: (h.block_start, h.block_end))
-        cur: dict | None = None
-        for h in group:
-            if cur is not None and h.block_start <= cur["end"]:  # strict overlap (shared block)
-                cur["end"] = max(cur["end"], h.block_end)
-                cur["score"] += h.score
-                for p in h.paths:
-                    if p not in cur["paths"]:
-                        cur["paths"].append(p)
-                if (h.block_end - h.block_start) > cur["width"]:
-                    cur.update(
-                        text=h.text, char_start=h.char_start,
-                        char_end=h.char_end, width=h.block_end - h.block_start,
-                    )
-                continue
-            if cur is not None:
-                out.append(_hit_from(sid, cur))
-            cur = {
-                "start": h.block_start, "end": h.block_end, "text": h.text,
-                "paths": list(h.paths), "score": h.score,
-                "char_start": h.char_start, "char_end": h.char_end,
-                "width": h.block_end - h.block_start,
-            }
-        if cur is not None:
-            out.append(_hit_from(sid, cur))
-    return out
+    kept: list[RecallHit] = []
+    for candidate in hits:
+        duplicate_index = next(
+            (
+                index
+                for index, prior in enumerate(kept)
+                if prior.source_id == candidate.source_id
+                and prior.block_start <= candidate.block_end
+                and candidate.block_start <= prior.block_end
+            ),
+            None,
+        )
+        if duplicate_index is None:
+            kept.append(candidate)
+            continue
+        prior = kept[duplicate_index]
+        prior_is_evidence = _has_direct_evidence(prior)
+        candidate_is_evidence = _has_direct_evidence(candidate)
+        winner = candidate if candidate_is_evidence and not prior_is_evidence else prior
+        paths = tuple(dict.fromkeys((*prior.paths, *candidate.paths)))
+        representations = tuple(
+            dict.fromkeys((*prior.representations, *candidate.representations))
+        )
+        kept[duplicate_index] = RecallHit(
+            source_id=winner.source_id,
+            block_start=winner.block_start,
+            block_end=winner.block_end,
+            text=winner.text,
+            paths=paths,
+            score=max(prior.score, candidate.score),
+            char_start=winner.char_start,
+            char_end=winner.char_end,
+            representations=representations,
+        )
+    return kept
 
 
-def _hit_from(source_id: str, c: dict) -> RecallHit:
-    return RecallHit(
-        source_id=SourceId(source_id),
-        block_start=c["start"],
-        block_end=c["end"],
-        text=c["text"],
-        paths=tuple(c["paths"]),
-        score=c["score"],
-        char_start=c["char_start"],
-        char_end=c["char_end"],
+def _has_direct_evidence(hit: RecallHit) -> bool:
+    """Whether a hit was found through verbatim text rather than episode routing alone.
+
+    Empty metadata is the compatibility shape of hand-built/legacy RecallHits and remains
+    direct evidence. Every hit built by ``rag_recall`` carries explicit representations.
+    """
+
+    return not hit.representations or any(
+        representation in {"lexical", "raw"} for representation in hit.representations
     )

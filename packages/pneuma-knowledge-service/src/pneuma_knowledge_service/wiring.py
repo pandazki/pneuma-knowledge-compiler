@@ -21,7 +21,9 @@ from pneuma_knowledge_core.ingest.adapters import (
 from pneuma_knowledge_core.ingest.chunking import (
     Chunk,
     EmbeddedChunk,
+    embedding_text_for_episode,
     embedding_text_for_chunk,
+    join_blocks,
 )
 
 from .adapters.git_canonical import GitCanonicalStore
@@ -234,17 +236,11 @@ async def embed_l2_chunks(
     drill-down cannot mistake metadata or a derived representation for source prose.
     """
 
-    vectors = await ctx.embeddings.aembed_documents(
-        [
-            embedding_text_for_chunk(
-                chunk,
-                normalized.blocks,
-                raw=normalized.raw,
-            )
-            for chunk in chunks
-        ]
-    )
-    return [
+    raw_inputs = [
+        embedding_text_for_chunk(chunk, normalized.blocks, raw=normalized.raw)
+        for chunk in chunks
+    ]
+    raw_points = [
         EmbeddedChunk(
             source_id=chunk.source_id,
             block_start=chunk.block_start,
@@ -252,9 +248,71 @@ async def embed_l2_chunks(
             text=chunk.text,
             char_start=chunk.char_start,
             char_end=chunk.char_end,
-            embedding=vector,
+            embedding=[],
+            representation="raw",
         )
-        for chunk, vector in zip(chunks, vectors)
+        for chunk in chunks
+    ]
+
+    # A sentence-sub-split episode leaves several Chunk objects carrying the same parent
+    # representation.  Embed that representation once, under the parent episode span.
+    global_text, _ranges = join_blocks(normalized.blocks)
+    seen_episodes: set[tuple[str, int, int]] = set()
+    episode_inputs: list[str] = []
+    episode_points: list[EmbeddedChunk] = []
+    for chunk in chunks:
+        episode_text = embedding_text_for_episode(chunk, raw=normalized.raw)
+        if episode_text is None:
+            continue
+        if chunk.episode_char_start is None or chunk.episode_char_end is None:
+            # Legacy direct Chunk construction has no parent identity.  A non-split chunk is
+            # its own episode; this keeps the public helper useful without reintroducing
+            # repeated descriptions for real semantic chunks, which always carry the parent.
+            episode_char_start, episode_char_end = chunk.char_start, chunk.char_end
+            episode_block_start, episode_block_end = chunk.block_start, chunk.block_end
+        else:
+            episode_char_start, episode_char_end = (
+                chunk.episode_char_start,
+                chunk.episode_char_end,
+            )
+            episode_block_start, episode_block_end = (
+                chunk.episode_block_start,
+                chunk.episode_block_end,
+            )
+        if episode_block_start is None or episode_block_end is None:
+            continue
+        identity = (str(chunk.source_id), episode_char_start, episode_char_end)
+        if identity in seen_episodes:
+            continue
+        seen_episodes.add(identity)
+        episode_inputs.append(episode_text)
+        episode_points.append(
+            EmbeddedChunk(
+                source_id=chunk.source_id,
+                block_start=episode_block_start,
+                block_end=episode_block_end,
+                text=global_text[episode_char_start:episode_char_end],
+                char_start=episode_char_start,
+                char_end=episode_char_end,
+                embedding=[],
+                representation="episode",
+            )
+        )
+
+    vectors = await ctx.embeddings.aembed_documents([*raw_inputs, *episode_inputs])
+    points = [*raw_points, *episode_points]
+    return [
+        EmbeddedChunk(
+            source_id=point.source_id,
+            block_start=point.block_start,
+            block_end=point.block_end,
+            text=point.text,
+            char_start=point.char_start,
+            char_end=point.char_end,
+            embedding=vector,
+            representation=point.representation,
+        )
+        for point, vector in zip(points, vectors)
     ]
 
 

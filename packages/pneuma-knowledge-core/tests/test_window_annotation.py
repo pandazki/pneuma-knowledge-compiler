@@ -231,7 +231,9 @@ class _FakeLexical:
 
 
 class _FakeVector:
-    async def search(self, user_id, embedding, *, limit=20):  # noqa: ANN001
+    async def search(
+        self, user_id, embedding, *, limit=20, representation="raw"
+    ):  # noqa: ANN001
         return []
 
 

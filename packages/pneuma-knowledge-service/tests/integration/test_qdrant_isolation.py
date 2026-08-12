@@ -7,7 +7,6 @@ mechanically-injected tenant filter must still return zero cross-user results.
 
 from __future__ import annotations
 
-import os
 import uuid
 
 import pytest
@@ -26,6 +25,7 @@ def _chunk(source_id: str, text: str, embedding: list[float]) -> EmbeddedChunk:
         char_end=len(text),
         text=text,
         embedding=embedding,
+        representation="raw",
     )
 
 
@@ -61,10 +61,45 @@ async def test_search_returns_span_text_and_score(qdrant, embeddings):
     assert hit.score > 0
 
 
-async def test_existing_collection_with_wrong_dimension_fails_at_startup():
-    qdrant_url = os.environ.get(
-        "PNEUMA_KNOWLEDGE_QDRANT_URL", "http://localhost:16333"
+async def test_raw_and_episode_points_share_provenance_but_rank_independently(
+    qdrant, embeddings
+):
+    user = UserId(f"u-repr-{uuid.uuid4().hex[:10]}")
+    text = "Caroline discussed a weekend kayaking trip."
+    raw_vec = await embeddings.aembed_query(text)
+    episode_vec = await embeddings.aembed_query("Weekend kayaking plans and safety")
+    raw = _chunk("src-repr", text, raw_vec)
+    episode = EmbeddedChunk(
+        source_id=raw.source_id,
+        block_start=raw.block_start,
+        block_end=raw.block_end,
+        char_start=raw.char_start,
+        char_end=raw.char_end,
+        text=raw.text,
+        embedding=episode_vec,
+        representation="episode",
     )
+
+    await qdrant.upsert_chunks(user, [raw, episode])
+
+    assert await qdrant.count_chunks(user) == 2
+    raw_hits = await qdrant.search(user, raw_vec, limit=5, representation="raw")
+    episode_hits = await qdrant.search(
+        user, episode_vec, limit=5, representation="episode"
+    )
+    assert len(raw_hits) == len(episode_hits) == 1
+    assert raw_hits[0].representation == "raw"
+    assert episode_hits[0].representation == "episode"
+    assert raw_hits[0].text == episode_hits[0].text == text
+
+
+async def test_existing_collection_with_wrong_dimension_fails_at_startup(
+    qdrant, settings
+):
+    # Depend on the reachability-guarded fixture even though this test needs its own
+    # temporary collection/dimension.  Otherwise an unavailable Qdrant fails in cleanup
+    # instead of producing the integration suite's sanctioned middleware skip.
+    qdrant_url = settings.qdrant_url
     collection = f"pneuma_dimension_guard_{uuid.uuid4().hex}"
     first = QdrantVectorIndex(qdrant_url, 3, collection=collection)
     mismatch = QdrantVectorIndex(qdrant_url, 4, collection=collection)

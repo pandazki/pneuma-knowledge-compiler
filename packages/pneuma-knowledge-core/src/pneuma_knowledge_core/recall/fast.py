@@ -81,12 +81,6 @@ DEFAULT_CLAIM_CAP = 64
 DEFAULT_WINDOW_CAP = 8
 DEFAULT_IMAGE_CAP = 8
 
-# Raw evidence is semantic-primary, not semantic-only. At least three quarters of the
-# bounded window budget follow L2 episode rank; the remainder stays available to RRF
-# agreement and exact L1-only matches (identifiers and dates are where that matters most).
-SEMANTIC_WINDOW_FLOOR_NUMERATOR = 3
-SEMANTIC_WINDOW_FLOOR_DENOMINATOR = 4
-
 #: How many hit documents `timeline_expand` may expand into sibling timelines. Together with
 #: the per-document sibling cap this bounds the section's total size mechanically:
 #: ≤ timeline_expand × DEFAULT_TIMELINE_DOC_CAP claims (~55 tokens each), never "whatever the
@@ -340,6 +334,8 @@ async def retrieve_claims(
 
     Snapshot-scoped recall needs nothing here either (see `rag_recall`): the claim faces are
     per-tenant, so a frozen snapshot tenant carries its own frozen claim projection."""
+    if limit <= 0:
+        return []
     lexical_hits = await claim_lexical.search_claims(user_id, query, limit=limit)
     if query_embedding is None:
         query_embedding = await embeddings.aembed_query(query)
@@ -375,6 +371,9 @@ async def retrieve_claims_multi(
     LARGER pool_cap so RRF — which is score-blind — never discards a candidate the
     reranker was going to judge: fusion order then only decides dedup, the failure
     fallback, and which tail falls off the hard cap."""
+
+    if limit <= 0 or (pool_cap is not None and pool_cap <= 0):
+        return []
 
     async def one(query: str) -> tuple[Sequence, Sequence]:
         lexical_hits = await claim_lexical.search_claims(user_id, query, limit=limit)
@@ -481,7 +480,6 @@ async def collect_window_images(
     model. The selected windows are the mechanical relevance gate: an unrelated image in the
     same source is never attached merely because that source had one hit elsewhere.
     """
-
     if content is None or not windows or cap <= 0:
         return []
     if image_mode == "native" and media is None:
@@ -1346,10 +1344,9 @@ async def retrieve_windows(
 ) -> list[RecallHit]:
     """L1+L2 body windows for the answer's recall face (empty if raw indices absent).
 
-    Semantic episodes reserve most of the capped raw-evidence budget; L1 agreement can
-    still strengthen/coalesce them, and the remainder admits exact lexical-only hits. This
-    keeps lower-ranked semantic evidence from being silently halved by disjoint RRF
-    interleaving without turning the answer lane into vector-only retrieval.
+    Lexical blocks, raw/caption vectors and episode-description vectors rank independently,
+    then ordinary RRF and source-span overlap suppression produce one bounded evidence list. No path
+    receives a quota: exact identifiers and dates remain able to outrank broad semantics.
     """
     if lexical is None or vectors is None or limit <= 0:
         return []
@@ -1360,15 +1357,6 @@ async def retrieve_windows(
         vectors=vectors,
         embeddings=embeddings,
         limit=limit,
-        semantic_floor=max(
-            1,
-            (
-                limit * SEMANTIC_WINDOW_FLOOR_NUMERATOR
-                + SEMANTIC_WINDOW_FLOOR_DENOMINATOR
-                - 1
-            )
-            // SEMANTIC_WINDOW_FLOOR_DENOMINATOR,
-        ),
     )
 
 

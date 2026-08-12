@@ -12,6 +12,7 @@ from pneuma_knowledge_core.domain.ids import UserId, SourceId
 from pneuma_knowledge_core.domain.source import BlockImage, NormalizedSource
 from pneuma_knowledge_core.recall.fast import (
     RecallImage,
+    retrieve_claims,
     selector_contract,
     fast_recall,
     selector_messages,
@@ -81,8 +82,10 @@ class FakeVector:
     def __init__(self, hits: list[VecHit]) -> None:
         self._hits = hits
 
-    async def search(self, user_id, embedding, *, limit=20):  # noqa: ANN001
-        return self._hits[:limit]
+    async def search(
+        self, user_id, embedding, *, limit=20, representation="raw"
+    ):  # noqa: ANN001
+        return self._hits[:limit] if representation == "raw" else []
 
 
 def _model(answer: str) -> GenericFakeChatModel:
@@ -90,6 +93,21 @@ def _model(answer: str) -> GenericFakeChatModel:
 
 
 _USER = UserId("u-fast")
+
+
+async def test_zero_claim_budget_short_circuits_both_indexes_and_embedding():
+    class MustNotRun:
+        def __getattr__(self, name):  # noqa: ANN001
+            raise AssertionError(f"zero claim budget touched {name}")
+
+    assert await retrieve_claims(
+        _USER,
+        "q",
+        claim_lexical=MustNotRun(),
+        claim_vectors=MustNotRun(),
+        embeddings=MustNotRun(),
+        limit=0,
+    ) == []
 
 
 async def test_cap_and_dedup_by_path_and_anchor():

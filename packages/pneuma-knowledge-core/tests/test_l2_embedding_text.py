@@ -9,7 +9,11 @@ from pneuma_knowledge_core.domain.source import (
     NormalizedBlock,
     RawSource,
 )
-from pneuma_knowledge_core.ingest.chunking import Chunk, embedding_text_for_chunk
+from pneuma_knowledge_core.ingest.chunking import (
+    Chunk,
+    embedding_text_for_chunk,
+    embedding_text_for_episode,
+)
 
 
 def test_embedding_text_augments_verbatim_chunk_with_block_aligned_media_text():
@@ -68,7 +72,7 @@ def test_embedding_text_stays_verbatim_when_covered_blocks_have_no_media():
     assert embedding_text_for_chunk(chunk, blocks) == chunk.text
 
 
-def test_embedding_text_combines_episode_representation_with_verbatim_evidence():
+def test_episode_representation_is_separate_from_verbatim_embedding_text():
     blocks = [
         NormalizedBlock(
             index=0,
@@ -88,11 +92,14 @@ def test_embedding_text_combines_episode_representation_with_verbatim_evidence()
         ),
     )
 
-    embedded_text = embedding_text_for_chunk(chunk, blocks)
+    raw_text = embedding_text_for_chunk(chunk, blocks)
+    episode_text = embedding_text_for_episode(chunk)
 
-    assert "[episode title] Weekend kayaking and safety planning" in embedded_text
-    assert "[episode description] Caroline discussed a kayaking trip" in embedded_text
-    assert embedded_text.endswith(chunk.text)
+    assert raw_text == chunk.text
+    assert episode_text is not None
+    assert "[episode title] Weekend kayaking and safety planning" in episode_text
+    assert "[episode description] Caroline discussed a kayaking trip" in episode_text
+    assert chunk.text not in episode_text
     assert chunk.text == blocks[0].text
 
 

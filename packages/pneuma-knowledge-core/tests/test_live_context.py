@@ -185,9 +185,14 @@ _PUBLIC_BASELINE_SHA256 = {
     # 2026-08-11: the shared spine now resolves every question qualifier together and
     # distinguishes a transition in the asked period from an older activity merely
     # mentioned then. This is general temporal/evidence discipline, shared by all three.
-    "fast": "d073bc2c039984b38af3ce651171f6327afcbdef6594b8725afe09c918f3ab26",
-    "deep": "c4b653d0fbd45d08e700177a0e32ae535e04041c0289a2691d6c39de77de8220",
-    "briefing": "cd73165514cd34a1308816144e5e7df6a22122d7d9325501ed44a3dae134bb7e",
+    # 2026-08-12: the shared time clause no longer tells the model to resolve relative
+    # expressions quoted from old evidence against the live ask's `as_of`. Evidence uses
+    # its source occurrence clock; only the owner's live input uses the ask clock. An
+    # ambiguous calendar period keeps that absolute anchor rather than fabricating exact
+    # endpoints.
+    "fast": "14fd845a66620c5c7b47d0b3ff39f53a03c10b0e3cd5c1e985ea72b037a87e39",
+    "deep": "1b04985e05e20b0d1b895c06493f92c5d9cd724183ed47b99f64447267840e94",
+    "briefing": "b2be86ca8606007e2007508a065a7f9cae4222460e9b52299214cc5c826b29fc",
 }
 
 

@@ -167,10 +167,12 @@ easiest to miss: it tends to end up as an incidental note inside other pages, wh
 domains deserve a deliberately designed carrier (a dedicated timeline family, chronology
 pages per person or per thread, or a fixed dated-anchor section within pages) — the form
 follows the business, but it must be a **conscious design decision**. Whatever the carrier, one law never bends:
-**relative time ("yesterday", "next Monday") is normalized to absolute dates at admission,
-original wording kept** — a claim that says "yesterday" is worthless to retrieval three
-months later, and this kind of rot is caught by no mechanism, only by acceptance
-(see step 6).
+**relative time ("yesterday", "next Monday") is anchored to the material's absolute date at
+admission, with the original wording kept**. Resolve an exact date or span only when the
+material or the owner's calendar supplies an unambiguous convention; otherwise keep the
+anchored expression ("last week relative to 2026-07-18") instead of inventing endpoints. A
+claim that says only "yesterday" is worthless to retrieval three months later, and this kind
+of rot is caught by no mechanism, only by acceptance (see step 6).
 
 Voice every inference as "because your material …, I suggest …" — let them nod or fix it.
 
