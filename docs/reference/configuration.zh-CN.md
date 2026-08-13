@@ -76,7 +76,7 @@
 | `RECALL_CLAIM_CANDIDATE_CAP` | `80` | 内容包含去重、可选重排与最终上下文裁剪之前的 claim 检索深度 |
 | `RECALL_CLAIM_CAP` | `40` | 进入 fast 最终回答上下文的已编译 claim 数 |
 | `RECALL_WINDOW_CANDIDATE_CAP` | `60` | 检索后保留的词法/raw/episode 融合源区间数 |
-| `RECALL_EPISODE_SUMMARY_CAP` | `24` | 进入最终上下文、明确标为派生内容且元数据完整的 episode 摘要数 |
+| `RECALL_EPISODE_SUMMARY_CAP` | `16` | 进入最终上下文、明确标为派生内容且元数据完整的 episode 摘要数 |
 | `RECALL_WINDOW_CAP` | `6` | 进入最终上下文的精确逐字源窗口数 |
 | `RECALL_PLAN_QUERIES` | `0` | `0` 关；N>0 = 一次规划调用派生至多 N 条额外检索查询，单次 RRF 融合成池 |
 | `RECALL_RERANK_MODEL` | （空） | 空为关；`llm` = 召回模型 + reasoning effort `none` 做 LLM 重排；`llm:<spec>` 指定模型；裸模型名（如 `cohere/rerank-4-pro`）走 OpenRouter `/rerank` 端点 |

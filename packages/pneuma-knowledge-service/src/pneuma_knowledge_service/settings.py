@@ -207,7 +207,7 @@ class Settings(BaseSettings):
     recall_claim_candidate_cap: int = 80
     recall_claim_cap: int = 40
     recall_window_candidate_cap: int = 60
-    recall_episode_summary_cap: int = 24
+    recall_episode_summary_cap: int = 16
     recall_window_cap: int = 6
 
     # Fast-recall retrieval planning (PNEUMA_KNOWLEDGE_RECALL_PLAN_QUERIES). 0 = off

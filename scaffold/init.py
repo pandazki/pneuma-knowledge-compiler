@@ -83,10 +83,11 @@ DEMO_MATERIAL = (
 DEFAULT_MODELS = {
     "compile": "openrouter:openai/gpt-5.6-luna",
     "recall": "openrouter:openai/gpt-5.6-luna",
-    # Pro mode and high reasoning are reserved for the final answer; the high-volume recall
-    # helpers stay on standard Luna.
-    "answer": "openrouter:openai/gpt-5.6-luna-pro",
-    "answer_reasoning_effort": "high",
+    # Fast answers borrow the recall role by default. A separate answer model and explicit
+    # reasoning effort remain available deployment choices, but they should be justified by
+    # the deployment's own validation rather than imposed on every generated project.
+    "answer": "",
+    "answer_reasoning_effort": "",
     "embedding": "openrouter:openai/text-embedding-3-small",
     # The agentic deep-search lane defaults to the stronger sibling: it reasons across
     # multiple retrieval rounds, where the model tier is worth its price.
@@ -193,8 +194,8 @@ reference = ""             # e.g. "personal-knowledge@v2" (list with ./init.py -
 [models]
 compile = "openrouter:openai/gpt-5.6-luna"        # compile model (must support tool calling; the quality lever)
 recall = "openrouter:openai/gpt-5.6-luna"         # retrieval planning/glance model
-answer = "openrouter:openai/gpt-5.6-luna-pro"     # final answer only (pro reasoning mode)
-answer_reasoning_effort = "high"                  # explicit for reproducible answer quality
+answer = ""                                       # empty = final answer borrows recall
+answer_reasoning_effort = ""                      # empty = preserve provider default
 embedding = "openrouter:openai/text-embedding-3-small"
 deep = "openrouter:openai/gpt-5.6-terra"  # deep-recall (agentic) model; empty falls back to recall
 
@@ -636,9 +637,11 @@ compile: {models["compile"]}
 # only labelled caption/OCR text; auto trusts the active model profile.
 image_mode: {config["compile_image_mode"]}
 recall: {models["recall"]}
-# Retrieval helpers stay cheap; only the final answer uses the quality-first role below.
-answer: {models["answer"]}
-answer_reasoning_effort: {models["answer_reasoning_effort"]}
+# Empty borrows the recall role. Split this only when validation in your own domain shows a
+# separate final-answer model is worth its added cost or latency.
+answer: {models["answer"] if models["answer"] else '""'}
+# Empty preserves the answer model provider's default reasoning behavior.
+answer_reasoning_effort: {models["answer_reasoning_effort"] if models["answer_reasoning_effort"] else '""'}
 # Deep recall (the agentic search lane). Empty borrows the recall role.
 deep: {deep if deep else '""'}
 # A vector collection's dimension is fixed when it is created, so switching to a model of a
@@ -711,12 +714,12 @@ draft_ttl_hours: 24
 answer_style: {config["answer_style"]}
 
 # Retrieval breadth is cheap; answer evidence is expensive. Candidate caps search a broad
-# lexical/semantic tail. Up to 24 dense episode summaries enter as explicitly derived,
+# lexical/semantic tail. Up to 16 dense episode summaries enter as explicitly derived,
 # source-addressed context; six exact raw spans remain beside them for verbatim evidence.
 claim_candidate_cap: 80
 claim_cap: 40
 window_candidate_cap: 60
-episode_summary_cap: 24
+episode_summary_cap: 16
 window_cap: 6
 # 0 = one query per question. N > 0 spends one small model call to derive up to N extra
 # retrieval queries, pooled into one ranking — worth it for multi-part questions.

@@ -105,7 +105,7 @@ def test_generic_fast_defaults_separate_candidate_recall_from_answer_evidence():
     assert DEFAULT_CLAIM_CANDIDATE_CAP == 80
     assert DEFAULT_CLAIM_CAP == 40
     assert DEFAULT_WINDOW_CANDIDATE_CAP == 60
-    assert DEFAULT_EPISODE_SUMMARY_CAP == 24
+    assert DEFAULT_EPISODE_SUMMARY_CAP == 16
     assert DEFAULT_WINDOW_CAP == 6
 
 

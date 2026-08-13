@@ -76,7 +76,7 @@ Overlap duplicates a block across two L2 chunks. That duplication is derived-lay
 | `RECALL_CLAIM_CANDIDATE_CAP` | `80` | claim retrieval depth before containment dedup, optional reranking, and final context truncation |
 | `RECALL_CLAIM_CAP` | `40` | compiled claims admitted to the final fast-answer context |
 | `RECALL_WINDOW_CANDIDATE_CAP` | `60` | fused lexical/raw/episode source spans retained after retrieval |
-| `RECALL_EPISODE_SUMMARY_CAP` | `24` | explicitly derived, metadata-rich episode summaries admitted to final context |
+| `RECALL_EPISODE_SUMMARY_CAP` | `16` | explicitly derived, metadata-rich episode summaries admitted to final context |
 | `RECALL_WINDOW_CAP` | `6` | exact verbatim source windows admitted to final context |
 | `RECALL_PLAN_QUERIES` | `0` | `0` off; N>0 = one planning call derives up to N extra retrieval queries, pooled by one RRF fusion |
 | `RECALL_RERANK_MODEL` | (empty) | empty off; `llm` = LLM reranker on the recall model at reasoning effort `none`; `llm:<spec>` picks the model; a bare model name (e.g. `cohere/rerank-4-pro`) uses the OpenRouter `/rerank` endpoint |

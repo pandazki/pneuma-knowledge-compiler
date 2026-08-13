@@ -113,7 +113,7 @@ representations therefore improve rank without consuming duplicate answer-window
 chaining overlapping episodes into a mega-window. No retrieval path receives a fixed quota.
 Fast then separates cheap breadth from expensive context: the product defaults retrieve up
 to 80 claim candidates and 60 fused source-span candidates, while the final call receives at
-most 40 claims, 24 explicitly derived episode summaries, and 6 verbatim windows. These are
+most 40 claims, 16 explicitly derived episode summaries, and 6 verbatim windows. These are
 corpus-agnostic operating values for an interactive personal/team knowledge base, not rules
 about any particular corpus or question category. The summary face keeps the episode description's
 information density; the smaller raw face keeps exact wording and direct verification.

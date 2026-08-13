@@ -332,7 +332,7 @@
           "key": "episode_summary_cap",
           "env": "PNEUMA_KNOWLEDGE_RECALL_EPISODE_SUMMARY_CAP",
           "type": "int",
-          "default": 24,
+          "default": 16,
           "apply": "hot",
           "label": {
             "en": "Episode summary budget",

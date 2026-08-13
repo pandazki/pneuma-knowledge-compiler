@@ -71,7 +71,7 @@ def test_no_engine_dir_is_the_pre_engine_behavior(monkeypatch, tmp_path):
     assert settings.recall_claim_candidate_cap == 80
     assert settings.recall_claim_cap == 40
     assert settings.recall_window_candidate_cap == 60
-    assert settings.recall_episode_summary_cap == 24
+    assert settings.recall_episode_summary_cap == 16
     assert settings.recall_window_cap == 6
 
 

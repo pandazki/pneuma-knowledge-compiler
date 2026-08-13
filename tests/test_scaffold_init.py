@@ -103,7 +103,7 @@ def test_generates_a_complete_project_from_answers(tmp_path):
     assert "claim_candidate_cap: 80" in recall
     assert "claim_cap: 40" in recall
     assert "window_candidate_cap: 60" in recall
-    assert "episode_summary_cap: 24" in recall
+    assert "episode_summary_cap: 16" in recall
     assert "window_cap: 6" in recall
 
 
@@ -529,8 +529,8 @@ def test_answers_land_in_the_engine_and_resolve_through_the_framework(tmp_path, 
     assert resolved.values["recall.answer_style"] == "concise"
     assert resolved.values["challenge.enabled"] is True
     assert resolved.values["models.compile"] == "openrouter:x/strong"
-    assert resolved.values["models.answer"] == "openrouter:openai/gpt-5.6-luna-pro"
-    assert resolved.values["models.answer_reasoning_effort"] == "high"
+    assert resolved.values["models.answer"] == ""
+    assert resolved.values["models.answer_reasoning_effort"] == ""
     assert resolved.values["models.deep"] == "openrouter:x/deep"
     assert resolved.values["prompts.language"] == "zh"
     # Every generated value is STATED, not inherited: a person can read what their engine
