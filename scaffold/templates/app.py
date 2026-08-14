@@ -1271,6 +1271,7 @@ async def _ask(
     style: str | None = None,
     evidence_strategy: str | None = None,
     answer_format: str | None = None,
+    as_of: datetime | None = None,
     include_original_modalities: tuple[str, ...] = (),
 ) -> tuple[int, dict[str, int]]:
     from pneuma_knowledge_core.domain.ids import UserId
@@ -1292,7 +1293,7 @@ async def _ask(
         answer = await fast_recall(
             uid,
             question,
-            as_of=datetime.now(timezone.utc),
+            as_of=as_of or datetime.now(timezone.utc),
             claim_lexical=ctx.lexical,
             claim_vectors=ctx.vectors,
             lexical=ctx.lexical,
@@ -1375,6 +1376,18 @@ async def _ask(
         await ctx.aclose()
 
 
+def parse_as_of(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        sys.exit("error: --as-of must be a timezone-aware ISO 8601 timestamp")
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        sys.exit("error: --as-of must include a timezone offset")
+    return parsed
+
+
 def cmd_ask(args) -> int:
     code, _usage = asyncio.run(
         _ask(
@@ -1383,6 +1396,7 @@ def cmd_ask(args) -> int:
             style=args.style,
             evidence_strategy=args.evidence_strategy,
             answer_format=args.answer_format,
+            as_of=parse_as_of(args.as_of),
             include_original_modalities=tuple(args.include_original),
         )
     )
@@ -1659,6 +1673,13 @@ def main() -> int:
         help=(
             "answer wire for this ask: text is free text; structured validates separate "
             "answer text, kind, and citations"
+        ),
+    )
+    ask.add_argument(
+        "--as-of",
+        help=(
+            "timezone-aware ISO 8601 time of the question; omit for current UTC time. "
+            "Set it when replaying a historical question"
         ),
     )
     ask.add_argument(

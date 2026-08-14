@@ -1290,13 +1290,10 @@ DEFAULTS: dict[str, str] = {
         "complete `[cite: <source_id> ¶a-b]` marker copied from the evidence; keep the "
         "structured `answer` field free of citation markup."
     ),
-    # Two-tier honesty, measured not assumed: an answering lane that abstains whenever the
-    # evidence stops one inference short of the question systematically under-serves
-    # multi-hop and open questions (LoCoMo-refined tuning runs: +3.6pp / p=0.001, reproduced
-    # +4.3pp / p=0.0001 on a different retrieval base, abstention 4.8%→1.3% with no
-    # fabrication signature). The red line is unchanged: assertion strength tracks evidence
-    # strength — an inference must present itself as one, and nothing is asserted without
-    # footing.
+    # Two-tier honesty: abstaining whenever evidence stops one inference short under-serves
+    # ordinary multi-hop and open questions. The red line is unchanged: assertion strength
+    # tracks evidence strength — an inference presents itself as one, and nothing is asserted
+    # without footing.
     "recall.close.answer_honestly": (
         "- When the evidence in front of you does not state what the owner is asking for but "
         "does support a reasonable inference, give the best-supported inference and make "

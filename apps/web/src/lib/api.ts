@@ -421,6 +421,8 @@ export interface TrailStep {
 export interface RecallAnswer {
   mode: "fast" | "deep";
   answer: string;
+  /** Citation-free semantic payload for automation; the UI renders the cited `answer`. */
+  answer_text: string;
   as_of: string;
   used_claims: UsedClaim[];
   /** fast only: generated, source-addressed L2 episode descriptions shown to the model. */
@@ -445,6 +447,13 @@ export interface RecallAnswer {
   /** Fast-only context composition and answer-wire telemetry. */
   evidence_strategy?: "ranked" | "select";
   evidence_selection_degraded?: "timeout" | "error" | null;
+  claim_candidates?: number;
+  episode_summary_candidates?: number;
+  window_candidates?: number;
+  /** Selector choices before deterministic safety anchors and provenance rollback. */
+  model_selected_claims?: number;
+  model_selected_episode_summaries?: number;
+  model_selected_windows?: number;
   answer_format?: "text" | "structured";
   answer_kind?: "fact" | "list" | "time" | "duration" | "yes_no" | "inference" | "no_record" | null;
   answer_format_degraded?: "timeout" | "error" | null;

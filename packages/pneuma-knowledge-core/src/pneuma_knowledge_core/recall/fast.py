@@ -180,6 +180,9 @@ class RetrievedClaim:
 @dataclass(frozen=True)
 class FastAnswer:
     answer: str
+    # Citation-free semantic payload for APIs, scoring and downstream automation. `answer`
+    # remains the backward-compatible cited rendering used by interactive surfaces.
+    answer_text: str
     used_claims: tuple[RetrievedClaim, ...]
     token_usage: dict[str, int]
     # {handle: real_source_id} for the query-local `sNN` citation handles the answer uses —
@@ -221,7 +224,13 @@ class FastAnswer:
     # Candidate-vs-evidence telemetry makes the two budgets observable without exposing any
     # generated navigation text or source content.
     claim_candidates: int = 0
+    episode_summary_candidates: int = 0
     window_candidates: int = 0
+    # Coordinates the selector model actually chose, before deterministic ranked anchors
+    # and provenance rollback add context. Zero for ranked and fail-soft paths.
+    model_selected_claims: int = 0
+    model_selected_episode_summaries: int = 0
+    model_selected_windows: int = 0
     used_episode_summaries: tuple["EpisodeSummary", ...] = field(default_factory=tuple)
     # Query-time context composition. `ranked` is the historical fixed head; `select` is
     # one structured cross-face model call. Degradation is explicit and fail-soft.
@@ -269,6 +278,9 @@ class SelectedEvidence:
     episode_indexes: tuple[int, ...]
     window_indexes: tuple[int, ...]
     document_paths: tuple[str, ...] = ()
+    model_claim_count: int = 0
+    model_episode_count: int = 0
+    model_window_count: int = 0
 
 
 class StructuredRecallAnswer(BaseModel):
@@ -1154,6 +1166,26 @@ def _selected_indexes(
     return tuple(ordered)
 
 
+def _model_selected_indexes(
+    values: Sequence[int], *, available: int, cap: int
+) -> tuple[int, ...]:
+    """Validate only the model's coordinates, before ranked safety anchors are added."""
+
+    if available <= 0 or cap <= 0:
+        return ()
+    ordered: list[int] = []
+    for raw in values:
+        try:
+            index = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if 0 <= index < available and index not in ordered:
+            ordered.append(index)
+        if len(ordered) >= cap:
+            break
+    return tuple(ordered)
+
+
 def evidence_selection_messages(
     question: str,
     *,
@@ -1324,6 +1356,23 @@ async def select_evidence(
                 anchors=DEFAULT_SELECTION_WINDOW_ANCHORS,
             ),
             document_paths=tuple(paths),
+            model_claim_count=len(
+                _model_selected_indexes(
+                    parsed.claims, available=len(claims), cap=claim_cap
+                )
+            ),
+            model_episode_count=len(
+                _model_selected_indexes(
+                    parsed.episode_summaries,
+                    available=len(episode_summaries),
+                    cap=episode_summary_cap,
+                )
+            ),
+            model_window_count=len(
+                _model_selected_indexes(
+                    parsed.raw_windows, available=len(windows), cap=window_cap
+                )
+            ),
         ),
         usage,
         None,
@@ -1549,7 +1598,7 @@ async def answer_with_structured(
     reasoning_effort: str | None = None,
     answer_style: str = DEFAULT_ANSWER_STYLE,
     timeout: float | None = DEFAULT_STRUCTURED_ANSWER_TIMEOUT_SECONDS,
-) -> tuple[str, dict[str, int], dict[str, str], str | None, str | None]:
+) -> tuple[str, str, dict[str, int], dict[str, str], str | None, str | None]:
     """Structured final answer with mechanically admitted evidence citations.
 
     Provider/schema failure retries through the historical text answer once and exposes the
@@ -1629,6 +1678,7 @@ async def answer_with_structured(
             answer_style=answer_style,
         )
         return (
+            strip_citations(fallback),
             fallback,
             add_usage(usage, fallback_usage),
             fallback_handles,
@@ -1651,10 +1701,11 @@ async def answer_with_structured(
             continue
         if marker not in citations:
             citations.append(marker)
-    answer = parsed.answer.strip()
+    answer_text = parsed.answer.strip()
+    answer = answer_text
     if citations:
         answer = (answer + " " + " ".join(citations)).strip()
-    return answer, usage, handle_map, parsed.answer_kind, None
+    return answer_text, answer, usage, handle_map, parsed.answer_kind, None
 
 
 # ------------------------------------------------------- the glance selection pass (B)
@@ -2280,6 +2331,10 @@ async def fast_recall(
     rerank_degraded: str | None = None
     evidence_selection_usage = zero_usage()
     evidence_selection_degraded: str | None = None
+    episode_summary_candidates = 0
+    model_selected_claims = 0
+    model_selected_episode_summaries = 0
+    model_selected_windows = 0
     if evidence_strategy == "select":
         # Episode summaries are a first-class evidence face. Build them over candidate
         # breadth before selection; only the selected bounded subset reaches the answer.
@@ -2289,6 +2344,7 @@ async def fast_recall(
             user_id=user_id,
             cap=max(episode_summary_cap, window_candidate_cap),
         )
+        episode_summary_candidates = len(episode_candidates)
         evidence_choice, evidence_selection_usage, evidence_selection_degraded = (
             await select_evidence(
                 glance_model or model,
@@ -2315,6 +2371,9 @@ async def fast_recall(
             episode_summaries = episode_candidates[:episode_summary_cap]
             selected_raw_windows = raw_windows[:window_cap]
         else:
+            model_selected_claims = evidence_choice.model_claim_count
+            model_selected_episode_summaries = evidence_choice.model_episode_count
+            model_selected_windows = evidence_choice.model_window_count
             claims = [claims_raw[index] for index in evidence_choice.claim_indexes]
             episode_summaries = [
                 episode_candidates[index] for index in evidence_choice.episode_indexes
@@ -2333,6 +2392,7 @@ async def fast_recall(
             user_id=user_id,
             cap=episode_summary_cap,
         )
+        episode_summary_candidates = len(episode_summaries)
         selected_raw_windows = raw_windows[:window_cap]
     else:
         claims = claims_raw[:cap]
@@ -2342,6 +2402,7 @@ async def fast_recall(
             user_id=user_id,
             cap=episode_summary_cap,
         )
+        episode_summary_candidates = len(episode_summaries)
         selected_raw_windows = raw_windows[:window_cap]
     # Built from the FULL capped hit set, before the annotation join may move claims out of
     # the notes section: which documents the retrieval touched is a property of retrieval,
@@ -2412,6 +2473,7 @@ async def fast_recall(
     answer_format_degraded: str | None = None
     if answer_format == "structured":
         (
+            answer_text,
             answer,
             usage,
             citation_handles,
@@ -2461,11 +2523,13 @@ async def fast_recall(
             reasoning_effort=reasoning_effort,
             answer_style=answer_style,
         )
+        answer_text = strip_citations(answer)
     total_usage = add_usage(usage, select_usage)
     total_usage = add_usage(total_usage, plan_usage)
     total_usage = add_usage(total_usage, evidence_selection_usage)
     return FastAnswer(
         answer=answer,
+        answer_text=answer_text,
         used_claims=tuple(claims),
         token_usage=total_usage,
         used_windows=tuple(windows),
@@ -2483,7 +2547,11 @@ async def fast_recall(
         image_count=len(images),
         image_mode=image_mode,
         claim_candidates=len(claims_raw),
+        episode_summary_candidates=episode_summary_candidates,
         window_candidates=len(raw_windows),
+        model_selected_claims=model_selected_claims,
+        model_selected_episode_summaries=model_selected_episode_summaries,
+        model_selected_windows=model_selected_windows,
         used_episode_summaries=tuple(episode_summaries),
         evidence_strategy=evidence_strategy,
         evidence_selection_degraded=evidence_selection_degraded,

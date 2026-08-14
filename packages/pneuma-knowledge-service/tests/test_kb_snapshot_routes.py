@@ -35,6 +35,7 @@ _FROZEN = datetime(2026, 3, 1, 9, 30, tzinfo=timezone.utc)
 @dataclass
 class _FakeFastAnswer:
     answer: str = "答案"
+    answer_text: str = "答案"
     used_claims: tuple = ()
     used_windows: tuple = ()
     used_episode_summaries: tuple = field(
@@ -57,6 +58,12 @@ class _FakeFastAnswer:
     glance_degraded: str | None = None
     evidence_strategy: str = "ranked"
     evidence_selection_degraded: str | None = None
+    claim_candidates: int = 80
+    episode_summary_candidates: int = 60
+    window_candidates: int = 60
+    model_selected_claims: int = 2
+    model_selected_episode_summaries: int = 1
+    model_selected_windows: int = 3
     answer_format: str = "text"
     answer_kind: str | None = None
     answer_format_degraded: str | None = None
@@ -203,6 +210,13 @@ async def test_without_a_snapshot_the_owner_answers_and_nothing_is_pinned(captur
     assert captured["selection_reasoning_effort"] is None
     assert out.evidence_strategy == "ranked"
     assert out.answer_format == "text"
+    assert out.answer_text == "答案"
+    assert out.claim_candidates == 80
+    assert out.episode_summary_candidates == 60
+    assert out.window_candidates == 60
+    assert out.model_selected_claims == 2
+    assert out.model_selected_episode_summaries == 1
+    assert out.model_selected_windows == 3
     assert out.snapshot is None
     assert len(out.used_episode_summaries) == 1
     summary = out.used_episode_summaries[0]

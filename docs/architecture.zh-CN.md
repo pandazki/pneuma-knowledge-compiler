@@ -104,7 +104,7 @@
 
 L1 词法命中、L2 raw/caption 向量与 L2 episode 描述向量是三条独立排序。每条路径先取最终上限的两倍候选，使后置去重可以从尾部补位而不是缩小召回。普通等权 RRF 奖励多路一致命中，同时让精确的纯词法标识符和日期仍可排在宽泛的纯 episode 命中之前。融合池随后按 `source_id + block span` 做保序重叠抑制；raw/caption 或词法区间与纯 episode 区间重叠时，前者始终保有可引用结果，episode 只能提高它的排名，不能替换更精确的证据。因此多种表示可以提高排序，却不会重复占用答题窗口名额，也不会把一串相邻重叠 episode 串成巨型窗口。任何检索路径都没有固定配额。fast 随后把廉价广度与昂贵上下文分开：产品默认最多召回 80 条 claim 候选与 60 个融合源区间候选，最终调用最多接收 40 条 claim、16 条明确标注的派生 episode 摘要和 6 个逐字窗口。这些是面向交互式个人／团队知识库、与语料无关的经验运行值，不是针对任何特定语料或问题类别的规则。摘要面保留 episode description 的信息密度，较小的 raw 面负责精确措辞与直接核验。fast 响应会把所有准入的摘要回显为 `used_episode_summaries`，并机械标注 `derived=true`、`verbatim=false`；Recall 界面展示同一组元数据，每条都可跳回精确 L0 区间。
 
-fast 还在这些平行视图之上提供可选的**质量编排**档位。使用 `evidence_strategy=select` 时，一次结构化 recall 模型调用会接收带编号的宽 claim／episode／raw 候选与 canonical 一览，并且只返回坐标。框架会拒绝虚构坐标、并入确定性的高排名锚点、执行既有最终上限，再把选中的 claim 与 episode 来源追到有上限且去重的 L0 原文。这只是一次性的查询编排，绝不是新的权威。`answer_format=structured` 可独立启用，将回答类型、干净回答正文和引用分开；只有证据中真实出现过的精确别名区间能够准入。两阶段都可软降级并显式回显原因。selector 串行位于检索与回答之间，因此延迟和 token 成本以 `recall.fast.evidence_select` 单独留痕；默认 `ranked + text` 路径保持不变。
+fast 还在这些平行视图之上提供可选的**质量编排**档位。使用 `evidence_strategy=select` 时，一次结构化 recall 模型调用会接收带编号的宽 claim／episode／raw 候选与 canonical 一览，并且只返回坐标。框架会拒绝虚构坐标、并入确定性的高排名锚点、执行既有最终上限，再把选中的 claim 与 episode 来源追到有上限且去重的 L0 原文。这只是一次性的查询编排，绝不是新的权威。`answer_format=structured` 可独立启用，将回答类型、干净回答正文和引用分开；只有证据中真实出现过的精确别名区间能够准入。两阶段都可软降级并显式回显原因。selector 串行位于检索与回答之间，因此延迟和 token 成本以 `recall.fast.evidence_select` 单独留痕；候选数和模型在安全锚点前的实际入选数让其真实贡献可观测。每个回答响应都同时携带不含引用的 `answer_text` 与向后兼容的带引用 `answer`。默认 `ranked + text` 路径保持不变。
 
 进入上下文组装后，semantic raw/episode 区间继续保留 ingest 时记录的自然单元，不再二次向前扩张，默认也只合并真正重叠的区间。纯词法单块命中默认只向前扩一块；桥接互不相交的近邻区间必须由调用方显式选择，并经本领域的实际验证。
 

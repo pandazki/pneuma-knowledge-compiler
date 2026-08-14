@@ -52,6 +52,8 @@ export const recall = defineMessages({
     "recall.answer.evidenceStrategy": "证据编排",
     "recall.answer.answerFormat": "回答格式",
     "recall.answer.degraded": "已降级",
+    "recall.answer.selectorContribution":
+      "selector 实选：claim {claims}/{claimCandidates} · episode {episodes}/{episodeCandidates} · 窗口 {windows}/{windowCandidates}",
     "recall.usedClaims.title": "依据断言（{count}）",
     "recall.episodeSummaries.title": "派生 Episode 摘要（{count}）",
     "recall.episodeSummaries.description":
@@ -107,6 +109,8 @@ export const recall = defineMessages({
     "recall.answer.evidenceStrategy": "evidence",
     "recall.answer.answerFormat": "format",
     "recall.answer.degraded": "degraded",
+    "recall.answer.selectorContribution":
+      "selector chose claims {claims}/{claimCandidates} · episodes {episodes}/{episodeCandidates} · windows {windows}/{windowCandidates}",
     "recall.usedClaims.title": "Claims used ({count})",
     "recall.episodeSummaries.title": "Derived episode summaries ({count})",
     "recall.episodeSummaries.description":

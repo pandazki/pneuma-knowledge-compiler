@@ -432,6 +432,26 @@ def test_cli_ask_exposes_fast_context_composition_without_new_lane_names():
     assert 'choices=["text", "structured"]' in app_text
 
 
+def test_cli_ask_accepts_an_explicit_historical_as_of():
+    app_text = (ROOT / "scaffold" / "templates" / "app.py").read_text(encoding="utf-8")
+    ask = app_text[app_text.index("async def _ask(") : app_text.index("async def _status()")]
+    assert "as_of: datetime | None = None" in ask
+    assert "as_of=as_of or datetime.now(timezone.utc)" in ask
+    assert "as_of=parse_as_of(args.as_of)" in ask
+    assert '"--as-of"' in app_text
+    assert "timezone-aware ISO 8601" in app_text
+
+    assert app.parse_as_of("2025-06-20T21:00:00Z").isoformat() == (
+        "2025-06-20T21:00:00+00:00"
+    )
+    assert app.parse_as_of("2025-06-20T21:00:00+08:00").utcoffset().total_seconds() == 28800
+    assert app.parse_as_of(None) is None
+    with pytest.raises(SystemExit, match="must include a timezone offset"):
+        app.parse_as_of("2025-06-20T21:00:00")
+    with pytest.raises(SystemExit, match="timezone-aware ISO 8601"):
+        app.parse_as_of("not-a-time")
+
+
 def test_the_compose_web_image_talks_to_the_real_engine_routes():
     """The console UI defaults to mock fixtures so it could be built before the API existed.
     A project image always has the API beside it, so its build states the real routes."""

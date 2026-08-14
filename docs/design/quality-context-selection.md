@@ -25,7 +25,8 @@ Fast recall gains two independent request/deployment choices:
   faces and the canonical glance.
 - `answer_format`: `text` or `structured`. `text` is the existing free-text answer and
   remains the default. `structured` asks for an answer kind, answer-only text, and source
-  markers in separate fields, then mechanically reconstructs the ordinary cited answer.
+  markers in separate fields. The public result exposes both `answer_text` (semantic answer
+  only) and the backward-compatible cited `answer` used by interactive product surfaces.
 
 Per-request values override deployment settings. The fields are valid only for `mode=fast`;
 `rag` and `deep` reject non-null values rather than pretending to honor them.
@@ -62,8 +63,10 @@ an operating profile, not a hidden benchmark rule.
    caller requested that modality. Selection never makes media unconditional.
 
 The selector operation is traced as `recall.fast.evidence_select`; its usage is included in
-the returned aggregate token usage. Candidate counts, selected counts, strategy and degraded
-reason are response telemetry and contain no source text.
+the returned aggregate token usage. Candidate counts, model-selected counts, final counts,
+strategy and degraded reason are response telemetry and contain no source text. Model-selected
+counts are reported before deterministic safety heads and provenance rollback, so an operator
+can measure whether the serial model step actually contributes evidence.
 
 ## 4. Structured answer behavior
 
@@ -75,10 +78,16 @@ The structured schema contains:
 - `citations`: complete `[cite: sNN ¶a-b]` markers copied from the presented evidence.
 
 Only citation markers whose handle and exact block span occurred in the aliased evidence are
-admitted. Unknown or widened references are dropped mechanically. Valid markers are appended
-to `answer` in their returned order, preserving the existing API/UI citation contract. A
-provider or schema failure falls back to the existing text call and records
-`answer_format_degraded`; it never silently masquerades as structured output.
+admitted. Unknown or widened references are dropped mechanically. `answer_text` is the clean
+answer body; valid markers are appended only to `answer` in their returned order, preserving
+the existing API/UI citation contract. Text-mode and structured-fallback results derive
+`answer_text` with the shared citation parser, never an ad-hoc regular expression. A provider
+or schema failure falls back to the existing text call and records `answer_format_degraded`;
+it never silently masquerades as structured output.
+
+Callers replaying a historical question must provide the question's `as_of` explicitly. The
+API already accepts it; the scaffold CLI exposes `--as-of`. Omitting it intentionally means
+the current wall-clock instant, which is correct for a live question but not for a replay.
 
 Both structured and text SystemMessages remain byte-stable. Question, `as_of`, snapshot and
 evidence stay in the HumanMessage.
@@ -106,4 +115,16 @@ evidence stay in the HumanMessage.
 6. A caption-only call reads no original image bytes; a caller-requested selected image still
    performs the existing digest-verified L0 media round trip.
 7. Langfuse receives separate selector and answer observations with one shared trace context.
+8. `answer_text` contains no admitted citation markup while `answer` retains the same cited
+   rendering and both refer to the same citation ledger.
+9. A historical CLI ask forwards its explicit `--as-of`; a live ask without it uses current
+   UTC time.
 
+## 7. Operating guidance
+
+`select` is an opt-in serial step, not a generic quality synonym. Start with `ranked`; enable
+`select` only when measurements on the deployment's own acceptance set show that broad
+candidates contain the needed evidence but the ranked final context misses a cross-face join.
+Compare model-selected counts with final counts: when safety heads and provenance rollback
+supply most evidence, the selector may add cost and latency without earning its place. Quality,
+latency and cost are separate acceptance axes and require a same-harness comparison.

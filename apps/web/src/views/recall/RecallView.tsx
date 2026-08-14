@@ -477,6 +477,18 @@ function AnswerPanel({
             <Badge>
               {t("recall.answer.answerFormat")}: {answer.answer_format ?? "text"}
             </Badge>
+            {answer.evidence_strategy === "select" && (
+              <Badge>
+                {t("recall.answer.selectorContribution", {
+                  claims: answer.model_selected_claims ?? 0,
+                  claimCandidates: answer.claim_candidates ?? 0,
+                  episodes: answer.model_selected_episode_summaries ?? 0,
+                  episodeCandidates: answer.episode_summary_candidates ?? 0,
+                  windows: answer.model_selected_windows ?? 0,
+                  windowCandidates: answer.window_candidates ?? 0,
+                })}
+              </Badge>
+            )}
             {answer.answer_kind && <Badge>{answer.answer_kind}</Badge>}
             {(answer.evidence_selection_degraded || answer.answer_format_degraded) && (
               <Badge>

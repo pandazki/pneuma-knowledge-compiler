@@ -131,7 +131,10 @@ deduplicated L0 passages. This is ephemeral query composition, never a new autho
 citations; only exact aliased spans present in the evidence are admitted. Either stage is
 fail-soft with explicit degradation telemetry. The selector is serial between retrieval and
 answering, so its latency and token cost are traced separately as
-`recall.fast.evidence_select`; the default `ranked + text` path remains unchanged.
+`recall.fast.evidence_select`; candidate counts and the model's pre-safety-head choice counts
+make its actual contribution observable. Every answering response carries citation-free
+`answer_text` beside the backward-compatible cited `answer`. The default `ranked + text` path
+remains unchanged.
 
 During context assembly, semantic raw/episode spans remain the natural units recorded at
 ingest: they are not expanded a second time, and only genuinely overlapping spans coalesce by

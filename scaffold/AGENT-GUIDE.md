@@ -230,6 +230,19 @@ lowest-latency path. If answers contain the right fact but blur the requested sh
 the cited spans. These switches improve query-time composition; they do not repair missing L0,
 bad semantic segmentation or a wrong compile contract.
 
+Treat `select` as a measured exception, not a quality synonym. Start with `ranked`. The API
+reports candidate counts and how many claims, episodes and windows the selector model chose
+before deterministic safety anchors and provenance rollback. If those model-selected counts
+stay near zero while the final evidence ledger is large, the extra serial call is not doing
+the work and should usually be removed. Judge answer quality, latency and cost separately on
+the user's own acceptance questions.
+
+For downstream automation, use the response's citation-free `answer_text`; interactive
+surfaces should keep the cited `answer`. When replaying an old question, pass its original
+time explicitly (`./app.py ask '...' --as-of 2025-06-14T09:00:00+08:00`). Omitting `--as-of`
+means “ask now,” which is correct for live use but changes the meaning of relative-time
+questions during a replay.
+
 **Done when**: within two or three rounds the library "looks right" — that's delivery.
 
 ---

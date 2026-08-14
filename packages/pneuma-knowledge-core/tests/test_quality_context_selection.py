@@ -148,6 +148,9 @@ async def test_cross_face_selection_validates_indexes_unions_safety_head_and_cap
     # Model choices lead; deterministic ranked anchors preserve the strongest evidence.
     assert selected.claim_indexes == (11, 0, 1, 2, 3, 4, 5, 6, 7)
     assert selected.episode_indexes == (5, 0, 1, 2, 3)
+    assert selected.model_claim_count == 1
+    assert selected.model_episode_count == 1
+    assert selected.model_window_count == 1
     assert selected.window_indexes == (5, 0, 1, 2, 3)
     assert selected.document_paths == ("people/p11.md",)
     human = model.seen[0][1].content
@@ -196,7 +199,7 @@ async def test_structured_answer_admits_only_exact_presented_citations():
         seen=[],
     )
 
-    answer, usage, handles, kind, degraded = await answer_with_structured(
+    answer_text, answer, usage, handles, kind, degraded = await answer_with_structured(
         model,
         "When was it?",
         [claim],
@@ -209,6 +212,7 @@ async def test_structured_answer_admits_only_exact_presented_citations():
     assert degraded is None
     assert kind == "time"
     assert usage["total_tokens"] == 14
+    assert answer_text == "August 14, 2026."
     assert answer == "August 14, 2026. [cite: s01 ¶0-0] [cite: s02 ¶3-5]"
     assert handles == {"s01": "source-0", "s02": "raw-source"}
     assert "[cite: s01 ¶0-0]" in model.seen[0][1].content
@@ -304,7 +308,15 @@ async def test_fast_select_and_structured_answer_are_one_observable_quality_path
         seen["selector_claims"] = list(kwargs["claims"])
         seen["selector_summaries"] = list(kwargs["episode_summaries"])
         seen["selector_windows"] = list(kwargs["windows"])
-        return SelectedEvidence((2,), (2,), (2,), ()), {
+        return SelectedEvidence(
+            (2,),
+            (2,),
+            (2,),
+            (),
+            model_claim_count=1,
+            model_episode_count=1,
+            model_window_count=1,
+        ), {
             "input_tokens": 5,
             "output_tokens": 2,
             "total_tokens": 7,
@@ -316,7 +328,7 @@ async def test_fast_select_and_structured_answer_are_one_observable_quality_path
         seen["answer_claims"] = list(args[2])
         seen["answer_summaries"] = list(kwargs["episode_summaries"])
         seen["answer_windows"] = list(kwargs["windows"])
-        return "the answer", {
+        return "the answer", "the answer [cite: s01 ¶0-0]", {
             "input_tokens": 3,
             "output_tokens": 2,
             "total_tokens": 5,
@@ -357,10 +369,17 @@ async def test_fast_select_and_structured_answer_are_one_observable_quality_path
     assert seen["answer_claims"] == [claims[2]]
     assert seen["answer_summaries"] == [summaries[2]]
     assert seen["answer_windows"] == [windows[2]]
-    assert result.answer == "the answer"
+    assert result.answer_text == "the answer"
+    assert result.answer == "the answer [cite: s01 ¶0-0]"
     assert result.answer_kind == "fact"
     assert result.evidence_strategy == "select"
     assert result.answer_format == "structured"
+    assert result.claim_candidates == 3
+    assert result.episode_summary_candidates == 3
+    assert result.window_candidates == 3
+    assert result.model_selected_claims == 1
+    assert result.model_selected_episode_summaries == 1
+    assert result.model_selected_windows == 1
     assert result.token_usage["total_tokens"] == 12
 
 
@@ -394,7 +413,7 @@ async def test_fast_select_failure_falls_back_to_ranked_heads_and_reports_it(mon
         seen["claims"] = list(args[2])
         seen["summaries"] = list(kwargs["episode_summaries"])
         seen["windows"] = list(kwargs["windows"])
-        return "fallback", {
+        return "fallback [cite: s01 ¶0-0]", {
             "input_tokens": 3,
             "output_tokens": 1,
             "total_tokens": 4,
@@ -431,6 +450,11 @@ async def test_fast_select_failure_falls_back_to_ranked_heads_and_reports_it(mon
         "windows": windows[:2],
     }
     assert result.evidence_selection_degraded == "timeout"
+    assert result.answer == "fallback [cite: s01 ¶0-0]"
+    assert result.answer_text == "fallback"
+    assert result.model_selected_claims == 0
+    assert result.model_selected_episode_summaries == 0
+    assert result.model_selected_windows == 0
     assert result.token_usage["total_tokens"] == 6
 
 
@@ -447,7 +471,7 @@ async def test_default_fast_path_never_invokes_quality_selector_or_structured_an
         raise AssertionError("opt-in quality pass ran on the default path")
 
     async def answer(*args, **kwargs):  # noqa: ANN002, ANN003
-        return "historical", {
+        return "historical [cite: s01 ¶0-0]", {
             "input_tokens": 1,
             "output_tokens": 1,
             "total_tokens": 2,
@@ -471,6 +495,7 @@ async def test_default_fast_path_never_invokes_quality_selector_or_structured_an
         model=StructuredModel(parsed=EvidenceSelection(), seen=[]),
     )
 
-    assert result.answer == "historical"
+    assert result.answer == "historical [cite: s01 ¶0-0]"
     assert result.evidence_strategy == "ranked"
     assert result.answer_format == "text"
+    assert result.answer_text == "historical"

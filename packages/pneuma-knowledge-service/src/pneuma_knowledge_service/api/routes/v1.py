@@ -33,6 +33,7 @@ from pneuma_knowledge_core.recall.briefing import (
     briefing_ask,
     build_briefing,
 )
+from pneuma_knowledge_core.recall.citation_alias import strip_citations
 from pneuma_knowledge_core.recall.deep import deep_recall
 from pneuma_knowledge_core.recall.fast import fast_recall
 from pneuma_knowledge_core.recall.rag import rag_recall
@@ -271,6 +272,9 @@ class RecallAnswerOut(BaseModel):
 
     mode: str
     answer: str
+    # Citation-free semantic answer for automation and evaluation. `answer` remains the
+    # cited rendering used by interactive clients.
+    answer_text: str
     as_of: str
     used_claims: list[UsedClaimOut]
     # fast only: generated L2 episode descriptions used as dense context. These are
@@ -297,6 +301,12 @@ class RecallAnswerOut(BaseModel):
     # from a provider/schema failure that fell back to the historical path.
     evidence_strategy: str = "ranked"
     evidence_selection_degraded: str | None = None
+    claim_candidates: int = 0
+    episode_summary_candidates: int = 0
+    window_candidates: int = 0
+    model_selected_claims: int = 0
+    model_selected_episode_summaries: int = 0
+    model_selected_windows: int = 0
     answer_format: str = "text"
     answer_kind: str | None = None
     answer_format_degraded: str | None = None
@@ -1063,6 +1073,7 @@ async def recall(
         return RecallAnswerOut(
             mode="fast",
             answer=fa.answer,
+            answer_text=fa.answer_text,
             as_of=as_of.isoformat(),
             used_claims=[_used_claim_out(c) for c in fa.used_claims],
             used_episode_summaries=[
@@ -1075,6 +1086,12 @@ async def recall(
             glance_degraded=fa.glance_degraded,
             evidence_strategy=fa.evidence_strategy,
             evidence_selection_degraded=fa.evidence_selection_degraded,
+            claim_candidates=fa.claim_candidates,
+            episode_summary_candidates=fa.episode_summary_candidates,
+            window_candidates=fa.window_candidates,
+            model_selected_claims=fa.model_selected_claims,
+            model_selected_episode_summaries=fa.model_selected_episode_summaries,
+            model_selected_windows=fa.model_selected_windows,
             answer_format=fa.answer_format,
             answer_kind=fa.answer_kind,
             answer_format_degraded=fa.answer_format_degraded,
@@ -1113,6 +1130,7 @@ async def recall(
     return RecallAnswerOut(
         mode="deep",
         answer=da.answer,
+        answer_text=strip_citations(da.answer),
         as_of=as_of.isoformat(),
         used_claims=[_used_claim_out(c) for c in da.used_claims],
         used_windows=[_recall_hit_out(w) for w in da.used_windows],
@@ -1201,6 +1219,7 @@ async def recall_stream(user_id: str, body: RecallIn, request: Request) -> Strea
                     RecallAnswerOut(
                         mode="deep",
                         answer=da.answer,
+                        answer_text=strip_citations(da.answer),
                         as_of=as_of.isoformat(),
                         used_claims=[_used_claim_out(c) for c in da.used_claims],
                         used_windows=[_recall_hit_out(w) for w in da.used_windows],

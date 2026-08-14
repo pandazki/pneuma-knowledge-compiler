@@ -51,6 +51,10 @@ the broad candidates; the framework validates its coordinates, retains ranked sa
 and follows selected derived provenance back to L0. `answer_format` is independent: `text`
 keeps the ordinary free-text answer, while `structured` separates answer kind, clean text and
 precise citations so cited spans can be validated. Both can be overridden for one `ask`.
+The API exposes the selector's pre-safety-head choice counts, so a serial selection call that
+contributes little evidence is visible rather than assumed useful. Automation consumes clean
+`answer_text`; interactive clients render the cited `answer`. Historical replay must pass the
+question time explicitly with `--as-of`; omission means the current UTC time.
 
 **The prompt language is the layer your overrides sit on.** `prompts/overlays.yaml` opens
 with `language:` — `en` is the framework's default English catalog; `zh` swaps in the shipped
