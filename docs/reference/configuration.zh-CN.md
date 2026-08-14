@@ -78,10 +78,15 @@
 | `RECALL_WINDOW_CANDIDATE_CAP` | `60` | 检索后保留的词法/raw/episode 融合源区间数 |
 | `RECALL_EPISODE_SUMMARY_CAP` | `16` | 进入最终上下文、明确标为派生内容且元数据完整的 episode 摘要数 |
 | `RECALL_WINDOW_CAP` | `6` | 进入最终上下文的精确逐字源窗口数 |
+| `RECALL_EVIDENCE_STRATEGY` | `ranked` | 仅 fast 的上下文编排：`ranked` 保留固定检索头部；`select` 增加一次结构化 recall 模型调用，在断言、episode 摘要、raw 窗口和已知 canonical 文档之间选择受上限约束的组合。逐次覆盖字段：`evidence_strategy` |
+| `RECALL_ANSWER_FORMAT` | `text` | 仅 fast 的回答线格式：`text` 是既有自由文本调用；`structured` 将回答类型、干净回答正文与精确引用分开，再只准入证据中出现过的精确区间。逐次覆盖字段：`answer_format` |
+| `RECALL_SELECTION_REASONING_EFFORT` | （空） | `select` 调用的可选 provider 推理强度提示；留空不发送覆盖值 |
 | `RECALL_PLAN_QUERIES` | `0` | `0` 关；N>0 = 一次规划调用派生至多 N 条额外检索查询，单次 RRF 融合成池 |
 | `RECALL_RERANK_MODEL` | （空） | 空为关；`llm` = 召回模型 + reasoning effort `none` 做 LLM 重排；`llm:<spec>` 指定模型；裸模型名（如 `cohere/rerank-4-pro`）走 OpenRouter `/rerank` 端点 |
 | `RECALL_RERANK_CANDIDATES` | `120` | 重排时每查询每路的检索深度；reranker 对完整去重并集打分（硬上限 1000） |
 | `RECALL_ANSWER_STYLE` | `conversational` | fast/deep 回答的输出风格预设：`concise` = 只给所问的精确值/短语（判分器、脚本消费），`conversational` = 自然对话式回答，`detailed` = 自成一体的书面纪要。只管形态——红线/引用/诚实收尾与风格无关。recall 请求可逐次覆盖（`answer_style`） |
+
+`select` 是质量／延迟取舍，不是另一份检索权威。选择器只返回候选下标和已知路径；框架会验证它们、并入一小段确定性的高排名安全头部，再把选中的 claim／episode 来源追到有上限的 L0 原文。超时、schema 或 provider 失败会回落 ranked 上下文，并通过 degraded telemetry 披露。因为这次调用串行位于检索与回答之间，把它设成部署默认前应单独测量 selector 延迟。`ranked + text` 仍是兼容且延迟最低的档位。
 
 ## 提示词语言
 

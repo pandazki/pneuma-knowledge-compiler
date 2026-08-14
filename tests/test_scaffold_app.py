@@ -420,6 +420,18 @@ def test_cli_ask_replays_original_modalities_only_when_the_caller_requests_them(
     assert 'choices=["image"]' in app
 
 
+def test_cli_ask_exposes_fast_context_composition_without_new_lane_names():
+    app_text = (ROOT / "scaffold" / "templates" / "app.py").read_text(encoding="utf-8")
+    ask = app_text[app_text.index("async def _ask(") : app_text.index("async def _status()")]
+    assert "evidence_strategy=evidence_strategy or settings.recall_evidence_strategy" in ask
+    assert "answer_format=answer_format or settings.recall_answer_format" in ask
+    assert "selection_reasoning_effort=settings.recall_selection_reasoning_effort or None" in ask
+    assert '"--evidence-strategy"' in app_text
+    assert 'choices=["ranked", "select"]' in app_text
+    assert '"--answer-format"' in app_text
+    assert 'choices=["text", "structured"]' in app_text
+
+
 def test_the_compose_web_image_talks_to_the_real_engine_routes():
     """The console UI defaults to mock fixtures so it could be built before the API existed.
     A project image always has the API beside it, so its build states the real routes."""
@@ -514,7 +526,7 @@ ENGINE_FILES = {
     "intake/intake.yaml": "chunk_strategy: sentence\n",
     "compile/challenge.yaml": "enabled: true\nmax_rounds: 3\nmax_questions: 6\ncompensate: true\n",
     "evolve/evolve.yaml": "auto_trigger: false\ntrigger_topic_docs: 5\ntrigger_new_claims: 30\ndraft_ttl_hours: 24\n",
-    "recall/recall.yaml": 'answer_style: concise\nclaim_candidate_cap: 100\nclaim_cap: 50\nwindow_candidate_cap: 70\nepisode_summary_cap: 30\nwindow_cap: 7\nplan_queries: 2\nrerank_model: ""\nrerank_candidates: 120\n',
+    "recall/recall.yaml": 'answer_style: concise\nevidence_strategy: select\nanswer_format: structured\nselection_reasoning_effort: medium\nclaim_candidate_cap: 100\nclaim_cap: 50\nwindow_candidate_cap: 70\nepisode_summary_cap: 30\nwindow_cap: 7\nplan_queries: 2\nrerank_model: ""\nrerank_candidates: 120\n',
     "persona/profile.yaml": 'display_name: "T"\n',
 }
 
@@ -543,6 +555,9 @@ def _engine(monkeypatch, tmp_path, files: dict[str, str] | None = None) -> Path:
         "PNEUMA_KNOWLEDGE_RECALL_WINDOW_CANDIDATE_CAP",
         "PNEUMA_KNOWLEDGE_RECALL_EPISODE_SUMMARY_CAP",
         "PNEUMA_KNOWLEDGE_RECALL_WINDOW_CAP",
+        "PNEUMA_KNOWLEDGE_RECALL_EVIDENCE_STRATEGY",
+        "PNEUMA_KNOWLEDGE_RECALL_ANSWER_FORMAT",
+        "PNEUMA_KNOWLEDGE_RECALL_SELECTION_REASONING_EFFORT",
         "PNEUMA_KNOWLEDGE_LLM_MODEL_COMPILE",
         "PNEUMA_KNOWLEDGE_LLM_MODEL_RECALL",
         "PNEUMA_KNOWLEDGE_LLM_MODEL_ANSWER",
@@ -571,6 +586,9 @@ def test_build_settings_resolves_strategy_from_the_engine_directory(monkeypatch,
     assert settings.recall_window_candidate_cap == 70
     assert settings.recall_episode_summary_cap == 30
     assert settings.recall_window_cap == 7
+    assert settings.recall_evidence_strategy == "select"
+    assert settings.recall_answer_format == "structured"
+    assert settings.recall_selection_reasoning_effort == "medium"
     assert settings.recall_plan_queries == 2
     assert settings.challenge_enabled is True
     assert settings.challenge_max_rounds == 3

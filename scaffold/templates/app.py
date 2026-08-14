@@ -1269,6 +1269,8 @@ async def _ask(
     *,
     show_sources: bool = False,
     style: str | None = None,
+    evidence_strategy: str | None = None,
+    answer_format: str | None = None,
     include_original_modalities: tuple[str, ...] = (),
 ) -> tuple[int, dict[str, int]]:
     from pneuma_knowledge_core.domain.ids import UserId
@@ -1306,6 +1308,9 @@ async def _ask(
             window_cap=settings.recall_window_cap,
             window_candidate_cap=settings.recall_window_candidate_cap,
             episode_summary_cap=settings.recall_episode_summary_cap,
+            evidence_strategy=evidence_strategy or settings.recall_evidence_strategy,
+            selection_reasoning_effort=settings.recall_selection_reasoning_effort or None,
+            answer_format=answer_format or settings.recall_answer_format,
             answer_style=style or settings.recall_answer_style,
             plan_queries_cap=settings.recall_plan_queries,
             reranker=ctx.get_reranker(),
@@ -1376,6 +1381,8 @@ def cmd_ask(args) -> int:
             args.question,
             show_sources=args.sources,
             style=args.style,
+            evidence_strategy=args.evidence_strategy,
+            answer_format=args.answer_format,
             include_original_modalities=tuple(args.include_original),
         )
     )
@@ -1637,6 +1644,22 @@ def main() -> int:
         "--style",
         choices=["concise", "conversational", "detailed"],
         help="answer style for this ask (default: PNEUMA_KNOWLEDGE_RECALL_ANSWER_STYLE in .env)",
+    )
+    ask.add_argument(
+        "--evidence-strategy",
+        choices=["ranked", "select"],
+        help=(
+            "context composition for this ask: ranked keeps fixed retrieval heads; select "
+            "uses one bounded cross-face selection call"
+        ),
+    )
+    ask.add_argument(
+        "--answer-format",
+        choices=["text", "structured"],
+        help=(
+            "answer wire for this ask: text is free text; structured validates separate "
+            "answer text, kind, and citations"
+        ),
     )
     ask.add_argument(
         "--include-original",

@@ -46,7 +46,7 @@ from ..canonical_glance import render_canonical_glance
 from ..compile.documents import render_document
 from ..domain.canonical import CanonicalDocument, Citation
 from ..domain.ids import AnchorId, UserId, SourceId
-from ..domain.source import BlockImage
+from ..domain.source import BlockImage, NormalizedSource
 from ..ports.claim_index import ClaimLexicalIndex, ClaimVectorIndex
 from ..ports.content_store import ContentStore
 from ..ports.lexical_index import LexicalIndex
@@ -54,7 +54,12 @@ from ..ports.media_store import MediaStore
 from ..ports.reranker import Reranker
 from ..ports.vector_index import VectorIndex
 from ..prompts import prompt
-from .citation_alias import SessionAliaser, alias_sources
+from .citation_alias import (
+    SessionAliaser,
+    alias_sources,
+    iter_answer_citations,
+    strip_citations,
+)
 from .scope import SnapshotScope, scope_declaration
 from .spine import (
     CITE_SOURCE_LEVEL,
@@ -83,6 +88,16 @@ DEFAULT_WINDOW_CANDIDATE_CAP = 60
 DEFAULT_EPISODE_SUMMARY_CAP = 16
 DEFAULT_WINDOW_CAP = 6
 DEFAULT_IMAGE_CAP = 8
+
+# The model-selected quality path uses the same public final caps as ranked recall, then
+# preserves a small deterministic head inside each cap. The anchors are deliberately not a
+# second tuning surface: they are a safety mechanism that prevents a stochastic selector
+# from erasing every strong index hit.
+DEFAULT_SELECTION_CLAIM_ANCHORS = 8
+DEFAULT_SELECTION_EPISODE_ANCHORS = 4
+DEFAULT_SELECTION_WINDOW_ANCHORS = 4
+DEFAULT_EVIDENCE_SELECTION_TIMEOUT_SECONDS = 30.0
+DEFAULT_STRUCTURED_ANSWER_TIMEOUT_SECONDS = 60.0
 
 #: How many hit documents `timeline_expand` may expand into sibling timelines. Together with
 #: the per-document sibling cap this bounds the section's total size mechanically:
@@ -135,6 +150,16 @@ def selector_contract(answer_style: str = DEFAULT_ANSWER_STYLE) -> str:
     return (
         prompt("recall.fast.contract_head")
         + spine(CITE_SOURCE_LEVEL, CLOSE_ANSWER_HONESTLY)
+        + style_clause(answer_style)
+    )
+
+
+def structured_answer_contract(answer_style: str = DEFAULT_ANSWER_STYLE) -> str:
+    """Fast's byte-stable contract when citations travel in a separate schema field."""
+
+    return (
+        prompt("recall.fast.contract_head")
+        + spine("recall.cite.structured", CLOSE_ANSWER_HONESTLY)
         + style_clause(answer_style)
     )
 
@@ -198,6 +223,15 @@ class FastAnswer:
     claim_candidates: int = 0
     window_candidates: int = 0
     used_episode_summaries: tuple["EpisodeSummary", ...] = field(default_factory=tuple)
+    # Query-time context composition. `ranked` is the historical fixed head; `select` is
+    # one structured cross-face model call. Degradation is explicit and fail-soft.
+    evidence_strategy: str = "ranked"
+    evidence_selection_degraded: str | None = None
+    # The answer wire shape. Structured answers still return the same public `answer`
+    # string; kind/degradation are additive telemetry.
+    answer_format: str = "text"
+    answer_kind: str | None = None
+    answer_format_degraded: str | None = None
 
 
 @dataclass(frozen=True)
@@ -216,6 +250,35 @@ class EpisodeSummary:
     source_title: str = ""
     source_occurred_on: str = ""
     section_path: tuple[str, ...] = ()
+
+
+class EvidenceSelection(BaseModel):
+    """Untrusted structured output of the cross-face context selector."""
+
+    claims: list[int] = Field(default_factory=list)
+    episode_summaries: list[int] = Field(default_factory=list)
+    raw_windows: list[int] = Field(default_factory=list)
+    document_paths: list[str] = Field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class SelectedEvidence:
+    """Mechanically validated query-local evidence coordinates."""
+
+    claim_indexes: tuple[int, ...]
+    episode_indexes: tuple[int, ...]
+    window_indexes: tuple[int, ...]
+    document_paths: tuple[str, ...] = ()
+
+
+class StructuredRecallAnswer(BaseModel):
+    """Answer text and provenance kept in separate model-output fields."""
+
+    answer_kind: Literal[
+        "fact", "list", "time", "duration", "yes_no", "inference", "no_record"
+    ]
+    answer: str
+    citations: list[str] = Field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -1071,6 +1134,202 @@ def _recall_human_tail(question: str, as_of: datetime) -> str:
     )
 
 
+def _selected_indexes(
+    values: Sequence[int], *, available: int, cap: int, anchors: int
+) -> tuple[int, ...]:
+    """Validate untrusted model indexes, union the ranked safety head, then cap."""
+
+    if available <= 0 or cap <= 0:
+        return ()
+    ordered: list[int] = []
+    for raw in (*values, *range(min(anchors, available))):
+        try:
+            index = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if 0 <= index < available and index not in ordered:
+            ordered.append(index)
+        if len(ordered) >= cap:
+            break
+    return tuple(ordered)
+
+
+def evidence_selection_messages(
+    question: str,
+    *,
+    claims: Sequence[RetrievedClaim],
+    episode_summaries: Sequence[EpisodeSummary],
+    windows: Sequence[RecallHit],
+    glance: str | None = None,
+    claim_cap: int,
+    episode_summary_cap: int,
+    window_cap: int,
+    document_cap: int = DEFAULT_GLANCE_PICK_CAP,
+) -> list[BaseMessage]:
+    """Byte-stable selector contract plus numbered volatile candidates, question last."""
+
+    sections: list[str] = []
+    if glance:
+        sections.append(prompt("recall.fast.evidence_select.glance", glance=glance))
+    sections.append(prompt("recall.fast.evidence_select.claims_header"))
+    sections.extend(
+        prompt(
+            "recall.fast.evidence_select.claim",
+            index=index,
+            path=claim.document_path,
+            section=" / ".join(claim.section_path) or "-",
+            text=claim.text,
+        )
+        for index, claim in enumerate(claims)
+    )
+    sections.append(prompt("recall.fast.evidence_select.episodes_header"))
+    sections.extend(
+        prompt(
+            "recall.fast.evidence_select.episode",
+            index=index,
+            occurred_on=summary.source_occurred_on or "-",
+            start=summary.block_start,
+            end=summary.block_end,
+            text=summary.text,
+        )
+        for index, summary in enumerate(episode_summaries)
+    )
+    sections.append(prompt("recall.fast.evidence_select.windows_header"))
+    sections.extend(
+        prompt(
+            "recall.fast.evidence_select.window",
+            index=index,
+            source_id=window.source_id,
+            start=window.block_start,
+            end=window.block_end,
+            text=window.text,
+        )
+        for index, window in enumerate(windows)
+    )
+    return [
+        SystemMessage(
+            content=prompt(
+                "recall.fast.evidence_select.contract",
+                claim_cap=claim_cap,
+                episode_cap=episode_summary_cap,
+                window_cap=window_cap,
+                document_cap=document_cap,
+            )
+        ),
+        HumanMessage(
+            content=prompt(
+                "recall.fast.evidence_select.request",
+                candidates="\n".join(sections),
+                question=question,
+            )
+        ),
+    ]
+
+
+async def select_evidence(
+    model: BaseChatModel,
+    question: str,
+    *,
+    claims: Sequence[RetrievedClaim],
+    episode_summaries: Sequence[EpisodeSummary],
+    windows: Sequence[RecallHit],
+    glance: str | None = None,
+    known_paths: Sequence[str] = (),
+    claim_cap: int = DEFAULT_CLAIM_CAP,
+    episode_summary_cap: int = DEFAULT_EPISODE_SUMMARY_CAP,
+    window_cap: int = DEFAULT_WINDOW_CAP,
+    document_cap: int = DEFAULT_GLANCE_PICK_CAP,
+    reasoning_effort: str | None = None,
+    timeout: float | None = DEFAULT_EVIDENCE_SELECTION_TIMEOUT_SECONDS,
+    callbacks: list | None = None,
+    trace_metadata: dict | None = None,
+) -> tuple[SelectedEvidence | None, dict[str, int], str | None]:
+    """One fail-soft structured selection over every recall evidence face.
+
+    The model returns only coordinates. Range/path validation, ranked safety anchors and
+    final caps are mechanical; on failure the caller receives `None` and can use its exact
+    ranked path without inventing a selection.
+    """
+
+    if not claims and not episode_summaries and not windows and not (glance and known_paths):
+        return SelectedEvidence((), (), (), ()), zero_usage(), None
+    messages = evidence_selection_messages(
+        question,
+        claims=claims,
+        episode_summaries=episode_summaries,
+        windows=windows,
+        glance=glance,
+        claim_cap=claim_cap,
+        episode_summary_cap=episode_summary_cap,
+        window_cap=window_cap,
+        document_cap=document_cap,
+    )
+    selecting_model = (
+        model.bind(extra_body={"reasoning": {"effort": reasoning_effort}})
+        if reasoning_effort
+        else model
+    )
+    try:
+        structured = selecting_model.with_structured_output(
+            EvidenceSelection, include_raw=True
+        )
+        call = structured.ainvoke(
+            messages,
+            config=invoke_config(
+                "recall.fast.evidence_select", callbacks, trace_metadata
+            ),
+        )
+        raw = await (asyncio.wait_for(call, timeout) if timeout else call)
+    except asyncio.TimeoutError:
+        return None, zero_usage(), "timeout"
+    except Exception:  # noqa: BLE001 — additive selector degrades to ranked evidence
+        return None, zero_usage(), "error"
+
+    usage = zero_usage()
+    parsed: object = raw
+    if isinstance(raw, Mapping):
+        response = raw.get("raw")
+        if isinstance(response, BaseMessage):
+            usage = extract_usage(response)
+        parsed = raw.get("parsed")
+    if not isinstance(parsed, EvidenceSelection):
+        return None, usage, "error"
+
+    allowed_paths = set(known_paths)
+    paths: list[str] = []
+    for raw_path in parsed.document_paths:
+        path = str(raw_path or "").strip()
+        if path in allowed_paths and path not in paths:
+            paths.append(path)
+        if len(paths) >= document_cap:
+            break
+    return (
+        SelectedEvidence(
+            claim_indexes=_selected_indexes(
+                parsed.claims,
+                available=len(claims),
+                cap=claim_cap,
+                anchors=DEFAULT_SELECTION_CLAIM_ANCHORS,
+            ),
+            episode_indexes=_selected_indexes(
+                parsed.episode_summaries,
+                available=len(episode_summaries),
+                cap=episode_summary_cap,
+                anchors=DEFAULT_SELECTION_EPISODE_ANCHORS,
+            ),
+            window_indexes=_selected_indexes(
+                parsed.raw_windows,
+                available=len(windows),
+                cap=window_cap,
+                anchors=DEFAULT_SELECTION_WINDOW_ANCHORS,
+            ),
+            document_paths=tuple(paths),
+        ),
+        usage,
+        None,
+    )
+
+
 def selector_messages(
     question: str,
     claims: list[RetrievedClaim],
@@ -1177,6 +1436,21 @@ def recall_human_content(
     return human
 
 
+def _alias_human_content(content: str | list[dict]) -> tuple[str | list[dict], dict[str, str]]:
+    """Apply query-local source handles to text-only or multimodal Human content."""
+
+    if isinstance(content, str):
+        return alias_sources(content)
+    aliaser = SessionAliaser()
+    aliased: list[dict] = []
+    for block in content:
+        if isinstance(block, dict) and block.get("type") == "text":
+            aliased.append({**block, "text": aliaser.alias(str(block.get("text") or ""))})
+        else:
+            aliased.append(block)
+    return aliased, aliaser.handle_map
+
+
 async def answer_with_selector(
     model: BaseChatModel,
     question: str,
@@ -1226,19 +1500,7 @@ async def answer_with_selector(
         image_mode=image_mode,
         answer_style=answer_style,
     )
-    if isinstance(human.content, str):
-        aliased_human, handle_map = alias_sources(human.content)
-    else:
-        aliaser = SessionAliaser()
-        aliased_human = []
-        for block in human.content:
-            if isinstance(block, dict) and block.get("type") == "text":
-                aliased_human.append(
-                    {**block, "text": aliaser.alias(str(block.get("text") or ""))}
-                )
-            else:
-                aliased_human.append(block)
-        handle_map = aliaser.handle_map
+    aliased_human, handle_map = _alias_human_content(human.content)
     # `bind` rather than a constructor knob: the client instance is shared across roles
     # (wiring caches by model spec), so the override must live on this call, not the client.
     answering_model = (
@@ -1253,6 +1515,146 @@ async def answer_with_selector(
     content = response.content
     text = content if isinstance(content, str) else str(content)
     return text.strip(), extract_usage(response), handle_map
+
+
+def _text_blocks(content: str | list[dict]) -> str:
+    if isinstance(content, str):
+        return content
+    return "\n".join(
+        str(block.get("text") or "")
+        for block in content
+        if isinstance(block, dict) and block.get("type") == "text"
+    )
+
+
+async def answer_with_structured(
+    model: BaseChatModel,
+    question: str,
+    claims: list[RetrievedClaim],
+    *,
+    as_of: datetime,
+    windows: list | None = None,
+    episode_summaries: Sequence[EpisodeSummary] = (),
+    profile: str | None = None,
+    glance: str | None = None,
+    snapshot: str | None = None,
+    full_documents: Sequence[CanonicalDocument] = (),
+    window_notes: Sequence[tuple[object, tuple[RetrievedClaim, ...]]] | None = None,
+    timelines: Sequence[TimelineBlock] = (),
+    images: Sequence[RecallImage] = (),
+    image_mode: Literal["caption", "native"] = "caption",
+    callbacks: list | None = None,
+    trace_metadata: dict | None = None,
+    run_name: str = "recall.fast",
+    reasoning_effort: str | None = None,
+    answer_style: str = DEFAULT_ANSWER_STYLE,
+    timeout: float | None = DEFAULT_STRUCTURED_ANSWER_TIMEOUT_SECONDS,
+) -> tuple[str, dict[str, int], dict[str, str], str | None, str | None]:
+    """Structured final answer with mechanically admitted evidence citations.
+
+    Provider/schema failure retries through the historical text answer once and exposes the
+    degradation reason. A successful structured call keeps answer text and citations apart;
+    only exact citation spans present in the aliased evidence are appended.
+    """
+
+    human = recall_human_content(
+        question,
+        claims,
+        as_of=as_of,
+        windows=windows,
+        episode_summaries=episode_summaries,
+        profile=profile,
+        glance=glance,
+        snapshot=snapshot,
+        full_documents=full_documents,
+        window_notes=window_notes,
+        timelines=timelines,
+        images=images,
+        image_mode=image_mode,
+    )
+    aliased_human, handle_map = _alias_human_content(human)
+    answering_model = (
+        model.bind(extra_body={"reasoning": {"effort": reasoning_effort}})
+        if reasoning_effort
+        else model
+    )
+    usage = zero_usage()
+    degraded: str | None = None
+    parsed: object = None
+    try:
+        structured = answering_model.with_structured_output(
+            StructuredRecallAnswer, include_raw=True
+        )
+        call = structured.ainvoke(
+            [
+                SystemMessage(content=structured_answer_contract(answer_style)),
+                HumanMessage(content=aliased_human),
+            ],
+            config=invoke_config(run_name, callbacks, trace_metadata),
+        )
+        raw = await (asyncio.wait_for(call, timeout) if timeout else call)
+        parsed = raw
+        if isinstance(raw, Mapping):
+            response = raw.get("raw")
+            if isinstance(response, BaseMessage):
+                usage = extract_usage(response)
+            parsed = raw.get("parsed")
+        if not isinstance(parsed, StructuredRecallAnswer):
+            degraded = "error"
+    except asyncio.TimeoutError:
+        degraded = "timeout"
+    except Exception:  # noqa: BLE001 — explicit fallback to the historical text contract
+        degraded = "error"
+
+    if not isinstance(parsed, StructuredRecallAnswer):
+        fallback, fallback_usage, fallback_handles = await answer_with_selector(
+            model,
+            question,
+            claims,
+            as_of=as_of,
+            windows=windows,
+            episode_summaries=episode_summaries,
+            profile=profile,
+            glance=glance,
+            snapshot=snapshot,
+            full_documents=full_documents,
+            window_notes=window_notes,
+            timelines=timelines,
+            images=images,
+            image_mode=image_mode,
+            callbacks=callbacks,
+            trace_metadata=trace_metadata,
+            run_name=run_name,
+            reasoning_effort=reasoning_effort,
+            answer_style=answer_style,
+        )
+        return (
+            fallback,
+            add_usage(usage, fallback_usage),
+            fallback_handles,
+            None,
+            degraded,
+        )
+
+    allowed = set(iter_answer_citations(_text_blocks(aliased_human)))
+    citations: list[str] = []
+    for candidate in parsed.citations:
+        marker = str(candidate or "").strip()
+        references = tuple(iter_answer_citations(marker))
+        if (
+            not marker
+            or strip_citations(marker)
+            or not references
+            or any(reference not in allowed for reference in references)
+            or any(source not in handle_map for source, _start, _end in references)
+        ):
+            continue
+        if marker not in citations:
+            citations.append(marker)
+    answer = parsed.answer.strip()
+    if citations:
+        answer = (answer + " " + " ".join(citations)).strip()
+    return answer, usage, handle_map, parsed.answer_kind, None
 
 
 # ------------------------------------------------------- the glance selection pass (B)
@@ -1535,6 +1937,125 @@ async def assemble_windows(
     return order_lost_in_middle(passages) if order else passages
 
 
+def _span_overlaps(items: Sequence[object], source_id: str, start: int, end: int) -> bool:
+    return any(
+        str(getattr(item, "source_id")) == source_id
+        and int(getattr(item, "block_start")) <= end
+        and start <= int(getattr(item, "block_end"))
+        for item in items
+    )
+
+
+async def expand_claim_provenance(
+    user_id: UserId,
+    claims: Sequence[RetrievedClaim],
+    *,
+    content: ContentStore | None,
+    existing: Sequence[object] = (),
+    claim_cap: int = 16,
+    passage_cap: int = 12,
+) -> list[Passage]:
+    """Follow selected canonical claims to authoritative, deduplicated L0 passages."""
+
+    if content is None or claim_cap <= 0 or passage_cap <= 0:
+        return []
+    cache: dict[str, NormalizedSource] = {}
+    passages: list[Passage] = []
+    for claim in claims[:claim_cap]:
+        for citation in claim.citations:
+            source_id = str(citation.source_id)
+            if _span_overlaps(
+                (*existing, *passages),
+                source_id,
+                citation.block_start,
+                citation.block_end,
+            ):
+                continue
+            source = cache.get(source_id)
+            if source is None:
+                source = await content.get(user_id, citation.source_id)
+                cache[source_id] = source
+            blocks = [
+                block
+                for block in source.blocks
+                if citation.block_start <= block.index <= citation.block_end
+            ]
+            if not blocks:
+                raise ValueError(
+                    f"claim citation {source_id} ¶{citation.block_start}-{citation.block_end} "
+                    "does not resolve to L0 blocks"
+                )
+            passages.append(
+                Passage(
+                    source_id=citation.source_id,
+                    block_start=citation.block_start,
+                    block_end=citation.block_end,
+                    text="\n".join(block.text for block in blocks),
+                    paths=("claim-provenance",),
+                    score=claim.score,
+                    section_path=tuple(blocks[0].section_path),
+                    source_title=source.raw.title,
+                    source_occurred_on=source.raw.occurred_on(),
+                )
+            )
+            if len(passages) >= passage_cap:
+                return passages
+    return passages
+
+
+async def expand_episode_provenance(
+    user_id: UserId,
+    summaries: Sequence[EpisodeSummary],
+    *,
+    content: ContentStore | None,
+    existing: Sequence[object] = (),
+    episode_cap: int = 4,
+) -> list[Passage]:
+    """Follow selected derived episodes to their authoritative L0 spans."""
+
+    if content is None or episode_cap <= 0:
+        return []
+    cache: dict[str, NormalizedSource] = {}
+    passages: list[Passage] = []
+    for summary in summaries[:episode_cap]:
+        source_id = str(summary.source_id)
+        if _span_overlaps(
+            (*existing, *passages),
+            source_id,
+            summary.block_start,
+            summary.block_end,
+        ):
+            continue
+        source = cache.get(source_id)
+        if source is None:
+            source = await content.get(user_id, summary.source_id)
+            cache[source_id] = source
+        blocks = [
+            block
+            for block in source.blocks
+            if summary.block_start <= block.index <= summary.block_end
+        ]
+        if not blocks:
+            raise ValueError(
+                f"episode span {source_id} ¶{summary.block_start}-{summary.block_end} "
+                "does not resolve to L0 blocks"
+            )
+        passages.append(
+            Passage(
+                source_id=summary.source_id,
+                block_start=summary.block_start,
+                block_end=summary.block_end,
+                text="\n".join(block.text for block in blocks),
+                paths=("episode-provenance",),
+                score=summary.score,
+                section_path=tuple(blocks[0].section_path),
+                source_title=source.raw.title,
+                source_occurred_on=source.raw.occurred_on(),
+            )
+        )
+    return passages
+
+
 async def fast_recall(
     user_id: UserId,
     question: str,
@@ -1557,6 +2078,20 @@ async def fast_recall(
     window_cap: int = DEFAULT_WINDOW_CAP,
     window_candidate_cap: int = DEFAULT_WINDOW_CANDIDATE_CAP,
     episode_summary_cap: int = DEFAULT_EPISODE_SUMMARY_CAP,
+    # `ranked` preserves the historical fixed-head context. `select` spends one structured
+    # model call after retrieval to compose a bounded mix across claims, derived episodes,
+    # raw windows and canonical documents. The selector returns coordinates only; the
+    # framework validates them and keeps deterministic ranked anchors.
+    evidence_strategy: Literal["ranked", "select"] = "ranked",
+    selection_reasoning_effort: str | None = None,
+    evidence_selection_timeout: float | None = DEFAULT_EVIDENCE_SELECTION_TIMEOUT_SECONDS,
+    # `text` preserves the historical answer wire. `structured` asks for answer text,
+    # answer kind and citations separately, then mechanically admits only exact spans that
+    # were present in the evidence context.
+    answer_format: Literal["text", "structured"] = "text",
+    structured_answer_timeout: float | None = DEFAULT_STRUCTURED_ANSWER_TIMEOUT_SECONDS,
+    claim_provenance_passage_cap: int = 12,
+    episode_provenance_passage_cap: int = 4,
     # The SHAPE of the answer: "concise" (the bare exact value — graders, scripts),
     # "conversational" (a natural chat reply, the default), or "detailed" (a
     # self-contained written note). Style only — truth discipline is style-independent.
@@ -1646,6 +2181,11 @@ async def fast_recall(
     instead of stacking. `gather` returns results in argument order, so `claims` and
     `raw_windows` bind exactly as they did under the previous thread-pool fan-out."""
 
+    if evidence_strategy not in {"ranked", "select"}:
+        raise ValueError("evidence_strategy must be 'ranked' or 'select'")
+    if answer_format not in {"text", "structured"}:
+        raise ValueError("answer_format must be 'text' or 'structured'")
+
     # The planning pass runs BEFORE retrieval (its whole output is retrieval input), so it
     # is the one stage that adds sequential wall-clock — which is why it is opt-in.
     planned: tuple[str, ...] = ()
@@ -1717,7 +2257,10 @@ async def fast_recall(
     selected: tuple[str, ...] = ()
     select_usage = zero_usage()
     degraded: str | None = None
-    if glance and by_path:
+    # The historical document-only glance pass stays on the ranked path. The quality path
+    # sees the same glance in its one cross-face selection call below, so enabling it does
+    # not accidentally add two sequential model judgements before the answer.
+    if evidence_strategy == "ranked" and glance and by_path:
         (claims_raw, raw_windows), (selected, select_usage, degraded) = await asyncio.gather(
             retrieval_branch(),
             select_glance_documents(
@@ -1735,12 +2278,71 @@ async def fast_recall(
         claims_raw, raw_windows = await retrieval_branch()
 
     rerank_degraded: str | None = None
-    if reranking:
+    evidence_selection_usage = zero_usage()
+    evidence_selection_degraded: str | None = None
+    if evidence_strategy == "select":
+        # Episode summaries are a first-class evidence face. Build them over candidate
+        # breadth before selection; only the selected bounded subset reaches the answer.
+        episode_candidates = await build_episode_summaries(
+            raw_windows,
+            content=content,
+            user_id=user_id,
+            cap=max(episode_summary_cap, window_candidate_cap),
+        )
+        evidence_choice, evidence_selection_usage, evidence_selection_degraded = (
+            await select_evidence(
+                glance_model or model,
+                question,
+                claims=claims_raw,
+                episode_summaries=episode_candidates,
+                windows=raw_windows,
+                glance=glance,
+                known_paths=tuple(by_path),
+                claim_cap=cap,
+                episode_summary_cap=episode_summary_cap,
+                window_cap=window_cap,
+                document_cap=glance_pick_cap,
+                reasoning_effort=selection_reasoning_effort,
+                timeout=evidence_selection_timeout,
+                callbacks=callbacks,
+                trace_metadata=trace_metadata,
+            )
+        )
+        if evidence_choice is None:
+            # Fail-soft means the exact ranked heads remain usable; no partial/unvalidated
+            # model output is allowed to influence context.
+            claims = claims_raw[:cap]
+            episode_summaries = episode_candidates[:episode_summary_cap]
+            selected_raw_windows = raw_windows[:window_cap]
+        else:
+            claims = [claims_raw[index] for index in evidence_choice.claim_indexes]
+            episode_summaries = [
+                episode_candidates[index] for index in evidence_choice.episode_indexes
+            ]
+            selected_raw_windows = [
+                raw_windows[index] for index in evidence_choice.window_indexes
+            ]
+            selected = evidence_choice.document_paths
+    elif reranking:
         claims, rerank_degraded = await rerank_claims(
             reranker, question, claims_raw, cap=cap, timeout=rerank_timeout
         )
+        episode_summaries = await build_episode_summaries(
+            raw_windows,
+            content=content,
+            user_id=user_id,
+            cap=episode_summary_cap,
+        )
+        selected_raw_windows = raw_windows[:window_cap]
     else:
         claims = claims_raw[:cap]
+        episode_summaries = await build_episode_summaries(
+            raw_windows,
+            content=content,
+            user_id=user_id,
+            cap=episode_summary_cap,
+        )
+        selected_raw_windows = raw_windows[:window_cap]
     # Built from the FULL capped hit set, before the annotation join may move claims out of
     # the notes section: which documents the retrieval touched is a property of retrieval,
     # not of where a claim happens to be rendered.
@@ -1749,22 +2351,41 @@ async def fast_recall(
         timelines = build_subject_timelines(
             claims, by_path, per_doc=timeline_expand, doc_cap=timeline_doc_cap
         )
-    episode_summaries = await build_episode_summaries(
-        raw_windows,
-        content=content,
-        user_id=user_id,
-        cap=episode_summary_cap,
-    )
     windows = await assemble_windows(
-        raw_windows[:window_cap],
+        selected_raw_windows,
         content=content,
         user_id=user_id,
         order=not annotate_windows,
         assembly=window_assembly,
     )
+    # Query tools request original modalities from the selected RAW evidence face. L0
+    # passages followed from claim/episode provenance below are verification context, not a
+    # hidden way to pull extra media into a call.
+    image_windows = list(windows)
+    if evidence_strategy == "select" and content is not None:
+        # L3 and derived L2 are navigation, not authority. Once selected, follow their
+        # source spans back to bounded L0 passages and deduplicate them against the raw face.
+        claim_passages = await expand_claim_provenance(
+            user_id,
+            claims,
+            content=content,
+            existing=windows,
+            claim_cap=len(claims),
+            passage_cap=claim_provenance_passage_cap,
+        )
+        episode_passages = await expand_episode_provenance(
+            user_id,
+            episode_summaries,
+            content=content,
+            existing=(*windows, *claim_passages),
+            episode_cap=episode_provenance_passage_cap,
+        )
+        windows = [*windows, *claim_passages, *episode_passages]
+        if not annotate_windows:
+            windows = order_lost_in_middle(windows)
     images = await collect_window_images(
         user_id,
-        windows,
+        image_windows,
         content=content,
         media=media,
         image_mode=image_mode,
@@ -1784,32 +2405,69 @@ async def fast_recall(
         **(trace_metadata or {}),
         "image_count": len(images),
         "image_mode": image_mode,
+        "evidence_strategy": evidence_strategy,
+        "answer_format": answer_format,
     }
-    answer, usage, citation_handles = await answer_with_selector(
-        answer_model or model,
-        question,
-        claims,
-        as_of=as_of,
-        windows=windows,
-        episode_summaries=episode_summaries,
-        profile=profile,
-        glance=glance,
-        snapshot=scope_declaration(scope),
-        full_documents=expanded,
-        window_notes=window_notes,
-        timelines=timelines,
-        images=images,
-        image_mode=image_mode,
-        callbacks=callbacks,
-        trace_metadata=answer_trace_metadata,
-        run_name="recall.fast",
-        reasoning_effort=reasoning_effort,
-        answer_style=answer_style,
-    )
+    answer_kind: str | None = None
+    answer_format_degraded: str | None = None
+    if answer_format == "structured":
+        (
+            answer,
+            usage,
+            citation_handles,
+            answer_kind,
+            answer_format_degraded,
+        ) = await answer_with_structured(
+            answer_model or model,
+            question,
+            claims,
+            as_of=as_of,
+            windows=windows,
+            episode_summaries=episode_summaries,
+            profile=profile,
+            glance=glance,
+            snapshot=scope_declaration(scope),
+            full_documents=expanded,
+            window_notes=window_notes,
+            timelines=timelines,
+            images=images,
+            image_mode=image_mode,
+            callbacks=callbacks,
+            trace_metadata=answer_trace_metadata,
+            run_name="recall.fast",
+            reasoning_effort=reasoning_effort,
+            answer_style=answer_style,
+            timeout=structured_answer_timeout,
+        )
+    else:
+        answer, usage, citation_handles = await answer_with_selector(
+            answer_model or model,
+            question,
+            claims,
+            as_of=as_of,
+            windows=windows,
+            episode_summaries=episode_summaries,
+            profile=profile,
+            glance=glance,
+            snapshot=scope_declaration(scope),
+            full_documents=expanded,
+            window_notes=window_notes,
+            timelines=timelines,
+            images=images,
+            image_mode=image_mode,
+            callbacks=callbacks,
+            trace_metadata=answer_trace_metadata,
+            run_name="recall.fast",
+            reasoning_effort=reasoning_effort,
+            answer_style=answer_style,
+        )
+    total_usage = add_usage(usage, select_usage)
+    total_usage = add_usage(total_usage, plan_usage)
+    total_usage = add_usage(total_usage, evidence_selection_usage)
     return FastAnswer(
         answer=answer,
         used_claims=tuple(claims),
-        token_usage=add_usage(add_usage(usage, select_usage), plan_usage),
+        token_usage=total_usage,
         used_windows=tuple(windows),
         citation_handles=citation_handles,
         glance_chars=len(glance or ""),
@@ -1827,4 +2485,9 @@ async def fast_recall(
         claim_candidates=len(claims_raw),
         window_candidates=len(raw_windows),
         used_episode_summaries=tuple(episode_summaries),
+        evidence_strategy=evidence_strategy,
+        evidence_selection_degraded=evidence_selection_degraded,
+        answer_format=answer_format,
+        answer_kind=answer_kind,
+        answer_format_degraded=answer_format_degraded,
     )

@@ -442,6 +442,12 @@ export interface RecallAnswer {
   /** Original multimodal evidence actually delivered for this query. */
   included_original_modalities?: OriginalModality[];
   original_modality_counts?: Record<string, number>;
+  /** Fast-only context composition and answer-wire telemetry. */
+  evidence_strategy?: "ranked" | "select";
+  evidence_selection_degraded?: "timeout" | "error" | null;
+  answer_format?: "text" | "structured";
+  answer_kind?: "fact" | "list" | "time" | "duration" | "yes_no" | "inference" | "no_record" | null;
+  answer_format_degraded?: "timeout" | "error" | null;
   token_usage: TokenUsage;
 }
 
@@ -459,6 +465,8 @@ export function recallAnswer(
     mode: "fast" | "deep";
     as_of?: string;
     snapshot?: string | null;
+    evidence_strategy?: "ranked" | "select";
+    answer_format?: "text" | "structured";
     include_original_modalities?: OriginalModality[];
   },
 ): Promise<RecallAnswer> {

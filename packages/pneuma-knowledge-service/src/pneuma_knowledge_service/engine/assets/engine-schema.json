@@ -284,6 +284,59 @@
           }
         },
         {
+          "key": "evidence_strategy",
+          "env": "PNEUMA_KNOWLEDGE_RECALL_EVIDENCE_STRATEGY",
+          "type": "enum",
+          "enum": [
+            "ranked",
+            "select"
+          ],
+          "default": "ranked",
+          "apply": "hot",
+          "label": {
+            "en": "Evidence composition",
+            "zh": "证据编排"
+          },
+          "description": {
+            "en": "ranked keeps fixed retrieval heads. select uses one structured model call to compose a mechanically bounded mix of claims, derived episode summaries, verbatim windows, and canonical documents.",
+            "zh": "ranked 保留固定检索头部；select 用一次结构化模型调用，在断言、派生 episode 摘要、逐字窗口和 canonical 文档之间编排一个受机械上限约束的组合。"
+          }
+        },
+        {
+          "key": "answer_format",
+          "env": "PNEUMA_KNOWLEDGE_RECALL_ANSWER_FORMAT",
+          "type": "enum",
+          "enum": [
+            "text",
+            "structured"
+          ],
+          "default": "text",
+          "apply": "hot",
+          "label": {
+            "en": "Answer wire format",
+            "zh": "回答线格式"
+          },
+          "description": {
+            "en": "text is the historical free-text answer. structured separates answer text, answer kind, and citations so exact evidence spans can be validated.",
+            "zh": "text 是既有自由文本回答；structured 将回答正文、回答类型和引用分开，从而能机械验证精确证据区间。"
+          }
+        },
+        {
+          "key": "selection_reasoning_effort",
+          "env": "PNEUMA_KNOWLEDGE_RECALL_SELECTION_REASONING_EFFORT",
+          "type": "string",
+          "default": "",
+          "apply": "hot",
+          "label": {
+            "en": "Selection reasoning effort",
+            "zh": "选择推理强度"
+          },
+          "description": {
+            "en": "Optional provider reasoning-effort hint for the select call. Empty sends no override and uses the model/provider default.",
+            "zh": "select 调用的可选 provider 推理强度提示。留空则不发送覆盖值，使用模型或提供方默认值。"
+          }
+        },
+        {
           "key": "claim_candidate_cap",
           "env": "PNEUMA_KNOWLEDGE_RECALL_CLAIM_CANDIDATE_CAP",
           "type": "int",
@@ -832,6 +885,7 @@
             "recall.briefing.tool.search_knowledge_doc",
             "recall.cite.precise",
             "recall.cite.source_level",
+            "recall.cite.structured",
             "recall.close.answer_honestly",
             "recall.close.suggestion",
             "recall.deep.contract_head",
@@ -853,6 +907,15 @@
             "recall.deep.tool.search_content_empty",
             "recall.fast.contract_head",
             "recall.fast.episode_summary.item",
+            "recall.fast.evidence_select.claim",
+            "recall.fast.evidence_select.claims_header",
+            "recall.fast.evidence_select.contract",
+            "recall.fast.evidence_select.episode",
+            "recall.fast.evidence_select.episodes_header",
+            "recall.fast.evidence_select.glance",
+            "recall.fast.evidence_select.request",
+            "recall.fast.evidence_select.window",
+            "recall.fast.evidence_select.windows_header",
             "recall.fast.image_locator",
             "recall.fast.plan.contract",
             "recall.fast.plan.request",

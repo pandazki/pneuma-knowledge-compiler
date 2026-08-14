@@ -420,6 +420,60 @@ STAGES: tuple[Stage, ...] = (
                 ),
             ),
             Knob(
+                key="evidence_strategy",
+                type="enum",
+                enum=("ranked", "select"),
+                apply="hot",
+                env="PNEUMA_KNOWLEDGE_RECALL_EVIDENCE_STRATEGY",
+                setting="recall_evidence_strategy",
+                label_en="Evidence composition",
+                label_zh="证据编排",
+                description_en=(
+                    "ranked keeps fixed retrieval heads. select uses one structured model "
+                    "call to compose a mechanically bounded mix of claims, derived episode "
+                    "summaries, verbatim windows, and canonical documents."
+                ),
+                description_zh=(
+                    "ranked 保留固定检索头部；select 用一次结构化模型调用，在断言、派生 "
+                    "episode 摘要、逐字窗口和 canonical 文档之间编排一个受机械上限约束的组合。"
+                ),
+            ),
+            Knob(
+                key="answer_format",
+                type="enum",
+                enum=("text", "structured"),
+                apply="hot",
+                env="PNEUMA_KNOWLEDGE_RECALL_ANSWER_FORMAT",
+                setting="recall_answer_format",
+                label_en="Answer wire format",
+                label_zh="回答线格式",
+                description_en=(
+                    "text is the historical free-text answer. structured separates answer "
+                    "text, answer kind, and citations so exact evidence spans can be validated."
+                ),
+                description_zh=(
+                    "text 是既有自由文本回答；structured 将回答正文、回答类型和引用分开，"
+                    "从而能机械验证精确证据区间。"
+                ),
+            ),
+            Knob(
+                key="selection_reasoning_effort",
+                type="string",
+                apply="hot",
+                env="PNEUMA_KNOWLEDGE_RECALL_SELECTION_REASONING_EFFORT",
+                setting="recall_selection_reasoning_effort",
+                label_en="Selection reasoning effort",
+                label_zh="选择推理强度",
+                description_en=(
+                    "Optional provider reasoning-effort hint for the select call. Empty sends "
+                    "no override and uses the model/provider default."
+                ),
+                description_zh=(
+                    "select 调用的可选 provider 推理强度提示。留空则不发送覆盖值，使用模型或"
+                    "提供方默认值。"
+                ),
+            ),
+            Knob(
                 key="claim_candidate_cap",
                 type="int",
                 apply="hot",

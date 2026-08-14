@@ -469,6 +469,22 @@ function AnswerPanel({
         <p className="mt-3 text-12 text-ink-3">
           as_of <Mono>{answer.as_of}</Mono>
         </p>
+        {answer.mode === "fast" && (
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Badge>
+              {t("recall.answer.evidenceStrategy")}: {answer.evidence_strategy ?? "ranked"}
+            </Badge>
+            <Badge>
+              {t("recall.answer.answerFormat")}: {answer.answer_format ?? "text"}
+            </Badge>
+            {answer.answer_kind && <Badge>{answer.answer_kind}</Badge>}
+            {(answer.evidence_selection_degraded || answer.answer_format_degraded) && (
+              <Badge>
+                {t("recall.answer.degraded")}: {answer.evidence_selection_degraded ?? answer.answer_format_degraded}
+              </Badge>
+            )}
+          </div>
+        )}
         <div className="prose mt-2 max-w-measure">
           {answer.answer ? (
             <CitedAnswer text={answer.answer} handles={answer.citation_handles} />

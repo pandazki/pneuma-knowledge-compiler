@@ -219,6 +219,17 @@ The Recall view shows the claims, derived episode summaries, and verbatim excerp
 
 Diagnose from the user's symptom. If a relevant episode is absent altogether, inspect semantic indexing and candidate breadth. If the summary finds the right event but the answer lacks an exact number or phrase, admit a little more verbatim context. If answers are noisy, reduce final claims/summaries/windows before narrowing the search pool. If no episode summaries exist, changing `episode_summary_cap` cannot create them: use semantic chunking and rebuild the derived layer. If the right facts consistently land under the wrong subjects, fix the compile contract — recall settings cannot repair a bad knowledge model.
 
+When retrieval finds the right material but a fixed head assembles the wrong mix, use the
+fast lane's quality composition instead of widening every final cap. Set
+`evidence_strategy: select` in `engine/recall/recall.yaml` (or pass
+`--evidence-strategy select` once): one bounded call chooses across claims, derived episodes,
+verbatim windows and known canonical documents, while the framework keeps ranked safety
+anchors and validates every coordinate. It adds serial latency, so keep `ranked` for the
+lowest-latency path. If answers contain the right fact but blur the requested shape or citation,
+`answer_format: structured` keeps answer text, kind and exact citations separate and validates
+the cited spans. These switches improve query-time composition; they do not repair missing L0,
+bad semantic segmentation or a wrong compile contract.
+
 **Done when**: within two or three rounds the library "looks right" — that's delivery.
 
 ---

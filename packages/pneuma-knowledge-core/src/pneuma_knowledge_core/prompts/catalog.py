@@ -1285,6 +1285,11 @@ DEFAULTS: dict[str, str] = {
         "not) — it is a thread left for later tracing, not a hard target of this scenario."
     ),
     "recall.cite.precise": "cite down to the paragraph (`[cite: <source_id> ¶a-b]`).",
+    "recall.cite.structured": (
+        "put each precise source reference in the structured `citations` field as one "
+        "complete `[cite: <source_id> ¶a-b]` marker copied from the evidence; keep the "
+        "structured `answer` field free of citation markup."
+    ),
     # Two-tier honesty, measured not assumed: an answering lane that abstains whenever the
     # evidence stops one inference short of the question systematically under-serves
     # multi-hop and open questions (LoCoMo-refined tuning runs: +3.6pp / p=0.001, reproduced
@@ -1470,6 +1475,39 @@ DEFAULTS: dict[str, str] = {
     ),
     "recall.fast.select.documents_header": "# full documents ({count})",
     "recall.fast.select.document_heading": "## {path}",
+    # ─────────────────────── recall: cross-face evidence selection (opt-in quality path)
+    "recall.fast.evidence_select.contract": (
+        "You compose evidence for one evidence-grounded knowledge-base answer. Return only "
+        "candidate indexes and known document paths through the required schema; do not "
+        "answer the question.\n\n"
+        "Choose the smallest set that collectively covers every subject, event, time, state, "
+        "list item or cause requested. Candidate ranking is useful but imperfect. Claim notes "
+        "are structured derived facts. Episode summaries are dense derived navigation. Raw "
+        "windows are verbatim and control exact wording, dates, attribution, negation, lists "
+        "and conflicts. A claim or summary may be selected when its cited span must be checked "
+        "later. Full documents are expensive: choose one only when the document itself is the "
+        "question's subject or a whole history/comparison is required. Exclude material that "
+        "is merely adjacent or similarly named.\n\n"
+        "Choose at most {claim_cap} claim indexes, {episode_cap} episode-summary indexes, "
+        "{window_cap} raw-window indexes and {document_cap} document paths. Never return an "
+        "index or path absent from the input."
+    ),
+    "recall.fast.evidence_select.request": (
+        "{candidates}\n\n# question\n{question}"
+    ),
+    "recall.fast.evidence_select.glance": "# canonical knowledge-base glance\n{glance}",
+    "recall.fast.evidence_select.claims_header": "# claim candidates",
+    "recall.fast.evidence_select.claim": (
+        "C{index}: [document={path}; section={section}] {text}"
+    ),
+    "recall.fast.evidence_select.episodes_header": "# episode-summary candidates",
+    "recall.fast.evidence_select.episode": (
+        "E{index}: [occurred_on={occurred_on}; span={start}-{end}] {text}"
+    ),
+    "recall.fast.evidence_select.windows_header": "# raw-window candidates",
+    "recall.fast.evidence_select.window": (
+        "W{index}: [source={source_id}; span={start}-{end}] {text}"
+    ),
     # ──────────────────────────── recall: LLM claim reranker (service adapter's wording)
     # Used by the LLMReranker adapter — a cheap non-reasoning chat call that plays the
     # cross-encoder's role: read the actual candidate texts against the question and say

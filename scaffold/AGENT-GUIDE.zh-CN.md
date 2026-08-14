@@ -213,6 +213,8 @@ Recall 页会列出每次回答实际收到的 claims、派生 episode 摘要和
 
 从用户遇到的症状开始诊断。相关 episode 完全没出现，就查 semantic indexing 与候选广度；摘要已经找对事件、回答却缺精确数字或措辞，就多准入一点逐字上下文；答案太吵，先收紧最终 claims／摘要／原文，不要先砍搜索池；根本没有 episode 摘要时，调高 `episode_summary_cap` 也不会凭空生成它——应启用 semantic chunking 并重建派生层；正确事实持续落在错误主体下时，改 compile contract，recall 参数修不了坏掉的知识模型。
 
+当检索已经找到正确材料、固定头部却组装错了证据组合时，应使用 fast 车道的质量编排，而不是把所有最终上限一起放大。在 `engine/recall/recall.yaml` 设 `evidence_strategy: select`（或单次传 `--evidence-strategy select`）：一次有界调用会在 claim、派生 episode、逐字窗口和已知 canonical 文档之间选择，同时框架保留高排名安全锚点并验证每个坐标。它会增加串行延迟，所以延迟最低的路径仍用 `ranked`。如果答案包含正确事实，却混淆了所问形态或引用，可设 `answer_format: structured`，把回答正文、类型与精确引用分开并验证引用区间。这些开关改善的是查询时编排；它们修不了缺失的 L0、糟糕的语义切分或错误的 compile contract。
+
 **完成标志**：两三轮内库会「看着对了」，那就是交付。
 
 ---

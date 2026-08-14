@@ -986,6 +986,10 @@ _ZH: dict[str, str] = {
         "要硬凑）——它是留给日后溯源的线索，不是这个场景的硬指标。"
     ),
     "recall.cite.precise": "引用要精确到段（`[cite: <source_id> ¶a-b]`）。",
+    "recall.cite.structured": (
+        "把每条精确来源引用放进结构化 `citations` 字段，写成从证据逐字复制的一条完整 "
+        "`[cite: <source_id> ¶a-b]` 标记；结构化 `answer` 字段里不要带引用标记。"
+    ),
     # Two-tier honesty, measured not assumed (see the English catalog for the tuning runs).
     # The red line is unchanged: assertion strength tracks evidence strength.
     "recall.close.answer_honestly": (
@@ -1123,6 +1127,32 @@ _ZH: dict[str, str] = {
     ),
     "recall.fast.select.documents_header": "# 完整文档（{count} 份）",
     "recall.fast.select.document_heading": "## {path}",
+    # ─────────────────────── recall: 跨证据面选择（可选质量路径）
+    "recall.fast.evidence_select.contract": (
+        "你为一次有证据约束的知识库回答组织上下文。只通过指定 schema 返回候选下标与已知文档路径；"
+        "不要回答问题。\n\n"
+        "选择能共同覆盖问题所要求的每个主体、事件、时间、状态、清单项或原因的最小集合。候选排名有"
+        "用但不完美。claim note 是结构化派生事实；episode 摘要是高密度派生导航；raw window 是逐字"
+        "原文，精确措辞、日期、归属、否定、清单与冲突以它为准。需要稍后核对引用区间时，也可以选择"
+        "一条 claim 或摘要。完整文档代价高：只有文档本身就是问题主体，或必须读完整历史／比较时才"
+        "选择。排除只是相邻或名字相似的材料。\n\n"
+        "最多选择 {claim_cap} 个 claim 下标、{episode_cap} 个 episode 摘要下标、{window_cap} 个 raw "
+        "window 下标与 {document_cap} 条文档路径。绝不要返回输入中不存在的下标或路径。"
+    ),
+    "recall.fast.evidence_select.request": "{candidates}\n\n# 问题\n{question}",
+    "recall.fast.evidence_select.glance": "# canonical 知识库鸟瞰\n{glance}",
+    "recall.fast.evidence_select.claims_header": "# claim 候选",
+    "recall.fast.evidence_select.claim": (
+        "C{index}: [文档={path}; 章节={section}] {text}"
+    ),
+    "recall.fast.evidence_select.episodes_header": "# episode 摘要候选",
+    "recall.fast.evidence_select.episode": (
+        "E{index}: [发生时间={occurred_on}; 区间={start}-{end}] {text}"
+    ),
+    "recall.fast.evidence_select.windows_header": "# raw window 候选",
+    "recall.fast.evidence_select.window": (
+        "W{index}: [来源={source_id}; 区间={start}-{end}] {text}"
+    ),
     # ──────────────────────────── recall: LLM claim reranker (service adapter's wording)
     # A cheap non-reasoning chat call that plays the cross-encoder's role. Output is consumed
     # mechanically, so the pass can only reorder retrieved evidence.

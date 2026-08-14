@@ -46,6 +46,9 @@ def _clean_strategy_env(monkeypatch):
         "PNEUMA_KNOWLEDGE_RECALL_WINDOW_CANDIDATE_CAP",
         "PNEUMA_KNOWLEDGE_RECALL_EPISODE_SUMMARY_CAP",
         "PNEUMA_KNOWLEDGE_RECALL_WINDOW_CAP",
+        "PNEUMA_KNOWLEDGE_RECALL_EVIDENCE_STRATEGY",
+        "PNEUMA_KNOWLEDGE_RECALL_ANSWER_FORMAT",
+        "PNEUMA_KNOWLEDGE_RECALL_SELECTION_REASONING_EFFORT",
         "PNEUMA_KNOWLEDGE_CHALLENGE_ENABLED",
         "PNEUMA_KNOWLEDGE_EVOLVE_AUTO_TRIGGER",
         "PNEUMA_KNOWLEDGE_EVOLVE_DRAFT_TTL_HOURS",
@@ -73,6 +76,9 @@ def test_no_engine_dir_is_the_pre_engine_behavior(monkeypatch, tmp_path):
     assert settings.recall_window_candidate_cap == 60
     assert settings.recall_episode_summary_cap == 16
     assert settings.recall_window_cap == 6
+    assert settings.recall_evidence_strategy == "ranked"
+    assert settings.recall_answer_format == "text"
+    assert settings.recall_selection_reasoning_effort == ""
 
 
 def test_an_empty_engine_dir_states_nothing_and_changes_nothing(monkeypatch, tmp_path):
@@ -101,6 +107,8 @@ def test_engine_files_beat_the_framework_default(monkeypatch, tmp_path):
             "recall/recall.yaml": (
                 "answer_style: concise\nclaim_candidate_cap: 100\nclaim_cap: 50\n"
                 "window_candidate_cap: 70\nepisode_summary_cap: 30\nwindow_cap: 7\n"
+                "evidence_strategy: select\nanswer_format: structured\n"
+                "selection_reasoning_effort: medium\n"
             ),
             "engine.yaml": "compile: openrouter:x/compile\nrecall: openrouter:x/recall\n",
         },
@@ -119,12 +127,16 @@ def test_engine_files_beat_the_framework_default(monkeypatch, tmp_path):
     assert settings.recall_window_candidate_cap == 70
     assert settings.recall_episode_summary_cap == 30
     assert settings.recall_window_cap == 7
+    assert settings.recall_evidence_strategy == "select"
+    assert settings.recall_answer_format == "structured"
+    assert settings.recall_selection_reasoning_effort == "medium"
     assert settings.llm_model_compile == "openrouter:x/compile"
 
     resolved = resolve_engine(engine, {})
     assert resolved.resolution["intake.chunk_strategy"] == "engine"
     assert resolved.resolution["challenge.max_questions"] == "default"
     assert resolved.values["challenge.max_rounds"] == 4
+    assert resolved.values["recall.evidence_strategy"] == "select"
     # An int knob over a float setting reports whole hours, not 6.0.
     assert resolved.values["evolve.draft_ttl_hours"] == 6
     assert isinstance(resolved.values["evolve.draft_ttl_hours"], int)

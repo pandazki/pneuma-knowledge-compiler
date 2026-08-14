@@ -49,6 +49,9 @@ export const recall = defineMessages({
 
     "recall.answer.title": "答案",
     "recall.answer.blank": "（空）",
+    "recall.answer.evidenceStrategy": "证据编排",
+    "recall.answer.answerFormat": "回答格式",
+    "recall.answer.degraded": "已降级",
     "recall.usedClaims.title": "依据断言（{count}）",
     "recall.episodeSummaries.title": "派生 Episode 摘要（{count}）",
     "recall.episodeSummaries.description":
@@ -101,6 +104,9 @@ export const recall = defineMessages({
 
     "recall.answer.title": "Answer",
     "recall.answer.blank": "(empty)",
+    "recall.answer.evidenceStrategy": "evidence",
+    "recall.answer.answerFormat": "format",
+    "recall.answer.degraded": "degraded",
     "recall.usedClaims.title": "Claims used ({count})",
     "recall.episodeSummaries.title": "Derived episode summaries ({count})",
     "recall.episodeSummaries.description":

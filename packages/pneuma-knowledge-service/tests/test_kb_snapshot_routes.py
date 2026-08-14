@@ -55,6 +55,11 @@ class _FakeFastAnswer:
     glance_chars: int = 0
     expanded_documents: tuple = ()
     glance_degraded: str | None = None
+    evidence_strategy: str = "ranked"
+    evidence_selection_degraded: str | None = None
+    answer_format: str = "text"
+    answer_kind: str | None = None
+    answer_format_degraded: str | None = None
     image_count: int = 0
     image_mode: str = "caption"
     token_usage: dict = field(default_factory=lambda: {"total_tokens": 3})
@@ -121,6 +126,9 @@ def _request(row: dict | None) -> SimpleNamespace:
             recall_plan_queries=0,
             recall_rerank_candidates=120,
             recall_answer_style="conversational",
+            recall_evidence_strategy="ranked",
+            recall_answer_format="text",
+            recall_selection_reasoning_effort="",
             answer_reasoning_effort="high",
             # The route refuses keyless deployments up front; the stub declares a model
             # so the lanes under test actually run.
@@ -145,9 +153,16 @@ def captured(monkeypatch):
         seen["image_mode"] = kwargs.get("image_mode")
         seen["media"] = kwargs.get("media")
         seen["reasoning_effort"] = kwargs.get("reasoning_effort")
+        seen["evidence_strategy"] = kwargs.get("evidence_strategy")
+        seen["answer_format"] = kwargs.get("answer_format")
+        seen["selection_reasoning_effort"] = kwargs.get(
+            "selection_reasoning_effort"
+        )
         return _FakeFastAnswer(
             image_count=2 if kwargs.get("image_mode") == "native" else 0,
             image_mode=kwargs.get("image_mode") or "caption",
+            evidence_strategy=kwargs.get("evidence_strategy") or "ranked",
+            answer_format=kwargs.get("answer_format") or "text",
         )
 
     async def fake_rag_recall(user, query, **kwargs):  # noqa: ANN001
@@ -183,6 +198,11 @@ async def test_without_a_snapshot_the_owner_answers_and_nothing_is_pinned(captur
     assert captured["image_mode"] == "caption"
     assert captured["media"] is None
     assert captured["reasoning_effort"] == "high"
+    assert captured["evidence_strategy"] == "ranked"
+    assert captured["answer_format"] == "text"
+    assert captured["selection_reasoning_effort"] is None
+    assert out.evidence_strategy == "ranked"
+    assert out.answer_format == "text"
     assert out.snapshot is None
     assert len(out.used_episode_summaries) == 1
     summary = out.used_episode_summaries[0]
@@ -213,6 +233,36 @@ async def test_original_modalities_are_an_explicit_query_tool_choice(captured):
     assert captured["media"] is request.app.state.ctx.media
     assert out.included_original_modalities == ["image"]
     assert out.original_modality_counts == {"image": 2}
+
+
+async def test_fast_quality_context_controls_are_per_call_overrides(captured):
+    request = _request(_row())
+    out = await recall(
+        OWNER,
+        RecallIn(
+            query="Join the strongest evidence.",
+            mode="fast",
+            evidence_strategy="select",
+            answer_format="structured",
+        ),
+        request,
+    )
+
+    assert captured["evidence_strategy"] == "select"
+    assert captured["answer_format"] == "structured"
+    assert out.evidence_strategy == "select"
+    assert out.answer_format == "structured"
+
+
+@pytest.mark.parametrize("mode", ["rag", "deep"])
+async def test_non_fast_lanes_reject_fast_quality_context_controls(captured, mode):
+    with pytest.raises(HTTPException, match="available only in fast mode") as exc:
+        await recall(
+            OWNER,
+            RecallIn(query="q", mode=mode, evidence_strategy="select"),
+            _request(_row()),
+        )
+    assert exc.value.status_code == 400
 
 
 async def test_raw_rag_hits_reject_original_modality_delivery(captured):

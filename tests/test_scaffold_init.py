@@ -105,6 +105,9 @@ def test_generates_a_complete_project_from_answers(tmp_path):
     assert "window_candidate_cap: 60" in recall
     assert "episode_summary_cap: 16" in recall
     assert "window_cap: 6" in recall
+    assert "evidence_strategy: ranked" in recall
+    assert "answer_format: text" in recall
+    assert 'selection_reasoning_effort: ""' in recall
 
 
 def test_generated_env_carries_free_distinct_ports_and_framework_repo(tmp_path):

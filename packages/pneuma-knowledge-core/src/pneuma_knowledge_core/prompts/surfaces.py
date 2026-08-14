@@ -233,6 +233,7 @@ _LABEL_FAMILIES: tuple[tuple[str, str, str], ...] = (
     ("ingest.semantic.", "Semantic segmentation", "语义切分"),
     ("ingest.email.", "Email rendering", "邮件渲染"),
     ("ingest.", "Transcript rendering", "转写渲染"),
+    ("recall.fast.evidence_select.", "Evidence composition", "证据编排"),
     ("recall.fast.select.", "Full-document selection", "整篇选取"),
     ("recall.fast.plan.", "Retrieval planning", "检索规划"),
     ("recall.fast.window_note.", "Window annotation", "窗口批注"),
@@ -290,6 +291,7 @@ _LABELS: dict[str, tuple[str, str]] = {
     "recall.spine": ("The shared answer spine", "共享回答脊柱"),
     "recall.cite.source_level": ("Cite to the source", "引到源级"),
     "recall.cite.precise": ("Cite to the block span", "引到块区间"),
+    "recall.cite.structured": ("Return citations separately", "单独返回引用"),
     "recall.close.answer_honestly": ("Close: answer honestly", "收尾：诚实作答"),
     "recall.close.suggestion": ("Close: an unsolicited card", "收尾：不请自来的卡片"),
     "recall.style.concise": ("Style: concise", "风格：精确简短"),
@@ -1792,6 +1794,36 @@ SURFACES: tuple[Surface, ...] = (
         ),
     ),
     Surface(
+        id="recall.fast_structured",
+        group="recall",
+        title_en="Structured fast answer contract",
+        title_zh="结构化快速回答契约",
+        summary_en=(
+            "The fast answer contract when answer text, answer kind and citations travel "
+            "as separate schema fields, allowing exact evidence-span validation."
+        ),
+        summary_zh=(
+            "回答正文、回答类型和引用分别通过 schema 字段传递时使用的快速回答契约，"
+            "使精确证据区间可以被机械验证。"
+        ),
+        segments=(
+            b("recall.fast.contract_head"),
+            *_spine("recall.cite.structured", "recall.close.answer_honestly"),
+            *_ANSWER_STYLE,
+        ),
+        kind=ASSEMBLED,
+        pinned=True,
+        note_en=(
+            "One resolution of the structured-answer template. Exactly one answer-style "
+            "clause is appended. Question, clock and evidence still arrive in the HumanMessage; "
+            "only the response wire and citation clause differ from Fast recall contract."
+        ),
+        note_zh=(
+            "这是结构化回答模板的一次取值，每次只附上一条回答风格。问题、时钟与证据仍随"
+            "人类消息到达；与「快速召回契约」不同的只有响应线格式和引用条款。"
+        ),
+    ),
+    Surface(
         id="recall.deep",
         group="recall",
         title_en="Deep verification contract",
@@ -2496,6 +2528,69 @@ SURFACES: tuple[Surface, ...] = (
                 "recall.fast.select.document_heading",
                 "The heading of one selected document there, once per document read in full.",
                 "那一节里某份被选中文档的标题，每份整篇读入的文档一次。",
+            ),
+        ),
+        kind=FRAGMENTS,
+    ),
+    Surface(
+        id="recall.fast_evidence_select",
+        group="recall",
+        title_en="Cross-face evidence composition",
+        title_zh="跨证据面的证据编排",
+        summary_en=(
+            "One structured call selects coordinates from broad claim, episode-summary and "
+            "verbatim-window candidates, plus known canonical paths. Its output is validated "
+            "and bounded before any evidence reaches the answer."
+        ),
+        summary_zh=(
+            "一次结构化调用从宽断言候选、episode 摘要候选、逐字窗口候选以及已知 canonical "
+            "路径中选择坐标；证据进入回答前，输出会先被验证并受机械上限约束。"
+        ),
+        segments=(
+            f(
+                "recall.fast.evidence_select.contract",
+                "The selector's SystemMessage: choose evidence coordinates, never answer.",
+                "选择器的系统消息：只选证据坐标，绝不回答问题。",
+            ),
+            f(
+                "recall.fast.evidence_select.request",
+                "Its HumanMessage wrapper, with every candidate face before the question.",
+                "它的人类消息外壳：所有候选证据面都排在问题之前。",
+            ),
+            f(
+                "recall.fast.evidence_select.glance",
+                "The optional canonical glance inside the candidate payload.",
+                "候选载荷中可选的 canonical 一览。",
+            ),
+            f(
+                "recall.fast.evidence_select.claims_header",
+                "Opens numbered compiled-claim candidates.",
+                "开出带编号的已编译断言候选。",
+            ),
+            f(
+                "recall.fast.evidence_select.claim",
+                "One claim candidate with its canonical path, section and text.",
+                "一条带 canonical 路径、章节和正文的断言候选。",
+            ),
+            f(
+                "recall.fast.evidence_select.episodes_header",
+                "Opens numbered derived episode-summary candidates.",
+                "开出带编号的派生 episode 摘要候选。",
+            ),
+            f(
+                "recall.fast.evidence_select.episode",
+                "One derived summary with date and exact source coordinates.",
+                "一条带日期与精确源坐标的派生摘要。",
+            ),
+            f(
+                "recall.fast.evidence_select.windows_header",
+                "Opens numbered verbatim source-window candidates.",
+                "开出带编号的逐字源窗口候选。",
+            ),
+            f(
+                "recall.fast.evidence_select.window",
+                "One verbatim candidate with source id and exact block span.",
+                "一条带来源 id 与精确块区间的逐字候选。",
             ),
         ),
         kind=FRAGMENTS,

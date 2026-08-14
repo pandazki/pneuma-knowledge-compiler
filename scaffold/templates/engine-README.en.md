@@ -45,6 +45,13 @@ summaries are dense generated L2 content, shown under an explicit derived label 
 title, occurrence time, section, and exact span. They are not presented as verbatim source;
 the smaller raw-window budget remains the exact-text face.
 
+`evidence_strategy` controls how those faces are composed. `ranked` is the direct,
+lowest-latency fixed-head path. `select` adds one bounded structured recall-model call over
+the broad candidates; the framework validates its coordinates, retains ranked safety anchors,
+and follows selected derived provenance back to L0. `answer_format` is independent: `text`
+keeps the ordinary free-text answer, while `structured` separates answer kind, clean text and
+precise citations so cited spans can be validated. Both can be overridden for one `ask`.
+
 **The prompt language is the layer your overrides sit on.** `prompts/overlays.yaml` opens
 with `language:` — `en` is the framework's default English catalog; `zh` swaps in the shipped
 Chinese language pack, for readability and for Chinese material. Either way your

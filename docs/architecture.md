@@ -120,6 +120,19 @@ information density; the smaller raw face keeps exact wording and direct verific
 The fast response echoes all admitted summaries as `used_episode_summaries`, with mechanical
 `derived=true` and `verbatim=false` labels; the Recall UI renders the same metadata and links
 each summary back to its exact L0 span.
+
+Fast has an opt-in **quality composition** profile over those same parallel views. With
+`evidence_strategy=select`, one structured recall-model call receives broad numbered
+claim/episode/raw candidates plus the canonical glance and returns coordinates only. The
+framework rejects invented coordinates, unions deterministic high-ranked anchors, enforces
+the existing final caps, and follows selected claim and episode provenance back to bounded,
+deduplicated L0 passages. This is ephemeral query composition, never a new authority.
+`answer_format=structured` independently separates answer kind, clean answer text and
+citations; only exact aliased spans present in the evidence are admitted. Either stage is
+fail-soft with explicit degradation telemetry. The selector is serial between retrieval and
+answering, so its latency and token cost are traced separately as
+`recall.fast.evidence_select`; the default `ranked + text` path remains unchanged.
+
 During context assembly, semantic raw/episode spans remain the natural units recorded at
 ingest: they are not expanded a second time, and only genuinely overlapping spans coalesce by
 default. A bare lexical-only block hit expands by just one following block by default;

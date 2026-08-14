@@ -713,6 +713,15 @@ draft_ttl_hours: 24
 # Override for one question: ./app.py ask '...' --style concise
 answer_style: {config["answer_style"]}
 
+# Context composition and answer wire. The shipped defaults preserve the direct ranked
+# lane. `select` adds one bounded structured call over all evidence faces; `structured`
+# separates answer text/kind/citations so exact source spans can be validated.
+# Override one question with --evidence-strategy / --answer-format.
+evidence_strategy: ranked
+answer_format: text
+# Optional provider reasoning-effort hint for the selection call; empty = provider default.
+selection_reasoning_effort: ""
+
 # Retrieval breadth is cheap; answer evidence is expensive. Candidate caps search a broad
 # lexical/semantic tail. Up to 16 dense episode summaries enter as explicitly derived,
 # source-addressed context; six exact raw spans remain beside them for verbatim evidence.

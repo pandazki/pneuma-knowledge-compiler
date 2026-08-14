@@ -78,10 +78,21 @@ Overlap duplicates a block across two L2 chunks. That duplication is derived-lay
 | `RECALL_WINDOW_CANDIDATE_CAP` | `60` | fused lexical/raw/episode source spans retained after retrieval |
 | `RECALL_EPISODE_SUMMARY_CAP` | `16` | explicitly derived, metadata-rich episode summaries admitted to final context |
 | `RECALL_WINDOW_CAP` | `6` | exact verbatim source windows admitted to final context |
+| `RECALL_EVIDENCE_STRATEGY` | `ranked` | fast-only context composition: `ranked` keeps fixed retrieval heads; `select` adds one structured recall-model call that selects a bounded mix across claims, episode summaries, raw windows, and known canonical documents. Per-call override: `evidence_strategy` |
+| `RECALL_ANSWER_FORMAT` | `text` | fast-only answer wire: `text` is the existing free-text call; `structured` separates answer kind, clean answer text, and precise citations, then admits only exact evidence spans. Per-call override: `answer_format` |
+| `RECALL_SELECTION_REASONING_EFFORT` | (empty) | optional provider reasoning-effort hint for the `select` call; empty sends no override |
 | `RECALL_PLAN_QUERIES` | `0` | `0` off; N>0 = one planning call derives up to N extra retrieval queries, pooled by one RRF fusion |
 | `RECALL_RERANK_MODEL` | (empty) | empty off; `llm` = LLM reranker on the recall model at reasoning effort `none`; `llm:<spec>` picks the model; a bare model name (e.g. `cohere/rerank-4-pro`) uses the OpenRouter `/rerank` endpoint |
 | `RECALL_RERANK_CANDIDATES` | `120` | per-query/per-face retrieval depth when reranking; the reranker scores the full deduped union (hard cap 1000) |
 | `RECALL_ANSWER_STYLE` | `conversational` | answer-style preset for fast/deep answers: `concise` = the bare exact value/phrase (graders, scripts), `conversational` = a natural chat reply, `detailed` = a self-contained written note. Shape only — truth discipline is style-independent. A recall request may override per call (`answer_style`) |
+
+`select` is a quality/latency trade-off, not a different retrieval authority. The selector
+returns candidate indexes and known paths only; the framework validates them, unions a small
+deterministic ranked safety head, and follows selected claim/episode provenance back to
+bounded L0 passages. Timeout or schema/provider failure falls back to ranked context and is
+reported as degraded telemetry. Because this call is serial between retrieval and answering,
+measure selector latency separately before making it a deployment default. `ranked + text`
+remains the compatibility and lowest-latency profile.
 
 ## Prompt language
 

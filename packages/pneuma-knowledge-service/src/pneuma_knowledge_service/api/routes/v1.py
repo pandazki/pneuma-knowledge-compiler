@@ -202,6 +202,11 @@ class RecallIn(BaseModel):
     # fast/deep: answer-style preset override for this call; null = the deployment's
     # PNEUMA_KNOWLEDGE_RECALL_ANSWER_STYLE.
     answer_style: Literal["concise", "conversational", "detailed"] | None = None
+    # Fast-only, per-call composition overrides. null uses the deployment's engine setting.
+    # Keeping these separate from `mode` makes the trade-off explicit without multiplying
+    # lane names or changing rag/deep semantics.
+    evidence_strategy: Literal["ranked", "select"] | None = None
+    answer_format: Literal["text", "structured"] | None = None
     include_original_modalities: list[Literal["image"]] = Field(
         default_factory=list,
         description=(
@@ -288,6 +293,13 @@ class RecallAnswerOut(BaseModel):
     # fast only: why the glance selection pass contributed nothing ("timeout"/"error"), or
     # null — which includes the normal case of it running and selecting nothing.
     glance_degraded: str | None = None
+    # Fast context/answer telemetry. Degraded markers distinguish a normal empty selection
+    # from a provider/schema failure that fell back to the historical path.
+    evidence_strategy: str = "ranked"
+    evidence_selection_degraded: str | None = None
+    answer_format: str = "text"
+    answer_kind: str | None = None
+    answer_format_degraded: str | None = None
     # The frozen snapshot this answer was scoped to, or null for the live base.
     snapshot: SnapshotScopeOut | None = None
     # Query-local original-media delivery telemetry, kept generic so adding audio/video does
@@ -954,6 +966,13 @@ async def recall(
                 "modes; rag returns text retrieval hits"
             ),
         )
+    if body.mode != "fast" and (
+        body.evidence_strategy is not None or body.answer_format is not None
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="evidence_strategy and answer_format are available only in fast mode",
+        )
     plane = await _resolve_plane(ctx, user, body.snapshot)
 
     if body.mode == "rag":
@@ -1018,6 +1037,13 @@ async def recall(
             window_cap=ctx.settings.recall_window_cap,
             window_candidate_cap=ctx.settings.recall_window_candidate_cap,
             episode_summary_cap=ctx.settings.recall_episode_summary_cap,
+            evidence_strategy=(
+                body.evidence_strategy or ctx.settings.recall_evidence_strategy
+            ),
+            selection_reasoning_effort=(
+                ctx.settings.recall_selection_reasoning_effort or None
+            ),
+            answer_format=body.answer_format or ctx.settings.recall_answer_format,
             answer_style=body.answer_style or ctx.settings.recall_answer_style,
             plan_queries_cap=ctx.settings.recall_plan_queries,
             reranker=ctx.get_reranker(),
@@ -1047,6 +1073,11 @@ async def recall(
             glance_chars=fa.glance_chars,
             documents_read=list(fa.expanded_documents),
             glance_degraded=fa.glance_degraded,
+            evidence_strategy=fa.evidence_strategy,
+            evidence_selection_degraded=fa.evidence_selection_degraded,
+            answer_format=fa.answer_format,
+            answer_kind=fa.answer_kind,
+            answer_format_degraded=fa.answer_format_degraded,
             snapshot=_snapshot_out(plane.snapshot),
             token_usage=fa.token_usage,
             **_original_modality_telemetry(fa),
@@ -1102,6 +1133,11 @@ async def recall_stream(user_id: str, body: RecallIn, request: Request) -> Strea
     ctx = _ctx(request)
     if body.mode != "deep":
         raise HTTPException(status_code=400, detail="streaming recall supports deep mode only")
+    if body.evidence_strategy is not None or body.answer_format is not None:
+        raise HTTPException(
+            status_code=400,
+            detail="evidence_strategy and answer_format are available only in fast mode",
+        )
     image_args = _recall_image_args(ctx, body)
     user = UserId(user_id)
     as_of = datetime.fromisoformat(body.as_of) if body.as_of else _now()

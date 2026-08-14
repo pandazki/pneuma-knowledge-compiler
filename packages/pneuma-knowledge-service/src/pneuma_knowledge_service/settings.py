@@ -210,6 +210,14 @@ class Settings(BaseSettings):
     recall_episode_summary_cap: int = 16
     recall_window_cap: int = 6
 
+    # Fast context composition and answer wire. Both defaults preserve the historical lane.
+    # `select` spends one structured recall-model call to choose a bounded cross-face mix;
+    # `structured` separates answer text/kind/citations so provenance can be validated rather
+    # than parsed out of prose. Selection effort is an optional provider hint for that call.
+    recall_evidence_strategy: Literal["ranked", "select"] = "ranked"
+    recall_answer_format: Literal["text", "structured"] = "text"
+    recall_selection_reasoning_effort: str = ""
+
     # Fast-recall retrieval planning (PNEUMA_KNOWLEDGE_RECALL_PLAN_QUERIES). 0 = off
     # (byte-for-byte the single-query lane). N > 0: one small call on the recall model
     # derives up to N extra retrieval queries before retrieval, and the claim face pools
