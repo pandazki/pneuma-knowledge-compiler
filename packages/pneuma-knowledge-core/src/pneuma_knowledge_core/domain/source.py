@@ -84,11 +84,66 @@ class RawSource(BaseModel):
     # cycle; the plan's schema lives in domain/intake.py.
     intake_plan: dict[str, Any] | None = None
 
+    def retrieval_context_lines(self) -> list[str]:
+        """Stable source-level context for retrieval.
+
+        ``created_at`` is deliberately absent: it is the ingest wall clock, not when the
+        material happened. Provider-neutral normalizers put the source's own occurrence
+        day in ``meta.occurred_on`` when one is known.
+        """
+
+        lines = [f"[source title] {self.title}"] if self.title.strip() else []
+        occurred_on = self.occurred_on()
+        if occurred_on:
+            lines.append(f"[source occurred_on] {occurred_on}")
+        return lines
+
+    def occurred_on(self) -> str:
+        """The source's own occurrence label, never the ingest wall clock."""
+
+        return str(self.meta.get("occurred_on") or "").strip()
+
+
+class DerivedMediaText(BaseModel):
+    """Searchable text derived from a media asset without replacing the asset."""
+
+    kind: Literal["caption", "ocr"]
+    text: str
+    producer: str
+
+
+class BlockImage(BaseModel):
+    """An immutable L0 image aligned to the block covered by its citation."""
+
+    image_id: str = Field(pattern=r"^[A-Za-z0-9._:-]+$")
+    mime_type: Literal["image/jpeg", "image/png", "image/webp", "image/gif"]
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    size_bytes: int = Field(ge=1)
+    storage_key: str = Field(min_length=1)
+    derived: list[DerivedMediaText] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
 
 class NormalizedBlock(BaseModel):
     index: int
     text: str
     section_path: list[str] = Field(default_factory=list)
+    images: list[BlockImage] = Field(default_factory=list)
+
+    def derived_media_index_lines(self) -> list[str]:
+        """Labelled media-derived text aligned to this block's ordinary citation."""
+
+        return [
+            f"[image {image.image_id}; {derived.kind}; "
+            f"producer={derived.producer}] {derived.text}"
+            for image in self.images
+            for derived in image.derived
+        ]
+
+    def index_text(self) -> str:
+        """Textual L1 view: verbatim block plus labelled media representations."""
+
+        return "\n".join([self.text, *self.derived_media_index_lines()])
 
 
 class SectionSpan(BaseModel):

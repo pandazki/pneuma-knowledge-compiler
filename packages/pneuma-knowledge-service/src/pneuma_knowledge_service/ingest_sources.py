@@ -11,6 +11,7 @@ from pneuma_knowledge_core.ingest.canonical_sources import normalize_source_cont
 from pneuma_knowledge_core.ingest.source_contracts import SourceContract
 
 from .ingest import IngestResult, subject_time_context
+from .media_ingest import materialize_contract_images
 from .snapshot_tenant import assert_writable
 from .wiring import AppContext
 
@@ -39,8 +40,28 @@ async def ingest_source_contract(
     # Meeting / IM / email contracts cut sections by calendar day; that day is the subject's
     # (domain/time_context.py), not the provider's offset.
     time = await subject_time_context(ctx, user_id)
+    if ctx.media is None:
+        declared_images = sum(
+            len(message.images)
+            for conversation in getattr(contract, "conversations", [])
+            for message in getattr(conversation, "messages", [])
+        )
+        if declared_images:
+            raise RuntimeError("image import requires a media store")
+        materialized_images = {}
+    else:
+        materialized_images = await materialize_contract_images(
+            ctx.media,
+            user_id,
+            contract,
+            max_bytes=ctx.settings.media_max_image_bytes,
+        )
     normalized_sources = normalize_source_contract(
-        contract, user_id, imported_at=timestamp, time=time
+        contract,
+        user_id,
+        imported_at=timestamp,
+        time=time,
+        materialized_images=materialized_images,
     )
     results: list[IngestResult] = []
     new_sources: list[tuple[str, IntakePlan]] = []

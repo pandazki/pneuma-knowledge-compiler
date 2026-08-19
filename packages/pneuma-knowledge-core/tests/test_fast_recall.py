@@ -2,16 +2,27 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
 from pneuma_knowledge_core.domain.ids import UserId, SourceId
+from pneuma_knowledge_core.domain.source import BlockImage, NormalizedSource
 from pneuma_knowledge_core.recall.fast import (
+    DEFAULT_CLAIM_CANDIDATE_CAP,
+    DEFAULT_CLAIM_CAP,
+    DEFAULT_EPISODE_SUMMARY_CAP,
+    DEFAULT_WINDOW_CANDIDATE_CAP,
+    DEFAULT_WINDOW_CAP,
+    RecallImage,
+    retrieve_claims,
     selector_contract,
     fast_recall,
     selector_messages,
 )
+from pneuma_knowledge_core.recall.rag import EpisodeSummarySignal, RecallHit
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
@@ -77,8 +88,10 @@ class FakeVector:
     def __init__(self, hits: list[VecHit]) -> None:
         self._hits = hits
 
-    async def search(self, user_id, embedding, *, limit=20):  # noqa: ANN001
-        return self._hits[:limit]
+    async def search(
+        self, user_id, embedding, *, limit=20, representation="raw"
+    ):  # noqa: ANN001
+        return self._hits[:limit] if representation == "raw" else []
 
 
 def _model(answer: str) -> GenericFakeChatModel:
@@ -86,6 +99,29 @@ def _model(answer: str) -> GenericFakeChatModel:
 
 
 _USER = UserId("u-fast")
+
+
+def test_generic_fast_defaults_separate_candidate_recall_from_answer_evidence():
+    assert DEFAULT_CLAIM_CANDIDATE_CAP == 80
+    assert DEFAULT_CLAIM_CAP == 40
+    assert DEFAULT_WINDOW_CANDIDATE_CAP == 60
+    assert DEFAULT_EPISODE_SUMMARY_CAP == 16
+    assert DEFAULT_WINDOW_CAP == 6
+
+
+async def test_zero_claim_budget_short_circuits_both_indexes_and_embedding():
+    class MustNotRun:
+        def __getattr__(self, name):  # noqa: ANN001
+            raise AssertionError(f"zero claim budget touched {name}")
+
+    assert await retrieve_claims(
+        _USER,
+        "q",
+        claim_lexical=MustNotRun(),
+        claim_vectors=MustNotRun(),
+        embeddings=MustNotRun(),
+        limit=0,
+    ) == []
 
 
 async def test_cap_and_dedup_by_path_and_anchor():
@@ -179,6 +215,252 @@ async def test_windows_surface_when_claims_irrelevant_the_jack_regression():
     assert result.answer == "张三"
 
 
+async def test_episode_summaries_reach_answer_with_metadata_beside_fewer_verbatim_windows(
+    monkeypatch,
+):
+    candidates = [
+        RecallHit(
+            source_id=SourceId(f"src-{index}"),
+            block_start=index,
+            block_end=index,
+            text=f"verbatim-{index}",
+            paths=("vector",),
+            score=1.0 - index / 100,
+            representations=("raw", "episode"),
+            episode_summaries=(
+                EpisodeSummarySignal(
+                    source_id=SourceId(f"src-{index}"),
+                    block_start=index,
+                    block_end=index,
+                    text=(
+                        f"[episode title] Episode {index}\n"
+                        f"[episode description] Dense factual summary {index}"
+                    ),
+                ),
+            ),
+        )
+        for index in range(10)
+    ]
+    seen: dict[str, Any] = {}
+
+    async def fake_retrieve_windows(*args, **kwargs):  # noqa: ANN002, ANN003
+        seen["retrieval_limit"] = kwargs["limit"]
+        return candidates[: kwargs["limit"]]
+
+    from pneuma_knowledge_core.recall import fast as fast_module
+
+    monkeypatch.setattr(fast_module, "retrieve_windows", fake_retrieve_windows)
+
+    sources = {
+        f"src-{index}": NormalizedSource.model_validate(
+            {
+                "raw": {
+                    "source_id": f"src-{index}",
+                    "user_id": str(_USER),
+                    "kind": "im",
+                    "origin": "mock",
+                    "title": f"Conversation {index}",
+                    "mime": "application/json",
+                    "checksum": f"fixture-{index}",
+                    "created_at": "2026-07-20T12:00:00Z",
+                    "meta": {"occurred_on": f"2026-07-{index + 1:02d}"},
+                },
+                "blocks": [
+                    {
+                        "index": index,
+                        "text": f"verbatim-{index}",
+                        "section_path": ["session", str(index)],
+                    }
+                ],
+                "structure": {"sections": []},
+            }
+        )
+        for index in range(10)
+    }
+
+    class Content:
+        async def get(self, user_id, source_id):  # noqa: ANN001
+            return sources[str(source_id)]
+
+    class AnswerModel(GenericFakeChatModel):
+        async def ainvoke(self, messages, *args, **kwargs):  # noqa: ANN001, ANN002
+            seen["answer_human"] = messages[1].content
+            return AIMessage(content="answer")
+
+    result = await fast_recall(
+        _USER,
+        "Which episode matters?",
+        as_of=datetime(2026, 7, 20, 12, 0, 0),
+        claim_lexical=FakeClaimIndex([]),
+        claim_vectors=FakeClaimIndex([]),
+        lexical=FakeLexical([]),
+        vectors=FakeVector([]),
+        embeddings=FakeEmbeddings(),
+        model=AnswerModel(messages=iter(())),
+        answer_model=AnswerModel(messages=iter(())),
+        content=Content(),
+        window_candidate_cap=10,
+        episode_summary_cap=4,
+        window_cap=2,
+    )
+
+    assert seen["retrieval_limit"] == 10
+    assert "# derived episode summaries (4)" in seen["answer_human"]
+    for index in range(4):
+        assert f"Dense factual summary {index}" in seen["answer_human"]
+        assert f"Conversation {index}" in seen["answer_human"]
+        assert f"2026-07-{index + 1:02d}" in seen["answer_human"]
+    assert "Dense factual summary 4" not in seen["answer_human"]
+    assert [str(window.source_id) for window in result.used_windows] == ["src-0", "src-1"]
+    assert "verbatim-0" in seen["answer_human"]
+    assert "verbatim-1" in seen["answer_human"]
+    assert "verbatim-2" not in seen["answer_human"]
+    assert len(result.used_episode_summaries) == 4
+    assert result.window_candidates == 10
+
+
+async def test_native_images_aligned_to_recalled_windows_reach_the_answer_model():
+    image_bytes = b"\xff\xd8\xffnative-recall-image"
+    digest = hashlib.sha256(image_bytes).hexdigest()
+    source = NormalizedSource.model_validate(
+        {
+            "raw": {
+                "source_id": "src-image",
+                "user_id": str(_USER),
+                "kind": "im",
+                "origin": "mock",
+                "title": "image conversation",
+                "mime": "application/json",
+                "checksum": "fixture",
+                "created_at": "2026-07-20T12:00:00Z",
+            },
+            "blocks": [
+                {
+                    "index": 4,
+                    "text": "Caroline shared a picture.",
+                    "images": [
+                        {
+                            "image_id": "image-1",
+                            "mime_type": "image/jpeg",
+                            "sha256": digest,
+                            "size_bytes": len(image_bytes),
+                            "storage_key": "tenant/image-1",
+                            "derived": [
+                                {
+                                    "kind": "caption",
+                                    "text": "a dog walking past a wall with a painting",
+                                    "producer": "fixture-captioner",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ],
+            "structure": {"sections": []},
+        }
+    )
+
+    class Content:
+        async def get(self, user_id, source_id):  # noqa: ANN001
+            assert user_id == _USER
+            assert source_id == SourceId("src-image")
+            return source
+
+        async def fetch(self, user_id, source_id, locator):  # noqa: ANN001
+            return source.blocks[0].text
+
+    class Media:
+        async def get(self, user_id, storage_key):  # noqa: ANN001
+            assert user_id == _USER
+            assert storage_key == "tenant/image-1"
+            return image_bytes
+
+    captured: dict[str, Any] = {}
+
+    class CapturingModel(GenericFakeChatModel):
+        async def ainvoke(self, messages, *args, **kwargs):  # noqa: ANN001, ANN002
+            captured["human"] = messages[1].content
+            captured["metadata"] = kwargs["config"]["metadata"]
+            return AIMessage(content="A dog, walking past a painted wall. [cite: s01 ¶4-4]")
+
+    hit = "Caroline shared a picture. a dog walking past a wall with a painting"
+    result = await fast_recall(
+        _USER,
+        "What animal was in the picture?",
+        as_of=datetime(2026, 7, 20, 12, 0, 0),
+        claim_lexical=FakeClaimIndex([]),
+        claim_vectors=FakeClaimIndex([]),
+        lexical=FakeLexical([LexHit(SourceId("src-image"), 4, hit)]),
+        vectors=FakeVector([VecHit(SourceId("src-image"), 4, 4, hit)]),
+        embeddings=FakeEmbeddings(),
+        model=CapturingModel(messages=iter(())),
+        content=Content(),
+        media=Media(),
+        image_mode="native",
+        trace_metadata={"operation": "recall.fast"},
+    )
+
+    human = captured["human"]
+    assert isinstance(human, list)
+    assert any(
+        block.get("type") == "image"
+        and block.get("base64") == base64.b64encode(image_bytes).decode("ascii")
+        for block in human
+    )
+    rendered_text = "\n".join(
+        block["text"] for block in human if block.get("type") == "text"
+    )
+    assert "a dog walking past a wall with a painting" in rendered_text
+    assert "[cite: s01 ¶4-4]" in rendered_text
+    assert "src-image" not in rendered_text
+    assert human[-1]["type"] == "text"
+    assert human[-1]["text"].rstrip().endswith("What animal was in the picture?")
+    assert captured["metadata"]["image_mode"] == "native"
+    assert captured["metadata"]["image_count"] == 1
+    assert result.image_count == 1
+    assert result.answer.startswith("A dog")
+
+
+def test_caption_image_mode_keeps_derived_text_labelled_and_question_last():
+    image = BlockImage.model_validate(
+        {
+            "image_id": "image-1",
+            "mime_type": "image/jpeg",
+            "sha256": "a" * 64,
+            "size_bytes": 123,
+            "storage_key": "tenant/image-1",
+            "derived": [
+                {
+                    "kind": "caption",
+                    "text": "a dog walking past a painted wall",
+                    "producer": "fixture-captioner",
+                }
+            ],
+        }
+    )
+
+    messages = selector_messages(
+        "What animal was in the picture?",
+        [],
+        as_of=datetime(2026, 7, 20, 12, 0, 0),
+        images=[
+            RecallImage(
+                source_id=SourceId("src-image"),
+                block_index=4,
+                image=image,
+            )
+        ],
+        image_mode="caption",
+    )
+
+    human = messages[1].content
+    assert isinstance(human, str)
+    assert "caption; producer=fixture-captioner" in human
+    assert "a dog walking past a painted wall" in human
+    assert "src-image" in human
+    assert human.rstrip().endswith("What animal was in the picture?")
+
+
 async def test_no_raw_indices_means_no_windows_backcompat():
     # Without raw indices wired, fast recall is claims-only (windows empty), unchanged.
     result = await fast_recall(
@@ -204,6 +486,13 @@ def test_contract_treats_grounded_date_reasoning_as_in_scope_not_refusal():
     assert "calendar reasoning" in contract
     assert "counting a span out inclusively" in contract
     assert "genuinely absent" in contract
+
+
+def test_contract_resolves_all_question_qualifiers_before_a_near_match():
+    contract = selector_contract()
+    assert "Satisfy every qualifier in the input together" in contract
+    assert "older or ongoing activity merely mentioned" in contract
+    assert "doing or beginning from proposing, considering, or intending" in contract
 
 
 async def test_selector_system_message_byte_stable_across_as_of():
@@ -286,6 +575,30 @@ async def test_reasoning_effort_rides_extra_body_on_answer_call_only():
     assert _KwargRecordingModel.recorded[0].get("extra_body") == {
         "reasoning": {"effort": "xhigh"}
     }
+
+
+async def test_dedicated_answer_model_receives_only_the_final_answer_call():
+    """A cheap recall model may serve planning/glance while a quality-first model serves
+    only the final answer. With auxiliary passes off, the recall model is never invoked."""
+    recall_model = GenericFakeChatModel(messages=iter([AIMessage(content="wrong model")]))
+    answer_model = _recording_model("answer model")
+
+    result = await fast_recall(
+        _USER,
+        "q",
+        as_of=datetime(2026, 7, 20, 12, 0, 0),
+        claim_lexical=FakeClaimIndex([ClaimStub("aaaa", "p1", "x")]),
+        claim_vectors=FakeClaimIndex([]),
+        embeddings=FakeEmbeddings(),
+        model=recall_model,
+        answer_model=answer_model,
+        reasoning_effort="high",
+    )
+
+    assert result.answer == "answer model"
+    assert _KwargRecordingModel.recorded == [
+        {"extra_body": {"reasoning": {"effort": "high"}}}
+    ]
 
 
 async def test_reasoning_effort_never_reaches_the_glance_pass():

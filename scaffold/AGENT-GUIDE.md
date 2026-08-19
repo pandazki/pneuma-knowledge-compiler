@@ -75,7 +75,7 @@ The target directory must live outside any git repository; if it must sit inside
 cd ~/my-knowledge && ./start.sh
 ```
 
-- `== Starting the middleware stack ==` — three database containers come up locally (Postgres / Qdrant / Meilisearch); the first run downloads images, which is slow. If Docker refuses with `all predefined address pools have been fully subnetted`, the machine's other compose projects have exhausted the default subnets: either have the user clean up stale networks (`docker network prune`, their call), or declare an explicit unused subnet under the project compose file's default network — never touch other projects' networks.
+- `== Starting the middleware stack ==` — Postgres, Qdrant, Meilisearch and private RustFS object storage come up locally; the first run downloads container images, which is slow. If Docker refuses with `all predefined address pools have been fully subnetted`, the machine's other compose projects have exhausted the default subnets: either have the user clean up stale networks (`docker network prune`, their call), or declare an explicit unused subnet under the project compose file's default network — never touch other projects' networks.
 - `== Detecting system environment ==` — timezone/language probed; these are detected values, confirmed at step 4 (principle 4).
 - `== One thing to confirm first: this library's primary language ==` — appears only when the material's language disagrees with the system's; Enter continues with the material's.
 - `== Ingesting N materials ==` — verbatim text lands first, then index and compile jobs queue.
@@ -115,14 +115,25 @@ cd ~/my-knowledge && ./start.sh
 
 **4.2 Read the sample and derive four things yourself** — never ask "what kind of data is this":
 
-- **Material shape**: source channels, arrival rhythm (daily? weekly? in batches?), item size, language, where the authoritative timestamp lives;
+- **Material shape**: source channels, arrival rhythm (daily? weekly? in batches?), item size, language, modalities (text / image / audio / files), where the authoritative timestamp lives, and which representations are original versus machine-derived;
 - **Recurring long-lived subjects**: which people, projects, products, topics keep evolving? "A thing that evolves independently = one document" is the first law of filing — one basket for everything crushes the library;
 - **Who the owner is**: whose viewpoint is this material written from? What do they roughly do?
 - **How it will be asked**: work backwards from the material to what they'll come back for (what happened / who owns it / when / how it changed).
 
-**4.3 Ask for what's left.** Done right, usually three gaps remain: name/address-as, preferred answering language, and "what do you most want this library to remember for you". Plus the principle-4 confirmations (timezone, language).
+**4.3 Design context assembly after choosing the compile model — never before.** A model's multimodal capability only counts when the active provider and request path actually deliver native media content blocks; an image URL flattened into a text string is not vision.
 
-**Done when**: the detected values in `engine/persona/profile.yaml` are confirmed with `provenance` flipped to `profile`, and you can name the long-lived subjects in the material.
+The shipped native-media boundary is explicit: `pneuma.source.im/v1` supports JPEG, PNG, WebP and GIF images on messages, stores originals privately in RustFS/S3, preserves caption/OCR as labelled derived representations, compiles in `caption` or `native` image mode, and resolves the original from the same cited source block in the web reader. Audio, video and generic files are not yet native inputs; say so rather than implying otherwise.
+
+1. Read the compile role from `engine/engine.yaml` and verify the selected model *and routed provider* against current capability documentation. For example, OpenAI's GPT-5.6 family — Sol, Terra and Luna — accepts image inputs, so an OpenAI route can assemble one turn from ordered text plus native `input_image` blocks. Still verify the provider route: a gateway may expose the model while flattening or rejecting the image part.
+2. Match the representation to that verified capability. When native image input is available, keep the original image retrievable at a stable L0 address and pass it in the same message/turn as its text; captions, OCR and search queries remain explicitly labelled auxiliary representations. When the compile path is text-only, produce caption/OCR through a separate capable preprocessing step, retain its producer and link to the original media, and tell the user that the compile model did not see the original. A bare URL is neither a caption nor visual evidence. A labelled caption/OCR is nevertheless usable evidence when no native media is available: preserve its provenance without suppressing its substantive observation or wrapping every resulting claim and answer in a generic caveat.
+3. Make conversion lossless before optimizing context. Treat original media, caption, OCR, transcript and query as independent optional fields — never gate one on another's presence. Record field counts and content digests before and after normalization, and fail the build on any missing, changed or reordered admitted field. Comparing rendered text with expected text assembled by the same renderer is not a round-trip check; both sides can omit the same source field.
+4. Choose fidelity from the use: low detail for broad scene context, higher/original detail for small text, charts, spatial relations or other fine evidence, while measuring image tokens and latency. Prove the path with one minimal real call containing an actual media block before the full build. If the current SourceAdapter or model adapter cannot preserve it, surface that as a framework gap and either add the missing adapter path or use the labelled derived representation — never call a text-only run multimodal.
+
+This is context construction, not compile-contract prose. The contract may say how direct visual evidence differs from a generated caption; it cannot make an image reach a model.
+
+**4.4 Ask for what's left.** Done right, usually three gaps remain: name/address-as, preferred answering language, and "what do you most want this library to remember for you". Plus the principle-4 confirmations (timezone, language).
+
+**Done when**: the detected values in `engine/persona/profile.yaml` are confirmed with `provenance` flipped to `profile`, you can name the long-lived subjects in the material, and every source modality has an explicit, capability-verified context path with original and derived representations distinguished.
 
 ---
 
@@ -156,10 +167,12 @@ easiest to miss: it tends to end up as an incidental note inside other pages, wh
 domains deserve a deliberately designed carrier (a dedicated timeline family, chronology
 pages per person or per thread, or a fixed dated-anchor section within pages) — the form
 follows the business, but it must be a **conscious design decision**. Whatever the carrier, one law never bends:
-**relative time ("yesterday", "next Monday") is normalized to absolute dates at admission,
-original wording kept** — a claim that says "yesterday" is worthless to retrieval three
-months later, and this kind of rot is caught by no mechanism, only by acceptance
-(see step 6).
+**relative time ("yesterday", "next Monday") is anchored to the material's absolute date at
+admission, with the original wording kept**. Resolve an exact date or span only when the
+material or the owner's calendar supplies an unambiguous convention; otherwise keep the
+anchored expression ("last week relative to 2026-07-18") instead of inventing endpoints. A
+claim that says only "yesterday" is worthless to retrieval three months later, and this kind
+of rot is caught by no mechanism, only by acceptance (see step 6).
 
 Voice every inference as "because your material …, I suggest …" — let them nod or fix it.
 
@@ -200,7 +213,35 @@ Then ask 2–3 questions they actually care about with `./app.py ask '…' --sou
 
 When there's too much material to question by hand, the coverage challenge can serve as a first sieve: set `enabled: true` in `engine/compile/challenge.yaml`, and every committed compile then blind-generates questions, audits the canon for gaps, and compensates for what the material actually supports (writes still pass the gate). It does not replace looking together — it audits "was the recordable recorded"; whether the modelling is right still takes human eyes.
 
-**One experiment at a time, and measure it.** When you want to try a retrieval setting rather than decide it, the environment overrides the engine file for exactly one run — `PNEUMA_KNOWLEDGE_RECALL_CLAIM_CAP=128 ./app.py ask '…'` — so you can compare two answers without touching a versioned file. Write the winner into `engine/recall/recall.yaml` and commit it; leave the loser out. That split (environment for measuring, engine file for deciding) is what keeps the history a record of decisions instead of a record of fiddling.
+**Use the recall layers to fix the actual failure, not to mask it.** Candidate caps are cheap search breadth (`claim_candidate_cap`, `window_candidate_cap`). Final context is three deliberately different faces: compiled `claim_cap`, dense `episode_summary_cap`, and exact `window_cap`. An episode summary is generated L2 content, not a quotation: the answer sees it under an explicit `derived episode summaries` heading with source title, occurrence time, section and exact block span. A small raw-window budget is therefore intentional — summaries carry broad meaning, raw windows carry exact wording.
+
+The Recall view shows the claims, derived episode summaries, and verbatim excerpts actually supplied for each answer. Use that ledger with `./app.py ask '…' --sources`: do not infer a retrieval failure from the final prose alone.
+
+Diagnose from the user's symptom. If a relevant episode is absent altogether, inspect semantic indexing and candidate breadth. If the summary finds the right event but the answer lacks an exact number or phrase, admit a little more verbatim context. If answers are noisy, reduce final claims/summaries/windows before narrowing the search pool. If no episode summaries exist, changing `episode_summary_cap` cannot create them: use semantic chunking and rebuild the derived layer. If the right facts consistently land under the wrong subjects, fix the compile contract — recall settings cannot repair a bad knowledge model.
+
+When retrieval finds the right material but a fixed head assembles the wrong mix, use the
+fast lane's quality composition instead of widening every final cap. Set
+`evidence_strategy: select` in `engine/recall/recall.yaml` (or pass
+`--evidence-strategy select` once): one bounded call chooses across claims, derived episodes,
+verbatim windows and known canonical documents, while the framework keeps ranked safety
+anchors and validates every coordinate. It adds serial latency, so keep `ranked` for the
+lowest-latency path. If answers contain the right fact but blur the requested shape or citation,
+`answer_format: structured` keeps answer text, kind and exact citations separate and validates
+the cited spans. These switches improve query-time composition; they do not repair missing L0,
+bad semantic segmentation or a wrong compile contract.
+
+Treat `select` as a measured exception, not a quality synonym. Start with `ranked`. The API
+reports candidate counts and how many claims, episodes and windows the selector model chose
+before deterministic safety anchors and provenance rollback. If those model-selected counts
+stay near zero while the final evidence ledger is large, the extra serial call is not doing
+the work and should usually be removed. Judge answer quality, latency and cost separately on
+the user's own acceptance questions.
+
+For downstream automation, use the response's citation-free `answer_text`; interactive
+surfaces should keep the cited `answer`. When replaying an old question, pass its original
+time explicitly (`./app.py ask '...' --as-of 2025-06-14T09:00:00+08:00`). Omitting `--as-of`
+means “ask now,” which is correct for live use but changes the meaning of relative-time
+questions during a replay.
 
 **Done when**: within two or three rounds the library "looks right" — that's delivery.
 
@@ -264,9 +305,13 @@ contract instead.
   Answers follow the engine's answer-style preset (`answer_style` in
   `engine/recall/recall.yaml`, or per ask with `--style`): `concise` = the bare exact value,
   `conversational` = a natural chat reply (default), `detailed` = a self-contained written
-  note. Pick for the consumer of the answers — a person chatting wants `conversational`; a
-  script, grader, or benchmark judge that expects the exact short answer wants `concise`;
-  written digests want `detailed`. Style never changes the truth discipline, only the shape.
+  note. Pick for the consumer of the answers — a person chatting wants `conversational`; an
+  API client or automation that expects one compact value wants `concise`; written digests
+  want `detailed`. Style never changes the truth discipline, only the shape.
+  Original media is query-local and off by default: add `--include-original image` only when
+  the question requires direct visual inspection (objects, colours, text, layout). Tool/API
+  callers make the same choice with `include_original_modalities: ["image"]`; textual facts
+  leave the enum list empty and continue using labelled derived representations.
 - Look any time: `./app.py glance`, `./app.py status`, `./app.py evolve`.
 - Look at the engine itself: `git -C engine log --oneline` is the history of every decision
   you two made about how this library thinks.

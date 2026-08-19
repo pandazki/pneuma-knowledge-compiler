@@ -36,6 +36,20 @@ class Settings(BaseSettings):
     # override via PNEUMA_KNOWLEDGE_MEILI_KEY in any real deployment.
     meili_key: str = "masterKey_change_me"
 
+    # Private L0 image storage. RustFS is the shipped local S3-compatible service; the
+    # adapter itself only speaks S3 and can point at any compatible deployment. Objects
+    # are never public: the API authorizes a source/block/image tuple and proxies bytes.
+    media_s3_endpoint_url: str = "http://localhost:19000"
+    media_s3_access_key: str = "pneuma_media_dev"
+    media_s3_secret_key: str = "pneuma_media_dev_secret_change_me"
+    media_s3_bucket: str = "pneuma-media"
+    media_s3_region: str = "us-east-1"
+    media_max_image_bytes: int = 20 * 1024 * 1024
+    # `caption` sends only labelled derived text, `native` sends that text plus actual
+    # image content blocks, and `auto` trusts the active LangChain model profile. Unknown
+    # profiles fall back to caption rather than pretending a text request used vision.
+    compile_image_mode: Literal["auto", "caption", "native"] = "auto"
+
     canonical_root: str = "./data/canonical"
 
     # The engine directory: one versioned unit holding this deployment's strategy files,
@@ -59,10 +73,11 @@ class Settings(BaseSettings):
     # L2 chunking. `semantic` (shipped default) = configured LLM topic/entity boundary
     # detection over the numbered blocks (ideally one topic/one person = one chunk),
     # inspired by nemori's boundary-detection philosophy (https://github.com/nemori-ai/nemori)
-    # but returning block indexes only — chunk text stays a verbatim slice of the source.
-    # A sentence chunker sub-splits over-long units; only actual L2 ingest calls the LLM
-    # (preview stays mechanical), and scripted/keyless base models automatically fall back
-    # to mechanical sentence chunking (see wiring). See ingest/semantic.py.
+    # and returning each boundary with a derived episode title/description in the SAME
+    # structured response. Those fields enrich embedding input only; chunk text stays a
+    # verbatim source slice. A sentence chunker sub-splits over-long units; only actual L2
+    # ingest calls the LLM (preview stays mechanical), and scripted/keyless base models
+    # automatically fall back to mechanical sentence chunking. See ingest/semantic.py.
     # Mechanical opt-outs: `sentence` = chonkie SentenceChunker with CJK-aware delimiters
     # and real overlap; `recursive` = chonkie RecursiveChunker for structure-heavy docs.
     # chonkie counts in tokens; its default character tokenizer is ~1 token/char for CJK,
@@ -74,9 +89,9 @@ class Settings(BaseSettings):
     # Whether a semantic segment may share its hinge blocks with its neighbour.
     # `smart` (shipped default) asks the model for closed intervals, so the sentence that
     # closes one topic while opening the next is indexed as part of both — overlap where the
-    # content earns it, decided per boundary, not a fixed stride. `off` is the original
-    # zero-overlap contract: it is what every semantic-chunking measurement so far was taken
-    # with, so it stays available as the A/B baseline rather than being deleted.
+    # content earns it, decided per boundary, not a fixed stride. `off` retains the original
+    # zero-overlap GEOMETRY; adding episode descriptions intentionally created a new prompt
+    # baseline, so results measured with the older boundary-only prompt are not comparable.
     # Degeneracy ("make every segment the whole document") is refused mechanically by the
     # gates in ingest/semantic.py, never argued against in the prompt. Only meaningful when
     # chunk_strategy is `semantic`; the mechanical chunkers have their own token overlap
@@ -185,13 +200,23 @@ class Settings(BaseSettings):
     rollover_threshold_chars: int = 40_000
     rollover_keep_recent_chars: int = 12_000
 
-    # Fast-recall retrieval budget (PNEUMA_KNOWLEDGE_RECALL_CLAIM_CAP / _RECALL_WINDOW_CAP).
-    # How many claims and body windows one fast_recall ask may pull into the prompt. The
-    # defaults mirror the core constants (DEFAULT_CLAIM_CAP / DEFAULT_WINDOW_CAP) so an
-    # unset deployment behaves byte-for-byte as before; benchmark harnesses raise them to
-    # measure where retrieval saturates instead of patching core constants.
-    recall_claim_cap: int = 64
-    recall_window_cap: int = 8
+    # Fast-recall candidate breadth vs final evidence. Candidate caps are cheap index depth;
+    # answer caps bound model context. Episode-summary cap is the dense derived-context
+    # boundary; every summary remains explicitly labelled and source-addressed. These are
+    # generic product defaults, not benchmark-specific rules.
+    recall_claim_candidate_cap: int = 80
+    recall_claim_cap: int = 40
+    recall_window_candidate_cap: int = 60
+    recall_episode_summary_cap: int = 16
+    recall_window_cap: int = 6
+
+    # Fast context composition and answer wire. Both defaults preserve the historical lane.
+    # `select` spends one structured recall-model call to choose a bounded cross-face mix;
+    # `structured` separates answer text/kind/citations so provenance can be validated rather
+    # than parsed out of prose. Selection effort is an optional provider hint for that call.
+    recall_evidence_strategy: Literal["ranked", "select"] = "ranked"
+    recall_answer_format: Literal["text", "structured"] = "text"
+    recall_selection_reasoning_effort: str = ""
 
     # Fast-recall retrieval planning (PNEUMA_KNOWLEDGE_RECALL_PLAN_QUERIES). 0 = off
     # (byte-for-byte the single-query lane). N > 0: one small call on the recall model
@@ -234,11 +259,19 @@ class Settings(BaseSettings):
 
     # Default / fallback chat model. Per-operation routing below overrides it when set.
     llm_model: str = "openai:gpt-4o-mini"
-    # Per-operation model routing (PNEUMA_KNOWLEDGE_LLM_MODEL_COMPILE / _RECALL / _DEEP / _SKILL).
+    # Per-operation model routing (PNEUMA_KNOWLEDGE_LLM_MODEL_COMPILE / _RECALL / _ANSWER /
+    # _DEEP / _SKILL).
     # Empty → falls back to llm_model, so scripted-model tests (which set llm_model only)
     # keep routing everything to the scripted model. See docs/reference/observability.md.
     llm_model_compile: str = ""  # compile agent
-    llm_model_recall: str = ""  # fast recall + briefing ask
+    llm_model_recall: str = ""  # retrieval planning/glance + briefing ask
+    # Final fast-answer generation. Empty borrows recall, preserving existing deployments.
+    llm_model_answer: str = ""
+    # Empty preserves provider defaults. A generated engine states this explicitly so an
+    # evaluation does not silently change when a provider changes its default.
+    answer_reasoning_effort: Literal[
+        "", "none", "minimal", "low", "medium", "high", "xhigh", "max"
+    ] = ""
     llm_model_deep: str = ""  # deep recall (agentic search)
     llm_model_skill: str = ""  # skill synthesis (future)
     llm_model_evolve: str = ""  # schema evolve (phase-1 propose + phase-2 reorganize)

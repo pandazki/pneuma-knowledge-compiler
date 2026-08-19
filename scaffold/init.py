@@ -45,6 +45,7 @@ import getpass
 import json
 import random
 import re
+import secrets
 import shutil
 import socket
 from pathlib import Path
@@ -82,6 +83,11 @@ DEMO_MATERIAL = (
 DEFAULT_MODELS = {
     "compile": "openrouter:openai/gpt-5.6-luna",
     "recall": "openrouter:openai/gpt-5.6-luna",
+    # Fast answers borrow the recall role by default. A separate answer model and explicit
+    # reasoning effort remain available deployment choices, but they should be justified by
+    # the deployment's own validation rather than imposed on every generated project.
+    "answer": "",
+    "answer_reasoning_effort": "",
     "embedding": "openrouter:openai/text-embedding-3-small",
     # The agentic deep-search lane defaults to the stronger sibling: it reasons across
     # multiple retrieval rounds, where the model tier is worth its price.
@@ -183,25 +189,29 @@ mode = "auto"              # auto = follow the data (example data → demo contr
                            # skeleton = TODO-slot skeleton | example = bundled demo contract
                            # demo = the example project's real, agent-authored contract
                            # reference = start from a built-in strategy (fill reference below)
-reference = ""             # e.g. "personal-knowledge@v1" (list with ./init.py --list-references)
+reference = ""             # e.g. "personal-knowledge@v2" (list with ./init.py --list-references)
 
 [models]
 compile = "openrouter:openai/gpt-5.6-luna"        # compile model (must support tool calling; the quality lever)
-recall = "openrouter:openai/gpt-5.6-luna"         # Q&A model (fast and cheap is fine)
+recall = "openrouter:openai/gpt-5.6-luna"         # retrieval planning/glance model
+answer = ""                                       # empty = final answer borrows recall
+answer_reasoning_effort = ""                      # empty = preserve provider default
 embedding = "openrouter:openai/text-embedding-3-small"
 deep = "openrouter:openai/gpt-5.6-terra"  # deep-recall (agentic) model; empty falls back to recall
 
 [advanced]
 user_id = "u-app-owner"    # tenant id: a different id is a different, empty library
-chunk_strategy = "semantic"  # semantic = LLM boundary detection (default) | sentence = mechanical
+chunk_strategy = "semantic"  # semantic = LLM episode boundary + retrieval description | sentence = mechanical
 semantic_overlap = "smart" # semantic only: smart = neighbouring segments may share a hinge
-                           # block (default) | off = zero overlap, the measured baseline
+                           # block (default) | off = original zero-overlap geometry
 challenge_enabled = false  # post-compile coverage challenge (extra model calls per compile)
-answer_style = "conversational"  # how Q&A answers read: concise = the bare exact answer
-                           # (graders/scripts) | conversational = natural chat reply |
+compile_image_mode = "auto" # auto = use model profile | native = send image blocks |
+                           # caption = labelled caption/OCR text only
+answer_style = "conversational"  # how Q&A answers read: concise = one compact value
+                           # for API/automation consumers | conversational = natural chat reply |
                            # detailed = self-contained written note
-prompt_language = "en"     # language of the FRAMEWORK's own prompts: en (the measured
-                           # baseline) | zh (Chinese language pack). Not the language your
+prompt_language = "en"     # language of the FRAMEWORK's own prompts: en (default) |
+                           # zh (Chinese language pack). Not the language your
                            # library is written in — that follows the owner profile.
 """
 
@@ -447,6 +457,20 @@ def build_config(answers: dict, *, target: str | None) -> dict:
     prompt_language = str(advanced_in.get("prompt_language") or "en")
     if prompt_language not in ("en", "zh"):
         sys.exit(f"error: advanced.prompt_language must be en / zh, got {prompt_language!r}")
+    compile_image_mode = str(advanced_in.get("compile_image_mode") or "auto")
+    if compile_image_mode not in ("auto", "caption", "native"):
+        sys.exit(
+            "error: advanced.compile_image_mode must be auto / caption / native, "
+            f"got {compile_image_mode!r}"
+        )
+    # OpenRouter model ids do not always carry LangChain model profiles. The shipped compile
+    # default is an explicitly multimodal GPT-5.6 route, so record that declaration in the
+    # generated project instead of silently degrading its image inputs to caption-only.
+    if (
+        compile_image_mode == "auto"
+        and models["compile"].startswith("openrouter:openai/gpt-5.6")
+    ):
+        compile_image_mode = "native"
 
     return {
         "language": language,
@@ -466,6 +490,7 @@ def build_config(answers: dict, *, target: str | None) -> dict:
         "semantic_overlap": semantic_overlap,
         "answer_style": answer_style,
         "prompt_language": prompt_language,
+        "compile_image_mode": compile_image_mode,
         "challenge_enabled": bool(advanced_in.get("challenge_enabled") or False),
         "api_key": "",
     }
@@ -488,7 +513,7 @@ def make_env_text(config: dict, ports: dict[str, int], compose_project: str, rep
             "# and your profile all live in engine/ — this project's own versioned unit (see",
             "# engine/README.md). This file holds only the key and this machine's infrastructure.",
             "# app.py loads it into the process environment, so a PNEUMA_KNOWLEDGE_* strategy key",
-            "# placed here would outrank the engine file — use it for one-off experiments only.",
+            "# placed here would outrank the engine file — reserve that for temporary operations.",
             "",
             "# OpenRouter API key (https://openrouter.ai/keys)",
             f"OPENROUTER_API_KEY={config['api_key']}",
@@ -507,10 +532,20 @@ def make_env_text(config: dict, ports: dict[str, int], compose_project: str, rep
             f"PNEUMA_APP_QDRANT_PORT={ports['qdrant']}",
             f"PNEUMA_APP_QDRANT_GRPC_PORT={ports['qdrant_grpc']}",
             f"PNEUMA_APP_MEILI_PORT={ports['meili']}",
+            f"PNEUMA_APP_RUSTFS_PORT={ports['rustfs']}",
+            f"PNEUMA_APP_RUSTFS_CONSOLE_PORT={ports['rustfs_console']}",
+            f"PNEUMA_APP_RUSTFS_ACCESS_KEY={config['rustfs_access_key']}",
+            f"PNEUMA_APP_RUSTFS_SECRET_KEY={config['rustfs_secret_key']}",
             "# The browsing layer (framework API + web UI), started only by the optional",
             "# `console` compose profile:  docker compose --profile console up -d --wait",
             f"PNEUMA_APP_API_PORT={ports['api']}",
             f"PNEUMA_APP_WEB_PORT={ports['web']}",
+            "# Optional container-side override for a Langfuse server on this host.",
+            "# Example: http://host.docker.internal:3205 when host-side BASE_URL is localhost.",
+            "PNEUMA_APP_LANGFUSE_BASE_URL_CONTAINER=",
+            "# If that self-hosted Langfuse signs media URLs with localhost, set this to",
+            "# host-gateway so API/worker containers can upload the traced attachments.",
+            "PNEUMA_APP_LANGFUSE_LOCALHOST_GATEWAY=",
             "# Without a key, every process runs model-free and embeds with a deterministic",
             "# vector. Its dimension must match the collection: uncomment and set fake:<dim>",
             "# if this engine's embedding model has a dimension other than 1536.",
@@ -595,9 +630,18 @@ def engine_files(config: dict, contract: str, profile: str) -> dict[str, str]:
 #
 # Precedence for every key in this directory: process environment > this file > framework
 # default. The matching variables here are PNEUMA_KNOWLEDGE_LLM_MODEL_COMPILE / _RECALL /
-# _DEEP and PNEUMA_KNOWLEDGE_EMBEDDING_MODEL.
+# _ANSWER / _DEEP, PNEUMA_KNOWLEDGE_ANSWER_REASONING_EFFORT and
+# PNEUMA_KNOWLEDGE_EMBEDDING_MODEL.
 compile: {models["compile"]}
+# How images reach the compile model: native sends real image content blocks; caption sends
+# only labelled caption/OCR text; auto trusts the active model profile.
+image_mode: {config["compile_image_mode"]}
 recall: {models["recall"]}
+# Empty borrows the recall role. Split this only when validation in your own domain shows a
+# separate final-answer model is worth its added cost or latency.
+answer: {models["answer"] if models["answer"] else '""'}
+# Empty preserves the answer model provider's default reasoning behavior.
+answer_reasoning_effort: {models["answer_reasoning_effort"] if models["answer_reasoning_effort"] else '""'}
 # Deep recall (the agentic search lane). Empty borrows the recall role.
 deep: {deep if deep else '""'}
 # A vector collection's dimension is fixed when it is created, so switching to a model of a
@@ -605,11 +649,11 @@ deep: {deep if deep else '""'}
 embedding: {models["embedding"]}
 """,
         "intake/intake.yaml": f"""\
-# How material is cut into the semantic units the vector index searches. The text of a unit
-# is always a verbatim slice of your material — only the cutting is a choice.
+# How material becomes the semantic units the vector index searches. Citable unit text is
+# always a verbatim slice; derived titles/descriptions form a separate dense L2 context face.
 #
-#   semantic  the compile-role model detects topic/episode boundaries and returns block
-#             indexes only. Costs one small model call per source.
+#   semantic  one compile-role call returns topic/episode boundaries plus a grounded title
+#             and description for each episode. Costs one small model call per source.
 #   sentence  mechanical sentence chunking with overlap. No model cost at all.
 #
 # Changing this governs new material immediately; material already indexed keeps the
@@ -624,9 +668,9 @@ chunk_strategy: {config["chunk_strategy"]}
 #             to share is judged per boundary, never a fixed stride, and at most three
 #             blocks: that ceiling is what keeps "every segment is the whole document" out
 #             of reach rather than merely discouraged.
-#   off       the original zero-overlap cut. Every measurement of semantic chunking so far
-#             was taken this way, so it stays here as the A/B baseline.
-semantic_overlap: {config["semantic_overlap"]}
+#   off       a zero-overlap cut for domains where every block must belong to exactly one
+#             semantic segment.
+semantic_overlap: "{config["semantic_overlap"]}"
 """,
         "compile/contract.md": contract,
         "compile/challenge.yaml": f"""\
@@ -662,22 +706,36 @@ draft_ttl_hours: 24
 # Answering. Style is shape only — the truth discipline (citations, no invention, an honest
 # "the material does not say") is the same in all three.
 #
-#   concise        the bare exact value a grader or a script expects
+#   concise        one compact value for an API client or automation
 #   conversational a natural chat reply
 #   detailed       a self-contained written note
 #
 # Override for one question: ./app.py ask '...' --style concise
 answer_style: {config["answer_style"]}
 
-# Retrieval budget per question: how many compiled claims and how many raw source windows
-# may enter the prompt.
-claim_cap: 64
-window_cap: 8
+# Context composition and answer wire. The shipped defaults preserve the direct ranked
+# lane. `select` adds one bounded structured call over all evidence faces; `structured`
+# separates answer text/kind/citations so exact source spans can be validated.
+# Override one question with --evidence-strategy / --answer-format.
+evidence_strategy: ranked
+answer_format: text
+# Optional provider reasoning-effort hint for the selection call; empty = provider default.
+selection_reasoning_effort: ""
+
+# Retrieval breadth is cheap; answer evidence is expensive. Candidate caps search a broad
+# lexical/semantic tail. Up to 16 dense episode summaries enter as explicitly derived,
+# source-addressed context; six exact raw spans remain beside them for verbatim evidence.
+claim_candidate_cap: 80
+claim_cap: 40
+window_candidate_cap: 60
+episode_summary_cap: 16
+window_cap: 6
 # 0 = one query per question. N > 0 spends one small model call to derive up to N extra
 # retrieval queries, pooled into one ranking — worth it for multi-part questions.
 plan_queries: 0
-# Empty = no reranking (measured: no gain on claim-level retrieval). "llm" reranks with the
-# recall model; a bare model name uses OpenRouter's /rerank endpoint.
+# Empty = no reranking. Configure it only when validation on your own domain shows that
+# relevance order needs a second-stage scorer. "llm" uses the recall model; a bare model
+# name uses OpenRouter's /rerank endpoint.
 rerank_model: ""
 rerank_candidates: 120
 """,
@@ -688,9 +746,8 @@ rerank_candidates: 120
 # the models are told without forking anything.
 #
 # `language` picks which language the FRAMEWORK's own clauses arrive in — the layer your
-# overrides below sit on. en = the English catalog, the baseline every measurement in the
-# framework repository was taken on; zh = the shipped Chinese language pack, for readability
-# and Chinese material, with scoring equivalence unverified. It does NOT decide what language
+# overrides below sit on. en = the default English catalog; zh = the shipped Chinese language
+# pack, for readability and Chinese material. It does NOT decide what language
 # this library is written in: that follows the owner profile's declared language.
 language: {config["prompt_language"]}
 #
@@ -775,16 +832,20 @@ def generate(config: dict) -> Path:
     target.mkdir(parents=True, exist_ok=True)
 
     zh = config["language"] == "zh"
-    pg, qdrant, qdrant_grpc, meili, api, web = probe_free_ports(6)
+    pg, qdrant, qdrant_grpc, meili, rustfs, rustfs_console, api, web = probe_free_ports(8)
     ports = {
         "pg": pg,
         "qdrant": qdrant,
         "qdrant_grpc": qdrant_grpc,
         "meili": meili,
+        "rustfs": rustfs,
+        "rustfs_console": rustfs_console,
         "api": api,
         "web": web,
     }
     config["subnet"] = probe_free_subnet()
+    config["rustfs_access_key"] = f"pneuma-{secrets.token_hex(8)}"
+    config["rustfs_secret_key"] = secrets.token_urlsafe(32)
     compose_project = f"pneuma-{config['project_name']}-{random.randrange(16**4):04x}"
 
     # 1) machinery, verbatim
@@ -860,6 +921,11 @@ def generate(config: dict) -> Path:
     (target / ".env").write_text(env_text, encoding="utf-8")
     os.chmod(target / ".env", 0o600)
     example_text = re.sub(r"(?m)^OPENROUTER_API_KEY=.*$", "OPENROUTER_API_KEY=", env_text)
+    example_text = re.sub(
+        r"(?m)^PNEUMA_APP_RUSTFS_(?:ACCESS|SECRET)_KEY=.*$",
+        lambda match: match.group(0).split("=", 1)[0] + "=",
+        example_text,
+    )
     (target / ".env.example").write_text(example_text, encoding="utf-8")
     for name in EXECUTABLE:
         os.chmod(target / name, 0o755)
@@ -867,7 +933,7 @@ def generate(config: dict) -> Path:
     # 6) next steps
     say()
     say(bold(f"✓ Project generated: {target}"))
-    say(dim(f"  stack: compose project {compose_project} · ports pg {pg} / qdrant {qdrant},{qdrant_grpc} / meili {meili} / api {api} / web {web} · subnet {config['subnet']}"))
+    say(dim(f"  stack: compose project {compose_project} · ports pg {pg} / qdrant {qdrant},{qdrant_grpc} / meili {meili} / rustfs {rustfs},{rustfs_console} / api {api} / web {web} · subnet {config['subnet']}"))
     say(dim("  (ports were probed free and written into .env — nothing for you to manage)"))
     say(dim(f"  {engine_note}"))
     if config["demo"]:
@@ -1032,8 +1098,7 @@ def interactive(preset_lang: str | None) -> dict:
     say(dim("  The generated README / contract guidance can be Chinese or English."))
     lang = preset_lang or ("zh" if ask("1) 中文  2) English", "2") == "1" else "en")
     say(dim("  The prompts the MODELS read are a separate knob (engine/prompts/overlays.yaml,"))
-    say(dim("  `language`) and stay English by default — that is the measured baseline; a"))
-    say(dim("  Chinese pack ships too."))
+    say(dim("  `language`) and stay English by default; a Chinese pack ships too."))
     echo_choice("language", "中文" if lang == "zh" else "English")
 
     header(3, total, "Owner")
@@ -1067,8 +1132,8 @@ def interactive(preset_lang: str | None) -> dict:
             echo_choice("data", "empty for now")
 
     header(5, total, "Answer style")
-    say(dim("  How Q&A answers read. 1) concise — the bare exact answer (for graders and"))
-    say(dim("  scripts)  2) conversational — a natural chat reply (default)  3) detailed —"))
+    say(dim("  How Q&A answers read. 1) concise — one compact value for API/automation"))
+    say(dim("  consumers  2) conversational — a natural chat reply (default)  3) detailed —"))
     say(dim("  a self-contained written note. Changeable later in engine/recall/recall.yaml"))
     say(dim("  (or the Engine Console), and per question with ./app.py ask --style."))
     style_pick = ask("Answer style (1/2/3)", "2").strip()
@@ -1080,7 +1145,7 @@ def interactive(preset_lang: str | None) -> dict:
     header(6, total, "Models & key")
     say(dim("  Everything runs through OpenRouter with one key. The compile model is the only"))
     say(dim("  quality lever — defaults are sensible, and engine/engine.yaml is where you change"))
-    say(dim("  the four model roles later (the Engine Console edits the same file)."))
+    say(dim("  the model roles later (the Engine Console edits the same file)."))
     echo_choice("models", f"compile/recall {DEFAULT_MODELS['compile'].split(':', 1)[1]}, embeddings {DEFAULT_MODELS['embedding'].split(':', 1)[1]}")
     try:
         api_key = getpass.getpass("  OpenRouter API key (hidden; Enter to skip — .env holds the key) > ").strip()

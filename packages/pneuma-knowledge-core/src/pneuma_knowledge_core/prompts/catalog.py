@@ -383,14 +383,25 @@ Answer shape:
   self-contradictory, keep the uncertainty and the disagreement as they are; do not firm up
   a key value you cannot make out. Better to state something more vaguely than to invent a
   certainty the evidence never gave.
+- Satisfy every qualifier in the input together: the subject, time, event or state, and
+  requested number of answers. When several candidates overlap, prefer the direct record
+  that meets all of them over a more frequent near-match. For a question about something
+  becoming new, starting, stopping, or changing in a period, distinguish that transition
+  from an older or ongoing activity merely mentioned during the period, and distinguish
+  doing or beginning from proposing, considering, or intending.
 - Always copy source references verbatim from the `[cite: …]` markers in the evidence — they
   are a **fixed English marker the app extracts into a component, and are not translated
   along with the answer's language** (the source markers in the evidence were generated for
   this very answer, so copy them directly); {cite}
 - Unless the owner explicitly asks for another language this time, answer in the language
   the profile names as their usual one.
-- Convert relative time (yesterday, last week, next month) into absolute dates using the
-  as_of value marked alongside the input.
+- Resolve relative time against the clock it belongs to: expressions in recorded evidence
+  use that source's occurrence date or other provenance anchor, while expressions in the
+  owner's live input use the as_of value marked alongside the input. Never reinterpret an
+  old source's "yesterday" or "last week" against the current ask time. Resolve an exact
+  date or span only when the evidence supplies an unambiguous calendar convention; otherwise
+  keep the period anchored to the known date (for example, "last week relative to June 9,
+  2023") instead of inventing endpoints.
 {close}
 """
 
@@ -399,11 +410,15 @@ _FAST_CONTRACT_HEAD = """\
 
 You are the fast answering engine of a knowledge compiler. The owner needs a traceable
 answer quickly, mid-workflow, so give the conclusion first and the necessary evidence after.
-Their conversations, documents, project and experiment material have been compiled into two
-forms of evidence:
+Their conversations, documents, project and experiment material reach you in three forms:
 
 - **claim notes** — compiled, structured personal knowledge, each entry carrying an anchor
   (c:…) and provenance.
+- **derived episode summaries** — dense model-generated descriptions of retrieved episodes.
+  Each is explicitly labelled as a summary and carries the source title, occurrence time,
+  section and exact source span it compresses. It is not a verbatim quotation: use its dense
+  factual overview, preserve its uncertainty, and use the source locator it supplies; when a
+  claim note or raw excerpt conflicts with it on an exact detail, the direct evidence wins.
 - **raw excerpts** — fragments of original content not yet compiled into claims, also
   carrying provenance, exactly as trustworthy as claim notes and usable directly as the
   basis of an answer.
@@ -553,21 +568,41 @@ Segmentation rules, in priority order:
 
 """
 
-_SEGMENTER_RUBRIC = _SEGMENTER_PHILOSOPHY + """\
-Return only the "start block number" of each semantic segment (`segments`, ascending
-integers). Segment i covers [start_i, start_{i+1}-1] and the last runs to the final block, so
-you never give end numbers. Every number must be a block number that actually appears in the
-listing.
+_EPISODE_REPRESENTATION = """\
+For every segment, produce a retrieval-oriented episode representation grounded only in
+the blocks that segment covers:
+- `title`: a concise, descriptive, search-friendly title (roughly 10-20 words) naming the
+  specific people, activities, places or objects that distinguish this episode.
+- `description`: a detailed factual record in third-person narrative. Preserve the concrete
+  participants, time, place, events, decisions, emotions, reasons, plans and outcomes that
+  the covered blocks actually state; keep chronological and causal relationships; use
+  specific names rather than ambiguous pronouns where the source supports them.
+- Never invent a missing fact or identity. When source context supplies an occurrence date,
+  preserve a relative time expression and resolve it exactly only when its calendar meaning
+  is unambiguous. If a period boundary convention is not supplied (for example what days
+  "last week" covers), retain the expression with its absolute anchor instead of inventing
+  endpoints. When no anchor is supplied, keep the relative expression and do not guess one.
+
+The title and description are derived retrieval text. They do not replace or rewrite the
+source; the system keeps the covered blocks verbatim as the citable chunk.
+
+"""
+
+_SEGMENTER_RUBRIC = _SEGMENTER_PHILOSOPHY + _EPISODE_REPRESENTATION + """\
+Return `segments` as an array of objects. Keep each object's fields in this order:
+`title`, `description`, `start`. `start` is the segment's start block number. Segment i
+covers [start_i, start_{i+1}-1] and the last runs to the final block, so you never give end
+numbers. Every start must be a block number that actually appears in the listing.
 """
 
 # The `semantic_overlap = "smart"` output contract. Nothing here asks the model to behave —
 # every rule below is also a write-time gate in ingest/semantic.py, and an output that
 # breaks one is rejected and replaced by the zero-overlap partition. The wording exists so
 # a model that reads it lands inside the gate on the first try, not so the gate can relax.
-_SEGMENTER_RUBRIC_OVERLAP = _SEGMENTER_PHILOSOPHY + """\
-Return each semantic segment as a closed interval of block numbers — a start and an end,
-both inclusive (`segments`, a list of two-number pairs ordered by start). Both numbers must
-be block numbers that actually appear in the listing, and the end is never below the start.
+_SEGMENTER_RUBRIC_OVERLAP = _SEGMENTER_PHILOSOPHY + _EPISODE_REPRESENTATION + """\
+Return `segments` as an array of objects. Keep each object's fields in this order:
+`title`, `description`, `start`, `end`. `start` and `end` form a closed interval of block
+numbers, both inclusive. Both must appear in the listing, and end is never below start.
 
 Segments MAY overlap, and that is what this format is for. A hinge — the sentence that
 closes one topic while opening the next, the answer that also sets up the following
@@ -580,6 +615,13 @@ size of a hinge; three is the most that is ever allowed, and a segment that swal
 neighbour is not a segment. The intervals must also leave no hole: the first segment starts
 at the first block, the last ends at the last block, every start is above the one before
 it, and no segment starts more than one block after the previous segment's end.
+"""
+
+_EPISODE_DESCRIBE_RUBRIC = _EPISODE_REPRESENTATION + """\
+The source intervals in this call are already fixed by an older boundary manifest. Do not
+merge, split, expand, shrink or renumber them. Return exactly one object per supplied
+interval, with fields in this order: `title`, `description`, `start`, `end`. Copy each
+start/end pair exactly; the system mechanically ignores an object whose pair changed.
 """
 
 # ═══════════════════════════════════════════════════════════════════════════ personas
@@ -766,8 +808,11 @@ DEFAULTS: dict[str, str] = {
     "compile.task.time_relative_rule": (
         "- Normalize relative time in the material (\"yesterday\", \"last week\", \"next "
         "Monday\") to absolute dates **against the material's own occurrence date**, not "
-        "against the compile date; when the reference point is unreliable, keep the original "
-        "wording and mark it as unconfirmed."
+        "against the compile date. Resolve an exact date or span only when the material or "
+        "the owner's calendar supplies an unambiguous convention; otherwise preserve the "
+        "original wording with its absolute anchor rather than inventing period endpoints. "
+        "When the reference point itself is unreliable, keep the wording and mark it as "
+        "unconfirmed."
     ),
     "compile.task.time_unknown": (
         "- **This round's material carries no occurrence time**: do not infer absolute dates; "
@@ -777,6 +822,17 @@ DEFAULTS: dict[str, str] = {
     "compile.task.source_heading": "## source {source_id} — {title}",
     "compile.task.treatment_tag": "→ Treatment: **treatment={treatment}** (explained above)",
     "compile.task.block_line": "¶{index} {text}",
+    "compile.task.image_derived": (
+        "  [image {image_id}; {kind}; producer={producer}] {text}"
+    ),
+    "compile.task.image_without_derived": (
+        "  [image {image_id}; no caption or OCR representation was supplied]"
+    ),
+    "compile.task.native_images_header": "# Native image evidence\n",
+    "compile.task.native_image_locator": (
+        "Native image {image_id}; citation address: source {source_id} ¶{index}. "
+        "It belongs to this exact block: ¶{index} {text}"
+    ),
     "compile.task.outline_header": "# The whole of existing canonical (outline)\n",
     "compile.task.outline_note": (
         "These are all the documents currently in the owner's knowledge base, structure only, "
@@ -1202,15 +1258,24 @@ DEFAULTS: dict[str, str] = {
     "ingest.email.attachments": "Attachments: ",
     "ingest.semantic.rubric": _SEGMENTER_RUBRIC,
     "ingest.semantic.human": (
-        "Below are content blocks numbered {lo}..{hi} ({count} blocks). Each line is "
+        "{source_context}Below are content blocks numbered {lo}..{hi} ({count} blocks). Each line is "
         "\"number:content\" (the number before the colon, as with grep -n). Return the start "
-        "number of each semantic segment:\n\n{listing}"
+        "and retrieval representation of each semantic segment:\n\n{listing}"
+    ),
+    "ingest.semantic.source_context": (
+        "Source context (retrieval metadata, not source prose):\n{context}\n\n"
     ),
     "ingest.semantic.rubric_overlap": _SEGMENTER_RUBRIC_OVERLAP,
     "ingest.semantic.human_overlap": (
-        "Below are content blocks numbered {lo}..{hi} ({count} blocks). Each line is "
+        "{source_context}Below are content blocks numbered {lo}..{hi} ({count} blocks). Each line is "
         "\"number:content\" (the number before the colon, as with grep -n). Return each "
-        "semantic segment as a start/end pair of block numbers:\n\n{listing}"
+        "semantic segment's retrieval representation and start/end block numbers:\n\n{listing}"
+    ),
+    "ingest.semantic.describe_rubric": _EPISODE_DESCRIBE_RUBRIC,
+    "ingest.semantic.describe_human": (
+        "{source_context}The following episode boundaries are fixed:\n{boundaries}\n\n"
+        "Write a grounded retrieval representation for each one from these numbered source "
+        "blocks:\n\n{listing}"
     ),
     # ─────────────────────────────────────────────── recall: the shared spine
     "recall.spine": _SPINE,
@@ -1220,13 +1285,15 @@ DEFAULTS: dict[str, str] = {
         "not) — it is a thread left for later tracing, not a hard target of this scenario."
     ),
     "recall.cite.precise": "cite down to the paragraph (`[cite: <source_id> ¶a-b]`).",
-    # Two-tier honesty, measured not assumed: an answering lane that abstains whenever the
-    # evidence stops one inference short of the question systematically under-serves
-    # multi-hop and open questions (LoCoMo-refined tuning runs: +3.6pp / p=0.001, reproduced
-    # +4.3pp / p=0.0001 on a different retrieval base, abstention 4.8%→1.3% with no
-    # fabrication signature). The red line is unchanged: assertion strength tracks evidence
-    # strength — an inference must present itself as one, and nothing is asserted without
-    # footing.
+    "recall.cite.structured": (
+        "put each precise source reference in the structured `citations` field as one "
+        "complete `[cite: <source_id> ¶a-b]` marker copied from the evidence; keep the "
+        "structured `answer` field free of citation markup."
+    ),
+    # Two-tier honesty: abstaining whenever evidence stops one inference short under-serves
+    # ordinary multi-hop and open questions. The red line is unchanged: assertion strength
+    # tracks evidence strength — an inference presents itself as one, and nothing is asserted
+    # without footing.
     "recall.close.answer_honestly": (
         "- When the evidence in front of you does not state what the owner is asking for but "
         "does support a reasonable inference, give the best-supported inference and make "
@@ -1236,9 +1303,10 @@ DEFAULTS: dict[str, str] = {
         "- Relative time inside recorded material has almost always expired by the time it is "
         "read: its \"yesterday\" points at the material's moment, not this one. Unless you "
         "know both when the material was written and, explicitly, what the current moment "
-        "is, treat \"now\" as unknown — so always convert to absolute dates to reason and "
-        "to answer, keeping an anchored span (\"the week before June 9, 2023\") when that "
-        "is all the evidence supports. Never emit a bare relative expression."
+        "is, treat \"now\" as unknown. Anchor the expression to the material's absolute date "
+        "to reason and answer; resolve exact dates or span endpoints only when the calendar "
+        "convention is unambiguous, and otherwise keep an anchored period (\"the week before "
+        "June 9, 2023\"). Never emit a bare relative expression."
     ),
     # ─────────────────────────── recall: answer-style presets (fast/deep third clause)
     #
@@ -1298,6 +1366,11 @@ DEFAULTS: dict[str, str] = {
     "recall.section.claims_header": "# claim notes ({count})",
     "recall.section.claims_empty": "(no hits this retrieval)",
     "recall.section.windows_header": "# raw excerpts ({count})",
+    "recall.section.images_header": "# image evidence ({count})",
+    "recall.fast.image_locator": (
+        "[cite: {source_id} ¶{index}-{index}] Image {image_id} is aligned to this exact "
+        "source block."
+    ),
     "recall.section.input": "Owner input: {question}",
     "recall.section.transcript_header": "# Stream transcript (last {turns} turn(s))",
     "recall.section.already_shown_header": (
@@ -1399,6 +1472,39 @@ DEFAULTS: dict[str, str] = {
     ),
     "recall.fast.select.documents_header": "# full documents ({count})",
     "recall.fast.select.document_heading": "## {path}",
+    # ─────────────────────── recall: cross-face evidence selection (opt-in quality path)
+    "recall.fast.evidence_select.contract": (
+        "You compose evidence for one evidence-grounded knowledge-base answer. Return only "
+        "candidate indexes and known document paths through the required schema; do not "
+        "answer the question.\n\n"
+        "Choose the smallest set that collectively covers every subject, event, time, state, "
+        "list item or cause requested. Candidate ranking is useful but imperfect. Claim notes "
+        "are structured derived facts. Episode summaries are dense derived navigation. Raw "
+        "windows are verbatim and control exact wording, dates, attribution, negation, lists "
+        "and conflicts. A claim or summary may be selected when its cited span must be checked "
+        "later. Full documents are expensive: choose one only when the document itself is the "
+        "question's subject or a whole history/comparison is required. Exclude material that "
+        "is merely adjacent or similarly named.\n\n"
+        "Choose at most {claim_cap} claim indexes, {episode_cap} episode-summary indexes, "
+        "{window_cap} raw-window indexes and {document_cap} document paths. Never return an "
+        "index or path absent from the input."
+    ),
+    "recall.fast.evidence_select.request": (
+        "{candidates}\n\n# question\n{question}"
+    ),
+    "recall.fast.evidence_select.glance": "# canonical knowledge-base glance\n{glance}",
+    "recall.fast.evidence_select.claims_header": "# claim candidates",
+    "recall.fast.evidence_select.claim": (
+        "C{index}: [document={path}; section={section}] {text}"
+    ),
+    "recall.fast.evidence_select.episodes_header": "# episode-summary candidates",
+    "recall.fast.evidence_select.episode": (
+        "E{index}: [occurred_on={occurred_on}; span={start}-{end}] {text}"
+    ),
+    "recall.fast.evidence_select.windows_header": "# raw-window candidates",
+    "recall.fast.evidence_select.window": (
+        "W{index}: [source={source_id}; span={start}-{end}] {text}"
+    ),
     # ──────────────────────────── recall: LLM claim reranker (service adapter's wording)
     # Used by the LLMReranker adapter — a cheap non-reasoning chat call that plays the
     # cross-encoder's role: read the actual candidate texts against the question and say
@@ -1419,6 +1525,16 @@ DEFAULTS: dict[str, str] = {
     "recall.rerank.llm.request": (
         "{candidates}\n\nQuestion: {query}\n\n"
         "Indexes of the notes that bear on answering, most relevant first, at most {cap}."
+    ),
+    # ─────────────────────────── recall: dense derived episode context
+    "recall.section.episode_summaries_header": "# derived episode summaries ({count})",
+    "recall.fast.episode_summary.item": (
+        "## episode summary (derived, not verbatim)\n"
+        "source title: {source_title}\n"
+        "source occurred_on: {occurred_on}\n"
+        "section: {section}\n"
+        "source span: [cite: {source_id} ¶{start}-{end}]\n"
+        "{text}"
     ),
     # ──────────────────────────────── recall: fast's retrieval planning pass (opt-in)
     # OFF by default (`fast_recall(plan_queries_cap=0)`). One small call BEFORE retrieval:

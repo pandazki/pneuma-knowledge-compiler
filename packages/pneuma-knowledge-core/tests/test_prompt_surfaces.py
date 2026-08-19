@@ -55,7 +55,7 @@ from pneuma_knowledge_core.prompts.surfaces import (
 )
 from pneuma_knowledge_core.recall.briefing import briefing_contract
 from pneuma_knowledge_core.recall.deep import deep_contract
-from pneuma_knowledge_core.recall.fast import selector_contract
+from pneuma_knowledge_core.recall.fast import selector_contract, structured_answer_contract
 from pneuma_knowledge_core.recall.suggestion import detail_contract, live_context_contracts
 from pneuma_knowledge_core.skill.contract import render_system_contract
 from pneuma_knowledge_core.skill.version import SkillVersion
@@ -92,6 +92,7 @@ def _compensation_gaps_field() -> str:
 # (surface id, the real composition function, the runtime fields it was given)
 ASSEMBLIES: tuple[tuple[str, object, dict[str, str]], ...] = (
     ("recall.fast", lambda: selector_contract(), {}),
+    ("recall.fast_structured", lambda: structured_answer_contract(), {}),
     ("recall.deep", lambda: deep_contract(), {}),
     ("recall.briefing", lambda: briefing_contract(), {}),
     ("recall.suggestion", lambda: live_context_contracts()["general"], {}),
@@ -369,10 +370,33 @@ def test_a_slot_filler_is_declared_as_a_slot_segment_of_the_same_surface():
                     assert by_key[key].role == SLOT
 
 
-def test_the_shared_spine_reports_the_four_surfaces_it_moves():
+def test_the_shared_spine_reports_every_surface_it_moves():
     assert set(shared_with("recall.fast", "recall.spine")) == {
         "recall.deep",
         "recall.briefing",
         "recall.suggestion",
+        "recall.fast_structured",
     }
-    assert shared_with("recall.fast", "recall.fast.contract_head") == ()
+    assert shared_with("recall.fast", "recall.fast.contract_head") == (
+        "recall.fast_structured",
+    )
+
+
+def test_shared_spine_uses_source_time_for_recorded_relative_expressions():
+    """The evidence clock and live-input clock must never collapse into one as_of clock."""
+    english = DEFAULTS["recall.spine"]
+    assert "expressions in recorded evidence" in english
+    assert "source's occurrence date" in english
+    assert "owner's live input use the as_of value" in english
+    assert "old source's \"yesterday\" or \"last week\"" in english
+    assert "unambiguous calendar convention" in english
+    assert "instead of inventing endpoints" in english
+
+    from pneuma_knowledge_core.prompts import chinese_overlay
+
+    chinese = chinese_overlay()["recall.spine"]
+    assert "已记录证据里的表达以该来源的发生日" in chinese
+    assert "本轮输入里的表达才以输入旁边标注的 as_of 值" in chinese
+    assert "不能用本轮提问时间重新解释旧来源" in chinese
+    assert "只有证据给出了无歧义的日历口径" in chinese
+    assert "不要编造区间端点" in chinese

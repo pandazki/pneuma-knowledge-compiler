@@ -88,12 +88,26 @@ def test_generates_a_complete_project_from_answers(tmp_path):
     assert list((target / "my-data").glob("*.md"))
     # No unresolved template slots anywhere.
     for path in target.rglob("*"):
+        # `engine/` is a real git repository. Its compressed object database is binary
+        # implementation state, not generated project text, and arbitrary byte pairs can
+        # naturally spell a template delimiter.
+        if ".git" in path.parts:
+            continue
         if path.is_file() and path.suffix in (".md", ".yaml", ""):
             assert "{{" not in path.read_text(encoding="utf-8", errors="ignore"), path
     # Owner values landed in the profile.
     profile = (target / "engine" / "persona" / "profile.yaml").read_text(encoding="utf-8")
     assert 'display_name: "测试"' in profile
     assert '["a", "b"]' in profile
+    recall = (target / "engine" / "recall" / "recall.yaml").read_text(encoding="utf-8")
+    assert "claim_candidate_cap: 80" in recall
+    assert "claim_cap: 40" in recall
+    assert "window_candidate_cap: 60" in recall
+    assert "episode_summary_cap: 16" in recall
+    assert "window_cap: 6" in recall
+    assert "evidence_strategy: ranked" in recall
+    assert "answer_format: text" in recall
+    assert 'selection_reasoning_effort: ""' in recall
 
 
 def test_generated_env_carries_free_distinct_ports_and_framework_repo(tmp_path):
@@ -111,11 +125,13 @@ def test_generated_env_carries_free_distinct_ports_and_framework_repo(tmp_path):
             "PNEUMA_APP_QDRANT_PORT",
             "PNEUMA_APP_QDRANT_GRPC_PORT",
             "PNEUMA_APP_MEILI_PORT",
+            "PNEUMA_APP_RUSTFS_PORT",
+            "PNEUMA_APP_RUSTFS_CONSOLE_PORT",
             "PNEUMA_APP_API_PORT",
             "PNEUMA_APP_WEB_PORT",
         )
     ]
-    assert len(set(ports)) == 6
+    assert len(set(ports)) == 8
     for port in ports:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
             probe.bind(("127.0.0.1", port))  # still free right after generation
@@ -126,6 +142,14 @@ def test_generated_env_carries_free_distinct_ports_and_framework_repo(tmp_path):
     # And a key-blank .env.example rides along as the recovery/reference copy.
     example = (target / ".env.example").read_text(encoding="utf-8")
     assert "OPENROUTER_API_KEY=\n" in example
+    assert values["PNEUMA_APP_RUSTFS_ACCESS_KEY"]
+    assert values["PNEUMA_APP_RUSTFS_SECRET_KEY"]
+    assert "PNEUMA_APP_LANGFUSE_BASE_URL_CONTAINER=" in env
+    assert "PNEUMA_APP_LANGFUSE_LOCALHOST_GATEWAY=" in env
+    assert "PNEUMA_APP_RUSTFS_ACCESS_KEY=\n" in example
+    assert "PNEUMA_APP_RUSTFS_SECRET_KEY=\n" in example
+    assert values["PNEUMA_APP_RUSTFS_ACCESS_KEY"] not in example
+    assert values["PNEUMA_APP_RUSTFS_SECRET_KEY"] not in example
     assert example.replace("OPENROUTER_API_KEY=", "OPENROUTER_API_KEY=", 1).splitlines()[5:] == env.splitlines()[5:] or True
     assert values["PNEUMA_APP_PG_PORT"] in example
     # A project-private subnet is probed and written (default address pools are finite).
@@ -158,6 +182,7 @@ def test_generated_console_profile_renders_under_real_docker_compose(tmp_path):
         "postgres",
         "qdrant",
         "meilisearch",
+        "rustfs",
         "api",
         "worker",
         "web",
@@ -234,7 +259,7 @@ def test_demo_generates_a_project_that_already_has_a_library(tmp_path):
     )
     intake = (target / "engine" / "intake" / "intake.yaml").read_text(encoding="utf-8")
     assert "chunk_strategy: semantic" in intake
-    assert "semantic_overlap: smart" in intake
+    assert 'semantic_overlap: "smart"' in intake
 
     # .env has the same shape as any project's, with the shipped library's tenant id and no
     # key — the demo never asks for one.
@@ -448,6 +473,7 @@ def test_generated_engine_files_are_exactly_what_the_framework_schema_declares(t
             "data": {"mode": "none"},
             "advanced": {
                 "chunk_strategy": "sentence",
+                "semantic_overlap": "off",
                 "answer_style": "detailed",
                 "challenge_enabled": True,
             },
@@ -460,6 +486,16 @@ def test_generated_engine_files_are_exactly_what_the_framework_schema_declares(t
         if p.is_file() and ".git" not in p.parts
     ]
     validate(engine, changes)
+
+    # YAML 1.1 treats an unquoted `off` as boolean false. The generator must preserve this
+    # enum as a string so a legitimate zero-overlap project resolves before first ingest.
+    from pneuma_knowledge_service.engine.resolve import resolve_engine
+
+    resolved = resolve_engine(engine, {})
+    assert resolved.values["intake.semantic_overlap"] == "off"
+    assert 'semantic_overlap: "off"' in (
+        engine / "intake" / "intake.yaml"
+    ).read_text(encoding="utf-8")
 
 
 def test_answers_land_in_the_engine_and_resolve_through_the_framework(tmp_path, monkeypatch):
@@ -486,6 +522,8 @@ def test_answers_land_in_the_engine_and_resolve_through_the_framework(tmp_path, 
         "PNEUMA_KNOWLEDGE_EMBEDDING_MODEL",
         "PNEUMA_KNOWLEDGE_LLM_MODEL_COMPILE",
         "PNEUMA_KNOWLEDGE_LLM_MODEL_RECALL",
+        "PNEUMA_KNOWLEDGE_LLM_MODEL_ANSWER",
+        "PNEUMA_KNOWLEDGE_ANSWER_REASONING_EFFORT",
         "PNEUMA_KNOWLEDGE_LLM_MODEL_DEEP",
     ):
         monkeypatch.delenv(name, raising=False)
@@ -494,6 +532,8 @@ def test_answers_land_in_the_engine_and_resolve_through_the_framework(tmp_path, 
     assert resolved.values["recall.answer_style"] == "concise"
     assert resolved.values["challenge.enabled"] is True
     assert resolved.values["models.compile"] == "openrouter:x/strong"
+    assert resolved.values["models.answer"] == ""
+    assert resolved.values["models.answer_reasoning_effort"] == ""
     assert resolved.values["models.deep"] == "openrouter:x/deep"
     assert resolved.values["prompts.language"] == "zh"
     # Every generated value is STATED, not inherited: a person can read what their engine
@@ -583,8 +623,10 @@ def test_reference_contract_keeps_the_users_own_identity(tmp_path):
 def test_strategies_catalog_reads_the_shipped_data():
     catalog = init.strategies_catalog(ROOT)
     assert catalog, "the framework repo ships at least one reference strategy"
-    entry = next(e for e in catalog if e["skill_id"] == "personal-knowledge")
-    assert entry["version"] == "v1"
+    personal = [e for e in catalog if e["skill_id"] == "personal-knowledge"]
+    assert [entry["version"] for entry in personal] == ["v1", "v2"]
+    entry = personal[-1]
+    assert entry["version"] == "v2"
     assert entry["path_templates"], "templates ride with the manifest"
     assert entry["body_path"].is_file()
 

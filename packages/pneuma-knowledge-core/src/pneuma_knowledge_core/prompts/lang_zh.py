@@ -289,10 +289,17 @@ _SPINE = """\
   个确定的专有名称；一方提出或建议了某件事、而看不到接受或决定时，不要把它写成已定的事实；证据
   可疑或自相矛盾处，把不确定与分歧原样留着；看不清的关键值不要凑定。宁可说得更含糊，也不要编出
   证据从未给出的确定性。
+- 同时满足输入里的每一个限定：主体、时间、事件或状态，以及要求的答案数量。多个候选部分重合时，
+  优先采用完整满足这些限定的直接记录，而不是出现更频繁的近似项。问题问某件事在一段时间里成为新
+  事物、开始、停止或改变时，要把这次转变与「旧有或持续中的活动恰好在该时段被提到」区分开，也要
+  把已经在做或开始做与提议、考虑、打算区分开。
 - 来源引用一律从证据里的 `[cite: …]` 标记逐字照抄——它们是**应用会抽取成组件的固定英文标记，不随
   答案语言一起翻译**（证据里的来源标记就是为这次回答生成的，直接抄）；{cite}
 - 除非知识主体这次明确要求用另一种语言，否则用档案里写明的他惯用语言作答。
-- 用输入旁边标注的 as_of 值，把相对时间（昨天、上周、下个月）换算成绝对日期。
+- 相对时间要按它所属的时钟解析：已记录证据里的表达以该来源的发生日或其他出处时间锚点为准，知识主
+  体本轮输入里的表达才以输入旁边标注的 as_of 值为准。绝不能用本轮提问时间重新解释旧来源里的「昨
+  天」或「上周」。只有证据给出了无歧义的日历口径时，才解析成精确日期或区间；否则保留带已知日期
+  锚点的周期表达（例如「相对于 2023 年 6 月 9 日的上周」），不要编造区间端点。
 {close}
 """
 
@@ -300,9 +307,12 @@ _FAST_CONTRACT_HEAD = """\
 # 快速知识问答
 
 你是一个知识编译器的快速答题引擎。知识主体在工作流中间需要一个可溯源的答案，而且要快，所以先给
-结论，再给必要的证据。他的对话、文档、项目与实验材料已经被编译成两种形式的证据：
+结论，再给必要的证据。他的对话、文档、项目与实验材料会以三种形式来到你面前：
 
 - **断言笔记** —— 编译过的、结构化的个人知识，每条都带锚点（c:…）与出处。
+- **派生 episode 摘要** —— 对召回 episode 的高密度模型生成描述。每条都明确标为摘要，并带它所压缩
+  的来源标题、发生时间、章节和精确来源区间。它不是逐字引文：利用其中密集的事实概览，保留它原有
+  的不确定性，并使用它给出的来源定位；若某个精确细节与断言笔记或原文摘录冲突，以直接证据为准。
 - **原文摘录** —— 尚未编译成断言的原始内容片段，同样带出处，可信度与断言笔记完全相同，可以直接
   作为答案的依据。
 
@@ -415,18 +425,34 @@ _SEGMENTER_PHILOSOPHY_ZH = """\
 
 """
 
-_SEGMENTER_RUBRIC_ZH = _SEGMENTER_PHILOSOPHY_ZH + """\
-只返回每个语义段的「起始块编号」（`segments`，升序整数）。第 i 段覆盖
-[start_i, start_{i+1}-1]，最后一段延伸到最后一块，因此你从不给出结束编号。每个编号都必须是
-列表中真实出现过的块编号。
+_EPISODE_REPRESENTATION_ZH = """\
+每个语义段还要产生一份只以该段覆盖块为根据、面向检索的 episode 表示：
+- `title`：精炼、具体、便于搜索的标题（约 10-20 个词），写出能区分该 episode 的具体
+  人物、活动、地点或物件。
+- `description`：第三人称的详细事实记录。保留覆盖块实际写明的具体参与者、时间、
+  地点、事件、决定、情绪、原因、计划和结果；保持时序与因果关系；原文支持时用具体
+  姓名代替指代不清的代词。
+- 不得编造缺失的事实或身份。来源上下文给出发生日期时，保留相对时间原话；只有它的日历含义无歧
+  义时才精确换算。没有给出周期边界口径时（例如「上周」究竟覆盖哪些天），保留带绝对日期锚点的
+  表达，不得编造端点；没有锚点时保留相对表达，不得猜测锚点。
+
+标题和描述只是派生检索文本，不会替换或改写来源；系统仍将所覆盖块的逐字原文作为可引用 chunk。
+
+"""
+
+_SEGMENTER_RUBRIC_ZH = _SEGMENTER_PHILOSOPHY_ZH + _EPISODE_REPRESENTATION_ZH + """\
+把 `segments` 返回为对象数组。每个对象的字段顺序固定为：`title`、`description`、`start`。
+`start` 是该段的起始块编号。第 i 段覆盖 [start_i, start_{i+1}-1]，最后一段延伸到
+最后一块，因此不给出结束编号。每个起始编号都必须在列表中真实出现。
 """
 
 # `semantic_overlap = "smart"` 的输出契约。这里没有一句是请求模型配合：下面每一条同时是
 # ingest/semantic.py 里的写入期闸门，违反任何一条的输出会被整份拒收、退回零重叠切分。
-_SEGMENTER_RUBRIC_OVERLAP_ZH = _SEGMENTER_PHILOSOPHY_ZH + """\
-把每个语义段作为一个前闭后闭的块编号区间返回——一个起点、一个终点，两端都包含
-（`segments`，按起点升序排列的两元数对列表）。两个编号都必须是列表中真实出现过的块编号，
-终点不得小于起点。
+_SEGMENTER_RUBRIC_OVERLAP_ZH = (
+    _SEGMENTER_PHILOSOPHY_ZH + _EPISODE_REPRESENTATION_ZH + """\
+把 `segments` 返回为对象数组。每个对象的字段顺序固定为：`title`、`description`、`start`、`end`。
+`start` 与 `end` 组成两端都包含的块编号闭区间。两者都必须在列表中真实出现，且终点
+不得小于起点。
 
 段与段之间**可以**重叠，这正是这个格式的用意。转折处——那句既收束上一个话题、又开启下一个
 话题的话，那个既回答了上一问、又引出下一问的回应——同时属于两段，就同时给两段。十块内容里
@@ -436,6 +462,13 @@ _SEGMENTER_RUBRIC_OVERLAP_ZH = _SEGMENTER_PHILOSOPHY_ZH + """\
 只在内容确实同时服务两段的地方重叠，别处不要。共享一到两块是转折的常见体量；三块是上限；
 把邻段整个吞掉的不叫段。区间还必须不留空洞：第一段从第一块开始，最后一段到最后一块结束，
 每个起点都严格大于前一个起点，且任何一段的起点都不得比前一段的终点晚超过一块。
+"""
+)
+
+_EPISODE_DESCRIBE_RUBRIC_ZH = _EPISODE_REPRESENTATION_ZH + """\
+本次调用里的来源区间已由旧边界 manifest 固定。不得合并、拆分、扩大、缩小或重新编号。
+每个给定区间恰好返回一个对象，字段顺序为：`title`、`description`、`start`、`end`。
+逐字复制每对 start/end；系统会机械忽略任何更改过坐标的对象。
 """
 
 # ═══════════════════════════════════════════════════════════════════════════ personas
@@ -579,7 +612,9 @@ _ZH: dict[str, str] = {
     ),
     "compile.task.time_relative_rule": (
         "- 把材料里的相对时间（「昨天」「上周」「下周一」）归一成绝对日期时，**以材料自身的发生日"
-        "期为基准**，不是以编译日期为基准；基准不可靠时，保留原话并标为未确认。"
+        "期为基准**，不是以编译日期为基准。只有材料或知识主体的日历给出了无歧义口径时，才写精确"
+        "日期或区间；否则保留带绝对日期锚点的原话，不要编造周期端点。基准本身不可靠时，保留原话"
+        "并标为未确认。"
     ),
     "compile.task.time_unknown": (
         "- **本轮材料没带发生时间**：不要推断绝对日期；相对时间按原话保留，并标为未确认。"
@@ -588,6 +623,17 @@ _ZH: dict[str, str] = {
     "compile.task.source_heading": "## 来源 {source_id} —— {title}",
     "compile.task.treatment_tag": "→ 处理方式：**treatment={treatment}**（含义见上）",
     "compile.task.block_line": "¶{index} {text}",
+    "compile.task.image_derived": (
+        "  [图片 {image_id}；{kind}；生成者={producer}] {text}"
+    ),
+    "compile.task.image_without_derived": (
+        "  [图片 {image_id}；未提供 caption 或 OCR 表示]"
+    ),
+    "compile.task.native_images_header": "# 原生图片证据\n",
+    "compile.task.native_image_locator": (
+        "原生图片 {image_id}；引用地址：来源 {source_id} ¶{index}。"
+        "它属于这个确切块：¶{index} {text}"
+    ),
     "compile.task.outline_header": "# 已有正本的全貌（提纲）\n",
     "compile.task.outline_note": (
         "下面是知识主体文库里当前的全部文档，只有结构，没有正文。先在这里看某个主体是否已经存"
@@ -917,13 +963,21 @@ _ZH: dict[str, str] = {
     "ingest.email.attachments": "附件：",
     "ingest.semantic.rubric": _SEGMENTER_RUBRIC_ZH,
     "ingest.semantic.human": (
-        "以下是编号 {lo}..{hi} 的内容块（共 {count} 块）。每行形如「编号:内容」（冒号前是"
-        "编号，如 grep -n）。返回每个语义段的起始编号：\n\n{listing}"
+        "{source_context}以下是编号 {lo}..{hi} 的内容块（共 {count} 块）。每行形如「编号:内容」（冒号前是"
+        "编号，如 grep -n）。返回每个语义段的起始编号与检索表示：\n\n{listing}"
+    ),
+    "ingest.semantic.source_context": (
+        "来源上下文（检索元数据，不是来源正文）：\n{context}\n\n"
     ),
     "ingest.semantic.rubric_overlap": _SEGMENTER_RUBRIC_OVERLAP_ZH,
     "ingest.semantic.human_overlap": (
-        "以下是编号 {lo}..{hi} 的内容块（共 {count} 块）。每行形如「编号:内容」（冒号前是"
-        "编号，如 grep -n）。把每个语义段作为一对起止块编号返回：\n\n{listing}"
+        "{source_context}以下是编号 {lo}..{hi} 的内容块（共 {count} 块）。每行形如「编号:内容」（冒号前是"
+        "编号，如 grep -n）。返回每个语义段的检索表示与起止块编号：\n\n{listing}"
+    ),
+    "ingest.semantic.describe_rubric": _EPISODE_DESCRIBE_RUBRIC_ZH,
+    "ingest.semantic.describe_human": (
+        "{source_context}以下 episode 边界已固定：\n{boundaries}\n\n"
+        "根据下面带编号的来源块，为每个区间写出有根据的检索表示：\n\n{listing}"
     ),
     # ─────────────────────────────────────────────── recall: the shared spine
     "recall.spine": _SPINE,
@@ -932,6 +986,10 @@ _ZH: dict[str, str] = {
         "要硬凑）——它是留给日后溯源的线索，不是这个场景的硬指标。"
     ),
     "recall.cite.precise": "引用要精确到段（`[cite: <source_id> ¶a-b]`）。",
+    "recall.cite.structured": (
+        "把每条精确来源引用放进结构化 `citations` 字段，写成从证据逐字复制的一条完整 "
+        "`[cite: <source_id> ¶a-b]` 标记；结构化 `answer` 字段里不要带引用标记。"
+    ),
     # Two-tier honesty, measured not assumed (see the English catalog for the tuning runs).
     # The red line is unchanged: assertion strength tracks evidence strength.
     "recall.close.answer_honestly": (
@@ -939,9 +997,9 @@ _ZH: dict[str, str] = {
         "讲清它依据什么；完全没有落脚点时，「没有相关记录」才是忠实的答案。不要复述输入，\n"
         "  也不要加「根据记录」这类前缀。\n"
         "- 已记录材料里的相对时间，读到的时候几乎总已过期：它的「昨天」指的是材料所在的那一刻，不"
-        "是现在这一刻。除非你既知道材料写于何时、又被明确告知当前是何时，就把「现在」当作未知——"
-        "所以一律换算成绝对日期来推理、来回答，证据只支持到一个有锚点的区间时就保留区间（「2023 "
-        "年 6 月 9 日之前的那一周」）。永远不要输出一个赤裸的相对表达。"
+        "是现在这一刻。除非你既知道材料写于何时、又被明确告知当前是何时，就把「现在」当作未知。"
+        "推理和回答时先把表达锚定到材料的绝对日期；只有日历口径无歧义时才解析精确日期或区间端点，"
+        "否则保留有锚点的周期（「2023 年 6 月 9 日之前的那一周」）。永远不要输出一个赤裸的相对表达。"
     ),
     # ─────────────────────────── recall: answer-style presets (fast/deep third clause)
     #
@@ -988,6 +1046,10 @@ _ZH: dict[str, str] = {
     "recall.section.claims_header": "# 断言笔记（{count} 条）",
     "recall.section.claims_empty": "（本次检索无命中）",
     "recall.section.windows_header": "# 原文摘录（{count} 条）",
+    "recall.section.images_header": "# 图片证据（{count} 张）",
+    "recall.fast.image_locator": (
+        "[cite: {source_id} ¶{index}-{index}] 图片 {image_id} 与这个确切来源块对齐。"
+    ),
     "recall.section.input": "知识主体输入：{question}",
     "recall.section.transcript_header": "# 流的转写（最近 {turns} 轮）",
     "recall.section.already_shown_header": "# 本次会话中已经浮出过的（不要重复出卡）",
@@ -1065,6 +1127,32 @@ _ZH: dict[str, str] = {
     ),
     "recall.fast.select.documents_header": "# 完整文档（{count} 份）",
     "recall.fast.select.document_heading": "## {path}",
+    # ─────────────────────── recall: 跨证据面选择（可选质量路径）
+    "recall.fast.evidence_select.contract": (
+        "你为一次有证据约束的知识库回答组织上下文。只通过指定 schema 返回候选下标与已知文档路径；"
+        "不要回答问题。\n\n"
+        "选择能共同覆盖问题所要求的每个主体、事件、时间、状态、清单项或原因的最小集合。候选排名有"
+        "用但不完美。claim note 是结构化派生事实；episode 摘要是高密度派生导航；raw window 是逐字"
+        "原文，精确措辞、日期、归属、否定、清单与冲突以它为准。需要稍后核对引用区间时，也可以选择"
+        "一条 claim 或摘要。完整文档代价高：只有文档本身就是问题主体，或必须读完整历史／比较时才"
+        "选择。排除只是相邻或名字相似的材料。\n\n"
+        "最多选择 {claim_cap} 个 claim 下标、{episode_cap} 个 episode 摘要下标、{window_cap} 个 raw "
+        "window 下标与 {document_cap} 条文档路径。绝不要返回输入中不存在的下标或路径。"
+    ),
+    "recall.fast.evidence_select.request": "{candidates}\n\n# 问题\n{question}",
+    "recall.fast.evidence_select.glance": "# canonical 知识库鸟瞰\n{glance}",
+    "recall.fast.evidence_select.claims_header": "# claim 候选",
+    "recall.fast.evidence_select.claim": (
+        "C{index}: [文档={path}; 章节={section}] {text}"
+    ),
+    "recall.fast.evidence_select.episodes_header": "# episode 摘要候选",
+    "recall.fast.evidence_select.episode": (
+        "E{index}: [发生时间={occurred_on}; 区间={start}-{end}] {text}"
+    ),
+    "recall.fast.evidence_select.windows_header": "# raw window 候选",
+    "recall.fast.evidence_select.window": (
+        "W{index}: [来源={source_id}; 区间={start}-{end}] {text}"
+    ),
     # ──────────────────────────── recall: LLM claim reranker (service adapter's wording)
     # A cheap non-reasoning chat call that plays the cross-encoder's role. Output is consumed
     # mechanically, so the pass can only reorder retrieved evidence.
@@ -1078,6 +1166,16 @@ _ZH: dict[str, str] = {
     ),
     "recall.rerank.llm.request": (
         "{candidates}\n\n问题：{query}\n\n与回答有关的笔记下标，最相关的在前，最多 {cap} 个。"
+    ),
+    # ─────────────────────────── recall: dense derived episode context
+    "recall.section.episode_summaries_header": "# 派生 episode 摘要（{count} 条）",
+    "recall.fast.episode_summary.item": (
+        "## episode 摘要（派生内容，不是逐字原文）\n"
+        "来源标题：{source_title}\n"
+        "来源发生时间：{occurred_on}\n"
+        "章节：{section}\n"
+        "来源区间：[cite: {source_id} ¶{start}-{end}]\n"
+        "{text}"
     ),
     # ──────────────────────────────── recall: fast's retrieval planning pass (opt-in)
     # OFF by default. Planning sees only the question — result-dependent iteration belongs to

@@ -30,9 +30,12 @@ _sys.path.insert(0, str(_Path(__file__).resolve().parent))
 import _env  # noqa: F401  (import for side effect)
 
 from pneuma_knowledge_core.domain.ids import UserId
-from pneuma_knowledge_core.ingest.chunking import EmbeddedChunk
 from pneuma_knowledge_service.settings import Settings, get_settings
-from pneuma_knowledge_service.wiring import build_context, plan_l2_chunks
+from pneuma_knowledge_service.wiring import (
+    build_context,
+    embed_l2_chunks,
+    plan_l2_chunks,
+)
 
 # The plan dispatch itself lives in the framework (wiring.plan_l2_chunks), so this script,
 # rebuild_derived and a prebuilt-library restore cannot drift apart. Kept under the old name
@@ -55,19 +58,7 @@ async def reindex_user(ctx, user_id: UserId) -> None:
         if not chunks:
             print(f"  {raw.source_id[:8]}… '{raw.title}': no L2 chunks (plan)")
             continue
-        vectors = await ctx.embeddings.aembed_documents([c.text for c in chunks])
-        embedded = [
-            EmbeddedChunk(
-                source_id=c.source_id,
-                block_start=c.block_start,
-                block_end=c.block_end,
-                text=c.text,
-                char_start=c.char_start,
-                char_end=c.char_end,
-                embedding=vec,
-            )
-            for c, vec in zip(chunks, vectors)
-        ]
+        embedded = await embed_l2_chunks(ctx, chunks, normalized)
         await ctx.vectors.upsert_chunks(user_id, embedded)
         print(
             f"  {raw.source_id[:8]}… '{raw.title}': "

@@ -97,8 +97,12 @@ def test_version_identity_is_content_addressed():
 
 def test_reference_contract_carries_time_and_strength_tiering():
     v1 = load_skill_base("v1")
-    # Relative time must be normalized to an absolute date.
+    # Historical v1 remains byte-stable; v2 narrows its over-broad normalization rule.
     assert "normalized to an absolute date" in v1.instructions
+    v2 = load_skill_base("v2")
+    assert "anchored to the material's absolute date" in v2.instructions
+    assert "unambiguous calendar convention" in v2.instructions
+    assert "instead of inventing endpoints" in v2.instructions
     # Commitment/relationship strength tiering that shapes projection.
     assert "strength tiering" in v1.instructions
     assert "【firm】" in v1.instructions and "【forming】" in v1.instructions

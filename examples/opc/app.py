@@ -1090,7 +1090,10 @@ async def _ask(question: str, *, show_sources: bool = False) -> tuple[int, dict[
             embeddings=ctx.embeddings,
             model=ctx.get_chat_model("recall"),
             cap=settings.recall_claim_cap,
+            claim_candidate_cap=settings.recall_claim_candidate_cap,
             window_cap=settings.recall_window_cap,
+            window_candidate_cap=settings.recall_window_candidate_cap,
+            episode_summary_cap=settings.recall_episode_summary_cap,
             plan_queries_cap=settings.recall_plan_queries,
             reranker=ctx.get_reranker(),
             rerank_candidates=settings.recall_rerank_candidates,
@@ -1100,9 +1103,22 @@ async def _ask(question: str, *, show_sources: bool = False) -> tuple[int, dict[
         print(f"\nQ: {question}")
         print(f"A: {answer.answer}")
         print(
-            f"  ({elapsed:.1f}s, {len(answer.used_claims)} claims / "
-            f"{len(answer.used_windows)} source windows hit, tokens {answer.token_usage})"
+            f"  ({elapsed:.1f}s, {answer.claim_candidates}→{len(answer.used_claims)} claims / "
+            f"{len(answer.used_episode_summaries)} episode summaries / "
+            f"{answer.window_candidates}→{len(answer.used_windows)} source windows, "
+            f"tokens {answer.token_usage})"
         )
+        if show_sources and answer.used_episode_summaries:
+            print("  Derived episode summaries supplied to the answer (not verbatim):")
+            for summary in answer.used_episode_summaries:
+                section = " / ".join(summary.section_path) or "(root)"
+                occurred_on = summary.source_occurred_on or "(unknown date)"
+                print(
+                    f"    [{summary.source_id} ¶{summary.block_start}-{summary.block_end}] "
+                    f"{summary.source_title or '(untitled)'} · {occurred_on} · {section}"
+                )
+                for text_line in summary.text.strip().splitlines():
+                    print(f"      {text_line}")
         # Citation legend: map each [cite: s01 ¶…] short handle in the answer back to its
         # material's title and date, so a citation is something you can actually follow rather
         # than a string of secret codes.

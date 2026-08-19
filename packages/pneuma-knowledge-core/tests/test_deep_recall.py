@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
 from datetime import datetime
 from typing import Any
 
 from pneuma_knowledge_core.domain.ids import UserId, SourceId
+from pneuma_knowledge_core.domain.source import NormalizedSource
 from pneuma_knowledge_core.recall.deep import _DEEP_TOOL_BUDGET, deep_contract, deep_recall
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage
@@ -72,6 +75,86 @@ def _model(*turns: AIMessage) -> ScriptedToolModel:
 
 def _tool_call(name: str, args: dict, cid: str) -> dict:
     return {"name": name, "args": args, "id": cid}
+
+
+async def test_native_seed_images_reach_deep_recall_only_when_requested():
+    image_bytes = b"\xff\xd8\xffnative-deep-image"
+    source = NormalizedSource.model_validate(
+        {
+            "raw": {
+                "source_id": "src-image",
+                "user_id": str(_USER),
+                "kind": "im",
+                "origin": "mock",
+                "title": "image conversation",
+                "mime": "application/json",
+                "checksum": "fixture",
+                "created_at": "2026-07-20T12:00:00Z",
+            },
+            "blocks": [
+                {
+                    "index": 4,
+                    "text": "Caroline shared a picture.",
+                    "images": [
+                        {
+                            "image_id": "image-1",
+                            "mime_type": "image/jpeg",
+                            "sha256": hashlib.sha256(image_bytes).hexdigest(),
+                            "size_bytes": len(image_bytes),
+                            "storage_key": "tenant/image-1",
+                            "derived": [
+                                {
+                                    "kind": "caption",
+                                    "text": "a dog walking past a painted wall",
+                                    "producer": "fixture-captioner",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ],
+            "structure": {"sections": []},
+        }
+    )
+
+    class Content(FakeContent):
+        async def get(self, user_id, source_id):  # noqa: ANN001
+            assert user_id == _USER
+            assert source_id == SourceId("src-image")
+            return source
+
+    class Media:
+        async def get(self, user_id, storage_key):  # noqa: ANN001
+            assert user_id == _USER
+            assert storage_key == "tenant/image-1"
+            return image_bytes
+
+    hit = "Caroline shared a picture. a dog walking past a painted wall"
+    model = _model(AIMessage(content="A dog."))
+    result = await deep_recall(
+        _USER,
+        "Does the picture contain a dog?",
+        as_of=_AS_OF,
+        claim_lexical=FakeClaimIndex([]),
+        claim_vectors=FakeClaimIndex([]),
+        lexical=FakeLexical([LexHit(SourceId("src-image"), 4, hit)]),
+        vectors=FakeVector([VecHit(SourceId("src-image"), 4, 4, hit)]),
+        embeddings=FakeEmbeddings(),
+        model=model,
+        content=Content(),
+        media=Media(),
+        image_mode="native",
+    )
+
+    human = model.seen[0][1].content
+    assert isinstance(human, list)
+    assert any(
+        block.get("type") == "image"
+        and block.get("base64") == base64.b64encode(image_bytes).decode("ascii")
+        for block in human
+    )
+    assert result.image_mode == "native"
+    assert result.image_count == 1
 
 
 async def test_direct_answer_over_seed_evidence_no_tools():

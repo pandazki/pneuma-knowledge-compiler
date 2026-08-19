@@ -64,8 +64,9 @@ CONTRACT_PATH = ENGINE_DIR / "compile" / "contract.md"
 MY_DATA_DIR = PROJECT_ROOT / "my-data"
 DATA_ROOT = PROJECT_ROOT / "data"
 COMPOSE_FILE = PROJECT_ROOT / "docker-compose.yml"
-# Optional: a library that ships with the project (canonical.bundle + l0.jsonl.gz — the two
-# authorities). Present in a project generated with `init.py --demo`, absent otherwise;
+# Optional: a library that ships with the project (canonical.bundle + l0.jsonl.gz, plus
+# media/sha256 when that L0 contains images — authority payloads). Present in a project
+# generated with `init.py --demo`, absent otherwise;
 # `./app.py restore` says so rather than failing obscurely.
 PREBUILT_DIR = PROJECT_ROOT / "prebuilt"
 # Optional, written by the generator when the project starts from the example dataset:
@@ -78,6 +79,7 @@ DEMO_QUESTIONS_PATH = PROJECT_ROOT / "demo-questions.txt"
 DEFAULT_PG_PORT = 15436
 DEFAULT_QDRANT_PORT = 16373
 DEFAULT_MEILI_PORT = 17704
+DEFAULT_RUSTFS_PORT = 19004
 
 # The deterministic embedding used when no API key is present. Its dimension matches the
 # recommended default embedding model, so a vector collection built keyless stays usable
@@ -249,7 +251,11 @@ def parse_conversation_turns(body: str) -> list[tuple[str, str]]:
 
 
 def isolation_problems(
-    pg_dsn: str, qdrant_url: str, meili_url: str, canonical_root: str
+    pg_dsn: str,
+    qdrant_url: str,
+    meili_url: str,
+    canonical_root: str,
+    media_endpoint_url: str | None = None,
 ) -> list[str]:
     """Every connection target must land on this project's own stack — the ports written
     into .env (probed free at generation time). A configuration that drifted toward some
@@ -268,6 +274,13 @@ def isolation_problems(
         problems.append(
             f"meili_url does not point at this project's own port (expected {expected_meili.strip(':')}): {meili_url}"
         )
+    if media_endpoint_url is not None:
+        expected_rustfs = f":{stack_port('PNEUMA_APP_RUSTFS_PORT', DEFAULT_RUSTFS_PORT)}"
+        if expected_rustfs not in media_endpoint_url:
+            problems.append(
+                "media endpoint does not point at this project's own port "
+                f"(expected {expected_rustfs.strip(':')}): {media_endpoint_url}"
+            )
     root = Path(canonical_root).resolve()
     if not str(root).startswith(str(PROJECT_ROOT)):
         problems.append(f"canonical_root lands outside the project directory: {root}")
@@ -548,8 +561,8 @@ def keyless_env(env) -> list[str]:
 
 
 def require_models(*, require_key: bool = True) -> dict[str, str]:
-    """The four model roles as the engine resolves them, or a loud exit naming what is
-    missing. `deep` empty legitimately borrows the recall role.
+    """The model roles as the engine resolves them, or a loud exit naming what is
+    missing. `answer` and `deep` may legitimately borrow the recall role.
 
     `require_key=False` is for the paths that call no chat model at all (restore, status,
     glance): there, blank roles are the configuration, not an error."""
@@ -569,6 +582,7 @@ def require_models(*, require_key: bool = True) -> dict[str, str]:
             + "\n  ".join(missing)
             + "\nModels live in engine/engine.yaml; the key lives in .env. See README.md."
         )
+    roles["answer"] = str(values.get("models.answer") or "").strip() or roles["recall"]
     roles["deep"] = str(values.get("models.deep") or "").strip() or roles["recall"]
     return roles
 
@@ -589,6 +603,7 @@ def build_settings(base_version: str = "", *, require_key: bool = True):
     pg_port = stack_port("PNEUMA_APP_PG_PORT", DEFAULT_PG_PORT)
     qdrant_port = stack_port("PNEUMA_APP_QDRANT_PORT", DEFAULT_QDRANT_PORT)
     meili_port = stack_port("PNEUMA_APP_MEILI_PORT", DEFAULT_MEILI_PORT)
+    rustfs_port = stack_port("PNEUMA_APP_RUSTFS_PORT", DEFAULT_RUSTFS_PORT)
     canonical = DATA_ROOT / "canonical"
     canonical.mkdir(parents=True, exist_ok=True)
     kwargs = engine_strategy()
@@ -603,6 +618,9 @@ def build_settings(base_version: str = "", *, require_key: bool = True):
         qdrant_collection=os.environ.get("PNEUMA_APP_QDRANT_COLLECTION", "pneuma_app_chunks"),
         meili_url=f"http://localhost:{meili_port}",
         meili_key=os.environ.get("PNEUMA_APP_MEILI_KEY", "masterKey_change_me"),
+        media_s3_endpoint_url=f"http://localhost:{rustfs_port}",
+        media_s3_access_key=os.environ.get("PNEUMA_APP_RUSTFS_ACCESS_KEY", ""),
+        media_s3_secret_key=os.environ.get("PNEUMA_APP_RUSTFS_SECRET_KEY", ""),
         canonical_root=str(canonical),
         default_timezone=zone,
         user_schema_packs=False,
@@ -618,7 +636,11 @@ def build_settings(base_version: str = "", *, require_key: bool = True):
     )
     settings = Settings(**kwargs)
     problems = isolation_problems(
-        settings.pg_dsn, settings.qdrant_url, settings.meili_url, settings.canonical_root
+        settings.pg_dsn,
+        settings.qdrant_url,
+        settings.meili_url,
+        settings.canonical_root,
+        settings.media_s3_endpoint_url,
     )
     if problems:
         sys.exit("error: stack isolation check failed:\n  - " + "\n  - ".join(problems))
@@ -712,7 +734,7 @@ async def upsert_owner_profile(ctx, uid) -> None:
 def cmd_up(_args) -> int:
     if not COMPOSE_FILE.exists():
         sys.exit(f"error: {COMPOSE_FILE} not found")
-    print("== Starting the middleware stack (postgres / qdrant / meilisearch) ==")
+    print("== Starting the middleware stack (postgres / qdrant / meilisearch / rustfs) ==")
     result = subprocess.run(
         ["docker", "compose", "-f", str(COMPOSE_FILE), "up", "-d", "--wait"],
         cwd=PROJECT_ROOT,
@@ -725,6 +747,7 @@ def cmd_up(_args) -> int:
         f"pg :{stack_port('PNEUMA_APP_PG_PORT', DEFAULT_PG_PORT)}  "
         f"qdrant :{stack_port('PNEUMA_APP_QDRANT_PORT', DEFAULT_QDRANT_PORT)}  "
         f"meili :{stack_port('PNEUMA_APP_MEILI_PORT', DEFAULT_MEILI_PORT)}"
+        f"  rustfs :{stack_port('PNEUMA_APP_RUSTFS_PORT', DEFAULT_RUSTFS_PORT)}"
     )
     return 0
 
@@ -1242,11 +1265,21 @@ async def _glance_text(ctx, uid, skill) -> str:
 
 
 async def _ask(
-    question: str, *, show_sources: bool = False, style: str | None = None
+    question: str,
+    *,
+    show_sources: bool = False,
+    style: str | None = None,
+    evidence_strategy: str | None = None,
+    answer_format: str | None = None,
+    as_of: datetime | None = None,
+    include_original_modalities: tuple[str, ...] = (),
 ) -> tuple[int, dict[str, int]]:
     from pneuma_knowledge_core.domain.ids import UserId
     from pneuma_knowledge_core.recall.fast import fast_recall
-    from pneuma_knowledge_service.wiring import build_context, llm_call_config
+    from pneuma_knowledge_service.wiring import (
+        build_context,
+        llm_call_config,
+    )
 
     skill = load_contract_skill()
     settings = build_settings(base_version=skill.version)
@@ -1254,32 +1287,58 @@ async def _ask(
     try:
         uid = UserId(user_id())
         started = time.perf_counter()
+        recall_model = ctx.get_chat_model("recall")
+        answer_model = ctx.get_chat_model("answer")
+        include_original_images = "image" in include_original_modalities
         answer = await fast_recall(
             uid,
             question,
-            as_of=datetime.now(timezone.utc),
+            as_of=as_of or datetime.now(timezone.utc),
             claim_lexical=ctx.lexical,
             claim_vectors=ctx.vectors,
             lexical=ctx.lexical,
             vectors=ctx.vectors,
             content=ctx.store,
+            media=ctx.media if include_original_images else None,
+            image_mode="native" if include_original_images else "caption",
             embeddings=ctx.embeddings,
-            model=ctx.get_chat_model("recall"),
+            model=recall_model,
+            answer_model=answer_model,
             cap=settings.recall_claim_cap,
+            claim_candidate_cap=settings.recall_claim_candidate_cap,
             window_cap=settings.recall_window_cap,
+            window_candidate_cap=settings.recall_window_candidate_cap,
+            episode_summary_cap=settings.recall_episode_summary_cap,
+            evidence_strategy=evidence_strategy or settings.recall_evidence_strategy,
+            selection_reasoning_effort=settings.recall_selection_reasoning_effort or None,
+            answer_format=answer_format or settings.recall_answer_format,
             answer_style=style or settings.recall_answer_style,
             plan_queries_cap=settings.recall_plan_queries,
             reranker=ctx.get_reranker(),
             rerank_candidates=settings.recall_rerank_candidates,
+            reasoning_effort=settings.answer_reasoning_effort or None,
             **llm_call_config(ctx, operation="recall.fast", user_id=str(uid)),
         )
         elapsed = time.perf_counter() - started
         print(f"\nQ: {question}")
         print(f"A: {answer.answer}")
         print(
-            f"  ({elapsed:.1f}s, {len(answer.used_claims)} claims / "
-            f"{len(answer.used_windows)} source windows hit, tokens {answer.token_usage})"
+            f"  ({elapsed:.1f}s, {answer.claim_candidates}→{len(answer.used_claims)} claims / "
+            f"{len(answer.used_episode_summaries)} episode summaries / "
+            f"{answer.window_candidates}→{len(answer.used_windows)} source windows, "
+            f"tokens {answer.token_usage})"
         )
+        if show_sources and answer.used_episode_summaries:
+            print("  Derived episode summaries supplied to the answer (not verbatim):")
+            for summary in answer.used_episode_summaries:
+                section = " / ".join(summary.section_path) or "(root)"
+                occurred_on = summary.source_occurred_on or "(unknown date)"
+                print(
+                    f"    [{summary.source_id} ¶{summary.block_start}-{summary.block_end}] "
+                    f"{summary.source_title or '(untitled)'} · {occurred_on} · {section}"
+                )
+                for text_line in summary.text.strip().splitlines():
+                    print(f"      {text_line}")
         # Citation legend: map each [cite: s01 ¶…] short handle in the answer back to its
         # material's title and date, so a citation is something you can actually follow rather
         # than a string of secret codes.
@@ -1317,9 +1376,29 @@ async def _ask(
         await ctx.aclose()
 
 
+def parse_as_of(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        sys.exit("error: --as-of must be a timezone-aware ISO 8601 timestamp")
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        sys.exit("error: --as-of must include a timezone offset")
+    return parsed
+
+
 def cmd_ask(args) -> int:
     code, _usage = asyncio.run(
-        _ask(args.question, show_sources=args.sources, style=args.style)
+        _ask(
+            args.question,
+            show_sources=args.sources,
+            style=args.style,
+            evidence_strategy=args.evidence_strategy,
+            answer_format=args.answer_format,
+            as_of=parse_as_of(args.as_of),
+            include_original_modalities=tuple(args.include_original),
+        )
     )
     return code
 
@@ -1390,8 +1469,9 @@ async def _restore() -> int:
 
     Model-free by construction: a restore must cost nothing and reproduce the shipped library
     rather than recompute it, so the chat roles are cleared for this process even when a key
-    is present. The framework owns the actual restore (canonical bundle + verbatim L0 in,
-    derived state rebuilt); this command only supplies the settings and the report."""
+    is present. The framework owns the actual restore (canonical bundle + verbatim L0 and
+    original media in, derived state rebuilt); this command only supplies the settings and
+    the report."""
     from pneuma_knowledge_core.domain.ids import UserId
     from pneuma_knowledge_service.prebuilt import PrebuiltUnavailable, restore_prebuilt
     from pneuma_knowledge_service.wiring import build_context
@@ -1421,7 +1501,8 @@ async def _restore() -> int:
             return 1
         print(
             f"\nRestored: {report.documents} canonical document(s), {report.claims} claim(s), "
-            f"{report.sources} source(s) — all readable without an API key."
+            f"{report.sources} source(s), {report.images} image object(s) — all readable "
+            "without an API key."
         )
         print("  ./app.py glance            # the library overview")
         print("  ./app.py ask '...'         # needs a key (asking calls a model)")
@@ -1435,7 +1516,8 @@ def cmd_restore(_args) -> int:
         print(
             f"no prebuilt library in this project ({PREBUILT_DIR} does not exist) — nothing to\n"
             "restore. Projects that ship one carry prebuilt/canonical.bundle and\n"
-            "prebuilt/l0.jsonl.gz; yours is built from my-data/ with ./app.py ingest + compile.",
+            "prebuilt/l0.jsonl.gz, plus prebuilt/media/sha256 when L0 contains images; yours "
+            "is built from my-data/ with ./app.py ingest + compile.",
             file=sys.stderr,
         )
         return 1
@@ -1576,6 +1658,40 @@ def main() -> int:
         "--style",
         choices=["concise", "conversational", "detailed"],
         help="answer style for this ask (default: PNEUMA_KNOWLEDGE_RECALL_ANSWER_STYLE in .env)",
+    )
+    ask.add_argument(
+        "--evidence-strategy",
+        choices=["ranked", "select"],
+        help=(
+            "context composition for this ask: ranked keeps fixed retrieval heads; select "
+            "uses one bounded cross-face selection call"
+        ),
+    )
+    ask.add_argument(
+        "--answer-format",
+        choices=["text", "structured"],
+        help=(
+            "answer wire for this ask: text is free text; structured validates separate "
+            "answer text, kind, and citations"
+        ),
+    )
+    ask.add_argument(
+        "--as-of",
+        help=(
+            "timezone-aware ISO 8601 time of the question; omit for current UTC time. "
+            "Set it when replaying a historical question"
+        ),
+    )
+    ask.add_argument(
+        "--include-original",
+        action="append",
+        choices=["image"],
+        default=[],
+        metavar="MODALITY",
+        help=(
+            "include one original modality in this ask; currently: image. Repeatable for "
+            "future modalities. Omit it to use labelled derived representations only"
+        ),
     )
     sub.add_parser("glance", help="print the library overview (no re-ingest)")
     sub.add_parser(

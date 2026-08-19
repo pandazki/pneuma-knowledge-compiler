@@ -10,6 +10,7 @@ omits it. Content dedup: same user + same checksum returns the existing source_i
 from __future__ import annotations
 
 import uuid
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -105,7 +106,7 @@ class PostgresStore:
                 async with conn.cursor() as cur:
                     await cur.executemany(
                         "INSERT INTO blocks (user_id, source_id, block_index, "
-                        "text, section_path) VALUES (%s, %s, %s, %s, %s)",
+                        "text, section_path, images) VALUES (%s, %s, %s, %s, %s, %s)",
                         [
                             (
                                 str(user_id),
@@ -113,6 +114,7 @@ class PostgresStore:
                                 b.index,
                                 b.text,
                                 Json(b.section_path),
+                                Json([image.model_dump(mode="json") for image in b.images]),
                             )
                             for b in source.blocks
                         ],
@@ -132,9 +134,9 @@ class PostgresStore:
             raw = self._raw_from_row(user_id, source_id, row, origin=row[9])
             structure = StructureMap.model_validate(row[8])
             blocks = [
-                NormalizedBlock(index=r[0], text=r[1], section_path=r[2])
+                NormalizedBlock(index=r[0], text=r[1], section_path=r[2], images=r[3])
                 for r in await (await conn.execute(
-                    "SELECT block_index, text, section_path FROM blocks "
+                    "SELECT block_index, text, section_path, images FROM blocks "
                     "WHERE user_id = %s AND source_id = %s ORDER BY block_index",
                     (str(user_id), str(source_id)),
                 )).fetchall()
@@ -1211,8 +1213,8 @@ class PostgresStore:
                 )
                 await conn.execute(
                     "INSERT INTO blocks (user_id, source_id, block_index, text, "
-                    "section_path) "
-                    "SELECT %s, source_id, block_index, text, section_path "
+                    "section_path, images) "
+                    "SELECT %s, source_id, block_index, text, section_path, images "
                     "FROM blocks WHERE user_id = %s ON CONFLICT DO NOTHING",
                     (dst, src),
                 )
@@ -1235,6 +1237,58 @@ class PostgresStore:
                     )).fetchone()
                     counts[name] = int(row[0]) if row else 0
         return counts
+
+    async def list_media_objects(self, user_id: UserId) -> dict[str, str]:
+        """Return this tenant's media storage keys and authoritative digests."""
+
+        async with self._pool.connection() as conn:
+            rows = await (await conn.execute(
+                "SELECT images FROM blocks WHERE user_id = %s AND images <> '[]'::jsonb",
+                (str(user_id),),
+            )).fetchall()
+        objects: dict[str, str] = {}
+        for (images,) in rows:
+            for image in images:
+                key = str(image["storage_key"])
+                digest = str(image["sha256"])
+                previous = objects.setdefault(key, digest)
+                if previous != digest:
+                    raise RuntimeError(
+                        f"media key {key!r} is associated with conflicting digests"
+                    )
+        return objects
+
+    async def rewrite_media_keys(
+        self, user_id: UserId, replacements: Mapping[str, str]
+    ) -> int:
+        """Retarget copied block manifests to media owned by the copied tenant."""
+
+        if not replacements:
+            return 0
+        changed = 0
+        async with self._pool.connection() as conn:
+            async with conn.transaction():
+                rows = await (await conn.execute(
+                    "SELECT source_id, block_index, images FROM blocks "
+                    "WHERE user_id = %s AND images <> '[]'::jsonb FOR UPDATE",
+                    (str(user_id),),
+                )).fetchall()
+                for source_id, block_index, images in rows:
+                    updated = [dict(image) for image in images]
+                    touched = False
+                    for image in updated:
+                        old_key = str(image["storage_key"])
+                        if old_key in replacements:
+                            image["storage_key"] = replacements[old_key]
+                            touched = True
+                            changed += 1
+                    if touched:
+                        await conn.execute(
+                            "UPDATE blocks SET images = %s WHERE user_id = %s "
+                            "AND source_id = %s AND block_index = %s",
+                            (Json(updated), str(user_id), source_id, block_index),
+                        )
+        return changed
 
     async def delete_tenant_rows(self, user_id: UserId) -> None:
         """Remove a snapshot tenant's PG rows (blocks + chunk_manifests cascade)."""

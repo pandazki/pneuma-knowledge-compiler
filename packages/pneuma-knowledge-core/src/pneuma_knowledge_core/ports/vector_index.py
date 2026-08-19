@@ -8,7 +8,7 @@ coverage follows IntakePlan (semantic_indexing knob), unlike L0/L1.
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Literal, Protocol
 
 from ..domain.ids import UserId, SourceId
 
@@ -23,6 +23,8 @@ class SemanticChunk(Protocol):
     char_end: int
     text: str
     embedding: list[float]
+    representation: Literal["raw", "episode"]
+    episode_summary_text: str
 
 
 class SemanticHit(Protocol):
@@ -33,6 +35,8 @@ class SemanticHit(Protocol):
     char_end: int
     text: str
     score: float
+    representation: Literal["raw", "episode"]
+    episode_summary_text: str
 
 
 class VectorIndex(Protocol):
@@ -46,4 +50,5 @@ class VectorIndex(Protocol):
         embedding: list[float],
         *,
         limit: int = 20,
+        representation: Literal["raw", "episode"] = "raw",
     ) -> list[SemanticHit]: ...

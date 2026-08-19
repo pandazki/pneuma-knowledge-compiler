@@ -37,7 +37,8 @@ Conventions:
 | POST | `/…/sources/conversation` | conversation ingest — **deprecated**, prefer contracts |
 | GET | `/…/sources` | catalog, keyset-cursor pagination (`limit` 1–500, `cursor`, `query`, `kind`) |
 | GET | `/…/sources/activity` | ingest calendar heatmap (`offset_minutes` −840…840) |
-| GET | `/…/sources/{source_id}` | detail: meta, structure map, blocks |
+| GET | `/…/sources/{source_id}` | detail: meta, structure map, blocks, and block-aligned image manifests |
+| GET | `/…/sources/{source_id}/blocks/{block_index}/images/{image_id}` | tenant-scoped private image bytes; validates source/block/image membership and the stored digest |
 | POST | `/…/sources/{source_id}/fetch` | verbatim L0 fetch by `locator` |
 | GET | `/…/summary` | workspace counts: sources, jobs, documents, claims, snapshots |
 
@@ -45,10 +46,37 @@ Conventions:
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/…/recall` | body `{query, mode: rag\|fast\|deep, limit, as_of?, snapshot?}` |
+| POST | `/…/recall` | body `{query, mode: rag\|fast\|deep, limit, as_of?, snapshot?, answer_style?, evidence_strategy?: ranked\|select, answer_format?: text\|structured, include_original_modalities?: ("image")[]}` |
 | POST | `/…/recall/stream` | deep only; SSE — one `event: step` per finished tool call, then `done` (or `error`). Step-level streaming, not token streaming |
 
-`rag` returns hit lists (`source_id`, block span, text, paths, score). `fast`/`deep` return an answer plus its evidence: `used_claims`, `used_windows`, `trail` (deep), `citation_handles` (`sNN` → real source id), `documents_read`, `snapshot`, `token_usage`.
+`rag` returns hit lists (`source_id`, block span, text, paths, score). `fast`/`deep` return both a citation-free semantic `answer_text` and the backward-compatible cited `answer`, plus their evidence: `used_claims`, `used_episode_summaries` (fast), `used_windows`, `trail` (deep), `citation_handles` (`sNN` → real source id), `documents_read`, `snapshot`, `token_usage`. Every episode-summary item carries source title, occurrence time, section and exact block span, plus constant `derived: true` / `verbatim: false` labels so clients cannot mistake generated L2 compression for source text.
+
+Fast callers may override context composition and the answer wire independently.
+`evidence_strategy: "select"` spends one serial structured recall-model call to choose a
+bounded mix across broad claim, episode-summary and raw-window candidates (plus known
+canonical paths); invalid coordinates are discarded and failure falls back to ranked heads.
+`answer_format: "structured"` separates answer kind, answer text and citations, and admits
+only exact cited spans present in evidence. The response echoes candidate counts and the
+model-selected claim/episode/window counts before safety anchors and provenance rollback,
+plus `evidence_strategy`,
+`evidence_selection_degraded`, `answer_format`, `answer_kind`, and
+`answer_format_degraded`. Both fields are fast-only; rag/deep reject non-null values.
+
+`as_of` is the time at which the question is asked, not the source timestamp. Omit it for a
+live question. Historical replays must send their original timezone-aware timestamp; the
+scaffold CLI exposes the same contract as `./app.py ask '...' --as-of ...`.
+
+`include_original_modalities` is the query tool's explicit cost/attention choice, not a
+deployment default inferred from model capability. It is an enum list so the signature can
+grow to audio/video without changing shape; today the sole value is `"image"`. Leave it empty
+for textual questions. Use `["image"]` when direct visual inspection is necessary, such as
+whether an object appears in a picture, its colours, text or layout. Labelled derived
+representations remain usable when originals are omitted. The answer echoes what was actually
+included through `included_original_modalities` and `original_modality_counts`. Original
+delivery applies to `fast` and `deep`; `rag` returns text retrieval hits and rejects a
+non-empty list.
+
+Source detail never exposes an object-store key. Each image manifest contains `image_id`, MIME type, SHA-256, size, labelled derived representations and an API URL. The browser and citation sheet fetch that URL through the service; the S3/RustFS bucket remains private.
 
 ## Compile, jobs, history
 

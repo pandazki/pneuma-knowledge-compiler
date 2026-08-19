@@ -14,6 +14,8 @@
 | `LANGFUSE_PUBLIC_KEY` | 项目 public key |
 | `LANGFUSE_BASE_URL` | Langfuse 主机（如 `http://localhost:3000`） |
 
+scaffold 项目会把这三个变量同时传给 API 与 worker 容器。若自托管 Langfuse 绑定在 Docker 主机上，可保留面向宿主机的原值，并设置 `PNEUMA_APP_LANGFUSE_BASE_URL_CONTAINER=http://host.docker.internal:<端口>`。若该 Langfuse 还用 `localhost` 签发媒体上传 URL，再设置 `PNEUMA_APP_LANGFUSE_LOCALHOST_GATEWAY=host-gateway`；这个显式开关让容器无需改写凭据或签名 URL，就能上传 trace 中的图片附件。
+
 `build_langfuse_handler(settings)` 只有三个都非空才返回 handler，否则返回 `None`。缺一个按**关闭**处理，而不是报错：`llm_call_config` 给出 `callbacks: []`，每个 core 调用点跑得和追踪不存在时一模一样，`flush_traces()` 也不会打开任何连接。这三个值永不打印、永不回显。
 
 「配了一半」和「配好了」在 span 缺失之前无法区分——任何付费管线都应把这三个变量当作全有或全无。
@@ -58,12 +60,13 @@
 
 | 操作 | 附加键 |
 |---|---|
-| `compile` | `skill_version`、`skill_id`、`job_id`、`source_count` |
+| `compile` | `skill_version`、`skill_id`、`job_id`、`source_count`、`image_count`、`image_mode` |
 | `compile.challenge` | `job_id` |
 | `compile.groom` | `job_id`、`document_path`、`volume_path`、`archived_claims`、`skill_version` |
 | `evolve.propose` | `skill_version` |
 | `evolve.reorganize` | `task_id`、`skill_version` |
-| `recall.fast` / `recall.deep` | `snapshot_ref`、`kb_snapshot_id` |
+| `recall.fast` | `snapshot_ref`、`kb_snapshot_id`、`image_count`、`image_mode`（作答调用） |
+| `recall.deep` | `snapshot_ref`、`kb_snapshot_id` |
 | `briefing.ask` | `snapshot_ref`、`briefing_id` |
 | `live_context.evaluate` | `focus`、`briefing_id` |
 | `chunk.semantic`、`profile.generate`、`live_context.expand` | 无 |
@@ -81,7 +84,7 @@ langchain 会另外折入自己的 `ls_*` / `lc_versions` 键；我们的键与�
 
 ## trace-size 纪律
 
-**metadata 只放 id 与计数——永不放 key，永不放 canonical 正文。** `user_id`、`job_id`、`snapshot_ref`、`source_count`、`archived_claims`：足够切分 trace，不会撑爆它，也不泄露任何密钥。langchain 作为 span 内容上报的 prompt / 响应正文是模型 I/O 本身，不是 metadata；我们自己加的 metadata 就该止步于标识符。新增 `extra` 键时的判据是：它是不是一个标识符或数字——如果是人会去读的正文，就不该放这里。
+**metadata 只放 id、计数与有限模式枚举——永不放 key，永不放 canonical 正文。** `user_id`、`job_id`、`snapshot_ref`、`source_count`、`archived_claims`、`image_mode`：足够切分 trace，不会撑爆它，也不泄露任何密钥。langchain 作为 span 内容上报的 prompt / 响应正文是模型 I/O 本身，不是 metadata；我们自己加的 metadata 就止步于标识符与有限机器状态。若 `extra` 的值是给人阅读的正文，就不该放这里。
 
 ## flush 策略（按进程类型）
 

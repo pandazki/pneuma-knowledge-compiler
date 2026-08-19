@@ -105,6 +105,22 @@ def test_live_context_falls_all_the_way_back_to_the_base_model():
     assert resolve_model_name(Settings(llm_model="openai:base"), "live_context") == "openai:base"
 
 
+def test_answer_role_can_split_from_recall_and_otherwise_borrows_it():
+    split = Settings(
+        llm_model="openai:base",
+        llm_model_recall="openrouter:openai/gpt-5.6-luna",
+        llm_model_answer="openrouter:openai/gpt-5.6-luna-pro",
+    )
+    assert resolve_model_name(split, "recall") == "openrouter:openai/gpt-5.6-luna"
+    assert resolve_model_name(split, "answer") == "openrouter:openai/gpt-5.6-luna-pro"
+
+    inherited = Settings(
+        llm_model="openai:base",
+        llm_model_recall="openrouter:openai/gpt-5.6-luna",
+    )
+    assert resolve_model_name(inherited, "answer") == "openrouter:openai/gpt-5.6-luna"
+
+
 def test_a_scripted_base_model_still_hard_overrides_live_context_routing():
     """The existing discipline: a scripted run stays fully keyless and reproducible, so an
     env-set role model must not leak into it."""

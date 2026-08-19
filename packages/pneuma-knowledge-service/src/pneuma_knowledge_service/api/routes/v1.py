@@ -8,6 +8,7 @@ agentic search) and briefing ask; deep also streams its steps over SSE (/recall/
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import re
 import secrets
@@ -15,6 +16,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Literal
+from urllib.parse import quote
 
 from pneuma_knowledge_core.domain.ids import UserId, SourceId
 from pneuma_knowledge_core.domain.intake import INTAKE_ARCHETYPES, IntakeArchetype
@@ -31,13 +33,14 @@ from pneuma_knowledge_core.recall.briefing import (
     briefing_ask,
     build_briefing,
 )
+from pneuma_knowledge_core.recall.citation_alias import strip_citations
 from pneuma_knowledge_core.recall.deep import deep_recall
 from pneuma_knowledge_core.recall.fast import fast_recall
 from pneuma_knowledge_core.recall.rag import rag_recall
 from pneuma_knowledge_core.recall.scope import SnapshotScope
 from fastapi import APIRouter, HTTPException, Query, Request
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, RootModel
+from fastapi.responses import Response, StreamingResponse
+from pydantic import BaseModel, Field, RootModel
 
 from ... import kb_snapshots
 from ...adapters.user_info_mock import _synthesize
@@ -136,10 +139,27 @@ class WorkspaceSummaryOut(BaseModel):
     snapshots: int
 
 
+class DerivedMediaTextOut(BaseModel):
+    kind: str
+    text: str
+    producer: str
+
+
+class BlockImageOut(BaseModel):
+    image_id: str
+    mime_type: str
+    sha256: str
+    size_bytes: int
+    derived: list[DerivedMediaTextOut]
+    metadata: dict[str, Any]
+    url: str
+
+
 class BlockOut(BaseModel):
     index: int
     text: str
     section_path: list[str]
+    images: list[BlockImageOut]
 
 
 class SourceDetailOut(BaseModel):
@@ -183,6 +203,23 @@ class RecallIn(BaseModel):
     # fast/deep: answer-style preset override for this call; null = the deployment's
     # PNEUMA_KNOWLEDGE_RECALL_ANSWER_STYLE.
     answer_style: Literal["concise", "conversational", "detailed"] | None = None
+    # Fast-only, per-call composition overrides. null uses the deployment's engine setting.
+    # Keeping these separate from `mode` makes the trade-off explicit without multiplying
+    # lane names or changing rag/deep semantics.
+    evidence_strategy: Literal["ranked", "select"] | None = None
+    answer_format: Literal["text", "structured"] | None = None
+    include_original_modalities: list[Literal["image"]] = Field(
+        default_factory=list,
+        description=(
+            "Original multimodal evidence to include from selected source windows in "
+            "fast/deep answering modes. "
+            "Currently supports 'image'; request it only when answering requires direct "
+            "visual inspection (for example objects, colours, layout, or whether something "
+            "appears in an image). Leave the list empty for textual facts such as dates, "
+            "names, plans, and events. Labelled derived representations remain available "
+            "when their original modality is omitted."
+        ),
+    )
 
 
 class SnapshotScopeOut(BaseModel):
@@ -213,13 +250,36 @@ class UsedClaimOut(BaseModel):
     score: float
 
 
+class EpisodeSummaryOut(BaseModel):
+    """One generated L2 episode description actually shown to the answer model."""
+
+    source_id: str
+    block_start: int
+    block_end: int
+    text: str
+    score: float
+    source_title: str
+    source_occurred_on: str
+    section_path: list[str]
+    # Mechanical truth labels keep a generic client from presenting generated compression
+    # as source text, even if it ignores the field name or surrounding UI copy.
+    derived: Literal[True] = True
+    verbatim: Literal[False] = False
+
+
 class RecallAnswerOut(BaseModel):
-    """fast/deep recall result — an answer over capped claims + body windows."""
+    """fast/deep recall result — an answer over claims, L2 summaries and body windows."""
 
     mode: str
     answer: str
+    # Citation-free semantic answer for automation and evaluation. `answer` remains the
+    # cited rendering used by interactive clients.
+    answer_text: str
     as_of: str
     used_claims: list[UsedClaimOut]
+    # fast only: generated L2 episode descriptions used as dense context. These are
+    # source-addressed but explicitly not verbatim excerpts.
+    used_episode_summaries: list[EpisodeSummaryOut] = Field(default_factory=list)
     # L1/L2 body windows fused into the answer — uncompiled content, drill-downable.
     used_windows: list[RecallHitOut] = []
     # deep only: the agentic search trace — one record per tool call, execution order.
@@ -237,8 +297,25 @@ class RecallAnswerOut(BaseModel):
     # fast only: why the glance selection pass contributed nothing ("timeout"/"error"), or
     # null — which includes the normal case of it running and selecting nothing.
     glance_degraded: str | None = None
+    # Fast context/answer telemetry. Degraded markers distinguish a normal empty selection
+    # from a provider/schema failure that fell back to the historical path.
+    evidence_strategy: str = "ranked"
+    evidence_selection_degraded: str | None = None
+    claim_candidates: int = 0
+    episode_summary_candidates: int = 0
+    window_candidates: int = 0
+    model_selected_claims: int = 0
+    model_selected_episode_summaries: int = 0
+    model_selected_windows: int = 0
+    answer_format: str = "text"
+    answer_kind: str | None = None
+    answer_format_degraded: str | None = None
     # The frozen snapshot this answer was scoped to, or null for the live base.
     snapshot: SnapshotScopeOut | None = None
+    # Query-local original-media delivery telemetry, kept generic so adding audio/video does
+    # not change the public tool shape.
+    included_original_modalities: list[Literal["image"]] = Field(default_factory=list)
+    original_modality_counts: dict[str, int] = Field(default_factory=dict)
     token_usage: dict[str, int]
 
 
@@ -269,6 +346,19 @@ def _used_claim_out(c: Any) -> UsedClaimOut:
         ],
         paths=list(c.paths),
         score=c.score,
+    )
+
+
+def _episode_summary_out(summary: Any) -> EpisodeSummaryOut:
+    return EpisodeSummaryOut(
+        source_id=str(summary.source_id),
+        block_start=summary.block_start,
+        block_end=summary.block_end,
+        text=summary.text,
+        score=summary.score,
+        source_title=summary.source_title,
+        source_occurred_on=summary.source_occurred_on,
+        section_path=list(summary.section_path),
     )
 
 
@@ -648,9 +738,66 @@ async def get_source(user_id: str, source_id: str, request: Request) -> SourceDe
         intake_plan=raw.intake_plan,
         structure=ns.structure.model_dump(),
         blocks=[
-            BlockOut(index=b.index, text=b.text, section_path=list(b.section_path))
+            BlockOut(
+                index=b.index,
+                text=b.text,
+                section_path=list(b.section_path),
+                images=[
+                    BlockImageOut(
+                        image_id=image.image_id,
+                        mime_type=image.mime_type,
+                        sha256=image.sha256,
+                        size_bytes=image.size_bytes,
+                        derived=[
+                            DerivedMediaTextOut(**derived.model_dump())
+                            for derived in image.derived
+                        ],
+                        metadata=image.metadata,
+                        url=(
+                            f"/v1/users/{quote(user_id, safe='')}/sources/"
+                            f"{quote(source_id, safe='')}/blocks/{b.index}/images/"
+                            f"{quote(image.image_id, safe='')}"
+                        ),
+                    )
+                    for image in b.images
+                ],
+            )
             for b in ns.blocks
         ],
+    )
+
+
+@router.get("/sources/{source_id}/blocks/{block_index}/images/{image_id}")
+async def get_source_image(
+    user_id: str,
+    source_id: str,
+    block_index: int,
+    image_id: str,
+    request: Request,
+) -> Response:
+    """Resolve a block-aligned image through the same tenant and citation address."""
+
+    ctx = _ctx(request)
+    user = UserId(user_id)
+    try:
+        source = await ctx.store.get(user, SourceId(source_id))
+        block = next(item for item in source.blocks if item.index == block_index)
+        image = next(item for item in block.images if item.image_id == image_id)
+    except (KeyError, StopIteration) as exc:
+        raise HTTPException(status_code=404, detail="source image not found") from exc
+    if ctx.media is None:
+        raise HTTPException(status_code=503, detail="media store is not configured")
+    data = await ctx.media.get(user, image.storage_key)
+    if len(data) != image.size_bytes or hashlib.sha256(data).hexdigest() != image.sha256:
+        raise HTTPException(status_code=500, detail="stored source image failed integrity check")
+    return Response(
+        content=data,
+        media_type=image.mime_type,
+        headers={
+            "Cache-Control": "private, max-age=31536000, immutable",
+            "ETag": f'"sha256:{image.sha256}"',
+            "X-Content-Type-Options": "nosniff",
+        },
     )
 
 
@@ -789,6 +936,29 @@ async def _render_profile(ctx, user: UserId) -> str | None:
     return "\n".join(lines)
 
 
+def _recall_image_args(ctx: AppContext, body: RecallIn) -> dict[str, Any]:
+    """Translate the generic tool field into today's image-specific core arguments."""
+
+    if "image" not in body.include_original_modalities:
+        return {"image_mode": "caption", "media": None}
+    media = getattr(ctx, "media", None)
+    if media is None:
+        raise HTTPException(
+            status_code=503,
+            detail="original image recall was requested, but this deployment has no media store",
+        )
+    return {"image_mode": "native", "media": media}
+
+
+def _original_modality_telemetry(answer: Any) -> dict[str, Any]:
+    count = int(getattr(answer, "image_count", 0) or 0)
+    native = getattr(answer, "image_mode", "caption") == "native"
+    return {
+        "included_original_modalities": ["image"] if native and count else [],
+        "original_modality_counts": {"image": count} if native and count else {},
+    }
+
+
 @router.post("/recall")
 async def recall(
     user_id: str, body: RecallIn, request: Request
@@ -798,6 +968,21 @@ async def recall(
     `body.snapshot` pins the whole answer to a frozen snapshot (see `_read_plane`)."""
     ctx = _ctx(request)
     user = UserId(user_id)
+    if body.mode == "rag" and body.include_original_modalities:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "include_original_modalities is available only in fast/deep answering "
+                "modes; rag returns text retrieval hits"
+            ),
+        )
+    if body.mode != "fast" and (
+        body.evidence_strategy is not None or body.answer_format is not None
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="evidence_strategy and answer_format are available only in fast mode",
+        )
     plane = await _resolve_plane(ctx, user, body.snapshot)
 
     if body.mode == "rag":
@@ -819,7 +1004,8 @@ async def recall(
     # to the model builder and 500ing on its TypeError.
     from ...wiring import usable_model_name
 
-    if not usable_model_name(ctx.settings, "recall" if body.mode == "fast" else "deep"):
+    required_roles = ("recall", "answer") if body.mode == "fast" else ("deep",)
+    if any(not usable_model_name(ctx.settings, role) for role in required_roles):
         raise HTTPException(
             status_code=503,
             detail=(
@@ -839,6 +1025,8 @@ async def recall(
     )
     glance_inputs = await _glance_inputs(ctx, plane.owner, plane.canonical_at)
     if body.mode == "fast":
+        recall_model = ctx.get_chat_model("recall")
+        answer_model = ctx.get_chat_model("answer")
         fa = await fast_recall(
             plane.retrieval_user,
             body.query,
@@ -848,16 +1036,29 @@ async def recall(
             lexical=ctx.lexical,
             vectors=ctx.vectors,
             content=ctx.store,
+            **_recall_image_args(ctx, body),
             profile=await _render_profile(ctx, plane.owner),
             embeddings=ctx.embeddings,
-            model=ctx.get_chat_model("recall"),
+            model=recall_model,
+            answer_model=answer_model,
             scope=plane.scope,
             cap=ctx.settings.recall_claim_cap,
+            claim_candidate_cap=ctx.settings.recall_claim_candidate_cap,
             window_cap=ctx.settings.recall_window_cap,
+            window_candidate_cap=ctx.settings.recall_window_candidate_cap,
+            episode_summary_cap=ctx.settings.recall_episode_summary_cap,
+            evidence_strategy=(
+                body.evidence_strategy or ctx.settings.recall_evidence_strategy
+            ),
+            selection_reasoning_effort=(
+                ctx.settings.recall_selection_reasoning_effort or None
+            ),
+            answer_format=body.answer_format or ctx.settings.recall_answer_format,
             answer_style=body.answer_style or ctx.settings.recall_answer_style,
             plan_queries_cap=ctx.settings.recall_plan_queries,
             reranker=ctx.get_reranker(),
             rerank_candidates=ctx.settings.recall_rerank_candidates,
+            reasoning_effort=ctx.settings.answer_reasoning_effort or None,
             **glance_inputs,
             **llm_call_config(
                 ctx,
@@ -872,17 +1073,34 @@ async def recall(
         return RecallAnswerOut(
             mode="fast",
             answer=fa.answer,
+            answer_text=fa.answer_text,
             as_of=as_of.isoformat(),
             used_claims=[_used_claim_out(c) for c in fa.used_claims],
+            used_episode_summaries=[
+                _episode_summary_out(summary) for summary in fa.used_episode_summaries
+            ],
             used_windows=[_recall_hit_out(w) for w in fa.used_windows],
             citation_handles=fa.citation_handles,
             glance_chars=fa.glance_chars,
             documents_read=list(fa.expanded_documents),
             glance_degraded=fa.glance_degraded,
+            evidence_strategy=fa.evidence_strategy,
+            evidence_selection_degraded=fa.evidence_selection_degraded,
+            claim_candidates=fa.claim_candidates,
+            episode_summary_candidates=fa.episode_summary_candidates,
+            window_candidates=fa.window_candidates,
+            model_selected_claims=fa.model_selected_claims,
+            model_selected_episode_summaries=fa.model_selected_episode_summaries,
+            model_selected_windows=fa.model_selected_windows,
+            answer_format=fa.answer_format,
+            answer_kind=fa.answer_kind,
+            answer_format_degraded=fa.answer_format_degraded,
             snapshot=_snapshot_out(plane.snapshot),
             token_usage=fa.token_usage,
+            **_original_modality_telemetry(fa),
         )
 
+    deep_model = ctx.get_chat_model("deep")
     da = await deep_recall(
         plane.retrieval_user,
         body.query,
@@ -892,8 +1110,9 @@ async def recall(
         lexical=ctx.lexical,
         vectors=ctx.vectors,
         embeddings=ctx.embeddings,
-        model=ctx.get_chat_model("deep"),
+        model=deep_model,
         content=ctx.store,
+        **_recall_image_args(ctx, body),
         profile=await _render_profile(ctx, plane.owner),
         scope=plane.scope,
         answer_style=body.answer_style or ctx.settings.recall_answer_style,
@@ -911,6 +1130,7 @@ async def recall(
     return RecallAnswerOut(
         mode="deep",
         answer=da.answer,
+        answer_text=strip_citations(da.answer),
         as_of=as_of.isoformat(),
         used_claims=[_used_claim_out(c) for c in da.used_claims],
         used_windows=[_recall_hit_out(w) for w in da.used_windows],
@@ -919,6 +1139,7 @@ async def recall(
         documents_read=list(da.read_documents),
         snapshot=_snapshot_out(plane.snapshot),
         token_usage=da.token_usage,
+        **_original_modality_telemetry(da),
     )
 
 
@@ -928,6 +1149,14 @@ async def recall_stream(user_id: str, body: RecallIn, request: Request) -> Strea
     completes (so the UI grows the deep-search trail live), then a final `done` event with the
     full answer. Step-level streaming, not token streaming. deep only."""
     ctx = _ctx(request)
+    if body.mode != "deep":
+        raise HTTPException(status_code=400, detail="streaming recall supports deep mode only")
+    if body.evidence_strategy is not None or body.answer_format is not None:
+        raise HTTPException(
+            status_code=400,
+            detail="evidence_strategy and answer_format are available only in fast mode",
+        )
+    image_args = _recall_image_args(ctx, body)
     user = UserId(user_id)
     as_of = datetime.fromisoformat(body.as_of) if body.as_of else _now()
     plane = await _resolve_plane(ctx, user, body.snapshot)
@@ -966,6 +1195,7 @@ async def recall_stream(user_id: str, body: RecallIn, request: Request) -> Strea
                 embeddings=ctx.embeddings,
                 model=ctx.get_chat_model("deep"),
                 content=ctx.store,
+                **image_args,
                 profile=profile,
                 scope=plane.scope,
                 answer_style=body.answer_style or ctx.settings.recall_answer_style,
@@ -989,6 +1219,7 @@ async def recall_stream(user_id: str, body: RecallIn, request: Request) -> Strea
                     RecallAnswerOut(
                         mode="deep",
                         answer=da.answer,
+                        answer_text=strip_citations(da.answer),
                         as_of=as_of.isoformat(),
                         used_claims=[_used_claim_out(c) for c in da.used_claims],
                         used_windows=[_recall_hit_out(w) for w in da.used_windows],
@@ -997,6 +1228,7 @@ async def recall_stream(user_id: str, body: RecallIn, request: Request) -> Strea
                         documents_read=list(da.read_documents),
                         snapshot=_snapshot_out(plane.snapshot),
                         token_usage=da.token_usage,
+                        **_original_modality_telemetry(da),
                     ).model_dump(),
                 )
             )
@@ -1453,7 +1685,7 @@ async def post_kb_snapshot(
 ) -> KbSnapshotOut:
     """Freeze this user's knowledge base as it stands right now. 202 + status 'creating'.
 
-    202, not 201: the row exists immediately but the copy pipeline (three stores) runs in the
+    202, not 201: the row exists immediately but the copy pipeline (four stores) runs in the
     background, and the snapshot is not answerable until it reports `ready`. Poll the list.
     Only "now" can be frozen — see `kb_snapshots.create`."""
     ctx = _ctx(request)
@@ -1470,7 +1702,7 @@ async def post_kb_snapshot(
 async def delete_kb_snapshot(
     user_id: str, snapshot_id: str, request: Request
 ) -> dict[str, bool]:
-    """Delete a snapshot: purge its tenant from all three stores, drop the registry row.
+    """Delete a snapshot: purge its tenant from all four stores, drop the registry row.
 
     The pinned canonical commit is NOT deleted — it is a commit in the owner's git history,
     which a snapshot deletion must never rewrite."""

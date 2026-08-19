@@ -22,9 +22,10 @@ a label around as a bare string is how those two drift apart.
 
 RELATION TO `as_of`
 -------------------
-Orthogonal, and both are rendered. `as_of` is what time it is NOW, so "last Tuesday" resolves;
-this is which VERSION of the base is open. A snapshot answer legitimately says "as of today,
-the newest thing this snapshot knows is …".
+Orthogonal, and both are rendered. `as_of` is what time it is NOW, so "last Tuesday" in the
+owner's live question resolves; relative time quoted from evidence resolves against that
+source's occurrence date instead. A snapshot says which VERSION of the base is open. A
+snapshot answer legitimately says "as of today, the newest thing this snapshot knows is …".
 """
 
 from __future__ import annotations

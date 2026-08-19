@@ -92,6 +92,23 @@ export interface SourceBlock {
   index: number;
   text: string;
   section_path: string[];
+  images: SourceImage[];
+}
+
+export interface DerivedMediaText {
+  kind: "caption" | "ocr";
+  text: string;
+  producer: string;
+}
+
+export interface SourceImage {
+  image_id: string;
+  mime_type: string;
+  sha256: string;
+  size_bytes: number;
+  derived: DerivedMediaText[];
+  metadata: Record<string, unknown>;
+  url: string;
 }
 
 export interface SectionSpan {
@@ -373,6 +390,21 @@ export interface UsedClaim {
   score: number;
 }
 
+/** Dense generated L2 content used by fast recall. It locates back to source blocks but is
+ * deliberately not represented as a verbatim excerpt. */
+export interface EpisodeSummary {
+  source_id: string;
+  block_start: number;
+  block_end: number;
+  text: string;
+  score: number;
+  source_title: string;
+  source_occurred_on: string;
+  section_path: string[];
+  derived: true;
+  verbatim: false;
+}
+
 /** One agentic step in a deep recall: which tool ran, with what query/locator, and the
  * (preview-capped) result it returned. */
 export interface TrailStep {
@@ -389,8 +421,12 @@ export interface TrailStep {
 export interface RecallAnswer {
   mode: "fast" | "deep";
   answer: string;
+  /** Citation-free semantic payload for automation; the UI renders the cited `answer`. */
+  answer_text: string;
   as_of: string;
   used_claims: UsedClaim[];
+  /** fast only: generated, source-addressed L2 episode descriptions shown to the model. */
+  used_episode_summaries?: EpisodeSummary[];
   /** L1/L2 body windows fused into the answer — uncompiled content, drill-downable. */
   used_windows?: RecallHit[];
   /** deep only: the agentic search trace, one record per tool call in execution order. */
@@ -405,8 +441,26 @@ export interface RecallAnswer {
     canonical_ref: string;
     created_at: string | null;
   } | null;
+  /** Original multimodal evidence actually delivered for this query. */
+  included_original_modalities?: OriginalModality[];
+  original_modality_counts?: Record<string, number>;
+  /** Fast-only context composition and answer-wire telemetry. */
+  evidence_strategy?: "ranked" | "select";
+  evidence_selection_degraded?: "timeout" | "error" | null;
+  claim_candidates?: number;
+  episode_summary_candidates?: number;
+  window_candidates?: number;
+  /** Selector choices before deterministic safety anchors and provenance rollback. */
+  model_selected_claims?: number;
+  model_selected_episode_summaries?: number;
+  model_selected_windows?: number;
+  answer_format?: "text" | "structured";
+  answer_kind?: "fact" | "list" | "time" | "duration" | "yes_no" | "inference" | "no_record" | null;
+  answer_format_degraded?: "timeout" | "error" | null;
   token_usage: TokenUsage;
 }
+
+export type OriginalModality = "image";
 
 /** fast/deep recall — an answer over capped canonical claims (as_of server-injected).
  *
@@ -420,6 +474,9 @@ export function recallAnswer(
     mode: "fast" | "deep";
     as_of?: string;
     snapshot?: string | null;
+    evidence_strategy?: "ranked" | "select";
+    answer_format?: "text" | "structured";
+    include_original_modalities?: OriginalModality[];
   },
 ): Promise<RecallAnswer> {
   return req<RecallAnswer>(`/v1/users/${u(userId)}/recall`, {
@@ -441,13 +498,19 @@ export async function recallDeepStream(
   },
   signal?: AbortSignal,
   snapshot?: string | null,
+  includeOriginalModalities: OriginalModality[] = [],
 ): Promise<void> {
   let res: Response;
   try {
     res = await fetch(`${BASE}/v1/users/${u(userId)}/recall/stream`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ query, mode: "deep", snapshot: snapshot ?? null }),
+      body: JSON.stringify({
+        query,
+        mode: "deep",
+        snapshot: snapshot ?? null,
+        include_original_modalities: includeOriginalModalities,
+      }),
       signal,
     });
   } catch (e) {

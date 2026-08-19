@@ -4,10 +4,10 @@
 
 ## 本地开发
 
-三个中间件容器加两个宿主进程：
+四个中间件容器加两个宿主进程：
 
 ```bash
-docker compose -f infra/docker-compose.yml up -d --wait   # Postgres、Qdrant、Meilisearch
+docker compose -f infra/docker-compose.yml up -d --wait   # Postgres、Qdrant、Meilisearch、RustFS
 bash scripts/dev-api.sh          # uvicorn 于 127.0.0.1:18000，自动重载
 bash scripts/dev-worker.sh       # 编译 worker（排空任务队列）
 cd apps/web && pnpm dev          # Vite 于 :5173，把 /v1 与 /healthz 代理到 :18000
@@ -15,11 +15,11 @@ cd apps/web && pnpm dev          # Vite 于 :5173，把 /v1 与 /healthz 代理�
 
 所有容器只绑回环地址，带健康检查（`--wait` 因此可用）。端口刻意避开常见默认值，且仓库里每套可运行的栈各占一个不相交的端口块：
 
-| 栈 | Compose 项目名 | Postgres / Qdrant / Meili | 其他 |
+| 栈 | Compose 项目名 | Postgres / Qdrant / Meili / RustFS | 其他 |
 |---|---|---|---|
-| 开发（本页） | `pneuma-knowledge-compiler` | 15432 / 16333 / 17700 | API 18000、Vite 5173 |
-| 生成的项目（`scaffold/init.py`） | `pneuma-<名字>-<hex>` | 生成时探测空闲端口 | |
-| `examples/opc/` | `pneuma-opc-example` | 25432 / 26333 / 27700 | API 28000、web 24173 |
+| 开发（本页） | `pneuma-knowledge-compiler` | 15432 / 16333 / 17700 / 19000 | API 18000、Vite 5173；RustFS 控制台 19001 |
+| 生成的项目（`scaffold/init.py`） | `pneuma-<名字>-<hex>` | 全部在生成时探测空闲端口 | RustFS 控制台也单独探测 |
+| `examples/opc/` | `pneuma-opc-example` | 25432 / 26333 / 27700 / — | 纯文本示例；API 28000、web 24173 |
 
 ## 容器镜像
 
@@ -33,7 +33,7 @@ cd apps/web && pnpm dev          # Vite 于 :5173，把 /v1 与 /healthz 代理�
 1. **整仓复制、用 `uv run` 运行。** Postgres 适配器按自身源码路径定位 `infra/schema.sql`，裸 wheel 安装跑不起来——源码目录布局必须原样进镜像。
 2. **运行时必须有 `git` 二进制**（正本适配器走子进程），并加 `git config --system --add safe.directory '*'` 应对卷 uid 与容器用户不一致的情况。正本数据放持久卷，`PNEUMA_KNOWLEDGE_CANONICAL_ROOT=/data/canonical`。
 
-启动刻意做成 fail-closed 且依赖网络：`build_context()` 先建 schema，再用**一次真实 embedding 调用**探测向量维度，然后连上 Meilisearch 与 Qdrant——四者齐备前不服务任何请求，启动窗口要给足预算。探测出的维度是承重的：换 `EMBEDDING_MODEL` 意味着换 collection 名并重建派生层；不同维度不能共存一个 collection。
+启动刻意做成 fail-closed 且依赖网络：`build_context()` 先建 schema，再用**一次真实 embedding 调用**探测向量维度，然后连上 Meilisearch 与 Qdrant——四者齐备前不服务任何请求，启动窗口要给足预算。S3 client 是惰性的：第一次图片导入才创建或确认私有 bucket；compose 健康检查仍会确保整栈报告 healthy 之前 RustFS 已就绪。探测出的维度是承重的：换 `EMBEDDING_MODEL` 意味着换 collection 名并重建派生层；不同维度不能共存一个 collection。
 
 ## Web 层
 
@@ -47,8 +47,7 @@ API 侧还会对 WebSocket 客户端做约 30 秒一次的 ping，避免带空�
 
 ## 运维
 
-- **派生层全部可重建**：`scripts/ops/rebuild_derived.py <user-id>|--all` 从两个权威存储重建 L1 + L2 + L3 投影，前后对账。适用于中间件被清空或换版本、换嵌入模型（新 collection）、改切块策略之后。
+- **派生层全部可重建**：`scripts/ops/rebuild_derived.py <user-id>|--all` 从两类权威重建 L1 + L2 + L3 投影（L0 横跨 Postgres 与 S3，正本位于 Git），前后对账。适用于中间件被清空或换版本、换嵌入模型（新 collection）、改切块策略之后。
 - **只重切块**：`scripts/ops/reindex_l2.py <user-id>` 单独重跑 L2 切块与嵌入。
 - **任务自愈**是内建的：worker 重启时回收死进程留下的孤儿任务；任何异常都以失败完结，不会卡死该用户的队列。
 - **追踪**（Langfuse）在三个 `LANGFUSE_*` 变量齐备时才开启；worker 每个任务结束后 flush。
-

@@ -13,6 +13,7 @@ the canonical layer is untouched (runner made no commit).
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 from dataclasses import asdict
 
@@ -21,7 +22,6 @@ from pneuma_knowledge_core.domain.ids import UserId, SourceId
 from pneuma_knowledge_core.domain.intake import IntakePlan
 from pneuma_knowledge_core.domain.source import NormalizedSource
 from pneuma_knowledge_core.domain.time_context import time_context_for
-from pneuma_knowledge_core.ingest.chunking import EmbeddedChunk
 from pneuma_knowledge_core.ingest.source_types import describe_source, first_party_type
 from pneuma_knowledge_core.prompts import prompt
 from pneuma_knowledge_core.skill.version import SkillVersion
@@ -46,8 +46,10 @@ from ..wiring import (
     AppContext,
     build_chat_model_for,
     build_context,
+    embed_l2_chunks,
     full_l2_chunks,
     llm_call_config,
+    resolve_image_mode,
     resolve_model_name,
 )
 
@@ -56,6 +58,37 @@ def _projection_detail(projection: object) -> str:
     return "projection:" + json.dumps(
         asdict(projection), sort_keys=True, separators=(",", ":")
     )
+
+
+def resolve_compile_image_mode(settings: Settings, model: object) -> str:
+    """Resolve `auto` from the model actually used by the compile role."""
+    return resolve_image_mode(
+        settings.compile_image_mode,
+        model,
+        resolve_model_name(settings, "compile"),
+    )
+
+
+async def _native_image_payloads(
+    ctx: AppContext, user_id: UserId, sources: list[NormalizedSource]
+) -> dict[str, bytes]:
+    if ctx.media is None:
+        raise RuntimeError("native image compile requires a media store")
+    payloads: dict[str, bytes] = {}
+    for source in sources:
+        for block in source.blocks:
+            for image in block.images:
+                data = await ctx.media.get(user_id, image.storage_key)
+                if len(data) != image.size_bytes:
+                    raise ValueError(
+                        f"stored image {image.image_id!r} size no longer matches L0 manifest"
+                    )
+                if hashlib.sha256(data).hexdigest() != image.sha256:
+                    raise ValueError(
+                        f"stored image {image.image_id!r} digest no longer matches L0 manifest"
+                    )
+                payloads[image.storage_key] = data
+    return payloads
 
 
 def _search_knowledge_port(ctx: AppContext, user_id: UserId):
@@ -230,6 +263,14 @@ async def process_job(
         user_id, owner, default_timezone=ctx.settings.default_timezone
     )
 
+    image_count = sum(len(block.images) for source in sources for block in source.blocks)
+    image_mode = resolve_compile_image_mode(ctx.settings, chat_model)
+    image_payloads = (
+        await _native_image_payloads(ctx, user_id, sources)
+        if image_mode == "native" and image_count
+        else {}
+    )
+
     trace_cfg = llm_call_config(
         ctx,
         operation="compile",
@@ -239,6 +280,8 @@ async def process_job(
             "skill_id": skill.skill_id,
             "job_id": str(job_id),
             "source_count": len(sources),
+            "image_count": image_count,
+            "image_mode": image_mode,
         },
     )
     result = await run_compile(
@@ -257,6 +300,8 @@ async def process_job(
         search_source=_search_source_port(ctx, user_id),
         time=time,
         commit_message=f"compile {job_id}",
+        image_mode=image_mode,
+        image_payloads=image_payloads,
         **trace_cfg,
     )
 
@@ -349,26 +394,14 @@ async def process_index_job(
     # L2: by IntakePlan (semantic_indexing knob).
     if semantic == "full":
         chunks = await full_l2_chunks(
-            ctx, source_id, ns.blocks, ns.structure, user_id
+            ctx, source_id, ns.blocks, ns.structure, user_id, raw=ns.raw
         )
     elif semantic == "summary":
         chunks = _summary_chunks(source_id, ns)
     else:
         chunks = []
     if chunks:
-        vectors = await ctx.embeddings.aembed_documents([c.text for c in chunks])
-        embedded = [
-            EmbeddedChunk(
-                source_id=c.source_id,
-                block_start=c.block_start,
-                block_end=c.block_end,
-                text=c.text,
-                char_start=c.char_start,
-                char_end=c.char_end,
-                embedding=vec,
-            )
-            for c, vec in zip(chunks, vectors)
-        ]
+        embedded = await embed_l2_chunks(ctx, chunks, ns)
         await ctx.vectors.upsert_chunks(user_id, embedded)
 
     await ctx.store.complete(user_id, job_id, ok=True, detail="indexed")

@@ -7,19 +7,58 @@ so they can be pinned here rather than only inside an integration round trip.
 from __future__ import annotations
 
 import gzip
+import hashlib
 
 import pytest
+from pneuma_knowledge_core.domain.source import NormalizedSource
 from pneuma_knowledge_service.prebuilt import (
     BUNDLE_NAME,
     L0_DUMP_NAME,
+    L0_MEDIA_DIR_NAME,
     PrebuiltUnavailable,
     prebuilt_authorities,
+    read_prebuilt_media,
     restore_refusal,
     settleable_jobs,
 )
 
 HEAD_A = "a" * 40
 HEAD_B = "b" * 40
+PNG = b"\x89PNG\r\n\x1a\n" + b"synthetic-png-payload"
+
+
+def _image_row() -> NormalizedSource:
+    digest = hashlib.sha256(PNG).hexdigest()
+    return NormalizedSource.model_validate(
+        {
+            "raw": {
+                "source_id": "src-image",
+                "user_id": "builder",
+                "kind": "im",
+                "origin": "mock",
+                "title": "image",
+                "mime": "application/json",
+                "checksum": "checksum",
+                "created_at": "2026-08-10T00:00:00Z",
+            },
+            "blocks": [
+                {
+                    "index": 0,
+                    "text": "look",
+                    "images": [
+                        {
+                            "image_id": "image-1",
+                            "mime_type": "image/png",
+                            "sha256": digest,
+                            "size_bytes": len(PNG),
+                            "storage_key": "tenants/build/images/old-key",
+                        }
+                    ],
+                }
+            ],
+            "structure": {"sections": []},
+        }
+    )
 
 
 def test_both_authorities_are_required(tmp_path):
@@ -40,6 +79,26 @@ def test_both_authorities_are_required(tmp_path):
         handle.write("")
     bundle, dump = prebuilt_authorities(tmp_path)
     assert bundle.name == BUNDLE_NAME and dump.name == L0_DUMP_NAME
+
+
+def test_image_prebuilt_requires_and_verifies_the_original_media_payload(tmp_path):
+    row = _image_row()
+    digest = row.blocks[0].images[0].sha256
+    with pytest.raises(PrebuiltUnavailable) as missing:
+        read_prebuilt_media(tmp_path, [row])
+    assert L0_MEDIA_DIR_NAME in str(missing.value)
+
+    payload = tmp_path / L0_MEDIA_DIR_NAME / "sha256" / digest[:2] / digest
+    payload.parent.mkdir(parents=True)
+    payload.write_bytes(b"not the declared image")
+    with pytest.raises(PrebuiltUnavailable) as corrupt:
+        read_prebuilt_media(tmp_path, [row])
+    assert "sha256" in str(corrupt.value)
+
+    payload.write_bytes(PNG)
+    assert read_prebuilt_media(tmp_path, [row]) == {
+        digest: (PNG, "image/png")
+    }
 
 
 # ------------------------------------------------------------------ what a restore refuses

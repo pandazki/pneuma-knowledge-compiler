@@ -51,7 +51,13 @@
 | `conversations[]` | 对象，≥1 | 见下 |
 | `metadata` | 对象 | 自由 |
 
-每个会话：`conversation_id`、`conversation_type`（`channel` \| `dm` \| `group_dm`）、`title`、`member_ids`（⊆ 用户表）、`messages[]`（≥1，id 唯一）、`metadata`。每条消息：`message_id`、`sender_id`（⊆ 用户表）、`sent_at`（带时区）、`text`、`thread_id?`、`edited_at?`、`reactions[]`（`name`、`count ≥ 1`）、`metadata`。
+每个会话：`conversation_id`、`conversation_type`（`channel` \| `dm` \| `group_dm`）、`title`、`member_ids`（⊆ 用户表）、`messages[]`（≥1，id 唯一）、`metadata`。每条消息：`message_id`、`sender_id`（⊆ 用户表）、`sent_at`（带时区）、`text`、`thread_id?`、`edited_at?`、`reactions[]`（`name`、`count ≥ 1`）、`images[]`、`metadata`。
+
+**v1 的图片边界。** 图片是第一种受支持的原生媒体，目前只挂在 IM 消息上。每张图片声明唯一的 `image_id`、受支持的 `mime_type`（`image/jpeg`、`image/png`、`image/webp`、`image/gif`），以及不可变的 `source`：规范 base64 字节或公网 HTTPS URL，两者都必须带预期 SHA-256。导入会机械校验大小、摘要与图片文件签名，再把原图放入私有 S3 兼容 L0 存储。可选的 `derived[]` 必须明确标为 `caption` 或 `ocr`，并写明 `producer`；派生表示补充原图，绝不替代原图。
+
+图片属于消息原有的归一化块。因此 claim 继续使用既有引用，例如 `[cite: <source-id> ¶7]`，同一个 locator 同时解析消息文本和图片。`caption` 编译模式只把带标签的派生文本交给模型；只要有图片既无 caption 也无 OCR，编译就会明确失败。`native` 还会交付重新校验过的真实图片 content block；`auto` 读取当前模型 profile，能力未知时回落 `caption`。fast recall 会把同一套 caption/native 区分应用到与已选正文窗口重叠的图片，因此即使编译契约没有把某条图像事实提升为 canonical claim，回答仍能查看原图并沿用原始块引用。音频、视频、通用文件、会议媒体与邮件附件正文不属于这个 schema 版本的原生媒体输入。
+
+冻结知识库快照会在就绪前把所有被引用对象服务端复制进快照租户。带图片的 `prebuilt/` 文库也必须在 `l0.jsonl.gz` 旁按 `media/sha256/<前两位>/<sha256>` 携带每份原件；恢复时重新核验摘要、大小与文件签名，写入目标租户并重定向 L0 清单。媒体缺失时会在写入正本或 L0 行之前拒绝恢复。
 
 ## `pneuma.source.email/v1`
 
@@ -78,6 +84,6 @@
 
 ## 导入
 
-- **HTTP**：`POST /v1/users/{uid}/sources/import`，body 就是裸契约 payload。响应报告匹配到的 `contract_schema` 与每个展开出的 source（见 [http-api.zh-CN.md](http-api.zh-CN.md)）。
-- **程序化**：`parse_source_contract(payload)` 校验；`normalize_source_contract(...)` 展开成归一化 source。
+- **HTTP**：`POST /v1/users/{uid}/sources/import`，body 就是裸契约 payload。服务在归一化前把声明的图片实体化。响应报告匹配到的 `contract_schema` 与每个展开出的 source（见 [http-api.zh-CN.md](http-api.zh-CN.md)）。
+- **程序化**：`parse_source_contract(payload)` 校验。带图片的调用方先经 `materialize_contract_images(...)` 实体化，再把结果作为 `materialized_images` 传给 `normalize_source_contract(...)`；纯文本契约可以直接归一化。
 - **从真实 provider 导出**：`scripts/ops/import_source.py` 一步转换加导入——`--provider {mock, obsidian, zoom, slack, email}`，分别对应 canonical JSON、Obsidian 库、Zoom VTT 转写、Slack 导出 zip、RFC-822 邮件。

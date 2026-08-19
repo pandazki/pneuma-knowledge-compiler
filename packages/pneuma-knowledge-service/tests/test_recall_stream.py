@@ -47,6 +47,8 @@ class _FakeDeepAnswer:
     # fail as an "error" event and look like a streaming bug.
     glance_chars: int = 0
     read_documents: tuple = ()
+    image_count: int = 0
+    image_mode: str = "caption"
     token_usage: dict = field(default_factory=lambda: {"total_tokens": 7})
 
 
@@ -69,6 +71,7 @@ def _request() -> SimpleNamespace:
         lexical=None,
         vectors=None,
         embeddings=None,
+        media=object(),
         store=None,
         get_chat_model=lambda role="default": None,
         settings=SimpleNamespace(recall_answer_style="conversational"),
@@ -84,10 +87,16 @@ def _frame(raw: str) -> tuple[str, dict]:
     return lines[0][7:], json.loads(lines[1][6:])
 
 
-async def _start(query: str = "q"):
+async def _start(query: str = "q", original_modalities: tuple[str, ...] = ()):
     """Invoke the route and hand back its response plus a fresh frame iterator."""
     response = await recall_stream(
-        "u-sse", RecallIn(query=query, mode="deep"), _request()
+        "u-sse",
+        RecallIn(
+            query=query,
+            mode="deep",
+            include_original_modalities=list(original_modalities),
+        ),
+        _request(),
     )
     assert response.media_type == "text/event-stream"
     # nginx buffers proxied responses by default, which would hold every step until the
@@ -130,6 +139,24 @@ async def test_steps_are_delivered_before_the_recall_finishes(monkeypatch):
     assert done["mode"] == "deep"
     assert done["answer"] == "答案"
     assert done["token_usage"] == {"total_tokens": 7}
+
+
+async def test_original_modality_choice_reaches_streaming_deep_recall(monkeypatch):
+    seen: dict = {}
+
+    async def fake_deep_recall(*_args, **kwargs):
+        seen.update(kwargs)
+        return _FakeDeepAnswer(image_count=1, image_mode=kwargs["image_mode"])
+
+    monkeypatch.setattr(v1_module, "deep_recall", fake_deep_recall)
+    _response, frames = await _start(original_modalities=("image",))
+    messages = [_frame(chunk) async for chunk in frames]
+
+    assert seen["image_mode"] == "native"
+    assert seen["media"] is not None
+    done = messages[-1][1]
+    assert done["included_original_modalities"] == ["image"]
+    assert done["original_modality_counts"] == {"image": 1}
 
 
 async def test_failure_surfaces_as_a_terminal_error_event(monkeypatch):

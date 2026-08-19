@@ -18,6 +18,18 @@ Acknowledged lineage:
   v1 2b49f0d6a7cb83d25d832457833ad4436fada35a5a1f608bb64fd14f664abdc3,
   v2 f30445fad2a0c25e542fc6528f3495df6ca06650e5e0487bb0f0fc17c609b9cd,
   v3 fee20edb143a511a4007f1e42225d2810601e6fd98828d84490aea1959f2588c.
+- 2026-08-09 (pre-merge): `v2` made modality provenance explicit. Direct inspection
+  requires media delivered natively and retrievable through the cited L0 address;
+  captions/OCR remain attributed but usable derived observations. The first experiment
+  ran provisional content hash 822e95c3…; its over-conservative wording was corrected
+  before merge. `v1` stays byte-for-byte unchanged.
+- 2026-08-10 (pre-merge): `v2` now names the runtime boundary it actually implements:
+  JPEG/PNG/WebP/GIF on IM message blocks, with audio/video/files explicitly unsupported.
+  This replaces an aspirational generic-media sentence without minting another version;
+  `v1` remains unchanged.
+- 2026-08-12 (pre-merge): `v2` anchors relative time to the material occurrence date and
+  refuses invented calendar endpoints when the convention is ambiguous. This aligns the
+  reference contract with the framework's source-clock semantics; `v1` remains unchanged.
 
 This also covers the seam end to end: a shipped strategy reconstitutes into exactly the
 SkillVersion the framework hands out, with no framework-side domain knowledge left.
@@ -30,6 +42,7 @@ from pneuma_knowledge_strategies import get_strategy, list_strategies
 
 PINNED_CONTENT_HASH = {
     "v1": "4318897b183649a1aee85d6751c10a2d7a91120b4e9319605765471f56e057ab",
+    "v2": "a521ce4a0d487bfe5955d674a2b438ce69da8d79c81a8167a69d4d400e353705",
 }
 
 
@@ -58,4 +71,6 @@ def test_every_shipped_generation_is_covered_by_a_pinned_hash():
 def test_skill_id_still_reads_personal_knowledge():
     """The skill_id is hashed too — renaming the domain would break the trailers as surely
     as editing the body."""
-    assert get_strategy("personal-knowledge", "v1").skill_id == "personal-knowledge"
+    assert {
+        strategy.skill_id for strategy in list_strategies("personal-knowledge")
+    } == {"personal-knowledge"}

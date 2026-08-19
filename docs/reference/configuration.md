@@ -21,6 +21,10 @@ One optional layer sits between environment and default: the **engine directory*
 | `QDRANT_COLLECTION` | `pneuma_knowledge_chunks` | one collection; its embedding dimension is fixed at creation — switching embedding models means a new collection name |
 | `MEILI_URL` | `http://localhost:17700` | lexical index |
 | `MEILI_KEY` | `masterKey_change_me` | change in production |
+| `MEDIA_S3_ENDPOINT_URL` | `http://localhost:19000` | private S3-compatible L0 image store (RustFS in the local stack) |
+| `MEDIA_S3_ACCESS_KEY` / `_SECRET_KEY` | development values | S3 credentials; scaffold projects generate isolated random values |
+| `MEDIA_S3_BUCKET` / `_REGION` | `pneuma-media` / `us-east-1` | S3 bucket and signing region |
+| `MEDIA_MAX_IMAGE_BYTES` | `20971520` | maximum bytes accepted for one original image |
 | `CANONICAL_ROOT` | `./data/canonical` | canonical store root (one repository per user); `/data/canonical` in the container image |
 | `ENGINE_DIR` | (empty) | the engine directory: one versioned unit holding this deployment's strategy files, compile contract, prompt overlays and owner profile ([architecture §11](../architecture.md#11-the-engine-directory), [design](../design/engine-console.md)). Empty = the deployment has none: zero behavior change, and `/v1/engine/*` returns 404. Set it and those four routes serve the directory; every strategy setting below that the directory states resolves from it unless the process environment says otherwise |
 
@@ -29,29 +33,35 @@ One optional layer sits between environment and default: the **engine directory*
 | Setting | Default | Meaning |
 |---|---|---|
 | `LLM_MODEL` | `openai:gpt-4o-mini` | base model spec and fallback for all roles |
-| `LLM_MODEL_COMPILE` / `_RECALL` / `_DEEP` / `_SKILL` / `_EVOLVE` / `_LIVE_CONTEXT` / `_CHALLENGE` | empty | per-role overrides |
+| `LLM_MODEL_COMPILE` / `_RECALL` / `_ANSWER` / `_DEEP` / `_SKILL` / `_EVOLVE` / `_LIVE_CONTEXT` / `_CHALLENGE` | empty | per-role overrides; `answer` is only the final fast-answer generation and otherwise borrows `recall` |
+| `ANSWER_REASONING_EFFORT` | empty | reasoning effort sent only on the final fast-answer call; empty preserves the provider default. Generated projects state `high` explicitly |
 | `LLM_TIMEOUT` | `600` | seconds; guards against hangs, not slowness |
 | `LLM_MAX_RETRIES` | `3` | transient-error retries (langchain) |
 | `EMBEDDING_MODEL` | `fake:384` | `fake:<dim>` (deterministic, keyless) or `openrouter:<model>` |
+| `COMPILE_IMAGE_MODE` | `auto` | `caption` = labelled caption/OCR only; `native` = derived text plus actual image blocks; `auto` = use the compile model profile, falling back to `caption` when unknown. Engine key: `models.image_mode` |
 
-Model spec forms: `scripted:<path>` (local replay, keyless — and it hard-overrides every role, so a scripted run is fully deterministic), `openrouter:<model>` (needs `OPENROUTER_API_KEY`), or any provider prefix `init_chat_model` understands (e.g. `anthropic:claude-sonnet-5`, `openai:gpt-4o-mini`). Role fallback is a single hop: `live_context → recall`, `evolve → compile`, `challenge → compile`, then `LLM_MODEL`.
+Model spec forms: `scripted:<path>` (local replay, keyless — and it hard-overrides every role, so a scripted run is fully deterministic), `openrouter:<model>` (needs `OPENROUTER_API_KEY`), or any provider prefix `init_chat_model` understands (e.g. `anthropic:claude-sonnet-5`, `openai:gpt-4o-mini`). Role fallback is a single hop: `answer → recall`, `live_context → recall`, `evolve → compile`, `challenge → compile`, then `LLM_MODEL`. The scaffold keeps retrieval planning/glance on standard Luna and sends only the final answer to Luna Pro at explicit `high` effort.
+
+`native` is an explicit assertion that the selected model and routed provider accept LangChain image content blocks; an incompatible provider fails instead of silently flattening the image. `caption` requires the importer to supply labelled `caption`/`ocr` representations and never claims that the compile model saw the original. `auto` recognizes the full GPT-5.6 family on direct OpenAI and OpenRouter routes as native-image capable even when a gateway omits LangChain's model profile; other unknown profiles stay on the conservative `auto → caption` path.
 
 ## L2 chunking
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `CHUNK_STRATEGY` | `semantic` | `semantic` = LLM topic/episode boundary detection (compile-role model; falls back to `sentence` automatically under `scripted:` models); `sentence` / `recursive` = mechanical, zero LLM cost |
+| `CHUNK_STRATEGY` | `semantic` | `semantic` = one compile-role call returns topic/episode boundaries plus a grounded title/description for L2 retrieval and derived answer context (falls back to `sentence` under `scripted:` models); `sentence` / `recursive` = mechanical, zero LLM cost |
 | `SEMANTIC_OVERLAP` | `smart` | `semantic` only. `smart` = the model returns closed block intervals, so a hinge block belongs to both neighbouring segments; `off` = the original zero-overlap cut |
-| `CHUNK_SIZE` | `768` | tokens; ~1 token/char for CJK |
+| `CHUNK_SIZE` | `768` | maximum embedding-unit size after semantic boundary detection; tokens, ~1 token/char for CJK |
 | `CHUNK_OVERLAP` | `128` | tokens |
 
-**`SEMANTIC_OVERLAP`.** A hinge — the sentence that closes one topic while opening the next, the answer that also sets up the following question — reads as part of both segments, and a cut has to put it in one of them. `smart` stops making that choice: the model returns `[start, end]` pairs instead of start numbers, and neighbouring pairs may share the hinge. How much to share is judged per boundary, not a fixed stride.
+**`SEMANTIC_OVERLAP`.** A hinge — the sentence that closes one topic while opening the next, the answer that also sets up the following question — reads as part of both segments, and a cut has to put it in one of them. `smart` stops making that choice: every returned episode object ends with `start`, `end` closed-interval coordinates, and neighbouring intervals may share the hinge. How much to share is judged per boundary, not a fixed stride.
+
+**Episode representation.** In the same structured response, each semantic segment returns fields in meaning-first order: `title`, `description`, then `start`/`end` coordinates (`off` omits `end`, which is implied by the next start). The description follows the source only: concrete people, time, place, events, decisions, emotions, reasons, plans and outcomes. A known source occurrence date anchors relative time, but exact period endpoints are emitted only under an unambiguous calendar convention. Raw/caption text and episode title/description are embedded as separate L2 representations and ranked independently; the episode point also retains its title/description as dense **derived L2 content**. Ordinary RRF is followed by rank-ordered source-span overlap suppression. When an episode-only hit overlaps raw/caption or lexical evidence, the precise evidence span is retained and inherits at most the episode's rank. Fast recall can render up to `RECALL_EPISODE_SUMMARY_CAP` high-ranked descriptions in a dedicated `derived episode summaries` section. Every item says that it is generated rather than verbatim and carries mechanically resolved source title, occurrence time, section, and exact `source_id + block span`; raw/claim evidence wins any exact-detail conflict. Context assembly does not expand semantic spans again and, by default, merges only true overlaps; a bare lexical-only block expands by one following block by default. New v3 manifests replay coordinates and descriptions without a model call; an older boundary-only manifest receives one fixed-span description call whose returned coordinates must match exactly.
 
 The degenerate reading of "segments may overlap" is that every segment should be the whole document, which would guarantee each one contains the answer and collapse L2 into N copies of the source. That is refused by a gate, not by prompt wording: every returned interval list must have real ordered endpoints, strictly increasing starts, gapless cover of the window, at most **three** shared blocks between neighbours, and no more segments than blocks. One violation rejects the whole output, and that window degrades to the zero-overlap partition built from the starts the model did report — the overlap is refused, the segmentation is not.
 
-`off` is the shape all existing semantic-chunking measurements were taken with, and its request bytes are pinned by test, so it remains the baseline for a same-harness A/B against `smart`. `smart` ships as the factory default on design grounds; it has **not** yet been measured against `off` on the same harness.
+`off` retains the original zero-overlap geometry. The episode-producing prompt is a new pinned baseline, so measurements made with the former boundary-only prompt are intentionally retired rather than compared as if the harness were unchanged.
 
-Overlap duplicates a block across two L2 chunks. That duplication is derived-layer only: L0 is untouched, both chunks address the same source blocks through the one addressing scheme, and retrieval already coalesces overlapping windows into a single passage, so a hinge retrieved through both chunks reads once. The chunk manifest records which mode produced its spans, so flipping this knob and running `rebuild_derived` genuinely re-cuts instead of replaying the old layout; records written before the mode existed replay exactly as written.
+Overlap duplicates a block across two L2 chunks. That duplication is derived-layer only: L0 is untouched, both chunks address the same source blocks through the one addressing scheme, and retrieval suppresses the lower-ranked overlapping result, so a hinge retrieved through both chunks reads once. The chunk manifest records which mode produced its spans, so flipping this knob and running `rebuild_derived` genuinely re-cuts instead of replaying the old layout. Older records keep their coordinates exactly; only their missing derived description is added during the one-time v3 migration.
 
 ## Evolution and grooming
 
@@ -63,12 +73,26 @@ Overlap duplicates a block across two L2 chunks. That duplication is derived-lay
 | `EVOLVE_DRAFT_TTL_HOURS` | `24` | draft lifetime |
 | `ROLLOVER_THRESHOLD_CHARS` | `40000` | document size that enqueues a groom job; `0` disables |
 | `ROLLOVER_KEEP_RECENT_CHARS` | `12000` | tail kept in the active document |
-| `RECALL_CLAIM_CAP` | `64` | fast-recall claim budget per ask (release default inside the measured 40–80 sweet band; 80 = measured optimum when tokens are no object) |
-| `RECALL_WINDOW_CAP` | `8` | fast-recall body-window budget per ask |
+| `RECALL_CLAIM_CANDIDATE_CAP` | `80` | claim retrieval depth before containment dedup, optional reranking, and final context truncation |
+| `RECALL_CLAIM_CAP` | `40` | compiled claims admitted to the final fast-answer context |
+| `RECALL_WINDOW_CANDIDATE_CAP` | `60` | fused lexical/raw/episode source spans retained after retrieval |
+| `RECALL_EPISODE_SUMMARY_CAP` | `16` | explicitly derived, metadata-rich episode summaries admitted to final context |
+| `RECALL_WINDOW_CAP` | `6` | exact verbatim source windows admitted to final context |
+| `RECALL_EVIDENCE_STRATEGY` | `ranked` | fast-only context composition: `ranked` keeps fixed retrieval heads; `select` adds one structured recall-model call that selects a bounded mix across claims, episode summaries, raw windows, and known canonical documents. Per-call override: `evidence_strategy` |
+| `RECALL_ANSWER_FORMAT` | `text` | fast-only answer wire: `text` is the existing free-text call; `structured` separates answer kind, clean answer text, and precise citations, then admits only exact evidence spans. Per-call override: `answer_format` |
+| `RECALL_SELECTION_REASONING_EFFORT` | (empty) | optional provider reasoning-effort hint for the `select` call; empty sends no override |
 | `RECALL_PLAN_QUERIES` | `0` | `0` off; N>0 = one planning call derives up to N extra retrieval queries, pooled by one RRF fusion |
-| `RECALL_RERANK_MODEL` | (empty) | empty off (default: measured no gain on claim-level retrieval); `llm` = LLM reranker on the recall model at reasoning effort `none` (default provider); `llm:<spec>` picks the model; a bare model name (e.g. `cohere/rerank-4-pro`) uses the OpenRouter `/rerank` endpoint |
+| `RECALL_RERANK_MODEL` | (empty) | empty off; `llm` = LLM reranker on the recall model at reasoning effort `none`; `llm:<spec>` picks the model; a bare model name (e.g. `cohere/rerank-4-pro`) uses the OpenRouter `/rerank` endpoint |
 | `RECALL_RERANK_CANDIDATES` | `120` | per-query/per-face retrieval depth when reranking; the reranker scores the full deduped union (hard cap 1000) |
 | `RECALL_ANSWER_STYLE` | `conversational` | answer-style preset for fast/deep answers: `concise` = the bare exact value/phrase (graders, scripts), `conversational` = a natural chat reply, `detailed` = a self-contained written note. Shape only — truth discipline is style-independent. A recall request may override per call (`answer_style`) |
+
+`select` is a quality/latency trade-off, not a different retrieval authority. The selector
+returns candidate indexes and known paths only; the framework validates them, unions a small
+deterministic ranked safety head, and follows selected claim/episode provenance back to
+bounded L0 passages. Timeout or schema/provider failure falls back to ranked context and is
+reported as degraded telemetry. Because this call is serial between retrieval and answering,
+measure selector latency separately before making it a deployment default. `ranked + text`
+remains the compatibility and lowest-latency profile.
 
 ## Prompt language
 

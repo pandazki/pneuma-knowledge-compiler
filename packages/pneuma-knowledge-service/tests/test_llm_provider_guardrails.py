@@ -48,12 +48,13 @@ def test_every_role_shares_the_same_guardrails(
     settings = Settings(
         llm_model="openrouter:vendor/base",
         llm_model_compile="openrouter:vendor/compile",
+        llm_model_answer="openrouter:vendor/answer",
         llm_model_deep="openrouter:vendor/deep",
         llm_timeout=321.0,
         llm_max_retries=4,
     )
 
-    for role in ("default", "compile", "recall", "deep", "live_context", "evolve"):
+    for role in ("default", "compile", "recall", "answer", "deep", "live_context", "evolve"):
         model = build_chat_model_for(settings, role)
         assert (model.request_timeout, model.max_retries) == (321.0, 4), role
 

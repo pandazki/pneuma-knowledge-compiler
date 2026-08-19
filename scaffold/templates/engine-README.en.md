@@ -9,7 +9,7 @@ change is a version you can read back and revert. Nothing secret lives here: the
 this machine's ports stay in `../.env`, which is never versioned.
 
 ```
-engine.yaml              the four model roles: compile / recall / deep / embedding
+engine.yaml              model roles: compile / recall / answer / deep / embedding
 intake/intake.yaml       how material is cut into semantic units
 compile/contract.md      the constitution — what deserves memory, on which page
 compile/challenge.yaml   the post-compile coverage audit
@@ -38,17 +38,35 @@ recorded:
 | the contract, challenge, evolve | future compiles only — recorded knowledge is never rewritten |
 | chunking strategy | new material at once; existing material after a derived rebuild |
 
+`recall/recall.yaml` separates cheap retrieval breadth from final model context.
+`claim_candidate_cap` and `window_candidate_cap` search broadly; `claim_cap`,
+`episode_summary_cap`, and `window_cap` admit three different content faces. Episode
+summaries are dense generated L2 content, shown under an explicit derived label with source
+title, occurrence time, section, and exact span. They are not presented as verbatim source;
+the smaller raw-window budget remains the exact-text face.
+
+`evidence_strategy` controls how those faces are composed. `ranked` is the direct,
+lowest-latency fixed-head path. `select` adds one bounded structured recall-model call over
+the broad candidates; the framework validates its coordinates, retains ranked safety anchors,
+and follows selected derived provenance back to L0. `answer_format` is independent: `text`
+keeps the ordinary free-text answer, while `structured` separates answer kind, clean text and
+precise citations so cited spans can be validated. Both can be overridden for one `ask`.
+The API exposes the selector's pre-safety-head choice counts, so a serial selection call that
+contributes little evidence is visible rather than assumed useful. Automation consumes clean
+`answer_text`; interactive clients render the cited `answer`. Historical replay must pass the
+question time explicitly with `--as-of`; omission means the current UTC time.
+
 **The prompt language is the layer your overrides sit on.** `prompts/overlays.yaml` opens
-with `language:` — `en` is the framework's English catalog, the baseline every measurement in
-the framework repository was taken on; `zh` swaps in the shipped Chinese language pack, for
-readability and for Chinese material, with scoring equivalence unverified. Either way your
+with `language:` — `en` is the framework's default English catalog; `zh` swaps in the shipped
+Chinese language pack, for readability and for Chinese material. Either way your
 own clauses under `overlays:` are applied *after* it and win over it. It does not decide what
 language this library is written in: that follows the owner profile's declared language.
 
 **Your environment can override any of it for one run.** The order is: process environment
 (`PNEUMA_KNOWLEDGE_*`) beats this directory, and this directory beats the framework default.
-That is for experiments — `PNEUMA_KNOWLEDGE_RECALL_CLAIM_CAP=128 ./app.py ask '…'` measures
-something without dirtying a versioned file. The durable answer belongs in the file.
+That supports one-off diagnosis — `PNEUMA_KNOWLEDGE_RECALL_WINDOW_CANDIDATE_CAP=80
+./app.py ask '…'` checks whether missing material is a search-depth problem without dirtying
+a versioned file. A durable operating decision belongs in the file.
 
 ## Editing it
 

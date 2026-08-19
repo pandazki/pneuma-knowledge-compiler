@@ -123,6 +123,18 @@ test("IM presentation resolves senders, thread replies and reactions", () => {
         // Full-width colon on purpose: a block normalised by an older build still splits.
         text: "陈澄：字段表发你了。",
         section_path: ["2026-07-28"],
+        images: [
+          {
+            image_id: "img-layout",
+            mime_type: "image/png",
+            sha256: "abc",
+            size_bytes: 2048,
+            url: "/v1/users/u/sources/s/blocks/0/images/img-layout",
+            derived: [
+              { kind: "caption", text: "Three project columns.", producer: "captioner" },
+            ],
+          },
+        ],
       },
     ],
   });
@@ -132,6 +144,8 @@ test("IM presentation resolves senders, thread replies and reactions", () => {
   assert.equal(result.messages[0]?.speaker, "陈澄");
   assert.equal(result.messages[0]?.isReply, true);
   assert.deepEqual(result.messages[0]?.reactions, [{ name: "eyes", count: 2 }]);
+  assert.equal(result.messages[0]?.images[0]?.imageId, "img-layout");
+  assert.equal(result.messages[0]?.images[0]?.derived[0]?.producer, "captioner");
 });
 
 test("email presentation separates RFC-like headers from the citable body", () => {

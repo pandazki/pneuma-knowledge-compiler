@@ -1,6 +1,6 @@
 """Knowledge-base snapshots as frozen tenants: lifecycle, write protection, read routing.
 
-These tests drive the pipeline over in-memory stand-ins for the three stores, so they assert
+These tests drive the pipeline over in-memory stand-ins for the four stores, so they assert
 the MECHANISM (what is copied, under which tenant, in which order, what happens on failure)
 without needing PG/Meili/Qdrant. The real three-store round trip is
 `integration/test_kb_snapshot_pipeline.py`.
@@ -8,6 +8,7 @@ without needing PG/Meili/Qdrant. The real three-store round trip is
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
@@ -35,6 +36,13 @@ class _Block:
     index: int
     text: str
     section_path: list[str] = field(default_factory=list)
+    images: list[_Image] = field(default_factory=list)
+
+
+@dataclass
+class _Image:
+    storage_key: str
+    sha256: str
 
 
 @dataclass
@@ -121,7 +129,7 @@ class FakeStore:
         # Mirrors the real INSERT…SELECT … ON CONFLICT DO NOTHING: existing keys survive.
         into = self.sources.setdefault(dst, {})
         for sid, blocks in self.sources.get(src, {}).items():
-            into.setdefault(sid, list(blocks))
+            into.setdefault(sid, deepcopy(blocks))
         claims = self.claims.setdefault(dst, [])
         seen = {(c["document_path"], c["anchor"]) for c in claims}
         for claim in self.claims.get(src, []):
@@ -148,6 +156,26 @@ class FakeStore:
 
     async def list_canonical_claims(self, user_id):  # noqa: ANN001
         return [dict(c) for c in self.claims.get(str(user_id), [])]
+
+    async def list_media_objects(self, user_id):  # noqa: ANN001
+        objects: dict[str, str] = {}
+        for blocks in self.sources.get(str(user_id), {}).values():
+            for block in blocks:
+                for image in block.images:
+                    previous = objects.setdefault(image.storage_key, image.sha256)
+                    if previous != image.sha256:
+                        raise RuntimeError("media key has conflicting digests")
+        return objects
+
+    async def rewrite_media_keys(self, user_id, replacements):  # noqa: ANN001
+        changed = 0
+        for blocks in self.sources.get(str(user_id), {}).values():
+            for block in blocks:
+                for image in block.images:
+                    if image.storage_key in replacements:
+                        image.storage_key = replacements[image.storage_key]
+                        changed += 1
+        return changed
 
 
 class FakeLexical:
@@ -228,12 +256,32 @@ class FakeCanonical:
         return [SnapshotRef(ref=self.head, label="latest")] if self.head else []
 
 
+class FakeMedia:
+    def __init__(self, order: list[str]) -> None:
+        self.order = order
+        self.deleted: list[str] = []
+        self.copies: list[tuple[str, str, dict[str, str]]] = []
+
+    async def copy_user(self, source, target, objects):  # noqa: ANN001
+        self.order.append("media")
+        self.copies.append((str(source), str(target), dict(objects)))
+        target_prefix = f"media/{target}"
+        return {
+            key: f"{target_prefix}/{digest}"
+            for key, digest in objects.items()
+        }
+
+    async def delete_user(self, user_id):  # noqa: ANN001
+        self.deleted.append(str(user_id))
+
+
 @dataclass
 class FakeCtx:
     store: FakeStore
     lexical: FakeLexical
     vectors: FakeVectors
     canonical: FakeCanonical
+    media: FakeMedia
 
 
 def _ctx(head: str = "sha-head") -> FakeCtx:
@@ -257,7 +305,7 @@ def _ctx(head: str = "sha-head") -> FakeCtx:
     # the completeness identity, so the copy of it does too.
     vectors.add(str(OWNER), "p1", [0.1, 0.2], "chunk")
     vectors.add(str(OWNER), "p2", [0.3, 0.4], "claim")
-    return FakeCtx(store, FakeLexical(), vectors, FakeCanonical(head))
+    return FakeCtx(store, FakeLexical(), vectors, FakeCanonical(head), FakeMedia(store.order))
 
 
 # ------------------------------------------------------------------ tenant identity
@@ -337,6 +385,29 @@ async def test_the_copy_lands_under_the_tenant_and_leaves_the_owner_untouched():
     assert str(OWNER) not in ctx.lexical.blocks
 
 
+async def test_image_objects_and_manifests_move_into_the_frozen_tenant():
+    ctx = _ctx()
+    digest = "a" * 64
+    owner_key = f"media/{OWNER}/{digest}"
+    ctx.store.sources[str(OWNER)]["src-a"][0].images.append(
+        _Image(storage_key=owner_key, sha256=digest)
+    )
+
+    snapshot = await kb_snapshots.create(ctx, OWNER, "visual")
+    ready = await kb_snapshots.run_copy(ctx, OWNER, snapshot)
+    tenant = str(snapshot.tenant_id)
+    frozen_image = ctx.store.sources[tenant]["src-a"][0].images[0]
+
+    assert ready.counts["images"] == 1
+    assert frozen_image.storage_key == f"media/{tenant}/{digest}"
+    assert ctx.store.sources[str(OWNER)]["src-a"][0].images[0].storage_key == owner_key
+    assert ctx.media.copies == [(str(OWNER), tenant, {owner_key: digest})]
+    assert ctx.store.order == ["qdrant", "pg", "media"]
+
+    await kb_snapshots.delete(ctx, OWNER, snapshot.snapshot_id)
+    assert ctx.media.deleted == [tenant]
+
+
 async def test_the_projected_claim_keeps_its_anchor_path_and_citations():
     # The lexical claim face is rebuilt from rows, so the round trip through
     # dict -> ProjectedClaim must not drop provenance (invariant I4).
@@ -404,7 +475,7 @@ async def test_a_snapshot_of_a_snapshot_is_refused():
         await kb_snapshots.create(ctx, snapshot_tenant_id("abc"), "nested")
 
 
-async def test_delete_purges_all_three_stores_then_the_registry_row():
+async def test_delete_purges_all_four_stores_then_the_registry_row():
     ctx = _ctx()
     snapshot = await kb_snapshots.create(ctx, OWNER, "frozen")
     await kb_snapshots.run_copy(ctx, OWNER, snapshot)
@@ -415,6 +486,7 @@ async def test_delete_purges_all_three_stores_then_the_registry_row():
     assert tenant not in ctx.store.claims
     assert ctx.lexical.deleted == [tenant]
     assert ctx.vectors.deleted == [tenant]
+    assert ctx.media.deleted == [tenant]
     assert await kb_snapshots.list_snapshots(ctx, OWNER) == []
     # Idempotent: deleting again reports "nothing to delete" rather than erroring.
     assert not await kb_snapshots.delete(ctx, OWNER, snapshot.snapshot_id)

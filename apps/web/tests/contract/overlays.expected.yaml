@@ -3,9 +3,8 @@
 # the models are told without forking anything.
 #
 # `language` picks which language the FRAMEWORK's own clauses arrive in — the layer your
-# overrides below sit on. en = the English catalog, the baseline every measurement in the
-# framework repository was taken on; zh = the shipped Chinese language pack, for readability
-# and Chinese material, with scoring equivalence unverified. It does NOT decide what language
+# overrides below sit on. en = the default English catalog; zh = the shipped Chinese language
+# pack, for readability and Chinese material. It does NOT decide what language
 # this library is written in: that follows the owner profile's declared language.
 language: en
 #
@@ -18,4 +17,3 @@ language: en
 overlays:
   gate.claim_without_provenance: |
     Every claim cites its blocks: "{preview}…" (c:{anchor}).
-

@@ -55,6 +55,54 @@
         "thread_id": {"type": ["string", "null"]},
         "edited_at": {"type": ["string", "null"], "format": "date-time"},
         "reactions": {"type": "array", "items": {"$ref": "#/$defs/reaction"}},
+        "images": {"type": "array", "items": {"$ref": "#/$defs/image"}},
+        "metadata": {"type": "object"}
+      }
+    },
+    "derivedImageText": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "text", "producer"],
+      "properties": {
+        "kind": {"enum": ["caption", "ocr"]},
+        "text": {"type": "string", "minLength": 1},
+        "producer": {"type": "string", "minLength": 1}
+      }
+    },
+    "base64ImageSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "data", "sha256"],
+      "properties": {
+        "type": {"const": "base64"},
+        "data": {"type": "string", "minLength": 1, "contentEncoding": "base64"},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "urlImageSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "url", "sha256"],
+      "properties": {
+        "type": {"const": "url"},
+        "url": {"type": "string", "format": "uri", "pattern": "^https://"},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["image_id", "mime_type", "source"],
+      "properties": {
+        "image_id": {"type": "string", "pattern": "^[A-Za-z0-9._:-]+$"},
+        "mime_type": {"enum": ["image/jpeg", "image/png", "image/webp", "image/gif"]},
+        "source": {
+          "oneOf": [
+            {"$ref": "#/$defs/base64ImageSource"},
+            {"$ref": "#/$defs/urlImageSource"}
+          ]
+        },
+        "derived": {"type": "array", "items": {"$ref": "#/$defs/derivedImageText"}},
         "metadata": {"type": "object"}
       }
     },

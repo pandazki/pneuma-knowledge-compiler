@@ -35,12 +35,40 @@ _FROZEN = datetime(2026, 3, 1, 9, 30, tzinfo=timezone.utc)
 @dataclass
 class _FakeFastAnswer:
     answer: str = "答案"
+    answer_text: str = "答案"
     used_claims: tuple = ()
     used_windows: tuple = ()
+    used_episode_summaries: tuple = field(
+        default_factory=lambda: (
+            SimpleNamespace(
+                source_id="src-episode",
+                block_start=3,
+                block_end=8,
+                text="Weekend kayaking and safety planning. Caroline discussed equipment.",
+                score=0.75,
+                source_title="Saturday conversation",
+                source_occurred_on="2025-06-14",
+                section_path=("Caroline", "weekend"),
+            ),
+        )
+    )
     citation_handles: dict = field(default_factory=dict)
     glance_chars: int = 0
     expanded_documents: tuple = ()
     glance_degraded: str | None = None
+    evidence_strategy: str = "ranked"
+    evidence_selection_degraded: str | None = None
+    claim_candidates: int = 80
+    episode_summary_candidates: int = 60
+    window_candidates: int = 60
+    model_selected_claims: int = 2
+    model_selected_episode_summaries: int = 1
+    model_selected_windows: int = 3
+    answer_format: str = "text"
+    answer_kind: str | None = None
+    answer_format_degraded: str | None = None
+    image_count: int = 0
+    image_mode: str = "caption"
     token_usage: dict = field(default_factory=lambda: {"total_tokens": 3})
 
 
@@ -87,6 +115,7 @@ def _request(row: dict | None) -> SimpleNamespace:
         lexical=None,
         vectors=None,
         embeddings=None,
+        media=object(),
         store=SimpleNamespace(
             get_kb_snapshot=get_kb_snapshot,
             undigested_source_ids=undigested,
@@ -96,15 +125,23 @@ def _request(row: dict | None) -> SimpleNamespace:
         canonical_reads=canonical_reads,
         # The route forwards the configured retrieval budget + opt-in stages into fast_recall.
         settings=SimpleNamespace(
+            recall_claim_candidate_cap=80,
             recall_claim_cap=40,
-            recall_window_cap=8,
+            recall_window_candidate_cap=60,
+            recall_episode_summary_cap=24,
+            recall_window_cap=6,
             recall_plan_queries=0,
             recall_rerank_candidates=120,
             recall_answer_style="conversational",
+            recall_evidence_strategy="ranked",
+            recall_answer_format="text",
+            recall_selection_reasoning_effort="",
+            answer_reasoning_effort="high",
             # The route refuses keyless deployments up front; the stub declares a model
             # so the lanes under test actually run.
             llm_model="scripted:stub",
             llm_model_recall="",
+            llm_model_answer="",
             llm_model_deep="",
         ),
         get_reranker=lambda: None,
@@ -120,7 +157,20 @@ def captured(monkeypatch):
     async def fake_fast_recall(user, question, **kwargs):  # noqa: ANN001
         seen["user"] = str(user)
         seen["scope"] = kwargs.get("scope")
-        return _FakeFastAnswer()
+        seen["image_mode"] = kwargs.get("image_mode")
+        seen["media"] = kwargs.get("media")
+        seen["reasoning_effort"] = kwargs.get("reasoning_effort")
+        seen["evidence_strategy"] = kwargs.get("evidence_strategy")
+        seen["answer_format"] = kwargs.get("answer_format")
+        seen["selection_reasoning_effort"] = kwargs.get(
+            "selection_reasoning_effort"
+        )
+        return _FakeFastAnswer(
+            image_count=2 if kwargs.get("image_mode") == "native" else 0,
+            image_mode=kwargs.get("image_mode") or "caption",
+            evidence_strategy=kwargs.get("evidence_strategy") or "ranked",
+            answer_format=kwargs.get("answer_format") or "text",
+        )
 
     async def fake_rag_recall(user, query, **kwargs):  # noqa: ANN001
         seen["user"] = str(user)
@@ -137,14 +187,111 @@ async def _none():
     return None
 
 
+def test_recall_tool_schema_exposes_extensible_original_modality_enum_list():
+    field = RecallIn.model_json_schema()["properties"]["include_original_modalities"]
+    assert field["type"] == "array"
+    # JSON Schema represents today's one-value enum as `const`; widening the Literal later
+    # naturally turns it into `enum` without changing the surrounding list-shaped field.
+    assert field["items"].get("enum", [field["items"].get("const")]) == ["image"]
+    assert "direct visual inspection" in field["description"]
+    assert RecallIn(query="q").include_original_modalities == []
+
+
 async def test_without_a_snapshot_the_owner_answers_and_nothing_is_pinned(captured):
     request = _request(_row())
     out = await recall(OWNER, RecallIn(query="q", mode="fast"), request)
     assert captured["user"] == OWNER
     assert captured["scope"] is None
+    assert captured["image_mode"] == "caption"
+    assert captured["media"] is None
+    assert captured["reasoning_effort"] == "high"
+    assert captured["evidence_strategy"] == "ranked"
+    assert captured["answer_format"] == "text"
+    assert captured["selection_reasoning_effort"] is None
+    assert out.evidence_strategy == "ranked"
+    assert out.answer_format == "text"
+    assert out.answer_text == "答案"
+    assert out.claim_candidates == 80
+    assert out.episode_summary_candidates == 60
+    assert out.window_candidates == 60
+    assert out.model_selected_claims == 2
+    assert out.model_selected_episode_summaries == 1
+    assert out.model_selected_windows == 3
     assert out.snapshot is None
+    assert len(out.used_episode_summaries) == 1
+    summary = out.used_episode_summaries[0]
+    assert summary.source_id == "src-episode"
+    assert (summary.block_start, summary.block_end) == (3, 8)
+    assert summary.source_title == "Saturday conversation"
+    assert summary.source_occurred_on == "2025-06-14"
+    assert summary.section_path == ["Caroline", "weekend"]
+    assert summary.derived is True
+    assert summary.verbatim is False
     # canonical read against the owner, at HEAD — today's behavior exactly.
     assert request.app.state.ctx.canonical_reads == [(OWNER, None)]
+
+
+async def test_original_modalities_are_an_explicit_query_tool_choice(captured):
+    request = _request(_row())
+    out = await recall(
+        OWNER,
+        RecallIn(
+            query="Does the painting contain a dog?",
+            mode="fast",
+            include_original_modalities=["image"],
+        ),
+        request,
+    )
+
+    assert captured["image_mode"] == "native"
+    assert captured["media"] is request.app.state.ctx.media
+    assert out.included_original_modalities == ["image"]
+    assert out.original_modality_counts == {"image": 2}
+
+
+async def test_fast_quality_context_controls_are_per_call_overrides(captured):
+    request = _request(_row())
+    out = await recall(
+        OWNER,
+        RecallIn(
+            query="Join the strongest evidence.",
+            mode="fast",
+            evidence_strategy="select",
+            answer_format="structured",
+        ),
+        request,
+    )
+
+    assert captured["evidence_strategy"] == "select"
+    assert captured["answer_format"] == "structured"
+    assert out.evidence_strategy == "select"
+    assert out.answer_format == "structured"
+
+
+@pytest.mark.parametrize("mode", ["rag", "deep"])
+async def test_non_fast_lanes_reject_fast_quality_context_controls(captured, mode):
+    with pytest.raises(HTTPException, match="available only in fast mode") as exc:
+        await recall(
+            OWNER,
+            RecallIn(query="q", mode=mode, evidence_strategy="select"),
+            _request(_row()),
+        )
+    assert exc.value.status_code == 400
+
+
+async def test_raw_rag_hits_reject_original_modality_delivery(captured):
+    request = _request(_row())
+    with pytest.raises(HTTPException, match="fast/deep answering modes") as exc:
+        await recall(
+            OWNER,
+            RecallIn(
+                query="Does the painting contain a dog?",
+                mode="rag",
+                include_original_modalities=["image"],
+            ),
+            request,
+        )
+    assert exc.value.status_code == 400
 
 
 async def test_a_ready_snapshot_swaps_the_retrieval_tenant_and_pins_canonical(captured):

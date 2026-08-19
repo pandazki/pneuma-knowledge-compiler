@@ -54,6 +54,8 @@ cd ~/my-kb && ./start.sh     # 起栈、摄入、编译、带引用的问答演�
 
 原始材料逐字保存，四层同时可达：L0 原文直取、L1 词法检索、L2 语义检索、L3 正本知识。权威的只有两样——原始材料本身，和存放正本的每用户 Git 仓库：每次编译是一个 commit，每条知识带着引用。其余（索引、投影）都是派生物，随时可重建。什么能成为正本，由你的编译契约决定；写入闸门在提交时机械校验每条引用，解析不回原文的一律拒绝。
 
+原生媒体从窄而完整的边界起步：IM 消息可以携带 JPEG、PNG、WebP 或 GIF 原图。原图进入私有 S3 兼容 L0（本地使用 RustFS），以带标签的 caption/OCR 或真实图片块交给编译模型，经消息原有的块级引用解析，并在正文阅读器与引用视图中展示。其他媒体类型目前没有声明为已支持。
+
 ## 演进怎么发生
 
 编译器会记下每次编译发生了什么。框架从这些痕迹里起草 schema 修改——新的文档族、调整的路径模板、重组的页面——在独立分支上完成，把 diff 摆在你面前。采纳，机械对账合入；丢弃，一切如旧。升级从不改写已有的知识：演进的是模型，不是事实。
@@ -62,13 +64,13 @@ cd ~/my-kb && ./start.sh     # 起栈、摄入、编译、带引用的问答演�
 
 ```
 packages/pneuma-knowledge-core        # 领域逻辑 + 异步端口（仅依赖 pydantic 与 langchain）
-packages/pneuma-knowledge-service     # FastAPI 服务、适配器（Postgres/Qdrant/Meilisearch/Git）、worker
+packages/pneuma-knowledge-service     # FastAPI 服务、适配器（Postgres/Qdrant/Meilisearch/S3/Git）、worker
 packages/pneuma-knowledge-strategies  # 参考编译契约（纯数据包；框架永不 import）
 packages/pneuma-knowledge-eval        # 判断质量度量
 apps/web                              # 双语 Web 界面
 scaffold/                             # 拷出去就归你的知识库应用模板
 examples/                             # opc：一个由代理建成的完整示例项目，附预编译库
-infra/                                # 本地开发栈（Postgres、Qdrant、Meilisearch）
+infra/                                # 本地开发栈（Postgres、Qdrant、Meilisearch、RustFS）
 ```
 
 完整文档正沿本 README 的主轴重建，将落在 `docs/`。

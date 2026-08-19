@@ -233,6 +233,7 @@ _LABEL_FAMILIES: tuple[tuple[str, str, str], ...] = (
     ("ingest.semantic.", "Semantic segmentation", "语义切分"),
     ("ingest.email.", "Email rendering", "邮件渲染"),
     ("ingest.", "Transcript rendering", "转写渲染"),
+    ("recall.fast.evidence_select.", "Evidence composition", "证据编排"),
     ("recall.fast.select.", "Full-document selection", "整篇选取"),
     ("recall.fast.plan.", "Retrieval planning", "检索规划"),
     ("recall.fast.window_note.", "Window annotation", "窗口批注"),
@@ -290,6 +291,7 @@ _LABELS: dict[str, tuple[str, str]] = {
     "recall.spine": ("The shared answer spine", "共享回答脊柱"),
     "recall.cite.source_level": ("Cite to the source", "引到源级"),
     "recall.cite.precise": ("Cite to the block span", "引到块区间"),
+    "recall.cite.structured": ("Return citations separately", "单独返回引用"),
     "recall.close.answer_honestly": ("Close: answer honestly", "收尾：诚实作答"),
     "recall.close.suggestion": ("Close: an unsolicited card", "收尾：不请自来的卡片"),
     "recall.style.concise": ("Style: concise", "风格：精确简短"),
@@ -406,12 +408,14 @@ SURFACES: tuple[Surface, ...] = (
         title_zh="语义切分",
         summary_en=(
             "How the compile-role model is asked to cut a source into topic units. It "
-            "returns block indexes only — the chunk text stays a verbatim slice. Two "
-            "output contracts share one boundary philosophy; `semantic_overlap` picks."
+            "returns each boundary together with a derived episode title/description; "
+            "the citable chunk text stays a verbatim slice. Two output contracts share "
+            "one boundary philosophy; `semantic_overlap` picks."
         ),
         summary_zh=(
-            "编译角色模型被如何要求把一份材料切成话题单元。它只返回块下标——"
-            "切出来的文本始终是原文的逐字片段。两套输出契约共用同一份边界哲学，"
+            "编译角色模型被如何要求把一份材料切成话题单元，并为每个边界同时返回"
+            "派生 episode 标题/描述；可引用 chunk 始终是原文的逐字片段。两套输出契约"
+            "共用同一份边界哲学，"
             "由 `semantic_overlap` 决定用哪一套。"
         ),
         segments=(
@@ -424,8 +428,13 @@ SURFACES: tuple[Surface, ...] = (
             f(
                 "ingest.semantic.human",
                 "The HumanMessage of the same call, once per window of blocks: the numbered "
-                "lines, and the demand for start numbers only.",
-                "同一次调用的人类消息，每个块窗口一次：带编号的行，以及「只返回起始编号」的要求。",
+                "lines plus each episode's retrieval representation and start number.",
+                "同一次调用的人类消息，每个块窗口一次：带编号的行，以及每个 episode 的检索表示和起始编号。",
+            ),
+            f(
+                "ingest.semantic.source_context",
+                "The optional source title/date metadata placed in the HumanMessage.",
+                "放入人类消息的可选来源标题/日期元数据。",
             ),
             f(
                 "ingest.semantic.rubric_overlap",
@@ -438,9 +447,21 @@ SURFACES: tuple[Surface, ...] = (
             f(
                 "ingest.semantic.human_overlap",
                 "The HumanMessage that rides with the overlapping rubric, once per window "
-                "of blocks: the same numbered lines, asking for start/end pairs.",
+                "of blocks: the same numbered lines, asking for episode representations "
+                "and start/end coordinates.",
                 "与「允许重叠」准则同行的人类消息，每个块窗口一次："
-                "同样带编号的行，但要求返回起止编号对。",
+                "同样带编号的行，但要求返回 episode 表示和起止编号。",
+            ),
+            f(
+                "ingest.semantic.describe_rubric",
+                "The one-time legacy-manifest contract: describe fixed spans without "
+                "changing their coordinates.",
+                "旧 manifest 的一次性契约：为固定区间补描述，不改变坐标。",
+            ),
+            f(
+                "ingest.semantic.describe_human",
+                "The fixed spans and numbered source blocks for that migration call.",
+                "该迁移调用中的固定区间与带编号来源块。",
             ),
         ),
         kind=FRAGMENTS,
@@ -1018,6 +1039,26 @@ SURFACES: tuple[Surface, ...] = (
                 "One numbered block of source text, once per block — the `¶` numbers a "
                 "citation's span refers to.",
                 "材料原文的一个编号块，每块一次——引用区间指的就是这些 `¶` 编号。",
+            ),
+            f(
+                "compile.task.image_derived",
+                "A labelled caption or OCR representation aligned to the preceding block.",
+                "与上一编号块对齐、并明确标注的 caption 或 OCR 表示。",
+            ),
+            f(
+                "compile.task.image_without_derived",
+                "States that an image exists even when no textual representation was supplied.",
+                "即使没有文本表示，也明确说明该编号块带有图片。",
+            ),
+            f(
+                "compile.task.native_images_header",
+                "Opens the native image content-block section when native delivery is active.",
+                "启用原生图片传递时，开出图片内容块一节。",
+            ),
+            f(
+                "compile.task.native_image_locator",
+                "Binds each following native image block to its exact citable source block.",
+                "把紧随其后的原生图片块绑定到可引用的确切来源块。",
             ),
             f(
                 "compile.task.outline_header",
@@ -1753,6 +1794,36 @@ SURFACES: tuple[Surface, ...] = (
         ),
     ),
     Surface(
+        id="recall.fast_structured",
+        group="recall",
+        title_en="Structured fast answer contract",
+        title_zh="结构化快速回答契约",
+        summary_en=(
+            "The fast answer contract when answer text, answer kind and citations travel "
+            "as separate schema fields, allowing exact evidence-span validation."
+        ),
+        summary_zh=(
+            "回答正文、回答类型和引用分别通过 schema 字段传递时使用的快速回答契约，"
+            "使精确证据区间可以被机械验证。"
+        ),
+        segments=(
+            b("recall.fast.contract_head"),
+            *_spine("recall.cite.structured", "recall.close.answer_honestly"),
+            *_ANSWER_STYLE,
+        ),
+        kind=ASSEMBLED,
+        pinned=True,
+        note_en=(
+            "One resolution of the structured-answer template. Exactly one answer-style "
+            "clause is appended. Question, clock and evidence still arrive in the HumanMessage; "
+            "only the response wire and citation clause differ from Fast recall contract."
+        ),
+        note_zh=(
+            "这是结构化回答模板的一次取值，每次只附上一条回答风格。问题、时钟与证据仍随"
+            "人类消息到达；与「快速召回契约」不同的只有响应线格式和引用条款。"
+        ),
+    ),
+    Surface(
         id="recall.deep",
         group="recall",
         title_en="Deep verification contract",
@@ -1952,6 +2023,16 @@ SURFACES: tuple[Surface, ...] = (
                 "recall.section.windows_header",
                 "Opens the raw excerpts (L2 chunks) in the fast lane's evidence.",
                 "在快速车道的证据里，开出原文摘录（L2 片段）那一节。",
+            ),
+            f(
+                "recall.section.images_header",
+                "Opens images aligned to the raw excerpts selected for this question.",
+                "开出与本次问题所选原文摘录对齐的图片。",
+            ),
+            f(
+                "recall.fast.image_locator",
+                "Binds one recalled image to its exact citable source block.",
+                "把一张召回图片绑定到可引用的确切来源块。",
             ),
             f(
                 "recall.section.passages_header",
@@ -2447,6 +2528,96 @@ SURFACES: tuple[Surface, ...] = (
                 "recall.fast.select.document_heading",
                 "The heading of one selected document there, once per document read in full.",
                 "那一节里某份被选中文档的标题，每份整篇读入的文档一次。",
+            ),
+        ),
+        kind=FRAGMENTS,
+    ),
+    Surface(
+        id="recall.fast_evidence_select",
+        group="recall",
+        title_en="Cross-face evidence composition",
+        title_zh="跨证据面的证据编排",
+        summary_en=(
+            "One structured call selects coordinates from broad claim, episode-summary and "
+            "verbatim-window candidates, plus known canonical paths. Its output is validated "
+            "and bounded before any evidence reaches the answer."
+        ),
+        summary_zh=(
+            "一次结构化调用从宽断言候选、episode 摘要候选、逐字窗口候选以及已知 canonical "
+            "路径中选择坐标；证据进入回答前，输出会先被验证并受机械上限约束。"
+        ),
+        segments=(
+            f(
+                "recall.fast.evidence_select.contract",
+                "The selector's SystemMessage: choose evidence coordinates, never answer.",
+                "选择器的系统消息：只选证据坐标，绝不回答问题。",
+            ),
+            f(
+                "recall.fast.evidence_select.request",
+                "Its HumanMessage wrapper, with every candidate face before the question.",
+                "它的人类消息外壳：所有候选证据面都排在问题之前。",
+            ),
+            f(
+                "recall.fast.evidence_select.glance",
+                "The optional canonical glance inside the candidate payload.",
+                "候选载荷中可选的 canonical 一览。",
+            ),
+            f(
+                "recall.fast.evidence_select.claims_header",
+                "Opens numbered compiled-claim candidates.",
+                "开出带编号的已编译断言候选。",
+            ),
+            f(
+                "recall.fast.evidence_select.claim",
+                "One claim candidate with its canonical path, section and text.",
+                "一条带 canonical 路径、章节和正文的断言候选。",
+            ),
+            f(
+                "recall.fast.evidence_select.episodes_header",
+                "Opens numbered derived episode-summary candidates.",
+                "开出带编号的派生 episode 摘要候选。",
+            ),
+            f(
+                "recall.fast.evidence_select.episode",
+                "One derived summary with date and exact source coordinates.",
+                "一条带日期与精确源坐标的派生摘要。",
+            ),
+            f(
+                "recall.fast.evidence_select.windows_header",
+                "Opens numbered verbatim source-window candidates.",
+                "开出带编号的逐字源窗口候选。",
+            ),
+            f(
+                "recall.fast.evidence_select.window",
+                "One verbatim candidate with source id and exact block span.",
+                "一条带来源 id 与精确块区间的逐字候选。",
+            ),
+        ),
+        kind=FRAGMENTS,
+    ),
+    Surface(
+        id="recall.fast_episode_summaries",
+        group="recall",
+        title_en="Derived episode summaries",
+        title_zh="派生 episode 摘要",
+        summary_en=(
+            "Dense episode descriptions enter answer context as explicitly derived summaries "
+            "with source title, occurrence time, section, and exact source span."
+        ),
+        summary_zh=(
+            "高密度 episode 描述以明确标注的派生摘要进入回答上下文，并带来源标题、发生时间、"
+            "章节和精确源区间。"
+        ),
+        segments=(
+            f(
+                "recall.section.episode_summaries_header",
+                "The section header states plainly that these entries are derived episode summaries.",
+                "章节标题明确声明这些条目是派生 episode 摘要。",
+            ),
+            f(
+                "recall.fast.episode_summary.item",
+                "One derived summary with source metadata and its exact citable block span.",
+                "一条带来源元数据和精确可引用块区间的派生摘要。",
             ),
         ),
         kind=FRAGMENTS,

@@ -30,8 +30,8 @@
             "zh": "切块策略"
           },
           "description": {
-            "en": "semantic = the compile-role model detects topic/episode boundaries and returns block indexes only; sentence / recursive = mechanical chonkie chunkers with no model cost. Existing content keeps its recorded boundaries until rebuild_derived runs.",
-            "zh": "semantic = 由编译角色模型判断话题/情节边界，只返回块下标；sentence / recursive = 机械切分，不花模型钱。已有内容会保留既有边界，直到跑 rebuild_derived 才真正改变。"
+            "en": "semantic = the compile-role model detects topic/episode boundaries and returns each segment with a derived episode title/description for embedding; sentence / recursive = mechanical chonkie chunkers with no model cost. Citable chunk text always stays verbatim.",
+            "zh": "semantic = 由编译角色模型判断话题/情节边界，并为每个段返回用于 embedding 的派生 episode 标题/描述；sentence / recursive = 机械切分，不花模型钱。可引用 chunk 文本始终保持逐字原文。"
           }
         },
         {
@@ -49,8 +49,8 @@
             "zh": "段落重叠"
           },
           "description": {
-            "en": "Only for the semantic strategy. smart = the model returns closed intervals, so a hinge — the sentence that closes one topic while opening the next — is indexed as part of both segments; how much to share is decided per boundary, and at most three blocks ever, which is what stops the model from making every segment the whole document. off = the original zero-overlap cut, kept as the baseline every measurement so far was taken with. Existing content keeps its recorded boundaries until rebuild_derived runs.",
-            "zh": "只对 semantic 策略有意义。smart = 模型返回前闭后闭区间，转折句——那句既收束上一话题、又开启下一话题的话——同时被索引进前后两段；共享多少由模型逐个边界判断，且最多三块，正是这个上限让模型无法把每一段都写成全文。off = 原来的零重叠切法，作为此前全部测量所用的基线保留。已有内容会保留既有边界，直到跑 rebuild_derived 才真正改变。"
+            "en": "Only for the semantic strategy. smart = each returned episode object ends with closed-interval start/end coordinates, so a hinge — the sentence that closes one topic while opening the next — is indexed as part of both segments; how much to share is decided per boundary, and at most three blocks ever, which is what stops the model from making every segment the whole document. off = the original zero-overlap geometry. Episode descriptions created a new prompt baseline, so older boundary-only measurements are not same-harness comparisons. Existing content keeps its recorded boundaries until rebuild_derived runs.",
+            "zh": "只对 semantic 策略有意义。smart = 每个 episode 对象末尾返回 start/end 前闭后闭坐标，转折句——那句既收束上一话题、又开启下一话题的话——同时被索引进前后两段；共享多少由模型逐个边界判断，且最多三块，正是这个上限让模型无法把每一段都写成全文。off = 原来的零重叠几何形状。episode 描述产生了新提示词基线，旧的 boundary-only 测量不属于同一 harness。已有内容会保留既有边界，直到跑 rebuild_derived 才真正改变。"
           }
         }
       ]
@@ -284,33 +284,131 @@
           }
         },
         {
+          "key": "evidence_strategy",
+          "env": "PNEUMA_KNOWLEDGE_RECALL_EVIDENCE_STRATEGY",
+          "type": "enum",
+          "enum": [
+            "ranked",
+            "select"
+          ],
+          "default": "ranked",
+          "apply": "hot",
+          "label": {
+            "en": "Evidence composition",
+            "zh": "证据编排"
+          },
+          "description": {
+            "en": "ranked keeps fixed retrieval heads. select uses one structured model call to compose a mechanically bounded mix of claims, derived episode summaries, verbatim windows, and canonical documents.",
+            "zh": "ranked 保留固定检索头部；select 用一次结构化模型调用，在断言、派生 episode 摘要、逐字窗口和 canonical 文档之间编排一个受机械上限约束的组合。"
+          }
+        },
+        {
+          "key": "answer_format",
+          "env": "PNEUMA_KNOWLEDGE_RECALL_ANSWER_FORMAT",
+          "type": "enum",
+          "enum": [
+            "text",
+            "structured"
+          ],
+          "default": "text",
+          "apply": "hot",
+          "label": {
+            "en": "Answer wire format",
+            "zh": "回答线格式"
+          },
+          "description": {
+            "en": "text is the historical free-text answer. structured separates answer text, answer kind, and citations so exact evidence spans can be validated.",
+            "zh": "text 是既有自由文本回答；structured 将回答正文、回答类型和引用分开，从而能机械验证精确证据区间。"
+          }
+        },
+        {
+          "key": "selection_reasoning_effort",
+          "env": "PNEUMA_KNOWLEDGE_RECALL_SELECTION_REASONING_EFFORT",
+          "type": "string",
+          "default": "",
+          "apply": "hot",
+          "label": {
+            "en": "Selection reasoning effort",
+            "zh": "选择推理强度"
+          },
+          "description": {
+            "en": "Optional provider reasoning-effort hint for the select call. Empty sends no override and uses the model/provider default.",
+            "zh": "select 调用的可选 provider 推理强度提示。留空则不发送覆盖值，使用模型或提供方默认值。"
+          }
+        },
+        {
+          "key": "claim_candidate_cap",
+          "env": "PNEUMA_KNOWLEDGE_RECALL_CLAIM_CANDIDATE_CAP",
+          "type": "int",
+          "default": 80,
+          "apply": "hot",
+          "label": {
+            "en": "Claim candidate depth",
+            "zh": "断言候选深度"
+          },
+          "description": {
+            "en": "How many claims each retrieval face may consider before dedup, optional reranking, and the final answer cap. Index breadth is cheaper than model context.",
+            "zh": "每条检索路径在去重、可选重排与最终回答上限之前可考虑多少断言。索引广度比模型上下文便宜。"
+          }
+        },
+        {
           "key": "claim_cap",
           "env": "PNEUMA_KNOWLEDGE_RECALL_CLAIM_CAP",
           "type": "int",
-          "default": 64,
+          "default": 40,
           "apply": "hot",
           "label": {
             "en": "Claim budget",
             "zh": "断言预算"
           },
           "description": {
-            "en": "How many claims one fast ask may pull into the prompt. The default sits inside the measured 40–80 sweet band.",
-            "zh": "一次快速问答最多把多少断言放进提示词。默认值落在实测的 40–80 甜区内。"
+            "en": "How many compiled claims may enter the final answer context after broad candidate retrieval.",
+            "zh": "宽候选召回之后，最多有多少条已编译断言可进入最终回答上下文。"
+          }
+        },
+        {
+          "key": "window_candidate_cap",
+          "env": "PNEUMA_KNOWLEDGE_RECALL_WINDOW_CANDIDATE_CAP",
+          "type": "int",
+          "default": 60,
+          "apply": "hot",
+          "label": {
+            "en": "Source-window candidate depth",
+            "zh": "源窗口候选深度"
+          },
+          "description": {
+            "en": "How many fused lexical/raw/episode source spans survive retrieval for the episode-summary and verbatim context faces.",
+            "zh": "有多少条词法／raw／episode 融合源区间可从检索进入 episode 摘要与逐字上下文两面。"
+          }
+        },
+        {
+          "key": "episode_summary_cap",
+          "env": "PNEUMA_KNOWLEDGE_RECALL_EPISODE_SUMMARY_CAP",
+          "type": "int",
+          "default": 16,
+          "apply": "hot",
+          "label": {
+            "en": "Episode summary budget",
+            "zh": "Episode 摘要预算"
+          },
+          "description": {
+            "en": "How many dense, explicitly derived episode summaries may enter the final answer context alongside exact source metadata.",
+            "zh": "最多有多少条高密度、明确标为派生内容的 episode 摘要可连同精确来源元数据进入最终回答上下文。"
           }
         },
         {
           "key": "window_cap",
           "env": "PNEUMA_KNOWLEDGE_RECALL_WINDOW_CAP",
           "type": "int",
-          "default": 8,
+          "default": 6,
           "apply": "hot",
           "label": {
             "en": "Source window budget",
             "zh": "源窗口预算"
           },
           "description": {
-            "en": "How many raw source windows one fast ask may pull in.",
-            "zh": "一次快速问答最多把多少原始源窗口放进来。"
+            "en": "How many exact verbatim source windows may enter the final answer context.",
+            "zh": "最多有多少个精确逐字源窗口可进入最终回答上下文。"
           }
         },
         {
@@ -367,8 +465,8 @@
         "zh": "模型"
       },
       "summary": {
-        "en": "The engine's four model roles. The compile model is the one real quality lever — a stronger model directly produces a better library.",
-        "zh": "引擎的四个模型角色。编译模型是唯一真正的质量杠杆——更强的模型直接产出更好的库。"
+        "en": "The engine's model roles. The compile model is the one real quality lever — a stronger model directly produces a better library.",
+        "zh": "引擎的模型角色。编译模型是唯一真正的质量杠杆——更强的模型直接产出更好的库。"
       },
       "doc": "docs/reference/configuration.md#models",
       "file": "engine.yaml",
@@ -389,6 +487,26 @@
           }
         },
         {
+          "key": "image_mode",
+          "env": "PNEUMA_KNOWLEDGE_COMPILE_IMAGE_MODE",
+          "type": "enum",
+          "enum": [
+            "auto",
+            "caption",
+            "native"
+          ],
+          "default": "auto",
+          "apply": "restart",
+          "label": {
+            "en": "Compile image delivery",
+            "zh": "编译图片传递方式"
+          },
+          "description": {
+            "en": "caption sends labelled caption/OCR text only; native sends those labels plus actual image content blocks; auto uses the active model profile and falls back to caption when capability is unknown.",
+            "zh": "caption 只发送带来源标签的图片描述/OCR；native 在这些标签之外还发送真正的图片内容块；auto 读取当前模型的能力档案，能力未知时回落到 caption。"
+          }
+        },
+        {
           "key": "recall",
           "env": "PNEUMA_KNOWLEDGE_LLM_MODEL_RECALL",
           "type": "string",
@@ -399,8 +517,48 @@
             "zh": "召回模型"
           },
           "description": {
-            "en": "Fast recall and the briefing ask. Fast and cheap is fine.",
-            "zh": "快速召回与简报问答。又快又便宜就够了。"
+            "en": "Retrieval planning/glance and the briefing ask. Fast and cheap is fine.",
+            "zh": "检索规划/概览与简报问答。又快又便宜就够了。"
+          }
+        },
+        {
+          "key": "answer",
+          "env": "PNEUMA_KNOWLEDGE_LLM_MODEL_ANSWER",
+          "type": "string",
+          "default": "",
+          "apply": "restart",
+          "label": {
+            "en": "Answer model",
+            "zh": "答题模型"
+          },
+          "description": {
+            "en": "Final fast-answer generation only. Empty borrows the recall role.",
+            "zh": "只负责快速召回的最终答案。留空则借用召回角色。"
+          }
+        },
+        {
+          "key": "answer_reasoning_effort",
+          "env": "PNEUMA_KNOWLEDGE_ANSWER_REASONING_EFFORT",
+          "type": "enum",
+          "enum": [
+            "",
+            "none",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "default": "",
+          "apply": "restart",
+          "label": {
+            "en": "Answer reasoning effort",
+            "zh": "答题推理强度"
+          },
+          "description": {
+            "en": "Reasoning effort sent only on the final fast-answer call; empty keeps the provider default.",
+            "zh": "只在快速召回的最终答题调用中发送；留空则沿用模型供应商默认值。"
           }
         },
         {
@@ -561,6 +719,10 @@
             "compile.skill_lede",
             "compile.task.block_line",
             "compile.task.guidance_header",
+            "compile.task.image_derived",
+            "compile.task.image_without_derived",
+            "compile.task.native_image_locator",
+            "compile.task.native_images_header",
             "compile.task.outline_empty",
             "compile.task.outline_entry",
             "compile.task.outline_entry_tail",
@@ -689,10 +851,13 @@
             "ingest.other_label",
             "ingest.owner_label",
             "ingest.owner_wrapped",
+            "ingest.semantic.describe_human",
+            "ingest.semantic.describe_rubric",
             "ingest.semantic.human",
             "ingest.semantic.human_overlap",
             "ingest.semantic.rubric",
             "ingest.semantic.rubric_overlap",
+            "ingest.semantic.source_context",
             "ingest.speaker_alias",
             "ingest.turn_line",
             "persona.profile_instruction",
@@ -720,6 +885,7 @@
             "recall.briefing.tool.search_knowledge_doc",
             "recall.cite.precise",
             "recall.cite.source_level",
+            "recall.cite.structured",
             "recall.close.answer_honestly",
             "recall.close.suggestion",
             "recall.deep.contract_head",
@@ -740,6 +906,17 @@
             "recall.deep.tool.search_content_doc",
             "recall.deep.tool.search_content_empty",
             "recall.fast.contract_head",
+            "recall.fast.episode_summary.item",
+            "recall.fast.evidence_select.claim",
+            "recall.fast.evidence_select.claims_header",
+            "recall.fast.evidence_select.contract",
+            "recall.fast.evidence_select.episode",
+            "recall.fast.evidence_select.episodes_header",
+            "recall.fast.evidence_select.glance",
+            "recall.fast.evidence_select.request",
+            "recall.fast.evidence_select.window",
+            "recall.fast.evidence_select.windows_header",
+            "recall.fast.image_locator",
             "recall.fast.plan.contract",
             "recall.fast.plan.request",
             "recall.fast.select.contract",
@@ -774,6 +951,8 @@
             "recall.section.already_shown_header",
             "recall.section.claims_empty",
             "recall.section.claims_header",
+            "recall.section.episode_summaries_header",
+            "recall.section.images_header",
             "recall.section.input",
             "recall.section.passages_header",
             "recall.section.profile_header",

@@ -25,12 +25,12 @@ stated next to it.
 ```
 engine/                    # its own git repo; one commit per apply
   README.md                # orientation: what the engine is, each file's blast radius
-  engine.yaml              # the four model roles — quality levers are strategy
+  engine.yaml              # model roles — quality levers are strategy
   intake/intake.yaml       # chunk_strategy, semantic_overlap
   compile/contract.md      # the constitution — a DOCUMENT, never decomposed into knobs
   compile/challenge.yaml   # enabled, max_rounds, max_questions, compensate
   evolve/evolve.yaml       # auto_trigger, trigger_topic_docs, trigger_new_claims, draft_ttl_hours
-  recall/recall.yaml       # answer_style, claim_cap, window_cap, plan_queries, rerank_*
+  recall/recall.yaml       # candidate caps, claims, episode summaries, raw windows, planning/rerank
   persona/profile.yaml     # the owner profile
   prompts/overlays.yaml    # catalog key → replacement clause (the prompt extension point)
 ```
@@ -47,7 +47,7 @@ same rule (a flat mapping whose value happens to be a mapping). `compile/contrac
 `persona/profile.yaml` are documents: raw text, never parsed as knobs.
 
 **Precedence: process env > engine file > framework default.** Explicit environment wins so a
-benchmark harness can override any knob per run without dirtying the versioned unit; the
+one-off diagnostic run can override any knob without dirtying the versioned unit; the
 engine file is the durable truth a person edits; unset everywhere falls to the framework
 default — which is why an empty or absent engine directory is byte-for-byte the pre-engine
 behavior. Enforced at settings assembly (`get_settings` → `engine_overrides`): engine values

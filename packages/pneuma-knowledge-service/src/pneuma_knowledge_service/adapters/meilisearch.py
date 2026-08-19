@@ -98,7 +98,7 @@ class MeiliLexicalIndex:
                 "id": f"{source_id}_{b.index}",
                 "source_id": str(source_id),
                 "block_index": b.index,
-                "text": b.text,
+                "text": b.index_text(),
                 "section_path": b.section_path,
             }
             for b in blocks

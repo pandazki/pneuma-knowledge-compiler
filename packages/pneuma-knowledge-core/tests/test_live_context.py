@@ -182,9 +182,19 @@ _PUBLIC_BASELINE_SHA256 = {
     # which is a contradiction the model had to resolve for itself. Reworded to the tools'
     # real reach: `search_knowledge` searches the session's SOURCE RANGE again (the pack
     # sampled it), `fetch_verbatim` reaches any source by id. No capability changed.
-    "fast": "d64e6b0b17a949f554d6fdecd3b46d39dc23defa8585af6f2f56514aa175a985",
-    "deep": "a71892e9edb5c2a6c981a2938f93274ba9b16326db45a68407b883c39fd6f05f",
-    "briefing": "57c3e181800cd662e28d91567d94309e07bb7904a35648a7c4ae127ee0e486e9",
+    # 2026-08-11: the shared spine now resolves every question qualifier together and
+    # distinguishes a transition in the asked period from an older activity merely
+    # mentioned then. This is general temporal/evidence discipline, shared by all three.
+    # 2026-08-12: the shared time clause no longer tells the model to resolve relative
+    # expressions quoted from old evidence against the live ask's `as_of`. Evidence uses
+    # its source occurrence clock; only the owner's live input uses the ask clock. An
+    # ambiguous calendar period keeps that absolute anchor rather than fabricating exact
+    # endpoints.
+    # 2026-08-12: fast also receives source-addressed L2 episode descriptions as an
+    # explicitly labelled derived summary face, alongside claims and verbatim excerpts.
+    "fast": "a31e17d2a2e20ba1d474cc2b597cf393abdff81eaf3e929777ea29672aeda8b8",
+    "deep": "1b04985e05e20b0d1b895c06493f92c5d9cd724183ed47b99f64447267840e94",
+    "briefing": "b2be86ca8606007e2007508a065a7f9cae4222460e9b52299214cc5c826b29fc",
 }
 
 

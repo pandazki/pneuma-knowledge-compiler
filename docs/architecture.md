@@ -38,7 +38,7 @@ And one project-wide discipline behind all three: **mechanism over persuasion**.
 Four packages, one-way dependencies:
 
 - `pneuma-knowledge-core` — pure domain logic and async `Protocol` ports. Depends on pydantic, langchain-core, langchain, chonkie; **no middleware clients**. LLMs and embeddings enter as langchain-core types (`BaseChatModel`, duck-typed `Embeddings`).
-- `pneuma-knowledge-service` — the port implementations: FastAPI app, adapters (Postgres, Qdrant, Meilisearch, Git-via-subprocess), the background worker, settings.
+- `pneuma-knowledge-service` — the port implementations: FastAPI app, adapters (Postgres, Qdrant, Meilisearch, S3-compatible media, Git-via-subprocess), the background worker, settings.
 - `pneuma-knowledge-strategies` — reference compile contracts as a data package. The framework never imports it.
 - `apps/web` — a SPA speaking only the HTTP API.
 
@@ -50,7 +50,7 @@ Every source is kept verbatim and stays reachable at four levels over the same b
 
 | Level | What | Store | When |
 |---|---|---|---|
-| L0 | verbatim blocks + structure map, fetched by locator | Postgres | unconditional |
+| L0 | verbatim blocks + structure map + block-aligned original media, fetched by locator | Postgres + private S3-compatible object storage | unconditional |
 | L1 | lexical full-text over blocks | Meilisearch (index per user) | unconditional |
 | L2 | semantic chunks | Qdrant (one collection, tenant filter injected in the adapter) | per IntakePlan |
 | L3 | canonical knowledge compiled under the contract | canonical library (versioned; + derived projections) | per IntakePlan |
@@ -61,19 +61,21 @@ An `IntakePlan` is two knobs — `canonical_treatment` (full / distill / card / 
 
 Only two things are authoritative: the L0 sources, and the canonical library. The canonical library is a **versioned, append-only history**: every compile appends a version, any past state can be snapshotted or rolled back, evolution is reviewed on its own branch, and every version is stamped with the hash of the contract that produced it. Everything else — L1/L2 indexes, L3 projections, glances — is derived and rebuildable from those two.
 
-(The shipped implementation: L0 lives in Postgres; the canonical library is one Git repository per user, whose commit/tag/revert/branch map one-to-one onto the semantics above. That is an adapter behind the `CanonicalStore` port, not an architectural commitment.)
+(The shipped implementation: L0 text, structure and media manifests live in Postgres, while immutable media bytes live in private S3-compatible storage (RustFS in the local stack) behind the `MediaStore` port. The canonical library is one Git repository per user, whose commit/tag/revert/branch map one-to-one onto the semantics above. These are adapters, not architectural commitments.)
 
 Two consequences worth internalizing:
 
-- Rebuilds are byte-deterministic even where an LLM was involved. Semantic chunking (the default `semantic` strategy; its boundary-detection philosophy is inspired by [nemori](https://github.com/nemori-ai/nemori)) uses an LLM to detect topic/episode boundaries, but the model only returns block indexes — chunk text is always a verbatim slice of the source, addressed exactly like mechanical chunks; first-time boundaries are recorded in a manifest (content digest + model lineage + the output contract that produced them) and replayed on rebuild instead of being recomputed. Under scripted keyless models it falls back to mechanical sentence chunking automatically.
+- Rebuilds are byte-deterministic even where an LLM was involved. Semantic chunking (the default `semantic` strategy; its boundary philosophy is inspired by [nemori](https://github.com/nemori-ai/nemori)) uses one structured LLM response to return each topic/episode's search-friendly title, factual third-person description, and block coordinates. The description preserves concrete participants, time, place, events, decisions, emotions, reasons, plans and outcomes that the covered blocks support; known source occurrence dates anchor relative-time normalization, and absent dates are never guessed. This generated representation is derived L2 content, not source: chunk text remains a verbatim slice addressed exactly like mechanical chunks. The v3 manifest records coordinates plus title/description and replays them on rebuild. A boundary-only older manifest is upgraded once by describing its **fixed** spans; a mechanical equality check refuses any attempted boundary change. An episode longer than `CHUNK_SIZE` is sentence-sub-split before embedding. Scripted/keyless models still fall back to mechanical sentence chunking. L2 stores two independently ranked representations: raw vectors embed source context plus labelled caption/OCR and the verbatim chunk, while one episode vector embeds source context plus the title/description and retains that dense description as derived payload. Every point resolves to its corresponding verbatim L0 span. Fast recall may surface high-ranked descriptions as a third, explicitly labelled **derived episode summary** context face, enriched mechanically with source title, occurrence time, section and exact block span; it never presents one as verbatim or canonical, and direct raw/claim evidence wins any exact-detail conflict. Retrieval fuses lexical, raw-vector and episode-vector rankings with ordinary RRF, then suppresses lower-ranked overlapping source spans without widening the winner or adding duplicate score. Better search meaning therefore never dilutes the raw vector or creates a second authority or citation space.
 
-  Segments may also *overlap* (`SEMANTIC_OVERLAP`, factory default `smart`): the model returns closed block intervals, so a hinge — the sentence that closes one topic while opening the next — is indexed as part of both neighbouring segments, judged per boundary rather than as a fixed stride. Whether that is allowed to degenerate is not left to the prompt: five write-time gates (real ordered endpoints, strictly increasing starts, gapless cover, at most three shared blocks, no more segments than blocks) reject the whole output, and the window falls back to the zero-overlap partition. The duplication a hinge causes is purely derived — both chunks address the same source blocks (I4), and retrieval coalesces overlapping windows into one passage. `off` is the zero-overlap contract every measurement so far was taken with and its request bytes are pinned, so it stays the same-harness A/B baseline; `smart` ships on design grounds and is not yet measured against it.
+  Segments may also *overlap* (`SEMANTIC_OVERLAP`, factory default `smart`): the model returns closed block intervals, so a hinge — the sentence that closes one topic while opening the next — is indexed as part of both neighbouring segments, judged per boundary rather than as a fixed stride. Whether that is allowed to degenerate is not left to the prompt: five write-time gates (real ordered endpoints, strictly increasing starts, gapless cover, at most three shared blocks, no more segments than blocks) reject the whole output, and the window falls back to the zero-overlap partition. The duplication a hinge causes is purely derived — both chunks address the same source blocks (I4), and retrieval suppresses the lower-ranked overlapping result. `off` retains the zero-overlap geometry, but adding the episode representation intentionally creates a new prompt baseline; earlier boundary-only measurements are not presented as same-harness results for this version.
 - Upgrades never rewrite the canonical layer. A new projection strategy, a new index, a new render — all rebuild derived artifacts; the canonical history stands.
 - The routine commit path syncs projections incrementally: the fresh snapshot is diffed against the last recorded projection manifest and only the delta lands in the indexes (only added or changed claims are re-embedded). The full rebuild (`scripts/ops/rebuild_derived.py`) is the explicit repair and migration path, not the daily one — and either way, the increment is a cost optimization, never a new source of truth.
 
 ## 5. Canonical write mechanics
 
 The unit of canonical knowledge is a **claim**: a text block carrying an **anchor** (an HTML comment `<!-- c:xxxx -->` embedded in the markdown) and one or more **citations** written `[cite: <source-id> ¶a-b]`, where `¶a-b` is a block span in the cited source. Anchors are content-addressed and system-assigned — the model never mints one — and once assigned they are immutable.
+
+An image does not invent a second citation language. It is attached to the message's ordinary block, so the same `source_id + ¶ span` resolves the verbatim text, original image bytes, digest, MIME type, and any explicitly labelled caption/OCR representation with its producer. The compile path can send caption/OCR only or real image content blocks according to the active compile model; native mode re-reads and verifies the stored bytes before the model call. A caption remains derived evidence and never impersonates direct image inspection.
 
 The compile model works through claim-level tools only (`edit_claim`, `append_block`, `create_document`, plus read tools), against an in-memory patch draft. Before a draft becomes a commit it must pass the **gate**: a mechanical check of anchor continuity and uniqueness, citation resolvability and shape, provenance on every new claim, link-target existence, frontmatter completeness, path ownership under the contract's templates, and the immutability of frozen archive volumes. Citation checks apply to what this round introduces — citations carried verbatim from earlier commits are grandfathered (they were verified when first written), so a forward compile is never rejected over a source it was not given; anchor uniqueness, by contrast, is checked repository-wide with no grandfathering. Violations trigger one repair round; if violations remain, the compile aborts and the canonical layer is untouched.
 
@@ -96,15 +98,64 @@ How to actually write a contract is a craft of its own: see [guides/compile-cont
 Four lanes over the same library, increasing in cost:
 
 - **rag** — L1 + L2 in parallel, fused by reciprocal rank; returns hits, no LLM.
-- **fast** — one LLM call over assembled evidence: a glance of the library, L3 claims, and L1/L2 body windows.
+- **fast** — one LLM call over assembled context: a glance of the library, L3 claims, derived L2 episode summaries, and L1/L2 verbatim windows.
 - **deep** — a bounded agentic loop seeded with fast's evidence, with search/fetch/read tools and a forced conclusion when the budget runs out; returns its trail.
 - **briefing** — a byte-stable evidence pack built once on a pinned snapshot, then asked many times.
 
-The fast lane's claim face carries two opt-in stages around its dual-path retrieval (both off by default; the off path is byte-identical). **Planning** (`RECALL_PLAN_QUERIES`): one small call derives extra keyword queries from a multi-aspect question, every query retrieves at full strength, and one RRF fusion pools the union — result-driven multi-round retrieval stays deep's job. **Reranking** (`RECALL_RERANK_MODEL`): a `Reranker` port (core) scores the pooled candidates against the original question and the best `RECALL_CLAIM_CAP` enter the prompt — rank-then-drop, with RRF kept only for dedup, backfill, and the failure fallback. Two providers ship: `llm` (default — the recall-role model pinned to reasoning effort `none`; input-heavy, output-tiny, no extra service) and an OpenRouter `/rerank` endpoint model name (dedicated cross-encoder, billed per search unit). The knob defaults off for a measured reason: on LoCoMo-refined neither provider beat plain capped retrieval — the answering model's own attention over a well-sized claim budget (release default 64, measured sweet band 40–80) is already the effective reranker. Candidate pools are also deduplicated by text containment: an equal or contained claim statement is dropped for the more complete one, which keeps re-filed facts from burning budget slots.
+L1 lexical hits, L2 raw/caption vectors and L2 episode-description vectors are three
+independent rankings. Each path supplies twice the final cap so post-retrieval dedup can
+backfill instead of shrinking recall. Ordinary equal-path RRF rewards agreement, while exact
+lexical-only identifiers and dates can still outrank a broad episode-only match. The fused pool is then
+deduplicated by rank-ordered overlap suppression on `source_id + block span`. An overlapping
+raw/caption or lexical span always owns the citable result over an episode-only span; the
+episode may raise its rank, but cannot replace its more precise evidence. Multiple
+representations therefore improve rank without consuming duplicate answer-window slots or
+chaining overlapping episodes into a mega-window. No retrieval path receives a fixed quota.
+Fast then separates cheap breadth from expensive context: the product defaults retrieve up
+to 80 claim candidates and 60 fused source-span candidates, while the final call receives at
+most 40 claims, 16 explicitly derived episode summaries, and 6 verbatim windows. These are
+corpus-agnostic operating values for an interactive personal/team knowledge base, not rules
+about any particular corpus or question category. The summary face keeps the episode description's
+information density; the smaller raw face keeps exact wording and direct verification.
+The fast response echoes all admitted summaries as `used_episode_summaries`, with mechanical
+`derived=true` and `verbatim=false` labels; the Recall UI renders the same metadata and links
+each summary back to its exact L0 span.
+
+Fast has an opt-in **quality composition** profile over those same parallel views. With
+`evidence_strategy=select`, one structured recall-model call receives broad numbered
+claim/episode/raw candidates plus the canonical glance and returns coordinates only. The
+framework rejects invented coordinates, unions deterministic high-ranked anchors, enforces
+the existing final caps, and follows selected claim and episode provenance back to bounded,
+deduplicated L0 passages. This is ephemeral query composition, never a new authority.
+`answer_format=structured` independently separates answer kind, clean answer text and
+citations; only exact aliased spans present in the evidence are admitted. Either stage is
+fail-soft with explicit degradation telemetry. The selector is serial between retrieval and
+answering, so its latency and token cost are traced separately as
+`recall.fast.evidence_select`; candidate counts and the model's pre-safety-head choice counts
+make its actual contribution observable. Every answering response carries citation-free
+`answer_text` beside the backward-compatible cited `answer`. The default `ranked + text` path
+remains unchanged.
+
+During context assembly, semantic raw/episode spans remain the natural units recorded at
+ingest: they are not expanded a second time, and only genuinely overlapping spans coalesce by
+default. A bare lexical-only block hit expands by just one following block by default;
+bridging
+disjoint nearby spans requires an explicit, domain-validated override.
+
+Answering recall never includes original media merely because its model can consume it. The
+query tool owns that cost/attention decision through the enum-list argument
+`include_original_modalities` (empty by default; currently `image`). When `image` is selected,
+fast and deep's seed evidence replay images attached to the selected L1/L2 body windows:
+immutable L0 bytes are re-read and verified before becoming real image content blocks. When it
+is omitted, fast keeps labelled caption/OCR representations in text form and no original media
+bytes are read. Images outside the selected windows never enter the call, duplicate digests are
+collapsed, and the volatile question remains the final human-message content block.
+
+The fast lane's claim face carries two opt-in stages around its dual-path retrieval (both off by default; the off path is byte-identical). **Planning** (`RECALL_PLAN_QUERIES`): one small call derives extra keyword queries from a multi-aspect question, every query retrieves at full strength, and one RRF fusion pools the union — result-driven multi-round retrieval stays deep's job. **Reranking** (`RECALL_RERANK_MODEL`): a `Reranker` port (core) scores the pooled candidates against the original question and the best `RECALL_CLAIM_CAP` enter the prompt — rank-then-drop, with RRF kept only for dedup, backfill, and the failure fallback. Two providers ship: `llm` (the recall-role model pinned to reasoning effort `none`; input-heavy, output-tiny, no extra service) and an OpenRouter `/rerank` endpoint model name (dedicated cross-encoder, billed per search unit). Reranking is off by default because the ordinary lane already separates a wide candidate pool from a bounded final context; deployments turn it on only after same-harness measurement. Candidate pools are also deduplicated by text containment: an equal or contained claim statement is dropped for the more complete one, which keeps re-filed facts from burning budget slots.
 
 Plus **live context**: given an ongoing conversation window, propose zero or more grounded suggestion cards, filtered through mechanical gates — silence is the norm, not a failure.
 
-Everything resolves through one addressing scheme — `source_id + block span` — so a lexical hit, a semantic chunk, a claim citation, and a verbatim fetch all point into the same block sequence. Answers cite via query-local handles (`s01`, `s02`…) that never leak across one evaluation. Retrieval can be pinned to a snapshot — either a past version (read-only browse) or a frozen copy of the whole tenant — and a pinned query never silently falls back to live data.
+Everything resolves through one addressing scheme — `source_id + block span` — so a lexical hit, a semantic chunk, a claim citation, a verbatim fetch, and block-aligned media all point into the same block sequence. Answers cite via query-local handles (`s01`, `s02`…) that never leak across one evaluation. Retrieval can be pinned to a snapshot — either a past version (read-only browse) or a frozen copy of the whole tenant — and a pinned query never silently falls back to live data.
 
 ## 8. Evolution
 
@@ -125,19 +176,19 @@ Five guarantees that hold everywhere in the code — safe to build on, and they 
 1. **User isolation everywhere.** `user_id` is the first parameter of every port method; each user gets their own canonical library and lexical indexes; the vector store's tenant filter is injected inside the adapter with no unfiltered public path.
 2. **Canonical and derived are distinct types.** Strategy or render upgrades rebuild derived artifacts only.
 3. **L0/L1 reachability is unconditional**, regardless of what the IntakePlan decides about L2/L3.
-4. **One addressing scheme.** All knowledge links back via `source_id + block span`; one citation syntax with one shared parser.
+4. **One addressing scheme.** All knowledge links back via `source_id + block span`; one citation syntax with one shared parser. Block-aligned media resolves through that address rather than through an uncited side channel.
 5. **The system message is byte-stable.** Volatile content travels in the human message.
 
 ## 10. Process topology
 
-Three middleware containers (Postgres, Qdrant, Meilisearch) plus two stateless processes:
+Four middleware containers (Postgres, Qdrant, Meilisearch, RustFS) plus two stateless processes:
 
 - **API** (FastAPI / uvicorn) — ingest, retrieval, review surfaces; also serves SSE streams and the live-context WebSocket.
 - **Worker** — drains the job queue per user, strictly serially (`FOR UPDATE SKIP LOCKED`; one in-flight job per user doubles as the single-writer guarantee for the canonical store). Six job kinds: `compile`, `index`, `challenge`, `evolve`, `evolve_adopt`, `groom`. On restart it re-queues orphaned jobs; any exception completes the job as failed rather than leaving it claimed.
 
 The Git binary is a runtime requirement (the canonical adapter shells out). Async discipline is full-stack: ports and everything touching them are `async`; pure helpers stay sync; unavoidably blocking work (git subprocess, chunking) is wrapped in threads inside adapters.
 
-Model wiring is role-based — compile, recall, deep, skill, evolve, challenge, live-context — each independently configurable, with a single one-hop fallback and a shared default. A `scripted:` model spec replays recorded responses for keyless, deterministic runs; embeddings accept a deterministic `fake:<dim>` for the same purpose. Tracing (Langfuse) is a no-op unless fully configured.
+Model wiring is role-based — compile, recall, answer, deep, skill, evolve, challenge, live-context — each independently configurable, with a single one-hop fallback and a shared default. `recall` owns retrieval planning/glance while `answer` owns only the final fast-answer generation, so quality-first reasoning never taxes every retrieval helper. A `scripted:` model spec replays recorded responses for keyless, deterministic runs; embeddings accept a deterministic `fake:<dim>` for the same purpose. Tracing (Langfuse) is a no-op unless fully configured.
 
 ## 11. The engine directory
 
@@ -145,7 +196,7 @@ Everything that IS a deployment's engine — strategy, the compile contract, pro
 
 ```
 engine/                    # its own git repo; one commit per apply
-  engine.yaml              # the four model roles (compile / recall / deep / embedding)
+  engine.yaml              # model roles + compile image delivery mode
   intake/intake.yaml       # chunk_strategy, semantic_overlap
   compile/contract.md      # the constitution — a DOCUMENT, never decomposed into knobs
   compile/challenge.yaml   # coverage-challenge knobs
@@ -158,7 +209,7 @@ engine/                    # its own git repo; one commit per apply
 
 Three properties make it a mechanism rather than a convention:
 
-- **Precedence is fixed at three levels: process env > engine file > framework default.** Explicit environment wins so a benchmark harness can override per run without dirtying the versioned unit; the engine file is the durable truth a person edits. It is enforced at settings assembly — the engine file's values are handed to `Settings` only for keys the environment leaves unstated.
+- **Precedence is fixed at three levels: process env > engine file > framework default.** Explicit environment wins so operators can apply a temporary process-local override without dirtying the versioned unit; the engine file is the durable truth a person edits. It is enforced at settings assembly — the engine file's values are handed to `Settings` only for keys the environment leaves unstated.
 - **Secrets and infrastructure never enter it.** Connection targets, ports and API keys stay in the deployment's environment; every write refuses a dotfile path and API-key-shaped content.
 - **The picture is derived, never drawn.** A machine-readable engine schema (stages, knobs with their defaults and env names, apply semantics, pipeline edges) is generated from `Settings` metadata plus a hand-authored stage map, and a test pins the two in sync — adding a strategy knob without covering it fails the suite.
 

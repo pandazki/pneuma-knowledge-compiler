@@ -38,10 +38,14 @@ CREATE TABLE IF NOT EXISTS blocks (
     block_index  integer NOT NULL,
     text         text    NOT NULL,
     section_path jsonb   NOT NULL DEFAULT '[]'::jsonb,
+    images       jsonb   NOT NULL DEFAULT '[]'::jsonb,
     PRIMARY KEY (user_id, source_id, block_index),
     FOREIGN KEY (user_id, source_id)
         REFERENCES sources (user_id, source_id) ON DELETE CASCADE
 );
+
+-- Additive v1 migration for databases created before block-aligned image support.
+ALTER TABLE blocks ADD COLUMN IF NOT EXISTS images jsonb NOT NULL DEFAULT '[]'::jsonb;
 
 -- chunk_manifests: byte-deterministic rebuild anchor for semantic L2 chunking (M5).
 -- Semantic chunking asks an LLM for topic/entity boundaries, which are NOT reproducible

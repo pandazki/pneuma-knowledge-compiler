@@ -1,7 +1,7 @@
-"""Restore a library that ships prebuilt — from the two authorities, with no model calls.
+"""Restore a library that ships prebuilt — from its authorities, with no model calls.
 
 A project may ship its compiled library alongside its material (the scaffold's demo mode and
-`examples/opc` both do). Only the two AUTHORITIES are shipped, because they are the only
+`examples/opc` both do). Only the AUTHORITIES are shipped, because they are the only
 things that cannot be recomputed (architecture.md §2):
 
   1. the canonical library — a git bundle, cloned into `<canonical_root>/<user>/`;
@@ -9,6 +9,7 @@ things that cannot be recomputed (architecture.md §2):
      are exactly the ones the restored canonical cites. Re-ingesting the material instead
      could never reproduce them: source ids are system-assigned at ingest, and any change to
      the parsing machinery would shift block boundaries out from under cited spans.
+  3. when L0 contains images, their immutable original bytes under `media/sha256/`.
 
 Everything else is DERIVED and rebuilt here exactly as a rebuild would: L1 lexical, L2
 chunks (per each source's own IntakePlan), L3 projection. Nothing in this module calls a
@@ -19,7 +20,7 @@ Restored sources are marked digested and their queued work is settled rather tha
 shipped canonical already covers them, and compiling them again would spend real money redoing
 a finished build.
 
-Both of those are scoped to THIS bundle. A restore is a load, not a migration: it refuses a
+Those authorities are scoped to THIS bundle. A restore is a load, not a migration: it refuses a
 tenant that holds anything it did not ship (`restore_refusal`), and it only ever settles jobs
 and stamps sources that are in the dump. Marking somebody's own uncompiled material as
 digested would tell them a compile happened that never did — the one failure mode a restore
@@ -30,6 +31,7 @@ from __future__ import annotations
 
 import asyncio
 import gzip
+import hashlib
 import json
 import subprocess
 from dataclasses import dataclass
@@ -39,13 +41,14 @@ from typing import Callable
 
 from pneuma_knowledge_core.domain.ids import UserId
 from pneuma_knowledge_core.domain.source import NormalizedSource
-from pneuma_knowledge_core.ingest.chunking import EmbeddedChunk
 
+from .media_ingest import matches_declared_image_type
 from .projection import rebuild_projection
-from .wiring import AppContext, plan_l2_chunks
+from .wiring import AppContext, embed_l2_chunks, plan_l2_chunks
 
 BUNDLE_NAME = "canonical.bundle"
 L0_DUMP_NAME = "l0.jsonl.gz"
+L0_MEDIA_DIR_NAME = "media"
 SETTLED_DETAIL = "prebuilt library"
 
 
@@ -63,6 +66,7 @@ class PrebuiltRestore:
     indexed: int
     documents: int
     claims: int
+    images: int
 
 
 def prebuilt_authorities(directory: Path) -> tuple[Path, Path]:
@@ -218,6 +222,82 @@ def read_dump(dump: Path) -> list[NormalizedSource]:
         ]
 
 
+def read_prebuilt_media(
+    directory: Path, rows: list[NormalizedSource]
+) -> dict[str, tuple[bytes, str]]:
+    """Read and verify every original image required by a prebuilt L0 dump.
+
+    Validation completes before restore writes anything. The dump's old tenant-scoped object
+    keys are deliberately ignored: restored objects receive keys owned by the target tenant.
+    """
+
+    declared: dict[str, tuple[str, int]] = {}
+    for row in rows:
+        for block in row.blocks:
+            for image in block.images:
+                value = (image.mime_type, image.size_bytes)
+                previous = declared.setdefault(image.sha256, value)
+                if previous != value:
+                    raise PrebuiltUnavailable(
+                        f"image {image.sha256} has conflicting MIME type or size declarations"
+                    )
+    if not declared:
+        return {}
+
+    root = Path(directory) / L0_MEDIA_DIR_NAME / "sha256"
+    result: dict[str, tuple[bytes, str]] = {}
+    for digest, (mime_type, size_bytes) in declared.items():
+        payload = root / digest[:2] / digest
+        if not payload.is_file():
+            raise PrebuiltUnavailable(
+                f"image-bearing prebuilt library is missing {payload}"
+            )
+        data = payload.read_bytes()
+        if hashlib.sha256(data).hexdigest() != digest:
+            raise PrebuiltUnavailable(f"prebuilt media sha256 mismatch: {payload}")
+        if len(data) != size_bytes:
+            raise PrebuiltUnavailable(f"prebuilt media size mismatch: {payload}")
+        if not matches_declared_image_type(data, mime_type):
+            raise PrebuiltUnavailable(
+                f"prebuilt media does not match declared MIME type {mime_type!r}: {payload}"
+            )
+        result[digest] = (data, mime_type)
+    return result
+
+
+async def materialize_prebuilt_media(
+    ctx: AppContext,
+    user_id: UserId,
+    rows: list[NormalizedSource],
+    objects: dict[str, tuple[bytes, str]],
+) -> list[NormalizedSource]:
+    """Store verified originals for the target tenant and retarget every L0 manifest."""
+
+    if not objects:
+        return rows
+    if ctx.media is None:
+        raise PrebuiltUnavailable(
+            "image-bearing prebuilt library requires a configured media store"
+        )
+    keys: dict[str, str] = {}
+    for digest, (data, mime_type) in objects.items():
+        keys[digest] = await ctx.media.put(
+            user_id, data, sha256=digest, mime_type=mime_type
+        )
+
+    retargeted: list[NormalizedSource] = []
+    for row in rows:
+        blocks = []
+        for block in row.blocks:
+            images = [
+                image.model_copy(update={"storage_key": keys[image.sha256]})
+                for image in block.images
+            ]
+            blocks.append(block.model_copy(update={"images": images}))
+        retargeted.append(row.model_copy(update={"blocks": blocks}))
+    return retargeted
+
+
 async def load_l0(
     ctx: AppContext, user_id: UserId, rows: list[NormalizedSource]
 ) -> int:
@@ -299,21 +379,9 @@ async def rebuild_source_indexes(ctx: AppContext, user_id: UserId) -> int:
         chunks = await plan_l2_chunks(ctx, raw.source_id, normalized, user_id)
         if not chunks:
             continue
-        vectors = await ctx.embeddings.aembed_documents([c.text for c in chunks])
         await ctx.vectors.upsert_chunks(
             user_id,
-            [
-                EmbeddedChunk(
-                    source_id=c.source_id,
-                    block_start=c.block_start,
-                    block_end=c.block_end,
-                    text=c.text,
-                    char_start=c.char_start,
-                    char_end=c.char_end,
-                    embedding=vector,
-                )
-                for c, vector in zip(chunks, vectors)
-            ],
+            await embed_l2_chunks(ctx, chunks, normalized),
         )
     return len(sources)
 
@@ -335,6 +403,7 @@ async def restore_prebuilt(
     note = log or (lambda _message: None)
 
     rows = await asyncio.to_thread(read_dump, dump)
+    media_objects = await asyncio.to_thread(read_prebuilt_media, Path(directory), rows)
     dump_ids = {str(row.raw.source_id) for row in rows}
     # Before anything is written: this bundle's work and the tenant's own work must not be the
     # same restore. A refusal here is the whole guard — every step below assumes it passed.
@@ -346,6 +415,9 @@ async def restore_prebuilt(
         if cloned
         else "  canonical already present at this bundle's commit — kept as it is (authoritative)"
     )
+    rows = await materialize_prebuilt_media(ctx, user_id, rows, media_objects)
+    if media_objects:
+        note(f"  L0 media loaded: {len(media_objects)} immutable image object(s)")
     sources = await load_l0(ctx, user_id, rows)
     note(f"  L0 loaded: {sources} source(s), ids bound to the canonical's citations")
     settled = await settle_queue(ctx, user_id, dump_ids)
@@ -362,4 +434,5 @@ async def restore_prebuilt(
         indexed=indexed,
         documents=documents,
         claims=claims,
+        images=len(media_objects),
     )

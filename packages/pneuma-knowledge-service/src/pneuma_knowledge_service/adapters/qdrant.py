@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from pneuma_knowledge_core.domain.ids import UserId, SourceId
 from pneuma_knowledge_core.ports.vector_index import SemanticChunk
@@ -40,6 +40,8 @@ class SemanticHitRow:
     char_end: int
     text: str
     score: float
+    representation: Literal["raw", "episode"] = "raw"
+    episode_summary_text: str = ""
 
 
 @dataclass(frozen=True)
@@ -141,7 +143,8 @@ class QdrantVectorIndex:
                 id=str(
                     uuid.uuid5(
                         _POINT_NS,
-                        f"{user_id}:{c.source_id}:{c.char_start}:{c.char_end}",
+                        f"{user_id}:{c.source_id}:{c.char_start}:{c.char_end}"
+                        + (":episode" if c.representation == "episode" else ""),
                     )
                 ),
                 vector=list(c.embedding),
@@ -154,6 +157,8 @@ class QdrantVectorIndex:
                     "char_end": c.char_end,
                     "text": c.text,
                     "layer": LAYER_CHUNK,
+                    "representation": c.representation,
+                    "episode_summary_text": c.episode_summary_text,
                 },
             )
             for c in chunks
@@ -323,10 +328,12 @@ class QdrantVectorIndex:
         # point copies to one stable id rather than a random one.
         char_start = payload.get("char_start", payload.get("block_start"))
         char_end = payload.get("char_end", payload.get("block_end"))
+        representation = str(payload.get("representation") or "raw")
         return str(
             uuid.uuid5(
                 _POINT_NS,
-                f"{target}:{payload.get('source_id')}:{char_start}:{char_end}",
+                f"{target}:{payload.get('source_id')}:{char_start}:{char_end}"
+                + (":episode" if representation == "episode" else ""),
             )
         )
 
@@ -412,14 +419,30 @@ class QdrantVectorIndex:
         embedding: list[float],
         *,
         limit: int = 20,
+        representation: Literal["raw", "episode"] = "raw",
     ) -> list[SemanticHitRow]:
+        representation_filter = models.FieldCondition(
+            key="representation",
+            match=models.MatchValue(value=representation),
+        )
+        if representation == "raw":
+            # Pre-dual-vector points have no representation tag. They are the historical raw
+            # channel and remain searchable until the next derived rebuild.
+            representation_clause = models.Filter(
+                should=[
+                    representation_filter,
+                    models.IsEmptyCondition(is_empty=models.PayloadField(key="representation")),
+                ],
+            )
+        else:
+            representation_clause = models.Filter(must=[representation_filter])
         response = await self._client.query_points(
             self._collection,
             query=list(embedding),
             # I1: tenant always injected; must_not layer=claim keeps rag L2 to raw
             # chunks (legacy points with no layer still match — they are chunks).
             query_filter=models.Filter(
-                must=_tenant_filter(user_id).must,
+                must=[*_tenant_filter(user_id).must, representation_clause],
                 must_not=[
                     models.FieldCondition(
                         key="layer", match=models.MatchValue(value=LAYER_CLAIM)
@@ -443,6 +466,8 @@ class QdrantVectorIndex:
                     char_end=int(payload.get("char_end", payload["block_end"])),
                     text=payload.get("text", ""),
                     score=float(point.score),
+                    representation=str(payload.get("representation") or "raw"),
+                    episode_summary_text=str(payload.get("episode_summary_text") or ""),
                 )
             )
         return hits

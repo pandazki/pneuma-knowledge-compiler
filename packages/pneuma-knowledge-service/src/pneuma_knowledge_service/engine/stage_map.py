@@ -138,14 +138,14 @@ STAGES: tuple[Stage, ...] = (
                 label_zh="切块策略",
                 description_en=(
                     "semantic = the compile-role model detects topic/episode boundaries and "
-                    "returns block indexes only; sentence / recursive = mechanical chonkie "
-                    "chunkers with no model cost. Existing content keeps its recorded "
-                    "boundaries until rebuild_derived runs."
+                    "returns each segment with a derived episode title/description for "
+                    "embedding; sentence / recursive = mechanical chonkie chunkers with "
+                    "no model cost. Citable chunk text always stays verbatim."
                 ),
                 description_zh=(
-                    "semantic = 由编译角色模型判断话题/情节边界，只返回块下标；"
-                    "sentence / recursive = 机械切分，不花模型钱。已有内容会保留既有边界，"
-                    "直到跑 rebuild_derived 才真正改变。"
+                    "semantic = 由编译角色模型判断话题/情节边界，并为每个段返回"
+                    "用于 embedding 的派生 episode 标题/描述；sentence / recursive = 机械切分，"
+                    "不花模型钱。可引用 chunk 文本始终保持逐字原文。"
                 ),
             ),
             Knob(
@@ -158,21 +158,25 @@ STAGES: tuple[Stage, ...] = (
                 label_en="Segment overlap",
                 label_zh="段落重叠",
                 description_en=(
-                    "Only for the semantic strategy. smart = the model returns closed "
-                    "intervals, so a hinge — the sentence that closes one topic while "
-                    "opening the next — is indexed as part of both segments; how much to "
+                    "Only for the semantic strategy. smart = each returned episode object "
+                    "ends with closed-interval start/end coordinates, so a hinge — the "
+                    "sentence that closes one topic while opening the next — is indexed as "
+                    "part of both segments; how much to "
                     "share is decided per boundary, and at most three blocks ever, which "
                     "is what stops the model from making every segment the whole document. "
-                    "off = the original zero-overlap cut, kept as the baseline every "
-                    "measurement so far was taken with. Existing content keeps its recorded "
-                    "boundaries until rebuild_derived runs."
+                    "off = the original zero-overlap geometry. Episode descriptions created "
+                    "a new prompt baseline, so older boundary-only measurements are not "
+                    "same-harness comparisons. Existing content keeps its recorded boundaries "
+                    "until rebuild_derived runs."
                 ),
                 description_zh=(
-                    "只对 semantic 策略有意义。smart = 模型返回前闭后闭区间，"
+                    "只对 semantic 策略有意义。smart = 每个 episode 对象末尾返回 start/end "
+                    "前闭后闭坐标，"
                     "转折句——那句既收束上一话题、又开启下一话题的话——同时被索引进前后两段；"
                     "共享多少由模型逐个边界判断，且最多三块，正是这个上限让模型无法把每一段"
-                    "都写成全文。off = 原来的零重叠切法，作为此前全部测量所用的基线保留。"
-                    "已有内容会保留既有边界，直到跑 rebuild_derived 才真正改变。"
+                    "都写成全文。off = 原来的零重叠几何形状。episode 描述产生了新提示词基线，"
+                    "旧的 boundary-only 测量不属于同一 harness。已有内容会保留既有边界，"
+                    "直到跑 rebuild_derived 才真正改变。"
                 ),
             ),
         ),
@@ -416,6 +420,77 @@ STAGES: tuple[Stage, ...] = (
                 ),
             ),
             Knob(
+                key="evidence_strategy",
+                type="enum",
+                enum=("ranked", "select"),
+                apply="hot",
+                env="PNEUMA_KNOWLEDGE_RECALL_EVIDENCE_STRATEGY",
+                setting="recall_evidence_strategy",
+                label_en="Evidence composition",
+                label_zh="证据编排",
+                description_en=(
+                    "ranked keeps fixed retrieval heads. select uses one structured model "
+                    "call to compose a mechanically bounded mix of claims, derived episode "
+                    "summaries, verbatim windows, and canonical documents."
+                ),
+                description_zh=(
+                    "ranked 保留固定检索头部；select 用一次结构化模型调用，在断言、派生 "
+                    "episode 摘要、逐字窗口和 canonical 文档之间编排一个受机械上限约束的组合。"
+                ),
+            ),
+            Knob(
+                key="answer_format",
+                type="enum",
+                enum=("text", "structured"),
+                apply="hot",
+                env="PNEUMA_KNOWLEDGE_RECALL_ANSWER_FORMAT",
+                setting="recall_answer_format",
+                label_en="Answer wire format",
+                label_zh="回答线格式",
+                description_en=(
+                    "text is the historical free-text answer. structured separates answer "
+                    "text, answer kind, and citations so exact evidence spans can be validated."
+                ),
+                description_zh=(
+                    "text 是既有自由文本回答；structured 将回答正文、回答类型和引用分开，"
+                    "从而能机械验证精确证据区间。"
+                ),
+            ),
+            Knob(
+                key="selection_reasoning_effort",
+                type="string",
+                apply="hot",
+                env="PNEUMA_KNOWLEDGE_RECALL_SELECTION_REASONING_EFFORT",
+                setting="recall_selection_reasoning_effort",
+                label_en="Selection reasoning effort",
+                label_zh="选择推理强度",
+                description_en=(
+                    "Optional provider reasoning-effort hint for the select call. Empty sends "
+                    "no override and uses the model/provider default."
+                ),
+                description_zh=(
+                    "select 调用的可选 provider 推理强度提示。留空则不发送覆盖值，使用模型或"
+                    "提供方默认值。"
+                ),
+            ),
+            Knob(
+                key="claim_candidate_cap",
+                type="int",
+                apply="hot",
+                env="PNEUMA_KNOWLEDGE_RECALL_CLAIM_CANDIDATE_CAP",
+                setting="recall_claim_candidate_cap",
+                label_en="Claim candidate depth",
+                label_zh="断言候选深度",
+                description_en=(
+                    "How many claims each retrieval face may consider before dedup, optional "
+                    "reranking, and the final answer cap. Index breadth is cheaper than model context."
+                ),
+                description_zh=(
+                    "每条检索路径在去重、可选重排与最终回答上限之前可考虑多少断言。索引广度比模型"
+                    "上下文便宜。"
+                ),
+            ),
+            Knob(
                 key="claim_cap",
                 type="int",
                 apply="hot",
@@ -424,11 +499,44 @@ STAGES: tuple[Stage, ...] = (
                 label_en="Claim budget",
                 label_zh="断言预算",
                 description_en=(
-                    "How many claims one fast ask may pull into the prompt. The default sits "
-                    "inside the measured 40–80 sweet band."
+                    "How many compiled claims may enter the final answer context after broad "
+                    "candidate retrieval."
                 ),
                 description_zh=(
-                    "一次快速问答最多把多少断言放进提示词。默认值落在实测的 40–80 甜区内。"
+                    "宽候选召回之后，最多有多少条已编译断言可进入最终回答上下文。"
+                ),
+            ),
+            Knob(
+                key="window_candidate_cap",
+                type="int",
+                apply="hot",
+                env="PNEUMA_KNOWLEDGE_RECALL_WINDOW_CANDIDATE_CAP",
+                setting="recall_window_candidate_cap",
+                label_en="Source-window candidate depth",
+                label_zh="源窗口候选深度",
+                description_en=(
+                    "How many fused lexical/raw/episode source spans survive retrieval for the "
+                    "episode-summary and verbatim context faces."
+                ),
+                description_zh=(
+                    "有多少条词法／raw／episode 融合源区间可从检索进入 episode 摘要与逐字上下文两面。"
+                ),
+            ),
+            Knob(
+                key="episode_summary_cap",
+                type="int",
+                apply="hot",
+                env="PNEUMA_KNOWLEDGE_RECALL_EPISODE_SUMMARY_CAP",
+                setting="recall_episode_summary_cap",
+                label_en="Episode summary budget",
+                label_zh="Episode 摘要预算",
+                description_en=(
+                    "How many dense, explicitly derived episode summaries may enter the final "
+                    "answer context alongside exact source metadata."
+                ),
+                description_zh=(
+                    "最多有多少条高密度、明确标为派生内容的 episode 摘要可连同精确来源元数据进入最终"
+                    "回答上下文。"
                 ),
             ),
             Knob(
@@ -439,8 +547,10 @@ STAGES: tuple[Stage, ...] = (
                 setting="recall_window_cap",
                 label_en="Source window budget",
                 label_zh="源窗口预算",
-                description_en="How many raw source windows one fast ask may pull in.",
-                description_zh="一次快速问答最多把多少原始源窗口放进来。",
+                description_en=(
+                    "How many exact verbatim source windows may enter the final answer context."
+                ),
+                description_zh="最多有多少个精确逐字源窗口可进入最终回答上下文。",
             ),
             Knob(
                 key="plan_queries",
@@ -500,11 +610,11 @@ STAGES: tuple[Stage, ...] = (
         title_en="Models",
         title_zh="模型",
         summary_en=(
-            "The engine's four model roles. The compile model is the one real quality lever "
+            "The engine's model roles. The compile model is the one real quality lever "
             "— a stronger model directly produces a better library."
         ),
         summary_zh=(
-            "引擎的四个模型角色。编译模型是唯一真正的质量杠杆——更强的模型直接产出更好的库。"
+            "引擎的模型角色。编译模型是唯一真正的质量杠杆——更强的模型直接产出更好的库。"
         ),
         doc="docs/reference/configuration.md#models",
         file="engine.yaml",
@@ -526,6 +636,25 @@ STAGES: tuple[Stage, ...] = (
                 ),
             ),
             Knob(
+                key="image_mode",
+                type="enum",
+                enum=("auto", "caption", "native"),
+                apply="restart",
+                env="PNEUMA_KNOWLEDGE_COMPILE_IMAGE_MODE",
+                setting="compile_image_mode",
+                label_en="Compile image delivery",
+                label_zh="编译图片传递方式",
+                description_en=(
+                    "caption sends labelled caption/OCR text only; native sends those labels "
+                    "plus actual image content blocks; auto uses the active model profile and "
+                    "falls back to caption when capability is unknown."
+                ),
+                description_zh=(
+                    "caption 只发送带来源标签的图片描述/OCR；native 在这些标签之外还发送真正的"
+                    "图片内容块；auto 读取当前模型的能力档案，能力未知时回落到 caption。"
+                ),
+            ),
+            Knob(
                 key="recall",
                 type="string",
                 apply="restart",
@@ -533,8 +662,38 @@ STAGES: tuple[Stage, ...] = (
                 setting="llm_model_recall",
                 label_en="Recall model",
                 label_zh="召回模型",
-                description_en="Fast recall and the briefing ask. Fast and cheap is fine.",
-                description_zh="快速召回与简报问答。又快又便宜就够了。",
+                description_en="Retrieval planning/glance and the briefing ask. Fast and cheap is fine.",
+                description_zh="检索规划/概览与简报问答。又快又便宜就够了。",
+            ),
+            Knob(
+                key="answer",
+                type="string",
+                apply="restart",
+                env="PNEUMA_KNOWLEDGE_LLM_MODEL_ANSWER",
+                setting="llm_model_answer",
+                label_en="Answer model",
+                label_zh="答题模型",
+                description_en=(
+                    "Final fast-answer generation only. Empty borrows the recall role."
+                ),
+                description_zh="只负责快速召回的最终答案。留空则借用召回角色。",
+            ),
+            Knob(
+                key="answer_reasoning_effort",
+                type="enum",
+                enum=("", "none", "minimal", "low", "medium", "high", "xhigh", "max"),
+                apply="restart",
+                env="PNEUMA_KNOWLEDGE_ANSWER_REASONING_EFFORT",
+                setting="answer_reasoning_effort",
+                label_en="Answer reasoning effort",
+                label_zh="答题推理强度",
+                description_en=(
+                    "Reasoning effort sent only on the final fast-answer call; empty keeps "
+                    "the provider default."
+                ),
+                description_zh=(
+                    "只在快速召回的最终答题调用中发送；留空则沿用模型供应商默认值。"
+                ),
             ),
             Knob(
                 key="deep",
@@ -798,6 +957,12 @@ NON_ENGINE_SETTINGS: frozenset[str] = frozenset(
         "qdrant_collection",
         "meili_url",
         "meili_key",
+        "media_s3_endpoint_url",
+        "media_s3_access_key",
+        "media_s3_secret_key",
+        "media_s3_bucket",
+        "media_s3_region",
+        "media_max_image_bytes",
         "canonical_root",
         "cors_allow_origin_regex",
         # Secrets. They never enter the versioned unit, by construction.
@@ -813,7 +978,7 @@ NON_ENGINE_SETTINGS: frozenset[str] = frozenset(
         "llm_timeout",
         "llm_max_retries",
         # The base model spec and the single-hop role fallbacks. `engine.yaml` states the
-        # four roles a person actually chooses; these exist so a role can be split off by
+        # roles a person actually chooses; these exist so a role can be split off by
         # a deployment (or a benchmark harness) without inventing an engine file for it.
         "llm_model",
         "llm_model_skill",

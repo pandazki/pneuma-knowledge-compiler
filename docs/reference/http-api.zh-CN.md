@@ -37,7 +37,8 @@
 | POST | `/…/sources/conversation` | 会话摄入——**已弃用**，请改用契约 |
 | GET | `/…/sources` | 目录，keyset 游标分页（`limit` 1–500、`cursor`、`query`、`kind`） |
 | GET | `/…/sources/activity` | 摄入日历热力图（`offset_minutes` −840…840） |
-| GET | `/…/sources/{source_id}` | 详情：元信息、结构图、blocks |
+| GET | `/…/sources/{source_id}` | 详情：元信息、结构图、blocks 与块级图片清单 |
+| GET | `/…/sources/{source_id}/blocks/{block_index}/images/{image_id}` | 私有图片字节；校验 source/block/image 归属与已存摘要 |
 | POST | `/…/sources/{source_id}/fetch` | 按 `locator` 逐字取 L0 原文 |
 | GET | `/…/summary` | 工作区计数：sources、jobs、documents、claims、snapshots |
 
@@ -45,10 +46,18 @@
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
-| POST | `/…/recall` | body `{query, mode: rag\|fast\|deep, limit, as_of?, snapshot?}` |
+| POST | `/…/recall` | body `{query, mode: rag\|fast\|deep, limit, as_of?, snapshot?, answer_style?, evidence_strategy?: ranked\|select, answer_format?: text\|structured, include_original_modalities?: ("image")[]}` |
 | POST | `/…/recall/stream` | 仅 deep；SSE——每完成一次工具调用发一条 `event: step`，最后 `done`（或 `error`）。步骤级流式，不是 token 流 |
 
-`rag` 返回命中列表（`source_id`、块区间、文本、路径、分数）。`fast`/`deep` 返回答案及其证据：`used_claims`、`used_windows`、`trail`（deep）、`citation_handles`（`sNN` → 真实 source id）、`documents_read`、`snapshot`、`token_usage`。
+`rag` 返回命中列表（`source_id`、块区间、文本、路径、分数）。`fast`/`deep` 同时返回不含引用的语义正文 `answer_text` 与向后兼容的带引用 `answer`，以及其证据：`used_claims`、`used_episode_summaries`（fast）、`used_windows`、`trail`（deep）、`citation_handles`（`sNN` → 真实 source id）、`documents_read`、`snapshot`、`token_usage`。每条 episode 摘要都带来源标题、发生时间、章节与精确块区间，并固定标记 `derived: true` / `verbatim: false`，让客户端不会把生成的 L2 压缩内容当成原文。
+
+fast 调用方可以分别覆盖上下文编排和回答线格式。`evidence_strategy: "select"` 会增加一次串行的结构化 recall 模型调用，在宽断言、episode 摘要和 raw 窗口候选（以及已知 canonical 路径）之间选择受上限约束的组合；非法坐标会被丢弃，失败则回落 ranked 头部。`answer_format: "structured"` 将回答类型、回答正文和引用分开，只准入证据中真实出现过的精确引用区间。响应会回显候选数，以及加入安全锚点和依据回跳前模型实际选中的 claim、episode 与窗口数；同时回显 `evidence_strategy`、`evidence_selection_degraded`、`answer_format`、`answer_kind` 与 `answer_format_degraded`。两个请求字段都只适用于 fast；rag/deep 会拒绝非空值。
+
+`as_of` 是提问发生的时间，不是来源文档的时间。实时问题可以省略；历史回放必须传当时的、带时区的时间戳。scaffold CLI 使用同一契约：`./app.py ask '…' --as-of …`。
+
+`include_original_modalities` 是查询 tool 对成本/注意力的显式选择，不是根据模型能力猜出来的部署默认值。它使用枚举列表，以便未来增加音频/视频时不改 tool 形状；当前唯一值是 `"image"`。纯文本问题保持空列表；只有必须直接视觉核验时才传 `["image"]`，例如判断画中是否出现某物、颜色、文字或布局。未要求原始媒体时，带标签的派生表示仍可使用。答案通过 `included_original_modalities` 与 `original_modality_counts` 回显实际带入的原始模态。原始媒体只适用于 `fast` 与 `deep`；`rag` 返回文本检索命中，非空列表会被拒绝。
+
+Source 详情绝不暴露对象存储 key。每条图片清单只给 `image_id`、MIME 类型、SHA-256、大小、带标签的派生表示和 API URL。浏览器与引用抽屉经服务取这个 URL；S3/RustFS bucket 保持私有。
 
 ## 编译、任务、历史
 

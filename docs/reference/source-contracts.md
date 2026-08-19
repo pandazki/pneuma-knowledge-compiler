@@ -51,7 +51,13 @@ Each document: `document_id`, `path`, `title`, `content`, `frontmatter` (object)
 | `conversations[]` | object, ≥1 | see below |
 | `metadata` | object | free-form |
 
-Each conversation: `conversation_id`, `conversation_type` (`channel` \| `dm` \| `group_dm`), `title`, `member_ids` (⊆ users), `messages[]` (≥1, ids unique), `metadata`. Each message: `message_id`, `sender_id` (⊆ users), `sent_at` (tz-aware), `text`, `thread_id?`, `edited_at?`, `reactions[]` (`name`, `count ≥ 1`), `metadata`.
+Each conversation: `conversation_id`, `conversation_type` (`channel` \| `dm` \| `group_dm`), `title`, `member_ids` (⊆ users), `messages[]` (≥1, ids unique), `metadata`. Each message: `message_id`, `sender_id` (⊆ users), `sent_at` (tz-aware), `text`, `thread_id?`, `edited_at?`, `reactions[]` (`name`, `count ≥ 1`), `images[]`, `metadata`.
+
+**Image scope in v1.** Images are the first supported native-media type and currently exist only on IM messages. An image declares a unique `image_id`, a supported `mime_type` (`image/jpeg`, `image/png`, `image/webp`, `image/gif`), and an immutable `source`: either canonical base64 bytes or a public HTTPS URL, always paired with the expected SHA-256. Import verifies size, digest, and the bytes' image signature before placing the original in private S3-compatible L0 storage. Optional `derived[]` entries are explicitly labelled `caption` or `ocr` text and name their `producer`; they supplement the original and never replace it.
+
+The image belongs to the message's ordinary normalized block. Consequently a claim keeps the existing citation form, such as `[cite: <source-id> ¶7]`, and that one locator resolves both the message text and its images. In `caption` compile mode the model receives labelled derived text only, and compilation fails loudly if any image has neither caption nor OCR. In `native` mode it also receives verified image content blocks. `auto` uses the active model profile and falls back to `caption` if image capability is unknown. Fast recall applies the same caption/native distinction to images overlapping its selected raw windows, so an image fact can still be answered with the original block citation even when the compile contract did not elevate it into a canonical claim. Audio, video, generic files, meeting media and email attachment bodies are not native-media inputs in this schema version.
+
+Frozen knowledge-base snapshots server-side-copy every referenced object into the snapshot tenant before becoming ready. An image-bearing `prebuilt/` library likewise ships each original at `media/sha256/<first-two>/<sha256>` beside `l0.jsonl.gz`; restore verifies digest, size and signature, writes it under the target tenant, and retargets the L0 manifest. Missing media rejects the restore before canonical or L0 rows are written.
 
 ## `pneuma.source.email/v1`
 
@@ -78,6 +84,6 @@ Upstream formats the shipped adapters were written against: Zoom meeting transcr
 
 ## Importing
 
-- **HTTP**: `POST /v1/users/{uid}/sources/import` with the bare contract payload as the body. The response reports the matched `contract_schema` and one entry per expanded source (see [http-api.md](http-api.md)).
-- **Programmatic**: `parse_source_contract(payload)` validates; `normalize_source_contract(...)` expands into normalized sources.
+- **HTTP**: `POST /v1/users/{uid}/sources/import` with the bare contract payload as the body. The service materializes declared images before normalization. The response reports the matched `contract_schema` and one entry per expanded source (see [http-api.md](http-api.md)).
+- **Programmatic**: `parse_source_contract(payload)` validates. Image-bearing callers first materialize images through `materialize_contract_images(...)`, then pass that result as `materialized_images` to `normalize_source_contract(...)`; text-only contracts normalize directly.
 - **From real provider exports**: `scripts/ops/import_source.py` converts and imports in one step — `--provider {mock, obsidian, zoom, slack, email}` covering canonical JSON, an Obsidian vault, a Zoom VTT transcript, a Slack export zip, and RFC-822 mail.

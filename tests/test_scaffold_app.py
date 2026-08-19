@@ -372,6 +372,11 @@ def test_console_profile_starts_api_worker_and_web_over_this_project():
         (ROOT / "scaffold" / "templates" / "docker-compose.yml").read_text(encoding="utf-8")
     )
     services = compose["services"]
+    assert services["rustfs"]["image"].startswith("rustfs/rustfs@sha256:")
+    assert services["rustfs"]["ports"] == [
+        "127.0.0.1:${PNEUMA_APP_RUSTFS_PORT:-19004}:9000",
+        "127.0.0.1:${PNEUMA_APP_RUSTFS_CONSOLE_PORT:-19005}:9001",
+    ]
     for name in ("api", "worker", "web"):
         assert services[name]["profiles"] == ["console"], name
         assert "${PNEUMA_APP_FRAMEWORK_REPO" in services[name]["build"]["context"], name
@@ -384,6 +389,16 @@ def test_console_profile_starts_api_worker_and_web_over_this_project():
         env = services[name]["environment"]
         assert env["PNEUMA_KNOWLEDGE_ENGINE_DIR"] == "/project/engine"
         assert env["PNEUMA_KNOWLEDGE_CANONICAL_ROOT"] == "/project/data/canonical"
+        assert env["PNEUMA_KNOWLEDGE_MEDIA_S3_ENDPOINT_URL"] == "http://rustfs:9000"
+        assert env["LANGFUSE_SECRET_KEY"] == "${LANGFUSE_SECRET_KEY:-}"
+        assert env["LANGFUSE_PUBLIC_KEY"] == "${LANGFUSE_PUBLIC_KEY:-}"
+        assert env["LANGFUSE_BASE_URL"] == (
+            "${PNEUMA_APP_LANGFUSE_BASE_URL_CONTAINER:-${LANGFUSE_BASE_URL:-}}"
+        )
+        assert services[name]["extra_hosts"] == [
+            "host.docker.internal:host-gateway",
+            "localhost:${PNEUMA_APP_LANGFUSE_LOCALHOST_GATEWAY:-127.0.0.1}",
+        ]
 
     # The web image is the framework's shared compose asset, on its own probed port, and it
     # waits for a healthy API (nginx proxies /v1 to it).
@@ -393,6 +408,48 @@ def test_console_profile_starts_api_worker_and_web_over_this_project():
     assert (ROOT / "docker" / "nginx.compose.conf").is_file()
     assert web["ports"] == ["127.0.0.1:${PNEUMA_APP_WEB_PORT:-18081}:80"]
     assert web["depends_on"] == {"api": {"condition": "service_healthy"}}
+
+
+def test_cli_ask_replays_original_modalities_only_when_the_caller_requests_them():
+    app = (ROOT / "scaffold" / "templates" / "app.py").read_text(encoding="utf-8")
+    ask = app[app.index("async def _ask(") : app.index("async def _status()")]
+    assert 'include_original_images = "image" in include_original_modalities' in ask
+    assert "media=ctx.media if include_original_images else None" in ask
+    assert 'image_mode="native" if include_original_images else "caption"' in ask
+    assert '"--include-original"' in app
+    assert 'choices=["image"]' in app
+
+
+def test_cli_ask_exposes_fast_context_composition_without_new_lane_names():
+    app_text = (ROOT / "scaffold" / "templates" / "app.py").read_text(encoding="utf-8")
+    ask = app_text[app_text.index("async def _ask(") : app_text.index("async def _status()")]
+    assert "evidence_strategy=evidence_strategy or settings.recall_evidence_strategy" in ask
+    assert "answer_format=answer_format or settings.recall_answer_format" in ask
+    assert "selection_reasoning_effort=settings.recall_selection_reasoning_effort or None" in ask
+    assert '"--evidence-strategy"' in app_text
+    assert 'choices=["ranked", "select"]' in app_text
+    assert '"--answer-format"' in app_text
+    assert 'choices=["text", "structured"]' in app_text
+
+
+def test_cli_ask_accepts_an_explicit_historical_as_of():
+    app_text = (ROOT / "scaffold" / "templates" / "app.py").read_text(encoding="utf-8")
+    ask = app_text[app_text.index("async def _ask(") : app_text.index("async def _status()")]
+    assert "as_of: datetime | None = None" in ask
+    assert "as_of=as_of or datetime.now(timezone.utc)" in ask
+    assert "as_of=parse_as_of(args.as_of)" in ask
+    assert '"--as-of"' in app_text
+    assert "timezone-aware ISO 8601" in app_text
+
+    assert app.parse_as_of("2025-06-20T21:00:00Z").isoformat() == (
+        "2025-06-20T21:00:00+00:00"
+    )
+    assert app.parse_as_of("2025-06-20T21:00:00+08:00").utcoffset().total_seconds() == 28800
+    assert app.parse_as_of(None) is None
+    with pytest.raises(SystemExit, match="must include a timezone offset"):
+        app.parse_as_of("2025-06-20T21:00:00")
+    with pytest.raises(SystemExit, match="timezone-aware ISO 8601"):
+        app.parse_as_of("not-a-time")
 
 
 def test_the_compose_web_image_talks_to_the_real_engine_routes():
@@ -485,11 +542,11 @@ def test_preflight_catches_project_generated_outside_the_repo(tmp_path):
 
 
 ENGINE_FILES = {
-    "engine.yaml": 'compile: openrouter:openai/x\nrecall: openrouter:openai/x\ndeep: ""\nembedding: openrouter:openai/y\n',
+    "engine.yaml": 'compile: openrouter:openai/x\nrecall: openrouter:openai/x\nanswer: openrouter:openai/x-pro\nanswer_reasoning_effort: high\ndeep: ""\nembedding: openrouter:openai/y\n',
     "intake/intake.yaml": "chunk_strategy: sentence\n",
     "compile/challenge.yaml": "enabled: true\nmax_rounds: 3\nmax_questions: 6\ncompensate: true\n",
     "evolve/evolve.yaml": "auto_trigger: false\ntrigger_topic_docs: 5\ntrigger_new_claims: 30\ndraft_ttl_hours: 24\n",
-    "recall/recall.yaml": 'answer_style: concise\nclaim_cap: 80\nwindow_cap: 8\nplan_queries: 2\nrerank_model: ""\nrerank_candidates: 120\n',
+    "recall/recall.yaml": 'answer_style: concise\nevidence_strategy: select\nanswer_format: structured\nselection_reasoning_effort: medium\nclaim_candidate_cap: 100\nclaim_cap: 50\nwindow_candidate_cap: 70\nepisode_summary_cap: 30\nwindow_cap: 7\nplan_queries: 2\nrerank_model: ""\nrerank_candidates: 120\n',
     "persona/profile.yaml": 'display_name: "T"\n',
 }
 
@@ -513,9 +570,18 @@ def _engine(monkeypatch, tmp_path, files: dict[str, str] | None = None) -> Path:
         "PNEUMA_KNOWLEDGE_CHUNK_STRATEGY",
         "PNEUMA_KNOWLEDGE_EMBEDDING_MODEL",
         "PNEUMA_KNOWLEDGE_RECALL_ANSWER_STYLE",
+        "PNEUMA_KNOWLEDGE_RECALL_CLAIM_CANDIDATE_CAP",
         "PNEUMA_KNOWLEDGE_RECALL_CLAIM_CAP",
+        "PNEUMA_KNOWLEDGE_RECALL_WINDOW_CANDIDATE_CAP",
+        "PNEUMA_KNOWLEDGE_RECALL_EPISODE_SUMMARY_CAP",
+        "PNEUMA_KNOWLEDGE_RECALL_WINDOW_CAP",
+        "PNEUMA_KNOWLEDGE_RECALL_EVIDENCE_STRATEGY",
+        "PNEUMA_KNOWLEDGE_RECALL_ANSWER_FORMAT",
+        "PNEUMA_KNOWLEDGE_RECALL_SELECTION_REASONING_EFFORT",
         "PNEUMA_KNOWLEDGE_LLM_MODEL_COMPILE",
         "PNEUMA_KNOWLEDGE_LLM_MODEL_RECALL",
+        "PNEUMA_KNOWLEDGE_LLM_MODEL_ANSWER",
+        "PNEUMA_KNOWLEDGE_ANSWER_REASONING_EFFORT",
         "PNEUMA_KNOWLEDGE_LLM_MODEL_DEEP",
         "PNEUMA_KNOWLEDGE_PROMPT_LANGUAGE",
     ):
@@ -535,12 +601,21 @@ def test_build_settings_resolves_strategy_from_the_engine_directory(monkeypatch,
     assert settings.engine_dir == str(tmp_path / "engine")
     assert settings.chunk_strategy == "sentence"
     assert settings.recall_answer_style == "concise"
-    assert settings.recall_claim_cap == 80
+    assert settings.recall_claim_candidate_cap == 100
+    assert settings.recall_claim_cap == 50
+    assert settings.recall_window_candidate_cap == 70
+    assert settings.recall_episode_summary_cap == 30
+    assert settings.recall_window_cap == 7
+    assert settings.recall_evidence_strategy == "select"
+    assert settings.recall_answer_format == "structured"
+    assert settings.recall_selection_reasoning_effort == "medium"
     assert settings.recall_plan_queries == 2
     assert settings.challenge_enabled is True
     assert settings.challenge_max_rounds == 3
     assert settings.evolve_auto_trigger is False
     assert settings.llm_model_compile == "openrouter:openai/x"
+    assert settings.llm_model_answer == "openrouter:openai/x-pro"
+    assert settings.answer_reasoning_effort == "high"
     assert settings.embedding_model == "openrouter:openai/y"
     # `deep` empty in the engine file means "answer deep questions with the recall model".
     assert settings.llm_model_deep == "openrouter:openai/x"

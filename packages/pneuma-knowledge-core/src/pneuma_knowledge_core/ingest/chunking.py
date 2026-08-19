@@ -27,9 +27,10 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from typing import Literal
 
 from ..domain.ids import SourceId
-from ..domain.source import NormalizedBlock, StructureMap
+from ..domain.source import NormalizedBlock, RawSource, StructureMap
 
 # chonkie's default 'character' tokenizer counts ~1 token/char, so for CJK text chunk_size
 # is effectively a character budget (768 ≈ a comfortable paragraph). See build_chunker.
@@ -71,11 +72,23 @@ class Chunk:
     text: str
     char_start: int
     char_end: int
+    # Optional derived retrieval representation. Semantic chunking fills these from the
+    # same model response that chose the episode boundary; mechanical chunkers leave them
+    # empty. They enrich vector meaning only and are never source text or citation evidence.
+    episode_title: str = ""
+    episode_description: str = ""
+    # The parent episode's exact source span.  A long episode can be split into several raw
+    # chunks, but its derived representation is embedded ONCE under this parent address.
+    # Mechanical chunks and legacy boundary-only callers leave these unset.
+    episode_block_start: int | None = None
+    episode_block_end: int | None = None
+    episode_char_start: int | None = None
+    episode_char_end: int | None = None
 
 
 @dataclass(frozen=True)
 class EmbeddedChunk:
-    """A Chunk plus its embedding — the concrete VectorIndex.upsert_chunks input."""
+    """One independently ranked L2 representation over a citable source span."""
 
     source_id: SourceId
     block_start: int
@@ -84,6 +97,71 @@ class EmbeddedChunk:
     char_start: int
     char_end: int
     embedding: list[float]
+    representation: Literal["raw", "episode"] = "raw"
+    # Dense derived L2 content. Raw points leave it empty; episode points carry the same
+    # representation that was embedded. Recall labels it explicitly as a generated episode
+    # summary and adds L0 metadata; it never masquerades as verbatim source.
+    episode_summary_text: str = ""
+
+
+def embedding_text_for_chunk(
+    chunk: Chunk,
+    blocks: list[NormalizedBlock],
+    *,
+    raw: RawSource | None = None,
+) -> str:
+    """The raw L2 vector input for one verbatim chunk.
+
+    The stored chunk text and its exact char span remain a byte-for-byte L0 slice.
+    Source context and labelled caption/OCR text attached to covered blocks are added only to
+    the embedding input.  Episode title/description deliberately do NOT enter this vector:
+    they are independently embedded and ranked, then deduplicated with raw hits after recall.
+    That separation prevents a broad episode narrative from diluting names, dates, objects or
+    a caption that distinguish one raw slice.
+    """
+
+    context_lines = raw.retrieval_context_lines() if raw is not None else []
+    media_lines = [
+        line
+        for block in sorted(blocks, key=lambda item: item.index)
+        if chunk.block_start <= block.index <= chunk.block_end
+        for line in block.derived_media_index_lines()
+    ]
+    if not context_lines and not media_lines:
+        return chunk.text
+    return "\n".join([*context_lines, *media_lines, chunk.text])
+
+
+def episode_summary_text_for_chunk(chunk: Chunk) -> str | None:
+    """Dense generated episode content without independently resolved source metadata."""
+
+    episode_lines = []
+    if chunk.episode_title:
+        episode_lines.append(f"[episode title] {chunk.episode_title}")
+    if chunk.episode_description:
+        episode_lines.append(f"[episode description] {chunk.episode_description}")
+    if not episode_lines:
+        return None
+    return "\n".join(episode_lines)
+
+
+def embedding_text_for_episode(
+    chunk: Chunk,
+    *,
+    raw: RawSource | None = None,
+) -> str | None:
+    """The episode-only L2 vector input, or ``None`` for a mechanical chunk.
+
+    It contains no verbatim chunk and no caption/OCR payload. Those have their own raw
+    vectors. Source metadata enriches embedding meaning but is not copied into the retained
+    summary payload; recall resolves current metadata mechanically from L0.
+    """
+
+    summary = episode_summary_text_for_chunk(chunk)
+    if summary is None:
+        return None
+    context_lines = raw.retrieval_context_lines() if raw is not None else []
+    return "\n".join([*context_lines, summary])
 
 
 def build_chunker(
@@ -223,6 +301,12 @@ def enforce_max_chars(
                     text=sub,
                     char_start=cs,
                     char_end=ce,
+                    episode_title=ch.episode_title,
+                    episode_description=ch.episode_description,
+                    episode_block_start=ch.episode_block_start,
+                    episode_block_end=ch.episode_block_end,
+                    episode_char_start=ch.episode_char_start,
+                    episode_char_end=ch.episode_char_end,
                 )
             )
     return out

@@ -8,6 +8,7 @@ that isolation is the strongest versioning primitive in the system — so versio
 rather than adding a history dimension to three indexes:
 
   L0  PG `sources` / `blocks`          → INSERT…SELECT with the user_id rewritten
+      S3-compatible image objects      → copied to the frozen tenant namespace
   L1  Meilisearch `blocks_<tenant>`    → re-derived from the copied L0 rows
   L2  Qdrant chunk points              → copied WITH their original vectors
   L3  PG `canonical_claims`            → INSERT…SELECT with the user_id rewritten
@@ -229,7 +230,7 @@ async def run_copy(ctx: AppContext, owner: UserId, snapshot: KbSnapshot) -> KbSn
     """The copy pipeline: vector points → PG rows → pinned ref → lexical faces → status.
 
     THE ORDER IS THE CORRECTNESS ARGUMENT, not a convenience. A live base keeps ingesting and
-    compiling while the copy runs — there is no transaction spanning three stores — so the
+    compiling while the copy runs — there is no transaction spanning four stores — so the
     snapshot is taken over a WINDOW, and different layers can land at slightly different
     moments. What must never happen is a DANGLING REFERENCE: a piece of evidence in the
     snapshot pointing at something the snapshot does not contain. The order makes each layer a
@@ -239,15 +240,18 @@ async def run_copy(ctx: AppContext, owner: UserId, snapshot: KbSnapshot) -> KbSn
        outrun the source rows. Copied first, it can only be a subset of step 2.
     2. **PG next**, in one transaction: sources + blocks + the claim projection together. So
        every point's source row is present, and every copied claim's cited sources are too.
-    3. **The pinned canonical ref is read HERE**, after the claim rows. A claim names its
+    3. **L0 media next.** Every copied image object moves into the frozen tenant namespace,
+       and the copied block manifests are mechanically rewritten to those new keys. The
+       original tenant remains independent and snapshot deletion cannot remove its bytes.
+    4. **The pinned canonical ref is read HERE**, after the claim rows. A claim names its
        `document_path`, and `read_document` resolves that path in the tree at this ref — so
        the tree must be no OLDER than the claim rows, or a snapshot answer could cite a
        document its own tools cannot open. The ref recorded at creation is only provisional
        for exactly this reason; on a live base it can be minutes stale by now.
-    4. **Meilisearch last**, re-derived from the rows copied in step 2, so both lexical faces
+    5. **Meilisearch last**, re-derived from the rows copied in step 2, so both lexical faces
        are consistent with the frozen L0 by construction rather than by timing.
 
-    5. **The completeness identity is asserted LAST**, after every layer has landed and
+    6. **The completeness identity is asserted LAST**, after every layer has landed and
        before the row is marked ready: `points − chunks == claims`. See the step itself.
 
     The residual skew is benign and one-directional: a source or claim copied in step 2 may
@@ -267,11 +271,28 @@ async def run_copy(ctx: AppContext, owner: UserId, snapshot: KbSnapshot) -> KbSn
         counts = await ctx.store.copy_tenant_rows(owner, tenant)
         counts["points"] = points
 
-        # 3. Pin the tree that can resolve the claim rows just copied.
+        # 3. Copy authoritative media and retarget the frozen L0 manifests. Read the copied
+        # rows themselves: on a retry their keys may already name the frozen tenant, which
+        # MediaStore treats as an idempotent identity mapping.
+        media_objects = await ctx.store.list_media_objects(tenant)
+        if media_objects:
+            if ctx.media is None:
+                raise RuntimeError("snapshot contains images but no media store is configured")
+            replacements = await ctx.media.copy_user(owner, tenant, media_objects)
+            rewritten = await ctx.store.rewrite_media_keys(tenant, replacements)
+            expected = 0
+            for raw in await ctx.store.list(tenant):
+                normalized = await ctx.store.get(tenant, raw.source_id)
+                expected += sum(len(block.images) for block in normalized.blocks)
+            if rewritten != expected:
+                raise RuntimeError("not every copied image manifest was retargeted")
+            counts["images"] = rewritten
+
+        # 4. Pin the tree that can resolve the claim rows just copied.
         head = await ctx.canonical.snapshots(owner)
         canonical_ref = head[0].ref if head else snapshot.canonical_ref
 
-        # 4. L1 + L3 lexical, re-derived from the copied rows. Per source, because that is the
+        # 5. L1 + L3 lexical, re-derived from the copied rows. Per source, because that is the
         # granularity `index_blocks` takes and it keeps each request's payload bounded.
         for raw in await ctx.store.list(tenant):
             normalized = await ctx.store.get(tenant, raw.source_id)
@@ -281,7 +302,7 @@ async def run_copy(ctx: AppContext, owner: UserId, snapshot: KbSnapshot) -> KbSn
         ]
         await ctx.lexical.index_claims(tenant, claims)
 
-        # 5. COMPLETENESS, before `ready` and never after. The collection holds both layers
+        # 6. COMPLETENESS, before `ready` and never after. The collection holds both layers
         # under one tenant, so the copy's own numbers state an identity: every point is
         # either an L2 chunk or an L3 claim, and the claim points must be exactly the claim
         # rows copied in step 2. `points − chunks == claims` is that identity, and it is
@@ -314,7 +335,7 @@ async def run_copy(ctx: AppContext, owner: UserId, snapshot: KbSnapshot) -> KbSn
 
 
 async def delete(ctx: AppContext, owner: UserId, snapshot_id: str) -> bool:
-    """Delete a snapshot: purge its tenant from all three stores, then drop the registry row.
+    """Delete a snapshot: purge its tenant from every store, then drop the registry row.
 
     Stores first, row last. If a store purge fails the row survives, so the snapshot is still
     listed and still deletable — the alternative (row first) would strand tenant data that
@@ -328,6 +349,8 @@ async def delete(ctx: AppContext, owner: UserId, snapshot_id: str) -> bool:
     tenant = snapshot.tenant_id
     await ctx.vectors.delete_user(tenant)
     await ctx.lexical.delete_user(tenant)
+    if ctx.media is not None:
+        await ctx.media.delete_user(tenant)
     await ctx.store.delete_tenant_rows(tenant)
     await ctx.store.delete_kb_snapshot(owner, snapshot.snapshot_id)
     return True

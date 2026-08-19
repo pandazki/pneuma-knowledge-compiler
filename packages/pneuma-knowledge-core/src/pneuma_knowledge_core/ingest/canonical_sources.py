@@ -10,8 +10,10 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import datetime
+from typing import Mapping
+
 from ..domain.ids import SourceId, UserId
-from ..domain.source import NormalizedBlock, NormalizedSource, RawSource
+from ..domain.source import BlockImage, NormalizedBlock, NormalizedSource, RawSource
 from ..domain.time_context import TimeContext
 from ..prompts import prompt
 from .adapters import MarkdownDocumentAdapter, PlainDocumentInput, stamp_occurred_on
@@ -221,7 +223,10 @@ def _library(
 
 
 def _im(
-    source: ImSource, user_id: UserId, time: TimeContext | None = None
+    source: ImSource,
+    user_id: UserId,
+    time: TimeContext | None = None,
+    materialized_images: Mapping[str, BlockImage] | None = None,
 ) -> list[NormalizedSource]:
     users = {item.user_id: item for item in source.users}
     owners = set(source.owner_user_ids)
@@ -238,6 +243,25 @@ def _im(
             label = sender.display_name
             if sender.user_id in owners:
                 label = prompt("ingest.owner_wrapped", label=label)
+            images: list[BlockImage] = []
+            for declared in message.images:
+                if (
+                    materialized_images is None
+                    or declared.image_id not in materialized_images
+                ):
+                    raise ValueError(
+                        f"image {declared.image_id!r} must be materialized before normalization"
+                    )
+                stored = materialized_images[declared.image_id]
+                if (
+                    stored.image_id != declared.image_id
+                    or stored.mime_type != declared.mime_type
+                    or stored.sha256 != declared.source.sha256
+                ):
+                    raise ValueError(
+                        f"materialized image {declared.image_id!r} does not match its declaration"
+                    )
+                images.append(stored)
             blocks.append(
                 NormalizedBlock(
                     index=index,
@@ -245,6 +269,7 @@ def _im(
                         "ingest.turn_line", label=label, text=message.text
                     ),
                     section_path=[_local_day(message.sent_at, time)],
+                    images=images,
                 )
             )
         raw = _raw(
@@ -286,6 +311,11 @@ def _im(
                             reaction.model_dump(mode="json")
                             for reaction in item.reactions
                         ],
+                        **(
+                            {"image_ids": [image.image_id for image in item.images]}
+                            if item.images
+                            else {}
+                        ),
                     }
                     for item in messages
                 ],
@@ -402,6 +432,7 @@ def normalize_source_contract(
     *,
     imported_at: datetime,
     time: TimeContext | None = None,
+    materialized_images: Mapping[str, BlockImage] | None = None,
 ) -> list[NormalizedSource]:
     """Expand one official contract into immutable compiler sources.
 
@@ -415,7 +446,7 @@ def normalize_source_contract(
     if isinstance(source, DocumentLibrarySource):
         return _library(source, user_id, imported_at)
     if isinstance(source, ImSource):
-        return _im(source, user_id, time)
+        return _im(source, user_id, time, materialized_images)
     if isinstance(source, EmailSource):
         return _email(source, user_id, time)
     raise TypeError(f"unsupported source contract: {type(source)!r}")

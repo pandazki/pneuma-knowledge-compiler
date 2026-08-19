@@ -8,6 +8,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from langchain_core.embeddings import DeterministicFakeEmbedding, Embeddings
+from langchain_core.language_models.chat_models import BaseChatModel
+from pneuma_knowledge_core.domain.source import NormalizedSource
 from pneuma_knowledge_core.ingest.adapters import (
     CONTEXT_STREAM_MIME,
     AdapterRegistry,
@@ -15,13 +18,20 @@ from pneuma_knowledge_core.ingest.adapters import (
     MarkdownDocumentAdapter,
     PlainConversationAdapter,
 )
-from langchain_core.embeddings import DeterministicFakeEmbedding, Embeddings
-from langchain_core.language_models.chat_models import BaseChatModel
+from pneuma_knowledge_core.ingest.chunking import (
+    Chunk,
+    EmbeddedChunk,
+    embedding_text_for_episode,
+    embedding_text_for_chunk,
+    episode_summary_text_for_chunk,
+    join_blocks,
+)
 
 from .adapters.git_canonical import GitCanonicalStore
 from .adapters.meilisearch import MeiliLexicalIndex
 from .adapters.postgres import PostgresStore
 from .adapters.qdrant import QdrantVectorIndex
+from .adapters.s3_media import S3MediaStore
 from .adapters.scripted_model import load_scripted_model
 from .adapters.user_info_mock import MockUserInfoProvider
 from .adapters.user_info_provider_composite import PersistedThenMockUserInfoProvider
@@ -41,16 +51,19 @@ def build_chunker(settings: Settings):
     )
 
 
-async def full_l2_chunks(ctx: "AppContext", source_id, blocks, structure, user_id):
+async def full_l2_chunks(
+    ctx: "AppContext", source_id, blocks, structure, user_id, *, raw=None
+):
     """Build the ``semantic_indexing="full"`` L2 chunks per the configured strategy.
 
     - ``chunk_strategy`` in {``sentence``, ``recursive``} → the pure chonkie
       ``chunk_source`` (mechanical, no LLM).
     - ``chunk_strategy == "semantic"`` → ``semantic_chunk_source`` with the configured model (the
-      ``compile`` role model via OpenRouter) detecting topic/entity boundaries, and a
-      chonkie SentenceChunker (built from settings) as the over-long-segment sub-splitter.
-      The LLM boundary call runs ONLY here (actual L2 indexing) — preview never reaches
-      this helper, so preview stays cheap/mechanical.
+      ``compile`` role model via OpenRouter) returning topic/entity boundaries plus a
+      derived episode title/description in one structured response, and a chonkie
+      SentenceChunker (built from settings) as the over-long-segment sub-splitter. The LLM
+      episode call runs ONLY here (actual L2 indexing) — preview never reaches this helper,
+      so preview stays cheap/mechanical.
 
     Centralized so both ingest flows and the re-index script share one dispatch."""
     from pneuma_knowledge_core.ingest.chunking import build_chunker as _build
@@ -77,12 +90,14 @@ async def full_l2_chunks(ctx: "AppContext", source_id, blocks, structure, user_i
     )
     if semantic:
         from pneuma_knowledge_core.ingest.semantic import (
+            MANIFEST_VERSION,
             blocks_content_digest,
             chunk_result_digest,
-            decode_manifest_segments,
-            encode_manifest_segments,
+            decode_manifest_episodes,
+            describe_semantic_episodes,
+            encode_manifest_episodes,
             semantic_chunk_source,
-            semantic_segments,
+            semantic_episodes,
         )
 
         # Sub-splitter for over-long single units: always the sentence chunker (with
@@ -93,10 +108,10 @@ async def full_l2_chunks(ctx: "AppContext", source_id, blocks, structure, user_i
         cfg = llm_call_config(
             ctx, operation="chunk.semantic", user_id=str(user_id)
         )
-        # Manifest-anchored determinism: the LLM boundary call is non-reproducible, so a
+        # Manifest-anchored determinism: the LLM episode call is non-reproducible, so a
         # source whose content + strategy + model is unchanged REPLAYS its recorded
-        # segments instead of re-detecting — a re-index is then byte-identical (I2). Only
-        # a first ingest or a genuine change (edited source, model swap) calls the LLM.
+        # episodes instead of regenerating them — a re-index is then byte-identical (I2).
+        # Only a first ingest or a genuine change (edited source, model swap) calls the LLM.
         model_spec = resolve_model_name(ctx.settings, "compile")
         overlap = ctx.settings.semantic_overlap
         digest = blocks_content_digest(blocks)
@@ -107,7 +122,7 @@ async def full_l2_chunks(ctx: "AppContext", source_id, blocks, structure, user_i
         # the OLD mode produced, forever. A mismatch re-detects — which is exactly what
         # "takes effect on the next rebuild" means.
         recorded = (
-            decode_manifest_segments(
+            decode_manifest_episodes(
                 manifest["segments"],
                 block_indices=sorted(b.index for b in blocks),
             )
@@ -118,28 +133,59 @@ async def full_l2_chunks(ctx: "AppContext", source_id, blocks, structure, user_i
             else None
         )
         replay = recorded is not None and recorded[1] == overlap
+        migrated_legacy = False
         if replay:
-            segments = recorded[0]
+            episodes = recorded[0]
+            envelope = manifest.get("segments")
+            if not (
+                isinstance(envelope, dict)
+                and envelope.get("version") == MANIFEST_VERSION
+            ):
+                describe_cfg = llm_call_config(
+                    ctx,
+                    operation="chunk.semantic.describe",
+                    user_id=str(user_id),
+                )
+                episodes = await describe_semantic_episodes(
+                    blocks,
+                    episodes,
+                    model=ctx.get_chat_model("compile"),
+                    source_context=(
+                        raw.retrieval_context_lines() if raw is not None else None
+                    ),
+                    **describe_cfg,
+                )
+                migrated_legacy = True
         else:
-            segments = await semantic_segments(
-                blocks, model=ctx.get_chat_model("compile"), overlap=overlap, **cfg
+            episodes = await semantic_episodes(
+                blocks,
+                model=ctx.get_chat_model("compile"),
+                overlap=overlap,
+                source_context=(raw.retrieval_context_lines() if raw is not None else None),
+                **cfg,
             )
         chunks = await semantic_chunk_source(
             source_id,
             blocks,
             structure,
-            segments=segments,
+            episodes=episodes,
             sub_chunker=sub_chunker,
+            max_chunk_chars=ctx.settings.chunk_size,
         )
-        if not replay:
+        result_digest = chunk_result_digest(chunks)
+        if (
+            not replay
+            or migrated_legacy
+            or manifest.get("result_digest") != result_digest
+        ):
             await ctx.store.put_chunk_manifest(
                 user_id,
                 source_id,
                 strategy="semantic",
                 model=model_spec,
                 content_digest=digest,
-                segments=encode_manifest_segments(segments, overlap=overlap),
-                result_digest=chunk_result_digest(chunks),
+                segments=encode_manifest_episodes(episodes, overlap=overlap),
+                result_digest=result_digest,
             )
         return chunks
     # Mechanical chonkie path. A "semantic" strategy that reached here (scripted/keyless
@@ -167,11 +213,111 @@ async def plan_l2_chunks(ctx: "AppContext", source_id, normalized, user_id):
     semantic = plan.get("semantic_indexing", "full")
     if semantic == "full":
         return await full_l2_chunks(
-            ctx, source_id, normalized.blocks, normalized.structure, user_id
+            ctx,
+            source_id,
+            normalized.blocks,
+            normalized.structure,
+            user_id,
+            raw=normalized.raw,
         )
     if semantic == "summary":
         return _summary_chunks(source_id, normalized)
     return []
+
+
+async def embed_l2_chunks(
+    ctx: "AppContext",
+    chunks: list[Chunk],
+    normalized: NormalizedSource,
+) -> list[EmbeddedChunk]:
+    """Embed L2 chunks through the one media-aware, provenance-safe path.
+
+    Source occurrence context and caption/OCR text change vector meaning only. Qdrant
+    still stores the verbatim chunk and its exact L0 char span, so retrieval and citation
+    drill-down cannot mistake metadata or a derived representation for source prose.
+    """
+
+    raw_inputs = [
+        embedding_text_for_chunk(chunk, normalized.blocks, raw=normalized.raw)
+        for chunk in chunks
+    ]
+    raw_points = [
+        EmbeddedChunk(
+            source_id=chunk.source_id,
+            block_start=chunk.block_start,
+            block_end=chunk.block_end,
+            text=chunk.text,
+            char_start=chunk.char_start,
+            char_end=chunk.char_end,
+            embedding=[],
+            representation="raw",
+            episode_summary_text="",
+        )
+        for chunk in chunks
+    ]
+
+    # A sentence-sub-split episode leaves several Chunk objects carrying the same parent
+    # representation.  Embed that representation once, under the parent episode span.
+    global_text, _ranges = join_blocks(normalized.blocks)
+    seen_episodes: set[tuple[str, int, int]] = set()
+    episode_inputs: list[str] = []
+    episode_points: list[EmbeddedChunk] = []
+    for chunk in chunks:
+        episode_text = embedding_text_for_episode(chunk, raw=normalized.raw)
+        if episode_text is None:
+            continue
+        if chunk.episode_char_start is None or chunk.episode_char_end is None:
+            # Legacy direct Chunk construction has no parent identity.  A non-split chunk is
+            # its own episode; this keeps the public helper useful without reintroducing
+            # repeated descriptions for real semantic chunks, which always carry the parent.
+            episode_char_start, episode_char_end = chunk.char_start, chunk.char_end
+            episode_block_start, episode_block_end = chunk.block_start, chunk.block_end
+        else:
+            episode_char_start, episode_char_end = (
+                chunk.episode_char_start,
+                chunk.episode_char_end,
+            )
+            episode_block_start, episode_block_end = (
+                chunk.episode_block_start,
+                chunk.episode_block_end,
+            )
+        if episode_block_start is None or episode_block_end is None:
+            continue
+        identity = (str(chunk.source_id), episode_char_start, episode_char_end)
+        if identity in seen_episodes:
+            continue
+        seen_episodes.add(identity)
+        episode_inputs.append(episode_text)
+        episode_points.append(
+            EmbeddedChunk(
+                source_id=chunk.source_id,
+                block_start=episode_block_start,
+                block_end=episode_block_end,
+                text=global_text[episode_char_start:episode_char_end],
+                char_start=episode_char_start,
+                char_end=episode_char_end,
+                embedding=[],
+                representation="episode",
+                episode_summary_text=episode_summary_text_for_chunk(chunk) or "",
+            )
+        )
+
+    vectors = await ctx.embeddings.aembed_documents([*raw_inputs, *episode_inputs])
+    points = [*raw_points, *episode_points]
+    return [
+        EmbeddedChunk(
+            source_id=point.source_id,
+            block_start=point.block_start,
+            block_end=point.block_end,
+            text=point.text,
+            char_start=point.char_start,
+            char_end=point.char_end,
+            embedding=vector,
+            representation=point.representation,
+            episode_summary_text=point.episode_summary_text,
+        )
+        for point, vector in zip(points, vectors)
+    ]
 
 
 def build_embeddings(settings: Settings) -> Embeddings:
@@ -199,7 +345,8 @@ def build_embeddings(settings: Settings) -> Embeddings:
 # Per-operation → settings field. Empty field falls back to settings.llm_model.
 _ROLE_FIELDS = {
     "compile": "llm_model_compile",
-    "recall": "llm_model_recall",  # fast recall + briefing ask
+    "recall": "llm_model_recall",  # retrieval planning/glance + briefing ask
+    "answer": "llm_model_answer",  # final fast-answer generation
     "deep": "llm_model_deep",
     "skill": "llm_model_skill",
     "live_context": "llm_model_live_context",  # evaluation + its want_more expansion
@@ -215,7 +362,12 @@ _ROLE_FIELDS = {
 # `evolve` borrows `compile`'s model when its own field is empty: schema evolve is the same
 # heavy write-side reasoning as a compile (whole-KB reorganization), so a deployment that
 # already pointed compile at a strong model should not have to name it twice. One hop.
-_ROLE_FALLBACK = {"live_context": "recall", "evolve": "compile", "challenge": "compile"}
+_ROLE_FALLBACK = {
+    "answer": "recall",
+    "live_context": "recall",
+    "evolve": "compile",
+    "challenge": "compile",
+}
 
 
 def resolve_model_name(settings: Settings, role: str = "default") -> str:
@@ -233,6 +385,21 @@ def resolve_model_name(settings: Settings, role: str = "default") -> str:
         if value:
             return value
     return settings.llm_model
+
+
+def resolve_image_mode(requested: str, model: object, model_spec: str) -> str:
+    """Resolve auto image delivery against the model that will receive the message."""
+
+    if requested != "auto":
+        return requested
+    profile = getattr(model, "profile", None) or {}
+    if bool(profile.get("image_inputs")):
+        return "native"
+    known_visual_prefixes = (
+        "openai:gpt-5.6",
+        "openrouter:openai/gpt-5.6",
+    )
+    return "native" if model_spec.strip().lower().startswith(known_visual_prefixes) else "caption"
 
 
 def usable_model_name(settings: Settings, role: str = "default") -> str:
@@ -443,6 +610,7 @@ class AppContext:
     vectors: QdrantVectorIndex
     embeddings: Embeddings
     registry: AdapterRegistry
+    media: S3MediaStore | None = None
     # user_id → UserProfile. Persisted-first (user-filled), mock-fallback;
     # build_context wires the persisted lookup to PG. The default is the bare keyless mock
     # so an AppContext built without a store (some unit tests) still resolves profiles.
@@ -547,6 +715,8 @@ class AppContext:
         await self.store.aclose()
         await self.lexical.aclose()
         await self.vectors.aclose()
+        if self.media is not None:
+            await self.media.aclose()
         if self._reranker is not None:
             await self._reranker.aclose()
 
@@ -567,6 +737,13 @@ async def build_context(settings: Settings) -> AppContext:
     vectors = QdrantVectorIndex(settings.qdrant_url, dim, collection=settings.qdrant_collection)
     await vectors.ensure_collection()
     canonical = GitCanonicalStore(settings.canonical_root)
+    media = S3MediaStore(
+        bucket=settings.media_s3_bucket,
+        endpoint_url=settings.media_s3_endpoint_url,
+        access_key=settings.media_s3_access_key,
+        secret_key=settings.media_s3_secret_key,
+        region=settings.media_s3_region,
+    )
 
     registry = AdapterRegistry()
     registry.register(PlainConversationAdapter(), kind="conversation")
@@ -591,5 +768,6 @@ async def build_context(settings: Settings) -> AppContext:
         vectors=vectors,
         embeddings=embeddings,
         registry=registry,
+        media=media,
         user_info=user_info,
     )
