@@ -33,14 +33,14 @@ One optional layer sits between environment and default: the **engine directory*
 | Setting | Default | Meaning |
 |---|---|---|
 | `LLM_MODEL` | `openai:gpt-4o-mini` | base model spec and fallback for all roles |
-| `LLM_MODEL_COMPILE` / `_RECALL` / `_ANSWER` / `_DEEP` / `_SKILL` / `_EVOLVE` / `_LIVE_CONTEXT` / `_CHALLENGE` | empty | per-role overrides; `answer` is only the final fast-answer generation and otherwise borrows `recall` |
+| `LLM_MODEL_COMPILE` / `_RECALL` / `_ANSWER` / `_DEEP` / `_SKILL` / `_EVOLVE` / `_LIVE_CONTEXT` / `_CHALLENGE` / `_BRIEF` | empty | per-role overrides; `answer` is only the final fast-answer generation and otherwise borrows `recall` |
 | `ANSWER_REASONING_EFFORT` | empty | reasoning effort sent only on the final fast-answer call; empty preserves the provider default. Generated projects state `high` explicitly |
 | `LLM_TIMEOUT` | `600` | seconds; guards against hangs, not slowness |
 | `LLM_MAX_RETRIES` | `3` | transient-error retries (langchain) |
 | `EMBEDDING_MODEL` | `fake:384` | `fake:<dim>` (deterministic, keyless) or `openrouter:<model>` |
 | `COMPILE_IMAGE_MODE` | `auto` | `caption` = labelled caption/OCR only; `native` = derived text plus actual image blocks; `auto` = use the compile model profile, falling back to `caption` when unknown. Engine key: `models.image_mode` |
 
-Model spec forms: `scripted:<path>` (local replay, keyless — and it hard-overrides every role, so a scripted run is fully deterministic), `openrouter:<model>` (needs `OPENROUTER_API_KEY`), or any provider prefix `init_chat_model` understands (e.g. `anthropic:claude-sonnet-5`, `openai:gpt-4o-mini`). Role fallback is a single hop: `answer → recall`, `live_context → recall`, `evolve → compile`, `challenge → compile`, then `LLM_MODEL`. The scaffold keeps retrieval planning/glance on standard Luna and sends only the final answer to Luna Pro at explicit `high` effort.
+Model spec forms: `scripted:<path>` (local replay, keyless — and it hard-overrides every role, so a scripted run is fully deterministic), `openrouter:<model>` (needs `OPENROUTER_API_KEY`), or any provider prefix `init_chat_model` understands (e.g. `anthropic:claude-sonnet-5`, `openai:gpt-4o-mini`). Role fallback is a single hop: `answer → recall`, `live_context → recall`, `evolve → compile`, `challenge → compile`, `brief → compile`, then `LLM_MODEL`. The scaffold keeps retrieval planning/glance on standard Luna and sends only the final answer to Luna Pro at explicit `high` effort.
 
 `native` is an explicit assertion that the selected model and routed provider accept LangChain image content blocks; an incompatible provider fails instead of silently flattening the image. `caption` requires the importer to supply labelled `caption`/`ocr` representations and never claims that the compile model saw the original. `auto` recognizes the full GPT-5.6 family on direct OpenAI and OpenRouter routes as native-image capable even when a gateway omits LangChain's model profile; other unknown profiles stay on the conservative `auto → caption` path.
 
@@ -120,6 +120,15 @@ domain; its scoring equivalence is unverified. See [engine console design](../de
 | `LLM_MODEL_CHALLENGE` | empty | model for question generation and reflection; empty borrows the compile role |
 
 The audit's judgement is extensible: its three prompts — `compile.challenge.questions_system`, `compile.challenge.reflect_system`, `compile.challenge.compensation_preamble` — live in the prompt catalog and can be replaced wholesale via `override_prompts` at startup, like any other model-visible wording.
+
+## Post-compile brief
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `BRIEF_ENABLED` | `false` | after each committed compile, one model call narrates the compile's mechanical claim events into a short brief, stored on the job row and shown on the History timeline (labelled derived) |
+| `LLM_MODEL_BRIEF` | empty | model for the narration; empty borrows the compile role |
+
+The brief's only input is the mechanical record — the claim events derived from the diff plus the per-source provenance sentences — never the compile conversation, so there is nothing beyond the record for it to narrate. It is display copy, not knowledge: no citations, no canonical write, and a generation failure degrades to no brief rather than a failed job. Its prompts (`compile.brief.system`, `compile.brief.task`) live in the prompt catalog like any other model-visible wording.
 
 ## Behavior switches
 

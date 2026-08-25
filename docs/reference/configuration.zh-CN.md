@@ -33,14 +33,14 @@
 | 配置 | 默认 | 含义 |
 |---|---|---|
 | `LLM_MODEL` | `openai:gpt-4o-mini` | 基础模型规格，也是所有角色的兜底 |
-| `LLM_MODEL_COMPILE` / `_RECALL` / `_ANSWER` / `_DEEP` / `_SKILL` / `_EVOLVE` / `_LIVE_CONTEXT` / `_CHALLENGE` | 空 | 按角色覆盖；`answer` 只负责 fast 的最终答题，留空则借用 `recall` |
+| `LLM_MODEL_COMPILE` / `_RECALL` / `_ANSWER` / `_DEEP` / `_SKILL` / `_EVOLVE` / `_LIVE_CONTEXT` / `_CHALLENGE` / `_BRIEF` | 空 | 按角色覆盖；`answer` 只负责 fast 的最终答题，留空则借用 `recall` |
 | `ANSWER_REASONING_EFFORT` | 空 | 只在 fast 最终答题调用中发送的推理强度；空则保持 provider 默认。生成项目明确写为 `high` |
 | `LLM_TIMEOUT` | `600` | 秒；防挂死，不防慢 |
 | `LLM_MAX_RETRIES` | `3` | 瞬时错误重试（langchain） |
 | `EMBEDDING_MODEL` | `fake:384` | `fake:<维度>`（确定性、零密钥）或 `openrouter:<模型>` |
 | `COMPILE_IMAGE_MODE` | `auto` | `caption` = 只送带标签的 caption/OCR；`native` = 派生文本加真实图片块；`auto` = 读取编译模型 profile，未知则回落 `caption`。引擎键：`models.image_mode` |
 
-模型规格三种形态：`scripted:<路径>`（本地回放、零密钥——且硬覆盖所有角色，scripted 运行完全确定）；`openrouter:<模型>`（需要 `OPENROUTER_API_KEY`）；以及 `init_chat_model` 认识的任意 provider 前缀（如 `anthropic:claude-sonnet-5`、`openai:gpt-4o-mini`）。角色回退只有一跳：`answer → recall`、`live_context → recall`、`evolve → compile`、`challenge → compile`，然后是 `LLM_MODEL`。脚手架让检索规划/概览继续跑 standard Luna，只把最终答题送到显式 `high` effort 的 Luna Pro。
+模型规格三种形态：`scripted:<路径>`（本地回放、零密钥——且硬覆盖所有角色，scripted 运行完全确定）；`openrouter:<模型>`（需要 `OPENROUTER_API_KEY`）；以及 `init_chat_model` 认识的任意 provider 前缀（如 `anthropic:claude-sonnet-5`、`openai:gpt-4o-mini`）。角色回退只有一跳：`answer → recall`、`live_context → recall`、`evolve → compile`、`challenge → compile`、`brief → compile`，然后是 `LLM_MODEL`。脚手架让检索规划/概览继续跑 standard Luna，只把最终答题送到显式 `high` effort 的 Luna Pro。
 
 `native` 是一次明确断言：选中的模型和实际路由 provider 能接收 LangChain 图片 content block；不兼容就失败，不会悄悄把图片压成文本。`caption` 要求 importer 提供带标签的 `caption`/`ocr` 表示，也绝不声称编译模型看过原图。`auto` 会把直连 OpenAI 和 OpenRouter 上的 GPT-5.6 全系识别为原生图片模型，即使网关没有附 LangChain model profile；其他能力未知的 profile 保持保守的 `auto → caption`。
 
@@ -110,6 +110,15 @@
 | `LLM_MODEL_CHALLENGE` | 空 | 出题与反思用的模型；留空借用编译角色 |
 
 审计的判断力可扩展：它的三段提示词——`compile.challenge.questions_system`、`compile.challenge.reflect_system`、`compile.challenge.compensation_preamble`——都住在 prompt 目录里，启动时用 `override_prompts` 整体替换即可，与其他模型可见文案同一机制。
+
+## 编译简报
+
+| 配置 | 默认 | 含义 |
+|---|---|---|
+| `BRIEF_ENABLED` | `false` | 每次编译落地后，用一次模型调用把这次编译的机械 claim 事件叙述成一段简报，存在 job 行上、显示在 History 时间线（标注为派生） |
+| `LLM_MODEL_BRIEF` | 空 | 叙述用的模型；留空借用编译角色 |
+
+简报的输入只有机械记录——从 diff 推导出的 claim 事件加上各来源的出处句——从不包含编译对话本身，因此模型没有记录之外的东西可叙述。它是展示文案而非知识：不带引用、不写正本，生成失败只是没有简报，不会让任务失败。它的提示词（`compile.brief.system`、`compile.brief.task`）住在 prompt 目录里，与其他模型可见文案同一机制。
 
 ## 行为开关
 

@@ -221,6 +221,7 @@ _LABEL_FAMILIES: tuple[tuple[str, str, str], ...] = (
     ("compile.treatment.", "Source treatment", "源处理档位"),
     ("compile.groom.", "Rollover", "归档轮换"),
     ("compile.challenge.", "Coverage audit", "覆盖审计"),
+    ("compile.brief.", "Compile brief", "编译简报"),
     ("compile.worker.", "Compile retrieval reply", "编译检索回复"),
     ("compile.", "Compile contract", "编译契约"),
     ("contract.rule.", "Version contract clause", "版本契约条款"),
@@ -288,6 +289,8 @@ _LABELS: dict[str, tuple[str, str]] = {
     "compile.challenge.questions_system": ("Blind question generation", "盲出问题"),
     "compile.challenge.reflect_system": ("Gap judgement", "缺口判定"),
     "compile.challenge.compensation_preamble": ("Compensation preamble", "补偿编译前言"),
+    "compile.brief.system": ("Narration contract", "叙述契约"),
+    "compile.brief.task": ("The record to narrate", "待叙述的记录"),
     "recall.spine": ("The shared answer spine", "共享回答脊柱"),
     "recall.cite.source_level": ("Cite to the source", "引到源级"),
     "recall.cite.precise": ("Cite to the block span", "引到块区间"),
@@ -1436,6 +1439,44 @@ SURFACES: tuple[Surface, ...] = (
             "然后这段文字随一次普通编译回合发出。所以模型真正收到的是"
             "「编译系统消息 + 带这段前言的编译人类消息」，而不是这段文字本身。"
         ),
+    ),
+    Surface(
+        id="compile.brief",
+        group="compile",
+        title_en="Post-compile brief",
+        title_zh="编译简报",
+        summary_en=(
+            "One optional call after a committed compile narrates the mechanical claim "
+            "events into a short brief for the History timeline. Its input is the record "
+            "alone — never the compile conversation — and its output is labelled derived "
+            "display copy, not knowledge."
+        ),
+        summary_zh=(
+            "编译提交后可选的一次调用，把机械推导的断言事件叙述成一段简报，"
+            "显示在 History 时间线上。它的输入只有这份记录——从不含编译对话——"
+            "输出是标注为派生的展示文案，不是知识。"
+        ),
+        segments=(
+            Segment(
+                key="compile.brief.system",
+                context_en=(
+                    "The SystemMessage of the narration call, byte-stable: what the "
+                    "brief may say and in which register."
+                ),
+                context_zh="叙述调用的系统消息，字节稳定：简报可以说什么、用什么口吻。",
+            ),
+            Segment(
+                key="compile.brief.task",
+                context_en=(
+                    "The HumanMessage template: `{record}` is filled with the "
+                    "mechanically rendered claim events and source provenance lines."
+                ),
+                context_zh=(
+                    "人类消息模板：`{record}` 处代入机械渲染的断言事件与来源出处行。"
+                ),
+            ),
+        ),
+        kind=FRAGMENTS,
     ),
     # ─────────────────────────────────────────────────────────────────────── evolve
     Surface(

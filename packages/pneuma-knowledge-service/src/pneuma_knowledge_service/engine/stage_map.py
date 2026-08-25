@@ -1006,6 +1006,11 @@ NON_ENGINE_SETTINGS: frozenset[str] = frozenset(
         # meaning-preserving. Orthogonal to every knob above, which is why it is not one.
         "rollover_threshold_chars",
         "rollover_keep_recent_chars",
+        # The post-compile brief is display copy on the History timeline, narrated from the
+        # mechanical claim events. Unlike the challenge it never changes what is compiled
+        # or retrieved, so it is presentation wiring, not knowledge strategy.
+        "brief_enabled",
+        "llm_model_brief",
     }
 )
 

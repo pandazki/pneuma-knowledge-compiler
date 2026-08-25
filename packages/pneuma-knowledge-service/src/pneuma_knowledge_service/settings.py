@@ -165,6 +165,14 @@ class Settings(BaseSettings):
     # 0 = provider default (no cap).
     challenge_max_output_tokens: int = 32768
 
+    # Post-compile brief (opt-in): one short derived narration per committed compile,
+    # generated from the mechanical claim events only (never the compile conversation)
+    # and shown on the History timeline, labelled derived. Off by default: it spends one
+    # extra model call per compile job. Generation failure never fails the job.
+    # Model role for the narration; empty borrows the compile role. One hop, like evolve.
+    llm_model_brief: str = ""
+    brief_enabled: bool = False
+
     # Schema evolve (schema-evolve §2). The whole-KB reorganization flow: a strong model
     # proposes new schema families off accrued compile evidence, an agentic pass reorganizes
     # the KB onto an evolve/<task> branch, and a human adopts/drops within a review window.

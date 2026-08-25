@@ -15,8 +15,10 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 from dataclasses import asdict
 
+from pneuma_knowledge_core.compile.brief import generate_brief
 from pneuma_knowledge_core.compile.runner import CompileResult, run_compile
 from pneuma_knowledge_core.domain.ids import UserId, SourceId
 from pneuma_knowledge_core.domain.intake import IntakePlan
@@ -52,6 +54,8 @@ from ..wiring import (
     resolve_image_mode,
     resolve_model_name,
 )
+
+log = logging.getLogger(__name__)
 
 
 def _projection_detail(projection: object) -> str:
@@ -338,6 +342,33 @@ async def process_job(
         await maybe_trigger_evolve(ctx, user_id)
         # Optional post-compile coverage challenge (never on a compensation compile).
         await maybe_trigger_challenge(ctx, user_id, payload, source_ids)
+        # Optional derived narration over the recorded events (brief_enabled). LAST on
+        # purpose: it is display copy, and a model call ahead of `complete` would hold an
+        # already-committed job open — a process killed mid-narration would leave the job
+        # claimed with derived stores behind canonical, for a caption. Here the job is
+        # durable and the brief only fills one column of it. Its input is the mechanical
+        # record alone; `describe_source` is recomputed rather than reusing
+        # `source_preamble`, which may carry challenge guidance. Any failure is a warning.
+        if ctx.settings.brief_enabled and result.events:
+            try:
+                brief = await generate_brief(
+                    model=ctx.get_chat_model("brief"),
+                    events=result.events,
+                    source_lines=[
+                        describe_source(s.raw, len(s.blocks), owner_name)
+                        for s in sources
+                    ],
+                    **llm_call_config(
+                        ctx,
+                        operation="brief",
+                        user_id=str(user_id),
+                        extra={"job_id": str(job_id)},
+                    ),
+                )
+                if brief:
+                    await ctx.store.record_compile_brief(user_id, job_id, brief)
+            except Exception:  # noqa: BLE001 — narration is display copy, never fatal
+                log.warning("brief generation failed for job %s", job_id, exc_info=True)
     elif result.status == "noop":
         # A retry after canonical commit + projection failure is a canonical noop.
         # Reconcile HEAD before digestion so the same normal retry repairs derived

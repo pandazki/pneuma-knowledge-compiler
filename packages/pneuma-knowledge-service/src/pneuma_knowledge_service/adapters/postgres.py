@@ -626,6 +626,7 @@ class PostgresStore:
                                 COALESCE(j.payload -> 'source_ids', '[]'::jsonb),
                             'skill_version', NULL,
                             'effort', NULL,
+                            'brief', j.brief,
                             'claims', jsonb_agg(
                                 jsonb_build_object(
                                     'type', e.type,
@@ -828,6 +829,16 @@ class PostgresStore:
                         for i, e in enumerate(events)
                     ],
                 )
+
+    async def record_compile_brief(
+        self, user_id: UserId, job_id: str, brief: str
+    ) -> None:
+        """Attach the derived narration to a completed compile job (brief_enabled)."""
+        async with self._pool.connection() as conn:
+            await conn.execute(
+                "UPDATE compile_jobs SET brief = %s WHERE user_id = %s AND id = %s",
+                (brief, str(user_id), job_id),
+            )
 
     async def list_compile_events(self, user_id: UserId) -> list[dict[str, Any]]:
         """All compile events for a user, oldest first (History / journal projection)."""

@@ -17,10 +17,10 @@ data:
 
   # Public baseline routing via OpenRouter. Operators may replace these with any
   # tool-calling / structured-output capable models accepted by their provider.
-  PNEUMA_KNOWLEDGE_LLM_MODEL_COMPILE: "openrouter:openai/gpt-4o-mini"
-  PNEUMA_KNOWLEDGE_LLM_MODEL_RECALL: "openrouter:openai/gpt-4o-mini"
-  PNEUMA_KNOWLEDGE_LLM_MODEL_DEEP: "openrouter:openai/gpt-4o-mini"
-  PNEUMA_KNOWLEDGE_LLM_MODEL_SKILL: "openrouter:openai/gpt-4o-mini"
+  PNEUMA_KNOWLEDGE_LLM_MODEL_COMPILE: "openrouter:openai/gpt-5.6-luna"
+  PNEUMA_KNOWLEDGE_LLM_MODEL_RECALL: "openrouter:openai/gpt-5.6-luna"
+  PNEUMA_KNOWLEDGE_LLM_MODEL_DEEP: "openrouter:openai/gpt-5.6-terra"
+  PNEUMA_KNOWLEDGE_LLM_MODEL_SKILL: "openrouter:openai/gpt-5.6-luna"
 
   # Vector dimensions are collection-wide. Changing this model requires rebuilding
   # the Qdrant collection and all derived vector projections.
