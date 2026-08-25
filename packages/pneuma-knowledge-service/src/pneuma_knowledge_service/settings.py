@@ -266,7 +266,7 @@ class Settings(BaseSettings):
     cors_allow_origin_regex: str = r"https?://(localhost|127\.0\.0\.1)(:\d+)?"
 
     # Default / fallback chat model. Per-operation routing below overrides it when set.
-    llm_model: str = "openai:gpt-4o-mini"
+    llm_model: str = "openrouter:openai/gpt-5.6-luna"
     # Per-operation model routing (PNEUMA_KNOWLEDGE_LLM_MODEL_COMPILE / _RECALL / _ANSWER /
     # _DEEP / _SKILL).
     # Empty → falls back to llm_model, so scripted-model tests (which set llm_model only)

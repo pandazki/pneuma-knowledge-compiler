@@ -32,7 +32,7 @@
 
 | 配置 | 默认 | 含义 |
 |---|---|---|
-| `LLM_MODEL` | `openai:gpt-4o-mini` | 基础模型规格，也是所有角色的兜底 |
+| `LLM_MODEL` | `openrouter:openai/gpt-5.6-luna` | 基础模型规格，也是所有角色的兜底 |
 | `LLM_MODEL_COMPILE` / `_RECALL` / `_ANSWER` / `_DEEP` / `_SKILL` / `_EVOLVE` / `_LIVE_CONTEXT` / `_CHALLENGE` / `_BRIEF` | 空 | 按角色覆盖；`answer` 只负责 fast 的最终答题，留空则借用 `recall` |
 | `ANSWER_REASONING_EFFORT` | 空 | 只在 fast 最终答题调用中发送的推理强度；空则保持 provider 默认。生成项目明确写为 `high` |
 | `LLM_TIMEOUT` | `600` | 秒；防挂死，不防慢 |
@@ -40,7 +40,7 @@
 | `EMBEDDING_MODEL` | `fake:384` | `fake:<维度>`（确定性、零密钥）或 `openrouter:<模型>` |
 | `COMPILE_IMAGE_MODE` | `auto` | `caption` = 只送带标签的 caption/OCR；`native` = 派生文本加真实图片块；`auto` = 读取编译模型 profile，未知则回落 `caption`。引擎键：`models.image_mode` |
 
-模型规格三种形态：`scripted:<路径>`（本地回放、零密钥——且硬覆盖所有角色，scripted 运行完全确定）；`openrouter:<模型>`（需要 `OPENROUTER_API_KEY`）；以及 `init_chat_model` 认识的任意 provider 前缀（如 `anthropic:claude-sonnet-5`、`openai:gpt-4o-mini`）。角色回退只有一跳：`answer → recall`、`live_context → recall`、`evolve → compile`、`challenge → compile`、`brief → compile`，然后是 `LLM_MODEL`。脚手架让检索规划/概览继续跑 standard Luna，只把最终答题送到显式 `high` effort 的 Luna Pro。
+模型规格三种形态：`scripted:<路径>`（本地回放、零密钥——且硬覆盖所有角色，scripted 运行完全确定）；`openrouter:<模型>`（需要 `OPENROUTER_API_KEY`）；以及 `init_chat_model` 认识的任意 provider 前缀（如 `anthropic:claude-sonnet-5`、`openai:gpt-5.6-luna`）。角色回退只有一跳：`answer → recall`、`live_context → recall`、`evolve → compile`、`challenge → compile`、`brief → compile`，然后是 `LLM_MODEL`。脚手架让检索规划/概览继续跑 standard Luna，只把最终答题送到显式 `high` effort 的 Luna Pro。
 
 `native` 是一次明确断言：选中的模型和实际路由 provider 能接收 LangChain 图片 content block；不兼容就失败，不会悄悄把图片压成文本。`caption` 要求 importer 提供带标签的 `caption`/`ocr` 表示，也绝不声称编译模型看过原图。`auto` 会把直连 OpenAI 和 OpenRouter 上的 GPT-5.6 全系识别为原生图片模型，即使网关没有附 LangChain model profile；其他能力未知的 profile 保持保守的 `auto → caption`。
 

@@ -62,11 +62,11 @@ def test_every_role_shares_the_same_guardrails(
 def test_non_openrouter_provider_path_is_guarded_too(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The generic `init_chat_model` escape hatch (e.g. the `openai:…` default) must not be
-    the one branch that can still hang."""
+    """The generic `init_chat_model` escape hatch (any `<provider>:…` spec that is not
+    `openrouter:`) must not be the one branch that can still hang."""
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test-not-a-real-key")
     settings = Settings(
-        llm_model="openai:gpt-4o-mini", llm_timeout=222.0, llm_max_retries=5
+        llm_model="openai:gpt-5.6-luna", llm_timeout=222.0, llm_max_retries=5
     )
 
     model = build_chat_model_for(settings, "recall")

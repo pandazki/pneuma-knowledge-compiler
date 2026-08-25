@@ -32,7 +32,7 @@ One optional layer sits between environment and default: the **engine directory*
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `LLM_MODEL` | `openai:gpt-4o-mini` | base model spec and fallback for all roles |
+| `LLM_MODEL` | `openrouter:openai/gpt-5.6-luna` | base model spec and fallback for all roles |
 | `LLM_MODEL_COMPILE` / `_RECALL` / `_ANSWER` / `_DEEP` / `_SKILL` / `_EVOLVE` / `_LIVE_CONTEXT` / `_CHALLENGE` / `_BRIEF` | empty | per-role overrides; `answer` is only the final fast-answer generation and otherwise borrows `recall` |
 | `ANSWER_REASONING_EFFORT` | empty | reasoning effort sent only on the final fast-answer call; empty preserves the provider default. Generated projects state `high` explicitly |
 | `LLM_TIMEOUT` | `600` | seconds; guards against hangs, not slowness |
@@ -40,7 +40,7 @@ One optional layer sits between environment and default: the **engine directory*
 | `EMBEDDING_MODEL` | `fake:384` | `fake:<dim>` (deterministic, keyless) or `openrouter:<model>` |
 | `COMPILE_IMAGE_MODE` | `auto` | `caption` = labelled caption/OCR only; `native` = derived text plus actual image blocks; `auto` = use the compile model profile, falling back to `caption` when unknown. Engine key: `models.image_mode` |
 
-Model spec forms: `scripted:<path>` (local replay, keyless — and it hard-overrides every role, so a scripted run is fully deterministic), `openrouter:<model>` (needs `OPENROUTER_API_KEY`), or any provider prefix `init_chat_model` understands (e.g. `anthropic:claude-sonnet-5`, `openai:gpt-4o-mini`). Role fallback is a single hop: `answer → recall`, `live_context → recall`, `evolve → compile`, `challenge → compile`, `brief → compile`, then `LLM_MODEL`. The scaffold keeps retrieval planning/glance on standard Luna and sends only the final answer to Luna Pro at explicit `high` effort.
+Model spec forms: `scripted:<path>` (local replay, keyless — and it hard-overrides every role, so a scripted run is fully deterministic), `openrouter:<model>` (needs `OPENROUTER_API_KEY`), or any provider prefix `init_chat_model` understands (e.g. `anthropic:claude-sonnet-5`, `openai:gpt-5.6-luna`). Role fallback is a single hop: `answer → recall`, `live_context → recall`, `evolve → compile`, `challenge → compile`, `brief → compile`, then `LLM_MODEL`. The scaffold keeps retrieval planning/glance on standard Luna and sends only the final answer to Luna Pro at explicit `high` effort.
 
 `native` is an explicit assertion that the selected model and routed provider accept LangChain image content blocks; an incompatible provider fails instead of silently flattening the image. `caption` requires the importer to supply labelled `caption`/`ocr` representations and never claims that the compile model saw the original. `auto` recognizes the full GPT-5.6 family on direct OpenAI and OpenRouter routes as native-image capable even when a gateway omits LangChain's model profile; other unknown profiles stay on the conservative `auto → caption` path.
 

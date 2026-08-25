@@ -316,7 +316,7 @@ def _judge_chat(
         raise EvalDependencyError("the LLM judge arm needs langchain-openai") from exc
 
     return ChatOpenAI(
-        model=model or os.environ.get("EVAL_JUDGE_MODEL") or "openai/gpt-4o-mini",
+        model=model or os.environ.get("EVAL_JUDGE_MODEL") or "openai/gpt-5.6-luna",
         api_key=key,
         base_url=base_url or os.environ.get("OPENROUTER_BASE_URL") or None,
         temperature=0,
