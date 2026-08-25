@@ -352,6 +352,7 @@ _ROLE_FIELDS = {
     "live_context": "llm_model_live_context",  # evaluation + its want_more expansion
     "evolve": "llm_model_evolve",  # schema evolve (propose + reorganize)
     "challenge": "llm_model_challenge",  # post-compile coverage challenge (questions + reflection)
+    "brief": "llm_model_brief",  # post-compile brief (derived narration on the History timeline)
 }
 
 # A role whose own field is empty may borrow ANOTHER role's field before falling all the
@@ -367,6 +368,7 @@ _ROLE_FALLBACK = {
     "live_context": "recall",
     "evolve": "compile",
     "challenge": "compile",
+    "brief": "compile",
 }
 
 

@@ -173,6 +173,8 @@ export interface PatchRecord {
   sources_consumed: string[];
   skill_version: number | null;
   effort: string | null;
+  /** Derived narration generated from the patch's claim events (brief_enabled). */
+  brief?: string | null;
   claims: SidecarClaimRef[];
   escalations: Escalation[];
   merges: unknown[];

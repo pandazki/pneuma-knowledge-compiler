@@ -705,6 +705,17 @@ DEFAULTS: dict[str, str] = {
         "material actually supports, with citations, in their proper documents; skip any "
         "the material does not support."
     ),
+    # ───────────────────────────────── compile: post-compile brief (derived narration)
+    "compile.brief.system": (
+        "You write the one-paragraph brief for a knowledge compile. You see only the "
+        "mechanical record of what the compile changed: the sources it consumed and the "
+        "claims it added or revised, grouped by document. Tell the owner what was "
+        "recorded and where, in two to four plain sentences, in the dominant language "
+        "of the claim texts. State only what the record shows — no evaluation, no "
+        "advice, no facts beyond it. The brief is display copy for a timeline, not "
+        "knowledge: write no citations, no anchors, no markdown structure."
+    ),
+    "compile.brief.task": "The record of this compile:\n\n{record}",
     # owner profile lines
     "compile.owner_field.name": "- **Name**: {value}",
     "compile.owner_field.occupation": "- **Occupation**: {value}",

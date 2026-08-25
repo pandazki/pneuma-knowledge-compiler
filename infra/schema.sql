@@ -92,12 +92,16 @@ CREATE TABLE IF NOT EXISTS compile_jobs (
     -- M3b: worker outcome. ok=NULL while running; true=committed/noop, false=aborted.
     ok           boolean,
     detail       text,
-    snapshot_ref text
+    snapshot_ref text,
+    -- Post-compile derived narration (brief_enabled): generated from this job's
+    -- compile_events only, shown on the History timeline. NULL = none generated.
+    brief        text
 );
 
 ALTER TABLE compile_jobs ADD COLUMN IF NOT EXISTS ok boolean;
 ALTER TABLE compile_jobs ADD COLUMN IF NOT EXISTS detail text;
 ALTER TABLE compile_jobs ADD COLUMN IF NOT EXISTS snapshot_ref text;
+ALTER TABLE compile_jobs ADD COLUMN IF NOT EXISTS brief text;
 
 CREATE INDEX IF NOT EXISTS compile_jobs_claim
     ON compile_jobs (user_id, status, created_at);

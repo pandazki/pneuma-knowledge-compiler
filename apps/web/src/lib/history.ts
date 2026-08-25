@@ -50,6 +50,7 @@ export function normalizeHistoryItem(
         sources_consumed: payload.sources_consumed ?? [],
         skill_version: payload.skill_version ?? null,
         effort: payload.effort ?? null,
+        brief: payload.brief ?? null,
         claims: payload.claims ?? [],
         escalations: payload.escalations ?? [],
         merges: payload.merges ?? [],

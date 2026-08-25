@@ -277,10 +277,13 @@ function truncateText(value: string, maxLength: number): string {
 }
 
 /**
- * The first readable claim in the patch, as its one-line summary. The claim prose itself is
- * DATA and is never translated — only the "nothing readable here" fallback is copy.
+ * The patch's one-line summary: its derived brief when one was generated, else the first
+ * readable claim. Brief and claim prose are DATA and are never translated — only the
+ * "nothing readable here" fallback is copy.
  */
 function patchSummary(patch: PatchRecord, t: TFunction): string {
+  const brief = (patch.brief ?? "").trim();
+  if (brief) return truncateText(brief, 52);
   const firstChange = patch.claims.find(
     (claim) => cleanClaimText(claim.after ?? claim.before).length > 0,
   );
@@ -444,9 +447,20 @@ function PatchDetail({
               {fmtTime(patch.ts)} · {t("history.tech.patch")}{" "}
               <Mono title={patch.patch_id}>{shortSha(patch.patch_id)}</Mono>
             </p>
-            <p className="mt-3 max-w-measure font-serif text-14 leading-relaxed text-ink-2">
-              {patchSummary(patch, t)}
-            </p>
+            {patch.brief?.trim() ? (
+              <div className="mt-3 max-w-measure">
+                <span className="text-12 text-ink-3">
+                  {t("history.brief.label")}
+                </span>
+                <p className="mt-1 font-serif text-14 leading-relaxed text-ink-2">
+                  {patch.brief.trim()}
+                </p>
+              </div>
+            ) : (
+              <p className="mt-3 max-w-measure font-serif text-14 leading-relaxed text-ink-2">
+                {patchSummary(patch, t)}
+              </p>
+            )}
           </div>
         </div>
         <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 border-y border-line py-2 text-13 text-ink-2">

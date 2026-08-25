@@ -669,6 +669,8 @@
             "compile.anchor.move_missing_anchor",
             "compile.anchor.move_unknown_anchor",
             "compile.anchor.none",
+            "compile.brief.system",
+            "compile.brief.task",
             "compile.challenge.compensation_preamble",
             "compile.challenge.questions_system",
             "compile.challenge.reflect_system",

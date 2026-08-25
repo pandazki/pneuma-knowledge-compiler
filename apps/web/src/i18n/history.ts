@@ -32,6 +32,7 @@ export const history = defineMessages({
     "history.row.counts": "{documents} 篇 · {claims} 条",
 
     "history.summary.empty": "本次更新没有留下可读的内容摘要",
+    "history.brief.label": "编译简报 · 派生叙述",
     "history.patchTitle.addedRevised": "新增 {added} 条、修订 {revised} 条知识",
     "history.patchTitle.revised": "修订 {revised} 条知识",
     "history.patchTitle.added": "新增 {added} 条知识",
@@ -97,6 +98,7 @@ export const history = defineMessages({
     "history.row.counts": "{documents} doc{documents||s} · {claims} claim{claims||s}",
 
     "history.summary.empty": "This update left no readable summary",
+    "history.brief.label": "Compile brief · derived narration",
     "history.patchTitle.addedRevised": "{added} claim{added||s} added, {revised} revised",
     "history.patchTitle.revised": "{revised} claim{revised||s} revised",
     "history.patchTitle.added": "{added} claim{added||s} added",

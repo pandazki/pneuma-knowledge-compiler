@@ -196,3 +196,64 @@ async def test_projection_failure_keeps_source_retryable_and_noop_repairs_it(
         await ctx.store.delete_user(user)
         await ctx.lexical.delete_user(user)
         await ctx.vectors.delete_user(user)
+
+
+async def test_worker_records_brief_when_enabled(ctx, monkeypatch):
+    """brief_enabled: the derived narration lands on the job row and rides /history.
+
+    Default-off is covered by the end-to-end test above (no brief model is ever built
+    there); this exercises the enabled path with a fake narration model on the `brief`
+    role only, so compile/index behavior stays byte-identical.
+    """
+    from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
+    from langchain_core.messages import AIMessage
+
+    user = UserId(f"u-it-worker-brief-{uuid.uuid4().hex[:8]}")
+    result = await ingest_conversation(
+        ctx,
+        user,
+        [_turn("Alice", "程野 是后端负责人。")],
+        title="简报验证",
+    )
+    sid = str(result.source_id)
+    model = ScriptedChatModel(
+        turns=[
+            [
+                {
+                    "name": "create_document",
+                    "args": {
+                        "path": "memory/people/cheng-ye.md",
+                        "frontmatter": {"type": "person", "slug": "cheng-ye"},
+                        "body": f"## 程野\n\n- 程野 是后端负责人。[cite: {sid} ¶0]",
+                    },
+                },
+                {"name": "finish_compile"},
+            ]
+        ]
+    )
+
+    narration = "记录了程野的后端负责人身份。"
+    monkeypatch.setattr(ctx.settings, "brief_enabled", True)
+    real_get = ctx.get_chat_model
+
+    def get_chat_model(role: str = "default"):
+        if role == "brief":
+            return GenericFakeChatModel(messages=iter([AIMessage(content=narration)]))
+        return real_get(role)
+
+    monkeypatch.setattr(ctx, "get_chat_model", get_chat_model)
+
+    try:
+        assert await drain_user(ctx, model, load_skill_base("v1"), user) == 2
+
+        job = [
+            j for j in await ctx.store.list_jobs(user) if j["kind"] == "compile"
+        ][0]
+        assert job["ok"] is True
+
+        rows, _, _ = await ctx.store.list_history_page(user, limit=10, kind="patch")
+        assert rows and rows[0]["payload"]["brief"] == narration
+    finally:
+        await ctx.store.delete_user(user)
+        await ctx.lexical.delete_user(user)
+        await ctx.vectors.delete_user(user)

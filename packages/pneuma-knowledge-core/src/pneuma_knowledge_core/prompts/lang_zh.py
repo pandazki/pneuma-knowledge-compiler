@@ -533,6 +533,15 @@ _ZH: dict[str, str] = {
         "对本来源上一次编译的覆盖审计发现，它的未来用途需要一些尚未入册的事实：\n\n{gaps}\n\n"
         "把材料确实支持的那些，带引用写进它们该在的文档；材料不支持的跳过。"
     ),
+    # ───────────────────────────────── compile: post-compile brief (derived narration)
+    "compile.brief.system": (
+        "你为一次知识编译写一段简报。你看到的只有这次编译改动的机械记录：它消化的来源，"
+        "以及按文档分组的新增或修订的断言。用两到四句平实的话，按断言文本的主要语言，"
+        "告诉主人记录了什么、记在了哪里。只陈述记录里有的——不评价、不建议、不添加记录"
+        "之外的事实。简报是时间线上的展示文案，不是知识：不写引用、不写锚点、不用 "
+        "markdown 结构。"
+    ),
+    "compile.brief.task": "这次编译的记录：\n\n{record}",
     # owner profile lines
     "compile.owner_field.name": "- **姓名**：{value}",
     "compile.owner_field.occupation": "- **职业**：{value}",
