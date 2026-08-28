@@ -323,7 +323,7 @@ export const engineConsole = defineMessages({
 
     "engineConsole.value.on": "on",
     "engineConsole.value.off": "off",
-    "engineConsole.value.overrides": "{count} override(s)",
+    "engineConsole.value.overrides": "{count} override{count||s}",
     "engineConsole.value.inherit": "inherited / empty",
     "engineConsole.value.unavailable": "unavailable",
 
@@ -376,7 +376,7 @@ export const engineConsole = defineMessages({
     "engineConsole.originNote.default":
       "This value is not set explicitly, so it uses the framework default.",
     "engineConsole.envOverrideSummary":
-      "This stage has {count} value(s) pinned by the process environment; each variable is shown with its setting.",
+      "This stage has {count} value{count||s} pinned by the process environment; each variable is shown with its setting.",
 
     "engineConsole.effect.hot": "restart for services (CLI immediate)",
     "engineConsole.effect.restart": "restart",
@@ -411,7 +411,7 @@ export const engineConsole = defineMessages({
     "engineConsole.review.fileRestore": "Replace with the complete file from this version",
     "engineConsole.review.overlaySet": "Override clause",
     "engineConsole.review.overlayRemove": "Remove override",
-    "engineConsole.review.files": "Writes {count} file(s)",
+    "engineConsole.review.files": "Writes {count} file{count||s}",
     "engineConsole.review.stale":
       "The engine moved on — this draft was composed against an older version, and applying it as it stands would roll back the version that landed. The state has been reloaded; check the changes below and apply again.",
 
@@ -460,8 +460,8 @@ export const engineConsole = defineMessages({
     "engineConsole.studio.surfacesHint": "Browse by model call instead of guessing catalog keys.",
     "engineConsole.studio.expandAll": "Expand all lifecycle groups",
     "engineConsole.studio.collapseAll": "Collapse all lifecycle groups",
-    "engineConsole.studio.surfaceCount": "{count} surfaces",
-    "engineConsole.studio.groupOverrideCount": "{count} overrides",
+    "engineConsole.studio.surfaceCount": "{count} surface{count||s}",
+    "engineConsole.studio.groupOverrideCount": "{count} override{count||s}",
     "engineConsole.studio.group.intake": "Intake",
     "engineConsole.studio.group.compile": "Compile",
     "engineConsole.studio.group.recall": "Recall",
@@ -486,7 +486,7 @@ export const engineConsole = defineMessages({
       "one of them per run — and they never join into one block of text, so there is no " +
       "assembled preview here.",
     "engineConsole.studio.fragmentsHeading": "Independent clauses",
-    "engineConsole.studio.clauseCount": "{count} clauses",
+    "engineConsole.studio.clauseCount": "{count} clause{count||s}",
     "engineConsole.studio.whenUsed": "When it is used",
     "engineConsole.studio.overrideInForce": "Override in force",
     "engineConsole.studio.editClause": "Open this clause to edit →",
@@ -525,8 +525,8 @@ export const engineConsole = defineMessages({
 
     "engineConsole.history.title": "Versions",
     "engineConsole.history.empty": "No versions yet.",
-    "engineConsole.history.files": "{count} file(s)",
-    "engineConsole.history.changedFiles": "{count} file(s) differ",
+    "engineConsole.history.files": "{count} file{count||s}",
+    "engineConsole.history.changedFiles": "{count} file{count||s} differ",
     "engineConsole.history.vsCurrent": "Diff vs current HEAD",
     "engineConsole.history.matchesCurrent": "This version's readable files match current HEAD.",
     "engineConsole.history.stateUnavailable":
@@ -534,8 +534,8 @@ export const engineConsole = defineMessages({
     "engineConsole.history.fileMissing": "This version has no readable file at {path}.",
     "engineConsole.history.loadDraft": "Load this version as draft",
     "engineConsole.history.restoreConfirm":
-      "This replaces the current contents of {count} file(s) with this version and loads them into the local draft. You will still review every change, add a version label, and apply; applying creates a new version and never rewrites history.",
-    "engineConsole.history.replaceDraft": "The current {count} local draft item(s) will be replaced first.",
+      "This replaces the current contents of {count} file{count||s} with this version and loads them into the local draft. You will still review every change, add a version label, and apply; applying creates a new version and never rewrites history.",
+    "engineConsole.history.replaceDraft": "The current {count} local draft item{count||s} will be replaced first.",
     "engineConsole.history.confirmLoad": "Confirm and review",
     "engineConsole.history.cancelLoad": "Cancel",
 

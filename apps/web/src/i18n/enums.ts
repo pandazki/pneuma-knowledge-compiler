@@ -34,6 +34,9 @@ export const enums = defineMessages({
     "enum.intakeArchetype.searchable.summary": "不编译、不做语义索引，只保底全文检索",
     "enum.intakeArchetype.searchable.examples": "只想存下来、能找到就行的材料",
 
+    "enum.claimLabel.current": "当前",
+    "enum.claimLabel.superseded": "已被取代",
+
     "enum.contextFocus.general.label": "全部",
     "enum.contextFocus.general.summary": "工作流里任何值得补充的概念或事实，不论出自谁口",
     "enum.contextFocus.owner.label": "只看本人",
@@ -93,6 +96,9 @@ export const enums = defineMessages({
       "no compile, no semantic indexing, just baseline full-text search",
     "enum.intakeArchetype.searchable.examples":
       "anything you only want stored and findable",
+
+    "enum.claimLabel.current": "current",
+    "enum.claimLabel.superseded": "superseded",
 
     "enum.contextFocus.general.label": "General",
     "enum.contextFocus.general.summary":

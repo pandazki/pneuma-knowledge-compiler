@@ -56,6 +56,17 @@ export const ask = defineMessages({
     "ask.history.chars": "{count} 字",
     "ask.history.hint": "选中一条即可在它的知识包上继续提问。",
 
+    "ask.text.show": "查看详情 View text",
+    "ask.text.hide": "收起详情",
+    "ask.text.error": "briefing 正文拉取失败",
+    "ask.text.empty": "（这份 briefing 正文为空）",
+    "ask.text.metrics": "{chars} 字 · {lines} 行",
+
+    "ask.stages.buildDescription":
+      "构建这份 briefing 每一步的实测墙钟：retrieve 是取料（括号内为断言与正文两次查询，它们先后执行，相加即为 retrieve），expand 是把命中扩成带出处的证据（上下文窗口、材料卡、引用反查、L0 原文），pack 是按预算拼装。整个构建没有模型调用；标为“未执行”的那一半，是这次 scope 里根本没有的那一半。",
+    "ask.stages.askDescription":
+      "这一轮提问每一步的实测墙钟，按发生顺序排列：turn:N 是一次模型思考，tool:X 是它调用的一件工具，finalize 表示预算耗尽后被迫收尾。total 只收口这一轮的循环——知识包是早先构建的，不计在内。",
+
     "ask.current.title": "当前 Briefing",
     "ask.current.rebuild": "重新构建 briefing",
     "ask.current.sources": "来源",
@@ -120,6 +131,17 @@ export const ask = defineMessages({
     "ask.history.noTime": "(no timestamp)",
     "ask.history.chars": "{count} char{count||s}",
     "ask.history.hint": "Pick one to carry on asking against its knowledge pack.",
+
+    "ask.text.show": "View text",
+    "ask.text.hide": "Hide text",
+    "ask.text.error": "Could not load the briefing text",
+    "ask.text.empty": "(this briefing's text is empty)",
+    "ask.text.metrics": "{chars} char{chars||s} · {lines} line{lines||s}",
+
+    "ask.stages.buildDescription":
+      "Measured wall-clock per step of building this briefing: `retrieve` is the lookups (in brackets, the claim face and the body face — they run in sequence here, so they add up to `retrieve`), `expand` turns hits and anchored sources into evidence with provenance (context windows, materials cards, the citation reverse lookup, L0 text), `pack` is the budgeted assembly. No model runs in a build; a stage marked \"not run\" is a half this scope simply did not have.",
+    "ask.stages.askDescription":
+      "Measured wall-clock per step of this question, in the order it happened: `turn:N` is one model turn, `tool:X` a tool it reached for, `finalize` a closing call forced by the tool budget. `total` wraps this round's loop only — the knowledge pack was built earlier and is not inside it.",
 
     "ask.current.title": "Current briefing",
     "ask.current.rebuild": "Build another briefing",

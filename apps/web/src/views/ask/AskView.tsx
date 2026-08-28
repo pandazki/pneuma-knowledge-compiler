@@ -2,13 +2,19 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MessagesSquare } from "lucide-react";
 import { useApp, type AskTurn } from "@/lib/store";
 import {
-  askBriefing,
-  buildBriefing,
+  askBriefingStream,
+  buildBriefingStream,
+  getBriefing,
+  getSource,
   listBriefings,
   listSources,
+  type BriefingBuilt,
+  type BriefingDetail,
   type BriefingSummary,
   type SourceSummary,
 } from "@/lib/api";
+import { briefingTextLines } from "@/lib/ask";
+import { fmtTime } from "@/lib/format";
 import {
   firstPage,
   nextPage,
@@ -34,7 +40,9 @@ import { Select } from "@/ui/Select";
 import { SkeletonText } from "@/ui/Skeleton";
 import { TextField } from "@/ui/TextField";
 import { CitedAnswer } from "../_shared/CitedAnswer";
+import { StageStrip } from "../_shared/StageStrip";
 import { UsageLine } from "../_shared/UsageLine";
+import { useLiveLane } from "../_shared/useLiveLane";
 
 const SOURCE_PAGE_SIZE = 12;
 
@@ -50,6 +58,7 @@ export default function AskView() {
   const focusSource = useApp((s) => s.focusSource);
   const askCache = useApp((s) => s.askCache);
   const setAskCache = useApp((s) => s.setAskCache);
+  const selectBriefing = useApp((s) => s.selectBriefing);
   const { scopeQuery, selected: selectedIds, briefing, question, turns } = askCache;
   const selected = useMemo(() => new Set(selectedIds), [selectedIds]);
 
@@ -64,14 +73,16 @@ export default function AskView() {
   const sourceRequestVersion = useRef(0);
   const [history, setHistory] = useState<BriefingSummary[] | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
-  // budget_chars is not in the store (lib is frozen); it lives for the session only, default 4000.
+  // budget_chars is a build input the store does not keep; session-only, default 4000.
   const [budget, setBudget] = useState<number | null>(4000);
   const [building, setBuilding] = useState(false);
   const [buildError, setBuildError] = useState<string | null>(null);
   const [asking, setAsking] = useState(false);
   const [askError, setAskError] = useState<string | null>(null);
-  // AskTurn has no verbatim_fetches field (lib is frozen); park them by turn index for the session.
-  const [verbatim, setVerbatim] = useState<Record<number, Record<string, unknown>[]>>({});
+  // Both halves of this page cost real seconds, and both are now watched the same way as
+  // Recall's lanes: the build's retrieval/expansion/assembly, and each question's loop.
+  const liveBuild = useLiveLane(building);
+  const liveAsk = useLiveLane(asking);
 
   const sources = sourcePage?.items ?? null;
   const titles = sourceTitles;
@@ -126,7 +137,39 @@ export default function AskView() {
   useEffect(() => {
     setSourcePageState(firstPage());
     setSourceTitles({});
+    titleLookupsTried.current.clear();
   }, [currentUser]);
+
+  // A footnote names its source by title. The picker page only knows the titles of the
+  // rows it has shown, and an answer cites whatever the briefing holds — so each cited
+  // source the page has not met yet is looked up once, and shows its id until then.
+  const titleLookupsTried = useRef(new Set<string>());
+  useEffect(() => {
+    if (!currentUser) return;
+    const missing = new Set<string>();
+    for (const turn of turns) {
+      for (const c of turn.citations) {
+        if (!(c.source_id in sourceTitles) && !titleLookupsTried.current.has(c.source_id)) {
+          missing.add(c.source_id);
+        }
+      }
+    }
+    if (missing.size === 0) return;
+    let alive = true;
+    for (const id of missing) {
+      titleLookupsTried.current.add(id);
+      getSource(currentUser, id)
+        .then((detail) => {
+          if (alive) setSourceTitles((known) => ({ ...known, [id]: detail.title }));
+        })
+        .catch(() => {
+          /* the id stays on the footnote */
+        });
+    }
+    return () => {
+      alive = false;
+    };
+  }, [currentUser, turns, sourceTitles]);
 
   const jumpToCitation = useCallback(
     (c: CitationEntry) =>
@@ -150,6 +193,14 @@ export default function AskView() {
     );
   }
 
+  /** Every briefing change goes through here: the store resets the thread and the draft
+   * question, and the one piece of thread state that is local — the last ask error — is
+   * cleared beside it. Nothing about the previous pack survives the switch. */
+  function pickBriefing(next: BriefingBuilt | null) {
+    selectBriefing(next);
+    setAskError(null);
+  }
+
   function toggleSource(id: string) {
     const next = selected.has(id) ? selectedIds.filter((x) => x !== id) : [...selectedIds, id];
     setAskCache({ selected: next });
@@ -161,15 +212,25 @@ export default function AskView() {
     if (!currentUser || !canBuild) return;
     setBuilding(true);
     setBuildError(null);
+    liveBuild.reset();
     try {
-      const built = await buildBriefing(currentUser, {
-        query: scopeQuery.trim() || null,
-        source_ids: [...selected],
-        budget_chars: budget ?? undefined,
-        snapshot: currentSnapshot,
-      });
-      setAskCache({ briefing: built });
-      void loadHistory();
+      await buildBriefingStream(
+        currentUser,
+        {
+          query: scopeQuery.trim() || null,
+          source_ids: [...selected],
+          budget_chars: budget ?? undefined,
+          snapshot: currentSnapshot,
+        },
+        {
+          onStage: liveBuild.onStage,
+          onDone: (built) => {
+            pickBriefing(built);
+            void loadHistory();
+          },
+          onError: setBuildError,
+        },
+      );
     } catch (e) {
       setBuildError((e as Error).message);
     } finally {
@@ -178,24 +239,39 @@ export default function AskView() {
   }
 
   async function onAsk() {
+    // Enter in the question field arrives here too; while an answer streams, a second
+    // question must wait — two in flight would both append to the same stale thread.
+    if (asking) return;
     if (!currentUser || !briefing || !question.trim()) return;
     const q = question.trim();
     setAsking(true);
     setAskError(null);
+    liveAsk.reset();
     try {
-      const res = await askBriefing(currentUser, briefing.briefing_id, q);
-      const turn: AskTurn = {
-        question: q,
-        mode: "briefing",
-        answer: res.answer,
-        citations: res.citations,
-        handles: res.citation_handles ?? {},
-        usage: res.token_usage,
-      };
-      if (res.verbatim_fetches.length > 0) {
-        setVerbatim((v) => ({ ...v, [turns.length]: res.verbatim_fetches }));
-      }
-      setAskCache({ turns: [...turns, turn], question: "" });
+      await askBriefingStream(
+        currentUser,
+        briefing.briefing_id,
+        q,
+        {
+          onStage: liveAsk.onStage,
+          onToken: liveAsk.onToken,
+          onDone: (res) => {
+            const turn: AskTurn = {
+              question: q,
+              mode: "briefing",
+              answer: res.answer,
+              citations: res.citations,
+              handles: res.citation_handles ?? {},
+              usage: res.token_usage,
+              verbatim:
+                res.verbatim_fetches.length > 0 ? res.verbatim_fetches : undefined,
+              stages: res.stages,
+            };
+            setAskCache({ turns: [...turns, turn], question: "" });
+          },
+          onError: setAskError,
+        },
+      );
     } catch (e) {
       setAskError((e as Error).message);
     } finally {
@@ -365,6 +441,15 @@ export default function AskView() {
                   onRetry={() => void onBuild()}
                 />
               )}
+              {/* A build runs no model at all — retrieval, expansion, assembly — which is
+                  exactly why watching it is worth something: when it takes nine seconds the
+                  whole question is which of the three it spent them in. */}
+              {building && (
+                <StageStrip
+                  live={liveBuild.stages}
+                  description={t("ask.stages.buildDescription")}
+                />
+              )}
               <div>
                 <Button
                   variant="primary"
@@ -396,31 +481,32 @@ export default function AskView() {
             ) : (
               <ol className="mt-2 border-t border-line">
                 {history.map((b) => (
-                  <li key={b.briefing_id} className="border-b border-line">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setAskCache({
-                          briefing: {
+                  <li key={b.briefing_id} className="border-b border-line px-1 py-2">
+                    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          pickBriefing({
                             briefing_id: b.briefing_id,
                             snapshot_ref: b.snapshot_ref,
                             // A history row carries no claims / source counts; show what it has.
                             claims_count: 0,
                             source_count: 0,
                             char_count: b.char_count,
-                          },
-                        })
-                      }
-                      className="flex w-full flex-wrap items-baseline gap-x-3 gap-y-1 px-1 py-2 text-left transition-colors duration-120 hover:bg-hover"
-                    >
-                      <Mono className="text-13 text-accent">{b.briefing_id}</Mono>
-                      <Mono className="text-12 text-ink-3">
-                        {b.created_at ?? t("ask.history.noTime")}
-                      </Mono>
-                      <Mono className="ml-auto text-12 text-ink-3">
-                        {t("ask.history.chars", { count: b.char_count })}
-                      </Mono>
-                    </button>
+                          })
+                        }
+                        className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-3 gap-y-1 rounded-1 px-1 py-0.5 text-left transition-colors duration-120 hover:bg-hover"
+                      >
+                        <Mono className="text-13 text-accent">{b.briefing_id}</Mono>
+                        <Mono className="text-12 text-ink-3" title={b.created_at ?? undefined}>
+                          {b.created_at ? fmtTime(b.created_at) : t("ask.history.noTime")}
+                        </Mono>
+                        <Mono className="ml-auto text-12 text-ink-3">
+                          {t("ask.history.chars", { count: b.char_count })}
+                        </Mono>
+                      </button>
+                      <BriefingText userId={currentUser} briefingId={b.briefing_id} />
+                    </div>
                   </li>
                 ))}
               </ol>
@@ -436,7 +522,7 @@ export default function AskView() {
               no={1}
               title={t("ask.current.title")}
               actions={
-                <Button size="sm" onClick={() => setAskCache({ briefing: null })}>
+                <Button size="sm" onClick={() => pickBriefing(null)}>
                   {t("ask.current.rebuild")}
                 </Button>
               }
@@ -464,6 +550,20 @@ export default function AskView() {
                 },
               ]}
             />
+            {/* What the build itself cost, beside what it produced. Renders nothing for a
+                briefing picked out of history — that one was built in another session, and
+                its breakdown comes back with the pack instead (BriefingText below). */}
+            <StageStrip
+              stages={briefing.stages}
+              description={t("ask.stages.buildDescription")}
+            />
+            <div className="mt-3 flex max-w-measure flex-wrap items-baseline gap-2">
+              <BriefingText
+                userId={currentUser}
+                briefingId={briefing.briefing_id}
+                showStages={false}
+              />
+            </div>
           </section>
 
           <section>
@@ -505,13 +605,19 @@ export default function AskView() {
                       </Callout>
                     )}
                     <UsageLine usage={turn.usage} className="mt-2" />
-                    {(verbatim[i]?.length ?? 0) > 0 && (
+                    {/* This turn's own loop: the turns it took, the tools it reached for, and
+                        the total around them. The pack is not in it — it was built once. */}
+                    <StageStrip
+                      stages={turn.stages}
+                      description={t("ask.stages.askDescription")}
+                    />
+                    {turn.verbatim && turn.verbatim.length > 0 && (
                       <details className="mt-2 max-w-measure">
                         <summary className="cursor-pointer text-13 text-ink-2">
-                          {t("ask.thread.verbatim", { count: verbatim[i].length })}
+                          {t("ask.thread.verbatim", { count: turn.verbatim.length })}
                         </summary>
                         <pre className="mt-2 max-h-64 overflow-auto rounded-2 border border-line bg-surface p-3 font-mono text-12 whitespace-pre-wrap text-ink-2">
-                          {JSON.stringify(verbatim[i], null, 2)}
+                          {JSON.stringify(turn.verbatim, null, 2)}
                         </pre>
                       </details>
                     )}
@@ -523,7 +629,19 @@ export default function AskView() {
             {/* Question row */}
             <div className="mt-6 flex max-w-measure flex-col gap-2">
               {asking ? (
-                <SkeletonText lines={4} />
+                <div className="flex flex-col gap-3">
+                  <StageStrip
+                    live={liveAsk.stages}
+                    description={t("ask.stages.askDescription")}
+                  />
+                  {liveAsk.text ? (
+                    <p className="prose max-w-measure text-14 whitespace-pre-wrap">
+                      {liveAsk.text}
+                    </p>
+                  ) : (
+                    liveAsk.stages.length === 0 && <SkeletonText lines={4} />
+                  )}
+                </div>
               ) : (
                 askError && (
                   <ErrorState
@@ -558,5 +676,92 @@ export default function AskView() {
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * The briefing pack, read back on demand.
+ *
+ * A briefing is plain text and the answers above are grounded in exactly it, so being able to
+ * open it is the difference between trusting the pack and inspecting it. Fetched on first
+ * open only (a pack runs to tens of thousands of characters), kept for the session, and
+ * rendered verbatim — no markdown, because what the model was handed is the literal string.
+ */
+function BriefingText({
+  userId,
+  briefingId,
+  showStages = true,
+}: {
+  userId: string;
+  briefingId: string;
+  /** false when the caller already draws the build strip beside this toggle (the
+      current-briefing card), so the breakdown is not shown twice on one card. */
+  showStages?: boolean;
+}) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const [detail, setDetail] = useState<BriefingDetail | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    setError(null);
+    getBriefing(userId, briefingId)
+      .then(setDetail)
+      .catch((e) => setError((e as Error).message))
+      .finally(() => setLoading(false));
+  }, [userId, briefingId]);
+
+  function toggle() {
+    const next = !open;
+    setOpen(next);
+    if (next && detail == null && !loading) load();
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={toggle}
+        className="shrink-0 rounded-1 px-1.5 py-0.5 text-12 text-ink-3 transition-colors duration-120 hover:bg-hover hover:text-ink"
+      >
+        {open ? t("ask.text.hide") : t("ask.text.show")}
+      </button>
+      {open && (
+        <div className="w-full">
+          {loading ? (
+            <SkeletonText lines={4} className="mt-2" />
+          ) : error ? (
+            <div className="mt-2">
+              <ErrorState title={t("ask.text.error")} error={error} onRetry={load} />
+            </div>
+          ) : detail == null ? null : detail.text === "" ? (
+            <p className="mt-2 text-12 text-ink-3">{t("ask.text.empty")}</p>
+          ) : (
+            <>
+              <p className="mt-2 text-12 text-ink-3">
+                {t("ask.text.metrics", {
+                  chars: detail.char_count,
+                  lines: briefingTextLines(detail.text),
+                })}
+              </p>
+              {/* A pack stored before builds were measured carries no stages and shows none:
+                  "not recorded" is not "took no time", so nothing is drawn as zeros. */}
+              {showStages && (
+                <StageStrip
+                  stages={detail.stages}
+                  description={t("ask.stages.buildDescription")}
+                />
+              )}
+              <pre className="mt-1 max-h-96 overflow-auto rounded-2 border border-line bg-surface p-3 font-mono text-12 whitespace-pre-wrap text-ink-2">
+                {detail.text}
+              </pre>
+            </>
+          )}
+        </div>
+      )}
+    </>
   );
 }

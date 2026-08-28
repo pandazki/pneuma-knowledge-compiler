@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { ArrowRight } from "lucide-react";
 import { useApp } from "@/lib/store";
 import { getWorkspaceSummary, type WorkspaceSummary } from "@/lib/api";
+import { fmtCount } from "@/lib/format";
 import type { MessageKey } from "@/lib/i18n";
 import type { ViewName } from "@/lib/types";
 import { useT } from "@/lib/useT";
@@ -62,7 +63,7 @@ function FlowChart({ nodes }: { nodes: FlowNode[] }) {
                 <span className="font-serif text-24 text-ink-3">—</span>
               ) : (
                 <span className="font-serif text-24 text-accent tabular-nums">
-                  {node.count}
+                  {fmtCount(node.count)}
                 </span>
               )}
               <span className="text-12 text-ink-3">{node.unit}</span>

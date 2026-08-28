@@ -11,11 +11,19 @@
  */
 
 import { tx } from "./i18n";
+import { SUPERSEDES_COMMENT_RE, supersededAnchor } from "./supersession";
 import type { Claim, ClaimLabel, Escalation } from "./types";
 
 const CITE_RE = /\[cite:[^\]]*\]/g;
 const INFERRED_RE = /\[inferred\]/gi;
 const ANCHOR_COMMENT_RE = /<!--\s*c:[0-9a-f]+\s*-->/gi;
+/**
+ * The supersession marker a superseding claim carries after its own anchor comment
+ * (`compile/supersession.py`): `<!-- supersedes: c:a1f3 -->`. Deliberately NOT an anchor
+ * variant, so ANCHOR_COMMENT_RE never matches it — which is exactly why it has to be
+ * stripped here as well, or the raw comment shows up in the reader's prose.
+ */
+const SUPERSEDES_COMMENT_ALL_RE = new RegExp(SUPERSEDES_COMMENT_RE.source, "gi");
 const FLAG_COMMENT_RE = /<!--\s*(disputed|open-question)\s*:?\s*([^>]*?)\s*-->/gi;
 const LIST_MARKER_RE = /^\s*[-*+]\s+/;
 
@@ -26,16 +34,24 @@ export interface CleanedClaim {
   disputedNote?: string;
   /** rationale captured from a <!-- open-question: … --> comment, if any */
   openQuestionNote?: string;
+  /** the anchor this claim supersedes, captured from its <!-- supersedes: … --> marker */
+  supersedes?: string;
 }
 
 export function cleanClaimText(text: string, kind: string): CleanedClaim {
   let disputedNote: string | undefined;
   let openQuestionNote: string | undefined;
+  let supersedes: string | undefined;
 
   let out = text.replace(FLAG_COMMENT_RE, (_m, kindStr: string, note: string) => {
     const trimmed = (note || "").trim();
     if (kindStr === "disputed") disputedNote = trimmed || disputedNote;
     else openQuestionNote = trimmed || openQuestionNote;
+    return "";
+  });
+
+  out = out.replace(SUPERSEDES_COMMENT_ALL_RE, (_m, anchor: string) => {
+    supersedes = anchor.toLowerCase();
     return "";
   });
 
@@ -46,8 +62,12 @@ export function cleanClaimText(text: string, kind: string): CleanedClaim {
 
   if (kind === "list_item") out = out.replace(LIST_MARKER_RE, "");
 
+  // Any machinery comment the reader is not meant to see — a marker this version of the
+  // viewer does not know yet included — leaves as a comment, never as prose.
+  out = out.replace(/<!--[\s\S]*?-->/g, "");
+
   out = out.replace(/[ \t]+/g, " ").trim();
-  return { md: out, disputedNote, openQuestionNote };
+  return { md: out, disputedNote, openQuestionNote, supersedes };
 }
 
 /** True when a claim still carries inline machinery — i.e. an older schema v1 export. */
@@ -70,13 +90,24 @@ export function displayClaim(claim: Claim): CleanedClaim {
       md: cleaned.md,
       disputedNote: claim.notes?.disputed ?? cleaned.disputedNote,
       openQuestionNote: claim.notes?.open_question ?? cleaned.openQuestionNote,
+      supersedes: cleaned.supersedes,
     };
   }
   return {
     md: claim.text,
     disputedNote: claim.notes?.disputed,
     openQuestionNote: claim.notes?.open_question,
+    supersedes: claimSupersedes(claim),
   };
+}
+
+/**
+ * The anchor a claim replaces, or null. Read off the audit text (`raw_text` when the
+ * exporter ships one, otherwise `text` — schema v1 carries the machinery inline), so this
+ * keeps working if a later exporter cleans `text`.
+ */
+export function claimSupersedes(claim: Claim): string | undefined {
+  return supersededAnchor(claim.raw_text ?? claim.text ?? "") ?? undefined;
 }
 
 export interface ExtractedClaimLabel {

@@ -265,7 +265,9 @@ function readableDocumentName(path: string, model: Model | null): string {
 function cleanClaimText(value: string | null | undefined): string {
   return (value ?? "")
     .replace(/\s*\[cite:[^\]]+\]/g, "")
-    .replace(/\s*<!--\s*c:[^>]+-->/g, "")
+    // Every machinery comment, not just the anchor: a claim that replaces another carries a
+    // second `<!-- supersedes: c:… -->` marker, and no marker is prose.
+    .replace(/\s*<!--[\s\S]*?-->/g, "")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -346,9 +348,15 @@ function TimelineRow({
   );
 }
 
-function claimKind(claim: SidecarClaimRef): "added" | "revised" | "unknown" {
+function claimKind(
+  claim: SidecarClaimRef,
+): "added" | "revised" | "superseded" | "overview" | "unknown" {
   if (claim.type === "claim_added") return "added";
   if (claim.type === "claim_revised") return "revised";
+  if (claim.type === "claim_superseded") return "superseded";
+  // Not a claim change: the document's head was re-read off the ledger. One event per
+  // document, so it carries no anchor and no chain.
+  if (claim.type === "overview_rewritten") return "overview";
   if (claim.before != null && claim.after != null) return "revised";
   if (claim.after != null) return "added";
   return "unknown";
@@ -513,11 +521,24 @@ function PatchDetail({
                                 ? t("history.claim.added")
                                 : kind === "revised"
                                   ? t("history.claim.revised")
-                                  : t("history.claim.changed")}
+                                  : kind === "superseded"
+                                    ? t("history.claim.superseded")
+                                    : kind === "overview"
+                                      ? t("history.claim.overview")
+                                      : t("history.claim.changed")}
                             </Badge>
                             {anchor && (
                               <Mono className="text-12 text-ink-3">
                                 ⚓ {anchor}
+                              </Mono>
+                            )}
+                            {/* A state change names what it replaced: the old claim stays in
+                                the document as history, so the reader can go and read it. */}
+                            {claim.supersedes && (
+                              <Mono className="text-12 text-ink-3">
+                                {t("history.claim.supersedesAnchor", {
+                                  anchor: claim.supersedes,
+                                })}
                               </Mono>
                             )}
                             {jumpable && (

@@ -9,6 +9,7 @@
 import { tx } from "./i18n";
 import type { ClaimLabel, UserProfile } from "./types";
 import type { HistoryCounts, HistoryItemEnvelope } from "./history";
+import type { StageEvent, StageTiming } from "./stages";
 import { buildPageQuery, type Page } from "./pagination";
 
 const BASE = (import.meta.env.VITE_API_BASE ?? "").replace(/\/+$/, "");
@@ -360,11 +361,19 @@ export function importOfficialSource(
   });
 }
 
+/** rag recall — the fused hit list, and the per-stage wall-clock of finding it. */
+export interface RagResult {
+  mode: "rag";
+  hits: RecallHit[];
+  /** `embed` → `retrieve` (`lexical`, `vector`) → `fuse` → `expand`, plus `total`. */
+  stages: StageTiming[];
+}
+
 export function recall(
   userId: string,
   body: { query: string; mode?: string; limit?: number; snapshot?: string | null },
-): Promise<RecallHit[]> {
-  return req<RecallHit[]>(`/v1/users/${u(userId)}/recall`, {
+): Promise<RagResult> {
+  return req<RagResult>(`/v1/users/${u(userId)}/recall`, {
     method: "POST",
     body: JSON.stringify({ mode: "rag", limit: 10, ...body }),
   });
@@ -388,6 +397,35 @@ export interface UsedClaim {
   citations: { source_id: string; block_start: number; block_end: number }[];
   paths: string[];
   score: number;
+  /**
+   * Mechanical labels, never prose: the ones a component path attached to its own item
+   * (`current`, `superseded`), plus `via:<path>` on a ranked claim that a lookup also
+   * returned. Absent altogether from a server that predates the seam.
+   */
+  labels?: string[];
+}
+
+/**
+ * fast only: one routed component lookup (core `recall/paths.py`). A component path answers a
+ * STRUCTURED query — `person({"alias": "…"})` — with exact hits, so it stays its own evidence
+ * face instead of being fused into the ranked pool. `degraded` names why a chosen path
+ * contributed nothing.
+ *
+ * The path returns everything it knows and the framework decides what is shown: `dropped`
+ * counts what the cap and the character budget left out and `dropped_summary` describes it
+ * per section (claims) or per day/source (windows), while `already_shown` counts the hits
+ * the ranked faces above already carry — hidden here rather than repeated, which is why a
+ * ranked claim may carry a `via:<path>` label.
+ */
+export interface ComponentEvidence {
+  path: string;
+  args: Record<string, unknown>;
+  claims: UsedClaim[];
+  windows: RecallHit[];
+  degraded?: string | null;
+  dropped?: number;
+  dropped_summary?: [string, number][];
+  already_shown?: number;
 }
 
 /** Dense generated L2 content used by fast recall. It locates back to source blocks but is
@@ -416,6 +454,10 @@ export interface TrailStep {
   chars?: number;
   result?: string;
   error?: string;
+  /** This call's measured wall-clock in ms, stamped by the service before the step was
+   * streamed — so a live-growing trail shows a real duration, not one timed from arrival
+   * gaps. The same number the closing `stages` list reports for `tool:<tool>`. */
+  ms?: number;
 }
 
 export interface RecallAnswer {
@@ -427,6 +469,19 @@ export interface RecallAnswer {
   used_claims: UsedClaim[];
   /** fast only: generated, source-addressed L2 episode descriptions shown to the model. */
   used_episode_summaries?: EpisodeSummary[];
+  /** fast only: the routed component lookups and what each returned. */
+  used_component_evidence?: ComponentEvidence[];
+  /** Per-stage wall-clock, in the lane's own vocabulary (see `lib/stages.ts`). fast sends
+   * the whole fixed list in order — a stage that did not run is present with
+   * `status: "skipped"` and `ms: 0`; deep sends the agentic run's own sequence
+   * (`turn:N`, `tool:<name>`, `finalize`), never skipped, `total` last. Optional: an answer
+   * restored from the session cache has none. */
+  stages?: StageTiming[];
+  /** fast only: which paths the routing turn was offered, and which it chose (`name({…})`). */
+  route_offered?: string[];
+  route_chosen?: string[];
+  /** "timeout" | "error" when the routing call itself failed; choosing nothing is not that. */
+  route_degraded?: string | null;
   /** L1/L2 body windows fused into the answer — uncompiled content, drill-downable. */
   used_windows?: RecallHit[];
   /** deep only: the agentic search trace, one record per tool call in execution order. */
@@ -445,8 +500,11 @@ export interface RecallAnswer {
   included_original_modalities?: OriginalModality[];
   original_modality_counts?: Record<string, number>;
   /** Fast-only context composition and answer-wire telemetry. */
-  evidence_strategy?: "ranked" | "select";
-  evidence_selection_degraded?: "timeout" | "error" | null;
+  evidence_strategy?: "ranked" | "select" | "all";
+  /** "timeout" / "error" from the selector, or "all:truncated" when the whole-pool
+   *  strategy hit its context ceiling. Free-form on purpose: a reason is shown, not
+   *  branched on. */
+  evidence_selection_degraded?: string | null;
   claim_candidates?: number;
   episode_summary_candidates?: number;
   window_candidates?: number;
@@ -457,6 +515,9 @@ export interface RecallAnswer {
   answer_format?: "text" | "structured";
   answer_kind?: "fact" | "list" | "time" | "duration" | "yes_no" | "inference" | "no_record" | null;
   answer_format_degraded?: "timeout" | "error" | null;
+  /** The answering call's own evidence review, when the schema asked for one (the `all`
+   *  strategy). Model output about the evidence — never evidence, never a citation. */
+  deliberation?: string | null;
   token_usage: TokenUsage;
 }
 
@@ -474,7 +535,7 @@ export function recallAnswer(
     mode: "fast" | "deep";
     as_of?: string;
     snapshot?: string | null;
-    evidence_strategy?: "ranked" | "select";
+    evidence_strategy?: "ranked" | "select" | "all";
     answer_format?: "text" | "structured";
     include_original_modalities?: OriginalModality[];
   },
@@ -485,40 +546,47 @@ export function recallAnswer(
   });
 }
 
-/** Deep recall over Server-Sent Events: `onStep` fires per agentic tool call as it lands
- * (growing the deep-search trace live), then `onDone` with the full answer. Step-level,
- * not token streaming. Returns when the stream ends; throws/`onError` on failure. */
-export async function recallDeepStream(
-  userId: string,
-  query: string,
-  handlers: {
-    onStep: (step: TrailStep) => void;
-    onDone: (answer: RecallAnswer) => void;
-    onError: (message: string) => void;
-  },
+/**
+ * One SSE reader for every stream this client speaks.
+ *
+ * Written once because the parsing is the same everywhere and only the vocabulary differs:
+ * frames separated by a blank line, an `event:` name, one or more `data:` lines to join. The
+ * caller supplies a handler per event kind; an event nobody handles is skipped rather than
+ * treated as an error, so a service that grows a frame kind does not break an older viewer.
+ *
+ * Resolves when the stream closes. Transport failures and non-2xx statuses are reported
+ * through `onError` rather than thrown, so a caller has exactly one failure path.
+ */
+async function readEventStream(
+  path: string,
+  body: unknown,
+  handlers: Record<string, (payload: unknown) => void>,
+  onError: (message: string) => void,
   signal?: AbortSignal,
-  snapshot?: string | null,
-  includeOriginalModalities: OriginalModality[] = [],
 ): Promise<void> {
   let res: Response;
   try {
-    res = await fetch(`${BASE}/v1/users/${u(userId)}/recall/stream`, {
+    res = await fetch(`${BASE}${path}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        query,
-        mode: "deep",
-        snapshot: snapshot ?? null,
-        include_original_modalities: includeOriginalModalities,
-      }),
+      body: JSON.stringify(body),
       signal,
     });
   } catch (e) {
-    handlers.onError((e as Error).message);
+    onError((e as Error).message);
     return;
   }
   if (!res.ok || !res.body) {
-    handlers.onError(`${res.status} ${res.statusText}`);
+    // A stream route refuses BEFORE it opens (an unknown briefing, a keyless deployment),
+    // so the JSON detail is the real reason and worth more than the status line.
+    let detail = `${res.status} ${res.statusText}`;
+    try {
+      const parsed = (await res.json()) as { detail?: unknown };
+      if (parsed?.detail != null) detail = String(parsed.detail);
+    } catch {
+      /* non-JSON error body — keep the status line */
+    }
+    onError(detail);
     return;
   }
   const reader = res.body.getReader();
@@ -545,12 +613,100 @@ export async function recallDeepStream(
       } catch {
         continue;
       }
-      if (event === "step") handlers.onStep(payload as TrailStep);
-      else if (event === "done") handlers.onDone(payload as RecallAnswer);
-      else if (event === "error")
-        handlers.onError((payload as { detail?: string }).detail ?? "stream error");
+      if (event === "error") {
+        onError((payload as { detail?: string }).detail ?? "stream error");
+        continue;
+      }
+      handlers[event]?.(payload);
     }
   }
+}
+
+/** What every answering stream reports while it runs, beside its own extras. */
+export interface LiveHandlers {
+  /** A stage beginning or settling — fold these with `liveStages` (lib/stages.ts). */
+  onStage?: (event: StageEvent) => void;
+  /** A delta of the answer text as the model writes it; append them in arrival order. */
+  onToken?: (text: string) => void;
+  onError: (message: string) => void;
+}
+
+function liveFrames(handlers: LiveHandlers): Record<string, (p: unknown) => void> {
+  return {
+    stage: (p) => handlers.onStage?.(p as StageEvent),
+    token: (p) => handlers.onToken?.((p as { text: string }).text),
+  };
+}
+
+/**
+ * fast or deep recall over Server-Sent Events — the same answer the plain POST returns, and
+ * the stages, tokens and (deep) tool calls as they happen.
+ *
+ * Step-level and token-level, never a partial answer object: `onDone` carries the whole
+ * `RecallAnswer`, which is what every panel below the strip renders from.
+ */
+export async function recallStream(
+  userId: string,
+  query: string,
+  mode: "fast" | "deep",
+  handlers: LiveHandlers & {
+    /** deep only: one agentic tool call as it lands, its own `ms` already stamped. */
+    onStep?: (step: TrailStep) => void;
+    onDone: (answer: RecallAnswer) => void;
+  },
+  signal?: AbortSignal,
+  snapshot?: string | null,
+  includeOriginalModalities: OriginalModality[] = [],
+): Promise<void> {
+  await readEventStream(
+    `/v1/users/${u(userId)}/recall/stream`,
+    {
+      query,
+      mode,
+      snapshot: snapshot ?? null,
+      include_original_modalities: includeOriginalModalities,
+    },
+    {
+      ...liveFrames(handlers),
+      step: (p) => handlers.onStep?.(p as TrailStep),
+      done: (p) => handlers.onDone(p as RecallAnswer),
+    },
+    handlers.onError,
+    signal,
+  );
+}
+
+/**
+ * rag recall over Server-Sent Events — the same hit list the plain POST returns, and the
+ * stages as they happen.
+ *
+ * Deliberately its own function rather than a third `mode` on `recallStream`: the `done`
+ * payload is a different shape (hits, not an answer) and the lane has no model, so there are
+ * no `token` frames and no `onToken` to offer. Widening the other client would have meant a
+ * union every caller had to narrow.
+ */
+export async function ragStream(
+  userId: string,
+  query: string,
+  handlers: {
+    onStage?: (event: StageEvent) => void;
+    onDone: (result: RagResult) => void;
+    onError: (message: string) => void;
+  },
+  signal?: AbortSignal,
+  snapshot?: string | null,
+  limit = 10,
+): Promise<void> {
+  await readEventStream(
+    `/v1/users/${u(userId)}/recall/stream`,
+    { query, mode: "rag", limit, snapshot: snapshot ?? null },
+    {
+      stage: (p) => handlers.onStage?.(p as StageEvent),
+      done: (p) => handlers.onDone(p as RagResult),
+    },
+    handlers.onError,
+    signal,
+  );
 }
 
 /* ------------------------------------------------------------- briefings (M4) */
@@ -561,6 +717,10 @@ export interface BriefingBuilt {
   claims_count: number;
   source_count: number;
   char_count: number;
+  /** The BUILD's per-stage wall-clock: `retrieve` (with its `claims` / `passages` lookups),
+   * `expand`, `pack`, `total` — a fixed vocabulary, so a half that did not run is present and
+   * marked `skipped`. Absent on a briefing picked from history (see `BriefingDetail`). */
+  stages?: StageTiming[];
 }
 
 export interface BriefingSummary {
@@ -571,6 +731,19 @@ export interface BriefingSummary {
   created_at: string | null;
 }
 
+/** One stored briefing read back whole — `text` is the literal system pack, not markdown. */
+export interface BriefingDetail {
+  briefing_id: string;
+  snapshot_ref: string;
+  created_at: string | null;
+  char_count: number;
+  scope: { query?: string | null; source_ids?: string[]; budget_chars?: number };
+  text: string;
+  /** The build's breakdown as it was measured, persisted with the row. Empty for a briefing
+   * built before the service measured builds — "not recorded", not "took no time". */
+  stages?: StageTiming[];
+}
+
 export interface AskAnswer {
   answer: string;
   citations: { source_id: string; block_start: number; block_end: number }[];
@@ -579,6 +752,10 @@ export interface AskAnswer {
    * reverse-binds each inline `[cite: sNN]` to its real source. */
   citation_handles?: Record<string, string>;
   token_usage: TokenUsage;
+  /** The ask LOOP's per-step wall-clock, agentic-shaped like deep's: `turn:N`, `tool:<name>`
+   * (the same call the matching `verbatim_fetches` record carries `ms` for), an optional
+   * `finalize`, then `total`. The pack is not inside that total — it was built earlier. */
+  stages?: StageTiming[];
 }
 
 export function buildBriefing(
@@ -596,8 +773,41 @@ export function buildBriefing(
   });
 }
 
+/**
+ * The same build, narrated. A build runs no model at all — it is retrieval, provenance
+ * expansion and assembly — which is exactly why watching it matters: when a build takes nine
+ * seconds the whole question is which of those three it spent them in.
+ */
+export async function buildBriefingStream(
+  userId: string,
+  body: {
+    query?: string | null;
+    source_ids?: string[];
+    budget_chars?: number;
+    snapshot?: string | null;
+  },
+  handlers: LiveHandlers & { onDone: (built: BriefingBuilt) => void },
+  signal?: AbortSignal,
+): Promise<void> {
+  await readEventStream(
+    `/v1/users/${u(userId)}/briefings/stream`,
+    body,
+    {
+      ...liveFrames(handlers),
+      done: (p) => handlers.onDone(p as BriefingBuilt),
+    },
+    handlers.onError,
+    signal,
+  );
+}
+
 export function listBriefings(userId: string): Promise<BriefingSummary[]> {
   return req<BriefingSummary[]>(`/v1/users/${u(userId)}/briefings`);
+}
+
+/** Read one briefing back, text included — the pack the answers are actually grounded in. */
+export function getBriefing(userId: string, briefingId: string): Promise<BriefingDetail> {
+  return req<BriefingDetail>(`/v1/users/${u(userId)}/briefings/${u(briefingId)}`);
 }
 
 export function askBriefing(
@@ -608,6 +818,27 @@ export function askBriefing(
   return req<AskAnswer>(
     `/v1/users/${u(userId)}/briefings/${u(briefingId)}/ask`,
     { method: "POST", body: JSON.stringify({ question }) },
+  );
+}
+
+/** One question over a stored briefing, narrated: turns, the tools they reach for, and the
+ * answer as it is written. `onDone` carries the same `AskAnswer` the plain POST returns. */
+export async function askBriefingStream(
+  userId: string,
+  briefingId: string,
+  question: string,
+  handlers: LiveHandlers & { onDone: (answer: AskAnswer) => void },
+  signal?: AbortSignal,
+): Promise<void> {
+  await readEventStream(
+    `/v1/users/${u(userId)}/briefings/${u(briefingId)}/ask/stream`,
+    { question },
+    {
+      ...liveFrames(handlers),
+      done: (p) => handlers.onDone(p as AskAnswer),
+    },
+    handlers.onError,
+    signal,
   );
 }
 
