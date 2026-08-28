@@ -14,7 +14,7 @@ export const library = defineMessages({
 
     "library.empty.title": "还没有正本",
     "library.empty.description":
-      "这个知识库尚未编译出正本文档——先去「导入」添加原料，再在「工序」里编译。",
+      "这个知识库尚未编译出正本文档——先去「导入」添加来源，再在「工序」里编译。",
     "library.empty.action": "去导入",
 
     "library.toc.aria": "文档目录",
@@ -24,6 +24,10 @@ export const library = defineMessages({
 
     "library.noDoc.title": "没有文档",
     "library.noDoc.description": "文档列表为空——编译尚未产出任何正本文档。",
+
+    "library.volumes.aria": "本主题的各卷",
+    "library.volumes.label": "卷",
+    "library.volumes.main": "主卷",
 
     "library.neighborhood.title": "邻域",
     "library.neighborhood.note": "双向脉络索引：每一行都带上写出这条链接的那句断言。",
@@ -70,7 +74,7 @@ export const library = defineMessages({
 
     "library.empty.title": "No canonical knowledge yet",
     "library.empty.description":
-      "This knowledge base has not compiled a canonical document yet — add material through Ingest, then compile it in Process.",
+      "This knowledge base has not compiled a canonical document yet — add a source through Ingest, then compile it in Process.",
     "library.empty.action": "Go to Ingest",
 
     "library.toc.aria": "Document contents",
@@ -81,6 +85,10 @@ export const library = defineMessages({
     "library.noDoc.title": "No document",
     "library.noDoc.description":
       "The document list is empty — the compile has produced no canonical document yet.",
+
+    "library.volumes.aria": "Volumes of this subject",
+    "library.volumes.label": "Volumes",
+    "library.volumes.main": "Main",
 
     "library.neighborhood.title": "Neighbourhood",
     "library.neighborhood.note":
@@ -111,7 +119,7 @@ export const library = defineMessages({
     "library.supersession.historyNote":
       "Superseded states included: the old state is kept exactly as written, it simply no longer holds.",
     "library.supersession.superseded": "superseded",
-    "library.supersession.supersededBy": "superseded → c:{anchor}",
+    "library.supersession.supersededBy": "superseded by c:{anchor}",
     "library.supersession.supersedes": "supersedes c:{anchor}",
     "library.supersession.elsewhere": "in {path}",
     "library.supersession.jump": "Go to c:{anchor}",

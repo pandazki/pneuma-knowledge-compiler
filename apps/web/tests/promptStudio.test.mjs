@@ -320,7 +320,8 @@ test("the studio view owns authoring while the stage face stays an explanatory e
   assert.match(studio, /engineConsole\.studio\.kind\.assembled/);
   assert.match(studio, /engineConsole\.studio\.kind\.fragments/);
   assert.match(messages, /组装面 · 模型收到的连续消息/);
-  assert.match(messages, /Fragment family · clauses chosen by condition/);
+  // Shortened for the badge it renders in (chip labels stay ≤ ~24 chars).
+  assert.match(messages, /Fragments · by condition/);
   assert.match(studio, /\{!fragments && \(\s*<SegmentedControl/);
   assert.match(studio, /segment\.context \?/, "the editor prefers the registry's own context");
   assert.match(css, /\.prompt-studio__fragment-context/);

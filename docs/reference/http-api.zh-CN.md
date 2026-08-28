@@ -40,7 +40,7 @@
 | GET | `/…/sources/{source_id}` | 详情：元信息、结构图、blocks 与块级图片清单 |
 | GET | `/…/sources/{source_id}/blocks/{block_index}/images/{image_id}` | 私有图片字节；校验 source/block/image 归属与已存摘要 |
 | POST | `/…/sources/{source_id}/fetch` | 按 `locator` 逐字取 L0 原文 |
-| GET | `/…/summary` | 工作区计数：sources、jobs、documents、claims、snapshots |
+| GET | `/…/summary` | 工作区计数：sources、jobs、jobs_failed、documents、claims、snapshots |
 
 ## 检索
 
@@ -139,6 +139,19 @@ Source 详情绝不暴露对象存储 key。每条图片清单只给 `image_id`�
 | GET | `/…/jobs` | 队列分页（`status`、`kind` 过滤） |
 | GET | `/…/history` | patch、job、快照三类混排的统一时间线，带计数 |
 | GET | `/…/history/activity` | 时间线日历 |
+
+任务队列只存三种 status——`queued`、`claimed`、`done`——「失败」不在其中：被闸门驳回的编译和
+提交成功的编译一样以 `done` 收尾，成败写在 `ok` 上。所以 `GET /…/jobs?status=` 在三个存储值之外
+再接受两个派生名：
+
+| `status=` | 选出 |
+|---|---|
+| `queued` / `claimed` / `done` | 存储值本身；`done` 仍然同时含两种结果 |
+| `succeeded` | `done` 且 `ok=true`——该任务提交了 |
+| `failed` | `done` 且 `ok=false`——该任务收尾但没有提交（闸门驳回、中止的一轮） |
+
+`GET /…/summary` 以 `jobs_failed` 给出同一个集合的计数，于是「这个工作区的编译全在中止」不必翻
+队列就能看见。`status` 会被绑进分页游标：翻页途中改它会返回 422，请从第一页重新提问。
 
 ## 快照——两个不同的概念
 

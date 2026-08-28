@@ -22,8 +22,11 @@ export const profile = defineMessages({
   zh: {
     "profile.header.description": "synthetic 用户档案：核心字段、编辑与 AI 生成。",
     "profile.header.descriptionShort": "synthetic 用户档案。",
-    "profile.header.demoDescription":
-      "演示用 synthetic 人设：由服务确定性合成，不代表真实用户。",
+    // The subtitle states this profile's OWN provenance, which `source` already answers —
+    // rather than claiming, on every deployment, that the reader's base is a demo.
+    "profile.header.synthesizedDescription":
+      "这份画像由服务按 user_id 确定性合成，尚未编辑保存。",
+    "profile.header.savedDescription": "这份画像已由本人编辑并保存。",
     "profile.onboarding.title": "新建画像",
     "profile.onboarding.description":
       "先建立工作画像；可以让 AI 生成一份可编辑草稿，也可以直接填写。",
@@ -147,8 +150,9 @@ export const profile = defineMessages({
     "profile.header.description":
       "The synthetic user record: core fields, editing, and AI generation.",
     "profile.header.descriptionShort": "The synthetic user record.",
-    "profile.header.demoDescription":
-      "A synthetic persona for the demo: composed deterministically by the service, not a real user.",
+    "profile.header.synthesizedDescription":
+      "Composed deterministically by the service from the user_id, and not edited or saved yet.",
+    "profile.header.savedDescription": "Edited and saved by its owner.",
     "profile.onboarding.title": "New profile",
     "profile.onboarding.description":
       "Start with a working profile: let the AI draft one you can edit, or fill it in yourself.",
@@ -268,7 +272,7 @@ export const profile = defineMessages({
     "profile.levelStyle.senior":
       "Prefers concise, context-aware answers that focus on trade-offs and impact.",
     "profile.levelStyle.staff":
-      "Prefers high-signal answers emphasizing systemic implications and edge cases.",
+      "Prefers high-signal answers emphasising systemic implications and edge cases.",
     "profile.levelStyle.principal": "Prefers terse, decision-oriented answers assuming deep expertise.",
   },
 });

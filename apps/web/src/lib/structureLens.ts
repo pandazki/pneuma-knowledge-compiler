@@ -294,7 +294,7 @@ export function buildLinkIndex(docs: readonly LensDocument[]): LinkIndex {
       continue;
     }
     if (!fromUnit || fromUnit === toUnit) continue;
-    const key = `${fromUnit} ${toUnit}`;
+    const key = `${fromUnit}\u0000${toUnit}`;
     const source = unitByPath.get(fromUnit)!;
     const target = unitByPath.get(toUnit)!;
     if (seen.has(key)) {
@@ -359,6 +359,52 @@ export function neighborhoodOf(index: LinkIndex, path: string): Neighborhood {
     outgoing: [...(index.outgoing.get(unit.path) ?? [])].sort(byTitle),
     incoming: [...(index.incoming.get(unit.path) ?? [])].sort(byTitle),
   };
+}
+
+/** One page of a subject that has rolled over: the main volume, or one archive volume. */
+export interface VolumePage {
+  path: string;
+  documentId: string | null;
+  /** The main volume's own title, or the volume's file stem (`a01`) for an archive volume. */
+  label: string;
+  main: boolean;
+  current: boolean;
+}
+
+/**
+ * The pages a rolled-over subject is spread across, in reading order: the main volume first,
+ * then its archives.
+ *
+ * A reader who lands on `projects/x/a01` sees a page headed `archived_from … rollover_volume
+ * 01` and no way back: the volume knows its owner, and said so in words, but offered no door.
+ * The family is already in the link index (`mergeVolumes` folds volumes onto their owner), so
+ * this is a lookup rather than a new derivation.
+ *
+ * Null when the subject has no volumes at all — which is almost every page, and which must
+ * render exactly as it did before rollover existed.
+ */
+export function volumeFamily(index: LinkIndex, path: string): VolumePage[] | null {
+  const unit =
+    index.unitByPath.get(path) ??
+    index.units.find((candidate) => candidate.volumes.includes(path)) ??
+    null;
+  if (!unit || unit.volumes.length === 0) return null;
+  return [
+    {
+      path: unit.path,
+      documentId: unit.documentId,
+      label: unit.title,
+      main: true,
+      current: unit.path === path,
+    },
+    ...unit.volumes.map((volume) => ({
+      path: volume,
+      documentId: null,
+      label: volume.slice(volume.lastIndexOf("/") + 1).replace(/\.md$/, ""),
+      main: false,
+      current: volume === path,
+    })),
+  ];
 }
 
 /* ------------------------------------------------------------------ concentration */
@@ -886,12 +932,12 @@ export interface EdgeDiffRow {
 export function newEdges(before: LinkIndex, after: LinkIndex): EdgeDiffRow[] {
   const had = new Set<string>();
   for (const [from, rows] of before.outgoing) {
-    for (const row of rows) had.add(`${from} ${row.path}`);
+    for (const row of rows) had.add(`${from}\u0000${row.path}`);
   }
   const out: EdgeDiffRow[] = [];
   for (const [from, rows] of after.outgoing) {
     for (const row of rows) {
-      if (had.has(`${from} ${row.path}`)) continue;
+      if (had.has(`${from}\u0000${row.path}`)) continue;
       out.push({
         fromPath: from,
         fromTitle: after.unitByPath.get(from)?.title ?? from,

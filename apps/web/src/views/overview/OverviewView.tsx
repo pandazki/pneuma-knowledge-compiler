@@ -21,9 +21,14 @@ interface FlowNode {
   name: string;
   caption: string;
   view: ViewName;
-  /** null = loading (Skeleton); undefined = no data / no user (—). */
-  count: number | null | undefined;
-  unit: string;
+  /**
+   * null = loading (Skeleton); undefined = no data / no user (—); ABSENT = this node has no
+   * count of its own. Retrieval is the one such node: it is a way of reading the base, not a
+   * pile of things in it, and the number it used to show was the version snapshots' — a fact
+   * about History, borrowed, and stated in History's own units on a node about neither.
+   */
+  count?: number | null | undefined;
+  unit?: string;
 }
 
 function FlowChart({ nodes }: { nodes: FlowNode[] }) {
@@ -57,7 +62,7 @@ function FlowChart({ nodes }: { nodes: FlowNode[] }) {
             </span>
             <span className="text-13 text-ink-3">{node.caption}</span>
             <span className="mt-2 flex items-baseline gap-2" aria-live="polite">
-              {node.count === null ? (
+              {node.unit === undefined ? null : node.count === null ? (
                 <Skeleton className="h-7 w-12" />
               ) : node.count === undefined ? (
                 <span className="font-serif text-24 text-ink-3">—</span>
@@ -127,6 +132,18 @@ const GUIDE: GuideItem[] = [
 ];
 
 /* --------------------------------------------------------------------- The view */
+
+/**
+ * Whether THIS DEPLOYMENT is the shipped demo, and may therefore say so.
+ *
+ * The page used to state, in fixed copy, that everything below it was synthetic — which is
+ * true of the example project and false of every base somebody actually built, where the
+ * front page then opened by disclaiming the reader's own material. Nothing in the data can
+ * answer the question (a profile is synthesised for any user_id, real base or not), so it is
+ * declared by the deployment: `VITE_PNEUMA_SYNTHETIC_DEMO=1` at build time. Absent — the
+ * default, and what the framework's own container builds with — the page claims nothing.
+ */
+const SYNTHETIC_DEMO = import.meta.env.VITE_PNEUMA_SYNTHETIC_DEMO === "1";
 
 /** The L0–L3 definition table: term glyph in code, prose in the dictionary. */
 const LAYERS: { term: string; key: MessageKey }[] = [
@@ -211,8 +228,6 @@ export default function OverviewView() {
       name: t("overview.flow.recall.name"),
       caption: t("overview.flow.recall.caption"),
       view: "recall",
-      count: asCount(countsLoaded, summary?.snapshots ?? null),
-      unit: t("overview.flow.recall.unit"),
     },
   ];
 
@@ -283,13 +298,15 @@ export default function OverviewView() {
         </ol>
       </section>
 
-      {/* Synthetic-data disclosure */}
-      <section className="border-t border-line pt-6">
-        <div className="flex flex-wrap items-center gap-3">
-          <Stamp tone="neutral">SYNTHETIC DEMO DATA</Stamp>
-          <p className="max-w-measure text-13 text-ink-2">{t("overview.synthetic.body")}</p>
-        </div>
-      </section>
+      {/* Synthetic-data disclosure — only where it is true (see SYNTHETIC_DEMO). */}
+      {SYNTHETIC_DEMO && (
+        <section className="border-t border-line pt-6">
+          <div className="flex flex-wrap items-center gap-3">
+            <Stamp tone="neutral">SYNTHETIC DEMO DATA</Stamp>
+            <p className="max-w-measure text-13 text-ink-2">{t("overview.synthetic.body")}</p>
+          </div>
+        </section>
+      )}
     </div>
   );
 }

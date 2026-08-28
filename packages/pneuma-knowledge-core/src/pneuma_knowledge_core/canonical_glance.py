@@ -77,7 +77,11 @@ from .compile.patch import _VOLUME_FILE_RE, path_allowed
 from .compile.rollover import archived_from
 from .compile.supersession import SUPERSEDES_MARK_RE, current_blocks, superseded_index
 from .components import registered_components
-from .domain.canonical import CANONICAL_CITATION_MARKER_RE, CanonicalDocument
+from .domain.canonical import (
+    CANONICAL_CITATION_MARKER_RE,
+    HTML_COMMENT_RE,
+    CanonicalDocument,
+)
 from .domain.ids import ANCHOR_MARK_RE, extract_anchors
 from .prompts import prompt
 
@@ -179,7 +183,6 @@ _MD_QUOTE_RE = re.compile(r"^[ \t]*(?:>[ \t]?)+")
 
 #: An HTML comment — an anchor mark, a supersedes marker, an editorial note. All machinery,
 #: and the visible text on either side of it is not: `a <!-- x --> b` is `a b`.
-_MD_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
 
 #: An image, then a link — in that order, because `![alt](src)` contains link syntax and the
 #: alt text is what a reader of one line can use. A link keeps its LABEL and drops its
@@ -211,7 +214,7 @@ def markdown_display_text(text: str) -> str:
     inline code, list bullets, heading markers, blockquote markers, and every line break —
     the words themselves are never touched, and nothing is generated.
     """
-    text = _MD_COMMENT_RE.sub("", text)
+    text = HTML_COMMENT_RE.sub("", text)
     text = _MD_IMAGE_RE.sub(r"\1", text)
     text = _MD_LINK_LABEL_RE.sub(r"\1", text)
     lines = [

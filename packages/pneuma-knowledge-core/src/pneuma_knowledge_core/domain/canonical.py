@@ -31,6 +31,13 @@ CANONICAL_CITATION_RE = re.compile(
     r"¶\s*(?P<start>\d+)"
     r"(?:\s*-\s*¶?\s*(?P<end>\d+))?\s*\]"
 )
+#: Any HTML comment in a canonical body. The system writes exactly two of them — a claim's
+#: anchor and its supersedes marker — and a claim's TEXT may carry none at all
+#: (`compile.gate.check_claim_text_machinery`). So every reader that turns a claim into text
+#: strips the whole shape, not just the two it can name: a marker the model invented
+#: (`<!-- c:__AUTO__ -->`) is machinery too, and it must not reach a screen or an index.
+HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
+
 CANONICAL_CITATION_MARKER_RE = re.compile(
     r"\[cite:\s*(?P<sid>[^\s\]]+)\s*"
     r"(?P<spans>¶\s*\d+(?:\s*-\s*¶?\s*\d+)?"

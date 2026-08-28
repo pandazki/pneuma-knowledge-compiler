@@ -146,7 +146,12 @@ class ActivityCalendarOut(BaseModel):
 
 class WorkspaceSummaryOut(BaseModel):
     sources: int
+    #: Every job this workspace has ever enqueued, and — beside it — the ones that finished
+    #: without committing (`done ∧ ok=false`, the same set `GET /jobs?status=failed` lists).
+    #: A total alone cannot tell a healthy workspace from one whose every compile aborted at
+    #: the gate, because both are `done`.
     jobs: int
+    jobs_failed: int
     documents: int
     claims: int
     snapshots: int
@@ -1786,6 +1791,13 @@ async def list_jobs(
     status: str | None = Query(default=None, max_length=80),
     kind: str | None = Query(default=None, max_length=80),
 ) -> JobPageOut:
+    """One page of the job queue, newest first.
+
+    `status` accepts the stored values (`queued`, `claimed`, `done`) plus the two halves of
+    `done`: `succeeded` (`ok=true`) and `failed` (`ok=false`). "Failed" is not a stored status
+    — a compile the gate rejected finishes `done` like any other job — so without those two
+    names the one question an operator asks had no answer. `done` still means both halves.
+    """
     filters = {"status": status, "kind": kind}
     before: tuple[datetime, str] | None = None
     if cursor:

@@ -6,7 +6,6 @@ import {
   liveContextStream,
   getContextFocuses,
   getSuggestionKinds,
-  listAllSources,
   type ContextFocusOption,
   type ContextSuggestion,
   type LiveContextDone,
@@ -18,6 +17,8 @@ import {
   type SuggestionDetailFrame,
 } from "@/lib/api";
 import type { MessageKey } from "@/lib/i18n";
+import { fmtTime } from "@/lib/format";
+import { DEFAULT_MIN_CONFIDENCE } from "@/lib/liveContextPresets";
 import { useT, useTOr, type TFunction, type TOrFunction } from "@/lib/useT";
 import { PageHeader } from "@/components/PageHeader";
 import { GateLedger } from "@/components/GateLedger";
@@ -39,6 +40,7 @@ import { Tabs } from "@/ui/Tabs";
 import { TextField } from "@/ui/TextField";
 import { cn } from "@/ui/cn";
 import { UsageLine } from "../_shared/UsageLine";
+import { useSourceTitles } from "../_shared/useSourceTitles";
 import { ContextSuggestionCard } from "./ContextSuggestionCard";
 
 type Role = "owner" | "other" | "unknown";
@@ -93,7 +95,7 @@ interface SseTurn {
 function useSsePanel(currentUser: string | null) {
   const [turns, setTurns] = useState<SseTurn[]>([]);
   const [focus, setFocus] = useState<string | null>(null);
-  const [minConf, setMinConf] = useState(1);
+  const [minConf, setMinConf] = useState(DEFAULT_MIN_CONFIDENCE);
   const [maxContextSuggestions, setMaxContextSuggestions] = useState<number | null>(3);
   const [turnWindow, setTurnWindow] = useState<number | null>(3);
   /** The local re-filter threshold: a client-side software filter, sending no request. */
@@ -122,8 +124,13 @@ function useSsePanel(currentUser: string | null) {
     [cards, threshold],
   );
 
+  // "Append a fragment" adds an EMPTY row, and the evaluation drops empty rows — so a window
+  // of nothing but blank fragments sent an empty turn list and spent a round trip on it. The
+  // button now waits for something to have been said.
+  const hasText = useMemo(() => turns.some((turn) => turn.text.trim() !== ""), [turns]);
+
   async function evaluate() {
-    if (!currentUser || !focus || turns.length === 0) return;
+    if (!currentUser || !focus || !turns.some((turn) => turn.text.trim() !== "")) return;
     abortRef.current?.abort();
     const ac = new AbortController();
     abortRef.current = ac;
@@ -162,6 +169,7 @@ function useSsePanel(currentUser: string | null) {
 
   return {
     turns,
+    hasText,
     addTurn,
     removeTurn,
     updateTurn,
@@ -198,7 +206,7 @@ function useWsPanel(currentUser: string | null, t: TFunction) {
   const [status, setStatus] = useState<LiveContextSocketStatus>("closed");
   const [ready, setReady] = useState<LiveContextReadyFrame | null>(null);
   const [focus, setFocus] = useState<string | null>(null);
-  const [minConf, setMinConf] = useState(6);
+  const [minConf, setMinConf] = useState(DEFAULT_MIN_CONFIDENCE);
   const [turnWindow, setTurnWindow] = useState<number | null>(3);
   const [quietPeriod, setQuietPeriod] = useState<number | null>(6);
   const [statsOn, setStatsOn] = useState(true);
@@ -443,10 +451,18 @@ export default function LiveContextView() {
   const [focuses, setFocuses] = useState<ContextFocusOption[]>([]);
   const [kindLabels, setKindLabels] = useState<Record<string, string>>({});
   const [vocabError, setVocabError] = useState<string | null>(null);
-  const [titles, setTitles] = useState<Record<string, string>>({});
-
   const sse = useSsePanel(currentUser);
   const ws = useWsPanel(currentUser, t);
+
+  // Titles for exactly the sources the cards cite (L5): the catalogue is not downloaded here.
+  const cited = useMemo(() => {
+    const ids = new Set<string>();
+    for (const card of sse.cards) for (const c of card.citations) ids.add(c.source_id);
+    for (const item of ws.cards) for (const c of item.suggestion.citations) ids.add(c.source_id);
+    for (const frame of Object.values(ws.details)) for (const c of frame.citations) ids.add(c.source_id);
+    return [...ids];
+  }, [sse.cards, ws.cards, ws.details]);
+  const { titles } = useSourceTitles(currentUser, cited);
 
   // The focus / kind vocabularies come from the server (closed vocabularies; the front end
   // keeps no private copy — only translations of the served keys).
@@ -469,19 +485,6 @@ export default function LiveContextView() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  useEffect(() => {
-    if (!currentUser) return;
-    let alive = true;
-    listAllSources(currentUser)
-      .then((rows) => {
-        if (alive) setTitles(Object.fromEntries(rows.map((r) => [r.source_id, r.title])));
-      })
-      .catch(() => alive && setTitles({}));
-    return () => {
-      alive = false;
-    };
-  }, [currentUser]);
 
   const jumpToCitation = useCallback(
     (c: CitationEntry) =>
@@ -666,7 +669,7 @@ function SsePanel({
             <Button
               variant="primary"
               loading={panel.busy}
-              disabled={panel.turns.length === 0 || !panel.focus}
+              disabled={!panel.hasText || !panel.focus}
               onClick={() => void panel.evaluate()}
             >
               {t("liveContext.sse.run")}
@@ -756,7 +759,8 @@ function SsePanel({
           <GateLedger className="mt-4 max-w-measure" dropped={panel.done.dropped} />
           <p className="mt-2 text-12 text-ink-3">
             {t("liveContext.deliveredCount", { count: panel.done.count })} · focus{" "}
-            <Mono>{panel.done.focus}</Mono> · as_of <Mono>{panel.done.as_of}</Mono>
+            <Mono>{panel.done.focus}</Mono> · as_of{" "}
+            <Mono title={panel.done.as_of}>{fmtTime(panel.done.as_of)}</Mono>
           </p>
           <UsageLine usage={panel.done.token_usage} className="mt-1" />
         </section>

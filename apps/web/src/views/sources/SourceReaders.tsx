@@ -28,6 +28,7 @@ import { cn } from "@/ui/cn";
 
 import {
   buildSourcePresentation,
+  rendersAsMarkdown,
   sourceKindLabel,
   type AttachmentPresentation,
   type EmailMessagePresentation,
@@ -730,14 +731,26 @@ function EmailReader({
   );
 }
 
+/**
+ * The reader for everything without a shape of its own — and the one place a markdown source
+ * is READ rather than spelled.
+ *
+ * `text/markdown` blocks arrive as they were written: pipe tables, blockquotes, bold runs.
+ * Printed as characters, a release report's tables are a wall of `|` and the reader has to
+ * parse them by eye. The source view therefore renders them; the compile galley beside it
+ * keeps the verbatim face, so the tab pair says both things — what the material means, and
+ * what the compiler was literally handed.
+ */
 function GenericReader({
   presentation,
+  markdown,
   inRange,
   onFetchBlock,
   blockRef,
   fetching,
 }: Omit<SourceReaderProps, "detail"> & {
   presentation: Extract<SourcePresentation, { kind: "generic" }>;
+  markdown: boolean;
 }) {
   const t = useT();
   return (
@@ -762,7 +775,14 @@ function GenericReader({
             )}
           >
             <BlockLocator index={block.index} fetching={fetching} onFetch={onFetchBlock} />
-            <p className="prose min-w-0 whitespace-pre-wrap text-14">{block.text}</p>
+            {markdown ? (
+              // A wide table scrolls inside its own block rather than pushing the drawer.
+              <div className="prose min-w-0 overflow-x-auto text-14">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{block.text}</ReactMarkdown>
+              </div>
+            ) : (
+              <p className="prose min-w-0 whitespace-pre-wrap text-14">{block.text}</p>
+            )}
           </li>
         ))}
       </ol>
@@ -783,7 +803,13 @@ export function SourceReader(props: SourceReaderProps) {
     case "email":
       return <EmailReader {...props} presentation={presentation} />;
     case "generic":
-      return <GenericReader {...props} presentation={presentation} />;
+      return (
+        <GenericReader
+          {...props}
+          presentation={presentation}
+          markdown={rendersAsMarkdown(props.detail.mime)}
+        />
+      );
   }
 }
 

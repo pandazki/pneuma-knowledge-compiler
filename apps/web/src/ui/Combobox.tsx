@@ -66,6 +66,7 @@ export function Combobox({
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const activeRef = useRef<HTMLLIElement>(null);
   const baseId = useId();
   const listboxId = `${baseId}-listbox`;
 
@@ -88,6 +89,17 @@ export function Combobox({
   }, [open]);
 
   useEffect(() => setActive(0), [query]);
+
+  /**
+   * Keep the highlighted row in the viewport. The list scrolls at eight rows and the arrow
+   * keys walked the selection straight out of sight — `aria-activedescendant` told a screen
+   * reader where the cursor was while the screen showed rows nobody had moved to. `nearest`
+   * scrolls only when it has to, so pointing at a visible row never jumps the list.
+   */
+  useEffect(() => {
+    if (!open) return;
+    activeRef.current?.scrollIntoView({ block: "nearest" });
+  }, [active, open, query]);
 
   const choose = (item: ComboboxItem) => {
     if (item.disabled) return;
@@ -187,6 +199,7 @@ export function Combobox({
                 header,
                 <li
                   key={item.value}
+                  ref={i === active ? activeRef : undefined}
                   id={`${listboxId}-opt-${item.value}`}
                   role="option"
                   aria-selected={item.value === value}

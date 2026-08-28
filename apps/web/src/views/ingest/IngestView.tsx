@@ -146,6 +146,9 @@ function OfficialSourceTab({ readOnly }: { readOnly: boolean }) {
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<OfficialImportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // A preflight rejection and a failed import land in the same callout, so the stage that set
+  // the error also picks the title — "preflight failed" must not be printed over an import.
+  const [errorStage, setErrorStage] = useState<"preflight" | "import">("import");
 
   const selected = OFFICIAL_SOURCE_OPTIONS.find((option) => option.kind === kind)!;
   const canEdit = !readOnly && !submitting;
@@ -179,6 +182,7 @@ function OfficialSourceTab({ readOnly }: { readOnly: boolean }) {
       if (detected) setKind(detected);
       setSourceText(JSON.stringify(parsed, null, 2));
     } catch (caught) {
+      setErrorStage("import");
       setError(
         t("ingest.official.fileFailed", { detail: (caught as Error).message }),
       );
@@ -195,6 +199,7 @@ function OfficialSourceTab({ readOnly }: { readOnly: boolean }) {
     } catch (caught) {
       setPayload(null);
       setSummary(null);
+      setErrorStage("preflight");
       setError((caught as Error).message);
     }
   }
@@ -211,6 +216,7 @@ function OfficialSourceTab({ readOnly }: { readOnly: boolean }) {
       setSummary(null);
       void loadUsers();
     } catch (caught) {
+      setErrorStage("import");
       setError((caught as Error).message);
     } finally {
       setSubmitting(false);
@@ -311,7 +317,14 @@ function OfficialSourceTab({ readOnly }: { readOnly: boolean }) {
       )}
 
       {error && (
-        <Callout tone="danger" title={t("ingest.official.failed")}>
+        <Callout
+          tone="danger"
+          title={t(
+            errorStage === "preflight"
+              ? "ingest.official.preflightFailed"
+              : "ingest.official.failed",
+          )}
+        >
           <Mono className="break-all">{error}</Mono>
         </Callout>
       )}
@@ -557,14 +570,17 @@ function DocumentTab({ readOnly }: { readOnly: boolean }) {
               label: t("ingest.document.sourceClass.auto"),
               description: t("ingest.document.sourceClass.autoHint"),
             },
+            // One vocabulary, one set of words: the catalogue's chips, the galley's header
+            // and this control all read `enum.sourceClass.*`. The raw value stays visible in
+            // the description line, which is where the wire's own word belongs.
             {
               value: "workstream",
-              label: "workstream",
+              label: tOr("enum.sourceClass.workstream", "workstream"),
               description: t("ingest.document.sourceClass.workstream"),
             },
             {
               value: "reference",
-              label: "reference",
+              label: tOr("enum.sourceClass.reference", "reference"),
               description: t("ingest.document.sourceClass.reference"),
             },
           ]}
@@ -582,8 +598,10 @@ function DocumentTab({ readOnly }: { readOnly: boolean }) {
           <SectionRule no={2} title={t("ingest.document.preview")} />
           <p className="text-13 text-ink-2">
             {t("ingest.document.normalizedPrefix")}
-            <Mono>{preview.normalized.block_count}</Mono> blocks ·{" "}
-            <Mono>{preview.normalized.char_count}</Mono> chars
+            <Mono>{preview.normalized.block_count}</Mono>{" "}
+            {t("ingest.document.blockNoun")} ·{" "}
+            <Mono>{preview.normalized.char_count}</Mono>{" "}
+            {t("ingest.document.charNoun")}
             {preview.proposed_archetype && (
               <>
                 {" "}· {t("ingest.document.proposedArchetype")}{" "}

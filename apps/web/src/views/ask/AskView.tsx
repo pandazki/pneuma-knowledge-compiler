@@ -5,7 +5,6 @@ import {
   askBriefingStream,
   buildBriefingStream,
   getBriefing,
-  getSource,
   listBriefings,
   listSources,
   type BriefingBuilt,
@@ -14,7 +13,7 @@ import {
   type SourceSummary,
 } from "@/lib/api";
 import { briefingTextLines } from "@/lib/ask";
-import { fmtTime } from "@/lib/format";
+import { fmtCount, fmtTime } from "@/lib/format";
 import {
   firstPage,
   nextPage,
@@ -22,7 +21,7 @@ import {
   type CursorPageState,
   type Page,
 } from "@/lib/pagination";
-import { useT } from "@/lib/useT";
+import { useT, useTOr } from "@/lib/useT";
 import { PageHeader } from "@/components/PageHeader";
 import { PaginationBar } from "@/components/PaginationBar";
 import { CitationList, type CitationEntry } from "@/components/CitationList";
@@ -43,6 +42,7 @@ import { CitedAnswer } from "../_shared/CitedAnswer";
 import { StageStrip } from "../_shared/StageStrip";
 import { UsageLine } from "../_shared/UsageLine";
 import { useLiveLane } from "../_shared/useLiveLane";
+import { useSourceTitles } from "../_shared/useSourceTitles";
 
 const SOURCE_PAGE_SIZE = 12;
 
@@ -53,6 +53,7 @@ const SOURCE_PAGE_SIZE = 12;
  */
 export default function AskView() {
   const t = useT();
+  const tOr = useTOr();
   const currentUser = useApp((s) => s.currentUser);
   const currentSnapshot = useApp((s) => s.currentSnapshot);
   const focusSource = useApp((s) => s.focusSource);
@@ -67,7 +68,6 @@ export default function AskView() {
     useState<CursorPageState>(firstPage);
   const [sourceQuery, setSourceQuery] = useState("");
   const [sourceKind, setSourceKind] = useState("all");
-  const [sourceTitles, setSourceTitles] = useState<Record<string, string>>({});
   const [sourcesLoading, setSourcesLoading] = useState(false);
   const [sourcesError, setSourcesError] = useState<string | null>(null);
   const sourceRequestVersion = useRef(0);
@@ -85,7 +85,15 @@ export default function AskView() {
   const liveAsk = useLiveLane(asking);
 
   const sources = sourcePage?.items ?? null;
-  const titles = sourceTitles;
+
+  // A footnote names its source by title. The picker page only knows the titles of the rows
+  // it has shown, and an answer cites whatever the briefing holds — so every cited source the
+  // page has not met is looked up once, through the same cache Recall and Process use.
+  const cited = useMemo(
+    () => [...new Set(turns.flatMap((turn) => turn.citations.map((c) => c.source_id)))],
+    [turns],
+  );
+  const { titles, remember } = useSourceTitles(currentUser, cited);
 
   const loadSources = useCallback(() => {
     if (!currentUser) return;
@@ -101,12 +109,8 @@ export default function AskView() {
       .then((page) => {
         if (requestVersion !== sourceRequestVersion.current) return;
         setSourcePage(page);
-        setSourceTitles((known) => ({
-          ...known,
-          ...Object.fromEntries(
-            page.items.map((source) => [source.source_id, source.title]),
-          ),
-        }));
+        // The rows this page listed are titles the cache now knows for free.
+        remember(page.items);
       })
       .catch((e) => {
         if (requestVersion !== sourceRequestVersion.current) return;
@@ -118,7 +122,7 @@ export default function AskView() {
           setSourcesLoading(false);
         }
       });
-  }, [currentUser, sourceKind, sourcePageState.cursor, sourceQuery]);
+  }, [currentUser, remember, sourceKind, sourcePageState.cursor, sourceQuery]);
 
   const loadHistory = useCallback(() => {
     if (!currentUser) return;
@@ -136,40 +140,7 @@ export default function AskView() {
 
   useEffect(() => {
     setSourcePageState(firstPage());
-    setSourceTitles({});
-    titleLookupsTried.current.clear();
   }, [currentUser]);
-
-  // A footnote names its source by title. The picker page only knows the titles of the
-  // rows it has shown, and an answer cites whatever the briefing holds — so each cited
-  // source the page has not met yet is looked up once, and shows its id until then.
-  const titleLookupsTried = useRef(new Set<string>());
-  useEffect(() => {
-    if (!currentUser) return;
-    const missing = new Set<string>();
-    for (const turn of turns) {
-      for (const c of turn.citations) {
-        if (!(c.source_id in sourceTitles) && !titleLookupsTried.current.has(c.source_id)) {
-          missing.add(c.source_id);
-        }
-      }
-    }
-    if (missing.size === 0) return;
-    let alive = true;
-    for (const id of missing) {
-      titleLookupsTried.current.add(id);
-      getSource(currentUser, id)
-        .then((detail) => {
-          if (alive) setSourceTitles((known) => ({ ...known, [id]: detail.title }));
-        })
-        .catch(() => {
-          /* the id stays on the footnote */
-        });
-    }
-    return () => {
-      alive = false;
-    };
-  }, [currentUser, turns, sourceTitles]);
 
   const jumpToCitation = useCallback(
     (c: CitationEntry) =>
@@ -304,11 +275,13 @@ export default function AskView() {
                   <p className="text-12 text-ink-3" aria-live="polite">
                     {t("ask.build.selectedLabel")} <Mono>{selected.size}</Mono>
                     <span> · {t("ask.build.matchLabel")} </span>
-                    <Mono>{sourcePage?.page.total ?? 0}</Mono>
+                    <Mono>{fmtCount(sourcePage?.page.total ?? 0)}</Mono>
                   </p>
                 </div>
                 <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_12rem]">
                   <SearchField
+                    id="ask-source-search"
+                    name="source-query"
                     aria-label={t("ask.build.searchAria")}
                     placeholder={t("ask.build.searchPlaceholder")}
                     value={sourceQuery}
@@ -389,7 +362,8 @@ export default function AskView() {
                             label={s.title}
                             hint={
                               <Mono>
-                                {s.source_id} · {s.kind} · {s.block_count} blocks
+                                {s.source_id} · {tOr(`enum.sourceKind.${s.kind}`, s.kind)} ·{" "}
+                                {t("sources.blockCount", { count: s.block_count })}
                               </Mono>
                             }
                           />
@@ -450,7 +424,7 @@ export default function AskView() {
                   description={t("ask.stages.buildDescription")}
                 />
               )}
-              <div>
+              <div className="flex flex-col gap-1.5">
                 <Button
                   variant="primary"
                   loading={building}
@@ -459,6 +433,11 @@ export default function AskView() {
                 >
                   {t("ask.build.action")}
                 </Button>
+                {/* A disabled control with no reason beside it reads as a broken one: the
+                    hint states the one condition a pack needs, and disappears once it holds. */}
+                {!canBuild && (
+                  <p className="text-12 text-ink-3">{t("ask.build.disabledHint")}</p>
+                )}
               </div>
             </div>
           </section>
@@ -537,16 +516,23 @@ export default function AskView() {
                 },
                 ...(briefing.claims_count > 0 || briefing.source_count > 0
                   ? [
-                      { term: "claims", definition: <Mono>{briefing.claims_count}</Mono> },
                       {
-                        term: t("ask.current.sources"),
-                        definition: <Mono>{briefing.source_count}</Mono>,
+                        term: "claims",
+                        definition: <Mono>{fmtCount(briefing.claims_count)}</Mono>,
+                      },
+                      {
+                        // `source_count` is the size of the pack's SCOPE — the sources it was
+                        // anchored to — and not the number of sources its answers end up
+                        // citing. A pack gathered by query is anchored to none, which is why
+                        // this line read "sources 0" beside two dozen cited claims.
+                        term: t("ask.current.anchoredSources"),
+                        definition: <Mono>{fmtCount(briefing.source_count)}</Mono>,
                       },
                     ]
                   : []),
                 {
                   term: t("ask.current.chars"),
-                  definition: <Mono>{briefing.char_count}</Mono>,
+                  definition: <Mono>{fmtCount(briefing.char_count)}</Mono>,
                 },
               ]}
             />
@@ -653,6 +639,8 @@ export default function AskView() {
               )}
               <div className="flex items-center gap-2">
                 <TextField
+                  id="ask-question"
+                  name="question"
                   wrapperClassName="flex-1"
                   value={question}
                   onChange={(e) => setAskCache({ question: e.target.value })}

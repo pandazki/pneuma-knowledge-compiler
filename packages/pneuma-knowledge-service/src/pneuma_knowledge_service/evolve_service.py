@@ -45,7 +45,13 @@ from pneuma_knowledge_core.skill.version import SkillVersion
 
 from .groom_service import scan_oversized_documents
 from .projection import rebuild_projection
-from .skills import MANIFEST_PATH, read_manifest, serialize_manifest, skill_for_user
+from .skills import (
+    MANIFEST_PATH,
+    base_named_or_current,
+    read_manifest,
+    serialize_manifest,
+    skill_for_user,
+)
 from .wiring import AppContext, llm_call_config
 
 # Heading under which a window-new / revived claim is (re)inserted during adopt catch-up.
@@ -140,7 +146,7 @@ async def _compose_new_skill(
     else:
         base_version = ctx.settings.user_schema_base_version
         base_packs = []
-    base_skill = load_skill_base(base_version)
+    base_skill, _retired = base_named_or_current(ctx.settings, str(base_version))
     all_packs = base_packs + list(evolved_packs)
     new_skill = compose_skill(base_skill, all_packs)
     return new_skill, serialize_manifest(base_skill, all_packs, new_skill)

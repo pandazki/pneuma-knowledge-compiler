@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Search } from "lucide-react";
 import { useApp, type RecallMode } from "@/lib/store";
 import {
-  listAllSources,
   ragStream,
   recallStream,
   type ComponentEvidence,
@@ -10,19 +9,18 @@ import {
   type RagResult,
   type RecallAnswer,
   type RecallHit,
-  type TokenUsage,
   type TrailStep,
   type UsedClaim,
 } from "@/lib/api";
 import { claimOneLine } from "@/lib/claim";
 import { fmtDay, fmtTime } from "@/lib/format";
-import { formatStageMs } from "@/lib/stages";
+import { recallSourceIds } from "@/lib/sourceTitles";
+import { FAST_LANE_ORDER, RAG_LANE_ORDER, formatStageMs } from "@/lib/stages";
 import { useT, useTOr } from "@/lib/useT";
 import { PageHeader } from "@/components/PageHeader";
 import { CitationList, type CitationEntry } from "@/components/CitationList";
 import { Badge } from "@/ui/Badge";
 import { Button } from "@/ui/Button";
-import { DefinitionList } from "@/ui/DefinitionList";
 import { EmptyState } from "@/ui/EmptyState";
 import { ErrorState } from "@/ui/ErrorState";
 import { Footnote } from "@/ui/Footnote";
@@ -34,8 +32,10 @@ import { SegmentedControl } from "@/ui/SegmentedControl";
 import { SkeletonText } from "@/ui/Skeleton";
 import { cn } from "@/ui/cn";
 import { CitedAnswer } from "../_shared/CitedAnswer";
+import { UsageLine } from "../_shared/UsageLine";
 import { StageStrip } from "../_shared/StageStrip";
 import { useLiveLane } from "../_shared/useLiveLane";
+import { useSourceTitles } from "../_shared/useSourceTitles";
 
 /**
  * All three lanes keep their input and their results in `store.recallCache`, so jumping to
@@ -58,22 +58,12 @@ export default function RecallView() {
   // the answer as it is written. deep keeps its trail beside this; fast has none to keep.
   const live = useLiveLane(searching);
   const abortRef = useRef<AbortController | null>(null);
-  const [titles, setTitles] = useState<Record<string, string>>({});
 
   // source id → title, for the hit ledger and the citation list; on failure the id shows.
-  useEffect(() => {
-    if (!currentUser) return;
-    let alive = true;
-    listAllSources(currentUser)
-      .then((rows) => {
-        if (!alive) return;
-        setTitles(Object.fromEntries(rows.map((r) => [r.source_id, r.title])));
-      })
-      .catch(() => alive && setTitles({}));
-    return () => {
-      alive = false;
-    };
-  }, [currentUser]);
+  // ONLY the ids this answer prints are asked for — the page used to download the whole
+  // catalogue (six round trips of 500 rows) to read a dozen titles.
+  const cited = useMemo(() => recallSourceIds(rag, answer), [rag, answer]);
+  const { titles } = useSourceTitles(currentUser, cited);
 
   // Abort the deep SSE stream on unmount.
   useEffect(() => () => abortRef.current?.abort(), []);
@@ -175,6 +165,8 @@ export default function RecallView() {
       {/* Query row */}
       <div className="flex shrink-0 flex-wrap items-center gap-2">
         <SearchField
+          id="recall-query"
+          name="query"
           wrapperClassName="min-w-56 flex-1"
           value={query}
           onChange={(v) => setRecallCache({ query: v })}
@@ -372,6 +364,9 @@ function LiveLanePanel({
     <div className="flex flex-col gap-4">
       <StageStrip
         live={live.stages}
+        // Both deterministic lanes have a fixed vocabulary, so the diagram is drawn in the
+        // lane's order from the first event. deep has none — its order is the finding.
+        order={mode === "fast" ? FAST_LANE_ORDER : mode === "rag" ? RAG_LANE_ORDER : undefined}
         description={t(
           mode === "deep"
             ? "recall.stages.descriptionDeep"
@@ -398,15 +393,31 @@ function LiveLanePanel({
 
 /* ------------------------------------------------------------------ deep timeline */
 
-/** The deep lane's tool-call timeline: mono tool + query + hits/chars, errors in danger. */
-function TrailTimeline({ steps, live }: { steps: TrailStep[]; live?: boolean }) {
+/**
+ * The deep lane's tool-call timeline: mono tool + query + hits/chars, errors in danger.
+ *
+ * `heading` is false where a `<summary>` already names it — the finished answer folds the
+ * trail away behind exactly this sentence, and printing it again inside the fold said the
+ * same thing twice.
+ */
+function TrailTimeline({
+  steps,
+  live,
+  heading = true,
+}: {
+  steps: TrailStep[];
+  live?: boolean;
+  heading?: boolean;
+}) {
   const t = useT();
   return (
     <section>
-      <p className="mb-2 flex items-center gap-2 text-13 text-ink-2">
-        {t("recall.trail.title", { count: steps.length })}
-        {live && <span className="text-12 text-ink-3">{t("recall.trail.live")}</span>}
-      </p>
+      {heading && (
+        <p className="mb-2 flex items-center gap-2 text-13 text-ink-2">
+          {t("recall.trail.title", { count: steps.length })}
+          {live && <span className="text-12 text-ink-3">{t("recall.trail.live")}</span>}
+        </p>
+      )}
       {steps.length === 0 && live ? (
         <SkeletonText lines={3} className="max-w-measure" />
       ) : (
@@ -474,20 +485,6 @@ function TrailTimeline({ steps, live }: { steps: TrailStep[]; live?: boolean }) 
 }
 
 /* --------------------------------------------------------- the fast/deep answer */
-
-function UsageDefinitionList({ usage }: { usage: TokenUsage }) {
-  return (
-    <DefinitionList
-      className="max-w-measure"
-      items={[
-        { term: <Mono>input</Mono>, definition: <Mono>{usage.input_tokens}</Mono> },
-        { term: <Mono>output</Mono>, definition: <Mono>{usage.output_tokens}</Mono> },
-        { term: <Mono>cache_read</Mono>, definition: <Mono>{usage.cache_read}</Mono> },
-        { term: <Mono>cache_creation</Mono>, definition: <Mono>{usage.cache_creation}</Mono> },
-      ]}
-    />
-  );
-}
 
 function UsedClaimRow({
   claim,
@@ -745,7 +742,7 @@ function AnswerPanel({
             {t("recall.trail.title", { count: trail.length })}
           </summary>
           <div className="mt-3">
-            <TrailTimeline steps={trail} />
+            <TrailTimeline steps={trail} heading={false} />
           </div>
         </details>
       )}
@@ -812,9 +809,8 @@ function AnswerPanel({
             t("recall.answer.blank")
           )}
         </div>
-        <div className="mt-4">
-          <UsageDefinitionList usage={answer.token_usage} />
-        </div>
+        {/* One token ledger for the whole app: Ask prints the same line for its turns. */}
+        <UsageLine usage={answer.token_usage} className="mt-4" />
       </section>
 
       {componentEvidence.length > 0 && (

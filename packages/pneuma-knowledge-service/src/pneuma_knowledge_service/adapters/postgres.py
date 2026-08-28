@@ -31,6 +31,25 @@ from ..snapshot_tenant import RESERVED_PREFIX
 
 _SCHEMA_PATH = Path(__file__).resolve().parents[5] / "infra" / "schema.sql"
 
+#: The job-status QUERY vocabulary, and the only place it is defined.
+#:
+#: The COLUMN has three values — `queued`, `claimed`, `done` — and keeps them: the worker's
+#: claim loop, the self-heal on restart and every operational query read them directly, and a
+#: fourth value would be a storage migration for a question that is not about storage.
+#: "Failed" was never a status. A compile the gate rejected finishes like any other job:
+#: `status='done'`, `ok=false`. So `?status=failed` matched no row and always answered 0 —
+#: the one question an operator actually asks, answered wrong by construction.
+#:
+#: These two names are DERIVED predicates over the same column, offered beside the three raw
+#: ones. `done` keeps meaning both halves, so nothing that already worked changes.
+JOB_STATUS_SQL: dict[str, str] = {
+    "failed": "status = 'done' AND ok IS FALSE",
+    "succeeded": "status = 'done' AND ok IS TRUE",
+}
+
+#: Everything `?status=` accepts, for the API's own validation and for the docs.
+JOB_STATUS_QUERY_VALUES = ("queued", "claimed", "done", "succeeded", "failed")
+
 #: Advisory-lock key for schema application. An arbitrary fixed constant in the
 #: bigint space — its only job is that every process picks the SAME number.
 _SCHEMA_LOCK_KEY = 0x504E_4B43_0001  # "PNKC" + 1
@@ -180,24 +199,34 @@ class PostgresStore:
         return [r[0] for r in rows]
 
     async def workspace_counts(self, user_id: UserId) -> dict[str, int]:
-        """Bounded overview counts without loading any collection rows."""
+        """Bounded overview counts without loading any collection rows.
+
+        `jobs_failed` rides here because a total job count answers "did anything run" and
+        nothing else: a gate-rejected compile is `done` like a committed one, so a workspace
+        whose every compile aborted looked exactly like a healthy one from the summary. It is
+        the same `done ∧ ok=false` the `failed` filter selects — one definition
+        (`JOB_STATUS_SQL`), so the number and the list can never disagree.
+        """
         uid = str(user_id)
         async with self._pool.connection() as conn:
             row = await (await conn.execute(
                 "SELECT "
                 "(SELECT count(*) FROM sources WHERE user_id = %s), "
                 "(SELECT count(*) FROM compile_jobs WHERE user_id = %s), "
+                f"(SELECT count(*) FROM compile_jobs WHERE user_id = %s "
+                f" AND {JOB_STATUS_SQL['failed']}), "
                 "(SELECT count(DISTINCT document_path) FROM canonical_claims "
                 " WHERE user_id = %s), "
                 "(SELECT count(*) FROM canonical_claims WHERE user_id = %s)",
-                (uid, uid, uid, uid),
+                (uid, uid, uid, uid, uid),
             )).fetchone()
         assert row is not None
         return {
             "sources": int(row[0]),
             "jobs": int(row[1]),
-            "documents": int(row[2]),
-            "claims": int(row[3]),
+            "jobs_failed": int(row[2]),
+            "documents": int(row[3]),
+            "claims": int(row[4]),
         }
 
     async def block_counts(
@@ -801,12 +830,21 @@ class PostgresStore:
         status: str | None = None,
         kind: str | None = None,
     ) -> tuple[list[dict[str, Any]], int, bool]:
-        """One keyset-paginated job page, newest first."""
+        """One keyset-paginated job page, newest first.
+
+        `status` is the QUERY vocabulary, not the column: `failed` and `succeeded` are the
+        two halves of `done` (see `JOB_STATUS_SQL`). The column keeps its three values, so
+        the queue's storage semantics — and everything that reads them — are untouched.
+        """
         filters = ["user_id = %s"]
         params: list[Any] = [str(user_id)]
         if status:
-            filters.append("status = %s")
-            params.append(status)
+            derived = JOB_STATUS_SQL.get(status)
+            if derived is not None:
+                filters.append(derived)
+            else:
+                filters.append("status = %s")
+                params.append(status)
         if kind:
             filters.append("kind = %s")
             params.append(kind)

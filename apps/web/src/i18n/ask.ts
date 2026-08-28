@@ -17,12 +17,12 @@ export const ask = defineMessages({
     "ask.descriptionShort": "构建 briefing，然后连续提问。",
 
     "ask.noUser.title": "未选择用户",
-    "ask.noUser.description": "在右上角选择一个 user_id 后，即可构建 Briefing 并连续提问。",
+    "ask.noUser.description": "在右上角选择一个 user_id 后，即可构建 briefing 并连续提问。",
 
     "ask.blank": "（空）",
 
-    "ask.build.title": "构建 Briefing",
-    "ask.build.queryLabel": "scope.query（检索取料）",
+    "ask.build.title": "构建 briefing",
+    "ask.build.queryLabel": "scope.query（检索范围）",
     "ask.build.queryPlaceholder": "可选：一句检索意图",
     "ask.build.queryHint": "query 与来源多选至少填一项。",
     "ask.build.sourcesLabel": "scope.source_ids（锚定原始来源）",
@@ -40,36 +40,38 @@ export const ask = defineMessages({
     "ask.build.remove": "移除",
     "ask.build.sourcesError": "来源列表拉取失败",
     "ask.build.noMatch": "当前筛选没有匹配来源；可清空搜索或切换来源类型。",
-    "ask.build.noSources": "（无来源——可只靠 query 构建；或先去「导入 Ingest」入库材料）",
+    "ask.build.noSources": "（无来源——可只靠 query 构建；或先去「导入 Ingest」入库来源）",
     "ask.build.sourceNoun": "条 source",
     "ask.build.budgetLabel": "budget_chars（字符预算）",
     "ask.build.snapshotLabel": "快照：",
     "ask.build.snapshotReadOnly": "（历史只读）",
     "ask.build.snapshotHead": "当前 HEAD",
     "ask.build.error": "构建失败",
-    "ask.build.action": "构建 Briefing",
+    "ask.build.action": "构建 briefing",
 
-    "ask.history.title": "历史 Briefing",
+    "ask.history.title": "历史 briefing",
     "ask.history.error": "历史拉取失败",
     "ask.history.empty": "还没有构建过 briefing。",
     "ask.history.noTime": "（无时间）",
     "ask.history.chars": "{count} 字",
     "ask.history.hint": "选中一条即可在它的知识包上继续提问。",
 
-    "ask.text.show": "查看详情 View text",
+    "ask.text.show": "查看详情",
     "ask.text.hide": "收起详情",
     "ask.text.error": "briefing 正文拉取失败",
     "ask.text.empty": "（这份 briefing 正文为空）",
     "ask.text.metrics": "{chars} 字 · {lines} 行",
 
     "ask.stages.buildDescription":
-      "构建这份 briefing 每一步的实测墙钟：retrieve 是取料（括号内为断言与正文两次查询，它们先后执行，相加即为 retrieve），expand 是把命中扩成带出处的证据（上下文窗口、材料卡、引用反查、L0 原文），pack 是按预算拼装。整个构建没有模型调用；标为“未执行”的那一半，是这次 scope 里根本没有的那一半。",
+      "构建这份 briefing 每一步的实测墙钟：retrieve 是检索（括号内为断言与正文两次查询，它们先后执行，相加即为 retrieve），expand 是把命中扩成带出处的证据（上下文窗口、来源卡、引用反查、L0 原文），pack 是按预算拼装。整个构建没有模型调用；标为「未执行」的那一半，是这次 scope 里根本没有的那一半。",
     "ask.stages.askDescription":
       "这一轮提问每一步的实测墙钟，按发生顺序排列：turn:N 是一次模型思考，tool:X 是它调用的一件工具，finalize 表示预算耗尽后被迫收尾。total 只收口这一轮的循环——知识包是早先构建的，不计在内。",
 
-    "ask.current.title": "当前 Briefing",
+    "ask.build.disabledHint": "先写一句检索问题，或在上面勾选至少一条来源。",
+
+    "ask.current.title": "当前 briefing",
     "ask.current.rebuild": "重新构建 briefing",
-    "ask.current.sources": "来源",
+    "ask.current.anchoredSources": "锚定来源",
     "ask.current.chars": "字符",
 
     "ask.thread.title": "连续问答",
@@ -79,7 +81,7 @@ export const ask = defineMessages({
     "ask.thread.noCitations": "本轮没有返回 source 引用；答案可阅读，但尚未完成证据绑定。",
     "ask.thread.verbatim": "verbatim_fetches（{count}）",
     "ask.thread.error": "提问失败",
-    "ask.thread.placeholder": "对当前 Briefing 提问",
+    "ask.thread.placeholder": "对当前 briefing 提问",
     "ask.thread.aria": "提问",
     "ask.thread.action": "提问",
   },
@@ -116,7 +118,7 @@ export const ask = defineMessages({
     "ask.build.noMatch":
       "No source matches the current filter; clear the search or switch the kind.",
     "ask.build.noSources":
-      "(no sources — a query alone is enough to build, or file material through Ingest first)",
+      "(no sources — a query alone is enough to build, or file a source through Ingest first)",
     "ask.build.sourceNoun": "sources",
     "ask.build.budgetLabel": "budget_chars (character budget)",
     "ask.build.snapshotLabel": "Snapshot: ",
@@ -139,13 +141,16 @@ export const ask = defineMessages({
     "ask.text.metrics": "{chars} char{chars||s} · {lines} line{lines||s}",
 
     "ask.stages.buildDescription":
-      "Measured wall-clock per step of building this briefing: `retrieve` is the lookups (in brackets, the claim face and the body face — they run in sequence here, so they add up to `retrieve`), `expand` turns hits and anchored sources into evidence with provenance (context windows, materials cards, the citation reverse lookup, L0 text), `pack` is the budgeted assembly. No model runs in a build; a stage marked \"not run\" is a half this scope simply did not have.",
+      "Measured wall-clock per step of building this briefing: `retrieve` is the lookups (in brackets, the claim face and the body face — they run in sequence here, so they add up to `retrieve`), `expand` turns hits and anchored sources into evidence with provenance (context windows, source cards, the citation reverse lookup, L0 text), `pack` is the budgeted assembly. No model runs in a build; a stage marked \"not run\" is a half this scope simply did not have.",
     "ask.stages.askDescription":
       "Measured wall-clock per step of this question, in the order it happened: `turn:N` is one model turn, `tool:X` a tool it reached for, `finalize` a closing call forced by the tool budget. `total` wraps this round's loop only — the knowledge pack was built earlier and is not inside it.",
 
+    "ask.build.disabledHint":
+      "Write a gathering query, or tick at least one source above.",
+
     "ask.current.title": "Current briefing",
     "ask.current.rebuild": "Build another briefing",
-    "ask.current.sources": "sources",
+    "ask.current.anchoredSources": "anchored sources",
     "ask.current.chars": "characters",
 
     "ask.thread.title": "Ongoing questions",

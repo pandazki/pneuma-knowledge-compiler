@@ -465,3 +465,17 @@ export function buildSourcePresentation(
       return { kind: "generic", blocks: source.blocks };
   }
 }
+
+/**
+ * Whether a source's blocks should be READ as markdown rather than shown as characters.
+ *
+ * A `text/markdown` block is prose that was written to be rendered: a pipe table filed as
+ * raw text is a wall of `|`, and the reader came to read the table. The compile galley keeps
+ * the verbatim face — that tab exists to show exactly what the compiler was handed — so the
+ * two tabs together say both things: what it means, and what it literally is.
+ */
+export function rendersAsMarkdown(mime: string | null | undefined): boolean {
+  if (!mime) return false;
+  const type = mime.split(";")[0].trim().toLowerCase();
+  return type === "text/markdown" || type === "text/x-markdown";
+}

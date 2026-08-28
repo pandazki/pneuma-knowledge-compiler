@@ -90,13 +90,47 @@ function pluralize(template: string, params?: MessageParams): string {
   );
 }
 
+/**
+ * A cardinal number, grouped for the locale — `5832` → `5,832`. Lives here rather than in
+ * lib/format so the interpolation layer can reach it: format.ts already imports this module,
+ * and the other direction would be a cycle. `fmtCount` is this function under its display name.
+ */
+export function groupNumber(n: number, locale: Locale): string {
+  if (!Number.isFinite(n)) return "—";
+  return n.toLocaleString(INTL_TAGS[locale]);
+}
+
+/**
+ * Names whose numbers are NOT cardinal counts: block and paragraph indexes, years, page and
+ * version numbers, ids. Grouping those is wrong in the ordinary way ("¶1,238", "2,026"), so
+ * the policy is a name denylist rather than a value heuristic — a `{count}` of 5832 and a
+ * `{block}` of 1238 are both four-figure integers and only the name tells them apart.
+ * Matched on the whole name and on a camelCase or snake_case tail (`imageId`, `start_index`)
+ * — the tail must begin at a word boundary, or `claims` would match `ms` and `paid` would
+ * match `id`, and a claim count would print ungrouped.
+ */
+const UNGROUPED_PARAM =
+  /^(index|idx|block|year|version|page|ms|sha|anchor|id)$|[a-z](Index|Idx|Block|Year|Version|Page|Ms|Sha|Anchor|Id)$|_(index|idx|block|year|version|page|ms|sha|anchor|id)$/;
+
+/**
+ * One count-like placeholder, rendered. Non-integers (shares, ratios, factors) and
+ * denylisted names pass through as they were written, so nothing but a cardinal count is
+ * ever regrouped.
+ */
+function placeholderValue(name: string, value: string | number, locale: Locale): string {
+  if (typeof value !== "number" || !Number.isInteger(value)) return String(value);
+  if (UNGROUPED_PARAM.test(name)) return String(value);
+  return groupNumber(value, locale);
+}
+
 /** `{name}` placeholders, same shape as the backend prompt catalogue's. */
-function interpolate(template: string, params?: MessageParams): string {
+function interpolate(template: string, params: MessageParams | undefined, locale: Locale): string {
   if (!params) return template;
   // Plural tokens first — they are disjoint from bare `{name}` placeholders, and resolving
-  // them first means the chosen word can itself never be mistaken for a placeholder.
+  // them first means the chosen word can itself never be mistaken for a placeholder. The
+  // token reads the RAW number, so the word it picks is unaffected by the grouping below.
   return pluralize(template, params).replace(/\{(\w+)\}/g, (whole, name: string) =>
-    name in params ? String(params[name]) : whole,
+    name in params ? placeholderValue(name, params[name], locale) : whole,
   );
 }
 
@@ -107,7 +141,7 @@ function interpolate(template: string, params?: MessageParams): string {
  */
 export function translate(locale: Locale, key: MessageKey, params?: MessageParams): string {
   const template = MESSAGES[locale][key] ?? MESSAGES.en[key] ?? key;
-  return interpolate(template, params);
+  return interpolate(template, params, locale);
 }
 
 /**
@@ -125,7 +159,7 @@ export function translateOr(
   const table = MESSAGES[locale] as Record<string, string | undefined>;
   const english = MESSAGES.en as Record<string, string | undefined>;
   const template = table[key] ?? english[key];
-  return template === undefined ? fallback : interpolate(template, params);
+  return template === undefined ? fallback : interpolate(template, params, locale);
 }
 
 /** `translate` against the module-level active locale, for non-React call sites. */

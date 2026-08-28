@@ -4,7 +4,7 @@
  * re-renders everything, so reading it at call time is both simpler and correct. The
  * parameter is still there for tests and for any caller that needs a fixed locale.
  */
-import { activeLocale, intlTag, type Locale } from "./i18n";
+import { activeLocale, groupNumber, intlTag, type Locale } from "./i18n";
 
 export function fmtTime(
   ts: string | null | undefined,
@@ -44,8 +44,10 @@ export function fmtDate(
  * never carry one.
  */
 export function fmtCount(n: number, locale: Locale = activeLocale()): string {
-  if (!Number.isFinite(n)) return "—";
-  return n.toLocaleString(intlTag(locale));
+  // One policy, one implementation: `t("…", { count })` groups through the same function
+  // (lib/i18n `groupNumber`), so a number written into a message and a number rendered
+  // beside it can never disagree about where the commas go.
+  return groupNumber(n, locale);
 }
 
 /**
@@ -62,6 +64,56 @@ export function fmtDay(day: string | null | undefined, locale: Locale = activeLo
     month: "2-digit",
     day: "2-digit",
   });
+}
+
+/**
+ * A full moment — day AND clock, with the year. `fmtTime` drops the year because it stamps
+ * things that just happened; a stamp sitting next to a corpus date (a galley header) needs
+ * the year, or the reader cannot tell which of the two dates is which.
+ */
+export function fmtDateTime(
+  ts: string | null | undefined,
+  locale: Locale = activeLocale(),
+): string {
+  if (!ts) return "—";
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return ts;
+  return d.toLocaleString(intlTag(locale), {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
+/**
+ * A moment of unknown shape, as it should read: a bare `YYYY-MM-DD` as a day, anything the
+ * Date constructor understands as a full stamp, and everything else untouched. Source
+ * metadata carries whatever the provider wrote, so the alternative to this is a page mixing
+ * ISO strings with localized ones — which is exactly what it did.
+ */
+export function fmtMoment(
+  value: string | null | undefined,
+  locale: Locale = activeLocale(),
+): string {
+  if (!value) return "—";
+  const text = value.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return fmtDay(text, locale);
+  // A date-like string only: anything without digits and separators is prose, not a stamp.
+  if (!/^\d{4}-\d{2}-\d{2}[T ]/.test(text)) return value;
+  const d = new Date(text);
+  if (isNaN(d.getTime())) return value;
+  return fmtDateTime(text, locale);
+}
+
+/**
+ * Runs of whitespace collapsed to one space. Commit subjects and labels arrive with the
+ * spacing they were written with; a display line is not the place to reproduce it.
+ */
+export function squish(text: string | null | undefined): string {
+  return (text ?? "").replace(/\s+/g, " ").trim();
 }
 
 export function shortSha(sha: string | null | undefined, n = 8): string {

@@ -47,7 +47,18 @@ TODO: describe the owner and what they will come back to look up.
      crushes the library. For each family answer: what does it collect? which path template
      in the frontmatter does it map to? when does a new subject deserve a new page (first
      appearance? only on recurrence?). Then make the frontmatter's path_templates match
-     this section one-to-one. -->
+     this section one-to-one.
+
+     If you enable the `people` component over one of these families (engine.yaml's
+     components / people_family), that family owes one more judgement: what counts as a way
+     of addressing a person in your domain. The framework supplies the evidence — under each
+     source it lists the terms the library keeps using for the people present — and requires
+     each one to be decided in the round: record it among the page's `aliases` if the material
+     confirms it names this person, or call decline_alias with a reason if it does not (that
+     answer is this round's only; nothing is stored, and once the page is written the same
+     term is not asked again). A title carrying a surname — what anyone in that seat would be
+     called — is usually not an alias; a nickname often is. See
+     docs/guides/compile-contract.md §7 for how to word it. -->
 
 TODO: list your subject families — one line each: what it collects, its path template, when a new page opens.
 

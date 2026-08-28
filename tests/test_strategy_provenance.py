@@ -42,7 +42,9 @@ from pneuma_knowledge_strategies import get_strategy, list_strategies
 
 PINNED_CONTENT_HASH = {
     "v1": "4318897b183649a1aee85d6751c10a2d7a91120b4e9319605765471f56e057ab",
-    "v2": "a521ce4a0d487bfe5955d674a2b438ce69da8d79c81a8167a69d4d400e353705",
+    # Retired 2026-08-28 with the alias sentence: a521ce4a… (the fields a page carries
+    # are a snapshot the compile rewrites whole, so a wrong form is dropped, not kept).
+    "v2": "35b03678a795d28a3774a93b6f6411c3c2a603e9979705010a6ba04927488efc",
 }
 
 

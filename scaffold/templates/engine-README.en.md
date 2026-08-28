@@ -59,6 +59,13 @@ contributes little evidence is visible rather than assumed useful. Automation co
 `answer_text`; interactive clients render the cited `answer`. Historical replay must pass the
 question time explicitly with `--as-of`; omission means the current UTC time.
 
+Which of the three to run for your business — and one measured comparison of their latency,
+input cost and how many documents the answer ends up citing — is in the framework
+repository's `docs/guides/recall-strategies.md`. The short version: `ranked` is the cheapest
+baseline, `select` buys a narrow, deliberately chosen evidence set, `all` buys breadth and
+(measured on one library, one question, one provider) was the faster of the two at a bigger
+input bill. Try one with `--evidence-strategy` on a single `ask` before changing the file.
+
 **The prompt language is the layer your overrides sit on.** `prompts/overlays.yaml` opens
 with `language:` — `en` is the framework's default English catalog; `zh` swaps in the shipped
 Chinese language pack, for readability and for Chinese material. Either way your

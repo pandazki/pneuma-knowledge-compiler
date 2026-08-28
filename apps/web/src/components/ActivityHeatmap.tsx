@@ -1,6 +1,7 @@
 import { CalendarDays } from "lucide-react";
 import type { ActivityDay } from "@/lib/api";
 import { buildActivityGrid } from "@/lib/activity";
+import { fmtDay } from "@/lib/format";
 import { useT, type TFunction } from "@/lib/useT";
 import { Tooltip } from "@/ui/Tooltip";
 import { cn } from "@/ui/cn";
@@ -30,7 +31,7 @@ function activityDescription(
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([kind, count]) => `${labels[kind] ?? kind} ${count}`)
     .join(" · ");
-  const head = `${day.date} · ${t("common.heatmap.dayCount", { count: day.count })}`;
+  const head = `${fmtDay(day.date)} · ${t("common.heatmap.dayCount", { count: day.count })}`;
   return breakdown ? `${head} · ${breakdown}` : head;
 }
 
@@ -81,9 +82,12 @@ export function ActivityHeatmap({
         <p className="flex items-center gap-2 text-13 text-ink-2">
           <CalendarDays size={14} aria-hidden className="text-accent" />
           <span>{title}</span>
+          {/* The span the calendar covers, in the same day format as every other day on the
+              page: an ISO pair here and a localized column below is one calendar claiming two
+              date systems. */}
           {grid.firstDate && grid.lastDate && (
             <span className="text-12 text-ink-3">
-              {grid.firstDate} — {grid.lastDate}
+              {fmtDay(grid.firstDate)} — {fmtDay(grid.lastDate)}
             </span>
           )}
         </p>

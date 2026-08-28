@@ -99,6 +99,8 @@
 证据审视发生在回答调用内部、在回答定稿之前；这段审视以 `deliberation` 回传，且从不进入系统消息。上下文上限是唯一能裁剪这份
 上下文的东西，而且它从不悄悄裁剪。
 
+具体业务该跑三者中的哪一个、`deliberation` 与两个 reasoning-effort 旋钮值不值、以及一次实测的延迟／成本／覆盖面对比：[guides/recall-strategies.zh-CN.md](../guides/recall-strategies.zh-CN.md)。
+
 ## 提示词语言
 
 | 配置 | 默认 | 含义 |

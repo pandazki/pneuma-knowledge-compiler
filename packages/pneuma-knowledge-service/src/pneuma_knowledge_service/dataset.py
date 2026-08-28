@@ -20,9 +20,9 @@ from pneuma_knowledge_core.domain.canonical import (
 from pneuma_knowledge_core.compile.documents import OVERVIEW_MARKER_RE
 from pneuma_knowledge_core.domain.ids import ANCHOR_MARK_RE, UserId, extract_anchors
 from pneuma_knowledge_core.domain.snapshot import SnapshotRef
-from pneuma_knowledge_core.skill import claim_labels_for, load_skill_base
+from pneuma_knowledge_core.skill import claim_labels_for
 
-from .skills import read_manifest
+from .skills import base_named_or_current, read_manifest
 from .wiring import AppContext, resolve_model_name
 
 _LIST_ITEM_RE = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s")
@@ -394,10 +394,12 @@ async def build_dataset(
     # packs. Packs are additive, so the base's declaration equals the composed skill's
     # (matches GET /skill's claim_labels).
     manifest = await read_manifest(ctx, user_id)
-    base_version = str(
-        (manifest or {}).get("base_version") or ctx.settings.user_schema_base_version
+    # A manifest written before the operator advanced the engine names a version the
+    # registry no longer holds. Reading a library never depends on the contract that
+    # produced it, so the vocabulary falls back to the version this deployment runs.
+    skill, _retired = base_named_or_current(
+        ctx.settings, str((manifest or {}).get("base_version") or "")
     )
-    skill = load_skill_base(base_version)
     claim_labels = [label.model_dump() for label in claim_labels_for(skill)]
 
     return {

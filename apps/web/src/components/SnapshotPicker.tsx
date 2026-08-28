@@ -1,5 +1,5 @@
 import { Camera, History, Trash2 } from "lucide-react";
-import { fmtTime } from "@/lib/format";
+import { fmtTime, squish } from "@/lib/format";
 import { useApp } from "@/lib/store";
 import { useT } from "@/lib/useT";
 import { Combobox, type ComboboxItem } from "@/ui/Combobox";
@@ -99,16 +99,20 @@ export function SnapshotPicker() {
         ),
       }),
     ),
+    // A commit subject arrives with the spacing the writer used (`from        8 people
+    // pages`); a one-line label is not the place to reproduce it.
     ...snapshots.map(
       (s): ComboboxItem => ({
         value: s.ref,
-        label: s.label ?? s.ref,
+        label: squish(s.label) || s.ref,
         keywords: s.ref,
         group: t("nav.snapshot.groupCommits"),
         render: () => (
           <span className="flex min-w-0 items-baseline gap-2">
             <Mono className="shrink-0 text-12">{s.ref.slice(0, 10)}</Mono>
-            <span className="min-w-0 truncate text-ink-2">{s.label ?? ""}</span>
+            <span className="min-w-0 truncate text-ink-2" title={s.label ?? undefined}>
+              {squish(s.label)}
+            </span>
             <span className="shrink-0 text-12 text-ink-3">{t("nav.snapshot.readOnly")}</span>
           </span>
         ),

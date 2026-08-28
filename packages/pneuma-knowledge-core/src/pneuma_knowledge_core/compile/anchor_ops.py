@@ -538,3 +538,106 @@ def anchored_blocks(body: str) -> list[str]:
         for block_lines, _ in _iter_content_blocks(lines)
         if extract_anchors(text := "\n".join(block_lines))
     ]
+
+
+# ------------------------------------------------- a claim's TEXT vs the system's markers
+
+
+#: Everything a model reaches for when it tries to write the system's own machinery by hand.
+#: `<!--` covers every HTML comment, closed or truncated — a claim says things in words, and
+#: an author has never needed a comment to say one. The two bare placeholders are named
+#: separately because they are what the models actually invented: `__AUTO__` and `__NEW__`
+#: are not anchors (`ANCHOR_MARK_RE` wants hex), so every anchor guard in this module looked
+#: straight through them, and `assign_document_anchors` then appended a REAL anchor at the
+#: end of the line and left the placeholder standing in the middle of the sentence.
+_TEXT_MACHINERY_RE = re.compile(r"<!--|__AUTO__|__NEW__")
+
+#: Built once, from the two marker regexes themselves, so "trailing system markers" has one
+#: definition. Lazy because `SUPERSEDES_MARK_RE` lives in `compile.supersession`, which
+#: imports this module (the same cycle the local imports above step around).
+_TRAILING_MARKERS_RE: re.Pattern[str] | None = None
+
+
+def _trailing_markers_re() -> re.Pattern[str]:
+    global _TRAILING_MARKERS_RE
+    if _TRAILING_MARKERS_RE is None:
+        from .supersession import SUPERSEDES_MARK_RE  # local: avoids a cycle
+
+        _TRAILING_MARKERS_RE = re.compile(
+            r"(?:[ \t]*(?:"
+            + ANCHOR_MARK_RE.pattern
+            + r"|"
+            + SUPERSEDES_MARK_RE.pattern
+            + r"))+[ \t]*$"
+        )
+    return _TRAILING_MARKERS_RE
+
+
+def block_text(block: str) -> str:
+    """What the block SAYS: the block with its trailing run of system markers removed.
+
+    The format puts a block's anchor — and, for a successor, its supersedes marker — at the
+    very end of its last line. Everything before that run is the claim's text, and the text
+    is the model's; the markers are the system's. One definition, used by the write faces and
+    by the gate, so the two can never disagree on where a claim's words stop.
+    """
+    return _trailing_markers_re().sub("", block.rstrip())
+
+
+def text_machinery(block: str) -> str | None:
+    """The first piece of anchor machinery inside `block`'s TEXT, or None when it is clean.
+
+    Returned rather than a bare bool so a refusal can name what to delete.
+    """
+    text = block_text(block)
+    found = _TEXT_MACHINERY_RE.search(text)
+    if found is None:
+        return None
+    if found.group(0) != "<!--":
+        return found.group(0)
+    close = text.find("-->", found.end())
+    end = found.start() + 60 if close < 0 else close + 3
+    return text[found.start() : min(end, found.start() + 60)]
+
+
+def text_machinery_problems(body: str) -> list[tuple[str, str]]:
+    """`(machinery, preview)` for every claim block in `body` whose TEXT carries machinery.
+
+    Judged block by block over the same walker that anchors them (`_iter_content_blocks`), so
+    a multi-block write is judged the way it will be stored: the overview's own marker lines
+    are not blocks and are skipped, and each block answers only for its own trailing markers.
+    Empty list = clean.
+    """
+    problems: list[tuple[str, str]] = []
+    for block_lines, _ in _iter_content_blocks(body.split("\n")):
+        block = "\n".join(block_lines)
+        found = text_machinery(block)
+        if found is not None:
+            problems.append((found, " ".join(block_text(block).split())[:60]))
+    return problems
+
+
+def refuse_text_machinery(op: str, body: str) -> None:
+    """Refuse a write whose text carries the system's own machinery — the mechanism behind
+    "a claim's text is words, never markers".
+
+    The disease this closes: a model that writes `A <!-- c:__AUTO__ --> B` means two claims
+    and is asking the system to split them. Nothing split them. `__AUTO__` is not an anchor,
+    so `append_block_text`'s "no anchor please" guard did not see it, `_iter_content_blocks`
+    read the whole line as ONE block, and `assign_document_anchors` anchored that block at the
+    end of the line — committing two claims glued into one, with a dead marker in the middle
+    of the sentence that every reader downstream then had to strip or display. The cure is a
+    write-time refusal naming the corrective action (submit two blocks), not a line of prompt
+    copy asking the model not to do it.
+    """
+    problems = text_machinery_problems(body)
+    if not problems:
+        return
+    raise AnchorToolError(
+        prompt(
+            "compile.anchor.text_machinery",
+            op=op,
+            found=problems[0][0],
+            preview=problems[0][1],
+        )
+    )

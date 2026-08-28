@@ -278,13 +278,21 @@ export function sourceFacets(
       }
     }
     if (counts.size < 2 && selected.length === 0) continue;
+    // ORDER IS A PROPERTY OF THE CATALOGUE, NOT OF THE FILTER. The chips are sorted by what
+    // each value is worth in the WHOLE inventory, so clicking one only changes the numbers on
+    // the row — a row that reshuffled under the click moved the chip the reader was about to
+    // press next, which is what the e2e pass caught (「文档」 jumping ahead of 「即时消息」).
+    const shape = new Map<string, number>();
+    for (const source of sources) {
+      const value = dimensionValue(source, dimension);
+      shape.set(value, (shape.get(value) ?? 0) + 1);
+    }
     const values = [...counts.entries()]
       .map(([value, count]) => ({ value, count, selected: selected.includes(value) }))
-      .sort((left, right) =>
-        left.count === right.count
-          ? left.value.localeCompare(right.value)
-          : right.count - left.count,
-      );
+      .sort((left, right) => {
+        const weight = (shape.get(right.value) ?? 0) - (shape.get(left.value) ?? 0);
+        return weight === 0 ? left.value.localeCompare(right.value) : weight;
+      });
     groups.push({ dimension, values });
   }
   return groups;

@@ -44,13 +44,15 @@ test("semantic icon tooltips are keyboard reachable, accessible, themed, and sha
 });
 
 test("tooltips carry complete bilingual semantics and env pins warn once per stage", () => {
+  // Terminology pass: the raw input is called 来源 / "source" everywhere (never 材料 /
+  // "material"), and the en column is British ("afterwards").
   assert.match(
     messagesSource,
-    /修改只对之后新编译的材料生效；已入正本的内容不会被改写。/,
+    /修改只对之后新编译的来源生效；已入正本的内容不会被改写。/,
   );
   assert.match(
     messagesSource,
-    /The change applies only to material compiled afterward; content already in the canonical library is not rewritten\./,
+    /The change applies only to sources compiled afterwards; content already in the canonical library is not rewritten\./,
   );
   assert.match(messagesSource, /被进程环境变量锁定，控制台改动对当前进程无效。/);
   assert.match(

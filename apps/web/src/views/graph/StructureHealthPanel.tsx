@@ -2,7 +2,7 @@ import { useState } from "react";
 import { ArrowUpRight } from "lucide-react";
 import { useApp } from "@/lib/store";
 import { useT, type TFunction } from "@/lib/useT";
-import { fmtPercent } from "@/lib/format";
+import { fmtCount, fmtPercent } from "@/lib/format";
 import { familyFromTemplate } from "@/lib/evolve";
 import type { Anomaly, StructureHealth, StructureUnit } from "@/lib/structureLens";
 import { Badge } from "@/ui/Badge";
@@ -308,10 +308,10 @@ export function StructureHealthPanel({
                           row.pages === 0 ? "text-warn" : "text-ink-2",
                         )}
                       >
-                        {row.pages}
+                        {fmtCount(row.pages)}
                       </td>
                       <td className="py-1.5 pr-3 text-right font-mono text-12 text-ink-2 tabular-nums">
-                        {row.claims}
+                        {fmtCount(row.claims)}
                       </td>
                       <td
                         className={cn(
