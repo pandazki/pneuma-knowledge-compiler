@@ -850,11 +850,21 @@ DEFAULTS: dict[str, str] = {
         "no bodies. Look here first for whether a subject already exists: **if it does, update "
         "it in place with `edit_claim` / `append_block` instead of creating another "
         "document**; when you need a body, get it with `read_document(path)` or "
-        "`search_knowledge(query)`."
+        "`search_knowledge(query)`. A `definition:` line under a document is its overview's "
+        "one-sentence statement of what the subject is; the overview is the document's "
+        "current picture, and `rewrite_overview` replaces it whole when that picture changed."
     ),
     "compile.task.outline_empty": "(no existing canonical yet; create documents with create_document)",
     "compile.task.outline_entry": "- `{path}` (type={doc_type}, {claims} claim(s)){tail}",
     "compile.task.outline_entry_tail": ": {headings}",
+    "compile.task.outline_entry_definition": "    definition: {definition}",
+    # The same slot when the document has NO overview definition: the head of its own current
+    # ledger, verbatim. Labelled `ledger:` rather than `definition:` on purpose — one says
+    # someone stated what this subject is, the other says this is what the page happens to
+    # hold, and a reader (model or human) must be able to tell them apart at sight.
+    "compile.task.outline_entry_ledger": "    ledger: {ledger}",
+    # One line an enabled index component adds under a document of its family.
+    "compile.task.outline_entry_component": "    {tail}",
     # A rollover volume's outline line. The volume is still LISTED — a compiler must see the
     # frozen history it may read but not write — while the line itself states the freeze and
     # the redirect, so the working set never presents a volume as an editable peer document.
@@ -883,13 +893,49 @@ DEFAULTS: dict[str, str] = {
         "the active page `{owner}`.)"
     ),
     "compile.tool.create_document": (
-        "Create a document; the system assigns the doc_id and every anchor."
+        "Create a document; the system assigns the doc_id and every anchor, and derives the "
+        "title from the body's `# ` heading (a title written into frontmatter is replaced "
+        "by it)."
     ),
     "compile.tool.edit_claim": (
         "Rewrite the claim at the given anchor in place; the anchor is preserved automatically."
     ),
     "compile.tool.append_block": (
         "Add one claim at the end of a section; the anchor is assigned by the system."
+    ),
+    "compile.tool.supersede_claim": (
+        "Record that the world changed: new_text is the CURRENT state of the fact the claim "
+        "at anchor_id stated (a role, an employer, a deadline, a status). The old claim stays "
+        "as frozen history and the new claim is placed right after it with a system anchor. "
+        "anchor_id is copied verbatim from read_document / the outline. new_text must cite the "
+        "new evidence. Use edit_claim only to correct a claim that was wrong; use "
+        "supersede_claim when the claim was right and the state has since changed."
+    ),
+    "compile.tool.rewrite_overview": (
+        "Rewrite the document's OVERVIEW — its current picture of the subject — whole. The "
+        "overview has four slots: definition (one sentence: what or who this is), summary "
+        "(the state now), introduction (background, origin, why it matters), connections "
+        "(links to other subject pages, each with the relation in one line), plus `fields`: "
+        "the structured frontmatter that belongs to the same picture, also written whole. "
+        "It is not a ledger: it carries no permanent anchors, and this round's judgement "
+        "over what already stands there decides one of four outcomes — keep it (do not "
+        "call), merge or rewrite it (call with the whole new region), drop it (call with "
+        "every slot empty and no fields, which removes the region). Read the document first: "
+        "the call is refused until you have, because what to keep cannot be decided against "
+        "a picture you have not seen. Every sentence must rest on the ledger — name a claim "
+        "anchor as a bare c:xxxx (not inside [cite: …], which is the source-locator "
+        "grammar), or cite a source span as [cite: <source_id> ¶a-b]. A connections item is "
+        "overview prose too: it needs its own reference, and its target must be a document "
+        "that already exists. Slots you omit are cleared."
+    ),
+    "compile.tool.set_fields": (
+        "Set the structured frontmatter of an existing document — WHOLE, like the overview "
+        "beside it: a value you leave out of the call is gone from the document, which is "
+        "what makes a wrong one repairable. Read the document first; the call is refused "
+        "until you have. doc_id, type and slug are system-owned and refused. An enabled "
+        "index component may refuse a value that is a fact about the library — an identity "
+        "another page already binds, a name that is somebody else's — and says which. "
+        "Claims are never written here — use append_block."
     ),
     "compile.tool.finish_compile": "Call when there are no more writes; ends this compile.",
     "compile.tool.search_knowledge": (
@@ -925,8 +971,40 @@ DEFAULTS: dict[str, str] = {
     "compile.tool.append_block_result": (
         "appended claim to {path} under '{heading}'; assigned anchor: {anchors}"
     ),
+    "compile.tool.supersede_claim_result": (
+        "claim c:{anchor_id} in {path} is now superseded by c:{new_anchor} (old claim kept as "
+        "frozen history)"
+    ),
+    "compile.tool.rewrite_overview_result": (
+        "rewrote the overview of {path} ({slots}); system-assigned anchors: {anchors}"
+    ),
+    "compile.tool.overview_removed": "region removed",
+    "compile.tool.set_fields_result": "set {fields} on {path}",
     "compile.tool.finish_compile_result": "compile finished",
     "compile.tool.unknown_tool": "unknown tool: {name}",
+    # ─────────────────────────────────────────────── compile: the round's tool-call budget
+    # A round is bounded by a count of tool calls, and that count is a deployment number the
+    # model cannot see from inside the loop. These lines are what make it visible — as
+    # mechanism, not as advice: the low-water notice arrives while there is still budget left
+    # to act on it and states what the SAME predicates the gate will run already find owed;
+    # the refusal is what a call gets once there is nothing left; and the cut-off line under
+    # `gate.*` below says that the previous round ended by exhaustion rather than by its own
+    # decision, so the repair round does not repeat its exploration.
+    "compile.budget.notice": (
+        "# tool-call budget: {remaining} of this round's {budget} calls remain.\n"
+        "What the mechanical checks already find owed on the current draft:\n{owed}"
+    ),
+    "compile.budget.owed_none": "- nothing owed.",
+    "compile.budget.call_refused": (
+        "not executed: this round's tool-call budget ({budget} calls) is spent."
+    ),
+    "compile.tool.round_ended": (
+        "not executed: an earlier call in this same batch ended the round."
+    ),
+    "compile.tool.invalid_call": (
+        "not executed: the arguments of this {name} call are not valid JSON ({error}). "
+        "Nothing was written. Re-send the call with valid JSON arguments."
+    ),
     # ─────────────────────────────────────────────── compile: write-tool rejections
     "compile.anchor.none": "(none)",
     "compile.anchor.edit_unknown_anchor": (
@@ -945,6 +1023,31 @@ DEFAULTS: dict[str, str] = {
     "compile.anchor.append_anchor_present": (
         "append_block rejected: a new block does not need to carry an anchor, the system "
         "assigns it. To rewrite an existing claim use edit_claim."
+    ),
+    "compile.anchor.supersede_unknown_anchor": (
+        "supersede_claim rejected: anchor c:{anchor_id} is not in this document. Existing "
+        "anchors: {existing}."
+    ),
+    "compile.anchor.supersede_duplicate_anchor": (
+        "supersede_claim rejected: anchor c:{anchor_id} occurs more than once in the "
+        "document; fix the duplicate anchor first."
+    ),
+    "compile.anchor.supersede_anchor_present": (
+        "supersede_claim rejected: new_text must not carry an anchor or a supersedes marker; "
+        "the system assigns both."
+    ),
+    "compile.anchor.supersede_not_one_block": (
+        "supersede_claim rejected: new_text must be exactly one claim block — one claim "
+        "supersedes one claim. Add further claims with append_block."
+    ),
+    "compile.anchor.supersede_without_evidence": (
+        "supersede_claim rejected: new_text carries no [cite: …] marker. Only new evidence "
+        "may supersede c:{anchor_id}; cite the passage that shows the state changed."
+    ),
+    "compile.anchor.edit_supersedes_changed": (
+        "edit_claim rejected: the supersedes marker of c:{anchor_id} is kept by the system and "
+        "cannot be added, removed or changed by an edit. Leave it out of new_text; to record "
+        "a further state change use supersede_claim."
     ),
     "compile.anchor.move_unknown_anchor": (
         "claim move/merge rejected: anchor c:{anchor_id} is not in this document. Existing "
@@ -971,6 +1074,16 @@ DEFAULTS: dict[str, str] = {
         "move_claim rejected: target document {to_path} does not exist; create_document first, "
         "then move."
     ),
+    "compile.patch.claim_superseded": (
+        "{op} rejected: claim c:{anchor_id} was superseded by c:{successor} in `{path}` and is "
+        "frozen history. The current state lives in c:{successor}: edit_claim it to correct "
+        "wording, or supersede_claim it if the state changed again."
+    ),
+    "compile.patch.delete_supersession_target": (
+        "delete_claim rejected: claim c:{anchor_id} is the predecessor of c:{successor} in "
+        "`{path}` (a supersedes link). Merging it away would leave the successor's history "
+        "dangling. Keep it; merge or move the successor instead, which carries the link along."
+    ),
     # The early, teachable refusal for any write aimed at a rollover volume. It fires at the
     # tool face — before the model spends the round — and states the corrective action, not
     # just the rule; the compile gate's 5b check stays behind it as the final arbiter.
@@ -978,6 +1091,70 @@ DEFAULTS: dict[str, str] = {
         "{op} rejected: `{path}` is a frozen history volume of `{owner}` and is never "
         "written — its entries are a permanent archive. New and updated claims about this "
         "subject belong on the active page: use edit_claim / append_block on `{owner}`."
+    ),
+    # A structured field an index component can prove wrong — an identity another page
+    # already binds, a name that is somebody else's — refused at the write face with every
+    # failing value named at once, and nothing written. The gate re-runs the same judgement.
+    "compile.patch.fields_refused": (
+        "{op} rejected: `{path}`'s fields were NOT written and the document is unchanged. "
+        "Fix every point below, then call {op} once more with the whole set:\n{problems}"
+    ),
+    # ─────────────────────────────────────── the overview's rules, at the WRITE TOOL FACE
+    #
+    # The same rules `gate.overview_*` arbitrates, said before the round is spent instead of
+    # after. A rule first heard at the gate costs a whole repair round — in a live build that
+    # was 804 rejections and 418 lost compiles — while a refusal the model reads with the
+    # region still in hand costs one call. The wording tracks the gate's on purpose: two
+    # spellings of one rule teach two rules. Nothing is written when any of these fire.
+    "compile.overview.refuse_unread": (
+        "{op} rejected: `{path}` was not read in this compile. The overview and the "
+        "structured fields are written WHOLE — keep, merge, rewrite or drop is a judgement "
+        "over what already stands there — so call read_document(\"{path}\") first and "
+        "decide against it."
+    ),
+    "compile.overview.refuse_header": (
+        "rewrite_overview rejected: `{path}`'s overview was NOT written and the document is "
+        "unchanged. Fix every point below, then call rewrite_overview once more with the "
+        "whole region:\n{problems}"
+    ),
+    "compile.overview.refuse_budget": (
+        "the overview renders to {size} characters, over the {budget}-character budget. It is "
+        "a head, not a second ledger: keep the current picture and let the claims carry the "
+        "detail."
+    ),
+    "compile.overview.refuse_ungrounded": (
+        "{slot}: '{preview}' rests on nothing. Every overview block must reference a ledger "
+        "claim (c:xxxx) that already exists in the library, or cite a source span "
+        "([cite: <source_id> ¶a-b]). If the claim is not written yet, append it first and "
+        "rewrite the overview after."
+    ),
+    "compile.overview.refuse_definition_blocks": (
+        "definition: it is {count} blocks. It is one sentence saying what or who this is; "
+        "the rest belongs in summary or introduction."
+    ),
+    "compile.overview.refuse_definition_length": (
+        "definition: it is {size} characters, over the {budget}-character limit. One sentence "
+        "saying what or who this is; the rest belongs in summary or introduction."
+    ),
+    "compile.overview.refuse_dead_connection": (
+        "connections: '{preview}' links to `{target}`, which is not a document in this "
+        "library. Link to a document that exists, or create it first."
+    ),
+    # The one overview rule that fires for an overview that is NOT there. It is read at the
+    # `finish_compile` face and, unchanged, at the gate — one wording, because it is one
+    # rule and a second spelling of it would teach a second rule.
+    "compile.overview.refuse_missing": (
+        "`{path}` holds {count} ledger claims and no overview — write one with "
+        "rewrite_overview (definition at least) before finishing."
+    ),
+    "compile.overview.refuse_self_connection": (
+        "connections: '{preview}' links to `{path}` itself. A connection is a relation to "
+        "ANOTHER subject page."
+    ),
+    "compile.patch.set_fields_reserved": (
+        "set_fields rejected: `{field}` is assigned by the system and is not a writable "
+        "field. System-owned fields: {reserved}. `title` is derived from the document's "
+        "`# ` heading — to change the title, change the heading."
     ),
     # ─────────────────────────────────────────────── rollover (groom): the history card
     #
@@ -1040,10 +1217,28 @@ DEFAULTS: dict[str, str] = {
     "compile.groom.heal_commit_message": (
         "groom-heal: rewrote {links} volume link(s)"
     ),
+    # ─────────────────────────────────────────────── the document OVERVIEW
+    #
+    # A canonical document has a LEDGER (anchored, cited claims, one write at a time) and an
+    # OVERVIEW: a bounded head the compile model may rewrite WHOLESALE when the picture of the
+    # subject has changed. These strings are the region's rendered furniture — they land in
+    # canonical, which is why they live here rather than in the renderer. The region and its
+    # slots are delimited by system-written HTML comments, so translating a heading below can
+    # never make an already-written document unreadable.
+    "overview.heading.definition": "Definition",
+    "overview.heading.summary": "Summary",
+    "overview.heading.introduction": "Introduction",
+    "overview.heading.connections": "Connections",
+    "overview.connection_line": "- [{path}]({href}) — {relation}",
     # ─────────────────────────────────────────────── compile gate feedback
     "gate.feedback_header": (
         "# gate rejected: the mechanical checks below did not pass. Repair with the "
         "claim-level tools, then call finish_compile again."
+    ),
+    "gate.previous_round_cut_off": (
+        "# the previous round did not end on its own: it was cut off after {spent} tool "
+        "calls, its budget spent. This round has a fresh budget of {budget} calls, and what "
+        "the previous round already read is in the transcript above."
     ),
     "gate.anchor_continuity": (
         "existing anchor c:{anchor} disappeared after this compile (v1 has no deletion "
@@ -1097,11 +1292,52 @@ DEFAULTS: dict[str, str] = {
     "gate.path_not_owned": (
         "path is not within the skill's ownership templates: {templates}."
     ),
+    "gate.supersession_target_missing": (
+        "claim c:{anchor} supersedes c:{target}, but no claim with that anchor exists anywhere "
+        "in the repository."
+    ),
+    "gate.supersession_self": "claim c:{anchor} names itself as the claim it supersedes.",
+    "gate.supersession_multiple": (
+        "claim c:{anchor} names several predecessors ({targets}); one claim supersedes exactly "
+        "one claim."
+    ),
+    "gate.supersession_not_linear": (
+        "claim c:{target} is superseded by more than one claim ({anchors}); a fact has one "
+        "current state — supersede the latest successor instead."
+    ),
+    "gate.supersession_cycle": "the supersession chain starting at c:{anchor} loops back on itself.",
+    "gate.supersession_frozen": (
+        "claim c:{anchor} is superseded by c:{successor} and is frozen history; its text may "
+        "not change. Rewrite the successor instead."
+    ),
+    "gate.supersession_without_evidence": (
+        "claim c:{anchor} supersedes c:{target} without citing new evidence; only new evidence "
+        "may supersede a state."
+    ),
     "gate.archive_frozen": (
         "this document is a frozen archive volume of `{owner}` and may not be changed: its "
         "entries were moved here whole and are permanent. Write the new or updated claims to "
         "the active page `{owner}` instead — use edit_claim / append_block on `{owner}` — and "
         "restore any volume claim you rewrote to its previous text."
+    ),
+    # ─────────────────────────────────────────────── the overview's own gate checks
+    "gate.overview_budget": (
+        "the overview is {size} characters, over the {budget}-character budget. It is a head, "
+        "not a second ledger: keep the current picture and let the claims carry the detail."
+    ),
+    "gate.overview_ungrounded": (
+        "overview block '{preview}' rests on nothing: every overview sentence must reference "
+        "a ledger claim (c:xxxx) or cite a source span ([cite: <source_id> ¶a-b])."
+    ),
+    "gate.overview_unknown_slot": (
+        "the overview carries an unknown slot `{slot}`. The slots are: {slots}."
+    ),
+    "gate.overview_definition_blocks": (
+        "the overview's definition is {count} blocks. It is one sentence saying what or who "
+        "this is; the rest belongs in summary or introduction."
+    ),
+    "gate.overview_definition_length": (
+        "the overview's definition is {size} characters, over the {budget}-character limit."
     ),
     # ─────────────────────────────────────────────── rollover (groom) gate feedback
     #
@@ -1354,6 +1590,19 @@ DEFAULTS: dict[str, str] = {
     ),
     # ─────────────────────────────────────────────── recall: the mode contracts
     "recall.fast.contract_head": _FAST_CONTRACT_HEAD,
+    # Appended ONLY to the structured contract of the `all` strategy, whose schema opens
+    # with a `deliberation` field. That lane hands over the whole candidate pool without a
+    # selection call, so the review the selector used to perform has to happen somewhere:
+    # this asks for it inside the answering call itself, written before the answer commits.
+    # It is a working note, not an answer and not a second citation channel.
+    "recall.fast.deliberation": (
+        "\nEvidence review — the `deliberation` field is written FIRST, before you decide "
+        "anything else. In it, name the handed-over items that actually bear on the "
+        "question — by their claim id, source id or subject — and dismiss the rest in one "
+        "breath. Do not restate the question, do not answer inside it, and keep it under "
+        "600 characters. It is your own working note: it is not part of the answer, and it "
+        "never replaces a citation.\n"
+    ),
     "recall.deep.contract_head": _DEEP_CONTRACT_HEAD,
     "recall.briefing.contract_head": _BRIEFING_CONTRACT_HEAD,
     "recall.suggestion.contract_head": _LIVE_CONTEXT_HEAD,
@@ -1377,6 +1626,18 @@ DEFAULTS: dict[str, str] = {
     "recall.section.claims_header": "# claim notes ({count})",
     "recall.section.claims_empty": "(no hits this retrieval)",
     "recall.section.windows_header": "# raw excerpts ({count})",
+    # The component face (recall/paths.py): what routed component paths returned.
+    "recall.section.component_header": "# component lookups ({count})",
+    "recall.fast.component.path_header": "## {path}({args})",
+    "recall.fast.component.path_degraded": "(lookup did not deliver: {reason})",
+    "recall.fast.component.path_empty": "(lookup returned nothing)",
+    "recall.fast.component.path_dropped": "(…and {count} more beyond this path's cap)",
+    "recall.fast.component.path_dropped_detail": "(…not shown: {detail})",
+    "recall.fast.component.path_already_shown": (
+        "({count} already shown in claim notes / raw excerpts)"
+    ),
+    "recall.fast.component.path_covered": "({count} claims covered by the excerpts here)",
+    "recall.fast.component.window_truncated": "(¶{start}-{end} not shown)",
     "recall.section.images_header": "# image evidence ({count})",
     "recall.fast.image_locator": (
         "[cite: {source_id} ¶{index}-{index}] Image {image_id} is aligned to this exact "
@@ -1420,6 +1681,10 @@ DEFAULTS: dict[str, str] = {
     "recall.glance.family_blurb": "  ↳ {blurb}",
     "recall.glance.family_empty": "  (no documents filed here yet)",
     "recall.glance.entry": "- `{path}` — {title} ({claims} claim(s){tail})",
+    "recall.glance.entry_definition": "    definition: {definition}",
+    # The fallback for a document with no overview definition: its own current ledger, in the
+    # ledger's words. Distinctly labelled — see compile.task.outline_entry_ledger.
+    "recall.glance.entry_ledger": "    ledger: {ledger}",
     "recall.glance.entry_tail_updated": ", updated {updated}",
     # A rolled-over document's frozen archive volumes are COUNTED here rather than listed:
     # listing them would let one long-lived subject crowd out every other family in the
@@ -1496,9 +1761,12 @@ DEFAULTS: dict[str, str] = {
         "later. Full documents are expensive: choose one only when the document itself is the "
         "question's subject or a whole history/comparison is required. Exclude material that "
         "is merely adjacent or similarly named.\n\n"
+        "Component groups are exact lookups (one person's page, one range of days) already "
+        "ordered against the question: they are complete where ranking is partial, so prefer "
+        "them for a fact a lookup is authoritative about.\n\n"
         "Choose at most {claim_cap} claim indexes, {episode_cap} episode-summary indexes, "
-        "{window_cap} raw-window indexes and {document_cap} document paths. Never return an "
-        "index or path absent from the input."
+        "{window_cap} raw-window indexes, {component_cap} component indexes and "
+        "{document_cap} document paths. Never return an index or path absent from the input."
     ),
     "recall.fast.evidence_select.request": (
         "{candidates}\n\n# question\n{question}"
@@ -1515,6 +1783,11 @@ DEFAULTS: dict[str, str] = {
     "recall.fast.evidence_select.windows_header": "# raw-window candidates",
     "recall.fast.evidence_select.window": (
         "W{index}: [source={source_id}; span={start}-{end}] {text}"
+    ),
+    "recall.fast.evidence_select.components_header": "# component-lookup candidates",
+    "recall.fast.evidence_select.component_group": "## {label}",
+    "recall.fast.evidence_select.component_item": (
+        "K{index}: [{kind}; {locator}] {text}"
     ),
     # ──────────────────────────── recall: LLM claim reranker (service adapter's wording)
     # Used by the LLMReranker adapter — a cheap non-reasoning chat call that plays the
@@ -1552,6 +1825,27 @@ DEFAULTS: dict[str, str] = {
     # derive extra search queries from the question so a multi-aspect question fans out
     # into several retrieval passes instead of one blended embedding. Planning sees only
     # the question — result-dependent iteration belongs to deep recall, not here.
+    # The routing turn: bound tools are the enabled components' paths; the model emits zero
+    # or more calls in ONE turn and never loops. Choosing nothing is the ordinary outcome.
+    "recall.fast.route.system": (
+        "You route one question to zero or more lookup tools before an answer is written. "
+        "Each tool is an exact lookup over the owner's knowledge base, described by its own "
+        "text. Call a tool only when the question clearly names what that tool looks up, "
+        "with arguments taken from the question itself; call several in one turn when "
+        "several apply; call none when none applies. Do not answer the question."
+    ),
+    # The Human turn carries the two volatile facts a lookup argument may depend on: what
+    # "now" is, and whose calendar the days are counted on. The index parses no natural
+    # language time — this is where "last quarter" becomes two ISO days (D4). The System
+    # contract above stays byte-stable (I5), which is why neither rides in it.
+    "recall.fast.route.request": (
+        "Question: {question}\n"
+        "as_of: {as_of}\n"
+        "The owner's timezone: {zone}. Any date argument is a calendar day in THAT zone, "
+        "written as YYYY-MM-DD. Resolve a relative or colloquial expression in the question "
+        "(\"last quarter\", \"yesterday\", \"上个月\") against as_of yourself and pass the "
+        "resulting ISO days; never pass the phrase."
+    ),
     "recall.fast.plan.contract": (
         "You are given one question about a personal knowledge base. Your only job is to "
         "derive EXTRA search queries that a keyword/semantic retrieval engine should run "
@@ -1755,7 +2049,9 @@ DEFAULTS: dict[str, str] = {
     "evolve.tool.list_documents": "List the existing canonical document paths.",
     "evolve.tool.read_document": "Read one document in full (anchors included).",
     "evolve.tool.create_document": (
-        "Create a document; the system assigns the doc_id and every anchor."
+        "Create a document; the system assigns the doc_id and every anchor, and derives the "
+        "title from the body's `# ` heading (a title written into frontmatter is replaced "
+        "by it)."
     ),
     "evolve.tool.move_claim": (
         "Move an anchored claim block verbatim to the end of the named section of the target "

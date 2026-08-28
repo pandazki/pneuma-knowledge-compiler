@@ -199,7 +199,15 @@ async def test_structured_answer_admits_only_exact_presented_citations():
         seen=[],
     )
 
-    answer_text, answer, usage, handles, kind, degraded = await answer_with_structured(
+    (
+        answer_text,
+        answer,
+        usage,
+        handles,
+        kind,
+        degraded,
+        deliberation,
+    ) = await answer_with_structured(
         model,
         "When was it?",
         [claim],
@@ -210,6 +218,7 @@ async def test_structured_answer_admits_only_exact_presented_citations():
     )
 
     assert degraded is None
+    assert deliberation is None  # no deliberation was asked for, so the field stays absent
     assert kind == "time"
     assert usage["total_tokens"] == 14
     assert answer_text == "August 14, 2026."
@@ -334,7 +343,7 @@ async def test_fast_select_and_structured_answer_are_one_observable_quality_path
             "total_tokens": 5,
             "cache_read": 0,
             "cache_creation": 0,
-        }, {}, "fact", None
+        }, {}, "fact", None, None
 
     monkeypatch.setattr(fast_module, "retrieve_claims", retrieve_claims)
     monkeypatch.setattr(fast_module, "retrieve_windows", retrieve_windows)

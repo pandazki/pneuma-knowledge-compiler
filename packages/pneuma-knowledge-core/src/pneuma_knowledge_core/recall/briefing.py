@@ -19,11 +19,22 @@ langchain `create_agent`): search_knowledge / fetch_verbatim as the tool face,
 
 Determinism: the same (user, scope, snapshot) rebuilds a byte-identical system_prefix.
 Every list is sorted by path / anchor / block — never a set/dict iteration order.
+
+Both halves report their own per-stage wall-clock, each in the shape its own work has. The
+BUILD is mechanical and has a fixed vocabulary, so it uses the fast lane's `StageRecorder`
+(`BUILD_STAGE_ORDER`) — a stage that did not run is still emitted, marked `skipped`, which is
+how "there was no query half" reads as a fact rather than as an absence. The ASK is an agentic
+loop, so it uses `agentic.AgentTimings`: the ordered interleaving of turns and tool calls the
+run actually took, `total` wrapping the LOOP (the pack was assembled once, long before).
+
+I5 again: nothing measured reaches a SystemMessage — timings live on the result only.
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+import time
+from collections.abc import Callable, Sequence
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -41,13 +52,22 @@ from ..domain.ids import UserId, SourceId
 from ..domain.snapshot import SnapshotRef
 from ..ports.content_store import ContentStore
 from ..prompts import prompt
-from .agentic import run_agent_loop
+from .agentic import AgentTimings, TokenSink, run_agent_loop, timed_tools
 from .assembly import expand_and_merge, render_passages
 from .citation_alias import SessionAliaser, iter_answer_citations
 from .spine import CITE_PRECISE, CLOSE_ANSWER_HONESTLY, spine
 from .fast import render_claims, retrieve_claims
 from .projection import ProjectedClaim, claims_citing, project_snapshot_claims
 from .rag import rag_recall
+from .stage_timing import (
+    RETRIEVE,
+    claim_entries,
+    StageEventSink,
+    StageRecorder,
+    StageTiming,
+    child_name,
+    window_entries,
+)
 
 def briefing_contract() -> str:
     """The briefing lane's System contract: head + shared spine.
@@ -60,6 +80,22 @@ def briefing_contract() -> str:
 
 DEFAULT_TOOL_NAMES: tuple[str, ...] = ("fetch_verbatim", "search_knowledge")
 _ASK_TOOL_BUDGET = 4
+
+#: The build's stages, in the order the pack is assembled. `retrieve` is the query half's two
+#: lookups; `expand` is what turns bare hits and anchored source ids into evidence with
+#: provenance (context windows, materials cards, the citation reverse lookup, L0 excerpts);
+#: `pack` is the deterministic assembly — glance, segment join, budget truncation. Unlike the
+#: fast lane's gather, the children here run SEQUENTIALLY, so they sum to their parent.
+BUILD_STAGE_ORDER: tuple[str, ...] = ("retrieve", "expand", "pack", "total")
+
+#: The two lookups inside `retrieve`: the claim face and the L1/L2 body face. Named
+#: `passages` because that is what this code path calls what comes back.
+BUILD_RETRIEVE_CHILDREN: tuple[str, ...] = ("claims", "passages")
+
+#: Spelled once so the measure sites and the vocabulary above cannot drift apart.
+EXPAND = "expand"
+PACK = "pack"
+TOTAL = "total"
 
 
 @dataclass
@@ -81,6 +117,10 @@ class Briefing:
     # The anchored sources (scope.source_ids). search_knowledge scopes retrieval to these
     # when non-empty; empty means the whole user KB is in scope.
     source_ids: tuple[str, ...] = ()
+    # The build's per-stage wall-clock, in `BUILD_STAGE_ORDER`. Measured, not derived: a
+    # briefing reconstructed from a stored row (the ask route) carries none, and says so by
+    # carrying an empty tuple rather than zeros.
+    stages: tuple[StageTiming, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -92,6 +132,11 @@ class AskAnswer:
     # {handle: real_source_id} when consumption aliasing is on — the answer's `[cite: sNN]`
     # markers are query-local handles; the UI reverse-binds them (like the fast lane).
     citation_handles: dict[str, str] = field(default_factory=dict)
+    # The ask loop's per-step wall-clock, in the order the steps happened: `turn:N` per model
+    # turn, `tool:<name>` per tool call (the same call the matching `verbatim_fetches` /
+    # search record carries `ms` for), `finalize` when the budget forced a closing call, and
+    # `total` last. `total` wraps the LOOP — the pack it asks over was built earlier.
+    stages: tuple[StageTiming, ...] = ()
 
 
 def assemble_messages(
@@ -145,21 +190,34 @@ async def _query_section(
     content: ContentStore | None = None,
     max_claims: int = 24,
     max_excerpts: int = 12,
+    stages: StageRecorder | None = None,
 ) -> tuple[list[str], int]:
     """Render the scope.query knowledge — claims selected by relevance, laid out in
-    canonical (path/anchor) order for byte-stability. Returns (segments, claim_count)."""
+    canonical (path/anchor) order for byte-stability. Returns (segments, claim_count).
+
+    `stages` is the build's recorder, threaded in rather than returned: the two lookups and
+    the context expansion belong to different stages of the same build, so they have to be
+    measured where they happen, not around this whole call."""
     lines: list[str] = []
     claim_count = 0
+    stages = stages if stages is not None else StageRecorder(
+        BUILD_STAGE_ORDER, BUILD_RETRIEVE_CHILDREN
+    )
 
     if claim_lexical is not None and claim_vectors is not None and embeddings is not None:
-        retrieved = (await retrieve_claims(
-            user_id,
-            query,
-            claim_lexical=claim_lexical,
-            claim_vectors=claim_vectors,
-            embeddings=embeddings,
-            limit=max_claims,
-        ))[:max_claims]
+        with stages.measure(RETRIEVE), stages.measure(child_name("claims")):
+            retrieved = (await retrieve_claims(
+                user_id,
+                query,
+                claim_lexical=claim_lexical,
+                claim_vectors=claim_vectors,
+                embeddings=embeddings,
+                limit=max_claims,
+            ))[:max_claims]
+            stages.preview(
+                child_name("claims"),
+                {"cap": max_claims, "hits": len(retrieved), "items": claim_entries(retrieved)},
+            )
         if retrieved:
             # select by relevance, render in canonical order (deterministic).
             ordered = sorted(retrieved, key=_sort_key)
@@ -170,20 +228,33 @@ async def _query_section(
             claim_count = len(ordered)
 
     if lexical is not None and vectors is not None and embeddings is not None:
-        hits = await rag_recall(
-            user_id,
-            query,
-            lexical=lexical,
-            vectors=vectors,
-            embeddings=embeddings,
-            limit=max_excerpts,
-        )
+        with stages.measure(RETRIEVE), stages.measure(child_name("passages")):
+            hits = await rag_recall(
+                user_id,
+                query,
+                lexical=lexical,
+                vectors=vectors,
+                embeddings=embeddings,
+                limit=max_excerpts,
+            )
+            stages.preview(
+                child_name("passages"),
+                {"cap": max_excerpts, "hits": len(hits), "items": window_entries(hits)},
+            )
         if hits:
             # Post-retrieval assembly: expand each bare hit into a context window, merge
             # near-contiguous ones, then lay out in canonical order for byte-stability.
-            passages = await expand_and_merge(
-                hits, content=content, user_id=user_id
-            )
+            with stages.measure(EXPAND):
+                passages = await expand_and_merge(
+                    hits, content=content, user_id=user_id
+                )
+                stages.preview(
+                    EXPAND,
+                    {
+                        "passages": len(passages),
+                        "passage_chars": sum(len(p.text or "") for p in passages),
+                    },
+                )
             ordered = sorted(
                 passages, key=lambda p: (str(p.source_id), p.block_start, p.block_end)
             )
@@ -282,6 +353,10 @@ async def build_briefing(
     skill: object | None = None,
     packs: Sequence[object] = (),
     tool_names: tuple[str, ...] = DEFAULT_TOOL_NAMES,
+    # Watch the build AS IT RUNS: one `StageEvent` when each stage begins and one when it
+    # settles, from the same recorder that produces `Briefing.stages`. None = silent, and the
+    # build is byte-identical to what it was before events existed.
+    on_event: StageEventSink | None = None,
 ) -> Briefing:
     """Assemble a Briefing's stable knowledge pack over a fixed snapshot.
 
@@ -295,14 +370,28 @@ async def build_briefing(
     from `snapshot_docs`, which the caller already loaded, and it is deterministic, so it does
     not cost the pack its byte-stability. `skill` supplies the declared families and `packs`
     their blurbs; without them the glance still lists what exists.
+
+    The build is mechanical — no model call anywhere in it — which is exactly why its cost has
+    to be reported per stage: when a build takes nine seconds the whole answer is in which
+    retrieval or expansion it spent them. `Briefing.stages` carries the fixed vocabulary
+    complete (`BUILD_STAGE_ORDER`), so a half that did not run — no `scope.query`, no anchored
+    sources — is present and marked `skipped` rather than silently missing.
     """
+    stages = StageRecorder(BUILD_STAGE_ORDER, BUILD_RETRIEVE_CHILDREN, on_event=on_event)
+    build_started = time.perf_counter()
+
     all_claims = project_snapshot_claims(snapshot_docs)
 
     segments: list[str] = []
     claims_count = 0
 
     if snapshot_docs:
-        segments.append(render_canonical_glance(snapshot_docs, skill, packs=packs))
+        with stages.measure(PACK):
+            glance = render_canonical_glance(snapshot_docs, skill, packs=packs)
+            segments.append(glance)
+            stages.preview(
+                PACK, {"documents": len(snapshot_docs), "glance_chars": len(glance)}
+            )
 
     if scope.query:
         query_lines, qcount = await _query_section(
@@ -314,6 +403,7 @@ async def build_briefing(
             lexical=lexical,
             vectors=vectors,
             content=content,
+            stages=stages,
         )
         if query_lines:
             segments.append(
@@ -327,13 +417,24 @@ async def build_briefing(
         source_segments: list[str] = []
         # deterministic: sources in sorted id order (never the input/set order).
         for sid in sorted(set(str(s) for s in scope.source_ids)):
-            src_lines, ccount = await _source_section(
-                user_id,
-                SourceId(sid),
-                all_claims,
-                snapshot_docs,
-                content=content,
-            )
+            # Anchoring a source IS provenance expansion — the citation reverse lookup, the
+            # materials card, the L0 read — so it accumulates onto the same `expand` stage
+            # the query half's context windows land on, once per source.
+            with stages.measure(EXPAND):
+                src_lines, ccount = await _source_section(
+                    user_id,
+                    SourceId(sid),
+                    all_claims,
+                    snapshot_docs,
+                    content=content,
+                )
+                stages.preview(
+                    EXPAND,
+                    {
+                        "sources": len(set(str(x) for x in scope.source_ids)),
+                        "source_chars": sum(len(line) for line in src_lines),
+                    },
+                )
             source_segments.append("\n".join(src_lines))
             claims_count += ccount
         if source_segments:
@@ -343,16 +444,30 @@ async def build_briefing(
                 + "\n\n".join(source_segments)
             )
 
-    # Budget truncation on the knowledge pack (the fixed contract is exempt).
-    pack = "\n\n".join(segments)
-    if len(pack) > scope.budget_chars:
-        pack = (
-            pack[: scope.budget_chars].rstrip()
-            + prompt("recall.briefing.budget_truncated")
+    with stages.measure(PACK):
+        # Budget truncation on the knowledge pack (the fixed contract is exempt).
+        pack = "\n\n".join(segments)
+        if len(pack) > scope.budget_chars:
+            pack = (
+                pack[: scope.budget_chars].rstrip()
+                + prompt("recall.briefing.budget_truncated")
+            )
+
+        contract = briefing_contract()
+        system_prefix = contract + "\n" + pack + "\n" if pack else contract
+        stages.preview(
+            PACK,
+            {
+                "sections": len(segments),
+                "pack_chars": len(pack),
+                "budget_chars": scope.budget_chars,
+                "prefix_chars": len(system_prefix),
+            },
         )
 
-    contract = briefing_contract()
-    system_prefix = contract + "\n" + pack + "\n" if pack else contract
+    # `total` last and around everything above, so it bounds every other stage by
+    # construction rather than by an assertion someone has to remember.
+    stages.record(TOTAL, (time.perf_counter() - build_started) * 1000.0)
 
     return Briefing(
         user_id=user_id,
@@ -363,10 +478,54 @@ async def build_briefing(
         source_count=len(set(str(s) for s in scope.source_ids)),
         char_count=len(system_prefix),
         source_ids=tuple(sorted(set(str(s) for s in scope.source_ids))),
+        stages=stages.emit(),
     )
 
 
 # ------------------------------------------------------------------------------- ask
+
+
+#: The tool call currently running IN THIS TASK: `{"started": perf_counter, "record": dict}`.
+#: A ContextVar and not an attribute for the same reason deep's is: langgraph runs a turn's
+#: tool calls concurrently, each in its own task, so a shared slot would let one call's start
+#: time stamp another call's record. A task gets its own copy of the context, which makes the
+#: pairing mechanical rather than a matter of ordering luck.
+_TOOL_CALL: ContextVar[dict | None] = ContextVar("pneuma_briefing_tool_call", default=None)
+
+
+class _TimedRecords(list):
+    """A tool's record sink that stamps `ms` on every record as it is appended.
+
+    It has to happen HERE rather than around the tool because the tools append MID-CALL: the
+    record is built from what the call found, and by the time the wrapper returns there is no
+    longer a "before anyone sees it" to write into. `fetches` and `searches` are both this
+    list, so every ask record carries the duration of the call that produced it."""
+
+    def append(self, item: dict) -> None:  # noqa: D102
+        call = _TOOL_CALL.get()
+        if call is not None:
+            item["ms"] = int(round(max((time.perf_counter() - call["started"]) * 1000.0, 0.0)))
+            call["record"] = item
+        super().append(item)
+
+
+def _ask_watch(name: str, started: float) -> Callable[[], str | None]:
+    """The `timed_tools` watch, the other half of `_TimedRecords`.
+
+    Entering publishes the call's start on `_TOOL_CALL`, which is where `append` reads the
+    `ms` it stamps. Leaving reports the error the tool SWALLOWED into its record —
+    `fetch_verbatim` answers a bad source id or locator with a stated failure rather than
+    raising, so without this the stage would read as a fast success."""
+    del name  # the stage's name is `timed_tools`' business, not the record's
+    call: dict = {"started": started, "record": None}
+    token = _TOOL_CALL.set(call)
+
+    def finish() -> str | None:
+        _TOOL_CALL.reset(token)
+        record = call["record"]
+        return str(record["error"]) if record and record.get("error") else None
+
+    return finish
 
 
 def _fetch_verbatim_tool(
@@ -498,6 +657,11 @@ async def briefing_ask(
     citation_alias: bool = False,
     callbacks: list | None = None,
     trace_metadata: dict | None = None,
+    # Watch the ask AS IT RUNS: `on_event` fires when each model turn and each tool call
+    # begins and ends (`AgentTimings`), `on_token` as the answer text is generated. Both
+    # None = the historical call, down to the langgraph stream mode.
+    on_event: StageEventSink | None = None,
+    on_token: TokenSink | None = None,
 ) -> AskAnswer:
     """Ask over a briefing: fixed-prefix messages + a bounded tool loop.
 
@@ -511,9 +675,17 @@ async def briefing_ask(
     handle across the pack + tool results of THIS ask (consistent within the ask,
     query-local across asks), so the model copies short handles instead of raw ids. The
     pack itself keeps real source ids (built for fast-like consumption); aliasing it per
-    ask trades its byte-stable prompt-cache for copyable citations (the switch's point)."""
-    fetches: list[dict] = []
-    searches: list[dict] = []
+    ask trades its byte-stable prompt-cache for copyable citations (the switch's point).
+
+    `AskAnswer.stages` is the loop's own interleaving — one entry per model turn and per tool
+    call, in the order they happened, `total` around the loop. The pack is NOT in that total:
+    it was built once, possibly days ago, and charging this ask for it would misname where the
+    seconds went."""
+    # Both sinks stamp their own `ms` (see `_TimedRecords`), so a record and the stage that
+    # measured the same call agree by construction instead of by two clocks that might not.
+    fetches: list[dict] = _TimedRecords()
+    searches: list[dict] = _TimedRecords()
+    timings = AgentTimings(on_event=on_event)
     aliaser = SessionAliaser() if citation_alias else None
     fetch_tool = _fetch_verbatim_tool(briefing.user_id, content, fetches, aliaser=aliaser)
     search_tool = _search_knowledge_tool(
@@ -542,15 +714,20 @@ async def briefing_ask(
             system_prefix = contract + aliaser.alias(pack)
         else:
             system_prefix = aliaser.alias(system_prefix)
+    # Measured around the coroutine, failures included — a fetch that answered a bad id with
+    # a stated failure is a `degraded` stage naming that reason, not a suspiciously fast one.
+    tools = timed_tools([search_tool, fetch_tool], timings, watch=_ask_watch)
     answer, usage, _transcript = await run_agent_loop(
         model,
-        [search_tool, fetch_tool],
+        tools,
         system_prompt=system_prefix,
         human=str(human),
         tool_budget=_ASK_TOOL_BUDGET,
         run_name="briefing.ask",
         callbacks=callbacks,
         trace_metadata=trace_metadata,
+        timings=timings,
+        on_token=on_token,
     )
 
     handle_map = aliaser.handle_map if aliaser is not None else {}
@@ -570,4 +747,5 @@ async def briefing_ask(
         verbatim_fetches=tuple(fetches),
         token_usage=usage,
         citation_handles=handle_map,
+        stages=timings.stages(),
     )

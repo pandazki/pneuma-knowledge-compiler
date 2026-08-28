@@ -60,7 +60,11 @@ from pneuma_knowledge_core.compile.rollover import (
     volumes_of,
     write_overview,
 )
-from pneuma_knowledge_core.compile.documents import parse_document, render_document
+from pneuma_knowledge_core.compile.documents import (
+    parse_document,
+    render_document,
+    with_derived_title,
+)
 from pneuma_knowledge_core.domain.canonical import CanonicalDocument
 from pneuma_knowledge_core.domain.ids import DocumentId, extract_anchors
 from pneuma_knowledge_core.prompts import prompt
@@ -235,6 +239,21 @@ def test_removing_a_middle_block_never_fuses_its_neighbours_into_one_claim():
 
 
 # ------------------------------------------------------------------- the produced documents
+
+
+def test_both_files_a_rollover_writes_carry_their_own_derived_title():
+    """A volume is a canonical document in its own right, so it is named by the `# ` heading
+    that stands at the top of IT — not by whatever the page it was cut out of had stored. The
+    active page's own stale title is corrected in the same write, because the rollover is a
+    write of that page."""
+    active = _active(30, title="Aurora planner (2024 edition)")
+    _, result = _roll([active], active, [_point(0, 5)])
+    assert result.status == "ready", [v.render() for v in result.violations]
+
+    assert _as_doc(ACTIVE, result.files[ACTIVE]).frontmatter["title"] == "Aurora planner"
+    volume = _as_doc(VOLUME, result.files[VOLUME])
+    assert volume.body.startswith("# Aurora planner")
+    assert volume.frontmatter["title"] == "Aurora planner"
 
 
 def test_the_active_document_keeps_its_path_and_gains_a_card_and_a_volume_catalog():
@@ -1049,11 +1068,49 @@ def test_heal_re_renders_a_volume_link_that_resolves_one_level_short():
     healed = _as_doc(VOLUME, result.files[VOLUME])
     assert "(../../../memory/topics/orion.md)" in healed.body
     assert "(../../../memory/topics/orion.md#scope)" in healed.body
-    # nothing but the hrefs moved — the whole FILE is otherwise byte-identical
+    # nothing but the hrefs moved — the whole FILE is otherwise byte-identical, with ONE
+    # widening the healer's docstring states: the file it writes carries its DERIVED title,
+    # the same `# `-heading reading every other write path applies. That delta is system-
+    # derived from bytes this pass cannot touch, and it rides only a file already being
+    # written; everything else is still held to the byte.
     assert link_elided(result.files[VOLUME]) == link_elided(
-        render_document(volume.frontmatter, volume.body)
+        render_document(with_derived_title(volume.frontmatter, volume.body), volume.body)
     )
     assert link_targets(healed.body, VOLUME) == (ORION, ORION)
+
+
+def test_heal_writes_the_volumes_derived_title_rather_than_carrying_a_wrong_one_forward():
+    """"Derived on every write" has no repair-channel exemption: a file this pass serializes
+    gets its title read off its own `# ` heading, like every other write path.
+
+    The bound that keeps this from being a second knowledge-edit channel: the title rides a
+    file the heal was already going to write, and never causes one."""
+    docs = _healable_world("../../memory/topics/orion.md")
+    stale = _volume(docs[-1].body, path=VOLUME)
+    stale = CanonicalDocument(
+        doc_id=stale.doc_id,
+        path=stale.path,
+        frontmatter={**stale.frontmatter, "title": "Aurora plnaner (typo, from a legacy write)"},
+        body=stale.body,
+    )
+    result = heal_volume_links([docs[0], docs[1], stale])
+    assert result.status == "ready"
+    assert parse_document(result.files[VOLUME])[0]["title"] == "Aurora planner"
+
+    # …and a volume whose title is stale but whose links all resolve is not written at all:
+    # the derivation rides a repair, it does not go looking for pages to correct.
+    settled = _volume(
+        "# Aurora planner\n\n## Delivery\n\n"
+        + _linked_claim(0, "../../../memory/topics/orion.md"),
+        path=VOLUME,
+    )
+    settled = CanonicalDocument(
+        doc_id=settled.doc_id,
+        path=settled.path,
+        frontmatter={**settled.frontmatter, "title": "Stale name nobody rewrote"},
+        body=settled.body,
+    )
+    assert heal_volume_links([docs[0], docs[1], settled]).status == "clean"
 
 
 def test_heal_is_idempotent_and_writes_nothing_on_a_repo_that_needs_none():

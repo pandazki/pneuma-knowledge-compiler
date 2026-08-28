@@ -282,8 +282,11 @@ def build_http_answerer(
             response = await client.post(endpoint, json=payload)
             response.raise_for_status()
             body = response.json()
-        if isinstance(body, dict):
-            return str(body.get("answer") or "")
+        # `answer` is the discriminator, not the JSON type: the rag lane now answers with an
+        # object too (its hits plus what finding them cost), and a suite that read `.get()`
+        # off it would score an empty string for every question instead of saying why.
+        if isinstance(body, dict) and "answer" in body:
+            return str(body["answer"] or "")
         raise EvalDependencyError(
             f"recall endpoint returned a hit list, not an answer: mode={mode!r} is wrong for QA"
         )

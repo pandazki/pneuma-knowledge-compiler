@@ -34,12 +34,21 @@ protocol. What stays mechanical (§0 discipline 1): the tool budget (recursion_l
 forced finalize, see `agentic.py`), the `trail` record per tool call, and the
 byte-stable `deep_contract()` (I5) — input, as_of, and all evidence ride the
 HumanMessage / ToolMessages.
+
+WHAT EACH STEP COST is part of the answer, not of a log. Every tool call is measured around
+its coroutine and the duration is stamped on the trail record BEFORE it is appended — so the
+record streamed live to a waiting UI already carries its `ms` — while the model turns and the
+forced finalize are measured by the loop itself (`agentic.AgentTimings`). `DeepAnswer.stages`
+is the two interleaved in the order they happened, closed by `total`. `total` wraps the
+AGENTIC LOOP; the seed retrieval above it is not a loop stage, so it is not inside that total.
 """
 
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import Callable, Sequence
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal
@@ -47,6 +56,7 @@ from typing import Literal
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.tools import StructuredTool
 
+from ..components import registered_components
 from ..canonical_glance import render_canonical_glance
 from ..compile.documents import render_document
 from ..domain.canonical import CanonicalDocument
@@ -57,7 +67,7 @@ from ..ports.lexical_index import LexicalIndex
 from ..ports.media_store import MediaStore
 from ..ports.vector_index import VectorIndex
 from ..prompts import prompt
-from .agentic import run_agent_loop
+from .agentic import AgentTimings, TokenSink, run_agent_loop, timed_tools
 from .scope import SnapshotScope, out_of_scope_source, scope_declaration
 from .spine import (
     CITE_PRECISE,
@@ -81,6 +91,7 @@ from .fast import (
     retrieve_windows,
 )
 from .rag import RecallHit
+from .stage_timing import StageEventSink, StageTiming
 
 _DEEP_TOOL_BUDGET = 6  # tool rounds before the forced tool-less finalize
 _SEARCH_CLAIM_CAP = 8
@@ -88,18 +99,60 @@ _SEARCH_WINDOW_CAP = 4
 _TRAIL_PREVIEW_CHARS = 1500  # per-step result kept for the UI trail (full text still goes to the model)
 
 
-class _NotifyingTrail(list):
-    """A trail list that invokes a callback on every append — so a caller can stream each
-    agentic step the moment a tool records it, without changing the tools."""
+#: The tool call currently running IN THIS TASK: `{"started": perf_counter, "step": record}`.
+#: A ContextVar rather than an attribute because langgraph's tool node runs a turn's tool
+#: calls CONCURRENTLY, each in its own task: a shared slot would let one call's start time
+#: stamp another call's record. Each task gets its own copy of the context, so the pairing of
+#: a start time to the record appended under it is mechanical, not a matter of ordering luck.
+_TOOL_CALL: ContextVar[dict | None] = ContextVar("pneuma_deep_tool_call", default=None)
+
+
+class _TimedTrail(list):
+    """The agentic trail: a list that times and announces every step as it is appended.
+
+    Two things happen on the way in, and both have to happen HERE rather than around the
+    tool, because the tools append mid-call and the caller streams what they appended:
+
+    1. **`ms`** — the wall-clock since the running tool call started (`_TOOL_CALL`), stamped
+       on the record before anyone sees it, so the step streamed live already carries it.
+    2. **`on_append`** — the caller's live-step callback, invoked with the finished record.
+    """
 
     def __init__(self, on_append: "Callable[[dict], None] | None" = None) -> None:
         super().__init__()
         self._on_append = on_append
 
     def append(self, item: dict) -> None:  # noqa: D102
+        call = _TOOL_CALL.get()
+        if call is not None:
+            item["ms"] = int(round(max((time.perf_counter() - call["started"]) * 1000.0, 0.0)))
+            call["step"] = item
         super().append(item)
         if self._on_append is not None:
             self._on_append(item)
+
+
+def _trail_watch(name: str, started: float) -> "Callable[[], str | None]":
+    """The `timed_tools` watch, the other half of `_TimedTrail`.
+
+    Entering publishes the call's start on `_TOOL_CALL`, which is where `append` reads the
+    `ms` it stamps. Leaving reports the error the tool SWALLOWED into its record
+    (`fetch_verbatim` answers a bad id with a stated failure rather than raising), so the
+    stage still reads `degraded` with that reason instead of as a fast success.
+
+    The trail itself is not a parameter on purpose: the pairing travels through the context
+    of the tool's own task, which is the only place it can be correct when a turn's tool
+    calls run concurrently."""
+    del name  # the stage's name is `timed_tools`' business, not the trail's
+    call: dict = {"started": started, "step": None}
+    token = _TOOL_CALL.set(call)
+
+    def finish() -> str | None:
+        _TOOL_CALL.reset(token)
+        step = call["step"]
+        return str(step["error"]) if step and step.get("error") else None
+
+    return finish
 
 
 def _trail_preview(text: str) -> str:
@@ -142,6 +195,11 @@ class DeepAnswer:
     # are query opt-in; caption mode never reads the media store.
     image_count: int = 0
     image_mode: str = "caption"
+    # The agentic loop's per-step wall-clock, in the order the steps happened: `turn:N` for
+    # each model turn, `tool:<name>` for each tool call (the same call the matching `trail`
+    # record carries `ms` for), `finalize` when the budget forced a closing call, and `total`
+    # last. `total` wraps the LOOP — the seed retrieval that precedes it is not a loop stage.
+    stages: tuple[StageTiming, ...] = ()
 
 
 def _search_claims_tool(
@@ -348,6 +406,19 @@ def _merge_windows(seed: list, found: list) -> tuple:
     return tuple(merged)
 
 
+def _component_recall_tools(component, user_id, documents):
+    """A component's deep tools, handed the lane's pinned `documents` (an empty pinned
+    canonical stays empty — the component never falls back to live storage). A component
+    written before `documents` joined the signature is still called, without it."""
+    face = getattr(component, "recall_tools", None)
+    if face is None:
+        return []
+    try:
+        return face(user_id, documents=documents)
+    except TypeError:
+        return face(user_id)
+
+
 async def deep_recall(
     user_id: UserId,
     question: str,
@@ -376,6 +447,12 @@ async def deep_recall(
     # this adds the prompt's snapshot declaration and the wording of a fetch miss.
     scope: SnapshotScope | None = None,
     on_step: "Callable[[dict], None] | None" = None,
+    # The other two live faces, beside `on_step`. `on_event` fires when each model turn and
+    # each tool call BEGINS and when it ends, so a waiting reader sees the turn it is
+    # currently inside rather than only the ones that finished; `on_token` fires with the
+    # answer's text deltas. Both None = the historical run, down to the langgraph stream mode.
+    on_event: StageEventSink | None = None,
+    on_token: TokenSink | None = None,
     cap: int = DEFAULT_CLAIM_CAP,
     window_cap: int = DEFAULT_WINDOW_CAP,
     # The SHAPE of the answer ("concise" / "conversational" / "detailed") — see
@@ -440,7 +517,8 @@ async def deep_recall(
     read_paths: list[str] = []
     # A trail that fires on_step as each tool records a step → the agentic search can be
     # streamed one step at a time (the tools stay unchanged; they just .append as before).
-    trail: list[dict] = _NotifyingTrail(on_step) if on_step else []
+    timings = AgentTimings(on_event=on_event)
+    trail: list[dict] = _TimedTrail(on_step)
     tools = [
         _search_claims_tool(
             user_id,
@@ -462,7 +540,18 @@ async def deep_recall(
         _fetch_verbatim_tool(user_id, content, trail, scope),
         _list_documents_tool(documents, trail),
         _read_document_tool(documents, read_paths, trail),
+        # Tools contributed by enabled index components (components/__init__.py), scoped
+        # to this user; none registered → the tool list is exactly what it always was.
+        *(
+            t
+            for component in registered_components()
+            for t in _component_recall_tools(component, user_id, documents)
+        ),
     ]
+    # Measured around the coroutine, failures included — and around EVERY tool, a component's
+    # included, so a contributed tool cannot be the unexplained gap in the breakdown even
+    # though it leaves no trail record of its own.
+    tools = timed_tools(tools, timings, watch=_trail_watch)
 
     glance = render_canonical_glance(documents, skill, packs=packs) if documents else None
     answer_trace_metadata = {
@@ -489,6 +578,8 @@ async def deep_recall(
         run_name="recall.deep",
         callbacks=callbacks,
         trace_metadata=answer_trace_metadata,
+        timings=timings,
+        on_token=on_token,
     )
 
     return DeepAnswer(
@@ -501,4 +592,5 @@ async def deep_recall(
         read_documents=tuple(read_paths),
         image_count=len(images),
         image_mode=image_mode,
+        stages=timings.stages(),
     )

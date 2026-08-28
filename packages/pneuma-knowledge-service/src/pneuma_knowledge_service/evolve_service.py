@@ -27,12 +27,18 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 
 from pneuma_knowledge_core.compile.anchor_ops import edit_claim_text, insert_block_verbatim
-from pneuma_knowledge_core.compile.documents import render_document
+from pneuma_knowledge_core.compile.documents import render_document, with_derived_title
 from pneuma_knowledge_core.compile.transitions import _anchor_blocks
+from pneuma_knowledge_core.components import component_job
 from pneuma_knowledge_core.domain.canonical import CanonicalDocument
 from pneuma_knowledge_core.domain.ids import UserId, SourceId, extract_anchors
 from pneuma_knowledge_core.domain.snapshot import SnapshotRef
 from pneuma_knowledge_core.evolve import propose_evolution, run_evolve
+from pneuma_knowledge_core.evolve.gate import (
+    component_gate_checks,
+    docs_from_canonical,
+    docs_from_files,
+)
 from pneuma_knowledge_core.prompts import prompt
 from pneuma_knowledge_core.skill import SchemaPack, compose_skill, load_skill_base
 from pneuma_knowledge_core.skill.version import SkillVersion
@@ -289,7 +295,10 @@ def reconcile_adopt(
     Returns `(final_files, ok, reason)`. The terminal assertion — anchors(final) ⊇
     anchors(main) − {dropped AND window-untouched} — is mechanical: a violation means the
     merge would silently lose main content, so adopt fails (ok=False) and the task stays
-    draft. `final_files` excludes the skill manifest; the caller overlays that separately."""
+    draft. `final_files` excludes the skill manifest; the caller overlays that separately.
+
+    A document the merge leaves byte-identical to current main is serialized byte-identical;
+    every other one is serialized with its DERIVED title (see the comment at the bottom)."""
     base_anchor = _anchor_index(base_docs)
     branch_anchor = _anchor_index(branch_docs)
     main_anchor = _anchor_index(main_docs)
@@ -371,9 +380,25 @@ def reconcile_adopt(
             "from the final tree.",
         )
 
-    final_files = {
-        p: render_document(final_fm[p], final_body[p]) for p in final_body
-    }
+    # Serialization, and the one derivation that rides it. `title` is derived from the
+    # document's own `# ` heading at every write path that serializes a CHANGED document
+    # (`compile/documents.with_derived_title`), and an adopt is such a write: the branch
+    # rewrote bodies, the catch-up above rewrote more of them, and a stale legacy title
+    # carried through unchanged would be a page whose stored name contradicts the heading a
+    # reader sees. The comparison is against current MAIN, rendered UNDERIVED on both sides,
+    # so the derivation is never what makes a page differ: a document this merge leaves
+    # exactly as main holds it keeps its bytes, stale title included, and rides the next
+    # ordinary write of the page it belongs to.
+    final_files: dict[str, str] = {}
+    for path in final_body:
+        raw = render_document(final_fm[path], final_body[path])
+        current = main_by_path.get(path)
+        if current is not None and render_document(current.frontmatter, current.body) == raw:
+            final_files[path] = raw
+            continue
+        final_files[path] = render_document(
+            with_derived_title(final_fm[path], final_body[path]), final_body[path]
+        )
     return final_files, True, ""
 
 
@@ -408,6 +433,28 @@ async def adopt_evolve_job(ctx: AppContext, user: UserId, job: object) -> None:
     final_files, ok, reason = reconcile_adopt(base_docs, branch_docs, main_docs)
     if not ok:
         # adopt failed → task stays draft, detail records why (schema-evolve §2.5).
+        await ctx.store.update_evolve_detail(user, task_id, reason)
+        await ctx.store.complete(user, job_id, ok=False, detail=reason)
+        return
+
+    # The enabled components judge the tree this adopt would commit, against current main —
+    # the second half of "a canonical field invariant belongs to canonical, not to one
+    # writing channel". The branch already passed these checks when it was built, but it was
+    # built against the base: the review window's daily compiles may have bound elsewhere an
+    # identity the branch's new page claims, and the reconciliation above is mechanical and
+    # judges nothing. This is the last moment before the merge is canonical.
+    #
+    # Inside the components' own window (`prepare` first), because a component's gate check
+    # reads a mirror this process has not filled — an adopt job runs where no compile ran,
+    # so the mirror is cold by construction and an unprepared check would fail open.
+    async with component_job(str(user)):
+        component_violations = component_gate_checks(
+            docs_from_files(final_files), docs_from_canonical(main_docs)
+        )
+    if component_violations:
+        reason = "adopt refused by the enabled components: " + " ".join(
+            v.render() for v in component_violations
+        )
         await ctx.store.update_evolve_detail(user, task_id, reason)
         await ctx.store.complete(user, job_id, ok=False, detail=reason)
         return

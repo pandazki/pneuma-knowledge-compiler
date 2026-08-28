@@ -20,6 +20,7 @@ from ..domain.canonical import CANONICAL_CITATION_MARKER_RE
 from ..domain.ids import ANCHOR_MARK_RE
 from ..prompts import prompt
 from ..recall.fast import invoke_config
+from .runner import _call_model
 from .transitions import CompileEvent
 
 # Bounds on the record rendered into the human message: a large compile can carry
@@ -38,6 +39,18 @@ def _display_text(claim_body: str) -> str:
     text = ANCHOR_MARK_RE.sub("", claim_body)
     text = CANONICAL_CITATION_MARKER_RE.sub("", text)
     return " ".join(text.split())
+
+
+# The verb the record uses per mechanical event type. A superseded claim is narrated as
+# a state change, not as "one claim added" — that is the whole point of the marker.
+_EVENT_VERBS = {
+    "claim_added": "added",
+    "claim_revised": "revised",
+    "claim_superseded": "superseded (state changed)",
+    # Not a claim change at all: the document's head was re-read off the ledger. The verb
+    # says so, or a brief would narrate a re-reading as new knowledge.
+    "overview_rewritten": "overview rewritten (the document's current picture)",
+}
 
 
 def render_brief_record(
@@ -62,8 +75,12 @@ def render_brief_record(
         for event in path_events:
             if shown >= MAX_RECORD_CLAIMS:
                 break
-            verb = "added" if event.type == "claim_added" else "revised"
+            verb = _EVENT_VERBS.get(event.type, "revised")
             lines.append(f"- {verb}: {_display_text(event.after)[:CLAIM_CHAR_BUDGET]}")
+            if event.type == "claim_superseded" and event.before:
+                lines.append(
+                    f"  (supersedes: {_display_text(event.before)[:CLAIM_CHAR_BUDGET]})"
+                )
             shown += 1
     if len(events) > shown:
         lines.append(f"…and {len(events) - shown} further change(s) not shown.")
@@ -77,6 +94,9 @@ async def generate_brief(
     source_lines: list[str],
     callbacks: list | None = None,
     trace_metadata: dict | None = None,
+    # Same per-call wall-clock budget as the compile loop (compile/runner.py): a hung
+    # provider connection must not hold the worker. None / 0 = unbounded.
+    call_timeout: float | None = None,
 ) -> str | None:
     """One plain-text model call over the record; None when there is nothing to tell.
 
@@ -91,9 +111,12 @@ async def generate_brief(
             record=render_brief_record(events, source_lines),
         )
     )
-    reply = await model.ainvoke(
-        [system, human],
-        config=invoke_config("compile.brief", callbacks, trace_metadata),
+    reply = await _call_model(
+        model.ainvoke(
+            [system, human],
+            config=invoke_config("compile.brief", callbacks, trace_metadata),
+        ),
+        call_timeout,
     )
     content = reply.content
     text = " ".join((content if isinstance(content, str) else str(content)).split())

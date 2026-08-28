@@ -6,6 +6,24 @@ import { claimKey, type DirNode, type Model } from "@/lib/model";
 import { defaultCollapsedDirs, dirFileCount, isDirOpen } from "@/lib/documentTree";
 import { displayClaim, extractClaimLabel } from "@/lib/claim";
 import {
+  buildSupersessionIndex,
+  currentClaims,
+  documentHasSupersession,
+  emptySupersessionIndex,
+  isSuperseded,
+  supersededBy,
+  supersededCount,
+  type SupersessionIndex,
+} from "@/lib/supersession";
+import {
+  hasOverviewContent,
+  ledgerClaims,
+  parseOverview,
+  resolveHref,
+  type DocumentOverview,
+} from "@/lib/overview";
+import { isExternalHref, splitInlineMarkdown } from "@/lib/inlineMarkdown";
+import {
   buildCitationNumbers,
   citationKey,
   presentCitationSource,
@@ -23,6 +41,7 @@ import { Footnote } from "@/ui/Footnote";
 import { Mono } from "@/ui/Mono";
 import { ScrollRegion } from "@/ui/ScrollRegion";
 import { SectionRule } from "@/ui/SectionRule";
+import { SegmentedControl } from "@/ui/SegmentedControl";
 import { cn } from "@/ui/cn";
 
 /**
@@ -40,6 +59,23 @@ function labelBadgeClass(tier: string): string {
   }
 }
 
+/**
+ * Frontmatter keys a component fills with a LIST written as a comma-separated string — the
+ * `people` component's `identities` / `aliases`. One value per chip reads as the set it is,
+ * where one long line reads as a sentence that happens to contain commas.
+ */
+const CHIP_FRONTMATTER_KEYS = new Set(["identities", "aliases"]);
+
+/** A chip list from either spelling: a comma-separated string, or an already-split list. */
+function frontmatterChips(value: unknown): string[] {
+  const parts = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? value.split(",")
+      : [];
+  return parts.map((part) => String(part).trim()).filter(Boolean);
+}
+
 export default function LibraryView() {
   const t = useT();
   const dataset = useApp((s) => s.dataset);
@@ -55,6 +91,16 @@ export default function LibraryView() {
   // inside the proof.
   const linkIndex = useMemo(
     () => (model ? buildLinkIndex(lensDocuments(model.dataset.documents.documents)) : null),
+    [model],
+  );
+
+  // Supersession is a repository-level fact — a successor may live in another document — so
+  // the index is built over every document, once per projection, and read per page.
+  const supersession = useMemo(
+    () =>
+      model
+        ? buildSupersessionIndex(model.dataset.documents.documents)
+        : emptySupersessionIndex(),
     [model],
   );
 
@@ -184,9 +230,11 @@ export default function LibraryView() {
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           {activeDoc ? (
             <DocumentProof
+              key={activeDoc.document_id ?? activeDoc.path}
               doc={activeDoc}
               model={model}
               linkIndex={linkIndex}
+              supersession={supersession}
               highlightAnchor={highlightAnchor}
               selectedAnchor={selection?.kind === "claim" ? selection.anchor : null}
             />
@@ -294,18 +342,214 @@ function TreeRow({
   );
 }
 
+/* ------------------------------------------------------------- inline claim prose */
+
+/**
+ * One claim's prose with its inline markdown laid out: a `[Title](../x.md)` cross-link
+ * becomes a jump to that document when the library holds it (the compile writes links
+ * against paths, and a link into a document this snapshot lacks stays as its label), an
+ * absolute URL opens in a new tab, a code span is set in mono. Anything else is text.
+ */
+function InlineClaimText({
+  md,
+  fromPath,
+  resolve,
+  onOpen,
+}: {
+  md: string;
+  fromPath: string;
+  resolve: (path: string) => DocumentRecord | undefined;
+  onOpen: (target: DocumentRecord) => void;
+}) {
+  return (
+    <>
+      {splitInlineMarkdown(md).map((seg, i) => {
+        if (seg.kind === "code") return <Mono key={i}>{seg.text}</Mono>;
+        if (seg.kind === "strong") return <strong key={i}>{seg.text}</strong>;
+        if (seg.kind === "link") {
+          if (isExternalHref(seg.href)) {
+            return (
+              <a
+                key={i}
+                href={seg.href}
+                target="_blank"
+                rel="noreferrer"
+                className="text-accent underline-offset-2 hover:underline"
+              >
+                {seg.label}
+              </a>
+            );
+          }
+          const target = resolve(resolveHref(fromPath, seg.href));
+          if (!target) return <span key={i}>{seg.label}</span>;
+          return (
+            <button
+              key={i}
+              type="button"
+              title={target.path}
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpen(target);
+              }}
+              className="rounded-1 text-accent underline-offset-2 hover:underline"
+            >
+              {seg.label}
+            </button>
+          );
+        }
+        return <span key={i}>{seg.text}</span>;
+      })}
+    </>
+  );
+}
+
+/* ---------------------------------------------------------------- the overview */
+
+/** A frontmatter value as one line: objects and lists collapse to their JSON form. */
+function frontmatterValue(value: unknown): string {
+  return typeof value === "object" && value !== null ? JSON.stringify(value) : String(value);
+}
+
+/**
+ * The document's structured facts as the overview card's header strip: list-valued keys as
+ * chips, everything else as a compact `key value` pair, and `doc_id` last and quietest — it
+ * is an address, not a fact about the subject.
+ */
+function MetaStrip({ entries }: { entries: [string, unknown][] }) {
+  const t = useT();
+  const chipped = entries.filter(
+    ([k, v]) => CHIP_FRONTMATTER_KEYS.has(k) && frontmatterChips(v).length > 0,
+  );
+  const plain = entries.filter(
+    ([k, v]) =>
+      k !== "doc_id" && !(CHIP_FRONTMATTER_KEYS.has(k) && frontmatterChips(v).length > 0),
+  );
+  const docId = entries.find(([k]) => k === "doc_id");
+  return (
+    <div
+      role="group"
+      aria-label={t("library.frontmatter.title")}
+      className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-line px-4 py-3"
+    >
+      {chipped.map(([k, v]) => (
+        <div key={k} className="flex flex-wrap items-center gap-1.5">
+          <span className="text-12 uppercase tracking-wide text-ink-3">{k}</span>
+          {frontmatterChips(v).map((chip) => (
+            <Badge key={chip}>
+              <Mono className="text-12">{chip}</Mono>
+            </Badge>
+          ))}
+        </div>
+      ))}
+      {plain.map(([k, v]) => (
+        <div key={k} className="flex min-w-0 items-baseline gap-1.5">
+          <span className="shrink-0 text-12 uppercase tracking-wide text-ink-3">{k}</span>
+          <Mono className="min-w-0 break-all text-12 text-ink-2">{frontmatterValue(v)}</Mono>
+        </div>
+      ))}
+      {docId && (
+        <Mono className="min-w-0 break-all text-12 text-ink-3">
+          doc_id · {frontmatterValue(docId[1])}
+        </Mono>
+      )}
+    </div>
+  );
+}
+
+/**
+ * What this document IS, at the top of the page: the structured facts as a header strip, then
+ * the overview region's four slots with their headings, connections as links into the library.
+ * The region markers and the grounding references never reach the page — `lib/overview` strips
+ * them with the rest of the machinery, exactly as `lib/claim` does for a claim. A document with
+ * no overview region still gets the card: it then carries the facts alone.
+ */
+function OverviewCard({
+  overview,
+  frontmatter,
+  onOpen,
+  known,
+}: {
+  overview: DocumentOverview | null;
+  frontmatter: [string, unknown][];
+  onOpen: (path: string) => void;
+  known: (path: string) => boolean;
+}) {
+  const t = useT();
+  const slots = (
+    [
+      ["definition", overview?.definition],
+      ["summary", overview?.summary],
+      ["introduction", overview?.introduction],
+    ] as const
+  ).filter(([, text]) => !!text);
+  const connections = overview?.connections ?? [];
+  const hasRegion = slots.length > 0 || connections.length > 0;
+  return (
+    <section className="mt-5">
+      <SectionRule no={1} title={t("library.overview.title")} />
+      {/* The note speaks for the overview region. A card carrying only the facts must not
+          claim a picture the document never wrote. */}
+      {hasRegion && <p className="mt-2 text-12 text-ink-3">{t("library.overview.note")}</p>}
+      <div className="mt-3 rounded-1 border border-line">
+        {frontmatter.length > 0 && <MetaStrip entries={frontmatter} />}
+        {hasRegion && (
+          <dl className="flex flex-col gap-3 p-4">
+            {slots.map(([slot, text]) => (
+              <div key={slot} className="flex flex-col gap-1">
+                <dt className="text-12 uppercase tracking-wide text-ink-3">
+                  {t(`library.overview.${slot}`)}
+                </dt>
+                <dd className="prose max-w-measure text-ink">{text}</dd>
+              </div>
+            ))}
+            {connections.length > 0 && (
+              <div className="flex flex-col gap-1">
+                <dt className="text-12 uppercase tracking-wide text-ink-3">
+                  {t("library.overview.connections")}
+                </dt>
+                <dd>
+                  <ul className="flex flex-col gap-1">
+                    {connections.map((c) => (
+                      <li key={c.path} className="flex flex-wrap items-baseline gap-2">
+                        {known(c.path) ? (
+                          <button
+                            type="button"
+                            onClick={() => onOpen(c.path)}
+                            className="text-13 text-accent underline-offset-2 hover:underline"
+                          >
+                            <Mono className="text-12">{c.path}</Mono>
+                          </button>
+                        ) : (
+                          <Mono className="text-12 text-ink-3">{c.path}</Mono>
+                        )}
+                        <span className="min-w-0 text-13 text-ink-2">{c.relation}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </dd>
+              </div>
+            )}
+          </dl>
+        )}
+      </div>
+    </section>
+  );
+}
+
 /* ------------------------------------------------------------------- the proof */
 
 function DocumentProof({
   doc,
   model,
   linkIndex,
+  supersession,
   highlightAnchor,
   selectedAnchor,
 }: {
   doc: DocumentRecord;
   model: Model;
   linkIndex: LinkIndex | null;
+  supersession: SupersessionIndex;
   highlightAnchor: string | null;
   selectedAnchor: string | null;
 }) {
@@ -323,8 +567,8 @@ function DocumentProof({
 
   const fm = doc.frontmatter ?? {};
   const fmEntries = Object.entries(fm);
-  // One line of frontmatter for the pinned masthead; §1 below keeps the full table. doc_id
-  // is already spelled out beside it, so it does not get said twice.
+  // One line of frontmatter for the pinned masthead, which stays legible once §01's meta strip
+  // has scrolled away. doc_id is already spelled out beside it, so it does not get said twice.
   const fmSummary = useMemo(
     () =>
       fmEntries
@@ -338,17 +582,65 @@ function DocumentProof({
     ? model.patchesByDocId.get(doc.document_id) ?? []
     : model.patchesByPath.get(doc.path) ?? [];
 
+  /* ------------------------------------------------------- current vs history */
+
+  // A page whose claims take part in a supersession chain opens on CURRENT — the states that
+  // hold now — and the reader switches to HISTORY to read what they replaced. A page with no
+  // chain never shows the switch and never hides a claim.
+  // The document's head, read off the body the exporter already ships. The Current/History
+  // switch below is about the LEDGER — the overview is neither current nor history, it is the
+  // reading of both — so it sits above the switch and its own blocks are taken out of the
+  // claim list rather than shown twice.
+  const overview = useMemo(() => parseOverview(doc), [doc]);
+  const showOverview = hasOverviewContent(overview);
+  const ledger = useMemo(
+    () => ({ ...doc, claims: ledgerClaims(doc.claims, overview) }),
+    [doc, overview],
+  );
+
+  const hasChain = useMemo(
+    () => documentHasSupersession(ledger, supersession),
+    [ledger, supersession],
+  );
+  const hiddenCount = useMemo(
+    () => supersededCount(ledger, supersession),
+    [ledger, supersession],
+  );
+  const [bodyView, setBodyView] = useState<"current" | "history">("current");
+  const focusAnchor = highlightAnchor ?? selectedAnchor;
+  // A deep link (History → “State changed” → the claim) can land ON a superseded claim. The
+  // page must not open in the one view that hides its own target.
+  useEffect(() => {
+    if (focusAnchor && isSuperseded(supersession, focusAnchor)) setBodyView("history");
+  }, [focusAnchor, supersession]);
+  const showingHistory = !hasChain || bodyView === "history";
+  const visibleClaims = useMemo(
+    () => (showingHistory ? ledger.claims : currentClaims(ledger, supersession)),
+    [ledger, showingHistory, supersession],
+  );
+  // Switching view re-renders the body, so the scroll has to follow the claim into it.
+  useEffect(() => {
+    if (!focusAnchor) return;
+    document.getElementById(`claim-${focusAnchor}`)?.scrollIntoView({ block: "center" });
+  }, [focusAnchor, showingHistory]);
+
+  const jumpToClaim = (site: { documentId: string | null; anchor: string }) => {
+    if (site.documentId) select({ kind: "claim", documentId: site.documentId, anchor: site.anchor });
+    else
+      document.getElementById(`claim-${site.anchor}`)?.scrollIntoView({ block: "center" });
+  };
+
   // Consecutive list_items merge into one list; paragraphs each stand alone.
   const groups = useMemo(() => {
     const out: { kind: "list" | "prose"; claims: Claim[] }[] = [];
-    for (const c of doc.claims) {
+    for (const c of visibleClaims) {
       const kind = c.kind === "list_item" ? ("list" as const) : ("prose" as const);
       const last = out[out.length - 1];
       if (last && last.kind === "list" && kind === "list") last.claims.push(c);
       else out.push({ kind, claims: [c] });
     }
     return out;
-  }, [doc]);
+  }, [visibleClaims]);
 
   // The document-level citation list (deduplicated, keeping the number of the first mention).
   const citations = useMemo(() => {
@@ -401,6 +693,50 @@ function DocumentProof({
     const sideOpen = note?.open_question ?? openQuestionNote;
     const flags = c.flags ?? [];
     const selected = !!c.anchor && c.anchor === (highlightAnchor ?? selectedAnchor);
+    // Chain markers, derived from the body the exporter already ships: what replaced this
+    // claim, and what this claim replaced. The raw <!-- supersedes … --> comment itself never
+    // reaches the page — lib/claim strips it with the rest of the machinery.
+    const successor = c.anchor ? supersession.successorOf.get(c.anchor.toLowerCase()) : undefined;
+    const superseded = !!successor;
+    const replaced = supersededBy(supersession, c.anchor);
+    const replacedSite = replaced ? supersession.siteOf.get(replaced) : undefined;
+    const chainChips = (superseded || replaced) && (
+      <div className="mb-1 flex flex-wrap items-center gap-1.5">
+        {successor && (
+          <button
+            type="button"
+            title={t("library.supersession.jump", { anchor: successor.anchor })}
+            onClick={(e) => {
+              e.stopPropagation();
+              jumpToClaim(successor);
+            }}
+            className="rounded-1 transition-opacity duration-120 hover:opacity-80"
+          >
+            <Badge tone="warn">
+              {t("library.supersession.supersededBy", { anchor: successor.anchor })}
+            </Badge>
+          </button>
+        )}
+        {replaced && (
+          <button
+            type="button"
+            title={t("library.supersession.jump", { anchor: replaced })}
+            onClick={(e) => {
+              e.stopPropagation();
+              jumpToClaim(replacedSite ?? { documentId: doc.document_id, anchor: replaced });
+            }}
+            className="rounded-1 transition-opacity duration-120 hover:opacity-80"
+          >
+            <Badge>{t("library.supersession.supersedes", { anchor: replaced })}</Badge>
+          </button>
+        )}
+        {successor && successor.path !== doc.path && (
+          <span className="text-12 text-ink-3">
+            {t("library.supersession.elsewhere", { path: successor.path })}
+          </span>
+        )}
+      </div>
+    );
     const marginalia = (flags.length > 0 || sideDisputed || sideOpen) && (
       <div className="flex flex-row flex-wrap gap-2 md:flex-col md:flex-nowrap">
         {flags.map((f) => (
@@ -433,7 +769,8 @@ function DocumentProof({
 
     const body = (
       <>
-        <p className="prose">
+        {chainChips}
+        <p className={cn("prose", superseded && "text-ink-3")}>
           {labeled && (
             <>
               <Badge tone="neutral" className={cn("mr-1.5 align-[1px]", labelBadgeClass(labeled.label.tier))}>
@@ -441,7 +778,14 @@ function DocumentProof({
               </Badge>
             </>
           )}
-          {labeled ? labeled.rest : md}
+          <InlineClaimText
+            md={labeled ? labeled.rest : md}
+            fromPath={doc.path}
+            resolve={(path) => model.docByPath.get(path)}
+            onOpen={(target) =>
+              select({ kind: "document", id: target.document_id ?? target.path })
+            }
+          />
           {c.citations.map((ci, i) => {
             const key = citationKey({
               sourceId: ci.source_id,
@@ -523,37 +867,53 @@ function DocumentProof({
 
       <ScrollRegion className="min-h-0 lg:flex-1">
       <div className="max-w-measure">
-      {/* §01 is the way OUT of this page. It leads because a thread is followed from where you
-          landed, and a reader who has to scroll past a 1200-claim ledger to find the exits
-          will not find them. */}
-      {linkIndex && (
-        <section className="mt-5">
-          <SectionRule no={1} title={t("library.neighborhood.title")} />
-          <p className="mt-2 text-12 text-ink-3">{t("library.neighborhood.note")}</p>
-          <NeighborhoodCard index={linkIndex} path={doc.path} />
-        </section>
-      )}
-
-      {fmEntries.length > 0 && (
-        <section className="mt-5">
-          <SectionRule no={2} title={t("library.frontmatter.title")} />
-          <dl className="mt-3 flex flex-col">
-            {fmEntries.map(([k, v]) => (
-              <div key={k} className="flex items-baseline gap-3 border-b border-line py-1.5 last:border-b-0">
-                <dt className="w-32 shrink-0 text-12 text-ink-3">{k}</dt>
-                <dd className="min-w-0 break-all">
-                  <Mono className="text-12 text-ink-2">
-                    {typeof v === "object" ? JSON.stringify(v) : String(v)}
-                  </Mono>
-                </dd>
-              </div>
-            ))}
-          </dl>
-        </section>
+      {/* §01 answers "what is this" in one place: the document's structured facts as the card's
+          header strip, the compiled picture below them. It is the one part of the page a compile
+          rewrites whole, so it reads as a card rather than as a run of claims — and a document
+          with neither facts nor picture is numbered from §02, the honest statement that it has
+          said nothing about itself. */}
+      {(showOverview || fmEntries.length > 0) && (
+        <OverviewCard
+          overview={showOverview ? overview : null}
+          frontmatter={fmEntries}
+          onOpen={(path) => {
+            const target = model.dataset.documents.documents.find((d) => d.path === path);
+            if (target) select({ kind: "document", id: target.document_id ?? target.path });
+          }}
+          known={(path) =>
+            model.dataset.documents.documents.some((d) => d.path === path)
+          }
+        />
       )}
 
       <section className="mt-6">
-        <SectionRule no={3} title={t("library.body.title")} />
+        <SectionRule
+          no={2}
+          title={t("library.body.title")}
+          actions={
+            hasChain ? (
+              <SegmentedControl
+                size="sm"
+                aria-label={t("library.supersession.aria")}
+                value={bodyView}
+                onChange={(v) => setBodyView(v as "current" | "history")}
+                options={[
+                  { value: "current", label: t("library.supersession.current") },
+                  { value: "history", label: t("library.supersession.history") },
+                ]}
+              />
+            ) : undefined
+          }
+        />
+        {/* The note only says something when there IS something to say: a page holding only a
+            successor hides nothing, and "0 hidden" is noise. */}
+        {hasChain && (showingHistory || hiddenCount > 0) && (
+          <p className="mt-2 text-12 text-ink-3">
+            {showingHistory
+              ? t("library.supersession.historyNote")
+              : t("library.supersession.currentNote", { count: hiddenCount })}
+          </p>
+        )}
         <div className="mt-2 divide-y divide-line">
           {groups.map((g, gi) =>
             g.kind === "list" ? (
@@ -568,7 +928,7 @@ function DocumentProof({
               </div>
             ),
           )}
-          {doc.claims.length === 0 && (
+          {ledger.claims.length === 0 && (
             <p className="py-6 text-13 text-ink-3">{t("library.body.empty")}</p>
           )}
         </div>
@@ -576,7 +936,7 @@ function DocumentProof({
 
       {citations.length > 0 && (
         <section className="mt-6">
-          <SectionRule no={4} title={t("library.citations.title")} />
+          <SectionRule no={3} title={t("library.citations.title")} />
           <CitationList
             className="mt-3"
             citations={citations}
@@ -594,7 +954,7 @@ function DocumentProof({
 
       {patches.length > 0 && (
         <section className="mt-6">
-          <SectionRule no={5} title={t("library.patches.title")} />
+          <SectionRule no={4} title={t("library.patches.title")} />
           <ul className="mt-3 flex flex-col">
             {patches.map((p) => (
               <li key={p.patch_id} className="border-b border-line last:border-b-0">
@@ -616,6 +976,17 @@ function DocumentProof({
               </li>
             ))}
           </ul>
+        </section>
+      )}
+
+      {/* Last: the way OUT of this page. The exits come after the document has been read —
+          first what this is, then what it says and on whose authority, and only then where the
+          thread leads next. The pinned masthead keeps the reader's place while they scroll. */}
+      {linkIndex && (
+        <section className="mt-6">
+          <SectionRule no={5} title={t("library.neighborhood.title")} />
+          <p className="mt-2 text-12 text-ink-3">{t("library.neighborhood.note")}</p>
+          <NeighborhoodCard index={linkIndex} path={doc.path} />
         </section>
       )}
       </div>

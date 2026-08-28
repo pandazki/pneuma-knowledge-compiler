@@ -427,7 +427,8 @@ def test_cli_ask_exposes_fast_context_composition_without_new_lane_names():
     assert "answer_format=answer_format or settings.recall_answer_format" in ask
     assert "selection_reasoning_effort=settings.recall_selection_reasoning_effort or None" in ask
     assert '"--evidence-strategy"' in app_text
-    assert 'choices=["ranked", "select"]' in app_text
+    assert 'choices=["ranked", "select", "all"]' in app_text
+    assert "all_context_chars=settings.recall_all_context_chars" in ask
     assert '"--answer-format"' in app_text
     assert 'choices=["text", "structured"]' in app_text
 

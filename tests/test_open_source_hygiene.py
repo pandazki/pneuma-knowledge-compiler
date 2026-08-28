@@ -162,6 +162,42 @@ def test_public_package_topology_matches_spec() -> None:
     assert not missing, f"missing migrated architecture: {missing}"
 
 
+def test_the_eval_package_is_a_leaf_and_cannot_leak_into_what_it_judges() -> None:
+    """Invariant I6, as a fact about the import graph rather than a discipline.
+
+    An eval dataset holds the answers, the rubrics and the expected evidence. Nothing in a
+    compile or a recall input may come from there, and the mechanism is the package
+    direction: `eval` depends on `core`, and neither `core` nor `service` — nor the ops
+    scripts, nor the scaffold — may name it. A leak would need an import that does not
+    exist, and this test is what keeps it from being added by accident.
+    """
+    watched = [
+        ROOT / "packages" / "pneuma-knowledge-core" / "src",
+        ROOT / "packages" / "pneuma-knowledge-service" / "src",
+        ROOT / "packages" / "pneuma-knowledge-strategies" / "src",
+        ROOT / "scripts",
+        ROOT / "scaffold",
+    ]
+    offenders: list[str] = []
+    for root in watched:
+        for path in root.rglob("*.py"):
+            text = path.read_text(encoding="utf-8", errors="ignore")
+            for line_no, line in enumerate(text.splitlines(), 1):
+                stripped = line.strip()
+                if not (stripped.startswith("import ") or stripped.startswith("from ")):
+                    continue
+                if "pneuma_knowledge_eval" in stripped:
+                    offenders.append(f"{path.relative_to(ROOT)}:{line_no}")
+    assert not offenders, (
+        "the eval package must stay a leaf (I6); imported from:\n" + "\n".join(offenders)
+    )
+    # …and the dependency it declares runs the other way.
+    manifest = (
+        ROOT / "packages" / "pneuma-knowledge-eval" / "pyproject.toml"
+    ).read_text(encoding="utf-8")
+    assert "pneuma-knowledge-core" in manifest
+
+
 def test_private_brand_language_is_absent_from_paths_and_text() -> None:
     pattern = _denylist_pattern()
     if pattern is None:
@@ -309,3 +345,71 @@ def test_private_residue_is_absent_from_tar_members_and_embedded_git_objects() -
     assert not violations, "private residue in tar payloads:\n" + "\n".join(violations)
 
 
+
+
+#: The one content-specific list this repository keeps in tracked code, and the exception
+#: proves the rule stated in `_denylist_pattern` above: a denylist is normally private
+#: because committing it publishes the very terms it guards. These terms are different —
+#: they ALREADY leaked into this tree (real people's names, nicknames and one address from
+#: a private corpus, carried in through task specs), and they have been replaced by
+#: synthetic equivalents everywhere. Publishing them once more as a five-line regression set
+#: costs nothing they have not already cost, and it is the only thing that stops the same
+#: scrub from having to be done twice. The synthetic replacements, for anyone adding a
+#: fixture: Hao WEN, Lan LIU, Tian QIAO, Yong BAI, Kun YAO / 姚昆 / kun.yao@example.com,
+#: 阿宝, momo, 周总, 文哥, 白哥, Jie WANG, Fan WANG, and Acme for the company name.
+#:
+#: Matched case-sensitively and as plain substrings: every entry is a name as it was
+#: actually written, and case-insensitive matching would fire on random base64 inside the
+#: verbatim agent transcripts under `build-record/trace/`.
+SCRUBBED_IDENTIFIERS = (
+    "Huazheng",
+    "Ling LV",
+    "Tianqiao",
+    "Yingbo",
+    "KunLun",
+    "Kunlun",
+    "yaokunlun",
+    "姚昆仑",
+    "花花",
+    "koko",
+    "Koko",
+    "KOKO",
+    "陈总",
+    "华哥",
+    "江哥",
+    "Jack WANG",
+    "Frank WANG",
+    "Hua ZHANG",
+    "Junjie WU",
+    "Jiang WANG",
+    "Yafeng DENG",
+    "Cody SONG",
+    "Frank WANG",
+    "Tanka",
+    "TANKA",
+    "tanka",
+)
+
+
+def test_scrubbed_private_identifiers_never_come_back() -> None:
+    """Always on — unlike the operator-local denylist above, this list ships with the repo.
+
+    It is the "never again" set of a one-time scrub: these strings reached the tree through
+    earlier task specs, were replaced with synthetic equivalents, and must not reappear when
+    someone writes the next people/alias fixture from memory of the old one.
+    """
+    this_file = Path(__file__).resolve()
+    violations: list[str] = []
+    for path in _public_text_files():
+        if path.resolve() == this_file:  # the list itself is not a violation of the list
+            continue
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        for term in SCRUBBED_IDENTIFIERS:
+            index = text.find(term)
+            if index >= 0:
+                line = text.count("\n", 0, index) + 1
+                violations.append(f"{path.relative_to(ROOT).as_posix()}:{line}: {term}")
+    assert not violations, (
+        "scrubbed private identifiers are back — replace them with the synthetic "
+        "equivalents listed beside SCRUBBED_IDENTIFIERS:\n" + "\n".join(violations[:100])
+    )

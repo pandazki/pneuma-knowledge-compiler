@@ -5,6 +5,14 @@ Fusion. Every representation addresses the same block space (invariant I4), so a
 keyed by `(source_id, block_start, block_end)`; a lexical hit spans a single block
 `[i, i]`. Exact spans fuse and lower-ranked overlapping spans are suppressed after retrieval, so an
 episode representation can improve rank without becoming evidence or consuming a duplicate.
+
+Like every other lane, this one reports WHERE ITS SECONDS WENT. `rag_recall` takes an
+optional `StageRecorder` and measures a fixed vocabulary against it (`RAG_STAGE_ORDER`):
+the query embedding, the retrieval itself with one child per face, the fusion, and the
+post-fusion overlap merge. The two faces are SEQUENTIAL awaits here — no gather — so
+`retrieve.lexical` and `retrieve.vector` sum to their parent rather than exceeding it, and
+a diagram draws them as a chain. With no recorder passed nothing is emitted and the
+function is byte-for-byte what it was before the vocabulary existed.
 """
 
 from __future__ import annotations
@@ -15,9 +23,30 @@ from dataclasses import dataclass
 from ..domain.ids import UserId, SourceId
 from ..ports.lexical_index import LexicalIndex
 from ..ports.vector_index import VectorIndex
+from .stage_timing import RETRIEVE, StageRecorder, child_name, window_entries
 
 RRF_K = 60
 POST_DEDUP_CANDIDATE_MULTIPLIER = 2
+
+#: The rag lane's stages, in the order the code path runs them. `embed` is the query
+#: embedding (skipped when a fan-out caller already holds the vector); `retrieve` is the
+#: backend round trips; `fuse` is the RRF pass plus the hits it builds; `expand` is the
+#: post-fusion overlap merge and the cap — the step that decides which of two overlapping
+#: spans owns the citable region, which would otherwise be an unexplained gap between the
+#: stages and `total`. There is no model in this lane, so there is no answer stage.
+RAG_STAGE_ORDER: tuple[str, ...] = ("embed", "retrieve", "fuse", "expand", "total")
+
+#: The two retrieval faces, in the order they are awaited. Unlike the fast lane's gather
+#: these run SEQUENTIALLY, so they sum to their parent instead of exceeding it. `vector` is
+#: measured once around both representation searches (raw, then episode): they are one face
+#: of the same index, and a reader looking at a rag breakdown wants L1 against L2.
+RAG_RETRIEVE_CHILDREN: tuple[str, ...] = ("lexical", "vector")
+
+#: Spelled once so the measure sites and the vocabulary above cannot drift apart.
+EMBED = "embed"
+FUSE = "fuse"
+EXPAND = "expand"
+TOTAL = "total"
 
 
 def rrf_fuse(rankings: Sequence[Sequence[str]], k: int = RRF_K) -> list[str]:
@@ -92,6 +121,7 @@ async def rag_recall(
     embeddings,  # langchain_core.embeddings.Embeddings
     limit: int = 10,
     query_embedding: list[float] | None = None,
+    stages: StageRecorder | None = None,
 ) -> list[RecallHit]:
     """L1 + two L2 representations fused by ordinary RRF (§7). No source with L1 coverage is
     ever invisible: the lexical path covers the retrieval surface even when a
@@ -105,22 +135,108 @@ async def rag_recall(
     Snapshot-scoped recall needs nothing here: a snapshot is a frozen TENANT (see
     service/kb_snapshots.py), so answering over one is this same function called with that
     tenant's `user_id` — the per-user isolation both indexes already enforce is the
-    versioning mechanism."""
+    versioning mechanism.
+
+    `stages` is a `StageRecorder` over `RAG_STAGE_ORDER` for a caller that wants the
+    breakdown (and, with an `on_event` sink, the stages as they happen). None = one is made
+    here and never read, so nothing is emitted and nothing changes."""
+    timer = stages if stages is not None else StageRecorder(
+        RAG_STAGE_ORDER, RAG_RETRIEVE_CHILDREN
+    )
+    with timer.measure(TOTAL):
+        return await _rag_recall(
+            user_id,
+            query,
+            lexical=lexical,
+            vectors=vectors,
+            embeddings=embeddings,
+            limit=limit,
+            query_embedding=query_embedding,
+            timer=timer,
+        )
+
+
+async def _rag_recall(
+    user_id: UserId,
+    query: str,
+    *,
+    lexical: LexicalIndex,
+    vectors: VectorIndex,
+    embeddings,
+    limit: int,
+    query_embedding: list[float] | None,
+    timer: StageRecorder,
+) -> list[RecallHit]:
+    """`rag_recall`'s body, with `total` already wrapping it. Split only so the wrapper is
+    one statement: an early return inside the outer `measure` would otherwise be a place
+    where the total could stop being the total."""
     # Over-fetch each path before post-retrieval suppression. Semantic overlaps and the
     # independent raw/episode representations can legitimately surface the same region;
     # asking each backend for only the final cap would let duplicates shrink recall rather
     # than backfill from the tail (Nemori's hybrid path uses the same 2× candidate shape).
     candidate_limit = limit * POST_DEDUP_CANDIDATE_MULTIPLIER
-    lexical_hits = await lexical.search(user_id, query, limit=candidate_limit)
+    # The embedding is taken FIRST — before the lexical round trip it used to sit behind —
+    # so the order the stages are measured in is the order the vocabulary emits them in.
+    # The two are independent, so what comes back is unchanged either way; what changes is
+    # that a reader watching the lane live and a reader reading the finished breakdown see
+    # the same sequence.
     if query_embedding is None:
-        query_embedding = await embeddings.aembed_query(query)
-    raw_hits = await vectors.search(
-        user_id, query_embedding, limit=candidate_limit, representation="raw"
-    )
-    episode_hits = await vectors.search(
-        user_id, query_embedding, limit=candidate_limit, representation="episode"
-    )
+        with timer.measure(EMBED):
+            query_embedding = await embeddings.aembed_query(query)
+            timer.preview(EMBED, {"dimensions": len(query_embedding)})
+    with timer.measure(RETRIEVE):
+        # SEQUENTIAL, not a gather: one face after the other, so the children sum to the
+        # parent. Left alone deliberately — measuring a lane must not reshape it.
+        with timer.measure(child_name("lexical")):
+            lexical_hits = await lexical.search(user_id, query, limit=candidate_limit)
+            timer.preview(
+                child_name("lexical"),
+                {"candidates": candidate_limit, **_hit_preview(lexical_hits)},
+            )
+        with timer.measure(child_name("vector")):
+            raw_hits = await vectors.search(
+                user_id, query_embedding, limit=candidate_limit, representation="raw"
+            )
+            episode_hits = await vectors.search(
+                user_id, query_embedding, limit=candidate_limit, representation="episode"
+            )
+            timer.preview(
+                child_name("vector"),
+                {
+                    "raw": len(raw_hits),
+                    "episode": len(episode_hits),
+                    **_hit_preview([*raw_hits, *episode_hits]),
+                },
+            )
 
+    with timer.measure(FUSE):
+        raw = _fuse(lexical_hits, raw_hits, episode_hits)
+        timer.preview(
+            FUSE,
+            {
+                "rankings": len(lexical_hits) + len(raw_hits) + len(episode_hits),
+                **_hit_preview(raw),
+            },
+        )
+    with timer.measure(EXPAND):
+        kept = _suppress_overlapping(raw)[:limit]
+        timer.preview(EXPAND, {"fused": len(raw), **_hit_preview(kept)})
+        return kept
+
+
+def _hit_preview(hits) -> dict:
+    """`hits` plus the first few of them: what each one SAYS, then its source and block span.
+
+    The address is the one addressing scheme (I4) and it stays — a hit is a source and a span,
+    which is what a citation would carry — but it is no longer the whole entry. A list of
+    spans names what came back and describes none of it; the head of the passage does both.
+    Bounded by `bound_preview` like every other preview.
+    """
+    return {"hits": len(hits), "top": window_entries(hits)}
+
+
+def _fuse(lexical_hits, raw_hits, episode_hits) -> list[RecallHit]:
+    """RRF over the three rankings, and the hits it produces, in fused order."""
     # key = (source_id, block_start, block_end); lexical block -> [i, i].
     info: dict[tuple, dict] = {}
     lexical_ranking: list[str] = []
@@ -195,7 +311,7 @@ async def rag_recall(
     # intentionally not an interval union: smart-overlap episodes can form A↔B↔C chains,
     # and unioning the chain would turn several distinct memories into one giant passage.
     raw.sort(key=lambda h: (-h.score, str(h.source_id), h.block_start))
-    return _suppress_overlapping(raw)[:limit]
+    return raw
 
 
 def _suppress_overlapping(hits: list[RecallHit]) -> list[RecallHit]:

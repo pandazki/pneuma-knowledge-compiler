@@ -34,8 +34,28 @@ export const library = defineMessages({
     "library.neighborhood.more": "同向另有 {count} 句",
     "library.neighborhood.volume": "写在归档卷 {name}",
 
+    "library.overview.title": "总览与信息",
+    "library.overview.note":
+      "这份文档当前的画像：由编译整体重写，每一句都落在下面账本里的断言上。",
+    "library.overview.definition": "定义",
+    "library.overview.summary": "现状",
+    "library.overview.introduction": "背景",
+    "library.overview.connections": "关联",
+
     "library.frontmatter.title": "版式信息",
     "library.body.title": "正文",
+
+    "library.supersession.aria": "正文视图：当前 / 历史",
+    "library.supersession.current": "当前",
+    "library.supersession.history": "历史",
+    "library.supersession.currentNote": "已隐去 {count} 条被取代的旧状态；切到「历史」可看到完整的取代链。",
+    "library.supersession.historyNote":
+      "含被取代的旧状态：旧状态原样保留，只是不再是当前事实。",
+    "library.supersession.superseded": "已被取代",
+    "library.supersession.supersededBy": "被 c:{anchor} 取代",
+    "library.supersession.supersedes": "取代 c:{anchor}",
+    "library.supersession.elsewhere": "在 {path}",
+    "library.supersession.jump": "跳到 c:{anchor}",
     "library.body.empty": "该文档没有可追溯断言。",
     "library.citations.title": "出处",
     "library.patches.title": "版次轨迹",
@@ -60,7 +80,7 @@ export const library = defineMessages({
 
     "library.noDoc.title": "No document",
     "library.noDoc.description":
-      "documents is empty — the compile has produced no canonical document yet.",
+      "The document list is empty — the compile has produced no canonical document yet.",
 
     "library.neighborhood.title": "Neighbourhood",
     "library.neighborhood.note":
@@ -72,8 +92,29 @@ export const library = defineMessages({
     "library.neighborhood.more": "{count} further sentence{count||s} the same way",
     "library.neighborhood.volume": "written in archive volume {name}",
 
+    "library.overview.title": "Overview & facts",
+    "library.overview.note":
+      "The document's current picture, rewritten whole by a compile — every sentence rests on a claim in the ledger below.",
+    "library.overview.definition": "Definition",
+    "library.overview.summary": "Summary",
+    "library.overview.introduction": "Introduction",
+    "library.overview.connections": "Connections",
+
     "library.frontmatter.title": "Frontmatter",
     "library.body.title": "Body",
+
+    "library.supersession.aria": "Body view: current or history",
+    "library.supersession.current": "Current",
+    "library.supersession.history": "History",
+    "library.supersession.currentNote":
+      "{count} superseded state{count||s} hidden; switch to History to read the whole chain.",
+    "library.supersession.historyNote":
+      "Superseded states included: the old state is kept exactly as written, it simply no longer holds.",
+    "library.supersession.superseded": "superseded",
+    "library.supersession.supersededBy": "superseded → c:{anchor}",
+    "library.supersession.supersedes": "supersedes c:{anchor}",
+    "library.supersession.elsewhere": "in {path}",
+    "library.supersession.jump": "Go to c:{anchor}",
     "library.body.empty": "This document has no traceable claim blocks.",
     "library.citations.title": "Sources",
     "library.patches.title": "Edition trail",

@@ -20,6 +20,8 @@ from ..domain.canonical import (
     Citation,
     iter_canonical_citations,
 )
+from ..compile.documents import OVERVIEW_LABEL, OVERVIEW_MARKER_RE, overview_slot_by_line
+from ..compile.supersession import SUPERSEDES_MARK_RE
 from ..domain.ids import ANCHOR_MARK_RE, AnchorId, SourceId
 
 _LIST_ITEM_RE = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s")
@@ -61,6 +63,20 @@ class ProjectedClaim:
     text: str
     citations: tuple[Citation, ...] = field(default_factory=tuple)
 
+    @property
+    def labels(self) -> tuple[str, ...]:
+        """Mechanical labels this claim carries, read off its own section path.
+
+        Today there is exactly one: a claim in a document's overview region is labelled
+        `("overview", "<slot>")`. It is DERIVED rather than stored because the section path
+        already travels through every claim-index adapter, every payload and every retrieval
+        row — a second field would have to be added to each of them to say a thing the first
+        one already says.
+        """
+        if self.section_path[:1] == (OVERVIEW_LABEL,):
+            return tuple(self.section_path[:2])
+        return ()
+
 
 def _anchor_block(lines: list[str], anchor_line: int) -> tuple[int, int]:
     """The natural block [start, end) holding the anchor (mirrors anchor_ops._block_span
@@ -74,7 +90,12 @@ def _anchor_block(lines: list[str], anchor_line: int) -> tuple[int, int]:
     start = anchor_line
     while start > 0:
         prev = lines[start - 1]
-        if not prev.strip() or _HEADING_RE.match(prev) or ANCHOR_MARK_RE.search(prev):
+        if (
+            not prev.strip()
+            or _HEADING_RE.match(prev)
+            or ANCHOR_MARK_RE.search(prev)
+            or OVERVIEW_MARKER_RE.match(prev)
+        ):
             break
         start -= 1
         if _LIST_ITEM_RE.match(prev):
@@ -90,6 +111,9 @@ def _clean_and_cite(block: str) -> tuple[str, list[Citation]]:
     citations = list(iter_canonical_citations(block))
     text = CANONICAL_CITATION_MARKER_RE.sub("", block)
     text = ANCHOR_MARK_RE.sub("", text)
+    # The supersedes marker is structure, like the anchor: it never reaches display text
+    # or the claim index (the relation is read by compile/supersession.py, not by search).
+    text = SUPERSEDES_MARK_RE.sub("", text)
     # Drop a leading list bullet for a cleaner claim string; collapse trailing space.
     text = _LIST_ITEM_RE.sub("", text, count=1) if _LIST_ITEM_RE.match(text) else text
     return text.strip(), citations
@@ -110,8 +134,15 @@ def project_document_claims(
     section_path is the heading stack above the claim; duplicate anchors (a re-cited
     anchor) are emitted once (first occurrence). `strategy` governs derived rendering
     only (e.g. folding the section breadcrumb into the indexed text) — the canonical
-    body is read, never written."""
+    body is read, never written.
+
+    A claim inside the document's OVERVIEW region gets `("overview", "<slot>")` as its
+    section path instead of the rendered heading stack. The slot is read off the system's
+    own markers, so the label is the same in every language pack — and because it rides the
+    section path, it reaches the claim index, the retrieval rows and the answer render
+    without one adapter having to learn a new field."""
     lines = doc.body.split("\n")
+    overview_slots = overview_slot_by_line(doc.body)
     claims: list[ProjectedClaim] = []
     seen: set[str] = set()
     section_stack: list[tuple[int, str]] = []
@@ -131,7 +162,12 @@ def project_document_claims(
             start, end = _anchor_block(lines, i)
             block = "\n".join(lines[start:end])
             text, citations = _clean_and_cite(block)
-            section_path = tuple(t for _, t in section_stack)
+            slot = overview_slots.get(i)
+            section_path = (
+                (OVERVIEW_LABEL, slot)
+                if slot is not None
+                else tuple(t for _, t in section_stack)
+            )
             claims.append(
                 ProjectedClaim(
                     anchor=AnchorId(anchor),

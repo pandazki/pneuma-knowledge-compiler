@@ -15,8 +15,9 @@ Shaped like `compile.runner.run_compile` — a hand-rolled tool loop over an in-
 - **One System, two contracts concatenated.** `render_system_contract(new_skill)` (the
   write mechanics + the new skill's families) then the phase-2 task contract — a single
   byte-stable SystemMessage per (new_skill, contract).
-- **Bigger budget:** MAX_TOOL_CALLS=120 (a whole-KB pass dwarfs one compile),
-  MAX_REPAIR_ROUNDS=1 (one gate-violation feedback round).
+- **Bigger budget:** MAX_TOOL_CALLS=120 per ROUND (a whole-KB pass dwarfs one compile),
+  MAX_REPAIR_ROUNDS=1 (one gate-violation feedback round) — and the repair round has its own
+  fresh allowance, so a first round that spends everything is still repairable.
 
 The core does NOT commit — the branch commit is the service's (Stage C). Still-failing
 after the repair round → status="aborted" (nothing lands). Passing → an EvolveResult with
@@ -38,6 +39,7 @@ from ..compile.anchor_ops import AnchorToolError
 from ..compile.documents import render_document
 from ..compile.gate import Violation
 from ..compile.patch import PatchDraft
+from ..components import component_job
 from ..domain.canonical import CanonicalDocument
 from ..domain.ids import UserId, extract_anchors
 from ..prompts import prompt
@@ -49,7 +51,21 @@ from .propose import EvolveProposal
 
 # A whole-KB reorganization is much larger than a single compile.
 MAX_TOOL_CALLS = 120
+# … and, exactly as in `compile/runner.py`, the repair round gets its OWN allowance rather
+# than what the first round left behind. One counter across both rounds means a first round
+# that spends its budget leaves the repair round unable to enter its loop at all: the gate's
+# feedback is appended to a conversation nobody is asked to continue, and the reorganization
+# aborts with the model never having read the violations. Sized by the work it was handed,
+# bounded by the round budget above.
+MIN_REPAIR_TOOL_CALLS = 12
+REPAIR_TOOL_CALLS_PER_VIOLATION = 3
 MAX_REPAIR_ROUNDS = 1
+
+
+def repair_round_budget(violation_count: int, round_budget: int) -> int:
+    """The repair round's fresh allowance — never borrowed from what round one spent."""
+    sized = max(MIN_REPAIR_TOOL_CALLS, REPAIR_TOOL_CALLS_PER_VIOLATION * violation_count)
+    return min(round_budget, sized)
 
 SearchKnowledge = Callable[[str], Awaitable[str]]
 FetchSource = Callable[[str, int, int], Awaitable[str]]
@@ -99,8 +115,22 @@ def _render_evolve_task(base_docs: list[CanonicalDocument], proposal: EvolveProp
     return "\n".join(parts)
 
 
-def _render_violations(violations: list[Violation]) -> str:
-    lines = [prompt("gate.evolve.feedback_header")]
+def _render_violations(
+    violations: list[Violation],
+    *,
+    cut_off_at: int | None = None,
+    next_budget: int = 0,
+) -> str:
+    """The evolve gate's feedback. `cut_off_at` is set when the previous round did not end
+    on its own but ran out of tool calls — the same statement `compile/runner.py` makes, and
+    for the same reason: a round handed only violations cannot tell that its reading was
+    interrupted, and starts the exploration over."""
+    lines: list[str] = []
+    if cut_off_at is not None:
+        lines.append(
+            prompt("gate.previous_round_cut_off", spent=cut_off_at, budget=next_budget)
+        )
+    lines.append(prompt("gate.evolve.feedback_header"))
     lines.extend(v.render() for v in violations)
     return "\n".join(lines)
 
@@ -117,6 +147,10 @@ async def run_evolve(
     fetch_source: FetchSource | None = None,
     callbacks: list | None = None,
     trace_metadata: dict | None = None,
+    # An absolute ceiling on the tool calls ONE round may spend. 0 = MAX_TOOL_CALLS. Evolve
+    # has no per-source scaling to do (its material is the whole library, not a job's
+    # sources), so this is a plain override and not a deployment knob of its own.
+    max_tool_calls: int = 0,
 ) -> EvolveResult:
     """Drive the phase-2 reorganization tool loop, then the evolve gate. See module docstring."""
     _search = search_knowledge or _search_unavailable
@@ -275,37 +309,101 @@ async def run_evolve(
         except (TypeError, ValueError) as exc:
             return prompt("evolve.tool.call_failed", name=name, error=exc)
 
-    async def tool_loop() -> None:
+    def answer_unreached(calls: list, start: int, content: str) -> None:
+        """Every declared tool call gets a result, including the ones a mid-batch return
+        never reached: a provider rejects a history whose AIMessage declares N tool calls
+        and carries fewer than N ToolMessages, so an unanswered call would make the NEXT
+        round fail on the transcript rather than on the work."""
+        for call in calls[start:]:
+            messages.append(ToolMessage(content=content, tool_call_id=call.get("id")))
+
+    async def tool_loop(budget: int) -> tuple[int, bool]:
+        """One round under its OWN budget; returns (calls spent, was it cut off)."""
         nonlocal tool_calls
-        while tool_calls < MAX_TOOL_CALLS:
+        spent = 0
+        while spent < budget:
             response = await bound.ainvoke(messages, config=invoke_config)
             messages.append(response)
             accumulate(response)
             calls = getattr(response, "tool_calls", None) or []
+            # Same shape as compile's loop, for the same mechanical reason: a call whose
+            # arguments were not valid JSON lands in `invalid_tool_calls` rather than
+            # `tool_calls`, yet the assistant message still declares it on the wire and the
+            # provider requires a result. Answer those first, charge each to the budget like
+            # a refused call, and treat a batch of nothing but invalid calls as a turn the
+            # model still owes — not as the model ending it.
+            invalid = getattr(response, "invalid_tool_calls", None) or []
+            if not calls and not invalid:
+                return spent, False
+            for call in invalid:
+                spent += 1
+                tool_calls += 1
+                messages.append(
+                    ToolMessage(
+                        content=prompt(
+                            "compile.tool.invalid_call",
+                            name=call.get("name") or "?",
+                            error=call.get("error") or "?",
+                        ),
+                        tool_call_id=call.get("id"),
+                    )
+                )
+            if invalid and spent >= budget:
+                answer_unreached(
+                    calls, 0, prompt("compile.budget.call_refused", budget=budget)
+                )
+                return spent, True
             if not calls:
-                return
-            for call in calls:
+                continue
+            for index, call in enumerate(calls):
+                spent += 1
                 tool_calls += 1
                 name, args, cid = call["name"], call.get("args", {}), call.get("id")
                 if name == "finish_evolve":
                     messages.append(ToolMessage(content="ok", tool_call_id=cid))
-                    return
+                    answer_unreached(calls, index + 1, prompt("compile.tool.round_ended"))
+                    return spent, False
                 content = await dispatch(name, args)
                 messages.append(ToolMessage(content=content, tool_call_id=cid))
-                if tool_calls >= MAX_TOOL_CALLS:
-                    return
+                if spent >= budget:
+                    answer_unreached(
+                        calls,
+                        index + 1,
+                        prompt("compile.budget.call_refused", budget=budget),
+                    )
+                    return spent, True
+        return spent, True
 
-    await tool_loop()
-    violations, dropped = await run_evolve_gate(
-        draft, source_bounds=source_bounds, path_templates=new_skill.path_templates
-    )
-
-    if violations and MAX_REPAIR_ROUNDS >= 1:
-        messages.append(HumanMessage(content=_render_violations(violations)))
-        await tool_loop()
+    # The components' window, exactly as a daily compile opens one (`compile/runner.py`):
+    # `prepare` at the top so a component whose gate check reads a per-process mirror of its
+    # own projection has one at all, and — while any component is registered — one such
+    # window per process at a time. Evolve authors canonical, so the mirror being cold here
+    # is the same fail-open a compile refuses to accept: a component that could not load
+    # what it judges by says `not_ready` and the reorganization aborts rather than landing a
+    # page nothing checked. With no component registered nothing is prepared and nothing is
+    # locked, and this whole block runs as it did before the concept existed.
+    async with component_job(str(user_id)):
+        round_budget = max_tool_calls if max_tool_calls > 0 else MAX_TOOL_CALLS
+        spent, cut_off = await tool_loop(round_budget)
         violations, dropped = await run_evolve_gate(
             draft, source_bounds=source_bounds, path_templates=new_skill.path_templates
         )
+
+        if violations and MAX_REPAIR_ROUNDS >= 1:
+            repair_budget = repair_round_budget(len(violations), round_budget)
+            messages.append(
+                HumanMessage(
+                    content=_render_violations(
+                        violations,
+                        cut_off_at=spent if cut_off else None,
+                        next_budget=repair_budget,
+                    )
+                )
+            )
+            await tool_loop(repair_budget)
+            violations, dropped = await run_evolve_gate(
+                draft, source_bounds=source_bounds, path_templates=new_skill.path_templates
+            )
 
     summary = {
         "new_documents": stats["new_documents"],

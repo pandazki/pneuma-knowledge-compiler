@@ -7,16 +7,20 @@ terminal check red (scenario 2 asserts exactly that)."""
 
 from __future__ import annotations
 
+from pneuma_knowledge_core.compile.documents import render_document
 from pneuma_knowledge_core.domain.canonical import CanonicalDocument
 from pneuma_knowledge_core.domain.ids import DocumentId, extract_anchors
 from pneuma_knowledge_service.evolve_service import reconcile_adopt
 
 
-def _doc(path: str, document_id: str, body: str) -> CanonicalDocument:
+def _doc(path: str, document_id: str, body: str, *, title: str | None = None) -> CanonicalDocument:
+    frontmatter = {"doc_id": document_id, "type": "topic", "slug": document_id}
+    if title is not None:
+        frontmatter["title"] = title
     return CanonicalDocument(
         doc_id=DocumentId(document_id),
         path=path,
-        frontmatter={"doc_id": document_id, "type": "topic", "slug": document_id},
+        frontmatter=frontmatter,
         body=body,
     )
 
@@ -146,3 +150,57 @@ def test_duplicate_anchor_in_final_tree_fails_the_terminal_check():
     assert not ok
     assert "are duplicated" in reason
     assert final_files == {}
+
+
+# --- the derived title rides an adopt, and only where the adopt writes --------------------
+#
+# `title` is derived from the document's own `# ` heading at every write path that serializes
+# a CHANGED document. An adopt is such a path — the branch rewrote bodies and the catch-up
+# rewrote more of them — and it used to serialize the branch's frontmatter untouched, so a
+# stale or missing legacy title survived a write that had already moved the heading under it.
+
+
+def test_a_page_the_adopt_changed_is_serialized_with_its_derived_title():
+    # aa11 moved to a new product page whose frontmatter carries the old page's stale title;
+    # the window also edited the claim, so both halves of the write are exercised.
+    body = "# Atlas 产品线\n\n" + _claim("Atlas Q3 发布。", "aa11")
+    base = [_doc("memory/topics/atlas.md", "d-atlas", _claim("Atlas Q3 发布。", "aa11"))]
+    branch = [
+        _doc("memory/topics/atlas.md", "d-atlas", "## 记录\n"),
+        _doc("memory/products/atlas.md", "d-product", body, title="旧的手写标题"),
+    ]
+    main = [_doc("memory/topics/atlas.md", "d-atlas", _claim("Atlas Q3 发布并开放源码。", "aa11"))]
+
+    final_files, ok, reason = reconcile_adopt(base, branch, main)
+    assert ok, reason
+    product = final_files["memory/products/atlas.md"]
+    assert "title: Atlas 产品线" in product
+    assert "旧的手写标题" not in product
+    assert "Atlas Q3 发布并开放源码。" in product  # the merge's own result is untouched
+
+
+def test_a_page_the_adopt_leaves_as_main_holds_it_keeps_its_bytes():
+    """The other half, and the reason for the ordering: the derivation must never be what
+    makes a page differ. A document this merge leaves exactly as main holds it is serialized
+    byte-for-byte — stale title included — and its correction rides the next ordinary write
+    of that page, not a whole-library rewrite hidden inside one adopt commit."""
+    quiet = _doc(
+        "memory/topics/quiet.md",
+        "d-quiet",
+        "# 安静的一页\n\n" + _claim("很久没人动过。", "bb22"),
+        title="过时的标题",
+    )
+    base = [_doc("memory/topics/atlas.md", "d-atlas", _claim("Atlas。", "aa11")), quiet]
+    branch = [
+        _doc("memory/topics/atlas.md", "d-atlas", "## 记录\n"),
+        _doc("memory/products/atlas.md", "d-product", "# Atlas\n\n" + _claim("Atlas。", "aa11")),
+        quiet,
+    ]
+    main = [_doc("memory/topics/atlas.md", "d-atlas", _claim("Atlas。", "aa11")), quiet]
+
+    final_files, ok, reason = reconcile_adopt(base, branch, main)
+    assert ok, reason
+    assert final_files["memory/topics/quiet.md"] == render_document(
+        quiet.frontmatter, quiet.body
+    )
+    assert "title: 过时的标题" in final_files["memory/topics/quiet.md"]

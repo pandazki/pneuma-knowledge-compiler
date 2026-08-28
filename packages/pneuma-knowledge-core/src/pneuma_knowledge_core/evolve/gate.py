@@ -17,23 +17,39 @@ reorganization is not a forward-only single compile:
 
 The daily compile gate is untouched; this is a separate profile that shares only the pure
 structural checks.
+
+What it does NOT change shape for is the enabled components' own checks. A component's
+gate check is a canonical FIELD invariant — an identity bound by one page only, two
+speakers of one conversation never merged into one person — and canonical does not know
+which channel wrote it. Evolve authors canonical exactly as a daily compile does, so the
+same fan-out runs here (`component_gate_checks`), over evolve's changed documents against
+the base it evolved from, and again at adopt over the reconciled tree against current main
+(`evolve_service.adopt_evolve_job`). Without it a page evolve created could bind two
+co-speakers, land through review, and then be grandfathered by every later compile.
 """
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 
+from ..compile.documents import DOC_ID_KEY, parse_document
 from ..compile.gate import (
+    check_supersession,
     Violation,
     check_anchor_coverage,
     check_anchor_uniqueness,
     check_frontmatter,
 )
-from ..compile.patch import PatchDraft, path_allowed
+from ..compile.patch import DraftDoc, PatchDraft, path_allowed
 from ..compile.transitions import _anchor_blocks
-from ..domain.canonical import CANONICAL_CITATION_MARKER_RE, iter_canonical_citations
-from ..domain.ids import extract_anchors
+from ..components import registered_components
+from ..domain.canonical import (
+    CANONICAL_CITATION_MARKER_RE,
+    CanonicalDocument,
+    iter_canonical_citations,
+)
+from ..domain.ids import DocumentId, extract_anchors
 from ..prompts import prompt
 
 SourceBounds = Callable[[str], Awaitable[int | None]]
@@ -66,6 +82,58 @@ def _base_citation_markers(base_bodies: dict[str, str]) -> set[str]:
     return markers
 
 
+def component_gate_checks(
+    docs: Mapping[str, DraftDoc], base_docs: Mapping[str, DraftDoc]
+) -> list["Violation"]:
+    """Every enabled component's write-time judgement over one authoring channel's tree.
+
+    The same fan-out `compile/gate.py` runs, called the same way — the whole file table on
+    both sides, the component deciding for itself which of its family's pages this round
+    touched (`compile/patch.py:touched_this_round`). Shared rather than re-derived, so a
+    component's rules cannot hold on one canonical authoring channel and not another: an
+    identity another page already binds is refused whether a daily compile, a whole-KB
+    reorganization or an adopt merge is the thing writing it.
+
+    A component that cannot judge the round says so (a readiness violation); the framework
+    runs the checks and never knows what they test.
+    """
+    violations: list["Violation"] = []
+    for component in registered_components():
+        violations.extend(component.gate_checks(docs, base_docs))
+    return violations
+
+
+def _draft_doc(path: str, frontmatter: dict, body: str) -> DraftDoc:
+    return DraftDoc(
+        path=path,
+        doc_id=DocumentId(str(frontmatter.get(DOC_ID_KEY, ""))),
+        frontmatter=dict(frontmatter),
+        body=body,
+    )
+
+
+def docs_from_files(files: Mapping[str, str]) -> dict[str, DraftDoc]:
+    """A serialized file table as the document table the component seams are handed.
+
+    The adopt merge produces FILES (it renders its result before it commits it), and a
+    component gate check reads frontmatter and body. Parsing them back is that one
+    conversion, and it is the same parser every canonical read uses.
+    """
+    out: dict[str, DraftDoc] = {}
+    for path, text in files.items():
+        frontmatter, body = parse_document(text)
+        out[path] = _draft_doc(path, frontmatter, body)
+    return out
+
+
+def docs_from_canonical(documents: Sequence[CanonicalDocument]) -> dict[str, DraftDoc]:
+    """A canonical document list as the same document table — the BASE side of an adopt
+    check, where "base" is current main rather than a round's own starting draft."""
+    return {
+        doc.path: _draft_doc(doc.path, doc.frontmatter, doc.body) for doc in documents
+    }
+
+
 async def run_evolve_gate(
     draft: PatchDraft,
     *,
@@ -79,6 +147,10 @@ async def run_evolve_gate(
     docs = draft.documents()
     base_bodies = draft.base_bodies()
     violations: list[Violation] = []
+
+    # 0. supersession links stay legal through a reorganization (compile/supersession.py):
+    # a merged-away predecessor would leave its successor dangling for every later compile.
+    violations.extend(check_supersession(docs, base_bodies))
 
     # 1. repo-level anchor continuity — a base anchor absent from the WHOLE new repo is a
     # dropped anchor (informational), never a violation.
@@ -133,6 +205,10 @@ async def run_evolve_gate(
     violations.extend(check_anchor_uniqueness(docs))
     violations.extend(check_frontmatter(docs))
     violations.extend(check_anchor_coverage(docs))
+
+    # 3b. the enabled components judge their own families, exactly as they do in a daily
+    # compile. Canonical field invariants belong to canonical, not to one writing channel.
+    violations.extend(component_gate_checks(docs, draft.base_documents()))
 
     # 4. path ownership — against the NEW skill's templates.
     for path in docs:

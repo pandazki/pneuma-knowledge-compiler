@@ -139,7 +139,7 @@ export const nav = defineMessages({
     "nav.snapshot.groupLive": "Live",
     "nav.snapshot.groupFrozen": "Frozen snapshots · answerable",
     "nav.snapshot.groupCommits": "Canonical commits · browse only",
-    "nav.snapshot.kbScale": "{sources} source(s) · {claims} claim(s)",
+    "nav.snapshot.kbScale": "{sources} source{sources||s} · {claims} claim{claims||s}",
     "nav.snapshot.kbCreating": "copying…",
     "nav.snapshot.kbFailed": "failed",
     "nav.snapshot.kbCreateHint": "Type a name to freeze the base as it stands",

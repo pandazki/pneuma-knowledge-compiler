@@ -6,6 +6,8 @@ import { buildModel, type Model } from "./model";
 import { hashToState, sameSelection, selectionToHash } from "./hash";
 import { needsCanonicalDataset } from "./datasetLoading";
 import { appendUniqueSnapshots } from "./snapshotPagination";
+import { briefingSelection } from "./ask";
+import type { StageTiming } from "./stages";
 import {
   listUsers,
   getDatasetRaw,
@@ -16,7 +18,7 @@ import {
   deleteKbSnapshot,
   type KbSnapshot,
   type SnapshotSummary,
-  type RecallHit,
+  type RagResult,
   type RecallAnswer,
   type BriefingBuilt,
   type TokenUsage,
@@ -70,7 +72,9 @@ export type AskMode = "briefing" | "fast" | "deep";
 export interface RecallCache {
   query: string;
   mode: RecallMode;
-  hits: RecallHit[] | null;
+  /** rag's whole result — the hits AND what finding them cost, kept together so a Back
+   *  redraws the same diagram the live run drew rather than a bare ledger. */
+  rag: RagResult | null;
   answer: RecallAnswer | null;
   error: string | null;
 }
@@ -89,6 +93,12 @@ export interface AskTurn {
   citations: AskCitation[];
   handles: Record<string, string>;
   usage: TokenUsage;
+  /** The L0 pulls this turn made, held ON the turn. Parked in component state keyed by turn
+   * index, they outlived the thread they belonged to and resurfaced under the next briefing. */
+  verbatim?: Record<string, unknown>[];
+  /** This turn's own per-step wall-clock (`turn:N` / `tool:X` / `total`), held on the turn
+   * for the same reason: it belongs to the answer above it, not to the thread. */
+  stages?: StageTiming[];
 }
 
 /** Ask view's build inputs + conversation, lifted for the same Back-preserves-state reason. */
@@ -104,7 +114,7 @@ export interface AskCache {
 const EMPTY_RECALL_CACHE: RecallCache = {
   query: "",
   mode: "rag",
-  hits: null,
+  rag: null,
   answer: null,
   error: null,
 };
@@ -260,8 +270,13 @@ interface AppState {
   clearSourceFocus: () => void;
   /** merge a partial into the Recall view cache (inputs / last result). */
   setRecallCache: (patch: Partial<RecallCache>) => void;
-  /** merge a partial into the Ask view cache (build inputs / conversation). */
-  setAskCache: (patch: Partial<AskCache>) => void;
+  /** merge a partial into the Ask view cache (build inputs / conversation). `briefing` is
+   * deliberately not reachable from here — it moves only through `selectBriefing`, so the
+   * thread can never be left attached to a briefing it was not asked against. */
+  setAskCache: (patch: Partial<Omit<AskCache, "briefing">>) => void;
+  /** point Ask at a briefing (or back at the builder with `null`): the pack, the question
+   * thread and the draft question change together, in one write. */
+  selectBriefing: (next: BriefingBuilt | null) => void;
   setView: (v: ViewName) => void;
   select: (s: Selection) => void;
   /** cross-view jump: set selection and optionally switch the active view */
@@ -842,6 +857,8 @@ export const useApp = create<AppState>((set, get) => ({
 
   setRecallCache: (patch) => set((s) => ({ recallCache: { ...s.recallCache, ...patch } })),
   setAskCache: (patch) => set((s) => ({ askCache: { ...s.askCache, ...patch } })),
+  selectBriefing: (next) =>
+    set((s) => ({ askCache: { ...s.askCache, ...briefingSelection(next) } })),
 
   setView: (view) => {
     set({ view });

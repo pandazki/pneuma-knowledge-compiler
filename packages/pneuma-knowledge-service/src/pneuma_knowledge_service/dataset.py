@@ -17,6 +17,7 @@ from pneuma_knowledge_core.domain.canonical import (
     CanonicalDocument,
     iter_canonical_citations,
 )
+from pneuma_knowledge_core.compile.documents import OVERVIEW_MARKER_RE
 from pneuma_knowledge_core.domain.ids import ANCHOR_MARK_RE, UserId, extract_anchors
 from pneuma_knowledge_core.domain.snapshot import SnapshotRef
 from pneuma_knowledge_core.skill import claim_labels_for, load_skill_base
@@ -34,14 +35,21 @@ _MD_LINK_RE = re.compile(r"\]\(([^)]+)\)")
 
 def _anchor_block(lines: list[str], anchor_line: int) -> tuple[int, int]:
     """The natural block [start, end) holding the anchor at anchor_line (mirrors the
-    claim-block rule used by anchor_ops)."""
+    claim-block rule used by anchor_ops: an anchored line above the target is another
+    claim's last line and is a hard stop; so is an overview marker line, which is the
+    system's own delimiter rather than claim text)."""
     end = anchor_line + 1
     if _LIST_ITEM_RE.match(lines[anchor_line]):
         return anchor_line, end
     start = anchor_line
     while start > 0:
         prev = lines[start - 1]
-        if not prev.strip() or _HEADING_RE.match(prev):
+        if (
+            not prev.strip()
+            or _HEADING_RE.match(prev)
+            or ANCHOR_MARK_RE.search(prev)
+            or OVERVIEW_MARKER_RE.match(prev)
+        ):
             break
         start -= 1
         if _LIST_ITEM_RE.match(prev):

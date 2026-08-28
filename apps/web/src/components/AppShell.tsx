@@ -126,7 +126,10 @@ export function AppShell({ children }: { children: ReactNode }) {
                 <Stamp tone="warn">
                   {t(currentKbSnapshot ? "nav.snapshot.kbBanner" : "nav.snapshotBanner")}
                 </Stamp>
-                <Mono className="text-13 text-ink-2">
+                <Mono
+                  className="min-w-0 max-w-full truncate text-13 text-ink-2"
+                  title={currentKbSnapshot ? currentKbSnapshot.label : currentSnapshot}
+                >
                   {currentKbSnapshot ? currentKbSnapshot.label : currentSnapshot}
                 </Mono>
                 <Button

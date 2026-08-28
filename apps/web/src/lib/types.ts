@@ -115,7 +115,15 @@ export interface JobRecord {
 }
 
 export interface SidecarClaimRef {
-  type?: "claim_added" | "claim_revised" | string;
+  type?:
+    | "claim_added"
+    | "claim_revised"
+    | "claim_superseded"
+    // The document's overview region was rewritten whole. Its unit is the document, so
+    // this is the one kind that carries no anchor.
+    | "overview_rewritten"
+    | string;
+  supersedes?: string | null;
   path?: string;
   anchor?: { document_id?: string; anchor?: string };
   flags?: FlagKind[];

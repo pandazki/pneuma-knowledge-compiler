@@ -36,6 +36,19 @@ class CanonicalStore(Protocol):
         relative to the per-user repo root); this replaces those paths' content."""
         ...
 
+    async def written_on(
+        self, user_id: UserId, *, prefix: str = ""
+    ) -> dict[str, str]:
+        """path → the day (`YYYY-MM-DD`) that path was last written by a committed patch.
+
+        Free from git, like everything else here: the commit history already records when
+        each file last changed, so nothing has to be stored to answer it. It states what was
+        COMMITTED — a round that failed the gate wrote nothing and appears nowhere in it —
+        which is what makes it usable as the "has this page answered yet" clock a derived
+        projection is measured against. `prefix` bounds the walk to one path prefix.
+        """
+        ...
+
     async def snapshots(self, user_id: UserId) -> list[SnapshotRef]: ...
 
     async def snapshots_page(

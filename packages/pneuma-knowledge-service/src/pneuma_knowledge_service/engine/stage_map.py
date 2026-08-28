@@ -422,7 +422,7 @@ STAGES: tuple[Stage, ...] = (
             Knob(
                 key="evidence_strategy",
                 type="enum",
-                enum=("ranked", "select"),
+                enum=("ranked", "select", "all"),
                 apply="hot",
                 env="PNEUMA_KNOWLEDGE_RECALL_EVIDENCE_STRATEGY",
                 setting="recall_evidence_strategy",
@@ -431,11 +431,34 @@ STAGES: tuple[Stage, ...] = (
                 description_en=(
                     "ranked keeps fixed retrieval heads. select uses one structured model "
                     "call to compose a mechanically bounded mix of claims, derived episode "
-                    "summaries, verbatim windows, and canonical documents."
+                    "summaries, verbatim windows, and canonical documents. all makes no "
+                    "selection call at all: the whole candidate pool goes to the answer, "
+                    "bounded only by the assembled-context ceiling."
                 ),
                 description_zh=(
                     "ranked 保留固定检索头部；select 用一次结构化模型调用，在断言、派生 "
-                    "episode 摘要、逐字窗口和 canonical 文档之间编排一个受机械上限约束的组合。"
+                    "episode 摘要、逐字窗口和 canonical 文档之间编排一个受机械上限约束的组合；"
+                    "all 完全不做选择调用，把整个候选池交给回答，只受上下文字符上限约束。"
+                ),
+            ),
+            Knob(
+                key="all_context_chars",
+                type="int",
+                apply="hot",
+                env="PNEUMA_KNOWLEDGE_RECALL_ALL_CONTEXT_CHARS",
+                setting="recall_all_context_chars",
+                label_en="Whole-pool context ceiling",
+                label_zh="整池上下文上限",
+                description_en=(
+                    "Read only by evidence_strategy=all, whose only bound it is: how many "
+                    "characters the assembled evidence faces may occupy. Over it the lane "
+                    "drops windows, then episode summaries, then the lowest-ranked claims, "
+                    "and states what it dropped. 0 = no ceiling."
+                ),
+                description_zh=(
+                    "只有 evidence_strategy=all 会读它，也是那条路径唯一的边界：组装后的证据面"
+                    "最多可占多少字符。超出时依次丢弃窗口、episode 摘要、排名最低的断言，并"
+                    "明确回报丢了什么。0 表示不设上限。"
                 ),
             ),
             Knob(
@@ -603,6 +626,44 @@ STAGES: tuple[Stage, ...] = (
                     "开启重排时每个查询、每个面的检索深度；重排器随后对整个去重并集打分。"
                 ),
             ),
+            Knob(
+                key="component_budget_chars",
+                type="int",
+                apply="hot",
+                env="PNEUMA_KNOWLEDGE_RECALL_COMPONENT_BUDGET_CHARS",
+                setting="recall_component_budget_chars",
+                label_en="Component face budget (chars)",
+                label_zh="组件面预算（字符）",
+                description_en=(
+                    "How much context the whole component face may occupy. Item caps bound "
+                    "counts, not size; over the budget the lowest-ranked items fall off and "
+                    "long excerpts are cut at block boundaries, both stated in the face."
+                ),
+                description_zh=(
+                    "整个组件面最多占多少上下文。条数上限管不了体量；超预算时相关度最低的条目"
+                    "先落下、长摘录按块边界裁剪，两者都会写在面上。"
+                ),
+            ),
+            Knob(
+                key="component_paths",
+                type="bool",
+                apply="hot",
+                env="PNEUMA_KNOWLEDGE_RECALL_COMPONENT_PATHS",
+                setting="recall_component_paths",
+                label_en="Component lookups in fast recall",
+                label_zh="快速召回的组件查询",
+                description_en=(
+                    "When enabled index components offer lookup paths, fast spends one routing "
+                    "tool-call turn to choose which run, concurrently with the built-in "
+                    "retrieval; their results form their own evidence face. No path offered = "
+                    "no routing call. Off ignores component paths entirely."
+                ),
+                description_zh=(
+                    "已启用的索引组件提供查询路时，fast 用一轮路由 tool call 选择哪些路运行，"
+                    "与内置检索并发；其结果构成独立的证据面。没有路 = 没有路由调用。"
+                    "关闭则完全忽略组件路。"
+                ),
+            ),
         ),
     ),
     Stage(
@@ -610,11 +671,12 @@ STAGES: tuple[Stage, ...] = (
         title_en="Models",
         title_zh="模型",
         summary_en=(
-            "The engine's model roles. The compile model is the one real quality lever "
-            "— a stronger model directly produces a better library."
+            "The engine's model roles, and which index components are enabled. The compile "
+            "model is the one real quality lever — a stronger model directly produces a "
+            "better library."
         ),
         summary_zh=(
-            "引擎的模型角色。编译模型是唯一真正的质量杠杆——更强的模型直接产出更好的库。"
+            "引擎的模型角色，以及启用了哪些索引组件。编译模型是唯一真正的质量杠杆——更强的模型直接产出更好的库。"
         ),
         doc="docs/reference/configuration.md#models",
         file="engine.yaml",
@@ -652,6 +714,86 @@ STAGES: tuple[Stage, ...] = (
                 description_zh=(
                     "caption 只发送带来源标签的图片描述/OCR；native 在这些标签之外还发送真正的"
                     "图片内容块；auto 读取当前模型的能力档案，能力未知时回落到 caption。"
+                ),
+            ),
+            Knob(
+                key="compile_call_timeout",
+                type="int",
+                apply="hot",
+                env="PNEUMA_KNOWLEDGE_COMPILE_CALL_TIMEOUT",
+                setting="compile_call_timeout",
+                label_en="Compile call timeout (seconds)",
+                label_zh="编译单次调用超时（秒）",
+                description_en=(
+                    "Wall-clock budget for one model call inside a compile job. A hung "
+                    "provider connection otherwise holds the job in `claimed` until the "
+                    "worker restarts; on timeout the job completes as failed and canonical "
+                    "is untouched. 0 = no timeout."
+                ),
+                description_zh=(
+                    "一次编译任务里单次模型调用的墙钟预算。供应商连接挂死时，任务会一直停在 "
+                    "`claimed`，直到 worker 重启；超时则任务判失败，正本不受影响。0 = 不限时。"
+                ),
+            ),
+            Knob(
+                key="compile_max_tool_calls",
+                type="int",
+                apply="hot",
+                env="PNEUMA_KNOWLEDGE_COMPILE_MAX_TOOL_CALLS",
+                setting="compile_max_tool_calls",
+                label_en="Compile tool calls per round",
+                label_zh="编译每轮工具调用上限",
+                description_en=(
+                    "How many tool calls one round of a compile may spend — the first round "
+                    "and its repair round alike. 0 is not unbounded: it means the number is "
+                    "derived from the job, max(40, 3 x sources), so a first round can read "
+                    "every source and write at least twice per source. Set it to state an "
+                    "absolute number instead."
+                ),
+                description_zh=(
+                    "一次编译的一轮可以花掉多少次工具调用——首轮和它的修复轮都按这个数。0 不是"
+                    "不限：它表示这个数由本次任务算出，max(40, 3 × 来源数)，好让首轮能读完每一"
+                    "个来源、并且每个来源至少写两次。要给一个绝对值时才设置它。"
+                ),
+            ),
+            Knob(
+                key="overview_budget_chars",
+                type="int",
+                apply="hot",
+                env="PNEUMA_KNOWLEDGE_OVERVIEW_BUDGET_CHARS",
+                setting="overview_budget_chars",
+                label_en="Overview budget (characters)",
+                label_zh="总览预算（字符）",
+                description_en=(
+                    "How large a document's overview region may be — the bounded head the "
+                    "compile model rewrites whole when the picture of the subject changed. "
+                    "Over it, the write tool refuses the call and the gate rejects the round. "
+                    "It is a head, not a second ledger."
+                ),
+                description_zh=(
+                    "一份文档的总览区域可以有多大——主体画像变了时，编译模型整体重写的那段有界"
+                    "头部。超出则写入工具当场拒绝该次调用、闸门也拒绝本轮。它是头部，不是第二本账。"
+                ),
+            ),
+            Knob(
+                key="overview_required_after_claims",
+                type="int",
+                apply="hot",
+                env="PNEUMA_KNOWLEDGE_OVERVIEW_REQUIRED_AFTER_CLAIMS",
+                setting="overview_required_after_claims",
+                label_en="Overview required after (claims)",
+                label_zh="强制总览的断言数",
+                description_en=(
+                    "How many ledger claims a document may hold before a compile that "
+                    "touches it must give it an overview (`definition` at least). The floor "
+                    "under the budget above: a model maintains a head that exists and never "
+                    "starts one, so the first one is refused into being — at the finish tool "
+                    "and at the gate. 0 disables the rule."
+                ),
+                description_zh=(
+                    "一份文档能积累多少条账本断言，才必须由改动它的那次编译写出总览（至少写 "
+                    "definition）。它是上面那条预算的下限：模型只会维护已经存在的头部，从不"
+                    "主动开一个，所以第一段总览靠拒绝逼出来——结束工具与闸门各拒一次。0 = 关闭。"
                 ),
             ),
             Knob(
@@ -721,6 +863,49 @@ STAGES: tuple[Stage, ...] = (
                 description_zh=(
                     "fake:<dim> 确定且无需密钥。向量集合的维度在创建时就固定了，"
                     "所以换真实模型意味着换一个新集合。"
+                ),
+            ),
+            Knob(
+                key="components",
+                type="string",
+                apply="restart",
+                env="PNEUMA_KNOWLEDGE_COMPONENTS",
+                setting="components",
+                label_en="Index components",
+                label_zh="索引组件",
+                description_en=(
+                    "Comma-separated names of enabled index components — business-specific "
+                    "structure over canonical (frontmatter checks at the gate, outline lines, "
+                    "compile and deep-recall tools, routed fast paths). Empty = none. "
+                    "Shipped: `people` (who a subject is) and `time` (the owner's calendar: "
+                    "a per-block day index, a `timespan` fast path, `timeline` / `as_of` "
+                    "deep tools)."
+                ),
+                description_zh=(
+                    "已启用的索引组件名，逗号分隔——在正本之上叠加业务结构（闸门的 frontmatter "
+                    "检查、outline 行、编译与深召回工具、快召回的路由查询路）。留空 = 不启用。"
+                    "随包附带：`people`（主体是谁）与 `time`（主人的日历：逐块的日期投影、"
+                    "`timespan` 快路、`timeline` / `as_of` 深召回工具）。"
+                ),
+            ),
+            Knob(
+                key="people_family",
+                type="string",
+                apply="restart",
+                env="PNEUMA_KNOWLEDGE_PEOPLE_FAMILY",
+                setting="people_family",
+                label_en="People family",
+                label_zh="人物族",
+                description_en=(
+                    "The contract path template the `people` component binds to. Its "
+                    "documents carry `identities` (scheme:value, bound by at most one page) "
+                    "and `aliases` (never another person's name) in frontmatter, written "
+                    "whole with the overview."
+                ),
+                description_zh=(
+                    "`people` 组件绑定的契约路径模板。该族文档的 frontmatter 带 `identities`"
+                    "（scheme:value，至多绑一个页面）与 `aliases`（不能是别人的名字），随总览"
+                    "整体写入。"
                 ),
             ),
         ),

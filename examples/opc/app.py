@@ -421,6 +421,37 @@ def citation_legend_lines(
     return lines
 
 
+def stage_timing_line(stages) -> str:
+    """The fast lane's per-stage wall-clock as one line, children folded under `retrieve`.
+
+    `plan – · retrieve 812ms (claims 640ms · windows 806ms · glance – · path:person 120ms)
+    · route 210ms · rerank – · select – · assemble 31ms · answer 3120ms · total 4001ms`
+
+    A stage that did not run prints `–`, not `0ms`: "never happened" and "was free" are
+    different facts. A degraded stage prints its reason. The children ran concurrently with
+    each other and with `retrieve`, so they do not sum to it — each answers "how long did
+    THIS lane take", which is the only way to see which one was the slow one.
+    """
+
+    def one(stage) -> str:
+        leaf = stage.name.split(".", 1)[1] if "." in stage.name else stage.name
+        if stage.status == "skipped":
+            return f"{leaf} –"
+        if stage.status == "degraded":
+            return f"{leaf} {stage.ms}ms!{stage.detail}"
+        return f"{leaf} {stage.ms}ms"
+
+    children = [one(s) for s in stages if s.name.startswith("retrieve.")]
+    parts: list[str] = []
+    for stage in stages:
+        if stage.name.startswith("retrieve."):
+            continue
+        parts.append(one(stage))
+        if stage.name == "retrieve" and children:
+            parts[-1] += " (" + " · ".join(children) + ")"
+    return " · ".join(parts)
+
+
 def claims_from_detail(detail: str | None) -> int | None:
     """The number of claims inserted/updated, taken from a finished compile job's detail
     (detail looks like `projection:{...}`)."""
@@ -1108,6 +1139,8 @@ async def _ask(question: str, *, show_sources: bool = False) -> tuple[int, dict[
             f"{answer.window_candidates}→{len(answer.used_windows)} source windows, "
             f"tokens {answer.token_usage})"
         )
+        if answer.stages:
+            print(f"  stages: {stage_timing_line(answer.stages)}")
         if show_sources and answer.used_episode_summaries:
             print("  Derived episode summaries supplied to the answer (not verbatim):")
             for summary in answer.used_episode_summaries:

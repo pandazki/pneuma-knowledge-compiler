@@ -52,6 +52,9 @@ export const history = defineMessages({
 
     "history.claim.added": "新增",
     "history.claim.revised": "修订",
+    "history.claim.superseded": "状态更新",
+    "history.claim.supersedesAnchor": "取代 c:{anchor}",
+    "history.claim.overview": "总览重写",
     "history.claim.changed": "变更",
     "history.claim.viewCurrent": "查看当前原文",
     "history.claim.before": "原",
@@ -118,6 +121,9 @@ export const history = defineMessages({
 
     "history.claim.added": "Added",
     "history.claim.revised": "Revised",
+    "history.claim.superseded": "State changed",
+    "history.claim.supersedesAnchor": "supersedes c:{anchor}",
+    "history.claim.overview": "Overview rewritten",
     "history.claim.changed": "Changed",
     "history.claim.viewCurrent": "View the current text",
     "history.claim.before": "Was",

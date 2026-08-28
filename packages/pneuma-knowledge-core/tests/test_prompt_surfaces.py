@@ -93,6 +93,11 @@ def _compensation_gaps_field() -> str:
 ASSEMBLIES: tuple[tuple[str, object, dict[str, str]], ...] = (
     ("recall.fast", lambda: selector_contract(), {}),
     ("recall.fast_structured", lambda: structured_answer_contract(), {}),
+    (
+        "recall.fast_deliberated",
+        lambda: structured_answer_contract(deliberate=True),
+        {},
+    ),
     ("recall.deep", lambda: deep_contract(), {}),
     ("recall.briefing", lambda: briefing_contract(), {}),
     ("recall.suggestion", lambda: live_context_contracts()["general"], {}),
@@ -376,9 +381,11 @@ def test_the_shared_spine_reports_every_surface_it_moves():
         "recall.briefing",
         "recall.suggestion",
         "recall.fast_structured",
+        "recall.fast_deliberated",
     }
     assert shared_with("recall.fast", "recall.fast.contract_head") == (
         "recall.fast_structured",
+        "recall.fast_deliberated",
     )
 
 

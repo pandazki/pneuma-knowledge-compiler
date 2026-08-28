@@ -422,8 +422,8 @@ function CatalogueRow({
           </Badge>
           <Badge>{tOr(`enum.sourceClass.${source.source_class}`, source.source_class)}</Badge>
         </span>
-        <Mono className="w-14 shrink-0 text-right text-12 text-ink-3">
-          {source.block_count} blk
+        <Mono className="w-[4.5rem] shrink-0 text-right text-12 whitespace-nowrap text-ink-3">
+          {fmtCount(source.block_count)} blk
         </Mono>
         <span
           aria-label={t(digested ? "sources.directory.digested" : "sources.directory.undigested")}
@@ -449,6 +449,7 @@ function SourceGalley({
   highlight: BlockRange | null;
 }) {
   const t = useT();
+  const tOr = useTOr();
   const [detail, setDetail] = useState<SourceDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [exact, setExact] = useState<{ block: number; text: string } | null>(null);
@@ -525,8 +526,8 @@ function SourceGalley({
               <Badge tone="accent">
                 <SourceKindName kind={detail.kind} />
               </Badge>
-              <Badge>{detail.origin}</Badge>
-              <Badge>{detail.source_class}</Badge>
+              <Badge>{tOr(`enum.sourceOrigin.${detail.origin}`, detail.origin)}</Badge>
+              <Badge>{tOr(`enum.sourceClass.${detail.source_class}`, detail.source_class)}</Badge>
             </p>
             <h2 className="font-serif text-24 text-balance text-ink">{detail.title}</h2>
             <p className="mt-1 text-13 text-ink-2">

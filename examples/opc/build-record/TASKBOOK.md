@@ -14,7 +14,7 @@
 
 **流程**（依据 REPO/scaffold/AGENT-GUIDE.md 与 REPO/docs/guides/compile-contract.zh-CN.md，先通读这两份）：
 
-1. **建干净房间**：`cp -R REPO/scaffold ~/opc-build && cd ~/opc-build && cp .env.example .env`。填 `.env`：OPENROUTER_API_KEY 从 REPO/local/tanka/.env.local 读（key 不得出现在任何输出/日志/文件）；COMPILE/RECALL 模型 `openrouter:openai/gpt-5.6-luna`，EMBEDDING `openrouter:openai/text-embedding-3-small`；`PNEUMA_APP_FRAMEWORK_REPO=<REPO 绝对路径>`；再追加隔离六行：
+1. **建干净房间**：`cp -R REPO/scaffold ~/opc-build && cd ~/opc-build && cp .env.example .env`。填 `.env`：OPENROUTER_API_KEY 从 REPO/local/acme/.env.local 读（key 不得出现在任何输出/日志/文件）；COMPILE/RECALL 模型 `openrouter:openai/gpt-5.6-luna`，EMBEDDING `openrouter:openai/text-embedding-3-small`；`PNEUMA_APP_FRAMEWORK_REPO=<REPO 绝对路径>`；再追加隔离六行：
    PNEUMA_APP_COMPOSE_PROJECT=pneuma-opc-build / PG 15448 / QDRANT 16403,16404 / MEILI 17724 / USER_ID u-opc-lin / PNEUMA_KNOWLEDGE_OPENROUTER_PROVIDER_ORDER=openai
 2. **拿材料**：`cp -R REPO/examples/opc/my-data ~/opc-build/my-data`（唯一允许接触 examples 的操作——材料本身就是给你的输入）。
 3. **主人自述**（"用户"告诉你的话，据此照指南填 profile.yaml，provenance 相应写 profile）：「我叫林舟，独立开发者，做一个叫 Seamlog 的变更证据链产品，自己写代码、自己卖、自己运营。在杭州，中文交流。时区 Asia/Shanghai。」

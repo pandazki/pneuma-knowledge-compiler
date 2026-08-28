@@ -36,8 +36,17 @@ const PAGE_SIZE = 25;
  * Status as words + an ink step, `failed` in danger text; no coloured lamps. An unknown
  * status renders as its raw machine name rather than as a blank.
  */
-function statusText(t: TFunction, status: string): { label: string; className: string } {
+function statusText(
+  t: TFunction,
+  status: string,
+  ok: boolean | null,
+): { label: string; className: string } {
   switch (status) {
+    // The queue's terminal status is `done`, and `ok` says whether the job actually landed:
+    // a gate-rejected compile is `done` with `ok: false`, and that is a failed job.
+    case "done":
+      if (ok === false) return { label: t("process.status.failed"), className: "text-danger" };
+      return { label: t("process.status.compiled"), className: "text-ink" };
     case "compiled":
       return { label: t("process.status.compiled"), className: "text-ink" };
     case "failed":
@@ -242,7 +251,7 @@ export default function ProcessView() {
           <ul className="flex flex-col border-y border-line">
             {jobs.map((j) => {
               const expanded = j.job_id === selectedJobId;
-              const st = statusText(t, j.status);
+              const st = statusText(t, j.status, j.ok);
               return (
                 <li key={j.job_id} className="border-b border-line last:border-b-0">
                   <button

@@ -2,7 +2,13 @@
 anchors, store-real citation validation with repo-level grandfathering, path ownership
 against the new skill's templates."""
 
-from pneuma_knowledge_core.compile.patch import PatchDraft
+from pneuma_knowledge_core.compile.gate import Violation
+from pneuma_knowledge_core.compile.patch import PatchDraft, touched_this_round
+from pneuma_knowledge_core.components import (
+    BaseComponent,
+    register_component,
+    reset_components,
+)
 from pneuma_knowledge_core.domain.canonical import CanonicalDocument
 from pneuma_knowledge_core.domain.ids import DocumentId
 from pneuma_knowledge_core.evolve.gate import run_evolve_gate
@@ -145,3 +151,76 @@ async def test_path_outside_new_templates_is_violation():
         draft, source_bounds=bounds, path_templates=narrow
     )
     assert "path" in _kinds(violations)
+
+
+# --- the enabled components judge a reorganization too --------------------------------
+#
+# A component's gate check is a canonical FIELD invariant, and canonical does not know which
+# channel wrote it. Before this the whole rule set was a daily-compile rule: evolve could
+# author a page no component ever saw, review would land it, and every later compile would
+# grandfather it.
+
+
+class _Tagger(BaseComponent):
+    """A component over one family: a page it touched must declare `owner`."""
+
+    name = "tagger"
+
+    def __init__(self) -> None:
+        self.prepared: list[str] = []
+        self.seen: list[tuple[int, int]] = []
+
+    async def prepare(self, user_id: str) -> None:
+        self.prepared.append(user_id)
+
+    def gate_checks(self, docs, base_docs):
+        self.seen.append((len(docs), len(base_docs)))
+        out = []
+        for path in sorted(docs):
+            if not path.startswith("memory/products/"):
+                continue
+            if not touched_this_round(docs[path], base_docs.get(path)):
+                continue
+            if not str(docs[path].frontmatter.get("owner", "")).strip():
+                out.append(Violation("tagger.owner_missing", path, "declare an owner."))
+        return out
+
+
+async def test_a_registered_component_judges_the_reorganization_and_its_base():
+    component = _Tagger()
+    register_component(component)
+    try:
+        src = _topic("atlas", "## 计划\n\n- 事实。[cite: src-01 ¶0] <!-- c:aa11 -->")
+        draft = PatchDraft.from_canonical([src], TEMPLATES)
+        draft.create_document(
+            "memory/products/atlas.md", {"type": "product", "slug": "atlas"}, "## 产品\n"
+        )
+        draft.move_claim("memory/topics/atlas.md", "aa11", "memory/products/atlas.md", "产品")
+        violations, _ = await run_evolve_gate(
+            draft, source_bounds=_CountingBounds({"src-01": 5}), path_templates=TEMPLATES
+        )
+        assert "tagger.owner_missing" in _kinds(violations)
+        # called the way `compile/gate.py` calls it: the WHOLE file table on both sides, the
+        # component deciding for itself what this round touched.
+        assert component.seen == [(2, 1)]
+    finally:
+        reset_components()
+
+
+async def test_a_page_the_reorganization_left_alone_is_not_judged():
+    component = _Tagger()
+    register_component(component)
+    try:
+        stale = CanonicalDocument(
+            doc_id=DocumentId("d-old"),
+            path="memory/products/old.md",
+            frontmatter={"doc_id": "d-old", "type": "product", "slug": "old"},
+            body="## 产品\n\n- 事实。[cite: src-01 ¶0] <!-- c:bb22 -->",
+        )
+        draft = PatchDraft.from_canonical([stale], TEMPLATES)
+        violations, _ = await run_evolve_gate(
+            draft, source_bounds=_CountingBounds({"src-01": 5}), path_templates=TEMPLATES
+        )
+        assert violations == []
+    finally:
+        reset_components()

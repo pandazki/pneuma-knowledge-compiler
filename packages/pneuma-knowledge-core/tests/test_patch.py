@@ -4,6 +4,7 @@ rewrite op, path ownership enforcement."""
 import pytest
 
 from pneuma_knowledge_core.compile.anchor_ops import AnchorToolError
+from pneuma_knowledge_core.compile.documents import Overview, parse_document, render_document
 from pneuma_knowledge_core.compile.patch import PatchDraft, path_allowed
 from pneuma_knowledge_core.domain.canonical import CanonicalDocument
 from pneuma_knowledge_core.domain.ids import DocumentId, extract_anchors
@@ -185,3 +186,140 @@ def test_from_canonical_seeds_base_and_working():
     assert not draft.is_dirty()
     draft.append_block("memory/profile.md", "偏好", "- 偏好远程办公。[cite: src-02 ¶1]")
     assert draft.is_dirty()
+
+
+# ─────────────────────────────────────────────────────── the derived frontmatter `title`
+#
+# A document's name is the `# ` line at the top of it. Before this was mechanical the
+# frontmatter `title` was whatever the model felt like — measured on a real library: empty
+# on 58 of 85 pages, a person's JOB title ("Director of Technology, …") on two. So it is
+# derived like the doc_id is assigned: the system reads it off the H1 on every write, and
+# nobody else may set it.
+
+
+def _person_with_stale_title() -> tuple[PatchDraft, str]:
+    doc = CanonicalDocument(
+        doc_id=DocumentId("abc123"),
+        path="memory/people/mei-lin.md",
+        frontmatter={
+            "doc_id": "abc123",
+            "type": "person",
+            "slug": "mei-lin",
+            "title": "Director of Technology, Northwind Freight",
+        },
+        body="# Mei Lin\n\n## Role\n\n- Mei Lin joined in 2024. [cite: src-01 ¶0] <!-- c:1111 -->",
+    )
+    return _draft(doc), doc.path
+
+
+def test_create_document_replaces_a_model_written_title_with_the_one_on_the_page():
+    draft = _draft()
+    doc = draft.create_document(
+        "memory/people/mei-lin.md",
+        {"type": "person", "slug": "mei-lin", "title": "Director of Technology"},
+        "# Mei Lin\n\n- Mei Lin leads platform. [cite: src-01 ¶3]",
+    )
+    # replaced, not refused: the contract asked models for a title for months.
+    assert doc.frontmatter["title"] == "Mei Lin"
+    committed, _ = parse_document(draft.to_files()["memory/people/mei-lin.md"])
+    assert committed["title"] == "Mei Lin"
+
+
+def test_create_document_derives_the_title_when_the_model_wrote_none():
+    draft = _draft()
+    doc = draft.create_document(
+        "memory/topics/q3-launch.md",
+        {"type": "topic", "slug": "q3-launch"},
+        "# Q3 launch <!-- c:dead --> \n\n- Kickoff was 2026-07-01. [cite: src-01 ¶0]",
+    )
+    # anchor marks and trailing comments on the heading are machinery, not the name
+    assert doc.frontmatter["title"] == "Q3 launch"
+
+
+def test_a_body_without_an_h1_gets_no_title_at_all():
+    draft = _draft()
+    doc = draft.create_document(
+        "memory/topics/q3-launch.md",
+        {"type": "topic", "slug": "q3-launch", "title": "Whatever the model felt like"},
+        "## Commitments\n\n- Kickoff was 2026-07-01. [cite: src-01 ¶0]",
+    )
+    assert "title" not in doc.frontmatter
+    committed, _ = parse_document(draft.to_files()["memory/topics/q3-launch.md"])
+    assert "title" not in committed
+
+
+def test_set_fields_refuses_title_and_says_where_it_comes_from():
+    draft, path = _person_with_stale_title()
+    draft.mark_read(path)
+    for call in (
+        lambda: draft.set_fields(path, {"title": "Director of Technology"}),
+        lambda: draft.rewrite_overview(path, Overview(definition="x c:1111"), {"title": "x"}),
+    ):
+        with pytest.raises(AnchorToolError) as err:
+            call()
+        assert "`title`" in str(err.value)
+        assert "`# ` heading" in str(err.value)
+    assert draft.read(path).frontmatter["title"] == "Director of Technology, Northwind Freight"
+
+
+def test_a_stale_title_is_corrected_by_the_next_ordinary_write_of_its_page():
+    draft, path = _person_with_stale_title()
+    draft.append_block(path, "Role", "- Mei Lin moved to Ops. [cite: src-02 ¶4]")
+    frontmatter, _ = parse_document(draft.to_files()[path])
+    # the round wrote a claim; the title rides along in the same commit
+    assert frontmatter["title"] == "Mei Lin"
+
+
+def test_a_clean_library_full_of_stale_titles_is_still_a_noop():
+    draft, path = _person_with_stale_title()
+    assert not draft.is_dirty()
+    # and the file is handed to the commit exactly as it stood
+    assert draft.to_files()[path].splitlines()[1:5] == [
+        "doc_id: abc123",
+        "slug: mei-lin",
+        "title: Director of Technology, Northwind Freight",
+        "type: person",
+    ]
+
+
+def test_a_page_this_round_never_touched_stays_byte_identical():
+    """The reason the derivation runs over the CHANGED set only: a commit carries the whole
+    file table, so deriving over all of it would drag every stale title in the library into
+    the diff of one unrelated claim."""
+    stale = CanonicalDocument(
+        doc_id=DocumentId("abc123"),
+        path="memory/people/mei-lin.md",
+        frontmatter={
+            "doc_id": "abc123",
+            "type": "person",
+            "slug": "mei-lin",
+            "title": "Director of Technology, Northwind Freight",
+        },
+        body="# Mei Lin\n\n- Mei Lin joined in 2024. [cite: src-01 ¶0] <!-- c:1111 -->",
+    )
+    other = CanonicalDocument(
+        doc_id=DocumentId("def456"),
+        path="memory/topics/q3-launch.md",
+        frontmatter={"doc_id": "def456", "type": "topic", "slug": "q3-launch"},
+        body="# Q3 launch\n\n## Commitments\n\n- Kickoff 2026-07-01. [cite: src-01 ¶0] <!-- c:2222 -->",
+    )
+    draft = _draft(stale, other)
+    before = render_document(stale.frontmatter, stale.body)
+    draft.append_block(other.path, "Commitments", "- Beta shipped. [cite: src-02 ¶2]")
+    files = draft.to_files()
+    assert draft.is_dirty()
+    assert files[stale.path] == before
+    # the page that WAS written this round got its own title derived
+    assert parse_document(files[other.path])[0]["title"] == "Q3 launch"
+
+
+# --- component-owned fields: DELETED ------------------------------------------------------
+# This file once tested a `component_owned_fields` seam: a component could declare that a
+# frontmatter field's ENTRIES were its own tool's to introduce, and the write faces plus a
+# gate check (7b) refused a generic write that added one. It existed for exactly one field,
+# `people.declined_terms` — the address terms a person page had ruled were not its subject's
+# name — and that field is gone: canonical records what is KNOWN about a person, not a memo
+# about what not to ask again. With its only user deleted the seam had no second one, so the
+# machinery went with it rather than standing as an unexercised capability. The tests that
+# covered it (a forged entry, the internal write face, the carry-or-drop snapshot rule) are
+# deleted here for the same reason — they tested a mechanism, not a behaviour anyone has.

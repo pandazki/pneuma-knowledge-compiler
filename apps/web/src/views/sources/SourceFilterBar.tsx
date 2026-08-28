@@ -76,6 +76,8 @@ export function SourceFilterBar({
     >
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <SearchField
+          id="sources-filter-query"
+          name="query"
           value={filter.query}
           onChange={(query) => onChange({ ...filter, query })}
           aria-label={t("sources.filter.searchAria")}
@@ -181,6 +183,7 @@ function DayField({
   return (
     <input
       type="date"
+      name={label}
       aria-label={label}
       value={value ?? ""}
       min={bounds.from ?? undefined}

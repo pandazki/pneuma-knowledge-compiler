@@ -1,4 +1,5 @@
 import { Camera, History, Trash2 } from "lucide-react";
+import { fmtTime } from "@/lib/format";
 import { useApp } from "@/lib/store";
 import { useT } from "@/lib/useT";
 import { Combobox, type ComboboxItem } from "@/ui/Combobox";
@@ -8,11 +9,11 @@ import { Mono } from "@/ui/Mono";
 const HEAD = "__head__";
 const KB_PREFIX = "kb:";
 
-/** Local date-time for a snapshot's freeze moment; the raw ISO string is a poor label. */
+/** A snapshot's freeze moment in the app's own stamp format; the raw ISO string is a poor label. */
 function freezeMoment(iso: string | null): string {
   if (!iso) return "";
   const at = new Date(iso);
-  return Number.isNaN(at.getTime()) ? "" : at.toLocaleString();
+  return Number.isNaN(at.getTime()) ? "" : fmtTime(iso);
 }
 
 /**

@@ -28,9 +28,13 @@ from __future__ import annotations
 import hashlib
 import re
 
-from ..domain.canonical import normalize_canonical_citation_markers
+from ..domain.canonical import (
+    CANONICAL_CITATION_MARKER_RE,
+    normalize_canonical_citation_markers,
+)
 from ..domain.ids import ANCHOR_MARK_RE, extract_anchors
 from ..prompts import prompt
+from .documents import OVERVIEW_MARKER_RE
 
 
 class AnchorToolError(ValueError):
@@ -127,7 +131,12 @@ def _block_span(lines: list[str], anchor_line: int) -> tuple[int, int]:
     start = anchor_line
     while start > 0:
         prev = lines[start - 1]
-        if not prev.strip() or _HEADING_RE.match(prev) or ANCHOR_MARK_RE.search(prev):
+        if (
+            not prev.strip()
+            or _HEADING_RE.match(prev)
+            or ANCHOR_MARK_RE.search(prev)
+            or OVERVIEW_MARKER_RE.match(prev)
+        ):
             break
         start -= 1
         if _LIST_ITEM_RE.match(prev):
@@ -141,7 +150,9 @@ def edit_claim_text(doc_text: str, anchor_id: str, new_block: str) -> str:
 
     - a `new_block` without an anchor gets the original one restored (no transcription);
     - a `new_block` carrying a different anchor (moving/minting identity) → refused;
-    - an unknown anchor → refused, listing the document's existing anchors.
+    - an unknown anchor → refused, listing the document's existing anchors;
+    - the replaced block's FORM survives: a list-item claim stays a list item even when the
+      new text arrives without its bullet.
     """
     anchor_id = anchor_id.removeprefix("c-")
     lines = doc_text.split("\n")
@@ -176,6 +187,39 @@ def edit_claim_text(doc_text: str, anchor_id: str, new_block: str) -> str:
         block = "\n".join(block_lines)
 
     start, end = _block_span(lines, anchor_lines[0])
+
+    # The edit keeps the block's FORM, exactly as `supersede_claim_text` does for a
+    # successor: a list-item claim edited with plain text stays a list item. A model fixing
+    # one word's wording sends back the sentence, not the bullet, and without this the claim
+    # silently leaves the list it belonged to — a change to the document's structure that
+    # nobody asked for and no gate would catch. Mechanical alignment at the write boundary,
+    # not a line in a prompt asking for the bullet back.
+    block_lines = block.split("\n")
+    if _LIST_ITEM_RE.match(lines[start]) and not _LIST_ITEM_RE.match(block_lines[0]):
+        block_lines[0] = f"- {block_lines[0].lstrip()}"
+        block = "\n".join(block_lines)
+
+    # A supersedes marker is system-kept exactly like the anchor: a correction of the
+    # successor's wording must not silently detach it from the claim it replaced. A new
+    # text without the marker gets the original restored; one naming a different
+    # predecessor is refused (the link is not the model's to move).
+    from .supersession import SUPERSEDES_MARK_RE, supersedes_marker  # local: avoids a cycle
+
+    original = SUPERSEDES_MARK_RE.findall("\n".join(lines[start:end]))
+    supplied = SUPERSEDES_MARK_RE.findall(block)
+    if original:
+        if supplied and supplied != original:
+            raise AnchorToolError(
+                prompt("compile.anchor.edit_supersedes_changed", anchor_id=anchor_id)
+            )
+        if not supplied:
+            block_lines = block.split("\n")
+            block_lines[-1] = f"{block_lines[-1].rstrip()} {supersedes_marker(original[0])}"
+            block = "\n".join(block_lines)
+    elif supplied:
+        raise AnchorToolError(
+            prompt("compile.anchor.edit_supersedes_changed", anchor_id=anchor_id)
+        )
     return "\n".join(lines[:start] + block.split("\n") + lines[end:])
 
 
@@ -272,6 +316,84 @@ def append_block_text(
     return _append_to_section(doc_text, heading, block)
 
 
+# ---------------------------------------------------------------- supersede_claim
+
+
+def supersede_claim_text(
+    doc_text: str, old_anchor: str, new_block: str, *, document_path: str = ""
+) -> tuple[str, str]:
+    """Insert `new_block` as the successor of the claim at `old_anchor`, directly after it.
+
+    Returns `(new_doc_text, new_anchor)`. Mechanically guaranteed:
+
+    - the old claim is left byte-for-byte (it is now frozen history);
+    - the new block carries no anchor of its own (the system assigns one) and no
+      supersedes marker (this call writes the one and only marker);
+    - the new block is exactly ONE claim block — one claim supersedes one claim;
+    - the new block carries new evidence: a `[cite:]` marker. A state change without a
+      source is the thing the contract forbids ("only new evidence may supersede"), so it
+      is refused here rather than requested in prose;
+    - an absent or duplicated old anchor is refused, listing the document's anchors.
+
+    Whether the old claim was ALREADY superseded is a repository-level question and is
+    judged by `PatchDraft.supersede_claim` (and, finally, by the gate).
+    """
+    from .supersession import SUPERSEDES_MARK_RE, supersedes_marker  # local: avoids a cycle
+
+    old_anchor = old_anchor.removeprefix("c-").removeprefix("c:")
+    lines = doc_text.split("\n")
+    anchor_lines = [
+        i
+        for i, line in enumerate(lines)
+        if any(m == old_anchor for m in ANCHOR_MARK_RE.findall(line))
+    ]
+    if not anchor_lines:
+        existing = ", ".join(extract_anchors(doc_text)) or prompt("compile.anchor.none")
+        raise AnchorToolError(
+            prompt(
+                "compile.anchor.supersede_unknown_anchor",
+                anchor_id=old_anchor,
+                existing=existing,
+            )
+        )
+    if len(anchor_lines) > 1:
+        raise AnchorToolError(
+            prompt("compile.anchor.supersede_duplicate_anchor", anchor_id=old_anchor)
+        )
+
+    block = normalize_canonical_citation_markers(new_block.strip("\n"))[0]
+    if extract_anchors(block) or SUPERSEDES_MARK_RE.search(block):
+        raise AnchorToolError(prompt("compile.anchor.supersede_anchor_present"))
+    block_lines = block.split("\n")
+    if len(list(_iter_content_blocks(block_lines))) != 1:
+        raise AnchorToolError(prompt("compile.anchor.supersede_not_one_block"))
+    if CANONICAL_CITATION_MARKER_RE.search(block) is None:
+        raise AnchorToolError(
+            prompt("compile.anchor.supersede_without_evidence", anchor_id=old_anchor)
+        )
+
+    start, end = _block_span(lines, anchor_lines[0])
+    # The successor takes the predecessor's block form: a list-item predecessor gets a
+    # list-item successor. Models routinely omit the bullet; the chain reads as one list
+    # either way, and that is a mechanical alignment, not something to ask for.
+    if _LIST_ITEM_RE.match(lines[start]) and not _LIST_ITEM_RE.match(block_lines[0]):
+        block_lines[0] = f"- {block_lines[0].lstrip()}"
+        block = "\n".join(block_lines)
+    new_anchor = assign_anchor(document_path, block, set(extract_anchors(doc_text)))
+    block_lines[-1] = (
+        f"{block_lines[-1].rstrip()} <!-- c:{new_anchor} --> {supersedes_marker(old_anchor)}"
+    )
+    # Separation is part of the write, not a cosmetic choice. A list-item predecessor keeps
+    # today's adjacency — the chain reads as one list, and each bullet is its own block. A
+    # paragraph predecessor must be separated by a blank line, or predecessor and successor
+    # are one paragraph on the page and one block to every reader of blocks. Exactly one
+    # blank line on each side; an existing blank below (or end of file) is not doubled.
+    if not _LIST_ITEM_RE.match(lines[start]):
+        tail = [""] if end < len(lines) and lines[end].strip() else []
+        block_lines = ["", *block_lines, *tail]
+    return "\n".join(lines[:end] + block_lines + lines[end:]), new_anchor
+
+
 # ------------------------------------------------------- move / delete (evolve only)
 
 
@@ -330,22 +452,40 @@ def insert_block_verbatim(doc_text: str, heading: str, block: str) -> str:
 def _iter_content_blocks(lines: list[str]):
     """Yield (block_lines, start_index) for every claim block: a list item is one line, a
     paragraph runs until a blank line / heading / next list item. Headings and blanks are
-    not blocks. One shared walker so anchoring and the gate's orphan check agree exactly."""
+    not blocks. One shared walker so anchoring and the gate's orphan check agree exactly.
+
+    An anchor mark ALSO ends the block it sits on: the format rule is that a block's anchor
+    is on its last line (`_block_span` and `recall/projection._anchor_block` already read it
+    that way in the other direction). An OVERVIEW MARKER line (`<!-- overview -->` and the
+    slot openers) is neither a block nor part of one: it is the system's own delimiter, so it
+    is skipped here — otherwise the overview region would put four unanchored "claims" into
+    every document that has one, and the gate's coverage check would reject them all. Without the stop, two anchored claims that happen to
+    be adjacent lines merged into one block, so the block's identity became the LAST anchor
+    and the first claim vanished from every anchor→block lookup — the gate then reported a
+    live predecessor as `supersession_target_missing`. A paragraph WITHOUT an anchor is
+    untouched: it still runs to the blank line / heading / next list item."""
     i, n = 0, len(lines)
     while i < n:
         line = lines[i]
-        if not line.strip() or _HEADING_RE.match(line):
+        if not line.strip() or _HEADING_RE.match(line) or OVERVIEW_MARKER_RE.match(line):
             i += 1
             continue
         block_lines = [line]
         j = i + 1
-        if not _LIST_ITEM_RE.match(line):
+        if not _LIST_ITEM_RE.match(line) and not ANCHOR_MARK_RE.search(line):
             while j < n:
                 nxt = lines[j]
-                if not nxt.strip() or _HEADING_RE.match(nxt) or _LIST_ITEM_RE.match(nxt):
+                if (
+                    not nxt.strip()
+                    or _HEADING_RE.match(nxt)
+                    or _LIST_ITEM_RE.match(nxt)
+                    or OVERVIEW_MARKER_RE.match(nxt)
+                ):
                     break
                 block_lines.append(nxt)
                 j += 1
+                if ANCHOR_MARK_RE.search(nxt):
+                    break
         yield block_lines, i
         i = j
 

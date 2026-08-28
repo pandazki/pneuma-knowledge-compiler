@@ -647,11 +647,16 @@ _ZH: dict[str, str] = {
     "compile.task.outline_note": (
         "下面是知识主体文库里当前的全部文档，只有结构，没有正文。先在这里看某个主体是否已经存"
         "在：**存在就用 `edit_claim` / `append_block` 就地更新，不要再建一份文档**；需要正文时用 "
-        "`read_document(path)` 或 `search_knowledge(query)` 取。"
+        "`read_document(path)` 或 `search_knowledge(query)` 取。文档下面的 `definition:` 一行是它"
+        "总览里那句「这是什么」；总览是这份文档当前的画像，画像变了就用 `rewrite_overview` 整体"
+        "替换它。"
     ),
     "compile.task.outline_empty": "（还没有正本；用 create_document 新建文档）",
     "compile.task.outline_entry": "- `{path}`（type={doc_type}，{claims} 条断言）{tail}",
     "compile.task.outline_entry_tail": "：{headings}",
+    "compile.task.outline_entry_definition": "    definition: {definition}",
+    "compile.task.outline_entry_ledger": "    ledger: {ledger}",
+    "compile.task.outline_entry_component": "    {tail}",
     # A rollover volume's outline line. The volume is still LISTED — a compiler must see the
     # frozen history it may read but not write — while the line itself states the freeze.
     "compile.task.outline_entry_volume": (
@@ -675,9 +680,36 @@ _ZH: dict[str, str] = {
         "（本文档是 `{owner}` 的冻结归档卷——只读。可以自由阅读和引用，但永远不要编辑它；关于这"
         "个主体的新增与更新断言属于活动页面 `{owner}`。）"
     ),
-    "compile.tool.create_document": "创建一个文档；doc_id 与全部锚点由系统分配。",
+    "compile.tool.create_document": (
+        "创建一个文档；doc_id 与全部锚点由系统分配，title 由正文的 `# ` 标题派生（前置里写的 "
+        "title 会被它替换）。"
+    ),
     "compile.tool.edit_claim": "就地改写指定锚点上的断言；锚点自动保留。",
+    "compile.tool.supersede_claim": (
+        "记录世界变了：new_text 是 anchor_id 处那条断言所述事实的**当前**状态（职务、东家、"
+        "期限、状态）。旧断言原样保留为冻结历史，新断言紧随其后并由系统分配锚点。anchor_id "
+        "照抄 read_document／大纲里的原文。new_text 必须引用新证据。edit_claim 只用于修正写"
+        "错的断言；断言当时没错、只是状态后来变了，用 supersede_claim。"
+    ),
     "compile.tool.append_block": "在某个小节末尾追加一条断言；锚点由系统分配。",
+    "compile.tool.rewrite_overview": (
+        "整体重写这份文档的**总览**——它对该主体当前的画像。总览有四个槽位：definition（一句话："
+        "这是什么／是谁）、summary（现在的状态）、introduction（背景、由来、为什么重要）、"
+        "connections（指向其他主体页面的链接，每条一行写清关系），外加 `fields`：属于同一幅画像"
+        "的结构化前置字段，同样整体写入。它不是账本：不带永久锚点。本轮对已有画像的判断只有四种"
+        "结果——保持（不调用）、合并或改写（带上整段新内容调用）、丢弃（四个槽位全空且不带 "
+        "fields，总览区域会被删除）。先读文档：没读过就会被拒——没看过的画像，谈不上判断哪些该"
+        "留。每一句都必须落在账本上——直接写裸的 c:xxxx 点名一条断言锚点（不要写进 [cite: …] 里，"
+        "那是来源定位的语法），或用 [cite: <source_id> ¶a-b] 引一段来源。connections 里的每一条"
+        "也是总览文字：它同样需要自己的引用，并且它指向的目标必须是一份已经存在的文档。留空的槽"
+        "位会被清掉。"
+    ),
+    "compile.tool.set_fields": (
+        "整体写入已有文档的结构化前置字段——和旁边的总览一样：这次调用里没有的值，文档里也就没有"
+        "了，写错的那个才修得掉。先读文档，没读过就会被拒。doc_id、type、slug 由系统持有，会被"
+        "拒绝。启用的索引组件可以拒掉一个它能证伪的值——已经绑在别的页面上的身份、明明是别人的"
+        "名字——并说明是哪一个。断言不写在这里——用 append_block。"
+    ),
     "compile.tool.finish_compile": "没有更多写入时调用；结束本次编译。",
     "compile.tool.search_knowledge": (
         "按 query 检索**已有正本断言**（L3）；返回命中断言的锚点及其所在文档路径。用它判断某个主"
@@ -706,8 +738,28 @@ _ZH: dict[str, str] = {
     "compile.tool.append_block_result": (
         "已在 {path} 的「{heading}」小节追加断言；分配的锚点：{anchors}"
     ),
+    "compile.tool.supersede_claim_result": (
+        "{path} 中的断言 c:{anchor_id} 已被 c:{new_anchor} 取代（旧断言保留为冻结历史）"
+    ),
+    "compile.tool.rewrite_overview_result": (
+        "已重写 {path} 的总览（{slots}）；系统分配的锚点：{anchors}"
+    ),
+    "compile.tool.overview_removed": "区域已删除",
+    "compile.tool.set_fields_result": "已在 {path} 上设置 {fields}",
     "compile.tool.finish_compile_result": "编译已结束",
     "compile.tool.unknown_tool": "未知工具：{name}",
+    # ─────────────────────────────────────────────── compile: the round's tool-call budget
+    "compile.budget.notice": (
+        "# 工具调用预算：本轮 {budget} 次调用还剩 {remaining} 次。\n"
+        "机械检查在当前草稿上已经判定欠下的：\n{owed}"
+    ),
+    "compile.budget.owed_none": "- 没有欠项。",
+    "compile.budget.call_refused": "未执行：本轮的工具调用预算（{budget} 次）已经用尽。",
+    "compile.tool.round_ended": "未执行：同一批调用里，更早的一次调用已经结束了本轮。",
+    "compile.tool.invalid_call": (
+        "未执行：这次 {name} 调用的参数不是合法 JSON（{error}）。什么都没有写入。"
+        "请用合法的 JSON 参数重新发起这次调用。"
+    ),
     # ─────────────────────────────────────────────── compile: write-tool rejections
     "compile.anchor.none": "（无）",
     "compile.anchor.edit_unknown_anchor": (
@@ -723,6 +775,27 @@ _ZH: dict[str, str] = {
     "compile.anchor.append_empty_heading": "append_block 被拒：小节标题不能为空。",
     "compile.anchor.append_anchor_present": (
         "append_block 被拒：新块不需要自带锚点，系统会分配。要改写已有断言请用 edit_claim。"
+    ),
+    "compile.anchor.supersede_unknown_anchor": (
+        "supersede_claim 被拒：锚点 c:{anchor_id} 不在本文档中。现有锚点：{existing}。"
+    ),
+    "compile.anchor.supersede_duplicate_anchor": (
+        "supersede_claim 被拒：锚点 c:{anchor_id} 在文档中出现多次；先修复重复锚点。"
+    ),
+    "compile.anchor.supersede_anchor_present": (
+        "supersede_claim 被拒：new_text 不得自带锚点或 supersedes 标记；两者均由系统分配。"
+    ),
+    "compile.anchor.supersede_not_one_block": (
+        "supersede_claim 被拒：new_text 必须恰好是一个断言块——一条断言取代一条断言。"
+        "其余断言用 append_block 追加。"
+    ),
+    "compile.anchor.supersede_without_evidence": (
+        "supersede_claim 被拒：new_text 没有 [cite: …] 标记。只有新证据才能取代 "
+        "c:{anchor_id}；请引用表明状态已变的那段材料。"
+    ),
+    "compile.anchor.edit_supersedes_changed": (
+        "edit_claim 被拒：c:{anchor_id} 的 supersedes 标记由系统保留，编辑不能增删或改动它。"
+        "new_text 里不要写它；状态再次变化用 supersede_claim。"
     ),
     "compile.anchor.move_unknown_anchor": (
         "断言搬移／合并被拒：锚点 c:{anchor_id} 不在本文档中。已有锚点：{existing}。"
@@ -746,9 +819,62 @@ _ZH: dict[str, str] = {
     ),
     # The early, teachable refusal for any write aimed at a rollover volume — it fires at the
     # tool face and states the corrective action, not just the rule.
+    "compile.patch.claim_superseded": (
+        "{op} 被拒：断言 c:{anchor_id} 已被 `{path}` 中的 c:{successor} 取代，属于冻结历史。"
+        "当前状态在 c:{successor}：措辞有误用 edit_claim 改它；状态又变了用 supersede_claim 取代它。"
+    ),
+    "compile.patch.delete_supersession_target": (
+        "delete_claim 被拒：断言 c:{anchor_id} 是 `{path}` 中 c:{successor} 的前任（supersedes 链接）。"
+        "把它合并掉会让后继的历史悬空。请保留它；改为合并或移动后继，链接会随之带走。"
+    ),
     "compile.patch.volume_frozen": (
         "{op} 被拒：`{path}` 是 `{owner}` 的冻结历史卷，永不写入——它的条目是永久归档。关于这个"
         "主体的新增与更新断言属于活动页面：对 `{owner}` 用 edit_claim / append_block。"
+    ),
+    "compile.patch.fields_refused": (
+        "{op} 被拒：`{path}` 的字段没有写入，文档保持原样。把下面每一条都改掉，再带上完整的一组"
+        "调用一次 {op}：\n{problems}"
+    ),
+    # ─────────────────────────────────────── 总览规则：搬到写入工具面的早期拒绝
+    "compile.overview.refuse_unread": (
+        "{op} 被拒：本次编译还没读过 `{path}`。总览和结构化字段都是整体写入——保持、合并、改写"
+        "还是丢弃，是对已有内容的判断——所以先调用 read_document(\"{path}\")，对着它决定。"
+    ),
+    "compile.overview.refuse_header": (
+        "rewrite_overview 已拒绝：`{path}` 的总览没有写入，文档保持原样。把下面每一条都改掉，"
+        "再整段调用一次 rewrite_overview：\n{problems}"
+    ),
+    "compile.overview.refuse_budget": (
+        "总览渲染出来有 {size} 个字符，超过 {budget} 字符的预算。它是头部，不是第二本账：留住"
+        "当前画像，细节交给断言承担。"
+    ),
+    "compile.overview.refuse_ungrounded": (
+        "{slot}：「{preview}」没有落点。总览的每个块都必须引用库中已存在的一条账本断言"
+        "（c:xxxx），或引用一段来源（[cite: <source_id> ¶a-b]）。断言还没写就先追加断言，"
+        "之后再重写总览。"
+    ),
+    "compile.overview.refuse_definition_blocks": (
+        "definition：它有 {count} 个块。它是一句话，说明这是什么／是谁；其余内容属于 summary "
+        "或 introduction。"
+    ),
+    "compile.overview.refuse_definition_length": (
+        "definition：它有 {size} 个字符，超过 {budget} 字符的上限。一句话说明这是什么／是谁；"
+        "其余内容属于 summary 或 introduction。"
+    ),
+    "compile.overview.refuse_dead_connection": (
+        "connections：「{preview}」链接到 `{target}`，库里没有这份文档。改成链接一份已存在的"
+        "文档，或者先把它创建出来。"
+    ),
+    "compile.overview.refuse_self_connection": (
+        "connections：「{preview}」链接到 `{path}` 自己。connection 是与另一个主体页面的关系。"
+    ),
+    "compile.overview.refuse_missing": (
+        "`{path}` 已有 {count} 条账本断言，却还没有总览——结束本轮之前，用 rewrite_overview "
+        "写一段（至少写 definition）。"
+    ),
+    "compile.patch.set_fields_reserved": (
+        "set_fields 被拒：`{field}` 由系统分配，不是可写字段。系统持有的字段：{reserved}。"
+        "其中 `title` 由文档的 `# ` 标题派生——要改标题，就改那一行。"
     ),
     # ─────────────────────────────────────────────── rollover (groom): the history card
     "compile.groom.contract": (
@@ -791,9 +917,19 @@ _ZH: dict[str, str] = {
     "compile.groom.volume_entry": "- 第 {number} 卷：[{title}]({href})——{claims} 条已归档条目。",
     "compile.groom.commit_message": "groom {path}：{claims} 条断言轮转至 {volume}",
     "compile.groom.heal_commit_message": "groom-heal：改写了 {links} 条卷链接",
+    # ─────────────────────────────────────────────── the document OVERVIEW
+    "overview.heading.definition": "定义",
+    "overview.heading.summary": "现状",
+    "overview.heading.introduction": "背景",
+    "overview.heading.connections": "关联",
+    "overview.connection_line": "- [{path}]({href}) —— {relation}",
     # ─────────────────────────────────────────────── compile gate feedback
     "gate.feedback_header": (
         "# 闸门拒绝：下面这些机械检查没有通过。请用断言级工具修复，然后再次调用 finish_compile。"
+    ),
+    "gate.previous_round_cut_off": (
+        "# 上一轮不是自己结束的：它在第 {spent} 次工具调用处被预算截断。本轮有 {budget} 次调用"
+        "的全新预算，上一轮已经读到的内容都在上面的对话里。"
     ),
     "gate.anchor_continuity": (
         "已有锚点 c:{anchor} 在本次编译后消失了（v1 没有删除通道；断言只被新增或修订，永不移"
@@ -833,10 +969,46 @@ _ZH: dict[str, str] = {
         "档，要么不要写这条链接——死链在知识图谱里就是一个死胡同。"
     ),
     "gate.path_not_owned": "路径不在技能的归属模板范围内：{templates}。",
+    "gate.supersession_target_missing": (
+        "断言 c:{anchor} 声称取代 c:{target}，但整个仓库中不存在该锚点的断言。"
+    ),
+    "gate.supersession_self": "断言 c:{anchor} 把自己列为被取代的断言。",
+    "gate.supersession_multiple": (
+        "断言 c:{anchor} 列出了多个前任（{targets}）；一条断言恰好取代一条断言。"
+    ),
+    "gate.supersession_not_linear": (
+        "断言 c:{target} 被多条断言取代（{anchors}）；一个事实只有一个当前状态——请改为取代最新的后继。"
+    ),
+    "gate.supersession_cycle": "从 c:{anchor} 出发的取代链回到了自身。",
+    "gate.supersession_frozen": (
+        "断言 c:{anchor} 已被 c:{successor} 取代，属于冻结历史，正文不得改动。请改写后继断言。"
+    ),
+    "gate.supersession_without_evidence": (
+        "断言 c:{anchor} 取代 c:{target} 却未引用新证据；只有新证据才能取代一个状态。"
+    ),
     "gate.archive_frozen": (
         "本文档是 `{owner}` 的冻结归档卷，不允许改动：它的条目是整体搬进来的，永久保留。把新增与"
         "更新的断言写到活动页面 `{owner}`——对 `{owner}` 用 edit_claim / append_block——并把你改"
         "写过的卷内断言恢复成原来的文字。"
+    ),
+    # ─────────────────────────────────────────────── the overview's own gate checks
+    "gate.overview_budget": (
+        "总览有 {size} 个字符，超过 {budget} 字符的预算。它是头部，不是第二本账：留住当前画像，"
+        "细节交给断言承担。"
+    ),
+    "gate.overview_ungrounded": (
+        "总览块「{preview}」没有落点：总览的每一句都必须引用一条账本断言（c:xxxx），"
+        "或引用一段来源（[cite: <source_id> ¶a-b]）。"
+    ),
+    "gate.overview_unknown_slot": (
+        "总览里出现了未知槽位 `{slot}`。槽位只有：{slots}。"
+    ),
+    "gate.overview_definition_blocks": (
+        "总览的 definition 有 {count} 个块。它是一句话，说明这是什么／是谁；其余内容属于 summary "
+        "或 introduction。"
+    ),
+    "gate.overview_definition_length": (
+        "总览的 definition 有 {size} 个字符，超过 {budget} 字符的上限。"
     ),
     # ─────────────────────────────────────────────── rollover (groom) gate feedback
     #
@@ -1035,6 +1207,12 @@ _ZH: dict[str, str] = {
     ),
     # ─────────────────────────────────────────────── recall: the mode contracts
     "recall.fast.contract_head": _FAST_CONTRACT_HEAD,
+    "recall.fast.deliberation": (
+        "\n证据审视——`deliberation` 字段最先写，写在你决定任何别的东西之前。在里面点名交给你的"
+        "材料里真正与问题相关的那些条目——用它们的断言编号、来源编号或主体——并一口气把其余的"
+        "排除掉。不要复述问题，不要在里面作答，控制在 600 字符以内。它是你自己的工作笔记：不属于"
+        "答案，也永远不能代替一条引用。\n"
+    ),
     "recall.deep.contract_head": _DEEP_CONTRACT_HEAD,
     "recall.briefing.contract_head": _BRIEFING_CONTRACT_HEAD,
     "recall.suggestion.contract_head": _LIVE_CONTEXT_HEAD,
@@ -1054,6 +1232,28 @@ _ZH: dict[str, str] = {
     "recall.section.profile_header": "# 知识主体档案",
     "recall.section.claims_header": "# 断言笔记（{count} 条）",
     "recall.section.claims_empty": "（本次检索无命中）",
+    "recall.section.component_header": "# 组件查询（{count}）",
+    "recall.fast.component.path_header": "## {path}({args})",
+    "recall.fast.component.path_degraded": "（查询未返回：{reason}）",
+    "recall.fast.component.path_empty": "（查询无结果）",
+    "recall.fast.component.path_dropped": "（……超出该路上限的还有 {count} 条）",
+    "recall.fast.component.path_dropped_detail": "（……未展示：{detail}）",
+    "recall.fast.component.path_already_shown": "（有 {count} 条已在断言笔记／原文摘录里）",
+    "recall.fast.component.path_covered": "（有 {count} 条断言已被此处摘录覆盖）",
+    "recall.fast.component.window_truncated": "（¶{start}-{end} 未展示）",
+    "recall.fast.route.system": (
+        "在写出回答之前，你把一个问题路由到零个或多个查询工具。每个工具都是对主人知识库的"
+        "精确查询，由它自己的描述说明用途。只有当问题明确点到某个工具所查的对象时才调用它，"
+        "参数取自问题本身；多个工具都适用时在同一轮里一起调用；都不适用就一个也不调。"
+        "不要回答问题。"
+    ),
+    "recall.fast.route.request": (
+        "问题：{question}\n"
+        "as_of：{as_of}\n"
+        "主人的时区是 {zone}。任何日期参数都是该时区里的日历日，写成 YYYY-MM-DD。"
+        "问题里的相对或口语表达（“上个季度”“昨天”“last Monday”）由你自己对着 as_of 解析成"
+        "具体的 ISO 日期再传；不要把原短语当参数传下去。"
+    ),
     "recall.section.windows_header": "# 原文摘录（{count} 条）",
     "recall.section.images_header": "# 图片证据（{count} 张）",
     "recall.fast.image_locator": (
@@ -1088,6 +1288,8 @@ _ZH: dict[str, str] = {
     "recall.glance.family_blurb": "  ↳ {blurb}",
     "recall.glance.family_empty": "  （这一族下还没有文档）",
     "recall.glance.entry": "- `{path}` —— {title}（{claims} 条断言{tail}）",
+    "recall.glance.entry_definition": "    definition: {definition}",
+    "recall.glance.entry_ledger": "    ledger: {ledger}",
     "recall.glance.entry_tail_updated": "，更新于 {updated}",
     # A rolled-over document's frozen archive volumes are COUNTED here rather than listed:
     # listing them would let one long-lived subject crowd out every other family.
@@ -1145,8 +1347,11 @@ _ZH: dict[str, str] = {
         "原文，精确措辞、日期、归属、否定、清单与冲突以它为准。需要稍后核对引用区间时，也可以选择"
         "一条 claim 或摘要。完整文档代价高：只有文档本身就是问题主体，或必须读完整历史／比较时才"
         "选择。排除只是相邻或名字相似的材料。\n\n"
+        "组件查询组是精确查找（某一个人的页、某一段日期），并且已经按问题排过序：排名是局部的，"
+        "而它们在自己的范围内是完整的——某个事实归某条查询权威时，优先选它。\n\n"
         "最多选择 {claim_cap} 个 claim 下标、{episode_cap} 个 episode 摘要下标、{window_cap} 个 raw "
-        "window 下标与 {document_cap} 条文档路径。绝不要返回输入中不存在的下标或路径。"
+        "window 下标、{component_cap} 个组件下标与 {document_cap} 条文档路径。绝不要返回输入中不存在"
+        "的下标或路径。"
     ),
     "recall.fast.evidence_select.request": "{candidates}\n\n# 问题\n{question}",
     "recall.fast.evidence_select.glance": "# canonical 知识库鸟瞰\n{glance}",
@@ -1162,6 +1367,9 @@ _ZH: dict[str, str] = {
     "recall.fast.evidence_select.window": (
         "W{index}: [来源={source_id}; 区间={start}-{end}] {text}"
     ),
+    "recall.fast.evidence_select.components_header": "# 组件查询候选",
+    "recall.fast.evidence_select.component_group": "## {label}",
+    "recall.fast.evidence_select.component_item": "K{index}: [{kind}; {locator}] {text}",
     # ──────────────────────────── recall: LLM claim reranker (service adapter's wording)
     # A cheap non-reasoning chat call that plays the cross-encoder's role. Output is consumed
     # mechanically, so the pass can only reorder retrieved evidence.
@@ -1349,7 +1557,10 @@ _ZH: dict[str, str] = {
     "evolve.task.families_empty": "（无）",
     "evolve.tool.list_documents": "列出正本中已有的文档路径。",
     "evolve.tool.read_document": "完整读取一个文档（含锚点）。",
-    "evolve.tool.create_document": "创建一个文档；doc_id 与全部锚点由系统分配。",
+    "evolve.tool.create_document": (
+        "创建一个文档；doc_id 与全部锚点由系统分配，title 由正文的 `# ` 标题派生（前置里写的 "
+        "title 会被它替换）。"
+    ),
     "evolve.tool.move_claim": (
         "把带锚点的断言块逐字搬到目标文档指定小节的末尾，锚点不变；目标文档必须已存在"
         "（先 create_document）。"

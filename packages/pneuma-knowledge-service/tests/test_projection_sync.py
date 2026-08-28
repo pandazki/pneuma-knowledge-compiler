@@ -339,3 +339,182 @@ def _record(ctx, name: str):
         ctx.calls[name] = True
 
     return _call
+
+
+# ================================================== the head churns, the ledger is the base
+
+# A document's overview region is a rewritable head: `rewrite_overview` replaces every block
+# and RETIRES the anchors of the blocks it replaced. In a young library the head is a large
+# share of everything projected (live: 8 overview claims out of 14), so a guardrail counting
+# retired overview anchors as loss refuses the tenant's first honest rewrite. Loss is counted
+# over LEDGER anchors on both sides of the ratio.
+
+_LEDGER = "\n".join(
+    [
+        "## Facts",
+        "",
+        "- kept one [cite: src-a ¶0] <!-- c:1ed00001 -->",
+        "- kept two [cite: src-b ¶1] <!-- c:1ed00002 -->",
+        "- kept three [cite: src-c ¶2] <!-- c:1ed00003 -->",
+    ]
+)
+
+_REWRITTEN_OVERVIEW = "\n".join(
+    [
+        "<!-- overview -->",
+        "",
+        "<!-- overview:definition -->",
+        "### Definition",
+        "",
+        "Aurora is the qualification pipeline. [cite: src-a ¶0] <!-- c:abcd0001 -->",
+        "",
+        "<!-- overview:summary -->",
+        "### Summary",
+        "",
+        "Rollout reached stage two. [cite: src-b ¶1] <!-- c:abcd0002 -->",
+        "",
+        "<!-- /overview -->",
+    ]
+)
+
+
+def _overview_doc(ledger: str = _LEDGER) -> CanonicalDocument:
+    return _doc(
+        "memory/aurora.md",
+        "doc-aurora",
+        f"# Aurora\n\n{_REWRITTEN_OVERVIEW}\n\n{ledger}",
+    )
+
+
+class _RewrittenOverviewCanonical:
+    """The snapshot after one `rewrite_overview`: brand-new overview anchors, same ledger."""
+
+    def __init__(self, ledger: str = _LEDGER):
+        self._ledger = ledger
+
+    async def list(self, user_id, *, at=None):  # noqa: ARG002
+        return [_overview_doc(self._ledger)]
+
+
+def _previous_rows() -> list[dict]:
+    """What that page projected BEFORE the rewrite: 3 ledger claims and 6 head blocks."""
+    ledger = [
+        {
+            "document_path": "memory/aurora.md",
+            "anchor": anchor,
+            "section_path": ["Aurora", "Facts"],
+            "text": text,
+            "citations": [
+                {"source_id": source, "block_start": block, "block_end": block}
+            ],
+            "snapshot_ref": "sha-old",
+        }
+        for anchor, text, source, block in (
+            ("1ed00001", "kept one", "src-a", 0),
+            ("1ed00002", "kept two", "src-b", 1),
+            ("1ed00003", "kept three", "src-c", 2),
+        )
+    ]
+    head = [
+        {
+            "document_path": "memory/aurora.md",
+            "anchor": f"0da0000{i}",
+            "section_path": ["overview", slot],
+            "text": f"the picture as it was ({i})",
+            "citations": [{"source_id": "src-a", "block_start": 0, "block_end": 0}],
+            "snapshot_ref": "sha-old",
+        }
+        for i, slot in enumerate(
+            ("definition", "summary", "introduction", "connections", "summary", "definition"),
+            start=1,
+        )
+    ]
+    return ledger + head
+
+
+def _overview_ctx(canonical=None, previous=None):
+    ctx = _ctx()
+    ctx.canonical = canonical or _RewrittenOverviewCanonical()
+    rows = _previous_rows() if previous is None else previous
+
+    async def _list(user_id):  # noqa: ARG001
+        return rows
+
+    ctx.store.list_canonical_claims = _list
+    return ctx
+
+
+def _index_after(ctx) -> set[tuple[str, str]]:
+    """The projected key set the stores are left holding after the sync they were handed."""
+    _user, _ref, upserts, deleted = ctx.store.synced
+    before = {(row["document_path"], row["anchor"]) for row in _previous_rows()}
+    return (before - set(deleted)) | {
+        (claim.document_path, str(claim.anchor)) for claim in upserts
+    }
+
+
+async def test_retiring_every_overview_anchor_is_not_knowledge_loss():
+    """6 of 9 projected claims are head blocks; the rewrite retires all six. Counted whole
+    that is 67% loss and a refusal — counted over the ledger it is zero, which is the truth:
+    not one claim of the knowledge base went anywhere."""
+    ctx = _overview_ctx()
+
+    result = await sync_projection(ctx, USER, "sha-rewritten")
+
+    assert result.total == 5  # 3 ledger + 2 rewritten head blocks
+    assert result.unchanged == 3  # the ledger, untouched and not re-embedded
+    assert result.upserted == 2 and result.deleted == 6
+    assert ctx.embeddings.calls == [
+        ["Aurora is the qualification pipeline.", "Rollout reached stage two."]
+    ]
+
+    # The index ends holding the ledger plus EXACTLY the new head — no stale overview key.
+    assert _index_after(ctx) == {
+        ("memory/aurora.md", "1ed00001"),
+        ("memory/aurora.md", "1ed00002"),
+        ("memory/aurora.md", "1ed00003"),
+        ("memory/aurora.md", "abcd0001"),
+        ("memory/aurora.md", "abcd0002"),
+    }
+    # …and the same delta reached the two remote faces, retired keys included.
+    assert set(ctx.lexical.synced[2]) == set(ctx.vectors.synced[3]) == {
+        ("memory/aurora.md", f"0da0000{i}") for i in range(1, 7)
+    }
+
+
+async def test_a_ledger_wipe_still_refuses_behind_the_churning_head():
+    """The head no longer counts, so the guardrail must still be counting SOMETHING: dropping
+    2 of the 3 ledger claims is 67% of the knowledge base and is refused at the same half."""
+    ctx = _overview_ctx(
+        _RewrittenOverviewCanonical(
+            "## Facts\n\n- kept one [cite: src-a ¶0] <!-- c:1ed00001 -->"
+        )
+    )
+
+    with pytest.raises(ProjectionRefused) as excinfo:
+        await sync_projection(ctx, USER, "sha-rewritten")
+
+    assert excinfo.value.reason == "excessive_claim_loss"
+    assert excinfo.value.facts["lost"] == 2
+    assert excinfo.value.facts["projected"] == 3  # the ledger is the base, not the 9 rows
+    assert excinfo.value.facts["overview_excluded"] == 6
+    assert "ledger claims" in str(excinfo.value)
+    assert ctx.store.synced is None
+
+
+async def test_allow_wipe_still_carries_a_ledger_wipe_through():
+    """The escape hatch is untouched by the ledger scoping: a declared wipe still executes."""
+    ctx = _overview_ctx(
+        _RewrittenOverviewCanonical(
+            "## Facts\n\n- kept one [cite: src-a ¶0] <!-- c:1ed00001 -->"
+        )
+    )
+
+    result = await sync_projection(ctx, USER, "sha-rewritten", allow_wipe=True)
+
+    assert result.total == 3 and result.deleted == 8
+    assert _index_after(ctx) == {
+        ("memory/aurora.md", "1ed00001"),
+        ("memory/aurora.md", "abcd0001"),
+        ("memory/aurora.md", "abcd0002"),
+    }

@@ -9,7 +9,7 @@ change is a version you can read back and revert. Nothing secret lives here: the
 this machine's ports stay in `../.env`, which is never versioned.
 
 ```
-engine.yaml              model roles: compile / recall / answer / deep / embedding
+engine.yaml              model roles: compile / recall / answer / deep / embedding; index components
 intake/intake.yaml       how material is cut into semantic units
 compile/contract.md      the constitution — what deserves memory, on which page
 compile/challenge.yaml   the post-compile coverage audit
@@ -48,7 +48,10 @@ the smaller raw-window budget remains the exact-text face.
 `evidence_strategy` controls how those faces are composed. `ranked` is the direct,
 lowest-latency fixed-head path. `select` adds one bounded structured recall-model call over
 the broad candidates; the framework validates its coordinates, retains ranked safety anchors,
-and follows selected derived provenance back to L0. `answer_format` is independent: `text`
+and follows selected derived provenance back to L0. `all` removes the choice instead of
+making it: no selection call runs, and the whole candidate pool goes to the answer under one
+character ceiling (`all_context_chars`), which drops windows, then episode summaries, then
+the lowest-ranked claims, and always says what it dropped. `answer_format` is independent: `text`
 keeps the ordinary free-text answer, while `structured` separates answer kind, clean text and
 precise citations so cited spans can be validated. Both can be overridden for one `ask`.
 The API exposes the selector's pre-safety-head choice counts, so a serial selection call that

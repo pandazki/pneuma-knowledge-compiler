@@ -49,6 +49,38 @@ class Settings(BaseSettings):
     # image content blocks, and `auto` trusts the active LangChain model profile. Unknown
     # profiles fall back to caption rather than pretending a text request used vision.
     compile_image_mode: Literal["auto", "caption", "native"] = "auto"
+    # Wall-clock budget for ONE model call inside a compile job (the tool loop, its repair
+    # round, and the post-compile brief). Distinct from `llm_timeout`, which is the HTTP
+    # request guardrail handed to the provider client: a provider connection once hung for
+    # 23 minutes with the job stuck `claimed`, and orphan reclaim only runs on worker
+    # restart. This bound sits above the client, so a hang the client never notices still
+    # completes the job as failed with a stated reason and leaves canonical untouched.
+    # Generous on purpose — the guard is against hangs, not latency. 0 = no timeout.
+    compile_call_timeout: int = 600
+
+    # The absolute ceiling on the tool calls ONE round of a compile may spend — the first
+    # round and its repair round alike. 0 (the default) does NOT mean unbounded: it means the
+    # framework derives the number from the material, `max(40, 3 x sources)` (core
+    # compile/runner.py:first_round_budget), because a first round must be able to read every
+    # supplied source and append at least twice per source. A fixed 40 cut a 36-source day
+    # group mid-append on a real rebuild and cost 14 day groups (156 sources) their place in
+    # the library. Set it only to state an absolute number; it is then used as given.
+    compile_max_tool_calls: int = 0
+
+    # The character ceiling on a canonical document's OVERVIEW region — the bounded head
+    # the compile model may rewrite whole (core compile/overview.py). It is a mechanism
+    # knob, not a contract rule: the contract says what an overview is FOR, and this says
+    # how much of a document's prompt and glance budget one may occupy. Over it, the gate
+    # rejects the round.
+    overview_budget_chars: int = 2000
+
+    # … and the floor under the same region: how many ledger claims a document may hold
+    # before a compile that touches it must give it an overview (`definition` at least).
+    # Measured on a real library: 41 of 85 pages never got one — some holding 20–31 claims —
+    # while every page that had one was maintained again and again. A model maintains a head
+    # that exists and does not start one, so the first one is asked for at the write face and
+    # at the gate rather than in prompt copy. 0 disables the rule.
+    overview_required_after_claims: int = 8
 
     canonical_root: str = "./data/canonical"
 
@@ -108,6 +140,16 @@ class Settings(BaseSettings):
     context_stream_render_roles: bool = True
     context_stream_compile_guidance: bool = True
 
+    # Index components (core components/__init__.py): business-specific structure over
+    # canonical, enabled by name, comma-separated. Empty = none, and every seam a component
+    # can reach (gate, outline, compile tools, deep tools, the projection channel) renders
+    # exactly as before the concept existed. Shipped: `people`, `time`.
+    components: str = ""
+    # The contract family the `people` component binds to — one of the skill's path
+    # templates. The component reads/enforces `identities` and `aliases` frontmatter on
+    # the documents of this family only.
+    people_family: str = "memory/people/{slug}.md"
+
     # Briefing consumption (the ask) is fast-lane: alias real source ids to short
     # query-local `sNN` handles for the answer's citations (one SessionAliaser per ask), so
     # the model copies short handles the UI reverse-binds — like fast. Default on; turn off
@@ -148,7 +190,7 @@ class Settings(BaseSettings):
     # Post-compile coverage challenge (opt-in): blind question generation over the just-
     # compiled material, claim-face probing, and one compensation compile for confirmed
     # gaps. Mechanizes the acceptance loop's "ask real questions" step
-    # (docs/guides/compile-contract.md §5). Off by default: it spends extra model calls
+    # (docs/guides/compile-contract.md §8). Off by default: it spends extra model calls
     # per compile job.
     # Model role for the challenge's question generation and reflection; empty borrows
     # the compile role (same material, same judgement register). One hop, like evolve.
@@ -220,11 +262,18 @@ class Settings(BaseSettings):
 
     # Fast context composition and answer wire. Both defaults preserve the historical lane.
     # `select` spends one structured recall-model call to choose a bounded cross-face mix;
+    # `all` spends none and hands that whole candidate pool to the answer instead, bounded
+    # only by `recall_all_context_chars`;
     # `structured` separates answer text/kind/citations so provenance can be validated rather
     # than parsed out of prose. Selection effort is an optional provider hint for that call.
-    recall_evidence_strategy: Literal["ranked", "select"] = "ranked"
+    recall_evidence_strategy: Literal["ranked", "select", "all"] = "ranked"
     recall_answer_format: Literal["text", "structured"] = "text"
     recall_selection_reasoning_effort: str = ""
+    # `all`'s ONLY bound: how many characters the assembled evidence faces may occupy when
+    # nothing selects between them. Over it the lane drops windows, then episode summaries,
+    # then the lowest-ranked claims, and says so in the answer's degraded marker. Read by no
+    # other strategy. 0 = no ceiling.
+    recall_all_context_chars: int = 120_000
 
     # Fast-recall retrieval planning (PNEUMA_KNOWLEDGE_RECALL_PLAN_QUERIES). 0 = off
     # (byte-for-byte the single-query lane). N > 0: one small call on the recall model
@@ -243,6 +292,17 @@ class Settings(BaseSettings):
     # `recall_claim_cap`. RRF stays the candidate generator (dedup + failure fallback).
     recall_rerank_model: str = ""
     recall_rerank_candidates: int = 120
+    # Component retrieval paths in the fast lane (core recall/paths.py). When enabled
+    # components offer paths, one routing tool-call turn chooses which run; with no path
+    # offered — or this switch off — the lane is byte-identical to the lane without the seam.
+    recall_component_paths: bool = True
+    # Character ceiling on the WHOLE component face (PNEUMA_KNOWLEDGE_RECALL_COMPONENT_
+    # BUDGET_CHARS). Each path's own cap bounds how many items it may contribute; this
+    # bounds how much context they may occupy, which item counts cannot — one verbatim day
+    # is longer than forty claims. Truncation stays honest: what a path did not show is
+    # described per section or per day, and an over-long excerpt is cut at a block boundary
+    # that names the blocks it left out.
+    recall_component_budget_chars: int = 6000
 
     # Answer-style preset for the answering lanes (PNEUMA_KNOWLEDGE_RECALL_ANSWER_STYLE):
     # "concise" = the bare exact value/phrase a grader or script expects;

@@ -74,10 +74,15 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
 from ..domain.canonical import CanonicalDocument
-from ..domain.ids import extract_anchors
+from ..domain.ids import ANCHOR_MARK_RE, extract_anchors
 from ..prompts import prompt
 from .anchor_ops import _HEADING_RE, _LIST_ITEM_RE, anchored_blocks, assign_anchor
-from .documents import render_document
+from .documents import (
+    overview_region,
+    render_document,
+    strip_overview,
+    with_derived_title,
+)
 from .gate import (
     _MD_LINK_RE,
     _render_relative,
@@ -400,9 +405,9 @@ def _units(body: str) -> list[_Unit]:
     """Segment a body into headings / blanks / claim blocks.
 
     Block segmentation is byte-identical to `anchor_ops._iter_content_blocks` (a list item is
-    one block; a paragraph runs until a blank, heading or list item), because the whole point
-    of this module is that the blocks it moves are the same blocks the gate and the projection
-    see.
+    one block; a paragraph runs until a blank, heading, list item or its own anchor line),
+    because the whole point of this module is that the blocks it moves are the same blocks the
+    gate and the projection see.
     """
     lines = body.split("\n")
     units: list[_Unit] = []
@@ -420,13 +425,15 @@ def _units(body: str) -> list[_Unit]:
             continue
         block_lines = [line]
         j = i + 1
-        if not _LIST_ITEM_RE.match(line):
+        if not _LIST_ITEM_RE.match(line) and not ANCHOR_MARK_RE.search(line):
             while j < n:
                 nxt = lines[j]
                 if not nxt.strip() or _HEADING_RE.match(nxt) or _LIST_ITEM_RE.match(nxt):
                     break
                 block_lines.append(nxt)
                 j += 1
+                if ANCHOR_MARK_RE.search(nxt):
+                    break
         units.append(_Unit("block", tuple(block_lines)))
         i = j
     return units
@@ -533,6 +540,16 @@ class RolloverPlan:
     kept_claims: int
     #: The previous overview card, rendered as plain lines (input for the rewrite).
     previous_overview: str
+    #: The document's OVERVIEW REGION, verbatim (compile/documents.py), or `""`.
+    #:
+    #: The region is the compile channel's wholesale-rewritable head and this channel's
+    #: business is the ledger, so a rollover carries it across untouched: it is lifted out
+    #: before the cut is planned (so its blocks can never be archived into a volume, which
+    #: would tear the region in half across two documents) and re-emitted under the title of
+    #: the rewritten active document. The two heads then sit one above the other and stay
+    #: disjoint by construction — the groom's history card is written into the ledger area
+    #: below, and the `rollover_overview_anchors` ledger never names a region anchor.
+    overview_region: str
     #: Every volume of this subject after the rollover, oldest first: (path, claims, span).
     volumes: tuple[tuple[str, int, str], ...]
     #: Anchors this groom may legitimately drop (the card it is replacing).
@@ -593,7 +610,8 @@ def plan_rollover(
     previous_overview = "\n".join(
         select_blocks(active.body, set(overview_anchors(active.frontmatter)))
     )
-    claims_body = strip_blocks(active.body, managed)
+    region = overview_region(active.body)
+    claims_body = strip_blocks(strip_overview(active.body), managed)
 
     units = _units(claims_body)
     blocks = [i for i, unit in enumerate(units) if unit.kind == "block"]
@@ -627,6 +645,7 @@ def plan_rollover(
         archived_claims=len(anchored_blocks(archived_body)),
         kept_claims=len(anchored_blocks(kept_body)),
         previous_overview=previous_overview,
+        overview_region=region,
         volumes=volumes,
         replaced_anchors=frozenset(managed),
         reserved_anchors=frozenset(reserved),
@@ -866,11 +885,19 @@ def _split_title(body: str) -> tuple[str, str]:
 def render_active_body(
     plan: RolloverPlan, overview_blocks: Sequence[str], catalog_blocks: Sequence[str]
 ) -> str:
-    """The rewritten active document body: title → overview → volume catalog → recent tail."""
+    """The rewritten active body: title → overview region → history card → volumes → tail.
+
+    The overview REGION (the compile channel's head, `compile/documents.py`) is re-emitted
+    verbatim directly under the title — the position it holds in every other document — while
+    the history card this channel writes goes below it. Two heads, one above the other, and a
+    rollover neither reads nor rewrites the upper one.
+    """
     title, tail = _split_title(plan.kept_body)
     parts: list[str] = []
     if title:
         parts.extend([title, ""])
+    if plan.overview_region:
+        parts.extend([plan.overview_region, ""])
     if overview_blocks:
         parts.append(prompt("compile.groom.overview_heading"))
         parts.append("")
@@ -1201,6 +1228,14 @@ def build_rollover(
     volume_fm = volume_frontmatter(plan)
     volume_body = plan.archived_body
 
+    # Both files this channel writes get the same derived `title` every compile write gets:
+    # the page's own `# ` heading, and a volume's own — a volume is a canonical document in
+    # its own right, so it is named by what stands at the top of it, not by what the page it
+    # was cut out of happens to be called. Derived BEFORE the gate, so the groom gate judges
+    # the frontmatter that will actually be committed.
+    active_frontmatter = with_derived_title(active_frontmatter, active_body)
+    volume_fm = with_derived_title(volume_fm, volume_body)
+
     violations = run_groom_gate(
         plan=plan,
         active_frontmatter=active_frontmatter,
@@ -1303,6 +1338,16 @@ def heal_volume_links(docs: Sequence[CanonicalDocument]) -> HealResult:
     non-link bytes are untouched, each rewritten link resolves to the target the parent page
     resolved it to, and the repo-wide dead-link count strictly DROPS (a heal that repaired
     nothing has no business writing a commit).
+
+    ONE DELIBERATE EXCEPTION to "non-link bytes are untouched": a file this pass rewrites is
+    serialized with its DERIVED title (`with_derived_title`), so its frontmatter `title` may
+    change or appear. `title` is not stored content — it is read off the document's own `# `
+    heading at every write path that serializes a changed document, and a repair channel that
+    opted out of that rule would be a way for a wrong or missing title to survive a write
+    forever. The exception is bounded from both ends: the delta is system-derived from bytes
+    this pass did not touch (the heading is not a link), and it only ever rides a file the
+    heal was already writing — a volume with a stale title and no repairable link is not
+    written at all. Clause 1 is asserted on the BODY for exactly that reason.
     """
     known = {d.path for d in docs}
     files: dict[str, str] = {}
@@ -1324,9 +1369,12 @@ def heal_volume_links(docs: Sequence[CanonicalDocument]) -> HealResult:
             continue
         healed += repaired
         after_bodies[doc.path] = healed_body
-        files[doc.path] = render_document(dict(doc.frontmatter), healed_body)
+        files[doc.path] = render_document(
+            with_derived_title(dict(doc.frontmatter), healed_body), healed_body
+        )
 
-        # the same clause 1: nothing but link spellings moved.
+        # the same clause 1, read on the BODY: nothing but link spellings moved there. The
+        # frontmatter title is the docstring's one exception — derived, not content.
         if link_elided(healed_body) != link_elided(doc.body):
             violations.append(
                 Violation(

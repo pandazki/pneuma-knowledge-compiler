@@ -2,12 +2,27 @@
 
 from __future__ import annotations
 
+import asyncio
+import uuid
 from datetime import datetime, timedelta, timezone
+from urllib.parse import urlsplit, urlunsplit
+
+import pytest
+from psycopg import AsyncConnection
 
 from pneuma_knowledge_core.domain.ids import AnchorId, SourceId
 from pneuma_knowledge_core.domain.source import ConversationTurn, RawSource
 from pneuma_knowledge_core.ingest.adapters import PlainConversationAdapter, PlainConversationInput
 from pneuma_knowledge_core.recall.projection import ProjectedClaim
+from pneuma_knowledge_service.adapters.postgres import PostgresStore
+
+from conftest import _hostport, _port_open
+
+
+def _with_dbname(dsn: str, name: str) -> str:
+    """The same DSN pointed at another database on the same server."""
+    parts = urlsplit(dsn)
+    return urlunsplit(parts._replace(path=f"/{name}"))
 
 
 def _normalized(
@@ -400,3 +415,44 @@ async def test_user_profile_upsert_get_roundtrip(pg_store, user):
     # delete_user reaps the profile row too (test hygiene).
     await pg_store.delete_user(user)
     assert await pg_store.get_user_profile(user) is None
+
+
+# --- schema application is concurrency-safe on a COLD database --------------------
+
+
+async def test_apply_schema_is_concurrency_safe_on_a_cold_database(settings):
+    """N starters against an EMPTY database all succeed.
+
+    `CREATE TABLE IF NOT EXISTS` is idempotent but not concurrency-safe: without the
+    advisory lock, nine of ten concurrent `apply_schema()` calls died with
+    `UniqueViolation … pg_type_typname_nsp_index (sources, 2200)` — every process that
+    boots an AppContext runs this, so a fresh deployment crashed all but one of them.
+    Needs a genuinely cold database, which the shared compose one never is, so this test
+    creates and drops its own."""
+    host, port = _hostport(settings.pg_dsn, 5432)
+    if not _port_open(host, port):
+        pytest.skip(f"postgres unreachable at {host}:{port}")
+
+    name = f"pneuma_cold_{uuid.uuid4().hex[:12]}"
+    admin = await AsyncConnection.connect(settings.pg_dsn, autocommit=True)
+    try:
+        await admin.execute(f'CREATE DATABASE "{name}"')
+    finally:
+        await admin.close()
+
+    starters = [PostgresStore(_with_dbname(settings.pg_dsn, name)) for _ in range(10)]
+    try:
+        await asyncio.gather(*(s.open() for s in starters))
+        # gather without return_exceptions: one UniqueViolation fails the test by name.
+        await asyncio.gather(*(s.apply_schema() for s in starters))
+        # Idempotent, and the schema really is there.
+        await starters[0].apply_schema()
+        assert await starters[0].list_users() == []
+    finally:
+        for store in starters:
+            await store.aclose()
+        admin = await AsyncConnection.connect(settings.pg_dsn, autocommit=True)
+        try:
+            await admin.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
+        finally:
+            await admin.close()

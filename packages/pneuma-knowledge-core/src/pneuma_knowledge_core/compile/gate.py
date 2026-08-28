@@ -4,7 +4,10 @@ Five machine checks, each returning structured violations (fed back verbatim for
 repair round by the runner):
 
 1. anchor continuity — a base anchor must not vanish. v1 has no authorized deletion
-   channel; the model may only add or revise, never remove.
+   channel; the model may only add or revise, never remove. The ONE exemption is the
+   overview region's own anchors: that region is rewritten whole and its blocks carry no
+   permanent identity, so a rewrite retires them by design (check 4c holds the line that
+   nothing was actually lost). Ledger anchors stay strict.
 2. anchor uniqueness — every anchor is unique across the whole repo.
 3. citation legality — every citation INTRODUCED this round names a source in this
    compile's supplied set, with a block interval inside that source's bounds. A citation
@@ -17,9 +20,22 @@ repair round by the runner):
 4. frontmatter completeness — doc_id / type / slug present.
 4b. anchor coverage — every content block carries an anchor (else it is browse-visible
    canonical text that never enters the L3 claim index — an orphaned claim).
+4c. the OVERVIEW region — bounded in size, grounded in the ledger, four slots and no others
+   (compile/overview.py). The one region a compile may rewrite whole, and the checks are
+   what make that safe: it may hold nothing the ledger does not already carry. Judged for
+   the regions this round WROTE, like the citation checks above.
+4d. the overview a document OWES — a page this round touched whose ledger has passed the
+   threshold must carry one (`definition` at least). 4c bounds the head from above; this
+   bounds the ledger from below. Judged for the pages this round CHANGED, never for the
+   library at large.
 5. path ownership — every document path matches a skill path template, or is one of an owned
    document's rollover volumes (`<owned document>/aNN.md`; see patch.history_volume_owner).
 5b. frozen archive — a rollover volume may not be modified by a compile.
+6. supersession — a `supersedes` marker names an existing anchor, never itself; chains are
+   linear and acyclic; a superseded claim is frozen; the superseding claim carries new
+   evidence (compile/supersession.py).
+7. component checks — every enabled index component judges the documents of its family
+   (components/__init__.py); the framework runs them, it does not know what they test.
 
 The gate is the mechanism; there is no prompt asking the model to "please remember".
 """
@@ -34,9 +50,27 @@ from ..domain.canonical import CANONICAL_CITATION_MARKER_RE, iter_canonical_cita
 from ..domain.ids import extract_anchors
 from ..domain.source import NormalizedSource
 from ..prompts import prompt
+from ..components import registered_components
 from .anchor_ops import anchored_blocks, missing_anchors, unanchored_blocks
 from .documents import DOC_ID_KEY, LEGACY_DOC_ID_KEYS
-from .patch import PatchDraft, history_volume_owner, path_allowed
+# Re-exported: the link grammar and its two coordinate functions now live in
+# `compile.links` — three write paths need them (the gate, rollover's re-rendering, and
+# the overview's connection links) and they cannot all import the gate. Every existing
+# importer keeps reading them from here.
+from .links import _MD_LINK_RE, _render_relative, _resolve_relative  # noqa: F401
+from .overview import (
+    OVERVIEW_BUDGET_CHARS,
+    OVERVIEW_REQUIRED_AFTER_CLAIMS,
+    check_overview_required,
+    check_overviews,
+    overview_anchors,
+)
+from .patch import (
+    PatchDraft,
+    history_volume_owner,
+    path_allowed,
+)
+from .supersession import block_anchor, block_by_anchor, block_supersedes
 
 REQUIRED_FRONTMATTER = (DOC_ID_KEY, "type", "slug")
 
@@ -47,11 +81,6 @@ REQUIRED_FRONTMATTER = (DOC_ID_KEY, "type", "slug")
 # only — this is a read-side alias, not a second supported field name.
 _FRONTMATTER_READ_ALIASES: dict[str, tuple[str, ...]] = {DOC_ID_KEY: LEGACY_DOC_ID_KEYS}
 
-# Inter-document markdown links — the form the projection layer reads to build graph edges
-# (service dataset._MD_LINK_RE). Kept identical here so the gate validates exactly what the
-# graph will later try to resolve.
-_MD_LINK_RE = re.compile(r"\]\(([^)]+)\)")
-
 # Anything a reader would take for a citation: the `[cite:` opener through the next `]`.
 # Deliberately looser than `CANONICAL_CITATION_MARKER_RE` — its whole job is to catch the
 # strings that regex does NOT match, which is why it cannot be that regex.
@@ -61,43 +90,6 @@ _CITE_BRACKET_RE = re.compile(r"\[cite:(?P<inner>[^\]]*)\]")
 # provenance form in the wrong container, so it gets its own violation text: telling an
 # author "this does not parse" when the fix is "move it outside the brackets" is a riddle.
 _ANCHOR_IN_MARKER_RE = re.compile(r"^\s*c:(?P<anchor>[0-9a-zA-Z_-]+)\s*$")
-
-
-def _resolve_relative(from_path: str, href: str) -> str:
-    """Resolve `href` against the linking document's directory (mirrors dataset._resolve_link)."""
-    stack = from_path.split("/")[:-1]
-    for part in href.split("#")[0].split("/"):
-        if part in ("", "."):
-            continue
-        if part == "..":
-            if stack:
-                stack.pop()
-        else:
-            stack.append(part)
-    return "/".join(stack)
-
-
-def _render_relative(from_path: str, target: str) -> str:
-    """The href that renders `target` from a document at `from_path` — the inverse above.
-
-    Its law is the round trip: `_resolve_relative(from_path, _render_relative(from_path, t))
-    == t` for every repo-relative `t`. That is what makes a relative link MOVABLE: the href
-    is only a rendering of a target from one position, so a document that changes position
-    keeps its links by re-rendering them (compile.rollover), never by leaving the bytes alone.
-
-    It lives next to the resolver because an inverse stated somewhere else is a second
-    spelling of the same fact, and the two would drift.
-    """
-    from_dir = from_path.split("/")[:-1]
-    parts = target.split("/")
-    common = 0
-    while (
-        common < len(from_dir)
-        and common < len(parts) - 1
-        and from_dir[common] == parts[common]
-    ):
-        common += 1
-    return "/".join([".."] * (len(from_dir) - common) + parts[common:])
 
 
 @dataclass(frozen=True)
@@ -216,12 +208,166 @@ def check_citation_shape(docs: Mapping[str, object]) -> list[Violation]:
     return violations
 
 
+def check_supersession(
+    docs: Mapping[str, object], base_bodies: Mapping[str, str]
+) -> list[Violation]:
+    """Every `supersedes` marker in the repository is a legal, linear, evidenced link.
+
+    Judged repository-wide (like anchor uniqueness): a chain may cross documents — the
+    active page supersedes a claim archived in its frozen volume — so a per-document view
+    would miss exactly the links that matter. Seven rejections:
+
+    - `supersession_target_missing`: the named anchor exists nowhere;
+    - `supersession_self`: a claim naming itself;
+    - `supersession_multiple`: one block naming several predecessors (one claim
+      supersedes one claim);
+    - `supersession_not_linear`: two claims naming the same predecessor;
+    - `supersession_cycle`: a → b → … → a;
+    - `supersession_frozen`: a claim that was ALREADY superseded in the base changed its
+      text — superseded history is immutable, like a rollover volume;
+    - `supersession_without_evidence`: the superseding block carries no `[cite:]` of its
+      own. "Only new evidence may supersede an old state" is enforced here, not asked.
+    """
+    violations: list[Violation] = []
+    bodies = {path: doc.body for path, doc in docs.items()}
+    by_anchor = block_by_anchor(bodies)
+    successors: dict[str, list[tuple[str, str]]] = {}  # old → [(path, new)]
+    links: dict[str, str] = {}  # old → new (first seen), for the cycle walk
+
+    for path, doc in docs.items():
+        for block in anchored_blocks(doc.body):
+            olds = block_supersedes(block)
+            if not olds:
+                continue
+            new = block_anchor(block) or "?"
+            if len(olds) > 1:
+                violations.append(
+                    Violation(
+                        "supersession",
+                        path,
+                        prompt("gate.supersession_multiple", anchor=new, targets=", ".join(olds)),
+                    )
+                )
+            old = olds[0]
+            if old == new:
+                violations.append(
+                    Violation("supersession", path, prompt("gate.supersession_self", anchor=new))
+                )
+                continue
+            if old not in by_anchor:
+                violations.append(
+                    Violation(
+                        "supersession",
+                        path,
+                        prompt("gate.supersession_target_missing", anchor=new, target=old),
+                    )
+                )
+                continue
+            if CANONICAL_CITATION_MARKER_RE.search(block) is None:
+                violations.append(
+                    Violation(
+                        "supersession",
+                        path,
+                        prompt("gate.supersession_without_evidence", anchor=new, target=old),
+                    )
+                )
+            successors.setdefault(old, []).append((path, new))
+            links.setdefault(old, new)
+
+    for old, heads in successors.items():
+        if len(heads) > 1:
+            violations.append(
+                Violation(
+                    "supersession",
+                    heads[0][0],
+                    prompt(
+                        "gate.supersession_not_linear",
+                        target=old,
+                        anchors=", ".join(new for _, new in heads),
+                    ),
+                )
+            )
+
+    for start in links:
+        seen = {start}
+        cursor = start
+        while cursor in links:
+            cursor = links[cursor]
+            if cursor in seen:
+                violations.append(
+                    Violation(
+                        "supersession",
+                        by_anchor[start][0],
+                        prompt("gate.supersession_cycle", anchor=start),
+                    )
+                )
+                break
+            seen.add(cursor)
+
+    # Frozen: a claim that already HAD a successor in the base keeps its bytes.
+    base_by_anchor = block_by_anchor(base_bodies)
+    already_superseded = {
+        old
+        for body in base_bodies.values()
+        for block in anchored_blocks(body)
+        for old in block_supersedes(block)
+    }
+    for old in already_superseded:
+        before = base_by_anchor.get(old)
+        after = by_anchor.get(old)
+        if before is None or after is None:
+            continue  # continuity is judged by check 1
+        if before[1] != after[1]:
+            violations.append(
+                Violation(
+                    "supersession",
+                    after[0],
+                    prompt("gate.supersession_frozen", anchor=old, successor=links.get(old, "?")),
+                )
+            )
+    return violations
+
+
+def overview_required_violations(
+    draft: PatchDraft,
+    *,
+    threshold: int = OVERVIEW_REQUIRED_AFTER_CLAIMS,
+) -> list[Violation]:
+    """The pages this round touched that owe an overview — the WHOLE judgement, once.
+
+    The pure half (what counts as touched, what counts as a ledger claim, what counts as
+    having a head) lives in `compile/overview.py`; this is where it meets the two things
+    only the draft knows: the Violation type, and which paths are frozen rollover volumes.
+
+    A volume is exempt because the corrective action does not exist for it: `rewrite_overview`
+    refuses a frozen volume, so asking one for a head would name an action the mechanism
+    itself forbids — and a volume is never legitimately changed by a compile anyway (gate 5b
+    refuses that on its own terms, which is the violation that should be read).
+
+    Called from BOTH faces — `finish_compile` in the runner's tool loop, and the gate below —
+    so the early refusal and the final arbiter cannot come to different conclusions.
+    """
+    documents = {
+        path: doc
+        for path, doc in draft.documents().items()
+        if history_volume_owner(path, draft.path_templates) is None
+    }
+    return [
+        Violation("overview", path, detail)
+        for path, detail in check_overview_required(
+            documents, draft.base_documents(), threshold=threshold
+        )
+    ]
+
+
 def run_gate(
     draft: PatchDraft,
     sources: Sequence[NormalizedSource],
     *,
     alias_map: dict[str, str] | None = None,
     known_source_bounds: Mapping[str, int] | None = None,
+    overview_budget_chars: int = OVERVIEW_BUDGET_CHARS,
+    overview_required_after_claims: int = OVERVIEW_REQUIRED_AFTER_CLAIMS,
 ) -> list[Violation]:
     docs = draft.documents()
     base_bodies = draft.base_bodies()
@@ -231,7 +377,13 @@ def run_gate(
     new_bodies = draft.new_bodies()
     for path, base_body in base_bodies.items():
         current = new_bodies.get(path, "")
-        for anchor in missing_anchors(base_body, current):
+        # The overview region's base anchors are the one authorized removal: `rewrite_overview`
+        # replaces the whole region and mints fresh ids for it. Computed from the BASE body, so
+        # a ledger anchor can never be laundered into the exemption by moving it into a region
+        # this round wrote.
+        for anchor in missing_anchors(
+            base_body, current, allowed_removals=overview_anchors(base_body)
+        ):
             violations.append(
                 Violation(
                     "anchor_continuity",
@@ -302,7 +454,15 @@ def run_gate(
     for path, doc in docs.items():
         base_body = base_bodies.get(path, "")
         base_anchors = set(extract_anchors(base_body))
+        # An overview block's provenance is judged by 4c instead, and judged harder: it must
+        # reference a LEDGER anchor from anywhere in the repository, where this check only
+        # knows the anchors this one document had before the round. Running both would reject
+        # the legitimate case the overview exists for — a head resting on a claim filed under
+        # another subject.
+        region_anchors = overview_anchors(doc.body)
         for block in anchored_blocks(doc.body):
+            if set(extract_anchors(block)) & region_anchors:
+                continue
             anchors = [a for a in extract_anchors(block) if a not in base_anchors]
             if not anchors:
                 continue  # pre-existing claim, or no anchor of its own
@@ -370,6 +530,27 @@ def run_gate(
     # path from committing unindexed claims.
     violations.extend(check_anchor_coverage(docs))
 
+    # 4c. the OVERVIEW region: bounded, grounded in the ledger, four slots. The pure judgement
+    # lives in compile/overview.py; the gate owns the Violation type, so it wraps the findings
+    # rather than importing itself into the module it calls.
+    violations.extend(
+        Violation(kind, path, detail)
+        for kind, path, detail in check_overviews(
+            new_bodies, base_bodies, budget=overview_budget_chars
+        )
+    )
+
+    # 4d. and the same region judged from the other end: a document this round TOUCHED whose
+    # ledger has passed the threshold must HAVE an overview. The budget above stops a head
+    # from growing into a ledger; this stops a ledger from growing without a head — the
+    # failure a real library actually showed (41 of 85 pages never got one, some at 20–31
+    # claims, while the ones that had a head were maintained over and over). Untouched pages
+    # are never judged: they converge on their next touch, and a repository-wide floor would
+    # abort compiles that have nothing to do with the page.
+    violations.extend(
+        overview_required_violations(draft, threshold=overview_required_after_claims)
+    )
+
     # 5. path ownership. A document's ROLLOVER VOLUMES (`<owned document>/aNN.md`) count as
     # owned here even though they are outside the write templates: a volume is a real canonical
     # document, so it is read off git into every later compile's draft, and judging it unowned
@@ -412,5 +593,16 @@ def run_gate(
                     )),
                 )
             )
+
+    # 6. supersession links (compile/supersession.py) — legal, linear, evidenced, frozen.
+    violations.extend(check_supersession(docs, base_bodies))
+
+    # 7. enabled index components judge the documents of their families. The framework
+    # runs the checks and feeds the violations back like its own; what a component tests
+    # (an identity unique across the repository, an alias list that only grows) is the
+    # component's declaration, never a rule core knows.
+    base_docs = draft.base_documents()
+    for component in registered_components():
+        violations.extend(component.gate_checks(docs, base_docs))
 
     return violations

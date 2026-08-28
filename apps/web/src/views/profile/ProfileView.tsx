@@ -7,7 +7,7 @@ import {
   putUserProfile,
   type UserProfilePatch,
 } from "@/lib/api";
-import { fmtDate } from "@/lib/format";
+import { fmtDate, fmtDay } from "@/lib/format";
 import type { UserProfile } from "@/lib/types";
 import { useT, useTOr, type TOrFunction } from "@/lib/useT";
 import { PageHeader } from "@/components/PageHeader";
@@ -505,7 +505,7 @@ function ProfileFields({ p }: { p: UserProfile }) {
                 ? t("profile.summary.automation", { value: p.workspace.automation_level })
                 : null,
               p.workspace.active_since
-                ? t("profile.summary.since", { value: p.workspace.active_since })
+                ? t("profile.summary.since", { value: fmtDay(p.workspace.active_since) })
                 : null,
             ]) ?? dash,
         },
@@ -724,7 +724,9 @@ export default function ProfileView() {
         <div className="flex min-w-0 flex-col gap-1">
           <div className="flex flex-wrap items-center gap-3">
             <h2 className="font-serif text-24 text-balance text-ink">{profile.display_name}</h2>
-            <Stamp tone="neutral">SYNTHETIC</Stamp>
+            {/* The stamp states provenance, so it follows `source`: a profile the owner edited
+                and saved is theirs, not a synthesised persona. */}
+            {profile.source !== "user" && <Stamp tone="neutral">SYNTHETIC</Stamp>}
           </div>
           <Mono className="text-13 text-ink-3">{profile.user_id}</Mono>
           <p className="text-12 text-ink-3">

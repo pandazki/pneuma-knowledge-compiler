@@ -3,17 +3,21 @@ import { Search } from "lucide-react";
 import { useApp, type RecallMode } from "@/lib/store";
 import {
   listAllSources,
-  recall,
-  recallAnswer,
-  recallDeepStream,
+  ragStream,
+  recallStream,
+  type ComponentEvidence,
   type EpisodeSummary,
+  type RagResult,
   type RecallAnswer,
   type RecallHit,
   type TokenUsage,
   type TrailStep,
   type UsedClaim,
 } from "@/lib/api";
-import { useT } from "@/lib/useT";
+import { claimOneLine } from "@/lib/claim";
+import { fmtDay, fmtTime } from "@/lib/format";
+import { formatStageMs } from "@/lib/stages";
+import { useT, useTOr } from "@/lib/useT";
 import { PageHeader } from "@/components/PageHeader";
 import { CitationList, type CitationEntry } from "@/components/CitationList";
 import { Badge } from "@/ui/Badge";
@@ -30,6 +34,8 @@ import { SegmentedControl } from "@/ui/SegmentedControl";
 import { SkeletonText } from "@/ui/Skeleton";
 import { cn } from "@/ui/cn";
 import { CitedAnswer } from "../_shared/CitedAnswer";
+import { StageStrip } from "../_shared/StageStrip";
+import { useLiveLane } from "../_shared/useLiveLane";
 
 /**
  * All three lanes keep their input and their results in `store.recallCache`, so jumping to
@@ -42,11 +48,15 @@ export default function RecallView() {
   const recallCache = useApp((s) => s.recallCache);
   const setRecallCache = useApp((s) => s.setRecallCache);
   const currentKbSnapshot = useApp((s) => s.currentKbSnapshot);
-  const { query, mode, hits, answer, error } = recallCache;
+  const { query, mode, rag, answer, error } = recallCache;
 
-  // liveTrail / searching are transients of the in-flight query; Back need not preserve them.
+  // liveTrail / live / searching are transients of the in-flight query; Back need not
+  // preserve them — the finished answer carries its own breakdown.
   const [searching, setSearching] = useState(false);
   const [liveTrail, setLiveTrail] = useState<TrailStep[]>([]);
+  // Both answering lanes are watched the same way: the stages as they open and settle, and
+  // the answer as it is written. deep keeps its trail beside this; fast has none to keep.
+  const live = useLiveLane(searching);
   const abortRef = useRef<AbortController | null>(null);
   const [titles, setTitles] = useState<Record<string, string>>({});
 
@@ -86,25 +96,43 @@ export default function RecallView() {
     setSearching(true);
     setRecallCache({ error: null });
     setLiveTrail([]);
+    live.reset();
     try {
       if (mode === "rag") {
-        const rows = await recall(currentUser, {
-          query: query.trim(),
-          mode,
-          limit: 20,
-          snapshot,
-        });
-        setRecallCache({ answer: null, hits: rows });
-      } else if (mode === "deep") {
-        // deep runs over SSE: each tool call appends to liveTrail live, and the final answer
-        // arrives with the done frame.
-        setRecallCache({ hits: null, answer: null });
+        // The retrieval lane streams too: it reaches no model, so there is no answer being
+        // written, but a slow Meili or Qdrant round trip is exactly the wait the diagram
+        // exists to explain. The `done` frame carries the hit list AND its breakdown.
+        setRecallCache({ answer: null, rag: null });
         const ac = new AbortController();
         abortRef.current = ac;
-        await recallDeepStream(
+        await ragStream(
           currentUser,
           query.trim(),
           {
+            onStage: live.onStage,
+            onDone: (r) => setRecallCache({ rag: r }),
+            onError: (m) => {
+              if (!ac.signal.aborted) setRecallCache({ error: m });
+            },
+          },
+          ac.signal,
+          snapshot,
+          20,
+        );
+      } else {
+        // Both answering lanes run over SSE now: the stage diagram grows in place while the
+        // lane works, the answer text arrives as it is written, and deep additionally appends
+        // each tool call to the trail. The finished answer lands with the `done` frame.
+        setRecallCache({ rag: null, answer: null });
+        const ac = new AbortController();
+        abortRef.current = ac;
+        await recallStream(
+          currentUser,
+          query.trim(),
+          mode,
+          {
+            onStage: live.onStage,
+            onToken: live.onToken,
             onStep: (s) => setLiveTrail((t) => [...t, s]),
             onDone: (a) => setRecallCache({ answer: a }),
             onError: (m) => {
@@ -114,16 +142,9 @@ export default function RecallView() {
           ac.signal,
           snapshot,
         );
-      } else {
-        const a = await recallAnswer(currentUser, {
-          query: query.trim(),
-          mode,
-          snapshot,
-        });
-        setRecallCache({ hits: null, answer: a });
       }
     } catch (e) {
-      setRecallCache({ error: (e as Error).message, hits: null, answer: null });
+      setRecallCache({ error: (e as Error).message, rag: null, answer: null });
     } finally {
       setSearching(false);
     }
@@ -195,13 +216,15 @@ export default function RecallView() {
           error={error}
           onRetry={() => void onSearch()}
         />
-      ) : searching && mode === "deep" ? (
-        <TrailTimeline steps={liveTrail} live />
       ) : searching ? (
-        <SkeletonText lines={6} className="max-w-measure" />
+        <LiveLanePanel
+          live={live}
+          mode={mode}
+          trail={liveTrail}
+        />
       ) : answer ? (
         <AnswerPanel answer={answer} titles={titles} onJump={jumpToCitation} />
-      ) : hits == null ? (
+      ) : rag == null ? (
         <EmptyState
           icon={Search}
           title={mode === "rag" ? t("recall.empty.ragTitle") : t("recall.empty.askTitle")}
@@ -211,14 +234,8 @@ export default function RecallView() {
               : t("recall.empty.askDescription")
           }
         />
-      ) : hits.length === 0 ? (
-        <EmptyState
-          icon={Search}
-          title={t("recall.empty.noHitsTitle")}
-          description={t("recall.empty.noHitsDescription")}
-        />
       ) : (
-        <HitList hits={hits} titles={titles} onJump={jumpToCitation} />
+        <RagPanel rag={rag} titles={titles} onJump={jumpToCitation} />
       )}
       </ScrollRegion>
     </div>
@@ -226,6 +243,40 @@ export default function RecallView() {
 }
 
 /* ---------------------------------------------------------------- rag hit ledger */
+
+/**
+ * The finished rag lane: the same diagram the live run drew, above the ledger it produced.
+ *
+ * Nothing is re-rendered here — `rag.stages` is the measurement `StageStrip` was already
+ * showing, so the picture does not change shape the moment the lane lands. A search that
+ * found nothing keeps its diagram: "where did those seconds go" is a better question when
+ * the answer is empty, not a worse one.
+ */
+function RagPanel({
+  rag,
+  titles,
+  onJump,
+}: {
+  rag: RagResult;
+  titles: Record<string, string>;
+  onJump: (c: CitationEntry) => void;
+}) {
+  const t = useT();
+  return (
+    <div className="flex flex-col gap-4">
+      <StageStrip stages={rag.stages} description={t("recall.stages.descriptionRag")} />
+      {rag.hits.length === 0 ? (
+        <EmptyState
+          icon={Search}
+          title={t("recall.empty.noHitsTitle")}
+          description={t("recall.empty.noHitsDescription")}
+        />
+      ) : (
+        <HitList hits={rag.hits} titles={titles} onJump={onJump} />
+      )}
+    </div>
+  );
+}
 
 function HitList({
   hits,
@@ -296,6 +347,55 @@ function HitList({
   );
 }
 
+/* ---------------------------------------------------------------- the lane, live */
+
+/**
+ * What the reader looks at WHILE the answer is being made.
+ *
+ * It replaces the skeleton that used to sit here, and the difference is the point: a skeleton
+ * says "something is happening", while this says which stage is happening, how long it has
+ * been happening, and — as soon as the model starts writing — what the answer is going to be.
+ * Nothing here is re-rendered when the answer lands; the finished panel draws the same
+ * diagram from the same measurements, which is what makes the live picture trustworthy.
+ */
+function LiveLanePanel({
+  live,
+  mode,
+  trail,
+}: {
+  live: ReturnType<typeof useLiveLane>;
+  mode: RecallMode;
+  trail: TrailStep[];
+}) {
+  const t = useT();
+  return (
+    <div className="flex flex-col gap-4">
+      <StageStrip
+        live={live.stages}
+        description={t(
+          mode === "deep"
+            ? "recall.stages.descriptionDeep"
+            : mode === "rag"
+              ? "recall.stages.descriptionRag"
+              : "recall.stages.description",
+        )}
+      />
+      {/* deep only: the tool calls as they land. Each record already carries its own `ms`. */}
+      {mode === "deep" && <TrailTimeline steps={trail} live />}
+      {live.text ? (
+        <section>
+          <p className="text-12 text-ink-3">{t("recall.stages.answering")}</p>
+          {/* Deliberately unlinked: citations are bound once the answer settles, and a
+              half-written `[cite: s0` is not yet a citation to bind. */}
+          <p className="prose mt-1 max-w-measure text-14 whitespace-pre-wrap">{live.text}</p>
+        </section>
+      ) : (
+        live.stages.length === 0 && <SkeletonText lines={6} className="max-w-measure" />
+      )}
+    </div>
+  );
+}
+
 /* ------------------------------------------------------------------ deep timeline */
 
 /** The deep lane's tool-call timeline: mono tool + query + hits/chars, errors in danger. */
@@ -321,8 +421,8 @@ function TrailTimeline({ steps, live }: { steps: TrailStep[]; live?: boolean }) 
                 : s.chars != null
                   ? t("recall.trail.chars", { count: s.chars })
                   : "";
-            return (
-              <li key={i} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-line py-2">
+            const head = (
+              <>
                 <Mono className="w-6 shrink-0 text-12 text-ink-3">{i + 1}</Mono>
                 <Mono className="shrink-0 text-13 text-accent">{s.tool}</Mono>
                 {arg && (
@@ -332,6 +432,37 @@ function TrailTimeline({ steps, live }: { steps: TrailStep[]; live?: boolean }) 
                   <span className={cn("ml-auto text-12", s.error ? "text-danger" : "text-ink-3")}>
                     {meta}
                   </span>
+                )}
+                {/* What this step cost, measured around the tool itself and already on the
+                    record when it arrived — so a trail growing live reads as a real clock,
+                    not as the gap between two renders. `ml-auto` only when nothing else
+                    claimed the right edge. */}
+                {s.ms != null && (
+                  <Mono className={cn("shrink-0 text-12 text-ink-3", !meta && "ml-auto")}>
+                    · {formatStageMs(s.ms)}
+                  </Mono>
+                )}
+              </>
+            );
+            // Component tools (person_profile, enumerate_identities, timeline …) answer with
+            // several lines of structured text, not a number. The row stays one line; the
+            // result opens under it, verbatim — line breaks are the reading order.
+            return (
+              <li key={i} className="border-b border-line">
+                {s.result ? (
+                  <details className="group">
+                    <summary className="flex cursor-pointer flex-wrap items-baseline gap-x-3 gap-y-1 py-2">
+                      {head}
+                      <span className="shrink-0 text-12 text-ink-3">
+                        {t("recall.trail.result")}
+                      </span>
+                    </summary>
+                    <pre className="mb-2 max-h-96 overflow-auto rounded-1 bg-surface p-3 font-mono text-12 leading-relaxed whitespace-pre-wrap break-words text-ink-2">
+                      {s.result}
+                    </pre>
+                  </details>
+                ) : (
+                  <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 py-2">{head}</div>
                 )}
               </li>
             );
@@ -362,11 +493,18 @@ function UsedClaimRow({
   claim,
   titles,
   onJump,
+  showScore = true,
 }: {
   claim: UsedClaim;
   titles: Record<string, string>;
   onJump: (c: CitationEntry) => void;
+  showScore?: boolean;
 }) {
+  const tOr = useTOr();
+  // Labels are a component's mechanical marks on a claim (`current`, `superseded`), an open
+  // vocabulary: a label this build does not know renders as the word the server sent.
+  const labels = claim.labels ?? [];
+  const superseded = labels.includes("superseded");
   return (
     <div className="border-b border-line py-3">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -375,9 +513,31 @@ function UsedClaimRow({
         {claim.paths.map((p) => (
           <Badge key={p}>{p}</Badge>
         ))}
-        <Mono className="ml-auto text-12 text-ink-3">score {claim.score.toFixed(4)}</Mono>
+        {labels.map((label) =>
+          // `via:person,timespan` — a component lookup returned this same claim. The paths
+          // are dynamic, so the badge is built from the label itself rather than translated.
+          label.startsWith("via:") ? (
+            <Badge key={label} tone="neutral">
+              {tOr("recall.components.via", "via {paths}").replace(
+                "{paths}",
+                label.slice(4).split(",").join(", "),
+              )}
+            </Badge>
+          ) : (
+            <Badge key={label} tone={label === "superseded" ? "warn" : "neutral"}>
+              {tOr(`enum.claimLabel.${label}`, label)}
+            </Badge>
+          ),
+        )}
+        {showScore && (
+          <Mono className="ml-auto text-12 text-ink-3">score {claim.score.toFixed(4)}</Mono>
+        )}
       </div>
-      <p className="prose mt-1 max-w-measure text-14">{claim.text}</p>
+      <p className={cn("prose mt-1 max-w-measure text-14", superseded && "text-ink-3")}>
+        {/* The service ships the ledger line as written — anchor comments and cross-link
+            markup included; the reader gets the sentence, never the machinery. */}
+        {claimOneLine(claim.text)}
+      </p>
       <CitationList
         className="mt-2 max-w-measure"
         citations={claim.citations.map((c) => ({
@@ -389,6 +549,128 @@ function UsedClaimRow({
         onJump={onJump}
       />
     </div>
+  );
+}
+
+/**
+ * One routed component lookup: the path it ran, the arguments routing chose, and what it
+ * returned — its own evidence face, so it is shown as one card rather than merged into the
+ * ranked ledger. A path that contributed nothing still gets a card: what the model asked for
+ * and why the answer has nothing from it is exactly the part worth reading.
+ */
+function ComponentEvidenceCard({
+  evidence,
+  titles,
+  onJump,
+}: {
+  evidence: ComponentEvidence;
+  titles: Record<string, string>;
+  onJump: (c: CitationEntry) => void;
+}) {
+  const t = useT();
+  const claims = evidence.claims ?? [];
+  const windows = evidence.windows ?? [];
+  const args = JSON.stringify(evidence.args ?? {});
+  const dropped = evidence.dropped ?? 0;
+  const droppedSummary = evidence.dropped_summary ?? [];
+  const alreadyShown = evidence.already_shown ?? 0;
+  return (
+    <section className="border-b border-line py-3">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <Mono className="text-13 text-accent">{evidence.path}</Mono>
+        <Mono className="min-w-0 flex-1 truncate text-12 text-ink-3" title={args}>
+          {args}
+        </Mono>
+        {claims.length > 0 && (
+          <Badge>{t("recall.components.claims", { count: claims.length })}</Badge>
+        )}
+        {windows.length > 0 && (
+          <Badge>{t("recall.components.windows", { count: windows.length })}</Badge>
+        )}
+        {evidence.degraded && (
+          <Badge tone="warn">
+            {t("recall.components.degraded", { reason: evidence.degraded })}
+          </Badge>
+        )}
+      </div>
+
+      {claims.length > 0 && (
+        <div className="mt-1 border-t border-line">
+          {claims.map((claim, index) => (
+            <UsedClaimRow
+              key={`${claim.anchor}:${index}`}
+              claim={claim}
+              titles={titles}
+              onJump={onJump}
+              showScore={false}
+            />
+          ))}
+        </div>
+      )}
+
+      {windows.length > 0 && (
+        <div className="mt-1">
+          <HitList hits={windows} titles={titles} onJump={onJump} />
+        </div>
+      )}
+
+      {claims.length === 0 && windows.length === 0 && !evidence.degraded && alreadyShown === 0 && (
+        <p className="mt-1 text-13 text-ink-3">{t("recall.components.empty")}</p>
+      )}
+
+      {/* The lookup found these too — they are in the ranked ledger above, so this face
+          hides them rather than showing the same evidence twice. */}
+      {alreadyShown > 0 && (
+        <p className="mt-1 text-12 text-ink-3">
+          {t("recall.components.alreadyShown", { count: alreadyShown })}
+        </p>
+      )}
+
+      {/* What was NOT shown, described rather than counted: a truncation the reader can act on. */}
+      {droppedSummary.length > 0 ? (
+        <p className="mt-1 text-12 text-ink-3">
+          {t("recall.components.notShown", {
+            detail: droppedSummary.map(([group, count]) => `${group} ×${count}`).join(" · "),
+          })}
+        </p>
+      ) : (
+        dropped > 0 && (
+          <p className="mt-1 text-12 text-ink-3">
+            {t("recall.components.dropped", { count: dropped })}
+          </p>
+        )
+      )}
+    </section>
+  );
+}
+
+/** The routing turn, as one technical line: what was on offer, what was chosen, what broke. */
+function RoutingLine({ answer }: { answer: RecallAnswer }) {
+  const t = useT();
+  const offered = answer.route_offered ?? [];
+  const chosen = answer.route_chosen ?? [];
+  const degraded = answer.route_degraded ?? null;
+  if (offered.length === 0 && chosen.length === 0 && !degraded) return null;
+  return (
+    <p className="mt-2 flex flex-wrap items-baseline gap-x-2 text-12 text-ink-3">
+      <span>{t("recall.route.title")}</span>
+      {offered.length > 0 && (
+        <Mono className="text-12">
+          {t("recall.route.offered", { paths: offered.join(", ") })}
+        </Mono>
+      )}
+      <span aria-hidden>→</span>
+      <Mono className="text-12">
+        {chosen.length > 0
+          ? t("recall.route.chosen", { paths: chosen.join(", ") })
+          : t("recall.route.none")}
+      </Mono>
+      {degraded && (
+        <span className="text-danger">
+          {t("recall.route.degraded", { reason: degraded })}
+        </span>
+      )}
+    </p>
   );
 }
 
@@ -419,7 +701,7 @@ function EpisodeSummaryRow({
           b{summary.block_start}–b{summary.block_end}
         </Mono>
         {summary.source_occurred_on && (
-          <Mono className="text-12 text-ink-3">{summary.source_occurred_on}</Mono>
+          <Mono className="text-12 text-ink-3">{fmtDay(summary.source_occurred_on)}</Mono>
         )}
         {summary.section_path.length > 0 && (
           <span className="text-12 text-ink-3">{summary.section_path.join(" / ")}</span>
@@ -450,6 +732,10 @@ function AnswerPanel({
   const trail = answer.trail ?? [];
   const episodeSummaries = answer.used_episode_summaries ?? [];
   const windows = answer.used_windows ?? [];
+  const componentEvidence = answer.used_component_evidence ?? [];
+  // Sections are numbered as they are rendered: an answer with no component lookups reads
+  // exactly as it did before the seam existed.
+  let section = 1;
   return (
     <div className="flex flex-col gap-6">
       {/* deep: the answer leads; the process folds away for checking */}
@@ -465,9 +751,9 @@ function AnswerPanel({
       )}
 
       <section>
-        <SectionRule no={1} title={t("recall.answer.title")} />
+        <SectionRule no={section++} title={t("recall.answer.title")} />
         <p className="mt-3 text-12 text-ink-3">
-          as_of <Mono>{answer.as_of}</Mono>
+          as_of <Mono title={answer.as_of}>{fmtTime(answer.as_of)}</Mono>
         </p>
         {answer.mode === "fast" && (
           <div className="mt-2 flex flex-wrap gap-2">
@@ -497,6 +783,28 @@ function AnswerPanel({
             )}
           </div>
         )}
+        {answer.mode === "fast" && <RoutingLine answer={answer} />}
+        {/* Both lanes: the strip renders nothing when the answer carries no stages (an
+            answer restored from the session cache), so the lane check would be noise. */}
+        <StageStrip
+          stages={answer.stages}
+          description={t(
+            answer.mode === "deep" ? "recall.stages.descriptionDeep" : "recall.stages.description",
+          )}
+        />
+        {/* The answering call's own evidence review, when its schema carried one. Collapsed
+            by default and above the answer: it explains the answer, it is not the answer, and
+            it is model output rather than evidence — so it never renders as a citation. */}
+        {answer.deliberation && (
+          <details className="mt-3 max-w-measure">
+            <summary className="cursor-pointer text-13 text-ink-2">
+              {t("recall.answer.deliberation")}
+            </summary>
+            <p className="mt-2 text-13 leading-relaxed whitespace-pre-wrap text-ink-2">
+              {answer.deliberation}
+            </p>
+          </details>
+        )}
         <div className="prose mt-2 max-w-measure">
           {answer.answer ? (
             <CitedAnswer text={answer.answer} handles={answer.citation_handles} />
@@ -509,10 +817,30 @@ function AnswerPanel({
         </div>
       </section>
 
+      {componentEvidence.length > 0 && (
+        <section>
+          <SectionRule
+            no={section++}
+            title={t("recall.components.title", { count: componentEvidence.length })}
+          />
+          <p className="mt-2 text-12 text-ink-3">{t("recall.components.description")}</p>
+          <div className="mt-2 border-t border-line">
+            {componentEvidence.map((evidence, index) => (
+              <ComponentEvidenceCard
+                key={`${evidence.path}:${index}`}
+                evidence={evidence}
+                titles={titles}
+                onJump={onJump}
+              />
+            ))}
+          </div>
+        </section>
+      )}
+
       {answer.used_claims.length > 0 && (
         <section>
           <SectionRule
-            no={2}
+            no={section++}
             title={t("recall.usedClaims.title", { count: answer.used_claims.length })}
           />
           <div className="mt-2 border-t border-line">
@@ -526,7 +854,7 @@ function AnswerPanel({
       {episodeSummaries.length > 0 && (
         <section>
           <SectionRule
-            no={3}
+            no={section++}
             title={t("recall.episodeSummaries.title", { count: episodeSummaries.length })}
           />
           <p className="mt-2 text-12 text-ink-3">
@@ -546,7 +874,10 @@ function AnswerPanel({
 
       {windows.length > 0 && (
         <section>
-          <SectionRule no={4} title={t("recall.windows.title", { count: windows.length })} />
+          <SectionRule
+            no={section++}
+            title={t("recall.windows.title", { count: windows.length })}
+          />
           <p className="mt-2 text-12 text-ink-3">{t("recall.windows.description")}</p>
           <div className="mt-2">
             <HitList hits={windows} titles={titles} onJump={onJump} />

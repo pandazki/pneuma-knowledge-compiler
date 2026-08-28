@@ -15,7 +15,20 @@ The suite is fully keyless: the root conftest registers the reference contracts,
 
 ## What a change must preserve
 
-New or changed compile behavior needs tests that hold the four load-bearing properties: the canonical/derived boundary, `user_id` isolation, provenance citations, and synthetic honesty. The five invariants in [architecture §9](docs/architecture.md#9-invariants) take precedence over any local trade-off.
+New or changed compile behavior needs tests that hold the four load-bearing properties: the canonical/derived boundary, `user_id` isolation, provenance citations, and synthetic honesty. The seven invariants in [architecture §9](docs/architecture.md#9-invariants) take precedence over any local trade-off.
+
+Canonical is written by four bounded verbs and nothing else — `create_document` / `append_block`, `edit_claim`, `supersede_claim` (the world changed, as against I was wrong) and `rewrite_overview`, the one wholesale write, which replaces the document's bounded head and leaves the ledger untouched. It is safe only because the gate grounds every overview block on a ledger claim or a source span and bounds the region in characters. A new write path lands with the gate check that bounds it; a verb whose safety rests on prompt wording is not a contribution the gate can hold.
+
+## Extending the framework
+
+Two seams, and they extend different things. A **schema pack** is an additive contract fragment — it extends the judgement. An **index component** (core `components/`) extends the structure: business-specific structure over one contract family, contributed at the framework's own seams (gate checks, an outline line, compile and deep-recall tools, routed fast-recall paths, a source preamble line, and the `on_source_indexed` / `rebuild` projection channel with its per-job `prepare`). A new component must satisfy four things, each testable:
+
+- **derived only** — whatever it persists is re-derived in full by `scripts/ops/rebuild_derived.py`;
+- **read-only canonical** — the canonical face handed to it at registration is `CanonicalReadOnly`; what it indexes reaches the library only by riding an ordinary compile (I7);
+- **fail-soft** — a component that raises costs a stale projection, never a failed job;
+- **tests for the seam** — every face it contributes, plus the one that proves an unregistered component changes no seam byte.
+
+The design authority, with the checklist for writing a third, is [docs/design/index-components.md](docs/design/index-components.md).
 
 ## Data rules
 

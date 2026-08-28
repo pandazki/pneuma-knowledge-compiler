@@ -176,6 +176,20 @@ cd ~/my-knowledge && ./start.sh
 git -C engine add -A && git -C engine commit -m "contract: <改了什么，用他的话说>"
 ```
 
+**5.3 可选——`people` 与 `time`，只在材料喂得动它们时才开。** 框架随包带了两个索引组件：叠在文库之上的额外结构，默认关闭。开不开，看他的数据说话；答案是「不开」时也要说清楚。
+
+- **`people`** 给人物页绑定身份，但它读的是**来源边界**（会议的 `participants`、IM 存档的 `users`、邮件往来的地址，见[来源契约](../docs/reference/source-contracts.zh-CN.md)），不是正文转录。正文里被叫到的名字不是身份。这份指南用的 `.md` 摄入路径根本不带参与者名单，所以在这条路上 `people` 索引不到任何东西；只有当他的材料经来源契约进来、且那些字段是填好的，它才有价值。纯文档库——笔记、文章、知识库导出——没有轮次也没有参与者：不要开。
+- **`time`** 把每一块材料按知识主体时区归到某一天，用来回答「六月到八月之间」「12 号那天是什么状态」。frontmatter 里的 `date:` 足够支撑「天」这一粒度，多数个人库要的也就是这一档；要日内精度就得有块级时间戳（消息的 `sent_at`、会议片段的 `started_at`），同样只有来源契约带得进来。日期本身就不可靠的材料，`time` 索引不了。
+
+在 `engine/engine.yaml` 里开（对应的环境变量名是 `PNEUMA_KNOWLEDGE_COMPONENTS` 和 `PNEUMA_KNOWLEDGE_PEOPLE_FAMILY`）：
+
+```yaml
+components: people, time
+people_family: memory/people/{slug}.md   # 必须逐字等于 contract.md 里的某条 path_templates
+```
+
+`people_family` 必须是你刚写进契约的那几条路径模板之一——契约里没有人物族，`people` 就无处可绑。这件事在这一步定，别拖：组件在下次启动时生效，而第 6 步本来就要清空重建，这样整座库都是开着它们编出来的。改动照例提交进 `engine/`。
+
 **完成标志**：契约里已无 TODO 也无演示内容，草稿他逐条过目过（见原则 5），且引擎仓库里已有这个提交。
 
 ---

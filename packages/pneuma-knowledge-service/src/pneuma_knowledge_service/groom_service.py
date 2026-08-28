@@ -139,10 +139,13 @@ async def heal_volume_links_for_user(ctx: AppContext, user: UserId) -> dict:
     """Repair the volume links an older groom left resolving one level short. No model call.
 
     Rides the groom channel because it writes archive volumes, which no compile may touch —
-    and it is a DEFECT FIX, not a knowledge edit: every byte outside a link href is untouched
-    and every rewritten link ends up at the document its text always meant. Returns a summary
-    dict; commits and re-projects only when something was actually healed, so running it twice
-    leaves the second run with nothing to write.
+    and it is a DEFECT FIX, not a knowledge edit: every byte of the body outside a link href
+    is untouched and every rewritten link ends up at the document its text always meant. The
+    one thing outside the body that may move is the derived frontmatter `title`, which every
+    write path that serializes a changed document re-reads off its `# ` heading; see
+    `heal_volume_links` for why that exception is bounded rather than a loophole. Returns a
+    summary dict; commits and re-projects only when something was actually healed, so running
+    it twice leaves the second run with nothing to write.
     """
     docs = await ctx.canonical.list(user)
     result = heal_volume_links(docs)
