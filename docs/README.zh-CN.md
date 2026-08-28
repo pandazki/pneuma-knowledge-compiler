@@ -9,6 +9,7 @@
 | 你在做的事 | 看这份 |
 |---|---|
 | 驱动或评审模型演进 | [guides/evolution.zh-CN.md](guides/evolution.zh-CN.md) |
+| 决定一个问题怎么被回答——`ranked` / `select` / `all` | [guides/recall-strategies.zh-CN.md](guides/recall-strategies.zh-CN.md) |
 | 接入会议 / 文档库 / IM / 邮件数据 | [reference/source-contracts.zh-CN.md](reference/source-contracts.zh-CN.md) |
 | 基于 HTTP API 开发 | [reference/http-api.zh-CN.md](reference/http-api.zh-CN.md) |
 | 部署与调参 | [reference/configuration.zh-CN.md](reference/configuration.zh-CN.md) |

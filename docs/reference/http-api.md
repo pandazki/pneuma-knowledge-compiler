@@ -40,7 +40,7 @@ Conventions:
 | GET | `/…/sources/{source_id}` | detail: meta, structure map, blocks, and block-aligned image manifests |
 | GET | `/…/sources/{source_id}/blocks/{block_index}/images/{image_id}` | tenant-scoped private image bytes; validates source/block/image membership and the stored digest |
 | POST | `/…/sources/{source_id}/fetch` | verbatim L0 fetch by `locator` |
-| GET | `/…/summary` | workspace counts: sources, jobs, documents, claims, snapshots |
+| GET | `/…/summary` | workspace counts: sources, jobs, jobs_failed, documents, claims, snapshots |
 
 ## Recall
 
@@ -273,6 +273,21 @@ Source detail never exposes an object-store key. Each image manifest contains `i
 | GET | `/…/jobs` | queue pagination (`status`, `kind` filters) |
 | GET | `/…/history` | unified timeline of patches, jobs and snapshots, with counts |
 | GET | `/…/history/activity` | timeline calendar |
+
+The job queue stores three statuses — `queued`, `claimed`, `done` — and *failed* is not one
+of them: a compile the gate rejects finishes `done` like any other job and says which it was
+in `ok`. `GET /…/jobs?status=` therefore accepts two derived names beside the three stored
+ones:
+
+| `status=` | Selects |
+|---|---|
+| `queued` / `claimed` / `done` | the stored value, verbatim; `done` is still both outcomes |
+| `succeeded` | `done` and `ok=true` — the job committed |
+| `failed` | `done` and `ok=false` — the job finished without committing (a gate rejection, an aborted round) |
+
+`GET /…/summary` carries the same set as `jobs_failed`, so a workspace whose compiles are all
+aborting is visible without listing the queue. The `status` value is bound into the pagination
+cursor: changing it mid-page is a 422, ask again from the first page.
 
 ## Snapshots — two distinct concepts
 

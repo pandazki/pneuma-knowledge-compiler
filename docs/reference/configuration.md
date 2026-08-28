@@ -109,6 +109,8 @@ answering call, before the answer commits; the review is returned on the wire as
 `deliberation` and never enters the SystemMessage. The ceiling is the only thing that can cut
 this context, and it never cuts silently.
 
+Which of the three to run for a given business, what `deliberation` and the two reasoning-effort knobs are worth, and one measured latency/cost/breadth comparison: [guides/recall-strategies.md](../guides/recall-strategies.md).
+
 ## Prompt language
 
 | Setting | Default | Meaning |

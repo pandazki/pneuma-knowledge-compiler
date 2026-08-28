@@ -9,6 +9,7 @@ Everything else is a lookup, not a read-through:
 | What you are doing | Where to look |
 |---|---|
 | Driving or reviewing schema evolution | [guides/evolution.md](guides/evolution.md) |
+| Choosing how a question is answered — `ranked` / `select` / `all` | [guides/recall-strategies.md](guides/recall-strategies.md) |
 | Feeding in meeting / library / IM / email data | [reference/source-contracts.md](reference/source-contracts.md) |
 | Building against the HTTP API | [reference/http-api.md](reference/http-api.md) |
 | Deploying or tuning | [reference/configuration.md](reference/configuration.md) |
