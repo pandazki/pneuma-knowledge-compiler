@@ -232,6 +232,43 @@ async def test_job_pages_are_bounded_filtered_and_do_not_repeat(pg_store, user):
     assert all(row["status"] == "queued" and row["kind"] == "index" for row in queued)
 
 
+async def test_failed_and_succeeded_are_the_two_halves_of_done(pg_store, user):
+    """`failed` was the one status an operator asks for and the one the queue never stored.
+
+    A compile the gate rejects finishes exactly like a compile that commits — `status='done'`
+    — and says which it was in `ok`. So `?status=failed` matched no row and answered 0 for
+    every workspace, healthy or not. The two names are derived predicates over the same
+    column: the storage semantics the worker and the ops scripts read are untouched, and
+    `done` still means both halves.
+    """
+    job_ids = [
+        await pg_store.enqueue(user, "compile", {"source_ids": [f"sid-h{i}"]})
+        for i in range(4)
+    ]
+    await pg_store.complete(user, job_ids[0], ok=True)
+    await pg_store.complete(user, job_ids[1], ok=False, detail="gate rejected")
+    await pg_store.complete(user, job_ids[2], ok=False, detail="gate rejected")
+    # job_ids[3] stays queued.
+
+    failed, failed_total, _ = await pg_store.list_jobs_page(user, limit=10, status="failed")
+    assert failed_total == 2
+    assert [row["ok"] for row in failed] == [False, False]
+    assert all(row["status"] == "done" for row in failed)
+
+    ok_rows, ok_total, _ = await pg_store.list_jobs_page(user, limit=10, status="succeeded")
+    assert ok_total == 1
+    assert [row["ok"] for row in ok_rows] == [True]
+
+    _, done_total, _ = await pg_store.list_jobs_page(user, limit=10, status="done")
+    assert done_total == 3  # unchanged: `done` is still both halves
+
+    _, queued_total, _ = await pg_store.list_jobs_page(user, limit=10, status="queued")
+    assert queued_total == 1
+
+    counts = await pg_store.workspace_counts(user)
+    assert counts["jobs"] == 4 and counts["jobs_failed"] == 2
+
+
 async def test_workspace_counts_are_derived_in_one_user_scope(pg_store, user):
     await pg_store.add(user, _normalized(user, "sid-count", "chk-count"))
     await pg_store.enqueue(user, "index", {"source_ids": ["sid-count"]})
@@ -263,6 +300,7 @@ async def test_workspace_counts_are_derived_in_one_user_scope(pg_store, user):
     assert await pg_store.workspace_counts(user) == {
         "sources": 1,
         "jobs": 1,
+        "jobs_failed": 0,
         "documents": 2,
         "claims": 3,
     }
@@ -272,6 +310,7 @@ async def test_workspace_counts_are_derived_in_one_user_scope(pg_store, user):
     assert await pg_store.workspace_counts(user) == {
         "sources": 1,
         "jobs": 1,
+        "jobs_failed": 0,
         "documents": 2,
         "claims": 3,
     }

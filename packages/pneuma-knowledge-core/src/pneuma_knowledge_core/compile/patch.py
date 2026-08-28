@@ -22,6 +22,7 @@ from .anchor_ops import (
     assign_document_anchors,
     edit_claim_text,
     insert_block_verbatim,
+    refuse_text_machinery,
     remove_claim_block,
     supersede_claim_text,
 )
@@ -274,6 +275,7 @@ class PatchDraft:
             raise AnchorToolError(
                 prompt("compile.patch.create_exists", path=path)
             )
+        refuse_text_machinery("create_document", body)
         doc_id = _assign_document_id(path)
         anchored = assign_document_anchors(body, path)
         # Normalize first so a legacy id key handed in by a caller is folded away rather
@@ -317,6 +319,7 @@ class PatchDraft:
     def edit_claim(self, path: str, anchor_id: str, new_text: str) -> DraftDoc:
         self._refuse_frozen_volume(path, "edit_claim")
         self._refuse_superseded(anchor_id, "edit_claim")
+        refuse_text_machinery("edit_claim", new_text)
         doc = self.read(path)
         doc.body = edit_claim_text(doc.body, anchor_id, new_text)
         return doc
@@ -330,6 +333,7 @@ class PatchDraft:
         """
         self._refuse_frozen_volume(path, "supersede_claim")
         self._refuse_superseded(anchor_id, "supersede_claim")
+        refuse_text_machinery("supersede_claim", new_text)
         doc = self.read(path)
         doc.body, new_anchor = supersede_claim_text(
             doc.body, anchor_id, new_text, document_path=path
@@ -488,6 +492,7 @@ class PatchDraft:
 
     def append_block(self, path: str, heading: str, text: str) -> DraftDoc:
         self._refuse_frozen_volume(path, "append_block")
+        refuse_text_machinery("append_block", text)
         doc = self.read(path)
         doc.body = append_block_text(doc.body, heading, text, document_path=path)
         return doc

@@ -30,11 +30,15 @@ from pneuma_knowledge_strategies import (
 # audio/video/files as unsupported, replacing the earlier aspirational generic-media line.
 # On 2026-08-12 v2 stopped fabricating exact endpoints for relative periods whose calendar
 # convention is not supplied. v1 remains byte-stable; the retired v2 body was 3e75f9d4….
+# On 2026-08-28 v2's alias sentence stopped saying aliases are only ever added: the fields
+# a page carries are a snapshot the compile rewrites whole, so a form recorded in error is
+# dropped rather than accumulated, and a title-plus-surname is named as usually not a name.
+# v1 remains byte-stable; the retired v2 body was 9f04453f….
 # Retired historical body hashes: v1 bedea7b4…, v2 aeae8203…, v3 187d0201… (full values
 # in git history).
 FROZEN_BODY_SHA256 = {
     "v1": "b81c08e9184f2dc7a502d620203b8bf2386f548b0a77edb19d381498767ba9b1",
-    "v2": "9f04453f638ab1046600be73f157d76854d63c4f737a215776f6a17d3248c9a0",
+    "v2": "5e3945af4e7ca4b1de7046527058b26daffb5e21ad8fa3658c18300d28c4fe28",
 }
 
 PERSONAL_KNOWLEDGE_TEMPLATES = (

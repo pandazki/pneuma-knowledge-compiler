@@ -189,3 +189,89 @@ async def test_unregistered_base_version_fails_loud_too(tmp_path):
     with pytest.raises(LookupError) as excinfo:
         await skill_for_user(ctx, UserId(uid))
     assert "v-nope" in str(excinfo.value)
+
+
+# ------------------------------------------------ the contract advanced under a user
+
+
+def _advance_to(monkeypatch, old: str, new: str):
+    """Register `new` as the only base — the operator moved the engine's contract on.
+
+    `old` is what every manifest written before that names; the registry no longer holds it,
+    exactly like a live deployment after `version: app-v2 → app-v3` and a restart."""
+    from pneuma_knowledge_core.skill import register_skill_base, registered_skill_bases
+    from pneuma_knowledge_core.skill.version import reset_skill_bases
+
+    base = registered_skill_bases()[old]
+    reset_skill_bases()
+    register_skill_base(
+        new,
+        base.__class__.from_parts(
+            skill_id=base.skill_id,
+            version=new,
+            instructions=base.instructions + "\n\n(advanced)",
+            path_templates=base.path_templates,
+            contract_rules=base.contract_rules,
+        ),
+    )
+    monkeypatch.setattr(
+        skills_mod, "register_skill_base", register_skill_base, raising=False
+    )
+
+
+async def test_a_manifest_naming_a_retired_base_follows_the_current_contract(
+    tmp_path, monkeypatch
+):
+    """The manifest says app-v2; the deployment now registers only app-v3.
+
+    Before this fix `skill_for_user` raised LookupError from inside a compile — an operator
+    who advanced the contract broke every user whose manifest predates the bump. A new
+    version is meant to shape future compiles, so the compile follows the current base and
+    the manifest is rewritten to name it, packs intact."""
+    uid = "u-retired"
+    model = _CountingDerive()
+    ctx = _ctx(tmp_path, profiles={uid: _profile(uid)}, model=model, user_schema_base_version="v1")
+    await skill_for_user(ctx, UserId(uid))
+    assert '"base_version": "v1"' in (await ctx.canonical.read_meta(UserId(uid), "skill/manifest.json"))
+
+    _advance_to(monkeypatch, "v1", "v1-next")
+    ctx.settings = ctx.settings.model_copy(update={"user_schema_base_version": "v1-next"})
+
+    skill = await skill_for_user(ctx, UserId(uid))
+    assert skill.version == "v1-next"
+    assert "(advanced)" in skill.instructions
+    assert model.calls == 1  # packs came from the manifest; no re-derive
+    manifest = await ctx.canonical.read_meta(UserId(uid), "skill/manifest.json")
+    assert '"base_version": "v1-next"' in manifest
+
+
+async def test_a_manifest_naming_a_registered_older_base_keeps_it(tmp_path, monkeypatch):
+    """When BOTH versions are registered, the manifest's own name still wins — the fallback
+    is for a name the registry lost, never a silent upgrade of one it still holds."""
+    from pneuma_knowledge_core.skill import register_skill_base, registered_skill_bases
+
+    uid = "u-kept"
+    ctx = _ctx(tmp_path, profiles={uid: _profile(uid)}, model=_CountingDerive(), user_schema_base_version="v1")
+    await skill_for_user(ctx, UserId(uid))
+
+    base = registered_skill_bases()["v1"]
+    register_skill_base("v1-next", base.__class__.from_parts(
+        skill_id=base.skill_id, version="v1-next", instructions=base.instructions + " X",
+        path_templates=base.path_templates, contract_rules=base.contract_rules))
+    ctx.settings = ctx.settings.model_copy(update={"user_schema_base_version": "v1-next"})
+
+    skill = await skill_for_user(ctx, UserId(uid))
+    assert skill.version == "v1"
+    assert '"base_version": "v1"' in (await ctx.canonical.read_meta(UserId(uid), "skill/manifest.json"))
+
+
+def test_base_named_or_current_reports_the_retirement_and_nothing_else():
+    from pneuma_knowledge_service.skills import base_named_or_current
+
+    settings = SimpleNamespace(user_schema_base_version="v1")
+    skill, retired = base_named_or_current(settings, "v1")
+    assert skill.version == "v1" and retired is False
+    skill, retired = base_named_or_current(settings, "")
+    assert skill.version == "v1" and retired is False
+    skill, retired = base_named_or_current(settings, "app-gone")
+    assert skill.version == "v1" and retired is True

@@ -776,6 +776,12 @@ _ZH: dict[str, str] = {
     "compile.anchor.append_anchor_present": (
         "append_block 被拒：新块不需要自带锚点，系统会分配。要改写已有断言请用 edit_claim。"
     ),
+    "compile.anchor.text_machinery": (
+        "{op} 被拒：断言正文里不能出现系统自己的机器标记——在「{preview}」的正文中发现 {found}。"
+        "锚点与 supersedes 标记由系统写在块的末尾，也没有任何占位符可填："
+        "不要写 `__AUTO__`、`__NEW__`，也不要写任何 HTML 注释。"
+        "如果你是用它来分隔两条陈述，那就是两个块：分两次调用提交（或写成两个列表项），一块一条断言。"
+    ),
     "compile.anchor.supersede_unknown_anchor": (
         "supersede_claim 被拒：锚点 c:{anchor_id} 不在本文档中。现有锚点：{existing}。"
     ),
@@ -941,6 +947,12 @@ _ZH: dict[str, str] = {
     "gate.frontmatter_missing": "frontmatter 缺少必填字段 {key}。",
     "gate.anchor_coverage": (
         "内容块没有锚点，不会进入断言索引：「{preview}…」。每个断言块都需要一个系统锚点。"
+    ),
+    "gate.claim_text_machinery": (
+        "断言正文里带了系统自己的机器标记——「{preview}…」中出现 {found}。"
+        "锚点与 supersedes 标记由系统写在块的末尾，也没有任何占位符可填。"
+        "用 edit_claim 把这条断言重写掉；如果它本来是在分隔两条陈述，第一条留在这里，"
+        "第二条用 append_block 追加。"
     ),
     "gate.citation_unknown_source": "引用指向 source_id={source_id}，本轮没有提供这个来源。",
     "gate.citation_out_of_range": (

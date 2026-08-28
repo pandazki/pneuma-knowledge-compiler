@@ -36,6 +36,31 @@ _MANIFEST_PATH = "skill/manifest.json"
 MANIFEST_PATH = _MANIFEST_PATH  # public alias (evolve rides the same manifest on its branch)
 
 
+def base_named_or_current(settings, named: str) -> tuple[SkillVersion, bool]:
+    """The base a persisted manifest names, or the deployment's current one if it is gone.
+
+    A manifest records the base the user's skill was composed from, and that record outlives
+    the contract: an operator who advances the engine's contract (app-v2 → app-v3) registers
+    ONE base, and every user manifest written before that names a version the registry no
+    longer holds. Reading a library must not depend on the contract that produced it — the
+    documents are already written, and a retired version is exactly what the architecture
+    promises a commit may keep naming. So a name the registry cannot resolve falls back to
+    the version the deployment runs today, and the caller is told (`True`) so a write path
+    can re-materialize the manifest while a read path simply renders.
+
+    A deployment with NOTHING registered still fails loudly — that is a misconfiguration,
+    not a retirement, and `load_skill_base` says so with every door out.
+    """
+    version = (named or "").strip()
+    current = str(settings.user_schema_base_version)
+    if version and version != current:
+        try:
+            return load_skill_base(version), False
+        except LookupError:
+            pass
+    return load_skill_base(current), bool(version) and version != current
+
+
 def serialize_manifest(
     base: SkillVersion, packs: list[SchemaPack], composed: SkillVersion
 ) -> str:
@@ -115,11 +140,18 @@ async def skill_for_user(ctx, user_id: UserId) -> SkillVersion:
 
     manifest = await _read_manifest(ctx, user_id)
     if manifest is not None:
-        base = load_skill_base(
-            str(manifest.get("base_version") or settings.user_schema_base_version)
+        base, retired = base_named_or_current(
+            settings, str(manifest.get("base_version") or "")
         )
         packs = [SchemaPack(**p) for p in manifest.get("packs", [])]
-        return compose_skill(base, packs)
+        composed = compose_skill(base, packs)
+        if retired:
+            # The contract this user was composed against is no longer registered: the
+            # operator advanced the engine. A new version is meant to shape future compiles,
+            # so this compile follows it and the manifest is rewritten to name it — with the
+            # same packs, which are additive and independent of the base's body.
+            await _write_manifest(ctx, user_id, base, packs, composed)
+        return composed
 
     # First compile for this user: materialize the manifest now.
     base = load_skill_base(settings.user_schema_base_version)

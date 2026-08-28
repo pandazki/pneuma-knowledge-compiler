@@ -3214,6 +3214,14 @@ SURFACES: tuple[Surface, ...] = (
                 "当某个内容块没有锚点、因而永远进不了断言索引时。",
             ),
             f(
+                "gate.claim_text_machinery",
+                "When a page this round wrote carries an HTML comment or an invented "
+                "`__AUTO__` / `__NEW__` anchor placeholder inside a claim's text — typically "
+                "two claims glued together by a marker the model wrote itself.",
+                "当本轮写过的页面里，某条断言的正文中带了 HTML 注释或自己编出来的 "
+                "`__AUTO__` / `__NEW__` 锚点占位符时——通常是模型自己写了个标记，把两条断言粘成了一条。",
+            ),
+            f(
                 "gate.frontmatter_missing",
                 "When a document's frontmatter lacks a required field.",
                 "当某份文档的 frontmatter 缺少必填字段时。",
@@ -3347,6 +3355,14 @@ SURFACES: tuple[Surface, ...] = (
                 "`append_block` whose new text carries an anchor — the system assigns anchors, "
                 "never the model.",
                 "`append_block` 的新文本自带锚点——锚点由系统分配，从不由模型分配。",
+            ),
+            f(
+                "compile.anchor.text_machinery",
+                "Any write whose claim TEXT carries the system's own machinery — an HTML "
+                "comment, or an invented `__AUTO__` / `__NEW__` anchor placeholder. It names "
+                "the corrective action: two statements are two blocks.",
+                "任何写入的断言正文里带了系统自己的机器标记——HTML 注释，或自己编出来的 "
+                "`__AUTO__` / `__NEW__` 锚点占位符。回复会指出该怎么改：两条陈述就是两个块。",
             ),
             f(
                 "compile.anchor.supersede_unknown_anchor",

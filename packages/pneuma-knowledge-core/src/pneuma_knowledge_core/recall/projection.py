@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 
 from ..domain.canonical import (
     CANONICAL_CITATION_MARKER_RE,
+    HTML_COMMENT_RE,
     CanonicalDocument,
     Citation,
     iter_canonical_citations,
@@ -114,6 +115,13 @@ def _clean_and_cite(block: str) -> tuple[str, list[Citation]]:
     # The supersedes marker is structure, like the anchor: it never reaches display text
     # or the claim index (the relation is read by compile/supersession.py, not by search).
     text = SUPERSEDES_MARK_RE.sub("", text)
+    # And any OTHER HTML comment, for the same reason and not a cosmetic one: a comment in a
+    # claim's text is machinery the gate now refuses outright, but legacy claims committed
+    # before that check carry markers the model invented (`<!-- c:__AUTO__ -->`), and those do
+    # not match the two regexes above. Left in, they were indexed and searched as if they were
+    # words — the display path had stripped them for years, so nobody could see it. Derived
+    # layers rebuild, so this reaches the index on the next `rebuild_derived`.
+    text = HTML_COMMENT_RE.sub("", text)
     # Drop a leading list bullet for a cleaner claim string; collapse trailing space.
     text = _LIST_ITEM_RE.sub("", text, count=1) if _LIST_ITEM_RE.match(text) else text
     return text.strip(), citations

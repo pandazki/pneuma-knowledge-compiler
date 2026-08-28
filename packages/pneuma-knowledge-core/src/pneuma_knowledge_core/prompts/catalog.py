@@ -1024,6 +1024,14 @@ DEFAULTS: dict[str, str] = {
         "append_block rejected: a new block does not need to carry an anchor, the system "
         "assigns it. To rewrite an existing claim use edit_claim."
     ),
+    "compile.anchor.text_machinery": (
+        "{op} rejected: a claim's text may not contain the system's own machinery — found "
+        "{found} inside the text of \"{preview}\". Anchors and supersedes markers are "
+        "written by the system, at the END of a block, and there is no placeholder to type: "
+        "no `__AUTO__`, no `__NEW__`, no HTML comment of any kind. If that marker was your "
+        "way of separating two statements, they are two blocks: submit them as two calls (or "
+        "as two list items), one claim each."
+    ),
     "compile.anchor.supersede_unknown_anchor": (
         "supersede_claim rejected: anchor c:{anchor_id} is not in this document. Existing "
         "anchors: {existing}."
@@ -1252,6 +1260,12 @@ DEFAULTS: dict[str, str] = {
     "gate.anchor_coverage": (
         "content block has no anchor and will not enter the claim index: \"{preview}…\". "
         "Every claim block needs a system anchor."
+    ),
+    "gate.claim_text_machinery": (
+        "claim text carries the system's own machinery — {found} inside \"{preview}…\". "
+        "Anchors and supersedes markers are written by the system at the END of a block, and "
+        "no placeholder exists to type. Rewrite the claim with edit_claim without it; if it "
+        "was separating two statements, keep the first here and append_block the second."
     ),
     "gate.citation_unknown_source": (
         "citation refers to source_id={source_id}, which was not supplied this round."

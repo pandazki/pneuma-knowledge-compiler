@@ -20,6 +20,10 @@ repair round by the runner):
 4. frontmatter completeness — doc_id / type / slug present.
 4b. anchor coverage — every content block carries an anchor (else it is browse-visible
    canonical text that never enters the L3 claim index — an orphaned claim).
+4e. claim TEXT carries no machinery — no HTML comment, no invented `__AUTO__` / `__NEW__`
+   anchor placeholder, anywhere before a block's trailing system markers. Judged for the
+   pages this round CHANGED: a legacy page nobody touched keeps its bytes (the only channel
+   that could repair it is a compile that is writing it anyway).
 4c. the OVERVIEW region — bounded in size, grounded in the ledger, four slots and no others
    (compile/overview.py). The one region a compile may rewrite whole, and the checks are
    what make that safe: it may hold nothing the ledger does not already carry. Judged for
@@ -51,7 +55,12 @@ from ..domain.ids import extract_anchors
 from ..domain.source import NormalizedSource
 from ..prompts import prompt
 from ..components import registered_components
-from .anchor_ops import anchored_blocks, missing_anchors, unanchored_blocks
+from .anchor_ops import (
+    anchored_blocks,
+    missing_anchors,
+    text_machinery_problems,
+    unanchored_blocks,
+)
 from .documents import DOC_ID_KEY, LEGACY_DOC_ID_KEYS
 # Re-exported: the link grammar and its two coordinate functions now live in
 # `compile.links` — three write paths need them (the gate, rollover's re-rendering, and
@@ -94,7 +103,7 @@ _ANCHOR_IN_MARKER_RE = re.compile(r"^\s*c:(?P<anchor>[0-9a-zA-Z_-]+)\s*$")
 
 @dataclass(frozen=True)
 class Violation:
-    kind: str  # anchor_continuity | anchor_uniqueness | citation | link | frontmatter | path
+    kind: str  # anchor_continuity | anchor_uniqueness | citation | claim_text | link | frontmatter | path
     path: str
     detail: str
 
@@ -156,6 +165,51 @@ def check_anchor_coverage(docs: Mapping[str, object]) -> list[Violation]:
                     "anchor_coverage",
                     path,
                     prompt("gate.anchor_coverage", preview=preview),
+                )
+            )
+    return violations
+
+
+def check_claim_text_machinery(
+    docs: Mapping[str, object],
+    base_bodies: Mapping[str, str],
+    *,
+    path_templates: Sequence[str] = (),
+) -> list[Violation]:
+    """No claim's TEXT carries the system's own machinery — the final arbiter behind the
+    write faces' `refuse_text_machinery`.
+
+    A claim says things in words. Anchors and supersedes markers are the system's, written at
+    the END of a block; an HTML comment anywhere before them is either a model minting
+    identity by hand or — the case this was written for — a model gluing two claims together
+    with an invented `<!-- c:__AUTO__ -->` separator. That placeholder is not an anchor
+    (`ANCHOR_MARK_RE` wants hex), so every anchor guard looked through it and the anchoring
+    pass simply appended a real anchor after it, committing two statements as one claim with a
+    dead marker in the middle.
+
+    Judged for the pages this round CHANGED, never for the library at large. A legacy page
+    nobody wrote keeps its bytes: the only channel that can repair a claim is a compile that
+    is already writing that page, and a repository-wide floor would abort compiles that have
+    nothing to do with the defect. A page this round DID write answers for what it carries —
+    the model has `edit_claim` in hand and the refusal names the corrective action.
+
+    Rollover volumes are exempt for the reason 4d exempts them: the corrective action does not
+    exist there (`edit_claim` refuses a frozen volume), and a changed volume is already gate
+    5b's violation.
+    """
+    violations: list[Violation] = []
+    for path, doc in docs.items():
+        base = base_bodies.get(path)
+        if base is not None and doc.body == base:
+            continue
+        if history_volume_owner(path, list(path_templates)) is not None:
+            continue
+        for found, preview in text_machinery_problems(doc.body):
+            violations.append(
+                Violation(
+                    "claim_text",
+                    path,
+                    prompt("gate.claim_text_machinery", found=found, preview=preview),
                 )
             )
     return violations
@@ -529,6 +583,15 @@ def run_gate(
     # write tools auto-anchor every block, so this is the backstop that keeps any future
     # path from committing unindexed claims.
     violations.extend(check_anchor_coverage(docs))
+
+    # 4e. a claim's TEXT is words, never markers. The write faces refuse it first
+    # (`anchor_ops.refuse_text_machinery`); this is the arbiter over the produced draft, and
+    # it is what makes a page this round wrote answer for machinery it carried in from before.
+    violations.extend(
+        check_claim_text_machinery(
+            docs, base_bodies, path_templates=draft.path_templates
+        )
+    )
 
     # 4c. the OVERVIEW region: bounded, grounded in the ledger, four slots. The pure judgement
     # lives in compile/overview.py; the gate owns the Violation type, so it wraps the findings

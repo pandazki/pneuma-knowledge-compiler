@@ -277,6 +277,41 @@ async def test_job_collection_uses_bounded_filtered_pages(client):
     )
 
 
+async def test_the_jobs_collection_can_finally_be_asked_for_the_failed_ones(client):
+    """`GET /jobs?status=failed` used to answer 0 for every workspace, forever: a gate-rejected
+    compile is stored `done` with `ok=false`, and the filter compared the column verbatim. The
+    two derived names close that, and the summary carries the same number so an operator sees
+    there is something to look at before going looking."""
+    uid = f"u-it-job-failed-{uuid.uuid4().hex[:8]}"
+    base = f"/v1/users/{uid}"
+    store = client.app.state.ctx.store
+    job_ids = [
+        await store.enqueue(uid, "compile", {"source_ids": [f"sid-f{i}"]})
+        for i in range(4)
+    ]
+    await store.complete(uid, job_ids[0], ok=True)
+    await store.complete(uid, job_ids[1], ok=False, detail="gate rejected")
+    await store.complete(uid, job_ids[2], ok=False, detail="gate rejected")
+
+    failed = await client.get(f"{base}/jobs", params={"limit": 10, "status": "failed"})
+    assert failed.status_code == 200, failed.text
+    assert failed.json()["page"]["total"] == 2
+    assert all(
+        row["status"] == "done" and row["ok"] is False for row in failed.json()["items"]
+    )
+
+    succeeded = await client.get(f"{base}/jobs", params={"limit": 10, "status": "succeeded"})
+    assert succeeded.json()["page"]["total"] == 1
+    assert all(row["ok"] is True for row in succeeded.json()["items"])
+
+    done = await client.get(f"{base}/jobs", params={"limit": 10, "status": "done"})
+    assert done.json()["page"]["total"] == 3  # unchanged: both halves
+
+    summary = await client.get(f"{base}/summary")
+    assert summary.json()["jobs"] == 4
+    assert summary.json()["jobs_failed"] == 2
+
+
 async def test_workspace_summary_counts_without_collection_payloads(client):
     uid = f"u-it-summary-{uuid.uuid4().hex[:8]}"
     base = f"/v1/users/{uid}"
@@ -291,6 +326,7 @@ async def test_workspace_summary_counts_without_collection_payloads(client):
     assert response.json() == {
         "sources": 1,
         "jobs": 2,
+        "jobs_failed": 0,
         "documents": 0,
         "claims": 0,
         "snapshots": 0,
