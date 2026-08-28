@@ -47,7 +47,7 @@ export const liveContext = defineMessages({
 
     "liveContext.cards.emptyTitle": "还没有上下文提示",
     "liveContext.cards.clear": "清空提示",
-    "liveContext.gate.title": "门禁账",
+    "liveContext.gate.title": "引用门禁账",
     "liveContext.deliveredCount": "下发 {count} 张",
 
     "liveContext.sse.window.title": "工作流窗口",
@@ -55,19 +55,19 @@ export const liveContext = defineMessages({
     "liveContext.sse.window.hint":
       "逐条录入会议、消息或协作片段，整段窗口一次性送入评估；focus 只改变注意力指向，不过滤上下文。",
     "liveContext.sse.params.title": "评估参数",
-    "liveContext.sse.minConfidence.label": "min_confidence（服务端闸门）",
+    "liveContext.sse.minConfidence.label": "min_confidence（服务端引用门禁）",
     "liveContext.sse.minConfidence.hint":
       "低于该置信度的卡片不会下发，计入丢弃原因 low_confidence。",
     "liveContext.sse.run": "送整段评估一次",
     "liveContext.sse.errorTitle": "评估失败",
     "liveContext.sse.cards.title": "上下文提示（{visible} / 已生成 {total}）",
     "liveContext.sse.cards.emptyDescription":
-      "输入工作流片段并运行评估；解析失败、无引用、低置信或超限时都会保持静默，门禁账会记录原因。",
+      "输入工作流片段并运行评估；解析失败、无引用、低置信或超限时都会保持静默，引用门禁账会记录原因。",
     "liveContext.sse.threshold.label": "本地再过滤阈值（software filter）",
     "liveContext.sse.threshold.hint":
       "纯前端过滤：confidence ≥ 阈值的已生成提示保留，不发任何请求。",
     "liveContext.sse.threshold.hidden": "本地阈值挡下 {count} 张（未重新请求）。",
-    "liveContext.sse.streaming": "评估中，提示逐一到达…",
+    "liveContext.sse.streaming": "评估中，提示逐一到达……",
 
     "liveContext.ws.connection.title": "连接",
     "liveContext.ws.connect": "连接",
@@ -83,7 +83,7 @@ export const liveContext = defineMessages({
     "liveContext.ws.config.title": "生效策略（config）",
     "liveContext.ws.quietPeriod.label": "quiet_period（秒）",
     "liveContext.ws.stats.label": "stats 帧",
-    "liveContext.ws.stats.hint": "开启后每次评估都回一帧门禁账，包括一张卡都没下发的评估。",
+    "liveContext.ws.stats.hint": "开启后每次评估都回一帧引用门禁账，包括一张卡都没下发的评估。",
     "liveContext.ws.config.liveNote": "连接打开时，改动实时推送 config。",
     "liveContext.ws.turns.title": "工作流片段",
     "liveContext.ws.flush": "立即评估（flush）",
@@ -93,7 +93,7 @@ export const liveContext = defineMessages({
     "liveContext.ws.defaultSpeaker": "对方",
     "liveContext.ws.cards.title": "上下文提示（{count}）",
     "liveContext.ws.cards.emptyDescription":
-      "长连接的稳态是静默：服务端维护窗口、静默期与单在途合并；没有足够相关且可引用的证据时不会发送提示。开启 stats 后可查看门禁账。",
+      "长连接的稳态是静默：服务端维护窗口、静默期与单在途合并；没有足够相关且可引用的证据时不会发送提示。开启 stats 后可查看引用门禁账。",
     "liveContext.ws.statsLog.title": "评估账（stats 历史）",
     "liveContext.ws.statsLog.empty":
       "还没有评估帧。stats 开启后每次评估都会回一帧——包括零下发的那些。",
@@ -129,10 +129,10 @@ export const liveContext = defineMessages({
     "liveContext.preset.releaseProgress.turn2":
       "我记得已经跑过本地导出，但具体还缺哪一道发布检查一时想不起来。",
     "liveContext.preset.releaseProgress.turn3":
-      "那你确认一下知识库里记录的门禁，别把未脱敏的实验材料打进公开包。",
+      "那你确认一下知识库里记录的引用门禁，别把未脱敏的实验记录打进公开包。",
 
     "liveContext.preset.smalltalk.label": "闲聊（对照组）",
-    "liveContext.preset.smalltalk.summary": "没有任何值得补充的上下文——四道闸门应当把一切挡掉",
+    "liveContext.preset.smalltalk.summary": "没有任何值得补充的上下文——引用门禁的四道检查应当把一切挡掉",
     "liveContext.preset.smalltalk.expect": "期望 0 张卡：沉默是正常工作状态，不是故障",
     "liveContext.preset.smalltalk.turn1": "今天风挺大，出门走一圈比坐着舒服。",
     "liveContext.preset.smalltalk.turn2": "是啊，我准备工作告一段落就去散会儿步。",
@@ -167,7 +167,7 @@ export const liveContext = defineMessages({
 
     "liveContext.cards.emptyTitle": "No context suggestions yet",
     "liveContext.cards.clear": "Clear suggestions",
-    "liveContext.gate.title": "Gate ledger",
+    "liveContext.gate.title": "Citation gate ledger",
     "liveContext.deliveredCount": "{count} delivered",
 
     "liveContext.sse.window.title": "Workstream window",
@@ -175,14 +175,14 @@ export const liveContext = defineMessages({
     "liveContext.sse.window.hint":
       "Enter meeting, message or collaboration fragments one at a time; the whole window goes into a single evaluation. focus only redirects attention — it does not filter the context.",
     "liveContext.sse.params.title": "Evaluation parameters",
-    "liveContext.sse.minConfidence.label": "min_confidence (the server-side gate)",
+    "liveContext.sse.minConfidence.label": "min_confidence (the server-side citation gate)",
     "liveContext.sse.minConfidence.hint":
       "A card below this confidence is never delivered; it counts towards dropped.low_confidence.",
     "liveContext.sse.run": "Evaluate the window once",
     "liveContext.sse.errorTitle": "Evaluation failed",
     "liveContext.sse.cards.title": "Context suggestions ({visible} of {total} generated)",
     "liveContext.sse.cards.emptyDescription":
-      "Enter workstream fragments and run an evaluation. Unparsed, uncited, low-confidence and capped output all end in silence, and the gate ledger records which one it was.",
+      "Enter workstream fragments and run an evaluation. Unparsed, uncited, low-confidence and capped output all end in silence, and the citation gate ledger records which one it was.",
     "liveContext.sse.threshold.label": "Local re-filter threshold (software filter)",
     "liveContext.sse.threshold.hint":
       "Client-side only: generated suggestions with confidence ≥ the threshold stay, and no request is sent.",
@@ -204,7 +204,7 @@ export const liveContext = defineMessages({
     "liveContext.ws.quietPeriod.label": "quiet_period (seconds)",
     "liveContext.ws.stats.label": "stats frames",
     "liveContext.ws.stats.hint":
-      "With this on, every evaluation returns a gate ledger frame — including the evaluations that delivered nothing.",
+      "With this on, every evaluation returns a citation gate ledger frame — including the evaluations that delivered nothing.",
     "liveContext.ws.config.liveNote": "While the connection is open, a change pushes config straight away.",
     "liveContext.ws.turns.title": "Workstream fragments",
     "liveContext.ws.flush": "Evaluate now (flush)",
@@ -214,7 +214,7 @@ export const liveContext = defineMessages({
     "liveContext.ws.defaultSpeaker": "Them",
     "liveContext.ws.cards.title": "Context suggestions ({count})",
     "liveContext.ws.cards.emptyDescription":
-      "Silence is the steady state of a long-lived connection: the server keeps the window, the quiet period and single-in-flight coalescing, and sends nothing until the evidence is both relevant and citable. Turn stats on to read the gate ledger.",
+      "Silence is the steady state of a long-lived connection: the server keeps the window, the quiet period and single-in-flight coalescing, and sends nothing until the evidence is both relevant and citable. Turn stats on to read the citation gate ledger.",
     "liveContext.ws.statsLog.title": "Evaluation ledger (stats history)",
     "liveContext.ws.statsLog.empty":
       "No evaluation frames yet. With stats on, every evaluation returns one — including those that delivered nothing.",
@@ -252,11 +252,11 @@ export const liveContext = defineMessages({
     "liveContext.preset.releaseProgress.turn2":
       "I remember running the local export, but I cannot recall which release check is still outstanding.",
     "liveContext.preset.releaseProgress.turn3":
-      "Then check the gates recorded in the knowledge base, and keep unredacted experiment material out of the public package.",
+      "Then check the citation gates recorded in the knowledge base, and keep unredacted experiment notes out of the public package.",
 
     "liveContext.preset.smalltalk.label": "Small talk (the control)",
     "liveContext.preset.smalltalk.summary":
-      "nothing here is worth adding — all four gates should hold",
+      "nothing here is worth adding — all four citation-gate checks should hold",
     "liveContext.preset.smalltalk.expect":
       "expect zero cards: silence is the normal working state, not a fault",
     "liveContext.preset.smalltalk.turn1":

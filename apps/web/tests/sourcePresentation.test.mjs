@@ -11,7 +11,7 @@ const transformed = await transformWithEsbuild(sourceText, sourceUrl.pathname, {
   target: "es2021",
 });
 const moduleUrl = `data:text/javascript;base64,${Buffer.from(transformed.code).toString("base64")}`;
-const { buildSourcePresentation: build } = await import(moduleUrl);
+const { buildSourcePresentation: build, rendersAsMarkdown } = await import(moduleUrl);
 
 // The module takes its wording by injection (it cannot import lib/i18n: this test transpiles
 // it on its own). Resolving every key to its fallback keeps the assertions about structure.
@@ -193,4 +193,16 @@ test("email presentation separates RFC-like headers from the citable body", () =
   assert.equal(result.messages[0]?.owner, true);
   assert.equal(result.messages[0]?.body, "方案见附件。");
   assert.equal(result.messages[0]?.attachments[0]?.filename, "proposal.pdf");
+});
+
+test("a markdown source is read as markdown; anything else is shown as characters", () => {
+  // The source view renders what the material MEANS (a pipe table is a table); the compile
+  // galley keeps the verbatim face beside it.
+  assert.equal(rendersAsMarkdown("text/markdown"), true);
+  assert.equal(rendersAsMarkdown("text/markdown; charset=utf-8"), true);
+  assert.equal(rendersAsMarkdown("TEXT/X-MARKDOWN"), true);
+  assert.equal(rendersAsMarkdown("text/plain"), false);
+  assert.equal(rendersAsMarkdown("application/json"), false);
+  assert.equal(rendersAsMarkdown(null), false);
+  assert.equal(rendersAsMarkdown(undefined), false);
 });

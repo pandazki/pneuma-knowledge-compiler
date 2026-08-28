@@ -1,7 +1,7 @@
 import { defineMessages } from "./define";
 
 /**
- * The History view: one entry per patch, with the claim-level diff it carried. Everything the
+ * The History view: one entry per edition (a compile patch), with the claim-level diff it carried. Everything the
  * compiler wrote or the store recorded — claim prose (`before` / `after`), document paths,
  * patch / job ids, refs, short shas, escalation notes — is data and renders untranslated.
  * Claim flag names come from the shared `common.flag.*` entries and the escalation label
@@ -9,33 +9,33 @@ import { defineMessages } from "./define";
  */
 export const history = defineMessages({
   zh: {
-    "history.title": "版本 History",
+    "history.title": "版次 History",
     "history.description": "查看知识库每一次可追溯的内容变化。",
     "history.descriptionCount":
-      "{count} 个知识版本，按编译时间倒序。运行任务请前往「工序 Process」查看。",
+      "{count} 个版次，按编译时间倒序。运行任务请前往「工序 Process」查看。",
 
     "history.noUser.title": "未选择用户",
-    "history.noUser.description": "先在顶栏选择一个 user_id，再查看它的知识版本。",
+    "history.noUser.description": "在右上角选择一个 user_id，再查看它的版次。",
 
-    "history.heatmap.title": "版本编译密度",
-    "history.heatmap.patch": "知识版本",
+    "history.heatmap.title": "版次编译密度",
+    "history.heatmap.patch": "版次",
 
     "history.loadFailed": "加载知识变更失败",
 
-    "history.empty.title": "还没有知识版本",
+    "history.empty.title": "还没有版次",
     "history.empty.description":
-      "这个知识库尚未产生内容变化。导入原料并完成编译后，每次知识更新都会在这里留下可读的差异。",
+      "这个知识库尚未产生内容变化。导入来源并完成编译后，每次知识更新都会在这里留下可读的差异。",
     "history.empty.action": "去导入",
 
-    "history.updateNoun": "次更新",
+    "history.updateNoun": "个版次",
     "history.selectHint": "在左侧选择一次知识更新查看内容差异。",
     "history.row.counts": "{documents} 篇 · {claims} 条",
 
     "history.summary.empty": "本次更新没有留下可读的内容摘要",
-    "history.brief.label": "编译简报 · 派生叙述",
-    "history.patchTitle.addedRevised": "新增 {added} 条、修订 {revised} 条知识",
-    "history.patchTitle.revised": "修订 {revised} 条知识",
-    "history.patchTitle.added": "新增 {added} 条知识",
+    "history.brief.label": "编译纪要 · 派生叙述",
+    "history.patchTitle.addedRevised": "新增 {added} 条、修订 {revised} 条断言",
+    "history.patchTitle.revised": "修订 {revised} 条断言",
+    "history.patchTitle.added": "新增 {added} 条断言",
     "history.patchTitle.generic": "知识库更新",
 
     "history.stats.documents": "{count} 篇文档",
@@ -52,7 +52,7 @@ export const history = defineMessages({
 
     "history.claim.added": "新增",
     "history.claim.revised": "修订",
-    "history.claim.superseded": "状态更新",
+    "history.claim.superseded": "取代",
     "history.claim.supersedesAnchor": "取代 c:{anchor}",
     "history.claim.overview": "总览重写",
     "history.claim.changed": "变更",
@@ -63,40 +63,40 @@ export const history = defineMessages({
 
     "history.noPerClaim.title": "暂无逐条差异",
     "history.noPerClaim.body":
-      "这个旧版本只记录了受影响的文档，没有保存知识条目的前后文本。",
+      "这个旧版次只记录了受影响的文档，没有保存断言的前后文本。",
 
     "history.source.index": "来源 {index}",
-    "history.source.view": "查看原料",
+    "history.source.view": "查看来源",
     "history.source.empty": "未记录来源。",
 
     "history.escalation.fallbackBody": "这条变化需要人工复核。",
 
     "history.tech.summary": "技术记录",
-    "history.tech.patch": "版本",
+    "history.tech.patch": "版次",
     "history.tech.job": "编译任务",
-    "history.tech.baseCommit": "基于版本",
+    "history.tech.baseCommit": "基于快照",
   },
   en: {
     "history.title": "History",
     "history.description": "Every traceable change to the knowledge base.",
     "history.descriptionCount":
-      "{count} knowledge version{count||s}, newest compile first. Running jobs are shown under Process.",
+      "{count} edition{count||s}, newest compile first. Running jobs are shown under Process.",
 
     "history.noUser.title": "No user selected",
     "history.noUser.description":
-      "Choose a user_id in the top bar to see its knowledge versions.",
+      "Choose a user_id in the top right to see its editions.",
 
-    "history.heatmap.title": "Compile density",
-    "history.heatmap.patch": "Knowledge version",
+    "history.heatmap.title": "Edition density",
+    "history.heatmap.patch": "Edition",
 
     "history.loadFailed": "Could not load the knowledge changes",
 
-    "history.empty.title": "No knowledge versions yet",
+    "history.empty.title": "No editions yet",
     "history.empty.description":
-      "This knowledge base has no content change yet. Once material is added and compiled, every knowledge update leaves a readable diff here.",
+      "This knowledge base has no content change yet. Once a source is added and compiled, every knowledge update leaves a readable diff here.",
     "history.empty.action": "Go to Ingest",
 
-    "history.updateNoun": "updates",
+    "history.updateNoun": "editions",
     "history.selectHint": "Choose an update on the left to read its diff.",
     "history.row.counts": "{documents} doc{documents||s} · {claims} claim{claims||s}",
 
@@ -121,7 +121,7 @@ export const history = defineMessages({
 
     "history.claim.added": "Added",
     "history.claim.revised": "Revised",
-    "history.claim.superseded": "State changed",
+    "history.claim.superseded": "Superseded",
     "history.claim.supersedesAnchor": "supersedes c:{anchor}",
     "history.claim.overview": "Overview rewritten",
     "history.claim.changed": "Changed",
@@ -132,17 +132,17 @@ export const history = defineMessages({
 
     "history.noPerClaim.title": "No per-claim diff",
     "history.noPerClaim.body":
-      "This older version recorded only the documents it touched, not the before and after text of each claim.",
+      "This older edition recorded only the documents it touched, not the before and after text of each claim.",
 
     "history.source.index": "Source {index}",
-    "history.source.view": "View material",
+    "history.source.view": "View the source",
     "history.source.empty": "No source recorded.",
 
     "history.escalation.fallbackBody": "This change needs a human review.",
 
     "history.tech.summary": "Technical record",
-    "history.tech.patch": "Version",
+    "history.tech.patch": "Edition",
     "history.tech.job": "Compile job",
-    "history.tech.baseCommit": "Base version",
+    "history.tech.baseCommit": "Base snapshot",
   },
 });

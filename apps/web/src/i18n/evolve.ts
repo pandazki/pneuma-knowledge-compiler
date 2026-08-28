@@ -17,7 +17,7 @@ export const evolve = defineMessages({
   zh: {
     "evolve.title": "演化 Evolve",
     "evolve.description": "演化时间线 · 审阅重组如何搬移断言（claim）、归档族与路径模板。",
-    "evolve.descriptionShort": "模式重组提案的评审台与归档族累积轴。",
+    "evolve.descriptionShort": "演化提案的评审台与归档族累积轴。",
     "evolve.trigger": "触发演化",
     "evolve.readOnlyHint": "历史快照为只读",
     "evolve.listSeparator": "、",
@@ -53,7 +53,7 @@ export const evolve = defineMessages({
     "evolve.timeline.loadFailed": "演化时间线加载失败",
     "evolve.timeline.empty.title": "暂无演化任务",
     "evolve.timeline.empty.description":
-      "点右上角「触发演化」发起一次 schema 重组提案；草案会停在这里等待你的裁决。",
+      "点右上角「触发演化」发起一次演化提案；草案会停在这里等待你的裁决。",
     "evolve.timeline.counts": "共 {total} 次 · 待审 {awaiting} · 已采用 {adopted} · 已否决 {declined}",
     "evolve.timeline.countsNoChange": "无变化 {count}",
     "evolve.timeline.noNewFamily": "未提出新 family",
@@ -72,7 +72,7 @@ export const evolve = defineMessages({
     "evolve.action.adopt": "采用",
     "evolve.action.drop": "放弃",
     "evolve.action.cancel": "取消",
-    "evolve.action.hint": "采用会把这次重组并回主线并重建 L3；放弃会删掉演化分支。",
+    "evolve.action.hint": "采用会把这次演化并回主线并重建 L3；放弃会删掉演化分支。",
     "evolve.action.adoptFailed": "采用失败：{detail}",
     "evolve.action.dropFailed": "放弃失败：{detail}",
 
@@ -88,13 +88,13 @@ export const evolve = defineMessages({
     "evolve.packs.noInstructions": "未附 instructions。",
     "evolve.packs.noTemplates": "未附路径模板。",
 
-    "evolve.dropped.awaiting": "等人裁决",
+    "evolve.dropped.awaiting": "待你裁决",
     "evolve.dropped.allKept": "锚全部保留",
     "evolve.dropped.empty":
-      "这次重组没有让任何断言锚点消失——每一条都带原锚点搬到了新归档族。",
+      "这次演化没有让任何断言锚点消失——每一条都带原锚点搬到了新归档族。",
     "evolve.dropped.calloutTitle": "这是本次评审的重点",
     "evolve.dropped.calloutBody":
-      "下面 {count} 条断言的锚点在新库里已找不到（被合并或删除）。锚点消失意味着 L3、事件与版本追溯中的引用链在这里断开，采用前请逐条确认这是你要的结果。",
+      "下面 {count} 条断言的锚点在新库里已找不到（被合并或删除）。锚点消失意味着 L3、事件与版次追溯中的引用链在这里断开，采用前请逐条确认这是你要的结果。",
 
     "evolve.stat.newDocuments": "新建文档",
     "evolve.stat.movedClaims": "搬移断言",
@@ -120,7 +120,7 @@ export const evolve = defineMessages({
     "evolve.axis.station.base": "基线 skill",
     "evolve.axis.station.baseVersion": "基线 skill {version}",
     "evolve.axis.station.packs": "注册期定制 pack",
-    "evolve.axis.station.pending": "第 {n} 次演化 · 闸门待审",
+    "evolve.axis.station.pending": "第 {n} 次演化 · 待你裁决",
 
     "evolve.axis.currentSkill": "当前生效 skill",
     "evolve.axis.familyCount": "共 {total} 个，其中 {evolved} 个由演化加入",
@@ -140,7 +140,7 @@ export const evolve = defineMessages({
     "evolve.axis.familiesTitle": "当前全量 family · {count}",
     "evolve.axis.noTemplates": "当前 skill 未声明任何路径模板——无法推导 family 一览。",
     "evolve.axis.groupCount": "{count} 个",
-    "evolve.axis.proposedTitle": "闸门上待审",
+    "evolve.axis.proposedTitle": "待你裁决",
     "evolve.axis.proposedBody":
       "{families} 已被提议，但要等你在时间线上采用后才会进入 schema。",
 
@@ -155,7 +155,7 @@ export const evolve = defineMessages({
     "evolve.description":
       "The evolution timeline · draft review (adopt / drop) · how families and path templates accumulate.",
     "evolve.descriptionShort":
-      "The review bench for schema reorganisation proposals, and the family accumulation axis.",
+      "The review bench for evolve proposals, and the family accumulation axis.",
     "evolve.trigger": "Trigger an evolution",
     "evolve.readOnlyHint": "A historical snapshot is read-only",
     "evolve.listSeparator": ", ",
@@ -192,7 +192,7 @@ export const evolve = defineMessages({
     "evolve.timeline.loadFailed": "Could not load the evolution timeline",
     "evolve.timeline.empty.title": "No evolution tasks yet",
     "evolve.timeline.empty.description":
-      "Use “Trigger an evolution” in the top right to raise a schema reorganisation proposal; the draft waits here for your decision.",
+      "Use “Trigger an evolution” in the top right to raise an evolve proposal; the draft waits here for your decision.",
     "evolve.timeline.counts":
       "{total} in all · {awaiting} awaiting · {adopted} adopted · {declined} declined",
     "evolve.timeline.countsNoChange": "{count} no change",
@@ -213,7 +213,7 @@ export const evolve = defineMessages({
     "evolve.action.drop": "Drop",
     "evolve.action.cancel": "Cancel",
     "evolve.action.hint":
-      "Adopting merges this reorganisation back into the mainline and rebuilds L3; dropping deletes the evolution branch.",
+      "Adopting merges this evolution back into the mainline and rebuilds L3; dropping deletes the evolution branch.",
     "evolve.action.adoptFailed": "Adopt failed: {detail}",
     "evolve.action.dropFailed": "Drop failed: {detail}",
 
@@ -233,7 +233,7 @@ export const evolve = defineMessages({
     "evolve.dropped.awaiting": "Awaiting your call",
     "evolve.dropped.allKept": "Every anchor kept",
     "evolve.dropped.empty":
-      "This reorganisation lost no claim anchor — every claim moved to its new family carrying its original anchor.",
+      "This evolution lost no claim anchor — every claim moved to its new family carrying its original anchor.",
     "evolve.dropped.calloutTitle": "This is what the review turns on",
     "evolve.dropped.calloutBody":
       "The anchors of the {count} claim{count||s} below are gone from the new library (merged or deleted). A lost anchor means the reference chain in L3, the journal and git blame breaks here; confirm one by one that this is what you want before adopting.",
@@ -265,7 +265,7 @@ export const evolve = defineMessages({
     "evolve.axis.station.base": "Baseline skill",
     "evolve.axis.station.baseVersion": "Baseline skill {version}",
     "evolve.axis.station.packs": "Registration-time packs",
-    "evolve.axis.station.pending": "Evolution #{n} · at the gate",
+    "evolve.axis.station.pending": "Evolution #{n} · awaiting your call",
 
     "evolve.axis.currentSkill": "Skill in force",
     "evolve.axis.familyCount": "{total} in all, {evolved} of them added by evolution",
@@ -286,7 +286,7 @@ export const evolve = defineMessages({
     "evolve.axis.noTemplates":
       "The current skill declares no path template — there is no family roster to derive.",
     "evolve.axis.groupCount": "{count} famil{count|y|ies}",
-    "evolve.axis.proposedTitle": "At the gate",
+    "evolve.axis.proposedTitle": "Awaiting your call",
     "evolve.axis.proposedBody":
       "{families} have been proposed, but they only enter the schema once you adopt them on the timeline.",
 

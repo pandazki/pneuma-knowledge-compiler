@@ -39,7 +39,14 @@ async function tsModuleUrl(url) {
   return `data:text/javascript;base64,${Buffer.from(transformed.code).toString("base64")}`;
 }
 
-const { stageTree, formatStageMs, stageStripText, slowestStage } = await import(
+const {
+  stageTree,
+  formatStageMs,
+  stageStripText,
+  slowestStage,
+  laneOrdered,
+  FAST_LANE_ORDER,
+} = await import(
   await tsModuleUrl(new URL("../src/lib/stages.ts", import.meta.url))
 );
 
@@ -352,4 +359,55 @@ test("the rag lane streams, and the finished panel redraws the same measurement"
   assert.match(recallSource, /ragStream\(/, "rag runs over the stream client");
   assert.doesNotMatch(recallSource, /await recall\(currentUser/, "no plain-POST rag path left");
   assert.match(recallSource, /<StageStrip stages=\{rag\.stages\}/, "the finished panel redraws it");
+});
+
+/* -------------------------------------------------- a mechanical lane's fixed order */
+
+const live = (name, ms, status = "ran") => ({
+  key: name,
+  name,
+  ms,
+  status,
+  detail: null,
+  preview: null,
+  running: false,
+});
+
+test("a mechanical lane is drawn in ITS order, not in the order events happened to arrive", () => {
+  // `assemble` is measured before `select` is reached, so arrival order put it first and the
+  // finished answer then put it back — the strip visibly rearranged itself as the answer
+  // landed. Place belongs to the lane; only duration belongs to the run.
+  const arrived = [live("retrieve", 812), live("assemble", 40), live("select", 300)];
+  assert.deepEqual(
+    laneOrdered(arrived, FAST_LANE_ORDER)
+      .filter((row) => row.status !== "pending")
+      .map((row) => row.name),
+    ["retrieve", "select", "assemble"],
+  );
+});
+
+test("stages the lane has not reached stand as pending placeholders, never as skipped", () => {
+  const rows = laneOrdered([live("retrieve", 812)], FAST_LANE_ORDER);
+  assert.deepEqual(rows.map((row) => row.name), [...FAST_LANE_ORDER]);
+  const plan = rows.find((row) => row.name === "plan");
+  // "has not happened YET" is not "did not happen": a pending node carries no measurement.
+  assert.equal(plan.status, "pending");
+  assert.equal(plan.ms, 0);
+  assert.equal(plan.running, false);
+  // Nothing is filled in before the lane has said anything.
+  assert.deepEqual(laneOrdered([], FAST_LANE_ORDER), []);
+});
+
+test("a name the order has never heard of keeps its place beside its parent", () => {
+  const rows = laneOrdered(
+    [live("retrieve", 812), live("retrieve.path:person", 122), live("plan", 90)],
+    FAST_LANE_ORDER,
+  );
+  const names = rows.map((row) => row.name);
+  assert.deepEqual(names.slice(0, 3), ["plan", "retrieve", "retrieve.path:person"]);
+});
+
+test("a pending placeholder is never the slowest stage", () => {
+  const rows = laneOrdered([live("retrieve", 812)], FAST_LANE_ORDER);
+  assert.equal(slowestStage(rows).name, "retrieve");
 });

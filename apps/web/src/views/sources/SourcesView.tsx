@@ -7,7 +7,7 @@ import {
   type SourceDetail,
   type SourceSummary,
 } from "@/lib/api";
-import { fmtCount, fmtDay, fmtTime } from "@/lib/format";
+import { fmtCount, fmtDateTime, fmtDay } from "@/lib/format";
 import {
   EMPTY_SOURCE_FILTER,
   filterSources,
@@ -534,8 +534,12 @@ function SourceGalley({
               <SourceKindSummary detail={detail} />
             </p>
           </div>
+          {/* An unlabelled `08/27 21:49` beside a title carrying the material's own date
+              (2026-07-29) reads as a second corpus date. It is neither: it is when this was
+              filed. Both facts are now said — the caption, and the year. */}
           <p className="flex shrink-0 flex-col items-start gap-0.5 text-12 text-ink-3 sm:items-end">
-            <Mono>{fmtTime(detail.created_at)}</Mono>
+            <span>{t("sources.detail.ingestedAt")}</span>
+            <Mono title={detail.created_at}>{fmtDateTime(detail.created_at)}</Mono>
             <span>{detail.mime}</span>
           </p>
         </div>
@@ -610,13 +614,17 @@ function CompilerGalley({
           <SectionRule no={1} title={t("sources.compiler.plan")} />
           <DefinitionList
             termClassName="sm:w-48"
+            // The VALUES stay the wire's own words — they are the plan, and a translated
+            // treatment would be a different fact from the one the compiler read. The row
+            // NAMES are the page's, like every other label in this galley: half a table in
+            // Chinese and half in field names was the one arrangement nobody reads.
             items={[
               {
-                term: "canonical_treatment",
+                term: t("sources.compiler.canonicalTreatment"),
                 definition: <Mono>{detail.intake_plan.canonical_treatment}</Mono>,
               },
               {
-                term: "semantic_indexing",
+                term: t("sources.compiler.semanticIndexing"),
                 definition: <Mono>{detail.intake_plan.semantic_indexing}</Mono>,
               },
               {
@@ -625,7 +633,10 @@ function CompilerGalley({
                   ? t("sources.compiler.confirmed")
                   : t("sources.compiler.proposed"),
               },
-              { term: "rationale", definition: detail.intake_plan.rationale },
+              {
+                term: t("sources.compiler.rationale"),
+                definition: detail.intake_plan.rationale,
+              },
             ]}
           />
         </section>

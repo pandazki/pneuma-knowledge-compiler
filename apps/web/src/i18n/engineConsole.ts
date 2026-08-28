@@ -22,7 +22,7 @@ export const engineConsole = defineMessages({
     "engineConsole.map.emptyHint": "加入阶段后，画布会按 schema 自动生成流程。",
     "engineConsole.map.supporting": "支撑配置",
     "engineConsole.map.edited": "有未应用的修改",
-    "engineConsole.route.open": "查看访问通道“{route}”",
+    "engineConsole.route.open": "查看访问通道「{route}」",
     "engineConsole.route.unconditional": "每份来源始终可达",
     "engineConsole.route.planActive": "当前接收方案已接通",
     "engineConsole.route.planInactive": "当前接收方案未建立此层",
@@ -37,7 +37,7 @@ export const engineConsole = defineMessages({
     "engineConsole.stage.overlayHeading": "提示词扩展点",
     "engineConsole.stage.overlayIntro":
       "这里只改写完整子句。未知目录键会在写入时被拒绝，不会静默失效。",
-    "engineConsole.stage.switches": "开关与门控",
+    "engineConsole.stage.switches": "开关",
     "engineConsole.stage.parameters": "参数",
     "engineConsole.challenge.toggle": "启用质询审计",
     "engineConsole.number.invalid": "请输入 0 或更大的整数；已恢复为上一个值。",
@@ -63,21 +63,21 @@ export const engineConsole = defineMessages({
     "engineConsole.overview.noHead": "尚无 HEAD",
     "engineConsole.overview.ideaHeading": "这台引擎如何工作",
     "engineConsole.overview.idea":
-      "Pneuma 把材料编译成可追溯、可演进的知识，而不是把它塞进代理记忆。每个长期断言（claim）都受契约约束，并回到原始材料中的原文精确段。",
+      "Pneuma 把来源编译成可追溯、可演化的知识，而不是把它塞进代理记忆。每个长期断言（claim）都受契约约束，并回到来源中的原文精确段。",
     "engineConsole.overview.principleEvidence":
-      "原始材料与正本知识是权威；检索索引和投影都是可重建的派生视图。",
+      "原始来源与正本知识是权威；检索索引和投影都是可重建的派生视图。",
     "engineConsole.overview.principleAccess":
       "同一份来源保留四个平行访问面：L0 逐字原文、L1 全文检索、按接收方案启用的 L2 语义检索、L3 正本；四路在召回时汇聚，不是逐级降级。",
     "engineConsole.overview.principleBoundary":
-      "契约负责判断什么值得长期记录，引用门在写入时机械地拒绝无依据断言。",
+      "契约负责判断什么值得长期记录，引用门禁在写入时机械地拒绝无依据断言。",
     "engineConsole.overview.principleDirectory":
-      "engine/ 是可版本化的策略目录：模型、切分、契约、演进、回答和提示词覆盖一起留痕。",
+      "engine/ 是可版本化的策略目录：模型、切分、契约、演化、回答和提示词覆盖一起留痕。",
     "engineConsole.overview.configHeading": "当前宏观配置",
     "engineConsole.overview.chunking": "切分策略",
     "engineConsole.overview.challenge": "覆盖质询",
     "engineConsole.overview.challengeOn": "开启 · 最多 {rounds} 轮",
     "engineConsole.overview.challengeOff": "关闭 · 预设 {rounds} 轮",
-    "engineConsole.overview.evolve": "模式演进",
+    "engineConsole.overview.evolve": "演化",
     "engineConsole.overview.evolveAuto": "自动 · {docs} 篇主题文档 / {claims} 条新断言",
     "engineConsole.overview.evolveManual": "手动 · 阈值 {docs} 篇 / {claims} 条",
     "engineConsole.overview.answerStyle": "回答风格",
@@ -116,7 +116,7 @@ export const engineConsole = defineMessages({
     "engineConsole.effectNote.restart":
       "修改将在 API / worker 重启后生效；当前运行中的进程不会重新读取它。",
     "engineConsole.effectNote.future_compiles":
-      "修改只对之后新编译的材料生效；已入正本的内容不会被改写。",
+      "修改只对之后新编译的来源生效；已入正本的内容不会被改写。",
     "engineConsole.effectNote.derived_rebuild":
       "既有派生内容只有在运行 rebuild_derived 后才会完全采用修改；正本内容不会被改写。",
     "engineConsole.i2": "正本永不被重写 —— 变更只治理未来编译或可重建的派生层。",
@@ -173,7 +173,7 @@ export const engineConsole = defineMessages({
     "engineConsole.studio.promptLanguage.en": "英文包",
     "engineConsole.studio.promptLanguage.unknown": "未声明",
     "engineConsole.studio.known.recallRerankLlmSystem": "断言重排 · LLM 系统消息",
-    "engineConsole.studio.known.evolveDeleteClaimLabel": "演进工具 · 删除断言结果",
+    "engineConsole.studio.known.evolveDeleteClaimLabel": "演化工具 · 删除断言结果",
     "engineConsole.studio.known.evolveDeleteClaimContext":
       "`delete_claim` 的回复——它说明锚点会进入移除清单，让这次删除仍然可追溯。",
     "engineConsole.studio.back": "返回引擎画布",
@@ -190,9 +190,9 @@ export const engineConsole = defineMessages({
     "engineConsole.studio.group.compile": "编译",
     "engineConsole.studio.group.recall": "召回",
     "engineConsole.studio.group.challenge": "质询",
-    "engineConsole.studio.group.evolve": "演进",
+    "engineConsole.studio.group.evolve": "演化",
     "engineConsole.studio.group.persona": "主人档案",
-    "engineConsole.studio.group.skill": "领域契约",
+    "engineConsole.studio.group.skill": "skill",
     "engineConsole.studio.group.feedback": "反馈文案",
     "engineConsole.studio.group.eval": "评测",
     "engineConsole.studio.overrideBadge": "{count} 段覆盖",
@@ -203,7 +203,7 @@ export const engineConsole = defineMessages({
     "engineConsole.studio.frameworkMode": "框架原文",
     "engineConsole.studio.effectiveMode": "含覆盖生效稿",
     "engineConsole.studio.modelNote": "下面是模型收到的顺序与原貌；细线只标出段落来源，不会进入提示词。",
-    "engineConsole.studio.editSegment": "检查并编辑“{label}”段落",
+    "engineConsole.studio.editSegment": "检查并编辑「{label}」段落",
     "engineConsole.studio.fragmentNote":
       "本表面是按条件选用的片段族，不是一段连续提示词：下面每一条只在它自己标注的情形下出现——" +
       "多数情况下运行时只有其中一条进入提示词，它们不会拼成一段文字，所以这里没有组装预览。",
@@ -218,7 +218,7 @@ export const engineConsole = defineMessages({
     "engineConsole.studio.editor": "提示词段落编辑器",
     "engineConsole.studio.aboutSegment": "这一段控制什么",
     "engineConsole.studio.segmentExplanation":
-      "“{label}”是“{surface}”中的一个完整指令单元。覆盖会整体替换这一段，不会改动相邻内容。",
+      "「{label}」是「{surface}」中的一个完整指令单元。覆盖会整体替换这一段，不会改动相邻内容。",
     "engineConsole.studio.sharedWith": "也用于",
     "engineConsole.studio.onlyHere": "只用于当前表面",
     "engineConsole.studio.frameworkOriginal": "框架原文",
@@ -226,7 +226,7 @@ export const engineConsole = defineMessages({
     "engineConsole.studio.override": "覆盖编辑",
     "engineConsole.studio.overrideEmpty": "覆盖内容不能为空。",
     "engineConsole.studio.missingSlots": "缺少必需插槽：{slots}",
-    "engineConsole.studio.inheritedHint": "当前沿用框架原文。点“修改”后会从原文开始编辑。",
+    "engineConsole.studio.inheritedHint": "当前沿用框架原文。点「修改」后会从原文开始编辑。",
     "engineConsole.studio.restoreFramework": "恢复框架原文",
     "engineConsole.studio.requiredSlots": "必须保留的插槽",
     "engineConsole.studio.noSlots": "这一段没有格式插槽",
@@ -271,10 +271,10 @@ export const engineConsole = defineMessages({
     "engineConsole.repair.apply": "应用修复",
 
     "engineConsole.version.head": "HEAD {sha}",
-    "engineConsole.version.dirty": "工作区有未提交改动",
-    "engineConsole.version.clean": "工作区干净",
-    "engineConsole.version.dirtyShort": "HEAD 有未提交改动",
-    "engineConsole.version.cleanShort": "HEAD 干净",
+    "engineConsole.version.dirty": "引擎目录里有改动尚未落成版本",
+    "engineConsole.version.clean": "引擎目录与 HEAD 一致",
+    "engineConsole.version.dirtyShort": "引擎目录有未提交改动",
+    "engineConsole.version.cleanShort": "引擎目录与 HEAD 一致",
   },
   en: {
     "engineConsole.title": "Engine Console",
@@ -306,8 +306,8 @@ export const engineConsole = defineMessages({
     "engineConsole.stage.valuesUnavailable": "Current values are unavailable; repair the engine file that does not parse first.",
     "engineConsole.stage.overlayHeading": "Prompt extension points",
     "engineConsole.stage.overlayIntro":
-      "Each override replaces a whole clause. Unknown catalog keys are rejected at write time instead of failing silently.",
-    "engineConsole.stage.switches": "Switches & gates",
+      "Each override replaces a whole clause. Unknown catalogue keys are rejected at write time instead of failing silently.",
+    "engineConsole.stage.switches": "Switches",
     "engineConsole.stage.parameters": "Parameters",
     "engineConsole.challenge.toggle": "Enable the challenge audit",
     "engineConsole.number.invalid": "Enter a whole number of 0 or more. The previous value was restored.",
@@ -316,7 +316,7 @@ export const engineConsole = defineMessages({
     "engineConsole.node.unavailable": "current values unavailable",
     "engineConsole.node.standby": "condition not met",
     "engineConsole.node.document": "whole document",
-    "engineConsole.node.overlays": "catalog overrides",
+    "engineConsole.node.overlays": "catalogue overrides",
     "engineConsole.node.configured": "supporting configuration",
     "engineConsole.node.live": "path wired",
     "engineConsole.node.documentHint": "Edit as a document, preview it, and inspect its version history.",
@@ -333,9 +333,9 @@ export const engineConsole = defineMessages({
     "engineConsole.overview.noHead": "No HEAD yet",
     "engineConsole.overview.ideaHeading": "How this engine works",
     "engineConsole.overview.idea":
-      "Pneuma compiles material into traceable, evolvable knowledge instead of putting it in agent memory. Every lasting claim is governed by a contract and returns to an exact block span in the source.",
+      "Pneuma compiles sources into traceable, evolvable knowledge instead of putting it in agent memory. Every lasting claim is governed by a contract and returns to an exact block span in the source.",
     "engineConsole.overview.principleEvidence":
-      "Raw material and canonical knowledge are authoritative; retrieval indexes and projections are rebuildable derived views.",
+      "Raw sources and canonical knowledge are authoritative; retrieval indexes and projections are rebuildable derived views.",
     "engineConsole.overview.principleAccess":
       "One source stays reachable through four parallel views: L0 verbatim, L1 full-text, intake-plan-dependent L2 semantic search, and L3 canonical knowledge. They converge at recall; they are not a fallback ladder.",
     "engineConsole.overview.principleBoundary":
@@ -345,9 +345,9 @@ export const engineConsole = defineMessages({
     "engineConsole.overview.configHeading": "Live configuration",
     "engineConsole.overview.chunking": "Chunking strategy",
     "engineConsole.overview.challenge": "Coverage challenge",
-    "engineConsole.overview.challengeOn": "on · up to {rounds} rounds",
-    "engineConsole.overview.challengeOff": "off · {rounds} rounds preset",
-    "engineConsole.overview.evolve": "Schema evolution",
+    "engineConsole.overview.challengeOn": "on · up to {rounds} {rounds|round|rounds}",
+    "engineConsole.overview.challengeOff": "off · {rounds} {rounds|round|rounds} preset",
+    "engineConsole.overview.evolve": "Evolve",
     "engineConsole.overview.evolveAuto": "auto · {docs} topic docs / {claims} new claims",
     "engineConsole.overview.evolveManual": "manual · thresholds {docs} docs / {claims} claims",
     "engineConsole.overview.answerStyle": "Answer style",
@@ -378,7 +378,7 @@ export const engineConsole = defineMessages({
     "engineConsole.envOverrideSummary":
       "This stage has {count} value{count||s} pinned by the process environment; each variable is shown with its setting.",
 
-    "engineConsole.effect.hot": "restart for services (CLI immediate)",
+    "engineConsole.effect.hot": "restart · CLI immediate",
     "engineConsole.effect.restart": "restart",
     "engineConsole.effect.future_compiles": "future compiles",
     "engineConsole.effect.derived_rebuild": "derived rebuild",
@@ -390,7 +390,7 @@ export const engineConsole = defineMessages({
     "engineConsole.effectNote.restart":
       "The change takes effect after the API / worker restarts; running processes do not re-read it.",
     "engineConsole.effectNote.future_compiles":
-      "The change applies only to material compiled afterward; content already in the canonical library is not rewritten.",
+      "The change applies only to sources compiled afterwards; content already in the canonical library is not rewritten.",
     "engineConsole.effectNote.derived_rebuild":
       "Existing derived content fully adopts the change only after rebuild_derived runs; canonical content is not rewritten.",
     "engineConsole.i2": "Canonical is never rewritten — changes govern future compiles or rebuildable derived layers.",
@@ -431,14 +431,14 @@ export const engineConsole = defineMessages({
     "engineConsole.overlays.empty":
       "No prompt clause is overridden — every extension point keeps the framework wording.",
     "engineConsole.overlays.add": "Add override",
-    "engineConsole.overlays.keyPlaceholder": "Choose a catalog key…",
+    "engineConsole.overlays.keyPlaceholder": "Choose a catalogue key…",
     "engineConsole.overlays.clausePlaceholder":
       "Replacement clause (fully replaces the framework's clause at this extension point)…",
     "engineConsole.overlays.remove": "Remove this override",
-    "engineConsole.overlays.noneLeft": "Every catalog key is already overridden.",
+    "engineConsole.overlays.noneLeft": "Every catalogue key is already overridden.",
     "engineConsole.overlays.count": "{active} / {total} overridden",
     "engineConsole.overlays.activeHeading": "Active overrides",
-    "engineConsole.overlays.addHeading": "Add from the catalog",
+    "engineConsole.overlays.addHeading": "Add from the catalogue",
 
     "engineConsole.studio.open": "Open Prompt Studio",
     "engineConsole.studio.openHint": "Read the complete prompt the model receives and edit a specific clause in context.",
@@ -457,7 +457,7 @@ export const engineConsole = defineMessages({
     "engineConsole.studio.empty": "No prompt surfaces are available yet",
     "engineConsole.studio.emptyHint": "Once the backend registers model-visible surfaces, they appear here by lifecycle.",
     "engineConsole.studio.surfaces": "Prompt surfaces",
-    "engineConsole.studio.surfacesHint": "Browse by model call instead of guessing catalog keys.",
+    "engineConsole.studio.surfacesHint": "Browse by model call instead of guessing catalogue keys.",
     "engineConsole.studio.expandAll": "Expand all lifecycle groups",
     "engineConsole.studio.collapseAll": "Collapse all lifecycle groups",
     "engineConsole.studio.surfaceCount": "{count} surface{count||s}",
@@ -468,12 +468,12 @@ export const engineConsole = defineMessages({
     "engineConsole.studio.group.challenge": "Challenge",
     "engineConsole.studio.group.evolve": "Evolve",
     "engineConsole.studio.group.persona": "Owner profile",
-    "engineConsole.studio.group.skill": "Domain contract",
+    "engineConsole.studio.group.skill": "Skill",
     "engineConsole.studio.group.feedback": "Feedback copy",
     "engineConsole.studio.group.eval": "Evaluation",
     "engineConsole.studio.overrideBadge": "{count} overridden",
-    "engineConsole.studio.kind.assembled": "Assembled · one continuous message",
-    "engineConsole.studio.kind.fragments": "Fragment family · clauses chosen by condition",
+    "engineConsole.studio.kind.assembled": "Assembled · one message",
+    "engineConsole.studio.kind.fragments": "Fragments · by condition",
     "engineConsole.studio.preview": "Assembled preview",
     "engineConsole.studio.previewMode": "Choose assembled preview version",
     "engineConsole.studio.frameworkMode": "Framework original",
@@ -496,7 +496,7 @@ export const engineConsole = defineMessages({
     "engineConsole.studio.editor": "Prompt clause editor",
     "engineConsole.studio.aboutSegment": "What this clause controls",
     "engineConsole.studio.segmentExplanation":
-      "{label} is one complete instruction unit in {surface}. An override replaces this clause wholesale without changing its neighbors.",
+      "{label} is one complete instruction unit in {surface}. An override replaces this clause wholesale without changing its neighbours.",
     "engineConsole.studio.sharedWith": "Also used by",
     "engineConsole.studio.onlyHere": "Only used by this surface",
     "engineConsole.studio.frameworkOriginal": "Framework original",
@@ -549,9 +549,9 @@ export const engineConsole = defineMessages({
     "engineConsole.repair.apply": "Apply the repair",
 
     "engineConsole.version.head": "HEAD {sha}",
-    "engineConsole.version.dirty": "working tree dirty",
-    "engineConsole.version.clean": "working tree clean",
-    "engineConsole.version.dirtyShort": "HEAD has uncommitted changes",
-    "engineConsole.version.cleanShort": "HEAD clean",
+    "engineConsole.version.dirty": "the engine directory holds changes not yet in a version",
+    "engineConsole.version.clean": "the engine directory matches HEAD",
+    "engineConsole.version.dirtyShort": "engine directory: uncommitted changes",
+    "engineConsole.version.cleanShort": "engine directory: matches HEAD",
   },
 });

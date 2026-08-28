@@ -40,6 +40,7 @@ const {
   structureHealth,
   summarize,
   templateRegex,
+  volumeFamily,
   volumeOwner,
 } = await import(moduleUrl);
 
@@ -371,4 +372,32 @@ test("a snapshot that lost a subject reports it lost, and no new edges either wa
 test("an old graph node address still resolves — to a document, or to a source", () => {
   assert.deepEqual(legacyNodeTarget("doc-a11c"), { kind: "document", id: "doc-a11c" });
   assert.deepEqual(legacyNodeTarget("src:c7a3f0"), { kind: "source", id: "c7a3f0" });
+});
+
+test("a rolled-over subject knows every page it is spread across, in reading order", () => {
+  const index = buildLinkIndex(DOCS);
+  // From the archive volume: the door back to the main volume, which the page did not have.
+  const fromVolume = volumeFamily(index, "work/products/atlas/a01.md");
+  assert.deepEqual(
+    fromVolume.map((page) => [page.label, page.main, page.current]),
+    [
+      ["Atlas", true, false],
+      ["a01", false, true],
+    ],
+  );
+  // …and from the main volume, the same family with the other page marked.
+  const fromMain = volumeFamily(index, "work/products/atlas.md");
+  assert.deepEqual(
+    fromMain.map((page) => [page.path, page.current]),
+    [
+      ["work/products/atlas.md", true],
+      ["work/products/atlas/a01.md", false],
+    ],
+  );
+});
+
+test("a page that never rolled over has no family, and renders as it always did", () => {
+  const index = buildLinkIndex(DOCS);
+  assert.equal(volumeFamily(index, "memory/people/ada.md"), null);
+  assert.equal(volumeFamily(index, "nothing/here.md"), null);
 });

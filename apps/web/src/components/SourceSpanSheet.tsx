@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowUpRight, Crosshair } from "lucide-react";
 import { fetchLocator, getSource, type SourceDetail } from "@/lib/api";
+import { fmtMoment } from "@/lib/format";
 import { useApp } from "@/lib/store";
 import { useT, useTOr } from "@/lib/useT";
 import { Button } from "@/ui/Button";
@@ -68,6 +69,13 @@ function participantNames(meta: Record<string, unknown>): string | null {
     .filter((name): name is string => name != null);
   return names.length > 0 ? names.join(" · ") : null;
 }
+
+/** The metadata keys whose values are moments, and are shown as the page shows moments. */
+const MOMENT_KEYS: ReadonlySet<SourceMetadataKey> = new Set([
+  "occurredOn",
+  "createdAt",
+  "updatedAt",
+]);
 
 /** Credibility metadata only: render values the source actually carries, never placeholders. */
 function sourceMetadata(detail: SourceDetail): SourceMetadataItem[] {
@@ -218,7 +226,12 @@ export function SourceSpanSheet({
                     <dt className="text-ink-3">
                       {t(`common.sourceSpan.metadata.${item.key}`)}
                     </dt>
-                    <dd className="min-w-0 break-words text-ink-2">{item.value}</dd>
+                    {/* A provider writes its own date format; the page has one. `fmtMoment`
+                        reads a day as a day and a stamp as a stamp, and leaves anything
+                        that is neither exactly as it was written. */}
+                    <dd className="min-w-0 break-words text-ink-2" title={item.value}>
+                      {MOMENT_KEYS.has(item.key) ? fmtMoment(item.value) : item.value}
+                    </dd>
                   </div>
                 ))}
               </dl>

@@ -19,7 +19,7 @@ export const graph = defineMessages({
 
     "graph.empty.title": "还没有结构可读",
     "graph.empty.description":
-      "这个知识库尚未编译——先去「导入」添加原料并编译，结构随正本一起产出。",
+      "这个知识库尚未编译——先去「导入」添加来源并编译，结构随正本一起产出。",
     "graph.empty.action": "去导入",
 
     /* ------------------------------------------------------------------ health */
@@ -65,7 +65,7 @@ export const graph = defineMessages({
 
     "graph.families.title": "族均衡",
     "graph.families.note":
-      "族由技能申报的路径模板定义。零页族是申报了却一直没用起来的归档位，所以它留在表里。",
+      "族由 skill 申报的路径模板定义。零页族是申报了却一直没用起来的归档位，所以它留在表里。",
     "graph.families.family": "族",
     "graph.families.pages": "页数",
     "graph.families.claims": "断言",
@@ -73,7 +73,7 @@ export const graph = defineMessages({
     "graph.families.textShare": "篇幅份额",
     "graph.families.zeroPage": "零页族 · {count}",
     "graph.families.unowned": "{count} 个主体不属于任何申报族。",
-    "graph.families.unavailable": "读不到技能申报的路径模板，族均衡这一节暂缺。",
+    "graph.families.unavailable": "读不到 skill 申报的路径模板，族均衡这一节暂缺。",
 
     /* ----------------------------------------------------------------- compare */
 
@@ -118,7 +118,7 @@ export const graph = defineMessages({
 
     "graph.empty.title": "No structure to read yet",
     "graph.empty.description":
-      "This knowledge base has not been compiled — add material under Ingest and compile it; the structure comes out with the canon.",
+      "This knowledge base has not been compiled — add a source under Ingest and compile it; the structure comes out with the canon.",
     "graph.empty.action": "Go to Ingest",
 
     /* ------------------------------------------------------------------ health */

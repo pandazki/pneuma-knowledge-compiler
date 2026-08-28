@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { BookMarked, ChevronRight, FileText, Inbox } from "lucide-react";
 import { useApp } from "@/lib/store";
 import type { Claim, DocumentRecord } from "@/lib/types";
-import { claimKey, type DirNode, type Model } from "@/lib/model";
+import { claimKey, documentDisplayTitle, type DirNode, type Model } from "@/lib/model";
 import { defaultCollapsedDirs, dirFileCount, isDirOpen } from "@/lib/documentTree";
 import { displayClaim, extractClaimLabel } from "@/lib/claim";
 import {
@@ -28,8 +28,14 @@ import {
   citationKey,
   presentCitationSource,
 } from "@/lib/citations";
+import { fmtTime } from "@/lib/format";
 import { intlTag } from "@/lib/i18n";
-import { buildLinkIndex, lensDocuments, type LinkIndex } from "@/lib/structureLens";
+import {
+  buildLinkIndex,
+  lensDocuments,
+  volumeFamily,
+  type LinkIndex,
+} from "@/lib/structureLens";
 import { useLocale, useT, useTOr } from "@/lib/useT";
 import { PageHeader } from "@/components/PageHeader";
 import { NeighborhoodCard } from "./NeighborhoodCard";
@@ -465,14 +471,18 @@ function MetaStrip({ entries }: { entries: [string, unknown][] }) {
  */
 function OverviewCard({
   overview,
+  fromPath,
   frontmatter,
   onOpen,
-  known,
+  titleOf,
 }: {
   overview: DocumentOverview | null;
+  /** The document this card belongs to — a connection's href is written relative to it. */
+  fromPath: string;
   frontmatter: [string, unknown][];
   onOpen: (path: string) => void;
-  known: (path: string) => boolean;
+  /** The target's title, or null when this projection carries no such document. */
+  titleOf: (path: string) => string | null;
 }) {
   const t = useT();
   const slots = (
@@ -509,22 +519,35 @@ function OverviewCard({
                 </dt>
                 <dd>
                   <ul className="flex flex-col gap-1">
-                    {connections.map((c) => (
-                      <li key={c.path} className="flex flex-wrap items-baseline gap-2">
-                        {known(c.path) ? (
-                          <button
-                            type="button"
-                            onClick={() => onOpen(c.path)}
-                            className="text-13 text-accent underline-offset-2 hover:underline"
-                          >
-                            <Mono className="text-12">{c.path}</Mono>
-                          </button>
-                        ) : (
-                          <Mono className="text-12 text-ink-3">{c.path}</Mono>
-                        )}
-                        <span className="min-w-0 text-13 text-ink-2">{c.relation}</span>
-                      </li>
-                    ))}
+                    {/* A relation names the SUBJECT it points at, not the file it lives in:
+                        the body's cross-links already read as titles, and a slot printing
+                        `../projects/x.md` beside them was the one address the reader had to
+                        decode. The path stays, as the link's title attribute. */}
+                    {connections.map((c) => {
+                      // The HREF is the address; the label may be anything the compile wrote
+                      // — including, as here, the relative path itself. Resolving it against
+                      // this document is what the gate does, and what the body's cross-links
+                      // already do.
+                      const target = resolveHref(fromPath, c.href) || c.path;
+                      const title = titleOf(target);
+                      return (
+                        <li key={c.path} className="flex flex-wrap items-baseline gap-2">
+                          {title != null ? (
+                            <button
+                              type="button"
+                              title={target}
+                              onClick={() => onOpen(target)}
+                              className="text-13 text-accent underline-offset-2 hover:underline"
+                            >
+                              {title}
+                            </button>
+                          ) : (
+                            <Mono className="text-12 text-ink-3">{c.path}</Mono>
+                          )}
+                          <span className="min-w-0 text-13 text-ink-2">{c.relation}</span>
+                        </li>
+                      );
+                    })}
                   </ul>
                 </dd>
               </div>
@@ -592,6 +615,10 @@ function DocumentProof({
   // reading of both — so it sits above the switch and its own blocks are taken out of the
   // claim list rather than shown twice.
   const overview = useMemo(() => parseOverview(doc), [doc]);
+  const family = useMemo(
+    () => (linkIndex ? volumeFamily(linkIndex, doc.path) : null),
+    [linkIndex, doc.path],
+  );
   const showOverview = hasOverviewContent(overview);
   const ledger = useMemo(
     () => ({ ...doc, claims: ledgerClaims(doc.claims, overview) }),
@@ -852,6 +879,31 @@ function DocumentProof({
       {/* The masthead stays put: which document you are reading is never scrolled away. */}
       <header className="sticky top-12 z-10 shrink-0 border-b border-line bg-bg pb-4 lg:static">
         <Mono className="text-12 text-ink-3">{doc.path}</Mono>
+        {/* A rolled-over subject is several files; the reader means the subject. An archive
+            volume used to say `archived_from … rollover_volume 01` in words and offer no way
+            back to the page it was cut from. */}
+        {family && (
+          <nav aria-label={t("library.volumes.aria")} className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+            <span className="text-12 text-ink-3">{t("library.volumes.label")}</span>
+            {family.map((page) => (
+              <button
+                key={page.path}
+                type="button"
+                title={page.path}
+                disabled={page.current}
+                onClick={() => select({ kind: "document", id: page.documentId ?? page.path })}
+                className={cn(
+                  "rounded-1 px-1 text-12 transition-colors duration-120",
+                  page.current
+                    ? "cursor-default font-medium text-ink"
+                    : "text-accent hover:bg-hover hover:underline",
+                )}
+              >
+                {page.main ? t("library.volumes.main") : page.label}
+              </button>
+            ))}
+          </nav>
+        )}
         <h2 className="mt-1 max-w-measure font-serif text-30 leading-[1.25] text-balance text-ink">
           {doc.title}
         </h2>
@@ -875,14 +927,16 @@ function DocumentProof({
       {(showOverview || fmEntries.length > 0) && (
         <OverviewCard
           overview={showOverview ? overview : null}
+          fromPath={doc.path}
           frontmatter={fmEntries}
           onOpen={(path) => {
             const target = model.dataset.documents.documents.find((d) => d.path === path);
             if (target) select({ kind: "document", id: target.document_id ?? target.path });
           }}
-          known={(path) =>
-            model.dataset.documents.documents.some((d) => d.path === path)
-          }
+          titleOf={(path) => {
+            const target = model.docByPath.get(path);
+            return target ? documentDisplayTitle(target) : null;
+          }}
         />
       )}
 
@@ -964,8 +1018,11 @@ function DocumentProof({
                   className="flex w-full items-baseline gap-3 py-1.5 text-left transition-colors duration-120 hover:bg-hover"
                 >
                   <Mono className="text-12 text-accent">{p.patch_id}</Mono>
-                  <span className="min-w-0 flex-1 truncate text-12 text-ink-3">
-                    {p.ts ?? ""}
+                  <span
+                    className="min-w-0 flex-1 truncate text-12 text-ink-3"
+                    title={p.ts ?? undefined}
+                  >
+                    {p.ts ? fmtTime(p.ts) : ""}
                   </span>
                   <span className="shrink-0 text-12 text-ink-3">
                     {t("library.patches.changed", {
@@ -986,7 +1043,14 @@ function DocumentProof({
         <section className="mt-6">
           <SectionRule no={5} title={t("library.neighborhood.title")} />
           <p className="mt-2 text-12 text-ink-3">{t("library.neighborhood.note")}</p>
-          <NeighborhoodCard index={linkIndex} path={doc.path} />
+          <NeighborhoodCard
+            index={linkIndex}
+            path={doc.path}
+            titleOf={(path) => {
+              const target = model.docByPath.get(path);
+              return target ? documentDisplayTitle(target) : null;
+            }}
+          />
         </section>
       )}
       </div>

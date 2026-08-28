@@ -701,7 +701,9 @@ export default function ProfileView() {
         description={
           onboarding
             ? t("profile.onboarding.description")
-            : t("profile.header.demoDescription")
+            : profile.source === "user"
+              ? t("profile.header.savedDescription")
+              : t("profile.header.synthesizedDescription")
         }
         actions={
           !onboarding && !editing ? (

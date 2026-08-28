@@ -23,16 +23,16 @@ export const enums = defineMessages({
   zh: {
     "enum.intakeArchetype.digest.label": "研读入库",
     "enum.intakeArchetype.digest.summary": "全文编译进知识库",
-    "enum.intakeArchetype.digest.examples": "手写笔记、工作产出、短但重要的材料",
+    "enum.intakeArchetype.digest.examples": "手写笔记、工作产出、短但重要的来源",
     "enum.intakeArchetype.distill.label": "提炼要点",
     "enum.intakeArchetype.distill.summary": "要点进正本，正文留在外部可检索",
     "enum.intakeArchetype.distill.examples": "合同、报告、规格说明",
     "enum.intakeArchetype.archive.label": "仅编目",
     "enum.intakeArchetype.archive.summary": "只留卡片与元数据，正文仍可回溯",
-    "enum.intakeArchetype.archive.examples": "书籍、长篇材料",
+    "enum.intakeArchetype.archive.examples": "书籍、长篇来源",
     "enum.intakeArchetype.searchable.label": "仅可搜索",
     "enum.intakeArchetype.searchable.summary": "不编译、不做语义索引，只保底全文检索",
-    "enum.intakeArchetype.searchable.examples": "只想存下来、能找到就行的材料",
+    "enum.intakeArchetype.searchable.examples": "只想存下来、能找到就行的来源",
 
     "enum.claimLabel.current": "当前",
     "enum.claimLabel.superseded": "已被取代",
@@ -90,7 +90,7 @@ export const enums = defineMessages({
     "enum.intakeArchetype.archive.label": "Catalogue only",
     "enum.intakeArchetype.archive.summary":
       "a card plus metadata only, the body remains reachable",
-    "enum.intakeArchetype.archive.examples": "books, long-form material",
+    "enum.intakeArchetype.archive.examples": "books, long-form sources",
     "enum.intakeArchetype.searchable.label": "Searchable only",
     "enum.intakeArchetype.searchable.summary":
       "no compile, no semantic indexing, just baseline full-text search",
@@ -103,10 +103,10 @@ export const enums = defineMessages({
     "enum.contextFocus.general.label": "General",
     "enum.contextFocus.general.summary":
       "any concept or fact in the whole workstream worth adding, whoever said it",
-    "enum.contextFocus.owner.label": "Focus on the owner",
+    "enum.contextFocus.owner.label": "Owner only",
     "enum.contextFocus.owner.summary":
       "cards only for what the owner put in; participants' content is context for understanding only",
-    "enum.contextFocus.other.label": "Focus on collaborators",
+    "enum.contextFocus.other.label": "Collaborators only",
     "enum.contextFocus.other.summary":
       "cards only for what participants put in; the owner's content is context for understanding only",
 

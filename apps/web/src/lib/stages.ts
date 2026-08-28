@@ -23,7 +23,13 @@
  * diagram is written once and does not know whether it is watching or reading.
  */
 
-export type StageStatus = "ran" | "skipped" | "degraded";
+/**
+ * `ran` / `skipped` / `degraded` are the wire's three (`recall/stage_timing.py`). `pending`
+ * is CLIENT-ONLY and never arrives from the service: it is the placeholder a lane with a
+ * fixed vocabulary draws for a stage that has not opened yet, so a live diagram keeps the
+ * shape the finished one will have instead of reordering itself as events land.
+ */
+export type StageStatus = "ran" | "skipped" | "degraded" | "pending";
 
 /**
  * A BOUNDED glance at what a stage was handed and what it produced — the queries a plan
@@ -260,6 +266,83 @@ export function stageTree(stages: StageTiming[] | null | undefined): FlowNode[] 
   return total ? [...nodes, total] : nodes;
 }
 
+/* --------------------------------------------------------------- the lane orders */
+
+/**
+ * The FIXED vocabularies, in the order their lane emits them when it is finished. Mirrors of
+ * the service's own lists (`recall/stage_timing.py::STAGE_ORDER`, `recall/rag.py`,
+ * `recall/briefing.py::BUILD_STAGE_ORDER`) and held HERE rather than inside the diagram,
+ * because — exactly like the `description` beside it — only the caller knows which lane it
+ * launched. A name this list has never heard of is still laid out and still measured
+ * (`laneOrdered` appends it), so drift degrades to arrival order rather than to a lost stage.
+ */
+export const FAST_LANE_ORDER: readonly string[] = [
+  "plan",
+  "retrieve",
+  "route",
+  "rerank",
+  "select",
+  "assemble",
+  "answer",
+  TOTAL,
+];
+
+export const RAG_LANE_ORDER: readonly string[] = ["embed", "retrieve", "fuse", "expand", TOTAL];
+
+export const BRIEFING_BUILD_ORDER: readonly string[] = ["retrieve", "expand", "pack", TOTAL];
+
+function rootOf(name: string): string {
+  const cut = name.indexOf(SEPARATOR);
+  return cut === -1 ? name : name.slice(0, cut);
+}
+
+/**
+ * The rows a MECHANICAL lane should be drawn in: its own fixed order, with the stages that
+ * have not opened yet standing as `pending` placeholders.
+ *
+ * Without this the live diagram is drawn in arrival order and the finished one in the
+ * service's fixed order, so the strip visibly rearranged itself the moment an answer landed
+ * (`assemble` runs, and is measured, before `select` is reached). A stage's PLACE is a
+ * property of the lane; only its duration is a property of the run.
+ *
+ * Children keep their parent's place and their own arrival order among themselves — a routed
+ * `retrieve.path:person` is not in any list and must not be sorted away from `retrieve`.
+ * Nothing is filled in before the lane has said anything: an empty run stays empty.
+ */
+export function laneOrdered(
+  rows: readonly FlowStage[],
+  order: readonly string[],
+): FlowStage[] {
+  if (rows.length === 0) return [];
+  const rank = new Map(order.map((name, index) => [name, index]));
+  const ranked = rows.map((row, arrival) => ({
+    row,
+    rank: rank.get(rootOf(row.name)) ?? Number.POSITIVE_INFINITY,
+    arrival,
+  }));
+  const seen = new Set(rows.map((row) => row.name));
+  for (const name of order) {
+    if (seen.has(name)) continue;
+    ranked.push({
+      row: {
+        key: `pending:${name}`,
+        name,
+        ms: 0,
+        status: "pending",
+        detail: null,
+        preview: null,
+        running: false,
+      },
+      rank: rank.get(name)!,
+      arrival: rows.length,
+    });
+  }
+  ranked.sort((left, right) =>
+    left.rank === right.rank ? left.arrival - right.arrival : left.rank - right.rank,
+  );
+  return ranked.map((entry) => entry.row);
+}
+
 /**
  * One entry in a preview list: what the item SAYS, where it is, and its id.
  *
@@ -388,7 +471,9 @@ export function slowestStage(
     flat.push(node);
     flat.push(...node.children);
   }
-  const settled = flat.filter((s) => s.status !== "skipped" && !s.running);
+  const settled = flat.filter(
+    (s) => s.status !== "skipped" && s.status !== "pending" && !s.running,
+  );
   if (settled.length === 0) return null;
   return settled.reduce((best, s) => (s.ms > best.ms ? s : best));
 }

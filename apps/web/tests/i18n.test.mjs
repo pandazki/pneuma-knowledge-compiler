@@ -163,8 +163,9 @@ test("plural tokens pick a form off the numeric param, and only in en", () => {
     "an irregular plural is spelled out in both slots",
   );
   assert.equal(translate("en", "sources.meeting.participantCount", { count: 3 }), "3 people");
-  // Chinese has no number agreement, so its column never carries the token.
-  assert.equal(translate("zh", "sources.blockCount", { count: 1 }), "1 blocks");
+  // Chinese has no number agreement, so its column never carries the token. The counted noun
+  // is 「原文块」 — `block` stays a technical term in zh only where it ADDRESSES a unit (¶/blk).
+  assert.equal(translate("zh", "sources.blockCount", { count: 1 }), "1 个原文块");
   assert.equal(translate("zh", "sources.meeting.participantCount", { count: 1 }), "1 人");
 });
 
@@ -176,6 +177,76 @@ test("a plural token with no usable count is left visible, not silently resolved
     translate("en", "sources.blockCount", { count: "many" }),
     "many block{count||s}",
   );
+});
+
+/* ------------------------------------------------------ terminology consistency */
+
+/**
+ * One term per concept, in both columns. The two tables below are the wordings the
+ * terminology pass RETIRED: each entry is a regex over message VALUES (never keys — a key is
+ * an identifier, not copy) plus the term that replaced it, so a regression fails with the
+ * decision rather than with a bare pattern.
+ */
+const RETIRED_ZH = [
+  [/原料|语料|材料/, "the raw input is 「来源」 everywhere"],
+  [/知识版本|版本快照|补丁/, "a compile patch is 「版次」; a git object is 「快照」"],
+  [/闸门|门控|引用门(?!禁)/, "the write-time gate is 「引用门禁」"],
+  [/技能|领域契约|模式重组|模式演进|演进/, "the process is 「演化」, the object stays `skill`"],
+  [/[“”]/, "Chinese copy quotes with 「」"],
+  [/顶栏/, "the user picker is 「在右上角」"],
+];
+
+const RETIRED_EN = [
+  [/\bpatch(es|ed)?\b/i, 'a compile patch is an "edition"'],
+  [/\bcorpus\b|\bmaterial(s)?\b/i, 'the raw input is a "source"'],
+  [/\bcatalog\b|\bneighbor(s|hood)?\b|\bafterward\b/i, "British spelling throughout"],
+  [/\bschema (evolution|reorganisation)\b|\bdomain contract\b/i, 'the process is "evolve", the object is "skill"'],
+  [/\bin the top bar\b/i, 'the user picker is "in the top right"'],
+];
+
+test("one term per concept: the retired wordings are gone from both columns", () => {
+  const offences = [];
+  for (const [locale, table] of [
+    ["zh", RETIRED_ZH],
+    ["en", RETIRED_EN],
+  ]) {
+    for (const [key, value] of Object.entries(MESSAGES[locale])) {
+      for (const [pattern, decision] of table) {
+        if (pattern.test(value)) offences.push(`${locale} ${key}: ${decision} — "${value}"`);
+      }
+    }
+  }
+  assert.deepEqual(offences, []);
+});
+
+test("the decided terms are pinned, so a rename cannot drift one surface at a time", () => {
+  const pins = {
+    // W1 — every contents entry carries the English suffix.
+    "nav.view.library": ["正本 Canonical", "Canonical"],
+    "nav.view.engine_console": ["引擎控制台 Engine Console", "Engine Console"],
+    // W3 — occurred_on is the source's own date, on both surfaces that print it.
+    "common.sourceSpan.metadata.occurredOn": ["来源日期", "Source date"],
+    "sources.timeline.occurred": ["来源日期", "Source date"],
+    // W2 — the counted noun, against `block` the addressing term.
+    "sources.blockCount": ["{count} 个原文块", "{count} block{count||s}"],
+    // W5 — a compile patch vs a git object.
+    "history.tech.patch": ["版次", "Edition"],
+    "history.tech.baseCommit": ["基于快照", "Base snapshot"],
+    // W6 — the write-time gate.
+    "common.gate.aria": ["引用门禁计数", "Citation gate counts"],
+    // W8 — not to be confused with a briefing.
+    "history.brief.label": ["编译纪要 · 派生叙述", "Compile brief · derived narration"],
+    // W9 — one verb, and both directions of it.
+    "history.claim.superseded": ["取代", "Superseded"],
+    "library.supersession.supersededBy": ["被 c:{anchor} 取代", "superseded by c:{anchor}"],
+    "library.supersession.supersedes": ["取代 c:{anchor}", "supersedes c:{anchor}"],
+    // W11 — a preflight rejection is not an import failure.
+    "ingest.official.preflightFailed": ["预检失败", "Preflight failed"],
+  };
+  for (const [key, [zh, en]] of Object.entries(pins)) {
+    assert.equal(MESSAGES.zh[key], zh, `zh ${key}`);
+    assert.equal(MESSAGES.en[key], en, `en ${key}`);
+  }
 });
 
 /* -------------------------------------------------------------- locale ladder */
@@ -272,4 +343,36 @@ test("the source-kind families both cover the projection's kinds", () => {
       }
     }
   }
+});
+
+/* ------------------------------------------------------ count grouping in messages */
+
+test("count-like placeholders are grouped, and index-like ones are left alone", () => {
+  // One policy for every number a message carries: what a page prints inside a sentence and
+  // what it prints beside it (`fmtCount`) go through the same function.
+  assert.equal(translate("en", "graph.anomaly.deadEnd", { count: 5832, share: "39.9%" }).includes("5,832"), true);
+  assert.equal(translate("zh", "graph.anomaly.deadEnd", { count: 5832, share: "39.9%" }).includes("5,832"), true);
+  // A block index, a year, a version and an id are not cardinal counts: "¶1,238" is wrong.
+  assert.equal(translate("en", "sources.exactSpan.title", { block: 1238 }), "b1238 · exact source span");
+  assert.equal(translate("en", "common.pagination.page", { current: 2, total: 7 }), "Page 2 of 7");
+});
+
+test("the grouping policy is a name denylist, applied to integers only", () => {
+  // Pinned through a declared key so the test exercises the real path: `{count}` is grouped,
+  // `{index}` is not, a float is untouched, and a non-numeric param is printed as given.
+  assert.equal(translate("en", "common.footnote.aria", { index: 1238 }), "Footnote 1238");
+  assert.equal(
+    translate("en", "sources.block.fetchAria", { index: 2026 }),
+    "Fetch the exact source span for block 2026",
+  );
+  assert.equal(translate("en", "sources.blockCount", { count: 4000 }), "4,000 blocks");
+  // The denylist matches a NAME, not a spelling tail: `claims` is a count even though it
+  // happens to end in "ms", and `elapsed_ms` / `elapsedMs` are not.
+  assert.equal(
+    translate("zh", "graph.health.summary", { files: 156, subjects: 153, claims: 2941, edges: 306 }),
+    "156 个文件归并为 153 个主体 · 2,941 条断言（claim）· 306 条内链。",
+  );
+  // A non-numeric count still leaves its plural token visible (see above): grouping does
+  // not repair a param that was never a number.
+  assert.equal(translate("en", "sources.blockCount", { count: "many" }), "many block{count||s}");
 });

@@ -13,6 +13,19 @@ import type {
   Snapshot,
 } from "./types";
 
+/**
+ * The name a reader knows a document by. The projection's `title` is the file stem
+ * (`orbit-flow`); the compile writes the human title into frontmatter (`Orbit Flow`). A link
+ * label, a connection row, a neighbour — anything that names ANOTHER document — should say
+ * the latter, and fall back to the stem only when no title was ever written.
+ */
+export function documentDisplayTitle(
+  doc: Pick<DocumentRecord, "title" | "frontmatter">,
+): string {
+  const fm = doc.frontmatter?.title;
+  return typeof fm === "string" && fm.trim() ? fm.trim() : doc.title;
+}
+
 export interface DirNode {
   name: string;
   path: string; // full path for files; dir path for folders

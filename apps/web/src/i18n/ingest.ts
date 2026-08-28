@@ -10,7 +10,7 @@ import { defineMessages } from "./define";
  *   - contract identifiers — schema strings, `source_class`, `canonical_treatment`,
  *     `segments` / `documents` / `conversations` / `threads` — which are wire names, not copy.
  *
- * The `ingest.sample.*` block IS copy: those payloads are hand-written demo material living
+ * The `ingest.sample.*` block IS copy: those payloads are hand-written demo content living
  * in the client, so the sample a reader loads is in the language they are reading in. The
  * synthetic contract fields around them (ids, timestamps, addresses) are not translated.
  *
@@ -22,9 +22,9 @@ export const ingest = defineMessages({
     "ingest.pageDescription":
       "会议、文档库、即时消息与邮件共用一套可审计入口；标准来源契约预检通过后才进入编译流水线。",
     "ingest.noUser.title": "未选择用户",
-    "ingest.noUser.description": "先在顶栏选择或新建一个 user_id，导入的原料归属于该用户。",
+    "ingest.noUser.description": "在右上角选择或新建一个 user_id，导入的来源归属于该用户。",
     "ingest.readOnly.title": "历史快照 · 只读",
-    "ingest.readOnly.body": "正在查看历史快照，导入已禁用；切回 HEAD 后才能提交新原料。",
+    "ingest.readOnly.body": "正在查看历史快照，导入已禁用；切回 HEAD 后才能提交新来源。",
     "ingest.tabs.aria": "导入方式",
     "ingest.tabs.official": "结构化来源",
     "ingest.tabs.document": "单篇文档",
@@ -44,7 +44,8 @@ export const ingest = defineMessages({
       "服务端会再次执行完整 contract 校验；bundle 将按自然引用单元展开，并分别进入 L0–L3 流水线。",
     "ingest.official.submit": "导入 {kind}",
     "ingest.official.fileFailed": "读取 source contract 失败：{detail}",
-    "ingest.official.failed": "结构化来源导入失败",
+    "ingest.official.failed": "导入失败",
+    "ingest.official.preflightFailed": "预检失败",
 
     "ingest.official.meeting.description": "带参与者、议程和逐段时间戳的会议记录。",
     "ingest.official.meeting.citationUnit": "整场会议",
@@ -107,10 +108,12 @@ export const ingest = defineMessages({
     "ingest.document.archetype.examples": "例：{examples}",
     "ingest.document.sourceClass.auto": "不指定",
     "ingest.document.sourceClass.autoHint": "由系统按内容判断",
-    "ingest.document.sourceClass.workstream": "进行中的工作流材料",
-    "ingest.document.sourceClass.reference": "长期参考资料",
+    "ingest.document.sourceClass.workstream": "进行中的工作流来源",
+    "ingest.document.sourceClass.reference": "长期参考来源",
     "ingest.document.preview": "机械预览",
     "ingest.document.normalizedPrefix": "归一化结果：",
+    "ingest.document.blockNoun": "个原文块",
+    "ingest.document.charNoun": "字符",
     "ingest.document.proposedArchetype": "系统建议意图",
     "ingest.document.preamble": "(前言)",
     "ingest.document.proposalPrefix": "提案：",
@@ -122,18 +125,18 @@ export const ingest = defineMessages({
     "ingest.document.fileFailed": "读取文件失败：{detail}",
     "ingest.document.result.deduplicated": "内容去重命中（append-only）",
     "ingest.document.result.stored": "已入库",
-    "ingest.document.result.view": "查看原料",
+    "ingest.document.result.view": "查看来源",
   },
   en: {
     "ingest.pageTitle": "Ingest",
     "ingest.pageDescription":
-      "Meetings, document libraries, instant messages and email share one auditable entrance; material reaches the compile pipeline only after its canonical contract passes preflight.",
+      "Meetings, document libraries, instant messages and email share one auditable entrance; a source reaches the compile pipeline only after its canonical contract passes preflight.",
     "ingest.noUser.title": "No user selected",
     "ingest.noUser.description":
-      "Choose or create a user_id in the top bar first — imported material belongs to that user.",
+      "Choose or create a user_id in the top right — an imported source belongs to that user.",
     "ingest.readOnly.title": "Historical snapshot · read-only",
     "ingest.readOnly.body":
-      "You are viewing a historical snapshot, so importing is disabled; switch back to HEAD to submit new material.",
+      "You are viewing a historical snapshot, so importing is disabled; switch back to HEAD to submit a new source.",
     "ingest.tabs.aria": "Import method",
     "ingest.tabs.official": "Structured source",
     "ingest.tabs.document": "Single document",
@@ -154,7 +157,8 @@ export const ingest = defineMessages({
       "The service validates the whole contract again; the bundle is expanded along its natural citation units, each of which enters the L0–L3 pipeline on its own.",
     "ingest.official.submit": "Import {kind}",
     "ingest.official.fileFailed": "Could not read the source contract: {detail}",
-    "ingest.official.failed": "Structured source import failed",
+    "ingest.official.failed": "Import failed",
+    "ingest.official.preflightFailed": "Preflight failed",
 
     "ingest.official.meeting.description":
       "A meeting record with participants, an agenda and per-segment timestamps.",
@@ -224,10 +228,12 @@ export const ingest = defineMessages({
     "ingest.document.archetype.examples": "e.g. {examples}",
     "ingest.document.sourceClass.auto": "Unspecified",
     "ingest.document.sourceClass.autoHint": "decided by the system from the content",
-    "ingest.document.sourceClass.workstream": "material from work in progress",
-    "ingest.document.sourceClass.reference": "long-lived reference material",
+    "ingest.document.sourceClass.workstream": "a source from work in progress",
+    "ingest.document.sourceClass.reference": "a long-lived reference source",
     "ingest.document.preview": "Mechanical preview",
     "ingest.document.normalizedPrefix": "Normalised: ",
+    "ingest.document.blockNoun": "blocks",
+    "ingest.document.charNoun": "chars",
     "ingest.document.proposedArchetype": "the system proposes",
     "ingest.document.preamble": "(preamble)",
     "ingest.document.proposalPrefix": "Proposal: ",
@@ -239,6 +245,6 @@ export const ingest = defineMessages({
     "ingest.document.fileFailed": "Could not read the file: {detail}",
     "ingest.document.result.deduplicated": "Content deduplicated (append-only)",
     "ingest.document.result.stored": "Stored",
-    "ingest.document.result.view": "View the material",
+    "ingest.document.result.view": "View the source",
   },
 });

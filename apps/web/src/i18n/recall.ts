@@ -37,7 +37,7 @@ export const recall = defineMessages({
     "recall.empty.askTitle": "提问开始作答",
     "recall.empty.askDescription": "fast 基于正本断言（claim）直接作答；deep 再对引用逐条核验。",
     "recall.empty.noHitsTitle": "无命中",
-    "recall.empty.noHitsDescription": "换个查询词，或先去「导入 Ingest」入库更多材料。",
+    "recall.empty.noHitsDescription": "换个查询词，或先去「导入 Ingest」入库更多来源。",
 
     "recall.hits.count": "{count} 条命中 · 点击脚注定位到原文",
 
@@ -64,6 +64,7 @@ export const recall = defineMessages({
     "recall.stages.descriptionRag":
       "rag lane 每一步的实测墙钟：embed 是问题向量，retrieve 里的 lexical 与 vector 是先后两次检索（顺序执行，相加即为 retrieve），fuse 是 RRF 融合，expand 是融合之后的重叠归并。这条 lane 不调用模型，所以没有作答阶段。",
     "recall.stages.skipped": "未执行",
+    "recall.stages.pending": "待运行",
     "recall.stages.degraded": "降级：{reason}",
     "recall.stages.slowest": "最慢：{stage} {ms}",
     "recall.stages.explain": "这张图怎么读",
@@ -76,8 +77,8 @@ export const recall = defineMessages({
       "路由选中的组件查询路：结构化查询、精确命中，自成一个证据面，不参与排序融合。",
     "recall.components.claims": "断言 {count}",
     "recall.components.windows": "原文摘录 {count}",
-    "recall.components.dropped": "…另有 {count} 条超出该路上限",
-    "recall.components.notShown": "…未展示：{detail}",
+    "recall.components.dropped": "……另有 {count} 条超出该路上限",
+    "recall.components.notShown": "……未展示：{detail}",
     "recall.components.alreadyShown": "有 {count} 条已在上面的排序证据里",
     "recall.components.via": "来自 {paths}",
     "recall.components.degraded": "降级：{reason}",
@@ -126,7 +127,7 @@ export const recall = defineMessages({
       "fast answers straight from canonical claims; deep then verifies each citation.",
     "recall.empty.noHitsTitle": "No hits",
     "recall.empty.noHitsDescription":
-      "Try different terms, or file more material through Ingest first.",
+      "Try different terms, or file more sources through Ingest first.",
 
     "recall.hits.count": "{count} hit{count||s} · click a footnote to open the original",
 
@@ -153,6 +154,7 @@ export const recall = defineMessages({
     "recall.stages.descriptionRag":
       "Measured wall-clock per step of the rag lane: `embed` is the question vector, `retrieve`'s `lexical` and `vector` are two lookups run one after the other (sequential, so they add up to `retrieve`), `fuse` is the RRF pass, `expand` the overlap merge that follows it. No model runs in this lane, so there is no answering step.",
     "recall.stages.skipped": "not run",
+    "recall.stages.pending": "not yet",
     "recall.stages.degraded": "degraded: {reason}",
     "recall.stages.slowest": "slowest: {stage} {ms}",
     "recall.stages.explain": "How to read this diagram",

@@ -2,6 +2,7 @@ import { Info } from "lucide-react";
 import {
   asFlow,
   formatStageMs,
+  laneOrdered,
   previewRows,
   slowestStage,
   stageFlow,
@@ -54,6 +55,7 @@ import { cn } from "@/ui/cn";
 function StageNode({ node, child }: { node: FlowNode; child?: boolean }) {
   const t = useT();
   const skipped = node.status === "skipped";
+  const pending = node.status === "pending";
   const degraded = node.status === "degraded";
   // Only a node with something to show is clickable. A stage that reported no preview — an
   // older service, a stage with nothing worth a glance — renders exactly as it always did,
@@ -63,7 +65,7 @@ function StageNode({ node, child }: { node: FlowNode; child?: boolean }) {
       className={cn(
         "inline-flex flex-col items-start gap-0.5 rounded-1 border px-2 py-1 leading-none",
         child ? "text-[0.95em]" : "",
-        skipped
+        skipped || pending
           ? "border-dashed border-line text-ink-3 opacity-60"
           : degraded
             ? "border-danger/50 bg-surface"
@@ -74,7 +76,7 @@ function StageNode({ node, child }: { node: FlowNode; child?: boolean }) {
       )}
       title={degraded ? t("recall.stages.degraded", { reason: node.detail ?? "" }) : undefined}
     >
-      <span className={cn("whitespace-nowrap", skipped ? "text-ink-3" : "text-ink-2")}>
+      <span className={cn("whitespace-nowrap", skipped || pending ? "text-ink-3" : "text-ink-2")}>
         {node.leaf}
       </span>
       <Mono
@@ -83,7 +85,9 @@ function StageNode({ node, child }: { node: FlowNode; child?: boolean }) {
           degraded ? "text-danger" : node.running ? "text-accent" : "text-ink-3",
         )}
       >
-        {skipped ? (
+        {pending ? (
+          t("recall.stages.pending")
+        ) : skipped ? (
           t("recall.stages.skipped")
         ) : (
           <>
@@ -206,6 +210,7 @@ function StageGroup({ node }: { node: FlowNode }) {
 export function StageStrip({
   stages,
   live,
+  order,
   description,
   className,
 }: {
@@ -213,12 +218,23 @@ export function StageStrip({
   stages?: StageTiming[] | null;
   /** The rows a stream is folding right now (`liveStages`), while the lane runs. */
   live?: FlowStage[] | null;
+  /**
+   * The lane's own fixed vocabulary, in its own order (`lib/stages`: FAST_LANE_ORDER, …) —
+   * for a MECHANICAL lane only. With it, a live diagram is drawn in the shape the finished
+   * one will have, with the stages not yet opened standing as pending placeholders, so it
+   * grows in place instead of rearranging itself when the answer lands. An agentic lane has
+   * no such list — its order IS the finding — and passes nothing.
+   */
+  order?: readonly string[];
   /** The sentence behind the ⓘ, already translated — see the note above on why. */
   description: string;
   className?: string;
 }) {
   const t = useT();
-  const rows = live && live.length > 0 ? live : asFlow(stages);
+  const arrived = live && live.length > 0 ? live : asFlow(stages);
+  // A finished answer already carries the lane's whole vocabulary in order, so the template
+  // is only ever applied to what a stream has folded so far.
+  const rows = order && live && live.length > 0 ? laneOrdered(arrived, order) : arrived;
   const { nodes, total } = stageFlow(rows);
   if (nodes.length === 0 && total == null) return null;
   const slowest = slowestStage(rows);

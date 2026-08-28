@@ -18,6 +18,16 @@
  */
 import type { MessageKey } from "./i18n";
 
+/**
+ * The confidence floor both transports start at — and the service's own default
+ * (`recall/suggestion.py::DEFAULT_MIN_CONFIDENCE`).
+ *
+ * The two panels used to disagree: SSE opened at 1 and the socket at 6, so the same
+ * workstream evaluated on the two surfaces returned different cards for a reason that had
+ * nothing to do with either surface. One transport is not a different policy.
+ */
+export const DEFAULT_MIN_CONFIDENCE = 6;
+
 export interface PresetTurn {
   speakerKey: MessageKey;
   textKey: MessageKey;

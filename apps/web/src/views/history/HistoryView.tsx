@@ -25,6 +25,7 @@ import {
 import { PageHeader } from "@/components/PageHeader";
 import { PaginationBar } from "@/components/PaginationBar";
 import { ActivityHeatmap } from "@/components/ActivityHeatmap";
+import { useSourceTitles } from "../_shared/useSourceTitles";
 import { Badge } from "@/ui/Badge";
 import { Button } from "@/ui/Button";
 import { Callout } from "@/ui/Callout";
@@ -393,6 +394,9 @@ function PatchDetail({
   const t = useT();
   const jump = useApp((s) => s.jump);
   const focusSource = useApp((s) => s.focusSource);
+  const currentUser = useApp((s) => s.currentUser);
+  // The sources an edition consumed are addressed by id; their titles come on demand (L5).
+  const { titles: sourceTitles } = useSourceTitles(currentUser, patch.sources_consumed);
 
   const changes = patchChanges(model, patch);
   const groups = groupClaimsByDocument(patch, model, t("history.unlocatedDocument"));
@@ -619,12 +623,16 @@ function PatchDetail({
               <span className="shrink-0 text-13 text-ink-2">
                 {t("history.source.index", { index: index + 1 })}
               </span>
-              <Mono
-                className="min-w-0 flex-1 truncate text-12 text-ink-3"
-                title={sourceId}
-              >
-                {sourceId}
-              </Mono>
+              <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                {sourceTitles[sourceId] && (
+                  <span className="min-w-0 truncate text-13 text-ink">
+                    {sourceTitles[sourceId]}
+                  </span>
+                )}
+                <Mono className="min-w-0 truncate text-12 text-ink-3" title={sourceId}>
+                  {sourceId}
+                </Mono>
+              </span>
               <span className="shrink-0 text-12 text-accent">
                 {t("history.source.view")}
               </span>

@@ -18,7 +18,7 @@ export const process = defineMessages({
     "process.status.queued": "排队中",
 
     "process.noUser.title": "未选择用户",
-    "process.noUser.description": "先在顶栏选择一个 user_id，再查看它的编译任务账页。",
+    "process.noUser.description": "在右上角选择一个 user_id，再查看它的编译任务账页。",
 
     "process.compile.action": "触发编译",
     "process.compile.hint": "把未消化的 source 入 compile 队列",
@@ -27,9 +27,15 @@ export const process = defineMessages({
 
     "process.readOnly.body": "正在查看历史快照，触发编译已禁用；切回 HEAD 后才能操作。",
 
-    "process.patch.prefix": "此 patch",
-    "process.patch.suffix": "在「版本 History」查看。",
-    "process.patch.goHistory": "去版本 History",
+    "process.locate.searching": "正在向后翻页定位 job {job}…",
+    "process.locate.notFound":
+      "job {job} 不在最近 {count} 条里。它可能更早，或已不在本用户的账页上。",
+    "process.job.openSource": "打开这条来源的校样",
+    "process.job.sourceUntitled": "（标题加载中）",
+
+    "process.patch.prefix": "此版次",
+    "process.patch.suffix": "在「版次 History」查看。",
+    "process.patch.goHistory": "去版次 History",
 
     "process.enqueued.title": "已入队",
     "process.enqueued.none": "没有待编译的 source（全部已消化）。",
@@ -37,7 +43,7 @@ export const process = defineMessages({
     "process.loadFailed": "加载 job 账页失败",
 
     "process.empty.title": "尚无编译任务",
-    "process.empty.description": "先在「导入 Ingest」添加原料，再回到这里触发编译。",
+    "process.empty.description": "先在「导入 Ingest」添加来源，再回到这里触发编译。",
     "process.empty.action": "去导入",
 
     "process.row.created": "创建",
@@ -55,7 +61,7 @@ export const process = defineMessages({
 
     "process.noUser.title": "No user selected",
     "process.noUser.description":
-      "Choose a user_id in the top bar to see its compile-job ledger.",
+      "Choose a user_id in the top right to see its compile-job ledger.",
 
     "process.compile.action": "Run a compile",
     "process.compile.hint": "Queue every undigested source for compilation",
@@ -65,7 +71,13 @@ export const process = defineMessages({
     "process.readOnly.body":
       "You are viewing a historical snapshot, so running a compile is disabled; switch back to HEAD first.",
 
-    "process.patch.prefix": "This patch",
+    "process.locate.searching": "Paging forward to find job {job}…",
+    "process.locate.notFound":
+      "Job {job} is not among the most recent {count}. It may be older, or no longer on this user's ledger.",
+    "process.job.openSource": "Open this source's galley",
+    "process.job.sourceUntitled": "(title loading)",
+
+    "process.patch.prefix": "This edition",
     "process.patch.suffix": "is shown under History.",
     "process.patch.goHistory": "Go to History",
 
@@ -76,7 +88,7 @@ export const process = defineMessages({
 
     "process.empty.title": "No compile jobs yet",
     "process.empty.description":
-      "Add material under Ingest first, then come back here and run a compile.",
+      "Add a source under Ingest first, then come back here and run a compile.",
     "process.empty.action": "Go to Ingest",
 
     "process.row.created": "created",

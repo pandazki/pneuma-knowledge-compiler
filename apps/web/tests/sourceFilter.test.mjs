@@ -187,11 +187,12 @@ test("a chip counts what clicking it would give, ignoring its own dimension", ()
       ["document", 1, true],
     ],
   );
-  // …while another dimension IS narrowed by the kind selection.
+  // …while another dimension IS narrowed by the kind selection. The ORDER is the whole
+  // catalogue's (workstream is the larger class), so a narrowing changes numbers, not places.
   const classes = groups.find((g) => g.dimension === "source_class");
   assert.deepEqual(
     classes.values.map((v) => [v.value, v.count]),
-    [["reference", 1], ["workstream", 0]],
+    [["workstream", 0], ["reference", 1]],
   );
 });
 
@@ -215,6 +216,28 @@ test("every dimension the catalogue holds is offered, in count order", () => {
   );
   const [kinds] = sourceFacets(CATALOGUE, EMPTY_SOURCE_FILTER, UTC);
   assert.deepEqual(kinds.values.map((v) => v.value), ["conversation", "document"]);
+});
+
+test("chip order follows the catalogue, not the filter — clicking one never reshuffles them", () => {
+  // The order is the WHOLE inventory's shape; only the numbers move under a selection. A row
+  // that reordered itself moved the chip the reader was about to press next.
+  const unfiltered = sourceFacets(CATALOGUE, EMPTY_SOURCE_FILTER, UTC);
+  const narrowed = sourceFacets(CATALOGUE, filter({ classes: ["reference"] }), UTC);
+  for (const dimension of ["kind", "source_class", "origin"]) {
+    const before = unfiltered.find((g) => g.dimension === dimension);
+    const after = narrowed.find((g) => g.dimension === dimension);
+    assert.deepEqual(
+      after.values.map((v) => v.value),
+      before.values.map((v) => v.value),
+      `${dimension} chips moved under a filter`,
+    );
+  }
+  // …and the counts did narrow, or the assertion above would be vacuous.
+  const kinds = narrowed.find((g) => g.dimension === "kind");
+  assert.notDeepEqual(
+    kinds.values.map((v) => v.count),
+    unfiltered.find((g) => g.dimension === "kind").values.map((v) => v.count),
+  );
 });
 
 test("withDimension writes back to the field the dimension owns", () => {

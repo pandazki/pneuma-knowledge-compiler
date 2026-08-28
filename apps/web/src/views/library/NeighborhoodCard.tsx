@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useApp } from "@/lib/store";
 import { useT } from "@/lib/useT";
-import { claimOneLine } from "@/lib/claim";
+import { edgeSentence } from "@/lib/edgeSentence";
 import { neighborhoodOf, type LinkIndex, type NeighborRow } from "@/lib/structureLens";
 import { Mono } from "@/ui/Mono";
 import { ScrollRegion } from "@/ui/ScrollRegion";
@@ -23,7 +23,16 @@ const ROWS_VISIBLE = 12;
  * Archive volumes are folded into their owner, so a reader never has to learn that `a01`
  * exists; a sentence that physically lives in one says so on its row.
  */
-export function NeighborhoodCard({ index, path }: { index: LinkIndex; path: string }) {
+export function NeighborhoodCard({
+  index,
+  path,
+  titleOf,
+}: {
+  index: LinkIndex;
+  path: string;
+  /** The name to print for a neighbour, by path; the unit's own (file-stem) title otherwise. */
+  titleOf?: (path: string) => string | null;
+}) {
   const t = useT();
   const { outgoing, incoming } = useMemo(() => neighborhoodOf(index, path), [index, path]);
   return (
@@ -32,11 +41,13 @@ export function NeighborhoodCard({ index, path }: { index: LinkIndex; path: stri
         title={t("library.neighborhood.out", { count: outgoing.length })}
         rows={outgoing}
         empty={t("library.neighborhood.emptyOut")}
+        titleOf={titleOf}
       />
       <Direction
         title={t("library.neighborhood.in", { count: incoming.length })}
         rows={incoming}
         empty={t("library.neighborhood.emptyIn")}
+        titleOf={titleOf}
       />
     </div>
   );
@@ -46,10 +57,12 @@ function Direction({
   title,
   rows,
   empty,
+  titleOf,
 }: {
   title: string;
   rows: NeighborRow[];
   empty: string;
+  titleOf?: (path: string) => string | null;
 }) {
   const t = useT();
   const select = useApp((s) => s.select);
@@ -75,7 +88,9 @@ function Direction({
                     className="flex w-full min-w-0 flex-col gap-0.5 py-2 text-left transition-colors duration-120 hover:bg-hover"
                   >
                     <span className="flex min-w-0 items-baseline gap-2">
-                      <span className="min-w-0 flex-1 truncate text-13 text-ink">{row.title}</span>
+                      <span className="min-w-0 flex-1 truncate text-13 text-ink" title={row.path}>
+                        {titleOf?.(row.path) ?? row.title}
+                      </span>
                       {row.more > 0 && (
                         <Mono className="shrink-0 text-12 text-ink-3">
                           {t("library.neighborhood.more", { count: row.more })}
@@ -85,7 +100,7 @@ function Direction({
                     {/* The edge, in words. Never truncated to a single line: the date and the
                         name are usually at the end of the sentence. */}
                     <span className="text-12 leading-relaxed text-ink-2">
-                      {claimOneLine(row.sentence)}
+                      {edgeSentence(row.sentence, titleOf)}
                     </span>
                     {row.volume && (
                       <Mono className="truncate text-12 text-ink-3">

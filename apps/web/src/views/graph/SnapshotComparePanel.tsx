@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useApp } from "@/lib/store";
 import { useT, type TFunction } from "@/lib/useT";
 import { getDatasetRaw } from "@/lib/api";
-import { claimOneLine } from "@/lib/claim";
+import { edgeSentence } from "@/lib/edgeSentence";
 import { fmtDelta } from "@/lib/format";
 import type { MessageKey } from "@/lib/i18n";
 import type { Dataset } from "@/lib/types";
@@ -349,7 +349,7 @@ function EdgeRow({ edge, onOpen }: { edge: EdgeDiffRow; onOpen: () => void }) {
           <span className="min-w-0 truncate text-ink">{edge.toTitle}</span>
         </span>
         <span className="line-clamp-2 text-12 leading-relaxed text-ink-3">
-          {claimOneLine(edge.sentence)}
+          {edgeSentence(edge.sentence)}
         </span>
       </button>
     </li>

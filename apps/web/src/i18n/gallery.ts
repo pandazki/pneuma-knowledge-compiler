@@ -128,7 +128,7 @@ export const gallery = defineMessages({
     "gallery.callout.dangerTitle": "错误",
     "gallery.callout.dangerBody": "编译失败，可关闭此提示。",
 
-    "gallery.empty.title": "还没有原料",
+    "gallery.empty.title": "还没有来源",
     "gallery.empty.description": "去「导入 Ingest」添加第一条 source。",
     "gallery.empty.action": "去导入",
     "gallery.errorState.detail": "502 Bad Gateway：compile queue unreachable",
@@ -141,13 +141,13 @@ export const gallery = defineMessages({
     "gallery.footnote.citationTitle": "编译器原理笔记",
     "gallery.footnote.citationSnippet": "溯源不是功能，是这套系统的地基。",
 
-    "gallery.level.l0": "原始材料：对话、文档、实验记录。",
-    "gallery.level.l1": "原料块索引：可定位、可取回。",
+    "gallery.level.l0": "原始来源：对话、文档、实验记录。",
+    "gallery.level.l1": "原文块索引：可定位、可取回。",
     "gallery.level.l2": "语义索引：recall 的命中面。",
     "gallery.level.l3": "正本知识：每条断言都带引用。",
 
     "gallery.dialog.title": "确认编译",
-    "gallery.dialog.description": "把当前未消化的原料编译进正本。",
+    "gallery.dialog.description": "把当前未消化的来源编译进正本。",
     "gallery.dialog.cancel": "取消",
     "gallery.dialog.body": "正文区：表单或说明文字。",
     "gallery.drawer.title": "侧栏抽屉",
@@ -241,7 +241,7 @@ export const gallery = defineMessages({
 
     "gallery.radio.workstream": "Workstream",
     "gallery.radio.workstreamNote": "Conversations and experiments that keep arriving",
-    "gallery.radio.reference": "Reference material",
+    "gallery.radio.reference": "Reference source",
     "gallery.radio.referenceNote": "Stable external documents",
     "gallery.radio.unselected": "Unselected",
     "gallery.radio.error": "Choose one class",
@@ -273,7 +273,7 @@ export const gallery = defineMessages({
     "gallery.callout.dangerTitle": "Error",
     "gallery.callout.dangerBody": "The compile failed. This notice can be dismissed.",
 
-    "gallery.empty.title": "No material yet",
+    "gallery.empty.title": "No sources yet",
     "gallery.empty.description": "Head to Ingest to add the first source.",
     "gallery.empty.action": "Go to Ingest",
     "gallery.errorState.detail": "502 Bad Gateway: compile queue unreachable",
@@ -287,7 +287,7 @@ export const gallery = defineMessages({
     "gallery.footnote.citationSnippet":
       "Provenance is not a feature; it is the ground this system stands on.",
 
-    "gallery.level.l0": "Raw material: conversations, documents, experiment logs.",
+    "gallery.level.l0": "Raw sources: conversations, documents, experiment logs.",
     "gallery.level.l1": "Source block index: locatable, fetchable.",
     "gallery.level.l2": "Semantic index: the surface recall hits.",
     "gallery.level.l3": "Canonical knowledge, with citations.",
