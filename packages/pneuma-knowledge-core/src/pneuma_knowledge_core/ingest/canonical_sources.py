@@ -237,6 +237,19 @@ def _im(
         messages = sorted(
             conversation.messages, key=lambda item: (item.sent_at, item.message_id)
         )
+        # Who this conversation's envelope carries a user record for: its declared members,
+        # then everyone who actually SENT a message and was not one. The contract requires
+        # both to be users of the archive and neither to be a subset of the other — a
+        # provider snapshot where a guest posts into a channel they are not a member of is
+        # ordinary and valid — so copying member records alone dropped the user record of
+        # every such sender, and nothing downstream could resolve who spoke. Ordered: members
+        # in their declared order, then senders in first-seen order.
+        present_ids = list(dict.fromkeys(conversation.member_ids))
+        seen = set(present_ids)
+        for message in messages:
+            if message.sender_id not in seen:
+                seen.add(message.sender_id)
+                present_ids.append(message.sender_id)
         blocks = []
         for index, message in enumerate(messages):
             sender = users[message.sender_id]
@@ -290,8 +303,7 @@ def _im(
                 "owner_user_ids": source.owner_user_ids,
                 "message_ids": [item.message_id for item in messages],
                 "users": [
-                    users[user_id].model_dump(mode="json")
-                    for user_id in conversation.member_ids
+                    users[user_id].model_dump(mode="json") for user_id in present_ids
                 ],
                 # Text stays in normalized blocks. This parallel metadata is only the
                 # provider-neutral envelope required to present channel chronology,

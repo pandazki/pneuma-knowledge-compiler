@@ -5,12 +5,14 @@ import pytest
 
 from pneuma_knowledge_core.compile.anchor_ops import (
     AnchorToolError,
+    anchored_blocks,
     append_block_text,
     assign_anchor,
     assign_document_anchors,
     edit_claim_text,
     missing_anchors,
     normalize_repeated_heading_markers,
+    unanchored_blocks,
 )
 from pneuma_knowledge_core.domain.ids import extract_anchors
 
@@ -79,6 +81,27 @@ def test_edit_claim_rewrites_in_place_and_restores_anchor():
 def test_edit_claim_accepts_block_carrying_own_anchor():
     out = edit_claim_text(DOC, "bb22", "- 别名台账更新。[cite: src-02 ¶6] <!-- c:bb22 -->")
     assert out.count("<!-- c:bb22 -->") == 1
+
+
+def test_edit_claim_keeps_a_list_item_a_list_item():
+    """A wording fix must not quietly promote a bullet out of its list.
+
+    A real model corrected one word and sent the sentence back without its bullet; the claim
+    left the list it belonged to. `supersede_claim_text` already keeps the predecessor's
+    form for its successor, and an edit is the same mechanical alignment — the block's shape
+    is the document's structure, not the wording the edit was about.
+    """
+    out = edit_claim_text(DOC, "aa11", "程野 是团队后端负责人（架构方向）。[cite: src-01 ¶3]")
+    assert "- 程野 是团队后端负责人（架构方向）。[cite: src-01 ¶3] <!-- c:aa11 -->" in out
+    assert extract_anchors(out) == ["aa11", "bb22"]
+
+
+def test_edit_claim_does_not_bullet_a_paragraph_claim():
+    """The converse: form is PRESERVED, never imposed. A paragraph claim stays a paragraph."""
+    doc = "# T\n\n## S\n\n程野 是团队后端负责人。[cite: src-01 ¶3] <!-- c:aa11 -->\n"
+    out = edit_claim_text(doc, "aa11", "程野 转任架构师。[cite: src-02 ¶5]")
+    assert "\n程野 转任架构师。[cite: src-02 ¶5] <!-- c:aa11 -->\n" in out
+    assert "- 程野" not in out
 
 
 def test_edit_claim_rejects_unknown_and_foreign_anchor():
@@ -230,3 +253,28 @@ def test_append_block_anchors_every_block_not_just_last():
     text = "一段承诺。\n\n二段回应。\n\n- 三段列表项。"
     out = append_block_text(body, "清理", text, document_path="memory/topics/x.md")
     assert len(extract_anchors(out)) == 3
+
+
+# ---- block segmentation: an anchor ends the block it sits on --------------------
+
+
+def test_an_unanchored_multi_line_paragraph_is_still_one_block():
+    """The anchor stop must not shorten ordinary paragraphs: a paragraph WITHOUT an anchor
+    runs to the blank line, so `assign_document_anchors` gives it exactly one anchor and the
+    gate sees no orphan."""
+    body = "## 背景\n\n第一行叙述。\n第二行叙述。[cite: src-01 ¶3]\n\n- 一条列表。[cite: src-01 ¶4]"
+    out = assign_document_anchors(body, "memory/topics/t.md")
+    assert len(extract_anchors(out)) == 2  # the paragraph as ONE claim, plus the bullet
+    lines = out.split("\n")
+    assert "<!-- c:" not in lines[2] and "<!-- c:" in lines[3]  # anchor on the last line
+    assert unanchored_blocks(out) == []
+    assert anchored_blocks(out) == ["第一行叙述。\n" + lines[3], lines[5]]
+
+
+def test_two_adjacent_anchored_paragraph_claims_are_two_blocks():
+    body = (
+        "单身。[cite: src-01 ¶1] <!-- c:aaaa1111 -->\n"
+        "在与 Jon 交往。[cite: src-01 ¶5] <!-- c:bbbb2222 --> <!-- supersedes: c:aaaa1111 -->"
+    )
+    assert anchored_blocks(body) == body.split("\n")
+    assert unanchored_blocks(body) == []

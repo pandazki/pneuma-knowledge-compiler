@@ -8,16 +8,26 @@ evolve-only move_claim / delete_claim."""
 from itertools import count
 
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 from pydantic import PrivateAttr
 
+from pneuma_knowledge_core.compile.gate import Violation
 from pneuma_knowledge_core.compile.patch import PatchDraft
 from pneuma_knowledge_core.compile.runner import _build_tools
+from pneuma_knowledge_core.components import (
+    BaseComponent,
+    register_component,
+    reset_components,
+)
 from pneuma_knowledge_core.domain.canonical import CanonicalDocument
 from pneuma_knowledge_core.domain.ids import DocumentId, UserId
 from pneuma_knowledge_core.evolve.propose import EvolveProposal
-from pneuma_knowledge_core.evolve.runner import run_evolve
+from pneuma_knowledge_core.evolve.runner import (
+    repair_round_budget as evolve_repair_budget,
+    run_evolve,
+)
+from pneuma_knowledge_core.prompts import prompt
 from pneuma_knowledge_core.skill import compose_skill, load_skill_base
 from pneuma_knowledge_core.skill.pack import SchemaPack
 
@@ -28,9 +38,58 @@ def tc(name: str, **args) -> dict:
     return {"name": name, "args": args, "id": f"call-{next(_ids)}", "type": "tool_call"}
 
 
+def bad_tc(name: str, *, args: str = "{\"path\": ", error: str = "unterminated object") -> dict:
+    """A call whose arguments never parsed as JSON.
+
+    langchain files these under `AIMessage.invalid_tool_calls` instead of `tool_calls`, but
+    the assistant message still carries the function call on the wire — which is why the
+    runner owes it a result all the same. Scripted turns mix these freely with `tc(...)`;
+    the fake splits them onto the two fields the way a provider adapter does.
+    """
+    return {
+        "name": name,
+        "args": args,
+        "id": f"call-{next(_ids)}",
+        "error": error,
+        "type": "invalid_tool_call",
+    }
+
+
+def _assert_tool_calls_are_all_answered(messages) -> None:
+    """Every tool call an AIMessage declared has a ToolMessage answering it.
+
+    A provider REJECTS a history that carries fewer results than the AIMessage before it
+    declared, so a round that returns mid-batch without answering the rest poisons the NEXT
+    `ainvoke` — and the repair round is exactly that next call. Scripted models are happy to
+    ignore the pairing, which is why this fake refuses to: the invariant is checked here so a
+    regression fails in the suite rather than in production.
+    """
+    answered = {
+        m.tool_call_id for m in messages if isinstance(m, ToolMessage)
+    }
+    for message in messages:
+        # `invalid_tool_calls` counts: the provider adapter puts an unparseable call back on
+        # the wire as a function call like any other, so an unanswered one is the same 400.
+        declared = list(getattr(message, "tool_calls", None) or []) + list(
+            getattr(message, "invalid_tool_calls", None) or []
+        )
+        for call in declared:
+            assert call["id"] in answered, (
+                f"tool call {call['name']} ({call['id']}) reached the model with no "
+                "ToolMessage answering it"
+            )
+
+
 class ScriptedChatModel(BaseChatModel):
     turns: list = []
     _cursor: int = PrivateAttr(default=0)
+    # Every message list this model was ever handed, so a test can assert on what the
+    # runner actually put in front of it (the budget notice, the gate feedback).
+    _seen: list = PrivateAttr(default_factory=list)
+
+    @property
+    def seen(self) -> list:
+        return self._seen
 
     @property
     def _llm_type(self) -> str:
@@ -40,11 +99,18 @@ class ScriptedChatModel(BaseChatModel):
         return self
 
     def _generate(self, messages, stop=None, run_manager=None, **kwargs):  # noqa: ANN001
+        _assert_tool_calls_are_all_answered(messages)
+        self._seen.append(list(messages))
         usage = {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15}
         if self._cursor < len(self.turns):
             calls = self.turns[self._cursor]
             self._cursor += 1
-            msg = AIMessage(content="", tool_calls=calls, usage_metadata=usage)
+            msg = AIMessage(
+                content="",
+                tool_calls=[c for c in calls if c["type"] == "tool_call"],
+                invalid_tool_calls=[c for c in calls if c["type"] == "invalid_tool_call"],
+                usage_metadata=usage,
+            )
         else:
             msg = AIMessage(content="done", usage_metadata=usage)
         return ChatResult(generations=[ChatGeneration(message=msg)])
@@ -225,7 +291,206 @@ def test_compile_tool_face_excludes_evolve_only_tools():
         "create_document",
         "edit_claim",
         "append_block",
+        "supersede_claim",
+        "rewrite_overview",
+        "set_fields",
         "finish_compile",
         "search_knowledge",
         "search_source",
     }
+
+
+# --- the components' window is open around the reorganization ------------------------------
+#
+# A component's sync gate check reads a per-process mirror of its own projection, and an
+# evolve job runs where no compile ran — the mirror is cold by construction. `prepare` is
+# what fills it, so evolve opens the same window a compile does; without it the check would
+# render the empty library and pass every page blind.
+
+
+class _Watcher(BaseComponent):
+    name = "watcher"
+
+    def __init__(self, *, refuse: bool = False) -> None:
+        self.refuse = refuse
+        self.log: list[str] = []
+
+    async def prepare(self, user_id: str) -> None:
+        self.log.append(f"prepare:{user_id}")
+
+    def gate_checks(self, docs, base_docs):  # noqa: ARG002
+        self.log.append("gate")
+        if not self.refuse:
+            return []
+        return [Violation("watcher.refused", "memory/products/atlas.md", "no.")]
+
+
+async def _one_create(component):
+    register_component(component)
+    new_skill = compose_skill(load_skill_base("v1"), _proposal().packs)
+    model = ScriptedChatModel(
+        turns=[
+            [
+                tc(
+                    "create_document",
+                    path="memory/products/atlas.md",
+                    frontmatter={"type": "product", "slug": "atlas"},
+                    body="## 产品\n\n- 新事实。[cite: src-01 ¶1]",
+                ),
+                tc("finish_evolve"),
+            ]
+        ]
+    )
+    return await run_evolve(
+        user_id=USER,
+        model=model,
+        base_docs=_base_docs(),
+        new_skill=new_skill,
+        proposal=_proposal(),
+        source_bounds=_bounds,
+    )
+
+
+async def test_prepare_runs_before_the_gate_checks_and_a_component_refusal_aborts():
+    component = _Watcher(refuse=True)
+    try:
+        result = await _one_create(component)
+    finally:
+        reset_components()
+    # prepared once, at the head of the job — then judged (twice: the gate, then the repair
+    # round's gate), and the reorganization lands nothing.
+    assert component.log[0] == f"prepare:{USER}"
+    assert component.log.count("prepare:" + str(USER)) == 1
+    assert component.log[1:] == ["gate", "gate"]
+    assert result.status == "aborted"
+
+
+async def test_a_component_that_passes_leaves_the_reorganization_alone():
+    component = _Watcher()
+    try:
+        result = await _one_create(component)
+    finally:
+        reset_components()
+    assert result.status == "completed"
+    assert "memory/products/atlas.md" in result.files
+
+
+# ═══════════════════════════════════ the round's tool-call budget (compile's counterpart)
+#
+# evolve carried the identical shape: ONE `tool_calls` counter and `while tool_calls <
+# MAX_TOOL_CALLS` in a `tool_loop` both rounds call. A first round that spent its budget left
+# the repair round unable to enter its loop at all — the gate's feedback was appended to a
+# conversation nobody was asked to continue, and the reorganization aborted every time.
+
+
+class _NeedsTheProductPage(BaseComponent):
+    """Refuses the round until the product page exists — a violation one call repairs."""
+
+    name = "needs-product-page"
+
+    def gate_checks(self, docs, base_docs):  # noqa: ARG002
+        if "memory/products/atlas.md" in docs:
+            return []
+        return [Violation("needs_product_page", "memory/topics/atlas.md", "not adopted yet")]
+
+
+def test_the_evolve_repair_round_gets_a_fresh_allowance_bounded_by_the_round_budget():
+    assert evolve_repair_budget(1, 120) == 12
+    assert evolve_repair_budget(9, 120) == 27
+    assert evolve_repair_budget(9, 20) == 20
+
+
+async def test_an_evolve_first_round_that_spends_its_budget_is_still_repairable():
+    register_component(_NeedsTheProductPage())
+    try:
+        await _evolve_budget_walk()
+    finally:
+        reset_components()
+
+
+async def _evolve_budget_walk():
+    new_skill = compose_skill(load_skill_base("v1"), _proposal().packs)
+    model = ScriptedChatModel(
+        turns=[
+            # Three calls, no finish_evolve: the round is CUT, not ended.
+            [
+                tc("list_documents"),
+                tc("read_document", path="memory/topics/atlas.md"),
+                tc("list_documents"),
+            ],
+            # The repair round — impossible before this fix.
+            [
+                tc(
+                    "create_document",
+                    path="memory/products/atlas.md",
+                    frontmatter={"type": "product", "slug": "atlas"},
+                    body="## 产品\n",
+                ),
+                tc("finish_evolve"),
+            ],
+        ]
+    )
+    result = await run_evolve(
+        user_id=USER,
+        model=model,
+        base_docs=_base_docs(),
+        new_skill=new_skill,
+        proposal=_proposal(),
+        source_bounds=_bounds,
+        max_tool_calls=3,
+    )
+
+    assert result.status == "completed"
+    assert result.tool_calls == 5  # 3 spent in round one, 2 more in the fresh allowance
+    assert "memory/products/atlas.md" in result.files
+
+    feedback = [
+        str(m.content)
+        for m in model.seen[-1]
+        if isinstance(m, HumanMessage)
+        and prompt("gate.evolve.feedback_header") in str(m.content)
+    ]
+    assert len(feedback) == 1
+    assert feedback[0].startswith(
+        prompt("gate.previous_round_cut_off", spent=3, budget=3)
+    )
+
+
+async def test_evolve_answers_a_call_whose_arguments_never_parsed():
+    """The same mechanism as compile's loop: an unparseable call is `invalid_tool_calls`,
+    not `tool_calls`, yet the wire still declares it — so it is answered (before the batch's
+    valid calls), charged to the round like a refused one, and a batch of nothing but
+    unparseable calls loops rather than ending the round."""
+    new_skill = compose_skill(load_skill_base("v1"), _proposal().packs)
+    invalid = bad_tc("create_document")
+    later = tc(
+        "create_document",
+        path="memory/products/atlas.md",
+        frontmatter={"type": "product", "slug": "atlas"},
+        body="## 产品\n",
+    )
+    model = ScriptedChatModel(
+        turns=[
+            [invalid],  # nothing parsed: the round must continue, not end
+            [later, tc("finish_evolve")],
+        ]
+    )
+    result = await run_evolve(
+        user_id=USER,
+        model=model,
+        base_docs=_base_docs(),
+        new_skill=new_skill,
+        proposal=_proposal(),
+        source_bounds=_bounds,
+    )
+
+    assert result.status == "completed"
+    assert "memory/products/atlas.md" in result.files
+    assert result.tool_calls == 3  # the invalid call is charged like any other
+    answers = [
+        m for m in model.seen[-1] if isinstance(m, ToolMessage)
+    ]
+    assert answers[0].tool_call_id == invalid["id"]
+    assert str(answers[0].content) == prompt(
+        "compile.tool.invalid_call", name="create_document", error=invalid["error"]
+    )

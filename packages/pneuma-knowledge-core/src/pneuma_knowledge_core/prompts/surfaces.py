@@ -217,6 +217,7 @@ _LABEL_FAMILIES: tuple[tuple[str, str, str], ...] = (
     ("compile.task.", "Compile task", "编译任务"),
     ("compile.tool.", "Compile tool", "编译工具"),
     ("compile.anchor.", "Claim write rejection", "断言写入拒绝"),
+    ("compile.overview.", "Overview write rejection", "总览写入拒绝"),
     ("compile.patch.", "Document write rejection", "文档写入拒绝"),
     ("compile.treatment.", "Source treatment", "源处理档位"),
     ("compile.groom.", "Rollover", "归档轮换"),
@@ -1090,6 +1091,23 @@ SURFACES: tuple[Surface, ...] = (
                 "追加到大纲行后面，列出那份文档的小节标题。",
             ),
             f(
+                "compile.task.outline_entry_definition",
+                "One line under a document that has an overview: its definition — the one "
+                "sentence saying what the subject is.",
+                "带总览的文档下面的一行：它的 definition——说明这个主体是什么的那一句。",
+            ),
+            f(
+                "compile.task.outline_entry_ledger",
+                "One line under a document that has NO overview definition: the head of its "
+                "own current ledger, in the ledger's own words.",
+                "没有总览 definition 的文档下面的一行：它自己当前账本的开头，用账本原话。",
+            ),
+            f(
+                "compile.task.outline_entry_component",
+                'One extra line an enabled index component adds under a document of its family (an identity, an alias).',
+                '已启用的索引组件在其族的文档下追加的一行（身份、别名）。',
+            ),
+            f(
                 "compile.task.outline_entry_volume",
                 "The outline line of a frozen archive volume instead — read-only, citable, "
                 "never written to.",
@@ -1143,8 +1161,9 @@ SURFACES: tuple[Surface, ...] = (
             f(
                 "compile.tool.create_document",
                 "The description of `create_document` — it also states that the system, not "
-                "the model, assigns every id.",
-                "`create_document` 的描述——它同时说明 id 全部由系统而非模型分配。",
+                "the model, assigns every id and derives the title.",
+                "`create_document` 的描述——它同时说明 id 全部由系统而非模型分配、title 由系统"
+                "派生。",
             ),
             f(
                 "compile.tool.edit_claim",
@@ -1156,6 +1175,23 @@ SURFACES: tuple[Surface, ...] = (
                 "The description of `append_block`: add one claim, anchor assigned by the "
                 "system.",
                 "`append_block` 的描述：新增一条断言，锚点由系统分配。",
+            ),
+            f(
+                "compile.tool.supersede_claim",
+                'The `supersede_claim` description: the world changed — the new claim is the current state, the old one stays as frozen history.',
+                '`supersede_claim` 的描述：世界变了——新断言是当前状态，旧断言保留为冻结历史。',
+            ),
+            f(
+                "compile.tool.rewrite_overview",
+                "The `rewrite_overview` description: the document's current picture in four "
+                "slots, replaced whole when this round changed it.",
+                "`rewrite_overview` 的描述：文档当前画像的四个槽位，本轮改变了它就整体替换。",
+            ),
+            f(
+                "compile.tool.set_fields",
+                "The `set_fields` description: frontmatter fields, minus the ones the system "
+                "and the index components own.",
+                "`set_fields` 的描述：前置字段，除掉系统和索引组件各自持有的那些。",
             ),
             f(
                 "compile.tool.finish_compile",
@@ -1208,6 +1244,28 @@ SURFACES: tuple[Surface, ...] = (
                 "`append_block` 的回复，点明系统分配的锚点。",
             ),
             f(
+                "compile.tool.supersede_claim_result",
+                'The `supersede_claim` reply, naming the successor anchor the system assigned.',
+                '`supersede_claim` 的回复，点明系统分配的后继锚点。',
+            ),
+            f(
+                "compile.tool.rewrite_overview_result",
+                "The `rewrite_overview` reply: which slots were written, and the anchors the "
+                "system assigned to them.",
+                "`rewrite_overview` 的回复：写了哪些槽位，以及系统给它们分配的锚点。",
+            ),
+            f(
+                "compile.tool.overview_removed",
+                "Stands in for the slot list when a `rewrite_overview` with nothing in it "
+                "removed the region instead of writing one.",
+                "当空的 `rewrite_overview` 删掉了总览区域而不是写入时，用它代替槽位清单。",
+            ),
+            f(
+                "compile.tool.set_fields_result",
+                "The `set_fields` reply, naming the fields that were written.",
+                "`set_fields` 的回复，点明写入了哪些字段。",
+            ),
+            f(
                 "compile.tool.finish_compile_result",
                 "The `finish_compile` reply, once the gate accepted the round.",
                 "闸门接受本轮后，`finish_compile` 的回复。",
@@ -1216,6 +1274,43 @@ SURFACES: tuple[Surface, ...] = (
                 "compile.tool.unknown_tool",
                 "The reply to a call naming a tool that does not exist.",
                 "当调用了一个并不存在的工具时的回复。",
+            ),
+            f(
+                "compile.budget.notice",
+                "Arrives once per round, after the batch that dropped the remaining "
+                "tool-call budget to its low-water mark: how many calls are left, and what "
+                "the same predicates the gate will run already find owed on the draft.",
+                "在使本轮剩余工具调用预算跌到低水位的那批调用之后，每轮出现一次：还剩多少次调用，"
+                "以及闸门稍后要跑的同一批判定在当前草稿上已经认定欠下了什么。",
+            ),
+            f(
+                "compile.budget.owed_none",
+                "Stands in for the owed list in that notice when those predicates find "
+                "nothing outstanding.",
+                "当那些判定没有查出任何欠项时，在该提示里代替欠项清单。",
+            ),
+            f(
+                "compile.budget.call_refused",
+                "The reply to a call in the same batch that the exhausted budget did not "
+                "reach — every call still gets an answer, so the transcript stays a legal "
+                "tool-call/result exchange.",
+                "同一批里预算已经用尽、没能执行到的那些调用得到的回复——每次调用都拿到答复，"
+                "对话因此仍是一次合法的工具调用/结果往返。",
+            ),
+            f(
+                "compile.tool.round_ended",
+                "The same answer for a call the batch's own `finish_compile` got in front "
+                "of: the round was over before this call's turn came.",
+                "同一批里被自己的 `finish_compile` 抢在前面的调用得到的同类答复：轮到它时，"
+                "这一轮已经结束了。",
+            ),
+            f(
+                "compile.tool.invalid_call",
+                "The answer to a call whose arguments did not arrive as valid JSON — the "
+                "provider still counts it as a call, so it gets a result like any other "
+                "and is charged to the round's budget like a refused one.",
+                "当一次调用的参数不是合法 JSON 时给它的答复——供应商仍把它算作一次调用，"
+                "所以它和别的调用一样拿到结果，也和被拒调用一样计入本轮预算。",
             ),
             f(
                 "compile.tool.call_failed",
@@ -1351,6 +1446,56 @@ SURFACES: tuple[Surface, ...] = (
                 "The commit message of a link heal: the follow-up pass that re-renders links "
                 "the move invalidated.",
                 "链接修复的提交信息：那一趟后续修复重新渲染了被搬迁弄失效的链接。",
+            ),
+        ),
+        kind=FRAGMENTS,
+    ),
+    Surface(
+        id="compile.overview",
+        group="compile",
+        title_en="The document overview — rendered region",
+        title_zh="文档总览 — 区域渲染",
+        summary_en=(
+            "The overview is the bounded head a compile may rewrite whole: definition, "
+            "summary, introduction, connections. These strings are not read by the model — "
+            "they are WRITTEN INTO canonical as the region's headings and its connection "
+            "lines, so they are prose a deployment owns. The region and its slots are "
+            "delimited by system-written HTML comments, never by these headings, so "
+            "translating one can never make an already-written document unreadable."
+        ),
+        summary_zh=(
+            "总览是编译可以整体重写的那段有界头部：定义、现状、背景、关联。这些字符串不是给模型"
+            "读的——它们作为区域的小标题和关联行**写进正本**，所以属于部署方自己的文案。区域和"
+            "槽位由系统写的 HTML 注释界定，从不依赖这些标题，因此翻译其中一条永远不会让已经写好"
+            "的文档变得读不出来。"
+        ),
+        segments=(
+            f(
+                "overview.heading.definition",
+                "Written into canonical: the heading of the one sentence saying what or who "
+                "this is.",
+                "写进正本：那句「这是什么／是谁」所在的小标题。",
+            ),
+            f(
+                "overview.heading.summary",
+                "Written into canonical: the heading of the subject's state now.",
+                "写进正本：主体当前状态那一节的小标题。",
+            ),
+            f(
+                "overview.heading.introduction",
+                "Written into canonical: the heading of background, origin and why it matters.",
+                "写进正本：背景、由来与为什么重要那一节的小标题。",
+            ),
+            f(
+                "overview.heading.connections",
+                "Written into canonical: the heading of the links to other subject pages.",
+                "写进正本：指向其他主体页面那一节的小标题。",
+            ),
+            f(
+                "overview.connection_line",
+                "Written into canonical: one connection — the link, and the relation in one "
+                "line.",
+                "写进正本：一条关联——链接，加上一行写清的关系。",
             ),
         ),
         kind=FRAGMENTS,
@@ -1621,8 +1766,9 @@ SURFACES: tuple[Surface, ...] = (
             f(
                 "evolve.tool.create_document",
                 "The description of `create_document` — the new homes a reorganization files "
-                "into have to be created first.",
-                "`create_document` 的描述——重组要归入的新归处必须先被创建出来。",
+                "into have to be created first, and the system derives their title.",
+                "`create_document` 的描述——重组要归入的新归处必须先被创建出来，它们的 title "
+                "由系统派生。",
             ),
             f(
                 "evolve.tool.move_claim",
@@ -1865,6 +2011,40 @@ SURFACES: tuple[Surface, ...] = (
         ),
     ),
     Surface(
+        id="recall.fast_deliberated",
+        group="recall",
+        title_en="Deliberated fast answer contract",
+        title_zh="带思考的快速回答契约",
+        summary_en=(
+            "The structured contract plus one clause, used by the `all` evidence strategy: "
+            "its schema opens with a deliberation field, so the contract asks for the "
+            "evidence review that no selection call performed."
+        ),
+        summary_zh=(
+            "结构化契约再加一段，供 `all` 证据编排使用：它的 schema 以一个 deliberation "
+            "字段开头，因此契约要求模型给出那次没有选择调用来做的证据审视。"
+        ),
+        segments=(
+            b("recall.fast.contract_head"),
+            *_spine("recall.cite.structured", "recall.close.answer_honestly"),
+            *_ANSWER_STYLE,
+            b("recall.fast.deliberation"),
+        ),
+        kind=ASSEMBLED,
+        pinned=True,
+        note_en=(
+            "One resolution of the same structured template, with the deliberation clause "
+            "appended last. Exactly one answer-style clause is appended before it, and the "
+            "question, clock and evidence still arrive in the HumanMessage — the review the "
+            "clause asks for is model output, never part of this message."
+        ),
+        note_zh=(
+            "同一个结构化模板的一次取值，末尾多附一段思考条款。它前面仍然只附一条回答风格，"
+            "问题、时钟与证据也仍随人类消息到达——条款所要的那段审视是模型的输出，"
+            "从不属于这条消息。"
+        ),
+    ),
+    Surface(
         id="recall.deep",
         group="recall",
         title_en="Deep verification contract",
@@ -2066,6 +2246,56 @@ SURFACES: tuple[Surface, ...] = (
                 "在快速车道的证据里，开出原文摘录（L2 片段）那一节。",
             ),
             f(
+                "recall.section.component_header",
+                'Header of the component face: what routed component lookups returned.',
+                '组件面的标题：路由到的组件查询返回了什么。',
+            ),
+            f(
+                "recall.fast.component.path_header",
+                "One chosen path's block header — its name and the arguments the router passed.",
+                '一条被选中的路的块标题——名字和路由传入的参数。',
+            ),
+            f(
+                "recall.fast.component.path_degraded",
+                'When a chosen path timed out or failed: stated, never silently omitted.',
+                '被选中的路超时或失败时：明示，绝不静默省略。',
+            ),
+            f(
+                "recall.fast.component.path_empty",
+                'When a chosen path ran and found nothing.',
+                '被选中的路跑了但没有结果。',
+            ),
+            f(
+                "recall.fast.component.path_dropped",
+                "How many of a path's results fell beyond its declared cap, when they cannot "
+                "be grouped into a described summary.",
+                '一条路的结果超出其声明上限的条数——在无法归组描述时使用。',
+            ),
+            f(
+                "recall.fast.component.path_dropped_detail",
+                "What a path did NOT show, described per section (or per day): the recoverable "
+                "form of a truncation.",
+                '一条路没有展示什么，按章节（或按日期）逐项说明：可追回的截断。',
+            ),
+            f(
+                "recall.fast.component.path_already_shown",
+                "How many of a path's results the ranked faces already carry, hidden here "
+                "instead of shown twice.",
+                '一条路的结果里有多少已经在排序面上，于是在这里隐去而不是展示两遍。',
+            ),
+            f(
+                "recall.fast.component.path_covered",
+                "How many claims of this path were folded into a raw excerpt of the same "
+                "block that already contains their evidence.",
+                '这条路有多少断言被折叠进同一块里已包含其证据的原文摘录。',
+            ),
+            f(
+                "recall.fast.component.window_truncated",
+                "The block range a budget-cut excerpt did not show — stated on the excerpt "
+                "itself, so the cut is addressable.",
+                '一段因预算被裁掉的摘录没有展示的块区间——就写在摘录上，于是这次裁剪是可寻址的。',
+            ),
+            f(
                 "recall.section.images_header",
                 "Opens images aligned to the raw excerpts selected for this question.",
                 "开出与本次问题所选原文摘录对齐的图片。",
@@ -2182,6 +2412,17 @@ SURFACES: tuple[Surface, ...] = (
                 "recall.glance.entry",
                 "One document of the glance, once per document.",
                 "一览里的一份文档，每份文档一次。",
+            ),
+            f(
+                "recall.glance.entry_definition",
+                "One line under a glance entry that has an overview: its definition.",
+                "带总览的鸟瞰条目下面的一行：它的 definition。",
+            ),
+            f(
+                "recall.glance.entry_ledger",
+                "One line under a glance entry that has no overview definition: the head of "
+                "its own current ledger.",
+                "没有总览 definition 的鸟瞰条目下面的一行：它自己当前账本的开头。",
             ),
             f(
                 "recall.glance.entry_tail_updated",
@@ -2633,6 +2874,22 @@ SURFACES: tuple[Surface, ...] = (
                 "One verbatim candidate with source id and exact block span.",
                 "一条带来源 id 与精确块区间的逐字候选。",
             ),
+            f(
+                "recall.fast.evidence_select.components_header",
+                "Opens the routed component lookups as candidates the selector may pick from "
+                "exactly like the ranked faces.",
+                "开出路由到的组件查询候选：选择器可以像挑排序面一样从中挑选。",
+            ),
+            f(
+                "recall.fast.evidence_select.component_group",
+                "One lookup's group heading — the path and the arguments the router chose.",
+                "一条查询的组标题——路由选择的路名与参数。",
+            ),
+            f(
+                "recall.fast.evidence_select.component_item",
+                "One component candidate: what kind it is, where it resolves to, and its text.",
+                "一条组件候选：它是哪种、落到哪个地址、正文是什么。",
+            ),
         ),
         kind=FRAGMENTS,
     ),
@@ -2682,6 +2939,19 @@ SURFACES: tuple[Surface, ...] = (
                 "The SystemMessage of the planning call, only when this deployment turns "
                 "retrieval planning on.",
                 "规划调用的系统消息，只有当本部署开启了检索规划时才存在。",
+            ),
+            f(
+                "recall.fast.route.system",
+                "The routing turn's system contract: bind the component paths as tools, choose zero or more in one turn, never answer.",
+                '路由轮的 system 契约：把组件路绑成工具，一轮里选零个或多个，绝不作答。',
+            ),
+            f(
+                "recall.fast.route.request",
+                "The routing turn's human line: the question, as_of, and the owner's "
+                "timezone — so the model resolves a relative time expression into ISO days "
+                "itself and the index never parses one.",
+                '路由轮的 human 行：问题、as_of 与主人的时区——相对时间表达由模型自己解析成 '
+                'ISO 日期，索引一律不解析自然语言时间。',
             ),
             f(
                 "recall.fast.plan.request",
@@ -2886,6 +3156,47 @@ SURFACES: tuple[Surface, ...] = (
                 "无论是哪些检查没过，每次拒绝都以它开头，并指出修复通道。",
             ),
             f(
+                "gate.previous_round_cut_off",
+                "Prefixed above that header when the round being rejected did not end on "
+                "its own but ran out of tool calls — so the repair round knows its "
+                "exploration was cut, not completed, and starts from a fresh budget.",
+                "当被拒绝的那一轮不是自己结束、而是工具调用用尽时，加在上面那句之前——修复轮"
+                "因此知道上一轮的探索是被截断而非跑完的，并且自己有一份全新的预算。",
+            ),
+            f(
+                "gate.overview_budget",
+                "The overview is over its character budget — it is a head, not a second ledger.",
+                "总览超出字符预算——它是头部，不是第二本账。",
+            ),
+            f(
+                "gate.overview_ungrounded",
+                "An overview block references no ledger claim and cites no source span.",
+                "某个总览块既没引账本断言，也没引来源区间。",
+            ),
+            f(
+                "compile.overview.refuse_missing",
+                "A document the round changed holds more ledger claims than the threshold "
+                "and has no overview definition — the same line the finish face states "
+                "earlier, said again as a violation.",
+                "本轮改动过的某份文档账本断言数已过阈值，却没有总览 definition——与结束"
+                "工具面更早说过的是同一句话，这里作为一条违规再说一次。",
+            ),
+            f(
+                "gate.overview_unknown_slot",
+                "The overview carries a slot outside the four the region defines.",
+                "总览里出现了四个既定槽位之外的槽位。",
+            ),
+            f(
+                "gate.overview_definition_blocks",
+                "The overview's definition is more than one block — it is one sentence.",
+                "总览的 definition 超过一个块——它只有一句话。",
+            ),
+            f(
+                "gate.overview_definition_length",
+                "The overview's definition is over its own character limit.",
+                "总览的 definition 超出它自己的字符上限。",
+            ),
+            f(
                 "gate.anchor_continuity",
                 "When an anchor that existed before this round is gone after it — v1 has no "
                 "deletion channel.",
@@ -2956,6 +3267,41 @@ SURFACES: tuple[Surface, ...] = (
                 "write to instead.",
                 "当写入的目标是冻结归档卷时，并指出应该改写哪个活动页面。",
             ),
+            f(
+                "gate.supersession_target_missing",
+                'A supersedes marker names an anchor that exists nowhere.',
+                'supersedes 标记指向一个不存在的锚点。',
+            ),
+            f(
+                "gate.supersession_self",
+                'A claim names itself as its predecessor.',
+                '断言把自己列为前任。',
+            ),
+            f(
+                "gate.supersession_multiple",
+                'One claim names several predecessors.',
+                '一条断言列出了多个前任。',
+            ),
+            f(
+                "gate.supersession_not_linear",
+                'Two claims name the same predecessor — a fact has one current state.',
+                '两条断言指向同一个前任——一个事实只有一个当前状态。',
+            ),
+            f(
+                "gate.supersession_cycle",
+                'A supersession chain loops back on itself.',
+                '取代链回到了自身。',
+            ),
+            f(
+                "gate.supersession_frozen",
+                "A superseded claim's text changed; superseded history is immutable.",
+                '被取代断言的正文被改动；被取代的历史不可变。',
+            ),
+            f(
+                "gate.supersession_without_evidence",
+                'A superseding claim cites no new evidence.',
+                '取代断言没有引用新证据。',
+            ),
         ),
         kind=FRAGMENTS,
     ),
@@ -3003,6 +3349,36 @@ SURFACES: tuple[Surface, ...] = (
                 "`append_block` 的新文本自带锚点——锚点由系统分配，从不由模型分配。",
             ),
             f(
+                "compile.anchor.supersede_unknown_anchor",
+                '`supersede_claim` on an anchor that is not in the document; the reply lists the ones that are.',
+                '`supersede_claim` 点了一个不在该文档里的锚点；回复会列出真正存在的锚点。',
+            ),
+            f(
+                "compile.anchor.supersede_duplicate_anchor",
+                '`supersede_claim` on an anchor that occurs twice in the document — the duplicate is fixed first.',
+                '`supersede_claim` 指向在文档里出现了两次的锚点——先把重复修掉。',
+            ),
+            f(
+                "compile.anchor.supersede_anchor_present",
+                '`supersede_claim` whose new text carries an anchor or a supersedes marker: the system assigns both.',
+                '`supersede_claim` 的新文本自带锚点或 supersedes 标记：两者都由系统分配。',
+            ),
+            f(
+                "compile.anchor.supersede_not_one_block",
+                '`supersede_claim` whose new text is more than one claim block.',
+                '`supersede_claim` 的新文本不止一个断言块。',
+            ),
+            f(
+                "compile.anchor.supersede_without_evidence",
+                '`supersede_claim` whose new text cites nothing: only new evidence may supersede a state.',
+                '`supersede_claim` 的新文本没有引用：只有新证据才能取代一个状态。',
+            ),
+            f(
+                "compile.anchor.edit_supersedes_changed",
+                '`edit_claim` whose new text names a different predecessor than the claim already has; the link is system-kept.',
+                '`edit_claim` 的新文本改动了断言已有的前任标记；该链接由系统保留。',
+            ),
+            f(
                 "compile.anchor.move_unknown_anchor",
                 "A claim move/merge naming an anchor that is not in the source document.",
                 "断言搬迁/合并点了一个不在源文档里的锚点。",
@@ -3017,6 +3393,61 @@ SURFACES: tuple[Surface, ...] = (
                 "A claim move whose target block carries no anchor, so it is not an existing "
                 "claim to move.",
                 "断言搬迁的目标块没有锚点，因而它不是一条可搬迁的既有断言。",
+            ),
+            f(
+                "compile.overview.refuse_unread",
+                "Refuses a whole-region write (`rewrite_overview` / `set_fields`) against a "
+                "document this compile has not read: what to keep cannot be judged against "
+                "a picture that was never seen.",
+                "拒绝对本次编译没读过的文档做整体写入（`rewrite_overview` / `set_fields`）："
+                "没看过的画像，谈不上判断哪些该留。",
+            ),
+            f(
+                "compile.overview.refuse_header",
+                "Opens the tool face's overview refusal: nothing was written, and every "
+                "failing block is listed under it at once.",
+                "工具面总览拒绝的开头：什么都没写入，下面一次列出所有不合格的块。",
+            ),
+            f(
+                "compile.overview.refuse_budget",
+                "The candidate overview renders over its character budget — refused before "
+                "the write rather than at the gate.",
+                "候选总览渲染后超出字符预算——在写入前就拒绝，而不是拖到闸门。",
+            ),
+            f(
+                "compile.overview.refuse_ungrounded",
+                "An overview block in the call references no ledger claim and cites no source "
+                "span; it names the slot and quotes the block.",
+                "本次调用里某个总览块既没引账本断言，也没引来源区间；回复点名槽位并引用原文。",
+            ),
+            f(
+                "compile.overview.refuse_definition_blocks",
+                "The call's definition slot renders as more than one block — it is one "
+                "sentence.",
+                "本次调用的 definition 槽位渲染成不止一个块——它只有一句话。",
+            ),
+            f(
+                "compile.overview.refuse_definition_length",
+                "The call's definition is over its own character limit.",
+                "本次调用的 definition 超出它自己的字符上限。",
+            ),
+            f(
+                "compile.overview.refuse_dead_connection",
+                "A connection in the call links to a document that does not exist in the "
+                "draft.",
+                "本次调用里某条 connection 链接到草稿中并不存在的文档。",
+            ),
+            f(
+                "compile.overview.refuse_self_connection",
+                "A connection in the call links to the document being rewritten.",
+                "本次调用里某条 connection 链接到正在被重写的这份文档自己。",
+            ),
+            f(
+                "compile.overview.refuse_missing",
+                "Refuses `finish_compile` while a document this round wrote holds more "
+                "ledger claims than the threshold and still has no overview definition.",
+                "本轮写过的某份文档账本断言数已过阈值、却仍没有总览 definition 时，"
+                "`finish_compile` 被拒。",
             ),
             f(
                 "compile.patch.read_missing",
@@ -3041,9 +3472,34 @@ SURFACES: tuple[Surface, ...] = (
                 "`move_claim` 的目标文档还没被创建。",
             ),
             f(
+                "compile.patch.fields_refused",
+                "Refuses a `set_fields` / `rewrite_overview` whose structured fields an index "
+                "component can prove wrong, naming every failing value at once.",
+                "拒绝 `set_fields` / `rewrite_overview` 里被索引组件证伪的结构化字段，一次点名"
+                "每一个不合格的值。",
+            ),
+            f(
+                "compile.patch.set_fields_reserved",
+                "Refuses `set_fields` on a system-owned frontmatter field (doc_id / type / "
+                "slug / title), and says that `title` derives from the document's `# ` "
+                "heading.",
+                "拒绝对系统持有的前置字段（doc_id / type / slug / title）调用 `set_fields`，"
+                "并说明 `title` 由文档的 `# ` 标题派生。",
+            ),
+            f(
                 "compile.patch.volume_frozen",
                 "Any write against a frozen history volume, whichever tool attempted it.",
                 "任何针对冻结历史卷的写入，无论是哪个工具发起的。",
+            ),
+            f(
+                "compile.patch.claim_superseded",
+                'Any rewrite of a claim that already has a successor: it is frozen history, and the reply names the successor.',
+                '任何对已有后继的断言的改写：它属于冻结历史，回复会点明其后继。',
+            ),
+            f(
+                "compile.patch.delete_supersession_target",
+                "`delete_claim` (evolve) on a claim some successor supersedes: merging it away would dangle the link.",
+                "`delete_claim`（evolve）删的是某条后继所取代的断言：合并掉它会让链接悬空。",
             ),
         ),
         kind=FRAGMENTS,

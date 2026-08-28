@@ -1,7 +1,7 @@
 """Post-compile coverage audit: blind question generation + claims-face reflection.
 
 An optional stage that mechanizes the acceptance loop's "ask real questions" step
-(docs/guides/compile-contract.md §5) right after a compile:
+(docs/guides/compile-contract.md §8) right after a compile:
 
 1. **Blind question generation.** A model sees the raw source material and the compile
    contract — deliberately NOT the compiled result — and asks the questions the
