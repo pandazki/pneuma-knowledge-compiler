@@ -145,8 +145,18 @@ async def test_conversation_intake_recall_fetch_flow(client):
     # rag recall on a Chinese query returns dual-path hits.
     recall = await client.post(f"{base}/recall", json={"query": "合同 付款 条款", "mode": "rag", "limit": 10})
     assert recall.status_code == 200, recall.text
-    hits = recall.json()
+    hits = recall.json()["hits"]
     assert hits, "expected recall hits"
+    # The lane says where its seconds went, like every other one.
+    assert [s["name"] for s in recall.json()["stages"]] == [
+        "embed",
+        "retrieve",
+        "retrieve.lexical",
+        "retrieve.vector",
+        "fuse",
+        "expand",
+        "total",
+    ]
     assert any("付款" in h["text"] for h in hits)
     assert all(set(h["paths"]) <= {"lexical", "vector"} and h["paths"] for h in hits)
 
@@ -198,7 +208,7 @@ async def test_indexing_is_async_recall_empty_until_index_job_drains(client):
             f"{base}/recall", json={"query": "供应商 交期", "mode": "rag", "limit": 10}
         )
         assert empty.status_code == 200, empty.text
-        assert empty.json() == [], "recall must be empty before the index job drains"
+        assert empty.json()["hits"] == [], "recall must be empty before the index job drains"
 
         # Drain only the index job (this fixture has no real compile model) → L1/L2 land.
         assert await drain_index_jobs(ctx, user) == 1
@@ -208,7 +218,7 @@ async def test_indexing_is_async_recall_empty_until_index_job_drains(client):
                 f"{base}/recall",
                 json={"query": "供应商 交期", "mode": "rag", "limit": 10},
             )
-        ).json()
+        ).json()["hits"]
         assert hits, "recall must return hits once the index job has drained"
         assert any("交期" in h["text"] for h in hits)
     finally:
@@ -305,6 +315,22 @@ async def test_fast_deep_and_briefing_flow(scripted_client):
     assert bbody["char_count"] > 0
     briefing_id = bbody["briefing_id"]
 
+    # The build's own per-stage wall-clock, through the real store: emitted complete (the
+    # query half is absent from this scope and says so), and read back byte-identical from
+    # the row rather than re-derived — a build happens once and cannot be measured again.
+    assert [s["name"] for s in bbody["stages"]] == [
+        "retrieve",
+        "retrieve.claims",
+        "retrieve.passages",
+        "expand",
+        "pack",
+        "total",
+    ]
+    assert {s["status"] for s in bbody["stages"]} <= {"ran", "skipped", "degraded"}
+    detail = await client.get(f"{base}/briefings/{briefing_id}")
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["stages"] == bbody["stages"]
+
     assert any(
         b["briefing_id"] == briefing_id
         for b in (await client.get(f"{base}/briefings")).json()
@@ -316,6 +342,9 @@ async def test_fast_deep_and_briefing_flow(scripted_client):
     )
     assert asked.status_code == 200, asked.text
     assert asked.json()["answer"] == "简报回答"
+    # The ask reports the loop it ran, not the pack it read: one turn here, `total` last.
+    ask_stages = asked.json()["stages"]
+    assert [s["name"] for s in ask_stages] == ["turn:1", "total"]
 
     await client.get(f"{base}/briefings")  # listing works post-ask
     await ctx.store.delete_user(user)

@@ -42,6 +42,7 @@ import asyncio
 from dataclasses import dataclass
 from typing import Any
 
+from pneuma_knowledge_core.compile.documents import OVERVIEW_LABEL
 from pneuma_knowledge_core.domain.ids import UserId
 from pneuma_knowledge_core.domain.snapshot import SnapshotRef
 from pneuma_knowledge_core.recall.projection import (
@@ -71,6 +72,17 @@ ClaimKey = tuple[str, str]
 #: Counting deleted keys would refuse a groom of a small knowledge base as if it were a wipe.
 #: An anchor is repo-unique and survives the move, so "anchors that were projected and are
 #: projected no longer" is precisely the claims the knowledge base actually lost.
+#:
+#: WHY OVERVIEW ANCHORS ARE NOT PART OF THAT COUNT. A document's overview region is a
+#: rewritable head, not knowledge: `rewrite_overview` replaces every block wholesale and the
+#: anchors of the blocks it replaced are RETIRED by design, which is what makes wholesale
+#: rewrite safe. Their claims project under the section path `("overview", <slot>)`, so they
+#: are mechanically distinguishable from ledger claims — and they must be, because a small
+#: library whose pages are mostly head (8 overview claims against 6 ledger claims is an
+#: ordinary young tenant) would otherwise trip this guardrail on its first honest rewrite.
+#: Loss is therefore measured over LEDGER anchors on both sides of the ratio: overview churn
+#: neither counts as loss nor inflates the base, while a real ledger wipe still refuses at the
+#: same half.
 MAX_PROJECTION_LOSS_SHARE = 0.5
 
 
@@ -155,10 +167,23 @@ def _lost_anchors(
 
     A rollover re-keys a claim (page → archive volume) without losing it, so this set is
     empty for a groom and total for a wipe. See MAX_PROJECTION_LOSS_SHARE.
+
+    Every CURRENT anchor is subtracted, overview included: an anchor that is still projected
+    anywhere has not been lost, wherever it now sits.
     """
     return {str(row["anchor"]) for row in previous} - {
         str(claim.anchor) for claim in claims
     }
+
+
+def _is_overview_row(row: dict[str, Any]) -> bool:
+    """Whether a projected row belongs to a document's overview region rather than its ledger.
+
+    Read off the same section-path prefix `ProjectedClaim.labels` reads, so the guard and the
+    projection agree on what "overview" means by construction — not by two copies of a rule.
+    """
+    section_path = row.get("section_path") or []
+    return bool(section_path) and str(section_path[0]) == OVERVIEW_LABEL
 
 
 async def sync_projection(
@@ -177,7 +202,8 @@ async def sync_projection(
 
     Refuses (`ProjectionRefused`) when the ref does not resolve in this store's canonical
     repository, or when the delta would lose more than `MAX_PROJECTION_LOSS_SHARE` of the
-    tenant's projected claims. `allow_wipe=True` is the deliberate-destruction escape hatch;
+    tenant's projected LEDGER claims (an overview region is a rewritable head — its anchors
+    are retired on purpose). `allow_wipe=True` is the deliberate-destruction escape hatch;
     the ref check has none, because an unreadable ref is never intentional.
     """
     # The ref must resolve HERE — in the canonical repository this context is wired to. A
@@ -202,20 +228,25 @@ async def sync_projection(
     previous = await ctx.store.list_canonical_claims(user_id)
     upserts, deleted, unchanged = _projection_delta(claims, previous)
 
-    if previous and not allow_wipe:
-        lost = _lost_anchors(claims, previous)
-        limit = MAX_PROJECTION_LOSS_SHARE * len(previous)
+    # Overview claims are excluded from BOTH sides of the ratio: their anchors are retired by
+    # every rewrite of a rewritable head, so counting them would make an honest rewrite of a
+    # small library read as a wipe. See MAX_PROJECTION_LOSS_SHARE.
+    previous_ledger = [row for row in previous if not _is_overview_row(row)]
+    if previous_ledger and not allow_wipe:
+        lost = _lost_anchors(claims, previous_ledger)
+        limit = MAX_PROJECTION_LOSS_SHARE * len(previous_ledger)
         if len(lost) > limit:
             raise ProjectionRefused(
                 "excessive_claim_loss",
                 f"projecting snapshot {snapshot_ref!r} would drop {len(lost)} of "
-                f"{len(previous)} projected claims "
-                f"({len(lost) / len(previous):.1%}, over the "
+                f"{len(previous_ledger)} projected ledger claims "
+                f"({len(lost) / len(previous_ledger):.1%}, over the "
                 f"{MAX_PROJECTION_LOSS_SHARE:.0%} guardrail); pass allow_wipe=True if the "
                 "loss is intended",
                 snapshot_ref=snapshot_ref,
                 lost=len(lost),
-                projected=len(previous),
+                projected=len(previous_ledger),
+                overview_excluded=len(previous) - len(previous_ledger),
                 limit=MAX_PROJECTION_LOSS_SHARE,
             )
 

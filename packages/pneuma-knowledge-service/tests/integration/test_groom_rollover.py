@@ -57,10 +57,14 @@ def _open(url: str, default: int) -> bool:
 @pytest.fixture
 async def ctx(tmp_path):
     # Small thresholds so a realistic little document crosses them; evolve off so the only
-    # thing the compile can trigger is the rollover under test.
+    # thing the compile can trigger is the rollover under test. The overview floor is off for
+    # the same reason: a document heavy enough to roll over is by construction past it, and
+    # this scripted round writes claims only — what the floor does is tested where it lives
+    # (core test_overview.py / test_runner.py), not by making this script write a head.
     s = Settings(
         canonical_root=str(tmp_path / "canonical"),
         evolve_auto_trigger=False,
+        overview_required_after_claims=0,
         rollover_threshold_chars=900,
         rollover_keep_recent_chars=250,
     )

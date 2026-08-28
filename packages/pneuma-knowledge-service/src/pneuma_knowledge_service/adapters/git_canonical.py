@@ -132,6 +132,41 @@ class GitCanonicalStore:
                 return doc
         return None
 
+    def _written_on(self, user_id: UserId, prefix: str) -> dict[str, str]:
+        repo = self._repo(user_id)
+        if not self._has_head(repo):
+            return {}
+        args = ["log", "--format=%x00%cs", "--name-only", "--no-renames", "HEAD"]
+        if prefix:
+            args += ["--", prefix]
+        out = self._run(repo, *args).stdout
+        written: dict[str, str] = {}
+        day = ""
+        for line in out.splitlines():
+            if line.startswith("\x00"):
+                day = line[1:].strip()
+                continue
+            path = line.strip()
+            # Newest first, so the FIRST commit that names a path is the last one that
+            # wrote it — later (older) mentions are its earlier history and are skipped.
+            if path and day and path not in written:
+                written[path] = day
+        return written
+
+    async def written_on(
+        self, user_id: UserId, *, prefix: str = ""
+    ) -> dict[str, str]:
+        """path → the day its last commit was made, over one history walk.
+
+        `%cs` is the committer date in the commit's OWN recorded timezone, so the answer is
+        a property of the commit and not of whoever reads it — two machines asking this
+        question get the same day. One `git log --name-only` walk answers it for every path
+        at once; `prefix` is a pathspec, so a caller that only cares about one family walks
+        only the commits that touched it.
+        """
+        # to_thread: git subprocess, no async client exists (see module docstring).
+        return await asyncio.to_thread(self._written_on, user_id, prefix)
+
     @staticmethod
     def _to_document(path: str, text: str) -> CanonicalDocument:
         # `parse_document` folds the pre-rename `pneuma_id` key onto `doc_id`, so a commit

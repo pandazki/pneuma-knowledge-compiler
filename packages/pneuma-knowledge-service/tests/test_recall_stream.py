@@ -27,6 +27,8 @@ import json
 from dataclasses import dataclass, field
 from types import SimpleNamespace
 
+from pneuma_knowledge_core.recall.agentic import AgentTimings
+
 from pneuma_knowledge_service.api.routes import v1 as v1_module
 from pneuma_knowledge_service.api.routes.v1 import RecallIn, recall_stream
 
@@ -49,6 +51,9 @@ class _FakeDeepAnswer:
     read_documents: tuple = ()
     image_count: int = 0
     image_mode: str = "caption"
+    # The agentic loop's per-step wall-clock (core `recall/agentic.py`), projected into the
+    # closing `done` frame the same way the non-streaming route projects it.
+    stages: tuple = ()
     token_usage: dict = field(default_factory=lambda: {"total_tokens": 7})
 
 
@@ -74,7 +79,14 @@ def _request() -> SimpleNamespace:
         media=object(),
         store=None,
         get_chat_model=lambda role="default": None,
-        settings=SimpleNamespace(recall_answer_style="conversational"),
+        # `scripted:` is the keyless deterministic spec: it satisfies the route's
+        # answering-model preflight (a keyless deployment is a 503 BEFORE the body opens,
+        # never a stream that narrates its own impossibility) without wiring a provider.
+        settings=SimpleNamespace(
+            recall_answer_style="conversational",
+            llm_model="scripted:stream-test",
+            openrouter_api_key="",
+        ),
     )
     return SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(ctx=ctx)))
 
@@ -199,3 +211,39 @@ async def test_client_disconnect_cancels_the_producer(monkeypatch):
     await frames.aclose()  # the client walks away
 
     await asyncio.wait_for(cancelled.wait(), _TIMEOUT)
+
+
+async def test_each_step_carries_its_own_ms_and_done_carries_the_whole_breakdown(monkeypatch):
+    """Two readings of the same run, and both have to arrive.
+
+    A step is rendered LIVE, long before any breakdown exists, so its duration has to ride the
+    step itself — core stamps it on the trail record before appending (recall/deep.py), and
+    the route forwards the record untouched. The closing `done` then carries the whole ordered
+    interleaving, including the turns the steps sat between, which no sequence of step frames
+    could tell a client on its own."""
+    timings = AgentTimings()
+    timings.turn(1200)
+    timings.tool("search_claims", 340)
+    timings.turn(900)
+    timings.close(2440)
+
+    async def fake_deep_recall(*_args, on_step=None, **_kwargs):
+        on_step({"tool": "search_claims", "query": "q", "hits": 2, "ms": 340})
+        return _FakeDeepAnswer(stages=timings.stages())
+
+    monkeypatch.setattr(v1_module, "deep_recall", fake_deep_recall)
+    _response, frames = await _start()
+    collected = [_frame(chunk) async for chunk in frames]
+
+    assert [k for k, _ in collected] == ["step", "done"]
+    assert collected[0][1]["ms"] == 340
+    done = collected[-1][1]
+    assert [s["name"] for s in done["stages"]] == [
+        "turn:1",
+        "tool:search_claims",
+        "turn:2",
+        "total",
+    ]
+    by_name = {s["name"]: s for s in done["stages"]}
+    assert by_name["tool:search_claims"]["ms"] == collected[0][1]["ms"]
+    assert all(by_name["total"]["ms"] >= s["ms"] for s in done["stages"])

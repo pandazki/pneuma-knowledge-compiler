@@ -289,7 +289,8 @@
           "type": "enum",
           "enum": [
             "ranked",
-            "select"
+            "select",
+            "all"
           ],
           "default": "ranked",
           "apply": "hot",
@@ -298,8 +299,23 @@
             "zh": "证据编排"
           },
           "description": {
-            "en": "ranked keeps fixed retrieval heads. select uses one structured model call to compose a mechanically bounded mix of claims, derived episode summaries, verbatim windows, and canonical documents.",
-            "zh": "ranked 保留固定检索头部；select 用一次结构化模型调用，在断言、派生 episode 摘要、逐字窗口和 canonical 文档之间编排一个受机械上限约束的组合。"
+            "en": "ranked keeps fixed retrieval heads. select uses one structured model call to compose a mechanically bounded mix of claims, derived episode summaries, verbatim windows, and canonical documents. all makes no selection call at all: the whole candidate pool goes to the answer, bounded only by the assembled-context ceiling.",
+            "zh": "ranked 保留固定检索头部；select 用一次结构化模型调用，在断言、派生 episode 摘要、逐字窗口和 canonical 文档之间编排一个受机械上限约束的组合；all 完全不做选择调用，把整个候选池交给回答，只受上下文字符上限约束。"
+          }
+        },
+        {
+          "key": "all_context_chars",
+          "env": "PNEUMA_KNOWLEDGE_RECALL_ALL_CONTEXT_CHARS",
+          "type": "int",
+          "default": 120000,
+          "apply": "hot",
+          "label": {
+            "en": "Whole-pool context ceiling",
+            "zh": "整池上下文上限"
+          },
+          "description": {
+            "en": "Read only by evidence_strategy=all, whose only bound it is: how many characters the assembled evidence faces may occupy. Over it the lane drops windows, then episode summaries, then the lowest-ranked claims, and states what it dropped. 0 = no ceiling.",
+            "zh": "只有 evidence_strategy=all 会读它，也是那条路径唯一的边界：组装后的证据面最多可占多少字符。超出时依次丢弃窗口、episode 摘要、排名最低的断言，并明确回报丢了什么。0 表示不设上限。"
           }
         },
         {
@@ -455,6 +471,36 @@
             "en": "Retrieval depth per query per face when reranking; the reranker then scores the full deduped union.",
             "zh": "开启重排时每个查询、每个面的检索深度；重排器随后对整个去重并集打分。"
           }
+        },
+        {
+          "key": "component_budget_chars",
+          "env": "PNEUMA_KNOWLEDGE_RECALL_COMPONENT_BUDGET_CHARS",
+          "type": "int",
+          "default": 6000,
+          "apply": "hot",
+          "label": {
+            "en": "Component face budget (chars)",
+            "zh": "组件面预算（字符）"
+          },
+          "description": {
+            "en": "How much context the whole component face may occupy. Item caps bound counts, not size; over the budget the lowest-ranked items fall off and long excerpts are cut at block boundaries, both stated in the face.",
+            "zh": "整个组件面最多占多少上下文。条数上限管不了体量；超预算时相关度最低的条目先落下、长摘录按块边界裁剪，两者都会写在面上。"
+          }
+        },
+        {
+          "key": "component_paths",
+          "env": "PNEUMA_KNOWLEDGE_RECALL_COMPONENT_PATHS",
+          "type": "bool",
+          "default": true,
+          "apply": "hot",
+          "label": {
+            "en": "Component lookups in fast recall",
+            "zh": "快速召回的组件查询"
+          },
+          "description": {
+            "en": "When enabled index components offer lookup paths, fast spends one routing tool-call turn to choose which run, concurrently with the built-in retrieval; their results form their own evidence face. No path offered = no routing call. Off ignores component paths entirely.",
+            "zh": "已启用的索引组件提供查询路时，fast 用一轮路由 tool call 选择哪些路运行，与内置检索并发；其结果构成独立的证据面。没有路 = 没有路由调用。关闭则完全忽略组件路。"
+          }
         }
       ]
     },
@@ -465,8 +511,8 @@
         "zh": "模型"
       },
       "summary": {
-        "en": "The engine's model roles. The compile model is the one real quality lever — a stronger model directly produces a better library.",
-        "zh": "引擎的模型角色。编译模型是唯一真正的质量杠杆——更强的模型直接产出更好的库。"
+        "en": "The engine's model roles, and which index components are enabled. The compile model is the one real quality lever — a stronger model directly produces a better library.",
+        "zh": "引擎的模型角色，以及启用了哪些索引组件。编译模型是唯一真正的质量杠杆——更强的模型直接产出更好的库。"
       },
       "doc": "docs/reference/configuration.md#models",
       "file": "engine.yaml",
@@ -504,6 +550,66 @@
           "description": {
             "en": "caption sends labelled caption/OCR text only; native sends those labels plus actual image content blocks; auto uses the active model profile and falls back to caption when capability is unknown.",
             "zh": "caption 只发送带来源标签的图片描述/OCR；native 在这些标签之外还发送真正的图片内容块；auto 读取当前模型的能力档案，能力未知时回落到 caption。"
+          }
+        },
+        {
+          "key": "compile_call_timeout",
+          "env": "PNEUMA_KNOWLEDGE_COMPILE_CALL_TIMEOUT",
+          "type": "int",
+          "default": 600,
+          "apply": "hot",
+          "label": {
+            "en": "Compile call timeout (seconds)",
+            "zh": "编译单次调用超时（秒）"
+          },
+          "description": {
+            "en": "Wall-clock budget for one model call inside a compile job. A hung provider connection otherwise holds the job in `claimed` until the worker restarts; on timeout the job completes as failed and canonical is untouched. 0 = no timeout.",
+            "zh": "一次编译任务里单次模型调用的墙钟预算。供应商连接挂死时，任务会一直停在 `claimed`，直到 worker 重启；超时则任务判失败，正本不受影响。0 = 不限时。"
+          }
+        },
+        {
+          "key": "compile_max_tool_calls",
+          "env": "PNEUMA_KNOWLEDGE_COMPILE_MAX_TOOL_CALLS",
+          "type": "int",
+          "default": 0,
+          "apply": "hot",
+          "label": {
+            "en": "Compile tool calls per round",
+            "zh": "编译每轮工具调用上限"
+          },
+          "description": {
+            "en": "How many tool calls one round of a compile may spend — the first round and its repair round alike. 0 is not unbounded: it means the number is derived from the job, max(40, 3 x sources), so a first round can read every source and write at least twice per source. Set it to state an absolute number instead.",
+            "zh": "一次编译的一轮可以花掉多少次工具调用——首轮和它的修复轮都按这个数。0 不是不限：它表示这个数由本次任务算出，max(40, 3 × 来源数)，好让首轮能读完每一个来源、并且每个来源至少写两次。要给一个绝对值时才设置它。"
+          }
+        },
+        {
+          "key": "overview_budget_chars",
+          "env": "PNEUMA_KNOWLEDGE_OVERVIEW_BUDGET_CHARS",
+          "type": "int",
+          "default": 2000,
+          "apply": "hot",
+          "label": {
+            "en": "Overview budget (characters)",
+            "zh": "总览预算（字符）"
+          },
+          "description": {
+            "en": "How large a document's overview region may be — the bounded head the compile model rewrites whole when the picture of the subject changed. Over it, the write tool refuses the call and the gate rejects the round. It is a head, not a second ledger.",
+            "zh": "一份文档的总览区域可以有多大——主体画像变了时，编译模型整体重写的那段有界头部。超出则写入工具当场拒绝该次调用、闸门也拒绝本轮。它是头部，不是第二本账。"
+          }
+        },
+        {
+          "key": "overview_required_after_claims",
+          "env": "PNEUMA_KNOWLEDGE_OVERVIEW_REQUIRED_AFTER_CLAIMS",
+          "type": "int",
+          "default": 8,
+          "apply": "hot",
+          "label": {
+            "en": "Overview required after (claims)",
+            "zh": "强制总览的断言数"
+          },
+          "description": {
+            "en": "How many ledger claims a document may hold before a compile that touches it must give it an overview (`definition` at least). The floor under the budget above: a model maintains a head that exists and never starts one, so the first one is refused into being — at the finish tool and at the gate. 0 disables the rule.",
+            "zh": "一份文档能积累多少条账本断言，才必须由改动它的那次编译写出总览（至少写 definition）。它是上面那条预算的下限：模型只会维护已经存在的头部，从不主动开一个，所以第一段总览靠拒绝逼出来——结束工具与闸门各拒一次。0 = 关闭。"
           }
         },
         {
@@ -590,6 +696,36 @@
             "en": "fake:<dim> is deterministic and keyless. A vector collection's dimension is fixed at creation, so switching real models means a new collection.",
             "zh": "fake:<dim> 确定且无需密钥。向量集合的维度在创建时就固定了，所以换真实模型意味着换一个新集合。"
           }
+        },
+        {
+          "key": "components",
+          "env": "PNEUMA_KNOWLEDGE_COMPONENTS",
+          "type": "string",
+          "default": "",
+          "apply": "restart",
+          "label": {
+            "en": "Index components",
+            "zh": "索引组件"
+          },
+          "description": {
+            "en": "Comma-separated names of enabled index components — business-specific structure over canonical (frontmatter checks at the gate, outline lines, compile and deep-recall tools, routed fast paths). Empty = none. Shipped: `people` (who a subject is) and `time` (the owner's calendar: a per-block day index, a `timespan` fast path, `timeline` / `as_of` deep tools).",
+            "zh": "已启用的索引组件名，逗号分隔——在正本之上叠加业务结构（闸门的 frontmatter 检查、outline 行、编译与深召回工具、快召回的路由查询路）。留空 = 不启用。随包附带：`people`（主体是谁）与 `time`（主人的日历：逐块的日期投影、`timespan` 快路、`timeline` / `as_of` 深召回工具）。"
+          }
+        },
+        {
+          "key": "people_family",
+          "env": "PNEUMA_KNOWLEDGE_PEOPLE_FAMILY",
+          "type": "string",
+          "default": "memory/people/{slug}.md",
+          "apply": "restart",
+          "label": {
+            "en": "People family",
+            "zh": "人物族"
+          },
+          "description": {
+            "en": "The contract path template the `people` component binds to. Its documents carry `identities` (scheme:value, bound by at most one page) and `aliases` (never another person's name) in frontmatter, written whole with the overview.",
+            "zh": "`people` 组件绑定的契约路径模板。该族文档的 frontmatter 带 `identities`（scheme:value，至多绑一个页面）与 `aliases`（不能是别人的名字），随总览整体写入。"
+          }
         }
       ]
     },
@@ -664,13 +800,22 @@
             "compile.anchor.append_empty_heading",
             "compile.anchor.edit_duplicate_anchor",
             "compile.anchor.edit_extra_anchor",
+            "compile.anchor.edit_supersedes_changed",
             "compile.anchor.edit_unknown_anchor",
             "compile.anchor.move_duplicate_anchor",
             "compile.anchor.move_missing_anchor",
             "compile.anchor.move_unknown_anchor",
             "compile.anchor.none",
+            "compile.anchor.supersede_anchor_present",
+            "compile.anchor.supersede_duplicate_anchor",
+            "compile.anchor.supersede_not_one_block",
+            "compile.anchor.supersede_unknown_anchor",
+            "compile.anchor.supersede_without_evidence",
             "compile.brief.system",
             "compile.brief.task",
+            "compile.budget.call_refused",
+            "compile.budget.notice",
+            "compile.budget.owed_none",
             "compile.challenge.compensation_preamble",
             "compile.challenge.questions_system",
             "compile.challenge.reflect_system",
@@ -686,6 +831,15 @@
             "compile.groom.task_header",
             "compile.groom.volume_entry",
             "compile.groom.volumes_heading",
+            "compile.overview.refuse_budget",
+            "compile.overview.refuse_dead_connection",
+            "compile.overview.refuse_definition_blocks",
+            "compile.overview.refuse_definition_length",
+            "compile.overview.refuse_header",
+            "compile.overview.refuse_missing",
+            "compile.overview.refuse_self_connection",
+            "compile.overview.refuse_ungrounded",
+            "compile.overview.refuse_unread",
             "compile.owner_env.day_grouping",
             "compile.owner_env.language",
             "compile.owner_env.language_unknown",
@@ -711,10 +865,14 @@
             "compile.owner_field.working_style",
             "compile.owner_section",
             "compile.owner_unknown",
+            "compile.patch.claim_superseded",
             "compile.patch.create_exists",
             "compile.patch.create_path_not_allowed",
+            "compile.patch.delete_supersession_target",
+            "compile.patch.fields_refused",
             "compile.patch.move_target_missing",
             "compile.patch.read_missing",
+            "compile.patch.set_fields_reserved",
             "compile.patch.volume_frozen",
             "compile.rules_header",
             "compile.skill_header",
@@ -727,6 +885,9 @@
             "compile.task.native_images_header",
             "compile.task.outline_empty",
             "compile.task.outline_entry",
+            "compile.task.outline_entry_component",
+            "compile.task.outline_entry_definition",
+            "compile.task.outline_entry_ledger",
             "compile.task.outline_entry_tail",
             "compile.task.outline_entry_volume",
             "compile.task.outline_header",
@@ -753,14 +914,23 @@
             "compile.tool.edit_claim_result",
             "compile.tool.finish_compile",
             "compile.tool.finish_compile_result",
+            "compile.tool.invalid_call",
             "compile.tool.list_documents",
             "compile.tool.list_documents_empty",
+            "compile.tool.overview_removed",
             "compile.tool.read_document",
             "compile.tool.read_document_frozen_notice",
+            "compile.tool.rewrite_overview",
+            "compile.tool.rewrite_overview_result",
+            "compile.tool.round_ended",
             "compile.tool.search_knowledge",
             "compile.tool.search_knowledge_unavailable",
             "compile.tool.search_source",
             "compile.tool.search_source_unavailable",
+            "compile.tool.set_fields",
+            "compile.tool.set_fields_result",
+            "compile.tool.supersede_claim",
+            "compile.tool.supersede_claim_result",
             "compile.tool.unknown_tool",
             "compile.treatment.card",
             "compile.treatment.distill",
@@ -847,7 +1017,20 @@
             "gate.groom.overview_without_reference",
             "gate.link_dead",
             "gate.link_self_reference",
+            "gate.overview_budget",
+            "gate.overview_definition_blocks",
+            "gate.overview_definition_length",
+            "gate.overview_ungrounded",
+            "gate.overview_unknown_slot",
             "gate.path_not_owned",
+            "gate.previous_round_cut_off",
+            "gate.supersession_cycle",
+            "gate.supersession_frozen",
+            "gate.supersession_multiple",
+            "gate.supersession_not_linear",
+            "gate.supersession_self",
+            "gate.supersession_target_missing",
+            "gate.supersession_without_evidence",
             "ingest.email.attachments",
             "ingest.email.subject",
             "ingest.other_label",
@@ -862,6 +1045,11 @@
             "ingest.semantic.source_context",
             "ingest.speaker_alias",
             "ingest.turn_line",
+            "overview.connection_line",
+            "overview.heading.connections",
+            "overview.heading.definition",
+            "overview.heading.introduction",
+            "overview.heading.summary",
             "persona.profile_instruction",
             "recall.agentic.budget_notice",
             "recall.briefing.budget_truncated",
@@ -907,10 +1095,22 @@
             "recall.deep.tool.search_content",
             "recall.deep.tool.search_content_doc",
             "recall.deep.tool.search_content_empty",
+            "recall.fast.component.path_already_shown",
+            "recall.fast.component.path_covered",
+            "recall.fast.component.path_degraded",
+            "recall.fast.component.path_dropped",
+            "recall.fast.component.path_dropped_detail",
+            "recall.fast.component.path_empty",
+            "recall.fast.component.path_header",
+            "recall.fast.component.window_truncated",
             "recall.fast.contract_head",
+            "recall.fast.deliberation",
             "recall.fast.episode_summary.item",
             "recall.fast.evidence_select.claim",
             "recall.fast.evidence_select.claims_header",
+            "recall.fast.evidence_select.component_group",
+            "recall.fast.evidence_select.component_item",
+            "recall.fast.evidence_select.components_header",
             "recall.fast.evidence_select.contract",
             "recall.fast.evidence_select.episode",
             "recall.fast.evidence_select.episodes_header",
@@ -921,6 +1121,8 @@
             "recall.fast.image_locator",
             "recall.fast.plan.contract",
             "recall.fast.plan.request",
+            "recall.fast.route.request",
+            "recall.fast.route.system",
             "recall.fast.select.contract",
             "recall.fast.select.document_heading",
             "recall.fast.select.documents_header",
@@ -931,6 +1133,8 @@
             "recall.fast.window_note.line_labeled",
             "recall.glance.empty",
             "recall.glance.entry",
+            "recall.glance.entry_definition",
+            "recall.glance.entry_ledger",
             "recall.glance.entry_tail_archived",
             "recall.glance.entry_tail_updated",
             "recall.glance.family_blurb",
@@ -953,6 +1157,7 @@
             "recall.section.already_shown_header",
             "recall.section.claims_empty",
             "recall.section.claims_header",
+            "recall.section.component_header",
             "recall.section.episode_summaries_header",
             "recall.section.images_header",
             "recall.section.input",

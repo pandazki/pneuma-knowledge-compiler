@@ -64,6 +64,7 @@ class _FakeFastAnswer:
     model_selected_claims: int = 2
     model_selected_episode_summaries: int = 1
     model_selected_windows: int = 3
+    model_selected_component_items: int = 0
     answer_format: str = "text"
     answer_kind: str | None = None
     answer_format_degraded: str | None = None
@@ -132,8 +133,10 @@ def _request(row: dict | None) -> SimpleNamespace:
             recall_window_cap=6,
             recall_plan_queries=0,
             recall_rerank_candidates=120,
+            recall_component_budget_chars=6000,
             recall_answer_style="conversational",
             recall_evidence_strategy="ranked",
+            recall_all_context_chars=120_000,
             recall_answer_format="text",
             recall_selection_reasoning_effort="",
             answer_reasoning_effort="high",
@@ -161,6 +164,7 @@ def captured(monkeypatch):
         seen["media"] = kwargs.get("media")
         seen["reasoning_effort"] = kwargs.get("reasoning_effort")
         seen["evidence_strategy"] = kwargs.get("evidence_strategy")
+        seen["all_context_chars"] = kwargs.get("all_context_chars")
         seen["answer_format"] = kwargs.get("answer_format")
         seen["selection_reasoning_effort"] = kwargs.get(
             "selection_reasoning_effort"
@@ -266,6 +270,20 @@ async def test_fast_quality_context_controls_are_per_call_overrides(captured):
     assert captured["answer_format"] == "structured"
     assert out.evidence_strategy == "select"
     assert out.answer_format == "structured"
+
+
+async def test_the_whole_pool_strategy_is_a_per_call_override_with_its_own_ceiling(captured):
+    """`all` reaches the lane by name, and its one bound travels with it — a strategy whose
+    ceiling stayed behind in the settings object would be an unbounded context."""
+    out = await recall(
+        OWNER,
+        RecallIn(query="What happened last month?", mode="fast", evidence_strategy="all"),
+        _request(_row()),
+    )
+
+    assert captured["evidence_strategy"] == "all"
+    assert captured["all_context_chars"] == 120_000
+    assert out.evidence_strategy == "all"
 
 
 @pytest.mark.parametrize("mode", ["rag", "deep"])

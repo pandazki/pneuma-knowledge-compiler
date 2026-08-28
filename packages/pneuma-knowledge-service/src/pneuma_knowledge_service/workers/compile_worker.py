@@ -23,6 +23,7 @@ from pneuma_knowledge_core.compile.runner import CompileResult, run_compile
 from pneuma_knowledge_core.domain.ids import UserId, SourceId
 from pneuma_knowledge_core.domain.intake import IntakePlan
 from pneuma_knowledge_core.domain.source import NormalizedSource
+from pneuma_knowledge_core.components import notify_source_indexed
 from pneuma_knowledge_core.domain.time_context import time_context_for
 from pneuma_knowledge_core.ingest.source_types import describe_source, first_party_type
 from pneuma_knowledge_core.prompts import prompt
@@ -306,6 +307,10 @@ async def process_job(
         commit_message=f"compile {job_id}",
         image_mode=image_mode,
         image_payloads=image_payloads,
+        call_timeout=ctx.settings.compile_call_timeout,
+        max_tool_calls=ctx.settings.compile_max_tool_calls,
+        overview_budget_chars=ctx.settings.overview_budget_chars,
+        overview_required_after_claims=ctx.settings.overview_required_after_claims,
         **trace_cfg,
     )
 
@@ -358,6 +363,7 @@ async def process_job(
                         describe_source(s.raw, len(s.blocks), owner_name)
                         for s in sources
                     ],
+                    call_timeout=ctx.settings.compile_call_timeout,
                     **llm_call_config(
                         ctx,
                         operation="brief",
@@ -434,6 +440,13 @@ async def process_index_job(
     if chunks:
         embedded = await embed_l2_chunks(ctx, chunks, ns)
         await ctx.vectors.upsert_chunks(user_id, embedded)
+
+    # The projection channel: an enabled component may keep a derived index of its own (the
+    # `time` component's per-block calendar rows), and this is where it learns a source is
+    # ready. Fail-soft per component, inside `notify_source_indexed`: what a component
+    # derives is rebuildable, so a component that raises costs a stale projection until the
+    # next `rebuild_derived` — never a failed index job, and never an L1/L2 redo.
+    await notify_source_indexed(str(user_id), ns)
 
     await ctx.store.complete(user_id, job_id, ok=True, detail="indexed")
 

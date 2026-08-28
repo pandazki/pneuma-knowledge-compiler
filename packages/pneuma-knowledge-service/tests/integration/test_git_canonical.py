@@ -3,6 +3,7 @@ tags, and two-user isolation (invariant I1)."""
 
 from __future__ import annotations
 
+import os
 import subprocess
 
 import pytest
@@ -174,6 +175,63 @@ async def test_snapshot_pages_are_bounded_and_stable_during_new_commits(tmp_path
             limit=1,
             after_ref="not-a-snapshot-ref",
         )
+
+
+def _commit_on(repo, day: str, rel: str, text: str) -> None:
+    """One commit stamped with a chosen day, so "the LAST commit wins" is testable in a test
+    that runs inside one second."""
+    target = repo / rel
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(text, encoding="utf-8")
+    stamp = f"{day}T12:00:00+0000"
+    subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo), "commit", "-q", "-m", f"write {rel}"],
+        check=True,
+        env={
+            **os.environ,
+            "GIT_AUTHOR_DATE": stamp,
+            "GIT_COMMITTER_DATE": stamp,
+            "GIT_AUTHOR_NAME": "t",
+            "GIT_AUTHOR_EMAIL": "t@example.com",
+            "GIT_COMMITTER_NAME": "t",
+            "GIT_COMMITTER_EMAIL": "t@example.com",
+        },
+    )
+
+
+async def test_written_on_names_the_day_each_path_was_last_committed(tmp_path):
+    """The clock a derived projection is measured against, and it costs nothing to keep: git
+    already records when each file last changed. It states what was COMMITTED, and only the
+    LAST commit per path — an earlier one is that path's history, not its answer."""
+    store = GitCanonicalStore(str(tmp_path))
+    assert await store.written_on(U1) == {}  # no HEAD yet
+
+    repo = store.repo_path(U1)
+    store._repo(U1)  # lazily init the repo
+    _commit_on(repo, "2026-03-01", "memory/people/cheng-ye.md",
+               _file("d-1", "cheng-ye", "- a. [cite: s ¶0] <!-- c:a1 -->"))
+    _commit_on(repo, "2026-04-02", "memory/topics/q3.md",
+               _file("d-2", "q3", "- b. [cite: s ¶0] <!-- c:b1 -->"))
+    assert await store.written_on(U1) == {
+        "memory/people/cheng-ye.md": "2026-03-01",
+        "memory/topics/q3.md": "2026-04-02",
+    }
+
+    # …a later commit on one path moves that path's day and no other's
+    _commit_on(repo, "2026-06-15", "memory/people/cheng-ye.md",
+               _file("d-1", "cheng-ye", "- a2. [cite: s ¶1] <!-- c:a1 -->"))
+    assert await store.written_on(U1) == {
+        "memory/people/cheng-ye.md": "2026-06-15",
+        "memory/topics/q3.md": "2026-04-02",
+    }
+
+    # …and a prefix bounds the walk to one family
+    assert await store.written_on(U1, prefix="memory/people/") == {
+        "memory/people/cheng-ye.md": "2026-06-15"
+    }
+    # a user with no repo at all answers nothing, and never another user's history (I1)
+    assert await store.written_on(U2) == {}
 
 
 async def test_tag_creates_readable_ref(tmp_path):

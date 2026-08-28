@@ -174,12 +174,12 @@ async def test_an_assembled_surface_still_carries_the_bytes_the_model_receives(t
     async with _client(str(engine)) as client:
         body = (await client.get("/v1/engine/prompts")).json()
     assembled = [s for s in body["surfaces"] if s["kind"] == "assembled"]
-    assert len(assembled) == 15
+    assert len(assembled) == 16
     for surface in assembled:
         assert surface["assembled_framework"].strip(), surface["id"]
         assert surface["assembled_effective"].strip(), surface["id"]
     fragments = [s for s in body["surfaces"] if s["kind"] == "fragments"]
-    assert len(fragments) == 29
+    assert len(fragments) == 30
 
 
 async def test_a_template_preview_carries_the_banner_that_stops_it_reading_as_the_message(
@@ -251,6 +251,7 @@ async def test_a_shared_clause_names_the_other_prompts_it_moves(tmp_path):
         "recall.briefing",
         "recall.suggestion",
         "recall.fast_structured",
+        "recall.fast_deliberated",
     }
     assert spine["placeholders"] == ["cite", "close"]
 

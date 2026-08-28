@@ -12,7 +12,9 @@ What it does per user, reporting before/after so you can eyeball the reconciliat
   L1  re-index every source's stored blocks into Meili (drops the user's stale index first);
   L2  re-chunk + re-embed every source via the configured strategy (semantic replays its
       chunk manifest for a byte-deterministic rebuild — see docs/getting-started.md);
-  L3  re-project canonical HEAD onto PG claims + Meili claims + Qdrant claim layer.
+  L3  re-project canonical HEAD onto PG claims + Meili claims + Qdrant claim layer;
+  C   re-derive every enabled index component's own projection (e.g. the `time`
+      component's per-block calendar rows, re-normalized under the CURRENT timezone).
 
 Usage:
     uv run python scripts/ops/rebuild_derived.py <user-id>
@@ -36,6 +38,7 @@ from pathlib import Path as _Path
 _sys.path.insert(0, str(_Path(__file__).resolve().parent))
 import _env  # noqa: F401  (import for side effect)
 
+from pneuma_knowledge_core.components import rebuild_components
 from pneuma_knowledge_core.domain.ids import UserId
 from pneuma_knowledge_service.projection import rebuild_projection
 from pneuma_knowledge_service.settings import Settings, get_settings
@@ -81,6 +84,14 @@ async def rebuild_user(ctx, user_id: UserId) -> None:
     # L3 — re-project canonical HEAD onto PG + Meili claims + Qdrant claim layer.
     claim_count = await rebuild_projection(ctx, user_id)
     print(f"  L3  projected {claim_count} claim(s) from canonical HEAD")
+
+    # Component projections — the other derived layer. `build_context` already registered
+    # whatever `PNEUMA_KNOWLEDGE_COMPONENTS` names, so this is where each of them re-derives
+    # its own index from the same authorities. It is also the ONLY place a timezone change
+    # is allowed to re-normalize already-written rows: explicit, operator-run, and reported.
+    rebuilt = await rebuild_components(str(user_id))
+    if rebuilt:
+        print(f"  C   rebuilt component projection(s): {', '.join(rebuilt)}")
 
 
 async def main() -> int:

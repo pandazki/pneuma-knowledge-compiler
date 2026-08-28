@@ -114,7 +114,8 @@ CREATE TABLE IF NOT EXISTS compile_events (
     job_id       text        NOT NULL,
     seq          integer     NOT NULL,
     snapshot_ref text        NOT NULL,
-    type         text        NOT NULL,   -- claim_added | claim_revised
+    type         text        NOT NULL,   -- claim_added | claim_revised | claim_superseded
+                                         -- | overview_rewritten (document-level: anchor is '')
     path         text        NOT NULL,
     anchor       text        NOT NULL,
     before       text,
@@ -164,6 +165,11 @@ CREATE TABLE IF NOT EXISTS briefings (
 
 CREATE INDEX IF NOT EXISTS briefings_user
     ON briefings (user_id, created_at);
+
+-- The build's measured per-stage wall-clock (recall/briefing.py BUILD_STAGE_ORDER), stored
+-- as the wire shape [{name, ms, status, detail}] so the detail endpoint can hand a past
+-- briefing's breakdown back unchanged. Additive: rows written before it read as '[]'.
+ALTER TABLE briefings ADD COLUMN IF NOT EXISTS stages jsonb NOT NULL DEFAULT '[]'::jsonb;
 
 -- evolve_tasks: schema-evolve proposals + their review lifecycle (schema-evolve §2.5).
 -- One row per evolve run: a proposal that landed a branch (status='draft') awaiting
@@ -233,3 +239,125 @@ CREATE TABLE IF NOT EXISTS user_profiles (
     profile      jsonb       NOT NULL,
     updated_at   timestamptz NOT NULL DEFAULT now()
 );
+
+-- component_time_blocks: the `time` index component's projection — the first PERSISTED
+-- component projection (architecture §6).
+--
+-- One row per L0 block that has a knowable instant, keyed by the SUBJECT's calendar day.
+-- Why not the UTC date: a subject at +08:00 sends messages between 00:00 and 08:00 local
+-- that carry the previous UTC date, so "what happened on the 12th" would answer with two
+-- wrong halves. `local_day` is the same day ingest already wrote into the block's
+-- section_path — one calendar semantics across the whole system (D1).
+--
+-- `zone` + `zone_source` record WHICH zone this row was normalized under and where that
+-- zone came from (profile / provider / deployment default). A later zone change never
+-- rewrites rows; the explicit `scripts/ops/rebuild_derived.py` re-derives them, and until
+-- it runs the rows honestly say what they were built from (D2). `source_zone` is the
+-- source's OWN zone when it carries one (a meeting's `timezone`) — metadata rendered
+-- beside the subject's day, never the index key.
+--
+-- `instant_utc` is NULL for a source with no per-block timestamps (a document library): the
+-- source still has an occurrence day, so the row is keyed and range-queryable, it simply has
+-- no clock. Derived and rebuildable in full from L0 (I2); user_id first everywhere (I1), and
+-- the FK cascade means deleting a source or a user takes its projection with it.
+CREATE TABLE IF NOT EXISTS component_time_blocks (
+    user_id     text        NOT NULL,
+    source_id   text        NOT NULL,
+    block_index integer     NOT NULL,
+    instant_utc timestamptz,
+    local_day   date        NOT NULL,
+    zone        text        NOT NULL,
+    zone_source text        NOT NULL,
+    source_zone text,
+    kind        text        NOT NULL,
+    PRIMARY KEY (user_id, source_id, block_index),
+    FOREIGN KEY (user_id, source_id)
+        REFERENCES sources (user_id, source_id) ON DELETE CASCADE
+);
+
+-- The range query this table exists for: "every block between two of the owner's calendar
+-- days". Without this index a 200-day library answers it by scanning the tenant (D7).
+CREATE INDEX IF NOT EXISTS component_time_blocks_day
+    ON component_time_blocks (user_id, local_day, source_id, block_index);
+
+-- component_people_terms: the `people` component's projection — HOW the library's turns
+-- call someone, accumulated across every source rather than judged inside one.
+--
+-- One row per (address term → target identity) pair, holding that pair's library-wide
+-- support: `answered` + `co_mention` (the two turn-structure signals), how many sources
+-- carried it, and the day bounds of those sources. A per-source threshold cannot separate a
+-- vocative from any short phrase before a comma — `是的` and `看下` are "answered" by
+-- everyone — so the mechanism is CONCENTRATION over this table: a term is reported for a
+-- target only when it has enough support, from more than one source, and that target holds
+-- most of the term's total support. A term spread thin over twelve targets is reported
+-- nowhere, and no word list had to say so.
+--
+-- `non_vocative` is the second half of that mechanism, and the one concentration cannot
+-- supply: the same term counted MID-SENTENCE in the sources that produced the row. Both
+-- support signals fire only at the vocative position (a term at the head of a turn, or after
+-- an `@`), so `support / (support + non_vocative)` is the share of a term's usage that is
+-- address — and a product name or a topic word, which concentrates on whoever habitually
+-- answers, fails it while a nickname does not. The count belongs to the TERM and is
+-- replicated onto each of its targets by the source that saw it, so read it per row and
+-- never sum it across a term's distribution.
+--
+-- `term` is the comparison key (casefolded; Latin nicknames are one term regardless of
+-- spelling). Rows ACCUMULATE: `add_people_terms` adds this source's counts to whatever is
+-- there, which is why re-indexing the same source without a rebuild double-counts it —
+-- derived data, so `PeopleComponent.rebuild` (scripts/ops/rebuild_derived.py) is the answer,
+-- and nothing here is ever an authority (I2). user_id is first everywhere (I1); every target
+-- is a source-boundary identity, so what this indexes still points back at L0 (I4).
+CREATE TABLE IF NOT EXISTS component_people_terms (
+    user_id         text    NOT NULL,
+    term            text    NOT NULL,
+    target_identity text    NOT NULL,
+    target_name     text    NOT NULL DEFAULT '',
+    answered        integer NOT NULL DEFAULT 0,
+    co_mention      integer NOT NULL DEFAULT 0,
+    non_vocative    integer NOT NULL DEFAULT 0,
+    sources         integer NOT NULL DEFAULT 0,
+    first_day       date,
+    last_day        date,
+    reported_since  date,
+    PRIMARY KEY (user_id, term, target_identity)
+);
+
+-- Additive, for a library whose table predates the mid-sentence count. Zero is the right
+-- default and not merely a safe one: a row that has never been re-derived states no
+-- mid-sentence usage, so it reports exactly as it did before this column existed, and
+-- `rebuild_derived` is what fills it with what L0 actually shows.
+ALTER TABLE component_people_terms ADD COLUMN IF NOT EXISTS non_vocative integer NOT NULL DEFAULT 0;
+
+-- `reported_since` is the day a (term → target) pair FIRST crossed the reporting bar — the
+-- day the library started asking whether that term is that person's name. It is written once
+-- and never moved (`… WHERE reported_since IS NULL`), so a pair whose concentration later
+-- shifts keeps the day the question was asked. The forced alias decision runs on it: a term
+-- is demanded of a person page only while that page's last commit is EARLIER than this date,
+-- so the question is asked once and closed by the page being written. NULL is the honest
+-- unknown and means ASK — a row from a library that predates this column has no date, and no
+-- page can be shown to have seen a question the table cannot date. `rebuild_derived` is what
+-- fills it, by replaying L0 in (occurred_on, source_id) order.
+ALTER TABLE component_people_terms ADD COLUMN IF NOT EXISTS reported_since date;
+
+-- "which terms point at these identities" — the source preamble's question, asked once per
+-- compile over the identities that source carries.
+CREATE INDEX IF NOT EXISTS component_people_terms_target
+    ON component_people_terms (user_id, target_identity, term);
+
+-- The `people` component once kept a second table here, `component_people_decisions`: the
+-- DECLINES, one row per (term → identity) a compile round ruled was not that person's name.
+-- Nothing stores a decline any more, here or in canonical. It was a table first, and a row
+-- written the moment the tool was called outlived the round that wrote it — a compile that
+-- then failed the gate left the decision standing while canonical stayed untouched. It was a
+-- person-page frontmatter field next, and that was worse in a quieter way: canonical records
+-- what is KNOWN about somebody, and a column of the names that are NOT theirs is a page of
+-- distractions. A decline is now the answer to one round and is kept for the length of it
+-- (components/people.py); what stops the question returning is `reported_since` above
+-- against the day the page was last committed — asked once, closed by writing the page.
+--
+-- Nothing reads or writes that table any more, and this file does NOT drop it. This schema
+-- is applied by every process that boots, on every start: a bootstrap that only ever creates
+-- is one an operator can run without reading it, and one `DROP TABLE` in it turns a routine
+-- restart into an irreversible deletion of data nobody was asked about. The pre-release
+-- table is left where it stands, for the operator to inspect, export and drop when they
+-- decide to — `DROP TABLE IF EXISTS component_people_decisions;`, by hand, once.

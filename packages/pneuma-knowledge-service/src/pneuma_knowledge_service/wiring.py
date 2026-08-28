@@ -762,6 +762,10 @@ async def build_context(settings: Settings) -> AppContext:
         mock=MockUserInfoProvider(),
     )
 
+    register_components(
+        settings, store=store, canonical=canonical, user_info=user_info
+    )
+
     return AppContext(
         settings=settings,
         store=store,
@@ -773,3 +777,50 @@ async def build_context(settings: Settings) -> AppContext:
         media=media,
         user_info=user_info,
     )
+
+
+def register_components(
+    settings: Settings, *, store, canonical, user_info=None
+) -> list[str]:
+    """Register the index components `settings.components` names — the application seam
+    core leaves open (components/__init__.py). Unknown names fail loudly at startup rather
+    than silently enabling nothing. Returns the enabled names, for logs and tests.
+
+    `user_info` is the profile provider: a component that has to normalize instants into the
+    SUBJECT's calendar resolves the zone exactly as compile does (provider → profile →
+    `settings.default_timezone`), and can only do that if it can read the profile.
+
+    `canonical` is narrowed to `CanonicalReadOnly` here, at the one place a component is
+    handed the library. That is invariant I7's mechanism rather than its restatement: a
+    component reads canonical to index it, and the only route from what it indexed into the
+    library is an ordinary compile, under the contract and the gate."""
+    from pneuma_knowledge_core.components import CanonicalReadOnly, register_component
+
+    from .components.people import PeopleComponent
+    from .components.time import TimeComponent
+
+    canonical = CanonicalReadOnly(canonical)
+    enabled: list[str] = []
+    for name in (n.strip() for n in settings.components.split(",")):
+        if not name:
+            continue
+        if name == "people":
+            register_component(
+                PeopleComponent(settings.people_family, content=store, canonical=canonical)
+            )
+        elif name == "time":
+            register_component(
+                TimeComponent(
+                    content=store,
+                    canonical=canonical,
+                    user_info=user_info,
+                    default_timezone=settings.default_timezone,
+                )
+            )
+        else:
+            raise ValueError(
+                f"unknown index component {name!r} in PNEUMA_KNOWLEDGE_COMPONENTS; "
+                "shipped: people, time"
+            )
+        enabled.append(name)
+    return enabled

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Mapping
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +30,10 @@ from psycopg_pool import AsyncConnectionPool
 from ..snapshot_tenant import RESERVED_PREFIX
 
 _SCHEMA_PATH = Path(__file__).resolve().parents[5] / "infra" / "schema.sql"
+
+#: Advisory-lock key for schema application. An arbitrary fixed constant in the
+#: bigint space — its only job is that every process picks the SAME number.
+_SCHEMA_LOCK_KEY = 0x504E_4B43_0001  # "PNKC" + 1
 
 
 class _JobRow:
@@ -61,10 +65,22 @@ class PostgresStore:
         await self._pool.open()
 
     async def apply_schema(self) -> None:
-        """Idempotently apply infra/schema.sql (v1 migration strategy, §5)."""
+        """Idempotently apply infra/schema.sql (v1 migration strategy, §5).
+
+        Serialized by a transaction-scoped advisory lock. `CREATE TABLE IF NOT EXISTS` is
+        idempotent but NOT concurrency-safe: two starters racing against the same cold
+        database both pass the existence check and both try to create the type row, and the
+        loser dies on `pg_type_typname_nsp_index`. Every process that boots an AppContext
+        runs this, so on a fresh deployment (or a fresh test database) N starters meant
+        N-1 crashes. The lock is held for the transaction and released when it ends, so a
+        warm database still costs one no-op round trip and nothing else."""
         sql = _SCHEMA_PATH.read_text(encoding="utf-8")
         async with self._pool.connection() as conn:
-            await conn.execute(sql)
+            async with conn.transaction():
+                await conn.execute(
+                    "SELECT pg_advisory_xact_lock(%s)", (_SCHEMA_LOCK_KEY,)
+                )
+                await conn.execute(sql)
 
     async def aclose(self) -> None:
         await self._pool.close()
@@ -262,6 +278,233 @@ class PostgresStore:
                 ),
             )
 
+    # --- component projections: the `time` component's block index ---------------
+    # A component projection is DERIVED (I2): it is written only from L0 + canonical and is
+    # re-derivable in full. The store keeps it opaque — what a row MEANS (why the subject's
+    # local day rather than the UTC one) is the component's business, stated there.
+
+    async def put_time_blocks(
+        self, user_id: UserId, source_id: SourceId, rows: list[dict]
+    ) -> int:
+        """Replace one source's time rows, in one transaction. Returns the row count.
+
+        Wholesale replacement rather than a per-row upsert on purpose: a re-derivation may
+        legitimately produce FEWER blocks than the last one (a source re-imported after an
+        edit), and an upsert that only touched the rows it was given would leave the tail of
+        the previous derivation behind as phantom days. Delete + insert is idempotent and
+        cannot.
+        """
+        async with self._pool.connection() as conn:
+            async with conn.transaction():
+                await conn.execute(
+                    "DELETE FROM component_time_blocks "
+                    "WHERE user_id = %s AND source_id = %s",
+                    (str(user_id), str(source_id)),
+                )
+                if not rows:
+                    return 0
+                async with conn.cursor() as cur:
+                    await cur.executemany(
+                        "INSERT INTO component_time_blocks (user_id, source_id, "
+                        "block_index, instant_utc, local_day, zone, zone_source, "
+                        "source_zone, kind) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                        [
+                            (
+                                str(user_id),
+                                str(source_id),
+                                int(r["block_index"]),
+                                r.get("instant_utc"),
+                                r["local_day"],
+                                r["zone"],
+                                r["zone_source"],
+                                r.get("source_zone"),
+                                r["kind"],
+                            )
+                            for r in rows
+                        ],
+                    )
+        return len(rows)
+
+    async def delete_time_blocks(self, user_id: UserId) -> int:
+        """Drop this user's whole time projection (the first half of a rebuild)."""
+        async with self._pool.connection() as conn:
+            cur = await conn.execute(
+                "DELETE FROM component_time_blocks WHERE user_id = %s", (str(user_id),)
+            )
+        return cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+
+    async def time_blocks_in_range(
+        self, user_id: UserId, since: date, until: date, *, limit: int = 5000
+    ) -> list[dict]:
+        """Every projected block whose SUBJECT-local day falls in `[since, until]`.
+
+        One indexed range scan plus a join for the source's title/kind, so enumerating a
+        window costs the window rather than the library: the whole reason this projection is
+        persisted at all. Deterministically ordered (day, instant, source, block) so a
+        digest built from it is byte-stable.
+        """
+        async with self._pool.connection() as conn:
+            rows = await (await conn.execute(
+                "SELECT t.source_id, t.block_index, t.instant_utc, t.local_day, t.zone, "
+                "t.zone_source, t.source_zone, t.kind, s.title "
+                "FROM component_time_blocks t "
+                "LEFT JOIN sources s ON s.user_id = t.user_id "
+                "AND s.source_id = t.source_id "
+                "WHERE t.user_id = %s AND t.local_day >= %s AND t.local_day <= %s "
+                "ORDER BY t.local_day, t.instant_utc NULLS FIRST, t.source_id, "
+                "t.block_index LIMIT %s",
+                (str(user_id), since, until, limit),
+            )).fetchall()
+        return [
+            {
+                "source_id": r[0],
+                "block_index": r[1],
+                "instant_utc": r[2],
+                "local_day": r[3],
+                "zone": r[4],
+                "zone_source": r[5],
+                "source_zone": r[6],
+                "kind": r[7],
+                "title": r[8] or "",
+            }
+            for r in rows
+        ]
+
+    async def time_days_for_sources(
+        self, user_id: UserId, source_ids: list[str]
+    ) -> dict[str, str]:
+        """source_id → its EARLIEST projected subject-local day, as an ISO string.
+
+        The as-of walk needs "when is this claim's evidence from" for a handful of cited
+        sources; asking for exactly those beats loading every source's meta.
+        """
+        ids = [str(s) for s in source_ids]
+        if not ids:
+            return {}
+        async with self._pool.connection() as conn:
+            rows = await (await conn.execute(
+                "SELECT source_id, min(local_day) FROM component_time_blocks "
+                "WHERE user_id = %s AND source_id = ANY(%s) GROUP BY source_id",
+                (str(user_id), ids),
+            )).fetchall()
+        return {r[0]: r[1].isoformat() for r in rows if r[1] is not None}
+
+    # --- component projections: the `people` component's address-term index ------
+    # Same discipline as the time projection above and one deliberate difference: these rows
+    # ACCUMULATE. A term's meaning is its distribution across the whole library, so each
+    # indexed source ADDS its counts rather than replacing a slice — see the component and
+    # infra/schema.sql for why, and for the cost (re-indexing one source without a rebuild
+    # counts it twice; `rebuild` is the answer, because the rows are derived).
+
+    async def add_people_terms(self, user_id: UserId, rows: list[dict]) -> int:
+        """Add one source's (term → target) counts to this user's projection."""
+        if not rows:
+            return 0
+        async with self._pool.connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.executemany(
+                    "INSERT INTO component_people_terms (user_id, term, target_identity, "
+                    "target_name, answered, co_mention, non_vocative, sources, first_day, "
+                    "last_day) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
+                    "ON CONFLICT (user_id, term, target_identity) DO UPDATE SET "
+                    "answered = component_people_terms.answered + EXCLUDED.answered, "
+                    "co_mention = component_people_terms.co_mention + EXCLUDED.co_mention, "
+                    "non_vocative = component_people_terms.non_vocative "
+                    "+ EXCLUDED.non_vocative, "
+                    "sources = component_people_terms.sources + EXCLUDED.sources, "
+                    "first_day = LEAST(component_people_terms.first_day, EXCLUDED.first_day), "
+                    "last_day = GREATEST(component_people_terms.last_day, EXCLUDED.last_day), "
+                    "target_name = CASE WHEN component_people_terms.target_name = '' "
+                    "THEN EXCLUDED.target_name ELSE component_people_terms.target_name END",
+                    [
+                        (
+                            str(user_id),
+                            r["term"],
+                            r["target_identity"],
+                            r.get("target_name") or "",
+                            int(r.get("answered") or 0),
+                            int(r.get("co_mention") or 0),
+                            int(r.get("non_vocative") or 0),
+                            int(r.get("sources") or 1),
+                            r.get("first_day") or None,
+                            r.get("last_day") or None,
+                        )
+                        for r in rows
+                    ],
+                )
+        return len(rows)
+
+    async def set_people_terms_reported_since(
+        self, user_id: UserId, pairs: list[dict], day: str
+    ) -> int:
+        """Stamp `reported_since = day` on the given (term → target) pairs — ONCE.
+
+        `WHERE reported_since IS NULL` is the whole of "first satisfied": the day a pair
+        crossed the reporting bar is written when it crosses and never moved, so a pair whose
+        concentration later shifts keeps the day the library started asking about it. A
+        rebuild deletes the rows first, so there the predicate is always true and the replay
+        decides the dates on its own.
+        """
+        if not pairs or not day:
+            return 0
+        async with self._pool.connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.executemany(
+                    "UPDATE component_people_terms SET reported_since = %s "
+                    "WHERE user_id = %s AND term = %s AND target_identity = %s "
+                    "AND reported_since IS NULL",
+                    [
+                        (day, str(user_id), p["term"], p["target_identity"])
+                        for p in pairs
+                    ],
+                )
+        return len(pairs)
+
+    async def delete_people_terms(self, user_id: UserId) -> int:
+        """Drop this user's whole address-term projection (the first half of a rebuild)."""
+        async with self._pool.connection() as conn:
+            cur = await conn.execute(
+                "DELETE FROM component_people_terms WHERE user_id = %s", (str(user_id),)
+            )
+        return cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+
+    async def people_terms(
+        self, user_id: UserId, terms: list[str] | None = None
+    ) -> list[dict]:
+        """This user's (term → target) rows, optionally restricted to `terms` (comparison
+        keys). Deterministically ordered so any render built from them is byte-stable."""
+        where = "user_id = %s"
+        params: list[object] = [str(user_id)]
+        if terms is not None:
+            if not terms:
+                return []
+            where += " AND term = ANY(%s)"
+            params.append([str(t) for t in terms])
+        async with self._pool.connection() as conn:
+            rows = await (await conn.execute(
+                "SELECT term, target_identity, target_name, answered, co_mention, "
+                f"non_vocative, sources, first_day, last_day, reported_since "
+                f"FROM component_people_terms WHERE {where} "
+                "ORDER BY term, target_identity",
+                tuple(params),
+            )).fetchall()
+        return [
+            {
+                "term": r[0],
+                "target_identity": r[1],
+                "target_name": r[2] or "",
+                "answered": int(r[3] or 0),
+                "co_mention": int(r[4] or 0),
+                "non_vocative": int(r[5] or 0),
+                "sources": int(r[6] or 0),
+                "first_day": r[7].isoformat() if r[7] is not None else "",
+                "last_day": r[8].isoformat() if r[8] is not None else "",
+                "reported_since": r[9].isoformat() if r[9] is not None else "",
+            }
+            for r in rows
+        ]
+
     async def list(self, user_id: UserId) -> list[RawSource]:
         async with self._pool.connection() as conn:
             rows = await (await conn.execute(
@@ -269,6 +512,40 @@ class PostgresStore:
                 "created_at, meta, intake_plan, origin FROM sources "
                 "WHERE user_id = %s ORDER BY created_at",
                 (str(user_id),),
+            )).fetchall()
+        return [
+            self._raw_from_row(
+                user_id,
+                SourceId(r[0]),
+                (r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8]),
+                origin=r[9],
+            )
+            for r in rows
+        ]
+
+    async def list_since(
+        self, user_id: UserId, *, after: tuple[datetime, str] | None = None
+    ) -> list[RawSource]:
+        """This user's sources after a `(created_at, source_id)` watermark, oldest first.
+
+        The same keyset predicate `list_sources_page` uses, forward instead of backward: the
+        pair is the cursor because `created_at` is not unique — a batch import stamps one
+        wall clock on every source in it, and a `> created_at` cursor would drop all but the
+        last of them permanently. A reader that folds each source into a mirror once (the
+        `people` component's source boundary) then transfers only what arrived since its last
+        job, rather than pulling every envelope the library holds to discard all but the new.
+        """
+        where = "user_id = %s"
+        params: list[Any] = [str(user_id)]
+        if after is not None:
+            where += " AND (created_at, source_id) > (%s, %s)"
+            params.extend([after[0], str(after[1])])
+        async with self._pool.connection() as conn:
+            rows = await (await conn.execute(
+                "SELECT source_id, kind, source_class, title, mime, checksum, "
+                "created_at, meta, intake_plan, origin FROM sources "
+                f"WHERE {where} ORDER BY created_at, source_id",
+                params,
             )).fetchall()
         return [
             self._raw_from_row(
@@ -1321,12 +1598,23 @@ class PostgresStore:
         scope: dict[str, Any],
         snapshot_ref: str,
         system_prefix: str,
+        stages: list[dict[str, Any]] | None = None,
     ) -> None:
+        """Persist one built pack. `stages` is the build's measured breakdown in the wire
+        shape ([{name, ms, status, detail}]) — stored beside the pack so a briefing built
+        weeks ago can still say where its seconds went; omitted, the column keeps its '[]'."""
         async with self._pool.connection() as conn:
             await conn.execute(
                 "INSERT INTO briefings (briefing_id, user_id, scope, "
-                "snapshot_ref, system_prefix) VALUES (%s, %s, %s, %s, %s)",
-                (briefing_id, str(user_id), Json(scope), snapshot_ref, system_prefix),
+                "snapshot_ref, system_prefix, stages) VALUES (%s, %s, %s, %s, %s, %s)",
+                (
+                    briefing_id,
+                    str(user_id),
+                    Json(scope),
+                    snapshot_ref,
+                    system_prefix,
+                    Json(list(stages or [])),
+                ),
             )
 
     async def get_briefing(
@@ -1334,7 +1622,7 @@ class PostgresStore:
     ) -> dict[str, Any] | None:
         async with self._pool.connection() as conn:
             row = await (await conn.execute(
-                "SELECT briefing_id, scope, snapshot_ref, system_prefix, created_at "
+                "SELECT briefing_id, scope, snapshot_ref, system_prefix, created_at, stages "
                 "FROM briefings WHERE user_id = %s AND briefing_id = %s",
                 (str(user_id), briefing_id),
             )).fetchone()
@@ -1346,6 +1634,7 @@ class PostgresStore:
             "snapshot_ref": row[2],
             "system_prefix": row[3],
             "created_at": row[4],
+            "stages": row[5] or [],
         }
 
     async def list_briefings(self, user_id: UserId) -> list[dict[str, Any]]:
@@ -1534,6 +1823,12 @@ class PostgresStore:
                 )
                 await conn.execute(
                     "DELETE FROM kb_snapshots WHERE user_id = %s",
+                    (str(user_id),),
+                )
+                # The people projection is the one component table with no source FK to
+                # cascade from — a term's row belongs to the library, not to one source.
+                await conn.execute(
+                    "DELETE FROM component_people_terms WHERE user_id = %s",
                     (str(user_id),),
                 )
                 await conn.execute(
