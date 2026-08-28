@@ -38,6 +38,10 @@
 | `LLM_TIMEOUT` | `600` | 秒；防挂死，不防慢 |
 | `LLM_MAX_RETRIES` | `3` | 瞬时错误重试（langchain） |
 | `EMBEDDING_MODEL` | `fake:384` | `fake:<维度>`（确定性、零密钥）或 `openrouter:<模型>` |
+| `COMPILE_CALL_TIMEOUT` | `600` | 一次编译任务里单次模型调用（工具循环、修复轮、编译后简报）的秒数上限。它在 `LLM_TIMEOUT`（供应商客户端的请求护栏）之上：连接挂死时任务会一直停在 `claimed`，直到 worker 重启；超时则任务判失败，正本不受影响。`0` = 不限时。引擎键：`models.compile_call_timeout` |
+| `COMPILE_MAX_TOOL_CALLS` | `0` | 一次编译的**一轮**可以花掉多少次工具调用——首轮和它的修复轮都按这个数。`0` 不是不限：它表示这个数由本次任务算出，`max(40, 3 × 来源数)`，因为首轮必须能读完每一个来源、并且每个来源至少追加两次（真实重建里固定的 40 把一个 36 来源的日组截断在追加中途，让 14 个日组没能进库）。任何大于 0 的值都作为绝对上限直接使用。修复轮从不接手首轮剩下的额度：它有自己全新的一份 `max(12, 3 × 违规数)`，同样以这个数封顶——一个旋钮同时约束两轮。引擎键：`models.compile_max_tool_calls` |
+| `OVERVIEW_BUDGET_CHARS` | `2000` | 一份正本文档的总览区域可占的字符数——主体画像变了时，一次编译整体重写的那段有界头部。超出则 `rewrite_overview` 工具当场拒绝该次调用、编译闸门也拒绝本轮：它是头部，不是第二本账。引擎键：`models.overview_budget_chars` |
+| `OVERVIEW_REQUIRED_AFTER_CLAIMS` | `8` | 一份文档能积累多少条账本断言，才必须由**改动它**的那次编译写出总览（至少写 `definition`）——它是上面那条预算的下限。`finish_compile` 先拒，闸门再拒，两处都点名该文档与它的断言数；本轮没碰过的文档不判。模型只维护已经存在的头部，从不主动开一个（实测：真实库 85 个页面里 41 个从未有过总览，其中不乏 20–31 条断言的）。`0` = 关闭。引擎键：`models.overview_required_after_claims` |
 | `COMPILE_IMAGE_MODE` | `auto` | `caption` = 只送带标签的 caption/OCR；`native` = 派生文本加真实图片块；`auto` = 读取编译模型 profile，未知则回落 `caption`。引擎键：`models.image_mode` |
 
 模型规格三种形态：`scripted:<路径>`（本地回放、零密钥——且硬覆盖所有角色，scripted 运行完全确定）；`openrouter:<模型>`（需要 `OPENROUTER_API_KEY`）；以及 `init_chat_model` 认识的任意 provider 前缀（如 `anthropic:claude-sonnet-5`、`openai:gpt-5.6-luna`）。角色回退只有一跳：`answer → recall`、`live_context → recall`、`evolve → compile`、`challenge → compile`、`brief → compile`，然后是 `LLM_MODEL`。脚手架让检索规划/概览继续跑 standard Luna，只把最终答题送到显式 `high` effort 的 Luna Pro。
@@ -78,7 +82,8 @@
 | `RECALL_WINDOW_CANDIDATE_CAP` | `60` | 检索后保留的词法/raw/episode 融合源区间数 |
 | `RECALL_EPISODE_SUMMARY_CAP` | `16` | 进入最终上下文、明确标为派生内容且元数据完整的 episode 摘要数 |
 | `RECALL_WINDOW_CAP` | `6` | 进入最终上下文的精确逐字源窗口数 |
-| `RECALL_EVIDENCE_STRATEGY` | `ranked` | 仅 fast 的上下文编排：`ranked` 保留固定检索头部；`select` 增加一次结构化 recall 模型调用，在断言、episode 摘要、raw 窗口和已知 canonical 文档之间选择受上限约束的组合。逐次覆盖字段：`evidence_strategy` |
+| `RECALL_EVIDENCE_STRATEGY` | `ranked` | 仅 fast 的上下文编排：`ranked` 保留固定检索头部；`select` 增加一次结构化 recall 模型调用，在断言、episode 摘要、raw 窗口和已知 canonical 文档之间选择受上限约束的组合；`all` 完全不做选择调用，把同一个候选池整体交给回答，只受 `RECALL_ALL_CONTEXT_CHARS` 约束。逐次覆盖字段：`evidence_strategy` |
+| `RECALL_ALL_CONTEXT_CHARS` | `120000` | 只有 `RECALL_EVIDENCE_STRATEGY=all` 会读它，也是那条路径唯一的边界：组装后的证据面最多可占多少字符。超出时依次丢弃窗口、episode 摘要、排名最低的断言，并在回答上标记 `evidence_selection_degraded="all:truncated"`、在 `assemble` 阶段预览里给出各面的丢弃条数。`0` 表示不设上限 |
 | `RECALL_ANSWER_FORMAT` | `text` | 仅 fast 的回答线格式：`text` 是既有自由文本调用；`structured` 将回答类型、干净回答正文与精确引用分开，再只准入证据中出现过的精确区间。逐次覆盖字段：`answer_format` |
 | `RECALL_SELECTION_REASONING_EFFORT` | （空） | `select` 调用的可选 provider 推理强度提示；留空不发送覆盖值 |
 | `RECALL_PLAN_QUERIES` | `0` | `0` 关；N>0 = 一次规划调用派生至多 N 条额外检索查询，单次 RRF 融合成池 |
@@ -87,6 +92,12 @@
 | `RECALL_ANSWER_STYLE` | `conversational` | fast/deep 回答的输出风格预设：`concise` = 只给所问的精确值/短语（判分器、脚本消费），`conversational` = 自然对话式回答，`detailed` = 自成一体的书面纪要。只管形态——红线/引用/诚实收尾与风格无关。recall 请求可逐次覆盖（`answer_style`） |
 
 `select` 是质量／延迟取舍，不是另一份检索权威。选择器只返回候选下标和已知路径；框架会验证它们、并入一小段确定性的高排名安全头部，再把选中的 claim／episode 来源追到有上限的 L0 原文。超时、schema 或 provider 失败会回落 ranked 上下文，并通过 degraded telemetry 披露。因为这次调用串行位于检索与回答之间，把它设成部署默认前应单独测量 selector 延迟。`ranked + text` 仍是兼容且延迟最低的档位。
+
+`all` 走的是相反的取舍：它既不花选择调用，也不按检索名次截断，`select` 本该评判的那个候选池整体进入回答——一次回答调用，
+同样的证据面、同样的顺序与格式，代价是更长的提示词和更高的输入账单。它买下的是「材料检索到了却没被选中」这一类失败；付出的是
+输入 token 与回答端的注意力。在 `structured` 下，它的 schema 以一个有界的 `deliberation` 字段开头，于是那次没有 selector 来做的
+证据审视发生在回答调用内部、在回答定稿之前；这段审视以 `deliberation` 回传，且从不进入系统消息。上下文上限是唯一能裁剪这份
+上下文的东西，而且它从不悄悄裁剪。
 
 ## 提示词语言
 
@@ -119,6 +130,19 @@
 | `LLM_MODEL_BRIEF` | 空 | 叙述用的模型；留空借用编译角色 |
 
 简报的输入只有机械记录——从 diff 推导出的 claim 事件加上各来源的出处句——从不包含编译对话本身，因此模型没有记录之外的东西可叙述。它是展示文案而非知识：不带引用、不写正本，生成失败只是没有简报，不会让任务失败。它的提示词（`compile.brief.system`、`compile.brief.task`）住在 prompt 目录里，与其他模型可见文案同一机制。
+
+## 索引组件
+
+| 配置 | 默认 | 含义 |
+|---|---|---|
+| `COMPONENTS` | 空 | 启用的索引组件名，逗号分隔（architecture §6）；空 = 不启用。随包附带：`people`、`time` |
+| `PEOPLE_FAMILY` | `memory/people/{slug}.md` | `people` 组件绑定的契约路径模板——skill `path_templates` 之一 |
+| `RECALL_COMPONENT_PATHS` | `true` | fast 通道：已启用组件提供查询路时，用一轮路由 tool call 选择运行哪些（architecture §7）。没有路 = 没有路由调用。`false` 完全忽略组件路 |
+| `RECALL_COMPONENT_BUDGET_CHARS` | `6000` | 整个组件面的字符上限。各路自己的上限约束条数，这一项约束它们能占多少上下文。超出后相关度最低的条目先落下、长摘录按块边界裁剪——两者都写在面上，绝不静默 |
+
+前两项写在 engine 目录的 `engine.yaml` 里，两项召回旋钮写在 `recall/recall.yaml` 里。完整设计——组件是什么、可以填哪些面、怎么写一个——见 [design/index-components.zh-CN.md](../design/index-components.zh-CN.md)。启用一个组件，下次进程启动时加入它的闸门检查、outline 行和工具；停用则移除，正本不受影响——组件不持有知识，只有从 L0 与正本派生的结构。开启 `people` 后，人物页的 frontmatter 带逗号分隔的 `identities`（`scheme:value`；按来源契约的记录写成 `mailto:` / `im:` / `meeting:`）与 `aliases`。两者都属于文档的总览，随它整体写入（`rewrite_overview(fields=…)` / `set_fields`）——是快照，不是只增不减。关于它们有三件事在写入面与闸门被机械拒绝，且只针对本轮**动过**的页面——正文或 frontmatter 与本轮开头时不同，或页面是新建的（`people.identity_shape`、`people.identity_duplicate`、`people.identity_cospeakers`、`people.alias_collision`）：身份必须是 `scheme:value` 且至多绑定一个页面；在同一场对话里都发过言的两个「人的 id」是两个人，一个页面不能同时绑住它们——IM 的 `sender_id`、会议的 `speaker_id` 是「人的 id」，邮箱地址不是（一个人用两个地址写信再寻常不过，而 `email/v1` 不确立它们之间的任何同一性），所以邮件线程不贡献任何同场发言证据；别名不能是别人的名字（另一个人物页的别名、标题或 slug，或者来源为某个不在本页上的身份记下的显示名）。第四条规则是判断而不是事实，而且**只问一次**：凡是本次编译的来源里出现的人，全库为他报出的每一个称呼词，都必须在本轮结束前要么被记进该页的 `aliases`，要么被 `decline_alias(path, term, reason)` 否掉。一次否掉什么都不写——不写 claim，不写别名，不写字段，页面上不留一个字——因为正本记的是关于一个人已知的事，不是那些不属于他的名字；它只回答调用它的那一轮，哪里都不存。把问题关掉的是这一页**被写下**，判据是两件派生的事实：投影里的 `reported_since`（该「称呼词 → 身份」对第一次越过报出门槛的那一天），对上正本最后一次提交这一页的日子（`written_on`，一次限定在本族路径下的 `git log` 遍历）。在那一天当天或之后被提交过的页面，就是被摆到过这个问题面前的页面，从此不再问，不管它当时怎么决定；本轮新建的页面没有日期，投影里早于这一列的行也没有——两种未知都意味着要问。所以一轮否掉了却什么都没写，下一轮还会再问，这是对的：没提交，就没回答。还有第五种不属于任何页面：`people.not_ready` 会在全库镜像加载失败时拒绝这一轮，因为拿一座空文库去判上面那些事实，恰好会放行它们本来要拒的写入——什么都不写，下一次编译重新读。这样的镜像有两份，各自只被需要它的那一轮索要：来源边界（本轮写过声明了这些字段的人物页、或本轮来源里带着身份时才需要）与称呼词投影（只有那条称呼词决定真的适用时才需要），所以一次只写主题的编译，不会被一份它什么都不问的投影故障拒掉。另有一条运维须知：只要启用了任何组件，一个进程同一时刻只跑一次编译（框架从 `prepare` 一直锁到作业结束），因此部署应当靠增加 worker 进程来提高编译吞吐，而不是在一个进程里并发跑。编译模型得到 `find_person` 与 `decline_alias`；深召回得到 `enumerate_identities`（按需从该用户的 L0 来源元数据算出）与 `person_profile(alias, identity, section, offset, limit)`。两条快路都返回自己知道的全部——整页、整段区间——由框架先按问题排序，再把该路的上限花在这个顺序上（architecture §7）；两个深工具都分页，并在每次响应结尾给出取回其余部分的确切调用，因为在 agentic 通道里，上限绝不能是死路。`people` 还维护一份持久化投影（PG `component_people_terms`）：从对话结构读出的每个**称呼词 → 目标身份**对一行，带上它在全库范围的支持度。只有当一个称呼词攒够支持度、来自不止一份来源、且某个目标占了它总支持度的大部分时，才对该目标报出——靠集中度而不是频次，这正是把昵称和任何一个逗号前的短语分开的东西。报出的称呼词会带着完整分布出现在编译任务的每个来源下，也出现在 `enumerate_identities` 里每个身份旁边；这份来源自己重复了、但全库还撑不起来的词，标为 *emerging*。还有第三条更弱的线，列出这份来源里重复出现、又对不上任何在场身份的类名字词，不附带任何目标——那些没有任何轮次结构能指向某个人的提及。这些行随来源索引累加，因此不做重建就重新索引一份来源会把它算两次——由 `scripts/ops/rebuild_derived.py` 从 L0 精确重新推导。每一行还带着 `reported_since`，即该对第一次越过报出门槛的那一天——那条只问一次的别名决定所用的时钟，写一次、此后不动，由同一次重建重新推导（早于这一列的行没有日期，会一直被问，直到一次重建把它填上）。它只保有这一张表：更早的预发布版本还建过一张 `component_people_decisions`，现在没有任何代码读它或写它（现在根本没有任何地方存否掉），而 `infra/schema.sql` 有意**不**去 drop 它——这份 schema 每次进程启动都会执行一遍，一个只做创建的引导脚本，才是重启永远不会拿它毁掉数据的那种。你自己看过之后手动删一次即可：`DROP TABLE IF EXISTS component_people_decisions;`。
+
+开启 `time` 后，组件维护一份持久化投影（PG `component_time_blocks`）：每个 L0 块一行，记录该块的 UTC 瞬间，以及它落在**知识主体时区**里的哪一个日历日——就是 ingest 写进块所属章节的那一天，而不是 UTC 日期，因为对 +08:00 的主体来说，本地 00:00 到 08:00 之间发出的一切都带着前一天的 UTC 日期。每一行还记录它是在哪个时区下归一化的、那个时区从哪里来（`DEFAULT_TIMEZONE`、画像，或已注册的 provider），于是改动主体时区绝不会悄悄把两套日历混在一起：既有行照实说明自己是按什么建出来的，由 `scripts/ops/rebuild_derived.py` 显式重新推导。快召回得到 `timespan(since, until)` 一条路，深召回得到 `timeline(since, until, granularity, offset, limit)`（`granularity="verbatim"` 逐块读完某一天，而不是给出摘要）与 `as_of(date, alias, identity)`，编译任务里每个来源多出一行，说明它在主人日历里的日期与钟点（来源自带时区与主体不同时，两个钟点并列）。所有日期参数都是主体时区里的 ISO `YYYY-MM-DD`：组件从不解析自然语言时间——路由轮能看到 `as_of` 与主体时区，会先把"上季度"解析成 ISO 日期；非 ISO 的参数会在回答的审计轨迹里变成一条 `invalid_args`，而不是一个悄悄不同的区间。
 
 ## 行为开关
 

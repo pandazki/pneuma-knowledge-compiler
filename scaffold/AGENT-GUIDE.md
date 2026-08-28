@@ -184,6 +184,20 @@ Voice every inference as "because your material …, I suggest …" — let them
 git -C engine add -A && git -C engine commit -m "contract: <what changed, in their words>"
 ```
 
+**5.3 Optional — `people` and `time`, only when the material feeds them.** Two index components ship with the framework: extra structure over the library, off by default. Decide by looking at their data, and say plainly when the answer is no.
+
+- **`people`** binds identities to person pages — but it reads them off the **source boundary** (a meeting's `participants`, an IM archive's `users`, a mail thread's addresses; see [source contracts](../docs/reference/source-contracts.md)), never off the transcript. Names spoken inside the text are not identities. The `.md` ingest this guide uses carries no participant list at all, so on that path `people` indexes nothing; it earns its keep only when their material arrives through the source contracts with those fields filled. A document-only library — a vault, notes, articles — has no turns and no participants: leave it off.
+- **`time`** keys every block of material to the day it falls on in the user's timezone, and answers "between June and August", "what held on the 12th". The `date:` frontmatter is enough for day granularity, which is what most personal libraries actually ask for; within-day precision needs per-block timestamps (a message's `sent_at`, a meeting segment's `started_at`), which again only the source contracts carry. Material whose dates are unreliable is material `time` cannot index.
+
+Enable in `engine/engine.yaml` (the environment names are `PNEUMA_KNOWLEDGE_COMPONENTS` and `PNEUMA_KNOWLEDGE_PEOPLE_FAMILY`):
+
+```yaml
+components: people, time
+people_family: memory/people/{slug}.md   # one of contract.md's path_templates, verbatim
+```
+
+`people_family` must be one of the path templates you just wrote into the contract — if the contract has no person family, `people` has nothing to bind to. Decide it here rather than later: the components take effect at the next start, and step 6 rebuilds the library from empty anyway, so the whole library gets compiled with them on. Commit the change in `engine/` like any other decision.
+
 **Done when**: no TODO and no demo content remains, they have reviewed the draft item by item (principle 5), and the engine repository holds it as a commit.
 
 ---

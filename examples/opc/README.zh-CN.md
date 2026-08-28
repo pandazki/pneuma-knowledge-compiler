@@ -6,7 +6,7 @@
 
 ## 它是怎么来的
 
-这座库由一个**自主代理**（跑在 Claude Code 里的 Claude Opus 5）建成：从一份全新的 [`scaffold/`](../../scaffold/) 拷贝出发，照着 [`AGENT-GUIDE.zh-CN.md`](../../scaffold/AGENT-GUIDE.zh-CN.md) 走，输入只有两样——`my-data/` 里的材料，和三句话的主人自述。它通读了全部 190 份材料、从中推导出 [`contract.md`](contract.md)、编译、按[验收环](../../docs/guides/compile-contract.zh-CN.md#5-验收环)自判，并在第一轮构建违反了材料自己声明的规矩时用掉了唯一一次修订机会。完整记录在 [`build-record/`](build-record/)：启动它的任务书逐字原文、它的构建日志、它的完整对话轨迹。
+这座库由一个**自主代理**（跑在 Claude Code 里的 Claude Opus 5）建成：从一份全新的 [`scaffold/`](../../scaffold/) 拷贝出发，照着 [`AGENT-GUIDE.zh-CN.md`](../../scaffold/AGENT-GUIDE.zh-CN.md) 走，输入只有两样——`my-data/` 里的材料，和三句话的主人自述。它通读了全部 190 份材料、从中推导出 [`contract.md`](contract.md)、编译、按[验收环](../../docs/guides/compile-contract.zh-CN.md#8-验收环)自判，并在第一轮构建违反了材料自己声明的规矩时用掉了唯一一次修订机会。完整记录在 [`build-record/`](build-record/)：启动它的任务书逐字原文、它的构建日志、它的完整对话轨迹。
 
 请把这次构建当作**参考线，不是天花板**：它是某一代代理在某一天的作品。拿更强的代理对着同一份数据走同一条指南，你的库很可能更好——契约的判断力正是代理之间拉开差距的地方。
 

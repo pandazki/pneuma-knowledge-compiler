@@ -636,6 +636,23 @@ compile: {models["compile"]}
 # How images reach the compile model: native sends real image content blocks; caption sends
 # only labelled caption/OCR text; auto trusts the active model profile.
 image_mode: {config["compile_image_mode"]}
+# Wall-clock budget for one model call inside a compile job. A hung provider connection
+# otherwise holds the job open until the worker restarts; on timeout the job fails with a
+# stated reason and the canonical library is untouched. 0 = no timeout.
+compile_call_timeout: 600
+# How many tool calls one round of a compile may spend — first round and repair round alike.
+# 0 is not unbounded: it means the number is derived from the job itself, max(40, 3 x
+# sources), so a round can read every source and write at least twice per source. Set an
+# absolute number only when you mean one.
+compile_max_tool_calls: 0
+# How large a document's overview may be — the bounded head the compile model rewrites
+# whole when the picture of a subject changed. Over it, the gate rejects the round; it is
+# a head, not a second ledger.
+overview_budget_chars: 2000
+# And the floor under the same region: how many claims a document may hold before a compile
+# that touches it must give it an overview (definition at least). A model maintains a head
+# that already exists and never starts one, so the first one is refused into being. 0 = off.
+overview_required_after_claims: 8
 recall: {models["recall"]}
 # Empty borrows the recall role. Split this only when validation in your own domain shows a
 # separate final-answer model is worth its added cost or latency.
@@ -647,6 +664,19 @@ deep: {deep if deep else '""'}
 # A vector collection's dimension is fixed when it is created, so switching to a model of a
 # different dimension means a new collection, not an in-place change.
 embedding: {models["embedding"]}
+
+# Index components: business-specific structure over canonical, enabled by name (comma
+# separated; empty = none). Shipped:
+#   people — `identities` / `aliases` on person pages, unique across the library and only
+#            ever growing, checked at the gate and shown in the compile outline, plus
+#            find_person (compile) and enumerate_identities (deep recall).
+#   time   — the owner's calendar: one derived row per source block keyed by the day it
+#            falls on in the owner's timezone, a timespan(since, until) lookup for fast
+#            recall, timeline / as_of for deep recall, and each source's span stated in
+#            the compile task. Re-derived by scripts/ops/rebuild_derived.py.
+components: ""
+# The contract family the people component binds to — one of contract.md's path_templates.
+people_family: memory/people/{{slug}}.md
 """,
         "intake/intake.yaml": f"""\
 # How material becomes the semantic units the vector index searches. Citable unit text is
@@ -714,13 +744,18 @@ draft_ttl_hours: 24
 answer_style: {config["answer_style"]}
 
 # Context composition and answer wire. The shipped defaults preserve the direct ranked
-# lane. `select` adds one bounded structured call over all evidence faces; `structured`
-# separates answer text/kind/citations so exact source spans can be validated.
+# lane. `select` adds one bounded structured call over all evidence faces; `all` skips that
+# call and hands the whole candidate pool to the answer instead; `structured` separates
+# answer text/kind/citations so exact source spans can be validated.
 # Override one question with --evidence-strategy / --answer-format.
 evidence_strategy: ranked
 answer_format: text
 # Optional provider reasoning-effort hint for the selection call; empty = provider default.
 selection_reasoning_effort: ""
+# `all`'s only bound, ignored by the other two: how many characters the assembled evidence
+# may occupy. Over it windows go first, then episode summaries, then the lowest-ranked
+# claims — and the answer says what it dropped. 0 = no ceiling.
+all_context_chars: 120000
 
 # Retrieval breadth is cheap; answer evidence is expensive. Candidate caps search a broad
 # lexical/semantic tail. Up to 16 dense episode summaries enter as explicitly derived,
@@ -738,6 +773,15 @@ plan_queries: 0
 # name uses OpenRouter's /rerank endpoint.
 rerank_model: ""
 rerank_candidates: 120
+
+# Component lookups: when enabled index components (engine.yaml `components`) offer
+# lookup paths, fast spends one routing tool-call turn to choose which run, concurrently
+# with the built-in retrieval. No path offered = no routing call, no cost.
+component_paths: true
+# How much context the whole component face may occupy. A path's own cap bounds how many
+# items it contributes; this bounds their size. Over it the lowest-ranked items fall off and
+# long excerpts are cut at block boundaries — both stated in the face, never silently.
+component_budget_chars: 6000
 """,
         "persona/profile.yaml": profile,
         "prompts/overlays.yaml": f"""\

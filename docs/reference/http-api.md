@@ -46,10 +46,10 @@ Conventions:
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/…/recall` | body `{query, mode: rag\|fast\|deep, limit, as_of?, snapshot?, answer_style?, evidence_strategy?: ranked\|select, answer_format?: text\|structured, include_original_modalities?: ("image")[]}` |
-| POST | `/…/recall/stream` | deep only; SSE — one `event: step` per finished tool call, then `done` (or `error`). Step-level streaming, not token streaming |
+| POST | `/…/recall` | body `{query, mode: rag\|fast\|deep, limit, as_of?, snapshot?, answer_style?, evidence_strategy?: ranked\|select\|all, answer_format?: text\|structured, include_original_modalities?: ("image")[]}` |
+| POST | `/…/recall/stream` | any mode; SSE — `stage` while the lane runs (plus `token`, and deep's `step`, in the answering lanes), then `done` (or `error`) |
 
-`rag` returns hit lists (`source_id`, block span, text, paths, score). `fast`/`deep` return both a citation-free semantic `answer_text` and the backward-compatible cited `answer`, plus their evidence: `used_claims`, `used_episode_summaries` (fast), `used_windows`, `trail` (deep), `citation_handles` (`sNN` → real source id), `documents_read`, `snapshot`, `token_usage`. Every episode-summary item carries source title, occurrence time, section and exact block span, plus constant `derived: true` / `verbatim: false` labels so clients cannot mistake generated L2 compression for source text.
+`rag` returns `{mode, hits, stages}` — the fused hit list (`source_id`, block span, text, paths, score) and what finding it cost. `fast`/`deep` return both a citation-free semantic `answer_text` and the backward-compatible cited `answer`, plus their evidence: `used_claims`, `used_episode_summaries` (fast), `used_component_evidence` (fast), `stages`, `used_windows`, `trail` (deep), `citation_handles` (`sNN` → real source id), `documents_read`, `snapshot`, `token_usage`. Every episode-summary item carries source title, occurrence time, section and exact block span, plus constant `derived: true` / `verbatim: false` labels so clients cannot mistake generated L2 compression for source text. Both answering lanes echo `mode` and the `as_of` they resolved, `glance_chars` — the size of the knowledge-base glance carried in the prompt, 0 when canonical was empty or unreadable — and `documents_read`, the documents read whole rather than as a retrieved fragment (fast's glance selection, deep's `read_document` walk). `glance_degraded` is fast-only and names a glance selection that failed (`timeout`/`error`); a pass that ran and chose nothing stays null, like every other selection in the lane.
 
 Fast callers may override context composition and the answer wire independently.
 `evidence_strategy: "select"` spends one serial structured recall-model call to choose a
@@ -60,7 +60,194 @@ only exact cited spans present in evidence. The response echoes candidate counts
 model-selected claim/episode/window counts before safety anchors and provenance rollback,
 plus `evidence_strategy`,
 `evidence_selection_degraded`, `answer_format`, `answer_kind`, and
-`answer_format_degraded`. Both fields are fast-only; rag/deep reject non-null values.
+`answer_format_degraded`. `evidence_strategy: "all"` makes no selection call: the same
+candidate pool is handed to one answer call whole, so the model-selected counts stay 0, the
+`select` stage comes back `skipped`, and the only thing that can cut the context is the
+assembled-context ceiling — which reports itself as
+`evidence_selection_degraded: "all:truncated"`. Under `answer_format: "structured"` that
+strategy also returns `deliberation`: the answering call's own bounded evidence review,
+written before its answer. It is model output about the evidence, never evidence and never a
+citation, and it is null on every other path. Both request fields are fast-only; rag/deep
+reject non-null values.
+
+Component paths are a fourth evidence face, not a fifth ranked list. When enabled index
+components offer fast paths ([configuration](configuration.md#index-components)), the fast
+lane spends one routing tool-call turn: the paths are bound as tools, the recall model emits
+zero or more calls with structured arguments in a single turn (no loop), and the chosen paths
+run concurrently beside the built-in retrieval, which never waits for them. `route_offered`
+lists the path names that turn was shown, `route_chosen` the honoured calls as
+`name({json args})`, and `route_degraded` is `timeout` or `error` when the routing call itself
+failed — choosing nothing is the normal outcome for a question no path serves, not a
+degradation. With no path offered there is no routing call at all: `route_offered` is empty,
+`route_degraded` null, and the lane's messages are byte-identical to the lane without the
+seam. All of these are response fields of the fast lane; deep leaves them at their defaults
+rather than rejecting them.
+
+`used_component_evidence` is the audit trail of what was looked up — one entry per honoured
+call, plus one per call that could not be honoured, so what the model tried survives. Each
+entry carries `path`, the `args` the router chose, the `claims` and `windows` the lookup
+contributed, and `degraded`: `timeout`, `error`, `invalid_args` (an unknown tool name, or
+arguments the path's schema rejected) or null. A path returns everything it knows and the
+framework decides what is shown, so the entry also states what it did not show: `dropped`
+counts the candidates the path's cap and the character budget left out, `dropped_summary`
+describes the same omission as `(section-or-day, count)` pairs in relevance order, and
+`already_shown` counts the results the ranked faces already carry — hidden here rather than
+repeated, which is why a ranked claim may come back with a `via:<path>` entry in
+`used_claims[].labels` (a path may also attach its own mechanical labels, e.g. `current`,
+`superseded`). Path results never enter the RRF. Every one of them is an ordinary claim
+anchor or `source_id + block span` (I4), so citation aliasing, the structured answer's
+admission check and the wire echo apply to them unchanged.
+
+Under `evidence_strategy: "select"` the component face joins the candidate pool instead of
+bypassing it, and `model_selected_component_items` counts how many of its items the selector
+took (0 on the ranked path, where the face is rendered under its own header rather than
+selected from; the pool count itself is not echoed). What the selector took is then rendered
+as what it is — a claim among the claim notes, a window among the raw excerpts — carrying its
+`via:<path>` label, so the face is not shown a second time under its own header.
+`used_component_evidence` comes back either way: the record of what was looked up does not
+depend on how the context was composed.
+
+`stages` is the answer's per-stage wall-clock, in milliseconds, as a flat list — in the
+answering lane's own vocabulary. In **fast**, the vocabulary is fixed and the list arrives in
+a fixed order — `plan`, `retrieve` (followed by its children), `route`, `rerank`, `select`,
+`assemble`, `answer`, `total`. Every stage is present every time: one that did not run comes
+back with `status: "skipped"` and `ms: 0`, so a client can lay out a stable strip and tell
+"did not happen" from "was free". `status` is `ran`, `skipped` or `degraded`, and a degraded
+stage carries the lane's own reason in `detail` (`timeout`, `error`, `invalid_args`) — the
+same reason the matching `*_degraded` field states. The retrieval gather's arms are children
+under a dotted name (`retrieve.claims`, `retrieve.windows`, `retrieve.glance`, and one
+`retrieve.path:<name>` per routed component path); each reports its OWN duration while
+`retrieve` reports the gather's wall-clock, so the children sum to more than their parent and
+`route` — a model call inside that same gather — overlaps it. That is the point: only a
+per-arm clock says which lane was the slow one. The single arithmetic guarantee is
+`total >= every other stage`.
+
+In **deep** there is no fixed vocabulary to send: how many turns the agentic loop took and
+which tools it reached for is precisely what the timing reports. The list is the run's own
+sequence — `turn:1`, `tool:search_claims`, `tool:read_document`, `turn:2`, …, then `total` —
+with `finalize` appearing when the tool budget forced a closing tool-less call (`status:
+"degraded"`, `detail: "budget"`). A tool call that failed is `degraded` carrying its reason,
+whether it raised or answered with a stated failure. Nothing is ever `skipped` here, because
+there is no list of stages that could have run. `total` wraps the AGENTIC LOOP; the seed
+retrieval that precedes it is not a loop stage and is not inside that total. The same
+arithmetic guarantee holds: `total >= every other stage`.
+
+In **rag** the vocabulary is fixed and it is the shortest of the three, because the lane
+reaches no model: `embed` (the query vector), `retrieve` — followed by its children
+`retrieve.lexical` and `retrieve.vector` — `fuse` (the RRF pass and the hits it builds),
+`expand` (the post-fusion overlap merge that decides which of two overlapping spans owns the
+citable region, and the cap), then `total`. Unlike fast's gather these two children are
+SEQUENTIAL awaits, so they sum to their parent rather than exceeding it, and a diagram is
+right to draw them as a chain. `embed` comes back `skipped` when the caller already held the
+query vector. The same arithmetic guarantee holds: `total >= every other stage`.
+
+Beside the duration, a stage may carry a **`preview`**: a small object naming what it was
+handed and what came out. A duration says a stage was slow; it never says what it was slow
+*at*, and `retrieve.claims 812ms` reads the same whether the face returned two claims or
+eighty. `preview` is null when a stage offered none — a stage that did not run, one with
+nothing worth a glance, or an older service — which is a different fact from an empty object
+and is never faked into one. The keys belong to the stage, not to the wire: a client renders
+whatever rows it is given, and a lane that grows a stage does not need a client release.
+
+**A preview says what an item IS, not which item it is.** Where a stage previews a list of
+results, each entry is an object in one shared vocabulary — `text` (a bounded head of the
+item's own words, markdown, citation spans and anchors stripped), then where it lives (`doc`
+for a canonical page, `source` + `span` for a passage), then `id` as a trailing tag:
+
+```json
+{"hits": 80, "items": [{"text": "The pilot ends in March.", "doc": "Pilot", "id": "c1a2b3c4"}]}
+```
+
+A tool call previews as the call it was — `person(alias="…")`, arguments inline — and a
+selection previews as a line per face (`claims 80 → 1, windows 60 → 0`) with the chosen items
+listed beneath it, grouped by face.
+
+What each stage previews today:
+
+| Stage | Keys |
+|---|---|
+| `plan` | `cap`, `queries` — the extra retrieval queries the planning turn wrote, verbatim |
+| `retrieve.claims` / `retrieve.windows` | `hits`, `items` (first ≤5 entries), plus the candidate `pool` on the claim face |
+| `retrieve.glance` | `offered`, `cap`, `hits`, `items` — each chosen page as its definition under its title |
+| `retrieve.path:<name>` | `call` (the lookup as it was called, arguments inline; a rejected one carries its reason), `hits`, `items` |
+| `route` | `tool_calls` — one rendered call per chosen path, or the sentence `"no path chosen — offered: person, timespan"` naming the paths the turn declined |
+| `rerank` | `candidates`, `kept`, `top` (≤5 entries); the component pass adds `component_*` of the same three |
+| `select` | `faces` (`claims 80 → 1, episodes 52 → 0, windows 60 → 0` — a face with no candidates is left out), the chosen entries under `claims` / `episodes` / `windows` / `components` (≤10 in total), `documents` when pages were expanded, and `chosen: "none"` when the selection call failed |
+| `assemble` | counts and characters per section, merged across the passes (`windows` / `window_chars`, `episode_summaries` / `episode_chars`, `provenance_passages` / `provenance_chars`, `images`), plus `sections` — the same facts as one line, `claims 8 · windows 12 · episodes 4 · 11.5k chars` |
+| `answer` | `format`, `turns` (2 when a structured call fell back to the text contract), `sections`, `input_chars` and the per-face counts that make it up |
+| deep/ask `tool:<name>` | `call` the model wrote (arguments inline), `result_chars`, `result` (a ≤120-character head of what came back, as display text) — the SIZE and the opening, never the result |
+| deep/ask `turn:N` | `tool_calls` the turn issued, rendered inline, or `"none"` for the closing turn |
+| build `retrieve.claims` / `retrieve.passages` | `cap`, `hits`, `items` |
+| build `expand` | `passages` / `passage_chars`, `sources` / `source_chars` |
+| build `pack` | `documents`, `glance_chars`, `sections`, `pack_chars`, `budget_chars`, `prefix_chars` |
+| rag `embed` | `dimensions` |
+| rag `retrieve.lexical` / `retrieve.vector` | `candidates`, `hits`, `top` (≤5 entries); the vector arm adds `raw` / `episode` |
+| rag `fuse` / `expand` | `rankings` or `fused`, then `hits` and `top` |
+
+A preview is **bounded mechanically, in one place**: the service caps the serialized object at
+roughly 1 KB, truncating lists (a cut list ends with `…+N more`), shedding an entry's
+decoration in a fixed order — `id`, then `span`, then `doc` / `source` — and eliding strings,
+at successively harder rungs, finally dropping trailing keys. **What an entry says outlives
+the id beside it**: that order is the squeeze's, not a convention, so a tight budget can never
+be spent on ids while the words are cut. So a preview is always small enough to render whole,
+and it can never become a second, unbounded way for source text to leave the library —
+evidence reaches a reader through the answer and its citations.
+
+Each `trail` record carries the `ms` of the call it describes — the same number the matching
+`tool:<name>` stage reports — and it is stamped before the step is streamed, so a client
+growing the trail live over `/recall/stream` renders a measured duration rather than one
+timed from arrival gaps. The closing `done` event of that stream carries the full `stages`
+list, which is the only place the turns between the tool calls become visible.
+
+### Watching a lane run
+
+Every lane that costs a user real seconds has an SSE twin that narrates it: `POST
+/…/recall/stream` (all three recall modes), `POST /…/briefings/stream`, `POST
+/…/briefings/{id}/ask/stream`. The plain routes are unchanged.
+
+One event vocabulary across all three — and a lane sends only the frames it has:
+
+| Event | Payload | Meaning |
+|---|---|---|
+| `stage` | `{name, key, phase, at_ms, ms, status, detail, preview}` | a stage began (`phase: "start"`, `ms: null`, `preview: null`) or settled (`phase: "end"`, carrying its `preview`) |
+| `token` | `{text}` | a delta of the answer as the model writes it; append in arrival order — never sent by `mode: rag`, which reaches no model |
+| `step` | one trail record | deep recall only — one agentic tool call, `ms` already stamped |
+| `done` | the lane's full result | byte-for-byte what the plain POST returns for the same request |
+| `error` | `{detail}` | the lane failed mid-run; the stream then closes |
+
+`stage` events come from the SAME measure sites that produce the final `stages` list, so the
+picture drawn live and the breakdown that arrives with `done` cannot disagree. `at_ms` is
+elapsed milliseconds since the lane began, on the server's clock — it places the event on the
+lane's timeline. It is not a counter's starting value: a stage that opens three seconds into a
+lane has been running for zero, so a client ticks a running node from the frame's arrival and
+the `end` event then reports what the server actually measured.
+
+`preview` rides the `end` frame only: a `start` has measured nothing and produced nothing, so
+a preview on one would be the only value in the frame that was not observed. The object on
+that frame and the one in the `stages` that arrive with `done` come off the same recorder, so
+they are one fact rather than two that could drift.
+
+**A structured answer streams as JSON.** `answer_format: "structured"` asks the provider for a
+JSON object, and JSON is what it writes token by token, so the `token` deltas of a structured
+lane are fragments of `{"answer_kind":…,"answer":"…","citations":[…]}` rather than prose. A
+client showing provisional text reads the `answer` string out of the partial object (a partial
+escape — a trailing `\`, a half-written `\uXXXX`, one half of a surrogate pair — is held back
+rather than printed, and everything after that string closes is not the answer); a `text` lane's
+deltas are prose and are shown as they arrive. The `done` frame replaces the provisional text
+either way. The route does not label the frames: the buffer's own first character says which
+shape it is, and the deployment — not the request — chooses the format.
+
+`key` identifies a NODE and belongs to the lane, not the client. A fixed vocabulary (fast
+recall, the briefing build) accumulates by name — `assemble` is measured several times and is
+one stage — so there `key == name` and a later `end` supersedes the earlier one for that key.
+An agentic lane appends: two calls to one tool are two steps, so it mints a fresh key each
+time (`tool:search_claims#3`). A client that keys on `key` and prints `name` is right about
+both without knowing which lane it is watching.
+
+Anything decidable before the lane starts is a status code, not a narrated failure: an unknown
+mode, a fast-only knob sent in deep mode, a keyless deployment (503), an unknown briefing
+(404). Once the body is streaming the status line has already been sent, so a failure after
+that point can only arrive as an `error` event.
 
 `as_of` is the time at which the question is asked, not the source timestamp. Omit it for a
 live question. Historical replays must send their original timezone-aware timestamp; the
@@ -104,9 +291,41 @@ Source detail never exposes an object-store key. Each image manifest contains `i
 | Method | Path | Purpose |
 |---|---|---|
 | POST | `/…/briefings` | build a stable evidence pack on a pinned snapshot: `{query?, source_ids[], budget_chars, snapshot?}` |
+| POST | `/…/briefings/stream` | the same build, SSE — `stage` events as it runs, then `done` with the same body |
 | GET | `/…/briefings` | list |
+| GET | `/…/briefings/{id}` | read one back: `{briefing_id, snapshot_ref, created_at, char_count, scope, text, stages}` — `text` is the literal pack |
 | POST | `/…/briefings/{id}/ask` | ask against the stored pack: `{question}` → answer + citations |
+| POST | `/…/briefings/{id}/ask/stream` | the same ask, SSE — `stage` and `token` events, then `done` |
 | DELETE | `/…/briefings/{id}` | delete |
+
+Both stream routes follow the vocabulary above. The build's row is persisted **before** `done`
+is sent, so a client that saw the frame can always read the briefing back.
+
+Both halves report their cost as `stages`, in the same shape the answering lanes use
+(`{name, ms, status, detail}`), each in the shape its own work has.
+
+A **build** is mechanical — retrieval, expansion, assembly, no model call anywhere — so it has
+a fixed vocabulary and sends it complete, in order: `retrieve` (followed by its children
+`retrieve.claims` and `retrieve.passages`), `expand`, `pack`, `total`. A stage that did not run
+is present with `status: "skipped"` and `ms: 0`, so a scope with no `query` half says so rather
+than dropping it. Unlike fast recall's concurrent gather, the two lookups here run in sequence
+and therefore sum to their parent. `expand` is what turns hits and anchored source ids into
+evidence with provenance (context windows, materials cards, the citation reverse lookup, L0
+excerpts) and accumulates once per anchored source; `pack` is the glance, the segment join and
+the budget truncation. `total` wraps the whole build.
+
+The build's breakdown is **persisted with the briefing**, so `GET /…/briefings/{id}` returns it
+for a pack built weeks ago — as measured, never re-derived. A briefing stored before the column
+existed reads back with `stages: []`, which is "not recorded" and not "took no time".
+
+An **ask** is an agentic loop and reports like deep recall: the run's own sequence — `turn:1`,
+`tool:search_knowledge`, `tool:fetch_verbatim`, `turn:2`, …, `total` — with `finalize`
+(`status: "degraded"`, `detail: "budget"`) when the tool budget forced a closing tool-less call,
+and a failed tool call `degraded` with its reason whether it raised or answered with a stated
+failure. Each `verbatim_fetches` record carries the `ms` of its own call, the same number the
+matching `tool:fetch_verbatim` stage reports. `total` wraps the LOOP only: the pack was built
+earlier — possibly days earlier — and charging an ask for it would misname where the seconds
+went. In both halves the one arithmetic guarantee holds: `total >= every other stage`.
 
 ## Evolve and skill
 

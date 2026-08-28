@@ -7,7 +7,7 @@
 这里不放任何秘密：API key 和这台机器的端口留在 `../.env`，那个文件永不被版本化。
 
 ```
-engine.yaml              模型角色：compile / recall / answer / deep / embedding
+engine.yaml              模型角色：compile / recall / answer / deep / embedding；索引组件
 intake/intake.yaml       材料怎么切成语义单元
 compile/contract.md      宪法——什么值得被记住、记在哪一页
 compile/challenge.yaml   编译后的覆盖审计
@@ -39,7 +39,9 @@ prompts/overlays.yaml    框架自身提示词用哪种语言，以及替换其�
 
 `evidence_strategy` 决定怎样编排这些证据面。`ranked` 是直接、延迟最低的固定头部路径；`select`
 在宽候选上增加一次有界的结构化 recall 模型调用，框架会验证返回坐标、保留高排名安全锚点，并把选中
-的派生来源追到 L0。`answer_format` 与它独立：`text` 保留普通自由文本回答，`structured` 将回答类型、
+的派生来源追到 L0；`all` 不做这次选择，而是把整个候选池交给回答，只受一个字符上限
+（`all_context_chars`）约束——超出时依次丢弃窗口、episode 摘要、排名最低的断言，并且总会说明丢了
+什么。`answer_format` 与它独立：`text` 保留普通自由文本回答，`structured` 将回答类型、
 干净正文和精确引用分开，使引用区间可以被验证。两项都可以针对一次 `ask` 覆盖。
 API 会暴露 selector 在加入安全锚点前的实际入选数，让几乎没贡献证据的串行调用可见，而不是默认它有用。自动化使用干净的 `answer_text`；交互客户端渲染带引用的 `answer`。历史回放必须用 `--as-of` 显式传入提问时间；省略表示当前 UTC 时间。
 

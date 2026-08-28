@@ -52,7 +52,7 @@ The evolve gate then checks the result. One check behaves differently from compi
 
 A draft task carries everything the decision needs: the proposal and its rationale, the full file diff (old body vs. new body, per changed document), and the dropped-anchor list. The web UI's evolve view presents the same, with adopt/drop actions and the draft's remaining TTL.
 
-What to actually judge — the same standard as [writing the contract](compile-contract.md#5-the-acceptance-loop):
+What to actually judge — the same standard as [writing the contract](compile-contract.md#8-the-acceptance-loop):
 
 - **Is this a better model for future use, or just a different one?** Change is not the goal. If the rationale reads as taste rather than as evidence ("these twelve claims kept landing in the wrong family"), lean toward drop.
 - **Read the dropped list before anything else.** Every entry is recorded knowledge that will not survive adoption. An empty list makes the rest of the review easy; a non-empty one is the review.

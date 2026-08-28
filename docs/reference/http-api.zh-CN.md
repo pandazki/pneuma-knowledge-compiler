@@ -46,12 +46,84 @@
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
-| POST | `/…/recall` | body `{query, mode: rag\|fast\|deep, limit, as_of?, snapshot?, answer_style?, evidence_strategy?: ranked\|select, answer_format?: text\|structured, include_original_modalities?: ("image")[]}` |
-| POST | `/…/recall/stream` | 仅 deep；SSE——每完成一次工具调用发一条 `event: step`，最后 `done`（或 `error`）。步骤级流式，不是 token 流 |
+| POST | `/…/recall` | body `{query, mode: rag\|fast\|deep, limit, as_of?, snapshot?, answer_style?, evidence_strategy?: ranked\|select\|all, answer_format?: text\|structured, include_original_modalities?: ("image")[]}` |
+| POST | `/…/recall/stream` | 三种模式皆可；SSE——通道运行途中发 `stage`（答题通道另有 `token`，deep 再多一个 `step`），最后 `done`（或 `error`） |
 
-`rag` 返回命中列表（`source_id`、块区间、文本、路径、分数）。`fast`/`deep` 同时返回不含引用的语义正文 `answer_text` 与向后兼容的带引用 `answer`，以及其证据：`used_claims`、`used_episode_summaries`（fast）、`used_windows`、`trail`（deep）、`citation_handles`（`sNN` → 真实 source id）、`documents_read`、`snapshot`、`token_usage`。每条 episode 摘要都带来源标题、发生时间、章节与精确块区间，并固定标记 `derived: true` / `verbatim: false`，让客户端不会把生成的 L2 压缩内容当成原文。
+`rag` 返回 `{mode, hits, stages}`——融合后的命中列表（`source_id`、块区间、文本、路径、分数），以及找到它们花了多少时间。`fast`/`deep` 同时返回不含引用的语义正文 `answer_text` 与向后兼容的带引用 `answer`，以及其证据：`used_claims`、`used_episode_summaries`（fast）、`used_component_evidence`（fast）、`stages`、`used_windows`、`trail`（deep）、`citation_handles`（`sNN` → 真实 source id）、`documents_read`、`snapshot`、`token_usage`。每条 episode 摘要都带来源标题、发生时间、章节与精确块区间，并固定标记 `derived: true` / `verbatim: false`，让客户端不会把生成的 L2 压缩内容当成原文。两条答题通道都会回显 `mode` 与本次解析出的 `as_of`，以及 `glance_chars`——提示词里那份知识库概览的字符数，正本为空或读不出时为 0——和 `documents_read`，即整篇读过、而非按检索片段进来的文档（fast 走概览挑选，deep 走 `read_document`）。`glance_degraded` 只属于 fast，用来说明概览挑选是失败了（`timeout`/`error`）；跑过但一篇都没挑中，与这条通道里其他挑选一样仍是 null。
 
-fast 调用方可以分别覆盖上下文编排和回答线格式。`evidence_strategy: "select"` 会增加一次串行的结构化 recall 模型调用，在宽断言、episode 摘要和 raw 窗口候选（以及已知 canonical 路径）之间选择受上限约束的组合；非法坐标会被丢弃，失败则回落 ranked 头部。`answer_format: "structured"` 将回答类型、回答正文和引用分开，只准入证据中真实出现过的精确引用区间。响应会回显候选数，以及加入安全锚点和依据回跳前模型实际选中的 claim、episode 与窗口数；同时回显 `evidence_strategy`、`evidence_selection_degraded`、`answer_format`、`answer_kind` 与 `answer_format_degraded`。两个请求字段都只适用于 fast；rag/deep 会拒绝非空值。
+fast 调用方可以分别覆盖上下文编排和回答线格式。`evidence_strategy: "select"` 会增加一次串行的结构化 recall 模型调用，在宽断言、episode 摘要和 raw 窗口候选（以及已知 canonical 路径）之间选择受上限约束的组合；非法坐标会被丢弃，失败则回落 ranked 头部。`answer_format: "structured"` 将回答类型、回答正文和引用分开，只准入证据中真实出现过的精确引用区间。响应会回显候选数，以及加入安全锚点和依据回跳前模型实际选中的 claim、episode 与窗口数；同时回显 `evidence_strategy`、`evidence_selection_degraded`、`answer_format`、`answer_kind` 与 `answer_format_degraded`。`evidence_strategy: "all"` 不做选择调用：同一个候选池整体交给唯一一次回答调用，因此模型入选数保持为 0、`select` 阶段回报 `skipped`，唯一能裁剪上下文的是组装后上下文的字符上限——它以 `evidence_selection_degraded: "all:truncated"` 自报。在 `answer_format: "structured"` 下，这一档还会返回 `deliberation`：回答调用自己那段有界的证据审视，写在答案之前。它是模型关于证据的输出，不是证据、也不能当引用，其他路径上一律为 null。两个请求字段都只适用于 fast；rag/deep 会拒绝非空值。
+
+组件路是第四个证据面，不是第五份排序列表。已启用的索引组件提供快路时（见[配置](configuration.zh-CN.md#索引组件)），fast 通道花掉一轮路由 tool call：这些路被绑成工具，recall 模型在一轮里发出零个或多个带结构化参数的调用（不循环），选中的路并发运行，与内建检索并排——内建那几面从不等它。`route_offered` 是那一轮见到的路名，`route_chosen` 是每次被采纳的调用，写成 `name({json 参数})`；`route_degraded` 只在路由调用本身失败时取 `timeout` 或 `error`——没有哪条路对得上这个问题、于是什么都不选，是正常结果，不是降级。一条路都没有提供时，路由调用根本不会发生：`route_offered` 为空、`route_degraded` 为 null，通道的消息与没有这道接缝时逐字节相同。这几个都是 fast 的响应字段；deep 只是让它们停在默认值，并不拒绝。
+
+`used_component_evidence` 是这次查过什么的审计轨迹——每次被采纳的调用一条，每次无法采纳的调用也留一条，模型试过什么不会丢。每条带 `path`、路由选定的 `args`、这次查询贡献的 `claims` 与 `windows`，以及 `degraded`：`timeout`、`error`、`invalid_args`（工具名不认识，或参数过不了这条路的 schema），或 null。路返回自己知道的全部、由框架决定展示多少，所以每条也说明自己没展示什么：`dropped` 是被该路上限与字符预算挡下的候选数，`dropped_summary` 用 `(章节或日期, 条数)` 按相关度顺序把同一件事描述出来，`already_shown` 是排序面已经带着的那些——在这里隐去而不是重复一遍，这也是为什么一条排序面的断言可能带回 `used_claims[].labels` 里的 `via:<路名>`（路自己也可能附上机械标签，如 `current`、`superseded`）。组件面的结果从不进 RRF；它们每一条都是普通的断言锚点或 `source_id + 块区间`（I4），因此引用别名、结构化回答的准入校验与回显都原样适用。
+
+`evidence_strategy: "select"` 下，组件面不绕过候选池，而是加入其中；`model_selected_component_items` 是选择器真正从中取走的条数（ranked 路径下为 0，那里这一面是按自己的标题渲染出来的，不供挑选；池子本身的计数不回显）。被选中的条目按它本来的身份渲染——断言进断言笔记，窗口进原文摘录——并带上 `via:<路名>` 标签，因此这一面不会以自己的标题再出现一次。无论走哪条路径，`used_component_evidence` 都会返回：查过什么的记录，不取决于上下文是怎么编排的。
+
+`stages` 是这次回答各阶段的实测墙钟（毫秒），平铺成一个列表，用的是所在答题通道自己的词汇表。在 **fast** 里，这套词汇表是固定的，列表也按固定顺序返回——`plan`、`retrieve`（其后紧跟它的子项）、`route`、`rerank`、`select`、`assemble`、`answer`、`total`。每个阶段每次都在：没跑过的那个也会返回，只是 `status: "skipped"`、`ms: 0`，客户端因此能排出一条稳定的条带，并且分得清「没发生」和「不费时」。`status` 取 `ran`、`skipped` 或 `degraded`；降级的阶段在 `detail` 里带着这条通道自己的原因（`timeout`、`error`、`invalid_args`），与对应的 `*_degraded` 字段说的是同一件事。并发检索那一把的各条路是子项，用带点的名字表示（`retrieve.claims`、`retrieve.windows`、`retrieve.glance`，以及每条被路由选中的组件路一条 `retrieve.path:<路名>`）：子项各报各的耗时，而 `retrieve` 报的是这次并发的墙钟，所以子项相加会大于父项，`route`——同一把并发里的一次模型调用——也与它重叠。这正是要的效果：只有各路各自的时钟才说得出是哪条路慢。唯一的算术保证是 `total >= 其余任何一个阶段`。
+
+在 **deep** 里没有固定词汇表可发：这次 agentic 循环走了几轮、伸手拿了哪些工具，本来就是这份计时要报的东西。列表就是这次运行自己的顺序——`turn:1`、`tool:search_claims`、`tool:read_document`、`turn:2`……最后是 `total`；工具预算耗尽、被迫补一次无工具的收尾调用时，会多出一个 `finalize`（`status: "degraded"`、`detail: "budget"`）。失败的工具调用是 `degraded` 并带上原因，无论它是抛了异常还是把失败写成了一句明说的回答。这里永远不会出现 `skipped`，因为不存在一张「本可以跑」的阶段清单。`total` 收口的是这个 **agentic 循环**；它之前的种子检索不是循环里的阶段，也就不在这个 total 之内。同一条算术保证依旧成立：`total >= 其余任何一个阶段`。
+
+在 **rag** 里词汇表同样固定，而且是三者中最短的一套，因为这条通道根本不碰模型：`embed`（问题向量）、`retrieve`——其后紧跟子项 `retrieve.lexical` 与 `retrieve.vector`——`fuse`（RRF 融合以及由此生成的命中），`expand`（融合之后的重叠归并，即在两个重叠区间之间判定谁拥有那段可引用证据，以及取上限），最后 `total`。与 fast 那把并发不同，这两个子项是先后执行的，因此子项相加即等于父项，图上画成一条链是对的。调用方已经握有问题向量时，`embed` 返回 `skipped`。同一条算术保证依旧成立：`total >= 其余任何一个阶段`。
+
+除耗时之外，一个阶段还可能带 **`preview`**：一个小对象，说明它拿到了什么、又产出了什么。耗时只说这个阶段慢，从不说它慢在**什么**上——`retrieve.claims 812ms` 这一行，无论那一面回了两条断言还是八十条，长得都一样。阶段没有可预览的东西时 `preview` 为 null——没跑过的阶段、没什么值得一瞥的阶段，或者版本更早的服务——这与「空对象」是两件事，绝不伪造成后者。这些键归阶段所有，不归线上协议：客户端拿到什么行就渲染什么行，通道长出一个新阶段不需要客户端跟着发版。
+
+**预览说的是一个条目「是什么」，而不是它「是哪一个」。** 凡是阶段预览一串结果的地方，每一项都是一个对象，用同一套字段：先 `text`（该条目自己那句话的定长开头，markdown、`[cite:]` 区间与锚点均已剥去），再是它在哪（画布文档用 `doc`，原文段落用 `source` + `span`），最后 `id` 作为尾部标签：
+
+```json
+{"hits": 80, "items": [{"text": "试点在三月结束。", "doc": "试点", "id": "c1a2b3c4"}]}
+```
+
+一次工具调用按它本来的样子预览——`person(alias="…")`，参数就写在里面；一次选择则预览为每一面一句话（`claims 80 → 1, windows 60 → 0`），其下按面列出被选中的条目。
+
+各阶段目前预览的内容：
+
+| 阶段 | 键 |
+|---|---|
+| `plan` | `cap`、`queries`——规划轮写出的额外检索问法，原样 |
+| `retrieve.claims` / `retrieve.windows` | `hits`、`items`（前 ≤5 项），断言那一面另加候选池 `pool` |
+| `retrieve.glance` | `offered`、`cap`、`hits`、`items`——每个被选中的页面，标题之下是它的定义 |
+| `retrieve.path:<路名>` | `call`（这次查找被调用时的样子，参数写在里面；被拒的那条带上原因）、`hits`、`items` |
+| `route` | `tool_calls`——每条被选中的路渲染成一次调用；一条都没选时是一句 `"no path chosen — offered: person, timespan"`，点名它放弃的那些路 |
+| `rerank` | `candidates`、`kept`、`top`（≤5 项）；组件那一趟另加 `component_*` 三项同名字段 |
+| `select` | `faces`（`claims 80 → 1, episodes 52 → 0, windows 60 → 0`——没有候选的那一面不列）、被选中的条目分列在 `claims` / `episodes` / `windows` / `components` 下（合计 ≤10），展开了页面时另有 `documents`；选择调用失败时为 `chosen: "none"` |
+| `assemble` | 各段的条数与字符数，跨几趟合并（`windows` / `window_chars`、`episode_summaries` / `episode_chars`、`provenance_passages` / `provenance_chars`、`images`），外加 `sections`——同样这些事实的一行写法：`claims 8 · windows 12 · episodes 4 · 11.5k chars` |
+| `answer` | `format`、`turns`（结构化调用回退到文本契约时为 2）、`sections`、`input_chars` 及构成它的各面条数 |
+| deep/ask `tool:<工具名>` | 模型写下的 `call`（参数写在里面）、`result_chars`、`result`（回来的东西 ≤120 字的开头，已转为展示文本）——回来了**多少**、开头说了什么，而不是结果本身 |
+| deep/ask `turn:N` | 该轮发出的 `tool_calls`，同样按调用渲染；收尾轮为 `"none"` |
+| 构建 `retrieve.claims` / `retrieve.passages` | `cap`、`hits`、`items` |
+| 构建 `expand` | `passages` / `passage_chars`、`sources` / `source_chars` |
+| 构建 `pack` | `documents`、`glance_chars`、`sections`、`pack_chars`、`budget_chars`、`prefix_chars` |
+| rag `embed` | `dimensions` |
+| rag `retrieve.lexical` / `retrieve.vector` | `candidates`、`hits`、`top`（≤5 项）；向量那一路另加 `raw` / `episode` |
+| rag `fuse` / `expand` | `rankings` 或 `fused`，随后是 `hits` 与 `top` |
+
+预览的上限是**机械的，且只有一处**：服务把序列化后的对象压在约 1 KB 以内，按逐级收紧的档位截断列表（被截的列表以 `…+N more` 收尾）、依固定顺序摘掉条目上的附饰（先 `id`，再 `span`，再 `doc` / `source`）、省略字符串，最后仍超标就从尾部丢键。**一个条目说了什么，比它旁边那个 id 活得久**：这个次序属于压缩机制本身，不是一条约定，所以预算再紧也不会花在 id 上而把话切掉。因此预览永远小到可以整体渲染，也永远不可能变成源文本离开知识库的第二条、无上限的通路——证据只经答案与其引用抵达读者。
+
+每条 `trail` 记录都带着它所描述那次调用的 `ms`——与对应 `tool:<工具名>` 阶段报的是同一个数——而且是在这一步被推送出去之前就盖上的，所以客户端在 `/recall/stream` 上把 trail 一步步长出来时，渲染的是实测耗时，而不是靠两次到达的间隔估出来的。那条流最后的 `done` 事件会带上完整的 `stages` 列表：只有在那里，夹在各次工具调用之间的模型轮次才看得见。
+
+### 边跑边看
+
+每条真正花掉用户秒数的通道，都有一个 SSE 双生路由把过程讲出来：`POST /…/recall/stream`（三条检索通道）、`POST /…/briefings/stream`、`POST /…/briefings/{id}/ask/stream`。原有的普通路由一字未动。
+
+三者共用一套事件词汇，各条通道只发自己有的那几种：
+
+| 事件 | 载荷 | 含义 |
+|---|---|---|
+| `stage` | `{name, key, phase, at_ms, ms, status, detail, preview}` | 某个阶段开始（`phase: "start"`，`ms: null`、`preview: null`）或落定（`phase: "end"`，并带上它的 `preview`） |
+| `token` | `{text}` | 模型正在写出的答案增量，按到达顺序追加——`mode: rag` 从不发送，那条通道不碰模型 |
+| `step` | 一条 trail 记录 | 仅 deep recall——一次 agentic 工具调用，`ms` 已经盖好 |
+| `done` | 该通道的完整结果 | 与同一请求走普通 POST 拿到的载荷逐字相同 |
+| `error` | `{detail}` | 通道中途失败，随后流关闭 |
+
+`stage` 事件出自与最终 `stages` 列表**同一批**测量点，所以边跑边画的那张图与 `done` 带回的耗时不可能对不上。`at_ms` 是服务端时钟上、自通道启动起算的毫秒数——它把这个事件放到通道的时间轴上，而不是计数器的起始值：一个在通道第 3 秒才开始的阶段，此刻已跑的时间是 0 而不是 3 秒。所以客户端应从帧到达的那一刻起算，`end` 事件再交回服务端真正测出的数。
+
+`preview` 只搭 `end` 帧：`start` 什么都还没测到、也什么都还没产出，给它挂一个预览，就成了这一帧里唯一不是观测所得的值。那一帧上的对象与随 `done` 抵达的 `stages` 里的那一个出自同一个记录器，所以它们是一件事，而不是两件可能各说各话的事。
+
+**结构化答案是以 JSON 的形式流出来的。** `answer_format: "structured"` 向 provider 要一个 JSON 对象，而 provider 就是逐 token 写这个对象，所以结构化通道的 `token` 增量是 `{"answer_kind":…,"answer":"…","citations":[…]}` 的碎片，而不是散文。要显示临时答案的客户端，应从这个半成品对象里把 `answer` 字符串读出来（残缺的转义——末尾一个 `\`、写了一半的 `\uXXXX`、代理对的一半——应扣住不显示，而该字符串闭合之后的内容都不是答案）；`text` 通道的增量本身就是散文，照原样显示即可。无论哪种，`done` 帧都会替换掉临时文本。路由不给这些帧打标签：缓冲区自己的首个字符就说明了形状，而格式由部署决定，不由请求决定。
+
+`key` 标识的是一个**节点**，归通道所有而不归客户端。固定词汇（fast recall、briefing 构建）按名字累加——`assemble` 会被测多次却只是一个阶段——所以那里 `key == name`，同一 key 的后一条 `end` 覆盖前一条。agentic 通道则是追加：同一件工具被调两次就是两步，于是每步新铸一个 key（`tool:search_claims#3`）。客户端按 `key` 建节点、按 `name` 显示，就能同时对两种通道都正确，而不必知道自己在看哪一条。
+
+凡是在通道启动之前就能判定的，一律是状态码而不是被讲述的失败：未知 mode、在 deep 模式里传 fast 专属开关、无 key 部署（503）、不存在的 briefing（404）。响应体一旦开始流，状态行就已经发出去了，此后的失败只能以 `error` 事件抵达。
 
 `as_of` 是提问发生的时间，不是来源文档的时间。实时问题可以省略；历史回放必须传当时的、带时区的时间戳。scaffold CLI 使用同一契约：`./app.py ask '…' --as-of …`。
 
@@ -85,9 +157,22 @@ Source 详情绝不暴露对象存储 key。每条图片清单只给 `image_id`�
 | 方法 | 路径 | 用途 |
 |---|---|---|
 | POST | `/…/briefings` | 在钉住的快照上构建稳定证据包：`{query?, source_ids[], budget_chars, snapshot?}` |
+| POST | `/…/briefings/stream` | 同一次构建，SSE——过程中发 `stage`，最后 `done` 带回同样的响应体 |
 | GET | `/…/briefings` | 列表 |
+| GET | `/…/briefings/{id}` | 读回单条：`{briefing_id, snapshot_ref, created_at, char_count, scope, text, stages}`——`text` 即证据包原文 |
 | POST | `/…/briefings/{id}/ask` | 对已存证据包提问：`{question}` → 答案 + 引用 |
+| POST | `/…/briefings/{id}/ask/stream` | 同一次提问，SSE——发 `stage` 与 `token`，最后 `done` |
 | DELETE | `/…/briefings/{id}` | 删除 |
+
+两条流式路由都遵循上面那套词汇。构建的那一行是在 `done` **之前**落库的，所以看到这一帧的客户端，一定能把这份 briefing 读回来。
+
+两半都用 `stages` 报自己的耗时，形状与答题通道一致（`{name, ms, status, detail}`），但各自是各自那份活该有的样子。
+
+**构建**是机械的——检索、扩展、拼装，全程没有模型调用——所以它有一套固定词汇表，并按固定顺序完整发出：`retrieve`（其后紧跟子项 `retrieve.claims` 与 `retrieve.passages`）、`expand`、`pack`、`total`。没跑过的阶段也在，只是 `status: "skipped"`、`ms: 0`，因此一个没有 `query` 那半的 scope 会明说，而不是让它从条带上消失。与 fast 通道那把并发检索不同，这里两次查询是先后执行的，因此子项相加即等于父项。`expand` 是把命中与锚定来源变成带出处的证据那一步（上下文窗口、材料卡、引用反查、L0 原文摘录），每锚定一个来源就累加一次；`pack` 是概览、片段拼接与预算截断。`total` 收口整个构建。
+
+构建的这份耗时**与 briefing 一起持久化**，所以 `GET /…/briefings/{id}` 能把几周前那份证据包的耗时原样交回——是当时测出来的，从不事后重算。在这一列存在之前存下的 briefing 读回时是 `stages: []`，那是「没有记录」，不是「不费时」。
+
+**提问**是一次 agentic 循环，报法与 deep 一致：列表就是这次运行自己的顺序——`turn:1`、`tool:search_knowledge`、`tool:fetch_verbatim`、`turn:2`……最后是 `total`；工具预算耗尽、被迫补一次无工具的收尾调用时会多出 `finalize`（`status: "degraded"`、`detail: "budget"`）；失败的工具调用是 `degraded` 并带原因，无论它是抛了异常，还是把失败写成一句明说的回答。每条 `verbatim_fetches` 记录都带着它自己那次调用的 `ms`，与对应的 `tool:fetch_verbatim` 阶段报的是同一个数。`total` 只收口**这次循环**：证据包是更早——可能是几天前——构建的，把它算进这次提问，等于把时间花在哪儿这件事说错了。两半都成立同一条算术保证：`total >= 其余任何一个阶段`。
 
 ## 演进与契约
 

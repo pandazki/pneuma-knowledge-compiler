@@ -35,6 +35,8 @@ cd apps/web && pnpm test         # node --test tests/*.test.mjs
 
 Real-middleware integration tests run when Postgres/Qdrant/Meilisearch are reachable; image round-trip tests additionally require RustFS. Otherwise they skip with an explicit "middleware unreachable" reason. Real model calls need `.env` (copy from `.env.example`); never commit `.env`.
 
+**Do not edit framework code while a production build is running.** A build in flight is reading this working tree, so an edit mid-run changes what is being measured and leaves the run unattributable — neither the result nor the diff can be trusted afterwards. If a fix cannot wait for the run to finish, record the reproduction and the diff first, so what changed under the run is nameable.
+
 ## Workspace layout
 
 uv workspace with four packages plus the app surfaces:
@@ -63,6 +65,10 @@ uv workspace with four packages plus the app surfaces:
 
 **Ingest pipeline**: SourceAdapter (the only layer allowed to grow with input types) → NormalizedSource → IntakePlan (`canonical_treatment` × `semantic_indexing`, archetypes in core `domain/intake.py`) → index/compile jobs. The official input boundary is four versioned provider-neutral contracts: `meeting/v1`, `document-library/v1`, `im/v1`, `email/v1` ([docs/reference/source-contracts.md](docs/reference/source-contracts.md)).
 
+**Canonical has two parts.** The **ledger** is append-only: anchored, cited claims, immutable anchors, no deletion. The **overview** is a bounded head above it — four slots (`definition`, `summary`, `introduction`, `connections`) the compile model may rewrite whole with `rewrite_overview`. That single wholesale write is safe for a mechanical reason and not a hopeful one: the gate requires every overview block to rest on a ledger claim (`c:xxxx`) or a source span, and bounds the region in characters (`OVERVIEW_BUDGET_CHARS`), so the head cannot grow into a second ledger. Beside `create_document` / `append_block` and `edit_claim`, the third write verb is `supersede_claim` — *the world changed*, as against *I was wrong*: the old claim stays byte-for-byte as frozen history, the successor names it (`<!-- supersedes: c:xxxx -->`) and must cite new evidence.
+
+**Two extension seams.** Schema packs extend the *judgement* (additive contract fragments, composed per user); **index components** extend the *structure* — business-specific structure over a contract family, contributed through one protocol (core `components/`) at the framework's own seams: gate checks, an outline line under the family's documents, compile tools, deep-recall tools, routed fast-recall paths, one source preamble line in the compile task, and a projection channel (`on_source_indexed` / `rebuild`, with `prepare` as its per-job async face — a compile process's mirror of a projection written by the index process is always cold). The application registers what it enables (`PNEUMA_KNOWLEDGE_COMPONENTS`); core knows no component, and with none registered every seam renders byte-for-byte as it did before the concept existed. Shipped: `people`, `time`. The design authority is [docs/design/index-components.md](docs/design/index-components.md).
+
 **Async everything**: import requests only write L0 + enqueue `index`/`compile` jobs; the worker processes them per-user serially (PG `FOR UPDATE SKIP LOCKED`) and self-heals stuck jobs on restart. API and worker are stateless. But **a function that awaits nothing is not a coroutine** — spine/gate/patch/projection/domain/render helpers stay sync; unavoidably-blocking work (git subprocess, chonkie) is wrapped in `to_thread` inside adapters. Pytest runs with `asyncio_mode = "auto"` — bare `async def test_*` works without decorators.
 
 ## Invariants (violating any of these = review rejection)
@@ -74,7 +80,8 @@ From `docs/architecture.md` §9 — enforced expectations, not aspirations:
 - **I3** — L0/L1 reachability is unconditional regardless of IntakePlan.
 - **I4** — all knowledge links back via `source_id + block span`; one addressing scheme across claims, chunks, lexical hits, structure maps. Citation syntax is `[cite: <sid> ¶a-b]` with one shared parser for gate and projection.
 - **I5** — SystemMessage is byte-stable (no timestamps or volatile content); question/as_of/session deltas go in HumanMessage.
-- **I6** — eval answers/rubrics/evidence fields never enter compile or recall inputs (leak discipline).
+- **I6** — eval answers/rubrics/evidence fields never enter compile or recall inputs (leak discipline). The mechanism is package direction: the eval package is a leaf — `eval → core`, and neither core nor service imports it (`tests/test_open_source_hygiene.py::test_the_eval_package_is_a_leaf_and_cannot_leak_into_what_it_judges`).
+- **I7** — a component's projection is derived and rebuildable: it is re-derived by the same `rebuild_derived` as every other derived layer, and a component never writes canonical — the canonical face it is handed at registration is read-only (`CanonicalReadOnly` in core `components/`), so what it indexes reaches the library only by riding an ordinary compile, under the contract and the gate.
 
 Two project-wide disciplines: (1) **mechanism over persuasion** — constraints must be mechanical (write-time rejection, system-assigned IDs, deterministic normalization), never "please remember to X" prompt copy; if you're writing that prompt, the design is wrong. (2) Cost/latency metrics and quality metrics are proposed and measured separately; quality claims need a same-harness baseline.
 

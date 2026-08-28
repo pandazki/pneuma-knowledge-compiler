@@ -13,6 +13,7 @@
 | 基于 HTTP API 开发 | [reference/http-api.zh-CN.md](reference/http-api.zh-CN.md) |
 | 部署与调参 | [reference/configuration.zh-CN.md](reference/configuration.zh-CN.md) |
 | 把一台引擎的策略当成一个被版本化的单元来配置 | [design/engine-console.zh-CN.md](design/engine-console.zh-CN.md) |
+| 在正本之上叠加业务结构——`people`、`time`，或自己写一个 | [design/index-components.zh-CN.md](design/index-components.zh-CN.md) |
 | 接入追踪 | [reference/observability.zh-CN.md](reference/observability.zh-CN.md) |
 | 容器化部署 | [reference/deployment.zh-CN.md](reference/deployment.zh-CN.md) |
 
