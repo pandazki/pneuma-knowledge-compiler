@@ -27,7 +27,22 @@ const VIEWPORT_PANE_VIEWS: ReadonlySet<ViewName> = new Set<ViewName>([
   "recall",
   "sources",
   "engine_console",
+  // Live Context watches a conversation and a suggestion at the same time, in two panes side
+  // by side. Either of them scrolling the page out from under the other is the failure that
+  // layout exists to prevent, so the page takes the viewport and the panes scroll inside it.
+  "live_context",
 ]);
+
+/**
+ * Views that take the full content column instead of the article measure.
+ *
+ * `max-w-content` is a READING width — it exists so prose does not run to 200 characters a
+ * line. A view whose content is two live panes side by side is not prose, and holding it to a
+ * reading measure spends a third of a wide screen on margin while the conversation it is
+ * showing wraps every eight words. The Engine Console already sits outside the measure for
+ * the same reason; this is that rule named rather than special-cased twice.
+ */
+const WIDE_PANE_VIEWS: ReadonlySet<ViewName> = new Set<ViewName>(["live_context"]);
 
 /**
  * The app shell: top bar (wordmark + mobile contents button + UserPicker / SnapshotPicker /
@@ -106,7 +121,9 @@ export function AppShell({ children }: { children: ReactNode }) {
               "w-full",
               view === "engine_console"
                 ? "flex h-[calc(100dvh-3rem)] min-h-0 flex-col overflow-hidden"
-                : "mx-auto max-w-content px-4 py-6 sm:px-8",
+                : WIDE_PANE_VIEWS.has(view)
+                  ? "px-4 py-4 sm:px-6"
+                  : "mx-auto max-w-content px-4 py-6 sm:px-8",
               // The snapshot banner is inside the box, so the panes below it shrink by
               // exactly its height instead of guessing at it.
               VIEWPORT_PANE_VIEWS.has(view) && view !== "engine_console" &&

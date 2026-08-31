@@ -22,7 +22,7 @@ import pytest
 from pneuma_knowledge_core.domain.canonical import Citation
 from pneuma_knowledge_core.domain.suggestion import ResolvedSuggestion
 from pneuma_knowledge_core.domain.ids import SourceId
-from pneuma_knowledge_core.recall.suggestion import LiveContextResult
+from pneuma_knowledge_core.recall.live_pipeline import PipelineResult
 from pneuma_knowledge_service.api.routes import live_context as suggestion_module
 from pneuma_knowledge_service.api.routes.live_context import LiveContextStreamIn, live_context_stream
 from fastapi import HTTPException
@@ -42,8 +42,8 @@ def resolved(title: str, confidence: int = 9) -> ResolvedSuggestion:
     )
 
 
-def _result(*suggestions: ResolvedSuggestion) -> LiveContextResult:
-    return LiveContextResult(
+def _result(*suggestions: ResolvedSuggestion) -> PipelineResult:
+    return PipelineResult(
         suggestions=tuple(suggestions),
         token_usage={"total_tokens": 21},
         dropped={"unparsed": 0, "repeat": 0, "uncited": 1, "low_confidence": 0, "capped": 0},

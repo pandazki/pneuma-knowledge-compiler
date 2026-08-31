@@ -44,7 +44,11 @@
 | `OVERVIEW_REQUIRED_AFTER_CLAIMS` | `8` | 一份文档能积累多少条账本断言，才必须由**改动它**的那次编译写出总览（至少写 `definition`）——它是上面那条预算的下限。`finish_compile` 先拒，闸门再拒，两处都点名该文档与它的断言数；本轮没碰过的文档不判。模型只维护已经存在的头部，从不主动开一个（实测：真实库 85 个页面里 41 个从未有过总览，其中不乏 20–31 条断言的）。`0` = 关闭。引擎键：`models.overview_required_after_claims` |
 | `COMPILE_IMAGE_MODE` | `auto` | `caption` = 只送带标签的 caption/OCR；`native` = 派生文本加真实图片块；`auto` = 读取编译模型 profile，未知则回落 `caption`。引擎键：`models.image_mode` |
 
-模型规格三种形态：`scripted:<路径>`（本地回放、零密钥——且硬覆盖所有角色，scripted 运行完全确定）；`openrouter:<模型>`（需要 `OPENROUTER_API_KEY`）；以及 `init_chat_model` 认识的任意 provider 前缀（如 `anthropic:claude-sonnet-5`、`openai:gpt-5.6-luna`）。角色回退只有一跳：`answer → recall`、`live_context → recall`、`evolve → compile`、`challenge → compile`、`brief → compile`，然后是 `LLM_MODEL`。脚手架让检索规划/概览继续跑 standard Luna，只把最终答题送到显式 `high` effort 的 Luna Pro。
+模型规格三种形态：`scripted:<路径>`（本地回放、零密钥——且硬覆盖所有角色，scripted 运行完全确定）；`openrouter:<模型>`（需要 `OPENROUTER_API_KEY`）；以及 `init_chat_model` 认识的任意 provider 前缀（如 `anthropic:claude-sonnet-5`、`openai:gpt-5.6-luna`）。角色回退只有一跳：`answer → recall`、`live_context → recall`、`live_discover → recall`、`live_pick → recall`、`evolve → compile`、`challenge → compile`、`brief → compile`，然后是 `LLM_MODEL`。
+
+其中两个角色属于全量范围的实时上下文车道，它们之所以存在，是因为那条车道每一拍是两次小调用、而不是一次大调用（架构 §7）。`LLM_MODEL_LIVE_DISCOVER`（引擎键 `models.live_discover`）跑第①段——读待处理的对话，决定这一拍到底要不要检索——要的是**小型推理**模型：输出只有几十个 token，需要的是对一场对话的快速判断。`LLM_MODEL_LIVE_PICK`（引擎键 `models.live_pick`）跑第③段——在已经装配好的候选卡片里选一张或一张都不选、写一句短引言、裁剪引用、打分——要的是**又弱又快**的模型，因为这里没有什么要推理的：证据就摆在面前，而且它一个字都不许改写。生成出来的引擎分别写的是 `openrouter:openai/gpt-5.6-sol` 与 `openrouter:openai/gpt-5.6-luna`；两者留空都借用 `recall`，于是已有部署原样继续工作。它们的推理强度由**框架钉死**（发现为 `low`，挑选关闭），并且刻意不做成旋钮：能被部署调高的强度会改变这条车道每一拍的成本，而便宜正是「先花一次调用、再决定要不要检索」这件事的全部理由。`LLM_MODEL_LIVE_CONTEXT` 仍然负责简报范围的那一轮与卡片展开，两者各一次调用，均未改变。脚手架让检索规划/概览继续跑 standard Luna，只把最终答题送到显式 `high` effort 的 Luna Pro。
+
+在这三者之外，同一条车道上还有第四个、可选的模型：`LIVE_WEB_SEARCH`（引擎键 `models.live_web_search`，默认 `false`）会在知识库旁边再开一条**补充**的互联网面，`LIVE_WEB_SEARCH_MODEL`（引擎键 `models.live_web_search_model`，默认 `openai/gpt-5.6-luna`）指定承接它的 OpenRouter 模型，背后用的是该服务商自己的原生网页搜索。它复用 `OPENROUTER_API_KEY`——不需要第二个密钥——没有密钥时这条搜索会自报不可用，无论开关怎么设，`web` 这个查询种类都不会被提供。在这里打开只是打开了可能性，并不等于对谁都打开：必须**部署与那一条连接都同意**，发现契约才会把这个查询种类写进去；而 `ready` 帧回送的是「批准了什么」，不是「请求了什么」（见 [http-api.zh-CN.md](http-api.zh-CN.md)）。它按次搜索计费，每次搜索的花费会记进那一拍的记录里。
 
 `native` 是一次明确断言：选中的模型和实际路由 provider 能接收 LangChain 图片 content block；不兼容就失败，不会悄悄把图片压成文本。`caption` 要求 importer 提供带标签的 `caption`/`ocr` 表示，也绝不声称编译模型看过原图。`auto` 会把直连 OpenAI 和 OpenRouter 上的 GPT-5.6 全系识别为原生图片模型，即使网关没有附 LangChain model profile；其他能力未知的 profile 保持保守的 `auto → caption`。
 
@@ -162,7 +166,7 @@
 
 | 变量 | 含义 |
 |---|---|
-| `OPENROUTER_API_KEY` | `openrouter:` 的对话与嵌入规格共用 |
+| `OPENROUTER_API_KEY` | `openrouter:` 的对话与嵌入规格共用；实时上下文那条补充互联网搜索（`LIVE_WEB_SEARCH`）也用它，不需要第二个密钥 |
 | `LANGFUSE_SECRET_KEY` / `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_BASE_URL` | 追踪；缺任意一个整体降级为空操作 |
 
 ## 仅脚本与 compose 读取（服务不读）

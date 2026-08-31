@@ -8,6 +8,7 @@ import { needsCanonicalDataset } from "./datasetLoading";
 import { appendUniqueSnapshots } from "./snapshotPagination";
 import { briefingSelection } from "./ask";
 import type { StageTiming } from "./stages";
+import type { ChatMode, LiveRole, LiveTurn } from "./liveContextChat";
 import {
   listUsers,
   getDatasetRaw,
@@ -111,6 +112,32 @@ export interface AskCache {
   turns: AskTurn[];
 }
 
+/**
+ * The Live Context conversation, lifted for the same Back-preserves-state reason as the two
+ * caches above — and one of its own. The page holds a conversation the operator TYPED: roles
+ * they named, turns they wrote, some already pushed on a socket. Losing that to a glance at
+ * the Library and back would be losing work, not losing a view.
+ *
+ * `roles` starts EMPTY rather than pre-seeded. The default pill names are interface copy, and
+ * the store has no translator; the view seeds them once on first mount, after which they are
+ * the operator's data and a language switch must not rewrite what they renamed. Same rule the
+ * old panel's draft speaker followed.
+ */
+export interface LiveContextCache {
+  roles: LiveRole[];
+  activeRoleId: string;
+  turns: LiveTurn[];
+  /** Which delivery the conversation is on. Held here so a return to the page resumes it. */
+  mode: ChatMode;
+}
+
+const EMPTY_LIVE_CONTEXT_CACHE: LiveContextCache = {
+  roles: [],
+  activeRoleId: "",
+  turns: [],
+  mode: "oneshot",
+};
+
 const EMPTY_RECALL_CACHE: RecallCache = {
   query: "",
   mode: "rag",
@@ -178,6 +205,8 @@ interface AppState {
   recallCache: RecallCache;
   /** Ask view's build inputs + conversation — survives a Sources jump + Back (per user). */
   askCache: AskCache;
+  /** Live Context's roles + conversation, surviving navigation away and back. */
+  liveContext: LiveContextCache;
 
   /** snapshots for the current user (git commits); [0] is HEAD. Empty = no canonical. */
   snapshots: SnapshotSummary[];
@@ -277,6 +306,10 @@ interface AppState {
   /** point Ask at a briefing (or back at the builder with `null`): the pack, the question
    * thread and the draft question change together, in one write. */
   selectBriefing: (next: BriefingBuilt | null) => void;
+  /** merge a partial into the Live Context conversation (roles / turns / active pill / mode). */
+  setLiveContext: (patch: Partial<LiveContextCache>) => void;
+  /** empty the conversation, keeping the roles the operator set up. */
+  clearLiveContextTurns: () => void;
   setView: (v: ViewName) => void;
   select: (s: Selection) => void;
   /** cross-view jump: set selection and optionally switch the active view */
@@ -417,6 +450,7 @@ export const useApp = create<AppState>((set, get) => ({
   sourceFocus: null,
   recallCache: EMPTY_RECALL_CACHE,
   askCache: EMPTY_ASK_CACHE,
+  liveContext: EMPTY_LIVE_CONTEXT_CACHE,
   snapshots: [],
   snapshotTotal: 0,
   snapshotNextCursor: null,
@@ -806,6 +840,10 @@ export const useApp = create<AppState>((set, get) => ({
       // per-user in-memory scratch: never carry one user's recall/ask into another's.
       recallCache: EMPTY_RECALL_CACHE,
       askCache: EMPTY_ASK_CACHE,
+      // The Live Context conversation goes with them: it was written to be evaluated
+      // against THIS user's knowledge base, and a window carried into another user's page
+      // would be asking one library about another's conversation.
+      liveContext: EMPTY_LIVE_CONTEXT_CACHE,
       recentUsers: pushRecent(s.recentUsers, uid),
     }));
     void get().loadProfile();
@@ -859,6 +897,11 @@ export const useApp = create<AppState>((set, get) => ({
   setAskCache: (patch) => set((s) => ({ askCache: { ...s.askCache, ...patch } })),
   selectBriefing: (next) =>
     set((s) => ({ askCache: { ...s.askCache, ...briefingSelection(next) } })),
+
+  setLiveContext: (patch) => set((s) => ({ liveContext: { ...s.liveContext, ...patch } })),
+  // Turns go, roles stay: clearing a conversation is "start a new one", and re-naming the
+  // people in it every time would be the opposite of a saved setup.
+  clearLiveContextTurns: () => set((s) => ({ liveContext: { ...s.liveContext, turns: [] } })),
 
   setView: (view) => {
     set({ view });

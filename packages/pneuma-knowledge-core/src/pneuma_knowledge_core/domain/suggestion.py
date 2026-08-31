@@ -29,9 +29,17 @@ from .canonical import Citation
 # See recall/suggestion.py's contract for how each value is expressed.
 ContextFocus = Literal["general", "owner", "other"]
 
-# What kind of card this is: an explanation of something named, or an answer to something
-# asked. The client renders the two differently.
-SuggestionKind = Literal["concept", "fact"]
+# What kind of card this is: an explanation of something named, an answer to something
+# asked, or an answer the library did not hold and a web search supplied. The client renders
+# the three differently — `web` in particular carries URL citations instead of source spans,
+# and says so on its face.
+#
+# Adding a value to this vocabulary needs the project owner's sign-off (architecture.md:
+# 123-124). `web` was added on the owner's instruction to open a supplementary internet
+# path; it is a third kind rather than a flag on the other two because everything downstream
+# of it differs — where its provenance points, which gate admits it, and what the card
+# promises the reader about where the words came from.
+SuggestionKind = Literal["concept", "fact", "web"]
 
 
 class ContextFocusOption(BaseModel):
@@ -88,6 +96,15 @@ SUGGESTION_KINDS: list[SuggestionKindOption] = [
             "card gives the answer"
         ),
     ),
+    SuggestionKindOption(
+        key="web",
+        label="Web",
+        summary=(
+            "the knowledge base held nothing on what was asked and the deployment allows a "
+            "supplementary internet search; the card gives that search's answer, cited to "
+            "the pages it came from rather than to the owner's own sources"
+        ),
+    ),
 ]
 
 _FOCUS_BY_KEY = {f.key: f for f in CONTEXT_FOCUSES}
@@ -112,6 +129,22 @@ def kind_option(key: str) -> SuggestionKindOption:
 
 
 # ------------------------------------------------------------------- the card shapes
+
+
+class WebCitation(BaseModel):
+    """One page a web-search card rests on: a title and a URL, and nothing else.
+
+    A SECOND citation shape on the wire, deliberately kept apart from `Citation` rather than
+    squeezed into it. `Citation` is the one addressing scheme over the owner's own material
+    (I4: `source_id` + block span, one parser for gate and projection), and a URL is not an
+    address in it — a `Citation` carrying a URL as its `source_id` would be fetchable by
+    nothing, would fail every gate that resolves a span, and would quietly make the phrase
+    "all knowledge links back to a source block" false. So a web card carries this instead,
+    the library citation gate does not apply to it, and its own gate is that it must carry
+    at least one of these or it is never built."""
+
+    title: str = ""
+    url: str
 
 
 class ContextSuggestion(BaseModel):
@@ -152,3 +185,83 @@ class ResolvedSuggestion(BaseModel):
     trigger: str
     confidence: int = Field(ge=1, le=10)
     citations: list[Citation] = Field(default_factory=list)
+    #: The verbatim evidence the card rests on, rendered MECHANICALLY from the claims and
+    #: spans that were retrieved — never authored by a model. `body` is the guessed need;
+    #: this is what the library actually says, and the client shows it collapsed under the
+    #: card. Empty on the briefing path, which has no candidate behind it.
+    evidence: str = ""
+    #: The session-scoped identity of what this card is ABOUT — a canonical document path, a
+    #: source id, or a path call key. The (subject, kind) pair is what stops the same
+    #: introduction being delivered twice in one conversation. Empty when unknown.
+    subject: str = ""
+    #: A short human label for `subject`, for the ledger digest and the debug surface.
+    subject_label: str = ""
+    #: The pages a `web` card rests on. Empty on every library card, and the only provenance
+    #: a `web` card has — `citations` is empty there, because there is no source block to
+    #: point at. See `WebCitation` for why the two shapes stay separate.
+    web_citations: list[WebCitation] = Field(default_factory=list)
+
+
+# ────────────────────────────────────────────────── the three-stage pipeline shapes
+#
+# The full-scope Live Context lane is not one round any more. It is discover → retrieve →
+# pick, and the two model calls each have a structured shape of their own. Both live here,
+# beside the card shapes, for the same reason those do: the class NAME reaches the provider
+# as the tool name, so these are wire contract and belong with the other wire contracts.
+
+
+class PlanArg(BaseModel):
+    """One `name = value` argument of a plan entry.
+
+    A list of pairs rather than a free-form object because core knows no component: the
+    argument NAMES belong to whichever path a component registered, and a schema that
+    enumerated them would be core hard-coding `alias` / `since` / `until`. It is also the
+    shape strict structured output accepts — an open-ended object is not."""
+
+    name: str
+    value: str
+
+
+class PlanEntry(BaseModel):
+    """One retrieval the discover stage asks for.
+
+    `kind` is a registered path's name (`person`, `timespan`, …) or the built-in
+    `semantic`. It stays a plain string and is validated MECHANICALLY against the paths
+    actually enabled — a kind naming nothing is dropped and counted, never guessed at."""
+
+    kind: str
+    query: str = ""  # `semantic` only: the one query to retrieve on
+    args: list[PlanArg] = Field(default_factory=list)
+
+
+class DiscoverResult(BaseModel):
+    """The discover stage's whole emission: retrieve this, or say why not.
+
+    One model with a `skip` flag rather than a union: a union costs the small model a
+    discrimination it does not need, and every field here is cheap to leave empty. `worth`
+    is the pre-gate — below the deployment's floor NOTHING is retrieved, which is the
+    entire point of spending a small call before the retrieval instead of after it."""
+
+    skip: bool = False
+    #: Why nothing is worth looking up: `small_talk` | `already_mined` | `nothing_new`.
+    #: Free text so a model is never forced to mislabel; the counters group what arrives.
+    reason: str = ""
+    #: One sentence naming what the conversation is actually looking for. It becomes the
+    #: delivered card's `trigger`, and it is what component results are ranked against.
+    intent: str = ""
+    plan: list[PlanEntry] = Field(default_factory=list, max_length=2)
+    worth: int = 0
+
+
+class PickResult(BaseModel):
+    """The pick stage's whole emission: which candidate, why it matters, how sure.
+
+    `choice` is 1-based; **0 means none of them is worth showing** and is a first-class
+    outcome, not a failure. The stage NEVER rewrites a candidate — `lede` frames the guessed
+    need in the reader's own present tense, and `citations` prunes by INDEX into the
+    candidate's own citation list, so provenance stays copy-by-reference."""
+
+    choice: int = 0
+    lede: str = ""
+    citations: list[int] = Field(default_factory=list)
+    confidence: int = 0

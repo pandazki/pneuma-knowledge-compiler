@@ -15,15 +15,21 @@ export interface TabsProps {
   tabs: TabItem[];
   "aria-label": string;
   className?: string;
+  /**
+   * Sizing for the active panel. Needed by a tab set inside a pinned pane, where the panel
+   * has to fill the remaining height (`flex-1 min-h-0 flex flex-col`) so its own ScrollRegion
+   * has a bound to scroll within; in ordinary page flow the default padding is right.
+   */
+  contentClassName?: string;
 }
 
 /** Radix Tabs: underline style, hairline separator. */
-export function Tabs({ value, onChange, tabs, className, ...rest }: TabsProps) {
+export function Tabs({ value, onChange, tabs, className, contentClassName, ...rest }: TabsProps) {
   return (
     <RadixTabs.Root value={value} onValueChange={onChange} className={className}>
       <RadixTabs.List
         aria-label={rest["aria-label"]}
-        className="flex items-stretch gap-1 border-b border-line"
+        className="flex shrink-0 items-stretch gap-1 border-b border-line"
       >
         {tabs.map((tab) => (
           <RadixTabs.Trigger
@@ -43,7 +49,11 @@ export function Tabs({ value, onChange, tabs, className, ...rest }: TabsProps) {
         ))}
       </RadixTabs.List>
       {tabs.map((tab) => (
-        <RadixTabs.Content key={tab.value} value={tab.value} className="pt-4 outline-none">
+        <RadixTabs.Content
+          key={tab.value}
+          value={tab.value}
+          className={cn("outline-none", contentClassName ?? "pt-4")}
+        >
           {tab.panel}
         </RadixTabs.Content>
       ))}

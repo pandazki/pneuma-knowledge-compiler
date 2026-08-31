@@ -349,7 +349,9 @@ _ROLE_FIELDS = {
     "answer": "llm_model_answer",  # final fast-answer generation
     "deep": "llm_model_deep",
     "skill": "llm_model_skill",
-    "live_context": "llm_model_live_context",  # evaluation + its want_more expansion
+    "live_context": "llm_model_live_context",  # briefing-scope evaluation + want_more
+    "live_discover": "llm_model_live_discover",  # Live Context stage 1 (small reasoning)
+    "live_pick": "llm_model_live_pick",  # Live Context stage 3 (weak, reasoning off)
     "evolve": "llm_model_evolve",  # schema evolve (propose + reorganize)
     "challenge": "llm_model_challenge",  # post-compile coverage challenge (questions + reflection)
     "brief": "llm_model_brief",  # post-compile brief (derived narration on the History timeline)
@@ -366,9 +368,22 @@ _ROLE_FIELDS = {
 _ROLE_FALLBACK = {
     "answer": "recall",
     "live_context": "recall",
+    "live_discover": "recall",
+    "live_pick": "recall",
     "evolve": "compile",
     "challenge": "compile",
     "brief": "compile",
+}
+
+
+# Reasoning effort PINNED at construction for the roles whose whole argument is that they
+# are cheap. Not settings fields: an effort a deployment could raise would change what the
+# Live Context lane costs per tick, which is the one property the three-stage design exists
+# to hold. Same mechanism the LLM reranker already uses (`get_reranker`, effort "none").
+# OpenRouter specs only — scripted models ignore it, other providers do not take the field.
+_ROLE_REASONING_EFFORT = {
+    "live_discover": "low",  # judgement about a conversation, in a few dozen tokens
+    "live_pick": "none",  # a choice between cards already in front of it
 }
 
 
@@ -628,6 +643,30 @@ class AppContext:
     # Lazily built claim reranker (core Reranker port), or None while
     # settings.recall_rerank_model is empty — the fast lane treats None as "pass off".
     _reranker: object | None = field(default=None, repr=False)
+    # Lazily built supplementary web search (core WebSearch port), or None while the
+    # deployment has not enabled one. Built once and reused: it holds an httpx client.
+    _web_search: object | None = field(default=None, repr=False)
+    _web_search_built: bool = field(default=False, repr=False)
+
+    def get_web_search(self):
+        """The configured supplementary internet search, or None when the deployment is
+        not offering one.
+
+        None and "unavailable" are different things and both matter: None means the
+        deployment said no, and an adapter answering `available() is False` means it was
+        wired but has no key. Either way core never offers the `web` lookup kind, but only
+        the second is a misconfiguration worth an operator's attention."""
+        if not self.settings.live_web_search:
+            return None
+        if not self._web_search_built:
+            from .adapters.openrouter_web_search import OpenRouterWebSearch
+
+            self._web_search = OpenRouterWebSearch(
+                self.settings.openrouter_api_key,
+                self.settings.live_web_search_model,
+            )
+            self._web_search_built = True
+        return self._web_search
 
     def get_reranker(self):
         """The configured claim reranker, or None when reranking is off (empty model).
@@ -679,10 +718,25 @@ class AppContext:
             if role == "challenge" and not name.startswith("scripted:")
             else 0
         )
-        key = f"{name}#max_tokens={max_tokens}" if max_tokens else name
+        # A pinned reasoning effort forks the cache key the same way `max_tokens` does:
+        # `live_pick` and `recall` routinely resolve to the SAME spec, and a shared instance
+        # would silently give one of them the other's effort.
+        effort = (
+            _ROLE_REASONING_EFFORT.get(role, "")
+            if not name.startswith("scripted:")
+            else ""
+        )
+        key = name
+        if max_tokens:
+            key = f"{key}#max_tokens={max_tokens}"
+        if effort:
+            key = f"{key}#effort={effort}"
         if key not in self._chat_models:
             self._chat_models[key] = _build_from_name(
-                name, self.settings, max_tokens=max_tokens or None
+                name,
+                self.settings,
+                max_tokens=max_tokens or None,
+                reasoning_effort=effort or None,
             )
         return self._chat_models[key]
 
@@ -721,6 +775,8 @@ class AppContext:
             await self.media.aclose()
         if self._reranker is not None:
             await self._reranker.aclose()
+        if self._web_search is not None:
+            await self._web_search.aclose()
 
 
 async def build_context(settings: Settings) -> AppContext:

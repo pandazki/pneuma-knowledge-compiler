@@ -34,6 +34,19 @@
   --warn-soft: color-mix(in srgb, var(--warn) 10%, var(--bg));
   --danger-soft: color-mix(in srgb, var(--danger) 10%, var(--bg));
 
+  /* Live Context speaker pills. Six inks a person picks between to tell the voices in a
+     conversation apart — a label, never a status, so none of them may read as ok/warn/danger.
+     Pitched into the same muted register as the rest of the paper theme rather than borrowed
+     from a generic palette: these sit beside the accent all day. Each pill derives its ground
+     and border from its ink by color-mix, exactly as --accent-soft does, so a role is one
+     value here and not three. */
+  --role-slate: #4b5a6b;
+  --role-amber: #8a6a1f;
+  --role-violet: #6a5192;
+  --role-teal: #2f6f68;
+  --role-rose: #9c4a5c;
+  --role-lime: #55702c;
+
   --shadow-overlay: 0 1px 2px rgb(0 0 0 / 0.06), 0 8px 24px rgb(0 0 0 / 0.08);
 
   /* Engine Console · pale instrument panel, independently tuned from the paper theme. */
@@ -77,6 +90,15 @@
   --ok-soft: color-mix(in srgb, var(--ok) 12%, var(--bg));
   --warn-soft: color-mix(in srgb, var(--warn) 12%, var(--bg));
   --danger-soft: color-mix(in srgb, var(--danger) 12%, var(--bg));
+
+  /* The same six speaker inks, lifted for a dark ground — a lightened set, not an inversion,
+     for the same reason the rest of this block is hand-tuned. */
+  --role-slate: #9fb1c4;
+  --role-amber: #d3ab5c;
+  --role-violet: #b0a0d8;
+  --role-teal: #79bdb4;
+  --role-rose: #d99aa7;
+  --role-lime: #a8c473;
 
   --shadow-overlay: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px rgb(0 0 0 / 0.5);
 

@@ -92,6 +92,16 @@ DEFAULT_MODELS = {
     # The agentic deep-search lane defaults to the stronger sibling: it reasons across
     # multiple retrieval rounds, where the model tier is worth its price.
     "deep": "openrouter:openai/gpt-5.6-terra",
+    # Live Context is two small calls per tick, and they want different models.
+    # discover — a small REASONING model: it decides whether the tick retrieves at all, in a
+    #   few dozen tokens. sol is that shape; its effort is pinned LOW in the framework.
+    # pick — a WEAK FAST model: it chooses between cards that are already assembled and may
+    #   not rewrite a word of them. Reasoning is pinned off.
+    "live_discover": "openrouter:openai/gpt-5.6-sol",
+    "live_pick": "openrouter:openai/gpt-5.6-luna",
+    # The optional supplementary internet face. Named here even though `live_web_search` is
+    # off, so a person turning it on finds a model already stated rather than a blank.
+    "live_web_search_model": "openai/gpt-5.6-luna",
 }
 
 # Answers files must never carry credentials: they are meant to be shareable and replayable
@@ -198,6 +208,9 @@ answer = ""                                       # empty = final answer borrows
 answer_reasoning_effort = ""                      # empty = preserve provider default
 embedding = "openrouter:openai/text-embedding-3-small"
 deep = "openrouter:openai/gpt-5.6-terra"  # deep-recall (agentic) model; empty falls back to recall
+live_discover = "openrouter:openai/gpt-5.6-sol"   # Live Context stage 1: small reasoning, LOW effort
+live_pick = "openrouter:openai/gpt-5.6-luna"      # Live Context stage 3: weak + fast, reasoning off
+live_web_search_model = "openai/gpt-5.6-luna"     # supplementary internet search (off unless enabled)
 
 [advanced]
 user_id = "u-app-owner"    # tenant id: a different id is a different, empty library
@@ -661,6 +674,24 @@ answer: {models["answer"] if models["answer"] else '""'}
 answer_reasoning_effort: {models["answer_reasoning_effort"] if models["answer_reasoning_effort"] else '""'}
 # Deep recall (the agentic search lane). Empty borrows the recall role.
 deep: {deep if deep else '""'}
+# Live Context is two small calls per tick, not one big one.
+#   live_discover — reads the pending conversation and decides whether anything is worth
+#     looking up at all, and how. A SMALL REASONING model; its effort is pinned LOW in the
+#     framework, because an effort you could raise would change what the lane costs.
+#   live_pick — chooses between candidate cards that are already assembled, writes one short
+#     lede and prunes the citations. A WEAK FAST model; reasoning is pinned off.
+# Both empty = borrow the recall role.
+live_discover: {models["live_discover"] if models["live_discover"] else '""'}
+live_pick: {models["live_pick"] if models["live_pick"] else '""'}
+# A supplementary INTERNET face beside your library on the same lane. Off, and that is the
+# default worth keeping until you want it: your library is the authority, this reaches
+# outside it, and it bills per search. Turning it on here only opens the possibility — each
+# Live Context connection also has its own toggle, and the lookup is offered to the discover
+# model only where both said yes. What comes back is one candidate in the SAME pool your
+# library's candidates are in, chosen or not by the same pick call, and cited to the pages it
+# read rather than to one of your source blocks. Reuses OPENROUTER_API_KEY.
+live_web_search: false
+live_web_search_model: {models["live_web_search_model"]}
 # A vector collection's dimension is fixed when it is created, so switching to a model of a
 # different dimension means a new collection, not an in-place change.
 embedding: {models["embedding"]}

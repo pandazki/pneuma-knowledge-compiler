@@ -32,7 +32,6 @@ from pneuma_knowledge_core.recall.suggestion import (
     live_context_human,
     live_context_messages,
     evaluate_live_context,
-    gather_evidence,
     label_turns,
 )
 from pneuma_knowledge_core.recall.deep import deep_contract
@@ -406,7 +405,9 @@ def test_focus_changes_the_system_the_model_sees_but_never_the_transcript():
     context needed to understand what is left."""
     systems, humans = set(), set()
     for focus in ("general", "owner", "other"):
-        system, human = live_context_messages(TRANSCRIPT, as_of=AS_OF, focus=focus)
+        system, human = live_context_messages(
+            TRANSCRIPT, as_of=AS_OF, pack="frozen pack", focus=focus
+        )
         systems.add(system.content)
         humans.add(human.content)
     assert len(systems) == 3, "focus must change the posture"
@@ -425,14 +426,18 @@ async def test_focus_reaches_the_model_end_to_end():
     seen = []
     for focus in ("general", "owner", "other"):
         model = FakeStructuredModel()
-        await evaluate_live_context(USER, turns, as_of=AS_OF, model=model, focus=focus)
+        await evaluate_live_context(
+            USER, turns, as_of=AS_OF, model=model, pack="frozen pack", focus=focus
+        )
         seen.append(model.calls[0][0].content)
     assert len(set(seen)) == 3
 
 
 def test_unknown_focus_is_a_hard_error_not_a_silent_fallback():
     with pytest.raises(ValueError):
-        live_context_messages(TRANSCRIPT, as_of=AS_OF, focus="everyone")  # type: ignore[arg-type]
+        live_context_messages(
+            TRANSCRIPT, as_of=AS_OF, pack="frozen pack", focus="everyone"
+        )  # type: ignore[arg-type]
 
 
 # ------------------------------------------------------------------ speaker labels
@@ -490,7 +495,7 @@ def test_transcript_sits_last_in_the_human_turn():
     human = live_context_human(
         TRANSCRIPT,
         as_of=AS_OF,
-        claims=[],
+        pack="# claim notes (1)\n[c:c1 · memory/c1.md] frozen pack",
         profile="张三，工程师",
         already_shown=[{"kind": "fact", "title": "上一张"}],
     )
@@ -504,7 +509,7 @@ def test_human_turn_never_labels_the_transcript_as_the_owners_input():
     """Not `recall_human`: hanging a multi-speaker transcript under 「本人输入」 would
     mislabel every interlocutor line as the owner's — under a feature whose whole focus
     axis is speaker attribution."""
-    human = live_context_human(TRANSCRIPT, as_of=AS_OF)
+    human = live_context_human(TRANSCRIPT, as_of=AS_OF, pack="frozen pack")
     assert "本人输入" not in human
 
 
@@ -512,53 +517,14 @@ def test_already_shown_cite_residue_never_reaches_the_prompt():
     human = live_context_human(
         TRANSCRIPT,
         as_of=AS_OF,
+        pack="frozen pack",
         already_shown=[{"kind": "concept", "title": "RRF [cite: s03 ¶1-2]"}],
     )
     assert "[cite:" not in human.split("# Stream transcript")[0].split("Already surfaced")[1]
 
 
 @pytest.mark.asyncio
-async def test_gather_evidence_batches_every_turn_into_one_embedding_call():
-    """N=3 turns must cost ONE embedding round trip, not N. Latency is why suggestion exists."""
-    embeddings = FakeEmbeddings()
-    lexical = FakeClaimLexical(
-        {
-            "第一轮": [claim_stub("c1", "一")],
-            "第二轮": [claim_stub("c2", "二")],
-            "第三轮": [claim_stub("c3", "三")],
-        }
-    )
-    evidence = await gather_evidence(
-        USER,
-        ["第一轮", "第二轮", "第三轮"],
-        claim_lexical=lexical,
-        claim_vectors=FakeClaimVectors(),
-        embeddings=embeddings,
-    )
-    assert embeddings.document_calls == 1
-    assert embeddings.query_calls == 0
-    assert embeddings.batched == [["第一轮", "第二轮", "第三轮"]]
-    # union of every turn's top-k, each attributed to the turn that surfaced it
-    assert [str(c.anchor) for c in evidence.claims] == ["c1", "c2", "c3"]
-    assert evidence.claim_turn == {"c1": 0, "c2": 1, "c3": 2}
-
-
-@pytest.mark.asyncio
-async def test_gather_evidence_dedups_a_claim_surfaced_by_several_turns():
-    embeddings = FakeEmbeddings()
-    shared = claim_stub("c1", "同一条")
-    lexical = FakeClaimLexical({"甲": [shared], "乙": [shared]})
-    evidence = await gather_evidence(
-        USER, ["甲", "乙"], claim_lexical=lexical, claim_vectors=FakeClaimVectors(), embeddings=embeddings
-    )
-    assert len(evidence.claims) == 1
-    assert evidence.claim_turn == {"c1": 0}, "the FIRST turn to surface it owns it"
-
-
-@pytest.mark.asyncio
 async def test_evaluate_live_context_end_to_end_grounded_card():
-    embeddings = FakeEmbeddings()
-    lexical = FakeClaimLexical({"RRF 是什么？": [claim_stub("c1", "RRF = 排名倒数融合")]})
     model = FakeStructuredModel(
         [envelope(SuggestionBatch(suggestions=[suggestion(body="RRF 是排名倒数融合 [cite: s01 ¶1-2]")]))]
     )
@@ -567,9 +533,7 @@ async def test_evaluate_live_context_end_to_end_grounded_card():
         [other("RRF 是什么？", "others/2")],
         as_of=AS_OF,
         model=model,
-        embeddings=embeddings,
-        claim_lexical=lexical,
-        claim_vectors=FakeClaimVectors(),
+        pack=f"# claim notes (1)\n[c:c1 · memory/c1.md] RRF = 排名倒数融合 [cite: {SRC} ¶1-2]",
     )
     assert model.schemas == [SuggestionBatch]
     assert model.include_raw == [True], "include_raw is what makes a parse failure silent"
@@ -587,7 +551,9 @@ async def test_evaluate_live_context_end_to_end_grounded_card():
 @pytest.mark.asyncio
 async def test_evaluate_live_context_is_silent_when_the_model_answers_with_prose():
     """FakeStructuredModel exhausted → parsed None. Gate 1, end to end."""
-    result = await evaluate_live_context(USER, [owner("随便聊聊")], as_of=AS_OF, model=FakeStructuredModel())
+    result = await evaluate_live_context(
+        USER, [owner("随便聊聊")], as_of=AS_OF, model=FakeStructuredModel(), pack="frozen pack"
+    )
     assert result.suggestions == ()
     assert result.dropped["unparsed"] == 1
     assert result.token_usage["input_tokens"] == 0
@@ -595,35 +561,27 @@ async def test_evaluate_live_context_is_silent_when_the_model_answers_with_prose
 
 @pytest.mark.asyncio
 async def test_evaluate_live_context_window_keeps_only_the_last_n_turns():
-    embeddings = FakeEmbeddings()
     turns = [owner(f"第{i}句") for i in range(6)]
+    model = FakeStructuredModel()
     await evaluate_live_context(
-        USER,
-        turns,
-        as_of=AS_OF,
-        model=FakeStructuredModel(),
-        embeddings=embeddings,
-        claim_lexical=FakeClaimLexical({}),
-        claim_vectors=FakeClaimVectors(),
-        turn_window=3,
+        USER, turns, as_of=AS_OF, model=model, pack="frozen pack", turn_window=3
     )
-    assert embeddings.batched == [["第3句", "第4句", "第5句"]]
+    human = model.calls[0][1].content
+    assert "第3句" in human and "第4句" in human and "第5句" in human
+    assert "第2句" not in human
 
 
 @pytest.mark.asyncio
 async def test_briefing_scope_does_zero_retrieval():
     """A frozen pack IS the evidence: no embedding, no index call, fastest path."""
-    embeddings = FakeEmbeddings()
     model = FakeStructuredModel()
     await evaluate_live_context(
         USER,
         [owner("说点什么")],
         as_of=AS_OF,
         model=model,
-        embeddings=embeddings,
         pack="# claim 注记（1 条）\n[c:c1 · memory/c1.md] 冻结包内容",
     )
-    assert embeddings.document_calls == 0 and embeddings.query_calls == 0
     assert "冻结包内容" in model.calls[0][1].content
 
 
@@ -632,8 +590,10 @@ async def test_evaluate_live_context_holds_speaker_numbering_across_evaluations(
     a, b = other("A 说", "others/2"), other("B 说", "others/5")
     label_map: dict[str, str] = {}
     model = FakeStructuredModel()
-    await evaluate_live_context(USER, [a, b], as_of=AS_OF, model=model, label_map=label_map)
-    await evaluate_live_context(USER, [b], as_of=AS_OF, model=model, label_map=label_map)
+    await evaluate_live_context(
+        USER, [a, b], as_of=AS_OF, model=model, pack="frozen", label_map=label_map
+    )
+    await evaluate_live_context(USER, [b], as_of=AS_OF, model=model, pack="frozen", label_map=label_map)
     assert "Participant2 (others/5): B 说" in model.calls[1][1].content
 
 
@@ -642,7 +602,10 @@ async def test_evaluate_live_context_holds_speaker_numbering_across_evaluations(
 
 def test_focus_and_kind_vocabularies_are_closed():
     assert [f.key for f in CONTEXT_FOCUSES] == ["general", "owner", "other"]
-    assert [k.key for k in SUGGESTION_KINDS] == ["concept", "fact"]
+    # `web` was added on the owner's sign-off, which the vocabulary requires
+    # (architecture.md:123-124). It is here rather than as a flag on the other two because
+    # its provenance is a URL rather than a source span, and the client renders it as such.
+    assert [k.key for k in SUGGESTION_KINDS] == ["concept", "fact", "web"]
     assert set(live_context_contracts()) == {f.key for f in CONTEXT_FOCUSES}
     assert focus_option("owner").label == "Focus on the owner"
     assert kind_option("fact").key == "fact"

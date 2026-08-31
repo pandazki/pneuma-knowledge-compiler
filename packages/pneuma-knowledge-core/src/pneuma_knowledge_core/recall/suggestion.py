@@ -1,43 +1,36 @@
-"""Live Context: an incoming workstream in, zero-or-a-few grounded suggestions out.
+"""Live Context, briefing scope: one frozen pack in, zero-or-a-few grounded cards out.
 
-Every other recall mode is pulled by a question. This one is pushed by the conversation
-itself, and that single inversion sets every design choice here:
+The FULL-scope lane lives in `live_pipeline.py` now — discover → retrieve → pick, three
+stages and two small models, because a lane that retrieves on every tick and asks one big
+model to author cards is both expensive and semantically blunt. What stayed here is the
+scope that has nothing to throttle and nothing to plan: a **briefing** evaluation, whose
+evidence is a pack frozen when the briefing was built. There is no retrieval to skip, no
+plan to make and no candidate list to choose between — one round is the whole shape.
 
-- **Shaped like `fast_recall`, not like deep/briefing.** Prefetch, then ONE llm round. No
-  agentic loop. A card that arrives after the topic moved on is worthless, so latency is
-  not a nice-to-have, it is the feature.
-- **Silence is mechanical, never persuaded** (architecture.md:14-17). The contract does
-  not plead "most segments deserve no suggestion". Four gates in `apply_gates` do that work:
+What is still shared, and is imported from here by the pipeline: speaker labelling
+(`label_turns` / `render_transcript`), which must number a participant the same way on both
+paths, and the card-expansion contract (`detail_contract`).
+
+- **Shaped like `fast_recall`.** Prefetch — here, a pack already in hand — then ONE llm round.
+  No agentic loop. A card that arrives after the topic moved on is worthless.
+- **Silence is mechanical, never persuaded** (architecture.md:14-17). The contract does not
+  plead "most segments deserve no suggestion". Four gates in `apply_gates` do that work:
   unparsed → nothing; ungrounded → dropped; under-confident → dropped; then capped by
   confidence. Prose asking a model to restrain itself is the road this repo already
   disproved.
 - **Sensitivity is a server-side dial.** The model always scores each suggestion 1-10; the
-  threshold lives in `min_confidence`. Retrieval scores could not do this job: `_rrf_scores`
-  is pure reciprocal rank (a top hit is ~0.0167 regardless of how well it matched), so
-  thresholding on it thresholds on nothing. A confidence already attached to a card can be
-  re-thresholded without re-running anything.
-
-**Retrieval is a per-turn union, not a cross-turn RRF fusion.** RRF fuses several
-retrievers over ONE query; fusing across DIFFERENT queries introduces ubiquity bias — a
-source that ranks mid-table on every turn (the owner profile doc, a long background
-transcript) accumulates past the source that ranked #1 on exactly one turn, and that
-sharp single-turn signal is precisely the one worth surfacing. So: top-k per turn,
-then union. The window union is re-`_suppress_overlapping`d because each turn's
-`rag_recall` suppressed duplicates only within itself — turn A's `[6,7]` and turn B's
-`[6,9]` are different keys and would otherwise render as two near-duplicate passages.
-`expand_and_merge` runs ONCE over the union (it rebuilds its source cache per call, so
-per-turn calls would multiply PG loads by N).
+  threshold lives in `min_confidence`, and it is the same number the pipeline gates on, so a
+  deployment tunes one dial whichever scope is running.
 
 **Handles never cross an evaluation boundary.** One `alias_sources` per evaluation (like
 fast), and the result is resolved + stripped server-side, so a client never sees an `sNN`.
 That is not cosmetic: handles are re-assigned every evaluation, so a leftover `[cite: s03]`
 in a previously-shown card would point at a different source next round. `already_shown`
-carries only `{kind, title}` and is stripped of any `[cite:` residue.
+carries only `{kind, title}` for this gate's purposes and is stripped of any `[cite:` residue.
 """
 
 from __future__ import annotations
 
-import asyncio
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -50,33 +43,20 @@ from ..domain.canonical import Citation
 from ..domain.suggestion import ContextSuggestion, SuggestionBatch, ContextFocus, ResolvedSuggestion
 from ..domain.ids import UserId, SourceId
 from ..domain.source import ConversationTurn
-from ..ports.claim_index import ClaimLexicalIndex, ClaimVectorIndex
-from ..ports.content_store import ContentStore
-from ..ports.lexical_index import LexicalIndex
-from ..ports.vector_index import VectorIndex
 from ..prompts import prompt
-from .assembly import expand_and_merge, order_lost_in_middle
 from .citation_alias import (
     alias_sources,
     iter_answer_citations,
     iter_answer_sources,
     strip_citations,
 )
-from .fast import (
-    RetrievedClaim,
-    _render_window_section,
-    extract_usage,
-    invoke_config,
-    render_claims,
-    retrieve_claims,
-    zero_usage,
-)
-from .rag import RecallHit, _suppress_overlapping, rag_recall
+from .fast import extract_usage, invoke_config, zero_usage
 from .spine import CITE_PRECISE, CLOSE_SUGGESTION, spine
 
 DEFAULT_TURN_WINDOW = 3
-DEFAULT_PER_TURN_CLAIMS = 2
-DEFAULT_PER_TURN_WINDOWS = 2
+#: The briefing round's own emission cap, applied after the gates. Not a session policy knob
+#: any more: the full-scope lane delivers exactly one card per tick by construction, so a
+#: number that only ever meant something to this one path stopped deserving a dial.
 DEFAULT_MAX_SUGGESTIONS = 3
 DEFAULT_MIN_CONFIDENCE = 6
 
@@ -186,131 +166,6 @@ def detail_contract() -> str:
     return prompt("recall.suggestion.detail_contract")
 
 
-# ------------------------------------------------------------------------- assembly
-
-
-@dataclass(frozen=True)
-class ContextEvidence:
-    """The per-turn retrieval union feeding one evaluation.
-
-    `claim_turn` / `source_turn` record WHICH transcript turn surfaced a piece of
-    evidence. `source_turn` is per-source (earliest turn wins), deliberately coarser than
-    per-span: spans get coalesced and expanded downstream, so a span-keyed map would go
-    stale, while "this turn is what pulled this source in" survives every merge."""
-
-    claims: tuple[RetrievedClaim, ...] = ()
-    windows: tuple = ()
-    claim_turn: dict[str, int] = field(default_factory=dict)
-    source_turn: dict[str, int] = field(default_factory=dict)
-
-
-async def gather_evidence(
-    user_id: UserId,
-    queries: Sequence[str],
-    *,
-    claim_lexical: ClaimLexicalIndex | None,
-    claim_vectors: ClaimVectorIndex | None,
-    embeddings,  # langchain_core.embeddings.Embeddings
-    lexical: LexicalIndex | None = None,
-    vectors: VectorIndex | None = None,
-    content: ContentStore | None = None,
-    per_turn_claims: int = DEFAULT_PER_TURN_CLAIMS,
-    per_turn_windows: int = DEFAULT_PER_TURN_WINDOWS,
-) -> ContextEvidence:
-    """Per-turn retrieval → union → re-coalesce → assemble. ONE embedding round trip.
-
-    All N turn queries go through a single `aembed_documents`, then every index call fans
-    out concurrently with its vector pre-supplied (that is what the `query_embedding`
-    parameter on `retrieve_claims` / `rag_recall` is for). Embedding per turn would make
-    N=3 cost six sequential OpenRouter round trips, which for a latency-shaped feature is
-    the whole budget.
-
-    Union, NOT RRF across turns — see the module docstring on ubiquity bias."""
-    queries = [q for q in queries if q and q.strip()]
-    if not queries:
-        return ContextEvidence()
-
-    embedded = await embeddings.aembed_documents(list(queries))
-
-    claim_jobs = []
-    window_jobs = []
-    do_claims = claim_lexical is not None and claim_vectors is not None and per_turn_claims > 0
-    do_windows = lexical is not None and vectors is not None and per_turn_windows > 0
-    for query, vector in zip(queries, embedded):
-        if do_claims:
-            claim_jobs.append(
-                retrieve_claims(
-                    user_id,
-                    query,
-                    claim_lexical=claim_lexical,
-                    claim_vectors=claim_vectors,
-                    embeddings=embeddings,
-                    limit=per_turn_claims,
-                    query_embedding=vector,
-                )
-            )
-        if do_windows:
-            window_jobs.append(
-                rag_recall(
-                    user_id,
-                    query,
-                    lexical=lexical,
-                    vectors=vectors,
-                    embeddings=embeddings,
-                    limit=per_turn_windows,
-                    query_embedding=vector,
-                )
-            )
-
-    claim_lists, window_lists = await asyncio.gather(
-        asyncio.gather(*claim_jobs), asyncio.gather(*window_jobs)
-    )
-
-    # Claim union: first turn to surface a (document_path, anchor) owns it.
-    claims: list[RetrievedClaim] = []
-    claim_turn: dict[str, int] = {}
-    source_turn: dict[str, int] = {}
-    seen_claims: set[tuple[str, str]] = set()
-    for turn_index, batch in enumerate(claim_lists):
-        for claim in batch:
-            key = (claim.document_path, str(claim.anchor))
-            if key in seen_claims:
-                continue
-            seen_claims.add(key)
-            claims.append(claim)
-            claim_turn.setdefault(str(claim.anchor), turn_index)
-            for cit in claim.citations:
-                source_turn.setdefault(str(cit.source_id), turn_index)
-
-    # Window union: concatenate, then suppress duplicates ACROSS turns (each rag_recall
-    # only suppressed within its own call), then one assembly pass over the whole union.
-    raw_hits: list[RecallHit] = []
-    for turn_index, batch in enumerate(window_lists):
-        for hit in batch:
-            source_turn.setdefault(str(hit.source_id), turn_index)
-            raw_hits.append(hit)
-
-    windows: list = []
-    if raw_hits:
-        raw_hits.sort(key=lambda h: (-h.score, str(h.source_id), h.block_start))
-        merged = _suppress_overlapping(raw_hits)
-        if content is None:
-            windows = merged
-        else:
-            windows = order_lost_in_middle(
-                await expand_and_merge(
-                    merged, content=content, user_id=user_id
-                )
-            )
-
-    return ContextEvidence(
-        claims=tuple(claims),
-        windows=tuple(windows),
-        claim_turn=claim_turn,
-        source_turn=source_turn,
-    )
-
-
 _CITE_RESIDUE_RE = re.compile(r"\[cite:[^\]]*\]?")
 
 
@@ -346,9 +201,7 @@ def live_context_human(
     transcript: str,
     *,
     as_of: datetime,
-    claims: Sequence[RetrievedClaim] = (),
-    windows: Sequence = (),
-    pack: str | None = None,
+    pack: str,
     profile: str | None = None,
     already_shown: Sequence = (),
 ) -> str:
@@ -365,24 +218,8 @@ def live_context_human(
     sections: list[str] = []
     if profile:
         sections.append(f"{prompt('recall.section.profile_header')}\n{profile}")
-    if pack is not None:
-        # briefing scope: a frozen pack IS the evidence; zero retrieval this round.
-        sections.append(pack.strip())
-    else:
-        sections.append(
-            prompt("recall.section.claims_header", count=len(claims))
-            + "\n"
-            + (
-                render_claims(list(claims))
-                or prompt("recall.section.claims_empty")
-            )
-        )
-        if windows:
-            sections.append(
-                prompt("recall.section.windows_header", count=len(windows))
-                + "\n"
-                + _render_window_section(list(windows))
-            )
+    # A frozen pack IS the evidence; zero retrieval, zero embedding this round.
+    sections.append(pack.strip())
     shown = [line for line in (_shown_line(i) for i in already_shown) if line]
     if shown:
         sections.append(
@@ -402,10 +239,8 @@ def live_context_messages(
     transcript: str,
     *,
     as_of: datetime,
+    pack: str,
     focus: ContextFocus = "general",
-    claims: Sequence[RetrievedClaim] = (),
-    windows: Sequence = (),
-    pack: str | None = None,
     profile: str | None = None,
     already_shown: Sequence = (),
 ) -> list[BaseMessage]:
@@ -413,8 +248,6 @@ def live_context_messages(
     human = live_context_human(
         transcript,
         as_of=as_of,
-        claims=claims,
-        windows=windows,
         pack=pack,
         profile=profile,
         already_shown=already_shown,
@@ -432,17 +265,13 @@ def live_context_messages(
 
 @dataclass(frozen=True)
 class LiveContextResult:
+    """One briefing-scope evaluation, whole."""
+
     suggestions: tuple[ResolvedSuggestion, ...]
     token_usage: dict[str, int]
     # Why the model's emission shrank, by reason. Zeroes everywhere with an empty `suggestions`
     # means the model chose silence; a non-zero reason means a gate did.
     dropped: dict[str, int] = field(default_factory=dict)
-    used_claims: tuple[RetrievedClaim, ...] = ()
-    used_windows: tuple = ()
-    # Which transcript turn (0-based within the evaluated window) surfaced each piece of
-    # evidence — see ContextEvidence.
-    claim_turn: dict[str, int] = field(default_factory=dict)
-    source_turn: dict[str, int] = field(default_factory=dict)
 
 
 def _resolve_suggestion(suggestion: ContextSuggestion, handle_map: dict[str, str]) -> ResolvedSuggestion:
@@ -533,40 +362,29 @@ async def evaluate_live_context(
     *,
     as_of: datetime,
     model: BaseChatModel,
-    embeddings=None,  # langchain_core.embeddings.Embeddings; unused when `pack` is given
-    claim_lexical: ClaimLexicalIndex | None = None,
-    claim_vectors: ClaimVectorIndex | None = None,
-    lexical: LexicalIndex | None = None,
-    vectors: VectorIndex | None = None,
-    content: ContentStore | None = None,
+    pack: str,
     focus: ContextFocus = "general",
     profile: str | None = None,
-    pack: str | None = None,
     already_shown: Sequence = (),
     label_map: dict[str, str] | None = None,
     turn_window: int = DEFAULT_TURN_WINDOW,
-    per_turn_claims: int = DEFAULT_PER_TURN_CLAIMS,
-    per_turn_windows: int = DEFAULT_PER_TURN_WINDOWS,
     max_suggestions: int = DEFAULT_MAX_SUGGESTIONS,
     min_confidence: int = DEFAULT_MIN_CONFIDENCE,
     callbacks: list | None = None,
     trace_metadata: dict | None = None,
 ) -> LiveContextResult:
-    """One evaluation: prefetch → assemble → ONE structured llm round → gates.
+    """One briefing-scope evaluation: assemble → ONE structured llm round → gates.
 
-    Two evidence scopes, chosen by whether `pack` is supplied:
+    The frozen briefing pack IS the evidence — zero retrieval, zero embedding, which is
+    both the fastest path and the cleaner architecture. It is also the only correct one: the
+    port layer has no source filter, so briefing's own `search_knowledge` post-filters and
+    routinely filters to zero on a large KB, while pre-loading is the entire point of a
+    briefing. Full scope goes through `live_pipeline.evaluate_live_pipeline` instead.
 
-    - **full** (`pack is None`): per-turn retrieval over the last `turn_window` turns.
-    - **briefing** (`pack` given): the frozen briefing pack IS the evidence — zero
-      retrieval, zero embedding, which is both the fastest path and the cleaner
-      architecture. It is also the only correct one: the port layer has no source filter,
-      so briefing's own `search_knowledge` post-filters and routinely filters to zero on a
-      large KB, while pre-loading is the entire point of a briefing.
-
-    The whole transcript window is always sent regardless of `focus`; `focus` never
-    filters by speaker. Dropping the other party's lines would destroy the context needed
-    to understand the owner's, and vice versa — focus is attention direction, expressed
-    in the (byte-stable, per-focus) System contract.
+    The whole transcript window is always sent regardless of `focus`; `focus` never filters
+    by speaker. Dropping the other party's lines would destroy the context needed to
+    understand the owner's, and vice versa — focus is attention direction, expressed in the
+    (byte-stable, per-focus) System contract.
 
     `label_map`, when passed, is the caller's and is MUTATED in place — hold one per
     connection and a participant number stays the same person across evaluations (see
@@ -575,36 +393,19 @@ async def evaluate_live_context(
     labels = label_turns(recent, label_map)
     transcript = render_transcript(recent, labels)
 
-    evidence = ContextEvidence()
-    if pack is None and embeddings is not None:
-        evidence = await gather_evidence(
-            user_id,
-            [t.text for t in recent],
-            claim_lexical=claim_lexical,
-            claim_vectors=claim_vectors,
-            embeddings=embeddings,
-            lexical=lexical,
-            vectors=vectors,
-            content=content,
-            per_turn_claims=per_turn_claims,
-            per_turn_windows=per_turn_windows,
-        )
-
     system, human = live_context_messages(
         transcript,
         as_of=as_of,
         focus=focus,
-        claims=evidence.claims,
-        windows=evidence.windows,
         pack=pack,
         profile=profile,
         already_shown=already_shown,
     )
     # One-shot aliasing per evaluation, like fast — NOT a SessionAliaser. A session
     # aliaser is built to hold one handle steady across the rounds of a single ask; spread
-    # over a whole WS connection (~40 evaluations × ~8 sources in a 45-minute conversation)
-    # it blows straight past s99, and once handles stop being short and stable the entire
-    # reason aliasing exists — a 32-char id being mis-transcribed — comes back.
+    # over a whole WS connection it blows straight past s99, and once handles stop being
+    # short and stable the entire reason aliasing exists — a 32-char id being
+    # mis-transcribed — comes back.
     aliased_human, handle_map = alias_sources(str(human.content))
 
     structured = model.with_structured_output(SuggestionBatch, include_raw=True)
@@ -629,11 +430,5 @@ async def evaluate_live_context(
         already_shown=already_shown,
     )
     return LiveContextResult(
-        suggestions=tuple(suggestions),
-        token_usage=usage,
-        dropped=dropped,
-        used_claims=evidence.claims,
-        used_windows=evidence.windows,
-        claim_turn=dict(evidence.claim_turn),
-        source_turn=dict(evidence.source_turn),
+        suggestions=tuple(suggestions), token_usage=usage, dropped=dropped
     )

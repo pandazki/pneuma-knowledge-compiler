@@ -838,6 +838,97 @@ STAGES: tuple[Stage, ...] = (
                 ),
             ),
             Knob(
+                key="live_discover",
+                type="string",
+                apply="restart",
+                env="PNEUMA_KNOWLEDGE_LLM_MODEL_LIVE_DISCOVER",
+                setting="llm_model_live_discover",
+                label_en="Live Context · discover model",
+                label_zh="实时上下文·发现模型",
+                description_en=(
+                    "The first of Live Context's two calls, and the one that decides whether "
+                    "the tick retrieves at all. Wants a SMALL REASONING model — its output is "
+                    "a few dozen tokens and what it needs is fast judgement about a "
+                    "conversation. Reasoning effort is pinned LOW in code, not here: an "
+                    "effort a deployment could raise would change what the lane costs per "
+                    "tick, and cheapness is the lane's whole argument. Empty borrows the "
+                    "recall role."
+                ),
+                description_zh=(
+                    "实时上下文两次调用中的第一次，也是决定这一拍到底要不要检索的那一次。"
+                    "要的是**小型推理模型**——输出只有几十个 token，需要的是对一场对话的快速判断。"
+                    "推理强度在代码里被钉死为 low，不在这里开旋钮：能被部署调高的强度会改变"
+                    "这条车道每一拍的成本，而便宜正是它存在的全部理由。留空则借用召回角色。"
+                ),
+            ),
+            Knob(
+                key="live_pick",
+                type="string",
+                apply="restart",
+                env="PNEUMA_KNOWLEDGE_LLM_MODEL_LIVE_PICK",
+                setting="llm_model_live_pick",
+                label_en="Live Context · pick model",
+                label_zh="实时上下文·挑选模型",
+                description_en=(
+                    "The second call: choose one of the already-assembled candidate cards (or "
+                    "none), write one short lede, prune its citations, score it. A WEAK FAST "
+                    "model is right — there is nothing to reason about, the evidence is in "
+                    "front of it and it may not rewrite a word. Reasoning is pinned off in "
+                    "code. Empty borrows the recall role."
+                ),
+                description_zh=(
+                    "第二次调用：在已经装配好的候选卡片里选一张（或一张都不选），写一句短引言、"
+                    "裁剪引用、打分。**又弱又快**的模型才对——这里没有什么要推理的，证据就摆在"
+                    "面前，而且它一个字都不许改写。推理在代码里被钉死为关闭。留空则借用召回角色。"
+                ),
+            ),
+            Knob(
+                key="live_web_search",
+                type="bool",
+                apply="restart",
+                env="PNEUMA_KNOWLEDGE_LIVE_WEB_SEARCH",
+                setting="live_web_search",
+                label_en="Live Context · allow internet search",
+                label_zh="实时上下文·允许互联网搜索",
+                description_en=(
+                    "Opens a SUPPLEMENTARY internet path beside the library on the Live "
+                    "Context lane. Off by default, because the library is the authority and "
+                    "this reaches outside it — and because it bills per search. Enabling it "
+                    "here does not turn it on for anybody: each connection also has its own "
+                    "toggle, and the lookup is offered to the discover model only where both "
+                    "said yes. What comes back is one candidate in the SAME numbered pool the "
+                    "library's candidates are in, chosen or not by the same pick call, and "
+                    "cited to the pages it read rather than to a source block."
+                ),
+                description_zh=(
+                    "在实时上下文车道上，于知识库之外再开一条**补充**的互联网路。默认关闭："
+                    "知识库才是权威，而这条路伸到了它之外；何况它按次计费。在这里打开并不等于"
+                    "对谁都打开——每条连接还有自己的开关，只有两边都同意，发现调用才会看到这个"
+                    "查询种类。回来的东西会成为**同一个**候选池里的一张候选，与知识库候选同池编号，"
+                    "由同一次挑选调用决定选不选它；它引用的是它读过的网页，而不是某个来源块。"
+                ),
+            ),
+            Knob(
+                key="live_web_search_model",
+                type="string",
+                apply="restart",
+                env="PNEUMA_KNOWLEDGE_LIVE_WEB_SEARCH_MODEL",
+                setting="live_web_search_model",
+                label_en="Live Context · internet search model",
+                label_zh="实时上下文·互联网搜索模型",
+                description_en=(
+                    "The OpenRouter model that serves the supplementary search, with the "
+                    "provider's own native web search behind it. Reuses OPENROUTER_API_KEY; "
+                    "with no key the search reports itself unavailable and the lookup is "
+                    "never offered, whatever the toggle above says."
+                ),
+                description_zh=(
+                    "承接这条补充搜索的 OpenRouter 模型，背后用的是服务商自己的原生网页搜索。"
+                    "复用 OPENROUTER_API_KEY；没有密钥时，这条搜索会自报不可用，"
+                    "无论上面那个开关怎么设，这个查询种类都不会被提供。"
+                ),
+            ),
+            Knob(
                 key="deep",
                 type="string",
                 apply="restart",

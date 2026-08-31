@@ -2159,6 +2159,313 @@ SURFACES: tuple[Surface, ...] = (
         ),
     ),
     Surface(
+        id="recall.live_discover",
+        group="recall",
+        title_en="Live-context discover contract",
+        title_zh="实时上下文·发现契约",
+        summary_en=(
+            "The first of the full-scope lane's two calls, and the one that decides whether "
+            "anything is retrieved at all. It names no card and writes no prose: it emits a "
+            "skip with a reason, or an intent, a one-or-two-entry lookup plan and a worth."
+        ),
+        summary_zh=(
+            "全量车道两次调用中的第一次，也是决定「到底要不要检索」的那一次。"
+            "它不给卡片、不写正文：要么带理由跳过，要么给出意图、一到两条查询计划和价值分。"
+        ),
+        segments=(
+            b(
+                "recall.live.discover.contract",
+                slots=(
+                    Slot("kinds", ("recall.live.discover.semantic_offer",)),
+                    Slot("focus", ("recall.suggestion.focus.general",)),
+                ),
+            ),
+            s("recall.live.discover.semantic_offer"),
+            s("recall.suggestion.focus.general"),
+            v(
+                "recall.live.discover.path_offer",
+                "One line per component retrieval path this deployment enables, rendered into "
+                "the plan-kinds slot ABOVE the semantic one. With no component registered the "
+                "slot holds the semantic line alone, which is what is shown here.",
+                "本部署每启用一条组件查询路，就在计划种类插槽里、语义那条之上多渲染一行。"
+                "没有注册任何组件时，插槽里就只有语义那一条——这里展示的正是这种情况。",
+            ),
+            v(
+                "recall.suggestion.focus.owner",
+                "Fills the attention slot instead when the round is scoped to the owner's own "
+                "contributions.",
+                "当这一轮的注意范围被限定为主人自己的输入时，改由它填注意范围插槽。",
+            ),
+            v(
+                "recall.suggestion.focus.other",
+                "Fills the attention slot instead when the round is scoped to the other "
+                "participants.",
+                "当这一轮的注意范围被限定为其他参与者时，改由它填注意范围插槽。",
+            ),
+        ),
+        kind=ASSEMBLED,
+        pinned=True,
+        note_en=(
+            "One resolution of a template, for a deployment with no index component enabled. "
+            "The pending transcript, the cards already surfaced this conversation and the "
+            "subject ledger's digest all arrive in the HumanMessage (see 实时上下文流水线输入)."
+        ),
+        note_zh=(
+            "这是模板的一次取值，取的是「没有启用任何索引组件、且没有开启互联网搜索」的部署。"
+            "待处理的转写、本场已推送过的卡片、以及主体台账的摘要，都随人类消息到达"
+            "（见「实时上下文流水线输入」）。开启互联网搜索后，模型收到的是下面那一份。"
+        ),
+    ),
+    Surface(
+        id="recall.live_discover_web",
+        group="recall",
+        title_en="Live-context discover contract · with internet search",
+        title_zh="实时上下文·发现契约（含互联网搜索）",
+        summary_en=(
+            "The same contract, assembled for a deployment that allows a supplementary "
+            "internet search AND a connection that turned it on. Both conditions, not "
+            "either: the offer costs the small model attention, so a lookup kind nothing "
+            "could serve is never advertised. One line longer than the variant above — that "
+            "line is the entire difference, and both are byte-pinned so it stays so."
+        ),
+        summary_zh=(
+            "同一份契约，装配给「部署允许互联网搜索、且这条连接也打开了它」的情形。"
+            "两个条件缺一不可：这个提议要花掉小模型的注意力，所以没人能服务的查询种类"
+            "绝不advertise。它只比上面那一份多一行——那一行就是全部差异，"
+            "两份都做了逐字节钉死，好让它一直只是那一行。"
+        ),
+        segments=(
+            b(
+                "recall.live.discover.contract",
+                slots=(
+                    Slot(
+                        "kinds",
+                        (
+                            "recall.live.discover.semantic_offer",
+                            "recall.live.discover.web_offer",
+                        ),
+                        join="\n",
+                    ),
+                    Slot("focus", ("recall.suggestion.focus.general",)),
+                ),
+            ),
+            s("recall.live.discover.semantic_offer"),
+            s("recall.live.discover.web_offer"),
+            s("recall.suggestion.focus.general"),
+            v(
+                "recall.live.discover.path_offer",
+                "One line per component retrieval path this deployment enables, rendered into "
+                "the plan-kinds slot ABOVE the semantic and web lines. With no component "
+                "registered the slot holds those two alone, which is what is shown here.",
+                "本部署每启用一条组件查询路，就在计划种类插槽里、语义与互联网那两行之上多渲染"
+                "一行。没有注册任何组件时，插槽里就只有那两行——这里展示的正是这种情况。",
+            ),
+        ),
+        kind=ASSEMBLED,
+        pinned=True,
+        note_en=(
+            "One resolution of a template, for a deployment with no index component enabled "
+            "and the supplementary internet search allowed. Compare it against the variant "
+            "above: the `web` line is the only thing that moves, and the toggle that adds it "
+            "never reaches the HumanMessage — which is what keeps I5 true across both."
+        ),
+        note_zh=(
+            "这是模板的一次取值，取的是「没有启用任何索引组件、但允许互联网搜索」的部署。"
+            "与上面那一份对照着看：动的只有 `web` 那一行，而打开它的开关从不进入人类消息"
+            "——这正是 I5 在两份之间都成立的原因。"
+        ),
+    ),
+    Surface(
+        id="recall.live_pick",
+        group="recall",
+        title_en="Live-context pick contract",
+        title_zh="实时上下文·挑选契约",
+        summary_en=(
+            "The second call: choose one of the mechanically assembled candidates (or none), "
+            "frame why it matters to this person now, prune its citations, score it. It is "
+            "the only stage that writes a sentence, and that sentence is a guess at a need — "
+            "never a rewrite of the evidence. Its `confidence` scores the match between the "
+            "stated intent and the candidate's OWN text, not the candidate's quality, and "
+            "adjacency is named as not being coverage: asked about something the library "
+            "has never heard of, the honest answer is 0."
+        ),
+        summary_zh=(
+            "第二次调用：在机械装配好的候选里选一张（或一张都不选），说清它此刻对这个人"
+            "为什么重要，裁剪它的引用，并打分。它是唯一会写句子的一段，而那句话是在猜需求"
+            "——绝不是把证据改写一遍。它的 `confidence` 打的是「意图」与「候选自己的文本」"
+            "之间的匹配，不是候选的质量；契约里明写了沾边不等于覆盖：问到库里从没听过的东西，"
+            "老实的回答就是 0。"
+        ),
+        segments=(b("recall.live.pick.contract"),),
+        kind=ASSEMBLED,
+        pinned=True,
+        note_en=(
+            "The SystemMessage only, with nothing substituted into it. The numbered candidates "
+            "and the live conversation are the HumanMessage."
+        ),
+        note_zh="这里只有系统消息，且没有任何东西被代入。编好号的候选与当前对话构成人类消息。",
+    ),
+    Surface(
+        id="recall.live_pipeline_input",
+        group="recall",
+        title_en="Live-context pipeline input",
+        title_zh="实时上下文流水线输入",
+        summary_en=(
+            "The two Human turns of the full-scope lane, section by section. Everything "
+            "volatile lives here — the pending window, what has already been surfaced, the "
+            "subject ledger, the candidates — so both SystemMessages stay byte-stable (I5)."
+        ),
+        summary_zh=(
+            "全量车道两次调用的人类消息，逐节列出。所有易变的东西都在这里——待处理窗口、"
+            "已推送过的内容、主体台账、候选卡片——好让两份系统消息都保持逐字节稳定（I5）。"
+        ),
+        segments=(
+            f(
+                "recall.live.section.mined_header",
+                "Introduces the cards already surfaced this conversation, so the discover "
+                "stage can answer `already_mined` on evidence rather than on memory.",
+                "引出本场已经推送过的卡片，好让发现阶段的 `already_mined` 有据可依，"
+                "而不是凭记忆。",
+            ),
+            f(
+                "recall.live.section.digest_header",
+                "Introduces the subject ledger's digest: what this conversation keeps "
+                "returning to, how often, and whether anyone ever asked about it.",
+                "引出主体台账的摘要：本场反复回到什么、回到多少次、以及有没有人真的追问过。",
+            ),
+            f(
+                "recall.live.digest.line",
+                "One ledger subject. `{state}` and `{asked}` are filled by the four words "
+                "below.",
+                "台账里的一个主体。`{state}` 与 `{asked}` 由下面四个词填充。",
+            ),
+            f(
+                "recall.live.digest.introduced",
+                "Fills `{state}` when a card about this subject has already been delivered.",
+                "当这个主体已经推送过卡片时，填入 `{state}`。",
+            ),
+            f(
+                "recall.live.digest.new",
+                "Fills `{state}` when no card about this subject has been delivered yet.",
+                "当这个主体还没有推送过卡片时，填入 `{state}`。",
+            ),
+            f(
+                "recall.live.digest.asked",
+                "Fills `{asked}` when the pending window that touched this subject was "
+                "question-shaped.",
+                "当触及这个主体的待处理窗口带有疑问句形态时，填入 `{asked}`。",
+            ),
+            f(
+                "recall.live.digest.unasked",
+                "Fills `{asked}` otherwise — the common-ground case the contract asks the "
+                "model to skip on.",
+                "否则填入 `{asked}`——也就是契约要求模型据以跳过的「共识」那一种情形。",
+            ),
+            f(
+                "recall.live.section.pending_header",
+                "Introduces the pending transcript window, always LAST in the discover turn.",
+                "引出待处理的转写窗口，它在发现那一轮里永远排在最后。",
+            ),
+            f(
+                "recall.live.section.pending_overflow",
+                "Appended to that header when the pending run was longer than the window "
+                "bound, stating how many earlier turns did not fit.",
+                "当待处理的轮次超过窗口上限时接在该标题后，说明有多少更早的轮次没能放下。",
+            ),
+            f(
+                "recall.live.section.candidates_header",
+                "Introduces the numbered candidates in the pick turn.",
+                "在挑选那一轮里引出编好号的候选。",
+            ),
+            f(
+                "recall.live.candidate.block",
+                "One candidate, rendered mechanically: number, kind, title, verbatim evidence, "
+                "and its own citation list.",
+                "一张候选，机械渲染：编号、类型、标题、逐字证据，以及它自带的引用清单。",
+            ),
+            f(
+                "recall.live.candidate.citation",
+                "One numbered citation inside a candidate — the index the pick stage copies "
+                "from when it prunes.",
+                "候选内部编好号的一条引用——挑选阶段裁剪时照抄的就是这个编号。",
+            ),
+            f(
+                "recall.live.candidate.provenance_library",
+                "Fills a candidate's `source` line for every card built out of the owner's "
+                "own material. The pick contract's source-blind rule — where a candidate "
+                "came from is not a ranking, the match is — needs the pool stated rather "
+                "than guessed at, and this is where it is stated.",
+                "凡是用知识主体自己的材料装配出来的候选，都用它填「来源」那一行。"
+                "挑选契约里那条「来源不是优先级，匹配度才是」的规则，前提是把池子写明、"
+                "而不是让模型去猜——写明它的地方就是这里。",
+            ),
+            f(
+                "recall.live.candidate.provenance_web",
+                "Fills the same line for a card built out of a live internet search.",
+                "同一行，填给用互联网实时搜索装配出来的候选。",
+            ),
+            f(
+                "recall.live.candidate.web_citation",
+                "Takes that list's place inside a `web` candidate — a page title and its URL "
+                "rather than a source id and a block span, numbered the same way so the pick "
+                "stage prunes by index exactly as it does for a library card.",
+                "在 `web` 候选内部取代那份清单——给的是页面标题与网址，而不是来源 id 与块区间；"
+                "编号方式相同，好让挑选阶段像裁剪知识库卡片那样按编号裁剪。",
+            ),
+            f(
+                "recall.live.candidate.no_citations",
+                "Takes that list's place for a candidate carrying no citation at all.",
+                "当一张候选完全没有引用时，取代那份清单。",
+            ),
+            f(
+                "recall.live.candidate.excerpt",
+                "One raw excerpt line inside a candidate's evidence.",
+                "候选证据里的一行原文摘录。",
+            ),
+            f(
+                "recall.live.section.intent",
+                "Carries the discover stage's own intent sentence into the pick turn.",
+                "把发现阶段自己那句意图带进挑选那一轮。",
+            ),
+            f(
+                "recall.live.section.conversation_header",
+                "Introduces the live conversation in the pick turn — last, in the "
+                "attention-hot tail.",
+                "在挑选那一轮里引出当前对话——排在最后，落在注意力最热的尾部。",
+            ),
+        ),
+        kind=FRAGMENTS,
+    ),
+    Surface(
+        id="recall.live_web_search",
+        group="recall",
+        title_en="Live-context supplementary web search",
+        title_zh="实时上下文·补充互联网搜索",
+        summary_en=(
+            "The one sentence the supplementary search provider is given, when a deployment "
+            "allows the internet as a supplement AND a connection turned it on. It goes to "
+            "a THIRD model — not the discover call and not the pick call — and what comes "
+            "back becomes one candidate in the same numbered pool as the library's, cited "
+            "to the pages it read."
+        ),
+        summary_zh=(
+            "当部署允许把互联网作为补充、且这条连接也打开了它时，交给搜索服务商的那一句话。"
+            "它发给的是**第三个**模型——既不是发现调用，也不是挑选调用——回来的东西会成为"
+            "候选池里的一张候选，与知识库的候选同池编号，并引用它读过的网页。"
+        ),
+        segments=(
+            f(
+                "recall.live.web.instruction",
+                "The whole input of one supplementary search. `{question}` is the query the "
+                "discover stage planned, or — on the fallback tier — the intent itself, "
+                "after the library came back with no candidate at all.",
+                "一次补充搜索的全部输入。`{question}` 是发现阶段规划的那条查询；"
+                "若走的是兜底那一档，则是意图本身——那是在知识库一张候选都没给出之后。",
+            ),
+        ),
+        kind=FRAGMENTS,
+    ),
+    Surface(
         id="recall.suggestion_detail",
         group="recall",
         title_en="Card expansion contract",

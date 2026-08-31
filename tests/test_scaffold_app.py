@@ -465,9 +465,19 @@ def test_the_compose_web_image_talks_to_the_real_engine_routes():
     assert "set $api_upstream http://api:8080" in nginx
     assert "proxy_pass $api_upstream" in nginx
     assert "resolver 127.0.0.11" in nginx
-    # index.html must not be cached: the SPA navigates by hash and would otherwise keep
-    # running a stale bundle in a long-lived tab.
-    assert 'location = /index.html' in nginx and 'Cache-Control "no-cache"' in nginx
+    # The SPA document must not be cached: it navigates by hash and would otherwise keep
+    # running a stale bundle in a long-lived tab, against a freshly deployed API.
+    #
+    # The header has to sit on the FALLBACK location, not on `location = /index.html`. A
+    # visitor lands on `/`, and an exact-match block for the literal path never fires for
+    # anyone — which is how a stale bundle survived a reload despite the rule existing. The
+    # assertion therefore pins where the header lives, not merely that it appears somewhere.
+    fallback = nginx.split("location / {", 1)[1].split("}", 1)[0]
+    assert "try_files $uri $uri/ /index.html" in fallback
+    assert 'add_header Cache-Control "no-cache"' in fallback
+    # …while the hashed assets stay immutable: they are content-addressed, so caching them
+    # hard is free and re-fetching them would undo the point of hashing the filenames.
+    assert 'add_header Cache-Control "public, immutable"' in nginx
 
 
 def test_keyless_means_model_free_deterministic_and_stated_in_the_environment():
