@@ -592,3 +592,50 @@ def test_a_tick_that_did_not_glance_says_so(client, monkeypatch):
         assert card["type"] == "suggestion" and "provisional" not in card
         assert card["suggestion"]["provisional"] is False
         assert ws.receive_json()["glance"]["state"] == "miss"
+
+
+def test_a_reset_frame_re_acks_ready_and_the_next_tick_carries_nothing_from_before(
+    client, monkeypatch
+):
+    """The transport half of 「清空对话」.
+
+    The client empties its own stores; this frame is how the SERVER'S half goes with them.
+    Without it the connection keeps the ledger, the context tail and the mined list of a
+    conversation the reader has thrown away, and the next tick is answered against them —
+    which is how a subject raised again after a clear came back skipped `already_mined`.
+
+    What is asserted here is the transport contract only: the frame is acked with a fresh
+    `ready`, and the plan the next tick receives carries no turn, no context and no mined
+    card from before the clear. What that emptiness MEANS to the session is pinned with an
+    injected clock in `test_live_context_session.py`."""
+    plans: list = []
+
+    async def fake_eval(_ctx, _user, plan, **kwargs):  # noqa: ANN001
+        plans.append(plan)
+        return result(resolved("Lumenlab"))
+
+    monkeypatch.setattr(suggestion_module, "run_evaluation", fake_eval)
+
+    with client.websocket_connect(PATH) as ws:
+        assert ws.receive_json()["type"] == "ready"
+        ws.send_json({"type": "config", "quiet_period": 0})
+        assert ws.receive_json()["type"] == "ready"
+
+        ws.send_json(turn("Lumenlab 是什么"))
+        assert ws.receive_json()["type"] == "suggestion"
+
+        ws.send_json({"type": "reset"})
+        acked = ws.receive_json()
+        assert acked["type"] == "ready", "the clear is acknowledged, not answered with silence"
+        assert acked["quiet_period"] == 0, "the policy survives; only the conversation goes"
+
+        ws.send_json(turn("Lumenlab 是什么"))
+        assert ws.receive_json()["type"] == "suggestion"
+
+    first, second = plans
+    assert [t.text for t in first.turns] == ["Lumenlab 是什么"]
+    assert first.already_shown == () and first.context == ()
+    assert [t.text for t in second.turns] == ["Lumenlab 是什么"]
+    assert second.context == (), "the cleared turn is not read as context for the new one"
+    assert second.already_shown == (), "nor is the card it produced still a mined subject"
+    assert second.seq == 1, "the conversation's own numbering starts over"

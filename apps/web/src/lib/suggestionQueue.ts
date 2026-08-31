@@ -28,7 +28,7 @@
  * No runtime imports: the node test harness transpiles this file standalone.
  */
 
-import type { ContextSuggestion } from "./api";
+import type { ContextSuggestion, SuggestionShown } from "./api";
 
 /** The bubble's lifetime. Long enough to read a card, short enough that a stale one leaves. */
 export const SUGGESTION_TTL_MS = 30_000;
@@ -183,4 +183,88 @@ export function remainingSeconds(state: QueueState, now: number): number {
 /** The "+N" badge. Zero means no badge — the caller does not have to special-case it. */
 export function pendingCount(state: QueueState): number {
   return state.queue.length;
+}
+
+/* ------------------------------------------------------------------ clearing it all */
+
+/**
+ * What the page has counted this conversation. Names the same four numbers the panel shows,
+ * and lives here rather than in the panel because CLEARING them is part of the same act as
+ * clearing the queue.
+ */
+export interface SurfaceCounts {
+  turnsSent: number;
+  suggestions: number;
+  /** Suppressed by the client's own {kind,title} deduplication, which is the authority. */
+  deduped: number;
+  evaluations: number;
+}
+
+/**
+ * Everything the page holds ABOUT one conversation's suggestions — every store that
+ * 「清空对话」 has to empty.
+ *
+ * It is one type for a reason the bug taught: the clear used to empty the turn list alone,
+ * and the panel beside it went on showing the cards, the counts, the tick records and the
+ * dedup map of a conversation that no longer existed. Naming the whole set in one place is
+ * what lets `surfaceIsEmpty` be the mechanical answer to "is anything still there" instead
+ * of a hand-maintained list of conditions in a button's `disabled`.
+ *
+ * Generic in the three log/book element types so the view's own frame types survive a
+ * round trip through here; nothing in this module reads inside them.
+ */
+export interface SuggestionSurface<Wire = unknown, Stats = unknown, Detail = unknown> {
+  /** The bubble, the ones behind it, and the record of what has been. */
+  queue: QueueState;
+  /** The dedup authority: `${kind} ${title}` → what was shown, replayed to the server. */
+  seen: Map<string, SuggestionShown>;
+  counts: SurfaceCounts;
+  /** The transport log. */
+  wire: Wire[];
+  /** The per-tick processing records. */
+  stats: Stats[];
+  /** `want_more` books: what came back, what is still out, what failed. */
+  details: Record<string, Detail>;
+  pending: string[];
+  failures: Record<string, string>;
+}
+
+/** A surface holding nothing — what a cleared conversation looks like, and what a new one
+ * starts as. A function rather than a constant: `seen` is a Map and the caller mutates it. */
+export function emptySurface<Wire = unknown, Stats = unknown, Detail = unknown>(): SuggestionSurface<
+  Wire,
+  Stats,
+  Detail
+> {
+  return {
+    queue: emptyQueue,
+    seen: new Map(),
+    counts: { turnsSent: 0, suggestions: 0, deduped: 0, evaluations: 0 },
+    wire: [],
+    stats: [],
+    details: {},
+    pending: [],
+    failures: {},
+  };
+}
+
+/** Whether this surface still holds anything at all. Every store participates — a store
+ * left out here is a store a clear could quietly forget, which is exactly the defect. */
+export function surfaceIsEmpty(surface: SuggestionSurface<unknown, unknown, unknown>): boolean {
+  const { queue, seen, counts, wire, stats, details, pending, failures } = surface;
+  return (
+    queue.current === null &&
+    queue.queue.length === 0 &&
+    queue.history.length === 0 &&
+    seen.size === 0 &&
+    counts.turnsSent === 0 &&
+    counts.suggestions === 0 &&
+    counts.deduped === 0 &&
+    counts.evaluations === 0 &&
+    wire.length === 0 &&
+    stats.length === 0 &&
+    Object.keys(details).length === 0 &&
+    pending.length === 0 &&
+    Object.keys(failures).length === 0
+  );
 }

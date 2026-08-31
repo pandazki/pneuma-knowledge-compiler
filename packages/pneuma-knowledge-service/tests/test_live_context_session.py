@@ -535,3 +535,100 @@ def test_the_density_round_trips_from_config_through_the_plan():
     session.configure(min_confidence=9)
     session.add_turn(turn("另一句"))
     assert session.begin(now=T0 + 20).density == "eager"
+
+
+# ---------------------------------------------------------------- clearing the conversation
+
+
+def test_a_reset_drops_the_ledger_the_context_tail_the_pending_run_and_the_mined_list():
+    """「清空对话」 is end to end or it is a lie.
+
+    The client half emptied its own stores and left this one standing, so a cleared
+    conversation was still read against the ledger, the context tail and the mined list of
+    the conversation before it — and the FIRST thing said afterwards was skipped
+    `already_mined`, against a card nobody on that screen had ever seen.
+
+    The pin is the whole of that state: what a repeat looks like to the discover stage is
+    the ledger plus the mined list, and what a tick reads above its new turns is the context
+    tail. A reset that emptied one and not the others would still answer for a conversation
+    the reader has thrown away."""
+    s = LiveContextSession(LiveContextPolicy(quiet_period=0.0))
+    s.add_turn(turn("Lumenlab 是什么"))
+    first = s.begin(now=T0)
+    s.complete(
+        first.seq,
+        [shown("Lumenlab", subject="projects/lumenlab.md")],
+        now=T0,
+        touched=[("projects/lumenlab.md", "lumenlab")],
+        asked=True,
+    )
+    s.add_turn(turn("还没被读过的一句"))
+    assert s.ledger.held_as_duplicate("projects/lumenlab.md", "concept")
+    assert s.already_shown != () and s.turns != ()
+    assert s.ledger.digest() != "" or s.ledger.records() != []
+
+    s.reset()
+
+    assert s.turns == (), "the pending run is gone"
+    assert s.already_shown == (), "so is the mined list the discover stage reads"
+    assert not s.ledger.held_as_duplicate("projects/lumenlab.md", "concept")
+    assert s.ledger.records() == [], "the ledger is a new one, not a pruned one"
+    assert s.ledger.digest() == ""
+    assert s.label_map == {}, "participant numbering restarts with the conversation"
+
+    # …and the same subject, raised again after the clear, is ordinary new material.
+    s.add_turn(turn("Lumenlab 是什么"))
+    plan = s.begin(now=T0 + 1)
+    assert plan is not None
+    assert plan.context == (), "nothing from before the clear is read as context"
+    assert plan.already_shown == ()
+    assert [t.text for t in plan.turns] == ["Lumenlab 是什么"]
+    assert plan.seq == 1, "the conversation's numbering starts over with it"
+
+
+def test_a_reset_keeps_the_policy_and_only_empties_the_conversation():
+    """Clearing what was said is not un-setting how this connection listens. The knobs are
+    the operator's, the conversation is the reader's, and only one of them was cleared."""
+    s = LiveContextSession()
+    s.configure(focus="owner", density="eager", min_confidence=3, web_search=True)
+    s.add_turn(turn("a"))
+    s.reset()
+    p = s.policy
+    assert (p.focus, p.density, p.min_confidence, p.web_search) == ("owner", "eager", 3, True)
+
+
+def test_a_tick_in_flight_across_a_reset_reaches_nobody():
+    """A tick started before the clear was reading a conversation that no longer exists.
+
+    It cannot be recalled — an LLM call in flight is not cancellable, only its result
+    discardable — so `reset` frees the slot and every write guarded on it becomes a no-op:
+    the result is not delivered, the ledger is not taught, and the card is not remembered.
+    Re-using the seq number is safe because the socket runs one evaluation at a time and
+    awaits it, so the stale result is handled before a new tick can claim the number."""
+    s = LiveContextSession(LiveContextPolicy(quiet_period=0.0))
+    s.add_turn(turn("a"))
+    plan = s.begin(now=T0)
+    s.reset()
+    assert s.in_flight is None
+
+    card = shown("Lumenlab", subject="projects/lumenlab.md")
+    assert s.complete(plan.seq, [card], now=T0 + 1, touched=[("projects/lumenlab.md", "l")]) == []
+    s.glance_delivered(plan.seq, card)
+    assert s.already_shown == ()
+    assert not s.ledger.held_as_duplicate("projects/lumenlab.md", "concept")
+    # `abandon` is guarded by the same seq, so a failing stale tick cannot re-arm the
+    # cleared conversation with turns nobody can see.
+    s.abandon(plan.seq, now=T0 + 1, turns=plan.turns)
+    assert s.turns == ()
+
+
+def test_a_reset_clears_the_quiet_period_so_the_next_thing_said_is_read_at_once():
+    """The quiet period measures the gap since the last evaluation, and after a clear there
+    is no last evaluation — a fresh conversation starts as a fresh connection does."""
+    s = LiveContextSession(LiveContextPolicy(quiet_period=30.0))
+    s.add_turn(turn("a"))
+    plan = s.begin(now=T0)
+    s.complete(plan.seq, [], now=T0)
+    s.reset()
+    s.add_turn(turn("b"))
+    assert s.due_in(now=T0 + 0.1) == 0.0

@@ -2166,11 +2166,18 @@ SURFACES: tuple[Surface, ...] = (
         summary_en=(
             "The first of the full-scope lane's two calls, and the one that decides whether "
             "anything is retrieved at all. It names no card and writes no prose: it emits a "
-            "skip with a reason, or an intent, a one-or-two-entry lookup plan and a worth."
+            "skip with a reason, or an intent, a one-or-two-entry lookup plan and a worth. "
+            "The plan clause also states where to AIM a find-a-person ask — at the people "
+            "around the subject rather than at a definition of it — because the same "
+            "conversation that asks who could present X will otherwise be answered with what "
+            "X is, and the nearest evidenced expertise is the thing that was actually wanted."
         ),
         summary_zh=(
             "全量车道两次调用中的第一次，也是决定「到底要不要检索」的那一次。"
             "它不给卡片、不写正文：要么带理由跳过，要么给出意图、一到两条查询计划和价值分。"
+            "计划那一条还说明了「找人」类需求该往哪儿瞄——瞄主题**周围的人**，而不是主题的定义："
+            "否则一句「谁能来讲 X」换回来的会是「X 是什么」，而真正要的是库里能拿出证据的那份"
+            "最近的经验。"
         ),
         segments=(
             b(
@@ -2245,7 +2252,10 @@ SURFACES: tuple[Surface, ...] = (
             "internet search AND a connection that turned it on. Both conditions, not "
             "either: the offer costs the small model attention, so a lookup kind nothing "
             "could serve is never advertised. One line longer than the variant above — that "
-            "line is the entire difference, and both are byte-pinned so it stays so."
+            "line is the entire difference, and both are byte-pinned so it stays so. The "
+            "line also says where the query goes when an ask mixes an internal need with an "
+            "outside subject (who could present X, X being a public product): to X itself, "
+            "while the library lookups take the person half."
         ),
         summary_zh=(
             "同一份契约，装配给「部署允许互联网搜索、且这条连接也打开了它」的情形。"
@@ -2385,14 +2395,22 @@ SURFACES: tuple[Surface, ...] = (
             "never a rewrite of the evidence. Its `confidence` scores the match between the "
             "stated intent and the candidate's OWN text, not the candidate's quality, and "
             "adjacency is named as not being coverage: asked about something the library "
-            "has never heard of, the honest answer is 0."
+            "has never heard of, the honest answer is 0. Two clauses draw the line either "
+            "side of that: a candidate whose text says it CANNOT answer — information "
+            "missing, cannot be determined — is not an answer and loses to 0, because a card "
+            "whose body is the absence of one is worse than no card; while the nearest "
+            "expertise the evidence really shows IS an answer to a who-could-do-this ask, "
+            "provided the inference is marked as one."
         ),
         summary_zh=(
             "第二次调用：在机械装配好的候选里选一张（或一张都不选），说清它此刻对这个人"
             "为什么重要，裁剪它的引用，并打分。它是唯一会写句子的一段，而那句话是在猜需求"
             "——绝不是把证据改写一遍。它的 `confidence` 打的是「意图」与「候选自己的文本」"
             "之间的匹配，不是候选的质量；契约里明写了沾边不等于覆盖：问到库里从没听过的东西，"
-            "老实的回答就是 0。"
+            "老实的回答就是 0。两条款分列这条线的两侧：候选文本自己说「答不上来」——信息缺失、"
+            "无法确定——那就不是答案，宁可填 0，因为正文是一处空缺的卡片比不出卡更糟；"
+            "而面对「谁能做这件事」，证据真正显示的那份最近的经验**是**答案，只要把这一步"
+            "推断标明。"
         ),
         segments=(b("recall.live.pick.contract"),),
         kind=ASSEMBLED,

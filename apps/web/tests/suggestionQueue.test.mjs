@@ -38,6 +38,8 @@ const {
   remainingSeconds,
   pendingCount,
   upgrade,
+  emptySurface,
+  surfaceIsEmpty,
 } = await import(await tsModuleUrl(new URL("../src/lib/suggestionQueue.ts", import.meta.url)));
 
 const T0 = 1_700_000_000_000;
@@ -273,4 +275,71 @@ test("an upgrade naming a card that already left changes nothing", () => {
 test("an ordinary card is never touched by an upgrade", () => {
   let state = arrive(emptyQueue, card("a"), T0);
   assert.deepEqual(upgrade(state, 1, full("完整")), state);
+});
+
+/* ------------------------------------------------------------------ clearing it all */
+
+/** A surface holding one of everything — a conversation that has actually been had. */
+function populatedSurface() {
+  return {
+    queue: arrive(emptyQueue, card("a"), T0),
+    seen: new Map([["concept 卡 a", { kind: "concept", title: "卡 a", body: "解释", subject: "p.md", subject_label: "p" }]]),
+    counts: { turnsSent: 4, suggestions: 1, deduped: 2, evaluations: 3 },
+    wire: [{ id: "w1", at: T0, direction: "in", label: "suggestion" }],
+    stats: [{ type: "stats", seq: 1, delivered: 1 }],
+    details: { a: { title: "卡 a", detail: "展开", citations: [] } },
+    pending: ["a"],
+    failures: { a: "boom" },
+  };
+}
+
+test("clearing the conversation empties every store, not only the turns", () => {
+  // The bug: 「清空对话」 emptied the turn list and left the panel beside it showing the
+  // cards, the counts, the tick records and the dedup map of a conversation that no longer
+  // existed. One value, one question — and the answer has to be yes for all of it.
+  assert.equal(surfaceIsEmpty(populatedSurface()), false);
+
+  const cleared = emptySurface();
+  assert.equal(surfaceIsEmpty(cleared), true);
+  assert.deepEqual(cleared.queue, emptyQueue);
+  assert.equal(cleared.seen.size, 0);
+  assert.deepEqual(cleared.counts, {
+    turnsSent: 0,
+    suggestions: 0,
+    deduped: 0,
+    evaluations: 0,
+  });
+  assert.deepEqual(cleared.wire, []);
+  assert.deepEqual(cleared.stats, []);
+  assert.deepEqual(cleared.details, {});
+  assert.deepEqual(cleared.pending, []);
+  assert.deepEqual(cleared.failures, {});
+});
+
+test("every store participates in emptiness — one left behind is one a clear can forget", () => {
+  // The mechanical half. A store that `surfaceIsEmpty` does not read is a store the clear
+  // button would call empty while it still held a conversation, which is the defect itself
+  // wearing a smaller hat. So: for each key, a surface empty EXCEPT that key is not empty.
+  const populated = populatedSurface();
+  for (const key of Object.keys(populated)) {
+    const almost = { ...emptySurface(), [key]: populated[key] };
+    assert.equal(surfaceIsEmpty(almost), false, `${key} is not read by surfaceIsEmpty`);
+  }
+});
+
+test("each of the four counters on its own keeps the surface non-empty", () => {
+  for (const key of ["turnsSent", "suggestions", "deduped", "evaluations"]) {
+    const almost = emptySurface();
+    almost.counts = { ...almost.counts, [key]: 1 };
+    assert.equal(surfaceIsEmpty(almost), false, `counts.${key} is not read`);
+  }
+});
+
+test("a queue holding only history is still a conversation to clear", () => {
+  // The one a length check on `queue.queue` alone would miss: the bubble expired, the card
+  // moved to the history tab, and the tab is still full of the cleared conversation.
+  const withHistory = { ...emptySurface(), queue: tick(arrive(emptyQueue, card("a"), T0), T0 + SUGGESTION_TTL_MS) };
+  assert.equal(withHistory.queue.current, null);
+  assert.equal(withHistory.queue.history.length, 1);
+  assert.equal(surfaceIsEmpty(withHistory), false);
 });

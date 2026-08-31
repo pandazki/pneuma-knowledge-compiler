@@ -44,6 +44,10 @@ rather than dropped in silence (core `take_pending`).
 connection, it takes no model call, and it feeds two things: the digest the discover stage
 reads, and the (subject × kind) backstop under the delivery gate. Both live in core; what
 lives here is the instance and the discipline that only a COMPLETED evaluation writes to it.
+It is also the reason `reset` exists: everything the connection knows about a conversation
+— ledger, context tail, pending run, mined list — was learned from turns the reader has just
+thrown away, and a clear that emptied only the client's half left the server skipping the
+next mention as `already_mined`.
 """
 
 from __future__ import annotations
@@ -292,6 +296,41 @@ class LiveContextSession:
             # once, and the first tick after a reconnect reads what it was given.
             self._processed.clear()
         return self.policy
+
+    def reset(self) -> None:
+        """The conversation was cleared. Everything this connection learned from it goes.
+
+        The client half of 「清空对话」 empties its own stores; without this one the SERVER
+        half stands, and the next thing said is still read against the ledger, the context
+        tail and the mined list of the conversation that was cleared. That is not a stale
+        cache — it is a decision: a subject raised again after a clear came back
+        `already_mined`, skipped against a card nobody on that screen had ever seen.
+
+        Clearing `already_shown` here is the same authority a `config` with an empty list
+        exercises (see `configure`): the client is stating what it holds, and after a clear
+        it holds nothing.
+
+        **The in-flight evaluation is invalidated, not awaited.** `complete`,
+        `glance_delivered` and `abandon` all guard on the in-flight seq, so a tick that
+        started before the clear can no longer write the ledger, register a card as shown,
+        or deliver one. Sending `_seq` back to zero beside it is safe for a transport
+        reason rather than a hopeful one: the socket runs exactly one evaluation at a time
+        and awaits it (`run_loop`), so the stale result is handled and discarded before any
+        new tick can claim the number it was using.
+        """
+        self._turns.clear()
+        self._processed.clear()
+        self._consumed = ()
+        self._shown.clear()
+        self.ledger = SubjectLedger()
+        self.label_map.clear()
+        self._dirty = False
+        self._force = False
+        self._in_flight = None
+        self._seq = 0
+        # A fresh conversation waits for nothing: the quiet period measures the gap since
+        # the last evaluation, and there is no longer a last evaluation.
+        self._last_end = None
 
     # -------------------------------------------------------------------- transcript
 

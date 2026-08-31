@@ -563,6 +563,13 @@ Otherwise state three things:
   topic.
 - `plan` — one or two lookups. Each is a `kind` plus its arguments:
 {kinds}
+  When the ask is to find a PERSON for something — who could present X, who knows about X —
+  aim the library lookups at the people AROUND X, not at a definition of X: hand X as the
+  subject to whichever offered lookup is about people, and spend the other entry on a
+  similarity query shaped like a person too ("who has worked on X, or on that kind of work"),
+  which is what reaches the nearest expertise when X itself is not in the base. Those two
+  ARE the plan for that ask. The nearest expertise the base can evidence is what answers it;
+  an explanation of X is not.
 - `worth` — 1-10, what a card would be worth to the owner right now. Below the deployment's
   floor nothing is retrieved at all, so an honest low score costs nothing and scoring
   everything high costs the owner their attention.
@@ -637,6 +644,19 @@ thing, or being the closest internal project to what was mentioned — none of t
 answer. It is a fact about what the library happens to contain, not about the question, and
 delivering it tells the reader something they neither asked for nor needed. Score such a
 match low, or choose 0.
+
+**A candidate that cannot answer is not an answer.** Text saying the information is
+missing, that something cannot be determined, or that it would need access it does not have,
+has nothing in it to deliver: it reports an ABSENCE, and a card whose body is the absence of
+an answer is worse than no card at all. Choose 0 over it. What is delivered must ADD
+something the reader did not have.
+
+**A nearest-fit RECOMMENDATION is an answer; a pretended match is not.** When the room is
+looking for who could do or speak to something, the closest expertise the candidate actually
+evidences answers that — name the person, say what the evidence shows them working on, and
+mark the step you took: that this is the nearest related experience in the base, not a record
+of the thing itself. Marked, it informs. Unmarked, it claims a match the library does not
+hold, which is adjacency again.
 
 **Where a candidate came from is not a ranking; the match is.** Each card states its source
 — the owner's own knowledge base, or a live internet search. When an internal candidate
@@ -1775,14 +1795,18 @@ DEFAULTS: dict[str, str] = {
         "query string in `query` (not in `args`). This deployment allows it as a "
         "SUPPLEMENT: plan it when the need is about something the library plainly would not "
         "hold — a release, a product or a term from outside the owner's own material — and "
-        "never as a substitute for looking in the library first."
+        "never as a substitute for looking in the library first. Where an ask mixes an "
+        "internal need with an outside subject — who could present X, when X is a public "
+        "product — this query goes to X ITSELF; the library lookups take the person half."
     ),
     "recall.live.pick.contract": _LIVE_PICK_CONTRACT,
     "recall.live.web.instruction": (
         "Verify with a web search first, then give the final answer directly, with no "
         "preamble about searching. Prefer official sources; keep the body under 120 words "
-        "and attach 1 to 2 source links. Search at most twice. If you cannot find it, say "
-        "so plainly and do not speculate.\n\nQuestion: {question}"
+        "and attach 1 to 2 source links. Search at most twice. Answer ONLY with what the "
+        "search actually found about the subject. If it found nothing useful, say so in ONE "
+        "short sentence and stop — no speculation, and no account of what would be needed to "
+        "answer.\n\nQuestion: {question}"
     ),
     "recall.live.section.mined_header": "# Already surfaced this conversation ({count})",
     "recall.live.section.digest_header": "# Subjects this conversation keeps returning to",

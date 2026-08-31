@@ -29,6 +29,13 @@ Wire protocol (JSON text frames both directions):
       {"type": "turn", "speaker": str, "text": str,
        "role": "owner"|"other"|"unknown", "speaker_id": str|null, "at": iso8601|null}
       {"type": "flush"}                     — evaluate now, skipping the quiet period
+      {"type": "reset"}
+          The conversation was cleared. The session drops everything it learned from it —
+          pending run, context tail, subject ledger, mined list, seq — and answers with a
+          fresh `ready`. Without it the client's 「清空对话」 empties only its own half, and
+          the next mention of a subject from before the clear is skipped `already_mined`
+          against a card nobody on that screen has seen. An evaluation already in flight is
+          invalidated rather than waited for: its result reaches nobody.
       {"type": "want_more", "suggestion": ContextSuggestion, "ref": str|null}
           The client hands a card it received back. `ref` is the client's own
           correlation id, echoed on both `suggestion_detail` and `error` — without it a
@@ -518,6 +525,12 @@ async def live_context_ws(websocket: WebSocket, user_id: str) -> None:
         glanced: list[Any] = []
 
         async def send_glance(card: Any) -> None:
+            # A tick the conversation outlived reaches nobody. `reset` frees the in-flight
+            # slot, so this is the same guard `glance_delivered` applies to the ledger, moved
+            # one step earlier — a provisional card emitted into a panel the reader has just
+            # cleared would be the cleared bug wearing a different hat.
+            if session.in_flight != plan.seq:
+                return
             # Recorded in the ledger AT DELIVERY, like any other card: the reader has been
             # introduced to this subject whatever the rest of the tick does. An upgrade is
             # the same subject, so `deliver` is idempotent over it and nothing double-counts.
@@ -542,6 +555,11 @@ async def live_context_ws(websocket: WebSocket, user_id: str) -> None:
             ledger=session.ledger,
             on_glance=send_glance,
         )
+        # Whether this tick still belongs to the conversation it was started for. `complete`
+        # discards a stale result on its own; this is read BEFORE it so the processing record
+        # can be discarded too — a tick record landing in a panel the reader just cleared is
+        # the same defect as a card landing there.
+        live = session.in_flight == plan.seq
         # The session dedup runs on the RESULT, layered over core's within-evaluation one.
         # The ledger is written here too, and only here: a result that outlived its own
         # evaluation must not be able to teach the session anything.
@@ -583,7 +601,7 @@ async def live_context_ws(websocket: WebSocket, user_id: str) -> None:
         # evaluation would mean a quiet connection is never actually quiet, which breaks
         # the property the context clients rely on (and which `test_silence_produces_no_frames`
         # guards). Debug surfaces opt in; passive clients need not pay for them.
-        if send_stats[0]:
+        if send_stats[0] and live:
             emit(
                 {
                     "type": "stats",
@@ -695,6 +713,13 @@ async def live_context_ws(websocket: WebSocket, user_id: str) -> None:
                     wake.set()
                 elif kind == "flush":
                     session.flush()
+                    wake.set()
+                elif kind == "reset":
+                    session.reset()
+                    # The fresh `ready` is the ack: the policy is unchanged by a clear, so
+                    # what it actually says is "this connection is now empty", and a client
+                    # that cleared has one frame to wait for rather than a silence to guess at.
+                    emit(ready_frame())
                     wake.set()
                 elif kind == "want_more":
                     suggestion = msg.get("suggestion")

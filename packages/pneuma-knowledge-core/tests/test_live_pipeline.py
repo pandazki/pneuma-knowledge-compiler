@@ -578,6 +578,65 @@ def test_the_pick_contract_defines_confidence_as_intent_match_and_refuses_adjace
         assert clause in chinese, clause
 
 
+def test_the_pick_contract_refuses_a_candidate_that_says_it_cannot_answer():
+    """A card whose body states an ABSENCE, delivered at confidence 9.
+
+    The live failure: the room asked for a colleague who could present DeepSeek Harness, the
+    web face came back with 「目前还缺少团队名单或可检索的内部资料，无法确定哪位同事…」 — the
+    search engine explaining that it could not answer — and the pick chose it and shipped it
+    with a citation. The text was fluent, on-topic and cited, and it told the reader nothing
+    except that nobody knows. Choosing it is worse than choosing none, and the contract now
+    says so in that many words, in both packs."""
+    english = pick_contract()
+    for clause in (
+        "**A candidate that cannot answer is not an answer.**",
+        "that something cannot be determined",
+        "it reports an ABSENCE",
+        "Choose 0 over it.",
+        "must ADD\nsomething the reader did not have",
+    ):
+        assert clause in english, clause
+
+    chinese = chinese_overlay()["recall.live.pick.contract"]
+    for clause in (
+        "**答不上来的候选不是答案。**",
+        "说无法确定",
+        "它陈述的是一处**空缺**",
+        "宁可填 0",
+        "必须给读者**添**上他原本没有的",
+    ):
+        assert clause in chinese, clause
+
+
+def test_the_pick_contract_allows_a_marked_nearest_fit_recommendation():
+    """The clause that keeps the honesty rules from forbidding the RIGHT answer.
+
+    Asked who could present X, the useful card names the engineer the library evidences as
+    closest to that work and says so as an inference — which is what the fast lane already
+    does ("现有记录没有明确提到 DeepSeek harness，因此这是基于相关经验做的推荐"). Read without
+    this clause, the adjacency and never-imply-coverage rules above would read as a ban on
+    it, and the lane would be left with only silence and the non-answer. The allowance is
+    narrow and mechanical in its own way: the marking is what separates it from adjacency."""
+    english = pick_contract()
+    for clause in (
+        "**A nearest-fit RECOMMENDATION is an answer; a pretended match is not.**",
+        "the closest expertise the candidate actually\nevidences",
+        "mark the step you took",
+        "not a record\nof the thing itself",
+        "Unmarked, it claims a match the library does not\nhold",
+    ):
+        assert clause in english, clause
+
+    chinese = chinese_overlay()["recall.live.pick.contract"]
+    for clause in (
+        "**有标记的近邻推荐是答案，装出来的匹配不是。**",
+        "**标明你这一步**",
+        "不是关于那件事本身的记录",
+        "不标明，它就是在宣称一个库里",
+    ):
+        assert clause in chinese, clause
+
+
 def test_the_pick_contract_forbids_writing_about_the_card_instead_of_its_substance():
     """The lede's grounding rule, tightened, in both packs.
 
@@ -894,6 +953,66 @@ def test_the_quiet_posture_asks_for_a_question_and_refuses_an_unnamed_gap():
     quiet = prompt("recall.live.discover.mining.quiet")
     assert "directly ASKED" in quiet
     assert "nobody\nnamed" in quiet, "a gap nobody named is not enough here"
+
+
+def test_every_posture_aims_a_find_a_person_ask_at_the_people_and_not_at_a_definition():
+    """The steering clause, in the SHARED half — so all three postures carry it.
+
+    「我想找个团队里的同事来分享一下 DeepSeek Harness」 is a find-a-person ask wearing an
+    external subject, and the plan it deserves is the people around that subject plus a
+    people-shaped similarity query. Aimed at the subject instead, the lane retrieves what
+    DeepSeek Harness IS — an answer to a question nobody asked. It lives in the shared half
+    and not in a density clause because it is about WHERE a lookup points, and the three
+    postures differ only in how eagerly one is attempted at all."""
+    for density in ("eager", "balanced", "quiet"):
+        contract = discover_contract("general", (), density=density)
+        for clause in (
+            "When the ask is to find a PERSON for something",
+            "aim the library lookups at the people AROUND X, not at a definition of X",
+            "whichever offered lookup is about people",
+            '"who has worked on X, or on that kind of work"',
+            "which is what reaches the nearest expertise when X itself is not in the base",
+            "Those two\n  ARE the plan for that ask.",
+        ):
+            assert clause in contract, (density, clause)
+
+    chinese = chinese_overlay()["recall.live.discover.contract"]
+    for clause in (
+        "当需求是**找人**",
+        "把库里的查询对准 X **周围的人**，而不是 X 的定义",
+        "「做过 X 或同类工作的人」",
+        "这两条**就是**这类需求的计划",
+        "把 X 解释一遍不是",
+    ):
+        assert clause in chinese, clause
+
+
+def test_the_person_steering_names_no_component_path_it_cannot_know_is_enabled():
+    """It says "whichever offered lookup is about people", never `people_around`.
+
+    The offered kinds are a function of the registered components (I5's byte-stability rests
+    on that), so a shared clause naming a path by name would advertise a lookup a deployment
+    without the people component does not have — the same defect the web offer avoids by
+    being a line that only renders when a search is behind it."""
+    contract = discover_contract("general", ())
+    assert "people_around" not in contract
+    assert "`person`" not in contract
+    assert "whichever offered lookup is about people" in contract
+
+
+def test_the_web_offer_points_a_mixed_ask_at_the_outside_subject():
+    """And it lives on the OFFER line, which renders only where a search exists.
+
+    The steer belongs with the kind it steers: a deployment with no web search must not read
+    a sentence about where its `web` query should go."""
+    off, on = discover_contract("general", ()), discover_contract("general", (), web=True)
+    assert "this query goes to X ITSELF" in on
+    assert "this query goes to X ITSELF" not in off
+    assert "the library lookups take the person half" in on
+
+    chinese = chinese_overlay()["recall.live.discover.web_offer"]
+    assert "这条查询就指向 **X 本身**" in chinese
+    assert "找人那一半交给库里的查询" in chinese
 
 
 def test_the_pick_contract_does_not_vary_by_density():

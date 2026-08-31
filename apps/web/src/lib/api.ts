@@ -1289,6 +1289,18 @@ export class LiveContextSocket {
   }
 
   /**
+   * The conversation was cleared: the server session drops everything it learned from it.
+   *
+   * The client is the dedup authority, so clearing only the client's stores left the SERVER
+   * holding the ledger, the context tail and the mined list of a conversation nobody can see
+   * any more — and the next mention of a subject from before the clear came back skipped as
+   * `already_mined`. The server answers with a fresh `ready`.
+   */
+  reset(): boolean {
+    return this.send({ type: "reset" });
+  }
+
+  /**
    * Hand a received card back for expansion; the reply is a `suggestion_detail` frame.
    *
    * `ref` is the caller's own correlation id, echoed on BOTH `suggestion_detail` and the `error`

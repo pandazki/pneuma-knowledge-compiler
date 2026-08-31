@@ -17,7 +17,7 @@
 
 import { RadioTower } from "lucide-react";
 import type { ContextSuggestion, LiveContextReadyFrame, LiveContextStatsFrame, SuggestionDetailFrame } from "@/lib/api";
-import type { HistoryEntry, QueueState } from "@/lib/suggestionQueue";
+import type { HistoryEntry, QueueState, SurfaceCounts } from "@/lib/suggestionQueue";
 import { pendingCount, remainingFraction, remainingSeconds } from "@/lib/suggestionQueue";
 import { useT, useTOr } from "@/lib/useT";
 import { fmtTime } from "@/lib/format";
@@ -42,13 +42,9 @@ export interface WireEvent {
   detail?: string;
 }
 
-export interface PanelCounts {
-  turnsSent: number;
-  suggestions: number;
-  /** Suppressed by the client's own {kind,title} deduplication, which is the authority. */
-  deduped: number;
-  evaluations: number;
-}
+/** The four numbers this panel shows. Defined with the rest of the suggestion surface, so
+ * that what the panel displays and what 「清空对话」 empties cannot drift apart. */
+export type PanelCounts = SurfaceCounts;
 
 export interface SuggestionPanelProps {
   queue: QueueState;

@@ -203,7 +203,7 @@ Source 详情绝不暴露对象存储 key。每条图片清单只给 `image_id`�
 | 方法 | 路径 | 用途 |
 |---|---|---|
 | POST | `/…/live-context/stream` | 对一段转写窗口的一次性 SSE：每张存活卡片一条 `event: suggestion`，末尾 `done` 带这一拍做了什么 |
-| WS | `/…/live-context/ws` | 长连接监听。客户端发 `config` / `turn` / `flush` / `want_more` / `ping`；服务端发 `ready` / `suggestion` / `suggestion_detail` / `stats` / `error`（永不致命）/ `ping`（约 30 秒保活）。完整协议见 [`api/routes/live_context.py`](../../packages/pneuma-knowledge-service/src/pneuma_knowledge_service/api/routes/live_context.py) 的模块 docstring |
+| WS | `/…/live-context/ws` | 长连接监听。客户端发 `config` / `turn` / `flush` / `reset` / `want_more` / `ping`；服务端发 `ready` / `suggestion` / `suggestion_detail` / `stats` / `error`（永不致命）/ `ping`（约 30 秒保活）。`reset` 表示对话被清空：会话丢掉待处理队列、上文尾巴、主体台账、已推送列表与 seq，作废在飞的那次评估，并回一帧新的 `ready`——策略不动。没有它，客户端的「清空对话」只清了自己那一半，清空前提到过的主体再被提起时会被判为 `already_mined`，而据以判断的那张卡已经没人看得见了。完整协议见 [`api/routes/live_context.py`](../../packages/pneuma-knowledge-service/src/pneuma_knowledge_service/api/routes/live_context.py) 的模块 docstring |
 
 投递出去的卡片带着两段文字、两个不同的作者，分开正是要点所在：`body` 是**引言**——一到两句话，猜测此刻这件事对这个读者为何重要，由挑选模型写出并被机械截断；`evidence` 是压在它下面的逐字断言文本与原文摘录，由检索结果机械渲染，没有任何人改写过。`subject` 指出这张卡片讲的是哪份正本文档或哪个来源；客户端在 `already_shown` 里把它带回来，于是重连不会把读者已经认识的主体再介绍一遍。
 
