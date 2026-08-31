@@ -130,6 +130,65 @@ export function upgrade(
 }
 
 /**
+ * How long a provisional card waits for its settling frame before settling itself.
+ *
+ * The client-side belt under the server's `upgrade`. The server now settles a provisional
+ * card on EVERY ending of the tick that delivered it — including a raise, which is the
+ * ending that used to emit nothing — but "the frame is always sent" and "the frame always
+ * arrives" are different claims, and only the first is something the server can hold. A
+ * dropped socket frame, a queue overflow, a client that reconnected between the card and
+ * its upgrade: any of those leaves a badge reading 「细节补充中…」 about a tick that finished
+ * long ago.
+ *
+ * Longer than the thirty-second TTL on purpose: an unpinned card on screen leaves before
+ * this can fire, so the timer is not a second expiry racing the first. What it actually
+ * covers is the two cards a TTL never reaches — one the reader pinned, and one still
+ * waiting its turn in the queue.
+ */
+export const PROVISIONAL_SETTLE_MS = 45_000;
+
+/**
+ * The provisional cards that have waited past `PROVISIONAL_SETTLE_MS` without a settling
+ * frame. Returned rather than settled so the caller can say so in the wire log — a card
+ * that settled itself is a LOST FRAME, and a surface that showed the same result either way
+ * would hide the one fact worth knowing.
+ */
+export function staleProvisional(
+  state: QueueState,
+  now: number,
+  timeout: number = PROVISIONAL_SETTLE_MS,
+): QueuedSuggestion[] {
+  const stale = (card: QueuedSuggestion) =>
+    card.suggestion.provisional === true && now - card.arrivedAt >= timeout;
+  return [...(state.current && stale(state.current) ? [state.current] : []), ...state.queue.filter(stale)];
+}
+
+/**
+ * Settle every provisional card that has waited too long, where it stands.
+ *
+ * It settles as FINAL WITH WHAT IT HAS, which is the only fail-safe this card can have and
+ * costs nothing: a glance card's body is the library's own definition, verbatim and cited,
+ * so the card minus its shimmer is a true card — never a placeholder left holding an
+ * unfilled promise.
+ */
+export function settleStale(
+  state: QueueState,
+  now: number,
+  timeout: number = PROVISIONAL_SETTLE_MS,
+): QueueState {
+  const stale = staleProvisional(state, now, timeout);
+  if (stale.length === 0) return state;
+  const ids = new Set(stale.map((card) => card.id));
+  const clear = <T extends QueuedSuggestion>(card: T): T =>
+    ids.has(card.id) ? { ...card, suggestion: { ...card.suggestion, provisional: false } } : card;
+  return {
+    ...state,
+    current: state.current ? clear(state.current) : null,
+    queue: state.queue.map(clear),
+  };
+}
+
+/**
  * Advance the clock. Expires the current bubble if its thirty seconds are up and it is not
  * pinned, then promotes whatever is next.
  *

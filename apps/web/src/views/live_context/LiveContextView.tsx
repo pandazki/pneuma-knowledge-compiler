@@ -55,8 +55,11 @@ import {
   emptyQueue,
   emptySurface,
   pin as pinCard,
+  settleStale,
+  staleProvisional,
   surfaceIsEmpty,
   tick,
+  upgrade as upgradeCard,
   type QueueState,
   type SuggestionSurface,
 } from "@/lib/suggestionQueue";
@@ -205,6 +208,14 @@ export default function LiveContextView() {
     [turns, setLiveContext],
   );
 
+  /* ------------------------------------------------------------------- the wire log */
+
+  const [wireLog, setWireLog] = useState<WireEvent[]>([]);
+  const [statsLog, setStatsLog] = useState<LiveContextStatsFrame[]>([]);
+  const log = useCallback((direction: "in" | "out", label: string, detail?: string) => {
+    setWireLog((l) => [{ id: nextId(), at: Date.now(), direction, label, detail }, ...l].slice(0, WIRE_LOG_LIMIT));
+  }, []);
+
   /* -------------------------------------------------------------- suggestion queue */
 
   const [queue, setQueue] = useState<QueueState>(emptyQueue);
@@ -226,15 +237,32 @@ export default function LiveContextView() {
   // expire — an idle page costs no wakeups, which is the same discipline the server's own
   // listener follows.
   const hasCards = queue.current !== null || queue.queue.length > 0;
+  // The queue as the ticker sees it. A ref because the ticker also has to REPORT what it
+  // did (a self-settled card is a lost frame, and the wire log is where that is said), and
+  // a `setQueue` updater is not a place to write a log line from.
+  const queueRef = useRef(queue);
+  useEffect(() => {
+    queueRef.current = queue;
+  }, [queue]);
+  const selfSettledRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (!hasCards) return;
     const id = window.setInterval(() => {
       const at = Date.now();
       setNow(at);
-      setQueue((q) => tick(q, at));
+      // The client-side belt under the server's `upgrade` frame: a provisional card that
+      // waited past the timeout settles itself, as final, with what it already has. Said
+      // out loud in the wire log — a badge that stopped shimmering because nothing arrived
+      // is a different fact from one the server settled, and only one of them is a bug.
+      for (const card of staleProvisional(queueRef.current, at)) {
+        if (selfSettledRef.current.has(card.id)) continue;
+        selfSettledRef.current.add(card.id);
+        log("in", "settle (no upgrade)", `seq ${card.seq ?? "—"} · ${card.suggestion.title}`);
+      }
+      setQueue((q) => settleStale(tick(q, at), at));
     }, TICK_MS);
     return () => window.clearInterval(id);
-  }, [hasCards]);
+  }, [hasCards, log]);
 
   const offer = useCallback((suggestion: ContextSuggestion, seq: number | null) => {
     const key = shownKey(suggestion);
@@ -255,14 +283,6 @@ export default function LiveContextView() {
   }, []);
 
   const alreadyShown = useCallback((): SuggestionShown[] => [...seenRef.current.values()], []);
-
-  /* ------------------------------------------------------------------- the wire log */
-
-  const [wireLog, setWireLog] = useState<WireEvent[]>([]);
-  const [statsLog, setStatsLog] = useState<LiveContextStatsFrame[]>([]);
-  const log = useCallback((direction: "in" | "out", label: string, detail?: string) => {
-    setWireLog((l) => [{ id: nextId(), at: Date.now(), direction, label, detail }, ...l].slice(0, WIRE_LOG_LIMIT));
-  }, []);
 
   /* --------------------------------------------------------------- want_more books */
 
@@ -303,6 +323,33 @@ export default function LiveContextView() {
           log("in", "suggestion", frame.suggestion.title);
           offer(frame.suggestion, frame.seq);
           break;
+        // The provisional card's ending. It is a REPLACEMENT IN PLACE and never an arrival:
+        // the card is already on screen, in this seq's slot, and `offer` would both queue a
+        // second bubble about one subject and count it twice. This case going missing is
+        // exactly the live defect — the server sent the frame, nothing read it, and the
+        // badge said 「细节补充中…」 about a tick that had finished eight seconds earlier.
+        // The `default` below is what makes a repeat of that a build failure.
+        case "upgrade":
+          log(
+            "in",
+            "upgrade",
+            `seq ${frame.seq} · ${frame.suggestion ? frame.suggestion.title : t("liveContext.wire.settledInPlace")}`,
+          );
+          // The card that took the provisional one's place is a card this page has shown,
+          // so it belongs in the dedup ledger like any other — the server replays it to the
+          // discover stage on reconnect, and a subject introduced once is not introduced
+          // again. The counter is NOT touched: one slot, one card, one count.
+          if (frame.suggestion) {
+            seenRef.current.set(shownKey(frame.suggestion), {
+              kind: frame.suggestion.kind,
+              title: frame.suggestion.title,
+              body: frame.suggestion.body,
+              subject: frame.suggestion.subject ?? "",
+              subject_label: frame.suggestion.subject_label ?? frame.suggestion.subject ?? "",
+            });
+          }
+          setQueue((q) => upgradeCard(q, frame.seq, frame.suggestion));
+          break;
         case "suggestion_detail": {
           const card = frame.ref ? refToCard.current.get(frame.ref) : undefined;
           if (frame.ref) refToCard.current.delete(frame.ref);
@@ -334,9 +381,18 @@ export default function LiveContextView() {
         }
         case "ping":
           break;
+        default: {
+          // MECHANISM, not diligence. A frame the server sends and this switch does not
+          // name used to fall through in silence — which is how `upgrade` was added to the
+          // protocol, sent every tick, and read by nobody. `never` makes the omission a
+          // `tsc -b` failure instead of a badge that shimmers forever.
+          const unhandled: never = frame;
+          log("in", "unknown", JSON.stringify(unhandled).slice(0, 80));
+          break;
+        }
       }
     },
-    [log, offer],
+    [log, offer, t],
   );
 
   const policy = useMemo(
@@ -466,6 +522,11 @@ export default function LiveContextView() {
         onDone: (done) => {
           setCounts((c) => ({ ...c, evaluations: c.evaluations + 1 }));
           log("in", "done", `${done.count} delivered`);
+          // One-shot has no seq to upgrade into, so its provisional card settles on the
+          // event the stream ALWAYS ends with. Same rule as the socket's `upgrade`: the
+          // tick that promised to fill this card in has finished, one way or another, and
+          // the badge stops saying otherwise.
+          setQueue((q) => upgradeCard(q, null, null));
           // The SSE `done` frame carries the same gate counters the socket's `stats` does, so
           // it lands in the same ledger — one place to read "why did nothing fire", whichever
           // transport asked.
@@ -484,6 +545,10 @@ export default function LiveContextView() {
           );
         },
         onError: (m) => {
+          // The stream's OTHER ending. A failed one-shot settles its provisional card too:
+          // the card stands as what it is, and the failure is reported beside it rather
+          // than inside it.
+          setQueue((q) => upgradeCard(q, null, null));
           if (!ac.signal.aborted) setError(m);
         },
       },

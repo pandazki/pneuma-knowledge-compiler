@@ -20,6 +20,7 @@
 import { Pin, X } from "lucide-react";
 import type { ContextSuggestion, SuggestionDetailFrame } from "@/lib/api";
 import type { ActiveSuggestion } from "@/lib/suggestionQueue";
+import { cardSources, expandState } from "@/lib/suggestionCard";
 import { SUGGESTION_TTL_MS } from "@/lib/suggestionQueue";
 import { useT } from "@/lib/useT";
 import { CitationList, type CitationEntry } from "@/components/CitationList";
@@ -121,20 +122,23 @@ export function SuggestionBubble({
 }: SuggestionBubbleProps) {
   const t = useT();
   const suggestion: ContextSuggestion = card.suggestion;
-  const isWeb = suggestion.kind === "web";
+  // WHICH CITATIONS THE CARD CARRIES — not what its kind is called. A `glance` card is a
+  // library card with library citations, and keying the web affordances on a kind name once
+  // told a reader looking at four source spans that their card "came from an internet
+  // search". See `lib/suggestionCard.ts`.
+  const isWeb = cardSources(suggestion) === "web";
   // The glance short-circuit's card: the subject's own definition, true and cited, shown a
   // retrieval early. `provisional` says the tick behind it has not settled — the badge reads
   // "filling in" and the card shimmers, and the `upgrade` frame ends both.
   const isGlance = suggestion.kind === "glance";
-  const provisional = isGlance && suggestion.provisional === true;
+  const provisional = suggestion.provisional === true;
   const webCitations = suggestion.web_citations ?? [];
   // `want_more` fetches a card's own citations VERBATIM out of the owner's store and asks a
-  // model to expand within them. A web card has no source block to fetch, so there is
-  // nothing to expand within — the honest surface is the pages themselves, which are one
-  // click away above. Hiding the affordance is better than offering one that would fail.
-  // …and a provisional card has nothing to expand YET: its own tick is still building the
-  // material a `want_more` would read. The affordance returns the moment it settles.
-  const expandable = !isWeb && !provisional;
+  // model to expand within them. Two different cards cannot be expanded and for two
+  // different reasons, so the state names WHICH — a web card has no source block to fetch
+  // (the pages above are the honest surface), and a provisional card's own tick is still
+  // building the material a `want_more` would read.
+  const expansion = expandState(suggestion);
   return (
     <article
       className={cn(
@@ -225,7 +229,7 @@ export function SuggestionBubble({
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        {expandable ? (
+        {expansion === "expandable" ? (
           <Button
             size="sm"
             variant={card.pinned ? "ghost" : "primary"}
@@ -236,7 +240,13 @@ export function SuggestionBubble({
             {t("liveContext.bubble.wantMore")}
           </Button>
         ) : (
-          <span className="text-12 text-ink-3">{t("liveContext.card.webNoExpand")}</span>
+          <span className="text-12 text-ink-3">
+            {t(
+              expansion === "web"
+                ? "liveContext.card.webNoExpand"
+                : "liveContext.card.glanceNoExpandYet",
+            )}
+          </span>
         )}
         {pending && (
           <span className="inline-flex items-center gap-1.5 text-12 text-ink-3">

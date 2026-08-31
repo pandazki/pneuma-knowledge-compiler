@@ -523,6 +523,30 @@ async def live_context_ws(websocket: WebSocket, user_id: str) -> None:
         # the same slot the full card will land in — so an upgrade is a replacement in place
         # rather than a second bubble, and the queue does not grow.
         glanced: list[Any] = []
+        settled: list[bool] = []
+
+        def settle(full: Any | None) -> None:
+            """The provisional card's ending, on the wire. Called EXACTLY once per tick that
+            delivered one — and the one call is what the client's shimmer waits on.
+
+            It is a function rather than three lines at the end of the happy path because
+            the happy path is not the only ending. A tick that raised after its glance went
+            out used to emit nothing at all, and the reader was left with a card that said
+            「细节补充中…」 until it expired — the badge outliving the tick that promised to
+            fill it in. So the fail-safe below (`finally`) calls this too, with nothing:
+            the card settles as final with what it already has, which is a true, cited
+            sentence and never a lie. `settled` makes the double call harmless."""
+            if not glanced or settled:
+                return
+            settled.append(True)
+            emit(
+                {
+                    "type": "upgrade",
+                    "seq": plan.seq,
+                    # None ⇒ settle in place: the same card, no longer provisional.
+                    "suggestion": _suggestion_out(full) if full is not None else None,
+                }
+            )
 
         async def send_glance(card: Any) -> None:
             # A tick the conversation outlived reaches nobody. `reset` frees the in-flight
@@ -545,74 +569,80 @@ async def live_context_ws(websocket: WebSocket, user_id: str) -> None:
                 }
             )
 
-        result = await run_evaluation(
-            ctx,
-            user_id,
-            plan,
-            label_map=session.label_map,
-            profile=profile[0],
-            pack=pack,
-            ledger=session.ledger,
-            on_glance=send_glance,
-        )
-        # Whether this tick still belongs to the conversation it was started for. `complete`
-        # discards a stale result on its own; this is read BEFORE it so the processing record
-        # can be discarded too — a tick record landing in a panel the reader just cleared is
-        # the same defect as a card landing there.
-        live = session.in_flight == plan.seq
-        # The session dedup runs on the RESULT, layered over core's within-evaluation one.
-        # The ledger is written here too, and only here: a result that outlived its own
-        # evaluation must not be able to teach the session anything.
-        delivered = session.complete(
-            plan.seq,
-            result.suggestions,
-            now=loop.time(),
-            touched=result.touched,
-            asked=result.asked,
-        )
-        # A provisional card always gets its settling frame, whichever ending happened —
-        # the shimmer is the client's word for "this tick has not finished", and a tick that
-        # finished without saying so would leave it shimmering forever.
-        queued = list(delivered)
-        if glanced:
-            upgrade = next(
-                (s for s in delivered if s.subject == glanced[0].subject), None
+        try:
+            result = await run_evaluation(
+                ctx,
+                user_id,
+                plan,
+                label_map=session.label_map,
+                profile=profile[0],
+                pack=pack,
+                ledger=session.ledger,
+                on_glance=send_glance,
             )
-            emit(
-                {
-                    "type": "upgrade",
-                    "seq": plan.seq,
-                    # None ⇒ settle in place: the same card, no longer provisional.
-                    "suggestion": _suggestion_out(upgrade) if upgrade is not None else None,
-                }
+            # Whether this tick still belongs to the conversation it was started for.
+            # `complete` discards a stale result on its own; this is read BEFORE it so the
+            # processing record can be discarded too — a tick record landing in a panel the
+            # reader just cleared is the same defect as a card landing there.
+            live = session.in_flight == plan.seq
+            # The session dedup runs on the RESULT, layered over core's within-evaluation
+            # one. The ledger is written here too, and only here: a result that outlived its
+            # own evaluation must not be able to teach the session anything.
+            delivered = session.complete(
+                plan.seq,
+                result.suggestions,
+                now=loop.time(),
+                touched=result.touched,
+                asked=result.asked,
             )
-            # Removed from what is EMITTED, never from what was delivered: the card reached
-            # the reader, in the provisional card's own slot. A stats frame that counted it
-            # as zero would say a tick delivered nothing when the reader is looking at it.
-            queued = [s for s in queued if s is not upgrade]
-        for suggestion in queued:
-            emit({"type": "suggestion", "seq": plan.seq, "suggestion": _suggestion_out(suggestion)})
-        # Its own frame rather than a field on `suggestion`: the evaluation that produced ZERO
-        # cards emits no `suggestion` frame at all, and that is precisely the one you need the
-        # gate counters for — "why did nothing fire" is the question this socket gets
-        # asked most, because silence is the steady state.
-        #
-        # OFF by default, and that default is load-bearing. Emitting telemetry every
-        # evaluation would mean a quiet connection is never actually quiet, which breaks
-        # the property the context clients rely on (and which `test_silence_produces_no_frames`
-        # guards). Debug surfaces opt in; passive clients need not pay for them.
-        if send_stats[0] and live:
-            emit(
-                {
-                    "type": "stats",
-                    "seq": plan.seq,
-                    "focus": plan.focus,
-                    "delivered": len(delivered),
-                    "token_usage": dict(result.token_usage),
-                    "turns": len(plan.turns),
-                    **_processing_out(result),
-                }
-            )
+            # A provisional card always gets its settling frame, whichever ending happened —
+            # the shimmer is the client's word for "this tick has not finished", and a tick
+            # that finished without saying so would leave it shimmering forever.
+            queued = list(delivered)
+            if glanced:
+                upgrade = next((s for s in delivered if s.subject == glanced[0].subject), None)
+                settle(upgrade)
+                # Removed from what is EMITTED, never from what was delivered: the card
+                # reached the reader, in the provisional card's own slot. A stats frame that
+                # counted it as zero would say a tick delivered nothing when the reader is
+                # looking at it.
+                queued = [s for s in queued if s is not upgrade]
+            for suggestion in queued:
+                emit(
+                    {
+                        "type": "suggestion",
+                        "seq": plan.seq,
+                        "suggestion": _suggestion_out(suggestion),
+                    }
+                )
+            # Its own frame rather than a field on `suggestion`: the evaluation that produced
+            # ZERO cards emits no `suggestion` frame at all, and that is precisely the one you
+            # need the gate counters for — "why did nothing fire" is the question this socket
+            # gets asked most, because silence is the steady state.
+            #
+            # OFF by default, and that default is load-bearing. Emitting telemetry every
+            # evaluation would mean a quiet connection is never actually quiet, which breaks
+            # the property the context clients rely on (and which
+            # `test_silence_produces_no_frames` guards). Debug surfaces opt in; passive
+            # clients need not pay for them.
+            if send_stats[0] and live:
+                emit(
+                    {
+                        "type": "stats",
+                        "seq": plan.seq,
+                        "focus": plan.focus,
+                        "delivered": len(delivered),
+                        "token_usage": dict(result.token_usage),
+                        "turns": len(plan.turns),
+                        **_processing_out(result),
+                    }
+                )
+        finally:
+            # The fail-safe, and the reason the happy path above may be read as ordinary:
+            # EVERY ending of a tick that delivered a provisional card settles it. A raise,
+            # a cancellation, a timeout — the card stops shimmering and stands as what it
+            # is. Idempotent, so the normal path's own call wins and this one does nothing.
+            settle(None)
 
     async def run_loop() -> None:
         while True:

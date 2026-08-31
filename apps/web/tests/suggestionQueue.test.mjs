@@ -38,6 +38,9 @@ const {
   remainingSeconds,
   pendingCount,
   upgrade,
+  PROVISIONAL_SETTLE_MS,
+  settleStale,
+  staleProvisional,
   emptySurface,
   surfaceIsEmpty,
 } = await import(await tsModuleUrl(new URL("../src/lib/suggestionQueue.ts", import.meta.url)));
@@ -275,6 +278,62 @@ test("an upgrade naming a card that already left changes nothing", () => {
 test("an ordinary card is never touched by an upgrade", () => {
   let state = arrive(emptyQueue, card("a"), T0);
   assert.deepEqual(upgrade(state, 1, full("完整")), state);
+});
+
+// ─────────────────────────────────────── the belt under the settling frame
+//
+// The server now settles a provisional card on EVERY ending of the tick that delivered it,
+// the raise included. But "always sent" and "always arrives" are different claims, and a
+// dropped frame used to leave a badge reading 「细节补充中…」 about a tick that finished
+// long ago. After the timeout the card settles itself, as final, with what it already has —
+// which is safe for the same reason the card could be shown early at all: its body is the
+// library's own definition, verbatim and cited.
+
+test("a provisional card left without a settling frame settles itself", () => {
+  let state = pin(arrive(emptyQueue, glance("a"), T0));
+  assert.equal(
+    settleStale(state, T0 + PROVISIONAL_SETTLE_MS - 1),
+    state,
+    "one millisecond short is still waiting",
+  );
+  state = settleStale(state, T0 + PROVISIONAL_SETTLE_MS);
+  assert.equal(state.current.suggestion.provisional, false, "it stopped shimmering");
+  assert.equal(state.current.suggestion.title, "卡 a", "and stands as what it already had");
+  assert.equal(state.current.pinned, true, "the reader's pin survives it");
+});
+
+test("the self-settle is measured from ARRIVAL, not from reaching the bubble", () => {
+  // A card that waited its turn behind another has been shimmering the whole time — the
+  // reader watched it in the "+N" queue — so its clock is the arrival clock.
+  let state = arrive(emptyQueue, card("a"), T0);
+  state = arrive(state, glance("b", 2), T0);
+  state = settleStale(state, T0 + PROVISIONAL_SETTLE_MS);
+  assert.equal(state.queue[0].suggestion.provisional, false, "queued cards settle too");
+});
+
+test("the self-settle names the cards it settled, so the wire log can say so", () => {
+  // A card that settled because nothing arrived is a LOST FRAME, and a surface showing the
+  // same result either way would hide the one fact worth knowing.
+  const state = pin(arrive(emptyQueue, glance("a"), T0));
+  assert.deepEqual(staleProvisional(state, T0 + 1_000), [], "nothing is stale yet");
+  const stale = staleProvisional(state, T0 + PROVISIONAL_SETTLE_MS);
+  assert.deepEqual(stale.map((c) => c.id), ["a"]);
+  assert.deepEqual(
+    staleProvisional(settleStale(state, T0 + PROVISIONAL_SETTLE_MS), T0 + PROVISIONAL_SETTLE_MS),
+    [],
+    "and never twice for the same card",
+  );
+});
+
+test("the self-settle outlives the ring, so it can only ever reach a pinned or queued card", () => {
+  // Deliberately longer than the TTL: an unpinned card on screen leaves on its own first,
+  // and a timer racing the countdown would be a second expiry rather than a fail-safe.
+  assert.ok(PROVISIONAL_SETTLE_MS > SUGGESTION_TTL_MS);
+});
+
+test("an ordinary card is never settled by the timeout", () => {
+  const state = pin(arrive(emptyQueue, card("a"), T0));
+  assert.equal(settleStale(state, T0 + PROVISIONAL_SETTLE_MS * 10), state);
 });
 
 /* ------------------------------------------------------------------ clearing it all */

@@ -576,6 +576,115 @@ def test_a_tick_reports_whether_it_glanced_and_how_it_ended(client, monkeypatch)
         assert stats["glance"] == {"state": "hit", "outcome": "alone", "ms": 41.5}
 
 
+def test_a_tick_that_FAILED_after_its_glance_still_settles_it(client, monkeypatch):
+    """The ending the settling frame used to have no path out of — and the live defect.
+
+    A tick that raised after its provisional card had gone out emitted nothing more, so the
+    reader was left with a card reading 「速览 · 细节补充中…」 about a tick that had already
+    died. The badge is the client's word for "this tick has not finished", and only the tick
+    can end it. So the fail-safe is unconditional: the card settles as FINAL WITH WHAT IT
+    HAS — which is the library's own definition, verbatim and cited, and never a lie — and
+    the failure is reported beside it rather than inside it."""
+
+    async def fake_eval(_ctx, _user, plan, **kwargs):  # noqa: ANN001
+        await kwargs["on_glance"](glanced())
+        raise RuntimeError("the model went away")
+
+    monkeypatch.setattr(suggestion_module, "run_evaluation", fake_eval)
+    with client.websocket_connect(PATH) as ws:
+        ws.receive_json()
+        ws.send_json({"type": "config", "quiet_period": 0})
+        ws.receive_json()
+        ws.send_json(turn("lumenlab 是什么"))
+        early = ws.receive_json()
+        assert early["provisional"] is True
+        settle = ws.receive_json()
+        assert settle["type"] == "upgrade", "the shimmer ends even when the tick does not"
+        assert settle["seq"] == early["seq"]
+        assert settle["suggestion"] is None, "final with what it already had"
+        # …and the failure is still reported, AFTER the card was made honest.
+        failure = ws.receive_json()
+        assert failure["type"] == "error" and "the model went away" in failure["detail"]
+
+
+def test_a_tick_that_failed_before_glancing_settles_nothing(client, monkeypatch):
+    """The fail-safe is not a frame every failure emits — it belongs to a card that exists.
+
+    An `upgrade` naming a seq the client never received a provisional card for is noise on
+    the wire, and a client that acted on it would be acting on nothing."""
+
+    async def fake_eval(_ctx, _user, plan, **kwargs):  # noqa: ANN001
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(suggestion_module, "run_evaluation", fake_eval)
+    with client.websocket_connect(PATH) as ws:
+        ws.receive_json()
+        ws.send_json({"type": "config", "quiet_period": 0})
+        ws.receive_json()
+        ws.send_json(turn("lumenlab 是什么"))
+        assert ws.receive_json()["type"] == "error"
+
+
+def test_the_settling_frame_is_sent_exactly_once_per_provisional_card(client, monkeypatch):
+    """The happy path and the fail-safe are two calls to one mechanism, not two mechanisms.
+
+    A second `upgrade` on the same seq would re-settle a card the reader may have already
+    seen change, so the normal ending wins and the `finally` beneath it does nothing."""
+    full = ResolvedSuggestion(
+        kind="concept",
+        title="Lumenlab",
+        body="完整的卡片",
+        trigger="触发",
+        confidence=9,
+        citations=[Citation(source_id=SourceId(SRC), block_start=1, block_end=2)],
+        subject="projects/lumenlab.md",
+        subject_label="lumenlab",
+    )
+
+    async def fake_eval(_ctx, _user, plan, **kwargs):  # noqa: ANN001
+        await kwargs["on_glance"](glanced())
+        return result(full, glance=glanced(), glance_state="hit", glance_outcome="upgraded")
+
+    monkeypatch.setattr(suggestion_module, "run_evaluation", fake_eval)
+    with client.websocket_connect(PATH) as ws:
+        ws.receive_json()
+        ws.send_json({"type": "config", "quiet_period": 0, "stats": True})
+        ws.receive_json()
+        ws.send_json(turn("lumenlab 是什么"))
+        frames = [ws.receive_json() for _ in range(3)]
+    kinds = [f["type"] for f in frames]
+    assert kinds == ["suggestion", "upgrade", "stats"]
+    assert frames[1]["suggestion"]["title"] == "Lumenlab"
+
+
+def test_a_glance_card_ships_citations_the_client_can_OPEN(client, monkeypatch):
+    """The glance card's footnote rows have to reach the in-app span sheet like any other's.
+
+    `source_id + block span` is the one addressing scheme (I4), and the row the reader
+    clicks is built from those three fields. A glance card gets them for free — the
+    definition rests on ledger anchors, and its citations are whatever those claims cite —
+    so what this pins is that the SHAPE survives the wire: a library card's `citations`, a
+    web card's `web_citations`, and never one card carrying both."""
+
+    async def fake_eval(_ctx, _user, plan, **kwargs):  # noqa: ANN001
+        await kwargs["on_glance"](glanced())
+        return result(glance=glanced(), glance_state="hit", glance_outcome="alone")
+
+    monkeypatch.setattr(suggestion_module, "run_evaluation", fake_eval)
+    with client.websocket_connect(PATH) as ws:
+        ws.receive_json()
+        ws.send_json({"type": "config", "quiet_period": 0})
+        ws.receive_json()
+        ws.send_json(turn("lumenlab 是什么"))
+        card = ws.receive_json()["suggestion"]
+    assert card["kind"] == "glance"
+    assert card["citations"] == [{"source_id": SRC, "block_start": 4, "block_end": 5}]
+    assert all(
+        set(c) == {"source_id", "block_start", "block_end"} for c in card["citations"]
+    ), "exactly the three fields a jump is addressed by"
+    assert card["web_citations"] == [], "a library card carries one apparatus, not both"
+
+
 def test_a_tick_that_did_not_glance_says_so(client, monkeypatch):
     async def fake_eval(_ctx, _user, plan, **kwargs):  # noqa: ANN001
         return result(resolved("RAG"))

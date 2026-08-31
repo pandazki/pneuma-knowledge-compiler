@@ -36,6 +36,7 @@ now. Every row is that principle meeting a room:
     a find-a-person ask   → "who here knows X best?"            → people, not a definition
     a negative web answer → answers the question? no            → nothing is delivered
     a defined subject     → the library's own sentence, now     → the glance short-circuit
+    …and nothing behind it→ the ending is named all the same    → the glance settles alone
 
 Live mode: `PNEUMA_SCENARIOS_LIVE=1` is deliberately NOT implemented. Every row here scripts
 the model turn it is about, so a live variant would have to script nothing and assert nothing
@@ -65,7 +66,14 @@ from pneuma_knowledge_core.domain.suggestion import (
 )
 from pneuma_knowledge_core.ports.web_search import WebSearchAnswer
 from pneuma_knowledge_core.prompts import prompt
-from pneuma_knowledge_core.recall.live_pipeline import SKIP_NO_COVERAGE, SubjectLedger
+from pneuma_knowledge_core.recall.live_pipeline import (
+    GLANCE_ALONE,
+    GLANCE_HIT,
+    GLANCE_SETTLED,
+    GLANCE_UPGRADED,
+    SKIP_NO_COVERAGE,
+    SubjectLedger,
+)
 from pneuma_knowledge_core.recall.paths import PathResult
 
 # The mechanism suite's fakes, reused rather than copied: a second `FakeStructured` would be
@@ -220,6 +228,16 @@ async def play(scenario: Scenario):
         # the reason string.
         assert lexical.queries == [], f"{scenario.twin_of}: a skip paid for retrieval"
         assert pick_model.calls == [], f"{scenario.twin_of}: a skip reached the pick stage"
+
+    # A tick that delivered a provisional card ALWAYS names which of the three endings it
+    # reached. The transport's settling frame is keyed on that ending, so an unnamed one is
+    # a badge left reading 「细节补充中…」 after the tick behind it has finished. Asserted in
+    # the DRIVER rather than in a row, so it holds for every row written after this one.
+    if result.glance_state == GLANCE_HIT:
+        assert result.glance_outcome in (GLANCE_UPGRADED, GLANCE_SETTLED, GLANCE_ALONE), (
+            scenario.twin_of,
+            result.glance_outcome,
+        )
 
     if scenario.check is not None:
         scenario.check(result, discover_model, pick_model)
@@ -478,6 +496,41 @@ GLANCE_THEN_UPGRADE = Scenario(
 )
 
 
+# 9. The SAME room, and the ending the row above could not see. The glance goes out, the
+#    pipeline behind it runs to completion — and comes back with nothing that answers the
+#    question, so the reader is left holding the provisional card alone.
+#
+#    This row exists because its absence hid a live defect. Row 8 asserted `upgraded` and
+#    only `upgraded`, so the table said nothing about the two OTHER endings a glancing tick
+#    has — and a transport that settled the provisional card on one of the three was green.
+#    What the table now states is the property the transport is built on: a tick that
+#    delivered a glance always NAMES which ending it reached, and 「什么都没找到」 is one of
+#    the three rather than the absence of one.
+
+def _the_glance_stands_alone_and_says_so(result, discover_model, pick_model) -> None:
+    assert result.glance is not None, "the reader is holding a card"
+    assert result.suggestions == (), "…and it is the only one this tick produced"
+    assert result.glance_state == "hit"
+    assert result.glance_outcome == "alone", "the ending is NAMED, not left empty"
+
+
+GLANCE_THEN_NOTHING = Scenario(
+    twin_of="the same room, where the full pipeline answered nothing",
+    turns=(other("Ke Zhou 那边怎么说？"),),
+    discover=DiscoverResult(
+        intent="Ke Zhou 负责的是哪一块？",
+        plan=[people_plan("Ke Zhou")],
+        worth=8,
+    ),
+    # The pick read every candidate against the intent and none of them covers it.
+    pick=PickResult(choice=0, confidence=9),
+    paths=(PeopleAroundPath(PathResult(claims=(claim("k9", "people/ke-zhou.md", "Ke Zhou took over in March."),))),),
+    documents=(KE_ZHOU_PAGE, LUMEN),
+    expected="silent:" + SKIP_NO_COVERAGE,
+    check=_the_glance_stands_alone_and_says_so,
+)
+
+
 SCENARIOS: tuple[Scenario, ...] = (
     SMALL_TALK,
     ALREADY_MINED,
@@ -489,6 +542,7 @@ SCENARIOS: tuple[Scenario, ...] = (
     FIND_A_PERSON,
     NEGATIVE_WEB_ANSWER,
     GLANCE_THEN_UPGRADE,
+    GLANCE_THEN_NOTHING,
 )
 
 

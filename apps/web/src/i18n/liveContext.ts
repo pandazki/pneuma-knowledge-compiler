@@ -67,6 +67,8 @@ export const liveContext = defineMessages({
     "liveContext.card.glanceBadge": "速览 · 细节补充中…",
     "liveContext.card.glanceSettled": "速览",
     "liveContext.card.webNoExpand": "这张卡出自互联网搜索，展开请直接点下面的来源链接。",
+    "liveContext.card.glanceNoExpandYet": "速览来自库里已有的定义，细节还在补充，补完就可以展开。",
+    "liveContext.wire.settledInPlace": "原地定稿（无新卡）",
     "liveContext.web.tier.off": "未走互联网",
     "liveContext.web.tier.planned": "互联网·计划内",
     "liveContext.web.tier.fallback": "互联网·库空兜底",
@@ -270,6 +272,9 @@ export const liveContext = defineMessages({
     "liveContext.card.glanceSettled": "Glance",
     "liveContext.card.webNoExpand":
       "This card came from an internet search — follow the source links below to read more.",
+    "liveContext.card.glanceNoExpandYet":
+      "A glance is the library's own definition. The rest of this tick is still filling in; expanding returns the moment it settles.",
+    "liveContext.wire.settledInPlace": "settled in place (no new card)",
     "liveContext.web.tier.off": "no web lookup",
     "liveContext.web.tier.planned": "web · planned",
     "liveContext.web.tier.fallback": "web · library was empty",
