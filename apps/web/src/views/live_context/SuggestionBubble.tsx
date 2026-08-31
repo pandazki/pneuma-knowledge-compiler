@@ -122,17 +122,25 @@ export function SuggestionBubble({
   const t = useT();
   const suggestion: ContextSuggestion = card.suggestion;
   const isWeb = suggestion.kind === "web";
+  // The glance short-circuit's card: the subject's own definition, true and cited, shown a
+  // retrieval early. `provisional` says the tick behind it has not settled — the badge reads
+  // "filling in" and the card shimmers, and the `upgrade` frame ends both.
+  const isGlance = suggestion.kind === "glance";
+  const provisional = isGlance && suggestion.provisional === true;
   const webCitations = suggestion.web_citations ?? [];
   // `want_more` fetches a card's own citations VERBATIM out of the owner's store and asks a
   // model to expand within them. A web card has no source block to fetch, so there is
   // nothing to expand within — the honest surface is the pages themselves, which are one
   // click away above. Hiding the affordance is better than offering one that would fail.
-  const expandable = !isWeb;
+  // …and a provisional card has nothing to expand YET: its own tick is still building the
+  // material a `want_more` would read. The affordance returns the moment it settles.
+  const expandable = !isWeb && !provisional;
   return (
     <article
       className={cn(
         "relative rounded-2 border bg-raised p-4 shadow-overlay transition-colors",
         card.pinned ? "border-accent-line" : "border-line-2",
+        provisional && "animate-pulse",
       )}
       aria-live="polite"
     >
@@ -154,8 +162,14 @@ export function SuggestionBubble({
                 outside the library, its citations point at pages rather than at anything
                 the owner said, and a reader deciding how much to trust it is entitled to
                 know that before they read the lede rather than after. */}
-            <Badge tone={isWeb ? "accent" : "neutral"}>
-              {isWeb ? t("liveContext.card.webBadge") : kindLabel}
+            <Badge tone={isWeb || provisional ? "accent" : "neutral"}>
+              {isWeb
+                ? t("liveContext.card.webBadge")
+                : provisional
+                  ? t("liveContext.card.glanceBadge")
+                  : isGlance
+                    ? t("liveContext.card.glanceSettled")
+                    : kindLabel}
             </Badge>
             <Mono className="text-11 text-ink-3">confidence {suggestion.confidence}</Mono>
             {card.seq !== null && <Mono className="text-11 text-ink-3">seq {card.seq}</Mono>}

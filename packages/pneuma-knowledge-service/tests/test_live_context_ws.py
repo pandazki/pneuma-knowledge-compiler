@@ -418,3 +418,177 @@ def test_want_more_echoes_the_clients_ref_on_both_outcomes(client, monkeypatch):
         assert bad["ref"] == "card-9"  # the failure names its own request
 
     assert [c["title"] for c in calls] == ["ok", "boom"]
+
+
+# ─────────────────────────────────── the glance short-circuit on the socket
+#
+# The provisional card goes out on THIS tick's seq — the same slot the full card lands in —
+# so an upgrade is a replacement in place rather than a second bubble.
+
+
+def glanced(title: str = "Lumenlab") -> ResolvedSuggestion:
+    return ResolvedSuggestion(
+        kind="glance",
+        title=title,
+        body="Lumenlab 是企业异构数据的记忆基础设施。",
+        trigger="触发",
+        confidence=10,
+        citations=[Citation(source_id=SourceId(SRC), block_start=4, block_end=5)],
+        subject="projects/lumenlab.md",
+        subject_label="lumenlab",
+        provisional=True,
+    )
+
+
+def test_the_provisional_card_reaches_the_client_before_the_tick_settles(client, monkeypatch):
+    order: list[str] = []
+
+    async def fake_eval(_ctx, _user, plan, **kwargs):  # noqa: ANN001
+        await kwargs["on_glance"](glanced())
+        order.append("glance sent")
+        return result(glance=glanced(), glance_state="hit", glance_outcome="alone")
+
+    monkeypatch.setattr(suggestion_module, "run_evaluation", fake_eval)
+    with client.websocket_connect(PATH) as ws:
+        ws.receive_json()
+        ws.send_json({"type": "config", "quiet_period": 0})
+        ws.receive_json()
+        ws.send_json(turn("lumenlab 是什么"))
+        early = ws.receive_json()
+        assert early["type"] == "suggestion"
+        assert early["provisional"] is True
+        assert early["suggestion"]["kind"] == "glance"
+        assert early["suggestion"]["provisional"] is True
+        assert early["suggestion"]["citations"] == [
+            {"source_id": SRC, "block_start": 4, "block_end": 5}
+        ]
+        # …and the settling frame, on the SAME seq.
+        settle = ws.receive_json()
+        assert settle["type"] == "upgrade"
+        assert settle["seq"] == early["seq"]
+        assert settle["suggestion"] is None, "nothing else came: settle in place"
+    assert order == ["glance sent"]
+
+
+def test_a_full_card_about_the_same_subject_arrives_as_an_upgrade_and_not_a_second_bubble(
+    client, monkeypatch
+):
+    full = ResolvedSuggestion(
+        kind="concept",
+        title="Lumenlab",
+        body="完整的卡片",
+        trigger="触发",
+        confidence=9,
+        citations=[Citation(source_id=SourceId(SRC), block_start=1, block_end=2)],
+        subject="projects/lumenlab.md",
+        subject_label="lumenlab",
+    )
+
+    async def fake_eval(_ctx, _user, plan, **kwargs):  # noqa: ANN001
+        await kwargs["on_glance"](glanced())
+        return result(full, glance=glanced(), glance_state="hit", glance_outcome="upgraded")
+
+    monkeypatch.setattr(suggestion_module, "run_evaluation", fake_eval)
+    with client.websocket_connect(PATH) as ws:
+        ws.receive_json()
+        ws.send_json({"type": "config", "quiet_period": 0, "stats": True})
+        ws.receive_json()
+        ws.send_json(turn("lumenlab 是什么"))
+        assert ws.receive_json()["provisional"] is True
+        frame = ws.receive_json()
+        assert frame["type"] == "upgrade"
+        assert frame["suggestion"]["title"] == "Lumenlab"
+        assert frame["suggestion"]["provisional"] is False
+        # …and NO ordinary `suggestion` frame for the same card: the queue does not grow.
+        # `stats` closes every tick, so the next frame being it IS that assertion.
+        closing = ws.receive_json()
+        assert closing["type"] == "stats" and closing["delivered"] == 1
+
+
+def test_a_full_card_about_another_subject_settles_the_glance_and_queues_beside_it(
+    client, monkeypatch
+):
+    other = resolved("HNSW")
+
+    async def fake_eval(_ctx, _user, plan, **kwargs):  # noqa: ANN001
+        await kwargs["on_glance"](glanced())
+        return result(other, glance=glanced(), glance_state="hit", glance_outcome="settled")
+
+    monkeypatch.setattr(suggestion_module, "run_evaluation", fake_eval)
+    with client.websocket_connect(PATH) as ws:
+        ws.receive_json()
+        ws.send_json({"type": "config", "quiet_period": 0})
+        ws.receive_json()
+        ws.send_json(turn("lumenlab 是什么"))
+        assert ws.receive_json()["provisional"] is True
+        settle = ws.receive_json()
+        assert settle["type"] == "upgrade" and settle["suggestion"] is None
+        queued = ws.receive_json()
+        assert queued["type"] == "suggestion" and queued["suggestion"]["title"] == "HNSW"
+
+
+def test_the_glance_is_recorded_once_and_never_delivered_twice_for_one_subject(
+    client, monkeypatch
+):
+    """Repetition protection applies to a glance like any other card — and an upgrade about
+    the same subject does not count it a second time."""
+    seen: list = []
+
+    async def fake_eval(_ctx, _user, plan, **kwargs):  # noqa: ANN001
+        seen.append(tuple(sorted(r.key for r in kwargs["ledger"].records())))
+        if len(seen) == 1:
+            await kwargs["on_glance"](glanced())
+            return result(glance=glanced(), glance_state="hit", glance_outcome="alone")
+        return result()
+
+    monkeypatch.setattr(suggestion_module, "run_evaluation", fake_eval)
+    with client.websocket_connect(PATH) as ws:
+        ws.receive_json()
+        ws.send_json({"type": "config", "quiet_period": 0, "stats": True})
+        ws.receive_json()
+        ws.send_json(turn("lumenlab 是什么"))
+        ws.receive_json()  # the provisional card
+        ws.receive_json()  # its settling frame
+        assert ws.receive_json()["type"] == "stats"
+        ws.send_json(turn("再说说 lumenlab"))
+        assert ws.receive_json()["type"] == "stats", "the second tick ran and said nothing"
+    assert seen[0] == (), "the first tick's ledger knew nothing"
+    assert seen[1] == ("projects/lumenlab.md",), "delivery recorded it, once"
+
+
+def test_a_tick_reports_whether_it_glanced_and_how_it_ended(client, monkeypatch):
+    async def fake_eval(_ctx, _user, plan, **kwargs):  # noqa: ANN001
+        await kwargs["on_glance"](glanced())
+        return result(
+            glance=glanced(), glance_state="hit", glance_outcome="alone", glance_ms=41.5
+        )
+
+    monkeypatch.setattr(suggestion_module, "run_evaluation", fake_eval)
+    with client.websocket_connect(PATH) as ws:
+        ws.receive_json()
+        ws.send_json({"type": "config", "quiet_period": 0, "stats": True})
+        ws.receive_json()
+        ws.send_json(turn("lumenlab 是什么"))
+        ws.receive_json()  # provisional
+        ws.receive_json()  # upgrade
+        stats = ws.receive_json()
+        assert stats["type"] == "stats"
+        assert stats["glance"] == {"state": "hit", "outcome": "alone", "ms": 41.5}
+
+
+def test_a_tick_that_did_not_glance_says_so(client, monkeypatch):
+    async def fake_eval(_ctx, _user, plan, **kwargs):  # noqa: ANN001
+        return result(resolved("RAG"))
+
+    monkeypatch.setattr(suggestion_module, "run_evaluation", fake_eval)
+    with client.websocket_connect(PATH) as ws:
+        ws.receive_json()
+        ws.send_json({"type": "config", "quiet_period": 0, "stats": True})
+        ws.receive_json()
+        ws.send_json(turn("我们在聊 RAG"))
+        card = ws.receive_json()
+        # The frame-level flag is set only on the early emission; an ordinary card carries
+        # neither it nor a provisional mark of its own.
+        assert card["type"] == "suggestion" and "provisional" not in card
+        assert card["suggestion"]["provisional"] is False
+        assert ws.receive_json()["glance"]["state"] == "miss"

@@ -112,6 +112,20 @@ ASSEMBLIES: tuple[tuple[str, object, dict[str, str]], ...] = (
         lambda: discover_contract("general", (), web=True),
         {},
     ),
+    # The DENSITY axis, pinned like the web one and for the same reason: the three postures
+    # are one contract in three wordings (one clause differs — what counts as worth mining),
+    # and a pin on only the middle one would let the other two drift into contracts of their
+    # own. Balanced is `recall.live_discover` above — the default, so it stays the plain id.
+    (
+        "recall.live_discover_eager",
+        lambda: discover_contract("general", (), density="eager"),
+        {},
+    ),
+    (
+        "recall.live_discover_quiet",
+        lambda: discover_contract("general", (), density="quiet"),
+        {},
+    ),
     ("recall.live_pick", lambda: pick_contract(), {}),
     ("evolve.phase1", lambda: phase1_contract(), {}),
     ("evolve.phase2", lambda: phase2_contract(), {}),

@@ -13,6 +13,14 @@
  * thirty-second countdown is testable at all: "the bubble expired" is an assertion about a
  * return value, not a thing to sit and wait for.
  *
+ * A **provisional** card is the one card that CAN change after it arrives. The glance
+ * short-circuit delivers a subject's own definition the moment the plan names it — true,
+ * verbatim, cited, and a retrieval earlier than anything else — while the tick behind it is
+ * still running. When that tick settles, `upgrade` either replaces the card in place or
+ * simply clears the provisional mark. In place is the whole point: the reader is looking at
+ * one bubble that is filling in, not at two bubbles about one subject, and that holds even
+ * when the card is pinned or sitting in the queue.
+ *
  * Fate is recorded, not inferred. A suggestion leaves the bubble in one of three ways —
  * expired, dismissed, pinned-then-dismissed — and the history tab shows which, because "why
  * did I not see that one" and "why did that one stay" are different questions.
@@ -84,6 +92,41 @@ function retire(state: QueueState, fate: SuggestionFate, now: number): QueueStat
 export function arrive(state: QueueState, card: QueuedSuggestion, now: number): QueueState {
   if (state.current) return { ...state, queue: [...state.queue, card] };
   return { ...state, current: { ...card, shownAt: now, pinned: false } };
+}
+
+/**
+ * A provisional card settled. `full` present ⇒ it becomes that card, IN PLACE; `null` ⇒ it
+ * stays exactly what it is, minus the provisional mark.
+ *
+ * In place means in place, wherever it is — on screen, pinned, or still in the queue. A
+ * pinned card upgrades without unpinning, because pinning is the reader saying "hold this
+ * one" and the upgrade is that same one arriving in full. And a card whose countdown has
+ * been running keeps its own `shownAt`: the upgrade is what the reader was already waiting
+ * for, not a new thirty seconds.
+ *
+ * An `upgrade` naming a card that is already gone (expired, dismissed) does nothing at all.
+ * History records the final form, and a settled card that left the bubble before its tick
+ * finished is exactly what the reader saw.
+ */
+export function upgrade(
+  state: QueueState,
+  seq: number | null,
+  full: ContextSuggestion | null,
+): QueueState {
+  const settle = (card: ContextSuggestion): ContextSuggestion => ({
+    ...(full ?? card),
+    provisional: false,
+  });
+  const matches = (card: QueuedSuggestion) =>
+    card.seq === seq && card.suggestion.provisional === true;
+  const current =
+    state.current && matches(state.current)
+      ? { ...state.current, suggestion: settle(state.current.suggestion) }
+      : state.current;
+  const queue = state.queue.map((card) =>
+    matches(card) ? { ...card, suggestion: settle(card.suggestion) } : card,
+  );
+  return { ...state, current, queue };
 }
 
 /**

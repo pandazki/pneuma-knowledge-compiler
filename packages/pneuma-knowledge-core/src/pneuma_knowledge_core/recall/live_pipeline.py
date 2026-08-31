@@ -59,22 +59,32 @@ Human turn.
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel, ValidationError
 
-from ..canonical_glance import claim_display_text
-from ..compile.documents import OVERVIEW_LABEL
+from ..canonical_glance import (
+    claim_display_text,
+    document_definition,
+    document_title,
+    resolve_subject,
+)
+from ..compile.documents import OVERVIEW_LABEL, overview_region
+from ..compile.overview import ANCHOR_REFERENCE_RE
 from ..domain.canonical import Citation
 from ..domain.ids import UserId
 from ..domain.source import ConversationTurn
 from ..domain.suggestion import (
+    DEFAULT_DENSITY,
+    ContextDensity,
     ContextFocus,
     DiscoverResult,
     PickResult,
@@ -82,6 +92,7 @@ from ..domain.suggestion import (
     ResolvedSuggestion,
     SuggestionKind,
     WebCitation,
+    coerce_density,
 )
 from ..ports.claim_index import ClaimLexicalIndex, ClaimVectorIndex
 from ..ports.content_store import ContentStore
@@ -90,6 +101,7 @@ from ..ports.vector_index import VectorIndex
 from ..ports.web_search import WebSearch, WebSearchAnswer
 from ..prompts import prompt
 from .assembly import expand_and_merge, order_lost_in_middle
+from .projection import project_document_claims
 from .fast import (
     RetrievedClaim,
     extract_usage,
@@ -117,6 +129,11 @@ WEB = "web"
 #: How many transcript turns one tick may read. The window is the PENDING one — everything
 #: said since the last tick — and this bounds it; the overflow is not dropped silently but
 #: summarised into the digest as a stated count (see `PendingWindow`).
+if TYPE_CHECKING:  # pragma: no cover — typing only
+    from ..domain.canonical import CanonicalDocument
+
+_log = logging.getLogger(__name__)
+
 DEFAULT_MAX_PENDING_TURNS = 12
 
 #: How many candidate cards the pick stage may be shown. Not a knob: it is the size of a
@@ -142,7 +159,9 @@ CLAIMS_PER_CANDIDATE = 3
 #: The Live Context lane's stage vocabulary (see `stage_timing.py` — the vocabulary belongs
 #: to the lane). `retrieve`'s children are the semantic face and one `retrieve.path:<name>`
 #: per routed component path, which is the shared child mechanism unchanged.
-STAGE_ORDER: tuple[str, ...] = ("discover", "retrieve", "pick", "total")
+#: `glance` sits between discover and retrieve because that is exactly where it happens:
+#: the plan is parsed, the provisional card goes out, and everything below it runs on.
+STAGE_ORDER: tuple[str, ...] = ("discover", "glance", "retrieve", "pick", "total")
 RETRIEVE_CHILDREN: tuple[str, ...] = ("semantic", "web")
 
 #: Seconds the web face may take before the tick stops waiting for it. A constant and not a
@@ -223,8 +242,10 @@ def discover_contract(
     paths: Sequence[FastPath] = (),
     *,
     web: bool = False,
+    density: ContextDensity = DEFAULT_DENSITY,
 ) -> str:
-    """The discover SystemMessage. Byte-stable per (focus, enabled path set, web on/off).
+    """The discover SystemMessage. Byte-stable per (focus, enabled path set, web on/off,
+    density).
 
     With no component registered the `kinds` section holds `semantic` alone, which is
     exactly the contract this lane had before the seam existed.
@@ -235,7 +256,16 @@ def discover_contract(
     them said yes to. Advertising it otherwise would spend the small model's attention
     planning a retrieval that `plan_runs` was always going to reject. I5 is untouched — the
     result is still a function of the enabled set and nothing volatile, which is why both
-    variants can be (and are) byte-pinned."""
+    variants can be (and are) byte-pinned.
+
+    `density` varies ONE clause — what counts as worth mining — and nothing else. The three
+    postures were preset numbers before, and numbers alone could only move how MUCH got
+    through: on the eager preset the turn 「建议这个事情还是交给我们日本市场的负责人来做吧。」
+    was skipped, because a role standing in for an unnamed person was not a gap the one
+    shared wording recognised, whatever the floors were set to. The skip vocabulary, the
+    common-ground rule and the three output fields stay shared, which is what keeps these
+    three wordings of one contract rather than three contracts. The PICK contract does not
+    vary: how honestly a card is delivered is not a density matter."""
     offers = [_path_offer(p) for p in paths]
     offers.append(prompt("recall.live.discover.semantic_offer"))
     if web:
@@ -244,6 +274,7 @@ def discover_contract(
         "recall.live.discover.contract",
         focus=prompt(f"recall.suggestion.focus.{focus}"),
         kinds="\n".join(offers),
+        mining=prompt(f"recall.live.discover.mining.{coerce_density(density)}"),
     )
 
 
@@ -278,6 +309,45 @@ def take_pending(
     limit = max(1, int(max_pending_turns))
     kept = list(turns)[-limit:]
     return PendingWindow(turns=tuple(kept), overflowed=max(len(turns) - len(kept), 0))
+
+
+#: How many already-processed turns ride above the pending window, read-only. A CONSTANT,
+#: not a knob: it is the size of a short-term memory, and a deployment that could raise it
+#: would be paying the discover call's whole argument — that it is short — for context the
+#: stage is forbidden to mine anyway.
+DEFAULT_CONTEXT_TURNS = 8
+
+
+def take_context(
+    processed: Sequence[ConversationTurn],
+    pending: Sequence[ConversationTurn],
+    *,
+    max_context_turns: int = DEFAULT_CONTEXT_TURNS,
+) -> tuple[ConversationTurn, ...]:
+    """The read-only tail: the most recent processed turns, newest-last, bounded.
+
+    TWO ROLES, ONE TRANSCRIPT — and separating them is the whole of this. The pending run
+    says WHAT IS NEW TO MINE and is consumed by the tick that reads it (a skip consumes too,
+    which is the point: a stretch judged small talk is not re-judged and not re-paid for).
+    But intent formation is not mining. A tick whose pending run is 「也可以看看其他团队有没有
+    这方面的专家」 and nothing else has to invent what the expertise IS — and it will: measured
+    live, four turns about Apple's foldable phone were consumed by a quiet skip tick, and the
+    fifth turn alone produced an intent about **Android** foldables. The subject had not
+    changed; the window had.
+
+    So the tail rides along, above the new content and labelled as understood-not-evaluated.
+    It changes nothing about consumption: the same turns are mined exactly once, and are
+    afterwards only readable.
+    """
+    limit = max(0, int(max_context_turns))
+    if not limit:
+        return ()
+    # Excluded by IDENTITY, not by value: two turns are equal whenever their text is, and a
+    # room where somebody says 「好的」 twice would otherwise lose the earlier one out of the
+    # tail. What must never be both blocks is the same TURN, and that is what identity says.
+    held = {id(t) for t in pending}
+    keep = [t for t in processed if id(t) not in held]
+    return tuple(keep[-limit:])
 
 
 # --------------------------------------------------------------- the subject ledger
@@ -415,11 +485,17 @@ def discover_human(
     delivered: Sequence = (),
     digest: str = "",
     overflowed: int = 0,
+    context: str = "",
+    context_turns: int = 0,
 ) -> str:
-    """The discover Human turn: mined → ledger → as_of → the pending transcript (LAST).
+    """The discover Human turn: mined → ledger → as_of → earlier conversation → the pending
+    transcript (LAST).
 
     Same tail discipline as every other lane here: the live thing sits in the attention-hot
-    tail, below whatever it has to be read against."""
+    tail, below whatever it has to be read against — and `context` is precisely "whatever it
+    has to be read against", so it sits immediately above the new content and nowhere else.
+    Two headers, never one block: the contract tells the stage to understand the first and
+    evaluate the second, and a rule about two parts needs the two parts to be visible."""
     sections: list[str] = []
     mined = [line for line in (_mined_line(item) for item in delivered) if line]
     if mined:
@@ -435,9 +511,19 @@ def discover_human(
     )
     if overflowed:
         header += prompt("recall.live.section.pending_overflow", count=overflowed)
+    earlier = (
+        prompt("recall.live.section.context_header", turns=context_turns)
+        + "\n"
+        + context
+        + "\n\n"
+        if context
+        else ""
+    )
     return (
         ("\n\n".join(sections) + "\n\n" if sections else "")
-        + f"as_of: {as_of.isoformat()}\n{header}\n"
+        + f"as_of: {as_of.isoformat()}\n"
+        + earlier
+        + f"{header}\n"
         + transcript
     )
 
@@ -478,10 +564,13 @@ def discover_messages(
     delivered: Sequence = (),
     digest: str = "",
     overflowed: int = 0,
+    context: str = "",
+    context_turns: int = 0,
     web: bool = False,
+    density: ContextDensity = DEFAULT_DENSITY,
 ) -> list[BaseMessage]:
     return [
-        SystemMessage(content=discover_contract(focus, paths, web=web)),
+        SystemMessage(content=discover_contract(focus, paths, web=web, density=density)),
         HumanMessage(
             content=discover_human(
                 transcript,
@@ -489,6 +578,8 @@ def discover_messages(
                 delivered=delivered,
                 digest=digest,
                 overflowed=overflowed,
+                context=context,
+                context_turns=context_turns,
             )
         ),
     ]
@@ -993,6 +1084,184 @@ def _web_citations(
     return picked or card.web_citations
 
 
+# ────────────────────────────────────────────────── the glance short-circuit
+#
+# The first response used to cost the whole pipeline: discover, then retrieval, then a
+# second model call. But by the end of DISCOVER the lane already knows what the room is
+# looking for — and where a plan names a subject the library holds, the library already
+# holds one grounded sentence about it: the overview `definition`, written by a compile,
+# rewritten whenever the picture changes, and resting on ledger anchors (`c:xxxx`) it cites.
+#
+# So that sentence goes out immediately, verbatim, while stages 2 and 3 keep running. It
+# costs NO extra model call — it is a resolution and a parse — and it is not a guess: it is
+# the same sentence the full card would have opened with, arriving a retrieval earlier and
+# marked provisional so the reader knows the tick has not finished.
+
+#: The plan named a subject whose page carries a definition; a provisional card went out.
+GLANCE_HIT = "hit"
+#: No subject in the plan resolved to a page with a definition. Nothing was delivered early.
+GLANCE_MISS = "miss"
+#: …and how it ended: the full card was about the SAME subject, so the provisional card
+#: became it in place (the queue does not grow);
+GLANCE_UPGRADED = "upgraded"
+#: …the full card was about something else, so the glance settled and the new card queued;
+GLANCE_SETTLED = "settled"
+#: …or nothing else came, so the glance simply stopped being provisional.
+GLANCE_ALONE = "alone"
+
+
+@dataclass(frozen=True)
+class GlanceCard:
+    """A provisional card and the subject it is about, handed to the caller the moment the
+    plan is parsed. `outcome` is filled in on the settled result, never here."""
+
+    suggestion: ResolvedSuggestion
+    subject: str
+
+
+#: A plan value's own words are tried after the whole value. Bounded so a long semantic
+#: query cannot turn one dictionary lookup into a hundred.
+PLAN_WORDS_MAX = 12
+#: …and a word shorter than this is not a name anyone filed a document under.
+PLAN_WORD_MIN_CHARS = 2
+
+_PLAN_WORD_RE = re.compile(r"[0-9A-Za-z\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]+")
+
+
+def plan_subjects(plan: Sequence[PlanEntry]) -> list[str]:
+    """Every free-text subject a plan names, whole values first, then their own words.
+
+    A plan entry is a `kind` plus arguments whose NAMES belong to whichever component
+    registered the path, so core cannot ask for `subject` or `alias` by name and must not
+    try: it takes every non-empty argument value, plus a `semantic` entry's query. Each is
+    then offered to an EXACT resolution that answers for almost none of them — which is the
+    point. A value that names no document costs one dictionary lookup.
+
+    THE WORDS ARE TRIED TOO, and they have to be. A routed path's argument is often the
+    subject exactly (`people_around(Lumenlab)`), but a `semantic` entry's query is a
+    sentence — 「lumenlab 是什么？我一直没搞清楚。」 — and a sentence is never equal to a
+    document's title, so the one plan shape that most obviously wants an instant definition
+    was the one shape that could never get one. Splitting it does not make this a search:
+    every word still has to match a document's title, slug or filename EXACTLY under the one
+    normalisation, ties still resolve to nothing, and whole values are tried first so a
+    document named by the plan outright always wins over a word inside it.
+    """
+    out: dict[str, None] = {}
+    words: dict[str, None] = {}
+
+    def offer(text: str) -> None:
+        text = text.strip()
+        if not text:
+            return
+        out.setdefault(text, None)
+        for word in _PLAN_WORD_RE.findall(text):
+            if len(word) >= PLAN_WORD_MIN_CHARS:
+                words.setdefault(word, None)
+
+    for entry in plan:
+        for arg in entry.args:
+            offer(str(arg.value or ""))
+        offer(str(entry.query or ""))
+    for word in list(words)[:PLAN_WORDS_MAX]:
+        out.setdefault(word, None)
+    return list(out)
+
+
+def build_glance(
+    plan: Sequence[PlanEntry],
+    documents: Sequence["CanonicalDocument"],
+    *,
+    trigger: str = "",
+    ledger: SubjectLedger | None = None,
+    already_shown: Sequence = (),
+) -> GlanceCard | None:
+    """The provisional card, or None when nothing in the plan names a defined subject.
+
+    Mechanical throughout: resolve, read the definition, take the citations off the claims
+    its anchor references carry. Nothing is authored and no model is called, so the card is
+    exactly the library's own sentence — which is why it can be shown before anything has
+    been verified. It goes through the SAME repetition rules as any other card: a subject
+    this session has already introduced gets no second glance.
+
+    A tie resolves to nothing. Two documents equally named is precisely when a one-sentence
+    definition delivered instantly would be confidently wrong, and the full pipeline behind
+    it is better equipped to choose than a mechanism with no question in hand.
+    """
+    if not documents:
+        return None
+    by_path = {doc.path: doc for doc in documents}
+    shown = {
+        (
+            str(i.get("kind") if isinstance(i, Mapping) else getattr(i, "kind", "")).strip(),
+            _CITE_RESIDUE_RE.sub(
+                "",
+                str(i.get("title") if isinstance(i, Mapping) else getattr(i, "title", "")),
+            ).strip(),
+        )
+        for i in already_shown
+    }
+    for subject in plan_subjects(plan):
+        matches = resolve_subject(documents, subject)
+        if len(matches) != 1:
+            continue
+        doc, _how = matches[0]
+        definition = document_definition(doc)
+        if not definition:
+            continue
+        title = document_title(doc)
+        if ledger is not None and ledger.held_as_duplicate(doc.path, "glance"):
+            continue
+        if ("glance", title.strip()) in shown:
+            continue
+        citations = _definition_citations(doc, by_path)
+        if not citations:
+            # The same mechanical belt every card passes. A definition rests on ledger
+            # anchors by gate rule, so this only fires on a page written before that rule —
+            # and an uncited sentence is exactly what this feature must not deliver fast.
+            continue
+        return GlanceCard(
+            suggestion=ResolvedSuggestion(
+                kind="glance",
+                title=title,
+                body=definition,
+                trigger=trigger,
+                confidence=10,
+                citations=list(citations),
+                evidence=definition,
+                subject=doc.path,
+                subject_label=_document_label(doc.path),
+                provisional=True,
+            ),
+            subject=doc.path,
+        )
+    return None
+
+
+def _definition_citations(doc, by_path: Mapping[str, object]) -> tuple[Citation, ...]:
+    """The citations a definition rests on, read off the claims its `c:xxxx` references name.
+
+    The definition is the head of the overview, and the overview's rule is that every block
+    rests on a ledger claim or a source span. So its provenance is not a second thing to
+    store: it is whatever the claims it points at cite, and following the reference is how
+    the glance card gets real citations for free.
+    """
+    wanted = {m.group(1) for m in ANCHOR_REFERENCE_RE.finditer(overview_region(doc.body))}
+    if not wanted:
+        return ()
+    out: list[Citation] = []
+    seen: set[tuple[str, int, int]] = set()
+    for claim in project_document_claims(doc):
+        if str(claim.anchor) not in wanted:
+            continue
+        for cit in claim.citations:
+            key = (str(cit.source_id), cit.block_start, cit.block_end)
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(cit)
+    return tuple(out)
+
+
 def deliver(
     pick: PickResult | None,
     candidates: Sequence[SuggestionCandidate],
@@ -1103,6 +1372,25 @@ class PipelineResult:
     web_pages: int = 0
     #: How the web face was reached: `off` | `planned` | `fallback`. See `WEB_OFF`.
     web_tier: str = WEB_OFF
+    #: The provisional card this tick delivered early, if any — the same object the caller
+    #: already received through `on_glance`, carried here so a caller that has no callback
+    #: (the one-shot transport, a test) still sees it.
+    glance: ResolvedSuggestion | None = None
+    #: `hit` | `miss` — whether the plan named a subject the library could glance at — and,
+    #: when it hit, how it ended: `upgraded` (the full card was the same subject and took
+    #: the provisional card's place), `settled` (a different card came and this one merely
+    #: stopped being provisional), `alone` (nothing else came).
+    glance_state: str = GLANCE_MISS
+    glance_outcome: str = ""
+    #: Milliseconds from the tick's start to the provisional card leaving. Reported on its
+    #: own because the whole claim of this mechanism is WHEN it lands — a card counted in
+    #: `total` says nothing about whether it arrived a retrieval early.
+    glance_ms: float = 0.0
+    #: The mining posture this tick's discover contract was assembled under. Reported so
+    #: "why did nothing fire" can be answered with the posture in hand: the same turn is a
+    #: skip under `quiet` and a lookup under `eager`, and a record that showed only the skip
+    #: would make the difference look like model noise.
+    density: ContextDensity = DEFAULT_DENSITY
 
 
 def _merge_usage(*usages: Mapping[str, int]) -> dict[str, int]:
@@ -1198,6 +1486,29 @@ async def evaluate_live_pipeline(
     ledger: SubjectLedger | None = None,
     label_map: dict[str, str] | None = None,
     max_pending_turns: int = DEFAULT_MAX_PENDING_TURNS,
+    #: Turns this tick has ALREADY processed, newest last. Rendered read-only above the
+    #: pending window so intent formation can see what the new content refers back to. The
+    #: caller owns them because only the caller knows what "already processed" means for its
+    #: transport: a WebSocket session keeps a ring buffer, and a one-shot POST has the head
+    #: of its own submitted window (supplied automatically below).
+    context_turns: Sequence[ConversationTurn] = (),
+    max_context_turns: int = DEFAULT_CONTEXT_TURNS,
+    #: How eagerly this connection digs. One clause of the discover contract, nothing else.
+    density: ContextDensity = DEFAULT_DENSITY,
+    #: Canonical, for the glance short-circuit — the definition of a subject the plan names
+    #: goes out the moment the plan is parsed. With none passed there is no short-circuit
+    #: and the lane behaves exactly as it did before the mechanism existed.
+    documents: Sequence["CanonicalDocument"] = (),
+    #: …or a way to FETCH them, awaited only once a real plan exists. That distinction is
+    #: the whole reason this parameter is here beside the other: a skip is this lane's steady
+    #: state, and a tick that read the whole library before deciding it was small talk would
+    #: have made the cheap stage expensive to protect a card it was never going to deliver.
+    load_documents: Callable[[], Awaitable[Sequence["CanonicalDocument"]]] | None = None,
+    #: Called with the provisional card the instant it is built, so a transport can put it
+    #: on the wire while stages 2 and 3 are still running — which is the entire point. It is
+    #: awaited, and a callback that raises is logged and ignored: an early convenience must
+    #: never be able to fail the tick behind it.
+    on_glance: Callable[[ResolvedSuggestion], Awaitable[None]] | None = None,
     min_confidence: int = 6,
     # The web face's bound. A parameter so a test can reach it in milliseconds instead of
     # sleeping fifteen seconds — deliberately NOT a deployment setting: what it protects is
@@ -1216,13 +1527,52 @@ async def evaluate_live_pipeline(
     recorder = StageRecorder(STAGE_ORDER, RETRIEVE_CHILDREN)
     started = time.perf_counter()
 
+    posture = coerce_density(density)
+    #: Filled by the short-circuit below, then read by every return under it.
+    glance: GlanceCard | None = None
+    glance_ms = 0.0
+
     def finish(**fields) -> PipelineResult:
         recorder.record("total", (time.perf_counter() - started) * 1000.0)
-        return PipelineResult(stages=recorder.emit(), **fields)
+        # Which of the three endings happened is decided MECHANICALLY, from what the tick
+        # actually delivered — never asserted by a caller and never guessed.
+        state, outcome = GLANCE_MISS, ""
+        if glance is not None:
+            state = GLANCE_HIT
+            delivered = fields.get("suggestions") or ()
+            if any(card.subject == glance.subject for card in delivered):
+                outcome = GLANCE_UPGRADED
+            elif delivered:
+                outcome = GLANCE_SETTLED
+            else:
+                outcome = GLANCE_ALONE
+        return PipelineResult(
+            stages=recorder.emit(),
+            density=posture,
+            glance=glance.suggestion if glance is not None else None,
+            glance_state=state,
+            glance_outcome=outcome,
+            glance_ms=glance_ms,
+            **fields,
+        )
 
     window = take_pending(turns, max_pending_turns=max_pending_turns)
-    labels = label_turns(window.turns, label_map)
-    transcript = render_transcript(window.turns, labels)
+    # The submitted window's own head is context too, and for the same reason: a one-shot
+    # POST has no session to remember for it, but the turns it sent that did not fit the
+    # pending bound were already there to be read. They ride above, and `overflowed` then
+    # states only what reached NEITHER block — a count that says "did not fit" about turns
+    # printed two lines higher would be false.
+    head = tuple(turns)[: len(turns) - len(window.turns)]
+    earlier = take_context(
+        (*context_turns, *head), window.turns, max_context_turns=max_context_turns
+    )
+    shown = {id(t) for t in earlier}
+    overflowed = max(window.overflowed - sum(1 for t in head if id(t) in shown), 0)
+    # ONE labelling pass over both blocks: a participant number that meant one person above
+    # the fold and another below it is worse than no number at all.
+    labels = label_turns([*earlier, *window.turns], label_map)
+    context = render_transcript(earlier, labels[: len(earlier)])
+    transcript = render_transcript(window.turns, labels[len(earlier) :])
     asked = question_shaped(transcript)
 
     # The supplementary lookup is OFFERED only when something can actually serve it: the
@@ -1242,8 +1592,11 @@ async def evaluate_live_pipeline(
                 paths=paths,
                 delivered=already_shown,
                 digest=ledger.digest() if ledger is not None else "",
-                overflowed=window.overflowed,
+                overflowed=overflowed,
+                context=context,
+                context_turns=len(earlier),
                 web=web_offered,
+                density=posture,
             ),
             callbacks=callbacks,
             trace_metadata=trace_metadata,
@@ -1284,6 +1637,31 @@ async def evaluate_live_pipeline(
         + [f"{SEMANTIC}({q})" for q in queries]
         + [f"{WEB}({q})" for q in web_queries]
     )
+
+    # ── the glance short-circuit. Between stage 1 and stage 2, costing no model call: the
+    # plan names a subject, the library holds one grounded sentence about it, and that
+    # sentence goes out NOW while everything below keeps running.
+    if not documents and load_documents is not None:
+        try:
+            documents = await load_documents()
+        except Exception:  # noqa: BLE001 — an early convenience never fails the tick
+            _log.warning("glance canonical read failed; continuing", exc_info=True)
+            documents = ()
+    glance = build_glance(
+        plan.plan,
+        documents,
+        trigger=intent,
+        ledger=ledger,
+        already_shown=already_shown,
+    )
+    if glance is not None:
+        glance_ms = (time.perf_counter() - started) * 1000.0
+        recorder.record("glance", glance_ms)
+        if on_glance is not None:
+            try:
+                await on_glance(glance.suggestion)
+            except Exception:  # noqa: BLE001 — an early convenience never fails the tick
+                _log.warning("on_glance callback failed; continuing", exc_info=True)
 
     # ── stage 2: retrieve. Every entry of the plan, concurrently.
     query = queries[0] if queries else intent

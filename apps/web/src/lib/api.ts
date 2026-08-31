@@ -906,6 +906,13 @@ export interface ContextSuggestion {
   /** the transcript fragment that set this card off — the "why did this fire" answer. */
   trigger: string;
   confidence: number;
+  /**
+   * True only on a `kind: "glance"` card that has not settled yet — the subject's own
+   * one-sentence definition, verbatim and cited, shown while the tick behind it is still
+   * running. The `upgrade` frame on the same `seq` clears it, either by replacing the card
+   * in place or by settling it where it stands.
+   */
+  provisional?: boolean;
   citations: SuggestionCitation[];
   /**
    * The SECOND citation shape, carried by `kind: "web"` cards and empty on every other one.
@@ -1026,6 +1033,17 @@ export interface SuggestionShown {
 export interface LiveContextStreamBody {
   turns: ContextTurnInput[];
   focus: string;
+  /**
+   * How eagerly the lane digs: `eager` | `balanced` | `quiet`. Absent or unknown ⇒
+   * `balanced` server-side — a density arrives from a preset pill, from an older client
+   * that has none, and from a custom setting carrying only numbers, and none of those is a
+   * reason to fail the request.
+   *
+   * It is sent BESIDE the numbers, not instead of them: the numbers say how much gets
+   * through, the density says what is looked for at all, and the two are different
+   * questions. See `liveContextDensity.ts`.
+   */
+  density?: string;
   min_confidence: number;
   max_pending_turns: number;
   /** Ask for the supplementary internet search on this one-shot evaluation. */
@@ -1104,6 +1122,8 @@ export async function liveContextStream(
 export interface LiveContextReadyFrame {
   type: "ready";
   focus: string;
+  /** The EFFECTIVE posture — already coerced, so this is the truth, not the request. */
+  density: string;
   min_confidence: number;
   /** The ceiling on one tick's pending run — not a sliding tail. */
   max_pending_turns: number;
@@ -1159,7 +1179,21 @@ export interface LiveContextErrorFrame {
 export type LiveContextServerFrame =
   | LiveContextReadyFrame
   | LiveContextStatsFrame
-  | { type: "suggestion"; seq: number; suggestion: ContextSuggestion }
+  | {
+      type: "suggestion";
+      seq: number;
+      suggestion: ContextSuggestion;
+      /** Set on the glance short-circuit's early card; see `ContextSuggestion.provisional`. */
+      provisional?: boolean;
+    }
+  /**
+   * One provisional card's ending, on the seq that delivered it. `suggestion` present ⇒ the
+   * full card is about the SAME subject and takes the provisional one's place, in that slot,
+   * so the queue does not grow; `null` ⇒ settle where it stands — the same card, no longer
+   * provisional, with anything else the tick produced arriving as ordinary `suggestion`
+   * frames beside it.
+   */
+  | { type: "upgrade"; seq: number; suggestion: ContextSuggestion | null }
   | SuggestionDetailFrame
   | LiveContextErrorFrame
   | { type: "ping" };
@@ -1168,6 +1202,8 @@ export type LiveContextServerFrame =
  * (JSON null would mean "unchanged"), which is why this is `string`, not `string | null`. */
 export interface LiveContextConfigMessage {
   focus?: string;
+  /** `eager` | `balanced` | `quiet`. Unknown values are coerced, never rejected. */
+  density?: string;
   min_confidence?: number;
   max_pending_turns?: number;
   quiet_period?: number;

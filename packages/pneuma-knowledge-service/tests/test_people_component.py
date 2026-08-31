@@ -62,6 +62,11 @@ def _person(slug: str, identities: str = "", aliases: str = "", title: str | Non
     )
 
 
+def _path(component, name: str = "person"):
+    """The named fast path off a component that now offers more than one."""
+    return next(p for p in component.fast_paths(USER) if p.name == name)
+
+
 def _raw(sid: str, kind: str, meta: dict, day: str) -> RawSource:
     return RawSource(
         source_id=SourceId(sid),
@@ -490,7 +495,7 @@ async def test_the_person_fast_path_returns_current_claims_first_then_superseded
         ),
     )
     component = PeopleComponent(FAMILY, canonical=_Canonical([page]))
-    [path] = component.fast_paths(USER)
+    path = _path(component)
     assert path.name == "person" and "superseded" in path.description
     result = await path.run(USER, path.args_schema(alias="老贾"))
     assert [(str(c.anchor), c.labels) for c in result.claims] == [
@@ -518,7 +523,7 @@ async def test_person_profile_and_the_pinned_documents_win_over_the_store():
     # enumerate binds through the pinned documents too
     assert "→ memory/people/jia-ning.md" in await tools["enumerate_identities"].coroutine()
     # and the fast path reads the pinned page rather than the store's HEAD
-    [path] = component.fast_paths(USER)
+    path = _path(component)
     result = await path.run(USER, path.args_schema(alias="贾宁"), documents=[pinned_page])
     assert [str(c.anchor) for c in result.claims] == ["c07e", "a1f3"]
 
@@ -587,7 +592,7 @@ async def test_the_person_path_returns_the_whole_page_and_the_navigation_line_pa
     component = PeopleComponent(FAMILY, canonical=_Canonical([page]))
 
     # the fast path hands over all 61 claims; nothing is cut before the framework ranks
-    [path] = component.fast_paths(USER)
+    path = _path(component)
     result = await path.run(USER, path.args_schema(alias="贾宁"))
     assert len(result.claims) == 61
 
@@ -1405,7 +1410,7 @@ async def test_the_person_fast_path_resolves_a_reported_term_and_labels_those_cl
     component = PeopleComponent(
         FAMILY, content=_Content([]), canonical=_Canonical([_hw_page()])
     )
-    [path] = component.fast_paths(USER)
+    path = _path(component)
 
     await _indexed(component, "arc-1")
     assert (await path.run(USER, path.args_schema(alias="阿宝"))).claims == ()
@@ -1422,7 +1427,7 @@ async def test_the_person_fast_path_resolves_a_reported_term_and_labels_those_cl
         FAMILY, content=_Content([]), canonical=_Canonical([_hw_page(aliases="阿宝")])
     )
     await _indexed(confirmed, "arc-1", "arc-2")
-    [confirmed_path] = confirmed.fast_paths(USER)
+    confirmed_path = _path(confirmed)
     result = await confirmed_path.run(USER, confirmed_path.args_schema(alias="阿宝"))
     assert [c.labels for c in result.claims] == [("current",), ("current",)]
 
@@ -3556,7 +3561,7 @@ def _with_definition(doc: CanonicalDocument, definition: str) -> CanonicalDocume
 
 
 async def _person_path(component, **kwargs):
-    [path] = component.fast_paths(USER)
+    path = _path(component)
     return await path.run(USER, path.args_schema(**kwargs))
 
 
@@ -3758,3 +3763,384 @@ def test_every_people_lookup_goes_through_the_one_name_normaliser():
     ):
         source = inspect.getsource(rule)
         assert "name_candidates(" not in source and "name_keys(" not in source
+
+
+# ══════════════════════════════════════════════ the people around a subject
+#
+# The second entry on the same two seams. `person` answers "who is X" and needs a NAME;
+# a conversation that asks 「能不能邀请 lumenlab 的同学来分享一下?」 names no person at
+# all — the subject is a project, and the people are what the library already wrote around
+# it. That answer needs no model: canonical holds it as ordinary markdown links, and the
+# claim carrying the link is the evidence.
+
+
+def _subject(
+    path: str = "projects/lumenlab.md",
+    *,
+    slug: str = "lumenlab",
+    title: str = "Lumen Lab",
+    connections: str = "",
+    log: str = "",
+    aid: str = "0da",
+) -> CanonicalDocument:
+    body = f"""# {title}
+
+<!-- overview -->
+
+<!-- overview:definition -->
+### definition
+
+{title} builds optical benches. [cite: src-01 ¶0-1] <!-- c:{aid}01 -->
+{connections}
+<!-- /overview -->
+
+## Log
+
+- {title} shipped its second bench. [cite: src-01 ¶8-9] <!-- c:{aid}09 -->
+{log}"""
+    return CanonicalDocument(
+        doc_id=DocumentId(f"d-{slug}"),
+        path=path,
+        frontmatter={"doc_id": f"d-{slug}", "type": "project", "slug": slug, "title": title},
+        body=body,
+    )
+
+
+CONNECTIONS = """
+<!-- overview:connections -->
+### connections
+
+- [memory/people/ke-zhou.md](../memory/people/ke-zhou.md) — Ke ZHOU runs the bench programme. [cite: src-01 ¶2-3] <!-- c:0da02 -->
+"""
+
+
+def _page(slug: str, title: str, body: str, *, type_: str = "person", folder: str = "memory/people"):
+    return CanonicalDocument(
+        doc_id=DocumentId(f"d-{slug}"),
+        path=f"{folder}/{slug}.md",
+        frontmatter={"doc_id": f"d-{slug}", "type": type_, "slug": slug, "title": title},
+        body=body,
+    )
+
+
+MEI = _page(
+    "mei-lin",
+    "Mei LIN",
+    """# Mei LIN
+
+<!-- overview -->
+
+<!-- overview:definition -->
+### definition
+
+Mei LIN is the optics lead. [cite: src-02 ¶0-1] <!-- c:ae001 -->
+
+<!-- /overview -->
+
+## Log
+
+- Mei LIN joined [Lumen Lab](../../projects/lumenlab.md) in March. [cite: src-02 ¶2-3] <!-- c:ae002 -->
+- Mei LIN chairs [Lumen Lab](../../projects/lumenlab.md)'s review board. [cite: src-02 ¶4-5] <!-- c:ae003 -->
+""",
+)
+
+# Reached ONLY from the subject document's own connections line: nothing on this page names
+# Lumen Lab, and the relation is no less written down for it.
+KE = _page(
+    "ke-zhou",
+    "Ke ZHOU",
+    """# Ke ZHOU
+
+## Log
+
+- Ke ZHOU coordinates the bench programme. [cite: src-03 ¶0-1] <!-- c:bc001 -->
+""",
+)
+
+# One link, and canonical has already replaced the claim that carried it.
+HANA = _page(
+    "hana-oda",
+    "Hana ODA",
+    """# Hana ODA
+
+## Log
+
+- Hana ODA led [Lumen Lab](../../projects/lumenlab.md)'s calibration. [cite: src-04 ¶0-1] <!-- c:cd001 -->
+- Hana ODA now leads the metrology group. [cite: src-04 ¶2-3] <!-- supersedes: c:cd001 --> <!-- c:cd002 -->
+""",
+)
+
+# A PROJECT page linking the same subject. Not a person, so it is not somebody around it.
+APEX = _page(
+    "apex-bench",
+    "Apex Bench",
+    """# Apex Bench
+
+## Log
+
+- Apex Bench reuses [Lumen Lab](../lumenlab.md)'s optics. [cite: src-05 ¶0-1] <!-- c:de001 -->
+""",
+    type_="project",
+    folder="projects",
+)
+
+LIBRARY = [_subject(connections=CONNECTIONS), MEI, KE, HANA, APEX]
+
+
+def _around(component=None, *, subject: str, documents=None, **kwargs):
+    component = component or PeopleComponent(FAMILY)
+    return component.around_claims(USER, subject=subject, documents=documents or LIBRARY, **kwargs)
+
+
+def _people_of(claims) -> list[str]:
+    """The person pages the face enumerates, in the order it put them."""
+    out: list[str] = []
+    for claim in claims:
+        for label in claim.labels:
+            if label.startswith("person:") and label[7:] not in out:
+                out.append(label[7:])
+    return out
+
+
+# ── resolving the subject ─────────────────────────────────────────────────────
+
+
+def test_a_subject_resolves_by_title_slug_filename_or_path_under_one_normalisation():
+    component = PeopleComponent(FAMILY)
+    docs = {d.path: d for d in LIBRARY}
+    # One key on both sides, with separators dropped entirely: `Lumen Lab`, `lumen-lab` and
+    # `lumenlab` are one name, so the title answers all three and the slug/filename tiers
+    # stand behind it for a document whose heading says something else.
+    for query, how in (
+        ("projects/lumenlab.md", "path"),
+        ("Lumen Lab", "title"),
+        ("  lumen   lab ", "title"),
+        ("LUMEN-LAB", "title"),
+        ("lumenlab", "title"),
+    ):
+        [match] = component.resolve_subject(docs, subject=query)
+        assert (match.path, match.how) == ("projects/lumenlab.md", how), query
+    # …and a page whose heading is not its slug is still reachable by the slug.
+    coded = _page("bench-7", "The Optics Bench", "# The Optics Bench\n", type_="project", folder="projects")
+    [by_slug] = component.resolve_subject({coded.path: coded}, subject="bench-7")
+    assert by_slug.how == "slug"
+
+
+def test_a_subject_nothing_is_named_after_resolves_to_nothing_rather_than_to_the_nearest():
+    component = PeopleComponent(FAMILY)
+    docs = {d.path: d for d in LIBRARY}
+    assert component.resolve_subject(docs, subject="lumen") == []
+    assert component.resolve_subject(docs, subject="") == []
+
+
+def test_a_tie_of_three_or_fewer_comes_back_whole_and_every_row_says_which_one_it_answers():
+    """Two documents are named `Lumen Lab`; a lookup that picked one would invent the half
+    it dropped. Both come back, and every claim carries its own `subject:` label."""
+    twin = _subject("topics/lumenlab.md", slug="lumen-topic", title="Lumen Lab", aid="2b0")
+    docs = {d.path: d for d in [*LIBRARY, twin]}
+    component = PeopleComponent(FAMILY)
+    matches = component.resolve_subject(docs, subject="Lumen Lab")
+    assert [m.path for m in matches] == ["projects/lumenlab.md", "topics/lumenlab.md"]
+
+
+async def test_a_tie_of_three_or_fewer_labels_every_row_with_the_document_it_answers_for():
+    twin = _subject("topics/lumenlab.md", slug="lumen-topic", title="Lumen Lab", aid="2b0")
+    claims = await _around(subject="Lumen Lab", documents=[*LIBRARY, twin])
+    assert claims
+    assert all(
+        any(label.startswith("subject:") for label in claim.labels) for claim in claims
+    )
+
+
+async def test_a_single_subject_labels_no_row_with_it():
+    """The label exists to tell two answers apart. One answer has nothing to tell apart."""
+    claims = await _around(subject="Lumen Lab")
+    assert not any(
+        label.startswith("subject:") for claim in claims for label in claim.labels
+    )
+
+
+async def test_more_than_three_tied_documents_is_an_empty_face_not_a_guess():
+    twins = [
+        _subject(f"topics/lumen-{n}.md", slug=f"lumen-{n}", title="Lumen Lab", aid=f"1a{n}0")
+        for n in range(4)
+    ]
+    assert await _around(subject="Lumen Lab", documents=[*LIBRARY, *twins]) == []
+
+
+async def test_the_deep_tool_names_the_tied_documents_instead_of_choosing_between_them():
+    twins = [
+        _subject(f"topics/lumen-{n}.md", slug=f"lumen-{n}", title="Lumen Lab", aid=f"1a{n}0")
+        for n in range(4)
+    ]
+    text = await PeopleComponent(FAMILY).people_around(
+        USER, subject="Lumen Lab", documents=[*LIBRARY, *twins]
+    )
+    assert "names 5 documents equally well" in text
+    assert "`topics/lumen-0.md`" in text and "`projects/lumenlab.md`" in text
+
+
+# ── the enumeration ───────────────────────────────────────────────────────────
+
+
+async def test_both_directions_count_and_each_person_carries_the_sentence_that_links_them():
+    claims = await _around(subject="lumenlab")
+    by_anchor = {str(c.anchor): c for c in claims}
+    # Mei LIN's own claims link the subject; the subject's connections line links Ke ZHOU.
+    assert "links-to" in by_anchor["ae002"].labels
+    assert by_anchor["ae002"].document_path == "memory/people/mei-lin.md"
+    assert "linked-from" in by_anchor["0da02"].labels
+    assert by_anchor["0da02"].document_path == "projects/lumenlab.md"
+    assert "person:memory/people/ke-zhou.md" in by_anchor["0da02"].labels
+    # the linking SENTENCE, verbatim, and its citation intact (I4)
+    assert "Mei LIN joined" in by_anchor["ae002"].text
+    assert [
+        (str(c.source_id), c.block_start, c.block_end) for c in by_anchor["ae002"].citations
+    ] == [("src-02", 2, 3)]
+    assert [
+        (str(c.source_id), c.block_start, c.block_end) for c in by_anchor["0da02"].citations
+    ] == [("src-01", 2, 3)]
+
+
+async def test_every_person_carries_the_line_that_says_who_they_are():
+    claims = await _around(subject="lumenlab")
+    by_anchor = {str(c.anchor): c for c in claims}
+    # Mei LIN has an overview definition; Ke ZHOU has none, so the head of her ledger stands in.
+    assert "definition" in by_anchor["ae001"].labels
+    assert "Mei LIN is the optics lead." in by_anchor["ae001"].text
+    assert "Ke ZHOU coordinates" in by_anchor["bc001"].text
+    assert by_anchor["bc001"].labels == ("current", "person:memory/people/ke-zhou.md")
+
+
+async def test_the_most_linked_person_comes_first_and_the_superseded_link_comes_last():
+    assert _people_of(await _around(subject="lumenlab")) == [
+        "memory/people/mei-lin.md",  # two living links
+        "memory/people/ke-zhou.md",  # one
+        "memory/people/hana-oda.md",  # one, and canonical has replaced it
+    ]
+
+
+async def test_a_superseded_linking_claim_is_kept_and_labelled_never_dropped():
+    """`person_claims`' own convention: canonical does not delete, so a relation the library
+    has replaced is part of what it knows — it simply does not rank."""
+    claims = await _around(subject="lumenlab")
+    [hana] = [c for c in claims if str(c.anchor) == "cd001"]
+    assert "superseded" in hana.labels and "links-to" in hana.labels
+    assert "current" not in hana.labels
+
+
+async def test_only_person_pages_are_enumerated():
+    """A project page links the same subject, and the subject links itself nowhere."""
+    people = _people_of(await _around(subject="lumenlab"))
+    assert "projects/apex-bench.md" not in people
+    assert "projects/lumenlab.md" not in people
+    assert all(p.startswith("memory/people/") for p in people)
+
+
+async def test_a_subject_nobody_is_linked_with_is_an_empty_face_not_an_error():
+    lonely = _subject("projects/quiet.md", slug="quiet", title="Quiet", aid="3c0")
+    assert await _around(subject="quiet", documents=[*LIBRARY, lonely]) == []
+    text = await PeopleComponent(FAMILY).people_around(
+        USER, subject="quiet", documents=[*LIBRARY, lonely]
+    )
+    assert "no person page in this library is linked with quiet" in text
+
+
+async def test_a_subject_the_library_does_not_hold_is_an_empty_face_not_an_error():
+    assert await _around(subject="ghost") == []
+    assert "no document in this library is named ghost" in await PeopleComponent(
+        FAMILY
+    ).people_around(USER, subject="ghost", documents=LIBRARY)
+
+
+# ── the two seams ─────────────────────────────────────────────────────────────
+
+
+async def test_the_fast_path_returns_the_enumeration_and_declares_its_argument_for_the_router():
+    component = PeopleComponent(FAMILY)
+    path = _path(component, "people_around")
+    assert path.name == "people_around"
+    assert list(path.args_schema.model_fields) == ["subject"]
+    described = path.args_schema.model_fields["subject"].description
+    assert "project" in described and "PEOPLE connected to it" in described
+    result = await path.run(
+        USER, path.args_schema(subject="lumenlab"), documents=LIBRARY
+    )
+    assert _people_of(result.claims) == [
+        "memory/people/mei-lin.md",
+        "memory/people/ke-zhou.md",
+        "memory/people/hana-oda.md",
+    ]
+
+
+async def test_the_deep_tool_is_the_same_enumeration_as_text_with_its_citations():
+    [tool] = [
+        t for t in PeopleComponent(FAMILY).recall_tools(USER, documents=LIBRARY)
+        if t.name == "people_around"
+    ]
+    text = await tool.ainvoke({"subject": "Lumen Lab"})
+    assert "# people around `projects/lumenlab.md` — Lumen Lab" in text
+    assert "`memory/people/mei-lin.md` — Mei LIN · 2 linking claim(s)" in text
+    assert "[c:ae002 · links-to] Mei LIN joined" in text
+    assert "[cite: src-02 ¶2-3]" in text
+    assert "[c:cd001 · links-to · superseded]" in text
+    assert "who: Mei LIN is the optics lead." in text
+    assert "— 3 of 3 people shown" in text
+
+
+async def test_the_deep_tool_paginates_in_people_and_says_what_it_did_not_show():
+    crowd = [
+        _page(
+            f"person-{n:02d}",
+            f"Person {n:02d}",
+            f"# Person {n:02d}\n\n- Person {n:02d} works at "
+            f"[Lumen Lab](../../projects/lumenlab.md). [cite: src-06 ¶{n}-{n}] "
+            f"<!-- c:f{n:02d}ab -->\n",
+        )
+        for n in range(10)
+    ]
+    text = await PeopleComponent(FAMILY).people_around(
+        USER, subject="lumenlab", documents=[*LIBRARY, *crowd]
+    )
+    assert "— 8 of 13 people shown (positions 1-8)" in text
+    assert 'the rest: people_around(subject="lumenlab", offset=8, limit=8)' in text
+
+
+async def test_the_fast_path_never_truncates_what_the_deep_tool_pages_through():
+    """A path returns everything it knows (`recall/paths.py`); the framework orders it
+    against the question and spends the declared cap on THAT order."""
+    crowd = [
+        _page(
+            f"person-{n:02d}",
+            f"Person {n:02d}",
+            f"# Person {n:02d}\n\n- Person {n:02d} works at "
+            f"[Lumen Lab](../../projects/lumenlab.md). [cite: src-06 ¶{n}-{n}] "
+            f"<!-- c:f{n:02d}ab -->\n",
+        )
+        for n in range(10)
+    ]
+    claims = await _around(subject="lumenlab", documents=[*LIBRARY, *crowd])
+    assert len(_people_of(claims)) == 13
+
+
+def test_the_router_is_offered_both_paths_and_the_offer_is_byte_stable():
+    """Discover pickup is automatic — the contract is assembled from the REGISTERED paths'
+    own descriptions and argument schemas. Pinned here rather than in the core surface
+    tests because those may not import a service component (`service → core` is one-way);
+    the core pin stays the zero-path contract and is unchanged by this path existing."""
+    from pneuma_knowledge_core.recall.live_pipeline import discover_contract
+
+    component = PeopleComponent(FAMILY)
+    contract = discover_contract("general", tuple(component.fast_paths(USER)))
+    assert "`person`" in contract and "`people_around`" in contract
+    assert "subject" in contract
+    assert contract == discover_contract("general", tuple(component.fast_paths(USER)))
+    assert "2026" not in contract
+
+
+def test_a_deployment_with_no_component_is_byte_for_byte_what_it_always_was():
+    from pneuma_knowledge_core.recall.live_pipeline import discover_contract
+
+    bare = discover_contract("general", ())
+    assert "`people_around`" not in bare and "`person`" not in bare
+    assert bare == discover_contract("general", ())

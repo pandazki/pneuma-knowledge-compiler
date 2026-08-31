@@ -352,6 +352,25 @@ templates).
   over search hits.
 - **`person_profile`** for deep recall and a **`person` fast path**: the whole page, current
   claims first, superseded history labelled.
+- **`people_around`**, a `people_around(subject)` fast path and its deep twin: the other
+  question a library is asked about people, and the one `person` cannot take. 「能不能邀请
+  lumenlab 的同学来分享一下?」 names no person at all — it names a **subject**, and the answer
+  is the people the library already wrote around it. Pure derivation, no model: the subject
+  resolves by exact match under one normalisation (case, whitespace, punctuation — no pinyin,
+  a project has no second convention to be written in) against every document's path, title,
+  `slug` and filename, across **all** families, not only this one's; then the person pages
+  canonical LINKS with it come back in **both directions** — a person page's own claim
+  pointing at the subject (`links-to`) and the subject's own claim pointing at the person
+  (`linked-from`, which an overview `connections` line is) — each with the line that says who
+  they are and every linking claim, verbatim and cited. The linking claim IS the evidence: a
+  compile already read the material, decided the two subjects are related, and wrote a cited
+  sentence saying how; returning the edge without that sentence would return the half nobody
+  can check. Edges are read with the gate's own regex and resolver (`compile/links.py`), so
+  what is enumerated is exactly what the write side validated. Superseded linking claims are
+  kept and labelled, as `person_profile` keeps a page's history, and rank last. A tie of three
+  documents or fewer comes back whole with every row labelled by the subject it answers for;
+  more than three, a name the library does not hold, and a subject nobody is linked with are
+  all an empty face rather than a guess.
 - **Contact-book name matching**, the one normaliser every people lookup goes through
   (`find_person`, the `person` fast path, `person_profile`). Exact matching alone made a
   question written in one convention miss a page written in another: a page titled

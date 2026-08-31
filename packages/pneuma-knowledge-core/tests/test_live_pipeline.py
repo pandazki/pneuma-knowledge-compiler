@@ -26,8 +26,8 @@ import pytest
 from langchain_core.messages import AIMessage
 from pydantic import BaseModel, Field
 
-from pneuma_knowledge_core.domain.canonical import Citation
-from pneuma_knowledge_core.domain.ids import SourceId, UserId
+from pneuma_knowledge_core.domain.canonical import CanonicalDocument, Citation
+from pneuma_knowledge_core.domain.ids import DocumentId, SourceId, UserId
 from pneuma_knowledge_core.domain.source import ConversationTurn
 from pneuma_knowledge_core.domain.suggestion import (
     DiscoverResult,
@@ -60,6 +60,11 @@ from pneuma_knowledge_core.recall.live_pipeline import (
     pick_contract,
     plan_runs,
     render_candidates,
+    PLAN_WORDS_MAX,
+    build_glance,
+    coerce_density,
+    plan_subjects,
+    take_context,
     take_pending,
 )
 from pneuma_knowledge_core.ports.web_search import WebSearchAnswer
@@ -733,12 +738,185 @@ def test_the_pending_window_states_what_did_not_fit_instead_of_dropping_it_silen
 
 @pytest.mark.asyncio
 async def test_the_overflow_count_reaches_the_model():
+    """20 turns, 5 of them pending: 8 of the other 15 now ride above as the read-only
+    context tail, so exactly 7 reached NEITHER block. The count says "did not fit", and it
+    would be false about turns printed two lines higher."""
     _, discover_model, _, _, _, _ = await run_lane(
         discover=discovered(skip=True, reason="nothing_new"),
         turns=[owner(f"line {i}") for i in range(20)],
         max_pending_turns=5,
     )
-    assert "15 earlier turns did not fit" in discover_model.human
+    assert "7 earlier turns did not fit" in discover_model.human
+    assert "line 7" in discover_model.human, "the context tail starts at the 8th-from-last"
+    assert "line 6" not in discover_model.human, "…and nothing older reaches the model"
+
+
+# ───────────────────────── the read-only context tail (intent formation ≠ mining)
+#
+# Observed live: 「好像苹果要开新的发布会了」→「好像有折叠屏的手机要发」→「APP 需不需要在折叠
+# 屏上适配」→「我们这边 iOS 负责的同学应该会关注的」 were consumed by a quiet tick that skipped
+# (`nothing_new` — consumption is by design). The next turn, 「也可以看看其他团队有没有这方面的
+# 专家」, arrived alone, and discover invented the domain: an intent about **Android** foldables.
+# The subject had not changed; the window had.
+
+APPLE = [
+    other("好像苹果要开新的发布会了"),
+    other("好像有折叠屏的手机要发"),
+    owner("APP 需不需要在折叠屏上适配"),
+    owner("我们这边 iOS 负责的同学应该会关注的"),
+]
+FIFTH = other("也可以看看其他团队有没有这方面的专家")
+
+
+def test_the_context_tail_is_the_processed_turns_minus_whatever_is_pending():
+    assert take_context(APPLE, [FIFTH]) == tuple(APPLE)
+    # bounded, newest kept
+    assert take_context(APPLE, [FIFTH], max_context_turns=2) == tuple(APPLE[-2:])
+    assert take_context(APPLE, [FIFTH], max_context_turns=0) == ()
+    # a turn that is still pending is never ALSO context: it would be read twice
+    assert take_context([*APPLE, FIFTH], [FIFTH]) == tuple(APPLE)
+
+
+@pytest.mark.asyncio
+async def test_the_turns_a_skip_consumed_still_reach_the_next_tick_as_understanding():
+    """The exact live shape: four turns consumed by a skip tick, the fifth alone pending."""
+    _, discover_model, _, _, _, _ = await run_lane(
+        discover=discovered(skip=True, reason="small_talk"),
+        turns=[FIFTH],
+        context_turns=APPLE,
+    )
+    human = discover_model.human
+    context_head = human.index(prompt("recall.live.section.context_header", turns=4))
+    pending_head = human.index(prompt("recall.live.section.pending_header", turns=1))
+    assert context_head < pending_head, "understanding above, new content below"
+    for turn in APPLE:
+        assert turn.text in human[context_head:pending_head]
+    assert FIFTH.text in human[pending_head:]
+    assert FIFTH.text not in human[context_head:pending_head]
+
+
+@pytest.mark.asyncio
+async def test_the_contract_tells_the_stage_to_read_the_tail_and_never_mine_it():
+    _, discover_model, _, _, _, _ = await run_lane(
+        discover=discovered(skip=True, reason="small_talk"),
+        turns=[FIFTH],
+        context_turns=APPLE,
+    )
+    contract = discover_model.system
+    assert "TWO parts" in contract or "两部分" in contract
+    assert "Never mine it" in contract or "绝不要去挖它" in contract
+
+
+@pytest.mark.asyncio
+async def test_no_processed_turns_renders_exactly_the_turn_the_lane_always_rendered():
+    """A first tick has no tail, and its Human turn must be what it has always been."""
+    _, with_tail, _, _, _, _ = await run_lane(
+        discover=discovered(skip=True, reason="small_talk"), turns=[FIFTH], context_turns=()
+    )
+    assert prompt("recall.live.section.context_header", turns=0) not in with_tail.human
+    assert "# " + prompt("recall.live.section.context_header", turns=1) not in with_tail.human
+
+
+@pytest.mark.asyncio
+async def test_the_context_tail_shares_one_labelling_pass_with_the_pending_window():
+    """A participant number that meant one person above the fold and another below it is
+    worse than no number at all."""
+    speaker = other("我是第三个人", speaker_id="im/9")
+    _, discover_model, _, _, _, _ = await run_lane(
+        discover=discovered(skip=True, reason="small_talk"),
+        turns=[other("同一个人又说话了", speaker_id="im/9")],
+        context_turns=[speaker],
+        label_map={},
+    )
+    human = discover_model.human
+    label = human.split("我是第三个人")[0].rsplit("\n", 1)[-1]
+    assert label and label in human.split("同一个人又说话了")[0].rsplit("\n", 1)[-1]
+
+
+# ───────────────────────────── the density posture (three wordings of one contract)
+#
+# Observed live on the EAGER preset: 「建议这个事情还是交给我们日本市场的负责人来做吧。」 was
+# skipped — delivered 0, no retrieval at all. The floors were already low; what the contract
+# said was worth mining had not moved, so a ROLE standing in for a person nobody named was
+# not a gap the stage recognised. A preset that is only numbers moves how MUCH gets through
+# and never WHAT is looked for.
+
+
+def test_the_three_postures_differ_in_exactly_one_clause_and_nothing_else():
+    made = {d: discover_contract("general", (), density=d) for d in ("eager", "balanced", "quiet")}
+    assert len({*made.values()}) == 3
+    for density, contract in made.items():
+        clause = prompt(f"recall.live.discover.mining.{density}")
+        assert clause in contract
+        # the SHARED half is byte-identical across all three
+        assert contract.replace(clause, "«MINING»") == made["balanced"].replace(
+            prompt("recall.live.discover.mining.balanced"), "«MINING»"
+        )
+
+
+def test_each_posture_is_byte_stable_and_carries_nothing_volatile():
+    for density in ("eager", "balanced", "quiet"):
+        contract = discover_contract("general", (), density=density)
+        assert contract == discover_contract("general", (), density=density)
+        assert "2026" not in contract
+
+
+def test_the_default_and_every_unknown_value_are_the_middle_posture():
+    """A density arrives from a preset pill, from an older client that has none, and from a
+    custom setting carrying only numbers. None of those is a reason to fail a connection."""
+    balanced = discover_contract("general", ())
+    assert balanced == discover_contract("general", (), density="balanced")
+    for junk in ("", "  ", "AGGRESSIVE", None, 7):
+        assert discover_contract("general", (), density=junk) == balanced
+    assert coerce_density("EAGER") == "eager", "the vocabulary is casefolded, not rejected"
+
+
+def test_the_eager_posture_names_the_role_shape_as_a_class_never_as_a_transcript_line():
+    eager = prompt("recall.live.discover.mining.eager")
+    assert "ROLE" in eager and "REFERENCE" in eager
+    assert "Whoever runs X" in eager, "an example CLASS, with a placeholder subject"
+    assert "日本" not in eager and "Japan" not in eager, "never the owner's own transcript"
+
+
+def test_the_eager_posture_widens_first_mention_curiosity_and_not_repetition():
+    """The composition the owner asked for: eager explains a business noun the FIRST time it
+    appears, and the ledger's already-mined rule is untouched by that."""
+    eager = prompt("recall.live.discover.mining.eager")
+    assert "first time" in eager and "business" in eager
+    assert "already_mined" in eager
+    assert "second explanation of the same thing" in eager
+    # …and the shared rules it composes with are still in the contract above it
+    contract = discover_contract("general", (), density="eager")
+    assert "COMMON GROUND" in contract and "`already_mined`" in contract
+
+
+def test_the_quiet_posture_asks_for_a_question_and_refuses_an_unnamed_gap():
+    quiet = prompt("recall.live.discover.mining.quiet")
+    assert "directly ASKED" in quiet
+    assert "nobody\nnamed" in quiet, "a gap nobody named is not enough here"
+
+
+def test_the_pick_contract_does_not_vary_by_density():
+    """Delivery honesty is not a density matter: a card the library cannot support is not
+    more deliverable because the connection asked for more of them."""
+    import inspect
+
+    assert "density" not in inspect.signature(pick_contract).parameters
+
+
+@pytest.mark.asyncio
+async def test_the_posture_reaches_the_model_and_is_recorded_on_the_tick():
+    result, discover_model, _, _, _, _ = await run_lane(
+        discover=discovered(skip=True, reason="small_talk"), density="eager"
+    )
+    assert prompt("recall.live.discover.mining.eager") in discover_model.system
+    assert result.density == "eager", "the record says which posture produced this skip"
+
+
+@pytest.mark.asyncio
+async def test_a_tick_with_no_posture_stated_records_the_middle_one():
+    result, _, _, _, _, _ = await run_lane(discover=discovered(skip=True, reason="small_talk"))
+    assert result.density == "balanced"
 
 
 def test_with_no_component_registered_only_semantic_is_offered():
@@ -1100,3 +1278,350 @@ async def test_a_search_that_named_no_page_is_reported_as_paid_for_and_empty():
     assert result.web_searches == 2 and result.web_cost == pytest.approx(0.019)
     assert result.web_pages == 0, "billed, and it named nothing"
     assert all(c.provenance == PROVENANCE_LIBRARY for c in result.candidates)
+
+
+# ════════════════════════════════════════════════ the glance short-circuit
+#
+# By the end of discover the lane already knows what the room is looking for — and where the
+# plan names a subject the library holds, the library already holds one grounded sentence
+# about it. That sentence goes out immediately, verbatim, marked provisional, while stages 2
+# and 3 keep running. No extra model call: a resolution and a parse.
+
+LUMEN = CanonicalDocument(
+    doc_id=DocumentId("d-lumen"),
+    path="projects/lumenlab.md",
+    frontmatter={"doc_id": "d-lumen", "type": "project", "slug": "lumenlab", "title": "Lumen Lab"},
+    body=(
+        "# Lumen Lab\n\n"
+        "<!-- overview -->\n\n"
+        "<!-- overview:definition -->\n### definition\n\n"
+        "Lumen Lab builds optical benches for the agent-memory group. c:1a1a "
+        "<!-- c:0d0d -->\n\n"
+        "<!-- /overview -->\n\n"
+        "## Log\n\n"
+        f"- Lumen Lab shipped its second bench. [cite: {SRC} ¶4-5] <!-- c:1a1a -->\n"
+    ),
+)
+
+#: Same page, no overview at all — the miss case, and every page written before the region
+#: existed looks exactly like this.
+BENCH = CanonicalDocument(
+    doc_id=DocumentId("d-bench"),
+    path="projects/apex-bench.md",
+    frontmatter={"doc_id": "d-bench", "type": "project", "slug": "apex-bench"},
+    body=f"# Apex Bench\n\n- Apex Bench reuses the optics. [cite: {SRC} ¶0-1] <!-- c:2b2b -->\n",
+)
+
+
+def subject_plan(value: str, kind: str = "people_around") -> PlanEntry:
+    return PlanEntry(kind=kind, args=[PlanArg(name="subject", value=value)])
+
+
+class SlowPath(FakePersonPath):
+    """Retrieval that has not finished when the glance card is asserted on."""
+
+    name = "people_around"
+
+    async def run(self, user_id, args, *, scope=None, documents=None, as_of=None):  # noqa: ANN001
+        await asyncio.sleep(0.05)
+        return await super().run(user_id, args, scope=scope, documents=documents, as_of=as_of)
+
+
+class Glances:
+    """A transport: records what it was handed and WHEN, relative to the tick."""
+
+    def __init__(self) -> None:
+        self.cards: list = []
+        self.at: list[float] = []
+        self._t0 = time.perf_counter()
+
+    async def __call__(self, card) -> None:  # noqa: ANN001
+        self.cards.append(card)
+        self.at.append(time.perf_counter() - self._t0)
+
+
+@pytest.mark.asyncio
+async def test_the_definition_goes_out_before_retrieval_has_finished():
+    """The whole claim of the mechanism is WHEN it lands."""
+    seen = Glances()
+    path = SlowPath(PathResult(claims=(claim("z1", "projects/lumenlab.md", "later"),)))
+    result, _, _, _, _, _ = await run_lane(
+        discover=discovered(intent="what is Lumen Lab", plan=[subject_plan("Lumen Lab")], worth=9),
+        pick=PickResult(choice=1, lede="here", citations=[1], confidence=9),
+        paths=[path],
+        documents=[LUMEN, BENCH],
+        on_glance=seen,
+    )
+    [card] = seen.cards
+    assert card.kind == "glance" and card.provisional is True
+    assert card.body == "Lumen Lab builds optical benches for the agent-memory group."
+    assert card.subject == "projects/lumenlab.md"
+    assert seen.at[0] < 0.05, "delivered while the 50ms retrieval was still running"
+    assert result.glance_state == "hit"
+    assert result.glance_ms > 0.0
+
+
+@pytest.mark.asyncio
+async def test_the_definition_carries_the_citations_of_the_claims_it_rests_on():
+    """No second store: the overview's rule is that every block rests on a ledger claim, so
+    following the `c:xxxx` reference IS the provenance."""
+    result, _, _, _, _, _ = await run_lane(
+        discover=discovered(intent="i", plan=[subject_plan("lumenlab")], worth=9),
+        pick=PickResult(choice=0, confidence=9),
+        paths=[SlowPath(PathResult())],
+        documents=[LUMEN],
+    )
+    assert [(str(c.source_id), c.block_start, c.block_end) for c in result.glance.citations] == [
+        (SRC, 4, 5)
+    ]
+
+
+@pytest.mark.asyncio
+async def test_a_full_card_about_the_same_subject_upgrades_the_provisional_one():
+    result, _, _, _, _, _ = await run_lane(
+        discover=discovered(intent="i", plan=[subject_plan("Lumen Lab")], worth=9),
+        pick=PickResult(choice=1, lede="the bench programme moved", citations=[1], confidence=9),
+        paths=[SlowPath(PathResult(claims=(claim("z1", "projects/lumenlab.md", "moved"),)))],
+        documents=[LUMEN],
+    )
+    assert result.glance_outcome == "upgraded"
+    [card] = result.suggestions
+    assert card.subject == result.glance.subject, "the same bubble, filled in"
+
+
+@pytest.mark.asyncio
+async def test_a_full_card_about_a_different_subject_settles_the_glance_and_queues_beside_it():
+    result, _, _, _, _, _ = await run_lane(
+        discover=discovered(intent="i", plan=[subject_plan("Lumen Lab")], worth=9),
+        pick=PickResult(choice=1, lede="a different matter", citations=[1], confidence=9),
+        paths=[SlowPath(PERSON_PAGE)],
+        documents=[LUMEN],
+    )
+    assert result.glance_outcome == "settled"
+    [card] = result.suggestions
+    assert card.subject != result.glance.subject
+
+
+@pytest.mark.asyncio
+async def test_a_pick_that_chose_none_settles_the_glance_silently():
+    result, _, _, _, _, _ = await run_lane(
+        discover=discovered(intent="i", plan=[subject_plan("Lumen Lab")], worth=9),
+        pick=PickResult(choice=0, confidence=9),
+        paths=[SlowPath(PERSON_PAGE)],
+        documents=[LUMEN],
+    )
+    assert result.glance_outcome == "alone"
+    assert result.suggestions == ()
+    assert result.glance is not None, "the reader keeps the true sentence they were shown"
+
+
+@pytest.mark.asyncio
+async def test_a_subject_with_no_definition_is_a_miss_and_nothing_is_delivered_early():
+    seen = Glances()
+    result, _, _, _, _, _ = await run_lane(
+        discover=discovered(intent="i", plan=[subject_plan("Apex Bench")], worth=9),
+        pick=PickResult(choice=0, confidence=9),
+        paths=[SlowPath(PathResult())],
+        documents=[LUMEN, BENCH],
+        on_glance=seen,
+    )
+    assert (result.glance_state, result.glance_outcome, result.glance) == ("miss", "", None)
+    assert seen.cards == []
+
+
+@pytest.mark.asyncio
+async def test_a_tie_glances_at_nothing_rather_than_at_one_of_them():
+    """Two documents equally named is precisely when an instant one-sentence answer would be
+    confidently wrong; the pipeline behind it has a question in hand and this does not."""
+    twin = CanonicalDocument(
+        doc_id=DocumentId("d-twin"),
+        path="topics/lumenlab.md",
+        frontmatter={"doc_id": "d-twin", "slug": "lumen-topic", "title": "Lumen Lab"},
+        body=LUMEN.body,
+    )
+    result, _, _, _, _, _ = await run_lane(
+        discover=discovered(intent="i", plan=[subject_plan("Lumen Lab")], worth=9),
+        pick=PickResult(choice=0, confidence=9),
+        paths=[SlowPath(PathResult())],
+        documents=[LUMEN, twin],
+    )
+    assert result.glance_state == "miss"
+
+
+@pytest.mark.asyncio
+async def test_a_skip_never_reaches_the_short_circuit():
+    seen = Glances()
+    result, _, _, _, _, _ = await run_lane(
+        discover=discovered(skip=True, reason="small_talk"),
+        documents=[LUMEN],
+        on_glance=seen,
+    )
+    assert seen.cards == [] and result.glance_state == "miss"
+
+
+@pytest.mark.asyncio
+async def test_the_repetition_rules_apply_to_a_glance_like_any_other_card():
+    ledger = SubjectLedger()
+    ledger.deliver("projects/lumenlab.md", "glance", "lumenlab")
+    result, _, _, _, _, _ = await run_lane(
+        discover=discovered(intent="i", plan=[subject_plan("Lumen Lab")], worth=9),
+        pick=PickResult(choice=0, confidence=9),
+        paths=[SlowPath(PathResult())],
+        documents=[LUMEN],
+        ledger=ledger,
+    )
+    assert result.glance_state == "miss", "no second introduction of a subject already glanced"
+
+
+@pytest.mark.asyncio
+async def test_a_card_the_client_already_holds_is_not_glanced_at_again():
+    result, _, _, _, _, _ = await run_lane(
+        discover=discovered(intent="i", plan=[subject_plan("Lumen Lab")], worth=9),
+        pick=PickResult(choice=0, confidence=9),
+        paths=[SlowPath(PathResult())],
+        documents=[LUMEN],
+        already_shown=[{"kind": "glance", "title": "Lumen Lab"}],
+    )
+    assert result.glance_state == "miss"
+
+
+@pytest.mark.asyncio
+async def test_with_no_canonical_passed_the_lane_is_what_it_always_was():
+    """The mechanism is opt-in at the wiring: a deployment that hands the lane no documents
+    gets no short-circuit and no behaviour change at all."""
+    seen = Glances()
+    result, _, _, _, _, _ = await run_lane(
+        discover=discovered(intent="i", plan=[subject_plan("Lumen Lab")], worth=9),
+        pick=PickResult(choice=0, confidence=9),
+        paths=[SlowPath(PathResult())],
+        on_glance=seen,
+    )
+    assert seen.cards == [] and result.glance_state == "miss" and result.glance_ms == 0.0
+
+
+@pytest.mark.asyncio
+async def test_a_failing_transport_callback_never_fails_the_tick_behind_it():
+    async def explode(card) -> None:  # noqa: ANN001
+        raise RuntimeError("socket gone")
+
+    result, _, _, _, _, _ = await run_lane(
+        discover=discovered(intent="i", plan=[subject_plan("Lumen Lab")], worth=9),
+        pick=PickResult(choice=0, confidence=9),
+        paths=[SlowPath(PathResult())],
+        documents=[LUMEN],
+        on_glance=explode,
+    )
+    assert result.glance_state == "hit", "built and recorded; only the delivery failed"
+
+
+def test_the_plan_subjects_are_read_without_core_knowing_one_argument_name():
+    """Core names no component, so it cannot ask for `subject` — it offers every value to an
+    exact resolution that answers for almost none of them. Whole values first, then their
+    own words: a routed path's argument is often the subject exactly, but a semantic query
+    is a sentence, and a sentence is never equal to a document's title."""
+    assert plan_subjects(
+        [
+            PlanEntry(kind="people_around", args=[PlanArg(name="subject", value="Lumen Lab")]),
+            PlanEntry(kind="semantic", query="what is Lumenlab, exactly?"),
+            PlanEntry(kind="person", args=[PlanArg(name="identity", value="")]),
+        ]
+    ) == [
+        "Lumen Lab",
+        "what is Lumenlab, exactly?",
+        "Lumen",
+        "Lab",
+        "what",
+        "is",
+        "Lumenlab",
+        "exactly",
+    ]
+
+
+def test_a_long_query_cannot_turn_one_lookup_into_a_hundred():
+    subjects = plan_subjects([PlanEntry(kind="semantic", query=" ".join(f"w{n}" for n in range(60)))])
+    assert len(subjects) == 1 + PLAN_WORDS_MAX
+
+
+@pytest.mark.asyncio
+async def test_a_subject_named_inside_a_semantic_question_still_gets_its_definition():
+    """The live shape this exists for: 「lumenlab 是什么？」 plans one semantic query, and the
+    sentence is not equal to any document's title."""
+    result, _, _, _, _, _ = await run_lane(
+        discover=discovered(
+            intent="what is Lumen Lab",
+            plan=semantic_plan("lumenlab 是什么？我一直没搞清楚。"),
+            worth=9,
+        ),
+        pick=PickResult(choice=0, confidence=9),
+        documents=[LUMEN, BENCH],
+    )
+    assert result.glance_state == "hit"
+    assert result.glance.title == "Lumen Lab"
+
+
+@pytest.mark.asyncio
+async def test_a_document_the_plan_names_outright_beats_a_word_inside_another_value():
+    result, _, _, _, _, _ = await run_lane(
+        discover=discovered(
+            intent="i",
+            plan=[
+                subject_plan("Apex Bench"),
+                PlanEntry(kind="semantic", query="how does lumenlab compare"),
+            ],
+            worth=9,
+        ),
+        pick=PickResult(choice=0, confidence=9),
+        paths=[SlowPath(PathResult())],
+        documents=[LUMEN, BENCH],
+    )
+    # `Apex Bench` resolves first and carries no definition, so the glance falls through to
+    # the next candidate rather than stopping — but a WHOLE value is always tried before any
+    # word, which is what keeps the plan's own naming authoritative.
+    assert result.glance_state == "hit" and result.glance.title == "Lumen Lab"
+
+
+@pytest.mark.asyncio
+async def test_a_skip_never_pays_the_canonical_read_the_short_circuit_would_have_used():
+    """A skip is this lane's steady state. A tick that read the whole library before
+    deciding a stretch was small talk would make the cheap stage expensive to protect a card
+    it was never going to deliver."""
+    reads = []
+
+    async def load():
+        reads.append(1)
+        return [LUMEN]
+
+    await run_lane(discover=discovered(skip=True, reason="small_talk"), load_documents=load)
+    assert reads == []
+
+
+@pytest.mark.asyncio
+async def test_a_real_plan_pays_it_exactly_once():
+    reads = []
+
+    async def load():
+        reads.append(1)
+        return [LUMEN]
+
+    result, _, _, _, _, _ = await run_lane(
+        discover=discovered(intent="i", plan=[subject_plan("Lumen Lab")], worth=9),
+        pick=PickResult(choice=0, confidence=9),
+        paths=[SlowPath(PathResult())],
+        load_documents=load,
+    )
+    assert reads == [1] and result.glance_state == "hit"
+
+
+@pytest.mark.asyncio
+async def test_a_failing_canonical_read_costs_the_glance_and_never_the_tick():
+    async def broken():
+        raise RuntimeError("git is busy")
+
+    result, _, _, _, _, _ = await run_lane(
+        discover=discovered(intent="i", plan=[subject_plan("Lumen Lab")], worth=9),
+        pick=PickResult(choice=0, confidence=9),
+        paths=[SlowPath(PATH_HIT := PathResult(claims=(claim("z9", "d.md", "still here"),)))],
+        load_documents=broken,
+    )
+    assert result.glance_state == "miss"
+    assert result.skipped != "", "the tick itself ran to its own ending"

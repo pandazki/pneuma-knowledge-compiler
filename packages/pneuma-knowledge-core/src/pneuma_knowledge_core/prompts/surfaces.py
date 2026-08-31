@@ -2177,11 +2177,30 @@ SURFACES: tuple[Surface, ...] = (
                 "recall.live.discover.contract",
                 slots=(
                     Slot("kinds", ("recall.live.discover.semantic_offer",)),
+                    Slot("mining", ("recall.live.discover.mining.balanced",)),
                     Slot("focus", ("recall.suggestion.focus.general",)),
                 ),
             ),
             s("recall.live.discover.semantic_offer"),
+            s("recall.live.discover.mining.balanced"),
             s("recall.suggestion.focus.general"),
+            v(
+                "recall.live.discover.mining.eager",
+                "Fills the worth-mining slot instead on the EAGER density: a role or "
+                "reference standing in for an unnamed person, a first-mention noun "
+                "(business ones especially), a new concept or a confirmable fact are each "
+                "enough on their own. It widens first-mention curiosity only — the "
+                "common-ground and already-mined rules above it are untouched.",
+                "在**积极**密度下改由它填「值得一查」插槽：替代无名者的角色或指代、本场首次"
+                "出现的名词（业务相关的尤其）、新概念或库能佐证的事实，各自成立就够。"
+                "它只放宽首次提及时的好奇心——上面的共识规则与 already_mined 一条不动。",
+            ),
+            v(
+                "recall.live.discover.mining.quiet",
+                "…and on the QUIET density: a question somebody directly asked, or an "
+                "explicit request for information, and nothing else.",
+                "在**安静**密度下则改由它填：有人直接问出的问题，或明确的要资料，别的都不算。",
+            ),
             v(
                 "recall.live.discover.path_offer",
                 "One line per component retrieval path this deployment enables, rendered into "
@@ -2246,11 +2265,13 @@ SURFACES: tuple[Surface, ...] = (
                         ),
                         join="\n",
                     ),
+                    Slot("mining", ("recall.live.discover.mining.balanced",)),
                     Slot("focus", ("recall.suggestion.focus.general",)),
                 ),
             ),
             s("recall.live.discover.semantic_offer"),
             s("recall.live.discover.web_offer"),
+            s("recall.live.discover.mining.balanced"),
             s("recall.suggestion.focus.general"),
             v(
                 "recall.live.discover.path_offer",
@@ -2273,6 +2294,83 @@ SURFACES: tuple[Surface, ...] = (
             "这是模板的一次取值，取的是「没有启用任何索引组件、但允许互联网搜索」的部署。"
             "与上面那一份对照着看：动的只有 `web` 那一行，而打开它的开关从不进入人类消息"
             "——这正是 I5 在两份之间都成立的原因。"
+        ),
+    ),
+    Surface(
+        id="recall.live_discover_eager",
+        group="recall",
+        title_en="Live-context discover contract · eager",
+        title_zh="实时上下文·发现契约（积极）",
+        summary_en=(
+            "The same contract on the EAGER density. One clause differs — what counts as worth "
+            "mining — and it is the clause the presets could never reach by moving numbers: a role "
+            "standing in for an unnamed person, and a business noun on its first mention, are now "
+            "each enough to try a lookup."
+        ),
+        summary_zh=(
+            "同一份契约，取**积极**密度。差别只有一处——什么算值得一查——而这恰恰是靠调数字永远够不到"
+            "的那一处：替代无名者的角色，以及第一次出现的业务名词，现在各自都足以让它去查一次。"
+        ),
+        segments=(
+            b(
+                "recall.live.discover.contract",
+                slots=(
+                    Slot("kinds", ("recall.live.discover.semantic_offer",)),
+                    Slot("mining", ("recall.live.discover.mining.eager",)),
+                    Slot("focus", ("recall.suggestion.focus.general",)),
+                ),
+            ),
+            s("recall.live.discover.semantic_offer"),
+            s("recall.live.discover.mining.eager"),
+            s("recall.suggestion.focus.general"),
+        ),
+        kind=ASSEMBLED,
+        pinned=True,
+        note_en=(
+            "One resolution of a template, on the eager density with no index component and no "
+            "internet search. Pinned beside the balanced and quiet ones because the three are one "
+            "contract in three wordings, and a pin on only the middle one would let the other two "
+            "drift into contracts of their own."
+        ),
+        note_zh=(
+            "这是模板的一次取值：积极密度，没有索引组件，没有互联网搜索。它与均衡、安静那两份并排"
+            "钉死，因为三者是一份契约的三种说法；只钉中间那一份，另外两份就会各自漂成独立的契约。"
+        ),
+    ),
+    Surface(
+        id="recall.live_discover_quiet",
+        group="recall",
+        title_en="Live-context discover contract · quiet",
+        title_zh="实时上下文·发现契约（安静）",
+        summary_en=(
+            "The same contract on the QUIET density: only a question somebody directly asked, or an "
+            "explicit request for information, is worth a lookup. A gap nobody named is not."
+        ),
+        summary_zh=(
+            "同一份契约，取**安静**密度：只有有人直接问出的问题、或明确的要资料才值得一查；"
+            "没人点破的缺口不算。"
+        ),
+        segments=(
+            b(
+                "recall.live.discover.contract",
+                slots=(
+                    Slot("kinds", ("recall.live.discover.semantic_offer",)),
+                    Slot("mining", ("recall.live.discover.mining.quiet",)),
+                    Slot("focus", ("recall.suggestion.focus.general",)),
+                ),
+            ),
+            s("recall.live.discover.semantic_offer"),
+            s("recall.live.discover.mining.quiet"),
+            s("recall.suggestion.focus.general"),
+        ),
+        kind=ASSEMBLED,
+        pinned=True,
+        note_en=(
+            "One resolution of a template, on the quiet density with no index component and no "
+            "internet search."
+        ),
+        note_zh=(
+            "这是模板的一次取值：安静密度，没有索引组件，没有互联网搜索。"
         ),
     ),
     Surface(
@@ -2360,6 +2458,14 @@ SURFACES: tuple[Surface, ...] = (
                 "Fills `{asked}` otherwise — the common-ground case the contract asks the "
                 "model to skip on.",
                 "否则填入 `{asked}`——也就是契约要求模型据以跳过的「共识」那一种情形。",
+            ),
+            f(
+                "recall.live.section.context_header",
+                "Introduces the READ-ONLY tail of already-processed turns, above the new "
+                "content. It is what the new content refers back to — a pronoun, a product "
+                "named three turns ago — and the contract forbids mining it.",
+                "在新内容上方引出**只读**的已处理轮次尾巴。新内容里的指代——代词，或者三轮前"
+                "提到的那个产品——要靠它才读得懂；契约明令不得去挖这一段。",
             ),
             f(
                 "recall.live.section.pending_header",

@@ -430,3 +430,108 @@ def test_focus_reaches_the_plan():
     s.configure(focus="other")
     s.add_turn(turn("a"))
     assert s.begin(now=T0).focus == "other"
+
+
+# ------------------------------------------------- the read-only context tail
+#
+# The pending run keeps its consumption semantics exactly; what it grows is a SECOND,
+# read-only life afterwards. A tick that skipped 「好像苹果要开新的发布会了…」 consumed those
+# turns by design — and the next tick, holding only 「也可以看看其他团队有没有这方面的专家」,
+# had no way to know the subject was Apple's foldable phone. It invented Android.
+
+
+def test_a_completed_tick_retires_its_turns_into_the_context_tail():
+    session = LiveContextSession()
+    for text in ("苹果要开发布会", "有折叠屏手机要发"):
+        session.add_turn(turn(text))
+    first = session.begin(now=T0)
+    assert first.context == (), "the first tick has nothing behind it"
+    session.complete(first.seq, [], now=T0 + 1)
+
+    session.add_turn(turn("其他团队有没有这方面的专家"))
+    second = session.begin(now=T0 + 20)
+    assert [t.text for t in second.context] == ["苹果要开发布会", "有折叠屏手机要发"]
+    assert [t.text for t in second.turns] == ["其他团队有没有这方面的专家"]
+
+
+def test_a_skip_retires_its_turns_exactly_like_a_delivery():
+    """A skip is a decision and consumes its turns — and they are just as readable after."""
+    session = LiveContextSession()
+    session.add_turn(turn("苹果要开发布会"))
+    first = session.begin(now=T0)
+    session.complete(first.seq, [], now=T0 + 1)  # skipped: no suggestions at all
+    session.add_turn(turn("专家"))
+    assert [t.text for t in session.begin(now=T0 + 20).context] == ["苹果要开发布会"]
+
+
+def test_a_failed_tick_processed_nothing_so_its_turns_are_pending_again_and_not_context():
+    """Nothing may be context and pending at once: it would be read twice and mined twice."""
+    session = LiveContextSession()
+    session.add_turn(turn("苹果要开发布会"))
+    plan = session.begin(now=T0)
+    session.abandon(plan.seq, now=T0 + 1, turns=plan.turns)
+    session.add_turn(turn("专家"))
+    again = session.begin(now=T0 + 20)
+    assert again.context == ()
+    assert [t.text for t in again.turns] == ["苹果要开发布会", "专家"]
+
+
+def test_the_context_tail_is_bounded_and_keeps_the_most_recent():
+    from pneuma_knowledge_service.live_context.session import CONTEXT_MEMORY
+
+    session = LiveContextSession()
+    for n in range(CONTEXT_MEMORY + 5):
+        session.add_turn(turn(f"line {n}"))
+        plan = session.begin(now=T0 + n * 20)
+        session.complete(plan.seq, [], now=T0 + n * 20 + 1)
+    session.add_turn(turn("now"))
+    context = session.begin(now=T0 + 10_000).context
+    assert len(context) == CONTEXT_MEMORY
+    assert context[-1].text == f"line {CONTEXT_MEMORY + 4}"
+
+
+def test_a_reconnect_replays_a_window_as_pending_and_not_as_already_processed():
+    """The client is re-sending what it holds, not telling the server what was mined."""
+    session = LiveContextSession()
+    session.add_turn(turn("苹果要开发布会"))
+    plan = session.begin(now=T0)
+    session.complete(plan.seq, [], now=T0 + 1)
+    session.configure(turns=[turn("苹果要开发布会"), turn("专家")])
+    after = session.begin(now=T0 + 20)
+    assert after.context == ()
+    assert [t.text for t in after.turns] == ["苹果要开发布会", "专家"]
+
+
+# ---------------------------------------------------------- the density posture
+
+
+def test_the_density_defaults_to_the_middle_posture_and_reaches_the_plan():
+    session = LiveContextSession()
+    assert session.policy.density == "balanced"
+    session.add_turn(turn("交给我们日本市场的负责人来做吧"))
+    assert session.begin(now=T0).density == "balanced"
+
+    session.configure(density="eager")
+    assert session.policy.density == "eager"
+
+
+def test_an_unknown_density_is_coerced_and_never_fails_the_connection():
+    """Unlike focus, which raises: a density arrives from a preset pill, from an older
+    client that has none, and from a custom setting carrying only numbers."""
+    session = LiveContextSession()
+    for junk in ("", "AGGRESSIVE", "  "):
+        assert session.configure(density=junk).density == "balanced"
+    assert session.configure(density="QUIET").density == "quiet"
+
+
+def test_the_density_round_trips_from_config_through_the_plan():
+    session = LiveContextSession()
+    session.configure(density="eager", min_confidence=3)
+    session.add_turn(turn("交给我们日本市场的负责人来做吧"))
+    plan = session.begin(now=T0)
+    assert (plan.density, plan.min_confidence) == ("eager", 3)
+    # a custom setting may carry any density beside any numbers
+    session.complete(plan.seq, [], now=T0 + 1)
+    session.configure(min_confidence=9)
+    session.add_turn(turn("另一句"))
+    assert session.begin(now=T0 + 20).density == "eager"

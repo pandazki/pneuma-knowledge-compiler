@@ -13,7 +13,9 @@ pure clock-injected state machine — this module is the transport that feeds it
 Wire protocol (JSON text frames both directions):
 
     client → server
-      {"type": "config", "focus": "general"|"owner"|"other", "min_confidence": 1-10,
+      {"type": "config", "focus": "general"|"owner"|"other",
+       "density": "eager"|"balanced"|"quiet",   # absent/unknown => "balanced"
+       "min_confidence": 1-10,
        "max_pending_turns": int, "quiet_period": float, "web_search": bool,
        "briefing_id": str|"", "turns": [Turn],
        "already_shown": [{kind, title, body?, subject?, subject_label?}],
@@ -35,7 +37,7 @@ Wire protocol (JSON text frames both directions):
       {"type": "ping"}                      — ignored; a client-side keepalive
 
     server → client
-      {"type": "ready", "focus": ..., "min_confidence": ...,
+      {"type": "ready", "focus": ..., "density": ..., "min_confidence": ...,
        "max_pending_turns": ..., "quiet_period": ..., "web_search": bool,
        "briefing_id": ..., "stats": bool}
           On accept, and again after every `config`, echoing the EFFECTIVE policy.
@@ -105,6 +107,8 @@ from pneuma_knowledge_core.domain.suggestion import (
     SUGGESTION_KINDS,
     ContextFocusOption,
     SuggestionKindOption,
+    DEFAULT_DENSITY,
+    coerce_density,
     focus_option,
 )
 from pneuma_knowledge_core.domain.ids import UserId
@@ -178,6 +182,8 @@ class TurnIn(BaseModel):
 class LiveContextStreamIn(BaseModel):
     turns: list[TurnIn] = []
     focus: str = "general"
+    #: `eager` | `balanced` | `quiet`. Absent or unknown ⇒ `balanced`.
+    density: str = DEFAULT_DENSITY
     min_confidence: int = DEFAULT_MIN_CONFIDENCE
     max_pending_turns: int = DEFAULT_MAX_PENDING_TURNS
     # Allow the supplementary internet search on this request. Clamped against the
@@ -216,6 +222,9 @@ def _suggestion_out(suggestion: Any) -> dict[str, Any]:
         "subject_label": getattr(suggestion, "subject_label", "") or "",
         "trigger": suggestion.trigger,
         "confidence": suggestion.confidence,
+        # True only on a `glance` card that has not settled yet: a true sentence shown
+        # early, with the tick still running behind it. The `upgrade` frame clears it.
+        "provisional": bool(getattr(suggestion, "provisional", False)),
         "citations": [
             {
                 "source_id": str(c.source_id),
@@ -244,6 +253,19 @@ def _processing_out(result: Any) -> dict[str, Any]:
     per-stage milliseconds, so nobody has to infer any of it from a token count."""
     return {
         "skipped": result.skipped,
+        # The glance short-circuit: whether the plan named a subject the library could show
+        # instantly (`hit`/`miss`), how it ended once the pipeline settled, and — separately
+        # from `total` — WHEN the provisional card left. The last one is the whole claim of
+        # the mechanism, and a millisecond count folded into the total would not state it.
+        "glance": {
+            "state": result.glance_state,
+            "outcome": result.glance_outcome,
+            "ms": result.glance_ms,
+        },
+        # The posture this tick ran under. Reported beside the skip because the same turn is
+        # a skip under `quiet` and a lookup under `eager` — a record showing only the skip
+        # would make the difference look like model noise.
+        "density": result.density,
         "dropped": dict(result.dropped),
         "intent": result.intent,
         "worth": result.worth,
@@ -322,6 +344,7 @@ def _plan_from(body: LiveContextStreamIn, ctx: Any) -> EvaluationPlan:
         seq=0,
         turns=tuple(t.to_turn() for t in body.turns),
         focus=body.focus,  # type: ignore[arg-type]
+        density=coerce_density(body.density),
         min_confidence=body.min_confidence,
         web_search=allow_web_search(ctx, body.web_search),
         # An older client's `turn_window` still lands where it meant to: the bound on how
@@ -373,6 +396,16 @@ async def live_context_stream(
                         str(shown.get("kind") or ""),
                         str(shown.get("subject_label") or subject),
                     )
+            # SSE has one event stream and no seq to upgrade into, so the provisional card
+            # is put on it the moment it exists — which is the whole point, since it lands a
+            # retrieval before anything else can. What settles it here is the `done` event
+            # the stream always ends with: `glance.outcome` says which ending happened.
+            glanced: list[Any] = []
+
+            async def send_glance(card: Any) -> None:
+                glanced.append(card)
+                events.put_nowait(("suggestion", _suggestion_out(card)))
+
             result = await run_evaluation(
                 ctx,
                 user_id,
@@ -381,6 +414,7 @@ async def live_context_stream(
                 pack=pack,
                 as_of=as_of,
                 ledger=ledger,
+                on_glance=send_glance,
             )
             for suggestion in result.suggestions:
                 events.put_nowait(("suggestion", _suggestion_out(suggestion)))
@@ -451,6 +485,7 @@ async def live_context_ws(websocket: WebSocket, user_id: str) -> None:
         return {
             "type": "ready",
             "focus": p.focus,
+            "density": p.density,
             "min_confidence": p.min_confidence,
             "max_pending_turns": p.max_pending_turns,
             "quiet_period": p.quiet_period,
@@ -476,6 +511,27 @@ async def live_context_ws(websocket: WebSocket, user_id: str) -> None:
             pack = await load_briefing_pack(ctx, user_id, plan.briefing_id)
         if not profile:
             profile.append(await _render_profile(ctx, UserId(user_id)))
+
+        # The glance short-circuit's transport half. The card goes out on THIS tick's seq —
+        # the same slot the full card will land in — so an upgrade is a replacement in place
+        # rather than a second bubble, and the queue does not grow.
+        glanced: list[Any] = []
+
+        async def send_glance(card: Any) -> None:
+            # Recorded in the ledger AT DELIVERY, like any other card: the reader has been
+            # introduced to this subject whatever the rest of the tick does. An upgrade is
+            # the same subject, so `deliver` is idempotent over it and nothing double-counts.
+            glanced.append(card)
+            session.glance_delivered(plan.seq, card)
+            emit(
+                {
+                    "type": "suggestion",
+                    "seq": plan.seq,
+                    "provisional": True,
+                    "suggestion": _suggestion_out(card),
+                }
+            )
+
         result = await run_evaluation(
             ctx,
             user_id,
@@ -484,6 +540,7 @@ async def live_context_ws(websocket: WebSocket, user_id: str) -> None:
             profile=profile[0],
             pack=pack,
             ledger=session.ledger,
+            on_glance=send_glance,
         )
         # The session dedup runs on the RESULT, layered over core's within-evaluation one.
         # The ledger is written here too, and only here: a result that outlived its own
@@ -495,7 +552,27 @@ async def live_context_ws(websocket: WebSocket, user_id: str) -> None:
             touched=result.touched,
             asked=result.asked,
         )
-        for suggestion in delivered:
+        # A provisional card always gets its settling frame, whichever ending happened —
+        # the shimmer is the client's word for "this tick has not finished", and a tick that
+        # finished without saying so would leave it shimmering forever.
+        queued = list(delivered)
+        if glanced:
+            upgrade = next(
+                (s for s in delivered if s.subject == glanced[0].subject), None
+            )
+            emit(
+                {
+                    "type": "upgrade",
+                    "seq": plan.seq,
+                    # None ⇒ settle in place: the same card, no longer provisional.
+                    "suggestion": _suggestion_out(upgrade) if upgrade is not None else None,
+                }
+            )
+            # Removed from what is EMITTED, never from what was delivered: the card reached
+            # the reader, in the provisional card's own slot. A stats frame that counted it
+            # as zero would say a tick delivered nothing when the reader is looking at it.
+            queued = [s for s in queued if s is not upgrade]
+        for suggestion in queued:
             emit({"type": "suggestion", "seq": plan.seq, "suggestion": _suggestion_out(suggestion)})
         # Its own frame rather than a field on `suggestion`: the evaluation that produced ZERO
         # cards emits no `suggestion` frame at all, and that is precisely the one you need the
@@ -588,6 +665,7 @@ async def live_context_ws(websocket: WebSocket, user_id: str) -> None:
                 if kind == "config":
                     session.configure(
                         focus=msg.get("focus"),
+                        density=msg.get("density"),
                         min_confidence=msg.get("min_confidence"),
                         # `turn_window` is the old name for the same bound; `max_suggestions`
                         # is simply dropped. An older client is tolerated, never 400ed.

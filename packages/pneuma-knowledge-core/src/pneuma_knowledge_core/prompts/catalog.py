@@ -538,6 +538,11 @@ up right now, and if so what to look up. You do not answer, explain, or write ca
 Keep the output SHORT. Speed is the feature: a lookup plan that arrives after the topic
 moved on is worth nothing.
 
+The transcript comes in TWO parts. The earlier conversation is there so you can read what
+the new content refers to — who "they" are, which product "it" is, what was already
+proposed. **Never mine it**: it has been looked at already. What you decide about is the
+NEW content, read in the light of what came before it.
+
 **Skip** — set `skip: true` with a `reason` — whenever one of these holds:
 
 - `small_talk` — chit-chat, logistics, noise. Nothing to look up.
@@ -548,6 +553,8 @@ moved on is worth nothing.
 A subject the room keeps naming without ever asking about it is COMMON GROUND: everyone
 present already knows what it is, and introducing it again is worthless. Look for what is
 NEW about it, or skip.
+
+{mining}
 
 Otherwise state three things:
 
@@ -562,6 +569,41 @@ Otherwise state three things:
 
 {focus}
 """
+
+# The one clause the density posture varies. Everything around it — the skip vocabulary, the
+# common-ground rule, the three output fields — is shared, which is what keeps three
+# postures three wordings of one contract rather than three contracts.
+
+_MINING_BALANCED = """\
+**Worth a lookup**: an explicit information gap the base could close, or a question
+somebody actually asked that the base can answer structurally. Neither of those is present
+in most stretches of talk, and skipping them is the normal outcome."""
+
+_MINING_QUIET = """\
+**Worth a lookup**: a question somebody directly ASKED, or an explicit request for
+information. Nothing else — not an interesting noun, not a gap you can see and nobody
+named. If no one asked, skip."""
+
+_MINING_EAGER = """\
+**Worth a lookup — dig, and err toward trying one.** The later stages score the result and
+decide whether anything is shown, so an attempt that turns out thin costs nothing, while a
+lookup never attempted cannot be recovered.
+
+Three shapes are each enough on their own:
+
+- **A ROLE or a REFERENCE standing in for a person nobody named.** "Whoever runs X",
+  "that colleague", "their lead", "the owner of that" — the room is talking about a person
+  it can point at and cannot name, and the base may well know who they are. Look the person
+  up; the identifying thing is the role or the group, not a name you do not have.
+- **A NOUN appearing for the first time in this conversation — especially a business one**:
+  an internal project or product name, an organisational term, domain jargon. Explaining it
+  hands the reader more to work with, and first mention is exactly when that helps.
+- **A newly appearing concept, or a fact the base could confirm or correct.**
+
+This widens FIRST-mention curiosity and nothing else. It does not touch the rules above it:
+a term this session has already introduced, or one the room keeps using without ever asking
+about, is still `already_mined` — a second explanation of the same thing is not eagerness,
+it is noise."""
 
 _LIVE_PICK_CONTRACT = """\
 # Live context · pick
@@ -1716,6 +1758,9 @@ DEFAULTS: dict[str, str] = {
     ),
     # ───────────────────────────────── recall: live context, the three-stage pipeline
     "recall.live.discover.contract": _LIVE_DISCOVER_CONTRACT,
+    "recall.live.discover.mining.eager": _MINING_EAGER,
+    "recall.live.discover.mining.balanced": _MINING_BALANCED,
+    "recall.live.discover.mining.quiet": _MINING_QUIET,
     "recall.live.discover.path_offer": (
         "  - `{kind}` — {description}\n"
         "    arguments: {args}"
@@ -1741,7 +1786,12 @@ DEFAULTS: dict[str, str] = {
     ),
     "recall.live.section.mined_header": "# Already surfaced this conversation ({count})",
     "recall.live.section.digest_header": "# Subjects this conversation keeps returning to",
-    "recall.live.section.pending_header": "# Pending workstream ({turns} turns)",
+    "recall.live.section.context_header": (
+        "# Earlier conversation ({turns} turns · already processed — for understanding only)"
+    ),
+    "recall.live.section.pending_header": (
+        "# New content ({turns} turns · this is what you evaluate)"
+    ),
     "recall.live.section.pending_overflow": " — {count} earlier turns did not fit",
     "recall.live.section.candidates_header": "# Candidates ({count})",
     "recall.live.section.intent": "What the room is looking for: {intent}",

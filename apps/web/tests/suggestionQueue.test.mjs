@@ -37,6 +37,7 @@ const {
   remainingFraction,
   remainingSeconds,
   pendingCount,
+  upgrade,
 } = await import(await tsModuleUrl(new URL("../src/lib/suggestionQueue.ts", import.meta.url)));
 
 const T0 = 1_700_000_000_000;
@@ -192,4 +193,84 @@ test("an emptied bubble promotes on the next tick even with no time passing", ()
   assert.equal(state.current, null);
   state = arrive(state, card("b"), T0 + 2);
   assert.equal(state.current.id, "b");
+});
+
+// ───────────────────────────────── the glance short-circuit's provisional card
+//
+// The one card that CAN change after it arrives: the subject's own definition, shown a
+// retrieval early while the tick behind it is still running. When that tick settles, the
+// card either becomes the full one IN PLACE or simply stops shimmering — never a second
+// bubble about the same subject.
+
+const glance = (id, seq = 1) => ({
+  ...card(id, seq),
+  suggestion: { ...card(id, seq).suggestion, kind: "glance", provisional: true },
+});
+
+const full = (title) => ({
+  kind: "concept",
+  title,
+  body: "完整的卡片",
+  trigger: "触发",
+  confidence: 9,
+  citations: [],
+});
+
+test("an upgrade replaces the provisional card in place, keeping its slot and its clock", () => {
+  let state = arrive(emptyQueue, glance("a"), T0);
+  state = upgrade(state, 1, full("完整"));
+  assert.equal(state.current.id, "a", "the same bubble");
+  assert.equal(state.current.shownAt, T0, "not a fresh thirty seconds");
+  assert.equal(state.current.suggestion.title, "完整");
+  assert.equal(state.current.suggestion.provisional, false);
+  assert.equal(pendingCount(state), 0, "the queue did not grow");
+});
+
+test("an upgrade with no card settles the provisional one where it stands", () => {
+  let state = arrive(emptyQueue, glance("a"), T0);
+  state = upgrade(state, 1, null);
+  assert.equal(state.current.suggestion.title, "卡 a", "the same true sentence");
+  assert.equal(state.current.suggestion.provisional, false, "it just stopped shimmering");
+});
+
+test("a pinned card upgrades without unpinning", () => {
+  // Pinning is the reader saying "hold this one", and the upgrade is that same one
+  // arriving in full — taking the pin off would drop it out from under them.
+  let state = pin(arrive(emptyQueue, glance("a"), T0));
+  state = upgrade(state, 1, full("完整"));
+  assert.equal(state.current.pinned, true);
+  assert.equal(state.current.suggestion.title, "完整");
+  assert.equal(remainingMs(state, T0 + SUGGESTION_TTL_MS * 2), SUGGESTION_TTL_MS);
+});
+
+test("a provisional card still waiting in the queue upgrades where it sits", () => {
+  let state = arrive(emptyQueue, card("a"), T0);
+  state = arrive(state, glance("b", 2), T0 + 1_000);
+  state = upgrade(state, 2, full("完整"));
+  assert.equal(state.queue[0].suggestion.title, "完整");
+  assert.equal(state.queue[0].suggestion.provisional, false);
+  assert.equal(state.current.id, "a", "the bubble on screen was not touched");
+});
+
+test("an upgrade only ever touches the provisional card of its own evaluation", () => {
+  let state = arrive(emptyQueue, glance("a", 1), T0);
+  state = arrive(state, glance("b", 2), T0 + 1_000);
+  state = upgrade(state, 2, full("完整"));
+  assert.equal(state.current.suggestion.provisional, true, "seq 1 is another tick's card");
+  assert.equal(state.queue[0].suggestion.title, "完整");
+});
+
+test("an upgrade naming a card that already left changes nothing", () => {
+  // History records the final form, and a card that expired before its tick finished is
+  // exactly what the reader saw.
+  let state = arrive(emptyQueue, glance("a"), T0);
+  state = tick(state, T0 + SUGGESTION_TTL_MS);
+  const after = upgrade(state, 1, full("完整"));
+  assert.equal(after.current, null);
+  assert.equal(after.history[0].suggestion.title, "卡 a");
+});
+
+test("an ordinary card is never touched by an upgrade", () => {
+  let state = arrive(emptyQueue, card("a"), T0);
+  assert.deepEqual(upgrade(state, 1, full("完整")), state);
 });

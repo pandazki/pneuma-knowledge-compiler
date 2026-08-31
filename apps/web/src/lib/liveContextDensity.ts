@@ -6,11 +6,14 @@
  * knows in the abstract. What they do know is whether they want the system chattier or
  * quieter, so that is what the panel asks now, and this table is the translation.
  *
- * **Presets are a client vocabulary, not a wire one.** The socket and the SSE endpoint keep
- * taking the raw numbers, the server keeps echoing the resolved numbers back, and the
- * Processing tab keeps showing those — a debug surface that showed a preset NAME would hide
- * the very thing it exists to expose. Nothing about presets reaches the engine directory
- * either: they are how one page's controls are shaped, not a deployment's strategy.
+ * **The posture is now a wire field, and the numbers still are too.** That split is the
+ * lesson of a live miss: on the eager preset the single turn 「建议这个事情还是交给我们日本市场
+ * 的负责人来做吧。」 was skipped outright, because the three numbers only move how MUCH gets
+ * through and the contract still said the same thing about WHAT is worth looking up. So
+ * `density` travels beside them and varies one clause of the discover contract, while the
+ * numbers stay exactly what they were — and the Processing tab keeps showing the resolved
+ * numbers rather than a preset name, because a debug surface that showed only the name
+ * would hide the very thing it exists to expose.
  *
  * A combination matching no preset is `null` — "custom" — which is what an older client's
  * numbers, a hand-edited URL, or a future preset all look like from here. That is a state to
@@ -55,6 +58,18 @@ export const DEFAULT_DENSITY: DensityKey = "balanced";
 export function densityValues(key: DensityKey): DensityValues {
   const found = DENSITY_PRESETS.find((p) => p.key === key);
   return { ...(found ?? DENSITY_PRESETS[1]).values };
+}
+
+/**
+ * What a preset pill sends: the posture AND the numbers it resolves to.
+ *
+ * Both, always. The numbers alone were what the pills used to send, and that is exactly the
+ * shape that let an eager connection skip a turn naming a role nobody had named — the floors
+ * were low and the contract was unchanged. The posture alone would drop the three dials a
+ * custom setting is built out of. They answer different questions, so they both travel.
+ */
+export function densityConfig(key: DensityKey): DensityValues & { density: DensityKey } {
+  return { density: key, ...densityValues(key) };
 }
 
 /** Which preset these numbers ARE, or `null` when they are somebody's own combination. */

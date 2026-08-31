@@ -144,6 +144,64 @@ def document_title(doc: CanonicalDocument) -> str:
     return doc.path.rsplit("/", 1)[-1].removesuffix(".md")
 
 
+# ------------------------------------------------------------------ naming a document
+
+_SUBJECT_SEP_RE = re.compile(r"[^0-9a-z\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]+")
+
+
+def subject_key(text: str) -> str:
+    """The comparison key for a free-text subject name: casefolded, and every run of
+    punctuation or whitespace dropped.
+
+    `Lumen Lab`, `lumen-lab` and `LUMENLAB` collapse onto one key; two different names never
+    do. Deliberately NOT a similarity measure — a resolution that is not exact under one
+    normalisation is no resolution at all, and the generosity is entirely in the
+    normalisation. No pinyin either: this names a project, a team, a topic, and unlike a
+    person those have no second convention to be written in.
+    """
+    return _SUBJECT_SEP_RE.sub("", str(text or "").strip().casefold())
+
+
+def resolve_subject(
+    docs: Sequence[CanonicalDocument], subject: str
+) -> list[tuple[CanonicalDocument, str]]:
+    """The document(s) a free-text `subject` names, as `(doc, what matched)` pairs.
+
+    Across EVERY family: the subject of "who is around X" or "what is X" is not a person,
+    and restricting the search to one family would be the caller's opinion about a question
+    the library answers for itself. The vocabulary compared is the only one every document
+    has — its repository path, its title, its frontmatter `slug` and its filename.
+
+    A path is taken OUTRIGHT: it names exactly one document, and a name that also matches
+    others is not an ambiguity about which document was meant. Everything else ties, and a
+    tie is returned rather than resolved — the caller decides what a tie means, and no tie
+    is ever broken by picking the first path.
+    """
+    query = str(subject or "").strip()
+    if not query:
+        return []
+    wanted_path = query.casefold()
+    key = subject_key(query)
+    matches: list[tuple[CanonicalDocument, str]] = []
+    for doc in sorted(docs, key=lambda d: d.path):
+        if doc.path.casefold() == wanted_path:
+            matches.append((doc, "path"))
+            continue
+        if not key:
+            continue
+        stem = doc.path.rsplit("/", 1)[-1].removesuffix(".md")
+        for how, name in (
+            ("title", document_title(doc)),
+            ("slug", str((doc.frontmatter or {}).get("slug") or "")),
+            ("filename", stem),
+        ):
+            if name and subject_key(name) == key:
+                matches.append((doc, how))
+                break
+    exact = [m for m in matches if m[1] == "path"]
+    return exact or matches
+
+
 #: How much of a document's definition an outline / glance line carries. One line each, and
 #: a definition is one sentence by gate rule, so this only ever fires on a run-on.
 DEFINITION_LINE_CHARS = 160

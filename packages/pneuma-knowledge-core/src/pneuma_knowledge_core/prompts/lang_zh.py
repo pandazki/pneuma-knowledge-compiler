@@ -404,6 +404,10 @@ _LIVE_DISCOVER_CONTRACT = """\
 
 输出务必**短**。速度就是这个功能本身：检索计划晚于话题，就一文不值。
 
+转写分成**两部分**。此前对话在那里，是为了让你读懂新内容在指什么——「他们」是谁、「它」是哪个
+产品、之前已经提过什么。**绝不要去挖它**：那部分已经看过了。你要判断的是**新内容**，只不过
+要放在此前对话的光照下去读。
+
 出现下面任一情形，就**跳过**——置 `skip: true` 并给出 `reason`：
 
 - `small_talk` —— 闲聊、事务性沟通、噪声。没有可查的东西。
@@ -413,6 +417,8 @@ _LIVE_DISCOVER_CONTRACT = """\
 
 一个屋里反复被提到、却从没有人追问的主体，是**共识**：在场的人本来就知道它是什么，再介绍一遍
 毫无价值。要找的是关于它的**新**东西，找不到就跳过。
+
+{mining}
 
 否则给出三件事：
 
@@ -425,6 +431,31 @@ _LIVE_DISCOVER_CONTRACT = """\
 
 {focus}
 """
+
+_MINING_BALANCED = """\
+**值得一查的是**：一处明确的信息缺口，而库里能把它补上；或者有人真的问出了一个问题，而库在结构
+上答得了。多数谈话里这两样都不在，跳过是常态。"""
+
+_MINING_QUIET = """\
+**值得一查的是**：有人**直接问出**的问题，或者明确的要资料。除此之外都不算——一个有意思的名词
+不算，一处你看得见、却没人点破的缺口也不算。没人问，就跳过。"""
+
+_MINING_EAGER = """\
+**值得一查的是——去挖，而且宁可多试一次。**后面的阶段会给结果打分、决定要不要真的推送，所以试
+出来发现单薄不花什么代价；而一次没试过的检索，事后补不回来。
+
+下面三种形状，任意一种成立就够：
+
+- **一个**角色**或**指代**，替代了在场没人点名的那个人。**「X 的负责人」「那个同事」「他们那边
+  的头儿」「这块的 owner」——屋里正在说一个指得出、却叫不上名字的人，而库里很可能知道他是谁。
+  就去查这个人；用来定位他的是那个角色或那个团队，不是你手上没有的名字。
+- **本场对话里第一次出现的名词——尤其是业务相关的那些**：内部项目名或产品名、组织内的说法、
+  领域黑话。把它解释一下，就是给读者多一条线索，而第一次被提到，正是这件事最有用的时刻。
+- **新冒出来的概念，或者一个库能佐证、能纠正的事实。**
+
+这只放宽**首次**提及时的好奇心，别的什么都不动。上面那些规则一条不改：本场已经介绍过的说法，
+或者屋里一直在用、却从没人追问的说法，依旧是 `already_mined`——同一件事解释第二遍不是积极，
+是噪声。"""
 
 _LIVE_PICK_CONTRACT = """\
 # 实时上下文 · 挑选
@@ -1304,6 +1335,9 @@ _ZH: dict[str, str] = {
     ),
     # ───────────────────────────────── recall: 实时上下文三段式流水线
     "recall.live.discover.contract": _LIVE_DISCOVER_CONTRACT,
+    "recall.live.discover.mining.eager": _MINING_EAGER,
+    "recall.live.discover.mining.balanced": _MINING_BALANCED,
+    "recall.live.discover.mining.quiet": _MINING_QUIET,
     "recall.live.discover.path_offer": (
         "  - `{kind}` —— {description}\n"
         "    参数：{args}"
@@ -1325,7 +1359,8 @@ _ZH: dict[str, str] = {
     ),
     "recall.live.section.mined_header": "# 本场已推送过的内容（{count}）",
     "recall.live.section.digest_header": "# 本场反复出现的主体",
-    "recall.live.section.pending_header": "# 待处理的工作流（{turns} 轮）",
+    "recall.live.section.context_header": "# 此前对话（{turns} 轮 · 已处理，仅为理解）",
+    "recall.live.section.pending_header": "# 新内容（{turns} 轮 · 本次评估的就是这些）",
     "recall.live.section.pending_overflow": "——更早的 {count} 轮没能放下",
     "recall.live.section.candidates_header": "# 候选（{count}）",
     "recall.live.section.intent": "这屋里在找的是：{intent}",

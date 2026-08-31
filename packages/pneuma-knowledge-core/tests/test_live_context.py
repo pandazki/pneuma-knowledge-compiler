@@ -602,10 +602,12 @@ async def test_evaluate_live_context_holds_speaker_numbering_across_evaluations(
 
 def test_focus_and_kind_vocabularies_are_closed():
     assert [f.key for f in CONTEXT_FOCUSES] == ["general", "owner", "other"]
-    # `web` was added on the owner's sign-off, which the vocabulary requires
-    # (architecture.md:123-124). It is here rather than as a flag on the other two because
-    # its provenance is a URL rather than a source span, and the client renders it as such.
-    assert [k.key for k in SUGGESTION_KINDS] == ["concept", "fact", "web"]
+    # `web` and `glance` were each added on the owner's sign-off, which the vocabulary
+    # requires (architecture.md:123-124). Each is a kind rather than a flag on the other
+    # two because what it promises the reader differs: `web`'s provenance is a URL rather
+    # than a source span, and `glance` is the subject's own definition delivered BEFORE the
+    # tick settled, marked provisional until it does.
+    assert [k.key for k in SUGGESTION_KINDS] == ["concept", "fact", "glance", "web"]
     assert set(live_context_contracts()) == {f.key for f in CONTEXT_FOCUSES}
     assert focus_option("owner").label == "Focus on the owner"
     assert kind_option("fact").key == "fact"
