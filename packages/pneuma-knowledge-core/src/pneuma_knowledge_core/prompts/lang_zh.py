@@ -395,6 +395,68 @@ _LIVE_CONTEXT_HEAD = """\
 
 """
 
+_LIVE_DISCOVER_CONTRACT = """\
+# 实时上下文 · 发现
+
+你在旁听知识主体接入的一条工作流——转写的谈话、消息、文档——它正在实时到来。没有人在向你提问。
+你这一轮唯一的任务，是又快又省地判断：主体的知识库此刻是否有值得查的东西；若有，该怎么查。
+你不作答、不解释、也不写卡片。
+
+输出务必**短**。速度就是这个功能本身：检索计划晚于话题，就一文不值。
+
+出现下面任一情形，就**跳过**——置 `skip: true` 并给出 `reason`：
+
+- `small_talk` —— 闲聊、事务性沟通、噪声。没有可查的东西。
+- `already_mined` —— 流里正在绕的东西本场已经推送过（见已挖掘列表），或者台账显示这个主体
+  已经介绍过了。
+- `nothing_new` —— 自上次查看之后，没有出现任何一次检索能改善的新内容。
+
+一个屋里反复被提到、却从没有人追问的主体，是**共识**：在场的人本来就知道它是什么，再介绍一遍
+毫无价值。要找的是关于它的**新**东西，找不到就跳过。
+
+否则给出三件事：
+
+- `intent` —— 一句话，说清这屋里真正在找什么。不是话题，是需求：「这儿谁在做让智能体记忆更精确
+  的事」是意图；「Lumenlab」只是话题。
+- `plan` —— 一到两个查询。每个是一个 `kind` 加它的参数：
+{kinds}
+- `worth` —— 1-10，此刻一张卡对主体值多少。低于本部署的下限就完全不做检索，所以老实打低分不
+  花任何代价，而把什么都打高分，花的是主体的注意力。
+
+{focus}
+"""
+
+_LIVE_PICK_CONTRACT = """\
+# 实时上下文 · 挑选
+
+知识主体正在谈话中。下面是编好号的候选卡片，每一张都已从他自己的知识库里装配好：逐字的断言
+文本与原文摘录，并带着支撑它们的引用。这些不是你写的，你也不改写它们。
+
+说出此刻最值得给这个人看的是**哪一张**，并说清为什么。
+
+- `choice` —— 那张候选的编号；**若没有一张能回答这屋里在找的东西，就填 0**。0 是正常回答，
+  不是失败：一张没人需要的卡，比沉默更糟。**库里没有就是没有**——意图问的东西这些候选没有
+  覆盖，就填 0。
+- `lede` —— 一到两句**短**话，说明这件事此刻对他为什么重要。只能说所选候选自己的文本真正说
+  了的东西，把它转向他的需求。你可以改换措辞，不可以往外延伸。绝不要写**关于这张卡本身**的
+  话（「这张卡说明了……」「这条记录梳理了……」）——直接写内容。也绝不要在知识库其实答不上来
+  时，暗示它答得上来：如果你能老实说的只是候选恰好覆盖了什么，就说到这里为止。
+- `citations` —— 所选卡片自带引用里、真正支撑这句话的那几个编号。照抄，绝不自造。留空表示全用。
+- `confidence` —— 1-10，**所选候选自己的文本，有多直接地回答了那句意图**。不是这张候选有多好，
+  不是知识库写得多用心，也不是相关材料有多少：把意图和候选文本并排读，给这两者之间的匹配打分。
+  低于本部署的下限就什么都不展示，所以老实打低分，正是一个弱匹配不去挡人路的方式。
+
+**沾边不等于覆盖。** 与意图共用一个词、说的是同一类东西、或者只是库里离那个名字最近的一个内部
+项目——这些都不是回答。它们是关于「库里恰好有什么」的事实，不是关于问题的事实；把它推出去，是在
+告诉读者一件他没问、也不需要的事。这种匹配要打低分，或者直接填 0。
+
+**来源不是优先级，匹配度才是。** 每张候选都写明了它的来源：知识库，或互联网实时搜索。内部候选
+只是沾边、而 web 候选直接回答了意图时，就选 web；反之亦然；都不回答就选 0。不论出自哪个池子，
+用同一把尺子读每一张候选。
+
+为「需求」而选，不为「覆盖面」而选。「知识库对这事知道得很多」从来不是打断任何人的理由。
+"""
+
 _DETAIL_CONTRACT = """\
 # 上下文简报 · 展开
 
@@ -1240,6 +1302,49 @@ _ZH: dict[str, str] = {
         "**本轮关注范围**：只为参与者投入的内容出卡。\n"
         "知识主体的内容仍要读全，但只作为理解的背景——不要为只有知识主体提到的东西出卡。"
     ),
+    # ───────────────────────────────── recall: 实时上下文三段式流水线
+    "recall.live.discover.contract": _LIVE_DISCOVER_CONTRACT,
+    "recall.live.discover.path_offer": (
+        "  - `{kind}` —— {description}\n"
+        "    参数：{args}"
+    ),
+    "recall.live.discover.semantic_offer": (
+        "  - `semantic` —— 对整个知识库做自由文本相似检索。把**一条**查询字符串放进 `query`"
+        "（不要放进 `args`）。上面的结构化查询都不合用时用它，也可以与其中一个并用。"
+    ),
+    "recall.live.discover.web_offer": (
+        "  - `web` —— 搜**互联网**，不是搜知识主体的知识库。把**一条**查询字符串放进 `query`"
+        "（不要放进 `args`）。本部署允许把它作为**补充**：当需求明显是知识库不会有的东西"
+        "——外部的新发布、产品、术语——才规划它；绝不用它替代先在库里找。"
+    ),
+    "recall.live.pick.contract": _LIVE_PICK_CONTRACT,
+    "recall.live.web.instruction": (
+        "请先使用联网搜索核实，再直接给最终答案，不输出搜索开场白。优先官方来源；正文不超过"
+        "150 个中文字，附 1 至 2 个来源链接；最多搜索两次。查不到请直说，不要推测。"
+        "\n\n问题：{question}"
+    ),
+    "recall.live.section.mined_header": "# 本场已推送过的内容（{count}）",
+    "recall.live.section.digest_header": "# 本场反复出现的主体",
+    "recall.live.section.pending_header": "# 待处理的工作流（{turns} 轮）",
+    "recall.live.section.pending_overflow": "——更早的 {count} 轮没能放下",
+    "recall.live.section.candidates_header": "# 候选（{count}）",
+    "recall.live.section.intent": "这屋里在找的是：{intent}",
+    "recall.live.section.conversation_header": "# 当前对话（{turns} 轮）",
+    "recall.live.candidate.block": (
+        "## {index} · [{kind}] {title}\n来源：{provenance}\n出自：{subject}\n{body}"
+        "\n引用：\n{citations}"
+    ),
+    "recall.live.candidate.provenance_library": "知识库",
+    "recall.live.candidate.provenance_web": "互联网实时",
+    "recall.live.candidate.citation": "  [{n}] {source_id} \u00b6{block_start}-{block_end}",
+    "recall.live.candidate.web_citation": "  [{n}] {title} —— {url}",
+    "recall.live.candidate.no_citations": "  （无）",
+    "recall.live.candidate.excerpt": "- {title}：{text}",
+    "recall.live.digest.line": "- {label} —— 被提到 {mentions} 次 · {state} · {asked}",
+    "recall.live.digest.introduced": "已介绍过",
+    "recall.live.digest.new": "尚未介绍",
+    "recall.live.digest.asked": "有人追问过",
+    "recall.live.digest.unasked": "没有人追问",
     # ─────────────────────────────────────────────── recall: human-turn sections
     "recall.section.profile_header": "# 知识主体档案",
     "recall.section.claims_header": "# 断言笔记（{count} 条）",

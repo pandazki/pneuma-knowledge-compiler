@@ -349,6 +349,31 @@ class Settings(BaseSettings):
     # deployment that already pointed recall at a fast model should not have to say so
     # twice. Set PNEUMA_KNOWLEDGE_LLM_MODEL_LIVE_CONTEXT to split them.
     llm_model_live_context: str = ""
+    # The full-scope Live Context lane is two small calls, not one big one, and they want
+    # different models — so they are different roles (core recall/live_pipeline.py).
+    #   live_discover — a SMALL REASONING model at LOW effort. It reads the pending window
+    #     and answers "is anything here worth looking up, and how". Its output is a few
+    #     dozen tokens; what it needs is judgement about a conversation, fast.
+    #   live_pick — a WEAK FAST model with reasoning OFF. It chooses between candidate cards
+    #     that are already assembled and writes one short lede. There is nothing to reason
+    #     about: the evidence is in front of it and it may not rewrite a word of it.
+    # Both fall back to `recall` before `llm_model` (wiring._ROLE_FALLBACK), and their
+    # reasoning effort is pinned at construction (wiring._ROLE_REASONING_EFFORT) rather
+    # than exposed as a knob — an effort that changed what these two cost would change what
+    # the lane IS, and the lane's whole argument is that it is cheap.
+    llm_model_live_discover: str = ""
+    llm_model_live_pick: str = ""
+    # The supplementary internet face on the Live Context lane (core `ports/web_search.py`).
+    # OFF by default and deliberately so: the library is the authority, this reaches outside
+    # it, and it bills per search. Two conditions must BOTH hold before the discover contract
+    # even offers the lookup — this knob, and the client's own per-connection toggle — so
+    # enabling it here opens the possibility rather than turning it on for everybody.
+    #   live_web_search       — the deployment's answer.
+    #   live_web_search_model — the OpenRouter model that serves it. Reuses OPENROUTER_API_KEY
+    #     (see below); with no key the adapter reports itself unavailable and the lookup is
+    #     never offered, whatever this says.
+    live_web_search: bool = False
+    live_web_search_model: str = "openai/gpt-5.6-luna"
     # Provider-call guardrails for EVERY chat-model role (compile/recall/deep/evolve/…).
     # Deliberately not split per role: one timeout and one retry budget is a guardrail, and
     # a per-role matrix would be a knob nobody can reason about.

@@ -30,28 +30,97 @@ def turn(text: str, role: str = "owner", speaker_id: str | None = None) -> Conve
     )
 
 
-def suggestion(title: str, kind: str = "concept") -> dict:
-    return {"kind": kind, "title": title, "body": "b", "trigger": "t", "confidence": 9}
+def suggestion(title: str, kind: str = "concept", **extra) -> dict:
+    return {
+        "kind": kind,
+        "title": title,
+        "body": "b",
+        "trigger": "t",
+        "confidence": 9,
+        **extra,
+    }
 
 
-# --------------------------------------------------------------------- the window
+def shown(title: str, kind: str = "concept", body: str = "b", subject: str = "") -> dict:
+    return {
+        "kind": kind,
+        "title": title,
+        "body": body,
+        "subject": subject,
+        "subject_label": subject,
+    }
 
 
-def test_the_window_keeps_only_the_newest_turns():
-    """A sliding window, not a growing transcript: turn 1 must fall out at window 3."""
-    s = LiveContextSession(LiveContextPolicy(turn_window=3))
-    for i in range(5):
-        s.add_turn(turn(f"t{i}"))
-    assert [t.text for t in s.turns] == ["t2", "t3", "t4"]
+# ------------------------------------------------------------- the pending window
 
 
-def test_widening_the_window_at_runtime_keeps_what_is_already_held():
-    s = LiveContextSession(LiveContextPolicy(turn_window=2))
+def test_a_tick_consumes_the_pending_run_exactly_once():
+    """The window is PENDING, not a sliding tail. A tick reads everything said since the
+    last one and processes it; the next tick starts from what came after. Re-reading would
+    make the lane decide the same stretch was small talk over and over, and pay each time."""
+    s = LiveContextSession(LiveContextPolicy(quiet_period=0.0))
     for i in range(3):
         s.add_turn(turn(f"t{i}"))
-    s.configure(turn_window=4)
+    first = s.begin(now=T0)
+    assert [t.text for t in first.turns] == ["t0", "t1", "t2"]
+    assert s.turns == (), "the run it read is processed"
+    s.complete(first.seq, [], now=T0)
+    assert s.begin(now=T0) is None, "nothing new to read"
+
     s.add_turn(turn("t3"))
-    assert [t.text for t in s.turns] == ["t1", "t2", "t3"]
+    second = s.begin(now=T0)
+    assert [t.text for t in second.turns] == ["t3"]
+
+
+def test_a_skip_consumes_its_turns_the_same_way_a_delivery_does():
+    """A skip is a DECISION about those turns, not a failure to process them."""
+    s = LiveContextSession(LiveContextPolicy(quiet_period=0.0))
+    s.add_turn(turn("中午吃什么"))
+    plan = s.begin(now=T0)
+    s.complete(plan.seq, [], now=T0)  # the lane skipped; zero cards
+    assert s.turns == ()
+    assert s.begin(now=T0) is None
+
+
+def test_a_failed_evaluation_gives_its_turns_back():
+    """A crash processed nothing. The turns go back at the FRONT of the pending run, so a
+    provider hiccup does not silently swallow a stretch of the conversation."""
+    s = LiveContextSession(LiveContextPolicy(quiet_period=0.0))
+    s.add_turn(turn("a"))
+    plan = s.begin(now=T0)
+    s.add_turn(turn("b"))
+    s.abandon(plan.seq, now=T0, turns=plan.turns)
+    assert [t.text for t in s.turns] == ["a", "b"]
+
+
+def test_a_failure_does_not_re_arm_itself_into_a_hot_loop():
+    """Restoring the turns must NOT mark the session dirty. With `quiet_period=0` a
+    self-re-arming failure is a busy loop against a broken backend — and it is a busy loop
+    that consumes no turns, so nothing ever breaks it."""
+    s = LiveContextSession(LiveContextPolicy(quiet_period=0.0))
+    s.add_turn(turn("a"))
+    plan = s.begin(now=T0)
+    s.abandon(plan.seq, now=T0, turns=plan.turns)
+    assert [t.text for t in s.turns] == ["a"]
+    assert s.due_in(now=T0) is None, "the failed run waits for the next real turn"
+    s.add_turn(turn("b"))
+    assert s.due_in(now=T0) == 0.0
+
+
+def test_the_pending_bound_is_policy_and_reaches_the_plan():
+    s = LiveContextSession(LiveContextPolicy(quiet_period=0.0))
+    s.configure(max_pending_turns=4)
+    s.add_turn(turn("a"))
+    assert s.begin(now=T0).max_pending_turns == 4
+
+
+def test_the_old_wire_names_are_tolerated_not_rejected():
+    """`turn_window` was renamed and `max_suggestions` stopped meaning anything. An older
+    client sending either must keep working — a 422 on a dead field helps nobody."""
+    s = LiveContextSession()
+    s.configure(max_pending_turns=7)
+    assert s.policy.max_pending_turns == 7
+    assert not hasattr(s.policy, "max_suggestions")
 
 
 # --------------------------------------------------------------- the quiet period
@@ -120,13 +189,15 @@ def test_turns_arriving_mid_evaluation_coalesce_into_exactly_one_rerun():
 
 def test_a_plan_snapshots_the_window_it_was_built_from():
     """Turns that arrive mid-evaluation must not join the running plan's window — if they
-    did, `dirty` would be describing work that had already been done."""
+    did, `dirty` would be describing work that had already been done. With a consuming
+    window that is also what makes the boundary exact: `a` belongs to the running tick, `b`
+    to the next one, and neither is read twice."""
     s = LiveContextSession(LiveContextPolicy(quiet_period=0.0))
     s.add_turn(turn("a"))
     plan = s.begin(now=T0)
     s.add_turn(turn("b"))
     assert [t.text for t in plan.turns] == ["a"]
-    assert [t.text for t in s.turns] == ["a", "b"]
+    assert [t.text for t in s.turns] == ["b"]
 
 
 def test_flush_skips_the_quiet_period_but_not_the_single_in_flight_rule():
@@ -203,7 +274,7 @@ def test_a_plan_carries_already_shown_into_the_evaluation():
     s.complete(first.seq, [suggestion("RAG")], now=T0)
 
     s.add_turn(turn("b"))
-    assert s.begin(now=T0).already_shown == ({"kind": "concept", "title": "RAG"},)
+    assert s.begin(now=T0).already_shown == (shown("RAG"),)
 
 
 def test_the_client_is_the_dedup_authority():
@@ -215,7 +286,7 @@ def test_the_client_is_the_dedup_authority():
     s.configure(already_shown=[{"kind": "fact", "title": "从客户端恢复"}])
     s.add_turn(turn("a"))
     plan = s.begin(now=T0)
-    assert plan.already_shown == ({"kind": "fact", "title": "从客户端恢复"},)
+    assert plan.already_shown == (shown("从客户端恢复", "fact", body=""),)
     # ...and the server honours it as a gate, not as a hint.
     assert s.complete(plan.seq, [suggestion("从客户端恢复", "fact")], now=T0) == []
 
@@ -223,12 +294,47 @@ def test_the_client_is_the_dedup_authority():
     assert s.already_shown == ()
 
 
-def test_a_shown_entry_keeps_only_kind_and_title():
-    """Never the body: it may still hold `[cite: sNN]` handles from an alias epoch that is
-    over, and a stale handle points at a DIFFERENT source next evaluation."""
+def test_a_shown_entry_carries_the_body_but_keys_only_on_kind_and_title():
+    """The body is carried now — the discover stage answers `already_mined` against it, and
+    a bare title cannot tell it whether the thing the room is circling has been said. What
+    the body may NOT carry is a `[cite: sNN]` handle: the alias epoch it belonged to is over
+    and a stale handle points at a DIFFERENT source. The dedup key is unchanged."""
     s = LiveContextSession()
-    s.configure(already_shown=[{"kind": "fact", "title": "T", "body": "x [cite: s03]"}])
-    assert s.already_shown == ({"kind": "fact", "title": "T"},)
+    s.configure(already_shown=[{"kind": "fact", "title": "T", "body": "x [cite: s03] y"}])
+    entry = s.already_shown[0]
+    assert (entry["kind"], entry["title"]) == ("fact", "T")
+    assert entry["body"] == "x y"
+
+
+def test_a_replayed_subject_restores_the_ledger_on_reconnect():
+    """Otherwise every reconnect re-introduces a subject the reader has already met."""
+    s = LiveContextSession()
+    s.configure(already_shown=[shown("Lumenlab", subject="projects/lumenlab.md")])
+    assert s.ledger.held_as_duplicate("projects/lumenlab.md", "concept")
+    assert not s.ledger.held_as_duplicate("projects/lumenlab.md", "fact")
+
+
+def test_a_completed_evaluation_writes_the_ledger_and_a_stale_one_does_not():
+    s = LiveContextSession(LiveContextPolicy(quiet_period=0.0))
+    s.add_turn(turn("a"))
+    plan = s.begin(now=T0)
+    s.complete(
+        plan.seq,
+        [shown("Lumenlab", subject="projects/lumenlab.md")],
+        now=T0,
+        touched=[("projects/lumenlab.md", "lumenlab")],
+        asked=True,
+    )
+    assert s.ledger.held_as_duplicate("projects/lumenlab.md", "concept")
+    assert "somebody asked" in s.ledger.digest() or "asked about it" in s.ledger.digest()
+
+    s.add_turn(turn("b"))
+    later = s.begin(now=T0)
+    assert (
+        s.complete(later.seq + 9, [shown("X", subject="d.md")], now=T0, touched=[("d.md", "d")])
+        == []
+    )
+    assert not s.ledger.held_as_duplicate("d.md", "concept")
 
 
 def test_a_titleless_card_is_not_remembered():
@@ -257,13 +363,13 @@ def test_a_reconnect_restores_the_window_and_schedules_an_evaluation():
     assert [t.text for t in s.turns] == ["earlier", "later"]
     assert s.due_in(now=T0) == 0.0
     plan = s.begin(now=T0)
-    assert plan.already_shown == ({"kind": "concept", "title": "已读"},)
+    assert plan.already_shown == (shown("已读"),)
 
 
-def test_speaker_numbering_stays_stable_as_the_window_rolls():
+def test_speaker_numbering_stays_stable_across_ticks():
     """参与者1 must keep meaning the same person after the turns that introduced them have
-    scrolled out of the window. The session holds the label map for exactly this."""
-    s = LiveContextSession(LiveContextPolicy(turn_window=2))
+    been consumed by an earlier tick. The session holds the label map for exactly this."""
+    s = LiveContextSession(LiveContextPolicy(quiet_period=0.0))
     alice = turn("hi", "other", "others/1")
     bob = turn("hello", "other", "others/2")
 
@@ -272,7 +378,9 @@ def test_speaker_numbering_stays_stable_as_the_window_rolls():
     first = label_turns(s.turns, s.label_map)
     assert first[0].startswith("Participant1") and first[1].startswith("Participant2")
 
-    # Alice's opening line scrolls out; Bob speaks again, then Alice comes back.
+    # That run is consumed by a tick; Bob speaks again, then Alice comes back.
+    plan = s.begin(now=T0)
+    s.complete(plan.seq, [], now=T0)
     s.add_turn(turn("still me", "other", "others/2"))
     s.add_turn(turn("me again", "other", "others/1"))
     later = label_turns(s.turns, s.label_map)

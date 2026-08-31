@@ -56,6 +56,7 @@ from pneuma_knowledge_core.prompts.surfaces import (
 from pneuma_knowledge_core.recall.briefing import briefing_contract
 from pneuma_knowledge_core.recall.deep import deep_contract
 from pneuma_knowledge_core.recall.fast import selector_contract, structured_answer_contract
+from pneuma_knowledge_core.recall.live_pipeline import discover_contract, pick_contract
 from pneuma_knowledge_core.recall.suggestion import detail_contract, live_context_contracts
 from pneuma_knowledge_core.skill.contract import render_system_contract
 from pneuma_knowledge_core.skill.version import SkillVersion
@@ -102,6 +103,16 @@ ASSEMBLIES: tuple[tuple[str, object, dict[str, str]], ...] = (
     ("recall.briefing", lambda: briefing_contract(), {}),
     ("recall.suggestion", lambda: live_context_contracts()["general"], {}),
     ("recall.suggestion_detail", lambda: detail_contract(), {}),
+    ("recall.live_discover", lambda: discover_contract("general", ()), {}),
+    # BOTH variants, because the whole discipline of the web toggle is that it changes which
+    # byte-stable SystemMessage renders and never what rides the Human turn (I5). Pinning
+    # only the off variant would leave the on variant free to drift into a second contract.
+    (
+        "recall.live_discover_web",
+        lambda: discover_contract("general", (), web=True),
+        {},
+    ),
+    ("recall.live_pick", lambda: pick_contract(), {}),
     ("evolve.phase1", lambda: phase1_contract(), {}),
     ("evolve.phase2", lambda: phase2_contract(), {}),
     ("compile.system", lambda: render_system_contract(SKILL), COMPILE_FIELDS),

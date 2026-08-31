@@ -1,4 +1,4 @@
-"""Live Context — two client-facing transports plus the vocabulary endpoint.
+"""Live Context — two client-facing transports plus the vocabulary endpoints.
 
 **Shape A, `POST /live-context/stream`** — one-shot SSE. The client posts a whole
 transcript window, the server emits one `event: suggestion` per surviving card and then
@@ -6,19 +6,24 @@ transcript window, the server emits one `event: suggestion` per surviving card a
 evals, for debugging, and for any client that is not a pair of context clients.
 
 **Shape B, `WS /live-context/ws`** — the long-lived connection used by passive clients. The
-client pushes turns; the server holds the sliding window, the quiet period and the
-in-connection dedup. All of that policy lives in `live_context/session.py` as a pure
-clock-injected state machine — this module is the transport that feeds it.
+client pushes turns; the server holds the PENDING run, the quiet period, the in-connection
+dedup and the subject ledger. All of that policy lives in `live_context/session.py` as a
+pure clock-injected state machine — this module is the transport that feeds it.
 
 Wire protocol (JSON text frames both directions):
 
     client → server
       {"type": "config", "focus": "general"|"owner"|"other", "min_confidence": 1-10,
-       "max_suggestions": int, "turn_window": int, "quiet_period": float,
-       "briefing_id": str|"", "turns": [Turn], "already_shown": [{kind, title}],
+       "max_pending_turns": int, "quiet_period": float, "web_search": bool,
+       "briefing_id": str|"", "turns": [Turn],
+       "already_shown": [{kind, title, body?, subject?, subject_label?}],
        "stats": bool}
           Every field optional; absent means unchanged. `turns` + `already_shown` are
-          the RECONNECT path — the client is the dedup authority and restores both.
+          the RECONNECT path — the client is the dedup authority and restores both, and a
+          replayed `subject` also restores the ledger so a reconnect does not re-introduce
+          a subject the reader has met. `turn_window` is accepted as the old name of
+          `max_pending_turns`; `max_suggestions` is accepted and ignored (the lane delivers
+          exactly one card per tick).
       {"type": "turn", "speaker": str, "text": str,
        "role": "owner"|"other"|"unknown", "speaker_id": str|null, "at": iso8601|null}
       {"type": "flush"}                     — evaluate now, skipping the quiet period
@@ -30,18 +35,49 @@ Wire protocol (JSON text frames both directions):
       {"type": "ping"}                      — ignored; a client-side keepalive
 
     server → client
-      {"type": "ready", "focus": ..., "min_confidence": ..., "max_suggestions": ...,
-       "turn_window": ..., "quiet_period": ..., "briefing_id": ..., "stats": bool}
+      {"type": "ready", "focus": ..., "min_confidence": ...,
+       "max_pending_turns": ..., "quiet_period": ..., "web_search": bool,
+       "briefing_id": ..., "stats": bool}
           On accept, and again after every `config`, echoing the EFFECTIVE policy.
-      {"type": "stats", "seq": int, "focus": str, "delivered": int,
-       "dropped": {...}, "token_usage": {...}}
+          `web_search` in particular is the EFFECTIVE value and not the request: a client
+          may ask for the supplementary internet path, and it is granted only where the
+          deployment enabled one (`PNEUMA_KNOWLEDGE_LIVE_WEB_SEARCH`). A client that asked
+          and reads `false` back has been told no, mechanically, rather than left to
+          discover it from the absence of web cards.
+      {"type": "stats", "seq": int, "focus": str, "delivered": int, "turns": int,
+       "token_usage": {...}, "skipped": str, "intent": str, "worth": int,
+       "plan": [str], "rejected": [str], "chosen": int,
+       "candidates": [{index, kind, title, subject, origin, provenance, citations}],
+       "web": {"tier": "off"|"planned"|"fallback", "searches": int, "cost": float,
+                "pages": int},
+       "stages": [{name, ms, status, detail}]}
           OFF unless the client sets `stats: true` in `config`. When on: one per
           evaluation, INCLUDING the ones that produced nothing — an evaluation with
-          zero survivors emits no `suggestion` frame at all, and that is exactly when the
-          gate counters are worth having. Off by default because a quiet connection
-          has to stay actually quiet: that is the property the context clients rely on.
-      {"type": "suggestion", "seq": int, "suggestion": {kind, title, body, trigger, confidence,
-       citations: [{source_id, block_start, block_end}]}}
+          zero survivors emits no `suggestion` frame at all, and that is exactly when
+          `skipped` is worth having. `skipped` is "" on a delivery and otherwise names
+          which door closed: a discover reason (`small_talk` / `already_mined` /
+          `nothing_new`), `low_worth`, `no_plan`, `no_candidates`, `no_coverage`,
+          `none_chosen`, `low_confidence`, `uncited`, `duplicate`, `unparsed`,
+          `pick_failed`. `no_coverage` is the pick's own `choice: 0` — the library holds
+          nothing that answers the intent — and is kept apart from `low_confidence` (a weak
+          answer held back) and from `none_chosen` (a malformed index) because the three
+          look identical on a silent tick and mean different things. Off by default because a
+          quiet connection has to stay actually quiet: that is the property the context
+          clients rely on.
+      {"type": "suggestion", "seq": int, "suggestion": {kind, title, body, evidence,
+       subject, trigger, confidence, citations: [{source_id, block_start, block_end}],
+       web_citations: [{title, url}]}}
+          `body` is the lede — one or two sentences guessing what the reader needs.
+          `evidence` is the verbatim material underneath it, rendered mechanically and
+          shown collapsed. Two fields because they have two different authors.
+          TWO CITATION SHAPES, and which one a card carries is stated by `kind` rather
+          than guessed at: `concept` / `fact` carry `citations` (the one addressing scheme
+          over the owner's own material — source id + block span, I4) and `web` carries
+          `web_citations` (page title + URL). A card never carries both. The evidence
+          surface is otherwise identical across the two: same numbered rows, same collapsed
+          section, and the pick's citation subset selects into either list by the same
+          index rule. Only the affordance differs — a source span opens in-app, a URL
+          opens a new tab.
       {"type": "suggestion_detail", "ref": ..., "title": ..., "detail": ..., "citations": [...],
        "token_usage": {...}}
       {"type": "error", "detail": str, "ref": str|null}
@@ -60,6 +96,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from datetime import datetime, timezone
 from typing import Any
 
@@ -72,18 +109,20 @@ from pneuma_knowledge_core.domain.suggestion import (
 )
 from pneuma_knowledge_core.domain.ids import UserId
 from pneuma_knowledge_core.domain.source import ConversationTurn
-from pneuma_knowledge_core.recall.suggestion import (
-    DEFAULT_MAX_SUGGESTIONS,
-    DEFAULT_MIN_CONFIDENCE,
-    DEFAULT_TURN_WINDOW,
-)
+from pneuma_knowledge_core.recall.live_pipeline import DEFAULT_MAX_PENDING_TURNS
+from pneuma_knowledge_core.recall.suggestion import DEFAULT_MIN_CONFIDENCE
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from pneuma_knowledge_core.recall.live_pipeline import SubjectLedger
+
 from ...live_context.engine import expand_suggestion, load_briefing_pack, run_evaluation
 from ...live_context.session import LiveContextSession, EvaluationPlan
+from ...settings import get_settings
 from .v1 import _render_profile
+
+logger = logging.getLogger(__name__)
 
 # Own routers, mounted alongside v1's in `create_app`. Same prefixes, so the owner-scoped
 # paths land under /v1/users/{user_id}/... exactly as docker/nginx.conf's WebSocket
@@ -140,21 +179,41 @@ class LiveContextStreamIn(BaseModel):
     turns: list[TurnIn] = []
     focus: str = "general"
     min_confidence: int = DEFAULT_MIN_CONFIDENCE
-    max_suggestions: int = DEFAULT_MAX_SUGGESTIONS
-    turn_window: int = DEFAULT_TURN_WINDOW
+    max_pending_turns: int = DEFAULT_MAX_PENDING_TURNS
+    # Allow the supplementary internet search on this request. Clamped against the
+    # deployment's own knob below — asking is not granting.
+    web_search: bool = False
     # Briefing scope: evaluate against this stored briefing's frozen pack (zero retrieval).
     briefing_id: str | None = None
     already_shown: list[dict[str, Any]] = []
     as_of: str | None = None
+    # Accepted and ignored: an older client still sends them. `max_suggestions` stopped
+    # meaning anything when the lane began delivering exactly one card per tick, and
+    # `turn_window` was renamed to `max_pending_turns` when the window stopped being a
+    # sliding tail. Tolerated rather than rejected — a 422 on a field nobody reads any more
+    # would break a client for no gain.
+    max_suggestions: int | None = None
+    turn_window: int | None = None
 
 
 def _suggestion_out(suggestion: Any) -> dict[str, Any]:
     """One card on the wire. `sNN` handles are already gone — core resolved and stripped
-    them before this point, and a handle is only meaningful inside its own evaluation."""
+    them before this point, and a handle is only meaningful inside its own evaluation.
+
+    `body` is the lede (the guessed need); `evidence` is the mechanically rendered verbatim
+    material underneath it, which the client shows collapsed. They are two fields rather
+    than one string because they have two different authors — a model wrote the first, and
+    nothing wrote the second."""
     return {
         "kind": suggestion.kind,
         "title": suggestion.title,
         "body": suggestion.body,
+        "evidence": getattr(suggestion, "evidence", "") or "",
+        "subject": getattr(suggestion, "subject", "") or "",
+        # The short human name for that subject. It travels because a reconnecting client
+        # replays it, and without it the ledger digest would name a document PATH at the
+        # discover stage instead of the thing a person calls it.
+        "subject_label": getattr(suggestion, "subject_label", "") or "",
         "trigger": suggestion.trigger,
         "confidence": suggestion.confidence,
         "citations": [
@@ -164,6 +223,65 @@ def _suggestion_out(suggestion: Any) -> dict[str, Any]:
                 "block_end": c.block_end,
             }
             for c in suggestion.citations
+        ],
+        # The second citation shape, always present as a list so a client tests a field
+        # rather than sniffing for one. A `web` card fills this and leaves `citations`
+        # empty; every other card does the reverse. See the module docstring.
+        "web_citations": [
+            {"title": c.title, "url": c.url}
+            for c in getattr(suggestion, "web_citations", None) or []
+        ],
+    }
+
+
+def _processing_out(result: Any) -> dict[str, Any]:
+    """What one tick DID, for the debug stream and the web Processing tab.
+
+    Silence is this feature's steady state, so "why did nothing fire" is the question this
+    surface gets asked most — and after the redesign it has a real answer at three different
+    depths: the stage never ran (`skipped` names which door closed), it ran and found
+    nothing, or it ran, built candidates and the pick declined. All three are here, with
+    per-stage milliseconds, so nobody has to infer any of it from a token count."""
+    return {
+        "skipped": result.skipped,
+        "dropped": dict(result.dropped),
+        "intent": result.intent,
+        "worth": result.worth,
+        "plan": list(result.plan),
+        "rejected": list(result.rejected),
+        "candidates": [
+            {
+                "index": c.index,
+                "kind": c.kind,
+                "title": c.title,
+                "subject": c.subject,
+                "origin": c.origin,
+                # Which POOL — `library` or `web` — as the pick stage was shown it. The
+                # fine-grained `origin` above is the face; this is the two words the
+                # contract's source-blind rule is about.
+                "provenance": c.provenance,
+                "citations": len(c.citations) or len(c.web_citations),
+            }
+            for c in result.candidates
+        ],
+        "chosen": result.chosen,
+        # What the supplementary face did and what it cost. `tier` distinguishes the two
+        # ways it can be reached — `planned` (discover asked, ran concurrently) from
+        # `fallback` (discover did not ask, the library came back empty, so it ran after) —
+        # because "the web answered" and "the web answered because nothing else did" are
+        # different facts about the tick.
+        "web": {
+            "tier": result.web_tier,
+            "searches": result.web_searches,
+            "cost": result.web_cost,
+            # Pages the searches named. Zero beside a non-zero cost is the one outcome that
+            # would otherwise be invisible: a search that ran, was billed, and cited nothing,
+            # so its answer was refused at construction and never became a candidate.
+            "pages": result.web_pages,
+        },
+        "stages": [
+            {"name": st.name, "ms": st.ms, "status": st.status, "detail": st.detail}
+            for st in result.stages
         ],
     }
 
@@ -189,14 +307,26 @@ async def list_suggestion_kinds() -> list[SuggestionKindOption]:
 # ------------------------------------------------------------------ shape A: one-shot
 
 
-def _plan_from(body: LiveContextStreamIn) -> EvaluationPlan:
+def allow_web_search(ctx: Any, requested: Any) -> bool:
+    """The client asked; the deployment answers. ONE place, both transports.
+
+    Asking is not granting, and the clamp lives here rather than in the session because the
+    session is a pure state machine that knows nothing about settings — so what it holds is
+    already the effective value, and the `ready` echo is therefore the truth rather than a
+    repetition of the request."""
+    return bool(requested) and bool(getattr(ctx.settings, "live_web_search", False))
+
+
+def _plan_from(body: LiveContextStreamIn, ctx: Any) -> EvaluationPlan:
     return EvaluationPlan(
         seq=0,
         turns=tuple(t.to_turn() for t in body.turns),
         focus=body.focus,  # type: ignore[arg-type]
         min_confidence=body.min_confidence,
-        max_suggestions=body.max_suggestions,
-        turn_window=body.turn_window,
+        web_search=allow_web_search(ctx, body.web_search),
+        # An older client's `turn_window` still lands where it meant to: the bound on how
+        # much of the submitted window one evaluation reads.
+        max_pending_turns=body.turn_window or body.max_pending_turns,
         briefing_id=body.briefing_id,
         already_shown=tuple(body.already_shown),
         started_at=0.0,
@@ -222,7 +352,7 @@ async def live_context_stream(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    plan = _plan_from(body)
+    plan = _plan_from(body, ctx)
     as_of = datetime.fromisoformat(body.as_of) if body.as_of else datetime.now(timezone.utc)
     events: asyncio.Queue = asyncio.Queue()
 
@@ -231,6 +361,18 @@ async def live_context_stream(
             pack = None
             if body.briefing_id:
                 pack = await load_briefing_pack(ctx, user_id, body.briefing_id)
+            # One-shot: no session, so the ledger is whatever the submitted `already_shown`
+            # implies. That is the honest bound of a stateless evaluation — the caller is
+            # the only thing that remembers this conversation.
+            ledger = SubjectLedger()
+            for shown in body.already_shown:
+                subject = str(shown.get("subject") or "")
+                if subject:
+                    ledger.deliver(
+                        subject,
+                        str(shown.get("kind") or ""),
+                        str(shown.get("subject_label") or subject),
+                    )
             result = await run_evaluation(
                 ctx,
                 user_id,
@@ -238,6 +380,7 @@ async def live_context_stream(
                 profile=await _render_profile(ctx, UserId(user_id)),
                 pack=pack,
                 as_of=as_of,
+                ledger=ledger,
             )
             for suggestion in result.suggestions:
                 events.put_nowait(("suggestion", _suggestion_out(suggestion)))
@@ -247,9 +390,9 @@ async def live_context_stream(
                     {
                         "focus": plan.focus,
                         "count": len(result.suggestions),
-                        "dropped": result.dropped,
                         "token_usage": result.token_usage,
                         "as_of": as_of.isoformat(),
+                        **_processing_out(result),
                     },
                 )
             )
@@ -309,9 +452,10 @@ async def live_context_ws(websocket: WebSocket, user_id: str) -> None:
             "type": "ready",
             "focus": p.focus,
             "min_confidence": p.min_confidence,
-            "max_suggestions": p.max_suggestions,
-            "turn_window": p.turn_window,
+            "max_pending_turns": p.max_pending_turns,
             "quiet_period": p.quiet_period,
+            # EFFECTIVE, not requested — see `allow_web_search`.
+            "web_search": p.web_search,
             "briefing_id": p.briefing_id,
             "stats": send_stats[0],
         }
@@ -339,9 +483,18 @@ async def live_context_ws(websocket: WebSocket, user_id: str) -> None:
             label_map=session.label_map,
             profile=profile[0],
             pack=pack,
+            ledger=session.ledger,
         )
         # The session dedup runs on the RESULT, layered over core's within-evaluation one.
-        delivered = session.complete(plan.seq, result.suggestions, now=loop.time())
+        # The ledger is written here too, and only here: a result that outlived its own
+        # evaluation must not be able to teach the session anything.
+        delivered = session.complete(
+            plan.seq,
+            result.suggestions,
+            now=loop.time(),
+            touched=result.touched,
+            asked=result.asked,
+        )
         for suggestion in delivered:
             emit({"type": "suggestion", "seq": plan.seq, "suggestion": _suggestion_out(suggestion)})
         # Its own frame rather than a field on `suggestion`: the evaluation that produced ZERO
@@ -360,8 +513,9 @@ async def live_context_ws(websocket: WebSocket, user_id: str) -> None:
                     "seq": plan.seq,
                     "focus": plan.focus,
                     "delivered": len(delivered),
-                    "dropped": dict(result.dropped),
                     "token_usage": dict(result.token_usage),
+                    "turns": len(plan.turns),
+                    **_processing_out(result),
                 }
             )
 
@@ -387,7 +541,9 @@ async def live_context_ws(websocket: WebSocket, user_id: str) -> None:
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # noqa: BLE001 — a listener degrades, never dies
-                session.abandon(plan.seq, now=loop.time())
+                # A failure processed nothing: the turns it consumed go back on the pending
+                # run rather than being silently lost to a provider hiccup.
+                session.abandon(plan.seq, now=loop.time(), turns=plan.turns)
                 emit({"type": "error", "detail": str(exc)})
             # Turns that landed mid-evaluation set `dirty`; re-check now that we are idle.
             wake.set()
@@ -433,9 +589,16 @@ async def live_context_ws(websocket: WebSocket, user_id: str) -> None:
                     session.configure(
                         focus=msg.get("focus"),
                         min_confidence=msg.get("min_confidence"),
-                        max_suggestions=msg.get("max_suggestions"),
-                        turn_window=msg.get("turn_window"),
+                        # `turn_window` is the old name for the same bound; `max_suggestions`
+                        # is simply dropped. An older client is tolerated, never 400ed.
+                        max_pending_turns=msg.get("max_pending_turns")
+                        or msg.get("turn_window"),
                         quiet_period=msg.get("quiet_period"),
+                        web_search=(
+                            allow_web_search(ctx, msg["web_search"])
+                            if msg.get("web_search") is not None
+                            else None
+                        ),
                         briefing_id=msg.get("briefing_id"),
                         turns=(
                             [TurnIn(**t).to_turn() for t in msg["turns"]]

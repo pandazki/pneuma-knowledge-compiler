@@ -202,8 +202,16 @@ Source 详情绝不暴露对象存储 key。每条图片清单只给 `image_id`�
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
-| POST | `/…/live-context/stream` | 对一段转写窗口的一次性 SSE：每张存活卡片一条 `event: suggestion`，末尾 `done` 带闸门统计 |
+| POST | `/…/live-context/stream` | 对一段转写窗口的一次性 SSE：每张存活卡片一条 `event: suggestion`，末尾 `done` 带这一拍做了什么 |
 | WS | `/…/live-context/ws` | 长连接监听。客户端发 `config` / `turn` / `flush` / `want_more` / `ping`；服务端发 `ready` / `suggestion` / `suggestion_detail` / `stats` / `error`（永不致命）/ `ping`（约 30 秒保活）。完整协议见 [`api/routes/live_context.py`](../../packages/pneuma-knowledge-service/src/pneuma_knowledge_service/api/routes/live_context.py) 的模块 docstring |
+
+投递出去的卡片带着两段文字、两个不同的作者，分开正是要点所在：`body` 是**引言**——一到两句话，猜测此刻这件事对这个读者为何重要，由挑选模型写出并被机械截断；`evidence` 是压在它下面的逐字断言文本与原文摘录，由检索结果机械渲染，没有任何人改写过。`subject` 指出这张卡片讲的是哪份正本文档或哪个来源；客户端在 `already_shown` 里把它带回来，于是重连不会把读者已经认识的主体再介绍一遍。
+
+**两种引用形状，由 `kind` 说明是哪一种。** `concept` 与 `fact` 卡片带的是 `citations`——覆盖知识主体自己材料的那一套唯一寻址方案，`{source_id, block_start, block_end}`（I4）。`kind: "web"` 的卡片带的是 `web_citations`——`{title, url}`——因为它立在网页上而不是来源块上，而网址不是那套方案里的地址：它解析不到存储里的任何东西，也绝不该被硬塞进一个 `Citation`。一张卡永远只带其中一种，而两个字段都恒为列表，于是客户端是去读一个字段，而不是去嗅探。除此之外，两者的证据面完全一致：同样编号的行、同样折叠的段落，挑选阶段的引用子集也用同一条按编号取值的规则落在任一份清单上（子集为空或全部越界时回退为全部，而不是把卡片的出处剥光）。只有交互不同——来源区间在应用内打开，网址在新标签页打开——并且 `want_more` 在 web 卡上不可用：没有来源块可以逐字取回，也就没有可供展开的边界。
+
+`stats`（WS，需显式开启）与 `done`（SSE）都带着这一拍的**处理记录**：`skipped`（投递时为 `""`，否则说明是哪道门关上的——发现阶段给的 `small_talk` / `already_mined` / `nothing_new`，或 `low_worth`、`no_plan`、`no_candidates`、`no_coverage`、`none_chosen`、`low_confidence`、`uncited`、`duplicate`、`unparsed`、`pick_failed` 之一）、`intent`、`worth`、`plan`（实际跑了哪些查询）、`rejected`（计划里指向未启用查询路的条目）、`candidates`（每条 `{index, kind, title, subject, origin, provenance, citations}`）、`chosen`、`web`（`{tier, searches, cost, pages}`，见下），以及 `stages`（`discover` / `retrieve` / `retrieve.semantic` / `retrieve.web` / `retrieve.path:<名字>` / `pick` / `total`，各带 `ms` 与 `status`）。`no_coverage` 是挑选阶段自己给的 `choice: 0`——它把每一张候选对着意图读过，没有一张覆盖它——刻意与 `low_confidence`（一个被压住的弱答案）和 `none_chosen`（一个畸形的编号）分开：这三者在一次沉默的拍子上看起来一模一样，含义却不同。`dropped` 仍在，是简报那一轮的四道闸门账；全量车道下它为空，对应的东西是 `skipped`。
+
+`config` 与 `ready` 上的策略字段：`focus`、`min_confidence`（一个数字两道门——发现阶段的 `worth` 下限与挑选阶段的 `confidence` 下限）、`max_pending_turns`、`quiet_period`、`web_search`、`briefing_id`、`stats`。`web_search` 是在请求那条补充的互联网路；`ready` 回送的是**生效值**，因为部署自己也有一个答案（`PNEUMA_KNOWLEDGE_LIVE_WEB_SEARCH`），而一个请求了 `true` 却读回 `false` 的客户端，是被机械地告知了「不行」，而不是只能从「没有 web 卡片」里去推测。随后那一拍的 `web` 记录说明这条路做了什么：`tier` 是 `off`、`planned`（发现阶段规划了这次查询，于是它与知识库各面并发跑）或 `fallback`（发现阶段没规划，而知识库给出的候选池是空的，于是它在其后跑），并附上 `searches`、`cost` 与 `pages`——那几次搜索一共点名了多少个网页。`cost` 不为零而 `pages` 为 0，正是那个否则完全看不见的结局：一次搜索跑了、被计了费、却没有引用任何网页，于是它的回答在装配处就被拒绝，从来没有成为候选。`turn_window` 作为 `max_pending_turns` 的旧名被接受；`max_suggestions` 被接受并忽略——全量车道按构造每一拍只投递一张卡。
 
 ## 引擎控制台
 

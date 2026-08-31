@@ -174,12 +174,17 @@ async def test_an_assembled_surface_still_carries_the_bytes_the_model_receives(t
     async with _client(str(engine)) as client:
         body = (await client.get("/v1/engine/prompts")).json()
     assembled = [s for s in body["surfaces"] if s["kind"] == "assembled"]
-    assert len(assembled) == 16
+    # +3: the Live Context pick contract and BOTH shapes of its discover contract — one
+    # with the supplementary web lookup offered and one without, pinned separately because
+    # the toggle changes which SystemMessage renders and nothing else.
+    assert len(assembled) == 19
     for surface in assembled:
         assert surface["assembled_framework"].strip(), surface["id"]
         assert surface["assembled_effective"].strip(), surface["id"]
     fragments = [s for s in body["surfaces"] if s["kind"] == "fragments"]
-    assert len(fragments) == 30
+    # +1: the supplementary web search's own instruction — a third model, so a family of
+    # its own rather than a section of the two-call pipeline input.
+    assert len(fragments) == 32
 
 
 async def test_a_template_preview_carries_the_banner_that_stops_it_reading_as_the_message(

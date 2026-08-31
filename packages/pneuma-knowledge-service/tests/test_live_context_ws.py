@@ -16,7 +16,8 @@ import pytest
 from pneuma_knowledge_core.domain.canonical import Citation
 from pneuma_knowledge_core.domain.suggestion import ResolvedSuggestion
 from pneuma_knowledge_core.domain.ids import SourceId
-from pneuma_knowledge_core.recall.suggestion import LiveContextResult
+from pneuma_knowledge_core.recall.live_pipeline import PipelineResult
+from pneuma_knowledge_core.recall.stage_timing import StageTiming
 from pneuma_knowledge_service.api.routes import live_context as suggestion_module
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -35,8 +36,10 @@ def resolved(title: str, kind: str = "concept") -> ResolvedSuggestion:
     )
 
 
-def result(*suggestions: ResolvedSuggestion) -> LiveContextResult:
-    return LiveContextResult(suggestions=tuple(suggestions), token_usage={"total_tokens": 3})
+def result(*suggestions: ResolvedSuggestion, **fields) -> PipelineResult:
+    return PipelineResult(
+        suggestions=tuple(suggestions), token_usage={"total_tokens": 3}, **fields
+    )
 
 
 async def _no_profile(ctx, user):  # noqa: ANN001
@@ -306,6 +309,85 @@ def test_stats_are_off_by_default_and_opt_in_per_connection(client, monkeypatch)
     assert frame["type"] == "stats"
     assert frame["delivered"] == 0
     assert frame["dropped"] == {"uncited": 2, "low_confidence": 1}
+
+
+def test_a_tick_reports_which_door_closed_and_what_each_stage_spent(client, monkeypatch):
+    """Silence is the steady state, so "why did nothing fire" is what this socket is asked
+    most — and after the redesign the answer is a skip REASON and a per-stage breakdown, not
+    a set of gate counters that a tick which never retrieved would leave all zero."""
+
+    async def skipped(*_args, **_kwargs):
+        return result(
+            skipped="small_talk",
+            intent="",
+            worth=1,
+            stages=(
+                StageTiming(name="discover", ms=1711),
+                StageTiming(name="retrieve", ms=0, status="skipped"),
+                StageTiming(name="pick", ms=0, status="skipped"),
+                StageTiming(name="total", ms=1711),
+            ),
+        )
+
+    monkeypatch.setattr(suggestion_module, "run_evaluation", skipped)
+    with client.websocket_connect(PATH) as ws:
+        ws.receive_json()
+        ws.send_json({"type": "config", "quiet_period": 0, "stats": True})
+        ws.receive_json()
+        ws.send_json(turn("中午吃什么"))
+        frame = ws.receive_json()
+
+    assert frame["type"] == "stats"
+    assert frame["skipped"] == "small_talk"
+    assert frame["delivered"] == 0
+    by_name = {s["name"]: s for s in frame["stages"]}
+    assert by_name["discover"]["ms"] == 1711
+    assert by_name["retrieve"]["status"] == "skipped", "a skip touched no index"
+    assert by_name["pick"]["status"] == "skipped", "and spent no second call"
+
+
+def test_an_older_clients_policy_field_names_are_tolerated(client, monkeypatch):
+    """`turn_window` was renamed and `max_suggestions` stopped meaning anything. A client
+    built against the old wire must keep working: the rename still lands where it meant to,
+    the dead field is ignored, and neither produces an error frame."""
+
+    async def silent(*_args, **_kwargs):
+        return result()
+
+    monkeypatch.setattr(suggestion_module, "run_evaluation", silent)
+    with client.websocket_connect(PATH) as ws:
+        ws.receive_json()
+        ws.send_json({"type": "config", "turn_window": 5, "max_suggestions": 3})
+        ready = ws.receive_json()
+
+    assert ready["type"] == "ready", "not an error frame"
+    assert ready["max_pending_turns"] == 5, "the old name still lands where it meant to"
+    assert "max_suggestions" not in ready
+
+
+def test_a_card_carries_its_evidence_and_subject_onto_the_wire(client, monkeypatch):
+    """Two text fields with two different authors: the lede a model wrote, and the verbatim
+    material nothing rewrote. A client that could not tell them apart would have to present
+    a guess as if the library had said it."""
+
+    async def one(*_args, **_kwargs):
+        card = resolved("Lumenlab")
+        object.__setattr__(card, "evidence", "- 逐字证据一行")
+        object.__setattr__(card, "subject", "projects/lumenlab.md")
+        return result(card)
+
+    monkeypatch.setattr(suggestion_module, "run_evaluation", one)
+    with client.websocket_connect(PATH) as ws:
+        ws.receive_json()
+        ws.send_json({"type": "config", "quiet_period": 0})
+        ws.receive_json()
+        ws.send_json(turn("说到 Lumenlab"))
+        frame = ws.receive_json()
+
+    card = frame["suggestion"]
+    assert card["body"] == "解释", "the lede"
+    assert card["evidence"] == "- 逐字证据一行", "and the evidence, unmerged"
+    assert card["subject"] == "projects/lumenlab.md"
 
 
 def test_want_more_echoes_the_clients_ref_on_both_outcomes(client, monkeypatch):

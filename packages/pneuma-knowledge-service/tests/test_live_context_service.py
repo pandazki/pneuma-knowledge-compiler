@@ -91,6 +91,67 @@ def test_the_live_context_role_falls_back_to_the_recall_model():
     assert resolve_model_name(s, "live_context") == "openrouter:fast-test"
 
 
+def test_the_two_pipeline_roles_fall_back_to_recall_and_can_be_split_off():
+    """Both new roles borrow `recall` when unset, so an existing deployment keeps working
+    without naming two more models; naming one wins."""
+    borrowed = Settings(llm_model="openai:base", llm_model_recall="openrouter:fast-test")
+    assert resolve_model_name(borrowed, "live_discover") == "openrouter:fast-test"
+    assert resolve_model_name(borrowed, "live_pick") == "openrouter:fast-test"
+
+    split = Settings(
+        llm_model="openai:base",
+        llm_model_recall="openrouter:fast-test",
+        llm_model_live_discover="openrouter:small-reasoning",
+        llm_model_live_pick="openrouter:weak-fast",
+    )
+    assert resolve_model_name(split, "live_discover") == "openrouter:small-reasoning"
+    assert resolve_model_name(split, "live_pick") == "openrouter:weak-fast"
+
+
+def test_a_pinned_reasoning_effort_forks_the_model_cache(monkeypatch):
+    """`live_pick` and `recall` routinely resolve to the SAME spec, and the model cache is
+    keyed by spec. Without the effort in that key, whichever role built first would silently
+    hand the other its reasoning setting — which is the one property these roles differ on."""
+    from pneuma_knowledge_service import wiring
+
+    built: list[tuple[str, str | None]] = []
+
+    def fake_build(name, settings, *, reasoning_effort=None, max_tokens=None):  # noqa: ANN001
+        built.append((name, reasoning_effort))
+        return object()
+
+    monkeypatch.setattr(wiring, "_build_from_name", fake_build)
+    ctx = SimpleNamespace(
+        settings=Settings(llm_model="openai:one-model"),
+        _chat_models={},
+        get_chat_model=None,
+    )
+    # Bind the real method to a bare namespace: this is about the cache key, not the context.
+    get = wiring.AppContext.get_chat_model.__get__(ctx, wiring.AppContext)
+    discover, pick, recall = get("live_discover"), get("live_pick"), get("recall")
+
+    assert built == [
+        ("openai:one-model", "low"),
+        ("openai:one-model", "none"),
+        ("openai:one-model", None),
+    ], "one spec, three distinct instances — the effort is part of the key"
+    assert discover is not pick and pick is not recall
+    assert get("live_pick") is pick, "and the fork is still a cache"
+
+
+def test_a_scripted_model_never_carries_a_pinned_effort(monkeypatch):
+    """Scripted models are local replay: forking their cache would split the shared replay
+    cursor that keyless tests depend on, and there is no provider to send an effort to."""
+    from pneuma_knowledge_service import wiring
+
+    ctx = SimpleNamespace(settings=Settings(llm_model="scripted:x.json"), _chat_models={})
+    monkeypatch.setattr(
+        wiring, "_build_from_name", lambda *a, **k: object()  # noqa: ARG005
+    )
+    get = wiring.AppContext.get_chat_model.__get__(ctx, wiring.AppContext)
+    assert get("live_discover") is get("live_pick") is get("recall")
+
+
 def test_an_explicit_live_context_model_wins_over_the_recall_fallback():
     s = Settings(
         llm_model="openai:base",
@@ -186,6 +247,20 @@ class FakeEmbeddings:
         raise AssertionError("suggestion must batch its queries, never embed one at a time")
 
 
+class _EmptyIndex:
+    """A claim/window index that is reachable and holds nothing — the shape a fresh
+    knowledge base has, and the one the lane must survive without an exception."""
+
+    async def search_claims(self, *_args, **_kwargs):
+        return []
+
+    async def search(self, *_args, **_kwargs):
+        return []
+
+    async def search_vectors(self, *_args, **_kwargs):
+        return []
+
+
 def _ctx(model, **over):
     ctx = SimpleNamespace(
         settings=Settings(),
@@ -232,11 +307,11 @@ async def test_a_scripted_model_serves_the_suggestion_structured_output():
     which sidesteps `BaseChatModel`'s NotImplementedError guard. The whole keyless suggestion path
     depends on this, so it is asserted rather than assumed.
 
-    The card here is ungrounded (no resolvable `[cite: …]`), so gate 2 drops it — and that
-    drop is itself the proof the emission PARSED: an unparsed round would have been
-    counted under `unparsed` instead."""
+    Briefing scope, which is where the one-round contract still lives. The card here is
+    ungrounded (no resolvable `[cite: …]`), so gate 2 drops it — and that drop is itself the
+    proof the emission PARSED: an unparsed round would have been counted under `unparsed`."""
     model = ScriptedChatModel(turns=[suggestion_call()])
-    result = await run_evaluation(_ctx(model), "u-1", _plan())
+    result = await run_evaluation(_ctx(model), "u-1", _plan(), pack=PACK)
     assert result.dropped["uncited"] == 1
     assert result.dropped["unparsed"] == 0
     assert result.suggestions == ()
@@ -247,7 +322,7 @@ async def test_an_exhausted_script_degrades_to_silence():
     `parsed=None` under `include_raw=True`. That must be zero suggestions, never an exception —
     a background listener degrades to silence, it does not 500 onto a pair of context clients."""
     model = ScriptedChatModel(turns=[])
-    result = await run_evaluation(_ctx(model), "u-1", _plan())
+    result = await run_evaluation(_ctx(model), "u-1", _plan(), pack=PACK)
     assert result.suggestions == ()
     assert result.dropped["unparsed"] == 1
 
@@ -260,8 +335,43 @@ async def test_briefing_scope_does_no_embedding_at_all():
     await run_evaluation(ctx, "u-1", _plan(), pack=PACK)
     assert ctx.embeddings.document_calls == 0
 
-    await run_evaluation(ctx, "u-1", _plan())  # full scope does embed
+
+async def test_full_scope_skips_before_it_embeds_anything():
+    """The redesign's whole economic argument, at the service seam: an exhausted script
+    answers prose, the discover stage cannot parse it, and the tick ends having embedded
+    nothing. The old lane embedded first and asked afterwards."""
+    ctx = _ctx(ScriptedChatModel(turns=[]))
+    result = await run_evaluation(ctx, "u-1", _plan())
+    assert result.skipped == "unparsed"
+    assert ctx.embeddings.document_calls == 0
+
+
+async def test_full_scope_embeds_once_when_the_discover_stage_asks_it_to():
+    """One query, one embedding round trip — not one per transcript turn."""
+    ctx = _ctx(
+        ScriptedChatModel(
+            turns=[
+                [
+                    {
+                        "name": "DiscoverResult",
+                        "args": {
+                            "skip": False,
+                            "intent": "what is RAG",
+                            "plan": [{"kind": "semantic", "query": "RAG", "args": []}],
+                            "worth": 9,
+                        },
+                    }
+                ],
+                [{"name": "PickResult", "args": {"choice": 0, "confidence": 1}}],
+            ]
+        ),
+        lexical=_EmptyIndex(),
+        vectors=_EmptyIndex(),
+    )
+    result = await run_evaluation(ctx, "u-1", _plan())
     assert ctx.embeddings.document_calls == 1
+    assert result.intent == "what is RAG"
+    assert result.plan == ("semantic(RAG)",)
 
 
 # ----------------------------------------------------------------------- want_more

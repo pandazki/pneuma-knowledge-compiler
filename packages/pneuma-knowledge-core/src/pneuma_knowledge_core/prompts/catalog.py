@@ -527,6 +527,85 @@ in the stream and is worth surfacing".
 
 """
 
+_LIVE_DISCOVER_CONTRACT = """\
+# Live context · discover
+
+You are watching a workstream the owner has attached — transcribed talk, messages,
+documents — as it arrives. Nobody is asking you anything. Your ONLY job this turn is to
+decide, cheaply and fast, whether the owner's knowledge base holds something worth looking
+up right now, and if so what to look up. You do not answer, explain, or write cards.
+
+Keep the output SHORT. Speed is the feature: a lookup plan that arrives after the topic
+moved on is worth nothing.
+
+**Skip** — set `skip: true` with a `reason` — whenever one of these holds:
+
+- `small_talk` — chit-chat, logistics, noise. Nothing to look up.
+- `already_mined` — what the stream is circling has already been surfaced this session (see
+  the mined list), or the ledger shows this subject already introduced.
+- `nothing_new` — nothing has been said since the last look that a lookup would improve.
+
+A subject the room keeps naming without ever asking about it is COMMON GROUND: everyone
+present already knows what it is, and introducing it again is worthless. Look for what is
+NEW about it, or skip.
+
+Otherwise state three things:
+
+- `intent` — ONE sentence naming what the room is actually looking for. Not the topic, the
+  need: "who here works on making agent memory more precise" is an intent; "Lumenlab" is a
+  topic.
+- `plan` — one or two lookups. Each is a `kind` plus its arguments:
+{kinds}
+- `worth` — 1-10, what a card would be worth to the owner right now. Below the deployment's
+  floor nothing is retrieved at all, so an honest low score costs nothing and scoring
+  everything high costs the owner their attention.
+
+{focus}
+"""
+
+_LIVE_PICK_CONTRACT = """\
+# Live context · pick
+
+The owner is mid-conversation. Below are numbered candidate cards, each already assembled
+from their own knowledge base: verbatim claim text and excerpts, carrying the citations that
+support them. You did not write them, and you do not rewrite them.
+
+Say which ONE is worth showing this person right now, and frame why.
+
+- `choice` — that candidate's number, or **0 when none of them answers what the room is
+  looking for**. 0 is a normal answer, not a failure: a card nobody needed is worse than
+  silence. **What the library does not hold, it does not hold** — when the intent is about
+  something these candidates do not cover, choose 0.
+- `lede` — one or two SHORT sentences on why this matters to them at this moment, saying
+  ONLY what the chosen candidate's own text says, turned to face their need. You may frame
+  it; you may not extend it. Never write ABOUT the card itself ("this card explains…",
+  "this entry sets out…") — write the substance. And never imply the library answers the
+  question when it does not: if all you can honestly say is what the candidate happens to
+  cover, say that much and stop.
+- `citations` — the numbers of the chosen card's own citations that carry the lede. Copy
+  them; never invent one. Empty means all of them.
+- `confidence` — 1-10, HOW DIRECTLY THE CHOSEN CANDIDATE'S OWN TEXT ANSWERS THE STATED
+  INTENT. Not how good the candidate is, not how well the library wrote it, not how much
+  material there is: read the intent and the candidate's text side by side and score the
+  match between those two. Below the deployment's floor nothing is shown, so an honest low
+  score is how a weak match stays out of someone's way.
+
+**Adjacency is not coverage.** Sharing a word with the intent, naming the same category of
+thing, or being the closest internal project to what was mentioned — none of that is an
+answer. It is a fact about what the library happens to contain, not about the question, and
+delivering it tells the reader something they neither asked for nor needed. Score such a
+match low, or choose 0.
+
+**Where a candidate came from is not a ranking; the match is.** Each card states its source
+— the owner's own knowledge base, or a live internet search. When an internal candidate
+merely brushes against the intent and a web candidate answers it directly, choose the web
+one; when the reverse holds, choose the internal one. When neither answers it, choose 0.
+Read every candidate the same way, whichever pool it came out of.
+
+Choose for the need, not for coverage. "The library knows a lot about this" has never been a
+reason to interrupt anybody.
+"""
+
 _DETAIL_CONTRACT = """\
 # Context briefing · expanded
 
@@ -1635,6 +1714,53 @@ DEFAULTS: dict[str, str] = {
         "in.\nThe owner's content is still read in full, but only as context for understanding "
         "— do not generate cards for things only the owner mentioned."
     ),
+    # ───────────────────────────────── recall: live context, the three-stage pipeline
+    "recall.live.discover.contract": _LIVE_DISCOVER_CONTRACT,
+    "recall.live.discover.path_offer": (
+        "  - `{kind}` — {description}\n"
+        "    arguments: {args}"
+    ),
+    "recall.live.discover.semantic_offer": (
+        "  - `semantic` — free-text similarity search over the whole knowledge base. Put ONE "
+        "query string in `query` (not in `args`). Use it when no structured lookup above "
+        "fits the need, or alongside one."
+    ),
+    "recall.live.discover.web_offer": (
+        "  - `web` — a search of the INTERNET, not of the owner's knowledge base. Put ONE "
+        "query string in `query` (not in `args`). This deployment allows it as a "
+        "SUPPLEMENT: plan it when the need is about something the library plainly would not "
+        "hold — a release, a product or a term from outside the owner's own material — and "
+        "never as a substitute for looking in the library first."
+    ),
+    "recall.live.pick.contract": _LIVE_PICK_CONTRACT,
+    "recall.live.web.instruction": (
+        "Verify with a web search first, then give the final answer directly, with no "
+        "preamble about searching. Prefer official sources; keep the body under 120 words "
+        "and attach 1 to 2 source links. Search at most twice. If you cannot find it, say "
+        "so plainly and do not speculate.\n\nQuestion: {question}"
+    ),
+    "recall.live.section.mined_header": "# Already surfaced this conversation ({count})",
+    "recall.live.section.digest_header": "# Subjects this conversation keeps returning to",
+    "recall.live.section.pending_header": "# Pending workstream ({turns} turns)",
+    "recall.live.section.pending_overflow": " — {count} earlier turns did not fit",
+    "recall.live.section.candidates_header": "# Candidates ({count})",
+    "recall.live.section.intent": "What the room is looking for: {intent}",
+    "recall.live.section.conversation_header": "# The conversation ({turns} turns)",
+    "recall.live.candidate.block": (
+        "## {index} · [{kind}] {title}\nsource: {provenance}\nabout: {subject}\n{body}"
+        "\ncitations:\n{citations}"
+    ),
+    "recall.live.candidate.provenance_library": "the owner's own knowledge base",
+    "recall.live.candidate.provenance_web": "a live internet search",
+    "recall.live.candidate.citation": "  [{n}] {source_id} \u00b6{block_start}-{block_end}",
+    "recall.live.candidate.web_citation": "  [{n}] {title} — {url}",
+    "recall.live.candidate.no_citations": "  (none)",
+    "recall.live.candidate.excerpt": "- {title}: {text}",
+    "recall.live.digest.line": "- {label} — mentioned {mentions}\u00d7 · {state} · {asked}",
+    "recall.live.digest.introduced": "already introduced",
+    "recall.live.digest.new": "never introduced",
+    "recall.live.digest.asked": "someone asked about it",
+    "recall.live.digest.unasked": "nobody asked about it",
     # ─────────────────────────────────────────────── recall: human-turn sections
     "recall.section.profile_header": "# Owner profile",
     "recall.section.claims_header": "# claim notes ({count})",

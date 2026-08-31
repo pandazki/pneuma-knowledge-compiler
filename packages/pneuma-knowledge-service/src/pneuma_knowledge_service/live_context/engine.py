@@ -1,8 +1,9 @@
 """The I/O half of Live Context: bind a session's `EvaluationPlan` to core and app ports.
 
-Deliberately thin. Every decision worth testing is either in `session.py` (pure policy)
-or in `pneuma_knowledge_core.recall.suggestion` (the contract and the four gates); what is left here is
-port wiring, the briefing-pack lookup, and the `want_more` expansion.
+Deliberately thin. Every decision worth testing is either in `session.py` (pure policy) or
+in core — `recall/live_pipeline.py` for the full-scope three-stage lane, `recall/suggestion.py`
+for the briefing round and its four gates. What is left here is port wiring, the scope
+branch, the briefing-pack lookup, and the `want_more` expansion.
 """
 
 from __future__ import annotations
@@ -15,11 +16,12 @@ from pneuma_knowledge_core.domain.canonical import Citation
 from pneuma_knowledge_core.domain.ids import UserId, SourceId
 from pneuma_knowledge_core.prompts import prompt
 from pneuma_knowledge_core.recall.briefing import briefing_contract
-from pneuma_knowledge_core.recall.suggestion import (
-    LiveContextResult,
-    detail_contract,
-    evaluate_live_context,
+from pneuma_knowledge_core.recall.live_pipeline import (
+    PipelineResult,
+    evaluate_live_pipeline,
 )
+from pneuma_knowledge_core.recall.paths import fast_paths_from_registry
+from pneuma_knowledge_core.recall.suggestion import detail_contract, evaluate_live_context
 from pneuma_knowledge_core.recall.fast import extract_usage, invoke_config, zero_usage
 from langchain_core.messages import HumanMessage, SystemMessage
 
@@ -69,27 +71,71 @@ async def run_evaluation(
     profile: str | None = None,
     pack: str | None = None,
     as_of: datetime | None = None,
-) -> LiveContextResult:
-    """One Live Context evaluation over a plan's window. `pack` given ⇒ briefing scope."""
+    ledger: Any = None,
+) -> PipelineResult:
+    """One Live Context evaluation over a plan's pending window.
+
+    Two scopes, and the branch is the whole of this function's judgement:
+
+    * **briefing** (`pack` given) — the frozen pack IS the evidence. Nothing to plan, nothing
+      to retrieve, nothing to choose between: one round, unchanged, and the result is
+      adapted onto the pipeline's shape so both transports have one thing to report.
+    * **full** (`pack is None`) — the three-stage lane, over whatever component paths this
+      deployment enabled. `profile` is deliberately NOT passed: the discover stage reads the
+      pending window and the session's own ledger, and an owner profile in front of it would
+      buy a longer prompt on the one call whose whole argument is that it is short."""
     user = UserId(user_id)
-    return await evaluate_live_context(
+    when = as_of or datetime.now(timezone.utc)
+    if pack is not None:
+        result = await evaluate_live_context(
+            user,
+            plan.turns,
+            as_of=when,
+            model=ctx.get_chat_model("live_context"),
+            focus=plan.focus,
+            profile=profile,
+            pack=pack,
+            already_shown=plan.already_shown,
+            label_map=label_map,
+            turn_window=plan.max_pending_turns,
+            min_confidence=plan.min_confidence,
+            **llm_call_config(
+                ctx,
+                operation="live_context.evaluate",
+                user_id=user_id,
+                extra={"focus": plan.focus, "briefing_id": plan.briefing_id},
+            ),
+        )
+        return PipelineResult(
+            suggestions=result.suggestions,
+            token_usage=result.token_usage,
+            skipped="" if result.suggestions else "briefing_empty",
+            dropped=result.dropped,
+        )
+
+    return await evaluate_live_pipeline(
         user,
         plan.turns,
-        as_of=as_of or datetime.now(timezone.utc),
-        model=ctx.get_chat_model("live_context"),
+        as_of=when,
+        discover_model=ctx.get_chat_model("live_discover"),
+        pick_model=ctx.get_chat_model("live_pick"),
         embeddings=ctx.embeddings,
         claim_lexical=ctx.lexical,
         claim_vectors=ctx.vectors,
         lexical=ctx.lexical,
         vectors=ctx.vectors,
         content=ctx.store,
+        # Two conditions, and BOTH are already resolved by here: the plan carries what this
+        # connection allowed (clamped against the deployment's knob at the transport), and
+        # `get_web_search` returns None unless the deployment enabled one. Core then asks the
+        # adapter's own `available()` before it offers the lookup at all.
+        web_search=ctx.get_web_search() if plan.web_search else None,
+        paths=fast_paths_from_registry(user_id),
         focus=plan.focus,
-        profile=profile,
-        pack=pack,
         already_shown=plan.already_shown,
+        ledger=ledger,
         label_map=label_map,
-        turn_window=plan.turn_window,
-        max_suggestions=plan.max_suggestions,
+        max_pending_turns=plan.max_pending_turns,
         min_confidence=plan.min_confidence,
         **llm_call_config(
             ctx,

@@ -1,8 +1,8 @@
 import { defineMessages } from "./define";
 
 /**
- * The Live Context bench: the one-shot SSE panel, the long-lived WS panel, the suggestion
- * card, and the synthetic preset workstreams.
+ * Live Context: the config strip, the chat surface, the suggestion bubble and its two tabs,
+ * and the synthetic preset workstreams.
  *
  * Two families of text are deliberately absent:
  *   - the closed vocabularies (`focus`, suggestion `kind`) live in ./enums, keyed by the
@@ -12,10 +12,8 @@ import { defineMessages } from "./define";
  *     copy — and are rendered verbatim.
  *
  * Wire-level names (`focus`, `min_confidence`, `turn_window`, `quiet_period`, `stats`,
- * `already_shown`, `want_more`, `flush`, `as_of`, `seq`, `confidence`) stay in code in both
- * languages: they are the protocol's own identifiers, and the bench exists to show them.
- *
- * The zh column is the original, hand-tuned copy, moved here verbatim.
+ * `already_shown`, `want_more`, `flush`, `seq`, `confidence`) stay in code in both languages:
+ * they are the protocol's own identifiers, and the bench exists to show them.
  */
 export const liveContext = defineMessages({
   zh: {
@@ -27,84 +25,158 @@ export const liveContext = defineMessages({
     "liveContext.noUser.description":
       "在右上角选择一个 user_id。上下文提示只会引用该用户知识库里的真实来源；没有可靠证据时保持静默。",
     "liveContext.vocabError": "focus 词表拉取失败：{detail}",
-    "liveContext.transportAria": "实时上下文传输",
-    "liveContext.tab.sse": "一次性 SSE",
-    "liveContext.tab.ws": "长连接 WS",
 
-    "liveContext.role.owner": "本人",
-    "liveContext.role.other": "参与者",
-    "liveContext.role.unknown": "未知",
+    // ------------------------------------------------------------------ config strip
+    "liveContext.config.title": "评估设置",
+    "liveContext.config.mode": "投递方式",
+    "liveContext.config.clearTurns": "清空对话",
+    "liveContext.config.quietPeriod.label": "quiet_period（秒）",
+    "liveContext.density.label": "提示密度",
+    "liveContext.density.eager.label": "积极",
+    "liveContext.density.eager.hint": "更多、更广的提示：门槛更低，看得更勤，反应更快。",
+    "liveContext.density.balanced.label": "平衡",
+    "liveContext.density.balanced.hint": "默认：既不抢话，也不错过明显值得说的东西。",
+    "liveContext.density.quiet.label": "克制",
+    "liveContext.density.quiet.hint": "更准、更少打扰：只在把握较大时才出声。",
+    "liveContext.density.custom.label": "自定义",
+    "liveContext.density.custom.hint": "当前这组数值不属于任何一档，原样保留——不会被就近吸附。",
+    "liveContext.density.summary": "confidence {confidence} · 静默 {quiet}s · 待处理 {turns} 轮",
+    "liveContext.card.evidence": "知识库原文",
+    "liveContext.card.evidenceWeb": "网页原文",
+    "liveContext.debug.intent": "意图：{intent}",
+    "liveContext.skip.delivered": "已下发",
+    "liveContext.skip.small_talk": "跳过·闲聊",
+    "liveContext.skip.already_mined": "跳过·已挖掘",
+    "liveContext.skip.nothing_new": "跳过·无新内容",
+    "liveContext.skip.low_worth": "跳过·价值不足",
+    "liveContext.skip.no_plan": "跳过·无检索计划",
+    "liveContext.skip.no_candidates": "跳过·无候选",
+    "liveContext.skip.no_coverage": "跳过·库里没有",
+    "liveContext.skip.none_chosen": "跳过·一张都不选",
+    "liveContext.skip.low_confidence": "跳过·置信不足",
+    "liveContext.skip.uncited": "跳过·无引用",
+    "liveContext.skip.duplicate": "跳过·同主体重复",
+    "liveContext.skip.unparsed": "跳过·输出无法解析",
+    "liveContext.skip.pick_failed": "跳过·挑选失败",
+    "liveContext.skip.briefing_empty": "跳过·简报无卡",
+    "liveContext.config.webSearch.label": "允许互联网搜索作为补充",
+    "liveContext.config.webSearch.hint":
+      "开启后，发现阶段可以多规划一路 web 查询；知识库一张候选都没给出时也会自动补一次。搜索结果与知识库候选同池，由同一次挑选决定选不选它，引用的是网页而不是来源块。按次计费。",
+    "liveContext.config.webSearch.refused": "本部署没有开启互联网搜索，这一路仍然是关的。",
+    "liveContext.card.webBadge": "互联网 Web",
+    "liveContext.card.webNoExpand": "这张卡出自互联网搜索，展开请直接点下面的来源链接。",
+    "liveContext.web.tier.off": "未走互联网",
+    "liveContext.web.tier.planned": "互联网·计划内",
+    "liveContext.web.tier.fallback": "互联网·库空兜底",
+    "liveContext.web.line": "{tier} · 搜索 {searches} 次 · 引用 {pages} 页 · ${cost}",
+    "liveContext.web.nopages": "这次搜索没有点名任何网页，答案因此被拒绝，没有成为候选。",
+    "liveContext.config.stats.label": "stats 帧",
+    "liveContext.config.stats.hint": "开启后每次评估都回一帧引用门禁账，包括一张卡都没下发的评估。",
+    "liveContext.config.flush": "立即评估（flush）",
+    "liveContext.config.flushTitle": "立即评估，跳过静默期",
 
-    "liveContext.turn.speaker": "说话人",
-    "liveContext.turn.role": "角色",
-    "liveContext.turn.text": "工作流片段",
-    "liveContext.turn.textPlaceholder": "输入一条工作流片段…",
-    "liveContext.turn.remove": "删除该片段",
+    "liveContext.mode.oneshot": "一次性（SSE）",
+    "liveContext.mode.stream": "长连接（WS）",
+    "liveContext.mode.oneshotHint": "整段窗口攒好，按「评估一次」一并送出；每次都是全量重发。",
+    "liveContext.mode.streamHint": "每发一条就推给服务端；何时评估由服务端的静默期决定。",
+
+    "liveContext.summary.oneshot": "一次性",
+    "liveContext.summary.acked": "策略已回执",
+    "liveContext.summary.notAcked": "策略未回执",
+    "liveContext.transport.open": "已连接",
+    "liveContext.transport.connecting": "连接中…",
+    "liveContext.transport.closed": "未连接",
 
     "liveContext.focus.label": "focus（注意力指向）",
     "liveContext.focus.option": "{label}（{key}）",
     "liveContext.focus.loading": "载入词表…",
 
-    "liveContext.cards.emptyTitle": "还没有上下文提示",
-    "liveContext.cards.clear": "清空提示",
-    "liveContext.gate.title": "引用门禁账",
-    "liveContext.deliveredCount": "下发 {count} 张",
+    // ------------------------------------------------------------------------- roles
+    "liveContext.role.owner": "本人",
+    "liveContext.role.other": "对方",
+    "liveContext.roles.add": "新增角色",
+    "liveContext.roles.addTitle": "新增一个说话人",
+    "liveContext.roles.cancel": "取消",
+    "liveContext.roles.confirm": "确定",
+    "liveContext.roles.nameLabel": "角色名",
+    "liveContext.roles.namePlaceholder": "角色名…",
+    "liveContext.roles.ownerNote": "知识主体：引用门禁会区别对待本人说的话，因此这个角色不可删除。",
+    "liveContext.roles.ownerTitle": "知识主体（本人）",
+    "liveContext.roles.pillTitle": "以「{name}」的身份说话",
+    "liveContext.roles.remove": "删除该角色",
+    "liveContext.roles.rename": "重命名",
+    "liveContext.roles.colour": "改成{colour}",
 
-    "liveContext.sse.window.title": "工作流窗口",
-    "liveContext.sse.window.add": "追加片段",
-    "liveContext.sse.window.hint":
-      "逐条录入会议、消息或协作片段，整段窗口一次性送入评估；focus 只改变注意力指向，不过滤上下文。",
-    "liveContext.sse.params.title": "评估参数",
-    "liveContext.sse.minConfidence.label": "min_confidence（服务端引用门禁）",
-    "liveContext.sse.minConfidence.hint":
-      "低于该置信度的卡片不会下发，计入丢弃原因 low_confidence。",
-    "liveContext.sse.run": "送整段评估一次",
-    "liveContext.sse.errorTitle": "评估失败",
-    "liveContext.sse.cards.title": "上下文提示（{visible} / 已生成 {total}）",
-    "liveContext.sse.cards.emptyDescription":
-      "输入工作流片段并运行评估；解析失败、无引用、低置信或超限时都会保持静默，引用门禁账会记录原因。",
-    "liveContext.sse.threshold.label": "本地再过滤阈值（software filter）",
-    "liveContext.sse.threshold.hint":
-      "纯前端过滤：confidence ≥ 阈值的已生成提示保留，不发任何请求。",
-    "liveContext.sse.threshold.hidden": "本地阈值挡下 {count} 张（未重新请求）。",
-    "liveContext.sse.streaming": "评估中，提示逐一到达……",
+    "liveContext.colour.slate": "青灰",
+    "liveContext.colour.amber": "琥珀",
+    "liveContext.colour.violet": "紫罗兰",
+    "liveContext.colour.teal": "松绿",
+    "liveContext.colour.rose": "玫红",
+    "liveContext.colour.lime": "橄榄",
 
-    "liveContext.ws.connection.title": "连接",
-    "liveContext.ws.connect": "连接",
-    "liveContext.ws.disconnect": "断开",
-    "liveContext.ws.reconnect": "重连（回放）",
-    "liveContext.ws.reconnectTitle":
-      "断开后重连，并在 config 里回放窗口与已展示卡片（客户端是去重权威）",
-    "liveContext.ws.status.open": "已连接",
-    "liveContext.ws.status.connecting": "连接中…",
-    "liveContext.ws.status.closed": "已断开",
-    "liveContext.ws.closedNotice":
-      "连接已断开。客户端是去重权威：重连时在 config 里回放已推送的 turns 与已下发卡片 already_shown，服务端跨断线不记任何事。",
-    "liveContext.ws.config.title": "生效策略（config）",
-    "liveContext.ws.quietPeriod.label": "quiet_period（秒）",
-    "liveContext.ws.stats.label": "stats 帧",
-    "liveContext.ws.stats.hint": "开启后每次评估都回一帧引用门禁账，包括一张卡都没下发的评估。",
-    "liveContext.ws.config.liveNote": "连接打开时，改动实时推送 config。",
-    "liveContext.ws.turns.title": "工作流片段",
-    "liveContext.ws.flush": "立即评估（flush）",
-    "liveContext.ws.flushTitle": "立即评估，跳过静默期",
-    "liveContext.ws.send": "发送",
-    "liveContext.ws.sentCount": "已推送 {count} 轮。",
-    "liveContext.ws.defaultSpeaker": "对方",
-    "liveContext.ws.cards.title": "上下文提示（{count}）",
-    "liveContext.ws.cards.emptyDescription":
-      "长连接的稳态是静默：服务端维护窗口、静默期与单在途合并；没有足够相关且可引用的证据时不会发送提示。开启 stats 后可查看引用门禁账。",
-    "liveContext.ws.statsLog.title": "评估账（stats 历史）",
-    "liveContext.ws.statsLog.empty":
-      "还没有评估帧。stats 开启后每次评估都会回一帧——包括零下发的那些。",
+    // -------------------------------------------------------------------- the chat
+    "liveContext.chat.title": "对话",
+    "liveContext.chat.count": "{count} 轮",
+    "liveContext.chat.empty": "还没有内容。选一个说话人，输入一条工作流片段。",
+    "liveContext.chat.unknownRole": "未知说话人",
+    "liveContext.chat.sent": "已发送",
+    "liveContext.chat.edit": "编辑该轮",
+    "liveContext.chat.saveEdit": "保存",
+    "liveContext.chat.cancelEdit": "取消编辑",
+    "liveContext.turn.text": "工作流片段",
+    "liveContext.turn.remove": "删除该片段",
+
+    "liveContext.compose.placeholder": "以「{role}」的身份说…",
+    "liveContext.compose.send": "发送",
+    "liveContext.compose.sendTitle": "立即推给服务端（长连接是追加式的，推出去就不能再改）",
+    "liveContext.compose.add": "加入窗口",
+    "liveContext.compose.addTitle": "加入本地窗口；按「评估一次」才会送出",
+    "liveContext.compose.evaluate": "评估一次",
+    "liveContext.compose.evaluateHint": "把整段窗口送去评估一次。",
+    "liveContext.compose.streamHint": "长连接：每条发出即推送，服务端在静默期后自行评估。",
+
+    // --------------------------------------------------------------- the suggestion
+    "liveContext.bubble.emptyTitle": "还没有上下文提示",
+    "liveContext.bubble.emptyDescription":
+      "静默是正常工作状态：绝大多数对话根本不值得检索，一拍在发现阶段就会跳过，连索引都不碰。「处理状态」逐拍记下是哪一道门关上的，以及每一段花了多少毫秒。",
+    "liveContext.bubble.countdownTitle": "{seconds} 秒后自动收起",
+    "liveContext.bubble.pinnedTitle": "已固定，不会自动收起",
+    "liveContext.bubble.queuedTitle": "还有 {count} 条排队，不会被覆盖",
+    "liveContext.bubble.dismiss": "收起",
+    "liveContext.bubble.dismissTitle": "收起这条，换下一条",
+    "liveContext.bubble.wantMore": "想看更多",
+    "liveContext.bubble.wantMoreTitle": "固定这条并走 want_more：取回引用原文再展开",
+    "liveContext.bubble.expanding": "展开中…",
+    "liveContext.bubble.pinnedNote": "已固定：收起前不会消失。",
+    "liveContext.bubble.pinnedNoSocket": "已固定。展开需要长连接。",
 
     "liveContext.card.trigger": "触发：「{trigger}」",
-    "liveContext.card.wantMore": "展开（want_more）",
-    "liveContext.card.wantMoreRetry": "重试展开（want_more）",
-    "liveContext.card.wantMoreTitle": "走 WS 的 want_more，基于本卡引用取原文再展开",
-    "liveContext.card.wantMoreDisabled": "want_more 只在连接打开时可用",
+    "liveContext.card.wantMoreDisabled": "want_more 只在长连接打开时可用",
     "liveContext.card.expandFailed": "展开失败：{detail}",
     "liveContext.card.detailEmpty": "（空）",
+
+    "liveContext.deliveredCount": "下发 {count} 张",
+
+    // ---------------------------------------------------------------------- the tabs
+    "liveContext.tabs.aria": "提示记录与处理状态",
+    "liveContext.tabs.history": "历史提示（{count}）",
+    "liveContext.tabs.debug": "处理状态",
+    "liveContext.history.empty": "还没有收起或过期的提示。",
+    "liveContext.fate.expired": "已过期",
+    "liveContext.fate.dismissed": "已收起",
+    "liveContext.fate.pinned": "曾固定",
+
+    "liveContext.debug.counts": "计数",
+    "liveContext.debug.turnsSent": "已推送 {count} 轮",
+    "liveContext.debug.evaluations": "评估 {count} 次",
+    "liveContext.debug.suggestions": "收到 {count} 张",
+    "liveContext.debug.deduped": "去重挡下 {count} 张",
+    "liveContext.debug.queued": "排队 {count} 张",
+    "liveContext.debug.readyEcho": "生效策略（服务端回执）",
+    "liveContext.debug.gate": "逐拍记录",
+    "liveContext.debug.gateEmpty": "还没有评估。开启 stats 后每次评估都会回一帧——包括零下发的那些。",
+    "liveContext.debug.frames": "传输帧",
+    "liveContext.debug.framesEmpty": "还没有收发记录。",
 
     // Synthetic, business-neutral bench material written in the front end.
     "liveContext.preset.speaker.owner": "本人",
@@ -147,86 +219,175 @@ export const liveContext = defineMessages({
     "liveContext.noUser.description":
       "Choose a user_id in the top right. A context suggestion only ever cites real sources from that user's knowledge base; without dependable evidence it stays silent.",
     "liveContext.vocabError": "Could not load the focus vocabulary: {detail}",
-    "liveContext.transportAria": "Live context transport",
-    "liveContext.tab.sse": "One-shot SSE",
-    "liveContext.tab.ws": "Long-lived WS",
 
-    "liveContext.role.owner": "Owner",
-    "liveContext.role.other": "Participant",
-    "liveContext.role.unknown": "Unknown",
+    // ------------------------------------------------------------------ config strip
+    "liveContext.config.title": "Evaluation settings",
+    "liveContext.config.mode": "Delivery",
+    "liveContext.config.clearTurns": "Clear the conversation",
+    "liveContext.config.quietPeriod.label": "quiet_period (seconds)",
+    "liveContext.density.label": "Suggestion density",
+    "liveContext.density.eager.label": "Eager",
+    "liveContext.density.eager.hint":
+      "More suggestions, and broader ones: a lower bar, a shorter look-again, a faster reaction.",
+    "liveContext.density.balanced.label": "Balanced",
+    "liveContext.density.balanced.hint":
+      "The default: neither interrupting nor missing the obviously worth saying.",
+    "liveContext.density.quiet.label": "Quiet",
+    "liveContext.density.quiet.hint":
+      "Sharper and less interrupting: it speaks only when it is fairly sure.",
+    "liveContext.density.custom.label": "Custom",
+    "liveContext.density.custom.hint":
+      "These numbers match no preset, and they are kept as they are — never snapped to the nearest one.",
+    "liveContext.density.summary":
+      "confidence {confidence} · quiet {quiet}s · pending {turns} turns",
+    "liveContext.card.evidence": "What the library says",
+    "liveContext.card.evidenceWeb": "What the page says",
+    "liveContext.debug.intent": "Intent: {intent}",
+    "liveContext.skip.delivered": "delivered",
+    "liveContext.skip.small_talk": "skipped · small talk",
+    "liveContext.skip.already_mined": "skipped · already mined",
+    "liveContext.skip.nothing_new": "skipped · nothing new",
+    "liveContext.skip.low_worth": "skipped · not worth retrieving",
+    "liveContext.skip.no_plan": "skipped · no lookup planned",
+    "liveContext.skip.no_candidates": "skipped · nothing found",
+    "liveContext.skip.no_coverage": "skipped · the library holds nothing",
+    "liveContext.skip.none_chosen": "skipped · none chosen",
+    "liveContext.skip.low_confidence": "skipped · under the floor",
+    "liveContext.skip.uncited": "skipped · nothing carried it",
+    "liveContext.skip.duplicate": "skipped · same subject again",
+    "liveContext.skip.unparsed": "skipped · unparsable output",
+    "liveContext.skip.pick_failed": "skipped · pick failed",
+    "liveContext.skip.briefing_empty": "skipped · briefing had none",
+    "liveContext.config.webSearch.label": "Allow internet search as a supplement",
+    "liveContext.config.webSearch.hint":
+      "With this on, the discover stage may plan a web lookup as well — and one runs anyway when the library returns no candidate at all. A web result joins the same candidate pool, is chosen or not by the same pick call, and cites pages rather than source blocks. Billed per search.",
+    "liveContext.config.webSearch.refused":
+      "This deployment has not enabled internet search, so the path stays off.",
+    "liveContext.card.webBadge": "Web",
+    "liveContext.card.webNoExpand":
+      "This card came from an internet search — follow the source links below to read more.",
+    "liveContext.web.tier.off": "no web lookup",
+    "liveContext.web.tier.planned": "web · planned",
+    "liveContext.web.tier.fallback": "web · library was empty",
+    "liveContext.web.line": "{tier} · {searches} searches · {pages} pages · ${cost}",
+    "liveContext.web.nopages": "This search named no page, so its answer was refused and never became a candidate.",
+    "liveContext.config.stats.label": "stats frames",
+    "liveContext.config.stats.hint":
+      "With this on, every evaluation returns a citation gate ledger frame — including the evaluations that delivered nothing.",
+    "liveContext.config.flush": "Evaluate now (flush)",
+    "liveContext.config.flushTitle": "Evaluate immediately, skipping the quiet period",
 
-    "liveContext.turn.speaker": "Speaker",
-    "liveContext.turn.role": "Role",
-    "liveContext.turn.text": "Workstream fragment",
-    "liveContext.turn.textPlaceholder": "Type one workstream fragment…",
-    "liveContext.turn.remove": "Delete this fragment",
+    "liveContext.mode.oneshot": "One-shot (SSE)",
+    "liveContext.mode.stream": "Long-lived (WS)",
+    "liveContext.mode.oneshotHint":
+      "Build the window up, then send it whole with “Evaluate once”. Every evaluation re-sends all of it.",
+    "liveContext.mode.streamHint":
+      "Each turn is pushed as it is sent; the server decides when to evaluate, after its quiet period.",
+
+    "liveContext.summary.oneshot": "One-shot",
+    "liveContext.summary.acked": "policy acknowledged",
+    "liveContext.summary.notAcked": "policy not acknowledged",
+    "liveContext.transport.open": "Connected",
+    "liveContext.transport.connecting": "Connecting…",
+    "liveContext.transport.closed": "Not connected",
 
     "liveContext.focus.label": "focus (where attention points)",
     "liveContext.focus.option": "{label} ({key})",
     "liveContext.focus.loading": "Loading the vocabulary…",
 
-    "liveContext.cards.emptyTitle": "No context suggestions yet",
-    "liveContext.cards.clear": "Clear suggestions",
-    "liveContext.gate.title": "Citation gate ledger",
-    "liveContext.deliveredCount": "{count} delivered",
+    // ------------------------------------------------------------------------- roles
+    "liveContext.role.owner": "Owner",
+    "liveContext.role.other": "Them",
+    "liveContext.roles.add": "Add a speaker",
+    "liveContext.roles.addTitle": "Add a speaker",
+    "liveContext.roles.cancel": "Cancel",
+    "liveContext.roles.confirm": "Confirm",
+    "liveContext.roles.nameLabel": "Speaker name",
+    "liveContext.roles.namePlaceholder": "Speaker name…",
+    "liveContext.roles.ownerNote":
+      "The knowledge subject: the citation gate treats the owner's own words differently, so this speaker cannot be removed.",
+    "liveContext.roles.ownerTitle": "The knowledge subject (owner)",
+    "liveContext.roles.pillTitle": "Speak as “{name}”",
+    "liveContext.roles.remove": "Remove this speaker",
+    "liveContext.roles.rename": "Rename",
+    "liveContext.roles.colour": "Change to {colour}",
 
-    "liveContext.sse.window.title": "Workstream window",
-    "liveContext.sse.window.add": "Add fragment",
-    "liveContext.sse.window.hint":
-      "Enter meeting, message or collaboration fragments one at a time; the whole window goes into a single evaluation. focus only redirects attention — it does not filter the context.",
-    "liveContext.sse.params.title": "Evaluation parameters",
-    "liveContext.sse.minConfidence.label": "min_confidence (the server-side citation gate)",
-    "liveContext.sse.minConfidence.hint":
-      "A card below this confidence is never delivered; it counts towards dropped.low_confidence.",
-    "liveContext.sse.run": "Evaluate the window once",
-    "liveContext.sse.errorTitle": "Evaluation failed",
-    "liveContext.sse.cards.title": "Context suggestions ({visible} of {total} generated)",
-    "liveContext.sse.cards.emptyDescription":
-      "Enter workstream fragments and run an evaluation. Unparsed, uncited, low-confidence and capped output all end in silence, and the citation gate ledger records which one it was.",
-    "liveContext.sse.threshold.label": "Local re-filter threshold (software filter)",
-    "liveContext.sse.threshold.hint":
-      "Client-side only: generated suggestions with confidence ≥ the threshold stay, and no request is sent.",
-    "liveContext.sse.threshold.hidden": "The local threshold holds back {count} (nothing was re-requested).",
-    "liveContext.sse.streaming": "Evaluating; suggestions arrive one at a time…",
+    "liveContext.colour.slate": "slate",
+    "liveContext.colour.amber": "amber",
+    "liveContext.colour.violet": "violet",
+    "liveContext.colour.teal": "teal",
+    "liveContext.colour.rose": "rose",
+    "liveContext.colour.lime": "olive",
 
-    "liveContext.ws.connection.title": "Connection",
-    "liveContext.ws.connect": "Connect",
-    "liveContext.ws.disconnect": "Disconnect",
-    "liveContext.ws.reconnect": "Reconnect (with replay)",
-    "liveContext.ws.reconnectTitle":
-      "Close and open again, replaying the window and the cards already shown in config (the client is the deduplication authority)",
-    "liveContext.ws.status.open": "Connected",
-    "liveContext.ws.status.connecting": "Connecting…",
-    "liveContext.ws.status.closed": "Disconnected",
-    "liveContext.ws.closedNotice":
-      "The connection is closed. The client is the deduplication authority: on reconnect, config replays the turns already pushed and the cards already delivered as already_shown — the server remembers nothing across a disconnect.",
-    "liveContext.ws.config.title": "Policy in force (config)",
-    "liveContext.ws.quietPeriod.label": "quiet_period (seconds)",
-    "liveContext.ws.stats.label": "stats frames",
-    "liveContext.ws.stats.hint":
-      "With this on, every evaluation returns a citation gate ledger frame — including the evaluations that delivered nothing.",
-    "liveContext.ws.config.liveNote": "While the connection is open, a change pushes config straight away.",
-    "liveContext.ws.turns.title": "Workstream fragments",
-    "liveContext.ws.flush": "Evaluate now (flush)",
-    "liveContext.ws.flushTitle": "Evaluate immediately, skipping the quiet period",
-    "liveContext.ws.send": "Send",
-    "liveContext.ws.sentCount": "{count} turn{count||s} pushed.",
-    "liveContext.ws.defaultSpeaker": "Them",
-    "liveContext.ws.cards.title": "Context suggestions ({count})",
-    "liveContext.ws.cards.emptyDescription":
-      "Silence is the steady state of a long-lived connection: the server keeps the window, the quiet period and single-in-flight coalescing, and sends nothing until the evidence is both relevant and citable. Turn stats on to read the citation gate ledger.",
-    "liveContext.ws.statsLog.title": "Evaluation ledger (stats history)",
-    "liveContext.ws.statsLog.empty":
-      "No evaluation frames yet. With stats on, every evaluation returns one — including those that delivered nothing.",
+    // -------------------------------------------------------------------- the chat
+    "liveContext.chat.title": "Conversation",
+    "liveContext.chat.count": "{count} turn{count||s}",
+    "liveContext.chat.empty":
+      "Nothing here yet. Pick a speaker and type one workstream fragment.",
+    "liveContext.chat.unknownRole": "Unknown speaker",
+    "liveContext.chat.sent": "sent",
+    "liveContext.chat.edit": "Edit this turn",
+    "liveContext.chat.saveEdit": "Save",
+    "liveContext.chat.cancelEdit": "Cancel the edit",
+    "liveContext.turn.text": "Workstream fragment",
+    "liveContext.turn.remove": "Delete this fragment",
+
+    "liveContext.compose.placeholder": "Speak as “{role}”…",
+    "liveContext.compose.send": "Send",
+    "liveContext.compose.sendTitle":
+      "Push to the server now. The long connection is append-only: once pushed, a turn cannot be changed",
+    "liveContext.compose.add": "Add to the window",
+    "liveContext.compose.addTitle": "Add to the local window; nothing is sent until you evaluate",
+    "liveContext.compose.evaluate": "Evaluate once",
+    "liveContext.compose.evaluateHint": "Sends the whole window for one evaluation.",
+    "liveContext.compose.streamHint":
+      "Long-lived: each turn is pushed as it is sent, and the server evaluates after its quiet period.",
+
+    // --------------------------------------------------------------- the suggestion
+    "liveContext.bubble.emptyTitle": "No context suggestions yet",
+    "liveContext.bubble.emptyDescription":
+      "Silence is the normal working state: most of what a conversation says is not worth a lookup, and a tick that decides so at the discover stage never touches an index at all. “Processing” records which door closed on every tick, and what each stage spent.",
+    "liveContext.bubble.countdownTitle": "Closes on its own in {seconds}s",
+    "liveContext.bubble.pinnedTitle": "Pinned — it will not close on its own",
+    "liveContext.bubble.queuedTitle": "{count} more waiting; none will be overwritten",
+    "liveContext.bubble.dismiss": "Dismiss",
+    "liveContext.bubble.dismissTitle": "Dismiss this one and show the next",
+    "liveContext.bubble.wantMore": "Want more",
+    "liveContext.bubble.wantMoreTitle":
+      "Pins this card and sends want_more: fetches the originals behind its citations and expands",
+    "liveContext.bubble.expanding": "Expanding…",
+    "liveContext.bubble.pinnedNote": "Pinned: it stays until you dismiss it.",
+    "liveContext.bubble.pinnedNoSocket": "Pinned. Expanding needs the long connection.",
 
     "liveContext.card.trigger": "Trigger: “{trigger}”",
-    "liveContext.card.wantMore": "Expand (want_more)",
-    "liveContext.card.wantMoreRetry": "Retry the expansion (want_more)",
-    "liveContext.card.wantMoreTitle":
-      "Sends want_more over the WS: fetches the originals behind this card's citations and expands",
-    "liveContext.card.wantMoreDisabled": "want_more is only available while the connection is open",
+    "liveContext.card.wantMoreDisabled":
+      "want_more is only available while the long connection is open",
     "liveContext.card.expandFailed": "Expansion failed: {detail}",
     "liveContext.card.detailEmpty": "(empty)",
+
+    "liveContext.deliveredCount": "{count} delivered",
+
+    // ---------------------------------------------------------------------- the tabs
+    "liveContext.tabs.aria": "Suggestion history and processing state",
+    "liveContext.tabs.history": "History ({count})",
+    "liveContext.tabs.debug": "Processing",
+    "liveContext.history.empty": "No dismissed or expired suggestions yet.",
+    "liveContext.fate.expired": "expired",
+    "liveContext.fate.dismissed": "dismissed",
+    "liveContext.fate.pinned": "was pinned",
+
+    "liveContext.debug.counts": "Counts",
+    "liveContext.debug.turnsSent": "{count} turn{count||s} pushed",
+    "liveContext.debug.evaluations": "{count} evaluation{count||s}",
+    "liveContext.debug.suggestions": "{count} received",
+    "liveContext.debug.deduped": "{count} held back as duplicates",
+    "liveContext.debug.queued": "{count} queued",
+    "liveContext.debug.readyEcho": "Policy in force (the server's echo)",
+    "liveContext.debug.gate": "Per-tick record",
+    "liveContext.debug.gateEmpty":
+      "No evaluations yet. With stats on, every evaluation returns one — including those that delivered nothing.",
+    "liveContext.debug.frames": "Transport frames",
+    "liveContext.debug.framesEmpty": "Nothing sent or received yet.",
 
     // Synthetic, business-neutral bench material written in the front end.
     "liveContext.preset.speaker.owner": "Owner",

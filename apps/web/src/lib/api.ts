@@ -887,11 +887,98 @@ export interface SuggestionCitation {
 export interface ContextSuggestion {
   kind: string;
   title: string;
+  /**
+   * The LEDE: one or two sentences guessing what this reader needs right now. A model wrote
+   * this and nothing else on the card.
+   */
   body: string;
+  /**
+   * The verbatim material the card rests on — claim text and excerpts, rendered mechanically
+   * from what was retrieved. No model touched it, which is exactly why it is a separate
+   * field: the bubble shows it collapsed under the lede rather than blended into it.
+   * Empty on the briefing path, which has no candidate behind it.
+   */
+  evidence?: string;
+  /** The canonical document / source this card is ABOUT, for the session's own ledger. */
+  subject?: string;
+  /** A short human name for that subject — what the ledger digest calls it. */
+  subject_label?: string;
   /** the transcript fragment that set this card off — the "why did this fire" answer. */
   trigger: string;
   confidence: number;
   citations: SuggestionCitation[];
+  /**
+   * The SECOND citation shape, carried by `kind: "web"` cards and empty on every other one.
+   * A web card rests on pages rather than on source blocks, so it points at URLs — there is
+   * no span to open in-app and nothing to fetch verbatim. Which list a card carries is
+   * stated by `kind`; a card never carries both, and the collapsed evidence section renders
+   * whichever it has the same way.
+   */
+  web_citations?: WebCitation[];
+}
+
+/** One page a `web` card rests on. The URL is the address; the title is what a person reads. */
+export interface WebCitation {
+  title: string;
+  url: string;
+}
+
+/** One stage of one evaluation, as the lane measured itself (recall/stage_timing.py). */
+export interface LiveContextStage {
+  name: string;
+  ms: number;
+  status: "ran" | "skipped" | "degraded";
+  detail?: string | null;
+}
+
+/** One mechanically assembled candidate the pick stage was offered. */
+export interface LiveContextCandidate {
+  index: number;
+  kind: string;
+  title: string;
+  subject: string;
+  origin: string;
+  /** Which POOL it came out of — `library` or `web`. The pick contract ranks by match and
+   * never by this, which is a rule about something only because the card states it. */
+  provenance?: string;
+  citations: number;
+}
+
+/** What the supplementary internet face did this tick, and what it cost.
+ *
+ * `tier` separates the two ways it can be reached: `planned` (discover asked for it, so it
+ * ran concurrently with the library faces) from `fallback` (discover did not ask, the
+ * library came back with an empty pool, so it ran after). `off` is the steady state. */
+export interface LiveContextWeb {
+  tier: "off" | "planned" | "fallback";
+  searches: number;
+  cost: number;
+  /** Pages the searches named. Zero beside a non-zero cost means the answer cited nothing
+   * and was refused at construction — the one outcome that is otherwise invisible. */
+  pages?: number;
+}
+
+/**
+ * What one tick DID — the answer to "why did nothing fire", which is the question this
+ * feature gets asked most, because silence is its steady state.
+ *
+ * `skipped` is `""` on a delivery and otherwise names which door closed: a discover reason
+ * (`small_talk` / `already_mined` / `nothing_new`), or one of the mechanical ones —
+ * `low_worth`, `no_plan`, `no_candidates`, `no_coverage`, `none_chosen`, `low_confidence`,
+ * `uncited`, `duplicate`,
+ * `unparsed`, `pick_failed`.
+ */
+export interface LiveContextProcessing {
+  skipped: string;
+  dropped: SuggestionDropped;
+  intent: string;
+  worth: number;
+  plan: string[];
+  rejected: string[];
+  candidates: LiveContextCandidate[];
+  chosen: number;
+  web?: LiveContextWeb;
+  stages: LiveContextStage[];
 }
 
 /** The four mechanical gates' kill counts for one evaluation (recall/suggestion.py). */
@@ -903,11 +990,10 @@ export interface SuggestionDropped {
   capped?: number;
 }
 
-/** SSE terminal frame: what the evaluation produced and what each gate ate. */
-export interface LiveContextDone {
+/** SSE terminal frame: what the evaluation produced, and what it did to get there. */
+export interface LiveContextDone extends LiveContextProcessing {
   focus: string;
   count: number;
-  dropped: SuggestionDropped;
   token_usage: TokenUsage;
   as_of: string;
 }
@@ -920,18 +1006,30 @@ export interface ContextTurnInput {
   at?: string | null;
 }
 
-/** `{kind, title}` only — a body may still carry a dead alias epoch's handles. */
+/**
+ * What the client replays so the server can pick up where it left off.
+ *
+ * `(kind, title)` is still the only dedup KEY. `body` rides along because the discover stage
+ * answers "已挖掘过" against it and a bare title cannot tell it whether the thing the room is
+ * circling has already been said; `subject` restores the session's ledger so a reconnect does
+ * not re-introduce a subject this reader has already met. The server strips any `[cite: sNN]`
+ * residue from the body — a handle from a dead alias epoch names a different source.
+ */
 export interface SuggestionShown {
   kind: string;
   title: string;
+  body?: string;
+  subject?: string;
+  subject_label?: string;
 }
 
 export interface LiveContextStreamBody {
   turns: ContextTurnInput[];
   focus: string;
   min_confidence: number;
-  max_suggestions: number;
-  turn_window: number;
+  max_pending_turns: number;
+  /** Ask for the supplementary internet search on this one-shot evaluation. */
+  web_search?: boolean;
   /** set ⇒ briefing scope (evaluate against the frozen pack, zero retrieval). */
   briefing_id?: string | null;
   already_shown?: SuggestionShown[];
@@ -1007,9 +1105,15 @@ export interface LiveContextReadyFrame {
   type: "ready";
   focus: string;
   min_confidence: number;
-  max_suggestions: number;
-  turn_window: number;
+  /** The ceiling on one tick's pending run — not a sliding tail. */
+  max_pending_turns: number;
   quiet_period: number;
+  /**
+   * Whether this connection may use the supplementary internet search — the EFFECTIVE
+   * value, not what was asked for. A client can request it; the deployment grants it. Read
+   * `false` back after asking for `true` and you have been told no, mechanically.
+   */
+  web_search: boolean;
   briefing_id: string | null;
   /** Whether `stats` frames are on for this connection — off unless asked for. */
   stats: boolean;
@@ -1024,12 +1128,13 @@ export interface LiveContextReadyFrame {
  * delivered zero cards — the evaluation that emitted no `suggestion` frame at all is exactly the
  * one whose gate counters you need.
  */
-export interface LiveContextStatsFrame {
+export interface LiveContextStatsFrame extends LiveContextProcessing {
   type: "stats";
   seq: number;
   focus: string;
   delivered: number;
-  dropped: SuggestionDropped;
+  /** How many pending turns this tick read. */
+  turns?: number;
   token_usage: TokenUsage;
 }
 
@@ -1064,9 +1169,11 @@ export type LiveContextServerFrame =
 export interface LiveContextConfigMessage {
   focus?: string;
   min_confidence?: number;
-  max_suggestions?: number;
-  turn_window?: number;
+  max_pending_turns?: number;
   quiet_period?: number;
+  /** Ask for the supplementary internet search. Granted only where the deployment enabled
+   * one — read the `ready` frame's `web_search` for the answer. */
+  web_search?: boolean;
   briefing_id?: string;
   turns?: ContextTurnInput[];
   already_shown?: SuggestionShown[];
