@@ -2165,19 +2165,30 @@ SURFACES: tuple[Surface, ...] = (
         title_zh="实时上下文·发现契约",
         summary_en=(
             "The first of the full-scope lane's two calls, and the one that decides whether "
-            "anything is retrieved at all. It names no card and writes no prose: it emits a "
-            "skip with a reason, or an intent, a one-or-two-entry lookup plan and a worth. "
-            "The plan clause also states where to AIM a find-a-person ask — at the people "
-            "around the subject rather than at a definition of it — because the same "
-            "conversation that asks who could present X will otherwise be answered with what "
-            "X is, and the nearest evidenced expertise is the thing that was actually wanted."
+            "anything is retrieved at all. Its whole job is ONE SENTENCE: the question most "
+            "worth asking on the room's behalf right now. Everything else follows from that "
+            "— the `intent` field IS that question (phrased askable, because the owner reads "
+            "it as the reason a card appeared), the plan is how you would go and answer it, "
+            "the worth is what the answer would be worth, and a skip is simply the case "
+            "where no question worth asking can be written. The clause set that grew case by "
+            "case over the lane's first days — unnamed roles, first-mention nouns, "
+            "find-a-person asks, the common-ground rule — collapsed into examples of that "
+            "one principle, which is why this surface is SHORTER than the accretion it "
+            "replaces. One steer survives as a rule and not an example: a question about WHO "
+            "is aimed at the people AROUND the subject, never at a definition of it, because "
+            "the conversation asking who could present X is otherwise answered with what X "
+            "is."
         ),
         summary_zh=(
             "全量车道两次调用中的第一次，也是决定「到底要不要检索」的那一次。"
-            "它不给卡片、不写正文：要么带理由跳过，要么给出意图、一到两条查询计划和价值分。"
-            "计划那一条还说明了「找人」类需求该往哪儿瞄——瞄主题**周围的人**，而不是主题的定义："
-            "否则一句「谁能来讲 X」换回来的会是「X 是什么」，而真正要的是库里能拿出证据的那份"
-            "最近的经验。"
+            "它整件事就是**一句话**：此刻替这屋里的人问出来、最值得问的那一个问题。"
+            "其余一切都由它推出来——`intent` 字段**就是**那个问题（照能亲口问出的样子写，"
+            "因为主体把这一行读作「卡片为什么出现」），计划是「你会怎么去答它」，"
+            "价值分是「这个答案值多少」，而跳过不过是「写不出一个值得问的问题」这种情形。"
+            "车道头几天里一条一条长出来的判例——没点名的角色、第一次出现的名词、找人类需求、"
+            "共识规则——都收成了这一条原则的例子，这也正是这份表面比它取代的那堆累积**更短**"
+            "的原因。只有一条转向仍是规则而非例子：问「谁」的问题瞄的是主题**周围的人**，"
+            "而不是主题的定义——否则一句「谁能来讲 X」换回来的会是「X 是什么」。"
         ),
         segments=(
             b(
@@ -2193,20 +2204,20 @@ SURFACES: tuple[Surface, ...] = (
             s("recall.suggestion.focus.general"),
             v(
                 "recall.live.discover.mining.eager",
-                "Fills the worth-mining slot instead on the EAGER density: a role or "
-                "reference standing in for an unnamed person, a first-mention noun "
-                "(business ones especially), a new concept or a confirmable fact are each "
-                "enough on their own. It widens first-mention curiosity only — the "
-                "common-ground and already-mined rules above it are untouched.",
-                "在**积极**密度下改由它填「值得一查」插槽：替代无名者的角色或指代、本场首次"
-                "出现的名词（业务相关的尤其）、新概念或库能佐证的事实，各自成立就够。"
-                "它只放宽首次提及时的好奇心——上面的共识规则与 already_mined 一条不动。",
+                "Fills the latency slot instead on the EAGER density: the question may be "
+                "one the room does not yet realise it should ask — an unfamiliar term nobody "
+                "stopped to explain, a role standing in for a person nobody named. It widens "
+                "first-mention curiosity only; the already-mined rule above it is untouched.",
+                "在**积极**密度下改由它填「问题可以有多隐」插槽：可以隐到屋里的人自己还没意识到"
+                "该问——没人停下来解释的说法、替代无名者的角色。它只放宽首次提及时的好奇心，"
+                "上面的 already_mined 一条不动。",
             ),
             v(
                 "recall.live.discover.mining.quiet",
-                "…and on the QUIET density: a question somebody directly asked, or an "
-                "explicit request for information, and nothing else.",
-                "在**安静**密度下则改由它填：有人直接问出的问题，或明确的要资料，别的都不算。",
+                "…and on the QUIET density: the question may not be latent at all — only one "
+                "somebody actually asked aloud, or an explicit request for information.",
+                "在**安静**密度下则改由它填：那个问题一点都不能是隐的——只有有人真的问出口的"
+                "问题，或明确的要资料。",
             ),
             v(
                 "recall.live.discover.path_offer",
@@ -2312,14 +2323,16 @@ SURFACES: tuple[Surface, ...] = (
         title_en="Live-context discover contract · eager",
         title_zh="实时上下文·发现契约（积极）",
         summary_en=(
-            "The same contract on the EAGER density. One clause differs — what counts as worth "
-            "mining — and it is the clause the presets could never reach by moving numbers: a role "
-            "standing in for an unnamed person, and a business noun on its first mention, are now "
-            "each enough to try a lookup."
+            "The same contract on the EAGER density. One clause differs — HOW LATENT the "
+            "question may be — and it is the clause the presets could never reach by moving "
+            "numbers: the question may be one the room has not yet realised it should ask, so a "
+            "role standing in for an unnamed person, or a business noun on its first mention, is "
+            "enough to write one."
         ),
         summary_zh=(
-            "同一份契约，取**积极**密度。差别只有一处——什么算值得一查——而这恰恰是靠调数字永远够不到"
-            "的那一处：替代无名者的角色，以及第一次出现的业务名词，现在各自都足以让它去查一次。"
+            "同一份契约，取**积极**密度。差别只有一处——那个问题可以有多**隐**——而这恰恰是靠调数字"
+            "永远够不到的那一处：问题可以隐到屋里的人自己还没意识到该问，于是替代无名者的角色、"
+            "第一次出现的业务名词，都足以让它写出一个问题来。"
         ),
         segments=(
             b(
@@ -2353,12 +2366,13 @@ SURFACES: tuple[Surface, ...] = (
         title_en="Live-context discover contract · quiet",
         title_zh="实时上下文·发现契约（安静）",
         summary_en=(
-            "The same contract on the QUIET density: only a question somebody directly asked, or an "
-            "explicit request for information, is worth a lookup. A gap nobody named is not."
+            "The same contract on the QUIET density: the question may not be latent at all — only "
+            "one somebody actually asked aloud, or an explicit request for information. A gap "
+            "nobody named is not a question."
         ),
         summary_zh=(
-            "同一份契约，取**安静**密度：只有有人直接问出的问题、或明确的要资料才值得一查；"
-            "没人点破的缺口不算。"
+            "同一份契约，取**安静**密度：那个问题一点都不能是隐的——只有有人真的问出口的问题、"
+            "或明确的要资料。没人点破的缺口不算一个问题。"
         ),
         segments=(
             b(
@@ -2389,28 +2403,29 @@ SURFACES: tuple[Surface, ...] = (
         title_en="Live-context pick contract",
         title_zh="实时上下文·挑选契约",
         summary_en=(
-            "The second call: choose one of the mechanically assembled candidates (or none), "
-            "frame why it matters to this person now, prune its citations, score it. It is "
-            "the only stage that writes a sentence, and that sentence is a guess at a need — "
-            "never a rewrite of the evidence. Its `confidence` scores the match between the "
-            "stated intent and the candidate's OWN text, not the candidate's quality, and "
-            "adjacency is named as not being coverage: asked about something the library "
-            "has never heard of, the honest answer is 0. Two clauses draw the line either "
-            "side of that: a candidate whose text says it CANNOT answer — information "
-            "missing, cannot be determined — is not an answer and loses to 0, because a card "
-            "whose body is the absence of one is worse than no card; while the nearest "
-            "expertise the evidence really shows IS an answer to a who-could-do-this ask, "
-            "provided the inference is marked as one."
+            "The second call, and it has exactly ONE criterion: does this candidate's own "
+            "text ANSWER the question discover wrote? Choose the candidate that does, or 0. "
+            "Everything else on this surface is that criterion applied — the lede answers "
+            "the question in the room's language and never extends past the text, "
+            "`confidence` scores how directly the text answers it (not the candidate's "
+            "quality), and four consequences are spelled out because each one was a live "
+            "failure: text that says it CANNOT answer answers nothing and loses to 0; "
+            "adjacency — sharing a word, being the closest internal project — is not an "
+            "answer; a nearest-fit recommendation IS an answer to a who-could question "
+            "provided the inference is marked; and which pool a candidate came out of is not "
+            "a ranking. Naming the one criterion is what let the four collapse from rules "
+            "into consequences, which is why this surface is shorter than the version that "
+            "accumulated them."
         ),
         summary_zh=(
-            "第二次调用：在机械装配好的候选里选一张（或一张都不选），说清它此刻对这个人"
-            "为什么重要，裁剪它的引用，并打分。它是唯一会写句子的一段，而那句话是在猜需求"
-            "——绝不是把证据改写一遍。它的 `confidence` 打的是「意图」与「候选自己的文本」"
-            "之间的匹配，不是候选的质量；契约里明写了沾边不等于覆盖：问到库里从没听过的东西，"
-            "老实的回答就是 0。两条款分列这条线的两侧：候选文本自己说「答不上来」——信息缺失、"
-            "无法确定——那就不是答案，宁可填 0，因为正文是一处空缺的卡片比不出卡更糟；"
-            "而面对「谁能做这件事」，证据真正显示的那份最近的经验**是**答案，只要把这一步"
-            "推断标明。"
+            "第二次调用，而它只有**一条**标准：这张候选自己的文本，回答了发现阶段写下的那个"
+            "问题吗？回答了的就选它，一张都没有就填 0。这份表面上的其余一切都是这条标准的推论"
+            "——引言用屋里自己的话回答那个问题、绝不越出文本一步，`confidence` 打的是那段文本"
+            "有多直接地回答了它（不是候选的质量），而四条推论逐条写明，因为每一条都曾是线上"
+            "真实翻车：文本自己说「答不上来」就什么都没回答，宁可填 0；沾边——共用一个词、"
+            "只是库里最近的那个内部项目——不是回答；面对「谁能做这件事」，标明了推断的近邻推荐"
+            "**是**回答；候选出自哪个池子不构成优先级。正因为把那条唯一标准点了出来，这四条才"
+            "能从并列的规则收成推论——这也是这份表面比累积出它的那一版更短的原因。"
         ),
         segments=(b("recall.live.pick.contract"),),
         kind=ASSEMBLED,

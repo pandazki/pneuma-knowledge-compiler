@@ -543,37 +543,56 @@ async def test_a_high_score_on_a_candidate_off_the_intent_is_still_delivered():
     assert result.skipped == ""
 
 
-def test_the_pick_contract_defines_confidence_as_intent_match_and_refuses_adjacency():
+def test_the_pick_contract_states_one_criterion_and_derives_the_rest_from_it():
+    """The rewrite's whole shape, pinned in both packs.
+
+    Discover writes a question; pick answers exactly one thing about each candidate — does
+    that candidate's OWN TEXT answer it. Every other clause on the surface is that criterion
+    applied, and the contract says so in that many words, because a list of four coordinate
+    rules is what the surface was before and what it drifts back into as soon as the head is
+    lost."""
+    english = pick_contract()
+    assert "**One criterion: does that candidate's OWN TEXT answer the question?**" in english
+    assert "Everything below is\nthat criterion applied." in english
+    assert "Four consequences of that one criterion:" in english
+
+    chinese = chinese_overlay()["recall.live.pick.contract"]
+    assert "**唯一的标准：这张候选自己的文本，回答了那个问题吗？**" in chinese
+    assert "下面每一条都只是这条标准的推论" in chinese
+    assert "这条唯一标准的四个推论：" in chinese
+
+
+def test_the_pick_contract_scores_the_answer_and_refuses_adjacency():
     """The actual fix for the overreach, pinned where it lives.
 
     Asked about a release the library had never heard of, the lane retrieved the nearest
     internal project page and the pick scored it 9 — the candidate was well written, richly
     cited and roughly in that area, all of which are facts about the library rather than
-    answers to the question. Three clauses now carry that, and each is pinned because
-    losing any one of them restores the failure:
+    answers to the question. Three clauses carry that, and each is pinned because losing any
+    one of them restores the failure:
 
-    * confidence is the match between the INTENT and the candidate's OWN TEXT, not the
+    * confidence is how directly the candidate's OWN TEXT answers the question, not the
       candidate's quality;
-    * adjacency — sharing a word, being the closest internal project — is NOT coverage;
+    * adjacency — sharing a word, being the closest internal project — is NOT an answer;
     * what the library does not hold, it does not hold: choose 0.
     """
     english = pick_contract()
     for clause in (
-        "HOW DIRECTLY THE CHOSEN CANDIDATE'S OWN TEXT ANSWERS THE STATED\n  INTENT",
-        "Not how good the candidate is",
-        "**Adjacency is not coverage.**",
+        "HOW DIRECTLY THAT TEXT ANSWERS THE QUESTION",
+        "Not how good the\n  candidate is",
+        "**Adjacency is not an answer.**",
         "being the closest internal project to what was mentioned",
-        "**What the library does not hold, it does not hold**",
+        "What the library does not hold, it does not hold.",
     ):
         assert clause in english, clause
 
     chinese = chinese_overlay()["recall.live.pick.contract"]
     for clause in (
-        "**所选候选自己的文本，有多直接地回答了那句意图**",
+        "**那段文本有多直接地回答了那个问题**",
         "不是这张候选有多好",
-        "**沾边不等于覆盖。**",
+        "**沾边不是回答。**",
         "只是库里离那个名字最近的一个内部",
-        "**库里没有就是没有**",
+        "**库里没有就是没有。**",
     ):
         assert clause in chinese, clause
 
@@ -589,21 +608,21 @@ def test_the_pick_contract_refuses_a_candidate_that_says_it_cannot_answer():
     says so in that many words, in both packs."""
     english = pick_contract()
     for clause in (
-        "**A candidate that cannot answer is not an answer.**",
-        "that something cannot be determined",
-        "it reports an ABSENCE",
+        "**Text that cannot answer, answers nothing.**",
+        "something cannot be determined",
+        "that reports\n  an ABSENCE",
         "Choose 0 over it.",
-        "must ADD\nsomething the reader did not have",
+        "must ADD something the reader did not have",
     ):
         assert clause in english, clause
 
     chinese = chinese_overlay()["recall.live.pick.contract"]
     for clause in (
-        "**答不上来的候选不是答案。**",
+        "**答不上来的文本，什么都没回答。**",
         "说无法确定",
-        "它陈述的是一处**空缺**",
+        "它陈述的\n  是一处**空缺**",
         "宁可填 0",
-        "必须给读者**添**上他原本没有的",
+        "必须给\n  读者**添**上他原本没有的",
     ):
         assert clause in chinese, clause
 
@@ -619,20 +638,20 @@ def test_the_pick_contract_allows_a_marked_nearest_fit_recommendation():
     narrow and mechanical in its own way: the marking is what separates it from adjacency."""
     english = pick_contract()
     for clause in (
-        "**A nearest-fit RECOMMENDATION is an answer; a pretended match is not.**",
-        "the closest expertise the candidate actually\nevidences",
+        "**A marked nearest-fit RECOMMENDATION is an answer**",
+        "to a who-could question",
         "mark the step you took",
-        "not a record\nof the thing itself",
-        "Unmarked, it claims a match the library does not\nhold",
+        "not a record of the thing itself",
+        "unmarked, it claims a match the library does not hold",
     ):
         assert clause in english, clause
 
     chinese = chinese_overlay()["recall.live.pick.contract"]
     for clause in (
-        "**有标记的近邻推荐是答案，装出来的匹配不是。**",
+        "**有标记的近邻推荐，是对「谁能做这件事」的回答。**",
         "**标明你这一步**",
         "不是关于那件事本身的记录",
-        "不标明，它就是在宣称一个库里",
+        "不标明，\n  它就是在宣称一个库里",
     ):
         assert clause in chinese, clause
 
@@ -645,14 +664,16 @@ def test_the_pick_contract_forbids_writing_about_the_card_instead_of_its_substan
     nothing the library actually says. Two clauses hold it: say ONLY what the chosen
     candidate's own text says, and never claim the library answers a question it cannot."""
     english = pick_contract()
-    assert "Never write ABOUT the card itself" in english
+    assert "Never write ABOUT\n  the card" in english
     assert '"this card explains…"' in english
-    assert "never imply the library answers the\n  question when it does not" in english
+    assert "you may not imply an answer the text does not contain" in english
+    assert "sentences ANSWERING the question in the room's own language" in english
 
     chinese = chinese_overlay()["recall.live.pick.contract"]
-    assert "绝不要写**关于这张卡本身**的" in chinese
+    assert "绝不要写**关于\n  这张卡本身**的" in chinese
     assert "「这张卡说明了……」" in chinese
-    assert "绝不要在知识库其实答不上来" in chinese
+    assert "不可以暗示一个文本里并不存在的答案" in chinese
+    assert "用屋里自己的话**回答那个问题**" in chinese
 
 
 @pytest.mark.asyncio
@@ -930,20 +951,36 @@ def test_the_default_and_every_unknown_value_are_the_middle_posture():
     assert coerce_density("EAGER") == "eager", "the vocabulary is casefolded, not rejected"
 
 
+def test_every_posture_varies_only_how_latent_the_question_may_be():
+    """The rewrite's density axis, named in all three wordings and in both packs.
+
+    Before, the three clauses were three different things — a definition of what is "worth a
+    lookup" each time. Under one principle there is only one thing left for a density to
+    move: how far below the surface the question may sit."""
+    for density in ("eager", "balanced", "quiet"):
+        assert prompt(f"recall.live.discover.mining.{density}").startswith(
+            "**How latent may the question be**"
+        ), density
+        assert chinese_overlay()[f"recall.live.discover.mining.{density}"].startswith(
+            "**这个问题可以有多隐**"
+        ), density
+
+
 def test_the_eager_posture_names_the_role_shape_as_a_class_never_as_a_transcript_line():
     eager = prompt("recall.live.discover.mining.eager")
-    assert "ROLE" in eager and "REFERENCE" in eager
-    assert "Whoever runs X" in eager, "an example CLASS, with a placeholder subject"
+    assert "a role or reference standing in for a person nobody named" in eager
+    assert '"whoever runs X"' in eager, "an example CLASS, with a placeholder subject"
     assert "日本" not in eager and "Japan" not in eager, "never the owner's own transcript"
 
 
 def test_the_eager_posture_widens_first_mention_curiosity_and_not_repetition():
-    """The composition the owner asked for: eager explains a business noun the FIRST time it
-    appears, and the ledger's already-mined rule is untouched by that."""
+    """The composition the owner asked for: on eager the question may be one the room has
+    not realised it should ask — which reaches a business noun the FIRST time it appears —
+    and the ledger's already-mined rule is untouched by that."""
     eager = prompt("recall.live.discover.mining.eager")
-    assert "first time" in eager and "business" in eager
-    assert "already_mined" in eager
-    assert "second explanation of the same thing" in eager
+    assert "does not yet realise it should" in eager
+    assert "FIRST mention" in eager and "internal project or product name" in eager
+    assert "already answered is still `already_mined`" in eager
     # …and the shared rules it composes with are still in the contract above it
     contract = discover_contract("general", (), density="eager")
     assert "COMMON GROUND" in contract and "`already_mined`" in contract
@@ -951,38 +988,43 @@ def test_the_eager_posture_widens_first_mention_curiosity_and_not_repetition():
 
 def test_the_quiet_posture_asks_for_a_question_and_refuses_an_unnamed_gap():
     quiet = prompt("recall.live.discover.mining.quiet")
-    assert "directly ASKED" in quiet
-    assert "nobody\nnamed" in quiet, "a gap nobody named is not enough here"
+    assert "not at all" in quiet
+    assert "actually ASKED" in quiet
+    assert "A gap nobody named is not one." in quiet
 
 
 def test_every_posture_aims_a_find_a_person_ask_at_the_people_and_not_at_a_definition():
-    """The steering clause, in the SHARED half — so all three postures carry it.
+    """The one steer that stays a RULE and not an example, in the SHARED half — so all three
+    postures carry it.
 
-    「我想找个团队里的同事来分享一下 DeepSeek Harness」 is a find-a-person ask wearing an
-    external subject, and the plan it deserves is the people around that subject plus a
-    people-shaped similarity query. Aimed at the subject instead, the lane retrieves what
-    DeepSeek Harness IS — an answer to a question nobody asked. It lives in the shared half
-    and not in a density clause because it is about WHERE a lookup points, and the three
-    postures differ only in how eagerly one is attempted at all."""
+    A conversation looking for somebody to present a public tool is a find-a-person question
+    wearing an external subject, and the plan it deserves is the people around that subject
+    PLUS a people-shaped similarity query. Aimed at the subject instead, the lane retrieves
+    what the tool IS — an answer to a question nobody asked. The clause is about WHERE a
+    lookup points, and how latent a question may be (the density axis) does not touch that.
+
+    "BOTH entries" is load-bearing and measured: on the live stack the one-entry plan is the
+    shape that comes back empty, because the people path can only answer for a subject the
+    contact book already holds, and the similarity query is what reaches the nearest
+    expertise when it does not."""
     for density in ("eager", "balanced", "quiet"):
         contract = discover_contract("general", (), density=density)
         for clause in (
-            "When the ask is to find a PERSON for something",
-            "aim the library lookups at the people AROUND X, not at a definition of X",
+            "A question about WHO takes BOTH entries and is answered by neither alone.",
             "whichever offered lookup is about people",
-            '"who has worked on X, or on that kind of work"',
-            "which is what reaches the nearest expertise when X itself is not in the base",
-            "Those two\n  ARE the plan for that ask.",
+            "spend the OTHER on a similarity",
+            '("who has worked on X, or on that kind of work")',
+            "reaches the nearest expertise when the subject itself is not in the",
+            "a definition of the subject answers nothing here",
         ):
             assert clause in contract, (density, clause)
 
     chinese = chinese_overlay()["recall.live.discover.contract"]
     for clause in (
-        "当需求是**找人**",
-        "把库里的查询对准 X **周围的人**，而不是 X 的定义",
+        "问「谁」的问题要用掉**两条**，少一条都答不上",
+        "把主体交给上面任何一条关于人的查询",
         "「做过 X 或同类工作的人」",
-        "这两条**就是**这类需求的计划",
-        "把 X 解释一遍不是",
+        "把主体解释一遍，在这里什么都没回答",
     ):
         assert clause in chinese, clause
 
@@ -1243,13 +1285,12 @@ def test_the_pick_contract_ranks_by_match_and_never_by_which_pool_a_card_came_fr
     Without it the lane has a new failure available to it: an internal candidate that merely
     brushes the intent beating a web candidate that answers it, because it is "ours"."""
     english = pick_contract()
-    assert "**Where a candidate came from is not a ranking; the match is.**" in english
-    assert "choose the web\none; when the reverse holds, choose the internal one" in english
-    assert "When neither answers it, choose 0." in english
+    assert "**Where a candidate came from is not a ranking; the answer is.**" in english
+    assert "Read every candidate\n  against the question the same way, whichever pool it came out of." in english
 
     chinese = chinese_overlay()["recall.live.pick.contract"]
-    assert "**来源不是优先级，匹配度才是。**" in chinese
-    assert "只是沾边、而 web 候选直接回答了意图时，就选 web；反之亦然；都不回答就选 0。" in chinese
+    assert "**来源不是优先级，回答才是。**" in chinese
+    assert "都用同一把尺子、对着那个问题读每一张候选" in chinese
 
 
 @pytest.mark.asyncio

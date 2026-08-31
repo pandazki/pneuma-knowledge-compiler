@@ -29,16 +29,21 @@ from .canonical import Citation
 # See recall/suggestion.py's contract for how each value is expressed.
 ContextFocus = Literal["general", "owner", "other"]
 
-# HOW EAGERLY the lane digs. A real policy field, not a bundle of numbers — because the
-# presets never were only numbers. Measured live on the eager preset, the single turn
-# 「建议这个事情还是交给我们日本市场的负责人来做吧。」 was skipped: the confidence floors were
-# low, and the contract still said the same thing about what is worth mining, so a role
-# named without a person was not a gap the stage recognised. A density that only moves
-# thresholds moves how MUCH gets through, never WHAT is looked for.
+# HOW LATENT a question discover may write. A real policy field, not a bundle of numbers —
+# because the presets never were only numbers. Measured live on the eager preset, a single
+# turn handing work to an unnamed role was skipped: the confidence floors were low, and the
+# contract still said the same thing about what is worth looking up, so a role named without
+# a person was not a question the stage recognised. A density that only moves thresholds
+# moves how MUCH gets through, never WHAT is asked.
 #
-# It varies exactly one clause of the discover contract (`recall.live.discover.mining.*`)
-# and NOTHING else — not the skip vocabulary, not the ledger rule, and deliberately not the
-# pick contract: how honestly a card is delivered is not a density matter.
+# Under the discover principle — write the one question most worth asking right now — there
+# is exactly one thing left for a posture to vary: how far below the surface that question
+# may sit. `quiet` takes only questions somebody asked aloud, `balanced` questions the
+# conversation clearly implies, `eager` also questions the room does not yet realise it
+# should ask. It varies exactly one clause of the discover contract
+# (`recall.live.discover.mining.*`) and NOTHING else — not the skip vocabulary, not the
+# ledger rule, and deliberately not the pick contract: how honestly a card is delivered is
+# not a density matter.
 ContextDensity = Literal["eager", "balanced", "quiet"]
 
 #: Ordered, the default in the middle.
@@ -294,11 +299,14 @@ class DiscoverResult(BaseModel):
     entire point of spending a small call before the retrieval instead of after it."""
 
     skip: bool = False
-    #: Why nothing is worth looking up: `small_talk` | `already_mined` | `nothing_new`.
-    #: Free text so a model is never forced to mislabel; the counters group what arrives.
+    #: Why no question worth asking could be written: `small_talk` | `already_mined` |
+    #: `nothing_new`. Free text so a model is never forced to mislabel; the counters group
+    #: what arrives.
     reason: str = ""
-    #: One sentence naming what the conversation is actually looking for. It becomes the
-    #: delivered card's `trigger`, and it is what component results are ranked against.
+    #: THE QUESTION — the one most worth asking on the room's behalf right now, phrased the
+    #: way somebody in the room could have asked it aloud. It becomes the delivered card's
+    #: `trigger`, so the owner reads it as the reason the card appeared, and it is what the
+    #: pick stage scores every candidate against.
     intent: str = ""
     plan: list[PlanEntry] = Field(default_factory=list, max_length=2)
     worth: int = 0

@@ -10,13 +10,25 @@ out of whatever came back. Two things were wrong with it and neither was a tunin
   hunting for *a person on the Lumenlab team* retrieves *Lumenlab* and delivers a card
   defining what Lumenlab is. Nobody asked what it is; everyone in the room already knows.
 
-So the lane now spends a SMALL reasoning call first, and that call's only job is to say what
-the room is actually looking for and how to look it up — or that there is nothing to look up:
+So the lane now spends a SMALL reasoning call first, and that call has ONE job, stated as a
+principle rather than as a list of cases: **write, on the room's behalf, the one question
+most worth asking right now** — or say that no such question can be written.
+
+That one sentence is the whole of stage 1, and everything the lane used to accrete as
+separate case-law falls out of it: an unnamed role means the room would ask *who is that*;
+a first-mention product means *what is X*; a find-a-person ask means *who here knows X best*;
+small talk means no question worth asking, so skip; a subject the room keeps naming and never
+asks about is a question it already knows the answer to, so skip again. Once the question
+exists, the stages below it are the fast lane's ordinary work — retrieve, select evidence,
+answer honestly.
 
 1. **discover** (`live_discover`, small reasoning model, LOW effort, short output). Reads the
    pending window and the session's subject ledger. Emits either `skip(reason)` — and the
-   tick ends having touched no index at all — or an `intent`, a 1–2 entry retrieval `plan`
-   over the enabled component paths plus `semantic`, and a `worth` score.
+   tick ends having touched no index at all — or the question itself as `intent`, a 1–2 entry
+   `plan` (how you would go and answer it) over the enabled component paths plus `semantic`,
+   and a `worth` score (what the answer would be worth to the room). `intent` doubles as the
+   delivered card's trigger line, which is why it is phrased as a question somebody could
+   have asked aloud: the owner reads it as the reason the card appeared.
 2. **retrieve** (no model). Every plan entry runs CONCURRENTLY: component paths through the
    ordinary `run_paths`, `semantic` through one `retrieve_claims` + `rag_recall` on the
    intent. What comes back is turned into numbered candidate cards MECHANICALLY — claim text
@@ -33,14 +45,15 @@ it decides whether to deliver. The first door is a guess about a conversation, t
 judgement about a specific card, and one dial moves both because a deployment that wants
 fewer interruptions wants fewer of both.
 
-**Confidence is intent-MATCH, not card quality.** The pick contract says so in the only
-place that can be enforced — the contract itself — because the failure it fixes is not
-mechanical. Asked about a release the library had never heard of, the lane retrieved the
-nearest internal project, and the pick scored it 9: the candidate was well written, richly
-cited and about roughly that area, and every one of those is a fact about the library rather
-than an answer to the question. So `confidence` now scores the intent and the candidate's
-own text side by side, adjacency is named as NOT coverage, and `choice: 0` is stated as the
-honest outcome when the library holds nothing. Nothing here second-guesses the model
+**Pick has ONE criterion: does this candidate's own text ANSWER the question?** The contract
+says so in the only place that can be enforced — the contract itself — because the failure it
+fixes is not mechanical. Asked about a release the library had never heard of, the lane
+retrieved the nearest internal project, and the pick scored it 9: the candidate was well
+written, richly cited and about roughly that area, and every one of those is a fact about the
+library rather than an answer to the question. Four consequences of the one criterion carry
+the cases that were each once a live failure — text saying it CANNOT answer answers nothing
+(choose 0), adjacency is not an answer, a MARKED nearest-fit recommendation is one, and which
+pool a candidate came out of is not a ranking. Nothing here second-guesses the model
 mechanically — a high score still delivers — because a mechanism that overrode the judgement
 would be guessing about language, and the judgement is exactly what the contract buys.
 
@@ -258,14 +271,17 @@ def discover_contract(
     result is still a function of the enabled set and nothing volatile, which is why both
     variants can be (and are) byte-pinned.
 
-    `density` varies ONE clause — what counts as worth mining — and nothing else. The three
-    postures were preset numbers before, and numbers alone could only move how MUCH got
-    through: on the eager preset the turn 「建议这个事情还是交给我们日本市场的负责人来做吧。」
-    was skipped, because a role standing in for an unnamed person was not a gap the one
-    shared wording recognised, whatever the floors were set to. The skip vocabulary, the
-    common-ground rule and the three output fields stay shared, which is what keeps these
-    three wordings of one contract rather than three contracts. The PICK contract does not
-    vary: how honestly a card is delivered is not a density matter."""
+    `density` varies ONE clause — HOW LATENT the question may be — and nothing else. Under
+    one principle there is only one thing left for a posture to move: quiet takes only
+    questions somebody actually asked aloud, balanced takes questions the conversation
+    clearly implies, eager also takes questions the room does not yet realise it should ask.
+    The three postures were preset numbers before, and numbers alone could only move how MUCH
+    got through: on the eager preset a turn handing work to an unnamed role was skipped,
+    because a role standing in for a person nobody named was not a question the one shared
+    wording recognised, whatever the floors were set to. The principle, the skip vocabulary
+    and the three output fields stay shared, which is what keeps these three wordings of one
+    contract rather than three contracts. The PICK contract does not vary: how honestly a
+    card is delivered is not a density matter."""
     offers = [_path_offer(p) for p in paths]
     offers.append(prompt("recall.live.discover.semantic_offer"))
     if web:
@@ -281,7 +297,8 @@ def discover_contract(
 def pick_contract() -> str:
     """The pick SystemMessage. One string, no focus axis: the attention posture was already
     spent in discover, and this stage only chooses between cards discover's own plan
-    produced."""
+    produced. One criterion — does the candidate's own text answer discover's question — with
+    the honesty clauses stated as its consequences rather than as coordinate rules."""
     return prompt("recall.live.pick.contract")
 
 
