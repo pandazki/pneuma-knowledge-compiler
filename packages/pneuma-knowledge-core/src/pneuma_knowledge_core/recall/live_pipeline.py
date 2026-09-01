@@ -24,15 +24,19 @@ answer honestly.
 
 1. **discover** (`live_discover`, small reasoning model, LOW effort, short output). Reads the
    pending window and the session's subject ledger. Emits either `skip(reason)` — and the
-   tick ends having touched no index at all — or the question itself as `intent`, a 1–2 entry
-   `plan` (how you would go and answer it) over the enabled component paths plus `semantic`,
-   and a `worth` score (what the answer would be worth to the room). `intent` doubles as the
+   tick ends having touched no index at all — or the question itself as `intent`, a `plan` of
+   up to four lookups (how you would go and answer it) over the enabled component paths plus
+   `semantic`, and a `worth` score (what the answer would be worth to the room). One lookup
+   per distinct thing to find: the bound is on the FAN-OUT and not a target, because a
+   `semantic` entry costs one embedding and a question with one clear need still takes one. `intent` doubles as the
    delivered card's trigger line, which is why it is phrased as a question somebody could
    have asked aloud: the owner reads it as the reason the card appeared.
 2. **retrieve** (no model). Every plan entry runs CONCURRENTLY: component paths through the
-   ordinary `run_paths`, `semantic` through one `retrieve_claims` + `rag_recall` on the
-   intent. What comes back is turned into numbered candidate cards MECHANICALLY — claim text
-   verbatim, citations attached by construction, never a sentence a model wrote.
+   ordinary `run_paths`, and each `semantic` entry through its own `retrieve_claims` +
+   `rag_recall`, all of them embedded in one batched call. Their returns merge into ONE pool,
+   deduped and interleaved so no single query can fill the candidate list on its own. What
+   comes back is turned into numbered candidate cards MECHANICALLY — claim text verbatim,
+   citations attached by construction, never a sentence a model wrote.
 3. **pick** (`live_pick`, weak fast model, reasoning off). Sees the conversation and the
    numbered candidates and answers with an index (or `none`), a SHORT lede framing why this
    matters to the reader right now, the subset of the candidate's own citations that carries
@@ -78,6 +82,7 @@ import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
+from itertools import chain, zip_longest
 from typing import TYPE_CHECKING
 
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -161,8 +166,10 @@ CANDIDATE_BODY_CHARS = 700
 #: contract also asks for short; this is what makes it true.
 LEDE_CHARS = 200
 
-#: The semantic path's own budgets — one query now, not one per turn, so these can be
-#: larger than the per-turn numbers they replace and still cost less.
+#: The semantic path's own budgets, PER QUERY — the plan's queries, not the transcript's
+#: turns, so these can be larger than the per-turn numbers they replace and still cost less.
+#: A fan-out multiplies them, and `_interleave` plus `MAX_CANDIDATES` is what bounds the pool
+#: that reaches the pick stage.
 SEMANTIC_CLAIMS = 8
 SEMANTIC_WINDOWS = 4
 
@@ -298,7 +305,16 @@ def pick_contract() -> str:
     """The pick SystemMessage. One string, no focus axis: the attention posture was already
     spent in discover, and this stage only chooses between cards discover's own plan
     produced. One criterion — does the candidate's own text answer discover's question — with
-    the honesty clauses stated as its consequences rather than as coordinate rules."""
+    the honesty clauses stated as its consequences rather than as coordinate rules.
+
+    The OPEN-QUESTION clause beside the adjacency one is contract text and NOT a mechanism,
+    deliberately. What it addresses is a conf-5 card that answered 「应该围绕什么真实痛点设计
+    核心工作流？」 with the nearest internal project page — an open product question paired
+    with whatever the library happened to hold next to it. A mechanism that recognised "open
+    question" and blocked it would be guessing about language, and it would be wrong the
+    first time a page really did bear on one. So the clause says what a good delivery looks
+    like — the page's own text has to bear on the question, scored by how directly it helps —
+    and leaves the judgement where the contract can buy it."""
     return prompt("recall.live.pick.contract")
 
 
@@ -1418,9 +1434,32 @@ def _merge_usage(*usages: Mapping[str, int]) -> dict[str, int]:
     return out
 
 
+def _interleave(groups: Sequence[Sequence], key) -> list:
+    """Round-robin across the per-query returns, FIRST SURFACER OWNING each key.
+
+    Two properties, and the second is the one that makes a multi-query plan worth planning.
+    Uniqueness is the obvious half: the same claim reached by two queries is one claim, and
+    which query found it first is not a fact about the claim. ORDER is the other half — the
+    merged pool is truncated downstream (`MAX_CANDIDATES`), so laying query 1's whole return
+    in front of query 2's would let one query of a four-entry plan fill every slot while the
+    others reached the pick stage never. That is the fan-out bought and thrown away. Taking
+    one row from each query in turn is what buys it back."""
+    out: list = []
+    seen: set = set()
+    for row in chain.from_iterable(zip_longest(*groups)):
+        if row is None:
+            continue
+        marker = key(row)
+        if marker in seen:
+            continue
+        seen.add(marker)
+        out.append(row)
+    return out
+
+
 async def _semantic_face(
     user_id: UserId,
-    query: str,
+    queries: Sequence[str],
     *,
     claim_lexical: ClaimLexicalIndex | None,
     claim_vectors: ClaimVectorIndex | None,
@@ -1429,41 +1468,68 @@ async def _semantic_face(
     vectors: VectorIndex | None,
     content: ContentStore | None,
 ) -> tuple[tuple[RetrievedClaim, ...], tuple]:
-    """ONE query — not one per turn. The discover stage already said what the room is
-    looking for, and that sentence is a better query than any single turn's words."""
+    """EVERY semantic query the plan asked for, concurrently — not one per turn, and no
+    longer only the first of them.
+
+    The discover stage says what the room is looking for, and where it is looking for
+    several distinct things it now says so in several entries rather than crushing them into
+    one string. Running them is nearly free: the per-query cost is ONE embedding, all of
+    them are embedded in a single batched call, and the index round trips overlap. What
+    comes back is merged into one pool — deduped and interleaved by `_interleave` — so the
+    pick stage still chooses out of one numbered list and never learns which query surfaced
+    which card. It MERGES rather than re-fusing (`retrieve_claims_multi`'s job) because each
+    face already fuses internally, and because one vector per query is shared between the two
+    faces — which is what keeps a fan-out at exactly one batched embedding call."""
+    wanted: list[str] = []
+    for raw_query in queries:
+        text = str(raw_query or "").strip()
+        if text and text not in wanted:
+            wanted.append(text)
     do_claims = claim_lexical is not None and claim_vectors is not None
     do_windows = lexical is not None and vectors is not None
-    if not query or (not do_claims and not do_windows):
+    if not wanted or (not do_claims and not do_windows):
         return (), ()
-    vector = (await embeddings.aembed_documents([query]))[0]
-    claims_job = (
-        retrieve_claims(
-            user_id,
-            query,
-            claim_lexical=claim_lexical,
-            claim_vectors=claim_vectors,
-            embeddings=embeddings,
-            limit=SEMANTIC_CLAIMS,
-            query_embedding=vector,
+    embedded = await embeddings.aembed_documents(wanted)
+
+    async def one(query: str, vector) -> tuple[Sequence[RetrievedClaim], Sequence]:
+        claims_job = (
+            retrieve_claims(
+                user_id,
+                query,
+                claim_lexical=claim_lexical,
+                claim_vectors=claim_vectors,
+                embeddings=embeddings,
+                limit=SEMANTIC_CLAIMS,
+                query_embedding=vector,
+            )
+            if do_claims
+            else _nothing()
         )
-        if do_claims
-        else _nothing()
-    )
-    windows_job = (
-        rag_recall(
-            user_id,
-            query,
-            lexical=lexical,
-            vectors=vectors,
-            embeddings=embeddings,
-            limit=SEMANTIC_WINDOWS,
-            query_embedding=vector,
+        windows_job = (
+            rag_recall(
+                user_id,
+                query,
+                lexical=lexical,
+                vectors=vectors,
+                embeddings=embeddings,
+                limit=SEMANTIC_WINDOWS,
+                query_embedding=vector,
+            )
+            if do_windows
+            else _nothing()
         )
-        if do_windows
-        else _nothing()
+        return await asyncio.gather(claims_job, windows_job)
+
+    returned = await asyncio.gather(
+        *(one(query, vector) for query, vector in zip(wanted, embedded))
     )
-    claims, hits = await asyncio.gather(claims_job, windows_job)
-    windows: Sequence = list(hits)
+    claims = _interleave(
+        [got for got, _ in returned], key=lambda c: (c.document_path, str(c.anchor))
+    )
+    windows: Sequence = _interleave(
+        [got for _, got in returned],
+        key=lambda h: (str(h.source_id), h.block_start, h.block_end),
+    )
     if windows:
         raw: list[RecallHit] = sorted(
             windows, key=lambda h: (-h.score, str(h.source_id), h.block_start)
@@ -1681,6 +1747,7 @@ async def evaluate_live_pipeline(
                 _log.warning("on_glance callback failed; continuing", exc_info=True)
 
     # ── stage 2: retrieve. Every entry of the plan, concurrently.
+    #: Only for the web fallback tier below — the semantic face takes the whole list.
     query = queries[0] if queries else intent
     with recorder.measure("retrieve"):
         semantic_started = time.perf_counter()
@@ -1689,7 +1756,7 @@ async def evaluate_live_pipeline(
             try:
                 return await _semantic_face(
                     user_id,
-                    query if queries else "",
+                    queries,
                     claim_lexical=claim_lexical,
                     claim_vectors=claim_vectors,
                     embeddings=embeddings,

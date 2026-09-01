@@ -286,7 +286,7 @@ class PlanEntry(BaseModel):
     actually enabled — a kind naming nothing is dropped and counted, never guessed at."""
 
     kind: str
-    query: str = ""  # `semantic` only: the one query to retrieve on
+    query: str = ""  # `semantic` / `web` only: the ONE thing this entry goes to find
     args: list[PlanArg] = Field(default_factory=list)
 
 
@@ -308,7 +308,13 @@ class DiscoverResult(BaseModel):
     #: `trigger`, so the owner reads it as the reason the card appeared, and it is what the
     #: pick stage scores every candidate against.
     intent: str = ""
-    plan: list[PlanEntry] = Field(default_factory=list, max_length=2)
+    #: The lookups, at most four. It was two, and two was the bound that made a query mush:
+    #: a question with five things in it had nowhere to put the fifth except inside the
+    #: first entry's string, so the stage wrote one `semantic` query carrying six concepts
+    #: and starved the fused face it feeds. Four is a bound on the FAN-OUT, not a target —
+    #: the extra entries cost one embedding each and nothing else, the queries run
+    #: concurrently, and a single clear need is still a single entry.
+    plan: list[PlanEntry] = Field(default_factory=list, max_length=4)
     worth: int = 0
 
 

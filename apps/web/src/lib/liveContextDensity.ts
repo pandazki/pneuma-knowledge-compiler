@@ -45,11 +45,18 @@ export interface DensityPreset {
  * pending run (it reacts to what was just said rather than to a paragraph of it) — and the
  * opposite reader wants all three the other way. Splitting them into three dials would let
  * someone build a combination that means nothing, and then wonder why it behaved oddly.
+ *
+ * Quiet's floor is 7 and not 8, and that number is measured rather than chosen. Replayed over
+ * a real 21-turn conversation, quiet delivered ZERO cards — and the one that died at the gate
+ * was a question somebody had asked ALOUD, which discover scored 8 and the pick scored just
+ * under the floor. Quiet's own contract clause is "only a question somebody actually asked",
+ * so a posture that then declines to answer it is not quiet, it is mute. The gap to balanced
+ * is what carries the posture; 8 was that gap plus one card.
  */
 export const DENSITY_PRESETS: readonly DensityPreset[] = [
   { key: "eager", values: { min_confidence: 4, quiet_period: 4, max_pending_turns: 8 } },
   { key: "balanced", values: { min_confidence: 6, quiet_period: 6, max_pending_turns: 12 } },
-  { key: "quiet", values: { min_confidence: 8, quiet_period: 10, max_pending_turns: 16 } },
+  { key: "quiet", values: { min_confidence: 7, quiet_period: 10, max_pending_turns: 16 } },
 ] as const;
 
 /** The posture a fresh page opens in — and the framework's own defaults, exactly. */

@@ -562,9 +562,11 @@ Otherwise:
   Not the topic, the question: "let's hand this to whoever runs that side" asks *who runs
   that side*; a product name nobody stops to explain asks *what is that*. The owner reads it
   as the reason a card appeared, so write it in their language.
-- `plan` — how you would go and answer it: one or two lookups, each a `kind` plus arguments:
+- `plan` — how you would go and answer it: up to four lookups, each a `kind` plus arguments:
 {kinds}
-  A question about WHO takes BOTH entries and is answered by neither alone. Hand its
+  Plan one lookup per distinct thing that has to be found, and as many as the question
+  needs — when it needs one, one is the right plan.
+  A question about WHO takes TWO of them and is answered by neither alone. Hand its
   subject to whichever offered lookup is about people, and spend the OTHER on a similarity
   query shaped like a person too ("who has worked on X, or on that kind of work") — that
   second one is what reaches the nearest expertise when the subject itself is not in the
@@ -633,7 +635,10 @@ Four consequences of that one criterion:
 - **Adjacency is not an answer.** Sharing a word with the question, naming the same category
   of thing, being the closest internal project to what was mentioned — that is a fact about
   what the library happens to contain, not an answer to what was asked. Score it low, or
-  choose 0. What the library does not hold, it does not hold.
+  choose 0. What the library does not hold, it does not hold. For an OPEN question — what
+  should we build, where the real problem is — deliver a library page where its own text
+  genuinely bears on the question, scored by how directly it helps, and choose 0 when you
+  are in doubt; a page about one adjacent initiative is a lead, not an answer.
 - **A marked nearest-fit RECOMMENDATION is an answer** to a who-could question. Name the
   person, say what the evidence shows them working on, and mark the step you took: this is
   the nearest related experience in the base, not a record of the thing itself. Marked, it
@@ -1763,10 +1768,23 @@ DEFAULTS: dict[str, str] = {
         "  - `{kind}` — {description}\n"
         "    arguments: {args}"
     ),
+    # The SHAPE of a semantic query, and the one place it can be said. Measured live: with
+    # no shape guidance the stage packed six concepts into one string — a product, a page, a
+    # goal and three nouns beside them — and that single query starves BOTH halves of the
+    # fused face it feeds (`retrieve_claims` wants few sharp terms, `rag_recall` wants one
+    # topic), so a library that held the answer came back `no_coverage`. Stated positively:
+    # what a good query LOOKS like, with one worked example, and the fan-out offered rather
+    # than required — a single clear need is a single entry and always was.
     "recall.live.discover.semantic_offer": (
         "  - `semantic` — free-text similarity search over the whole knowledge base. Put ONE "
         "query string in `query` (not in `args`). Use it when no structured lookup above "
-        "fits, or alongside one."
+        "fits, or alongside one.\n"
+        "    Write each query as ONE thing to find, phrased as a short natural phrase — the "
+        "way you would say aloud what you are looking for: \"the trade-off between a "
+        "built-in message stream and connecting an external chat tool\". Several distinct "
+        "things to find means several `semantic` entries, one for each thing; a single clear "
+        "need is answered by a single entry, and one is enough. One query carries one "
+        "concept: several concepts in one string match each of them only half-well."
     ),
     "recall.live.discover.web_offer": (
         "  - `web` — a search of the INTERNET, not of the owner's knowledge base. Put ONE "

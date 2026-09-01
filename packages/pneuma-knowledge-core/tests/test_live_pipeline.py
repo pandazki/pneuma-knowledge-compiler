@@ -24,7 +24,7 @@ from typing import Any
 
 import pytest
 from langchain_core.messages import AIMessage
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from pneuma_knowledge_core.domain.canonical import CanonicalDocument, Citation
 from pneuma_knowledge_core.domain.ids import DocumentId, SourceId, UserId
@@ -143,7 +143,17 @@ class ClaimStub:
 
 
 class FakeClaimLexical:
-    def __init__(self, rows: list[ClaimStub], recorder: Recorder | None = None) -> None:
+    """What the claim face returns — for every query, or per query.
+
+    A plain list is the shape this fake always had: one return, whatever was asked. A DICT
+    keyed by query is the fan-out shape, and it is the only way a merged pool can be told
+    apart from one query's return counted twice."""
+
+    def __init__(
+        self,
+        rows: list[ClaimStub] | dict[str, list[ClaimStub]],
+        recorder: Recorder | None = None,
+    ) -> None:
         self._rows = rows
         self.queries: list[str] = []
         self._recorder = recorder
@@ -151,8 +161,13 @@ class FakeClaimLexical:
     async def search_claims(self, user_id, query, *, limit=40):  # noqa: ANN001
         self.queries.append(query)
         if self._recorder is not None:
-            await self._recorder.busy("semantic")
-        return self._rows[:limit]
+            # Named per query, so a fan-out's own overlap is measurable. The FIRST query to
+            # finish also answers to the plain name, which is what the person/semantic
+            # overlap above asks for and what it asked for before the fan-out existed.
+            await self._recorder.busy(f"semantic:{query}")
+            self._recorder.spans.setdefault("semantic", self._recorder.spans[f"semantic:{query}"])
+        rows = self._rows.get(query, []) if isinstance(self._rows, dict) else self._rows
+        return rows[:limit]
 
 
 class FakeClaimVectors:
@@ -286,7 +301,7 @@ async def run_lane(
     discover: DiscoverResult | None,
     pick: PickResult | None = None,
     paths=(),
-    claims: list[ClaimStub] | None = None,
+    claims: list[ClaimStub] | dict[str, list[ClaimStub]] | None = None,
     turns: list[ConversationTurn] | None = None,
     recorder: Recorder | None = None,
     **kwargs,
@@ -379,6 +394,210 @@ async def test_a_person_and_a_semantic_entry_run_concurrently():
     # both faces reached the candidate list
     origins = {c.origin for c in result.candidates}
     assert origins == {"path:person", "semantic.claims"}
+
+
+# ────────────────────────────────────────── stage 2: the fan-out of semantic queries
+#
+# The measured failure these three break: with no shape guidance the discover stage packed
+# six concepts into one `semantic` string, and the fused face it feeds — few sharp terms for
+# the lexical half, one topic for the vector half — was starved by both. The fix has two
+# halves that must hold together: the contract may ASK for several entries (below), and the
+# retrieve stage must actually RUN them.
+
+
+def _stub(anchor: str, path: str, text: str) -> ClaimStub:
+    return ClaimStub(
+        anchor=anchor,
+        document_path=path,
+        text=text,
+        citations=[{"source_id": SRC, "block_start": 1, "block_end": 2}],
+    )
+
+
+@pytest.mark.asyncio
+async def test_every_semantic_entry_of_a_plan_is_actually_retrieved_on():
+    """Two queries, two retrievals — measured, because the bug was that the second was
+    silently dropped (`queries[0]`) while the plan record still listed it.
+
+    They run CONCURRENTLY, and that is an interval overlap rather than a comment: run them
+    one after the other and the overlap goes to zero. Their vectors come out of ONE batched
+    embedding call, which is what makes the fan-out nearly free."""
+    recorder = Recorder()
+    result, _, _, lexical, _, embeddings = await run_lane(
+        discover=discovered(
+            intent="内置消息流与外接聊天工具之间怎么取舍？",
+            plan=[
+                PlanEntry(kind="semantic", query="内置消息流的价值"),
+                PlanEntry(kind="semantic", query="外接聊天工具的取舍"),
+            ],
+            worth=8,
+        ),
+        pick=PickResult(choice=1, lede="库里这么说。", citations=[1], confidence=8),
+        claims={
+            "内置消息流的价值": [_stub("c1", "projects/stream.md", "The stream carries the ask.")],
+            "外接聊天工具的取舍": [_stub("c2", "projects/bridge.md", "The bridge costs a hop.")],
+        },
+        recorder=recorder,
+    )
+    assert lexical.queries == ["内置消息流的价值", "外接聊天工具的取舍"]
+    assert recorder.overlap("semantic:内置消息流的价值", "semantic:外接聊天工具的取舍") > 0.0
+    assert embeddings.document_calls == 1, "one batched call, not one call per query"
+    # …and BOTH returns reached the pick stage as candidates of one pool.
+    assert {c.subject for c in result.candidates} == {
+        "projects/stream.md",
+        "projects/bridge.md",
+    }
+    assert result.plan == (
+        "semantic(内置消息流的价值)",
+        "semantic(外接聊天工具的取舍)",
+    )
+
+
+@pytest.mark.asyncio
+async def test_the_merged_pool_is_deduped_and_interleaved_across_the_queries():
+    """One claim reached by two queries is ONE candidate, and the first surfacer owns it.
+
+    Interleaving is the half that is easy to leave out and expensive to leave out: the pool
+    is truncated at `MAX_CANDIDATES`, so laying the first query's whole return in front of
+    the second's lets one entry of a fan-out fill every slot while the others reach the pick
+    stage never — the fan-out bought and thrown away. Here the first query returns four
+    documents on its own; the second's single document must still be in the pool."""
+    shared = _stub("cX", "projects/shared.md", "Both queries find this one.")
+    result, _, _, _, _, _ = await run_lane(
+        discover=discovered(
+            intent="q",
+            plan=[
+                PlanEntry(kind="semantic", query="wide"),
+                PlanEntry(kind="semantic", query="narrow"),
+            ],
+            worth=8,
+        ),
+        pick=PickResult(choice=1, lede="ok", citations=[1], confidence=8),
+        claims={
+            "wide": [
+                shared,
+                _stub("c1", "projects/a.md", "A."),
+                _stub("c2", "projects/b.md", "B."),
+                _stub("c3", "projects/c.md", "C."),
+                _stub("c4", "projects/d.md", "D."),
+                _stub("c5", "projects/e.md", "E."),
+                _stub("c6", "projects/f.md", "F."),
+            ],
+            "narrow": [shared, _stub("c9", "projects/narrow.md", "The narrow answer.")],
+        },
+    )
+    subjects = [c.subject for c in result.candidates]
+    assert subjects.count("projects/shared.md") == 1, "reached twice, delivered once"
+    # …and once INSIDE the card too. Grouping by document would hide a duplicated row behind
+    # one candidate, so the check that actually breaks when the dedup goes is on the body:
+    # a claim two queries found is one line, not the same line twice.
+    shared_card = next(c for c in result.candidates if c.subject == "projects/shared.md")
+    assert shared_card.body.count("Both queries find this one.") == 1
+    assert "projects/narrow.md" in subjects, "the second query survived the truncation"
+    # First surfacer owns the slot: the wide query ran first, so the shared row sits at its
+    # position in the wide return and not at the narrow one's.
+    assert subjects.index("projects/shared.md") < subjects.index("projects/narrow.md")
+
+
+@pytest.mark.asyncio
+async def test_a_single_semantic_entry_retrieves_exactly_what_it_always_did():
+    """The one-query plan is the common case and the fan-out must not have moved it."""
+    result, _, _, lexical, _, embeddings = await run_lane(
+        discover=discovered(
+            intent="谁在做 Agent 记忆？",
+            plan=semantic_plan("Agent 记忆精度"),
+            worth=8,
+        ),
+        pick=PickResult(choice=1, lede="库里这么说。", citations=[1], confidence=8),
+        claims=[_stub("c1", "projects/agent-memory.md", "The precision rewrite landed.")],
+    )
+    assert lexical.queries == ["Agent 记忆精度"]
+    assert embeddings.document_calls == 1
+    assert [c.subject for c in result.candidates] == ["projects/agent-memory.md"]
+
+
+def test_the_plan_bound_takes_four_entries_and_still_rejects_a_kind_nobody_offered():
+    """The bound moved from two to four; the VALIDATION did not move at all."""
+    plan = DiscoverResult(
+        intent="q",
+        plan=[
+            person_plan("林舒"),
+            PlanEntry(kind="semantic", query="one"),
+            PlanEntry(kind="semantic", query="two"),
+            PlanEntry(kind="timespan"),
+        ],
+        worth=8,
+    )
+    assert len(plan.plan) == 4, "four entries survive the schema"
+    runs, queries, _, rejected = plan_runs(plan.plan, [FakePersonPath(PERSON_PAGE)])
+    assert [p.name for p, _ in runs] == ["person"]
+    assert queries == ["one", "two"], "several semantic entries are several queries"
+    assert rejected == ["timespan"]
+
+
+def test_a_fifth_entry_is_refused_by_the_schema_rather_than_by_a_request():
+    """The ceiling is MECHANICAL — a longer plan cannot be emitted, so nothing downstream
+    has to decide what to do with one."""
+    with pytest.raises(ValidationError):
+        DiscoverResult(plan=[PlanEntry(kind="semantic", query=str(n)) for n in range(5)])
+
+
+def test_the_semantic_offer_says_what_one_query_is_and_offers_the_fan_out():
+    """Positive first: the SHAPE of a good query, with a worked example. The fan-out is
+    OFFERED, never required — a single clear need was always one entry, and a contract that
+    demanded several would trade one failure for its mirror image."""
+    offer = prompt("recall.live.discover.semantic_offer")
+    assert "Write each query as ONE thing to find" in offer
+    assert "short natural phrase" in offer
+    assert "the trade-off between a built-in message stream" in offer, "a worked example"
+    assert "several `semantic` entries, one for each thing" in offer
+    assert "a single entry, and one is enough" in offer
+    assert "match each of them only half-well" in offer, "the mush, named once"
+
+    chinese = chinese_overlay()["recall.live.discover.semantic_offer"]
+    assert "每条查询写**一件**要找的事" in chinese
+    assert "「内置消息流与外接聊天工具之间的取舍」" in chinese
+    assert "就写**几条** `semantic`" in chinese
+    assert "一条就够" in chinese
+
+
+def test_the_contract_states_the_bound_the_schema_enforces():
+    """The two must agree: a contract asking for more than the schema accepts spends the
+    small model's attention on entries that would be dropped at parse."""
+    contract = discover_contract("general", ())
+    assert "up to four lookups" in contract
+    assert "Plan one lookup per distinct thing that has to be found" in contract
+    assert "when it needs one, one is the right plan" in contract
+    assert "one or two lookups" not in contract, "the old bound is gone from the prose too"
+
+    chinese = chinese_overlay()["recall.live.discover.contract"]
+    assert "最多四个查询" in chinese
+    assert "**一件要找的事配一个查询**" in chinese
+
+
+def test_the_pick_contract_treats_an_adjacent_page_on_an_open_question_as_a_lead():
+    """The live miss: an OPEN product question — 「应该围绕什么真实痛点设计核心工作流？」 —
+    answered at confidence 5 by the nearest internal project page.
+
+    Stated as judgement and never as a mechanism. Nothing here detects an open question and
+    blocks it: a page really can bear on one, and a rule that guessed which questions are
+    open would be guessing about language. What the clause does is say what a good delivery
+    looks like, and name the one red line beside it."""
+    contract = pick_contract()
+    # Wrapped prose: the clause is read as sentences, not as source lines.
+    flowing = " ".join(contract.split())
+    assert "For an OPEN question" in flowing
+    assert "genuinely bears on the question" in flowing
+    assert "scored by how directly it helps" in flowing
+    assert "choose 0 when you are in doubt" in flowing
+    assert "a page about one adjacent initiative is a lead, not an answer" in flowing
+    # …and it sits with the adjacency red line, which it is the open-question case of.
+    assert flowing.index("**Adjacency is not an answer.**") < flowing.index("For an OPEN")
+
+    chinese = chinese_overlay()["recall.live.pick.contract"]
+    assert "问题本身是**开放**的时候" in chinese
+    assert "确实说到了这个问题时才交付它" in chinese
+    assert "讲某个**邻近**项目的页面是线索，不是回答" in chinese
 
 
 @pytest.mark.asyncio
@@ -1003,14 +1222,16 @@ def test_every_posture_aims_a_find_a_person_ask_at_the_people_and_not_at_a_defin
     what the tool IS — an answer to a question nobody asked. The clause is about WHERE a
     lookup points, and how latent a question may be (the density axis) does not touch that.
 
-    "BOTH entries" is load-bearing and measured: on the live stack the one-entry plan is the
+    "TWO of them" is load-bearing and measured: on the live stack the one-entry plan is the
     shape that comes back empty, because the people path can only answer for a subject the
     contact book already holds, and the similarity query is what reaches the nearest
-    expertise when it does not."""
+    expertise when it does not. It used to read "BOTH entries", which was true only while the
+    plan bound was two; the clause is about how many a who-question SPENDS, and that has not
+    moved with the bound."""
     for density in ("eager", "balanced", "quiet"):
         contract = discover_contract("general", (), density=density)
         for clause in (
-            "A question about WHO takes BOTH entries and is answered by neither alone.",
+            "A question about WHO takes TWO of them and is answered by neither alone.",
             "whichever offered lookup is about people",
             "spend the OTHER on a similarity",
             '("who has worked on X, or on that kind of work")',
@@ -1021,7 +1242,7 @@ def test_every_posture_aims_a_find_a_person_ask_at_the_people_and_not_at_a_defin
 
     chinese = chinese_overlay()["recall.live.discover.contract"]
     for clause in (
-        "问「谁」的问题要用掉**两条**，少一条都答不上",
+        "问「谁」的问题要用掉其中**两条**，少一条都答不上",
         "把主体交给上面任何一条关于人的查询",
         "「做过 X 或同类工作的人」",
         "把主体解释一遍，在这里什么都没回答",

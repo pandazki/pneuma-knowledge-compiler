@@ -45,6 +45,19 @@ test("the three postures are ordered loud to quiet on every axis at once", () =>
   assert.ok(balanced.max_pending_turns < quiet.max_pending_turns);
 });
 
+test("the quiet floor stays one step above balanced, and only one", () => {
+  // Pinned as a NUMBER because the number is the finding. Replayed over a real conversation
+  // at 8, quiet delivered nothing at all — including for a question somebody had asked
+  // aloud, which is the only thing quiet's own contract clause takes. It is 7 now, and the
+  // pin is what makes a future 8 a decision rather than a drift.
+  assert.equal(densityValues("quiet").min_confidence, 7);
+  assert.equal(
+    densityValues("quiet").min_confidence - densityValues("balanced").min_confidence,
+    1,
+    "quiet is one step stricter than balanced — a posture, not a mute switch",
+  );
+});
+
 test("the default posture is the framework's own defaults", () => {
   assert.equal(DEFAULT_DENSITY, "balanced");
   assert.deepEqual(densityValues("balanced"), {

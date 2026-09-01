@@ -37,6 +37,7 @@ now. Every row is that principle meeting a room:
     a negative web answer → answers the question? no            → nothing is delivered
     a defined subject     → the library's own sentence, now     → the glance short-circuit
     …and nothing behind it→ the ending is named all the same    → the glance settles alone
+    two things in one turn→ one query each, one merged pool     → the semantic fan-out
 
 Live mode: `PNEUMA_SCENARIOS_LIVE=1` is deliberately NOT implemented. Every row here scripts
 the model turn it is about, so a live variant would have to script nothing and assert nothing
@@ -187,7 +188,8 @@ class Scenario:
     discover: DiscoverResult | None = None
     pick: PickResult | None = None
     paths: tuple[Any, ...] = ()
-    claims: tuple[ClaimStub, ...] = ()
+    #: A tuple is one return for every query; a DICT keyed by query is the fan-out shape.
+    claims: tuple[ClaimStub, ...] | dict[str, list[ClaimStub]] = ()
     documents: tuple[CanonicalDocument, ...] = ()
     already_shown: tuple[dict, ...] = ()
     ledger: SubjectLedger | None = None
@@ -208,7 +210,11 @@ async def play(scenario: Scenario):
         density=scenario.density,
         context_turns=list(scenario.context_turns),
         paths=list(scenario.paths),
-        claims=list(scenario.claims),
+        claims=(
+            dict(scenario.claims)
+            if isinstance(scenario.claims, dict)
+            else list(scenario.claims)
+        ),
         documents=list(scenario.documents),
         already_shown=list(scenario.already_shown),
         ledger=scenario.ledger,
@@ -531,6 +537,75 @@ GLANCE_THEN_NOTHING = Scenario(
 )
 
 
+# 10. A room asking about TWO things in one breath. The plan the contract now asks for is one
+#     `semantic` entry per thing rather than one string carrying both — measured live, the
+#     crammed string starved the fused face and a library that held both answers returned
+#     `no_coverage`. This row is the fan-out end to end: both queries retrieve, their returns
+#     merge into ONE pool, and a page both of them found is one candidate.
+
+SHARED_PAGE = ClaimStub(
+    anchor="c-shared",
+    document_path="projects/bench-programme.md",
+    text="The bench programme covers both the optical bench and the evaluation set.",
+    citations=[{"source_id": SRC, "block_start": 1, "block_end": 2}],
+)
+
+
+def _both_queries_ran_and_the_pool_is_one(result, discover_model, pick_model) -> None:
+    assert result.plan == (
+        "semantic(Lumen Lab 校准流程现在卡在哪)",
+        "semantic(Apex Bench 评测集要怎么换)",
+    ), result.plan
+    subjects = [card.subject for card in result.candidates]
+    # Each query's own page reached the pick stage — neither entry was planned and dropped.
+    assert "projects/lumenlab.md" in subjects, subjects
+    assert "projects/apex-bench.md" in subjects, subjects
+    # …and the page both queries found is in the pool once, not twice.
+    assert subjects.count("projects/bench-programme.md") == 1, subjects
+
+
+TWO_THINGS_AT_ONCE = Scenario(
+    twin_of="one turn asking about two separate workstreams at once",
+    turns=(owner("我们到底先修 Lumen Lab 的校准，还是先把 Apex Bench 的评测集换掉？"),),
+    discover=DiscoverResult(
+        intent="Lumen Lab 的校准和 Apex Bench 的评测集，各自现在卡在哪？",
+        plan=[
+            semantic("Lumen Lab 校准流程现在卡在哪"),
+            semantic("Apex Bench 评测集要怎么换"),
+        ],
+        worth=8,
+    ),
+    claims={
+        "Lumen Lab 校准流程现在卡在哪": [
+            SHARED_PAGE,
+            ClaimStub(
+                anchor="c-lumen",
+                document_path="projects/lumenlab.md",
+                text="The calibration pass is waiting on a new reference mirror.",
+                citations=[{"source_id": SRC, "block_start": 3, "block_end": 4}],
+            ),
+        ],
+        "Apex Bench 评测集要怎么换": [
+            SHARED_PAGE,
+            ClaimStub(
+                anchor="c-apex",
+                document_path="projects/apex-bench.md",
+                text="The evaluation set is scheduled to be replaced after the next release.",
+                citations=[{"source_id": SRC, "block_start": 5, "block_end": 6}],
+            ),
+        ],
+    },
+    pick=PickResult(
+        choice=1,
+        lede="校准这边在等一块新的参考镜。",
+        citations=[1],
+        confidence=8,
+    ),
+    expected="deliver",
+    check=_both_queries_ran_and_the_pool_is_one,
+)
+
+
 SCENARIOS: tuple[Scenario, ...] = (
     SMALL_TALK,
     ALREADY_MINED,
@@ -543,6 +618,7 @@ SCENARIOS: tuple[Scenario, ...] = (
     NEGATIVE_WEB_ANSWER,
     GLANCE_THEN_UPGRADE,
     GLANCE_THEN_NOTHING,
+    TWO_THINGS_AT_ONCE,
 )
 
 
