@@ -72,6 +72,7 @@ async def run_evaluation(
     pack: str | None = None,
     as_of: datetime | None = None,
     ledger: Any = None,
+    on_glance: Any = None,
 ) -> PipelineResult:
     """One Live Context evaluation over a plan's pending window.
 
@@ -131,7 +132,23 @@ async def run_evaluation(
         # adapter's own `available()` before it offers the lookup at all.
         web_search=ctx.get_web_search() if plan.web_search else None,
         paths=fast_paths_from_registry(user_id),
+        # The turns earlier ticks already processed. Read-only above the new content, so
+        # intent formation sees what the new content refers back to (core `take_context`).
+        context_turns=plan.context,
+        # Canonical, for the glance short-circuit: where the plan names a subject the
+        # library holds, its one-sentence definition goes out while retrieval and the pick
+        # are still running. A CALLABLE, not a list — it is awaited only once discover has
+        # produced a real plan, so the skip that is this lane's steady state still touches
+        # nothing at all. A deployment with no canonical store wired simply has no
+        # short-circuit, which is exactly what "with none passed" means in core.
+        load_documents=(
+            (lambda: ctx.canonical.list(user))
+            if getattr(ctx, "canonical", None) is not None
+            else None
+        ),
+        on_glance=on_glance,
         focus=plan.focus,
+        density=plan.density,
         already_shown=plan.already_shown,
         ledger=ledger,
         label_map=label_map,

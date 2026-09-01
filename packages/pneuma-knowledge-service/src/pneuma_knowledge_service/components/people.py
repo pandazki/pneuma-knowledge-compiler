@@ -106,9 +106,15 @@ from dataclasses import dataclass, field
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 from pypinyin import lazy_pinyin
-from pneuma_knowledge_core.canonical_glance import document_title, family_of
+from pneuma_knowledge_core.canonical_glance import (
+    document_title,
+    family_of,
+    resolve_subject as _resolve_subject,
+    subject_key,
+)
 from pneuma_knowledge_core.compile.documents import parse_overview
 from pneuma_knowledge_core.compile.gate import Violation
+from pneuma_knowledge_core.compile.links import _MD_LINK_RE, _resolve_relative
 from pneuma_knowledge_core.compile.patch import touched_this_round
 from pneuma_knowledge_core.components import BaseComponent
 from pneuma_knowledge_core.domain.ids import UserId
@@ -491,6 +497,23 @@ def _definition_line(claims: list) -> list:
         if "definition" in claim.labels:
             return [claim]
     return claims[:1]
+
+
+def _page_head(claims: list, dead: Mapping[str, object]) -> list:
+    """`_definition_line`'s twin for an ENUMERATION: the overview's `definition`, else the
+    head of the page's CURRENT ledger.
+
+    The difference from `_definition_line` is the fallback, and it is the difference between
+    two situations. There, the page IS the answer and its first claim is a fine stand-in for
+    it. Here, the page is one row among many and the reader is deciding whether to open it —
+    so a claim canonical has superseded, or a line out of the overview's summary, would say
+    something the page no longer says or something the definition already said better.
+    """
+    for claim in claims:
+        if "definition" in claim.labels:
+            return [claim]
+    live = [c for c in claims if not c.labels and str(c.anchor) not in dead]
+    return live[:1] or claims[:1]
 
 
 @dataclass(frozen=True)
@@ -1809,6 +1832,109 @@ def unresolved_names(
         if count >= UNRESOLVED_MIN_COUNT:
             counted.append((token, count))
     return sorted(counted, key=lambda pair: (-pair[1], pair[0]))
+
+
+# ------------------------------------------------------ the people around a subject
+
+#: How many documents one free-text `subject` may tie on before the lookup refuses to
+#: guess. Three is the bound `name_candidates` uses for a tied person name, and for the same
+#: reason: a handful of labelled candidates is a choice a reader can make, thirty of them is
+#: a search result wearing a lookup's clothes.
+SUBJECT_MATCH_CANDIDATES = 3
+#: How many people one page of the deep `people_around` tool prints.
+AROUND_PAGE_LIMIT = 8
+
+
+@dataclass(frozen=True)
+class SubjectMatch:
+    """One document a free-text `subject` resolved to, and what on it matched.
+
+    The subject of "who is around X" is not a person: X is a project, a team, a topic — ANY
+    document in the library, which is why this resolution is not the people family's own.
+    What it matches is therefore the only vocabulary every document has: its repository
+    path, its title, its frontmatter `slug` and its filename — and the rule itself lives in
+    core (`canonical_glance.resolve_subject`), because naming a document is the library's
+    own question and not the people family's. Nothing here is a search: a resolution that is
+    not exact under one normalisation is no resolution at all, and the generosity is only in
+    the normalisation (case, whitespace, punctuation: `Lumen Lab`, `lumen-lab` and
+    `lumenlab`'s own file name are one key). No pinyin: a project is not a person and has no
+    second convention to be written in.
+    """
+
+    path: str
+    title: str
+    how: str  # "path" | "title" | "slug" | "filename"
+
+    def render(self) -> str:
+        return f"`{self.path}` — {self.title} · matched the document's {self.how}"
+
+
+@dataclass(frozen=True)
+class SubjectLink:
+    """One canonical claim that puts a person page and a subject document in one sentence.
+
+    THE CLAIM IS THE EVIDENCE, and that is the whole reason this enumeration needs no model:
+    a compile already read the material, decided these two subjects are related and wrote a
+    cited sentence saying how. The link is the machine-readable half of that sentence and the
+    sentence is the readable half; returning the edge without the claim would be returning
+    the half nobody can check.
+    """
+
+    claim: object  # the ProjectedClaim carrying the link
+    #: `links-to` — the PERSON page's own claim points at the subject; `linked-from` — the
+    #: SUBJECT document's claim points at the person. Two different facts about who wrote
+    #: the relation down, and a reader who cannot tell them apart cannot weigh either.
+    direction: str
+    superseded: bool
+
+
+@dataclass(frozen=True)
+class Neighbour:
+    """One person page linked with a subject document, and every claim that links it."""
+
+    path: str
+    links: tuple[SubjectLink, ...]
+
+    @property
+    def current(self) -> int:
+        """Links canonical has not superseded — the count that ranks."""
+        return sum(1 for link in self.links if not link.superseded)
+
+    @property
+    def rank(self) -> tuple[int, int, str]:
+        """Most-linked first, and LIVING links before all of them.
+
+        A person the library still writes about beside this subject outranks one it used to,
+        however much history the second one carries; the path breaks what is left, so the
+        same library always enumerates in the same order (no model, no set iteration).
+        """
+        return (-self.current, -len(self.links), self.path)
+
+
+def link_targets(document_path: str, text: str) -> list[str]:
+    """The repository paths one claim's markdown links point at, in document order.
+
+    The regex and the resolver are the gate's own (`compile/links.py`) — the pair the write
+    side validates a link with and the knowledge graph resolves it with. Reading edges with
+    a second spelling of "where does this href point" is how a projection ends up indexing
+    links the library does not have.
+    """
+    seen: dict[str, None] = {}
+    for match in _MD_LINK_RE.finditer(text):
+        seen.setdefault(_resolve_relative(document_path, match.group(1)), None)
+    return list(seen)
+
+
+def _link_line(link: "SubjectLink") -> str:
+    """One linking claim as a line of the deep tool's text: its anchor, which direction it
+    points, whether canonical has superseded it, the sentence itself, and its citations."""
+    cites = " ".join(
+        f"[cite: {c.source_id} \u00b6{c.block_start}-{c.block_end}]"
+        for c in link.claim.citations
+    )
+    state = " \u00b7 superseded" if link.superseded else ""
+    text = " ".join(str(link.claim.text).split())
+    return f"[c:{link.claim.anchor} \u00b7 {link.direction}{state}] {text} {cites}".rstrip()
 
 
 # ------------------------------------------------------------------------ the component
@@ -3353,6 +3479,246 @@ class PeopleComponent(BaseComponent):
                 (history if superseded else current).append(claim)
         return [*current, *history]
 
+    # --- face 6: the people around a subject ----------------------------------------------
+
+    def resolve_subject(self, docs: Mapping[str, object], *, subject: str) -> list[SubjectMatch]:
+        """The document(s) a free-text `subject` names, across EVERY family.
+
+        The rule is core's (`canonical_glance.resolve_subject`) and this is its face for
+        this component: a repository path outright, otherwise the query's key compared with
+        the document's title, `slug` and filename, one normaliser on both sides. Every
+        document that meets it comes back; the caller decides what a tie means, and no tie
+        is ever broken by picking the first path.
+        """
+        return [
+            SubjectMatch(doc.path, document_title(doc), how)
+            for doc, how in _resolve_subject(list(docs.values()), subject)
+        ]
+
+    def neighbours(
+        self, docs: Mapping[str, object], subject_path: str, *, dead: Mapping[str, object]
+    ) -> list[Neighbour]:
+        """The person pages the subject document is LINKED with, most-linked first.
+
+        Pure derivation — no model, no projection, no new storage. Canonical already holds
+        the answer twice over: a person page whose claim links the subject (`links-to`), and
+        the subject's own claim linking a person page (`linked-from`, which is what an
+        overview `connections` line is). Both directions count, because which page wrote the
+        relation down is an accident of which compile ran; that a compile wrote it is the
+        fact.
+
+        A superseded linking claim is KEPT and labelled, exactly as `person_claims` keeps a
+        person page's superseded history: canonical does not delete, and a relation the
+        library has replaced is part of what it knows about a subject. It simply does not
+        rank: `Neighbour.rank` counts the living links first.
+        """
+        subject_doc = docs.get(subject_path)
+        if subject_doc is None:
+            return []
+        found: dict[str, list[SubjectLink]] = {}
+        for claim in project_document_claims(subject_doc):
+            superseded = str(claim.anchor) in dead
+            for target in link_targets(claim.document_path, claim.text):
+                if target == subject_path or target not in docs or not self.is_member(target):
+                    continue
+                found.setdefault(target, []).append(
+                    SubjectLink(claim, "linked-from", superseded)
+                )
+        for path in sorted(docs):
+            if path == subject_path or not self.is_member(path):
+                continue
+            for claim in project_document_claims(docs[path]):
+                if subject_path not in link_targets(claim.document_path, claim.text):
+                    continue
+                found.setdefault(path, []).append(
+                    SubjectLink(claim, "links-to", str(claim.anchor) in dead)
+                )
+        return sorted(
+            (Neighbour(path, tuple(links)) for path, links in found.items()),
+            key=lambda n: n.rank,
+        )
+
+    async def around(
+        self, user_id: UserId, *, subject: str, documents=None
+    ) -> tuple[list[SubjectMatch], list[tuple[SubjectMatch, Neighbour]], Mapping[str, object]]:
+        """One `people_around` lookup, as (what the subject resolved to, the person rows,
+        the repository's superseded index) — the shared half of the fast path and the deep
+        tool, so both answer from exactly the same derivation."""
+        docs = await self._documents(user_id, documents)
+        subjects = self.resolve_subject(docs, subject=subject)
+        if not subjects or len(subjects) > SUBJECT_MATCH_CANDIDATES:
+            return subjects, [], {}
+        dead = superseded_index({p: d.body for p, d in docs.items()})
+        rows = [
+            (match, neighbour)
+            for match in subjects
+            for neighbour in self.neighbours(docs, match.path, dead=dead)
+        ]
+        return subjects, rows, dead
+
+    @staticmethod
+    def _around_claim(
+        claim, *, person: str, direction: str, subject: str, dead: Mapping[str, object]
+    ) -> RetrievedClaim:
+        """One row of the `people_around` face.
+
+        Every row names its PERSON, whichever document it physically lives on. That is not
+        decoration: the framework ranks a path's results against the question and spends the
+        cap on that order (`recall/component_rank.py`), so the person's definition line and
+        the sentence that links them are not adjacent by the time a reader sees them — the
+        label is what keeps the face an enumeration of people rather than a pile of claims.
+        The subject is labelled only when the query resolved to more than one document, for
+        the same reason and no other: a row has to say which of them it answers for.
+        """
+        superseded = str(claim.anchor) in dead
+        return RetrievedClaim(
+            anchor=claim.anchor,
+            document_path=claim.document_path,
+            section_path=claim.section_path,
+            text=claim.text,
+            citations=claim.citations,
+            paths=("people",),
+            score=1.0,
+            labels=(("superseded",) if superseded else ("current",))
+            + (f"person:{person}",)
+            + ((direction,) if direction else ())
+            + ((f"subject:{subject}",) if subject else ())
+            + claim.labels,
+        )
+
+    async def around_claims(
+        self, user_id: UserId, *, subject: str = "", documents=None
+    ) -> list[RetrievedClaim]:
+        """The people around one subject as ordinary claims: for each of them, the line that
+        says who they are, then every sentence that links them to the subject.
+
+        EVERYTHING it knows, uncapped and in its own order — most-linked person first. A path
+        has no question to truncate against (`recall/paths.py`), so the framework orders these
+        against the question and spends the path's cap on that order, stating what it did not
+        show. An empty result is an empty face and never an error: a subject nothing names, a
+        subject nobody is linked with and a query that ties on more than
+        `SUBJECT_MATCH_CANDIDATES` documents all come back as nothing rather than as a guess.
+        """
+        subjects, rows, dead = await self.around(
+            user_id, subject=subject, documents=documents
+        )
+        if not rows:
+            return []
+        docs = await self._documents(user_id, documents)
+        many = len(subjects) > 1
+        out: list[RetrievedClaim] = []
+        for match, neighbour in rows:
+            label = match.path if many else ""
+            page = docs.get(neighbour.path)
+            head = _page_head(list(project_document_claims(page)), dead) if page else []
+            for claim in head:
+                out.append(
+                    self._around_claim(
+                        claim,
+                        person=neighbour.path,
+                        direction="",
+                        subject=label,
+                        dead=dead,
+                    )
+                )
+            for link in neighbour.links:
+                out.append(
+                    self._around_claim(
+                        link.claim,
+                        person=neighbour.path,
+                        direction=link.direction,
+                        subject=label,
+                        dead=dead,
+                    )
+                )
+        return out
+
+    async def people_around(
+        self,
+        user_id: UserId,
+        *,
+        subject: str = "",
+        offset: int = 0,
+        limit: int = AROUND_PAGE_LIMIT,
+        documents=None,
+    ) -> str:
+        """The people around one subject as text: each person page, how many claims link it
+        to the subject and in which direction, its definition line, and every linking
+        sentence with its `[cite: …]` provenance.
+
+        PAGINATED in PEOPLE, never truncated — the deep lane is agentic and a cap there must
+        not be a dead end. A person is printed whole or not at all: a page whose linking
+        sentences were cut in half would be a relation the reader cannot check.
+        """
+        subjects, rows, dead = await self.around(
+            user_id, subject=subject, documents=documents
+        )
+        query = subject.strip() or "(empty query)"
+        if not subjects:
+            return f"no document in this library is named {query}."
+        if len(subjects) > SUBJECT_MATCH_CANDIDATES:
+            listed = "\n".join(f"- {m.render()}" for m in subjects[:10])
+            more = (
+                f"\n- … and {len(subjects) - 10} more"
+                if len(subjects) > 10
+                else ""
+            )
+            return (
+                f"{query} names {len(subjects)} documents equally well — ask again with the "
+                f"one that is meant (its path answers outright):\n" + listed + more
+            )
+        docs = await self._documents(user_id, documents)
+        if not rows:
+            named = "\n".join(f"- {m.render()}" for m in subjects)
+            return (
+                f"no person page in this library is linked with {query}:\n{named}\n"
+                "Nothing is missing from the answer — canonical holds no claim putting a "
+                "person page and that document in one sentence."
+            )
+        offset = max(int(offset), 0)
+        limit = max(int(limit), 1)
+        page = rows[offset : offset + limit]
+        lines: list[str] = []
+        current_subject = ""
+        for match, neighbour in page:
+            if match.path != current_subject:
+                current_subject = match.path
+                lines.append(f"# people around {match.render()}")
+            doc = docs.get(neighbour.path)
+            title = document_title(doc) if doc is not None else neighbour.path
+            directions = " / ".join(
+                dict.fromkeys(link.direction for link in neighbour.links)
+            )
+            state = (
+                f"{neighbour.current} current"
+                + (
+                    f" · {len(neighbour.links) - neighbour.current} superseded"
+                    if len(neighbour.links) > neighbour.current
+                    else ""
+                )
+            )
+            lines.append(
+                f"- `{neighbour.path}` — {title} · {len(neighbour.links)} linking claim(s) "
+                f"({state}) · {directions}"
+            )
+            head = _page_head(list(project_document_claims(doc)), dead) if doc else []
+            for claim in head:
+                lines.append(f"  - who: {' '.join(str(claim.text).split())}")
+            for link in neighbour.links:
+                lines.append(f"  - {_link_line(link)}")
+        lines.append(
+            navigation_line(
+                total=len(rows),
+                offset=offset,
+                shown=len(page),
+                unit="people",
+                more=_call_text(
+                    "people_around", subject=subject, offset=offset + limit, limit=limit
+                ),
+            )
+        )
+        return "\n".join(lines)
+
     def fast_paths(self, user_id: str):
         component = self
         uid = UserId(user_id)
@@ -3379,7 +3745,38 @@ class PeopleComponent(BaseComponent):
                 )
                 return PathResult(claims=tuple(claims))
 
-        return [PersonPath()]
+        class PeopleAroundArgs(BaseModel):
+            subject: str = Field(
+                default="",
+                description=(
+                    "a project, team, organisation or topic named in the conversation "
+                    "— returns the PEOPLE connected to it in the library"
+                ),
+            )
+
+        class PeopleAroundPath:
+            name = "people_around"
+            description = (
+                "The people connected to a SUBJECT — a project, team, organisation or topic "
+                "— when the question names the subject and no person. Returns each person "
+                "page the library links with it: who they are, and the cited sentence that "
+                "wrote the connection, marked by which side wrote it (links-to / "
+                "linked-from). Use for `who works on X`, `who knows about X`, `who could we "
+                "ask about X` — where `person` needs a name, this needs only the subject."
+            )
+            args_schema = PeopleAroundArgs
+            cap = 24
+
+            async def run(self, user_id, args, *, scope=None, documents=None, as_of=None):
+                claims = await component.around_claims(
+                    uid, subject=args.subject, documents=documents
+                )
+                return PathResult(claims=tuple(claims))
+
+        # Registration order is the order every seam consults them in, so the two paths
+        # always introduce themselves to the routing model in the same order — the discover
+        # contract is a function of the enabled set and nothing else (I5).
+        return [PersonPath(), PeopleAroundPath()]
 
     async def person_profile(
         self,
@@ -3640,6 +4037,13 @@ class PeopleComponent(BaseComponent):
                 uid, since=since, until=until, offset=offset, limit=limit, documents=documents
             )
 
+        async def people_around(
+            subject: str = "", offset: int = 0, limit: int = AROUND_PAGE_LIMIT
+        ) -> str:
+            return await component.people_around(
+                uid, subject=subject, offset=offset, limit=limit, documents=documents
+            )
+
         async def person_profile(
             alias: str = "",
             identity: str = "",
@@ -3671,6 +4075,20 @@ class PeopleComponent(BaseComponent):
                 ),
             ),
             StructuredTool.from_function(
+                coroutine=people_around,
+                name="people_around",
+                description=(
+                    "The people connected to a SUBJECT — a project, team, organisation or "
+                    "topic — rather than to a name. subject: the document that subject has "
+                    "in the library, named by its title, its slug or its path. Returns each "
+                    "person page canonical links with it: who they are, how many claims link "
+                    "them and from which side (links-to / linked-from), and every linking "
+                    "sentence with its citation. Derived from canonical's own links, so it "
+                    "is complete for what the library has written down. "
+                    + PAGINATED_NOTE
+                ),
+            ),
+            StructuredTool.from_function(
                 coroutine=enumerate_identities,
                 name="enumerate_identities",
                 description=(
@@ -3688,6 +4106,7 @@ class PeopleComponent(BaseComponent):
 
 __all__ = [
     "ADDRESS_KINDS",
+    "AROUND_PAGE_LIMIT",
     "ALIAS_UNDECIDED_MAX",
     "ADDRESS_LIBRARY_MIN_SUPPORT",
     "ADDRESS_MIN_SUPPORT",
@@ -3704,11 +4123,15 @@ __all__ = [
     "HONORIFIC_PREFIXES",
     "HONORIFIC_SUFFIXES",
     "NAME_MATCH_CANDIDATES",
+    "SUBJECT_MATCH_CANDIDATES",
     "PREFIX_MIN_CHARS",
     "AddressCandidate",
     "AddressTarget",
     "Decision",
     "NameMatch",
+    "Neighbour",
+    "SubjectLink",
+    "SubjectMatch",
     "IdentityMention",
     "IdentitySummary",
     "PeopleComponent",
@@ -3727,6 +4150,7 @@ __all__ = [
     "name_parts",
     "name_shaped_tokens",
     "name_tokens",
+    "link_targets",
     "split_cjk_name",
     "strip_honorific",
     "normalize_identity",
@@ -3735,6 +4159,7 @@ __all__ = [
     "render_term_supports",
     "reported_terms",
     "split_csv",
+    "subject_key",
     "summarize_identities",
     "term_key",
     "term_rows",

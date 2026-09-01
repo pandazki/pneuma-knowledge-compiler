@@ -212,3 +212,67 @@ async def test_the_briefing_pack_is_loaded_and_passed_as_the_evidence(monkeypatc
     [_frame(chunk) async for chunk in frames]
 
     assert seen == {"briefing_id": "bf-7", "pack": "# 冻结知识包"}
+
+
+# ───────────────────────────── the glance short-circuit on the one-shot stream
+#
+# SSE has one event stream and no seq to upgrade into, so the provisional card goes on it
+# the moment it exists — and the `done` event this stream always ends with is what settles
+# it: `glance.outcome` says which ending happened.
+
+
+async def test_the_provisional_card_streams_before_the_evaluation_returns(monkeypatch):
+    """The whole claim of the mechanism is WHEN it lands, and this endpoint's own subject is
+    streaming — so the two are asserted together: the card is pulled off the stream while
+    the evaluation is still blocked."""
+    released = asyncio.Event()
+
+    async def fake(*_args, **kwargs):
+        await kwargs["on_glance"](
+            ResolvedSuggestion(
+                kind="glance",
+                title="Lumenlab",
+                body="Lumenlab 是企业异构数据的记忆基础设施。",
+                trigger="触发",
+                confidence=10,
+                citations=[Citation(source_id=SourceId(SRC), block_start=4, block_end=5)],
+                subject="projects/lumenlab.md",
+                subject_label="lumenlab",
+                provisional=True,
+            )
+        )
+        await asyncio.wait_for(released.wait(), _TIMEOUT)
+        return PipelineResult(
+            token_usage={"total_tokens": 4},
+            glance_state="hit",
+            glance_outcome="alone",
+            glance_ms=37.0,
+        )
+
+    monkeypatch.setattr(suggestion_module, "run_evaluation", fake)
+    _response, frames = await _start()
+
+    kind, card = _frame(await asyncio.wait_for(frames.__anext__(), _TIMEOUT))
+    assert kind == "suggestion"
+    assert (card["kind"], card["provisional"]) == ("glance", True)
+    assert card["citations"] == [{"source_id": SRC, "block_start": 4, "block_end": 5}]
+    assert not released.is_set(), "delivered before the pipeline behind it finished"
+
+    released.set()
+    rest = [_frame(chunk) async for chunk in frames]
+    assert [k for k, _ in rest] == ["done"]
+    done = rest[-1][1]
+    assert done["glance"] == {"state": "hit", "outcome": "alone", "ms": 37.0}
+    assert done["count"] == 0, "the glance is not one of the settled suggestions"
+
+
+async def test_a_tick_that_did_not_glance_says_so_on_the_done_event(monkeypatch):
+    async def fake(*_args, **_kwargs):
+        return _result(resolved("RAG"))
+
+    monkeypatch.setattr(suggestion_module, "run_evaluation", fake)
+    _response, frames = await _start()
+    frames_seen = [_frame(chunk) async for chunk in frames]
+    assert [k for k, _ in frames_seen] == ["suggestion", "done"]
+    assert frames_seen[0][1]["provisional"] is False
+    assert frames_seen[-1][1]["glance"] == {"state": "miss", "outcome": "", "ms": 0.0}

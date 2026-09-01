@@ -23,7 +23,8 @@ async function tsModuleUrl(url) {
   return `data:text/javascript;base64,${Buffer.from(transformed.code).toString("base64")}`;
 }
 
-const { DENSITY_PRESETS, DEFAULT_DENSITY, densityValues, detectDensity } = await import(
+const { DENSITY_PRESETS, DEFAULT_DENSITY, densityConfig, densityValues, detectDensity } =
+  await import(
   await tsModuleUrl(new URL("../src/lib/liveContextDensity.ts", import.meta.url))
 );
 
@@ -42,6 +43,19 @@ test("the three postures are ordered loud to quiet on every axis at once", () =>
   assert.ok(balanced.quiet_period < quiet.quiet_period);
   assert.ok(eager.max_pending_turns < balanced.max_pending_turns);
   assert.ok(balanced.max_pending_turns < quiet.max_pending_turns);
+});
+
+test("the quiet floor stays one step above balanced, and only one", () => {
+  // Pinned as a NUMBER because the number is the finding. Replayed over a real conversation
+  // at 8, quiet delivered nothing at all — including for a question somebody had asked
+  // aloud, which is the only thing quiet's own contract clause takes. It is 7 now, and the
+  // pin is what makes a future 8 a decision rather than a drift.
+  assert.equal(densityValues("quiet").min_confidence, 7);
+  assert.equal(
+    densityValues("quiet").min_confidence - densityValues("balanced").min_confidence,
+    1,
+    "quiet is one step stricter than balanced — a posture, not a mute switch",
+  );
 });
 
 test("the default posture is the framework's own defaults", () => {
@@ -63,4 +77,20 @@ test("numbers matching no preset are custom, not corrected", () => {
     detectDensity({ min_confidence: 6, quiet_period: 6, max_pending_turns: undefined }),
     null,
   );
+});
+
+test("a preset pill sends the posture as well as the numbers", () => {
+  // The live miss this field exists for: on the eager preset a turn naming a role nobody
+  // had named was skipped, because the numbers move how MUCH gets through and never WHAT is
+  // looked for. Both now travel.
+  for (const preset of DENSITY_PRESETS) {
+    assert.deepEqual(densityConfig(preset.key), { density: preset.key, ...preset.values });
+  }
+});
+
+test("the posture rides beside the numbers and never replaces them", () => {
+  const sent = densityConfig("eager");
+  assert.equal(sent.density, "eager");
+  assert.equal(sent.min_confidence, 4);
+  assert.equal(detectDensity(sent), "eager", "the numbers still detect their own preset");
 });

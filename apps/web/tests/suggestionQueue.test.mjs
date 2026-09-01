@@ -37,6 +37,12 @@ const {
   remainingFraction,
   remainingSeconds,
   pendingCount,
+  upgrade,
+  PROVISIONAL_SETTLE_MS,
+  settleStale,
+  staleProvisional,
+  emptySurface,
+  surfaceIsEmpty,
 } = await import(await tsModuleUrl(new URL("../src/lib/suggestionQueue.ts", import.meta.url)));
 
 const T0 = 1_700_000_000_000;
@@ -192,4 +198,207 @@ test("an emptied bubble promotes on the next tick even with no time passing", ()
   assert.equal(state.current, null);
   state = arrive(state, card("b"), T0 + 2);
   assert.equal(state.current.id, "b");
+});
+
+// ───────────────────────────────── the glance short-circuit's provisional card
+//
+// The one card that CAN change after it arrives: the subject's own definition, shown a
+// retrieval early while the tick behind it is still running. When that tick settles, the
+// card either becomes the full one IN PLACE or simply stops shimmering — never a second
+// bubble about the same subject.
+
+const glance = (id, seq = 1) => ({
+  ...card(id, seq),
+  suggestion: { ...card(id, seq).suggestion, kind: "glance", provisional: true },
+});
+
+const full = (title) => ({
+  kind: "concept",
+  title,
+  body: "完整的卡片",
+  trigger: "触发",
+  confidence: 9,
+  citations: [],
+});
+
+test("an upgrade replaces the provisional card in place, keeping its slot and its clock", () => {
+  let state = arrive(emptyQueue, glance("a"), T0);
+  state = upgrade(state, 1, full("完整"));
+  assert.equal(state.current.id, "a", "the same bubble");
+  assert.equal(state.current.shownAt, T0, "not a fresh thirty seconds");
+  assert.equal(state.current.suggestion.title, "完整");
+  assert.equal(state.current.suggestion.provisional, false);
+  assert.equal(pendingCount(state), 0, "the queue did not grow");
+});
+
+test("an upgrade with no card settles the provisional one where it stands", () => {
+  let state = arrive(emptyQueue, glance("a"), T0);
+  state = upgrade(state, 1, null);
+  assert.equal(state.current.suggestion.title, "卡 a", "the same true sentence");
+  assert.equal(state.current.suggestion.provisional, false, "it just stopped shimmering");
+});
+
+test("a pinned card upgrades without unpinning", () => {
+  // Pinning is the reader saying "hold this one", and the upgrade is that same one
+  // arriving in full — taking the pin off would drop it out from under them.
+  let state = pin(arrive(emptyQueue, glance("a"), T0));
+  state = upgrade(state, 1, full("完整"));
+  assert.equal(state.current.pinned, true);
+  assert.equal(state.current.suggestion.title, "完整");
+  assert.equal(remainingMs(state, T0 + SUGGESTION_TTL_MS * 2), SUGGESTION_TTL_MS);
+});
+
+test("a provisional card still waiting in the queue upgrades where it sits", () => {
+  let state = arrive(emptyQueue, card("a"), T0);
+  state = arrive(state, glance("b", 2), T0 + 1_000);
+  state = upgrade(state, 2, full("完整"));
+  assert.equal(state.queue[0].suggestion.title, "完整");
+  assert.equal(state.queue[0].suggestion.provisional, false);
+  assert.equal(state.current.id, "a", "the bubble on screen was not touched");
+});
+
+test("an upgrade only ever touches the provisional card of its own evaluation", () => {
+  let state = arrive(emptyQueue, glance("a", 1), T0);
+  state = arrive(state, glance("b", 2), T0 + 1_000);
+  state = upgrade(state, 2, full("完整"));
+  assert.equal(state.current.suggestion.provisional, true, "seq 1 is another tick's card");
+  assert.equal(state.queue[0].suggestion.title, "完整");
+});
+
+test("an upgrade naming a card that already left changes nothing", () => {
+  // History records the final form, and a card that expired before its tick finished is
+  // exactly what the reader saw.
+  let state = arrive(emptyQueue, glance("a"), T0);
+  state = tick(state, T0 + SUGGESTION_TTL_MS);
+  const after = upgrade(state, 1, full("完整"));
+  assert.equal(after.current, null);
+  assert.equal(after.history[0].suggestion.title, "卡 a");
+});
+
+test("an ordinary card is never touched by an upgrade", () => {
+  let state = arrive(emptyQueue, card("a"), T0);
+  assert.deepEqual(upgrade(state, 1, full("完整")), state);
+});
+
+// ─────────────────────────────────────── the belt under the settling frame
+//
+// The server now settles a provisional card on EVERY ending of the tick that delivered it,
+// the raise included. But "always sent" and "always arrives" are different claims, and a
+// dropped frame used to leave a badge reading 「细节补充中…」 about a tick that finished
+// long ago. After the timeout the card settles itself, as final, with what it already has —
+// which is safe for the same reason the card could be shown early at all: its body is the
+// library's own definition, verbatim and cited.
+
+test("a provisional card left without a settling frame settles itself", () => {
+  let state = pin(arrive(emptyQueue, glance("a"), T0));
+  assert.equal(
+    settleStale(state, T0 + PROVISIONAL_SETTLE_MS - 1),
+    state,
+    "one millisecond short is still waiting",
+  );
+  state = settleStale(state, T0 + PROVISIONAL_SETTLE_MS);
+  assert.equal(state.current.suggestion.provisional, false, "it stopped shimmering");
+  assert.equal(state.current.suggestion.title, "卡 a", "and stands as what it already had");
+  assert.equal(state.current.pinned, true, "the reader's pin survives it");
+});
+
+test("the self-settle is measured from ARRIVAL, not from reaching the bubble", () => {
+  // A card that waited its turn behind another has been shimmering the whole time — the
+  // reader watched it in the "+N" queue — so its clock is the arrival clock.
+  let state = arrive(emptyQueue, card("a"), T0);
+  state = arrive(state, glance("b", 2), T0);
+  state = settleStale(state, T0 + PROVISIONAL_SETTLE_MS);
+  assert.equal(state.queue[0].suggestion.provisional, false, "queued cards settle too");
+});
+
+test("the self-settle names the cards it settled, so the wire log can say so", () => {
+  // A card that settled because nothing arrived is a LOST FRAME, and a surface showing the
+  // same result either way would hide the one fact worth knowing.
+  const state = pin(arrive(emptyQueue, glance("a"), T0));
+  assert.deepEqual(staleProvisional(state, T0 + 1_000), [], "nothing is stale yet");
+  const stale = staleProvisional(state, T0 + PROVISIONAL_SETTLE_MS);
+  assert.deepEqual(stale.map((c) => c.id), ["a"]);
+  assert.deepEqual(
+    staleProvisional(settleStale(state, T0 + PROVISIONAL_SETTLE_MS), T0 + PROVISIONAL_SETTLE_MS),
+    [],
+    "and never twice for the same card",
+  );
+});
+
+test("the self-settle outlives the ring, so it can only ever reach a pinned or queued card", () => {
+  // Deliberately longer than the TTL: an unpinned card on screen leaves on its own first,
+  // and a timer racing the countdown would be a second expiry rather than a fail-safe.
+  assert.ok(PROVISIONAL_SETTLE_MS > SUGGESTION_TTL_MS);
+});
+
+test("an ordinary card is never settled by the timeout", () => {
+  const state = pin(arrive(emptyQueue, card("a"), T0));
+  assert.equal(settleStale(state, T0 + PROVISIONAL_SETTLE_MS * 10), state);
+});
+
+/* ------------------------------------------------------------------ clearing it all */
+
+/** A surface holding one of everything — a conversation that has actually been had. */
+function populatedSurface() {
+  return {
+    queue: arrive(emptyQueue, card("a"), T0),
+    seen: new Map([["concept 卡 a", { kind: "concept", title: "卡 a", body: "解释", subject: "p.md", subject_label: "p" }]]),
+    counts: { turnsSent: 4, suggestions: 1, deduped: 2, evaluations: 3 },
+    wire: [{ id: "w1", at: T0, direction: "in", label: "suggestion" }],
+    stats: [{ type: "stats", seq: 1, delivered: 1 }],
+    details: { a: { title: "卡 a", detail: "展开", citations: [] } },
+    pending: ["a"],
+    failures: { a: "boom" },
+  };
+}
+
+test("clearing the conversation empties every store, not only the turns", () => {
+  // The bug: 「清空对话」 emptied the turn list and left the panel beside it showing the
+  // cards, the counts, the tick records and the dedup map of a conversation that no longer
+  // existed. One value, one question — and the answer has to be yes for all of it.
+  assert.equal(surfaceIsEmpty(populatedSurface()), false);
+
+  const cleared = emptySurface();
+  assert.equal(surfaceIsEmpty(cleared), true);
+  assert.deepEqual(cleared.queue, emptyQueue);
+  assert.equal(cleared.seen.size, 0);
+  assert.deepEqual(cleared.counts, {
+    turnsSent: 0,
+    suggestions: 0,
+    deduped: 0,
+    evaluations: 0,
+  });
+  assert.deepEqual(cleared.wire, []);
+  assert.deepEqual(cleared.stats, []);
+  assert.deepEqual(cleared.details, {});
+  assert.deepEqual(cleared.pending, []);
+  assert.deepEqual(cleared.failures, {});
+});
+
+test("every store participates in emptiness — one left behind is one a clear can forget", () => {
+  // The mechanical half. A store that `surfaceIsEmpty` does not read is a store the clear
+  // button would call empty while it still held a conversation, which is the defect itself
+  // wearing a smaller hat. So: for each key, a surface empty EXCEPT that key is not empty.
+  const populated = populatedSurface();
+  for (const key of Object.keys(populated)) {
+    const almost = { ...emptySurface(), [key]: populated[key] };
+    assert.equal(surfaceIsEmpty(almost), false, `${key} is not read by surfaceIsEmpty`);
+  }
+});
+
+test("each of the four counters on its own keeps the surface non-empty", () => {
+  for (const key of ["turnsSent", "suggestions", "deduped", "evaluations"]) {
+    const almost = emptySurface();
+    almost.counts = { ...almost.counts, [key]: 1 };
+    assert.equal(surfaceIsEmpty(almost), false, `counts.${key} is not read`);
+  }
+});
+
+test("a queue holding only history is still a conversation to clear", () => {
+  // The one a length check on `queue.queue` alone would miss: the bubble expired, the card
+  // moved to the history tab, and the tab is still full of the cleared conversation.
+  const withHistory = { ...emptySurface(), queue: tick(arrive(emptyQueue, card("a"), T0), T0 + SUGGESTION_TTL_MS) };
+  assert.equal(withHistory.queue.current, null);
+  assert.equal(withHistory.queue.history.length, 1);
+  assert.equal(surfaceIsEmpty(withHistory), false);
 });

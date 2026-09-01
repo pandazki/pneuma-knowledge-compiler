@@ -531,79 +531,129 @@ _LIVE_DISCOVER_CONTRACT = """\
 # Live context · discover
 
 You are watching a workstream the owner has attached — transcribed talk, messages,
-documents — as it arrives. Nobody is asking you anything. Your ONLY job this turn is to
-decide, cheaply and fast, whether the owner's knowledge base holds something worth looking
-up right now, and if so what to look up. You do not answer, explain, or write cards.
+documents — as it arrives. Nobody is asking you anything, so your ONLY job this turn is to
+write, on the room's behalf, **THE ONE QUESTION most worth asking right now**, and to say
+how you would go and answer it. You do not answer it and you do not write cards: once the
+question exists, the stages after you are good at the rest.
 
-Keep the output SHORT. Speed is the feature: a lookup plan that arrives after the topic
-moved on is worth nothing.
+Keep the output SHORT. Speed is the feature: a question arriving after the topic moved on
+is worth nothing.
 
-**Skip** — set `skip: true` with a `reason` — whenever one of these holds:
+The transcript comes in TWO parts. The earlier conversation is there so you can read what
+the new content refers to — who "they" are, which product "it" is. **Never mine it**: it has
+been looked at already. Your question is about the NEW content, read in that light.
 
-- `small_talk` — chit-chat, logistics, noise. Nothing to look up.
-- `already_mined` — what the stream is circling has already been surfaced this session (see
-  the mined list), or the ledger shows this subject already introduced.
-- `nothing_new` — nothing has been said since the last look that a lookup would improve.
+Judge three things: what the room is doing; what the one question most worth asking on
+its behalf is; whether the lookups below could answer it.
 
-A subject the room keeps naming without ever asking about it is COMMON GROUND: everyone
-present already knows what it is, and introducing it again is worthless. Look for what is
-NEW about it, or skip.
+**Skip** — `skip: true` with a `reason` — when no question worth asking can be written:
 
-Otherwise state three things:
+- `small_talk` — chit-chat, logistics, noise. Nothing here to ask about.
+- `already_mined` — **the room already knows the answer.** It was surfaced this session (see
+  the mined list), the ledger shows the subject introduced, or the room names it over and
+  over and never asks about it — COMMON GROUND. Ask what is NEW about it, or skip.
+- `nothing_new` — nothing said since the last look changes what there is to ask.
 
-- `intent` — ONE sentence naming what the room is actually looking for. Not the topic, the
-  need: "who here works on making agent memory more precise" is an intent; "Lumenlab" is a
-  topic.
-- `plan` — one or two lookups. Each is a `kind` plus its arguments:
+{mining}
+
+Otherwise:
+
+- `intent` — the question, phrased the way somebody in the room could have asked it aloud.
+  Not the topic, the question: "let's hand this to whoever runs that side" asks *who runs
+  that side*; a product name nobody stops to explain asks *what is that*. The owner reads it
+  as the reason a card appeared, so write it in their language.
+- `plan` — how you would go and answer it: up to four lookups, each a `kind` plus arguments:
 {kinds}
-- `worth` — 1-10, what a card would be worth to the owner right now. Below the deployment's
-  floor nothing is retrieved at all, so an honest low score costs nothing and scoring
-  everything high costs the owner their attention.
+  Plan one lookup per distinct thing that has to be found, and as many as the question
+  needs — when it needs one, one is the right plan.
+  A question about WHO takes TWO of them and is answered by neither alone. Hand its
+  subject to whichever offered lookup is about people, and spend the OTHER on a similarity
+  query shaped like a person too ("who has worked on X, or on that kind of work") — that
+  second one is what reaches the nearest expertise when the subject itself is not in the
+  base, and a definition of the subject answers nothing here.
+- `worth` — 1-10: how much the room would gain from the answer. Below the floor nothing is
+  retrieved at all, so an honest low score costs nothing and a high one costs attention.
 
 {focus}
 """
 
+# The one clause the density posture varies: HOW LATENT the question may be. Everything
+# around it — the principle, the skip vocabulary, the common-ground rule, the three output
+# fields — is shared, which is what keeps three postures three wordings of one contract
+# rather than three contracts.
+
+_MINING_BALANCED = """\
+**How latent may the question be**: unspoken is fine, but the conversation must clearly
+imply it — a stated gap, or a question asked in all but the question mark. Most stretches
+of talk imply none, and skipping is the normal outcome."""
+
+_MINING_QUIET = """\
+**How latent may the question be**: not at all. Only a question somebody actually ASKED
+aloud, or an explicit request for information. A gap nobody named is not one. If no one
+asked, skip. Mine only a question whose answer COULD EXIST IN A KNOWLEDGE BASE — what a
+participant personally wants, prefers or intends is answerable by asking that person and by
+nothing a library holds."""
+
+_MINING_EAGER = """\
+**How latent may the question be**: it may be one the room does not yet realise it should
+ask — an unfamiliar term nobody stopped to explain (an internal project or product name on
+its FIRST mention especially), a role or reference standing in for a person nobody named
+("whoever runs X", "that colleague", "their lead"). Err toward writing one: the later stages
+score the answer and decide whether anything is shown, so a question that turns out thin
+costs nothing, while one never asked cannot be recovered. This widens first-mention
+curiosity only — a question this session has already answered is still `already_mined`."""
+
 _LIVE_PICK_CONTRACT = """\
 # Live context · pick
 
-The owner is mid-conversation. Below are numbered candidate cards, each already assembled
-from their own knowledge base: verbatim claim text and excerpts, carrying the citations that
-support them. You did not write them, and you do not rewrite them.
+A question has been written on the room's behalf, and it is stated below the candidates.
+Each numbered candidate was assembled mechanically from the owner's knowledge base — or,
+where offered, from a live internet search: verbatim claim text and excerpts, carrying the
+citations that support them. You did not write them, and you do not rewrite them.
 
-Say which ONE is worth showing this person right now, and frame why.
+**One criterion: does that candidate's OWN TEXT answer the question?** Everything below is
+that criterion applied.
 
-- `choice` — that candidate's number, or **0 when none of them answers what the room is
-  looking for**. 0 is a normal answer, not a failure: a card nobody needed is worse than
-  silence. **What the library does not hold, it does not hold** — when the intent is about
-  something these candidates do not cover, choose 0.
-- `lede` — one or two SHORT sentences on why this matters to them at this moment, saying
-  ONLY what the chosen candidate's own text says, turned to face their need. You may frame
-  it; you may not extend it. Never write ABOUT the card itself ("this card explains…",
-  "this entry sets out…") — write the substance. And never imply the library answers the
-  question when it does not: if all you can honestly say is what the candidate happens to
-  cover, say that much and stop.
+- `choice` — the number of the one candidate that answers it, or **0 when none of them
+  does**. 0 is a normal answer, not a failure: a card nobody needed is worse than silence.
+- `lede` — one or two SHORT sentences ANSWERING the question in the room's own language,
+  saying ONLY what the chosen candidate's own text says. You may frame it; you may not
+  extend it, and you may not imply an answer the text does not contain. Never write ABOUT
+  the card ("this card explains…", "this entry sets out…") — write the substance. Write it
+  about the candidate's OWN subject and scene, as its title and its `about:` line state
+  them: the conversation tells you why this matters, the candidate tells you what is true
+  and whose it is.
 - `citations` — the numbers of the chosen card's own citations that carry the lede. Copy
   them; never invent one. Empty means all of them.
-- `confidence` — 1-10, HOW DIRECTLY THE CHOSEN CANDIDATE'S OWN TEXT ANSWERS THE STATED
-  INTENT. Not how good the candidate is, not how well the library wrote it, not how much
-  material there is: read the intent and the candidate's text side by side and score the
-  match between those two. Below the deployment's floor nothing is shown, so an honest low
-  score is how a weak match stays out of someone's way.
+- `confidence` — 1-10, HOW DIRECTLY THAT TEXT ANSWERS THE QUESTION. Not how good the
+  candidate is, not how well the library wrote it, not how much material there is: read the
+  question and the candidate's text side by side and score the match between those two.
+  Below the deployment's floor nothing is shown, so an honest low score is how a weak match
+  stays out of someone's way.
 
-**Adjacency is not coverage.** Sharing a word with the intent, naming the same category of
-thing, or being the closest internal project to what was mentioned — none of that is an
-answer. It is a fact about what the library happens to contain, not about the question, and
-delivering it tells the reader something they neither asked for nor needed. Score such a
-match low, or choose 0.
+Four consequences of that one criterion:
 
-**Where a candidate came from is not a ranking; the match is.** Each card states its source
-— the owner's own knowledge base, or a live internet search. When an internal candidate
-merely brushes against the intent and a web candidate answers it directly, choose the web
-one; when the reverse holds, choose the internal one. When neither answers it, choose 0.
-Read every candidate the same way, whichever pool it came out of.
+- **Text that cannot answer, answers nothing.** Saying the information is missing, that
+  something cannot be determined, that it would need access it does not have — that reports
+  an ABSENCE, and a card whose body is the absence of an answer is worse than no card at
+  all. Choose 0 over it. What is delivered must ADD something the reader did not have.
+- **Adjacency is not an answer.** Sharing a word with the question, naming the same category
+  of thing, being the closest internal project to what was mentioned — that is a fact about
+  what the library happens to contain, not an answer to what was asked. Score it low, or
+  choose 0. What the library does not hold, it does not hold. For an OPEN question — what
+  should we build, where the real problem is — deliver a library page where its own text
+  genuinely bears on the question, scored by how directly it helps, and choose 0 when you
+  are in doubt; a page about one adjacent initiative is a lead, not an answer.
+- **A marked nearest-fit RECOMMENDATION is an answer** to a who-could question. Name the
+  person, say what the evidence shows them working on, and mark the step you took: this is
+  the nearest related experience in the base, not a record of the thing itself. Marked, it
+  informs; unmarked, it claims a match the library does not hold — which is adjacency again.
+- **Where a candidate came from is not a ranking; the answer is.** Each card states its
+  source — the owner's own knowledge base, or a live internet search. Read every candidate
+  against the question the same way, whichever pool it came out of.
 
-Choose for the need, not for coverage. "The library knows a lot about this" has never been a
-reason to interrupt anybody.
+Choose for the question, not for coverage. "The library knows a lot about this" has never
+been a reason to interrupt anybody.
 """
 
 _DETAIL_CONTRACT = """\
@@ -1716,32 +1766,57 @@ DEFAULTS: dict[str, str] = {
     ),
     # ───────────────────────────────── recall: live context, the three-stage pipeline
     "recall.live.discover.contract": _LIVE_DISCOVER_CONTRACT,
+    "recall.live.discover.mining.eager": _MINING_EAGER,
+    "recall.live.discover.mining.balanced": _MINING_BALANCED,
+    "recall.live.discover.mining.quiet": _MINING_QUIET,
     "recall.live.discover.path_offer": (
         "  - `{kind}` — {description}\n"
         "    arguments: {args}"
     ),
+    # The SHAPE of a semantic query, and the one place it can be said. Measured live: with
+    # no shape guidance the stage packed six concepts into one string — a product, a page, a
+    # goal and three nouns beside them — and that single query starves BOTH halves of the
+    # fused face it feeds (`retrieve_claims` wants few sharp terms, `rag_recall` wants one
+    # topic), so a library that held the answer came back `no_coverage`. Stated positively:
+    # what a good query LOOKS like, with one worked example, and the fan-out offered rather
+    # than required — a single clear need is a single entry and always was.
     "recall.live.discover.semantic_offer": (
         "  - `semantic` — free-text similarity search over the whole knowledge base. Put ONE "
         "query string in `query` (not in `args`). Use it when no structured lookup above "
-        "fits the need, or alongside one."
+        "fits, or alongside one.\n"
+        "    Write each query as ONE thing to find, phrased as a short natural phrase — the "
+        "way you would say aloud what you are looking for: \"the trade-off between a "
+        "built-in message stream and connecting an external chat tool\". Several distinct "
+        "things to find means several `semantic` entries, one for each thing; a single clear "
+        "need is answered by a single entry, and one is enough. One query carries one "
+        "concept: several concepts in one string match each of them only half-well."
     ),
     "recall.live.discover.web_offer": (
         "  - `web` — a search of the INTERNET, not of the owner's knowledge base. Put ONE "
         "query string in `query` (not in `args`). This deployment allows it as a "
-        "SUPPLEMENT: plan it when the need is about something the library plainly would not "
-        "hold — a release, a product or a term from outside the owner's own material — and "
-        "never as a substitute for looking in the library first."
+        "SUPPLEMENT: plan it when the question is about something the library plainly would not "
+        "hold — a release, product or term from outside the owner's own material — and "
+        "never as a substitute for looking in the library first. Where the question mixes an "
+        "internal need with an outside subject — who could present X, X being a public "
+        "product — this query goes to X ITSELF; the library lookups take the person half."
     ),
     "recall.live.pick.contract": _LIVE_PICK_CONTRACT,
     "recall.live.web.instruction": (
         "Verify with a web search first, then give the final answer directly, with no "
         "preamble about searching. Prefer official sources; keep the body under 120 words "
-        "and attach 1 to 2 source links. Search at most twice. If you cannot find it, say "
-        "so plainly and do not speculate.\n\nQuestion: {question}"
+        "and attach 1 to 2 source links. Search at most twice. Answer ONLY with what the "
+        "search actually found about the subject. If it found nothing useful, say so in ONE "
+        "short sentence and stop — no speculation, and no account of what would be needed to "
+        "answer.\n\nQuestion: {question}"
     ),
     "recall.live.section.mined_header": "# Already surfaced this conversation ({count})",
     "recall.live.section.digest_header": "# Subjects this conversation keeps returning to",
-    "recall.live.section.pending_header": "# Pending workstream ({turns} turns)",
+    "recall.live.section.context_header": (
+        "# Earlier conversation ({turns} turns · already processed — for understanding only)"
+    ),
+    "recall.live.section.pending_header": (
+        "# New content ({turns} turns · this is what you evaluate)"
+    ),
     "recall.live.section.pending_overflow": " — {count} earlier turns did not fit",
     "recall.live.section.candidates_header": "# Candidates ({count})",
     "recall.live.section.intent": "What the room is looking for: {intent}",
@@ -1750,6 +1825,11 @@ DEFAULTS: dict[str, str] = {
         "## {index} · [{kind}] {title}\nsource: {provenance}\nabout: {subject}\n{body}"
         "\ncitations:\n{citations}"
     ),
+    # ── how a retrieved document is NAMED and ORIENTED (canonical_glance.display_identity)
+    "recall.identity.volume_title": "{title} (archive {volume})",
+    "recall.identity.volume_origin": "{title} ({path})",
+    "recall.identity.joined": "{head} — {tail}",
+    "recall.live.card.about": "about: {context}",
     "recall.live.candidate.provenance_library": "the owner's own knowledge base",
     "recall.live.candidate.provenance_web": "a live internet search",
     "recall.live.candidate.citation": "  [{n}] {source_id} \u00b6{block_start}-{block_end}",

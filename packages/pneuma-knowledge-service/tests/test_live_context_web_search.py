@@ -19,6 +19,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pneuma_knowledge_core.domain.suggestion import ResolvedSuggestion, WebCitation
+from pneuma_knowledge_core.prompts import chinese_overlay
 from pneuma_knowledge_core.recall.live_pipeline import PipelineResult
 
 from pneuma_knowledge_service.adapters.openrouter_web_search import (
@@ -122,6 +123,34 @@ async def test_the_adapter_reads_the_answer_the_urls_the_searches_and_the_cost()
     ]
     assert payload["stream"] is True and payload["max_tool_calls"] == 3
     assert "DeepSeek harness" in payload["input"]
+
+
+async def test_the_request_asks_for_found_information_or_one_short_sentence():
+    """The answer text is written by the SEARCH model, so this is where its shape is set.
+
+    The failure was a delivered card reading 「目前还缺少团队名单或可检索的内部资料，无法确定哪位
+    同事…」 — a paragraph explaining what it would take to answer. Refusing that is the pick
+    contract's job, and this is the other half of the same fix: an answer that found nothing
+    says so in ONE sentence, which keeps the non-answer short and unmistakable instead of
+    elaborate and card-shaped. Asserted on the wire payload, because a prompt nobody sends is
+    not a contract."""
+    seen: list = []
+    search = adapter(*DELTAS, COMPLETED, seen=seen)
+    try:
+        await search.search("DeepSeek harness", max_results=1)
+    finally:
+        await search.aclose()
+
+    (payload,) = seen
+    text = payload["input"]
+    assert "Answer ONLY with what the search actually found about the subject." in text
+    assert "say so in ONE short sentence and stop" in text
+    assert "no account of what would be needed to answer" in text
+
+    chinese = chinese_overlay()["recall.live.web.instruction"]
+    assert "只用搜索**真正查到**的关于该主题的信息作答" in chinese
+    assert "就用**一句短话**说明并就此打住" in chinese
+    assert "不要交代「要回答这个问题还需要什么」" in chinese
 
 
 async def test_a_stream_that_never_completes_is_an_error_that_says_not_to_retry():

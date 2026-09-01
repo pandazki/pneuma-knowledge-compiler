@@ -2165,23 +2165,60 @@ SURFACES: tuple[Surface, ...] = (
         title_zh="实时上下文·发现契约",
         summary_en=(
             "The first of the full-scope lane's two calls, and the one that decides whether "
-            "anything is retrieved at all. It names no card and writes no prose: it emits a "
-            "skip with a reason, or an intent, a one-or-two-entry lookup plan and a worth."
+            "anything is retrieved at all. Its whole job is ONE SENTENCE: the question most "
+            "worth asking on the room's behalf right now. Everything else follows from that "
+            "— the `intent` field IS that question (phrased askable, because the owner reads "
+            "it as the reason a card appeared), the plan is how you would go and answer it, "
+            "the worth is what the answer would be worth, and a skip is simply the case "
+            "where no question worth asking can be written. The clause set that grew case by "
+            "case over the lane's first days — unnamed roles, first-mention nouns, "
+            "find-a-person asks, the common-ground rule — collapsed into examples of that "
+            "one principle, which is why this surface is SHORTER than the accretion it "
+            "replaces. One steer survives as a rule and not an example: a question about WHO "
+            "is aimed at the people AROUND the subject, never at a definition of it, because "
+            "the conversation asking who could present X is otherwise answered with what X "
+            "is."
         ),
         summary_zh=(
             "全量车道两次调用中的第一次，也是决定「到底要不要检索」的那一次。"
-            "它不给卡片、不写正文：要么带理由跳过，要么给出意图、一到两条查询计划和价值分。"
+            "它整件事就是**一句话**：此刻替这屋里的人问出来、最值得问的那一个问题。"
+            "其余一切都由它推出来——`intent` 字段**就是**那个问题（照能亲口问出的样子写，"
+            "因为主体把这一行读作「卡片为什么出现」），计划是「你会怎么去答它」，"
+            "价值分是「这个答案值多少」，而跳过不过是「写不出一个值得问的问题」这种情形。"
+            "车道头几天里一条一条长出来的判例——没点名的角色、第一次出现的名词、找人类需求、"
+            "共识规则——都收成了这一条原则的例子，这也正是这份表面比它取代的那堆累积**更短**"
+            "的原因。只有一条转向仍是规则而非例子：问「谁」的问题瞄的是主题**周围的人**，"
+            "而不是主题的定义——否则一句「谁能来讲 X」换回来的会是「X 是什么」。"
         ),
         segments=(
             b(
                 "recall.live.discover.contract",
                 slots=(
                     Slot("kinds", ("recall.live.discover.semantic_offer",)),
+                    Slot("mining", ("recall.live.discover.mining.balanced",)),
                     Slot("focus", ("recall.suggestion.focus.general",)),
                 ),
             ),
             s("recall.live.discover.semantic_offer"),
+            s("recall.live.discover.mining.balanced"),
             s("recall.suggestion.focus.general"),
+            v(
+                "recall.live.discover.mining.eager",
+                "Fills the latency slot instead on the EAGER density: the question may be "
+                "one the room does not yet realise it should ask — an unfamiliar term nobody "
+                "stopped to explain, a role standing in for a person nobody named. It widens "
+                "first-mention curiosity only; the already-mined rule above it is untouched.",
+                "在**积极**密度下改由它填「问题可以有多隐」插槽：可以隐到屋里的人自己还没意识到"
+                "该问——没人停下来解释的说法、替代无名者的角色。它只放宽首次提及时的好奇心，"
+                "上面的 already_mined 一条不动。",
+            ),
+            v(
+                "recall.live.discover.mining.quiet",
+                "…and on the QUIET density: the question may not be latent at all — only one "
+                "somebody actually asked aloud, or an explicit request for information.",
+                "在**安静**密度下则改由它填：那个问题一点都不能是隐的——只有有人真的问出口的"
+                "问题，或明确的要资料。",
+            ),
             v(
                 "recall.live.discover.path_offer",
                 "One line per component retrieval path this deployment enables, rendered into "
@@ -2226,7 +2263,10 @@ SURFACES: tuple[Surface, ...] = (
             "internet search AND a connection that turned it on. Both conditions, not "
             "either: the offer costs the small model attention, so a lookup kind nothing "
             "could serve is never advertised. One line longer than the variant above — that "
-            "line is the entire difference, and both are byte-pinned so it stays so."
+            "line is the entire difference, and both are byte-pinned so it stays so. The "
+            "line also says where the query goes when an ask mixes an internal need with an "
+            "outside subject (who could present X, X being a public product): to X itself, "
+            "while the library lookups take the person half."
         ),
         summary_zh=(
             "同一份契约，装配给「部署允许互联网搜索、且这条连接也打开了它」的情形。"
@@ -2246,11 +2286,13 @@ SURFACES: tuple[Surface, ...] = (
                         ),
                         join="\n",
                     ),
+                    Slot("mining", ("recall.live.discover.mining.balanced",)),
                     Slot("focus", ("recall.suggestion.focus.general",)),
                 ),
             ),
             s("recall.live.discover.semantic_offer"),
             s("recall.live.discover.web_offer"),
+            s("recall.live.discover.mining.balanced"),
             s("recall.suggestion.focus.general"),
             v(
                 "recall.live.discover.path_offer",
@@ -2276,25 +2318,117 @@ SURFACES: tuple[Surface, ...] = (
         ),
     ),
     Surface(
+        id="recall.live_discover_eager",
+        group="recall",
+        title_en="Live-context discover contract · eager",
+        title_zh="实时上下文·发现契约（积极）",
+        summary_en=(
+            "The same contract on the EAGER density. One clause differs — HOW LATENT the "
+            "question may be — and it is the clause the presets could never reach by moving "
+            "numbers: the question may be one the room has not yet realised it should ask, so a "
+            "role standing in for an unnamed person, or a business noun on its first mention, is "
+            "enough to write one."
+        ),
+        summary_zh=(
+            "同一份契约，取**积极**密度。差别只有一处——那个问题可以有多**隐**——而这恰恰是靠调数字"
+            "永远够不到的那一处：问题可以隐到屋里的人自己还没意识到该问，于是替代无名者的角色、"
+            "第一次出现的业务名词，都足以让它写出一个问题来。"
+        ),
+        segments=(
+            b(
+                "recall.live.discover.contract",
+                slots=(
+                    Slot("kinds", ("recall.live.discover.semantic_offer",)),
+                    Slot("mining", ("recall.live.discover.mining.eager",)),
+                    Slot("focus", ("recall.suggestion.focus.general",)),
+                ),
+            ),
+            s("recall.live.discover.semantic_offer"),
+            s("recall.live.discover.mining.eager"),
+            s("recall.suggestion.focus.general"),
+        ),
+        kind=ASSEMBLED,
+        pinned=True,
+        note_en=(
+            "One resolution of a template, on the eager density with no index component and no "
+            "internet search. Pinned beside the balanced and quiet ones because the three are one "
+            "contract in three wordings, and a pin on only the middle one would let the other two "
+            "drift into contracts of their own."
+        ),
+        note_zh=(
+            "这是模板的一次取值：积极密度，没有索引组件，没有互联网搜索。它与均衡、安静那两份并排"
+            "钉死，因为三者是一份契约的三种说法；只钉中间那一份，另外两份就会各自漂成独立的契约。"
+        ),
+    ),
+    Surface(
+        id="recall.live_discover_quiet",
+        group="recall",
+        title_en="Live-context discover contract · quiet",
+        title_zh="实时上下文·发现契约（安静）",
+        summary_en=(
+            "The same contract on the QUIET density: the question may not be latent at all — only "
+            "one somebody actually asked aloud, or an explicit request for information. A gap "
+            "nobody named is not a question, and neither is one only the person in the room "
+            "could answer."
+        ),
+        summary_zh=(
+            "同一份契约，取**安静**密度：那个问题一点都不能是隐的——只有有人真的问出口的问题、"
+            "或明确的要资料。没人点破的缺口不算一个问题；只有当事人自己才答得了的，也不算。"
+        ),
+        segments=(
+            b(
+                "recall.live.discover.contract",
+                slots=(
+                    Slot("kinds", ("recall.live.discover.semantic_offer",)),
+                    Slot("mining", ("recall.live.discover.mining.quiet",)),
+                    Slot("focus", ("recall.suggestion.focus.general",)),
+                ),
+            ),
+            s("recall.live.discover.semantic_offer"),
+            s("recall.live.discover.mining.quiet"),
+            s("recall.suggestion.focus.general"),
+        ),
+        kind=ASSEMBLED,
+        pinned=True,
+        note_en=(
+            "One resolution of a template, on the quiet density with no index component and no "
+            "internet search."
+        ),
+        note_zh=(
+            "这是模板的一次取值：安静密度，没有索引组件，没有互联网搜索。"
+        ),
+    ),
+    Surface(
         id="recall.live_pick",
         group="recall",
         title_en="Live-context pick contract",
         title_zh="实时上下文·挑选契约",
         summary_en=(
-            "The second call: choose one of the mechanically assembled candidates (or none), "
-            "frame why it matters to this person now, prune its citations, score it. It is "
-            "the only stage that writes a sentence, and that sentence is a guess at a need — "
-            "never a rewrite of the evidence. Its `confidence` scores the match between the "
-            "stated intent and the candidate's OWN text, not the candidate's quality, and "
-            "adjacency is named as not being coverage: asked about something the library "
-            "has never heard of, the honest answer is 0."
+            "The second call, and it has exactly ONE criterion: does this candidate's own "
+            "text ANSWER the question discover wrote? Choose the candidate that does, or 0. "
+            "Everything else on this surface is that criterion applied — the lede answers "
+            "the question in the room's language, never extends past the text, and stays on "
+            "the candidate's OWN subject as its title and `about:` line state it, "
+            "`confidence` scores how directly the text answers it (not the candidate's "
+            "quality), and four consequences are spelled out because each one was a live "
+            "failure: text that says it CANNOT answer answers nothing and loses to 0; "
+            "adjacency — sharing a word, being the closest internal project — is not an "
+            "answer; a nearest-fit recommendation IS an answer to a who-could question "
+            "provided the inference is marked; and which pool a candidate came out of is not "
+            "a ranking. Naming the one criterion is what let the four collapse from rules "
+            "into consequences, which is why this surface is shorter than the version that "
+            "accumulated them."
         ),
         summary_zh=(
-            "第二次调用：在机械装配好的候选里选一张（或一张都不选），说清它此刻对这个人"
-            "为什么重要，裁剪它的引用，并打分。它是唯一会写句子的一段，而那句话是在猜需求"
-            "——绝不是把证据改写一遍。它的 `confidence` 打的是「意图」与「候选自己的文本」"
-            "之间的匹配，不是候选的质量；契约里明写了沾边不等于覆盖：问到库里从没听过的东西，"
-            "老实的回答就是 0。"
+            "第二次调用，而它只有**一条**标准：这张候选自己的文本，回答了发现阶段写下的那个"
+            "问题吗？回答了的就选它，一张都没有就填 0。这份表面上的其余一切都是这条标准的推论"
+            "——引言用屋里自己的话回答那个问题、绝不越出文本一步、也不离开候选自己的主体"
+            "（以它的标题与「出自」那一行为准），`confidence` 打的是那段文本"
+            "有多直接地回答了它（不是候选的质量），而四条推论逐条写明，因为每一条都曾是线上"
+            "真实翻车：文本自己说「答不上来」就什么都没回答，宁可填 0；沾边——共用一个词、"
+            "只是库里最近的那个内部项目——不是回答；面对「谁能做这件事」，标明了推断的近邻推荐"
+            "**是**回答；候选出自哪个池子不构成优先级。正因为把那条唯一标准点了出来，这四条才"
+            "能从并列的规则收成推论——这也是这份表面比累积出它的那一版更短的原因。"
         ),
         segments=(b("recall.live.pick.contract"),),
         kind=ASSEMBLED,
@@ -2362,6 +2496,14 @@ SURFACES: tuple[Surface, ...] = (
                 "否则填入 `{asked}`——也就是契约要求模型据以跳过的「共识」那一种情形。",
             ),
             f(
+                "recall.live.section.context_header",
+                "Introduces the READ-ONLY tail of already-processed turns, above the new "
+                "content. It is what the new content refers back to — a pronoun, a product "
+                "named three turns ago — and the contract forbids mining it.",
+                "在新内容上方引出**只读**的已处理轮次尾巴。新内容里的指代——代词，或者三轮前"
+                "提到的那个产品——要靠它才读得懂；契约明令不得去挖这一段。",
+            ),
+            f(
                 "recall.live.section.pending_header",
                 "Introduces the pending transcript window, always LAST in the discover turn.",
                 "引出待处理的转写窗口，它在发现那一轮里永远排在最后。",
@@ -2421,6 +2563,39 @@ SURFACES: tuple[Surface, ...] = (
                 "recall.live.candidate.excerpt",
                 "One raw excerpt line inside a candidate's evidence.",
                 "候选证据里的一行原文摘录。",
+            ),
+            f(
+                "recall.identity.volume_title",
+                "Names a candidate built out of a FROZEN ROLLOVER VOLUME after the active "
+                "document the volume is history of, with the volume itself noted. A volume's "
+                "own filename is `a02` and its body carries no title, so without this the "
+                "pick stage is shown a card whose subject is unknowable from anything on it.",
+                "凡是用**冻结的归档卷**装配出来的候选，都用它来命名：取那一卷所归属的活动文档的"
+                "标题，并注明是哪一卷。归档卷自己的文件名就是 `a02`、正文里也没有标题，"
+                "少了这一步，挑选阶段拿到的就是一张从任何字面都看不出主体的卡。",
+            ),
+            f(
+                "recall.identity.volume_origin",
+                "Opens that candidate's orientation line: the parent document's title and "
+                "the path it is filed at, so the identity is followable and not merely "
+                "asserted.",
+                "起头那张候选的定位行：父文档的标题与它归档的路径——好让这个身份是可追的，"
+                "而不只是被声称的。",
+            ),
+            f(
+                "recall.identity.joined",
+                "Joins that head to what the page says it is — its overview definition, or "
+                "the head of its own ledger when it has no definition.",
+                "把那个开头与这一页对自己的说法接起来——概览里的 definition，"
+                "没有 definition 时则是它自己账本的头几条。",
+            ),
+            f(
+                "recall.live.card.about",
+                "The same orientation line, carried into the DELIVERED card's evidence "
+                "block: a reader expanding the card sees whose material it is before "
+                "reading a word of it.",
+                "同一行定位，带进**已交付卡片**的证据区：读者展开卡片时，"
+                "先看到这是谁的材料，再读它的内容。",
             ),
             f(
                 "recall.live.section.intent",

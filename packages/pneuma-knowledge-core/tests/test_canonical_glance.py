@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 from pneuma_knowledge_core.canonical_glance import (
     LEDGER_LINE_JOINER,
     archive_volume_counts,
+    display_identity,
     document_ledger_line,
     document_title,
     family_blurbs,
@@ -330,6 +331,94 @@ def test_an_unstamped_volume_is_still_marked_frozen_in_the_outline_by_its_direct
     lines = render_outline([active, volume])
     assert any(
         volume.path in line and "frozen archive volume" in line for line in lines
+    )
+
+
+# --------------------------------------------- naming a retrieved document (the incident)
+#
+# A rollover volume is the one document in the library whose own name names nothing: it is
+# filed as `a02`, and its body is a run of claim blocks with no `# ` title above them. Live,
+# a Live Context card built from two claims inside one reached the pick stage titled `a02` —
+# and the model, with no way to see WHOSE history it was reading, grafted the room's own
+# subject onto it. `display_identity` is the mechanical answer: a retrieved document arrives
+# carrying its parent's name and its parent's own sentence about itself.
+
+
+def test_a_volume_is_named_after_the_document_it_is_history_of():
+    active = _with_overview(
+        _people_doc("ada-quill", "Ada Quill", claims=2),
+        "Ada Quill runs the Delta pilot. c:1a2b3c4d",
+    )
+    volume = _volume(active.path, 2)
+    identity = display_identity([active, volume], volume.path)
+
+    assert identity.title == "Ada Quill (archive a02)"
+    assert identity.origin == active.path
+    assert identity.volume == "a02"
+    # The parent's path AND its own sentence — followable, not merely asserted.
+    assert identity.context == (
+        f"Ada Quill ({active.path}) — Ada Quill runs the Delta pilot."
+    )
+    # …and the volume's own `# Archived` heading, which names nothing, is nowhere in it.
+    assert "Archived" not in identity.title and "Archived" not in identity.context
+
+
+def test_a_volume_whose_parent_states_no_definition_falls_back_to_its_parents_ledger():
+    """The same fallback the glance and the outline use: a page with no overview is
+    summarised by the head of its own ledger. There is never a "no summary yet" line."""
+    active = _people_doc("bo-marsh", "Bo Marsh", claims=2)
+    volume = _volume(active.path, 1)
+    identity = display_identity([active, volume], volume.path)
+
+    assert identity.title == "Bo Marsh (archive a01)"
+    assert identity.context == (
+        f"Bo Marsh ({active.path}) — Bo Marsh owns workstream 0."
+        f"{LEDGER_LINE_JOINER}Bo Marsh owns workstream 1."
+    )
+
+
+def test_a_plain_document_is_named_by_itself_and_oriented_by_its_own_definition():
+    doc = _with_overview(
+        _people_doc("ada-quill", "Ada Quill"),
+        "Ada Quill runs the Delta pilot. c:1a2b3c4d",
+    )
+    identity = display_identity([doc], doc.path)
+    assert identity.title == "Ada Quill"
+    assert identity.context == "Ada Quill runs the Delta pilot."
+    assert identity.origin == "" and identity.volume == ""
+
+
+def test_a_page_that_says_nothing_about_itself_gets_no_context_line_rather_than_a_placeholder():
+    doc = _doc("memory/topics/delta-pilot.md", "# Delta pilot\n\n## Scope\n")
+    identity = display_identity([doc], doc.path)
+    assert identity.title == "Delta pilot"
+    assert identity.context == "", "an empty line is an answer; a placeholder is not"
+
+
+def test_an_orphaned_volume_keeps_its_own_name_rather_than_borrowing_a_missing_parents():
+    """Same rule as the glance collapse: the origin must actually EXIST. A volume whose
+    active document is gone is named by the only thing left that is true — its own file."""
+    orphan = _volume("memory/people/ada-quill.md", 3)
+    identity = display_identity([orphan], orphan.path)
+    assert identity.title == "Archived", "its own `# ` heading, since there is no parent"
+    assert identity.origin == ""
+
+
+def test_a_path_that_names_no_document_degrades_to_its_own_stem_and_never_guesses():
+    identity = display_identity([], "projects/lumenlab/a02.md")
+    assert identity == type(identity)(
+        path="projects/lumenlab/a02.md", title="a02", context=""
+    )
+
+
+def test_the_resolver_reads_a_mapping_and_a_sequence_identically():
+    """One function, one answer, whichever shape the caller happens to hold — the fast lane
+    keeps a `by_path` mapping and the live lane a document list."""
+    active = _people_doc("ada-quill", "Ada Quill")
+    volume = _volume(active.path, 1)
+    docs = [active, volume]
+    assert display_identity(docs, volume.path) == display_identity(
+        {d.path: d for d in docs}, volume.path
     )
 
 

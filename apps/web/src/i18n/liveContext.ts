@@ -64,7 +64,11 @@ export const liveContext = defineMessages({
       "开启后，发现阶段可以多规划一路 web 查询；知识库一张候选都没给出时也会自动补一次。搜索结果与知识库候选同池，由同一次挑选决定选不选它，引用的是网页而不是来源块。按次计费。",
     "liveContext.config.webSearch.refused": "本部署没有开启互联网搜索，这一路仍然是关的。",
     "liveContext.card.webBadge": "互联网 Web",
+    "liveContext.card.glanceBadge": "速览 · 细节补充中…",
+    "liveContext.card.glanceSettled": "速览",
     "liveContext.card.webNoExpand": "这张卡出自互联网搜索，展开请直接点下面的来源链接。",
+    "liveContext.card.glanceNoExpandYet": "速览来自库里已有的定义，细节还在补充，补完就可以展开。",
+    "liveContext.wire.settledInPlace": "原地定稿（无新卡）",
     "liveContext.web.tier.off": "未走互联网",
     "liveContext.web.tier.planned": "互联网·计划内",
     "liveContext.web.tier.fallback": "互联网·库空兜底",
@@ -264,8 +268,13 @@ export const liveContext = defineMessages({
     "liveContext.config.webSearch.refused":
       "This deployment has not enabled internet search, so the path stays off.",
     "liveContext.card.webBadge": "Web",
+    "liveContext.card.glanceBadge": "Glance · filling in…",
+    "liveContext.card.glanceSettled": "Glance",
     "liveContext.card.webNoExpand":
       "This card came from an internet search — follow the source links below to read more.",
+    "liveContext.card.glanceNoExpandYet":
+      "A glance is the library's own definition. The rest of this tick is still filling in; expanding returns the moment it settles.",
+    "liveContext.wire.settledInPlace": "settled in place (no new card)",
     "liveContext.web.tier.off": "no web lookup",
     "liveContext.web.tier.planned": "web · planned",
     "liveContext.web.tier.fallback": "web · library was empty",

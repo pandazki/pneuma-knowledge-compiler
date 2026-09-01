@@ -29,6 +29,39 @@ from .canonical import Citation
 # See recall/suggestion.py's contract for how each value is expressed.
 ContextFocus = Literal["general", "owner", "other"]
 
+# HOW LATENT a question discover may write. A real policy field, not a bundle of numbers —
+# because the presets never were only numbers. Measured live on the eager preset, a single
+# turn handing work to an unnamed role was skipped: the confidence floors were low, and the
+# contract still said the same thing about what is worth looking up, so a role named without
+# a person was not a question the stage recognised. A density that only moves thresholds
+# moves how MUCH gets through, never WHAT is asked.
+#
+# Under the discover principle — write the one question most worth asking right now — there
+# is exactly one thing left for a posture to vary: how far below the surface that question
+# may sit. `quiet` takes only questions somebody asked aloud, `balanced` questions the
+# conversation clearly implies, `eager` also questions the room does not yet realise it
+# should ask. It varies exactly one clause of the discover contract
+# (`recall.live.discover.mining.*`) and NOTHING else — not the skip vocabulary, not the
+# ledger rule, and deliberately not the pick contract: how honestly a card is delivered is
+# not a density matter.
+ContextDensity = Literal["eager", "balanced", "quiet"]
+
+#: Ordered, the default in the middle.
+CONTEXT_DENSITIES: tuple[ContextDensity, ...] = ("eager", "balanced", "quiet")
+DEFAULT_DENSITY: ContextDensity = "balanced"
+
+
+def coerce_density(value: object) -> ContextDensity:
+    """A density value → the vocabulary, `balanced` for anything else.
+
+    Deliberately NOT `focus_option`'s raise-on-unknown. A focus is a choice a client makes
+    explicitly and getting it wrong is a bug worth surfacing; a density arrives from a
+    preset pill, from an older client that has none, and from a custom setting that carries
+    only numbers — and none of those is a reason to fail a connection. The middle posture is
+    the honest answer to "no posture was stated"."""
+    text = str(value or "").strip().casefold()
+    return text if text in CONTEXT_DENSITIES else DEFAULT_DENSITY  # type: ignore[return-value]
+
 # What kind of card this is: an explanation of something named, an answer to something
 # asked, or an answer the library did not hold and a web search supplied. The client renders
 # the three differently — `web` in particular carries URL citations instead of source spans,
@@ -39,7 +72,13 @@ ContextFocus = Literal["general", "owner", "other"]
 # path; it is a third kind rather than a flag on the other two because everything downstream
 # of it differs — where its provenance points, which gate admits it, and what the card
 # promises the reader about where the words came from.
-SuggestionKind = Literal["concept", "fact", "web"]
+# `glance` was added on the owner's instruction, for the same kind of reason `web` was: it
+# is a fourth kind rather than a flag, because what it promises the reader differs. A glance
+# card is the subject's own overview `definition` verbatim — one sentence, already grounded
+# on the ledger anchors it cites — delivered the moment the plan names a subject the library
+# holds, WHILE retrieval and the pick are still running. It arrives provisional and says so;
+# the full result then upgrades it in place, settles it, or settles it silently.
+SuggestionKind = Literal["concept", "fact", "web", "glance"]
 
 
 class ContextFocusOption(BaseModel):
@@ -94,6 +133,17 @@ SUGGESTION_KINDS: list[SuggestionKindOption] = [
         summary=(
             "a question the knowledge base can answer directly appeared in the stream; the "
             "card gives the answer"
+        ),
+    ),
+    SuggestionKindOption(
+        key="glance",
+        label="Glance",
+        summary=(
+            "the plan named a subject whose page carries a one-sentence definition, so that "
+            "sentence is shown immediately — verbatim, cited to the claims it rests on — "
+            "while the full lookup is still running; it is marked provisional until the "
+            "pipeline settles, and upgrades in place when the full card is about the same "
+            "subject"
         ),
     ),
     SuggestionKindOption(
@@ -200,6 +250,12 @@ class ResolvedSuggestion(BaseModel):
     #: a `web` card has — `citations` is empty there, because there is no source block to
     #: point at. See `WebCitation` for why the two shapes stay separate.
     web_citations: list[WebCitation] = Field(default_factory=list)
+    #: A `glance` card that was delivered BEFORE the pipeline settled. The reader is being
+    #: shown a true sentence early, not a guess — the definition is verbatim and cited — and
+    #: this says the tick is not finished, so the bubble can show it as still filling in. It
+    #: is cleared on the frame that settles or upgrades the card, and is never set on any
+    #: other kind.
+    provisional: bool = False
 
 
 # ────────────────────────────────────────────────── the three-stage pipeline shapes
@@ -230,7 +286,7 @@ class PlanEntry(BaseModel):
     actually enabled — a kind naming nothing is dropped and counted, never guessed at."""
 
     kind: str
-    query: str = ""  # `semantic` only: the one query to retrieve on
+    query: str = ""  # `semantic` / `web` only: the ONE thing this entry goes to find
     args: list[PlanArg] = Field(default_factory=list)
 
 
@@ -243,13 +299,22 @@ class DiscoverResult(BaseModel):
     entire point of spending a small call before the retrieval instead of after it."""
 
     skip: bool = False
-    #: Why nothing is worth looking up: `small_talk` | `already_mined` | `nothing_new`.
-    #: Free text so a model is never forced to mislabel; the counters group what arrives.
+    #: Why no question worth asking could be written: `small_talk` | `already_mined` |
+    #: `nothing_new`. Free text so a model is never forced to mislabel; the counters group
+    #: what arrives.
     reason: str = ""
-    #: One sentence naming what the conversation is actually looking for. It becomes the
-    #: delivered card's `trigger`, and it is what component results are ranked against.
+    #: THE QUESTION — the one most worth asking on the room's behalf right now, phrased the
+    #: way somebody in the room could have asked it aloud. It becomes the delivered card's
+    #: `trigger`, so the owner reads it as the reason the card appeared, and it is what the
+    #: pick stage scores every candidate against.
     intent: str = ""
-    plan: list[PlanEntry] = Field(default_factory=list, max_length=2)
+    #: The lookups, at most four. It was two, and two was the bound that made a query mush:
+    #: a question with five things in it had nowhere to put the fifth except inside the
+    #: first entry's string, so the stage wrote one `semantic` query carrying six concepts
+    #: and starved the fused face it feeds. Four is a bound on the FAN-OUT, not a target —
+    #: the extra entries cost one embedding each and nothing else, the queries run
+    #: concurrently, and a single clear need is still a single entry.
+    plan: list[PlanEntry] = Field(default_factory=list, max_length=4)
     worth: int = 0
 
 

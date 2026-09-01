@@ -70,6 +70,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass
 
 from .compile.documents import derived_title, parse_overview, strip_overview
 from .compile.overview import ANCHOR_REFERENCE_RE, DEFINITION_MAX_CHARS
@@ -142,6 +143,64 @@ def document_title(doc: CanonicalDocument) -> str:
         if value:
             return value
     return doc.path.rsplit("/", 1)[-1].removesuffix(".md")
+
+
+# ------------------------------------------------------------------ naming a document
+
+_SUBJECT_SEP_RE = re.compile(r"[^0-9a-z\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]+")
+
+
+def subject_key(text: str) -> str:
+    """The comparison key for a free-text subject name: casefolded, and every run of
+    punctuation or whitespace dropped.
+
+    `Lumen Lab`, `lumen-lab` and `LUMENLAB` collapse onto one key; two different names never
+    do. Deliberately NOT a similarity measure — a resolution that is not exact under one
+    normalisation is no resolution at all, and the generosity is entirely in the
+    normalisation. No pinyin either: this names a project, a team, a topic, and unlike a
+    person those have no second convention to be written in.
+    """
+    return _SUBJECT_SEP_RE.sub("", str(text or "").strip().casefold())
+
+
+def resolve_subject(
+    docs: Sequence[CanonicalDocument], subject: str
+) -> list[tuple[CanonicalDocument, str]]:
+    """The document(s) a free-text `subject` names, as `(doc, what matched)` pairs.
+
+    Across EVERY family: the subject of "who is around X" or "what is X" is not a person,
+    and restricting the search to one family would be the caller's opinion about a question
+    the library answers for itself. The vocabulary compared is the only one every document
+    has — its repository path, its title, its frontmatter `slug` and its filename.
+
+    A path is taken OUTRIGHT: it names exactly one document, and a name that also matches
+    others is not an ambiguity about which document was meant. Everything else ties, and a
+    tie is returned rather than resolved — the caller decides what a tie means, and no tie
+    is ever broken by picking the first path.
+    """
+    query = str(subject or "").strip()
+    if not query:
+        return []
+    wanted_path = query.casefold()
+    key = subject_key(query)
+    matches: list[tuple[CanonicalDocument, str]] = []
+    for doc in sorted(docs, key=lambda d: d.path):
+        if doc.path.casefold() == wanted_path:
+            matches.append((doc, "path"))
+            continue
+        if not key:
+            continue
+        stem = doc.path.rsplit("/", 1)[-1].removesuffix(".md")
+        for how, name in (
+            ("title", document_title(doc)),
+            ("slug", str((doc.frontmatter or {}).get("slug") or "")),
+            ("filename", stem),
+        ):
+            if name and subject_key(name) == key:
+                matches.append((doc, how))
+                break
+    exact = [m for m in matches if m[1] == "path"]
+    return exact or matches
 
 
 #: How much of a document's definition an outline / glance line carries. One line each, and
@@ -466,6 +525,101 @@ def archive_volume_counts(docs: Sequence[CanonicalDocument]) -> dict[str, int]:
     return counts
 
 
+# ------------------------------------------------------- naming a RETRIEVED document
+#
+# A retrieved fragment reaches a reader with none of the page around it. That is fine for a
+# document that names its own subject and fatal for a ROLLOVER VOLUME, whose filename is
+# `a02` and whose body is a run of claim blocks with no `# ` title above them: the volume's
+# own display name is therefore the string `a02`, which names nothing. Measured live — a card
+# built from two claims in `projects/<subject>/a02.md` reached the pick stage titled `a02`,
+# and the model, having no way to see WHOSE history it was reading, grafted the room's own
+# subject onto it and delivered a sentence about a product the evidence never mentions.
+#
+# The fix is not a prompt asking the model to be careful. It is that a retrieved document
+# arrives CARRYING ITS PARENT: a volume is displayed under its active document's title, with
+# the volume noted, and one line of that document's own definition rides beside it.
+
+
+@dataclass(frozen=True)
+class DisplayIdentity:
+    """What a retrieved document is CALLED and what it is ABOUT, for a reader holding only
+    a fragment of it.
+
+    Three fields and no rendering opinion: a caller puts `title` where a name goes and
+    `context` where one line of orientation fits, and `origin` is the parent path when the
+    document is a rollover volume (empty otherwise), so a caller that wants to say WHERE the
+    identity came from does not have to re-derive it."""
+
+    path: str
+    #: The parent's title with the volume noted (`Lumen Lab (archive a02)`) for a volume;
+    #: the document's own title otherwise; the filename stem for a path not in the library.
+    title: str
+    #: One line of orientation — for a volume, the parent's title and path plus the parent's
+    #: own definition (or its ledger head); for any other document, its own. `""` when the
+    #: page says nothing about itself, which is a real answer and not a placeholder.
+    context: str
+    #: The active document a volume was rolled over from. `""` when this is not a volume.
+    origin: str = ""
+    #: The volume's own name (`a02`). `""` when this is not a volume.
+    volume: str = ""
+
+
+def _document_stem(path: str) -> str:
+    """`projects/lumenlab/a02.md` → `a02`. The document's own filename, nothing invented."""
+    return path.rsplit("/", 1)[-1].removesuffix(".md")
+
+
+def _says(doc: CanonicalDocument) -> str:
+    """What the page says it is: its definition, else its ledger head, else nothing."""
+    return document_definition(doc) or document_ledger_line(doc) or ""
+
+
+def display_identity(
+    docs: Mapping[str, CanonicalDocument] | Sequence[CanonicalDocument], path: str
+) -> DisplayIdentity:
+    """How `path` should be NAMED and ORIENTED wherever a fragment of it is shown.
+
+    Pure and cache-free: a mapping (or any sequence of documents) in, a value out, so the
+    pick prompt, the delivered card and the fast lane's preview cannot each derive a
+    different name for the same page. It is deliberately not a search — the path either names
+    a document in the library or it does not, and an unknown path degrades to its own stem
+    rather than to a guess.
+
+    A rollover volume is the case this exists for; the identity it hands back is its ACTIVE
+    document's, because that is what the volume is history OF. Everything else takes the same
+    path through the function and simply has no parent to borrow from, which is why a plain
+    page comes out with its own title and its own definition — the orientation line helps
+    every candidate, and a volume is the one that cannot do without it.
+    """
+    path = str(path or "")
+    by_path = (
+        dict(docs) if isinstance(docs, Mapping) else {doc.path: doc for doc in docs}
+    )
+    doc = by_path.get(path)
+    if doc is None:
+        return DisplayIdentity(path=path, title=_document_stem(path), context="")
+    origin = volume_origin(doc, by_path.keys())
+    parent = by_path.get(origin) if origin else None
+    if parent is None:
+        return DisplayIdentity(path=path, title=document_title(doc), context=_says(doc))
+    volume = _document_stem(path)
+    head = prompt(
+        "recall.identity.volume_origin", title=document_title(parent), path=parent.path
+    )
+    says = _says(parent)
+    return DisplayIdentity(
+        path=path,
+        title=prompt(
+            "recall.identity.volume_title", title=document_title(parent), volume=volume
+        ),
+        context=(
+            prompt("recall.identity.joined", head=head, tail=says) if says else head
+        ),
+        origin=parent.path,
+        volume=volume,
+    )
+
+
 def glance_entry(
     doc: CanonicalDocument,
     updated: Mapping[str, str] | None = None,
@@ -622,12 +776,14 @@ def render_canonical_glance(
 __all__ = [
     "BLURB_CHARS",
     "DEFINITION_LINE_CHARS",
+    "DisplayIdentity",
     "FAMILY_TOP_K",
     "GLANCE_BUDGET_CHARS",
     "LEDGER_LINE_JOINER",
     "archive_volume_counts",
     "claim_count",
     "claim_display_text",
+    "display_identity",
     "document_definition",
     "document_ledger_line",
     "document_title",

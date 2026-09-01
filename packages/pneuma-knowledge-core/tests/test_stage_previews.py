@@ -304,6 +304,52 @@ async def test_the_two_faces_that_need_ports_preview_their_hits_and_their_picks(
     assert by_name[child_name("claims")].preview["items"][0]["doc"] == "林薇"
 
 
+async def test_a_claim_in_a_frozen_volume_previews_under_the_page_it_is_history_of():
+    """The fast lane's half of the volume-provenance fix.
+
+    `a02` is a rollover volume's filename and the only name that document has — its body
+    carries no `# ` heading, because the rollover leaves the title on the active page. A
+    preview naming it `a02` tells a reader nothing, and it is the same string that, on the
+    Live Context lane, let a card be delivered about the wrong subject entirely. Every
+    document name in this lane is read off ONE mapping, so this is that mapping."""
+    from pneuma_knowledge_core.domain.canonical import CanonicalDocument
+    from pneuma_knowledge_core.domain.ids import DocumentId
+
+    active = CanonicalDocument(
+        doc_id=DocumentId("d-lin-wei"),
+        path="memory/people/lin-wei.md",
+        frontmatter={"title": "林薇"},
+        body=(
+            "# 林薇\n\n<!-- overview -->\n<!-- overview:definition -->\n"
+            "恒印印刷的采购对接人。 <!-- c:a1f3 -->\n<!-- /overview -->\n\n采购对接"
+        ),
+    )
+    volume = CanonicalDocument(
+        doc_id=DocumentId("d-lin-wei-a02"),
+        path="memory/people/lin-wei/a02.md",
+        frontmatter={"archived_from": "memory/people/lin-wei.md", "rollover_volume": "02"},
+        body="## 归档\n\n- 林薇去年谈下了首批排期 <!-- c:c3e1 -->\n",
+    )
+    index = FakeClaimIndex(
+        [ClaimStub("c3e1", "memory/people/lin-wei/a02.md", "林薇去年谈下了首批排期")]
+    )
+    fa = await fast_recall(
+        _USER,
+        "林薇现在负责什么",
+        as_of=_AS_OF,
+        claim_lexical=index,
+        claim_vectors=index,
+        embeddings=FakeEmbeddings(),
+        model=_Model(answer="A"),
+        fast_paths=(),
+        documents=[active, volume],
+    )
+    claims = {s.name: s for s in fa.stages}[child_name("claims")].preview
+    # English pack in tests; the live Chinese deployment renders 「林薇（归档卷 a02）」.
+    assert claims["items"][0]["doc"] == "林薇 (archive a02)"
+    assert claims["items"][0]["doc"] != "a02"
+
+
 async def test_the_selection_stage_reads_as_a_sentence_per_face_and_lists_what_it_kept(
     monkeypatch,
 ):

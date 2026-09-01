@@ -174,10 +174,10 @@ async def test_an_assembled_surface_still_carries_the_bytes_the_model_receives(t
     async with _client(str(engine)) as client:
         body = (await client.get("/v1/engine/prompts")).json()
     assembled = [s for s in body["surfaces"] if s["kind"] == "assembled"]
-    # +3: the Live Context pick contract and BOTH shapes of its discover contract — one
-    # with the supplementary web lookup offered and one without, pinned separately because
-    # the toggle changes which SystemMessage renders and nothing else.
-    assert len(assembled) == 19
+    # +5: the Live Context pick contract and FOUR shapes of its discover contract — the
+    # web toggle (offered / not), and the density posture (eager / balanced / quiet), each
+    # pinned separately because each changes which SystemMessage renders and nothing else.
+    assert len(assembled) == 21
     for surface in assembled:
         assert surface["assembled_framework"].strip(), surface["id"]
         assert surface["assembled_effective"].strip(), surface["id"]

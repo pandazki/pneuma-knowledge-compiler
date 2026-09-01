@@ -10,17 +10,33 @@ out of whatever came back. Two things were wrong with it and neither was a tunin
   hunting for *a person on the Lumenlab team* retrieves *Lumenlab* and delivers a card
   defining what Lumenlab is. Nobody asked what it is; everyone in the room already knows.
 
-So the lane now spends a SMALL reasoning call first, and that call's only job is to say what
-the room is actually looking for and how to look it up — or that there is nothing to look up:
+So the lane now spends a SMALL reasoning call first, and that call has ONE job, stated as a
+principle rather than as a list of cases: **write, on the room's behalf, the one question
+most worth asking right now** — or say that no such question can be written.
+
+That one sentence is the whole of stage 1, and everything the lane used to accrete as
+separate case-law falls out of it: an unnamed role means the room would ask *who is that*;
+a first-mention product means *what is X*; a find-a-person ask means *who here knows X best*;
+small talk means no question worth asking, so skip; a subject the room keeps naming and never
+asks about is a question it already knows the answer to, so skip again. Once the question
+exists, the stages below it are the fast lane's ordinary work — retrieve, select evidence,
+answer honestly.
 
 1. **discover** (`live_discover`, small reasoning model, LOW effort, short output). Reads the
    pending window and the session's subject ledger. Emits either `skip(reason)` — and the
-   tick ends having touched no index at all — or an `intent`, a 1–2 entry retrieval `plan`
-   over the enabled component paths plus `semantic`, and a `worth` score.
+   tick ends having touched no index at all — or the question itself as `intent`, a `plan` of
+   up to four lookups (how you would go and answer it) over the enabled component paths plus
+   `semantic`, and a `worth` score (what the answer would be worth to the room). One lookup
+   per distinct thing to find: the bound is on the FAN-OUT and not a target, because a
+   `semantic` entry costs one embedding and a question with one clear need still takes one. `intent` doubles as the
+   delivered card's trigger line, which is why it is phrased as a question somebody could
+   have asked aloud: the owner reads it as the reason the card appeared.
 2. **retrieve** (no model). Every plan entry runs CONCURRENTLY: component paths through the
-   ordinary `run_paths`, `semantic` through one `retrieve_claims` + `rag_recall` on the
-   intent. What comes back is turned into numbered candidate cards MECHANICALLY — claim text
-   verbatim, citations attached by construction, never a sentence a model wrote.
+   ordinary `run_paths`, and each `semantic` entry through its own `retrieve_claims` +
+   `rag_recall`, all of them embedded in one batched call. Their returns merge into ONE pool,
+   deduped and interleaved so no single query can fill the candidate list on its own. What
+   comes back is turned into numbered candidate cards MECHANICALLY — claim text verbatim,
+   citations attached by construction, never a sentence a model wrote.
 3. **pick** (`live_pick`, weak fast model, reasoning off). Sees the conversation and the
    numbered candidates and answers with an index (or `none`), a SHORT lede framing why this
    matters to the reader right now, the subset of the candidate's own citations that carries
@@ -33,14 +49,15 @@ it decides whether to deliver. The first door is a guess about a conversation, t
 judgement about a specific card, and one dial moves both because a deployment that wants
 fewer interruptions wants fewer of both.
 
-**Confidence is intent-MATCH, not card quality.** The pick contract says so in the only
-place that can be enforced — the contract itself — because the failure it fixes is not
-mechanical. Asked about a release the library had never heard of, the lane retrieved the
-nearest internal project, and the pick scored it 9: the candidate was well written, richly
-cited and about roughly that area, and every one of those is a fact about the library rather
-than an answer to the question. So `confidence` now scores the intent and the candidate's
-own text side by side, adjacency is named as NOT coverage, and `choice: 0` is stated as the
-honest outcome when the library holds nothing. Nothing here second-guesses the model
+**Pick has ONE criterion: does this candidate's own text ANSWER the question?** The contract
+says so in the only place that can be enforced — the contract itself — because the failure it
+fixes is not mechanical. Asked about a release the library had never heard of, the lane
+retrieved the nearest internal project, and the pick scored it 9: the candidate was well
+written, richly cited and about roughly that area, and every one of those is a fact about the
+library rather than an answer to the question. Four consequences of the one criterion carry
+the cases that were each once a live failure — text saying it CANNOT answer answers nothing
+(choose 0), adjacency is not an answer, a MARKED nearest-fit recommendation is one, and which
+pool a candidate came out of is not a ranking. Nothing here second-guesses the model
 mechanically — a high score still delivers — because a mechanism that overrode the judgement
 would be guessing about language, and the judgement is exactly what the contract buys.
 
@@ -59,22 +76,34 @@ Human turn.
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
+from itertools import chain, zip_longest
+from typing import TYPE_CHECKING
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel, ValidationError
 
-from ..canonical_glance import claim_display_text
-from ..compile.documents import OVERVIEW_LABEL
+from ..canonical_glance import (
+    claim_display_text,
+    display_identity,
+    document_definition,
+    document_title,
+    resolve_subject,
+)
+from ..compile.documents import OVERVIEW_LABEL, overview_region
+from ..compile.overview import ANCHOR_REFERENCE_RE
 from ..domain.canonical import Citation
 from ..domain.ids import UserId
 from ..domain.source import ConversationTurn
 from ..domain.suggestion import (
+    DEFAULT_DENSITY,
+    ContextDensity,
     ContextFocus,
     DiscoverResult,
     PickResult,
@@ -82,6 +111,7 @@ from ..domain.suggestion import (
     ResolvedSuggestion,
     SuggestionKind,
     WebCitation,
+    coerce_density,
 )
 from ..ports.claim_index import ClaimLexicalIndex, ClaimVectorIndex
 from ..ports.content_store import ContentStore
@@ -90,6 +120,7 @@ from ..ports.vector_index import VectorIndex
 from ..ports.web_search import WebSearch, WebSearchAnswer
 from ..prompts import prompt
 from .assembly import expand_and_merge, order_lost_in_middle
+from .projection import project_document_claims
 from .fast import (
     RetrievedClaim,
     extract_usage,
@@ -117,6 +148,11 @@ WEB = "web"
 #: How many transcript turns one tick may read. The window is the PENDING one — everything
 #: said since the last tick — and this bounds it; the overflow is not dropped silently but
 #: summarised into the digest as a stated count (see `PendingWindow`).
+if TYPE_CHECKING:  # pragma: no cover — typing only
+    from ..domain.canonical import CanonicalDocument
+
+_log = logging.getLogger(__name__)
+
 DEFAULT_MAX_PENDING_TURNS = 12
 
 #: How many candidate cards the pick stage may be shown. Not a knob: it is the size of a
@@ -131,8 +167,10 @@ CANDIDATE_BODY_CHARS = 700
 #: contract also asks for short; this is what makes it true.
 LEDE_CHARS = 200
 
-#: The semantic path's own budgets — one query now, not one per turn, so these can be
-#: larger than the per-turn numbers they replace and still cost less.
+#: The semantic path's own budgets, PER QUERY — the plan's queries, not the transcript's
+#: turns, so these can be larger than the per-turn numbers they replace and still cost less.
+#: A fan-out multiplies them, and `_interleave` plus `MAX_CANDIDATES` is what bounds the pool
+#: that reaches the pick stage.
 SEMANTIC_CLAIMS = 8
 SEMANTIC_WINDOWS = 4
 
@@ -142,7 +180,9 @@ CLAIMS_PER_CANDIDATE = 3
 #: The Live Context lane's stage vocabulary (see `stage_timing.py` — the vocabulary belongs
 #: to the lane). `retrieve`'s children are the semantic face and one `retrieve.path:<name>`
 #: per routed component path, which is the shared child mechanism unchanged.
-STAGE_ORDER: tuple[str, ...] = ("discover", "retrieve", "pick", "total")
+#: `glance` sits between discover and retrieve because that is exactly where it happens:
+#: the plan is parsed, the provisional card goes out, and everything below it runs on.
+STAGE_ORDER: tuple[str, ...] = ("discover", "glance", "retrieve", "pick", "total")
 RETRIEVE_CHILDREN: tuple[str, ...] = ("semantic", "web")
 
 #: Seconds the web face may take before the tick stops waiting for it. A constant and not a
@@ -223,8 +263,10 @@ def discover_contract(
     paths: Sequence[FastPath] = (),
     *,
     web: bool = False,
+    density: ContextDensity = DEFAULT_DENSITY,
 ) -> str:
-    """The discover SystemMessage. Byte-stable per (focus, enabled path set, web on/off).
+    """The discover SystemMessage. Byte-stable per (focus, enabled path set, web on/off,
+    density).
 
     With no component registered the `kinds` section holds `semantic` alone, which is
     exactly the contract this lane had before the seam existed.
@@ -235,7 +277,19 @@ def discover_contract(
     them said yes to. Advertising it otherwise would spend the small model's attention
     planning a retrieval that `plan_runs` was always going to reject. I5 is untouched — the
     result is still a function of the enabled set and nothing volatile, which is why both
-    variants can be (and are) byte-pinned."""
+    variants can be (and are) byte-pinned.
+
+    `density` varies ONE clause — HOW LATENT the question may be — and nothing else. Under
+    one principle there is only one thing left for a posture to move: quiet takes only
+    questions somebody actually asked aloud, balanced takes questions the conversation
+    clearly implies, eager also takes questions the room does not yet realise it should ask.
+    The three postures were preset numbers before, and numbers alone could only move how MUCH
+    got through: on the eager preset a turn handing work to an unnamed role was skipped,
+    because a role standing in for a person nobody named was not a question the one shared
+    wording recognised, whatever the floors were set to. The principle, the skip vocabulary
+    and the three output fields stay shared, which is what keeps these three wordings of one
+    contract rather than three contracts. The PICK contract does not vary: how honestly a
+    card is delivered is not a density matter."""
     offers = [_path_offer(p) for p in paths]
     offers.append(prompt("recall.live.discover.semantic_offer"))
     if web:
@@ -244,13 +298,24 @@ def discover_contract(
         "recall.live.discover.contract",
         focus=prompt(f"recall.suggestion.focus.{focus}"),
         kinds="\n".join(offers),
+        mining=prompt(f"recall.live.discover.mining.{coerce_density(density)}"),
     )
 
 
 def pick_contract() -> str:
     """The pick SystemMessage. One string, no focus axis: the attention posture was already
     spent in discover, and this stage only chooses between cards discover's own plan
-    produced."""
+    produced. One criterion — does the candidate's own text answer discover's question — with
+    the honesty clauses stated as its consequences rather than as coordinate rules.
+
+    The OPEN-QUESTION clause beside the adjacency one is contract text and NOT a mechanism,
+    deliberately. What it addresses is a conf-5 card that answered 「应该围绕什么真实痛点设计
+    核心工作流？」 with the nearest internal project page — an open product question paired
+    with whatever the library happened to hold next to it. A mechanism that recognised "open
+    question" and blocked it would be guessing about language, and it would be wrong the
+    first time a page really did bear on one. So the clause says what a good delivery looks
+    like — the page's own text has to bear on the question, scored by how directly it helps —
+    and leaves the judgement where the contract can buy it."""
     return prompt("recall.live.pick.contract")
 
 
@@ -278,6 +343,45 @@ def take_pending(
     limit = max(1, int(max_pending_turns))
     kept = list(turns)[-limit:]
     return PendingWindow(turns=tuple(kept), overflowed=max(len(turns) - len(kept), 0))
+
+
+#: How many already-processed turns ride above the pending window, read-only. A CONSTANT,
+#: not a knob: it is the size of a short-term memory, and a deployment that could raise it
+#: would be paying the discover call's whole argument — that it is short — for context the
+#: stage is forbidden to mine anyway.
+DEFAULT_CONTEXT_TURNS = 8
+
+
+def take_context(
+    processed: Sequence[ConversationTurn],
+    pending: Sequence[ConversationTurn],
+    *,
+    max_context_turns: int = DEFAULT_CONTEXT_TURNS,
+) -> tuple[ConversationTurn, ...]:
+    """The read-only tail: the most recent processed turns, newest-last, bounded.
+
+    TWO ROLES, ONE TRANSCRIPT — and separating them is the whole of this. The pending run
+    says WHAT IS NEW TO MINE and is consumed by the tick that reads it (a skip consumes too,
+    which is the point: a stretch judged small talk is not re-judged and not re-paid for).
+    But intent formation is not mining. A tick whose pending run is 「也可以看看其他团队有没有
+    这方面的专家」 and nothing else has to invent what the expertise IS — and it will: measured
+    live, four turns about Apple's foldable phone were consumed by a quiet skip tick, and the
+    fifth turn alone produced an intent about **Android** foldables. The subject had not
+    changed; the window had.
+
+    So the tail rides along, above the new content and labelled as understood-not-evaluated.
+    It changes nothing about consumption: the same turns are mined exactly once, and are
+    afterwards only readable.
+    """
+    limit = max(0, int(max_context_turns))
+    if not limit:
+        return ()
+    # Excluded by IDENTITY, not by value: two turns are equal whenever their text is, and a
+    # room where somebody says 「好的」 twice would otherwise lose the earlier one out of the
+    # tail. What must never be both blocks is the same TURN, and that is what identity says.
+    held = {id(t) for t in pending}
+    keep = [t for t in processed if id(t) not in held]
+    return tuple(keep[-limit:])
 
 
 # --------------------------------------------------------------- the subject ledger
@@ -415,11 +519,17 @@ def discover_human(
     delivered: Sequence = (),
     digest: str = "",
     overflowed: int = 0,
+    context: str = "",
+    context_turns: int = 0,
 ) -> str:
-    """The discover Human turn: mined → ledger → as_of → the pending transcript (LAST).
+    """The discover Human turn: mined → ledger → as_of → earlier conversation → the pending
+    transcript (LAST).
 
     Same tail discipline as every other lane here: the live thing sits in the attention-hot
-    tail, below whatever it has to be read against."""
+    tail, below whatever it has to be read against — and `context` is precisely "whatever it
+    has to be read against", so it sits immediately above the new content and nowhere else.
+    Two headers, never one block: the contract tells the stage to understand the first and
+    evaluate the second, and a rule about two parts needs the two parts to be visible."""
     sections: list[str] = []
     mined = [line for line in (_mined_line(item) for item in delivered) if line]
     if mined:
@@ -435,9 +545,19 @@ def discover_human(
     )
     if overflowed:
         header += prompt("recall.live.section.pending_overflow", count=overflowed)
+    earlier = (
+        prompt("recall.live.section.context_header", turns=context_turns)
+        + "\n"
+        + context
+        + "\n\n"
+        if context
+        else ""
+    )
     return (
         ("\n\n".join(sections) + "\n\n" if sections else "")
-        + f"as_of: {as_of.isoformat()}\n{header}\n"
+        + f"as_of: {as_of.isoformat()}\n"
+        + earlier
+        + f"{header}\n"
         + transcript
     )
 
@@ -478,10 +598,13 @@ def discover_messages(
     delivered: Sequence = (),
     digest: str = "",
     overflowed: int = 0,
+    context: str = "",
+    context_turns: int = 0,
     web: bool = False,
+    density: ContextDensity = DEFAULT_DENSITY,
 ) -> list[BaseMessage]:
     return [
-        SystemMessage(content=discover_contract(focus, paths, web=web)),
+        SystemMessage(content=discover_contract(focus, paths, web=web, density=density)),
         HumanMessage(
             content=discover_human(
                 transcript,
@@ -489,6 +612,8 @@ def discover_messages(
                 delivered=delivered,
                 digest=digest,
                 overflowed=overflowed,
+                context=context,
+                context_turns=context_turns,
             )
         ),
     ]
@@ -594,6 +719,12 @@ class SuggestionCandidate:
     subject: str
     subject_label: str
     origin: str  # "path:<name>" | "semantic.claims" | "semantic.windows" | "web"
+    #: One line of PROVENANCE CONTEXT for the document this card was built out of — what the
+    #: page says it is, and, when the evidence lives in a frozen rollover volume, whose
+    #: history that volume is. Empty when the library said nothing about the page, and empty
+    #: on a web card, whose provenance is its URLs. See `canonical_glance.display_identity`
+    #: for why a retrieved fragment cannot be trusted to name its own subject.
+    context: str = ""
     #: `library` or `web` — the pool, stated on the card the pick stage reads. See
     #: `PROVENANCE_LIBRARY`.
     provenance: str = PROVENANCE_LIBRARY
@@ -668,7 +799,9 @@ def _subject_of(claims: Sequence[RetrievedClaim]) -> tuple[str, str]:
 
 
 def candidate_from_component(
-    evidence: ComponentEvidence, index: int
+    evidence: ComponentEvidence,
+    index: int,
+    docs: Mapping[str, "CanonicalDocument"] | None = None,
 ) -> SuggestionCandidate | None:
     """One routed path's result as a card. None when the path found nothing to show."""
     claims = list(evidence.claims[:CLAIMS_PER_CANDIDATE])
@@ -682,6 +815,13 @@ def candidate_from_component(
         CANDIDATE_BODY_CHARS,
     )
     subject, label = _subject_of(claims)
+    context = ""
+    if subject and docs:
+        # The path chose the CARD's title (its own arguments, which is what the reader asked
+        # about), so the identity supplies the two things a routed lookup cannot: the page
+        # its claims live on, and the name that page goes by in the session ledger's digest.
+        identity = display_identity(docs, subject)
+        context, label = identity.context, identity.title
     if not subject:
         subject, label = evidence.key(), title
     return SuggestionCandidate(
@@ -693,6 +833,7 @@ def candidate_from_component(
         subject=subject,
         subject_label=label or title,
         origin=f"path:{evidence.path}",
+        context=context,
     )
 
 
@@ -752,25 +893,34 @@ def _window_citations(windows: Sequence) -> tuple[Citation, ...]:
 
 
 def candidates_from_claims(
-    claims: Sequence[RetrievedClaim], start: int
+    claims: Sequence[RetrievedClaim],
+    start: int,
+    docs: Mapping[str, "CanonicalDocument"] | None = None,
 ) -> list[SuggestionCandidate]:
-    """Semantic claim hits, grouped into one card per document in retrieval order."""
+    """Semantic claim hits, grouped into one card per document in retrieval order.
+
+    `docs` is the library, and it is what makes the card's NAME the page's name rather than
+    its filename. Without it the fallback is the filename — which is what this function did
+    before, and is exactly right for a caller that has no canonical in hand and exactly
+    wrong for a rollover volume (`a02`). See `canonical_glance.display_identity`."""
     grouped: dict[str, list[RetrievedClaim]] = {}
     for claim in claims:
         grouped.setdefault(claim.document_path, []).append(claim)
     out: list[SuggestionCandidate] = []
     for path, rows in grouped.items():
         top = rows[:CLAIMS_PER_CANDIDATE]
+        identity = display_identity(docs or {}, path)
         out.append(
             SuggestionCandidate(
                 index=start + len(out),
                 kind="concept" if _is_overview(top[0]) else "fact",
-                title=_document_label(path),
+                title=identity.title,
                 body=_clip(_claim_lines(top), CANDIDATE_BODY_CHARS),
                 citations=_citations_of(top),
                 subject=path,
-                subject_label=_document_label(path),
+                subject_label=identity.title,
                 origin="semantic.claims",
+                context=identity.context,
             )
         )
     return out
@@ -807,6 +957,7 @@ def build_candidates(
     web: Sequence[tuple[WebSearchAnswer, str]] = (),
     *,
     limit: int = MAX_CANDIDATES,
+    documents: Sequence["CanonicalDocument"] = (),
 ) -> list[SuggestionCandidate]:
     """Everything retrieval returned, as numbered cards. Sync — it awaits nothing.
 
@@ -817,6 +968,12 @@ def build_candidates(
     weighing an even choice the owner's own material is the one it read first. It is still
     candidate N like any other — nothing here privileges or penalises it in the choice.
     Re-numbered at the end so the indexes the pick stage sees are 1..n with no gaps.
+
+    `documents` is canonical, and it is what lets a card NAME ITS OWN SUBJECT. Passing none
+    is legal and renders exactly what this function rendered before the parameter existed —
+    a card titled by its document's filename — which is the right answer for every page whose
+    filename is its subject and the wrong one for a rollover volume, whose filename is `a02`
+    (`canonical_glance.display_identity`).
 
     **A web candidate is never the one truncation drops.** The limit is a bound on what a
     weak model can choose from reliably, and applying it in list order would silently delete
@@ -834,12 +991,13 @@ def build_candidates(
             reserved.append(card)
     reserved = reserved[:limit]
 
+    by_path = {doc.path: doc for doc in documents}
     rows: list[SuggestionCandidate] = []
     for evidence in component:
-        card = candidate_from_component(evidence, len(rows) + 1)
+        card = candidate_from_component(evidence, len(rows) + 1, by_path)
         if card is not None:
             rows.append(card)
-    rows.extend(candidates_from_claims(claims, len(rows) + 1))
+    rows.extend(candidates_from_claims(claims, len(rows) + 1, by_path))
     rows.extend(candidates_from_windows(windows, len(rows) + 1))
 
     seen: set[tuple[str, str]] = {(row.subject, row.kind) for row in reserved}
@@ -855,6 +1013,14 @@ def build_candidates(
         SuggestionCandidate(**{**row.__dict__, "index": n})
         for n, row in enumerate(ordered, start=1)
     ]
+
+
+def _about_line(card: SuggestionCandidate) -> str:
+    """The candidate's `about:` line: what it is filed as, then what that page IS."""
+    subject = card.subject or card.subject_label or card.title
+    if not card.context:
+        return subject
+    return prompt("recall.identity.joined", head=subject, tail=card.context)
 
 
 def render_candidates(candidates: Sequence[SuggestionCandidate]) -> str:
@@ -896,7 +1062,14 @@ def render_candidates(candidates: Sequence[SuggestionCandidate]) -> str:
                 # name a person page while a project page shares the word — measured on a
                 # real library, where a candidate list showing only titles left the pick
                 # stage guessing which of the two it was choosing.
-                subject=card.subject or card.subject_label or card.title,
+                #
+                # The SAME line carries the page's own account of itself when the library
+                # has one (`display_identity`), because the failure the path alone could not
+                # prevent is one level up from ambiguity: `projects/<subject>/a02.md` names
+                # exactly one document and still tells a reader nothing about whose history
+                # it is. One line, not two — the reader of this block is choosing, and a
+                # second label under the first is a second thing to weigh.
+                subject=_about_line(card),
                 body=card.body,
                 citations=cites or prompt("recall.live.candidate.no_citations"),
             )
@@ -993,6 +1166,184 @@ def _web_citations(
     return picked or card.web_citations
 
 
+# ────────────────────────────────────────────────── the glance short-circuit
+#
+# The first response used to cost the whole pipeline: discover, then retrieval, then a
+# second model call. But by the end of DISCOVER the lane already knows what the room is
+# looking for — and where a plan names a subject the library holds, the library already
+# holds one grounded sentence about it: the overview `definition`, written by a compile,
+# rewritten whenever the picture changes, and resting on ledger anchors (`c:xxxx`) it cites.
+#
+# So that sentence goes out immediately, verbatim, while stages 2 and 3 keep running. It
+# costs NO extra model call — it is a resolution and a parse — and it is not a guess: it is
+# the same sentence the full card would have opened with, arriving a retrieval earlier and
+# marked provisional so the reader knows the tick has not finished.
+
+#: The plan named a subject whose page carries a definition; a provisional card went out.
+GLANCE_HIT = "hit"
+#: No subject in the plan resolved to a page with a definition. Nothing was delivered early.
+GLANCE_MISS = "miss"
+#: …and how it ended: the full card was about the SAME subject, so the provisional card
+#: became it in place (the queue does not grow);
+GLANCE_UPGRADED = "upgraded"
+#: …the full card was about something else, so the glance settled and the new card queued;
+GLANCE_SETTLED = "settled"
+#: …or nothing else came, so the glance simply stopped being provisional.
+GLANCE_ALONE = "alone"
+
+
+@dataclass(frozen=True)
+class GlanceCard:
+    """A provisional card and the subject it is about, handed to the caller the moment the
+    plan is parsed. `outcome` is filled in on the settled result, never here."""
+
+    suggestion: ResolvedSuggestion
+    subject: str
+
+
+#: A plan value's own words are tried after the whole value. Bounded so a long semantic
+#: query cannot turn one dictionary lookup into a hundred.
+PLAN_WORDS_MAX = 12
+#: …and a word shorter than this is not a name anyone filed a document under.
+PLAN_WORD_MIN_CHARS = 2
+
+_PLAN_WORD_RE = re.compile(r"[0-9A-Za-z\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]+")
+
+
+def plan_subjects(plan: Sequence[PlanEntry]) -> list[str]:
+    """Every free-text subject a plan names, whole values first, then their own words.
+
+    A plan entry is a `kind` plus arguments whose NAMES belong to whichever component
+    registered the path, so core cannot ask for `subject` or `alias` by name and must not
+    try: it takes every non-empty argument value, plus a `semantic` entry's query. Each is
+    then offered to an EXACT resolution that answers for almost none of them — which is the
+    point. A value that names no document costs one dictionary lookup.
+
+    THE WORDS ARE TRIED TOO, and they have to be. A routed path's argument is often the
+    subject exactly (`people_around(Lumenlab)`), but a `semantic` entry's query is a
+    sentence — 「lumenlab 是什么？我一直没搞清楚。」 — and a sentence is never equal to a
+    document's title, so the one plan shape that most obviously wants an instant definition
+    was the one shape that could never get one. Splitting it does not make this a search:
+    every word still has to match a document's title, slug or filename EXACTLY under the one
+    normalisation, ties still resolve to nothing, and whole values are tried first so a
+    document named by the plan outright always wins over a word inside it.
+    """
+    out: dict[str, None] = {}
+    words: dict[str, None] = {}
+
+    def offer(text: str) -> None:
+        text = text.strip()
+        if not text:
+            return
+        out.setdefault(text, None)
+        for word in _PLAN_WORD_RE.findall(text):
+            if len(word) >= PLAN_WORD_MIN_CHARS:
+                words.setdefault(word, None)
+
+    for entry in plan:
+        for arg in entry.args:
+            offer(str(arg.value or ""))
+        offer(str(entry.query or ""))
+    for word in list(words)[:PLAN_WORDS_MAX]:
+        out.setdefault(word, None)
+    return list(out)
+
+
+def build_glance(
+    plan: Sequence[PlanEntry],
+    documents: Sequence["CanonicalDocument"],
+    *,
+    trigger: str = "",
+    ledger: SubjectLedger | None = None,
+    already_shown: Sequence = (),
+) -> GlanceCard | None:
+    """The provisional card, or None when nothing in the plan names a defined subject.
+
+    Mechanical throughout: resolve, read the definition, take the citations off the claims
+    its anchor references carry. Nothing is authored and no model is called, so the card is
+    exactly the library's own sentence — which is why it can be shown before anything has
+    been verified. It goes through the SAME repetition rules as any other card: a subject
+    this session has already introduced gets no second glance.
+
+    A tie resolves to nothing. Two documents equally named is precisely when a one-sentence
+    definition delivered instantly would be confidently wrong, and the full pipeline behind
+    it is better equipped to choose than a mechanism with no question in hand.
+    """
+    if not documents:
+        return None
+    by_path = {doc.path: doc for doc in documents}
+    shown = {
+        (
+            str(i.get("kind") if isinstance(i, Mapping) else getattr(i, "kind", "")).strip(),
+            _CITE_RESIDUE_RE.sub(
+                "",
+                str(i.get("title") if isinstance(i, Mapping) else getattr(i, "title", "")),
+            ).strip(),
+        )
+        for i in already_shown
+    }
+    for subject in plan_subjects(plan):
+        matches = resolve_subject(documents, subject)
+        if len(matches) != 1:
+            continue
+        doc, _how = matches[0]
+        definition = document_definition(doc)
+        if not definition:
+            continue
+        title = document_title(doc)
+        if ledger is not None and ledger.held_as_duplicate(doc.path, "glance"):
+            continue
+        if ("glance", title.strip()) in shown:
+            continue
+        citations = _definition_citations(doc, by_path)
+        if not citations:
+            # The same mechanical belt every card passes. A definition rests on ledger
+            # anchors by gate rule, so this only fires on a page written before that rule —
+            # and an uncited sentence is exactly what this feature must not deliver fast.
+            continue
+        return GlanceCard(
+            suggestion=ResolvedSuggestion(
+                kind="glance",
+                title=title,
+                body=definition,
+                trigger=trigger,
+                confidence=10,
+                citations=list(citations),
+                evidence=definition,
+                subject=doc.path,
+                subject_label=_document_label(doc.path),
+                provisional=True,
+            ),
+            subject=doc.path,
+        )
+    return None
+
+
+def _definition_citations(doc, by_path: Mapping[str, object]) -> tuple[Citation, ...]:
+    """The citations a definition rests on, read off the claims its `c:xxxx` references name.
+
+    The definition is the head of the overview, and the overview's rule is that every block
+    rests on a ledger claim or a source span. So its provenance is not a second thing to
+    store: it is whatever the claims it points at cite, and following the reference is how
+    the glance card gets real citations for free.
+    """
+    wanted = {m.group(1) for m in ANCHOR_REFERENCE_RE.finditer(overview_region(doc.body))}
+    if not wanted:
+        return ()
+    out: list[Citation] = []
+    seen: set[tuple[str, int, int]] = set()
+    for claim in project_document_claims(doc):
+        if str(claim.anchor) not in wanted:
+            continue
+        for cit in claim.citations:
+            key = (str(cit.source_id), cit.block_start, cit.block_end)
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(cit)
+    return tuple(out)
+
+
 def deliver(
     pick: PickResult | None,
     candidates: Sequence[SuggestionCandidate],
@@ -1046,6 +1397,15 @@ def deliver(
     if not citations and not card.web_citations:
         return None, SKIP_UNCITED
     lede = _clip(" ".join(str(pick.lede or "").split()), LEDE_CHARS)
+    # The evidence goes out exactly as it was assembled, with ONE line above it: whose
+    # material this is. The reader expanding a card is in the same position the pick stage
+    # was — holding a fragment with no page around it — and the line that fixed the pick is
+    # the line that answers "why am I being shown this" here.
+    evidence = (
+        prompt("recall.live.card.about", context=card.context) + "\n" + card.body
+        if card.context
+        else card.body
+    )
     return (
         ResolvedSuggestion(
             kind=card.kind,
@@ -1055,7 +1415,7 @@ def deliver(
             confidence=confidence,
             citations=citations,
             web_citations=list(_web_citations(card, pick.citations)),
-            evidence=card.body,
+            evidence=evidence,
             subject=card.subject,
             subject_label=card.subject_label,
         ),
@@ -1103,6 +1463,25 @@ class PipelineResult:
     web_pages: int = 0
     #: How the web face was reached: `off` | `planned` | `fallback`. See `WEB_OFF`.
     web_tier: str = WEB_OFF
+    #: The provisional card this tick delivered early, if any — the same object the caller
+    #: already received through `on_glance`, carried here so a caller that has no callback
+    #: (the one-shot transport, a test) still sees it.
+    glance: ResolvedSuggestion | None = None
+    #: `hit` | `miss` — whether the plan named a subject the library could glance at — and,
+    #: when it hit, how it ended: `upgraded` (the full card was the same subject and took
+    #: the provisional card's place), `settled` (a different card came and this one merely
+    #: stopped being provisional), `alone` (nothing else came).
+    glance_state: str = GLANCE_MISS
+    glance_outcome: str = ""
+    #: Milliseconds from the tick's start to the provisional card leaving. Reported on its
+    #: own because the whole claim of this mechanism is WHEN it lands — a card counted in
+    #: `total` says nothing about whether it arrived a retrieval early.
+    glance_ms: float = 0.0
+    #: The mining posture this tick's discover contract was assembled under. Reported so
+    #: "why did nothing fire" can be answered with the posture in hand: the same turn is a
+    #: skip under `quiet` and a lookup under `eager`, and a record that showed only the skip
+    #: would make the difference look like model noise.
+    density: ContextDensity = DEFAULT_DENSITY
 
 
 def _merge_usage(*usages: Mapping[str, int]) -> dict[str, int]:
@@ -1113,9 +1492,32 @@ def _merge_usage(*usages: Mapping[str, int]) -> dict[str, int]:
     return out
 
 
+def _interleave(groups: Sequence[Sequence], key) -> list:
+    """Round-robin across the per-query returns, FIRST SURFACER OWNING each key.
+
+    Two properties, and the second is the one that makes a multi-query plan worth planning.
+    Uniqueness is the obvious half: the same claim reached by two queries is one claim, and
+    which query found it first is not a fact about the claim. ORDER is the other half — the
+    merged pool is truncated downstream (`MAX_CANDIDATES`), so laying query 1's whole return
+    in front of query 2's would let one query of a four-entry plan fill every slot while the
+    others reached the pick stage never. That is the fan-out bought and thrown away. Taking
+    one row from each query in turn is what buys it back."""
+    out: list = []
+    seen: set = set()
+    for row in chain.from_iterable(zip_longest(*groups)):
+        if row is None:
+            continue
+        marker = key(row)
+        if marker in seen:
+            continue
+        seen.add(marker)
+        out.append(row)
+    return out
+
+
 async def _semantic_face(
     user_id: UserId,
-    query: str,
+    queries: Sequence[str],
     *,
     claim_lexical: ClaimLexicalIndex | None,
     claim_vectors: ClaimVectorIndex | None,
@@ -1124,41 +1526,68 @@ async def _semantic_face(
     vectors: VectorIndex | None,
     content: ContentStore | None,
 ) -> tuple[tuple[RetrievedClaim, ...], tuple]:
-    """ONE query — not one per turn. The discover stage already said what the room is
-    looking for, and that sentence is a better query than any single turn's words."""
+    """EVERY semantic query the plan asked for, concurrently — not one per turn, and no
+    longer only the first of them.
+
+    The discover stage says what the room is looking for, and where it is looking for
+    several distinct things it now says so in several entries rather than crushing them into
+    one string. Running them is nearly free: the per-query cost is ONE embedding, all of
+    them are embedded in a single batched call, and the index round trips overlap. What
+    comes back is merged into one pool — deduped and interleaved by `_interleave` — so the
+    pick stage still chooses out of one numbered list and never learns which query surfaced
+    which card. It MERGES rather than re-fusing (`retrieve_claims_multi`'s job) because each
+    face already fuses internally, and because one vector per query is shared between the two
+    faces — which is what keeps a fan-out at exactly one batched embedding call."""
+    wanted: list[str] = []
+    for raw_query in queries:
+        text = str(raw_query or "").strip()
+        if text and text not in wanted:
+            wanted.append(text)
     do_claims = claim_lexical is not None and claim_vectors is not None
     do_windows = lexical is not None and vectors is not None
-    if not query or (not do_claims and not do_windows):
+    if not wanted or (not do_claims and not do_windows):
         return (), ()
-    vector = (await embeddings.aembed_documents([query]))[0]
-    claims_job = (
-        retrieve_claims(
-            user_id,
-            query,
-            claim_lexical=claim_lexical,
-            claim_vectors=claim_vectors,
-            embeddings=embeddings,
-            limit=SEMANTIC_CLAIMS,
-            query_embedding=vector,
+    embedded = await embeddings.aembed_documents(wanted)
+
+    async def one(query: str, vector) -> tuple[Sequence[RetrievedClaim], Sequence]:
+        claims_job = (
+            retrieve_claims(
+                user_id,
+                query,
+                claim_lexical=claim_lexical,
+                claim_vectors=claim_vectors,
+                embeddings=embeddings,
+                limit=SEMANTIC_CLAIMS,
+                query_embedding=vector,
+            )
+            if do_claims
+            else _nothing()
         )
-        if do_claims
-        else _nothing()
-    )
-    windows_job = (
-        rag_recall(
-            user_id,
-            query,
-            lexical=lexical,
-            vectors=vectors,
-            embeddings=embeddings,
-            limit=SEMANTIC_WINDOWS,
-            query_embedding=vector,
+        windows_job = (
+            rag_recall(
+                user_id,
+                query,
+                lexical=lexical,
+                vectors=vectors,
+                embeddings=embeddings,
+                limit=SEMANTIC_WINDOWS,
+                query_embedding=vector,
+            )
+            if do_windows
+            else _nothing()
         )
-        if do_windows
-        else _nothing()
+        return await asyncio.gather(claims_job, windows_job)
+
+    returned = await asyncio.gather(
+        *(one(query, vector) for query, vector in zip(wanted, embedded))
     )
-    claims, hits = await asyncio.gather(claims_job, windows_job)
-    windows: Sequence = list(hits)
+    claims = _interleave(
+        [got for got, _ in returned], key=lambda c: (c.document_path, str(c.anchor))
+    )
+    windows: Sequence = _interleave(
+        [got for _, got in returned],
+        key=lambda h: (str(h.source_id), h.block_start, h.block_end),
+    )
     if windows:
         raw: list[RecallHit] = sorted(
             windows, key=lambda h: (-h.score, str(h.source_id), h.block_start)
@@ -1198,6 +1627,29 @@ async def evaluate_live_pipeline(
     ledger: SubjectLedger | None = None,
     label_map: dict[str, str] | None = None,
     max_pending_turns: int = DEFAULT_MAX_PENDING_TURNS,
+    #: Turns this tick has ALREADY processed, newest last. Rendered read-only above the
+    #: pending window so intent formation can see what the new content refers back to. The
+    #: caller owns them because only the caller knows what "already processed" means for its
+    #: transport: a WebSocket session keeps a ring buffer, and a one-shot POST has the head
+    #: of its own submitted window (supplied automatically below).
+    context_turns: Sequence[ConversationTurn] = (),
+    max_context_turns: int = DEFAULT_CONTEXT_TURNS,
+    #: How eagerly this connection digs. One clause of the discover contract, nothing else.
+    density: ContextDensity = DEFAULT_DENSITY,
+    #: Canonical, for the glance short-circuit — the definition of a subject the plan names
+    #: goes out the moment the plan is parsed. With none passed there is no short-circuit
+    #: and the lane behaves exactly as it did before the mechanism existed.
+    documents: Sequence["CanonicalDocument"] = (),
+    #: …or a way to FETCH them, awaited only once a real plan exists. That distinction is
+    #: the whole reason this parameter is here beside the other: a skip is this lane's steady
+    #: state, and a tick that read the whole library before deciding it was small talk would
+    #: have made the cheap stage expensive to protect a card it was never going to deliver.
+    load_documents: Callable[[], Awaitable[Sequence["CanonicalDocument"]]] | None = None,
+    #: Called with the provisional card the instant it is built, so a transport can put it
+    #: on the wire while stages 2 and 3 are still running — which is the entire point. It is
+    #: awaited, and a callback that raises is logged and ignored: an early convenience must
+    #: never be able to fail the tick behind it.
+    on_glance: Callable[[ResolvedSuggestion], Awaitable[None]] | None = None,
     min_confidence: int = 6,
     # The web face's bound. A parameter so a test can reach it in milliseconds instead of
     # sleeping fifteen seconds — deliberately NOT a deployment setting: what it protects is
@@ -1216,13 +1668,52 @@ async def evaluate_live_pipeline(
     recorder = StageRecorder(STAGE_ORDER, RETRIEVE_CHILDREN)
     started = time.perf_counter()
 
+    posture = coerce_density(density)
+    #: Filled by the short-circuit below, then read by every return under it.
+    glance: GlanceCard | None = None
+    glance_ms = 0.0
+
     def finish(**fields) -> PipelineResult:
         recorder.record("total", (time.perf_counter() - started) * 1000.0)
-        return PipelineResult(stages=recorder.emit(), **fields)
+        # Which of the three endings happened is decided MECHANICALLY, from what the tick
+        # actually delivered — never asserted by a caller and never guessed.
+        state, outcome = GLANCE_MISS, ""
+        if glance is not None:
+            state = GLANCE_HIT
+            delivered = fields.get("suggestions") or ()
+            if any(card.subject == glance.subject for card in delivered):
+                outcome = GLANCE_UPGRADED
+            elif delivered:
+                outcome = GLANCE_SETTLED
+            else:
+                outcome = GLANCE_ALONE
+        return PipelineResult(
+            stages=recorder.emit(),
+            density=posture,
+            glance=glance.suggestion if glance is not None else None,
+            glance_state=state,
+            glance_outcome=outcome,
+            glance_ms=glance_ms,
+            **fields,
+        )
 
     window = take_pending(turns, max_pending_turns=max_pending_turns)
-    labels = label_turns(window.turns, label_map)
-    transcript = render_transcript(window.turns, labels)
+    # The submitted window's own head is context too, and for the same reason: a one-shot
+    # POST has no session to remember for it, but the turns it sent that did not fit the
+    # pending bound were already there to be read. They ride above, and `overflowed` then
+    # states only what reached NEITHER block — a count that says "did not fit" about turns
+    # printed two lines higher would be false.
+    head = tuple(turns)[: len(turns) - len(window.turns)]
+    earlier = take_context(
+        (*context_turns, *head), window.turns, max_context_turns=max_context_turns
+    )
+    shown = {id(t) for t in earlier}
+    overflowed = max(window.overflowed - sum(1 for t in head if id(t) in shown), 0)
+    # ONE labelling pass over both blocks: a participant number that meant one person above
+    # the fold and another below it is worse than no number at all.
+    labels = label_turns([*earlier, *window.turns], label_map)
+    context = render_transcript(earlier, labels[: len(earlier)])
+    transcript = render_transcript(window.turns, labels[len(earlier) :])
     asked = question_shaped(transcript)
 
     # The supplementary lookup is OFFERED only when something can actually serve it: the
@@ -1242,8 +1733,11 @@ async def evaluate_live_pipeline(
                 paths=paths,
                 delivered=already_shown,
                 digest=ledger.digest() if ledger is not None else "",
-                overflowed=window.overflowed,
+                overflowed=overflowed,
+                context=context,
+                context_turns=len(earlier),
                 web=web_offered,
+                density=posture,
             ),
             callbacks=callbacks,
             trace_metadata=trace_metadata,
@@ -1285,7 +1779,33 @@ async def evaluate_live_pipeline(
         + [f"{WEB}({q})" for q in web_queries]
     )
 
+    # ── the glance short-circuit. Between stage 1 and stage 2, costing no model call: the
+    # plan names a subject, the library holds one grounded sentence about it, and that
+    # sentence goes out NOW while everything below keeps running.
+    if not documents and load_documents is not None:
+        try:
+            documents = await load_documents()
+        except Exception:  # noqa: BLE001 — an early convenience never fails the tick
+            _log.warning("glance canonical read failed; continuing", exc_info=True)
+            documents = ()
+    glance = build_glance(
+        plan.plan,
+        documents,
+        trigger=intent,
+        ledger=ledger,
+        already_shown=already_shown,
+    )
+    if glance is not None:
+        glance_ms = (time.perf_counter() - started) * 1000.0
+        recorder.record("glance", glance_ms)
+        if on_glance is not None:
+            try:
+                await on_glance(glance.suggestion)
+            except Exception:  # noqa: BLE001 — an early convenience never fails the tick
+                _log.warning("on_glance callback failed; continuing", exc_info=True)
+
     # ── stage 2: retrieve. Every entry of the plan, concurrently.
+    #: Only for the web fallback tier below — the semantic face takes the whole list.
     query = queries[0] if queries else intent
     with recorder.measure("retrieve"):
         semantic_started = time.perf_counter()
@@ -1294,7 +1814,7 @@ async def evaluate_live_pipeline(
             try:
                 return await _semantic_face(
                     user_id,
-                    query if queries else "",
+                    queries,
                     claim_lexical=claim_lexical,
                     claim_vectors=claim_vectors,
                     embeddings=embeddings,
@@ -1348,7 +1868,9 @@ async def evaluate_live_pipeline(
         recorder.record_path(row.path, row.elapsed_ms, detail=row.degraded)
 
     web_tier = WEB_PLANNED if web_queries else WEB_OFF
-    candidates = build_candidates(component, claims, windows, web_answers)
+    candidates = build_candidates(
+        component, claims, windows, web_answers, documents=documents
+    )
 
     # ── the fallback tier. The library answered with NOTHING — not a weak card, not a card
     # the gates held, but an empty pool — and this deployment allows a supplement. That is
@@ -1360,7 +1882,9 @@ async def evaluate_live_pipeline(
         web_tier = WEB_FALLBACK
         with recorder.measure("retrieve"):
             web_answers = await web(intent or query)
-        candidates = build_candidates(component, claims, windows, web_answers)
+        candidates = build_candidates(
+            component, claims, windows, web_answers, documents=documents
+        )
         if web_answers:
             plan_labels = (*plan_labels, f"{WEB}({intent or query}) [fallback]")
 

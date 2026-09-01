@@ -44,6 +44,10 @@ rather than dropped in silence (core `take_pending`).
 connection, it takes no model call, and it feeds two things: the digest the discover stage
 reads, and the (subject × kind) backstop under the delivery gate. Both live in core; what
 lives here is the instance and the discipline that only a COMPLETED evaluation writes to it.
+It is also the reason `reset` exists: everything the connection knows about a conversation
+— ledger, context tail, pending run, mined list — was learned from turns the reader has just
+thrown away, and a clear that emptied only the client's half left the server skipping the
+next mention as `already_mined`.
 """
 
 from __future__ import annotations
@@ -54,9 +58,16 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any
 
-from pneuma_knowledge_core.domain.suggestion import ContextFocus, focus_option
+from pneuma_knowledge_core.domain.suggestion import (
+    DEFAULT_DENSITY,
+    ContextDensity,
+    ContextFocus,
+    coerce_density,
+    focus_option,
+)
 from pneuma_knowledge_core.domain.source import ConversationTurn
 from pneuma_knowledge_core.recall.live_pipeline import (
+    DEFAULT_CONTEXT_TURNS,
     DEFAULT_MAX_PENDING_TURNS,
     SubjectLedger,
 )
@@ -72,6 +83,12 @@ DEFAULT_QUIET_PERIOD = 6.0
 # authoritative list and re-sends it on reconnect, and cards that old are not what a
 # repeat looks like.
 SHOWN_MEMORY = 40
+
+# How many ALREADY-PROCESSED turns a connection remembers, for the read-only context tail
+# the discover stage reads above the new content (core `take_context`). Deliberately a
+# little larger than core's own bound so the tail is always full where the conversation has
+# run that long; the bound on what is RENDERED stays core's.
+CONTEXT_MEMORY = DEFAULT_CONTEXT_TURNS * 2
 
 # How many pending turns the deque physically holds. Deliberately larger than any sane
 # `max_pending_turns`: the bound on what one tick READS is policy, and this is only the
@@ -96,6 +113,12 @@ class LiveContextPolicy:
     not a knob. The wire still tolerates the field from an older client — see `configure`."""
 
     focus: ContextFocus = "general"
+    #: HOW EAGERLY this connection digs — a real field, not a name for a bundle of numbers.
+    #: The presets always were more than their thresholds: on the eager preset the turn
+    #: 「建议这个事情还是交给我们日本市场的负责人来做吧。」 was skipped, because moving floors
+    #: changes how MUCH gets through and never WHAT is looked for. It varies one clause of
+    #: the discover contract; a custom setting may carry any density beside any numbers.
+    density: ContextDensity = DEFAULT_DENSITY
     #: ONE number, TWO doors: discover's `worth` floor (below it nothing is retrieved) and
     #: pick's `confidence` floor (below it nothing is delivered). A deployment that wants
     #: fewer interruptions wants fewer of both, which is why it is not two dials.
@@ -124,12 +147,17 @@ class EvaluationPlan:
     seq: int
     turns: tuple[ConversationTurn, ...]
     focus: ContextFocus
+    density: ContextDensity
     min_confidence: int
     max_pending_turns: int
     web_search: bool
     briefing_id: str | None
     already_shown: tuple[dict[str, str], ...]
     started_at: float
+    #: The turns EARLIER ticks already processed, newest last — read-only context, never
+    #: mined again. Snapshotted with everything else: a turn that arrives while this runs
+    #: belongs to the next tick's pending run, not to this one's memory.
+    context: tuple[ConversationTurn, ...] = ()
 
 
 #: How much of a delivered card's body the mined list carries. The discover stage answers
@@ -176,6 +204,13 @@ class LiveContextSession:
         # `max_pending_turns` so a burst during a slow evaluation is still there to be
         # read (core's `take_pending` decides what fits and states what did not).
         self._turns: deque[ConversationTurn] = deque(maxlen=PENDING_MEMORY)
+        # What earlier ticks have already PROCESSED, newest last. A tick's turns move here
+        # when it COMPLETES, never when it starts: a tick that fails processed nothing and
+        # puts its turns back on the pending run (`abandon`), and a turn that was both the
+        # context and the pending window would be read twice and mined twice.
+        self._processed: deque[ConversationTurn] = deque(maxlen=CONTEXT_MEMORY)
+        # The in-flight tick's own turns, held so `complete` knows what to retire.
+        self._consumed: tuple[ConversationTurn, ...] = ()
         self._shown: OrderedDict[tuple[str, str], dict[str, str]] = OrderedDict()
         # What this conversation has looked up and said, for the discover digest and the
         # (subject × kind) backstop. Per connection, no model call, core-owned type.
@@ -196,6 +231,7 @@ class LiveContextSession:
         self,
         *,
         focus: str | None = None,
+        density: str | None = None,
         min_confidence: int | None = None,
         max_pending_turns: int | None = None,
         quiet_period: float | None = None,
@@ -220,6 +256,12 @@ class LiveContextSession:
         if focus is not None:
             focus_option(focus)  # raises on an unknown value
             changes["focus"] = focus
+        if density is not None:
+            # Coerced, not raised on: a density arrives from a preset pill, from an older
+            # client that has none, and from a custom setting carrying only numbers. None of
+            # those is a reason to fail a connection, and `balanced` is the honest answer to
+            # "no posture was stated".
+            changes["density"] = coerce_density(density)
         if min_confidence is not None:
             changes["min_confidence"] = int(min_confidence)
         if max_pending_turns is not None:
@@ -248,7 +290,47 @@ class LiveContextSession:
             self._turns.extend(turns)
             if self._turns:
                 self._dirty = True
+            # A replayed window is entirely NEW to this session — the client is re-sending
+            # what it holds, not telling us what was already mined. Clearing the processed
+            # memory keeps the two blocks disjoint: nothing may be context and pending at
+            # once, and the first tick after a reconnect reads what it was given.
+            self._processed.clear()
         return self.policy
+
+    def reset(self) -> None:
+        """The conversation was cleared. Everything this connection learned from it goes.
+
+        The client half of 「清空对话」 empties its own stores; without this one the SERVER
+        half stands, and the next thing said is still read against the ledger, the context
+        tail and the mined list of the conversation that was cleared. That is not a stale
+        cache — it is a decision: a subject raised again after a clear came back
+        `already_mined`, skipped against a card nobody on that screen had ever seen.
+
+        Clearing `already_shown` here is the same authority a `config` with an empty list
+        exercises (see `configure`): the client is stating what it holds, and after a clear
+        it holds nothing.
+
+        **The in-flight evaluation is invalidated, not awaited.** `complete`,
+        `glance_delivered` and `abandon` all guard on the in-flight seq, so a tick that
+        started before the clear can no longer write the ledger, register a card as shown,
+        or deliver one. Sending `_seq` back to zero beside it is safe for a transport
+        reason rather than a hopeful one: the socket runs exactly one evaluation at a time
+        and awaits it (`run_loop`), so the stale result is handled and discarded before any
+        new tick can claim the number it was using.
+        """
+        self._turns.clear()
+        self._processed.clear()
+        self._consumed = ()
+        self._shown.clear()
+        self.ledger = SubjectLedger()
+        self.label_map.clear()
+        self._dirty = False
+        self._force = False
+        self._in_flight = None
+        self._seq = 0
+        # A fresh conversation waits for nothing: the quiet period measures the gap since
+        # the last evaluation, and there is no longer a last evaluation.
+        self._last_end = None
 
     # -------------------------------------------------------------------- transcript
 
@@ -313,10 +395,13 @@ class LiveContextSession:
         self._force = False
         pending = tuple(self._turns)
         self._turns.clear()
+        self._consumed = pending
         return EvaluationPlan(
             seq=self._seq,
             turns=pending,
+            context=tuple(self._processed),
             focus=self.policy.focus,
+            density=self.policy.density,
             min_confidence=self.policy.min_confidence,
             max_pending_turns=self.policy.max_pending_turns,
             web_search=self.policy.web_search,
@@ -350,6 +435,11 @@ class LiveContextSession:
             return []
         self._in_flight = None
         self._last_end = now
+        # This tick READ them, so from here they are context and never mining material
+        # again — whether it delivered a card or skipped. That is the same rule consumption
+        # already followed; what changes is that the turns stay READABLE afterwards.
+        self._processed.extend(self._consumed)
+        self._consumed = ()
         for key, label in touched:
             self.ledger.touch(key, label, asked=asked)
         kept = []
@@ -365,6 +455,23 @@ class LiveContextSession:
                 self.ledger.deliver(entry["subject"], entry["kind"], entry["subject_label"])
             kept.append(suggestion)
         return kept
+
+    def glance_delivered(self, seq: int, card: Any) -> None:
+        """A provisional glance card reached the reader mid-tick.
+
+        Recorded HERE and not in `complete`, because it is delivered before the tick that
+        produced it has finished: the reader has been introduced to this subject whatever
+        the rest of that tick decides, so the repetition rules must know it now. `deliver`
+        is idempotent over (subject, kind), so an upgrade about the same subject adds
+        nothing a second time.
+
+        Guarded on the in-flight seq like every other write here: a card from an evaluation
+        that outlived its own slot must not be able to teach the session anything."""
+        if seq != self._in_flight:
+            return
+        entry = self._remember(card)
+        if entry and entry["subject"]:
+            self.ledger.deliver(entry["subject"], entry["kind"], entry["subject_label"])
 
     def abandon(self, seq: int, *, now: float, turns: Sequence[ConversationTurn] = ()) -> None:
         """Evaluation `seq` failed. Frees the slot and starts the quiet period anyway — a
@@ -382,6 +489,7 @@ class LiveContextSession:
             return
         self._in_flight = None
         self._last_end = now
+        self._consumed = ()
         if turns:
             restored = [*turns, *self._turns]
             self._turns.clear()

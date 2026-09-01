@@ -13,7 +13,9 @@ pure clock-injected state machine — this module is the transport that feeds it
 Wire protocol (JSON text frames both directions):
 
     client → server
-      {"type": "config", "focus": "general"|"owner"|"other", "min_confidence": 1-10,
+      {"type": "config", "focus": "general"|"owner"|"other",
+       "density": "eager"|"balanced"|"quiet",   # absent/unknown => "balanced"
+       "min_confidence": 1-10,
        "max_pending_turns": int, "quiet_period": float, "web_search": bool,
        "briefing_id": str|"", "turns": [Turn],
        "already_shown": [{kind, title, body?, subject?, subject_label?}],
@@ -27,6 +29,13 @@ Wire protocol (JSON text frames both directions):
       {"type": "turn", "speaker": str, "text": str,
        "role": "owner"|"other"|"unknown", "speaker_id": str|null, "at": iso8601|null}
       {"type": "flush"}                     — evaluate now, skipping the quiet period
+      {"type": "reset"}
+          The conversation was cleared. The session drops everything it learned from it —
+          pending run, context tail, subject ledger, mined list, seq — and answers with a
+          fresh `ready`. Without it the client's 「清空对话」 empties only its own half, and
+          the next mention of a subject from before the clear is skipped `already_mined`
+          against a card nobody on that screen has seen. An evaluation already in flight is
+          invalidated rather than waited for: its result reaches nobody.
       {"type": "want_more", "suggestion": ContextSuggestion, "ref": str|null}
           The client hands a card it received back. `ref` is the client's own
           correlation id, echoed on both `suggestion_detail` and `error` — without it a
@@ -35,7 +44,7 @@ Wire protocol (JSON text frames both directions):
       {"type": "ping"}                      — ignored; a client-side keepalive
 
     server → client
-      {"type": "ready", "focus": ..., "min_confidence": ...,
+      {"type": "ready", "focus": ..., "density": ..., "min_confidence": ...,
        "max_pending_turns": ..., "quiet_period": ..., "web_search": bool,
        "briefing_id": ..., "stats": bool}
           On accept, and again after every `config`, echoing the EFFECTIVE policy.
@@ -105,6 +114,8 @@ from pneuma_knowledge_core.domain.suggestion import (
     SUGGESTION_KINDS,
     ContextFocusOption,
     SuggestionKindOption,
+    DEFAULT_DENSITY,
+    coerce_density,
     focus_option,
 )
 from pneuma_knowledge_core.domain.ids import UserId
@@ -178,6 +189,8 @@ class TurnIn(BaseModel):
 class LiveContextStreamIn(BaseModel):
     turns: list[TurnIn] = []
     focus: str = "general"
+    #: `eager` | `balanced` | `quiet`. Absent or unknown ⇒ `balanced`.
+    density: str = DEFAULT_DENSITY
     min_confidence: int = DEFAULT_MIN_CONFIDENCE
     max_pending_turns: int = DEFAULT_MAX_PENDING_TURNS
     # Allow the supplementary internet search on this request. Clamped against the
@@ -216,6 +229,9 @@ def _suggestion_out(suggestion: Any) -> dict[str, Any]:
         "subject_label": getattr(suggestion, "subject_label", "") or "",
         "trigger": suggestion.trigger,
         "confidence": suggestion.confidence,
+        # True only on a `glance` card that has not settled yet: a true sentence shown
+        # early, with the tick still running behind it. The `upgrade` frame clears it.
+        "provisional": bool(getattr(suggestion, "provisional", False)),
         "citations": [
             {
                 "source_id": str(c.source_id),
@@ -244,6 +260,19 @@ def _processing_out(result: Any) -> dict[str, Any]:
     per-stage milliseconds, so nobody has to infer any of it from a token count."""
     return {
         "skipped": result.skipped,
+        # The glance short-circuit: whether the plan named a subject the library could show
+        # instantly (`hit`/`miss`), how it ended once the pipeline settled, and — separately
+        # from `total` — WHEN the provisional card left. The last one is the whole claim of
+        # the mechanism, and a millisecond count folded into the total would not state it.
+        "glance": {
+            "state": result.glance_state,
+            "outcome": result.glance_outcome,
+            "ms": result.glance_ms,
+        },
+        # The posture this tick ran under. Reported beside the skip because the same turn is
+        # a skip under `quiet` and a lookup under `eager` — a record showing only the skip
+        # would make the difference look like model noise.
+        "density": result.density,
         "dropped": dict(result.dropped),
         "intent": result.intent,
         "worth": result.worth,
@@ -322,6 +351,7 @@ def _plan_from(body: LiveContextStreamIn, ctx: Any) -> EvaluationPlan:
         seq=0,
         turns=tuple(t.to_turn() for t in body.turns),
         focus=body.focus,  # type: ignore[arg-type]
+        density=coerce_density(body.density),
         min_confidence=body.min_confidence,
         web_search=allow_web_search(ctx, body.web_search),
         # An older client's `turn_window` still lands where it meant to: the bound on how
@@ -373,6 +403,16 @@ async def live_context_stream(
                         str(shown.get("kind") or ""),
                         str(shown.get("subject_label") or subject),
                     )
+            # SSE has one event stream and no seq to upgrade into, so the provisional card
+            # is put on it the moment it exists — which is the whole point, since it lands a
+            # retrieval before anything else can. What settles it here is the `done` event
+            # the stream always ends with: `glance.outcome` says which ending happened.
+            glanced: list[Any] = []
+
+            async def send_glance(card: Any) -> None:
+                glanced.append(card)
+                events.put_nowait(("suggestion", _suggestion_out(card)))
+
             result = await run_evaluation(
                 ctx,
                 user_id,
@@ -381,6 +421,7 @@ async def live_context_stream(
                 pack=pack,
                 as_of=as_of,
                 ledger=ledger,
+                on_glance=send_glance,
             )
             for suggestion in result.suggestions:
                 events.put_nowait(("suggestion", _suggestion_out(suggestion)))
@@ -451,6 +492,7 @@ async def live_context_ws(websocket: WebSocket, user_id: str) -> None:
         return {
             "type": "ready",
             "focus": p.focus,
+            "density": p.density,
             "min_confidence": p.min_confidence,
             "max_pending_turns": p.max_pending_turns,
             "quiet_period": p.quiet_period,
@@ -476,48 +518,131 @@ async def live_context_ws(websocket: WebSocket, user_id: str) -> None:
             pack = await load_briefing_pack(ctx, user_id, plan.briefing_id)
         if not profile:
             profile.append(await _render_profile(ctx, UserId(user_id)))
-        result = await run_evaluation(
-            ctx,
-            user_id,
-            plan,
-            label_map=session.label_map,
-            profile=profile[0],
-            pack=pack,
-            ledger=session.ledger,
-        )
-        # The session dedup runs on the RESULT, layered over core's within-evaluation one.
-        # The ledger is written here too, and only here: a result that outlived its own
-        # evaluation must not be able to teach the session anything.
-        delivered = session.complete(
-            plan.seq,
-            result.suggestions,
-            now=loop.time(),
-            touched=result.touched,
-            asked=result.asked,
-        )
-        for suggestion in delivered:
-            emit({"type": "suggestion", "seq": plan.seq, "suggestion": _suggestion_out(suggestion)})
-        # Its own frame rather than a field on `suggestion`: the evaluation that produced ZERO
-        # cards emits no `suggestion` frame at all, and that is precisely the one you need the
-        # gate counters for — "why did nothing fire" is the question this socket gets
-        # asked most, because silence is the steady state.
-        #
-        # OFF by default, and that default is load-bearing. Emitting telemetry every
-        # evaluation would mean a quiet connection is never actually quiet, which breaks
-        # the property the context clients rely on (and which `test_silence_produces_no_frames`
-        # guards). Debug surfaces opt in; passive clients need not pay for them.
-        if send_stats[0]:
+
+        # The glance short-circuit's transport half. The card goes out on THIS tick's seq —
+        # the same slot the full card will land in — so an upgrade is a replacement in place
+        # rather than a second bubble, and the queue does not grow.
+        glanced: list[Any] = []
+        settled: list[bool] = []
+
+        def settle(full: Any | None) -> None:
+            """The provisional card's ending, on the wire. Called EXACTLY once per tick that
+            delivered one — and the one call is what the client's shimmer waits on.
+
+            It is a function rather than three lines at the end of the happy path because
+            the happy path is not the only ending. A tick that raised after its glance went
+            out used to emit nothing at all, and the reader was left with a card that said
+            「细节补充中…」 until it expired — the badge outliving the tick that promised to
+            fill it in. So the fail-safe below (`finally`) calls this too, with nothing:
+            the card settles as final with what it already has, which is a true, cited
+            sentence and never a lie. `settled` makes the double call harmless."""
+            if not glanced or settled:
+                return
+            settled.append(True)
             emit(
                 {
-                    "type": "stats",
+                    "type": "upgrade",
                     "seq": plan.seq,
-                    "focus": plan.focus,
-                    "delivered": len(delivered),
-                    "token_usage": dict(result.token_usage),
-                    "turns": len(plan.turns),
-                    **_processing_out(result),
+                    # None ⇒ settle in place: the same card, no longer provisional.
+                    "suggestion": _suggestion_out(full) if full is not None else None,
                 }
             )
+
+        async def send_glance(card: Any) -> None:
+            # A tick the conversation outlived reaches nobody. `reset` frees the in-flight
+            # slot, so this is the same guard `glance_delivered` applies to the ledger, moved
+            # one step earlier — a provisional card emitted into a panel the reader has just
+            # cleared would be the cleared bug wearing a different hat.
+            if session.in_flight != plan.seq:
+                return
+            # Recorded in the ledger AT DELIVERY, like any other card: the reader has been
+            # introduced to this subject whatever the rest of the tick does. An upgrade is
+            # the same subject, so `deliver` is idempotent over it and nothing double-counts.
+            glanced.append(card)
+            session.glance_delivered(plan.seq, card)
+            emit(
+                {
+                    "type": "suggestion",
+                    "seq": plan.seq,
+                    "provisional": True,
+                    "suggestion": _suggestion_out(card),
+                }
+            )
+
+        try:
+            result = await run_evaluation(
+                ctx,
+                user_id,
+                plan,
+                label_map=session.label_map,
+                profile=profile[0],
+                pack=pack,
+                ledger=session.ledger,
+                on_glance=send_glance,
+            )
+            # Whether this tick still belongs to the conversation it was started for.
+            # `complete` discards a stale result on its own; this is read BEFORE it so the
+            # processing record can be discarded too — a tick record landing in a panel the
+            # reader just cleared is the same defect as a card landing there.
+            live = session.in_flight == plan.seq
+            # The session dedup runs on the RESULT, layered over core's within-evaluation
+            # one. The ledger is written here too, and only here: a result that outlived its
+            # own evaluation must not be able to teach the session anything.
+            delivered = session.complete(
+                plan.seq,
+                result.suggestions,
+                now=loop.time(),
+                touched=result.touched,
+                asked=result.asked,
+            )
+            # A provisional card always gets its settling frame, whichever ending happened —
+            # the shimmer is the client's word for "this tick has not finished", and a tick
+            # that finished without saying so would leave it shimmering forever.
+            queued = list(delivered)
+            if glanced:
+                upgrade = next((s for s in delivered if s.subject == glanced[0].subject), None)
+                settle(upgrade)
+                # Removed from what is EMITTED, never from what was delivered: the card
+                # reached the reader, in the provisional card's own slot. A stats frame that
+                # counted it as zero would say a tick delivered nothing when the reader is
+                # looking at it.
+                queued = [s for s in queued if s is not upgrade]
+            for suggestion in queued:
+                emit(
+                    {
+                        "type": "suggestion",
+                        "seq": plan.seq,
+                        "suggestion": _suggestion_out(suggestion),
+                    }
+                )
+            # Its own frame rather than a field on `suggestion`: the evaluation that produced
+            # ZERO cards emits no `suggestion` frame at all, and that is precisely the one you
+            # need the gate counters for — "why did nothing fire" is the question this socket
+            # gets asked most, because silence is the steady state.
+            #
+            # OFF by default, and that default is load-bearing. Emitting telemetry every
+            # evaluation would mean a quiet connection is never actually quiet, which breaks
+            # the property the context clients rely on (and which
+            # `test_silence_produces_no_frames` guards). Debug surfaces opt in; passive
+            # clients need not pay for them.
+            if send_stats[0] and live:
+                emit(
+                    {
+                        "type": "stats",
+                        "seq": plan.seq,
+                        "focus": plan.focus,
+                        "delivered": len(delivered),
+                        "token_usage": dict(result.token_usage),
+                        "turns": len(plan.turns),
+                        **_processing_out(result),
+                    }
+                )
+        finally:
+            # The fail-safe, and the reason the happy path above may be read as ordinary:
+            # EVERY ending of a tick that delivered a provisional card settles it. A raise,
+            # a cancellation, a timeout — the card stops shimmering and stands as what it
+            # is. Idempotent, so the normal path's own call wins and this one does nothing.
+            settle(None)
 
     async def run_loop() -> None:
         while True:
@@ -588,6 +713,7 @@ async def live_context_ws(websocket: WebSocket, user_id: str) -> None:
                 if kind == "config":
                     session.configure(
                         focus=msg.get("focus"),
+                        density=msg.get("density"),
                         min_confidence=msg.get("min_confidence"),
                         # `turn_window` is the old name for the same bound; `max_suggestions`
                         # is simply dropped. An older client is tolerated, never 400ed.
@@ -617,6 +743,13 @@ async def live_context_ws(websocket: WebSocket, user_id: str) -> None:
                     wake.set()
                 elif kind == "flush":
                     session.flush()
+                    wake.set()
+                elif kind == "reset":
+                    session.reset()
+                    # The fresh `ready` is the ack: the policy is unchanged by a clear, so
+                    # what it actually says is "this connection is now empty", and a client
+                    # that cleared has one frame to wait for rather than a silence to guess at.
+                    emit(ready_frame())
                     wake.set()
                 elif kind == "want_more":
                     suggestion = msg.get("suggestion")
