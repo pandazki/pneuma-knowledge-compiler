@@ -55,6 +55,7 @@ from pneuma_knowledge_core.recall.live_pipeline import (
     SubjectLedger,
     build_candidates,
     candidate_from_web,
+    deliver,
     discover_contract,
     evaluate_live_pipeline,
     pick_contract,
@@ -68,7 +69,7 @@ from pneuma_knowledge_core.recall.live_pipeline import (
     take_pending,
 )
 from pneuma_knowledge_core.ports.web_search import WebSearchAnswer
-from pneuma_knowledge_core.recall.paths import PathResult
+from pneuma_knowledge_core.recall.paths import ComponentEvidence, PathResult
 
 AS_OF = datetime(2026, 8, 26, 9, 0, tzinfo=timezone.utc)
 USER = UserId("u-1")
@@ -1212,6 +1213,21 @@ def test_the_quiet_posture_asks_for_a_question_and_refuses_an_unnamed_gap():
     assert "A gap nobody named is not one." in quiet
 
 
+def test_the_quiet_posture_only_mines_a_question_a_library_could_answer_at_all():
+    """The calibration the incident exposed, phrased positively and pinned in both packs.
+
+    「你最想让它做什么」 is a real question, asked aloud, and it passes every other clause of
+    this posture — but its answer lives in the person who was asked and in no library. A
+    lookup fired at it can only return the nearest thing the base happens to hold, which is
+    where a fabricated subject gets its opening."""
+    quiet = prompt("recall.live.discover.mining.quiet")
+    assert "Mine only a question whose answer COULD EXIST IN A KNOWLEDGE BASE" in quiet
+    assert "personally wants, prefers or intends" in quiet
+    chinese = chinese_overlay()["recall.live.discover.mining.quiet"]
+    assert "只挖**答案有可能存在于知识库里**的问题" in chinese
+    assert "只能问他本人" in chinese
+
+
 def test_every_posture_aims_a_find_a_person_ask_at_the_people_and_not_at_a_definition():
     """The one steer that stays a RULE and not an example, in the SHARED half — so all three
     postures carry it.
@@ -1512,6 +1528,143 @@ def test_the_pick_contract_ranks_by_match_and_never_by_which_pool_a_card_came_fr
     chinese = chinese_overlay()["recall.live.pick.contract"]
     assert "**来源不是优先级，回答才是。**" in chinese
     assert "都用同一把尺子、对着那个问题读每一张候选" in chinese
+
+
+# ───────────────────────────────────── a retrieved fragment carries its own provenance
+#
+# The incident: a card assembled from two claims inside `projects/<subject>/a02.md` reached
+# the pick stage titled `a02` — a rollover volume's filename — and the model, having no way
+# to see whose history that was, wrote a lede about the product the ROOM was discussing. The
+# evidence was real and the subject was invented, which is the one failure mode this lane's
+# mechanical assembly was supposed to make impossible.
+#
+# The fix is not contract copy. It is that a candidate is NAMED and ORIENTED from canonical
+# before any model sees it (`canonical_glance.display_identity`).
+
+#: A frozen rollover volume of `LUMEN`. Its own body has no `# ` title at all — that is what
+#: a real volume looks like, because the rollover keeps the title on the active document —
+#: so nothing inside this file says what it is history of.
+LUMEN_VOLUME = CanonicalDocument(
+    doc_id=DocumentId("d-lumen-a02"),
+    path="projects/lumenlab/a02.md",
+    frontmatter={
+        "doc_id": "d-lumen-a02",
+        "type": "project",
+        "archived_from": "projects/lumenlab.md",
+        "rollover_volume": "02",
+    },
+    body=(
+        "## History\n\n"
+        f"- The first bench used a borrowed mirror. [cite: {SRC} ¶8-9] <!-- c:3c3c -->\n"
+    ),
+)
+
+VOLUME_CLAIM = claim(
+    "3c3c", "projects/lumenlab/a02.md", "The first bench used a borrowed mirror."
+)
+
+
+def test_a_candidate_from_a_frozen_volume_is_named_after_the_document_it_is_history_of():
+    (card,) = build_candidates(claims=[VOLUME_CLAIM], documents=[LUMEN, LUMEN_VOLUME])
+    assert card.title == "Lumen Lab (archive a02)"
+    assert card.subject_label == "Lumen Lab (archive a02)"
+    # The subject stays the ADDRESS — it is the session dedup key, not a display name.
+    assert card.subject == "projects/lumenlab/a02.md"
+    assert card.context == (
+        "Lumen Lab (projects/lumenlab.md) — "
+        "Lumen Lab builds optical benches for the agent-memory group."
+    )
+
+
+def test_the_pick_prompt_states_whose_history_a_volume_candidate_is():
+    """The mechanism, in the bytes the model is actually handed. This is the assertion the
+    incident had no equivalent of: the pick stage could not have known, from anything on the
+    card, that the claims describe Lumen Lab."""
+    rendered = render_candidates(
+        build_candidates(claims=[VOLUME_CLAIM], documents=[LUMEN, LUMEN_VOLUME])
+    )
+    assert rendered.splitlines()[0] == "## 1 · [fact] Lumen Lab (archive a02)"
+    assert rendered.splitlines()[2] == (
+        "about: projects/lumenlab/a02.md — Lumen Lab (projects/lumenlab.md) — "
+        "Lumen Lab builds optical benches for the agent-memory group."
+    )
+    # …and the string that named nothing is not what the card is called any more.
+    assert "[fact] a02" not in rendered
+
+
+def test_a_routed_paths_card_keeps_its_own_title_and_borrows_only_the_page_identity():
+    """A component path names its own card — its arguments are what the reader asked about.
+    What canonical supplies is the two things the lookup cannot: the orientation line, and
+    the name the page goes by in the session ledger's digest."""
+    evidence = ComponentEvidence(
+        path="people_around",
+        args={"subject": "Lumen Lab"},
+        claims=(VOLUME_CLAIM,),
+        windows=(),
+    )
+    (card,) = build_candidates(component=[evidence], documents=[LUMEN, LUMEN_VOLUME])
+    assert card.title == "Lumen Lab", "the path's own argument, unchanged"
+    assert card.subject_label == "Lumen Lab (archive a02)", "…but never `a02` in the digest"
+    assert card.context.startswith("Lumen Lab (projects/lumenlab.md) — ")
+
+
+def test_a_plain_page_gets_the_same_orientation_line_and_not_only_a_volume():
+    """The line helps every candidate; the volume is only the one that cannot do without
+    it. A page whose library entry says what it is says so on its own card too."""
+    rendered = render_candidates(
+        build_candidates(
+            claims=[claim("1a1a", "projects/lumenlab.md", "It shipped a second bench.")],
+            documents=[LUMEN],
+        )
+    )
+    assert rendered.splitlines()[0] == "## 1 · [fact] Lumen Lab"
+    assert rendered.splitlines()[2] == (
+        "about: projects/lumenlab.md — "
+        "Lumen Lab builds optical benches for the agent-memory group."
+    )
+
+
+def test_with_no_canonical_in_hand_a_candidate_renders_exactly_as_it_did_before():
+    """The parameter is additive. A caller with no documents — a test, a deployment whose
+    canonical read failed — gets the filename title and a bare `about:` line, byte for byte
+    what this function produced before the identity existed."""
+    rendered = render_candidates(
+        build_candidates(claims=[claim("1a1a", "projects/lumenlab.md", "It shipped.")])
+    )
+    assert rendered.splitlines()[0] == "## 1 · [fact] lumenlab"
+    assert rendered.splitlines()[2] == "about: projects/lumenlab.md"
+
+
+def test_the_delivered_card_carries_the_same_name_and_the_line_in_its_evidence():
+    """A reader expanding the card is in the position the pick stage was: holding a fragment
+    with no page around it. The line that fixed the prompt rides the evidence block."""
+    cards = build_candidates(claims=[VOLUME_CLAIM], documents=[LUMEN, LUMEN_VOLUME])
+    card, reason = deliver(
+        PickResult(choice=1, lede="第一台样机用的是借来的反射镜。", citations=[1], confidence=8),
+        cards,
+    )
+    assert reason == "" and card is not None
+    assert card.title == "Lumen Lab (archive a02)"
+    assert card.evidence.splitlines()[0] == (
+        "about: Lumen Lab (projects/lumenlab.md) — "
+        "Lumen Lab builds optical benches for the agent-memory group."
+    )
+    # The evidence itself is untouched under it — still the claim, verbatim.
+    assert card.evidence.splitlines()[1] == "- The first bench used a borrowed mirror."
+
+
+def test_the_pick_contract_grounds_the_lede_in_the_candidates_own_subject():
+    """The contract half of the fix, and it is positive: the conversation says why this
+    matters, the candidate says what is true and whose it is. The `about:` line above is
+    what makes the instruction followable rather than a plea to be careful."""
+    english = pick_contract()
+    assert (
+        "Write it\n  about the candidate's OWN subject and scene, as its title and its "
+        "`about:` line state\n  them: the conversation tells you why this matters, the "
+        "candidate tells you what is true\n  and whose it is." in english
+    )
+    chinese = chinese_overlay()["recall.live.pick.contract"]
+    assert "写的是**这张候选\n  自己的**主体与场景，以它的标题和「出自」那一行写明的为准" in chinese
 
 
 @pytest.mark.asyncio

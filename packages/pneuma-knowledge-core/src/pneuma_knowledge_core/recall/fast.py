@@ -45,9 +45,9 @@ from langchain_core.messages.content import create_image_block
 from pydantic import BaseModel, Field
 
 from ..canonical_glance import (
+    display_identity,
     document_definition,
     document_ledger_line,
-    document_title,
     render_canonical_glance,
 )
 from ..compile.documents import render_document
@@ -256,7 +256,7 @@ def _glance_entries(
             out.append({"doc": path.rsplit("/", 1)[-1].removesuffix(".md")})
             continue
         says = document_definition(doc) or document_ledger_line(doc) or ""
-        entry: dict = {"doc": document_title(doc)}
+        entry: dict = {"doc": display_identity(by_path, path).title}
         if says:
             entry = {"text": preview_head(says), **entry}
         out.append(entry)
@@ -2980,13 +2980,19 @@ async def fast_recall(
     # it: `titles` is what lets a claim's preview say which PAGE it came from ("Pricing")
     # instead of which file ("docs/product/pricing.md"), and the claim face is the first
     # thing that needs it.
+    #
+    # Read through `display_identity` and not through `document_title`, so the ONE document
+    # whose own title names nothing — a frozen rollover volume, filed as `a02` with no `# `
+    # heading in its body — previews under the active document it is history of. Every
+    # preview surface in this lane draws its document name from this one mapping, so the
+    # correction reaches all of them at once.
     glance: str | None = None
     by_path: dict[str, CanonicalDocument] = {}
     titles: dict[str, str] = {}
     if documents is not None:
         glance = render_canonical_glance(documents, skill, packs=packs)
         by_path = {doc.path: doc for doc in documents}
-        titles = {path: document_title(doc) for path, doc in by_path.items()}
+        titles = {path: display_identity(by_path, path).title for path in by_path}
 
     reranking = reranker is not None and rerank_candidates > 0
     claim_pool = max(

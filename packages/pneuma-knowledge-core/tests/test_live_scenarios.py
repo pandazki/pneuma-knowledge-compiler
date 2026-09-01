@@ -38,6 +38,7 @@ now. Every row is that principle meeting a room:
     a defined subject     → the library's own sentence, now     → the glance short-circuit
     …and nothing behind it→ the ending is named all the same    → the glance settles alone
     two things in one turn→ one query each, one merged pool     → the semantic fan-out
+    a frozen archive hit  → whose history am I reading?         → the parent's identity
 
 Live mode: `PNEUMA_SCENARIOS_LIVE=1` is deliberately NOT implemented. Every row here scripts
 the model turn it is about, so a live variant would have to script nothing and assert nothing
@@ -83,6 +84,7 @@ from test_live_pipeline import (  # noqa: E402
     ClaimStub,
     FakeWebSearch,
     LUMEN,
+    LUMEN_VOLUME,
     SRC,
     claim,
     other,
@@ -606,6 +608,68 @@ TWO_THINGS_AT_ONCE = Scenario(
 )
 
 
+# 11. The incident this table exists to hold: the room is talking about ONE product, and
+#     what retrieval surfaces is a claim living in ANOTHER product's frozen rollover volume.
+#     Live, the candidate reached the pick stage titled `a02` — a filename — and the model,
+#     with no way to see whose history it was reading, wrote a lede that put the room's
+#     product where the evidence's belonged. The evidence was real; the subject was invented.
+#
+#     What the row asserts is the MECHANISM, not the model's good behaviour: the parent's
+#     identity is on the card before any model sees it. Then, with a pick scripted to choose
+#     that card anyway, the delivered card is named after the document the volume is history
+#     of — so even the worst choice available cannot be delivered under a name that names
+#     nothing.
+
+WRONG_SUBJECT_TURN = owner("我现在的一个习惯，是在 Apex Bench 里直接侧拉叫那个小助手。")
+
+ARCHIVED_ASSISTANT = ClaimStub(
+    anchor="c-a02",
+    document_path="projects/lumenlab/a02.md",
+    text="The bench console opens a side panel for simple lookups.",
+    citations=[{"source_id": SRC, "block_start": 8, "block_end": 9}],
+)
+
+
+def _the_parent_identity_is_on_the_card_before_the_model_sees_it(
+    result, discover_model, pick_model
+) -> None:
+    human = str(pick_model.calls[0][1].content)
+    # The title names the active document, with the volume noted…
+    assert "## 1 · [fact] Lumen Lab (archive a02)" in human
+    # …and the orientation line says, in the library's own words, what that document is.
+    assert (
+        "about: projects/lumenlab/a02.md — Lumen Lab (projects/lumenlab.md) — "
+        "Lumen Lab builds optical benches for the agent-memory group." in human
+    )
+    # The string that started the incident is not what the card is called any more.
+    assert "[fact] a02" not in human
+    # And a pick that chose it anyway cannot deliver it under a name that names nothing.
+    (card,) = result.suggestions
+    assert card.title == "Lumen Lab (archive a02)"
+    assert card.evidence.startswith("about: Lumen Lab (projects/lumenlab.md) — ")
+
+
+ARCHIVED_VOLUME_KEEPS_ITS_SUBJECT = Scenario(
+    twin_of="a habit stated about one product, answered from another product's archive",
+    turns=(WRONG_SUBJECT_TURN,),
+    discover=DiscoverResult(
+        intent="Apex Bench 里那个侧拉的小助手是怎么设计的？",
+        plan=[semantic("侧拉助手是怎么设计的")],
+        worth=8,
+    ),
+    pick=PickResult(
+        choice=1,
+        lede="控制台里侧拉开的那个面板，是用来做简单查询的。",
+        citations=[1],
+        confidence=8,
+    ),
+    claims=(ARCHIVED_ASSISTANT,),
+    documents=(LUMEN, LUMEN_VOLUME),
+    expected="deliver",
+    check=_the_parent_identity_is_on_the_card_before_the_model_sees_it,
+)
+
+
 SCENARIOS: tuple[Scenario, ...] = (
     SMALL_TALK,
     ALREADY_MINED,
@@ -619,6 +683,7 @@ SCENARIOS: tuple[Scenario, ...] = (
     GLANCE_THEN_UPGRADE,
     GLANCE_THEN_NOTHING,
     TWO_THINGS_AT_ONCE,
+    ARCHIVED_VOLUME_KEEPS_ITS_SUBJECT,
 )
 
 

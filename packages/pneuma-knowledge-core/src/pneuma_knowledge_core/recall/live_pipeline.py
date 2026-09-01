@@ -91,6 +91,7 @@ from pydantic import BaseModel, ValidationError
 
 from ..canonical_glance import (
     claim_display_text,
+    display_identity,
     document_definition,
     document_title,
     resolve_subject,
@@ -718,6 +719,12 @@ class SuggestionCandidate:
     subject: str
     subject_label: str
     origin: str  # "path:<name>" | "semantic.claims" | "semantic.windows" | "web"
+    #: One line of PROVENANCE CONTEXT for the document this card was built out of — what the
+    #: page says it is, and, when the evidence lives in a frozen rollover volume, whose
+    #: history that volume is. Empty when the library said nothing about the page, and empty
+    #: on a web card, whose provenance is its URLs. See `canonical_glance.display_identity`
+    #: for why a retrieved fragment cannot be trusted to name its own subject.
+    context: str = ""
     #: `library` or `web` — the pool, stated on the card the pick stage reads. See
     #: `PROVENANCE_LIBRARY`.
     provenance: str = PROVENANCE_LIBRARY
@@ -792,7 +799,9 @@ def _subject_of(claims: Sequence[RetrievedClaim]) -> tuple[str, str]:
 
 
 def candidate_from_component(
-    evidence: ComponentEvidence, index: int
+    evidence: ComponentEvidence,
+    index: int,
+    docs: Mapping[str, "CanonicalDocument"] | None = None,
 ) -> SuggestionCandidate | None:
     """One routed path's result as a card. None when the path found nothing to show."""
     claims = list(evidence.claims[:CLAIMS_PER_CANDIDATE])
@@ -806,6 +815,13 @@ def candidate_from_component(
         CANDIDATE_BODY_CHARS,
     )
     subject, label = _subject_of(claims)
+    context = ""
+    if subject and docs:
+        # The path chose the CARD's title (its own arguments, which is what the reader asked
+        # about), so the identity supplies the two things a routed lookup cannot: the page
+        # its claims live on, and the name that page goes by in the session ledger's digest.
+        identity = display_identity(docs, subject)
+        context, label = identity.context, identity.title
     if not subject:
         subject, label = evidence.key(), title
     return SuggestionCandidate(
@@ -817,6 +833,7 @@ def candidate_from_component(
         subject=subject,
         subject_label=label or title,
         origin=f"path:{evidence.path}",
+        context=context,
     )
 
 
@@ -876,25 +893,34 @@ def _window_citations(windows: Sequence) -> tuple[Citation, ...]:
 
 
 def candidates_from_claims(
-    claims: Sequence[RetrievedClaim], start: int
+    claims: Sequence[RetrievedClaim],
+    start: int,
+    docs: Mapping[str, "CanonicalDocument"] | None = None,
 ) -> list[SuggestionCandidate]:
-    """Semantic claim hits, grouped into one card per document in retrieval order."""
+    """Semantic claim hits, grouped into one card per document in retrieval order.
+
+    `docs` is the library, and it is what makes the card's NAME the page's name rather than
+    its filename. Without it the fallback is the filename — which is what this function did
+    before, and is exactly right for a caller that has no canonical in hand and exactly
+    wrong for a rollover volume (`a02`). See `canonical_glance.display_identity`."""
     grouped: dict[str, list[RetrievedClaim]] = {}
     for claim in claims:
         grouped.setdefault(claim.document_path, []).append(claim)
     out: list[SuggestionCandidate] = []
     for path, rows in grouped.items():
         top = rows[:CLAIMS_PER_CANDIDATE]
+        identity = display_identity(docs or {}, path)
         out.append(
             SuggestionCandidate(
                 index=start + len(out),
                 kind="concept" if _is_overview(top[0]) else "fact",
-                title=_document_label(path),
+                title=identity.title,
                 body=_clip(_claim_lines(top), CANDIDATE_BODY_CHARS),
                 citations=_citations_of(top),
                 subject=path,
-                subject_label=_document_label(path),
+                subject_label=identity.title,
                 origin="semantic.claims",
+                context=identity.context,
             )
         )
     return out
@@ -931,6 +957,7 @@ def build_candidates(
     web: Sequence[tuple[WebSearchAnswer, str]] = (),
     *,
     limit: int = MAX_CANDIDATES,
+    documents: Sequence["CanonicalDocument"] = (),
 ) -> list[SuggestionCandidate]:
     """Everything retrieval returned, as numbered cards. Sync — it awaits nothing.
 
@@ -941,6 +968,12 @@ def build_candidates(
     weighing an even choice the owner's own material is the one it read first. It is still
     candidate N like any other — nothing here privileges or penalises it in the choice.
     Re-numbered at the end so the indexes the pick stage sees are 1..n with no gaps.
+
+    `documents` is canonical, and it is what lets a card NAME ITS OWN SUBJECT. Passing none
+    is legal and renders exactly what this function rendered before the parameter existed —
+    a card titled by its document's filename — which is the right answer for every page whose
+    filename is its subject and the wrong one for a rollover volume, whose filename is `a02`
+    (`canonical_glance.display_identity`).
 
     **A web candidate is never the one truncation drops.** The limit is a bound on what a
     weak model can choose from reliably, and applying it in list order would silently delete
@@ -958,12 +991,13 @@ def build_candidates(
             reserved.append(card)
     reserved = reserved[:limit]
 
+    by_path = {doc.path: doc for doc in documents}
     rows: list[SuggestionCandidate] = []
     for evidence in component:
-        card = candidate_from_component(evidence, len(rows) + 1)
+        card = candidate_from_component(evidence, len(rows) + 1, by_path)
         if card is not None:
             rows.append(card)
-    rows.extend(candidates_from_claims(claims, len(rows) + 1))
+    rows.extend(candidates_from_claims(claims, len(rows) + 1, by_path))
     rows.extend(candidates_from_windows(windows, len(rows) + 1))
 
     seen: set[tuple[str, str]] = {(row.subject, row.kind) for row in reserved}
@@ -979,6 +1013,14 @@ def build_candidates(
         SuggestionCandidate(**{**row.__dict__, "index": n})
         for n, row in enumerate(ordered, start=1)
     ]
+
+
+def _about_line(card: SuggestionCandidate) -> str:
+    """The candidate's `about:` line: what it is filed as, then what that page IS."""
+    subject = card.subject or card.subject_label or card.title
+    if not card.context:
+        return subject
+    return prompt("recall.identity.joined", head=subject, tail=card.context)
 
 
 def render_candidates(candidates: Sequence[SuggestionCandidate]) -> str:
@@ -1020,7 +1062,14 @@ def render_candidates(candidates: Sequence[SuggestionCandidate]) -> str:
                 # name a person page while a project page shares the word — measured on a
                 # real library, where a candidate list showing only titles left the pick
                 # stage guessing which of the two it was choosing.
-                subject=card.subject or card.subject_label or card.title,
+                #
+                # The SAME line carries the page's own account of itself when the library
+                # has one (`display_identity`), because the failure the path alone could not
+                # prevent is one level up from ambiguity: `projects/<subject>/a02.md` names
+                # exactly one document and still tells a reader nothing about whose history
+                # it is. One line, not two — the reader of this block is choosing, and a
+                # second label under the first is a second thing to weigh.
+                subject=_about_line(card),
                 body=card.body,
                 citations=cites or prompt("recall.live.candidate.no_citations"),
             )
@@ -1348,6 +1397,15 @@ def deliver(
     if not citations and not card.web_citations:
         return None, SKIP_UNCITED
     lede = _clip(" ".join(str(pick.lede or "").split()), LEDE_CHARS)
+    # The evidence goes out exactly as it was assembled, with ONE line above it: whose
+    # material this is. The reader expanding a card is in the same position the pick stage
+    # was — holding a fragment with no page around it — and the line that fixed the pick is
+    # the line that answers "why am I being shown this" here.
+    evidence = (
+        prompt("recall.live.card.about", context=card.context) + "\n" + card.body
+        if card.context
+        else card.body
+    )
     return (
         ResolvedSuggestion(
             kind=card.kind,
@@ -1357,7 +1415,7 @@ def deliver(
             confidence=confidence,
             citations=citations,
             web_citations=list(_web_citations(card, pick.citations)),
-            evidence=card.body,
+            evidence=evidence,
             subject=card.subject,
             subject_label=card.subject_label,
         ),
@@ -1810,7 +1868,9 @@ async def evaluate_live_pipeline(
         recorder.record_path(row.path, row.elapsed_ms, detail=row.degraded)
 
     web_tier = WEB_PLANNED if web_queries else WEB_OFF
-    candidates = build_candidates(component, claims, windows, web_answers)
+    candidates = build_candidates(
+        component, claims, windows, web_answers, documents=documents
+    )
 
     # ── the fallback tier. The library answered with NOTHING — not a weak card, not a card
     # the gates held, but an empty pool — and this deployment allows a supplement. That is
@@ -1822,7 +1882,9 @@ async def evaluate_live_pipeline(
         web_tier = WEB_FALLBACK
         with recorder.measure("retrieve"):
             web_answers = await web(intent or query)
-        candidates = build_candidates(component, claims, windows, web_answers)
+        candidates = build_candidates(
+            component, claims, windows, web_answers, documents=documents
+        )
         if web_answers:
             plan_labels = (*plan_labels, f"{WEB}({intent or query}) [fallback]")
 

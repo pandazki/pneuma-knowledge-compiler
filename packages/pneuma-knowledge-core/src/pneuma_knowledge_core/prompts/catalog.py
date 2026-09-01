@@ -590,7 +590,9 @@ of talk imply none, and skipping is the normal outcome."""
 _MINING_QUIET = """\
 **How latent may the question be**: not at all. Only a question somebody actually ASKED
 aloud, or an explicit request for information. A gap nobody named is not one. If no one
-asked, skip."""
+asked, skip. Mine only a question whose answer COULD EXIST IN A KNOWLEDGE BASE — what a
+participant personally wants, prefers or intends is answerable by asking that person and by
+nothing a library holds."""
 
 _MINING_EAGER = """\
 **How latent may the question be**: it may be one the room does not yet realise it should
@@ -617,7 +619,10 @@ that criterion applied.
 - `lede` — one or two SHORT sentences ANSWERING the question in the room's own language,
   saying ONLY what the chosen candidate's own text says. You may frame it; you may not
   extend it, and you may not imply an answer the text does not contain. Never write ABOUT
-  the card ("this card explains…", "this entry sets out…") — write the substance.
+  the card ("this card explains…", "this entry sets out…") — write the substance. Write it
+  about the candidate's OWN subject and scene, as its title and its `about:` line state
+  them: the conversation tells you why this matters, the candidate tells you what is true
+  and whose it is.
 - `citations` — the numbers of the chosen card's own citations that carry the lede. Copy
   them; never invent one. Empty means all of them.
 - `confidence` — 1-10, HOW DIRECTLY THAT TEXT ANSWERS THE QUESTION. Not how good the
@@ -1820,6 +1825,11 @@ DEFAULTS: dict[str, str] = {
         "## {index} · [{kind}] {title}\nsource: {provenance}\nabout: {subject}\n{body}"
         "\ncitations:\n{citations}"
     ),
+    # ── how a retrieved document is NAMED and ORIENTED (canonical_glance.display_identity)
+    "recall.identity.volume_title": "{title} (archive {volume})",
+    "recall.identity.volume_origin": "{title} ({path})",
+    "recall.identity.joined": "{head} — {tail}",
+    "recall.live.card.about": "about: {context}",
     "recall.live.candidate.provenance_library": "the owner's own knowledge base",
     "recall.live.candidate.provenance_web": "a live internet search",
     "recall.live.candidate.citation": "  [{n}] {source_id} \u00b6{block_start}-{block_end}",

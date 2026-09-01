@@ -445,7 +445,8 @@ _MINING_BALANCED = """\
 
 _MINING_QUIET = """\
 **这个问题可以有多隐**：一点都不行。只有**有人真的问出口**的问题，或者明确的要资料。没人点破的
-缺口不算。没人问，就跳过。"""
+缺口不算。没人问，就跳过。只挖**答案有可能存在于知识库里**的问题——某个参与者自己想要什么、
+偏好什么、打算怎么用，只能问他本人，任何知识库都答不了。"""
 
 _MINING_EAGER = """\
 **这个问题可以有多隐**：可以隐到屋里的人自己还没意识到该问——一个没人停下来解释的说法（尤其是
@@ -467,7 +468,9 @@ _LIVE_PICK_CONTRACT = """\
   一张没人需要的卡，比沉默更糟。
 - `lede` —— 一到两句**短**话，用屋里自己的话**回答那个问题**，且只说所选候选自己的文本真正说了
   的东西。你可以改换措辞，不可以往外延伸，也不可以暗示一个文本里并不存在的答案。绝不要写**关于
-  这张卡本身**的话（「这张卡说明了……」「这条记录梳理了……」）——直接写内容。
+  这张卡本身**的话（「这张卡说明了……」「这条记录梳理了……」）——直接写内容。写的是**这张候选
+  自己的**主体与场景，以它的标题和「出自」那一行写明的为准：对话告诉你这件事为什么重要，候选
+  告诉你什么是真的、又是谁的。
 - `citations` —— 所选卡片自带引用里、真正支撑这句话的那几个编号。照抄，绝不自造。留空表示全用。
 - `confidence` —— 1-10，**那段文本有多直接地回答了那个问题**。不是这张候选有多好，不是知识库写得
   多用心，也不是相关材料有多少：把问题和候选文本并排读，给这两者之间的匹配打分。低于本部署的下限
@@ -1380,6 +1383,10 @@ _ZH: dict[str, str] = {
         "## {index} · [{kind}] {title}\n来源：{provenance}\n出自：{subject}\n{body}"
         "\n引用：\n{citations}"
     ),
+    "recall.identity.volume_title": "{title}（归档卷 {volume}）",
+    "recall.identity.volume_origin": "{title}（{path}）",
+    "recall.identity.joined": "{head} —— {tail}",
+    "recall.live.card.about": "出自：{context}",
     "recall.live.candidate.provenance_library": "知识库",
     "recall.live.candidate.provenance_web": "互联网实时",
     "recall.live.candidate.citation": "  [{n}] {source_id} \u00b6{block_start}-{block_end}",

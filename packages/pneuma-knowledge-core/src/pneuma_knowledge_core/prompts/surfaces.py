@@ -2368,11 +2368,12 @@ SURFACES: tuple[Surface, ...] = (
         summary_en=(
             "The same contract on the QUIET density: the question may not be latent at all — only "
             "one somebody actually asked aloud, or an explicit request for information. A gap "
-            "nobody named is not a question."
+            "nobody named is not a question, and neither is one only the person in the room "
+            "could answer."
         ),
         summary_zh=(
             "同一份契约，取**安静**密度：那个问题一点都不能是隐的——只有有人真的问出口的问题、"
-            "或明确的要资料。没人点破的缺口不算一个问题。"
+            "或明确的要资料。没人点破的缺口不算一个问题；只有当事人自己才答得了的，也不算。"
         ),
         segments=(
             b(
@@ -2406,7 +2407,8 @@ SURFACES: tuple[Surface, ...] = (
             "The second call, and it has exactly ONE criterion: does this candidate's own "
             "text ANSWER the question discover wrote? Choose the candidate that does, or 0. "
             "Everything else on this surface is that criterion applied — the lede answers "
-            "the question in the room's language and never extends past the text, "
+            "the question in the room's language, never extends past the text, and stays on "
+            "the candidate's OWN subject as its title and `about:` line state it, "
             "`confidence` scores how directly the text answers it (not the candidate's "
             "quality), and four consequences are spelled out because each one was a live "
             "failure: text that says it CANNOT answer answers nothing and loses to 0; "
@@ -2420,7 +2422,8 @@ SURFACES: tuple[Surface, ...] = (
         summary_zh=(
             "第二次调用，而它只有**一条**标准：这张候选自己的文本，回答了发现阶段写下的那个"
             "问题吗？回答了的就选它，一张都没有就填 0。这份表面上的其余一切都是这条标准的推论"
-            "——引言用屋里自己的话回答那个问题、绝不越出文本一步，`confidence` 打的是那段文本"
+            "——引言用屋里自己的话回答那个问题、绝不越出文本一步、也不离开候选自己的主体"
+            "（以它的标题与「出自」那一行为准），`confidence` 打的是那段文本"
             "有多直接地回答了它（不是候选的质量），而四条推论逐条写明，因为每一条都曾是线上"
             "真实翻车：文本自己说「答不上来」就什么都没回答，宁可填 0；沾边——共用一个词、"
             "只是库里最近的那个内部项目——不是回答；面对「谁能做这件事」，标明了推断的近邻推荐"
@@ -2560,6 +2563,39 @@ SURFACES: tuple[Surface, ...] = (
                 "recall.live.candidate.excerpt",
                 "One raw excerpt line inside a candidate's evidence.",
                 "候选证据里的一行原文摘录。",
+            ),
+            f(
+                "recall.identity.volume_title",
+                "Names a candidate built out of a FROZEN ROLLOVER VOLUME after the active "
+                "document the volume is history of, with the volume itself noted. A volume's "
+                "own filename is `a02` and its body carries no title, so without this the "
+                "pick stage is shown a card whose subject is unknowable from anything on it.",
+                "凡是用**冻结的归档卷**装配出来的候选，都用它来命名：取那一卷所归属的活动文档的"
+                "标题，并注明是哪一卷。归档卷自己的文件名就是 `a02`、正文里也没有标题，"
+                "少了这一步，挑选阶段拿到的就是一张从任何字面都看不出主体的卡。",
+            ),
+            f(
+                "recall.identity.volume_origin",
+                "Opens that candidate's orientation line: the parent document's title and "
+                "the path it is filed at, so the identity is followable and not merely "
+                "asserted.",
+                "起头那张候选的定位行：父文档的标题与它归档的路径——好让这个身份是可追的，"
+                "而不只是被声称的。",
+            ),
+            f(
+                "recall.identity.joined",
+                "Joins that head to what the page says it is — its overview definition, or "
+                "the head of its own ledger when it has no definition.",
+                "把那个开头与这一页对自己的说法接起来——概览里的 definition，"
+                "没有 definition 时则是它自己账本的头几条。",
+            ),
+            f(
+                "recall.live.card.about",
+                "The same orientation line, carried into the DELIVERED card's evidence "
+                "block: a reader expanding the card sees whose material it is before "
+                "reading a word of it.",
+                "同一行定位，带进**已交付卡片**的证据区：读者展开卡片时，"
+                "先看到这是谁的材料，再读它的内容。",
             ),
             f(
                 "recall.live.section.intent",
