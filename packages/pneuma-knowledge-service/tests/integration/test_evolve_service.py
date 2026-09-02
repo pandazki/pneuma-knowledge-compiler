@@ -278,3 +278,72 @@ async def test_adopt_merges_flips_skill_and_deletes_branch(ctx, monkeypatch):
     assert "memory/products/{slug}.md" in after_skill.path_templates
 
     await ctx.store.delete_user(user)
+
+
+# ------------------------------------------------- what the components report to a round
+
+
+class _CapturingStructured(_FakeStructured):
+    """Remembers the human turn the proposal pass actually sent."""
+
+    def __init__(self, payload, seen: list[str]) -> None:
+        super().__init__(payload)
+        self.seen = seen
+
+    async def ainvoke(self, messages, config=None):  # noqa: ANN001
+        self.seen.append(messages[-1].content)
+        return await super().ainvoke(messages, config=config)
+
+
+class _CapturingModel:
+    def __init__(self, payload) -> None:
+        self._payload = payload
+        self.seen: list[str] = []
+
+    def with_structured_output(self, schema, include_raw=False):  # noqa: ANN001, ARG002
+        return _CapturingStructured(self._payload, self.seen)
+
+
+async def test_a_registered_components_evidence_reaches_the_proposal_it_was_written_for(ctx):
+    """The one link the per-hop tests cannot see: the runner passing `demand_evidence`.
+
+    A component reports; the round the report was written for receives it, in the human turn
+    and under the catalog's own header. With nothing registered the same run sends the
+    message this deployment always sent."""
+    from pneuma_knowledge_core.components import (
+        BaseComponent,
+        register_component,
+        reset_components,
+    )
+    from pneuma_knowledge_core.prompts import prompt
+
+    class _Reporter(BaseComponent):
+        name = "attention"
+
+        async def evolve_evidence(self, user_id):
+            return f"hot: memory/topics/atlas.md heat 12 ({user_id})"
+
+    user = UserId(f"u-it-ev-dem-{uuid.uuid4().hex[:8]}")
+    await _seed_base(ctx, user)
+    header = prompt("evolve.propose.demand_header")
+
+    bare = _CapturingModel(_EvolveDraft(needs_change=False, rationale="r"))
+    _override_model(ctx, bare)
+    await _run_one_evolve(ctx, user)
+    assert bare.seen and header not in bare.seen[0]
+
+    reset_components()
+    try:
+        register_component(_Reporter())
+        reporting = _CapturingModel(_EvolveDraft(needs_change=False, rationale="r"))
+        _override_model(ctx, reporting)
+        await _run_one_evolve(ctx, user)
+    finally:
+        reset_components()
+
+    assert reporting.seen
+    message = reporting.seen[0]
+    assert message.startswith(bare.seen[0])  # the first three sections are untouched
+    assert message.endswith(f"{header}\n## attention\nhot: memory/topics/atlas.md heat 12 ({user})")
+
+    await ctx.store.delete_user(user)

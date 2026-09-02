@@ -73,7 +73,9 @@ class _FakeStore:
         self.enqueued.append((kind, payload))
         return f"job-{len(self.enqueued)}"
 
-    async def complete(self, user, job_id, *, ok=True, detail=None, snapshot_ref=None):  # noqa: ARG002
+    async def complete(  # noqa: ARG002
+        self, user, job_id, *, ok=True, detail=None, snapshot_ref=None, token_usage=None
+    ):
         self.completed.append(
             {"job_id": job_id, "ok": ok, "detail": detail, "snapshot_ref": snapshot_ref}
         )

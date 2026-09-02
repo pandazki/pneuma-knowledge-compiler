@@ -10,12 +10,17 @@ omits it. Content dedup: same user + same checksum returns the existing source_i
 from __future__ import annotations
 
 import uuid
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from pneuma_knowledge_core.domain.consultation import (
+    ConsultationRecord,
+    EvidenceRef,
+)
 from pneuma_knowledge_core.domain.ids import UserId, SourceId
+from pneuma_knowledge_core.domain.pricing import USAGE_FIELDS, usage_pairs
 from pneuma_knowledge_core.domain.source import (
     Locator,
     NormalizedBlock,
@@ -24,12 +29,18 @@ from pneuma_knowledge_core.domain.source import (
     StructureMap,
 )
 from pneuma_knowledge_core.recall.projection import ProjectedClaim
-from psycopg.types.json import Json
+from psycopg.types.json import Json, Jsonb
 from psycopg_pool import AsyncConnectionPool
 
+from ..access_stats import RECALL_PROJECTION_JOB_KIND
 from ..snapshot_tenant import RESERVED_PREFIX
 
 _SCHEMA_PATH = Path(__file__).resolve().parents[5] / "infra" / "schema.sql"
+
+#: The default page a consultation walk takes. Bounded rather than open because the
+#: caller of the replay face is a rebuild, and a rebuild that loads a year of records
+#: into one list is a rebuild that stops working exactly when the library gets used.
+CONSULTATION_PAGE = 500
 
 #: The job-status QUERY vocabulary, and the only place it is defined.
 #:
@@ -53,7 +64,6 @@ JOB_STATUS_QUERY_VALUES = ("queued", "claimed", "done", "succeeded", "failed")
 #: Advisory-lock key for schema application. An arbitrary fixed constant in the
 #: bigint space — its only job is that every process picks the SAME number.
 _SCHEMA_LOCK_KEY = 0x504E_4B43_0001  # "PNKC" + 1
-
 
 class _JobRow:
     """Concrete JobQueue.Job — attributes match the Job protocol."""
@@ -534,6 +544,218 @@ class PostgresStore:
             for r in rows
         ]
 
+    # --- recall access statistics (the framework's built-in consumer) ---------
+    #
+    # Not a component's tables: the worker's `recall_projection` handler applies these for
+    # every `business` consultation, registered components or not (access_stats.py). Access
+    # metadata lives HERE, in the derived layer, keyed by address — never in a canonical
+    # file, because a read must never become a write to the authority.
+
+    async def apply_access_stats(
+        self,
+        user_id: UserId,
+        consultation_id: str,
+        hits: list[dict],
+        misses: list[dict],
+    ) -> bool:
+        """Apply one record's rows AND stamp it `projected_at` — in one transaction.
+
+        Returns whether this call was the one that applied it. The stamp is claimed first,
+        with `projected_at IS NULL` in the `WHERE`: a second job for the same consultation
+        updates no row, learns it from `rowcount`, and writes nothing. That is the whole
+        at-most-once guarantee, and it is one statement rather than a lock — a retried job
+        (a worker killed mid-job, the queue's self-heal on restart) cannot double-count.
+
+        The rows arrive already summed (`access_stats.ledger_rows`), because one
+        `INSERT … ON CONFLICT` may not touch the same row twice in a statement and a record
+        whose evidence was also cited produces exactly that duplicate. `hits` ADDS rather
+        than replaces: a day accumulates across every consultation that happened in it.
+
+        `last_seen` takes the LATER of the two instants, so a record that arrives out of
+        order — a projection job drained after a newer one — never drags a target's last
+        access backwards.
+        """
+        async with self._pool.connection() as conn:
+            async with conn.transaction(), conn.cursor() as cur:
+                await cur.execute(
+                    "UPDATE consultations SET projected_at = %s "
+                    "WHERE user_id = %s AND consultation_id = %s "
+                    "AND projected_at IS NULL",
+                    (datetime.now(timezone.utc), str(user_id), consultation_id),
+                )
+                if not cur.rowcount:
+                    return False
+                if hits:
+                    await cur.executemany(
+                        "INSERT INTO recall_access_hits "
+                        "(user_id, target_kind, target_ref, day, hits, last_seen) "
+                        "VALUES (%s, %s, %s, %s, %s, %s) "
+                        "ON CONFLICT (user_id, target_kind, target_ref, day) DO UPDATE "
+                        "SET hits = recall_access_hits.hits + EXCLUDED.hits, "
+                        "last_seen = GREATEST("
+                        "recall_access_hits.last_seen, EXCLUDED.last_seen)",
+                        [
+                            (
+                                str(user_id),
+                                str(r["target_kind"]),
+                                str(r["target_ref"]),
+                                r["day"],
+                                int(r["hits"]),
+                                r["last_seen"],
+                            )
+                            for r in hits
+                        ],
+                    )
+                if misses:
+                    await cur.executemany(
+                        "INSERT INTO recall_access_misses "
+                        "(user_id, day, question, count) VALUES (%s, %s, %s, %s) "
+                        "ON CONFLICT (user_id, day, question) DO UPDATE "
+                        "SET count = recall_access_misses.count + EXCLUDED.count",
+                        [
+                            (str(user_id), r["day"], str(r["question"]), int(r["count"]))
+                            for r in misses
+                        ],
+                    )
+        return True
+
+    async def replace_access_stats(
+        self, user_id: UserId, hits: list[dict], misses: list[dict]
+    ) -> int:
+        """Swap this user's whole access ledger for a rebuilt one, ATOMICALLY.
+
+        Delete both tables and insert the replacement set in ONE transaction, so no reader
+        ever sees the gap. The rows are the already-summed replacement, so this INSERTs
+        rather than accumulates — that is the difference from `apply_access_stats`, and the
+        reason it is a separate method rather than a flag.
+
+        Both halves of the ledger go together: a rebuild that cleared the hits and kept
+        yesterday's misses would produce a report nothing can reproduce from the records.
+        """
+        async with self._pool.connection() as conn:
+            async with conn.transaction(), conn.cursor() as cur:
+                for table in ("recall_access_hits", "recall_access_misses"):
+                    await cur.execute(
+                        f"DELETE FROM {table} WHERE user_id = %s", (str(user_id),)
+                    )
+                if hits:
+                    await cur.executemany(
+                        "INSERT INTO recall_access_hits "
+                        "(user_id, target_kind, target_ref, day, hits, last_seen) "
+                        "VALUES (%s, %s, %s, %s, %s, %s)",
+                        [
+                            (
+                                str(user_id),
+                                str(r["target_kind"]),
+                                str(r["target_ref"]),
+                                r["day"],
+                                int(r["hits"]),
+                                r["last_seen"],
+                            )
+                            for r in hits
+                        ],
+                    )
+                if misses:
+                    await cur.executemany(
+                        "INSERT INTO recall_access_misses "
+                        "(user_id, day, question, count) VALUES (%s, %s, %s, %s)",
+                        [
+                            (str(user_id), r["day"], str(r["question"]), int(r["count"]))
+                            for r in misses
+                        ],
+                    )
+        return len(hits) + len(misses)
+
+    async def access_rows_for(
+        self, user_id: UserId, pairs: Sequence[tuple[str, str]]
+    ) -> list[dict]:
+        """Every day row for a page of targets — the read face's one query.
+
+        Bulk by construction: a caller joining a list of documents against their access
+        metadata asks once, not once per row, and a single target is a page of one. Whole
+        history rather than a window, because `last_accessed_at` is the MAX over EVERY day
+        row: a target last read forty-five days ago has a real last access and no recent
+        hits, and a windowed query would report the first as absent.
+        """
+        if not pairs:
+            return []
+        async with self._pool.connection() as conn:
+            rows = await (await conn.execute(
+                "SELECT target_kind, target_ref, day, hits, last_seen "
+                "FROM recall_access_hits WHERE user_id = %s "
+                "AND (target_kind, target_ref) IN "
+                "(SELECT * FROM unnest(%s::text[], %s::text[])) "
+                "ORDER BY target_kind, target_ref, day",
+                (
+                    str(user_id),
+                    [str(k) for k, _ in pairs],
+                    [str(r) for _, r in pairs],
+                ),
+            )).fetchall()
+        return [
+            {
+                "target_kind": r[0],
+                "target_ref": r[1],
+                "day": r[2],
+                "hits": int(r[3] or 0),
+                "last_seen": r[4],
+            }
+            for r in rows
+        ]
+
+    async def access_hits_since(
+        self, user_id: UserId, since: date, *, until: date | None = None
+    ) -> list[dict]:
+        """This user's hit rows inside `[since, until]`, deterministically ordered.
+
+        `until` closes the window at the top. A report states its bounds out loud
+        (`window A..B`), so a row dated after B — clock skew on a writer, a record imported
+        with a bad timestamp — was being counted in a window that says it does not contain
+        it, and counted at a NEGATIVE age, which the decay curve amplifies.
+        """
+        clauses = ["user_id = %s", "day >= %s"]
+        params: list = [str(user_id), since]
+        if until is not None:
+            clauses.append("day <= %s")
+            params.append(until)
+        async with self._pool.connection() as conn:
+            rows = await (await conn.execute(
+                "SELECT target_kind, target_ref, day, hits, last_seen "
+                "FROM recall_access_hits WHERE " + " AND ".join(clauses)
+                + " ORDER BY target_kind, target_ref, day",
+                tuple(params),
+            )).fetchall()
+        return [
+            {
+                "target_kind": r[0],
+                "target_ref": r[1],
+                "day": r[2],
+                "hits": int(r[3] or 0),
+                "last_seen": r[4],
+            }
+            for r in rows
+        ]
+
+    async def access_misses_since(
+        self, user_id: UserId, since: date, *, until: date | None = None
+    ) -> list[dict]:
+        """This user's unanswered questions inside `[since, until]`, deterministically
+        ordered. Same closed window as the hits — see `access_hits_since`."""
+        clauses = ["user_id = %s", "day >= %s"]
+        params: list = [str(user_id), since]
+        if until is not None:
+            clauses.append("day <= %s")
+            params.append(until)
+        async with self._pool.connection() as conn:
+            rows = await (await conn.execute(
+                "SELECT day, question, count FROM recall_access_misses "
+                "WHERE " + " AND ".join(clauses) + " ORDER BY day, question",
+                tuple(params),
+            )).fetchall()
+        return [
+            {"day": r[0], "question": r[1], "count": int(r[2] or 0)} for r in rows
+        ]
+
     async def list(self, user_id: UserId) -> list[RawSource]:
         async with self._pool.connection() as conn:
             rows = await (await conn.execute(
@@ -778,17 +1000,19 @@ class PostgresStore:
         ok: bool = True,
         detail: str | None = None,
         snapshot_ref: str | None = None,
+        token_usage: dict[str, int] | None = None,
     ) -> None:
         async with self._pool.connection() as conn:
             await conn.execute(
                 "UPDATE compile_jobs SET status = 'done', completed_at = %s, "
-                "ok = %s, detail = %s, snapshot_ref = %s "
+                "ok = %s, detail = %s, snapshot_ref = %s, token_usage = %s "
                 "WHERE user_id = %s AND id = %s",
                 (
                     datetime.now(timezone.utc),
                     ok,
                     detail,
                     snapshot_ref,
+                    Json(dict(token_usage)) if token_usage else None,
                     str(user_id),
                     job_id,
                 ),
@@ -801,7 +1025,7 @@ class PostgresStore:
         async with self._pool.connection() as conn:
             rows = await (await conn.execute(
                 "SELECT id, kind, payload, status, created_at, claimed_at, "
-                "completed_at, ok, detail, snapshot_ref FROM compile_jobs "
+                "completed_at, ok, detail, snapshot_ref, token_usage FROM compile_jobs "
                 "WHERE user_id = %s ORDER BY created_at DESC",
                 (str(user_id),),
             )).fetchall()
@@ -817,6 +1041,7 @@ class PostgresStore:
                 "ok": r[7],
                 "detail": r[8],
                 "snapshot_ref": r[9],
+                "token_usage": r[10] or {},
             }
             for r in rows
         ]
@@ -864,7 +1089,7 @@ class PostgresStore:
             )).fetchone()
             rows = await (await conn.execute(
                 "SELECT id, kind, payload, status, created_at, claimed_at, "
-                "completed_at, ok, detail, snapshot_ref FROM compile_jobs "
+                "completed_at, ok, detail, snapshot_ref, token_usage FROM compile_jobs "
                 f"WHERE {page_where} "
                 "ORDER BY created_at DESC, id DESC LIMIT %s",
                 [*page_params, limit + 1],
@@ -885,6 +1110,7 @@ class PostgresStore:
                     "ok": r[7],
                     "detail": r[8],
                     "snapshot_ref": r[9],
+                    "token_usage": r[10] or {},
                 }
                 for r in rows
             ],
@@ -1637,14 +1863,21 @@ class PostgresStore:
         snapshot_ref: str,
         system_prefix: str,
         stages: list[dict[str, Any]] | None = None,
+        pack_manifest: list[dict[str, str]] | None = None,
     ) -> None:
         """Persist one built pack. `stages` is the build's measured breakdown in the wire
         shape ([{name, ms, status, detail}]) — stored beside the pack so a briefing built
-        weeks ago can still say where its seconds went; omitted, the column keeps its '[]'."""
+        weeks ago can still say where its seconds went; omitted, the column keeps its '[]'.
+
+        `pack_manifest` is what that pack put in front of the model ([{kind, ref, path}]),
+        and it is written in the SAME statement as the text it describes: an ask admits its
+        citations against it, and a pack stored without one would be a pack whose answers
+        can cite nothing. Neither can be recovered afterwards — the build happened once."""
         async with self._pool.connection() as conn:
             await conn.execute(
                 "INSERT INTO briefings (briefing_id, user_id, scope, "
-                "snapshot_ref, system_prefix, stages) VALUES (%s, %s, %s, %s, %s, %s)",
+                "snapshot_ref, system_prefix, stages, pack_manifest) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s)",
                 (
                     briefing_id,
                     str(user_id),
@@ -1652,6 +1885,7 @@ class PostgresStore:
                     snapshot_ref,
                     system_prefix,
                     Json(list(stages or [])),
+                    Json(list(pack_manifest or [])),
                 ),
             )
 
@@ -1660,7 +1894,8 @@ class PostgresStore:
     ) -> dict[str, Any] | None:
         async with self._pool.connection() as conn:
             row = await (await conn.execute(
-                "SELECT briefing_id, scope, snapshot_ref, system_prefix, created_at, stages "
+                "SELECT briefing_id, scope, snapshot_ref, system_prefix, created_at, "
+                "stages, pack_manifest "
                 "FROM briefings WHERE user_id = %s AND briefing_id = %s",
                 (str(user_id), briefing_id),
             )).fetchone()
@@ -1673,6 +1908,9 @@ class PostgresStore:
             "system_prefix": row[3],
             "created_at": row[4],
             "stages": row[5] or [],
+            # Kept in the stored shape: the ask route turns it into `EvidenceRef`s, and the
+            # detail route never shows it. A row from before the column reads as [].
+            "pack_manifest": row[6] or [],
         }
 
     async def list_briefings(self, user_id: UserId) -> list[dict[str, Any]]:
@@ -1699,6 +1937,343 @@ class PostgresStore:
                 "DELETE FROM briefings WHERE user_id = %s AND briefing_id = %s",
                 (str(user_id), briefing_id),
             )
+
+    # --- consultations (use-side L0) ------------------------------------------
+    #
+    # The one table in this file that `rebuild_derived` must never touch: a consultation is
+    # a RECORD of something that happened, not a projection of something stored elsewhere,
+    # so there is nothing to re-derive it from. It is also never read by the knowledge side
+    # — no gate, contract or compile input joins against it (I6's read-side sibling).
+
+    @staticmethod
+    def _evidence_json(refs: Any) -> list[dict[str, str]]:
+        return [{"kind": r.kind, "ref": r.ref, "path": r.path} for r in refs or ()]
+
+    @staticmethod
+    def _evidence_refs(raw: Any) -> tuple[EvidenceRef, ...]:
+        return tuple(
+            EvidenceRef(
+                kind=str(item.get("kind", "")),
+                ref=str(item.get("ref", "")),
+                path=str(item.get("path", "")),
+            )
+            for item in (raw or [])
+        )
+
+    async def list_consultation_users(self) -> list[str]:
+        """Distinct user_ids that made at least one consultation.
+
+        The sibling of `list_users`, and the reason it exists: a component projection may be
+        derived from these records rather than from L0, so a tenant that asked questions
+        before importing anything owns a derived layer that `rebuild_derived --all` would
+        otherwise never visit. Same shape as `list_users` — the id set and nothing else, so
+        no cross-user data read exists here either (I1) — and frozen snapshot tenants are
+        excluded for the same reason.
+        """
+        async with self._pool.connection() as conn:
+            rows = await (await conn.execute(
+                "SELECT DISTINCT user_id FROM consultations "
+                "WHERE user_id NOT LIKE %s ORDER BY user_id",
+                (f"{RESERVED_PREFIX}%",),
+            )).fetchall()
+        return [r[0] for r in rows]
+
+    async def create_consultation(
+        self, user_id: UserId, record: ConsultationRecord
+    ) -> str | None:
+        """Write one consultation and, for a `business` visitor, ENQUEUE its delivery — in
+        one transaction. Returns the job id, or None when nothing was queued.
+
+        `user_id` is the caller's, not the record's: the row is keyed by the tenant whose
+        library answered (I1), and the record's own copy travels with it so a consumer
+        reading the record never has to be told which user it is.
+
+        The row and the job commit together, so neither half can exist alone: no job ever
+        names a consultation that is not there, and no `business` record is ever written
+        with nobody scheduled to read it. The enqueue is conditional on the INSERT having
+        actually inserted (`rowcount`, past the `ON CONFLICT`), because a replayed record —
+        an import, a retry above this layer — must not mint a second job for a row that
+        already has one.
+
+        Nothing is processed here. Delivery is the ordinary job queue the ingest side
+        already uses, drained per user by the compile worker, and the request path that
+        called this waits on none of it.
+        """
+        async with self._pool.connection() as conn:
+            async with conn.transaction(), conn.cursor() as cur:
+                await cur.execute(
+                    "INSERT INTO consultations (user_id, consultation_id, created_at, "
+                    "lane, visitor_class, question, as_of, library_ref, evidence_handed, "
+                    "answer_kind, answer, citations, miss, degraded, token_usage) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
+                    "ON CONFLICT (user_id, consultation_id) DO NOTHING",
+                    (
+                        str(user_id),
+                        record.consultation_id,
+                        record.created_at,
+                        record.lane,
+                        record.visitor_class,
+                        record.question,
+                        record.as_of,
+                        record.library_ref,
+                        Json(self._evidence_json(record.evidence_handed)),
+                        record.answer_kind,
+                        record.answer,
+                        Json(self._evidence_json(record.citations)),
+                        record.miss,
+                        Json([list(pair) for pair in record.degraded]),
+                        # An OBJECT, not the record's pairs: `/spend` sums these in SQL,
+                        # and summing an array of pairs would mean shipping every row to
+                        # Python. Field order is restored on read from `USAGE_FIELDS`.
+                        Json(dict(record.token_usage)),
+                    ),
+                )
+                if not cur.rowcount or record.visitor_class != "business":
+                    return None
+                job_id = uuid.uuid4().hex
+                await cur.execute(
+                    "INSERT INTO compile_jobs (id, user_id, kind, payload) "
+                    "VALUES (%s, %s, %s, %s)",
+                    (
+                        job_id,
+                        str(user_id),
+                        RECALL_PROJECTION_JOB_KIND,
+                        Json({"consultation_id": record.consultation_id}),
+                    ),
+                )
+        return job_id
+
+    async def get_consultation(
+        self, user_id: UserId, consultation_id: str
+    ) -> ConsultationRecord | None:
+        """One record by id, or None — the projection job's own read (I1: another tenant's
+        id is simply not there)."""
+        rows = await self._consultation_rows(
+            ["user_id = %s", "consultation_id = %s"],
+            [str(user_id), consultation_id],
+            user_id,
+            limit=1,
+        )
+        return rows[0] if rows else None
+
+    async def list_consultations(
+        self,
+        user_id: UserId,
+        *,
+        since: datetime | None = None,
+        visitor_class: str | None = None,
+        projected: bool | None = None,
+        limit: int = CONSULTATION_PAGE,
+        after: tuple[datetime, str] | None = None,
+    ) -> list[ConsultationRecord]:
+        """One user's consultations, oldest first, bounded.
+
+        This is the REPLAY face: a component's ledger is rebuilt by re-applying these in the
+        order they were recorded, so the order has to be total. `created_at` alone is not —
+        two calls can land in the same microsecond — so the id is the tie-break, in the sort
+        and in the `after` cursor alike. `after` is the last record of the previous page as
+        `(created_at, consultation_id)`; newer rows arriving mid-walk never shift a page.
+
+        `projected=True` restricts the walk to records already stamped `projected_at` —
+        the ones whose own projection job has run. That is what a replay must count, and
+        `rebuild_access_stats` explains why.
+        """
+        clauses = ["user_id = %s"]
+        params: list[Any] = [str(user_id)]
+        if since is not None:
+            clauses.append("created_at >= %s")
+            params.append(since)
+        if visitor_class is not None:
+            clauses.append("visitor_class = %s")
+            params.append(visitor_class)
+        if projected is not None:
+            clauses.append(
+                "projected_at IS NOT NULL" if projected else "projected_at IS NULL"
+            )
+        if after is not None:
+            clauses.append("(created_at, consultation_id) > (%s, %s)")
+            params.extend([after[0], after[1]])
+        return await self._consultation_rows(
+            clauses, params, user_id, limit=max(1, int(limit))
+        )
+
+    async def list_consultations_page(
+        self,
+        user_id: UserId,
+        *,
+        limit: int,
+        before: tuple[datetime, str] | None = None,
+        lane: str | None = None,
+        visitor_class: str | None = None,
+        miss: bool | None = None,
+        target: str | None = None,
+    ) -> tuple[list[dict[str, Any]], int, bool]:
+        """One keyset-paginated page of consultation SUMMARIES, newest first.
+
+        A different face from `list_consultations`, and deliberately not a flag on it. That
+        one is the REPLAY face — ascending, whole records, the order a rebuild re-applies
+        them in — and a descending page that shared its code would put the rebuild one
+        parameter away from replaying the ledger backwards. This one is the READING face: a
+        human scanning what was asked, newest first, with the record's body left on the
+        detail route.
+
+        `citation_count` is counted in SQL rather than by shipping the array to Python: the
+        listing's whole point is to stay small, and a page of fifty consultations that each
+        carry their evidence manifest is the detail route fifty times over.
+
+        `target` is the reverse lookup — which consultations put THIS address in front of a
+        model — and it matches on `ref` and on `path`, in both arrays. A page is reached two
+        ways: opened and read in full (its path is the `ref`) or through a claim that lives
+        on it (its path is the claim's `path`), so a `ref`-only predicate would answer
+        "nothing" for exactly the page whose access card offered the link.
+        """
+        filters = ["user_id = %s"]
+        params: list[Any] = [str(user_id)]
+        if lane:
+            filters.append("lane = %s")
+            params.append(lane)
+        if visitor_class:
+            filters.append("visitor_class = %s")
+            params.append(visitor_class)
+        if miss is not None:
+            filters.append("miss = %s")
+            params.append(bool(miss))
+        if target:
+            filters.append(
+                "(evidence_handed @> %s OR evidence_handed @> %s "
+                "OR citations @> %s OR citations @> %s)"
+            )
+            # `Jsonb`, not `Json`: `@>` is a jsonb operator and there is no implicit cast
+            # from `json` to it — an INSERT into a jsonb column casts, a containment test
+            # does not.
+            by_ref = Jsonb([{"ref": target}])
+            by_path = Jsonb([{"path": target}])
+            params.extend([by_ref, by_path, by_ref, by_path])
+        filtered_where = " AND ".join(filters)
+
+        page_filters = list(filters)
+        page_params = list(params)
+        if before is not None:
+            page_filters.append("(created_at, consultation_id) < (%s, %s)")
+            page_params.extend(before)
+        page_where = " AND ".join(page_filters)
+
+        async with self._pool.connection() as conn:
+            count_row = await (await conn.execute(
+                f"SELECT count(*) FROM consultations WHERE {filtered_where}",
+                params,
+            )).fetchone()
+            rows = await (await conn.execute(
+                "SELECT consultation_id, created_at, lane, visitor_class, question, "
+                "miss, answer_kind, library_ref, jsonb_array_length(citations), "
+                "jsonb_array_length(evidence_handed), token_usage FROM consultations "
+                f"WHERE {page_where} "
+                "ORDER BY created_at DESC, consultation_id DESC LIMIT %s",
+                [*page_params, limit + 1],
+            )).fetchall()
+
+        has_more = len(rows) > limit
+        rows = rows[:limit]
+        return (
+            [
+                {
+                    "consultation_id": r[0],
+                    "created_at": r[1],
+                    "lane": r[2],
+                    "visitor_class": r[3],
+                    "question": r[4],
+                    "miss": bool(r[5]),
+                    "answer_kind": r[6],
+                    "library_ref": r[7],
+                    "citation_count": int(r[8] or 0),
+                    "evidence_count": int(r[9] or 0),
+                    "token_usage": usage_pairs(r[10] or {}),
+                }
+                for r in rows
+            ],
+            int(count_row[0]) if count_row is not None else 0,
+            has_more,
+        )
+
+    async def consultation_spend(
+        self, user_id: UserId, *, since: datetime, until: datetime
+    ) -> list[dict[str, Any]]:
+        """What this library's recorded consultations spent over a window, grouped.
+
+        One row per `(lane, visitor_class)` cell with the consultation count and the summed
+        token counters. Summed IN SQL: an aggregate that shipped every row to Python would
+        get slower exactly as a library gets more use, which is the moment somebody starts
+        asking what it costs.
+
+        A missing counter (an old row, a lane that reported none) is NULL to `->>` and is
+        skipped by `sum`, so it contributes nothing rather than a zero standing in for it.
+        That leaves a hole a sum cannot show: a cell of rows that all reported NOTHING sums
+        to null and coalesces to an all-zero usage map, which reads exactly like a cell of
+        calls that were genuinely free. So the cell also carries `with_usage` — how many of
+        its consultations reported any counter at all — and a reader compares it against
+        `consultations` to know whether the tokens beside it are the whole story.
+
+        This is the spend of RECORDED consultations and nothing else — the deployment's total
+        bill is elsewhere by construction: a `silent` visitor leaves no row at all, and the
+        Live Context lane records none. The endpoint over this says so.
+        """
+        counters = ", ".join(
+            f"coalesce(sum((token_usage->>'{name}')::bigint), 0)" for name in USAGE_FIELDS
+        )
+        async with self._pool.connection() as conn:
+            rows = await (await conn.execute(
+                "SELECT lane, visitor_class, count(*), "
+                "count(*) FILTER (WHERE token_usage <> '{}'::jsonb), "
+                f"{counters} FROM consultations "
+                "WHERE user_id = %s AND created_at >= %s AND created_at <= %s "
+                "GROUP BY lane, visitor_class ORDER BY lane, visitor_class",
+                (str(user_id), since, until),
+            )).fetchall()
+        return [
+            {
+                "lane": r[0],
+                "visitor_class": r[1],
+                "consultations": int(r[2] or 0),
+                "with_usage": int(r[3] or 0),
+                "token_usage": {
+                    name: int(r[4 + i] or 0) for i, name in enumerate(USAGE_FIELDS)
+                },
+            }
+            for r in rows
+        ]
+
+    async def _consultation_rows(
+        self, clauses: list[str], params: list[Any], user_id: UserId, *, limit: int
+    ) -> list[ConsultationRecord]:
+        """The one SELECT + row→record mapping both consultation reads share."""
+        async with self._pool.connection() as conn:
+            rows = await (await conn.execute(
+                "SELECT consultation_id, created_at, lane, visitor_class, question, "
+                "as_of, library_ref, evidence_handed, answer_kind, answer, citations, "
+                "miss, degraded, token_usage FROM consultations WHERE " + " AND ".join(clauses)
+                + " ORDER BY created_at, consultation_id LIMIT %s",
+                tuple([*params, limit]),
+            )).fetchall()
+        return [
+            ConsultationRecord(
+                consultation_id=r[0],
+                user_id=str(user_id),
+                created_at=r[1],
+                lane=r[2],
+                visitor_class=r[3],
+                question=r[4],
+                as_of=r[5],
+                library_ref=r[6],
+                evidence_handed=self._evidence_refs(r[7]),
+                answer_kind=r[8],
+                answer=r[9],
+                citations=self._evidence_refs(r[10]),
+                miss=bool(r[11]),
+                degraded=tuple((str(a), str(b)) for a, b in (r[12] or [])),
+                token_usage=usage_pairs(r[13] or {}),
+            )
+            for r in rows
+        ]
 
     # --- user_profiles (onboarding-editable picture) --------------------------
 
@@ -1869,6 +2444,18 @@ class PostgresStore:
                     "DELETE FROM component_people_terms WHERE user_id = %s",
                     (str(user_id),),
                 )
+                # The use-side record and everything projected from it. Neither hangs off a
+                # source either, and a consultation holds the owner's QUESTIONS verbatim —
+                # so a tenant deletion that left them behind would leave exactly the rows
+                # nobody would think to look for.
+                for table in (
+                    "consultations",
+                    "recall_access_hits",
+                    "recall_access_misses",
+                ):
+                    await conn.execute(
+                        f"DELETE FROM {table} WHERE user_id = %s", (str(user_id),)
+                    )
                 await conn.execute(
                     "DELETE FROM sources WHERE user_id = %s",
                     (str(user_id),),

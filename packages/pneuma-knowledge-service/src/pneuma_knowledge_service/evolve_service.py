@@ -29,7 +29,7 @@ from datetime import datetime, timezone
 from pneuma_knowledge_core.compile.anchor_ops import edit_claim_text, insert_block_verbatim
 from pneuma_knowledge_core.compile.documents import render_document, with_derived_title
 from pneuma_knowledge_core.compile.transitions import _anchor_blocks
-from pneuma_knowledge_core.components import component_job
+from pneuma_knowledge_core.components import collect_evolve_evidence, component_job
 from pneuma_knowledge_core.domain.canonical import CanonicalDocument
 from pneuma_knowledge_core.domain.ids import UserId, SourceId, extract_anchors
 from pneuma_knowledge_core.domain.snapshot import SnapshotRef
@@ -184,11 +184,18 @@ async def run_evolve_job(ctx: AppContext, user: UserId, job: object) -> None:
     docs = await ctx.canonical.list(user)
     doc_paths = [d.path for d in docs]
 
+    # What the enabled index components have to report about how this library is being
+    # used. `None` with no component registered (or none with anything to say), and the
+    # proposal's human message is then byte-identical to the one this deployment always
+    # sent — the seam is invisible until something fills it.
+    demand_evidence = await collect_evolve_evidence(str(user))
+
     proposal, reason, rationale = await propose_evolution(
         model=model,
         current_skill=current_skill,
         recent_events=recent,
         doc_paths=doc_paths,
+        demand_evidence=demand_evidence,
         **llm_call_config(
             ctx, operation="evolve.propose", user_id=str(user),
             extra={"skill_version": current_skill.version},

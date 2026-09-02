@@ -106,6 +106,11 @@ async def test_worker_compiles_one_job_end_to_end(ctx):
     job = (await ctx.store.list_jobs(user))[0]
     assert job["status"] == "done" and job["ok"] is True
     assert job["snapshot_ref"] == snaps[0].ref
+    # …and with what the loop spent, on the same write that ended it. Compile is the
+    # system's biggest spender, and a finished job that cannot say what it cost is where a
+    # knowledge base's money goes unaccounted.
+    assert set(job["token_usage"]) == {"input_tokens", "output_tokens", "total_tokens"}
+    assert job["token_usage"]["total_tokens"] > 0
 
     # dataset projection is non-empty for documents + graph.
     ds = await build_dataset(ctx, user)

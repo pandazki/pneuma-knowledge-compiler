@@ -12,9 +12,10 @@ things that cannot be recomputed (architecture.md §2):
   3. when L0 contains images, their immutable original bytes under `media/sha256/`.
 
 Everything else is DERIVED and rebuilt here exactly as a rebuild would: L1 lexical, L2
-chunks (per each source's own IntakePlan), L3 projection. Nothing in this module calls a
-chat model, so a restore works with no API key at all — which is the point: browsing a
-compiled library must not depend on a credential.
+chunks (per each source's own IntakePlan), L3 projection, and the projections an enabled
+index component keeps of its own (`scripts/ops/rebuild_derived.py`'s last step). Nothing in
+this module calls a chat model, so a restore works with no API key at all — which is the
+point: browsing a compiled library must not depend on a credential.
 
 Restored sources are marked digested and their queued work is settled rather than drained: the
 shipped canonical already covers them, and compiling them again would spend real money redoing
@@ -67,6 +68,7 @@ class PrebuiltRestore:
     documents: int
     claims: int
     images: int
+    components: tuple[str, ...] = ()
 
 
 def prebuilt_authorities(directory: Path) -> tuple[Path, Path]:
@@ -386,6 +388,25 @@ async def rebuild_source_indexes(ctx: AppContext, user_id: UserId) -> int:
     return len(sources)
 
 
+async def rebuild_component_projections(user_id: UserId) -> tuple[str, ...]:
+    """Re-derive every enabled component's own projection. Returns the names it rebuilt.
+
+    A component projection is derived from L0 and canonical (I7), so a restore that loaded
+    both and stopped at L3 would leave a library whose `time` calendar knows no day and
+    whose `people` terms have no history — derived state the shipping project has no way to
+    ship and the restore is the only chance to build.
+
+    Called directly rather than through the `recall_rebuild` job the ops script enqueues,
+    because that job's whole reason for existing is to avoid interleaving with a tenant's
+    in-flight `recall_projection` jobs — and a restore has already refused any tenant that
+    holds work of its own. The framework's access ledger is deliberately NOT rebuilt here:
+    it replays consultations, which a restore neither ships nor invents.
+    """
+    from pneuma_knowledge_core.components import rebuild_components
+
+    return tuple(await rebuild_components(str(user_id)))
+
+
 async def restore_prebuilt(
     ctx: AppContext,
     user_id: UserId,
@@ -427,6 +448,9 @@ async def restore_prebuilt(
     claims = await rebuild_projection(ctx, user_id, allow_wipe=True)
     documents = len(await ctx.canonical.list(user_id))
     note(f"  L3 projection rebuilt: {claims} claim(s) from {documents} document(s)")
+    components = await rebuild_component_projections(user_id)
+    if components:
+        note(f"  component projections re-derived: {', '.join(components)}")
     return PrebuiltRestore(
         canonical_cloned=cloned,
         sources=sources,
@@ -435,4 +459,5 @@ async def restore_prebuilt(
         documents=documents,
         claims=claims,
         images=len(media_objects),
+        components=components,
     )

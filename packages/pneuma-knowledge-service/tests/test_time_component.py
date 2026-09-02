@@ -199,6 +199,25 @@ def _meeting():
     )[0]
 
 
+def _owner_dialogue(turns: list[tuple[str, str, str]], *, dialogue: str = "dlg-1"):
+    """The owner speaking to the steward, from the official contract — one block per turn,
+    each with the instant it was said."""
+    payload = {
+        "schema": "pneuma.source.owner-dialogue/v1",
+        "provider": "mock",
+        "dialogue_id": dialogue,
+        "owner_id": "app-owner-1",
+        "turns": [
+            {"turn_id": f"t{i}", "role": role, "said_at": said_at, "text": text}
+            for i, (said_at, role, text) in enumerate(turns)
+        ],
+    }
+    time = time_context_for(USER, _UserInfo().profile, now_utc=NOW)
+    return normalize_source_contract(
+        parse_source_contract(payload), USER, imported_at=NOW, time=time
+    )[0]
+
+
 def _plain(source_id: str, occurred_on: str, blocks: int = 2) -> NormalizedSource:
     """A source with no per-block instants: it has a day, it has no clock."""
     raw = RawSource(
@@ -263,6 +282,32 @@ async def test_every_row_records_the_zone_it_was_normalized_under_and_where_it_c
     await bare.on_source_indexed(str(USER), source)
     [row] = bare._content.rows[(str(USER), str(source.raw.source_id))]
     assert row["zone"] == "UTC" and row["zone_source"] == "deployment_default"
+
+
+async def test_an_owner_dialogues_turns_carry_their_own_instants_into_the_projection():
+    """An owner dialogue is conversation-shaped: one block per turn, each stamped with when
+    it was said. Absent from the instant registry those turns kept only the coarse day, so
+    two turns 23:30 and 00:30 the owner's time landed on one date with no clock — and a
+    timeline could not tell a correction from the one that walked it back, on the one
+    material whose author is the subject of the library."""
+    store = _Store()
+    source = _owner_dialogue(
+        [
+            ("2026-04-12T23:30:00+08:00", "owner", "交期改成五天。"),
+            ("2026-04-13T00:30:00+08:00", "owner", "先别改，等阿宝确认。"),
+        ]
+    )
+    await store.add(USER, source)
+
+    await _component(store).on_source_indexed(str(USER), source)
+    rows = store.rows[(str(USER), str(source.raw.source_id))]
+
+    assert [r["block_index"] for r in rows] == [0, 1]
+    assert [r["local_day"] for r in rows] == [date(2026, 4, 12), date(2026, 4, 13)]
+    assert [r["instant_utc"].astimezone(timezone.utc).isoformat() for r in rows] == [
+        "2026-04-12T15:30:00+00:00",
+        "2026-04-12T16:30:00+00:00",
+    ]
 
 
 async def test_a_meeting_in_another_zone_is_keyed_by_the_owners_day_not_the_sources():

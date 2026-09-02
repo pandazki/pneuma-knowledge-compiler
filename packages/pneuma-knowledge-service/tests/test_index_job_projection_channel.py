@@ -73,7 +73,7 @@ class _Store:
             raise KeyError(source_id)
         return self.normalized
 
-    async def complete(self, user_id, job_id, *, ok, detail):
+    async def complete(self, user_id, job_id, *, ok, detail, token_usage=None):
         self.completed.append((job_id, ok, detail))
 
 

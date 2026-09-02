@@ -268,3 +268,14 @@ def test_an_engine_value_that_settings_rejects_fails_loudly(tmp_path):
 def test_a_missing_engine_dir_resolves_to_defaults_without_raising(tmp_path):
     resolved = resolve_engine(tmp_path / "nope", {})
     assert set(resolved.resolution.values()) == {"default"}
+
+
+def test_a_non_finite_rate_is_refused_at_the_settings_boundary_naming_the_entry():
+    """`float("nan")` succeeds and every comparison against the result is false, so a
+    declaration of `nan` used to sail past the negative check and reach the money face,
+    where it renders an amount no reader can act on and JSON cannot carry. It is refused
+    here, at boot and at the console's apply, with the offending entry named."""
+    with pytest.raises(ValueError) as exc:
+        Settings(model_pricing="openrouter:test/luna-x = nan/10/0.125/1.25 USD")
+    assert "openrouter:test/luna-x" in str(exc.value)
+    assert "finite" in str(exc.value)

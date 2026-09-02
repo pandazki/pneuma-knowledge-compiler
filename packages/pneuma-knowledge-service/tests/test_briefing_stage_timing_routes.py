@@ -65,6 +65,7 @@ class _Store:
         snapshot_ref: str,
         system_prefix: str,
         stages: list[dict[str, Any]] | None = None,
+        pack_manifest: list[dict[str, str]] | None = None,
     ) -> None:
         self.created.append(
             {

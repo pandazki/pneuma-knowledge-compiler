@@ -339,7 +339,9 @@ class _Store:
     async def decide_evolve_task(self, user, task_id, status, *, detail=None):  # noqa: ARG002
         self.decided.append(status)
 
-    async def complete(self, user, job_id, *, ok=True, detail=None, snapshot_ref=None):  # noqa: ARG002
+    async def complete(  # noqa: ARG002
+        self, user, job_id, *, ok=True, detail=None, snapshot_ref=None, token_usage=None
+    ):
         self.completed.append({"ok": ok, "detail": detail})
 
 

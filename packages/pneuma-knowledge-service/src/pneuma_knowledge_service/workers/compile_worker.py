@@ -40,6 +40,12 @@ from ..challenge_service import (
     maybe_trigger_challenge,
     run_challenge_job,
 )
+from ..access_stats import (
+    RECALL_PROJECTION_JOB_KIND,
+    RECALL_REBUILD_JOB_KIND,
+    run_recall_projection_job,
+    run_recall_rebuild_job,
+)
 from ..groom_service import GROOM_JOB_KIND, maybe_trigger_rollover, run_groom_job
 from ..ingest_document import _summary_chunks
 from ..projection import sync_projection
@@ -329,12 +335,18 @@ async def process_job(
         # retryable through the normal POST /compile flow.
         projection = await sync_projection(ctx, user_id, result.snapshot.ref)
         await ctx.store.mark_digested(user_id, source_ids, now)
+        # `token_usage` rides the SAME write that ends the job — compile is the biggest
+        # spender in the system, and a finished job row that cannot say what it cost is
+        # where most of a knowledge base's money would go unaccounted. It is the loop's own
+        # sum (first round plus repair round); the money over it is derived on read from the
+        # declared rates, never stored here.
         await ctx.store.complete(
             user_id,
             job_id,
             ok=True,
             detail=_projection_detail(projection),
             snapshot_ref=result.snapshot.ref,
+            token_usage=result.token_usage,
         )
         # Mechanical rollover trigger: a document this compile WROTE that is now over the
         # size threshold gets a groom job on this same per-user queue. Size only — no LLM, no
@@ -385,12 +397,17 @@ async def process_job(
             projection = await sync_projection(ctx, user_id, refs[0].ref)
             detail = _projection_detail(projection)
         await ctx.store.mark_digested(user_id, source_ids, now)
-        await ctx.store.complete(user_id, job_id, ok=True, detail=detail)
+        await ctx.store.complete(
+            user_id, job_id, ok=True, detail=detail, token_usage=result.token_usage
+        )
         if refs:
             await maybe_trigger_evolve(ctx, user_id)
     else:  # aborted
         detail = "; ".join(v.render() for v in result.violations)
-        await ctx.store.complete(user_id, job_id, ok=False, detail=detail)
+        # An aborted round spent its tokens too — arguably the spend most worth seeing.
+        await ctx.store.complete(
+            user_id, job_id, ok=False, detail=detail, token_usage=result.token_usage
+        )
     return result
 
 
@@ -504,7 +521,8 @@ async def drain_user(
 
     Kind-agnostic claim (claim_next orders by created_at): dispatch by job.kind —
     "index" → process_index_job (L1/L2), "evolve"/"evolve_adopt" → the schema-evolve flow,
-    "groom" → one document rollover, anything else ("compile") → process_job.
+    "groom" → one document rollover, "recall_projection"/"recall_rebuild" → the use-side
+    ledger (no model, no skill), anything else ("compile") → process_job.
 
     `skill` is the per-USER skill for this drain: pass an explicit SkillVersion to force
     one (upgrade/version tests), or None to load it per-job via `skill_for_user` (the
@@ -527,6 +545,10 @@ async def drain_user(
                 await adopt_evolve_job(ctx, user_id, job)
             elif kind == GROOM_JOB_KIND:
                 await run_groom_job(ctx, user_id, job)
+            elif kind == RECALL_PROJECTION_JOB_KIND:
+                await run_recall_projection_job(ctx, user_id, job)
+            elif kind == RECALL_REBUILD_JOB_KIND:
+                await run_recall_rebuild_job(ctx, user_id, job)
             elif kind == CHALLENGE_JOB_KIND:
                 if resolved is None:
                     resolved = await _resolve_user_skill(ctx, user_id, skill_cache)
@@ -581,11 +603,27 @@ async def compile_pending(
     cache keyed by user avoids re-reading a manifest from git once per job."""
     total = 0
     cache: dict[str, SkillVersion] = {}
-    for uid in await ctx.store.list_users():
+    for uid in await _users_with_jobs(ctx):
         total += await drain_user(
             ctx, chat_model, skill, UserId(uid), skill_cache=cache
         )
     return total
+
+
+async def _users_with_jobs(ctx: AppContext) -> list[str]:
+    """Every tenant whose queue this sweep must look at.
+
+    L0 sources are no longer the only substrate a job can come from. A `recall_projection`
+    job is enqueued in the same transaction as a consultation row, and a tenant can ask
+    business questions before it has imported anything at all — so enumerating from
+    `sources` alone left exactly that tenant's jobs queued forever, with nothing in the
+    system able to notice.
+    """
+    users = set(await ctx.store.list_users())
+    lister = getattr(ctx.store, "list_consultation_users", None)
+    if lister is not None:
+        users |= set(await lister())
+    return sorted(users)
 
 
 async def run_forever() -> None:
