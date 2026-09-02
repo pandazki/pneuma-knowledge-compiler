@@ -17,7 +17,7 @@
 | 目录 | skill_id | 版本 | 说明 |
 | --- | --- | --- | --- |
 | `strategies/personal-knowledge/` | `personal-knowledge` | `v1` | 最初的个人知识参考策略：证据分级、正反例、冻结历史卷、一等公民的起点、收尾自检。 |
-| `strategies/personal-knowledge/` | `personal-knowledge` | `v2` | 原生图片参考策略：IM 图片与带标签的 caption/OCR 共用一个可引用 L0 块；其他原生媒体明确尚未支持。 |
+| `strategies/personal-knowledge/` | `personal-knowledge` | `v2` | `v1` 之上多两条判断：IM 图片与带标签的 caption/OCR 共用一个可引用 L0 块，其他原生媒体明确尚未支持；以及所有者对话是所有者在谈这座库本身，它对某条已有 claim 说的话就是关于那条 claim 的证据，应当订正或取代它，而不是在旁边另立一条。 |
 
 刻意保持一个领域一份契约。**要服务另一类用户，就新增一个策略（一个新目录），而不是给现有策略堆版本。** 只有契约自身的判断被修订时才升版本。
 

@@ -21,9 +21,9 @@ Canonical is written by four bounded verbs and nothing else — `create_document
 
 ## Extending the framework
 
-Two seams, and they extend different things. A **schema pack** is an additive contract fragment — it extends the judgement. An **index component** (core `components/`) extends the structure: business-specific structure over one contract family, contributed at the framework's own seams (gate checks, an outline line, compile and deep-recall tools, routed fast-recall paths, a source preamble line, and the `on_source_indexed` / `rebuild` projection channel with its per-job `prepare`). A new component must satisfy four things, each testable:
+Two seams, and they extend different things. A **schema pack** is an additive contract fragment — it extends the judgement. An **index component** (core `components/`) extends the structure: business-specific structure over one contract family, contributed at the framework's own seams (gate checks, an outline line, field validation, compile and deep-recall tools, routed fast-recall paths, a source preamble line, the `on_source_indexed` / `rebuild` projection channel with its per-job `prepare`, the use-side `on_recall`, and `evolve_evidence`). Every face has a no-op default, so a component implements only the ones it needs, and one that keeps no projection of its own — `attention` is the shipped example — implements no channel at all. A new component must satisfy four things, each testable:
 
-- **derived only** — whatever it persists is re-derived in full by `scripts/ops/rebuild_derived.py`;
+- **derived only** — whatever it persists is re-derived in full by `scripts/ops/rebuild_derived.py`, from the substrate it declares: L0, canonical, and for a use-side projection the kept consultation records;
 - **read-only canonical** — the canonical face handed to it at registration is `CanonicalReadOnly`; what it indexes reaches the library only by riding an ordinary compile (I7);
 - **fail-soft** — a component that raises costs a stale projection, never a failed job;
 - **tests for the seam** — every face it contributes, plus the one that proves an unregistered component changes no seam byte.

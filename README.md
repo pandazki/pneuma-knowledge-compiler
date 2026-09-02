@@ -27,7 +27,7 @@ Every piece of knowledge must carry citations that resolve to exact passages of 
 
 ## See it in three minutes
 
-No API key, no questions asked. One command generates a real project that already has a compiled library (190 synthetic sources, 754 claims), starts it, and tells you where to look:
+No API key, no questions asked. One command generates a real project that already has a compiled library (191 synthetic sources, 1,188 claims), starts it, and tells you where to look:
 
 ```bash
 cd scaffold && ./init.py --demo      # lands in a fresh temp directory; --target DIR to choose
@@ -52,7 +52,7 @@ Prefer to be guided? Hand `scaffold/AGENT-GUIDE.md` to your coding agent and it 
 
 ## How it works
 
-Source material is kept verbatim and stays reachable at four levels: L0 raw fetch, L1 lexical search, L2 semantic search, L3 canonical knowledge. Only two things are authoritative — the raw sources, and the canonical library: a per-user Git repository where every compile is a commit and every piece of knowledge carries its citations. Everything else (indexes, projections) is derived and rebuildable. Your compile contract decides what becomes canonical; a mechanical gate verifies every citation at write time and rejects whatever cannot be resolved back to the source.
+Source material is kept verbatim and stays reachable at four levels: L0 raw fetch, L1 lexical search, L2 semantic search, L3 canonical knowledge. Only two things are authoritative — the raw sources, and the canonical library: a per-user Git repository where every compile is a commit and every piece of knowledge carries its citations. Beside them sits a third kind of persistent thing, the kept record — a chunk manifest, a compile event, the record of one answering call — a stored observation that a rebuild replays and never rewrites. Everything else (indexes, projections) is derived and rebuildable from the substrate it declares. Your compile contract decides what becomes canonical; a mechanical gate verifies every citation at write time and rejects whatever cannot be resolved back to the source.
 
 Native media starts deliberately narrow and complete: IM messages may carry JPEG, PNG, WebP or GIF originals. They live in private S3-compatible L0 storage (RustFS locally), reach the compile model either as labelled caption/OCR or real image blocks, resolve through the message's ordinary block citation, and render in both source readers and citation views. Other media types are not yet declared as supported.
 
@@ -73,7 +73,6 @@ examples/                             # opc: a complete agent-built example proj
 infra/                                # local dev stack (Postgres, Qdrant, Meilisearch, RustFS)
 ```
 
-Full documentation is being rebuilt along the axis of this README and will land under `docs/`.
 
 ## Acknowledgements
 

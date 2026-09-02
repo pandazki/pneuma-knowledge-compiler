@@ -30,6 +30,14 @@ Acknowledged lineage:
 - 2026-08-12 (pre-merge): `v2` anchors relative time to the material occurrence date and
   refuses invented calendar endpoints when the convention is ambiguous. This aligns the
   reference contract with the framework's source-clock semantics; `v1` remains unchanged.
+- 2026-08-31 (pre-merge): `v2` names the `owner-dialogue/v1` kind in its evidence-tiers
+  section — the library owner's own statement about the library, a correction, an
+  instruction or an addition — so that a correction is judged as evidence about the claim
+  it corrects (edit or supersede, citing the statement) rather than filed as a second claim
+  beside it. The framework's own per-source line states only the kind; what the statement
+  deserves is judgement, and judgement lives in the contract. `v1` remains unchanged; the
+  retired `v2` content hash, still valid for trailers written under it, is
+  35b03678a795d28a3774a93b6f6411c3c2a603e9979705010a6ba04927488efc.
 
 This also covers the seam end to end: a shipped strategy reconstitutes into exactly the
 SkillVersion the framework hands out, with no framework-side domain knowledge left.
@@ -44,7 +52,8 @@ PINNED_CONTENT_HASH = {
     "v1": "4318897b183649a1aee85d6751c10a2d7a91120b4e9319605765471f56e057ab",
     # Retired 2026-08-28 with the alias sentence: a521ce4a… (the fields a page carries
     # are a snapshot the compile rewrites whole, so a wrong form is dropped, not kept).
-    "v2": "35b03678a795d28a3774a93b6f6411c3c2a603e9979705010a6ba04927488efc",
+    # Retired 2026-08-31 with the owner-dialogue sentence: 35b03678… (see the lineage above).
+    "v2": "0dbf1c15b983b451578f066fc39e2911bc38712511691fae31c4ae7cc817ccb7",
 }
 
 

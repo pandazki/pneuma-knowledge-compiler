@@ -19,7 +19,7 @@ cd apps/web && pnpm dev          # Vite 于 :5173，把 /v1 与 /healthz 代理�
 |---|---|---|---|
 | 开发（本页） | `pneuma-knowledge-compiler` | 15432 / 16333 / 17700 / 19000 | API 18000、Vite 5173；RustFS 控制台 19001 |
 | 生成的项目（`scaffold/init.py`） | `pneuma-<名字>-<hex>` | 全部在生成时探测空闲端口 | RustFS 控制台也单独探测 |
-| `examples/opc/` | `pneuma-opc-example` | 25432 / 26333 / 27700 / — | 纯文本示例；API 28000、web 24173 |
+| `examples/opc/` | `pneuma-opc-example` | 25432 / 26333 / 27700 / 29000 | 纯文本示例；API 28000、web 24173；RustFS 控制台 29001 |
 
 ## 容器镜像
 
@@ -47,7 +47,7 @@ API 侧还会对 WebSocket 客户端做约 30 秒一次的 ping，避免带空�
 
 ## 运维
 
-- **派生层全部可重建**：`scripts/ops/rebuild_derived.py <user-id>|--all` 从两类权威重建 L1 + L2 + L3 投影（L0 横跨 Postgres 与 S3，正本位于 Git），前后对账。适用于中间件被清空或换版本、换嵌入模型（新 collection）、改切块策略之后。
+- **派生层全部可重建**：`scripts/ops/rebuild_derived.py <user-id>|--all` 重建 L1 + L2 以及其上的各份投影，每一份都从它声明的底重建——两类权威（L0 横跨 Postgres 与 S3，正本位于 Git），使用侧投影再加上被保留的咨询记录——并前后对账。记录是保留的，不是重新推导的：重建重放它们，不动它们分毫。适用于中间件被清空或换版本、换嵌入模型（新 collection）、改切块策略之后。
 - **只重切块**：`scripts/ops/reindex_l2.py <user-id>` 单独重跑 L2 切块与嵌入。
 - **任务自愈**是内建的：worker 重启时回收死进程留下的孤儿任务；任何异常都以失败完结，不会卡死该用户的队列。
 - **追踪**（Langfuse）在三个 `LANGFUSE_*` 变量齐备时才开启；worker 每个任务结束后 flush。

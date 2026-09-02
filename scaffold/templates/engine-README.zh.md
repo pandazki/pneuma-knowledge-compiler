@@ -13,7 +13,7 @@ compile/contract.md      宪法——什么值得被记住、记在哪一页
 compile/challenge.yaml   编译后的覆盖审计
 evolve/evolve.yaml       库什么时候可以提出重组自己
 recall/recall.yaml       回答怎么写，以及每个问题的检索预算
-persona/profile.yaml     主人是谁
+persona/profile.yaml     所有者是谁
 prompts/overlays.yaml    框架自身提示词用哪种语言，以及替换其中任意一条的措辞（通常为空）
 ```
 
@@ -45,14 +45,14 @@ prompts/overlays.yaml    框架自身提示词用哪种语言，以及替换其�
 干净正文和精确引用分开，使引用区间可以被验证。两项都可以针对一次 `ask` 覆盖。
 API 会暴露 selector 在加入安全锚点前的实际入选数，让几乎没贡献证据的串行调用可见，而不是默认它有用。自动化使用干净的 `answer_text`；交互客户端渲染带引用的 `answer`。历史回放必须用 `--as-of` 显式传入提问时间；省略表示当前 UTC 时间。
 
-你的业务该跑三者中的哪一个，以及一次实测的延迟、输入成本与「回答最终引用了几份文档」的对比，写在
-框架仓库的 `docs/guides/recall-strategies.zh-CN.md`。一句话版本：`ranked` 是最便宜的基线，`select`
-换来一份窄而刻意的证据集，`all` 换来覆盖面——在一个库、一个问题、一个 provider 上实测，它反而是两者
-中更快的那个，代价是更高的输入账单。改文件之前，先用 `--evidence-strategy` 在单次 `ask` 上试一次。
+你的业务该跑三者中的哪一个，写在框架仓库的 `docs/guides/recall-strategies.zh-CN.md`。一句话版本：
+`ranked` 是最便宜的基线，`select` 用一次串行调用换来一份窄而刻意的证据集，`all` 用输入 token 换来
+覆盖面。延迟与成本是你的 provider 和你的库的属性，只能在你自己的材料上测：改文件之前，先用
+`--evidence-strategy` 在单次 `ask` 上试一次。
 
 **提示词语言是你的覆盖所叠在的那一层。** `prompts/overlays.yaml` 开头是 `language:`——`en` 是框架
 默认的英文目录；`zh` 换成随框架发布的中文语言包，面向可读性与中文材料。两种情况下，你写在 `overlays:` 下的文案都在它**之后**生效、并盖过它。它不决定
-这座文库用什么语言写：那取决于主人档案里声明的语言。
+这座文库用什么语言写：那取决于所有者档案里声明的语言。
 
 **任何一项都可以被环境变量为单次运行覆盖。** 顺序是：进程环境变量（`PNEUMA_KNOWLEDGE_*`）优先于
 这个目录，这个目录优先于框架默认值。它支持一次性诊断——`PNEUMA_KNOWLEDGE_RECALL_WINDOW_CANDIDATE_CAP=80

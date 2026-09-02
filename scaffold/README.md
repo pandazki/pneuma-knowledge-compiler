@@ -18,7 +18,7 @@ stack on auto-probed free ports.
 
 **Just want to see what a finished knowledge base looks like?** `./init.py --demo` generates a
 real project into a fresh temporary directory, brings up its stack and browser UI, and loads
-the library of [`examples/opc`](../examples/opc/README.md) — 190 materials, 29 canonical
+the library of [`examples/opc`](../examples/opc/README.md) — 191 sources, 28 canonical
 documents, every claim drillable back to the exact source passage — with **no API key at all**
 (`--target DIR` to choose where, `--no-start` to generate without starting docker). It is an
 ordinary generated project that happens to arrive with a library, so anything you learn there

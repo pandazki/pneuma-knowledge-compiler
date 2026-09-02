@@ -235,12 +235,12 @@ def test_demo_generates_a_project_that_already_has_a_library(tmp_path):
 
     # engine/ carries the example's REAL contract and owner profile, not a skeleton.
     contract = target / "engine" / "compile" / "contract.md"
-    assert contract.read_text(encoding="utf-8") == (example / "contract.md").read_text(
-        encoding="utf-8"
-    )
+    assert contract.read_text(encoding="utf-8") == (
+        example / "engine" / "compile" / "contract.md"
+    ).read_text(encoding="utf-8")
     assert "TODO" not in contract.read_text(encoding="utf-8")
     assert (target / "engine" / "persona" / "profile.yaml").read_text(encoding="utf-8") == (
-        example / "profile.yaml"
+        example / "engine" / "persona" / "profile.yaml"
     ).read_text(encoding="utf-8")
 
     # A few raw materials are left as the bait for "let me watch a compile", and each one is

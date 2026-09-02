@@ -39,7 +39,7 @@ Tracing is model-agnostic. Keyless `scripted:` / fake chat models go through lan
 | `chunk.semantic` | `chunk.semantic` | `index` job under `CHUNK_STRATEGY=semantic`, first ingest or a genuine content/model change only — a manifest replay calls no model | one per block window |
 | `evolve.propose` | `evolve.propose` | `evolve` job, phase 1 | one structured call |
 | `evolve.reorganize` | `evolve` | `evolve` job, phase 2 (same job as propose) | one per tool-loop turn |
-| `recall.fast` | `recall.fast`, `recall.fast.select` | `POST /v1/users/{user_id}/recall` with `mode=fast` | one answer call, plus one selector call when the selector runs |
+| `recall.fast` | `recall.fast`, `recall.fast.plan`, `recall.fast.select`, `recall.fast.evidence_select` | `POST /v1/users/{user_id}/recall` with `mode=fast` | one answer call (`recall.fast`), plus one span per model step that ran: `plan` when `RECALL_PLAN_QUERIES` is above zero, `select` when `ranked` picks whole documents off the glance, `evidence_select` when `evidence_strategy: select` composes the evidence |
 | `recall.deep` | `recall.deep` | `POST /v1/users/{user_id}/recall` `mode=deep`, and `POST …/recall/stream` | one root chain run per ask; every agent turn is a nested span |
 | `briefing.ask` | `briefing.ask` | `POST /v1/users/{user_id}/briefings/{briefing_id}/ask` | same shape as deep — root chain run plus one nested span per turn |
 | `profile.generate` | `profile.generate` | `POST /v1/profile/generate` | one structured call |

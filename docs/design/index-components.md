@@ -45,7 +45,7 @@ That sentence is the whole design constraint, and every rule below follows from 
 
 | A component may | A component may not |
 |---|---|
-| derive a projection from L0 and canonical | hold a fact that is not derivable from those two |
+| derive a projection from its declared substrate — L0, canonical, kept consultation records | hold a fact that is not derivable from what it declared |
 | return identities, days, counts, spans, anchors | return a summary, a judgement, or a narration |
 | reject a write at the gate over its own family | write canonical, in any form (I7) |
 | offer tools and lookup paths to the lanes | decide how much of what it returned a prompt sees |
@@ -54,8 +54,9 @@ That sentence is the whole design constraint, and every rule below follows from 
 The last two rows are the ones that are easy to get wrong, so they have their own sections
 (§5 and §7).
 
-A component is also not a *job*. The worker still drains six job kinds; a component rides
-the two that already exist (§4).
+A component is also not a *job*. The worker drains eight job kinds; a component rides the
+ones that already exist (§4) — `index` and `compile` on the knowledge side,
+`recall_projection` and `recall_rebuild` on the use side.
 
 ## 3. The faces
 
@@ -70,12 +71,14 @@ once.
 | `outline_tail(doc)` | rendering the compile outline | one extra line under a document of its family, so the model deciding WHERE to write sees what the component indexes |
 | `validate_fields(path, fields, docs)` | inside `set_fields` and `rewrite_overview`, before a byte is written | refusal lines over the frontmatter a write is about to set — the gate's rule said early, so a fact the component can prove wrong costs one call instead of a round |
 | `compile_tools(draft, sources=)` | building the compile tool face | read tools for the compile model, given the draft **and this round's sources** |
-| `recall_tools(user_id, documents=)` | building deep recall's tools | tools for the agentic lane, scoped to one user (I1), over the lane's already-pinned documents |
+| `recall_tools(user_id, documents=)` | building deep recall's tools | tools for the agentic lane, scoped to one user (I1), over the lane's already-pinned documents. A tool may DECLARE the addresses it returned (`RECALL_EVIDENCE_KEY` under its langchain `metadata`, entries `(kind, ref, path)`) and only then do they reach the consultation record's evidence manifest — the framework cannot read addresses out of a component's own prose, so a tool that declares nothing contributes nothing and a citation copied out of its result is not admitted into the record |
 | `fast_paths(user_id)` | assembling fast recall | routed lookup paths (§7) |
 | `source_preamble(source)` | rendering the compile task | one mechanical line under a source: what the source *boundary* knows and the transcript cannot show |
 | `prepare(user_id)` | at the head of a compile job, before any sync face renders, inside the job window (§4) | the async face of the sync seams (§4) |
 | `on_source_indexed(user_id, source)` | when one source finishes L1/L2 | the projection channel's incremental write |
-| `rebuild(user_id)` | on an explicit `rebuild_derived` | re-derive the whole projection from L0 and canonical |
+| `on_recall(user_id, record)` | on the WORKER, when it drains the projection job one business-classed answering-lane call enqueued | the use-side twin of `on_source_indexed`: one `ConsultationRecord` — the question, the addresses of what was handed to the model, what the answer cited. A record is not knowledge and never becomes any; it says the library was ASKED something, which is the one thing L0 and canonical cannot say |
+| `evolve_evidence(user_id)` | assembling a schema-evolve proposal | one mechanical block beside the compile events and the document list, reporting what the component knows about the library's USE. It reaches the model in the human turn and only when non-empty (I5) |
+| `rebuild(user_id)` | on an explicit `rebuild_derived` | re-derive the whole projection from its declared substrate |
 
 Two properties of the set matter more than any individual face.
 
@@ -96,8 +99,29 @@ index needs a write path and a rebuild path. The channel is exactly those two ca
 one that solves a deployment problem.
 
 - **`on_source_indexed`** — the incremental write. The index job calls it after L1/L2 land.
+- **`on_recall`** — the same write, from the use side, and delivered the same way: the
+  answering route only EMITS (a row plus one `recall_projection` job, in one transaction),
+  and the worker draining that job is what calls this. Fail-soft on the index channel's
+  exact terms — a component that raises is logged and costs a stale ledger, never the job,
+  and never the answer, which was returned long before any of this ran.
 - **`rebuild`** — the full re-derivation. `scripts/ops/rebuild_derived.py` calls it.
 - **`prepare`** — the async face of the sync seams.
+
+**A projection is rebuildable from its declared substrate.** For every projection the
+framework shipped first, that substrate is L0 + canonical, and I2/I7 were written in those
+terms. `on_recall` adds a second one: the use-side records the service keeps (the
+`consultations` table). They are not L0 and not canonical, and they are not derived either —
+nothing can regenerate the fact that somebody asked something, so `rebuild_derived` leaves
+them exactly where they are while re-deriving everything projected FROM them. Nothing about
+authority moves: a consultation is never an authority over knowledge, canonical still derives
+from knowledge L0 alone, and everything projected over the records is derived like any other
+projection — replaced and replayed by the same rebuild as the rest. The framework's own
+access statistics are the first such projection and are not a component's at all (they
+accumulate with nothing registered); a component may keep one of its own beside them, and
+`attention` instead reads the framework's. The roles this second
+substrate belongs to are described in
+[Owner, Steward, Visitor](steward-owner-visitor.md); the mechanical rule is the sentence
+above.
 
 `prepare` is a mechanism, not an optimisation, and it is worth being explicit about why.
 Three of the faces above (`source_preamble`, `outline_tail`, `compile_tools`) are rendered
@@ -495,8 +519,11 @@ lane is byte-identical to the lane without the seam.
 2. **Bind it to a contract family**, by path template. The family is the scope of its gate
    checks and its outline lines.
 3. **Decide what it stores, and prove it is derivable.** Write the `rebuild` first: if the
-   projection cannot be re-derived from L0 and canonical alone, it is not a projection, it
-   is an authority, and the design is wrong.
+   projection cannot be re-derived from the substrate it declares — L0, canonical, and for
+   a use-side projection the kept consultation records — it is not a projection, it is an
+   authority, and the design is wrong. A component that needs no store of its own declares
+   no substrate and implements no `rebuild`: `attention` is the shipped example, faces over
+   a ledger the framework keeps.
 4. **Implement only the faces you need.** Every one has a no-op default. Resist the urge to
    fill the table.
 5. **Keep the canonical face read-only.** It is `CanonicalReadOnly` at registration; if you
@@ -515,38 +542,25 @@ lane is byte-identical to the lane without the seam.
    rebuild reproducing the incremental result, per-tenant isolation (I1), and that with the
    component unregistered every surface is unchanged.
 
-## 9. What the measurements say
+## 9. Measuring a component
 
-Two same-harness A/B runs over LoCoMo-refined, arm A with components off and arm B with
-`people` + `time` on, everything else byte-identical (same contract, same models, same
-`select + structured` answering, official refined LLM judge, 1,382 fully paired questions):
+A component is measured the way anything else here is: a same-harness A/B, the two arms
+byte-identical apart from the component set — same contract, same models, same answering
+path, same judge, the same fully paired questions — with the threshold that would count as a
+material gain declared before the run, and a paired significance test rather than a
+difference of two percentages.
 
-| run | A (components off) | B (components on) | B − A | exact two-sided McNemar |
-|---|---:|---:|---:|---:|
-| v3 | 81.19% | 81.77% | +0.58 pp | p = 0.594 |
-| v4 | 80.61% | 81.55% | +0.94 pp | p = 0.3902 |
+**Verify the seam is exercised before the aggregate is worth arguing about.** How often
+routing was offered and chose a path, how often component evidence was non-empty, how many
+answers carried a `via:` label, and how many dropped items truncation reported instead of
+cutting silently are counts rather than estimates. A component whose faces are barely reached
+has not been measured yet, whatever the score did.
 
-**Read this honestly: the aggregate difference is not significant in either run** — p = 0.594
-and p = 0.3902, and both point estimates sit well inside the band a 10-conversation paired
-run can resolve. Neither reaches the 2 pp threshold that was set in advance as a material
-gain. The correct claim is *"the components are heavily used and did not degrade quality"*,
-not *"the components improve accuracy"*.
-
-For scale, the same harness measured an effect that *is* real: switching the answering path
-from the default to `select + structured` moved both libraries by +5.2 pp and +6.3 pp at
-p < 1e-6. That is what a significant result looks like here, and it is the yardstick the two
-rows above should be read against.
-
-What the same run does establish, because these are counts rather than estimates: routing
-was offered on 100% of questions and chose a path on 99.20%; component evidence was non-empty
-on 96.96%; 94.07% of answers carried at least one `via:` label; and honest truncation
-reported 47,421 dropped items across 1,195 questions rather than silently cutting them. The
-seam is exercised on nearly every question in a realistic corpus — which is the property that
-had to be verified before the aggregate score was worth arguing about at all.
-
-The value a component adds is also, by construction, mostly invisible to an aggregate over a
-benchmark whose questions were not written to need it. A closed-set enumeration matters on
-the questions that have a residue; a calendar index matters on the questions that name a
-period. Averaging those into 1,382 questions dilutes exactly the effect being measured. That
-is an argument for measuring the slices deliberately, not an excuse for the aggregate — and
-the slices in v4, none of them corrected for multiple comparisons, are also not significant.
+**Then read the aggregate for what it can hold.** A component's value is largely invisible to
+an average over a benchmark whose questions were not written to need it: a closed-set
+enumeration matters on the questions that have a residue, a calendar index on the questions
+that name a period, and averaging those in with a thousand others dilutes exactly the effect
+being measured. That is an argument for declaring the slices in advance and correcting for
+multiple comparisons, not an excuse for the aggregate. "Heavily used and did not degrade
+quality" is a claim a run of this shape can carry; "improves accuracy" needs an effect the
+test can resolve.
