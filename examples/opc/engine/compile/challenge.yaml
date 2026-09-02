@@ -1,0 +1,12 @@
+# The post-compile coverage audit: blind questions generated over the material that was just
+# compiled, a probe of the canon for gaps, and one compensation compile for the gaps the
+# material actually supports. It mechanizes the "ask real questions" acceptance step.
+#
+# Off by default because it spends extra model calls on every compile job. Turning it on
+# governs future compiles only — nothing already recorded is revisited.
+enabled: false
+max_rounds: 2
+max_questions: 6
+# Completion budget for the audit's structured passes; 0 = provider default.
+max_output_tokens: 32768
+compensate: true

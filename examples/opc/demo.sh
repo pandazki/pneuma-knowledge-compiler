@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Interactive tour of the OPC example. Stage-aware: browsing the prebuilt library needs
+# Interactive tour of the OPC example. Stage-aware: browsing the shipped library needs
 # no API key; asking questions and recompiling do.
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -11,19 +11,20 @@ fi
 
 echo ""
 echo "OPC 示例——一个用 scaffold 建出来的完整知识库项目"
-echo "  [1] 开箱浏览：起栈 + 恢复预编译库 + 打开 Web（不需要 API key）"
-echo "  [2] 问一问：对预编译库提问（需要 .env 里有 key）"
-echo "  [3] 自己重编译：改 contract.md / 模型参数后，从材料重新编译（需要 key，花真金白银）"
+echo "  [1] 开箱浏览：起栈 + 装载随项目发行的库 + 打开控制台（不需要 API key）"
+echo "  [2] 问一问：对这座库提问（需要 .env 里有 key）"
+echo "  [3] 自己重编译：改 engine/ 里的契约或模型后，从材料重新编译（需要 key，花真金白银）"
 echo "  [q] 退出"
 read -r -p "选择: " choice
 
 case "$choice" in
   1)
     ./app.py up
-    docker compose -f docker-compose.yml --profile web up -d --build --wait api web
-    ./bootstrap.py
+    docker compose -f docker-compose.yml --profile console up -d --build --wait api worker web
+    ./app.py restore
     echo ""
     echo "打开 http://127.0.0.1:${PNEUMA_APP_WEB_PORT:-24173} ——"
+    echo "左栏底部切换身份：所有者看驾驶舱，访客与无痕访客看阅览室。"
     echo "文库/原料/历史随便翻；问答要 key（菜单 2）。"
     ;;
   2)
@@ -31,7 +32,7 @@ case "$choice" in
     ./app.py ask "$q" --sources
     ;;
   3)
-    echo "将清空本地库并用你的参数重新编译全部材料（预编译库可随时用菜单 1 恢复）。"
+    echo "将清空本地库并用你的参数重新编译全部材料（随项目发行的那座库可随时用菜单 1 装回）。"
     read -r -p "确认? [y/N] " ok
     [ "$ok" = "y" ] || exit 0
     ./app.py down --volumes && rm -rf data/

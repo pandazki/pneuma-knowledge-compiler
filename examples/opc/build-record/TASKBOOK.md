@@ -1,26 +1,88 @@
-# 任务书原文（协调者 → 建库代理，2026-08-03 深夜）
+# 任务书原文（维护者 → 重建代理，2026-09-01）
 
-> 本文件逐字保存了启动这次干净房间构建时，协调者（Claude Fable 5 / Claude Code）
-> 发给建库代理（Claude Opus 5，general-purpose subagent）的完整指令。
-> 配合 trace/ 下的完整对话轨迹与 BUILD-LOG.md 一起阅读，即可复现整个流程。
+> 本文件逐字保存了启动 2026-09-01 这次重建时，维护者发给执行代理
+> （Claude Opus 5 / Claude Code）的完整指令。配合 BUILD-LOG.md、
+> trace/compile.log 与 use-side/session.json 一起读，就是这一轮的全部记录。
+>
+> 启动第一轮（2026-08-03 的干净房间构建）的那份任务书，随它记录的那一轮一起
+> 被这一份取代——发行前不背兼容包袱。第一轮真正留下来的东西是那份契约，
+> 它仍是这座库的宪法，就在 engine/compile/contract.md。
 
 ---
 
-你是一位 AI 建库向导。任务：在**干净房间**里，从 scaffold 出发，为主人「林舟」建成他的知识库。这次构建的全过程要能被任何开发者复现，所以：来源只有 scaffold + 材料 + 主人自述，别的一概不许看。
+# Task I — rebuild the OPC example on the current framework, and teach what is new
 
-框架仓库 REPO=/Users/pandazki/orca/workspaces/pneuma-knowledge-compiler/platy。
+Worktree and rules: as in `TASK-A1-consultations.md`. Branch `feat/steward-owner-visitor`
+(Task H has landed — read its report commit range first). The example is `examples/opc/` —
+read its README (both languages), `app.py`, `bootstrap.py`, `contract.md`, and
+`build-record/TASKBOOK.md` before anything. The example is a scaffold-born project for one
+synthetic owner (林舟 / Seamlog, 190 sources in `my-data/`); its prebuilt library and
+build-record are what developers actually open. It is stale by four feature waves:
+supersession/overview landed mid-way, and it predates index components in production use,
+consultations/visitor classes/the lens UI, owner-dialogue/v1, live context (#11/#13), and
+cost visibility (Task H).
 
-**硬性禁令**：不许读 REPO/examples/（唯一例外：拷贝数据那一步）、不许读 REPO/archive/、不许读 REPO/local/（唯一例外：取 key 那一步）。你对"这批数据以前被怎么处理过"必须一无所知。
+## What "rebuild" means here
 
-**流程**（依据 REPO/scaffold/AGENT-GUIDE.md 与 REPO/docs/guides/compile-contract.zh-CN.md，先通读这两份）：
+A REAL rebuild of the library from `my-data/` on this branch's framework, with the new
+mechanisms ON, and the example's documentation updated so a developer who opens it sees —
+and is told about — what the framework now does. The original build burned ~21M tokens
+(`gpt-5.6-luna`); expect the same order. Use the example's own machinery (`app.py up/init`,
+its compose, its ports) — NOT the lynx dev bench; the two stacks must not share tenants,
+collections or ports. The `.env` goes into `examples/opc/.env` from the repo root's
+(git-ignored, never committed, never printed).
 
-1. **建干净房间**：`cp -R REPO/scaffold ~/opc-build && cd ~/opc-build && cp .env.example .env`。填 `.env`：OPENROUTER_API_KEY 从 REPO/local/acme/.env.local 读（key 不得出现在任何输出/日志/文件）；COMPILE/RECALL 模型 `openrouter:openai/gpt-5.6-luna`，EMBEDDING `openrouter:openai/text-embedding-3-small`；`PNEUMA_APP_FRAMEWORK_REPO=<REPO 绝对路径>`；再追加隔离六行：
-   PNEUMA_APP_COMPOSE_PROJECT=pneuma-opc-build / PG 15448 / QDRANT 16403,16404 / MEILI 17724 / USER_ID u-opc-lin / PNEUMA_KNOWLEDGE_OPENROUTER_PROVIDER_ORDER=openai
-2. **拿材料**：`cp -R REPO/examples/opc/my-data ~/opc-build/my-data`（唯一允许接触 examples 的操作——材料本身就是给你的输入）。
-3. **主人自述**（"用户"告诉你的话，据此照指南填 profile.yaml，provenance 相应写 profile）：「我叫林舟，独立开发者，做一个叫 Seamlog 的变更证据链产品，自己写代码、自己卖、自己运营。在杭州，中文交流。时区 Asia/Shanghai。」
-4. **读数据 → 写契约**：按指南第 4、5 步，抽读 my-data（190 份，覆盖早中晚与四种类型，至少 25 份），推出主体族与口径，从 contract.md 模板的【示例，替换我】起整段改写，skill_id/version 自定。你的判断就是最终判断。
-5. **起栈、摄入、编译**：./app.py up → init → ingest my-data → nohup ./app.py compile 后台 + 前台每 4 分钟 tail 轮询直到完成；绝不允许以"编译还在跑/待命"为由结束任务。
-6. **验收环**：glance 通读；ask 5 个真问题（决定与理由/承诺与验收/卡在什么条件/时间线/证据口径各一，--sources）。若判定契约必须改：至多一次「改契约→down --volumes→重编」。
-7. **全程写 ~/opc-build/BUILD-LOG.md**：读了哪些材料、推出了什么、契约为什么这样定、编译统计、验收问答摘录与判定、遇到的问题。
+## Deliverables
 
-完工标准：库编译完成、验收合格、BUILD-LOG 完整、data/ 下有成品。
+1. **Engine/config refresh**: the example's engine directory / env enables
+   `people,time,attention`; the new knobs (attention half-life/window/evidence chars,
+   model pricing from Task H) are STATED with the example's real values; engine.yaml and
+   contract hash pins re-recorded per the example's own conventions.
+2. **Contract refresh** (`contract.md`): one pass, judgement only where the new mechanisms
+   need it — the owner-dialogue sentence (correct/supersede citing the statement), what
+   this library's definitions/summaries should say (the overview slots), anything the
+   scaffold templates gained since. Do not rewrite the judgement that built a good
+   library; extend it.
+3. **The build**: `app.py init` over the same 190 sources. Monitor to completion; the
+   worker drains compile + projection jobs. Record gate rejections / repairs as the
+   original build-record did.
+4. **Exercise the use-side, as part of the record**: after the build, run a scripted
+   session against the example's own API — a handful of `business` consultations (real
+   questions about Seamlog), one `audit`, several `silent`; one `owner-dialogue/v1`
+   correction from 林舟 that lands as a supersession; one live-context WS session with a
+   short synthetic conversation (eager). The consultations ledger, the access stats, the
+   spend report (Task H) and the corrected page are then REAL artifacts a developer can
+   open in the browser, not claims in a README.
+5. **Prebuilt + bootstrap**: regenerate the prebuilt library so keyless `bootstrap.py`
+   restores the NEW library, and reshape the restore itself wherever the new mechanisms
+   make the old shape awkward — the owner's ruling (2026-09-01, verbatim): "整体上你不用
+   考虑旧版的兼容～ 我们还没 release 呢". No pre-release compatibility burden anywhere in
+   this task: replace rather than accommodate.
+6. **Build record**: a new `build-record/` run (task book, build log, cost accounting —
+   Task H's spend endpoint gives the answering side; compile cost from what H made
+   inspectable). The OLD record is REPLACED outright — same ruling; keep only what the
+   new record itself wants to cite.
+7. **README (both languages)**: a "What this example now shows" section walking the
+   developer through: the lens switch (owner cockpit vs reading room), asking as each
+   class and seeing the consultation ledger fill, the access card and usage panel, the
+   owner statement → supersession page, live context over a transcript, and where the
+   money went. Follow the repo's narrative rules: 精炼准确, no scores flexing, no
+   commands to the reader.
+8. Suites: the repo's suites stay green (`uv run pytest`, hygiene, web untouched by this
+   task unless the example's web profile needs a version bump — say so if it does).
+
+## Discipline
+
+- Synthetic data only — the corpus IS synthetic; keep it that way in every new artifact.
+- The example's compose/ports only; never the lynx dev bench's stack or tenants.
+- Commit in slices that mirror the deliverables; do not push.
+- Money: this is a real spend on the order of the original build. Track it as you go
+  (Task H makes that visible); if the projected total exceeds ~1.5× the original
+  build's, STOP and report rather than pressing on.
+
+## Reply with
+
+The build's shape (sources → documents → claims, rejections/repairs), total cost split
+compile vs answering, what bootstrap restores, the use-side artifacts created, README
+sections added, and anything this book or the example's machinery got wrong against the
+current framework.

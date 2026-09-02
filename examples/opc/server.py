@@ -1,14 +1,17 @@
-"""Framework API server for the OPC example's browsing layer (compose `api` service).
+"""Framework API server for this project's browsing layer (compose `api` service).
 
-The plain scaffold flow is CLI-only. This example adds a browser on top, which needs the
-framework HTTP API running with THIS project's contract registered — the framework ships
-no domain contract, so an unregistered API could serve sources but never a skill. This
-entrypoint reuses the scaffold driver's own loader (`app.load_contract_skill`), keeping
-one parsing path between the CLI and the server, then hands off to the stock FastAPI app.
+The everyday flow is the CLI and needs none of this. This entrypoint exists so the project
+can be opened in a browser — the library, its sources, every citation, and the Engine Console
+over engine/ — which needs the framework HTTP API running with THIS project's compile
+contract registered: the framework ships no domain contract, so an unregistered API could
+serve sources but never a skill. The contract is loaded through the driver's own loader
+(`app.load_contract_skill`), keeping one parsing path between the CLI and the server.
 
-Settings come from PNEUMA_KNOWLEDGE_* environment variables set in docker-compose.yml
-(service-name hosts) — deliberately NOT from app.build_settings(), whose localhost DSNs
-are correct on the host but wrong inside a container.
+Settings come from the PNEUMA_KNOWLEDGE_* variables docker-compose.yml sets (service-name
+hosts, container paths for engine/ and the canonical library) — deliberately NOT from
+`app.build_settings()`, whose localhost ports are right on the host and wrong in a container.
+
+Machinery: do not edit. Regenerate the project to upgrade it.
 """
 
 from __future__ import annotations
@@ -18,22 +21,23 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import app as scaffold_app  # noqa: E402 — the neighboring scaffold driver
+import app as driver  # noqa: E402 — the neighbouring project driver
+
 
 def main() -> None:
     import uvicorn
     from pneuma_knowledge_service.api.app import create_app
 
-    skill = scaffold_app.load_contract_skill()
+    skill = driver.load_contract_skill()
     os.environ.setdefault("PNEUMA_KNOWLEDGE_USER_SCHEMA_BASE_VERSION", skill.version)
-    if not os.environ.get("OPENROUTER_API_KEY", "").strip():
-        # Keyless browsing: deterministic embeddings (dimension-matched to the
-        # recommended real model) and no chat models — the library stays fully
-        # browsable; ask/recall simply need a key.
-        os.environ["PNEUMA_KNOWLEDGE_EMBEDDING_MODEL"] = "fake:1536"
-        for role in ("", "_COMPILE", "_RECALL", "_DEEP", "_SKILL", "_EVOLVE", "_LIVE_CONTEXT", "_CHALLENGE"):
-            os.environ[f"PNEUMA_KNOWLEDGE_LLM_MODEL{role}"] = ""
+    driver.apply_prompt_overlays()
+    # Keyless browsing is a first-class state, not a degraded one: with no key the API serves
+    # the whole library, its sources and its citations, and only the lanes that call a model
+    # (ask / deep recall / compile) are unavailable.
+    for line in driver.keyless_env(os.environ):
+        print(line, flush=True)
     uvicorn.run(create_app(), host="0.0.0.0", port=8080)
+
 
 if __name__ == "__main__":
     main()

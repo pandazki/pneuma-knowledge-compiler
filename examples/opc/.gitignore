@@ -1,4 +1,10 @@
-# 本地运行产物与密钥 —— 永不提交。
+# Local runtime artifacts and secrets — never committed.
 .env
 data/
 __pycache__/
+# Where an evaluation run writes: its scorecards, and the L0 dumps it harvests to compute
+# the metrics a canonical repository alone cannot. Derived, and re-derivable by re-running.
+var/
+# The engine directory is versioned twice over: its files live in this repository, and the
+# engine console commits its own history inside it. That history is local to a checkout.
+engine/.git/
