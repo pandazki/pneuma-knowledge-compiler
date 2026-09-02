@@ -25,6 +25,7 @@ import { DefinitionList } from "@/ui/DefinitionList";
 import { EmptyState } from "@/ui/EmptyState";
 import { ErrorState } from "@/ui/ErrorState";
 import { Mono } from "@/ui/Mono";
+import { UsageLine } from "@/views/_shared/UsageLine";
 import { SkeletonText } from "@/ui/Skeleton";
 import { PageHeader } from "@/components/PageHeader";
 import { PaginationBar } from "@/components/PaginationBar";
@@ -472,6 +473,17 @@ function JobDetail({ job, userId }: { job: JobSummary; userId: string }) {
             term: "ok",
             definition:
               job.ok == null ? "—" : job.ok ? "true" : "false",
+          },
+          // Compile is the system's biggest spender. Until the job row carried its own
+          // usage, this was the one place money went and nothing said how much.
+          {
+            term: "token_usage",
+            definition:
+              job.token_usage && Object.keys(job.token_usage).length > 0 ? (
+                <UsageLine usage={job.token_usage} cost={job.cost} className="mt-0" />
+              ) : (
+                "—"
+              ),
           },
         ]}
       />

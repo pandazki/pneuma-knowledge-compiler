@@ -280,7 +280,7 @@ export function SuggestionBubble({
               onJump={onJump}
             />
           )}
-          <UsageLine usage={detail.token_usage} className="mt-1" />
+          <UsageLine usage={detail.token_usage} cost={detail.cost} className="mt-1" />
         </div>
       )}
     </article>

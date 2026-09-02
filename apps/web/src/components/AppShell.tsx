@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { PanelLeft } from "lucide-react";
 import { useApp } from "@/lib/store";
+import { showsShellChrome } from "@/lib/lenses";
 import type { ViewName } from "@/lib/types";
 import { useT } from "@/lib/useT";
 import { Button } from "@/ui/Button";
@@ -27,6 +28,9 @@ const VIEWPORT_PANE_VIEWS: ReadonlySet<ViewName> = new Set<ViewName>([
   "recall",
   "sources",
   "engine_console",
+  // The listing and the record it opens are read together; either scrolling the page out
+  // from under the other is the failure the charter exists to prevent.
+  "consultations",
   // Live Context watches a conversation and a suggestion at the same time, in two panes side
   // by side. Either of them scrolling the page out from under the other is the failure that
   // layout exists to prevent, so the page takes the viewport and the panes scroll inside it.
@@ -49,9 +53,21 @@ const WIDE_PANE_VIEWS: ReadonlySet<ViewName> = new Set<ViewName>(["live_context"
  * LocaleToggle / ThemeToggle) + the desktop contents rail (232px) + the content column
  * (max-w-content). The notice strip, the offline warning and the historical-snapshot archive
  * stamp banner all live here.
+ *
+ * The top bar is the console's GLOBAL administration, and identity is not an administrative
+ * control — it decides what the whole app is. So the lens switcher is not here: it sits at
+ * the foot of the contents rail, under the chapters it decides the length of.
+ *
+ * What the visitor lenses lose from this bar is the snapshot pin, and only that, because the
+ * reading room draws no pin banner: a pin taken there would answer from a frozen copy while
+ * the page said nothing about it. The library picker stays under every lens — this console
+ * is a demo and operator bench, and which library is on the bench is the first thing anyone
+ * sitting down at one needs. `SHELL_CHROME_LENSES` in lib/lenses.ts is where that is
+ * declared; nothing here keeps a second opinion.
  */
 export function AppShell({ children }: { children: ReactNode }) {
   const view = useApp((s) => s.view);
+  const lens = useApp((s) => s.lens);
   const notice = useApp((s) => s.notice);
   const dismissNotice = useApp((s) => s.dismissNotice);
   const usersError = useApp((s) => s.usersError);
@@ -87,8 +103,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           </button>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
-          <UserPicker />
-          <SnapshotPicker />
+          {showsShellChrome("userPicker", lens) && <UserPicker />}
+          {showsShellChrome("snapshotPin", lens) && <SnapshotPicker />}
           <LocaleToggle />
           <ThemeToggle />
         </div>

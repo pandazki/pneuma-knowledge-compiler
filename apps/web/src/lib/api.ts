@@ -7,7 +7,7 @@
  */
 
 import { tx } from "./i18n";
-import type { ClaimLabel, UserProfile } from "./types";
+import type { ClaimLabel, UserProfile, VisitorClass } from "./types";
 import type { HistoryCounts, HistoryItemEnvelope } from "./history";
 import type { StageEvent, StageTiming } from "./stages";
 import { buildPageQuery, type Page } from "./pagination";
@@ -389,6 +389,15 @@ export interface TokenUsage {
   cache_creation: number;
 }
 
+/** What those tokens cost, derived at read time from the rates this deployment declared
+ *  (`model_pricing`). `null` — or absent — wherever it declared none for the models a call
+ *  used, or where one lane's roles are priced differently: the tokens are shown either way,
+ *  and no figure is invented to sit beside them. */
+export interface Cost {
+  amount: number;
+  currency: string;
+}
+
 export interface UsedClaim {
   anchor: string;
   document_path: string;
@@ -519,6 +528,7 @@ export interface RecallAnswer {
    *  strategy). Model output about the evidence — never evidence, never a citation. */
   deliberation?: string | null;
   token_usage: TokenUsage;
+  cost?: Cost | null;
 }
 
 export type OriginalModality = "image";
@@ -538,6 +548,9 @@ export function recallAnswer(
     evidence_strategy?: "ranked" | "select" | "all";
     answer_format?: "text" | "structured";
     include_original_modalities?: OriginalModality[];
+    /** Who is asking, as far as the record is concerned. Omitted = the service's own
+     *  default, `silent`, which leaves no trace at all. */
+    visitor_class?: VisitorClass;
   },
 ): Promise<RecallAnswer> {
   return req<RecallAnswer>(`/v1/users/${u(userId)}/recall`, {
@@ -657,6 +670,7 @@ export async function recallStream(
   signal?: AbortSignal,
   snapshot?: string | null,
   includeOriginalModalities: OriginalModality[] = [],
+  visitorClass: VisitorClass = "silent",
 ): Promise<void> {
   await readEventStream(
     `/v1/users/${u(userId)}/recall/stream`,
@@ -665,6 +679,7 @@ export async function recallStream(
       mode,
       snapshot: snapshot ?? null,
       include_original_modalities: includeOriginalModalities,
+      visitor_class: visitorClass,
     },
     {
       ...liveFrames(handlers),
@@ -752,6 +767,7 @@ export interface AskAnswer {
    * reverse-binds each inline `[cite: sNN]` to its real source. */
   citation_handles?: Record<string, string>;
   token_usage: TokenUsage;
+  cost?: Cost | null;
   /** The ask LOOP's per-step wall-clock, agentic-shaped like deep's: `turn:N`, `tool:<name>`
    * (the same call the matching `verbatim_fetches` record carries `ms` for), an optional
    * `finalize`, then `total`. The pack is not inside that total — it was built earlier. */
@@ -814,10 +830,14 @@ export function askBriefing(
   userId: string,
   briefingId: string,
   question: string,
+  visitorClass: VisitorClass = "silent",
 ): Promise<AskAnswer> {
   return req<AskAnswer>(
     `/v1/users/${u(userId)}/briefings/${u(briefingId)}/ask`,
-    { method: "POST", body: JSON.stringify({ question }) },
+    {
+      method: "POST",
+      body: JSON.stringify({ question, visitor_class: visitorClass }),
+    },
   );
 }
 
@@ -829,10 +849,11 @@ export async function askBriefingStream(
   question: string,
   handlers: LiveHandlers & { onDone: (answer: AskAnswer) => void },
   signal?: AbortSignal,
+  visitorClass: VisitorClass = "silent",
 ): Promise<void> {
   await readEventStream(
     `/v1/users/${u(userId)}/briefings/${u(briefingId)}/ask/stream`,
-    { question },
+    { question, visitor_class: visitorClass },
     {
       ...liveFrames(handlers),
       done: (p) => handlers.onDone(p as AskAnswer),
@@ -840,6 +861,177 @@ export async function askBriefingStream(
     handlers.onError,
     signal,
   );
+}
+
+/* ------------------------------------------------- consultations + the access ledger */
+
+/** One address, and nothing else — no text, no score, no rank (invariant I4).
+ *
+ * `ref` is a claim anchor (`c:xxxx`), a `<source_id> ¶a-b` span, or a canonical page path;
+ * `path` is the page a claim lives on, and is empty for every other kind. */
+export interface EvidenceRef {
+  kind: string;
+  ref: string;
+  path: string;
+}
+
+/** One consultation as a listing row. The evidence stays on the detail route. */
+export interface ConsultationSummary {
+  consultation_id: string;
+  created_at: string;
+  lane: "fast" | "deep" | "briefing_ask" | string;
+  visitor_class: "audit" | "business" | string;
+  question: string;
+  /** The library answered with nothing — `no_record`, or (for a retrieving lane) nothing
+   *  reaching the model at all. */
+  miss: boolean;
+  answer_kind: string | null;
+  /** The canonical HEAD sampled when the consultation began — the snapshot id for a pinned
+   *  call, which is the same field in its other exact form. */
+  library_ref: string;
+  citation_count: number;
+  evidence_count: number;
+  /** What the consultation spent. `{}` for a record written before it was kept. */
+  token_usage: Partial<TokenUsage>;
+  cost: Cost | null;
+}
+
+/** The whole record: the audit chain for one answer. `citations` is a subset of
+ *  `evidence_handed` by construction — a marker is admitted only when its resolved address
+ *  is in the manifest the lane published. */
+export interface Consultation extends ConsultationSummary {
+  as_of: string | null;
+  answer: string;
+  evidence_handed: EvidenceRef[];
+  citations: EvidenceRef[];
+  degraded: string[][];
+}
+
+export interface ConsultationParams {
+  limit?: number;
+  cursor?: string | null;
+  lane?: string | null;
+  visitor_class?: string | null;
+  miss?: boolean | null;
+  /** The reverse lookup: which consultations handed or cited ONE address. Takes a claim
+   *  anchor, a `<source_id> ¶a-b` span, or a canonical page path — a page matches both
+   *  when it was read whole and when a claim living on it travelled. */
+  target?: string | null;
+}
+
+export function listConsultations(
+  userId: string,
+  params: ConsultationParams = {},
+): Promise<Page<ConsultationSummary>> {
+  const query = buildPageQuery({
+    limit: params.limit ?? 25,
+    cursor: params.cursor,
+    lane: params.lane,
+    visitor_class: params.visitor_class,
+    miss: params.miss == null ? null : String(params.miss),
+    target: params.target,
+  });
+  return req<Page<ConsultationSummary>>(
+    `/v1/users/${u(userId)}/consultations${query}`,
+  );
+}
+
+export function getConsultation(
+  userId: string,
+  consultationId: string,
+): Promise<Consultation> {
+  return req<Consultation>(
+    `/v1/users/${u(userId)}/consultations/${u(consultationId)}`,
+  );
+}
+
+/** One slice of a spend window: a lane name or a visitor class, what it spent, what it
+ *  cost. `cost` is null when the slice's models are not all priced, or it mixes currencies. */
+export interface SpendGroup {
+  key: string;
+  consultations: number;
+  /** How many of them reported any token counter at all. */
+  with_usage: number;
+  /** `with_usage < consultations` — some calls reported nothing, so the tokens are a floor
+   *  rather than the total, and the money withdraws instead of showing a partial as exact. */
+  incomplete: boolean;
+  token_usage: Partial<TokenUsage>;
+  cost: Cost | null;
+}
+
+/** What this library's RECORDED consultations spent over a window — not the deployment's
+ *  bill: a `silent` visitor leaves no record, and the Live Context lane records none. */
+export interface Spend {
+  window_days: number;
+  since: string;
+  until: string;
+  consultations: number;
+  with_usage: number;
+  incomplete: boolean;
+  token_usage: Partial<TokenUsage>;
+  cost: Cost | null;
+  by_lane: SpendGroup[];
+  by_visitor_class: SpendGroup[];
+}
+
+export function getConsultationSpend(userId: string, days = 30): Promise<Spend> {
+  return req<Spend>(
+    `/v1/users/${u(userId)}/consultations/spend?days=${encodeURIComponent(days)}`,
+  );
+}
+
+/** What this library's readers have done with one target, joined at read time out of the
+ *  derived layer. Never canonical — nothing here is written into a page. A target nobody
+ *  has read answers with zeros and `last_accessed_at: null`: "never read" is an answer. */
+export interface AccessStats {
+  kind: string;
+  ref: string;
+  last_accessed_at: string | null;
+  hits_7d: number;
+  hits_30d: number;
+  heat: number;
+}
+
+export function getAccessStats(
+  userId: string,
+  kind: "claim" | "document" | "source",
+  ref: string,
+): Promise<AccessStats> {
+  const query = buildPageQuery({ kind, ref });
+  return req<AccessStats>(`/v1/users/${u(userId)}/access-stats${query}`);
+}
+
+export interface TopDocument {
+  path: string;
+  heat: number;
+  hits_7d: number;
+  hits_30d: number;
+  last_accessed_at: string | null;
+}
+
+export interface TopMiss {
+  question: string;
+  count: number;
+  last_day: string;
+}
+
+/** The ledger's face for a dashboard. `heat` ranks over `window_days`; the two hit counts
+ *  are the read face's own fixed windows, so a page reads the same here as on its card. */
+export interface AccessTop {
+  window_days: number;
+  since: string;
+  until: string;
+  half_life_days: number;
+  documents: TopDocument[];
+  misses: TopMiss[];
+}
+
+export function getAccessTop(
+  userId: string,
+  params: { days?: number; limit?: number } = {},
+): Promise<AccessTop> {
+  const query = buildPageQuery({ days: params.days, limit: params.limit });
+  return req<AccessTop>(`/v1/users/${u(userId)}/access-stats/top${query}`);
 }
 
 /* --------------------------------------------------------------- Live Context (Stage 3) */
@@ -1002,6 +1194,7 @@ export interface LiveContextDone extends LiveContextProcessing {
   focus: string;
   count: number;
   token_usage: TokenUsage;
+  cost?: Cost | null;
   as_of: string;
 }
 
@@ -1156,6 +1349,7 @@ export interface LiveContextStatsFrame extends LiveContextProcessing {
   /** How many pending turns this tick read. */
   turns?: number;
   token_usage: TokenUsage;
+  cost?: Cost | null;
 }
 
 export interface SuggestionDetailFrame {
@@ -1166,6 +1360,7 @@ export interface SuggestionDetailFrame {
   detail: string;
   citations: SuggestionCitation[];
   token_usage: TokenUsage;
+  cost?: Cost | null;
 }
 
 /** `ref` is present only when the failure belongs to a specific `want_more`; a bad frame
@@ -1404,6 +1599,10 @@ export interface JobSummary {
   source_ids: string[];
   created_at: string | null;
   completed_at: string | null;
+  /** What this job's model calls spent — the compile loop's own sum. `{}` when the job ran
+   *  no model, or predates the column. */
+  token_usage: Partial<TokenUsage>;
+  cost: Cost | null;
 }
 
 export interface CompileResult {

@@ -38,6 +38,7 @@ import {
 } from "@/lib/structureLens";
 import { useLocale, useT, useTOr } from "@/lib/useT";
 import { PageHeader } from "@/components/PageHeader";
+import { AccessCard } from "./AccessCard";
 import { NeighborhoodCard } from "./NeighborhoodCard";
 import { CitationList, type CitationEntry } from "@/components/CitationList";
 import { Badge } from "@/ui/Badge";
@@ -89,6 +90,7 @@ export default function LibraryView() {
   const selection = useApp((s) => s.selection);
   const select = useApp((s) => s.select);
   const setView = useApp((s) => s.setView);
+  const lens = useApp((s) => s.lens);
 
   const docs = model?.dataset.documents.documents ?? [];
 
@@ -126,7 +128,10 @@ export default function LibraryView() {
       id = selection.documentId;
       anchor = selection.anchor;
     }
-    const byId = id ? model.docById.get(id) : undefined;
+    // `docById` is keyed by document_id; a jump from outside canonical (a consultation's
+    // manifest, a document's access card) knows the PATH, which is the address the rest
+    // of the system uses. Falling back to it makes one selection kind serve both.
+    const byId = id ? model.docById.get(id) ?? model.docByPath.get(id) : undefined;
     return {
       activeDoc: byId ?? docs.find((d) => d.document_id) ?? docs[0] ?? null,
       highlightAnchor: anchor,
@@ -182,10 +187,14 @@ export default function LibraryView() {
           icon={Inbox}
           title={t("library.empty.title")}
           description={t("library.empty.description")}
+          // Importing a source is the owner's act; a visitor offered the button would be
+          // offered a page their lens does not have.
           action={
-            <Button size="sm" onClick={() => setView("ingest")}>
-              {t("library.empty.action")}
-            </Button>
+            lens === "owner" ? (
+              <Button size="sm" onClick={() => setView("ingest")}>
+                {t("library.empty.action")}
+              </Button>
+            ) : undefined
           }
         />
       </>
@@ -582,6 +591,8 @@ function DocumentProof({
   const select = useApp((s) => s.select);
   const jump = useApp((s) => s.jump);
   const focusSource = useApp((s) => s.focusSource);
+  const currentUser = useApp((s) => s.currentUser);
+  const lens = useApp((s) => s.lens);
   const labels = model.dataset.claimLabels;
 
   // The wording lib/citations needs, injected: that module is transpiled standalone by its
@@ -1006,7 +1017,9 @@ function DocumentProof({
         </section>
       )}
 
-      {patches.length > 0 && (
+      {/* Which editions wrote this page — a compile record that opens in History, and so
+          the owner's. The reading room reads the page, not the process that produced it. */}
+      {patches.length > 0 && lens === "owner" && (
         <section className="mt-6">
           <SectionRule no={4} title={t("library.patches.title")} />
           <ul className="mt-3 flex flex-col">
@@ -1051,6 +1064,18 @@ function DocumentProof({
               return target ? documentDisplayTitle(target) : null;
             }}
           />
+        </section>
+      )}
+
+      {/* Who has read this page, and which questions did. Last, and derived: it is the one
+          thing on the page that is not the page — joined at read time, out of the ledger,
+          and never written back into the document it is about. Owner-only, like the usage
+          panel it is the per-page face of: how often a library is read is the owner's
+          measurement of their own library, not part of reading it. */}
+      {currentUser && lens === "owner" && (
+        <section className="mt-6">
+          <SectionRule no={6} title={t("access.title")} />
+          <AccessCard userId={currentUser} path={doc.path} />
         </section>
       )}
       </div>

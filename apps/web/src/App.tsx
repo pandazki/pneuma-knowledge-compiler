@@ -17,6 +17,7 @@ const ProcessView = lazy(() => import("./views/process/ProcessView"));
 const RecallView = lazy(() => import("./views/recall/RecallView"));
 const AskView = lazy(() => import("./views/ask/AskView"));
 const LiveContextView = lazy(() => import("./views/live_context/LiveContextView"));
+const ConsultationsView = lazy(() => import("./views/consultations/ConsultationsView"));
 const LibraryView = lazy(() => import("./views/library/LibraryView"));
 const GraphView = lazy(() => import("./views/graph/GraphView"));
 const HistoryView = lazy(() => import("./views/history/HistoryView"));
@@ -33,6 +34,7 @@ const VIEWS: Record<ViewName, ComponentType> = {
   recall: RecallView,
   ask: AskView,
   live_context: LiveContextView,
+  consultations: ConsultationsView,
   library: LibraryView,
   graph: GraphView,
   history: HistoryView,

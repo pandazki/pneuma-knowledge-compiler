@@ -1,8 +1,14 @@
 import { defineMessages } from "./define";
 
 /**
- * The app shell: table of contents, top bar, the two pickers, the two toggles, and the
- * store-issued notices. The TOC's § numbers stay in code — they are structure, not copy.
+ * The app shell: the table of contents and the identity lens at its foot, the top bar's
+ * pickers and toggles, and the store-issued notices. The TOC's § numbers stay in code —
+ * they are structure, not copy.
+ *
+ * The lens options are labelled by CONSEQUENCE, the same way the visitor classes were: the
+ * name says who you are, the line beside it says what that costs the library. 「无痕访客」is
+ * the one that opts out of being counted, and it says so on the badge, in the menu and on
+ * the page — a stance nobody can see is not an honest one.
  */
 export const nav = defineMessages({
   zh: {
@@ -24,6 +30,7 @@ export const nav = defineMessages({
     "nav.view.recall": "检索 Recall",
     "nav.view.ask": "问答 Ask",
     "nav.view.live_context": "即时上下文 Live Context",
+    "nav.view.consultations": "咨询 Consultations",
     "nav.view.library": "正本 Canonical",
     "nav.view.graph": "图谱 Graph",
     "nav.view.history": "版次 History",
@@ -73,6 +80,17 @@ export const nav = defineMessages({
     "nav.snapshot.kbDelete": "删除快照「{label}」",
     "nav.snapshot.kbBanner": "冻结快照 · 只读",
 
+    "nav.lens.aria": "切换身份",
+    "nav.lens.label": "身份",
+    "nav.lens.owner": "所有者",
+    "nav.lens.visitor": "访客",
+    "nav.lens.silent": "无痕访客",
+    "nav.lens.owner.consequence": "整台控制台 · 留记录并计入热度",
+    "nav.lens.visitor.consequence": "只读阅览室 · 留记录并计入热度",
+    "nav.lens.silent.consequence": "只读阅览室 · 不留任何痕迹",
+    "nav.lens.silentBanner": "本次浏览不留任何记录",
+
+    "nav.notice.lensGuard": "这一页只对所有者开放，已回到阅览室。",
     "nav.notice.newProfile": "新画像 · 可以用 AI 生成草稿，也可以直接填写",
     "nav.notice.profileSaved": "画像已保存 · 去 Ingest 导入第一条数据",
     "nav.notice.profileSkipped": "已跳过画像设置 · 去 Ingest 导入第一条数据",
@@ -98,6 +116,7 @@ export const nav = defineMessages({
     "nav.view.recall": "Recall",
     "nav.view.ask": "Ask",
     "nav.view.live_context": "Live Context",
+    "nav.view.consultations": "Consultations",
     "nav.view.library": "Canonical",
     "nav.view.graph": "Graph",
     "nav.view.history": "History",
@@ -147,6 +166,17 @@ export const nav = defineMessages({
     "nav.snapshot.kbDelete": "Delete snapshot “{label}”",
     "nav.snapshot.kbBanner": "Frozen snapshot · read-only",
 
+    "nav.lens.aria": "Switch identity",
+    "nav.lens.label": "Identity",
+    "nav.lens.owner": "Owner",
+    "nav.lens.visitor": "Visitor",
+    "nav.lens.silent": "Silent visitor",
+    "nav.lens.owner.consequence": "The whole console · recorded, counts as use",
+    "nav.lens.visitor.consequence": "The reading room · recorded, counts as use",
+    "nav.lens.silent.consequence": "The reading room · no trace at all",
+    "nav.lens.silentBanner": "This visit leaves no trace.",
+
+    "nav.notice.lensGuard": "That page is the owner's; you are back in the reading room.",
     "nav.notice.newProfile":
       "New profile · let the AI draft one, or just fill it in yourself",
     "nav.notice.profileSaved": "Profile saved · head to Ingest for your first source",

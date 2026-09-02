@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MessagesSquare } from "lucide-react";
+import { deriveVisitorClass } from "@/lib/lenses";
 import { useApp, type AskTurn } from "@/lib/store";
 import {
   askBriefingStream,
@@ -78,6 +79,9 @@ export default function AskView() {
   const [building, setBuilding] = useState(false);
   const [buildError, setBuildError] = useState<string | null>(null);
   const [asking, setAsking] = useState(false);
+  // The same stance the Recall lanes carry: a briefing ask is an answering lane too, and
+  // the stance is derived from who is at the console rather than picked beside the question.
+  const visitorClass = useApp((s) => deriveVisitorClass(s.lens));
   const [askError, setAskError] = useState<string | null>(null);
   // Both halves of this page cost real seconds, and both are now watched the same way as
   // Recall's lanes: the build's retrieval/expansion/assembly, and each question's loop.
@@ -234,6 +238,7 @@ export default function AskView() {
               citations: res.citations,
               handles: res.citation_handles ?? {},
               usage: res.token_usage,
+              cost: res.cost ?? null,
               verbatim:
                 res.verbatim_fetches.length > 0 ? res.verbatim_fetches : undefined,
               stages: res.stages,
@@ -242,6 +247,8 @@ export default function AskView() {
           },
           onError: setAskError,
         },
+        undefined,
+        visitorClass,
       );
     } catch (e) {
       setAskError((e as Error).message);
@@ -590,7 +597,7 @@ export default function AskView() {
                         {t("ask.thread.noCitations")}
                       </Callout>
                     )}
-                    <UsageLine usage={turn.usage} className="mt-2" />
+                    <UsageLine usage={turn.usage} cost={turn.cost} className="mt-2" />
                     {/* This turn's own loop: the turns it took, the tools it reached for, and
                         the total around them. The pack is not in it — it was built once. */}
                     <StageStrip
@@ -637,7 +644,7 @@ export default function AskView() {
                   />
                 )
               )}
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <TextField
                   id="ask-question"
                   name="question"

@@ -111,6 +111,9 @@ export function SourceSpanSheet({
 }: SourceSpanSheetProps) {
   const currentUser = useApp((s) => s.currentUser);
   const jump = useApp((s) => s.jump);
+  // The sheet itself is a footnote lookup and every lens gets it; the corner action out of
+  // it opens the Sources catalogue, which is the owner's.
+  const lens = useApp((s) => s.lens);
   const t = useT();
   const tOr = useTOr();
   const [detail, setDetail] = useState<SourceDetail | null>(null);
@@ -188,7 +191,7 @@ export function SourceSpanSheet({
       side="right"
       title={detail?.title ?? t("common.sourceSpan.title")}
       actions={
-        sourceId != null && (
+        sourceId != null && lens === "owner" && (
           <IconButton
             aria-label={t("common.sourceSpan.openInSources")}
             title={t("common.sourceSpan.openInSources")}
