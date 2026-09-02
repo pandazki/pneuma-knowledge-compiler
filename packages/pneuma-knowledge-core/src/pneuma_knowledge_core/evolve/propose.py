@@ -13,7 +13,12 @@ Everything mechanical lives here, never in prose:
   rows — the model judges evidence, it does not parse a log format;
 - a proposal's templates are validated by REUSING `compose_skill`'s additive assertions
   (not a re-implementation): a template that is malformed or would drop a base family makes
-  `compose_skill` raise, and the proposal is rejected.
+  `compose_skill` raise, and the proposal is rejected;
+- `demand_evidence` is an OPTIONAL fourth section: whatever the registered index components
+  reported about how the library is being used (core `components.collect_evolve_evidence`).
+  The three sections above say what the library HOLDS and what compiling did to it; this one
+  says what it was asked for. It is a mechanical report — counts, paths, questions verbatim —
+  and it is absent, byte-for-byte, when nothing was contributed.
 
 `propose_evolution` returns `(proposal | None, reason, rationale)` where reason ∈
 {"no_change", "parse_error", "invalid_templates", "proposed"} — so a caller (and a test)
@@ -128,23 +133,34 @@ def _propose_human(
     current_skill: SkillVersion,
     recent_events: Sequence[Mapping],
     doc_paths: Sequence[str],
+    demand_evidence: str | None = None,
 ) -> str:
-    return "\n\n".join(
-        [
-            prompt("evolve.propose.skill_header")
-            + "\n"
-            + current_skill.instructions.rstrip(),
-            prompt("evolve.propose.templates_header")
-            + "\n"
-            + "\n".join(f"- {t}" for t in current_skill.path_templates),
-            prompt("evolve.propose.events_header")
-            + "\n"
-            + _render_event_summary(recent_events),
-            prompt("evolve.propose.docs_header")
-            + "\n"
-            + _render_doc_tree(doc_paths),
-        ]
-    )
+    """The proposal's human turn: contract, families, what compiling did, what exists —
+    and, when a component contributed one, what the library was ASKED for.
+
+    The fourth section appears only when `demand_evidence is not None`. With `None` these
+    bytes are the bytes this message has always had, which is what makes the component seam
+    invisible to a deployment that enables no component (and keeps the byte-stable System
+    contract untouched either way — I5). `None` is the absence; an empty string is a caller
+    saying "there is a block and it is empty", which `collect_evolve_evidence` never says.
+    """
+    sections = [
+        prompt("evolve.propose.skill_header")
+        + "\n"
+        + current_skill.instructions.rstrip(),
+        prompt("evolve.propose.templates_header")
+        + "\n"
+        + "\n".join(f"- {t}" for t in current_skill.path_templates),
+        prompt("evolve.propose.events_header")
+        + "\n"
+        + _render_event_summary(recent_events),
+        prompt("evolve.propose.docs_header")
+        + "\n"
+        + _render_doc_tree(doc_paths),
+    ]
+    if demand_evidence is not None:
+        sections.append(prompt("evolve.propose.demand_header") + "\n" + demand_evidence)
+    return "\n\n".join(sections)
 
 
 # ------------------------------------------------------------------------- entrypoint
@@ -166,6 +182,7 @@ async def propose_evolution(
     current_skill: SkillVersion,
     recent_events: Sequence[Mapping],
     doc_paths: Sequence[str],
+    demand_evidence: str | None = None,
     callbacks: list | None = None,
     trace_metadata: dict | None = None,
 ) -> tuple[EvolveProposal | None, ProposeReason, str]:
@@ -188,7 +205,9 @@ async def propose_evolution(
             [
                 SystemMessage(content=phase1_contract()),
                 HumanMessage(
-                    content=_propose_human(current_skill, recent_events, doc_paths)
+                    content=_propose_human(
+                        current_skill, recent_events, doc_paths, demand_evidence
+                    )
                 ),
             ],
             config=invoke_config("evolve.propose", callbacks, trace_metadata),

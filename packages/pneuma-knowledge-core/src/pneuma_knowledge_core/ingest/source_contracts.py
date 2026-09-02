@@ -382,8 +382,77 @@ class EmailSource(ContractModel):
         return self
 
 
+class OwnerDialogueTurn(ContractModel):
+    turn_id: str = Field(min_length=1)
+    role: Literal["owner", "steward"]
+    said_at: datetime
+    text: str
+
+    _aware_said = field_validator("said_at")(_require_aware)
+
+
+class OwnerDialogueSource(ContractModel):
+    """What the library's owner said to the steward, as an ordinary source.
+
+    The owner acts on the library only by speaking, and the statement is then evidence like
+    any other evidence: verbatim in L0, one block per turn, cited `[cite: <sid> ¶n]` exactly
+    as a chat message is. `owner_id` / `steward_id` are the application's own ids and stay in
+    the envelope, never in the block text — the compiler is shown a role, not an id.
+
+    Turns are stored in the order they were spoken and a payload whose `said_at` goes
+    backwards is REJECTED rather than sorted, which is where this contract parts from
+    `im/v1`. A provider archive is a snapshot whose order is an artefact of the export; a
+    dialogue's order IS its meaning — a sentence that qualifies the one before it stops
+    qualifying it once the two are swapped.
+
+    AT LEAST ONE TURN MUST BE THE OWNER'S, AND IT MUST SAY SOMETHING. The whole standing of
+    this contract is that the subject the library is about spoke for themselves: the
+    normalizer labels it as such, the compile task names the kind, and the intake proposal
+    gives it full canonical treatment on that basis. A payload of steward turns alone is a
+    document the steward wrote about the owner, compiled as though the owner had said it —
+    so it is refused here, at the contract, rather than trusted to whoever assembles the
+    payload. An EMPTY owner turn satisfies no part of that and satisfies the rule only as a
+    formality: the dialogue is still materially steward-only, and a blank turn cannot become
+    a block of L0 anyone can cite. So a blank turn of either role is refused outright, by
+    the turn it is, rather than filtered away silently — a payload that names a turn nobody
+    spoke is a payload whose author believes something this contract does not.
+    """
+
+    contract_schema: Literal["pneuma.source.owner-dialogue/v1"] = Field(alias="schema")
+    provider: Literal["console", "mock"]
+    dialogue_id: str = Field(min_length=1)
+    owner_id: str = Field(min_length=1)
+    steward_id: str | None = None
+    turns: list[OwnerDialogueTurn] = Field(min_length=1)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def unique_turns_in_spoken_order(self) -> "OwnerDialogueSource":
+        ids = [item.turn_id for item in self.turns]
+        if duplicates := _duplicates(ids):
+            raise ValueError(f"duplicate turn ids: {sorted(duplicates)}")
+        for item in self.turns:
+            if not item.text.strip():
+                raise ValueError(
+                    f"turn {item.turn_id!r} ({item.role}) has no text: a turn nobody spoke "
+                    "is not a turn, and cannot become a block anything can cite"
+                )
+        if not any(item.role == "owner" and item.text.strip() for item in self.turns):
+            raise ValueError(
+                "an owner dialogue needs at least one turn spoken by the owner: a "
+                "dialogue of steward turns alone is not the owner's statement"
+            )
+        for earlier, later in zip(self.turns, self.turns[1:]):
+            if later.said_at < earlier.said_at:
+                raise ValueError(
+                    f"turn {later.turn_id!r} is timestamped before {earlier.turn_id!r}: "
+                    "an owner dialogue is submitted in the order it was spoken"
+                )
+        return self
+
+
 SourceContract = Annotated[
-    MeetingSource | DocumentLibrarySource | ImSource | EmailSource,
+    MeetingSource | DocumentLibrarySource | ImSource | EmailSource | OwnerDialogueSource,
     Field(discriminator="contract_schema"),
 ]
 _SOURCE_CONTRACT_ADAPTER = TypeAdapter(SourceContract)

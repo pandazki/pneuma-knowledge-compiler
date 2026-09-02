@@ -5,7 +5,16 @@ from pneuma_knowledge_core.evolve.propose import (
     EvolveProposal,
     _EvolveDraft,
     _ProposedFamily,
+    _propose_human,
+    _render_doc_tree,
     propose_evolution,
+)
+from pneuma_knowledge_core.prompts import (
+    chinese_overlay,
+    default_catalog,
+    override_prompts,
+    prompt,
+    reset_prompt_overrides,
 )
 from pneuma_knowledge_core.skill import load_skill_base
 
@@ -127,3 +136,71 @@ async def test_valid_proposal_returns_proposed():
     assert pack.extra_path_templates == ["memory/products/{slug}.md"]
     assert "Atlas" in proposal.rationale  # per-family evidence merged into the rationale
     assert rationale == proposal.rationale  # one text, reachable with or without the proposal
+
+
+# ---------------------------------------------------- the components' demand section
+
+
+def test_the_human_turn_is_byte_identical_when_no_component_reported_anything():
+    """The seam's whole byte-identity guarantee, at the one place it can be checked: with
+    `demand_evidence=None` the proposal's human message is the message this deployment has
+    always sent, character for character. `None` is the absence of a block — not an empty
+    one."""
+    baseline = _propose_human(SKILL, RECENT_EVENTS, DOC_PATHS)
+
+    assert _propose_human(SKILL, RECENT_EVENTS, DOC_PATHS, None) == baseline
+    assert prompt("evolve.propose.demand_header") not in baseline
+    assert baseline.endswith(_render_doc_tree(DOC_PATHS))  # the document list is still last
+
+
+def test_a_reported_block_lands_as_a_fourth_section_after_the_document_list():
+    """It rides the HUMAN turn (I5: the byte-stable System contract never moves), last, so
+    the model reads what the library HOLDS before what it was asked for."""
+    block = "## attention\n热文档 memory/people/mei-lin.md heat 12"
+    text = _propose_human(SKILL, RECENT_EVENTS, DOC_PATHS, block)
+
+    assert text.startswith(_propose_human(SKILL, RECENT_EVENTS, DOC_PATHS))
+    assert text.endswith(prompt("evolve.propose.demand_header") + "\n" + block)
+
+
+def test_the_demand_header_is_translated_like_every_other_segment():
+    """A language pack is total by construction (test_prompt_lang_zh pins both directions);
+    this pins the one thing that check cannot see — that the key is really reached through
+    the catalog rather than written into the module as a literal."""
+    assert "evolve.propose.demand_header" in default_catalog()
+    assert "evolve.propose.demand_header" in chinese_overlay()
+    try:
+        override_prompts(chinese_overlay())
+        zh = _propose_human(SKILL, RECENT_EVENTS, DOC_PATHS, "命中：3")
+        assert prompt("evolve.propose.demand_header") in zh
+        assert "评估" not in zh  # no leaked English header from the untranslated catalog
+    finally:
+        reset_prompt_overrides()
+
+
+async def test_the_evidence_reaches_the_model_through_propose_evolution():
+    """The parameter is not decoration: what a caller passes is what the model receives."""
+    seen: list[str] = []
+
+    class _Capturing(_StructuredStub):
+        async def ainvoke(self, messages, config=None):  # noqa: ANN001, ARG002
+            seen.append(messages[-1].content)
+            return {"parsed": _EvolveDraft(needs_change=False, rationale="r"), "raw": None}
+
+    class _Model:
+        def with_structured_output(self, schema, include_raw=False):  # noqa: ANN001, ARG002
+            return _Capturing(None)
+
+    await propose_evolution(
+        model=_Model(),
+        current_skill=SKILL,
+        recent_events=RECENT_EVENTS,
+        doc_paths=DOC_PATHS,
+        demand_evidence="## attention\nmiss ×4: 阿宝的报销流程是什么？",
+    )
+    assert "miss ×4: 阿宝的报销流程是什么？" in seen[0]
+
+    await propose_evolution(
+        model=_Model(), current_skill=SKILL, recent_events=RECENT_EVENTS, doc_paths=DOC_PATHS
+    )
+    assert seen[1] == _propose_human(SKILL, RECENT_EVENTS, DOC_PATHS)

@@ -52,8 +52,16 @@ from ..canonical_glance import (
 )
 from ..compile.documents import render_document
 from ..compile.documents import OVERVIEW_LABEL
-from ..domain.canonical import CanonicalDocument, Citation
+from ..domain.canonical import CanonicalDocument, Citation, iter_canonical_citations
+from ..domain.consultation import (
+    EvidenceRef,
+    claim_ref,
+    dedup_evidence,
+    document_ref,
+    span_ref,
+)
 from ..domain.ids import AnchorId, UserId, SourceId
+from ..domain.pricing import USAGE_FIELDS
 from ..domain.source import BlockImage, NormalizedSource
 from ..ports.claim_index import ClaimLexicalIndex, ClaimVectorIndex
 from ..ports.content_store import ContentStore
@@ -578,6 +586,13 @@ class FastAnswer:
     #: in a log the owner cannot see. Default empty so a directly-constructed FastAnswer
     #: (tests, fixtures) is unchanged.
     stages: tuple[StageTiming, ...] = field(default_factory=tuple)
+    #: Every address this call put in front of the model, built by `evidence_manifest` from
+    #: the very arguments the answer call was handed. The durable consultation record COPIES
+    #: this rather than reconstructing "what was shown" out of the telemetry fields above —
+    #: those report the ranked faces and miss the annotated claims, the timeline claims and
+    #: a page read in full, which is how a recall that answered out of one whole document
+    #: used to record itself as having been handed nothing at all.
+    evidence_manifest: tuple[EvidenceRef, ...] = field(default_factory=tuple)
 
 
 @dataclass(frozen=True)
@@ -670,13 +685,10 @@ class RecallImage:
 
 
 def zero_usage() -> dict[str, int]:
-    return {
-        "input_tokens": 0,
-        "output_tokens": 0,
-        "total_tokens": 0,
-        "cache_read": 0,
-        "cache_creation": 0,
-    }
+    """The usage vocabulary, all zero. Built from `domain.pricing.USAGE_FIELDS` so the
+    counters a lane reports, the pairs a record stores and the fields money is computed
+    over are one list in one place."""
+    return {name: 0 for name in USAGE_FIELDS}
 
 
 def extract_usage(response: BaseMessage) -> dict[str, int]:
@@ -1427,6 +1439,122 @@ def render_full_documents(documents: Sequence[CanonicalDocument]) -> str:
         parts.append(prompt("recall.fast.select.document_heading", path=doc.path))
         parts.append(render_document(doc.frontmatter, doc.body).rstrip())
     return "\n".join(parts)
+
+
+def _claim_manifest(claim: object, kind: str, *, rendered_citations: int | None = None):
+    """One rendered claim → its own address, then the provenance spans rendered with it.
+
+    `rendered_citations` is how many of the claim's `[cite: …]` markers the face that
+    rendered it actually PRINTED: `None` for every one of them (`render_claims`), an int
+    for the faces that print fewer — 1 for the timeline block, 0 for a window note, which
+    prints none at all. A span the model never saw is not an address it was shown, so it is
+    not provenance the record may admit a citation against, and counting it as source
+    attention would be heat for a page nobody read.
+    """
+    item = claim_ref(
+        str(getattr(claim, "anchor", "")), str(getattr(claim, "document_path", "")), kind=kind
+    )
+    citations = tuple(getattr(claim, "citations", ()) or ())
+    if rendered_citations is not None:
+        citations = citations[:rendered_citations]
+    provenance = [
+        span_ref(cit.source_id, cit.block_start, cit.block_end, kind=kind)
+        for cit in citations
+    ]
+    return item, provenance
+
+
+def evidence_manifest(
+    *,
+    claims: Sequence[RetrievedClaim] = (),
+    windows: Sequence = (),
+    episode_summaries: Sequence["EpisodeSummary"] = (),
+    window_notes: Sequence[tuple[object, tuple[RetrievedClaim, ...]]] | None = None,
+    timelines: Sequence["TimelineBlock"] = (),
+    component_evidence: Sequence["ComponentEvidence"] = (),
+    full_documents: Sequence[CanonicalDocument] = (),
+    tool_evidence: Sequence[EvidenceRef] = (),
+) -> tuple[EvidenceRef, ...]:
+    """Every ADDRESS this call put in front of the model, as `EvidenceRef`s.
+
+    It takes the same arguments the answer call is handed, so it observes rendering rather
+    than repeating it: `recall_human` composes its sections out of exactly these, and this
+    function never touches the text. Nothing here can move a prompt byte.
+
+    Two layers, in this order:
+
+    - the evidence ITEMS, in render order — claim notes, the component face, episode
+      summaries, timeline claims, raw excerpts (annotated claims travel under their window
+      and are items all the same), whatever a lane's TOOLS returned into the transcript
+      (`tool_evidence`, already addresses), then each page selected for reading in full;
+    - the PROVENANCE spans rendered with them. A claim note carries its own
+      `[cite: <source_id> ¶a-b]` marker and the contract tells the model to copy source
+      references verbatim from the markers in the evidence, so those spans are addresses
+      the model was shown — and a citation copied out of one is admissible precisely
+      because it appears here. A fully-read page contributes every marker its body carries.
+      A face that renders FEWER markers than the claim carries contributes fewer spans
+      (`_claim_manifest`'s `rendered_citations`), and the annotated layout — whose notes
+      print no marker at all — contributes none: what the model was not shown is not
+      provenance, however true it is of the claim.
+
+    Items before provenance so that a span which is BOTH a shown window and some claim's
+    provenance keeps the kind that says more about it (`window`: its text was there too).
+    """
+    items: list[EvidenceRef] = []
+    provenance: list[EvidenceRef] = []
+
+    def add_claim(claim: object, kind: str, *, rendered_citations: int | None = None) -> None:
+        item, spans = _claim_manifest(claim, kind, rendered_citations=rendered_citations)
+        items.append(item)
+        provenance.extend(spans)
+
+    for claim in claims:
+        add_claim(claim, "claim")
+    for _window, notes in window_notes or ():
+        for claim in notes:
+            # `render_window_notes` prints NO `[cite: …]` marker: the window's own
+            # provenance header IS the citation for everything hung beneath it. So a note
+            # contributes its claim address and nothing else — a claim joined on blocks 1-2
+            # may also cite blocks 100-101 of the same source, and that second span reached
+            # the model in neither the window nor the note.
+            add_claim(claim, "claim", rendered_citations=0)
+    for evidence in component_evidence:
+        for claim in getattr(evidence, "claims", ()) or ():
+            add_claim(claim, "component")
+        for window in getattr(evidence, "windows", ()) or ():
+            items.append(
+                span_ref(
+                    window.source_id, window.block_start, window.block_end, kind="component"
+                )
+            )
+    for summary in episode_summaries:
+        items.append(
+            span_ref(
+                summary.source_id, summary.block_start, summary.block_end, kind="episode"
+            )
+        )
+    for block in timelines:
+        for claim in getattr(block, "claims", ()) or ():
+            # `render_subject_timelines` prints the FIRST citation and no more, so that is
+            # the only provenance span this face actually showed.
+            add_claim(claim, "claim", rendered_citations=1)
+    for window in windows:
+        items.append(
+            span_ref(window.source_id, window.block_start, window.block_end, kind="window")
+        )
+    # Addresses a TOOL returned into the transcript, already in address form: the deep
+    # lane's verbatim fetches, and what a component's contributed tool declared. They are
+    # items rather than provenance — the text was there, this is not somebody else's marker.
+    items.extend(tool_evidence)
+    for document in full_documents:
+        items.append(document_ref(document.path))
+        provenance.extend(
+            span_ref(
+                cit.source_id, cit.block_start, cit.block_end, kind="document"
+            )
+            for cit in iter_canonical_citations(document.body)
+        )
+    return dedup_evidence([*items, *provenance])
 
 
 def recall_human(
@@ -3556,6 +3684,17 @@ async def fast_recall(
     # evidence twice. It stays in `used_component_evidence` either way — the audit trail of
     # what was looked up does not depend on how the context was composed.
     shown_component_evidence = component_evidence if render_component_face else ()
+    # Built from the very arguments both answer branches below are handed, once, so the two
+    # cannot disagree about what was shown. It observes the render; it never alters it.
+    manifest = evidence_manifest(
+        claims=claims,
+        windows=windows,
+        episode_summaries=episode_summaries,
+        window_notes=window_notes,
+        timelines=timelines,
+        component_evidence=shown_component_evidence,
+        full_documents=expanded,
+    )
     answer_trace_metadata = {
         **(trace_metadata or {}),
         "image_count": len(images),
@@ -3704,4 +3843,5 @@ async def fast_recall(
         used_component_evidence=tuple(component_evidence),
         component_rerank_degraded=component_rerank_degraded,
         stages=timer.emit(),
+        evidence_manifest=manifest,
     )

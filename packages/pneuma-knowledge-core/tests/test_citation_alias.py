@@ -84,3 +84,22 @@ def test_session_aliaser_keeps_one_handle_per_source_across_calls():
     assert s.to_real("uuidZ") == "uuidZ"
     # the final answer's handles map back to real ids.
     assert s.resolve("见 [cite: s01] 和 [cite: s03]") == "见 [cite: uuidA] 和 [cite: uuidC]"
+
+
+def test_resolve_rewrites_every_source_inside_one_merged_bracket():
+    """A free-text answer may merge two SOURCES into one bracket. A rewrite anchored on
+    `[cite:` reaches only the first, and the second handle survives into whatever the text
+    is used for next — including a durable record, where it resolves to nothing."""
+    answer = "两处都说了。[cite: s01 ¶1-3, s02 ¶2-4]"
+    resolved = resolve_handles(answer, {"s01": "src-01", "s02": "src-02"})
+    assert resolved == "两处都说了。[cite: src-01 ¶1-3, src-02 ¶2-4]"
+    assert "s01" not in resolved and "s02" not in resolved
+
+
+def test_resolve_rewrites_a_merged_bracket_and_leaves_an_unknown_handle_in_place():
+    resolved = resolve_handles("[cite: s01 ¶1-3, s99 ¶2-4]", {"s01": "src-01"})
+    assert resolved == "[cite: src-01 ¶1-3, s99 ¶2-4]"
+
+
+def test_resolve_leaves_a_spanless_merged_bracket_resolved_too():
+    assert resolve_handles("[cite: s01, s02]", {"s01": "a", "s02": "b"}) == "[cite: a, b]"

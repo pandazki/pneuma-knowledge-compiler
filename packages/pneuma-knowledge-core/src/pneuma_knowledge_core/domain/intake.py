@@ -131,6 +131,20 @@ def propose_intake(
             ),
         )
 
+    # The owner speaking to the steward about the library itself.
+    if kind == "owner_dialogue":
+        return IntakePlan(
+            canonical_treatment="full",
+            semantic_indexing="full",
+            rationale=(
+                "an owner dialogue (the library owner's own statement — a correction, an "
+                "instruction, an addition): compiled in full with full semantic indexing, "
+                "because this is the one material whose author is the subject the library "
+                "is about, and a statement the compile never reads is a correction that "
+                "never lands"
+            ),
+        )
+
     # Structured streams (calendar/notifications, future): distill facts periodically,
     # do not index raw flow.
     if kind == "structured":

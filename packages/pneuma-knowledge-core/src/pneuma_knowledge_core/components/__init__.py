@@ -21,7 +21,11 @@ protocol, the mechanical faces the framework calls at its own seams:
 - `compile_tools` — read tools the compile model may call while drafting, given the draft and
   the sources of THIS compile (a tool whose answer depends on the material — "which identity
   do this job's turns address by that name" — cannot get it from the draft);
-- `recall_tools` — tools the answering lanes (deep) may call, scoped to one user (I1);
+- `recall_tools` — tools the answering lanes (deep) may call, scoped to one user (I1). A
+  tool may DECLARE the addresses it returned (`RECALL_EVIDENCE_KEY`, under the tool's
+  langchain `metadata`) so they reach the
+  consultation record's evidence manifest; one that declares nothing contributes nothing,
+  and a citation copied out of its result is then not admissible into the record;
 - `fast_paths` — routed retrieval paths for the fast lane (recall/paths.py): chosen by one
   tool call, run concurrently with the built-in retrieval, merged as their own face;
 - `source_preamble` — one mechanical line under a source in the compile task (what the
@@ -34,10 +38,25 @@ protocol, the mechanical faces the framework calls at its own seams:
   hook a seam that reads it would silently render the empty library forever;
 - `on_source_indexed` / `rebuild` — the PROJECTION CHANNEL: the framework tells a component
   that one source finished indexing, and (on an explicit `rebuild_derived`) that its whole
-  projection should be re-derived from L0 + canonical. A component that keeps a persisted
-  index of its own owns exactly one write path and one rebuild path, and both are derived
-  (I2) — nothing a component stores is ever an authority. The index job is fail-soft over
-  these: a component that raises is logged and skipped, never a failed index job.
+  projection should be re-derived from the substrate it DECLARED. A component that keeps a
+  persisted index of its own owns exactly one write path and one rebuild path, and both are
+  derived (I2) — nothing a component stores is ever an authority. The index job is fail-soft
+  over these: a component that raises is logged and skipped, never a failed index job. A
+  component that keeps nothing declares nothing and implements neither: `attention` is the
+  shipped example, faces over a ledger the framework itself writes, and its `on_recall` and
+  `rebuild` are explicit no-ops so that switching it on cannot double a count.
+- `on_recall` — the USE-SIDE twin of `on_source_indexed`: the framework tells a component
+  that one answering-lane call happened, as a `ConsultationRecord` (core
+  `domain/consultation.py`) — the question, what was handed to the model, what it cited.
+  Called only for the visitor classes the application declared business (the service's
+  ruling, not core's), and fail-soft on the same terms: a component that raises is logged,
+  never a failed request. A record is not knowledge and never becomes any: it says the
+  library was ASKED something, which is the one thing L0 and canonical cannot say.
+- `evolve_evidence` — one mechanical block a component may put in front of the schema-evolve
+  proposal, beside the compile events and the document list. It REPORTS (counts, names,
+  questions verbatim); the evolve model is what judges. It reaches the model in the
+  HumanMessage and only when non-empty, so the byte-stable System contract is untouched
+  (I5) and a deployment with no component sees the message it always saw.
 
 Canonical reaches a component's recall faces as the already-pinned `documents` the lane
 loaded (a snapshot-pinned query stays pinned inside a component — the component never
@@ -50,9 +69,11 @@ concept existed (the compile SystemMessage stays stable per enabled set — inva
 
 A component may hold structure — identities, edges, counts, spans — never prose knowledge.
 Whatever it derives points back to a `source_id + block span` or a claim anchor (I4) and is
-rebuildable from L0 and canonical (I2). It indexes; it does not know.
+rebuildable from the substrate it declares (I2): the authorities — L0 and canonical — and,
+for a projection over the use side, the kept consultation records, which are stored
+observations a rebuild replays rather than re-derives. It indexes; it does not know.
 
-Everything here is a declaration — no I/O and no model calls of its own; the two
+Everything here is a declaration — no I/O and no model calls of its own; the
 projection-channel fan-outs at the bottom only forward a call the framework already makes.
 """
 
@@ -64,12 +85,15 @@ from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
+from ..domain.consultation import EVIDENCE_KIND_VALUES
+
 if TYPE_CHECKING:  # pragma: no cover — typing only, keeps this module import-free
     from langchain_core.tools import StructuredTool
 
     from ..compile.gate import Violation
     from ..compile.patch import DraftDoc, PatchDraft
     from ..domain.canonical import CanonicalDocument
+    from ..domain.consultation import ConsultationRecord
     from ..domain.source import NormalizedSource
     from ..recall.paths import FastPath
 
@@ -117,6 +141,12 @@ class IndexComponent(Protocol):
         self, user_id: str, source: "NormalizedSource"
     ) -> None: ...
 
+    async def on_recall(
+        self, user_id: str, record: "ConsultationRecord"
+    ) -> None: ...
+
+    async def evolve_evidence(self, user_id: str) -> str | None: ...
+
     async def rebuild(self, user_id: str) -> None: ...
 
 
@@ -163,6 +193,12 @@ class BaseComponent:
     async def on_source_indexed(self, user_id: str, source: "NormalizedSource") -> None:
         return None
 
+    async def on_recall(self, user_id: str, record: "ConsultationRecord") -> None:
+        return None
+
+    async def evolve_evidence(self, user_id: str) -> str | None:
+        return None
+
     async def rebuild(self, user_id: str) -> None:
         return None
 
@@ -207,10 +243,69 @@ class CanonicalReadOnly:
 
 # The application seam. Registration order is the order every seam consults components in,
 # so two components' outline tails always render in one deterministic order.
+_log = logging.getLogger(__name__)
+
 _REGISTERED: dict[str, IndexComponent] = {}
 
 #: The registry-scoped job guard — see `component_job` below.
 _JOB_LOCK = asyncio.Lock()
+
+
+#: The key under a recall tool's langchain `metadata` where a component may DECLARE what
+#: that tool put in front of the model. Optional, and the only way a contributed tool
+#: reaches the consultation record's manifest: the framework cannot read a component's tool
+#: result — it is the component's own prose, in the component's own shape — so a tool that
+#: declares nothing contributes nothing, and a citation copied out of its result is then
+#: not admissible. That is the honest outcome rather than a silent one, and it is one
+#: declared key rather than a second address grammar: the entries are `(kind, ref, path)`
+#: in the SAME addressing scheme everything else uses (I4). `metadata` rather than an
+#: attribute of our own because a `StructuredTool` is a pydantic model and rejects fields
+#: it does not declare — this is langchain's own place for what a tool carries beside its
+#: signature.
+RECALL_EVIDENCE_KEY = "pneuma_recall_evidence"
+
+
+def declared_tool_evidence(tool: object) -> tuple[tuple[str, str, str], ...]:
+    """The addresses one recall tool declares it returned, normalized — `()` for a tool
+    that declares nothing.
+
+    The declaration is either the accumulator itself (a list the tool appends to as it
+    runs) or a zero-argument callable returning one; a component that wraps its own
+    coroutine fills it per call. An entry is `(kind, ref)` or `(kind, ref, path)`: `ref` is
+    a claim anchor or a `<source_id> ¶a-b` span, and `kind` is coerced into the framework's
+    own vocabulary — a component names the ROUTE it reached evidence by, and `component` is
+    what an unrecognised name means, because the kind vocabulary is the framework's.
+
+    Fail-soft, like every other component face: a declaration that raises or comes back the
+    wrong shape costs its own addresses, never the answer it was collected during.
+    """
+    declared = (getattr(tool, "metadata", None) or {}).get(RECALL_EVIDENCE_KEY)
+    if declared is None:
+        return ()
+    try:
+        entries = declared() if callable(declared) else declared
+        out: list[tuple[str, str, str]] = []
+        for entry in entries or ():
+            kind, ref, *rest = tuple(entry)
+            address = str(ref or "").strip()
+            if not address:
+                continue
+            name = str(kind or "")
+            out.append(
+                (
+                    name if name in EVIDENCE_KIND_VALUES else "component",
+                    address,
+                    str(rest[0] or "") if rest else "",
+                )
+            )
+        return tuple(out)
+    except Exception:  # noqa: BLE001 — a component never fails the answer it observed
+        _log.warning(
+            "recall tool %r declared evidence that could not be read; continuing",
+            getattr(tool, "name", tool),
+            exc_info=True,
+        )
+        return ()
 
 
 def register_component(component: IndexComponent) -> None:
@@ -231,12 +326,11 @@ def reset_components() -> None:
 
 
 # ------------------------------------------------------------------ projection channel
-# The three fan-outs below are the only orchestration in this module, and they exist so the
+# The fan-outs below are the only orchestration in this module, and they exist so the
 # fail-soft rule is written ONCE: a component's projection is derived, so a component that
-# raises may cost a stale index — never a failed job or a failed rebuild. The caller (the
-# compile runner, the index worker, the rebuild script) stays a single line.
-
-_log = logging.getLogger(__name__)
+# raises may cost a stale index — never a failed job, a failed rebuild or a failed answer.
+# The caller (the compile runner, the index worker, the rebuild script, the answering
+# route) stays a single line.
 
 
 async def prepare_components(user_id: str) -> None:
@@ -317,6 +411,69 @@ async def notify_source_indexed(user_id: str, source: "NormalizedSource") -> Non
             )
 
 
+async def notify_recall(user_id: str, record: "ConsultationRecord") -> None:
+    """Tell every registered component that one answering-lane call was consulted.
+
+    The read-side sibling of `notify_source_indexed`, and fail-soft on exactly the same
+    terms: what a component derives from a consultation is derived, so a component that
+    raises may cost a stale ledger — never a failed answer to somebody who asked a question.
+    """
+    for component in registered_components():
+        hook = getattr(component, "on_recall", None)
+        if hook is None:
+            continue
+        try:
+            await hook(user_id, record)
+        except Exception:  # noqa: BLE001 — a component never fails the answer it observes
+            _log.warning(
+                "component %r on_recall failed for consultation %s; continuing",
+                getattr(component, "name", component),
+                getattr(record, "consultation_id", "?"),
+                exc_info=True,
+            )
+
+
+async def collect_evolve_evidence(user_id: str) -> str | None:
+    """Every registered component's evolve block, concatenated, or None.
+
+    The gathering half of `evolve_evidence`: the framework asks each component what it has
+    to REPORT to a schema-evolve proposal and hands the result to `propose_evolution` as one
+    string. Each non-empty block travels under a one-line header naming the component that
+    produced it, so the model reading three blocks can tell whose observation is whose — the
+    header is the component's own name and nothing else, because a component's contribution
+    is evidence and not an argument for it.
+
+    `None` when nothing came back, and that is the seam's byte-identity guarantee: no
+    registered component, or none with anything to say, and the proposal's message is
+    exactly the message a deployment without this concept receives. Fail-soft per component
+    on the same terms as the projection channel — a component that raises loses its own
+    block, never the evolve round.
+    """
+    blocks: list[str] = []
+    for component in registered_components():
+        hook = getattr(component, "evolve_evidence", None)
+        if hook is None:
+            continue
+        name = str(getattr(component, "name", component))
+        try:
+            block = await hook(user_id)
+        except Exception:  # noqa: BLE001 — a component never fails the evolve round
+            _log.warning(
+                "component %r evolve_evidence failed for user %s; continuing",
+                name,
+                user_id,
+                exc_info=True,
+            )
+            continue
+        text = (block or "").strip()
+        if not text:
+            continue
+        blocks.append(f"## {name}\n{text}")
+    if not blocks:
+        return None
+    return "\n\n".join(blocks)
+
+
 async def rebuild_components(user_id: str) -> list[str]:
     """Re-derive every registered component's projection. Returns the names that ran."""
     done: list[str] = []
@@ -337,7 +494,9 @@ __all__ = [
     "BaseComponent",
     "CanonicalReadOnly",
     "IndexComponent",
+    "collect_evolve_evidence",
     "component_job",
+    "notify_recall",
     "notify_source_indexed",
     "prepare_components",
     "rebuild_components",

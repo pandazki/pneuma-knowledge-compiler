@@ -1,8 +1,9 @@
 """Normalize official source contracts into compiler evidence.
 
 Bundles expand at natural citation boundaries: a meeting remains one source, while a
-document library expands by note, IM by conversation and email by thread. Provider
-payloads never cross this module; only canonical IDs and metadata do.
+document library expands by note, IM by conversation and email by thread. An owner dialogue
+is one statement and stays one source. Provider payloads never cross this module; only
+canonical IDs and metadata do.
 """
 
 from __future__ import annotations
@@ -24,6 +25,7 @@ from .source_contracts import (
     EmailSource,
     ImSource,
     MeetingSource,
+    OwnerDialogueSource,
     SourceContract,
 )
 
@@ -342,6 +344,67 @@ def _im(
     return normalized
 
 
+def _owner_dialogue(
+    source: OwnerDialogueSource, user_id: UserId, time: TimeContext | None = None
+) -> list[NormalizedSource]:
+    """One dialogue → one source, one block per turn.
+
+    Turns are NOT reordered: the contract already rejects a payload whose timestamps go
+    backwards, so the stored order is the spoken order. A block is labelled with the ROLE
+    that spoke it; `owner_id` / `steward_id` are the application's own scheme and ride the
+    envelope beside the turn ids, rejoined to blocks by normalized order like every other
+    contract's parallel metadata. Nothing about the source is privileged — it is L0 text at
+    `[cite: <sid> ¶n]` and reaches canonical only through an ordinary compile and the gate.
+    """
+    labels = {
+        "owner": prompt("ingest.owner_label"),
+        "steward": prompt("ingest.steward_label"),
+    }
+    blocks = [
+        NormalizedBlock(
+            index=index,
+            text=prompt(
+                "ingest.turn_line", label=labels[turn.role], text=turn.text
+            ),
+            section_path=[_local_day(turn.said_at, time)],
+        )
+        for index, turn in enumerate(source.turns)
+    ]
+    raw = _raw(
+        user_id=user_id,
+        kind="owner_dialogue",
+        provider=source.provider,
+        provider_id=source.dialogue_id,
+        title=prompt("ingest.owner_dialogue.title", dialogue_id=source.dialogue_id),
+        mime="application/vnd.pneuma.owner-dialogue+json",
+        created_at=source.turns[0].said_at,
+        evidence=source,
+        meta={
+            "contract_schema": source.contract_schema,
+            "dialogue_id": source.dialogue_id,
+            "owner_id": source.owner_id,
+            "steward_id": source.steward_id,
+            "turn_ids": [item.turn_id for item in source.turns],
+            # Text stays in the blocks. This envelope is only what a reader needs to
+            # reconstruct who spoke each turn and when, without the ids ever appearing in
+            # the text the compile model reads.
+            "turns": [
+                {
+                    "turn_id": item.turn_id,
+                    "role": item.role,
+                    "said_at": item.said_at.isoformat(),
+                }
+                for item in source.turns
+            ],
+            "metadata": source.metadata,
+        },
+    )
+    stamp_occurred_on(raw, [block.section_path[0] for block in blocks])
+    return [
+        NormalizedSource(raw=raw, blocks=blocks, structure=_spans_from_paths(blocks))
+    ]
+
+
 def _address_label(address: EmailAddress) -> str:
     return (
         f"{address.display_name} <{address.address}>"
@@ -449,8 +512,9 @@ def normalize_source_contract(
     """Expand one official contract into immutable compiler sources.
 
     `time` is the knowledge subject's clock: the conversation-shaped contracts (meeting, IM,
-    email) cut sections by calendar day, and that day is the subject's local one. A document
-    library is cut by headings, so it never needs it. Absent → each timestamp's own offset.
+    email, owner dialogue) cut sections by calendar day, and that day is the subject's local
+    one. A document library is cut by headings, so it never needs it. Absent → each
+    timestamp's own offset.
     """
 
     if isinstance(source, MeetingSource):
@@ -461,4 +525,6 @@ def normalize_source_contract(
         return _im(source, user_id, time, materialized_images)
     if isinstance(source, EmailSource):
         return _email(source, user_id, time)
+    if isinstance(source, OwnerDialogueSource):
+        return _owner_dialogue(source, user_id, time)
     raise TypeError(f"unsupported source contract: {type(source)!r}")

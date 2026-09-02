@@ -1637,12 +1637,32 @@ DEFAULTS: dict[str, str] = {
         "material supplies no author, so attribution stays pending. That date is the "
         "material's own, and relative time inside it resolves against it."
     ),
+    # ── the owner speaking to the library itself (`owner-dialogue/v1`) ──
+    # The kind has to be legible from the framework's own line, because the block text below
+    # it looks exactly like a transcript and is not one. What the statement DESERVES — an
+    # edit, a supersession, a new page — is the compile contract's judgement and is
+    # deliberately absent here.
+    "source.preamble.owner_dialogue": (
+        "This is {owner} speaking to this library directly — their own statement about what "
+        "it holds: a correction, an instruction or an addition, in their own words, not a "
+        "record of an event. The owner is the author, so the judgments in it are theirs by "
+        "default."
+    ),
+    "source.preamble.owner_dialogue_dated": (
+        "This is {owner} speaking to this library directly on {when} — their own statement "
+        "about what it holds: a correction, an instruction or an addition, in their own "
+        "words, not a record of an event. The owner is the author, so the judgments in it "
+        "are theirs by default. That date is the statement's own, and relative time inside "
+        "it resolves against it."
+    ),
     "source.preamble.title_quoted": " \"{title}\"",
     # ─────────────────────────────────────────────── ingest rendering
     "ingest.owner_label": "Owner",
     "ingest.other_label": "Participant{n}{suffix}",
     "ingest.speaker_alias": " ({speaker_id})",
     "ingest.owner_wrapped": "Owner ({label})",
+    "ingest.steward_label": "Steward",
+    "ingest.owner_dialogue.title": "Owner statement {dialogue_id}",
     "ingest.turn_line": "{label}: {text}",
     "ingest.email.subject": "Subject: {subject}",
     "ingest.email.attachments": "Attachments: ",
@@ -2332,6 +2352,9 @@ DEFAULTS: dict[str, str] = {
     "evolve.propose.unknown_path": "(unknown path)",
     "evolve.propose.docs_header": "# Current canonical document list",
     "evolve.propose.docs_empty": "(no canonical documents yet)",
+    "evolve.propose.demand_header": (
+        "# How the library is being used (reported by the enabled index components)"
+    ),
     "evolve.recovery_heading": "Window update",
     "evolve.commit_message": (
         "schema evolve: reorganized {moved} claim(s) into {new_documents} new document(s), "

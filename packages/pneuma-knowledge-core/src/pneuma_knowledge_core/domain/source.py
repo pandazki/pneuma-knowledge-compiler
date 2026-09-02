@@ -35,6 +35,7 @@ SourceOrigin = Literal[
     "obsidian",
     "slack",
     "rfc822",
+    "console",  # the surface the library's owner speaks to the steward through
     "mock",
 ]
 SourceKind = Literal[
@@ -45,6 +46,9 @@ SourceKind = Literal[
     "conversation",  # legacy API compatibility
     "document",
     "structured",
+    # The owner's own statement about the library — a correction, an instruction, an
+    # addition. An ordinary source in every respect; only its authorship is unusual.
+    "owner_dialogue",
 ]
 
 
