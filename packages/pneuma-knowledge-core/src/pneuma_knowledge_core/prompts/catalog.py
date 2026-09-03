@@ -1724,12 +1724,21 @@ DEFAULTS: dict[str, str] = {
     # discipline: the red line, citations, and the honest close above are style-
     # independent. Appended after the spine by the Q&A contracts (fast/deep); chosen per
     # deployment (PNEUMA_KNOWLEDGE_RECALL_ANSWER_STYLE) or per request.
+    # The one clause here that is not about brevity. Observed on a full autonomous run: a
+    # concise answer that named the value and then, in the same breath, said the exact value
+    # was not recorded — self-contradiction dressed as caution. Whether there is footing is
+    # the honest close's judgement (`recall.close.answer_honestly`, style-independent); what
+    # belongs here is the SHAPE that judgement takes once it is made, so the sentence lives
+    # in this preset and is not repeated there.
     "recall.style.concise": (
         "\nAnswer style — precise and concise. Reply with the shortest phrase or sentence "
         "that fully answers the question: the exact value, name, date, span, or list asked "
         "for, keeping a qualifier only when it is decisive (a negation, an approximation, "
         "a boundary). Add nothing else — no related facts, no background, no restated "
-        "question, no process notes.\n"
+        "question, no process notes. Commit to one side: give the value, or say the record "
+        "does not carry it — never both in one answer, because a stated value followed by a "
+        "disclaimer that it is not recorded contradicts itself, and a qualifier earns its "
+        "place only when it IS the answer.\n"
     ),
     "recall.style.conversational": (
         "\nAnswer style — natural conversation. Reply the way one person answers another "

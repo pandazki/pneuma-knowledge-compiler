@@ -1309,10 +1309,14 @@ _ZH: dict[str, str] = {
     # ─────────────────────────── recall: answer-style presets (fast/deep third clause)
     #
     # Three deployment-facing presets for the SHAPE of an answer — not its truth discipline.
+    # The commit clause: see the English catalog for what was observed and why it lives in
+    # this preset rather than in the style-independent honest close.
     "recall.style.concise": (
         "\n答案风格——精确简短。用能完整回答问题的最短短语或句子作答：被问到的那个确切值、名字、"
         "日期、区间或清单，只在限定词起决定作用时保留它（否定、约数、边界）。别的都不加——不加相"
-        "关事实、不加背景、不重述问题、不写过程说明。\n"
+        "关事实、不加背景、不重述问题、不写过程说明。要选定一边：要么给出那个值，要么说记录里没有"
+        "——同一个回答里绝不两样都占，因为先说出一个值、再声明这个值没有被记录，本身就自相矛盾；"
+        "限定词只有在它**本身就是答案**时才站得住。\n"
     ),
     "recall.style.conversational": (
         "\n答案风格——自然对话。像一个人在聊天里回答另一个人那样作答：用自然的一句话先给出答案，"

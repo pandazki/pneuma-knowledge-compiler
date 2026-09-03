@@ -230,6 +230,28 @@ def test_answer_style_presets_swap_exactly_the_style_clause(contract):
         contract(answer_style="terse")
 
 
+def test_the_concise_preset_makes_the_answer_commit():
+    """2026-09: a full autonomous run produced concise answers of the shape "value X … but
+    the exact value is not recorded" — a value and its own disclaimer in one breath, which
+    answers nothing. The preset now names which side to keep.
+
+    It says so exactly once. WHETHER there is footing is the honest close's judgement and is
+    style-independent (`recall.close.answer_honestly`); what shape that judgement takes in a
+    one-line answer is style, so the rule lives in this preset and is not duplicated into the
+    close or into the other two presets."""
+    from pneuma_knowledge_core.prompts import prompt
+    from pneuma_knowledge_core.recall.spine import style_clause
+
+    concise = " ".join(style_clause("concise").split())
+    assert "give the value, or say the record does not carry it" in concise
+    assert "never both in one answer" in concise
+    assert "a qualifier earns its place only when it IS the answer" in concise
+
+    assert "never both in one answer" not in prompt("recall.close.answer_honestly")
+    for other in ("conversational", "detailed"):
+        assert "never both in one answer" not in style_clause(other)
+
+
 def test_fast_contract_extends_the_no_fabrication_floor_to_attribution():
     """2026-08-01: a true fact the records attribute to a different subject is not an
     answer about the asked subject. The fast head must say so in so many words — confirm

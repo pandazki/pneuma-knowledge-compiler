@@ -110,6 +110,17 @@ def test_the_snapshot_declaration_reads_in_one_pass():
     assert "从拍下那一刻起就没有变过" in zh
 
 
+def test_the_concise_preset_commits_in_both_languages():
+    """The commit clause is a contract, not decoration: a Chinese deployment must carry it
+    too, and it must stay out of the style-independent honest close in both packs."""
+    en = default_catalog()["recall.style.concise"]
+    zh = chinese_overlay()["recall.style.concise"]
+    assert "never both in one answer" in en
+    assert "同一个回答里绝不两样都占" in zh
+    assert "本身就是答案" in zh
+    assert "同一个回答里绝不两样都占" not in chinese_overlay()["recall.close.answer_honestly"]
+
+
 def test_the_briefing_head_no_longer_calls_an_in_range_search_a_route_outside_the_pack():
     """VERIFY #10: it announced two routes "for what lies outside" the pack and then defined
     the first as searching within the pack's own range."""
