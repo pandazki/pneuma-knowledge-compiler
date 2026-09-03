@@ -1349,6 +1349,12 @@ async def _ask(
         uid = UserId(user_id())
         started = time.perf_counter()
         include_original_images = "image" in include_original_modalities
+        # The canonical layout the answering side reads its glance from — the same inputs the
+        # service route assembles in `_glance_inputs`, fetched once for whichever lane runs.
+        # An empty library passes nothing, so a project that has not compiled anything yet is
+        # byte-for-byte the retrieval-only lane it has always been.
+        documents = await ctx.canonical.list(uid)
+        glance_inputs = {"documents": documents, "skill": skill} if documents else {}
         if deep:
             answer = await deep_recall(
                 uid,
@@ -1366,8 +1372,7 @@ async def _ask(
                 # The map the loop walks. Without the documents, list_documents /
                 # read_document answer "this base holds no documents" and the lane loses its
                 # follow-the-thread half — the half it is being chosen for.
-                documents=await ctx.canonical.list(uid),
-                skill=skill,
+                **glance_inputs,
                 cap=settings.recall_claim_cap,
                 window_cap=settings.recall_window_cap,
                 answer_style=style or settings.recall_answer_style,
@@ -1390,6 +1395,9 @@ async def _ask(
                 embeddings=ctx.embeddings,
                 model=recall_model,
                 answer_model=answer_model,
+                # The library's layout, and the concurrent pass that may ask for a handful of
+                # documents to be read in full. Both are additive on top of retrieval.
+                **glance_inputs,
                 cap=settings.recall_claim_cap,
                 claim_candidate_cap=settings.recall_claim_candidate_cap,
                 window_cap=settings.recall_window_cap,

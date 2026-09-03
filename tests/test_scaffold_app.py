@@ -873,8 +873,10 @@ def test_gate_retry_carries_the_per_source_treatments():
 class _StubCanonical:
     def __init__(self, documents):
         self.documents = documents
+        self.reads = 0
 
     async def list(self, _user_id, at=None):
+        self.reads += 1
         return self.documents
 
 
@@ -904,6 +906,18 @@ class _StubContext:
         return None
 
 
+class _StubFastAnswer:
+    answer = "a direct lookup"
+    used_claims = ("c1",)
+    used_windows = ()
+    used_episode_summaries = ()
+    citation_handles: dict = {}
+    claim_candidates = 12
+    window_candidates = 8
+    stages = ()
+    token_usage = {"input": 300, "output": 20}
+
+
 class _StubDeepAnswer:
     answer = "assembled across three documents [cite: src-a ¶1-2]"
     used_claims = ("c1", "c2")
@@ -926,6 +940,16 @@ def _stub_ask_environment(monkeypatch, *, documents=()):
         recall_claim_cap = 40
         recall_window_cap = 6
         recall_answer_style = "conversational"
+        recall_claim_candidate_cap = 80
+        recall_window_candidate_cap = 60
+        recall_episode_summary_cap = 16
+        recall_evidence_strategy = "ranked"
+        recall_all_context_chars = 0
+        recall_selection_reasoning_effort = ""
+        recall_answer_format = "text"
+        recall_plan_queries = 0
+        recall_rerank_candidates = 120
+        answer_reasoning_effort = ""
 
     class _Skill:
         version = "app-v1"
@@ -945,7 +969,7 @@ def _stub_ask_environment(monkeypatch, *, documents=()):
 
     async def fake_fast_recall(user_id, question, **kwargs):
         calls["fast"] = (user_id, question, kwargs)
-        raise AssertionError("--deep must not reach the fast lane")
+        return _StubFastAnswer()
 
     monkeypatch.setattr(wiring, "build_context", fake_build_context)
     monkeypatch.setattr(wiring, "llm_call_config", lambda ctx, **kw: {})
@@ -962,6 +986,7 @@ async def test_ask_deep_reaches_the_frameworks_agentic_lane(monkeypatch, capsys)
     code, usage = await app._ask("who signed off on both?", deep=True)
     assert code == 0 and usage == {"input": 900, "output": 120}
     assert "fast" not in calls, "the deep flag was ignored"
+    assert calls["ctx"].canonical.reads == 1
     _user, question, kwargs = calls["deep"]
     assert question == "who signed off on both?"
     assert kwargs["model"] == "model:deep"
@@ -971,6 +996,33 @@ async def test_ask_deep_reaches_the_frameworks_agentic_lane(monkeypatch, capsys)
     out = capsys.readouterr().out
     assert "(deep, " in out and "2 tool calls" in out and "2 documents read" in out
     assert "tokens {'input': 900, 'output': 120}" in out
+
+
+async def test_the_fast_lane_sees_the_library_too(monkeypatch, capsys):
+    """The driver asked `fast_recall` a question with no canonical documents at all, so a
+    generated project answered every fast question with the library's glance missing and the
+    whole-document selection pass switched off — both additive layers the service route has
+    always supplied. Both lanes now read the same canonical listing, fetched once."""
+    calls = _stub_ask_environment(monkeypatch, documents=["doc-1", "doc-2"])
+    code, usage = await app._ask("when did that land?")
+    assert code == 0 and usage == {"input": 300, "output": 20}
+    assert "deep" not in calls
+    _user, _question, kwargs = calls["fast"]
+    assert kwargs["documents"] == ["doc-1", "doc-2"]
+    assert kwargs["skill"] is calls["skill"]
+    assert calls["ctx"].canonical.reads == 1, "one canonical listing serves whichever lane runs"
+
+
+async def test_an_empty_library_still_asks_the_retrieval_only_lane(monkeypatch):
+    """`documents=None` is what turns the glance off — the route's `_glance_inputs` returns
+    nothing for an empty library, and so does this. A project that has ingested but not yet
+    compiled must not start rendering an empty glance into every prompt."""
+    calls = _stub_ask_environment(monkeypatch, documents=[])
+    assert (await app._ask("q"))[0] == 0
+    assert "documents" not in calls["fast"][2] and "skill" not in calls["fast"][2]
+    calls = _stub_ask_environment(monkeypatch, documents=[])
+    assert (await app._ask("q", deep=True))[0] == 0
+    assert "documents" not in calls["deep"][2]
 
 
 async def test_ask_refuses_the_fast_lane_knobs_under_deep(monkeypatch):
