@@ -12,6 +12,7 @@ from __future__ import annotations
 import pytest
 
 from pneuma_knowledge_core.prompts import (
+    LEGACY_PROMPT_KEYS,
     catalog,
     default_catalog,
     override_prompt,
@@ -20,6 +21,7 @@ from pneuma_knowledge_core.prompts import (
     prompt_overlay_hash,
     reset_prompt_overrides,
     resolve_or_verbatim,
+    resolve_prompt_key,
     template_fields,
 )
 from pneuma_knowledge_core.skill import (
@@ -139,6 +141,38 @@ def test_override_may_drop_a_field_the_default_declares():
     """A subset is legal — an override that does not want to render a field is fine."""
     override_prompt("gate.frontmatter_missing", "frontmatter incomplete")
     assert prompt("gate.frontmatter_missing", key="type") == "frontmatter incomplete"
+
+
+# ------------------------------------------------------------------- renamed keys
+
+
+def test_an_overlay_written_against_a_renamed_key_still_applies():
+    """A deployment's `prompts/overlays.yaml` outlives a catalog rename.
+
+    The key is the address a person wrote down, and `override_prompt` refuses an unknown
+    one on purpose — so without the legacy map a rename would turn every overlay naming
+    the old spelling into a startup failure in somebody else's repository.
+    """
+    override_prompts({"gate.archive_frozen": "this volume is closed."})
+    assert prompt("gate.volume_closed") == "this volume is closed."
+    # ...and it lands as ONE surface: nothing downstream ever sees the retired spelling.
+    assert list(catalog())  # smoke: the catalog still resolves
+    assert "gate.archive_frozen" not in catalog()
+
+
+def test_every_legacy_key_names_a_surface_that_actually_exists_and_is_itself_retired():
+    """A legacy entry pointing at nothing would be an override that silently does nothing —
+    the exact failure the unknown-key rejection exists to prevent."""
+    defaults = default_catalog()
+    for old, new in LEGACY_PROMPT_KEYS.items():
+        assert new in defaults, old
+        assert old not in defaults, old
+        assert resolve_prompt_key(old) == new
+
+
+def test_a_live_key_is_never_translated_by_the_legacy_map():
+    assert resolve_prompt_key("gate.volume_closed") == "gate.volume_closed"
+    assert resolve_prompt_key("not.a.key.at.all") == "not.a.key.at.all"
 
 
 def test_template_fields_reports_named_placeholders_only():

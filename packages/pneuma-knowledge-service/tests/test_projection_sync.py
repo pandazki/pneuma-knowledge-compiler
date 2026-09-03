@@ -293,7 +293,7 @@ async def test_moving_claims_between_documents_is_not_loss_however_large_the_mov
     key-counting guardrail would refuse a groom of a small base as if it were a wipe. Loss is
     counted in anchors, which survive the move."""
     ctx = _ctx()
-    ctx.canonical = _ArchivedCanonical()
+    ctx.canonical = _RolledOverCanonical()
 
     result = await sync_projection(ctx, USER, "sha-groomed")
 
@@ -312,8 +312,8 @@ class _OneDocCanonical:
         ]
 
 
-class _ArchivedCanonical:
-    """Every claim moved into an archive volume: same anchors, different document paths."""
+class _RolledOverCanonical:
+    """Every claim moved into a closed volume: same anchors, different document paths."""
 
     async def list(self, user_id, *, at=None):  # noqa: ARG002
         return [
@@ -518,3 +518,94 @@ async def test_allow_wipe_still_carries_a_ledger_wipe_through():
         ("memory/aurora.md", "abcd0001"),
         ("memory/aurora.md", "abcd0002"),
     }
+
+
+# ================================================================= the archive is a move
+
+
+class _ArchiveMovedCanonical:
+    """The tree AFTER an ARCHIVE commit: the same three pages, one of them moved.
+
+    Not to be confused with `_RolledOverCanonical` above, which models a CLOSED VOLUME — an
+    earlier volume of the same work, which is live knowledge. This is the other thing: a page
+    the Owner retired, moved under `archive/`.
+
+    Its body, anchors and citations are byte-for-byte what they were — the whole change is
+    the path prefix, which is exactly what makes a move a move (docs/design/archive.md §2.1).
+    """
+
+    async def list(self, user_id, *, at=None):
+        docs = await _Canonical().list(user_id, at=at)
+        return [
+            _doc("archive/memory/a.md", d.doc_id, d.body)
+            if d.path == "memory/a.md"
+            else d
+            for d in docs
+        ]
+
+
+async def test_archiving_a_page_re_keys_its_claims_and_is_not_a_loss():
+    """Deletes under the old path, upserts under the new one with `archived=True`, and
+    passes the loss guardrail: the guardrail counts ANCHORS, and every anchor survived."""
+    ctx = _ctx()
+    ctx.canonical = _ArchiveMovedCanonical()
+
+    result = await sync_projection(ctx, USER, "sha-archived")
+
+    upserts = ctx.store.synced[2]
+    deleted = ctx.store.synced[3]
+    moved = next(c for c in upserts if str(c.anchor) == "aa11")
+    assert moved.document_path == "archive/memory/a.md"
+    assert moved.archived is True
+    assert moved.text == "kept"  # the claim itself did not change
+    assert ("memory/a.md", "aa11") in deleted
+    # The claims that did not move keep `archived=False`.
+    assert all(
+        c.archived is False for c in upserts if c.document_path != "archive/memory/a.md"
+    )
+    assert result.deleted == 2  # the moved page's old key, plus the genuinely deleted one
+
+
+async def test_a_flag_flip_alone_still_reaches_the_indexes():
+    """The signature carries `archived`, so a claim whose text, section path and citations
+    are all unchanged is still an upsert once its page moved into the archive. Without the
+    field in both signatures it would report `unchanged` and the archive would stay
+    searchable."""
+    ctx = _ctx()
+    ctx.canonical = _ArchiveMovedCanonical()
+    claims_now = await _ArchiveMovedCanonical().list(USER)
+    from pneuma_knowledge_core.recall.projection import project_snapshot_claims
+
+    projected = project_snapshot_claims(claims_now)
+
+    async def _rows_with_stale_flag(user_id):
+        # What the previous projection recorded: identical in every field but `archived`.
+        return [
+            {
+                "document_path": claim.document_path,
+                "anchor": str(claim.anchor),
+                "section_path": list(claim.section_path),
+                "text": claim.text,
+                "citations": [
+                    {
+                        "source_id": str(citation.source_id),
+                        "block_start": citation.block_start,
+                        "block_end": citation.block_end,
+                    }
+                    for citation in claim.citations
+                ],
+                "snapshot_ref": "sha-old",
+                "archived": False,
+            }
+            for claim in projected
+        ]
+
+    ctx.store.list_canonical_claims = _rows_with_stale_flag
+
+    result = await sync_projection(ctx, USER, "sha-archived")
+
+    assert result.deleted == 0
+    assert result.upserted == 1
+    assert result.unchanged == 2
+    assert [str(c.anchor) for c in ctx.store.synced[2]] == ["aa11"]
+    assert ctx.store.synced[2][0].archived is True

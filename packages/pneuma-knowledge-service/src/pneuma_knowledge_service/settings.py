@@ -259,8 +259,8 @@ class Settings(BaseSettings):
     #   rollover_keep_recent_chars — roughly how much of the most recent tail the active
     #     document keeps. Approximate on purpose: the cut lands on claim-block boundaries and
     #     a claim block is never split, so the retained tail is the largest whole-block suffix
-    #     that fits. Must stay well below the threshold, or a rollover would archive almost
-    #     nothing and re-trigger on the next write.
+    #     that fits. Must stay well below the threshold, or a rollover would close almost
+    #     nothing into the new volume and re-trigger on the next write.
     rollover_threshold_chars: int = 40_000
     rollover_keep_recent_chars: int = 12_000
 

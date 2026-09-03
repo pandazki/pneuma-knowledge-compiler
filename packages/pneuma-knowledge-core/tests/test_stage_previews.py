@@ -345,8 +345,8 @@ async def test_a_claim_in_a_frozen_volume_previews_under_the_page_it_is_history_
         documents=[active, volume],
     )
     claims = {s.name: s for s in fa.stages}[child_name("claims")].preview
-    # English pack in tests; the live Chinese deployment renders 「林薇（归档卷 a02）」.
-    assert claims["items"][0]["doc"] == "林薇 (archive a02)"
+    # English pack in tests; the live Chinese deployment renders 「林薇（分卷 a02）」.
+    assert claims["items"][0]["doc"] == "林薇 (vol. a02)"
     assert claims["items"][0]["doc"] != "a02"
 
 
@@ -447,15 +447,26 @@ async def test_the_rag_lanes_stages_carry_counts_and_the_first_few_addresses():
 
 
 async def test_the_briefing_build_previews_what_each_half_retrieved_and_packed():
+    from pneuma_knowledge_core.domain.canonical import CanonicalDocument
+    from pneuma_knowledge_core.domain.ids import DocumentId
     from pneuma_knowledge_core.domain.snapshot import SnapshotRef
 
     index = FakeClaimIndex(
         [ClaimStub("a1f3", "memory/topics/print.md", "恒印印刷的报价流程")]
     )
+    # The snapshot has to CONTAIN the page the claim names: a pack is pinned to its own
+    # snapshot, and a claim on a page the snapshot does not hold is dropped before any
+    # preview is written (core `recall/archive_filter._off_pin`).
     briefing = await build_briefing(
         _USER,
         BriefingScope(query="报价", source_ids=[], budget_chars=4000),
-        snapshot_docs=[],
+        snapshot_docs=[
+            CanonicalDocument(
+                doc_id=DocumentId("d-print"),
+                path="memory/topics/print.md",
+                body="# 恒印印刷\n\n报价流程。 <!-- c:a1f3 -->",
+            )
+        ],
         snapshot=SnapshotRef(ref="ref-previews"),
         claim_lexical=index,
         claim_vectors=index,

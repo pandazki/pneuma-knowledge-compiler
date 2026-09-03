@@ -8,6 +8,13 @@ deterministic (uuid5) so re-indexing a chunk overwrites in place.
 
 Client: `AsyncQdrantClient` (same qdrant-client package, no new dependency) — genuinely
 async, so an L2 round trip never blocks the single service event loop.
+
+THE ARCHIVE FILTER (docs/design/archive.md §3). Both layers carry a boolean payload field
+`archived`, and both default searches exclude it with `must_not archived = true` — the same
+shape as the existing `must_not layer = claim` clause, and for the same reason: a point
+written before the field existed carries no `archived` key, does not match the condition,
+and therefore stays LIVE. Excluding an equivalent `must archived = false` is deliberate; it
+would silently drop every legacy point until a full derived rebuild.
 """
 
 from __future__ import annotations
@@ -56,6 +63,14 @@ class ClaimHitRow:
     score: float
 
 
+#: The one excluding clause, stated once (see the module docstring). `must_not` and not a
+#: positive match, so a point with no `archived` key reads as live.
+def _not_archived() -> list[models.Condition]:
+    return [
+        models.FieldCondition(key="archived", match=models.MatchValue(value=True))
+    ]
+
+
 def _tenant_filter(user_id: UserId) -> models.Filter:
     return models.Filter(
         must=[
@@ -100,7 +115,26 @@ class QdrantVectorIndex:
         self._collection = collection
         self._dim = dim
 
+    #: The payload fields every filter in this adapter names, and therefore the indexes the
+    #: collection must carry: the tenant clause (I1), the source a flip is addressed by, the
+    #: archive mark, and the layer that separates L2 chunks from the L3 claim projection.
+    _PAYLOAD_INDEXES: tuple[tuple[str, models.PayloadSchemaType], ...] = (
+        ("user_id", models.PayloadSchemaType.KEYWORD),
+        ("source_id", models.PayloadSchemaType.KEYWORD),
+        ("archived", models.PayloadSchemaType.BOOL),
+        ("layer", models.PayloadSchemaType.KEYWORD),
+    )
+
     async def ensure_collection(self) -> None:
+        """Create the collection if absent, and declare the payload indexes EITHER WAY.
+
+        The index declaration deliberately runs on an existing collection too. A deployment
+        that already holds one predates every index added since it was created, and an
+        early return would mean the collection that most needs the new index is the one that
+        never gets it — a filter would then fall back to a full scan, or, for a field the
+        server refuses to filter unindexed, fail. `create_payload_index` is idempotent, so
+        re-declaring what is already there costs one no-op call per boot.
+        """
         if await self._client.collection_exists(self._collection):
             info = await self._client.get_collection(self._collection)
             vectors = info.config.params.vectors
@@ -116,6 +150,7 @@ class QdrantVectorIndex:
                     f"{self._dim} dimensions but has {actual_dim}; select a new "
                     "PNEUMA_KNOWLEDGE_QDRANT_COLLECTION or rebuild the collection"
                 )
+            await self._ensure_payload_indexes()
             return
 
         await self._client.create_collection(
@@ -124,15 +159,24 @@ class QdrantVectorIndex:
                 size=self._dim, distance=models.Distance.COSINE
             ),
         )
-        await self._client.create_payload_index(
-            self._collection,
-            field_name="user_id",
-            field_schema=models.PayloadSchemaType.KEYWORD,
-        )
+        await self._ensure_payload_indexes()
+
+    async def _ensure_payload_indexes(self) -> None:
+        for field_name, schema in self._PAYLOAD_INDEXES:
+            await self._client.create_payload_index(
+                self._collection,
+                field_name=field_name,
+                field_schema=schema,
+            )
 
     async def upsert_chunks(
-        self, user_id: UserId, chunks: list[SemanticChunk]
+        self, user_id: UserId, chunks: list[SemanticChunk], *, archived: bool = False
     ) -> None:
+        """Upsert one source's L2 points, carrying its archive mark.
+
+        `archived` is the L0 mark (`RawSource.archived_at is not None`), passed by the
+        caller: L2 coverage follows the IntakePlan, but whether the material is archived is
+        a fact about the source, not about the chunker."""
         if not chunks:
             return
         points = [
@@ -157,6 +201,7 @@ class QdrantVectorIndex:
                     "char_end": c.char_end,
                     "text": c.text,
                     "layer": LAYER_CHUNK,
+                    "archived": archived,
                     "representation": c.representation,
                     "episode_summary_text": c.episode_summary_text,
                 },
@@ -184,6 +229,9 @@ class QdrantVectorIndex:
                 payload={
                     "user_id": str(user_id),
                     "layer": LAYER_CLAIM,
+                    # Derived from the claim's document path by the projection, never
+                    # decided here (docs/design/archive.md §2.1).
+                    "archived": c.archived,
                     "anchor": str(c.anchor),
                     "document_path": c.document_path,
                     "section_path": list(c.section_path),
@@ -253,12 +301,24 @@ class QdrantVectorIndex:
         )
 
     async def search_claims(
-        self, user_id: UserId, embedding: list[float], *, limit: int = 40
+        self,
+        user_id: UserId,
+        embedding: list[float],
+        *,
+        limit: int = 40,
+        include_archived: bool = False,
     ) -> list[ClaimHitRow]:
+        """L3 semantic claim search; the archive is excluded unless the call says otherwise."""
+        base = _tenant_layer_filter(user_id, LAYER_CLAIM)  # I1 + layer
+        query_filter = (
+            base
+            if include_archived
+            else models.Filter(must=base.must, must_not=_not_archived())
+        )
         response = await self._client.query_points(
             self._collection,
             query=list(embedding),
-            query_filter=_tenant_layer_filter(user_id, LAYER_CLAIM),  # I1 + layer
+            query_filter=query_filter,
             limit=limit,
             with_payload=True,
         )
@@ -276,6 +336,40 @@ class QdrantVectorIndex:
                 )
             )
         return hits
+
+    async def set_source_archived(
+        self, user_id: UserId, source_id: SourceId, archived: bool
+    ) -> None:
+        """Flip one source's L2 chunk points to `archived`, without re-embedding them.
+
+        `set_payload` merges the one key into the points the selector matches, so the
+        vectors, the verbatim text and the char spans are untouched — an archive is a change
+        of attention, not of content, and re-embedding a library to express it would be both
+        expensive and a lie about what changed.
+
+        The selector is the tenant clause (I1) plus the source, minus the claim layer: a
+        claim's archive state is a property of its DOCUMENT's path and is written by the
+        projection, so a source-addressed flip must not reach it even when a claim in the
+        same tenant cites that source.
+        """
+        await self._client.set_payload(
+            self._collection,
+            payload={"archived": archived},
+            points=models.Filter(
+                must=[
+                    *_tenant_filter(user_id).must,
+                    models.FieldCondition(
+                        key="source_id", match=models.MatchValue(value=str(source_id))
+                    ),
+                ],
+                must_not=[
+                    models.FieldCondition(
+                        key="layer", match=models.MatchValue(value=LAYER_CLAIM)
+                    )
+                ],
+            ),
+            wait=True,
+        )
 
     def _chunk_layer_filter(self, user_id: UserId) -> models.Filter:
         # tenant + "not a claim": matches L2 chunk points, including legacy points that
@@ -420,7 +514,9 @@ class QdrantVectorIndex:
         *,
         limit: int = 20,
         representation: Literal["raw", "episode"] = "raw",
+        include_archived: bool = False,
     ) -> list[SemanticHitRow]:
+        """L2 semantic search; the archive is excluded unless the call says otherwise."""
         representation_filter = models.FieldCondition(
             key="representation",
             match=models.MatchValue(value=representation),
@@ -446,7 +542,8 @@ class QdrantVectorIndex:
                 must_not=[
                     models.FieldCondition(
                         key="layer", match=models.MatchValue(value=LAYER_CLAIM)
-                    )
+                    ),
+                    *([] if include_archived else _not_archived()),
                 ],
             ),
             limit=limit,

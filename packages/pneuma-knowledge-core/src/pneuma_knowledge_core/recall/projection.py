@@ -23,6 +23,7 @@ from ..domain.canonical import (
 )
 from ..compile.documents import OVERVIEW_LABEL, OVERVIEW_MARKER_RE, overview_slot_by_line
 from ..compile.supersession import SUPERSEDES_MARK_RE
+from ..domain.archive import is_archived_path
 from ..domain.ids import ANCHOR_MARK_RE, AnchorId, SourceId
 
 _LIST_ITEM_RE = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s")
@@ -63,6 +64,13 @@ class ProjectedClaim:
     section_path: tuple[str, ...]
     text: str
     citations: tuple[Citation, ...] = field(default_factory=tuple)
+    #: Whether this claim's page sits in the archive. DERIVED from `document_path` at
+    #: projection time and from nothing else (docs/design/archive.md §2.1: the path IS the
+    #: state), so a `git mv` under `archive/` is the whole mark and a rebuild re-reads it off
+    #: the tree. It is carried as a field rather than recomputed downstream because it must
+    #: reach the two claim indexes as a FILTERABLE attribute — a post-filter alone would let
+    #: the archive eat the candidate caps before the answer ever saw a live claim.
+    archived: bool = False
 
     @property
     def labels(self) -> tuple[str, ...]:
@@ -148,7 +156,13 @@ def project_document_claims(
     section path instead of the rendered heading stack. The slot is read off the system's
     own markers, so the label is the same in every language pack — and because it rides the
     section path, it reaches the claim index, the retrieval rows and the answer render
-    without one adapter having to learn a new field."""
+    without one adapter having to learn a new field.
+
+    Every claim of a document under `archive/` projects `archived=True`. The projection is
+    keyed by `(document_path, anchor)`, so archiving a page — a move — deletes its claims
+    under the old path and upserts them under the new one on the ordinary incremental sync;
+    nothing here needs to know a move happened."""
+    archived = is_archived_path(doc.path)
     lines = doc.body.split("\n")
     overview_slots = overview_slot_by_line(doc.body)
     claims: list[ProjectedClaim] = []
@@ -183,6 +197,7 @@ def project_document_claims(
                     section_path=section_path,
                     text=_render_text(text, section_path, strategy),
                     citations=tuple(citations),
+                    archived=archived,
                 )
             )
     return claims

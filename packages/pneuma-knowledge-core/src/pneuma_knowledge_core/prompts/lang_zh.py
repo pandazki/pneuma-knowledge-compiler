@@ -35,7 +35,9 @@ TERMINOLOGY
 Follows the Chinese documentation mirror (`docs/*.zh-CN.md`), which is the project's
 established Chinese voice: canonical → 正本, claim → 断言, anchor → 锚点, gate → 闸门,
 provenance → 出处, glance → 鸟瞰, family → 族, rollover → 轮转, verbatim → 逐字,
-"enters canonical" → 入册.
+"enters canonical" → 入册. A rolled-over page is a work in several volumes: open volume →
+当前卷, closed volume → 已结卷 / 分卷, volume card → 卷目卡. 归档 is RESERVED for the
+Owner's archive (`archive/`) and never used for a rollover volume.
 """
 
 from __future__ import annotations
@@ -116,7 +118,7 @@ _WRITE_CONTRACT = """\
 - **归属纪律**：谁说的就记成谁说的。归属是**溯源，不是裁决**——不确定就留作不确定。
 
 日期全程只有一个口径：**正本里的日期是知识主体自己时区里的日历日**，本轮的时间框会明确给出这个
-时区。永远不是 UTC 日期，也不是采集材料那一方的时区——主体是按自己生活里的那些天来归档和回忆知
+时区。永远不是 UTC 日期，也不是采集材料那一方的时区——主体是按自己生活里的那些天来记录和回忆知
 识的，偏移过的日期指向的是他生活里错误的那一天。一件事跨越不同时区的人时，把两种读法都留在断言
 里，不要静默换算掉一个。
 
@@ -614,7 +616,7 @@ _ZH: dict[str, str] = {
     "compile.skill_lede": (
         "前四节钉住了你为谁写、什么算合法写入。这一节钉住什么值得写、归到哪个位置——同一条判据，"
         "在一个具体领域里的展开。如果本节的领域设定与 §2 的主体档案冲突，**以 §2 为准**："
-        "领域设定只提供归档约定，不定义主体是谁。"
+        "领域设定只提供归属约定，不定义主体是谁。"
     ),
     # ───────────────────────────────── compile: post-compile coverage challenge
     "compile.challenge.questions_system": (
@@ -757,10 +759,14 @@ _ZH: dict[str, str] = {
     "compile.task.outline_entry_definition": "    definition: {definition}",
     "compile.task.outline_entry_ledger": "    ledger: {ledger}",
     "compile.task.outline_entry_component": "    {tail}",
-    # A rollover volume's outline line. The volume is still LISTED — a compiler must see the
-    # frozen history it may read but not write — while the line itself states the freeze.
+    # A closed volume's outline line. The volume is still LISTED — a compiler must see the
+    # earlier volumes it may read but not write — while the line itself states it is closed.
     "compile.task.outline_entry_volume": (
-        "- `{path}`（`{owner}` 的冻结归档卷——只读；{claims} 条断言）"
+        "- `{path}`（`{owner}` 的已结卷——只读；{claims} 条断言）"
+    ),
+    # An ARCHIVE RECORD's outline line: read-only for a different reason than a volume.
+    "compile.task.outline_entry_record": (
+        "- `{path}`（`{archived}` 的归档留痕——只读；拥有者在 {archived_on} 归档了这个主题）"
     ),
     "compile.task.retrieved_header": (
         "\n# 与本轮材料相关的已有断言（自动召回，用于对齐与更新）\n"
@@ -773,12 +779,22 @@ _ZH: dict[str, str] = {
     # ─────────────────────────────────────────────── compile: tool descriptions
     "compile.tool.list_documents": "列出正本中已有的文档路径。",
     "compile.tool.read_document": "完整读取一个文档（含锚点）。",
-    # Prepended to a read_document result when the path is a frozen archive volume: reading
-    # stays fully allowed, but the surface that shows the content also says it is not a write
+    # Prepended to a read_document result when the path is a closed volume: reading stays
+    # fully allowed, but the surface that shows the content also says it is not a write
     # target.
-    "compile.tool.read_document_frozen_notice": (
-        "（本文档是 `{owner}` 的冻结归档卷——只读。可以自由阅读和引用，但永远不要编辑它；关于这"
-        "个主体的新增与更新断言属于活动页面 `{owner}`。）"
+    "compile.tool.read_document_closed_notice": (
+        "（本文档是 `{owner}` 的已结卷——只读。可以自由阅读和引用，但永远不要编辑它；关于这"
+        "个主体的新增与更新断言属于当前卷 `{owner}`。）"
+    ),
+    # The ARCHIVE, not the closed volume above: a compile neither reads nor writes `archive/`.
+    "compile.tool.read_document_archived": (
+        "（`{path}` 在归档区，不属于本次编译的工作集：`archive/` 下的内容编译既不读也不写。"
+        "请把关于这个主题的内容写到在用文档上。）"
+    ),
+    # Prepended to a read_document result for an ARCHIVE RECORD.
+    "compile.tool.read_document_record_notice": (
+        "（本文档是 `{archived}` 的归档留痕——只读。拥有者已把这个主题归档；完整页面在归档区，"
+        "只能通过取消归档回来。）"
     ),
     "compile.tool.create_document": (
         "创建一个文档；doc_id 与全部锚点由系统分配，title 由正文的 `# ` 标题派生（前置里写的 "
@@ -933,9 +949,31 @@ _ZH: dict[str, str] = {
         "delete_claim 被拒：断言 c:{anchor_id} 是 `{path}` 中 c:{successor} 的前任（supersedes 链接）。"
         "把它合并掉会让后继的历史悬空。请保留它；改为合并或移动后继，链接会随之带走。"
     ),
-    "compile.patch.volume_frozen": (
-        "{op} 被拒：`{path}` 是 `{owner}` 的冻结历史卷，永不写入——它的条目是永久归档。关于这个"
-        "主体的新增与更新断言属于活动页面：对 `{owner}` 用 edit_claim / append_block。"
+    "compile.patch.volume_closed": (
+        "{op} 被拒：`{path}` 是 `{owner}` 的已结卷，永不写入——它的条目已经定稿，永久保留。关于"
+        "这个主体的新增与更新断言属于当前卷：对 `{owner}` 用 edit_claim / append_block。"
+    ),
+    # The ARCHIVE: moving a subject in or out of `archive/` is the owner's decision, so every
+    # compile write face refuses the path before the round reaches the gate.
+    "compile.patch.archived_path": (
+        "{op} 被拒：`{path}` 在归档区（`archive/`）。编译不写 `archive/` 下的任何内容——把一个"
+        "主题移进或移出归档是拥有者的决定，不是编译的决定。请把断言写到在用文档上。"
+    ),
+    # The ARCHIVE RECORD, at the write faces.
+    "compile.patch.archived_record": (
+        "{op} 被拒绝：`{path}` 是 `{archived}` 的归档留痕。这个主题已归档，它的留痕只读——它说明"
+        "这个主题曾经是什么、拥有者为什么把它收起来。要取回它，是拥有者取消归档的事。关于它确实"
+        "是新的事实，请记到它该在的在用页面上，或者就放着。"
+    ),
+    "compile.patch.archived_path_shadowed": (
+        "create_document 被拒：`{path}` 被归档文档 `{archived}` 遮蔽。一个路径只对应一个文档 "
+        "id，所以这个主题只能通过取消归档回来，不能被重新写第二遍。请换一个路径。"
+    ),
+    # And the same rule read off the NAME rather than the path (docs/design/archive.md §2.1).
+    "compile.patch.archived_title_shadowed": (
+        "create_document 被拒：`{path}` 会成为一个已归档主题的第二张页面。『{title}』是一个已归档"
+        "主题（`{archived}`），它不会换一个路径重建一遍。要么把关于它的确实是新的事实记到它该在的"
+        "在用页面上，要么就放着——把这个主题取回来是拥有者取消归档的事。"
     ),
     "compile.patch.fields_refused": (
         "{op} 被拒：`{path}` 的字段没有写入，文档保持原样。把下面每一条都改掉，再带上完整的一组"
@@ -982,45 +1020,45 @@ _ZH: dict[str, str] = {
         "set_fields 被拒：`{field}` 由系统分配，不是可写字段。系统持有的字段：{reserved}。"
         "其中 `title` 由文档的 `# ` 标题派生——要改标题，就改那一行。"
     ),
-    # ─────────────────────────────────────────────── rollover (groom): the history card
+    # ─────────────────────────────────────────────── rollover (groom): the volume card
     "compile.groom.contract": (
-        "# 你在做什么：为一份已归档的文档写历史卡片\n\n"
-        "一份关于某个长期主体的正本文档，大到无法整读。它最老的条目刚刚被逐字节搬进一个冻结的归"
-        "档卷；文档保留最近的条目。什么都没删，什么都不会被改写——卷是永久的，可以通过链接到"
-        "达。\n\n"
-        "你唯一的活是那张**历史卡片**，它现在站在那些条目原来的位置上。卡片是索引，不是账本：账"
-        "本是卷本身。所以一张好卡片让读者能判断这份归档值不值得打开，并告诉他该打开其中哪一部"
-        "分。\n\n"
+        "# 你在做什么：为一部分卷的著作写卷目卡\n\n"
+        "一份关于某个长期主体的正本文档，大到无法整读。它最老的条目刚刚被逐字节结入一个新的分"
+        "卷；这一页——当前卷——保留最近的条目。什么都没删，什么都不会被改写：已结卷是永久的，"
+        "可以通过链接到达。\n\n"
+        "你唯一的活是那张**卷目卡**，它现在站在那些条目原来的位置上：一份前卷综述。卡片是索引，"
+        "不是账本：账本是卷本身。所以一张好卡片让读者能判断某一前卷值不值得打开，并告诉他该打开"
+        "哪一卷。\n\n"
         "# 写什么\n\n"
         "一小串要点，每条一句话，按阅读顺序排。优先写：\n\n"
-        "- 贯穿归档材料的那几条脉络，以及它们最后怎么了；\n"
+        "- 贯穿前卷材料的那几条脉络，以及它们最后怎么了；\n"
         "- 这段时间里变了什么——什么取代了什么、什么定了、什么放弃了；\n"
-        "- 归档里反复回到的那些主体与人。\n\n"
-        "避免：逐条重述条目、报数量，或者描述归档本身而不是它的内容（「本卷收录了关于……的笔"
+        "- 前卷里反复回到的那些主体与人。\n\n"
+        "避免：逐条重述条目、报数量，或者描述卷本身而不是它的内容（「本卷收录了关于……的笔"
         "记」）。\n\n"
         "# 唯一的硬规则：每条要点都点名它的证据\n\n"
         "给你的材料里，每个条目都带一个 id，写成 HTML 注释：`<!-- c:1a2b3c4d -->`。你写的每条要"
-        "点，都必须在它的 `anchors` 字段里列出它所依据的归档条目的 id。落不到具体 id 上的要点根"
+        "点，都必须在它的 `anchors` 字段里列出它所依据的条目的 id。落不到具体 id 上的要点根"
         "本不写——留白。不要造 id，也不要用没给你看过的 id。\n\n"
         "你是在**替换**上一张卡片，不是在它后面追加。如果给了你上一张卡片，把其中仍然成立的部分"
-        "连同它的 id 一起带过来，再把新归档的材料并进去，让卡片始终是一页，而不是每次都变长。"
+        "连同它的 id 一起带过来，再把新结卷的材料并进去，让卡片始终是一页，而不是每次都变长。"
     ),
     "compile.groom.task_header": (
-        "文档 `{path}` 正在轮转：{claims} 条条目移入归档卷 `{volume}`。请写替换用的历史卡片。"
+        "文档 `{path}` 正在轮转：{claims} 条条目结入分卷 `{volume}`。请写替换用的卷目卡。"
     ),
     "compile.groom.previous_header": "## 你要替换的那张卡片",
     "compile.groom.previous_empty": "（无——这是本文档第一次轮转）",
-    "compile.groom.archived_header": "## 正在归档的条目（带 id）",
-    "compile.groom.archived_truncated": (
-        "（归档中最早的 {count} 行在此省略；下面是最近归档的材料）"
+    "compile.groom.closing_header": "## 正在结入本卷的条目（带 id）",
+    "compile.groom.closing_truncated": (
+        "（本卷最早的 {count} 行在此省略；下面是最近的材料）"
     ),
     # The three strings the card is RENDERED from. They land in canonical, so they are prose a
     # deployment owns like any other — and the `c:` reference form is the write contract's
     # second legitimate provenance.
-    "compile.groom.overview_heading": "## 历史（已归档）",
-    "compile.groom.volumes_heading": "## 归档卷",
+    "compile.groom.overview_heading": "## 前卷综述",
+    "compile.groom.volumes_heading": "## 卷目",
     "compile.groom.overview_point": "- {text}（依据 {anchors}）",
-    "compile.groom.volume_entry": "- 第 {number} 卷：[{title}]({href})——{claims} 条已归档条目。",
+    "compile.groom.volume_entry": "- 第 {number} 卷：[{title}]({href})——{claims} 条条目。",
     "compile.groom.commit_message": "groom {path}：{claims} 条断言轮转至 {volume}",
     "compile.groom.heal_commit_message": "groom-heal：改写了 {links} 条卷链接",
     # ─────────────────────────────────────────────── the document OVERVIEW
@@ -1098,10 +1136,92 @@ _ZH: dict[str, str] = {
     "gate.supersession_without_evidence": (
         "断言 c:{anchor} 取代 c:{target} 却未引用新证据；只有新证据才能取代一个状态。"
     ),
-    "gate.archive_frozen": (
-        "本文档是 `{owner}` 的冻结归档卷，不允许改动：它的条目是整体搬进来的，永久保留。把新增与"
-        "更新的断言写到活动页面 `{owner}`——对 `{owner}` 用 edit_claim / append_block——并把你改"
+    "gate.volume_closed": (
+        "本文档是 `{owner}` 的已结卷，不允许改动：它的条目是整体搬进来的，永久保留。把新增与"
+        "更新的断言写到当前卷 `{owner}`——对 `{owner}` 用 edit_claim / append_block——并把你改"
         "写过的卷内断言恢复成原来的文字。"
+    ),
+    # The ARCHIVE, at the gate — not the closed volume above.
+    "gate.archived_path": (
+        "本文档在归档区（`archive/`），`archive/` 下的任何内容都不在编译中改动。请把它的字节"
+        "恢复原样——把一个主题移进或移出归档是拥有者的决定——新的断言写到在用文档上。"
+    ),
+    "gate.archived_path_shadowed": (
+        "`{archived}` 是这个路径的归档形态，所以这份文档不能被创建：一个路径只对应一个文档 id。"
+        "这个主题只能通过取消归档回来，不能被重新写第二遍。"
+    ),
+    # A write aimed at an ARCHIVE RECORD, at the gate.
+    "gate.archive_record": (
+        "本文档是 `{archived}` 的归档留痕：拥有者已把这个主题归档，留痕只读。请把它的字节恢复"
+        "原样，新的断言写到在用文档上——这个主题只能通过取消归档回来。"
+    ),
+    "gate.archived_title_shadowed": (
+        "『{title}』是一个已归档主题（`{archived}`），它不会换一个路径重建一遍。要么把关于它的确实"
+        "是新的事实记到它该在的在用页面上，要么就放着——把这个主题取回来是拥有者取消归档的事。"
+    ),
+    # ─────────────────────────────────────────────── the archive record's own channel
+    "archive.record.definition": "{text} —— 已归档",
+    "archive.record.facts_span": "覆盖 {start}–{end}",
+    "archive.record.facts": (
+        "账本 claim {claims} 条 · 源 {sources} 个 · 已结卷 {volumes} 卷 · 被活页链接 {inbound} 处"
+    ),
+    # The `[cite: …]` marker is appended by the renderer, never written here.
+    "archive.record.reason": "拥有者于 {date} 归档：「{note}」",
+    # What the owner's STATEMENT says when they archived without writing a reason.
+    "archive.statement.default": "归档 {titles}。",
+    # ─────────────────────────────────────────────── the archive channel's own gate
+    "gate.archive_record.anchors": (
+        "留痕的锚点必须是本路径按槽位顺序系统派发的那三个：期望 {expected}，实得 {found}。"
+    ),
+    "gate.archive_record.anchor_taken": (
+        "锚点 {anchor} 在仓库里已经存在；留痕的 id 在整个仓库内唯一，包括归档区里的那份副本。"
+    ),
+    "gate.archive_record.statement": (
+        "留痕的理由必须引用拥有者的陈述 {statement}；它引用的是 {cited}。"
+    ),
+    "gate.archive_record.statement_mismatch": (
+        "`archive_statement` 指的是 {stated}，但留痕的理由引用的是 {cited}；"
+        "清单是直接读这个字段的、根本不会打开正文，所以两者不允许指向不同的陈述。"
+    ),
+    "gate.archive_record.grounding": (
+        "带进留痕的定义丢掉了它原本的落点：缺少 {reference}。"
+    ),
+    "gate.archive_record.frontmatter": "留痕的 frontmatter 不完整：缺少 `{key}`。",
+    "gate.archive_record.archive_of": (
+        "`archive_of` 写的是 `{stated}`，但完整副本在 `{expected}`。"
+    ),
+    "gate.archive_record.facts_disagree": (
+        "`{key}` 写的是 {stated}，但留痕正文那一行说的是 {expected}；那一行之所以不引用任何来源，"
+        "正是因为 frontmatter 就是它的出处，所以两者不允许不一致。"
+    ),
+    "gate.archive_record.span": (
+        "`archive_span` 写的是 {stated}，但这些事实覆盖的区间是 {expected}；"
+        "所引用的 source 都没有日期的页面根本不带这个字段，所以多出来一个、或写成另一个，"
+        "都是一个没人有的事实。"
+    ),
+    "gate.archive_record.facts_body": (
+        "留痕正文那一行写的是「{stated}」，而它的 frontmatter 写的是「{expected}」；"
+        "那一行之所以不引用任何来源，正是因为 frontmatter 就是它的出处，所以正文与上面的"
+        "机器字段要么说同一件事，要么这次写入整个作废。"
+    ),
+    "gate.archive_record.copy": (
+        "`{path}` 上的副本与原本在在用路径上的页面不是逐字节相同：归档是移动，不是改写。"
+    ),
+    "gate.archive_record.ungrounded": (
+        "留痕的第一块没有任何落点——既没有 `c:` 引用，也没有 `[cite: …]` 区间——"
+        "而它取自这一页的 {source}，那里本来是带着自己的落点的：「{preview}」。"
+    ),
+    "gate.archive_record.machinery": (
+        "留痕有一块的正文里带着系统自己的机械记号（{found}）：「{preview}」。"
+        "留痕是机械写出来的，它的块也会被投影成断言，所以它的正文只能是话。"
+    ),
+    "gate.archive_record.doc_id": (
+        "留痕的 `doc_id` 是 {stated}，但这条通道为这个路径派生出来的是 {expected}；"
+        "留痕的 id 是路径的函数，别处来的 id 很可能正是归档副本已经带着的那一个。"
+    ),
+    "gate.archive_record.doc_id_taken": (
+        "文档 id {doc_id} 已经属于本库里的另一份文档；留痕和它所站在前面的那份完整副本"
+        "是两份文档、两个 id。"
     ),
     # ─────────────────────────────────────────────── the overview's own gate checks
     "gate.overview_budget": (
@@ -1126,7 +1246,7 @@ _ZH: dict[str, str] = {
     #
     # Recorded on the job, not fed back to a model for repair: a groom has no repair round.
     "gate.groom.claims_not_byte_equal": (
-        "轮转被拒：归档卷加上保留的尾部，没能在链接之外逐字节复现文档原有的断言块（之前 "
+        "轮转被拒：新结的分卷加上保留的尾部，没能在链接之外逐字节复现文档原有的断言块（之前 "
         "{before}，之后 {after}）。一次轮转搬移断言，并重渲染它们携带的相对链接；它永远不许改写"
         "或重排任何一条。"
     ),
@@ -1151,14 +1271,14 @@ _ZH: dict[str, str] = {
     ),
     "gate.groom.anchor_lost": "轮转被拒：断言锚点 c:{anchor} 会从知识库里消失。",
     "gate.groom.anchor_added": (
-        "轮转被拒：锚点 c:{anchor} 会被这次轮转凭空造出来；这里只允许创建历史卡片自己的 id。"
+        "轮转被拒：锚点 c:{anchor} 会被这次轮转凭空造出来；这里只允许创建卷目卡自己的 id。"
     ),
     "gate.groom.overview_without_reference": (
-        "轮转被拒：历史卡片要点「{preview}…」没有点名任何归档条目，等于在不可重建的那一层里放了"
+        "轮转被拒：卷目卡要点「{preview}…」没有点名任何前卷条目，等于在不可重建的那一层里放了"
         "一个无引用的论断。"
     ),
     "gate.groom.overview_unknown_reference": (
-        "轮转被拒：历史卡片要点「{preview}…」引用了 c:{anchor}，它不是本文档的归档条目。"
+        "轮转被拒：卷目卡要点「{preview}…」引用了 c:{anchor}，它不是本文档前卷里的条目。"
     ),
     # ─────────────────────────────────────────────── evolve gate feedback
     "gate.evolve.feedback_header": (
@@ -1200,7 +1320,7 @@ _ZH: dict[str, str] = {
     "source.preamble.document_kind_default": "文档",
     "source.preamble.document_other_author": "其他人",
     "source.preamble.document_title": "，标题为「{title}」",
-    "source.preamble.document_parent": "，归档在父文档「{parent_title}」之下",
+    "source.preamble.document_parent": "，归属在父文档「{parent_title}」之下",
     "source.preamble.document_created": "创建于 {created}",
     # An authored document with no authoring timestamp, but with the framework's own
     # authoritative occurrence day. Deliberately "dated", not "created on": the day is when
@@ -1395,7 +1515,7 @@ _ZH: dict[str, str] = {
         "## {index} · [{kind}] {title}\n来源：{provenance}\n出自：{subject}\n{body}"
         "\n引用：\n{citations}"
     ),
-    "recall.identity.volume_title": "{title}（归档卷 {volume}）",
+    "recall.identity.volume_title": "{title}（分卷 {volume}）",
     "recall.identity.volume_origin": "{title}（{path}）",
     "recall.identity.joined": "{head} —— {tail}",
     "recall.live.card.about": "出自：{context}",
@@ -1456,15 +1576,17 @@ _ZH: dict[str, str] = {
     "recall.passage_truncated": (
         "\n…（已截断；这个块很长——deep 可以用 fetch_verbatim 取全文）"
     ),
+    # The ARCHIVE, on one excerpt's provenance line — only rendered when the call asked for it.
+    "recall.passage_in_archive": "已归档",
     # ─────────────────────────────────────────────── recall: knowledge base glance
     # The library's SHAPE, present for every question — not its contents.
     "recall.glance.header": "# 知识库鸟瞰",
     "recall.glance.note": (
-        "已编译知识库的布局：它声明了哪些归档族、每族下归了哪些文档、每份文档带多少条断言。这是形"
+        "已编译知识库的布局：它声明了哪些归属族、每族下归了哪些文档、每份文档带多少条断言。这是形"
         "状，不是内容——要读内容就打开文档。"
     ),
     "recall.glance.empty": (
-        "（知识库还没有任何文档；下面这些族是材料将来归档的位置）"
+        "（知识库还没有任何文档；下面这些族是材料将来归入的位置）"
     ),
     "recall.glance.family_heading": "## {template}",
     "recall.glance.family_blurb": "  ↳ {blurb}",
@@ -1473,9 +1595,11 @@ _ZH: dict[str, str] = {
     "recall.glance.entry_definition": "    definition: {definition}",
     "recall.glance.entry_ledger": "    ledger: {ledger}",
     "recall.glance.entry_tail_updated": "，更新于 {updated}",
-    # A rolled-over document's frozen archive volumes are COUNTED here rather than listed:
-    # listing them would let one long-lived subject crowd out every other family.
-    "recall.glance.entry_tail_archived": "，另有 {count} 个归档卷",
+    # A rolled-over page's closed volumes are COUNTED here rather than listed: listing them
+    # would let one long-lived subject crowd out every other family.
+    "recall.glance.entry_tail_volumes": "，另有 {count} 卷",
+    # A different fact: this document is IN the archive, shown only because the call asked.
+    "recall.glance.entry_tail_in_archive": "，已归档",
     "recall.glance.family_more": "- …这一族还有 {count} 份文档",
     "recall.glance.unfiled_heading": "## （不属于任何已声明族的文档）",
     "recall.glance.flat_heading": "## 文档",
@@ -1573,7 +1697,7 @@ _ZH: dict[str, str] = {
         "来源标题：{source_title}\n"
         "来源发生时间：{occurred_on}\n"
         "章节：{section}\n"
-        "来源区间：[cite: {source_id} ¶{start}-{end}]\n"
+        "来源区间：[cite: {source_id} ¶{start}-{end}]{archive}\n"
         "{text}"
     ),
     # ──────────────────────────────── recall: fast's retrieval planning pass (opt-in)
@@ -1618,6 +1742,12 @@ _ZH: dict[str, str] = {
     ),
     "recall.deep.tool.read_document_not_found": (
         "（{path} 上没有文档；用 list_documents 取准确路径）"
+    ),
+    # A path in the ARCHIVE: present and whole, but outside this answer's scope.
+    "recall.deep.tool.read_document_archived": (
+        "文档 {path} 在归档区，不属于这次作答要读的范围。拥有者把这个主题移出了作答集；它依然完"
+        "整地在那里、引用俱全，只有明确要求包含归档的调用才会展示它。请把它作为「不在范围内」报"
+        "告，而不是「不存在」，也不要重复读同一个路径。"
     ),
     "recall.agentic.budget_notice": "检索预算已用完——直接用已经取到的证据作答。",
     # ─────────────────────────────────────────────── recall: deep tools

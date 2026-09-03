@@ -168,7 +168,7 @@ def test_subject_timeline_paths_reads_volumes_oldest_first_then_the_active_page(
 def test_a_hit_on_one_shard_expands_the_whole_subject():
     active, (a01, a02) = _subject_with_volumes("planner", volumes=2, per_page=3)
     by_path = {d.path: d for d in (active, a01, a02)}
-    # The retrieval touched only the FIRST archive volume.
+    # The retrieval touched only the FIRST closed volume.
     blocks = build_subject_timelines(
         [_hit(a01, 1, "planner-a01")], by_path, per_doc=40
     )

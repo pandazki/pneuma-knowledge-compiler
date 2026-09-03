@@ -52,6 +52,22 @@ ordinary address (a claim anchor, a document path, a source id — I4), user_id 
 everywhere (I1), and with the component unregistered every seam renders as it did before it
 existed.
 
+AND THE LEDGER IS NOT THE DOCUMENT SET (docs/design/archive.md §4)
+-----------------------------------------------------------------
+A ledger row is a fact about a PAST consultation and outlives the page it names: a document
+consulted in June and archived in July is still `work/products/aurora.md` in the rows, and
+the ledger has no idea it moved. So both faces here are pinned to the documents they are
+handed — the deep tool through `recall_tools(..., documents=)`, the fast path through
+`run(..., documents=)`, and a call handed none reads the LIVE tree off the read-only
+canonical face (`domain/archive.live_documents`). A target that set does not contain is
+dropped rather than printed, which is the same rule the claim half already held: the report
+returns PROSE, and prose is what the framework's assembly filter cannot redact after the
+fact. Nothing here learns that the archive exists (I7) — the rule is "a page this face
+cannot see is not a page it may name", and the archive is one way for a page to become
+unseeable. The ledger's `source` targets are counted but never rendered by either face, so
+there is nothing to pin on that side; if a face ever prints one, it is pinned by the same
+document set that admits it.
+
 TIME
 ----
 `day` is the record's `created_at` in UTC (`access_stats.utc_day`), and neither the ledger
@@ -72,6 +88,7 @@ from datetime import date, datetime, timedelta, timezone
 from langchain_core.tools import StructuredTool
 from pneuma_knowledge_core.canonical_glance import family_of
 from pneuma_knowledge_core.components import BaseComponent
+from pneuma_knowledge_core.domain.archive import any_archived, live_documents
 from pneuma_knowledge_core.domain.ids import UserId
 from pneuma_knowledge_core.recall.fast import RetrievedClaim
 from pneuma_knowledge_core.recall.paths import PathResult
@@ -202,17 +219,40 @@ class AttentionComponent(BaseComponent):
             _log.warning("path templates unavailable for %s; reporting unfiled", user_id)
             return []
 
-    async def _claim_counts(self, user_id: UserId) -> dict[str, int]:
-        """path → how many claims that document holds. The one canonical read the cold half
-        needs: a family is only cold if something real in it is going unread."""
+    async def _tree(self, user_id: UserId) -> list | None:
+        """The WHOLE canonical tree, archived pages included — or None if it cannot be read.
+
+        Whole, because the two questions asked of it are answered by different halves: what
+        exists is the live half, and whether an archive exists at all is visible only before
+        the filter (`domain/archive.any_archived`). None is "no answer", never "nothing":
+        a face with no canonical read pins nothing, exactly as a lane handed no document set
+        pins nothing (archive.md §3).
+        """
         if self._canonical is None:
-            return {}
+            return None
         try:
-            docs = await self._canonical.list(user_id)
+            return list(await self._canonical.list(user_id))
         except Exception:  # noqa: BLE001 — a report never fails on a canonical read
             _log.warning("canonical unavailable for %s; reporting no cold family", user_id)
-            return {}
-        return {doc.path: len(list(project_document_claims(doc))) for doc in docs}
+            return None
+
+    async def _live_documents(self, user_id: UserId, documents=None):  # noqa: ANN001
+        """The pages this face may name — the set it was handed, or the LIVE tree.
+
+        `None` means "no document set at all": the canonical face is absent, or the read of
+        it failed. It is never the same as an EMPTY set, which is a library holding no page
+        this face may name.
+
+        A handed set is filtered too. The framework hands the live set already, but a face
+        that trusted its caller for this would print the archive the moment some other caller
+        handed it the whole tree, and the rule here is a property of the face. Filtering is
+        INERT with nothing archived — `live_documents` is the identity on a tree that has no
+        `archive/` — so this needs no switch of its own.
+        """
+        if documents is not None:
+            return live_documents(documents)
+        tree = await self._tree(user_id)
+        return None if tree is None else live_documents(tree)
 
     def _cap(self, lines: list[str]) -> str:
         """The block, cut to the character budget on a LINE boundary, and said out loud.
@@ -237,13 +277,20 @@ class AttentionComponent(BaseComponent):
         kept.append(f"(cut to {self._evidence_chars} characters; {omitted} more line(s) not shown)")
         return "\n".join(kept)
 
-    async def report(self, user_id: UserId, *, days: int) -> str | None:
+    async def report(self, user_id: UserId, *, days: int, documents=None) -> str | None:  # noqa: ANN001
         """The whole rendering: hot documents by family, cold families, unanswered questions.
 
         `None` when the window holds nothing at all. That emptiness is checked on the TABLES
         and not on whether there would be something to say: a library with no recorded
         consultations has cold families by definition, and reporting them would tell an
         evolve round that nobody reads a library nobody has yet asked.
+
+        `documents` is the caller's own pinned set when it has one (the deep tool is handed
+        one; `evolve_evidence` is not, and the live tree read here is the pin instead). Once
+        this library holds an archived page, every document line is pinned to that set: a
+        ledger row naming a page this face cannot see is a heat figure attached to an address
+        the reader cannot follow, and after an archive it is the past printed under a heading
+        that says "read lately".
         """
         uid = UserId(user_id)
         hits, misses, since, today = await self._window(uid, days=days)
@@ -256,7 +303,34 @@ class AttentionComponent(BaseComponent):
             f"{self._half_life_days:g} day(s)"
         ]
 
+        tree = await self._tree(uid)
+        live = None if tree is None else live_documents(tree)
+        claim_counts = (
+            {}
+            if live is None
+            else {doc.path: len(list(project_document_claims(doc))) for doc in live}
+        )
+
         document_heat = self._heat_by_target(hits, "document", now=today)
+        # THE PIN, and it runs ONLY once a page is actually in the archive. Every other rule
+        # in this component is a no-op on a library that has archived nothing; this one is
+        # not — a ledger row can name a page a later compile deleted or renamed, and dropping
+        # those would change what an untouched library reports. So it turns on with the first
+        # archived DOCUMENT, read off the FULL tree because that is the one place the fact is
+        # visible, and until then the report is byte-for-byte the one it always was. Same
+        # discipline as `recall/archive_filter._pin` and as an unregistered component:
+        # unregistered means nonexistent.
+        #
+        # Dropped, not annotated: this block is read by an evolve round and by an agentic
+        # lane, and a path neither of them can open is not evidence either of them can act
+        # on. A "…and N you may not see" line would only invite reasoning about the refusal.
+        if tree is not None and any_archived(tree):
+            pinned = {doc.path for doc in live}
+            if documents is not None:
+                pinned &= {doc.path for doc in documents}
+            document_heat = {
+                path: value for path, value in document_heat.items() if path in pinned
+            }
         templates = await self._families(uid)
         grouped: dict[str, list[tuple[str, float]]] = {}
         for path, value in document_heat.items():
@@ -278,7 +352,6 @@ class AttentionComponent(BaseComponent):
         if len(document_heat) > shown:
             lines.append(f"  …and {len(document_heat) - shown} more document(s).")
 
-        claim_counts = await self._claim_counts(uid)
         touched_families = {
             family_of(path, templates)
             for path in document_heat
@@ -338,9 +411,15 @@ class AttentionComponent(BaseComponent):
     def recall_tools(self, user_id: str, *, documents=None) -> list[StructuredTool]:
         component = self
         uid = UserId(user_id)
+        # The lane's own document set, captured at registration and pinned into every call
+        # of the tool. It is what the deep lane's glance, outline and every rendered page
+        # name came from, so a document the report names but this set does not hold is one
+        # the model cannot open — and after an archive it is the retired page, still sitting
+        # in the ledger under its old live path.
+        pinned = documents
 
         async def attention_report(days: int = 30) -> str:
-            report = await component.report(uid, days=days)
+            report = await component.report(uid, days=days, documents=pinned)
             if report is None:
                 return (
                     f"no consultation was recorded in the last {max(1, int(days))} day(s), "
@@ -377,7 +456,9 @@ class AttentionComponent(BaseComponent):
         framework ranks it against the question and spends the path's cap on that order
         (core recall/component_rank.py). A claim whose anchor no longer resolves against the
         pinned documents is DROPPED rather than rendered as an address with no text: the
-        ledger is derived and may name a claim a later compile superseded away.
+        ledger is derived and may name a claim a later compile superseded away — or moved
+        into the archive, where the pinned set no longer holds its page and the projection
+        below therefore no longer holds its anchor.
         """
         uid = UserId(user_id)
         hits, _misses, _since, today = await self._window(uid, days=self._window_days)
@@ -385,11 +466,8 @@ class AttentionComponent(BaseComponent):
         if not claim_heat:
             return PathResult()
 
-        if documents is not None:
-            docs = list(documents)
-        elif self._canonical is not None:
-            docs = list(await self._canonical.list(uid))
-        else:
+        docs = await self._live_documents(uid, documents)
+        if docs is None:
             return PathResult()
         projected = {
             str(claim.anchor): claim

@@ -63,6 +63,14 @@ the projection and the seams, core holds the calendar arithmetic.
 The rows are derived (I2) and rebuildable in full from L0; user_id is first everywhere (I1);
 every span it returns is an ordinary `source_id + block span` and every claim an anchor with
 its `[cite: …]` (I4).
+
+THIS COMPONENT'S FACES READ LIVE L0 ONLY (docs/design/archive.md §4). The component knows
+nothing about the archive and is given no `include_archived` — no component is (invariant
+I7). The exclusion is made one level down, in `time_blocks_in_range`, which is where a
+window read leaves L0: a deep tool returns VERBATIM PROSE, and prose the framework's
+assembly filter cannot redact after the fact. The projection itself still holds every
+source, archived or not, and is rebuilt from all of L0 — the archive is a property of the
+read, not of the rows.
 """
 
 from __future__ import annotations

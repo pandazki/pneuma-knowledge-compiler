@@ -70,6 +70,13 @@ from ..ports.media_store import MediaStore
 from ..ports.reranker import Reranker
 from ..ports.vector_index import VectorIndex
 from ..prompts import prompt
+from .archive_filter import (
+    archive_view,
+    index_scope,
+    scope_claims,
+    scope_path_results,
+    scope_windows,
+)
 from .citation_alias import (
     SessionAliaser,
     alias_sources,
@@ -611,6 +618,17 @@ class EpisodeSummary:
     source_title: str = ""
     source_occurred_on: str = ""
     section_path: tuple[str, ...] = ()
+    #: Whether this episode's SOURCE is in the archive — carried over from the window hit it
+    #: was lifted from (`RecallHit.archived`), never inferred here. False for every summary a
+    #: default retrieval produces, because the archive is excluded at the index and again at
+    #: assembly; true only on the `include_archived` path, where it becomes the same marker
+    #: the windows carry (`render_episode_summaries`) and rides onto the wire.
+    #:
+    #: A derived summary is COMPRESSION of a source, so an unlabelled one is the worst of the
+    #: three evidence faces to get wrong: a window at least quotes the archived material, and
+    #: a claim carries `archived` in its labels. This face had neither until the flag reached
+    #: it, so a model handed history read it as the present.
+    archived: bool = False
 
 
 class EvidenceSelection(BaseModel):
@@ -811,6 +829,7 @@ async def retrieve_claims(
     embeddings,  # langchain_core.embeddings.Embeddings
     limit: int = DEFAULT_CLAIM_CAP,
     query_embedding: list[float] | None = None,
+    include_archived: bool = False,
 ) -> list[RetrievedClaim]:
     """Dual-path claim retrieval fused by RRF, deduped by (document_path, anchor).
 
@@ -821,14 +840,22 @@ async def retrieve_claims(
     caller that already holds the vector skip the round trip — see `rag_recall`.
 
     Snapshot-scoped recall needs nothing here either (see `rag_recall`): the claim faces are
-    per-tenant, so a frozen snapshot tenant carries its own frozen claim projection."""
+    per-tenant, so a frozen snapshot tenant carries its own frozen claim projection.
+
+    `include_archived` is off by default and rides through to both claim indexes, where a
+    claim's `archived` flag was derived from its document's path at projection time. Excluded
+    at the index because a post-filter alone would let the archive spend the candidate cap
+    before the answer ever saw a live claim (archive.md §3)."""
     if limit <= 0:
         return []
-    lexical_hits = await claim_lexical.search_claims(user_id, query, limit=limit)
+    scope = index_scope(include_archived)
+    lexical_hits = await claim_lexical.search_claims(
+        user_id, query, limit=limit, **scope
+    )
     if query_embedding is None:
         query_embedding = await embeddings.aembed_query(query)
     vector_hits = await claim_vectors.search_claims(
-        user_id, query_embedding, limit=limit
+        user_id, query_embedding, limit=limit, **scope
     )
     return _fuse_claim_hits(
         [("lexical", lexical_hits), ("vector", vector_hits)], limit
@@ -844,6 +871,7 @@ async def retrieve_claims_multi(
     embeddings,  # langchain_core.embeddings.Embeddings
     limit: int = DEFAULT_CLAIM_CAP,
     pool_cap: int | None = None,
+    include_archived: bool = False,
 ) -> list[RetrievedClaim]:
     """Pooled multi-query claim retrieval: every query contributes its own lexical and
     vector rankings, and ONE RRF fusion ranks the union.
@@ -863,10 +891,16 @@ async def retrieve_claims_multi(
     if limit <= 0 or (pool_cap is not None and pool_cap <= 0):
         return []
 
+    scope = index_scope(include_archived)
+
     async def one(query: str) -> tuple[Sequence, Sequence]:
-        lexical_hits = await claim_lexical.search_claims(user_id, query, limit=limit)
+        lexical_hits = await claim_lexical.search_claims(
+            user_id, query, limit=limit, **scope
+        )
         vector = await embeddings.aembed_query(query)
-        vector_hits = await claim_vectors.search_claims(user_id, vector, limit=limit)
+        vector_hits = await claim_vectors.search_claims(
+            user_id, vector, limit=limit, **scope
+        )
         return lexical_hits, vector_hits
 
     per_query = await asyncio.gather(*(one(q) for q in queries))
@@ -937,7 +971,13 @@ def render_windows(windows: list[RecallHit]) -> str:
     for w in windows:
         # Same fixed English `[cite: …]` marker with the FULL source_id (never truncated),
         # so a window-sourced citation resolves like a claim's.
-        lines.append(f"[cite: {w.source_id} ¶{w.block_start}-{w.block_end}] {w.text}")
+        head = f"[cite: {w.source_id} ¶{w.block_start}-{w.block_end}]"
+        # The ARCHIVE marker, in the flat rendering as in the assembled one: an excerpt
+        # admitted out of the archive says so before it says anything else. Only ever set on
+        # the `include_archived` path (`recall/archive_filter.py`).
+        if getattr(w, "archived", False):
+            head += f" {prompt('recall.passage_in_archive')}"
+        lines.append(f"{head} {w.text}")
     return "\n".join(lines)
 
 
@@ -1019,6 +1059,12 @@ async def build_episode_summaries(
                 source_title=source_title,
                 source_occurred_on=source_occurred_on,
                 section_path=section_path,
+                # The archive state travels with the span it belongs to. The hit was already
+                # scoped by the assembly filter before this ran, so `archived` is only ever
+                # True on the `include_archived` path (`archive_filter.mark_archived_windows`)
+                # — and there it must not stop here, or the one evidence face that PARAPHRASES
+                # the archive would be the one face that does not say so.
+                archived=bool(getattr(hit, "archived", False)),
             )
         )
     return summaries
@@ -1037,6 +1083,13 @@ def render_episode_summaries(summaries: Sequence[EpisodeSummary]) -> str:
             occurred_on=summary.source_occurred_on,
             section=" › ".join(summary.section_path),
             text=summary.text,
+            # The SAME marker a window carries, on the same provenance line and in the same
+            # place — right after the `[cite: …]` token (`render_windows`, `assembly._provenance`).
+            # Empty otherwise, so a library with nothing archived renders these items
+            # byte-for-byte as it did before the flag existed.
+            archive=(
+                f" {prompt('recall.passage_in_archive')}" if summary.archived else ""
+            ),
         )
         for summary in summaries
     )
@@ -1272,14 +1325,14 @@ class TimelineBlock:
     """One hit subject's sibling claims, in document (projection) order.
 
     `document_path` is the subject's ACTIVE page. For a rolled-over subject the claims span
-    its frozen history volumes (oldest first) plus the active page — one subject, one block."""
+    its closed volumes (oldest first) plus the open volume — one subject, one block."""
 
     document_path: str
     claims: tuple[ProjectedClaim, ...]
     total_claims: int  # the subject's full claim count (all pages), before the per-subject cap
 
 
-#: A rollover volume's filename inside a subject's history directory (`<page>/aNN.md`).
+#: A closed volume's filename inside a subject's volume directory (`<page>/aNN.md`).
 #: Mirrors `compile.patch._VOLUME_FILE_RE` mechanically: recall reads the layout the groom
 #: channel produces without importing the write channel.
 _TIMELINE_VOLUME_FILE_RE = re.compile(r"^a\d{2,}\.md$")
@@ -1288,7 +1341,7 @@ _TIMELINE_VOLUME_FILE_RE = re.compile(r"^a\d{2,}\.md$")
 def timeline_subject(path: str, documents_by_path: Mapping[str, CanonicalDocument]) -> str:
     """The active page whose timeline `path` belongs to.
 
-    A rollover volume (`work/products/x/a01.md`) belongs to its active page
+    A closed volume (`work/products/x/a01.md`) belongs to its open volume
     (`work/products/x.md`) when that page is in the supplied canonical set; every other path
     — including a volume whose active page is absent — is its own subject. Mechanical, like
     `compile.patch.history_volume_owner`, but keyed off the supplied documents rather than
@@ -1304,11 +1357,11 @@ def timeline_subject(path: str, documents_by_path: Mapping[str, CanonicalDocumen
 def subject_timeline_paths(
     subject: str, documents_by_path: Mapping[str, CanonicalDocument]
 ) -> list[str]:
-    """The subject's pages oldest-first: frozen volumes in volume order, then the active page.
+    """The subject's pages oldest-first: closed volumes in volume order, then the open volume.
 
-    Rollover archives the OLDEST claim blocks (`compile.rollover`), so reading a01, a02, …,
-    then the active page keeps the concatenated projection in approximate chronological
-    order — exactly the order the timeline section renders."""
+    Rollover closes the OLDEST claim blocks into a volume (`compile.rollover`), so reading
+    a01, a02, …, then the open volume keeps the concatenated projection in approximate
+    chronological order — exactly the order the timeline section renders."""
     prefix = subject.removesuffix(".md") + "/"
     volumes = sorted(
         p
@@ -1355,11 +1408,11 @@ def build_subject_timelines(
 ) -> list[TimelineBlock]:
     """The timeline blocks for the subjects the retrieval hit, most-hit subjects first.
 
-    VOLUME-AWARE: a hit on any shard of a rolled-over subject — its active page or one of
-    its frozen `aNN.md` history volumes — counts toward ONE subject, and expanding that
-    subject projects its whole timeline: volumes oldest-first, then the active page. Without
-    this, a retrieval that lands on an archive shard used to expand only that shard and miss
-    the sibling volumes (and the active tail) of the very subject the question is about.
+    VOLUME-AWARE: a hit on any shard of a rolled-over subject — its open volume or one of
+    its closed `aNN.md` volumes — counts toward ONE subject, and expanding that subject
+    projects its whole timeline: closed volumes oldest-first, then the open one. Without
+    this, a retrieval that lands on one closed volume used to expand only that shard and miss
+    the sibling volumes (and the open tail) of the very subject the question is about.
 
     Subjects are ranked by (hit count desc, first-hit RRF position) and the top `doc_cap`
     expanded — a subject the retrieval touched three times is more load-bearing for the
@@ -2738,6 +2791,7 @@ async def retrieve_windows(
     vectors: VectorIndex | None,
     embeddings,  # langchain_core.embeddings.Embeddings
     limit: int = DEFAULT_WINDOW_CAP,
+    include_archived: bool = False,
 ) -> list[RecallHit]:
     """L1+L2 body windows for the answer's recall face (empty if raw indices absent).
 
@@ -2754,6 +2808,7 @@ async def retrieve_windows(
         vectors=vectors,
         embeddings=embeddings,
         limit=limit,
+        include_archived=include_archived,
     )
 
 
@@ -3038,6 +3093,18 @@ async def fast_recall(
     # took before either existed.
     on_event: StageEventSink | None = None,
     on_token: TokenSink | None = None,
+    # The ARCHIVE, off by default and off is the whole point (docs/design/archive.md §4): a
+    # document under `archive/` or a source with `archived_at` is one the owner moved out of
+    # the answering set. On, every face admits it and LABELS it. The `documents` this lane is
+    # handed are the caller's decision — the service passes live documents only when this is
+    # off — and the glance rendered from them follows this flag.
+    include_archived: bool = False,
+    # Whether this library has EVER archived a document — read off the FULL canonical tree
+    # by the caller that listed it (`domain/archive.any_archived`), because the live set
+    # this lane is handed cannot say. It turns the assembly filter's document pin ON; with
+    # nothing archived the whole filter is inert and this lane answers byte-for-byte as it
+    # did before the archive existed (`archive_filter._pin`).
+    archive_active: bool = False,
 ) -> FastAnswer:
     """fast recall: the knowledge base glance + L3 claims + L1/L2 body windows → one answer.
 
@@ -3114,11 +3181,36 @@ async def fast_recall(
     # heading in its body — previews under the active document it is history of. Every
     # preview surface in this lane draws its document name from this one mapping, so the
     # correction reaches all of them at once.
+    # The archive, read ONCE for the length of this retrieval: the source ids the L0
+    # authority marks archived. The document half needs no read — the path is the state. Both
+    # halves are applied after the index filters have done the cheap part, over every
+    # evidence face this lane assembled, so the property holds wherever the evidence came
+    # from — including a component that has never heard of the archive (archive.md §3).
+    view = await archive_view(user_id, content, documents_archived=archive_active)
+    #: The pages this answer is PINNED TO — every path in the document set this lane was
+    #: handed, archived ones included when the archive was asked for. A claim the index
+    #: returns for any other path is dropped with the archived ones: after a move the L3 rows
+    #: keep the old live path until the projection sync lands, and a sync that failed keeps
+    #: it forever (`archive_filter.filter_claims`). None ONLY when no document set was handed
+    #: in at all; an EMPTY set is a set — a library whose every page the Owner archived pins
+    #: to nothing, and every index claim is dropped. The service always hands one
+    #: (`api/routes/v1._glance_inputs`), so the pin is on in production either way — once
+    #: something has been archived. Until then the pin does not run at all, whatever set is
+    #: handed here (`archive_filter._pin`).
+    live_paths: frozenset[str] | None = (
+        frozenset(doc.path for doc in documents) if documents is not None else None
+    )
+    #: What the two filters hid this retrieval, reported on the `retrieve` stage's preview
+    #: the way every other omission in this lane is reported.
+    archive_hidden = 0
+
     glance: str | None = None
     by_path: dict[str, CanonicalDocument] = {}
     titles: dict[str, str] = {}
     if documents is not None:
-        glance = render_canonical_glance(documents, skill, packs=packs)
+        glance = render_canonical_glance(
+            documents, skill, packs=packs, include_archived=include_archived
+        )
         by_path = {doc.path: doc for doc in documents}
         titles = {path: display_identity(by_path, path).title for path in by_path}
 
@@ -3140,6 +3232,7 @@ async def fast_recall(
                     embeddings=embeddings,
                     limit=claim_pool,
                     pool_cap=RERANK_POOL_HARD_CAP if reranking else None,
+                    include_archived=include_archived,
                 )
             else:
                 found = await retrieve_claims(
@@ -3149,6 +3242,7 @@ async def fast_recall(
                     claim_vectors=claim_vectors,
                     embeddings=embeddings,
                     limit=claim_pool,
+                    include_archived=include_archived,
                 )
             timer.preview(
                 child_name("claims"),
@@ -3169,6 +3263,7 @@ async def fast_recall(
                 vectors=vectors,
                 embeddings=embeddings,
                 limit=max(window_cap, window_candidate_cap),
+                include_archived=include_archived,
             )
             timer.preview(
                 child_name("windows"), face_preview(hits, window_entries(hits))
@@ -3288,6 +3383,32 @@ async def fast_recall(
             claims_raw, raw_windows, component_arm = await retrieval_branch()
     component_evidence, route_usage, route_degraded = component_arm
     component_evidence = list(component_evidence)
+    # ── THE ARCHIVE, at assembly. Every face this lane retrieved passes through the one
+    # model-free filter before anything else touches it — so a component path that reads its
+    # own projection and L0, and has never heard of the archive, cannot put an archived
+    # subject into an answer that did not ask for one. Off (the default) drops and counts;
+    # on labels the claims and places them last (`recall/archive_filter.py`).
+    claims_raw, hidden_claims = scope_claims(
+        claims_raw, view, include_archived=include_archived, live_paths=live_paths
+    )
+    raw_windows, hidden_windows = scope_windows(
+        raw_windows, view, include_archived=include_archived
+    )
+    # The component face takes the SAME two-sided rule the ranked ones do. On the opt-in path
+    # it used to be skipped entirely, which left a routed path's archived claims the one
+    # evidence face reaching the model unlabelled and in live-first position.
+    component_evidence, hidden_component = scope_path_results(
+        component_evidence,
+        view,
+        include_archived=include_archived,
+        live_paths=live_paths,
+    )
+    archive_hidden = hidden_claims + hidden_windows + hidden_component
+    if archive_hidden:
+        # Never silent: the same channel the rest of this lane states an omission on. The
+        # stage previews merge, so this rides beside what `retrieve` already reported, and
+        # the assembly pass below corrects the number with a second `end` when it hides more.
+        timer.preview("retrieve", {"archive_hidden": archive_hidden})
     component_rerank_degraded: str | None = None
     if reranker is not None and any(e.claims or e.windows for e in component_evidence):
         # The lookup returned exact results with no rank of their own; when a real
@@ -3646,6 +3767,17 @@ async def fast_recall(
                 ),
             },
         )
+    # The window face is complete here — assembled, ceiling-applied, and (on the `select`
+    # path) extended with the L0 spans a claim's or an episode's provenance was followed to.
+    # It is filtered ONE more time for two reasons: those provenance spans entered after the
+    # retrieval filter ran and can point at an archived source, and `expand_and_merge` builds
+    # new `Passage`s out of the raw hits, so a marker stamped before it would not survive.
+    windows, hidden_late = scope_windows(
+        windows, view, include_archived=include_archived
+    )
+    if hidden_late:
+        archive_hidden += hidden_late
+        timer.preview("retrieve", {"archive_hidden": archive_hidden})
     window_notes: list[tuple[object, tuple[RetrievedClaim, ...]]] | None = None
     if annotate_windows:
         claims, paired = join_claims_to_windows(

@@ -87,6 +87,11 @@ class RawSource(BaseModel):
     # Held as a plain dict to keep the domain source module free of an intake import
     # cycle; the plan's schema lives in domain/intake.py.
     intake_plan: dict[str, Any] | None = None
+    # The archive mark that lives on L0 (docs/design/archive.md §2.2). None = live; a
+    # timestamp = the Owner retired this material. It changes the SEARCH face and the
+    # listing default only — every block is still here and L0 fetch by locator is still
+    # unconditional (invariant I3).
+    archived_at: datetime | None = None
 
     def retrieval_context_lines(self) -> list[str]:
         """Stable source-level context for retrieval.

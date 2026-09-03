@@ -7,9 +7,16 @@ being usable as canonical. Observed in a full replay: one product document reach
 894 claims — 42% of the whole knowledge base in a single file. Reading it whole blows a
 recall window, and the bird's-eye view it was supposed to serve degrades into a wall.
 
+A LONG-LIVED PAGE IS A WORK IN SEVERAL VOLUMES. That is the whole metaphor, and it is not
+the ARCHIVE (docs/design/archive.md): a closed volume is live knowledge — indexed, retrieved
+and listed like any other page — while `archive/` is where the Owner moves a subject that is
+no longer worth an answer slot. One says "this book got long"; the other says "this subject
+is no longer ours". Only the second is called archiving anywhere in this codebase.
+
 Rollover is MECHANICAL MAINTENANCE, the way log rotation is: size-triggered, subject
-unchanged, history frozen. It is orthogonal to `evolve`, which is SEMANTIC reorganization
-(split a subject into sub-subjects). Both can coexist; neither replaces the other.
+unchanged, earlier volumes closed. It is orthogonal to `evolve`, which is SEMANTIC
+reorganization (split a subject into sub-subjects). Both can coexist; neither replaces the
+other.
 
 Compile still has no move channel (a claim anchor never migrates on the daily path, so
 anchor identity stays trivially safe). Rollover is a separate NARROW write channel with its
@@ -17,24 +24,25 @@ own gate — `run_groom_gate` below — and it never runs inside a compile.
 
 THE SHAPE IT PRODUCES
 ---------------------
-Given an active document over the size threshold:
+Given an open volume over the size threshold:
 
-- the OLDEST claim blocks move, byte for byte, into a fresh ARCHIVE VOLUME inside the
-  document's own HISTORY DIRECTORY — `work/products/aurora-planner.md` archives into
-  `work/products/aurora-planner/a01.md`, `a02.md`, … — whose frontmatter records
-  `archived_from`, its volume number, and the date span its entries cover. A volume is FROZEN
+- the OLDEST claim blocks move, byte for byte, into a fresh CLOSED VOLUME inside the
+  page's own VOLUME DIRECTORY — `work/products/aurora-planner.md` closes into
+  `work/products/aurora-planner/a01.md`, `a02.md`, … — whose frontmatter records the page it
+  is a volume of, its volume number, and the date span its entries cover. A volume is CLOSED
   once written: the next rollover opens the next volume, never rewrites an older one.
 
-  The layout is one file plus one same-name directory, so the archive travels with the
-  document it belongs to and needs no slug of its own. It also lands OUTSIDE the skill's write
+  The layout is one file plus one same-name directory, so the earlier volumes travel with the
+  page they belong to and need no slug of their own. It also lands OUTSIDE the skill's write
   templates on purpose: `create_document` refuses those paths, so a volume can only be written
   through this channel, and the compile gate additionally refuses any change to one
-  (`gate.run_gate` 5b). Freezing is a mechanism, not a convention;
-- the active document keeps its path (so every inbound link and its doc_id survive), its
-  frontmatter, and the most recent tail of claims verbatim. Between the title and that tail
-  it gains two GROOM-MANAGED sections: a HISTORICAL OVERVIEW (the only thing an LLM writes
-  here) and a VOLUME CATALOG of markdown links — links being exactly the form the
-  projection layer turns into graph edges, so the archive stays reachable for free.
+  (`gate.run_gate` 5b). Closing is a mechanism, not a convention;
+- the OPEN VOLUME — the page itself — keeps its path (so every inbound link and its doc_id
+  survive), its frontmatter, and the most recent tail of claims verbatim. Between the title
+  and that tail it gains the two GROOM-MANAGED sections that make up the VOLUME CARD: a
+  digest of the earlier volumes (the only thing an LLM writes here) and a VOLUME CATALOG of
+  markdown links — links being exactly the form the projection layer turns into graph edges,
+  so the earlier volumes stay reachable for free.
 
 WHY THE MANAGED BLOCKS CARRY ANCHORS
 -----------------------------------
@@ -57,7 +65,7 @@ PROVENANCE OF AN OVERVIEW POINT
 -------------------------------
 An overview point is derived from EXISTING canonical, not from this round's material, so it
 has no `[cite:]` form available. The write contract's second legitimate provenance applies:
-it names the archived anchors it rests on (`c:<id>`, as plain text — never as an anchor
+it names the closed-volume anchors it rests on (`c:<id>`, as plain text — never as an anchor
 comment, which would duplicate an id and break repo-wide uniqueness). A point that cannot
 name one is not written, and the gate refuses the whole groom if one slips through.
 """
@@ -101,9 +109,13 @@ from .patch import (
 )
 
 # --- frontmatter ledger keys ------------------------------------------------------------
-#: On a VOLUME: which active document it was cut out of, its volume number, and the date span
-#: its entries cover (derived from dates present in the archived text; absent when none are).
-ARCHIVED_FROM_KEY = "archived_from"
+#: On a CLOSED VOLUME: which page it was cut out of, its volume number, and the date span its
+#: entries cover (derived from dates present in the closed text; absent when none are).
+#:
+#: The literal `archived_from` is the volume's owning-page stamp in LEGACY SPELLING and stays
+#: exactly as it is: it is written into every user's git library, so renaming the key on disk
+#: would orphan every volume already written. Only the constant carries the current word.
+VOLUME_OF_KEY = "archived_from"
 VOLUME_NUMBER_KEY = "rollover_volume"
 VOLUME_SPAN_KEY = "rollover_span"
 #: On the ACTIVE document: how many volumes exist, and the ids of the groom-managed blocks.
@@ -111,12 +123,12 @@ VOLUME_COUNT_KEY = "rollover_volumes"
 OVERVIEW_ANCHORS_KEY = "rollover_overview_anchors"
 CATALOG_ANCHORS_KEY = "rollover_catalog_anchors"
 
-#: A volume's filename inside the history directory: `a01.md`, `a02.md`, … The grammar itself is
+#: A volume's filename inside the volume directory: `a01.md`, `a02.md`, … The grammar itself is
 #: shared with path ownership (`patch._VOLUME_FILE_RE`), which is what makes "a volume" one fact
 #: rather than two spellings.
 _VOLUME_FILENAME = "a{number:02d}.md"
 
-#: Any ISO-8601 calendar day appearing in archived text. The volume's span is the min..max of
+#: Any ISO-8601 calendar day appearing in a closed volume's text. Its span is the min..max of
 #: these — a derived fact, never an invented one: a volume whose entries carry no dates simply
 #: has no span, and the catalog says so by falling back to the volume's name.
 _ISO_DATE_RE = re.compile(r"\b(\d{4}-\d{2}-\d{2})\b")
@@ -126,8 +138,8 @@ _ISO_DATE_RE = re.compile(r"\b(\d{4}-\d{2}-\d{2})\b")
 # WHY THE MIN..MAX OF EVERY DATE IN THE TEXT IS THE WRONG SPAN
 # ------------------------------------------------------------
 # A volume's catalog entry is the only thing a reader has when choosing which volume to open,
-# so its date range is a claim about the archive — and "any ISO day anywhere in the bytes"
-# makes that claim out of dates the entries merely MENTION. Measured on a real archive: a
+# so its date range is a claim about that volume — and "any ISO day anywhere in the bytes"
+# makes that claim out of dates the entries merely MENTION. Measured on a real library: a
 # volume of seven months of material advertised ten, because one entry recounted something
 # from before the corpus began and another named a FUTURE launch date. Both dates are real
 # text; neither is when anything in the volume happened.
@@ -148,12 +160,12 @@ _LEAD_PAREN_DAY_RE = re.compile(r"^\((\d{4}-\d{2}-\d{2})\)")
 #: glyph is whatever the deployment's language writes it with.
 _LEAD_CLAUSE_DAY_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})\s*[,，]")
 
-#: How much of the archived material the overview call may see. Deliberately large: the
-#: point of the call is to summarize what is being frozen, so the default is "effectively
+#: How much of the closing material the volume-card call may see. Deliberately large: the
+#: point of the call is to summarize what is being closed, so the default is "effectively
 #: everything". The bound exists because the pathological input this feature was built for
 #: is itself 435 KB, and an unbounded prompt is a hang rather than an answer. Truncation is
-#: STATED in the rendered input (never silent), and it keeps the most recent archived
-#: claims — the ones an overview is most likely to still be about.
+#: STATED in the rendered input (never silent), and it keeps the most recent closing
+#: claims — the ones a volume card is most likely to still be about.
 OVERVIEW_INPUT_BUDGET_CHARS = 200_000
 
 
@@ -166,7 +178,7 @@ OVERVIEW_INPUT_BUDGET_CHARS = 200_000
 # links are relative, so moving one byte for byte silently repoints every link it carries:
 # `../../memory/collaborators/x.md` resolved from the volume lands at `work/memory/...`,
 # which is nowhere. Measured on a real replay: ONE groom of two documents produced 556 dead
-# links, and the archive's reachability collapsed with them.
+# links, and the earlier volumes' reachability collapsed with them.
 #
 # So "verbatim" was too literal a reading of the conservation invariant. A link is a
 # SEMANTIC POINTER; its relative spelling is only how that pointer renders from the position
@@ -255,7 +267,7 @@ def dead_links(bodies: Mapping[str, str]) -> int:
 
 
 def volume_path_for(active_path: str, number: int) -> str:
-    """The path of volume `number`, inside `active_path`'s own history directory."""
+    """The path of volume `number`, inside `active_path`'s own volume directory."""
     return f"{history_dir(active_path)}/{_VOLUME_FILENAME.format(number=number)}"
 
 
@@ -271,10 +283,10 @@ def date_span(text: str) -> str:
 
     Mechanical: the min and max ISO-8601 day appearing anywhere in the text. A span is never
     inferred from anything else (an ingest timestamp, a commit time) — a made-up period reads as
-    evidence about the archive and is worse than saying nothing.
+    evidence about the volume and is worse than saying nothing.
 
     This is the LOOSE reading: it counts every day the text mentions, including ones the
-    entries only refer to. `archive_date_span` is what a volume advertises; see the comment
+    entries only refer to. `volume_date_span` is what a volume advertises; see the comment
     above `_CLAIM_LEAD_RE` for why the difference matters.
     """
     return _render_span(sorted(set(_ISO_DATE_RE.findall(text))))
@@ -297,13 +309,13 @@ def claim_occurrence_date(block: str) -> str:
     return ""
 
 
-def archive_date_span(text: str) -> str:
-    """The span a volume advertises for the claims it archives — narrowest honest reading.
+def volume_date_span(text: str) -> str:
+    """The span a volume advertises for the claims it closes over — narrowest honest reading.
 
     Three tiers, each used only when the one above it is silent:
 
-      1. the min..max of the days the archived CLAIMS say they happened;
-      2. the min..max of every day mentioned anywhere in the archived text (`date_span`) —
+      1. the min..max of the days the closed CLAIMS say they happened;
+      2. the min..max of every day mentioned anywhere in the volume's text (`date_span`) —
          weaker, but a volume of undated-but-date-mentioning entries still tells a reader
          roughly what era it holds;
       3. "" — and the catalog names the volume instead of guessing a period.
@@ -318,21 +330,21 @@ def archive_date_span(text: str) -> str:
     return _render_span(days) if days else date_span(text)
 
 
-def is_archive_volume(doc: CanonicalDocument) -> bool:
-    """True for a frozen archive volume — read off frontmatter, never guessed from the path.
+def is_closed_volume(doc: CanonicalDocument) -> bool:
+    """True for a closed volume — read off frontmatter, never guessed from the path.
 
     A document that merely SITS where a volume would (something hand-filed at `notes/a01.md`)
-    is not one: only the `archived_from` stamp a groom writes makes a volume a volume. The
+    is not one: only the owning-page stamp a groom writes makes a volume a volume. The
     glance's collapse deliberately accepts the weaker path signal too, because a MISSING stamp
-    there would resurface frozen history as a peer document; here, where the question is "is
-    this document an archive", the stamp is the only honest answer.
+    there would resurface a closed volume as a peer document; here, where the question is "is
+    this document a closed volume", the stamp is the only honest answer.
     """
-    return bool(str((doc.frontmatter or {}).get(ARCHIVED_FROM_KEY) or "").strip())
+    return bool(str((doc.frontmatter or {}).get(VOLUME_OF_KEY) or "").strip())
 
 
-def archived_from(doc: CanonicalDocument) -> str:
-    """The active document this volume was cut out of, or "" when it is not a volume."""
-    return str((doc.frontmatter or {}).get(ARCHIVED_FROM_KEY) or "").strip()
+def volume_of(doc: CanonicalDocument) -> str:
+    """The open volume (the page) this closed volume was cut out of, or "" when it is not one."""
+    return str((doc.frontmatter or {}).get(VOLUME_OF_KEY) or "").strip()
 
 
 def volume_number(doc: CanonicalDocument) -> int:
@@ -352,9 +364,9 @@ def volume_span(doc: CanonicalDocument) -> str:
 def volumes_of(
     active_path: str, docs: Sequence[CanonicalDocument]
 ) -> list[CanonicalDocument]:
-    """Every existing volume of `active_path`, oldest volume first."""
+    """Every existing closed volume of `active_path`, oldest volume first."""
     return sorted(
-        (d for d in docs if archived_from(d) == active_path), key=volume_number
+        (d for d in docs if volume_of(d) == active_path), key=volume_number
     )
 
 
@@ -372,12 +384,12 @@ def overview_anchors(frontmatter: Mapping) -> tuple[str, ...]:
 
 
 def catalog_anchors(frontmatter: Mapping) -> tuple[str, ...]:
-    """The ids of the active document's current volume-catalog entries."""
+    """The ids of the open volume's current volume-catalog entries."""
     return _anchor_list(frontmatter, CATALOG_ANCHORS_KEY)
 
 
 def managed_anchors(frontmatter: Mapping) -> set[str]:
-    """Every groom-authored anchor in the active document (overview ∪ catalog).
+    """Every groom-authored anchor in the open volume (digest ∪ catalog).
 
     These are the ONLY anchors a groom may add or drop; everything else is a real claim and
     is conserved to the letter (`run_groom_gate`).
@@ -530,29 +542,29 @@ class RolloverPlan:
     active_frontmatter: dict
     volume_path: str
     volume_number: int
-    #: The archived claim blocks with their headings — the new volume's body. Verbatim in every
+    #: The closing claim blocks with their headings — the new volume's body. Verbatim in every
     #: byte except the relative links, which are re-rendered for the volume's depth so they keep
     #: pointing at the documents they pointed at (see "relative links travel along" above).
-    archived_body: str
-    #: Verbatim retained tail — the active document's claims after the cut.
+    closed_body: str
+    #: Verbatim retained tail — the open volume's claims after the cut.
     kept_body: str
-    archived_claims: int
+    closed_claims: int
     kept_claims: int
-    #: The previous overview card, rendered as plain lines (input for the rewrite).
+    #: The previous volume card's digest, rendered as plain lines (input for the rewrite).
     previous_overview: str
     #: The document's OVERVIEW REGION, verbatim (compile/documents.py), or `""`.
     #:
     #: The region is the compile channel's wholesale-rewritable head and this channel's
     #: business is the ledger, so a rollover carries it across untouched: it is lifted out
-    #: before the cut is planned (so its blocks can never be archived into a volume, which
+    #: before the cut is planned (so its blocks can never be rolled into a volume, which
     #: would tear the region in half across two documents) and re-emitted under the title of
-    #: the rewritten active document. The two heads then sit one above the other and stay
-    #: disjoint by construction — the groom's history card is written into the ledger area
+    #: the rewritten open volume. The two heads then sit one above the other and stay
+    #: disjoint by construction — the groom's volume card is written into the ledger area
     #: below, and the `rollover_overview_anchors` ledger never names a region anchor.
     overview_region: str
-    #: Every volume of this subject after the rollover, oldest first: (path, claims, span).
+    #: Every closed volume of this subject after the rollover, oldest first: (path, claims, span).
     volumes: tuple[tuple[str, int, str], ...]
-    #: Anchors this groom may legitimately drop (the card it is replacing).
+    #: Anchors this groom may legitimately drop (the volume card it is replacing).
     replaced_anchors: frozenset[str]
     #: Every anchor in the repo that is NOT being replaced — the collision seed for new ids.
     reserved_anchors: frozenset[str]
@@ -564,12 +576,12 @@ def needs_rollover(text: str, threshold_chars: int) -> bool:
 
 
 def _cut_ordinal(units: Sequence[_Unit], keep_recent_chars: int) -> int:
-    """How many of the leading claim blocks are archived.
+    """How many of the leading claim blocks close into the new volume.
 
     Walks the blocks from the END, keeping whole blocks while the retained tail fits in
     `keep_recent_chars` — a claim block is never split, which is the whole reason the budget
     is approximate. The LAST block is always retained, so a rollover can never empty the
-    active document.
+    open volume.
     """
     blocks = [i for i, unit in enumerate(units) if unit.kind == "block"]
     if not blocks:
@@ -594,9 +606,9 @@ def plan_rollover(
 ) -> RolloverPlan | None:
     """Decide the cut, or return None when this document cannot/need not be rolled over.
 
-    None means: this document is not one the skill owns (so it has no history directory of its
-    own — including a rollover volume, which is never rolled over again), or the retained tail
-    already accounts for every claim (nothing to archive — one oversized claim block, or a
+    None means: this document is not one the skill owns (so it has no volume directory of its
+    own — including a closed volume, which is never rolled over again), or the retained tail
+    already accounts for every claim (nothing to close — one oversized claim block, or a
     threshold set below the keep-recent budget).
     """
     volume_no = len(volumes_of(active.path, docs)) + 1
@@ -619,10 +631,10 @@ def plan_rollover(
     if cut <= 0:
         return None
 
-    # The volume lives one level deeper than the page, so the archived text is re-rendered for
+    # The volume lives one level deeper than the page, so the closing text is re-rendered for
     # its new position: same targets, different relative spelling. The retained tail does not
     # move, so it is not touched at all.
-    archived_body = relink(
+    closed_body = relink(
         _assemble(units, set(blocks[:cut])), from_path=active.path, to_path=volume
     )
     kept_body = _assemble(units, set(blocks[cut:]))
@@ -630,7 +642,7 @@ def plan_rollover(
     volumes = tuple(
         (d.path, len(anchored_blocks(d.body)), volume_span(d))
         for d in volumes_of(active.path, docs)
-    ) + ((volume, len(anchored_blocks(archived_body)), archive_date_span(archived_body)),)
+    ) + ((volume, len(anchored_blocks(closed_body)), volume_date_span(closed_body)),)
 
     reserved = {
         anchor for d in docs for anchor in extract_anchors(d.body)
@@ -640,9 +652,9 @@ def plan_rollover(
         active_frontmatter=dict(active.frontmatter),
         volume_path=volume,
         volume_number=volume_no,
-        archived_body=archived_body,
+        closed_body=closed_body,
         kept_body=kept_body,
-        archived_claims=len(anchored_blocks(archived_body)),
+        closed_claims=len(anchored_blocks(closed_body)),
         kept_claims=len(anchored_blocks(kept_body)),
         previous_overview=previous_overview,
         overview_region=region,
@@ -657,21 +669,21 @@ def plan_rollover(
 
 @dataclass(frozen=True)
 class OverviewPoint:
-    """One line of the history card: a statement plus the archived anchors it rests on."""
+    """One line of the volume card: a statement plus the closed-volume anchors it rests on."""
 
     text: str
     anchors: tuple[str, ...]
 
 
 class _OverviewPointDraft(BaseModel):
-    """One proposed overview point. `anchors` is the point's whole provenance."""
+    """One proposed digest point. `anchors` is the point's whole provenance."""
 
     text: str = ""
     anchors: list[str] = Field(default_factory=list)
 
 
 class _OverviewDraft(BaseModel):
-    """The model's answer: the whole replacement card, points in reading order."""
+    """The model's answer: the whole replacement digest, points in reading order."""
 
     points: list[_OverviewPointDraft] = Field(default_factory=list)
 
@@ -682,15 +694,15 @@ OverviewReason = Literal["written", "call_failed", "parse_error", "empty"]
 def render_overview_input(
     plan: RolloverPlan, *, budget: int = OVERVIEW_INPUT_BUDGET_CHARS
 ) -> str:
-    """The HumanMessage for the overview call: what is being frozen + the card to replace.
+    """The HumanMessage for the digest call: what is being closed + the card to replace.
 
-    The archived body is passed with its anchor comments intact — that is how the model can
+    The closing body is passed with its anchor comments intact — that is how the model can
     name the evidence for each point at all.
     """
-    archived = plan.archived_body
+    closing = plan.closed_body
     omitted = 0
-    if len(archived) > budget:
-        lines = archived.split("\n")
+    if len(closing) > budget:
+        lines = closing.split("\n")
         kept: list[str] = []
         used = 0
         for line in reversed(lines):
@@ -699,24 +711,24 @@ def render_overview_input(
                 continue
             kept.append(line)
             used += len(line) + 1
-        archived = "\n".join(reversed(kept))
+        closing = "\n".join(reversed(kept))
 
     parts = [
         prompt(
             "compile.groom.task_header",
             path=plan.active_path,
             volume=plan.volume_path,
-            claims=plan.archived_claims,
+            claims=plan.closed_claims,
         ),
         "",
         prompt("compile.groom.previous_header"),
         plan.previous_overview.strip() or prompt("compile.groom.previous_empty"),
         "",
-        prompt("compile.groom.archived_header"),
+        prompt("compile.groom.closing_header"),
     ]
     if omitted:
-        parts.append(prompt("compile.groom.archived_truncated", count=omitted))
-    parts.append(archived)
+        parts.append(prompt("compile.groom.closing_truncated", count=omitted))
+    parts.append(closing)
     return "\n".join(parts)
 
 
@@ -731,9 +743,9 @@ async def write_overview(
 ) -> tuple[list[OverviewPoint], OverviewReason]:
     """Run the ONE model call a rollover makes → `(points, reason)`.
 
-    The model's only job is the history card. Everything else about a rollover is mechanical,
+    The model's only job is the volume card. Everything else about a rollover is mechanical,
     so there is nothing else here for it to get wrong — and its output is filtered before it
-    is trusted: a point with no text, or whose named anchors are not actually archived
+    is trusted: a point with no text, or whose named anchors are not actually closed-volume
     anchors of this subject, is DROPPED rather than repaired. A call that fails, fails to
     parse, or yields no usable point returns a reason and no points; the caller abandons the
     groom and the document is left exactly as it was.
@@ -814,7 +826,7 @@ def _without_duplicate_evidence_tail(text: str, anchors: Sequence[str]) -> str:
 def render_overview_blocks(
     plan: RolloverPlan, points: Sequence[OverviewPoint]
 ) -> tuple[list[str], list[str]]:
-    """`(blocks, anchors)` for the history card.
+    """`(blocks, anchors)` for the volume card's digest.
 
     Anchors are deterministic per (document, slot index) and seeded with every anchor the
     repo holds MINUS the card being replaced — so rewriting the card in place reuses the same
@@ -837,12 +849,12 @@ def render_overview_blocks(
 
 
 def render_catalog_blocks(plan: RolloverPlan) -> tuple[list[str], list[str]]:
-    """`(blocks, anchors)` for the volume catalog — one markdown link per volume.
+    """`(blocks, anchors)` for the volume catalog — one markdown link per closed volume.
 
     The link is what matters: markdown links are the form the projection layer turns into
-    knowledge-graph edges, so listing the volumes this way makes the archive reachable by the
-    same hop mechanism as every other inter-document relation. The href is relative to the
-    active document (`<stem>/aNN.md`), which is what the gate's and the dataset's shared
+    knowledge-graph edges, so listing the volumes this way makes the earlier volumes reachable
+    by the same hop mechanism as every other inter-document relation. The href is relative to
+    the open volume (`<stem>/aNN.md`), which is what the gate's and the dataset's shared
     resolver expects, and the LINK TEXT is the volume's date span — the one thing that lets a
     reader pick which volume to open. A volume whose entries state no date falls back to its
     own name rather than to a guessed period.
@@ -885,11 +897,11 @@ def _split_title(body: str) -> tuple[str, str]:
 def render_active_body(
     plan: RolloverPlan, overview_blocks: Sequence[str], catalog_blocks: Sequence[str]
 ) -> str:
-    """The rewritten active body: title → overview region → history card → volumes → tail.
+    """The rewritten open volume: title → overview region → volume card → catalog → tail.
 
     The overview REGION (the compile channel's head, `compile/documents.py`) is re-emitted
     verbatim directly under the title — the position it holds in every other document — while
-    the history card this channel writes goes below it. Two heads, one above the other, and a
+    the volume card this channel writes goes below it. Two heads, one above the other, and a
     rollover neither reads nor rewrites the upper one.
     """
     title, tail = _split_title(plan.kept_body)
@@ -916,19 +928,22 @@ def render_active_body(
 
 
 def volume_frontmatter(plan: RolloverPlan) -> dict:
-    """A volume's frontmatter: a complete document in its own right, stamped as an archive.
+    """A closed volume's frontmatter: a complete document in its own right, stamped as one.
 
     Complete on purpose — a volume is read off git like any other canonical document, so it has
-    to satisfy the same frontmatter check. `slug` is its filename inside the history directory
-    (`a01`); the volume needs no slug of its own because its identity is "the Nth archive of
-    that document", which `archived_from` states outright.
+    to satisfy the same frontmatter check. `slug` is its filename inside the volume directory
+    (`a01`); the volume needs no slug of its own because its identity is "the Nth volume of
+    that page", which the owning-page stamp states outright.
     """
     active_type = str(plan.active_frontmatter.get("type") or "").strip()
     frontmatter = {
         "doc_id": str(assign_document_id(plan.volume_path)),
+        # Legacy spelling, kept on disk for the same reason `VOLUME_OF_KEY` is: this value is
+        # written into every user's git library, so changing it would make two spellings of one
+        # fact. It is only the fallback for a page that declares no `type` of its own.
         "type": active_type or "archive",
         "slug": plan.volume_path.rsplit("/", 1)[-1].removesuffix(".md"),
-        ARCHIVED_FROM_KEY: plan.active_path,
+        VOLUME_OF_KEY: plan.active_path,
         VOLUME_NUMBER_KEY: f"{plan.volume_number:02d}",
     }
     span = plan.volumes[-1][2] if plan.volumes else ""
@@ -981,10 +996,10 @@ def run_groom_gate(
        invented. The only anchors allowed to appear or disappear are the groom-managed card
        ids, which the frontmatter ledger declares.
     3. `anchor_uniqueness` — repo-wide, over the post-rollover tree (shared with compile).
-    4. `groom_overview` — every overview point names at least one `c:` anchor, and every
-       anchor it names actually lives in a volume of THIS subject. A point that cites
-       nothing, or cites something outside the archive, is not a summary — it is a new
-       uncited assertion in the one non-rebuildable layer.
+    4. `groom_overview` — every digest point names at least one `c:` anchor, and every
+       anchor it names actually lives in a closed volume of THIS subject. A point that cites
+       nothing, or cites something outside the earlier volumes, is not a summary — it is a
+       new uncited assertion in the one non-rebuildable layer.
     5. `anchor_coverage` — both written documents carry an anchor on every content block
        (shared with compile). Without this a groom could brick every later compile.
     6. `frontmatter` / `path` — both written documents are complete and inside the skill's
@@ -1126,11 +1141,11 @@ def run_groom_gate(
     # 3. repo-wide anchor uniqueness (shared check).
     violations.extend(check_anchor_uniqueness(after_docs))
 
-    # 4. overview provenance: every point cites an anchor that lives in this subject's archive.
-    archive_anchors: set[str] = set(extract_anchors(volume_body))
+    # 4. digest provenance: every point cites an anchor living in one of this subject's volumes.
+    closed_anchors: set[str] = set(extract_anchors(volume_body))
     for doc in base_docs:
-        if archived_from(doc) == plan.active_path:
-            archive_anchors |= set(extract_anchors(doc.body))
+        if volume_of(doc) == plan.active_path:
+            closed_anchors |= set(extract_anchors(doc.body))
     for block in overview_blocks:
         cited = {m.group(1) for m in re.finditer(r"\bc:([0-9a-f]{4,})\b", block)}
         own = set(extract_anchors(block))
@@ -1145,7 +1160,7 @@ def run_groom_gate(
                 )
             )
             continue
-        for anchor in sorted(cited - archive_anchors):
+        for anchor in sorted(cited - closed_anchors):
             violations.append(
                 Violation(
                     "groom_overview",
@@ -1198,7 +1213,7 @@ class RolloverResult:
     status: Literal["ready", "rejected"]
     files: dict[str, str] = field(default_factory=dict)
     violations: list[Violation] = field(default_factory=list)
-    archived_claims: int = 0
+    closed_claims: int = 0
     volume_path: str = ""
     overview_points: int = 0
 
@@ -1213,8 +1228,8 @@ def build_rollover(
     """Assemble the two files and run the groom gate. Nothing here touches a store.
 
     `status="rejected"` means the caller commits NOTHING: a rollover is all-or-nothing by
-    construction, because a half-applied one would have moved claims out of the active
-    document without recording where they went.
+    construction, because a half-applied one would have moved claims out of the open volume
+    without recording where they went.
     """
     overview_blocks, overview_ids = render_overview_blocks(plan, points)
     catalog_blocks, catalog_ids = render_catalog_blocks(plan)
@@ -1226,11 +1241,11 @@ def build_rollover(
     active_frontmatter[CATALOG_ANCHORS_KEY] = ",".join(catalog_ids)
 
     volume_fm = volume_frontmatter(plan)
-    volume_body = plan.archived_body
+    volume_body = plan.closed_body
 
     # Both files this channel writes get the same derived `title` every compile write gets:
-    # the page's own `# ` heading, and a volume's own — a volume is a canonical document in
-    # its own right, so it is named by what stands at the top of it, not by what the page it
+    # the page's own `# ` heading, and a volume's own — a closed volume is a canonical document
+    # in its own right, so it is named by what stands at the top of it, not by what the page it
     # was cut out of happens to be called. Derived BEFORE the gate, so the groom gate judges
     # the frontmatter that will actually be committed.
     active_frontmatter = with_derived_title(active_frontmatter, active_body)
@@ -1257,7 +1272,7 @@ def build_rollover(
             plan.active_path: render_document(active_frontmatter, active_body),
             plan.volume_path: render_document(volume_fm, volume_body),
         },
-        archived_claims=plan.archived_claims,
+        closed_claims=plan.closed_claims,
         volume_path=plan.volume_path,
         overview_points=len(points),
     )
@@ -1268,7 +1283,7 @@ def commit_message(plan: RolloverPlan) -> str:
     return prompt(
         "compile.groom.commit_message",
         path=plan.active_path,
-        claims=plan.archived_claims,
+        claims=plan.closed_claims,
         volume=plan.volume_path,
     )
 
@@ -1358,7 +1373,7 @@ def heal_volume_links(docs: Sequence[CanonicalDocument]) -> HealResult:
     after_bodies = dict(before_bodies)
 
     for doc in sorted(docs, key=lambda d: d.path):
-        parent = archived_from(doc)
+        parent = volume_of(doc)
         if not parent or parent not in known:
             continue  # not a volume, or an orphan whose original position is unknowable
 
@@ -1451,8 +1466,8 @@ def heal_commit_message(healed_links: int) -> str:
 
 
 __all__ = [
-    "ARCHIVED_FROM_KEY",
     "CATALOG_ANCHORS_KEY",
+    "HealResult",
     "OVERVIEW_ANCHORS_KEY",
     "OVERVIEW_INPUT_BUDGET_CHARS",
     "OverviewPoint",
@@ -1461,10 +1476,8 @@ __all__ = [
     "RolloverResult",
     "VOLUME_COUNT_KEY",
     "VOLUME_NUMBER_KEY",
+    "VOLUME_OF_KEY",
     "VOLUME_SPAN_KEY",
-    "HealResult",
-    "archive_date_span",
-    "archived_from",
     "build_rollover",
     "catalog_anchors",
     "claim_occurrence_date",
@@ -1474,7 +1487,7 @@ __all__ = [
     "heal_commit_message",
     "heal_volume_links",
     "history_dir",
-    "is_archive_volume",
+    "is_closed_volume",
     "link_elided",
     "link_targets",
     "managed_anchors",
@@ -1485,8 +1498,10 @@ __all__ = [
     "render_active_body",
     "render_overview_input",
     "run_groom_gate",
+    "volume_date_span",
     "volume_frontmatter",
     "volume_number",
+    "volume_of",
     "volume_path_for",
     "volume_span",
     "volumes_of",

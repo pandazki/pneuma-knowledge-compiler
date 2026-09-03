@@ -66,7 +66,7 @@ Per-operation additions (`extra`; `None`-valued entries are dropped, so an absen
 |---|---|
 | `compile` | `skill_version`, `skill_id`, `job_id`, `source_count`, `image_count`, `image_mode` |
 | `compile.challenge` | `job_id` |
-| `compile.groom` | `job_id`, `document_path`, `volume_path`, `archived_claims`, `skill_version` |
+| `compile.groom` | `job_id`, `document_path`, `volume_path`, `closed_claims`, `skill_version` |
 | `evolve.propose` | `skill_version` |
 | `evolve.reorganize` | `task_id`, `skill_version` |
 | `recall.fast` | `snapshot_ref`, `kb_snapshot_id`, `image_count`, `image_mode` (answer call) |
@@ -88,7 +88,7 @@ Consequences worth knowing: `briefing.ask` groups by `briefing_id` (not `snapsho
 
 ## Trace-size discipline
 
-**Metadata carries ids, counts and bounded mode enums only — never a key, never a slab of canonical body.** `user_id`, `job_id`, `snapshot_ref`, `source_count`, `archived_claims`, `image_mode`: enough to slice traces, nothing that bloats them or leaks a secret. The prompt and response bodies langchain reports as span content are the model I/O itself, not metadata; keep our added metadata to identifiers and finite machine states. If an `extra` value is prose a human would read, it does not belong there.
+**Metadata carries ids, counts and bounded mode enums only — never a key, never a slab of canonical body.** `user_id`, `job_id`, `snapshot_ref`, `source_count`, `closed_claims`, `image_mode`: enough to slice traces, nothing that bloats them or leaks a secret. The prompt and response bodies langchain reports as span content are the model I/O itself, not metadata; keep our added metadata to identifiers and finite machine states. If an `extra` value is prose a human would read, it does not belong there.
 
 ## Flushing, by process type
 

@@ -36,12 +36,13 @@ from pneuma_knowledge_core.compile.rollover import (
     commit_message,
     heal_commit_message,
     heal_volume_links,
-    is_archive_volume,
+    is_closed_volume,
     needs_rollover,
     plan_rollover,
     write_overview,
 )
 from pneuma_knowledge_core.compile.runner import with_skill_trailer
+from pneuma_knowledge_core.domain.archive import is_archived_path
 from pneuma_knowledge_core.domain.ids import UserId, extract_anchors
 
 from .projection import sync_projection
@@ -51,7 +52,7 @@ from .wiring import AppContext, llm_call_config
 #: The job kind. On the shared per-user queue next to compile / index / evolve.
 GROOM_JOB_KIND = "groom"
 
-# How many times the history card may be written before a rollover is recorded as failed.
+# How many times the volume card may be written before a rollover is recorded as failed.
 # Same shape as the compile gate's one repair round: the first refusal is usually this one
 # output being wrong, not the plan.
 GROOM_CARD_ATTEMPTS = 2
@@ -118,10 +119,13 @@ async def scan_oversized_documents(ctx: AppContext, user: UserId) -> list[str]:
     So the repository is swept too, just rarely: this hangs off the evolve job, the
     lowest-frequency scheduled pass the system has, rather than becoming a second trigger on
     the write path. It re-reads canonical and re-renders each document to the bytes that were
-    committed, so "oversized" means the same thing here as it does after a compile. Archive
-    volumes are excluded — frozen history is never rolled over again, and enqueueing jobs
+    committed, so "oversized" means the same thing here as it does after a compile. Closed
+    volumes are excluded — a closed volume is never rolled over again, and enqueueing jobs
     that can only report "cannot be rolled over" is noise. Idempotent through the shared
-    pending-job skip.
+    pending-job skip. Documents in the ARCHIVE are excluded for the same shape of reason:
+    the Owner has said the subject is no longer worth an answer slot, and rewriting its page
+    into two — a canonical write, with a model call and a new volume — to make retired
+    knowledge tidier is work nobody asked for on material nobody reads.
     """
     docs = await ctx.canonical.list(user)
     return await _enqueue_oversized(
@@ -130,7 +134,7 @@ async def scan_oversized_documents(ctx: AppContext, user: UserId) -> list[str]:
         {
             doc.path: render_document(doc.frontmatter, doc.body)
             for doc in docs
-            if not is_archive_volume(doc)
+            if not is_closed_volume(doc) and not is_archived_path(doc.path)
         },
     )
 
@@ -138,7 +142,7 @@ async def scan_oversized_documents(ctx: AppContext, user: UserId) -> list[str]:
 async def heal_volume_links_for_user(ctx: AppContext, user: UserId) -> dict:
     """Repair the volume links an older groom left resolving one level short. No model call.
 
-    Rides the groom channel because it writes archive volumes, which no compile may touch —
+    Rides the groom channel because it writes closed volumes, which no compile may touch —
     and it is a DEFECT FIX, not a knowledge edit: every byte of the body outside a link href
     is untouched and every rewritten link ends up at the document its text always meant. The
     one thing outside the body that may move is the derived frontmatter `title`, which every
@@ -174,9 +178,9 @@ async def heal_volume_links_for_user(ctx: AppContext, user: UserId) -> dict:
 
 
 async def run_groom_job(ctx: AppContext, user: UserId, job: object) -> None:
-    """One `kind="groom"` job: plan the cut → write the history card → gate → commit → project.
+    """One `kind="groom"` job: plan the cut → write the volume card → gate → commit → project.
 
-    The only model call is the history card, and it is the only step that can fail for a
+    The only model call is the volume card, and it is the only step that can fail for a
     non-mechanical reason. Every terminal state completes the job (never leaves it claimed)
     and records WHY in the job detail, because a rollover that quietly did not happen looks
     exactly like a rollover that was never triggered.
@@ -201,18 +205,18 @@ async def run_groom_job(ctx: AppContext, user: UserId, job: object) -> None:
         keep_recent_chars=ctx.settings.rollover_keep_recent_chars,
     )
     if plan is None:
-        # Not an error: a document the skill does not own has no history directory (nor does a
-        # volume, so frozen history never grows a second floor), and a document whose whole body
-        # already fits the retained tail has nothing to archive.
+        # Not an error: a document the skill does not own has no volume directory (nor does a
+        # closed volume, so it never grows a second floor), and a document whose whole body
+        # already fits the retained tail has nothing to close into a volume.
         await ctx.store.complete(
             user, job_id, ok=True, detail=f"groom: {path} cannot be rolled over"
         )
         return
 
-    # The anchors an overview point may legitimately name: this rollover's archive plus every
-    # volume already frozen for this subject. Enforced again by the gate — this only keeps the
-    # model's own output from being silently wrong.
-    known = set(extract_anchors(plan.archived_body))
+    # The anchors a volume-card point may legitimately name: the volume this rollover closes
+    # plus every volume already closed for this subject. Enforced again by the gate — this only
+    # keeps the model's own output from being silently wrong.
+    known = set(extract_anchors(plan.closed_body))
     for volume_path, _claims, _span in plan.volumes[:-1]:
         volume = next((d for d in docs if d.path == volume_path), None)
         if volume is not None:
@@ -239,14 +243,14 @@ async def run_groom_job(ctx: AppContext, user: UserId, job: object) -> None:
                     "job_id": str(job_id),
                     "document_path": path,
                     "volume_path": plan.volume_path,
-                    "archived_claims": plan.archived_claims,
+                    "closed_claims": plan.closed_claims,
                     "skill_version": skill.version,
                     "attempt": attempt + 1,
                 },
             ),
         )
         if reason != "written":
-            result, detail = None, f"groom: history card {reason}"
+            result, detail = None, f"groom: volume card {reason}"
             continue
         candidate = build_rollover(plan, points, docs, path_templates=skill.path_templates)
         if candidate.status == "rejected":
@@ -262,7 +266,7 @@ async def run_groom_job(ctx: AppContext, user: UserId, job: object) -> None:
     snapshot = await ctx.canonical.commit_patch(
         user, result.files, message=with_skill_trailer(commit_message(plan), skill)
     )
-    # The claim projection is keyed by (document_path, anchor), so the archived claims land as
+    # The claim projection is keyed by (document_path, anchor), so the closed claims land as
     # a delete-at-the-old-path + insert-at-the-volume-path delta through the ordinary compile
     # channel. L1/L2 are untouched by design: they index L0 blocks by source, and a document
     # path appears nowhere in their payloads.
@@ -276,7 +280,7 @@ async def run_groom_job(ctx: AppContext, user: UserId, job: object) -> None:
             {
                 "path": path,
                 "volume": result.volume_path,
-                "archived_claims": result.archived_claims,
+                "closed_claims": result.closed_claims,
                 "overview_points": result.overview_points,
                 "projected": projection.total,
             },

@@ -100,7 +100,7 @@ def current_blocks(body: str, superseded: Iterable[str]) -> list[str]:
 
     `superseded` is the repository-wide set of replaced anchors (`superseded_index` keys):
     a successor may live in another document (e.g. the active page superseding a claim
-    archived in a frozen volume), so the current view of one page is a repo-level fact.
+    closed into an earlier volume), so the current view of one page is a repo-level fact.
     """
     dead = set(superseded)
     return [b for b in anchored_blocks(body) if block_anchor(b) not in dead]

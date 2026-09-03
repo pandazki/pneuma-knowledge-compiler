@@ -59,7 +59,10 @@ async def reindex_user(ctx, user_id: UserId) -> None:
             print(f"  {raw.source_id[:8]}… '{raw.title}': no L2 chunks (plan)")
             continue
         embedded = await embed_l2_chunks(ctx, chunks, normalized)
-        await ctx.vectors.upsert_chunks(user_id, embedded)
+        # Replayed from L0, the authority on the mark (docs/design/archive.md §2.2).
+        await ctx.vectors.upsert_chunks(
+            user_id, embedded, archived=raw.archived_at is not None
+        )
         print(
             f"  {raw.source_id[:8]}… '{raw.title}': "
             f"{len(normalized.blocks)} blocks → {len(chunks)} chunks"

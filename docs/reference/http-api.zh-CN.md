@@ -35,25 +35,135 @@
 | POST | `/…/sources/document/preview` | 归一化 + 提议 IntakePlan，零副作用 |
 | POST | `/…/sources/document` | 文档摄入（接受 `plan_override`） |
 | POST | `/…/sources/conversation` | 会话摄入——**已弃用**，请改用契约 |
-| GET | `/…/sources` | 目录，keyset 游标分页（`limit` 1–500、`cursor`、`query`、`kind`） |
+| GET | `/…/sources` | 目录，keyset 游标分页（`limit` 1–500、`cursor`、`query`、`kind`、`include_archived`） |
 | GET | `/…/sources/activity` | 摄入日历热力图（`offset_minutes` −840…840） |
 | GET | `/…/sources/{source_id}` | 详情：元信息、结构图、blocks 与块级图片清单 |
 | GET | `/…/sources/{source_id}/blocks/{block_index}/images/{image_id}` | 私有图片字节；校验 source/block/image 归属与已存摘要 |
 | POST | `/…/sources/{source_id}/fetch` | 按 `locator` 逐字取 L0 原文 |
 | GET | `/…/summary` | 工作区计数：sources、jobs、jobs_failed、documents、claims、snapshots |
 
+每一行 source——目录里的和详情里的——都带 `archived_at`：还在用时为 null，被主人退役后是一个时间
+戳。目录默认**排除**归档的 source，除非这次调用写明 `include_archived=true`；这个选择和其它筛选
+条件一样绑进游标，所以一页翻不到另一份目录里去。其余什么都没变：`GET /…/sources/{source_id}` 与
+`POST /…/sources/{source_id}/fetch` 对归档 source 的回答与从前逐字一致——按地址触达 L0 是无条件的。
+
+## 归档
+
+| 方法 | 路径 | 用途 |
+|---|---|---|
+| POST | `/…/archive/proposals` | 计算一份提案——`{action: "archive"\|"unarchive", documents[], sources[], note?, statement_ref?}` → 整个闭包集合；不移动任何东西 |
+| GET | `/…/archive/proposals` | 这位主人的提案，最新在前（`limit` 1–200） |
+| GET | `/…/archive/proposals/{proposal_id}` | 读回单条及其当前状态 |
+| POST | `/…/archive/proposals/{proposal_id}/confirm` | 确认，可收窄，附 Owner 的理由——`{items?: [{kind, ref, selected}], note?}` → **202** `{proposal, job_id}` |
+| POST | `/…/archive/proposals/{proposal_id}/drop` | 关闭一份尚未执行的提案 |
+| GET | `/…/archive` | 此刻归档里有什么：`{documents: [{path, live_path, title, archived_on, volumes, record_path, record}], sources: [{source_id, title, kind, archived_at}]}` |
+
+归档是主人把「不再值得占一个回答位置」的知识挪去的地方；什么都不会被删除，归档的断言留着它的
+锚点，归档的 source 留着它的每一个 block（[设计文档](../design/archive.zh-CN.md)）。
+
+**文档以留痕的方式离开，而不是以沉默的方式。** 归档 `work/aurora.md` 会在同一次 commit 里把页面移到
+`archive/work/aurora.md`，并在 `work/aurora.md` 上写下一份简短的**归档留痕**：这个主题曾经是什么、它
+覆盖的时间跨度、它承载了多少、以及主人的理由，并引用作业为这份提案摄入的那份 `owner-dialogue/v1` 陈
+述。留痕是一个普通的**在用**页面——它出现在 `/dataset` 里，它的块被索引成断言，`include_archived` 关
+着时每条通道也照样检索到它——于是关于这个主题的提问得到的是「它曾经是 X；覆盖 A–B；主人在 D 因为 R
+把它归档了」，而不是掉进散落在别的页面上的零星提及。它的 frontmatter 带 `type: archived` 与
+`archive_of: archive/<path>`，外加机器字段 `archived_on`、`archive_statement`、`archive_span`、
+`archive_claims`、`archive_sources`、`archive_volumes`、`archive_inbound`。取消归档在一次 commit 里把
+留痕换回那一页。
+
+**先提案，后执行。** 知识是连着的——文档引用 source，source 被文档引用——所以
+`POST /…/archive/proposals` 收下主人点名的种子，回答的是**闭包**：被点名文档引用的每一个 source、
+依赖被点名 source 的每一个文档，跑到不动点为止。每一项都带 `kind`、`ref`、`title`、`role`（`seed` /
+`cascade`）、`selected`、它的滚动卷 `volumes`（卷随文档一起走，从不单独成项），以及一个结构化的
+`reason`——`cited_by_live` 点出还在引用这个 source 的**在用**文档（`archive` 方向上 `still_cited` 的
+证据），`cited_by_archived` 点出把这个 source 一起带回来的**归档**页面（`unarchive` 方向上的
+`restored_with_page`；两份名单是两个字段，因为一条路径的含义不该取决于 action），`dependence` 是
+`[cited, total]` 条账本断言，`note` 是一个机械的短码（`seed`、`orphaned`、`still_cited`、
+`restored_with_page`、`fully_dependent`、`partially_dependent`、`already_archived`、
+`already_live`、`unknown`）。**被列出不等于被选中**：另一
+份在用文档仍在引用的 source 会被列出来、不勾选、并点名是谁留下了它——对主人最有用的那一行，往往
+是「留下来的是什么」。
+
+`archive` 提案的**文档**项还带一个 `record`
+（`{title, definition, span: [from, to] | null, claims, sources, volumes, inbound, reason,
+reason_default}`）——这一页的
+归档留痕将会说的话，在提案时就算好，好让控制台预览每个复选框会创建的那一页。这一页引用的 source 都
+没有日期时 `span` 为 null（留痕会省略那一节，而不是猜一个），`inbound` 统计链接向它、且自己不离开的
+在用页面，`reason` 则是留痕第三块将会引述的那一行原文：note、所提供 `statement_ref` 的 ¶0，或那句默认
+句；确认时新打的 note 会带着 `reason` 一起走，而 `reason_default` 是 note 为**空**时会引述的那一行——
+控制台在拥有者把提案时那条 note 删掉的那一刻预览的就是它，因为确认时发 `note: ""` 就是把那条 note 换成空。这些数字是**预览**：作业在执行时会对着最终确认的那个集合
+重算一遍，因为把一个被另一个选中页面链接着的页面取消勾选，会改变那一页的 `inbound`。source 项以及
+`unarchive` 提案的每一项，`record` 都是 null——取消归档是把留痕换回那一页。
+
+note 与 `statement_ref` 在被打出来的地方就被核对，`plan` 一次、`confirm` 再一次：带着系统自己机械记号
+的 note（HTML 注释、`__AUTO__`——note 会被引述进一条断言，所以它的正文只能是话）是 **422
+`note_machinery`**；本库没有的 `statement_ref`、或者不是一份带可引述块的 `owner-dialogue/v1` 源，是
+**422 `statement_unknown`** / **422 `statement_not_owner`**；note 与所点名的陈述说法不同，是 **422
+`statement_mismatch`**——留痕引述的就是它引用的那个源，两者只能留一个。
+
+`library_ref` 是这次闭包计算所针对的 canonical HEAD。HEAD 已经变了的确认会被拒绝为
+**409 `stale`**——一份已经编译过的库的预览，是另一件东西的预览，此时该做的是重新提案，而不是强行
+覆盖。这次拒绝在作答之前先把行移到状态 `stale`，错误体里除 `detail` 与 `code` 之外还带上这份被移动
+的提案。没人再回来看的提案不必写就读作同一件事：`stale` 是在**读**的时候算出来的——`library_ref` 已经
+不是 HEAD——所以 `GET /…/archive/proposals` 与 `GET /…/archive/proposals/{id}` 会在一行仍存着
+`proposed` 的记录之上呈现它，列表也就不会报告一些已经做不出的决定。线上完整的状态集合是
+`proposed` → `stale` / `confirmed` → `executed` / `failed`，外加 `dropped`；一份 `stale` 提案仍然可以
+被 **drop**（别的都不接受它），并且
+永远不能被确认。确认时的 `items` 只能勾选或取消已列出的项（提案没算出来的 ref 是 **422 `unknown_item`**，收
+窄到空是 **422 `empty`**）；要**扩大**级联，就带更多种子重新提案——提案里的每一项都必须是 `reason`
+解释得了的一次计算。每一次拒绝都以 `{"detail": "…", "code": "…"}` 作答，短码为 `stale`、
+`not_proposed`、`not_found`、`unknown_item` 与 `empty`。
+
+确认把这个决定与执行它的作业写在**同一个事务**里，条件是这份提案仍是 `proposed`。因此两个同时在飞的
+确认——或者一个确认与一个 `drop`——只会有一个赢家，输的一方被拒绝为 **409 `not_proposed`**，且什么
+作业都没有入队：一个决定，一个作业。两半也不会脱开——不会有 `confirmed` 却没有作业执行它的提案（一个
+没人执行、也没人报告的决定），也不会有一个没被记录过的决定的作业——所以失败会让提案保持开着，是一次
+普通的 **500**，没有什么要撤销，也没有什么要读回来。
+
+确认会往编译器排空的那条按用户串行的队列上**入队**一个 `archive` 作业，并在它运行前就返回
+`202`——因此这次移动绝不会和一次编译抢同一棵树，而结果要从提案自己的状态里读
+（`proposed` → `confirmed` → `executed` / `failed`），`detail` 带着 commit ref、各项计数
+（`moved`、`sources`、`archive_records_written` / `archive_records_removed`——后两个在**每一条路径上
+都出现**，包括崩溃作业重排后续跑的那一次，没写、没删时就是 `0`：键缺席会让「这一页本来就没留痕」和
+「删留痕这一步没跑」读起来一模一样）以及留痕
+所引用的 `statement_ref`。键上带前缀，是因为「record」一词在运维输出里已经有主了：`rebuild_derived`
+重放的是**保留记录**（咨询记录），而这两个数的是**归档留痕**。种子的两
+种写法都认：控制台上读到的在用路径，和 `GET /…/archive` 上读到的 `archive/…` 路径，指的是同一个
+主题。
+
+`GET /…/archive` 会点出每一对的另一半：`record_path` 是留痕所在的位置（等于 `live_path`；在留痕出现之
+前就已归档的页面为 null），`record` 是它陈述的内容——`{archived_on, statement_ref, archive_of, span,
+claims, sources, volumes, inbound}`，从留痕自己的 frontmatter 读出。
+
 ## 检索
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
-| POST | `/…/recall` | body `{query, mode: rag\|fast\|deep, limit, as_of?, snapshot?, answer_style?, evidence_strategy?: ranked\|select\|all, answer_format?: text\|structured, include_original_modalities?: ("image")[], visitor_class?: silent\|audit\|business}` |
+| POST | `/…/recall` | body `{query, mode: rag\|fast\|deep, limit, as_of?, snapshot?, answer_style?, evidence_strategy?: ranked\|select\|all, answer_format?: text\|structured, include_original_modalities?: ("image")[], visitor_class?: silent\|audit\|business, include_archived?: bool}` |
 | POST | `/…/recall/stream` | 三种模式皆可；SSE——通道运行途中发 `stage`（答题通道另有 `token`，deep 再多一个 `step`），最后 `done`（或 `error`） |
 | GET | `/…/access-stats` | `?kind=claim\|document\|source&ref=…` → `{kind, ref, last_accessed_at, hits_7d, hits_30d, heat}`——这座库的读者对某一个目标做过什么，在读取时从派生层联结出来。绝不是正本：这里没有任何东西会被写进页面。从没被读过的目标返回零和 `last_accessed_at: null`，因为「从没被读过」本身就是一个答案 |
 | GET | `/…/access-stats/top` | `?days=1–365&limit=1–100` → `{window_days, since, until, half_life_days, documents[], misses[]}`——账本给面板看的那一面：最热的正本页面，以及被问得最多、库却答不上来的那些问题 |
 
 **`visitor_class`** 说的是「就记录而言，这是谁在问」——它不改变答案本身。默认 `silent`，不留任何痕迹：不写行、不打日志、不多一次调用，因此这个字段出现之前写的每个调用方，本来就已经是一位 `silent` 访问者，行为逐字节不变。`audit` 写一条**咨询记录**——问题、通道解析出的 `as_of`、是哪一份库回答的（钉住时是快照 id，否则是 canonical 的 HEAD commit）、通道摆到模型面前的每一项的地址、带上保留下来的引用的答案，以及这次是不是一次落空——写完就停，因此一次咨询可以被还原，却不左右任何东西。`business` 写下记录，并在同一个事务里*入队*一个 `recall_projection` 作业；排掉它的 worker 施加框架的访问统计，再把记录交给任何已启用的索引组件。请求路径上什么都不消费，请求路径也什么都不等：记录是作为一个游离任务发出的，因此响应与流的 `done` 帧都不会为那次写入停留，而投影会滞后于它那次咨询一个队列排空的时间。发出是尽力而为的——进程死在那个窗口里就把记录丢了——但它绝不可能让它所记录的那个答案失败、变慢或改变。`mode: "rag"` 在任何一档下都不记录——它到不了模型，也就没有「摆到模型面前的东西」可供记录。同一个字段、同样三档、同样默认值，也在 `POST /…/briefings/{id}/ask` 及其流式版上。
 
-`rag` 返回 `{mode, hits, stages}`——融合后的命中列表（`source_id`、块区间、文本、路径、分数），以及找到它们花了多少时间。`fast`/`deep` 同时返回不含引用的语义正文 `answer_text` 与向后兼容的带引用 `answer`，以及其证据：`used_claims`、`used_episode_summaries`（fast）、`used_component_evidence`（fast）、`stages`、`used_windows`、`trail`（deep）、`citation_handles`（`sNN` → 真实 source id）、`documents_read`、`snapshot`、`token_usage`，以及 `cost`（按本部署声明的价格算出的花费；没声明就是 `null`，见[配置](configuration.zh-CN.md)）。每条 episode 摘要都带来源标题、发生时间、章节与精确块区间，并固定标记 `derived: true` / `verbatim: false`，让客户端不会把生成的 L2 压缩内容当成原文。两条答题通道都会回显 `mode` 与本次解析出的 `as_of`，以及 `glance_chars`——提示词里那份知识库概览的字符数，正本为空或读不出时为 0——和 `documents_read`，即整篇读过、而非按检索片段进来的文档（fast 走概览挑选，deep 走 `read_document`）。`glance_degraded` 只属于 fast，用来说明概览挑选是失败了（`timeout`/`error`）；跑过但一篇都没挑中，与这条通道里其他挑选一样仍是 null。
+**`include_archived`**（默认 `false`）是归档唯一的例外开关，出现在每一个会读的请求上。关着时，归档
+在索引处和证据组装处都被排除，glance 也只看在用文档。开着时，归档的断言、窗口与 glance 条目被放
+行，排在在用的之后，并各自带着 `archived` 这个标签进入提示词、也出现在返回里——于是被交了历史的模
+型知道那是历史，读到答案的人也分得清哪句是哪句。在返回里，这个标记在每一张证据面上都是同名的同一个
+字段：被放行的 claim 在 `labels` 之外带着 `archived: true`，和窗口（`RecallHitOut`）、片段摘要一直以
+来的写法一样——读三张面的客户端读的是同一个键，不必单独为 claim 开一个分支。Live Context 从不提供这个开关：那里没有人在提问，
+一个房间不该被默认端上过去。
+
+**读不出 canonical 的库，是一次拒绝，而不是一个降级的答案。** 交给答题通道的那份文档集合同时也是归
+档过滤器的那道钉，所以读不出它的通道会放行每一条仍指着 Owner 已移动页面的陈旧 L3 行。因此 `POST
+/…/recall`、`POST /…/recall/stream` 与 `POST /…/briefings` 一律答以 **503 `{"detail": …,
+"code": "canonical_unavailable"}`**，而不是无钉作答——流式路由在响应打开之前读 canonical，所以那
+里同样是一个状态码，而不是在已发出的 200 之上叙述一个 `error` 帧（在生产者内部读取的流式 briefing
+构建，则以 `error` 帧回报）。仍然失败向软的只有 glance 的其余部分：skill 或 pack 加载失败只让
+glance 降级，文档照旧到达通道。Live Context 以自己的方式作同一个拒绝——这一拍以
+`canonical_unavailable` 跳过（见 [Live Context](#live-context)）。
+
+`rag` 返回 `{mode, hits, stages}`——融合后的命中列表（`source_id`、块区间、文本、路径、分数），以及找到它们花了多少时间。`fast`/`deep` 同时返回不含引用的语义正文 `answer_text` 与向后兼容的带引用 `answer`，以及其证据：`used_claims`、`used_episode_summaries`（fast）、`used_component_evidence`（fast）、`stages`、`used_windows`、`trail`（deep）、`citation_handles`（`sNN` → 真实 source id）、`documents_read`、`snapshot`、`token_usage`，以及 `cost`（按本部署声明的价格算出的花费；没声明就是 `null`，见[配置](configuration.zh-CN.md)）。每条 episode 摘要都带来源标题、发生时间、章节与精确块区间，并固定标记 `derived: true` / `verbatim: false`，让客户端不会把生成的 L2 压缩内容当成原文；`archived` 只在调用要求包含归档时为真，标出这条摘要压缩自一份已退役的材料。两条答题通道都会回显 `mode` 与本次解析出的 `as_of`，以及 `glance_chars`——提示词里那份知识库概览的字符数，正本为空或读不出时为 0——和 `documents_read`，即整篇读过、而非按检索片段进来的文档（fast 走概览挑选，deep 走 `read_document`）。`glance_degraded` 只属于 fast，用来说明概览挑选是失败了（`timeout`/`error`）；跑过但一篇都没挑中，与这条通道里其他挑选一样仍是 null。
 
 fast 调用方可以分别覆盖上下文编排和回答线格式。`evidence_strategy: "select"` 会增加一次串行的结构化 recall 模型调用，在宽断言、episode 摘要和 raw 窗口候选（以及已知 canonical 路径）之间选择受上限约束的组合；非法坐标会被丢弃，失败则回落 ranked 头部。`answer_format: "structured"` 将回答类型、回答正文和引用分开，只准入证据中真实出现过的精确引用区间。响应会回显候选数，以及加入安全锚点和依据回跳前模型实际选中的 claim、episode 与窗口数；同时回显 `evidence_strategy`、`evidence_selection_degraded`、`answer_format`、`answer_kind` 与 `answer_format_degraded`。`evidence_strategy: "all"` 不做选择调用：同一个候选池整体交给唯一一次回答调用，因此模型入选数保持为 0、`select` 阶段回报 `skipped`，唯一能裁剪上下文的是组装后上下文的字符上限——它以 `evidence_selection_degraded: "all:truncated"` 自报。在 `answer_format: "structured"` 下，这一档还会返回 `deliberation`：回答调用自己那段有界的证据审视，写在答案之前。它是模型关于证据的输出，不是证据、也不能当引用，其他路径上一律为 null。两个请求字段都只适用于 fast；rag/deep 会拒绝非空值。
 
@@ -234,7 +344,7 @@ null，再被 coalesce 成 0——求和之后，一次没被计量的调用与�
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
-| POST | `/…/briefings` | 在钉住的快照上构建稳定证据包：`{query?, source_ids[], budget_chars>0, snapshot?}` |
+| POST | `/…/briefings` | 在钉住的快照上构建稳定证据包：`{query?, source_ids[], budget_chars>0, snapshot?, include_archived?: bool}` |
 | POST | `/…/briefings/stream` | 同一次构建，SSE——过程中发 `stage`，最后 `done` 带回同样的响应体 |
 | GET | `/…/briefings` | 列表 |
 | GET | `/…/briefings/{id}` | 读回单条：`{briefing_id, snapshot_ref, created_at, char_count, scope, text, stages}`——`text` 即证据包原文 |
@@ -243,6 +353,9 @@ null，再被 coalesce 成 0——求和之后，一次没被计量的调用与�
 | DELETE | `/…/briefings/{id}` | 删除 |
 
 `visitor_class` 与检索那节里的含义完全一致；一次提问的咨询记录，把证据包钉住的那个快照记为回答它的那份库。
+
+`include_archived`（默认 `false`）存进证据包的 scope，因此一次 `ask` 继承构建当时的选择——证据包只
+构建一次、却被反复提问，一个问题不该扩大它被交到手里的那份证据。
 
 两条流式路由都遵循上面那套词汇。构建的那一行是在 `done` **之前**落库的，所以看到这一帧的客户端，一定能把这份 briefing 读回来。
 
@@ -276,7 +389,7 @@ null，再被 coalesce 成 0——求和之后，一次没被计量的调用与�
 
 **两种引用形状，由 `kind` 说明是哪一种。** `concept` 与 `fact` 卡片带的是 `citations`——覆盖知识主体自己材料的那一套唯一寻址方案，`{source_id, block_start, block_end}`（I4）。`kind: "web"` 的卡片带的是 `web_citations`——`{title, url}`——因为它立在网页上而不是来源块上，而网址不是那套方案里的地址：它解析不到存储里的任何东西，也绝不该被硬塞进一个 `Citation`。一张卡永远只带其中一种，而两个字段都恒为列表，于是客户端是去读一个字段，而不是去嗅探。除此之外，两者的证据面完全一致：同样编号的行、同样折叠的段落，挑选阶段的引用子集也用同一条按编号取值的规则落在任一份清单上（子集为空或全部越界时回退为全部，而不是把卡片的出处剥光）。只有交互不同——来源区间在应用内打开，网址在新标签页打开——并且 `want_more` 在 web 卡上不可用：没有来源块可以逐字取回，也就没有可供展开的边界。
 
-`stats`（WS，需显式开启）与 `done`（SSE）都带着这一拍的**处理记录**：`skipped`（投递时为 `""`，否则说明是哪道门关上的——发现阶段给的 `small_talk` / `already_mined` / `nothing_new`，或 `low_worth`、`no_plan`、`no_candidates`、`no_coverage`、`none_chosen`、`low_confidence`、`uncited`、`duplicate`、`unparsed`、`pick_failed` 之一）、`intent`、`worth`、`plan`（实际跑了哪些查询）、`rejected`（计划里指向未启用查询路的条目）、`candidates`（每条 `{index, kind, title, subject, origin, provenance, citations}`）、`chosen`、`web`（`{tier, searches, cost, pages}`，见下），以及 `stages`（`discover` / `retrieve` / `retrieve.semantic` / `retrieve.web` / `retrieve.path:<名字>` / `pick` / `total`，各带 `ms` 与 `status`）。两者还带这一拍的 `token_usage` 与 `cost`——按本部署声明的价格算出的**模型**调用花费，没声明就是 `null`。这条车道不记任何咨询（听众不是访问者），所以一拍的花费要么在这里被看见，要么就没有地方看见；下面那个 `web.cost` 是另一个数，仍旧是它本来的意思：服务商为那几次搜索实际计的费。`no_coverage` 是挑选阶段自己给的 `choice: 0`——它把每一张候选对着意图读过，没有一张覆盖它——刻意与 `low_confidence`（一个被压住的弱答案）和 `none_chosen`（一个畸形的编号）分开：这三者在一次沉默的拍子上看起来一模一样，含义却不同。`dropped` 仍在，是简报那一轮的四道闸门账；全量车道下它为空，对应的东西是 `skipped`。
+`stats`（WS，需显式开启）与 `done`（SSE）都带着这一拍的**处理记录**：`skipped`（投递时为 `""`，否则说明是哪道门关上的——发现阶段给的 `small_talk` / `already_mined` / `nothing_new`，或 `low_worth`、`no_plan`、`no_candidates`、`no_coverage`、`none_chosen`、`low_confidence`、`uncited`、`duplicate`、`unparsed`、`pick_failed`、`canonical_unavailable` 之一）、`intent`、`worth`、`plan`（实际跑了哪些查询）、`rejected`（计划里指向未启用查询路的条目）、`candidates`（每条 `{index, kind, title, subject, origin, provenance, citations}`）、`chosen`、`web`（`{tier, searches, cost, pages}`，见下），以及 `stages`（`discover` / `retrieve` / `retrieve.semantic` / `retrieve.web` / `retrieve.path:<名字>` / `pick` / `total`，各带 `ms` 与 `status`）。两者还带这一拍的 `token_usage` 与 `cost`——按本部署声明的价格算出的**模型**调用花费，没声明就是 `null`。这条车道不记任何咨询（听众不是访问者），所以一拍的花费要么在这里被看见，要么就没有地方看见；下面那个 `web.cost` 是另一个数，仍旧是它本来的意思：服务商为那几次搜索实际计的费。`no_coverage` 是挑选阶段自己给的 `choice: 0`——它把每一张候选对着意图读过，没有一张覆盖它——刻意与 `low_confidence`（一个被压住的弱答案）和 `none_chosen`（一个畸形的编号）分开：这三者在一次沉默的拍子上看起来一模一样，含义却不同。`canonical_unavailable` 说的则是**部署**而不是知识库：这一拍需要的 canonical 读取失败了，于是这一拍没有可供归档过滤器钉住的文档集合，它选择跳过而不是无钉检索——房间安静一轮，下一拍再试。`dropped` 仍在，是简报那一轮的四道闸门账；全量车道下它为空，对应的东西是 `skipped`——唯一的例外正是这次跳过，它同时带上 `canonical_unavailable: 1`。
 
 `config` 与 `ready` 上的策略字段：`focus`、`min_confidence`（一个数字两道门——发现阶段的 `worth` 下限与挑选阶段的 `confidence` 下限）、`max_pending_turns`、`quiet_period`、`web_search`、`briefing_id`、`stats`。`web_search` 是在请求那条补充的互联网路；`ready` 回送的是**生效值**，因为部署自己也有一个答案（`PNEUMA_KNOWLEDGE_LIVE_WEB_SEARCH`），而一个请求了 `true` 却读回 `false` 的客户端，是被机械地告知了「不行」，而不是只能从「没有 web 卡片」里去推测。随后那一拍的 `web` 记录说明这条路做了什么：`tier` 是 `off`、`planned`（发现阶段规划了这次查询，于是它与知识库各面并发跑）或 `fallback`（发现阶段没规划，而知识库给出的候选池是空的，于是它在其后跑），并附上 `searches`、`cost` 与 `pages`——那几次搜索一共点名了多少个网页。`cost` 不为零而 `pages` 为 0，正是那个否则完全看不见的结局：一次搜索跑了、被计了费、却没有引用任何网页，于是它的回答在装配处就被拒绝，从来没有成为候选。`turn_window` 作为 `max_pending_turns` 的旧名被接受；`max_suggestions` 被接受并忽略——全量车道按构造每一拍只投递一张卡。
 

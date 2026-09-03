@@ -15,7 +15,7 @@
  * index is built over ALL documents:
  *
  * - whether a claim is superseded (its successor may live in another document — an active
- *   page superseding a state archived in a frozen volume);
+ *   page superseding a state that closed into an earlier volume);
  * - where the successor is, so a chip can jump to it.
  *
  * Pure and dependency-free: this module imports nothing at runtime, so it is transpiled and

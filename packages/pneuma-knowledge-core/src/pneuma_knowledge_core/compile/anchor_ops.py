@@ -584,12 +584,18 @@ def block_text(block: str) -> str:
     return _trailing_markers_re().sub("", block.rstrip())
 
 
-def text_machinery(block: str) -> str | None:
-    """The first piece of anchor machinery inside `block`'s TEXT, or None when it is clean.
+def text_machinery_in(text: str) -> str | None:
+    """The first piece of anchor machinery in `text`, or None when it carries none.
 
-    Returned rather than a bare bool so a refusal can name what to delete.
+    The predicate itself, over a plain string with no trailing-marker allowance — so it also
+    answers for prose that is not a claim block: the Owner's archive note, say, which the
+    archive channel interpolates into a record and which must therefore be judged as the
+    words it is rather than as a block whose last marker is the system's
+    (core `archive/record.py`, docs/design/archive.md §2.3).
+
+    ONE definition of "machinery", shared with `text_machinery` below, so a refusal at a
+    request face and a refusal at the gate can never disagree about what the word means.
     """
-    text = block_text(block)
     found = _TEXT_MACHINERY_RE.search(text)
     if found is None:
         return None
@@ -598,6 +604,14 @@ def text_machinery(block: str) -> str | None:
     close = text.find("-->", found.end())
     end = found.start() + 60 if close < 0 else close + 3
     return text[found.start() : min(end, found.start() + 60)]
+
+
+def text_machinery(block: str) -> str | None:
+    """The first piece of anchor machinery inside `block`'s TEXT, or None when it is clean.
+
+    Returned rather than a bare bool so a refusal can name what to delete.
+    """
+    return text_machinery_in(block_text(block))
 
 
 def text_machinery_problems(body: str) -> list[tuple[str, str]]:

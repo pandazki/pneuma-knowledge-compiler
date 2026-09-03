@@ -62,7 +62,7 @@ scaffold 项目会把这三个变量同时传给 API 与 worker 容器。若自�
 |---|---|
 | `compile` | `skill_version`、`skill_id`、`job_id`、`source_count`、`image_count`、`image_mode` |
 | `compile.challenge` | `job_id` |
-| `compile.groom` | `job_id`、`document_path`、`volume_path`、`archived_claims`、`skill_version` |
+| `compile.groom` | `job_id`、`document_path`、`volume_path`、`closed_claims`、`skill_version` |
 | `evolve.propose` | `skill_version` |
 | `evolve.reorganize` | `task_id`、`skill_version` |
 | `recall.fast` | `snapshot_ref`、`kb_snapshot_id`、`image_count`、`image_mode`（作答调用） |
@@ -84,7 +84,7 @@ langchain 会另外折入自己的 `ls_*` / `lc_versions` 键；我们的键与�
 
 ## trace-size 纪律
 
-**metadata 只放 id、计数与有限模式枚举——永不放 key，永不放 canonical 正文。** `user_id`、`job_id`、`snapshot_ref`、`source_count`、`archived_claims`、`image_mode`：足够切分 trace，不会撑爆它，也不泄露任何密钥。langchain 作为 span 内容上报的 prompt / 响应正文是模型 I/O 本身，不是 metadata；我们自己加的 metadata 就止步于标识符与有限机器状态。若 `extra` 的值是给人阅读的正文，就不该放这里。
+**metadata 只放 id、计数与有限模式枚举——永不放 key，永不放 canonical 正文。** `user_id`、`job_id`、`snapshot_ref`、`source_count`、`closed_claims`、`image_mode`：足够切分 trace，不会撑爆它，也不泄露任何密钥。langchain 作为 span 内容上报的 prompt / 响应正文是模型 I/O 本身，不是 metadata；我们自己加的 metadata 就止步于标识符与有限机器状态。若 `extra` 的值是给人阅读的正文，就不该放这里。
 
 ## flush 策略（按进程类型）
 

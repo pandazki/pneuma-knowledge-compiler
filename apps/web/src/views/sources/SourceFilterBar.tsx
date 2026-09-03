@@ -11,6 +11,7 @@ import {
 import { useT, useTOr } from "@/lib/useT";
 import { Mono } from "@/ui/Mono";
 import { SearchField } from "@/ui/SearchField";
+import { Switch } from "@/ui/Switch";
 import { cn } from "@/ui/cn";
 
 /** The dictionary family each dimension's VALUES are named by. */
@@ -67,7 +68,8 @@ export function SourceFilterBar({
     filter.classes.length > 0 ||
     filter.origins.length > 0 ||
     filter.from != null ||
-    filter.to != null;
+    filter.to != null ||
+    filter.includeArchived;
 
   return (
     <section
@@ -101,6 +103,17 @@ export function SourceFilterBar({
             bounds={bounds}
           />
         </label>
+
+        {/* The archive dimension, and the only control here that is also a REQUEST: the
+            listing route excludes archived sources unless the call asks for them, so this
+            toggle re-crawls rather than merely re-filtering what is already held. */}
+        <Switch
+          checked={filter.includeArchived}
+          onCheckedChange={(includeArchived) => onChange({ ...filter, includeArchived })}
+          label={<span className="text-12 text-ink-2">{t("archive.sources.show")}</span>}
+          aria-label={t("archive.sources.showHint")}
+          wrapperClassName="shrink-0"
+        />
       </div>
 
       {facets.map((group) => (

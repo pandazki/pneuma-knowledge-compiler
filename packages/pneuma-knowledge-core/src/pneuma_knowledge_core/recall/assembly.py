@@ -53,6 +53,12 @@ class Passage:
     section_path: tuple[str, ...] = ()
     source_title: str = ""
     source_occurred_on: str = ""
+    #: Whether this passage's SOURCE is in the archive. False for every passage a default
+    #: retrieval produces — the archive is excluded at the index and again at assembly — and
+    #: stamped only on the `include_archived` path (`recall/archive_filter.py`). It is a
+    #: render hint and nothing else: it puts one marker on the provenance line below, so an
+    #: excerpt admitted out of the archive can never be read as part of the present.
+    archived: bool = False
 
 
 # ------------------------------------------------------------------- expand + merge
@@ -315,6 +321,11 @@ def _provenance(passage: Passage) -> str:
     section rides AFTER the token as readable context, never inside the extractable marker."""
     token = f"[cite: {passage.source_id} ¶{passage.block_start}-{passage.block_end}]"
     ctx: list[str] = []
+    # FIRST in the readable context, before the title: a reader (and a model) skimming a
+    # wall of excerpts must not have to reach the end of the line to learn that this one is
+    # history. Only ever set on the `include_archived` path.
+    if getattr(passage, "archived", False):
+        ctx.append(prompt("recall.passage_in_archive"))
     if passage.source_title.strip():
         ctx.append(passage.source_title.strip())
     if (

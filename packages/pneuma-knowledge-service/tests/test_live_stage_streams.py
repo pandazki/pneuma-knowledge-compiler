@@ -198,7 +198,7 @@ def _timeless(payload: dict) -> dict:
 
 
 def _glance_free(monkeypatch) -> None:
-    async def no_glance(ctx, user, at=None):  # noqa: ANN001
+    async def no_glance(ctx, user, at=None, **_kwargs):  # noqa: ANN001
         return {}
 
     monkeypatch.setattr(v1_module, "_glance_inputs", no_glance)

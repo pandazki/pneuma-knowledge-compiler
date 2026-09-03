@@ -994,11 +994,19 @@ DEFAULTS: dict[str, str] = {
     "compile.task.outline_entry_ledger": "    ledger: {ledger}",
     # One line an enabled index component adds under a document of its family.
     "compile.task.outline_entry_component": "    {tail}",
-    # A rollover volume's outline line. The volume is still LISTED — a compiler must see the
-    # frozen history it may read but not write — while the line itself states the freeze and
-    # the redirect, so the working set never presents a volume as an editable peer document.
+    # A closed volume's outline line. The volume is still LISTED — a compiler must see the
+    # earlier volumes it may read but not write — while the line itself states that the volume
+    # is closed and where writes go, so the working set never presents one as an editable peer.
     "compile.task.outline_entry_volume": (
-        "- `{path}` (frozen archive volume of `{owner}` — read-only; {claims} claim(s))"
+        "- `{path}` (closed volume of `{owner}` — read-only; {claims} claim(s))"
+    ),
+    # An ARCHIVE RECORD's outline line. Also read-only, and for a different reason: the
+    # subject was retired by the owner and this page is what it left behind — what it was,
+    # what it held, and why it went. It stays listed so a compiler can SEE that the subject
+    # is archived instead of concluding, from its absence, that it never existed.
+    "compile.task.outline_entry_record": (
+        "- `{path}` (archive record of `{archived}` — read-only; the owner archived this "
+        "subject on {archived_on})"
     ),
     "compile.task.retrieved_header": (
         "\n# Existing claims related to this round's material (auto-recalled, for alignment "
@@ -1013,13 +1021,30 @@ DEFAULTS: dict[str, str] = {
     # ─────────────────────────────────────────────── compile: tool descriptions
     "compile.tool.list_documents": "List the existing canonical document paths.",
     "compile.tool.read_document": "Read one document in full (anchors included).",
-    # Prepended to a read_document result when the path is a frozen archive volume: reading
-    # stays fully allowed (deep reads of history are legitimate), but the very surface that
+    # Prepended to a read_document result when the path is a closed volume: reading stays
+    # fully allowed (deep reads of earlier volumes are legitimate), but the very surface that
     # shows the model the content also tells it the content is not a write target.
-    "compile.tool.read_document_frozen_notice": (
-        "(this document is a frozen archive volume of `{owner}` — read-only. Read and cite "
+    "compile.tool.read_document_closed_notice": (
+        "(this document is a closed volume of `{owner}` — read-only. Read and cite "
         "it freely, but never edit it; new and updated claims about this subject belong on "
-        "the active page `{owner}`.)"
+        "the open volume `{owner}`.)"
+    ),
+    # The ARCHIVE (docs/design/archive.md) is a different thing from the closed volume above:
+    # a document under `archive/` was moved out of the answering set by the Owner, and a
+    # compile neither reads nor writes there. `list_documents` does not list it, so this only
+    # fires on a guessed path — and it answers with the fact instead of the text.
+    "compile.tool.read_document_archived": (
+        "(`{path}` is in the archive and is not part of this compile's working set: nothing "
+        "under `archive/` is read or written by a compile. Write about this subject on a live "
+        "document instead.)"
+    ),
+    # Prepended to a read_document result for an ARCHIVE RECORD. Reading it is the point —
+    # it is how a compile learns the subject is retired rather than missing — but the same
+    # surface has to say it takes no writes.
+    "compile.tool.read_document_record_notice": (
+        "(this document is the archive record of `{archived}` — read-only. The owner "
+        "archived this subject; the full page is in the archive and comes back only by "
+        "being unarchived.)"
     ),
     "compile.tool.create_document": (
         "Create a document; the system assigns the doc_id and every anchor, and derives the "
@@ -1221,13 +1246,49 @@ DEFAULTS: dict[str, str] = {
         "`{path}` (a supersedes link). Merging it away would leave the successor's history "
         "dangling. Keep it; merge or move the successor instead, which carries the link along."
     ),
-    # The early, teachable refusal for any write aimed at a rollover volume. It fires at the
+    # The early, teachable refusal for any write aimed at a closed volume. It fires at the
     # tool face — before the model spends the round — and states the corrective action, not
     # just the rule; the compile gate's 5b check stays behind it as the final arbiter.
-    "compile.patch.volume_frozen": (
-        "{op} rejected: `{path}` is a frozen history volume of `{owner}` and is never "
-        "written — its entries are a permanent archive. New and updated claims about this "
-        "subject belong on the active page: use edit_claim / append_block on `{owner}`."
+    "compile.patch.volume_closed": (
+        "{op} rejected: `{path}` is a closed volume of `{owner}` and is never written — its "
+        "entries are permanent. New and updated claims about this subject belong on the open "
+        "volume: use edit_claim / append_block on `{owner}`."
+    ),
+    # The ARCHIVE: a path under `archive/` is the Owner's judgement that the subject is no
+    # longer worth an answer slot. The move in and out is the Owner's alone, so every compile
+    # write face refuses the path here rather than letting the round reach the gate.
+    "compile.patch.archived_path": (
+        "{op} rejected: `{path}` is in the archive (`archive/`). Nothing under `archive/` is "
+        "written by a compile — moving a subject in or out of the archive is the owner's "
+        "decision, not a compile's. Write the claim on a live document instead."
+    ),
+    # The ARCHIVE RECORD, at the write faces. A record sits at a LIVE path, is retrieved by
+    # default and reads like an ordinary short page — which is exactly why the refusal has to
+    # be its own sentence: "this is in the archive" would be false, and the model would go
+    # looking for the live page it is already holding.
+    "compile.patch.archived_record": (
+        "{op} rejected: `{path}` is the archive record of `{archived}`. This subject is "
+        "archived; its record is read-only — it states what the subject was and why the "
+        "owner retired it. The owner restores it by unarchiving. Record a genuinely new "
+        "fact on the live page it belongs to, or leave it."
+    ),
+    # And the other half of the same rule: while the archived form exists, its live path is
+    # taken. A document's id derives from its path, so writing it again would mint a second
+    # document with one identity.
+    "compile.patch.archived_path_shadowed": (
+        "create_document rejected: `{path}` is shadowed by the archived document "
+        "`{archived}`. One path is one document id, so this subject comes back by being "
+        "unarchived, never by being written a second time. Use a different path."
+    ),
+    # And the rule read off the NAME rather than the path, because the path half alone was
+    # half the rule: a compile refused at the shadowed path created the same subject at the
+    # next free slug, under a title identical to the archived page's, and rebuilt it live.
+    # "One path, one doc_id" had held; "one subject, one page" had not.
+    "compile.patch.archived_title_shadowed": (
+        "create_document rejected: `{path}` would be a second page for a subject that is "
+        "already in the archive. 『{title}』 is an archived subject (`{archived}`); it is "
+        "not recreated under another path. Record a genuinely new fact about it on the live "
+        "page it belongs to, or leave it — the owner restores the subject by unarchiving."
     ),
     # A structured field an index component can prove wrong — an identity another page
     # already binds, a name that is somebody else's — refused at the write face with every
@@ -1293,60 +1354,60 @@ DEFAULTS: dict[str, str] = {
         "field. System-owned fields: {reserved}. `title` is derived from the document's "
         "`# ` heading — to change the title, change the heading."
     ),
-    # ─────────────────────────────────────────────── rollover (groom): the history card
+    # ─────────────────────────────────────────────── rollover (groom): the volume card
     #
-    # Rollover is mechanical maintenance — size-triggered, subject unchanged, volumes frozen.
-    # The ONE thing a model does in it is write the history card that replaces the archived
-    # claims at the top of the active document, so these are the only groom surfaces there
+    # Rollover is mechanical maintenance — size-triggered, subject unchanged, earlier volumes
+    # closed. The ONE thing a model does in it is write the volume card that replaces the
+    # closed claims at the top of the open volume, so these are the only groom surfaces there
     # are: the contract for that single call, its task rendering, and the three strings the
     # card itself is rendered from (which land in canonical, hence in the catalog).
     "compile.groom.contract": (
-        "# What you are doing: writing the history card of an archived document\n\n"
+        "# What you are doing: writing the volume card of a work in several volumes\n\n"
         "A canonical document about one long-lived subject has grown too large to read whole. "
-        "Its oldest entries have just been moved, byte for byte, into a frozen archive volume; "
-        "the document keeps its most recent entries. Nothing was deleted and nothing will be "
-        "rewritten — the volume is permanent and reachable by link.\n\n"
-        "Your only job is the HISTORY CARD that now stands where those entries used to be. "
-        "The card is an index, not a ledger: the ledger is the volume. So a good card lets a "
-        "reader decide whether the archive is worth opening, and tells them which part of it "
-        "to open.\n\n"
+        "Its oldest entries have just been moved, byte for byte, into a closed volume; the "
+        "page — the open volume — keeps its most recent entries. Nothing was deleted and "
+        "nothing will be rewritten: a closed volume is permanent and reachable by link.\n\n"
+        "Your only job is the VOLUME CARD that now stands where those entries used to be: a "
+        "digest of the earlier volumes. The card is an index, not a ledger: the ledger is the "
+        "volume itself. So a good card lets a reader decide whether an earlier volume is worth "
+        "opening, and tells them which one to open.\n\n"
         "# What to write\n\n"
         "A short list of points, each one statement, in reading order. Prefer:\n\n"
-        "- the threads that ran through the archived material and how they ended up;\n"
+        "- the threads that ran through the earlier material and how they ended up;\n"
         "- what changed over that period — what replaced what, what was settled, what was "
         "abandoned;\n"
-        "- the subjects and people the archive keeps coming back to.\n\n"
-        "Avoid: restating individual entries, counting things, or describing the archive "
+        "- the subjects and people the earlier volumes keep coming back to.\n\n"
+        "Avoid: restating individual entries, counting things, or describing the volume "
         "instead of its content ('this volume contains notes about…').\n\n"
         "# The one hard rule: every point names its evidence\n\n"
         "Each entry in the material you are given carries an id, written as an HTML comment: "
-        "`<!-- c:1a2b3c4d -->`. Every point you write must list the ids of the archived "
-        "entries it rests on, in its `anchors` field. A point you cannot ground in specific "
+        "`<!-- c:1a2b3c4d -->`. Every point you write must list the ids of the entries it "
+        "rests on, in its `anchors` field. A point you cannot ground in specific "
         "ids is not written at all — leave it out. Do not invent an id, and do not reuse an "
         "id you were not shown.\n\n"
         "You are REPLACING the previous card, not appending to it. If a previous card is "
         "supplied, carry forward whatever is still true (with its ids) and fold the newly "
-        "archived material into it, so the card stays one page rather than growing every time."
+        "closed material into it, so the card stays one page rather than growing every time."
     ),
     "compile.groom.task_header": (
-        "The document `{path}` is being rolled over: {claims} entries move into the archive "
-        "volume `{volume}`. Write the replacement history card."
+        "The document `{path}` is being rolled over: {claims} entries close into "
+        "volume `{volume}`. Write the replacement volume card."
     ),
     "compile.groom.previous_header": "## The card you are replacing",
     "compile.groom.previous_empty": "(none — this is the document's first rollover)",
-    "compile.groom.archived_header": "## The entries being archived (with their ids)",
-    "compile.groom.archived_truncated": (
-        "(the earliest {count} line(s) of the archive are omitted here; the most recent "
-        "archived material follows)"
+    "compile.groom.closing_header": "## The entries closing into the volume (with their ids)",
+    "compile.groom.closing_truncated": (
+        "(the earliest {count} line(s) of the volume are omitted here; the most recent "
+        "material follows)"
     ),
     # The three strings the card is RENDERED from. They land in canonical, so they are prose a
     # deployment owns like any other — and the `c:` reference form is the write contract's
     # second legitimate provenance, which is why it is spelled out in the line itself.
-    "compile.groom.overview_heading": "## History (archived)",
-    "compile.groom.volumes_heading": "## Archive volumes",
+    "compile.groom.overview_heading": "## Earlier volumes",
+    "compile.groom.volumes_heading": "## Volume catalog",
     "compile.groom.overview_point": "- {text} (from {anchors})",
     "compile.groom.volume_entry": (
-        "- Volume {number}: [{title}]({href}) — {claims} archived entry/entries."
+        "- Vol. {number}: [{title}]({href}) — {claims} entry/entries."
     ),
     "compile.groom.commit_message": (
         "groom {path}: rolled over {claims} claim(s) to {volume}"
@@ -1457,11 +1518,132 @@ DEFAULTS: dict[str, str] = {
         "claim c:{anchor} supersedes c:{target} without citing new evidence; only new evidence "
         "may supersede a state."
     ),
-    "gate.archive_frozen": (
-        "this document is a frozen archive volume of `{owner}` and may not be changed: its "
+    "gate.volume_closed": (
+        "this document is a closed volume of `{owner}` and may not be changed: its "
         "entries were moved here whole and are permanent. Write the new or updated claims to "
-        "the active page `{owner}` instead — use edit_claim / append_block on `{owner}` — and "
+        "the open volume `{owner}` instead — use edit_claim / append_block on `{owner}` — and "
         "restore any volume claim you rewrote to its previous text."
+    ),
+    # The ARCHIVE, at the gate. Not the closed volume above: `archive/` is where the owner
+    # moved a subject that is no longer worth an answer slot, and a compile never writes there.
+    "gate.archived_path": (
+        "this document is in the archive (`archive/`) and nothing under `archive/` changes in "
+        "a compile. Restore its bytes as they stood — moving a subject in or out of the "
+        "archive is the owner's decision — and write new claims on a live document."
+    ),
+    "gate.archived_path_shadowed": (
+        "`{archived}` is this path's archived form, so this document may not be created: one "
+        "path is one document id. The subject comes back by being unarchived, never by being "
+        "written a second time."
+    ),
+    # The same rule over the TITLE: a subject in the archive is not recreated under a
+    # second slug either.
+    # A write aimed at an ARCHIVE RECORD, at the gate. A record is LIVE — it is retrieved,
+    # it is in the glance, it answers questions about the subject — and it is nevertheless
+    # not a page a compile writes: it states a decision the owner made, and the owner
+    # unmakes it by unarchiving.
+    "gate.archive_record": (
+        "this document is the archive record of `{archived}`: the owner archived this "
+        "subject, and the record is read-only. Restore its bytes as they stood and write "
+        "new claims on a live document — the subject comes back by being unarchived."
+    ),
+    "gate.archived_title_shadowed": (
+        "『{title}』 is an archived subject (`{archived}`); it is not recreated under "
+        "another path. Record a genuinely new fact about it on the live page it belongs to, "
+        "or leave it — the owner restores the subject by unarchiving."
+    ),
+    # ─────────────────────────────────────────────── the archive record's own channel
+    # The three blocks of the page a retired subject leaves behind at its live path
+    # (core `archive/record.py`, docs/design/archive.md §2.3). Mechanical prose: no model
+    # writes here, every number comes from the frontmatter of the same document, and the
+    # owner's own words are quoted rather than paraphrased.
+    "archive.record.definition": "{text} — archived",
+    "archive.record.facts_span": "Covered {start}–{end}",
+    # LABELLED NUMBERS, not counted nouns. Two things were wrong with a sentence: it did not
+    # agree in number (`4 claims over 1 sources`, and no language pack can be asked to
+    # inflect for a mechanical channel), and `claims` alone did not say WHICH count it is —
+    # this one is the LEDGER's, the page and its closed volumes, while the library view
+    # states a number that includes the overview's projected blocks. Naming the count in the
+    # label makes the two readable side by side, and putting the number last means no clause
+    # has to change shape for 0, 1 or 4.
+    "archive.record.facts": (
+        "ledger claims {claims} · sources {sources} · closed volumes {volumes} · "
+        "linked from live pages {inbound}"
+    ),
+    # The `[cite: …]` marker is appended by the renderer, never written here: the addressing
+    # scheme must not move when the deployment changes language.
+    "archive.record.reason": "Archived by the owner on {date}: «{note}»",
+    # What the owner's STATEMENT says when they archived without writing a reason. It is an
+    # ordinary `owner-dialogue/v1` turn — the one the record then quotes — so it has to read
+    # as something a person said, not as a log line.
+    "archive.statement.default": "Archive {titles}.",
+    # ─────────────────────────────────────────────── the archive channel's own gate
+    # Never model-facing: the archive record is written by a mechanical channel, and a
+    # violation abandons the whole write. Stated as prose anyway, and in both languages,
+    # because an operator reading a failed proposal's detail is the audience.
+    "gate.archive_record.anchors": (
+        "the record's anchors must be the system-assigned ones for this path, in slot "
+        "order: expected {expected}, found {found}."
+    ),
+    "gate.archive_record.anchor_taken": (
+        "anchor {anchor} already exists elsewhere in the repository; a record's ids are "
+        "unique repository-wide, the archived copy included."
+    ),
+    "gate.archive_record.statement": (
+        "the record's reason must cite the owner's statement {statement}; it cites "
+        "{cited}."
+    ),
+    "gate.archive_record.statement_mismatch": (
+        "`archive_statement` names {stated} but the record's reason cites {cited}; the "
+        "inventory reads that key without opening the body, so the two may not name "
+        "different statements."
+    ),
+    "gate.archive_record.grounding": (
+        "the definition carried into the record dropped the grounding it rested on: "
+        "{reference} is missing."
+    ),
+    "gate.archive_record.frontmatter": (
+        "the record's frontmatter is incomplete: `{key}` is missing."
+    ),
+    "gate.archive_record.archive_of": (
+        "`archive_of` says `{stated}` but the full copy is at `{expected}`."
+    ),
+    "gate.archive_record.facts_disagree": (
+        "`{key}` says {stated} but the record's own line says {expected}; the line cites "
+        "nothing because the frontmatter is its provenance, so the two may not disagree."
+    ),
+    "gate.archive_record.span": (
+        "`archive_span` says {stated} but the span these facts cover is {expected}; a page "
+        "whose sources state no day carries no span key at all, so an extra one — or a "
+        "different one — is a fact nobody has."
+    ),
+    "gate.archive_record.facts_body": (
+        "the record's own line says «{stated}» but its frontmatter states «{expected}»; "
+        "that line cites nothing because the frontmatter is its provenance, so the page and "
+        "the keys above it say one thing or the write is abandoned."
+    ),
+    "gate.archive_record.copy": (
+        "the copy at `{path}` is not byte-identical to the page that stood at the live "
+        "path: archiving is a move, never a rewrite."
+    ),
+    "gate.archive_record.ungrounded": (
+        "the record's first block rests on nothing — no `c:` reference and no `[cite: …]` "
+        "span — and it was taken from the page's {source}, which carries its own grounding: "
+        "«{preview}»."
+    ),
+    "gate.archive_record.machinery": (
+        "a record block carries the system's own machinery in its text ({found}): "
+        "«{preview}». A record is written mechanically and its blocks are projected as "
+        "claims, so its words are words."
+    ),
+    "gate.archive_record.doc_id": (
+        "the record's `doc_id` is {stated} but this channel derives {expected} for this "
+        "path; a record's id is a function of the path it stands on, and an id from anywhere "
+        "else is one the archived copy may already be carrying."
+    ),
+    "gate.archive_record.doc_id_taken": (
+        "document id {doc_id} already belongs to another document in this library; a record "
+        "and the full copy it stands in front of are two documents with two ids."
     ),
     # ─────────────────────────────────────────────── the overview's own gate checks
     "gate.overview_budget": (
@@ -1488,7 +1670,7 @@ DEFAULTS: dict[str, str] = {
     # round — any violation abandons the whole rollover and leaves the document untouched, and
     # the next compile that writes the document triggers a fresh attempt.
     "gate.groom.claims_not_byte_equal": (
-        "rollover refused: the archived volume plus the retained tail do not reproduce the "
+        "rollover refused: the closed volume plus the retained tail do not reproduce the "
         "document's claim blocks byte for byte outside their links ({before} before, {after} "
         "after). A rollover moves claims and re-renders the relative links they carry; it may "
         "never reword or reflow one."
@@ -1520,15 +1702,15 @@ DEFAULTS: dict[str, str] = {
     ),
     "gate.groom.anchor_added": (
         "rollover refused: anchor c:{anchor} would be invented by the rollover; only the "
-        "history card's own ids may be created here."
+        "volume card's own ids may be created here."
     ),
     "gate.groom.overview_without_reference": (
-        "rollover refused: history-card point \"{preview}…\" names no archived entry, so it is "
-        "an uncited assertion in the non-rebuildable layer."
+        "rollover refused: volume-card point \"{preview}…\" names no entry from an earlier "
+        "volume, so it is an uncited assertion in the non-rebuildable layer."
     ),
     "gate.groom.overview_unknown_reference": (
-        "rollover refused: history-card point \"{preview}…\" references c:{anchor}, which is "
-        "not an archived entry of this document."
+        "rollover refused: volume-card point \"{preview}…\" references c:{anchor}, which is "
+        "not an entry of this document's earlier volumes."
     ),
     # ─────────────────────────────────────────────── evolve gate feedback
     "gate.evolve.feedback_header": (
@@ -1846,7 +2028,7 @@ DEFAULTS: dict[str, str] = {
         "\ncitations:\n{citations}"
     ),
     # ── how a retrieved document is NAMED and ORIENTED (canonical_glance.display_identity)
-    "recall.identity.volume_title": "{title} (archive {volume})",
+    "recall.identity.volume_title": "{title} (vol. {volume})",
     "recall.identity.volume_origin": "{title} ({path})",
     "recall.identity.joined": "{head} — {tail}",
     "recall.live.card.about": "about: {context}",
@@ -1902,6 +2084,12 @@ DEFAULTS: dict[str, str] = {
     "recall.passage_truncated": (
         "\n…(truncated; this block is long — deep can fetch the full text with fetch_verbatim)"
     ),
+    # The ARCHIVE, on one excerpt's provenance line (docs/design/archive.md §4). It is only
+    # ever rendered for a call that asked to include the archive: the source behind this
+    # excerpt was moved out of the answering set by the owner, and an item admitted from
+    # there must never be readable as part of the present — the `superseded` discipline,
+    # applied to raw text.
+    "recall.passage_in_archive": "archived",
     # ─────────────────────────────────────────────── recall: knowledge base glance
     # The library's SHAPE, present for every question: which filing families exist, what is
     # filed under each, how developed each document is. Not the contents — this is what makes
@@ -1926,11 +2114,15 @@ DEFAULTS: dict[str, str] = {
     # ledger's words. Distinctly labelled — see compile.task.outline_entry_ledger.
     "recall.glance.entry_ledger": "    ledger: {ledger}",
     "recall.glance.entry_tail_updated": ", updated {updated}",
-    # A rolled-over document's frozen archive volumes are COUNTED here rather than listed:
-    # listing them would let one long-lived subject crowd out every other family in the
-    # glance, which is the exact failure the rollover exists to fix. The volumes stay
-    # reachable — the active document links to each of them, so read_document walks there.
-    "recall.glance.entry_tail_archived": ", +{count} archived volume(s)",
+    # A rolled-over page's closed volumes are COUNTED here rather than listed: listing them
+    # would let one long-lived subject crowd out every other family in the glance, which is
+    # the exact failure the rollover exists to fix. The volumes stay reachable — the open
+    # volume links to each of them, so read_document walks there.
+    "recall.glance.entry_tail_volumes": ", +{count} volume(s)",
+    # A different fact from the line above, and the words are deliberately not the same: this
+    # document is IN the archive (`archive/`), shown only because the call asked for it, and
+    # never presented as part of the present.
+    "recall.glance.entry_tail_in_archive": ", archived",
     "recall.glance.family_more": "- …and {count} more document(s) in this family",
     "recall.glance.unfiled_heading": "## (documents outside every declared family)",
     "recall.glance.flat_heading": "## Documents",
@@ -2057,7 +2249,7 @@ DEFAULTS: dict[str, str] = {
         "source title: {source_title}\n"
         "source occurred_on: {occurred_on}\n"
         "section: {section}\n"
-        "source span: [cite: {source_id} ¶{start}-{end}]\n"
+        "source span: [cite: {source_id} ¶{start}-{end}]{archive}\n"
         "{text}"
     ),
     # ──────────────────────────────── recall: fast's retrieval planning pass (opt-in)
@@ -2140,6 +2332,16 @@ DEFAULTS: dict[str, str] = {
     ),
     "recall.deep.tool.read_document_not_found": (
         "(no document at {path}; use list_documents for the exact paths)"
+    ),
+    # A path in the ARCHIVE is not a miss and not a permission error: the document is there,
+    # whole and cited, and it is out of this answer's scope because nobody asked for the
+    # archive. Said in the shape a snapshot miss is said in — a stated absence the model can
+    # report, never silence, and never an invitation to retry the same read.
+    "recall.deep.tool.read_document_archived": (
+        "Document {path} is in the archive and is not part of what this answer reads. The "
+        "owner moved this subject out of the answering set; it still exists, whole and "
+        "cited, and a call that asks to include the archive would show it. Report it as out "
+        "of scope rather than as missing, and do not retry the same read."
     ),
     "recall.agentic.budget_notice": (
         "The retrieval budget is spent — answer directly from the evidence already obtained."

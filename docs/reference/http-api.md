@@ -35,18 +35,133 @@ Conventions:
 | POST | `/…/sources/document/preview` | normalize + propose an IntakePlan, zero side effects |
 | POST | `/…/sources/document` | ingest a document (accepts `plan_override`) |
 | POST | `/…/sources/conversation` | conversation ingest — **deprecated**, prefer contracts |
-| GET | `/…/sources` | catalog, keyset-cursor pagination (`limit` 1–500, `cursor`, `query`, `kind`) |
+| GET | `/…/sources` | catalog, keyset-cursor pagination (`limit` 1–500, `cursor`, `query`, `kind`, `include_archived`) |
 | GET | `/…/sources/activity` | ingest calendar heatmap (`offset_minutes` −840…840) |
 | GET | `/…/sources/{source_id}` | detail: meta, structure map, blocks, and block-aligned image manifests |
 | GET | `/…/sources/{source_id}/blocks/{block_index}/images/{image_id}` | tenant-scoped private image bytes; validates source/block/image membership and the stored digest |
 | POST | `/…/sources/{source_id}/fetch` | verbatim L0 fetch by `locator` |
 | GET | `/…/summary` | workspace counts: sources, jobs, jobs_failed, documents, claims, snapshots |
 
+Every source row — in the catalogue and in the detail — carries `archived_at`: null while the
+source is live, a timestamp once its Owner has retired it. The catalogue EXCLUDES archived
+sources unless the call says `include_archived=true`, and that choice binds the cursor like
+every other filter, so a page cannot be continued into a different catalogue. Nothing else
+changes: `GET /…/sources/{source_id}` and `POST /…/sources/{source_id}/fetch` answer for an
+archived source exactly as they always did, because L0 reachability by address is
+unconditional.
+
+## Archive
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/…/archive/proposals` | compute one proposal — `{action: "archive"\|"unarchive", documents[], sources[], note?, statement_ref?}` → the whole computed set; nothing moves |
+| GET | `/…/archive/proposals` | this Owner's proposals, newest first (`limit` 1–200) |
+| GET | `/…/archive/proposals/{proposal_id}` | read one back with its current status |
+| POST | `/…/archive/proposals/{proposal_id}/confirm` | accept it, optionally narrowed, with the Owner's reason — `{items?: [{kind, ref, selected}], note?}` → **202** `{proposal, job_id}` |
+| POST | `/…/archive/proposals/{proposal_id}/drop` | close one unexecuted proposal |
+| GET | `/…/archive` | what is in the archive now: `{documents: [{path, live_path, title, archived_on, volumes, record_path, record}], sources: [{source_id, title, kind, archived_at}]}` |
+
+The archive is where the Owner moves knowledge that is no longer worth an answer slot; nothing
+is ever deleted, and every archived claim keeps its anchor and every archived source keeps its
+blocks ([the design](../design/archive.md)).
+
+**A document leaves as a RECORD, not as silence.** Archiving `work/aurora.md` moves the page
+to `archive/work/aurora.md` and writes a short **archive record** at `work/aurora.md` in the
+same commit: what the subject was, the span it covered, how much it held, and the Owner's
+reason, citing an `owner-dialogue/v1` statement the job ingests for the proposal. The record is
+an ordinary LIVE page — it appears in `/dataset`, its blocks are indexed as claims, and every
+lane retrieves it with `include_archived` off — so a question about the subject is answered
+"this was X; it covered A–B; the owner archived it on D because R" instead of falling through
+to whatever mentions survived on other pages. It carries `type: archived` and
+`archive_of: archive/<path>` in its frontmatter, plus the machine facts `archived_on`,
+`archive_statement`, `archive_span`, `archive_claims`, `archive_sources`, `archive_volumes`,
+`archive_inbound`. Unarchiving replaces the record with the page again, in one commit.
+
+**An archive is proposed before it is executed.** Knowledge hangs together — a document cites
+sources, a source is cited by documents — so `POST /…/archive/proposals` takes the Owner's
+seeds and answers with the CLOSURE: every source the named documents cite, every document that
+depends on the named sources, run to a fixed point. Each item carries `kind`, `ref`, `title`,
+`role` (`seed` / `cascade`), `selected`, its rollover `volumes` (which travel with their
+document and are never items of their own), and a structured `reason` — `cited_by_live` names
+the LIVE documents that kept a source (the `still_cited` evidence, in the `archive`
+direction), `cited_by_archived` names the ARCHIVED pages whose return brings a source back out
+with them (`restored_with_page`, in the `unarchive` direction; the two lists are separate
+fields because a path's meaning must not depend on the action), `dependence` is
+`[cited, total]` ledger claims, and `note` is one mechanical code (`seed`, `orphaned`,
+`still_cited`, `restored_with_page`, `fully_dependent`, `partially_dependent`,
+`already_archived`, `already_live`, `unknown`). **Listed is not selected**: a source another
+live document still cites is shown, unselected, with the documents that kept it — the Owner's
+most useful line is often the thing that stays.
+
+A DOCUMENT item of an `archive` proposal also carries `record`
+(`{title, definition, span: [from, to] | null, claims, sources, volumes, inbound, reason,
+reason_default}`) —
+what the archive record for that page will say, computed at plan time so the console can
+preview the page each checkbox creates. `span` is null when no source the page cites states a
+day (the record omits the clause rather than guessing one), `inbound` counts the live pages
+linking to it that are not themselves leaving, and `reason` is the exact line the record's
+third block will quote: the note, the block 0 of a supplied `statement_ref`, or the default
+sentence. A note typed at the confirm moves `reason` with it, and `reason_default` is the line
+an EMPTY note would quote instead — what a console previews the moment the Owner clears a note
+the plan carried, since a confirm sending `note: ""` replaces that note with nothing. The numbers are a PREVIEW: the
+job recomputes them at execution over the set that was finally confirmed, because unticking a
+page that another selected page links to changes that page's `inbound`. `record` is null on a
+source item and on every item of an `unarchive` proposal, which replaces the record with the
+page.
+
+A note and a `statement_ref` are checked where they are typed, at `plan` and again at
+`confirm`: **422 `note_machinery`** for a note carrying the system's own machinery (an HTML
+comment, an `__AUTO__` — the note is quoted into a claim, so its text is words), **422
+`statement_unknown`** / **422 `statement_not_owner`** for a `statement_ref` this library does
+not hold or that is not an `owner-dialogue/v1` source with a block to quote, and **422
+`statement_mismatch`** when a note and a named statement say different things — the record
+quotes the source it cites, so one of the two has to go.
+
+`library_ref` is the canonical HEAD the closure was computed against. A confirm whose HEAD has
+moved is refused **409 `stale`** — a preview of a library that has since compiled is a preview
+of something else, and the answer is to re-plan, not to override. That refusal MOVES the row to
+status `stale` before it answers, and the error body carries the moved proposal beside `detail`
+and `code`. A proposal nobody came back to reads the same way without any write: `stale` is
+COMPUTED at read — `library_ref` is no longer HEAD — so `GET /…/archive/proposals` and
+`GET /…/archive/proposals/{id}` present it over a row that still stores `proposed`, and the
+listing never reports decisions that can no longer be made. The full status set on the wire is
+`proposed` → `stale` / `confirmed` → `executed` / `failed`, plus `dropped`; a `stale` proposal
+can still be **dropped** (nothing else accepts it) and never confirmed. The `items` on a confirm may
+only tick and untick what was listed (a ref the plan did not compute is **422 `unknown_item`**,
+a set narrowed to nothing is **422 `empty`**); the way to ADD to a cascade is to re-plan with
+more seeds, because every item in a proposal has to be a computation the reason field can
+explain. Every refusal answers `{"detail": "…", "code": "…"}`, the codes being `stale`,
+`not_proposed`, `not_found`, `unknown_item` and `empty`.
+
+The confirm writes the decision and the job that executes it in ONE TRANSACTION, under the
+condition that the proposal is still `proposed`. Two confirms in flight — or a confirm racing a
+`drop` — therefore have exactly one winner, and the loser is refused **409 `not_proposed`**
+having queued nothing: one decision, one job. The two halves also cannot come apart — there is
+no `confirmed` proposal without a job to execute it (a decision nothing executes and nothing
+reports), and no job for a decision that was never recorded — so a failure leaves the proposal
+open and is an ordinary **500**, with nothing to undo and nothing to read back.
+
+A confirm ENQUEUES one `archive` job on the same per-user queue the compiler drains, and
+answers `202` before it runs — so the move never races a compile, and the proposal's own status
+(`proposed` → `confirmed` → `executed` / `failed`) is where the result is read, with `detail`
+carrying the commit ref, the counts (`moved`, `sources`, `archive_records_written` /
+`archive_records_removed`, both always present on every path — the resumed run of a crashed
+job included — and `0` when nothing was written or removed; an absent key would have made
+"this page left no record behind" and "the removal never ran" read alike) and the `statement_ref` the records cite. The keys are prefixed because "record"
+is already spoken for in operator output: `rebuild_derived` replays KEPT records
+(consultations), and these count ARCHIVE records. Both seed spellings resolve: a live path read off the
+console and the `archive/…` path read off `GET /…/archive` name the same subject.
+
+`GET /…/archive` names the other half of each pair: `record_path` is where the record stands
+(equal to `live_path`, or null for a page archived before records existed), and `record` is
+what it states — `{archived_on, statement_ref, archive_of, span, claims, sources, volumes,
+inbound}`, read off the record's own frontmatter.
+
 ## Recall
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/…/recall` | body `{query, mode: rag\|fast\|deep, limit, as_of?, snapshot?, answer_style?, evidence_strategy?: ranked\|select\|all, answer_format?: text\|structured, include_original_modalities?: ("image")[], visitor_class?: silent\|audit\|business}` |
+| POST | `/…/recall` | body `{query, mode: rag\|fast\|deep, limit, as_of?, snapshot?, answer_style?, evidence_strategy?: ranked\|select\|all, answer_format?: text\|structured, include_original_modalities?: ("image")[], visitor_class?: silent\|audit\|business, include_archived?: bool}` |
 | POST | `/…/recall/stream` | any mode; SSE — `stage` while the lane runs (plus `token`, and deep's `step`, in the answering lanes), then `done` (or `error`) |
 | GET | `/…/access-stats` | `?kind=claim\|document\|source&ref=…` → `{kind, ref, last_accessed_at, hits_7d, hits_30d, heat}` — what this library's readers have done with one target, joined at read time out of the derived layer. Never canonical: nothing here is written into a page. A target nobody has read answers with zeros and `last_accessed_at: null`, because "never read" is an answer |
 | GET | `/…/access-stats/top` | `?days=1–365&limit=1–100` → `{window_days, since, until, half_life_days, documents[], misses[]}` — the ledger's face for a dashboard: the hottest canonical pages and the most-asked questions the library answered with nothing |
@@ -69,7 +184,30 @@ never fail, delay or change the answer it is about. `mode: "rag"` records under 
 it reaches no model, so there is nothing handed to one for a record to be about. The same
 field, same values, same default, is on `POST /…/briefings/{id}/ask` and its stream.
 
-`rag` returns `{mode, hits, stages}` — the fused hit list (`source_id`, block span, text, paths, score) and what finding it cost. `fast`/`deep` return both a citation-free semantic `answer_text` and the backward-compatible cited `answer`, plus their evidence: `used_claims`, `used_episode_summaries` (fast), `used_component_evidence` (fast), `stages`, `used_windows`, `trail` (deep), `citation_handles` (`sNN` → real source id), `documents_read`, `snapshot`, `token_usage` and `cost` (what those tokens cost at this deployment's declared rates; `null` when it declared none — see [configuration](configuration.md)). Every episode-summary item carries source title, occurrence time, section and exact block span, plus constant `derived: true` / `verbatim: false` labels so clients cannot mistake generated L2 compression for source text. Both answering lanes echo `mode` and the `as_of` they resolved, `glance_chars` — the size of the knowledge-base glance carried in the prompt, 0 when canonical was empty or unreadable — and `documents_read`, the documents read whole rather than as a retrieved fragment (fast's glance selection, deep's `read_document` walk). `glance_degraded` is fast-only and names a glance selection that failed (`timeout`/`error`); a pass that ran and chose nothing stays null, like every other selection in the lane.
+**`include_archived`** (default `false`) is the archive's one exception, on every request that
+reads. Off, the archive is excluded at the index AND at evidence assembly, and the glance is
+over live documents only. On, archived claims, windows and glance entries are admitted, placed
+after the live ones, and each carries the label `archived` into the prompt and onto the wire —
+so a model handed history knows it is history, and a reader of the answer can see which is
+which. On the wire that mark is one field with one name on every evidence face: an admitted
+claim carries `archived: true` beside its `labels`, exactly as a window (`RecallHitOut`) and
+an episode summary already did, so a client reading three faces reads one key rather than
+special-casing the claim. Live Context never offers it: nobody asked a question there, and a room is not served
+the past by default.
+
+**An unreadable canonical library is a refusal, not a degraded answer.** The document set the
+answering lanes are handed is also what pins the archive filter, so a lane that could not read
+it would admit every stale L3 row still naming a page the Owner moved. `POST /…/recall`,
+`POST /…/recall/stream` and `POST /…/briefings` therefore answer **503 `{"detail": …, "code":
+"canonical_unavailable"}`** rather than answering unpinned — the stream reads canonical before
+the response opens, so it is a status code there too and not an `error` frame narrated over a
+200 already sent (the streamed briefing build, which reads inside its producer, reports it as
+the `error` frame). Only the rest of the glance stays fail-soft: a skill or a pack that fails
+to load degrades the glance and the documents still reach the lane. Live Context makes the same
+refusal in its own currency — the tick skips with `canonical_unavailable` (see [Live
+Context](#live-context)).
+
+`rag` returns `{mode, hits, stages}` — the fused hit list (`source_id`, block span, text, paths, score) and what finding it cost. `fast`/`deep` return both a citation-free semantic `answer_text` and the backward-compatible cited `answer`, plus their evidence: `used_claims`, `used_episode_summaries` (fast), `used_component_evidence` (fast), `stages`, `used_windows`, `trail` (deep), `citation_handles` (`sNN` → real source id), `documents_read`, `snapshot`, `token_usage` and `cost` (what those tokens cost at this deployment's declared rates; `null` when it declared none — see [configuration](configuration.md)). Every episode-summary item carries source title, occurrence time, section and exact block span, plus constant `derived: true` / `verbatim: false` labels so clients cannot mistake generated L2 compression for source text, and `archived` — true only on a call that asked for the archive, marking a summary compressed out of a retired source. Both answering lanes echo `mode` and the `as_of` they resolved, `glance_chars` — the size of the knowledge-base glance carried in the prompt, 0 when canonical was empty or unreadable — and `documents_read`, the documents read whole rather than as a retrieved fragment (fast's glance selection, deep's `read_document` walk). `glance_degraded` is fast-only and names a glance selection that failed (`timeout`/`error`); a pass that ran and chose nothing stays null, like every other selection in the lane.
 
 Fast callers may override context composition and the answer wire independently.
 `evidence_strategy: "select"` spends one serial structured recall-model call to choose a
@@ -398,7 +536,7 @@ cursor: changing it mid-page is a 422, ask again from the first page.
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/…/briefings` | build a stable evidence pack on a pinned snapshot: `{query?, source_ids[], budget_chars>0, snapshot?}` |
+| POST | `/…/briefings` | build a stable evidence pack on a pinned snapshot: `{query?, source_ids[], budget_chars>0, snapshot?, include_archived?: bool}` |
 | POST | `/…/briefings/stream` | the same build, SSE — `stage` events as it runs, then `done` with the same body |
 | GET | `/…/briefings` | list |
 | GET | `/…/briefings/{id}` | read one back: `{briefing_id, snapshot_ref, created_at, char_count, scope, text, stages}` — `text` is the literal pack |
@@ -408,6 +546,10 @@ cursor: changing it mid-page is a 422, ask again from the first page.
 
 `visitor_class` means exactly what it means on recall (above); an ask's consultation record
 names the pack's pinned snapshot as the library that answered.
+
+`include_archived` (default `false`) is stored in the pack's scope, so an `ask` inherits the
+choice the build made — a pack is built once and asked many times, and a question cannot widen
+the evidence it was given.
 
 Both stream routes follow the vocabulary above. The build's row is persisted **before** `done`
 is sent, so a client that saw the frame can always read the briefing back.
@@ -460,7 +602,7 @@ A delivered card carries two text fields with two different authors, and they ar
 
 **Two citation shapes, and `kind` says which.** `concept` and `fact` cards carry `citations` — the one addressing scheme over the owner's own material, `{source_id, block_start, block_end}` (I4). A `kind: "web"` card carries `web_citations` — `{title, url}` — because it rests on pages rather than on source blocks, and a URL is not an address in that scheme: it resolves to nothing the store can fetch and it must never be squeezed into a `Citation`. A card never carries both, and both fields are always present as lists, so a client tests a field rather than sniffing for one. Everything else about the evidence surface is identical across the two: the same numbered rows, the same collapsed section, and the pick's citation subset selects into either list by the same index rule (an empty or wholly out-of-range subset falls back to all of them rather than stripping the card). Only the affordance differs — a source span opens in-app, a URL opens in a new tab — and `want_more` is unavailable on a web card, because there is no source block to fetch verbatim and expand within.
 
-`stats` (WS, opt-in) and `done` (SSE) both carry the tick's **processing record**: `skipped` (`""` on a delivery, else which door closed — a discover reason `small_talk` / `already_mined` / `nothing_new`, or one of `low_worth`, `no_plan`, `no_candidates`, `no_coverage`, `none_chosen`, `low_confidence`, `uncited`, `duplicate`, `unparsed`, `pick_failed`), `intent`, `worth`, `plan` (the lookups that ran), `rejected` (plan entries naming no enabled path), `candidates` (each `{index, kind, title, subject, origin, provenance, citations}`), `chosen`, `web` (`{tier, searches, cost, pages}` — see below), and `stages` (`discover` / `retrieve` / `retrieve.semantic` / `retrieve.web` / `retrieve.path:<name>` / `pick` / `total`, each with `ms` and `status`). `no_coverage` is the pick's own `choice: 0` — it read every candidate against the intent and none of them covers it — and is deliberately distinct from `low_confidence` (a weak answer held back) and from `none_chosen` (a malformed index), because the three look identical on a silent tick and mean different things. `dropped` is still there and is the briefing round's four-gate accounting; it is empty for the full-scope lane, whose equivalent is `skipped`.
+`stats` (WS, opt-in) and `done` (SSE) both carry the tick's **processing record**: `skipped` (`""` on a delivery, else which door closed — a discover reason `small_talk` / `already_mined` / `nothing_new`, or one of `low_worth`, `no_plan`, `no_candidates`, `no_coverage`, `none_chosen`, `low_confidence`, `uncited`, `duplicate`, `unparsed`, `pick_failed`, `canonical_unavailable`), `intent`, `worth`, `plan` (the lookups that ran), `rejected` (plan entries naming no enabled path), `candidates` (each `{index, kind, title, subject, origin, provenance, citations}`), `chosen`, `web` (`{tier, searches, cost, pages}` — see below), and `stages` (`discover` / `retrieve` / `retrieve.semantic` / `retrieve.web` / `retrieve.path:<name>` / `pick` / `total`, each with `ms` and `status`). `no_coverage` is the pick's own `choice: 0` — it read every candidate against the intent and none of them covers it — and is deliberately distinct from `low_confidence` (a weak answer held back) and from `none_chosen` (a malformed index), because the three look identical on a silent tick and mean different things. `canonical_unavailable` says something about the DEPLOYMENT rather than about the library: the canonical read this tick needed failed, so the tick had no document set to pin its archive filter to and it skipped rather than retrieve unpinned — the room is quiet for one turn and the next tick tries again. `dropped` is still there and is the briefing round's four-gate accounting; it is empty for the full-scope lane, whose equivalent is `skipped` — with the single exception of that skip, which also carries `canonical_unavailable: 1`.
 
 Policy fields on `config` and `ready`: `focus`, `min_confidence` (one number, two doors — discover's `worth` floor and pick's `confidence` floor), `max_pending_turns`, `quiet_period`, `web_search`, `briefing_id`, `stats`. `web_search` asks for the supplementary internet path; the `ready` echo is the **effective** value, because the deployment has its own answer (`PNEUMA_KNOWLEDGE_LIVE_WEB_SEARCH`) and a client that asked for `true` and reads `false` back has been told no mechanically rather than left to infer it from the absence of web cards. The tick's `web` record then says what that path did: `tier` is `off`, `planned` (discover asked for the lookup, so it ran concurrently with the library faces) or `fallback` (discover did not ask, the library came back with an empty candidate pool, so it ran after), alongside `searches`, `cost`, and `pages` — how many pages those searches came back naming. `pages: 0` beside a non-zero `cost` is the one outcome that would otherwise be invisible: a search that ran, was billed, and cited nothing, so its answer was refused at construction and no candidate ever appeared. `turn_window` is accepted as the old name of `max_pending_turns`, and `max_suggestions` is accepted and ignored — the full-scope lane delivers exactly one card per tick by construction.
 

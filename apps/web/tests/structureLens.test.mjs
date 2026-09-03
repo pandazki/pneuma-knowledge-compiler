@@ -2,10 +2,10 @@
  * The structure lens: volume merging, the sentence-carrying link index, the health readings
  * and the snapshot difference.
  *
- * The fixture is a six-subject synthetic base built out of the framework's own archive
+ * The fixture is a six-subject synthetic base built out of the framework's own reference
  * vocabulary (profile / people / topics / products / experiments) — no project, no product, no
  * person. It is shaped to contain one of everything the lens is supposed to notice: a subject
- * that rolled over into an archive volume and swallowed the base, a declared family that never
+ * that rolled over into a closed volume and swallowed the base, a declared family that never
  * took a page, a pair of documents nothing links to, a repeated link between the same two
  * subjects, and one link pointing at a file that is not there.
  */
@@ -111,7 +111,7 @@ test("a path template matches exactly what the write gate would accept", () => {
 
 /* -------------------------------------------------------------- rollover volumes */
 
-test("an archive volume belongs to the page it sits under, and only if that page exists", () => {
+test("a closed volume belongs to the page it sits under, and only if that page exists", () => {
   const present = new Set(DOCS.map((d) => d.path));
   assert.equal(volumeOwner("work/products/atlas/a01.md", present), "work/products/atlas.md");
   assert.equal(volumeOwner("work/products/atlas/a17.md", present), "work/products/atlas.md");
@@ -186,7 +186,7 @@ test("edges are merged onto subjects, repeats collapse, and a broken href is not
   assert.equal(
     toTiling.volume,
     "work/products/atlas/a01.md",
-    "a sentence that lives in an archive volume says so",
+    "a sentence that lives in a closed volume says so",
   );
   assert.match(toTiling.sentence, /tiling question/);
 });
@@ -376,7 +376,7 @@ test("an old graph node address still resolves — to a document, or to a source
 
 test("a rolled-over subject knows every page it is spread across, in reading order", () => {
   const index = buildLinkIndex(DOCS);
-  // From the archive volume: the door back to the main volume, which the page did not have.
+  // From the closed volume: the door back to the open volume, which the page did not have.
   const fromVolume = volumeFamily(index, "work/products/atlas/a01.md");
   assert.deepEqual(
     fromVolume.map((page) => [page.label, page.main, page.current]),
@@ -385,7 +385,7 @@ test("a rolled-over subject knows every page it is spread across, in reading ord
       ["a01", false, true],
     ],
   );
-  // …and from the main volume, the same family with the other page marked.
+  // …and from the open volume, the same family with the other page marked.
   const fromMain = volumeFamily(index, "work/products/atlas.md");
   assert.deepEqual(
     fromMain.map((page) => [page.path, page.current]),

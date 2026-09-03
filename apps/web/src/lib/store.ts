@@ -107,6 +107,13 @@ export interface RecallCache {
   rag: RagResult | null;
   answer: RecallAnswer | null;
   error: string | null;
+  /**
+   * The archive's one exception (docs/design/archive.md §4), held with the question rather
+   * than beside it: leaving to read a source and coming back must not quietly re-ask the
+   * same question over a different library. Off by default — the archive is what the owner
+   * moved OUT of the answering set, so including it is always a stated choice.
+   */
+  includeArchived: boolean;
 }
 
 /**
@@ -187,6 +194,7 @@ const EMPTY_RECALL_CACHE: RecallCache = {
   rag: null,
   answer: null,
   error: null,
+  includeArchived: false,
 };
 
 /**
@@ -432,6 +440,9 @@ interface AppState {
   /** switch the interface language (persists; takes effect without a reload). */
   setLocale: (l: Locale) => void;
   toggleLocale: () => void;
+  /** Raise the shell's one dismissible notice — held as a KEY so a language switch
+   *  re-renders it rather than stranding the sentence it was minted in. */
+  setNotice: (notice: Notice | null) => void;
   dismissNotice: () => void;
 }
 
@@ -1154,5 +1165,6 @@ export const useApp = create<AppState>((set, get) => ({
     applyLocale(next);
     set({ locale: next });
   },
+  setNotice: (notice) => set({ notice }),
   dismissNotice: () => set({ notice: null }),
 }));

@@ -117,7 +117,7 @@ def test_there_is_no_whole_file_rewrite_operation():
 
 
 def _rolled_over_world() -> tuple[PatchDraft, str, str]:
-    """An active page plus one of its frozen history volumes, as a later draft sees them."""
+    """An active page plus one of its closed volumes, as a later draft sees them."""
     active_path = "memory/topics/orion.md"
     volume_path = "memory/topics/orion/a01.md"
     active = CanonicalDocument(
@@ -148,19 +148,19 @@ def test_every_claim_mutation_refuses_a_frozen_history_volume_early_and_teachabl
     the active page — so a repair round has something to act on."""
     draft, active_path, volume_path = _rolled_over_world()
 
-    with pytest.raises(AnchorToolError, match="frozen history volume") as err:
+    with pytest.raises(AnchorToolError, match="closed volume") as err:
         draft.edit_claim(volume_path, "bbbb2222", "- Sprint 1 shipped. [cite: src-02 ¶0]")
     assert "edit_claim rejected" in str(err.value)
-    assert f"active page: use edit_claim / append_block on `{active_path}`" in str(err.value)
+    assert f"open volume: use edit_claim / append_block on `{active_path}`" in str(err.value)
 
-    with pytest.raises(AnchorToolError, match="frozen history volume"):
+    with pytest.raises(AnchorToolError, match="closed volume"):
         draft.append_block(volume_path, "Delivery", "- New fact. [cite: src-02 ¶1]")
     # the evolve-only merge channel is bound by the same freeze, in both directions
-    with pytest.raises(AnchorToolError, match="frozen history volume"):
+    with pytest.raises(AnchorToolError, match="closed volume"):
         draft.move_claim(volume_path, "bbbb2222", active_path, "Delivery")
-    with pytest.raises(AnchorToolError, match="frozen history volume"):
+    with pytest.raises(AnchorToolError, match="closed volume"):
         draft.move_claim(active_path, "aaaa1111", volume_path, "Delivery")
-    with pytest.raises(AnchorToolError, match="frozen history volume"):
+    with pytest.raises(AnchorToolError, match="closed volume"):
         draft.delete_claim(volume_path, "bbbb2222")
 
     # nothing above touched the draft, and the active page itself still takes writes

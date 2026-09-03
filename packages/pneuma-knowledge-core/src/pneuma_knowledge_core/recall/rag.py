@@ -19,10 +19,12 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Any
 
 from ..domain.ids import UserId, SourceId
 from ..ports.lexical_index import LexicalIndex
 from ..ports.vector_index import VectorIndex
+from .archive_filter import archive_view, index_scope, scope_windows
 from .stage_timing import RETRIEVE, StageRecorder, child_name, window_entries
 
 RRF_K = 60
@@ -110,6 +112,12 @@ class RecallHit:
     # Derived episode representations that contributed retrieval signal to this evidence
     # span. Fast recall may surface them as explicitly labelled, source-addressed summaries.
     episode_summaries: tuple[EpisodeSummarySignal, ...] = ()
+    # Whether this hit's SOURCE is in the archive. False for every hit a default retrieval
+    # produces — the archive is excluded at the index and again at assembly — and stamped
+    # only on the `include_archived` path (`recall/archive_filter.py`), where it becomes a
+    # marker on the rendered provenance header. Never inferred here: a hit knows its source,
+    # not the archive.
+    archived: bool = False
 
 
 async def rag_recall(
@@ -122,6 +130,8 @@ async def rag_recall(
     limit: int = 10,
     query_embedding: list[float] | None = None,
     stages: StageRecorder | None = None,
+    include_archived: bool = False,
+    content: Any | None = None,
 ) -> list[RecallHit]:
     """L1 + two L2 representations fused by ordinary RRF (§7). No source with L1 coverage is
     ever invisible: the lexical path covers the retrieval surface even when a
@@ -139,7 +149,23 @@ async def rag_recall(
 
     `stages` is a `StageRecorder` over `RAG_STAGE_ORDER` for a caller that wants the
     breakdown (and, with an `on_event` sink, the stages as they happen). None = one is made
-    here and never read, so nothing is emitted and nothing changes."""
+    here and never read, so nothing is emitted and nothing changes.
+
+    `include_archived` is off by default and rides straight through to both indexes, which is
+    where the exclusion has to happen FIRST: archived blocks and chunks admitted into the
+    candidate list would spend the caps before the answer ever saw a live one (archive.md
+    §3). The keyword is passed only when it is on, because off IS the port's own default — so
+    a call that does not ask for the archive is byte-for-byte the call this lane always made.
+
+    `content` is the L0 store, and it is what gives this lane the SECOND half every other
+    lane has: the assembly-time filter (`recall/archive_filter.py`). Trusting the two index
+    filters alone made the property rest on a flag flip in two backends — a `set_payload`
+    that failed, an index built before the field existed, a fake that accepts the keyword and
+    ignores it — and any of those leaks the archive into a default answer. With `content`
+    passed, an archived hit is dropped after fusion when the archive was not asked for, and
+    LABELLED (`RecallHit.archived`) when it was; without it the lane is exactly what it was,
+    so no existing caller changes. What the drop cost is reported on the `expand` stage as
+    `archive_hidden`, the same key every other lane states this omission under."""
     timer = stages if stages is not None else StageRecorder(
         RAG_STAGE_ORDER, RAG_RETRIEVE_CHILDREN
     )
@@ -153,6 +179,8 @@ async def rag_recall(
             limit=limit,
             query_embedding=query_embedding,
             timer=timer,
+            include_archived=include_archived,
+            content=content,
         )
 
 
@@ -166,6 +194,8 @@ async def _rag_recall(
     limit: int,
     query_embedding: list[float] | None,
     timer: StageRecorder,
+    include_archived: bool = False,
+    content: Any | None = None,
 ) -> list[RecallHit]:
     """`rag_recall`'s body, with `total` already wrapping it. Split only so the wrapper is
     one statement: an early return inside the outer `measure` would otherwise be a place
@@ -175,6 +205,15 @@ async def _rag_recall(
     # asking each backend for only the final cap would let duplicates shrink recall rather
     # than backfill from the tail (Nemori's hybrid path uses the same 2× candidate shape).
     candidate_limit = limit * POST_DEDUP_CANDIDATE_MULTIPLIER
+    scope = index_scope(include_archived)
+    # The archive, read once for this call — before the round trips, so the filter below is a
+    # set membership test and not a second await inside the assembly step. With no `content`
+    # the view is empty and every hit stands, which is what every pre-archive caller gets.
+    # NO `documents_archived` HERE, and none is missing: that flag exists to switch the
+    # document pin on (`archive_filter._pin`), and this lane holds no document set to pin to
+    # — it returns hits, not an answer over pages. The view's only use here is the
+    # archived-source drop, which is already a no-op when no source is archived.
+    view = await archive_view(user_id, content)
     # The embedding is taken FIRST — before the lexical round trip it used to sit behind —
     # so the order the stages are measured in is the order the vocabulary emits them in.
     # The two are independent, so what comes back is unchanged either way; what changes is
@@ -188,17 +227,27 @@ async def _rag_recall(
         # SEQUENTIAL, not a gather: one face after the other, so the children sum to the
         # parent. Left alone deliberately — measuring a lane must not reshape it.
         with timer.measure(child_name("lexical")):
-            lexical_hits = await lexical.search(user_id, query, limit=candidate_limit)
+            lexical_hits = await lexical.search(
+                user_id, query, limit=candidate_limit, **scope
+            )
             timer.preview(
                 child_name("lexical"),
                 {"candidates": candidate_limit, **_hit_preview(lexical_hits)},
             )
         with timer.measure(child_name("vector")):
             raw_hits = await vectors.search(
-                user_id, query_embedding, limit=candidate_limit, representation="raw"
+                user_id,
+                query_embedding,
+                limit=candidate_limit,
+                representation="raw",
+                **scope,
             )
             episode_hits = await vectors.search(
-                user_id, query_embedding, limit=candidate_limit, representation="episode"
+                user_id,
+                query_embedding,
+                limit=candidate_limit,
+                representation="episode",
+                **scope,
             )
             timer.preview(
                 child_name("vector"),
@@ -219,8 +268,23 @@ async def _rag_recall(
             },
         )
     with timer.measure(EXPAND):
-        kept = _suppress_overlapping(raw)[:limit]
-        timer.preview(EXPAND, {"fused": len(raw), **_hit_preview(kept)})
+        merged = _suppress_overlapping(raw)
+        # THE ASSEMBLY-TIME HALF, before the cap rather than after it: a dropped archived hit
+        # backfills from the tail instead of leaving the caller short of `limit`. Off drops
+        # and counts; on stamps `RecallHit.archived`, which is how a hit the caller asked for
+        # reaches the wire saying what it is.
+        merged, hidden = scope_windows(
+            merged, view, include_archived=include_archived
+        )
+        kept = merged[:limit]
+        timer.preview(
+            EXPAND,
+            {
+                "fused": len(raw),
+                **({"archive_hidden": hidden} if hidden else {}),
+                **_hit_preview(kept),
+            },
+        )
         return kept
 
 

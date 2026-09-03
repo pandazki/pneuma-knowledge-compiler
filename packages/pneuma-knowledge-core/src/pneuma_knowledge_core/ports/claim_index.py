@@ -26,11 +26,30 @@ class ClaimHit(Protocol):
 
 class ClaimLexicalIndex(Protocol):
     async def search_claims(
-        self, user_id: UserId, query: str, *, limit: int = 40
-    ) -> list[ClaimHit]: ...
+        self,
+        user_id: UserId,
+        query: str,
+        *,
+        limit: int = 40,
+        include_archived: bool = False,
+    ) -> list[ClaimHit]:
+        """Lexical claim hits, ARCHIVE EXCLUDED unless the call states the exception.
+
+        A claim is archived iff its document sits under `archive/` — derived by the
+        projection (`ProjectedClaim.archived`), filtered here at the index so the archive
+        never spends the candidate cap.
+        """
+        ...
 
 
 class ClaimVectorIndex(Protocol):
     async def search_claims(
-        self, user_id: UserId, embedding: list[float], *, limit: int = 40
-    ) -> list[ClaimHit]: ...
+        self,
+        user_id: UserId,
+        embedding: list[float],
+        *,
+        limit: int = 40,
+        include_archived: bool = False,
+    ) -> list[ClaimHit]:
+        """Semantic claim hits, ARCHIVE EXCLUDED unless the call states the exception."""
+        ...

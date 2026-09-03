@@ -48,6 +48,8 @@ class _Image:
 @dataclass
 class _Raw:
     source_id: SourceId
+    # The archive mark rides the copy: a snapshot's L1 excludes exactly what the base did.
+    archived_at: object = None
 
 
 @dataclass
@@ -184,7 +186,7 @@ class FakeLexical:
         self.claims: dict[str, list] = {}
         self.deleted: list[str] = []
 
-    async def index_blocks(self, user_id, source_id, blocks):  # noqa: ANN001
+    async def index_blocks(self, user_id, source_id, blocks, *, archived=False):  # noqa: ANN001
         self.blocks.setdefault(str(user_id), {})[str(source_id)] = list(blocks)
 
     async def index_claims(self, user_id, claims):  # noqa: ANN001

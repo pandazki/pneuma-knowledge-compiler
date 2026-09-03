@@ -2,7 +2,7 @@
 
 One tenant, one oversized document, no HTTP. The compile writes a document past the size
 threshold; the worker enqueues a groom on the SAME per-user queue and drains it in the same
-sweep; the rollover commits an archive volume plus a rewritten active document, and the L3
+sweep; the rollover commits a closed volume plus a rewritten open volume, and the L3
 projection follows the claims to their new path.
 
 What this covers that the unit tests cannot: that the trigger actually fires off a real
@@ -24,7 +24,7 @@ from urllib.parse import urlparse
 import pytest
 from pneuma_knowledge_core.canonical_glance import render_canonical_glance
 from pneuma_knowledge_core.compile.rollover import (
-    ARCHIVED_FROM_KEY,
+    VOLUME_OF_KEY,
     VOLUME_NUMBER_KEY,
     _OverviewDraft,
     _OverviewPointDraft,
@@ -167,7 +167,7 @@ async def test_compile_triggers_a_rollover_that_moves_claims_and_reprojects(ctx)
 
     # ---- the volume is a frozen, self-describing document -------------------------------
     volume = by_path[VOLUME]
-    assert volume.frontmatter[ARCHIVED_FROM_KEY] == ACTIVE
+    assert volume.frontmatter[VOLUME_OF_KEY] == ACTIVE
     assert volume.frontmatter[VOLUME_NUMBER_KEY] == "01"
     assert volume.frontmatter["type"] == "product"
 
@@ -207,7 +207,7 @@ async def test_compile_triggers_a_rollover_that_moves_claims_and_reprojects(ctx)
         "edges"
     ]
     glance = render_canonical_glance(docs, load_skill_base("v1"))
-    assert "+1 archived volume(s)" in glance
+    assert "+1 volume(s)" in glance
     assert VOLUME not in glance
 
     # ---- and a NEXT compile is not tripped up by the volume it must not write --------------

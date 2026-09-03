@@ -20,7 +20,7 @@ const ROWS_VISIBLE = 12;
  * the question the reader came with. The card and the body are complementary — the body is the
  * ledger of what this subject is, the card is the index of what it is attached to.
  *
- * Archive volumes are folded into their owner, so a reader never has to learn that `a01`
+ * Closed volumes are folded into their owner, so a reader never has to learn that `a01`
  * exists; a sentence that physically lives in one says so on its row.
  */
 export function NeighborhoodCard({
@@ -84,7 +84,11 @@ function Direction({
                 <li key={row.path} className="border-b border-line last:border-b-0">
                   <button
                     type="button"
-                    onClick={() => select({ kind: "document", id: row.documentId ?? row.path })}
+                    // By PATH, and not by the row's `documentId`: a neighbour may be the
+                    // RECORD an archive left standing at a live path, and a record names the
+                    // same subject as the full copy under `archive/`. The lens rows are
+                    // keyed by path for that reason, and the jump keeps their address.
+                    onClick={() => select({ kind: "document", id: row.path })}
                     className="flex w-full min-w-0 flex-col gap-0.5 py-2 text-left transition-colors duration-120 hover:bg-hover"
                   >
                     <span className="flex min-w-0 items-baseline gap-2">

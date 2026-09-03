@@ -119,6 +119,8 @@ from ..ports.lexical_index import LexicalIndex
 from ..ports.vector_index import VectorIndex
 from ..ports.web_search import WebSearch, WebSearchAnswer
 from ..prompts import prompt
+from ..domain.archive import ArchiveView, LoadedDocuments
+from .archive_filter import archive_view, filter_claims, filter_path_results, filter_windows
 from .assembly import expand_and_merge, order_lost_in_middle
 from .projection import project_document_claims
 from .fast import (
@@ -238,6 +240,15 @@ SKIP_LOW_CONFIDENCE = "low_confidence"
 SKIP_UNCITED = "uncited"
 SKIP_DUPLICATE = "duplicate"
 SKIP_PICK_FAILED = "pick_failed"
+#: The canonical read this tick needed FAILED, so the tick has no document set — and this
+#: lane's document set is its archive pin (`archive_filter._off_pin`): a claim is admitted
+#: only when the set still holds its page, which is what drops a stale L3 row still carrying
+#: a moved page's old live path. No set pins nothing and admits every one of them. So a
+#: failed read ends the tick here rather than retrieving unpinned: a room that is served the
+#: archive without knowing it is worse than a room that is served nothing this turn, and the
+#: next turn tries again. Its own reason, never folded into `no_candidates`, because it says
+#: something about the deployment and not about the library.
+SKIP_CANONICAL_UNAVAILABLE = "canonical_unavailable"
 
 
 # --------------------------------------------------------------------- the contracts
@@ -1525,7 +1536,9 @@ async def _semantic_face(
     lexical: LexicalIndex | None,
     vectors: VectorIndex | None,
     content: ContentStore | None,
-) -> tuple[tuple[RetrievedClaim, ...], tuple]:
+    view: ArchiveView | None = None,
+    live_paths: frozenset[str] | None = None,
+) -> tuple[tuple[RetrievedClaim, ...], tuple, int]:
     """EVERY semantic query the plan asked for, concurrently — not one per turn, and no
     longer only the first of them.
 
@@ -1545,8 +1558,9 @@ async def _semantic_face(
             wanted.append(text)
     do_claims = claim_lexical is not None and claim_vectors is not None
     do_windows = lexical is not None and vectors is not None
+    view = view if view is not None else ArchiveView.empty()
     if not wanted or (not do_claims and not do_windows):
-        return (), ()
+        return (), (), 0
     embedded = await embeddings.aembed_documents(wanted)
 
     async def one(query: str, vector) -> tuple[Sequence[RetrievedClaim], Sequence]:
@@ -1600,7 +1614,12 @@ async def _semantic_face(
             if content is not None
             else merged
         )
-    return tuple(claims), tuple(windows)
+    # The ARCHIVE is never offered to a room. Nobody asked a question here, so there is no
+    # call to state the exception on: this lane excludes it unconditionally (archive.md §4),
+    # at assembly as well as at the index, and says how much it hid.
+    claims, hidden_claims = filter_claims(claims, view, live_paths=live_paths)
+    windows, hidden_windows = filter_windows(windows, view)
+    return tuple(claims), tuple(windows), hidden_claims + hidden_windows
 
 
 async def _nothing() -> list:
@@ -1637,14 +1656,36 @@ async def evaluate_live_pipeline(
     #: How eagerly this connection digs. One clause of the discover contract, nothing else.
     density: ContextDensity = DEFAULT_DENSITY,
     #: Canonical, for the glance short-circuit — the definition of a subject the plan names
-    #: goes out the moment the plan is parsed. With none passed there is no short-circuit
-    #: and the lane behaves exactly as it did before the mechanism existed.
-    documents: Sequence["CanonicalDocument"] = (),
+    #: goes out the moment the plan is parsed. With none passed (None) there is no
+    #: short-circuit and the lane behaves exactly as it did before the mechanism existed.
+    #: None and an empty sequence are DIFFERENT here: None is "this room was never handed the
+    #: tree" (nothing is pinned), an empty sequence is "the tree is empty" (pinned to nothing,
+    #: so every index claim is dropped). `load_documents` below is consulted only for None,
+    #: and a loader that RAISES is a third thing again: the tick skips
+    #: (`SKIP_CANONICAL_UNAVAILABLE`) rather than retrieve with nothing pinned.
+    documents: Sequence["CanonicalDocument"] | None = None,
     #: …or a way to FETCH them, awaited only once a real plan exists. That distinction is
     #: the whole reason this parameter is here beside the other: a skip is this lane's steady
     #: state, and a tick that read the whole library before deciding it was small talk would
     #: have made the cheap stage expensive to protect a card it was never going to deliver.
-    load_documents: Callable[[], Awaitable[Sequence["CanonicalDocument"]]] | None = None,
+    #: …or the same read wrapped in `LoadedDocuments`, which carries the archive flag with
+    #: it: this lane learns the tree lazily, so it learns whether an archive exists beside it
+    #: at the same moment and from the same read.
+    load_documents: (
+        Callable[
+            [],
+            Awaitable[
+                "Sequence[CanonicalDocument] | LoadedDocuments"
+            ],
+        ]
+        | None
+    ) = None,
+    #: Whether this library has EVER archived a document — for a caller that hands
+    #: `documents` directly. A `load_documents` returning `LoadedDocuments` overrides it with
+    #: what that read saw. It turns the assembly filter's pin on; with nothing archived the
+    #: filter is inert and this tick retrieves byte-for-byte as it did before the archive
+    #: existed (`archive_filter._pin`).
+    archive_active: bool = False,
     #: Called with the provisional card the instant it is built, so a transport can put it
     #: on the wire while stages 2 and 3 are still running — which is the entire point. It is
     #: awaited, and a callback that raises is logged and ignored: an early convenience must
@@ -1672,8 +1713,17 @@ async def evaluate_live_pipeline(
     #: Filled by the short-circuit below, then read by every return under it.
     glance: GlanceCard | None = None
     glance_ms = 0.0
+    #: What the archive filter hid this tick, across both library faces. Reported through the
+    #: gate accounting this lane already has, because an omission nobody can see is the one
+    #: thing a tick record must not contain.
+    archive_hidden = 0
 
     def finish(**fields) -> PipelineResult:
+        if archive_hidden:
+            fields["dropped"] = {
+                **(fields.get("dropped") or {}),
+                "archived": archive_hidden,
+            }
         recorder.record("total", (time.perf_counter() - started) * 1000.0)
         # Which of the three endings happened is decided MECHANICALLY, from what the tick
         # actually delivered — never asserted by a caller and never guessed.
@@ -1782,15 +1832,35 @@ async def evaluate_live_pipeline(
     # ── the glance short-circuit. Between stage 1 and stage 2, costing no model call: the
     # plan names a subject, the library holds one grounded sentence about it, and that
     # sentence goes out NOW while everything below keeps running.
-    if not documents and load_documents is not None:
+    if documents is None and load_documents is not None:
         try:
-            documents = await load_documents()
-        except Exception:  # noqa: BLE001 — an early convenience never fails the tick
-            _log.warning("glance canonical read failed; continuing", exc_info=True)
-            documents = ()
+            loaded = await load_documents()
+            # A loader may hand back the tree alone (every pre-archive caller, and every
+            # test that passes a list) or `LoadedDocuments`, which states in the same breath
+            # whether an archive exists beside the live set it returned. The plain sequence
+            # reads as "no archive", which is what it was.
+            documents = getattr(loaded, "documents", loaded)
+            archive_active = bool(getattr(loaded, "archive_active", archive_active))
+        except Exception:  # noqa: BLE001 — every canonical failure ends the tick the same way
+            # THE TICK ENDS HERE. The read is not only the glance's input any more: the set
+            # it returns is this lane's archive pin, and a tick that continued with None
+            # would pin nothing and let every stale L3 row through — the live lane serving
+            # the archive with no card, no label and no way for the room to tell. Skipping
+            # costs one silent turn; the alternative costs the property.
+            _log.warning("live canonical read failed; skipping the tick", exc_info=True)
+            return finish(
+                token_usage=usage,
+                skipped=SKIP_CANONICAL_UNAVAILABLE,
+                dropped={SKIP_CANONICAL_UNAVAILABLE: 1},
+                intent=intent,
+                worth=plan.worth,
+                plan=plan_labels,
+                rejected=tuple(rejected),
+                asked=asked,
+            )
     glance = build_glance(
         plan.plan,
-        documents,
+        documents or (),
         trigger=intent,
         ledger=ledger,
         already_shown=already_shown,
@@ -1805,6 +1875,22 @@ async def evaluate_live_pipeline(
                 _log.warning("on_glance callback failed; continuing", exc_info=True)
 
     # ── stage 2: retrieve. Every entry of the plan, concurrently.
+    # The archive, read once for this tick — after the skip gates, so a tick that turned out
+    # to be small talk pays nothing for it.
+    view = await archive_view(user_id, content, documents_archived=archive_active)
+    #: The pages this tick can actually name. A claim the index returns for a path outside
+    #: the document set the room was handed is unshowable — a card draws its subject from
+    #: these documents — and after a move it is exactly what a lagging L3 projection returns.
+    #: None only when the tree was NEVER HANDED — a room whose caller passed neither
+    #: `documents` nor `load_documents`, which is not a room whose library has no pages. A
+    #: read that failed does not reach this line at all (it skipped the tick above). An EMPTY
+    #: list is the other case and pins to nothing — an Owner who archived every page has a
+    #: room that can name nothing.
+    live_paths: frozenset[str] | None = (
+        frozenset(doc.path for doc in documents) if documents is not None else None
+    )
+    #: Past this line the set is a sequence again — the pick faces below ask what is in it.
+    documents = () if documents is None else documents
     #: Only for the web fallback tier below — the semantic face takes the whole list.
     query = queries[0] if queries else intent
     with recorder.measure("retrieve"):
@@ -1821,6 +1907,8 @@ async def evaluate_live_pipeline(
                     lexical=lexical,
                     vectors=vectors,
                     content=content,
+                    view=view,
+                    live_paths=live_paths,
                 )
             finally:
                 recorder.record(
@@ -1859,11 +1947,18 @@ async def evaluate_live_pipeline(
                 recorder.degrade(child_name(WEB), detail)
             return answers
 
-        component, (claims, windows), web_answers = await asyncio.gather(
+        component, (claims, windows, hidden_semantic), web_answers = await asyncio.gather(
             run_paths(str(user_id), runs, question=intent, as_of=as_of),
             semantic() if embeddings is not None else _empty_face(),
             web(web_queries[0] if web_queries else ""),
         )
+    # The component face gets the same rule the semantic one does. A routed path reads its
+    # own projection and L0 and has never heard of the archive, which is precisely why the
+    # filter lives here rather than inside any component (I7, archive.md §3).
+    component, hidden_component = filter_path_results(
+        component, view, live_paths=live_paths
+    )
+    archive_hidden = hidden_semantic + hidden_component
     for row in component:
         recorder.record_path(row.path, row.elapsed_ms, detail=row.degraded)
 
@@ -1951,4 +2046,4 @@ async def evaluate_live_pipeline(
 
 
 async def _empty_face() -> tuple:
-    return (), ()
+    return (), (), 0

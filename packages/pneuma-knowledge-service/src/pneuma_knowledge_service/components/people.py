@@ -65,6 +65,32 @@ projection (`component_people_terms`, one row per term → target pair), and wha
 reported is decided there, by concentration across the whole library rather than by a count
 inside one conversation — see "the library-wide projection and its rule" below.
 
+THIS COMPONENT'S FACES READ LIVE L0 ONLY (docs/design/archive.md §4). Nothing here learns
+that the archive exists — no component does (invariant I7) — and no face takes
+`include_archived`. What the faces do is read L0 the way L0 stands: `enumerate_identities`
+is a CLOSED-WORLD enumeration and answers "who is in the library" over live sources, because
+a deep tool hands the model prose and identities that the framework's assembly filter cannot
+redact after the fact. The projection underneath keeps every source and is rebuilt from all
+of L0; the archive is a property of the read.
+
+The ADDRESS TERMS hold to the same rule, and they are the one place it costs arithmetic.
+`component_people_terms` is an ACCUMULATION — one row per (term → target) pair for the whole
+library, each indexed source adding its counts into it EXACTLY ONCE (`component_people_indexed`
+is the manifest that makes the second index job a no-op, and that idempotence is what makes
+the subtraction below exact rather than approximately right) — so unlike the time projection it
+carries no source column to join `sources.archived_at IS NULL` against, and its primary key
+is the pair, so it cannot grow one without becoming a different table. But what built it is
+addition: the archived sources' own contribution is recomputed from L0 (`term_rows`, the
+same pure function the write path uses) and SUBTRACTED at every read
+(`subtract_term_rows`) — by `library_terms` for the async faces, and out of the cache
+`prepare` fills for the sync ones. A pair the archive accounted for entirely disappears
+rather than reporting zero, so a nickname whose only conversation the Owner retired stops
+being offered by `find_person`, by the compile-face term report and by the deep tools, and
+comes back whole on unarchive. The table itself is untouched and still rebuilds from all of
+L0 (I2). The cost is the archive's and not the library's: one indexed id read per call, and
+a library with nothing archived does no work beyond it and renders every face byte-for-byte
+as it did before the archive existed.
+
 TWO VOCABULARIES, KEPT APART
 ----------------------------
 So a person is addressable two ways, and the difference matters:
@@ -91,9 +117,12 @@ other kind contributes nothing, and the enumeration itself is still computed on 
 `ContentStore.list` (O(sources), derived, never cached as truth). The address terms are the
 one thing that CANNOT be computed per query: a term's meaning is its distribution across the
 whole library, so it is projected at index time into `component_people_terms` and read back
-by the seams. Derived like everything else — `rebuild` re-derives the table from L0 alone,
-and where no store is wired (tests, keyless offline checks) the same arithmetic runs in
-memory and produces the same rows.
+by the seams. That projection is a PER-SOURCE-IDEMPOTENT accumulation: a source's counts go
+in once, however many times the at-least-once index queue delivers it, which is exactly what
+lets the archive take one source's contribution back out and be right. Derived like
+everything else — `rebuild` re-derives the table from L0 alone, clearing the manifest with
+the counts, and where no store is wired (tests, keyless offline checks) the same arithmetic
+runs in memory and produces the same rows.
 """
 
 from __future__ import annotations
@@ -101,7 +130,7 @@ from __future__ import annotations
 import logging
 import re
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
@@ -117,7 +146,7 @@ from pneuma_knowledge_core.compile.gate import Violation
 from pneuma_knowledge_core.compile.links import _MD_LINK_RE, _resolve_relative
 from pneuma_knowledge_core.compile.patch import touched_this_round
 from pneuma_knowledge_core.components import BaseComponent
-from pneuma_knowledge_core.domain.ids import UserId
+from pneuma_knowledge_core.domain.ids import SourceId, UserId
 from pneuma_knowledge_core.domain.source import NormalizedSource, RawSource
 from pneuma_knowledge_core.prompts import prompt
 from pneuma_knowledge_core.ports.canonical_store import CanonicalStore
@@ -1475,6 +1504,62 @@ def accumulate_term_rows(
     return into
 
 
+def subtract_term_rows(
+    rows: Iterable[TermSupport], deltas: Mapping[tuple[str, str], TermSupport]
+) -> list[TermSupport]:
+    """The projection minus the sources the Owner retired — `accumulate_term_rows` inverted.
+
+    WHY SUBTRACTION AND NOT A JOIN. `component_people_terms` holds one row per (term →
+    target) pair for the WHOLE library: `add_people_terms` adds each source's counts into it,
+    so the table has no source column to filter on and cannot grow one without becoming a
+    different table (its primary key IS the pair). But the arithmetic that built it is
+    addition, and addition is invertible: the archived sources' own contribution is
+    recomputed from L0 — the substrate this projection declares (I2/I7) — and taken back out
+    at the READ, exactly where `enumerate_identities` already makes the same exclusion and
+    `time_blocks_in_range` makes it in SQL. The table keeps every source and rebuilds from
+    all of L0; the archive is a property of the read (docs/design/archive.md §4).
+
+    THIS IS EXACT ONLY BECAUSE THE ACCUMULATION IS. What is recomputed here is ONE copy of a
+    source's contribution, so a source the write path had added twice would keep half of
+    itself in this result. That is why the write claims each source in
+    `component_people_indexed` before adding it: the subtraction and the addition have to
+    count the same source the same number of times, and the manifest is what makes them.
+
+    A pair whose support the archive accounted for entirely is DROPPED, not zeroed: a term
+    with no live source behind it is not a candidate with a small count, it is a term the
+    library no longer says. Counts are still clamped at zero rather than trusted: the deltas
+    are recomputed from L0 against a table written by another process, and a negative count
+    would sail through the concentration rule as a very large one — a clamp is cheaper than
+    the outage where that is discovered.
+
+    `first_day` / `last_day` are left alone. They came out of LEAST/GREATEST, which has no
+    inverse, and they are day bounds shown beside a count rather than an input to any rule.
+
+    Pure, and it COPIES: `_mirrored_terms` hands out the mirror's own mutable rows, and a
+    subtraction that edited them in place would take the archive out of the projection once
+    and then keep taking it out on every later read.
+    """
+    if not deltas:
+        return list(rows)
+    out: list[TermSupport] = []
+    for row in rows:
+        delta = deltas.get((row.term, row.target))
+        if delta is None:
+            out.append(row)
+            continue
+        kept = replace(
+            row,
+            answered=max(0, row.answered - delta.answered),
+            co_mention=max(0, row.co_mention - delta.co_mention),
+            non_vocative=max(0, row.non_vocative - delta.non_vocative),
+            sources=max(0, row.sources - delta.sources),
+        )
+        if kept.sources <= 0 or (kept.support <= 0 and kept.non_vocative <= 0):
+            continue
+        out.append(kept)
+    return out
+
+
 def is_reported(row: TermSupport, total: int) -> bool:
     """The rule itself, in one place: enough support, from more than one source, holding most
     of what the term points at — and used mostly to ADDRESS somebody rather than mid-sentence.
@@ -1961,6 +2046,15 @@ class PeopleComponent(BaseComponent):
         # afterwards by applying the same increments the store gets. Without a store it IS
         # the projection (tests, keyless offline checks).
         self._terms: dict[str, dict[tuple[str, str], TermSupport]] = {}
+        # user -> the ARCHIVED sources' own contribution to the projection above, and the
+        # archived id set it was computed from. Every read face subtracts it
+        # (`subtract_term_rows`), so a nickname whose only support the Owner retired stops
+        # being a candidate the moment the archive job lands, without the accumulating table
+        # having to grow a source column it has no room for. Empty — and recomputed as
+        # nothing, at the cost of one indexed id read — in a library with no archived source,
+        # so every face renders byte-for-byte as it did before the archive existed.
+        self._archived_terms: dict[str, dict[tuple[str, str], TermSupport]] = {}
+        self._archived_of: dict[str, frozenset[str]] = {}
         # user -> person page path -> the day that page was last WRITTEN by a committed
         # patch, read from the canonical repository's own history (`written_on`). The other
         # half of the one-time ask: a page written on or after the day a term became
@@ -2058,6 +2152,8 @@ class PeopleComponent(BaseComponent):
         nothing about who the library's sources are, so it takes nothing else with it."""
         self._terms_ready.discard(key)
         self._terms.pop(key, None)
+        self._archived_terms.pop(key, None)
+        self._archived_of.pop(key, None)
 
     async def _warm(self, user_id: UserId) -> None:
         """Fill this user's two mirrors from the store, so the sync seams see the LIBRARY
@@ -2151,10 +2247,66 @@ class PeopleComponent(BaseComponent):
         if mark is not None:
             self._watermark[key] = mark
 
+    async def _refresh_archived_terms(
+        self, user_id: UserId
+    ) -> dict[tuple[str, str], TermSupport]:
+        """What the ARCHIVED sources contribute to the term projection, recomputed from L0.
+
+        The read faces subtract this (`subtract_term_rows`). It is recomputed rather than
+        stored because it is derived from L0 like everything else here, and because the fact
+        it depends on — which sources are archived — is the Owner's and changes without this
+        component being told: an `archive` job flips `archived_at` and never runs a people
+        index.
+
+        COST IS THE ARCHIVE'S, NOT THE LIBRARY'S. One indexed id read per call; a library
+        with nothing archived stops there and every face below is untouched. When something
+        IS archived, the blocks of those sources are read once and the result is held until
+        the id set itself changes, so a library that archived a conversation last March pays
+        for it once per process.
+
+        A FAILING READ IS NOT AN EMPTY ARCHIVE. The exception propagates, the way it does in
+        `recall/archive_filter.archive_view`: a store that breaks halfway through building
+        its set must not be indistinguishable from one that has nothing to build, or the
+        component answers out of the archive and says nothing about it. Only the ABSENCE of
+        the method — a store written before the archive, an in-memory stand-in — reads as no
+        archive, and that is decided by introspection.
+        """
+        key = str(user_id)
+        reader = getattr(self._content, "archived_source_ids", None)
+        if self._content is None or reader is None or not callable(reader):
+            return {}
+        archived = frozenset(str(sid) for sid in (await reader(user_id) or ()))
+        if not archived:
+            self._archived_terms.pop(key, None)
+            self._archived_of.pop(key, None)
+            return {}
+        if self._archived_of.get(key) == archived:
+            return self._archived_terms[key]
+        aggregate: dict[tuple[str, str], TermSupport] = {}
+        for sid in sorted(archived):
+            try:
+                normalized = await self._content.get(user_id, SourceId(sid))
+            except KeyError:
+                continue
+            if normalized.raw.kind not in ADDRESS_KINDS:
+                continue
+            accumulate_term_rows(aggregate, term_rows(normalized))
+        self._archived_of[key] = archived
+        self._archived_terms[key] = aggregate
+        return aggregate
+
     async def _warm_terms(self, key: str, user_id: UserId) -> None:
         """The address-term projection, read whole. With no table wired there is nothing to
         read and the in-process aggregate IS the projection (tests, keyless offline checks),
-        which is ready by construction."""
+        which is ready by construction.
+
+        The archived sources' contribution is refreshed here too, and BEFORE the early return
+        above it, because the sync seams read it out of this cache: they cannot await, so the
+        one async announcement the framework makes per job (`prepare` → `_warm`) is where the
+        fact has to be picked up. It is refreshed with the counts and not with the boundary
+        because it is a fact about the counts.
+        """
+        await self._refresh_archived_terms(user_id)
         if not self._persists():
             return
         rows = await self._content.people_terms(user_id)
@@ -2253,13 +2405,20 @@ class PeopleComponent(BaseComponent):
         await self._warm(UserId(user_id))
 
     async def on_source_indexed(self, user_id: str, source: NormalizedSource) -> None:
-        """One source finished L1/L2 → add its (term → target) counts to the projection.
+        """One source finished L1/L2 → add its (term → target) counts to the projection, ONCE.
 
         ADDS, never replaces: what a term means is its distribution across the library, and a
         row that only ever held the last source's counts would answer a different question.
-        The cost of that choice is that re-indexing one source without a rebuild counts it
-        twice — acceptable because the rows are derived (I2) and `rebuild` re-derives them
-        exactly, and visible because `sources` would then exceed the library's source count.
+
+        And exactly once per source, because the index queue is at-least-once — a worker
+        killed mid-job, a job the queue self-heals on restart — while an addition applied
+        twice cannot be taken back out. The archive subtracts ONE copy of a source's
+        contribution, recomputed from L0 (`subtract_term_rows`), so a doubled source would
+        leave half of itself behind and a nickname the Owner retired would stay visible in
+        the faces that exist to stop showing it. `add_people_terms` claims the source in the
+        manifest in the same transaction as the counts and reports whether this call was the
+        one that added them; when it was not, nothing else here runs either — not the
+        process mirror, which reads that table, and not the `reported_since` stamps.
         """
         uid = UserId(user_id)
         rows = term_rows(source)
@@ -2267,7 +2426,15 @@ class PeopleComponent(BaseComponent):
             return
         await self._warm(uid)
         if self._persists():
-            await self._content.add_people_terms(uid, rows)
+            added = await self._content.add_people_terms(
+                uid, str(source.raw.source_id), rows
+            )
+            if not added:
+                _log.debug(
+                    "people: source %s is already in the term projection — not added again",
+                    source.raw.source_id,
+                )
+                return
         mirror = self._terms.setdefault(str(uid), {})
         accumulate_term_rows(mirror, rows)
         # …and the pairs this source pushed over the reporting bar are stamped with ITS day,
@@ -2281,8 +2448,10 @@ class PeopleComponent(BaseComponent):
             )
 
     async def rebuild(self, user_id: str) -> None:
-        """Re-derive this user's whole address-term projection from L0. The one operation
-        that makes the accumulating write path safe: it starts from nothing.
+        """Re-derive this user's whole address-term projection from L0 — it starts from
+        nothing, counts and accumulated-source manifest alike (`delete_people_terms` drops
+        both in one transaction, and it must: a replay that found every source still claimed
+        would add nothing and leave the library projected as empty).
 
         Everything this component stores is derived and this re-derives all of it (I7), and
         that includes the `reported_since` stamps the one-time ask runs on: the sources are
@@ -2337,7 +2506,7 @@ class PeopleComponent(BaseComponent):
             if not rows:
                 continue
             if self._persists():
-                await self._content.add_people_terms(uid, rows)
+                await self._content.add_people_terms(uid, str(raw.source_id), rows)
             accumulate_term_rows(self._terms[key], rows)
             day = raw.occurred_on()[:10]
             for pair in stamp_reported_since(self._terms[key], day):
@@ -2377,7 +2546,13 @@ class PeopleComponent(BaseComponent):
                 "before a sync seam; the library-wide terms will be absent from it",
                 key,
             )
-        return list(self._terms.get(key, {}).values())
+        # Net of the archive, from the cache `_warm_terms` filled: a sync seam cannot await
+        # the read, and a compile-face term report that still named a nickname whose only
+        # conversation the Owner retired would ask the model to bind a name the library has
+        # stopped saying.
+        return subtract_term_rows(
+            self._terms.get(key, {}).values(), self._archived_terms.get(key, {})
+        )
 
     async def library_terms(self, user_id: UserId) -> list[TermSupport]:
         """The projection for the async seams: from the store when one is wired (no per-call
@@ -2385,15 +2560,33 @@ class PeopleComponent(BaseComponent):
         — an on-demand scan over L0, which is what this component did before it had a table.
         """
         if self._persists():
-            return [term_support_from_row(r) for r in await self._content.people_terms(user_id)]
+            # Refreshed here rather than trusted to `prepare`: this is the ASYNC face, and
+            # its callers include a deep tool and a fast-path lookup that never announced a
+            # job. One indexed id read, and nothing at all once the answer is "no archive".
+            deltas = await self._refresh_archived_terms(user_id)
+            return subtract_term_rows(
+                (
+                    term_support_from_row(r)
+                    for r in await self._content.people_terms(user_id)
+                ),
+                deltas,
+            )
         cached = self._mirrored_terms(user_id)
-        if cached:
+        if cached or self._terms.get(str(user_id)):
+            # `cached` is already net of the archive; the second half of the test is what
+            # keeps a mirror the archive emptied from being read as a mirror nobody filled.
             return cached
         if self._content is None:
             return []
+        # The on-demand scan: no table and nothing indexed in-process. Here the archive needs
+        # no arithmetic at all — the aggregate is being built from L0 right now, so the
+        # retired sources are simply not folded in. Same exclusion `enumerate_identities`
+        # makes over the same listing (docs/design/archive.md §4).
         aggregate: dict[tuple[str, str], TermSupport] = {}
         for raw in await self._content.list(user_id):
             if raw.kind not in ADDRESS_KINDS:
+                continue
+            if getattr(raw, "archived_at", None) is not None:
                 continue
             accumulate_term_rows(
                 aggregate, term_rows(await self._content.get(user_id, raw.source_id))
@@ -3354,7 +3547,17 @@ class PeopleComponent(BaseComponent):
     ) -> str:
         if self._content is None:
             return "enumerate_identities unavailable: no content store wired."
-        sources = await self._content.list(user_id)
+        # LIVE L0 only. `ContentStore.list` is the authority's own enumeration and hides
+        # nothing (invariant I3), so the filter is the READER's — and this reader is a deep
+        # tool that hands the model identities and the sources they were seen in, which the
+        # framework's assembly filter cannot redact out of prose. A closed-world enumeration
+        # over material the Owner retired would answer "who is in the library" with the
+        # past. See docs/design/archive.md §4.
+        sources = [
+            raw
+            for raw in await self._content.list(user_id)
+            if getattr(raw, "archived_at", None) is None
+        ]
         summaries = summarize_identities(sources, since=since, until=until)
         terms = await self._address_terms(user_id)
         bound: dict[str, str] = {}
@@ -4137,6 +4340,7 @@ __all__ = [
     "PeopleComponent",
     "TermSupport",
     "accumulate_term_rows",
+    "subtract_term_rows",
     "CoSpeaking",
     "address_evidence",
     "address_terms_by_target",
