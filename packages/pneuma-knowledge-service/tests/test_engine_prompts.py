@@ -184,7 +184,9 @@ async def test_an_assembled_surface_still_carries_the_bytes_the_model_receives(t
     fragments = [s for s in body["surfaces"] if s["kind"] == "fragments"]
     # +1: the supplementary web search's own instruction — a third model, so a family of
     # its own rather than a section of the two-call pipeline input.
-    assert len(fragments) == 32
+    # +1: the ARCHIVE RECORD channel — the page a retired subject leaves at its live path,
+    # and the gate that judges it. No model writes there; a person reads it.
+    assert len(fragments) == 33
 
 
 async def test_a_template_preview_carries_the_banner_that_stops_it_reading_as_the_message(
@@ -726,3 +728,19 @@ def test_the_gate_is_exactly_the_core_seams_startup_check_plus_the_missing_half(
             "prompts/overlays.yaml",
             {"gate.claim_without_provenance": "no provenance on c:{anchor}."},
         )
+
+
+def test_an_engine_file_naming_a_renamed_catalog_key_is_read_as_the_current_one():
+    """The overlay file is written by a person and outlives a catalog rename.
+
+    `parse_overlays` translates a retired spelling through the same map the startup seam
+    uses (`prompts.LEGACY_PROMPT_KEYS`), so a directory written before the rename keeps
+    applying and the console never calls it broken for naming a surface the framework
+    itself renamed underneath it.
+    """
+    from pneuma_knowledge_core.prompts import LEGACY_PROMPT_KEYS
+    from pneuma_knowledge_service.engine.files import parse_overlays
+
+    old, new = next(iter(sorted(LEGACY_PROMPT_KEYS.items())))
+    parsed = parse_overlays("prompts/overlays.yaml", {"overlays": {old: "replacement."}})
+    assert parsed == {new: "replacement."}

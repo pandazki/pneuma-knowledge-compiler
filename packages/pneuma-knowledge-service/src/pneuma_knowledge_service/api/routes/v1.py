@@ -26,6 +26,7 @@ from typing import Any, Literal
 from urllib.parse import quote
 
 from pneuma_knowledge_core.components import registered_components
+from pneuma_knowledge_core.domain.archive import any_archived, live_documents
 from pneuma_knowledge_core.domain.consultation import ConsultationRecord, EvidenceRef
 from pneuma_knowledge_core.domain.ids import UserId, SourceId
 from pneuma_knowledge_core.domain.intake import INTAKE_ARCHETYPES, IntakeArchetype
@@ -36,6 +37,7 @@ from pneuma_knowledge_core.ingest.source_contracts import SourceContract
 from pneuma_knowledge_core.domain.user import INDUSTRIES, LEVELS, ROLES, UserProfile
 from pneuma_knowledge_core.persona import synthesize_profile_draft
 from pneuma_knowledge_core.prompts import prompt
+from pneuma_knowledge_core.recall.archive_filter import ARCHIVED_LABEL
 from pneuma_knowledge_core.recall.briefing import (
     DEFAULT_TOOL_NAMES,
     Briefing,
@@ -65,6 +67,7 @@ from pydantic import BaseModel, Field, RootModel
 
 from ... import kb_snapshots
 from ...access_stats import access_stats, top_misses, top_targets
+from ...archive_service import ArchiveRequestError
 from ...adapters.user_info_mock import _synthesize
 from ...dataset import build_dataset
 from ...ingest import ingest_conversation
@@ -268,6 +271,11 @@ class SourceOut(BaseModel):
     block_count: int
     # M3b: null = not yet compiled into canonical; set once the worker digests it.
     digested_at: str | None = None
+    # The archive mark on L0 (docs/design/archive.md §2.2). Present on EVERY row, including
+    # the ones a default listing returns, so a reader can label what it shows without a
+    # second call; null = live. The listing itself excludes the archive unless the call says
+    # `include_archived`.
+    archived_at: str | None = None
 
 
 class PageMetaOut(BaseModel):
@@ -335,6 +343,9 @@ class SourceDetailOut(BaseModel):
     title: str
     mime: str
     created_at: str
+    # L0 reachability is unconditional (I3): an archived source still answers here, in full,
+    # and says so.
+    archived_at: str | None = None
     meta: dict[str, Any]
     intake_plan: dict[str, Any] | None
     structure: dict[str, Any]
@@ -391,6 +402,13 @@ class RecallIn(BaseModel):
             "when their original modality is omitted."
         ),
     )
+    # The ARCHIVE (docs/design/archive.md §4). Off by default and that default is the point:
+    # a document under `archive/` or a source with `archived_at` is one the owner moved out
+    # of the answering set. On, every face admits it and labels what it shows — an archived
+    # claim carries the `archived` label, an archived excerpt carries the marker on its
+    # provenance line — so the archive is never presented as the present. rag has no answer
+    # to label, so there the flag is simply the two index filters.
+    include_archived: bool = False
 
 
 class SnapshotScopeOut(BaseModel):
@@ -409,6 +427,10 @@ class RecallHitOut(BaseModel):
     text: str
     paths: list[str]
     score: float
+    # Whether this excerpt's source is in the archive. Only ever true on an
+    # `include_archived` call — the label the prompt carries, put on the wire so a reader of
+    # the answer can see which excerpt is history (docs/design/archive.md §4).
+    archived: bool = False
 
 
 class UsedClaimOut(BaseModel):
@@ -424,6 +446,16 @@ class UsedClaimOut(BaseModel):
     # returned — corroboration shown where the claim already is, instead of a second copy
     # in the component face.
     labels: list[str] = Field(default_factory=list)
+    # Whether this claim's page is in the archive — the `archived` label, restated as the
+    # field its two sibling faces already carry (`RecallHitOut.archived`,
+    # `EpisodeSummaryOut.archived`). Derived from the label and never computed here: the
+    # assembly filter is the one authority on what is archived (core
+    # `recall/archive_filter.mark_archived_claims`), and reading the `archive/` prefix off
+    # `document_path` a second time would be a second implementation of it. Only ever true
+    # on an `include_archived` call. It is restated rather than left to `labels` because a
+    # client reading three evidence faces had to special-case this one to find the same
+    # fact (docs/design/archive.md §4).
+    archived: bool = False
 
 
 class ComponentEvidenceOut(BaseModel):
@@ -539,6 +571,12 @@ class EpisodeSummaryOut(BaseModel):
     # as source text, even if it ignores the field name or surrounding UI copy.
     derived: Literal[True] = True
     verbatim: Literal[False] = False
+    #: Whether the source this was compressed out of is in the archive. Only ever true for a
+    #: call that asked (`include_archived`), and it must reach the wire: the prompt already
+    #: marks it (`recall.passage_in_archive`), so a client that showed the same entry
+    #: unlabelled would present history as the present in the one face that paraphrases it.
+    #: Default False, so a client and a fixture written before the archive read unchanged.
+    archived: bool = False
 
 
 class CostOut(BaseModel):
@@ -623,6 +661,9 @@ class RecallAnswerOut(BaseModel):
     deliberation: str | None = None
     # The frozen snapshot this answer was scoped to, or null for the live base.
     snapshot: SnapshotScopeOut | None = None
+    #: The request's archive scope, echoed beside `snapshot` and for the same reason: which
+    #: plane answered is never left to be inferred from the result.
+    include_archived: bool = False
     # Query-local original-media delivery telemetry, kept generic so adding audio/video does
     # not change the public tool shape.
     included_original_modalities: list[Literal["image"]] = Field(default_factory=list)
@@ -644,6 +685,9 @@ class RagRecallOut(BaseModel):
 
     mode: Literal["rag"] = "rag"
     hits: list[RecallHitOut]
+    #: The request's archive scope, echoed the way `snapshot` is on the answering lanes: a
+    #: client must never have to infer from an empty result whether the archive was in play.
+    include_archived: bool = False
     #: `RAG_STAGE_ORDER`, complete — see `StageTimingOut`. A stage that did not run (an
     #: `embed` a caller supplied the vector for) is present and marked `skipped`.
     stages: list[StageTimingOut] = Field(default_factory=list)
@@ -657,10 +701,12 @@ def _recall_hit_out(h: Any) -> RecallHitOut:
         text=h.text,
         paths=list(h.paths),
         score=h.score,
+        archived=bool(getattr(h, "archived", False)),
     )
 
 
 def _used_claim_out(c: Any) -> UsedClaimOut:
+    labels = list(getattr(c, "labels", ()) or ())
     return UsedClaimOut(
         anchor=str(c.anchor),
         document_path=c.document_path,
@@ -676,7 +722,8 @@ def _used_claim_out(c: Any) -> UsedClaimOut:
         ],
         paths=list(c.paths),
         score=c.score,
-        labels=list(getattr(c, "labels", ()) or ()),
+        labels=labels,
+        archived=ARCHIVED_LABEL in labels,
     )
 
 
@@ -749,6 +796,7 @@ def _episode_summary_out(summary: Any) -> EpisodeSummaryOut:
         source_title=summary.source_title,
         source_occurred_on=summary.source_occurred_on,
         section_path=list(summary.section_path),
+        archived=bool(getattr(summary, "archived", False)),
     )
 
 
@@ -1018,11 +1066,19 @@ async def list_sources(
     cursor: str | None = None,
     query: str | None = Query(default=None, max_length=200),
     kind: str | None = Query(default=None, max_length=80),
+    # The archive is excluded by default and the exception is stated
+    # (docs/design/archive.md §4). It binds the cursor like every other filter: a page
+    # continued with a different answer would be a page of a different catalogue.
+    include_archived: bool = Query(default=False),
 ) -> SourcePageOut:
     ctx = _ctx(request)
     user = UserId(user_id)
     normalized_query = query.strip() if query and query.strip() else None
-    filters = {"query": normalized_query, "kind": kind}
+    filters = {
+        "query": normalized_query,
+        "kind": kind,
+        "include_archived": include_archived,
+    }
     before: tuple[datetime, str] | None = None
     if cursor:
         try:
@@ -1045,6 +1101,7 @@ async def list_sources(
         before=before,
         query=normalized_query,
         kind=kind,
+        include_archived=include_archived,
     )
     source_ids = [str(raw.source_id) for raw in raws]
     counts = await ctx.store.block_counts(user, source_ids)
@@ -1061,6 +1118,7 @@ async def list_sources(
             intake_plan=r.intake_plan,
             block_count=counts.get(str(r.source_id), 0),
             digested_at=digested.get(str(r.source_id)),
+            archived_at=r.archived_at.isoformat() if r.archived_at else None,
         )
         for r in raws
     ]
@@ -1124,6 +1182,7 @@ async def get_source(user_id: str, source_id: str, request: Request) -> SourceDe
         title=raw.title,
         mime=raw.mime,
         created_at=raw.created_at.isoformat(),
+        archived_at=raw.archived_at.isoformat() if raw.archived_at else None,
         meta=raw.meta,
         intake_plan=raw.intake_plan,
         structure=ns.structure.model_dump(),
@@ -1204,26 +1263,97 @@ async def fetch_source(
     return {"text": text}
 
 
-async def _glance_inputs(ctx, user: UserId, at: SnapshotRef | None = None) -> dict:
+class CanonicalUnavailable(ArchiveRequestError):
+    """The answering library could not be READ, so no lane may answer over it. 503.
+
+    A subclass of the archive's own refusal type because that is exactly what this is: the
+    archive pin failing closed. `archive_filter._off_pin` admits an index claim only while
+    the lane's own document set still holds its page — that is what drops a stale L3 row
+    still carrying a moved page's OLD live path, in the window between an archive commit and
+    the projection sync, and indefinitely if that sync failed. A lane handed no set pins
+    nothing and admits every one of them. So when the canonical read fails there is no
+    degraded answer to give: the lane would answer out of the archive with nothing in the
+    response to say so, which is the one outcome the whole filter exists to prevent, and
+    "fail the lane rather than answer out of the archive" is the design's own rule
+    (docs/design/archive.md §3).
+
+    Raised in one place (`_glance_inputs`) and mapped in one place — the `ArchiveRequestError`
+    handler in `api/app.py`, which answers `{"detail": …, "code": …}` — so no route has to
+    remember to catch it and a route written later inherits the refusal.
+    """
+
+    def __init__(self, cause: BaseException) -> None:
+        super().__init__(
+            503, "canonical_unavailable", f"canonical library unavailable: {cause}"
+        )
+
+
+async def _glance_inputs(
+    ctx,
+    user: UserId,
+    at: SnapshotRef | None = None,
+    *,
+    include_archived: bool = False,
+) -> dict:
     """The canonical layout inputs the recall lanes render their glance from.
 
     Three reads the answering side needs and never had: the documents at the answering
     snapshot (the shape), the composed skill (its declared families), and the raw packs (each
-    family's one-line "what this collects"). Never fatal — the glance is context, so a failure
-    to load it degrades to today's retrieval-only prompt rather than a 500.
+    family's one-line "what this collects").
+
+    THE ARCHIVE IS DECIDED HERE, once, for every lane. `documents` is not only the glance's
+    input — it is what deep's `list_documents` / `read_document` walk, what the timeline
+    expansion re-projects, what a component path is handed, and what pins the assembly
+    filter — so filtering at the source is what makes the default hold across all of them
+    rather than at each of their doors. An `include_archived` call gets the whole tree and
+    the lanes label what they show.
+
+    TWO FAILURES, AND ONLY ONE OF THEM IS SOFT. The skill and the packs are decoration on a
+    real document list: losing them degrades the glance to today's retrieval-only prompt,
+    and the documents still go to the lane. THE CANONICAL READ IS THE BOUNDARY. It stopped
+    being advisory the moment the document set became the archive pin, so a failure raises
+    (`CanonicalUnavailable` → `503 canonical_unavailable`) rather than returning `{}` — the
+    shape that hands the lane no `documents` keyword, pins nothing, and admits every stale
+    L3 row still naming a page the Owner moved.
+
+    SO THIS RETURNS AN EMPTY LIST AND NEVER OMITS ONE. A library whose every page the Owner
+    archived is an answering set with no page in it: the lane pins to it, drops every index
+    claim, and answers "nothing" — which is the truth (core `recall/archive_filter._off_pin`).
+    The answering lanes are ALWAYS handed a set; the alternative is a refusal, never silence.
+
+    AND IT REPORTS WHETHER THERE IS AN ARCHIVE AT ALL. This is the one read that sees the
+    FULL tree, so it is the only place the fact can be established: the live set a lane is
+    handed looks exactly the same whether or not an archive stands beside it. `archive_active`
+    rides to the lane beside `documents` and is what turns the assembly filter's pin on — with
+    nothing ever archived the filter is inert and every lane answers byte-for-byte as it did
+    before the archive existed (core `recall/archive_filter._pin`).
     """
     try:
         documents = await ctx.canonical.list(user, at=at)
-    except Exception:  # noqa: BLE001 — the glance is advisory context, never blocks recall
-        return {}
-    if not documents:
+    except Exception as exc:  # noqa: BLE001 — one refusal for every way the read can fail
+        raise CanonicalUnavailable(exc) from exc
+    # Read BEFORE the filter below, which is the only order that can answer the question:
+    # after it, an archived document is exactly the one thing that is gone.
+    archive_active = any_archived(documents)
+    if not include_archived:
+        documents = live_documents(documents)
+    if not documents and not archive_active:
+        # An EMPTY library with no archive is the one pre-archive shape kept verbatim: the
+        # lane gets no `documents` keyword and renders no glance, byte-for-byte as before the
+        # archive existed (the owner's rule — nothing archived, nothing different). With an
+        # archive beside it the empty live set IS handed over, because the pin needs it.
         return {}
     try:
         skill = await skill_for_user(ctx, user)
         packs = await packs_for_user(ctx, user)
     except Exception:  # noqa: BLE001 — families/blurbs are decoration on a real document list
         skill, packs = None, []
-    return {"documents": documents, "skill": skill, "packs": packs}
+    return {
+        "documents": documents,
+        "skill": skill,
+        "packs": packs,
+        "archive_active": archive_active,
+    }
 
 
 @dataclass(frozen=True)
@@ -1477,6 +1607,11 @@ async def _fast_recall_kwargs(
         # the lane must cost nothing extra at all (not even a profile read), and `zone`
         # is consumed by that turn alone.
         zone=(await _subject_zone(ctx, plane.owner)) if component_paths else "UTC",
+        # The archive scope the caller asked for. It has to reach the LANE and not only
+        # `_glance_inputs`: the documents are one half of the exclusion, the index filters
+        # and the assembly filter are the other, and half of it would show an archived claim
+        # under a glance that does not list its page.
+        include_archived=body.include_archived,
         **glance_inputs,
         **llm_call_config(
             ctx,
@@ -1491,7 +1626,12 @@ async def _fast_recall_kwargs(
 
 
 def _fast_answer_out(
-    fa: Any, *, as_of: datetime, plane: ReadPlane, settings: Any = None
+    fa: Any,
+    *,
+    as_of: datetime,
+    plane: ReadPlane,
+    settings: Any = None,
+    include_archived: bool = False,
 ) -> RecallAnswerOut:
     return RecallAnswerOut(
         mode="fast",
@@ -1530,6 +1670,7 @@ def _fast_answer_out(
         answer_format_degraded=fa.answer_format_degraded,
         deliberation=getattr(fa, "deliberation", None),
         snapshot=_snapshot_out(plane.snapshot),
+        include_archived=include_archived,
         token_usage=fa.token_usage,
         **_original_modality_telemetry(fa),
     )
@@ -1559,6 +1700,9 @@ async def _deep_recall_kwargs(
         profile=await _render_profile(ctx, plane.owner),
         scope=plane.scope,
         answer_style=body.answer_style or ctx.settings.recall_answer_style,
+        # Same reason as the fast lane's, plus one of deep's own: the flag also decides what
+        # `list_documents` lists and how `read_document` answers an archived path.
+        include_archived=body.include_archived,
         **glance_inputs,
         **llm_call_config(
             ctx,
@@ -1573,7 +1717,12 @@ async def _deep_recall_kwargs(
 
 
 def _deep_answer_out(
-    da: Any, *, as_of: datetime, plane: ReadPlane, settings: Any = None
+    da: Any,
+    *,
+    as_of: datetime,
+    plane: ReadPlane,
+    settings: Any = None,
+    include_archived: bool = False,
 ) -> RecallAnswerOut:
     return RecallAnswerOut(
         mode="deep",
@@ -1588,6 +1737,7 @@ def _deep_answer_out(
         glance_chars=da.glance_chars,
         documents_read=list(da.read_documents),
         snapshot=_snapshot_out(plane.snapshot),
+        include_archived=include_archived,
         token_usage=da.token_usage,
         **_original_modality_telemetry(da),
     )
@@ -1659,10 +1809,20 @@ async def _rag_out(
         embeddings=ctx.embeddings,
         limit=body.limit,
         stages=timer,
+        include_archived=body.include_archived,
+        # The L0 store, so this lane gets the SECOND half of the archive rule the other three
+        # have: the index filters propose, and `archive_filter` disposes at assembly. Without
+        # it the property rested on a payload flag in two backends — a `set_payload` that
+        # failed, an index built before the field existed — and a default answer would leak
+        # the archive with nothing in the response to say so. It is also what stamps
+        # `RecallHit.archived` on the opt-in path, which is how the echo below and the hit
+        # list agree about which of the two lists the client is holding.
+        content=ctx.store,
     )
     return RagRecallOut(
         hits=[_recall_hit_out(h) for h in hits],
         stages=[_stage_timing_out(st) for st in timer.emit()],
+        include_archived=body.include_archived,
     )
 
 
@@ -1686,7 +1846,13 @@ async def recall(
         if plane.snapshot
         else (await _resolve_snapshot(ctx, user, None) or None)
     )
-    glance_inputs = await _glance_inputs(ctx, plane.owner, plane.canonical_at)
+    # A failed canonical read raises `CanonicalUnavailable` and this route ends in a
+    # `503 canonical_unavailable` — no try/except here on purpose, because a refusal a route
+    # has to remember to raise is a refusal the next route forgets. Answering without the
+    # document set is not a degraded answer; it is an unpinned one (see `_glance_inputs`).
+    glance_inputs = await _glance_inputs(
+        ctx, plane.owner, plane.canonical_at, include_archived=body.include_archived
+    )
 
     library_ref = _library_ref(plane, snapshot_ref)
 
@@ -1718,7 +1884,13 @@ async def recall(
                 library_ref=library_ref,
             ),
         )
-        return _fast_answer_out(fa, as_of=as_of, plane=plane, settings=ctx.settings)
+        return _fast_answer_out(
+            fa,
+            as_of=as_of,
+            plane=plane,
+            settings=ctx.settings,
+            include_archived=body.include_archived,
+        )
 
     da = await deep_recall(
         plane.retrieval_user,
@@ -1747,7 +1919,13 @@ async def recall(
             library_ref=library_ref,
         ),
     )
-    return _deep_answer_out(da, as_of=as_of, plane=plane, settings=ctx.settings)
+    return _deep_answer_out(
+        da,
+        as_of=as_of,
+        plane=plane,
+        settings=ctx.settings,
+        include_archived=body.include_archived,
+    )
 
 
 async def _rag_stream(
@@ -1811,7 +1989,14 @@ async def recall_stream(user_id: str, body: RecallIn, request: Request) -> Strea
         if plane.snapshot
         else (await _resolve_snapshot(ctx, user, None) or None)
     )
-    glance_inputs = await _glance_inputs(ctx, plane.owner, plane.canonical_at)
+    # Read BEFORE the response opens, which is what lets an unreadable library be a status
+    # code here too: `CanonicalUnavailable` leaves this route as `503 canonical_unavailable`,
+    # exactly as the plain POST answers it, rather than as an `error` frame narrated over a
+    # 200 that has already been sent. (A failure from anywhere below this line still becomes
+    # the `error` frame — see `produce`.)
+    glance_inputs = await _glance_inputs(
+        ctx, plane.owner, plane.canonical_at, include_archived=body.include_archived
+    )
     fast = body.mode == "fast"
     lane_kwargs = await (
         _fast_recall_kwargs if fast else _deep_recall_kwargs
@@ -1835,7 +2020,11 @@ async def recall_stream(user_id: str, body: RecallIn, request: Request) -> Strea
                     plane.retrieval_user, body.query, **lane_kwargs, **sinks
                 )
                 answer = _fast_answer_out(
-                    lane_answer, as_of=as_of, plane=plane, settings=ctx.settings
+                    lane_answer,
+                    as_of=as_of,
+                    plane=plane,
+                    settings=ctx.settings,
+                    include_archived=body.include_archived,
                 )
                 build = consultation_from_fast
             else:
@@ -1849,7 +2038,11 @@ async def recall_stream(user_id: str, body: RecallIn, request: Request) -> Strea
                     **sinks,
                 )
                 answer = _deep_answer_out(
-                    lane_answer, as_of=as_of, plane=plane, settings=ctx.settings
+                    lane_answer,
+                    as_of=as_of,
+                    plane=plane,
+                    settings=ctx.settings,
+                    include_archived=body.include_archived,
                 )
                 build = consultation_from_deep
             # The terminal frame waits on NOTHING. `_spawn_recording` returns as soon as
@@ -2879,6 +3072,10 @@ class BriefingBuildIn(BaseModel):
     # `BriefingScope` raises a layer down — the same refusal, said where the caller typed it.
     budget_chars: int = Field(24_000, gt=0)
     snapshot: str | None = None  # snapshot ref; null = current HEAD (frozen into briefing)
+    # The ARCHIVE (docs/design/archive.md §4). It is stored in the pack's SCOPE rather than
+    # asked per question, because a briefing is built once and asked over many times: the
+    # choice made here is the choice every `ask` over this pack inherits.
+    include_archived: bool = False
 
 
 class BriefingOut(BaseModel):
@@ -2958,16 +3155,38 @@ async def _build_and_store_briefing(
     resolved = await _resolve_snapshot(ctx, user, body.snapshot)
     snapshot_ref = SnapshotRef(ref=resolved) if resolved else SnapshotRef(ref="")
     at = SnapshotRef(ref=body.snapshot) if body.snapshot else None
-    snapshot_docs = await ctx.canonical.list(user, at=at)
+    try:
+        snapshot_docs = await ctx.canonical.list(user, at=at)
+    except Exception as exc:  # noqa: BLE001 — same refusal the answering lanes make
+        # A pack IS its document set: the glance, the materials cards and the citation
+        # reverse lookup all read it, and the `ask` that follows admits citations against
+        # what it holds. Built over an unreadable library it would be a pack with no pin,
+        # stored, and asked over for as long as it lives.
+        raise CanonicalUnavailable(exc) from exc
 
     scope = BriefingScope(
         query=body.query,
         source_ids=[SourceId(s) for s in body.source_ids],
         budget_chars=body.budget_chars,
+        include_archived=body.include_archived,
     )
+    # Read off the FULL snapshot, before the filter below removes the only evidence of it:
+    # this is the set the pack pins to, so this is the set that has to say whether an archive
+    # stands beside it. With nothing archived the pack is assembled byte-for-byte as it was
+    # before the archive existed (core `recall/archive_filter._pin`).
+    archive_active = any_archived(snapshot_docs)
+    if not body.include_archived:
+        # The pack's own document set, filtered at the source like every lane's: it feeds the
+        # glance, the materials cards and the citation reverse lookup, so one filter here is
+        # what keeps all three out of the archive.
+        snapshot_docs = live_documents(snapshot_docs)
     # The glance's families/blurbs: same seam the fast and deep lanes use, minus the documents
     # (the briefing already loaded its own snapshot-pinned set above).
-    layout = await _glance_inputs(ctx, user, at)
+    # Raises `CanonicalUnavailable` for the same reason and to the same 503; the streamed
+    # build, which runs this inside its producer, reports it as the `error` frame instead.
+    layout = await _glance_inputs(
+        ctx, user, at, include_archived=body.include_archived
+    )
     briefing = await build_briefing(
         user,
         scope,
@@ -2981,6 +3200,7 @@ async def _build_and_store_briefing(
         vectors=ctx.vectors,
         skill=layout.get("skill"),
         packs=layout.get("packs") or (),
+        archive_active=archive_active,
         on_event=on_event,
     )
     briefing_id = uuid.uuid4().hex
@@ -2992,6 +3212,11 @@ async def _build_and_store_briefing(
             "query": body.query,
             "source_ids": body.source_ids,
             "budget_chars": body.budget_chars,
+            # Stored with the scope so the ask can inherit it: a pack built over live
+            # knowledge whose ask then searched the archive would answer half out of the
+            # present and half out of the past. A row written before this key existed reads
+            # back as False, which is what such a pack was.
+            "include_archived": body.include_archived,
         },
         resolved,
         briefing.system_prefix,
@@ -3122,6 +3347,10 @@ async def _ask_over_briefing(
         system_prefix=row["system_prefix"],
         tool_names=DEFAULT_TOOL_NAMES,
         source_ids=source_ids,
+        # The archive scope the pack was BUILT under, read back off the stored scope. A row
+        # written before the key existed reads back False, which is exactly what that pack
+        # was built as.
+        include_archived=bool(scope.get("include_archived") or False),
         # What the pack showed, as the BUILD recorded it. A briefing stored before the
         # column existed carries none, and this ask then admits no citation against the
         # pack — the honest reading of a pack whose evidence nobody wrote down, and not

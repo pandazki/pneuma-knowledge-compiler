@@ -59,6 +59,7 @@ from langchain_core.tools import StructuredTool
 from ..canonical_glance import render_canonical_glance
 from ..compile.documents import render_document
 from ..components import declared_tool_evidence, registered_components
+from ..domain.archive import ArchiveView, is_archived_path, live_documents
 from ..domain.canonical import CanonicalDocument
 from ..domain.consultation import EvidenceRef
 from ..domain.ids import UserId, SourceId
@@ -69,6 +70,7 @@ from ..ports.media_store import MediaStore
 from ..ports.vector_index import VectorIndex
 from ..prompts import prompt
 from .agentic import AgentTimings, TokenSink, run_agent_loop, timed_tools
+from .archive_filter import archive_view, scope_claims, scope_windows
 from .scope import SnapshotScope, out_of_scope_source, scope_declaration
 from .spine import (
     CITE_PRECISE,
@@ -219,7 +221,17 @@ def _search_claims_tool(
     embeddings,  # langchain_core.embeddings.Embeddings
     found: list[RetrievedClaim],
     trail: list[dict],
+    view: ArchiveView | None = None,
+    include_archived: bool = False,
+    live_paths: frozenset[str] | None = None,
 ) -> StructuredTool:
+    """`search_claims(query)` — the L3 face, re-searchable mid-loop.
+
+    It carries the lane's archive scope for the same reason the seed does: the loop can
+    re-retrieve at any point, and a filter that applied only to the seed would let the second
+    round put back exactly what the first excluded. `live_paths` rides along for the same
+    reason: a stale L3 row is stale in round three as much as in the seed."""
+
     async def search_claims(query: str) -> str:
         """Re-search the claim notes; see `recall.deep.tool.search_claims_doc`."""
         claims = await retrieve_claims(
@@ -229,6 +241,13 @@ def _search_claims_tool(
             claim_vectors=claim_vectors,
             embeddings=embeddings,
             limit=_SEARCH_CLAIM_CAP,
+            include_archived=include_archived,
+        )
+        claims, hidden = scope_claims(
+            claims,
+            view or ArchiveView.empty(),
+            include_archived=include_archived,
+            live_paths=live_paths,
         )
         found.extend(claims)
         out = (
@@ -238,6 +257,7 @@ def _search_claims_tool(
         )
         trail.append(
             {"tool": "search_claims", "query": query, "hits": len(claims),
+             **({"archive_hidden": hidden} if hidden else {}),
              "result": _trail_preview(out)}
         )
         return out
@@ -258,7 +278,15 @@ def _search_content_tool(
     content: ContentStore | None,
     found: list,
     trail: list[dict],
+    view: ArchiveView | None = None,
+    include_archived: bool = False,
 ) -> StructuredTool:
+    """`search_content(query)` — the L1/L2 face, re-searchable mid-loop.
+
+    Carries the lane's archive scope for the same reason `search_claims` does. The filter
+    runs AFTER assembly, because `expand_and_merge` builds new passages out of the raw hits
+    and a marker stamped on a hit would not survive into what the model reads."""
+
     async def search_content(query: str) -> str:
         """Search raw fragments; see `recall.deep.tool.search_content_doc`."""
         hits = await retrieve_windows(
@@ -268,9 +296,13 @@ def _search_content_tool(
             vectors=vectors,
             embeddings=embeddings,
             limit=_SEARCH_WINDOW_CAP,
+            include_archived=include_archived,
         )
         windows = await assemble_windows(
             hits, content=content, user_id=user_id
+        )
+        windows, hidden = scope_windows(
+            windows, view or ArchiveView.empty(), include_archived=include_archived
         )
         found.extend(windows)
         out = (
@@ -280,6 +312,7 @@ def _search_content_tool(
         )
         trail.append(
             {"tool": "search_content", "query": query, "hits": len(windows),
+             **({"archive_hidden": hidden} if hidden else {}),
              "result": _trail_preview(out)}
         )
         return out
@@ -350,14 +383,22 @@ def _fetch_verbatim_tool(
 
 
 def _list_documents_tool(
-    documents: Sequence[CanonicalDocument], trail: list[dict]
+    documents: Sequence[CanonicalDocument],
+    trail: list[dict],
+    include_archived: bool = False,
 ) -> StructuredTool:
     """`list_documents()` — the compile face's tool, read-only.
 
     Same name and same return shape as `compile.runner`'s (sorted paths, one per line, a
     stated-empty fallback), so the model that wrote the base and the model that answers over
     it name the same thing the same way. The glance already shows the layout; this exists for
-    when it was truncated at the budget or an exact path spelling is needed."""
+    when it was truncated at the budget or an exact path spelling is needed.
+
+    The ARCHIVE is not listed unless the call asked for it, for the same reason the glance
+    does not list it: this is the map of what may be read, and a path on it that the read
+    tool then refuses would be a map of somewhere else."""
+    if not include_archived:
+        documents = live_documents(documents)
 
     async def list_documents() -> str:
         """List document paths; see `recall.deep.tool.list_documents_doc`."""
@@ -376,7 +417,10 @@ def _list_documents_tool(
 
 
 def _read_document_tool(
-    documents: Sequence[CanonicalDocument], read: list[str], trail: list[dict]
+    documents: Sequence[CanonicalDocument],
+    read: list[str],
+    trail: list[dict],
+    include_archived: bool = False,
 ) -> StructuredTool:
     """`read_document(path)` — one document in full, anchors and links intact.
 
@@ -384,12 +428,25 @@ def _read_document_tool(
     writes with, so the answerer reads the exact bytes canonical holds: claim anchors it can
     cite and markdown links it can follow with another `read_document`. A missing path is a
     stated absence, never an exception — a wrong guess must cost one tool round, not the run.
+
+    An ARCHIVED path is a THIRD outcome and is said as such: the document is there, whole and
+    cited, and it is out of this answer's scope because nobody asked for the archive. Saying
+    "no document at that path" would be false — the page exists — and silence would read as
+    an empty page. It is the shape a snapshot miss is answered in, for the same reason.
     """
     by_path = {doc.path: doc for doc in documents}
 
     async def read_document(path: str) -> str:
         """Read one document in full; see `recall.deep.tool.read_document_doc`."""
-        doc = by_path.get(str(path or "").strip())
+        wanted = str(path or "").strip()
+        doc = by_path.get(wanted)
+        if doc is not None and is_archived_path(doc.path) and not include_archived:
+            out = prompt("recall.deep.tool.read_document_archived", path=doc.path)
+            trail.append(
+                {"tool": "read_document", "path": doc.path, "found": False,
+                 "archived": True, "result": out}
+            )
+            return out
         if doc is None:
             out = prompt("recall.deep.tool.read_document_not_found", path=path)
             trail.append({"tool": "read_document", "path": path, "found": False, "result": out})
@@ -464,10 +521,15 @@ async def deep_recall(
     vectors: VectorIndex | None = None,
     profile: str | None = None,
     # The canonical documents at the answering snapshot: the glance is rendered from them and
-    # they are what list_documents / read_document walk. Omitted → the glance is absent and
-    # both tools state that the base holds no documents (the tool FACE is constant either way,
-    # so a deployment cannot silently lose a capability by forgetting a keyword).
-    documents: Sequence[CanonicalDocument] = (),
+    # they are what list_documents / read_document walk. Omitted (None) → the glance is absent
+    # and both tools state that the base holds no documents (the tool FACE is constant either
+    # way, so a deployment cannot silently lose a capability by forgetting a keyword).
+    # THE RULING ON THE TWO EMPTIES: None means "not handed a document set" and nothing is
+    # pinned; an empty SEQUENCE means "handed a set, and it is empty" and pins to nothing, so
+    # every index claim is dropped. `()` was the old default and read as "not handed", which
+    # is why the default moved to None — a caller that means "this library has no live page"
+    # now has a way to say it, and the service always says it (`v1._glance_inputs`).
+    documents: Sequence[CanonicalDocument] | None = None,
     skill: object | None = None,
     packs: Sequence[object] = (),
     # The frozen snapshot this answer is pinned to, or None = today's base. The tools are
@@ -488,6 +550,18 @@ async def deep_recall(
     answer_style: str = DEFAULT_ANSWER_STYLE,
     callbacks: list | None = None,
     trace_metadata: dict | None = None,
+    # The ARCHIVE, off by default (docs/design/archive.md §4). Off: the seed faces and both
+    # search tools exclude it, `list_documents` does not list it, and `read_document` of an
+    # archived path answers with the stated out-of-scope absence. On: every face admits it
+    # and labels it, and the glance rendered from `documents` shows it. The `documents` the
+    # lane is handed are the caller's decision — the service passes live documents only when
+    # this is off.
+    include_archived: bool = False,
+    # Whether this library has EVER archived a document — stated by the caller that listed
+    # the full canonical tree (`domain/archive.any_archived`). It turns the assembly
+    # filter's document pin on; with nothing archived the filter is inert and this lane runs
+    # byte-for-byte as it did before the archive existed (`archive_filter._pin`).
+    archive_active: bool = False,
 ) -> DeepAnswer:
     """Seed with the glance + fast's dual-face retrieval, then run the bounded agentic loop.
 
@@ -505,6 +579,22 @@ async def deep_recall(
     # them concurrently on the event loop via asyncio.gather; wall-clock is the slower
     # face, not their sum. gather preserves argument order, so the two results bind the
     # same way the previous thread-pool fan-out bound them.
+    # The archive, read ONCE for this whole run — the seed AND every tool call the loop
+    # makes below share it, because a filter that applied only to the seed would let the
+    # second retrieval round put back exactly what the first excluded (archive.md §3).
+    view = await archive_view(user_id, content, documents_archived=archive_active)
+    #: The pages this run is PINNED TO: every path in the document set the caller handed in
+    #: (archived ones included when the archive was asked for). A claim the index returns for
+    #: a path outside it is dropped — after a move the L3 rows carry the old live path until
+    #: the projection sync lands, and reading that path as "live" is exactly the leak the
+    #: assembly filter exists to close. None ONLY when no document set was handed in; an
+    #: EMPTY set pins to nothing and drops every index claim (see the parameter above).
+    live_paths: frozenset[str] | None = (
+        frozenset(doc.path for doc in documents) if documents is not None else None
+    )
+    #: …and below this line the set is a sequence again: every reader here (the two document
+    #: tools, the glance, the component faces) asks "what is in it", never "was it handed".
+    documents = () if documents is None else documents
     seed_claims_raw, raw_windows = await asyncio.gather(
         retrieve_claims(
             user_id,
@@ -513,6 +603,7 @@ async def deep_recall(
             claim_vectors=claim_vectors,
             embeddings=embeddings,
             limit=cap,
+            include_archived=include_archived,
         ),
         retrieve_windows(
             user_id,
@@ -521,11 +612,18 @@ async def deep_recall(
             vectors=vectors,
             embeddings=embeddings,
             limit=window_cap,
+            include_archived=include_archived,
         ),
+    )
+    seed_claims_raw, _ = scope_claims(
+        seed_claims_raw, view, include_archived=include_archived, live_paths=live_paths
     )
     seed_claims = seed_claims_raw[:cap]
     seed_windows = await assemble_windows(
         raw_windows, content=content, user_id=user_id
+    )
+    seed_windows, _ = scope_windows(
+        seed_windows, view, include_archived=include_archived
     )
     images = (
         await collect_window_images(
@@ -559,6 +657,9 @@ async def deep_recall(
             embeddings=embeddings,
             found=found_claims,
             trail=trail,
+            view=view,
+            include_archived=include_archived,
+            live_paths=live_paths,
         ),
         _search_content_tool(
             user_id,
@@ -568,10 +669,12 @@ async def deep_recall(
             content=content,
             found=found_windows,
             trail=trail,
+            view=view,
+            include_archived=include_archived,
         ),
         _fetch_verbatim_tool(user_id, content, trail, scope, fetched),
-        _list_documents_tool(documents, trail),
-        _read_document_tool(documents, read_paths, trail),
+        _list_documents_tool(documents, trail, include_archived),
+        _read_document_tool(documents, read_paths, trail, include_archived),
     ]
     # Tools contributed by enabled index components (components/__init__.py), scoped to
     # this user; none registered → the tool list is exactly what it always was. Kept in
@@ -580,7 +683,15 @@ async def deep_recall(
     component_tools = [
         t
         for component in registered_components()
-        for t in _component_recall_tools(component, user_id, documents)
+        # LIVE documents unless the call asked otherwise. A component's tool returns the
+        # component's own prose, which the framework cannot filter afterwards — so what it is
+        # handed has to already be in scope. The component still learns nothing of the
+        # archive (I7): it is given a document set, as it always was.
+        for t in _component_recall_tools(
+            component,
+            user_id,
+            documents if include_archived else live_documents(documents),
+        )
     ]
     tools = [*tools, *component_tools]
     # Measured around the coroutine, failures included — and around EVERY tool, a component's
@@ -588,7 +699,13 @@ async def deep_recall(
     # though it leaves no trail record of its own.
     tools = timed_tools(tools, timings, watch=_trail_watch)
 
-    glance = render_canonical_glance(documents, skill, packs=packs) if documents else None
+    glance = (
+        render_canonical_glance(
+            documents, skill, packs=packs, include_archived=include_archived
+        )
+        if documents
+        else None
+    )
     answer_trace_metadata = {
         **(trace_metadata or {}),
         "image_count": len(images),

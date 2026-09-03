@@ -26,8 +26,31 @@ class LexicalIndex(Protocol):
         user_id: UserId,
         source_id: SourceId,
         blocks: list[NormalizedBlock],
-    ) -> None: ...
+        *,
+        archived: bool = False,
+    ) -> None:
+        """Index one source's blocks, carrying its archive mark.
+
+        Indexing itself stays unconditional (I3): an archived source is indexed exactly like
+        a live one and simply carries the flag, so it is reachable by an `include_archived`
+        search and needs no re-index to come back. `archived` is the L0 mark
+        (`RawSource.archived_at is not None`), passed in rather than looked up — this port
+        knows no store.
+        """
+        ...
 
     async def search(
-        self, user_id: UserId, query: str, *, limit: int = 20
-    ) -> list[LexicalHit]: ...
+        self,
+        user_id: UserId,
+        query: str,
+        *,
+        limit: int = 20,
+        include_archived: bool = False,
+    ) -> list[LexicalHit]:
+        """Lexical hits, ARCHIVE EXCLUDED unless the call states the exception.
+
+        Excluded at the index and not after it (docs/design/archive.md §3): archived blocks
+        admitted into the candidate list would spend the caps before the answer ever saw a
+        live one. A block indexed before the flag existed reads as live.
+        """
+        ...

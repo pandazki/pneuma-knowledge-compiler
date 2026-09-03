@@ -33,7 +33,7 @@ No API key, no questions asked. One command generates a real project that alread
 cd scaffold && ./init.py --demo      # lands in a fresh temp directory; --target DIR to choose
 ```
 
-It prints a `http://127.0.0.1:<port>` address. Walk the whole pipeline in the browser: sources, compile history, the canonical library with per-claim citations and a frozen archive volume, the retrieval surfaces, and the Engine Console — where you change a strategy knob, read its stated blast radius, and apply it as a version. Asking questions needs an OpenRouter key; everything above doesn't.
+It prints a `http://127.0.0.1:<port>` address. Walk the whole pipeline in the browser: sources, compile history, the canonical library with per-claim citations and a closed volume, the retrieval surfaces, and the Engine Console — where you change a strategy knob, read its stated blast radius, and apply it as a version. Asking questions needs an OpenRouter key; everything above doesn't.
 
 The library it ships is [`examples/opc`](examples/opc/README.md) — an agent-built example you can also run in place (`cd examples/opc && ./demo.sh`).
 

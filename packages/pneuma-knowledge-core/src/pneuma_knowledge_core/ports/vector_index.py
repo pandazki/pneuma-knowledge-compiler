@@ -41,8 +41,16 @@ class SemanticHit(Protocol):
 
 class VectorIndex(Protocol):
     async def upsert_chunks(
-        self, user_id: UserId, chunks: list[SemanticChunk]
-    ) -> None: ...
+        self, user_id: UserId, chunks: list[SemanticChunk], *, archived: bool = False
+    ) -> None:
+        """Upsert one source's chunks, carrying its archive mark.
+
+        `archived` is the L0 mark (`RawSource.archived_at is not None`), passed in rather
+        than looked up — this port knows no store. An archived source's chunks are indexed
+        like any other and are reachable by an `include_archived` search, so unarchiving is a
+        payload flip and never a re-embed.
+        """
+        ...
 
     async def search(
         self,
@@ -51,4 +59,12 @@ class VectorIndex(Protocol):
         *,
         limit: int = 20,
         representation: Literal["raw", "episode"] = "raw",
-    ) -> list[SemanticHit]: ...
+        include_archived: bool = False,
+    ) -> list[SemanticHit]:
+        """Semantic hits, ARCHIVE EXCLUDED unless the call states the exception.
+
+        Excluded at the index and not after it (docs/design/archive.md §3): archived chunks
+        admitted into the candidate list would spend the caps before the answer ever saw a
+        live one. A point written before the flag existed reads as live.
+        """
+        ...

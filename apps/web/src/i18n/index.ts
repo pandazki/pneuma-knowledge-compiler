@@ -9,6 +9,7 @@
  *   2. No key is declared in two bundles — a silent overwrite would make one of the two
  *      declarations dead copy. `BUNDLES` is exported so the test can count.
  */
+import { archive } from "./archive";
 import { ask } from "./ask";
 import { common } from "./common";
 import { consultations } from "./consultations";
@@ -36,6 +37,7 @@ export { LOCALES, defineMessages } from "./define";
 /** Every bundle, for the runtime duplicate-key check. Order is irrelevant to lookup. */
 export const BUNDLES = [
   common,
+  archive,
   nav,
   enums,
   consultations,
@@ -60,6 +62,7 @@ export const BUNDLES = [
 export const MESSAGES = {
   zh: {
     ...common.zh,
+    ...archive.zh,
     ...nav.zh,
     ...enums.zh,
     ...consultations.zh,
@@ -82,6 +85,7 @@ export const MESSAGES = {
   },
   en: {
     ...common.en,
+    ...archive.en,
     ...nav.en,
     ...enums.en,
     ...consultations.en,

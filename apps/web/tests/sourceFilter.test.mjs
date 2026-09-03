@@ -25,6 +25,7 @@ const {
   EMPTY_SOURCE_FILTER,
   dayKey,
   filterSources,
+  isArchivedSource,
   isSourceFilterActive,
   matchesQuery,
   matchesSourceFilter,
@@ -332,8 +333,79 @@ test("a filter is active when any one part of it is set, and clearing means all 
     { origins: ["upload"] },
     { from: "2026-01-01" },
     { to: "2026-01-01" },
+    { includeArchived: true },
   ]) {
     assert.equal(isSourceFilterActive(filter(patch)), true, JSON.stringify(patch));
   }
   assert.equal(filterSources(CATALOGUE, EMPTY_SOURCE_FILTER, UTC).length, CATALOGUE.length);
+});
+
+/* --------------------------------------------------------------------- the archive */
+
+/**
+ * The archive is a dimension like the others in shape and unlike them in default: it is OFF,
+ * because an archived source is one the owner moved OUT of the answering set. The catalogue
+ * still holds the row (the listing route can be asked for it, and every row carries
+ * `archived_at` whether or not it is set), so the fold has to hold on the client too — the
+ * failure this guards is a toggle that turns off and leaves the archive on screen because
+ * nobody re-crawled.
+ */
+const ARCHIVED = row("s-6", "Retired vendor evaluation", "2026-02-02", {
+  archived_at: "2026-07-31T09:00:00.000Z",
+});
+const MIXED = [...CATALOGUE, ARCHIVED];
+
+test("the archive mark is one field, read one way", () => {
+  assert.equal(isArchivedSource(ARCHIVED), true);
+  assert.equal(isArchivedSource(CATALOGUE[0]), false);
+  // A row from before the column existed reads as live rather than as unknown.
+  assert.equal(isArchivedSource({ ...CATALOGUE[0], archived_at: undefined }), false);
+  assert.equal(isArchivedSource({ ...CATALOGUE[0], archived_at: null }), false);
+});
+
+test("the default hides the archive, and the toggle is the only thing that shows it", () => {
+  const hidden = filterSources(MIXED, EMPTY_SOURCE_FILTER, UTC);
+  assert.deepEqual(hidden.map((s) => s.source_id), ["s-1", "s-2", "s-3", "s-4", "s-5"]);
+  const shown = filterSources(MIXED, filter({ includeArchived: true }), UTC);
+  assert.equal(shown.length, MIXED.length);
+  assert.equal(shown.some((s) => s.source_id === "s-6"), true);
+});
+
+test("the archive fold composes with the other dimensions rather than overriding them", () => {
+  // A title that matches, in the range, of the right class — and archived. Off, it is gone;
+  // on, it is the only hit.
+  const narrowed = filter({ query: "vendor", includeArchived: true });
+  assert.deepEqual(
+    filterSources(MIXED, narrowed, UTC).map((s) => s.source_id),
+    ["s-6"],
+  );
+  assert.deepEqual(
+    filterSources(MIXED, { ...narrowed, includeArchived: false }, UTC).map((s) => s.source_id),
+    [],
+  );
+});
+
+test("the facet counts are counted over what the archive toggle lets through", () => {
+  // `s-6` is a `conversation` in `workstream`, so with the archive hidden it must not be
+  // counted on either chip — a count that included it would offer a chip that returns less
+  // than it promises.
+  const hidden = sourceFacets(MIXED, EMPTY_SOURCE_FILTER, UTC);
+  const shown = sourceFacets(MIXED, filter({ includeArchived: true }), UTC);
+  const count = (groups, dimension, value) =>
+    groups.find((g) => g.dimension === dimension).values.find((v) => v.value === value).count;
+  assert.equal(count(hidden, "kind", "conversation"), 4);
+  assert.equal(count(shown, "kind", "conversation"), 5);
+});
+
+test("the density calendar does not light a day that only the archive occupies", () => {
+  const hidden = sourceDensity(filterSources(MIXED, EMPTY_SOURCE_FILTER, UTC), UTC);
+  assert.equal(hidden.some((day) => day.date === "2026-02-02"), false);
+  const shown = sourceDensity(
+    filterSources(MIXED, filter({ includeArchived: true }), UTC),
+    UTC,
+  );
+  assert.deepEqual(
+    shown.find((day) => day.date === "2026-02-02"),
+    { date: "2026-02-02", count: 1, kinds: { conversation: 1 } },
+  );
 });

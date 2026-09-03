@@ -126,6 +126,81 @@ async def test_worker_compiles_one_job_end_to_end(ctx):
     await ctx.store.delete_user(user)
 
 
+async def test_a_compile_over_a_hand_edited_library_fails_canonical_dirty_and_writes_nothing(
+    ctx,
+):
+    """The correction, at the job face. Somebody edits `data/canonical/<user>/` — by hand, or
+    through a coding agent with a shell in the project directory — and the next compile finds
+    a dirty tree with no in-flight marker beside it. It refuses.
+
+    What used to happen is what this pins the end of: the adapter read any dirty tree as a
+    dead writer's residue and ran `reset --hard` + `clean -fd`, so the edits were gone and
+    the only trace was one WARNING line in a worker log. The failure is STATED — the job's
+    detail is `canonical_dirty:<paths>`, not `worker error: …` — because the fix is one
+    command and the operator has to be able to find it.
+    """
+    user = UserId(f"u-it-dirty-{uuid.uuid4().hex[:8]}")
+    result = await ingest_conversation(
+        ctx, user, [_turn("Alice", "程野 是后端负责人。")], title="项目同步"
+    )
+    sid = str(result.source_id)
+    model = ScriptedChatModel(
+        turns=[
+            [
+                {
+                    "name": "create_document",
+                    "args": {
+                        "path": "memory/people/cheng-ye.md",
+                        "frontmatter": {"type": "person", "slug": "cheng-ye"},
+                        "body": f"## 程野\n\n- 程野 是后端负责人。[cite: {sid} ¶0]",
+                    },
+                },
+                {"name": "finish_compile"},
+            ]
+        ]
+    )
+    try:
+        assert await drain_user(ctx, model, load_skill_base("v1"), user) == 2
+        head = (await ctx.canonical.snapshots(user))[0].ref
+
+        # A person edits the library and leaves a scratch page beside it. Nothing in this
+        # framework is mid-write, so there is no in-flight marker.
+        repo = ctx.canonical.repo_path(user)
+        page = repo / "memory/people/cheng-ye.md"
+        edited = page.read_text("utf-8") + "\n- 手写的一句，还没提交。\n"
+        page.write_text(edited, encoding="utf-8")
+
+        # A second compile with something new to write, so it reaches the canonical commit
+        # rather than settling as a noop before it ever asks the adapter for anything.
+        second = ScriptedChatModel(
+            turns=[
+                [
+                    {
+                        "name": "create_document",
+                        "args": {
+                            "path": "memory/people/ou-wen.md",
+                            "frontmatter": {"type": "person", "slug": "ou-wen"},
+                            "body": f"## 欧文\n\n- 欧文 是程野的别名。[cite: {sid} ¶0]",
+                        },
+                    },
+                    {"name": "finish_compile"},
+                ]
+            ]
+        )
+        await ctx.store.enqueue(user, "compile", {"source_ids": [sid]})
+        assert await drain_user(ctx, second, load_skill_base("v1"), user) == 1
+
+        job = (await ctx.store.list_jobs(user))[0]
+        assert job["ok"] is False
+        assert job["detail"].startswith("canonical_dirty:")
+        assert "memory/people/cheng-ye.md" in job["detail"]
+        # Their edit is still there, and the library did not move.
+        assert page.read_text("utf-8") == edited
+        assert (await ctx.canonical.snapshots(user))[0].ref == head
+    finally:
+        await ctx.store.delete_user(user)
+
+
 async def test_projection_failure_keeps_source_retryable_and_noop_repairs_it(
     ctx, monkeypatch
 ):

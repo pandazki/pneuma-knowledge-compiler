@@ -70,7 +70,7 @@ def _is_valid_template(template: str) -> bool:
     path, no other placeholder, no path escape, and `_template_regex` compiles it.
 
     New top-level directories (outside memory/ or materials/) are allowed — a pack may
-    declare its own archive location — but the shape must still be a compilable template."""
+    declare its own filing location — but the shape must still be a compilable template."""
     if not template or template.startswith("/") or ".." in template.split("/"):
         return False
     # Only `{slug}` is a legal placeholder; any other brace is a malformed template.

@@ -139,7 +139,7 @@ This is context construction, not compile-contract prose. The contract may say h
 
 ## 5. Step four: write `engine/compile/contract.md` together
 
-**Goal**: the contract is the library's constitution — it teaches the compile model to judge what deserves long-term memory in THEIR domain, and on which page. Mechanism-level rules (citation discipline, immutable anchors, read-only frozen volumes) are enforced by the framework and don't belong in it.
+**Goal**: the contract is the library's constitution — it teaches the compile model to judge what deserves long-term memory in THEIR domain, and on which page. Mechanism-level rules (citation discipline, immutable anchors, read-only closed volumes) are enforced by the framework and don't belong in it.
 
 The full practice (this section is just the operating procedure) is in [`docs/guides/compile-contract.md`](../docs/guides/compile-contract.md) — read it before writing, especially the type → implied-usage → recording-obligation derivation and the acceptance loop.
 
@@ -329,7 +329,7 @@ contract instead.
 - Look any time: `./app.py glance`, `./app.py status`, `./app.py evolve`.
 - Look at the engine itself: `git -C engine log --oneline` is the history of every decision
   you two made about how this library thinks.
-- Long documents roll over automatically (history into read-only volumes).
+- Long documents roll over automatically (earlier volumes closed, read-only).
 - Leave them with: the contract can be changed any time; changes govern future compiles only — what's recorded is never silently rewritten.
 
 ---

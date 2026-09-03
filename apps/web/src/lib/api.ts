@@ -11,6 +11,7 @@ import type { ClaimLabel, UserProfile, VisitorClass } from "./types";
 import type { HistoryCounts, HistoryItemEnvelope } from "./history";
 import type { StageEvent, StageTiming } from "./stages";
 import { buildPageQuery, type Page } from "./pagination";
+import { confirmRequestBody } from "./archive";
 
 const BASE = (import.meta.env.VITE_API_BASE ?? "").replace(/\/+$/, "");
 
@@ -18,6 +19,13 @@ export class ApiError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    /**
+     * The service's own machine-readable refusal code, when it sent one alongside the
+     * detail (`{"detail": "…", "code": "stale"}`). The archive's refusals are branched on
+     * — a stale plan offers "re-plan" where an unknown item does not — and branching on a
+     * prose detail would break the moment the wording changed.
+     */
+    readonly code?: string,
   ) {
     super(message);
     this.name = "ApiError";
@@ -40,13 +48,15 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   }
   if (!res.ok) {
     let detail = `${res.status} ${res.statusText}`;
+    let code: string | undefined;
     try {
-      const body = (await res.json()) as { detail?: unknown };
+      const body = (await res.json()) as { detail?: unknown; code?: unknown };
       if (body?.detail != null) detail = String(body.detail);
+      if (body?.code != null) code = String(body.code);
     } catch {
       /* non-JSON error body — keep the status line */
     }
-    throw new ApiError(detail, res.status);
+    throw new ApiError(detail, res.status, code);
   }
   return (await res.json()) as T;
 }
@@ -77,6 +87,13 @@ export interface SourceSummary {
   block_count: number;
   /** null = not yet compiled into canonical; set once the worker digests it (M3b). */
   digested_at: string | null;
+  /**
+   * The archive mark on L0 (docs/design/archive.md §2.2). Present on EVERY row, including
+   * the ones a default listing returns, so a row can be labelled without a second call;
+   * null = live. The listing itself omits the archive unless the call says
+   * `include_archived`.
+   */
+  archived_at?: string | null;
 }
 
 export interface ActivityDay {
@@ -126,6 +143,9 @@ export interface SourceDetail {
   title: string;
   mime: string;
   created_at: string;
+  /** When the owner moved this source into the archive; null = live. L0 reachability is
+   *  unconditional (I3), so an archived source still answers here, in full, and says so. */
+  archived_at?: string | null;
   meta: Record<string, unknown>;
   intake_plan: IntakePlan | null;
   structure: { sections: SectionSpan[] };
@@ -143,6 +163,10 @@ export interface RecallHit {
   text: string;
   paths: string[];
   score: number;
+  /** Whether this excerpt's source is in the archive. Only ever true on an
+   *  `include_archived` call — the label the prompt carried, put on the wire so a reader of
+   *  the answer can see which excerpt is history (docs/design/archive.md §4). */
+  archived?: boolean;
 }
 
 export interface IngestResult {
@@ -239,6 +263,8 @@ export interface SourcePageParams {
   cursor?: string | null;
   query?: string | null;
   kind?: string | null;
+  /** The archive's one exception: off (the default) the listing omits archived sources. */
+  includeArchived?: boolean;
 }
 
 export interface WorkspaceSummary {
@@ -262,6 +288,9 @@ export function listSources(
     cursor: params.cursor,
     query: params.query,
     kind: params.kind,
+    // Omitted rather than sent as `false`: a default call stays byte-identical to the one
+    // this client made before the archive existed.
+    include_archived: params.includeArchived ? "true" : null,
   });
   return req<Page<SourceSummary>>(`/v1/users/${u(userId)}/sources${query}`);
 }
@@ -304,6 +333,8 @@ export async function crawlSources(
   options: {
     onProgress?: (items: SourceSummary[], total: number) => void;
     signal?: AbortSignal;
+    /** Crawl the archive too — the catalogue's "show archived" toggle. */
+    includeArchived?: boolean;
   } = {},
 ): Promise<SourceSummary[]> {
   const items: SourceSummary[] = [];
@@ -314,6 +345,7 @@ export async function crawlSources(
     const page: Page<SourceSummary> = await listSources(userId, {
       limit: CATALOGUE_PAGE,
       cursor,
+      includeArchived: options.includeArchived,
     });
     items.push(...page.items);
     options.onProgress?.(items, page.page.total);
@@ -463,6 +495,10 @@ export interface TrailStep {
   chars?: number;
   result?: string;
   error?: string;
+  /** How many hits this call dropped for being archived — present only on an `include_archived:
+   *  false` run that actually dropped some. The deep lane's own spelling of the omission every
+   *  other lane reports in a stage preview (`lib/archive.ts::archiveHiddenCount` sums both). */
+  archive_hidden?: number;
   /** This call's measured wall-clock in ms, stamped by the service before the step was
    * streamed — so a live-growing trail shows a real duration, not one timed from arrival
    * gaps. The same number the closing `stages` list reports for `tool:<tool>`. */
@@ -551,6 +587,10 @@ export function recallAnswer(
     /** Who is asking, as far as the record is concerned. Omitted = the service's own
      *  default, `silent`, which leaves no trace at all. */
     visitor_class?: VisitorClass;
+    /** The archive's one exception (docs/design/archive.md §4). Off by default: archived
+     *  claims and excerpts are excluded at the index and at evidence assembly. On, they are
+     *  admitted, placed after the live ones, and labelled `archived` on the wire. */
+    include_archived?: boolean;
   },
 ): Promise<RecallAnswer> {
   return req<RecallAnswer>(`/v1/users/${u(userId)}/recall`, {
@@ -671,6 +711,7 @@ export async function recallStream(
   snapshot?: string | null,
   includeOriginalModalities: OriginalModality[] = [],
   visitorClass: VisitorClass = "silent",
+  includeArchived = false,
 ): Promise<void> {
   await readEventStream(
     `/v1/users/${u(userId)}/recall/stream`,
@@ -680,6 +721,7 @@ export async function recallStream(
       snapshot: snapshot ?? null,
       include_original_modalities: includeOriginalModalities,
       visitor_class: visitorClass,
+      include_archived: includeArchived,
     },
     {
       ...liveFrames(handlers),
@@ -711,10 +753,19 @@ export async function ragStream(
   signal?: AbortSignal,
   snapshot?: string | null,
   limit = 10,
+  includeArchived = false,
 ): Promise<void> {
   await readEventStream(
     `/v1/users/${u(userId)}/recall/stream`,
-    { query, mode: "rag", limit, snapshot: snapshot ?? null },
+    {
+      query,
+      mode: "rag",
+      limit,
+      snapshot: snapshot ?? null,
+      // rag reaches no model, so there is no answer to label: here the flag is simply the
+      // two index filters (docs/design/archive.md §4).
+      include_archived: includeArchived,
+    },
     {
       stage: (p) => handlers.onStage?.(p as StageEvent),
       done: (p) => handlers.onDone(p as RagResult),
@@ -781,6 +832,8 @@ export function buildBriefing(
     source_ids?: string[];
     budget_chars?: number;
     snapshot?: string | null;
+    /** Build the pack over the archive too; `ask` then inherits the pack's choice. */
+    include_archived?: boolean;
   },
 ): Promise<BriefingBuilt> {
   return req<BriefingBuilt>(`/v1/users/${u(userId)}/briefings`, {
@@ -801,6 +854,8 @@ export async function buildBriefingStream(
     source_ids?: string[];
     budget_chars?: number;
     snapshot?: string | null;
+    /** Build the pack over the archive too; `ask` then inherits the pack's choice. */
+    include_archived?: boolean;
   },
   handlers: LiveHandlers & { onDone: (built: BriefingBuilt) => void },
   signal?: AbortSignal,
@@ -1165,7 +1220,12 @@ export interface LiveContextWeb {
  * (`small_talk` / `already_mined` / `nothing_new`), or one of the mechanical ones —
  * `low_worth`, `no_plan`, `no_candidates`, `no_coverage`, `none_chosen`, `low_confidence`,
  * `uncited`, `duplicate`,
- * `unparsed`, `pick_failed`.
+ * `unparsed`, `pick_failed`, `canonical_unavailable`.
+ *
+ * `canonical_unavailable` is the one that says something about the DEPLOYMENT rather than
+ * about the library: the canonical read this tick needed failed, so the tick has no document
+ * set to pin its archive filter to and it skips rather than retrieve unpinned. It is also
+ * the one skip that fills `dropped` on this lane (`canonical_unavailable: 1`).
  */
 export interface LiveContextProcessing {
   skipped: string;
@@ -1187,6 +1247,9 @@ export interface SuggestionDropped {
   uncited?: number;
   low_confidence?: number;
   capped?: number;
+  /** Not a gate: the full-scope lane's one use of this field, set to 1 when the tick was
+   * skipped because canonical could not be read. The gate ledger does not show it. */
+  canonical_unavailable?: number;
 }
 
 /** SSE terminal frame: what the evaluation produced, and what it did to get there. */
@@ -1868,4 +1931,285 @@ export function dropEvolveTask(userId: string, taskId: string): Promise<{ droppe
 /** The owner's CURRENT effective composed skill — base version + pack list + path templates. */
 export function getSkillInfo(userId: string): Promise<SkillInfo> {
   return req<SkillInfo>(`/v1/users/${u(userId)}/skill`);
+}
+
+/* --------------------------------------------------------------------- The archive */
+
+/**
+ * The archive (docs/design/archive.md). Nothing here deletes anything: a document is MOVED
+ * under `archive/` with its git history and its rollover volumes, a source gains one
+ * timestamp, and both keep answering when addressed by id or when a call says
+ * `include_archived`.
+ *
+ * The shape of this face follows the one ruling that makes the archive safe: an archive is
+ * PROPOSED before it is executed. `planArchive` computes the closure (every source the named
+ * documents cite, every document that depends on the named sources, run to a fixed point)
+ * and moves nothing; `confirmArchiveProposal` enqueues one `archive` job on the same
+ * per-user queue the compiler drains, so the move never races a compile.
+ */
+
+export type ArchiveAction = "archive" | "unarchive";
+
+export type ArchiveProposalStatus =
+  | "proposed"
+  | "confirmed"
+  | "executed"
+  | "failed"
+  | "dropped"
+  /** The library moved under it. A confirm refused `409 stale` moves the row here, so the
+   *  plan states its own obsolescence rather than leaving a `proposed` row that can never be
+   *  confirmed; the answer is always to re-plan, never to override. */
+  | "stale"
+  | string;
+
+export type ArchiveItemKind = "document" | "source";
+
+/** Which computation put an item on the list — the console renders it beside the checkbox. */
+export interface ArchiveItemReason {
+  /** Live document paths that still cite this source (the `still_cited` evidence). */
+  cited_by_live?: string[];
+  /** The mirror, in the unarchive direction: ARCHIVED document paths that also cite this
+   *  source. They are the reason restoring it does not empty the archive of it — the pages
+   *  listed here keep citing it from where they are. */
+  cited_by_archived?: string[];
+  /** `[cited, total]` ledger claims — the document's dependence on the selected sources. */
+  dependence?: [number, number] | null;
+  /** One mechanical code: seed | orphaned | still_cited | fully_dependent |
+   *  partially_dependent | restored_with_page | already_archived | already_live | unknown. */
+  note?: string;
+}
+
+/**
+ * The mechanical facts an archive record states about the subject that left: how much it
+ * held, how far it reached, and who still points at it.
+ *
+ * One shape, two places, because it is one set of facts: the proposal previews what the
+ * record WILL say, and the inventory reports what a written record DOES say. Every field is
+ * optional here so a service that predates the record renders as it did before it existed.
+ */
+export interface ArchiveRecordFacts {
+  /** The block span the subject covered, `[from, to]` as the record prints it; null = none. */
+  span?: [string, string] | null;
+  /** Ledger claims the archived page carried. */
+  claims?: number;
+  /** Distinct sources those claims cite. */
+  sources?: number;
+  /** Closed rollover volumes that travelled with the page. */
+  volumes?: number;
+  /** Live pages that still link to this subject — the reason the record stands at all. */
+  inbound?: number;
+}
+
+/**
+ * The record this item would leave behind, computed by the planner against the same HEAD
+ * the closure was. Null for an unarchive item (restoring REMOVES the record) and for every
+ * source (a source is marked on L0, and leaves no page).
+ */
+export interface ArchiveRecordPreview extends ArchiveRecordFacts {
+  /** The record page's own title. */
+  title: string;
+  /** The one sentence the record opens with — what this subject was. */
+  definition: string;
+  /**
+   * The reason the record will quote, exactly as it will stand there — always the OWNER'S
+   * OWN WORDS. On a plan it is the block 0 of a `statement_ref` they named, and NULL when
+   * they named none: a plan decides nothing, and the reason is the note sent with the
+   * confirm, so the service keeps no sentence here to quote back. The console previews the
+   * live content of its own note box instead.
+   */
+  reason?: string | null;
+  /**
+   * Where that sentence came from: `statement` (block 0 of a `statement_ref` the owner
+   * named) or `note` (the words sent with the confirm). Null exactly when `reason` is.
+   *
+   * The service STAMPS it rather than inferring it, and the worker refuses a reason that
+   * arrives without it — the record's reason becomes an `owner-dialogue/v1` source, L0
+   * labelled as the owner speaking, so its provenance has to be visible in the row rather
+   * than assumed from whichever code wrote it. Optional here so a service that predates the
+   * stamp renders as it did before.
+   */
+  reason_source?: "note" | "statement" | null;
+}
+
+export interface ArchiveProposalItem {
+  kind: ArchiveItemKind;
+  ref: string;
+  title?: string;
+  /** `seed` = the owner named it; `cascade` = it followed from the closure. */
+  role: "seed" | "cascade";
+  selected: boolean;
+  reason: ArchiveItemReason;
+  /** A document's rollover volumes, at their current paths. They travel with it. */
+  volumes?: string[];
+  /** What will stand at the live path once this document moves. Null when nothing will. */
+  record?: ArchiveRecordPreview | null;
+}
+
+export interface ArchiveProposalSeeds {
+  documents: string[];
+  sources: string[];
+}
+
+export interface ArchiveProposal {
+  proposal_id: string;
+  action: ArchiveAction;
+  status: ArchiveProposalStatus;
+  /** The canonical HEAD the closure was computed against; a confirm against a different
+   *  HEAD is refused `409 stale` and the answer is to re-plan, never to override. */
+  library_ref?: string;
+  note?: string | null;
+  statement_ref?: string | null;
+  seeds: ArchiveProposalSeeds;
+  items: ArchiveProposalItem[];
+  created_at?: string | null;
+  confirmed_at?: string | null;
+  executed_at?: string | null;
+  job_id?: string | null;
+  detail?: string | null;
+}
+
+export interface ArchiveConfirmed {
+  proposal: ArchiveProposal;
+  job_id: string;
+}
+
+/**
+ * What the record standing at the live path STATES, read off its own frontmatter. It is
+ * the written half of `ArchiveRecordPreview`: the same facts, after the move.
+ */
+export interface ArchivedRecordState extends ArchiveRecordFacts {
+  archived_on?: string | null;
+  /** The `owner-dialogue/v1` source the record's reason cites. */
+  statement_ref?: string | null;
+  /** The full copy the record points at — the other half of the pair. */
+  archive_of?: string | null;
+}
+
+export interface ArchivedDocument {
+  /** Where it lives now (`archive/…`). */
+  path: string;
+  /** Where it would come back to. */
+  live_path: string;
+  title: string;
+  archived_on?: string | null;
+  /** How many closed rollover volumes travelled with it. They are not listed separately. */
+  volumes?: number;
+  /**
+   * Where the record of this archive stands — the live path, in practice, since that is the
+   * point of it. Absent when the move left no record (an older archive job, or a subject
+   * nothing pointed at).
+   */
+  record_path?: string | null;
+  /**
+   * What that record states. The facts live HERE and not flattened onto the row, because
+   * the row is about the moved copy and these are what the page left behind says; a service
+   * that wrote no record sends null, and the row then states only its volume count.
+   */
+  record?: ArchivedRecordState | null;
+}
+
+export interface ArchivedSource {
+  source_id: string;
+  title: string;
+  kind: string;
+  archived_at?: string | null;
+}
+
+export interface ArchiveInventory {
+  documents: ArchivedDocument[];
+  sources: ArchivedSource[];
+}
+
+/** Compute one proposal — the seeds plus everything that follows. Nothing moves. */
+export function planArchive(
+  userId: string,
+  body: {
+    action: ArchiveAction;
+    documents?: string[];
+    sources?: string[];
+    /**
+     * An informational line kept on the proposal for a listing to show. NOT the reason —
+     * that is the note sent with the confirm, because the confirm is the decision the
+     * record says the owner made. The dialog sends none.
+     */
+    note?: string | null;
+    /** The `owner-dialogue/v1` source in which the owner asked for this, when there is one. */
+    statement_ref?: string | null;
+  },
+  signal?: AbortSignal,
+): Promise<ArchiveProposal> {
+  return req<ArchiveProposal>(`/v1/users/${u(userId)}/archive/proposals`, {
+    method: "POST",
+    body: JSON.stringify({ documents: [], sources: [], ...body }),
+    signal,
+  });
+}
+
+/** This owner's proposals, newest first — the kept record of what was decided and when. */
+export function listArchiveProposals(
+  userId: string,
+  limit = 50,
+): Promise<ArchiveProposal[]> {
+  return req<ArchiveProposal[]>(
+    `/v1/users/${u(userId)}/archive/proposals${buildPageQuery({ limit })}`,
+  );
+}
+
+export function getArchiveProposal(
+  userId: string,
+  proposalId: string,
+): Promise<ArchiveProposal> {
+  return req<ArchiveProposal>(
+    `/v1/users/${u(userId)}/archive/proposals/${u(proposalId)}`,
+  );
+}
+
+/**
+ * Accept a proposal, optionally narrowed. `items` may only tick and untick refs the plan
+ * already computed — widening a cascade is a re-plan with more seeds, because every item in
+ * a proposal has to be a computation the reason field can explain.
+ *
+ * Answers 202 with the job it enqueued. A HEAD that moved since the plan is refused with
+ * `ApiError.code === "stale"`.
+ *
+ * `note` IS THE REASON, and this request is the only place it may come from: the service has
+ * no plan-time note to fall back on, so a confirm carrying neither a non-blank note nor a
+ * `statement_ref` (here or on the proposal) is refused `note_required`. It is still
+ * three-valued in what it does to the informational line the row keeps — `null` /
+ * `undefined` OMITS the field, any string REPLACES it — but only a non-blank string can
+ * supply the reason. So the console sends the words in the box, which are the words the
+ * owner read before confirming.
+ */
+export function confirmArchiveProposal(
+  userId: string,
+  proposalId: string,
+  items?: { kind: ArchiveItemKind; ref: string; selected: boolean }[],
+  note?: string | null,
+  signal?: AbortSignal,
+): Promise<ArchiveConfirmed> {
+  const body = confirmRequestBody(items, note);
+  return req<ArchiveConfirmed>(
+    `/v1/users/${u(userId)}/archive/proposals/${u(proposalId)}/confirm`,
+    { method: "POST", body: JSON.stringify(body), signal },
+  );
+}
+
+/** Close one unexecuted proposal — what Cancel does to a plan nobody confirmed. Answers
+ *  the proposal back, now `dropped`. */
+export function dropArchiveProposal(
+  userId: string,
+  proposalId: string,
+): Promise<ArchiveProposal> {
+  return req<ArchiveProposal>(
+    `/v1/users/${u(userId)}/archive/proposals/${u(proposalId)}/drop`,
+    { method: "POST" },
+  );
+}
+
+/** What is in the archive right now: documents by path, sources by id. */
+export function getArchiveInventory(
+  userId: string,
+  signal?: AbortSignal,
+): Promise<ArchiveInventory> {
+  return req<ArchiveInventory>(`/v1/users/${u(userId)}/archive`, { signal });
 }

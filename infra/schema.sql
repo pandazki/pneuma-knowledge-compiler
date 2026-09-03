@@ -27,6 +27,13 @@ ALTER TABLE sources ADD COLUMN IF NOT EXISTS digested_at timestamptz;
 -- First-party provenance (RawSource.origin): 'upload' | 'context_stream'. Drives the
 -- owner-aware context_stream adapter/skill path for first-party Pneuma meeting transcripts.
 ALTER TABLE sources ADD COLUMN IF NOT EXISTS origin text NOT NULL DEFAULT 'upload';
+-- The archive (docs/design/archive.md §2.2): one of the two authoritative marks, the one
+-- that lives on L0. NULL = live; a timestamp = the Owner has retired this material. Nothing
+-- is removed — every block, the structure map, the media and the chunk manifest stay exactly
+-- as they were, and L0 fetch by locator stays unconditional (invariant I3), so a claim
+-- citing an archived source still resolves to its exact passage. What the mark changes is
+-- the SEARCH face (the L1/L2 flags derived from it) and the listing default.
+ALTER TABLE sources ADD COLUMN IF NOT EXISTS archived_at timestamptz;
 
 -- Content dedup key (invariant: append-only, same user + same checksum = same source).
 CREATE UNIQUE INDEX IF NOT EXISTS sources_user_checksum
@@ -147,8 +154,16 @@ CREATE TABLE IF NOT EXISTS canonical_claims (
     citations     jsonb       NOT NULL DEFAULT '[]'::jsonb,
     snapshot_ref  text        NOT NULL,
     updated_at    timestamptz NOT NULL DEFAULT now(),
+    -- Derived from the document's path, not stored judgement: a claim is archived iff its
+    -- page sits under `archive/` (core domain/archive.py). It rides the projection row so a
+    -- rebuild that only flips the flag still reaches the two claim indexes.
+    archived      boolean     NOT NULL DEFAULT false,
     PRIMARY KEY (user_id, document_path, anchor)
 );
+
+-- Additive v1 migration for stores created before the archive existed.
+ALTER TABLE canonical_claims
+    ADD COLUMN IF NOT EXISTS archived boolean NOT NULL DEFAULT false;
 
 -- citation reverse lookup: canonical_claims WHERE citations @> '[{"source_id": "..."}]'.
 CREATE INDEX IF NOT EXISTS canonical_claims_citations_gin
@@ -282,6 +297,42 @@ CREATE TABLE IF NOT EXISTS evolve_tasks (
 CREATE INDEX IF NOT EXISTS evolve_tasks_user
     ON evolve_tasks (user_id, created_at);
 
+-- archive_proposals: the Owner's archive/unarchive proposals and their lifecycle
+-- (docs/design/archive.md §5). A KEPT RECORD, not a derived layer: it states what was
+-- proposed, against which library state, and what the Owner decided — a rebuild replays it
+-- and never rewrites it, and nothing recomputes a proposal that was already answered.
+--
+-- `seeds` is what the Owner named ({documents: [...], sources: [...]}); `items` is the
+-- computed closure, one entry per document/source with its role, selection and structured
+-- reason, which is what the console renders and what the confirm step executes. Both are
+-- jsonb because their shape is the planner's, not the storage layer's.
+--
+-- `library_ref` is the canonical HEAD the plan was computed against. A confirm whose HEAD
+-- has moved is refused as stale: a preview of a library that has since compiled is a
+-- preview of something else. `statement_ref` optionally names the `owner-dialogue/v1`
+-- source in which the Owner asked for this — provenance in the one addressing scheme.
+CREATE TABLE IF NOT EXISTS archive_proposals (
+    user_id       text        NOT NULL,
+    proposal_id   text        NOT NULL,
+    action        text        NOT NULL,   -- archive | unarchive
+    seeds         jsonb       NOT NULL DEFAULT '{}'::jsonb,
+    items         jsonb       NOT NULL DEFAULT '[]'::jsonb,
+    library_ref   text        NOT NULL DEFAULT '',
+    status        text        NOT NULL,   -- proposed|stale|confirmed|executed|failed|dropped
+    note          text,
+    statement_ref text,
+    created_at    timestamptz NOT NULL DEFAULT now(),
+    confirmed_at  timestamptz,
+    executed_at   timestamptz,
+    job_id        text,
+    detail        text,
+    PRIMARY KEY (user_id, proposal_id)
+);
+
+-- The listing this table exists for: this Owner's proposals, newest first.
+CREATE INDEX IF NOT EXISTS archive_proposals_user_created
+    ON archive_proposals (user_id, created_at DESC);
+
 -- kb_snapshots: the knowledge-base snapshot registry (frozen-tenant versioning).
 --
 -- A snapshot is a FROZEN TENANT, not a filter: L0 (sources/blocks), the L1 lexical index, the
@@ -390,10 +441,11 @@ CREATE INDEX IF NOT EXISTS component_time_blocks_day
 --
 -- `term` is the comparison key (casefolded; Latin nicknames are one term regardless of
 -- spelling). Rows ACCUMULATE: `add_people_terms` adds this source's counts to whatever is
--- there, which is why re-indexing the same source without a rebuild double-counts it —
--- derived data, so `PeopleComponent.rebuild` (scripts/ops/rebuild_derived.py) is the answer,
--- and nothing here is ever an authority (I2). user_id is first everywhere (I1); every target
--- is a source-boundary identity, so what this indexes still points back at L0 (I4).
+-- there — ONCE per source, which `component_people_indexed` below is what makes true. Still
+-- derived and never an authority (I2): `PeopleComponent.rebuild`
+-- (scripts/ops/rebuild_derived.py) re-derives the whole table from L0. user_id is first
+-- everywhere (I1); every target is a source-boundary identity, so what this indexes still
+-- points back at L0 (I4).
 CREATE TABLE IF NOT EXISTS component_people_terms (
     user_id         text    NOT NULL,
     term            text    NOT NULL,
@@ -430,6 +482,61 @@ ALTER TABLE component_people_terms ADD COLUMN IF NOT EXISTS reported_since date;
 -- compile over the identities that source carries.
 CREATE INDEX IF NOT EXISTS component_people_terms_target
     ON component_people_terms (user_id, target_identity, term);
+
+-- component_people_indexed: WHICH sources the table above already holds — the manifest that
+-- makes an accumulation idempotent.
+--
+-- The counts add, and the index queue is at-least-once: a worker killed mid-job, a job the
+-- queue self-heals on restart, an operator re-importing. While the table was only ever read
+-- whole, a source counted twice was merely a number too large, correctable by a rebuild.
+-- It stopped being merely that when the archive learned to SUBTRACT: an archived source's
+-- contribution is recomputed from L0 and taken back out at the READ, which removes exactly
+-- ONE copy — so a source added twice and then archived leaves half of itself behind, and a
+-- nickname the Owner retired stays visible in the faces that exist to stop showing it. One
+-- row per accumulated source closes that at the write: `add_people_terms` claims the row and
+-- applies the counts in ONE transaction, and a second job for the same source claims
+-- nothing and adds nothing.
+--
+-- No foreign key, and keyed exactly like the counts it guards: a term's row belongs to the
+-- library rather than to one source, so neither table cascades from `sources` and both are
+-- emptied together (`delete_people_terms`, `delete_user`). Derived like the counts, and
+-- dropped WITH them — `PeopleComponent.rebuild` clears both before replaying L0, because a
+-- rebuild that cleared the counts alone would find every source already claimed and
+-- re-derive an empty library.
+CREATE TABLE IF NOT EXISTS component_people_indexed (
+    user_id    text        NOT NULL,
+    source_id  text        NOT NULL,
+    indexed_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, source_id)
+);
+
+-- One-time backfill, for a library whose counts predate this manifest. The accumulation ran
+-- before the table existed, so on the first boot after the upgrade every count in it is held
+-- by a manifest that says NOTHING was accumulated — and the next redelivered index job
+-- claims a free row and adds its source a second time, which is exactly the doubling the
+-- manifest was added to close. So on that first boot every source a counted user owns is
+-- recorded as already accumulated, and nothing is counted twice.
+--
+-- Guarded on the user having counts and NO manifest rows at all: a user whose manifest has
+-- begun is a user this already ran for (or one that has only ever run with it), and is left
+-- alone. Runs on every start and writes nothing after the first — the second pass finds the
+-- rows it wrote and the NOT EXISTS is false.
+--
+-- Deliberately coarse in the conservative direction: a source that in fact contributed
+-- nothing (indexed before the component was enabled, or carrying no address terms) is marked
+-- accumulated too, so it stays uncounted until `rebuild_derived`, which re-derives BOTH
+-- tables from L0 and settles the pair exactly. A term missing until the next rebuild is a
+-- report the library does not yet make; a term counted twice is a number no read can undo.
+INSERT INTO component_people_indexed (user_id, source_id)
+SELECT s.user_id, s.source_id
+  FROM sources s
+ WHERE EXISTS (
+           SELECT 1 FROM component_people_terms t WHERE t.user_id = s.user_id
+       )
+   AND NOT EXISTS (
+           SELECT 1 FROM component_people_indexed i WHERE i.user_id = s.user_id
+       )
+ON CONFLICT DO NOTHING;
 
 -- The `people` component once kept a second table here, `component_people_decisions`: the
 -- DECLINES, one row per (term → identity) a compile round ruled was not that person's name.

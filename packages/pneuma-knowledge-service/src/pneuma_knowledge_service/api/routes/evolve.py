@@ -46,7 +46,7 @@ class EvolveTaskSummaryOut(BaseModel):
     created_at: str | None
     decided_at: str | None
     # Mechanically derived from the STORED proposal (no extra read, no new persistence):
-    # the archive families / path templates this task proposed. The list endpoint needs them
+    # the filing families / path templates this task proposed. The list endpoint needs them
     # so a timeline row and the schema-snapshot axis can name what a task adds without
     # fetching every task's detail.
     families: list[str] = []

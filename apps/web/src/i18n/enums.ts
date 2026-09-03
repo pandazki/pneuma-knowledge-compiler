@@ -36,6 +36,8 @@ export const enums = defineMessages({
 
     "enum.claimLabel.current": "当前",
     "enum.claimLabel.superseded": "已被取代",
+    // The archive's label, on any evidence an `include_archived` call admitted.
+    "enum.claimLabel.archived": "已归档",
 
     "enum.contextFocus.general.label": "全部",
     "enum.contextFocus.general.summary": "工作流里任何值得补充的概念或事实，不论出自谁口",
@@ -100,6 +102,7 @@ export const enums = defineMessages({
 
     "enum.claimLabel.current": "current",
     "enum.claimLabel.superseded": "superseded",
+    "enum.claimLabel.archived": "archived",
 
     "enum.contextFocus.general.label": "General",
     "enum.contextFocus.general.summary":

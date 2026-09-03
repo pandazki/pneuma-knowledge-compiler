@@ -170,13 +170,16 @@ class PostgresStore:
         async with self._pool.connection() as conn:
             row = await (await conn.execute(
                 "SELECT kind, source_class, title, mime, checksum, created_at, "
-                "meta, intake_plan, structure_map, origin FROM sources "
+                "meta, intake_plan, structure_map, origin, archived_at FROM sources "
                 "WHERE user_id = %s AND source_id = %s",
                 (str(user_id), str(source_id)),
             )).fetchone()
             if row is None:
                 raise KeyError(f"source not found: {source_id!r}")
-            raw = self._raw_from_row(user_id, source_id, row, origin=row[9])
+            # An archived source still answers here: L0 reachability is unconditional (I3).
+            raw = self._raw_from_row(
+                user_id, source_id, row, origin=row[9], archived_at=row[10]
+            )
             structure = StructureMap.model_validate(row[8])
             blocks = [
                 NormalizedBlock(index=r[0], text=r[1], section_path=r[2], images=r[3])
@@ -381,6 +384,15 @@ class PostgresStore:
         window costs the window rather than the library: the whole reason this projection is
         persisted at all. Deterministically ordered (day, instant, source, block) so a
         digest built from it is byte-stable.
+
+        ARCHIVED SOURCES ARE NOT IN THE ANSWER (docs/design/archive.md §4). The projection
+        itself keeps them — it is derived from all of L0 and rebuilt from all of it — but a
+        window read is a READ, and its caller is a component face that returns prose: the
+        `time` component's timeline and timespan hand back verbatim block text, which the
+        framework's assembly filter cannot redact after the fact. So the exclusion is made
+        here, in the query the read goes through, and no component has to learn that the
+        archive exists. `LEFT JOIN` plus `IS NULL` also keeps a projected block whose source
+        row is gone, exactly as before.
         """
         async with self._pool.connection() as conn:
             rows = await (await conn.execute(
@@ -390,6 +402,7 @@ class PostgresStore:
                 "LEFT JOIN sources s ON s.user_id = t.user_id "
                 "AND s.source_id = t.source_id "
                 "WHERE t.user_id = %s AND t.local_day >= %s AND t.local_day <= %s "
+                "AND s.archived_at IS NULL "
                 "ORDER BY t.local_day, t.instant_utc NULLS FIRST, t.source_id, "
                 "t.block_index LIMIT %s",
                 (str(user_id), since, until, limit),
@@ -432,15 +445,37 @@ class PostgresStore:
     # Same discipline as the time projection above and one deliberate difference: these rows
     # ACCUMULATE. A term's meaning is its distribution across the whole library, so each
     # indexed source ADDS its counts rather than replacing a slice — see the component and
-    # infra/schema.sql for why, and for the cost (re-indexing one source without a rebuild
-    # counts it twice; `rebuild` is the answer, because the rows are derived).
+    # infra/schema.sql for why. What makes that safe is that the addition happens at most
+    # once per source: `component_people_indexed` is the manifest, claimed in the same
+    # transaction as the counts.
 
-    async def add_people_terms(self, user_id: UserId, rows: list[dict]) -> int:
-        """Add one source's (term → target) counts to this user's projection."""
-        if not rows:
-            return 0
+    async def add_people_terms(
+        self, user_id: UserId, source_id: str, rows: list[dict]
+    ) -> bool:
+        """Add ONE source's (term → target) counts to this user's projection — at most once.
+
+        Returns whether this call was the one that added them. The manifest row is claimed
+        first, `ON CONFLICT DO NOTHING`, in the same transaction as the counts: a second job
+        for the same source inserts no row, learns it from `rowcount`, and adds nothing. Same
+        at-most-once shape as `apply_access_stats`, and for the same reason — the queue is
+        at-least-once, and an accumulation applied twice cannot be un-applied. The archive
+        subtracts ONE copy of a source's contribution recomputed from L0, so a doubled source
+        would leave half of itself in every read that excludes it.
+
+        A source with no rows still claims the manifest: it HAS been accumulated, and what it
+        contributed is nothing.
+        """
         async with self._pool.connection() as conn:
-            async with conn.cursor() as cur:
+            async with conn.transaction(), conn.cursor() as cur:
+                await cur.execute(
+                    "INSERT INTO component_people_indexed (user_id, source_id) "
+                    "VALUES (%s, %s) ON CONFLICT DO NOTHING",
+                    (str(user_id), str(source_id)),
+                )
+                if not cur.rowcount:
+                    return False
+                if not rows:
+                    return True
                 await cur.executemany(
                     "INSERT INTO component_people_terms (user_id, term, target_identity, "
                     "target_name, answered, co_mention, non_vocative, sources, first_day, "
@@ -472,7 +507,7 @@ class PostgresStore:
                         for r in rows
                     ],
                 )
-        return len(rows)
+        return True
 
     async def set_people_terms_reported_since(
         self, user_id: UserId, pairs: list[dict], day: str
@@ -501,12 +536,26 @@ class PostgresStore:
         return len(pairs)
 
     async def delete_people_terms(self, user_id: UserId) -> int:
-        """Drop this user's whole address-term projection (the first half of a rebuild)."""
+        """Drop this user's whole address-term projection — the counts AND the manifest of
+        the sources already accumulated into them — in ONE transaction. The first half of a
+        rebuild; returns how many count rows went.
+
+        Both tables or neither. The manifest says which sources the counts already hold, so a
+        rebuild that emptied the counts alone would find every source claimed, add nothing,
+        and leave the library projected as empty.
+        """
         async with self._pool.connection() as conn:
-            cur = await conn.execute(
-                "DELETE FROM component_people_terms WHERE user_id = %s", (str(user_id),)
-            )
-        return cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+            async with conn.transaction():
+                cur = await conn.execute(
+                    "DELETE FROM component_people_terms WHERE user_id = %s",
+                    (str(user_id),),
+                )
+                dropped = cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+                await conn.execute(
+                    "DELETE FROM component_people_indexed WHERE user_id = %s",
+                    (str(user_id),),
+                )
+        return dropped
 
     async def people_terms(
         self, user_id: UserId, terms: list[str] | None = None
@@ -757,10 +806,18 @@ class PostgresStore:
         ]
 
     async def list(self, user_id: UserId) -> list[RawSource]:
+        """Every source this user owns, oldest first — ARCHIVED ONES INCLUDED.
+
+        L0 is the verbatim record and its reachability is unconditional (invariant I3), so
+        the authority's own enumeration hides nothing; each row carries `archived_at` and a
+        reader that wants only live material filters on it. The face that defaults to
+        excluding the archive is the paginated LISTING (`list_sources_page`), because that
+        one answers a question the Owner asked.
+        """
         async with self._pool.connection() as conn:
             rows = await (await conn.execute(
                 "SELECT source_id, kind, source_class, title, mime, checksum, "
-                "created_at, meta, intake_plan, origin FROM sources "
+                "created_at, meta, intake_plan, origin, archived_at FROM sources "
                 "WHERE user_id = %s ORDER BY created_at",
                 (str(user_id),),
             )).fetchall()
@@ -770,6 +827,7 @@ class PostgresStore:
                 SourceId(r[0]),
                 (r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8]),
                 origin=r[9],
+                archived_at=r[10],
             )
             for r in rows
         ]
@@ -794,7 +852,7 @@ class PostgresStore:
         async with self._pool.connection() as conn:
             rows = await (await conn.execute(
                 "SELECT source_id, kind, source_class, title, mime, checksum, "
-                "created_at, meta, intake_plan, origin FROM sources "
+                "created_at, meta, intake_plan, origin, archived_at FROM sources "
                 f"WHERE {where} ORDER BY created_at, source_id",
                 params,
             )).fetchall()
@@ -804,6 +862,7 @@ class PostgresStore:
                 SourceId(r[0]),
                 (r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8]),
                 origin=r[9],
+                archived_at=r[10],
             )
             for r in rows
         ]
@@ -816,14 +875,22 @@ class PostgresStore:
         before: tuple[datetime, str] | None = None,
         query: str | None = None,
         kind: str | None = None,
+        include_archived: bool = False,
     ) -> tuple[list[RawSource], int, bool]:
         """One keyset-paginated source page, newest first.
 
         The count and page query apply the same user/filter predicate. Only ``limit + 1``
         source rows cross the storage boundary; the extra row determines ``has_more``.
+
+        The archive is excluded by default (docs/design/archive.md §4): the Owner said this
+        material is no longer current, and a listing that still leads with it costs every
+        read. ``include_archived=True`` is the stated exception. Either way every returned
+        row carries `archived_at`, so a caller can label what it shows.
         """
         filters = ["user_id = %s"]
         params: list[Any] = [str(user_id)]
+        if not include_archived:
+            filters.append("archived_at IS NULL")
         if query:
             filters.append("title ILIKE %s")
             params.append(f"%{query}%")
@@ -846,7 +913,7 @@ class PostgresStore:
             )).fetchone()
             rows = await (await conn.execute(
                 "SELECT source_id, kind, source_class, title, mime, checksum, "
-                "created_at, meta, intake_plan, origin FROM sources "
+                "created_at, meta, intake_plan, origin, archived_at FROM sources "
                 f"WHERE {page_where} "
                 "ORDER BY created_at DESC, source_id DESC LIMIT %s",
                 [*page_params, limit + 1],
@@ -861,6 +928,7 @@ class PostgresStore:
                     SourceId(r[0]),
                     (r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8]),
                     origin=r[9],
+                    archived_at=r[10],
                 )
                 for r in rows
             ],
@@ -919,12 +987,46 @@ class PostgresStore:
             )).fetchall()
         return "\n".join(r[0] for r in rows)
 
+    # --- the archive mark on L0 (docs/design/archive.md §2.2) -----------------
+
+    async def set_source_archived(
+        self, user_id: UserId, source_id: SourceId, archived: bool
+    ) -> datetime | None:
+        """Set or clear one source's archive mark; return the value it now holds.
+
+        The column IS the state — nothing else records it, so a rebuild of every derived
+        layer reads it off here and never off a side table. Setting an already-archived
+        source re-stamps the day it was archived, which is why the caller (the archive job)
+        only writes the sources its confirmed proposal actually selected.
+        """
+        now = datetime.now(timezone.utc) if archived else None
+        async with self._pool.connection() as conn:
+            row = await (await conn.execute(
+                "UPDATE sources SET archived_at = %s "
+                "WHERE user_id = %s AND source_id = %s RETURNING archived_at",
+                (now, str(user_id), str(source_id)),
+            )).fetchone()
+        if row is None:
+            raise KeyError(f"source not found: {source_id!r}")
+        return row[0]
+
+    async def archived_source_ids(self, user_id: UserId) -> frozenset[SourceId]:
+        """This user's archived source ids — one read for one retrieval's assembly filter."""
+        async with self._pool.connection() as conn:
+            rows = await (await conn.execute(
+                "SELECT source_id FROM sources "
+                "WHERE user_id = %s AND archived_at IS NOT NULL",
+                (str(user_id),),
+            )).fetchall()
+        return frozenset(SourceId(r[0]) for r in rows)
+
     @staticmethod
     def _raw_from_row(
         user_id: UserId,
         source_id: SourceId,
         row: tuple,
         origin: str = "upload",
+        archived_at: datetime | None = None,
     ) -> RawSource:
         # row = (kind, source_class, title, mime, checksum, created_at, meta, intake_plan)
         return RawSource(
@@ -939,6 +1041,7 @@ class PostgresStore:
             meta=row[6] or {},
             intake_plan=row[7],
             origin=origin,
+            archived_at=archived_at,
         )
 
     # --- JobQueue -------------------------------------------------------------
@@ -1441,11 +1544,16 @@ class PostgresStore:
 
         Excludes canonical_treatment == 'none' (never compiled), sources already stamped
         digested_at, and sources already referenced by an in-flight (queued/claimed) job
-        — so a repeated POST /compile is idempotent even before the worker runs."""
+        — so a repeated POST /compile is idempotent even before the worker runs.
+
+        Archived sources are excluded too (docs/design/archive.md §2.2): the Owner has said
+        the material is not current, and compiling it would write LIVE claims about an
+        archived subject."""
         async with self._pool.connection() as conn:
             rows = await (await conn.execute(
                 "SELECT source_id, intake_plan FROM sources "
-                "WHERE user_id = %s AND digested_at IS NULL ORDER BY created_at",
+                "WHERE user_id = %s AND digested_at IS NULL AND archived_at IS NULL "
+                "ORDER BY created_at",
                 (str(user_id),),
             )).fetchall()
             active = await (await conn.execute(
@@ -1488,7 +1596,8 @@ class PostgresStore:
                         await cur.executemany(
                             "INSERT INTO canonical_claims (user_id, document_path, "
                             "anchor, section_path, text, citations, snapshot_ref, "
-                            "updated_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                            "updated_at, archived) "
+                            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
                             [
                                 (
                                     str(user_id),
@@ -1508,6 +1617,7 @@ class PostgresStore:
                                     ),
                                     snapshot_ref,
                                     now,
+                                    c.archived,
                                 )
                                 for c in claims
                             ],
@@ -1542,12 +1652,14 @@ class PostgresStore:
                         await cur.executemany(
                             "INSERT INTO canonical_claims (user_id, document_path, "
                             "anchor, section_path, text, citations, snapshot_ref, "
-                            "updated_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s) "
+                            "updated_at, archived) "
+                            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) "
                             "ON CONFLICT (user_id, document_path, anchor) DO UPDATE SET "
                             "section_path = EXCLUDED.section_path, "
                             "text = EXCLUDED.text, citations = EXCLUDED.citations, "
                             "snapshot_ref = EXCLUDED.snapshot_ref, "
-                            "updated_at = EXCLUDED.updated_at",
+                            "updated_at = EXCLUDED.updated_at, "
+                            "archived = EXCLUDED.archived",
                             [
                                 (
                                     uid,
@@ -1567,6 +1679,7 @@ class PostgresStore:
                                     ),
                                     snapshot_ref,
                                     now,
+                                    claim.archived,
                                 )
                                 for claim in upserts
                             ],
@@ -1586,6 +1699,7 @@ class PostgresStore:
             "text": r[3],
             "citations": r[4] or [],
             "snapshot_ref": r[5],
+            "archived": bool(r[6]),
         }
 
     async def list_canonical_claims(
@@ -1595,7 +1709,7 @@ class PostgresStore:
         async with self._pool.connection() as conn:
             rows = await (await conn.execute(
                 "SELECT document_path, anchor, section_path, text, citations, "
-                "snapshot_ref FROM canonical_claims WHERE user_id = %s "
+                "snapshot_ref, archived FROM canonical_claims WHERE user_id = %s "
                 "ORDER BY document_path, anchor",
                 (str(user_id),),
             )).fetchall()
@@ -1608,12 +1722,264 @@ class PostgresStore:
         async with self._pool.connection() as conn:
             rows = await (await conn.execute(
                 "SELECT document_path, anchor, section_path, text, citations, "
-                "snapshot_ref FROM canonical_claims "
+                "snapshot_ref, archived FROM canonical_claims "
                 "WHERE user_id = %s AND citations @> %s::jsonb "
                 "ORDER BY document_path, anchor",
                 (str(user_id), Json([{"source_id": str(source_id)}])),
             )).fetchall()
         return [self._claim_row(r) for r in rows]
+
+    # --- archive proposals (docs/design/archive.md §5) ------------------------
+    #
+    # A KEPT RECORD, not a derived layer (invariant I2): what the Owner proposed, against
+    # which library state, and what they decided. A rebuild replays it and never rewrites
+    # it, and nothing here recomputes a plan — the planner is pure core and runs once, at
+    # proposal time, so the set the Owner confirms is byte-for-byte the set they saw.
+
+    _ARCHIVE_PROPOSAL_COLUMNS = (
+        "proposal_id, action, seeds, items, library_ref, status, note, statement_ref, "
+        "created_at, confirmed_at, executed_at, job_id, detail"
+    )
+
+    @staticmethod
+    def _archive_proposal_row(row: tuple) -> dict[str, Any]:
+        return {
+            "proposal_id": row[0],
+            "action": row[1],
+            "seeds": row[2] or {},
+            "items": row[3] or [],
+            "library_ref": row[4] or "",
+            "status": row[5],
+            "note": row[6],
+            "statement_ref": row[7],
+            "created_at": row[8],
+            "confirmed_at": row[9],
+            "executed_at": row[10],
+            "job_id": row[11],
+            "detail": row[12],
+        }
+
+    async def create_archive_proposal(
+        self,
+        user_id: UserId,
+        proposal_id: str,
+        *,
+        action: str,
+        seeds: dict[str, Any],
+        items: list[dict[str, Any]],
+        library_ref: str,
+        note: str | None = None,
+        statement_ref: str | None = None,
+    ) -> None:
+        """Record one computed proposal, `status='proposed'`.
+
+        `library_ref` is the canonical HEAD the closure was computed against and is written
+        in the SAME statement as the items it explains: a confirm re-checks it and refuses
+        as stale when HEAD has moved, and an item list stored without the ref it was
+        computed from would be a preview of a library nobody can identify.
+        """
+        async with self._pool.connection() as conn:
+            await conn.execute(
+                "INSERT INTO archive_proposals (user_id, proposal_id, action, seeds, "
+                "items, library_ref, status, note, statement_ref) "
+                "VALUES (%s, %s, %s, %s, %s, %s, 'proposed', %s, %s)",
+                (
+                    str(user_id),
+                    proposal_id,
+                    action,
+                    Json(dict(seeds)),
+                    Json(list(items)),
+                    library_ref,
+                    note,
+                    statement_ref,
+                ),
+            )
+
+    async def get_archive_proposal(
+        self, user_id: UserId, proposal_id: str
+    ) -> dict[str, Any] | None:
+        async with self._pool.connection() as conn:
+            row = await (await conn.execute(
+                f"SELECT {self._ARCHIVE_PROPOSAL_COLUMNS} FROM archive_proposals "
+                "WHERE user_id = %s AND proposal_id = %s",
+                (str(user_id), proposal_id),
+            )).fetchone()
+        return self._archive_proposal_row(row) if row is not None else None
+
+    async def list_archive_proposals(
+        self, user_id: UserId, *, limit: int = 50
+    ) -> list[dict[str, Any]]:
+        """This user's proposals, newest first. Bounded: a listing is a page, not a history."""
+        async with self._pool.connection() as conn:
+            rows = await (await conn.execute(
+                f"SELECT {self._ARCHIVE_PROPOSAL_COLUMNS} FROM archive_proposals "
+                "WHERE user_id = %s ORDER BY created_at DESC, proposal_id DESC LIMIT %s",
+                (str(user_id), limit),
+            )).fetchall()
+        return [self._archive_proposal_row(r) for r in rows]
+
+    async def confirm_archive_proposal(
+        self,
+        user_id: UserId,
+        proposal_id: str,
+        *,
+        items: list[dict[str, Any]],
+        job_kind: str,
+        payload: dict[str, Any],
+        note: str | None = None,
+        note_given: bool = False,
+        statement_ref: str | None = None,
+    ) -> str | None:
+        """Accept one proposal AND queue the job that executes it — in one transaction.
+
+        Returns the job id, or None when the row was no longer `proposed` (another confirm
+        or a drop reached it first) and therefore nothing at all was written.
+
+        The two halves are one statement pair on purpose. Split across two calls they have
+        to be ordered, and BOTH orders are a real state the system cannot reconcile: flip
+        first and a queue that refuses leaves a `confirmed` proposal nothing will ever
+        execute and nothing will ever fail — invisible, not stuck; enqueue first and a flip
+        that loses its predicate leaves a job for a decision that was never made. Committed
+        together, neither exists, and there is nothing to compensate for — which is why the
+        caller has no undo path and an exception here is an ordinary failure over a proposal
+        that is still open.
+
+        The job id is minted HERE and written into both rows, so the proposal names the job
+        that carries it from the moment either exists. That also removes the second write the
+        old shape needed: there is no window in which the row is `confirmed` with a null
+        `job_id`, and therefore no bookkeeping update that a worker finishing first could
+        race. `status = 'proposed'` in the WHERE clause is what decides the transition — the
+        caller's read above it cannot, because two confirms in flight both read `proposed`.
+
+        `note_given` is the difference between "the Owner said nothing about the note" and
+        "the Owner CLEARED it", and the two cannot share a spelling. `COALESCE(%s, note)`
+        reads a NULL as the first, so an explicitly emptied note fell through to the plan's
+        old one — and the record then quoted a sentence the confirm's preview had already
+        replaced with the default. Given, the column is assigned outright and a `None` writes
+        SQL NULL on purpose; absent, the old COALESCE stands and the plan's note is kept.
+
+        `statement_ref` is the other half of the reason and is COALESCE'd, never cleared: a
+        confirm may NAME the owner-dialogue source the record will cite even when the plan
+        did not, and it is written in this same transaction because the job reads it off the
+        row — a decision that reached the queue without it would mint a second statement
+        saying what the one the Owner named already says.
+        """
+        job_id = uuid.uuid4().hex
+        # Assigned outright when the caller SAID something about the note (`""` cleared it
+        # to NULL included); COALESCE'd — "keep what the plan recorded" — when they did not.
+        note_clause = "note = %s " if note_given else "note = COALESCE(%s, note) "
+        async with self._pool.connection() as conn:
+            async with conn.transaction(), conn.cursor() as cur:
+                await cur.execute(
+                    "UPDATE archive_proposals SET status = 'confirmed', "
+                    # `::jsonb` explicitly: psycopg adapts a Json() to `json`, which the
+                    # jsonb column will not take without the cast.
+                    "items = %s::jsonb, confirmed_at = %s, job_id = %s, "
+                    # Named at the confirm, or already named at the plan: COALESCE keeps
+                    # whichever exists and this write never clears one.
+                    "statement_ref = COALESCE(%s, statement_ref), "
+                    # The Owner's reason is typed at the decision; a confirm that says
+                    # nothing about the note leaves the informational one the plan recorded.
+                    + note_clause
+                    + "WHERE user_id = %s AND proposal_id = %s AND status = 'proposed'",
+                    (
+                        Json(list(items)),
+                        datetime.now(timezone.utc),
+                        job_id,
+                        statement_ref,
+                        note,
+                        str(user_id),
+                        proposal_id,
+                    ),
+                )
+                if cur.rowcount != 1:
+                    # The predicate lost. Returning inside the transaction block commits an
+                    # UPDATE that matched nothing — no job is inserted, and the caller is
+                    # told it was not the one that decided.
+                    return None
+                await cur.execute(
+                    "INSERT INTO compile_jobs (id, user_id, kind, payload) "
+                    "VALUES (%s, %s, %s, %s)",
+                    (job_id, str(user_id), job_kind, Json(dict(payload))),
+                )
+        return job_id
+
+    async def update_archive_proposal(
+        self,
+        user_id: UserId,
+        proposal_id: str,
+        *,
+        status: str,
+        items: list[dict[str, Any]] | None = None,
+        confirmed_at: datetime | None = None,
+        executed_at: datetime | None = None,
+        job_id: str | None = None,
+        detail: str | None = None,
+        note: str | None = None,
+        note_given: bool = False,
+        statement_ref: str | None = None,
+        expected_status: str | None = None,
+    ) -> bool:
+        """Advance one proposal's lifecycle; True when this call is the one that moved it.
+
+        The lifecycle writes that are NOT the confirm: the stale mark, the drop, and the
+        job's own terminal `executed` / `failed`. (The confirm has its own statement,
+        `confirm_archive_proposal`, because it must commit the job in the same transaction.)
+
+        Every optional field is written only when given (`COALESCE`), so a later stage never
+        blanks what an earlier one recorded: an `executed` update does not erase the
+        `confirmed_at` the confirm stamped, and a `failed` update keeps the job that ran.
+        What is kept in `items` is what was EXECUTED, and the seeds and library_ref beside it
+        stay untouched.
+
+        `note` is the one field with an explicit "cleared" state, and it takes the same
+        `note_given` flag `confirm_archive_proposal` does: COALESCE cannot spell the
+        difference between "say nothing about it" and "empty it", and a caller that means the
+        second must be able to write NULL deliberately rather than have it read as the first.
+
+        `expected_status` makes the lifecycle transition ATOMIC. Read-then-write cannot
+        decide "is this proposal still `confirmed`" — a finished job and an operator's
+        repair both read it and both write. Appended to the WHERE clause, the predicate is
+        evaluated by the row lock: exactly one statement matches, the loser updates nothing,
+        and `rowcount == 1` is how the caller learns which it was. Without it the statement
+        is unconditional.
+        """
+        clause = "" if expected_status is None else " AND status = %s"
+        tail: tuple = (
+            (str(user_id), proposal_id)
+            if expected_status is None
+            else (str(user_id), proposal_id, expected_status)
+        )
+        note_clause = "note = %s, " if note_given else "note = COALESCE(%s, note), "
+        async with self._pool.connection() as conn:
+            cur = await conn.execute(
+                "UPDATE archive_proposals SET status = %s, "
+                # `::jsonb` explicitly: psycopg adapts a Json() to `json`, and COALESCE
+                # will not coerce json to the column's jsonb on its own.
+                "items = COALESCE(%s::jsonb, items), "
+                "confirmed_at = COALESCE(%s, confirmed_at), "
+                "executed_at = COALESCE(%s, executed_at), "
+                "job_id = COALESCE(%s, job_id), "
+                "detail = COALESCE(%s, detail), "
+                + note_clause +
+                # The job fills this in when it ingests the owner's statement, so the
+                # proposal names the source its record cites. COALESCE like the rest: a
+                # statement_ref the OWNER supplied at plan time is never overwritten.
+                "statement_ref = COALESCE(%s, statement_ref) "
+                "WHERE user_id = %s AND proposal_id = %s" + clause,
+                (
+                    status,
+                    Json(list(items)) if items is not None else None,
+                    confirmed_at,
+                    executed_at,
+                    job_id,
+                    detail,
+                    note,
+                    statement_ref,
+                    *tail,
+                ),
+            )
+        return cur.rowcount == 1
 
     # --- kb snapshot registry + tenant copy (frozen-tenant versioning) --------
     #
@@ -1750,6 +2116,13 @@ class PostgresStore:
         `chunk_manifests` is deliberately NOT copied: it exists to make a FUTURE re-chunk
         byte-deterministic, and a frozen tenant is never re-chunked. Copying it would state a
         rebuild intent that can never apply.
+
+        `archive_proposals` is not copied either, for the same shape of reason: a proposal is
+        the OWNER's record of a decision about the live library, and a frozen tenant refuses
+        every write — a proposal that could never be confirmed there would be a decision the
+        snapshot cannot make. The RESULT of an executed proposal does ride along, because it
+        lives on the two authorities: `sources.archived_at` above, and the `archive/` paths
+        in the canonical repository the snapshot pins by ref.
         """
         src, dst = str(source), str(target)
         async with self._pool.connection() as conn:
@@ -1757,9 +2130,10 @@ class PostgresStore:
                 await conn.execute(
                     "INSERT INTO sources (user_id, source_id, kind, source_class, title, "
                     "mime, checksum, created_at, meta, intake_plan, structure_map, "
-                    "digested_at, origin) "
+                    "digested_at, origin, archived_at) "
                     "SELECT %s, source_id, kind, source_class, title, mime, checksum, "
-                    "created_at, meta, intake_plan, structure_map, digested_at, origin "
+                    "created_at, meta, intake_plan, structure_map, digested_at, origin, "
+                    "archived_at "
                     "FROM sources WHERE user_id = %s ON CONFLICT DO NOTHING",
                     (dst, src),
                 )
@@ -1772,9 +2146,9 @@ class PostgresStore:
                 )
                 await conn.execute(
                     "INSERT INTO canonical_claims (user_id, document_path, anchor, "
-                    "section_path, text, citations, snapshot_ref, updated_at) "
+                    "section_path, text, citations, snapshot_ref, updated_at, archived) "
                     "SELECT %s, document_path, anchor, section_path, text, citations, "
-                    "snapshot_ref, updated_at "
+                    "snapshot_ref, updated_at, archived "
                     "FROM canonical_claims WHERE user_id = %s ON CONFLICT DO NOTHING",
                     (dst, src),
                 )
@@ -2438,12 +2812,19 @@ class PostgresStore:
                     "DELETE FROM kb_snapshots WHERE user_id = %s",
                     (str(user_id),),
                 )
-                # The people projection is the one component table with no source FK to
-                # cascade from — a term's row belongs to the library, not to one source.
+                # The Owner's archive decisions: kept records with no FK to cascade from.
                 await conn.execute(
-                    "DELETE FROM component_people_terms WHERE user_id = %s",
+                    "DELETE FROM archive_proposals WHERE user_id = %s",
                     (str(user_id),),
                 )
+                # The people projection is the one component table with no source FK to
+                # cascade from — a term's row belongs to the library, not to one source —
+                # and the manifest of the sources accumulated into it is keyed the same way,
+                # so the two go together here as they do in `delete_people_terms`.
+                for table in ("component_people_terms", "component_people_indexed"):
+                    await conn.execute(
+                        f"DELETE FROM {table} WHERE user_id = %s", (str(user_id),)
+                    )
                 # The use-side record and everything projected from it. Neither hangs off a
                 # source either, and a consultation holds the owner's QUESTIONS verbatim —
                 # so a tenant deletion that left them behind would leave exactly the rows

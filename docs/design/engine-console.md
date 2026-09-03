@@ -336,7 +336,7 @@ rather than documentation because five tests hold it to the code:
 - **Byte pin** — every surface of kind `assembled` renders byte-for-byte identically to the
   real composition function (`selector_contract()`, `deep_contract()`, `briefing_contract()`,
   `live_context_contracts()`, `detail_contract()`, `render_system_contract()`, the two evolve
-  contracts, the three coverage-audit passes, the rollover history card, the context-stream
+  contracts, the three coverage-audit passes, the rollover volume card, the context-stream
   guidance, the profile expansion). A contract that gains a section, loses a clause or
   reorders two of them fails until the map says the same thing.
 - **Kind pin** — the byte-pinned set and the `assembled` set are identical, in both

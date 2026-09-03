@@ -43,6 +43,14 @@ export interface DocumentRecord {
   frontmatter: Record<string, unknown>;
   body: string;
   claims: Claim[];
+  /**
+   * Whether this document is in the archive. Derived by the service from the ONE thing that
+   * carries the state — the `archive/` path prefix (docs/design/archive.md §2.1) — and
+   * shipped on the record so a client need not re-derive it. `lib/archive.ts` derives it the
+   * same way for a projection that predates the field, which is why nothing branches on this
+   * alone.
+   */
+  archived?: boolean;
 }
 
 /**

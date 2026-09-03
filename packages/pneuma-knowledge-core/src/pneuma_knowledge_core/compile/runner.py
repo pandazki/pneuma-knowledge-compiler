@@ -25,7 +25,7 @@ import asyncio
 import base64
 import inspect
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -40,6 +40,7 @@ from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
 from ..canonical_glance import render_outline
+from ..domain.archive import ARCHIVE_OF_KEY, archived_path, is_archive_record, is_archived_path
 from ..domain.canonical import CanonicalDocument
 from ..domain.ids import UserId, SourceId, extract_anchors
 from ..recall.citation_alias import resolve_handles
@@ -53,7 +54,12 @@ from ..skill.version import SkillVersion
 from .anchor_ops import AnchorToolError
 from .documents import Connection, Overview, render_document
 from .overview import OVERVIEW_BUDGET_CHARS, OVERVIEW_REQUIRED_AFTER_CLAIMS
-from .gate import Violation, overview_required_violations, run_gate
+from .gate import (
+    Violation,
+    archive_refusals,
+    overview_required_violations,
+    run_gate,
+)
 from ..components import component_job, registered_components
 from .patch import PatchDraft, history_volume_owner
 from .transitions import CompileEvent, derive_events
@@ -200,6 +206,16 @@ class CompileResult:
     tool_calls: int
     token_usage: dict[str, int]
     snapshot: SnapshotRef | None = None
+    #: Every archive refusal this compile hit — a write aimed under `archive/`, a create on a
+    #: path an archived document shadows, a create under an archived document's title — from
+    #: the tool face and the gate alike (`gate.archive_refusals`). Empty for every compile in
+    #: a library with no archive, which is every compile until the owner makes one.
+    #:
+    #: NOT a compile event: events are derived from the file diff and a refusal wrote no
+    #: file. It rides the result so the worker can put it in the job's completion detail,
+    #: where the owner sees that new material came in about a subject they retired
+    #: (docs/design/archive.md §2.1).
+    archive_refusals: list[dict] = field(default_factory=list)
 
 
 def _render_time_anchor(
@@ -542,9 +558,20 @@ def _build_tools(
     nothing to await and async would only color the loop for free."""
 
     def list_documents() -> str:
-        return "\n".join(draft.list_paths()) or prompt("compile.tool.list_documents_empty")
+        # LIVE documents only. The archive (`archive/`) is not part of a compile's working
+        # set — nothing there may be written and nothing there is offered as a place to
+        # write — so listing it would spend the model's attention on pages it cannot use
+        # and invite it to re-open a subject the owner retired.
+        paths = [p for p in draft.list_paths() if not is_archived_path(p)]
+        return "\n".join(paths) or prompt("compile.tool.list_documents_empty")
 
     def read_document(path: str) -> str:
+        # An archived path answers with the fact and nothing else — and is NOT marked read,
+        # so the whole-region writes still refuse it for the same reason they refuse an
+        # unread page. Unlike a frozen rollover volume (readable, quotable, just not
+        # writable), an archived document is outside this compile's working set entirely.
+        if is_archived_path(path):
+            return prompt("compile.tool.read_document_archived", path=path)
         doc = draft.read(path)
         # The one place a path becomes "seen this round": the whole-region writes below
         # refuse a document this compile has not looked at.
@@ -556,7 +583,18 @@ def _build_tools(
         # presents them exactly like editable ones.
         owner = history_volume_owner(path, draft.path_templates)
         if owner is not None:
-            notice = prompt("compile.tool.read_document_frozen_notice", owner=owner)
+            notice = prompt("compile.tool.read_document_closed_notice", owner=owner)
+            return f"{notice}\n{rendered}"
+        # An ARCHIVE RECORD reads in full — that is how the round learns the subject is
+        # RETIRED rather than absent, which is the whole reason the record exists — with the
+        # same kind of notice a closed volume gets: readable, citable, never a write target.
+        if is_archive_record(doc):
+            notice = prompt(
+                "compile.tool.read_document_record_notice",
+                archived=str(
+                    (doc.frontmatter or {}).get(ARCHIVE_OF_KEY) or archived_path(path)
+                ),
+            )
             return f"{notice}\n{rendered}"
         return rendered
 
@@ -1022,6 +1060,11 @@ async def run_compile(
             )
 
         files = draft.to_files()
+        # Read AFTER the last gate run, so a refusal the repair round earned is in it, and
+        # for every outcome alike: an aborted round hit the archive as truly as a committed
+        # one, and a noop is exactly the shape a round spends when the only thing it had to
+        # write was refused.
+        refusals = archive_refusals(violations, draft)
         if violations:
             # Abort: canonical layer untouched (no commit).
             return CompileResult(
@@ -1033,6 +1076,7 @@ async def run_compile(
                 tool_calls=tool_calls,
                 token_usage=usage,
                 snapshot=None,
+                archive_refusals=refusals,
             )
 
         if not draft.is_dirty():
@@ -1045,6 +1089,7 @@ async def run_compile(
                 tool_calls=tool_calls,
                 token_usage=usage,
                 snapshot=None,
+                archive_refusals=refusals,
             )
 
         # Resolve the per-job `sNN` handles back to real source ids, so canonical stores real
@@ -1065,4 +1110,5 @@ async def run_compile(
             tool_calls=tool_calls,
             token_usage=usage,
             snapshot=snapshot,
+            archive_refusals=refusals,
         )

@@ -33,8 +33,12 @@ repair round by the runner):
    bounds the ledger from below. Judged for the pages this round CHANGED, never for the
    library at large.
 5. path ownership — every document path matches a skill path template, or is one of an owned
-   document's rollover volumes (`<owned document>/aNN.md`; see patch.history_volume_owner).
-5b. frozen archive — a rollover volume may not be modified by a compile.
+   page's closed volumes (`<owned document>/aNN.md`; see patch.history_volume_owner).
+5b. closed volume — a closed volume may not be modified by a compile (`volume_closed`).
+5c. the ARCHIVE (`archive/`, docs/design/archive.md) — a different rule and a different word:
+   nothing under `archive/` changes in a compile, and a new document may take neither a live
+   path an archived document shadows nor an archived document's TITLE. All three are
+   `archived_path`.
 6. supersession — a `supersedes` marker names an existing anchor, never itself; chains are
    linear and acyclic; a superseded claim is frozen; the superseding claim carries new
    evidence (compile/supersession.py).
@@ -50,6 +54,14 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
+from ..domain.archive import (
+    ARCHIVE_OF_KEY,
+    archived_path,
+    is_archive_record,
+    is_archived_path,
+    normalize_title,
+    shadowed_paths,
+)
 from ..domain.canonical import CANONICAL_CITATION_MARKER_RE, iter_canonical_citations
 from ..domain.ids import extract_anchors
 from ..domain.source import NormalizedSource
@@ -76,8 +88,11 @@ from .overview import (
 )
 from .patch import (
     PatchDraft,
+    archived_titles,
+    document_title,
     history_volume_owner,
     path_allowed,
+    touched_this_round,
 )
 from .supersession import block_anchor, block_by_anchor, block_supersedes
 
@@ -103,7 +118,7 @@ _ANCHOR_IN_MARKER_RE = re.compile(r"^\s*c:(?P<anchor>[0-9a-zA-Z_-]+)\s*$")
 
 @dataclass(frozen=True)
 class Violation:
-    kind: str  # anchor_continuity | anchor_uniqueness | citation | claim_text | link | frontmatter | path
+    kind: str  # anchor_continuity | anchor_uniqueness | citation | claim_text | link | frontmatter | path | volume_closed | archived_path
     path: str
     detail: str
 
@@ -153,6 +168,47 @@ def check_frontmatter(docs: Mapping[str, object]) -> list[Violation]:
     return violations
 
 
+def check_archive_records(
+    docs: Mapping[str, object], base_docs: Mapping[str, object]
+) -> list[Violation]:
+    """No round writes on an ARCHIVE RECORD. Shared by the compile + evolve gates.
+
+    The record is a live document in every other respect — it is in the outline,
+    `read_document` answers with it, the projection indexes its claims and a lane answers
+    with them — so nothing else in either gate refuses a diff on it. What refuses one is
+    this: it states a decision the owner made, in a page whose every byte a mechanical
+    channel derived, and the owner unmakes it by unarchiving.
+
+    Shared rather than written twice because the rule is about CANONICAL and not about one
+    writing channel: a daily compile and a whole-library reorganization are equally unable
+    to move a claim out of a record, rename its family, or edit the reason it carries. Both
+    write faces refuse the write up front (`PatchDraft._refuse_archive_record`); this is the
+    final arbiter over the produced draft, and it is silent on a record nobody touched —
+    which is exactly what a reorganization does to one.
+    """
+    violations: list[Violation] = []
+    for path, doc in docs.items():
+        base_doc = base_docs.get(path)
+        if not is_archive_record(doc) and not (
+            base_doc is not None and is_archive_record(base_doc)
+        ):
+            continue
+        if not touched_this_round(doc, base_doc):
+            continue
+        frontmatter = (base_doc or doc).frontmatter or {}
+        violations.append(
+            Violation(
+                "archived_path",
+                path,
+                prompt(
+                    "gate.archive_record",
+                    archived=str(frontmatter.get(ARCHIVE_OF_KEY) or archived_path(path)),
+                ),
+            )
+        )
+    return violations
+
+
 def check_anchor_coverage(docs: Mapping[str, object]) -> list[Violation]:
     """Every content block carries an anchor, or it is browse-visible canonical text that
     never enters the L3 claim index (an orphaned claim). Shared by compile + evolve gates."""
@@ -194,7 +250,7 @@ def check_claim_text_machinery(
     the model has `edit_claim` in hand and the refusal names the corrective action.
 
     Rollover volumes are exempt for the reason 4d exempts them: the corrective action does not
-    exist there (`edit_claim` refuses a frozen volume), and a changed volume is already gate
+    exist there (`edit_claim` refuses a closed volume), and a changed volume is already gate
     5b's violation.
     """
     violations: list[Violation] = []
@@ -268,7 +324,7 @@ def check_supersession(
     """Every `supersedes` marker in the repository is a legal, linear, evidenced link.
 
     Judged repository-wide (like anchor uniqueness): a chain may cross documents — the
-    active page supersedes a claim archived in its frozen volume — so a per-document view
+    open volume supersedes a claim that closed into an earlier one — so a per-document view
     would miss exactly the links that matter. Seven rejections:
 
     - `supersession_target_missing`: the named anchor exists nowhere;
@@ -394,7 +450,7 @@ def overview_required_violations(
     only the draft knows: the Violation type, and which paths are frozen rollover volumes.
 
     A volume is exempt because the corrective action does not exist for it: `rewrite_overview`
-    refuses a frozen volume, so asking one for a head would name an action the mechanism
+    refuses a closed volume, so asking one for a head would name an action the mechanism
     itself forbids — and a volume is never legitimately changed by a compile anyway (gate 5b
     refuses that on its own terms, which is the violation that should be read).
 
@@ -625,6 +681,14 @@ def run_gate(
             continue
         if history_volume_owner(path, draft.path_templates) is not None:
             continue
+        # A document in the ARCHIVE is owned by the archive, not by a write template: the
+        # move under `archive/` deliberately puts it outside every path pattern (which is
+        # what makes `create_document` there impossible), and it sits in the draft like
+        # every other document. Judging it unowned would abort every compile after the
+        # owner's first archive, on a path the round never touched. 5c below is the rule
+        # that actually holds for it.
+        if is_archived_path(path):
+            continue
         violations.append(
             Violation(
                 "path",
@@ -636,26 +700,83 @@ def run_gate(
             )
         )
 
-    # 5b. a rollover volume is FROZEN. Compile cannot create one, but every volume does sit in
+    # 5b. a closed volume is CLOSED. Compile cannot create one, but every volume does sit in
     # the draft as an ordinary document. The claim-mutation tools now refuse a volume path
-    # up front (PatchDraft._refuse_frozen_volume, same ownership derivation), so in the tool
-    # loop this check should never be the FIRST thing to say "frozen" — but it stays as the
+    # up front (PatchDraft._refuse_closed_volume, same ownership derivation), so in the tool
+    # loop this check should never be the FIRST thing to say "closed" — but it stays as the
     # final arbiter over the produced draft: nothing in a daily compile has any business
-    # writing there — the active document is where new claims belong — so any change to a
-    # volume, however it got into the draft, is refused.
+    # writing there — the open volume is where new claims belong — so any change to a
+    # closed volume, however it got into the draft, is refused.
     for path, doc in docs.items():
         if history_volume_owner(path, draft.path_templates) is None:
             continue
         if doc.body != base_bodies.get(path):
             violations.append(
                 Violation(
-                    "archive_frozen",
+                    "volume_closed",
                     path,
-                    prompt("gate.archive_frozen", owner=history_volume_owner(
+                    prompt("gate.volume_closed", owner=history_volume_owner(
                         path, draft.path_templates
                     )),
                 )
             )
+
+    # 5c. the ARCHIVE. Not the closed-volume rule above and deliberately a separate kind:
+    # `archive/` is where the OWNER moved a subject that is no longer worth an answer slot,
+    # and the move in and out is the owner's alone (docs/design/archive.md §2.1). Two
+    # mechanical rules, both judged over the produced draft: nothing under `archive/` changes,
+    # and no new document may take a live path an archived document shadows — a document's id
+    # derives from its path, and two documents with one id is the one thing a move must never
+    # produce. The tool face refuses both up front; this is the final arbiter.
+    base_documents = draft.base_documents()
+    for path, doc in docs.items():
+        if not is_archived_path(path):
+            continue
+        if touched_this_round(doc, base_documents.get(path)):
+            violations.append(
+                Violation("archived_path", path, prompt("gate.archived_path"))
+            )
+    # …and the ARCHIVE RECORD, which is the same rule read at the live path — stated once,
+    # above, because the evolve gate holds the identical line over its own draft.
+    violations.extend(check_archive_records(docs, base_documents))
+
+    shadowed = shadowed_paths(base_documents.values())
+    # The title map is derived once for the whole check, off the BASE tree: no round can add
+    # or rename an archived document, so the archived names are the names this round started
+    # with.
+    archived_by_title = archived_titles(base_documents.values())
+    for path, doc in docs.items():
+        if path in base_bodies:
+            continue
+        if path in shadowed:
+            violations.append(
+                Violation(
+                    "archived_path",
+                    path,
+                    prompt("gate.archived_path_shadowed", archived=archived_path(path)),
+                )
+            )
+            continue
+        # …and the same rule read off the NAME. Shadowing the path alone held "one path, one
+        # doc_id" while a retired subject came back at the next free slug under a title that
+        # matched the archived page word for word (docs/design/archive.md §2.1, finding O3).
+        # A paraphrased title still escapes — see `PatchDraft._refuse_shadowed_title` for why
+        # that limit is stated rather than papered over.
+        title = document_title(doc)
+        archived_twin = archived_by_title.get(normalize_title(title))
+        if archived_twin is None:
+            continue
+        violations.append(
+            Violation(
+                "archived_path",
+                path,
+                prompt(
+                    "gate.archived_title_shadowed",
+                    title=title,
+                    archived=archived_twin,
+                ),
+            )
+        )
 
     # 6. supersession links (compile/supersession.py) — legal, linear, evidenced, frozen.
     violations.extend(check_supersession(docs, base_bodies))
@@ -664,8 +785,111 @@ def run_gate(
     # runs the checks and feeds the violations back like its own; what a component tests
     # (an identity unique across the repository, an alias list that only grows) is the
     # component's declaration, never a rule core knows.
-    base_docs = draft.base_documents()
     for component in registered_components():
-        violations.extend(component.gate_checks(docs, base_docs))
+        violations.extend(component.gate_checks(docs, base_documents))
 
     return violations
+
+
+def archive_refusals(
+    violations: Sequence[Violation], draft: PatchDraft
+) -> list[dict]:
+    """Every archive refusal this compile made, tool face and gate together, deduplicated.
+
+    A refusal is not a write, so it produces no compile event — events are derived from the
+    file diff, and nothing here changed a file. It is still the one moment the framework
+    learns something the OWNER needs: new material came in about a subject they retired.
+    So it travels as its own small record on `CompileResult` and into the job's completion
+    detail, and the owner reads it beside the compile that hit it
+    (docs/design/archive.md §2.1, finding O3).
+
+    Shape, per item: `{"kind": "path" | "title" | "record", "path", "archived", "title",
+    "attempted"}` — `record` being a write attempted on the archive record a retired subject
+    left at its live path, which is a reach for the subject exactly as the other two are —
+    `path` is what the round tried to write, `archived` the archived document standing in its
+    way, `title` THAT document's name (the retired subject, which is the fact the owner
+    needs), and `attempted` the name the round tried to give the new page — `None` for a path
+    refusal, where nothing was attempted by name.
+
+    Deduplicated on `(kind, path, archived)`: two attempts at one archived subject that
+    differ only in punctuation normalize to the same subject and are one fact, so the first
+    is kept and its `attempted` spelling is the one that travels.
+    """
+    records = draft.archive_refusals
+    docs, base = draft.documents(), draft.base_documents()
+    shadowed = shadowed_paths(base.values())
+    by_title = archived_titles(base.values())
+    seen = {(r["kind"], r["path"], r["archived"]) for r in records}
+
+    def add(record: dict) -> None:
+        key = (record["kind"], record["path"], record["archived"])
+        if key not in seen:
+            seen.add(key)
+            records.append(record)
+
+    for violation in violations:
+        if violation.kind != "archived_path":
+            continue
+        path = violation.path
+        if is_archived_path(path):
+            # A change UNDER the archive: the path is its own archived form.
+            doc = docs.get(path) or base.get(path)
+            add(
+                {
+                    "kind": "path",
+                    "path": path,
+                    "archived": path,
+                    "title": document_title(doc) if doc else "",
+                    "attempted": None,
+                }
+            )
+            continue
+        record = base.get(path)
+        if record is not None and is_archive_record(record):
+            # The live path is held by the RECORD, so the reach is a write on the record and
+            # not a create on a shadowed path. Checked before the shadow branch below, which
+            # would otherwise match the same path (the archived twin shadows it too) and
+            # report the same fact under a second code — the tool face already spells it
+            # `record`, and one reach is one record.
+            twin = str(
+                (record.frontmatter or {}).get(ARCHIVE_OF_KEY) or archived_path(path)
+            )
+            add(
+                {
+                    "kind": "record",
+                    "path": path,
+                    "archived": twin,
+                    "title": document_title(record),
+                    "attempted": None,
+                }
+            )
+            continue
+        if path in shadowed:
+            twin = archived_path(path)
+            doc = base.get(twin)
+            add(
+                {
+                    "kind": "path",
+                    "path": path,
+                    "archived": twin,
+                    "title": document_title(doc) if doc else "",
+                    "attempted": None,
+                }
+            )
+            continue
+        doc = docs.get(path)
+        attempted = document_title(doc) if doc else ""
+        twin = by_title.get(normalize_title(attempted), "")
+        archived_doc = base.get(twin)
+        add(
+            {
+                "kind": "title",
+                "path": path,
+                "archived": twin,
+                # The archived page's own name, not the one the round reached for: same rule
+                # as the tool face, so a refusal reads the same whichever face caught it.
+                "title": document_title(archived_doc) if archived_doc else "",
+                "attempted": attempted,
+            }
+        )
+    return records

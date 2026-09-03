@@ -96,7 +96,7 @@ def _request(row: dict | None) -> SimpleNamespace:
 
     async def canonical_list(user, *, at=None):  # noqa: ANN001
         canonical_reads.append((str(user), at))
-        return []  # empty → `_glance_inputs` returns {} and the lane runs glance-less
+        return []  # an empty library: the lane is handed `documents=[]` and glances at nothing
 
     async def get_kb_snapshot(user, ref):  # noqa: ANN001
         if row is None:

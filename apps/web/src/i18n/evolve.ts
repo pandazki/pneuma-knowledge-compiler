@@ -16,8 +16,8 @@ import { defineMessages } from "./define";
 export const evolve = defineMessages({
   zh: {
     "evolve.title": "演化 Evolve",
-    "evolve.description": "演化时间线 · 审阅重组如何搬移断言（claim）、归档族与路径模板。",
-    "evolve.descriptionShort": "演化提案的评审台与归档族累积轴。",
+    "evolve.description": "演化时间线 · 审阅重组如何搬移断言（claim）、归属族与路径模板。",
+    "evolve.descriptionShort": "演化提案的评审台与归属族累积轴。",
     "evolve.trigger": "触发演化",
     "evolve.readOnlyHint": "历史快照为只读",
     "evolve.listSeparator": "、",
@@ -67,7 +67,7 @@ export const evolve = defineMessages({
     "evolve.detail.loadFailed": "任务加载失败",
     "evolve.detail.title": "演化任务",
     "evolve.detail.created": "创建 {at}",
-    "evolve.detail.proposedFamilies": "本次提议新增归档 family：",
+    "evolve.detail.proposedFamilies": "本次提议新增归属 family：",
 
     "evolve.action.adopt": "采用",
     "evolve.action.drop": "放弃",
@@ -91,7 +91,7 @@ export const evolve = defineMessages({
     "evolve.dropped.awaiting": "待你裁决",
     "evolve.dropped.allKept": "锚全部保留",
     "evolve.dropped.empty":
-      "这次演化没有让任何断言锚点消失——每一条都带原锚点搬到了新归档族。",
+      "这次演化没有让任何断言锚点消失——每一条都带原锚点搬到了新归属族。",
     "evolve.dropped.calloutTitle": "这是本次评审的重点",
     "evolve.dropped.calloutBody":
       "下面 {count} 条断言的锚点在新库里已找不到（被合并或删除）。锚点消失意味着 L3、事件与版次追溯中的引用链在这里断开，采用前请逐条确认这是你要的结果。",
@@ -207,7 +207,7 @@ export const evolve = defineMessages({
     "evolve.detail.loadFailed": "Could not load the task",
     "evolve.detail.title": "Evolution task",
     "evolve.detail.created": "created {at}",
-    "evolve.detail.proposedFamilies": "Archive families proposed here:",
+    "evolve.detail.proposedFamilies": "Filing families proposed here:",
 
     "evolve.action.adopt": "Adopt",
     "evolve.action.drop": "Drop",

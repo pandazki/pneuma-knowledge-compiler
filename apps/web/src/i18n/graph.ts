@@ -43,12 +43,12 @@ export const graph = defineMessages({
 
     "graph.concentration.title": "集中度",
     "graph.concentration.note":
-      "按断言份额排序的主体；归档卷并入所属页计算，因为读者眼里那是同一个主体。",
+      "按断言份额排序的主体；已结卷并入所属页计算，因为读者眼里那是同一个主体。",
     "graph.concentration.lead": "头名份额",
     "graph.concentration.ratio": "第一 / 第二",
     "graph.concentration.tail": "其余 {units} 个主体",
     "graph.concentration.claims": "{count} 条",
-    "graph.concentration.volumes": "并入 {count} 卷归档",
+    "graph.concentration.volumes": "并入 {count} 个已结卷",
     "graph.concentration.shareAria": "断言份额 {share}",
 
     "graph.connectivity.title": "连通性",
@@ -65,7 +65,7 @@ export const graph = defineMessages({
 
     "graph.families.title": "族均衡",
     "graph.families.note":
-      "族由 skill 申报的路径模板定义。零页族是申报了却一直没用起来的归档位，所以它留在表里。",
+      "族由 skill 申报的路径模板定义。零页族是申报了却一直没用起来的归属位，所以它留在表里。",
     "graph.families.family": "族",
     "graph.families.pages": "页数",
     "graph.families.claims": "断言",
@@ -146,12 +146,12 @@ export const graph = defineMessages({
 
     "graph.concentration.title": "Concentration",
     "graph.concentration.note":
-      "Subjects by claim share; archive volumes count towards the page they belong to, because to a reader that is one subject.",
+      "Subjects by claim share; closed volumes count towards the page they belong to, because to a reader that is one subject.",
     "graph.concentration.lead": "Largest share",
     "graph.concentration.ratio": "First / second",
     "graph.concentration.tail": "The remaining {units} subject{units||s}",
     "graph.concentration.claims": "{count} claim{count||s}",
-    "graph.concentration.volumes": "{count} archive volume{count||s} folded in",
+    "graph.concentration.volumes": "{count} closed volume{count||s} folded in",
     "graph.concentration.shareAria": "Claim share {share}",
 
     "graph.connectivity.title": "Connectivity",

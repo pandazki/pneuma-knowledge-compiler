@@ -15,7 +15,7 @@ from types import SimpleNamespace
 
 from pneuma_knowledge_core.compile.documents import render_document
 from pneuma_knowledge_core.compile.rollover import (
-    ARCHIVED_FROM_KEY,
+    VOLUME_OF_KEY,
     _OverviewDraft,
     _OverviewPointDraft,
 )
@@ -214,10 +214,10 @@ def _sized(path: str, slug: str, chars: int, **extra) -> CanonicalDocument:
 async def test_the_sweep_finds_the_quiet_oversized_page_the_write_trigger_never_revisits():
     quiet = _sized(ACTIVE, "aurora-planner", 41_000)
     small = _sized("work/products/orion.md", "orion", 100)
-    # A frozen volume is excluded: history is never rolled over again, so a job for it could
+    # A closed volume is excluded: it is never rolled over again, so a job for it could
     # only report "cannot be rolled over".
     frozen = _sized(
-        "work/products/aurora-planner/a01.md", "a01", 41_000, **{ARCHIVED_FROM_KEY: ACTIVE}
+        "work/products/aurora-planner/a01.md", "a01", 41_000, **{VOLUME_OF_KEY: ACTIVE}
     )
     store = _FakeStore()
 
@@ -275,7 +275,7 @@ async def test_a_groom_commits_the_two_files_with_a_skill_trailer_and_reprojects
     assert set(files) == {ACTIVE, volume}
     assert message.startswith(f"groom {ACTIVE}: rolled over ")
     assert "Skill-Version: t1" in message  # same two identity axes as a compile commit
-    assert f"{ARCHIVED_FROM_KEY}: {ACTIVE}" in files[volume]
+    assert f"{VOLUME_OF_KEY}: {ACTIVE}" in files[volume]
 
     assert calls["synced_ref"] == "sha-groomed"
     done = store.completed[-1]
@@ -326,12 +326,12 @@ async def test_a_failed_history_card_abandons_the_groom_and_commits_nothing(monk
     await run_groom_job(ctx, "u-x", _job())
     assert canonical.commits == []
     done = store.completed[-1]
-    assert done["ok"] is False and done["detail"] == "groom: history card call_failed"
+    assert done["ok"] is False and done["detail"] == "groom: volume card call_failed"
 
 
 async def test_an_ungroundable_card_abandons_the_groom_rather_than_writing_it(monkeypatch):
     """Every point the model returned named an id it was not shown, so nothing is left to
-    write — and a rollover with no history card is a rollover that hid its own archive."""
+    write — and a rollover with no volume card is a rollover that hid its own earlier volumes."""
     active = _active(30)
     store, canonical = _FakeStore(), _FakeCanonical([active])
     _install_stubs(monkeypatch)
@@ -343,7 +343,7 @@ async def test_an_ungroundable_card_abandons_the_groom_rather_than_writing_it(mo
     await run_groom_job(ctx, "u-x", _job())
     assert canonical.commits == []
     assert store.completed[-1]["ok"] is False
-    assert store.completed[-1]["detail"] == "groom: history card empty"
+    assert store.completed[-1]["detail"] == "groom: volume card empty"
 
 
 async def test_a_gate_refusal_records_the_violations_and_commits_nothing(monkeypatch):
@@ -391,7 +391,7 @@ def _volume_with_short_links() -> list[CanonicalDocument]:
             "doc_id": "d-a01",
             "type": "product",
             "slug": "a01",
-            ARCHIVED_FROM_KEY: ACTIVE,
+            VOLUME_OF_KEY: ACTIVE,
         },
         body=(
             "# Aurora planner\n\n## Delivery\n\n"
@@ -465,7 +465,7 @@ async def test_a_second_groom_opens_the_next_volume_and_leaves_the_first_frozen(
     second = canonical2.commits[0][0]
     assert set(second) == {ACTIVE, "work/products/aurora-planner/a02.md"}
     assert "work/products/aurora-planner/a01.md" not in second
-    # and the frozen volume's bytes on disk are exactly what the first groom wrote
+    # and the closed volume's bytes on disk are exactly what the first groom wrote
     assert render_document(*parse_document(files["work/products/aurora-planner/a01.md"])) == (
         files["work/products/aurora-planner/a01.md"]
     )

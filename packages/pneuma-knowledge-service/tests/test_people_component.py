@@ -1056,8 +1056,13 @@ async def test_the_in_memory_fallback_and_a_store_backed_projection_agree_row_fo
         def __init__(self, sources):
             super().__init__(sources)
             self.rows: dict[tuple[str, str], dict] = {}
+            self.indexed: set[str] = set()
 
-        async def add_people_terms(self, user_id, rows):
+        async def add_people_terms(self, user_id, source_id, rows):
+            # the adapter's manifest, in memory: claimed first, and a repeat adds nothing
+            if str(source_id) in self.indexed:
+                return False
+            self.indexed.add(str(source_id))
             for row in rows:
                 key = (row["term"], row["target_identity"])
                 current = self.rows.get(key)
@@ -1070,7 +1075,7 @@ async def test_the_in_memory_fallback_and_a_store_backed_projection_agree_row_fo
                 current["sources"] += row["sources"]
                 current["first_day"] = min(current["first_day"], row["first_day"])
                 current["last_day"] = max(current["last_day"], row["last_day"])
-            return len(rows)
+            return True
 
         async def set_people_terms_reported_since(self, user_id, pairs, day):
             # `… WHERE reported_since IS NULL` — the adapter's predicate, so a stamp is
@@ -1084,6 +1089,7 @@ async def test_the_in_memory_fallback_and_a_store_backed_projection_agree_row_fo
         async def delete_people_terms(self, user_id):
             count = len(self.rows)
             self.rows.clear()
+            self.indexed.clear()  # both tables or neither — the adapter's transaction
             return count
 
         async def people_terms(self, user_id, terms=None):
@@ -1261,8 +1267,8 @@ class _ProjectionOnlyStore:
         self.reads += 1
         return [dict(r) for r in self.rows]
 
-    async def add_people_terms(self, user_id, rows):  # `_persists()` tests for this
-        return 0
+    async def add_people_terms(self, user_id, source_id, rows):  # `_persists()` tests for this
+        return True
 
     async def set_people_terms_reported_since(self, user_id, pairs, day):
         return 0
@@ -1540,6 +1546,7 @@ class _LibraryStore(_Content):
     def __init__(self, sources=(), rows=()):
         super().__init__(sources)
         self.rows = {(r["term"], r["target_identity"]): dict(r) for r in rows}
+        self.indexed: set[str] = set()
 
     async def people_terms(self, user_id, terms=None):
         return [
@@ -1548,7 +1555,10 @@ class _LibraryStore(_Content):
             if terms is None or key[0] in set(terms)
         ]
 
-    async def add_people_terms(self, user_id, rows):
+    async def add_people_terms(self, user_id, source_id, rows):
+        if str(source_id) in self.indexed:
+            return False
+        self.indexed.add(str(source_id))
         for row in rows:
             key = (row["term"], row["target_identity"])
             current = self.rows.get(key)
@@ -1557,7 +1567,7 @@ class _LibraryStore(_Content):
                 continue
             for field_name in ("answered", "co_mention", "non_vocative", "sources"):
                 current[field_name] += row[field_name]
-        return len(rows)
+        return True
 
     async def set_people_terms_reported_since(self, user_id, pairs, day):
         for pair in pairs:
@@ -1569,6 +1579,7 @@ class _LibraryStore(_Content):
     async def delete_people_terms(self, user_id):
         count = len(self.rows)
         self.rows.clear()
+        self.indexed.clear()
         return count
 
 

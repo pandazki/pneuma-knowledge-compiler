@@ -27,7 +27,7 @@ They are not the same bytes, because they answer different questions. Compile is
 WHERE TO WRITE, so its line carries the document type and its section headings. Recall is
 deciding WHAT TO READ, so its line carries the title and how recently the document moved.
 `render_outline` keeps the compile task's original line grammar (its prompt keys are
-unchanged) with one deliberate exception: a frozen rollover volume's line says so — see the
+unchanged) with one deliberate exception: a closed volume's line says so — see the
 function's own docstring.
 
 WHERE THE ONE-LINE BLURBS COME FROM
@@ -72,12 +72,22 @@ import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
+from .compile.anchor_ops import block_text
 from .compile.documents import derived_title, parse_overview, strip_overview
 from .compile.overview import ANCHOR_REFERENCE_RE, DEFINITION_MAX_CHARS
 from .compile.patch import _VOLUME_FILE_RE, path_allowed
-from .compile.rollover import archived_from
+from .compile.rollover import volume_of
 from .compile.supersession import SUPERSEDES_MARK_RE, current_blocks, superseded_index
 from .components import registered_components
+from .domain.archive import (
+    ARCHIVE_OF_KEY,
+    ARCHIVED_ON_KEY,
+    archived_path,
+    is_archive_record,
+    is_archived_path,
+    live_documents,
+    live_path,
+)
 from .domain.canonical import (
     CANONICAL_CITATION_MARKER_RE,
     HTML_COMMENT_RE,
@@ -311,6 +321,33 @@ def claim_display_text(block: str) -> str:
     return markdown_display_text(text)
 
 
+def first_current_claim(
+    doc: CanonicalDocument, superseded: Iterable[str] = ()
+) -> str | None:
+    """The document's first CURRENT ledger claim, in its own words AND its own grounding.
+
+    The sibling of `document_ledger_line`, and deliberately not the same thing. That one
+    produces DISPLAY text: it strips the `[cite: …]` spans and the `c:` references along with
+    the markdown, because a person reading a line under a title is not reading addresses.
+    This one keeps them, because its caller is not a screen — the archive record carries a
+    page's first claim into a new document (`archive/record.py`), where a sentence that had
+    its provenance removed on the way would be an ungrounded assertion standing in the
+    library's default answering set, which is exactly what invariant I4 forbids.
+
+    So: the claim's block with the system's trailing markers removed (`block_text` — the
+    anchor and, on a successor, the supersedes mark are the system's identity for the block
+    it is leaving, not this one's), its list bullet removed (the ledger's own container, the
+    way the anchor is the system's — a claim standing alone in another document is not an
+    item of the list it came out of), and its whitespace folded to one line. Nothing else is
+    touched; the citations ride along. None when the document has no current claim.
+    """
+    for block in current_blocks(strip_overview(doc.body), superseded):
+        text = " ".join(_MD_BULLET_RE.sub("", block_text(block)).split())
+        if text:
+            return text
+    return None
+
+
 def document_ledger_line(
     doc: CanonicalDocument, superseded: Iterable[str] = ()
 ) -> str | None:
@@ -424,22 +461,47 @@ def render_outline(docs: Sequence[CanonicalDocument]) -> list[str]:
 
     Same render the compile task has always emitted (same prompt keys, same sort, same
     fields) — path, frontmatter type, claim count, and the section headings that tell a
-    writer where a new claim belongs — with ONE deliberate exception: a rollover volume's
-    line states that it is a frozen archive of its active document and read-only, instead of
+    writer where a new claim belongs — with ONE deliberate exception: a closed volume's
+    line states that it is a closed volume of its open volume and read-only, instead of
     presenting it as an editable peer. The outline is the compiler's working-set map, and it
     used to be the surface that taught the trap: a rolled-over subject showed up twice, and
     nothing on the volume's line said which of the two takes writes. The volume stays listed
-    (a compiler must see the history it may read), identified the way the recall glance
-    identifies one (`volume_origin`: the `archived_from` stamp, path shape as fallback).
+    (a compiler must see the earlier volumes it may read), identified the way the recall
+    glance identifies one (`volume_origin`: the owning-page stamp, path shape as fallback).
+
+    The ARCHIVE is not rendered at all — neither an archived document nor a volume that
+    travelled into the archive with it. `archive/` is where the owner moved a subject that is
+    no longer worth an answer slot, and the outline is the list of places a compile may
+    write; offering one would be offering a page the gate refuses. The filter is here rather
+    than at the call site so every caller of the compile face gets it, and a tree with no
+    `archive/` renders byte-for-byte as before.
 
     Lives here so the outline and the glance derive "what a document is" from one place.
     """
+    docs = live_documents(docs)
     if not docs:
         return [prompt("compile.task.outline_empty")]
     present = {doc.path for doc in docs}
     superseded = repository_superseded(docs)
     lines: list[str] = []
     for doc in sorted(docs, key=lambda d: d.path):
+        # An ARCHIVE RECORD is listed and stated as one. It is LIVE — the compile draft holds
+        # it, the projection indexes it, a lane answers with it — and it is nevertheless not
+        # a place a compile may write, so a line that presented it as an editable peer would
+        # teach the round exactly the wrong thing. Listed rather than hidden, because hiding
+        # it is how a compiler concludes the subject never existed and writes it again under
+        # a fresh slug.
+        if is_archive_record(doc):
+            frontmatter = doc.frontmatter or {}
+            lines.append(
+                prompt(
+                    "compile.task.outline_entry_record",
+                    path=doc.path,
+                    archived=str(frontmatter.get(ARCHIVE_OF_KEY) or archived_path(doc.path)),
+                    archived_on=str(frontmatter.get(ARCHIVED_ON_KEY) or "?"),
+                )
+            )
+            continue
         origin = volume_origin(doc, present)
         if origin is not None:
             lines.append(
@@ -497,25 +559,40 @@ def render_outline(docs: Sequence[CanonicalDocument]) -> list[str]:
 
 
 def volume_origin(doc: CanonicalDocument, present: Sequence[str] | set[str]) -> str | None:
-    """The active document `doc` is a rollover volume OF, or None.
+    """The open volume (the page) `doc` is a closed volume OF, or None.
 
     Two agreeing signals, because a volume is identified by both its layout and its stamp: the
-    volume lives in its document's history directory (`<document>/aNN.md`) and carries an
-    `archived_from` frontmatter naming it. The frontmatter is authoritative — it survives a
-    move — and the directory is the fallback for a volume whose stamp is missing. Either way the
-    origin must actually EXIST: an orphaned volume keeps being listed on its own rather than
-    being folded into a document that is gone, which would make its claims unreachable here.
+    volume lives in its page's volume directory (`<document>/aNN.md`) and carries the
+    owning-page frontmatter stamp naming it (`archived_from`, legacy spelling). The
+    frontmatter is authoritative — it survives a move — and the directory is the fallback for a
+    volume whose stamp is missing. Either way the origin must actually EXIST: an orphaned
+    volume keeps being listed on its own rather than being folded into a document that is
+    gone, which would make its claims unreachable here.
     """
-    origin = archived_from(doc) or None
+    origin = volume_of(doc) or None
     if origin is None:
         directory, _, filename = doc.path.rpartition("/")
         if directory and _VOLUME_FILE_RE.match(filename) is not None:
             origin = f"{directory}.md"
-    return origin if origin in set(present) else None
+    if origin is None:
+        return None
+    present = set(present)
+    if origin in present:
+        return origin
+    # A volume that travelled into the ARCHIVE with its document keeps the stamp it was
+    # written with, which names the LIVE path (`work/x.md`) while both files now sit under
+    # `archive/`. Without this the volume would come back unpaired — listed as a document of
+    # its own, its `a02` filename standing in for a subject name. The path shape says the
+    # same thing the stamp does, so the archived form of the stamp is checked too.
+    if is_archived_path(doc.path):
+        moved = archived_path(origin)
+        if moved in present:
+            return moved
+    return None
 
 
-def archive_volume_counts(docs: Sequence[CanonicalDocument]) -> dict[str, int]:
-    """{active document path: how many frozen archive volumes it has}."""
+def closed_volume_counts(docs: Sequence[CanonicalDocument]) -> dict[str, int]:
+    """{open volume's path: how many closed volumes it has}."""
     present = {doc.path for doc in docs}
     counts: dict[str, int] = {}
     for doc in docs:
@@ -532,12 +609,12 @@ def archive_volume_counts(docs: Sequence[CanonicalDocument]) -> dict[str, int]:
 # `a02` and whose body is a run of claim blocks with no `# ` title above them: the volume's
 # own display name is therefore the string `a02`, which names nothing. Measured live — a card
 # built from two claims in `projects/<subject>/a02.md` reached the pick stage titled `a02`,
-# and the model, having no way to see WHOSE history it was reading, grafted the room's own
+# and the model, having no way to see WHOSE earlier volume it was reading, grafted the room's own
 # subject onto it and delivered a sentence about a product the evidence never mentions.
 #
 # The fix is not a prompt asking the model to be careful. It is that a retrieved document
-# arrives CARRYING ITS PARENT: a volume is displayed under its active document's title, with
-# the volume noted, and one line of that document's own definition rides beside it.
+# arrives CARRYING ITS PARENT: a volume is displayed under its open volume's title, with
+# the volume noted, and one line of that page's own definition rides beside it.
 
 
 @dataclass(frozen=True)
@@ -547,18 +624,18 @@ class DisplayIdentity:
 
     Three fields and no rendering opinion: a caller puts `title` where a name goes and
     `context` where one line of orientation fits, and `origin` is the parent path when the
-    document is a rollover volume (empty otherwise), so a caller that wants to say WHERE the
+    document is a closed volume (empty otherwise), so a caller that wants to say WHERE the
     identity came from does not have to re-derive it."""
 
     path: str
-    #: The parent's title with the volume noted (`Lumen Lab (archive a02)`) for a volume;
+    #: The parent's title with the volume noted (`Lumen Lab (vol. a02)`) for a volume;
     #: the document's own title otherwise; the filename stem for a path not in the library.
     title: str
     #: One line of orientation — for a volume, the parent's title and path plus the parent's
     #: own definition (or its ledger head); for any other document, its own. `""` when the
     #: page says nothing about itself, which is a real answer and not a placeholder.
     context: str
-    #: The active document a volume was rolled over from. `""` when this is not a volume.
+    #: The open volume a closed volume was rolled over from. `""` when this is not a volume.
     origin: str = ""
     #: The volume's own name (`a02`). `""` when this is not a volume.
     volume: str = ""
@@ -585,11 +662,11 @@ def display_identity(
     a document in the library or it does not, and an unknown path degrades to its own stem
     rather than to a guess.
 
-    A rollover volume is the case this exists for; the identity it hands back is its ACTIVE
-    document's, because that is what the volume is history OF. Everything else takes the same
+    A closed volume is the case this exists for; the identity it hands back is its OPEN
+    volume's, because that is the work it is a volume OF. Everything else takes the same
     path through the function and simply has no parent to borrow from, which is why a plain
     page comes out with its own title and its own definition — the orientation line helps
-    every candidate, and a volume is the one that cannot do without it.
+    every candidate, and a closed volume is the one that cannot do without it.
     """
     path = str(path or "")
     by_path = (
@@ -624,22 +701,35 @@ def glance_entry(
     doc: CanonicalDocument,
     updated: Mapping[str, str] | None = None,
     *,
-    archived_volumes: int = 0,
+    closed_volumes: int = 0,
     superseded: Iterable[str] = (),
+    in_archive: bool = False,
 ) -> str:
-    """One document's glance line: path, title, claim count, updated-when, archive count —
+    """One document's glance line: path, title, claim count, updated-when, volume count —
     plus, on a second line, its overview definition when the document has one.
 
-    `archived_volumes` is the ROLLOVER collapse: a document that has been rolled over states
-    how much frozen history stands behind it instead of the glance listing each volume as a
+    `closed_volumes` is the ROLLOVER collapse: a page that has been rolled over states how
+    many earlier volumes stand behind it instead of the glance listing each volume as a
     peer. Listing them would let one long-lived subject crowd out every other family — the
-    exact degradation rollover exists to fix — while the count plus the active document's own
-    volume links keep the archive one hop away.
+    exact degradation rollover exists to fix — while the count plus the open volume's own
+    catalog links keep the earlier volumes one hop away.
+
+    `in_archive` is the ARCHIVE and is never inferred here: the document itself sits
+    under `archive/`, and it is on this line only because the call asked to include the
+    archive. It is labelled for the same reason a superseded claim is — an item admitted from
+    the archive must never be readable as part of the present.
     """
     when = document_updated(doc, updated)
     tail = prompt("recall.glance.entry_tail_updated", updated=when) if when else ""
-    if archived_volumes:
-        tail += prompt("recall.glance.entry_tail_archived", count=archived_volumes)
+    if closed_volumes:
+        tail += prompt("recall.glance.entry_tail_volumes", count=closed_volumes)
+    # The same marker for two different facts, and deliberately one marker: a reader is
+    # being told "this is not the present", and an ARCHIVE RECORD says exactly that of
+    # itself — it is the live page a retired subject left behind. The record needs no caller
+    # to ask for it (it is live, and every glance holds it), so it is read off the document
+    # here rather than passed in.
+    if in_archive or is_archive_record(doc):
+        tail += prompt("recall.glance.entry_tail_in_archive")
     line = prompt(
         "recall.glance.entry",
         path=doc.path,
@@ -668,6 +758,7 @@ def render_canonical_glance(
     updated: Mapping[str, str] | None = None,
     budget: int = GLANCE_BUDGET_CHARS,
     top_k: int = FAMILY_TOP_K,
+    include_archived: bool = False,
 ) -> str:
     """The knowledge base at a glance: families, their blurbs, their documents.
 
@@ -675,6 +766,12 @@ def render_canonical_glance(
     a caller holding the templates without a SkillVersion. `packs` supply the family blurbs.
     With no families declared at all the documents render as one flat list — the library still
     has a shape, it just has no declared layout to group by.
+
+    `include_archived` is off by default and that default is the whole point: a document
+    under `archive/` is one the owner moved out of the answering set, and a glance that
+    listed it would put the past on the map of the present. When a call does ask for it, the
+    archived documents are filed under the family of their LIVE path, placed after that
+    family's live documents, and labelled — the same discipline a superseded claim gets.
 
     Deterministic: families in declaration order, documents sorted by path, per-family
     truncation before whole-render truncation. The same (docs, skill, packs) renders the same
@@ -691,22 +788,39 @@ def render_canonical_glance(
     if not ordered:
         lines.append(prompt("recall.glance.empty"))
 
-    # Rollover collapse: frozen archive volumes are counted on their active document's line
-    # instead of being listed as documents of their own (see `glance_entry`). They do not
-    # consume the glance budget either — one long-lived subject's history must not be able to
+    # Rollover collapse: closed volumes are counted on their open volume's line instead of
+    # being listed as documents of their own (see `glance_entry`). They do not consume the
+    # glance budget either — one long-lived subject's earlier volumes must not be able to
     # crowd out another family's documents.
     present = {doc.path for doc in ordered}
-    archived = archive_volume_counts(ordered)
-    # Computed over EVERY document, volumes included, and before they are dropped: an active
-    # page routinely supersedes a claim that now lives in a frozen volume, so "which claims
-    # still hold" is a repository-level fact (compile/supersession.py).
+    volumes = closed_volume_counts(ordered)
+    # Computed over EVERY document, volumes included, and before they are dropped: an open
+    # volume routinely supersedes a claim that now lives in a closed one, so "which claims
+    # still hold" is a repository-level fact (compile/supersession.py). The ARCHIVE is read
+    # here too: archiving is a move, not a deletion, so a claim retired by an archived
+    # successor stays retired.
     superseded = repository_superseded(ordered)
     ordered = [doc for doc in ordered if volume_origin(doc, present) is None]
+    # The archive, split off rather than filtered out: excluded entirely by default, and
+    # placed after the live documents of its own family when the call asked for it.
+    in_archive = [doc for doc in ordered if is_archived_path(doc.path)]
+    ordered = [doc for doc in ordered if not is_archived_path(doc.path)]
+    if not include_archived:
+        in_archive = []
 
     grouped: dict[str, list[CanonicalDocument]] = {t: [] for t in templates}
     unfiled: list[CanonicalDocument] = []
     for doc in ordered:
         owner = family_of(doc.path, templates)
+        if owner is None:
+            unfiled.append(doc)
+        else:
+            grouped[owner].append(doc)
+    # An archived document is filed by the family of the path it will have again when it is
+    # unarchived: `archive/` is a move, and grouping by the moved path would file every
+    # archived subject under "outside every declared family" — a filing gap that is not one.
+    for doc in in_archive:
+        owner = family_of(live_path(doc.path), templates)
         if owner is None:
             unfiled.append(doc)
         else:
@@ -728,8 +842,9 @@ def render_canonical_glance(
                 glance_entry(
                     doc,
                     updated,
-                    archived_volumes=archived.get(doc.path, 0),
+                    closed_volumes=volumes.get(doc.path, 0),
                     superseded=superseded,
+                    in_archive=is_archived_path(doc.path),
                 )
             )
         if len(members) > top_k:
@@ -749,8 +864,9 @@ def render_canonical_glance(
                 glance_entry(
                     doc,
                     updated,
-                    archived_volumes=archived.get(doc.path, 0),
+                    closed_volumes=volumes.get(doc.path, 0),
                     superseded=superseded,
+                    in_archive=is_archived_path(doc.path),
                 )
             )
         if len(unfiled) > top_k:
@@ -780,12 +896,13 @@ __all__ = [
     "FAMILY_TOP_K",
     "GLANCE_BUDGET_CHARS",
     "LEDGER_LINE_JOINER",
-    "archive_volume_counts",
+    "closed_volume_counts",
     "claim_count",
     "claim_display_text",
     "display_identity",
     "document_definition",
     "document_ledger_line",
+    "first_current_claim",
     "document_title",
     "document_updated",
     "family_blurbs",

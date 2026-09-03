@@ -210,7 +210,7 @@ def test_rewrite_overview_refuses_a_rollover_volume():
     draft = _from_canonical([*_base(), volume], TEMPLATES)
     with pytest.raises(AnchorToolError) as err:
         draft.rewrite_overview("work/products/aurora/a01.md", _overview())
-    assert "frozen history volume" in str(err.value)
+    assert "closed volume" in str(err.value)
 
 
 def test_an_entirely_empty_rewrite_removes_the_region_and_keeps_the_ledger():
@@ -891,7 +891,7 @@ def _long_page() -> CanonicalDocument:
 
 def test_a_rollover_carries_the_overview_region_across_untouched():
     """The two heads must stay disjoint: the region is lifted out before the cut is planned,
-    so its blocks are never archived into a volume, and it is re-emitted under the title."""
+    so its blocks are never rolled into a volume, and it is re-emitted under the title."""
     draft = _from_canonical([_long_page()], TEMPLATES)
     draft.rewrite_overview(
         PRODUCT, Overview(definition="Aurora is a product line. c:0000aaaa")
@@ -907,7 +907,7 @@ def test_a_rollover_carries_the_overview_region_across_untouched():
     assert plan is not None
     assert plan.overview_region == region
     # not one region anchor may travel into the archive
-    assert overview_anchors(page.body).isdisjoint(extract_anchors(plan.archived_body))
+    assert overview_anchors(page.body).isdisjoint(extract_anchors(plan.closed_body))
     body = render_active_body(plan, [], [])
     assert overview_region(body) == region
     assert body.split("\n")[0] == "# Aurora"
@@ -932,7 +932,7 @@ def test_a_rolled_over_document_can_still_receive_a_new_overview():
             "slug": "a01",
             "archived_from": PRODUCT,
         },
-        body=plan.archived_body,
+        body=plan.closed_body,
     )
     draft = _from_canonical([active, volume], TEMPLATES)
     kept = next(iter(extract_anchors(active.body)))

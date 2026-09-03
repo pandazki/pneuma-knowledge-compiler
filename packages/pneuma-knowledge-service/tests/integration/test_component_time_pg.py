@@ -133,3 +133,56 @@ async def test_deleting_a_user_takes_the_projection_with_it(pg_store, user):
     await pg_store.put_time_blocks(user, SourceId("s-time-8"), _rows([(0, "2026-04-11")]))
     await pg_store.delete_user(user)
     assert await pg_store.time_blocks_in_range(user, date(2026, 4, 1), date(2026, 4, 30)) == []
+
+
+async def test_deep_timeline_excludes_archived_source_blocks(pg_store, user):
+    """A component reads L0 as L0 STANDS (docs/design/archive.md §4).
+
+    The deep tool returns verbatim prose, so the framework's assembly filter — which works
+    over claims, windows and spans — cannot take an archived source's block text back out
+    of a rendered timeline. The exclusion therefore lives in the query, and the component
+    never learns that the archive exists (invariant I7).
+    """
+    from types import SimpleNamespace
+
+    from pneuma_knowledge_service.components.time import TimeComponent
+
+    await pg_store.add(user, _normalized(user, "s-time-live", title="活着的四月记录"))
+    await pg_store.add(user, _normalized(user, "s-time-gone", title="退役的四月记录"))
+    await pg_store.put_time_blocks(user, SourceId("s-time-live"), _rows([(0, "2026-04-12")]))
+    await pg_store.put_time_blocks(user, SourceId("s-time-gone"), _rows([(0, "2026-04-12")]))
+
+    class _UserInfo:
+        async def get_profile(self, user_id):
+            return SimpleNamespace(
+                locale=SimpleNamespace(
+                    timezone="Asia/Shanghai", timezone_history=[]
+                )
+            )
+
+    component = TimeComponent(
+        content=pg_store,
+        canonical=None,
+        user_info=_UserInfo(),
+        default_timezone="UTC",
+    )
+
+    both = await component.timeline(user, since="2026-04-01", until="2026-04-30")
+    assert "活着的四月记录" in both and "退役的四月记录" in both
+
+    await pg_store.set_source_archived(user, SourceId("s-time-gone"), True)
+
+    # The projection still HOLDS the archived source's rows — it is derived from all of L0
+    # and rebuilt from all of it — but the read no longer answers with them.
+    after = await component.timeline(user, since="2026-04-01", until="2026-04-30")
+    assert "活着的四月记录" in after
+    assert "退役的四月记录" not in after
+    assert [r["source_id"] for r in await pg_store.time_blocks_in_range(
+        user, date(2026, 4, 1), date(2026, 4, 30)
+    )] == ["s-time-live"]
+
+    # …and unarchiving brings it back: the query is the only thing that ever hid it.
+    await pg_store.set_source_archived(user, SourceId("s-time-gone"), False)
+    assert "退役的四月记录" in await component.timeline(
+        user, since="2026-04-01", until="2026-04-30"
+    )

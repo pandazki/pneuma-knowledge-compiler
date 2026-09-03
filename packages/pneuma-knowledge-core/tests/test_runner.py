@@ -351,7 +351,7 @@ async def test_scenario_1_editing_existing_base_document_preserves_anchor():
 
 
 def _rolled_over_base() -> list[CanonicalDocument]:
-    """An active page plus one frozen history volume, as a compile after a groom sees them."""
+    """An active page plus one closed volume, as a compile after a groom sees them."""
     active_path = "work/products/aurora-planner.md"
     active = CanonicalDocument(
         doc_id=DocumentId("d-aurora"),
@@ -390,7 +390,7 @@ def test_the_compile_tool_face_marks_a_volume_read_only_and_refuses_writes_early
     tools = {t.name: t for t in _build_tools(draft)}
 
     read = tools["read_document"].func(path=volume_path)
-    assert read.startswith("(this document is a frozen archive volume of")
+    assert read.startswith("(this document is a closed volume of")
     assert f"`{active_path}`" in read
     assert "Sprint 1: checklist started." in read  # deep-reading history stays allowed
     # an ordinary document reads without any banner
@@ -398,8 +398,8 @@ def test_the_compile_tool_face_marks_a_volume_read_only_and_refuses_writes_early
 
     with pytest.raises(AnchorToolError) as err:
         tools["edit_claim"].func(path=volume_path, anchor_id="bbbb2222", new_text="- x")
-    assert "frozen history volume" in str(err.value)
-    assert f"active page: use edit_claim / append_block on `{active_path}`" in str(err.value)
+    assert "closed volume" in str(err.value)
+    assert f"open volume: use edit_claim / append_block on `{active_path}`" in str(err.value)
     with pytest.raises(AnchorToolError):
         tools["append_block"].func(path=volume_path, heading="Delivery", text="- x")
     assert not draft.is_dirty()
@@ -407,7 +407,7 @@ def test_the_compile_tool_face_marks_a_volume_read_only_and_refuses_writes_early
 
 async def test_a_compile_on_a_rolled_over_subject_lands_on_the_active_page_not_the_volume():
     """The live trap, end to end: this round's material updates a subject whose history was
-    rolled over. The first attempt path-addresses the frozen volume and is refused by the
+    rolled over. The first attempt path-addresses the closed volume and is refused by the
     TOOL inside the same round; the compile then lands the claim on the active page and
     commits, with the volume byte-identical."""
     base = _rolled_over_base()
@@ -417,7 +417,7 @@ async def test_a_compile_on_a_rolled_over_subject_lands_on_the_active_page_not_t
     volume_file_before = render_document(base[1].frontmatter, base[1].body)
     model = ScriptedChatModel(
         turns=[
-            # the trap: the model tries to update the archived claim inside the volume
+            # the trap: the model tries to update a claim inside the closed volume
             [
                 tc(
                     "edit_claim",
