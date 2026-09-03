@@ -154,6 +154,57 @@ def test_parse_conversation_turns_accepts_multi_word_capitalized_speakers():
     assert "note that: this is prose" in turns[1][1]  # folded, not a new speaker
 
 
+def _render_turn(speaker: str, text: str) -> str:
+    """How a conversation material renders one message: the first line beside the speaker,
+    every continuation line indented by two spaces so it can never read as a speaker turn."""
+    head, *rest = text.split("\n")
+    return "\n".join([f"{speaker}: {head}", *(f"  {part}" for part in rest)])
+
+
+def test_a_blank_line_inside_a_message_survives_the_round_trip():
+    """A paragraph break inside one message renders as an INDENTED blank line, and the
+    parser used to drop every whitespace-only line — so parse(render(text)) silently lost
+    it. Found by a full-corpus run, where a handful of messages in six thousand came back
+    with their paragraphs run together."""
+    text = "para1\n\npara2"
+    body = _render_turn("Ada", text)
+    assert app.parse_conversation_turns(body) == [("Ada", text)]
+
+    # …and it stays one message: the blank line must not start a second turn, and the
+    # speaker after it is still detected.
+    body = _render_turn("Ada", text) + "\n" + _render_turn("Bo", "noted")
+    assert app.parse_conversation_turns(body) == [("Ada", text), ("Bo", "noted")]
+
+
+def test_blank_lines_that_are_document_structure_still_separate_turns():
+    """An EMPTY line is the file's own structure — the gap after the context line, between
+    sessions, at the end. It carries no message text and is dropped exactly as before; only
+    an indented blank belongs to the message above it."""
+    body = "\n\nAda: first\n\nBo: second\n\n"
+    assert app.parse_conversation_turns(body) == [("Ada", "first"), ("Bo", "second")]
+    # Leading and trailing blanks around a message's own text round-trip through the
+    # indented form as well.
+    assert app.parse_conversation_turns(_render_turn("Ada", "\nmid\n")) == [("Ada", "\nmid\n")]
+
+
+def test_the_parsers_other_grammar_is_unchanged_by_the_blank_line_fix():
+    """[images] / [caption] / [query] lines are indented continuations that fold into the
+    message above them, and an unindented prose line still folds too."""
+    body = (
+        "Ada: look at this\n"
+        "  [images] https://example.invalid/a.png\n"
+        "  [caption] a photo of a whiteboard\n"
+        "still folding, no colon\n"
+    )
+    assert app.parse_conversation_turns(body) == [
+        (
+            "Ada",
+            "look at this\n[images] https://example.invalid/a.png\n"
+            "[caption] a photo of a whiteboard\nstill folding, no colon",
+        )
+    ]
+
+
 def test_isolation_accepts_the_projects_own_ports():
     assert (
         app.isolation_problems(

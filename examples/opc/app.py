@@ -230,14 +230,24 @@ def parse_conversation_turns(body: str) -> list[tuple[str, str]]:
     whole English transcripts (found by the EverMemBench full run). Kept deliberately
     tighter than "anything before a colon": a multi-word speaker requires every token
     capitalized (or CJK), so a prose line like "Note that: …" still folds as
-    continuation; single tokens keep the original permissive rule."""
+    continuation; single tokens keep the original permissive rule.
+
+    A message whose own text has a paragraph break survives the round trip. Continuation
+    lines are written indented (so they can never be read as a speaker turn), which makes
+    a blank line inside a message an INDENTED blank — whitespace, but not empty — while a
+    blank line separating turns and sessions is genuinely empty. That difference is the
+    whole mechanism: an indented blank is kept as the message's paragraph break, an empty
+    line stays document structure and is dropped, exactly as before."""
     turns: list[tuple[str, str]] = []
     cap_token = r"[A-Z一-鿿][\w.\-']*"
     multi_re = re.compile(rf"^({cap_token}(?: {cap_token}){{1,3}})[：:]\s*(.*)$")
     single_re = re.compile(r"^([^\s：:]{1,24})[：:]\s*(.*)$")
-    for line in body.splitlines():
-        line = line.rstrip()
-        if not line.strip():
+    for raw in body.splitlines():
+        line = raw.rstrip()
+        if not line:
+            if raw and turns:  # indented blank = this message's own paragraph break
+                speaker, text = turns[-1]
+                turns[-1] = (speaker, f"{text}\n")
             continue
         match = multi_re.match(line)
         if match and len(match.group(1)) > 48:
