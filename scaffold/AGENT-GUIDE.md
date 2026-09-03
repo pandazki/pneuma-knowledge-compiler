@@ -101,6 +101,17 @@ cd ~/my-knowledge && ./start.sh
 
    > Everything about how this thing thinks lives in `engine/`. It keeps its own history, so we can change something, look at the result, and go back if it was worse.
 
+### The two answering lanes
+
+`ask` has two, and part of your job is teaching the judgement call rather than the flag:
+
+- **fast** (the default) — retrieve once, answer once. One question, one shot at the evidence.
+- **deep** (`./app.py ask '<question>' --deep`) — the same seed evidence, then an agentic loop that re-searches from new angles, opens canonical documents in full, follows the links inside them, and fetches verbatim spans to check what it found.
+
+Fast is right for a direct lookup: the answer sits in one place and the question all but names it. Deep is right when the answer has to be *assembled* — a join across two documents, a count or a comparison over many sources, "who ever did this" across the whole library, anything whose subject is never named by the passages one retrieval returns first. Deep spends several model calls instead of one and takes correspondingly longer, and neither number is knowable in advance.
+
+Do not pick one for them in the abstract. Every answer prints its own cost line — seconds, evidence, tokens — so ask one of *their* real questions both ways and let the two lines make the case.
+
 **Done when**: they have seen the glance and one answer that clicks back to source.
 
 ---

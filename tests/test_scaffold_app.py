@@ -814,3 +814,136 @@ def test_gate_retry_carries_the_per_source_treatments():
     retry = body[body.index("rejected by the gate") : body.index("_drain_with_progress", body.index("rejected by the gate"))]
     assert "treatments" in retry, "the retry drops the per-source treatments map"
     assert 'ctx.store.enqueue(uid, "compile", {"source_ids": sources})' not in retry
+
+
+# --------------------------------------------------------------------- the two answer lanes
+
+
+class _StubCanonical:
+    def __init__(self, documents):
+        self.documents = documents
+
+    async def list(self, _user_id, at=None):
+        return self.documents
+
+
+class _StubContext:
+    """Just enough of the wiring context for one lane selection, no middleware."""
+
+    def __init__(self, documents=()):
+        self.lexical = "lexical"
+        self.vectors = "vectors"
+        self.store = "store"
+        self.media = "media"
+        self.embeddings = "embeddings"
+        self.canonical = _StubCanonical(list(documents))
+        self.roles: list[str] = []
+
+    def get_chat_model(self, role):
+        self.roles.append(role)
+        return f"model:{role}"
+
+    def get_reranker(self):
+        return None
+
+    async def flush_traces(self):
+        return None
+
+    async def aclose(self):
+        return None
+
+
+class _StubDeepAnswer:
+    answer = "assembled across three documents [cite: src-a ¶1-2]"
+    used_claims = ("c1", "c2")
+    used_windows = ()
+    read_documents = ("people/ada.md", "projects/atlas.md")
+    trail = ({"tool": "search_claims"}, {"tool": "read_document"})
+    stages = ()
+    token_usage = {"input": 900, "output": 120}
+
+
+def _stub_ask_environment(monkeypatch, *, documents=()):
+    """Point `_ask` at a stubbed context and a scripted deep lane; return what was called."""
+    from pneuma_knowledge_core.recall import deep as deep_module
+    from pneuma_knowledge_core.recall import fast as fast_module
+    from pneuma_knowledge_service import wiring
+
+    calls: dict = {"ctx": _StubContext(documents)}
+
+    class _Settings:
+        recall_claim_cap = 40
+        recall_window_cap = 6
+        recall_answer_style = "conversational"
+
+    class _Skill:
+        version = "app-v1"
+
+    skill = _Skill()
+    calls["skill"] = skill
+    monkeypatch.setattr(app, "load_contract_skill", lambda: skill)
+    monkeypatch.setattr(app, "build_settings", lambda base_version="": _Settings())
+    monkeypatch.setattr(app, "user_id", lambda: "u-test")
+
+    async def fake_build_context(_settings):
+        return calls["ctx"]
+
+    async def fake_deep_recall(user_id, question, **kwargs):
+        calls["deep"] = (user_id, question, kwargs)
+        return _StubDeepAnswer()
+
+    async def fake_fast_recall(user_id, question, **kwargs):
+        calls["fast"] = (user_id, question, kwargs)
+        raise AssertionError("--deep must not reach the fast lane")
+
+    monkeypatch.setattr(wiring, "build_context", fake_build_context)
+    monkeypatch.setattr(wiring, "llm_call_config", lambda ctx, **kw: {})
+    monkeypatch.setattr(deep_module, "deep_recall", fake_deep_recall)
+    monkeypatch.setattr(fast_module, "fast_recall", fake_fast_recall)
+    return calls
+
+
+async def test_ask_deep_reaches_the_frameworks_agentic_lane(monkeypatch, capsys):
+    """`--deep` must land on `recall.deep.deep_recall` — the coroutine the service route
+    runs for mode=deep — with the deep model role and the canonical documents the loop
+    walks, and it must print its own cost line so choosing it is never free by accident."""
+    calls = _stub_ask_environment(monkeypatch, documents=["doc-1", "doc-2"])
+    code, usage = await app._ask("who signed off on both?", deep=True)
+    assert code == 0 and usage == {"input": 900, "output": 120}
+    assert "fast" not in calls, "the deep flag was ignored"
+    _user, question, kwargs = calls["deep"]
+    assert question == "who signed off on both?"
+    assert kwargs["model"] == "model:deep"
+    assert calls["ctx"].roles == ["deep"]  # the fast roles are never even built
+    assert kwargs["documents"] == ["doc-1", "doc-2"]
+    assert kwargs["skill"] is calls["skill"]
+    out = capsys.readouterr().out
+    assert "(deep, " in out and "2 tool calls" in out and "2 documents read" in out
+    assert "tokens {'input': 900, 'output': 120}" in out
+
+
+async def test_ask_refuses_the_fast_lane_knobs_under_deep(monkeypatch):
+    """`evidence_strategy` / `answer_format` compose the fast lane's one-shot context; the
+    deep lane builds its own as it searches. The API answers 400 here, so the CLI exits
+    rather than accepting a flag it would silently drop."""
+    _stub_ask_environment(monkeypatch)
+    with pytest.raises(SystemExit, match="fast-lane knobs"):
+        await app._ask("q", deep=True, evidence_strategy="all")
+    with pytest.raises(SystemExit, match="fast-lane knobs"):
+        await app._ask("q", deep=True, answer_format="structured")
+
+
+def test_cli_ask_wires_the_deep_flag_through_the_real_parser(monkeypatch):
+    seen: dict = {}
+    monkeypatch.setattr(app, "ensure_framework", lambda: None)
+    monkeypatch.setattr(app, "cmd_ask", lambda args: seen.update(vars(args)) or 0)
+    monkeypatch.setattr(sys, "argv", ["app.py", "ask", "--deep", "who signed off?"])
+    assert app.main() == 0
+    assert seen["deep"] is True and seen["question"] == "who signed off?"
+
+    monkeypatch.setattr(sys, "argv", ["app.py", "ask", "who signed off?"])
+    assert app.main() == 0
+    assert seen["deep"] is False
+
+    src = APP_PATH.read_text(encoding="utf-8")
+    assert "deep=args.deep" in src, "cmd_ask must pass the flag to the lane selector"

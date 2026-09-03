@@ -9,7 +9,8 @@ One command per action; `demo` runs the whole chain end to end:
     ./app.py ingest [dir]       # ingest material (defaults to my-data; the occurrence
                                 #   date comes from the frontmatter `date`)
     ./app.py compile            # drain the compile queue (real models)
-    ./app.py ask "question"     # fast-path Q&A (--sources also prints the cited raw text)
+    ./app.py ask "question"     # Q&A on the fast lane (--sources also prints the cited raw
+                                #   text; --deep answers on the agentic cross-document lane)
     ./app.py glance             # print an overview of the current library (no re-ingest)
     ./app.py restore            # restore the library shipped in prebuilt/, if this project
                                 #   ships one (no API key needed — nothing here calls a model)
@@ -1298,6 +1299,7 @@ async def _glance_text(ctx, uid, skill) -> str:
 async def _ask(
     question: str,
     *,
+    deep: bool = False,
     show_sources: bool = False,
     style: str | None = None,
     evidence_strategy: str | None = None,
@@ -1305,66 +1307,122 @@ async def _ask(
     as_of: datetime | None = None,
     include_original_modalities: tuple[str, ...] = (),
 ) -> tuple[int, dict[str, int]]:
+    """One question through one of the framework's two answering lanes.
+
+    Default is the fast lane: retrieve once, answer once. `deep=True` calls the framework's
+    agentic deep lane (`recall.deep.deep_recall`) — the same coroutine the service route
+    `POST /v1/recall` runs for `mode=deep` and the Engine Console's deep answers go through.
+    Both lanes are invoked in process here, so this driver still leaves no consultation
+    record for either: it is a silent visitor exactly as it was before deep was reachable.
+    """
+    from pneuma_knowledge_core.domain.canonical import CANONICAL_CITATION_RE
     from pneuma_knowledge_core.domain.ids import UserId
+    from pneuma_knowledge_core.recall.deep import deep_recall
     from pneuma_knowledge_core.recall.fast import fast_recall
     from pneuma_knowledge_service.wiring import (
         build_context,
         llm_call_config,
     )
 
+    if deep and (evidence_strategy is not None or answer_format is not None):
+        # The API states the same rule (service `_answering_preflight`): both knobs shape the
+        # fast lane's one-shot context assembly, and the deep lane composes its own context as
+        # it searches. Refusing beats accepting a knob that would be silently ignored.
+        sys.exit(
+            "error: --evidence-strategy and --answer-format are fast-lane knobs; --deep does "
+            "not read them. Drop one side or the other."
+        )
     skill = load_contract_skill()
     settings = build_settings(base_version=skill.version)
     ctx = await build_context(settings)
     try:
         uid = UserId(user_id())
         started = time.perf_counter()
-        recall_model = ctx.get_chat_model("recall")
-        answer_model = ctx.get_chat_model("answer")
         include_original_images = "image" in include_original_modalities
-        answer = await fast_recall(
-            uid,
-            question,
-            as_of=as_of or datetime.now(timezone.utc),
-            claim_lexical=ctx.lexical,
-            claim_vectors=ctx.vectors,
-            lexical=ctx.lexical,
-            vectors=ctx.vectors,
-            content=ctx.store,
-            media=ctx.media if include_original_images else None,
-            image_mode="native" if include_original_images else "caption",
-            embeddings=ctx.embeddings,
-            model=recall_model,
-            answer_model=answer_model,
-            cap=settings.recall_claim_cap,
-            claim_candidate_cap=settings.recall_claim_candidate_cap,
-            window_cap=settings.recall_window_cap,
-            window_candidate_cap=settings.recall_window_candidate_cap,
-            episode_summary_cap=settings.recall_episode_summary_cap,
-            evidence_strategy=evidence_strategy or settings.recall_evidence_strategy,
-            all_context_chars=settings.recall_all_context_chars,
-            selection_reasoning_effort=settings.recall_selection_reasoning_effort or None,
-            answer_format=answer_format or settings.recall_answer_format,
-            answer_style=style or settings.recall_answer_style,
-            plan_queries_cap=settings.recall_plan_queries,
-            reranker=ctx.get_reranker(),
-            rerank_candidates=settings.recall_rerank_candidates,
-            reasoning_effort=settings.answer_reasoning_effort or None,
-            **llm_call_config(ctx, operation="recall.fast", user_id=str(uid)),
-        )
+        if deep:
+            answer = await deep_recall(
+                uid,
+                question,
+                as_of=as_of or datetime.now(timezone.utc),
+                claim_lexical=ctx.lexical,
+                claim_vectors=ctx.vectors,
+                lexical=ctx.lexical,
+                vectors=ctx.vectors,
+                content=ctx.store,
+                media=ctx.media if include_original_images else None,
+                image_mode="native" if include_original_images else "caption",
+                embeddings=ctx.embeddings,
+                model=ctx.get_chat_model("deep"),
+                # The map the loop walks. Without the documents, list_documents /
+                # read_document answer "this base holds no documents" and the lane loses its
+                # follow-the-thread half — the half it is being chosen for.
+                documents=await ctx.canonical.list(uid),
+                skill=skill,
+                cap=settings.recall_claim_cap,
+                window_cap=settings.recall_window_cap,
+                answer_style=style or settings.recall_answer_style,
+                **llm_call_config(ctx, operation="recall.deep", user_id=str(uid)),
+            )
+        else:
+            recall_model = ctx.get_chat_model("recall")
+            answer_model = ctx.get_chat_model("answer")
+            answer = await fast_recall(
+                uid,
+                question,
+                as_of=as_of or datetime.now(timezone.utc),
+                claim_lexical=ctx.lexical,
+                claim_vectors=ctx.vectors,
+                lexical=ctx.lexical,
+                vectors=ctx.vectors,
+                content=ctx.store,
+                media=ctx.media if include_original_images else None,
+                image_mode="native" if include_original_images else "caption",
+                embeddings=ctx.embeddings,
+                model=recall_model,
+                answer_model=answer_model,
+                cap=settings.recall_claim_cap,
+                claim_candidate_cap=settings.recall_claim_candidate_cap,
+                window_cap=settings.recall_window_cap,
+                window_candidate_cap=settings.recall_window_candidate_cap,
+                episode_summary_cap=settings.recall_episode_summary_cap,
+                evidence_strategy=evidence_strategy or settings.recall_evidence_strategy,
+                all_context_chars=settings.recall_all_context_chars,
+                selection_reasoning_effort=settings.recall_selection_reasoning_effort or None,
+                answer_format=answer_format or settings.recall_answer_format,
+                answer_style=style or settings.recall_answer_style,
+                plan_queries_cap=settings.recall_plan_queries,
+                reranker=ctx.get_reranker(),
+                rerank_candidates=settings.recall_rerank_candidates,
+                reasoning_effort=settings.answer_reasoning_effort or None,
+                **llm_call_config(ctx, operation="recall.fast", user_id=str(uid)),
+            )
         elapsed = time.perf_counter() - started
         print(f"\nQ: {question}")
         print(f"A: {answer.answer}")
-        print(
-            f"  ({elapsed:.1f}s, {answer.claim_candidates}→{len(answer.used_claims)} claims / "
-            f"{len(answer.used_episode_summaries)} episode summaries / "
-            f"{answer.window_candidates}→{len(answer.used_windows)} source windows, "
-            f"tokens {answer.token_usage})"
-        )
+        # One stats line per lane, both saying the same three things — how long it took, how
+        # much evidence stood behind it, what it cost in tokens. Deep is the expensive lane;
+        # its price is printed, not implied.
+        if deep:
+            print(
+                f"  (deep, {elapsed:.1f}s, {len(answer.trail)} tool calls / "
+                f"{len(answer.used_claims)} claims / "
+                f"{len(answer.used_windows)} source windows / "
+                f"{len(answer.read_documents)} documents read, "
+                f"tokens {answer.token_usage})"
+            )
+        else:
+            print(
+                f"  ({elapsed:.1f}s, {answer.claim_candidates}→{len(answer.used_claims)} claims / "
+                f"{len(answer.used_episode_summaries)} episode summaries / "
+                f"{answer.window_candidates}→{len(answer.used_windows)} source windows, "
+                f"tokens {answer.token_usage})"
+            )
         if answer.stages:
             print(f"  stages: {stage_timing_line(answer.stages)}")
-        if show_sources and answer.used_episode_summaries:
+        episode_summaries = getattr(answer, "used_episode_summaries", ())
+        if show_sources and episode_summaries:
             print("  Derived episode summaries supplied to the answer (not verbatim):")
-            for summary in answer.used_episode_summaries:
+            for summary in episode_summaries:
                 section = " / ".join(summary.section_path) or "(root)"
                 occurred_on = summary.source_occurred_on or "(unknown date)"
                 print(
@@ -1375,8 +1433,10 @@ async def _ask(
                     print(f"      {text_line}")
         # Citation legend: map each [cite: s01 ¶…] short handle in the answer back to its
         # material's title and date, so a citation is something you can actually follow rather
-        # than a string of secret codes.
-        handle_map = dict(answer.citation_handles or {})
+        # than a string of secret codes. Fast-lane only: deep aliases nothing (its loop
+        # re-retrieves across rounds, so one source would carry different handles in different
+        # turns), so a deep answer cites the real source id and needs no legend.
+        handle_map = dict(getattr(answer, "citation_handles", None) or {})
         if handle_map and cited_handles(answer.answer):
             source_info = {
                 str(s.source_id): (s.title, str((s.meta or {}).get("occurred_on") or ""))
@@ -1404,6 +1464,23 @@ async def _ask(
                         print(f"      {text_line}")
                 if shown == 0:
                     print("  (all citations point at compiled claims; no raw source window to show.)")
+        elif deep and show_sources:
+            # The same service, read through the framework's own citation grammar (I4) since
+            # there is no handle map to go through.
+            cited_ids = {m.group("sid") for m in CANONICAL_CITATION_RE.finditer(answer.answer)}
+            shown = 0
+            for w in answer.used_windows:
+                sid = str(w.source_id)
+                if sid not in cited_ids:
+                    continue
+                if shown == 0:
+                    print("  Cited source windows:")
+                shown += 1
+                print(f"    [{sid} ¶{w.block_start}-{w.block_end}]")
+                for text_line in w.text.strip().splitlines():
+                    print(f"      {text_line}")
+            if shown == 0:
+                print("  (all citations point at compiled claims; no raw source window to show.)")
         await ctx.flush_traces()
         return 0, dict(answer.token_usage or {})
     finally:
@@ -1426,6 +1503,7 @@ def cmd_ask(args) -> int:
     code, _usage = asyncio.run(
         _ask(
             args.question,
+            deep=args.deep,
             show_sources=args.sources,
             style=args.style,
             evidence_strategy=args.evidence_strategy,
@@ -1685,8 +1763,18 @@ def main() -> int:
     ingest = sub.add_parser("ingest", help="ingest a directory of .md material")
     ingest.add_argument("directory", nargs="?", help="defaults to my-data/")
     sub.add_parser("compile", help="drain the compile queue")
-    ask = sub.add_parser("ask", help="fast-lane Q&A")
+    ask = sub.add_parser("ask", help="ask the library a question (fast lane; --deep for the agentic one)")
     ask.add_argument("question")
+    ask.add_argument(
+        "--deep",
+        action="store_true",
+        help=(
+            "answer on the agentic deep lane instead of the fast one: it starts on the same "
+            "evidence, then searches, follows document links and fetches verbatim spans on "
+            "its own. More model calls and more wall clock; use it when the answer has to be "
+            "assembled across documents rather than looked up in one"
+        ),
+    )
     ask.add_argument("--sources", action="store_true", help="also print the cited source windows")
     ask.add_argument(
         "--style",
@@ -1699,7 +1787,7 @@ def main() -> int:
         help=(
             "context composition for this ask: ranked keeps fixed retrieval heads; select "
             "uses one bounded cross-face selection call; all makes no selection call and "
-            "hands the whole candidate pool to the answer"
+            "hands the whole candidate pool to the answer. Fast lane only"
         ),
     )
     ask.add_argument(
@@ -1707,7 +1795,7 @@ def main() -> int:
         choices=["text", "structured"],
         help=(
             "answer wire for this ask: text is free text; structured validates separate "
-            "answer text, kind, and citations"
+            "answer text, kind, and citations. Fast lane only"
         ),
     )
     ask.add_argument(

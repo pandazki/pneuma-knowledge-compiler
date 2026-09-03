@@ -10,8 +10,9 @@ they trade latency, input cost and precision against each other, and which trade
 depends on what your users are waiting for.
 
 This guide is for the person making that call for a business. It states what each strategy
-does, where the trade-off actually falls, and ends in a decision table. The per-setting
-reference is [reference/configuration.md](../reference/configuration.md);
+does, where the trade-off actually falls, and ends in a decision table. All three are choices
+inside the *fast* lane; the deep lane sits beside them and has its own section below. The
+per-setting reference is [reference/configuration.md](../reference/configuration.md);
 when an answer is already wrong and you are hunting for the layer that lost the fact, read
 [recall-quality.md](recall-quality.md) instead — that is a different question from this one.
 
@@ -111,6 +112,36 @@ transfer. The one measured artifact in this repository is
 records its harness, its date and what may be compared with what; measure your own the same
 way before you commit to a strategy.
 
+## Beside them: the deep lane
+
+All three strategies are choices *inside* the fast lane — one retrieval, one answer, and the
+question of who picks the evidence in between. The deep lane is not a fourth strategy; it is
+the other lane, and no `evidence_strategy` applies to it. Sending one is refused rather than
+ignored: the API answers 400, a generated project's CLI exits.
+
+**What it does.** Deep opens on the same seed evidence fast would have answered over, plus the
+library's glance, and then keeps working: it re-searches the claim face and the raw body face
+from new angles, lists and reads canonical documents in full, follows the markdown links inside
+them to their targets, and fetches verbatim spans to check what it found. It is a bounded
+agentic loop — the tool budget and the recorded trail of tool calls are mechanical, not asked
+for in prose — and it ends by answering.
+
+**What it costs.** Several model calls instead of one, in an order nobody knows in advance, so
+latency and token spend vary per question instead of sitting near a per-question constant.
+There is no cheap deep.
+
+**What it buys.** Assembly. A fact that no single retrieved passage states — a join across two
+documents, a count or a comparison over many sources, "who ever did X" across the whole library
+— is not a retrieval-depth problem, and no `evidence_strategy` fixes it: raising a candidate cap
+widens what one shot sees, it does not let an answer walk from one document to a neighbouring
+one. Deep can walk, because a canonical document read in full carries its links and following
+one is another read.
+
+**How to choose.** Route by the question, not by the deployment: a direct lookup goes to the
+fast lane, an assembly question to the deep one. Both lanes take the same question and both
+print what they spent, so the cheapest comparison is to ask yours twice and read the two cost
+lines.
+
 ## Decision table
 
 | If the library serves… | Set | Because |
@@ -120,6 +151,7 @@ way before you commit to a strategy.
 | the cheapest question at the highest volume | `evidence_strategy: ranked` | one call, the smallest prompt, no widened pool — the baseline everything else is measured against |
 | a reviewer who must see *why* evidence was accepted or ignored | `all` + `answer_format: structured` | that pair turns on `deliberation`, a field in front of the answer in the same call |
 | downstream automation that needs a clean answer string and a separately validated citation ledger | `answer_format: structured` | independent of the strategy; consume `answer_text`, render `answer` |
+| a question whose answer no single passage states — a join across documents, a count over many sources, a walk from one page to its neighbour | the deep lane (`mode: deep`, or `--deep`) | it re-searches, opens documents in full and follows their links until it can assemble the answer; `evidence_strategy` does not reach it |
 
 And for the caps, one rule: **raise a candidate cap when the fact is missing from the pool,
 raise a final cap when the pool has it and the context drops it.** Under `all`, the number
