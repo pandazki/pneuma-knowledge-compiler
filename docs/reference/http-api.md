@@ -46,10 +46,30 @@ Conventions:
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/…/recall` | body `{query, mode: rag\|fast\|deep, limit, as_of?, snapshot?, answer_style?, evidence_strategy?: ranked\|select\|all, answer_format?: text\|structured, include_original_modalities?: ("image")[]}` |
+| POST | `/…/recall` | body `{query, mode: rag\|fast\|deep, limit, as_of?, snapshot?, answer_style?, evidence_strategy?: ranked\|select\|all, answer_format?: text\|structured, include_original_modalities?: ("image")[], visitor_class?: silent\|audit\|business}` |
 | POST | `/…/recall/stream` | any mode; SSE — `stage` while the lane runs (plus `token`, and deep's `step`, in the answering lanes), then `done` (or `error`) |
+| GET | `/…/access-stats` | `?kind=claim\|document\|source&ref=…` → `{kind, ref, last_accessed_at, hits_7d, hits_30d, heat}` — what this library's readers have done with one target, joined at read time out of the derived layer. Never canonical: nothing here is written into a page. A target nobody has read answers with zeros and `last_accessed_at: null`, because "never read" is an answer |
+| GET | `/…/access-stats/top` | `?days=1–365&limit=1–100` → `{window_days, since, until, half_life_days, documents[], misses[]}` — the ledger's face for a dashboard: the hottest canonical pages and the most-asked questions the library answered with nothing |
 
-`rag` returns `{mode, hits, stages}` — the fused hit list (`source_id`, block span, text, paths, score) and what finding it cost. `fast`/`deep` return both a citation-free semantic `answer_text` and the backward-compatible cited `answer`, plus their evidence: `used_claims`, `used_episode_summaries` (fast), `used_component_evidence` (fast), `stages`, `used_windows`, `trail` (deep), `citation_handles` (`sNN` → real source id), `documents_read`, `snapshot`, `token_usage`. Every episode-summary item carries source title, occurrence time, section and exact block span, plus constant `derived: true` / `verbatim: false` labels so clients cannot mistake generated L2 compression for source text. Both answering lanes echo `mode` and the `as_of` they resolved, `glance_chars` — the size of the knowledge-base glance carried in the prompt, 0 when canonical was empty or unreadable — and `documents_read`, the documents read whole rather than as a retrieved fragment (fast's glance selection, deep's `read_document` walk). `glance_degraded` is fast-only and names a glance selection that failed (`timeout`/`error`); a pass that ran and chose nothing stays null, like every other selection in the lane.
+**`visitor_class`** says who is asking, as far as the RECORD is concerned — it changes
+nothing about the answer. `silent` is the default and leaves no trace at all: no row, no
+log line, no extra call, so every caller written before this field existed is already a
+silent visitor and behaves byte-for-byte as it did. `audit` writes one **consultation
+record** — the question, the `as_of` the lane resolved, which library answered (the pinned
+snapshot's id, else the canonical HEAD commit), the addresses of everything the lane put in
+front of the model, the answer with the citations it kept, and whether it was a miss — and
+stops there, so a consultation is reconstructible without steering anything. `business`
+writes the record and, in the same transaction, ENQUEUES one `recall_projection` job; the
+worker draining it applies the framework's access statistics and then hands the record to any
+enabled index component. Nothing is consumed in the request path, and nothing in the request
+path waits: the record is emitted as a detached task, so neither the response nor a stream's
+`done` frame is held for the write, and a projection lags its consultation by the queue's
+drain. The emit is best-effort — a process death in that window loses the record — and it can
+never fail, delay or change the answer it is about. `mode: "rag"` records under no class —
+it reaches no model, so there is nothing handed to one for a record to be about. The same
+field, same values, same default, is on `POST /…/briefings/{id}/ask` and its stream.
+
+`rag` returns `{mode, hits, stages}` — the fused hit list (`source_id`, block span, text, paths, score) and what finding it cost. `fast`/`deep` return both a citation-free semantic `answer_text` and the backward-compatible cited `answer`, plus their evidence: `used_claims`, `used_episode_summaries` (fast), `used_component_evidence` (fast), `stages`, `used_windows`, `trail` (deep), `citation_handles` (`sNN` → real source id), `documents_read`, `snapshot`, `token_usage` and `cost` (what those tokens cost at this deployment's declared rates; `null` when it declared none — see [configuration](configuration.md)). Every episode-summary item carries source title, occurrence time, section and exact block span, plus constant `derived: true` / `verbatim: false` labels so clients cannot mistake generated L2 compression for source text. Both answering lanes echo `mode` and the `as_of` they resolved, `glance_chars` — the size of the knowledge-base glance carried in the prompt, 0 when canonical was empty or unreadable — and `documents_read`, the documents read whole rather than as a retrieved fragment (fast's glance selection, deep's `read_document` walk). `glance_degraded` is fast-only and names a glance selection that failed (`timeout`/`error`); a pass that ran and chose nothing stays null, like every other selection in the lane.
 
 Fast callers may override context composition and the answer wire independently.
 `evidence_strategy: "select"` spends one serial structured recall-model call to choose a
@@ -265,12 +285,85 @@ non-empty list.
 
 Source detail never exposes an object-store key. Each image manifest contains `image_id`, MIME type, SHA-256, size, labelled derived representations and an API URL. The browser and citation sheet fetch that URL through the service; the S3/RustFS bucket remains private.
 
+`GET /…/access-stats/top` ranks on the window you ask for and reports on the read face's
+own: `heat` is over the last `days` days, while `hits_7d` / `hits_30d` / `last_accessed_at`
+are the same three numbers `GET /…/access-stats` gives for that page, so a document reads the
+same on a dashboard as on its own page. `half_life_days` is echoed because heat is computed
+at read time from a knob rather than stored — the same rows report a different number under a
+different half-life. A target with no hit inside the window is left out rather than ranked at
+zero, and a library nobody has consulted answers with two empty lists rather than a 404.
+
+## Consultations (use-side L0)
+
+A consultation is one answering-lane call, kept as the audit chain needs it — the question,
+which library answered, every address the lane put in front of the model, the answer, and
+which of those addresses it cited. Written only for a non-`silent` visitor (see
+`visitor_class` above), frozen once written, never re-derived, and never an authority over
+knowledge: reading these changes nothing, and no gate, contract or compile input joins
+against them.
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/…/consultations` | one page of summaries, newest first: `limit` 1–100, `cursor`, and the filters `lane` (`fast\|deep\|briefing_ask`), `visitor_class` (`audit\|business`), `miss`, `target` |
+| GET | `/…/consultations/{id}` | the whole record: `as_of`, `answer`, `evidence_handed[]`, `citations[]`, `degraded[]` beside the summary fields |
+| GET | `/…/consultations/spend` | what the recorded consultations of the last `days` (1–365, default 30) spent, grouped by lane and by visitor class |
+
+A summary carries `consultation_id`, `created_at`, `lane`, `visitor_class`, `question`,
+`miss`, `answer_kind`, `library_ref`, `citation_count`, `evidence_count`, `token_usage` and
+`cost`. The evidence itself stays on the detail route: a listing that carried every manifest
+would be the detail route N times over — but the usage does not, because "what has this
+library been costing me" is a question about a list.
+
+**The recorded `answer` is not the wire answer byte-for-byte.** A lane that aliases source
+ids writes the record back through that map: handles resolve to real source ids, and a
+bracket still naming a handle the map does not know is removed from the recorded prose.
+`citations[]` is filtered the same way and admitted only against `evidence_handed[]`, so a
+marker naming a span nobody was shown is prose in the answer and absent from the list. What
+the caller received is untouched.
+
+**`token_usage` is stored; `cost` is derived.** The record keeps what the call spent in
+tokens, which is what happened and stays true. The money is computed when the record is read,
+out of the rates this deployment declares (`MODEL_PRICING`, [configuration](configuration.md)),
+and is `null` when it declared none for the models that lane used — tokens with no figure
+beside them, never a `0` that would claim the call was free. A record written before usage
+was kept reports `{}` and the same `null`.
+
+`GET /…/consultations/spend` sums the same rows over a window: `window_days`, `since`,
+`until`, `consultations`, `with_usage`, `incomplete`, `token_usage`, `cost`, and the two
+groupings `by_lane` / `by_visitor_class` (each `{key, consultations, with_usage, incomplete,
+token_usage, cost}`). It is read out of the consultations table alone — no counter is
+incremented anywhere, so it cannot drift from the records it describes. It is the spend of
+**recorded consultations**, which is not the deployment's bill: a `silent` visitor leaves no
+row, and the Live Context lane records none. A group whose models are not all priced, or
+which mixes currencies, reports its tokens and no cost.
+
+`with_usage` is how many of those consultations reported any counter at all, and
+`incomplete` is `with_usage < consultations`. It exists because a provider that reports no
+usage stores `{}`: every sum over it is null and coalesces to zero, so after the summation
+an unmeasured call is indistinguishable from one that was genuinely free. An incomplete
+window (or group) reports its tokens as a floor and `cost: null` — never a total over the
+measured half presented as exact.
+
+`visitor_class` takes only the two classes that leave a record. `silent` writes nothing at
+all, so filtering by it would name an empty set a reader could mistake for "nobody asked".
+
+**`target` is the reverse lookup** — which consultations handed or cited ONE address — and it
+takes an address in the ordinary grammar (I4): a claim anchor `c:xxxx`, a `<source_id> ¶a-b`
+span, or a canonical page path. A page matches BOTH ways it is reached: opened and read in
+full (its path is the address itself) and through a claim that lives on it (its path rides
+along on the claim). A lookup that matched only the address would answer "nothing" for
+exactly the page whose access card offered the link.
+
+Cursors follow the same contract as every other collection: the filter set is bound into the
+cursor, so changing a filter mid-walk is a 422 rather than a silent first page of another
+list.
+
 ## Compile, jobs, history
 
 | Method | Path | Purpose |
 |---|---|---|
 | POST | `/…/compile` | enqueue one compile job per undigested source (idempotent) |
-| GET | `/…/jobs` | queue pagination (`status`, `kind` filters) |
+| GET | `/…/jobs` | queue pagination (`status`, `kind` filters); each job carries `token_usage` (the compile loop's own sum over its rounds) and the derived `cost`. The compile loop counts input, output and total only — no cache split — so a priced compile is billed as if none of its prompt was cached, which OVERSTATES it wherever the provider did cache |
 | GET | `/…/history` | unified timeline of patches, jobs and snapshots, with counts |
 | GET | `/…/history/activity` | timeline calendar |
 
@@ -305,13 +398,16 @@ cursor: changing it mid-page is a 422, ask again from the first page.
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/…/briefings` | build a stable evidence pack on a pinned snapshot: `{query?, source_ids[], budget_chars, snapshot?}` |
+| POST | `/…/briefings` | build a stable evidence pack on a pinned snapshot: `{query?, source_ids[], budget_chars>0, snapshot?}` |
 | POST | `/…/briefings/stream` | the same build, SSE — `stage` events as it runs, then `done` with the same body |
 | GET | `/…/briefings` | list |
 | GET | `/…/briefings/{id}` | read one back: `{briefing_id, snapshot_ref, created_at, char_count, scope, text, stages}` — `text` is the literal pack |
-| POST | `/…/briefings/{id}/ask` | ask against the stored pack: `{question}` → answer + citations |
+| POST | `/…/briefings/{id}/ask` | ask against the stored pack: `{question, visitor_class?: silent\|audit\|business}` → answer + citations, with `token_usage` and the derived `cost` |
 | POST | `/…/briefings/{id}/ask/stream` | the same ask, SSE — `stage` and `token` events, then `done` |
 | DELETE | `/…/briefings/{id}` | delete |
+
+`visitor_class` means exactly what it means on recall (above); an ask's consultation record
+names the pack's pinned snapshot as the library that answered.
 
 Both stream routes follow the vocabulary above. The build's row is persisted **before** `done`
 is sent, so a client that saw the frame can always read the briefing back.

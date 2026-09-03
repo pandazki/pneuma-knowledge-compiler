@@ -478,10 +478,6 @@ project's compiled library, starts the profile above, and restores the library w
 other generated project only in the payload it ships — which is what makes the console it opens
 a real one, over a real engine, with a real library behind it.
 
-`examples/opc` deliberately keeps its own pre-engine copy of the machinery: it is an
-already-generated project shipping a prebuilt library, and regenerating it would rebuild that
-library. Its api service therefore serves no engine directory, and its web image is built with
-`VITE_ENGINE_FIXTURES=true` so its console view stays honestly on mock fixtures.
 
 ## Console UI
 

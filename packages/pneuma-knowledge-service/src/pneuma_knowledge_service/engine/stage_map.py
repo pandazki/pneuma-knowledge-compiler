@@ -957,6 +957,31 @@ STAGES: tuple[Stage, ...] = (
                 ),
             ),
             Knob(
+                key="pricing",
+                type="string",
+                apply="restart",
+                env="PNEUMA_KNOWLEDGE_MODEL_PRICING",
+                setting="model_pricing",
+                label_en="Model pricing",
+                label_zh="模型价格",
+                description_en=(
+                    "What THIS deployment pays for the models above, one entry per line: "
+                    "`<model id> = <input>/<output>/<cache_read>/<cache_creation> "
+                    "<CURRENCY>`, each rate per 1M tokens. The framework quotes no price of "
+                    "its own — empty, or a model this does not name, means every face that "
+                    "shows what a call spent shows tokens and no money. Costs are derived "
+                    "when they are read and never stored, so correcting a rate corrects "
+                    "every figure at once."
+                ),
+                description_zh=(
+                    "这个部署为上面那些模型实际支付多少，一行一条："
+                    "`<模型 id> = <输入>/<输出>/<缓存读>/<缓存写> <货币>`，每项都是每 100 万 "
+                    "token 的价格。框架自己不报任何价——留空、或者某个模型没写在这里，那么每一处"
+                    "显示花费的地方就只显示 token，不显示金额。费用是读取时算出来的，从不入库，"
+                    "所以改一次价格，所有数字同时被改对。"
+                ),
+            ),
+            Knob(
                 key="components",
                 type="string",
                 apply="restart",
@@ -968,15 +993,17 @@ STAGES: tuple[Stage, ...] = (
                     "Comma-separated names of enabled index components — business-specific "
                     "structure over canonical (frontmatter checks at the gate, outline lines, "
                     "compile and deep-recall tools, routed fast paths). Empty = none. "
-                    "Shipped: `people` (who a subject is) and `time` (the owner's calendar: "
+                    "Shipped: `people` (who a subject is), `time` (the owner's calendar: "
                     "a per-block day index, a `timespan` fast path, `timeline` / `as_of` "
-                    "deep tools)."
+                    "deep tools) and `attention` (what the library is being asked for: a "
+                    "ledger over recorded consultations, read by schema evolution)."
                 ),
                 description_zh=(
                     "已启用的索引组件名，逗号分隔——在正本之上叠加业务结构（闸门的 frontmatter "
                     "检查、outline 行、编译与深召回工具、快召回的路由查询路）。留空 = 不启用。"
-                    "随包附带：`people`（主体是谁）与 `time`（主人的日历：逐块的日期投影、"
-                    "`timespan` 快路、`timeline` / `as_of` 深召回工具）。"
+                    "随包附带：`people`（主体是谁）、`time`（所有者的日历：逐块的日期投影、"
+                    "`timespan` 快路、`timeline` / `as_of` 深召回工具），以及 `attention`"
+                    "（这个库在被问什么：基于已记录咨询的账本，由结构演进读取）。"
                 ),
             ),
             Knob(
@@ -999,19 +1026,73 @@ STAGES: tuple[Stage, ...] = (
                     "整体写入。"
                 ),
             ),
+            Knob(
+                key="attention_half_life_days",
+                type="int",
+                apply="restart",
+                env="PNEUMA_KNOWLEDGE_ATTENTION_HALF_LIFE_DAYS",
+                setting="attention_half_life_days",
+                label_en="Attention half-life (days)",
+                label_zh="注意力半衰期（天）",
+                description_en=(
+                    "How fast the `attention` component's heat fades: a read this many days "
+                    "old counts half of today's. No score is stored — heat is computed when "
+                    "the ledger is read, so changing this rewrites nothing. 0 = no decay."
+                ),
+                description_zh=(
+                    "`attention` 组件的热度衰减多快：这么多天前的一次阅读，只算今天的一半。"
+                    "分数不入库——热度是读取时算出来的，所以改这个值不会重写任何行。0 = 不衰减。"
+                ),
+            ),
+            Knob(
+                key="attention_window_days",
+                type="int",
+                apply="restart",
+                env="PNEUMA_KNOWLEDGE_ATTENTION_WINDOW_DAYS",
+                setting="attention_window_days",
+                label_en="Attention window (days)",
+                label_zh="注意力窗口（天）",
+                description_en=(
+                    "How far back the `attention` report reads when a schema-evolve round "
+                    "asks what the library is being used for. Older days stay in the table; "
+                    "they are simply outside the question."
+                ),
+                description_zh=(
+                    "当一次结构演进问「这个库在被拿来干什么」时，`attention` 报告往回读多久。"
+                    "更早的日子仍然留在表里，只是不在这个问题的范围内。"
+                ),
+            ),
+            Knob(
+                key="attention_evidence_chars",
+                type="int",
+                apply="restart",
+                env="PNEUMA_KNOWLEDGE_ATTENTION_EVIDENCE_CHARS",
+                setting="attention_evidence_chars",
+                label_en="Attention evidence budget",
+                label_zh="注意力证据预算",
+                description_en=(
+                    "Character ceiling on the block the `attention` component hands a "
+                    "schema-evolve proposal. Cut on a line boundary, and what did not fit "
+                    "is counted rather than silently dropped."
+                ),
+                description_zh=(
+                    "`attention` 组件交给结构演进提案的那一段的字符上限。按行截断，"
+                    "没放下的部分会被数出来，而不是悄悄丢掉。"
+                ),
+            ),
         ),
     ),
     Stage(
         id="persona",
         title_en="Owner profile",
-        title_zh="主人档案",
+        title_zh="所有者档案",
         summary_en=(
             "Whose viewpoint the material is written from. Compiles read it to know how to "
             "address the owner and which calendar day a timestamp falls on — facts stay in "
             "the material."
         ),
         summary_zh=(
-            "材料是从谁的视角写的。编译读它来知道该怎么称呼主人、时间戳算在哪一个日历日上"
+            "材料是从谁的视角写的。编译读它来知道该怎么称呼所有者、时间戳算在哪一个日历日上"
             "——事实本身仍然只住在材料里。"
         ),
         doc="docs/architecture.md#6-the-compile-contract-skill",
@@ -1029,8 +1110,8 @@ STAGES: tuple[Stage, ...] = (
                     "setting until its provenance says so."
                 ),
                 description_zh=(
-                    "主人自己的文件：称呼、职业、地区设置，以及每个探测值的来源标记。"
-                    "探测出来的值在来源标记改写之前，永远不会被当成主人自己的设定。"
+                    "所有者自己的文件：称呼、职业、地区设置，以及每个探测值的来源标记。"
+                    "探测出来的值在来源标记改写之前，永远不会被当成所有者自己的设定。"
                 ),
             ),
         ),

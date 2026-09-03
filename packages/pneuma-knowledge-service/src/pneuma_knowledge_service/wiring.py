@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 
 from langchain_core.embeddings import DeterministicFakeEmbedding, Embeddings
 from langchain_core.language_models.chat_models import BaseChatModel
+from pneuma_knowledge_core.domain.ids import UserId
 from pneuma_knowledge_core.domain.source import NormalizedSource
 from pneuma_knowledge_core.ingest.adapters import (
     CONTEXT_STREAM_MIME,
@@ -852,10 +853,22 @@ def register_components(
     library is an ordinary compile, under the contract and the gate."""
     from pneuma_knowledge_core.components import CanonicalReadOnly, register_component
 
+    from .components.attention import AttentionComponent
     from .components.people import PeopleComponent
     from .components.time import TimeComponent
+    from .skills import path_templates_for
 
+    # The library itself, before it is narrowed: the templates lookup below reads the skill
+    # manifest, which lives in the same repo but off the compile gate, and is a SERVICE
+    # concern rather than one of the reads a component is given.
+    store_canonical = canonical
     canonical = CanonicalReadOnly(canonical)
+
+    async def templates(user_id: str) -> list[str]:
+        """The user's declared path families, read-only — handed to a component as a plain
+        callable, the same shape as `user_info`."""
+        return await path_templates_for(settings, store_canonical, UserId(user_id))
+
     enabled: list[str] = []
     for name in (n.strip() for n in settings.components.split(",")):
         if not name:
@@ -873,10 +886,21 @@ def register_components(
                     default_timezone=settings.default_timezone,
                 )
             )
+        elif name == "attention":
+            register_component(
+                AttentionComponent(
+                    content=store,
+                    canonical=canonical,
+                    templates=templates,
+                    half_life_days=settings.attention_half_life_days,
+                    window_days=settings.attention_window_days,
+                    evidence_chars=settings.attention_evidence_chars,
+                )
+            )
         else:
             raise ValueError(
                 f"unknown index component {name!r} in PNEUMA_KNOWLEDGE_COMPONENTS; "
-                "shipped: people, time"
+                "shipped: people, time, attention"
             )
         enabled.append(name)
     return enabled

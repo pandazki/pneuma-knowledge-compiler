@@ -46,6 +46,8 @@ from pneuma_knowledge_core.domain.canonical import CanonicalDocument
 from pneuma_knowledge_core.domain.ids import DocumentId, UserId, SourceId, extract_anchors
 from pneuma_knowledge_core.domain.snapshot import SnapshotRef
 from pneuma_knowledge_core.domain.source import NormalizedBlock, NormalizedSource, RawSource, StructureMap
+from pneuma_knowledge_core.ingest.canonical_sources import normalize_source_contract
+from pneuma_knowledge_core.ingest.source_contracts import parse_source_contract
 from pneuma_knowledge_core.skill import load_skill_base
 
 _ids = count()
@@ -496,6 +498,130 @@ async def test_a_compile_supersedes_a_paragraph_claim_and_commits():
         f"Caroline 正在与 Jon 交往。[cite: src-01 ¶3] <!-- c:{result.events[0].anchor} --> "
         f"<!-- supersedes: c:{anchor} -->",
     ]
+
+
+async def test_a_claim_citing_an_owner_dialogue_turn_passes_the_gate():
+    """The ruling, mechanically: the owner corrects the library by SPEAKING, and the
+    correction reaches canonical the ordinary way — a `supersede_claim` whose successor
+    cites a turn of the statement, through the same gate as any other citation. Nothing
+    here is special-cased: `[cite: <dialogue-sid> ¶2]` is just a source id and a block.
+    """
+    dialogue = normalize_source_contract(
+        parse_source_contract(
+            {
+                "schema": "pneuma.source.owner-dialogue/v1",
+                "provider": "console",
+                "dialogue_id": "dlg-1",
+                "owner_id": "app-owner-7",
+                "turns": [
+                    {
+                        "turn_id": "t1",
+                        "role": "owner",
+                        "said_at": "2026-08-31T09:00:00+08:00",
+                        "text": "关于 Aurora 的交付日期。",
+                    },
+                    {
+                        "turn_id": "t2",
+                        "role": "steward",
+                        "said_at": "2026-08-31T09:00:20+08:00",
+                        "text": "库里记的是 2026-09-15。",
+                    },
+                    {
+                        "turn_id": "t3",
+                        "role": "owner",
+                        "said_at": "2026-08-31T09:00:40+08:00",
+                        "text": "改到 2026-09-30 了，评审那天定的日子已经不作数。",
+                    },
+                ],
+            }
+        ),
+        USER,
+        imported_at=datetime(2026, 8, 31, 8, 0, tzinfo=timezone.utc),
+    )[0]
+    sid = str(dialogue.raw.source_id)
+    path = "work/products/aurora.md"
+    body = "## 交付\n\n- Aurora 交付日期为 2026-09-15。[cite: src-01 ¶1]"
+    doc_body = assign_document_anchors(body, path)
+    anchor = extract_anchors(doc_body)[0]
+    store = FakeCanonicalStore(
+        [
+            CanonicalDocument(
+                doc_id=DocumentId("d-aurora"),
+                path=path,
+                frontmatter={"doc_id": "d-aurora", "type": "product", "slug": "aurora"},
+                body=doc_body,
+            )
+        ]
+    )
+    model = ScriptedChatModel(
+        turns=[
+            [
+                tc(
+                    "supersede_claim",
+                    path=path,
+                    anchor_id=anchor,
+                    new_text=f"Aurora 交付日期改为 2026-09-30。[cite: {sid} ¶2]",
+                ),
+                tc("finish_compile"),
+            ],
+        ]
+    )
+    result = await run_compile(
+        user_id=USER,
+        model=model,
+        store=store,
+        sources=[_source("src-01", 5), dialogue],
+        skill=SKILL,
+    )
+    assert result.violations == []
+    assert result.status == "committed" and result.rounds == 1
+    assert [e.type for e in result.events] == ["claim_superseded"]
+    assert result.events[0].supersedes == anchor
+    committed = result.files[path]
+    # The old claim stays byte-for-byte; the successor names it and cites the statement.
+    assert f"- Aurora 交付日期为 2026-09-15。[cite: src-01 ¶1] <!-- c:{anchor} -->" in committed
+    assert f"[cite: {sid} ¶2] <!-- c:{result.events[0].anchor} -->" in committed
+
+
+async def test_a_claim_citing_a_turn_the_dialogue_does_not_have_is_rejected():
+    """The gate is not relaxed for an owner statement: a span past the last turn is an
+    illegal citation like any other, and the compile aborts with canonical untouched."""
+    dialogue = normalize_source_contract(
+        parse_source_contract(
+            {
+                "schema": "pneuma.source.owner-dialogue/v1",
+                "provider": "console",
+                "dialogue_id": "dlg-2",
+                "owner_id": "app-owner-7",
+                "turns": [
+                    {
+                        "turn_id": "t1",
+                        "role": "owner",
+                        "said_at": "2026-08-31T09:00:00+08:00",
+                        "text": "交付日期改到 2026-09-30。",
+                    }
+                ],
+            }
+        ),
+        USER,
+        imported_at=datetime(2026, 8, 31, 8, 0, tzinfo=timezone.utc),
+    )[0]
+    sid = str(dialogue.raw.source_id)
+    store = FakeCanonicalStore()
+    call = tc(
+        "create_document",
+        path="work/products/aurora.md",
+        frontmatter={"type": "product", "slug": "aurora"},
+        body=f"## 交付\n\n- Aurora 交付日期为 2026-09-30。[cite: {sid} ¶4]",
+    )
+    model = ScriptedChatModel(turns=[[call, tc("finish_compile")], [tc("finish_compile")]])
+    result = await run_compile(
+        user_id=USER, model=model, store=store, sources=[dialogue], skill=SKILL
+    )
+    assert result.status == "aborted"
+    assert store.commits == []
+    assert [v.kind for v in result.violations] == ["citation"]
+    assert "¶4" in result.violations[0].detail
 
 
 class HangingChatModel(ScriptedChatModel):

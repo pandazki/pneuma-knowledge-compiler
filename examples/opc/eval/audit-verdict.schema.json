@@ -1,0 +1,53 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["case_id", "verdict", "issues", "corpus_files_read", "notes"],
+  "properties": {
+    "case_id": {"type": "string"},
+    "verdict": {"type": "string", "enum": ["sound", "fix", "unsure"]},
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "severity", "facet_id", "detail", "corpus_evidence", "proposed_change"],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "quote_mismatch",
+              "facet_not_entailed",
+              "facet_superseded",
+              "missing_core",
+              "over_narrow_core",
+              "wrong_tag",
+              "compound_facet",
+              "ambiguous_question",
+              "temporal_ambiguity",
+              "absent_is_present",
+              "premise_not_false",
+              "subject_exists",
+              "probe_basis_wrong",
+              "other"
+            ]
+          },
+          "severity": {"type": "string", "enum": ["blocking", "material", "minor"]},
+          "facet_id": {"type": "string"},
+          "detail": {"type": "string"},
+          "corpus_evidence": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["file", "quote"],
+              "properties": {"file": {"type": "string"}, "quote": {"type": "string"}}
+            }
+          },
+          "proposed_change": {"type": "string"}
+        }
+      }
+    },
+    "corpus_files_read": {"type": "array", "items": {"type": "string"}},
+    "notes": {"type": "string"}
+  }
+}

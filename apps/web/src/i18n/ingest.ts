@@ -28,6 +28,33 @@ export const ingest = defineMessages({
     "ingest.tabs.aria": "导入方式",
     "ingest.tabs.official": "结构化来源",
     "ingest.tabs.document": "单篇文档",
+    "ingest.tabs.owner": "所有者陈述",
+
+    // --- 所有者陈述（`owner-dialogue/v1`）------------------------------------------
+    "ingest.owner.title": "所有者陈述 Owner statement",
+    "ingest.owner.description":
+      "所有者只通过对管理代理说话来影响知识库。一次订正、一条指示、一点补充，都以普通来源的身份进来：逐字进 L0，一轮一块，像一条聊天消息那样被引用，只能搭一次普通编译的车、过同一道引用门禁进入正本。这里没有绕开门禁的写入通道。",
+    "ingest.owner.step1": "写下这次对话",
+    "ingest.owner.step2": "确认并导入",
+    "ingest.owner.turn": "第 {index} 轮",
+    "ingest.owner.role": "说话的是",
+    "ingest.owner.role.owner": "所有者",
+    "ingest.owner.role.steward": "管理代理",
+    "ingest.owner.saidAt": "说话时间",
+    "ingest.owner.text": "原话",
+    "ingest.owner.textPlaceholder": "把话原样写下来。判断这句话值得一次订正、一次取代还是一页新内容，是契约的事。",
+    "ingest.owner.addTurn": "加一轮",
+    "ingest.owner.removeTurn": "删掉第 {index} 轮",
+    "ingest.owner.orderNote":
+      "顺序即内容：一句用来限定上一句的话，两句一换位就不再限定它了。因此时间倒流的对话会被拒绝，而不是被排序。",
+    "ingest.owner.summary": "共 {count} 轮 · 最早一轮 {first}",
+    "ingest.owner.submit": "导入所有者陈述",
+    "ingest.owner.failed": "导入所有者陈述失败",
+    "ingest.owner.error.empty": "至少要有一轮写了内容。",
+    "ingest.owner.error.noOwnerTurn":
+      "至少要有一轮是所有者说的。只有管理代理轮次的对话，是管理代理写的关于所有者的文档，不是所有者的陈述。",
+    "ingest.owner.error.badTime": "第 {turn} 轮的时间读不出来。",
+    "ingest.owner.error.outOfOrder": "第 {turn} 轮的时间早于它前一轮：一次对话按说出的顺序提交。",
 
     "ingest.official.step1": "选择来源协议",
     "ingest.official.kindAria": "官方 source 类型",
@@ -140,6 +167,33 @@ export const ingest = defineMessages({
     "ingest.tabs.aria": "Import method",
     "ingest.tabs.official": "Structured source",
     "ingest.tabs.document": "Single document",
+    "ingest.tabs.owner": "Owner statement",
+
+    // --- the owner statement (`owner-dialogue/v1`) --------------------------------
+    "ingest.owner.title": "Owner statement",
+    "ingest.owner.description":
+      "The owner acts on the library only by speaking to the steward. A correction, an instruction, an addition — each arrives as an ordinary source: verbatim in L0, one block per turn, cited exactly as a chat message is, and reaching canonical only by riding an ordinary compile through the same citation gate. There is no owner write path that bypasses it.",
+    "ingest.owner.step1": "Write the exchange",
+    "ingest.owner.step2": "Confirm and import",
+    "ingest.owner.turn": "Turn {index}",
+    "ingest.owner.role": "Spoken by",
+    "ingest.owner.role.owner": "Owner",
+    "ingest.owner.role.steward": "Steward",
+    "ingest.owner.saidAt": "Said at",
+    "ingest.owner.text": "The words",
+    "ingest.owner.textPlaceholder": "Write it as it was said. What the statement deserves — a correction, a supersession, a new page — is the contract's judgement.",
+    "ingest.owner.addTurn": "Add a turn",
+    "ingest.owner.removeTurn": "Remove turn {index}",
+    "ingest.owner.orderNote":
+      "Order is meaning: a sentence that qualifies the one before it stops qualifying it once the two are swapped. A dialogue whose times run backwards is rejected, not sorted.",
+    "ingest.owner.summary": "{count} turn{count||s} · earliest {first}",
+    "ingest.owner.submit": "Import the owner statement",
+    "ingest.owner.failed": "Could not import the owner statement",
+    "ingest.owner.error.empty": "At least one turn needs something written in it.",
+    "ingest.owner.error.noOwnerTurn":
+      "At least one turn must be spoken by the owner. A dialogue of steward turns alone is a document the steward wrote about the owner, not the owner's statement.",
+    "ingest.owner.error.badTime": "Turn {turn} has a time that cannot be read.",
+    "ingest.owner.error.outOfOrder": "Turn {turn} is timestamped before the one above it: a dialogue is submitted in the order it was spoken.",
 
     "ingest.official.step1": "Choose the source protocol",
     "ingest.official.kindAria": "Official source type",

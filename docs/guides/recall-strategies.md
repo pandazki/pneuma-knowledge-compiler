@@ -10,8 +10,8 @@ they trade latency, input cost and precision against each other, and which trade
 depends on what your users are waiting for.
 
 This guide is for the person making that call for a business. It states what each strategy
-does, shows one measurement so the shape of the trade-off is concrete, and ends in a decision
-table. The per-setting reference is [reference/configuration.md](../reference/configuration.md);
+does, where the trade-off actually falls, and ends in a decision table. The per-setting
+reference is [reference/configuration.md](../reference/configuration.md);
 when an answer is already wrong and you are hunting for the layer that lost the fact, read
 [recall-quality.md](recall-quality.md) instead — that is a different question from this one.
 
@@ -31,7 +31,9 @@ enforces the final caps, and follows the chosen claims back to bounded verbatim 
 model calls per question, and they are serial: the selection call sits between retrieval and
 answering, so its latency is added, not overlapped. If it times out or the provider fails, the
 lane falls back to the exact `ranked` context and marks the answer degraded — it never invents
-a selection.
+a selection. Provenance is the one thing it does not soften: when a chosen claim is followed
+back to a source L0 cannot produce, the request fails rather than answering on evidence it
+could not resolve.
 
 **`all` — remove the choice.** The same pool `select` would have judged goes to the answer
 whole: no selection call, no score truncation. One model call per question, a much longer
@@ -90,41 +92,33 @@ in the answer model's attention.
   the pool is right and the context is dropping what the answer needed. Raising a final cap
   because a candidate cap was too small just makes the prompt bigger without adding the fact.
 
-## One measurement, so the trade-off is concrete
+## Where the trade-off actually falls
 
-These numbers come from **one library, one question, one provider** — a real 88-day
-collaboration library, a single representative question, run against a single model provider.
-They are the shape of the trade, not a benchmark, and your library will not reproduce them.
-Measure your own before you commit; latency in particular is a property of your provider on
-your prompt sizes.
-
-| | `select` | `all` |
-|---|---|---|
-| Wall clock | 17.4 s | 10–13 s |
-| Input tokens | ~27.7k | ~40k |
-| Documents cited in the answer | 1 | 2–5 |
-
-`all` was **faster and broader** here, and that is not a paradox: the serial selection call
-`select` spends costs more wall clock than the longer prompt does, and by not choosing, `all`
-left the answer standing on evidence from several documents instead of one. What `select`
-bought in exchange is a narrower, deliberately chosen evidence set — which is what you want
-when the answer will be audited claim by claim, and what you do not want when the reader
-needed the second and third document too.
-
-Two more observations from the same run: turning on `deliberation` cost about **+300 output
-tokens and +2–3 s**, and returned a readable evidence review with it. And
-`answer_reasoning_effort` showed **no monotone effect** on that provider — raising it did not
-reliably improve the answer or reliably cost more time, so treat it as something to test, not
+Latency is not ordered the way the call count suggests. The serial selection call `select`
+spends can cost more wall clock than `all`'s longer prompt does, so `all` is not reliably the
+slow one — and by not choosing, it leaves the answer standing on evidence from several
+documents instead of one. What `select` buys in exchange is a narrower, deliberately chosen
+evidence set: what you want when the answer will be audited claim by claim, and what you do
+not want when the reader needed the second and third document too. `deliberation` costs
+output tokens and a little time and returns a readable evidence review with them.
+`answer_reasoning_effort` is not reliably monotone — treat it as something to test, not
 something to turn up.
+
+No figure belongs in that paragraph, because latency and cost are properties of your
+provider, your prompt sizes and your library, and a number measured elsewhere does not
+transfer. The one measured artifact in this repository is
+[`examples/opc/build-record/eval/`](../../examples/opc/build-record/eval/), where every line
+records its harness, its date and what may be compared with what; measure your own the same
+way before you commit to a strategy.
 
 ## Decision table
 
 | If the library serves… | Set | Because |
 |---|---|---|
-| an interactive assistant, where the wait *is* the product | `evidence_strategy: all` | no serial selection call; measured 10–13 s against `select`'s 17.4 s, at roughly 1.5× the input bill |
+| an interactive assistant, where the wait *is* the product | `evidence_strategy: all` | no serial selection call, so the wait is one answer call — paid for in input tokens |
 | audit, compliance, or any reading where a narrow, deliberately chosen evidence set matters more than breadth | `evidence_strategy: select` | the selection call is a second pass over the evidence before the answer sees it, and it fails soft to `ranked` |
 | the cheapest question at the highest volume | `evidence_strategy: ranked` | one call, the smallest prompt, no widened pool — the baseline everything else is measured against |
-| a reviewer who must see *why* evidence was accepted or ignored | `all` + `answer_format: structured` | that pair turns on `deliberation`, at ~+300 tokens and +2–3 s |
+| a reviewer who must see *why* evidence was accepted or ignored | `all` + `answer_format: structured` | that pair turns on `deliberation`, a field in front of the answer in the same call |
 | downstream automation that needs a clean answer string and a separately validated citation ledger | `answer_format: structured` | independent of the strategy; consume `answer_text`, render `answer` |
 
 And for the caps, one rule: **raise a candidate cap when the fact is missing from the pool,
@@ -134,8 +128,8 @@ already unbounded — so the knob that matters there is `all_context_chars`, whi
 decides how much of it survives.
 
 Nothing here changes a default. The framework ships `evidence_strategy: ranked` and
-`answer_format: text`, a generated engine writes the same, and the deployment these numbers
-were measured on keeps `select` as its default — `all` with `deliberation` is a deliberate
+`answer_format: text`, a generated engine writes the same, and the OPC example keeps
+`select` as its default — `all` with `deliberation` is a deliberate
 choice for a workload, not a new baseline. Both settings can also be overridden for a single
 question (`evidence_strategy` / `answer_format` in the recall request body, or
 `--evidence-strategy` / `--answer-format` on a generated project's CLI), which is the cheapest

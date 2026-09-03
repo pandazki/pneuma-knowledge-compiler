@@ -288,6 +288,17 @@ export type Selection =
   | { kind: "evolve-task"; id: string }
   | null;
 
+/**
+ * Who is asking, as far as the RECORD is concerned — it changes nothing about the answer.
+ * `silent` leaves no trace at all (the service's own default, so a caller written before the
+ * field existed is already a silent visitor), `audit` writes one consultation record, and
+ * `business` writes it and lets it count toward what the library is seen to be used for.
+ *
+ * It lives here rather than beside the store because both the API client and the store need
+ * it, and the client may not import the store.
+ */
+export type VisitorClass = "silent" | "audit" | "business";
+
 export type ViewName =
   // open-source system map + deterministic demo journey
   | "overview"
@@ -302,6 +313,8 @@ export type ViewName =
   // Live Context: takes workstream fragments live and folds in citable knowledge
   // (SSE and WS, two transports)
   | "live_context"
+  // the use side: every answer this library gave, and the ledger derived from them
+  | "consultations"
   // canonical/derived views (light up once the user has compiled canonical)
   | "library"
   | "process"

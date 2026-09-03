@@ -48,6 +48,7 @@ from ..domain.canonical import (
     Citation,
     iter_canonical_citations,
 )
+from ..domain.consultation import EvidenceRef, claim_ref, dedup_evidence, span_ref
 from ..domain.ids import UserId, SourceId
 from ..domain.snapshot import SnapshotRef
 from ..ports.content_store import ContentStore
@@ -59,6 +60,7 @@ from .spine import CITE_PRECISE, CLOSE_ANSWER_HONESTLY, spine
 from .fast import render_claims, retrieve_claims
 from .projection import ProjectedClaim, claims_citing, project_snapshot_claims
 from .rag import rag_recall
+from .verbatim import fetched_span
 from .stage_timing import (
     RETRIEVE,
     claim_entries,
@@ -68,6 +70,121 @@ from .stage_timing import (
     child_name,
     window_entries,
 )
+
+# ------------------------------------------------------------- the pack as its own record
+#
+# The pack is a rendered STRING, and what the model was shown is a set of ADDRESSES. Those
+# two are bound here, at the moment each block is rendered, rather than recovered afterwards
+# by reading the string back: source text is untrusted, a passage that literally contains
+# `[cite: s01 ¶3-4]` in its body would have been read back as provenance it never had, and no
+# amount of parser care fixes a parser that cannot tell a rendered marker from a quoted one.
+#
+# So each rendered block carries its own refs and its own byte range, and the ranges survive
+# the joins. That is what lets the budget be applied honestly: the pack is truncated to a
+# character count AFTER assembly, and an item the cut lands inside was not shown — half a
+# span is not evidence — so only the items whose whole block survived enter the manifest.
+
+
+@dataclass(frozen=True)
+class _PackItem:
+    """One rendered block's byte range in the pack, and the addresses it put on screen.
+
+    `start`/`end` are character offsets into the text the item lives in, half-open; they are
+    shifted by `_join` as blocks are composed, so they end up absolute in the finished pack.
+    """
+
+    start: int
+    end: int
+    refs: tuple[EvidenceRef, ...]
+
+
+@dataclass(frozen=True)
+class _Rendered:
+    """Rendered text plus the evidence items inside it, at offsets relative to its own start.
+
+    Text with no items is not a mistake — it is the honest render of a MAP. The library
+    glance that opens the pack and a source's structure outline both say where something is
+    rather than showing it, so a citation resting on one has nothing behind it; they are
+    `_plain` here, which is the same ruling stated once in code instead of remembered.
+    """
+
+    text: str
+    items: tuple[_PackItem, ...] = ()
+
+
+def _plain(text: str) -> _Rendered:
+    """Rendered text that is not evidence: a header, a glance, an outline."""
+    return _Rendered(text)
+
+
+def _evidence(text: str, refs: Sequence[EvidenceRef]) -> _Rendered:
+    """One rendered block and the addresses it showed — the pack's unit of survival."""
+    refs = tuple(refs)
+    return _Rendered(text, ((_PackItem(0, len(text), refs),) if refs else ()))
+
+
+def _join(parts: Sequence[_Rendered], sep: str) -> _Rendered:
+    """`sep.join` over rendered blocks, carrying every item's range with it.
+
+    Byte-identical to joining the same strings directly — the offsets are observation, and
+    the pack the model is handed does not know this bookkeeping happened."""
+    items: list[_PackItem] = []
+    cursor = 0
+    for index, part in enumerate(parts):
+        if index:
+            cursor += len(sep)
+        items.extend(
+            _PackItem(item.start + cursor, item.end + cursor, item.refs)
+            for item in part.items
+        )
+        cursor += len(part.text)
+    return _Rendered(sep.join(part.text for part in parts), tuple(items))
+
+
+def _surviving_manifest(items: Sequence[_PackItem], kept_chars: int) -> tuple[EvidenceRef, ...]:
+    """The manifest of the items whose rendered block survived the budget WHOLE.
+
+    A cut item contributes nothing at all, including the part of it that stayed on screen: a
+    truncated claim note may keep its `[cite: …]` marker and lose the sentence that marker
+    was provenance for, and admitting a citation against that would be admitting it against
+    text the model never read.
+    """
+    refs: list[EvidenceRef] = []
+    for item in items:
+        if item.end <= kept_chars:
+            refs.extend(item.refs)
+    return dedup_evidence(refs)
+
+
+def _claim_refs(claim: object) -> list[EvidenceRef]:
+    """A claim note's addresses: the claim itself, then the provenance printed with it.
+
+    The spans come from the claim's own `citations` — structured canonical provenance that
+    the gate already admitted — never from the line the renderer produced out of them.
+    """
+    refs = [
+        claim_ref(getattr(claim, "anchor", ""), getattr(claim, "document_path", ""))
+    ]
+    refs.extend(
+        span_ref(str(c.source_id), c.block_start, c.block_end, kind="claim")
+        for c in getattr(claim, "citations", ()) or ()
+    )
+    return refs
+
+
+def _claim_block(claim: object) -> _Rendered:
+    """One claim note, rendered exactly as `render_claims` renders it in a list."""
+    return _evidence(render_claims([claim]), _claim_refs(claim))
+
+
+def _passage_block(passage: object) -> _Rendered:
+    """One verbatim window: its provenance line and its text, as `render_passages` prints
+    them. The span is the passage's own address — the marker on screen is a render of it."""
+    return _evidence(
+        render_passages([passage], header=""),
+        [span_ref(str(passage.source_id), passage.block_start, passage.block_end)],
+    )
+
 
 def briefing_contract() -> str:
     """The briefing lane's System contract: head + shared spine.
@@ -104,6 +221,17 @@ class BriefingScope:
     source_ids: list[SourceId] = field(default_factory=list)
     budget_chars: int = 24_000
 
+    def __post_init__(self) -> None:
+        # A budget of zero or less is not a small pack, it is a contradiction: `pack[:0]`
+        # shows nothing and `pack[:-5]` shows nearly everything, and either way the manifest
+        # is taken against a boundary the emitted text never had — a pack in front of the
+        # model with no address in it admitted, so every citation the ask writes fails. It is
+        # refused where the number enters, so no caller can hold one.
+        if self.budget_chars <= 0:
+            raise ValueError(
+                f"budget_chars must be positive, got {self.budget_chars}"
+            )
+
 
 @dataclass(frozen=True)
 class Briefing:
@@ -121,6 +249,16 @@ class Briefing:
     # briefing reconstructed from a stored row (the ask route) carries none, and says so by
     # carrying an empty tuple rather than zeros.
     stages: tuple[StageTiming, ...] = ()
+    #: Every address this PACK put in front of the model, recorded when the pack was built:
+    #: each rendered block contributed its own refs, and only the blocks the budget left
+    #: whole are here. Recorded and then STORED with the pack, because it cannot be
+    #: recovered later — the pack is text by then, and text cannot say whether a `[cite: …]`
+    #: in it is a marker the renderer wrote or a string the source happens to contain.
+    #:
+    #: A briefing reconstructed from a row that has no stored manifest carries an empty one,
+    #: and its ask then admits no citation at all. That is the honest reading of "nobody
+    #: recorded what this pack showed", and it is not repaired by guessing.
+    pack_manifest: tuple[EvidenceRef, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -129,9 +267,22 @@ class AskAnswer:
     citations: tuple[Citation, ...]
     verbatim_fetches: tuple[dict, ...]
     token_usage: dict[str, int]
+    #: Every address this ask put in front of the model, in real ids: the frozen pack's own
+    #: claims and spans (`Briefing.pack_manifest`, recorded when the pack was built), whatever
+    #: `search_knowledge` rendered into the transcript, and the spans the loop fetched. The
+    #: pack IS the evidence here, so it is published as such — a record built from the
+    #: fetches alone described a smaller thing than the ask actually rested on, and left the
+    #: durable citations with no manifest to be admitted against.
+    evidence_manifest: tuple[EvidenceRef, ...] = ()
     # {handle: real_source_id} when consumption aliasing is on — the answer's `[cite: sNN]`
     # markers are query-local handles; the UI reverse-binds them (like the fast lane).
     citation_handles: dict[str, str] = field(default_factory=dict)
+    # Did this ask alias at all (`citation_alias`, a deployment setting)? Declared rather
+    # than inferred from an empty `citation_handles`: an ask that aliased and surfaced no
+    # source has an empty map too, and the two need opposite treatment in the durable
+    # record — the aliased one's brackets resolve to nothing and must go, the unaliased
+    # one's are real source ids and must stay.
+    aliased: bool = False
     # The ask loop's per-step wall-clock, in the order the steps happened: `turn:N` per model
     # turn, `tool:<name>` per tool call (the same call the matching `verbatim_fetches` /
     # search record carries `ms` for), `finalize` when the budget forced a closing call, and
@@ -191,14 +342,18 @@ async def _query_section(
     max_claims: int = 24,
     max_excerpts: int = 12,
     stages: StageRecorder | None = None,
-) -> tuple[list[str], int]:
+) -> tuple[list[_Rendered], int]:
     """Render the scope.query knowledge — claims selected by relevance, laid out in
     canonical (path/anchor) order for byte-stability. Returns (segments, claim_count).
+
+    Each claim note and each verbatim window is rendered as its own block carrying its own
+    addresses, so the budget can later drop exactly the ones it cut. The joins reproduce
+    `render_claims` / `render_passages` over the whole list byte for byte.
 
     `stages` is the build's recorder, threaded in rather than returned: the two lookups and
     the context expansion belong to different stages of the same build, so they have to be
     measured where they happen, not around this whole call."""
-    lines: list[str] = []
+    lines: list[_Rendered] = []
     claim_count = 0
     stages = stages if stages is not None else StageRecorder(
         BUILD_STAGE_ORDER, BUILD_RETRIEVE_CHILDREN
@@ -222,9 +377,9 @@ async def _query_section(
             # select by relevance, render in canonical order (deterministic).
             ordered = sorted(retrieved, key=_sort_key)
             lines.append(
-                prompt("recall.briefing.query_claims_header", query=query)
+                _plain(prompt("recall.briefing.query_claims_header", query=query))
             )
-            lines.append(render_claims(ordered))
+            lines.append(_join([_claim_block(c) for c in ordered], "\n"))
             claim_count = len(ordered)
 
     if lexical is not None and vectors is not None and embeddings is not None:
@@ -258,8 +413,8 @@ async def _query_section(
             ordered = sorted(
                 passages, key=lambda p: (str(p.source_id), p.block_start, p.block_end)
             )
-            lines.append(prompt("recall.briefing.query_excerpts_header"))
-            lines.append(render_passages(ordered, header=""))
+            lines.append(_plain(prompt("recall.briefing.query_excerpts_header")))
+            lines.append(_join([_passage_block(p) for p in ordered], "\n"))
     return lines, claim_count
 
 
@@ -272,10 +427,18 @@ async def _source_section(
     content: ContentStore | None,
     max_excerpt_blocks: int = 4,
     max_outline_sections: int = 60,
-) -> tuple[list[str], int]:
-    """Anchor one source: materials card + citing claims + raw excerpts (deterministic)."""
+) -> tuple[list[_Rendered], int]:
+    """Anchor one source: materials card + citing claims + raw excerpts (deterministic).
+
+    Three of the four blocks are evidence and carry their addresses: a materials card shows
+    its own canonical body (whose citations the gate already admitted), a citing claim shows
+    its note and its provenance, and a raw excerpt IS one L0 block — the one thing here whose
+    text has no marker in it at all, and which a parser of the rendered pack could therefore
+    never have counted. The structure outline is the fourth, and it stays a map."""
     sid = str(source_id)
-    lines: list[str] = [prompt("recall.briefing.source_heading", source_id=sid)]
+    lines: list[_Rendered] = [
+        _plain(prompt("recall.briefing.source_heading", source_id=sid))
+    ]
 
     # ① materials card: a canonical doc under materials/ that cites this source.
     cards = sorted(
@@ -291,16 +454,24 @@ async def _source_section(
         key=lambda d: d.path,
     )
     if cards:
-        lines.append(prompt("recall.briefing.material_cards_header"))
+        lines.append(_plain(prompt("recall.briefing.material_cards_header")))
         for d in cards:
-            lines.append(f"[{d.path}]\n{d.body.strip()}")
+            lines.append(
+                _evidence(
+                    f"[{d.path}]\n{d.body.strip()}",
+                    [
+                        span_ref(str(c.source_id), c.block_start, c.block_end)
+                        for c in iter_canonical_citations(d.body)
+                    ],
+                )
+            )
 
     # ② every canonical claim citing this source (citation reverse lookup).
     citing = sorted(claims_citing(all_claims, source_id), key=_sort_key)
     if citing:
-        lines.append(prompt("recall.briefing.citing_claims_header"))
+        lines.append(_plain(prompt("recall.briefing.citing_claims_header")))
         for c in citing:
-            lines.append(_render_projected_claim(c))
+            lines.append(_evidence(_render_projected_claim(c), _claim_refs(c)))
 
     # ③ structure outline + raw excerpts (L0), budget-bounded.
     if content is not None:
@@ -313,27 +484,37 @@ async def _source_section(
             # structure outline: the section paths the document contains, so the model
             # sees what is inside (e.g. a candidate roster) and can target search_knowledge.
             if sections:
-                lines.append(prompt("recall.briefing.outline_header"))
+                lines.append(_plain(prompt("recall.briefing.outline_header")))
                 for span in sections[:max_outline_sections]:
                     path = " › ".join(span.path) if span.path else f"¶{span.start_block}"
-                    lines.append(f"- {path}  ¶{span.start_block}-{span.end_block}")
+                    lines.append(_plain(f"- {path}  ¶{span.start_block}-{span.end_block}"))
                 if len(sections) > max_outline_sections:
                     lines.append(
-                        prompt(
-                            "recall.briefing.outline_more",
-                            count=len(sections) - max_outline_sections,
+                        _plain(
+                            prompt(
+                                "recall.briefing.outline_more",
+                                count=len(sections) - max_outline_sections,
+                            )
                         )
                     )
-            excerpts: list[str] = []
+            excerpts: list[_Rendered] = []
             for span in sections[:max_excerpt_blocks]:
                 block = next(
                     (b for b in ns.blocks if b.index == span.start_block), None
                 )
                 if block is not None:
                     path = " › ".join(span.path) if span.path else f"¶{span.start_block}"
-                    excerpts.append(f"- [{path}] {block.text}")
+                    # The excerpt's address is the block's OWN index, which is where the
+                    # text came from — the line prints a section path for the reader and no
+                    # address at all, so nothing but this could have recorded it.
+                    excerpts.append(
+                        _evidence(
+                            f"- [{path}] {block.text}",
+                            [span_ref(sid, block.index, block.index)],
+                        )
+                    )
             if excerpts:
-                lines.append(prompt("recall.briefing.excerpts_header"))
+                lines.append(_plain(prompt("recall.briefing.excerpts_header")))
                 lines.extend(excerpts)
     return lines, len(citing)
 
@@ -382,13 +563,13 @@ async def build_briefing(
 
     all_claims = project_snapshot_claims(snapshot_docs)
 
-    segments: list[str] = []
+    segments: list[_Rendered] = []
     claims_count = 0
 
     if snapshot_docs:
         with stages.measure(PACK):
             glance = render_canonical_glance(snapshot_docs, skill, packs=packs)
-            segments.append(glance)
+            segments.append(_plain(glance))
             stages.preview(
                 PACK, {"documents": len(snapshot_docs), "glance_chars": len(glance)}
             )
@@ -407,14 +588,18 @@ async def build_briefing(
         )
         if query_lines:
             segments.append(
-                prompt("recall.briefing.query_section_header")
-                + "\n"
-                + "\n".join(query_lines)
+                _join(
+                    [
+                        _plain(prompt("recall.briefing.query_section_header")),
+                        _join(query_lines, "\n"),
+                    ],
+                    "\n",
+                )
             )
             claims_count += qcount
 
     if scope.source_ids:
-        source_segments: list[str] = []
+        source_segments: list[_Rendered] = []
         # deterministic: sources in sorted id order (never the input/set order).
         for sid in sorted(set(str(s) for s in scope.source_ids)):
             # Anchoring a source IS provenance expansion — the citation reverse lookup, the
@@ -432,26 +617,41 @@ async def build_briefing(
                     EXPAND,
                     {
                         "sources": len(set(str(x) for x in scope.source_ids)),
-                        "source_chars": sum(len(line) for line in src_lines),
+                        "source_chars": sum(len(line.text) for line in src_lines),
                     },
                 )
-            source_segments.append("\n".join(src_lines))
+            source_segments.append(_join(src_lines, "\n"))
             claims_count += ccount
         if source_segments:
             segments.append(
-                prompt("recall.briefing.source_section_header")
-                + "\n"
-                + "\n\n".join(source_segments)
+                _join(
+                    [
+                        _plain(prompt("recall.briefing.source_section_header")),
+                        _join(source_segments, "\n\n"),
+                    ],
+                    "\n",
+                )
             )
 
     with stages.measure(PACK):
         # Budget truncation on the knowledge pack (the fixed contract is exempt).
-        pack = "\n\n".join(segments)
+        assembled = _join(segments, "\n\n")
+        pack = assembled.text
         if len(pack) > scope.budget_chars:
-            pack = (
-                pack[: scope.budget_chars].rstrip()
-                + prompt("recall.briefing.budget_truncated")
-            )
+            # The budget bounds where the cut is TAKEN; `rstrip` decides where the text
+            # actually ends, and those are not the same character. A block whose tail is
+            # whitespace — source text ends how the source ends — reaches the budget whole
+            # and is emitted short, so measuring survival against the budget admitted an
+            # address for bytes the model was never shown. Measure it against the emitted
+            # prefix, which is the only thing anybody read.
+            kept = pack[: scope.budget_chars].rstrip()
+            pack = kept + prompt("recall.briefing.budget_truncated")
+        else:
+            kept = pack
+        # What the model will actually be shown, in characters. The manifest is taken
+        # against exactly this number, so an item the cut lands inside drops out — of the
+        # record and therefore of what its answer is allowed to cite.
+        pack_manifest = _surviving_manifest(assembled.items, len(kept))
 
         contract = briefing_contract()
         system_prefix = contract + "\n" + pack + "\n" if pack else contract
@@ -479,6 +679,7 @@ async def build_briefing(
         char_count=len(system_prefix),
         source_ids=tuple(sorted(set(str(s) for s in scope.source_ids))),
         stages=stages.emit(),
+        pack_manifest=pack_manifest,
     )
 
 
@@ -529,8 +730,22 @@ def _ask_watch(name: str, started: float) -> Callable[[], str | None]:
 
 
 def _fetch_verbatim_tool(
-    user_id: UserId, content: ContentStore, sink: list[dict], aliaser=None
+    user_id: UserId,
+    content: ContentStore,
+    sink: list[dict],
+    aliaser=None,
+    manifest: list[EvidenceRef] | None = None,
 ) -> StructuredTool:
+    """`fetch_verbatim(source_id, locator)` — L0 text for one addressed span.
+
+    `manifest` is the lane's evidence sink, fed at the moment the fetch SUCCEEDS and at the
+    REAL source id: the model may have named the query-local `sNN` handle it was shown, and
+    a handle is an address that resolves to nothing an hour later. Both locators publish a
+    span (`recall/verbatim.py:fetched_span`) — a `section` locator's interval is resolved
+    through the source's own structure map here, rather than left unpublished as it used to
+    be, which is what made a citation resting on a section fetch fail admission.
+    """
+
     async def fetch_verbatim(source_id: str, locator: dict) -> str:
         """L0 verbatim fetch; see `recall.briefing.tool.fetch_verbatim_doc`."""
         # The model may pass the query-local handle it saw (sNN) — resolve it to the real id.
@@ -538,6 +753,10 @@ def _fetch_verbatim_tool(
         try:
             text = await content.fetch(user_id, SourceId(real_id), locator)
             sink.append({"source_id": source_id, "locator": locator, "chars": len(text)})
+            if manifest is not None:
+                span = await fetched_span(user_id, real_id, locator, content=content)
+                if span is not None:
+                    manifest.append(span)
             return text
         except (KeyError, ValueError) as exc:
             sink.append({"source_id": source_id, "locator": locator, "error": str(exc)})
@@ -567,11 +786,19 @@ def _search_knowledge_tool(
     vectors=None,
     content: ContentStore | None = None,
     sink: list[dict],
+    manifest: list[EvidenceRef] | None = None,
     aliaser=None,
 ) -> StructuredTool:
     """Agentic in-scope retrieval: retrieve_claims + rag_recall → expand_and_merge, scoped
     to the briefing's anchored sources (whole KB when none). Fixes the static-pack blind
-    spot: a mid-document item absent from the pre-packed sample is reachable on demand."""
+    spot: a mid-document item absent from the pre-packed sample is reachable on demand.
+
+    `manifest` collects what each search PUT into the transcript, taken from the claims and
+    passages it is about to render rather than from the rendered string — the same rule the
+    pack follows, and for the same reason: a passage's body is source text, and source text
+    that happens to contain `[cite: …]` is quoting, not provenance. `sink` counts the same
+    call for the stage timing; the two answer different questions and neither can stand in
+    for the other — a count says a search happened, not what it showed."""
     allowed = set(source_ids)
 
     async def search_knowledge(query: str) -> str:
@@ -631,6 +858,14 @@ def _search_knowledge_tool(
             if parts
             else prompt("recall.briefing.tool.search_empty")
         )
+        if manifest is not None:
+            # Taken from what is being rendered, before aliasing: what this tool showed the
+            # model, at the addresses that still resolve tomorrow.
+            for claim in claims:
+                manifest.extend(_claim_refs(claim))
+            manifest.extend(
+                span_ref(str(p.source_id), p.block_start, p.block_end) for p in passages
+            )
         # keep source handles consistent with the pack (same session aliaser).
         return aliaser.alias(result) if aliaser else result
 
@@ -685,9 +920,13 @@ async def briefing_ask(
     # measured the same call agree by construction instead of by two clocks that might not.
     fetches: list[dict] = _TimedRecords()
     searches: list[dict] = _TimedRecords()
+    searched: list[EvidenceRef] = []
+    fetched: list[EvidenceRef] = []
     timings = AgentTimings(on_event=on_event)
     aliaser = SessionAliaser() if citation_alias else None
-    fetch_tool = _fetch_verbatim_tool(briefing.user_id, content, fetches, aliaser=aliaser)
+    fetch_tool = _fetch_verbatim_tool(
+        briefing.user_id, content, fetches, aliaser=aliaser, manifest=fetched
+    )
     search_tool = _search_knowledge_tool(
         briefing.user_id,
         source_ids=briefing.source_ids,
@@ -698,6 +937,7 @@ async def briefing_ask(
         vectors=vectors,
         content=content,
         sink=searches,
+        manifest=searched,
         aliaser=aliaser,
     )
     human = assemble_messages(briefing, question, as_of=as_of, profile=profile)[1].content
@@ -746,6 +986,32 @@ async def briefing_ask(
         citations=citations,
         verbatim_fetches=tuple(fetches),
         token_usage=usage,
+        evidence_manifest=_ask_manifest(briefing, searched, fetched),
         citation_handles=handle_map,
+        aliased=aliaser is not None,
         stages=timings.stages(),
+    )
+
+
+def _ask_manifest(
+    briefing: Briefing,
+    searched: Sequence[EvidenceRef],
+    fetched: Sequence[EvidenceRef],
+) -> tuple[EvidenceRef, ...]:
+    """Everything this ask put in front of the model, at real addresses.
+
+    Three layers, in the order the model met them: the frozen PACK it was given as its
+    system prefix, whatever `search_knowledge` showed mid-answer, and the L0 the loop
+    FETCHED. The pack's half is `briefing.pack_manifest` — recorded when the pack was BUILT,
+    at real ids, carrying exactly the rendered blocks the budget left whole. It is carried
+    rather than recovered because by now the pack is a string, and a string cannot say
+    whether a `[cite: …]` inside it is a marker a renderer wrote or a line the source quotes.
+
+    The fetches are published by the tool itself as each one succeeds — at the real source
+    id, and for both locators (`recall/verbatim.py:fetched_span`) — rather than reconstructed
+    here out of the timing records afterwards. A fetch that answered a bad id with a stated
+    failure put nothing in front of the model and appears in neither.
+    """
+    return dedup_evidence(
+        [*briefing.pack_manifest, *searched, *fetched]
     )

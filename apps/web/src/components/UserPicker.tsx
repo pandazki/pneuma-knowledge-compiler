@@ -34,6 +34,7 @@ export function UserPicker() {
   const recentUsers = useApp((s) => s.recentUsers);
   const setUser = useApp((s) => s.setUser);
   const createUser = useApp((s) => s.createUser);
+  const lens = useApp((s) => s.lens);
   const ensureNames = useApp((s) => s.ensureNames);
 
   useEffect(() => {
@@ -85,6 +86,10 @@ export function UserPicker() {
       filterPlaceholder={t("nav.user.filterPlaceholder")}
       emptyText={t("nav.user.empty")}
       footer={(query, close) => {
+        // A visitor picks WHICH library to visit; creating one is the owner's act. The
+        // guard sits here rather than in `showsShellChrome` because the picker itself is
+        // every lens's — only this one door in it is the owner's.
+        if (lens !== "owner") return null;
         const id = query.trim();
         if (!id || users.includes(id)) return null;
         return (

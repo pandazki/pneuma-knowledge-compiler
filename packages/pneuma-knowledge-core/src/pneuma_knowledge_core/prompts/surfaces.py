@@ -192,7 +192,7 @@ GROUPS: tuple[tuple[str, str, str], ...] = (
     ("challenge", "Coverage audit", "覆盖质询"),
     ("evolve", "Schema evolve", "模式演进"),
     ("recall", "Recall", "召回"),
-    ("persona", "Owner profile", "主人档案"),
+    ("persona", "Owner profile", "所有者档案"),
     ("skill", "Skill", "领域契约"),
     ("feedback", "Rejection wording", "反馈文案"),
     ("eval", "Evaluation", "评测"),
@@ -249,7 +249,7 @@ _LABEL_FAMILIES: tuple[tuple[str, str, str], ...] = (
     ("recall.suggestion.", "Live context", "实时上下文"),
     ("recall.section.", "Evidence section", "证据分节"),
     ("recall.glance.", "Library glance", "知识库一览"),
-    ("recall.profile.", "Owner profile line", "主人档案行"),
+    ("recall.profile.", "Owner profile line", "所有者档案行"),
     ("recall.snapshot.", "Snapshot scope", "快照范围"),
     ("recall.style.", "Answer style", "回答风格"),
     ("recall.cite.", "Citation granularity", "引用粒度"),
@@ -265,7 +265,7 @@ _LABEL_FAMILIES: tuple[tuple[str, str, str], ...] = (
     ("skill.claim_label.", "Claim strength label", "断言强度标签"),
     ("skill.derive.", "Skill derivation", "契约推导"),
     ("skill.", "Skill", "领域契约"),
-    ("persona.", "Owner profile", "主人档案"),
+    ("persona.", "Owner profile", "所有者档案"),
     ("eval.qa.", "Answer judge", "回答评判"),
     ("eval.truth_judge.", "Claim judge", "断言评判"),
     ("eval.", "Evaluation", "评测"),
@@ -307,7 +307,7 @@ _LABELS: dict[str, tuple[str, str]] = {
     "recall.suggestion.contract_head": ("Live-context head", "实时上下文开头"),
     "recall.suggestion.detail_contract": ("Card expansion contract", "卡片展开契约"),
     "recall.suggestion.focus.general": ("Scope: the whole stream", "范围：整条流"),
-    "recall.suggestion.focus.owner": ("Scope: the owner only", "范围：只看主人"),
+    "recall.suggestion.focus.owner": ("Scope: the owner only", "范围：只看所有者"),
     "recall.suggestion.focus.other": ("Scope: participants only", "范围：只看参与者"),
     "evolve.phase1_contract": ("Phase 1 — schema draft", "第一阶段 — 结构草案"),
     "evolve.phase2_contract": ("Phase 2 — reorganization", "第二阶段 — 全库重组"),
@@ -676,6 +676,20 @@ SURFACES: tuple[Surface, ...] = (
                 "source with its occurrence day.",
                 "同样的情况但有日期——这是常规路径，因为接收时每份非文档材料都被打上了发生日。",
             ),
+            f(
+                "source.preamble.owner_dialogue",
+                "An `owner-dialogue/v1` source carrying no date: the owner speaking to the "
+                "library itself, so the sentence names the kind rather than the provenance.",
+                "没有日期的 `owner-dialogue/v1` 材料：主体在对库本身说话，因此这一句点的是种类"
+                "而不是出处。",
+            ),
+            f(
+                "source.preamble.owner_dialogue_dated",
+                "The same, dated — the ordinary path, since every turn of a dialogue carries "
+                "an aware timestamp and ingest stamps the source's day from them.",
+                "同样的情况但有日期——这是常规路径，因为对话的每一轮都带时区时间戳，接收时据此"
+                "打上材料自身的日期。",
+            ),
         ),
         kind=FRAGMENTS,
     ),
@@ -689,7 +703,7 @@ SURFACES: tuple[Surface, ...] = (
             "who is the owner, how a participant is numbered, how a turn line is written."
         ),
         summary_zh=(
-            "任何模型读到之前，规范化材料被渲染成的标签：谁是主人、参与者怎么编号、"
+            "任何模型读到之前，规范化材料被渲染成的标签：谁是所有者、参与者怎么编号、"
             "一轮发言怎么写成一行。"
         ),
         segments=(
@@ -716,6 +730,18 @@ SURFACES: tuple[Surface, ...] = (
                 "Used instead when the material already names the subject: their own name is "
                 "kept and marked as the subject's.",
                 "当材料本身已经给出主体的名字时改用这一条：保留原名，并标明这是主体。",
+            ),
+            f(
+                "ingest.steward_label",
+                "The name the STEWARD's turns are labelled with in an owner dialogue — the "
+                "other side of a statement the owner made to the library.",
+                "在一段主体对话里，管理代理的发言被标成的名字——主体对库所作陈述的另一侧。",
+            ),
+            f(
+                "ingest.owner_dialogue.title",
+                "The title an owner dialogue is stored and shown under; the contract carries "
+                "no title of its own, only the application's dialogue id.",
+                "一段主体对话被存下和展示时用的标题；该契约本身不带标题，只带应用自己的对话 id。",
             ),
             f(
                 "ingest.turn_line",
@@ -1942,6 +1968,16 @@ SURFACES: tuple[Surface, ...] = (
                 "Takes its place when the knowledge base holds no documents.",
                 "知识库里没有文档时取代上一条。",
             ),
+            f(
+                "evolve.propose.demand_header",
+                "Introduces what the enabled index components reported about how the "
+                "library is being used — hot documents, families nobody reads, questions "
+                "it could not answer. Emitted only when a component contributed a block, "
+                "so a deployment with none receives the message unchanged.",
+                "引出已启用的索引组件报告的「这个库正在被怎么使用」——热文档、"
+                "没人读的家族、答不上来的问题。只有当组件真的给出内容时才出现，"
+                "所以没有启用组件的部署收到的消息一字不变。",
+            ),
         ),
         kind=FRAGMENTS,
     ),
@@ -1976,7 +2012,7 @@ SURFACES: tuple[Surface, ...] = (
         note_zh=(
             "这是模板的一次取值，不是一整次调用。末尾的风格段由本部署的 `answer_style` 选定"
             "——这里渲染的是 `conversational`，下面两条替代项会取代它；每次只会附上其中一条。"
-            "问题、`as_of` 日期、主人档案与召回到的证据都不属于契约：它们随人类消息到达"
+            "问题、`as_of` 日期、所有者档案与召回到的证据都不属于契约：它们随人类消息到达"
             "（见「证据分节」）；正是这一点让这条消息逐字节稳定——不变量 I5。"
         ),
     ),
@@ -2134,7 +2170,7 @@ SURFACES: tuple[Surface, ...] = (
                 "recall.suggestion.focus.owner",
                 "Fills the focus slot instead when the caller scopes this round to the owner's "
                 "own contributions.",
-                "当调用方把这一轮的注意范围限定为主人自己的输入时，改由它填注意范围插槽。",
+                "当调用方把这一轮的注意范围限定为所有者自己的输入时，改由它填注意范围插槽。",
             ),
             v(
                 "recall.suggestion.focus.other",
@@ -2154,7 +2190,7 @@ SURFACES: tuple[Surface, ...] = (
         ),
         note_zh=(
             "这是模板的一次取值。开头的注意范围插槽按调用填充：这里渲染的是通用说法，"
-            "当这一轮被限定为主人自己的发言、或其他参与者时，下面两条替代项会取代它。"
+            "当这一轮被限定为所有者自己的发言、或其他参与者时，下面两条替代项会取代它。"
             "实时转写窗口随人类消息到达。"
         ),
     ),
@@ -2650,7 +2686,7 @@ SURFACES: tuple[Surface, ...] = (
             "wide recall here, only the card and the verbatim source text it cites."
         ),
         summary_zh=(
-            "主人点开了一张卡片。刻意不建立在脊柱之上：这里没有宽召回，"
+            "所有者点开了一张卡片。刻意不建立在脊柱之上：这里没有宽召回，"
             "只有这张卡片和它引用的逐字原文。"
         ),
         segments=(b("recall.suggestion.detail_contract"),),
@@ -2676,14 +2712,14 @@ SURFACES: tuple[Surface, ...] = (
             "profile block, claim notes, raw excerpts, subject timelines, the input itself."
         ),
         summary_zh=(
-            "召回到的证据以什么形式摆到回答模型面前：主人档案块、断言笔记、原文摘录、"
+            "召回到的证据以什么形式摆到回答模型面前：所有者档案块、断言笔记、原文摘录、"
             "主题时间线，以及输入本身。"
         ),
         segments=(
             f(
                 "recall.section.profile_header",
                 "Opens the owner-profile block, when the deployment supplies a profile.",
-                "当部署提供了档案时，开出主人档案那一块。",
+                "当部署提供了档案时，开出所有者档案那一块。",
             ),
             f(
                 "recall.profile.name",
@@ -2840,7 +2876,7 @@ SURFACES: tuple[Surface, ...] = (
                 "recall.section.input",
                 "Labels the owner's own input at the end of the evidence — invariant I5: the "
                 "question travels in the human turn, never in the System contract.",
-                "在证据末尾标出主人自己的输入——不变量 I5：问题走人类消息，绝不进系统契约。",
+                "在证据末尾标出所有者自己的输入——不变量 I5：问题走人类消息，绝不进系统契约。",
             ),
         ),
         kind=FRAGMENTS,
@@ -3432,7 +3468,7 @@ SURFACES: tuple[Surface, ...] = (
                 "The routing turn's human line: the question, as_of, and the owner's "
                 "timezone — so the model resolves a relative time expression into ISO days "
                 "itself and the index never parses one.",
-                '路由轮的 human 行：问题、as_of 与主人的时区——相对时间表达由模型自己解析成 '
+                '路由轮的 human 行：问题、as_of 与所有者的时区——相对时间表达由模型自己解析成 '
                 'ISO 日期，索引一律不解析自然语言时间。',
             ),
             f(

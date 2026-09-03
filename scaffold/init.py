@@ -68,6 +68,10 @@ DEMO_EXAMPLE = ("examples", "opc")
 DEMO_PROJECT_NAME = "knowledge-demo"
 # One id, one library: the shipped canonical belongs to this tenant.
 DEMO_USER_ID = "u-opc-lin"
+# The example is itself a generated project, so its contract and owner profile live where
+# every generated project keeps them — inside its own engine directory.
+DEMO_CONTRACT = "engine/compile/contract.md"
+DEMO_PROFILE = "engine/persona/profile.yaml"
 # The shipped library's vectors are deterministic, which is what makes keyless browsing
 # (and a keyless rebuild) possible. Stated in engine.yaml like every other choice.
 DEMO_EMBEDDING = "fake:1536"
@@ -250,7 +254,12 @@ def demo_example(repo: Path) -> Path:
     material and prebuilt authorities, so there is one corpus in this repository and no second
     one to keep in sync."""
     source = repo.joinpath(*DEMO_EXAMPLE)
-    for required in ("contract.md", "profile.yaml", "prebuilt/canonical.bundle", "prebuilt/l0.jsonl.gz"):
+    for required in (
+        DEMO_CONTRACT,
+        DEMO_PROFILE,
+        "prebuilt/canonical.bundle",
+        "prebuilt/l0.jsonl.gz",
+    ):
         if not (source / required).is_file():
             sys.exit(f"error: demo mode needs {source / required}, which is missing.")
     return source
@@ -586,7 +595,7 @@ def contract_text(config: dict, repo: Path) -> tuple[str, str]:
         )
         return text, hint
     if config["contract_mode"] == "demo":
-        text = (demo_example(repo) / "contract.md").read_text(encoding="utf-8")
+        text = (demo_example(repo) / DEMO_CONTRACT).read_text(encoding="utf-8")
         hint = (
             "这是示例项目 examples/opc 的真实契约（一个 agent 通读 190 份材料后写的，"
             "自带的库就是按它编出来的）；它是判断力的样本，不是模板——换你自己的材料要整段重写。"
@@ -696,6 +705,14 @@ live_web_search_model: {models["live_web_search_model"]}
 # different dimension means a new collection, not an in-place change.
 embedding: {models["embedding"]}
 
+# What you pay for the models above, one entry per line:
+#   <model id> = <input>/<output>/<cache_read>/<cache_creation> <CURRENCY>
+# with every rate per 1M tokens. Leave it empty and every place that shows what a call spent
+# shows tokens only — the framework quotes no price of its own, and an undeclared model is
+# reported in tokens rather than in a figure somebody invented for it. Costs are computed
+# when they are read, so correcting a rate corrects every number at once.
+pricing: ""
+
 # Index components: business-specific structure over canonical, enabled by name (comma
 # separated; empty = none). Shipped:
 #   people — `identities` / `aliases` on person pages, unique across the library and only
@@ -705,9 +722,21 @@ embedding: {models["embedding"]}
 #            falls on in the owner's timezone, a timespan(since, until) lookup for fast
 #            recall, timeline / as_of for deep recall, and each source's span stated in
 #            the compile task. Re-derived by scripts/ops/rebuild_derived.py.
+#   attention — what the library is being ASKED for: a ledger over the consultations a
+#            business visitor left behind (which documents were read, which questions came
+#            back empty), reported to schema evolution and readable from deep recall. It
+#            counts nothing until a caller asks with visitor_class=business.
 components: ""
 # The contract family the people component binds to — one of contract.md's path_templates.
 people_family: memory/people/{{slug}}.md
+# The attention component's three knobs. No score is stored: heat is recomputed when the
+# ledger is read, so changing the half-life rewrites nothing.
+#   half_life_days  how fast a read fades — 14 means a fortnight-old read counts half.
+#   window_days     how far back a report reads. Older days stay in the table.
+#   evidence_chars  the ceiling on the block handed to a schema-evolve proposal.
+attention_half_life_days: 14
+attention_window_days: 60
+attention_evidence_chars: 1500
 """,
         "intake/intake.yaml": f"""\
 # How material becomes the semantic units the vector index searches. Citable unit text is
@@ -844,28 +873,30 @@ def demo_readme_section(zh: bool) -> str:
         return """
 > **这是 demo 项目。** 它的库不是空的：`prebuilt/` 里带着框架仓库中示例项目
 > `examples/opc` 编好的正本（一个 git bundle）和它引用的 L0 原始来源，
-> `./app.py restore` 用确定性向量把派生层重建出来——**不需要 API key**，190 份材料、
-> 29 篇正本文档、每一条引用都能读。`engine/` 里放的是那个项目的真实契约与主体档案。
+> `./app.py restore` 用确定性向量把派生层重建出来——**不需要 API key**，191 份来源、
+> 28 篇正本文档、每一条引用都能读。`engine/` 里放的是那个项目的真实契约与主体档案。
 >
 > **想看编译自己跑一遍**：`my-data/` 里留了 3 份同一批语料的原始材料。往 `.env` 填一个
-> OpenRouter key，然后 `./app.py ingest my-data && ./app.py compile`——这 3 份会按
-> `engine/compile/contract.md` 重新编译一遍（它们的内容库里已经有了，所以你看到的是
-> 编译这台机器怎么工作，不是新知识）。demo 与正常生成的项目结构完全一致；差别只是它
-> 多带了一座库。
+> OpenRouter key，然后 `./app.py ingest my-data && ./app.py compile`。装载过那座库之后
+> 这 3 份已经在 L0 里了，摄入会认出是同一份而不排队——想真看编译跑，先
+> `./app.py down --volumes && rm -rf data/` 清空，再从这 3 份重新开始；或者把你自己的
+> 一份材料丢进 `my-data/`。demo 与正常生成的项目结构完全一致；差别只是它多带了一座库。
 """
     return """
 > **This is a demo project.** Its library is not empty: `prebuilt/` carries the compiled
 > canonical library of the framework repository's `examples/opc` (a git bundle) together
 > with the L0 source rows its citations bind to, and `./app.py restore` rebuilds the derived
-> layers with deterministic vectors — **no API key** — leaving 190 materials, 29 canonical
+> layers with deterministic vectors — **no API key** — leaving 191 sources, 28 canonical
 > documents and every citation readable. `engine/` holds that project's real contract and
 > owner profile.
 >
 > **To watch a compile yourself**: `my-data/` keeps 3 raw materials from the same corpus. Put
-> an OpenRouter key in `.env`, then `./app.py ingest my-data && ./app.py compile` — those 3
-> are compiled again under `engine/compile/contract.md` (their content is already in the
-> library, so what you see is how the compiler works, not new knowledge). A demo project is
-> structurally identical to any generated one; it just arrives with a library.
+> an OpenRouter key in `.env`, then `./app.py ingest my-data && ./app.py compile`. Once the
+> shipped library is restored those 3 are already in L0, so ingest recognizes them and queues
+> nothing — to really watch a compile, clear first
+> (`./app.py down --volumes && rm -rf data/`) and start from those 3, or drop one of your own
+> files into `my-data/`. A demo project is structurally identical to any generated one; it
+> just arrives with a library.
 """
 
 
@@ -934,7 +965,7 @@ def generate(config: dict) -> Path:
         # The shipped library is one particular person's. Its owner profile is copied verbatim
         # rather than rendered from answers, so the engine and the restored canonical agree
         # about whose library this is.
-        profile = (demo_example(repo) / "profile.yaml").read_text(encoding="utf-8")
+        profile = (demo_example(repo) / DEMO_PROFILE).read_text(encoding="utf-8")
     else:
         profile_template = (
             TEMPLATES / ("profile.zh.yaml" if zh else "profile.en.yaml")

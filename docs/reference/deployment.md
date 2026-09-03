@@ -19,7 +19,7 @@ All containers bind loopback only, with healthchecks (so `--wait` works). Ports 
 |---|---|---|---|
 | dev (this page) | `pneuma-knowledge-compiler` | 15432 / 16333 / 17700 / 19000 | API 18000, Vite 5173; RustFS console 19001 |
 | generated projects (`scaffold/init.py`) | `pneuma-<name>-<hex>` | all probed free at generation | RustFS console also probed |
-| `examples/opc/` | `pneuma-opc-example` | 25432 / 26333 / 27700 / — | text-only example; API 28000, web 24173 |
+| `examples/opc/` | `pneuma-opc-example` | 25432 / 26333 / 27700 / 29000 | text-only example; API 28000, web 24173; RustFS console 29001 |
 
 ## Container image
 
@@ -47,7 +47,7 @@ The API also pings WebSocket clients (~30 s), which keeps intermediaries with id
 
 ## Operations
 
-- **Everything derived is rebuildable**: `scripts/ops/rebuild_derived.py <user-id>|--all` rebuilds L1 + L2 + the L3 projection from the two authorities (L0 spans Postgres and S3; canonical is Git), with before/after accounting. Use after wiping or upgrading middleware, switching embedding models (new collection), or changing chunking.
+- **Everything derived is rebuildable**: `scripts/ops/rebuild_derived.py <user-id>|--all` rebuilds L1 + L2 and the projections above them from the substrate each declares — the two authorities (L0 spans Postgres and S3; canonical is Git), and for a use-side projection the kept consultation records — with before/after accounting. Records are kept rather than re-derived: a rebuild replays them and leaves them untouched. Use after wiping or upgrading middleware, switching embedding models (new collection), or changing chunking.
 - **Re-chunk only**: `scripts/ops/reindex_l2.py <user-id>` re-runs L2 chunking/embedding alone.
 - **Job self-healing** is built in: on restart the worker re-queues jobs orphaned by a dead process; any exception completes the job as failed rather than wedging the per-user queue.
 - **Tracing** (Langfuse) activates only when all three `LANGFUSE_*` variables are set; the worker flushes after every job.

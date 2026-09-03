@@ -11,31 +11,16 @@
  *   #/process/job/job-2026...
  *   #/history/snapshot/src-c7a3...
  *   #/graph/node/doc-a11c
+ *
+ * The set of routable views is NOT declared here: it is the key set of `VIEW_LENSES` in
+ * ./lenses, which is also what decides who may see each of them. One table, so a view can
+ * never be deep-linkable and unknown to the lens guard at the same time.
  */
+import { ROUTED_VIEWS } from "./lenses";
 import type { Selection, ViewName } from "./types";
 
-const VIEWS: ViewName[] = [
-  "overview",
-  "profile",
-  "sources",
-  "ingest",
-  "recall",
-  // "ask" and "live_context" are nav-visible views; both must be here or a deep link to
-  // them parses as null and silently falls back to the default view.
-  "ask",
-  "live_context",
-  "library",
-  "process",
-  "history",
-  "graph",
-  "evolve",
-  "engine_console",
-  // hidden route: the primitives state matrix (for acceptance shots; not in the contents)
-  "components",
-];
-
 export function isViewName(v: string): v is ViewName {
-  return (VIEWS as string[]).includes(v);
+  return (ROUTED_VIEWS as string[]).includes(v);
 }
 
 export function selectionToHash(view: ViewName, selection: Selection): string {

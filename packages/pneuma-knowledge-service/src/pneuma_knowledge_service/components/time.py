@@ -115,6 +115,11 @@ _INSTANT_META: dict[str, tuple[str, str]] = {
     "meeting": ("segments", "started_at"),
     "im": ("messages", "sent_at"),
     "email": ("messages", "sent_at"),
+    # An owner dialogue is conversation-shaped like the three above: one block per turn,
+    # each carrying the instant it was said. Left out of this table its turns kept only the
+    # coarse occurrence day, so a timeline could not tell a morning correction from the
+    # afternoon one that walked it back — on the one material whose author is the subject.
+    "owner_dialogue": ("turns", "said_at"),
 }
 
 #: Output bounds. A digest that silently stops reads as "that was everything"; each of

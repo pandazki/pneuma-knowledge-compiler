@@ -73,7 +73,9 @@ class _Store:
     async def get_evolve_task(self, user, task_id):  # noqa: ARG002
         return next((dict(t) for t in self.tasks if t["task_id"] == task_id), None)
 
-    async def complete(self, user, job_id, *, ok=True, detail=None, snapshot_ref=None):  # noqa: ARG002
+    async def complete(  # noqa: ARG002
+        self, user, job_id, *, ok=True, detail=None, snapshot_ref=None, token_usage=None
+    ):
         self.completed.append({"job_id": job_id, "ok": ok, "detail": detail})
 
 

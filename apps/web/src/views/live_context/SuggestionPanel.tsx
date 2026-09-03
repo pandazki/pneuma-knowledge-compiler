@@ -166,7 +166,7 @@ function TickRow({ stats, tOr }: { stats: LiveContextStatsFrame; tOr: ReturnType
         </p>
       )}
       {hasGates && <GateLedger dropped={dropped} />}
-      <UsageLine usage={stats.token_usage} className="mt-1" />
+      <UsageLine usage={stats.token_usage} cost={stats.cost} className="mt-1" />
     </div>
   );
 }

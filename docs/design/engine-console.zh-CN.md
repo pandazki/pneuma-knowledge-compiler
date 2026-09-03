@@ -6,7 +6,7 @@
 
 ## 为什么要有它
 
-生成项目的策略，此前是因实现的偶然而散落的：模型角色与切块在 `.env`，判断力在 `contract.md`，主人在 `profile.yaml`，还有几个旋钮压根没地方——因为 `app.py` 把它们写死了。这里面没有一处是可检视的，也没有一处是可回退的：一个正在迭代自己知识库的人，回答不了「我这台引擎现在到底被配成了什么样，我上周改了什么」。
+生成项目的策略，此前是因实现的偶然而散落的：模型角色与切块在 `.env`，判断力在 `contract.md`，所有者在 `profile.yaml`，还有几个旋钮压根没地方——因为 `app.py` 把它们写死了。这里面没有一处是可检视的，也没有一处是可回退的：一个正在迭代自己知识库的人，回答不了「我这台引擎现在到底被配成了什么样，我上周改了什么」。
 
 引擎目录用构造回答这两个问题：一个目录、一个独立的 git 仓库、每次改动一个提交。控制台再让它可读——把每个文件所配置的那条生命周期画出来，并在每个值旁边标出它的来源与影响半径。
 
@@ -21,7 +21,7 @@ engine/                    # 自己的 git 仓库；每次 apply 一个提交
   compile/challenge.yaml   # enabled、max_rounds、max_questions、compensate
   evolve/evolve.yaml       # auto_trigger、trigger_topic_docs、trigger_new_claims、draft_ttl_hours
   recall/recall.yaml       # 候选上限、claim、episode 摘要、原文窗口、规划／重排
-  persona/profile.yaml     # 主人档案
+  persona/profile.yaml     # 所有者档案
   prompts/overlays.yaml    # 目录键 → 替换文案（提示词扩展点）
 ```
 
@@ -103,14 +103,14 @@ uv run python scripts/generate_engine_schema.py --check   # 过期则退出码 1
 |---|---|
 | `hot` | 下一个读引擎文件的进程即生效——不重建、不迁移。在 scaffold 的用法里（CLI 每条命令都重读目录）就是下一条命令；长驻的 API 进程只在启动时读一次 settings，所以在那里等于下次启动 |
 | `restart` | API/worker 需要重新接线（模型角色、提示词覆盖） |
-| `future_compiles` | 只管未来的编译；正典永不被回溯重写（契约、challenge、evolve、主人档案） |
+| `future_compiles` | 只管未来的编译；正典永不被回溯重写（契约、challenge、evolve、所有者档案） |
 | `derived_rebuild` | 新材料立刻生效，已有材料要跑 `scripts/ops/rebuild_derived.py`（`chunk_strategy`、`semantic_overlap`） |
 
 控制台把 `hot` 的两半都说出来，而不是只说好听的那一半：CLI 每条命令都重读这个目录，长驻的 API / worker 在启动时读一次 settings。而 I2 那句「正典永不被重写」只出现在 `future_compiles` / `derived_rebuild` 旋钮下——只有这两种生效语义真的是在谈已经记录下来的知识；挂在一个模型名下面它不是安心，是噪音，而噪音正是老实话开始没人看的方式。
 
 ## 服务 API（已冻结）
 
-根级别，且**按部署划分**：没有 `user_id`，因为引擎是这套安装自己的配置，而不是某个租户的知识，而承载它的 scaffold 本就是单主人的。不变量 I1 不受影响——这些路由触及不到任何用户的数据。除非 `PNEUMA_KNOWLEDGE_ENGINE_DIR` 有值，否则每条路由都是 404，于是没有采用这个概念的部署一点新界面也不会多出来。
+根级别，且**按部署划分**：没有 `user_id`，因为引擎是这套安装自己的配置，而不是某个租户的知识，而承载它的 scaffold 本就是单所有者的。不变量 I1 不受影响——这些路由触及不到任何用户的数据。除非 `PNEUMA_KNOWLEDGE_ENGINE_DIR` 有值，否则每条路由都是 404，于是没有采用这个概念的部署一点新界面也不会多出来。
 
 - `GET /v1/engine/schema` → 入库的 `engine-schema.json`（阶段、旋钮、`edges`、`access_routes`）
 - `GET /v1/engine/state` → `{"files": {"<引擎相对路径>": "<内容>"}, "skipped": {"<引擎相对路径>": "<为什么它不在 files 里>"}, "values": {"<stage>.<key>": 解析值}, "resolution": {"<stage>.<key>": "env|engine|default"}, "version": {"head": "<sha|null>", "dirty": bool}}`
@@ -253,9 +253,8 @@ uv run python scripts/generate_engine_schema.py --check   # 过期则退出码 1
 
 compose 模板多了一个可选的 `console` profile——它不只是控制台，而是整个浏览层：跑项目自己入口（`server.py` / `worker.py`，因此这个项目的编译契约是注册好的）的框架 API 与编译 worker，加上占一个自己探测出来的端口的 Web 界面。项目目录整体挂到 `/project`，这也是 `PNEUMA_KNOWLEDGE_ENGINE_DIR=/project/engine` 能读写的原因（apply 要写文件并提交）。日常的流水线仍然走 CLI。
 
-`./init.py --demo` 是零交互的入口：它生成一个普通项目，`engine/` 里放 `examples/opc` 的真实契约与主体档案，`prebuilt/` 里放那个项目编好的库，起上面那个 profile，并在**没有 API key** 的情况下把库装载起来（`./app.py restore`，走框架自己的恢复流程）。demo 项目与任何其他生成项目的差别只在它自带的那份载荷——正因如此，它打开的控制台是真的：真的引擎，背后有真的库。
+`./init.py --demo` 是零交互的入口：它生成一个普通项目，`engine/` 里放 `examples/opc` 的真实契约与所有者档案，`prebuilt/` 里放那个项目编好的库，起上面那个 profile，并在**没有 API key** 的情况下把库装载起来（`./app.py restore`，走框架自己的恢复流程）。demo 项目与任何其他生成项目的差别只在它自带的那份载荷——正因如此，它打开的控制台是真的：真的引擎，背后有真的库。
 
-`examples/opc` 刻意保留它自己那份「前引擎时代」的机械件：它是一个已经生成好的项目，带着一座预建的库，重新生成它等于重建那座库。因此它的 api 服务不带引擎目录，它的 Web 镜像用 `VITE_ENGINE_FIXTURES=true` 构建——控制台视图老实地停在 mock fixtures 上。
 
 ## 控制台界面
 

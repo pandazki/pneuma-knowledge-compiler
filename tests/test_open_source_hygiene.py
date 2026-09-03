@@ -150,6 +150,33 @@ def test_no_provider_key_shapes_in_tracked_files() -> None:
     assert not violations, "provider-key-shaped strings in tracked files:\n" + "\n".join(violations)
 
 
+def test_no_source_file_is_secretly_binary() -> None:
+    """A source file with a NUL byte in it is a source file nobody can review.
+
+    Git decides text-vs-binary by looking for a NUL in the first few kilobytes, so ONE
+    stray control character — a mistyped escape, a bad paste — turns a whole module into
+    `Bin 0 -> 5098 bytes` in every diff, review and blame from then on. The code still
+    compiles and every test still passes, which is exactly why nothing else catches it.
+
+    Scoped to the text suffixes this file already enumerates: a `.png` is legitimately
+    binary and is not a source file.
+    """
+    violations: list[str] = []
+    for path in _public_text_files():
+        try:
+            data = path.read_bytes()
+        except OSError:
+            continue
+        at = data.find(b"\0")
+        if at != -1:
+            line = data.count(b"\n", 0, at) + 1
+            violations.append(f"{path.relative_to(ROOT)}:{line}")
+    assert not violations, (
+        "NUL byte in a text source file — git will treat it as binary and every diff of "
+        "it becomes unreadable:\n" + "\n".join(violations)
+    )
+
+
 def test_public_package_topology_matches_spec() -> None:
     expected = [
         ROOT / "packages" / "pneuma-knowledge-core",

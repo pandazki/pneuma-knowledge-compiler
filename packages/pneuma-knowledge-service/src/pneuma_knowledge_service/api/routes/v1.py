@@ -16,15 +16,17 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import re
 import secrets
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Literal
 from urllib.parse import quote
 
 from pneuma_knowledge_core.components import registered_components
+from pneuma_knowledge_core.domain.consultation import ConsultationRecord, EvidenceRef
 from pneuma_knowledge_core.domain.ids import UserId, SourceId
 from pneuma_knowledge_core.domain.intake import INTAKE_ARCHETYPES, IntakeArchetype
 from pneuma_knowledge_core.domain.snapshot import SnapshotRef
@@ -42,6 +44,11 @@ from pneuma_knowledge_core.recall.briefing import (
     build_briefing,
 )
 from pneuma_knowledge_core.recall.citation_alias import strip_citations
+from pneuma_knowledge_core.recall.consultation import (
+    consultation_from_briefing_ask,
+    consultation_from_deep,
+    consultation_from_fast,
+)
 from pneuma_knowledge_core.recall.deep import deep_recall
 from pneuma_knowledge_core.recall.fast import fast_recall
 from pneuma_knowledge_core.recall.rag import (
@@ -50,12 +57,14 @@ from pneuma_knowledge_core.recall.rag import (
     rag_recall,
 )
 from pneuma_knowledge_core.recall.scope import SnapshotScope
+from pneuma_knowledge_core.domain.pricing import add_cost
 from pneuma_knowledge_core.recall.stage_timing import StageRecorder
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field, RootModel
 
 from ... import kb_snapshots
+from ...access_stats import access_stats, top_misses, top_targets
 from ...adapters.user_info_mock import _synthesize
 from ...dataset import build_dataset
 from ...ingest import ingest_conversation
@@ -63,6 +72,7 @@ from ...ingest_document import ingest_document, preview_document
 from ...ingest_sources import ingest_source_contract
 from ...kb_snapshots import KbSnapshot, SnapshotNotFound, SnapshotNotReady
 from ...pagination import CursorError, decode_cursor, encode_cursor
+from ...pricing import lane_cost
 from ...skills import packs_for_user, skill_for_user
 from ...snapshot_tenant import assert_writable
 from ...wiring import AppContext, llm_call_config
@@ -72,8 +82,145 @@ from ...wiring import AppContext, llm_call_config
 _USER_ID_RE = re.compile(r"^[A-Za-z0-9._:-]+$")
 
 
+_log = logging.getLogger(__name__)
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _library_ref(plane: "ReadPlane", head_ref: str | None) -> str:
+    """The canonical HEAD SAMPLED WHEN THE CONSULTATION BEGAN — the record's half of the
+    audit chain. A pinned call names the snapshot it was pinned to, which is the exact form
+    of the same field.
+
+    `head_ref` is the sha the route already resolved for its own trace metadata, so a
+    consultation costs no extra read. Sampled rather than pinned, and the record says so:
+    the evidence faces below this line read LIVE state — `_glance_inputs` lists canonical
+    with `at=None`, the claim indexes are unversioned — so a compile landing between the
+    sample and a face makes that face newer than the ref. Resolving HEAD again after the
+    lane finished would not fix that; it would only move the same uncertainty to the other
+    end. What the record names is where the reading started.
+    """
+    if plane.snapshot is not None:
+        return plane.snapshot.snapshot_id
+    return head_ref or ""
+
+
+def _consultation(
+    build,
+    answer,
+    *,
+    user: UserId,
+    lane: str,
+    visitor_class: str,
+    question: str,
+    as_of: datetime | None,
+    library_ref: str,
+) -> ConsultationRecord | None:
+    """The record this call was, or None for a visitor who leaves no trace.
+
+    `silent` returns here, before anything is built and long before anything is written —
+    not a row, not a log line, not an extra await. An evaluation harness, a benchmark and an
+    auditor who must not disturb what they measure are all silent visitors, and silent is
+    the default, so every caller that predates this concept already is one (I6's read-side
+    face: a harness cannot steer the steward it is judging).
+
+    Fail-soft here and not only at the write, so the whole recording path sits inside the
+    boundary: a builder is pure and reading a field off an answer object is not the sort of
+    thing that raises — which is exactly the shape of promise that has no business standing
+    between an owner and an answer that was already produced.
+    """
+    if visitor_class == "silent":
+        return None
+    try:
+        return build(
+            answer,
+            user_id=str(user),
+            lane=lane,
+            visitor_class=visitor_class,
+            question=question,
+            as_of=as_of,
+            library_ref=library_ref,
+            consultation_id=uuid.uuid4().hex,
+            created_at=_now(),
+        )
+    except Exception:  # noqa: BLE001 — a record never fails the answer it is about
+        _log.warning(
+            "consultation record for a %s call could not be built for user %s; continuing",
+            lane,
+            user,
+            exc_info=True,
+        )
+        return None
+
+
+#: Strong references to in-flight recording tasks — asyncio only holds weak ones, so a task
+#: nobody keeps can be collected mid-await. Same pattern as `kb_snapshots._IN_FLIGHT`.
+_RECORDING_TASKS: set[asyncio.Task] = set()
+
+#: How long shutdown waits for the recordings still in flight. A courtesy, not a promise:
+#: the record is best-effort by design (see `_spawn_recording`), and a shutdown that waited
+#: on bookkeeping would be the same mistake this module just stopped making, moved to the
+#: other end of the process's life.
+RECORDING_DRAIN_SECONDS = 2.0
+
+
+def _spawn_recording(
+    ctx: AppContext, user: UserId, record: ConsultationRecord | None
+) -> asyncio.Task | None:
+    """EMIT one consultation. Nothing waits on this — not the response, not the terminal
+    frame of a stream.
+
+    The write runs as a detached background task: it writes the row and, for a `business`
+    visitor, enqueues one `recall_projection` job in the same transaction. Consuming that
+    job — the built-in access statistics, then the components — is the worker's, on the same
+    per-user queue the ingest side already drains. The request path does not process events;
+    it emits them.
+
+    Recording and influence are two axes: `audit` writes the row and stops there, so a
+    consultation can be reconstructed without steering anything; `business` also gets a job,
+    because those are the people the library exists for. `silent` never reaches here — not a
+    row, not a job, not even a task.
+
+    The trade is stated rather than hidden: this is FIRE-AND-FORGET and best-effort. A
+    process death between the answer and this task's commit loses the record for good. What
+    it can never do is cost the answer a millisecond — the previous shape bounded that cost
+    with a timeout, which is a smaller version of the same wrong promise, because an answer
+    already produced should not wait on bookkeeping about it at all.
+    """
+    if record is None:
+        return None
+
+    async def write() -> None:
+        try:
+            await ctx.store.create_consultation(user, record)
+        except Exception:  # noqa: BLE001 — a record never fails the answer it is about
+            _log.warning(
+                "consultation %s (%s) could not be recorded for user %s; continuing",
+                record.consultation_id,
+                record.lane,
+                user,
+                exc_info=True,
+            )
+
+    task = asyncio.create_task(write())
+    _RECORDING_TASKS.add(task)
+    task.add_done_callback(_RECORDING_TASKS.discard)
+    return task
+
+
+async def drain_recording_tasks(timeout: float = RECORDING_DRAIN_SECONDS) -> None:
+    """Give the recordings still in flight a bounded moment at shutdown, then let go.
+
+    Called from the app's lifespan close. Bounded because the alternative is a process that
+    will not exit while one slow database write is outstanding, and the record was never
+    worth that.
+    """
+    pending = [t for t in _RECORDING_TASKS if not t.done()]
+    if not pending:
+        return
+    await asyncio.wait(pending, timeout=timeout)
 
 
 async def _resolve_snapshot(
@@ -213,6 +360,12 @@ class RecallIn(BaseModel):
     query: str
     mode: str = "rag"
     limit: int = 10
+    # Who is asking, as far as the record is concerned (docs/design/steward-owner-visitor.md
+    # §5). `silent` leaves no trace at all and is the default; `audit` writes a
+    # consultation record; `business` writes it and hands it to the registered components.
+    # `rag` records under no class — it reaches no model, so there is no "what was handed to
+    # it" for a record to be about.
+    visitor_class: Literal["silent", "audit", "business"] = "silent"
     # fast/deep: relative-time answers resolve against this (server injects now if null).
     as_of: str | None = None
     # A frozen knowledge-base snapshot to answer over: its id or its label. null = the live
@@ -388,6 +541,25 @@ class EpisodeSummaryOut(BaseModel):
     verbatim: Literal[False] = False
 
 
+class CostOut(BaseModel):
+    """Money, DERIVED at read time from this deployment's declared rates — never stored.
+
+    Absent (`null`) wherever the deployment declared no price for the models a call used, or
+    where one lane's roles resolve to two different prices: the tokens are still reported,
+    and no figure is invented to sit beside them. See `pricing.py`.
+    """
+
+    amount: float
+    currency: str
+
+
+def _cost_out(cost: dict[str, object] | None) -> CostOut | None:
+    """A core cost mapping as the wire model, or `None` — which is the honest answer, not 0."""
+    if not cost:
+        return None
+    return CostOut(amount=float(cost["amount"]), currency=str(cost["currency"]))
+
+
 class RecallAnswerOut(BaseModel):
     """fast/deep recall result — an answer over claims, L2 summaries and body windows."""
 
@@ -456,6 +628,10 @@ class RecallAnswerOut(BaseModel):
     included_original_modalities: list[Literal["image"]] = Field(default_factory=list)
     original_modality_counts: dict[str, int] = Field(default_factory=dict)
     token_usage: dict[str, int]
+    #: What those tokens cost this deployment, DERIVED from its declared rates at answer
+    #: time — null when it declared none for the models this lane used. Never stored, so a
+    #: corrected rate corrects it; see `pricing.py`.
+    cost: CostOut | None = None
 
 
 class RagRecallOut(BaseModel):
@@ -545,6 +721,22 @@ def _stored_stages_out(stored: Any) -> list[StageTimingOut]:
     dataclasses. A row written before the column existed is an empty list and stays one:
     "not recorded" is a different fact from "took no time" and is never faked into zeros."""
     return [StageTimingOut(**dict(s)) for s in (stored or [])]
+
+
+def _stored_pack_manifest(stored: Any) -> tuple[EvidenceRef, ...]:
+    """A briefing's stored pack manifest ([{kind, ref, path}]) back as addresses.
+
+    The mirror of what the build wrote, and the only way this row's evidence is known: the
+    pack itself is text, and text cannot be asked which of its `[cite: …]` markers a renderer
+    printed and which one a source quotes. A row with nothing stored yields nothing."""
+    return tuple(
+        EvidenceRef(
+            kind=str(item.get("kind", "")),
+            ref=str(item.get("ref", "")),
+            path=str(item.get("path", "")),
+        )
+        for item in (stored or [])
+    )
 
 
 def _episode_summary_out(summary: Any) -> EpisodeSummaryOut:
@@ -1298,9 +1490,12 @@ async def _fast_recall_kwargs(
     )
 
 
-def _fast_answer_out(fa: Any, *, as_of: datetime, plane: ReadPlane) -> RecallAnswerOut:
+def _fast_answer_out(
+    fa: Any, *, as_of: datetime, plane: ReadPlane, settings: Any = None
+) -> RecallAnswerOut:
     return RecallAnswerOut(
         mode="fast",
+        cost=_cost_out(lane_cost(settings, "fast", fa.token_usage) if settings else None),
         answer=fa.answer,
         answer_text=fa.answer_text,
         as_of=as_of.isoformat(),
@@ -1377,9 +1572,12 @@ async def _deep_recall_kwargs(
     )
 
 
-def _deep_answer_out(da: Any, *, as_of: datetime, plane: ReadPlane) -> RecallAnswerOut:
+def _deep_answer_out(
+    da: Any, *, as_of: datetime, plane: ReadPlane, settings: Any = None
+) -> RecallAnswerOut:
     return RecallAnswerOut(
         mode="deep",
+        cost=_cost_out(lane_cost(settings, "deep", da.token_usage) if settings else None),
         answer=da.answer,
         answer_text=strip_citations(da.answer),
         as_of=as_of.isoformat(),
@@ -1490,6 +1688,8 @@ async def recall(
     )
     glance_inputs = await _glance_inputs(ctx, plane.owner, plane.canonical_at)
 
+    library_ref = _library_ref(plane, snapshot_ref)
+
     if body.mode == "fast":
         fa = await fast_recall(
             plane.retrieval_user,
@@ -1504,7 +1704,21 @@ async def recall(
                 glance_inputs=glance_inputs,
             ),
         )
-        return _fast_answer_out(fa, as_of=as_of, plane=plane)
+        _spawn_recording(
+            ctx,
+            user,
+            _consultation(
+                consultation_from_fast,
+                fa,
+                user=user,
+                lane="fast",
+                visitor_class=body.visitor_class,
+                question=body.query,
+                as_of=as_of,
+                library_ref=library_ref,
+            ),
+        )
+        return _fast_answer_out(fa, as_of=as_of, plane=plane, settings=ctx.settings)
 
     da = await deep_recall(
         plane.retrieval_user,
@@ -1519,7 +1733,21 @@ async def recall(
             glance_inputs=glance_inputs,
         ),
     )
-    return _deep_answer_out(da, as_of=as_of, plane=plane)
+    _spawn_recording(
+        ctx,
+        user,
+        _consultation(
+            consultation_from_deep,
+            da,
+            user=user,
+            lane="deep",
+            visitor_class=body.visitor_class,
+            question=body.query,
+            as_of=as_of,
+            library_ref=library_ref,
+        ),
+    )
+    return _deep_answer_out(da, as_of=as_of, plane=plane, settings=ctx.settings)
 
 
 async def _rag_stream(
@@ -1603,27 +1831,48 @@ async def recall_stream(user_id: str, body: RecallIn, request: Request) -> Strea
     async def produce() -> None:
         try:
             if fast:
+                lane_answer = await fast_recall(
+                    plane.retrieval_user, body.query, **lane_kwargs, **sinks
+                )
                 answer = _fast_answer_out(
-                    await fast_recall(
-                        plane.retrieval_user, body.query, **lane_kwargs, **sinks
-                    ),
-                    as_of=as_of,
-                    plane=plane,
+                    lane_answer, as_of=as_of, plane=plane, settings=ctx.settings
                 )
+                build = consultation_from_fast
             else:
-                answer = _deep_answer_out(
-                    await deep_recall(
-                        plane.retrieval_user,
-                        body.query,
-                        # deep's third live face: the agentic trail, one record per tool call
-                        # as it lands. Same non-blocking contract as the other two.
-                        on_step=lambda step: events.put_nowait(("step", step)),
-                        **lane_kwargs,
-                        **sinks,
-                    ),
-                    as_of=as_of,
-                    plane=plane,
+                lane_answer = await deep_recall(
+                    plane.retrieval_user,
+                    body.query,
+                    # deep's third live face: the agentic trail, one record per tool call
+                    # as it lands. Same non-blocking contract as the other two.
+                    on_step=lambda step: events.put_nowait(("step", step)),
+                    **lane_kwargs,
+                    **sinks,
                 )
+                answer = _deep_answer_out(
+                    lane_answer, as_of=as_of, plane=plane, settings=ctx.settings
+                )
+                build = consultation_from_deep
+            # The terminal frame waits on NOTHING. `_spawn_recording` returns as soon as
+            # it has created the task, and the task holds a strong reference of its own
+            # (`_RECORDING_TASKS`), so it survives this producer being cancelled when the
+            # generator breaks out of its loop on `done`. The ordering that used to be
+            # load-bearing here — write, THEN emit — is not: what made it load-bearing was
+            # awaiting the write inside the producer, which is exactly what this stopped
+            # doing.
+            _spawn_recording(
+                ctx,
+                user,
+                _consultation(
+                    build,
+                    lane_answer,
+                    user=user,
+                    lane="fast" if fast else "deep",
+                    visitor_class=body.visitor_class,
+                    question=body.query,
+                    as_of=as_of,
+                    library_ref=_library_ref(plane, snapshot_ref),
+                ),
+            )
             events.put_nowait(("done", answer.model_dump()))
         except Exception as exc:  # noqa: BLE001 — surface any failure as a stream error event
             events.put_nowait(("error", {"detail": str(exc)}))
@@ -1741,6 +1990,14 @@ async def post_document(
 
 
 class JobOut(BaseModel):
+    """One queued/finished job. `token_usage` is what its model calls spent.
+
+    Compile is the biggest spender in the system by an order of magnitude, and until this
+    field existed a finished job could not say what it had cost — the money went where money
+    goes when nobody counts it. It is the compile loop's own sum (first round plus repair
+    round); jobs that run no model report nothing rather than zero.
+    """
+
     job_id: str
     kind: str
     status: str
@@ -1750,6 +2007,8 @@ class JobOut(BaseModel):
     source_ids: list[str]
     created_at: str | None
     completed_at: str | None
+    token_usage: dict[str, int] = {}
+    cost: CostOut | None = None
 
 
 class JobPageOut(BaseModel):
@@ -1815,7 +2074,8 @@ async def list_jobs(
         except (CursorError, KeyError, ValueError) as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    rows, total, has_more = await _ctx(request).store.list_jobs_page(
+    ctx = _ctx(request)
+    rows, total, has_more = await ctx.store.list_jobs_page(
         UserId(user_id),
         limit=limit,
         before=before,
@@ -1833,6 +2093,8 @@ async def list_jobs(
             source_ids=[str(s) for s in (r["payload"] or {}).get("source_ids", [])],
             created_at=r["created_at"].isoformat() if r["created_at"] else None,
             completed_at=r["completed_at"].isoformat() if r["completed_at"] else None,
+            token_usage=dict(r.get("token_usage") or {}),
+            cost=_cost_out(lane_cost(ctx.settings, "compile", r.get("token_usage"))),
         )
         for r in rows
     ]
@@ -2107,13 +2369,515 @@ async def get_dataset(
     return await build_dataset(_ctx(request), UserId(user_id), at=at, audit=audit)
 
 
+# --------------------------------------------------------------- access statistics
+
+
+class AccessStatsOut(BaseModel):
+    """One target's access metadata, joined at read time out of the derived layer.
+
+    `last_accessed_at` is the whole history's answer and not the window's: a page last read
+    forty-five days ago has a real last access and no recent hits, and reporting the first as
+    absent because the window missed it would be the one wrong answer. `null` means never.
+    """
+
+    kind: str
+    ref: str
+    last_accessed_at: datetime | None = None
+    hits_7d: int = 0
+    hits_30d: int = 0
+    heat: float = 0.0
+
+
+@router.get("/access-stats", response_model=AccessStatsOut)
+async def get_access_stats(
+    user_id: str,
+    request: Request,
+    kind: str = Query(..., description="claim | document | source"),
+    ref: str = Query(..., description="claim anchor, canonical page path, or source id"),
+) -> AccessStatsOut:
+    """What this library's readers have done with one target: when it was last read, how
+    many times in the last 7 and 30 days, and its decayed heat.
+
+    Derived and never canonical — nothing here is written into a page. Scoped to the caller's
+    tenant like every other route (I1), and a target nobody has ever read answers with zeros
+    rather than a 404: "never read" is an answer.
+    """
+    ctx = _ctx(request)
+    user = UserId(user_id)
+    stats = await access_stats(
+        ctx.store,
+        user,
+        [(kind, ref)],
+        half_life_days=ctx.settings.attention_half_life_days,
+    )
+    row = stats[(kind, ref)]
+    return AccessStatsOut(
+        kind=kind,
+        ref=ref,
+        last_accessed_at=row["last_accessed_at"],
+        hits_7d=row["hits_7d"],
+        hits_30d=row["hits_30d"],
+        heat=row["heat"],
+    )
+
+
+
+# ---------------------------------------------------- the ledger's face for a dashboard
+
+
+class TopDocumentOut(BaseModel):
+    """One hot document. `path` is the canonical page, which is also its address (I4)."""
+
+    path: str
+    heat: float
+    hits_7d: int
+    hits_30d: int
+    last_accessed_at: datetime | None = None
+
+
+class TopMissOut(BaseModel):
+    """One question the library answered with nothing, verbatim, and how often."""
+
+    question: str
+    count: int
+    last_day: date
+
+
+class AccessTopOut(BaseModel):
+    """The two halves of the ledger a dashboard reads: what was read, and what was missed.
+
+    `window_days` / `since` / `until` are echoed because a top list without its period is a
+    ranking of nothing in particular, and `half_life_days` because heat is computed at read
+    time from a knob rather than stored — the same rows report a different number under a
+    different half-life, and a reader is owed the one that produced these.
+    """
+
+    window_days: int
+    since: date
+    until: date
+    half_life_days: float
+    documents: list[TopDocumentOut]
+    misses: list[TopMissOut]
+
+
+@router.get("/access-stats/top", response_model=AccessTopOut)
+async def get_access_stats_top(
+    user_id: str,
+    request: Request,
+    days: int = Query(default=30, ge=1, le=365),
+    limit: int = Query(default=10, ge=1, le=100),
+) -> AccessTopOut:
+    """What this library's readers have been reading, and what they asked for in vain.
+
+    Ranked by heat over the stated window; reported with the read face's own fixed 7- and
+    30-day counts, so a document reads the same here as on `GET /access-stats`. That is why
+    the hit rows are fetched over `max(days, 30)` days and the misses over `days`: the
+    ranking window is the caller's, the two reported counts are the read face's, and
+    truncating the second to the first would print a `hits_30d` that had only seen a week.
+
+    Derived and never canonical, scoped to the caller's tenant like every other route (I1). A
+    library nobody has consulted answers with two empty lists — never a 404, because "nobody
+    has read anything yet" is an answer.
+    """
+    ctx = _ctx(request)
+    user = UserId(user_id)
+    today = datetime.now(timezone.utc).date()
+    half_life = ctx.settings.attention_half_life_days
+    since = today - timedelta(days=days - 1)
+    hit_rows = await ctx.store.access_hits_since(
+        user, today - timedelta(days=max(days, 30) - 1), until=today
+    )
+    miss_rows = await ctx.store.access_misses_since(user, since, until=today)
+    documents = top_targets(
+        hit_rows,
+        kind="document",
+        now=today,
+        half_life_days=half_life,
+        window_days=days,
+        limit=limit,
+    )
+    return AccessTopOut(
+        window_days=days,
+        since=since,
+        until=today,
+        half_life_days=half_life,
+        documents=[
+            TopDocumentOut(
+                path=item["ref"],
+                heat=item["heat"],
+                hits_7d=item["hits_7d"],
+                hits_30d=item["hits_30d"],
+                last_accessed_at=item["last_accessed_at"],
+            )
+            for item in documents
+        ],
+        misses=[
+            TopMissOut(
+                question=item["question"],
+                count=item["count"],
+                last_day=item["last_day"],
+            )
+            for item in top_misses(miss_rows, limit=limit)
+        ],
+    )
+
+
+# --------------------------------------------------------- consultations (use-side L0)
+
+
+class EvidenceRefOut(BaseModel):
+    """One address, and nothing else — no text, no score, no rank (I4).
+
+    `ref` is a claim anchor (`c:xxxx`), a `<source_id> ¶a-b` span, or a canonical page path;
+    `path` is the page a claim lives on and is empty for every other kind.
+    """
+
+    kind: str
+    ref: str
+    path: str = ""
+
+
+class ConsultationSummaryOut(BaseModel):
+    """One consultation as a listing row: what was asked, by whom, and what came back.
+
+    The evidence itself stays on the detail route. A listing that carried every manifest
+    would be the detail route N times over, and the question a reader scans a list with is
+    "which of these do I want to open".
+
+    `token_usage` is here rather than on the detail alone because "what has this library been
+    costing me" is a question about a LIST, not about one row.
+    """
+
+    consultation_id: str
+    created_at: datetime
+    lane: str
+    visitor_class: str
+    question: str
+    miss: bool
+    answer_kind: str | None = None
+    library_ref: str = ""
+    citation_count: int = 0
+    evidence_count: int = 0
+    token_usage: dict[str, int] = {}
+    cost: CostOut | None = None
+
+
+class ConsultationPageOut(BaseModel):
+    items: list[ConsultationSummaryOut]
+    page: PageMetaOut
+
+
+class ConsultationOut(ConsultationSummaryOut):
+    """The whole record — the audit chain for one answer.
+
+    `citations` is a SUBSET of `evidence_handed` by construction: a marker is admitted only
+    when its resolved address is in the manifest the lane published, so a real source id with
+    an invented interval on it is prose, not provenance.
+    """
+
+    as_of: datetime | None = None
+    answer: str = ""
+    evidence_handed: list[EvidenceRefOut] = []
+    citations: list[EvidenceRefOut] = []
+    degraded: list[list[str]] = []
+
+
+def _consultation_out(record: ConsultationRecord, settings: Any) -> ConsultationOut:
+    usage = dict(record.token_usage)
+    return ConsultationOut(
+        token_usage=usage,
+        cost=_cost_out(lane_cost(settings, record.lane, usage)),
+        consultation_id=record.consultation_id,
+        created_at=record.created_at,
+        lane=record.lane,
+        visitor_class=record.visitor_class,
+        question=record.question,
+        miss=record.miss,
+        answer_kind=record.answer_kind,
+        library_ref=record.library_ref,
+        citation_count=len(record.citations),
+        evidence_count=len(record.evidence_handed),
+        as_of=record.as_of,
+        answer=record.answer,
+        evidence_handed=[
+            EvidenceRefOut(kind=r.kind, ref=r.ref, path=r.path)
+            for r in record.evidence_handed
+        ],
+        citations=[
+            EvidenceRefOut(kind=r.kind, ref=r.ref, path=r.path) for r in record.citations
+        ],
+        degraded=[[a, b] for a, b in record.degraded],
+    )
+
+
+@router.get("/consultations", response_model=ConsultationPageOut)
+async def list_consultations(
+    user_id: str,
+    request: Request,
+    limit: int = Query(default=25, ge=1, le=100),
+    cursor: str | None = None,
+    lane: Literal["fast", "deep", "briefing_ask"] | None = None,
+    visitor_class: Literal["audit", "business"] | None = None,
+    miss: bool | None = None,
+    target: str | None = Query(default=None, max_length=400),
+) -> ConsultationPageOut:
+    """One page of this library's consultations, newest first.
+
+    `visitor_class` takes only the two classes that leave a record: `silent` writes nothing
+    at all, so filtering by it would name an empty set that a reader could mistake for
+    "nobody asked".
+
+    `target` is the reverse lookup — which consultations handed or cited ONE address — and it
+    takes an address in the ordinary grammar: `c:xxxx`, `<source_id> ¶a-b`, or a canonical
+    page path. A page matches both when it was opened and read in full and when a claim
+    living on it travelled, which is what makes a document's "which questions read this"
+    link answer the question a reader means by it.
+
+    Recorded consultations are use-side L0: kept verbatim, never re-derived, and never an
+    authority over knowledge. Reading them changes nothing.
+    """
+    filters = {
+        "lane": lane,
+        "visitor_class": visitor_class,
+        "miss": None if miss is None else str(bool(miss)),
+        "target": target,
+    }
+    before: tuple[datetime, str] | None = None
+    if cursor:
+        try:
+            position = decode_cursor(
+                cursor,
+                collection="consultations",
+                user_id=user_id,
+                filters=filters,
+            )
+            before = (
+                datetime.fromisoformat(position["created_at"]),
+                position["consultation_id"],
+            )
+        except (CursorError, KeyError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    rows, total, has_more = await _ctx(request).store.list_consultations_page(
+        UserId(user_id),
+        limit=limit,
+        before=before,
+        lane=lane,
+        visitor_class=visitor_class,
+        miss=miss,
+        target=target,
+    )
+    next_cursor = None
+    if has_more and rows:
+        last = rows[-1]
+        next_cursor = encode_cursor(
+            collection="consultations",
+            user_id=user_id,
+            filters=filters,
+            position={
+                "created_at": last["created_at"].isoformat(),
+                "consultation_id": last["consultation_id"],
+            },
+        )
+    settings = _ctx(request).settings
+    return ConsultationPageOut(
+        items=[
+            ConsultationSummaryOut(
+                **{**row, "token_usage": dict(row.get("token_usage") or ())},
+                cost=_cost_out(
+                    lane_cost(settings, row["lane"], dict(row.get("token_usage") or ()))
+                ),
+            )
+            for row in rows
+        ],
+        page=PageMetaOut(limit=limit, total=total, next_cursor=next_cursor),
+    )
+
+
+class SpendGroupOut(BaseModel):
+    """One slice of a spend window: how many consultations, what they spent, what it cost.
+
+    `key` is the group's value in whichever dimension the list is grouped by — a lane name,
+    or a visitor class. `cost` is absent when the models behind that slice are not all
+    priced, when the slice mixes currencies, or when the slice is `incomplete`; the tokens
+    are reported either way.
+
+    `with_usage` is how many of those consultations reported any counter at all, and
+    `incomplete` is `with_usage < consultations`. A provider that reports no usage stores
+    `{}`, which sums to zero and is indistinguishable from a call that really was free — so
+    the counts are shown side by side and the money withdraws rather than presenting a
+    partial total as exact.
+    """
+
+    key: str
+    consultations: int
+    with_usage: int
+    incomplete: bool = False
+    token_usage: dict[str, int]
+    cost: CostOut | None = None
+
+
+class SpendOut(BaseModel):
+    """What this library's RECORDED consultations spent over a window.
+
+    Recorded, and the word is the whole caveat: a `silent` visitor leaves no row, and the
+    Live Context lane records none at all, so this is not the deployment's bill. It is what
+    the audit chain can account for, which is the only spend that can be shown per lane and
+    per visitor class without inventing an attribution.
+
+    The window is echoed for the same reason a top list echoes its period: a total with no
+    period is a number about nothing.
+    """
+
+    window_days: int
+    since: datetime
+    until: datetime
+    consultations: int
+    with_usage: int
+    incomplete: bool = False
+    token_usage: dict[str, int]
+    cost: CostOut | None = None
+    by_lane: list[SpendGroupOut]
+    by_visitor_class: list[SpendGroupOut]
+
+
+def _spend_groups(
+    cells: list[dict[str, Any]], settings: Any, *, dimension: str
+) -> list[SpendGroupOut]:
+    """The `(lane, visitor_class)` cells folded along one dimension.
+
+    Tokens add up unconditionally. Money adds up only while it CAN: a group whose cells are
+    not all priced, or whose cells are priced in different currencies, reports no cost rather
+    than a total assembled out of the priceable half of itself. A group holding a
+    consultation whose provider reported no usage is INCOMPLETE, and withdraws its money for
+    the same reason: the tokens under it are what was reported, not what was spent, so a
+    total over them would be a confident partial wearing the label of an exact figure.
+    """
+    order: list[str] = []
+    totals: dict[str, dict[str, int]] = {}
+    counts: dict[str, int] = {}
+    measured: dict[str, int] = {}
+    costs: dict[str, dict[str, object] | None] = {}
+    for cell in cells:
+        key = str(cell[dimension])
+        if key not in totals:
+            order.append(key)
+            totals[key] = {}
+            counts[key] = 0
+            measured[key] = 0
+            costs[key] = {"amount": 0.0, "currency": ""}
+        counts[key] += int(cell["consultations"])
+        measured[key] += int(cell.get("with_usage", cell["consultations"]))
+        for name, value in (cell["token_usage"] or {}).items():
+            totals[key][name] = totals[key].get(name, 0) + int(value)
+        cell_cost = lane_cost(settings, cell["lane"], cell["token_usage"])
+        running = costs[key]
+        if running is not None and running.get("currency") == "" and cell_cost is not None:
+            running = {"amount": 0.0, "currency": cell_cost["currency"]}
+        costs[key] = add_cost(running, cell_cost)
+    return [
+        SpendGroupOut(
+            key=key,
+            consultations=counts[key],
+            with_usage=measured[key],
+            incomplete=measured[key] < counts[key],
+            token_usage=totals[key],
+            cost=None if measured[key] < counts[key] else _cost_out(costs[key]),
+        )
+        for key in order
+    ]
+
+
+@router.get("/consultations/spend", response_model=SpendOut)
+async def get_consultation_spend(
+    user_id: str,
+    request: Request,
+    days: int = Query(default=30, ge=1, le=365),
+) -> SpendOut:
+    """What the recorded consultations of the last `days` days spent, by lane and by class.
+
+    Read out of the consultations table alone — no second ledger, no counter incremented
+    anywhere, so this cannot drift from the records it describes. Tokens are summed in SQL;
+    the money is derived here from the rates this deployment declares right now, which is why
+    correcting a rate corrects this page rather than requiring a rewrite of anything.
+
+    `with_usage` counts the consultations that reported any counter at all, and the window is
+    `incomplete` when that falls short of `consultations`. A provider that reports no usage
+    stores `{}`, which sums to zero — indistinguishable, after the sum, from a call that was
+    genuinely free — so an incomplete window shows its tokens and no money at all, rather
+    than a partial total presented as exact.
+
+    Scoped to the caller's tenant like every other route (I1). A library nobody has consulted
+    answers with zeros and two empty lists — "nobody has asked anything yet" is an answer.
+    """
+    ctx = _ctx(request)
+    until = datetime.now(timezone.utc)
+    since = until - timedelta(days=days)
+    cells = await ctx.store.consultation_spend(UserId(user_id), since=since, until=until)
+    by_lane = _spend_groups(cells, ctx.settings, dimension="lane")
+    by_class = _spend_groups(cells, ctx.settings, dimension="visitor_class")
+    total_usage: dict[str, int] = {}
+    for cell in cells:
+        for name, value in (cell["token_usage"] or {}).items():
+            total_usage[name] = total_usage.get(name, 0) + int(value)
+    total_cost: dict[str, object] | None = {"amount": 0.0, "currency": ""}
+    for group in by_lane:
+        running = total_cost
+        cost = None if group.cost is None else {
+            "amount": group.cost.amount,
+            "currency": group.cost.currency,
+        }
+        if running is not None and running.get("currency") == "" and cost is not None:
+            running = {"amount": 0.0, "currency": cost["currency"]}
+        total_cost = add_cost(running, cost)
+    recorded = sum(int(c["consultations"]) for c in cells)
+    measured = sum(int(c.get("with_usage", c["consultations"])) for c in cells)
+    incomplete = measured < recorded
+    return SpendOut(
+        window_days=days,
+        since=since,
+        until=until,
+        consultations=recorded,
+        with_usage=measured,
+        incomplete=incomplete,
+        token_usage=total_usage,
+        # An incomplete window has no total. Some of these calls reported nothing, and
+        # pricing what was reported would put an exact-looking figure on a partial count.
+        cost=None if incomplete else _cost_out(total_cost if cells else None),
+        by_lane=by_lane,
+        by_visitor_class=by_class,
+    )
+
+
+@router.get("/consultations/{consultation_id}", response_model=ConsultationOut)
+async def get_consultation(
+    user_id: str, consultation_id: str, request: Request
+) -> ConsultationOut:
+    """One consultation, whole: the question, the library it was asked of, every address the
+    lane put in front of the model, the answer, and which of those addresses it cited.
+
+    Another tenant's id is simply not here (I1) — the lookup is keyed by user first, so a
+    cross-tenant read is a 404 rather than a permission check that could be forgotten.
+    """
+    record = await _ctx(request).store.get_consultation(
+        UserId(user_id), consultation_id
+    )
+    if record is None:
+        raise HTTPException(
+            status_code=404, detail=f"consultation not found: {consultation_id}"
+        )
+    return _consultation_out(record, _ctx(request).settings)
+
+
 # ------------------------------------------------------------------- briefings (M4)
 
 
 class BriefingBuildIn(BaseModel):
     query: str | None = None
     source_ids: list[str] = []
-    budget_chars: int = 24_000
+    # `gt=0` so a nonsensical budget is a 422 naming the field rather than the ValueError
+    # `BriefingScope` raises a layer down — the same refusal, said where the caller typed it.
+    budget_chars: int = Field(24_000, gt=0)
     snapshot: str | None = None  # snapshot ref; null = current HEAD (frozen into briefing)
 
 
@@ -2157,6 +2921,8 @@ class BriefingDetailOut(BaseModel):
 
 class AskIn(BaseModel):
     question: str
+    # Same three classes as `RecallIn`, same default: an unchanged caller leaves no trace.
+    visitor_class: Literal["silent", "audit", "business"] = "silent"
 
 
 class AskOut(BaseModel):
@@ -2167,6 +2933,8 @@ class AskOut(BaseModel):
     # aliasing on) — the UI reverse-binds each `[cite: sNN]` to its real source.
     citation_handles: dict[str, str] = {}
     token_usage: dict[str, int]
+    #: What those tokens cost, derived from the declared rates — null when undeclared.
+    cost: CostOut | None = None
     # The ask LOOP's per-step wall-clock, agentic-shaped like deep's: `turn:N`, `tool:<name>`
     # (the same call the matching `verbatim_fetches` record carries `ms` for), `finalize` when
     # the budget forced a closing call, `total` last. The pack is not inside that total — it
@@ -2230,6 +2998,14 @@ async def _build_and_store_briefing(
         # Stored in the wire shape, so reading it back is a parse and never a re-derivation:
         # the build happened once and cannot be re-measured after the fact.
         stages=[s.model_dump() for s in stages],
+        # And with it, in the same statement, WHAT THE PACK SHOWED — the addresses of the
+        # rendered blocks the budget left whole. Recorded here because it cannot be
+        # recovered from the text: an ask over this pack admits its citations against this
+        # list, and reading the list back out of the pack would let a source that quotes a
+        # `[cite: …]` marker admit a citation to evidence nobody retrieved.
+        pack_manifest=[
+            {"kind": r.kind, "ref": r.ref, "path": r.path} for r in briefing.pack_manifest
+        ],
     )
     return BriefingOut(
         briefing_id=briefing_id,
@@ -2322,13 +3098,22 @@ async def _ask_over_briefing(
     row: dict,
     question: str,
     *,
+    as_of: datetime,
+    visitor_class: str = "silent",
     on_event: Any = None,
     on_token: Any = None,
-) -> AskOut:
+) -> tuple[AskOut, ConsultationRecord | None]:
     """One question over one stored briefing — the lane both ask routes run.
 
     The live sinks are the only difference between them, which is what makes "the streamed
-    `done` is the answer the plain POST returns" structural instead of a promise."""
+    `done` is the answer the plain POST returns" structural instead of a promise.
+
+    Returns the projection AND the consultation record it would be recorded as (None for a
+    silent visitor). Built here because this is where the lane's own answer object lives;
+    WRITTEN by the caller, which is what lets the streaming route finish the write before it
+    enqueues its terminal frame (the frame that ends the stream also cancels the producer).
+    A briefing is pinned to a snapshot by construction, so `library_ref` is that pack's ref
+    and no HEAD lookup is needed."""
     scope = row.get("scope") or {}
     source_ids = tuple(str(s) for s in (scope.get("source_ids") or []))
     briefing = Briefing(
@@ -2337,11 +3122,16 @@ async def _ask_over_briefing(
         system_prefix=row["system_prefix"],
         tool_names=DEFAULT_TOOL_NAMES,
         source_ids=source_ids,
+        # What the pack showed, as the BUILD recorded it. A briefing stored before the
+        # column existed carries none, and this ask then admits no citation against the
+        # pack — the honest reading of a pack whose evidence nobody wrote down, and not
+        # something to be patched up by parsing the text back.
+        pack_manifest=_stored_pack_manifest(row.get("pack_manifest")),
     )
     ans = await briefing_ask(
         briefing,
         question,
-        as_of=_now(),
+        as_of=as_of,
         model=ctx.get_chat_model("recall"),
         content=ctx.store,
         claim_lexical=ctx.lexical,
@@ -2363,7 +3153,7 @@ async def _ask_over_briefing(
             },
         ),
     )
-    return AskOut(
+    out = AskOut(
         answer=ans.answer,
         citations=[
             {
@@ -2376,7 +3166,18 @@ async def _ask_over_briefing(
         verbatim_fetches=[dict(f) for f in ans.verbatim_fetches],
         citation_handles=ans.citation_handles,
         token_usage=ans.token_usage,
+        cost=_cost_out(lane_cost(ctx.settings, "briefing_ask", ans.token_usage)),
         stages=[_stage_timing_out(s) for s in getattr(ans, "stages", ()) or ()],
+    )
+    return out, _consultation(
+        consultation_from_briefing_ask,
+        ans,
+        user=user,
+        lane="briefing_ask",
+        visitor_class=visitor_class,
+        question=question,
+        as_of=as_of,
+        library_ref=str(row["snapshot_ref"]),
     )
 
 
@@ -2397,7 +3198,17 @@ async def ask_briefing(
     ctx = _ctx(request)
     user = UserId(user_id)
     row = await _briefing_row(ctx, user, briefing_id)
-    return await _ask_over_briefing(ctx, user, briefing_id, row, body.question)
+    out, record = await _ask_over_briefing(
+        ctx,
+        user,
+        briefing_id,
+        row,
+        body.question,
+        as_of=_now(),
+        visitor_class=body.visitor_class,
+    )
+    _spawn_recording(ctx, user, record)
+    return out
 
 
 @router.post("/briefings/{briefing_id}/ask/stream")
@@ -2418,9 +3229,18 @@ async def ask_briefing_stream(
 
     async def produce() -> None:
         try:
-            answered = await _ask_over_briefing(
-                ctx, user, briefing_id, row, body.question, **sinks
+            answered, record = await _ask_over_briefing(
+                ctx,
+                user,
+                briefing_id,
+                row,
+                body.question,
+                as_of=_now(),
+                visitor_class=body.visitor_class,
+                **sinks,
             )
+            # Waits on nothing — see the note in `recall_stream`.
+            _spawn_recording(ctx, user, record)
             events.put_nowait(("done", answered.model_dump()))
         except Exception as exc:  # noqa: BLE001 — surface any failure as a stream error event
             events.put_nowait(("error", {"detail": str(exc)}))

@@ -46,10 +46,14 @@
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
-| POST | `/…/recall` | body `{query, mode: rag\|fast\|deep, limit, as_of?, snapshot?, answer_style?, evidence_strategy?: ranked\|select\|all, answer_format?: text\|structured, include_original_modalities?: ("image")[]}` |
+| POST | `/…/recall` | body `{query, mode: rag\|fast\|deep, limit, as_of?, snapshot?, answer_style?, evidence_strategy?: ranked\|select\|all, answer_format?: text\|structured, include_original_modalities?: ("image")[], visitor_class?: silent\|audit\|business}` |
 | POST | `/…/recall/stream` | 三种模式皆可；SSE——通道运行途中发 `stage`（答题通道另有 `token`，deep 再多一个 `step`），最后 `done`（或 `error`） |
+| GET | `/…/access-stats` | `?kind=claim\|document\|source&ref=…` → `{kind, ref, last_accessed_at, hits_7d, hits_30d, heat}`——这座库的读者对某一个目标做过什么，在读取时从派生层联结出来。绝不是正本：这里没有任何东西会被写进页面。从没被读过的目标返回零和 `last_accessed_at: null`，因为「从没被读过」本身就是一个答案 |
+| GET | `/…/access-stats/top` | `?days=1–365&limit=1–100` → `{window_days, since, until, half_life_days, documents[], misses[]}`——账本给面板看的那一面：最热的正本页面，以及被问得最多、库却答不上来的那些问题 |
 
-`rag` 返回 `{mode, hits, stages}`——融合后的命中列表（`source_id`、块区间、文本、路径、分数），以及找到它们花了多少时间。`fast`/`deep` 同时返回不含引用的语义正文 `answer_text` 与向后兼容的带引用 `answer`，以及其证据：`used_claims`、`used_episode_summaries`（fast）、`used_component_evidence`（fast）、`stages`、`used_windows`、`trail`（deep）、`citation_handles`（`sNN` → 真实 source id）、`documents_read`、`snapshot`、`token_usage`。每条 episode 摘要都带来源标题、发生时间、章节与精确块区间，并固定标记 `derived: true` / `verbatim: false`，让客户端不会把生成的 L2 压缩内容当成原文。两条答题通道都会回显 `mode` 与本次解析出的 `as_of`，以及 `glance_chars`——提示词里那份知识库概览的字符数，正本为空或读不出时为 0——和 `documents_read`，即整篇读过、而非按检索片段进来的文档（fast 走概览挑选，deep 走 `read_document`）。`glance_degraded` 只属于 fast，用来说明概览挑选是失败了（`timeout`/`error`）；跑过但一篇都没挑中，与这条通道里其他挑选一样仍是 null。
+**`visitor_class`** 说的是「就记录而言，这是谁在问」——它不改变答案本身。默认 `silent`，不留任何痕迹：不写行、不打日志、不多一次调用，因此这个字段出现之前写的每个调用方，本来就已经是一位 `silent` 访问者，行为逐字节不变。`audit` 写一条**咨询记录**——问题、通道解析出的 `as_of`、是哪一份库回答的（钉住时是快照 id，否则是 canonical 的 HEAD commit）、通道摆到模型面前的每一项的地址、带上保留下来的引用的答案，以及这次是不是一次落空——写完就停，因此一次咨询可以被还原，却不左右任何东西。`business` 写下记录，并在同一个事务里*入队*一个 `recall_projection` 作业；排掉它的 worker 施加框架的访问统计，再把记录交给任何已启用的索引组件。请求路径上什么都不消费，请求路径也什么都不等：记录是作为一个游离任务发出的，因此响应与流的 `done` 帧都不会为那次写入停留，而投影会滞后于它那次咨询一个队列排空的时间。发出是尽力而为的——进程死在那个窗口里就把记录丢了——但它绝不可能让它所记录的那个答案失败、变慢或改变。`mode: "rag"` 在任何一档下都不记录——它到不了模型，也就没有「摆到模型面前的东西」可供记录。同一个字段、同样三档、同样默认值，也在 `POST /…/briefings/{id}/ask` 及其流式版上。
+
+`rag` 返回 `{mode, hits, stages}`——融合后的命中列表（`source_id`、块区间、文本、路径、分数），以及找到它们花了多少时间。`fast`/`deep` 同时返回不含引用的语义正文 `answer_text` 与向后兼容的带引用 `answer`，以及其证据：`used_claims`、`used_episode_summaries`（fast）、`used_component_evidence`（fast）、`stages`、`used_windows`、`trail`（deep）、`citation_handles`（`sNN` → 真实 source id）、`documents_read`、`snapshot`、`token_usage`，以及 `cost`（按本部署声明的价格算出的花费；没声明就是 `null`，见[配置](configuration.zh-CN.md)）。每条 episode 摘要都带来源标题、发生时间、章节与精确块区间，并固定标记 `derived: true` / `verbatim: false`，让客户端不会把生成的 L2 压缩内容当成原文。两条答题通道都会回显 `mode` 与本次解析出的 `as_of`，以及 `glance_chars`——提示词里那份知识库概览的字符数，正本为空或读不出时为 0——和 `documents_read`，即整篇读过、而非按检索片段进来的文档（fast 走概览挑选，deep 走 `read_document`）。`glance_degraded` 只属于 fast，用来说明概览挑选是失败了（`timeout`/`error`）；跑过但一篇都没挑中，与这条通道里其他挑选一样仍是 null。
 
 fast 调用方可以分别覆盖上下文编排和回答线格式。`evidence_strategy: "select"` 会增加一次串行的结构化 recall 模型调用，在宽断言、episode 摘要和 raw 窗口候选（以及已知 canonical 路径）之间选择受上限约束的组合；非法坐标会被丢弃，失败则回落 ranked 头部。`answer_format: "structured"` 将回答类型、回答正文和引用分开，只准入证据中真实出现过的精确引用区间。响应会回显候选数，以及加入安全锚点和依据回跳前模型实际选中的 claim、episode 与窗口数；同时回显 `evidence_strategy`、`evidence_selection_degraded`、`answer_format`、`answer_kind` 与 `answer_format_degraded`。`evidence_strategy: "all"` 不做选择调用：同一个候选池整体交给唯一一次回答调用，因此模型入选数保持为 0、`select` 阶段回报 `skipped`，唯一能裁剪上下文的是组装后上下文的字符上限——它以 `evidence_selection_degraded: "all:truncated"` 自报。在 `answer_format: "structured"` 下，这一档还会返回 `deliberation`：回答调用自己那段有界的证据审视，写在答案之前。它是模型关于证据的输出，不是证据、也不能当引用，其他路径上一律为 null。两个请求字段都只适用于 fast；rag/deep 会拒绝非空值。
 
@@ -131,12 +135,73 @@ fast 调用方可以分别覆盖上下文编排和回答线格式。`evidence_st
 
 Source 详情绝不暴露对象存储 key。每条图片清单只给 `image_id`、MIME 类型、SHA-256、大小、带标签的派生表示和 API URL。浏览器与引用抽屉经服务取这个 URL；S3/RustFS bucket 保持私有。
 
+`GET /…/access-stats/top` 按你指定的窗口排序，按读取面自己的窗口回报：`heat` 算的是最近
+`days` 天，而 `hits_7d` / `hits_30d` / `last_accessed_at` 就是 `GET /…/access-stats` 给那一页
+的同样三个数，因此一篇文档在面板上和在它自己页面上读到的是同一件事。回显 `half_life_days`
+是因为热度是在读取时按一个旋钮算出来的、并不存储——同样的行，换一个半衰期就报出另一个数。
+窗口内一次命中都没有的目标会被略去，而不是按零排进来；一座还没有人问过的库返回两个空列表，
+而不是 404。
+
+## 咨询（使用侧 L0）
+
+一条咨询就是一次答题通道的调用，按审计链所需保留下来——问题、是哪一份库回答的、通道摆到模型
+面前的每一个地址、答案，以及其中哪些地址被真正引用。只为非 `silent` 的访问者写入（见上面的
+`visitor_class`），写下即冻结，绝不重新推导，也绝不是知识的权威：读它不改变任何东西，没有任何
+闸门、契约或编译输入会去联结它。
+
+| 方法 | 路径 | 用途 |
+|---|---|---|
+| GET | `/…/consultations` | 一页摘要，最新在前：`limit` 1–100、`cursor`，以及筛选 `lane`（`fast\|deep\|briefing_ask`）、`visitor_class`（`audit\|business`）、`miss`、`target` |
+| GET | `/…/consultations/{id}` | 整条记录：摘要字段之外还有 `as_of`、`answer`、`evidence_handed[]`、`citations[]`、`degraded[]` |
+| GET | `/…/consultations/spend` | 最近 `days` 天（1–365，默认 30）里被记录下来的咨询花了多少，按通道与访问者档位分组 |
+
+一条摘要带 `consultation_id`、`created_at`、`lane`、`visitor_class`、`question`、`miss`、
+`answer_kind`、`library_ref`、`citation_count`、`evidence_count`、`token_usage` 与 `cost`。
+证据本身留在详情路由上：一份把每份清单都背着走的列表，就是把详情路由做了 N 遍——但用量不留在
+那儿，因为「这座库一直在花我多少钱」问的是一份列表，不是某一条记录。
+
+**记录下来的 `answer` 与线上答案并非逐字节相同。** 给 source id 起过别名的通道会把记录写回那张
+映射：句柄还原成真实 source id，而仍指向映射不认识的句柄的括号，会从记录文本里去掉。
+`citations[]` 按同一条规则过滤，并且只有对得上 `evidence_handed[]` 才被采纳——一个点名了谁都
+没见过的区间的标记，在答案里是散文，在这份列表里不存在。调用方收到的答案不受影响。
+
+**`token_usage` 入库，`cost` 是算出来的。** 记录保存这次调用花掉的 token，那是实际发生的事，
+永远为真。金额在记录被读取时才算，用的是这个部署当下声明的价格（`MODEL_PRICING`，见
+[配置](configuration.zh-CN.md)）；如果它没为这条通道用到的模型声明价格，`cost` 就是 `null`
+——只报 token，旁边不给数字，绝不用 0 顶上，因为 0 是在说这次调用免费。在用量开始记录之前写下
+的记录报 `{}` 和同样的 `null`。
+
+`GET /…/consultations/spend` 把同一批行按一个窗口求和：`window_days`、`since`、`until`、
+`consultations`、`with_usage`、`incomplete`、`token_usage`、`cost`，以及两种分组 `by_lane` /
+`by_visitor_class`（每组 `{key, consultations, with_usage, incomplete, token_usage, cost}`）。
+它只读咨询表——任何地方都没有被递增的计数器，所以它不可能和它所描述的记录发生漂移。它是**被记录
+下来的咨询**的花费，并不是这个部署的总账单：`silent` 访问者不留行，实时上下文车道一条都不记。
+某一组的模型没有全部定价、或者混了币种，就只报它的 token，不报金额。
+
+`with_usage` 是这些咨询里报告过任何计数的次数，`incomplete` 就是 `with_usage <
+consultations`。它之所以存在，是因为不报告用量的 provider 存下的是 `{}`：任何对它的求和都是
+null，再被 coalesce 成 0——求和之后，一次没被计量的调用与一次真的免费的调用再也分不开。一个
+不完整的窗口（或分组）把它的 token 作为下限报出，`cost` 为 `null`——绝不把已计量的那一半的合计
+当作精确金额端出来。
+
+`visitor_class` 只接受会留下记录的那两档。`silent` 什么都不写，按它筛选只会点名一个空集，而
+读者可能把这个空集误读成「没人问过」。
+
+**`target` 是反向查找**——哪些咨询把某一个地址摆到过模型面前，或引用过它——它接受的是通用语法
+里的地址（I4）：断言锚点 `c:xxxx`、`<source_id> ¶a-b` 区间，或一条正本页面路径。一个页面被
+触达的两条路都会命中：被整篇打开读过（路径本身就是地址），以及经由住在它上面的某条断言（页面
+路径搭断言的车一起来）。只匹配地址的查找，恰好会对那个在自己的访问卡片上提供了这条链接的页面
+回答「什么都没有」。
+
+游标遵循与其他集合同一份约定：筛选集合被绑进游标，因此走到一半改筛选是 422，而不是悄悄给出
+另一份列表的第一页。
+
 ## 编译、任务、历史
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
 | POST | `/…/compile` | 为每个未消化的 source 各入队一个编译任务（幂等） |
-| GET | `/…/jobs` | 队列分页（`status`、`kind` 过滤） |
+| GET | `/…/jobs` | 队列分页（`status`、`kind` 过滤）；每个任务带 `token_usage`（编译循环在各轮上的求和）与算出来的 `cost`。编译循环只数输入、输出与总量，不拆缓存，所以给编译算出的钱是按「一点缓存都没命中」算的——服务商实际命中了缓存时，这个数偏高 |
 | GET | `/…/history` | patch、job、快照三类混排的统一时间线，带计数 |
 | GET | `/…/history/activity` | 时间线日历 |
 
@@ -169,13 +234,15 @@ Source 详情绝不暴露对象存储 key。每条图片清单只给 `image_id`�
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
-| POST | `/…/briefings` | 在钉住的快照上构建稳定证据包：`{query?, source_ids[], budget_chars, snapshot?}` |
+| POST | `/…/briefings` | 在钉住的快照上构建稳定证据包：`{query?, source_ids[], budget_chars>0, snapshot?}` |
 | POST | `/…/briefings/stream` | 同一次构建，SSE——过程中发 `stage`，最后 `done` 带回同样的响应体 |
 | GET | `/…/briefings` | 列表 |
 | GET | `/…/briefings/{id}` | 读回单条：`{briefing_id, snapshot_ref, created_at, char_count, scope, text, stages}`——`text` 即证据包原文 |
-| POST | `/…/briefings/{id}/ask` | 对已存证据包提问：`{question}` → 答案 + 引用 |
+| POST | `/…/briefings/{id}/ask` | 对已存证据包提问：`{question, visitor_class?: silent\|audit\|business}` → 答案 + 引用，并带 `token_usage` 与算出来的 `cost` |
 | POST | `/…/briefings/{id}/ask/stream` | 同一次提问，SSE——发 `stage` 与 `token`，最后 `done` |
 | DELETE | `/…/briefings/{id}` | 删除 |
+
+`visitor_class` 与检索那节里的含义完全一致；一次提问的咨询记录，把证据包钉住的那个快照记为回答它的那份库。
 
 两条流式路由都遵循上面那套词汇。构建的那一行是在 `done` **之前**落库的，所以看到这一帧的客户端，一定能把这份 briefing 读回来。
 
@@ -209,7 +276,7 @@ Source 详情绝不暴露对象存储 key。每条图片清单只给 `image_id`�
 
 **两种引用形状，由 `kind` 说明是哪一种。** `concept` 与 `fact` 卡片带的是 `citations`——覆盖知识主体自己材料的那一套唯一寻址方案，`{source_id, block_start, block_end}`（I4）。`kind: "web"` 的卡片带的是 `web_citations`——`{title, url}`——因为它立在网页上而不是来源块上，而网址不是那套方案里的地址：它解析不到存储里的任何东西，也绝不该被硬塞进一个 `Citation`。一张卡永远只带其中一种，而两个字段都恒为列表，于是客户端是去读一个字段，而不是去嗅探。除此之外，两者的证据面完全一致：同样编号的行、同样折叠的段落，挑选阶段的引用子集也用同一条按编号取值的规则落在任一份清单上（子集为空或全部越界时回退为全部，而不是把卡片的出处剥光）。只有交互不同——来源区间在应用内打开，网址在新标签页打开——并且 `want_more` 在 web 卡上不可用：没有来源块可以逐字取回，也就没有可供展开的边界。
 
-`stats`（WS，需显式开启）与 `done`（SSE）都带着这一拍的**处理记录**：`skipped`（投递时为 `""`，否则说明是哪道门关上的——发现阶段给的 `small_talk` / `already_mined` / `nothing_new`，或 `low_worth`、`no_plan`、`no_candidates`、`no_coverage`、`none_chosen`、`low_confidence`、`uncited`、`duplicate`、`unparsed`、`pick_failed` 之一）、`intent`、`worth`、`plan`（实际跑了哪些查询）、`rejected`（计划里指向未启用查询路的条目）、`candidates`（每条 `{index, kind, title, subject, origin, provenance, citations}`）、`chosen`、`web`（`{tier, searches, cost, pages}`，见下），以及 `stages`（`discover` / `retrieve` / `retrieve.semantic` / `retrieve.web` / `retrieve.path:<名字>` / `pick` / `total`，各带 `ms` 与 `status`）。`no_coverage` 是挑选阶段自己给的 `choice: 0`——它把每一张候选对着意图读过，没有一张覆盖它——刻意与 `low_confidence`（一个被压住的弱答案）和 `none_chosen`（一个畸形的编号）分开：这三者在一次沉默的拍子上看起来一模一样，含义却不同。`dropped` 仍在，是简报那一轮的四道闸门账；全量车道下它为空，对应的东西是 `skipped`。
+`stats`（WS，需显式开启）与 `done`（SSE）都带着这一拍的**处理记录**：`skipped`（投递时为 `""`，否则说明是哪道门关上的——发现阶段给的 `small_talk` / `already_mined` / `nothing_new`，或 `low_worth`、`no_plan`、`no_candidates`、`no_coverage`、`none_chosen`、`low_confidence`、`uncited`、`duplicate`、`unparsed`、`pick_failed` 之一）、`intent`、`worth`、`plan`（实际跑了哪些查询）、`rejected`（计划里指向未启用查询路的条目）、`candidates`（每条 `{index, kind, title, subject, origin, provenance, citations}`）、`chosen`、`web`（`{tier, searches, cost, pages}`，见下），以及 `stages`（`discover` / `retrieve` / `retrieve.semantic` / `retrieve.web` / `retrieve.path:<名字>` / `pick` / `total`，各带 `ms` 与 `status`）。两者还带这一拍的 `token_usage` 与 `cost`——按本部署声明的价格算出的**模型**调用花费，没声明就是 `null`。这条车道不记任何咨询（听众不是访问者），所以一拍的花费要么在这里被看见，要么就没有地方看见；下面那个 `web.cost` 是另一个数，仍旧是它本来的意思：服务商为那几次搜索实际计的费。`no_coverage` 是挑选阶段自己给的 `choice: 0`——它把每一张候选对着意图读过，没有一张覆盖它——刻意与 `low_confidence`（一个被压住的弱答案）和 `none_chosen`（一个畸形的编号）分开：这三者在一次沉默的拍子上看起来一模一样，含义却不同。`dropped` 仍在，是简报那一轮的四道闸门账；全量车道下它为空，对应的东西是 `skipped`。
 
 `config` 与 `ready` 上的策略字段：`focus`、`min_confidence`（一个数字两道门——发现阶段的 `worth` 下限与挑选阶段的 `confidence` 下限）、`max_pending_turns`、`quiet_period`、`web_search`、`briefing_id`、`stats`。`web_search` 是在请求那条补充的互联网路；`ready` 回送的是**生效值**，因为部署自己也有一个答案（`PNEUMA_KNOWLEDGE_LIVE_WEB_SEARCH`），而一个请求了 `true` 却读回 `false` 的客户端，是被机械地告知了「不行」，而不是只能从「没有 web 卡片」里去推测。随后那一拍的 `web` 记录说明这条路做了什么：`tier` 是 `off`、`planned`（发现阶段规划了这次查询，于是它与知识库各面并发跑）或 `fallback`（发现阶段没规划，而知识库给出的候选池是空的，于是它在其后跑），并附上 `searches`、`cost` 与 `pages`——那几次搜索一共点名了多少个网页。`cost` 不为零而 `pages` 为 0，正是那个否则完全看不见的结局：一次搜索跑了、被计了费、却没有引用任何网页，于是它的回答在装配处就被拒绝，从来没有成为候选。`turn_window` 作为 `max_pending_turns` 的旧名被接受；`max_suggestions` 被接受并忽略——全量车道按构造每一拍只投递一张卡。
 

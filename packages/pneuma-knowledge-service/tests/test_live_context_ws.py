@@ -748,3 +748,60 @@ def test_a_reset_frame_re_acks_ready_and_the_next_tick_carries_nothing_from_befo
     assert second.context == (), "the cleared turn is not read as context for the new one"
     assert second.already_shown == (), "nor is the card it produced still a mined subject"
     assert second.seq == 1, "the conversation's own numbering starts over"
+
+
+# ------------------------------------------------------------------ what a tick costs
+
+
+def _priced_client(monkeypatch, declaration: str) -> TestClient:
+    """The same bare app, for a deployment that HAS declared what its models cost."""
+    from types import SimpleNamespace
+
+    from pneuma_knowledge_service.settings import Settings
+
+    monkeypatch.setattr(suggestion_module, "_render_profile", _no_profile)
+    app = FastAPI()
+    app.include_router(suggestion_module.router)
+    app.include_router(suggestion_module.root_router)
+    app.state.ctx = SimpleNamespace(
+        settings=Settings(llm_model="openrouter:test/luna-x", model_pricing=declaration)
+    )
+    return TestClient(app)
+
+
+def _stats_frame(client, monkeypatch, usage: dict) -> dict:
+    async def spent(*_args, **_kwargs):
+        r = result()
+        object.__setattr__(r, "token_usage", usage)
+        return r
+
+    monkeypatch.setattr(suggestion_module, "run_evaluation", spent)
+    with client.websocket_connect(PATH) as ws:
+        ws.receive_json()
+        ws.send_json({"type": "config", "quiet_period": 0, "stats": True})
+        ws.receive_json()
+        ws.send_json(turn("这一拍花了多少钱"))
+        # The tick delivers no card, so the stats frame is the only one that follows.
+        frame = ws.receive_json()
+    assert frame["type"] == "stats"
+    return frame
+
+
+def test_a_tick_says_what_it_cost_when_the_deployment_declared_its_rates(monkeypatch):
+    """The Live Context lane records no consultation — a listener is not a visitor — so the
+    tick frame is where its money is shown, or it is shown nowhere."""
+    client = _priced_client(monkeypatch, "openrouter:test/luna-x = 1.25/10/0.125/1.25 USD")
+    frame = _stats_frame(
+        client,
+        monkeypatch,
+        {"input_tokens": 1_000_000, "output_tokens": 0, "total_tokens": 1_000_000,
+         "cache_read": 0, "cache_creation": 0},
+    )
+    assert frame["cost"] == {"amount": 1.25, "currency": "USD"}
+
+
+def test_a_tick_with_no_declared_price_reports_tokens_and_no_money(client, monkeypatch):
+    """Null, not zero: "nobody said what this costs" is not "it was free"."""
+    frame = _stats_frame(client, monkeypatch, {"total_tokens": 3})
+    assert frame["token_usage"] == {"total_tokens": 3}
+    assert frame["cost"] is None

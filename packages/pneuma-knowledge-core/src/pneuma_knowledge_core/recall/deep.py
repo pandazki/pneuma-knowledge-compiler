@@ -56,10 +56,11 @@ from typing import Literal
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.tools import StructuredTool
 
-from ..components import registered_components
 from ..canonical_glance import render_canonical_glance
 from ..compile.documents import render_document
+from ..components import declared_tool_evidence, registered_components
 from ..domain.canonical import CanonicalDocument
+from ..domain.consultation import EvidenceRef
 from ..domain.ids import UserId, SourceId
 from ..ports.claim_index import ClaimLexicalIndex, ClaimVectorIndex
 from ..ports.content_store import ContentStore
@@ -85,6 +86,7 @@ from .fast import (
     _render_window_section,
     assemble_windows,
     collect_window_images,
+    evidence_manifest,
     recall_human_content,
     render_claims,
     retrieve_claims,
@@ -92,6 +94,7 @@ from .fast import (
 )
 from .rag import RecallHit
 from .stage_timing import StageEventSink, StageTiming
+from .verbatim import fetched_span
 
 _DEEP_TOOL_BUDGET = 6  # tool rounds before the forced tool-less finalize
 _SEARCH_CLAIM_CAP = 8
@@ -200,6 +203,12 @@ class DeepAnswer:
     # record carries `ms` for), `finalize` when the budget forced a closing call, and `total`
     # last. `total` wraps the LOOP — the seed retrieval that precedes it is not a loop stage.
     stages: tuple[StageTiming, ...] = ()
+    # Every address the loop put in front of the model, as `EvidenceRef`s: the seed context
+    # plus everything its tools returned into the transcript — claims, windows, the spans a
+    # verbatim fetch came back with, whatever a component's tool declared, the pages it
+    # opened in full, and the provenance spans rendered with them. The durable consultation
+    # record copies this instead of re-deriving what was shown from the fields above.
+    evidence_manifest: tuple[EvidenceRef, ...] = ()
 
 
 def _search_claims_tool(
@@ -287,7 +296,22 @@ def _fetch_verbatim_tool(
     content: ContentStore,
     trail: list[dict],
     scope: SnapshotScope | None = None,
+    handed: list[EvidenceRef] | None = None,
 ) -> StructuredTool:
+    """`fetch_verbatim(source_id, locator)` — L0 text for one addressed span.
+
+    `handed` is the manifest sink: a fetch that came back with text put that span in front
+    of the model, so the record must be able to say so — without it, an answer built on a
+    verbatim fetch was recorded as a miss and the citation it copied off the span was
+    rejected for naming an address nothing had handed over.
+
+    BOTH locators yield a span (`recall/verbatim.py:fetched_span`). A `section` locator
+    names a section path rather than an interval, so the span is resolved through the
+    source's own structure map at fetch time — not guessed, and not skipped, which is what
+    used to leave a section fetch's citations with nothing to be admitted against. Deep does
+    not alias source ids, so the id the model passed IS the real one.
+    """
+
     async def fetch_verbatim(source_id: str, locator: dict) -> str:
         """Fetch source text verbatim; see `recall.deep.tool.fetch_verbatim_doc`."""
         try:
@@ -308,6 +332,10 @@ def _fetch_verbatim_tool(
             )
             return failed
         out = text if text else prompt("recall.deep.tool.fetch_verbatim_empty")
+        if handed is not None and text:
+            span = await fetched_span(user_id, source_id, locator, content=content)
+            if span is not None:
+                handed.append(span)
         trail.append(
             {"tool": "fetch_verbatim", "source_id": source_id, "locator": locator,
              "chars": len(text), "result": _trail_preview(out)}
@@ -515,6 +543,10 @@ async def deep_recall(
     found_claims: list[RetrievedClaim] = []
     found_windows: list = []
     read_paths: list[str] = []
+    # What the evidence-returning tools put in front of the model, as addresses. The seed
+    # and the search tools reach the manifest through `used_claims` / `used_windows`; a
+    # verbatim fetch has no such field to ride on, so it publishes here directly.
+    fetched: list[EvidenceRef] = []
     # A trail that fires on_step as each tool records a step → the agentic search can be
     # streamed one step at a time (the tools stay unchanged; they just .append as before).
     timings = AgentTimings(on_event=on_event)
@@ -537,17 +569,20 @@ async def deep_recall(
             found=found_windows,
             trail=trail,
         ),
-        _fetch_verbatim_tool(user_id, content, trail, scope),
+        _fetch_verbatim_tool(user_id, content, trail, scope, fetched),
         _list_documents_tool(documents, trail),
         _read_document_tool(documents, read_paths, trail),
-        # Tools contributed by enabled index components (components/__init__.py), scoped
-        # to this user; none registered → the tool list is exactly what it always was.
-        *(
-            t
-            for component in registered_components()
-            for t in _component_recall_tools(component, user_id, documents)
-        ),
     ]
+    # Tools contributed by enabled index components (components/__init__.py), scoped to
+    # this user; none registered → the tool list is exactly what it always was. Kept in
+    # their own list because the manifest reads each one's declared evidence afterwards,
+    # off the tool the component built rather than the timing wrapper around it.
+    component_tools = [
+        t
+        for component in registered_components()
+        for t in _component_recall_tools(component, user_id, documents)
+    ]
+    tools = [*tools, *component_tools]
     # Measured around the coroutine, failures included — and around EVERY tool, a component's
     # included, so a contributed tool cannot be the unexplained gap in the breakdown even
     # though it leaves no trail record of its own.
@@ -582,15 +617,41 @@ async def deep_recall(
         on_token=on_token,
     )
 
+    used_claims = _merge_claims(seed_claims, found_claims)
+    used_windows = _merge_windows(seed_windows, found_windows)
+    # What the tools actually returned into the transcript. `read_document` renders a whole
+    # page with `render_document`, so a page it opened contributes its own address and every
+    # `[cite: …]` marker its body carries — the same rule the fast lane applies to a page it
+    # expanded, and the reason a citation copied out of one is admissible in the record.
+    by_path = {doc.path: doc for doc in documents}
+    manifest = evidence_manifest(
+        claims=used_claims,
+        windows=used_windows,
+        full_documents=[by_path[path] for path in read_paths if path in by_path],
+        tool_evidence=[
+            *fetched,
+            # A component's tool result is the component's own prose in the component's own
+            # shape; the framework cannot read addresses out of it and does not try. What a
+            # tool DECLARED is what it contributes — and a tool that declares nothing
+            # contributes nothing, so a citation copied out of its result is not admissible.
+            *(
+                EvidenceRef(kind=kind, ref=ref, path=path)
+                for tool in component_tools
+                for kind, ref, path in declared_tool_evidence(tool)
+            ),
+        ],
+    )
+
     return DeepAnswer(
         answer=answer,
-        used_claims=_merge_claims(seed_claims, found_claims),
+        used_claims=used_claims,
         token_usage=usage,
-        used_windows=_merge_windows(seed_windows, found_windows),
+        used_windows=used_windows,
         trail=tuple(trail),
         glance_chars=len(glance or ""),
         read_documents=tuple(read_paths),
         image_count=len(images),
         image_mode=image_mode,
         stages=timings.stages(),
+        evidence_manifest=manifest,
     )

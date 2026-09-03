@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Search } from "lucide-react";
-import { useApp, type RecallMode } from "@/lib/store";
+import { deriveVisitorClass } from "@/lib/lenses";
+import { useApp, type RecallMode, type SessionAsk } from "@/lib/store";
 import {
   ragStream,
   recallStream,
@@ -36,6 +37,7 @@ import { UsageLine } from "../_shared/UsageLine";
 import { StageStrip } from "../_shared/StageStrip";
 import { useLiveLane } from "../_shared/useLiveLane";
 import { useSourceTitles } from "../_shared/useSourceTitles";
+import { openSitting } from "./sitting";
 
 /**
  * All three lanes keep their input and their results in `store.recallCache`, so jumping to
@@ -48,6 +50,17 @@ export default function RecallView() {
   const recallCache = useApp((s) => s.recallCache);
   const setRecallCache = useApp((s) => s.setRecallCache);
   const currentKbSnapshot = useApp((s) => s.currentKbSnapshot);
+  // The stance travels with every answering call, derived from who is at the console rather
+  // than chosen beside the question; `rag` reaches no model, so it records nothing and sends
+  // none. The lens also decides whether this page is the whole cockpit's retrieval panel or
+  // the reading room a visitor was handed.
+  const lens = useApp((s) => s.lens);
+  const visitorClass = deriveVisitorClass(lens);
+  const sessionAsks = useApp((s) => s.sessionAsks);
+  const pushSessionAsk = useApp((s) => s.pushSessionAsk);
+  // Which sitting this is. A lens or library change clears the cache and bumps this, and a
+  // request that opened under an older epoch writes nothing when it lands.
+  const identityEpoch = useApp((s) => s.identityEpoch);
   const { query, mode, rag, answer, error } = recallCache;
 
   // liveTrail / live / searching are transients of the in-flight query; Back need not
@@ -68,6 +81,24 @@ export default function RecallView() {
   // Abort the deep SSE stream on unmount.
   useEffect(() => () => abortRef.current?.abort(), []);
 
+  // deep's trail, appended one row per tool call. Named rather than inlined because it is a
+  // write into the sitting like any other and travels through the same handle.
+  const appendTrail = useCallback((s: TrailStep) => setLiveTrail((t) => [...t, s]), []);
+
+  // A change of person or of library ends this sitting, so the question it was answering is
+  // no longer anybody's: stop the stream rather than let it finish into an empty room, and
+  // clear the half-drawn picture it left — stages, streamed text, trail — the way the store
+  // clears the settled one. The abort and the clear are the courtesy; `openSitting` below is
+  // what makes the drop mechanical, because a response can be in flight past any abort we
+  // manage to call, and its next frame would redraw exactly what we just cleared.
+  useEffect(() => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setSearching(false);
+    setLiveTrail([]);
+    live.reset();
+  }, [identityEpoch, live.reset]);
+
   const jumpToCitation = useCallback(
     (c: CitationEntry) =>
       focusSource(
@@ -83,6 +114,17 @@ export default function RecallView() {
     // its own copies of the retrieval layers, so this is the only thing the view has to say.
     const snapshot = currentKbSnapshot?.snapshot_id ?? null;
     abortRef.current?.abort();
+    // Everything this run writes goes through the sitting it opened in — the live picture as
+    // much as the settled answer. If the lens changes mid-answer the store is reset and this
+    // handle stops writing, so neither the completion nor the next streamed frame can
+    // repopulate a cleared sitting with the previous person's question, stages or answer.
+    const sitting = openSitting(() => useApp.getState().identityEpoch, {
+      setRecallCache,
+      pushSessionAsk,
+      onStage: live.onStage,
+      onToken: live.onToken,
+      onStep: appendTrail,
+    });
     setSearching(true);
     setRecallCache({ error: null });
     setLiveTrail([]);
@@ -99,10 +141,10 @@ export default function RecallView() {
           currentUser,
           query.trim(),
           {
-            onStage: live.onStage,
-            onDone: (r) => setRecallCache({ rag: r }),
+            onStage: sitting.onStage,
+            onDone: (r) => sitting.setRecallCache({ rag: r }),
             onError: (m) => {
-              if (!ac.signal.aborted) setRecallCache({ error: m });
+              if (!ac.signal.aborted) sitting.setRecallCache({ error: m });
             },
           },
           ac.signal,
@@ -121,22 +163,30 @@ export default function RecallView() {
           query.trim(),
           mode,
           {
-            onStage: live.onStage,
-            onToken: live.onToken,
-            onStep: (s) => setLiveTrail((t) => [...t, s]),
-            onDone: (a) => setRecallCache({ answer: a }),
+            onStage: sitting.onStage,
+            onToken: sitting.onToken,
+            onStep: sitting.onStep,
+            onDone: (a) => {
+              sitting.setRecallCache({ answer: a });
+              // The reading room's own memory of this sitting. Client-side and nowhere
+              // else: the ledger of what a library answered is the owner's, and a silent
+              // visitor asked for exactly none of it to be written down.
+              sitting.pushSessionAsk({ question: query.trim(), mode, answer: a });
+            },
             onError: (m) => {
-              if (!ac.signal.aborted) setRecallCache({ error: m });
+              if (!ac.signal.aborted) sitting.setRecallCache({ error: m });
             },
           },
           ac.signal,
           snapshot,
+          [],
+          visitorClass,
         );
       }
     } catch (e) {
-      setRecallCache({ error: (e as Error).message, rag: null, answer: null });
+      sitting.setRecallCache({ error: (e as Error).message, rag: null, answer: null });
     } finally {
-      setSearching(false);
+      if (sitting.current()) setSearching(false);
     }
   }
 
@@ -158,8 +208,10 @@ export default function RecallView() {
     <div className="flex min-h-0 flex-1 flex-col gap-6">
       <PageHeader
         className="shrink-0"
-        title={t("recall.title")}
-        description={t("recall.description")}
+        title={lens === "owner" ? t("recall.title") : t("recall.readingTitle")}
+        description={
+          lens === "owner" ? t("recall.description") : t("recall.readingDescription")
+        }
       />
 
       {/* Query row */}
@@ -229,8 +281,66 @@ export default function RecallView() {
       ) : (
         <RagPanel rag={rag} titles={titles} onJump={jumpToCitation} />
       )}
+      {/* Only in the reading room: the owner reads the same history in Consultations, as a
+          server-side ledger with its evidence chains, and two lists of one thing would be
+          two answers to "what did I ask". */}
+      {lens !== "owner" && sessionAsks.length > 0 && (
+        <SessionAsks
+          asks={sessionAsks}
+          onReopen={(ask) =>
+            setRecallCache({
+              query: ask.question,
+              mode: ask.mode,
+              rag: null,
+              answer: ask.answer,
+              error: null,
+            })
+          }
+        />
+      )}
       </ScrollRegion>
     </div>
+  );
+}
+
+/* --------------------------------------------------------- the reading room's session */
+
+/**
+ * What this visitor has asked since the page opened, newest last, held in client memory and
+ * written nowhere. Picking a row puts its answer back in the panel above — the same panel,
+ * with the same citations still opening the same sources.
+ */
+function SessionAsks({
+  asks,
+  onReopen,
+}: {
+  asks: SessionAsk[];
+  onReopen: (ask: SessionAsk) => void;
+}) {
+  const t = useT();
+  return (
+    <section className="mt-8 border-t border-line pt-4">
+      {/* The rail's chapter apparatus is gone in the reading room, so this heading is the
+          quiet label the hit ledger already uses rather than a numbered § of a book with
+          twelve missing chapters. */}
+      <p className="mb-2 text-13 text-ink-2">{t("recall.session.title")}</p>
+      <ol className="border-t border-line">
+        {asks.map((ask, i) => (
+          <li key={i} className="border-b border-line">
+            <button
+              type="button"
+              title={t("recall.session.reopen")}
+              onClick={() => onReopen(ask)}
+              className="flex w-full items-baseline gap-3 rounded-1 px-1 py-2 text-left transition-colors duration-120 hover:bg-hover"
+            >
+              <Mono className="w-10 shrink-0 text-12 text-ink-3">{ask.mode}</Mono>
+              <span className="min-w-0 flex-1 truncate text-13 text-ink">{ask.question}</span>
+            </button>
+          </li>
+        ))}
+      </ol>
+      <p className="mt-2 text-12 text-ink-3">{t("recall.session.note")}</p>
+    </section>
   );
 }
 
@@ -810,7 +920,7 @@ function AnswerPanel({
           )}
         </div>
         {/* One token ledger for the whole app: Ask prints the same line for its turns. */}
-        <UsageLine usage={answer.token_usage} className="mt-4" />
+        <UsageLine usage={answer.token_usage} cost={answer.cost} className="mt-4" />
       </section>
 
       {componentEvidence.length > 0 && (

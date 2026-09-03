@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Braces, UserRound } from "lucide-react";
+import { Braces, Plus, Trash2, UserRound } from "lucide-react";
 import {
   getIntakeArchetypes,
   ingestDocument,
@@ -24,6 +24,14 @@ import { Tabs } from "@/ui/Tabs";
 import { TextArea } from "@/ui/TextArea";
 import { TextField } from "@/ui/TextField";
 import { PageHeader } from "@/components/PageHeader";
+import {
+  buildOwnerStatementPayload,
+  emptyOwnerTurn,
+  hasOwnerTurn,
+  mintDialogueId,
+  type OwnerRole,
+  type OwnerTurnDraft,
+} from "./ownerStatement";
 import {
   OFFICIAL_SOURCE_OPTIONS,
   detectOfficialSourceKind,
@@ -79,6 +87,11 @@ export default function IngestView() {
             label: t("ingest.tabs.document"),
             panel: <DocumentTab readOnly={readOnly} />,
           },
+          {
+            value: "owner",
+            label: t("ingest.tabs.owner"),
+            panel: <OwnerStatementTab readOnly={readOnly} />,
+          },
         ]}
       />
     </div>
@@ -129,6 +142,183 @@ function OfficialImportResultCallout({ result }: { result: OfficialImportResult 
         </ol>
       </div>
     </Callout>
+  );
+}
+
+/* ------------------------------------------------ The owner speaking to the library */
+
+/**
+ * The owner's own words, as a source.
+ *
+ * A textarea-per-turn list and not a chat widget, deliberately: this is an IMPORT surface,
+ * and what it produces is one `owner-dialogue/v1` payload handed to the same import call
+ * every other contract goes through. Nothing here writes canonical — the statement becomes
+ * knowledge only by riding an ordinary compile through the citation gate, exactly as an
+ * email would.
+ */
+function OwnerStatementTab({ readOnly }: { readOnly: boolean }) {
+  const t = useT();
+  const currentUser = useApp((s) => s.currentUser);
+  const loadUsers = useApp((s) => s.loadUsers);
+  const [turns, setTurns] = useState<OwnerTurnDraft[]>(() => [emptyOwnerTurn()]);
+  const [submitting, setSubmitting] = useState(false);
+  const [result, setResult] = useState<OfficialImportResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const canEdit = !readOnly && !submitting;
+
+  function patch(index: number, next: Partial<OwnerTurnDraft>) {
+    setTurns((prior) =>
+      prior.map((turn, i) => (i === index ? { ...turn, ...next } : turn)),
+    );
+    setError(null);
+    setResult(null);
+  }
+
+  async function onImport() {
+    if (!currentUser) return;
+    setError(null);
+    setResult(null);
+    let payload: Record<string, unknown>;
+    try {
+      payload = buildOwnerStatementPayload(
+        turns,
+        { ownerId: currentUser, dialogueId: mintDialogueId() },
+        { t },
+      );
+    } catch (caught) {
+      setError((caught as Error).message);
+      return;
+    }
+    setSubmitting(true);
+    try {
+      setResult(await importOfficialSource(currentUser, payload));
+      setTurns([emptyOwnerTurn()]);
+      void loadUsers();
+    } catch (caught) {
+      setError((caught as Error).message);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  const written = turns.filter((turn) => turn.text.trim().length > 0);
+  // The contract's rule, asked here: a dialogue of steward turns alone is not the owner's
+  // statement, and the service refuses it. Said before the round trip, not after it.
+  const ownerSpoke = hasOwnerTurn(turns);
+
+  return (
+    <div className="flex flex-col gap-6">
+      <p className="max-w-measure text-13 leading-relaxed text-ink-2">
+        {t("ingest.owner.description")}
+      </p>
+
+      <section className="flex flex-col gap-4">
+        <SectionRule no={1} title={t("ingest.owner.step1")} />
+        {turns.map((turn, index) => (
+          <div
+            key={index}
+            className="flex flex-col gap-3 border-b border-line pb-4 last:border-b-0"
+          >
+            <div className="flex flex-wrap items-end gap-3">
+              <Select
+                wrapperClassName="min-w-32"
+                label={t("ingest.owner.role")}
+                value={turn.role}
+                onChange={(value) => patch(index, { role: value as OwnerRole })}
+                disabled={!canEdit}
+                options={[
+                  { value: "owner", label: t("ingest.owner.role.owner") },
+                  { value: "steward", label: t("ingest.owner.role.steward") },
+                ]}
+              />
+              <TextField
+                wrapperClassName="min-w-52"
+                type="datetime-local"
+                label={t("ingest.owner.saidAt")}
+                value={turn.saidAt}
+                onChange={(event) => patch(index, { saidAt: event.target.value })}
+                disabled={!canEdit}
+              />
+              <span className="pb-2 text-12 text-ink-3">
+                {t("ingest.owner.turn", { index: index + 1 })}
+              </span>
+              {turns.length > 1 && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={!canEdit}
+                  aria-label={t("ingest.owner.removeTurn", { index: index + 1 })}
+                  onClick={() => {
+                    setTurns((prior) => prior.filter((_, i) => i !== index));
+                    setError(null);
+                  }}
+                >
+                  <Trash2 size={14} aria-hidden />
+                </Button>
+              )}
+            </div>
+            <TextArea
+              label={t("ingest.owner.text")}
+              value={turn.text}
+              onChange={(event) => patch(index, { text: event.target.value })}
+              placeholder={t("ingest.owner.textPlaceholder")}
+              rows={3}
+              disabled={!canEdit}
+            />
+          </div>
+        ))}
+        <div>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={!canEdit}
+            onClick={() => setTurns((prior) => [...prior, emptyOwnerTurn()])}
+          >
+            <Plus size={14} aria-hidden />
+            {t("ingest.owner.addTurn")}
+          </Button>
+        </div>
+        <p className="max-w-measure text-12 leading-relaxed text-ink-3">
+          {t("ingest.owner.orderNote")}
+        </p>
+      </section>
+
+      <section className="flex flex-col gap-4">
+        <SectionRule no={2} title={t("ingest.owner.step2")} />
+        {/* A summary of nothing is noise: with no turn written the disabled button is the
+            whole of what there is to say. */}
+        {written.length > 0 && (
+          <p className="text-13 text-ink-2">
+            {t("ingest.owner.summary", {
+              count: written.length,
+              first: written[0]!.saidAt,
+            })}
+          </p>
+        )}
+        {written.length > 0 && !ownerSpoke && (
+          <p className="max-w-measure text-12 leading-relaxed text-ink-3">
+            {t("ingest.owner.error.noOwnerTurn")}
+          </p>
+        )}
+        <div>
+          <Button
+            variant="primary"
+            loading={submitting}
+            disabled={readOnly || written.length === 0 || !ownerSpoke}
+            onClick={() => void onImport()}
+          >
+            {t("ingest.owner.submit")}
+          </Button>
+        </div>
+      </section>
+
+      {result && <OfficialImportResultCallout result={result} />}
+      {error && (
+        <Callout tone="danger" title={t("ingest.owner.failed")}>
+          <Mono className="break-all">{error}</Mono>
+        </Callout>
+      )}
+    </div>
   );
 }
 

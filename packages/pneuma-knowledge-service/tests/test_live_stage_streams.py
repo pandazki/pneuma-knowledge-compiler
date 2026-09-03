@@ -91,6 +91,7 @@ class _FakeBriefing:
     source_count: int = 1
     char_count: int = 13
     stages: tuple = ()
+    pack_manifest: tuple = ()
 
 
 @dataclass
@@ -117,7 +118,9 @@ class _FakeStore:
             "stages": [],
         }
 
-    async def create_briefing(self, user, briefing_id, scope, ref, prefix, stages=None):  # noqa: ANN001
+    async def create_briefing(  # noqa: ANN001
+        self, user, briefing_id, scope, ref, prefix, stages=None, pack_manifest=None
+    ):
         self.created.append((str(user), briefing_id, scope, ref, stages))
 
     async def get_briefing(self, user, briefing_id):  # noqa: ANN001

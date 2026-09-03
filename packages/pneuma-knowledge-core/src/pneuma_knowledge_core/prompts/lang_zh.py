@@ -637,7 +637,7 @@ _ZH: dict[str, str] = {
     "compile.brief.system": (
         "你为一次知识编译写一段简报。你看到的只有这次编译改动的机械记录：它消化的来源，"
         "以及按文档分组的新增或修订的断言。用两到四句平实的话，按断言文本的主要语言，"
-        "告诉主人记录了什么、记在了哪里。只陈述记录里有的——不评价、不建议、不添加记录"
+        "告诉所有者记录了什么、记在了哪里。只陈述记录里有的——不评价、不建议、不添加记录"
         "之外的事实。简报是时间线上的展示文案，不是知识：不写引用、不写锚点、不用 "
         "markdown 结构。"
     ),
@@ -1245,12 +1245,24 @@ _ZH: dict[str, str] = {
         "这是{owner}文库里一份 {when} 的材料{title}；材料没有给出作者，因此归属挂着待定。这个日"
         "期是材料自身的日期，其中的相对时间以它为基准解析。"
     ),
+    # ── 知识主体直接对库说话（`owner-dialogue/v1`）──
+    "source.preamble.owner_dialogue": (
+        "这是{owner}直接对这座库说的话——他自己关于库里该记什么的陈述：一次订正、一条指示或一次"
+        "补充，出自他本人，而不是某件事的记录。作者就是{owner}，因此其中的判断默认属于他自己。"
+    ),
+    "source.preamble.owner_dialogue_dated": (
+        "这是{owner}在 {when} 直接对这座库说的话——他自己关于库里该记什么的陈述：一次订正、一条"
+        "指示或一次补充，出自他本人，而不是某件事的记录。作者就是{owner}，因此其中的判断默认属"
+        "于他自己。这个日期是这段陈述自身的日期，其中的相对时间以它为基准解析。"
+    ),
     "source.preamble.title_quoted": "「{title}」",
     # ─────────────────────────────────────────────── ingest rendering
     "ingest.owner_label": "知识主体",
     "ingest.other_label": "参与者{n}{suffix}",
     "ingest.speaker_alias": "（{speaker_id}）",
     "ingest.owner_wrapped": "知识主体（{label}）",
+    "ingest.steward_label": "管理代理",
+    "ingest.owner_dialogue.title": "所有者陈述 {dialogue_id}",
     "ingest.turn_line": "{label}：{text}",
     "ingest.email.subject": "主题：{subject}",
     "ingest.email.attachments": "附件：",
@@ -1412,7 +1424,7 @@ _ZH: dict[str, str] = {
     "recall.fast.component.path_covered": "（有 {count} 条断言已被此处摘录覆盖）",
     "recall.fast.component.window_truncated": "（¶{start}-{end} 未展示）",
     "recall.fast.route.system": (
-        "在写出回答之前，你把一个问题路由到零个或多个查询工具。每个工具都是对主人知识库的"
+        "在写出回答之前，你把一个问题路由到零个或多个查询工具。每个工具都是对所有者知识库的"
         "精确查询，由它自己的描述说明用途。只有当问题明确点到某个工具所查的对象时才调用它，"
         "参数取自问题本身；多个工具都适用时在同一轮里一起调用；都不适用就一个也不调。"
         "不要回答问题。"
@@ -1420,7 +1432,7 @@ _ZH: dict[str, str] = {
     "recall.fast.route.request": (
         "问题：{question}\n"
         "as_of：{as_of}\n"
-        "主人的时区是 {zone}。任何日期参数都是该时区里的日历日，写成 YYYY-MM-DD。"
+        "所有者的时区是 {zone}。任何日期参数都是该时区里的日历日，写成 YYYY-MM-DD。"
         "问题里的相对或口语表达（“上个季度”“昨天”“last Monday”）由你自己对着 as_of 解析成"
         "具体的 ISO 日期再传；不要把原短语当参数传下去。"
     ),
@@ -1779,6 +1791,7 @@ _ZH: dict[str, str] = {
     "evolve.propose.unknown_path": "（路径未知）",
     "evolve.propose.docs_header": "# 当前正本文档清单",
     "evolve.propose.docs_empty": "（暂无正本文档）",
+    "evolve.propose.demand_header": "# 这个库正在被怎么使用（由已启用的索引组件报告）",
     "evolve.recovery_heading": "窗口期更新",
     "evolve.commit_message": (
         "schema 演进：将 {moved} 条断言重组进 {new_documents} 份新文档，"

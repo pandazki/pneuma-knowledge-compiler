@@ -111,17 +111,92 @@ def strip_citations(text: str) -> str:
     return "\n".join(line.rstrip() for line in out.split("\n")).strip()
 
 
+def bracket_sids(body: str) -> list[tuple[int, int, str]]:
+    """Where the source tokens sit inside ONE `[cite: …]` body: `(start, end, sid)`.
+
+    Exactly the positions `iter_answer_citations` / `iter_answer_sources` read — the token
+    before each `¶`, or, when the bracket carries no `¶` at all, each bare id. Having the
+    positions rather than just the ids is what lets a rewrite replace every sid in a merged
+    bracket and copy everything between them through byte-for-byte.
+    """
+    spans = list(_CITE_SPAN_RE.finditer(body))
+    if spans:
+        return [
+            (*span.span("sid"), span.group("sid"))
+            for span in spans
+            if span.group("sid") is not None
+        ]
+    return [(bare.start(), bare.end(), bare.group(0)) for bare in _CITE_BARE_SID_RE.finditer(body)]
+
+
 def resolve_handles(answer: str, handle_map: dict[str, str]) -> str:
     """Reverse the alias: rewrite `[cite: sNN …]` → `[cite: <real_id> …]` using the map.
-    Unknown handles (a hallucinated/garbled one) are left untouched for the caller to see."""
+    Unknown handles (a hallucinated/garbled one) are left untouched for the caller to see.
+
+    EVERY sid in a bracket is rewritten, not only the one `[cite:` sits directly in front
+    of. The merged form is the reason: `[cite: s01 ¶1-3, s02 ¶2-4]` carries two sources,
+    and a rewrite anchored on the opening marker reaches the first and silently leaves the
+    second — a text that reads like resolved provenance while carrying a query-local handle
+    that resolves to nothing an hour later.
+    """
     if not handle_map:
         return answer
 
     def repl(m: re.Match) -> str:
-        real = handle_map.get(m.group(2))
-        return (m.group(1) + real) if real else m.group(0)
+        text = m.group(0)
+        head = m.start("body") - m.start(0)
+        tail = m.end("body") - m.start(0)
+        body = m.group("body")
+        out: list[str] = []
+        last = 0
+        for start, end, sid in bracket_sids(body):
+            out.append(body[last:start])
+            out.append(handle_map.get(sid, sid))
+            last = end
+        out.append(body[last:])
+        return text[:head] + "".join(out) + text[tail:]
 
-    return _CITE_ID_RE.sub(repl, answer)
+    return _CITE_BRACKET_RE.sub(repl, answer)
+
+
+def drop_unresolved_brackets(answer: str, known: set[str]) -> str:
+    """Remove every `[cite: …]` bracket that still names a source outside `known`.
+
+    For the DURABLE record only, and applied AFTER `resolve_handles`: a query-local handle
+    is valid for exactly one call, so a record keeping one would carry an address that
+    resolves to nothing an hour later — the rule the lane's own citation filter already
+    applies to what it admits, applied to the recorded prose. The answer that went out on
+    the wire is untouched; the caller sees what the model wrote.
+
+    An empty `known` is not "nothing to do". It is the lane having surfaced NO source at
+    all — the emptiest retrieval there is — and a model that answered anyway with
+    `[cite: s99 ¶1]` wrote a bracket that resolves to nothing whatsoever. Reading empty as
+    "this lane does not alias" was the whole defect: it let exactly the answers with no
+    evidence behind them keep their citations in the record.
+
+    Whether a lane aliased is the CALLER's to state, never this function's to infer: deep
+    never calls it, fast always does, and an ask does when its deployment turned aliasing
+    on. The two cases an empty map used to conflate need opposite treatment, so the one
+    signal that can tell them apart is the one the caller already holds.
+
+    A text in which every bracket resolves comes back unchanged: the tidy below runs only
+    when something was actually removed.
+    """
+    dropped = False
+
+    def drop(m: re.Match) -> str:
+        nonlocal dropped
+        if all(sid in known for _s, _e, sid in bracket_sids(m.group("body"))):
+            return m.group(0)
+        dropped = True
+        return ""
+
+    out = _CITE_BRACKET_RE.sub(drop, answer)
+    if not dropped:
+        return answer
+    out = re.sub(r"[ \t]{2,}", " ", out)
+    out = re.sub(r"[ \t]+(?=[，。；、）」！？,.;)])", "", out)
+    return "\n".join(line.rstrip() for line in out.split("\n")).strip()
 
 
 class SessionAliaser:

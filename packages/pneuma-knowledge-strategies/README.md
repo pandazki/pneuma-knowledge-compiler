@@ -17,7 +17,7 @@ Why ship any, then? Because facing an empty file is the most expensive step of a
 | Directory | skill_id | Version | What it is |
 | --- | --- | --- | --- |
 | `strategies/personal-knowledge/` | `personal-knowledge` | `v1` | The original personal-knowledge reference: evidence tiers, worked examples and counter-examples, frozen history volumes, first-class beginnings, a closing self-check. |
-| `strategies/personal-knowledge/` | `personal-knowledge` | `v2` | The image-native reference: IM images and labelled caption/OCR evidence share one cited L0 block; other native media are explicitly unsupported. |
+| `strategies/personal-knowledge/` | `personal-knowledge` | `v2` | `v1` plus two judgements: IM images and labelled caption/OCR evidence share one cited L0 block, with other native media explicitly unsupported; and an owner-dialogue source is the owner speaking about the library, so what it says about an existing claim corrects or supersedes that claim rather than filing a second one beside it. |
 
 One contract per domain, deliberately. **Serving a different kind of user means adding a strategy — a new directory — not stacking versions of an existing one.** A version bump happens only when a contract's own judgement is revised.
 

@@ -34,11 +34,18 @@ from pneuma_knowledge_strategies import (
 # a page carries are a snapshot the compile rewrites whole, so a form recorded in error is
 # dropped rather than accumulated, and a title-plus-surname is named as usually not a name.
 # v1 remains byte-stable; the retired v2 body was 9f04453f….
+# On 2026-08-31 v2's evidence-tiers section gained one sentence naming what an
+# `owner-dialogue/v1` source is — the library owner's own statement about the library — so a
+# correction in it is judged as evidence about the claim it corrects (edit or supersede,
+# citing the statement) instead of being filed as a second claim beside it. The framework's
+# own per-source line states the KIND; what the statement deserves is the contract's
+# judgement, which is why the sentence belongs here and not in a prompt. v1 remains
+# byte-stable; the retired v2 body was 5e3945af….
 # Retired historical body hashes: v1 bedea7b4…, v2 aeae8203…, v3 187d0201… (full values
 # in git history).
 FROZEN_BODY_SHA256 = {
     "v1": "b81c08e9184f2dc7a502d620203b8bf2386f548b0a77edb19d381498767ba9b1",
-    "v2": "5e3945af4e7ca4b1de7046527058b26daffb5e21ad8fa3658c18300d28c4fe28",
+    "v2": "75d3de158874f51a8807e5b5b33a2282e22ae86a7c01b3503b9e8f14d539227f",
 }
 
 PERSONAL_KNOWLEDGE_TEMPLATES = (

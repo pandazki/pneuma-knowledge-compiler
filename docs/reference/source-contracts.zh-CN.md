@@ -2,15 +2,15 @@
 
 [English](source-contracts.md) | **简体中文**
 
-官方输入边界是四种版本化、provider 中立的 JSON 契约——会议、文档库、IM、邮件。能说其中一种契约的东西就能喂进系统；从具体 provider 格式到契约的转换器在契约之外（见[导入](#导入)）。
+官方输入边界是五种版本化、provider 中立的 JSON 契约——会议、文档库、IM、邮件、所有者对话。能说其中一种契约的东西就能喂进系统；从具体 provider 格式到契约的转换器在契约之外（见[导入](#导入)）。
 
-- 一个 payload，一个 `schema` 判别字段：`pneuma.source.meeting/v1`、`pneuma.source.document-library/v1`、`pneuma.source.im/v1`、`pneuma.source.email/v1`。
+- 一个 payload，一个 `schema` 判别字段：`pneuma.source.meeting/v1`、`pneuma.source.document-library/v1`、`pneuma.source.im/v1`、`pneuma.source.email/v1`、`pneuma.source.owner-dialogue/v1`。
 - 校验是严格的（`extra="forbid"`）：未知字段直接拒绝，不是忽略。权威定义是 [`ingest/source_contracts.py`](../../packages/pneuma-knowledge-core/src/pneuma_knowledge_core/ingest/source_contracts.py) 里的 Pydantic 模型；[`source-contracts/`](source-contracts/) 下的 JSON Schema 是它的线上镜像，供工具链使用。
 - **所有时间戳必须带显式时区偏移。** naive datetime 过不了校验。
-- id 在各自作用域内唯一，身份引用必须能解析：发言人 ⊆ 参会人、会话成员与发送者 ⊆ 用户表、owner id ⊆ 已声明的身份。
-- 每一层都有自由的 `metadata` 对象，装 provider 的附加信息。
+- id 在各自作用域内唯一。声明了封闭身份集合、并据以解析每个引用的有两种契约：`meeting/v1`（发言人与 owner id ⊆ `participants`）和 `im/v1`（会话成员与发送者 ⊆ `users`）。`email/v1` 只对 `owner_addresses` 做归一，不声明名册；`document-library/v1` 与 `owner-dialogue/v1` 根本不声明身份集合——一段对话把 `owner_id` / `steward_id` 留在信封里，给编译器看的是**角色**，不是 id。
+- 每个 payload 的信封都有自由的 `metadata` 对象，装 provider 的附加信息。信封以下则因契约而异：`im/v1` 在会话、消息、图片上各有一个，`email/v1` 在线程与消息上有，`document-library/v1` 在文档上有，而 `meeting/v1` 与 `owner-dialogue/v1` 在信封以下没有。
 
-**展开。** 一个 payload 是一个包，按天然引用边界展开成多个 source：会议保持一个；文档库每篇文档一个；IM 归档每个会话一个；邮件归档每条线程一个。source id 按内容寻址（sha256），重复导入相同内容会去重，不会重复入库。
+**展开。** 一个 payload 是一个包，按天然引用边界展开成多个 source：会议保持一个；文档库每篇文档一个；IM 归档每个会话一个；邮件归档每条线程一个；一段所有者对话就是一次陈述，保持一个。source id 按内容寻址（sha256），重复导入相同内容会去重，不会重复入库。
 
 ## `pneuma.source.meeting/v1`
 
@@ -72,10 +72,32 @@
 
 每条线程：`thread_id`、`subject`、`messages[]`（≥1）、`metadata`。每封邮件：`message_id`、`sent_at`（带时区）、`from`（`{address, display_name?}`，地址归一化）、`to[]`、`cc[]`、`subject`、`text`、`in_reply_to?`、`references[]`、`attachments[]`（`filename`、`content_type`、`size_bytes ≥ 0`、`content_id?`）、`metadata`。
 
+## `pneuma.source.owner-dialogue/v1`
+
+所有者对管理代理说过的话，作为一种普通来源。所有者只能通过说话来作用于知识库，因此一次订正、一条指示或一次补充，是与其他证据同等的证据——L0 逐字保留，L1/L2 无条件，引用写作 `[cite: <source-id> ¶n]`，与引用一条聊天消息完全一样；它进入正本的唯一途径是一次普通编译加引用门禁。没有所有者专用写入通道，没有自己的引用语法，也没有自己的门禁规则。
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `schema` | 字面量 | `pneuma.source.owner-dialogue/v1` |
+| `provider` | 字面量 | `console` \| `mock` |
+| `dialogue_id` | string | 非空 |
+| `owner_id` | string | 所有者在应用自己的 id 体系里的 id |
+| `steward_id` | string，可选 | 管理代理的 id，如果应用给它命名的话 |
+| `turns[]` | 对象，≥1 | `turn_id`（唯一）、`role`（`owner` \| `steward`）、`said_at`（带时区，非递减）、`text`（不得为空白）；**至少一轮的 `role` 是 `owner`** |
+| `metadata` | 对象 | 自由 |
+
+**至少要有一轮是所有者自己说的，而且那一轮得真说了话。** 这份契约的全部立足点在于：知识库所写的那个人亲口说了话——规范化按此打标签，编译任务的按来源行按此点名，完整正本处理也由此而来。只有管理代理轮次的对话，是管理代理写的关于所有者的文档；把它当作所有者自己的陈述来编译，等于让管理代理写的文字变成所有者的正本知识。而一轮空白的所有者发言，只在形式上满足这条规则：对话在实质上仍然只有管理代理在说，空白轮次也成不了任何东西可以引用的块。因此**任一角色**的空白轮次都被直接拒绝，并点名是哪一轮、什么角色，而不是悄悄滤掉——声明了一轮没人说过的话的 payload，它的作者相信着这份契约并不相信的东西。两者都在契约处拒绝，导入表单也在写下一轮非空白的所有者发言之前禁用提交。
+
+**顺序即含义，因此校验而不修正。** 其他契约都会对收到的东西排序——provider 归档的顺序是导出的副产物。对话的顺序就是它的内容：一句限定前一句的话，两句一换位就不再限定了。因此 `said_at` 倒退的 payload 会被拒绝，而不是被排序。
+
+**规范化。** 每轮一块，按**角色**打标签（`Owner:` / `Steward:`，取自 prompt 目录）。`owner_id` / `steward_id` 是应用自己的 id，与 turn id 一起留在来源的 `meta` 信封里，像其他契约的并行元数据一样按规范化顺序与块对齐——它们从不出现在模型读到的文本里。小节按主体的日历日切分，陈述自身的日期成为 `meta.occurred_on`。摄入提案是完整正本处理加完整语义索引：这是唯一一种作者就是所有者本人的材料，而一段编译永远读不到的陈述，就是一次永远落不了地的订正。
+
+**种类由框架陈述，判断由契约给出。** 这些块读起来像转录，但它不是，因此编译任务的按来源行点出种类——所有者在直接对这座库说话，是他自己的话，而不是某件事的记录。这段陈述*该得到*什么——一次 `edit_claim`、一次 `supersede_claim`、一个新页——是编译契约的判断，因此刻意不写进那一行。
+
 ## 不变量与版本化
 
 - **源文本是不可变证据。** 更正以一次新导入的形式到来，绝不修改已摄入的内容。
-- **主人身份由导入方声明**（`owner_participant_ids` / `owner_user_ids` / `owner_addresses`），永不从消息正文推断。
+- **所有者身份由导入方声明**（`owner_participant_ids` / `owner_user_ids` / `owner_addresses` / `owner_id`），永不从消息正文推断。
 - **版本化**：在 `v1` 内新增可选字段向后兼容；改名/删字段、改身份语义、改可引用单元，需要新的 schema 版本。
 - `meta` 信封保留 provider 中立的呈现字段（会议起止/参与者/议程、库内路径/frontmatter/标签/双链、IM 成员/线程/编辑/表态、邮件收发件人/回复链/附件描述）——**但正文永不复制进 metadata**；阅读器按归一化顺序把 metadata 接回块，任何一项都能精确取回对应的 L0 块。
 - provider 适配器是防腐层，`mock`（canonical JSON）适配器校验的是完全同一套 schema——mock 导入与真实导入受同样的约束。Obsidian 适配器永不导入库配置、插件代码、点文件、符号链接及库外文件。

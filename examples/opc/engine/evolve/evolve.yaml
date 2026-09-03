@@ -1,0 +1,13 @@
+# Schema evolution: once enough new material has accrued, a strong model proposes
+# reorganizing the library's structure on a branch and waits for you to adopt or drop it.
+# Nothing is ever reorganized without your review.
+#
+# `auto_trigger: false` ships as the default so a first run holds no surprise model spend —
+# fire a round yourself with `./app.py evolve run`. Turn it on once you know your material's
+# arrival rhythm, and tune the thresholds to it: lower for a slow-trickle library, higher for
+# a daily bulk feed. Both thresholds must be met for a round to fire.
+auto_trigger: false
+trigger_topic_docs: 5
+trigger_new_claims: 30
+# A draft older than this many hours is dropped the next time proposals are listed.
+draft_ttl_hours: 24

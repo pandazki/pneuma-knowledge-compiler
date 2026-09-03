@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://knowledge.pneuma.dev/schemas/source/owner-dialogue-v1.schema.json",
+  "title": "Pneuma Owner Dialogue Source v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "provider", "dialogue_id", "owner_id", "turns"],
+  "properties": {
+    "schema": {"const": "pneuma.source.owner-dialogue/v1"},
+    "provider": {"enum": ["console", "mock"]},
+    "dialogue_id": {"type": "string", "minLength": 1},
+    "owner_id": {"type": "string", "minLength": 1},
+    "steward_id": {"type": ["string", "null"]},
+    "turns": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/turn"},
+      "contains": {"$ref": "#/$defs/ownerTurn"},
+      "description": "Every turn must carry text, and at least one of them must be spoken by the owner: a dialogue of steward turns alone — or one whose owner turn is blank — is not the owner's statement."
+    },
+    "metadata": {"type": "object"}
+  },
+  "$defs": {
+    "turn": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["turn_id", "role", "said_at", "text"],
+      "properties": {
+        "turn_id": {"type": "string", "minLength": 1},
+        "role": {"enum": ["owner", "steward"]},
+        "said_at": {"type": "string", "format": "date-time"},
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "description": "A turn nobody spoke is not a turn: the text must carry at least one non-whitespace character, which is the same rule the runtime applies with `.strip()`. `minLength` alone admitted \"   \\n \" — a blank turn that bought the payload full canonical treatment and could become no block anyone cites."
+        }
+      }
+    },
+    "ownerTurn": {
+      "type": "object",
+      "required": ["role"],
+      "properties": {"role": {"const": "owner"}}
+    }
+  }
+}

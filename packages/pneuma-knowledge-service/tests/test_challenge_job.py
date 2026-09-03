@@ -70,7 +70,9 @@ class _Store:
         self.enqueued.append((kind, payload))
         return f"job-{len(self.enqueued)}"
 
-    async def complete(self, user_id, job_id, *, ok=True, detail=None, snapshot_ref=None):
+    async def complete(
+        self, user_id, job_id, *, ok=True, detail=None, snapshot_ref=None, token_usage=None
+    ):
         self.completed.append({"job_id": job_id, "ok": ok, "detail": detail})
 
 

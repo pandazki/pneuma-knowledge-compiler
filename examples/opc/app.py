@@ -11,6 +11,8 @@ One command per action; `demo` runs the whole chain end to end:
     ./app.py compile            # drain the compile queue (real models)
     ./app.py ask "question"     # fast-path Q&A (--sources also prints the cited raw text)
     ./app.py glance             # print an overview of the current library (no re-ingest)
+    ./app.py restore            # restore the library shipped in prebuilt/, if this project
+                                #   ships one (no API key needed — nothing here calls a model)
     ./app.py evolve [action]    # schema evolution: list / run / show / adopt / drop proposals
     ./app.py status             # stack and library status
     ./app.py demo [--yes]       # up → init → ingest → compile → demo questions (if any) → glance
@@ -22,6 +24,14 @@ repository: while the scaffold lives inside the repository the parent directorie
 automatically; once copied outside it, set PNEUMA_APP_FRAMEWORK_REPO in .env. The top level of
 this file uses the standard library only — every framework import is deferred into a subcommand,
 and when the environment is missing the process re-execs itself via `uv run --project`.
+
+Strategy is NOT configured here and not in `.env`: it lives in `engine/` — the project's own
+versioned unit holding the model roles, chunking, answering, challenge and evolve knobs, the
+compile contract, the owner profile and any prompt overlays (see `engine/README.md`). This
+driver resolves them through the framework's own precedence chain — process environment >
+engine file > framework default — so the CLI, the API and the Engine Console can never
+disagree about what this engine is configured to do. `.env` holds only the API key and this
+machine's infrastructure.
 """
 
 from __future__ import annotations
@@ -45,11 +55,20 @@ os.environ.setdefault("PYTHONDONTWRITEBYTECODE", "1")
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 ENV_PATH = PROJECT_ROOT / ".env"
-PROFILE_PATH = PROJECT_ROOT / "profile.yaml"
-CONTRACT_PATH = PROJECT_ROOT / "contract.md"
+# The engine: one versioned directory (its own git repository) holding everything that IS
+# this project's engine. The two documents inside it are addressed directly because this
+# driver parses them itself; the strategy files are read through the framework's resolver.
+ENGINE_DIR = PROJECT_ROOT / "engine"
+PROFILE_PATH = ENGINE_DIR / "persona" / "profile.yaml"
+CONTRACT_PATH = ENGINE_DIR / "compile" / "contract.md"
 MY_DATA_DIR = PROJECT_ROOT / "my-data"
 DATA_ROOT = PROJECT_ROOT / "data"
 COMPOSE_FILE = PROJECT_ROOT / "docker-compose.yml"
+# Optional: a library that ships with the project (canonical.bundle + l0.jsonl.gz, plus
+# media/sha256 when that L0 contains images — authority payloads). Present in a project
+# generated with `init.py --demo`, absent otherwise;
+# `./app.py restore` says so rather than failing obscurely.
+PREBUILT_DIR = PROJECT_ROOT / "prebuilt"
 # Optional, written by the generator when the project starts from the example dataset:
 # one demo question per line, asked at the end of `demo`. Absent → demo skips the Q&A tail.
 DEMO_QUESTIONS_PATH = PROJECT_ROOT / "demo-questions.txt"
@@ -60,6 +79,13 @@ DEMO_QUESTIONS_PATH = PROJECT_ROOT / "demo-questions.txt"
 DEFAULT_PG_PORT = 15436
 DEFAULT_QDRANT_PORT = 16373
 DEFAULT_MEILI_PORT = 17704
+DEFAULT_RUSTFS_PORT = 19004
+
+# The deterministic embedding used when no API key is present. Its dimension matches the
+# recommended default embedding model, so a vector collection built keyless stays usable
+# after a key arrives. An engine that names an embedding model of a different dimension sets
+# PNEUMA_APP_KEYLESS_EMBEDDING=fake:<that dimension> in .env.
+KEYLESS_EMBEDDING = "fake:1536"
 
 CONTRACT_RULES = (
     "contract.rule.citation_granularity",
@@ -225,7 +251,11 @@ def parse_conversation_turns(body: str) -> list[tuple[str, str]]:
 
 
 def isolation_problems(
-    pg_dsn: str, qdrant_url: str, meili_url: str, canonical_root: str
+    pg_dsn: str,
+    qdrant_url: str,
+    meili_url: str,
+    canonical_root: str,
+    media_endpoint_url: str | None = None,
 ) -> list[str]:
     """Every connection target must land on this project's own stack — the ports written
     into .env (probed free at generation time). A configuration that drifted toward some
@@ -244,6 +274,13 @@ def isolation_problems(
         problems.append(
             f"meili_url does not point at this project's own port (expected {expected_meili.strip(':')}): {meili_url}"
         )
+    if media_endpoint_url is not None:
+        expected_rustfs = f":{stack_port('PNEUMA_APP_RUSTFS_PORT', DEFAULT_RUSTFS_PORT)}"
+        if expected_rustfs not in media_endpoint_url:
+            problems.append(
+                "media endpoint does not point at this project's own port "
+                f"(expected {expected_rustfs.strip(':')}): {media_endpoint_url}"
+            )
     root = Path(canonical_root).resolve()
     if not str(root).startswith(str(PROJECT_ROOT)):
         problems.append(f"canonical_root lands outside the project directory: {root}")
@@ -494,40 +531,115 @@ def user_id() -> str:
     return os.environ.get("PNEUMA_APP_USER_ID", "u-app-owner").strip() or "u-app-owner"
 
 
-def require_models() -> dict[str, str]:
-    missing = []
+def engine_strategy() -> dict:
+    """Every strategy knob the engine directory resolves, as `Settings` init kwargs.
+
+    The framework's own resolver is used rather than a second reading of the same YAML:
+    precedence (process environment > engine file > framework default) then has exactly one
+    implementation across this CLI, the API and the Engine Console. Note that `.env` is
+    loaded into the process environment before anything here runs, so a PNEUMA_KNOWLEDGE_*
+    strategy key placed there would outrank the engine file — which is precisely why the
+    generated `.env` carries none."""
+    from pneuma_knowledge_service.engine.resolve import engine_overrides
+
+    overrides, _resolution = engine_overrides(ENGINE_DIR, os.environ)
+    return overrides
+
+
+def apply_prompt_overlays() -> int:
+    """engine/prompts/overlays.yaml → the framework's prompt catalog. Returns how many
+    clauses were replaced.
+
+    Two layers, in this order: the `language` knob's language pack becomes the framework's
+    own wording, and then this project's overlay clauses are registered on top of it. The
+    order is the point — a clause written here must survive the pack, not be taken back by
+    it.
+
+    Without this call both would be decoration. An unknown catalog key raises rather than
+    being ignored: a silent no-op override is the worst outcome, because the framework's own
+    wording keeps reaching the model while the project believes it does not."""
+    from pneuma_knowledge_service.engine.files import parse_overlays, read_mapping
+    from pneuma_knowledge_service.engine.prompts import active_language, apply_prompt_stack
+
+    overlays = parse_overlays(
+        "prompts/overlays.yaml", read_mapping(ENGINE_DIR, "prompts/overlays.yaml")
+    )
+    return apply_prompt_stack(active_language(ENGINE_DIR, os.environ), overlays)
+
+
+def keyless_env(env) -> list[str]:
+    """Without an API key, configure the whole model-free path. Returns lines to print.
+
+    Browsing a compiled library must never depend on a credential. Chat-model roles are
+    deliberately NOT blanked here: the framework treats "openrouter spec without a key"
+    as unusable at every dispatch point (asking answers 503, semantic chunking degrades
+    mechanically), so the engine file keeps naming this project's models and the console
+    shows that truth instead of an env lock. Only the embedding is pinned: its probe runs
+    eagerly at startup and the vector collection's dimension is fixed at creation, so the
+    keyless process must state a deterministic one.
+
+    Shared by the read-only CLI commands and the compose entrypoints (server.py / worker.py),
+    so "what keyless means" has exactly one definition."""
+    if env.get("OPENROUTER_API_KEY", "").strip():
+        return []
+    embedding = env.get("PNEUMA_APP_KEYLESS_EMBEDDING", "").strip() or KEYLESS_EMBEDDING
+    env["PNEUMA_KNOWLEDGE_EMBEDDING_MODEL"] = embedding
+    return [
+        f"  (no OPENROUTER_API_KEY: browsing only — deterministic embeddings {embedding},",
+        "   mechanical chunking. The library, its sources and every citation are fully",
+        "   readable; asking questions, compiling and AI rewrite need a key.)",
+    ]
+
+
+def require_models(*, require_key: bool = True) -> dict[str, str]:
+    """The model roles as the engine resolves them, or a loud exit naming what is
+    missing. `answer` and `deep` may legitimately borrow the recall role.
+
+    `require_key=False` is for the paths that call no chat model at all (restore, status,
+    glance): there, blank roles are the configuration, not an error."""
+    from pneuma_knowledge_service.engine.resolve import resolve_engine
+
+    values = resolve_engine(ENGINE_DIR, os.environ).values
     roles = {
-        "compile": os.environ.get("PNEUMA_APP_COMPILE_MODEL", "").strip(),
-        "recall": os.environ.get("PNEUMA_APP_RECALL_MODEL", "").strip(),
-        "embedding": os.environ.get("PNEUMA_APP_EMBEDDING_MODEL", "").strip(),
+        role: str(values.get(f"models.{role}") or "").strip()
+        for role in ("compile", "recall", "embedding")
     }
-    for role, value in roles.items():
-        if not value:
-            missing.append(f"PNEUMA_APP_{role.upper()}_MODEL" if role != "embedding" else "PNEUMA_APP_EMBEDDING_MODEL")
+    missing = [f"engine.yaml: {role}" for role, value in roles.items() if not value]
     if not os.environ.get("OPENROUTER_API_KEY", "").strip():
-        missing.append("OPENROUTER_API_KEY")
-    if missing:
-        sys.exit("error: .env is missing required settings:\n  " + "\n  ".join(missing) + "\nSee README.md for the key names.")
-    roles["deep"] = os.environ.get("PNEUMA_APP_DEEP_MODEL", "").strip() or roles["recall"]
+        missing.append(".env: OPENROUTER_API_KEY")
+    if missing and require_key:
+        sys.exit(
+            "error: this engine is missing required settings:\n  "
+            + "\n  ".join(missing)
+            + "\nModels live in engine/engine.yaml; the key lives in .env. See README.md."
+        )
+    roles["answer"] = str(values.get("models.answer") or "").strip() or roles["recall"]
+    roles["deep"] = str(values.get("models.deep") or "").strip() or roles["recall"]
     return roles
 
 
-def build_settings(base_version: str = ""):
-    """App-wide Settings. `base_version` must be the registered contract version whenever
-    the worker may process job kinds beyond `compile` (groom/evolve/challenge): those
-    resolve their skill from settings rather than from the explicitly passed one, and an
-    empty version fails loudly at the first such job."""
+def build_settings(base_version: str = "", *, require_key: bool = True):
+    """App-wide Settings: this machine's infrastructure + everything the engine resolves.
+
+    `base_version` must be the registered contract version whenever the worker may process
+    job kinds beyond `compile` (groom/evolve/challenge): those resolve their skill from
+    settings rather than from the explicitly passed one, and an empty version fails loudly
+    at the first such job."""
     from pneuma_knowledge_service.settings import Settings
 
-    models = require_models()
+    models = require_models(require_key=require_key)
+    apply_prompt_overlays()
     profile = load_profile()
     zone, _source = resolved_timezone(profile)
     pg_port = stack_port("PNEUMA_APP_PG_PORT", DEFAULT_PG_PORT)
     qdrant_port = stack_port("PNEUMA_APP_QDRANT_PORT", DEFAULT_QDRANT_PORT)
     meili_port = stack_port("PNEUMA_APP_MEILI_PORT", DEFAULT_MEILI_PORT)
+    rustfs_port = stack_port("PNEUMA_APP_RUSTFS_PORT", DEFAULT_RUSTFS_PORT)
     canonical = DATA_ROOT / "canonical"
     canonical.mkdir(parents=True, exist_ok=True)
-    settings = Settings(
+    kwargs = engine_strategy()
+    kwargs.update(
+        engine_dir=str(ENGINE_DIR),
         pg_dsn=(
             "postgresql://pneuma_knowledge:"
             f"{os.environ.get('PNEUMA_APP_PG_PASSWORD', 'pneuma_knowledge')}"
@@ -537,23 +649,29 @@ def build_settings(base_version: str = ""):
         qdrant_collection=os.environ.get("PNEUMA_APP_QDRANT_COLLECTION", "pneuma_app_chunks"),
         meili_url=f"http://localhost:{meili_port}",
         meili_key=os.environ.get("PNEUMA_APP_MEILI_KEY", "masterKey_change_me"),
+        media_s3_endpoint_url=f"http://localhost:{rustfs_port}",
+        media_s3_access_key=os.environ.get("PNEUMA_APP_RUSTFS_ACCESS_KEY", ""),
+        media_s3_secret_key=os.environ.get("PNEUMA_APP_RUSTFS_SECRET_KEY", ""),
         canonical_root=str(canonical),
         default_timezone=zone,
-        chunk_strategy=os.environ.get("PNEUMA_APP_CHUNK_STRATEGY", "semantic"),
-        evolve_auto_trigger=False,
         user_schema_packs=False,
         user_schema_base_version=base_version,
+        # The base spec and the roles nobody chose in engine.yaml: compile is the strongest
+        # thing this project has, so it is the sane fallback, and `deep` empty means "answer
+        # deep questions with the recall model".
         llm_model=models["compile"],
-        llm_model_compile=models["compile"],
-        llm_model_recall=models["recall"],
         llm_model_deep=models["deep"],
         llm_model_skill="",
         llm_model_evolve="",
         llm_model_live_context="",
-        embedding_model=models["embedding"],
     )
+    settings = Settings(**kwargs)
     problems = isolation_problems(
-        settings.pg_dsn, settings.qdrant_url, settings.meili_url, settings.canonical_root
+        settings.pg_dsn,
+        settings.qdrant_url,
+        settings.meili_url,
+        settings.canonical_root,
+        settings.media_s3_endpoint_url,
     )
     if problems:
         sys.exit("error: stack isolation check failed:\n  - " + "\n  - ".join(problems))
@@ -647,7 +765,7 @@ async def upsert_owner_profile(ctx, uid) -> None:
 def cmd_up(_args) -> int:
     if not COMPOSE_FILE.exists():
         sys.exit(f"error: {COMPOSE_FILE} not found")
-    print("== Starting the middleware stack (postgres / qdrant / meilisearch) ==")
+    print("== Starting the middleware stack (postgres / qdrant / meilisearch / rustfs) ==")
     result = subprocess.run(
         ["docker", "compose", "-f", str(COMPOSE_FILE), "up", "-d", "--wait"],
         cwd=PROJECT_ROOT,
@@ -660,6 +778,7 @@ def cmd_up(_args) -> int:
         f"pg :{stack_port('PNEUMA_APP_PG_PORT', DEFAULT_PG_PORT)}  "
         f"qdrant :{stack_port('PNEUMA_APP_QDRANT_PORT', DEFAULT_QDRANT_PORT)}  "
         f"meili :{stack_port('PNEUMA_APP_MEILI_PORT', DEFAULT_MEILI_PORT)}"
+        f"  rustfs :{stack_port('PNEUMA_APP_RUSTFS_PORT', DEFAULT_RUSTFS_PORT)}"
     )
     return 0
 
@@ -924,6 +1043,13 @@ async def _compile() -> tuple[int, dict[str, int]]:
     try:
         uid = UserId(user_id())
         await upsert_owner_profile(ctx, uid)
+        # A drain killed mid-job (Ctrl-C, agent timeout, machine sleep) leaves its claim
+        # orphaned, and claim_next then refuses this user's queue forever — the worker
+        # service self-heals on startup, but this in-process drain is many users' ONLY
+        # drain path, so it must heal too or one interrupted compile bricks the project.
+        from pneuma_knowledge_service.workers.compile_worker import requeue_orphaned_jobs
+
+        await requeue_orphaned_jobs(ctx, label="app-compile")
         model = ctx.get_chat_model("compile")
         tracker = _attach_usage_tracker(model)
         print(f"== Draining the compile queue (user={uid}, contract {skill.skill_id}@{skill.version}) ==")
@@ -938,15 +1064,27 @@ async def _compile() -> tuple[int, dict[str, int]]:
             print(f"  {len(retriable)} compile jobs rejected by the gate — one retry round…")
             seen: set[str] = set()
             for job in retriable:
+                payload = job.get("payload") or {}
                 sources = [
                     str(s)
-                    for s in (job.get("payload") or {}).get("source_ids", [])
+                    for s in payload.get("source_ids", [])
                     if str(s) not in seen
                 ]
                 if not sources:
                     continue
                 seen.update(sources)
-                await ctx.store.enqueue(uid, "compile", {"source_ids": sources})
+                # Carry the per-source treatments over: without them the retry compiles at
+                # the plan's default, so a source the caller asked to only DISTIL gets
+                # digested in full — the retry would quietly overrule the intake decision.
+                treatments = {
+                    sid: t
+                    for sid, t in (payload.get("treatments") or {}).items()
+                    if str(sid) in set(sources)
+                }
+                retry_payload = {"source_ids": sources}
+                if treatments:
+                    retry_payload["treatments"] = treatments
+                await ctx.store.enqueue(uid, "compile", retry_payload)
             processed += await _drain_with_progress(ctx, model, skill, uid)
             failures = _unresolved_failures(await ctx.store.list_jobs(uid))
         elapsed = time.perf_counter() - started
@@ -1074,6 +1212,63 @@ async def _evolve_drop(task_id: str) -> int:
     return 0
 
 
+async def _evolve_pending_draft():
+    """The live draft's task_id, or None. One place answers "is something awaiting review"."""
+    from pneuma_knowledge_service.evolve_service import list_tasks_with_expiry
+
+    ctx, uid = await _evolve_ctx()
+    try:
+        tasks = await list_tasks_with_expiry(ctx, uid)
+    finally:
+        await ctx.aclose()
+    for task in tasks:
+        if task["status"] == "draft":
+            return str(task["task_id"])
+    return None
+
+
+async def _evolve_step(policy: str) -> int:
+    """One idempotent evolution step — the verb unattended pipelines should call.
+
+    `evolve run` refuses while a draft awaits review, so a script composing run/adopt by
+    hand must carry that state machine itself; every automation writing it fresh is a
+    bug factory (observed live: a retry loop hammering `run` against the same pending
+    draft eight times). `step` owns the whole cycle instead:
+
+      pending draft?  → dispose it per --policy (adopt-clean: adopt now; keep: leave it
+                        and say so with exit 2)
+      no draft        → trigger one evolve run, then dispose any NEW draft the same way
+
+    Safe to call repeatedly from a loop or a data-driven trigger: every invocation either
+    makes progress, reports "nothing to do", or names the draft a human must look at.
+    Exit codes: 0 progressed / nothing to do · 1 real failure · 2 draft kept for review.
+    """
+    pending = await _evolve_pending_draft()
+    if pending is None:
+        code = await _evolve_enqueue("evolve", {})
+        if code != 0:
+            return code
+        pending = await _evolve_pending_draft()
+        if pending is None:
+            print("evolve step: no draft produced (no_change or below thresholds).")
+            return 0
+    if policy == "keep":
+        print(f"evolve step: draft {pending} awaits review (policy=keep). "
+              f"Inspect: ./app.py evolve show {pending}")
+        return 2
+    # adopt-clean: adoption itself runs the ordinary gate; a failing adopt leaves the
+    # draft in place and this returns nonzero rather than pretending progress.
+    code = await _evolve_enqueue("evolve_adopt", {"task_id": pending})
+    if code != 0:
+        return code
+    if await _evolve_pending_draft() == pending:
+        print(f"evolve step: adopt did not land; draft {pending} kept for review.",
+              file=sys.stderr)
+        return 2
+    print(f"evolve step: draft {pending} adopted.")
+    return 0
+
+
 def cmd_evolve(args) -> int:
     action = args.action or "list"
     if action in ("show", "adopt", "drop") and not args.task_id:
@@ -1084,6 +1279,8 @@ def cmd_evolve(args) -> int:
         return asyncio.run(_evolve_show(args.task_id))
     if action == "run":
         return asyncio.run(_evolve_enqueue("evolve", {}))
+    if action == "step":
+        return asyncio.run(_evolve_step(getattr(args, "policy", "adopt-clean") or "adopt-clean"))
     if action == "adopt":
         return asyncio.run(_evolve_enqueue("evolve_adopt", {"task_id": args.task_id}))
     if action == "drop":
@@ -1098,10 +1295,22 @@ async def _glance_text(ctx, uid, skill) -> str:
     return render_canonical_glance(docs, skill)
 
 
-async def _ask(question: str, *, show_sources: bool = False) -> tuple[int, dict[str, int]]:
+async def _ask(
+    question: str,
+    *,
+    show_sources: bool = False,
+    style: str | None = None,
+    evidence_strategy: str | None = None,
+    answer_format: str | None = None,
+    as_of: datetime | None = None,
+    include_original_modalities: tuple[str, ...] = (),
+) -> tuple[int, dict[str, int]]:
     from pneuma_knowledge_core.domain.ids import UserId
     from pneuma_knowledge_core.recall.fast import fast_recall
-    from pneuma_knowledge_service.wiring import build_context, llm_call_config
+    from pneuma_knowledge_service.wiring import (
+        build_context,
+        llm_call_config,
+    )
 
     skill = load_contract_skill()
     settings = build_settings(base_version=skill.version)
@@ -1109,25 +1318,37 @@ async def _ask(question: str, *, show_sources: bool = False) -> tuple[int, dict[
     try:
         uid = UserId(user_id())
         started = time.perf_counter()
+        recall_model = ctx.get_chat_model("recall")
+        answer_model = ctx.get_chat_model("answer")
+        include_original_images = "image" in include_original_modalities
         answer = await fast_recall(
             uid,
             question,
-            as_of=datetime.now(timezone.utc),
+            as_of=as_of or datetime.now(timezone.utc),
             claim_lexical=ctx.lexical,
             claim_vectors=ctx.vectors,
             lexical=ctx.lexical,
             vectors=ctx.vectors,
             content=ctx.store,
+            media=ctx.media if include_original_images else None,
+            image_mode="native" if include_original_images else "caption",
             embeddings=ctx.embeddings,
-            model=ctx.get_chat_model("recall"),
+            model=recall_model,
+            answer_model=answer_model,
             cap=settings.recall_claim_cap,
             claim_candidate_cap=settings.recall_claim_candidate_cap,
             window_cap=settings.recall_window_cap,
             window_candidate_cap=settings.recall_window_candidate_cap,
             episode_summary_cap=settings.recall_episode_summary_cap,
+            evidence_strategy=evidence_strategy or settings.recall_evidence_strategy,
+            all_context_chars=settings.recall_all_context_chars,
+            selection_reasoning_effort=settings.recall_selection_reasoning_effort or None,
+            answer_format=answer_format or settings.recall_answer_format,
+            answer_style=style or settings.recall_answer_style,
             plan_queries_cap=settings.recall_plan_queries,
             reranker=ctx.get_reranker(),
             rerank_candidates=settings.recall_rerank_candidates,
+            reasoning_effort=settings.answer_reasoning_effort or None,
             **llm_call_config(ctx, operation="recall.fast", user_id=str(uid)),
         )
         elapsed = time.perf_counter() - started
@@ -1189,8 +1410,30 @@ async def _ask(question: str, *, show_sources: bool = False) -> tuple[int, dict[
         await ctx.aclose()
 
 
+def parse_as_of(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        sys.exit("error: --as-of must be a timezone-aware ISO 8601 timestamp")
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        sys.exit("error: --as-of must include a timezone offset")
+    return parsed
+
+
 def cmd_ask(args) -> int:
-    code, _usage = asyncio.run(_ask(args.question, show_sources=args.sources))
+    code, _usage = asyncio.run(
+        _ask(
+            args.question,
+            show_sources=args.sources,
+            style=args.style,
+            evidence_strategy=args.evidence_strategy,
+            answer_format=args.answer_format,
+            as_of=parse_as_of(args.as_of),
+            include_original_modalities=tuple(args.include_original),
+        )
+    )
     return code
 
 
@@ -1201,8 +1444,10 @@ async def _status() -> int:
     subprocess.run(
         ["docker", "compose", "-f", str(COMPOSE_FILE), "ps"], cwd=PROJECT_ROOT, check=False
     )
+    for line in keyless_env(os.environ):  # counting what is there needs no model
+        print(line)
     try:
-        settings = build_settings()
+        settings = build_settings(require_key=False)
         ctx = await build_context(settings)
     except SystemExit:
         raise
@@ -1231,12 +1476,14 @@ def cmd_status(_args) -> int:
 
 async def _glance() -> int:
     """The same overview demo prints at the end, available on its own at any time: it only
-    reads the current library — no re-ingest, no compile."""
+    reads the current library — no re-ingest, no compile, and no key needed."""
     from pneuma_knowledge_core.domain.ids import UserId
     from pneuma_knowledge_service.wiring import build_context
 
+    for line in keyless_env(os.environ):
+        print(line)
     skill = load_contract_skill()
-    settings = build_settings(base_version=skill.version)
+    settings = build_settings(base_version=skill.version, require_key=False)
     ctx = await build_context(settings)
     try:
         uid = UserId(user_id())
@@ -1249,6 +1496,66 @@ async def _glance() -> int:
 
 def cmd_glance(_args) -> int:
     return asyncio.run(_glance())
+
+
+async def _restore() -> int:
+    """Restore the library this project ships (prebuilt/) into the running stack.
+
+    Model-free by construction: a restore must cost nothing and reproduce the shipped library
+    rather than recompute it, so the chat roles are cleared for this process even when a key
+    is present. The framework owns the actual restore (canonical bundle + verbatim L0 and
+    original media in, derived state rebuilt); this command only supplies the settings and
+    the report."""
+    from pneuma_knowledge_core.domain.ids import UserId
+    from pneuma_knowledge_service.prebuilt import PrebuiltUnavailable, restore_prebuilt
+    from pneuma_knowledge_service.wiring import build_context
+
+    for line in keyless_env(os.environ):
+        print(line)
+    # Even WITH a key this process stays model-free: a restore reproduces the shipped
+    # library (its vectors are the shipped deterministic embedding, its chunk boundaries
+    # replay mechanically), so chat roles are cleared for THIS process and the embedding
+    # pinned to the keyless one. The engine file is untouched — env outranks it only here.
+    for role in ("", "_COMPILE", "_RECALL", "_DEEP", "_SKILL", "_EVOLVE", "_LIVE_CONTEXT", "_CHALLENGE"):
+        os.environ[f"PNEUMA_KNOWLEDGE_LLM_MODEL{role}"] = ""
+    os.environ["PNEUMA_KNOWLEDGE_EMBEDDING_MODEL"] = (
+        os.environ.get("PNEUMA_APP_KEYLESS_EMBEDDING", "").strip() or KEYLESS_EMBEDDING
+    )
+    skill = load_contract_skill()
+    settings = build_settings(base_version=skill.version, require_key=False)
+    ctx = await build_context(settings)
+    try:
+        uid = UserId(user_id())
+        print("== Restoring the prebuilt library (no model calls) ==")
+        await upsert_owner_profile(ctx, uid)
+        try:
+            report = await restore_prebuilt(ctx, uid, PREBUILT_DIR, log=print)
+        except PrebuiltUnavailable as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        print(
+            f"\nRestored: {report.documents} canonical document(s), {report.claims} claim(s), "
+            f"{report.sources} source(s), {report.images} image object(s) — all readable "
+            "without an API key."
+        )
+        print("  ./app.py glance            # the library overview")
+        print("  ./app.py ask '...'         # needs a key (asking calls a model)")
+    finally:
+        await ctx.aclose()
+    return 0
+
+
+def cmd_restore(_args) -> int:
+    if not PREBUILT_DIR.is_dir():
+        print(
+            f"no prebuilt library in this project ({PREBUILT_DIR} does not exist) — nothing to\n"
+            "restore. Projects that ship one carry prebuilt/canonical.bundle and\n"
+            "prebuilt/l0.jsonl.gz, plus prebuilt/media/sha256 when L0 contains images; yours "
+            "is built from my-data/ with ./app.py ingest + compile.",
+            file=sys.stderr,
+        )
+        return 1
+    return asyncio.run(_restore())
 
 
 def cmd_preflight(_args) -> int:
@@ -1344,6 +1651,7 @@ def cmd_demo(args) -> int:
     print("\nYour turn:")
     print("  ./app.py ask '...'         # ask anything (--sources also shows the cited raw text)")
     print("  ./app.py glance            # look at the library overview any time")
+    print("  engine/                    # this engine's strategy and contract, versioned (see engine/README.md)")
     print("  Switching to your own data: see README.md (or let your AI guide walk you through)")
     print("  Reset and start over: ./app.py down --volumes && rm -rf data/")
     return 0
@@ -1380,11 +1688,60 @@ def main() -> int:
     ask = sub.add_parser("ask", help="fast-lane Q&A")
     ask.add_argument("question")
     ask.add_argument("--sources", action="store_true", help="also print the cited source windows")
+    ask.add_argument(
+        "--style",
+        choices=["concise", "conversational", "detailed"],
+        help="answer style for this ask (default: PNEUMA_KNOWLEDGE_RECALL_ANSWER_STYLE in .env)",
+    )
+    ask.add_argument(
+        "--evidence-strategy",
+        choices=["ranked", "select", "all"],
+        help=(
+            "context composition for this ask: ranked keeps fixed retrieval heads; select "
+            "uses one bounded cross-face selection call; all makes no selection call and "
+            "hands the whole candidate pool to the answer"
+        ),
+    )
+    ask.add_argument(
+        "--answer-format",
+        choices=["text", "structured"],
+        help=(
+            "answer wire for this ask: text is free text; structured validates separate "
+            "answer text, kind, and citations"
+        ),
+    )
+    ask.add_argument(
+        "--as-of",
+        help=(
+            "timezone-aware ISO 8601 time of the question; omit for current UTC time. "
+            "Set it when replaying a historical question"
+        ),
+    )
+    ask.add_argument(
+        "--include-original",
+        action="append",
+        choices=["image"],
+        default=[],
+        metavar="MODALITY",
+        help=(
+            "include one original modality in this ask; currently: image. Repeatable for "
+            "future modalities. Omit it to use labelled derived representations only"
+        ),
+    )
     sub.add_parser("glance", help="print the library overview (no re-ingest)")
-    evolve = sub.add_parser("evolve", help="schema evolution: list / run / show / adopt / drop proposals")
+    sub.add_parser(
+        "restore", help="restore the library this project ships in prebuilt/ (no key needed)"
+    )
+    evolve = sub.add_parser("evolve", help="schema evolution: list / step / run / show / adopt / drop")
     evolve.add_argument("action", nargs="?", default="list",
-                        choices=["list", "run", "show", "adopt", "drop"])
+                        choices=["list", "step", "run", "show", "adopt", "drop"])
     evolve.add_argument("task_id", nargs="?")
+    evolve.add_argument(
+        "--policy",
+        choices=["adopt-clean", "keep"],
+        default="adopt-clean",
+        help="evolve step only: dispose a draft by adopting it (gate decides), or keep it for review (exit 2)",
+    )
     sub.add_parser("status", help="stack and library status")
     demo = sub.add_parser("demo", help="end to end: up → init → ingest → compile → Q&A")
     demo.add_argument("--yes", action="store_true", help="no prompts, take every default (CI/non-interactive)")
@@ -1405,6 +1762,7 @@ def main() -> int:
         "compile": cmd_compile,
         "ask": cmd_ask,
         "glance": cmd_glance,
+        "restore": cmd_restore,
         "evolve": cmd_evolve,
         "status": cmd_status,
         "demo": cmd_demo,

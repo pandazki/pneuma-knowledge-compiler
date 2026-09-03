@@ -142,3 +142,49 @@ export function fmtTokens(n: number | undefined): string {
   if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
   return String(n);
 }
+
+/**
+ * Money, as the API handed it over: the amount and the currency LABEL the deployment
+ * declared, never a symbol this app chose for it. `—` when there is no cost — which is what
+ * an undeclared price reads as, and is deliberately not `0.00`.
+ *
+ * The decimals scale with the amount because both ends are real: a compile run costs
+ * dollars, and one fast answer costs fractions of a cent. Two decimals everywhere would
+ * print `0.00` for money that was actually spent.
+ */
+export function fmtMoney(
+  cost: { amount: number; currency: string } | null | undefined,
+): string {
+  if (!cost || !Number.isFinite(cost.amount)) return "—";
+  const size = Math.abs(cost.amount);
+  const decimals = size >= 1 ? 2 : size >= 0.01 ? 4 : 6;
+  return `${cost.amount.toFixed(decimals)} ${cost.currency}`;
+}
+
+/**
+ * The one token ledger's line, as text: what a call spent, and — only where the deployment
+ * declared a price for the model behind it — what that cost.
+ *
+ * A string builder rather than markup because the decision in it is worth testing: an
+ * undeclared price prints NOTHING, not `0.00`, and "the deployment says nothing about this
+ * model" must never read as "this call was free". `UsageLine` renders exactly this.
+ */
+export function usageLine(
+  usage: {
+    input_tokens?: number;
+    output_tokens?: number;
+    total_tokens?: number;
+    cache_read?: number;
+    cache_creation?: number;
+  },
+  cost?: { amount: number; currency: string } | null,
+  locale: Locale = activeLocale(),
+): string {
+  const line =
+    `in ${fmtCount(usage.input_tokens ?? 0, locale)} · ` +
+    `out ${fmtCount(usage.output_tokens ?? 0, locale)} · ` +
+    `total ${fmtCount(usage.total_tokens ?? 0, locale)} · ` +
+    `cache_read ${fmtCount(usage.cache_read ?? 0, locale)} · ` +
+    `cache_creation ${fmtCount(usage.cache_creation ?? 0, locale)}`;
+  return cost ? `${line} · cost ${fmtMoney(cost)}` : line;
+}

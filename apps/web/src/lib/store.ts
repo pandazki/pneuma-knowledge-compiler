@@ -1,9 +1,10 @@
 import { create } from "zustand";
-import type { Dataset, Selection, UserProfile, ViewName } from "./types";
+import type { Dataset, Selection, UserProfile, ViewName, VisitorClass } from "./types";
 import type { MessageKey, MessageParams } from "./i18n";
 import { LOCALE_STORAGE_KEY, detectLocale, setActiveLocale, type Locale } from "./i18n";
 import { buildModel, type Model } from "./model";
 import { hashToState, sameSelection, selectionToHash } from "./hash";
+import { LENS_HOME, isLens, resolveView, type Lens } from "./lenses";
 import { needsCanonicalDataset } from "./datasetLoading";
 import { appendUniqueSnapshots } from "./snapshotPagination";
 import { briefingSelection } from "./ask";
@@ -23,14 +24,19 @@ import {
   type RecallAnswer,
   type BriefingBuilt,
   type TokenUsage,
+  type Cost,
 } from "./api";
 
 type Theme = "light" | "dark";
 
 const USER_KEY = "pneuma_knowledge-user";
+/** The identity lens is the person at the keyboard, so it persists like the theme does. */
+const LENS_KEY = "pneuma_knowledge-lens";
 const RECENT_KEY = "pneuma_knowledge-recent-users";
 /** Cap on the persisted recent-users MRU list. The top-bar panel shows at most 3. */
 const RECENT_MAX = 8;
+/** Cap on the reading room's in-memory session history — a long sitting is not a leak. */
+const SESSION_ASKS_MAX = 50;
 
 /** Read the persisted recent-users MRU list (newest first), tolerating bad JSON. */
 function loadRecent(): string[] {
@@ -41,6 +47,21 @@ function loadRecent(): string[] {
     return Array.isArray(arr) ? arr.filter((x): x is string => typeof x === "string") : [];
   } catch {
     return [];
+  }
+}
+
+/**
+ * The persisted identity lens, defaulting to `owner`: the first person to open a console
+ * they installed is its owner, and a reading room nobody asked for would be a puzzle.
+ * Anything unrecognised in storage reads as `owner` rather than as a broken app.
+ */
+function loadLens(): Lens {
+  if (typeof localStorage === "undefined") return "owner";
+  try {
+    const raw = localStorage.getItem(LENS_KEY);
+    return isLens(raw) ? raw : "owner";
+  } catch {
+    return "owner";
   }
 }
 
@@ -66,6 +87,14 @@ export type RecallMode = "rag" | "fast" | "deep";
 export type AskMode = "briefing" | "fast" | "deep";
 
 /**
+ * Re-exported so views reach the identity, the class it derives, and the store through one
+ * import. Nothing beside a question chooses a class any more: the lens the person is
+ * wearing decides it (lib/lenses), which is why `visitorClass` is not state here.
+ */
+export type { VisitorClass };
+export type { Lens };
+
+/**
  * Recall view's inputs + last result, lifted into the store so a view-switch (→ Sources
  * on a citation click) and Back does not evaporate the answer. In-memory only, per active
  * user — cleared on `setUser` so one user's recall never bleeds into another's.
@@ -78,6 +107,17 @@ export interface RecallCache {
   rag: RagResult | null;
   answer: RecallAnswer | null;
   error: string | null;
+}
+
+/**
+ * One finished question in the reading room's session history: the question as it was
+ * typed, the lane that answered it, and the answer object itself — so re-opening it redraws
+ * the same panel the live run drew, with its citations still clickable.
+ */
+export interface SessionAsk {
+  question: string;
+  mode: RecallMode;
+  answer: RecallAnswer;
 }
 
 export interface AskCitation {
@@ -94,6 +134,9 @@ export interface AskTurn {
   citations: AskCitation[];
   handles: Record<string, string>;
   usage: TokenUsage;
+  /** What the turn cost, when the deployment declared a price for the model that answered
+   *  it. Held on the turn beside its usage, for the same reason the usage is. */
+  cost?: Cost | null;
   /** The L0 pulls this turn made, held ON the turn. Parked in component state keyed by turn
    * index, they outlived the thread they belonged to and resurfaced under the next briefing. */
   verbatim?: Record<string, unknown>[];
@@ -145,6 +188,36 @@ const EMPTY_RECALL_CACHE: RecallCache = {
   answer: null,
   error: null,
 };
+
+/**
+ * What belongs to a SITTING rather than to the console: the reading room's last question,
+ * its answer and its citations, plus the session history of the same.
+ *
+ * Reset when the person changes (`setLens`) and when the library changes (`setUser`) — the
+ * two events that make the state on screen somebody else's. `askCache` and `liveContext`
+ * are deliberately not here: their views are the owner's alone (lib/lenses `VIEW_LENSES`),
+ * so no other identity can reach them, and dropping a Live Context conversation on a lens
+ * toggle would destroy work without closing any leak.
+ */
+const IDENTITY_RESET = {
+  recallCache: EMPTY_RECALL_CACHE,
+  sessionAsks: [] as SessionAsk[],
+};
+
+/**
+ * The same reset, plus the fact that it HAPPENED.
+ *
+ * Clearing the fields settles what is on screen; the epoch settles what may still be
+ * written to them. A recall request in flight when the person changed cannot be un-sent, so
+ * it comes back and writes — into the sitting that was just cleared, under the new
+ * identity's name. Every completion handler that survives this boundary asks the epoch it
+ * started under whether it is still the current one, which is why the number is bumped in
+ * exactly the two places the fields are cleared and nowhere else.
+ */
+const identityReset = (state: { identityEpoch: number }) => ({
+  ...IDENTITY_RESET,
+  identityEpoch: state.identityEpoch + 1,
+});
 
 const EMPTY_ASK_CACHE: AskCache = {
   scopeQuery: "",
@@ -235,6 +308,40 @@ interface AppState {
   view: ViewName;
   selection: Selection;
   theme: Theme;
+  /**
+   * Who is at this console. NOT per user: it is the person at the keyboard, and switching
+   * profiles does not change who they are — so it deliberately survives `setUser`, unlike
+   * the per-user caches beside it. It decides two things at once: which views exist
+   * (lib/lenses `VIEW_LENSES`, enforced in `setView` / `jump` / the hash listener) and what
+   * `visitor_class` every answering call carries (`deriveVisitorClass`).
+   */
+  lens: Lens;
+  /**
+   * The reading room's own memory of this sitting: every question the answering lanes
+   * finished, newest last, in client memory and nowhere else. The consultations LISTING is
+   * the owner's ledger and stays in the cockpit; a visitor still deserves to scroll back to
+   * what they just asked. Cleared on `setUser` like the caches beside it, and gone on reload.
+   */
+  sessionAsks: SessionAsk[];
+  /**
+   * WHICH SITTING THIS IS. Bumped every time the state above is cleared for a change of
+   * person (`setLens`) or of library (`setUser`), and never otherwise.
+   *
+   * Clearing alone is not enough, because a request already in flight is not cancelled by
+   * being forgotten: `fetch` cannot be un-sent, so a recall that started under the previous
+   * identity still resolves, and its completion handler wrote the answer and pushed the
+   * session ask into the sitting that had just been cleared — the leak, arriving a second
+   * late. A view that started a request remembers the epoch it started under and writes
+   * nothing once this number has moved (`views/recall/sitting.ts`). It also aborts what it
+   * can: the counter is the mechanism, the abort is the courtesy.
+   */
+  identityEpoch: number;
+  /**
+   * The address the Consultations view is filtered to, or null for everything. Set by
+   * `openConsultations` from a document's access card, which is the only jump that
+   * arrives with a target already in mind.
+   */
+  consultationTarget: string | null;
   /** interface language (zh | en); resolved from localStorage → navigator → en. */
   locale: Locale;
 
@@ -316,6 +423,12 @@ interface AppState {
   jump: (s: Selection, view?: ViewName) => void;
   toggleTheme: () => void;
   setTheme: (t: Theme) => void;
+  /** change who is at this console; a view the new lens cannot see hands over to its home. */
+  setLens: (lens: Lens) => void;
+  /** record one finished answer in this session's reading-room history (client memory). */
+  pushSessionAsk: (ask: SessionAsk) => void;
+  /** open the Consultations view, filtered to one address (null = everything). */
+  openConsultations: (target: string | null) => void;
   /** switch the interface language (persists; takes effect without a reload). */
   setLocale: (l: Locale) => void;
   toggleLocale: () => void;
@@ -433,6 +546,13 @@ function writeHash(view: ViewName, selection: Selection, replace = false) {
   }
 }
 
+/**
+ * Read once at boot, because the FIRST view depends on it: a console reopened under a
+ * visitor lens with no deep link must land in the reading room, not render the cockpit's
+ * front matter for an instant and then be corrected.
+ */
+const bootLens = loadLens();
+
 export const useApp = create<AppState>((set, get) => ({
   status: "idle",
   error: null,
@@ -461,9 +581,13 @@ export const useApp = create<AppState>((set, get) => ({
   kbSnapshotsLoading: false,
   kbSnapshotError: null,
   currentKbSnapshot: null,
-  view: "overview",
+  view: LENS_HOME[bootLens],
   selection: null,
   theme: initialTheme(),
+  lens: bootLens,
+  sessionAsks: [],
+  identityEpoch: 0,
+  consultationTarget: null,
   locale: detectLocale(),
 
   init: async () => {
@@ -474,18 +598,46 @@ export const useApp = create<AppState>((set, get) => ({
     if (typeof window !== "undefined") {
       const initial = hashToState(window.location.hash);
       if (initial) {
-        set({ view: initial.view, selection: initial.selection });
-        writeHash(initial.view, initial.selection, true);
+        // The lens guard runs on the way in, not only on clicks: a deep link into the
+        // cockpit under a visitor lens lands in the reading room with a quiet notice
+        // instead of rendering a page that lens is not meant to have.
+        const view = resolveView(initial.view, get().lens);
+        const blocked = view !== initial.view;
+        set({
+          view,
+          selection: blocked ? null : initial.selection,
+          ...(blocked ? { notice: { key: "nav.notice.lensGuard" as const } } : {}),
+        });
+        writeHash(view, blocked ? null : initial.selection, true);
       } else {
         writeHash(get().view, get().selection, true);
       }
       window.addEventListener("hashchange", () => {
         const parsed = hashToState(window.location.hash);
         if (!parsed) return;
-        const { view, selection } = get();
-        if (parsed.view === view && sameSelection(parsed.selection, selection)) return;
-        set({ view: parsed.view, selection: parsed.selection });
-        if (needsCanonicalDataset(parsed.view) && get().dataset == null) {
+        const { view, selection, lens } = get();
+        const next = resolveView(parsed.view, lens);
+        const blocked = next !== parsed.view;
+        const nextSelection = blocked ? null : parsed.selection;
+        if (next === view && sameSelection(nextSelection, selection)) {
+          // Nothing moved — but a blocked link still has to be answered: rewrite the hash
+          // (leaving it in the bar makes Back a loop) and say why nothing happened, or a
+          // deep link into the cockpit from the reading room looks like a dead address bar.
+          if (blocked) {
+            set({ notice: { key: "nav.notice.lensGuard" } });
+            writeHash(next, nextSelection, true);
+          }
+          return;
+        }
+        set({
+          view: next,
+          selection: nextSelection,
+          ...(blocked ? { notice: { key: "nav.notice.lensGuard" as const } } : {}),
+        });
+        // Replace, never push: the blocked entry is already in history, and pushing the
+        // redirect on top of it would make Back bounce between the two.
+        if (blocked) writeHash(next, nextSelection, true);
+        if (needsCanonicalDataset(next) && get().dataset == null) {
           void get().loadUserDataset();
         }
       });
@@ -838,8 +990,17 @@ export const useApp = create<AppState>((set, get) => ({
       kbSnapshotError: null,
       currentKbSnapshot: null,
       // per-user in-memory scratch: never carry one user's recall/ask into another's.
-      recallCache: EMPTY_RECALL_CACHE,
+      // `recallCache` + `sessionAsks` come from IDENTITY_RESET below, so what a lens change
+      // clears and what a library change clears cannot drift apart — and the epoch it bumps
+      // is what stops a request in flight from writing into the cleared sitting.
+      ...identityReset(s),
       askCache: EMPTY_ASK_CACHE,
+      // The address one library's page asked to be filtered by means nothing in another's
+      // — canonical paths are per tenant. The IDENTITY (`lens`) deliberately stays: it is
+      // the person at the keyboard, not the library they are reading.
+      consultationTarget: null,
+      // (the reading room's session history is answers from THIS library; carrying it
+      // across would file one library's answers under another's name — IDENTITY_RESET)
       // The Live Context conversation goes with them: it was written to be evaluated
       // against THIS user's knowledge base, and a window carried into another user's page
       // would be asking one library about another's conversation.
@@ -903,9 +1064,11 @@ export const useApp = create<AppState>((set, get) => ({
   // people in it every time would be the opposite of a saved setup.
   clearLiveContextTurns: () => set((s) => ({ liveContext: { ...s.liveContext, turns: [] } })),
 
-  setView: (view) => {
-    set({ view });
-    writeHash(view, get().selection);
+  setView: (requested) => {
+    const view = resolveView(requested, get().lens);
+    const blocked = view !== requested;
+    set({ view, ...(blocked ? { notice: { key: "nav.notice.lensGuard" as const } } : {}) });
+    writeHash(view, get().selection, blocked);
     if (needsCanonicalDataset(view) && get().dataset == null) {
       void get().loadUserDataset();
     }
@@ -920,9 +1083,14 @@ export const useApp = create<AppState>((set, get) => ({
     writeHash(get().view, selection, true);
   },
   jump: (selection, view) => {
-    const nextView = view ?? get().view;
-    set({ selection, view: nextView });
-    writeHash(nextView, selection);
+    const nextView = resolveView(view ?? get().view, get().lens);
+    const blocked = nextView !== (view ?? get().view);
+    set({
+      selection,
+      view: nextView,
+      ...(blocked ? { notice: { key: "nav.notice.lensGuard" as const } } : {}),
+    });
+    writeHash(nextView, selection, blocked);
     if (needsCanonicalDataset(nextView) && get().dataset == null) {
       void get().loadUserDataset();
     }
@@ -936,6 +1104,45 @@ export const useApp = create<AppState>((set, get) => ({
   setTheme: (t) => {
     applyTheme(t);
     set({ theme: t });
+  },
+
+  setLens: (lens) => {
+    const changed = get().lens !== lens;
+    try {
+      localStorage.setItem(LENS_KEY, lens);
+    } catch {
+      /* ignore */
+    }
+    // The reading room offers no snapshot pin and draws no pin banner, so it must not be
+    // pinned: an invisible pin would answer from a frozen copy while the page said nothing.
+    const unpin =
+      lens !== "owner" && (get().currentKbSnapshot != null || get().currentSnapshot != null);
+    // A lens change is a change of PERSON, so the sitting does not carry across it — in
+    // either direction, because the owner inheriting a visitor's questions is the same
+    // mistake as a visitor inheriting the owner's. `recall` is the one stateful surface
+    // both identities can reach, and it holds the last question, its answer and its
+    // citations; `sessionAsks` is the reading room's history of the same. Cleared here,
+    // exactly as `setUser` clears them when the LIBRARY changes — and the epoch bumped with
+    // them, so a recall already in flight cannot write its answer back in afterwards.
+    set((s) => ({ lens, ...(changed ? identityReset(s) : null) }));
+    if (unpin) {
+      get().setKbSnapshot(null);
+      get().setSnapshot(null);
+    }
+    const view = resolveView(get().view, lens);
+    if (view !== get().view) {
+      set({ view });
+      writeHash(view, get().selection);
+      if (needsCanonicalDataset(view) && get().dataset == null) {
+        void get().loadUserDataset();
+      }
+    }
+  },
+  pushSessionAsk: (ask) =>
+    set((s) => ({ sessionAsks: [...s.sessionAsks, ask].slice(-SESSION_ASKS_MAX) })),
+  openConsultations: (target) => {
+    set({ consultationTarget: target });
+    get().setView("consultations");
   },
 
   setLocale: (locale) => {

@@ -453,6 +453,10 @@ def describe_source(
         This is material from 2026-07-18 in the owner's knowledge base; the material
         supplies no author, so attribution stays pending — but the date above is the
         source's own and relative time in it resolves against that day.
+      an owner dialogue (`owner-dialogue/v1`) — the kind, not the provenance
+        This is the owner speaking to this library directly on 2026-08-31 — their own
+        statement about what it holds: a correction, an instruction or an addition, in
+        their own words, not a record of an event. …
       a source with no date at all — the wording degrades, as it must
         This is a piece of material in the owner's knowledge base; the material supplies no
         provenance and no time, so attribution and time both stay pending.
@@ -474,6 +478,18 @@ def _describe(raw: RawSource, blocks_count: int, owner_name: str) -> str:
     # source ends up with, if the framework holds its date the sentence states it. Only a
     # source that genuinely has no date degrades to the "time stays pending" wording.
     when = occurred_on(raw)
+    # The one kind whose blocks LOOK like a transcript and are not one: the owner talking to
+    # the library about the library. Said here, in the framework's own per-source line,
+    # because a compiler that reads it as a conversation has already misread it, and
+    # "remember that owner dialogues are statements" in a contract body would be exactly the
+    # persuasion this project replaces with mechanism.
+    if raw.kind == "owner_dialogue":
+        key = (
+            "source.preamble.owner_dialogue_dated"
+            if when
+            else "source.preamble.owner_dialogue"
+        )
+        return prompt(key, owner=owner_name, when=when)
     if raw.kind == "document":
         if meta.get("author") or meta.get("created_at") or meta.get("authored_by_owner"):
             return _document_preamble(raw, owner_name)

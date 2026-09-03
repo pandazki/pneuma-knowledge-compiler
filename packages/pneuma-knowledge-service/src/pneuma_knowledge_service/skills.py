@@ -20,6 +20,7 @@ commit_patch (skill/ is not a compile product — no path ownership, no compile_
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime, timezone
 
 from pneuma_knowledge_core.domain.ids import UserId
@@ -30,6 +31,8 @@ from pneuma_knowledge_core.skill import (
     packs_for_profile,
 )
 from pneuma_knowledge_core.skill.version import SkillVersion
+
+_log = logging.getLogger(__name__)
 
 # Non-canonical meta path inside the per-user git repo (off the compile gate).
 _MANIFEST_PATH = "skill/manifest.json"
@@ -130,6 +133,66 @@ async def _write_manifest(
         content,
         message="skill: materialize per-user schema manifest",
     )
+
+
+async def path_templates_for(settings, canonical, user_id: UserId) -> list[str]:
+    """The path families this user's contract declares — READ-ONLY, and no ctx required.
+
+    `skill_for_user` is the write-capable resolution: it may derive packs with a model and
+    materialize a manifest. This is the same question asked by something that must not do
+    either — an index component rendering a report, where inventing a user's schema as a
+    side effect of grouping some paths would be absurd. So: persisted manifest if there is
+    one, the deployment's base if there is not, and `[]` if the deployment registered no
+    base at all (a keyless test, a fresh install). Never writes, never calls a model.
+
+    The failures it absorbs are NAMED, and that is the difference from a bare `except
+    Exception`. Three things can legitimately go wrong here — no contract base is
+    registered, the manifest will not read, the manifest reads but will not compose — and
+    each of them means "this user has no declared families", which a report renders as one
+    unfiled group. The last two are logged with the user id, because a manifest that will
+    not compose is a repair somebody has to make. Anything ELSE is a programming error, and
+    swallowing it turned every path in every report unfiled with no trace of why; it now
+    reaches the caller's own fail-soft boundary (the component's `_families`), which logs it
+    with a traceback and renders the same ungrouped report.
+
+    `TypeError` is named the same way, and only where it can mean the manifest: a pack
+    entry that is not a mapping of `SchemaPack`'s own fields raises before pydantic ever
+    validates, so it is caught AT that construction and re-raised as the malformed manifest
+    it is. A `TypeError` from `compose_skill` is a bug in composition and travels on — the
+    broad catch turned it into "no families" too, which is the failure this docstring is
+    about, one layer down.
+    """
+    try:
+        if not settings.user_schema_packs:
+            return list(load_skill_base(settings.user_schema_base_version).path_templates)
+        raw = await canonical.read_meta(user_id, _MANIFEST_PATH)
+        manifest = json.loads(raw) if raw else None
+        if not isinstance(manifest, dict):
+            return list(load_skill_base(settings.user_schema_base_version).path_templates)
+        base, _retired = base_named_or_current(
+            settings, str(manifest.get("base_version") or "")
+        )
+        try:
+            packs = [SchemaPack(**p) for p in manifest.get("packs", [])]
+        except TypeError as exc:
+            raise ValueError(f"malformed schema pack: {exc}") from exc
+        return list(compose_skill(base, packs).path_templates)
+    except LookupError:
+        # No contract base is registered at all: a keyless test, a fresh install. Expected,
+        # and not a failure to warn about — there is simply nothing declared to group by.
+        return []
+    except (OSError, ValueError) as exc:
+        # The manifest could not be read (canonical unreachable), could not be parsed
+        # (`json.JSONDecodeError` is a ValueError), or would not validate (`ValidationError`
+        # is a ValueError; a pack of the wrong shape arrives here as the ValueError raised
+        # at its construction above).
+        _log.warning(
+            "path templates for %s could not be resolved (%s: %s); reporting no families",
+            user_id,
+            type(exc).__name__,
+            exc,
+        )
+        return []
 
 
 async def skill_for_user(ctx, user_id: UserId) -> SkillVersion:

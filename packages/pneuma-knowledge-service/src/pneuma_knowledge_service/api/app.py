@@ -19,7 +19,7 @@ from ..wiring import build_context
 from .routes.live_context import root_router as live_context_root_router, router as live_context_router
 from .routes.engine import router as engine_router
 from .routes.evolve import router as evolve_router
-from .routes.v1 import root_router, router as v1_router
+from .routes.v1 import drain_recording_tasks, root_router, router as v1_router
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -31,6 +31,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             yield
         finally:
+            # The consultation recordings still in flight get a bounded moment to land.
+            # Bounded on purpose: the record is best-effort fire-and-forget (routes/v1.py
+            # `_spawn_recording`), and a process that would not exit while one slow write is
+            # outstanding is the same wrong promise, moved to shutdown.
+            await drain_recording_tasks()
             await app.state.ctx.aclose()
 
     app = FastAPI(title="pneuma-knowledge-service", version=__version__, lifespan=lifespan)

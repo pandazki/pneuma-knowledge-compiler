@@ -54,12 +54,18 @@ Wire protocol (JSON text frames both directions):
           and reads `false` back has been told no, mechanically, rather than left to
           discover it from the absence of web cards.
       {"type": "stats", "seq": int, "focus": str, "delivered": int, "turns": int,
-       "token_usage": {...}, "skipped": str, "intent": str, "worth": int,
+       "token_usage": {...}, "cost": {"amount": float, "currency": str}|null,
+       "skipped": str, "intent": str, "worth": int,
        "plan": [str], "rejected": [str], "chosen": int,
        "candidates": [{index, kind, title, subject, origin, provenance, citations}],
        "web": {"tier": "off"|"planned"|"fallback", "searches": int, "cost": float,
                 "pages": int},
        "stages": [{name, ms, status, detail}]}
+          `cost` is what this tick's MODEL calls cost, derived from the rates this
+          deployment declared (`model_pricing`) and null when it declared none for them —
+          the lane records no consultation, so a tick's spend is shown here or nowhere.
+          `web.cost` is a different number and stays where it is: it is what the provider
+          itself billed for the searches, in its own currency, not something derived here.
           OFF unless the client sets `stats: true` in `config`. When on: one per
           evaluation, INCLUDING the ones that produced nothing — an evaluation with
           zero survivors emits no `suggestion` frame at all, and that is exactly when
@@ -88,7 +94,7 @@ Wire protocol (JSON text frames both directions):
           index rule. Only the affordance differs — a source span opens in-app, a URL
           opens a new tab.
       {"type": "suggestion_detail", "ref": ..., "title": ..., "detail": ..., "citations": [...],
-       "token_usage": {...}}
+       "token_usage": {...}, "cost": {"amount": float, "currency": str}|null}
       {"type": "error", "detail": str, "ref": str|null}
           Never fatal; the connection stays open. `ref` is present when the failure
           belongs to a specific `want_more`.
@@ -130,6 +136,7 @@ from pneuma_knowledge_core.recall.live_pipeline import SubjectLedger
 
 from ...live_context.engine import expand_suggestion, load_briefing_pack, run_evaluation
 from ...live_context.session import LiveContextSession, EvaluationPlan
+from ...pricing import lane_cost
 from ...settings import get_settings
 from .v1 import _render_profile
 
@@ -248,6 +255,23 @@ def _suggestion_out(suggestion: Any) -> dict[str, Any]:
             for c in getattr(suggestion, "web_citations", None) or []
         ],
     }
+
+
+def _tick_cost(ctx: Any, usage: Any, *, pack: str | None) -> dict[str, Any] | None:
+    """What one tick cost this deployment, or `None` when nobody declared a price.
+
+    The lane is named by which shape of tick this was, because the two shapes call different
+    model roles: a briefing-scope tick is one call on `live_context`, a full-scope tick is
+    `live_discover` + `live_pick`. Roles that resolve to two different declared prices leave
+    the tick in tokens only — one sum cannot be split between two rates.
+
+    This is where the money for the Live Context lane is shown and the only place it is
+    shown: the lane records no consultation (deliberately — a listener is not a visitor), so
+    its spend is on the tick or nowhere.
+    """
+    return lane_cost(
+        getattr(ctx, "settings", None), "live_briefing" if pack else "live", usage
+    )
 
 
 def _processing_out(result: Any) -> dict[str, Any]:
@@ -432,6 +456,7 @@ async def live_context_stream(
                         "focus": plan.focus,
                         "count": len(result.suggestions),
                         "token_usage": result.token_usage,
+                        "cost": _tick_cost(ctx, result.token_usage, pack=pack),
                         "as_of": as_of.isoformat(),
                         **_processing_out(result),
                     },
@@ -633,6 +658,7 @@ async def live_context_ws(websocket: WebSocket, user_id: str) -> None:
                         "focus": plan.focus,
                         "delivered": len(delivered),
                         "token_usage": dict(result.token_usage),
+                        "cost": _tick_cost(ctx, result.token_usage, pack=pack),
                         "turns": len(plan.turns),
                         **_processing_out(result),
                     }
@@ -688,7 +714,18 @@ async def live_context_ws(websocket: WebSocket, user_id: str) -> None:
         except Exception as exc:  # noqa: BLE001
             emit({"type": "error", "detail": str(exc), "ref": ref})
             return
-        emit({"type": "suggestion_detail", "ref": ref, **detail})
+        emit(
+            {
+                "type": "suggestion_detail",
+                "ref": ref,
+                **detail,
+                "cost": lane_cost(
+                    getattr(ctx, "settings", None),
+                    "live_detail",
+                    detail.get("token_usage"),
+                ),
+            }
+        )
 
     def spawn(coro) -> None:
         task = asyncio.create_task(coro)

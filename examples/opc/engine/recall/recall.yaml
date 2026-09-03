@@ -1,0 +1,65 @@
+# Answering. Style is shape only — the truth discipline (citations, no invention, an honest
+# "the material does not say") is the same in all three.
+#
+#   concise        one compact value for an API client or automation
+#   conversational a natural chat reply
+#   detailed       a self-contained written note
+#
+# Override for one question: ./app.py ask '...' --style concise
+answer_style: conversational
+
+# Context composition and answer wire. `ranked` takes the head of each evidence face by
+# retrieval score; `select` adds one bounded structured call over all faces; `all` skips that
+# call and hands the whole candidate pool to the answer instead; `structured` separates
+# answer text/kind/citations so exact source spans can be validated.
+# Override one question with --evidence-strategy / --answer-format.
+#
+# This example states `select` rather than the framework's `ranked`, for two reasons. It is the
+# answering path the framework's own A/B measured: switching to `select + structured` moved two
+# LoCoMo-refined libraries by +5.2 and +6.3 points at p < 1e-6, which is the largest measured
+# effect in this repository (docs/design/index-components.md §9). And `ranked` degrades on a
+# corpus this small: 84 days of one person's material score almost flat under RRF (0.016–0.017
+# across the whole top 60), so "the top six windows" is very nearly an arbitrary six, and a
+# question whose only answer sits at rank 40 never sees it. The price is one extra serial model
+# call per question — see docs/guides/recall-strategies.md before changing it for your own load.
+evidence_strategy: select
+# This example states `structured` rather than the shipped `text`, and the reason is the
+# attention ledger: only a structured answer reports an answer_kind, and `no_record` is how
+# the library says it was asked something it does not have. Under `text` a question the
+# material never answers is recorded as an ordinary consultation, and the panel of "what came
+# back empty" stays empty however often the library is asked for something it lacks.
+answer_format: structured
+# Optional provider reasoning-effort hint for the selection call; empty = provider default.
+selection_reasoning_effort: ""
+# `all`'s only bound, ignored by the other two: how many characters the assembled evidence
+# may occupy. Over it windows go first, then episode summaries, then the lowest-ranked
+# claims — and the answer says what it dropped. 0 = no ceiling.
+all_context_chars: 120000
+
+# Retrieval breadth is cheap; answer evidence is expensive. Candidate caps search a broad
+# lexical/semantic tail. Up to 16 dense episode summaries enter as explicitly derived,
+# source-addressed context; six exact raw spans remain beside them for verbatim evidence.
+claim_candidate_cap: 80
+claim_cap: 40
+window_candidate_cap: 60
+episode_summary_cap: 16
+window_cap: 6
+# 0 = one query per question. N > 0 spends one small model call to derive up to N extra
+# retrieval queries, pooled into one ranking — worth it for multi-part questions. Left at 0:
+# what the framework measured is `select + structured`, and neither guide claims query planning
+# is part of that default, so turning it on here would be an unmeasured change riding along.
+plan_queries: 0
+# Empty = no reranking. Configure it only when validation on your own domain shows that
+# relevance order needs a second-stage scorer. "llm" uses the recall model; a bare model
+# name uses OpenRouter's /rerank endpoint.
+rerank_model: ""
+rerank_candidates: 120
+
+# Component lookups: when enabled index components (engine.yaml `components`) offer
+# lookup paths, fast spends one routing tool-call turn to choose which run, concurrently
+# with the built-in retrieval. No path offered = no routing call, no cost.
+component_paths: true
+# How much context the whole component face may occupy. A path's own cap bounds how many
+# items it contributes; this bounds their size. Over it the lowest-ranked items fall off and
+# long excerpts are cut at block boundaries — both stated in the face, never silently.
+component_budget_chars: 6000

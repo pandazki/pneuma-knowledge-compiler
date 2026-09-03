@@ -15,6 +15,10 @@ export const recall = defineMessages({
     "recall.description":
       "同一个查询可在 rag / fast / deep 三条 lane 上重跑对比：命中账、直接作答、带核验的深查。",
     "recall.descriptionShort": "rag / fast / deep 三条检索 lane。",
+    // The reading room's own words for the same surface: a visitor asks a library, not a
+    // retrieval pipeline. Same page, same lanes — only the frame changes with the lens.
+    "recall.readingTitle": "问答",
+    "recall.readingDescription": "向这座知识库提问——答案带着可核对的引用，可顺着读到原文。",
 
     "recall.noUser.title": "未选择用户",
     "recall.noUser.description": "在右上角选择一个 user_id 后，即可对其知识库做检索。",
@@ -40,6 +44,10 @@ export const recall = defineMessages({
     "recall.empty.noHitsDescription": "换个查询词，或先去「导入 Ingest」入库更多来源。",
 
     "recall.hits.count": "{count} 条命中 · 点击脚注定位到原文",
+
+    "recall.session.title": "本次会话的问答",
+    "recall.session.note": "只留在这个浏览器标签页里，关掉就没有了。",
+    "recall.session.reopen": "重新打开这条问答",
 
     "recall.trail.title": "深查过程（{count} 步）",
     "recall.trail.live": "进行中…",
@@ -100,6 +108,9 @@ export const recall = defineMessages({
     "recall.description":
       "Run one query down all three lanes — rag / fast / deep — and compare: the hit ledger, a direct answer, a deep search with every citation verified.",
     "recall.descriptionShort": "Three retrieval lanes: rag / fast / deep.",
+    "recall.readingTitle": "Ask",
+    "recall.readingDescription":
+      "Ask this library a question — answers carry checkable citations that open into the sources.",
 
     "recall.noUser.title": "No user selected",
     "recall.noUser.description":
@@ -130,6 +141,10 @@ export const recall = defineMessages({
       "Try different terms, or file more sources through Ingest first.",
 
     "recall.hits.count": "{count} hit{count||s} · click a footnote to open the original",
+
+    "recall.session.title": "This session's questions",
+    "recall.session.note": "Kept in this browser tab only; closing it ends the list.",
+    "recall.session.reopen": "Open this answer again",
 
     "recall.trail.title": "Deep search ({count} step{count||s})",
     "recall.trail.live": "in progress…",

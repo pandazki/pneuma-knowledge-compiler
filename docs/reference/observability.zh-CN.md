@@ -34,7 +34,7 @@ scaffold 项目会把这三个变量同时传给 API 与 worker 容器。若自�
 | `chunk.semantic` | `chunk.semantic` | `CHUNK_STRATEGY=semantic` 下的 `index` job，且仅首次入库或内容/模型真变了——manifest 回放不调模型 | 每个 block 窗口一次 |
 | `evolve.propose` | `evolve.propose` | `evolve` job 的 phase 1 | 一次结构化调用 |
 | `evolve.reorganize` | `evolve` | `evolve` job 的 phase 2（与 propose 同一个 job） | 工具循环每一轮一次 |
-| `recall.fast` | `recall.fast`、`recall.fast.select` | `POST /v1/users/{user_id}/recall` 且 `mode=fast` | 一次作答调用，selector 跑起来时再加一次 |
+| `recall.fast` | `recall.fast`、`recall.fast.plan`、`recall.fast.select`、`recall.fast.evidence_select` | `POST /v1/users/{user_id}/recall` 且 `mode=fast` | 一次作答调用（`recall.fast`），外加每个真正跑起来的模型步骤各一个 span：`RECALL_PLAN_QUERIES` 大于零时是 `plan`，`ranked` 从概览里整页挑选时是 `select`，`evidence_strategy: select` 编排证据时是 `evidence_select` |
 | `recall.deep` | `recall.deep` | `POST /v1/users/{user_id}/recall` 的 `mode=deep`，以及 `POST …/recall/stream` | 每次提问一条根 chain run；agent 每一轮是其下的嵌套 span |
 | `briefing.ask` | `briefing.ask` | `POST /v1/users/{user_id}/briefings/{briefing_id}/ask` | 形状同 deep：根 chain run + 每轮一个嵌套 span |
 | `profile.generate` | `profile.generate` | `POST /v1/profile/generate` | 一次结构化调用 |

@@ -13,7 +13,8 @@ from __future__ import annotations
 import os
 from typing import Literal
 
-from pydantic import Field
+from pneuma_knowledge_core.domain.pricing import parse_model_pricing
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -143,12 +144,25 @@ class Settings(BaseSettings):
     # Index components (core components/__init__.py): business-specific structure over
     # canonical, enabled by name, comma-separated. Empty = none, and every seam a component
     # can reach (gate, outline, compile tools, deep tools, the projection channel) renders
-    # exactly as before the concept existed. Shipped: `people`, `time`.
+    # exactly as before the concept existed. Shipped: `people`, `time`, `attention`.
     components: str = ""
     # The contract family the `people` component binds to — one of the skill's path
     # templates. The component reads/enforces `identities` and `aliases` frontmatter on
     # the documents of this family only.
     people_family: str = "memory/people/{slug}.md"
+
+    # The `attention` component's three knobs (components/attention.py). It stores no score:
+    # heat is `Σ hits × 0.5^(age_days / half_life)` computed at read time, so the half-life
+    # is a setting rather than a migration, and changing it rewrites nothing.
+    #   half_life_days  — how fast attention fades, in whole days. 14 means a fortnight-old
+    #                     read counts half of today's. Zero or less = no decay (raw counts).
+    #   window_days     — how far back the report reads. Bounds the query and the block; days
+    #                     outside it stay in the table and are simply not reported.
+    #   evidence_chars  — the character ceiling on the block handed to a schema-evolve
+    #                     proposal. Cut on a line boundary, with what did not fit counted.
+    attention_half_life_days: int = 14
+    attention_window_days: int = 60
+    attention_evidence_chars: int = 1500
 
     # Briefing consumption (the ask) is fast-lane: alias real source ids to short
     # query-local `sNN` handles for the answer's citations (one SessionAliaser per ask), so
@@ -392,6 +406,23 @@ class Settings(BaseSettings):
     # fake:<dim> = DeterministicFakeEmbedding (keyless; tests/example default, §M1.3).
     embedding_model: str = "fake:384"
 
+    # What this deployment PAYS for the models above — the only place money enters the
+    # framework, and it enters as somebody's declaration rather than as anybody's opinion.
+    # One entry per model, separated by newlines (or `;` for a one-line env var):
+    #
+    #     openrouter:openai/gpt-5.6-luna = 1.25/10/0.125/1.25 USD
+    #
+    # that is `<model id> = <input>/<output>/<cache_read>/<cache_creation> <CURRENCY>`, each
+    # rate per 1M tokens. All four are required — leaving the cache rates off is not saying
+    # they are free — and so is the currency, because a defaulted "USD" would be the
+    # framework holding a price opinion about a deployment that may bill in anything.
+    #
+    # Empty (the default) means this deployment has declared no prices: every face that
+    # shows what a call spent shows tokens and no money. An undeclared model does the same.
+    # Costs are DERIVED at read time and never stored: tokens are what happened and stay
+    # true, a rate moves without asking. See core `domain/pricing.py`.
+    model_pricing: str = ""
+
     # Langfuse tracing (observability). Read from the unprefixed LANGFUSE_* env (same
     # convention as OPENROUTER_API_KEY) so the local Langfuse project's own variable
     # names work verbatim. All three default empty → tracing degrades to a no-op
@@ -400,6 +431,21 @@ class Settings(BaseSettings):
     langfuse_secret_key: str = Field(default="", validation_alias="LANGFUSE_SECRET_KEY")
     langfuse_public_key: str = Field(default="", validation_alias="LANGFUSE_PUBLIC_KEY")
     langfuse_base_url: str = Field(default="", validation_alias="LANGFUSE_BASE_URL")
+
+
+    @field_validator("model_pricing")
+    @classmethod
+    def _pricing_must_parse(cls, value: str) -> str:
+        """A rate card that cannot be read is refused here, at the boundary.
+
+        Which is what makes the engine console reject a malformed declaration at apply time
+        (`assert_candidate_settings` resolves candidate files through `Settings`) and a bad
+        environment variable fail at boot with the offending entry named — rather than a
+        deployment writing prices down, seeing no money anywhere, and having nothing to
+        read to find out why.
+        """
+        parse_model_pricing(value)
+        return value
 
 
 def get_settings() -> Settings:

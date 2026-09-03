@@ -39,7 +39,13 @@ class JobQueue(Protocol):
         ok: bool = True,
         detail: str | None = None,
         snapshot_ref: str | None = None,
+        token_usage: dict[str, int] | None = None,
     ) -> None:
         """Mark a claimed job finished. `ok=False` records an aborted compile with its
-        gate-violation `detail`; `snapshot_ref` is the resulting commit on success."""
+        gate-violation `detail`; `snapshot_ref` is the resulting commit on success.
+
+        `token_usage` is what the job's model calls actually spent, recorded on the same
+        write that ends the job rather than through a second one: a job row that says it is
+        done and cannot say what it cost is the one place a knowledge base spends most of
+        its money invisibly. `None` states nothing, which is not the same as zero."""
         ...

@@ -82,7 +82,13 @@ TODO: write the two or three most typical "worth it" and "not worth it" cases in
 
 <!-- In your material, whose words are binding? How do you tell relays, proposals, and
      model/tool output apart from decisions the owner actually made? (Relaying ≠ agreeing,
-     proposing ≠ deciding, running ≠ accepted.) -->
+     proposing ≠ deciding, running ≠ accepted.)
+
+     One source kind is the owner's own words about the library itself: an
+     `owner-dialogue/v1` source is a correction, an instruction or an addition the owner
+     stated directly, so what it says about an existing claim is evidence about that claim —
+     correct or supersede the claim citing the statement, rather than filing a second claim
+     beside the one it contradicts. -->
 
 TODO: write down where "it counts" ends and "just talk" begins in your domain.
 

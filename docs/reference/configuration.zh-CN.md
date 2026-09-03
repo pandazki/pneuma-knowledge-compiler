@@ -26,18 +26,19 @@
 | `MEDIA_S3_BUCKET` / `_REGION` | `pneuma-media` / `us-east-1` | S3 bucket 与签名区域 |
 | `MEDIA_MAX_IMAGE_BYTES` | `20971520` | 单张原图允许的最大字节数 |
 | `CANONICAL_ROOT` | `./data/canonical` | 正本存储根（每用户一仓）；容器镜像里为 `/data/canonical` |
-| `ENGINE_DIR` | （空） | 引擎目录：一个被版本化的单元，装着本部署的策略文件、编译契约、提示词覆盖与主人档案（见[架构 §11](../architecture.zh-CN.md#11-引擎目录)、[设计文档](../design/engine-console.zh-CN.md)）。空 = 本部署没有引擎目录：行为零变化，且 `/v1/engine/*` 返回 404。设上之后那四条路由就服务这个目录；下表里凡是被这个目录声明过的策略配置，只要进程环境不表态，就都从它解析 |
+| `ENGINE_DIR` | （空） | 引擎目录：一个被版本化的单元，装着本部署的策略文件、编译契约、提示词覆盖与所有者档案（见[架构 §11](../architecture.zh-CN.md#11-引擎目录)、[设计文档](../design/engine-console.zh-CN.md)）。空 = 本部署没有引擎目录：行为零变化，且 `/v1/engine/*` 返回 404。设上之后 `/v1/engine/*` 那八个端点就服务这个目录；下表里凡是被这个目录声明过的策略配置，只要进程环境不表态，就都从它解析 |
 
 ## 模型
 
 | 配置 | 默认 | 含义 |
 |---|---|---|
 | `LLM_MODEL` | `openrouter:openai/gpt-5.6-luna` | 基础模型规格，也是所有角色的兜底 |
-| `LLM_MODEL_COMPILE` / `_RECALL` / `_ANSWER` / `_DEEP` / `_SKILL` / `_EVOLVE` / `_LIVE_CONTEXT` / `_CHALLENGE` / `_BRIEF` | 空 | 按角色覆盖；`answer` 只负责 fast 的最终答题，留空则借用 `recall` |
+| `LLM_MODEL_COMPILE` / `_RECALL` / `_ANSWER` / `_DEEP` / `_SKILL` / `_EVOLVE` / `_LIVE_CONTEXT` / `_LIVE_DISCOVER` / `_LIVE_PICK` / `_CHALLENGE` / `_BRIEF` | 空 | 按角色覆盖；`answer` 只负责 fast 的最终答题，留空则借用 `recall` |
 | `ANSWER_REASONING_EFFORT` | 空 | 只在 fast 最终答题调用中发送的推理强度；空则保持 provider 默认。生成项目明确写为 `high` |
 | `LLM_TIMEOUT` | `600` | 秒；防挂死，不防慢 |
 | `LLM_MAX_RETRIES` | `3` | 瞬时错误重试（langchain） |
 | `EMBEDDING_MODEL` | `fake:384` | `fake:<维度>`（确定性、零密钥）或 `openrouter:<模型>` |
+| `MODEL_PRICING` | （空） | **本部署**为上面这些模型实际支付多少，一行一条（写成单行变量时用 `;` 分隔）：`<模型 id> = <输入>/<输出>/<缓存读>/<缓存写> <货币>`，每项都是每 100 万 token 的价格。空 = 没有声明任何价格：所有显示花费的地方都只显示 token，不显示金额。引擎键：`models.pricing` |
 | `COMPILE_CALL_TIMEOUT` | `600` | 一次编译任务里单次模型调用（工具循环、修复轮、编译后简报）的秒数上限。它在 `LLM_TIMEOUT`（供应商客户端的请求护栏）之上：连接挂死时任务会一直停在 `claimed`，直到 worker 重启；超时则任务判失败，正本不受影响。`0` = 不限时。引擎键：`models.compile_call_timeout` |
 | `COMPILE_MAX_TOOL_CALLS` | `0` | 一次编译的**一轮**可以花掉多少次工具调用——首轮和它的修复轮都按这个数。`0` 不是不限：它表示这个数由本次任务算出，`max(40, 3 × 来源数)`，因为首轮必须能读完每一个来源、并且每个来源至少追加两次（真实重建里固定的 40 把一个 36 来源的日组截断在追加中途，让 14 个日组没能进库）。任何大于 0 的值都作为绝对上限直接使用。修复轮从不接手首轮剩下的额度：它有自己全新的一份 `max(12, 3 × 违规数)`，同样以这个数封顶——一个旋钮同时约束两轮。引擎键：`models.compile_max_tool_calls` |
 | `OVERVIEW_BUDGET_CHARS` | `2000` | 一份正本文档的总览区域可占的字符数——主体画像变了时，一次编译整体重写的那段有界头部。超出则 `rewrite_overview` 工具当场拒绝该次调用、编译闸门也拒绝本轮：它是头部，不是第二本账。引擎键：`models.overview_budget_chars` |
@@ -51,6 +52,34 @@
 在这三者之外，同一条车道上还有第四个、可选的模型：`LIVE_WEB_SEARCH`（引擎键 `models.live_web_search`，默认 `false`）会在知识库旁边再开一条**补充**的互联网面，`LIVE_WEB_SEARCH_MODEL`（引擎键 `models.live_web_search_model`，默认 `openai/gpt-5.6-luna`）指定承接它的 OpenRouter 模型，背后用的是该服务商自己的原生网页搜索。它复用 `OPENROUTER_API_KEY`——不需要第二个密钥——没有密钥时这条搜索会自报不可用，无论开关怎么设，`web` 这个查询种类都不会被提供。在这里打开只是打开了可能性，并不等于对谁都打开：必须**部署与那一条连接都同意**，发现契约才会把这个查询种类写进去；而 `ready` 帧回送的是「批准了什么」，不是「请求了什么」（见 [http-api.zh-CN.md](http-api.zh-CN.md)）。它按次搜索计费，每次搜索的花费会记进那一拍的记录里。
 
 `native` 是一次明确断言：选中的模型和实际路由 provider 能接收 LangChain 图片 content block；不兼容就失败，不会悄悄把图片压成文本。`caption` 要求 importer 提供带标签的 `caption`/`ocr` 表示，也绝不声称编译模型看过原图。`auto` 会把直连 OpenAI 和 OpenRouter 上的 GPT-5.6 全系识别为原生图片模型，即使网关没有附 LangChain model profile；其他能力未知的 profile 保持保守的 `auto → caption`。
+
+### 一次调用花了多少
+
+框架自己不持任何价格观点，`MODEL_PRICING` 就是部署自己表态的地方。四项费率都必须写——把两项缓存
+费率省掉，并不等于说它们免费——货币也必须写，因为默认一个 `USD`，就是框架替一个可能用任何币种结算
+的部署做了猜测。读不出来的声明会在启动时、以及引擎控制台 apply 时被拒绝，并点名出错的那一条，而不是
+悄悄地什么金额都不显示。
+
+```yaml
+# engine.yaml
+pricing: |
+  openrouter:openai/gpt-5.6-luna = 1.25/10/0.125/1.25 USD
+  openrouter:openai/gpt-5.6-sol  = 0.25/2/0.025/0.25 USD
+```
+
+查价先按实际路由的完整规格（`openrouter:openai/gpt-5.6-luna`），再按去掉 provider 前缀后的裸模型
+id，于是一张按模型报的价目表，也能给通过网关买的同一个模型定价；而完整规格一旦写了就优先——留给那些
+确实为两个网关付不同价钱的部署。
+
+金额是**读取时算出来的**，从不入库：改一次费率，所有数字同时被改对，也不会有哪条记录带着一个季度之
+后没人能复现的金额。入库的是 token 用量本身（咨询记录上的 `token_usage`、编译任务上的
+`token_usage`）。
+
+有两处拒绝是刻意的。**没有声明价格的模型**只报 token、旁边不给金额——绝不给 0，因为 0 是在说这次调用
+免费。另一处：如果一条车道的模型角色解析出**两个不同的价格**，这条车道同样只报 token——车道的用量是它
+所有调用的一个总和（fast 花在 `recall` 与 `answer` 上，实时上下文的一拍花在 `live_discover` 与
+`live_pick` 上），这个数字内部没有按角色的拆分，那么在两份都适用的费率里挑一份来算，就是给编出来的
+金额贴上「派生」的标签。角色们在同一个价格上取得一致时，这条车道就被算得分毫不差。
 
 ## L2 切块
 
@@ -103,7 +132,7 @@
 证据审视发生在回答调用内部、在回答定稿之前；这段审视以 `deliberation` 回传，且从不进入系统消息。上下文上限是唯一能裁剪这份
 上下文的东西，而且它从不悄悄裁剪。
 
-具体业务该跑三者中的哪一个、`deliberation` 与两个 reasoning-effort 旋钮值不值、以及一次实测的延迟／成本／覆盖面对比：[guides/recall-strategies.zh-CN.md](../guides/recall-strategies.zh-CN.md)。
+具体业务该跑三者中的哪一个、`deliberation` 与两个 reasoning-effort 旋钮值不值：[guides/recall-strategies.zh-CN.md](../guides/recall-strategies.zh-CN.md)。
 
 ## 提示词语言
 
@@ -113,7 +142,6 @@
 
 它只改模型读到的文案，别的都不改——不改策略、不改机制、不改插槽契约。特别地，它**不**决定文库用什么语言写：那取决于知识主体自己声明的语言（`compile.owner_env.write_language`）。
 
-**英文是基线。** 本仓库公布的每一项测量都是在英文目录上做的。中文包的用途是可读性与贴合中文材料域，跑分等价性未经验证。见[引擎控制台设计](../design/engine-console.zh-CN.md#语言包)。
 
 ## 编译后覆盖挑战
 
@@ -137,18 +165,37 @@
 
 简报的输入只有机械记录——从 diff 推导出的 claim 事件加上各来源的出处句——从不包含编译对话本身，因此模型没有记录之外的东西可叙述。它是展示文案而非知识：不带引用、不写正本，生成失败只是没有简报，不会让任务失败。它的提示词（`compile.brief.system`、`compile.brief.task`）住在 prompt 目录里，与其他模型可见文案同一机制。
 
+## 检索访问统计
+
+框架自己那个使用侧记录的消费者：按目标的访问元数据——最后访问、最近 7 天与 30 天的命中——留在
+派生层，读取时联结。它不属于任何组件，也不需要注册任何组件：每一条 `business` 咨询都会到达它。
+即便如此它默认仍是惰性的，因为访问者级别默认是 `silent`，而 `silent` 访问者根本什么都不记。
+
+| 配置项 | 默认 | 含义 |
+|---|---|---|
+| `ATTENTION_HALF_LIFE_DAYS` | `14` | 记录下来的注意力衰减多快：这么多天前的一次阅读只算今天的一半。分数不入库（热度是读取时算的），所以改这个值不重写任何行。`0` = 不衰减。`access-stats` 端点与 `attention` 组件的报告读的是同一个值 |
+
+投递走的是普通作业队列。应答路由写下咨询记录行，并为 `business` 访问者在同一个事务里入队一个
+`recall_projection` 作业；compile worker 排掉它，在一个事务里施加统计与该记录的 `projected_at`
+戳，然后才通知已注册的组件。请求路径上什么都不处理，所以答案不等其中任何一步——于是投影总要
+滞后于它那次咨询一个队列排空的时间（按用户、FIFO、同时一个作业在飞：闲置的库是几秒，排在编译
+之后就更久）。`scripts/ops/rebuild_derived.py` 通过入队一个 `recall_rebuild` 作业并把它排掉来
+重新推导账本，于是重放拿的是同一把按用户的认领，不可能与在飞的投影交错。
+
 ## 索引组件
 
 | 配置 | 默认 | 含义 |
 |---|---|---|
-| `COMPONENTS` | 空 | 启用的索引组件名，逗号分隔（architecture §6）；空 = 不启用。随包附带：`people`、`time` |
+| `COMPONENTS` | 空 | 启用的索引组件名，逗号分隔（architecture §6）；空 = 不启用。随包附带：`people`、`time`、`attention` |
 | `PEOPLE_FAMILY` | `memory/people/{slug}.md` | `people` 组件绑定的契约路径模板——skill `path_templates` 之一 |
+| `ATTENTION_WINDOW_DAYS` | `60` | `attention` 报告往回读多久。更早的日子仍留在表里，只是不在这个问题的范围内 |
+| `ATTENTION_EVIDENCE_CHARS` | `1500` | `attention` 交给结构演进提案的那一段的字符上限。按行截断，没放下的部分会被数出来 |
 | `RECALL_COMPONENT_PATHS` | `true` | fast 通道：已启用组件提供查询路时，用一轮路由 tool call 选择运行哪些（architecture §7）。没有路 = 没有路由调用。`false` 完全忽略组件路 |
 | `RECALL_COMPONENT_BUDGET_CHARS` | `6000` | 整个组件面的字符上限。各路自己的上限约束条数，这一项约束它们能占多少上下文。超出后相关度最低的条目先落下、长摘录按块边界裁剪——两者都写在面上，绝不静默 |
 
-前两项写在 engine 目录的 `engine.yaml` 里，两项召回旋钮写在 `recall/recall.yaml` 里。完整设计——组件是什么、可以填哪些面、怎么写一个——见 [design/index-components.zh-CN.md](../design/index-components.zh-CN.md)。启用一个组件，下次进程启动时加入它的闸门检查、outline 行和工具；停用则移除，正本不受影响——组件不持有知识，只有从 L0 与正本派生的结构。开启 `people` 后，人物页的 frontmatter 带逗号分隔的 `identities`（`scheme:value`；按来源契约的记录写成 `mailto:` / `im:` / `meeting:`）与 `aliases`。两者都属于文档的总览，随它整体写入（`rewrite_overview(fields=…)` / `set_fields`）——是快照，不是只增不减。关于它们有三件事在写入面与闸门被机械拒绝，且只针对本轮**动过**的页面——正文或 frontmatter 与本轮开头时不同，或页面是新建的（`people.identity_shape`、`people.identity_duplicate`、`people.identity_cospeakers`、`people.alias_collision`）：身份必须是 `scheme:value` 且至多绑定一个页面；在同一场对话里都发过言的两个「人的 id」是两个人，一个页面不能同时绑住它们——IM 的 `sender_id`、会议的 `speaker_id` 是「人的 id」，邮箱地址不是（一个人用两个地址写信再寻常不过，而 `email/v1` 不确立它们之间的任何同一性），所以邮件线程不贡献任何同场发言证据；别名不能是别人的名字（另一个人物页的别名、标题或 slug，或者来源为某个不在本页上的身份记下的显示名）。第四条规则是判断而不是事实，而且**只问一次**：凡是本次编译的来源里出现的人，全库为他报出的每一个称呼词，都必须在本轮结束前要么被记进该页的 `aliases`，要么被 `decline_alias(path, term, reason)` 否掉。一次否掉什么都不写——不写 claim，不写别名，不写字段，页面上不留一个字——因为正本记的是关于一个人已知的事，不是那些不属于他的名字；它只回答调用它的那一轮，哪里都不存。把问题关掉的是这一页**被写下**，判据是两件派生的事实：投影里的 `reported_since`（该「称呼词 → 身份」对第一次越过报出门槛的那一天），对上正本最后一次提交这一页的日子（`written_on`，一次限定在本族路径下的 `git log` 遍历）。在那一天当天或之后被提交过的页面，就是被摆到过这个问题面前的页面，从此不再问，不管它当时怎么决定；本轮新建的页面没有日期，投影里早于这一列的行也没有——两种未知都意味着要问。所以一轮否掉了却什么都没写，下一轮还会再问，这是对的：没提交，就没回答。还有第五种不属于任何页面：`people.not_ready` 会在全库镜像加载失败时拒绝这一轮，因为拿一座空文库去判上面那些事实，恰好会放行它们本来要拒的写入——什么都不写，下一次编译重新读。这样的镜像有两份，各自只被需要它的那一轮索要：来源边界（本轮写过声明了这些字段的人物页、或本轮来源里带着身份时才需要）与称呼词投影（只有那条称呼词决定真的适用时才需要），所以一次只写主题的编译，不会被一份它什么都不问的投影故障拒掉。另有一条运维须知：只要启用了任何组件，一个进程同一时刻只跑一次编译（框架从 `prepare` 一直锁到作业结束），因此部署应当靠增加 worker 进程来提高编译吞吐，而不是在一个进程里并发跑。编译模型得到 `find_person` 与 `decline_alias`；深召回得到 `enumerate_identities`（按需从该用户的 L0 来源元数据算出）与 `person_profile(alias, identity, section, offset, limit)`。两条快路都返回自己知道的全部——整页、整段区间——由框架先按问题排序，再把该路的上限花在这个顺序上（architecture §7）；两个深工具都分页，并在每次响应结尾给出取回其余部分的确切调用，因为在 agentic 通道里，上限绝不能是死路。`people` 还维护一份持久化投影（PG `component_people_terms`）：从对话结构读出的每个**称呼词 → 目标身份**对一行，带上它在全库范围的支持度。只有当一个称呼词攒够支持度、来自不止一份来源、且某个目标占了它总支持度的大部分时，才对该目标报出——靠集中度而不是频次，这正是把昵称和任何一个逗号前的短语分开的东西。报出的称呼词会带着完整分布出现在编译任务的每个来源下，也出现在 `enumerate_identities` 里每个身份旁边；这份来源自己重复了、但全库还撑不起来的词，标为 *emerging*。还有第三条更弱的线，列出这份来源里重复出现、又对不上任何在场身份的类名字词，不附带任何目标——那些没有任何轮次结构能指向某个人的提及。这些行随来源索引累加，因此不做重建就重新索引一份来源会把它算两次——由 `scripts/ops/rebuild_derived.py` 从 L0 精确重新推导。每一行还带着 `reported_since`，即该对第一次越过报出门槛的那一天——那条只问一次的别名决定所用的时钟，写一次、此后不动，由同一次重建重新推导（早于这一列的行没有日期，会一直被问，直到一次重建把它填上）。它只保有这一张表：更早的预发布版本还建过一张 `component_people_decisions`，现在没有任何代码读它或写它（现在根本没有任何地方存否掉），而 `infra/schema.sql` 有意**不**去 drop 它——这份 schema 每次进程启动都会执行一遍，一个只做创建的引导脚本，才是重启永远不会拿它毁掉数据的那种。你自己看过之后手动删一次即可：`DROP TABLE IF EXISTS component_people_decisions;`。
+`COMPONENTS`、`PEOPLE_FAMILY` 与三项 `ATTENTION_*` 旋钮写在 engine 目录的 `engine.yaml` 里；两项召回旋钮写在 `recall/recall.yaml` 里。完整设计——组件是什么、可以填哪些面、怎么写一个——见 [design/index-components.zh-CN.md](../design/index-components.zh-CN.md)。启用一个组件，下次进程启动时加入它的闸门检查、outline 行和工具；停用则移除，正本不受影响——组件不持有知识，只有从它声明的底派生出来的结构。开启 `people` 后，人物页的 frontmatter 带逗号分隔的 `identities`（`scheme:value`；按来源契约的记录写成 `mailto:` / `im:` / `meeting:`）与 `aliases`。两者都属于文档的总览，随它整体写入（`rewrite_overview(fields=…)` / `set_fields`）——是快照，不是只增不减。关于它们有三件事在写入面与闸门被机械拒绝，且只针对本轮**动过**的页面——正文或 frontmatter 与本轮开头时不同，或页面是新建的（`people.identity_shape`、`people.identity_duplicate`、`people.identity_cospeakers`、`people.alias_collision`）：身份必须是 `scheme:value` 且至多绑定一个页面；在同一场对话里都发过言的两个「人的 id」是两个人，一个页面不能同时绑住它们——IM 的 `sender_id`、会议的 `speaker_id` 是「人的 id」，邮箱地址不是（一个人用两个地址写信再寻常不过，而 `email/v1` 不确立它们之间的任何同一性），所以邮件线程不贡献任何同场发言证据；别名不能是别人的名字（另一个人物页的别名、标题或 slug，或者来源为某个不在本页上的身份记下的显示名）。第四条规则是判断而不是事实，而且**只问一次**：凡是本次编译的来源里出现的人，全库为他报出的每一个称呼词，都必须在本轮结束前要么被记进该页的 `aliases`，要么被 `decline_alias(path, term, reason)` 否掉。一次否掉什么都不写——不写 claim，不写别名，不写字段，页面上不留一个字——因为正本记的是关于一个人已知的事，不是那些不属于他的名字；它只回答调用它的那一轮，哪里都不存。把问题关掉的是这一页**被写下**，判据是两件派生的事实：投影里的 `reported_since`（该「称呼词 → 身份」对第一次越过报出门槛的那一天），对上正本最后一次提交这一页的日子（`written_on`，一次限定在本族路径下的 `git log` 遍历）。在那一天当天或之后被提交过的页面，就是被摆到过这个问题面前的页面，从此不再问，不管它当时怎么决定；本轮新建的页面没有日期，投影里早于这一列的行也没有——两种未知都意味着要问。所以一轮否掉了却什么都没写，下一轮还会再问，这是对的：没提交，就没回答。还有第五种不属于任何页面：`people.not_ready` 会在全库镜像加载失败时拒绝这一轮，因为拿一座空文库去判上面那些事实，恰好会放行它们本来要拒的写入——什么都不写，下一次编译重新读。这样的镜像有两份，各自只被需要它的那一轮索要：来源边界（本轮写过声明了这些字段的人物页、或本轮来源里带着身份时才需要）与称呼词投影（只有那条称呼词决定真的适用时才需要），所以一次只写主题的编译，不会被一份它什么都不问的投影故障拒掉。另有一条运维须知：只要启用了任何组件，一个进程同一时刻只跑一次编译（框架从 `prepare` 一直锁到作业结束），因此部署应当靠增加 worker 进程来提高编译吞吐，而不是在一个进程里并发跑。编译模型得到 `find_person` 与 `decline_alias`；深召回得到 `enumerate_identities`（按需从该用户的 L0 来源元数据算出）与 `person_profile(alias, identity, section, offset, limit)`。两条快路都返回自己知道的全部——整页、整段区间——由框架先按问题排序，再把该路的上限花在这个顺序上（architecture §7）；两个深工具都分页，并在每次响应结尾给出取回其余部分的确切调用，因为在 agentic 通道里，上限绝不能是死路。`people` 还维护一份持久化投影（PG `component_people_terms`）：从对话结构读出的每个**称呼词 → 目标身份**对一行，带上它在全库范围的支持度。只有当一个称呼词攒够支持度、来自不止一份来源、且某个目标占了它总支持度的大部分时，才对该目标报出——靠集中度而不是频次，这正是把昵称和任何一个逗号前的短语分开的东西。报出的称呼词会带着完整分布出现在编译任务的每个来源下，也出现在 `enumerate_identities` 里每个身份旁边；这份来源自己重复了、但全库还撑不起来的词，标为 *emerging*。还有第三条更弱的线，列出这份来源里重复出现、又对不上任何在场身份的类名字词，不附带任何目标——那些没有任何轮次结构能指向某个人的提及。这些行随来源索引累加，因此不做重建就重新索引一份来源会把它算两次——由 `scripts/ops/rebuild_derived.py` 从 L0 精确重新推导。每一行还带着 `reported_since`，即该对第一次越过报出门槛的那一天——那条只问一次的别名决定所用的时钟，写一次、此后不动，由同一次重建重新推导（早于这一列的行没有日期，会一直被问，直到一次重建把它填上）。它只保有这一张表；一次否掉哪里都不存。
 
-开启 `time` 后，组件维护一份持久化投影（PG `component_time_blocks`）：每个 L0 块一行，记录该块的 UTC 瞬间，以及它落在**知识主体时区**里的哪一个日历日——就是 ingest 写进块所属章节的那一天，而不是 UTC 日期，因为对 +08:00 的主体来说，本地 00:00 到 08:00 之间发出的一切都带着前一天的 UTC 日期。每一行还记录它是在哪个时区下归一化的、那个时区从哪里来（`DEFAULT_TIMEZONE`、画像，或已注册的 provider），于是改动主体时区绝不会悄悄把两套日历混在一起：既有行照实说明自己是按什么建出来的，由 `scripts/ops/rebuild_derived.py` 显式重新推导。快召回得到 `timespan(since, until)` 一条路，深召回得到 `timeline(since, until, granularity, offset, limit)`（`granularity="verbatim"` 逐块读完某一天，而不是给出摘要）与 `as_of(date, alias, identity)`，编译任务里每个来源多出一行，说明它在主人日历里的日期与钟点（来源自带时区与主体不同时，两个钟点并列）。所有日期参数都是主体时区里的 ISO `YYYY-MM-DD`：组件从不解析自然语言时间——路由轮能看到 `as_of` 与主体时区，会先把"上季度"解析成 ISO 日期；非 ISO 的参数会在回答的审计轨迹里变成一条 `invalid_args`，而不是一个悄悄不同的区间。
+开启 `time` 后，组件维护一份持久化投影（PG `component_time_blocks`）：每个 L0 块一行，记录该块的 UTC 瞬间，以及它落在**知识主体时区**里的哪一个日历日——就是 ingest 写进块所属章节的那一天，而不是 UTC 日期，因为对 +08:00 的主体来说，本地 00:00 到 08:00 之间发出的一切都带着前一天的 UTC 日期。每一行还记录它是在哪个时区下归一化的、那个时区从哪里来（`DEFAULT_TIMEZONE`、画像，或已注册的 provider），于是改动主体时区绝不会悄悄把两套日历混在一起：既有行照实说明自己是按什么建出来的，由 `scripts/ops/rebuild_derived.py` 显式重新推导。快召回得到 `timespan(since, until)` 一条路，深召回得到 `timeline(since, until, granularity, offset, limit)`（`granularity="verbatim"` 逐块读完某一天，而不是给出摘要）与 `as_of(date, alias, identity)`，编译任务里每个来源多出一行，说明它在所有者日历里的日期与钟点（来源自带时区与主体不同时，两个钟点并列）。所有日期参数都是主体时区里的 ISO `YYYY-MM-DD`：组件从不解析自然语言时间——路由轮能看到 `as_of` 与主体时区，会先把"上季度"解析成 ISO 日期；非 ISO 的参数会在回答的审计轨迹里变成一条 `invalid_args`，而不是一个悄悄不同的区间。
 
 ## 行为开关
 

@@ -102,6 +102,12 @@ ALTER TABLE compile_jobs ADD COLUMN IF NOT EXISTS ok boolean;
 ALTER TABLE compile_jobs ADD COLUMN IF NOT EXISTS detail text;
 ALTER TABLE compile_jobs ADD COLUMN IF NOT EXISTS snapshot_ref text;
 ALTER TABLE compile_jobs ADD COLUMN IF NOT EXISTS brief text;
+-- What the JOB spent, as the compile loop's own usage mapping (input/output/total tokens,
+-- summed across the first round and its repair round). Tokens and never money — the same
+-- rule the consultations record follows: the count is what happened, the price is declared
+-- elsewhere and derived when somebody reads. NULL = the job predates the column, or nothing
+-- was reported; neither is a claim that the job was free.
+ALTER TABLE compile_jobs ADD COLUMN IF NOT EXISTS token_usage jsonb;
 
 CREATE INDEX IF NOT EXISTS compile_jobs_claim
     ON compile_jobs (user_id, status, created_at);
@@ -170,6 +176,87 @@ CREATE INDEX IF NOT EXISTS briefings_user
 -- as the wire shape [{name, ms, status, detail}] so the detail endpoint can hand a past
 -- briefing's breakdown back unchanged. Additive: rows written before it read as '[]'.
 ALTER TABLE briefings ADD COLUMN IF NOT EXISTS stages jsonb NOT NULL DEFAULT '[]'::jsonb;
+
+-- What the PACK put in front of the model, recorded when the pack was built: the addresses
+-- of exactly the rendered blocks the character budget left whole ([{kind, ref, path}], the
+-- same shape `consultations.evidence_handed` uses). An ask over this briefing admits its
+-- citations against this list, so it cannot be re-derived from `system_prefix` later — the
+-- pack is text by then, and text cannot say whether a `[cite: …]` in it is a marker the
+-- renderer wrote or a line the source quotes. Additive: a row written before this column
+-- existed reads as '[]', and an ask over it admits nothing, which is the honest reading of
+-- "nobody recorded what this pack showed".
+ALTER TABLE briefings ADD COLUMN IF NOT EXISTS pack_manifest jsonb NOT NULL DEFAULT '[]'::jsonb;
+
+-- consultations: USE-SIDE L0 (docs/design/steward-owner-visitor.md §2). One row per
+-- answering-lane call that a non-silent visitor made — the question, the addresses of what
+-- was put in front of the model, the answer and what it cited. Kept verbatim and never
+-- re-derived: unlike every other derived table in this file, `rebuild_derived` does not
+-- touch it, because nothing can regenerate the fact that somebody asked something.
+--
+-- It is NOT an authority over knowledge. Canonical derives from knowledge L0 and from
+-- nothing else; no gate, contract or projection reads a row here to decide what is true.
+-- What a row may feed is a component's own derived ledger, which is rebuilt BY replaying
+-- these rows in `created_at` order — hence the index below carrying the id as a tie-break,
+-- so a replay's order is total rather than merely mostly-determined.
+--
+-- `library_ref` is the canonical HEAD sampled when the consultation began — the snapshot id
+-- instead for a pinned call, which is the exact form of the same field. Sampled, not pinned:
+-- the evidence faces read live state and may advance past it during the call, so the ref
+-- says where the reading started rather than one state it all came from. `evidence_handed` and `citations` are arrays
+-- of {kind, ref, path} addresses in the one citation grammar (I4) — never text, so a
+-- consultation cannot become a second copy of the library. `kind` is one of
+-- claim/window/episode/component/document, and `ref` is a claim anchor, a `source_id ¶a-b`
+-- span, or a canonical page path (`document`).
+CREATE TABLE IF NOT EXISTS consultations (
+    user_id         text        NOT NULL,
+    consultation_id text        NOT NULL,
+    created_at      timestamptz NOT NULL DEFAULT now(),
+    lane            text        NOT NULL,   -- fast|deep|briefing_ask
+    visitor_class   text        NOT NULL,   -- audit|business (silent never reaches here)
+    question        text        NOT NULL,
+    as_of           timestamptz,
+    library_ref     text        NOT NULL DEFAULT '',
+    evidence_handed jsonb       NOT NULL DEFAULT '[]'::jsonb,
+    answer_kind     text,
+    answer          text        NOT NULL DEFAULT '',
+    citations       jsonb       NOT NULL DEFAULT '[]'::jsonb,
+    miss            boolean     NOT NULL DEFAULT false,
+    degraded        jsonb       NOT NULL DEFAULT '[]'::jsonb,
+    PRIMARY KEY (user_id, consultation_id)
+);
+
+CREATE INDEX IF NOT EXISTS consultations_user_created
+    ON consultations (user_id, created_at, consultation_id);
+
+-- The reverse lookup: WHICH consultations handed or cited this address. A target is asked
+-- for by address (I4) — a claim anchor, a `source_id ¶a-b` span, or a canonical page path —
+-- and both jsonb arrays are searched with containment, on `ref` AND on `path`. Both, because
+-- a page is reached two ways: opened and read in full (`{kind: document, ref: <path>}`) or
+-- through a claim that lives on it (`{kind: claim, ref: c:xxxx, path: <path>}`), and a
+-- lookup that only matched `ref` would answer "nothing" for the very page whose access card
+-- offered the link. `jsonb_path_ops` is the smaller index and serves exactly `@>`, which is
+-- the only operator this predicate uses.
+CREATE INDEX IF NOT EXISTS consultations_evidence_handed
+    ON consultations USING gin (evidence_handed jsonb_path_ops);
+
+CREATE INDEX IF NOT EXISTS consultations_citations
+    ON consultations USING gin (citations jsonb_path_ops);
+
+-- The at-most-once stamp. A `business` consultation is delivered to its consumers by an
+-- ordinary queue job (kind `recall_projection`, enqueued in the same transaction as the row
+-- above), and that job applies the access statistics and sets this column in ONE
+-- transaction. A job that finds it already set is a no-op — so a worker killed mid-job, or
+-- a queue self-heal on restart, cannot count the same consultation twice. NULL means "not
+-- yet applied", which is also what every row written before delivery existed says.
+ALTER TABLE consultations ADD COLUMN IF NOT EXISTS projected_at timestamptz;
+
+-- What the consultation SPENT, as the lane's own usage mapping (input_tokens,
+-- output_tokens, total_tokens, cache_read, cache_creation). Tokens and never money: the
+-- count is what happened and stays true, while a price is a commercial arrangement that
+-- moves without asking this row, so the money is computed when somebody reads out of the
+-- rates the deployment declares then. `{}` is what every row written before this column
+-- existed says, and it reads back as "nothing reported" rather than as a free call.
+ALTER TABLE consultations ADD COLUMN IF NOT EXISTS token_usage jsonb NOT NULL DEFAULT '{}'::jsonb;
 
 -- evolve_tasks: schema-evolve proposals + their review lifecycle (schema-evolve §2.5).
 -- One row per evolve run: a proposal that landed a branch (status='draft') awaiting
@@ -361,3 +448,75 @@ CREATE INDEX IF NOT EXISTS component_people_terms_target
 -- restart into an irreversible deletion of data nobody was asked about. The pre-release
 -- table is left where it stands, for the operator to inspect, export and drop when they
 -- decide to — `DROP TABLE IF EXISTS component_people_decisions;`, by hand, once.
+
+-- recall_access_hits / recall_access_misses: the FRAMEWORK's access statistics — the
+-- built-in consumer of use-side records (docs/design/steward-owner-visitor.md §6, §8).
+-- Not a component's: a `business` consultation reaches this ledger whether or not any
+-- component is registered, and with every visitor silent there are no consultations at all,
+-- so nothing is written. The `attention` component is the faces over these tables, not
+-- their owner.
+--
+-- One row per (target, calendar day): how many times a consultation put that target in
+-- front of a model that day. A target is a claim anchor (`c:xxxx`), the canonical document
+-- that claim lives on, or a source id — the same three addresses the rest of the system
+-- uses (I4), so a hot row joins against canonical and L0 without a translation table.
+-- Evidence merely HANDED to the model counts once; evidence the answer went on to CITE
+-- counts once more, so the two are distinguishable in aggregate without storing a second
+-- column that would have to be kept in step. A DOCUMENT counts at most once per pass,
+-- however many of its claims travelled: it is not an evidence item but what the items live
+-- on, and counting it per claim would rank pages by their length instead of by their use.
+--
+-- `last_seen` is the exact instant of the latest consultation that touched the target on
+-- that day, so a target's true last access is the MAX over its day rows. Exact last access
+-- therefore costs one column on a row that was already being written, instead of a second
+-- table restating what these rows already know.
+--
+-- No score is stored, deliberately. Heat is `Σ hits × 0.5^(age_days / half_life)` computed
+-- at READ time (access_stats.py), so the half-life is a knob and not a migration, and the
+-- table stays a pure function of the consultations that produced it: a rebuild replays
+-- `list_consultations(..., visitor_class='business')` into a replacement set and swaps it
+-- in, reproducing these rows byte-for-byte. That is the SECOND legitimate rebuild
+-- substrate: use-side records are kept, never derived, and survive `rebuild_derived`
+-- unchanged while everything projected from them is re-derived (I2/I7).
+--
+-- Derived and never an authority: no gate, contract or compile input reads a row here to
+-- decide what is true, and NOTHING here is ever written into a canonical file — access
+-- metadata is joined at read time, by address, out of the derived layer, because a read
+-- must never become a write to the authority. user_id is first everywhere (I1), and no
+-- foreign key points at `consultations` — a target may name a document that a later evolve
+-- renamed, and a projection whose write path could fail on a stale address would fail the
+-- answer it was observing.
+CREATE TABLE IF NOT EXISTS recall_access_hits (
+    user_id     text        NOT NULL,
+    target_kind text        NOT NULL,   -- claim|document|source
+    target_ref  text        NOT NULL,
+    day         date        NOT NULL,
+    hits        integer     NOT NULL DEFAULT 0,
+    last_seen   timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, target_kind, target_ref, day)
+);
+
+-- The window query this table exists for: "everything attended to in the last N days".
+CREATE INDEX IF NOT EXISTS recall_access_hits_day
+    ON recall_access_hits (user_id, day, target_kind, target_ref);
+
+-- The other half: the questions the library was asked and could not answer, verbatim, one
+-- row per (day, question). Verbatim because a question nobody could answer is the one
+-- signal that has no address to be reduced to — what is missing has no `source_id` yet.
+-- The question is the primary key, so it is bounded in characters at the write path
+-- (access_stats.py) rather than by a length nobody would notice being exceeded.
+CREATE TABLE IF NOT EXISTS recall_access_misses (
+    user_id  text    NOT NULL,
+    day      date    NOT NULL,
+    question text    NOT NULL,
+    count    integer NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, day, question)
+);
+
+-- The two tables above carry the names `component_attention_hits` /
+-- `component_attention_misses` had while this ledger was still component-private. Nothing
+-- reads or writes those two any more, and — as with `component_people_decisions` above —
+-- this file does not drop them: a schema every process applies on every boot may only ever
+-- create. They hold a pure projection of `consultations` that one `recall_rebuild` job
+-- re-derives in full, so an operator loses nothing by dropping them by hand, once:
+-- `DROP TABLE IF EXISTS component_attention_hits, component_attention_misses;`

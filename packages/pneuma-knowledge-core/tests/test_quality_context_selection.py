@@ -1,4 +1,4 @@
-"""Spec: docs/design/quality-context-selection.md.
+"""Spec: docs/guides/recall-strategies.md.
 
 The quality path is an opt-in composition layer over existing evidence. These tests pin
 its two mechanical boundaries before implementation: model output can only select real

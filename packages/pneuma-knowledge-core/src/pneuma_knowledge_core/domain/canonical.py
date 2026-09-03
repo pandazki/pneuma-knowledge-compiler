@@ -80,6 +80,21 @@ def iter_canonical_citations(text: str) -> Iterable[Citation]:
             yield Citation(source_id=source_id, block_start=start, block_end=end)
 
 
+def format_citation_span(source_id: str, block_start: int, block_end: int) -> str:
+    """One block span in the citation grammar, WITHOUT the `[cite: …]` brackets.
+
+    The stable spelling of an address: `<source_id> ¶a-b`, collapsed to `<source_id> ¶a`
+    when the span is one block — exactly what `normalize_canonical_citation_markers` writes
+    inside a marker, because that function is written in terms of this one. Callers that
+    need an address rather than a marker (a use-side record naming what it was handed) get
+    the same grammar here instead of spelling it themselves (I4: one addressing scheme).
+    """
+    span = f"¶{block_start}"
+    if block_end != block_start:
+        span += f"-{block_end}"
+    return f"{source_id} {span}"
+
+
 def normalize_canonical_citation_markers(text: str) -> tuple[str, int]:
     """Render accepted citations with one stable spelling and expand grouped spans."""
     changes = 0
@@ -88,10 +103,9 @@ def normalize_canonical_citation_markers(text: str) -> tuple[str, int]:
         nonlocal changes
         rendered_spans: list[str] = []
         for start, end in _citation_spans(match.group("spans")):
-            rendered = f"[cite: {match.group('sid')} ¶{start}"
-            if end != start:
-                rendered += f"-{end}"
-            rendered_spans.append(rendered + "]")
+            rendered_spans.append(
+                f"[cite: {format_citation_span(match.group('sid'), start, end)}]"
+            )
         rendered = " ".join(rendered_spans)
         changes += int(rendered != match.group(0))
         return rendered

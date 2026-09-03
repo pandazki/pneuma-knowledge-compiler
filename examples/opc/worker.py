@@ -1,14 +1,16 @@
-"""Framework compile worker for the OPC example's browsing layer (compose `worker` service).
+"""Framework compile worker for this project's browsing layer (compose `worker` service).
 
-The web layer accepts uploads (ingest writes L0 and enqueues jobs), but a queue without a
-worker is a waiting room with no doctor: nothing ever compiled, and the Process view sat
-on "queued" forever. This entrypoint mirrors server.py — register THIS project's contract
-through the scaffold driver's own loader, then hand off to the stock worker loop — so a
-document dropped in the browser flows L0 → index → compile without any manual step.
+The browser can ingest material (which writes L0 and enqueues jobs), but a queue with no
+worker is a waiting room with no doctor: the Process view would sit on "queued" forever. This
+mirrors server.py — register THIS project's contract through the driver's own loader, then
+hand off to the stock worker loop — so material dropped in the browser flows L0 → index →
+compile with no manual step.
 
-Settings come from PNEUMA_KNOWLEDGE_* environment variables set in docker-compose.yml
-(service-name hosts), same as server.py. Keyless deployments simply don't start this
-service; browsing never needs it.
+Settings come from the PNEUMA_KNOWLEDGE_* variables docker-compose.yml sets, same as
+server.py. An idle worker costs nothing, so it runs in the same profile as the API; a keyless
+deployment simply never gives it anything that needs a model.
+
+Machinery: do not edit. Regenerate the project to upgrade it.
 """
 
 from __future__ import annotations
@@ -18,14 +20,17 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import app as scaffold_app  # noqa: E402 — the neighboring scaffold driver
+import app as driver  # noqa: E402 — the neighbouring project driver
 
 
 def main() -> None:
     from pneuma_knowledge_service.workers.compile_worker import main as worker_main
 
-    skill = scaffold_app.load_contract_skill()
+    skill = driver.load_contract_skill()
     os.environ.setdefault("PNEUMA_KNOWLEDGE_USER_SCHEMA_BASE_VERSION", skill.version)
+    driver.apply_prompt_overlays()
+    for line in driver.keyless_env(os.environ):
+        print(line, flush=True)
     worker_main()
 
 

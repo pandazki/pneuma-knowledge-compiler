@@ -14,6 +14,8 @@ from pneuma_knowledge_core.components import (
     BaseComponent,
     CanonicalReadOnly,
     IndexComponent,
+    collect_evolve_evidence,
+    notify_recall,
     notify_source_indexed,
     rebuild_components,
     register_component,
@@ -124,11 +126,17 @@ class _Projector(BaseComponent):
         self.explode = explode
         self.indexed: list[str] = []
         self.rebuilt: list[str] = []
+        self.consulted: list[str] = []
 
     async def on_source_indexed(self, user_id, source):
         if self.explode:
             raise RuntimeError("boom")
         self.indexed.append(f"{user_id}:{source.raw.source_id}")
+
+    async def on_recall(self, user_id, record):
+        if self.explode:
+            raise RuntimeError("boom")
+        self.consulted.append(f"{user_id}:{record.consultation_id}")
 
     async def rebuild(self, user_id):
         if self.explode:
@@ -181,6 +189,121 @@ async def test_a_component_that_raises_never_takes_the_job_or_the_rebuild_with_i
     assert healthy.indexed == ["u-1:src-01"]  # the failure did not stop the fan-out
 
     assert await rebuild_components("u-1") == ["healthy"]  # and it is reported as not run
+
+
+def _record(consultation_id: str = "k-1"):
+    from datetime import datetime, timezone
+
+    from pneuma_knowledge_core.domain.consultation import ConsultationRecord
+
+    return ConsultationRecord(
+        consultation_id=consultation_id,
+        user_id="u-1",
+        created_at=datetime(2026, 8, 31, tzinfo=timezone.utc),
+        lane="fast",
+        visitor_class="business",
+        question="阿宝上季度盯的是哪条线？",
+        as_of=datetime(2026, 8, 31, tzinfo=timezone.utc),
+        library_ref="deadbeef",
+    )
+
+
+async def test_nothing_registered_means_the_recall_channel_is_a_no_op():
+    assert registered_components() == ()
+    await notify_recall("u-1", _record())
+
+
+async def test_a_component_with_no_recall_face_rides_the_channel_harmlessly():
+    """The protocol's no-op default: `BaseComponent` answers `on_recall` by doing nothing,
+    so the call site needs no branch and a component opts in only when it wants the record."""
+    tagger = _Tagger()
+    register_component(tagger)
+    assert await tagger.on_recall("u-1", _record()) is None
+    await notify_recall("u-1", _record())
+
+
+async def test_every_registered_component_is_told_a_consultation_happened():
+    first, second = _Projector("first"), _Projector("second")
+    register_component(first)
+    register_component(second)
+
+    await notify_recall("u-1", _record("k-7"))
+
+    assert first.consulted == ["u-1:k-7"] and second.consulted == ["u-1:k-7"]
+
+
+async def test_a_component_that_raises_on_recall_never_takes_the_answer_with_it():
+    """Same fail-soft rule as the index channel, for the same reason: what a component
+    derives from a consultation is derived, so the worst a broken one costs is a stale
+    ledger — never the answer somebody is waiting for."""
+    broken, healthy = _Projector("broken", explode=True), _Projector("healthy")
+    register_component(broken)
+    register_component(healthy)
+
+    await notify_recall("u-1", _record("k-9"))
+
+    assert healthy.consulted == ["u-1:k-9"]  # the failure did not stop the fan-out
+
+
+# ------------------------------------------------------------------- the evolve seam
+
+
+class _Reporter(BaseComponent):
+    """A component with something to report to an evolve round — or nothing, or a fault."""
+
+    def __init__(self, name: str, block: str | None, *, explode: bool = False) -> None:
+        self.name = name
+        self.block = block
+        self.explode = explode
+
+    async def evolve_evidence(self, user_id):
+        if self.explode:
+            raise RuntimeError("boom")
+        return self.block
+
+
+async def test_nothing_registered_contributes_no_evidence_at_all():
+    """`None`, not an empty string: the absence of a block is what keeps the proposal's
+    human message byte-identical to the one a deployment without components receives."""
+    assert registered_components() == ()
+    assert await collect_evolve_evidence("u-1") is None
+
+
+async def test_a_component_with_no_evolve_face_contributes_nothing():
+    register_component(_Tagger())
+    assert await collect_evolve_evidence("u-1") is None
+
+
+async def test_blocks_travel_in_registration_order_each_under_its_components_name():
+    register_component(_Reporter("attention", "hot: memory/people/mei-lin.md 12"))
+    register_component(_Reporter("time", "busiest day: 2026-08-30"))
+
+    assert await collect_evolve_evidence("u-1") == (
+        "## attention\nhot: memory/people/mei-lin.md 12\n\n"
+        "## time\nbusiest day: 2026-08-30"
+    )
+
+
+async def test_a_component_with_an_empty_block_is_not_given_a_header():
+    """An empty report is not a report. A header over nothing would read to the model as a
+    component that looked and found the library unused."""
+    register_component(_Reporter("quiet", "   \n "))
+    register_component(_Reporter("loud", "misses: 3"))
+
+    assert await collect_evolve_evidence("u-1") == "## loud\nmisses: 3"
+
+
+async def test_a_component_that_raises_loses_its_block_and_not_the_round():
+    broken = _Reporter("broken", "never read", explode=True)
+    register_component(broken)
+    register_component(_Reporter("healthy", "misses: 1"))
+
+    assert await collect_evolve_evidence("u-1") == "## healthy\nmisses: 1"
+
+
+async def test_every_component_failing_is_the_same_as_no_component_at_all():
+    register_component(_Reporter("broken", "x", explode=True))
+    assert await collect_evolve_evidence("u-1") is None
 
 
 async def test_a_component_tool_is_built_with_this_compiles_sources_under_their_handles():

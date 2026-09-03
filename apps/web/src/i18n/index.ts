@@ -11,6 +11,7 @@
  */
 import { ask } from "./ask";
 import { common } from "./common";
+import { consultations } from "./consultations";
 import { engineConsole } from "./engineConsole";
 import { enums } from "./enums";
 import { events } from "./events";
@@ -37,6 +38,7 @@ export const BUNDLES = [
   common,
   nav,
   enums,
+  consultations,
   engineConsole,
   events,
   service,
@@ -60,6 +62,7 @@ export const MESSAGES = {
     ...common.zh,
     ...nav.zh,
     ...enums.zh,
+    ...consultations.zh,
     ...engineConsole.zh,
     ...events.zh,
     ...service.zh,
@@ -81,6 +84,7 @@ export const MESSAGES = {
     ...common.en,
     ...nav.en,
     ...enums.en,
+    ...consultations.en,
     ...engineConsole.en,
     ...events.en,
     ...service.en,

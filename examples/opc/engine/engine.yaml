@@ -1,0 +1,98 @@
+# Model roles for this engine. The compile model is the one real quality lever — a stronger
+# model directly produces a better library — and it must support tool calling, because the
+# compile agent writes through tools.
+#
+# Precedence for every key in this directory: process environment > this file > framework
+# default. The matching variables here are PNEUMA_KNOWLEDGE_LLM_MODEL_COMPILE / _RECALL /
+# _ANSWER / _DEEP, PNEUMA_KNOWLEDGE_ANSWER_REASONING_EFFORT and
+# PNEUMA_KNOWLEDGE_EMBEDDING_MODEL.
+compile: openrouter:openai/gpt-5.6-luna
+# How images reach the compile model: native sends real image content blocks; caption sends
+# only labelled caption/OCR text; auto trusts the active model profile.
+image_mode: native
+# Wall-clock budget for one model call inside a compile job. A hung provider connection
+# otherwise holds the job open until the worker restarts; on timeout the job fails with a
+# stated reason and the canonical library is untouched. 0 = no timeout.
+compile_call_timeout: 600
+# How many tool calls one round of a compile may spend — first round and repair round alike.
+# 0 is not unbounded: it means the number is derived from the job itself, max(40, 3 x
+# sources), so a round can read every source and write at least twice per source. Set an
+# absolute number only when you mean one.
+compile_max_tool_calls: 0
+# How large a document's overview may be — the bounded head the compile model rewrites
+# whole when the picture of a subject changed. Over it, the gate rejects the round; it is
+# a head, not a second ledger.
+overview_budget_chars: 2000
+# And the floor under the same region: how many claims a document may hold before a compile
+# that touches it must give it an overview (definition at least). A model maintains a head
+# that already exists and never starts one, so the first one is refused into being. 0 = off.
+overview_required_after_claims: 8
+recall: openrouter:openai/gpt-5.6-luna
+# Empty borrows the recall role. Split this only when validation in your own domain shows a
+# separate final-answer model is worth its added cost or latency.
+answer: ""
+# Empty preserves the answer model provider's default reasoning behavior.
+answer_reasoning_effort: ""
+# Deep recall (the agentic search lane). Empty borrows the recall role.
+deep: openrouter:openai/gpt-5.6-terra
+# Live Context is two small calls per tick, not one big one.
+#   live_discover — reads the pending conversation and decides whether anything is worth
+#     looking up at all, and how. A SMALL REASONING model; its effort is pinned LOW in the
+#     framework, because an effort you could raise would change what the lane costs.
+#   live_pick — chooses between candidate cards that are already assembled, writes one short
+#     lede and prunes the citations. A WEAK FAST model; reasoning is pinned off.
+# Both empty = borrow the recall role.
+live_discover: openrouter:openai/gpt-5.6-sol
+live_pick: openrouter:openai/gpt-5.6-luna
+# A supplementary INTERNET face beside your library on the same lane. Off, and that is the
+# default worth keeping until you want it: your library is the authority, this reaches
+# outside it, and it bills per search. Turning it on here only opens the possibility — each
+# Live Context connection also has its own toggle, and the lookup is offered to the discover
+# model only where both said yes. What comes back is one candidate in the SAME pool your
+# library's candidates are in, chosen or not by the same pick call, and cited to the pages it
+# read rather than to one of your source blocks. Reuses OPENROUTER_API_KEY.
+live_web_search: false
+live_web_search_model: openai/gpt-5.6-luna
+# A vector collection's dimension is fixed when it is created, so switching to a model of a
+# different dimension means a new collection, not an in-place change.
+embedding: openrouter:openai/text-embedding-3-small
+
+# What you pay for the models above, one entry per line:
+#   <model id> = <input>/<output>/<cache_read>/<cache_creation> <CURRENCY>
+# with every rate per 1M tokens. Leave it empty and every place that shows what a call spent
+# shows tokens only — the framework quotes no price of its own, and an undeclared model is
+# reported in tokens rather than in a figure somebody invented for it. Costs are computed
+# when they are read, so correcting a rate corrects every number at once.
+# The rates below are this example's own: OpenRouter's list prices for these four models
+# on 2026-09-01, written down so the console and the API can say what a call cost. They
+# are a declaration, not a quote — check them against your own bill before trusting them.
+pricing: |
+  openrouter:openai/gpt-5.6-luna = 0.2/1.2/0.02/0.25 USD
+  openrouter:openai/gpt-5.6-terra = 2/12/0.2/2.5 USD
+  openrouter:openai/gpt-5.6-sol = 2/10/0.2/2.5 USD
+  openrouter:openai/text-embedding-3-small = 0.02/0/0/0 USD
+
+# Index components: business-specific structure over canonical, enabled by name (comma
+# separated; empty = none). Shipped:
+#   people — `identities` / `aliases` on person pages, unique across the library and only
+#            ever growing, checked at the gate and shown in the compile outline, plus
+#            find_person (compile) and enumerate_identities (deep recall).
+#   time   — the owner's calendar: one derived row per source block keyed by the day it
+#            falls on in the owner's timezone, a timespan(since, until) lookup for fast
+#            recall, timeline / as_of for deep recall, and each source's span stated in
+#            the compile task. Re-derived by scripts/ops/rebuild_derived.py.
+#   attention — what the library is being ASKED for: a ledger over the consultations a
+#            business visitor left behind (which documents were read, which questions came
+#            back empty), reported to schema evolution and readable from deep recall. It
+#            counts nothing until a caller asks with visitor_class=business.
+components: people,time,attention
+# The contract family the people component binds to — one of contract.md's path_templates.
+people_family: people/{slug}.md
+# The attention component's three knobs. No score is stored: heat is recomputed when the
+# ledger is read, so changing the half-life rewrites nothing.
+#   half_life_days  how fast a read fades — 14 means a fortnight-old read counts half.
+#   window_days     how far back a report reads. Older days stay in the table.
+#   evidence_chars  the ceiling on the block handed to a schema-evolve proposal.
+attention_half_life_days: 14
+attention_window_days: 60
+attention_evidence_chars: 1500

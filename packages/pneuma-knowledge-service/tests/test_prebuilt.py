@@ -180,3 +180,48 @@ def test_only_pending_jobs_over_this_bundles_sources_are_settled():
         {"job_id": "finished", "status": "done", "payload": {"source_ids": ["s1"]}},
     ]
     assert settleable_jobs(jobs, {"s1", "s2"}) == ["covered", "covered-claimed"]
+
+
+# A component's projection is derived from L0 and canonical, and a shipping project has no
+# way to ship it: the restore is the only moment it can be built. Left out, a restored
+# library's `time` calendar knows no day and its `people` terms have no history.
+
+
+async def test_the_restore_re_derives_every_enabled_components_projection():
+    from pneuma_knowledge_core.components import (
+        BaseComponent,
+        register_component,
+        reset_components,
+    )
+    from pneuma_knowledge_service.prebuilt import rebuild_component_projections
+
+    rebuilt: list[str] = []
+
+    class _Calendar(BaseComponent):
+        name = "calendar"
+
+        async def rebuild(self, user_id: str) -> None:
+            rebuilt.append(user_id)
+
+    class _Terms(BaseComponent):
+        name = "terms"
+
+        async def rebuild(self, user_id: str) -> None:
+            rebuilt.append(user_id)
+
+    reset_components()
+    try:
+        register_component(_Calendar())
+        register_component(_Terms())
+        assert await rebuild_component_projections("u-restore") == ("calendar", "terms")
+        assert rebuilt == ["u-restore", "u-restore"]
+    finally:
+        reset_components()
+
+
+async def test_a_deployment_with_no_component_registered_rebuilds_nothing():
+    from pneuma_knowledge_core.components import reset_components
+    from pneuma_knowledge_service.prebuilt import rebuild_component_projections
+
+    reset_components()
+    assert await rebuild_component_projections("u-restore") == ()
