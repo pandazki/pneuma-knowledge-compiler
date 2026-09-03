@@ -1,0 +1,1795 @@
+{
+  "experiment_id": "opc-my-data-v6",
+  "truth_set_version": "v6",
+  "corpus": {
+    "files": "examples/opc/my-data",
+    "file_count": 190,
+    "owner_statement": {
+      "authored_in": "build-record/exercise.py",
+      "symbol": "OWNER_DIALOGUE",
+      "dialogue_id": "dlg-2026-09-01-weikuan",
+      "contract": "pneuma.source.owner-dialogue/v1",
+      "note": "The 191st source. `exercise.py` sends it to the library as part of what a developer restores, so it is part of this example's inputs and therefore part of the truth basis. Evidence rows that rest on it carry `corpus_source: \"owner_statement\"`; the guard test checks the quote against the literal in exercise.py, and the runner resolves it against the ingested `owner_dialogue` source."
+    },
+    "sources_expected": 191
+  },
+  "language": "zh-CN",
+  "authored": "2026-09-01",
+  "revised": "2026-09-03",
+  "supersedes": "v5 (2026-09-02) — same corpus, same library; 18 questions re-pinned in time, 24 compound facets split, 3 core/detail retags, 9 negative `absent` statements narrowed to what the whole corpus supports, one probe re-based; found by a per-case read-only audit against the inputs",
+  "authoring_discipline": [
+    "Every value below was read out of the example's own inputs — examples/opc/my-data plus the owner statement build-record/exercise.py sends — and nowhere else. No compiled library, no canonical document and no build record was consulted while authoring, so the set cannot reward this build's phrasing.",
+    "Every entry and every question carries `evidence`: a corpus filename plus a VERBATIM quote from it. run_eval.py resolves each quote against the ingested L0 blocks before scoring, and refuses to score when one does not resolve — the corpus binding is mechanical, not a promise.",
+    "No source id appears anywhere in this file. Ids are assigned at ingest, so storing one would bind the set to a single build and destroy the regression it exists for.",
+    "The negative suite is authored to be provably unanswerable. Every invented name in `nonexistent_subject` carries an `absence_proof` naming the pattern that must not occur anywhere in my-data; tests/test_opc_eval_set.py re-greps them on every run.",
+    "Aggregates were enumerated by hand over the whole corpus and their per-file evidence is listed. They are the smallest group on purpose: an aggregate nobody counted honestly is worse than no aggregate.",
+    "v2 — faceted truths. A positive case's expected answer is a list of `facets`, each one thing a correct answer must state, each tagged `core` or `detail` and each carrying its own corpus quote. A case is CORRECT when every core facet is stated; detail facets are scored and reported on their own line and never gate correctness. A core facet is what the QUESTION asks; everything the truth string also happens to carry is a detail. Enumerations are split one facet per item: the gate is unchanged, the diagnosis is not.",
+    "v2 — the judge grades. Every facet of every answered case is decided by the LLM judge, which reports `stated` / `omitted` / `contradicted` per facet, so terseness (omission) and dishonesty (contradiction) are visible as different failures. The mechanical similarity score is computed and recorded beside each verdict as a diagnostic only; it decides nothing, in either direction.",
+    "v2 — `expected_via`. `canonical` means the compile contract admits this truth to the canonical library; `verbatim` means the contract legitimately leaves it in the raw material, so the answer must reach it through L0/L1/L2 (invariant I3 — reachability is unconditional). Three cases are `verbatim`: they ask for life-side detail the contract's `life/` family does not admit (a roster of maintenance shops, the item list of one service, a neighbour's spare-key arrangement) while it does admit the money 口径 beside them. Tagging them is not a contract change and implies none; it says where the answer has to come from, so a miss on one is attributable to retrieval rather than to admission judgement.",
+    "v2 — case ids are never reused. miss-ud-02 (试点尾款的金额) and miss-fp-02 (吴岚签了附录之后尾款何时到账) were retired: the owner statement answers the first and half of the second, so as negatives they had become wrong. What they were really testing is now asked positively as state-09 and history-09, and two fresh negatives (miss-ud-08, miss-fp-08) keep the negative count at 22 and the three shapes intact.",
+    "v2 — unchanged on purpose: the chain questions (chain-01, chain-03) and the structure probe, the three `life/` coverage questions (aggregate-01, set-04, join-03), the model/evidence-organisation cases (calendar-02, history-03, definition-02, aggregate-09), the temporal-arithmetic case (calendar-05), and miss-ns-06. They failed on the previous baseline and they are supposed to: an eval set that re-authors away every miss measures nothing.",
+    "v3 — one facet, one proposition. The v2 sweep left 35 facets that still joined two claims with a colon, a semicolon, `，也` or `而不是` ('没有付款预计日：没有人给出过这个日期'), and a judge asked whether an answer STATES such a string will fail an answer that gave the asked half. They are now 77 facets, each a single proposition with its own tag and its own corpus quote, and a colon survives in a facet only inside a quoted term (「客户复核：未开始」). The tag rule is unchanged and is what decides where a split half lands: a core facet is exactly what the QUESTION asks, everything else is detail — which is why the date in history-01, the reason in calendar-06 and the relay in join-06 became details while the thing asked stayed core.",
+    "v3 — the judge is asked for entailment, not for surface. Per facet it now receives the question, the whole answer, the facet and the facet's corpus quote, and decides whether the answer's content ENTAILS the facet (paraphrase, different wording and a more specific statement all count), CONTRADICTS it, or neither. The negative judge is given the L0 text behind every `[cite: sid ¶a-b]` the answer carries, so a grounded detail is no longer read as invention, and `false_premise` cases carry a second verdict, `premise_accepted`, on its own column: refusing a false premise and describing the real state is the right answer, and the two failures — inventing the absent thing, and swallowing the premise — are now counted apart.",
+    "v3 — unchanged on purpose: every question, every as_of, every corpus quote, the negative suite and the structure probe. This revision re-cut the facets and re-worded the two judges; it did not re-author a single truth VALUE, and no question was added, dropped or re-asked.",
+    "v4 — an open question's core is what the question asks, and no more. 「还在工作那一侧做过什么事？」 does not ask for one particular act, so join-03's core could not be the link-clicking act alone: the corpus records 赵楠 doing at least two work-side things, and an answer that cites the other one answered the question. Its core is now the person plus the EXISTENCE of a documented work-side act (the two the corpus carries are named in the facet, so an invented act still fails), and the specific link check is a detail. join-01 had the same shape — 「还在别处提出过类似的拆分要求吗？」 against a person who makes such requests repeatedly — and is re-cut the same way. No question, no as_of and no corpus quote changed; the corpus quotes each new core facet rests on were already in the set or are verbatim spans of the same files.",
+    "v4 — unchanged on purpose: the other four join cases and every other L5 case were swept under the same eye and left alone. 「由哪几个节点组成」, 「还有哪两处没有核对清楚」, 「靠的是哪几项证据」, 「分属哪两个项目」 and 「允许什么、不允许什么」 are closed questions whose corpus answer is an enumeration, so a specific core facet is exactly what they ask for.",
+    "v5 — an existential facet carries its illustrations beside the proposition, not inside it. join-01-b and join-03-b ask whether a documented act of that kind EXISTS, and named the corpus's own acts in a parenthesis so that an invented act could not pass. The judge read the parenthesis as the thing to entail: the previous line's deep answer to join-03 reported one of the two documented acts and was scored `omitted` for not reporting the other. The acts now live in an `examples` list beside the facet text, and the judge is told what such a list is — illustrations of what would satisfy the proposition, never a checklist, and anything else the material records satisfies it too. An invented act still fails, because the facet's corpus quotes are in the same prompt. No question, no `as_of`, no corpus quote and no tag changed, and no facet was added or removed.",
+    "v5 — asserting the absence is a correction, not a fabrication. `miss-fp-06` and `miss-fp-07` REJECTED their false premises — 「陈放并不是反对那项材料变更」, 「记录不支持\"采购接受报价后合同金额调整\"这一前提」 — and were graded `fabricated` for asserting, word for word, what this set's own `absent` line says the corpus records. The negative judge is now told, for every shape, that the absence statement it is handed is TRUE and that what it grades is what the answer adds BEYOND that statement and beyond the L0 spans the answer cited. The `premise_accepted` verdict is unchanged: swallowing a premise is still counted, on its own column.",
+    "v6 — a question either fixes its time or asks for the current state. Every case was re-read against the inputs by an independent read-only audit, one case at a time. Where the corpus moved after the state a question was scored on, the question now carries the date it is asking about (`截至 …`, or the record it quotes) and the case's `as_of` says the same, so a library that answers with the LATEST state is no longer marked wrong for being right. One case went the other way: chain-08 asks 「目前」 and its truth is the supersession, with the April state kept as a detail.",
+    "v6 — core is exactly what the question asks. Names, room numbers, slot numbers, actors and reasons the question does not ask for became details; the count a question asks for (aggregate-01, aggregate-08) became core, because a case whose only cores are the members cannot fail an answer that adds a fourth. A list item the SOURCE writes as one item stays one facet: 「机油与滤芯更换」 is what the shop wrote, and splitting it would grade the answer on this file's punctuation rather than on the corpus's.",
+    "v6 — `absent` is handed to the judge as truth, so every sentence in it beyond the bare absence must be a current, corpus-backed fact. Six negative statements carried a 只/始终/从未 the whole corpus does not support (miss-fp-05's 「新导入一直保持暂停」 against the 5-15 import, miss-ns-07's 「只是一个纸面工作名」 against the later project page, miss-ud-03's 「只给出页面短标签和联系尾号」 against the same table's other columns) and were narrowed to what the material actually holds. miss-fp-07 changed shape: at the corpus's latest point neither acceptance nor an adjusted contract total is recorded, so the rigorous negative is the absence of the detail, not a corrective claim about acceptance.",
+    "v6 — the undated questions are a closed set the author signs. `undated_ok` below lists every positive case whose question names no date and asks for no current state, each with the reason its answer cannot go stale; tests/test_opc_eval_set.py fails on any case not in it, so the next author cannot add an undated question by accident.",
+    "v6 — unchanged on purpose: the quotes that reach into the owner statement. `build-record/exercise.py` authors it as adjacent Python string literals, and both the guard test and the runner check quotes against the PARSED turns, not the raw file — so a quote that crosses a literal boundary is verbatim in the thing that is actually sent. The audit's five `quote_mismatch` findings against that file were read and rejected for that reason."
+  ],
+  "undated_ok": {
+    "history-02": "The name the export file carried BEFORE the 2026-04-29 rename. A later rename cannot change what it used to be.",
+    "history-03": "A before/after pair that closed on 2026-04-14; no later file revisits the name-matching rule.",
+    "history-04": "A wording change that closed on 2026-04-10. What the status bar said before it was split cannot change afterwards.",
+    "history-05": "The superseded REV-01 sentence. Asking what a node USED TO show is frozen by the supersession itself.",
+    "history-06": "A correction made and closed inside one 2026-04-28 conversation.",
+    "chain-04": "A standing constraint. The corpus states it on 2026-05-18 and never lifts it; the compile contract carries the same rule.",
+    "chain-05": "One recorded utterance at the 现场会 and its two conditions; no later material revises or withdraws them.",
+    "chain-07": "The four-item evidence chain behind one closed incident. Nothing later adds or removes an item.",
+    "set-01": "The question names its own occasion (「那次确认」 = 2026-03-21). The three exclusions are never restated with a different list.",
+    "set-05": "The three columns of the next-cycle sheet, written once on 2026-05-22. The corpus ends before that cycle starts.",
+    "definition-02": "Two project identities plus one closed incident. Both names and the cross-project leak are settled by 2026-04-12.",
+    "definition-03": "An identifier defined once, in one table. candidate-k271 is never renumbered or reused.",
+    "definition-05": "A defect described once under its own id, and never re-scoped or closed in the material.",
+    "calendar-06": "The two pickups carry their own dates inside the answer, and no third pickup is recorded.",
+    "aggregate-01": "A roster over the whole corpus. No later file names a fourth maintenance shop or renames one of the three.",
+    "aggregate-05": "A count over the whole fixed corpus, which is what 「这批材料里」 says.",
+    "aggregate-09": "A four-item pre-submission checklist stated once, on 2026-05-13, and not revised afterwards.",
+    "join-01": "Existential: whether the person made a similar request ELSEWHERE. A later request would satisfy it, not falsify it.",
+    "join-02": "Who misread the sample and what she saw — one observed session, 2026-05-08, never revisited.",
+    "join-03": "Existential: a person plus whether a documented work-side act of theirs exists. A later act satisfies it too.",
+    "join-04": "Which chain the dead attachment belongs to. The corpus's latest word on it (2026-05-18) confirms the first, budget chain.",
+    "join-06": "Who replied and what that reply permits — one 2026-04-25 reconciliation, and the constraint it states is never lifted."
+  },
+  "facet_tags": {
+    "core": "a thing the question asks for; every core facet must be stated for the case to be correct",
+    "detail": "a thing the truth also carries but the question did not ask for; scored on its own line as detail_recall, never gating"
+  },
+  "expected_via": {
+    "canonical": "the compile contract admits this truth to the canonical library",
+    "verbatim": "the contract leaves this in the raw material on purpose; the answer must reach it through L0/L1/L2"
+  },
+  "reconciliation": {
+    "headline": "an EVAL-SET change — truth v6 and a calibrated judge; library and engine untouched",
+    "basis": "Same canonical library, byte-for-byte, and no compile in between; same stack, same corpus, same harness, and the same engine configuration the previous line was answered under (`evidence_strategy: select`). What changed is the ruler, on both of its halves. Every one of the 84 questions was re-read against the inputs alone by an independent read-only process and the maintainer's accepted findings applied — questions pinned in time, compound facets split, negative `absent` statements narrowed. And the judge's own approximation rule was corrected against the calibration suite, which now agrees with all 112 of its items and gates on every variant but one. Every difference below is a difference in the measurement.",
+    "note": "Seven lines have now been scored against the same shipped canonical library, the same stack and the same corpus. `ruler_changes` on a case says which revision of the truth set touched it and which change inside that revision, so a case that moved can be attributed rather than guessed at — and a revision the compared line was already scored under cannot be blamed for a move since. What is left for a case with no revision in between is the fallback this map names for that key: for a v5 comparison it is the judge-rule-or-noise group, because the one corrected judging rule reaches every case in its suite and cannot be separated, case by case, from the answering lane's own width — measured twice at 5–8 of 61 fast-lane cases.",
+    "groups": [
+      {"key": "v2-corpus-basis", "since": "v2", "title": "corpus basis", "note": "The truth basis became the example's own inputs — my-data/ (190) plus the owner statement exercise.py sends. miss-ud-02 and miss-fp-02 stopped being unanswerable under that basis and were retired; what they tested is asked positively as state-09 and history-09, and miss-ud-08 / miss-fp-08 keep the negative suite at 22 in three shapes."},
+      {"key": "v2-re-authored", "since": "v2", "title": "definition-01 re-authored", "note": "The v1 truth rewarded a throwaway self-deprecating line (「只是纸面工作名」) as a definition. A definition truth must come from how the corpus describes the thing, so the core facet is now what Seamlog IS, cited from the product description itself."},
+      {"key": "v3-facet-split", "since": "v3", "title": "facet split", "note": "35 facets that still joined two claims (「X：Y」, 「X，也 Y」, 「X 而不是 Y」) became 77 single-proposition facets. A split moves a case in either direction: the half the question asked stays core, the qualifier it did not ask for becomes a detail, and a case that used to hang on one long string now passes or fails on each proposition separately."},
+      {"key": "judge-calibration", "since": "v3", "title": "judge calibration", "note": "These cases' facets are byte-identical to the previous line's. The positive judge is now asked for ENTAILMENT rather than for whether the answer states the facet's words, and the negative judge reads the L0 text behind the answer's own citations before calling anything fabrication. Nothing else under these cases moved."},
+      {"key": "v2-faceted", "since": "v2", "title": "faceted truths, then the judge", "note": "On the v1 line this question's truth was one string checked as a whole. It has been a list of tagged facets since v2, graded facet by facet, and the judge behind that grading was recalibrated in v3. Two ruler changes lie between that line and this one, so a case here is not attributable to either alone — the v2 line is in this folder for exactly that reason."},
+      {"key": "judge-nonexistent-subject", "since": "v3", "title": "judge prompt — the nonexistent_subject clause", "note": "One clause in the negative judge's prompt is the only thing between this line and the previous one, and it was written before this line was scored rather than after: on a `nonexistent_subject` question, an answer that gives a value for the invented subject WITHOUT naming the real subject it belongs to has answered inside the invented one and is fabrication; naming the real subject and correcting the question, or refusing, is not. Questions, facets, corpus quotes and the positive judging language are byte-identical across the two lines, so a case listed here moved under that clause or under the answering lane's own run-to-run noise — a width the previous line measured at eight of 61 fast-lane cases."},
+      {"key": "v4-library-config", "since": "v4", "title": "library config — `evidence_strategy` ranked→select", "note": "These cases' questions, facets, corpus quotes and both judge prompts are byte-identical to the previous line's, and no compile ran between the two, so the truth set cannot have moved them. What lies between the lines is the example's engine: `evidence_strategy` went from `ranked` to `select`, the api container was restarted, and the answers on this line were composed by one bounded selection call over the broad candidate pools instead of by the top of each face in retrieval order. On a corpus this small the RRF scores are nearly flat (0.016–0.017 across the top 60), so `ranked` was handing the answer six windows in an order that carried almost no signal. A case listed here moved under that flip or under the answering lane's own noise, and the two cannot be separated case by case — only the direction of the whole column can be read."},
+      {"key": "v4-open-question-core", "since": "v4", "title": "an open question's core", "note": "join-03 and join-01 ask what a person DID and whether they did it elsewhere too, and each had one specific act as its only core facet — so an answer that resolved the person and cited the other documented act of theirs was scored wrong for citing the wrong true thing. The core is now the person plus the existence of a documented act (both of the corpus's acts are named in the facet, so an invented act still fails), and the specific act is a detail. This is a change to the ruler and is filed apart from the configuration flip for that reason."},
+      {"key": "v5-judge-and-facet-contract", "since": "v5", "title": "judge prompt / facet contract", "note": "No question, no `as_of`, no corpus quote and no engine knob changed between this line and the previous one, and no compile ran: the library and the deployment are the previous line's exactly. Two things in the ruler did. (1) A facet may now carry an `examples` list beside its proposition, and the judge is told what such a list is — illustrations of what would satisfy the fact, never a checklist, with anything else the material records counting the same; the two existential core facets (join-01-b, join-03-b) moved their parenthesised acts into it, and an invented act still fails because the facet's corpus quotes are in the same prompt. (2) The negative judge is told, for every shape, that the absence statement it is handed is TRUE, so an answer that asserts the absence — or the corpus fact that contradicts a false premise — is a correction and not an invention; what it grades is what the answer adds beyond that statement and beyond the spans the answer cited. Both judge prompts therefore have a new hash, and a case listed here moved under one of those clauses or under the answering lane's own noise."},
+      {"key": "v6-question-repinned", "since": "v6", "title": "the question re-pinned in time, or re-targeted", "note": "An accepted finding of the per-case rigor audit, and its largest class: a question with no date, scored against a state the corpus later changed, loses a library that answers with the current value. These questions now name the date they ask about and their `as_of` says the same; chain-08 went the other way and asks 「目前」, with the April state kept as a detail. A case whose facets moved as well is filed here rather than under the split, because the pin is what forced them."},
+      {"key": "v6-facets-split", "since": "v6", "title": "facets split, or a core and a detail retagged", "note": "An accepted finding of the audit. 24 facets that bundled two claims became separate facets, and core against detail was brought back to exactly what the question asks — a count the question did ask for became a core, a room number and a witness's name became details. The judge returns one verdict per facet, so a split moves a case in either direction."},
+      {"key": "v6-negative-shape", "since": "v6", "title": "a negative case changed shape", "note": "miss-fp-07 alone. At the corpus's latest point neither acceptance of the quotation nor an adjusted contract total is recorded, so the rigorous negative is the missing detail rather than a false premise to correct, and the case is now `unanswerable_detail`. A shape change rewrites the `absent` statement with it, and is filed here rather than under that narrowing because the shape is the larger move."},
+      {"key": "v6-absent-narrowed", "since": "v6", "title": "a negative's `absent` narrowed, or its absence proof strengthened", "note": "An accepted finding of the audit. `absent` is handed to the judge as TRUE, so every sentence in it beyond the bare absence has to be a current corpus fact: nine of these statements were narrowed to what the whole corpus supports, and one absence was re-proved against a stronger passage. What the statement says is what the auditor is told the material holds, and therefore what counts as an invention."},
+      {"key": "v6-probe-rebased", "since": "v6", "title": "the structure probe re-based on the contract", "note": "The chain-separation probe read the corpus as forbidding one document for both chains. It does not — it forbids merging their STATUS. What requires a page each is this example's own compile contract (`chains/{slug}.md` … 「各自一页，永不合并」), so the probe names that rule now and says plainly that it tests contract conformance. It is reported in the suite's probe section rather than in the case tables here, because it is not a scored question."},
+      {"key": "v6-judge-rule-or-lane-noise", "since": "v6", "title": "the judge's approximation rule, or the answering lane's own noise", "note": "These cases' questions, `as_of`, facets and `absent` statements are byte-identical to the previous line's: the truth set did not touch them, so nothing in it can have moved them. Two things between the lines can. (1) The facet judge's rule 9. An approximation is now read as an assertion of a value carrying the tolerance its rounding word implies — `stated` when the fact falls inside it, `contradicted` when the range excludes it — where before a non-rounding approximation was `omitted`; the suite's own item for it was expecting the wrong verdict, which is how the correction was found. (2) The lane's own run-to-run width, measured on this suite at 5–8 of 61 fast-lane cases. The two cannot be told apart case by case, and this list does not try: it names the questions and stops."}
+    ],
+    "retired_cases": {
+      "miss-ud-02": ["v2-corpus-basis"],
+      "miss-fp-02": ["v2-corpus-basis"]
+    },
+    "unattributed_group_for": {
+      "opc-my-data-v1": "v2-faceted",
+      "opc-my-data-v2": "judge-calibration",
+      "opc-my-data-v3": "v4-library-config",
+      "opc-my-data-v4": "v5-judge-and-facet-contract",
+      "opc-my-data-v5": "v6-judge-rule-or-lane-noise"
+    }
+  },
+  "axes": {
+    "state": "the current value of something the corpus changed",
+    "history": "what it used to be, and when it changed",
+    "chain": "answerable only by walking an evidence chain end to end",
+    "set": "closed-set enumeration, with its residue",
+    "definition": "what X is, in one line",
+    "calendar": "a window of time, or a status as of a date",
+    "aggregate": "a computation over many sources",
+    "join": "multi-hop: no single page holds the answer",
+    "miss": "the negative suite"
+  },
+  "difficulty": {
+    "L1": "single fact, stated in one place",
+    "L2": "temporal: an as-of date, an ordering, a duration, or a value asked for by its role in time",
+    "L3": "noise-resistant: the corpus loudly carries a stale or withdrawn value next to the right one",
+    "L4": "aggregation over many sources",
+    "L5": "multi-hop join, or a chain walked end to end"
+  },
+  "truth": {
+    "durable_facts": [
+      {
+        "truth_id": "df-quote-terms",
+        "value": "试点报价是一万八千元、六周，包含一个项目、两名使用者、一次导出",
+        "status": "current",
+        "effective_from": "2026-04-22",
+        "evidence": [
+          {"corpus_file": "2026-04-22-试点报价与范围口头澄清.md", "quote": "报价写的是一万八千元、六周：一个项目、两名使用者、一次导出", "as_of": "2026-04-22", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-quote-approval-excluded",
+        "value": "供应商审批不在当前试点报价的范围内",
+        "status": "current",
+        "effective_from": "2026-04-24",
+        "evidence": [
+          {"corpus_file": "2026-04-24-当前报价与审批请求的边界.md", "quote": "我把当前报价的说明压回一个项目、两名使用者和一次导出；供应商审批不在其中", "as_of": "2026-04-24", "source_family": "document"},
+          {"corpus_file": "2026-03-24-云麓试点范围-供应商审批请求.md", "quote": "它不在当前云麓试点的免费范围内", "as_of": "2026-03-24", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-quote-not-accepted",
+        "value": "吴岚明确说过理解审批不含并不等于已经接受报价",
+        "status": "current",
+        "effective_from": "2026-04-22",
+        "evidence": [
+          {"corpus_file": "2026-04-22-试点报价与范围口头澄清.md", "quote": "我理解不含，不等于我已经接受报价", "as_of": "2026-04-22", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-procurement-reply",
+        "value": "采购只回了「材料可进入内部流程」，没有说下一站是谁",
+        "status": "current",
+        "effective_from": "2026-04-25",
+        "evidence": [
+          {"corpus_file": "2026-04-25-报价材料进入内部处理的核对.md", "quote": "采购只回了“材料可进入内部流程”，但没有说下一站是谁", "as_of": "2026-04-25", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-accounts-7-2",
+        "value": "七个已建立的账号里只有两个留下了完整的首条链记录",
+        "status": "current",
+        "effective_from": "2026-05-10",
+        "evidence": [
+          {"corpus_file": "2026-05-10-首次成功失败路径核对.md", "quote": "截至今天，那七个账号里只有两个人留下了完整的首条链记录", "as_of": "2026-05-10", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-first-chain-criteria",
+        "value": "首条链要同时留下被整理的变更片段、能返回原材料的位置、由人明确保存的当前状态三样",
+        "status": "current",
+        "effective_from": "2026-05-10",
+        "evidence": [
+          {"corpus_file": "2026-05-10-账号到达与首次成功的计数边界.md", "quote": "首条链需同时留下三样可查内容：被整理的变更片段、能够返回原材料的位置、由人明确保存的当前状态", "as_of": "2026-05-10", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-not-completion",
+        "value": "只打开页面、浏览帮助、创建空项目或停在导入选择，都不记为首链完成",
+        "status": "current",
+        "effective_from": "2026-05-10",
+        "evidence": [
+          {"corpus_file": "2026-05-10-账号到达与首次成功的计数边界.md", "quote": "只打开页面、浏览帮助、创建空项目或停在导入选择，都不记为完成", "as_of": "2026-05-10", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-invites-12-7",
+        "value": "十二份小范围邀请发出后，截至 2026-05-07 九点半有七位受邀对象建立了账号",
+        "status": "current",
+        "effective_from": "2026-05-07",
+        "evidence": [
+          {"corpus_file": "2026-05-07-首轮数字只记到注册.md", "quote": "周二实际发出十二份小范围邀请，截至今天九点半，七位受邀对象留下了这样的记录", "as_of": "2026-05-07", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-slots-0503",
+        "value": "2026-05-03 时十二个邀请槽位里六个空着，三个有一位可能对象，两个只记了角色，一个有两位备选",
+        "status": "current",
+        "effective_from": "2026-05-03",
+        "evidence": [
+          {"corpus_file": "2026-05-03-十二个邀请槽位-未完成工作台.md", "quote": "有两位备选", "as_of": "2026-05-03", "source_family": "document"},
+          {"corpus_file": "2026-05-03-十二个邀请槽位-未完成工作台.md", "quote": "不代表已联系到十二个人", "as_of": "2026-05-03", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-replay-nine",
+        "value": "受影响导入段第一轮重放共九条输入：四条能回到各自项目、三条进入人工确认清单、两条缺少可比较字段保持阻断",
+        "status": "current",
+        "effective_from": "2026-04-14",
+        "evidence": [
+          {"corpus_file": "2026-04-14-受影响导入段重放记录.md", "quote": "四条能分别回到各自项目和父消息，未形成跨项目关系；三条只给出相同短名，进入人工确认清单；两条缺少可比较字段，保持阻断", "as_of": "2026-04-14", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-owner-src-ids",
+        "value": "被错误合并的两条业主来源是 owner-src-104（云麓 7 栋 1604）和 owner-src-887（澄湾 3 栋 1202）",
+        "status": "current",
+        "effective_from": "2026-04-05",
+        "evidence": [
+          {"corpus_file": "2026-04-05-同姓候选关系核对表.md", "quote": "云麓 7 栋 1604", "as_of": "2026-04-05", "source_family": "document"},
+          {"corpus_file": "2026-04-05-同姓候选关系核对表.md", "quote": "`owner-src-887` 落到澄湾项目", "as_of": "2026-04-05", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-candidate-k271",
+        "value": "candidate-k271 是把两条同姓业主来源放在同一张卡下的候选卡标识",
+        "status": "current",
+        "effective_from": "2026-04-05",
+        "evidence": [
+          {"corpus_file": "2026-04-05-同姓候选关系核对表.md", "quote": "候选卡标识", "as_of": "2026-04-05", "source_family": "document"},
+          {"corpus_file": "2026-04-05-同姓候选关系核对表.md", "quote": "页面把两行放在同一卡下", "as_of": "2026-04-05", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-contact-tails",
+        "value": "两条来源的联系尾号分别是 2618 和 9043",
+        "status": "current",
+        "effective_from": "2026-04-05",
+        "evidence": [
+          {"corpus_file": "2026-04-05-同姓候选关系核对表.md", "quote": "2618", "as_of": "2026-04-05", "source_family": "document"},
+          {"corpus_file": "2026-04-05-同姓候选关系核对表.md", "quote": "9043", "as_of": "2026-04-05", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-root-cause",
+        "value": "错误关联的原因是名称近似分支把两个同姓业主当成了同一候选",
+        "status": "current",
+        "effective_from": "2026-04-06",
+        "evidence": [
+          {"corpus_file": "2026-04-06-林舟-贾宁-陈放-候选卡核查.md", "quote": "两份来源记录在导入后指向同一个实体标识，原因是名称近似分支把两个同姓业主当成了同一候选", "as_of": "2026-04-06", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-evidence-chain-four",
+        "value": "错误关联的证据链有四项：两个不同来源定位和房号、导入结果里相同的实体标识、候选事件中只记录了姓氏规范值和近似分支命中、随后两边消息都写到这个实体下",
+        "status": "current",
+        "effective_from": "2026-04-06",
+        "evidence": [
+          {"corpus_file": "2026-04-06-林舟-贾宁-陈放-候选卡核查.md", "quote": "证据链有四项", "as_of": "2026-04-06", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-evidence-window-0407",
+        "value": "4 月 7 日的访问检查只覆盖 4 月 5 日 09:00 至 4 月 7 日 10:00",
+        "status": "current",
+        "effective_from": "2026-04-07",
+        "evidence": [
+          {"corpus_file": "2026-04-07-受限视图错误关联影响清单.md", "quote": "检查只覆盖 4 月 5 日 09:00 至 4 月 7 日 10:00", "as_of": "2026-04-07", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-suspend-0407",
+        "value": "4 月 7 日起关系写入、新导入、候选自动应用和既有分享入口保持暂停",
+        "status": "current",
+        "effective_from": "2026-04-07",
+        "evidence": [
+          {"corpus_file": "2026-04-12-事故说明-同姓记录错误关联与当前处置.md", "quote": "4 月 7 日起，关系写入、新导入、候选自动应用和既有分享入口保持暂停", "as_of": "2026-04-12", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-readonly-suspended",
+        "value": "云麓受限只读处于暂停状态",
+        "status": "superseded",
+        "effective_from": "2026-04-07",
+        "evidence": [
+          {"corpus_file": "2026-04-11-受限只读恢复记录.md", "quote": "| 云麓受限只读 | 暂停 |", "as_of": "2026-04-11", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-readonly-1136",
+        "value": "2026-04-11 11:36 起云麓受限只读对授权试点账号开放，写入、导入和原分享链接不恢复",
+        "status": "current",
+        "effective_from": "2026-04-11",
+        "evidence": [
+          {"corpus_file": "2026-04-11-受限只读恢复记录.md", "quote": "对授权试点账号开放", "as_of": "2026-04-11", "source_family": "document"},
+          {"corpus_file": "2026-04-11-受限只读恢复协调.md", "quote": "不恢复写入、导入或原分享链接", "as_of": "2026-04-11", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-car-cost",
+        "value": "保养最初电话估算 420 元，结算合计 680 元，比原估算多 260 元",
+        "status": "current",
+        "effective_from": "2026-04-09",
+        "evidence": [
+          {"corpus_file": "2026-04-09-保养取车窗口调整.md", "quote": "最初电话估算为 420 元，复查后增加的制动液与雨刷片已在 3 月 30 日电话确认，结算合计 680 元，较原估算多 260 元", "as_of": "2026-04-09", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-car-items",
+        "value": "本次保养实际项目是机油与滤芯更换、轮胎换位、液位检查、制动液更换和后雨刷片更换",
+        "status": "current",
+        "effective_from": "2026-04-09",
+        "evidence": [
+          {"corpus_file": "2026-04-09-保养取车窗口调整.md", "quote": "本次实际项目为机油与滤芯更换、轮胎换位、液位检查、制动液更换和后雨刷片更换", "as_of": "2026-04-09", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-three-shops",
+        "value": "材料里出现过三家与车相关的商家：北巷保养咨询、桥桥保养站、常青养护",
+        "status": "current",
+        "effective_from": "2026-03-15",
+        "evidence": [
+          {"corpus_file": "2026-03-15-保养报价中的基础项目.md", "quote": "北巷保养咨询", "as_of": "2026-03-15", "source_family": "document"},
+          {"corpus_file": "2026-03-31-今日取车未能交付.md", "quote": "桥桥保养站", "as_of": "2026-03-31", "source_family": "document"},
+          {"corpus_file": "2026-04-09-保养取车窗口调整.md", "quote": "常青养护", "as_of": "2026-04-09", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-car-two-pickups",
+        "value": "3 月 31 日桥桥保养站因缺一个到货件没能交车，4 月 9 日在常青养护取回",
+        "status": "current",
+        "effective_from": "2026-03-31",
+        "evidence": [
+          {"corpus_file": "2026-03-31-今日取车未能交付.md", "quote": "原先预计今天可以交付的保养项目还差一个到货件", "as_of": "2026-03-31", "source_family": "document"},
+          {"corpus_file": "2026-04-09-保养取车窗口调整.md", "quote": "车辆的常规保养和复查已经结束，可以今天取回", "as_of": "2026-04-09", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-attachment-dead",
+        "value": "预算调整邮件指向的「预算更新表 v3」链接已失效，归档里没有文件副本，归档内文件对象为 0",
+        "status": "current",
+        "effective_from": "2026-04-03",
+        "evidence": [
+          {"corpus_file": "2026-04-03-找到-客厅预算调整邮件.md", "quote": "我今早点过两次，都只返回“链接已失效”，归档里没有文件副本", "as_of": "2026-04-03", "source_family": "document"},
+          {"corpus_file": "2026-04-03-归档检索作业-0403-2-完成.md", "quote": "归档内文件对象：0", "as_of": "2026-04-03", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-meeting-1036",
+        "value": "现场会记录里那句话在 10:36 附近，不在失效附件里",
+        "status": "current",
+        "effective_from": "2026-04-27",
+        "evidence": [
+          {"corpus_file": "2026-04-27-材料替代-现场会位置请确认.md", "quote": "那句话在会议记录的 10:36 附近，不在失效附件里", "as_of": "2026-04-27", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-onsite-conditions",
+        "value": "吴岚当时说可以按替代材料继续，前提是把颜色样和预算差异留在项目记录",
+        "status": "current",
+        "effective_from": "2026-04-27",
+        "evidence": [
+          {"corpus_file": "2026-04-27-材料替代-现场会位置请确认.md", "quote": "吴岚当时说可以按替代材料继续，前提是把颜色样和预算差异留在项目记录", "as_of": "2026-04-27", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-chain1-nodes",
+        "value": "第一条记录链由原始变更提出、现场会的口头确认位置、失效附件的说明、仍待比较的颜色样和预算差异四个节点组成",
+        "status": "current",
+        "effective_from": "2026-04-27",
+        "evidence": [
+          {"corpus_file": "2026-04-27-第一条记录链-编排状态，不请验收.md", "quote": "原始变更提出、现场会的口头确认位置、失效附件的说明、以及仍待比较的颜色样和预算差异", "as_of": "2026-04-27", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-chain2-gaps",
+        "value": "材料替代链上仍缺两处：中间那条现场确认只剩转写里的时间点，摘要旁边那句「已沟通」指的是附件补发还是现场决定说不清",
+        "status": "current",
+        "effective_from": "2026-04-24",
+        "evidence": [
+          {"corpus_file": "2026-04-24-材料替代链-仍待核对的两个位置.md", "quote": "中间那条现场确认还是只剩转写里的时间点", "as_of": "2026-04-24", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-chain2-pending",
+        "value": "材料替代记录导入后只带一个「待确认」状态",
+        "status": "superseded",
+        "effective_from": "2026-05-15",
+        "evidence": [
+          {"corpus_file": "2026-05-15-材料替代记录-导入结果与待确认项.md", "quote": "记录目前只包含你选定的材料片段、它的来源位置和一个“待确认”状态", "as_of": "2026-05-15", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-chain2-confirmable",
+        "value": "2026-05-18 现场回复到达后，留下「待确认」的人可以把状态改成已确认",
+        "status": "current",
+        "effective_from": "2026-05-18",
+        "evidence": [
+          {"corpus_file": "2026-05-18-材料替代链的最后状态.md", "quote": "留下“待确认”的人也可以把状态改成已确认", "as_of": "2026-05-18", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-second-change-missing",
+        "value": "第二条（材料替代）变更在 2026-04-03 时还没有找到",
+        "status": "superseded",
+        "effective_from": "2026-04-03",
+        "evidence": [
+          {"corpus_file": "2026-04-03-现场会定位-只到样板之后.md", "quote": "第二条变更更没有找到", "as_of": "2026-04-03", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-second-change-found",
+        "value": "第二条（材料替代）变更后来找到了，有它自己的来源和确认",
+        "status": "current",
+        "effective_from": "2026-05-18",
+        "evidence": [
+          {"corpus_file": "2026-05-18-材料替代链的最后状态.md", "quote": "第二条现在也有它自己的来源和确认", "as_of": "2026-05-18", "source_family": "document"}
+        ],
+        "authoring_note": "v6. The v5 set carried 「第二条变更一直没有找到」 as a CURRENT durable fact, and chain-08 asked an undated question against it — while 2026-05-18 says the second chain has its own source and confirmation. The April state is kept, byte-for-byte, as the superseded half."
+      },
+      {
+        "truth_id": "df-90-origin",
+        "value": "九十天是客户在问题清单里提出的保留要求，不是系统替所有项目设好的期限",
+        "status": "current",
+        "effective_from": "2026-03-26",
+        "evidence": [
+          {"corpus_file": "2026-03-26-保留说明与删除证明的口头核对.md", "quote": "九十天是客户今天提出的保留要求，不是系统原本就替所有项目设好的期限", "as_of": "2026-03-26", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-deletion-fields",
+        "value": "删除处理证明的最小字段是请求标识、项目代号、收到请求的时间、请求范围、处理状态、处理完成时间和需要补问的说明",
+        "status": "current",
+        "effective_from": "2026-03-27",
+        "evidence": [
+          {"corpus_file": "2026-03-27-删除处理证明-字段草稿.md", "quote": "最小证明字段暂列为：请求标识、项目代号、收到请求的时间、请求范围、处理状态、处理完成时间以及需要补问的说明", "as_of": "2026-03-27", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-drill-business-unconfirmed",
+        "value": "删除演练没有进入过实际删除处理，业务方确认到周期结束仍未完成，见证人一栏始终空着",
+        "status": "current",
+        "effective_from": "2026-04-16",
+        "evidence": [
+          {"corpus_file": "2026-04-16-采购材料责任矩阵（未提交）.md", "quote": "当前没有删除演练证据，也没有约定谁见证", "as_of": "2026-04-16", "source_family": "document"},
+          {"corpus_file": "2026-05-16-删除演练-留给业务方的确认栏.md", "quote": "没有具体删除请求到达时，清单不会生成处理完成时间", "as_of": "2026-05-16", "source_family": "document"},
+          {"corpus_file": "2026-05-24-周期结束时的待办状态.md", "quote": "附录仍待签，删除演练确认仍等你逐格看完，试点尾款仍没有付款结果", "as_of": "2026-05-24", "source_family": "document"}
+        ],
+        "authoring_note": "v6, renamed from df-drill-never-run. The old id and value said the drill was never run at all; 2026-05-16 records an internal walk-through of three positions, with a viewer and a time against each row. What never happened is a real deletion processing and the business side's confirmation — which is what this fact now says, and what df-drill-internal-viewed says beside it."
+      },
+      {
+        "truth_id": "df-drill-internal-viewed",
+        "value": "删除演练的内部查看已经发生：内部演练登记了选定材料的记录页、来源跳转的观察项和状态旁的回复位置三个位置",
+        "status": "current",
+        "effective_from": "2026-05-16",
+        "evidence": [
+          {"corpus_file": "2026-05-16-删除演练-留给业务方的确认栏.md", "quote": "这页只登记内部演练已经查看的三个位置：选定材料的记录页、来源跳转的观察项和状态旁的回复位置", "as_of": "2026-05-16", "source_family": "document"},
+          {"corpus_file": "2026-05-24-未解项交接卡.md", "quote": "内部查看记录仍可回到原处，但业务确认没有新来源", "as_of": "2026-05-24", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-three-users",
+        "value": "云麓试点的三名使用者是吴岚、陈放和林舟",
+        "status": "current",
+        "effective_from": "2026-03-21",
+        "evidence": [
+          {"corpus_file": "2026-03-21-云麓试点边界与只读副本清单.md", "quote": "三名使用者分别是吴岚、陈放和林舟", "as_of": "2026-03-21", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-scope-two-kinds",
+        "value": "云麓试点的范围只含预算变更与材料替代两类记录，它们是两个独立入口",
+        "status": "current",
+        "effective_from": "2026-03-21",
+        "evidence": [
+          {"corpus_file": "2026-03-21-云麓试点边界与只读副本清单.md", "quote": "本次确认的对象是云麓公寓，范围只含预算变更与材料替代两类记录", "as_of": "2026-03-21", "source_family": "document"},
+          {"corpus_file": "2026-03-21-云麓来源映射读取说明.md", "quote": "预算变更与材料替代是两个独立入口", "as_of": "2026-03-21", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-excluded-three",
+        "value": "任务管理、报价生成和供应商审批被明确留在这次确认的范围外",
+        "status": "current",
+        "effective_from": "2026-03-21",
+        "evidence": [
+          {"corpus_file": "2026-03-21-云麓试点边界与只读副本清单.md", "quote": "任务管理、报价生成和供应商审批不随这次确认进入", "as_of": "2026-03-21", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-readonly-copy-def",
+        "value": "只读副本只收被三人选定的两类变更片段及其回查位置",
+        "status": "current",
+        "effective_from": "2026-03-21",
+        "evidence": [
+          {"corpus_file": "2026-03-21-云麓试点边界与只读副本清单.md", "quote": "只读副本只收被三人选定的两类变更片段及其回查位置", "as_of": "2026-03-21", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-seamlog-name",
+        "value": "Seamlog 是林舟写在纸面上的工作名，不是项目，也不是承诺",
+        "status": "current",
+        "effective_from": "2026-03-02",
+        "evidence": [
+          {"corpus_file": "2026-03-02-问题先于界面.md", "quote": "今天先把纸上工作名写成", "as_of": "2026-03-02", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-seamlog-product",
+        "value": "Seamlog 做的是小型设计团队的变更证据链：让人回到一次变更的材料、确认和当前状态的原处，而不是给一段漂亮总结",
+        "status": "current",
+        "effective_from": "2026-03-02",
+        "evidence": [
+          {"corpus_file": "2026-05-22-下一周期候选-继续、停止、延后.md", "quote": "让人回到材料、确认和当前状态的原处", "as_of": "2026-05-22", "source_family": "document"},
+          {"corpus_file": "2026-03-02-问题先于界面.md", "quote": "我想收集的不是一段漂亮总结，而是一条能倒回去看的改动：原来讨论的是什么，后来动了哪一块，谁说可以，谁还没回", "as_of": "2026-03-02", "source_family": "document"}
+        ],
+        "authoring_note": "The definition of the thing, taken from how the corpus describes the product — not from 2026-03-02's self-deprecating remark that Seamlog is 'a working name on paper'. That remark is a true fact about the name (df-seamlog-name) and stays labelled as one; it is not an answer to 'what is Seamlog'."
+      },
+      {
+        "truth_id": "df-weikuan-outstanding",
+        "value": "到 2026-05-24 周期结束时，试点尾款仍没有付款结果，库里只有「材料可进入内部流程」这句话",
+        "status": "superseded",
+        "effective_from": "2026-05-24",
+        "evidence": [
+          {"corpus_file": "2026-05-24-周期结束时的待办状态.md", "quote": "试点尾款仍没有付款结果", "as_of": "2026-05-24", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-weikuan-received",
+        "value": "试点尾款已到账：采购 8 月 28 日付款，8 月 29 日到账，金额 5400 元，付款说明写的是「云麓受限试点尾款」",
+        "status": "current",
+        "effective_from": "2026-09-01",
+        "evidence": [
+          {"corpus_file": "build-record/exercise.py", "corpus_source": "owner_statement", "quote": "采购 8 月 28 日付的，到账日 8 月 29 日，金额 5400 元", "as_of": "2026-09-01", "source_family": "owner_dialogue"},
+          {"corpus_file": "build-record/exercise.py", "corpus_source": "owner_statement", "quote": "付款说明写的是「云麓受限试点尾款」", "as_of": "2026-09-01", "source_family": "owner_dialogue"}
+        ],
+        "authoring_note": "The world changed, so this is a supersession and not a correction: the 5-24 状态 was true at its moment and stays byte-for-byte, and the successor cites the owner's statement (the compile contract's own rule for owner-dialogue/v1)."
+      },
+      {
+        "truth_id": "df-yunlu-chengwan",
+        "value": "云麓和澄湾是两个不同的项目，事故里它们的业主来源被写进了同一个实体",
+        "status": "current",
+        "effective_from": "2026-04-05",
+        "evidence": [
+          {"corpus_file": "2026-04-05-同姓候选关系核对表.md", "quote": "项目和房号不同", "as_of": "2026-04-05", "source_family": "document"},
+          {"corpus_file": "2026-04-06-林舟-贾宁-陈放-候选卡核查.md", "quote": "云麓项目卡内出现澄湾业主的两条现场摘要", "as_of": "2026-04-06", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-ui41",
+        "value": "UI-41 是保存后焦点跳到页面顶部、把「未提供」的解释推到首屏以下的缺陷",
+        "status": "current",
+        "effective_from": "2026-05-11",
+        "evidence": [
+          {"corpus_file": "2026-05-11-界面回读记录-UI-RD-03.md", "quote": "保存后的焦点跳到页面顶部", "as_of": "2026-05-11", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-cycle-end-three",
+        "value": "周期结束时附录仍待签、删除演练确认仍待逐格完成、试点尾款仍没有付款结果",
+        "status": "current",
+        "effective_from": "2026-05-24",
+        "evidence": [
+          {"corpus_file": "2026-05-24-周期结束时的待办状态.md", "quote": "附录仍待签，删除演练确认仍等你逐格看完，试点尾款仍没有付款结果", "as_of": "2026-05-24", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-signed-client",
+        "value": "内部页面上一度把竹影写成「已签客户」",
+        "status": "superseded",
+        "effective_from": "2026-05-23",
+        "evidence": [
+          {"corpus_file": "2026-05-23-周期收尾-不要替等待改名.md", "quote": "贾宁把“已签客户”划掉", "as_of": "2026-05-23", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-zhuying-oral",
+        "value": "竹影当前的状态是「附条件口头延长，未生效」，不是已签客户",
+        "status": "current",
+        "effective_from": "2026-05-23",
+        "evidence": [
+          {"corpus_file": "2026-05-23-周期收尾-不要替等待改名.md", "quote": "竹影：附条件口头延长，未生效", "as_of": "2026-05-23", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-weekly-report-goal",
+        "value": "最初要做的是一张跨来源的自动周报",
+        "status": "superseded",
+        "effective_from": "2026-03-02",
+        "evidence": [
+          {"corpus_file": "2026-03-02-第零版-别先问功能.md", "quote": "我还是想先做一张跨来源的自动周报", "as_of": "2026-03-02", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-name-merge-assumption",
+        "value": "事故前的假设是：只要名称相同又出现在相近的项目材料里，就可以先产生同一实体",
+        "status": "superseded",
+        "effective_from": "2026-04-14",
+        "evidence": [
+          {"corpus_file": "2026-04-14-名称匹配决策日志（事故后）.md", "quote": "只要名称相同，又出现在相近的项目材料里，就可以先产生同一实体", "as_of": "2026-04-14", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-export-weekly-summary",
+        "value": "导出文件名曾是 weekly-summary",
+        "status": "superseded",
+        "effective_from": "2026-04-29",
+        "evidence": [
+          {"corpus_file": "2026-04-29-林舟与贾宁.md", "quote": "导出还有一处尾巴：文件名仍是 weekly-summary", "as_of": "2026-04-29", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-status-separated",
+        "value": "页面状态条曾显示「已分离」，陈放把它读成客户已经确认、可以恢复使用",
+        "status": "superseded",
+        "effective_from": "2026-04-10",
+        "evidence": [
+          {"corpus_file": "2026-04-10-逐条更正复核-项目与状态.md", "quote": "显示“已分离”", "as_of": "2026-04-10", "source_family": "document"},
+          {"corpus_file": "2026-04-10-逐条更正复核-项目与状态.md", "quote": "我看到这个就会跟现场说可以用了", "as_of": "2026-04-10", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-status-two-lines",
+        "value": "状态条改成两行：「来源已拆开」只描述工作副本动作，「客户复核：未开始」单独占一行",
+        "status": "current",
+        "effective_from": "2026-04-10",
+        "evidence": [
+          {"corpus_file": "2026-04-10-逐条更正复核-项目与状态.md", "quote": "“来源已拆开”只描述工作副本动作，“客户复核：未开始”单独占一行", "as_of": "2026-04-10", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-rev01-sentence",
+        "value": "现场会节点原来显示的是「预算变更在会上得到确认」",
+        "status": "superseded",
+        "effective_from": "2026-05-12",
+        "evidence": [
+          {"corpus_file": "2026-05-12-现场会节点-REV-02-措辞与归属复核.md", "quote": "现场会节点目前显示“预算变更在会上得到确认”", "as_of": "2026-05-12", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-payment-fabricated",
+        "value": "「周五前会给付款日」是林舟自己补出来的日期，吴岚没有说过",
+        "status": "superseded",
+        "effective_from": "2026-04-28",
+        "evidence": [
+          {"corpus_file": "2026-04-28-付款核对与演示边界.md", "quote": "那是我补出来的日期，不是你说的", "as_of": "2026-04-28", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-payment-unknown",
+        "value": "没有付款预计日；「本周核对」只表示资料还在内部看",
+        "status": "current",
+        "effective_from": "2026-04-28",
+        "evidence": [
+          {"corpus_file": "2026-04-28-付款核对与演示边界.md", "quote": "那四个字只表示资料还在内部看，我手里没有付款预计日", "as_of": "2026-04-28", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-cloud-cannot-stop",
+        "value": "最初的说法是云服务不能停",
+        "status": "superseded",
+        "effective_from": "2026-04-28",
+        "evidence": [
+          {"corpus_file": "2026-04-28-付款核对与演示边界.md", "quote": "我能停一项工具续费，云服务不能停", "as_of": "2026-04-28", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-cloud-split",
+        "value": "修正后的说法是：云服务最低套餐要留，另一个临时测试环境可以关",
+        "status": "current",
+        "effective_from": "2026-04-28",
+        "evidence": [
+          {"corpus_file": "2026-04-28-付款核对与演示边界.md", "quote": "最低套餐要留，试点记录和导出都在里面", "as_of": "2026-04-28", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-crossday-0330",
+        "value": "跨日那条录制条目一度被项目列表放在 3 月 30 日，来源时间却是 3 月 31 日 16:12",
+        "status": "superseded",
+        "effective_from": "2026-04-01",
+        "evidence": [
+          {"corpus_file": "2026-04-01-录制条目跨到前一天.md", "quote": "项目列表把它放在 3 月 30 日", "as_of": "2026-04-01", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-crossday-fixed",
+        "value": "把项目列表改成按来源开始时间排之后，跨日那条回到了 3 月 31 日，但这只是显示层，不是时区修复",
+        "status": "current",
+        "effective_from": "2026-04-02",
+        "evidence": [
+          {"corpus_file": "2026-04-02-林舟-贾宁.md", "quote": "跨日那条已经回到 3 月 31 日", "as_of": "2026-04-02", "source_family": "document"},
+          {"corpus_file": "2026-04-02-林舟-贾宁.md", "quote": "测试先留着，但别把它叫时区修复", "as_of": "2026-04-02", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-crossday-root-open",
+        "value": "跨日的根因一直没有定下来，三个互斥不了的猜测保持开放，历史回放没有跑",
+        "status": "current",
+        "effective_from": "2026-04-01",
+        "evidence": [
+          {"corpus_file": "2026-04-01-录制条目跨到前一天.md", "quote": "目前有三个互斥不了的猜测", "as_of": "2026-04-01", "source_family": "document"},
+          {"corpus_file": "2026-04-02-林舟-贾宁.md", "quote": "今晚不执行全量回放", "as_of": "2026-04-02", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-no-start-date",
+        "value": "到 3 月 28 日为止启动日仍未确认，验收文字也没有定稿",
+        "status": "current",
+        "effective_from": "2026-03-28",
+        "evidence": [
+          {"corpus_file": "2026-03-28-请转交-客户需答的问题.md", "quote": "启动日仍未确认，验收文字也没有定稿", "as_of": "2026-03-28", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-chenfang-correction",
+        "value": "陈放纠正的是页面把「有人提到」和「可以照着做」写成了同一件事，他没有反对那项变更本身",
+        "status": "current",
+        "effective_from": "2026-03-11",
+        "evidence": [
+          {"corpus_file": "2026-03-11-两次更正摘录（未判明）.md", "quote": "方案本身我没意见。我说你把", "as_of": "2026-03-11", "source_family": "document"},
+          {"corpus_file": "2026-03-11-变更链字段试写第零遍.md", "quote": "失败的草稿句", "as_of": "2026-03-11", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-sunqiu-splits",
+        "value": "孙秋要求把「收件人」和「确认人」分开，也要求把「身份是否可信」「以后能否联系」「谁有权查看」分成三个检查项",
+        "status": "current",
+        "effective_from": "2026-04-25",
+        "evidence": [
+          {"corpus_file": "2026-04-25-报价材料进入内部处理的核对.md", "quote": "那就不要把“收件人”和“确认人”合成一个负责人字段", "as_of": "2026-04-25", "source_family": "document"},
+          {"corpus_file": "2026-04-29-未来删除演练-记录字段请校对.md", "quote": "“身份是否可信”“以后能否联系”“谁有权查看”分成三个检查项", "as_of": "2026-04-29", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-chenyu-misread",
+        "value": "受邀者陈语先看见原句边的「已确认」，把它读成机器判定",
+        "status": "current",
+        "effective_from": "2026-05-08",
+        "evidence": [
+          {"corpus_file": "2026-05-08-“已确认”被读成自动结论-观察与返工.md", "quote": "陈语从预置的虚构卡进入时，先看见原句边的“已确认”", "as_of": "2026-05-08", "source_family": "document"},
+          {"corpus_file": "2026-05-08-样例里的确认是谁做的.md", "quote": "不是自动判定", "as_of": "2026-05-08", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-zhaonan-two-roles",
+        "value": "赵楠替林舟保管备用钥匙，也在邀请发出前按待发信的顺序逐个点过链接",
+        "status": "current",
+        "effective_from": "2026-04-09",
+        "evidence": [
+          {"corpus_file": "2026-04-09-保养取车窗口调整.md", "quote": "赵楠抄送是因为他帮我保管备用钥匙", "as_of": "2026-04-09", "source_family": "document"},
+          {"corpus_file": "2026-05-05-邀请发出前-两个链接回查.md", "quote": "我按待发信里的顺序从头点了一遍", "as_of": "2026-05-05", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-wulan-decides",
+        "value": "吴岚是决定是否恢复的人，陈放只核页面",
+        "status": "current",
+        "effective_from": "2026-04-08",
+        "evidence": [
+          {"corpus_file": "2026-04-08-客户书面边界核对.md", "quote": "陈放可以核页面，我来决定是否恢复；这两个动作别合成一个勾", "as_of": "2026-04-08", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-export-checklist-four",
+        "value": "第一条链导出的修订提交前检查清单只问四件事：三个入口是否仍各自可达、状态是否仍写为待确认、责任人是否只附在状态处、排除范围是否留在页面说明",
+        "status": "current",
+        "effective_from": "2026-05-13",
+        "evidence": [
+          {"corpus_file": "2026-05-13-采购阅读版-第一条链导出修订.md", "quote": "修订提交前的检查清单只问四件事", "as_of": "2026-05-13", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-appendix-blanks",
+        "value": "数据处理附录上仍空着两处：项目方由谁签，签后由谁回告",
+        "status": "current",
+        "effective_from": "2026-05-21",
+        "evidence": [
+          {"corpus_file": "2026-05-21-数据处理附录-红线版与待签状态.md", "quote": "两处仍空着：项目方由谁签，签后由谁回告", "as_of": "2026-05-21", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-approval-never-entered",
+        "value": "供应商审批始终没有进入试点，最后被放进下一周期的延后栏",
+        "status": "current",
+        "effective_from": "2026-05-22",
+        "evidence": [
+          {"corpus_file": "2026-03-24-云麓试点范围-供应商审批请求.md", "quote": "如果客户想继续了解，可以另开一项收费扩展的讨论", "as_of": "2026-03-24", "source_family": "document"},
+          {"corpus_file": "2026-05-22-下一周期候选-继续、停止、延后.md", "quote": "延后栏只留供应商审批模块", "as_of": "2026-05-22", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-budget-mail-to-onsite-gap",
+        "value": "从 2026-04-03 找到预算调整邮件到 2026-04-27 确认现场会位置，中间隔了 24 天",
+        "status": "current",
+        "effective_from": "2026-04-27",
+        "evidence": [
+          {"corpus_file": "2026-04-03-找到-客厅预算调整邮件.md", "quote": "正文列了客厅木作和灯具两项调整", "as_of": "2026-04-03", "source_family": "document"},
+          {"corpus_file": "2026-04-27-材料替代-现场会位置请确认.md", "quote": "我翻到现场会记录了", "as_of": "2026-04-27", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "df-wulan-most-present",
+        "value": "吴岚是在最多份材料里出现的外部对接人，其次是陈放",
+        "status": "current",
+        "effective_from": "2026-05-24",
+        "evidence": [
+          {"corpus_file": "2026-03-21-云麓试点边界与只读副本清单.md", "quote": "吴岚负责项目侧范围问题", "as_of": "2026-03-21", "source_family": "document"},
+          {"corpus_file": "2026-05-24-周期结束时的待办状态.md", "quote": "我还没有签附录，也没有完成删除确认", "as_of": "2026-05-24", "source_family": "document"}
+        ],
+        "authoring_note": "Hand-counted over my-data at authoring time: 吴岚 appears in 93 of 190 files, 陈放 in 81, 贾宁 in 34, 孙秋 in 32. 林舟 is the owner and excluded."
+      }
+    ],
+    "decisions": [
+      {
+        "truth_id": "dec-weekly-report-cut",
+        "value": "自动周报移出试点目标，改为证据链优先",
+        "status": "current",
+        "effective_from": "2026-03-13",
+        "evidence": [
+          {"corpus_file": "2026-03-13-范围会前的一屏说明.md", "quote": "删的是自动周报：它移出试点目标", "as_of": "2026-03-13", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "dec-name-not-identity",
+        "value": "从 2026-04-14 起名称只用于提出候选，不再单独触发合并",
+        "status": "current",
+        "effective_from": "2026-04-14",
+        "evidence": [
+          {"corpus_file": "2026-04-14-名称匹配决策日志（事故后）.md", "quote": "从今天起，名称只用于提出候选，不再单独触发合并", "as_of": "2026-04-14", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "dec-locator-append",
+        "value": "来源定位采用追加而非改写",
+        "status": "current",
+        "effective_from": "2026-04-14",
+        "evidence": [
+          {"corpus_file": "2026-04-14-名称匹配决策日志（事故后）.md", "quote": "来源定位采用追加而非改写", "as_of": "2026-04-14", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "dec-one-change",
+        "value": "下一步只验证一条真实变更，不同时拿两条来做验收",
+        "status": "current",
+        "effective_from": "2026-04-15",
+        "evidence": [
+          {"corpus_file": "2026-04-15-下一步先验证一条真实变更.md", "quote": "下一步请不要同时拿两条变更来做验收", "as_of": "2026-04-15", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "dec-first-step-single-segment",
+        "value": "第一步只呈现片段输入，多来源全量导入不再占据入口",
+        "status": "current",
+        "effective_from": "2026-05-11",
+        "evidence": [
+          {"corpus_file": "2026-05-11-林舟-贾宁-首步输入.md", "quote": "第一步只呈现片段输入，多来源全量导入不再占据入口", "as_of": "2026-05-11", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "dec-three-steps-deleted",
+        "value": "首次路径删掉三步：预先选择项目归属、先邀请协作者、先写背景说明",
+        "status": "current",
+        "effective_from": "2026-05-14",
+        "evidence": [
+          {"corpus_file": "2026-05-14-简化路径的停表范围.md", "quote": "预先选择项目归属、先邀请协作者、以及先写背景说明", "as_of": "2026-05-14", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "dec-next-cycle",
+        "value": "下一周期继续栏只留小型设计团队的变更证据链，停止栏是全项目平台方向，延后栏是供应商审批模块",
+        "status": "current",
+        "effective_from": "2026-05-22",
+        "evidence": [
+          {"corpus_file": "2026-05-22-下一周期候选-继续、停止、延后.md", "quote": "停止栏写“全项目平台方向”", "as_of": "2026-05-22", "source_family": "document"},
+          {"corpus_file": "2026-05-22-下一周期候选-继续、停止、延后.md", "quote": "延后栏只留供应商审批模块", "as_of": "2026-05-22", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "dec-export-read-layer",
+        "value": "第一条链导出的修订只改字段标题、分组顺序和跳转标签，属于阅读层",
+        "status": "current",
+        "effective_from": "2026-05-13",
+        "evidence": [
+          {"corpus_file": "2026-05-13-第一条链的导出阅读核对.md", "quote": "今天的修订范围只有字段标题、分组顺序和跳转标签", "as_of": "2026-05-13", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "dec-acceptance-two-items",
+        "value": "试点验收至少包含导出和按项目删除两项",
+        "status": "current",
+        "effective_from": "2026-03-20",
+        "evidence": [
+          {"corpus_file": "2026-03-20-试点验收项与采购问题单.md", "quote": "我确认当前试点的验收至少包含导出和按项目删除两项", "as_of": "2026-03-20", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "dec-rev02-wording",
+        "value": "现场会节点最终显示句是「现场会记录显示，参会人把邮件中的预算提议收窄为可执行范围，并确认调整后的数额。」",
+        "status": "current",
+        "effective_from": "2026-05-12",
+        "evidence": [
+          {"corpus_file": "2026-05-12-现场会节点-REV-02-措辞与归属复核.md", "quote": "现场会记录显示，参会人把邮件中的预算提议收窄为可执行范围，并确认调整后的数额", "as_of": "2026-05-12", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "dec-export-rename",
+        "value": "导出文件名从 weekly-summary 改成 records，加记录日期，不加新的视图名",
+        "status": "current",
+        "effective_from": "2026-04-29",
+        "evidence": [
+          {"corpus_file": "2026-04-29-林舟与贾宁.md", "quote": "改成 records，加记录日期，不加新的视图名", "as_of": "2026-04-29", "source_family": "document"}
+        ]
+      }
+    ],
+    "commitments": [
+      {
+        "truth_id": "com-wulan-forward",
+        "value": "吴岚会把「当前不含审批；如要继续，可另行讨论收费扩展」按原意转给客户",
+        "status": "current",
+        "effective_from": "2026-03-24",
+        "evidence": [
+          {"corpus_file": "2026-03-24-云麓试点范围-供应商审批请求.md", "quote": "我会把“当前不含审批；如要继续，可另行讨论收费扩展”按原意转给客户", "as_of": "2026-03-24", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "com-wulan-monday",
+        "value": "吴岚下周一先问客户侧应该由谁接收问题列表，确认收件对象后再转",
+        "status": "current",
+        "effective_from": "2026-03-28",
+        "evidence": [
+          {"corpus_file": "2026-03-28-请转交-客户需答的问题.md", "quote": "我下周一会先问客户侧应该由谁接收问题列表，确认收件对象后再转", "as_of": "2026-03-28", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "com-revision-index",
+        "value": "林舟会在下一版之前加一页修订索引",
+        "status": "current",
+        "effective_from": "2026-04-18",
+        "evidence": [
+          {"corpus_file": "2026-04-18-内部阅读后的修订索引.md", "quote": "我会把修订索引放在下一版之前", "as_of": "2026-04-18", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "com-chenfang-writeback",
+        "value": "陈放看完后要把实际看到了什么、哪里仍看不懂写回给吴岚和林舟",
+        "status": "current",
+        "effective_from": "2026-04-15",
+        "evidence": [
+          {"corpus_file": "2026-04-15-下一步先验证一条真实变更.md", "quote": "陈放看完后，把他实际看到了什么、哪里仍看不懂写回给我们", "as_of": "2026-04-15", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "com-delete-copy",
+        "value": "若吴岚要求停止，林舟会停用并删除脱敏副本，再单独回复完成情况",
+        "status": "current",
+        "effective_from": "2026-03-10",
+        "evidence": [
+          {"corpus_file": "2026-03-10-脱敏演示材料范围确认.md", "quote": "若你要求停止，我会停用并删除该副本，再单独回复完成情况", "as_of": "2026-03-10", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "com-post-holiday",
+        "value": "节后第一个工作日上午吴岚先问一次，林舟再按她建议的路径发一次简短询问",
+        "status": "current",
+        "effective_from": "2026-04-29",
+        "evidence": [
+          {"corpus_file": "2026-04-29-节后采购核对联系人.md", "quote": "节后第一个工作日上午由我先问一次", "as_of": "2026-04-29", "source_family": "document"},
+          {"corpus_file": "2026-04-29-节后采购核对联系人.md", "quote": "节后第一个工作日上午，我再按你建议的路径发一次简短询问", "as_of": "2026-04-29", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "com-wulan-cell-by-cell",
+        "value": "吴岚要逐格把确认栏的范围和业务方回告同现场记录核对，在此之前继续显示待确认",
+        "status": "current",
+        "effective_from": "2026-05-21",
+        "evidence": [
+          {"corpus_file": "2026-05-21-请确认-删除演练的业务确认栏.md", "quote": "确认栏里的范围和业务方回告，我得逐格同现场记录核对；请继续显示待确认", "as_of": "2026-05-21", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "com-chenfang-20min",
+        "value": "陈放会拿一段已允许测试的材料走一遍，只回停在哪个词和哪个页面",
+        "status": "current",
+        "effective_from": "2026-05-14",
+        "evidence": [
+          {"corpus_file": "2026-05-14-简化路径的停表范围.md", "quote": "我只回你停在哪个词和页面", "as_of": "2026-05-14", "source_family": "document"}
+        ]
+      }
+    ],
+    "constraints": [
+      {
+        "truth_id": "con-no-merge-chains",
+        "value": "两条链的状态不能合成一个总的通过标记",
+        "status": "current",
+        "effective_from": "2026-05-18",
+        "evidence": [
+          {"corpus_file": "2026-05-18-材料替代链的最后状态.md", "quote": "两条的状态不要合成一个总的通过标记", "as_of": "2026-05-18", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "con-copy-scope",
+        "value": "脱敏副本只能给吴岚和陈放看，不得发给其他人，也不得把画面或内容用于公开介绍",
+        "status": "current",
+        "effective_from": "2026-03-10",
+        "evidence": [
+          {"corpus_file": "2026-03-10-脱敏演示材料范围确认.md", "quote": "可以给我和陈放看，不得发给其他人", "as_of": "2026-03-10", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "con-no-mapping-table",
+        "value": "脱敏副本不附带姓名或地点的对应表",
+        "status": "current",
+        "effective_from": "2026-03-10",
+        "evidence": [
+          {"corpus_file": "2026-03-10-脱敏演示材料范围确认.md", "quote": "副本不会附带姓名或地点的对应表", "as_of": "2026-03-10", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "con-human-gate-temporary",
+        "value": "人工审阅是临时操作条件，不应写成技术防护已经上线",
+        "status": "current",
+        "effective_from": "2026-04-12",
+        "evidence": [
+          {"corpus_file": "2026-04-12-事故说明-同姓记录错误关联与当前处置.md", "quote": "人工审阅现在是临时操作条件，不应写成技术防护已经上线", "as_of": "2026-04-12", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "con-not-compress-leak",
+        "value": "「未发现未授权会话、公开分享或外部下载」只适用于写明的记录与时段，不能缩成「没有外泄」",
+        "status": "current",
+        "effective_from": "2026-04-12",
+        "evidence": [
+          {"corpus_file": "2026-04-12-事故说明-同姓记录错误关联与当前处置.md", "quote": "不能在后续摘要里缩成“没有外泄”", "as_of": "2026-04-12", "source_family": "document"},
+          {"corpus_file": "2026-04-06-林舟-吴岚.md", "quote": "不要先报人数，也不要把“没发现”写成“没有发生”", "as_of": "2026-04-06", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "con-cash-one-subtraction",
+        "value": "可用数只做一次减法：当前余额减去已知必付项",
+        "status": "current",
+        "effective_from": "2026-04-28",
+        "evidence": [
+          {"corpus_file": "2026-04-28-4-月末现金风险表（未结项）.md", "quote": "可用数只做一次减法：当前余额减去已知必付项", "as_of": "2026-04-28", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "con-no-receivable-in-balance",
+        "value": "没有日期的外部待收不参加余额计算，也不填预计数",
+        "status": "current",
+        "effective_from": "2026-04-28",
+        "evidence": [
+          {"corpus_file": "2026-04-28-4-月末现金风险表（未结项）.md", "quote": "等新消息，不填预计数", "as_of": "2026-04-28", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "con-silence-not-consent",
+        "value": "沉默、慢回复和未答复都不能写成同意",
+        "status": "current",
+        "effective_from": "2026-03-14",
+        "evidence": [
+          {"corpus_file": "2026-03-14-周六的范围表没有带去饭局.md", "quote": "慢回复不是同意", "as_of": "2026-03-14", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "con-no-broken-link-substitute",
+        "value": "不能为了让页面完整而用另一份摘录替换失效位置",
+        "status": "current",
+        "effective_from": "2026-05-13",
+        "evidence": [
+          {"corpus_file": "2026-05-13-采购阅读版-第一条链导出修订.md", "quote": "不能为了让页面完整而用另一份摘录替换失效位置", "as_of": "2026-05-13", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "con-oral-not-confirmation",
+        "value": "口头转述只能先记为待回看，不能直接填入「业务已确认」格",
+        "status": "current",
+        "effective_from": "2026-05-16",
+        "evidence": [
+          {"corpus_file": "2026-05-16-删除演练-留给业务方的确认栏.md", "quote": "口头转述只能先记为待回看", "as_of": "2026-05-16", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "con-no-eta-field",
+        "value": "未解项交接卡不留「预计到账」输入框，因为没有人提供日期",
+        "status": "current",
+        "effective_from": "2026-05-24",
+        "evidence": [
+          {"corpus_file": "2026-05-24-未解项交接卡.md", "quote": "卡片不留“预计到账”输入框，因为没有人提供日期", "as_of": "2026-05-24", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "con-two-actions-not-one-tick",
+        "value": "陈放核页面和吴岚决定是否恢复这两个动作不能合成一个勾",
+        "status": "current",
+        "effective_from": "2026-04-08",
+        "evidence": [
+          {"corpus_file": "2026-04-08-客户书面边界核对.md", "quote": "陈放可以核页面，我来决定是否恢复；这两个动作别合成一个勾", "as_of": "2026-04-08", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "con-internal-review-only",
+        "value": "「材料可进入内部流程」只允许材料在内部被查阅，不是接受报价，没有付款许可，也没有长期合同",
+        "status": "current",
+        "effective_from": "2026-04-25",
+        "evidence": [
+          {"corpus_file": "2026-04-25-报价材料进入内部处理的核对.md", "quote": "回复只允许材料在内部被查阅，不是接受报价，没有付款许可，也没有长期合同", "as_of": "2026-04-25", "source_family": "document"}
+        ]
+      },
+      {
+        "truth_id": "con-sunqiu-no-authority",
+        "value": "孙秋没有客户授权，也没有在确认栏留下签名；只有吴岚可代表业务侧判断范围",
+        "status": "current",
+        "effective_from": "2026-05-16",
+        "evidence": [
+          {"corpus_file": "2026-05-16-删除演练-留给业务方的确认栏.md", "quote": "孙秋没有客户授权，也没有在确认栏留下签名", "as_of": "2026-05-16", "source_family": "document"},
+          {"corpus_file": "2026-05-16-删除演练-留给业务方的确认栏.md", "quote": "吴岚才可代表业务侧判断范围", "as_of": "2026-05-16", "source_family": "document"}
+        ]
+      }
+    ],
+    "negative_controls": [
+      {
+        "truth_id": "neg-weekly-report-shipped",
+        "value": "自动周报是这轮试点的目标之一",
+        "reason": "2026-03-13 明确把它移出试点目标；把 03-02 的念头当成产品结论就是把提议写成决定"
+      },
+      {
+        "truth_id": "neg-leak-none",
+        "value": "事故没有外泄",
+        "reason": "核查结论只覆盖写明的记录与时段，材料本身禁止把它缩成「没有外泄」"
+      },
+      {
+        "truth_id": "neg-quote-accepted",
+        "value": "客户接受了一万八千元的试点报价",
+        "reason": "吴岚只说转内部，明确说过理解不含不等于接受报价；到周期结束没有付款结果"
+      },
+      {
+        "truth_id": "neg-chenfang-opposed",
+        "value": "陈放不同意这项变化",
+        "reason": "材料把这句话记为失败的草稿句：他纠正的是页面表达，不是反对内容"
+      },
+      {
+        "truth_id": "neg-retention-default-90",
+        "value": "系统默认保留九十天",
+        "reason": "九十天是客户提出的保留要求，材料明确禁止缩成「默认保留九十天」"
+      },
+      {
+        "truth_id": "neg-timezone-fixed",
+        "value": "时区问题已经修复",
+        "reason": "只改了列表排序这一显示层，材料明确说别把它叫时区修复，根因保持三个未排除的猜测"
+      }
+    ],
+    "supersessions": [
+      {"supersession_id": "sup-weekly-report", "before_truth_id": "df-weekly-report-goal", "after_truth_id": "dec-weekly-report-cut", "effective_at": "2026-03-13"},
+      {"supersession_id": "sup-readonly", "before_truth_id": "df-readonly-suspended", "after_truth_id": "df-readonly-1136", "effective_at": "2026-04-11"},
+      {"supersession_id": "sup-name-merge", "before_truth_id": "df-name-merge-assumption", "after_truth_id": "dec-name-not-identity", "effective_at": "2026-04-14"},
+      {"supersession_id": "sup-export-name", "before_truth_id": "df-export-weekly-summary", "after_truth_id": "dec-export-rename", "effective_at": "2026-04-29"},
+      {"supersession_id": "sup-payment-date", "before_truth_id": "df-payment-fabricated", "after_truth_id": "df-payment-unknown", "effective_at": "2026-04-28"},
+      {"supersession_id": "sup-cloud", "before_truth_id": "df-cloud-cannot-stop", "after_truth_id": "df-cloud-split", "effective_at": "2026-04-28"},
+      {"supersession_id": "sup-status-bar", "before_truth_id": "df-status-separated", "after_truth_id": "df-status-two-lines", "effective_at": "2026-04-10"},
+      {"supersession_id": "sup-signed-client", "before_truth_id": "df-signed-client", "after_truth_id": "df-zhuying-oral", "effective_at": "2026-05-23"},
+      {"supersession_id": "sup-rev01", "before_truth_id": "df-rev01-sentence", "after_truth_id": "dec-rev02-wording", "effective_at": "2026-05-12"},
+      {"supersession_id": "sup-chain2-status", "before_truth_id": "df-chain2-pending", "after_truth_id": "df-chain2-confirmable", "effective_at": "2026-05-18"},
+      {"supersession_id": "sup-crossday", "before_truth_id": "df-crossday-0330", "after_truth_id": "df-crossday-fixed", "effective_at": "2026-04-02"},
+      {"supersession_id": "sup-weikuan", "before_truth_id": "df-weikuan-outstanding", "after_truth_id": "df-weikuan-received", "effective_at": "2026-09-01"},
+      {"supersession_id": "sup-second-change", "before_truth_id": "df-second-change-missing", "after_truth_id": "df-second-change-found", "effective_at": "2026-05-18"}
+    ],
+    "retrieval_cases": [
+      {"case_id": "state-01", "ruler_changes": ["v3-facet-split"], "axis": "state", "difficulty": "L1", "expected_via": "canonical", "question": "当前的试点报价是多少钱、多长时间，包含哪些东西？", "expected_truth_ids": ["df-quote-terms"],
+       "facets": [
+         {"facet_id": "state-01-a", "tag": "core", "text": "试点报价是一万八千元", "evidence": [{"corpus_file": "2026-04-22-试点报价与范围口头澄清.md", "quote": "报价写的是一万八千元、六周"}]},
+         {"facet_id": "state-01-b", "tag": "core", "text": "期限是六周", "evidence": [{"corpus_file": "2026-04-22-试点报价与范围口头澄清.md", "quote": "报价写的是一万八千元、六周"}]},
+         {"facet_id": "state-01-c", "tag": "core", "text": "范围含一个项目", "evidence": [{"corpus_file": "2026-04-22-试点报价与范围口头澄清.md", "quote": "一个项目、两名使用者、一次导出"}]},
+         {"facet_id": "state-01-d", "tag": "core", "text": "范围含两名使用者", "evidence": [{"corpus_file": "2026-04-22-试点报价与范围口头澄清.md", "quote": "一个项目、两名使用者、一次导出"}]},
+         {"facet_id": "state-01-e", "tag": "core", "text": "范围含一次导出", "evidence": [{"corpus_file": "2026-04-22-试点报价与范围口头澄清.md", "quote": "一个项目、两名使用者、一次导出"}]},
+         {"facet_id": "state-01-f", "tag": "detail", "text": "供应商审批不在这份报价里", "evidence": [{"corpus_file": "2026-04-24-当前报价与审批请求的边界.md", "quote": "供应商审批不在其中"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-04-22-试点报价与范围口头澄清.md", "quote": "报价写的是一万八千元、六周：一个项目、两名使用者、一次导出", "as_of": "2026-04-22"}]},
+      {"case_id": "state-02", "ruler_changes": ["v3-facet-split"], "axis": "state", "difficulty": "L3", "expected_via": "canonical", "question": "供应商审批现在算在试点范围里吗？", "expected_truth_ids": ["df-quote-approval-excluded"],
+       "facets": [
+         {"facet_id": "state-02-a", "tag": "core", "text": "供应商审批不在当前云麓试点的范围内", "evidence": [{"corpus_file": "2026-03-24-云麓试点范围-供应商审批请求.md", "quote": "它不在当前云麓试点的免费范围内"}]},
+         {"facet_id": "state-02-b", "tag": "detail", "text": "供应商审批也不在当前那份报价里", "evidence": [{"corpus_file": "2026-04-24-当前报价与审批请求的边界.md", "quote": "供应商审批不在其中"}]},
+         {"facet_id": "state-02-c", "tag": "detail", "text": "客户若想继续了解，可以另开一项收费扩展的讨论", "evidence": [{"corpus_file": "2026-03-24-云麓试点范围-供应商审批请求.md", "quote": "如果客户想继续了解，可以另开一项收费扩展的讨论"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-04-24-当前报价与审批请求的边界.md", "quote": "供应商审批不在其中", "as_of": "2026-04-24"}]},
+      {"case_id": "state-03", "ruler_changes": ["v3-facet-split", "v6-facets-split"], "axis": "state", "difficulty": "L2", "expected_via": "canonical", "as_of": "2026-04-12", "question": "截至 4 月 12 日，云麓的受限只读查看是什么状态？写入和导入恢复了吗？", "expected_truth_ids": ["df-readonly-1136"],
+       "facets": [
+         {"facet_id": "state-03-a", "tag": "core", "text": "受限只读查看已经恢复", "evidence": [{"corpus_file": "2026-04-11-受限只读恢复记录.md", "quote": "对授权试点账号开放"}]},
+         {"facet_id": "state-03-b", "tag": "core", "text": "恢复后的开放对象是授权试点账号", "evidence": [{"corpus_file": "2026-04-11-受限只读恢复记录.md", "quote": "对授权试点账号开放"}]},
+         {"facet_id": "state-03-c", "tag": "core", "text": "写入没有恢复", "evidence": [{"corpus_file": "2026-04-12-事故说明-同姓记录错误关联与当前处置.md", "quote": "写入、导入和原分享链接没有恢复"}]},
+         {"facet_id": "state-03-f", "tag": "core", "text": "导入没有恢复", "evidence": [{"corpus_file": "2026-04-12-事故说明-同姓记录错误关联与当前处置.md", "quote": "写入、导入和原分享链接没有恢复"}]},
+         {"facet_id": "state-03-d", "tag": "detail", "text": "原分享链接也没有恢复", "evidence": [{"corpus_file": "2026-04-11-受限只读恢复协调.md", "quote": "不恢复写入、导入或原分享链接"}]},
+         {"facet_id": "state-03-e", "tag": "detail", "text": "恢复发生在 4 月 11 日 11:36 之后", "evidence": [{"corpus_file": "2026-04-11-受限只读恢复记录.md", "quote": "| 云麓受限只读 | 暂停 | 对授权试点账号开放 |"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-04-11-受限只读恢复协调.md", "quote": "不恢复写入、导入或原分享链接", "as_of": "2026-04-11"}]},
+      {"case_id": "state-04", "ruler_changes": ["v6-question-repinned", "v6-facets-split"], "axis": "state", "difficulty": "L3", "expected_via": "canonical", "question": "导出文件现在的基础名是什么，附不附日期？", "expected_truth_ids": ["dec-export-rename"],
+       "facets": [
+         {"facet_id": "state-04-a", "tag": "core", "text": "现在的基础名是 records", "evidence": [{"corpus_file": "2026-04-29-林舟与贾宁.md", "quote": "改成 records"}]},
+         {"facet_id": "state-04-d", "tag": "core", "text": "文件名附加记录日期", "evidence": [{"corpus_file": "2026-04-29-林舟与贾宁.md", "quote": "加记录日期"}]},
+         {"facet_id": "state-04-b", "tag": "detail", "text": "文件名不添加新的视图名", "evidence": [{"corpus_file": "2026-04-29-林舟与贾宁.md", "quote": "不加新的视图名"}]},
+         {"facet_id": "state-04-c", "tag": "detail", "text": "改名之前用的是 weekly-summary", "evidence": [{"corpus_file": "2026-04-29-林舟与贾宁.md", "quote": "文件名仍是 weekly-summary"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-04-29-林舟与贾宁.md", "quote": "改成 records，加记录日期，不加新的视图名", "as_of": "2026-04-29"}]},
+      {"case_id": "state-05", "ruler_changes": ["v3-facet-split"], "axis": "state", "difficulty": "L3", "expected_via": "canonical", "question": "竹影现在算已签客户吗？内部页面上最后是怎么写的？", "expected_truth_ids": ["df-zhuying-oral"],
+       "facets": [
+         {"facet_id": "state-05-a", "tag": "core", "text": "竹影不算已签客户", "evidence": [{"corpus_file": "2026-05-23-周期收尾-不要替等待改名.md", "quote": "贾宁把“已签客户”划掉"}]},
+         {"facet_id": "state-05-b", "tag": "core", "text": "页面上最后写的是「竹影：附条件口头延长，未生效」", "evidence": [{"corpus_file": "2026-05-23-周期收尾-不要替等待改名.md", "quote": "竹影：附条件口头延长，未生效"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-05-23-周期收尾-不要替等待改名.md", "quote": "竹影：附条件口头延长，未生效", "as_of": "2026-05-23"}]},
+      {"case_id": "state-06", "ruler_changes": ["v3-facet-split", "v6-facets-split"], "axis": "state", "difficulty": "L2", "expected_via": "canonical", "question": "材料替代那条记录的状态最后停在哪一步？", "expected_truth_ids": ["df-chain2-confirmable"],
+       "facets": [
+         {"facet_id": "state-06-a", "tag": "core", "text": "状态停在「待确认」", "evidence": [{"corpus_file": "2026-05-18-材料替代链的最后状态.md", "quote": "留下“待确认”的人也可以把状态改成已确认"}]},
+         {"facet_id": "state-06-b", "tag": "detail", "text": "5 月 18 日现场回复到达后，留下「待确认」的人可以把它改成已确认", "evidence": [{"corpus_file": "2026-05-18-材料替代链的最后状态.md", "quote": "留下“待确认”的人也可以把状态改成已确认"}]},
+         {"facet_id": "state-06-c", "tag": "detail", "text": "5 月 15 日导入时，这条记录只包含选定的材料片段、它的来源位置和一个「待确认」状态", "evidence": [{"corpus_file": "2026-05-15-材料替代记录-导入结果与待确认项.md", "quote": "记录目前只包含你选定的材料片段、它的来源位置和一个“待确认”状态"}]},
+         {"facet_id": "state-06-d", "tag": "detail", "text": "两条链的状态不合成一个总的通过标记", "evidence": [{"corpus_file": "2026-05-18-材料替代链的最后状态.md", "quote": "两条的状态不要合成一个总的通过标记"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-05-18-材料替代链的最后状态.md", "quote": "留下“待确认”的人也可以把状态改成已确认", "as_of": "2026-05-18"}]},
+      {"case_id": "state-07", "ruler_changes": ["v6-facets-split"], "axis": "state", "difficulty": "L4", "expected_via": "canonical", "as_of": "2026-05-24", "question": "这个周期结束时，还有哪几件事没有落地？", "expected_truth_ids": ["df-cycle-end-three"],
+       "facets": [
+         {"facet_id": "state-07-a", "tag": "core", "text": "数据处理附录仍待签", "evidence": [{"corpus_file": "2026-05-24-周期结束时的待办状态.md", "quote": "附录仍待签"}]},
+         {"facet_id": "state-07-b", "tag": "core", "text": "删除演练确认仍未完成", "evidence": [{"corpus_file": "2026-05-24-周期结束时的待办状态.md", "quote": "我还没有签附录，也没有完成删除确认"}]},
+         {"facet_id": "state-07-c", "tag": "core", "text": "试点尾款仍没有付款结果", "evidence": [{"corpus_file": "2026-05-24-周期结束时的待办状态.md", "quote": "试点尾款仍没有付款结果"}]},
+         {"facet_id": "state-07-d", "tag": "detail", "text": "删除演练确认还等着吴岚逐格看完", "evidence": [{"corpus_file": "2026-05-24-周期结束时的待办状态.md", "quote": "删除演练确认仍等你逐格看完"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-05-24-周期结束时的待办状态.md", "quote": "附录仍待签，删除演练确认仍等你逐格看完，试点尾款仍没有付款结果", "as_of": "2026-05-24"}]},
+      {"case_id": "state-08", "ruler_changes": ["v3-facet-split", "v6-question-repinned", "v6-facets-split"], "axis": "state", "difficulty": "L3", "expected_via": "canonical", "as_of": "2026-05-24", "question": "截至 2026 年 5 月 24 日，云麓受限试点尾款有没有已提供的预计付款日？", "expected_truth_ids": ["df-payment-unknown"],
+       "facets": [
+         {"facet_id": "state-08-a", "tag": "core", "text": "截至 2026 年 5 月 24 日仍没有拿到试点尾款的预计付款日", "evidence": [{"corpus_file": "2026-04-28-付款核对与演示边界.md", "quote": "我手里没有付款预计日"}, {"corpus_file": "2026-05-20-阶段复盘后的条件核对.md", "quote": "至于尾款，我仍没有预计日"}, {"corpus_file": "2026-05-24-周期结束时的待办状态.md", "quote": "尾款这边没有新日期"}]},
+         {"facet_id": "state-08-b", "tag": "detail", "text": "吴岚也不知道负责付款的人何时处理", "evidence": [{"corpus_file": "2026-04-28-付款核对与演示边界.md", "quote": "也不知道负责付款的人何时处理"}]},
+         {"facet_id": "state-08-c", "tag": "detail", "text": "「周五前会给付款日」是林舟自己补出来的，不是吴岚给的", "evidence": [{"corpus_file": "2026-04-28-付款核对与演示边界.md", "quote": "那是我补出来的日期，不是你说的"}]},
+         {"facet_id": "state-08-d", "tag": "detail", "text": "「本周核对」只表示资料还在内部看，不是一个日期", "evidence": [{"corpus_file": "2026-04-28-付款核对与演示边界.md", "quote": "那四个字只表示资料还在内部看"}]},
+         {"facet_id": "state-08-e", "tag": "detail", "text": "尾款后来于 8 月 29 日实际到账", "evidence": [{"corpus_file": "build-record/exercise.py", "corpus_source": "owner_statement", "quote": "到账日 8 月 29 日"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-04-28-付款核对与演示边界.md", "quote": "我手里没有付款预计日", "as_of": "2026-04-28"}]},
+      {"case_id": "state-09", "ruler_changes": ["v2-corpus-basis", "v3-facet-split", "v6-facets-split"], "axis": "state", "difficulty": "L3", "expected_via": "canonical", "question": "试点尾款现在到账了吗？金额和到账日期分别是什么？", "expected_truth_ids": ["df-weikuan-received"],
+       "facets": [
+         {"facet_id": "state-09-a", "tag": "core", "text": "试点尾款已经到账，不再是「尾款未到」", "evidence": [{"corpus_file": "build-record/exercise.py", "corpus_source": "owner_statement", "quote": "尾款到了"}]},
+         {"facet_id": "state-09-b", "tag": "core", "text": "金额是 5400 元", "evidence": [{"corpus_file": "build-record/exercise.py", "corpus_source": "owner_statement", "quote": "金额 5400 元"}]},
+         {"facet_id": "state-09-c", "tag": "core", "text": "到账日是 8 月 29 日", "evidence": [{"corpus_file": "build-record/exercise.py", "corpus_source": "owner_statement", "quote": "到账日 8 月 29 日"}]},
+         {"facet_id": "state-09-d", "tag": "detail", "text": "采购在 8 月 28 日付的款", "evidence": [{"corpus_file": "build-record/exercise.py", "corpus_source": "owner_statement", "quote": "采购 8 月 28 日付的"}]},
+         {"facet_id": "state-09-e", "tag": "detail", "text": "付款说明写的是「云麓受限试点尾款」", "evidence": [{"corpus_file": "build-record/exercise.py", "corpus_source": "owner_statement", "quote": "付款说明写的是「云麓受限试点尾款」"}]},
+         {"facet_id": "state-09-f", "tag": "detail", "text": "到账的只有尾款这一项", "evidence": [{"corpus_file": "build-record/exercise.py", "corpus_source": "owner_statement", "quote": "到账的只有尾款，六周延长的附录签字和删除演练那两项，采购一句都没提，仍然是没答复"}]},
+         {"facet_id": "state-09-g", "tag": "detail", "text": "采购仍未答复六周延长所需的附录签字事项", "evidence": [{"corpus_file": "build-record/exercise.py", "corpus_source": "owner_statement", "quote": "六周延长的附录签字和删除演练那两项，采购一句都没提，仍然是没答复"}]},
+         {"facet_id": "state-09-h", "tag": "detail", "text": "采购仍未答复六周延长所需的删除演练事项", "evidence": [{"corpus_file": "build-record/exercise.py", "corpus_source": "owner_statement", "quote": "六周延长的附录签字和删除演练那两项，采购一句都没提，仍然是没答复"}]}
+       ],
+       "evidence": [{"corpus_file": "build-record/exercise.py", "corpus_source": "owner_statement", "quote": "采购 8 月 28 日付的，到账日 8 月 29 日，金额 5400 元", "as_of": "2026-09-01"}]},
+
+      {"case_id": "history-01", "ruler_changes": ["v3-facet-split", "v6-question-repinned", "v6-facets-split"], "axis": "history", "difficulty": "L2", "expected_via": "canonical", "as_of": "2026-03-13", "question": "自动周报最早是什么定位？3 月 13 日的范围会之后它被怎么处理了？", "expected_truth_ids": ["df-weekly-report-goal", "dec-weekly-report-cut"],
+       "facets": [
+         {"facet_id": "history-01-a", "tag": "core", "text": "最早想做的是一张跨来源的自动周报", "evidence": [{"corpus_file": "2026-03-02-第零版-别先问功能.md", "quote": "我还是想先做一张跨来源的自动周报"}]},
+         {"facet_id": "history-01-b", "tag": "core", "text": "自动周报被移出这轮试点目标", "evidence": [{"corpus_file": "2026-03-13-范围会前的一屏说明.md", "quote": "自动周报不进这轮试点目标"}]},
+         {"facet_id": "history-01-e", "tag": "core", "text": "这轮试点改为证据链优先", "evidence": [{"corpus_file": "2026-03-13-范围会前的一屏说明.md", "quote": "我记当前决定：证据链优先"}]},
+         {"facet_id": "history-01-c", "tag": "detail", "text": "移出发生在 3 月 13 日", "evidence": [{"corpus_file": "2026-03-13-范围会前的一屏说明.md", "quote": "删的是自动周报：它移出试点目标"}]},
+         {"facet_id": "history-01-d", "tag": "detail", "text": "依据是两次访谈都把争议时的来源回查排在概览前", "evidence": [{"corpus_file": "2026-03-13-范围会前的一屏说明.md", "quote": "依据是两次访谈都把争议时的来源回查排在概览前"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-03-02-第零版-别先问功能.md", "quote": "我还是想先做一张跨来源的自动周报", "as_of": "2026-03-02"}]},
+      {"case_id": "history-02", "axis": "history", "difficulty": "L2", "expected_via": "canonical", "question": "导出文件名改名之前叫什么？", "expected_truth_ids": ["df-export-weekly-summary"],
+       "facets": [
+         {"facet_id": "history-02-a", "tag": "core", "text": "改名之前叫 weekly-summary", "evidence": [{"corpus_file": "2026-04-29-林舟与贾宁.md", "quote": "文件名仍是 weekly-summary"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-04-29-林舟与贾宁.md", "quote": "导出还有一处尾巴：文件名仍是 weekly-summary", "as_of": "2026-04-29"}]},
+      {"case_id": "history-03", "ruler_changes": ["v3-facet-split", "v6-question-repinned", "v6-facets-split"], "axis": "history", "difficulty": "L3", "expected_via": "canonical", "question": "事故前系统按什么假设把两条来源写成同一实体？事故后这个假设和名称匹配规则各怎么处理了？", "expected_truth_ids": ["df-name-merge-assumption", "dec-name-not-identity"],
+       "facets": [
+         {"facet_id": "history-03-a", "tag": "core", "text": "旧假设是只要名称相同又出现在相近的项目材料里，就可以先产生同一实体", "evidence": [{"corpus_file": "2026-04-14-名称匹配决策日志（事故后）.md", "quote": "只要名称相同，又出现在相近的项目材料里，就可以先产生同一实体"}]},
+         {"facet_id": "history-03-b", "tag": "core", "text": "这个更早的假设后来被撤回", "evidence": [{"corpus_file": "2026-04-14-名称匹配决策日志（事故后）.md", "quote": "真正被撤回的是一个更早的假设"}]},
+         {"facet_id": "history-03-e", "tag": "core", "text": "名称此后不再单独触发合并", "evidence": [{"corpus_file": "2026-04-14-名称匹配决策日志（事故后）.md", "quote": "名称只用于提出候选，不再单独触发合并"}]},
+         {"facet_id": "history-03-c", "tag": "detail", "text": "名称匹配的新规则自 2026 年 4 月 14 日起生效", "evidence": [{"corpus_file": "2026-04-14-名称匹配决策日志（事故后）.md", "quote": "从今天起，名称只用于提出候选，不再单独触发合并"}]},
+         {"facet_id": "history-03-f", "tag": "detail", "text": "名称此后只用于提出候选", "evidence": [{"corpus_file": "2026-04-14-名称匹配决策日志（事故后）.md", "quote": "名称只用于提出候选"}]},
+         {"facet_id": "history-03-d", "tag": "detail", "text": "同时定下来源定位采用追加而非改写", "evidence": [{"corpus_file": "2026-04-14-名称匹配决策日志（事故后）.md", "quote": "来源定位采用追加而非改写"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-04-14-名称匹配决策日志（事故后）.md", "quote": "真正被撤回的是一个更早的假设", "as_of": "2026-04-14"}]},
+      {"case_id": "history-04", "ruler_changes": ["v3-facet-split", "v6-facets-split"], "axis": "history", "difficulty": "L2", "expected_via": "canonical", "question": "页面状态条在拆成两行之前写的是什么？为什么要改？", "expected_truth_ids": ["df-status-separated"],
+       "facets": [
+         {"facet_id": "history-04-a", "tag": "core", "text": "之前显示的是「已分离」", "evidence": [{"corpus_file": "2026-04-10-逐条更正复核-项目与状态.md", "quote": "显示“已分离”"}]},
+         {"facet_id": "history-04-b", "tag": "core", "text": "要改是因为「已分离」把技术动作和客户状态压成了一个词", "evidence": [{"corpus_file": "2026-04-10-逐条更正复核-项目与状态.md", "quote": "唯一失败不是记录又混回去，而是“已分离”把技术动作和客户状态压成一个词"}]},
+         {"facet_id": "history-04-e", "tag": "detail", "text": "陈放把它理解成客户已经确认", "evidence": [{"corpus_file": "2026-04-10-逐条更正复核-项目与状态.md", "quote": "陈放理解成客户已经确认"}]},
+         {"facet_id": "history-04-f", "tag": "detail", "text": "陈放会据此跟现场说可以用了", "evidence": [{"corpus_file": "2026-04-10-逐条更正复核-项目与状态.md", "quote": "我看到这个就会跟现场说可以用了"}]},
+         {"facet_id": "history-04-c", "tag": "detail", "text": "改后「来源已拆开」只描述工作副本动作", "evidence": [{"corpus_file": "2026-04-10-逐条更正复核-项目与状态.md", "quote": "“来源已拆开”只描述工作副本动作，“客户复核：未开始”单独占一行"}]},
+         {"facet_id": "history-04-d", "tag": "detail", "text": "改后「客户复核：未开始」单独占一行", "evidence": [{"corpus_file": "2026-04-10-逐条更正复核-项目与状态.md", "quote": "“来源已拆开”只描述工作副本动作，“客户复核：未开始”单独占一行"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-04-10-逐条更正复核-项目与状态.md", "quote": "我看到这个就会跟现场说可以用了", "as_of": "2026-04-10"}]},
+      {"case_id": "history-05", "axis": "history", "difficulty": "L2", "expected_via": "canonical", "question": "现场会节点原来显示的那句话是什么？", "expected_truth_ids": ["df-rev01-sentence"],
+       "facets": [
+         {"facet_id": "history-05-a", "tag": "core", "text": "原来显示的是「预算变更在会上得到确认」", "evidence": [{"corpus_file": "2026-05-12-现场会节点-REV-02-措辞与归属复核.md", "quote": "现场会节点目前显示“预算变更在会上得到确认”"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-05-12-现场会节点-REV-02-措辞与归属复核.md", "quote": "现场会节点目前显示“预算变更在会上得到确认”", "as_of": "2026-05-12"}]},
+      {"case_id": "history-06", "ruler_changes": ["v3-facet-split", "v6-facets-split"], "axis": "history", "difficulty": "L3", "expected_via": "canonical", "question": "关于云服务能不能停，最早的说法是什么，后来怎么修正的？", "expected_truth_ids": ["df-cloud-cannot-stop", "df-cloud-split"],
+       "facets": [
+         {"facet_id": "history-06-a", "tag": "core", "text": "最早的说法是云服务不能停", "evidence": [{"corpus_file": "2026-04-28-付款核对与演示边界.md", "quote": "我能停一项工具续费，云服务不能停"}]},
+         {"facet_id": "history-06-b", "tag": "core", "text": "修正后是最低套餐要留", "evidence": [{"corpus_file": "2026-04-28-付款核对与演示边界.md", "quote": "最低套餐要留，试点记录和导出都在里面；另一个临时测试环境今晚可以关"}]},
+         {"facet_id": "history-06-c", "tag": "detail", "text": "最早的说法里能停的是一项工具续费", "evidence": [{"corpus_file": "2026-04-28-付款核对与演示边界.md", "quote": "我能停一项工具续费，云服务不能停"}]},
+         {"facet_id": "history-06-d", "tag": "core", "text": "另一个临时测试环境可以关", "evidence": [{"corpus_file": "2026-04-28-付款核对与演示边界.md", "quote": "最低套餐要留，试点记录和导出都在里面；另一个临时测试环境今晚可以关"}]},
+         {"facet_id": "history-06-e", "tag": "detail", "text": "最低套餐要留是因为试点记录和导出都在里面", "evidence": [{"corpus_file": "2026-04-28-付款核对与演示边界.md", "quote": "最低套餐要留，试点记录和导出都在里面"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-04-28-付款核对与演示边界.md", "quote": "我刚才把“服务要留”和“每个实例都要留”混成了一件事", "as_of": "2026-04-28"}]},
+      {"case_id": "history-07", "axis": "history", "difficulty": "L2", "expected_via": "canonical", "question": "云麓受限只读是什么时候从暂停变成对授权账号开放的？", "expected_truth_ids": ["df-readonly-1136"],
+       "facets": [
+         {"facet_id": "history-07-a", "tag": "core", "text": "2026 年 4 月 11 日 11:36 之后", "evidence": [{"corpus_file": "2026-04-11-受限只读恢复记录.md", "quote": "| 控制项 | 执行前 | 11:36 后 | 验证方式 |"}, {"corpus_file": "2026-04-11-受限只读恢复记录.md", "quote": "| 云麓受限只读 | 暂停 | 对授权试点账号开放 |"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-04-11-受限只读恢复记录.md", "quote": "| 控制项 | 执行前 | 11:36 后 | 验证方式 |", "as_of": "2026-04-11"}]},
+      {"case_id": "history-08", "ruler_changes": ["v6-facets-split"], "axis": "history", "difficulty": "L3", "expected_via": "canonical", "question": "「周五前会给付款日」这句话是谁说的？", "expected_truth_ids": ["df-payment-fabricated"],
+       "facets": [
+         {"facet_id": "history-08-a", "tag": "core", "text": "说出这句话的是林舟", "evidence": [{"corpus_file": "2026-04-28-付款核对与演示边界.md", "quote": "那是我补出来的日期，不是你说的"}]},
+         {"facet_id": "history-08-b", "tag": "detail", "text": "吴岚没有说过这个付款期限", "evidence": [{"corpus_file": "2026-04-28-付款核对与演示边界.md", "quote": "不是你说的"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-04-28-付款核对与演示边界.md", "quote": "那是我补出来的日期，不是你说的", "as_of": "2026-04-28"}]},
+      {"case_id": "history-09", "ruler_changes": ["v2-corpus-basis", "v3-facet-split", "v6-facets-split"], "axis": "history", "difficulty": "L3", "expected_via": "canonical", "question": "5 月 24 日时库里记的试点尾款状态是什么？后来怎么变的？", "expected_truth_ids": ["df-weikuan-outstanding", "df-weikuan-received"],
+       "facets": [
+         {"facet_id": "history-09-a", "tag": "core", "text": "5 月 24 日记的是试点尾款仍没有付款结果", "evidence": [{"corpus_file": "2026-05-24-周期结束时的待办状态.md", "quote": "试点尾款仍没有付款结果"}]},
+         {"facet_id": "history-09-b", "tag": "core", "text": "后来试点尾款到账了", "evidence": [{"corpus_file": "build-record/exercise.py", "corpus_source": "owner_statement", "quote": "尾款到了"}]},
+         {"facet_id": "history-09-c", "tag": "detail", "text": "尾款到账日是 8 月 29 日", "evidence": [{"corpus_file": "build-record/exercise.py", "quote": "到账日 8 月 29 日", "corpus_source": "owner_statement"}]},
+         {"facet_id": "history-09-g", "tag": "detail", "text": "尾款金额是 5400 元", "evidence": [{"corpus_file": "build-record/exercise.py", "quote": "金额 5400 元", "corpus_source": "owner_statement"}]},
+         {"facet_id": "history-09-d", "tag": "detail", "text": "5 月 24 日那条在它的时点上仍然为真，不改它", "evidence": [{"corpus_file": "build-record/exercise.py", "corpus_source": "owner_statement", "quote": "5 月 24 日那条在它的时点上是对的，别改它"}]},
+         {"facet_id": "history-09-e", "tag": "detail", "text": "变的只有尾款这一项", "evidence": [{"corpus_file": "build-record/exercise.py", "corpus_source": "owner_statement", "quote": "到账的只有尾款，六周延长的附录签字和删除演练那两项，采购一句都没提，仍然是没答复"}]},
+         {"facet_id": "history-09-f", "tag": "detail", "text": "附录签字和删除演练两项仍然没答复", "evidence": [{"corpus_file": "build-record/exercise.py", "corpus_source": "owner_statement", "quote": "到账的只有尾款，六周延长的附录签字和删除演练那两项，采购一句都没提，仍然是没答复"}]}
+       ],
+       "evidence": [{"corpus_file": "build-record/exercise.py", "corpus_source": "owner_statement", "quote": "那是 5 月 24 日的状态，现在不成立了", "as_of": "2026-09-01"}]},
+
+      {"case_id": "chain-01", "ruler_changes": ["v6-question-repinned"], "axis": "chain", "difficulty": "L5", "expected_via": "canonical", "as_of": "2026-04-27", "question": "4 月 27 日林舟排出的第一条记录链由哪几个节点组成？", "expected_truth_ids": ["df-chain1-nodes"],
+       "facets": [
+         {"facet_id": "chain-01-a", "tag": "core", "text": "原始变更提出", "evidence": [{"corpus_file": "2026-04-27-第一条记录链-编排状态，不请验收.md", "quote": "原始变更提出"}]},
+         {"facet_id": "chain-01-b", "tag": "core", "text": "现场会的口头确认位置", "evidence": [{"corpus_file": "2026-04-27-第一条记录链-编排状态，不请验收.md", "quote": "现场会的口头确认位置"}]},
+         {"facet_id": "chain-01-c", "tag": "core", "text": "失效附件的说明", "evidence": [{"corpus_file": "2026-04-27-第一条记录链-编排状态，不请验收.md", "quote": "失效附件的说明"}]},
+         {"facet_id": "chain-01-d", "tag": "core", "text": "仍待比较的颜色样和预算差异", "evidence": [{"corpus_file": "2026-04-27-第一条记录链-编排状态，不请验收.md", "quote": "仍待比较的颜色样和预算差异"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-04-27-第一条记录链-编排状态，不请验收.md", "quote": "原始变更提出、现场会的口头确认位置、失效附件的说明、以及仍待比较的颜色样和预算差异", "as_of": "2026-04-27"}]},
+      {"case_id": "chain-02", "ruler_changes": ["v3-facet-split"], "axis": "chain", "difficulty": "L2", "expected_via": "canonical", "question": "预算调整那封邮件指向的附件现在能打开吗？归档里有副本吗？", "expected_truth_ids": ["df-attachment-dead"],
+       "facets": [
+         {"facet_id": "chain-02-a", "tag": "core", "text": "附件打不开", "evidence": [{"corpus_file": "2026-04-03-找到-客厅预算调整邮件.md", "quote": "我今早点过两次，都只返回“链接已失效”"}]},
+         {"facet_id": "chain-02-b", "tag": "core", "text": "归档里没有文件副本", "evidence": [{"corpus_file": "2026-04-03-找到-客厅预算调整邮件.md", "quote": "归档里没有文件副本"}]},
+         {"facet_id": "chain-02-c", "tag": "detail", "text": "点开只返回「链接已失效」", "evidence": [{"corpus_file": "2026-04-03-找到-客厅预算调整邮件.md", "quote": "我今早点过两次，都只返回“链接已失效”"}]},
+         {"facet_id": "chain-02-d", "tag": "detail", "text": "归档检索作业的结果是「归档内文件对象：0」", "evidence": [{"corpus_file": "2026-04-03-归档检索作业-0403-2-完成.md", "quote": "归档内文件对象：0"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-04-03-归档检索作业-0403-2-完成.md", "quote": "归档内文件对象：0", "as_of": "2026-04-03"}]},
+      {"case_id": "chain-03", "ruler_changes": ["v6-question-repinned"], "axis": "chain", "difficulty": "L5", "expected_via": "canonical", "as_of": "2026-04-24", "question": "截至 2026 年 4 月 24 日，材料替代链上哪两处仍未核对清楚？", "expected_truth_ids": ["df-chain2-gaps"],
+       "facets": [
+         {"facet_id": "chain-03-a", "tag": "core", "text": "中间那条现场确认还是只剩转写里的时间点", "evidence": [{"corpus_file": "2026-04-24-材料替代链-仍待核对的两个位置.md", "quote": "中间那条现场确认还是只剩转写里的时间点"}]},
+         {"facet_id": "chain-03-b", "tag": "core", "text": "摘要旁边那句「已沟通」说不清指的是附件补发还是现场决定", "evidence": [{"corpus_file": "2026-04-24-材料替代链-仍待核对的两个位置.md", "quote": "我还要确认摘要旁边那句“已沟通”究竟是描述附件补发，还是描述现场决定"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-04-24-材料替代链-仍待核对的两个位置.md", "quote": "中间那条现场确认还是只剩转写里的时间点", "as_of": "2026-04-24"}]},
+      {"case_id": "chain-04", "ruler_changes": ["v3-facet-split"], "axis": "chain", "difficulty": "L5", "expected_via": "canonical", "question": "预算变更那条链和材料替代那条链，能不能一起算成一次总的验收通过？", "expected_truth_ids": ["con-no-merge-chains"],
+       "facets": [
+         {"facet_id": "chain-04-a", "tag": "core", "text": "不能把两条链的状态合成一个总的通过标记", "evidence": [{"corpus_file": "2026-05-18-材料替代链的最后状态.md", "quote": "两条的状态不要合成一个总的通过标记"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-05-18-材料替代链的最后状态.md", "quote": "两条的状态不要合成一个总的通过标记", "as_of": "2026-05-18"}]},
+      {"case_id": "chain-05", "ruler_changes": ["v6-question-repinned", "v6-facets-split"], "axis": "chain", "difficulty": "L4", "expected_via": "canonical", "question": "现场会上那句允许按替代材料继续的话，附了哪两个前提？", "expected_truth_ids": ["df-onsite-conditions"],
+       "facets": [
+         {"facet_id": "chain-05-a", "tag": "core", "text": "要把颜色样留在项目记录", "evidence": [{"corpus_file": "2026-04-27-材料替代-现场会位置请确认.md", "quote": "前提是把颜色样和预算差异留在项目记录"}]},
+         {"facet_id": "chain-05-c", "tag": "core", "text": "要把预算差异留在项目记录", "evidence": [{"corpus_file": "2026-04-27-材料替代-现场会位置请确认.md", "quote": "前提是把颜色样和预算差异留在项目记录"}]},
+         {"facet_id": "chain-05-b", "tag": "detail", "text": "说这句话的是吴岚", "evidence": [{"corpus_file": "2026-04-27-材料替代-现场会位置请确认.md", "quote": "吴岚当时说可以按替代材料继续"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-04-27-材料替代-现场会位置请确认.md", "quote": "前提是把颜色样和预算差异留在项目记录", "as_of": "2026-04-27"}]},
+      {"case_id": "chain-06", "ruler_changes": ["v3-facet-split", "v6-question-repinned", "v6-facets-split"], "axis": "chain", "difficulty": "L4", "expected_via": "canonical", "as_of": "2026-04-12", "question": "截至 2026 年 4 月 12 日 15:00，同姓记录错误关联事故里 4 月 7 日起哪些控制保持暂停，4 月 11 日只恢复了哪条查看路径？", "expected_truth_ids": ["df-suspend-0407", "df-readonly-1136"],
+       "facets": [
+         {"facet_id": "chain-06-a", "tag": "core", "text": "4 月 7 日起关系写入保持暂停", "evidence": [{"corpus_file": "2026-04-12-事故说明-同姓记录错误关联与当前处置.md", "quote": "4 月 7 日起，关系写入、新导入、候选自动应用和既有分享入口保持暂停"}]},
+         {"facet_id": "chain-06-e", "tag": "core", "text": "4 月 7 日起新导入保持暂停", "evidence": [{"corpus_file": "2026-04-12-事故说明-同姓记录错误关联与当前处置.md", "quote": "4 月 7 日起，关系写入、新导入、候选自动应用和既有分享入口保持暂停"}]},
+         {"facet_id": "chain-06-f", "tag": "core", "text": "4 月 7 日起候选自动应用保持暂停", "evidence": [{"corpus_file": "2026-04-12-事故说明-同姓记录错误关联与当前处置.md", "quote": "4 月 7 日起，关系写入、新导入、候选自动应用和既有分享入口保持暂停"}]},
+         {"facet_id": "chain-06-g", "tag": "core", "text": "4 月 7 日起既有分享入口保持暂停", "evidence": [{"corpus_file": "2026-04-12-事故说明-同姓记录错误关联与当前处置.md", "quote": "4 月 7 日起，关系写入、新导入、候选自动应用和既有分享入口保持暂停"}]},
+         {"facet_id": "chain-06-b", "tag": "core", "text": "只恢复了受限只读一项", "evidence": [{"corpus_file": "2026-04-11-受限只读恢复记录.md", "quote": "对授权试点账号开放"}]},
+         {"facet_id": "chain-06-c", "tag": "detail", "text": "受限只读从 4 月 11 日起对授权试点账号开放", "evidence": [{"corpus_file": "2026-04-11-受限只读恢复记录.md", "quote": "对授权试点账号开放"}]},
+         {"facet_id": "chain-06-d", "tag": "detail", "text": "写入没有随受限只读恢复", "evidence": [{"corpus_file": "2026-04-11-受限只读恢复协调.md", "quote": "不恢复写入、导入或原分享链接"}]},
+         {"facet_id": "chain-06-h", "tag": "detail", "text": "导入没有随受限只读恢复", "evidence": [{"corpus_file": "2026-04-11-受限只读恢复协调.md", "quote": "不恢复写入、导入或原分享链接"}]},
+         {"facet_id": "chain-06-i", "tag": "detail", "text": "原分享链接没有随受限只读恢复", "evidence": [{"corpus_file": "2026-04-11-受限只读恢复协调.md", "quote": "不恢复写入、导入或原分享链接"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-04-12-事故说明-同姓记录错误关联与当前处置.md", "quote": "4 月 7 日起，关系写入、新导入、候选自动应用和既有分享入口保持暂停", "as_of": "2026-04-12"}]},
+      {"case_id": "chain-07", "ruler_changes": ["v3-facet-split"], "axis": "chain", "difficulty": "L5", "expected_via": "canonical", "question": "认定两条来源被错误合并，靠的是哪几项证据？", "expected_truth_ids": ["df-evidence-chain-four"],
+       "facets": [
+         {"facet_id": "chain-07-a", "tag": "core", "text": "两个不同的来源定位和房号", "evidence": [{"corpus_file": "2026-04-06-林舟-贾宁-陈放-候选卡核查.md", "quote": "证据链有四项：两个不同来源定位和房号"}]},
+         {"facet_id": "chain-07-b", "tag": "core", "text": "导入结果里相同的实体标识", "evidence": [{"corpus_file": "2026-04-06-林舟-贾宁-陈放-候选卡核查.md", "quote": "导入结果里相同的实体标识"}]},
+         {"facet_id": "chain-07-c", "tag": "core", "text": "候选事件中只记录了姓氏规范值和近似分支命中", "evidence": [{"corpus_file": "2026-04-06-林舟-贾宁-陈放-候选卡核查.md", "quote": "候选事件中只记录了姓氏规范值和近似分支命中"}]},
+         {"facet_id": "chain-07-d", "tag": "core", "text": "随后两边消息都写到这个实体下", "evidence": [{"corpus_file": "2026-04-06-林舟-贾宁-陈放-候选卡核查.md", "quote": "随后两边消息都写到这个实体下"}]},
+         {"facet_id": "chain-07-e", "tag": "detail", "text": "一共是四项", "evidence": [{"corpus_file": "2026-04-06-林舟-贾宁-陈放-候选卡核查.md", "quote": "证据链有四项"}]},
+         {"facet_id": "chain-07-f", "tag": "detail", "text": "来源里没有共同标识", "evidence": [{"corpus_file": "2026-04-06-林舟-贾宁-陈放-候选卡核查.md", "quote": "来源里没有共同标识，也没有授权关联字段"}]},
+         {"facet_id": "chain-07-g", "tag": "detail", "text": "来源里也没有授权关联字段", "evidence": [{"corpus_file": "2026-04-06-林舟-贾宁-陈放-候选卡核查.md", "quote": "来源里没有共同标识，也没有授权关联字段"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-04-06-林舟-贾宁-陈放-候选卡核查.md", "quote": "证据链有四项", "as_of": "2026-04-06"}]},
+      {"case_id": "chain-08", "ruler_changes": ["v6-question-repinned", "v6-facets-split"], "axis": "chain", "difficulty": "L4", "expected_via": "canonical", "question": "目前云麓试点的第二条（材料替代）变更找到了吗？", "expected_truth_ids": ["df-second-change-found", "df-second-change-missing"],
+       "facets": [
+         {"facet_id": "chain-08-a", "tag": "core", "text": "找到了，已有自己的来源和确认", "evidence": [{"corpus_file": "2026-05-18-材料替代链的最后状态.md", "quote": "第二条现在也有它自己的来源和确认"}]},
+         {"facet_id": "chain-08-b", "tag": "detail", "text": "4 月 3 日时它还没有找到", "evidence": [{"corpus_file": "2026-04-03-现场会定位-只到样板之后.md", "quote": "第二条变更更没有找到"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-05-18-材料替代链的最后状态.md", "quote": "第二条现在也有它自己的来源和确认", "as_of": "2026-05-18"}]},
+
+      {"case_id": "set-01", "axis": "set", "difficulty": "L2", "expected_via": "canonical", "question": "云麓那次确认里，明确留在范围外的是哪几项？", "expected_truth_ids": ["df-excluded-three"],
+       "facets": [
+         {"facet_id": "set-01-a", "tag": "core", "text": "任务管理", "evidence": [{"corpus_file": "2026-03-21-云麓试点边界与只读副本清单.md", "quote": "任务管理、报价生成和供应商审批不随这次确认进入"}]},
+         {"facet_id": "set-01-b", "tag": "core", "text": "报价生成", "evidence": [{"corpus_file": "2026-03-21-云麓试点边界与只读副本清单.md", "quote": "任务管理、报价生成和供应商审批不随这次确认进入"}]},
+         {"facet_id": "set-01-c", "tag": "core", "text": "供应商审批", "evidence": [{"corpus_file": "2026-03-21-云麓试点边界与只读副本清单.md", "quote": "任务管理、报价生成和供应商审批不随这次确认进入"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-03-21-云麓试点边界与只读副本清单.md", "quote": "任务管理、报价生成和供应商审批不随这次确认进入", "as_of": "2026-03-21"}]},
+      {"case_id": "set-02", "ruler_changes": ["v6-question-repinned"], "axis": "set", "difficulty": "L1", "expected_via": "canonical", "as_of": "2026-03-21", "question": "截至 2026 年 3 月 21 日，云麓试点确认的三名使用者分别是谁？", "expected_truth_ids": ["df-three-users"],
+       "facets": [
+         {"facet_id": "set-02-a", "tag": "core", "text": "吴岚", "evidence": [{"corpus_file": "2026-03-21-云麓试点边界与只读副本清单.md", "quote": "三名使用者分别是吴岚、陈放和林舟"}]},
+         {"facet_id": "set-02-b", "tag": "core", "text": "陈放", "evidence": [{"corpus_file": "2026-03-21-云麓试点边界与只读副本清单.md", "quote": "三名使用者分别是吴岚、陈放和林舟"}]},
+         {"facet_id": "set-02-c", "tag": "core", "text": "林舟", "evidence": [{"corpus_file": "2026-03-21-云麓试点边界与只读副本清单.md", "quote": "三名使用者分别是吴岚、陈放和林舟"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-03-21-云麓试点边界与只读副本清单.md", "quote": "三名使用者分别是吴岚、陈放和林舟", "as_of": "2026-03-21"}]},
+      {"case_id": "set-03", "ruler_changes": ["v3-facet-split", "v6-question-repinned"], "axis": "set", "difficulty": "L1", "expected_via": "canonical", "as_of": "2026-03-27", "question": "截至 2026 年 3 月 27 日，《删除处理证明：字段草稿》里暂列的最小证明字段有哪些？", "expected_truth_ids": ["df-deletion-fields"],
+       "facets": [
+         {"facet_id": "set-03-a", "tag": "core", "text": "请求标识", "evidence": [{"corpus_file": "2026-03-27-删除处理证明-字段草稿.md", "quote": "最小证明字段暂列为：请求标识、项目代号、收到请求的时间"}]},
+         {"facet_id": "set-03-b", "tag": "core", "text": "项目代号", "evidence": [{"corpus_file": "2026-03-27-删除处理证明-字段草稿.md", "quote": "最小证明字段暂列为：请求标识、项目代号、收到请求的时间"}]},
+         {"facet_id": "set-03-c", "tag": "core", "text": "收到请求的时间", "evidence": [{"corpus_file": "2026-03-27-删除处理证明-字段草稿.md", "quote": "最小证明字段暂列为：请求标识、项目代号、收到请求的时间"}]},
+         {"facet_id": "set-03-d", "tag": "core", "text": "请求范围", "evidence": [{"corpus_file": "2026-03-27-删除处理证明-字段草稿.md", "quote": "请求范围、处理状态、处理完成时间"}]},
+         {"facet_id": "set-03-e", "tag": "core", "text": "处理状态", "evidence": [{"corpus_file": "2026-03-27-删除处理证明-字段草稿.md", "quote": "请求范围、处理状态、处理完成时间"}]},
+         {"facet_id": "set-03-f", "tag": "core", "text": "处理完成时间", "evidence": [{"corpus_file": "2026-03-27-删除处理证明-字段草稿.md", "quote": "请求范围、处理状态、处理完成时间"}]},
+         {"facet_id": "set-03-g", "tag": "core", "text": "需要补问的说明", "evidence": [{"corpus_file": "2026-03-27-删除处理证明-字段草稿.md", "quote": "以及需要补问的说明"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-03-27-删除处理证明-字段草稿.md", "quote": "最小证明字段暂列为", "as_of": "2026-03-27"}]},
+      {"case_id": "set-04", "ruler_changes": ["v6-question-repinned"], "axis": "set", "difficulty": "L1", "expected_via": "verbatim", "as_of": "2026-04-09", "question": "4 月 9 日取车的那次保养实际做了哪几项？", "expected_truth_ids": ["df-car-items"],
+       "facets": [
+         {"facet_id": "set-04-a", "tag": "core", "text": "机油与滤芯更换", "evidence": [{"corpus_file": "2026-04-09-保养取车窗口调整.md", "quote": "本次实际项目为机油与滤芯更换"}]},
+         {"facet_id": "set-04-b", "tag": "core", "text": "轮胎换位", "evidence": [{"corpus_file": "2026-04-09-保养取车窗口调整.md", "quote": "轮胎换位"}]},
+         {"facet_id": "set-04-c", "tag": "core", "text": "液位检查", "evidence": [{"corpus_file": "2026-04-09-保养取车窗口调整.md", "quote": "液位检查"}]},
+         {"facet_id": "set-04-d", "tag": "core", "text": "制动液更换", "evidence": [{"corpus_file": "2026-04-09-保养取车窗口调整.md", "quote": "制动液更换"}]},
+         {"facet_id": "set-04-e", "tag": "core", "text": "后雨刷片更换", "evidence": [{"corpus_file": "2026-04-09-保养取车窗口调整.md", "quote": "后雨刷片更换"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-04-09-保养取车窗口调整.md", "quote": "本次实际项目为机油与滤芯更换、轮胎换位、液位检查、制动液更换和后雨刷片更换", "as_of": "2026-04-09"}]},
+      {"case_id": "set-05", "axis": "set", "difficulty": "L3", "expected_via": "canonical", "question": "下一周期的继续、停止、延后三栏各写了什么？", "expected_truth_ids": ["dec-next-cycle"],
+       "facets": [
+         {"facet_id": "set-05-a", "tag": "core", "text": "继续栏只留「小型设计团队的变更证据链」", "evidence": [{"corpus_file": "2026-05-22-下一周期候选-继续、停止、延后.md", "quote": "继续栏只留“小型设计团队的变更证据链”"}]},
+         {"facet_id": "set-05-b", "tag": "core", "text": "停止栏写「全项目平台方向」", "evidence": [{"corpus_file": "2026-05-22-下一周期候选-继续、停止、延后.md", "quote": "停止栏写“全项目平台方向”"}]},
+         {"facet_id": "set-05-c", "tag": "core", "text": "延后栏只留供应商审批模块", "evidence": [{"corpus_file": "2026-05-22-下一周期候选-继续、停止、延后.md", "quote": "延后栏只留供应商审批模块"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-05-22-下一周期候选-继续、停止、延后.md", "quote": "继续栏只留“小型设计团队的变更证据链”", "as_of": "2026-05-22"}]},
+      {"case_id": "set-06", "ruler_changes": ["v6-question-repinned"], "axis": "set", "difficulty": "L1", "expected_via": "canonical", "as_of": "2026-05-10", "question": "在 2026 年 5 月 10 日对这一批记录的复核里，一条「首链」要同时留下哪三样可查内容？", "expected_truth_ids": ["df-first-chain-criteria"],
+       "facets": [
+         {"facet_id": "set-06-a", "tag": "core", "text": "被整理的变更片段", "evidence": [{"corpus_file": "2026-05-10-账号到达与首次成功的计数边界.md", "quote": "被整理的变更片段"}]},
+         {"facet_id": "set-06-b", "tag": "core", "text": "能够返回原材料的位置", "evidence": [{"corpus_file": "2026-05-10-账号到达与首次成功的计数边界.md", "quote": "能够返回原材料的位置"}]},
+         {"facet_id": "set-06-c", "tag": "core", "text": "由人明确保存的当前状态", "evidence": [{"corpus_file": "2026-05-10-账号到达与首次成功的计数边界.md", "quote": "由人明确保存的当前状态"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-05-10-账号到达与首次成功的计数边界.md", "quote": "首条链需同时留下三样可查内容", "as_of": "2026-05-10"}]},
+      {"case_id": "set-07", "ruler_changes": ["v6-question-repinned"], "axis": "set", "difficulty": "L2", "expected_via": "canonical", "as_of": "2026-05-10", "question": "按 5 月 10 日《账号到达与首次成功的计数边界》用于这一批记录复核的判据，哪四种动作明确不记为完成？", "expected_truth_ids": ["df-not-completion"],
+       "facets": [
+         {"facet_id": "set-07-a", "tag": "core", "text": "只打开页面", "evidence": [{"corpus_file": "2026-05-10-账号到达与首次成功的计数边界.md", "quote": "只打开页面、浏览帮助、创建空项目或停在导入选择，都不记为完成"}]},
+         {"facet_id": "set-07-b", "tag": "core", "text": "浏览帮助", "evidence": [{"corpus_file": "2026-05-10-账号到达与首次成功的计数边界.md", "quote": "只打开页面、浏览帮助、创建空项目或停在导入选择，都不记为完成"}]},
+         {"facet_id": "set-07-c", "tag": "core", "text": "创建空项目", "evidence": [{"corpus_file": "2026-05-10-账号到达与首次成功的计数边界.md", "quote": "只打开页面、浏览帮助、创建空项目或停在导入选择，都不记为完成"}]},
+         {"facet_id": "set-07-d", "tag": "core", "text": "停在导入选择", "evidence": [{"corpus_file": "2026-05-10-账号到达与首次成功的计数边界.md", "quote": "只打开页面、浏览帮助、创建空项目或停在导入选择，都不记为完成"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-05-10-账号到达与首次成功的计数边界.md", "quote": "只打开页面、浏览帮助、创建空项目或停在导入选择，都不记为完成", "as_of": "2026-05-10"}]},
+
+      {"case_id": "definition-01", "ruler_changes": ["v2-re-authored", "v3-facet-split", "v6-question-repinned", "v6-facets-split"], "axis": "definition", "difficulty": "L1", "expected_via": "canonical", "as_of": "2026-05-24", "question": "截至 2026 年 5 月 24 日，Seamlog 当前的下一周期工作假设是什么？", "expected_truth_ids": ["df-seamlog-product"],
+       "facets": [
+         {"facet_id": "definition-01-a", "tag": "core", "text": "Seamlog 当前的下一周期工作假设是变更证据链", "evidence": [{"corpus_file": "2026-05-22-下一周期候选-继续、停止、延后.md", "quote": "继续栏只留“小型设计团队的变更证据链”"}]},
+         {"facet_id": "definition-01-e", "tag": "core", "text": "这个工作假设面向小型设计团队", "evidence": [{"corpus_file": "2026-05-22-下一周期候选-继续、停止、延后.md", "quote": "继续栏只留“小型设计团队的变更证据链”"}]},
+         {"facet_id": "definition-01-b", "tag": "core", "text": "它让人回到一次变更的材料、确认和当前状态的原处", "evidence": [{"corpus_file": "2026-05-22-下一周期候选-继续、停止、延后.md", "quote": "让人回到材料、确认和当前状态的原处"}]},
+         {"facet_id": "definition-01-c", "tag": "detail", "text": "它要的不是一段漂亮总结", "evidence": [{"corpus_file": "2026-03-02-问题先于界面.md", "quote": "我想收集的不是一段漂亮总结，而是一条能倒回去看的改动"}]},
+         {"facet_id": "definition-01-d", "tag": "detail", "text": "它要能回答原来讨论的是什么、后来动了哪一块、谁说可以、谁还没回", "evidence": [{"corpus_file": "2026-03-02-问题先于界面.md", "quote": "原来讨论的是什么，后来动了哪一块，谁说可以，谁还没回"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-05-22-下一周期候选-继续、停止、延后.md", "quote": "让人回到材料、确认和当前状态的原处", "as_of": "2026-05-22"}],
+       "authoring_note": "v2 re-authored. The v1 truth rewarded 「只是纸面工作名」 — a throwaway self-deprecating line — as the definition of the product. A definition comes from how the corpus describes the thing; the working-name remark gets no facet here."},
+      {"case_id": "definition-02", "ruler_changes": ["v3-facet-split", "v6-question-repinned", "v6-facets-split"], "axis": "definition", "difficulty": "L1", "expected_via": "canonical", "question": "云麓和澄湾分别是什么？在同姓记录错误关联事故中，云麓的受限客户视图曾出现什么跨项目内容？", "expected_truth_ids": ["df-yunlu-chengwan"],
+       "facets": [
+         {"facet_id": "definition-02-a", "tag": "core", "text": "云麓是受限试点的那个项目（云麓公寓）", "evidence": [{"corpus_file": "2026-03-21-云麓试点边界与只读副本清单.md", "quote": "本次确认的对象是云麓公寓"}]},
+         {"facet_id": "definition-02-b", "tag": "core", "text": "澄湾是另一个项目", "evidence": [{"corpus_file": "2026-04-05-同姓候选关系核对表.md", "quote": "`owner-src-887` 落到澄湾项目"}]},
+         {"facet_id": "definition-02-c", "tag": "core", "text": "云麓和澄湾是两个不同的项目", "evidence": [{"corpus_file": "2026-04-05-同姓候选关系核对表.md", "quote": "项目和房号不同"}]},
+         {"facet_id": "definition-02-d", "tag": "core", "text": "事故里云麓项目卡内出现了澄湾业主的两条现场摘要", "evidence": [{"corpus_file": "2026-04-06-林舟-贾宁-陈放-候选卡核查.md", "quote": "云麓项目卡内出现澄湾业主的两条现场摘要"}]},
+         {"facet_id": "definition-02-e", "tag": "detail", "text": "两条业主记录的房号不同", "evidence": [{"corpus_file": "2026-04-05-同姓候选关系核对表.md", "quote": "项目和房号不同"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-04-06-林舟-贾宁-陈放-候选卡核查.md", "quote": "云麓项目卡内出现澄湾业主的两条现场摘要", "as_of": "2026-04-06"}]},
+      {"case_id": "definition-03", "ruler_changes": ["v3-facet-split", "v6-facets-split"], "axis": "definition", "difficulty": "L1", "expected_via": "canonical", "question": "candidate-k271 是什么？", "expected_truth_ids": ["df-candidate-k271"],
+       "facets": [
+         {"facet_id": "definition-03-a", "tag": "core", "text": "它是一个候选卡标识", "evidence": [{"corpus_file": "2026-04-05-同姓候选关系核对表.md", "quote": "候选卡标识"}]},
+         {"facet_id": "definition-03-b", "tag": "core", "text": "页面把两条同姓业主来源放在了这同一张卡下", "evidence": [{"corpus_file": "2026-04-05-同姓候选关系核对表.md", "quote": "页面把两行放在同一卡下"}]},
+         {"facet_id": "definition-03-c", "tag": "detail", "text": "这份核对表旨在把 candidate-k271 拆成两条可回源的候选", "evidence": [{"corpus_file": "2026-04-05-同姓候选关系核对表.md", "quote": "把陈放指到的 `candidate-k271` 拆成两条可回源的候选"}]},
+         {"facet_id": "definition-03-d", "tag": "detail", "text": "这两条候选预定交由有权审阅业主关系的人审阅", "evidence": [{"corpus_file": "2026-04-05-同姓候选关系核对表.md", "quote": "交给有权审阅业主关系的人"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-04-05-同姓候选关系核对表.md", "quote": "页面把两行放在同一卡下", "as_of": "2026-04-05"}]},
+      {"case_id": "definition-04", "ruler_changes": ["v3-facet-split", "v6-question-repinned", "v6-facets-split"], "axis": "definition", "difficulty": "L3", "expected_via": "canonical", "as_of": "2026-05-24", "question": "删除演练是什么？到周期结束时，内部查看和业务方确认分别处于什么状态？", "expected_truth_ids": ["df-drill-business-unconfirmed", "df-drill-internal-viewed"],
+       "facets": [
+         {"facet_id": "definition-04-a", "tag": "core", "text": "删除演练是按项目走一遍删除请求的内部核对", "evidence": [{"corpus_file": "2026-04-16-采购材料责任矩阵（未提交）.md", "quote": "删除按项目提出、按项目核对"}]},
+         {"facet_id": "definition-04-b", "tag": "core", "text": "到周期结束时，业务方确认尚未完成", "evidence": [{"corpus_file": "2026-05-24-周期结束时的待办状态.md", "quote": "我还没有签附录，也没有完成删除确认"}, {"corpus_file": "2026-05-24-未解项交接卡.md", "quote": "业务确认没有新来源"}]},
+         {"facet_id": "definition-04-c", "tag": "core", "text": "到周期结束时，内部演练已经查看过三个位置", "evidence": [{"corpus_file": "2026-05-16-删除演练-留给业务方的确认栏.md", "quote": "这页只登记内部演练已经查看的三个位置"}, {"corpus_file": "2026-05-24-未解项交接卡.md", "quote": "内部查看记录仍可回到原处"}]},
+         {"facet_id": "definition-04-d", "tag": "detail", "text": "结论留给业务方确认", "evidence": [{"corpus_file": "2026-05-16-删除演练-留给业务方的确认栏.md", "quote": "内部查看可以存在，业务侧结论尚不存在"}]},
+         {"facet_id": "definition-04-e", "tag": "detail", "text": "没有约定谁见证", "evidence": [{"corpus_file": "2026-04-16-采购材料责任矩阵（未提交）.md", "quote": "也没有约定谁见证"}]},
+         {"facet_id": "definition-04-f", "tag": "detail", "text": "见证人一栏始终是空栏", "evidence": [{"corpus_file": "2026-04-16-外部服务清单核对便签.md", "quote": "删除演练的见证人仍是空栏"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-05-16-删除演练-留给业务方的确认栏.md", "quote": "内部查看可以存在，业务侧结论尚不存在", "as_of": "2026-05-16"}]},
+      {"case_id": "definition-05", "ruler_changes": ["v3-facet-split"], "axis": "definition", "difficulty": "L1", "expected_via": "canonical", "question": "UI-41 是个什么缺陷？", "expected_truth_ids": ["df-ui41"],
+       "facets": [
+         {"facet_id": "definition-05-a", "tag": "core", "text": "保存后焦点跳到页面顶部", "evidence": [{"corpus_file": "2026-05-11-界面回读记录-UI-RD-03.md", "quote": "保存后的焦点跳到页面顶部，而“未提供”的解释在首屏以下，容易让人误以为提交没有结果"}]},
+         {"facet_id": "definition-05-b", "tag": "core", "text": "「未提供」的解释落在首屏以下", "evidence": [{"corpus_file": "2026-05-11-界面回读记录-UI-RD-03.md", "quote": "保存后的焦点跳到页面顶部，而“未提供”的解释在首屏以下，容易让人误以为提交没有结果"}]},
+         {"facet_id": "definition-05-c", "tag": "detail", "text": "因此容易让人以为提交没有结果", "evidence": [{"corpus_file": "2026-05-11-界面回读记录-UI-RD-03.md", "quote": "保存后的焦点跳到页面顶部，而“未提供”的解释在首屏以下，容易让人误以为提交没有结果"}]},
+         {"facet_id": "definition-05-d", "tag": "detail", "text": "建议是把片段编号与定位摘要放在同一回执区域", "evidence": [{"corpus_file": "2026-05-11-界面回读记录-UI-RD-03.md", "quote": "建议把片段编号与定位摘要放在同一回执区域"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-05-11-界面回读记录-UI-RD-03.md", "quote": "保存后的焦点跳到页面顶部", "as_of": "2026-05-11"}]},
+      {"case_id": "definition-06", "ruler_changes": ["v3-facet-split", "v6-question-repinned", "v6-facets-split"], "axis": "definition", "difficulty": "L1", "expected_via": "canonical", "as_of": "2026-03-21", "question": "根据 3 月 21 日确认的边界，云麓试点的只读副本收哪些内容？", "expected_truth_ids": ["df-readonly-copy-def", "df-scope-two-kinds"],
+       "facets": [
+         {"facet_id": "definition-06-a", "tag": "core", "text": "只读副本收录的变更片段仅限预算变更与材料替代", "evidence": [{"corpus_file": "2026-03-21-云麓试点边界与只读副本清单.md", "quote": "本次确认的对象是云麓公寓，范围只含预算变更与材料替代两类记录"}, {"corpus_file": "2026-03-21-云麓试点边界与只读副本清单.md", "quote": "只读副本只收被三人选定的两类变更片段及其回查位置"}]},
+         {"facet_id": "definition-06-c", "tag": "core", "text": "只读副本还收这些片段的回查位置", "evidence": [{"corpus_file": "2026-03-21-云麓试点边界与只读副本清单.md", "quote": "只读副本只收被三人选定的两类变更片段及其回查位置"}]},
+         {"facet_id": "definition-06-b", "tag": "detail", "text": "这两类片段是由三人选定的", "evidence": [{"corpus_file": "2026-03-21-云麓试点边界与只读副本清单.md", "quote": "只读副本只收被三人选定的两类变更片段及其回查位置"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-03-21-云麓试点边界与只读副本清单.md", "quote": "只读副本只收被三人选定的两类变更片段及其回查位置", "as_of": "2026-03-21"}]},
+
+      {"case_id": "calendar-01", "axis": "calendar", "difficulty": "L2", "expected_via": "canonical", "as_of": "2026-04-01", "question": "截至 4 月 1 日，那条跨日的录制条目在项目页上被放在哪一天？", "expected_truth_ids": ["df-crossday-0330"],
+       "facets": [
+         {"facet_id": "calendar-01-a", "tag": "core", "text": "项目列表把它放在 3 月 30 日", "evidence": [{"corpus_file": "2026-04-01-录制条目跨到前一天.md", "quote": "项目列表把它放在 3 月 30 日"}]},
+         {"facet_id": "calendar-01-b", "tag": "detail", "text": "它的来源时间其实是 3 月 31 日 16:12", "evidence": [{"corpus_file": "2026-04-01-录制条目跨到前一天.md", "quote": "16:12"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-04-01-录制条目跨到前一天.md", "quote": "项目列表把它放在 3 月 30 日", "as_of": "2026-04-01"}]},
+      {"case_id": "calendar-02", "ruler_changes": ["v3-facet-split", "v6-question-repinned", "v6-facets-split"], "axis": "calendar", "difficulty": "L2", "expected_via": "canonical", "as_of": "2026-04-02", "question": "到 4 月 2 日为止，那条跨日记录在项目列表里回到了哪一天？这能算时区修复吗？", "expected_truth_ids": ["df-crossday-fixed"],
+       "facets": [
+         {"facet_id": "calendar-02-a", "tag": "core", "text": "那条跨日记录已经回到 3 月 31 日", "evidence": [{"corpus_file": "2026-04-02-林舟-贾宁.md", "quote": "跨日那条已经回到 3 月 31 日"}]},
+         {"facet_id": "calendar-02-b", "tag": "core", "text": "这不能算时区修复", "evidence": [{"corpus_file": "2026-04-02-林舟-贾宁.md", "quote": "测试先留着，但别把它叫时区修复"}]},
+         {"facet_id": "calendar-02-d", "tag": "detail", "text": "项目列表被改成按来源开始时间排序", "evidence": [{"corpus_file": "2026-04-02-林舟-贾宁.md", "quote": "按来源开始时间"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-04-02-林舟-贾宁.md", "quote": "跨日那条已经回到 3 月 31 日", "as_of": "2026-04-02"}]},
+      {"case_id": "calendar-03", "axis": "calendar", "difficulty": "L2", "expected_via": "canonical", "as_of": "2026-03-28", "question": "截至 3 月 28 日，试点的启动日定下来了吗？验收文字呢？", "expected_truth_ids": ["df-no-start-date"],
+       "facets": [
+         {"facet_id": "calendar-03-a", "tag": "core", "text": "启动日仍未确认", "evidence": [{"corpus_file": "2026-03-28-请转交-客户需答的问题.md", "quote": "启动日仍未确认"}]},
+         {"facet_id": "calendar-03-b", "tag": "core", "text": "验收文字也没有定稿", "evidence": [{"corpus_file": "2026-03-28-请转交-客户需答的问题.md", "quote": "验收文字也没有定稿"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-03-28-请转交-客户需答的问题.md", "quote": "启动日仍未确认，验收文字也没有定稿", "as_of": "2026-03-28"}]},
+      {"case_id": "calendar-04", "axis": "calendar", "difficulty": "L3", "expected_via": "canonical", "as_of": "2026-04-30", "question": "截至 4 月底，4 月 22 日发出的那份报价拿到什么答复了？", "expected_truth_ids": ["df-quote-not-accepted", "df-procurement-reply"],
+       "facets": [
+         {"facet_id": "calendar-04-a", "tag": "core", "text": "采购只回了「材料可进入内部流程」", "evidence": [{"corpus_file": "2026-04-25-报价材料进入内部处理的核对.md", "quote": "采购只回了“材料可进入内部流程”"}]},
+         {"facet_id": "calendar-04-b", "tag": "core", "text": "这不等于接受报价", "evidence": [{"corpus_file": "2026-04-22-试点报价与范围口头澄清.md", "quote": "我理解不含，不等于我已经接受报价"}, {"corpus_file": "2026-04-25-报价材料进入内部处理的核对.md", "quote": "不是接受报价"}]},
+         {"facet_id": "calendar-04-c", "tag": "detail", "text": "采购没有说下一站是谁", "evidence": [{"corpus_file": "2026-04-25-报价材料进入内部处理的核对.md", "quote": "但没有说下一站是谁"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-04-25-报价材料进入内部处理的核对.md", "quote": "采购只回了“材料可进入内部流程”，但没有说下一站是谁", "as_of": "2026-04-25"}]},
+      {"case_id": "calendar-05", "ruler_changes": ["v6-question-repinned", "v6-facets-split"], "axis": "calendar", "difficulty": "L4", "expected_via": "canonical", "question": "按两份记录的日期算，从 4 月 3 日《找到：客厅预算调整邮件》到 4 月 27 日吴岚确认现场会位置可用，中间隔了多久？", "expected_truth_ids": ["df-budget-mail-to-onsite-gap"],
+       "facets": [
+         {"facet_id": "calendar-05-a", "tag": "core", "text": "相隔二十四天（4 月 3 日到 4 月 27 日，约三周半）", "evidence": [{"corpus_file": "2026-04-03-找到-客厅预算调整邮件.md", "quote": "正文列了客厅木作和灯具两项调整"}, {"corpus_file": "2026-04-27-材料替代-现场会位置请确认.md", "quote": "我翻到现场会记录了"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-04-27-材料替代-现场会位置请确认.md", "quote": "我翻到现场会记录了", "as_of": "2026-04-27"}]},
+      {"case_id": "calendar-06", "ruler_changes": ["v3-facet-split"], "axis": "calendar", "difficulty": "L2", "expected_via": "canonical", "question": "取车这件事发生过两次，分别在哪一天、哪家店、结果如何？", "expected_truth_ids": ["df-car-two-pickups"],
+       "facets": [
+         {"facet_id": "calendar-06-a", "tag": "core", "text": "3 月 31 日在桥桥保养站没能交车", "evidence": [{"corpus_file": "2026-03-31-今日取车未能交付.md", "quote": "原先预计今天可以交付的保养项目还差一个到货件"}, {"corpus_file": "2026-03-31-今日取车未能交付.md", "quote": "桥桥保养站"}]},
+         {"facet_id": "calendar-06-b", "tag": "core", "text": "4 月 9 日在常青养护取回", "evidence": [{"corpus_file": "2026-04-09-保养取车窗口调整.md", "quote": "车辆的常规保养和复查已经结束，可以今天取回"}, {"corpus_file": "2026-04-09-保养取车窗口调整.md", "quote": "常青养护"}]},
+         {"facet_id": "calendar-06-c", "tag": "detail", "text": "3 月 31 日没能交车是因为还差一个到货件", "evidence": [{"corpus_file": "2026-03-31-今日取车未能交付.md", "quote": "原先预计今天可以交付的保养项目还差一个到货件"}]},
+         {"facet_id": "calendar-06-d", "tag": "detail", "text": "4 月 9 日时保养和复查已经结束", "evidence": [{"corpus_file": "2026-04-09-保养取车窗口调整.md", "quote": "车辆的常规保养和复查已经结束，可以今天取回"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-03-31-今日取车未能交付.md", "quote": "车目前不能交还", "as_of": "2026-03-31"}]},
+      {"case_id": "calendar-07", "ruler_changes": ["v3-facet-split"], "axis": "calendar", "difficulty": "L2", "expected_via": "canonical", "as_of": "2026-05-07", "question": "小范围邀请是哪天发出的？到 5 月 7 日为止有几位建立了账号？", "expected_truth_ids": ["df-invites-12-7"],
+       "facets": [
+         {"facet_id": "calendar-07-a", "tag": "core", "text": "邀请是周二 5 月 5 日发出的", "evidence": [{"corpus_file": "2026-05-07-首轮数字只记到注册.md", "quote": "周二实际发出十二份小范围邀请"}]},
+         {"facet_id": "calendar-07-b", "tag": "core", "text": "七位受邀对象建立了账号", "evidence": [{"corpus_file": "2026-05-07-首轮数字只记到注册.md", "quote": "七位受邀对象留下了这样的记录"}]},
+         {"facet_id": "calendar-07-c", "tag": "detail", "text": "一共发出十二份", "evidence": [{"corpus_file": "2026-05-07-首轮数字只记到注册.md", "quote": "周二实际发出十二份小范围邀请"}]},
+         {"facet_id": "calendar-07-d", "tag": "detail", "text": "这个数截止到当天九点半", "evidence": [{"corpus_file": "2026-05-07-首轮数字只记到注册.md", "quote": "截至今天九点半"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-05-07-首轮数字只记到注册.md", "quote": "周二实际发出十二份小范围邀请", "as_of": "2026-05-07"}]},
+
+      {"case_id": "aggregate-01", "ruler_changes": ["v6-question-repinned", "v6-facets-split"], "axis": "aggregate", "difficulty": "L4", "expected_via": "verbatim", "question": "材料里明确具名的汽车保养商家一共几家？分别是哪几家？", "expected_truth_ids": ["df-three-shops"],
+       "facets": [
+         {"facet_id": "aggregate-01-a", "tag": "core", "text": "北巷保养咨询", "evidence": [{"corpus_file": "2026-03-15-保养报价中的基础项目.md", "quote": "北巷保养咨询"}]},
+         {"facet_id": "aggregate-01-b", "tag": "core", "text": "桥桥保养站", "evidence": [{"corpus_file": "2026-03-31-今日取车未能交付.md", "quote": "桥桥保养站"}]},
+         {"facet_id": "aggregate-01-c", "tag": "core", "text": "常青养护", "evidence": [{"corpus_file": "2026-04-09-保养取车窗口调整.md", "quote": "常青养护"}]},
+         {"facet_id": "aggregate-01-d", "tag": "core", "text": "明确具名的商家一共三家", "evidence": [{"corpus_file": "2026-03-15-保养报价中的基础项目.md", "quote": "北巷保养咨询"}, {"corpus_file": "2026-03-31-今日取车未能交付.md", "quote": "桥桥保养站"}, {"corpus_file": "2026-04-09-保养取车窗口调整.md", "quote": "常青养护"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-03-15-保养报价中的基础项目.md", "quote": "北巷保养咨询", "as_of": "2026-03-15"}]},
+      {"case_id": "aggregate-02", "ruler_changes": ["v6-question-repinned", "v6-facets-split"], "axis": "aggregate", "difficulty": "L4", "expected_via": "canonical", "as_of": "2026-05-24", "question": "截至 5 月 24 日周期结束，删除演练进入过几次实际删除处理（内部查看和确认栏准备不算）？", "expected_truth_ids": ["df-drill-business-unconfirmed"],
+       "facets": [
+         {"facet_id": "aggregate-02-a", "tag": "core", "text": "实际删除处理的次数是零次", "evidence": [{"corpus_file": "2026-05-16-删除演练-留给业务方的确认栏.md", "quote": "没有具体删除请求到达时，清单不会生成处理完成时间，也不会预填申请人或项目范围"}, {"corpus_file": "2026-04-16-采购材料责任矩阵（未提交）.md", "quote": "当前没有删除演练证据"}, {"corpus_file": "2026-05-24-周期结束时的待办状态.md", "quote": "删除演练确认仍等你逐格看完"}]},
+         {"facet_id": "aggregate-02-b", "tag": "detail", "text": "也没有约定谁见证", "evidence": [{"corpus_file": "2026-04-16-采购材料责任矩阵（未提交）.md", "quote": "也没有约定谁见证"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-05-24-周期结束时的待办状态.md", "quote": "删除演练确认仍等你逐格看完", "as_of": "2026-05-24"}]},
+      {"case_id": "aggregate-03", "ruler_changes": ["v6-question-repinned"], "axis": "aggregate", "difficulty": "L4", "expected_via": "canonical", "as_of": "2026-05-10", "question": "截至 2026 年 5 月 10 日，5 月 5 日发出的十二份邀请里有几位建立了账号，其中几位留下了完整的首条链记录？", "expected_truth_ids": ["df-invites-12-7", "df-accounts-7-2"],
+       "facets": [
+         {"facet_id": "aggregate-03-a", "tag": "core", "text": "七位建立了账号", "evidence": [{"corpus_file": "2026-05-07-首轮数字只记到注册.md", "quote": "七位受邀对象留下了这样的记录"}]},
+         {"facet_id": "aggregate-03-b", "tag": "core", "text": "其中只有两个人留下了完整的首条链记录", "evidence": [{"corpus_file": "2026-05-10-首次成功失败路径核对.md", "quote": "那七个账号里只有两个人留下了完整的首条链记录"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-05-10-首次成功失败路径核对.md", "quote": "那七个账号里只有两个人留下了完整的首条链记录", "as_of": "2026-05-10"}]},
+      {"case_id": "aggregate-04", "axis": "aggregate", "difficulty": "L4", "expected_via": "canonical", "question": "供应商审批被反复提起过很多次，它最后进入试点了吗？落在哪里？", "expected_truth_ids": ["df-approval-never-entered"],
+       "facets": [
+         {"facet_id": "aggregate-04-a", "tag": "core", "text": "没有进入试点", "evidence": [{"corpus_file": "2026-03-24-云麓试点范围-供应商审批请求.md", "quote": "它不在当前云麓试点的免费范围内"}, {"corpus_file": "2026-04-24-当前报价与审批请求的边界.md", "quote": "供应商审批不在其中"}]},
+         {"facet_id": "aggregate-04-b", "tag": "core", "text": "最后落在下一周期的延后栏", "evidence": [{"corpus_file": "2026-05-22-下一周期候选-继续、停止、延后.md", "quote": "延后栏只留供应商审批模块"}]},
+         {"facet_id": "aggregate-04-c", "tag": "detail", "text": "如果客户想继续了解，可以另开一项收费扩展的讨论", "evidence": [{"corpus_file": "2026-03-24-云麓试点范围-供应商审批请求.md", "quote": "如果客户想继续了解，可以另开一项收费扩展的讨论"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-05-22-下一周期候选-继续、停止、延后.md", "quote": "延后栏只留供应商审批模块", "as_of": "2026-05-22"}]},
+      {"case_id": "aggregate-05", "axis": "aggregate", "difficulty": "L5", "expected_via": "canonical", "question": "这批材料里，出现次数最多的外部对接人是谁？", "expected_truth_ids": ["df-wulan-most-present"],
+       "facets": [
+         {"facet_id": "aggregate-05-a", "tag": "core", "text": "吴岚", "evidence": [{"corpus_file": "2026-03-21-云麓试点边界与只读副本清单.md", "quote": "吴岚负责项目侧范围问题"}]},
+         {"facet_id": "aggregate-05-b", "tag": "detail", "text": "其次是陈放", "evidence": [{"corpus_file": "2026-03-21-云麓试点边界与只读副本清单.md", "quote": "三名使用者分别是吴岚、陈放和林舟"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-03-21-云麓试点边界与只读副本清单.md", "quote": "吴岚负责项目侧范围问题", "as_of": "2026-03-21"}]},
+      {"case_id": "aggregate-06", "ruler_changes": ["v6-facets-split"], "axis": "aggregate", "difficulty": "L4", "expected_via": "canonical", "question": "事故重放的九条输入最后分成几类，各有几条？", "expected_truth_ids": ["df-replay-nine"],
+       "facets": [
+         {"facet_id": "aggregate-06-d", "tag": "core", "text": "九条输入最后分成三类", "evidence": [{"corpus_file": "2026-04-14-名称匹配决策日志（事故后）.md", "quote": "输出分为可回到原位置、需人工确认、字段不足三类"}]},
+         {"facet_id": "aggregate-06-a", "tag": "core", "text": "四条能分别回到各自项目和父消息", "evidence": [{"corpus_file": "2026-04-14-受影响导入段重放记录.md", "quote": "四条能分别回到各自项目和父消息"}]},
+         {"facet_id": "aggregate-06-b", "tag": "core", "text": "三条需人工确认", "evidence": [{"corpus_file": "2026-04-14-受影响导入段重放记录.md", "quote": "三条只给出相同短名，进入人工确认清单"}]},
+         {"facet_id": "aggregate-06-c", "tag": "core", "text": "两条字段不足", "evidence": [{"corpus_file": "2026-04-14-受影响导入段重放记录.md", "quote": "两条缺少可比较字段，保持阻断"}]},
+         {"facet_id": "aggregate-06-e", "tag": "detail", "text": "那三条只给出相同短名", "evidence": [{"corpus_file": "2026-04-14-受影响导入段重放记录.md", "quote": "三条只给出相同短名"}]},
+         {"facet_id": "aggregate-06-f", "tag": "detail", "text": "那两条保持阻断", "evidence": [{"corpus_file": "2026-04-14-受影响导入段重放记录.md", "quote": "两条缺少可比较字段，保持阻断"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-04-14-受影响导入段重放记录.md", "quote": "第一轮共拿到九条输入", "as_of": "2026-04-14"}]},
+      {"case_id": "aggregate-07", "ruler_changes": ["v3-facet-split", "v6-facets-split"], "axis": "aggregate", "difficulty": "L4", "expected_via": "canonical", "question": "这次保养从电话估算到最后结算，一共多了多少钱？", "expected_truth_ids": ["df-car-cost"],
+       "facets": [
+         {"facet_id": "aggregate-07-a", "tag": "core", "text": "比原估算多 260 元", "evidence": [{"corpus_file": "2026-04-09-保养取车窗口调整.md", "quote": "较原估算多 260 元"}]},
+         {"facet_id": "aggregate-07-b", "tag": "detail", "text": "最初电话估算 420 元", "evidence": [{"corpus_file": "2026-04-09-保养取车窗口调整.md", "quote": "最初电话估算为 420 元"}]},
+         {"facet_id": "aggregate-07-c", "tag": "detail", "text": "结算合计 680 元", "evidence": [{"corpus_file": "2026-04-09-保养取车窗口调整.md", "quote": "结算合计 680 元"}]},
+         {"facet_id": "aggregate-07-d", "tag": "detail", "text": "复查后追加了制动液与雨刷片", "evidence": [{"corpus_file": "2026-04-09-保养取车窗口调整.md", "quote": "复查后增加的制动液与雨刷片"}]},
+         {"facet_id": "aggregate-07-e", "tag": "detail", "text": "这两项追加于 3 月 30 日通过电话确认", "evidence": [{"corpus_file": "2026-04-09-保养取车窗口调整.md", "quote": "复查后增加的制动液与雨刷片已在 3 月 30 日电话确认"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-04-09-保养取车窗口调整.md", "quote": "较原估算多 260 元", "as_of": "2026-04-09"}]},
+      {"case_id": "aggregate-08", "ruler_changes": ["v6-question-repinned", "v6-facets-split"], "axis": "aggregate", "difficulty": "L4", "expected_via": "canonical", "as_of": "2026-05-03", "question": "5 月 3 日那张工作台里，十二个邀请槽位的候选状态有几个非空、几个是空？", "expected_truth_ids": ["df-slots-0503"],
+       "facets": [
+         {"facet_id": "aggregate-08-a", "tag": "core", "text": "候选状态标为「空」的有六个", "evidence": [{"corpus_file": "2026-05-03-十二个邀请槽位-未完成工作台.md", "quote": "下一次先补 02、04、07、09、11、12 的人选理由"}]},
+         {"facet_id": "aggregate-08-f", "tag": "core", "text": "候选状态非空的有六个", "evidence": [{"corpus_file": "2026-05-03-十二个邀请槽位-未完成工作台.md", "quote": "| 01 | 做项目交接的人 | 有一位可能对象 | 联系许可、近期是否方便 |"}, {"corpus_file": "2026-05-03-十二个邀请槽位-未完成工作台.md", "quote": "| 03 | 负责内部流程的人 | 有一位可能对象 | 是否能看状态样例 |"}, {"corpus_file": "2026-05-03-十二个邀请槽位-未完成工作台.md", "quote": "| 05 | 曾指出摘要越界的人 | 只记了角色 | 对象本人确认 |"}, {"corpus_file": "2026-05-03-十二个邀请槽位-未完成工作台.md", "quote": "| 06 | 会追问证据位置的人 | 有两位备选 | 二选一的依据 |"}, {"corpus_file": "2026-05-03-十二个邀请槽位-未完成工作台.md", "quote": "| 08 | 需要交接旧资料的人 | 只记了角色 | 联系许可 |"}, {"corpus_file": "2026-05-03-十二个邀请槽位-未完成工作台.md", "quote": "| 10 | 习惯从原句复核的人 | 有一位可能对象 | 是否愿意参加 |"}]},
+         {"facet_id": "aggregate-08-g", "tag": "detail", "text": "标为「空」的是 02、04、07、09、11、12", "evidence": [{"corpus_file": "2026-05-03-十二个邀请槽位-未完成工作台.md", "quote": "下一次先补 02、04、07、09、11、12 的人选理由"}]},
+         {"facet_id": "aggregate-08-b", "tag": "detail", "text": "三个各有一位可能对象", "evidence": [{"corpus_file": "2026-05-03-十二个邀请槽位-未完成工作台.md", "quote": "有一位可能对象"}]},
+         {"facet_id": "aggregate-08-c", "tag": "detail", "text": "两个只记了角色", "evidence": [{"corpus_file": "2026-05-03-十二个邀请槽位-未完成工作台.md", "quote": "只记了角色"}]},
+         {"facet_id": "aggregate-08-d", "tag": "detail", "text": "一个有两位备选", "evidence": [{"corpus_file": "2026-05-03-十二个邀请槽位-未完成工作台.md", "quote": "有两位备选"}]},
+         {"facet_id": "aggregate-08-e", "tag": "detail", "text": "十二个槽位不代表已联系到十二个人", "evidence": [{"corpus_file": "2026-05-03-十二个邀请槽位-未完成工作台.md", "quote": "不代表已联系到十二个人"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-05-03-十二个邀请槽位-未完成工作台.md", "quote": "不代表已联系到十二个人", "as_of": "2026-05-03"}]},
+      {"case_id": "aggregate-09", "axis": "aggregate", "difficulty": "L4", "expected_via": "canonical", "question": "第一条链导出的修订在提交前要检查哪几件事？", "expected_truth_ids": ["df-export-checklist-four"],
+       "facets": [
+         {"facet_id": "aggregate-09-a", "tag": "core", "text": "三个入口是否仍各自可达", "evidence": [{"corpus_file": "2026-05-13-采购阅读版-第一条链导出修订.md", "quote": "三个入口是否仍各自可达"}]},
+         {"facet_id": "aggregate-09-b", "tag": "core", "text": "状态是否仍写为待确认", "evidence": [{"corpus_file": "2026-05-13-采购阅读版-第一条链导出修订.md", "quote": "状态是否仍写为待确认"}]},
+         {"facet_id": "aggregate-09-c", "tag": "core", "text": "责任人是否只附在状态处", "evidence": [{"corpus_file": "2026-05-13-采购阅读版-第一条链导出修订.md", "quote": "责任人是否只附在状态处"}]},
+         {"facet_id": "aggregate-09-d", "tag": "core", "text": "排除范围是否留在页面说明", "evidence": [{"corpus_file": "2026-05-13-采购阅读版-第一条链导出修订.md", "quote": "排除范围是否留在页面说明"}]},
+         {"facet_id": "aggregate-09-e", "tag": "detail", "text": "任何一项未过，该版本就保持草稿", "evidence": [{"corpus_file": "2026-05-13-采购阅读版-第一条链导出修订.md", "quote": "任何一项未过，都让该版本保持草稿"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-05-13-采购阅读版-第一条链导出修订.md", "quote": "修订提交前的检查清单只问四件事", "as_of": "2026-05-13"}]},
+
+      {"case_id": "join-01", "ruler_changes": ["v3-facet-split", "v4-open-question-core", "v5-judge-and-facet-contract"], "axis": "join", "difficulty": "L5", "expected_via": "canonical", "question": "谁提出过不要把「收件人」和「确认人」合成一个负责人字段？这个人还在别处提出过类似的拆分要求吗？", "expected_truth_ids": ["df-sunqiu-splits"],
+       "facets": [
+         {"facet_id": "join-01-a", "tag": "core", "text": "是孙秋提出的", "evidence": [{"corpus_file": "2026-04-25-报价材料进入内部处理的核对.md", "quote": "孙秋: 那就不要把“收件人”和“确认人”合成一个负责人字段"}]},
+         {"facet_id": "join-01-b", "tag": "core", "text": "她在别处还提出过同类的拆分要求", "examples": ["把「身份是否可信」「以后能否联系」「谁有权查看」分成三个检查项", "把候选、确认和来源三件事拆开"], "evidence": [{"corpus_file": "2026-04-29-未来删除演练-记录字段请校对.md", "quote": "“身份是否可信”“以后能否联系”“谁有权查看”分成三个检查项"}, {"corpus_file": "2026-04-13-错误关联复盘-候选、出处与旧批次.md", "quote": "还要把候选、确认和来源三件事拆开"}]},
+         {"facet_id": "join-01-c", "tag": "detail", "text": "她要求把「身份是否可信」「以后能否联系」「谁有权查看」分成三个检查项", "evidence": [{"corpus_file": "2026-04-29-未来删除演练-记录字段请校对.md", "quote": "“身份是否可信”“以后能否联系”“谁有权查看”分成三个检查项"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-04-25-报价材料进入内部处理的核对.md", "quote": "那就不要把“收件人”和“确认人”合成一个负责人字段", "as_of": "2026-04-25"}]},
+      {"case_id": "join-02", "ruler_changes": ["v3-facet-split", "v6-facets-split"], "axis": "join", "difficulty": "L5", "expected_via": "canonical", "question": "那位把「已确认」读成机器判定的受邀者是谁？她看到的到底是什么？", "expected_truth_ids": ["df-chenyu-misread"],
+       "facets": [
+         {"facet_id": "join-02-a", "tag": "core", "text": "是陈语", "evidence": [{"corpus_file": "2026-05-08-“已确认”被读成自动结论-观察与返工.md", "quote": "陈语从预置的虚构卡进入时，先看见原句边的“已确认”"}]},
+         {"facet_id": "join-02-b", "tag": "core", "text": "她看见的是原句边的「已确认」", "evidence": [{"corpus_file": "2026-05-08-“已确认”被读成自动结论-观察与返工.md", "quote": "陈语从预置的虚构卡进入时，先看见原句边的“已确认”"}]},
+         {"facet_id": "join-02-c", "tag": "core", "text": "「已确认」是样例中预先放入的一次虚构人物的人工选择", "evidence": [{"corpus_file": "2026-05-08-样例里的确认是谁做的.md", "quote": "那张样例预先放了一次虚构人物的人工选择"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-05-08-样例里的确认是谁做的.md", "quote": "不是自动判定", "as_of": "2026-05-08"}]},
+      {"case_id": "join-03", "ruler_changes": ["v4-open-question-core", "v5-judge-and-facet-contract", "v6-question-repinned"], "axis": "join", "difficulty": "L5", "expected_via": "verbatim", "question": "替林舟保管备用钥匙的那个人是谁？他在工作那一侧做过哪件材料记下的事？", "expected_truth_ids": ["df-zhaonan-two-roles"],
+       "facets": [
+         {"facet_id": "join-03-a", "tag": "core", "text": "那个人是赵楠", "evidence": [{"corpus_file": "2026-04-09-保养取车窗口调整.md", "quote": "赵楠抄送是因为他帮我保管备用钥匙"}]},
+         {"facet_id": "join-03-b", "tag": "core", "text": "他在工作那一侧至少做过一件材料记下的事", "examples": ["邀请发出前把待发信里的链接从头点了一遍", "在阶段复盘上就「有用是不是等于买下」提出核对"], "evidence": [{"corpus_file": "2026-05-05-邀请发出前-两个链接回查.md", "quote": "我按待发信里的顺序从头点了一遍"}, {"corpus_file": "2026-05-20-阶段复盘后的条件核对.md", "quote": "先确认自己没有把“有用”听成“买下”"}]},
+         {"facet_id": "join-03-c", "tag": "detail", "text": "他在邀请发出前按待发信里的顺序把链接从头点了一遍", "evidence": [{"corpus_file": "2026-05-05-邀请发出前-两个链接回查.md", "quote": "我按待发信里的顺序从头点了一遍"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-05-05-邀请发出前-两个链接回查.md", "quote": "我按待发信里的顺序从头点了一遍", "as_of": "2026-05-05"}]},
+      {"case_id": "join-04", "ruler_changes": ["v3-facet-split", "v6-question-repinned", "v6-facets-split"], "axis": "join", "difficulty": "L5", "expected_via": "canonical", "question": "那封改预算邮件指向的「预算更新表 v3」附件已失效，它属于哪条链？可以用别的摘录顶上吗？", "expected_truth_ids": ["df-attachment-dead", "con-no-broken-link-substitute"],
+       "facets": [
+         {"facet_id": "join-04-a", "tag": "core", "text": "它属于第一条预算链", "evidence": [{"corpus_file": "2026-04-03-找到-客厅预算调整邮件.md", "quote": "并指向一份“预算更新表 v3”"}, {"corpus_file": "2026-05-12-预算变更状态与晚饭.md", "quote": "能从状态回到你的确认，再到现场会和预算邮件；缺失附件单独显示"}, {"corpus_file": "2026-05-18-材料替代链的最后状态.md", "quote": "第一条预算链之前已能回源"}]},
+         {"facet_id": "join-04-b", "tag": "core", "text": "不能为了让页面完整而用另一份摘录替换失效位置", "evidence": [{"corpus_file": "2026-05-13-采购阅读版-第一条链导出修订.md", "quote": "不能为了让页面完整而用另一份摘录替换失效位置"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-05-13-采购阅读版-第一条链导出修订.md", "quote": "不能为了让页面完整而用另一份摘录替换失效位置", "as_of": "2026-05-13"}]},
+      {"case_id": "join-05", "ruler_changes": ["v3-facet-split", "v6-facets-split"], "axis": "join", "difficulty": "L5", "expected_via": "canonical", "question": "被错误合并的那两条来源分属哪两个项目？最后由谁决定能不能恢复？", "expected_truth_ids": ["df-owner-src-ids", "df-wulan-decides"],
+       "facets": [
+         {"facet_id": "join-05-a", "tag": "core", "text": "一条属于云麓项目", "evidence": [{"corpus_file": "2026-04-05-同姓候选关系核对表.md", "quote": "云麓 7 栋 1604"}]},
+         {"facet_id": "join-05-b", "tag": "core", "text": "一条属于澄湾项目", "evidence": [{"corpus_file": "2026-04-05-同姓候选关系核对表.md", "quote": "澄湾 3 栋 1202"}]},
+         {"facet_id": "join-05-c", "tag": "core", "text": "由吴岚决定是否恢复", "evidence": [{"corpus_file": "2026-04-08-客户书面边界核对.md", "quote": "陈放可以核页面，我来决定是否恢复"}]},
+         {"facet_id": "join-05-d", "tag": "detail", "text": "陈放只核页面", "evidence": [{"corpus_file": "2026-04-08-客户书面边界核对.md", "quote": "陈放可以核页面，我来决定是否恢复"}]},
+         {"facet_id": "join-05-e", "tag": "detail", "text": "云麓那条来源对应 7 栋 1604", "evidence": [{"corpus_file": "2026-04-05-同姓候选关系核对表.md", "quote": "云麓 7 栋 1604"}]},
+         {"facet_id": "join-05-f", "tag": "detail", "text": "澄湾那条来源对应 3 栋 1202", "evidence": [{"corpus_file": "2026-04-05-同姓候选关系核对表.md", "quote": "澄湾 3 栋 1202"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-04-08-客户书面边界核对.md", "quote": "我来决定是否恢复", "as_of": "2026-04-08"}]},
+      {"case_id": "join-06", "ruler_changes": ["v3-facet-split", "v6-question-repinned"], "axis": "join", "difficulty": "L5", "expected_via": "canonical", "question": "「材料可进入内部流程」是哪个角色给出的回复？按这次核对，它允许什么、不允许什么？", "expected_truth_ids": ["df-procurement-reply", "con-internal-review-only"],
+       "facets": [
+         {"facet_id": "join-06-a", "tag": "core", "text": "这句话是采购给出的回复", "evidence": [{"corpus_file": "2026-04-25-报价材料进入内部处理的核对.md", "quote": "采购只回了“材料可进入内部流程”"}]},
+         {"facet_id": "join-06-b", "tag": "core", "text": "它只允许材料在内部被查阅", "evidence": [{"corpus_file": "2026-04-25-报价材料进入内部处理的核对.md", "quote": "回复只允许材料在内部被查阅"}]},
+         {"facet_id": "join-06-c", "tag": "core", "text": "它不是接受报价", "evidence": [{"corpus_file": "2026-04-25-报价材料进入内部处理的核对.md", "quote": "不是接受报价，没有付款许可，也没有长期合同"}]},
+         {"facet_id": "join-06-d", "tag": "core", "text": "它没有付款许可", "evidence": [{"corpus_file": "2026-04-25-报价材料进入内部处理的核对.md", "quote": "不是接受报价，没有付款许可，也没有长期合同"}]},
+         {"facet_id": "join-06-e", "tag": "core", "text": "它没有长期合同", "evidence": [{"corpus_file": "2026-04-25-报价材料进入内部处理的核对.md", "quote": "不是接受报价，没有付款许可，也没有长期合同"}]},
+         {"facet_id": "join-06-f", "tag": "detail", "text": "吴岚是在内部传递材料的人，不自动成为确认所有字段的人", "evidence": [{"corpus_file": "2026-04-25-报价材料进入内部处理的核对.md", "quote": "吴岚是传递材料的人，不自动成为确认所有字段的人"}]},
+         {"facet_id": "join-06-g", "tag": "detail", "text": "采购没有说下一站是谁", "evidence": [{"corpus_file": "2026-04-25-报价材料进入内部处理的核对.md", "quote": "但没有说下一站是谁"}]}
+       ],
+       "evidence": [{"corpus_file": "2026-04-25-报价材料进入内部处理的核对.md", "quote": "回复只允许材料在内部被查阅", "as_of": "2026-04-25"}]}
+    ],
+    "negatives": [
+      {"case_id": "miss-ud-01", "shape": "unanswerable_detail", "difficulty": "L1",
+       "question": "「预算更新表 v3」里客厅木作那一项的金额是多少？",
+       "absent": "材料从未给出预算更新表 v3 里的任何金额；那份附件的链接已失效，归档内文件对象为 0。",
+       "evidence": [{"corpus_file": "2026-04-03-归档检索作业-0403-2-完成.md", "quote": "归档内文件对象：0", "as_of": "2026-04-03"}]},
+      {"case_id": "miss-ud-08", "ruler_changes": ["v2-corpus-basis", "v6-question-repinned", "v6-absent-narrowed"], "shape": "unanswerable_detail", "difficulty": "L2", "as_of": "2026-09-01",
+       "question": "截至 2026 年 9 月 1 日，云麓后来讨论的六周延长是从哪一天开始算的？",
+       "absent": "材料从未给出这次六周延长的起算日。5 月 20 日提出「再延六周」时它只是口头意向，条件是附录签署、删除演练的业务确认和尾款处理；到 5 月 24 日仍没有生效。9 月 1 日林舟确认尾款到账，同时说附录签字和删除演练采购一句都没提，所以起算日仍然推不出来。",
+       "evidence": [{"corpus_file": "2026-05-20-阶段复盘后的条件核对.md", "quote": "可以讨论再延六周，但那只是口头意向", "as_of": "2026-05-20"},
+                    {"corpus_file": "2026-05-24-周期结束时的待办状态.md", "quote": "六周口头意向因此还没有生效", "as_of": "2026-05-24"},
+                    {"corpus_file": "build-record/exercise.py", "corpus_source": "owner_statement", "quote": "六周延长的附录签字和删除演练那两项，采购一句都没提，仍然是没答复", "as_of": "2026-09-01"}]},
+      {"case_id": "miss-ud-03", "ruler_changes": ["v6-absent-narrowed"], "shape": "unanswerable_detail", "difficulty": "L1",
+       "question": "被错误合并的那两位同姓业主，全名分别是什么？",
+       "absent": "材料把两条受影响记录的页面短标签都写作「周女士」，联系尾号分别是 2618 和 9043，没有给出这两位业主的全名。",
+       "evidence": [{"corpus_file": "2026-04-05-同姓候选关系核对表.md", "quote": "| 页面短标签 | 周女士 | 周女士 | 显示文本相同 |", "as_of": "2026-04-05"}]},
+      {"case_id": "miss-ud-04", "ruler_changes": ["v6-absent-narrowed"], "shape": "unanswerable_detail", "difficulty": "L1",
+       "question": "那七位建立了账号的受邀者分别是谁？",
+       "absent": "材料记的是截至 5 月 7 日九点半有七位受邀对象留下账号建立记录，5 月 10 日仍记为七个已建立账号；但它没有给出这七个账号与姓名的对应，所以列不出七人名单。陈语后来说自己已经注册，材料没有说明她是否在这七条记录里。",
+       "evidence": [{"corpus_file": "2026-05-07-首轮数字只记到注册.md", "quote": "这里的注册只认账号建立记录，再按受邀地址去重；同一个人重试不加一。周二实际发出十二份小范围邀请，截至今天九点半，七位受邀对象留下了这样的记录。建立账号之后有没有开始引导、走到哪一页，这张表都没有回答。", "as_of": "2026-05-07"},
+                    {"corpus_file": "2026-05-10-账号到达与首次成功的计数边界.md", "quote": "七个已建立账号", "as_of": "2026-05-10"},
+                    {"corpus_file": "2026-05-08-样例里的确认是谁做的.md", "quote": "我已经注册进来了", "as_of": "2026-05-08"}]},
+      {"case_id": "miss-ud-05", "ruler_changes": ["v6-question-repinned", "v6-absent-narrowed"], "shape": "unanswerable_detail", "difficulty": "L2",
+       "question": "参会人确认调整后预算数额的那场现场会是哪一天开的？",
+       "absent": "材料没有写出这场现场会的日期。定位候选会议时陈放只回忆为「四月中旬」；找到记录后，正文给出的只有会议记录 10:36 附近这个位置。",
+       "evidence": [{"corpus_file": "2026-04-27-材料替代-现场会位置请确认.md", "quote": "那句话在会议记录的 10:36 附近", "as_of": "2026-04-27"},
+                    {"corpus_file": "2026-04-26-林舟-陈放.md", "quote": "四月中旬，吴岚应该在，标题可能只写了项目例会", "as_of": "2026-04-26"}]},
+      {"case_id": "miss-ud-06", "shape": "unanswerable_detail", "difficulty": "L1",
+       "question": "林舟那辆车是什么车型、车牌号是多少？",
+       "absent": "材料记了三家保养商家、项目和金额，但从未写过车型、年份或车牌号。",
+       "evidence": [{"corpus_file": "2026-03-31-今日取车未能交付.md", "quote": "不需要您重新报车牌", "as_of": "2026-03-31"}]},
+      {"case_id": "miss-ud-07", "shape": "unanswerable_detail", "difficulty": "L1",
+       "question": "删除演练的见证人是谁？",
+       "absent": "见证人一栏自始至终空着；材料明确说当前没有约定谁见证。",
+       "evidence": [{"corpus_file": "2026-04-16-采购材料责任矩阵（未提交）.md", "quote": "当前没有删除演练证据，也没有约定谁见证", "as_of": "2026-04-16"}]},
+
+      {"case_id": "miss-ns-01", "shape": "nonexistent_subject", "difficulty": "L1",
+       "question": "云岭项目的试点范围包含哪两类记录？",
+       "absent": "材料里没有任何叫「云岭」的项目。存在的是云麓和澄湾。",
+       "absence_proof": {"pattern": "云岭", "expected_files": 0},
+       "evidence": [{"corpus_file": "2026-03-21-云麓试点边界与只读副本清单.md", "quote": "本次确认的对象是云麓公寓", "as_of": "2026-03-21"}]},
+      {"case_id": "miss-ns-02", "shape": "nonexistent_subject", "difficulty": "L1",
+       "question": "澄江项目的业主来源编号是多少？",
+       "absent": "材料里没有任何叫「澄江」的项目。存在的是澄湾。",
+       "absence_proof": {"pattern": "澄江", "expected_files": 0},
+       "evidence": [{"corpus_file": "2026-04-05-同姓候选关系核对表.md", "quote": "`owner-src-887` 落到澄湾项目", "as_of": "2026-04-05"}]},
+      {"case_id": "miss-ns-03", "shape": "nonexistent_subject", "difficulty": "L1",
+       "question": "吴岩在这次同姓记录事故里负责什么？",
+       "absent": "材料里没有叫「吴岩」的人。名字相近的是吴岚。",
+       "absence_proof": {"pattern": "吴岩", "expected_files": 0},
+       "evidence": [{"corpus_file": "2026-04-08-客户书面边界核对.md", "quote": "我来决定是否恢复", "as_of": "2026-04-08"}]},
+      {"case_id": "miss-ns-04", "shape": "nonexistent_subject", "difficulty": "L1",
+       "question": "陈昉给出的三处来源入口分别是什么？",
+       "absent": "材料里没有叫「陈昉」的人。名字相近的是陈放。",
+       "absence_proof": {"pattern": "陈昉", "expected_files": 0},
+       "evidence": [{"corpus_file": "2026-03-27-三类来源入口-只做可见性检查.md", "quote": "陈放给的是三种入口", "as_of": "2026-03-27"}]},
+      {"case_id": "miss-ns-05", "ruler_changes": ["v6-absent-narrowed"], "shape": "nonexistent_subject", "difficulty": "L2",
+       "question": "候选卡 candidate-k288 下面挂了几条来源？",
+       "absent": "材料里没有 candidate-k288 这个候选卡。出现过的是 candidate-k271。",
+       "absence_proof": {"pattern": "candidate-k288", "expected_files": 0},
+       "evidence": [{"corpus_file": "2026-04-05-同姓候选关系核对表.md", "quote": "| 候选卡标识 | `candidate-k271` | `candidate-k271` | 页面把两行放在同一卡下 |", "as_of": "2026-04-05"}]},
+      {"case_id": "miss-ns-06", "shape": "nonexistent_subject", "difficulty": "L2",
+       "question": "常春养护这次保养一共收了多少钱？",
+       "absent": "材料里没有叫「常春养护」的商家。名字相近的是常青养护。",
+       "absence_proof": {"pattern": "常春养护", "expected_files": 0},
+       "evidence": [{"corpus_file": "2026-04-09-保养取车窗口调整.md", "quote": "常青养护", "as_of": "2026-04-09"}]},
+      {"case_id": "miss-ns-07", "ruler_changes": ["v6-absent-narrowed"], "shape": "nonexistent_subject", "difficulty": "L1",
+       "question": "Seamflow 的第一个版本是什么时候上线的？",
+       "absent": "材料里没有叫 Seamflow 的东西；名字相近的是 Seamlog。",
+       "absence_proof": {"pattern": "Seamflow", "expected_files": 0},
+       "evidence": [{"corpus_file": "2026-03-02-问题先于界面.md", "quote": "今天先把纸上工作名写成", "as_of": "2026-03-02"}]},
+      {"case_id": "miss-ns-08", "shape": "nonexistent_subject", "difficulty": "L2",
+       "question": "「预算更新表 v4」和 v3 相比改了哪些内容？",
+       "absent": "材料里没有任何 v4 版本的预算更新表；只出现过 v3，而且它的链接已失效。",
+       "absence_proof": {"pattern": "预算更新表 v4", "expected_files": 0},
+       "evidence": [{"corpus_file": "2026-04-03-归档检索作业-0403-2-完成.md", "quote": "关键词：预算更新表 v3", "as_of": "2026-04-03"}]},
+
+      {"case_id": "miss-fp-01", "shape": "false_premise", "difficulty": "L3",
+       "question": "供应商审批模块是什么时候被取消的？",
+       "absent": "供应商审批从未被取消。它一直被列在范围外、可另开收费扩展讨论，最后落进下一周期的延后栏。",
+       "evidence": [{"corpus_file": "2026-05-22-下一周期候选-继续、停止、延后.md", "quote": "延后栏只留供应商审批模块", "as_of": "2026-05-22"}]},
+      {"case_id": "miss-fp-08", "ruler_changes": ["v2-corpus-basis"], "shape": "false_premise", "difficulty": "L3",
+       "question": "第一条链和第二条链合成一个总的通过标记之后，试点验收是哪天通过的？",
+       "absent": "两条链的状态从未被合成一个总的通过标记——材料明确禁止这样做；试点验收也从未通过，附录待签与删除演练确认到最后都还开着。",
+       "evidence": [{"corpus_file": "2026-05-18-材料替代链的最后状态.md", "quote": "两条的状态不要合成一个总的通过标记", "as_of": "2026-05-18"},
+                    {"corpus_file": "2026-05-24-周期结束时的待办状态.md", "quote": "附录仍待签，删除演练确认仍等你逐格看完", "as_of": "2026-05-24"}]},
+      {"case_id": "miss-fp-03", "shape": "false_premise", "difficulty": "L3",
+       "question": "孙秋接手删除演练的业务确认之后，确认栏是怎么填的？",
+       "absent": "孙秋没有客户授权，也没有在确认栏留下签名；只有吴岚可代表业务侧判断范围，而她一直没有填。",
+       "evidence": [{"corpus_file": "2026-05-16-删除演练-留给业务方的确认栏.md", "quote": "孙秋没有客户授权，也没有在确认栏留下签名", "as_of": "2026-05-16"}]},
+      {"case_id": "miss-fp-04", "ruler_changes": ["v6-absent-narrowed"], "shape": "false_premise", "difficulty": "L3",
+       "question": "时区跨日的缺陷修好之后，历史回放得出了什么结论？",
+       "absent": "对该样本实际完成的是把项目列表改成按来源开始时间排序，并补了两条排序测试；这只能说明页面此前读错列，不能称为时区修复。针对跨日问题的历史回放仍未跑，所以没有回放结论，数据层原因也仍不能判断。",
+       "evidence": [{"corpus_file": "2026-04-02-林舟-贾宁.md", "quote": "测试先留着，但别把它叫时区修复", "as_of": "2026-04-02"},
+                    {"corpus_file": "2026-04-02-林舟-贾宁.md", "quote": "那只能说明这个样本的页面读错列", "as_of": "2026-04-02"},
+                    {"corpus_file": "2026-04-02-林舟-贾宁.md", "quote": "今晚不执行全量回放", "as_of": "2026-04-02"}]},
+      {"case_id": "miss-fp-05", "ruler_changes": ["v6-absent-narrowed"], "shape": "false_premise", "difficulty": "L3",
+       "question": "客户批准恢复写入之后，第一批新导入是什么时候进的？",
+       "absent": "客户从未批准恢复写入。4 月 11 日获准的只有云麓授权试点账号的受限只读查看，并明确不恢复写入、导入或原分享链接；4 月 13 日仍写明没有恢复写入。5 月 15 日确有一条材料替代记录经简化入口导入内部试用区，但材料没有把它记成客户批准后的写入或导入恢复。",
+       "evidence": [{"corpus_file": "2026-04-11-受限只读恢复协调.md", "quote": "不恢复写入、导入或原分享链接", "as_of": "2026-04-11"},
+                    {"corpus_file": "2026-04-13-错误关联复盘-候选、出处与旧批次.md", "quote": "今天没有恢复写入，也没有批准历史迁移", "as_of": "2026-04-13"},
+                    {"corpus_file": "2026-05-15-材料替代记录-导入结果与待确认项.md", "quote": "按今天简化后的入口，我把材料替代这条记录导入了内部试用区", "as_of": "2026-05-15"}]},
+      {"case_id": "miss-fp-06", "ruler_changes": ["v5-judge-and-facet-contract", "v6-question-repinned", "v6-absent-narrowed"], "shape": "false_premise", "difficulty": "L3", "as_of": "2026-03-11",
+       "question": "3 月 11 日记录的两次更正里，陈放反对这条变化的理由是什么？",
+       "absent": "陈放没有反对这条变化。他说这条变化并非不该做、方案本身也没有意见；他纠正的是页面把「有人提到」和「可以照着做」写成了同一件事。「陈放不同意这项变化。」是材料自己标出的失败草稿句。",
+       "evidence": [{"corpus_file": "2026-03-11-两次更正摘录（未判明）.md", "quote": "我不是说这条变化不该做", "as_of": "2026-03-11"},
+                    {"corpus_file": "2026-03-11-两次更正摘录（未判明）.md", "quote": "不是这个意思，方案本身我没意见。我说你把‘有人提到’和‘可以照着做’写成同一件事了。", "as_of": "2026-03-11"},
+                    {"corpus_file": "2026-03-11-变更链字段试写第零遍.md", "quote": "失败的草稿句", "as_of": "2026-03-11"}]},
+      {"case_id": "miss-fp-07", "ruler_changes": ["v5-judge-and-facet-contract", "v6-negative-shape", "v6-absent-narrowed"], "shape": "unanswerable_detail", "difficulty": "L3",
+       "question": "采购接受报价之后，合同金额调整成了多少？",
+       "absent": "材料没有记录采购接受 4 月 22 日的报价，也没有记录任何调整后的合同金额。4 月 22 日的报价写的是一万八千元、六周。8 月 28 日采购支付、8 月 29 日到账的 5400 元，付款说明写的是「云麓受限试点尾款」，是尾款而不是调整后的合同金额。",
+       "evidence": [{"corpus_file": "2026-04-22-试点报价与范围口头澄清.md", "quote": "报价写的是一万八千元、六周", "as_of": "2026-04-22"},
+                    {"corpus_file": "2026-04-25-报价材料进入内部处理的核对.md", "quote": "回复只允许材料在内部被查阅，不是接受报价，没有付款许可，也没有长期合同", "as_of": "2026-04-25"},
+                    {"corpus_file": "build-record/exercise.py", "corpus_source": "owner_statement", "quote": "采购 8 月 28 日付的，到账日 8 月 29 日，金额 5400 元，付款说明写的是「云麓受限试点尾款」", "as_of": "2026-09-01"}]}
+    ],
+    "structure_probes": [
+      {
+        "probe_id": "chain-separation",
+        "kind": "distinct_documents",
+        "a": {"label": "预算变更链（第一条链）", "markers": ["预算变更", "预算调整"]},
+        "b": {"label": "材料替代链（第二条链）", "markers": ["材料替代"]},
+        "corpus_basis": {"corpus_file": "2026-03-21-云麓来源映射读取说明.md", "quote": "预算变更与材料替代是两个独立入口"},
+        "contract_basis": {"contract_file": "engine/compile/contract.md", "quote": "各自一页，永不合并"},
+        "note": "这条探针测的是契约符合度，不是语料规则。语料本身只要求两条链各自保留来源、确认与状态，并禁止把它们的状态合成一个总的通过标记；它允许两行并排，没有要求分开的 canonical 文档。要求分文档的是这个例子自己的编译契约：chains/{slug}.md 一族写明每条被逐节点核对过的变更链「各自一页，永不合并」，并把「把两条链写进同一页」判为编坏了这批材料的第一原则。探针问的因此是形状：承载 A 侧记号最多的那份 canonical 文档，不能同时是承载 B 侧记号最多的那一份。契约换了，这条探针就该跟着换。"
+      }
+    ]
+  }
+}

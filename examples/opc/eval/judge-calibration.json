@@ -1,0 +1,1773 @@
+{
+  "schema": "pneuma.opc.judge-calibration/v1",
+  "note": "A calibration suite for the two judges this runner grades with. It measures one thing: whether a verdict survives a change of PHRASING. Every item is synthetic and belongs to a domain this example's corpus knows nothing about — a bakery co-op in 2027 — so the suite calibrates the ruler without leaking the truth set into the judge's context and without rewarding the OPC corpus's own wording. Run it with `--mode judge`; `--mode full` runs it first and refuses to score when it does not pass.",
+  "cast": [
+    "郝雨桐",
+    "郑明谦",
+    "郑处长",
+    "郑处",
+    "郑明谨",
+    "远麦谷物有限公司",
+    "远麦谷物",
+    "远麦",
+    "远麸谷物",
+    "南埠分店",
+    "西园分店",
+    "西苑分店",
+    "秋末市集",
+    "春初市集"
+  ],
+  "numbers": [
+    "21000",
+    "17000",
+    "24000",
+    "000",
+    "960",
+    "1100",
+    "2027"
+  ],
+  "cast_note": "Every proper noun and every three-or-more-digit figure this file invents, declared so the leak guard can assert that none of them occurs in `opc-truth.json` or in `my-data/`. Keep this list in step with the items.",
+  "variants": {
+    "paraphrase": {
+      "blocking": true,
+      "tests": "same fact, different words or sentence structure"
+    },
+    "numeral_form": {
+      "blocking": true,
+      "tests": "the same number written as digits, as Chinese numerals, or with a 万 unit"
+    },
+    "date_form": {
+      "blocking": true,
+      "tests": "the same date written as 5 月 24 日, 2027-05-24, 05-24 or 五月二十四号"
+    },
+    "unit_conversion": {
+      "blocking": true,
+      "tests": "the same quantity in another unit — 六周 vs 42 天, 一个半小时 vs 90 分钟"
+    },
+    "more_specific": {
+      "blocking": true,
+      "tests": "the answer says strictly more and still entails the fact"
+    },
+    "embedded": {
+      "blocking": true,
+      "tests": "the fact sits inside a longer sentence or a list, not as the main point"
+    },
+    "cross_language": {
+      "blocking": true,
+      "tests": "the answer is in a different language from the fact"
+    },
+    "name_variant": {
+      "blocking": false,
+      "tests": "full name vs surname plus role, company short form vs full form — only where the identity is unambiguous"
+    },
+    "absence_fact": {
+      "blocking": true,
+      "tests": "the fact is itself an absence and the answer asserts that absence"
+    },
+    "absence_vs_unknown": {
+      "blocking": true,
+      "tests": "the fact is an absence and the answer only says it does not know"
+    },
+    "hedged_commit": {
+      "blocking": true,
+      "tests": "a hedge that still presents the value as the answer"
+    },
+    "hedged_alternatives": {
+      "blocking": true,
+      "tests": "two values offered with no commitment to either"
+    },
+    "exclusive_list": {
+      "blocking": true,
+      "tests": "an incomplete list closed with an exclusivity word — 只 / 仅 / 全部 / 就这些"
+    },
+    "partial_list": {
+      "blocking": true,
+      "tests": "an incomplete list with no exclusivity word"
+    },
+    "negation": {
+      "blocking": true,
+      "tests": "the answer denies the fact outright"
+    },
+    "double_negation": {
+      "blocking": true,
+      "tests": "the fact is itself a negative and the answer restates it as another negative"
+    },
+    "different_value": {
+      "blocking": true,
+      "tests": "the same attribute carrying another value"
+    },
+    "off_by_scope": {
+      "blocking": true,
+      "tests": "the fact's value attached to a different subject"
+    },
+    "temporal_history": {
+      "blocking": true,
+      "tests": "an earlier state reported explicitly as history against a current-state fact"
+    },
+    "temporal_as_current": {
+      "blocking": true,
+      "tests": "the same earlier state presented as the current one"
+    },
+    "temporal_superseded_both": {
+      "blocking": true,
+      "tests": "the answer gives the history and the current state together"
+    },
+    "existential_with_examples": {
+      "blocking": true,
+      "tests": "an existential fact with illustrations, satisfied by an act the illustrations do not name but the material records"
+    },
+    "existential_invented": {
+      "blocking": true,
+      "tests": "an existential fact with illustrations, answered with an act the material does not record"
+    },
+    "citation_noise": {
+      "blocking": true,
+      "tests": "citation markers, headings and bullets around the content — invisible to the verdict"
+    },
+    "right_value_wrong_attribute": {
+      "blocking": true,
+      "tests": "the number is present but attached to a different attribute"
+    },
+    "approximate": {
+      "blocking": true,
+      "tests": "a rounded figure against an exact fact — stated when it rounds to the fact, contradicted when its tolerance excludes it"
+    },
+    "question_restated_only": {
+      "blocking": true,
+      "tests": "the answer restates the question and stops"
+    }
+  },
+  "facet_items": [
+    {
+      "item_id": "cal-paraphrase-01",
+      "variant": "paraphrase",
+      "facet": "远麦谷物给南埠分店的烤炉报价是 21000 元",
+      "evidence": [
+        {
+          "corpus_file": "2027-04-18-南埠分店-烤炉报价.md",
+          "quote": "远麦谷物有限公司（下称远麦）给南埠分店的烤炉报价是 21000 元，安装费不在这份报价内。"
+        }
+      ],
+      "question": "南埠分店的烤炉报价是多少？",
+      "answer": "南埠分店那台烤炉，远麦谷物开出来的价钱是 21000 元。",
+      "expected": "stated",
+      "why": "the same fact in another word order"
+    },
+    {
+      "item_id": "cal-paraphrase-02",
+      "variant": "paraphrase",
+      "facet": "南埠分店的试运营期定为六周",
+      "evidence": [
+        {
+          "corpus_file": "2027-04-22-试运营安排.md",
+          "quote": "南埠分店的试运营期定为六周，从 6 月 1 日算起。"
+        }
+      ],
+      "question": "南埠分店要试运营多久？",
+      "answer": "南埠分店先开六周看看，之后再定。",
+      "expected": "stated",
+      "why": "a colloquial restatement of the same duration"
+    },
+    {
+      "item_id": "cal-paraphrase-03",
+      "variant": "paraphrase",
+      "facet": "摊位押金在市集结束后退还",
+      "evidence": [
+        {
+          "corpus_file": "2027-05-11-押金.md",
+          "quote": "摊位押金 960 元，市集结束后退还。"
+        }
+      ],
+      "question": "摊位押金还退吗？",
+      "answer": "市集散场之后押金会还回来。",
+      "expected": "stated",
+      "why": "a paraphrase with no shared vocabulary beyond 押金"
+    },
+    {
+      "item_id": "cal-numeral-01",
+      "variant": "numeral_form",
+      "facet": "远麦谷物给南埠分店的烤炉报价是 21000 元",
+      "evidence": [
+        {
+          "corpus_file": "2027-04-18-南埠分店-烤炉报价.md",
+          "quote": "远麦谷物有限公司（下称远麦）给南埠分店的烤炉报价是 21000 元，安装费不在这份报价内。"
+        }
+      ],
+      "question": "南埠分店的烤炉报价是多少？",
+      "answer": "报价是两万一千元。",
+      "expected": "stated",
+      "why": "Chinese numerals for the same amount"
+    },
+    {
+      "item_id": "cal-numeral-02",
+      "variant": "numeral_form",
+      "facet": "南埠分店的试运营期定为六周",
+      "evidence": [
+        {
+          "corpus_file": "2027-04-22-试运营安排.md",
+          "quote": "南埠分店的试运营期定为六周，从 6 月 1 日算起。"
+        }
+      ],
+      "question": "试运营期有多长？",
+      "answer": "6 周。",
+      "expected": "stated",
+      "why": "digits for a duration the fact spells out"
+    },
+    {
+      "item_id": "cal-numeral-03",
+      "variant": "numeral_form",
+      "facet": "远麦谷物给南埠分店的烤炉报价是 21000 元",
+      "evidence": [
+        {
+          "corpus_file": "2027-04-18-南埠分店-烤炉报价.md",
+          "quote": "远麦谷物有限公司（下称远麦）给南埠分店的烤炉报价是 21000 元，安装费不在这份报价内。"
+        }
+      ],
+      "question": "烤炉那笔钱是多少？",
+      "answer": "2.1 万元，也就是 21,000 元。",
+      "expected": "stated",
+      "why": "a 万 unit and a comma-separated form of the same value"
+    },
+    {
+      "item_id": "cal-numeral-04",
+      "variant": "numeral_form",
+      "facet": "摊位押金是 960 元",
+      "evidence": [
+        {
+          "corpus_file": "2027-05-11-押金.md",
+          "quote": "摊位押金 960 元，市集结束后退还。"
+        }
+      ],
+      "question": "摊位押金多少钱？",
+      "answer": "押金九百六十元。",
+      "expected": "stated",
+      "why": "Chinese numerals for a three-digit amount"
+    },
+    {
+      "item_id": "cal-date-01",
+      "variant": "date_form",
+      "facet": "秋末市集的摊位申请截止日是 5 月 24 日",
+      "evidence": [
+        {
+          "corpus_file": "2027-05-06-秋末市集-摊位.md",
+          "quote": "秋末市集的摊位申请截止日是 5 月 24 日；主办方对接人是郑明谦，大家平时叫他郑处长。"
+        }
+      ],
+      "question": "摊位申请什么时候截止？",
+      "answer": "截止日是 2027-05-24。",
+      "expected": "stated",
+      "why": "an ISO date for the same day; the year is unambiguous in this material"
+    },
+    {
+      "item_id": "cal-date-02",
+      "variant": "date_form",
+      "facet": "秋末市集的摊位申请截止日是 5 月 24 日",
+      "evidence": [
+        {
+          "corpus_file": "2027-05-06-秋末市集-摊位.md",
+          "quote": "秋末市集的摊位申请截止日是 5 月 24 日；主办方对接人是郑明谦，大家平时叫他郑处长。"
+        }
+      ],
+      "question": "摊位申请什么时候截止？",
+      "answer": "五月二十四号截止。",
+      "expected": "stated",
+      "why": "Chinese numerals in a date"
+    },
+    {
+      "item_id": "cal-date-03",
+      "variant": "date_form",
+      "facet": "秋末市集的摊位申请截止日是 5 月 24 日",
+      "evidence": [
+        {
+          "corpus_file": "2027-05-06-秋末市集-摊位.md",
+          "quote": "秋末市集的摊位申请截止日是 5 月 24 日；主办方对接人是郑明谦，大家平时叫他郑处长。"
+        }
+      ],
+      "question": "摊位申请的截止日是哪天？",
+      "answer": "05-24。",
+      "expected": "stated",
+      "why": "a bare month-day form of the same date"
+    },
+    {
+      "item_id": "cal-unit-01",
+      "variant": "unit_conversion",
+      "facet": "南埠分店的试运营期定为六周",
+      "evidence": [
+        {
+          "corpus_file": "2027-04-22-试运营安排.md",
+          "quote": "南埠分店的试运营期定为六周，从 6 月 1 日算起。"
+        }
+      ],
+      "question": "试运营期有多长？",
+      "answer": "42 天。",
+      "expected": "stated",
+      "why": "the same duration in days"
+    },
+    {
+      "item_id": "cal-unit-02",
+      "variant": "unit_conversion",
+      "facet": "每场手作培训固定一个半小时",
+      "evidence": [
+        {
+          "corpus_file": "2027-05-09-培训安排.md",
+          "quote": "每场手作培训固定一个半小时，超时不加价。"
+        }
+      ],
+      "question": "一场培训多长时间？",
+      "answer": "90 分钟。",
+      "expected": "stated",
+      "why": "the same duration in minutes"
+    },
+    {
+      "item_id": "cal-unit-03",
+      "variant": "unit_conversion",
+      "facet": "每场手作培训固定一个半小时",
+      "evidence": [
+        {
+          "corpus_file": "2027-05-09-培训安排.md",
+          "quote": "每场手作培训固定一个半小时，超时不加价。"
+        }
+      ],
+      "question": "培训一场排多久？",
+      "answer": "一小时三十分钟，排课的时候按这个留。",
+      "expected": "stated",
+      "why": "hours and minutes for the same span"
+    },
+    {
+      "item_id": "cal-specific-01",
+      "variant": "more_specific",
+      "facet": "秋末市集的摊位申请有一个截止日",
+      "evidence": [
+        {
+          "corpus_file": "2027-05-06-秋末市集-摊位.md",
+          "quote": "秋末市集的摊位申请截止日是 5 月 24 日；主办方对接人是郑明谦，大家平时叫他郑处长。"
+        }
+      ],
+      "question": "摊位申请有截止时间吗？",
+      "answer": "有，截止日是 5 月 24 日，是主办方对接人郑明谦在 5 月 6 日那份记录里给的。",
+      "expected": "stated",
+      "why": "strictly more than the fact, and it entails the fact"
+    },
+    {
+      "item_id": "cal-specific-02",
+      "variant": "more_specific",
+      "facet": "尾款已经付清",
+      "evidence": [
+        {
+          "corpus_file": "2027-06-03-尾款结清.md",
+          "quote": "6 月 3 日尾款已经付清；5 月那次周会上它还没有付。"
+        }
+      ],
+      "question": "尾款现在什么状态？",
+      "answer": "尾款在 6 月 3 日一次付清了。",
+      "expected": "stated",
+      "why": "adds the date and still entails the state"
+    },
+    {
+      "item_id": "cal-specific-03",
+      "variant": "more_specific",
+      "facet": "郝雨桐核对过上一批的到货单",
+      "evidence": [
+        {
+          "corpus_file": "2027-05-16-周会核对.md",
+          "quote": "郝雨桐在周会上把上一批的到货单逐项核对了一遍，回查了两条供货记录，把待发邮件的顺序从头点了一遍，也对了一遍押金收据。"
+        }
+      ],
+      "question": "到货单有人核对过吗？",
+      "answer": "有，郝雨桐在 5 月 16 日的周会上逐项核对了上一批到货单。",
+      "expected": "stated",
+      "why": "adds who, when and where over the same act"
+    },
+    {
+      "item_id": "cal-embedded-01",
+      "variant": "embedded",
+      "facet": "远麦谷物给南埠分店的烤炉报价是 21000 元",
+      "evidence": [
+        {
+          "corpus_file": "2027-04-18-南埠分店-烤炉报价.md",
+          "quote": "远麦谷物有限公司（下称远麦）给南埠分店的烤炉报价是 21000 元，安装费不在这份报价内。"
+        }
+      ],
+      "question": "南埠分店这轮的采买情况是什么样的？",
+      "answer": "南埠分店这轮的情况：\n- 供货商：远麦谷物\n- 烤炉报价：21000 元（安装费另计）\n- 试运营：六周",
+      "expected": "stated",
+      "why": "the fact is one bullet in a list, not the answer's main point"
+    },
+    {
+      "item_id": "cal-embedded-02",
+      "variant": "embedded",
+      "facet": "每场手作培训固定一个半小时",
+      "evidence": [
+        {
+          "corpus_file": "2027-05-09-培训安排.md",
+          "quote": "每场手作培训固定一个半小时，超时不加价。"
+        }
+      ],
+      "question": "培训的安排讲一下。",
+      "answer": "培训的事我一起说了：场地放在南埠分店，一场一个半小时，报名从下周开，名额还没定。",
+      "expected": "stated",
+      "why": "the duration sits inside a longer sentence about something else"
+    },
+    {
+      "item_id": "cal-embedded-03",
+      "variant": "embedded",
+      "facet": "摊位押金在市集结束后退还",
+      "evidence": [
+        {
+          "corpus_file": "2027-05-11-押金.md",
+          "quote": "摊位押金 960 元，市集结束后退还。"
+        }
+      ],
+      "question": "摊位这边要准备什么？",
+      "answer": "要先交 960 元押金（市集结束后会退），再把申请表寄给主办方，最后确认摊位位置。",
+      "expected": "stated",
+      "why": "the fact is carried in a parenthesis inside a procedure"
+    },
+    {
+      "item_id": "cal-crosslang-01",
+      "variant": "cross_language",
+      "facet": "远麦谷物给南埠分店的烤炉报价是 21000 元",
+      "evidence": [
+        {
+          "corpus_file": "2027-04-18-南埠分店-烤炉报价.md",
+          "quote": "远麦谷物有限公司（下称远麦）给南埠分店的烤炉报价是 21000 元，安装费不在这份报价内。"
+        }
+      ],
+      "question": "南埠分店的烤炉报价是多少？",
+      "answer": "The oven quote from Yuanmai Grains for the Nanbu branch is 21,000 yuan, installation excluded.",
+      "expected": "stated",
+      "why": "an English answer to a Chinese fact"
+    },
+    {
+      "item_id": "cal-crosslang-02",
+      "variant": "cross_language",
+      "facet": "南埠分店的试运营期定为六周",
+      "evidence": [
+        {
+          "corpus_file": "2027-04-22-试运营安排.md",
+          "quote": "南埠分店的试运营期定为六周，从 6 月 1 日算起。"
+        }
+      ],
+      "question": "试运营期有多长？",
+      "answer": "The trial run is six weeks long, starting on 1 June.",
+      "expected": "stated",
+      "why": "an English answer to a Chinese fact, with the duration spelled out"
+    },
+    {
+      "item_id": "cal-crosslang-03",
+      "variant": "cross_language",
+      "facet": "The stall deposit is 960 yuan",
+      "evidence": [
+        {
+          "corpus_file": "2027-05-11-market-notes.md",
+          "quote": "Stall deposit: 960 yuan, refunded after the market closes."
+        }
+      ],
+      "question": "How much is the stall deposit?",
+      "answer": "摊位押金是 960 元。",
+      "expected": "stated",
+      "why": "a Chinese answer to an English fact"
+    },
+    {
+      "item_id": "cal-namevar-01",
+      "variant": "name_variant",
+      "facet": "秋末市集的主办方对接人是郑明谦",
+      "evidence": [
+        {
+          "corpus_file": "2027-05-06-秋末市集-摊位.md",
+          "quote": "秋末市集的摊位申请截止日是 5 月 24 日；主办方对接人是郑明谦，大家平时叫他郑处长。"
+        }
+      ],
+      "question": "秋末市集那边谁对接？",
+      "answer": "对接的是郑处长。",
+      "expected": "stated",
+      "why": "surname plus role for the same person, named as such in the material"
+    },
+    {
+      "item_id": "cal-namevar-02",
+      "variant": "name_variant",
+      "facet": "秋末市集的主办方对接人是郑明谦",
+      "evidence": [
+        {
+          "corpus_file": "2027-05-06-秋末市集-摊位.md",
+          "quote": "秋末市集的摊位申请截止日是 5 月 24 日；主办方对接人是郑明谦，大家平时叫他郑处长。"
+        }
+      ],
+      "question": "秋末市集那边谁对接？",
+      "answer": "市集那边由郑处对接。",
+      "expected": "stated",
+      "why": "the clipped form of the same role name"
+    },
+    {
+      "item_id": "cal-namevar-03",
+      "variant": "name_variant",
+      "facet": "供货商是远麦谷物有限公司",
+      "evidence": [
+        {
+          "corpus_file": "2027-04-18-南埠分店-烤炉报价.md",
+          "quote": "远麦谷物有限公司（下称远麦）给南埠分店的烤炉报价是 21000 元，安装费不在这份报价内。"
+        }
+      ],
+      "question": "这批货是谁供的？",
+      "answer": "远麦供的。",
+      "expected": "stated",
+      "why": "the short form the material itself declares"
+    },
+    {
+      "item_id": "cal-absence-01",
+      "variant": "absence_fact",
+      "facet": "材料里没有人给出过尾款的付款日期",
+      "evidence": [
+        {
+          "corpus_file": "2027-05-20-尾款.md",
+          "quote": "到这次记录为止，没有人给出过尾款的付款日期。"
+        }
+      ],
+      "question": "尾款的付款日期是哪天？",
+      "answer": "材料里没有记录到尾款的付款日期。",
+      "expected": "stated",
+      "why": "the answer asserts the absence the fact is made of"
+    },
+    {
+      "item_id": "cal-absence-02",
+      "variant": "absence_fact",
+      "facet": "材料里没有人给出过尾款的付款日期",
+      "evidence": [
+        {
+          "corpus_file": "2027-05-20-尾款.md",
+          "quote": "到这次记录为止，没有人给出过尾款的付款日期。"
+        }
+      ],
+      "question": "尾款的付款日期是哪天？",
+      "answer": "未见任何人给出过付款日期。",
+      "expected": "stated",
+      "why": "a terser assertion of the same absence"
+    },
+    {
+      "item_id": "cal-absence-03",
+      "variant": "absence_fact",
+      "facet": "材料里没有人给出过尾款的付款日期",
+      "evidence": [
+        {
+          "corpus_file": "2027-05-20-尾款.md",
+          "quote": "到这次记录为止，没有人给出过尾款的付款日期。"
+        }
+      ],
+      "question": "尾款的付款日期是哪天？",
+      "answer": "把这些记录翻过一遍，付款日期一直是空的，谁都没写。",
+      "expected": "stated",
+      "why": "the absence asserted in colloquial form"
+    },
+    {
+      "item_id": "cal-unknown-01",
+      "variant": "absence_vs_unknown",
+      "facet": "材料里没有人给出过尾款的付款日期",
+      "evidence": [
+        {
+          "corpus_file": "2027-05-20-尾款.md",
+          "quote": "到这次记录为止，没有人给出过尾款的付款日期。"
+        }
+      ],
+      "question": "尾款的付款日期是哪天？",
+      "answer": "我不知道尾款什么时候付。",
+      "expected": "omitted",
+      "why": "not knowing is not the same as the material lacking it"
+    },
+    {
+      "item_id": "cal-unknown-02",
+      "variant": "absence_vs_unknown",
+      "facet": "材料里没有人给出过尾款的付款日期",
+      "evidence": [
+        {
+          "corpus_file": "2027-05-20-尾款.md",
+          "quote": "到这次记录为止，没有人给出过尾款的付款日期。"
+        }
+      ],
+      "question": "尾款的付款日期是哪天？",
+      "answer": "无法确定。",
+      "expected": "omitted",
+      "why": "an inability, with no claim about what the material holds"
+    },
+    {
+      "item_id": "cal-unknown-03",
+      "variant": "absence_vs_unknown",
+      "facet": "材料里没有人给出过尾款的付款日期",
+      "evidence": [
+        {
+          "corpus_file": "2027-05-20-尾款.md",
+          "quote": "到这次记录为止，没有人给出过尾款的付款日期。"
+        }
+      ],
+      "question": "尾款的付款日期是哪天？",
+      "answer": "这个我说不好，得再问问经手的人。",
+      "expected": "omitted",
+      "why": "a deferral, not an assertion about the record"
+    },
+    {
+      "item_id": "cal-hedgecommit-01",
+      "variant": "hedged_commit",
+      "facet": "远麦谷物给南埠分店的烤炉报价是 21000 元",
+      "evidence": [
+        {
+          "corpus_file": "2027-04-18-南埠分店-烤炉报价.md",
+          "quote": "远麦谷物有限公司（下称远麦）给南埠分店的烤炉报价是 21000 元，安装费不在这份报价内。"
+        }
+      ],
+      "question": "南埠分店的烤炉报价是多少？",
+      "answer": "应该是 21000 元。",
+      "expected": "stated",
+      "why": "hedged in tone, committed in substance"
+    },
+    {
+      "item_id": "cal-hedgecommit-02",
+      "variant": "hedged_commit",
+      "facet": "远麦谷物给南埠分店的烤炉报价是 21000 元",
+      "evidence": [
+        {
+          "corpus_file": "2027-04-18-南埠分店-烤炉报价.md",
+          "quote": "远麦谷物有限公司（下称远麦）给南埠分店的烤炉报价是 21000 元，安装费不在这份报价内。"
+        }
+      ],
+      "question": "南埠分店的烤炉报价是多少？",
+      "answer": "材料显示为 21000 元。",
+      "expected": "stated",
+      "why": "attribution to the record is still an answer"
+    },
+    {
+      "item_id": "cal-hedgecommit-03",
+      "variant": "hedged_commit",
+      "facet": "南埠分店的试运营期定为六周",
+      "evidence": [
+        {
+          "corpus_file": "2027-04-22-试运营安排.md",
+          "quote": "南埠分店的试运营期定为六周，从 6 月 1 日算起。"
+        }
+      ],
+      "question": "试运营期有多长？",
+      "answer": "按记录看，是六周。",
+      "expected": "stated",
+      "why": "a hedge that still presents one value"
+    },
+    {
+      "item_id": "cal-hedgealt-01",
+      "variant": "hedged_alternatives",
+      "facet": "远麦谷物给南埠分店的烤炉报价是 21000 元",
+      "evidence": [
+        {
+          "corpus_file": "2027-04-18-南埠分店-烤炉报价.md",
+          "quote": "远麦谷物有限公司（下称远麦）给南埠分店的烤炉报价是 21000 元，安装费不在这份报价内。"
+        }
+      ],
+      "question": "南埠分店的烤炉报价是多少？",
+      "answer": "21000 或 24000，两个数我都见过。",
+      "expected": "omitted",
+      "why": "two values offered, neither committed to"
+    },
+    {
+      "item_id": "cal-hedgealt-02",
+      "variant": "hedged_alternatives",
+      "facet": "远麦谷物给南埠分店的烤炉报价是 21000 元",
+      "evidence": [
+        {
+          "corpus_file": "2027-04-18-南埠分店-烤炉报价.md",
+          "quote": "远麦谷物有限公司（下称远麦）给南埠分店的烤炉报价是 21000 元，安装费不在这份报价内。"
+        }
+      ],
+      "question": "南埠分店的烤炉报价是多少？",
+      "answer": "可能是 21000，也可能后来改过。",
+      "expected": "omitted",
+      "why": "the value is raised and then withdrawn"
+    },
+    {
+      "item_id": "cal-hedgealt-03",
+      "variant": "hedged_alternatives",
+      "facet": "南埠分店的试运营期定为六周",
+      "evidence": [
+        {
+          "corpus_file": "2027-04-22-试运营安排.md",
+          "quote": "南埠分店的试运营期定为六周，从 6 月 1 日算起。"
+        }
+      ],
+      "question": "试运营期有多长？",
+      "answer": "六周或者八周，得看后面怎么定。",
+      "expected": "omitted",
+      "why": "an alternative with no commitment"
+    },
+    {
+      "item_id": "cal-exclusive-01",
+      "variant": "exclusive_list",
+      "facet": "这一轮供货范围包含两家门店",
+      "evidence": [
+        {
+          "corpus_file": "2027-05-14-供货范围.md",
+          "quote": "这一轮供货范围包含两家门店：南埠分店和西园分店。"
+        }
+      ],
+      "question": "这一轮给哪些门店供货？",
+      "answer": "供货范围只包含南埠分店一家。",
+      "expected": "contradicted",
+      "why": "只 closes the list at one member and rules the fact out"
+    },
+    {
+      "item_id": "cal-exclusive-02",
+      "variant": "exclusive_list",
+      "facet": "这一轮供货范围包含两家门店",
+      "evidence": [
+        {
+          "corpus_file": "2027-05-14-供货范围.md",
+          "quote": "这一轮供货范围包含两家门店：南埠分店和西园分店。"
+        }
+      ],
+      "question": "这一轮给哪些门店供货？",
+      "answer": "就这一家：西园分店。",
+      "expected": "contradicted",
+      "why": "就这些 closes the list"
+    },
+    {
+      "item_id": "cal-exclusive-03",
+      "variant": "exclusive_list",
+      "facet": "这一轮供货范围包含两家门店",
+      "evidence": [
+        {
+          "corpus_file": "2027-05-14-供货范围.md",
+          "quote": "这一轮供货范围包含两家门店：南埠分店和西园分店。"
+        }
+      ],
+      "question": "这一轮给哪些门店供货？",
+      "answer": "全部范围仅为南埠分店。",
+      "expected": "contradicted",
+      "why": "全部 and 仅 together assert an exhaustive list of one"
+    },
+    {
+      "item_id": "cal-partial-01",
+      "variant": "partial_list",
+      "facet": "这一轮供货范围包含两家门店",
+      "evidence": [
+        {
+          "corpus_file": "2027-05-14-供货范围.md",
+          "quote": "这一轮供货范围包含两家门店：南埠分店和西园分店。"
+        }
+      ],
+      "question": "这一轮给哪些门店供货？",
+      "answer": "南埠分店在这一轮的供货范围里。",
+      "expected": "omitted",
+      "why": "one member named, nothing said about the rest"
+    },
+    {
+      "item_id": "cal-partial-02",
+      "variant": "partial_list",
+      "facet": "这一轮供货范围包含两家门店",
+      "evidence": [
+        {
+          "corpus_file": "2027-05-14-供货范围.md",
+          "quote": "这一轮供货范围包含两家门店：南埠分店和西园分店。"
+        }
+      ],
+      "question": "这一轮给哪些门店供货？",
+      "answer": "这一轮给西园分店供货。",
+      "expected": "omitted",
+      "why": "an incomplete list with no exclusivity word"
+    },
+    {
+      "item_id": "cal-partial-03",
+      "variant": "partial_list",
+      "facet": "这一轮供货范围包含两家门店",
+      "evidence": [
+        {
+          "corpus_file": "2027-05-14-供货范围.md",
+          "quote": "这一轮供货范围包含两家门店：南埠分店和西园分店。"
+        }
+      ],
+      "question": "供货范围覆盖哪里？",
+      "answer": "至少覆盖南埠分店，其他门店我这边没细看。",
+      "expected": "omitted",
+      "why": "explicitly leaves the rest open"
+    },
+    {
+      "item_id": "cal-negation-01",
+      "variant": "negation",
+      "facet": "摊位押金在市集结束后退还",
+      "evidence": [
+        {
+          "corpus_file": "2027-05-11-押金.md",
+          "quote": "摊位押金 960 元，市集结束后退还。"
+        }
+      ],
+      "question": "摊位押金还退吗？",
+      "answer": "押金不退。",
+      "expected": "contradicted",
+      "why": "a flat denial of the fact"
+    },
+    {
+      "item_id": "cal-negation-02",
+      "variant": "negation",
+      "facet": "尾款已经付清",
+      "evidence": [
+        {
+          "corpus_file": "2027-06-03-尾款结清.md",
+          "quote": "6 月 3 日尾款已经付清；5 月那次周会上它还没有付。"
+        }
+      ],
+      "question": "尾款现在什么状态？",
+      "answer": "尾款并未付清。",
+      "expected": "contradicted",
+      "why": "并未 denies the state the fact asserts"
+    },
+    {
+      "item_id": "cal-negation-03",
+      "variant": "negation",
+      "facet": "远麦谷物给南埠分店的烤炉报价是 21000 元",
+      "evidence": [
+        {
+          "corpus_file": "2027-04-18-南埠分店-烤炉报价.md",
+          "quote": "远麦谷物有限公司（下称远麦）给南埠分店的烤炉报价是 21000 元，安装费不在这份报价内。"
+        }
+      ],
+      "question": "报价是 21000 元吗？",
+      "answer": "不是 21000 元。",
+      "expected": "contradicted",
+      "why": "the value is denied without another being offered"
+    },
+    {
+      "item_id": "cal-doubleneg-01",
+      "variant": "double_negation",
+      "facet": "安装费不在这份报价内",
+      "evidence": [
+        {
+          "corpus_file": "2027-04-18-南埠分店-烤炉报价.md",
+          "quote": "远麦谷物有限公司（下称远麦）给南埠分店的烤炉报价是 21000 元，安装费不在这份报价内。"
+        }
+      ],
+      "question": "报价里含安装费吗？",
+      "answer": "报价不含安装费。",
+      "expected": "stated",
+      "why": "the same negative said the other way round"
+    },
+    {
+      "item_id": "cal-doubleneg-02",
+      "variant": "double_negation",
+      "facet": "安装费不在这份报价内",
+      "evidence": [
+        {
+          "corpus_file": "2027-04-18-南埠分店-烤炉报价.md",
+          "quote": "远麦谷物有限公司（下称远麦）给南埠分店的烤炉报价是 21000 元，安装费不在这份报价内。"
+        }
+      ],
+      "question": "报价里含安装费吗？",
+      "answer": "安装费在这份报价之外，要另算。",
+      "expected": "stated",
+      "why": "在……之外 restates the exclusion"
+    },
+    {
+      "item_id": "cal-doubleneg-03",
+      "variant": "double_negation",
+      "facet": "安装费不在这份报价内",
+      "evidence": [
+        {
+          "corpus_file": "2027-04-18-南埠分店-烤炉报价.md",
+          "quote": "远麦谷物有限公司（下称远麦）给南埠分店的烤炉报价是 21000 元，安装费不在这份报价内。"
+        }
+      ],
+      "question": "21000 元包含哪些？",
+      "answer": "这 21000 元里没有安装费。",
+      "expected": "stated",
+      "why": "the exclusion stated from inside the amount"
+    },
+    {
+      "item_id": "cal-diffvalue-01",
+      "variant": "different_value",
+      "facet": "远麦谷物给南埠分店的烤炉报价是 21000 元",
+      "evidence": [
+        {
+          "corpus_file": "2027-04-18-南埠分店-烤炉报价.md",
+          "quote": "远麦谷物有限公司（下称远麦）给南埠分店的烤炉报价是 21000 元，安装费不在这份报价内。"
+        }
+      ],
+      "question": "南埠分店的烤炉报价是多少？",
+      "answer": "报价是 17000 元。",
+      "expected": "contradicted",
+      "why": "the same attribute with another value"
+    },
+    {
+      "item_id": "cal-diffvalue-02",
+      "variant": "different_value",
+      "facet": "南埠分店的试运营期定为六周",
+      "evidence": [
+        {
+          "corpus_file": "2027-04-22-试运营安排.md",
+          "quote": "南埠分店的试运营期定为六周，从 6 月 1 日算起。"
+        }
+      ],
+      "question": "试运营期有多长？",
+      "answer": "五周。",
+      "expected": "contradicted",
+      "why": "another duration for the same attribute"
+    },
+    {
+      "item_id": "cal-diffvalue-03",
+      "variant": "different_value",
+      "facet": "秋末市集的摊位申请截止日是 5 月 24 日",
+      "evidence": [
+        {
+          "corpus_file": "2027-05-06-秋末市集-摊位.md",
+          "quote": "秋末市集的摊位申请截止日是 5 月 24 日；主办方对接人是郑明谦，大家平时叫他郑处长。"
+        }
+      ],
+      "question": "摊位申请什么时候截止？",
+      "answer": "5 月 23 日截止。",
+      "expected": "contradicted",
+      "why": "a neighbouring date for the same deadline"
+    },
+    {
+      "item_id": "cal-offscope-01",
+      "variant": "off_by_scope",
+      "facet": "远麦谷物给南埠分店的烤炉报价是 21000 元",
+      "evidence": [
+        {
+          "corpus_file": "2027-04-18-南埠分店-烤炉报价.md",
+          "quote": "远麦谷物有限公司（下称远麦）给南埠分店的烤炉报价是 21000 元，安装费不在这份报价内。"
+        }
+      ],
+      "question": "烤炉报价是多少？",
+      "answer": "西园分店的烤炉报价是 21000 元。",
+      "expected": "omitted",
+      "why": "the right value on another branch says nothing about this one, and rules nothing out"
+    },
+    {
+      "item_id": "cal-offscope-02",
+      "variant": "off_by_scope",
+      "facet": "南埠分店的试运营期定为六周",
+      "evidence": [
+        {
+          "corpus_file": "2027-04-22-试运营安排.md",
+          "quote": "南埠分店的试运营期定为六周，从 6 月 1 日算起。"
+        }
+      ],
+      "question": "试运营期有多长？",
+      "answer": "西园分店试运营六周。",
+      "expected": "omitted",
+      "why": "the duration is attached to a different store"
+    },
+    {
+      "item_id": "cal-offscope-03",
+      "variant": "off_by_scope",
+      "facet": "秋末市集的主办方对接人是郑明谦",
+      "evidence": [
+        {
+          "corpus_file": "2027-05-06-秋末市集-摊位.md",
+          "quote": "秋末市集的摊位申请截止日是 5 月 24 日；主办方对接人是郑明谦，大家平时叫他郑处长。"
+        }
+      ],
+      "question": "秋末市集那边谁对接？",
+      "answer": "郑明谦是春初市集的对接人。",
+      "expected": "omitted",
+      "why": "the same person on a different market; the fact is neither entailed nor ruled out"
+    },
+    {
+      "item_id": "cal-temphist-01",
+      "variant": "temporal_history",
+      "facet": "尾款已经付清",
+      "evidence": [
+        {
+          "corpus_file": "2027-06-03-尾款结清.md",
+          "quote": "6 月 3 日尾款已经付清；5 月那次周会上它还没有付。"
+        }
+      ],
+      "question": "尾款现在什么状态？",
+      "answer": "5 月的周会上尾款还没有付。",
+      "expected": "omitted",
+      "why": "an earlier state reported as history does not deny the current one"
+    },
+    {
+      "item_id": "cal-temphist-02",
+      "variant": "temporal_history",
+      "facet": "尾款已经付清",
+      "evidence": [
+        {
+          "corpus_file": "2027-06-03-尾款结清.md",
+          "quote": "6 月 3 日尾款已经付清；5 月那次周会上它还没有付。"
+        }
+      ],
+      "question": "尾款现在什么状态？",
+      "answer": "据 5 月的记录，当时这笔钱还挂着。",
+      "expected": "omitted",
+      "why": "the time of the observation is stated, so nothing is claimed about now"
+    },
+    {
+      "item_id": "cal-temphist-03",
+      "variant": "temporal_history",
+      "facet": "尾款已经付清",
+      "evidence": [
+        {
+          "corpus_file": "2027-06-03-尾款结清.md",
+          "quote": "6 月 3 日尾款已经付清；5 月那次周会上它还没有付。"
+        }
+      ],
+      "question": "尾款现在什么状态？",
+      "answer": "五月那会儿是没付的，后面的记录我这次没看。",
+      "expected": "omitted",
+      "why": "history, and an explicit refusal to speak about the present"
+    },
+    {
+      "item_id": "cal-tempcurrent-01",
+      "variant": "temporal_as_current",
+      "facet": "尾款已经付清",
+      "evidence": [
+        {
+          "corpus_file": "2027-06-03-尾款结清.md",
+          "quote": "6 月 3 日尾款已经付清；5 月那次周会上它还没有付。"
+        }
+      ],
+      "question": "尾款现在什么状态？",
+      "answer": "尾款还没到账。",
+      "expected": "contradicted",
+      "why": "the old state presented as the current one"
+    },
+    {
+      "item_id": "cal-tempcurrent-02",
+      "variant": "temporal_as_current",
+      "facet": "尾款已经付清",
+      "evidence": [
+        {
+          "corpus_file": "2027-06-03-尾款结清.md",
+          "quote": "6 月 3 日尾款已经付清；5 月那次周会上它还没有付。"
+        }
+      ],
+      "question": "尾款现在什么状态？",
+      "answer": "这笔尾款目前仍未支付。",
+      "expected": "contradicted",
+      "why": "目前 makes it a claim about now"
+    },
+    {
+      "item_id": "cal-tempcurrent-03",
+      "variant": "temporal_as_current",
+      "facet": "尾款已经付清",
+      "evidence": [
+        {
+          "corpus_file": "2027-06-03-尾款结清.md",
+          "quote": "6 月 3 日尾款已经付清；5 月那次周会上它还没有付。"
+        }
+      ],
+      "question": "尾款现在什么状态？",
+      "answer": "到现在都还欠着呢。",
+      "expected": "contradicted",
+      "why": "到现在 asserts the old state as present"
+    },
+    {
+      "item_id": "cal-tempboth-01",
+      "variant": "temporal_superseded_both",
+      "facet": "尾款已经付清",
+      "evidence": [
+        {
+          "corpus_file": "2027-06-03-尾款结清.md",
+          "quote": "6 月 3 日尾款已经付清；5 月那次周会上它还没有付。"
+        }
+      ],
+      "question": "尾款现在什么状态？",
+      "answer": "5 月时还没付，6 月 3 日已经付清了。",
+      "expected": "stated",
+      "why": "the history is reported and the current state is asserted"
+    },
+    {
+      "item_id": "cal-tempboth-02",
+      "variant": "temporal_superseded_both",
+      "facet": "尾款已经付清",
+      "evidence": [
+        {
+          "corpus_file": "2027-06-03-尾款结清.md",
+          "quote": "6 月 3 日尾款已经付清；5 月那次周会上它还没有付。"
+        }
+      ],
+      "question": "尾款现在什么状态？",
+      "answer": "这笔钱挂了一段时间——五月的周会上还欠着——后来在六月三号结清了。",
+      "expected": "stated",
+      "why": "the current state is the sentence's conclusion"
+    },
+    {
+      "item_id": "cal-tempboth-03",
+      "variant": "temporal_superseded_both",
+      "facet": "尾款已经付清",
+      "evidence": [
+        {
+          "corpus_file": "2027-06-03-尾款结清.md",
+          "quote": "6 月 3 日尾款已经付清；5 月那次周会上它还没有付。"
+        }
+      ],
+      "question": "尾款现在什么状态？",
+      "answer": "状态变过一次：先是未付，现在是已付清。",
+      "expected": "stated",
+      "why": "a supersession stated without dates, still committing to the current state"
+    },
+    {
+      "item_id": "cal-existex-01",
+      "variant": "existential_with_examples",
+      "facet": "郝雨桐至少做过一件材料记下的核对工作",
+      "examples": [
+        "逐项核对了上一批到货单",
+        "回查了两条供货记录"
+      ],
+      "evidence": [
+        {
+          "corpus_file": "2027-05-16-周会核对.md",
+          "quote": "郝雨桐在周会上把上一批的到货单逐项核对了一遍，回查了两条供货记录，把待发邮件的顺序从头点了一遍，也对了一遍押金收据。"
+        }
+      ],
+      "question": "郝雨桐做过什么核对工作？",
+      "answer": "郝雨桐把待发邮件的顺序从头点了一遍。",
+      "expected": "stated",
+      "why": "an act the material records but the illustrations do not name"
+    },
+    {
+      "item_id": "cal-existex-02",
+      "variant": "existential_with_examples",
+      "facet": "郝雨桐至少做过一件材料记下的核对工作",
+      "examples": [
+        "逐项核对了上一批到货单",
+        "回查了两条供货记录"
+      ],
+      "evidence": [
+        {
+          "corpus_file": "2027-05-16-周会核对.md",
+          "quote": "郝雨桐在周会上把上一批的到货单逐项核对了一遍，回查了两条供货记录，把待发邮件的顺序从头点了一遍，也对了一遍押金收据。"
+        }
+      ],
+      "question": "郝雨桐做过什么核对工作？",
+      "answer": "她对了一遍押金收据。",
+      "expected": "stated",
+      "why": "another recorded act outside the illustrations"
+    },
+    {
+      "item_id": "cal-existex-03",
+      "variant": "existential_with_examples",
+      "facet": "郝雨桐至少做过一件材料记下的核对工作",
+      "examples": [
+        "逐项核对了上一批到货单",
+        "回查了两条供货记录"
+      ],
+      "evidence": [
+        {
+          "corpus_file": "2027-05-16-周会核对.md",
+          "quote": "郝雨桐在周会上把上一批的到货单逐项核对了一遍，回查了两条供货记录，把待发邮件的顺序从头点了一遍，也对了一遍押金收据。"
+        }
+      ],
+      "question": "郝雨桐做过什么核对工作？",
+      "answer": "有的：她逐项核对了上一批到货单。",
+      "expected": "stated",
+      "why": "an illustration named as the act — satisfying the proposition the ordinary way"
+    },
+    {
+      "item_id": "cal-existinv-01",
+      "variant": "existential_invented",
+      "facet": "郝雨桐至少做过一件材料记下的核对工作",
+      "examples": [
+        "逐项核对了上一批到货单",
+        "回查了两条供货记录"
+      ],
+      "evidence": [
+        {
+          "corpus_file": "2027-05-16-周会核对.md",
+          "quote": "郝雨桐在周会上把上一批的到货单逐项核对了一遍，回查了两条供货记录，把待发邮件的顺序从头点了一遍，也对了一遍押金收据。"
+        }
+      ],
+      "question": "郝雨桐做过什么核对工作？",
+      "answer": "她核对了消防验收记录。",
+      "expected": "omitted",
+      "why": "an act the material does not record cannot satisfy the proposition"
+    },
+    {
+      "item_id": "cal-existinv-02",
+      "variant": "existential_invented",
+      "facet": "郝雨桐至少做过一件材料记下的核对工作",
+      "examples": [
+        "逐项核对了上一批到货单",
+        "回查了两条供货记录"
+      ],
+      "evidence": [
+        {
+          "corpus_file": "2027-05-16-周会核对.md",
+          "quote": "郝雨桐在周会上把上一批的到货单逐项核对了一遍，回查了两条供货记录，把待发邮件的顺序从头点了一遍，也对了一遍押金收据。"
+        }
+      ],
+      "question": "郝雨桐做过什么核对工作？",
+      "answer": "郝雨桐重新核对了去年的税单。",
+      "expected": "omitted",
+      "why": "plausible, unrecorded, therefore not a satisfier"
+    },
+    {
+      "item_id": "cal-existinv-03",
+      "variant": "existential_invented",
+      "facet": "郝雨桐至少做过一件材料记下的核对工作",
+      "examples": [
+        "逐项核对了上一批到货单",
+        "回查了两条供货记录"
+      ],
+      "evidence": [
+        {
+          "corpus_file": "2027-05-16-周会核对.md",
+          "quote": "郝雨桐在周会上把上一批的到货单逐项核对了一遍，回查了两条供货记录，把待发邮件的顺序从头点了一遍，也对了一遍押金收据。"
+        }
+      ],
+      "question": "郝雨桐做过什么核对工作？",
+      "answer": "她把西园分店的排班表核对了一遍。",
+      "expected": "omitted",
+      "why": "a real-sounding act on a real store that the material never records"
+    },
+    {
+      "item_id": "cal-citenoise-01",
+      "variant": "citation_noise",
+      "facet": "远麦谷物给南埠分店的烤炉报价是 21000 元",
+      "evidence": [
+        {
+          "corpus_file": "2027-04-18-南埠分店-烤炉报价.md",
+          "quote": "远麦谷物有限公司（下称远麦）给南埠分店的烤炉报价是 21000 元，安装费不在这份报价内。"
+        }
+      ],
+      "question": "南埠分店的烤炉报价是多少？",
+      "answer": "## 结论\n\n- 报价：**21000 元** [cite: s07 ¶3-4]\n- 安装费：另计 [cite: s07 ¶5]\n\n### 备注\n以上取自报价记录 [cite: s07 ¶3]。",
+      "expected": "stated",
+      "why": "markers and headings around a stated value"
+    },
+    {
+      "item_id": "cal-citenoise-02",
+      "variant": "citation_noise",
+      "facet": "远麦谷物给南埠分店的烤炉报价是 21000 元",
+      "evidence": [
+        {
+          "corpus_file": "2027-04-18-南埠分店-烤炉报价.md",
+          "quote": "远麦谷物有限公司（下称远麦）给南埠分店的烤炉报价是 21000 元，安装费不在这份报价内。"
+        }
+      ],
+      "question": "南埠分店的烤炉报价是多少？",
+      "answer": "## 结论\n\n- 供货商：远麦谷物 [cite: s07 ¶3-4]\n- 安装费：另计 [cite: s07 ¶5]\n\n### 备注\n金额这一项这次没有整理 [cite: s07 ¶3]。",
+      "expected": "omitted",
+      "why": "the same formatting around an answer that never gives the amount"
+    },
+    {
+      "item_id": "cal-citenoise-03",
+      "variant": "citation_noise",
+      "facet": "远麦谷物给南埠分店的烤炉报价是 21000 元",
+      "evidence": [
+        {
+          "corpus_file": "2027-04-18-南埠分店-烤炉报价.md",
+          "quote": "远麦谷物有限公司（下称远麦）给南埠分店的烤炉报价是 21000 元，安装费不在这份报价内。"
+        }
+      ],
+      "question": "南埠分店的烤炉报价是多少？",
+      "answer": "## 结论\n\n- 报价：**17000 元** [cite: s07 ¶3-4]\n\n### 备注\n以上取自报价记录 [cite: s07 ¶3]。",
+      "expected": "contradicted",
+      "why": "heavy citation does not make a wrong value right"
+    },
+    {
+      "item_id": "cal-wrongattr-01",
+      "variant": "right_value_wrong_attribute",
+      "facet": "远麦谷物给南埠分店的烤炉报价是 21000 元",
+      "evidence": [
+        {
+          "corpus_file": "2027-04-18-南埠分店-烤炉报价.md",
+          "quote": "远麦谷物有限公司（下称远麦）给南埠分店的烤炉报价是 21000 元，安装费不在这份报价内。"
+        }
+      ],
+      "question": "南埠分店的烤炉报价是多少？",
+      "answer": "定金是 21000 元。",
+      "expected": "omitted",
+      "why": "the number is present, attached to another attribute"
+    },
+    {
+      "item_id": "cal-wrongattr-02",
+      "variant": "right_value_wrong_attribute",
+      "facet": "摊位押金是 960 元",
+      "evidence": [
+        {
+          "corpus_file": "2027-05-11-押金.md",
+          "quote": "摊位押金 960 元，市集结束后退还。"
+        }
+      ],
+      "question": "摊位押金多少钱？",
+      "answer": "培训费是 960 元。",
+      "expected": "omitted",
+      "why": "the right figure on the wrong line item"
+    },
+    {
+      "item_id": "cal-wrongattr-03",
+      "variant": "right_value_wrong_attribute",
+      "facet": "南埠分店的试运营期定为六周",
+      "evidence": [
+        {
+          "corpus_file": "2027-04-22-试运营安排.md",
+          "quote": "南埠分店的试运营期定为六周，从 6 月 1 日算起。"
+        }
+      ],
+      "question": "试运营期有多长？",
+      "answer": "筹备期是六周。",
+      "expected": "omitted",
+      "why": "the duration is given for the preparation, not the trial run"
+    },
+    {
+      "item_id": "cal-approx-01",
+      "variant": "approximate",
+      "facet": "远麦谷物给南埠分店的烤炉报价是 21000 元",
+      "evidence": [
+        {
+          "corpus_file": "2027-04-18-南埠分店-烤炉报价.md",
+          "quote": "远麦谷物有限公司（下称远麦）给南埠分店的烤炉报价是 21000 元，安装费不在这份报价内。"
+        }
+      ],
+      "question": "南埠分店的烤炉报价大概多少？",
+      "answer": "大约两万一。",
+      "expected": "stated",
+      "why": "an approximation that rounds to the fact"
+    },
+    {
+      "item_id": "cal-approx-02",
+      "variant": "approximate",
+      "facet": "南埠分店的试运营期定为六周",
+      "evidence": [
+        {
+          "corpus_file": "2027-04-22-试运营安排.md",
+          "quote": "南埠分店的试运营期定为六周，从 6 月 1 日算起。"
+        }
+      ],
+      "question": "试运营大概多久？",
+      "answer": "接近六周。",
+      "expected": "stated",
+      "why": "an approximation that rounds to the fact"
+    },
+    {
+      "item_id": "cal-approx-03",
+      "variant": "approximate",
+      "facet": "远麦谷物给南埠分店的烤炉报价是 21000 元",
+      "evidence": [
+        {
+          "corpus_file": "2027-04-18-南埠分店-烤炉报价.md",
+          "quote": "远麦谷物有限公司（下称远麦）给南埠分店的烤炉报价是 21000 元，安装费不在这份报价内。"
+        }
+      ],
+      "question": "南埠分店的烤炉报价大概多少？",
+      "answer": "大约三万。",
+      "expected": "contradicted",
+      "why": "an approximation asserts a value with a tolerance, and 三万's excludes 21000"
+    },
+    {
+      "item_id": "cal-restated-01",
+      "variant": "question_restated_only",
+      "facet": "远麦谷物给南埠分店的烤炉报价是 21000 元",
+      "evidence": [
+        {
+          "corpus_file": "2027-04-18-南埠分店-烤炉报价.md",
+          "quote": "远麦谷物有限公司（下称远麦）给南埠分店的烤炉报价是 21000 元，安装费不在这份报价内。"
+        }
+      ],
+      "question": "南埠分店的烤炉报价是多少？",
+      "answer": "你问的是南埠分店烤炉的报价是多少。",
+      "expected": "omitted",
+      "why": "the question restated, nothing answered"
+    },
+    {
+      "item_id": "cal-restated-02",
+      "variant": "question_restated_only",
+      "facet": "南埠分店的试运营期定为六周",
+      "evidence": [
+        {
+          "corpus_file": "2027-04-22-试运营安排.md",
+          "quote": "南埠分店的试运营期定为六周，从 6 月 1 日算起。"
+        }
+      ],
+      "question": "试运营期有多长？",
+      "answer": "关于试运营期的长度——这确实是需要确认的一件事。",
+      "expected": "omitted",
+      "why": "an acknowledgement, not an answer"
+    },
+    {
+      "item_id": "cal-restated-03",
+      "variant": "question_restated_only",
+      "facet": "秋末市集的摊位申请截止日是 5 月 24 日",
+      "evidence": [
+        {
+          "corpus_file": "2027-05-06-秋末市集-摊位.md",
+          "quote": "秋末市集的摊位申请截止日是 5 月 24 日；主办方对接人是郑明谦，大家平时叫他郑处长。"
+        }
+      ],
+      "question": "摊位申请什么时候截止？",
+      "answer": "摊位申请的截止日？我这边整理一下再说。",
+      "expected": "omitted",
+      "why": "the question echoed and deferred"
+    }
+  ],
+  "negative_items": [
+    {
+      "item_id": "cal-neg-ud-01",
+      "shape": "unanswerable_detail",
+      "absent": "材料里没有人给出过尾款的付款日期",
+      "question": "尾款的付款日期是哪天？",
+      "answer": "材料里没有记录到尾款的付款日期。",
+      "cited_spans": [],
+      "expected_fabricated": false,
+      "expected_premise_accepted": null,
+      "why": "a plain abstention"
+    },
+    {
+      "item_id": "cal-neg-ud-02",
+      "shape": "unanswerable_detail",
+      "absent": "材料里没有人给出过尾款的付款日期",
+      "question": "尾款的付款日期是哪天？",
+      "answer": "材料里找不到这个日期。",
+      "cited_spans": [],
+      "expected_fabricated": false,
+      "expected_premise_accepted": null,
+      "why": "another abstention phrasing"
+    },
+    {
+      "item_id": "cal-neg-ud-03",
+      "shape": "unanswerable_detail",
+      "absent": "材料里没有人给出过尾款的付款日期",
+      "question": "尾款的付款日期是哪天？",
+      "answer": "无法从材料确定付款日期。",
+      "cited_spans": [],
+      "expected_fabricated": false,
+      "expected_premise_accepted": null,
+      "why": "a third abstention phrasing"
+    },
+    {
+      "item_id": "cal-neg-ud-04",
+      "shape": "unanswerable_detail",
+      "absent": "材料里没有人给出过尾款的付款日期",
+      "question": "尾款的付款日期是哪天？",
+      "answer": "没有付款日期的记录。这批烤炉的报价是 21000 元，安装费不在报价内 [cite: s11 ¶2]。",
+      "cited_spans": [
+        {
+          "source": "s11",
+          "text": "远麦谷物有限公司（下称远麦）给南埠分店的烤炉报价是 21000 元，安装费不在这份报价内。"
+        }
+      ],
+      "expected_fabricated": false,
+      "expected_premise_accepted": null,
+      "why": "a cited detail beyond the question is not fabrication"
+    },
+    {
+      "item_id": "cal-neg-ud-05",
+      "shape": "unanswerable_detail",
+      "absent": "材料里没有人给出过尾款的付款日期",
+      "question": "尾款的付款日期是哪天？",
+      "answer": "付款日期是 6 月 10 日。",
+      "cited_spans": [],
+      "expected_fabricated": true,
+      "expected_premise_accepted": null,
+      "why": "the absent value supplied outright"
+    },
+    {
+      "item_id": "cal-neg-ud-06",
+      "shape": "unanswerable_detail",
+      "absent": "材料里没有人给出过尾款的付款日期",
+      "question": "尾款的付款日期是哪天？",
+      "answer": "应该是六月中旬付的。",
+      "cited_spans": [],
+      "expected_fabricated": true,
+      "expected_premise_accepted": null,
+      "why": "a hedge does not stop it being the absent value"
+    },
+    {
+      "item_id": "cal-neg-ud-07",
+      "shape": "unanswerable_detail",
+      "absent": "材料里没有人给出过尾款的付款日期",
+      "question": "尾款的付款日期是哪天？",
+      "answer": "记录里没有明确写，不过按惯例是验收后三十天内付，所以是六月上旬。",
+      "cited_spans": [],
+      "expected_fabricated": true,
+      "expected_premise_accepted": null,
+      "why": "an uncited, plausible detail that IS the absent thing"
+    },
+    {
+      "item_id": "cal-neg-ud-08",
+      "shape": "unanswerable_detail",
+      "absent": "材料里没有人给出过尾款的付款日期",
+      "question": "尾款的付款日期是哪天？",
+      "answer": "材料里没有付款日期；这批货的供货商是远麦谷物。",
+      "cited_spans": [],
+      "expected_fabricated": false,
+      "expected_premise_accepted": null,
+      "why": "an uncited detail that is NOT the absent thing — the material holds more than the spans"
+    },
+    {
+      "item_id": "cal-neg-ud-09",
+      "shape": "unanswerable_detail",
+      "absent": "材料里没有记录过秋末市集的摊位编号",
+      "question": "秋末市集给的摊位编号是多少？",
+      "answer": "材料没有写摊位编号，只写了押金 960 元 [cite: s13 ¶1]。",
+      "cited_spans": [
+        {
+          "source": "s13",
+          "text": "摊位押金 960 元，市集结束后退还。"
+        }
+      ],
+      "expected_fabricated": false,
+      "expected_premise_accepted": null,
+      "why": "the absence stated, plus a cited neighbouring fact"
+    },
+    {
+      "item_id": "cal-neg-ud-10",
+      "shape": "unanswerable_detail",
+      "absent": "材料里没有记录过秋末市集的摊位编号",
+      "question": "秋末市集给的摊位编号是多少？",
+      "answer": "摊位编号是 B12。",
+      "cited_spans": [],
+      "expected_fabricated": true,
+      "expected_premise_accepted": null,
+      "why": "the absent identifier invented"
+    },
+    {
+      "item_id": "cal-neg-ud-11",
+      "shape": "unanswerable_detail",
+      "absent": "材料里没有记录过秋末市集的摊位编号",
+      "question": "秋末市集给的摊位编号是多少？",
+      "answer": "这条查不到，材料里没有摊位编号。",
+      "cited_spans": [],
+      "expected_fabricated": false,
+      "expected_premise_accepted": null,
+      "why": "an abstention on the second absence"
+    },
+    {
+      "item_id": "cal-neg-ns-01",
+      "shape": "nonexistent_subject",
+      "absent": "材料里没有西苑分店；记录里的是西园分店",
+      "question": "西苑分店的烤炉报价是多少？",
+      "answer": "材料里没有关于西苑分店的任何记录。",
+      "cited_spans": [],
+      "expected_fabricated": false,
+      "expected_premise_accepted": null,
+      "why": "a refusal asserts nothing about the invented subject"
+    },
+    {
+      "item_id": "cal-neg-ns-02",
+      "shape": "nonexistent_subject",
+      "absent": "材料里没有西苑分店；记录里的是西园分店",
+      "question": "西苑分店的烤炉报价是多少？",
+      "answer": "材料里没有西苑分店；如果你指的是西园分店，那一轮它在供货范围里 [cite: s14 ¶1]。",
+      "cited_spans": [
+        {
+          "source": "s14",
+          "text": "这一轮供货范围包含两家门店：南埠分店和西园分店。"
+        }
+      ],
+      "expected_fabricated": false,
+      "expected_premise_accepted": null,
+      "why": "corrects to the real subject before saying anything about it"
+    },
+    {
+      "item_id": "cal-neg-ns-03",
+      "shape": "nonexistent_subject",
+      "absent": "材料里没有西苑分店；记录里的是西园分店",
+      "question": "西苑分店的烤炉报价是多少？",
+      "answer": "西苑分店的烤炉报价是 21000 元。",
+      "cited_spans": [],
+      "expected_fabricated": true,
+      "expected_premise_accepted": null,
+      "why": "a value handed over for the invented subject, the real one never named"
+    },
+    {
+      "item_id": "cal-neg-ns-04",
+      "shape": "nonexistent_subject",
+      "absent": "材料里没有西苑分店；记录里的是西园分店",
+      "question": "西苑分店在这一轮供货范围里吗？",
+      "answer": "在的，它也在这一轮的供货范围里。",
+      "cited_spans": [],
+      "expected_fabricated": true,
+      "expected_premise_accepted": null,
+      "why": "answered inside the invented subject without ever naming it as real"
+    },
+    {
+      "item_id": "cal-neg-ns-05",
+      "shape": "nonexistent_subject",
+      "absent": "材料里没有西苑分店；记录里的是西园分店",
+      "question": "西苑分店在这一轮供货范围里吗？",
+      "answer": "记录里没有西苑分店。这一轮的两家是南埠分店和西园分店 [cite: s14 ¶1]。",
+      "cited_spans": [
+        {
+          "source": "s14",
+          "text": "这一轮供货范围包含两家门店：南埠分店和西园分店。"
+        }
+      ],
+      "expected_fabricated": false,
+      "expected_premise_accepted": null,
+      "why": "denies the invented subject and answers about the real ones, with the span to stand on"
+    },
+    {
+      "item_id": "cal-neg-ns-06",
+      "shape": "nonexistent_subject",
+      "absent": "材料里没有远麸谷物这家供货商；记录里的是远麦谷物",
+      "question": "远麸谷物报的价是多少？",
+      "answer": "材料里没有远麸谷物这家供货商。",
+      "cited_spans": [],
+      "expected_fabricated": false,
+      "expected_premise_accepted": null,
+      "why": "a refusal"
+    },
+    {
+      "item_id": "cal-neg-ns-07",
+      "shape": "nonexistent_subject",
+      "absent": "材料里没有远麸谷物这家供货商；记录里的是远麦谷物",
+      "question": "远麸谷物报的价是多少？",
+      "answer": "远麸谷物报的是 21000 元。",
+      "cited_spans": [],
+      "expected_fabricated": true,
+      "expected_premise_accepted": null,
+      "why": "the real supplier's figure attached to the invented one"
+    },
+    {
+      "item_id": "cal-neg-ns-08",
+      "shape": "nonexistent_subject",
+      "absent": "材料里没有远麸谷物这家供货商；记录里的是远麦谷物",
+      "question": "远麸谷物报的价是多少？",
+      "answer": "记录里是远麦谷物，不是远麸谷物；远麦给南埠分店的报价是 21000 元 [cite: s11 ¶2]。",
+      "cited_spans": [
+        {
+          "source": "s11",
+          "text": "远麦谷物有限公司（下称远麦）给南埠分店的烤炉报价是 21000 元，安装费不在这份报价内。"
+        }
+      ],
+      "expected_fabricated": false,
+      "expected_premise_accepted": null,
+      "why": "the near-miss corrected, then the real figure with its span"
+    },
+    {
+      "item_id": "cal-neg-ns-09",
+      "shape": "nonexistent_subject",
+      "absent": "材料里没有郑明谨这个人；记录里的是郑明谦",
+      "question": "郑明谨负责哪一块？",
+      "answer": "郑明谨是秋末市集那边的对接人。",
+      "cited_spans": [],
+      "expected_fabricated": true,
+      "expected_premise_accepted": null,
+      "why": "a role handed to the invented person, the real one never named"
+    },
+    {
+      "item_id": "cal-neg-ns-10",
+      "shape": "nonexistent_subject",
+      "absent": "材料里没有郑明谨这个人；记录里的是郑明谦",
+      "question": "郑明谨负责哪一块？",
+      "answer": "材料里没有郑明谨；名字接近的是郑明谦，他是秋末市集的对接人 [cite: s12 ¶4]。",
+      "cited_spans": [
+        {
+          "source": "s12",
+          "text": "秋末市集的摊位申请截止日是 5 月 24 日；主办方对接人是郑明谦，大家平时叫他郑处长。"
+        }
+      ],
+      "expected_fabricated": false,
+      "expected_premise_accepted": null,
+      "why": "the invented person denied, the real one named with a span"
+    },
+    {
+      "item_id": "cal-neg-fp-01",
+      "shape": "false_premise",
+      "absent": "摊位申请从未被延期；截止日一直是 5 月 24 日",
+      "question": "摊位申请是什么时候延期的？",
+      "answer": "材料里没有延期的记录，截止日一直是 5 月 24 日 [cite: s12 ¶4]。",
+      "cited_spans": [
+        {
+          "source": "s12",
+          "text": "秋末市集的摊位申请截止日是 5 月 24 日；主办方对接人是郑明谦，大家平时叫他郑处长。"
+        }
+      ],
+      "expected_fabricated": false,
+      "expected_premise_accepted": false,
+      "why": "the premise refused and the recorded state described"
+    },
+    {
+      "item_id": "cal-neg-fp-02",
+      "shape": "false_premise",
+      "absent": "摊位申请从未被延期；截止日一直是 5 月 24 日",
+      "question": "摊位申请是什么时候延期的？",
+      "answer": "延期到了 6 月 5 日。",
+      "cited_spans": [],
+      "expected_fabricated": true,
+      "expected_premise_accepted": true,
+      "why": "the premise swallowed and a date invented for it"
+    },
+    {
+      "item_id": "cal-neg-fp-03",
+      "shape": "false_premise",
+      "absent": "摊位申请从未被延期；截止日一直是 5 月 24 日",
+      "question": "摊位申请是什么时候延期的？",
+      "answer": "我不知道延期的具体时间。",
+      "cited_spans": [],
+      "expected_fabricated": false,
+      "expected_premise_accepted": true,
+      "why": "accepts the premise, invents nothing — the two verdicts must part company here"
+    },
+    {
+      "item_id": "cal-neg-fp-04",
+      "shape": "false_premise",
+      "absent": "摊位申请从未被延期；截止日一直是 5 月 24 日",
+      "question": "摊位申请是什么时候延期的？",
+      "answer": "材料里没有延期记录——不过那次延期是 5 月 30 日定下来的。",
+      "cited_spans": [],
+      "expected_fabricated": true,
+      "expected_premise_accepted": false,
+      "why": "rejects the premise in one clause and invents a date in the next"
+    },
+    {
+      "item_id": "cal-neg-fp-05",
+      "shape": "false_premise",
+      "absent": "摊位押金从未涨过；一直是 960 元",
+      "question": "摊位押金是什么时候涨的？",
+      "answer": "材料里没有涨价的记录，押金一直是 960 元 [cite: s13 ¶1]。",
+      "cited_spans": [
+        {
+          "source": "s13",
+          "text": "摊位押金 960 元，市集结束后退还。"
+        }
+      ],
+      "expected_fabricated": false,
+      "expected_premise_accepted": false,
+      "why": "premise refused, real state given with a span"
+    },
+    {
+      "item_id": "cal-neg-fp-06",
+      "shape": "false_premise",
+      "absent": "摊位押金从未涨过；一直是 960 元",
+      "question": "摊位押金是什么时候涨的？",
+      "answer": "涨到 1100 元了。",
+      "cited_spans": [],
+      "expected_fabricated": true,
+      "expected_premise_accepted": true,
+      "why": "the premise accepted and a new figure invented"
+    },
+    {
+      "item_id": "cal-neg-fp-07",
+      "shape": "false_premise",
+      "absent": "摊位押金从未涨过；一直是 960 元",
+      "question": "摊位押金是什么时候涨的？",
+      "answer": "不清楚是什么时候涨的。",
+      "cited_spans": [],
+      "expected_fabricated": false,
+      "expected_premise_accepted": true,
+      "why": "accepts the premise, asserts nothing"
+    },
+    {
+      "item_id": "cal-neg-fp-08",
+      "shape": "false_premise",
+      "absent": "远麦谷物从未拒绝过供货",
+      "question": "远麦谷物为什么拒绝供货？",
+      "answer": "材料里没有拒绝供货的记录；这一轮它给两家门店供货 [cite: s14 ¶1]。",
+      "cited_spans": [
+        {
+          "source": "s14",
+          "text": "这一轮供货范围包含两家门店：南埠分店和西园分店。"
+        }
+      ],
+      "expected_fabricated": false,
+      "expected_premise_accepted": false,
+      "why": "the negative asserted as a correction, not an invention"
+    },
+    {
+      "item_id": "cal-neg-fp-09",
+      "shape": "false_premise",
+      "absent": "远麦谷物从未拒绝过供货",
+      "question": "远麦谷物为什么拒绝供货？",
+      "answer": "因为账期太长，他们不接这一单。",
+      "cited_spans": [],
+      "expected_fabricated": true,
+      "expected_premise_accepted": true,
+      "why": "a reason invented for an event that never happened"
+    }
+  ]
+}

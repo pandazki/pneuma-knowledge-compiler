@@ -1,0 +1,1 @@
+{"case_id":"miss-ns-04","verdict":"sound","issues":[],"corpus_files_read":["my-data/2026-03-27-三类来源入口-只做可见性检查.md","my-data/2026-03-27-云麓材料入口.md"],"notes":"全量检查190个Markdown文件及OWNER_DIALOGUE后，「陈昉」出现于0个文件；真实近似姓名是「陈放」。证据引文逐字存在于指定文件，且另一份同日原始对话确认陈放给出的三项入口。未发现后来材料引入或更正出「陈昉」。"}

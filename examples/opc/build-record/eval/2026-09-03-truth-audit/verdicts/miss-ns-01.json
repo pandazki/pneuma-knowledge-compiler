@@ -1,0 +1,1 @@
+{"case_id":"miss-ns-01","verdict":"sound","issues":[],"corpus_files_read":["my-data/2026-03-21-云麓试点边界与只读副本清单.md","my-data/2026-04-05-同姓候选关系核对表.md","my-data/2026-04-12-事故说明-同姓记录错误关联与当前处置.md","build-record/exercise.py::OWNER_DIALOGUE"],"notes":"全量检索190个 my-data 文件及完整 OWNER_DIALOGUE 后，「云岭」及其繁体形式均为零命中；语料明确存在云麓和澄湾两个不同项目。证据引文是指定文件中的逐字子串，as_of 与文件日期一致。"}
