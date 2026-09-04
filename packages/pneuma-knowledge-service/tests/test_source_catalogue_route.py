@@ -60,6 +60,7 @@ class _Store:
         before: tuple[datetime, str] | None = None,
         query: str | None = None,
         kind: str | None = None,
+        include_archived: bool = False,
     ) -> tuple[list[RawSource], int, bool]:
         self.limits.append(limit)
         return list(self._raws), len(self._raws), False

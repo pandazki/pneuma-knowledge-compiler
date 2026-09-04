@@ -40,6 +40,7 @@ from pneuma_knowledge_core.prompts import chinese_overlay, prompt
 from pneuma_knowledge_core.recall.fast import RetrievedClaim
 from pneuma_knowledge_core.recall.live_pipeline import (
     LEDE_CHARS,
+    SKIP_CANONICAL_UNAVAILABLE,
     SKIP_DUPLICATE,
     SKIP_LOW_CONFIDENCE,
     SKIP_LOW_WORTH,
@@ -1566,8 +1567,8 @@ VOLUME_CLAIM = claim(
 
 def test_a_candidate_from_a_frozen_volume_is_named_after_the_document_it_is_history_of():
     (card,) = build_candidates(claims=[VOLUME_CLAIM], documents=[LUMEN, LUMEN_VOLUME])
-    assert card.title == "Lumen Lab (archive a02)"
-    assert card.subject_label == "Lumen Lab (archive a02)"
+    assert card.title == "Lumen Lab (vol. a02)"
+    assert card.subject_label == "Lumen Lab (vol. a02)"
     # The subject stays the ADDRESS — it is the session dedup key, not a display name.
     assert card.subject == "projects/lumenlab/a02.md"
     assert card.context == (
@@ -1583,7 +1584,7 @@ def test_the_pick_prompt_states_whose_history_a_volume_candidate_is():
     rendered = render_candidates(
         build_candidates(claims=[VOLUME_CLAIM], documents=[LUMEN, LUMEN_VOLUME])
     )
-    assert rendered.splitlines()[0] == "## 1 · [fact] Lumen Lab (archive a02)"
+    assert rendered.splitlines()[0] == "## 1 · [fact] Lumen Lab (vol. a02)"
     assert rendered.splitlines()[2] == (
         "about: projects/lumenlab/a02.md — Lumen Lab (projects/lumenlab.md) — "
         "Lumen Lab builds optical benches for the agent-memory group."
@@ -1604,7 +1605,7 @@ def test_a_routed_paths_card_keeps_its_own_title_and_borrows_only_the_page_ident
     )
     (card,) = build_candidates(component=[evidence], documents=[LUMEN, LUMEN_VOLUME])
     assert card.title == "Lumen Lab", "the path's own argument, unchanged"
-    assert card.subject_label == "Lumen Lab (archive a02)", "…but never `a02` in the digest"
+    assert card.subject_label == "Lumen Lab (vol. a02)", "…but never `a02` in the digest"
     assert card.context.startswith("Lumen Lab (projects/lumenlab.md) — ")
 
 
@@ -1644,7 +1645,7 @@ def test_the_delivered_card_carries_the_same_name_and_the_line_in_its_evidence()
         cards,
     )
     assert reason == "" and card is not None
-    assert card.title == "Lumen Lab (archive a02)"
+    assert card.title == "Lumen Lab (vol. a02)"
     assert card.evidence.splitlines()[0] == (
         "about: Lumen Lab (projects/lumenlab.md) — "
         "Lumen Lab builds optical benches for the agent-memory group."
@@ -1847,6 +1848,19 @@ BENCH = CanonicalDocument(
 )
 
 
+#: The page `PERSON_PAGE`'s claims live on. A component only ever answers about pages the
+#: library HAS — the lane hands it the same document set it holds — and since the assembly
+#: filter now admits a claim only when that set still contains its page (a moved document's
+#: L3 rows keep the old path until the projection syncs), a fixture that omits the page is a
+#: fixture describing a library the claims could not have come from.
+LIN_SHU = CanonicalDocument(
+    doc_id=DocumentId("d-lin-shu"),
+    path="people/lin-shu.md",
+    frontmatter={"doc_id": "d-lin-shu", "type": "person", "slug": "lin-shu"},
+    body="# 林舒\n\n- 林舒 is the agent-memory lead. <!-- c:a1a1 -->\n",
+)
+
+
 def subject_plan(value: str, kind: str = "people_around") -> PlanEntry:
     return PlanEntry(kind=kind, args=[PlanArg(name="subject", value=value)])
 
@@ -1929,7 +1943,7 @@ async def test_a_full_card_about_a_different_subject_settles_the_glance_and_queu
         discover=discovered(intent="i", plan=[subject_plan("Lumen Lab")], worth=9),
         pick=PickResult(choice=1, lede="a different matter", citations=[1], confidence=9),
         paths=[SlowPath(PERSON_PAGE)],
-        documents=[LUMEN],
+        documents=[LUMEN, LIN_SHU],
     )
     assert result.glance_outcome == "settled"
     [card] = result.suggestions
@@ -2147,15 +2161,39 @@ async def test_a_real_plan_pays_it_exactly_once():
 
 
 @pytest.mark.asyncio
-async def test_a_failing_canonical_read_costs_the_glance_and_never_the_tick():
+async def test_live_context_skips_the_tick_when_canonical_is_unreadable():
+    """A failed read is not an empty library, and it is not a tick that may retrieve anyway.
+
+    The document set IS this lane's archive pin (`archive_filter._off_pin`): a claim is
+    admitted only while the set still holds its page, which is what drops an L3 row still
+    carrying a moved page's old live path. Continuing with None would pin nothing and put
+    every one of those rows on a card, unlabelled, in a room that never asked for history.
+    So the tick ends here — silence for one turn, and the next turn tries again."""
+    reached = []
+
     async def broken():
         raise RuntimeError("git is busy")
 
-    result, _, _, _, _, _ = await run_lane(
+    class Watched(SlowPath):
+        async def run(self, *args, **kwargs):  # noqa: ANN002, ANN003, ANN001
+            reached.append(1)
+            return await super().run(*args, **kwargs)
+
+    result, _, pick_model, lexical, vectors, _ = await run_lane(
         discover=discovered(intent="i", plan=[subject_plan("Lumen Lab")], worth=9),
-        pick=PickResult(choice=0, confidence=9),
-        paths=[SlowPath(PATH_HIT := PathResult(claims=(claim("z9", "d.md", "still here"),)))],
+        pick=PickResult(choice=1, confidence=9),
+        paths=[Watched(PathResult(claims=(claim("z9", "d.md", "still here"),)))],
         load_documents=broken,
     )
-    assert result.glance_state == "miss"
-    assert result.skipped != "", "the tick itself ran to its own ending"
+    assert result.skipped == SKIP_CANONICAL_UNAVAILABLE
+    assert result.dropped == {SKIP_CANONICAL_UNAVAILABLE: 1}
+    assert result.suggestions == (), "nothing unpinned reaches the room"
+    assert result.glance is None and result.glance_state == "miss"
+    # And it stops BEFORE retrieval, not after: the pin is missing, so there is nothing the
+    # tick could do with what the indexes or the paths would have returned.
+    assert reached == [], "no path ran"
+    assert lexical.queries == [] and vectors.calls == 0
+    assert pick_model.calls == [], "and the pick call was never spent"
+    # The plan it had already formed is still reported — a silent tick has to say what it
+    # was about to do, or the Processing tab shows a blank where a deployment fault was.
+    assert result.intent == "i" and result.plan

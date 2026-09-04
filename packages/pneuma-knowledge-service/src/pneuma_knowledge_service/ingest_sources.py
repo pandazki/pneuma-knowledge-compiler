@@ -28,11 +28,20 @@ async def ingest_source_contract(
     contract: SourceContract,
     *,
     imported_at: datetime | None = None,
+    intake_plan: IntakePlan | None = None,
 ) -> OfficialIngestResult:
     """Import a canonical bundle at its natural citation boundaries.
 
     Every expanded source follows the existing append-only path: L0 is persisted
     synchronously, then L1/L2 indexing and L3 compilation are queued.
+
+    `intake_plan` OVERRIDES the mechanical proposal for every source in this bundle. It
+    exists for one caller and states one thing the policy cannot know: the archive job
+    ingests the Owner's statement with `canonical_treatment: none`, because the archive
+    RECORD is already that statement's canonical expression, written mechanically in the
+    same commit as the move. A compile of the same statement would paraphrase the decision
+    onto whatever pages the model thought it touched. The statement is still fully indexed
+    (`semantic_indexing: full`) and fully addressable, exactly like any other L0.
     """
 
     assert_writable(user_id)  # a frozen snapshot tenant is never written (snapshot_tenant.py)
@@ -68,7 +77,7 @@ async def ingest_source_contract(
     for normalized in normalized_sources:
         raw = normalized.raw
         char_count = sum(len(block.text) for block in normalized.blocks)
-        plan = propose_intake(
+        plan = intake_plan or propose_intake(
             raw.kind,
             raw.source_class,
             char_count,

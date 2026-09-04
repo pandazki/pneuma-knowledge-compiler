@@ -46,6 +46,8 @@ from ..access_stats import (
     run_recall_projection_job,
     run_recall_rebuild_job,
 )
+from ..archive_service import ARCHIVE_JOB_KIND
+from .archive_job import run_archive_job
 from ..groom_service import GROOM_JOB_KIND, maybe_trigger_rollover, run_groom_job
 from ..ingest_document import _summary_chunks
 from ..projection import sync_projection
@@ -69,6 +71,41 @@ def _projection_detail(projection: object) -> str:
     return "projection:" + json.dumps(
         asdict(projection), sort_keys=True, separators=(",", ":")
     )
+
+
+def _with_run_facts(detail: str, result: object) -> str:
+    """Append what this compile RUN cost and refused to the job's completion detail.
+
+    Two facts, both of which the outcome's own detail cannot carry, appended after it and
+    never substituted for it — the projection figures and the gate's violations are what the
+    detail already means:
+
+    - `rounds:<n>` — one round, or two because the first failed the gate and the repair round
+      ran. On EVERY branch, including `aborted`: a repair that was attempted and still could
+      not pass is the most expensive shape a compile has, and it is invisible next to a
+      one-round abort unless the number is written down. It sits beside `token_usage` in
+      what a finished job can say about what it cost.
+    - `archive_refusals:[…]` — the one moment the framework learns that new material was
+      about a subject the owner RETIRED. The compile was stopped from writing it, and
+      without this the owner would never hear that it was attempted
+      (docs/design/archive.md §2.1). It is not a compile event: events are derived from the
+      file diff, and a refusal wrote no file. So it rides the detail column instead, and
+      `GET /jobs` shows it beside the compile that hit it. Omitted entirely when empty, so a
+      library with no archive never sees the field.
+    """
+    parts = [detail] if detail else []
+    rounds = getattr(result, "rounds", None)
+    if rounds is not None:
+        parts.append(f"rounds:{rounds}")
+    refusals = getattr(result, "archive_refusals", None) or []
+    if refusals:
+        parts.append(
+            "archive_refusals:"
+            + json.dumps(
+                refusals, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+            )
+        )
+    return "; ".join(parts)
 
 
 def resolve_compile_image_mode(settings: Settings, model: object) -> str:
@@ -344,7 +381,7 @@ async def process_job(
             user_id,
             job_id,
             ok=True,
-            detail=_projection_detail(projection),
+            detail=_with_run_facts(_projection_detail(projection), result),
             snapshot_ref=result.snapshot.ref,
             token_usage=result.token_usage,
         )
@@ -398,7 +435,11 @@ async def process_job(
             detail = _projection_detail(projection)
         await ctx.store.mark_digested(user_id, source_ids, now)
         await ctx.store.complete(
-            user_id, job_id, ok=True, detail=detail, token_usage=result.token_usage
+            user_id,
+            job_id,
+            ok=True,
+            detail=_with_run_facts(detail, result),
+            token_usage=result.token_usage,
         )
         if refs:
             await maybe_trigger_evolve(ctx, user_id)
@@ -406,7 +447,11 @@ async def process_job(
         detail = "; ".join(v.render() for v in result.violations)
         # An aborted round spent its tokens too — arguably the spend most worth seeing.
         await ctx.store.complete(
-            user_id, job_id, ok=False, detail=detail, token_usage=result.token_usage
+            user_id,
+            job_id,
+            ok=False,
+            detail=_with_run_facts(detail, result),
+            token_usage=result.token_usage,
         )
     return result
 
@@ -442,8 +487,11 @@ async def process_index_job(
     )
     semantic = plan.semantic_indexing if plan else "full"
 
-    # L1: unconditional (I3).
-    await ctx.lexical.index_blocks(user_id, source_id, ns.blocks)
+    # L1: unconditional (I3) — an archived source is indexed exactly like a live one and
+    # simply carries the flag, so it stays reachable by an `include_archived` search and a
+    # re-index of it never silently re-enters the default candidate pool.
+    archived = ns.raw.archived_at is not None
+    await ctx.lexical.index_blocks(user_id, source_id, ns.blocks, archived=archived)
 
     # L2: by IntakePlan (semantic_indexing knob).
     if semantic == "full":
@@ -456,7 +504,7 @@ async def process_index_job(
         chunks = []
     if chunks:
         embedded = await embed_l2_chunks(ctx, chunks, ns)
-        await ctx.vectors.upsert_chunks(user_id, embedded)
+        await ctx.vectors.upsert_chunks(user_id, embedded, archived=archived)
 
     # The projection channel: an enabled component may keep a derived index of its own (the
     # `time` component's per-block calendar rows), and this is where it learns a source is
@@ -521,8 +569,9 @@ async def drain_user(
 
     Kind-agnostic claim (claim_next orders by created_at): dispatch by job.kind —
     "index" → process_index_job (L1/L2), "evolve"/"evolve_adopt" → the schema-evolve flow,
-    "groom" → one document rollover, "recall_projection"/"recall_rebuild" → the use-side
-    ledger (no model, no skill), anything else ("compile") → process_job.
+    "groom" → one document rollover, "archive" → one confirmed archive proposal (a move, no
+    model), "recall_projection"/"recall_rebuild" → the use-side ledger (no model, no skill),
+    anything else ("compile") → process_job.
 
     `skill` is the per-USER skill for this drain: pass an explicit SkillVersion to force
     one (upgrade/version tests), or None to load it per-job via `skill_for_user` (the
@@ -545,6 +594,8 @@ async def drain_user(
                 await adopt_evolve_job(ctx, user_id, job)
             elif kind == GROOM_JOB_KIND:
                 await run_groom_job(ctx, user_id, job)
+            elif kind == ARCHIVE_JOB_KIND:
+                await run_archive_job(ctx, user_id, job)
             elif kind == RECALL_PROJECTION_JOB_KIND:
                 await run_recall_projection_job(ctx, user_id, job)
             elif kind == RECALL_REBUILD_JOB_KIND:

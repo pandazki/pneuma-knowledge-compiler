@@ -56,7 +56,12 @@ export function Dialog({
               </IconButton>
             </RadixDialog.Close>
           </div>
-          <div className="min-h-0">{children}</div>
+          {/* The dialog itself is the scroller (`overflow-y-auto` above). This box must
+              therefore keep its intrinsic height: as an ordinary flex child it shrinks to
+              fit the 85vh box while its content stays as tall as it is, and a long body —
+              an archive proposal listing a hub page's whole cascade — spills straight over
+              the footer, which then sits mid-list with the confirm button on top of a row. */}
+          <div className="min-h-0 shrink-0">{children}</div>
           {footer != null && (
             <div className="flex items-center justify-end gap-2 border-t border-line pt-4">
               {footer}

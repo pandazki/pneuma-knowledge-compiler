@@ -7,6 +7,7 @@ readable on all three derived stores and never crosses users (invariant I1).
 from __future__ import annotations
 
 import socket
+import subprocess
 import uuid
 from datetime import datetime, timezone
 from urllib.parse import urlparse
@@ -148,9 +149,36 @@ async def test_incremental_projection_updates_and_deletes_all_three_stores(ctx):
         initial = await sync_projection(ctx, user, first.ref)
         assert (initial.total, initial.upserted, initial.deleted) == (2, 2, 0)
 
-        # The canonical adapter stages -A, so removing one tracked path before the
-        # next patch models a compiler-owned document deletion.
-        (ctx.canonical._repo(user) / "memory/b.md").unlink()
+        # A document that leaves the library: removed and COMMITTED, the way anything
+        # disappears from canonical. Not left uncommitted for the next `commit_patch` to
+        # sweep up — a mutating method recovers a dirty tree at its lock entry (it can only
+        # be a crashed writer's residue there), so an out-of-band working-tree edit is
+        # exactly what does NOT reach a commit.
+        repo = ctx.canonical._repo(user)
+        subprocess.run(
+            ["git", "-C", str(repo), "rm", "-q", "--", "memory/b.md"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(repo),
+                "-c",
+                "user.email=pneuma_knowledge@local",
+                "-c",
+                "user.name=pneuma-knowledge",
+                "commit",
+                "-q",
+                "-m",
+                "retire b",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
         second = await ctx.canonical.commit_patch(
             user,
             {

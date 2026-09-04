@@ -31,6 +31,12 @@ export interface CatalogueSource {
   created_at: string;
   /** The day the material happened (`YYYY-MM-DD`), when the source carries one. */
   occurred_on?: string | null;
+  /**
+   * When the owner moved this source into the archive; null/absent = live. Every row
+   * carries it, including the ones a default listing returns, so a row can be labelled
+   * without a second call (docs/design/archive.md §2.2).
+   */
+  archived_at?: string | null;
 }
 
 /** Where a row's day came from: the material itself, or the moment we imported it. */
@@ -44,6 +50,11 @@ export interface SourceTimeline {
 
 export type FacetDimension = "kind" | "source_class" | "origin";
 
+/** Is this row in the archive? One field, read the one way (docs/design/archive.md §2.2). */
+export function isArchivedSource(source: CatalogueSource): boolean {
+  return (source.archived_at ?? null) != null;
+}
+
 export interface SourceFilter {
   /** Whitespace-separated terms, ALL of which must appear in the title. */
   query: string;
@@ -53,6 +64,14 @@ export interface SourceFilter {
   /** Inclusive `YYYY-MM-DD` bounds on the timeline day. */
   from: string | null;
   to: string | null;
+  /**
+   * The archive dimension, and its default is the whole point: OFF. An archived source is
+   * one the owner moved out of the answering set, so the catalogue does not lead with it —
+   * but it is never gone, and one toggle brings it back, labelled. Unlike the other
+   * dimensions this one is also a REQUEST parameter: the listing route excludes the archive
+   * unless the call says `include_archived`, so turning it on re-crawls.
+   */
+  includeArchived: boolean;
 }
 
 export interface FacetValue {
@@ -79,6 +98,7 @@ export const EMPTY_SOURCE_FILTER: SourceFilter = {
   origins: [],
   from: null,
   to: null,
+  includeArchived: false,
 };
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -127,7 +147,8 @@ export function isSourceFilterActive(filter: SourceFilter): boolean {
     filter.classes.length > 0 ||
     filter.origins.length > 0 ||
     filter.from != null ||
-    filter.to != null
+    filter.to != null ||
+    filter.includeArchived
   );
 }
 
@@ -182,6 +203,11 @@ export function matchesSourceFilter(
   offsetMinutes?: number,
 ): boolean {
   return (
+    // The archive is excluded here as well as at the route. The route's default is what
+    // keeps it off the wire; this is what keeps a row that arrived on an `include_archived`
+    // crawl out of the list the moment the reader turns the toggle back off, without paying
+    // for a second crawl to learn what the row already says.
+    (filter.includeArchived || !isArchivedSource(source)) &&
     matchesQuery(source.title, filter.query) &&
     matchesDimension(filter.kinds, source.kind) &&
     matchesDimension(filter.classes, source.source_class) &&

@@ -37,6 +37,14 @@ same placeholders. It goes through this same seam, and it goes through it FIRST 
 deployment's own clauses are registered after it and win over it. So the layering a person
 sees is: English catalog → active language pack (the "framework text") → their overrides.
 
+RENAMED KEYS
+------------
+A key is a deployment's own address for a surface, written into its `prompts/overlays.yaml`.
+When the catalog renames one, `LEGACY_PROMPT_KEYS` maps the retired spelling to the current
+name and `override_prompt` resolves it at REGISTRATION time, so an overlay file written
+before the rename keeps applying and nothing downstream ever sees two spellings of one
+surface.
+
 FIELD SUBSTITUTION
 ------------------
 `prompt(key)` with no fields returns the template verbatim — never formatted — so a
@@ -60,6 +68,7 @@ from .catalog import DEFAULTS
 from .lang_zh import chinese_overlay
 
 __all__ = [
+    "LEGACY_PROMPT_KEYS",
     "catalog",
     "chinese_overlay",
     "default_catalog",
@@ -69,9 +78,45 @@ __all__ = [
     "prompt_overlay_hash",
     "reset_prompt_overrides",
     "resolve_or_verbatim",
+    "resolve_prompt_key",
     "substitute",
     "template_fields",
 ]
+
+# A key this catalog has RENAMED, mapped to what it is called now.
+#
+# WHY THIS MAP EXISTS. A catalog key is not private: it is the address a deployment writes
+# into its own `prompts/overlays.yaml`, and `override_prompt` REFUSES an unknown key on
+# purpose (a silently ignored override is the worst outcome — the framework wording keeps
+# reaching the model while the deployment believes it replaced it). So renaming a key
+# without this map would turn every deployment that overrode the old name into a startup
+# failure, and the fix would be "edit a file you did not write".
+#
+# The rename here is the archive/volume terminology pass: a rollover volume is a CLOSED
+# VOLUME of a work in several volumes, and the word `archive` is reserved for the Owner's
+# archive (`archive/`, docs/design/archive.md). An old name resolves to the new one at
+# REGISTRATION time, so nothing downstream — `prompt()`, the overlay hash, the console —
+# ever sees two spellings of one surface.
+LEGACY_PROMPT_KEYS: Mapping[str, str] = {
+    "compile.groom.archived_header": "compile.groom.closing_header",
+    "compile.groom.archived_truncated": "compile.groom.closing_truncated",
+    "compile.patch.volume_frozen": "compile.patch.volume_closed",
+    "compile.tool.read_document_frozen_notice": "compile.tool.read_document_closed_notice",
+    "gate.archive_frozen": "gate.volume_closed",
+    "recall.glance.entry_tail_archived": "recall.glance.entry_tail_volumes",
+}
+
+
+def resolve_prompt_key(key: str) -> str:
+    """The current name of `key`, translating a retired spelling (`LEGACY_PROMPT_KEYS`).
+
+    A key the catalog still declares is returned untouched, so a legacy entry can never
+    shadow a live surface of the same name.
+    """
+    if key in DEFAULTS:
+        return key
+    return LEGACY_PROMPT_KEYS.get(key, key)
+
 
 # Registered overrides. Empty on a fresh process; written at wiring time, read thereafter.
 _OVERRIDES: dict[str, str] = {}
@@ -137,12 +182,16 @@ def resolve_or_verbatim(key_or_text: str) -> str:
 def override_prompt(key: str, template: str) -> None:
     """Register one override. The business seam; call at startup, before serving.
 
+    A retired key is translated to its current name first (`LEGACY_PROMPT_KEYS`), so an
+    overlay file written before a rename still lands on the surface it means.
+
     Raises ValueError for an unknown key (a silent no-op override is the worst outcome:
     the framework wording keeps reaching the model while the deployment believes it does
     not), and for a template that uses a placeholder the default does not declare — a
     superset would substitute nothing and leave a literal `{oops}` in the prompt. A SUBSET
     is legal: an override may legitimately drop a field it does not want to render.
     """
+    key = resolve_prompt_key(key)
     if key not in DEFAULTS:
         raise ValueError(f"unknown prompt key: {key!r}")
     extra = template_fields(template) - template_fields(DEFAULTS[key])

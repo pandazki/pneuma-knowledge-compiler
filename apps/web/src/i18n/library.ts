@@ -27,7 +27,7 @@ export const library = defineMessages({
 
     "library.volumes.aria": "本主题的各卷",
     "library.volumes.label": "卷",
-    "library.volumes.main": "主卷",
+    "library.volumes.main": "当前卷",
 
     "library.neighborhood.title": "邻域",
     "library.neighborhood.note": "双向脉络索引：每一行都带上写出这条链接的那句断言。",
@@ -36,7 +36,7 @@ export const library = defineMessages({
     "library.neighborhood.emptyOut": "这篇不链向任何文档。",
     "library.neighborhood.emptyIn": "没有文档链向这篇。",
     "library.neighborhood.more": "同向另有 {count} 句",
-    "library.neighborhood.volume": "写在归档卷 {name}",
+    "library.neighborhood.volume": "写在已结卷 {name}",
 
     "library.overview.title": "总览与信息",
     "library.overview.note":
@@ -47,6 +47,9 @@ export const library = defineMessages({
     "library.overview.connections": "关联",
 
     "library.frontmatter.title": "版式信息",
+    // 已结卷在磁盘上带着历史拼写 `archived_from` / `type: archive`——键不改，读给人看的词按裁定来。
+    "library.frontmatter.volumeOf": "所属当前卷",
+    "library.frontmatter.closedVolume": "已结卷",
     "library.body.title": "正文",
 
     "library.supersession.aria": "正文视图：当前 / 历史",
@@ -88,7 +91,7 @@ export const library = defineMessages({
 
     "library.volumes.aria": "Volumes of this subject",
     "library.volumes.label": "Volumes",
-    "library.volumes.main": "Main",
+    "library.volumes.main": "Open volume",
 
     "library.neighborhood.title": "Neighbourhood",
     "library.neighborhood.note":
@@ -98,7 +101,7 @@ export const library = defineMessages({
     "library.neighborhood.emptyOut": "This document links to nothing.",
     "library.neighborhood.emptyIn": "No document links here.",
     "library.neighborhood.more": "{count} further sentence{count||s} the same way",
-    "library.neighborhood.volume": "written in archive volume {name}",
+    "library.neighborhood.volume": "written in closed volume {name}",
 
     "library.overview.title": "Overview & facts",
     "library.overview.note":
@@ -109,6 +112,10 @@ export const library = defineMessages({
     "library.overview.connections": "Connections",
 
     "library.frontmatter.title": "Frontmatter",
+    // A closed volume carries the legacy on-disk spellings `archived_from` / `type: archive`.
+    // The keys stay; the words a reader sees are the ones the design decided on.
+    "library.frontmatter.volumeOf": "Closed volume of",
+    "library.frontmatter.closedVolume": "closed volume",
     "library.body.title": "Body",
 
     "library.supersession.aria": "Body view: current or history",

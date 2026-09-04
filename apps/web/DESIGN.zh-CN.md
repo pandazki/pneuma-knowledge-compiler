@@ -195,13 +195,13 @@ hash 路由就是 deep link 契约（`lib/hash.ts`）：12 个视图加 selectio
 ## 5. 视图
 
 - **overview** — 用 60 秒讲清「这是一个知识编译器」，构成见 §3。
-- **sources** — master-detail：左为 source 目录（标题、kind、block 数、消化态用文字 + 时间而不是彩灯）；右侧分两个阅读层。**来源视图**按各契约还原原生阅读语法（meeting：会议抬头、参与者、带时间逐字稿；document-library：vault 路径、frontmatter、标签与双链；IM：频道语境、日期、thread 缩进；email：thread 抬头、收发件人、附件）。**编译校样**保留 intake plan、结构地图、归一化 blocks（mono 块号 + serif 正文）与 span 高亮。四种来源共享同一套 tokens——差异来自信息结构，而不是四套颜色。旧 source 缺少新增展示元信息时按 blocks 降级，不猜 provider 字段。
+- **sources** — master-detail：左为 source 目录（标题、kind、block 数、消化态用文字 + 时间而不是彩灯）；右侧分两个阅读层。**来源视图**按各契约还原原生阅读语法（meeting：会议抬头、参与者、带时间逐字稿；document-library：vault 路径、frontmatter、标签与双链；IM：频道语境、日期、thread 缩进；email：thread 抬头、收发件人、附件）。**编译校样**保留 intake plan、结构地图、归一化 blocks（mono 块号 + serif 正文）与 span 高亮。四种来源共享同一套 tokens——差异来自信息结构，而不是四套颜色。旧 source 缺少新增展示元信息时按 blocks 降级，不猜 provider 字段。归档在这里是一个默认关闭的筛选维度（「含归档」会带 `include_archived` 重新抓一遍目录），已归档的行带徽标与归档时间；owner 视角下校样页提供「归档…／恢复…」。
 - **ingest** — 两步：编辑（标题 + TextArea / FilePicker + archetype Select + source class RadioGroup）→ 机械预览（结构树、block 与字符计数、proposed IntakePlan 的双旋钮、archetype 映射）→ 确认 → 结果（source_id、deduplicated、去 sources 查看）。preview-first 是要点：计划可见之前不导入任何东西。
 - **process** — job 账页，每次 compile 一行（mono job_id、kind、状态文字、时间、snapshot_ref）；选中行展开来源、detail 与 lineage（model / provider / tokens 以 mono 定义表呈现）。`compile` 是 primary 动作。
-- **recall** — SegmentedControl 切三条 lane：`rag`（L1/L2 融合命中，带 score、source、block 区间、进 span 的 Footnote）、`fast`（serif 答案 + used_claims 脚注）、`deep`（SSE 逐步 trail，然后是答案）。token 用量以 mono 定义表呈现。三条 lane 的输入与结果都留在 `store.recallCache`，去 sources 读原文再回来不会丢。
+- **recall** — SegmentedControl 切三条 lane：`rag`（L1/L2 融合命中，带 score、source、block 区间、进 span 的 Footnote）、`fast`（serif 答案 + used_claims 脚注）、`deep`（SSE 逐步 trail，然后是答案）。token 用量以 mono 定义表呈现。三条 lane 的输入与结果都留在 `store.recallCache`，去 sources 读原文再回来不会丢——「含归档」也在其中：带上归档问出来的是另一个问题，必须同样经得住一次返回。
 - **ask** — briefing 构建（query、来源多选、字符预算 NumberField），然后是连续的 serif 问答线程，带引用脚注与逐轮用量。点击引用打开 `SourceSpanSheet`。
 - **live_context** — 一个视图里两条链路：一次性 SSE（工作流窗口、focus/kind、min-confidence Slider → 存活卡片 + `GateLedger`）与长连接 WS（连接态、config、turn 追加、flush、`want_more`）。卡片是标题 + serif 正文 + trigger + confidence 数字，不是仪表。
-- **library** — 左为文档树；右为选中文档的版样：serif 正文、mono claim 锚点、脚注引用、flag 作页边注。选中 claim deep-link 到 `#/library/claim/…`。顺藤摸瓜发生在邻域卡（§4.2）里。
+- **library** — 左为文档树；右为选中文档的版样：serif 正文、mono claim 锚点、脚注引用、flag 作页边注。选中 claim deep-link 到 `#/library/claim/…`。顺藤摸瓜发生在邻域卡（§4.2）里。归档被从目录里折出来，收进左栏底部一个默认折叠的分区（`lib/archive.ts`，只认 `archive/` 前缀）——已归档的文档照样能打开，并在页眉挂一枚徽标；owner 视角下页眉的动作打开归档提议对话框（`views/archive/`），页面抬头的「归档」则打开当前归档清单。
 - **graph** — 结构**透镜**，不是探索 canvas：全库自由力导图答不了人们真正带来的问题。两个 tab——**结构健康**（先用几句话直说最异常的三件事，其下集中度、连通性、族均衡，异常条目可点进对应文档）与**时间对比**（选两个快照：指标差值表、主体增减清单、新增内链且每条带成边的那句话）。老 `#/graph/node/<id>` 链接解析到该节点代表的文档（或原料）。
 - **history** — snapshot / job / patch 三类记录的统一账页（mono ref、时间、changed paths、sources consumed、lineage）。patch 展开为 escalations、flag counts 与 claims trace；snapshot 行可经 SnapshotPicker 以只读态打开。
 - **evolve** — 三个面：演化时间线（状态即站点的形状与语义色）、任务详情（proposal 依据、pack 草案全文、会消失的 anchors、changed-file diff、adopt/drop）、schema 轴（族与 path template 随时间累积）。409 单飞冲突以 `Callout` 呈现。`#/evolve/evolve-task/<id>` 落在详情上。

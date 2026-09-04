@@ -17,5 +17,6 @@
 | [design/engine-console.zh-CN.md](design/engine-console.zh-CN.md) | 引擎目录：把一套部署的策略当作一个被版本化的单元 |
 | [design/index-components.zh-CN.md](design/index-components.zh-CN.md) | 组件协议：正本之上的业务结构，以及怎么写一个 |
 | [design/steward-owner-visitor.zh-CN.md](design/steward-owner-visitor.zh-CN.md) | 知识库之上的三个角色、一次答复留下的记录，以及记录之上的访问账本 |
+| [design/archive.zh-CN.md](design/archive.zh-CN.md) | 归档：让文档或源退出所有默认检索而不删除，经 Owner 确认的提案执行 |
 
 三分钟演示在仓库 [README](../README.zh-CN.md) 里。

@@ -1,10 +1,26 @@
 import { useEffect, useMemo, useState } from "react";
-import { BookMarked, ChevronRight, FileText, Inbox } from "lucide-react";
+import { Archive, BookMarked, ChevronRight, FileText, Inbox } from "lucide-react";
 import { useApp } from "@/lib/store";
 import type { Claim, DocumentRecord } from "@/lib/types";
 import { claimKey, documentDisplayTitle, type DirNode, type Model } from "@/lib/model";
 import { defaultCollapsedDirs, dirFileCount, isDirOpen } from "@/lib/documentTree";
+import {
+  archiveRecordFullTarget,
+  documentAddress,
+  documentByPath,
+  foldArchive,
+  isArchiveRecord,
+  isArchivedPath,
+  splitArchived,
+} from "@/lib/archive";
 import { displayClaim, extractClaimLabel } from "@/lib/claim";
+import {
+  DOC_ID_KEY,
+  frontmatterFields,
+  frontmatterInline,
+  frontmatterValue,
+  type FrontmatterField,
+} from "@/lib/frontmatter";
 import {
   buildSupersessionIndex,
   currentClaims,
@@ -38,6 +54,8 @@ import {
 } from "@/lib/structureLens";
 import { useLocale, useT, useTOr } from "@/lib/useT";
 import { PageHeader } from "@/components/PageHeader";
+import { ArchiveInventoryDrawer } from "@/views/archive/ArchiveInventoryDrawer";
+import { ArchiveProposalDialog } from "@/views/archive/ArchiveProposalDialog";
 import { AccessCard } from "./AccessCard";
 import { NeighborhoodCard } from "./NeighborhoodCard";
 import { CitationList, type CitationEntry } from "@/components/CitationList";
@@ -66,23 +84,6 @@ function labelBadgeClass(tier: string): string {
   }
 }
 
-/**
- * Frontmatter keys a component fills with a LIST written as a comma-separated string — the
- * `people` component's `identities` / `aliases`. One value per chip reads as the set it is,
- * where one long line reads as a sentence that happens to contain commas.
- */
-const CHIP_FRONTMATTER_KEYS = new Set(["identities", "aliases"]);
-
-/** A chip list from either spelling: a comma-separated string, or an already-split list. */
-function frontmatterChips(value: unknown): string[] {
-  const parts = Array.isArray(value)
-    ? value
-    : typeof value === "string"
-      ? value.split(",")
-      : [];
-  return parts.map((part) => String(part).trim()).filter(Boolean);
-}
-
 export default function LibraryView() {
   const t = useT();
   const dataset = useApp((s) => s.dataset);
@@ -92,7 +93,20 @@ export default function LibraryView() {
   const setView = useApp((s) => s.setView);
   const lens = useApp((s) => s.lens);
 
+  const currentUser = useApp((s) => s.currentUser);
   const docs = model?.dataset.documents.documents ?? [];
+
+  /**
+   * The archive is folded OUT of the contents, not hidden from them: an archived page is
+   * still cited, still anchored, still addressable — it has simply stopped being the answer.
+   * It gets its own collapsed section at the foot of the rail, the way a rollover volume gets
+   * folded onto its owner (`lib/structureLens`), and the count line above the tree counts the
+   * live library so that "95 documents" does not quietly include what the owner retired.
+   */
+  const fold = useMemo(() => (model ? foldArchive(model.tree) : null), [model]);
+  const liveDocs = useMemo(() => splitArchived(docs).live, [docs]);
+  const [archiveOpen, setArchiveOpen] = useState(false);
+  const [inventoryOpen, setInventoryOpen] = useState(false);
 
   // The base's two-way link index, built once per projection: the neighbourhood card is an
   // index over ALL documents' claims, not over the one on screen, so it cannot be derived
@@ -206,14 +220,40 @@ export default function LibraryView() {
       <PageHeader
         className="shrink-0"
         title={t("library.title")}
-        description={t("library.description", { count: docs.length })}
+        description={t("library.description", { count: liveDocs.length })}
+        // The archive is the owner's judgement about attention, so its inventory is the
+        // owner's page. A visitor never sees the door, and never needs to.
+        actions={
+          lens === "owner" && currentUser ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              aria-label={t("archive.inventory.openAria")}
+              onClick={() => setInventoryOpen(true)}
+            >
+              <Archive size={14} aria-hidden />
+              {t("archive.inventory.open")}
+            </Button>
+          ) : undefined
+        }
       />
+      {currentUser && (
+        // Keyed by the owner: an inventory, like a proposal, belongs to ONE library, so a
+        // switch REMOUNTS the drawer rather than letting the previous owner's listing (or a
+        // restore dialog opened over it) survive into the next one's (I1 at the UI).
+        <ArchiveInventoryDrawer
+          key={currentUser}
+          open={inventoryOpen}
+          onOpenChange={setInventoryOpen}
+          userId={currentUser}
+        />
+      )}
       {/* Two panes, each scrolling on its own: the contents and the proof (scroll charter). */}
       <div className="flex min-h-0 flex-1 flex-col gap-6 md:flex-row md:items-stretch">
         {/* Left: the document tree, its count line pinned above it */}
         <div className="flex min-h-0 w-full shrink-0 flex-col border-b border-line pb-3 md:w-64 md:border-b-0 md:pb-0">
           <p className="mb-2 shrink-0 text-12 text-ink-3">
-            {t("library.toc.count", { count: docs.length })}
+            {t("library.toc.count", { count: liveDocs.length })}
           </p>
           <ScrollRegion
             as="nav"
@@ -221,7 +261,7 @@ export default function LibraryView() {
             className="max-h-64 min-h-0 md:max-h-[70vh] lg:max-h-none lg:flex-1"
           >
             <ul className="flex flex-col">
-              {model.tree.children.map((node) => (
+              {(fold?.live ?? model.tree).children.map((node) => (
                 <TreeRow
                   key={node.path || node.name}
                   node={node}
@@ -232,12 +272,68 @@ export default function LibraryView() {
                   onToggle={(path, open) =>
                     setOpenOverrides((prev) => ({ ...prev, [path]: open }))
                   }
+                  // A record stands among the live pages, and it shares its subject with
+                  // the copy under `archive/`: the two are addressed by path, everything
+                  // else by the id that survives a rename (`lib/archive.ts`).
                   onSelect={(doc) =>
-                    select({ kind: "document", id: doc.document_id ?? doc.path })
+                    select({
+                      kind: "document",
+                      id: documentAddress(doc.path, doc.document_id, doc),
+                    })
                   }
                 />
               ))}
             </ul>
+            {/* The archive: below the contents, under its own rule, collapsed. A library
+                that has archived nothing renders exactly as it did before the archive
+                existed — no empty heading, no extra rule. */}
+            {fold && fold.archived.length > 0 && (
+              <div className="mt-2 border-t border-line pt-2">
+                <button
+                  type="button"
+                  onClick={() => setArchiveOpen((open) => !open)}
+                  aria-expanded={archiveOpen}
+                  aria-label={t(
+                    archiveOpen ? "archive.library.collapse" : "archive.library.expand",
+                    { count: fold.archivedFiles },
+                  )}
+                  className="flex w-full items-center gap-1.5 py-1 pr-2 text-left text-13 text-ink-3 transition-colors duration-120 hover:bg-hover"
+                >
+                  <ChevronRight
+                    size={12}
+                    aria-hidden
+                    className={cn(
+                      "shrink-0 transition-transform duration-120",
+                      archiveOpen && "rotate-90",
+                    )}
+                  />
+                  <Archive size={12} aria-hidden className="shrink-0" />
+                  <span className="truncate">{t("archive.library.section")}</span>
+                  <span className="ml-auto shrink-0 text-12">({fold.archivedFiles})</span>
+                </button>
+                {archiveOpen && (
+                  <ul className="flex flex-col">
+                    {fold.archived.map((node) => (
+                      <TreeRow
+                        key={node.path || node.name}
+                        node={node}
+                        depth={1}
+                        selectedPath={activeDoc?.path ?? null}
+                        collapsedDefaults={collapsedDefaults}
+                        openOverrides={openOverrides}
+                        onToggle={(path, open) =>
+                          setOpenOverrides((prev) => ({ ...prev, [path]: open }))
+                        }
+                        // Every row here is an archived path — the half of a move whose
+                        // other half stands live under the same subject. Selecting by path
+                        // is what keeps the two apart.
+                        onSelect={(doc) => select({ kind: "document", id: doc.path })}
+                      />
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
           </ScrollRegion>
         </div>
 
@@ -420,48 +516,74 @@ function InlineClaimText({
 
 /* ---------------------------------------------------------------- the overview */
 
-/** A frontmatter value as one line: objects and lists collapse to their JSON form. */
-function frontmatterValue(value: unknown): string {
-  return typeof value === "object" && value !== null ? JSON.stringify(value) : String(value);
-}
-
 /**
  * The document's structured facts as the overview card's header strip: list-valued keys as
  * chips, everything else as a compact `key value` pair, and `doc_id` last and quietest — it
  * is an address, not a fact about the subject.
+ *
+ * Keys and values are the document's own bytes and render verbatim; the two exceptions a
+ * CLOSED VOLUME carries — the legacy `archived_from` key and its `type: archive` fallback —
+ * are resolved by `lib/frontmatter`, which is where the reason is written down. A key naming
+ * another document is a door when this projection carries it, and its bare path when it does
+ * not: naming where something is says more than silence, and less than a link to nowhere.
  */
-function MetaStrip({ entries }: { entries: [string, unknown][] }) {
+function MetaStrip({
+  entries,
+  onOpen,
+  titleOf,
+}: {
+  entries: [string, unknown][];
+  onOpen: (path: string) => void;
+  titleOf: (path: string) => string | null;
+}) {
   const t = useT();
-  const chipped = entries.filter(
-    ([k, v]) => CHIP_FRONTMATTER_KEYS.has(k) && frontmatterChips(v).length > 0,
-  );
-  const plain = entries.filter(
-    ([k, v]) =>
-      k !== "doc_id" && !(CHIP_FRONTMATTER_KEYS.has(k) && frontmatterChips(v).length > 0),
-  );
-  const docId = entries.find(([k]) => k === "doc_id");
+  const fields = frontmatterFields(entries);
+  // Chips first, as before: a set of values reads as a group, and interleaving it with the
+  // one-line pairs turns the strip into a list of unlike things.
+  const ordered = [
+    ...fields.filter((f) => f.kind === "chips"),
+    ...fields.filter((f) => f.kind !== "chips"),
+  ];
+  const docId = entries.find(([k]) => k === DOC_ID_KEY);
+  const label = (field: FrontmatterField) => (field.labelKey ? t(field.labelKey) : field.key);
   return (
     <div
       role="group"
       aria-label={t("library.frontmatter.title")}
       className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-line px-4 py-3"
     >
-      {chipped.map(([k, v]) => (
-        <div key={k} className="flex flex-wrap items-center gap-1.5">
-          <span className="text-12 uppercase tracking-wide text-ink-3">{k}</span>
-          {frontmatterChips(v).map((chip) => (
-            <Badge key={chip}>
-              <Mono className="text-12">{chip}</Mono>
-            </Badge>
-          ))}
-        </div>
-      ))}
-      {plain.map(([k, v]) => (
-        <div key={k} className="flex min-w-0 items-baseline gap-1.5">
-          <span className="shrink-0 text-12 uppercase tracking-wide text-ink-3">{k}</span>
-          <Mono className="min-w-0 break-all text-12 text-ink-2">{frontmatterValue(v)}</Mono>
-        </div>
-      ))}
+      {ordered.map((field) =>
+        field.kind === "chips" ? (
+          <div key={field.key} className="flex flex-wrap items-center gap-1.5">
+            <span className="text-12 uppercase tracking-wide text-ink-3">{label(field)}</span>
+            {field.chips.map((chip) => (
+              <Badge key={chip}>
+                <Mono className="text-12">{chip}</Mono>
+              </Badge>
+            ))}
+          </div>
+        ) : (
+          <div key={field.key} className="flex min-w-0 items-baseline gap-1.5">
+            <span className="shrink-0 text-12 uppercase tracking-wide text-ink-3">
+              {label(field)}
+            </span>
+            {field.kind === "path" && titleOf(field.text) ? (
+              <button
+                type="button"
+                title={field.text}
+                onClick={() => onOpen(field.text)}
+                className="min-w-0 rounded-1 text-left text-accent underline-offset-2 hover:underline"
+              >
+                <Mono className="break-all text-12">{field.text}</Mono>
+              </button>
+            ) : (
+              <Mono className="min-w-0 break-all text-12 text-ink-2">
+                {field.textKey ? t(field.textKey) : field.text}
+              </Mono>
+            )}
+          </div>
+        ),
+      )}
       {docId && (
         <Mono className="min-w-0 break-all text-12 text-ink-3">
           doc_id · {frontmatterValue(docId[1])}
@@ -510,7 +632,9 @@ function OverviewCard({
           claim a picture the document never wrote. */}
       {hasRegion && <p className="mt-2 text-12 text-ink-3">{t("library.overview.note")}</p>}
       <div className="mt-3 rounded-1 border border-line">
-        {frontmatter.length > 0 && <MetaStrip entries={frontmatter} />}
+        {frontmatter.length > 0 && (
+          <MetaStrip entries={frontmatter} onOpen={onOpen} titleOf={titleOf} />
+        )}
         {hasRegion && (
           <dl className="flex flex-col gap-3 p-4">
             {slots.map(([slot, text]) => (
@@ -605,12 +729,22 @@ function DocumentProof({
   // has scrolled away. doc_id is already spelled out beside it, so it does not get said twice.
   const fmSummary = useMemo(
     () =>
-      fmEntries
-        .filter(([k]) => k !== "doc_id")
+      frontmatterFields(fmEntries)
         .slice(0, 4)
-        .map(([k, v]) => `${k} ${Array.isArray(v) ? v.join(", ") : typeof v === "object" && v !== null ? JSON.stringify(v) : String(v)}`)
+        .map((f) => {
+          const key = f.labelKey ? t(f.labelKey) : f.key;
+          const value =
+            f.kind === "chips"
+              ? f.chips.join(", ")
+              : f.textKey
+                ? t(f.textKey)
+                : frontmatterInline(f.value);
+          return `${key} ${value}`;
+        })
         .join("  ·  "),
-    [doc], // fmEntries is derived from doc; recomputing per document is the whole point
+    // fmEntries is derived from doc; recomputing per document is the whole point. `t` is in
+    // because the masthead line now carries words, and words follow the locale toggle.
+    [doc, t],
   );
   const patches = doc.document_id
     ? model.patchesByDocId.get(doc.document_id) ?? []
@@ -645,6 +779,45 @@ function DocumentProof({
     [ledger, supersession],
   );
   const [bodyView, setBodyView] = useState<"current" | "history">("current");
+  /**
+   * The archive mark, read off the PATH and off nothing else (docs/design/archive.md §2.1) —
+   * the same rule the service, the gate and `rebuild_derived` read it by. A page here says so
+   * in one badge; the action beside it opens the proposal, which is where the closure — the
+   * sources this page cites, the pages that depend on them — is computed and confirmed.
+   */
+  const archived = isArchivedPath(doc.path);
+  /**
+   * The other half of the same move: archiving leaves a short RECORD standing at the live
+   * path, so the subject does not simply vanish from the pages that link to it. The record
+   * is live knowledge — `archived: false`, read by the glance and by recall — which is why
+   * the path rule above says nothing about it and the frontmatter the archive job stamped
+   * says everything (`lib/archive.ts::isArchiveRecord`).
+   *
+   * A reader who lands here should learn three things at once: that this is a record, where
+   * the full page went, and that the way back is Restore.
+   */
+  const record = isArchiveRecord(doc);
+  /**
+   * The door, resolved by PATH and never by `document_id`: `archive_of` names the copy by
+   * path because the record and the copy are the one pair in a library that speaks for a
+   * single subject, and a jump that went through identity could land back on the record it
+   * started from (`lib/archive.ts::documentByPath`).
+   */
+  const fullTarget = archiveRecordFullTarget(model.dataset.documents.documents, doc);
+  /** Both spellings of "the subject has left", and both are restored the same way. */
+  const restores = archived || record;
+  const [archiveOpen, setArchiveOpen] = useState(false);
+  const archiveSeeds = useMemo(
+    // A RECORD is seeded by the copy it stands for, never by its own path. The record is a
+    // live page AT that path, so an unarchive planned from it reads back `already_live` and
+    // selects nothing — the button would open a dialog that can do nothing. `archive_of`
+    // names the thing that actually has to move, which is what the reader means by Restore.
+    () => ({
+      documents: [record && fullTarget ? fullTarget.path : doc.path],
+      sources: [] as string[],
+    }),
+    [doc.path, record, fullTarget],
+  );
   const focusAnchor = highlightAnchor ?? selectedAnchor;
   // A deep link (History → “State changed” → the claim) can land ON a superseded claim. The
   // page must not open in the one view that hides its own target.
@@ -821,7 +994,10 @@ function DocumentProof({
             fromPath={doc.path}
             resolve={(path) => model.docByPath.get(path)}
             onOpen={(target) =>
-              select({ kind: "document", id: target.document_id ?? target.path })
+              select({
+                kind: "document",
+                id: documentAddress(target.path, target.document_id, target),
+              })
             }
           />
           {c.citations.map((ci, i) => {
@@ -889,8 +1065,62 @@ function DocumentProof({
     <article className="flex min-h-0 min-w-0 flex-1 flex-col">
       {/* The masthead stays put: which document you are reading is never scrolled away. */}
       <header className="sticky top-12 z-10 shrink-0 border-b border-line bg-bg pb-4 lg:static">
-        <Mono className="text-12 text-ink-3">{doc.path}</Mono>
-        {/* A rolled-over subject is several files; the reader means the subject. An archive
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <Mono className="min-w-0 flex-1 break-all text-12 text-ink-3">{doc.path}</Mono>
+          {archived && (
+            <Badge tone="warn" className="shrink-0">
+              {t("archive.badge")}
+            </Badge>
+          )}
+          {record && (
+            <Badge tone="warn" className="shrink-0">
+              {t("archive.record.badge")}
+            </Badge>
+          )}
+          {lens === "owner" && currentUser && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="shrink-0"
+              onClick={() => setArchiveOpen(true)}
+            >
+              {t(restores ? "archive.action.restore" : "archive.action.archive")}
+            </Button>
+          )}
+        </div>
+        {/* The door the record owes its reader: the full page is not gone, it is one click
+            away in the archive section. A copy the projection does not carry stays a path
+            rather than becoming a link to nowhere. */}
+        {fullTarget && (
+          <p className="mt-1 flex flex-wrap items-baseline gap-x-2 text-12 text-ink-3">
+            <span>{t("archive.record.fullPage")}</span>
+            {fullTarget.doc ? (
+              <button
+                type="button"
+                title={fullTarget.path}
+                onClick={() => select({ kind: "document", id: fullTarget.path })}
+                className="rounded-1 text-accent transition-colors duration-120 hover:bg-hover hover:underline"
+              >
+                <Mono className="break-all text-12">{fullTarget.path}</Mono>
+              </button>
+            ) : (
+              <Mono className="break-all text-12">{fullTarget.path}</Mono>
+            )}
+          </p>
+        )}
+        {currentUser && (
+          // Keyed by the owner, so a library switch throws the whole dialog away — plan,
+          // overrides, note and any confirm still on the wire (I1 at the UI).
+          <ArchiveProposalDialog
+            key={currentUser}
+            open={archiveOpen}
+            onOpenChange={setArchiveOpen}
+            userId={currentUser}
+            action={restores ? "unarchive" : "archive"}
+            seeds={archiveSeeds}
+          />
+        )}
+        {/* A rolled-over subject is several files; the reader means the subject. A closed
             volume used to say `archived_from … rollover_volume 01` in words and offer no way
             back to the page it was cut from. */}
         {family && (
@@ -902,7 +1132,9 @@ function DocumentProof({
                 type="button"
                 title={page.path}
                 disabled={page.current}
-                onClick={() => select({ kind: "document", id: page.documentId ?? page.path })}
+                // By path, like every other lens row: the family is keyed by path, and a
+                // page of it may be a record's subject rather than an id of its own.
+                onClick={() => select({ kind: "document", id: page.path })}
                 className={cn(
                   "rounded-1 px-1 text-12 transition-colors duration-120",
                   page.current
@@ -941,8 +1173,12 @@ function DocumentProof({
           fromPath={doc.path}
           frontmatter={fmEntries}
           onOpen={(path) => {
-            const target = model.dataset.documents.documents.find((d) => d.path === path);
-            if (target) select({ kind: "document", id: target.document_id ?? target.path });
+            const target = documentByPath(model.dataset.documents.documents, path);
+            if (target)
+              select({
+                kind: "document",
+                id: documentAddress(target.path, target.document_id, target),
+              });
           }}
           titleOf={(path) => {
             const target = model.docByPath.get(path);

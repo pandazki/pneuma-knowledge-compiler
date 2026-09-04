@@ -220,7 +220,7 @@ _LABEL_FAMILIES: tuple[tuple[str, str, str], ...] = (
     ("compile.overview.", "Overview write rejection", "总览写入拒绝"),
     ("compile.patch.", "Document write rejection", "文档写入拒绝"),
     ("compile.treatment.", "Source treatment", "源处理档位"),
-    ("compile.groom.", "Rollover", "归档轮换"),
+    ("compile.groom.", "Rollover", "分卷轮转"),
     ("compile.challenge.", "Coverage audit", "覆盖审计"),
     ("compile.brief.", "Compile brief", "编译简报"),
     ("compile.worker.", "Compile retrieval reply", "编译检索回复"),
@@ -286,7 +286,7 @@ _LABELS: dict[str, tuple[str, str]] = {
     "compile.treatment.full": ("treatment=full", "档位 full"),
     "compile.treatment.distill": ("treatment=distill", "档位 distill"),
     "compile.treatment.card": ("treatment=card", "档位 card"),
-    "compile.groom.contract": ("The history-card contract", "历史卡片契约"),
+    "compile.groom.contract": ("The volume-card contract", "卷目卡契约"),
     "compile.challenge.questions_system": ("Blind question generation", "盲出问题"),
     "compile.challenge.reflect_system": ("Gap judgement", "缺口判定"),
     "compile.challenge.compensation_preamble": ("Compensation preamble", "补偿编译前言"),
@@ -1135,9 +1135,16 @@ SURFACES: tuple[Surface, ...] = (
             ),
             f(
                 "compile.task.outline_entry_volume",
-                "The outline line of a frozen archive volume instead — read-only, citable, "
+                "The outline line of a closed volume instead — read-only, citable, "
                 "never written to.",
-                "换成冻结归档卷的大纲行：只读、可引用、永不写入。",
+                "换成已结卷的大纲行：只读、可引用、永不写入。",
+            ),
+            f(
+                "compile.task.outline_entry_record",
+                "The outline line of an ARCHIVE RECORD instead — the live page a retired "
+                "subject left behind: listed, read-only, and never written to.",
+                "换成归档留痕的大纲行：被收起的主题留在在用路径上的那一页——照常列出、只读、"
+                "永不写入。",
             ),
             f(
                 "compile.task.retrieved_header",
@@ -1179,10 +1186,25 @@ SURFACES: tuple[Surface, ...] = (
                 "工具清单里 `read_document` 的描述，每轮都在。",
             ),
             f(
-                "compile.tool.read_document_frozen_notice",
-                "Prefixed to a `read_document` reply when the path read is a frozen archive "
+                "compile.tool.read_document_closed_notice",
+                "Prefixed to a `read_document` reply when the path read is a closed "
                 "volume: cite it, never edit it.",
-                "当读到的路径是冻结归档卷时，加在 `read_document` 回复前面：可引用，不可编辑。",
+                "当读到的路径是已结卷时，加在 `read_document` 回复前面：可引用，不可编辑。",
+            ),
+            f(
+                "compile.tool.read_document_record_notice",
+                "Prefixed to a `read_document` reply when the path read is an archive "
+                "record: read it — that is how the round learns the subject is retired "
+                "rather than missing — but it takes no writes.",
+                "当读到的路径是归档留痕时，加在 `read_document` 回复前面：可以读——本轮正是"
+                "这样才知道这个主题是被收起而不是从没存在过——但它不接受任何写入。",
+            ),
+            f(
+                "compile.tool.read_document_archived",
+                "The whole `read_document` reply when the path read is in the archive "
+                "(`archive/`): a compile neither reads nor writes there.",
+                "当读到的路径在归档区（`archive/`）时，`read_document` 的完整回复："
+                "编译对那里既不读也不写。",
             ),
             f(
                 "compile.tool.create_document",
@@ -1370,15 +1392,15 @@ SURFACES: tuple[Surface, ...] = (
     Surface(
         id="compile.groom_contract",
         group="compile",
-        title_en="Rollover — the history card",
-        title_zh="归档轮换 — 历史卡片",
+        title_en="Rollover — the volume card",
+        title_zh="分卷轮转 — 卷目卡",
         summary_en=(
-            "The one model call inside document rollover: a document grew too large, its "
-            "oldest entries moved verbatim into a frozen volume, and this writes the card "
+            "The one model call inside document rollover: a page grew too large, its "
+            "oldest entries closed into a new volume, and this writes the card "
             "that stands where they were."
         ),
         summary_zh=(
-            "文档归档轮换里唯一的模型调用：一份文档太大了，最早的条目被逐字搬进冻结卷，"
+            "文档分卷轮转里唯一的模型调用：一页太大了，最早的条目被逐字结入新的一卷，"
             "这次调用写的是站在它们原处的那张卡片。"
         ),
         segments=(b("compile.groom.contract"),),
@@ -1387,55 +1409,56 @@ SURFACES: tuple[Surface, ...] = (
         note_en=(
             "The SystemMessage only, and nothing is substituted into it. What changes per rollover "
             "arrives in the HumanMessage: which document, the card being replaced, and the "
-            "entries moving into the frozen volume (see 归档轮换 — 任务与卡片渲染)."
+            "entries closing into the new volume (see 分卷轮转 — 任务与卷目卡渲染)."
         ),
         note_zh=(
-            "这里只有系统消息，而且没有任何东西被代入其中。每次归档会变的东西随人类消息到达："
-            "哪份文档、正在被替换的卡片、以及要搬进冻结卷的那些条目（见「归档轮换 — 任务与卡片渲染」）。"
+            "这里只有系统消息，而且没有任何东西被代入其中。每次轮转会变的东西随人类消息到达："
+            "哪份文档、正在被替换的卡片、以及要结入新卷的那些条目（见「分卷轮转 — 任务与卷目卡渲染」）。"
         ),
     ),
     Surface(
         id="compile.groom_task",
         group="compile",
         title_en="Rollover — task and card rendering",
-        title_zh="归档轮换 — 任务与卡片渲染",
+        title_zh="分卷轮转 — 任务与卷目卡渲染",
         summary_en=(
-            "What the rollover call is shown (the document, the previous card, the "
-            "entries being archived) and the three strings its answer is rendered into — "
-            "which land in canonical, so they are prose a deployment owns."
+            "What the rollover call is shown (the page, the previous card, the "
+            "entries closing into the volume) and the three strings its answer is rendered "
+            "into — which land in canonical, so they are prose a deployment owns."
         ),
         summary_zh=(
-            "归档调用看到的东西（文档、上一张卡片、正在被归档的条目），"
+            "轮转调用看到的东西（文档、上一张卡片、正在结入本卷的条目），"
             "以及它的回答被渲染成的那几个字符串——它们会落进正本，所以属于部署方自己的文案。"
         ),
         segments=(
             f(
                 "compile.groom.task_header",
                 "Opens the rollover request: which document, how many entries, which volume "
-                "they move into.",
-                "开出归档请求：哪份文档、多少条目、搬进哪一卷。",
+                "they close into.",
+                "开出轮转请求：哪份文档、多少条目、结入哪一卷。",
             ),
             f(
                 "compile.groom.previous_header",
                 "Introduces the card being replaced, when this document has been rolled over "
                 "before.",
-                "当这份文档以前归档过时，引出正在被替换的那张卡片。",
+                "当这份文档以前轮转过时，引出正在被替换的那张卡片。",
             ),
             f(
                 "compile.groom.previous_empty",
                 "Takes its place on a document's first rollover.",
-                "文档第一次归档时取代上一条。",
+                "文档第一次轮转时取代上一条。",
             ),
             f(
-                "compile.groom.archived_header",
-                "Introduces the entries being archived, with the ids the card must reference.",
-                "引出正在被归档的条目，附上卡片必须引用的那些 id。",
+                "compile.groom.closing_header",
+                "Introduces the entries closing into the volume, with the ids the card must "
+                "reference.",
+                "引出正在结入本卷的条目，附上卡片必须引用的那些 id。",
             ),
             f(
-                "compile.groom.archived_truncated",
-                "Added when the archive is too long to show whole — the oldest lines are "
-                "omitted, and the model is told so.",
-                "当归档太长无法整体展示时追加——最早的行被省略，并明确告知模型。",
+                "compile.groom.closing_truncated",
+                "Added when the closing material is too long to show whole — the oldest lines "
+                "are omitted, and the model is told so.",
+                "当结入的材料太长无法整体展示时追加——最早的行被省略，并明确告知模型。",
             ),
             f(
                 "compile.groom.overview_heading",
@@ -1445,27 +1468,27 @@ SURFACES: tuple[Surface, ...] = (
             ),
             f(
                 "compile.groom.overview_point",
-                "Also written into canonical: one point of the card, with the archived entries "
-                "it stands for.",
-                "同样写进正本：卡片里的一个要点，附上它所代表的归档条目。",
+                "Also written into canonical: one point of the card, with the closed-volume "
+                "entries it stands for.",
+                "同样写进正本：卡片里的一个要点，附上它所代表的前卷条目。",
             ),
             f(
                 "compile.groom.volumes_heading",
-                "Written into canonical: the heading of the volume index left behind in the "
-                "active document.",
-                "写进正本：留在活动文档里的卷索引的标题。",
+                "Written into canonical: the heading of the volume catalog left behind in the "
+                "open volume.",
+                "写进正本：留在当前卷里的卷目的标题。",
             ),
             f(
                 "compile.groom.volume_entry",
-                "Written into canonical: one line of that index, the link a reader follows into "
-                "the frozen volume.",
-                "写进正本：卷索引里的一行，读者顺着它进入冻结卷。",
+                "Written into canonical: one line of that catalog, the link a reader follows "
+                "into a closed volume.",
+                "写进正本：卷目里的一行，读者顺着它进入某一已结卷。",
             ),
             f(
                 "compile.groom.commit_message",
                 "The git commit message of a successful rollover — canonical's own history, so "
                 "a deployment owns this wording too.",
-                "一次成功归档的 git 提交信息——这是正本自己的历史，所以这段文案也归部署方所有。",
+                "一次成功轮转的 git 提交信息——这是正本自己的历史，所以这段文案也归部署方所有。",
             ),
             f(
                 "compile.groom.heal_commit_message",
@@ -2602,12 +2625,12 @@ SURFACES: tuple[Surface, ...] = (
             ),
             f(
                 "recall.identity.volume_title",
-                "Names a candidate built out of a FROZEN ROLLOVER VOLUME after the active "
-                "document the volume is history of, with the volume itself noted. A volume's "
+                "Names a candidate built out of a CLOSED VOLUME after the open volume the "
+                "closed one is a volume of, with the volume itself noted. A volume's "
                 "own filename is `a02` and its body carries no title, so without this the "
                 "pick stage is shown a card whose subject is unknowable from anything on it.",
-                "凡是用**冻结的归档卷**装配出来的候选，都用它来命名：取那一卷所归属的活动文档的"
-                "标题，并注明是哪一卷。归档卷自己的文件名就是 `a02`、正文里也没有标题，"
+                "凡是用**已结卷**装配出来的候选，都用它来命名：取那一卷所归属的当前卷的"
+                "标题，并注明是哪一卷。已结卷自己的文件名就是 `a02`、正文里也没有标题，"
                 "少了这一步，挑选阶段拿到的就是一张从任何字面都看不出主体的卡。",
             ),
             f(
@@ -2835,6 +2858,12 @@ SURFACES: tuple[Surface, ...] = (
                 "标出被预算截断的摘录，并点明可以用哪个工具取回其余部分。",
             ),
             f(
+                "recall.passage_in_archive",
+                "Marks an excerpt whose source is in the archive — rendered only for a call "
+                "that asked to include it, and placed first on the provenance line.",
+                "标出来源在归档区的摘录——只有明确要求包含归档的调用才会渲染，且排在出处行最前面。",
+            ),
+            f(
                 "recall.section.timelines_header",
                 "Opens the subject timelines, when whole documents were selected to be read in "
                 "document order.",
@@ -2948,9 +2977,15 @@ SURFACES: tuple[Surface, ...] = (
                 "当文档带有最后更新日时，追加到那一行后面。",
             ),
             f(
-                "recall.glance.entry_tail_archived",
-                "Appended when the document has frozen archive volumes behind it.",
-                "当文档背后有冻结归档卷时追加。",
+                "recall.glance.entry_tail_volumes",
+                "Appended when the page has closed volumes behind it.",
+                "当这一页背后还有已结卷时追加。",
+            ),
+            f(
+                "recall.glance.entry_tail_in_archive",
+                "Appended when the document itself is in the archive — only ever rendered for "
+                "a call that asked to include it.",
+                "当文档本身在归档区时追加——只有明确要求包含归档的调用才会渲染。",
             ),
             f(
                 "recall.glance.family_more",
@@ -3119,6 +3154,13 @@ SURFACES: tuple[Surface, ...] = (
                 "recall.deep.tool.read_document_not_found",
                 "The reply when no document sits at the requested path.",
                 "请求的路径上没有文档时的回复。",
+            ),
+            f(
+                "recall.deep.tool.read_document_archived",
+                "The reply when the requested path is in the archive: present and whole, but "
+                "outside what this answer reads — a stated absence, not a miss.",
+                "请求的路径在归档区时的回复：文档完整地在那里，但不在这次作答要读的范围内——是"
+                "「明确说出的缺席」，不是「没找到」。",
             ),
             f(
                 "recall.agentic.budget_notice",
@@ -3432,8 +3474,11 @@ SURFACES: tuple[Surface, ...] = (
             ),
             f(
                 "recall.fast.episode_summary.item",
-                "One derived summary with source metadata and its exact citable block span.",
-                "一条带来源元数据和精确可引用块区间的派生摘要。",
+                "One derived summary with source metadata, its exact citable block span, and "
+                "— when the call asked to include the archive — the same `archived` marker "
+                "an excerpt from a retired source carries.",
+                "一条带来源元数据和精确可引用块区间的派生摘要；调用要求包含归档时，它带上与归档摘录"
+                "相同的 `archived` 标记。",
             ),
         ),
         kind=FRAGMENTS,
@@ -3653,6 +3698,155 @@ SURFACES: tuple[Surface, ...] = (
         ),
         kind=FRAGMENTS,
     ),
+    # ─────────────────────────────────────────────────────── the archive record channel
+    Surface(
+        id="archive.record",
+        group="compile",
+        title_en="Archive record",
+        title_zh="归档留痕",
+        summary_en=(
+            "The page a retired subject leaves behind at its live path, and the gate that "
+            "judges it. No model writes here: every line is derived from the page being "
+            "archived, the owner's own statement, and a day. It is listed as a surface "
+            "because a person reads it — in the glance, in an answer, and in a failed "
+            "proposal's detail."
+        ),
+        summary_zh=(
+            "被收起的主题留在在用路径上的那一页，以及审它的闸门。这里没有模型写字：每一行都"
+            "从被归档的页面、拥有者自己的陈述和一个日期派生。它列在这里是因为人会读到它——"
+            "在概览里、在回答里、在一份失败提案的 detail 里。"
+        ),
+        segments=(
+            f(
+                "archive.record.definition",
+                "The record's first block: what the subject WAS, in the page's own words, "
+                "with the marker that says it is archived.",
+                "留痕的第一块：这个主题曾经是什么，用页面自己的话，加上说明它已归档的标记。",
+            ),
+            f(
+                "archive.record.facts_span",
+                "The span clause of the second block — omitted entirely when no cited "
+                "source states a date, rather than guessed.",
+                "第二块的时间跨度那一节——当被引用的来源都没有日期时整节省略，而不是猜一个。",
+            ),
+            f(
+                "archive.record.facts",
+                "The rest of the second block: how much the page held. It cites nothing; "
+                "its provenance is the record's own frontmatter, which the gate checks it "
+                "against.",
+                "第二块的其余部分：这一页承载了多少东西。它不引用任何来源；它的出处是留痕自己"
+                "的 frontmatter，闸门会拿两者对账。",
+            ),
+            f(
+                "archive.record.reason",
+                "The third block: the owner's reason, quoted. The `[cite: …]` marker naming "
+                "their statement is appended by the renderer, outside this key.",
+                "第三块：拥有者的理由，原话引用。指向那份陈述的 `[cite: …]` 由渲染器追加，"
+                "不在这个 key 里。",
+            ),
+            f(
+                "archive.statement.default",
+                "What the owner's `owner-dialogue/v1` statement says when they archived "
+                "without writing a reason — and therefore what the record then quotes.",
+                "当拥有者归档时没有写理由，那份 `owner-dialogue/v1` 陈述说的话——也就是留痕"
+                "接着引用的那句。",
+            ),
+            f(
+                "gate.archive_record.anchors",
+                "The record's three anchors are not the system-assigned ones for this "
+                "path, in slot order.",
+                "留痕的三个锚点不是本路径按槽位顺序系统派发的那三个。",
+            ),
+            f(
+                "gate.archive_record.anchor_taken",
+                "One of them already exists elsewhere in the repository — the archived "
+                "copy the same commit writes included.",
+                "其中一个在仓库里已经存在——包括同一次提交写下的那份归档副本。",
+            ),
+            f(
+                "gate.archive_record.statement",
+                "The reason block does not cite the owner's statement.",
+                "理由那一块没有引用拥有者的陈述。",
+            ),
+            f(
+                "gate.archive_record.statement_mismatch",
+                "`archive_statement` names a different source than the reason block "
+                "cites — the inventory reads the key, a reader follows the citation.",
+                "`archive_statement` 指的源与理由那一块引用的不是同一个——清单读的是这个"
+                "字段，读者跟的是那条引用。",
+            ),
+            f(
+                "gate.archive_record.grounding",
+                "The definition was carried into the record without the grounding it "
+                "rested on.",
+                "定义被带进留痕时丢掉了它原本的落点。",
+            ),
+            f(
+                "gate.archive_record.frontmatter",
+                "A machine key the record must carry is missing.",
+                "留痕必须带的某个机器字段缺失。",
+            ),
+            f(
+                "gate.archive_record.archive_of",
+                "`archive_of` does not name the full copy this move produced.",
+                "`archive_of` 指的不是这次移动产生的那份完整副本。",
+            ),
+            f(
+                "gate.archive_record.facts_disagree",
+                "A number in the frontmatter and the same number in the record's own line "
+                "do not agree — which would leave the uncited line resting on nothing.",
+                "frontmatter 里的某个数字与留痕正文那一行说的不一致——那会让这一行不引用任何"
+                "来源却也没有出处。",
+            ),
+            f(
+                "gate.archive_record.span",
+                "`archive_span` does not state the span these facts cover — or states one "
+                "at all for a page whose sources name no day.",
+                "`archive_span` 说的不是这些事实覆盖的区间——或者，这一页引用的 source 都"
+                "没有日期，却还是写了一个。",
+            ),
+            f(
+                "gate.archive_record.facts_body",
+                "The record's own second block does not say what its frontmatter says — "
+                "read back off the page rather than off the object it was rendered from.",
+                "留痕正文的第二块与它的 frontmatter 说的不一致——这一条是从页面本身读回来的，"
+                "而不是从渲染它的那个对象读的。",
+            ),
+            f(
+                "gate.archive_record.copy",
+                "The copy under `archive/` is not byte-identical to the page that stood at "
+                "the live path: archiving is a move, never a rewrite.",
+                "`archive/` 下的副本与原本在在用路径上的页面不是逐字节相同：归档是移动，"
+                "不是改写。",
+            ),
+            f(
+                "gate.archive_record.ungrounded",
+                "The record's first block rests on nothing, and the page it was taken from "
+                "had something to rest on. Only a page with neither a definition nor a "
+                "single current claim is exempt.",
+                "留痕的第一块没有任何落点，而它取自的那一页本来是有落点的。只有既没有定义、"
+                "也没有任何在用断言的页面才豁免。",
+            ),
+            f(
+                "gate.archive_record.machinery",
+                "A record block carries the system's own machinery inside its text.",
+                "留痕有一块的正文里带着系统自己的机械记号。",
+            ),
+            f(
+                "gate.archive_record.doc_id",
+                "The record's document id is not the one this channel derives for its "
+                "path.",
+                "留痕的文档 id 不是这条通道为它的路径派生出来的那一个。",
+            ),
+            f(
+                "gate.archive_record.doc_id_taken",
+                "The record's document id already belongs to another document — the full "
+                "copy the same commit writes included.",
+                "留痕的文档 id 已经属于另一份文档——包括同一次提交写下的那份完整副本。",
+            ),
+        ),
+        kind=FRAGMENTS,
+    ),
     # ───────────────────────────────────────────────────────────── rejection wording
     Surface(
         id="feedback.compile_gate",
@@ -3788,10 +3982,34 @@ SURFACES: tuple[Surface, ...] = (
                 "当写入落在契约的归属模板之外时。",
             ),
             f(
-                "gate.archive_frozen",
-                "When a write targets a frozen archive volume, and it names the active page to "
+                "gate.volume_closed",
+                "When a write targets a closed volume, and it names the open volume to "
                 "write to instead.",
-                "当写入的目标是冻结归档卷时，并指出应该改写哪个活动页面。",
+                "当写入的目标是已结卷时，并指出应该改写哪个当前卷。",
+            ),
+            f(
+                "gate.archived_path",
+                "When the draft changed a document that sits in the archive (`archive/`) — a "
+                "different rule from the closed volume above.",
+                "当草稿改动了归档区（`archive/`）里的文档时——与上面的已结卷是两条规则。",
+            ),
+            f(
+                "gate.archived_path_shadowed",
+                "When a document was created on a path whose archived form already exists.",
+                "当新建文档的路径已经存在归档形态时。",
+            ),
+            f(
+                "gate.archive_record",
+                "When the draft changed an ARCHIVE RECORD — the live page a retired subject "
+                "left behind. Live, retrieved, and still not a page a compile writes.",
+                "当草稿改动了归档留痕——被收起的主题留在在用路径上的那一页。它是在用的、会被"
+                "检索到的，但仍然不是编译可写的页面。",
+            ),
+            f(
+                "gate.archived_title_shadowed",
+                "When a new document carries the TITLE of a document that is in the "
+                "archive, whatever path it was written to.",
+                "当新建文档的标题与归档区里某份文档的标题相同时——无论它写在哪个路径。",
             ),
             f(
                 "gate.supersession_target_missing",
@@ -4021,9 +4239,33 @@ SURFACES: tuple[Surface, ...] = (
                 "并说明 `title` 由文档的 `# ` 标题派生。",
             ),
             f(
-                "compile.patch.volume_frozen",
-                "Any write against a frozen history volume, whichever tool attempted it.",
-                "任何针对冻结历史卷的写入，无论是哪个工具发起的。",
+                "compile.patch.volume_closed",
+                "Any write against a closed volume, whichever tool attempted it.",
+                "任何针对已结卷的写入，无论是哪个工具发起的。",
+            ),
+            f(
+                "compile.patch.archived_path",
+                "Any write aimed at a path in the archive (`archive/`), whichever tool "
+                "attempted it.",
+                "任何针对归档区（`archive/`）路径的写入，无论是哪个工具发起的。",
+            ),
+            f(
+                "compile.patch.archived_record",
+                "Any write aimed at an ARCHIVE RECORD — the live page a retired subject "
+                "left behind — whichever tool attempted it.",
+                "任何针对归档留痕（被收起的主题留在在用路径上的那一页）的写入，无论是哪个"
+                "工具发起的。",
+            ),
+            f(
+                "compile.patch.archived_path_shadowed",
+                "`create_document` on a path whose archived form already exists.",
+                "`create_document` 的路径已经存在归档形态。",
+            ),
+            f(
+                "compile.patch.archived_title_shadowed",
+                "`create_document` under the title of a document that is in the archive: "
+                "the subject is not recreated under another path.",
+                "`create_document` 用了归档区里某份文档的标题：这个主题不会换个路径重建一遍。",
             ),
             f(
                 "compile.patch.claim_superseded",
@@ -4048,7 +4290,7 @@ SURFACES: tuple[Surface, ...] = (
             "Any violation abandons the whole rollover and leaves the document untouched."
         ),
         summary_zh=(
-            "记在作业上而不是喂回模型：归档没有修复回合。任何违规都会放弃整次归档，"
+            "记在作业上而不是喂回模型：轮转没有修复回合。任何违规都会放弃整次轮转，"
             "文档原样不动。"
         ),
         segments=(
@@ -4056,7 +4298,7 @@ SURFACES: tuple[Surface, ...] = (
                 "gate.groom.claims_not_byte_equal",
                 "When the volume plus the retained tail do not reproduce the original claim "
                 "blocks byte for byte — a rollover moves text, it does not rewrite it.",
-                "当归档卷加保留的尾部无法逐字节复现原来的断言块时——归档只搬文本，不重写文本。",
+                "当新结的分卷加保留的尾部无法逐字节复现原来的断言块时——轮转只搬文本，不重写文本。",
             ),
             f(
                 "gate.groom.link_count_changed",
@@ -4071,7 +4313,7 @@ SURFACES: tuple[Surface, ...] = (
             f(
                 "gate.groom.dead_links_increased",
                 "When the rollover would cost the knowledge graph an edge.",
-                "当这次归档会让知识图谱丢掉一条边时。",
+                "当这次轮转会让知识图谱丢掉一条边时。",
             ),
             f(
                 "gate.groom.heal_not_byte_equal",
@@ -4091,21 +4333,21 @@ SURFACES: tuple[Surface, ...] = (
             ),
             f(
                 "gate.groom.anchor_added",
-                "When the rollover would invent an anchor; only the new history card's own ids "
+                "When the rollover would invent an anchor; only the new volume card's own ids "
                 "may be created here.",
-                "当这次归档会凭空造出一个锚点时；这里只允许创建新历史卡片自己的 id。",
+                "当这次轮转会凭空造出一个锚点时；这里只允许创建新卷目卡自己的 id。",
             ),
             f(
                 "gate.groom.overview_without_reference",
-                "When a point of the history card cites no archived entry — an uncited assertion "
+                "When a point of the volume card cites no earlier-volume entry — an uncited assertion "
                 "in the one layer that is not rebuildable.",
-                "当历史卡片里的某个要点没有引用任何归档条目时——那是在唯一不可重建的层里写了无依据断言。",
+                "当卷目卡里的某个要点没有引用任何前卷条目时——那是在唯一不可重建的层里写了无依据断言。",
             ),
             f(
                 "gate.groom.overview_unknown_reference",
-                "When such a point references an id that is not an archived entry of this "
+                "When such a point references an id that is not an entry of an earlier volume of this "
                 "document.",
-                "当某个要点引用的 id 并不是这份文档的归档条目时。",
+                "当某个要点引用的 id 并不是这份文档前卷里的条目时。",
             ),
         ),
         kind=FRAGMENTS,

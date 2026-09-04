@@ -113,7 +113,7 @@ export function ttlRemainingMessage(ms: number): EvolveMessage {
 /* --------------------------------------------------- path template → family */
 
 /**
- * The archive family name: the last non-placeholder segment of a path template.
+ * The filing family name: the last non-placeholder segment of a path template.
  * `memory/people/{slug}.md` → `people`; `memory/profile.md` → `profile`;
  * `materials/{slug}.md` → `materials`. When nothing can be taken, fall back to the whole
  * template (no guessing).
@@ -128,7 +128,7 @@ export function familyFromTemplate(template: string): string {
   return last.replace(/\.md$/i, "");
 }
 
-/** The archive area: the template's first segment (`memory` / `work` / `materials` / a new top-level directory a pack brings). */
+/** The filing area: the template's first segment (`memory` / `work` / `materials` / a new top-level directory a pack brings). */
 export function areaFromTemplate(template: string): string {
   const first = template.split("/")[0]?.trim();
   return first && !first.includes("{slug}") ? first.replace(/\.md$/i, "") : "—";
@@ -182,7 +182,7 @@ export interface EvolveTimelineEntry {
   decidedAt: string | null;
   /** Epoch ms for sorting; null when the timestamp is missing or unparseable (those entries sort last). */
   sortKey: number | null;
-  /** The archive families this proposal adds. */
+  /** The filing families this proposal adds. */
   families: string[];
   /** The path templates this proposal adds. */
   pathTemplates: string[];
@@ -663,7 +663,7 @@ export function buildSchemaAxis(
   };
 }
 
-/** The family roster grouped by archive area (for presentation; families sorted by name within an area). */
+/** The family roster grouped by filing area (for presentation; families sorted by name within an area). */
 export function groupFamiliesByArea(
   families: readonly SchemaFamily[],
 ): { area: string; families: SchemaFamily[] }[] {

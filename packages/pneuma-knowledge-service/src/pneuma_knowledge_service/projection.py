@@ -39,6 +39,7 @@ purpose is a legitimate operation — it just may not happen by accident.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Collection
 from dataclasses import dataclass
 from typing import Any
 
@@ -67,7 +68,7 @@ ClaimKey = tuple[str, str]
 #: without the base.
 #:
 #: WHY LOSS IS COUNTED IN ANCHORS, NOT IN DELETED KEYS. The projection is keyed by
-#: (document_path, anchor), so a rollover — which MOVES claims from a page into its archive
+#: (document_path, anchor), so a rollover — which MOVES claims from a page into a closed
 #: volume — legitimately deletes every key it moves and re-inserts it under the volume's path.
 #: Counting deleted keys would refuse a groom of a small knowledge base as if it were a wipe.
 #: An anchor is repo-unique and survives the move, so "anchors that were projected and are
@@ -113,6 +114,14 @@ def _claim_key(claim: ProjectedClaim) -> ClaimKey:
     return claim.document_path, str(claim.anchor)
 
 
+#: The two signature functions below MUST stay field-for-field identical: they are the
+#: comparison that decides whether a projected claim is unchanged, and a field present on one
+#: side and absent from the other is a field whose changes silently never reach the indexes.
+#: `archived` is in both for exactly that reason — archiving a page can leave a claim's text,
+#: section path and citations byte-identical, and without the flag here a rebuild that only
+#: flipped it would report "unchanged" and leave the archive searchable.
+
+
 def _claim_signature(claim: ProjectedClaim) -> tuple[Any, ...]:
     return (
         tuple(claim.section_path),
@@ -120,6 +129,7 @@ def _claim_signature(claim: ProjectedClaim) -> tuple[Any, ...]:
         tuple(
             (str(c.source_id), c.block_start, c.block_end) for c in claim.citations
         ),
+        bool(claim.archived),
     )
 
 
@@ -135,6 +145,7 @@ def _row_signature(row: dict[str, Any]) -> tuple[Any, ...]:
             )
             for citation in (row.get("citations") or [])
         ),
+        bool(row.get("archived") or False),
     )
 
 
@@ -165,8 +176,11 @@ def _lost_anchors(
 ) -> set[str]:
     """Anchors that were projected and would be projected no longer — the real loss.
 
-    A rollover re-keys a claim (page → archive volume) without losing it, so this set is
-    empty for a groom and total for a wipe. See MAX_PROJECTION_LOSS_SHARE.
+    A rollover re-keys a claim (page → rollover volume) without losing it, so this set is
+    empty for a groom and total for a wipe. An ARCHIVE is the same shape of move — the page
+    and its volumes are re-keyed under `archive/`, every anchor survives — so archiving a
+    library's biggest document is not a loss and is not refused. See
+    MAX_PROJECTION_LOSS_SHARE.
 
     Every CURRENT anchor is subtracted, overview included: an anchor that is still projected
     anywhere has not been lost, wherever it now sits.
@@ -193,6 +207,7 @@ async def sync_projection(
     *,
     strategy: ProjectionStrategy = PROJECTION_V1,
     allow_wipe: bool = False,
+    retired_anchors: Collection[str] = (),
 ) -> ProjectionSyncResult:
     """Synchronize one committed snapshot without re-embedding unchanged claims.
 
@@ -205,6 +220,14 @@ async def sync_projection(
     tenant's projected LEDGER claims (an overview region is a rewritable head — its anchors
     are retired on purpose). `allow_wipe=True` is the deliberate-destruction escape hatch;
     the ref check has none, because an unreadable ref is never intentional.
+
+    `retired_anchors` is the second, NARROW exemption beside the overview's, and the caller
+    declares it rather than this function inferring it: these anchors belonged to blocks a
+    machine channel deliberately retired in the commit being projected. Today that is the
+    archive record an unarchive replaced with the page it stood in for (the record's three
+    blocks carry no permanent identity, exactly as an overview region's do), and the channel
+    that removed them is the only thing that can name them. Anything else that vanished is
+    still loss and still counts.
     """
     # The ref must resolve HERE — in the canonical repository this context is wired to. A
     # compile that committed into a different repository produces a ref that is perfectly
@@ -233,7 +256,9 @@ async def sync_projection(
     # small library read as a wipe. See MAX_PROJECTION_LOSS_SHARE.
     previous_ledger = [row for row in previous if not _is_overview_row(row)]
     if previous_ledger and not allow_wipe:
-        lost = _lost_anchors(claims, previous_ledger)
+        lost = _lost_anchors(claims, previous_ledger) - {
+            str(anchor) for anchor in retired_anchors
+        }
         limit = MAX_PROJECTION_LOSS_SHARE * len(previous_ledger)
         if len(lost) > limit:
             raise ProjectionRefused(

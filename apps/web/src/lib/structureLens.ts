@@ -12,7 +12,7 @@
  * 1. AN EDGE IS A SENTENCE. Every link is created by one claim, and that claim is in the
  *    projection, so no edge is ever reported as a bare pair of ids — the sentence that made it
  *    travels with it.
- * 2. A ROLLOVER VOLUME IS NOT A DOCUMENT. An archive volume (`<document>/aNN.md`) is a real
+ * 2. A CLOSED VOLUME IS NOT A DOCUMENT. A closed volume (`<document>/aNN.md`) is a real
  *    canonical file, but to a reader it is the back half of its owner. Claims, characters and
  *    edges are merged onto the owner; the volume is only named when a sentence physically
  *    lives in one.
@@ -116,7 +116,7 @@ export function volumeOwner(path: string, documentPaths: ReadonlySet<string>): s
 /* --------------------------------------------------------------------- the units */
 
 /**
- * One SUBJECT: an owned document plus every archive volume filed under it. This — not the
+ * One SUBJECT: an owned page plus every closed volume filed under it. This — not the
  * file — is the thing a reader means by "a page", so every share below is a share of these.
  */
 export interface StructureUnit {
@@ -244,7 +244,7 @@ export interface NeighborRow {
   /** the claim that created this edge, as written */
   sentence: string;
   anchor: string | null;
-  /** the archive volume the sentence lives in, when it is not the unit's own page */
+  /** the closed volume the sentence lives in, when it is not the unit's own page */
   volume: string | null;
   /** further sentences joining the same pair, beyond the one shown */
   more: number;
@@ -266,7 +266,7 @@ export interface LinkIndex {
 /**
  * The two-way neighbourhood index, built once per projection.
  *
- * Edges are merged onto units, so a link written in an archive volume counts for its owner and
+ * Edges are merged onto units, so a link written in a closed volume counts for its owner and
  * a link between two volumes of the same subject disappears (it is one subject talking to
  * itself). Repeated links between the same pair collapse to one row: the first sentence in
  * document order, plus how many more say the same thing.
@@ -342,7 +342,7 @@ export interface Neighborhood {
 }
 
 /**
- * One subject's neighbourhood. `path` may name an archive volume — a reader who opened a
+ * One subject's neighbourhood. `path` may name a closed volume — a reader who opened a
  * volume still means the subject — and both directions come back sorted by title so the card
  * reads as an index rather than as insertion order.
  */
@@ -361,19 +361,19 @@ export function neighborhoodOf(index: LinkIndex, path: string): Neighborhood {
   };
 }
 
-/** One page of a subject that has rolled over: the main volume, or one archive volume. */
+/** One page of a subject that has rolled over: the open volume, or one closed volume. */
 export interface VolumePage {
   path: string;
   documentId: string | null;
-  /** The main volume's own title, or the volume's file stem (`a01`) for an archive volume. */
+  /** The open volume's own title, or the volume's file stem (`a01`) for a closed volume. */
   label: string;
   main: boolean;
   current: boolean;
 }
 
 /**
- * The pages a rolled-over subject is spread across, in reading order: the main volume first,
- * then its archives.
+ * The pages a rolled-over subject is spread across, in reading order: the open volume first,
+ * then its closed volumes.
  *
  * A reader who lands on `projects/x/a01` sees a page headed `archived_from … rollover_volume
  * 01` and no way back: the volume knows its owner, and said so in words, but offered no door.
@@ -601,7 +601,7 @@ export interface Connectivity {
  * - orphan claim = a claim in an arrival-blind subject.
  *
  * Read over merged subjects rather than over files, because a volume has no links of its own
- * to speak of and would otherwise report the whole archive as arrival-blind.
+ * to speak of and would otherwise report every earlier volume as arrival-blind.
  */
 export function connectivity(index: LinkIndex): Connectivity {
   const arrivalBlind: StructureUnit[] = [];

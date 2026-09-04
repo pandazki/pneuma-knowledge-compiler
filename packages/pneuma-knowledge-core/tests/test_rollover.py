@@ -4,13 +4,13 @@ What is locked here is the whole reason rollover is allowed to write canonical a
 it MOVES claims and cannot do anything else to them:
 
 - the cut lands on claim-block boundaries and never splits or reflows a block;
-- the archive volume plus the retained tail reproduce the original claims byte for byte OUTSIDE
+- the closed volume plus the retained tail reproduce the original claims byte for byte OUTSIDE
   their links, and point at exactly the same documents INSIDE them — a volume sits one level
   deeper, so a byte-preserved relative link would be a repointed one (once measured: 556 dead
   links from a single groom). A tampered move, either half, is refused rather than repaired;
 - repo-wide claim anchors are conserved exactly; the only ids that may appear or disappear are
-  the history card's own, which the frontmatter ledger declares;
-- every history-card point names archived evidence, and a point that cannot is not written;
+  the volume card's own, which the frontmatter ledger declares;
+- every volume-card point names closed-volume evidence, and a point that cannot is not written;
 - a volume is frozen: the next rollover opens the next volume and leaves the old one alone;
 - a card rewrite reuses the same anchor ids, so the projection sees an edit, not a churn.
 
@@ -31,14 +31,14 @@ from pneuma_knowledge_core.compile.patch import (
     path_allowed,
 )
 from pneuma_knowledge_core.compile.rollover import (
-    ARCHIVED_FROM_KEY,
+    VOLUME_OF_KEY,
     VOLUME_COUNT_KEY,
     VOLUME_NUMBER_KEY,
     VOLUME_SPAN_KEY,
     OverviewPoint,
     _OverviewDraft,
     _OverviewPointDraft,
-    archive_date_span,
+    volume_date_span,
     build_rollover,
     catalog_anchors,
     claim_occurrence_date,
@@ -47,7 +47,7 @@ from pneuma_knowledge_core.compile.rollover import (
     dead_links,
     heal_commit_message,
     heal_volume_links,
-    is_archive_volume,
+    is_closed_volume,
     link_elided,
     link_targets,
     needs_rollover,
@@ -146,7 +146,7 @@ def test_the_trigger_is_size_only_and_zero_disables_it():
 
 
 def test_even_a_fixed_path_document_has_a_history_directory_of_its_own():
-    """`memory/profile.md` owns no slug, but the archive is a same-name DIRECTORY rather than a
+    """`memory/profile.md` owns no slug, but a volume lives in a same-name DIRECTORY rather than a
     sibling slug — so a fixed-path document rolls over exactly like any other."""
     profile = _doc(
         "memory/profile.md", "# Profile\n\n## Facts\n\n" + "\n".join(_claim(i) for i in range(30))
@@ -167,12 +167,12 @@ def test_a_document_the_skill_does_not_own_has_no_history_directory():
 
 
 def test_a_volume_is_never_itself_rolled_over():
-    """A volume lives one level down, so its own history directory would be `.../a01/` — which
-    no template owns. Frozen history cannot grow a second floor."""
+    """A volume lives one level down, so its own volume directory would be `.../a01/` — which
+    no template owns. A closed volume cannot grow a second floor."""
     volume = _doc(
         "work/products/aurora-planner/a01.md",
         "# Aurora planner\n\n## Delivery\n\n" + "\n".join(_claim(i) for i in range(30)),
-        **{ARCHIVED_FROM_KEY: ACTIVE},
+        **{VOLUME_OF_KEY: ACTIVE},
     )
     assert (
         plan_rollover(volume, [volume], path_templates=TEMPLATES, keep_recent_chars=400)
@@ -180,7 +180,7 @@ def test_a_volume_is_never_itself_rolled_over():
     )
 
 
-def test_nothing_to_archive_is_not_an_error():
+def test_nothing_to_close_into_a_volume_is_not_an_error():
     """One oversized claim block cannot be split, so there is no cut to make."""
     single = _doc(ACTIVE, "# Aurora planner\n\n## Delivery\n\n" + _claim(0))
     assert (
@@ -196,7 +196,7 @@ def test_the_retained_tail_is_the_largest_whole_block_suffix_that_fits():
     active = _active(30)
     plan = plan_rollover(active, [active], path_templates=TEMPLATES, keep_recent_chars=400)
     assert plan is not None
-    assert plan.archived_claims + plan.kept_claims == 30
+    assert plan.closed_claims + plan.kept_claims == 30
     # every retained block is one of the ORIGINAL blocks, byte for byte — no claim was cut
     original = set(active.body.splitlines())
     assert all(line in original for line in plan.kept_body.splitlines() if line.startswith("- "))
@@ -286,10 +286,10 @@ def test_the_volume_is_a_complete_document_stamped_with_where_it_came_from():
     plan, result = _roll([active], active, [_point(0)])
     volume = _as_doc(plan.volume_path, result.files[plan.volume_path])
     assert plan.volume_path == "work/products/aurora-planner/a01.md"
-    assert volume.frontmatter[ARCHIVED_FROM_KEY] == ACTIVE
+    assert volume.frontmatter[VOLUME_OF_KEY] == ACTIVE
     assert volume.frontmatter[VOLUME_NUMBER_KEY] == "01"
     assert volume.frontmatter["slug"] == "a01"
-    assert is_archive_volume(volume) and not is_archive_volume(active)
+    assert is_closed_volume(volume) and not is_closed_volume(active)
     # frozen history, verbatim
     assert _claim(0) in volume.body
 
@@ -310,7 +310,7 @@ def test_a_volumes_date_span_is_derived_and_becomes_the_catalog_link_text():
     assert result.status == "ready", [v.render() for v in result.violations]
     volume = _as_doc(plan.volume_path, result.files[plan.volume_path])
     span = volume.frontmatter[VOLUME_SPAN_KEY]
-    # min..max over the ARCHIVED entries only — the retained tail's later dates are not in it
+    # min..max over the CLOSING entries only — the retained tail's later dates are not in it
     assert span == "2026-03-02 — 2026-05-16"
     assert "2026-05-19" not in span  # a retained claim's date
     assert f"[{span}](aurora-planner/a01.md)" in result.files[ACTIVE]
@@ -329,8 +329,8 @@ def test_a_volume_whose_entries_state_no_date_gets_no_span_rather_than_a_guessed
 
 def test_a_span_is_the_days_the_entries_HAPPENED_not_every_day_they_mention():
     """The catalog's date range is the only thing a reader has when choosing a volume, so it
-    is a claim about the archive. Read loosely it is made out of dates the entries merely
-    mention: measured on a real archive, one recounted event from before the corpus began and
+    is a claim about the volume. Read loosely it is made out of dates the entries merely
+    mention: measured on a real library, one recounted event from before the corpus began and
     one FUTURE launch date stretched a seven-month volume's advertised span to ten."""
     entries = [
         "- (2026-03-02) Sprint 0 landed; the retrospective recalls the 2025-11-04 kickoff. "
@@ -338,7 +338,7 @@ def test_a_span_is_the_days_the_entries_HAPPENED_not_every_day_they_mention():
         "- (2026-03-09) Sprint 1 landed; the launch is now set for 2026-12-25. "
         f"[cite: src-01 ¶1] <!-- c:{_anchor('claim-1')} -->",
     ]
-    span = archive_date_span("## Delivery\n\n" + "\n".join(entries))
+    span = volume_date_span("## Delivery\n\n" + "\n".join(entries))
     assert span == "2026-03-02 — 2026-03-09"
     assert "2025-11-04" not in span  # a date the entry recounts, not one it happened on
     assert "2026-12-25" not in span  # a future date mid-sentence
@@ -368,11 +368,11 @@ def test_the_span_falls_back_through_three_tiers():
     undated = f"- No day at all. [cite: src-01 ¶2] <!-- c:{_anchor('claim-2')} -->"
 
     # 1. an entry states when it happened → that, and only that
-    assert archive_date_span(f"## D\n\n{stated}\n{mentioned}") == "2026-03-02"
+    assert volume_date_span(f"## D\n\n{stated}\n{mentioned}") == "2026-03-02"
     # 2. nothing states an occurrence → the loose reading still tells a reader the era
-    assert archive_date_span(f"## D\n\n{mentioned}") == "2026-09-29"
+    assert volume_date_span(f"## D\n\n{mentioned}") == "2026-09-29"
     # 3. no dates at all → "", and the catalog names the volume instead of guessing
-    assert archive_date_span(f"## D\n\n{undated}") == ""
+    assert volume_date_span(f"## D\n\n{undated}") == ""
 
 
 def test_only_the_two_written_documents_are_in_the_commit():
@@ -387,7 +387,7 @@ def test_the_commit_subject_names_the_document_the_count_and_the_volume():
     plan, _ = _roll([active], active, [_point(0)])
     subject = commit_message(plan)
     assert ACTIVE in subject and plan.volume_path in subject
-    assert str(plan.archived_claims) in subject
+    assert str(plan.closed_claims) in subject
 
 
 # ------------------------------------------------------- relative links travel with the claim
@@ -405,7 +405,7 @@ def _linked_claim(index: int, href: str, label: str = "the topic") -> str:
 
 
 def _linked_world() -> tuple[list[CanonicalDocument], CanonicalDocument]:
-    """A repo whose oldest claims link out five different ways, all of them archived."""
+    """A repo whose oldest claims link out five different ways, all of them closing."""
     orion = _doc(ORION, f"# Orion\n\n## Scope\n\n{_claim(90)}")
     lumen = _doc(LUMEN, f"# Lumen\n\n## Scope\n\n{_claim(91)}")
     rows = [
@@ -676,15 +676,15 @@ def test_a_card_point_without_a_reference_is_refused():
         catalog_anchor_ids=list(catalog_anchors(frontmatter)),
     )
     overview = [v for v in violations if v.kind == "groom_overview"]
-    assert overview and "names no archived entry" in overview[0].detail
+    assert overview and "names no entry from an earlier volume" in overview[0].detail
 
 
-def test_a_card_point_referencing_something_outside_the_archive_is_refused():
+def test_a_card_point_referencing_something_outside_the_closed_volumes_is_refused():
     active = _active(30)
     plan, result = _roll([active], active, [_point(0)])
     frontmatter, active_body = parse_document(result.files[ACTIVE])
     volume_fm, volume_body = parse_document(result.files[plan.volume_path])
-    # c:<the retained tail's last claim> is a real anchor, but it is NOT archived.
+    # c:<the retained tail's last claim> is a real anchor, but it did NOT close into a volume.
     outside = _anchor("claim-29")
 
     violations = run_groom_gate(
@@ -713,7 +713,7 @@ def test_a_rejected_rollover_hands_back_no_files_at_all():
     active = _active(30)
     plan = plan_rollover(active, [active], path_templates=TEMPLATES, keep_recent_chars=400)
     assert plan is not None
-    # a point whose evidence is not in the archive at all
+    # a point whose evidence is not in any closed volume at all
     bad = build_rollover(
         plan,
         [OverviewPoint(text="Ungrounded.", anchors=(_anchor("claim-29"),))],
@@ -775,7 +775,7 @@ def test_the_second_rollover_opens_a_new_volume_and_leaves_the_first_frozen():
     assert second.status == "ready", [v.render() for v in second.violations]
 
     assert plan_b.volume_path == "work/products/aurora-planner/a02.md"
-    # volume 01 is not in the commit at all — a frozen volume is never rewritten
+    # volume 01 is not in the commit at all — a closed volume is never rewritten
     assert plan_a.volume_path not in second.files
     volume_two = _as_doc(plan_b.volume_path, second.files[plan_b.volume_path])
     assert volume_two.frontmatter[VOLUME_NUMBER_KEY] == "02"
@@ -824,9 +824,9 @@ def test_rewriting_the_card_reuses_its_anchor_ids_rather_than_churning_them():
     assert catalog_anchors(again.frontmatter)[0] == catalog_anchors(rolled.frontmatter)[0]
 
 
-def test_the_previous_card_is_dropped_rather_than_re_archived():
+def test_the_previous_card_is_dropped_rather_than_re_closed():
     """The card is an index, not a ledger — the ledger is the volume. So the old card's blocks
-    are neither archived nor duplicated; they are simply replaced."""
+    are neither closed into a volume nor duplicated; they are simply replaced."""
     active = _active(30)
     plan_a, first = _roll([active], active, [_point(0)])
     rolled = _as_doc(ACTIVE, first.files[ACTIVE])
@@ -876,7 +876,7 @@ def _plan_for_overview():
     return active, plan
 
 
-async def test_the_overview_call_sees_the_archived_entries_with_their_ids():
+async def test_the_card_call_sees_the_closing_entries_with_their_ids():
     active, plan = _plan_for_overview()
     model = _StubModel(
         _OverviewDraft(
@@ -888,7 +888,7 @@ async def test_the_overview_call_sees_the_archived_entries_with_their_ids():
         )
     )
     points, reason = await write_overview(
-        model=model, plan=plan, known_anchors=set(extract_anchors(plan.archived_body))
+        model=model, plan=plan, known_anchors=set(extract_anchors(plan.closed_body))
     )
     assert reason == "written"
     assert points == [OverviewPoint("Checklist driven to done.", (_anchor("claim-0"),))]
@@ -909,7 +909,7 @@ async def test_a_point_naming_an_id_it_was_not_shown_is_dropped_not_repaired():
         )
     )
     points, reason = await write_overview(
-        model=model, plan=plan, known_anchors=set(extract_anchors(plan.archived_body))
+        model=model, plan=plan, known_anchors=set(extract_anchors(plan.closed_body))
     )
     assert reason == "written"
     assert [p.text for p in points] == ["Real."]
@@ -923,14 +923,14 @@ async def test_a_c_prefixed_id_is_accepted_because_that_is_how_the_material_show
         )
     )
     points, reason = await write_overview(
-        model=model, plan=plan, known_anchors=set(extract_anchors(plan.archived_body))
+        model=model, plan=plan, known_anchors=set(extract_anchors(plan.closed_body))
     )
     assert reason == "written" and points[0].anchors == (_anchor("claim-1"),)
 
 
 async def test_a_failed_or_unusable_overview_call_abandons_the_groom():
     _, plan = _plan_for_overview()
-    known = set(extract_anchors(plan.archived_body))
+    known = set(extract_anchors(plan.closed_body))
 
     boom = _StubModel(_OverviewDraft(), boom=True)
     assert await write_overview(model=boom, plan=plan, known_anchors=known) == ([], "call_failed")
@@ -942,11 +942,11 @@ async def test_a_failed_or_unusable_overview_call_abandons_the_groom():
     assert await write_overview(model=empty, plan=plan, known_anchors=known) == ([], "empty")
 
 
-def test_a_truncated_overview_input_says_so_and_keeps_the_most_recent_archive():
+def test_a_truncated_card_input_says_so_and_keeps_the_most_recent_entries():
     _, plan = _plan_for_overview()
     rendered = render_overview_input(plan, budget=300)
-    assert "line(s) of the archive are omitted here" in rendered
-    # the tail of the archive survives, the head is what was dropped
+    assert "line(s) of the volume are omitted here" in rendered
+    # the tail of the closing material survives, the head is what was dropped
     assert _claim(25) in rendered
     assert _claim(0) not in rendered
 
@@ -966,7 +966,7 @@ def test_volume_paths_live_in_the_documents_own_same_name_directory():
 
 def test_the_volume_path_is_outside_the_write_templates_but_owned_by_its_document():
     """The whole freeze mechanism in one assertion: `create_document` cannot name a volume
-    (path_allowed says no), while the gate still recognizes it as that document's own archive
+    (path_allowed says no), while the gate still recognizes it as that page's own closed volume
     (history_volume_owner says whose)."""
     volume = volume_path_for(ACTIVE, 1)
     assert path_allowed(volume, TEMPLATES) is False
@@ -1003,7 +1003,7 @@ def test_the_write_tools_refuse_a_frozen_volume_before_the_gate_ever_sees_it():
     draft = _draft_after_rollover(result.files)
     with pytest.raises(AnchorToolError) as err:
         draft.append_block(plan.volume_path, "Delivery", "A new claim. [cite: src-01 ¶0]")
-    assert "frozen history volume" in str(err.value)
+    assert "closed volume" in str(err.value)
     assert ACTIVE in str(err.value)
     with pytest.raises(AnchorToolError):
         draft.edit_claim(plan.volume_path, _anchor("claim-0"), "Rewritten. [cite: src-01 ¶0]")
@@ -1013,16 +1013,16 @@ def test_the_write_tools_refuse_a_frozen_volume_before_the_gate_ever_sees_it():
 def test_a_compile_that_tampers_with_a_frozen_volume_is_still_refused_by_the_gate():
     """Gate 5b is the final arbiter behind the tool-level refusal: a volume change that
     reaches the draft WITHOUT going through the claim tools is refused all the same, and the
-    violation feedback states the corrective action — write to the active page."""
+    violation feedback states the corrective action — write to the open volume."""
     active = _active(30)
     plan, result = _roll([active], active, [_point(0)])
     draft = _draft_after_rollover(result.files)
     volume = draft.read(plan.volume_path)
     volume.body = volume.body.replace("Sprint 0:", "Sprint zero:")
     violations = run_gate(draft, [])
-    assert [v.kind for v in violations] == ["archive_frozen"]
-    assert violations[0].detail == prompt("gate.archive_frozen", owner=ACTIVE)
-    assert f"active page `{ACTIVE}`" in violations[0].detail  # the repair-round redirect
+    assert [v.kind for v in violations] == ["volume_closed"]
+    assert violations[0].detail == prompt("gate.volume_closed", owner=ACTIVE)
+    assert f"open volume `{ACTIVE}`" in violations[0].detail  # the repair-round redirect
 
 
 def test_a_compile_cannot_create_a_volume_at_all():
@@ -1043,7 +1043,7 @@ def test_a_compile_cannot_create_a_volume_at_all():
 
 
 def _volume(body: str, *, parent: str = ACTIVE, path: str = VOLUME) -> CanonicalDocument:
-    return _doc(path, body, **{ARCHIVED_FROM_KEY: parent})
+    return _doc(path, body, **{VOLUME_OF_KEY: parent})
 
 
 def _healable_world(*hrefs: str) -> list[CanonicalDocument]:
@@ -1144,9 +1144,9 @@ def test_heal_does_not_touch_a_link_that_was_already_dead_at_the_pages_own_posit
     assert "(../../../memory/topics/orion.md)" in body
 
 
-def test_heal_only_ever_writes_archive_volumes():
+def test_heal_only_ever_writes_closed_volumes():
     """A dead link on an ordinary page is not a move's damage — nothing moved. Only a document
-    that carries the `archived_from` stamp is a document this pass can reason about."""
+    that carries the owning-page stamp is a document this pass can reason about."""
     orion = _doc(ORION, f"# Orion\n\n## Scope\n\n{_claim(90)}")
     page = _doc(
         ACTIVE,

@@ -202,7 +202,7 @@ uv run python scripts/generate_engine_schema.py --check   # 过期则退出码 1
 
 `prompts/surfaces.py` 住在**核心包**里、紧挨着它所描述的目录，而且它是机制而非文档——因为有五个测试把它钉在代码上：
 
-- **逐字节 pin**——每个 `assembled` 面，其注册表渲染必须与真正的组装函数逐字节相等（`selector_contract()`、`deep_contract()`、`briefing_contract()`、`live_context_contracts()`、`detail_contract()`、`render_system_contract()`、两个演进契约、覆盖审计的三趟、归档历史卡片、上下文流指引、档案扩写）。契约多一段、少一句、换两段顺序，都会一直红到地图跟着说同一句话为止。
+- **逐字节 pin**——每个 `assembled` 面，其注册表渲染必须与真正的组装函数逐字节相等（`selector_contract()`、`deep_contract()`、`briefing_contract()`、`live_context_contracts()`、`detail_contract()`、`render_system_contract()`、两个演进契约、覆盖审计的三趟、分卷卷目卡、上下文流指引、档案扩写）。契约多一段、少一句、换两段顺序，都会一直红到地图跟着说同一句话为止。
 - **kind pin**——被逐字节 pin 的集合与 `assembled` 集合完全相等，双向都查。一个自称是连续提示词却没有 pin 的面，是关于「模型收到什么」的一句未经校验的断言；这个标记是一个承诺，而这条测试就是来收账的。
 - **context pin**——片段族的子句和变体一个都不许缺双语适用语境，也不许把标签重说一遍当语境。
 - **覆盖率 pin**——每个目录键至少属于一个面。一个没有面的新键，是没人能在工作台里找到的文案，所以它在引入它的那个提交上就红，而不是等到某天有人去找它。

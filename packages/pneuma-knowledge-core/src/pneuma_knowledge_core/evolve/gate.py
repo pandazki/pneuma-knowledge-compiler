@@ -16,7 +16,10 @@ reorganization is not a forward-only single compile:
 - **path ownership is against the NEW skill's templates**, passed in explicitly.
 
 The daily compile gate is untouched; this is a separate profile that shares only the pure
-structural checks.
+structural checks — and one rule that is not structural but is not a compile rule either:
+an ARCHIVE RECORD is read-only (`check_archive_records`). A reorganization moves claims
+between pages and renames families, and a record is neither material nor shape: it stays
+byte-for-byte where the archive job left it, and the Owner unmakes that by unarchiving.
 
 What it does NOT change shape for is the enabled components' own checks. A component's
 gate check is a canonical FIELD invariant — an identity bound by one page only, two
@@ -39,6 +42,7 @@ from ..compile.gate import (
     Violation,
     check_anchor_coverage,
     check_anchor_uniqueness,
+    check_archive_records,
     check_frontmatter,
 )
 from ..compile.patch import DraftDoc, PatchDraft, path_allowed
@@ -209,6 +213,13 @@ async def run_evolve_gate(
     # 3b. the enabled components judge their own families, exactly as they do in a daily
     # compile. Canonical field invariants belong to canonical, not to one writing channel.
     violations.extend(component_gate_checks(docs, draft.base_documents()))
+
+    # 3c. an ARCHIVE RECORD is left where it stands, byte-for-byte — the same rule the daily
+    # compile gate holds, over the one draft that can move claims between documents. A
+    # reorganization has nothing to say about a retired subject: the record is not material
+    # it may re-file, and the owner unmakes the decision it states by unarchiving. Silent on
+    # the untouched record every run carries through, which is what a reorganization leaves.
+    violations.extend(check_archive_records(docs, draft.base_documents()))
 
     # 4. path ownership — against the NEW skill's templates.
     for path in docs:

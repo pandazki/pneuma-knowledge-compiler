@@ -285,7 +285,14 @@ def parse_overlays(rel: str, mapping: dict[str, Any]) -> dict[str, str]:
 
     The overlay file's flat mapping holds a single `overlays` key whose value is the map, so
     the "one stage file is one flat mapping" rule holds here too.
+
+    A key the catalog has since RENAMED is normalized to its current name on the way in
+    (`prompts.LEGACY_PROMPT_KEYS`), the same translation `override_prompts` applies at
+    startup. Without it the console would call an engine file broken for naming a surface
+    the framework itself renamed underneath it.
     """
+    from pneuma_knowledge_core.prompts import resolve_prompt_key
+
     raw = mapping.get("overlays")
     if raw is None:
         return {}
@@ -298,5 +305,6 @@ def parse_overlays(rel: str, mapping: dict[str, Any]) -> dict[str, str]:
                 f"{rel}: overlay {key!r} must be a string clause (whole-clause replacement "
                 "is the only supported form)"
             )
+        key = resolve_prompt_key(str(key))
         out[str(key)] = value
     return out

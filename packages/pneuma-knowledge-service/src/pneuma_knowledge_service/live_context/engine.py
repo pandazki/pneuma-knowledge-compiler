@@ -12,6 +12,11 @@ from collections.abc import Sequence
 from datetime import datetime, timezone
 from typing import Any
 
+from pneuma_knowledge_core.domain.archive import (
+    LoadedDocuments,
+    any_archived,
+    live_documents,
+)
 from pneuma_knowledge_core.domain.canonical import Citation
 from pneuma_knowledge_core.domain.ids import UserId, SourceId
 from pneuma_knowledge_core.prompts import prompt
@@ -27,6 +32,34 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from ..wiring import llm_call_config
 from .session import EvaluationPlan
+
+
+async def _live_canonical(ctx: Any, user: UserId) -> LoadedDocuments:
+    """The canonical documents this lane may glance at: everything not in the archive.
+
+    A one-line function so the lambda above stays a lambda and the rule stays a statement.
+    The archive is excluded unconditionally here — see the call site.
+
+    IT RETURNS BOTH FACTS, because this read is the only place either is visible. The live
+    set says what the room may name; `archive_active` says whether an archive stands beside
+    it, which the live set cannot — an archived page is exactly what was filtered out of it.
+    Core needs the second to decide whether to run the pin at all: with nothing ever
+    archived the assembly filter is inert and the tick retrieves byte-for-byte as it did
+    before the archive existed (`recall/archive_filter._pin`).
+
+    ALWAYS A LIST, and an empty one is an answer. A room whose Owner archived every page is
+    handed `[]`, which the lane reads as "pinned to nothing" and not as "never handed the
+    tree" — and core keeps those two apart (`recall/archive_filter._off_pin`).
+
+    AND IT RAISES RATHER THAN RETURNING EITHER. A failed read is not an empty library and it
+    is not a room that never had the tree: this set is the tick's archive pin, so a tick that
+    retrieved without it would admit every stale L3 row still naming a page the Owner moved,
+    and put it on a card with no label. `live_pipeline` catches the raise and SKIPS the tick
+    (`canonical_unavailable`); the room is quiet for one turn instead of being served the
+    archive without knowing it. The answering lanes make the same refusal as a 503
+    (`api/routes/v1.CanonicalUnavailable`)."""
+    documents = await ctx.canonical.list(user)
+    return LoadedDocuments(live_documents(documents), any_archived(documents))
 
 
 def briefing_pack(system_prefix: str) -> str:
@@ -141,8 +174,11 @@ async def run_evaluation(
         # produced a real plan, so the skip that is this lane's steady state still touches
         # nothing at all. A deployment with no canonical store wired simply has no
         # short-circuit, which is exactly what "with none passed" means in core.
+        # LIVE DOCUMENTS ONLY, unconditionally. There is no `include_archived` on this lane
+        # and there will not be one: nobody asked a question here, and a room is never served
+        # the past by default (docs/design/archive.md §4).
         load_documents=(
-            (lambda: ctx.canonical.list(user))
+            (lambda: _live_canonical(ctx, user))
             if getattr(ctx, "canonical", None) is not None
             else None
         ),

@@ -374,6 +374,49 @@ async def test_full_scope_embeds_once_when_the_discover_stage_asks_it_to():
     assert result.plan == ("semantic(RAG)",)
 
 
+async def test_live_context_skips_the_tick_when_canonical_is_unreadable():
+    """`_live_canonical` RAISES, and the tick ends rather than retrieving unpinned.
+
+    The service seam of the pin. The document set this loader returns is what admits an index
+    claim (`archive_filter._off_pin`) — a claim is shown only while the set still holds its
+    page, which is what drops an L3 row still naming a page the Owner moved. A read that
+    failed hands the tick no set, and a tick that retrieved anyway would put those rows on a
+    card in a room that never asked for history. So the room is quiet for one turn."""
+
+    async def broken(user, *, at=None):  # noqa: ANN001, ARG001
+        raise RuntimeError("git is busy")
+
+    ctx = _ctx(
+        ScriptedChatModel(
+            turns=[
+                [
+                    {
+                        "name": "DiscoverResult",
+                        "args": {
+                            "skip": False,
+                            "intent": "what is RAG",
+                            "plan": [{"kind": "semantic", "query": "RAG", "args": []}],
+                            "worth": 9,
+                        },
+                    }
+                ],
+                [{"name": "PickResult", "args": {"choice": 1, "confidence": 9}}],
+            ]
+        ),
+        lexical=_EmptyIndex(),
+        vectors=_EmptyIndex(),
+        canonical=SimpleNamespace(list=broken),
+    )
+    result = await run_evaluation(ctx, "u-1", _plan())
+
+    assert result.skipped == "canonical_unavailable"
+    assert result.dropped == {"canonical_unavailable": 1}
+    assert result.suggestions == ()
+    # It stops BEFORE stage 2, so a deployment whose git is down pays one discover call and
+    # nothing else — no embedding, no index round trip, no pick.
+    assert ctx.embeddings.document_calls == 0
+
+
 # ----------------------------------------------------------------------- want_more
 
 
@@ -502,3 +545,39 @@ async def test_a_malformed_citation_is_skipped_not_raised():
     assert store.calls == []
     assert detail["citations"] == []
     assert detail["detail"] == "ok"
+
+
+async def test_live_canonical_reports_the_archive_beside_the_live_documents():
+    """The live lane learns BOTH facts from the one read it makes, or it learns neither.
+
+    `_live_canonical` filters the archive out — a room is never served the past by default —
+    which is precisely why it cannot then be asked whether an archive exists: the evidence
+    was just removed. So it hands back `LoadedDocuments`, and core reads the flag off it
+    (`recall/archive_filter._pin`). With nothing archived the assembly filter is inert and
+    the tick retrieves byte-for-byte as it did before the archive existed."""
+    from pneuma_knowledge_core.domain.canonical import CanonicalDocument
+    from pneuma_knowledge_core.domain.ids import DocumentId, UserId
+    from pneuma_knowledge_service.live_context.engine import _live_canonical
+
+    def doc(path: str) -> CanonicalDocument:
+        return CanonicalDocument(
+            doc_id=DocumentId(path.replace("/", "-")),
+            path=path,
+            frontmatter={"title": "p"},
+            body="# p\n\n- a claim.\n",
+        )
+
+    def ctx_over(docs):
+        async def listing(user, *, at=None):  # noqa: ANN001, ARG001
+            return docs
+        return SimpleNamespace(canonical=SimpleNamespace(list=listing))
+
+    live_only = await _live_canonical(ctx_over([doc("work/x.md")]), UserId("u-1"))
+    assert [d.path for d in live_only.documents] == ["work/x.md"]
+    assert live_only.archive_active is False
+
+    with_archive = await _live_canonical(
+        ctx_over([doc("work/x.md"), doc("archive/work/y.md")]), UserId("u-1")
+    )
+    assert [d.path for d in with_archive.documents] == ["work/x.md"], "still live only"
+    assert with_archive.archive_active is True, "and the room's pin is switched on"

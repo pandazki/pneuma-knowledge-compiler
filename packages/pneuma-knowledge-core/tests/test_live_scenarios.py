@@ -38,7 +38,7 @@ now. Every row is that principle meeting a room:
     a defined subject     → the library's own sentence, now     → the glance short-circuit
     …and nothing behind it→ the ending is named all the same    → the glance settles alone
     two things in one turn→ one query each, one merged pool     → the semantic fan-out
-    a frozen archive hit  → whose history am I reading?         → the parent's identity
+    a closed-volume hit  → whose history am I reading?         → the parent's identity
 
 Live mode: `PNEUMA_SCENARIOS_LIVE=1` is deliberately NOT implemented. Every row here scripts
 the model turn it is about, so a live variant would have to script nothing and assert nothing
@@ -192,7 +192,12 @@ class Scenario:
     paths: tuple[Any, ...] = ()
     #: A tuple is one return for every query; a DICT keyed by query is the fan-out shape.
     claims: tuple[ClaimStub, ...] | dict[str, list[ClaimStub]] = ()
-    documents: tuple[CanonicalDocument, ...] = ()
+    #: The canonical tree this tick was handed. `None` — the default — is "this scenario does
+    #: not model canonical at all", which is what the lane's own `documents=None` means; an
+    #: empty TUPLE says "the library has no page" instead. Neither pins anything in these
+    #: rows: they model libraries with no archive, and the stale-path pin does not run until
+    #: something has been archived (core `recall/archive_filter._pin`).
+    documents: tuple[CanonicalDocument, ...] | None = None
     already_shown: tuple[dict, ...] = ()
     ledger: SubjectLedger | None = None
     web_search: Any = None
@@ -217,7 +222,9 @@ async def play(scenario: Scenario):
             if isinstance(scenario.claims, dict)
             else list(scenario.claims)
         ),
-        documents=list(scenario.documents),
+        documents=(
+            list(scenario.documents) if scenario.documents is not None else None
+        ),
         already_shown=list(scenario.already_shown),
         ledger=scenario.ledger,
         **kwargs,
@@ -622,7 +629,7 @@ TWO_THINGS_AT_ONCE = Scenario(
 
 WRONG_SUBJECT_TURN = owner("我现在的一个习惯，是在 Apex Bench 里直接侧拉叫那个小助手。")
 
-ARCHIVED_ASSISTANT = ClaimStub(
+CLOSED_VOLUME_ASSISTANT = ClaimStub(
     anchor="c-a02",
     document_path="projects/lumenlab/a02.md",
     text="The bench console opens a side panel for simple lookups.",
@@ -635,7 +642,7 @@ def _the_parent_identity_is_on_the_card_before_the_model_sees_it(
 ) -> None:
     human = str(pick_model.calls[0][1].content)
     # The title names the active document, with the volume noted…
-    assert "## 1 · [fact] Lumen Lab (archive a02)" in human
+    assert "## 1 · [fact] Lumen Lab (vol. a02)" in human
     # …and the orientation line says, in the library's own words, what that document is.
     assert (
         "about: projects/lumenlab/a02.md — Lumen Lab (projects/lumenlab.md) — "
@@ -645,12 +652,12 @@ def _the_parent_identity_is_on_the_card_before_the_model_sees_it(
     assert "[fact] a02" not in human
     # And a pick that chose it anyway cannot deliver it under a name that names nothing.
     (card,) = result.suggestions
-    assert card.title == "Lumen Lab (archive a02)"
+    assert card.title == "Lumen Lab (vol. a02)"
     assert card.evidence.startswith("about: Lumen Lab (projects/lumenlab.md) — ")
 
 
-ARCHIVED_VOLUME_KEEPS_ITS_SUBJECT = Scenario(
-    twin_of="a habit stated about one product, answered from another product's archive",
+CLOSED_VOLUME_KEEPS_ITS_SUBJECT = Scenario(
+    twin_of="a habit stated about one product, answered from another product's earlier volume",
     turns=(WRONG_SUBJECT_TURN,),
     discover=DiscoverResult(
         intent="Apex Bench 里那个侧拉的小助手是怎么设计的？",
@@ -663,7 +670,7 @@ ARCHIVED_VOLUME_KEEPS_ITS_SUBJECT = Scenario(
         citations=[1],
         confidence=8,
     ),
-    claims=(ARCHIVED_ASSISTANT,),
+    claims=(CLOSED_VOLUME_ASSISTANT,),
     documents=(LUMEN, LUMEN_VOLUME),
     expected="deliver",
     check=_the_parent_identity_is_on_the_card_before_the_model_sees_it,
@@ -683,7 +690,7 @@ SCENARIOS: tuple[Scenario, ...] = (
     GLANCE_THEN_UPGRADE,
     GLANCE_THEN_NOTHING,
     TWO_THINGS_AT_ONCE,
-    ARCHIVED_VOLUME_KEEPS_ITS_SUBJECT,
+    CLOSED_VOLUME_KEEPS_ITS_SUBJECT,
 )
 
 

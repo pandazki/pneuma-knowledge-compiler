@@ -183,34 +183,16 @@ async def clone_canonical(ctx: AppContext, user_id: UserId, bundle: Path) -> boo
     library, because canonical is authoritative and this function's input is a copy of
     someone's build. Wipe `data/` first if that is what you meant.
 
-    The repository's git identity is pinned locally, mirroring what `GitCanonicalStore`
-    writes when it creates a repository itself, so later commits in the restored library
-    never depend on (or record) the machine's git config."""
-    target = ctx.canonical.repo_path(user_id)
-    if (target / ".git").is_dir():
-        return False
-    target.parent.mkdir(parents=True, exist_ok=True)
-
-    def _clone() -> None:
-        subprocess.run(
-            ["git", "clone", "--quiet", str(bundle), str(target)],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        for key, value in (
-            ("user.email", "pneuma_knowledge@local"),
-            ("user.name", "pneuma-knowledge"),
-        ):
-            subprocess.run(
-                ["git", "-C", str(target), "config", key, value],
-                capture_output=True,
-                text=True,
-                check=True,
-            )
-
-    await asyncio.to_thread(_clone)
-    return True
+    The clone itself belongs to the canonical adapter (`restore_repository`) and not to this
+    script. Writing the repository from out here would be a writer that does not hold the
+    per-repository lock every other writer holds, and the adapter's crash-residue recovery
+    (`reset --hard` + `clean -fd` at the entry of any mutating method) could then meet a
+    half-materialized checkout and read it as a dead writer's leftovers. Under the lock a
+    restore is one whole step from the adapter's point of view — and the git identity the
+    restored library commits under is pinned there, beside where a freshly created repository
+    gets the same one.
+    """
+    return await ctx.canonical.restore_repository(user_id, bundle=bundle)
 
 
 def read_dump(dump: Path) -> list[NormalizedSource]:
@@ -377,13 +359,19 @@ async def rebuild_source_indexes(ctx: AppContext, user_id: UserId) -> int:
     sources = await ctx.store.list(user_id)
     for raw in sources:
         normalized = await ctx.store.get(user_id, raw.source_id)
-        await ctx.lexical.index_blocks(user_id, raw.source_id, normalized.blocks)
+        # The archive mark rides the rebuild: it is derived from L0 (`archived_at`), so a
+        # restored library's search face excludes exactly what the shipped library excluded.
+        archived = raw.archived_at is not None
+        await ctx.lexical.index_blocks(
+            user_id, raw.source_id, normalized.blocks, archived=archived
+        )
         chunks = await plan_l2_chunks(ctx, raw.source_id, normalized, user_id)
         if not chunks:
             continue
         await ctx.vectors.upsert_chunks(
             user_id,
             await embed_l2_chunks(ctx, chunks, normalized),
+            archived=archived,
         )
     return len(sources)
 

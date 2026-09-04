@@ -96,13 +96,20 @@ async def _no_snapshots(user):  # noqa: ANN001
     return []
 
 
+async def _no_documents(user, *, at=None):  # noqa: ANN001
+    """An EMPTY library, and it has to be readable: since the archive pin, a canonical read
+    that fails refuses the lane (`v1.CanonicalUnavailable` → 503) rather than degrading, so a
+    stub that could not answer `list` would be testing the refusal instead of the lane."""
+    return []
+
+
 async def _no_profile(user):  # noqa: ANN001
     raise RuntimeError("no profile provider in this test")
 
 
 def _request(store) -> SimpleNamespace:  # noqa: ANN001
     ctx = SimpleNamespace(
-        canonical=SimpleNamespace(snapshots=_no_snapshots),
+        canonical=SimpleNamespace(snapshots=_no_snapshots, list=_no_documents),
         user_info=SimpleNamespace(get_profile=_no_profile),
         langfuse_handler=lambda: None,
         lexical=None,

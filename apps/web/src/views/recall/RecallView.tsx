@@ -13,6 +13,11 @@ import {
   type TrailStep,
   type UsedClaim,
 } from "@/lib/api";
+import {
+  archiveHiddenCount,
+  archiveRecordPaths,
+  type ArchiveHiddenCarrier,
+} from "@/lib/archive";
 import { claimOneLine } from "@/lib/claim";
 import { fmtDay, fmtTime } from "@/lib/format";
 import { recallSourceIds } from "@/lib/sourceTitles";
@@ -30,6 +35,7 @@ import { ScrollRegion } from "@/ui/ScrollRegion";
 import { SearchField } from "@/ui/SearchField";
 import { SectionRule } from "@/ui/SectionRule";
 import { SegmentedControl } from "@/ui/SegmentedControl";
+import { Switch } from "@/ui/Switch";
 import { SkeletonText } from "@/ui/Skeleton";
 import { cn } from "@/ui/cn";
 import { CitedAnswer } from "../_shared/CitedAnswer";
@@ -61,7 +67,7 @@ export default function RecallView() {
   // Which sitting this is. A lens or library change clears the cache and bumps this, and a
   // request that opened under an older epoch writes nothing when it lands.
   const identityEpoch = useApp((s) => s.identityEpoch);
-  const { query, mode, rag, answer, error } = recallCache;
+  const { query, mode, rag, answer, error, includeArchived } = recallCache;
 
   // liveTrail / live / searching are transients of the in-flight query; Back need not
   // preserve them — the finished answer carries its own breakdown.
@@ -150,6 +156,7 @@ export default function RecallView() {
           ac.signal,
           snapshot,
           20,
+          includeArchived,
         );
       } else {
         // Both answering lanes run over SSE now: the stage diagram grows in place while the
@@ -181,6 +188,7 @@ export default function RecallView() {
           snapshot,
           [],
           visitorClass,
+          includeArchived,
         );
       }
     } catch (e) {
@@ -250,6 +258,16 @@ export default function RecallView() {
         >
           {mode === "rag" ? t("recall.action.search") : t("recall.action.ask")}
         </Button>
+        {/* The archive's one exception. It sits with the question rather than in a settings
+            panel because it changes what the answer is ABOUT — and everything it admits
+            comes back labelled, so the past is never presented as the present. */}
+        <Switch
+          checked={includeArchived}
+          onCheckedChange={(next) => setRecallCache({ includeArchived: next })}
+          label={<span className="text-12 text-ink-2">{t("archive.recall.include")}</span>}
+          aria-label={t("archive.recall.includeHint")}
+          wrapperClassName="shrink-0"
+        />
       </div>
 
       {/* Results */}
@@ -267,7 +285,12 @@ export default function RecallView() {
           trail={liveTrail}
         />
       ) : answer ? (
-        <AnswerPanel answer={answer} titles={titles} onJump={jumpToCitation} />
+        <AnswerPanel
+          answer={answer}
+          titles={titles}
+          onJump={jumpToCitation}
+          includeArchived={includeArchived}
+        />
       ) : rag == null ? (
         <EmptyState
           icon={Search}
@@ -279,7 +302,12 @@ export default function RecallView() {
           }
         />
       ) : (
-        <RagPanel rag={rag} titles={titles} onJump={jumpToCitation} />
+        <RagPanel
+          rag={rag}
+          titles={titles}
+          onJump={jumpToCitation}
+          includeArchived={includeArchived}
+        />
       )}
       {/* Only in the reading room: the owner reads the same history in Consultations, as a
           server-side ledger with its evidence chains, and two lists of one thing would be
@@ -344,6 +372,35 @@ function SessionAsks({
   );
 }
 
+/* ------------------------------------------------- what the archive filter withheld */
+
+/**
+ * "You turned the switch on and nothing changed" is the observation this line answers.
+ *
+ * With the archive filter on (the default), a lane counts what it dropped for being archived
+ * and states the number on its own measurements — the fast lane on its `retrieve` preview,
+ * rag on `expand`, deep on each trail record. Without this line those counts reach the
+ * console and are never said out loud, so an owner who archived something has no way to tell
+ * "the archive holds nothing about this" from "the archive holds plenty and you asked me not
+ * to read it". The two are different answers and they must not look alike.
+ *
+ * It renders nothing when the switch is ON (nothing was withheld — what came from the
+ * archive is labelled in place instead) and nothing when the count is zero, so an answer that
+ * hid nothing reads exactly as it did before this existed.
+ */
+function ArchiveHiddenNote({
+  rows,
+  includeArchived,
+}: {
+  rows: readonly ArchiveHiddenCarrier[];
+  includeArchived: boolean;
+}) {
+  const t = useT();
+  const hidden = includeArchived ? 0 : archiveHiddenCount(rows);
+  if (hidden === 0) return null;
+  return <p className="mt-2 text-12 text-ink-3">{t("archive.recall.hidden", { count: hidden })}</p>;
+}
+
 /* ---------------------------------------------------------------- rag hit ledger */
 
 /**
@@ -358,15 +415,18 @@ function RagPanel({
   rag,
   titles,
   onJump,
+  includeArchived,
 }: {
   rag: RagResult;
   titles: Record<string, string>;
   onJump: (c: CitationEntry) => void;
+  includeArchived: boolean;
 }) {
   const t = useT();
   return (
     <div className="flex flex-col gap-4">
       <StageStrip stages={rag.stages} description={t("recall.stages.descriptionRag")} />
+      <ArchiveHiddenNote rows={rag.stages} includeArchived={includeArchived} />
       {rag.hits.length === 0 ? (
         <EmptyState
           icon={Search}
@@ -429,6 +489,7 @@ function HitList({
                   {h.paths.map((p) => (
                     <Badge key={p}>{p}</Badge>
                   ))}
+                  {h.archived && <Badge tone="warn">{t("archive.badge")}</Badge>}
                   <Mono className="ml-auto text-12 text-ink-3">
                     score {h.score.toFixed(4)}
                   </Mono>
@@ -596,6 +657,22 @@ function TrailTimeline({
 
 /* --------------------------------------------------------- the fast/deep answer */
 
+/**
+ * The live paths at which archive records stand, when this console happens to hold the
+ * canonical projection (it is loaded for Canonical and the graph, and kept afterwards).
+ *
+ * Deliberately NOT a fetch: recall must not pull a whole library projection to decorate a
+ * badge, and a mark that is sometimes absent is honest in a way an extra request would not
+ * make it. When the projection is there, every claim taken out of a record is marked.
+ */
+function useArchiveRecordPaths(): ReadonlySet<string> {
+  const model = useApp((s) => s.model);
+  return useMemo(
+    () => archiveRecordPaths(model?.dataset.documents?.documents ?? []),
+    [model],
+  );
+}
+
 function UsedClaimRow({
   claim,
   titles,
@@ -607,11 +684,19 @@ function UsedClaimRow({
   onJump: (c: CitationEntry) => void;
   showScore?: boolean;
 }) {
+  const t = useT();
   const tOr = useTOr();
   // Labels are a component's mechanical marks on a claim (`current`, `superseded`), an open
   // vocabulary: a label this build does not know renders as the word the server sent.
   const labels = claim.labels ?? [];
   const superseded = labels.includes("superseded");
+  // A claim quoted out of an archive RECORD is about a subject that has left, but the record
+  // itself is live and carries no `archived` label — so the mark comes from the only thing
+  // the client already holds that knows the difference: the canonical projection's
+  // frontmatter. Absent (recall does not load the projection itself), the row reads exactly
+  // as it did before records existed rather than guessing.
+  const records = useArchiveRecordPaths();
+  const fromRecord = !labels.includes("archived") && records.has(claim.document_path);
   return (
     <div className="border-b border-line py-3">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -620,6 +705,7 @@ function UsedClaimRow({
         {claim.paths.map((p) => (
           <Badge key={p}>{p}</Badge>
         ))}
+        {fromRecord && <Badge tone="warn">{t("archive.record.badge")}</Badge>}
         {labels.map((label) =>
           // `via:person,timespan` — a component lookup returned this same claim. The paths
           // are dynamic, so the badge is built from the label itself rather than translated.
@@ -631,7 +717,13 @@ function UsedClaimRow({
               )}
             </Badge>
           ) : (
-            <Badge key={label} tone={label === "superseded" ? "warn" : "neutral"}>
+            <Badge
+              key={label}
+              // `archived` is the archive's own label on evidence an `include_archived`
+              // call admitted — history, shown as history, in the same slot `superseded`
+              // has always used.
+              tone={label === "superseded" || label === "archived" ? "warn" : "neutral"}
+            >
               {tOr(`enum.claimLabel.${label}`, label)}
             </Badge>
           ),
@@ -830,10 +922,12 @@ function AnswerPanel({
   answer,
   titles,
   onJump,
+  includeArchived,
 }: {
   answer: RecallAnswer;
   titles: Record<string, string>;
   onJump: (c: CitationEntry) => void;
+  includeArchived: boolean;
 }) {
   const t = useT();
   const trail = answer.trail ?? [];
@@ -859,6 +953,12 @@ function AnswerPanel({
 
       <section>
         <SectionRule no={section++} title={t("recall.answer.title")} />
+        {/* Both lanes state the omission on their own measurements: fast in a stage preview,
+            deep on each trail record. One line over both. */}
+        <ArchiveHiddenNote
+          rows={[...(answer.stages ?? []), ...trail]}
+          includeArchived={includeArchived}
+        />
         <p className="mt-3 text-12 text-ink-3">
           as_of <Mono title={answer.as_of}>{fmtTime(answer.as_of)}</Mono>
         </p>

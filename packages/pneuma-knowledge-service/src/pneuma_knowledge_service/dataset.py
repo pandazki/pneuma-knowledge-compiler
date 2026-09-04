@@ -13,6 +13,7 @@ import asyncio
 import re
 from typing import Any
 
+from pneuma_knowledge_core.domain.archive import is_archived_path
 from pneuma_knowledge_core.domain.canonical import (
     CanonicalDocument,
     iter_canonical_citations,
@@ -102,10 +103,19 @@ def _doc_title(doc: CanonicalDocument) -> str:
 
 
 def _document_record(doc: CanonicalDocument) -> dict[str, Any]:
+    """One document as the dataset states it — the ARCHIVE INCLUDED, and marked.
+
+    The dataset is the console's whole view of canonical, and a console that could not see
+    the archive could not show the Owner what they retired. So the record carries the state
+    (`archived`, derived from the path — docs/design/archive.md §2.1) and the console decides
+    how to show it, which is the same division every other lane makes: the framework states
+    the fact, the reader states the emphasis.
+    """
     return {
         "document_id": str(doc.doc_id) if doc.doc_id else None,
         "path": doc.path,
         "title": _doc_title(doc),
+        "archived": is_archived_path(doc.path),
         "frontmatter": dict(doc.frontmatter),
         "body": doc.body,
         "claims": _parse_claims(doc.body),

@@ -58,6 +58,7 @@ export const liveContext = defineMessages({
     "liveContext.skip.duplicate": "跳过·同主体重复",
     "liveContext.skip.unparsed": "跳过·输出无法解析",
     "liveContext.skip.pick_failed": "跳过·挑选失败",
+    "liveContext.skip.canonical_unavailable": "跳过·知识库暂不可读",
     "liveContext.skip.briefing_empty": "跳过·简报无卡",
     "liveContext.config.webSearch.label": "允许互联网搜索作为补充",
     "liveContext.config.webSearch.hint":
@@ -261,6 +262,7 @@ export const liveContext = defineMessages({
     "liveContext.skip.duplicate": "skipped · same subject again",
     "liveContext.skip.unparsed": "skipped · unparsable output",
     "liveContext.skip.pick_failed": "skipped · pick failed",
+    "liveContext.skip.canonical_unavailable": "skipped · library unreadable",
     "liveContext.skip.briefing_empty": "skipped · briefing had none",
     "liveContext.config.webSearch.label": "Allow internet search as a supplement",
     "liveContext.config.webSearch.hint":

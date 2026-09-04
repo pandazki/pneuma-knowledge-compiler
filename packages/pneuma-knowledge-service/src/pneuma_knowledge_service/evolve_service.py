@@ -30,6 +30,11 @@ from pneuma_knowledge_core.compile.anchor_ops import edit_claim_text, insert_blo
 from pneuma_knowledge_core.compile.documents import render_document, with_derived_title
 from pneuma_knowledge_core.compile.transitions import _anchor_blocks
 from pneuma_knowledge_core.components import collect_evolve_evidence, component_job
+from pneuma_knowledge_core.domain.archive import (
+    live_documents,
+    restructurable_documents,
+    retired_paths,
+)
 from pneuma_knowledge_core.domain.canonical import CanonicalDocument
 from pneuma_knowledge_core.domain.ids import UserId, SourceId, extract_anchors
 from pneuma_knowledge_core.domain.snapshot import SnapshotRef
@@ -181,8 +186,20 @@ async def run_evolve_job(ctx: AppContext, user: UserId, job: object) -> None:
     all_events = await ctx.store.list_compile_events(user)
     recent = [e for e in all_events if baseline is None or e["created_at"] > baseline]
 
-    docs = await ctx.canonical.list(user)
-    doc_paths = [d.path for d in docs]
+    # LIVE documents only, on both halves of this job (docs/design/archive.md §2.1). The
+    # proposal reasons about the shape the library has NOW, and a reorganization that could
+    # see the archive could propose moving a retired page into a new family — a canonical
+    # write into `archive/`, which the gate refuses anyway, computed from material the Owner
+    # already said is not current. The archive is left exactly as the branch found it.
+    docs = live_documents(await ctx.canonical.list(user))
+    # …and one narrower set inside it. The phase-2 draft holds every live document — the
+    # record among them, exactly as a daily compile's draft does, so its path and its
+    # subject stay protected against a page being created over them — but the SHAPE the
+    # proposal reasons about is the restructurable one. A record is not a page a
+    # reorganization may re-file (every write verb refuses it, `PatchDraft`
+    # `_refuse_archive_record`, and the evolve gate is the final arbiter), so counting it
+    # among a family's pages would let a subject the owner retired argue for a split.
+    doc_paths = [d.path for d in restructurable_documents(docs)]
 
     # What the enabled index components have to report about how this library is being
     # used. `None` with no component registered (or none with anything to say), and the
@@ -439,9 +456,41 @@ async def adopt_evolve_job(ctx: AppContext, user: UserId, job: object) -> None:
         return
 
     base_ref = task["base_ref"]
-    base_docs = await ctx.canonical.list(user, at=SnapshotRef(ref=base_ref))
-    branch_docs = await ctx.canonical.list(user, at=SnapshotRef(ref=branch))
-    main_docs = await ctx.canonical.list(user)
+    # The same exclusion as the branch build, on all three sides of the merge: the archive
+    # is not part of the reconciliation, so no archived path enters `final_files` and the
+    # adopt commit leaves every archived document byte-for-byte as it stands on main. An
+    # anchor that sits in the archive is invisible on all three sides, so it is neither
+    # "dropped by evolve" nor revivable — it simply is not in this conversation.
+    #
+    # Main is read WHOLE and filtered here rather than in the call, because the archive is
+    # the one thing this merge must see without touching: the records and archived copies it
+    # holds are what the two older sides are read against, below. Records stay in `main_docs`
+    # — a record is a live page, and carrying it through the merge is how it comes out of the
+    # adopt byte-for-byte rather than by being absent from a path-addressed commit.
+    main_tree = await ctx.canonical.list(user)
+    main_docs = live_documents(main_tree)
+    # …and, on the two sides that PREDATE current main, one more exclusion: a path main has
+    # retired. The review window is long enough for the Owner to archive a subject the
+    # branch still holds as a live page, and a three-way merge that carried it would commit
+    # that page back over the record standing at the same path — the retired subject
+    # resurrected, by a mechanical merge, with claims nobody wrote. The record and its
+    # archived copy are the two marks of that decision (`retired_paths`); main is where the
+    # decision is, so main is what the other two sides are read against.
+    retired = retired_paths(main_tree)
+    base_docs = [
+        doc
+        for doc in restructurable_documents(
+            await ctx.canonical.list(user, at=SnapshotRef(ref=base_ref))
+        )
+        if doc.path not in retired
+    ]
+    branch_docs = [
+        doc
+        for doc in restructurable_documents(
+            await ctx.canonical.list(user, at=SnapshotRef(ref=branch))
+        )
+        if doc.path not in retired
+    ]
 
     final_files, ok, reason = reconcile_adopt(base_docs, branch_docs, main_docs)
     if not ok:

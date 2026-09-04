@@ -54,6 +54,8 @@ from ..domain.snapshot import SnapshotRef
 from ..ports.content_store import ContentStore
 from ..prompts import prompt
 from .agentic import AgentTimings, TokenSink, run_agent_loop, timed_tools
+from ..domain.archive import ArchiveView, is_archived_path
+from .archive_filter import archive_view, scope_claims, scope_windows
 from .assembly import expand_and_merge, render_passages
 from .citation_alias import SessionAliaser, iter_answer_citations
 from .spine import CITE_PRECISE, CLOSE_ANSWER_HONESTLY, spine
@@ -220,6 +222,12 @@ class BriefingScope:
     query: str | None = None
     source_ids: list[SourceId] = field(default_factory=list)
     budget_chars: int = 24_000
+    #: The ARCHIVE, off by default (docs/design/archive.md §4). It belongs to the SCOPE and
+    #: not to the call because a briefing is built once and asked over many times: the choice
+    #: the owner made when the pack was built is the choice every ask over that pack
+    #: inherits, and it is stored with the scope so it survives the row round trip. A pack
+    #: built without the archive can never grow one, and one built with it says so.
+    include_archived: bool = False
 
     def __post_init__(self) -> None:
         # A budget of zero or less is not a small pack, it is a contradiction: `pack[:0]`
@@ -259,6 +267,11 @@ class Briefing:
     #: and its ask then admits no citation at all. That is the honest reading of "nobody
     #: recorded what this pack showed", and it is not repaired by guessing.
     pack_manifest: tuple[EvidenceRef, ...] = ()
+    #: The scope's archive choice, carried onto the pack so `briefing_ask`'s own retrieval
+    #: inherits it. A pack built over live knowledge whose ask then searched the archive
+    #: would answer half out of the present and half out of the past, with nothing in the
+    #: text to say which — the one outcome the label discipline exists to prevent.
+    include_archived: bool = False
 
 
 @dataclass(frozen=True)
@@ -342,6 +355,9 @@ async def _query_section(
     max_claims: int = 24,
     max_excerpts: int = 12,
     stages: StageRecorder | None = None,
+    view: ArchiveView | None = None,
+    include_archived: bool = False,
+    live_paths: frozenset[str] | None = None,
 ) -> tuple[list[_Rendered], int]:
     """Render the scope.query knowledge — claims selected by relevance, laid out in
     canonical (path/anchor) order for byte-stability. Returns (segments, claim_count).
@@ -358,6 +374,7 @@ async def _query_section(
     stages = stages if stages is not None else StageRecorder(
         BUILD_STAGE_ORDER, BUILD_RETRIEVE_CHILDREN
     )
+    view = view if view is not None else ArchiveView.empty()
 
     if claim_lexical is not None and claim_vectors is not None and embeddings is not None:
         with stages.measure(RETRIEVE), stages.measure(child_name("claims")):
@@ -368,10 +385,22 @@ async def _query_section(
                 claim_vectors=claim_vectors,
                 embeddings=embeddings,
                 limit=max_claims,
-            ))[:max_claims]
+                include_archived=include_archived,
+            ))
+            # The archive, at assembly: the index already excluded it, and this is the half
+            # that also holds for a claim the index never learned the flag for.
+            retrieved, hidden = scope_claims(
+                retrieved, view, include_archived=include_archived, live_paths=live_paths
+            )
+            retrieved = retrieved[:max_claims]
             stages.preview(
                 child_name("claims"),
-                {"cap": max_claims, "hits": len(retrieved), "items": claim_entries(retrieved)},
+                {
+                    "cap": max_claims,
+                    "hits": len(retrieved),
+                    **({"archive_hidden": hidden} if hidden else {}),
+                    "items": claim_entries(retrieved),
+                },
             )
         if retrieved:
             # select by relevance, render in canonical order (deterministic).
@@ -391,6 +420,7 @@ async def _query_section(
                 vectors=vectors,
                 embeddings=embeddings,
                 limit=max_excerpts,
+                include_archived=include_archived,
             )
             stages.preview(
                 child_name("passages"),
@@ -403,18 +433,31 @@ async def _query_section(
                 passages = await expand_and_merge(
                     hits, content=content, user_id=user_id
                 )
+                # After the merge, not before it: `expand_and_merge` builds new passages out
+                # of the raw hits, so a marker stamped on a hit would not reach the pack.
+                passages, hidden_passages = scope_windows(
+                    passages, view, include_archived=include_archived
+                )
                 stages.preview(
                     EXPAND,
                     {
                         "passages": len(passages),
+                        **(
+                            {"archive_hidden": hidden_passages}
+                            if hidden_passages
+                            else {}
+                        ),
                         "passage_chars": sum(len(p.text or "") for p in passages),
                     },
                 )
-            ordered = sorted(
-                passages, key=lambda p: (str(p.source_id), p.block_start, p.block_end)
-            )
-            lines.append(_plain(prompt("recall.briefing.query_excerpts_header")))
-            lines.append(_join([_passage_block(p) for p in ordered], "\n"))
+            # `if hits` was enough before the filter could empty the list; a header over no
+            # excerpts would say the pack has a section it does not have.
+            if passages:
+                ordered = sorted(
+                    passages, key=lambda p: (str(p.source_id), p.block_start, p.block_end)
+                )
+                lines.append(_plain(prompt("recall.briefing.query_excerpts_header")))
+                lines.append(_join([_passage_block(p) for p in ordered], "\n"))
     return lines, claim_count
 
 
@@ -427,6 +470,7 @@ async def _source_section(
     content: ContentStore | None,
     max_excerpt_blocks: int = 4,
     max_outline_sections: int = 60,
+    include_archived: bool = False,
 ) -> tuple[list[_Rendered], int]:
     """Anchor one source: materials card + citing claims + raw excerpts (deterministic).
 
@@ -434,7 +478,13 @@ async def _source_section(
     its own canonical body (whose citations the gate already admitted), a citing claim shows
     its note and its provenance, and a raw excerpt IS one L0 block — the one thing here whose
     text has no marker in it at all, and which a parser of the rendered pack could therefore
-    never have counted. The structure outline is the fourth, and it stays a map."""
+    never have counted. The structure outline is the fourth, and it stays a map.
+
+    THE ARCHIVE reaches two of the four. A materials card under `archive/` and a citing claim
+    on an archived page are dropped unless the call asked for them — the same rule the query
+    half applies. The outline and the raw excerpts are NOT filtered: this source was anchored
+    by id, and reachability by address is unconditional (I3). What the default excludes is a
+    SEARCH, never an addressed read."""
     sid = str(source_id)
     lines: list[_Rendered] = [
         _plain(prompt("recall.briefing.source_heading", source_id=sid))
@@ -446,6 +496,7 @@ async def _source_section(
             d
             for d in snapshot_docs
             if d.path.startswith("materials/")
+            and (include_archived or not is_archived_path(d.path))
             and any(
                 str(citation.source_id) == sid
                 for citation in iter_canonical_citations(d.body)
@@ -467,7 +518,14 @@ async def _source_section(
             )
 
     # ② every canonical claim citing this source (citation reverse lookup).
-    citing = sorted(claims_citing(all_claims, source_id), key=_sort_key)
+    citing = sorted(
+        (
+            c
+            for c in claims_citing(all_claims, source_id)
+            if include_archived or not is_archived_path(c.document_path)
+        ),
+        key=_sort_key,
+    )
     if citing:
         lines.append(_plain(prompt("recall.briefing.citing_claims_header")))
         for c in citing:
@@ -538,6 +596,12 @@ async def build_briefing(
     # settles, from the same recorder that produces `Briefing.stages`. None = silent, and the
     # build is byte-identical to what it was before events existed.
     on_event: StageEventSink | None = None,
+    # Whether this library has EVER archived a document. `snapshot_docs` cannot say — the
+    # caller filters the archive out of it before handing it over — so the caller that
+    # listed the full tree states it (`domain/archive.any_archived`). It turns the assembly
+    # filter's pin on; with nothing archived the pack is assembled byte-for-byte as it was
+    # before the archive existed (`archive_filter._pin`).
+    archive_active: bool = False,
 ) -> Briefing:
     """Assemble a Briefing's stable knowledge pack over a fixed snapshot.
 
@@ -561,6 +625,16 @@ async def build_briefing(
     stages = StageRecorder(BUILD_STAGE_ORDER, BUILD_RETRIEVE_CHILDREN, on_event=on_event)
     build_started = time.perf_counter()
 
+    # The archive, read once for this build. The scope owns the choice (see
+    # `BriefingScope.include_archived`) and the pack carries it forward, so every ask over
+    # this pack retrieves under the same rule the pack was assembled under.
+    view = await archive_view(user_id, content, documents_archived=archive_active)
+    #: The snapshot's own pages, which is what this pack is a reading of. NEVER None:
+    #: `snapshot_docs` is a required parameter, so the caller always hands the set, and an
+    #: empty one is a snapshot with no page — it pins to nothing and every claim the index
+    #: proposes is dropped. The `ask` over a stored pack is the case that has no set at all
+    #: and passes None (`briefing_ask`).
+    live_paths: frozenset[str] = frozenset(doc.path for doc in snapshot_docs)
     all_claims = project_snapshot_claims(snapshot_docs)
 
     segments: list[_Rendered] = []
@@ -568,7 +642,10 @@ async def build_briefing(
 
     if snapshot_docs:
         with stages.measure(PACK):
-            glance = render_canonical_glance(snapshot_docs, skill, packs=packs)
+            glance = render_canonical_glance(
+                snapshot_docs, skill, packs=packs,
+                include_archived=scope.include_archived,
+            )
             segments.append(_plain(glance))
             stages.preview(
                 PACK, {"documents": len(snapshot_docs), "glance_chars": len(glance)}
@@ -585,6 +662,12 @@ async def build_briefing(
             vectors=vectors,
             content=content,
             stages=stages,
+            view=view,
+            include_archived=scope.include_archived,
+            # The pack is PINNED to the snapshot it was built from, so a claim the index
+            # returns for a page that snapshot does not contain — a stale L3 row still
+            # carrying a moved document's old live path — has no place in it.
+            live_paths=live_paths,
         )
         if query_lines:
             segments.append(
@@ -612,6 +695,7 @@ async def build_briefing(
                     all_claims,
                     snapshot_docs,
                     content=content,
+                    include_archived=scope.include_archived,
                 )
                 stages.preview(
                     EXPAND,
@@ -680,6 +764,7 @@ async def build_briefing(
         source_ids=tuple(sorted(set(str(s) for s in scope.source_ids))),
         stages=stages.emit(),
         pack_manifest=pack_manifest,
+        include_archived=scope.include_archived,
     )
 
 
@@ -788,6 +873,9 @@ def _search_knowledge_tool(
     sink: list[dict],
     manifest: list[EvidenceRef] | None = None,
     aliaser=None,
+    view: ArchiveView | None = None,
+    include_archived: bool = False,
+    live_paths: frozenset[str] | None = None,
 ) -> StructuredTool:
     """Agentic in-scope retrieval: retrieve_claims + rag_recall → expand_and_merge, scoped
     to the briefing's anchored sources (whole KB when none). Fixes the static-pack blind
@@ -798,8 +886,19 @@ def _search_knowledge_tool(
     pack follows, and for the same reason: a passage's body is source text, and source text
     that happens to contain `[cite: …]` is quoting, not provenance. `sink` counts the same
     call for the stage timing; the two answer different questions and neither can stand in
-    for the other — a count says a search happened, not what it showed."""
+    for the other — a count says a search happened, not what it showed.
+
+    `include_archived` is the PACK's, never this call's: the ask inherits the choice the
+    owner made when the briefing was built. A pack assembled over live knowledge whose tool
+    then reached into the archive would answer half out of the present and half out of the
+    past, with nothing in the text to say which.
+
+    `live_paths` is the stale-row pin (`archive_filter.filter_claims`) and is normally None
+    here: an ask runs against a stored pack, which carries no document set. `briefing_ask`
+    passes None deliberately; a caller that still holds the build's documents may pass
+    them."""
     allowed = set(source_ids)
+    view = view if view is not None else ArchiveView.empty()
 
     async def search_knowledge(query: str) -> str:
         """In-scope retrieval; see `recall.briefing.tool.search_knowledge_doc`."""
@@ -812,6 +911,7 @@ def _search_knowledge_tool(
                 claim_vectors=claim_vectors,
                 embeddings=embeddings,
                 limit=_SEARCH_MAX_CLAIMS,
+                include_archived=include_archived,
             )
         passages = []
         if lexical is not None and vectors is not None and embeddings is not None:
@@ -822,10 +922,19 @@ def _search_knowledge_tool(
                 vectors=vectors,
                 embeddings=embeddings,
                 limit=_SEARCH_MAX_PASSAGES * 2,
+                include_archived=include_archived,
             )
             passages = await expand_and_merge(
                 hits, content=content, user_id=user_id
             )
+        # The assembly-time half of the archive rule, over both faces at once and before the
+        # anchored-source scope below — the two are independent filters and each has to hold.
+        claims, hidden_claims = scope_claims(
+            claims, view, include_archived=include_archived, live_paths=live_paths
+        )
+        passages, hidden_passages = scope_windows(
+            passages, view, include_archived=include_archived
+        )
 
         if allowed:  # scope to the briefing's anchored sources
             passages = [p for p in passages if str(p.source_id) in allowed]
@@ -837,7 +946,17 @@ def _search_knowledge_tool(
         passages = passages[:_SEARCH_MAX_PASSAGES]
         claims = claims[:_SEARCH_MAX_CLAIMS]
         sink.append(
-            {"query": query, "claims": len(claims), "passages": len(passages)}
+            {
+                "query": query,
+                "claims": len(claims),
+                "passages": len(passages),
+                # Never silent, and on the record the ask already keeps for this call.
+                **(
+                    {"archive_hidden": hidden_claims + hidden_passages}
+                    if (hidden_claims + hidden_passages)
+                    else {}
+                ),
+            }
         )
 
         parts: list[str] = []
@@ -939,6 +1058,17 @@ async def briefing_ask(
         sink=searches,
         manifest=searched,
         aliaser=aliaser,
+        # No `documents_archived` for the same reason there is no pin below: an ask over a
+        # stored pack holds no document set, so there is nothing for the flag to switch on.
+        view=await archive_view(briefing.user_id, content),
+        # The PACK's choice, inherited — see `_search_knowledge_tool`.
+        include_archived=briefing.include_archived,
+        # NO PIN HERE, and it is not an omission. A stored pack is text plus a manifest of
+        # what it showed; the document set it was built from is long gone by ask time, and
+        # `pack_manifest` is not a substitute — pinning to the pages the pack already quoted
+        # would delete exactly what `search_knowledge` exists to find. So the ask keeps the
+        # two filters it can actually apply: the index scope and the archive view.
+        live_paths=None,
     )
     human = assemble_messages(briefing, question, as_of=as_of, profile=profile)[1].content
     system_prefix = briefing.system_prefix

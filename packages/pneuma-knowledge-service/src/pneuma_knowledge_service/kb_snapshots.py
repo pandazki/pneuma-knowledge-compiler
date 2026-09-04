@@ -223,6 +223,9 @@ def _projected(row: dict[str, Any]) -> ProjectedClaim:
             )
             for c in (row.get("citations") or [])
         ),
+        # Derived from the document's path and copied with the row: a snapshot of a library
+        # whose page sits in the archive answers about it exactly as the base does.
+        archived=bool(row.get("archived")),
     )
 
 
@@ -296,7 +299,12 @@ async def run_copy(ctx: AppContext, owner: UserId, snapshot: KbSnapshot) -> KbSn
         # granularity `index_blocks` takes and it keeps each request's payload bounded.
         for raw in await ctx.store.list(tenant):
             normalized = await ctx.store.get(tenant, raw.source_id)
-            await ctx.lexical.index_blocks(tenant, raw.source_id, normalized.blocks)
+            await ctx.lexical.index_blocks(
+                tenant,
+                raw.source_id,
+                normalized.blocks,
+                archived=raw.archived_at is not None,
+            )
         claims = [
             _projected(row) for row in await ctx.store.list_canonical_claims(tenant)
         ]

@@ -20,7 +20,7 @@ path_templates:
 
      Mechanism-level rules do not belong here — the framework enforces them: every canonical
      claim must carry a traceable [cite] reference, anchors are immutable once assigned,
-     frozen archive volumes are read-only. The contract holds judgement only.
+     closed volumes are read-only. The contract holds judgement only.
 
      Each section has guiding questions (HTML comments). Wherever you see TODO, read your
      own material first, then replace the marker with your own answer — do not imitate

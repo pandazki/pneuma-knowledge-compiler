@@ -62,6 +62,12 @@ class _MovingCanonical:
     async def snapshots(self, user):  # noqa: ANN001
         return [SimpleNamespace(ref=self.head)]
 
+    async def list(self, user, *, at=None):  # noqa: ANN001, A003
+        """An empty library, READABLE. Since the archive pin a failed canonical read refuses
+        the lane (`v1.CanonicalUnavailable` → 503), so a canonical that could not answer
+        `list` would never reach the recording this test is about."""
+        return []
+
 
 async def _no_profile(user):  # noqa: ANN001
     raise RuntimeError("no profile provider in this test")

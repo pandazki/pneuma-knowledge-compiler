@@ -11,6 +11,7 @@ import { fmtCount, fmtDateTime, fmtDay } from "@/lib/format";
 import {
   EMPTY_SOURCE_FILTER,
   filterSources,
+  isArchivedSource,
   selectedDay,
   sortByTimeline,
   sourceDensity,
@@ -36,6 +37,7 @@ import { SkeletonText } from "@/ui/Skeleton";
 import { Tabs } from "@/ui/Tabs";
 import { ActivityHeatmap } from "@/components/ActivityHeatmap";
 import { PageHeader } from "@/components/PageHeader";
+import { ArchiveProposalDialog } from "@/views/archive/ArchiveProposalDialog";
 import { cn } from "@/ui/cn";
 import { SourceFilterBar } from "./SourceFilterBar";
 import { SourceKindName, SourceKindSummary, SourceReader } from "./SourceReaders";
@@ -74,6 +76,9 @@ export default function SourcesView() {
   const [filter, setFilter] = useState<SourceFilter>(EMPTY_SOURCE_FILTER);
   const [revealed, setRevealed] = useState(REVEAL_STEP);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const includeArchived = filter.includeArchived;
+  /** Which library the rows on screen belong to — see the crawl effect below. */
+  const crawledFor = useRef<string | null>(null);
 
   const load = useCallback(() => setReloadKey((k) => k + 1), []);
   const reveal = useCallback(() => setRevealed((n) => n + REVEAL_STEP), []);
@@ -96,11 +101,20 @@ export default function SourcesView() {
     }
     const controller = new AbortController();
     setListError(null);
-    setCatalogue(null);
-    setTotal(0);
+    // A crawl for a DIFFERENT library replaces the catalogue, so the rows are cleared and the
+    // view falls back to its skeleton. A re-crawl of the SAME library — which is what the
+    // archive toggle asks for — keeps the rows on screen: clearing them would take the
+    // control bar away with them, and the toggle the reader just pressed would vanish under
+    // their cursor. The client-side archive filter already holds while the pages arrive.
+    if (crawledFor.current !== currentUser) {
+      setCatalogue(null);
+      setTotal(0);
+    }
+    crawledFor.current = currentUser;
     setLoading(true);
     crawlSources(currentUser, {
       signal: controller.signal,
+      includeArchived,
       onProgress: (items, pageTotal) => {
         if (controller.signal.aborted) return;
         setCatalogue(sortByTimeline(items));
@@ -116,7 +130,9 @@ export default function SourcesView() {
         setListError(e.message);
       });
     return () => controller.abort();
-  }, [currentUser, reloadKey]);
+    // The archive toggle is a request parameter, not a view filter: turning it on has to go
+    // back to the route, because a source the default listing omitted was never on the wire.
+  }, [currentUser, reloadKey, includeArchived]);
 
   // A user switch is a different catalogue, so it is also a different question.
   useEffect(() => {
@@ -417,6 +433,17 @@ function CatalogueRow({
         <span className="min-w-0 flex-1 truncate text-14 text-ink">{source.title}</span>
 
         <span className="hidden shrink-0 items-baseline gap-1.5 sm:flex">
+          {/* An archived row is only ever here because the reader asked for it, so it says
+              which one it is rather than sitting silently among the live ones. */}
+          {isArchivedSource(source) && (
+            <span
+              title={t("archive.sources.archivedAt", {
+                date: fmtDateTime(source.archived_at ?? ""),
+              })}
+            >
+              <Badge tone="warn">{t("archive.badge")}</Badge>
+            </span>
+          )}
           <Badge>
             <SourceKindName kind={source.kind} />
           </Badge>
@@ -455,7 +482,14 @@ function SourceGalley({
   const [exact, setExact] = useState<{ block: number; text: string } | null>(null);
   const [fetching, setFetching] = useState(false);
   const [activeTab, setActiveTab] = useState("source");
+  const [archiveOpen, setArchiveOpen] = useState(false);
   const blockRefs = useRef<Map<number, HTMLElement>>(new Map());
+  const lens = useApp((s) => s.lens);
+  const archived = (detail?.archived_at ?? null) != null;
+  const archiveSeeds = useMemo(
+    () => ({ documents: [] as string[], sources: [sourceId] }),
+    [sourceId],
+  );
 
   const load = useCallback(async () => {
     setError(null);
@@ -528,6 +562,7 @@ function SourceGalley({
               </Badge>
               <Badge>{tOr(`enum.sourceOrigin.${detail.origin}`, detail.origin)}</Badge>
               <Badge>{tOr(`enum.sourceClass.${detail.source_class}`, detail.source_class)}</Badge>
+              {archived && <Badge tone="warn">{t("archive.badge")}</Badge>}
             </p>
             <h2 className="font-serif text-24 text-balance text-ink">{detail.title}</h2>
             <p className="mt-1 text-13 text-ink-2">
@@ -541,9 +576,38 @@ function SourceGalley({
             <span>{t("sources.detail.ingestedAt")}</span>
             <Mono title={detail.created_at}>{fmtDateTime(detail.created_at)}</Mono>
             <span>{detail.mime}</span>
+            {archived && (
+              <span>
+                {t("archive.sources.archivedAt", {
+                  date: fmtDateTime(detail.archived_at ?? ""),
+                })}
+              </span>
+            )}
           </p>
         </div>
-        <Mono className="break-all text-12 text-ink-3">{detail.source_id}</Mono>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <Mono className="min-w-0 flex-1 break-all text-12 text-ink-3">
+            {detail.source_id}
+          </Mono>
+          {/* Archiving is the owner's judgement about attention; the reading room has no
+              door to it. L0 stays reachable either way (I3) — this page keeps answering. */}
+          {lens === "owner" && (
+            <Button size="sm" variant="ghost" onClick={() => setArchiveOpen(true)}>
+              {t(archived ? "archive.action.restore" : "archive.action.archive")}
+            </Button>
+          )}
+        </div>
+        {/* Keyed by the owner: a switch of library remounts the dialog, so no proposal,
+            note or in-flight confirm crosses from one owner's library into the next
+            one's (I1 at the UI). */}
+        <ArchiveProposalDialog
+          key={userId}
+          open={archiveOpen}
+          onOpenChange={setArchiveOpen}
+          userId={userId}
+          action={archived ? "unarchive" : "archive"}
+          seeds={archiveSeeds}
+        />
       </header>
 
       {exact && (

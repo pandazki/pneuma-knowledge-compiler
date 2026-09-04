@@ -41,6 +41,20 @@ class ContentStore(Protocol):
         """
         ...
 
+    async def archived_source_ids(self, user_id: UserId) -> frozenset[SourceId]:
+        """The ids of this user's archived sources — the L0 half of the archive mark.
+
+        One read, one set: the answering lanes hold it for the length of one retrieval
+        (`domain/archive.ArchiveView`) and apply it to every evidence face they assembled,
+        including a component's results, after the index filters have already done the cheap
+        part. Archived is a property of the SOURCE, not of an index, so this is read off the
+        authority (`sources.archived_at IS NOT NULL`) and never off a derived layer.
+
+        `list`/`get`/`fetch` are unaffected: L0 reachability is unconditional (invariant I3),
+        and an archived source still answers by address.
+        """
+        ...
+
     async def fetch(
         self, user_id: UserId, source_id: SourceId, locator: Locator
     ) -> str:

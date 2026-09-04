@@ -12,7 +12,8 @@ What it does per user, reporting before/after so you can eyeball the reconciliat
   L1  re-index every source's stored blocks into Meili (drops the user's stale index first);
   L2  re-chunk + re-embed every source via the configured strategy (semantic replays its
       chunk manifest for a byte-deterministic rebuild — see docs/getting-started.md);
-  L3  re-project canonical HEAD onto PG claims + Meili claims + Qdrant claim layer;
+  L3  re-project canonical HEAD onto PG claims + Meili claims + Qdrant claim layer
+      (a claim's `archived` needs nothing extra here — it is read off the document's path);
   C   re-derive the framework's access statistics AND every enabled index component's own
       projection (e.g. the `time` component's per-block calendar rows, re-normalized under
       the CURRENT timezone) — enqueued as one `recall_rebuild` job and drained here, so it
@@ -90,9 +91,20 @@ async def rebuild_user(ctx, user_id: UserId) -> None:
     l1_sources = 0
     for raw in sources:
         normalized = await ctx.store.get(user_id, raw.source_id)
-        await ctx.lexical.index_blocks(user_id, raw.source_id, normalized.blocks)
+        # The archive mark is REPLAYED from L0, never carried over from the old index: the
+        # column is the authority (docs/design/archive.md §2.2) and this rebuild reads it.
+        await ctx.lexical.index_blocks(
+            user_id,
+            raw.source_id,
+            normalized.blocks,
+            archived=raw.archived_at is not None,
+        )
         l1_sources += 1
-    print(f"  L1  re-indexed {l1_sources} source(s) into Meili")
+    archived = sum(1 for raw in sources if raw.archived_at is not None)
+    print(
+        f"  L1  re-indexed {l1_sources} source(s) into Meili"
+        + (f" ({archived} archived)" if archived else "")
+    )
 
     # L2 — drop stale chunk points once, then re-chunk + re-embed every source.
     await ctx.vectors.delete_chunks(user_id)
@@ -103,7 +115,9 @@ async def rebuild_user(ctx, user_id: UserId) -> None:
         if not chunks:
             continue
         embedded = await embed_l2_chunks(ctx, chunks, normalized)
-        await ctx.vectors.upsert_chunks(user_id, embedded)
+        await ctx.vectors.upsert_chunks(
+            user_id, embedded, archived=raw.archived_at is not None
+        )
         l2_chunks += len(chunks)
     l2_after = await ctx.vectors.count_chunks(user_id)
     print(f"  L2  {l2_after} chunk(s) (was {l2_before})")

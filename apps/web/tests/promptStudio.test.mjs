@@ -33,7 +33,7 @@ const fixture = JSON.parse(
 
 test("the prompt fixture matches the frozen API shape and covers real lifecycle contexts", () => {
   assert.deepEqual(Object.keys(fixture), ["surfaces"]);
-  assert.equal(fixture.surfaces.length, 43);
+  assert.equal(fixture.surfaces.length, 53);
   assert.deepEqual(
     new Set(fixture.surfaces.map((surface) => surface.group)),
     new Set([
@@ -151,8 +151,8 @@ test("a fragment family has no assembly to render and every clause says when it 
   // Every clause of every fragment family carries a bilingual applicability note, and no
   // clause is filtered out as "another rendering branch" — there is no rendering.
   const fragments = fixture.surfaces.filter(isFragmentFamily);
-  assert.equal(fragments.length, 28);
-  assert.equal(fixture.surfaces.filter((s) => !isFragmentFamily(s)).length, 15);
+  assert.equal(fragments.length, 32);
+  assert.equal(fixture.surfaces.filter((s) => !isFragmentFamily(s)).length, 21);
   for (const surface of fragments) {
     for (const segment of surface.segments) {
       assert.ok(segment.context, `${surface.id}:${segment.key}`);

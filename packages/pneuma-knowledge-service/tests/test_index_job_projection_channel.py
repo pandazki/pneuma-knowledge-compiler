@@ -81,7 +81,7 @@ class _Lexical:
     def __init__(self) -> None:
         self.indexed: list[tuple[str, int]] = []
 
-    async def index_blocks(self, user_id, source_id, blocks):
+    async def index_blocks(self, user_id, source_id, blocks, *, archived=False):
         self.indexed.append((str(source_id), len(blocks)))
 
 

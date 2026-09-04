@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 
 from pneuma_knowledge_core.canonical_glance import (
     LEDGER_LINE_JOINER,
-    archive_volume_counts,
+    closed_volume_counts,
     display_identity,
     document_ledger_line,
     document_title,
@@ -247,10 +247,10 @@ def test_the_whole_render_stops_at_the_budget_on_a_line_boundary():
 def _volume(
     active_path: str, number: int, claims: int = 4, *, stamped: bool = True
 ) -> CanonicalDocument:
-    """A frozen archive volume of `active_path` — one file inside its same-name directory."""
+    """A closed volume of `active_path` — one file inside its same-name directory."""
     path = f"{active_path.removesuffix('.md')}/a{number:02d}.md"
     rows = "\n".join(
-        f"- Archived fact {i}. [cite: src-01 ¶{i}] <!-- c:{_anchor(path, i)} -->"
+        f"- Earlier fact {i}. [cite: src-01 ¶{i}] <!-- c:{_anchor(path, i)} -->"
         for i in range(claims)
     )
     frontmatter = (
@@ -258,21 +258,21 @@ def _volume(
         if stamped
         else {}
     )
-    return _doc(path, f"# Archived\n\n## History\n{rows}\n", **frontmatter)
+    return _doc(path, f"# Vol. 01\n\n## History\n{rows}\n", **frontmatter)
 
 
-def test_archive_volumes_are_counted_on_their_document_rather_than_listed_as_peers():
+def test_closed_volumes_are_counted_on_their_page_rather_than_listed_as_peers():
     """Listing every volume would let one long-lived subject crowd out every other family —
     the exact degradation rollover exists to fix. The count plus the active document's own
-    volume links keep the archive one hop away."""
+    catalog links keep the earlier volumes one hop away."""
     active = _people_doc("ada-quill", "Ada Quill", claims=3)
     docs = [active, _volume(active.path, 1), _volume(active.path, 2)]
     text = render_canonical_glance(docs, _skill())
 
-    assert "- `memory/people/ada-quill.md` — Ada Quill (3 claim(s), +2 archived volume(s))" in text
+    assert "- `memory/people/ada-quill.md` — Ada Quill (3 claim(s), +2 volume(s))" in text
     assert "/a01.md" not in text and "/a02.md" not in text
     # counted, mechanically, off the volumes' own frontmatter
-    assert archive_volume_counts(docs) == {active.path: 2}
+    assert closed_volume_counts(docs) == {active.path: 2}
 
 
 def test_a_volume_is_recognized_by_its_directory_even_without_its_frontmatter_stamp():
@@ -280,7 +280,7 @@ def test_a_volume_is_recognized_by_its_directory_even_without_its_frontmatter_st
     stamp went missing still collapses instead of reappearing as a peer document."""
     active = _people_doc("ada-quill", "Ada Quill")
     docs = [active, _volume(active.path, 1, stamped=False)]
-    assert archive_volume_counts(docs) == {active.path: 1}
+    assert closed_volume_counts(docs) == {active.path: 1}
     assert "/a01.md" not in render_canonical_glance(docs, _skill())
 
 
@@ -288,7 +288,7 @@ def test_a_document_without_volumes_renders_exactly_as_before():
     docs = [_people_doc("bo-marsh", "Bo Marsh")]
     text = render_canonical_glance(docs, _skill())
     assert "- `memory/people/bo-marsh.md` — Bo Marsh (1 claim(s))" in text
-    assert "archived volume" not in text
+    assert "volume(s)" not in text
 
 
 def test_an_orphaned_volume_is_listed_rather_than_folded_into_a_document_that_is_gone():
@@ -297,7 +297,7 @@ def test_an_orphaned_volume_is_listed_rather_than_folded_into_a_document_that_is
     orphan = _volume("memory/people/ada-quill.md", 1)
     text = render_canonical_glance([orphan], _skill())
     assert f"- `{orphan.path}`" in text
-    assert archive_volume_counts([orphan]) == {}
+    assert closed_volume_counts([orphan]) == {}
 
 
 def test_the_compile_outline_lists_a_volume_but_marks_it_frozen_and_read_only():
@@ -317,20 +317,20 @@ def test_the_compile_outline_lists_a_volume_but_marks_it_frozen_and_read_only():
             claims=4,
         )
     ]
-    assert "frozen archive volume" in volume_lines[0]
+    assert "closed volume" in volume_lines[0]
     assert active.path in volume_lines[0]
     # the active page's own line is untouched — it still renders as an ordinary document
     assert any(line.startswith(f"- `{active.path}` (type=person") for line in lines)
 
 
 def test_an_unstamped_volume_is_still_marked_frozen_in_the_outline_by_its_directory():
-    """Same two agreeing signals as the glance collapse: a volume whose `archived_from`
+    """Same two agreeing signals as the glance collapse: a volume whose owning-page stamp
     stamp went missing must not resurface in the compile outline as an editable peer."""
     active = _people_doc("ada-quill", "Ada Quill")
     volume = _volume(active.path, 1, stamped=False)
     lines = render_outline([active, volume])
     assert any(
-        volume.path in line and "frozen archive volume" in line for line in lines
+        volume.path in line and "closed volume" in line for line in lines
     )
 
 
@@ -352,15 +352,15 @@ def test_a_volume_is_named_after_the_document_it_is_history_of():
     volume = _volume(active.path, 2)
     identity = display_identity([active, volume], volume.path)
 
-    assert identity.title == "Ada Quill (archive a02)"
+    assert identity.title == "Ada Quill (vol. a02)"
     assert identity.origin == active.path
     assert identity.volume == "a02"
     # The parent's path AND its own sentence — followable, not merely asserted.
     assert identity.context == (
         f"Ada Quill ({active.path}) — Ada Quill runs the Delta pilot."
     )
-    # …and the volume's own `# Archived` heading, which names nothing, is nowhere in it.
-    assert "Archived" not in identity.title and "Archived" not in identity.context
+    # …and the volume's own `# Vol. 01` heading, which names nothing, is nowhere in it.
+    assert "Vol. 01" not in identity.title and "Vol. 01" not in identity.context
 
 
 def test_a_volume_whose_parent_states_no_definition_falls_back_to_its_parents_ledger():
@@ -370,7 +370,7 @@ def test_a_volume_whose_parent_states_no_definition_falls_back_to_its_parents_le
     volume = _volume(active.path, 1)
     identity = display_identity([active, volume], volume.path)
 
-    assert identity.title == "Bo Marsh (archive a01)"
+    assert identity.title == "Bo Marsh (vol. a01)"
     assert identity.context == (
         f"Bo Marsh ({active.path}) — Bo Marsh owns workstream 0."
         f"{LEDGER_LINE_JOINER}Bo Marsh owns workstream 1."
@@ -400,7 +400,7 @@ def test_an_orphaned_volume_keeps_its_own_name_rather_than_borrowing_a_missing_p
     active document is gone is named by the only thing left that is true — its own file."""
     orphan = _volume("memory/people/ada-quill.md", 3)
     identity = display_identity([orphan], orphan.path)
-    assert identity.title == "Archived", "its own `# ` heading, since there is no parent"
+    assert identity.title == "Vol. 01", "its own `# ` heading, since there is no parent"
     assert identity.origin == ""
 
 
@@ -513,14 +513,14 @@ def test_a_superseded_predecessor_is_not_shown_on_the_ledger_line():
 
 
 def test_a_successor_in_another_document_still_retires_its_predecessor_here():
-    """The dead set is repository-wide: an active page routinely supersedes a claim that now
-    lives in a frozen volume, so a per-document reading would show a retired state."""
+    """The dead set is repository-wide: an open volume routinely supersedes a claim that now
+    lives in a closed one, so a per-document reading would show a retired state."""
     volume = _volume("memory/people/ada-quill.md", 1)
     volume = CanonicalDocument(
         doc_id=volume.doc_id,
         path=volume.path,
         frontmatter=volume.frontmatter,
-        body="# Ada Quill (archive)\n\n## Role\n"
+        body="# Ada Quill (vol. 01)\n\n## Role\n"
         "- Ada Quill was the pilot lead. [cite: src-01 ¶1] <!-- c:99aa88bb -->\n",
     )
     active = _doc(
