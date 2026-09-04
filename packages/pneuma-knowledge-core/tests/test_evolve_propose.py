@@ -204,3 +204,31 @@ async def test_the_evidence_reaches_the_model_through_propose_evolution():
         model=_Model(), current_skill=SKILL, recent_events=RECENT_EVENTS, doc_paths=DOC_PATHS
     )
     assert seen[1] == _propose_human(SKILL, RECENT_EVENTS, DOC_PATHS)
+
+
+def test_the_family_bar_is_a_judgement_and_the_count_is_evidence_for_it():
+    """2026-09-04: the bar read "only when `memory/topics/` already contains three or more
+    independent topic clusters of the same shape" — a fixed number standing where the
+    judgement belongs, in the one contract whose whole job is judging a structure nobody can
+    enumerate in advance.
+
+    What decides is recurrence, stability of shape, and fitting no current family; a count is
+    evidence for that judgement and never the decision. The two things this contract must not
+    lose while saying so: "no change" stays the default, and the phase stays additive."""
+    from pneuma_knowledge_core.evolve.contracts import phase1_contract
+
+    en = phase1_contract()
+    assert "What a new family has to show" in en
+    assert "one shape RECURRING in `memory/topics/`" in en
+    assert "A count is evidence for it and never the decision" in en
+    assert "three or more independent topic clusters of the same shape" not in en
+    # the two loads it still carries
+    assert '**"No change" is the default' in en
+    assert "Propose **additive** changes only" in en
+
+    zh = chinese_overlay()["evolve.phase1_contract"]
+    assert "一个新族要拿出什么" in zh
+    assert "数量是判断的证据，从来不是判断本身" in zh
+    assert "三个及以上同形的独立主题簇" not in zh
+    assert "「不改」是默认答案" in zh
+    assert "只提**增量**改动" in zh

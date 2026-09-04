@@ -672,11 +672,13 @@ STAGES: tuple[Stage, ...] = (
         title_zh="模型",
         summary_en=(
             "The engine's model roles, and which index components are enabled. The compile "
-            "model is the one real quality lever — a stronger model directly produces a "
-            "better library."
+            "model must support tool calling, because the compile agent writes through "
+            "tools; what a model is worth beyond that is compared on this library's own "
+            "material."
         ),
         summary_zh=(
-            "引擎的模型角色，以及启用了哪些索引组件。编译模型是唯一真正的质量杠杆——更强的模型直接产出更好的库。"
+            "引擎的模型角色，以及启用了哪些索引组件。编译模型必须支持工具调用，因为编译代理是"
+            "通过工具写入的；在这条要求之外，一个模型值不值，拿这座库自己的材料去比。"
         ),
         doc="docs/reference/configuration.md#models",
         file="engine.yaml",
@@ -690,11 +692,11 @@ STAGES: tuple[Stage, ...] = (
                 label_en="Compile model",
                 label_zh="编译模型",
                 description_en=(
-                    "Must support tool calling: the compile agent writes through tools. The "
-                    "quality lever of the whole engine."
+                    "Must support tool calling: the compile agent writes through tools, so a "
+                    "model without them cannot write at all."
                 ),
                 description_zh=(
-                    "必须支持工具调用：编译代理是通过工具写入的。整个引擎的质量杠杆。"
+                    "必须支持工具调用：编译代理是通过工具写入的，不支持工具调用的模型根本写不了。"
                 ),
             ),
             Knob(

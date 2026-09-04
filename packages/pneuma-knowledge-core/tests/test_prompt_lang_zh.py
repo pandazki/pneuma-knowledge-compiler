@@ -102,6 +102,27 @@ def test_l2_is_stated_as_per_source_and_l1_as_total():
         assert ("intake plan" in contract) or ("接收方案" in contract)
 
 
+def test_the_laptop_example_is_a_judgement_and_not_a_categorical_exclusion():
+    """2026-09-04: the write contract said the amount "does not belong in canonical" and
+    listed amounts, error text, links and parameters as a kind that does not belong — the
+    framework overruling the domain contract in every domain where those ARE the threads.
+
+    The example and its reasoning stay: nothing is lost by leaving detail with the original,
+    and the layer that cannot be rebuilt pays for every duplicate. What changes is who draws
+    the line — §5, the compile contract of this deployment, is named as the one deciding
+    which classes of value are the domain's durable knowledge."""
+    en = default_catalog()["compile.write_contract"]
+    zh = chinese_overlay()["compile.write_contract"]
+    assert "An example of the boundary, and of who draws it" in en
+    assert "decided by the\ncompile contract in §5, not fixed here" in en
+    assert "Real content this contract treats as detail" in en
+    assert "That number, **25000, does not belong in canonical**" not in en
+    assert "一个边界的例子，也是一个「这条界由谁来划」的例子" in zh
+    assert "由 §5 的编译契约决定，不在这里定死" in zh
+    assert "是真内容，但被这份契约当作细节" in zh
+    assert "**25000 不属于正本**" not in zh
+
+
 def test_the_snapshot_declaration_reads_in_one_pass():
     """VERIFY #9: "一份自拍下之后从未改变" — the core boundary sentence of snapshot-scoped
     answering opened with something a Chinese reader parses as "selfie" on the first pass."""
@@ -119,6 +140,20 @@ def test_the_concise_preset_commits_in_both_languages():
     assert "同一个回答里绝不两样都占" in zh
     assert "本身就是答案" in zh
     assert "同一个回答里绝不两样都占" not in chinese_overlay()["recall.close.answer_honestly"]
+
+
+def test_the_source_level_clause_loosens_granularity_only_in_both_languages():
+    """Cite or abstain is the framework's identity, so a Chinese deployment cannot inherit a
+    fast lane that treats a citation as optional. Both packs loosen the ¶ interval and both
+    require the marker; neither carries the old "when you reliably have one"."""
+    en = default_catalog()["recall.cite.source_level"]
+    zh = chinese_overlay()["recall.cite.source_level"]
+    assert "the ¶ paragraph may be omitted" in en
+    assert "one you cannot mark that way is one you do not state" in en
+    assert "reliably have one" not in en and "not a hard target" not in en
+    assert "¶ 段号可以省" in zh
+    assert "标不出来的结论，就不要写" in zh
+    assert "没有不要硬凑" not in zh and "硬指标" not in zh
 
 
 def test_the_briefing_head_no_longer_calls_an_in_range_search_a_route_outside_the_pack():

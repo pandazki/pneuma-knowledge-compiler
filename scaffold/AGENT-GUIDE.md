@@ -197,8 +197,8 @@ git -C engine add -A && git -C engine commit -m "contract: <what changed, in the
 
 **5.3 Optional — `people` and `time`, only when the material feeds them.** Three index components ship with the framework, off by default: `people` and `time` index the material, and `attention` reports what the library has been asked (it needs consultations, not material, so it earns its place once people are asking). Decide by looking at their data, and say plainly when the answer is no.
 
-- **`people`** binds identities to person pages — but it reads them off the **source boundary** (a meeting's `participants`, an IM archive's `users`, a mail thread's addresses; see [source contracts](../docs/reference/source-contracts.md)), never off the transcript. Names spoken inside the text are not identities. The `.md` ingest this guide uses carries no participant list at all, so on that path `people` indexes nothing; it earns its keep only when their material arrives through the source contracts with those fields filled. A document-only library — a vault, notes, articles — has no turns and no participants: leave it off.
-- **`time`** keys every block of material to the day it falls on in the user's timezone, and answers "between June and August", "what held on the 12th". The `date:` frontmatter is enough for day granularity, which is what most personal libraries actually ask for; within-day precision needs per-block timestamps (a message's `sent_at`, a meeting segment's `started_at`), which again only the source contracts carry. Material whose dates are unreliable is material `time` cannot index.
+- **`people`** binds identities to person pages — but it reads them off the **source boundary** (a meeting's `participants`, an IM archive's `users`, a mail thread's addresses; see [source contracts](../docs/reference/source-contracts.md)), never off the transcript. Names spoken inside the text are not identities. The `.md` ingest this guide uses carries no participant list at all, so on that path `people` indexes nothing — a document-only library (a vault, notes, articles) has no turns and no participants, so there is nothing for it to bind. It has something to bind when their material arrives through the source contracts with those fields filled.
+- **`time`** keys every block of material to the day it falls on in the user's timezone, and answers "between June and August", "what held on the 12th". The `date:` frontmatter is enough for day granularity; within-day precision needs per-block timestamps (a message's `sent_at`, a meeting segment's `started_at`), which again only the source contracts carry. Material whose dates are unreliable is material `time` cannot index.
 
 Enable in `engine/engine.yaml` (the environment names are `PNEUMA_KNOWLEDGE_COMPONENTS` and `PNEUMA_KNOWLEDGE_PEOPLE_FAMILY`):
 
@@ -232,7 +232,7 @@ people_family: memory/people/{slug}.md   # one of contract.md's path_templates, 
 
 **Why the reset comes first** (say this to them): the demo library was compiled under the demo contract; families removed while rewriting (`path_templates` lines deleted) are neither migrated nor deleted — orphan pages linger. Rebuilding on empty is cleanest.
 
-Then ask 2–3 questions they actually care about with `./app.py ask '…' --sources`, citations and all — **at least one of them a "when" question**: time questions instantly expose un-normalized relative dates (an answer saying "yesterday" or "last week" instead of a date means the contract's time section never landed).
+Then ask 2–3 questions with `./app.py ask '…' --sources`, citations and all — **derived from what they will actually ask this library**: the uses they named while you were writing the contract, and the tensions their own material keeps returning to. Each one should aim at something the contract decided, which is what makes a bad answer diagnostic instead of merely disappointing. Where their material carries dates, a "when" question is worth one of the slots: it exposes un-normalized relative time in a single line (an answer saying "yesterday" or "last week" instead of a date means the contract's time section never landed).
 
 **Accept together**: does it feel right to live in? Did the subjects that deserve pages get them? Which claims landed on the wrong page? Revise the contract after looking (bump `version` again), reset, recompile, `glance` again to compare. Commit each revision in `engine/` before recompiling, so "the version that produced this library" is always nameable. "It changed" is not the goal — finding the modelling that serves future use and maintenance better is.
 
@@ -244,23 +244,25 @@ The Recall view shows the claims, derived episode summaries, and verbatim excerp
 
 Diagnose from the user's symptom. If a relevant episode is absent altogether, inspect semantic indexing and candidate breadth. If the summary finds the right event but the answer lacks an exact number or phrase, admit a little more verbatim context. If answers are noisy, reduce final claims/summaries/windows before narrowing the search pool. If no episode summaries exist, changing `episode_summary_cap` cannot create them: use semantic chunking and rebuild the derived layer. If the right facts consistently land under the wrong subjects, fix the compile contract — recall settings cannot repair a bad knowledge model.
 
-When retrieval finds the right material but a fixed head assembles the wrong mix, use the
-fast lane's quality composition instead of widening every final cap. Set
-`evidence_strategy: select` in `engine/recall/recall.yaml` (or pass
-`--evidence-strategy select` once): one bounded call chooses across claims, derived episodes,
-verbatim windows and known canonical documents, while the framework keeps ranked safety
-anchors and validates every coordinate. It adds serial latency, so keep `ranked` for the
-lowest-latency path. If answers contain the right fact but blur the requested shape or citation,
-`answer_format: structured` keeps answer text, kind and exact citations separate and validates
-the cited spans. These switches improve query-time composition; they do not repair missing L0,
-bad semantic segmentation or a wrong compile contract.
+Two settings change how a question's evidence is COMPOSED, once retrieval has already found
+the material. `evidence_strategy` decides who chooses what the answer sees: `ranked` takes the
+ranked head of each face and nothing judges the cut; `select` spends one bounded call that
+returns coordinates across claims, derived episodes, verbatim windows and known canonical
+documents, which the framework validates before unioning ranked safety anchors — a second
+serial call, so its latency adds rather than overlaps; `all` hands the pool over whole.
+`answer_format: structured` is independent of the three: answer text, answer kind and exact
+citations travel as separate fields and the cited spans are validated. Set either in
+`engine/recall/recall.yaml`, or pass `--evidence-strategy` / `--answer-format` for a single
+question — which is the cheap way to put two of them beside each other on one of theirs.
 
-Treat `select` as a measured exception, not a quality synonym. Start with `ranked`. The API
-reports candidate counts and how many claims, episodes and windows the selector model chose
-before deterministic safety anchors and provenance rollback. If those model-selected counts
-stay near zero while the final evidence ledger is large, the extra serial call is not doing
-the work and should usually be removed. Judge answer quality, latency and cost separately on
-the user's own acceptance questions.
+What makes that comparison theirs rather than borrowed: the API reports the candidate counts,
+and under `select` how many claims, episodes and windows the model itself chose before the
+deterministic safety anchors and the provenance rollback. Model-selected counts near zero
+beside a large final ledger say the serial call is not contributing what it costs. Read
+quality, latency and cost as three separate numbers on their own acceptance questions.
+
+None of these switches repairs missing L0, bad semantic segmentation or a wrong compile
+contract: they change query-time composition and nothing upstream of it.
 
 For downstream automation, use the response's citation-free `answer_text`; interactive
 surfaces should keep the cited `answer`. When replaying an old question, pass its original
@@ -268,7 +270,7 @@ time explicitly (`./app.py ask '...' --as-of 2025-06-14T09:00:00+08:00`). Omitti
 means “ask now,” which is correct for live use but changes the meaning of relative-time
 questions during a replay.
 
-**Done when**: within two or three rounds the library "looks right" — that's delivery.
+**Done when**: the library answers their own questions with the facts on the right pages, and they say so. Two or three rounds is what that usually takes — it is the cost of getting there, not the definition of having arrived.
 
 ---
 

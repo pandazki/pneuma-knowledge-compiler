@@ -191,7 +191,12 @@ _PUBLIC_BASELINE_SHA256 = {
     # endpoints.
     # 2026-08-12: fast also receives source-addressed L2 episode descriptions as an
     # explicitly labelled derived summary face, alongside claims and verbatim excerpts.
-    "fast": "a31e17d2a2e20ba1d474cc2b597cf393abdff81eaf3e929777ea29672aeda8b8",
+    # 2026-09-04: fast only — the citation clause loosened GRANULARITY (¶ optional) and, in
+    # the same breath, told the model to cite "when you reliably have one" and called a
+    # citation "not a hard target". Every evidence face this lane renders hands over a
+    # `[cite: …]` marker, so the softness described no real scenario and contradicted the
+    # framework's one identity: cite or abstain. Source level stays; whether to cite does not.
+    "fast": "530255f2a01c5cc96b393af4a7a78c0dc3b390ac58494da0f1d35e3327510a9b",
     "deep": "1b04985e05e20b0d1b895c06493f92c5d9cd724183ed47b99f64447267840e94",
     "briefing": "b2be86ca8606007e2007508a065a7f9cae4222460e9b52299214cc5c826b29fc",
 }
@@ -250,6 +255,27 @@ def test_the_concise_preset_makes_the_answer_commit():
     assert "never both in one answer" not in prompt("recall.close.answer_honestly")
     for other in ("conversational", "detailed"):
         assert "never both in one answer" not in style_clause(other)
+
+
+def test_the_fast_lane_cites_every_conclusion_and_names_its_one_exception():
+    """2026-09-04: the fast lane's citation clause loosened granularity and softness at once
+    — the ¶ interval may be dropped, AND a citation was to be included "when you reliably
+    have one", "not a hard target". The first half is a real property of this scenario; the
+    second described no scenario at all, since claims, windows, timelines, component evidence
+    and fully-read documents all reach this contract carrying `[cite: …]` markers.
+
+    Source-level granularity stays. Whether a conclusion cites is not granularity, and the
+    one uncited surface — the knowledge base's layout — is named as what it is rather than
+    left as a reason to go soft on all of them."""
+    text = " ".join(selector_contract().split())
+    assert "source level is enough in this scenario" in text
+    assert "the ¶ paragraph may be omitted" in text
+    assert "one you cannot mark that way is one you do not state" in text
+    assert "layout is the exception because it is not evidence" in text
+    assert "not a hard target" not in text
+    assert "reliably have one" not in text
+    # The deep and briefing lanes cite to the block span and are untouched by this.
+    assert "source level is enough" not in " ".join(deep_contract().split())
 
 
 def test_fast_contract_extends_the_no_fabrication_floor_to_attribution():
