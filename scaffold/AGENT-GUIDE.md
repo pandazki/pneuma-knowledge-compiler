@@ -232,7 +232,7 @@ people_family: memory/people/{slug}.md   # one of contract.md's path_templates, 
 
 **Why the reset comes first** (say this to them): the demo library was compiled under the demo contract; families removed while rewriting (`path_templates` lines deleted) are neither migrated nor deleted — orphan pages linger. Rebuilding on empty is cleanest.
 
-Then ask 2–3 questions they actually care about with `./app.py ask '…' --sources`, citations and all — **at least one of them a "when" question**: time questions instantly expose un-normalized relative dates (an answer saying "yesterday" or "last week" instead of a date means the contract's time section never landed).
+Then ask 2–3 questions with `./app.py ask '…' --sources`, citations and all — **derived from what they will actually ask this library**: the uses they named while you were writing the contract, and the tensions their own material keeps returning to. Each one should aim at something the contract decided, which is what makes a bad answer diagnostic instead of merely disappointing. Where their material carries dates, a "when" question is worth one of the slots: it exposes un-normalized relative time in a single line (an answer saying "yesterday" or "last week" instead of a date means the contract's time section never landed).
 
 **Accept together**: does it feel right to live in? Did the subjects that deserve pages get them? Which claims landed on the wrong page? Revise the contract after looking (bump `version` again), reset, recompile, `glance` again to compare. Commit each revision in `engine/` before recompiling, so "the version that produced this library" is always nameable. "It changed" is not the goal — finding the modelling that serves future use and maintenance better is.
 
@@ -270,7 +270,7 @@ time explicitly (`./app.py ask '...' --as-of 2025-06-14T09:00:00+08:00`). Omitti
 means “ask now,” which is correct for live use but changes the meaning of relative-time
 questions during a replay.
 
-**Done when**: within two or three rounds the library "looks right" — that's delivery.
+**Done when**: the library answers their own questions with the facts on the right pages, and they say so. Two or three rounds is what that usually takes — it is the cost of getting there, not the definition of having arrived.
 
 ---
 
