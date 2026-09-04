@@ -1,0 +1,16 @@
+answer_style: conversational
+evidence_strategy: ranked
+answer_format: text
+selection_reasoning_effort: high
+all_context_chars: 120000
+claim_candidate_cap: 100
+claim_cap: 48
+window_candidate_cap: 100
+episode_summary_cap: 20
+window_cap: 10
+plan_queries: 0
+rerank_model: ""
+rerank_candidates: 120
+component_paths: true
+component_budget_chars: 8000
+

@@ -1,0 +1,7 @@
+== Draining the compile queue (user=u-lcr2609-07, contract locomo-conversation-07@locomo-c07-v1) ==
+  job 1/2: [dataset-derived label redacted] indexed (~10s left)
+  job 2/3: [dataset-derived label redacted] +23 claims (~31s left)
+  job 3/4: [dataset-derived label redacted] done (~27s left)
+  job 4/4: [dataset-derived label redacted] +1 claims
+  Processed 4 jobs in 94.3s; 41 canonical documents, 341 claims.
+  Compile-model tokens: input=273178 output=5223 total=278401

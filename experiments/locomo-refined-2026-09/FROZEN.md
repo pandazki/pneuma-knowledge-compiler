@@ -1,0 +1,96 @@
+# 实验冻结记录
+
+本文件记录两阶段不可变协议的 SHA-256。哈希由 `scripts/freeze_guard.py` 生成并在每个执行
+阶段入口核验；若必须重冻结，旧块、时间与理由必须保留。
+
+## FREEZE#1
+
+<!-- FREEZE1:START -->
+```text
+7c6c297b1f7c81d02e4c9b320c976bbdeeb531a5a32fe853719262fc828f0557  contracts/README.md
+a16bcc2a6a7ae36bd83d4c7fd518201ae6a7498934a98ea3c27b624dccf6dbc0  contracts/app-01.md
+8c47b62160946fbc443faea55280fca4e795f1197d5512776380a6ced5e20dfb  contracts/app-02.md
+b9ecbe5691962985281420b5964ccfae2767a31cdec730dd01e8bea7963b9f73  contracts/app-03.md
+f38bc6bfb54bb701b712187651d32e0c96d827740b890ee74c9eec71bcbf0db5  contracts/app-04.md
+8e6113b1e2345c93c8e5201a81eeff3b9aa7de5acc719caaa66b1202e7560c69  contracts/app-05.md
+79a825ba97015d11f5eb0c40587df5c8d150f2c7c981c0c613bf3d607caea126  contracts/app-06.md
+e99dc4eeceb29876ebaa4c1fcea28237f3fd62ecfbb08d01ee61f76ce260e430  contracts/app-07.md
+fe4a74f1213581711cb07ea983a993ec52ff0aa2f57e7c5b52418869043cbfea  contracts/app-08.md
+f4e4db9511d4cebd8e93964c03e9b7fddc882ccabbf155f6f9bd8b5a095979df  contracts/app-09.md
+d45ca7a036ef2f8052fa302456b6e8ec16f3d6f7add5706fa34b6a2c05362f6a  contracts/app-10.md
+6d7b264727a3e800b2e883cee7e25787fd612e81a1be2cfdaf3292cf84015255  contracts/engine/compile/challenge.yaml
+61a0aa758bc5eeeaf3e98ac04a9ecca0c61202989da289ac896d2140620af0df  contracts/engine/engine.yaml
+192ee89f65f97706dccb148ead95e76366a032fa7b46329d83fbf10083001592  contracts/engine/evolve/evolve.yaml
+3a74a07b3a56ab74da70bb2a5d2439538a205b8f7ac3343b86cea4405752013a  contracts/engine/intake/intake.yaml
+3b3d029bc1276af8cbcbd0c5b96b6c671f24bbd7e49a94130e017c0e91f6d027  contracts/engine/prompts/overlays.yaml
+37fbfdb45fda151d381051f8b923c84a47ad06145498cc05164e35c79d391f1b  contracts/engine/recall/recall.yaml
+dd5332267209ffbf2e82101562f2bbedb3c95a999bf3660836846f27df2ebff8  scripts/00-setup.py
+685d222bbf050a021644038ee15d4899d90345926f2286b246add4e8c966e0a6  scripts/01-build.sh
+384d45dcce863df2bcb3df2cbf64390eb0ee7f52712cf0a435ff2c3e1dde1453  scripts/PROTOCOL.md
+a798cfa0de75ba4bebb2d56c95160312d4b1e97cef6e6e969e2ee53e32aefabe  scripts/budget.py
+23fee2d55713c972d5d665423894a86272dc3c7b101158476db4874c4265f27b  scripts/freeze_guard.py
+80ceffd5392ada1ffc92e9cc11c6dc310ad9aad008c0e97c6d9f853b71ea933d  scripts/merge_env.py
+4a0b432e1176f8abd1581830c4829ae0c2b0b7d1c3da278dc401d00ab065ec97  scripts/to_material.py
+d5ad54c45bffbb197addbd74d4bbf5994eb5a44bc63f317913a272f0fb1a1067  tests/test_phase1_protocol.py
+```
+<!-- FREEZE1:END -->
+
+## 考纲烧题清单
+
+- `conv-26#q0000` — 官方 `data/README.md:135` 的 prediction-format 示例直接给出答案值。
+- `conv-26#q0001` — 官方 `data/README.md:136` 的 prediction-format 示例直接给出答案值。
+
+机器可核验副本：`burned-questions.json`（其 SHA-256 纳入 FREEZE#2）。
+
+## FREEZE#2
+
+<!-- FREEZE2:START -->
+```text
+a71a7d7afeb7b152ecc984d24e02e12727e8067275e1d123c5c40763b108185c  burned-questions.json
+1969730d4d3189b0fe526847d9f6d339e232058053dc7b49b24b28dd5a535a2e  scripts/02-answer.sh
+d87aab0c13ffd6f6f4be708f88c83a27020e7ff989cfe717417a44faf1ac7839  scripts/03-score.sh
+a0d2fb4534953dc634c627b09d7c128a8335f779aecde279b93125bbbe201d2f  scripts/ANSWER-PROTOCOL.md
+90be74883dfbe2917e8826761282efb5e03136ee36b536e15a633c4184647919  scripts/answer_runner.py
+09a0c9f8882ff01c0bcc28363d0d494938d64f9dc9b451f16589bef7c1e42af7  scripts/assemble_predictions.py
+3b2fa4240bea79a247b1a63145c3a66e1d535489b79358416dc15c1e6b730661  scripts/project_questions.py
+ad848b3c80e71ce27e99de1b503496ae291b5c27ebd7c811f1a8f41be8718090  scripts/run_official_score.py
+accf6d452516c4ea43d009000204faa0c85ae8da7de2fc54cc6da0ed96b681ae  scripts/sanitize_results.py
+6135e0c25d91c3e8dfc80a5268566ef92f274602dcfdd6d9ee22e5e21e0ec95b  scripts/setup_evaluator.py
+5d36f75fad31c13f869a3df966069141a127d31c9ce07a0f24c1d64b773a1678  tests/test_phase2_protocol.py
+```
+<!-- FREEZE2:END -->
+
+
+### FREEZE#1 superseded at 2026-09-03T06:44:38Z
+
+Reason: Moved uv environment outside the read-only framework worktree and made that runtime boundary explicit in the build runner; added the corresponding invariant test.
+
+<!-- FREEZE1:START -->
+```text
+7c6c297b1f7c81d02e4c9b320c976bbdeeb531a5a32fe853719262fc828f0557  contracts/README.md
+a16bcc2a6a7ae36bd83d4c7fd518201ae6a7498934a98ea3c27b624dccf6dbc0  contracts/app-01.md
+8c47b62160946fbc443faea55280fca4e795f1197d5512776380a6ced5e20dfb  contracts/app-02.md
+b9ecbe5691962985281420b5964ccfae2767a31cdec730dd01e8bea7963b9f73  contracts/app-03.md
+f38bc6bfb54bb701b712187651d32e0c96d827740b890ee74c9eec71bcbf0db5  contracts/app-04.md
+8e6113b1e2345c93c8e5201a81eeff3b9aa7de5acc719caaa66b1202e7560c69  contracts/app-05.md
+79a825ba97015d11f5eb0c40587df5c8d150f2c7c981c0c613bf3d607caea126  contracts/app-06.md
+e99dc4eeceb29876ebaa4c1fcea28237f3fd62ecfbb08d01ee61f76ce260e430  contracts/app-07.md
+fe4a74f1213581711cb07ea983a993ec52ff0aa2f57e7c5b52418869043cbfea  contracts/app-08.md
+f4e4db9511d4cebd8e93964c03e9b7fddc882ccabbf155f6f9bd8b5a095979df  contracts/app-09.md
+d45ca7a036ef2f8052fa302456b6e8ec16f3d6f7add5706fa34b6a2c05362f6a  contracts/app-10.md
+6d7b264727a3e800b2e883cee7e25787fd612e81a1be2cfdaf3292cf84015255  contracts/engine/compile/challenge.yaml
+61a0aa758bc5eeeaf3e98ac04a9ecca0c61202989da289ac896d2140620af0df  contracts/engine/engine.yaml
+192ee89f65f97706dccb148ead95e76366a032fa7b46329d83fbf10083001592  contracts/engine/evolve/evolve.yaml
+3a74a07b3a56ab74da70bb2a5d2439538a205b8f7ac3343b86cea4405752013a  contracts/engine/intake/intake.yaml
+3b3d029bc1276af8cbcbd0c5b96b6c671f24bbd7e49a94130e017c0e91f6d027  contracts/engine/prompts/overlays.yaml
+37fbfdb45fda151d381051f8b923c84a47ad06145498cc05164e35c79d391f1b  contracts/engine/recall/recall.yaml
+dd5332267209ffbf2e82101562f2bbedb3c95a999bf3660836846f27df2ebff8  scripts/00-setup.py
+9c3d80adb7e95f63bd7f677631bc2fc850dbbeac04e58d43f14010b403544ec0  scripts/01-build.sh
+384d45dcce863df2bcb3df2cbf64390eb0ee7f52712cf0a435ff2c3e1dde1453  scripts/PROTOCOL.md
+a798cfa0de75ba4bebb2d56c95160312d4b1e97cef6e6e969e2ee53e32aefabe  scripts/budget.py
+23fee2d55713c972d5d665423894a86272dc3c7b101158476db4874c4265f27b  scripts/freeze_guard.py
+80ceffd5392ada1ffc92e9cc11c6dc310ad9aad008c0e97c6d9f853b71ea933d  scripts/merge_env.py
+4a0b432e1176f8abd1581830c4829ae0c2b0b7d1c3da278dc401d00ab065ec97  scripts/to_material.py
+43b54d7fbe38567ce6486f96158481bf6f258d1ed206e35f4374afbe3092a218  tests/test_phase1_protocol.py
+```
+<!-- FREEZE1:END -->

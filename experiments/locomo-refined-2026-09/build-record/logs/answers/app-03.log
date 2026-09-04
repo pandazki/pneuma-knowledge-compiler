@@ -1,0 +1,102 @@
+== Starting the middleware stack (postgres / qdrant / meilisearch / rustfs) ==
+ Network pneuma-lcr2609-03-ae4d_default  Creating
+ Network pneuma-lcr2609-03-ae4d_default  Created
+ Container pneuma-lcr2609-03-ae4d-meilisearch-1  Creating
+ Container pneuma-lcr2609-03-ae4d-postgres-1  Creating
+ Container pneuma-lcr2609-03-ae4d-rustfs-1  Creating
+ Container pneuma-lcr2609-03-ae4d-qdrant-1  Creating
+ Container pneuma-lcr2609-03-ae4d-meilisearch-1  Created
+ Container pneuma-lcr2609-03-ae4d-postgres-1  Created
+ Container pneuma-lcr2609-03-ae4d-qdrant-1  Created
+ Container pneuma-lcr2609-03-ae4d-rustfs-1  Created
+ Container pneuma-lcr2609-03-ae4d-rustfs-1  Starting
+ Container pneuma-lcr2609-03-ae4d-qdrant-1  Starting
+ Container pneuma-lcr2609-03-ae4d-meilisearch-1  Starting
+ Container pneuma-lcr2609-03-ae4d-postgres-1  Starting
+ Container pneuma-lcr2609-03-ae4d-postgres-1  Started
+ Container pneuma-lcr2609-03-ae4d-rustfs-1  Started
+ Container pneuma-lcr2609-03-ae4d-meilisearch-1  Started
+ Container pneuma-lcr2609-03-ae4d-qdrant-1  Started
+ Container pneuma-lcr2609-03-ae4d-postgres-1  Waiting
+ Container pneuma-lcr2609-03-ae4d-qdrant-1  Waiting
+ Container pneuma-lcr2609-03-ae4d-meilisearch-1  Waiting
+ Container pneuma-lcr2609-03-ae4d-rustfs-1  Waiting
+ Container pneuma-lcr2609-03-ae4d-rustfs-1  Healthy
+ Container pneuma-lcr2609-03-ae4d-postgres-1  Healthy
+ Container pneuma-lcr2609-03-ae4d-meilisearch-1  Healthy
+ Container pneuma-lcr2609-03-ae4d-qdrant-1  Healthy
+  Stack ready: pg :37864  qdrant :51672  meili :51996  rustfs :30083
+app-03: questions=136 complete=0 remaining=136
+app-03: answered=25/136
+app-03: answered=50/136
+app-03: answered=75/136
+app-03: answered=100/136
+app-03: answered=125/136
+app-03: answered=136/136
+app-03: failures=0
+ Container pneuma-lcr2609-03-ae4d-meilisearch-1  Stopping
+ Container pneuma-lcr2609-03-ae4d-qdrant-1  Stopping
+ Container pneuma-lcr2609-03-ae4d-postgres-1  Stopping
+ Container pneuma-lcr2609-03-ae4d-rustfs-1  Stopping
+ Container pneuma-lcr2609-03-ae4d-meilisearch-1  Stopped
+ Container pneuma-lcr2609-03-ae4d-meilisearch-1  Removing
+ Container pneuma-lcr2609-03-ae4d-meilisearch-1  Removed
+ Container pneuma-lcr2609-03-ae4d-rustfs-1  Stopped
+ Container pneuma-lcr2609-03-ae4d-rustfs-1  Removing
+ Container pneuma-lcr2609-03-ae4d-rustfs-1  Removed
+ Container pneuma-lcr2609-03-ae4d-postgres-1  Stopped
+ Container pneuma-lcr2609-03-ae4d-postgres-1  Removing
+ Container pneuma-lcr2609-03-ae4d-postgres-1  Removed
+ Container pneuma-lcr2609-03-ae4d-qdrant-1  Stopped
+ Container pneuma-lcr2609-03-ae4d-qdrant-1  Removing
+ Container pneuma-lcr2609-03-ae4d-qdrant-1  Removed
+ Network pneuma-lcr2609-03-ae4d_default  Removing
+ Network pneuma-lcr2609-03-ae4d_default  Removed
+== Starting the middleware stack (postgres / qdrant / meilisearch / rustfs) ==
+ Network pneuma-lcr2609-03-ae4d_default  Creating
+ Network pneuma-lcr2609-03-ae4d_default  Created
+ Container pneuma-lcr2609-03-ae4d-qdrant-1  Creating
+ Container pneuma-lcr2609-03-ae4d-meilisearch-1  Creating
+ Container pneuma-lcr2609-03-ae4d-postgres-1  Creating
+ Container pneuma-lcr2609-03-ae4d-rustfs-1  Creating
+ Container pneuma-lcr2609-03-ae4d-meilisearch-1  Created
+ Container pneuma-lcr2609-03-ae4d-postgres-1  Created
+ Container pneuma-lcr2609-03-ae4d-qdrant-1  Created
+ Container pneuma-lcr2609-03-ae4d-rustfs-1  Created
+ Container pneuma-lcr2609-03-ae4d-rustfs-1  Starting
+ Container pneuma-lcr2609-03-ae4d-qdrant-1  Starting
+ Container pneuma-lcr2609-03-ae4d-postgres-1  Starting
+ Container pneuma-lcr2609-03-ae4d-meilisearch-1  Starting
+ Container pneuma-lcr2609-03-ae4d-postgres-1  Started
+ Container pneuma-lcr2609-03-ae4d-rustfs-1  Started
+ Container pneuma-lcr2609-03-ae4d-meilisearch-1  Started
+ Container pneuma-lcr2609-03-ae4d-qdrant-1  Started
+ Container pneuma-lcr2609-03-ae4d-qdrant-1  Waiting
+ Container pneuma-lcr2609-03-ae4d-meilisearch-1  Waiting
+ Container pneuma-lcr2609-03-ae4d-rustfs-1  Waiting
+ Container pneuma-lcr2609-03-ae4d-postgres-1  Waiting
+ Container pneuma-lcr2609-03-ae4d-rustfs-1  Healthy
+ Container pneuma-lcr2609-03-ae4d-meilisearch-1  Healthy
+ Container pneuma-lcr2609-03-ae4d-postgres-1  Healthy
+ Container pneuma-lcr2609-03-ae4d-qdrant-1  Healthy
+  Stack ready: pg :37864  qdrant :51672  meili :51996  rustfs :30083
+app-03: questions=136 complete=136 remaining=0
+app-03: failures=0
+ Container pneuma-lcr2609-03-ae4d-rustfs-1  Stopping
+ Container pneuma-lcr2609-03-ae4d-qdrant-1  Stopping
+ Container pneuma-lcr2609-03-ae4d-postgres-1  Stopping
+ Container pneuma-lcr2609-03-ae4d-meilisearch-1  Stopping
+ Container pneuma-lcr2609-03-ae4d-meilisearch-1  Stopped
+ Container pneuma-lcr2609-03-ae4d-meilisearch-1  Removing
+ Container pneuma-lcr2609-03-ae4d-meilisearch-1  Removed
+ Container pneuma-lcr2609-03-ae4d-rustfs-1  Stopped
+ Container pneuma-lcr2609-03-ae4d-rustfs-1  Removing
+ Container pneuma-lcr2609-03-ae4d-rustfs-1  Removed
+ Container pneuma-lcr2609-03-ae4d-qdrant-1  Stopped
+ Container pneuma-lcr2609-03-ae4d-qdrant-1  Removing
+ Container pneuma-lcr2609-03-ae4d-qdrant-1  Removed
+ Container pneuma-lcr2609-03-ae4d-postgres-1  Stopped
+ Container pneuma-lcr2609-03-ae4d-postgres-1  Removing
+ Container pneuma-lcr2609-03-ae4d-postgres-1  Removed
+ Network pneuma-lcr2609-03-ae4d_default  Removing
+ Network pneuma-lcr2609-03-ae4d_default  Removed

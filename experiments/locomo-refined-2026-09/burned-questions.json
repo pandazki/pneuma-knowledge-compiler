@@ -1,0 +1,12 @@
+[
+  {
+    "qa_id": "conv-26#q0000",
+    "source": "data/README.md:135",
+    "reason": "Official prediction-format example disclosed a concrete answer value."
+  },
+  {
+    "qa_id": "conv-26#q0001",
+    "source": "data/README.md:136",
+    "reason": "Official prediction-format example disclosed a concrete answer value."
+  }
+]

@@ -1,0 +1,39 @@
+{
+  "answer_side": {
+    "completed_answers": 1382,
+    "estimated_usd": 13.010908,
+    "pricing_basis": {
+      "cache_assumption": "all input charged at full price",
+      "input_usd_per_m": 0.2,
+      "output_usd_per_m": 1.2
+    },
+    "soft_ceiling_observed": false,
+    "soft_ceiling_usd": 50.0,
+    "token_usage": {
+      "input_tokens": 62523153,
+      "output_tokens": 421898,
+      "total_tokens": 62945051
+    }
+  },
+  "baseline_answer_side": {
+    "estimated_usd": 12.396264,
+    "token_usage": {
+      "input_tokens": 59403205,
+      "output_tokens": 429686,
+      "total_tokens": 59832891
+    }
+  },
+  "delta": {
+    "estimated_usd": 0.614644,
+    "estimated_usd_pct": 4.9583,
+    "input_tokens": 3119948,
+    "output_tokens": -7788,
+    "total_tokens": 3112160
+  },
+  "official_judge": {
+    "estimated_usd": null,
+    "note": "Official scorer did not expose aggregate token or billing data; no exact cost is claimed.",
+    "tokens": null
+  },
+  "schema_version": 1
+}

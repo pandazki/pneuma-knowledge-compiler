@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "currency": "USD",
+  "measurement": "token-accounting estimate, not provider invoice",
+  "pricing": {
+    "model": "openai/gpt-5.6-luna via OpenRouter with provider=openai",
+    "input_usd_per_million": 0.2,
+    "output_usd_per_million": 1.2,
+    "cache_read_usd_per_million": 0.02,
+    "cache_write_usd_per_million": 0.25,
+    "embedding_model": "openai/text-embedding-3-small",
+    "embedding_input_usd_per_million": 0.02,
+    "accounting_assumption": "All logged language-model input is charged at the full input rate. Cache discounts and unreported embedding tokens are not applied."
+  },
+  "stages": {
+    "compile": {
+      "input_tokens": 64745033,
+      "output_tokens": 2076272,
+      "total_tokens": 66821305,
+      "estimated_usd": 15.440533
+    },
+    "answer": {
+      "input_tokens": 59403205,
+      "output_tokens": 429686,
+      "total_tokens": 59832891,
+      "estimated_usd": 12.396264
+    },
+    "compile_and_answer": {
+      "input_tokens": 124148238,
+      "output_tokens": 2505958,
+      "total_tokens": 126654196,
+      "estimated_usd": 27.836797
+    },
+    "official_judge": {
+      "model": "qwen/qwen3-14b",
+      "input_tokens": null,
+      "output_tokens": null,
+      "actual_usd": null,
+      "protocol_estimate_usd_low": 1.0,
+      "protocol_estimate_usd_high": 2.0,
+      "note": "The official evaluator did not expose an aggregate token or billed-cost record; the judge is reported separately and no exact cost is invented."
+    }
+  },
+  "estimated_all_in_usd_low": 28.836797,
+  "estimated_all_in_usd_high": 29.836797,
+  "budget": {
+    "compile_and_answer_soft_ceiling_usd": 50.0,
+    "compile_and_answer_hard_ceiling_usd": 60.0,
+    "soft_ceiling_reached": false,
+    "hard_ceiling_reached": false
+  }
+}

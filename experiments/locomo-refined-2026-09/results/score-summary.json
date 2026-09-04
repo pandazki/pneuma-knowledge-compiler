@@ -1,0 +1,13 @@
+{
+  "record_count": 1382,
+  "burned_qa_ids": [
+    "conv-26#q0000",
+    "conv-26#q0001"
+  ],
+  "burned_count": 2,
+  "unburned_record_count": 1380,
+  "official_llm_score_pct": 78.147612,
+  "unburned_llm_score_pct": 78.115942,
+  "official_f1_pct": 43.260796,
+  "official_bleu_pct": 34.016827
+}

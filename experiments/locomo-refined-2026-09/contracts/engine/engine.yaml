@@ -1,0 +1,19 @@
+compile: openrouter:openai/gpt-5.6-luna
+image_mode: caption
+compile_call_timeout: 600
+compile_max_tool_calls: 0
+overview_budget_chars: 2400
+overview_required_after_claims: 6
+recall: openrouter:openai/gpt-5.6-luna
+answer: openrouter:openai/gpt-5.6-luna
+answer_reasoning_effort: high
+deep: openrouter:openai/gpt-5.6-luna
+live_discover: openrouter:openai/gpt-5.6-luna
+live_pick: openrouter:openai/gpt-5.6-luna
+embedding: openrouter:openai/text-embedding-3-small
+pricing: |
+  openrouter:openai/gpt-5.6-luna = 0.2/1.2/0.02/0.25 USD
+  openrouter:openai/text-embedding-3-small = 0.02/0/0/0 USD
+components: people,time
+people_family: people/{slug}.md
+

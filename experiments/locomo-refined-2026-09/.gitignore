@@ -1,0 +1,30 @@
+# Sensitive configuration
+.env
+**/.env
+secrets/
+
+# External repositories and licensed dataset/material
+repo/
+data/
+material/
+app-*/
+
+# Runtime-only artifacts
+.runtime/
+outputs/
+logs/
+__pycache__/
+*.py[cod]
+*.pid
+*.tmp
+.DS_Store
+
+# Redacted, resumable experiment evidence is committed.
+!build-record/
+!build-record/*.pid
+!build-record/logs/
+!build-record/logs/**
+!build-record/state/
+!build-record/state/*.done
+!build-record/state/app-*/
+!build-record/state/app-*/**

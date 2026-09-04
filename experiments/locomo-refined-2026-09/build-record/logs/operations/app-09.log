@@ -1,0 +1,492 @@
+2026-09-03T11:14:25Z [app-09] START conversation idx=8 sessions=25
+== Starting the middleware stack (postgres / qdrant / meilisearch / rustfs) ==
+ Network pneuma-lcr2609-09-7d91_default  Creating
+ Network pneuma-lcr2609-09-7d91_default  Created
+ Volume pneuma-lcr2609-09-7d91_meili_data  Creating
+ Volume pneuma-lcr2609-09-7d91_meili_data  Created
+ Volume pneuma-lcr2609-09-7d91_rustfs_data  Creating
+ Volume pneuma-lcr2609-09-7d91_rustfs_data  Created
+ Volume pneuma-lcr2609-09-7d91_postgres_data  Creating
+ Volume pneuma-lcr2609-09-7d91_postgres_data  Created
+ Volume pneuma-lcr2609-09-7d91_qdrant_data  Creating
+ Volume pneuma-lcr2609-09-7d91_qdrant_data  Created
+ Container pneuma-lcr2609-09-7d91-postgres-1  Creating
+ Container pneuma-lcr2609-09-7d91-qdrant-1  Creating
+ Container pneuma-lcr2609-09-7d91-meilisearch-1  Creating
+ Container pneuma-lcr2609-09-7d91-rustfs-1  Creating
+ Container pneuma-lcr2609-09-7d91-meilisearch-1  Created
+ Container pneuma-lcr2609-09-7d91-rustfs-1  Created
+ Container pneuma-lcr2609-09-7d91-postgres-1  Created
+ Container pneuma-lcr2609-09-7d91-qdrant-1  Created
+ Container pneuma-lcr2609-09-7d91-postgres-1  Starting
+ Container pneuma-lcr2609-09-7d91-qdrant-1  Starting
+ Container pneuma-lcr2609-09-7d91-rustfs-1  Starting
+ Container pneuma-lcr2609-09-7d91-meilisearch-1  Starting
+ Container pneuma-lcr2609-09-7d91-rustfs-1  Started
+ Container pneuma-lcr2609-09-7d91-meilisearch-1  Started
+ Container pneuma-lcr2609-09-7d91-postgres-1  Started
+ Container pneuma-lcr2609-09-7d91-qdrant-1  Started
+ Container pneuma-lcr2609-09-7d91-postgres-1  Waiting
+ Container pneuma-lcr2609-09-7d91-qdrant-1  Waiting
+ Container pneuma-lcr2609-09-7d91-meilisearch-1  Waiting
+ Container pneuma-lcr2609-09-7d91-rustfs-1  Waiting
+ Container pneuma-lcr2609-09-7d91-meilisearch-1  Healthy
+ Container pneuma-lcr2609-09-7d91-rustfs-1  Healthy
+ Container pneuma-lcr2609-09-7d91-postgres-1  Healthy
+ Container pneuma-lcr2609-09-7d91-qdrant-1  Healthy
+  Stack ready: pg :43930  qdrant :56503  meili :36351  rustfs :51249
+2026-09-03T11:14:30Z [app-09] session 1/25: convert
+verified_sessions=1 messages=22 output=/Users/pandazki/orca/workspaces/locomo-refined-2026-09/app-09/material/s001/session-001.md
+2026-09-03T11:14:31Z [app-09] session 1/25: ingest
+== Ingesting 1 materials (user=u-lcr2609-09, timezone UTC) ==
+  session-001.md → source bf0cdeb9… 
+  Ingest done. Index and compile jobs queued — next: `./app.py compile`.
+2026-09-03T11:14:34Z [app-09] session 1/25: compile
+== Draining the compile queue (user=u-lcr2609-09, contract locomo-conversation-09@locomo-c09-v1) ==
+  job 1/2: Evan & Sam — session 1 of 25, 1:47 pm on 18 May, 2023 indexed (~14s left)
+  job 2/3: Evan & Sam — session 1 of 25, 1:47 pm on 18 May, 2023 +18 claims (~27s left)
+  job 3/4: Evan & Sam — session 1 of 25, 1:47 pm on 18 May, 2023 done (~27s left)
+  job 4/4: Evan & Sam — session 1 of 25, 1:47 pm on 18 May, 2023 +2 claims
+  Processed 4 jobs in 108.3s; 9 canonical documents, 18 claims.
+  Compile-model tokens: input=100696 output=5783 total=106479
+2026-09-03T11:16:37Z [app-09] session 1/25: done seconds=127 claims=18 documents=9
+{"answer_usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}, "combined_usage": {"input_tokens": 52296476, "output_tokens": 1688611, "total_tokens": 53985087}, "compile_usage": {"input_tokens": 52296476, "output_tokens": 1688611, "total_tokens": 53985087}, "completed_units": 218, "hard_ceiling_reached": false, "hard_ceiling_usd": 60.0, "observed_usd": 12.485628, "pricing_basis": {"cache_assumption": "all input charged at full price; embeddings not present in CLI logs", "input_usd_per_m": 0.2, "output_usd_per_m": 1.2}, "projected_usd": 15.578399, "soft_ceiling_projected": false, "soft_ceiling_usd": 50.0, "total_units": 272}
+2026-09-03T11:16:37Z [app-09] session 2/25: convert
+verified_sessions=1 messages=17 output=/Users/pandazki/orca/workspaces/locomo-refined-2026-09/app-09/material/s002/session-002.md
+2026-09-03T11:16:37Z [app-09] session 2/25: ingest
+== Ingesting 1 materials (user=u-lcr2609-09, timezone UTC) ==
+  session-002.md → source 01dad163… 
+  Ingest done. Index and compile jobs queued — next: `./app.py compile`.
+2026-09-03T11:16:39Z [app-09] session 2/25: compile
+== Draining the compile queue (user=u-lcr2609-09, contract locomo-conversation-09@locomo-c09-v1) ==
+  job 1/2: Evan & Sam — session 2 of 25, 7:11 pm on 24 May, 2023 indexed (~14s left)
+  job 2/3: Evan & Sam — session 2 of 25, 7:11 pm on 24 May, 2023 +22 claims (~29s left)
+  job 3/4: Evan & Sam — session 2 of 25, 7:11 pm on 24 May, 2023 done (~29s left)
+  job 4/4: Evan & Sam — session 2 of 25, 7:11 pm on 24 May, 2023 +12 claims
+  Processed 4 jobs in 114.4s; 10 canonical documents, 45 claims.
+  Compile-model tokens: input=137584 output=5964 total=143548
+2026-09-03T11:18:48Z [app-09] session 2/25: done seconds=131 claims=45 documents=10
+{"answer_usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}, "combined_usage": {"input_tokens": 52434060, "output_tokens": 1694575, "total_tokens": 54128635}, "compile_usage": {"input_tokens": 52434060, "output_tokens": 1694575, "total_tokens": 54128635}, "completed_units": 219, "hard_ceiling_reached": false, "hard_ceiling_usd": 60.0, "observed_usd": 12.520302, "pricing_basis": {"cache_assumption": "all input charged at full price; embeddings not present in CLI logs", "input_usd_per_m": 0.2, "output_usd_per_m": 1.2}, "projected_usd": 15.550329, "soft_ceiling_projected": false, "soft_ceiling_usd": 50.0, "total_units": 272}
+2026-09-03T11:18:48Z [app-09] session 3/25: convert
+verified_sessions=1 messages=18 output=/Users/pandazki/orca/workspaces/locomo-refined-2026-09/app-09/material/s003/session-003.md
+2026-09-03T11:18:48Z [app-09] session 3/25: ingest
+== Ingesting 1 materials (user=u-lcr2609-09, timezone UTC) ==
+  session-003.md → source 40036029… 
+  Ingest done. Index and compile jobs queued — next: `./app.py compile`.
+2026-09-03T11:18:51Z [app-09] session 3/25: compile
+== Draining the compile queue (user=u-lcr2609-09, contract locomo-conversation-09@locomo-c09-v1) ==
+  job 1/2: Evan & Sam — session 3 of 25, 3:55 pm on 6 June, 2023 indexed (~14s left)
+  job 2/3: Evan & Sam — session 3 of 25, 3:55 pm on 6 June, 2023 +13 claims (~29s left)
+  job 3/4: Evan & Sam — session 3 of 25, 3:55 pm on 6 June, 2023 done (~25s left)
+  job 4/4: Evan & Sam — session 3 of 25, 3:55 pm on 6 June, 2023 +11 claims
+  Processed 4 jobs in 114.4s; 11 canonical documents, 53 claims.
+  Compile-model tokens: input=162536 output=5614 total=168150
+2026-09-03T11:20:59Z [app-09] session 3/25: done seconds=131 claims=53 documents=11
+{"answer_usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}, "combined_usage": {"input_tokens": 52770040, "output_tokens": 1708232, "total_tokens": 54478272}, "compile_usage": {"input_tokens": 52770040, "output_tokens": 1708232, "total_tokens": 54478272}, "completed_units": 221, "hard_ceiling_reached": false, "hard_ceiling_usd": 60.0, "observed_usd": 12.603886, "pricing_basis": {"cache_assumption": "all input charged at full price; embeddings not present in CLI logs", "input_usd_per_m": 0.2, "output_usd_per_m": 1.2}, "projected_usd": 15.512476, "soft_ceiling_projected": false, "soft_ceiling_usd": 50.0, "total_units": 272}
+2026-09-03T11:21:00Z [app-09] session 4/25: convert
+verified_sessions=1 messages=20 output=/Users/pandazki/orca/workspaces/locomo-refined-2026-09/app-09/material/s004/session-004.md
+2026-09-03T11:21:00Z [app-09] session 4/25: ingest
+== Ingesting 1 materials (user=u-lcr2609-09, timezone UTC) ==
+  session-004.md → source baaf67f4… 
+  Ingest done. Index and compile jobs queued — next: `./app.py compile`.
+2026-09-03T11:21:02Z [app-09] session 4/25: compile
+== Draining the compile queue (user=u-lcr2609-09, contract locomo-conversation-09@locomo-c09-v1) ==
+  job 1/2: Evan & Sam — session 4 of 25, 10:52 am on 27 July, 2023 indexed (~22s left)
+  job 2/3: Evan & Sam — session 4 of 25, 10:52 am on 27 July, 2023 +8 claims (~29s left)
+  job 3/4: Evan & Sam — session 4 of 25, 10:52 am on 27 July, 2023 done (~27s left)
+  job 4/4: Evan & Sam — session 4 of 25, 10:52 am on 27 July, 2023 +13 claims
+  Processed 4 jobs in 108.4s; 11 canonical documents, 62 claims.
+  Compile-model tokens: input=131982 output=5966 total=137948
+2026-09-03T11:23:05Z [app-09] session 4/25: done seconds=126 claims=62 documents=11
+{"answer_usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}, "combined_usage": {"input_tokens": 53074620, "output_tokens": 1719733, "total_tokens": 54794353}, "compile_usage": {"input_tokens": 53074620, "output_tokens": 1719733, "total_tokens": 54794353}, "completed_units": 223, "hard_ceiling_reached": false, "hard_ceiling_usd": 60.0, "observed_usd": 12.678604, "pricing_basis": {"cache_assumption": "all input charged at full price; embeddings not present in CLI logs", "input_usd_per_m": 0.2, "output_usd_per_m": 1.2}, "projected_usd": 15.464485, "soft_ceiling_projected": false, "soft_ceiling_usd": 50.0, "total_units": 272}
+2026-09-03T11:23:05Z [app-09] session 5/25: convert
+verified_sessions=1 messages=25 output=/Users/pandazki/orca/workspaces/locomo-refined-2026-09/app-09/material/s005/session-005.md
+2026-09-03T11:23:05Z [app-09] session 5/25: ingest
+== Ingesting 1 materials (user=u-lcr2609-09, timezone UTC) ==
+  session-005.md → source b9649c72… 
+  Ingest done. Index and compile jobs queued — next: `./app.py compile`.
+2026-09-03T11:23:08Z [app-09] session 5/25: compile
+== Draining the compile queue (user=u-lcr2609-09, contract locomo-conversation-09@locomo-c09-v1) ==
+  job 1/2: Evan & Sam — session 5 of 25, 7:52 pm on 7 August, 2023 indexed (~30s left)
+  job 2/3: Evan & Sam — session 5 of 25, 7:52 pm on 7 August, 2023 +7 claims (~32s left)
+  job 3/4: Evan & Sam — session 5 of 25, 7:52 pm on 7 August, 2023 done (~31s left)
+  job 4/4: Evan & Sam — session 5 of 25, 7:52 pm on 7 August, 2023 +32 claims
+  Processed 4 jobs in 144.3s; 14 canonical documents, 91 claims.
+  Compile-model tokens: input=181232 output=7752 total=188984
+2026-09-03T11:25:49Z [app-09] session 5/25: done seconds=164 claims=91 documents=14
+{"answer_usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}, "combined_usage": {"input_tokens": 53398949, "output_tokens": 1735766, "total_tokens": 55134715}, "compile_usage": {"input_tokens": 53398949, "output_tokens": 1735766, "total_tokens": 55134715}, "completed_units": 225, "hard_ceiling_reached": false, "hard_ceiling_usd": 60.0, "observed_usd": 12.762709, "pricing_basis": {"cache_assumption": "all input charged at full price; embeddings not present in CLI logs", "input_usd_per_m": 0.2, "output_usd_per_m": 1.2}, "projected_usd": 15.428697, "soft_ceiling_projected": false, "soft_ceiling_usd": 50.0, "total_units": 272}
+2026-09-03T11:25:49Z [app-09] session 6/25: convert
+verified_sessions=1 messages=19 output=/Users/pandazki/orca/workspaces/locomo-refined-2026-09/app-09/material/s006/session-006.md
+2026-09-03T11:25:49Z [app-09] session 6/25: ingest
+== Ingesting 1 materials (user=u-lcr2609-09, timezone UTC) ==
+  session-006.md → source bf3b3be7… 
+  Ingest done. Index and compile jobs queued — next: `./app.py compile`.
+2026-09-03T11:25:52Z [app-09] session 6/25: compile
+== Draining the compile queue (user=u-lcr2609-09, contract locomo-conversation-09@locomo-c09-v1) ==
+  job 1/2: Evan & Sam — session 6 of 25, 4:09 pm on 13 August, 2023 indexed (~24s left)
+  job 2/3: Evan & Sam — session 6 of 25, 4:09 pm on 13 August, 2023 +22 claims (~33s left)
+  job 3/4: Evan & Sam — session 6 of 25, 4:09 pm on 13 August, 2023 done (~33s left)
+  job 4/4: Evan & Sam — session 6 of 25, 4:09 pm on 13 August, 2023 +6 claims
+  Processed 4 jobs in 130.3s; 14 canonical documents, 100 claims.
+  Compile-model tokens: input=168002 output=6751 total=174753
+2026-09-03T11:28:18Z [app-09] session 6/25: done seconds=149 claims=100 documents=14
+2026-09-03T11:28:18Z [app-09] EVOLVE session=6 new_claims=100 sessions_since=6 force=0
+== Draining the compile queue (user=u-lcr2609-09, contract locomo-conversation-09@locomo-c09-v1) ==
+  job 1/1: (no matching material) done
+  Processed 1 jobs in 4.0s; 14 canonical documents, 100 claims.
+  Compile-model tokens: input=1897 output=131 total=2028
+evolve step: no draft produced (no_change or below thresholds).
+== Draining the compile queue (user=u-lcr2609-09, contract locomo-conversation-09@locomo-c09-v1) ==
+  Processed 0 jobs in 2.0s; 14 canonical documents, 100 claims.
+  Compile-model tokens: input=0 output=0 total=0
+{"answer_usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}, "combined_usage": {"input_tokens": 53814118, "output_tokens": 1751579, "total_tokens": 55565697}, "compile_usage": {"input_tokens": 53814118, "output_tokens": 1751579, "total_tokens": 55565697}, "completed_units": 228, "hard_ceiling_reached": false, "hard_ceiling_usd": 60.0, "observed_usd": 12.864718, "pricing_basis": {"cache_assumption": "all input charged at full price; embeddings not present in CLI logs", "input_usd_per_m": 0.2, "output_usd_per_m": 1.2}, "projected_usd": 15.347383, "soft_ceiling_projected": false, "soft_ceiling_usd": 50.0, "total_units": 272}
+2026-09-03T11:28:36Z [app-09] session 7/25: convert
+verified_sessions=1 messages=16 output=/Users/pandazki/orca/workspaces/locomo-refined-2026-09/app-09/material/s007/session-007.md
+2026-09-03T11:28:36Z [app-09] session 7/25: ingest
+== Ingesting 1 materials (user=u-lcr2609-09, timezone UTC) ==
+  session-007.md → source e2e7d522… 
+  Ingest done. Index and compile jobs queued — next: `./app.py compile`.
+2026-09-03T11:28:39Z [app-09] session 7/25: compile
+== Draining the compile queue (user=u-lcr2609-09, contract locomo-conversation-09@locomo-c09-v1) ==
+  job 1/2: Evan & Sam — session 7 of 25, 4:20 pm on 15 August, 2023 indexed (~14s left)
+  job 2/3: Evan & Sam — session 7 of 25, 4:20 pm on 15 August, 2023 +17 claims (~30s left)
+  job 3/4: Evan & Sam — session 7 of 25, 4:20 pm on 15 August, 2023 done (~28s left)
+  job 4/4: Evan & Sam — session 7 of 25, 4:20 pm on 15 August, 2023 +2 claims
+  Processed 4 jobs in 120.3s; 14 canonical documents, 105 claims.
+  Compile-model tokens: input=169895 output=6834 total=176729
+2026-09-03T11:30:55Z [app-09] session 7/25: done seconds=139 claims=105 documents=14
+{"answer_usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}, "combined_usage": {"input_tokens": 54180174, "output_tokens": 1766222, "total_tokens": 55946396}, "compile_usage": {"input_tokens": 54180174, "output_tokens": 1766222, "total_tokens": 55946396}, "completed_units": 230, "hard_ceiling_reached": false, "hard_ceiling_usd": 60.0, "observed_usd": 12.955501, "pricing_basis": {"cache_assumption": "all input charged at full price; embeddings not present in CLI logs", "input_usd_per_m": 0.2, "output_usd_per_m": 1.2}, "projected_usd": 15.321288, "soft_ceiling_projected": false, "soft_ceiling_usd": 50.0, "total_units": 272}
+2026-09-03T11:30:55Z [app-09] session 8/25: convert
+verified_sessions=1 messages=33 output=/Users/pandazki/orca/workspaces/locomo-refined-2026-09/app-09/material/s008/session-008.md
+2026-09-03T11:30:55Z [app-09] session 8/25: ingest
+== Ingesting 1 materials (user=u-lcr2609-09, timezone UTC) ==
+  session-008.md → source 278ebd45… 
+  Ingest done. Index and compile jobs queued — next: `./app.py compile`.
+2026-09-03T11:30:58Z [app-09] session 8/25: compile
+== Draining the compile queue (user=u-lcr2609-09, contract locomo-conversation-09@locomo-c09-v1) ==
+  job 1/2: Evan & Sam — session 8 of 25, 6:17 pm on 19 August, 2023 indexed (~16s left)
+  job 2/3: Evan & Sam — session 8 of 25, 6:17 pm on 19 August, 2023 +27 claims (~33s left)
+  job 3/4: Evan & Sam — session 8 of 25, 6:17 pm on 19 August, 2023 done (~32s left)
+  job 4/4: Evan & Sam — session 8 of 25, 6:17 pm on 19 August, 2023 rejected by the gate (auto-retried later)
+  Processed 4 jobs in 150.4s; 15 canonical documents, 119 claims.
+  Compile-model tokens: input=240147 output=8480 total=248627
+2026-09-03T11:33:44Z [app-09] session 8/25: done seconds=169 claims=119 documents=15
+{"answer_usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}, "combined_usage": {"input_tokens": 54562077, "output_tokens": 1781256, "total_tokens": 56343333}, "compile_usage": {"input_tokens": 54562077, "output_tokens": 1781256, "total_tokens": 56343333}, "completed_units": 232, "hard_ceiling_reached": false, "hard_ceiling_usd": 60.0, "observed_usd": 13.049923, "pricing_basis": {"cache_assumption": "all input charged at full price; embeddings not present in CLI logs", "input_usd_per_m": 0.2, "output_usd_per_m": 1.2}, "projected_usd": 15.299909, "soft_ceiling_projected": false, "soft_ceiling_usd": 50.0, "total_units": 272}
+2026-09-03T11:33:44Z [app-09] session 9/25: convert
+verified_sessions=1 messages=19 output=/Users/pandazki/orca/workspaces/locomo-refined-2026-09/app-09/material/s009/session-009.md
+2026-09-03T11:33:44Z [app-09] session 9/25: ingest
+== Ingesting 1 materials (user=u-lcr2609-09, timezone UTC) ==
+  session-009.md → source 76d317ea… 
+  Ingest done. Index and compile jobs queued — next: `./app.py compile`.
+2026-09-03T11:33:46Z [app-09] session 9/25: compile
+== Draining the compile queue (user=u-lcr2609-09, contract locomo-conversation-09@locomo-c09-v1) ==
+  job 1/2: Evan & Sam — session 9 of 25, 10:18 am on 27 August, 2023 indexed (~20s left)
+  job 2/3: Evan & Sam — session 9 of 25, 10:18 am on 27 August, 2023 +27 claims (~38s left)
+  job 3/4: Evan & Sam — session 9 of 25, 10:18 am on 27 August, 2023 done (~31s left)
+  job 4/4: Evan & Sam — session 9 of 25, 10:18 am on 27 August, 2023 +1 claims
+  Processed 4 jobs in 112.3s; 16 canonical documents, 131 claims.
+  Compile-model tokens: input=185250 output=6360 total=191610
+2026-09-03T11:35:55Z [app-09] session 9/25: done seconds=131 claims=131 documents=16
+{"answer_usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}, "combined_usage": {"input_tokens": 54844456, "output_tokens": 1792916, "total_tokens": 56637372}, "compile_usage": {"input_tokens": 54844456, "output_tokens": 1792916, "total_tokens": 56637372}, "completed_units": 234, "hard_ceiling_reached": false, "hard_ceiling_usd": 60.0, "observed_usd": 13.12039, "pricing_basis": {"cache_assumption": "all input charged at full price; embeddings not present in CLI logs", "input_usd_per_m": 0.2, "output_usd_per_m": 1.2}, "projected_usd": 15.251052, "soft_ceiling_projected": false, "soft_ceiling_usd": 50.0, "total_units": 272}
+2026-09-03T11:35:55Z [app-09] session 10/25: convert
+verified_sessions=1 messages=14 output=/Users/pandazki/orca/workspaces/locomo-refined-2026-09/app-09/material/s010/session-010.md
+2026-09-03T11:35:55Z [app-09] session 10/25: ingest
+== Ingesting 1 materials (user=u-lcr2609-09, timezone UTC) ==
+  session-010.md → source 3600fe95… 
+  Ingest done. Index and compile jobs queued — next: `./app.py compile`.
+2026-09-03T11:35:58Z [app-09] session 10/25: compile
+== Draining the compile queue (user=u-lcr2609-09, contract locomo-conversation-09@locomo-c09-v1) ==
+  job 1/2: Evan & Sam — session 10 of 25, 9:28 am on 11 September, 2023 indexed (~12s left)
+  job 2/3: Evan & Sam — session 10 of 25, 9:28 am on 11 September, 2023 +27 claims (~23s left)
+  job 3/3: Evan & Sam — session 10 of 25, 9:28 am on 11 September, 2023 done
+  Processed 3 jobs in 60.2s; 16 canonical documents, 137 claims.
+  Compile-model tokens: input=63542 output=3391 total=66933
+2026-09-03T11:37:15Z [app-09] session 10/25: done seconds=80 claims=137 documents=16
+{"answer_usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}, "combined_usage": {"input_tokens": 54907998, "output_tokens": 1796307, "total_tokens": 56704305}, "compile_usage": {"input_tokens": 54907998, "output_tokens": 1796307, "total_tokens": 56704305}, "completed_units": 235, "hard_ceiling_reached": false, "hard_ceiling_usd": 60.0, "observed_usd": 13.137168, "pricing_basis": {"cache_assumption": "all input charged at full price; embeddings not present in CLI logs", "input_usd_per_m": 0.2, "output_usd_per_m": 1.2}, "projected_usd": 15.205573, "soft_ceiling_projected": false, "soft_ceiling_usd": 50.0, "total_units": 272}
+2026-09-03T11:37:15Z [app-09] session 11/25: convert
+verified_sessions=1 messages=20 output=/Users/pandazki/orca/workspaces/locomo-refined-2026-09/app-09/material/s011/session-011.md
+2026-09-03T11:37:15Z [app-09] session 11/25: ingest
+== Ingesting 1 materials (user=u-lcr2609-09, timezone UTC) ==
+  session-011.md → source 9f451022… 
+  Ingest done. Index and compile jobs queued — next: `./app.py compile`.
+2026-09-03T11:37:18Z [app-09] session 11/25: compile
+== Draining the compile queue (user=u-lcr2609-09, contract locomo-conversation-09@locomo-c09-v1) ==
+  job 1/2: Evan & Sam — session 11 of 25, 8:57 pm on 6 October, 2023 indexed (~30s left)
+  job 2/3: Evan & Sam — session 11 of 25, 8:57 pm on 6 October, 2023 +23 claims (~39s left)
+  job 3/4: Evan & Sam — session 11 of 25, 8:57 pm on 6 October, 2023 done (~33s left)
+  job 4/4: Evan & Sam — session 11 of 25, 8:57 pm on 6 October, 2023 +19 claims
+  Processed 4 jobs in 146.5s; 17 canonical documents, 147 claims.
+  Compile-model tokens: input=184085 output=8756 total=192841
+2026-09-03T11:40:00Z [app-09] session 11/25: done seconds=165 claims=147 documents=17
+{"answer_usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}, "combined_usage": {"input_tokens": 55459250, "output_tokens": 1818338, "total_tokens": 57277588}, "compile_usage": {"input_tokens": 55459250, "output_tokens": 1818338, "total_tokens": 57277588}, "completed_units": 238, "hard_ceiling_reached": false, "hard_ceiling_usd": 60.0, "observed_usd": 13.273856, "pricing_basis": {"cache_assumption": "all input charged at full price; embeddings not present in CLI logs", "input_usd_per_m": 0.2, "output_usd_per_m": 1.2}, "projected_usd": 15.170121, "soft_ceiling_projected": false, "soft_ceiling_usd": 50.0, "total_units": 272}
+2026-09-03T11:40:00Z [app-09] session 12/25: convert
+verified_sessions=1 messages=17 output=/Users/pandazki/orca/workspaces/locomo-refined-2026-09/app-09/material/s012/session-012.md
+2026-09-03T11:40:00Z [app-09] session 12/25: ingest
+== Ingesting 1 materials (user=u-lcr2609-09, timezone UTC) ==
+  session-012.md → source 6a11000b… 
+  Ingest done. Index and compile jobs queued — next: `./app.py compile`.
+2026-09-03T11:40:03Z [app-09] session 12/25: compile
+== Draining the compile queue (user=u-lcr2609-09, contract locomo-conversation-09@locomo-c09-v1) ==
+  job 1/2: Evan & Sam — session 12 of 25, 3:09 pm on 8 October, 2023 indexed (~14s left)
+  job 2/3: Evan & Sam — session 12 of 25, 3:09 pm on 8 October, 2023 +19 claims (~28s left)
+  job 3/4: Evan & Sam — session 12 of 25, 3:09 pm on 8 October, 2023 done (~25s left)
+  job 4/4: Evan & Sam — session 12 of 25, 3:09 pm on 8 October, 2023 +5 claims
+  Processed 4 jobs in 128.3s; 17 canonical documents, 153 claims.
+  Compile-model tokens: input=250406 output=7440 total=257846
+2026-09-03T11:42:27Z [app-09] session 12/25: done seconds=147 claims=153 documents=17
+{"answer_usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}, "combined_usage": {"input_tokens": 55770256, "output_tokens": 1830239, "total_tokens": 57600495}, "compile_usage": {"input_tokens": 55770256, "output_tokens": 1830239, "total_tokens": 57600495}, "completed_units": 240, "hard_ceiling_reached": false, "hard_ceiling_usd": 60.0, "observed_usd": 13.350338, "pricing_basis": {"cache_assumption": "all input charged at full price; embeddings not present in CLI logs", "input_usd_per_m": 0.2, "output_usd_per_m": 1.2}, "projected_usd": 15.130383, "soft_ceiling_projected": false, "soft_ceiling_usd": 50.0, "total_units": 272}
+2026-09-03T11:42:27Z [app-09] session 13/25: convert
+verified_sessions=1 messages=16 output=/Users/pandazki/orca/workspaces/locomo-refined-2026-09/app-09/material/s013/session-013.md
+2026-09-03T11:42:27Z [app-09] session 13/25: ingest
+== Ingesting 1 materials (user=u-lcr2609-09, timezone UTC) ==
+  session-013.md → source c871c96a… 
+  Ingest done. Index and compile jobs queued — next: `./app.py compile`.
+2026-09-03T11:42:31Z [app-09] session 13/25: compile
+== Draining the compile queue (user=u-lcr2609-09, contract locomo-conversation-09@locomo-c09-v1) ==
+  job 1/2: Evan & Sam — session 13 of 25, 4:07 pm on 14 October, 2023 indexed (~10s left)
+  job 2/3: Evan & Sam — session 13 of 25, 4:07 pm on 14 October, 2023 +42 claims (~45s left)
+  job 3/4: Evan & Sam — session 13 of 25, 4:07 pm on 14 October, 2023 done (~37s left)
+  job 4/4: Evan & Sam — session 13 of 25, 4:07 pm on 14 October, 2023 +17 claims
+  Processed 4 jobs in 150.5s; 19 canonical documents, 176 claims.
+  Compile-model tokens: input=364049 output=9003 total=373052
+2026-09-03T11:45:17Z [app-09] session 13/25: done seconds=170 claims=176 documents=19
+{"answer_usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}, "combined_usage": {"input_tokens": 56374273, "output_tokens": 1848216, "total_tokens": 58222489}, "compile_usage": {"input_tokens": 56374273, "output_tokens": 1848216, "total_tokens": 58222489}, "completed_units": 242, "hard_ceiling_reached": false, "hard_ceiling_usd": 60.0, "observed_usd": 13.492714, "pricing_basis": {"cache_assumption": "all input charged at full price; embeddings not present in CLI logs", "input_usd_per_m": 0.2, "output_usd_per_m": 1.2}, "projected_usd": 15.165364, "soft_ceiling_projected": false, "soft_ceiling_usd": 50.0, "total_units": 272}
+2026-09-03T11:45:17Z [app-09] session 14/25: convert
+verified_sessions=1 messages=16 output=/Users/pandazki/orca/workspaces/locomo-refined-2026-09/app-09/material/s014/session-014.md
+2026-09-03T11:45:17Z [app-09] session 14/25: ingest
+== Ingesting 1 materials (user=u-lcr2609-09, timezone UTC) ==
+  session-014.md → source babd161c… 
+  Ingest done. Index and compile jobs queued — next: `./app.py compile`.
+2026-09-03T11:45:20Z [app-09] session 14/25: compile
+== Draining the compile queue (user=u-lcr2609-09, contract locomo-conversation-09@locomo-c09-v1) ==
+  job 1/2: Evan & Sam — session 14 of 25, 1:50 pm on 17 October, 2023 indexed (~12s left)
+  job 2/2: Evan & Sam — session 14 of 25, 1:50 pm on 17 October, 2023 +30 claims
+  job 3/4: Evan & Sam — session 14 of 25, 1:50 pm on 17 October, 2023 done (~28s left)
+  job 4/4: Evan & Sam — session 14 of 25, 1:50 pm on 17 October, 2023 +11 claims
+  Processed 4 jobs in 132.4s; 19 canonical documents, 194 claims.
+  Compile-model tokens: input=294948 output=7416 total=302364
+2026-09-03T11:47:48Z [app-09] session 14/25: done seconds=151 claims=194 documents=19
+2026-09-03T11:47:48Z [app-09] EVOLVE session=14 new_claims=94 sessions_since=8 force=0
+== Draining the compile queue (user=u-lcr2609-09, contract locomo-conversation-09@locomo-c09-v1) ==
+  job 1/1: (no matching material) done
+  Processed 1 jobs in 6.0s; 19 canonical documents, 194 claims.
+  Compile-model tokens: input=1913 output=187 total=2100
+evolve step: no draft produced (no_change or below thresholds).
+== Draining the compile queue (user=u-lcr2609-09, contract locomo-conversation-09@locomo-c09-v1) ==
+  Processed 0 jobs in 2.0s; 19 canonical documents, 194 claims.
+  Compile-model tokens: input=0 output=0 total=0
+{"answer_usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}, "combined_usage": {"input_tokens": 56891295, "output_tokens": 1865134, "total_tokens": 58756429}, "compile_usage": {"input_tokens": 56891295, "output_tokens": 1865134, "total_tokens": 58756429}, "completed_units": 245, "hard_ceiling_reached": false, "hard_ceiling_usd": 60.0, "observed_usd": 13.61642, "pricing_basis": {"cache_assumption": "all input charged at full price; embeddings not present in CLI logs", "input_usd_per_m": 0.2, "output_usd_per_m": 1.2}, "projected_usd": 15.117005, "soft_ceiling_projected": false, "soft_ceiling_usd": 50.0, "total_units": 272}
+2026-09-03T11:48:08Z [app-09] session 15/25: convert
+verified_sessions=1 messages=18 output=/Users/pandazki/orca/workspaces/locomo-refined-2026-09/app-09/material/s015/session-015.md
+2026-09-03T11:48:08Z [app-09] session 15/25: ingest
+== Ingesting 1 materials (user=u-lcr2609-09, timezone UTC) ==
+  session-015.md → source 6b80c695… 
+  Ingest done. Index and compile jobs queued — next: `./app.py compile`.
+2026-09-03T11:48:11Z [app-09] session 15/25: compile
+== Draining the compile queue (user=u-lcr2609-09, contract locomo-conversation-09@locomo-c09-v1) ==
+  job 1/2: Evan & Sam — session 15 of 25, 2:56 pm on 25 October, 2023 indexed (~12s left)
+  job 2/3: Evan & Sam — session 15 of 25, 2:56 pm on 25 October, 2023 +22 claims (~33s left)
+  job 3/4: Evan & Sam — session 15 of 25, 2:56 pm on 25 October, 2023 done (~27s left)
+  job 4/4: Evan & Sam — session 15 of 25, 2:56 pm on 25 October, 2023 +9 claims
+  Processed 4 jobs in 112.3s; 19 canonical documents, 198 claims.
+  Compile-model tokens: input=203246 output=6590 total=209836
+2026-09-03T11:50:19Z [app-09] session 15/25: done seconds=131 claims=198 documents=19
+{"answer_usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}, "combined_usage": {"input_tokens": 57094541, "output_tokens": 1871724, "total_tokens": 58966265}, "compile_usage": {"input_tokens": 57094541, "output_tokens": 1871724, "total_tokens": 58966265}, "completed_units": 246, "hard_ceiling_reached": false, "hard_ceiling_usd": 60.0, "observed_usd": 13.664977, "pricing_basis": {"cache_assumption": "all input charged at full price; embeddings not present in CLI logs", "input_usd_per_m": 0.2, "output_usd_per_m": 1.2}, "projected_usd": 15.109243, "soft_ceiling_projected": false, "soft_ceiling_usd": 50.0, "total_units": 272}
+2026-09-03T11:50:19Z [app-09] session 16/25: convert
+verified_sessions=1 messages=24 output=/Users/pandazki/orca/workspaces/locomo-refined-2026-09/app-09/material/s016/session-016.md
+2026-09-03T11:50:19Z [app-09] session 16/25: ingest
+== Ingesting 1 materials (user=u-lcr2609-09, timezone UTC) ==
+  session-016.md → source fe17cec7… 
+  Ingest done. Index and compile jobs queued — next: `./app.py compile`.
+2026-09-03T11:50:22Z [app-09] session 16/25: compile
+== Draining the compile queue (user=u-lcr2609-09, contract locomo-conversation-09@locomo-c09-v1) ==
+  job 1/2: Evan & Sam — session 16 of 25, 9:13 pm on 9 November, 2023 indexed (~22s left)
+  job 2/3: Evan & Sam — session 16 of 25, 9:13 pm on 9 November, 2023 +26 claims (~34s left)
+  job 3/4: Evan & Sam — session 16 of 25, 9:13 pm on 9 November, 2023 done (~29s left)
+  job 4/4: Evan & Sam — session 16 of 25, 9:13 pm on 9 November, 2023 +28 claims
+  Processed 4 jobs in 130.4s; 22 canonical documents, 233 claims.
+  Compile-model tokens: input=258878 output=8861 total=267739
+2026-09-03T11:52:47Z [app-09] session 16/25: done seconds=148 claims=233 documents=22
+{"answer_usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}, "combined_usage": {"input_tokens": 57605337, "output_tokens": 1889569, "total_tokens": 59494906}, "compile_usage": {"input_tokens": 57605337, "output_tokens": 1889569, "total_tokens": 59494906}, "completed_units": 248, "hard_ceiling_reached": false, "hard_ceiling_usd": 60.0, "observed_usd": 13.78855, "pricing_basis": {"cache_assumption": "all input charged at full price; embeddings not present in CLI logs", "input_usd_per_m": 0.2, "output_usd_per_m": 1.2}, "projected_usd": 15.122926, "soft_ceiling_projected": false, "soft_ceiling_usd": 50.0, "total_units": 272}
+2026-09-03T11:52:47Z [app-09] session 17/25: convert
+verified_sessions=1 messages=28 output=/Users/pandazki/orca/workspaces/locomo-refined-2026-09/app-09/material/s017/session-017.md
+2026-09-03T11:52:48Z [app-09] session 17/25: ingest
+== Ingesting 1 materials (user=u-lcr2609-09, timezone UTC) ==
+  session-017.md → source e271c713… 
+  Ingest done. Index and compile jobs queued — next: `./app.py compile`.
+2026-09-03T11:52:50Z [app-09] session 17/25: compile
+== Draining the compile queue (user=u-lcr2609-09, contract locomo-conversation-09@locomo-c09-v1) ==
+  job 1/2: Evan & Sam — session 17 of 25, 7:30 pm on 21 November, 2023 indexed (~28s left)
+  job 2/3: Evan & Sam — session 17 of 25, 7:30 pm on 21 November, 2023 +20 claims (~34s left)
+  job 3/4: Evan & Sam — session 17 of 25, 7:30 pm on 21 November, 2023 done (~29s left)
+  job 4/4: Evan & Sam — session 17 of 25, 7:30 pm on 21 November, 2023 +4 claims
+  Processed 4 jobs in 126.4s; 23 canonical documents, 242 claims.
+  Compile-model tokens: input=218864 output=8475 total=227339
+2026-09-03T11:55:13Z [app-09] session 17/25: done seconds=146 claims=242 documents=23
+{"answer_usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}, "combined_usage": {"input_tokens": 58088331, "output_tokens": 1905164, "total_tokens": 59993495}, "compile_usage": {"input_tokens": 58088331, "output_tokens": 1905164, "total_tokens": 59993495}, "completed_units": 250, "hard_ceiling_reached": false, "hard_ceiling_usd": 60.0, "observed_usd": 13.903863, "pricing_basis": {"cache_assumption": "all input charged at full price; embeddings not present in CLI logs", "input_usd_per_m": 0.2, "output_usd_per_m": 1.2}, "projected_usd": 15.127403, "soft_ceiling_projected": false, "soft_ceiling_usd": 50.0, "total_units": 272}
+2026-09-03T11:55:13Z [app-09] session 18/25: convert
+verified_sessions=1 messages=15 output=/Users/pandazki/orca/workspaces/locomo-refined-2026-09/app-09/material/s018/session-018.md
+2026-09-03T11:55:13Z [app-09] session 18/25: ingest
+== Ingesting 1 materials (user=u-lcr2609-09, timezone UTC) ==
+  session-018.md → source 688afd3a… 
+  Ingest done. Index and compile jobs queued — next: `./app.py compile`.
+2026-09-03T11:55:16Z [app-09] session 18/25: compile
+== Draining the compile queue (user=u-lcr2609-09, contract locomo-conversation-09@locomo-c09-v1) ==
+  job 1/2: Evan & Sam — session 18 of 25, 8:16 pm on 5 December, 2023 indexed (~12s left)
+  job 2/3: Evan & Sam — session 18 of 25, 8:16 pm on 5 December, 2023 +15 claims (~24s left)
+  job 3/4: Evan & Sam — session 18 of 25, 8:16 pm on 5 December, 2023 done (~21s left)
+  job 4/4: Evan & Sam — session 18 of 25, 8:16 pm on 5 December, 2023 +1 claims
+  Processed 4 jobs in 90.2s; 23 canonical documents, 248 claims.
+  Compile-model tokens: input=213421 output=5133 total=218554
+2026-09-03T11:57:02Z [app-09] session 18/25: done seconds=109 claims=248 documents=23
+{"answer_usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}, "combined_usage": {"input_tokens": 58498927, "output_tokens": 1917602, "total_tokens": 60416529}, "compile_usage": {"input_tokens": 58498927, "output_tokens": 1917602, "total_tokens": 60416529}, "completed_units": 252, "hard_ceiling_reached": false, "hard_ceiling_usd": 60.0, "observed_usd": 14.000908, "pricing_basis": {"cache_assumption": "all input charged at full price; embeddings not present in CLI logs", "input_usd_per_m": 0.2, "output_usd_per_m": 1.2}, "projected_usd": 15.112091, "soft_ceiling_projected": false, "soft_ceiling_usd": 50.0, "total_units": 272}
+2026-09-03T11:57:02Z [app-09] session 19/25: convert
+verified_sessions=1 messages=15 output=/Users/pandazki/orca/workspaces/locomo-refined-2026-09/app-09/material/s019/session-019.md
+2026-09-03T11:57:02Z [app-09] session 19/25: ingest
+== Ingesting 1 materials (user=u-lcr2609-09, timezone UTC) ==
+  session-019.md → source 1115b16d… 
+  Ingest done. Index and compile jobs queued — next: `./app.py compile`.
+2026-09-03T11:57:05Z [app-09] session 19/25: compile
+== Draining the compile queue (user=u-lcr2609-09, contract locomo-conversation-09@locomo-c09-v1) ==
+  job 1/2: Evan & Sam — session 19 of 25, 1:45 pm on 9 December, 2023 indexed (~12s left)
+  job 2/3: Evan & Sam — session 19 of 25, 1:45 pm on 9 December, 2023 +13 claims (~23s left)
+  job 3/4: Evan & Sam — session 19 of 25, 1:45 pm on 9 December, 2023 done (~21s left)
+  job 4/4: Evan & Sam — session 19 of 25, 1:45 pm on 9 December, 2023 +13 claims
+  Processed 4 jobs in 98.2s; 25 canonical documents, 260 claims.
+  Compile-model tokens: input=177022 output=6822 total=183844
+2026-09-03T11:58:58Z [app-09] session 19/25: done seconds=116 claims=260 documents=25
+{"answer_usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}, "combined_usage": {"input_tokens": 58959609, "output_tokens": 1931389, "total_tokens": 60890998}, "compile_usage": {"input_tokens": 58959609, "output_tokens": 1931389, "total_tokens": 60890998}, "completed_units": 254, "hard_ceiling_reached": false, "hard_ceiling_usd": 60.0, "observed_usd": 14.109589, "pricing_basis": {"cache_assumption": "all input charged at full price; embeddings not present in CLI logs", "input_usd_per_m": 0.2, "output_usd_per_m": 1.2}, "projected_usd": 15.109481, "soft_ceiling_projected": false, "soft_ceiling_usd": 50.0, "total_units": 272}
+2026-09-03T11:58:59Z [app-09] session 20/25: convert
+verified_sessions=1 messages=17 output=/Users/pandazki/orca/workspaces/locomo-refined-2026-09/app-09/material/s020/session-020.md
+2026-09-03T11:58:59Z [app-09] session 20/25: ingest
+== Ingesting 1 materials (user=u-lcr2609-09, timezone UTC) ==
+  session-020.md → source d0e1c781… 
+  Ingest done. Index and compile jobs queued — next: `./app.py compile`.
+2026-09-03T11:59:01Z [app-09] session 20/25: compile
+== Draining the compile queue (user=u-lcr2609-09, contract locomo-conversation-09@locomo-c09-v1) ==
+  job 1/2: Evan & Sam — session 20 of 25, 6:48 pm on 17 December, 2023 indexed (~20s left)
+  job 2/3: Evan & Sam — session 20 of 25, 6:48 pm on 17 December, 2023 +22 claims (~26s left)
+  job 3/3: Evan & Sam — session 20 of 25, 6:48 pm on 17 December, 2023 done
+  Processed 3 jobs in 62.1s; 25 canonical documents, 266 claims.
+  Compile-model tokens: input=85545 output=4463 total=90008
+2026-09-03T12:00:21Z [app-09] session 20/25: done seconds=82 claims=266 documents=25
+{"answer_usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}, "combined_usage": {"input_tokens": 59211544, "output_tokens": 1940061, "total_tokens": 61151605}, "compile_usage": {"input_tokens": 59211544, "output_tokens": 1940061, "total_tokens": 61151605}, "completed_units": 256, "hard_ceiling_reached": false, "hard_ceiling_usd": 60.0, "observed_usd": 14.170382, "pricing_basis": {"cache_assumption": "all input charged at full price; embeddings not present in CLI logs", "input_usd_per_m": 0.2, "output_usd_per_m": 1.2}, "projected_usd": 15.056031, "soft_ceiling_projected": false, "soft_ceiling_usd": 50.0, "total_units": 272}
+2026-09-03T12:00:21Z [app-09] session 21/25: convert
+verified_sessions=1 messages=22 output=/Users/pandazki/orca/workspaces/locomo-refined-2026-09/app-09/material/s021/session-021.md
+2026-09-03T12:00:21Z [app-09] session 21/25: ingest
+== Ingesting 1 materials (user=u-lcr2609-09, timezone UTC) ==
+  session-021.md → source 8d678e3a… 
+  Ingest done. Index and compile jobs queued — next: `./app.py compile`.
+2026-09-03T12:00:24Z [app-09] session 21/25: compile
+== Draining the compile queue (user=u-lcr2609-09, contract locomo-conversation-09@locomo-c09-v1) ==
+  job 1/2: Evan & Sam — session 21 of 25, 4:25 pm on 26 December, 2023 indexed (~16s left)
+  job 2/3: Evan & Sam — session 21 of 25, 4:25 pm on 26 December, 2023 +29 claims (~58s left)
+  job 3/4: Evan & Sam — session 21 of 25, 4:25 pm on 26 December, 2023 done (~47s left)
+  job 4/4: Evan & Sam — session 21 of 25, 4:25 pm on 26 December, 2023 +8 claims
+  Processed 4 jobs in 190.5s; 25 canonical documents, 275 claims.
+  Compile-model tokens: input=313443 output=8085 total=321528
+2026-09-03T12:03:50Z [app-09] session 21/25: done seconds=209 claims=275 documents=25
+2026-09-03T12:03:50Z [app-09] EVOLVE session=21 new_claims=81 sessions_since=7 force=0
+== Draining the compile queue (user=u-lcr2609-09, contract locomo-conversation-09@locomo-c09-v1) ==
+  job 1/1: (no matching material) done
+  Processed 1 jobs in 6.0s; 25 canonical documents, 275 claims.
+  Compile-model tokens: input=2047 output=139 total=2186
+evolve step: no draft produced (no_change or below thresholds).
+== Draining the compile queue (user=u-lcr2609-09, contract locomo-conversation-09@locomo-c09-v1) ==
+  Processed 0 jobs in 2.0s; 25 canonical documents, 275 claims.
+  Compile-model tokens: input=0 output=0 total=0
+{"answer_usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}, "combined_usage": {"input_tokens": 59839289, "output_tokens": 1957012, "total_tokens": 61796301}, "compile_usage": {"input_tokens": 59839289, "output_tokens": 1957012, "total_tokens": 61796301}, "completed_units": 258, "hard_ceiling_reached": false, "hard_ceiling_usd": 60.0, "observed_usd": 14.316272, "pricing_basis": {"cache_assumption": "all input charged at full price; embeddings not present in CLI logs", "input_usd_per_m": 0.2, "output_usd_per_m": 1.2}, "projected_usd": 15.093124, "soft_ceiling_projected": false, "soft_ceiling_usd": 50.0, "total_units": 272}
+2026-09-03T12:04:11Z [app-09] session 22/25: convert
+verified_sessions=1 messages=21 output=/Users/pandazki/orca/workspaces/locomo-refined-2026-09/app-09/material/s022/session-022.md
+2026-09-03T12:04:11Z [app-09] session 22/25: ingest
+== Ingesting 1 materials (user=u-lcr2609-09, timezone UTC) ==
+  session-022.md → source fc3cfe1e… 
+  Ingest done. Index and compile jobs queued — next: `./app.py compile`.
+2026-09-03T12:04:14Z [app-09] session 22/25: compile
+== Draining the compile queue (user=u-lcr2609-09, contract locomo-conversation-09@locomo-c09-v1) ==
+  job 1/2: Evan & Sam — session 22 of 25, 11:00 am on 31 December, 2023 indexed (~12s left)
+  job 2/3: Evan & Sam — session 22 of 25, 11:00 am on 31 December, 2023 +17 claims (~35s left)
+  job 3/4: Evan & Sam — session 22 of 25, 11:00 am on 31 December, 2023 done (~31s left)
+  job 4/4: Evan & Sam — session 22 of 25, 11:00 am on 31 December, 2023 +3 claims
+  Processed 4 jobs in 112.3s; 25 canonical documents, 284 claims.
+  Compile-model tokens: input=249970 output=6708 total=256678
+2026-09-03T12:06:21Z [app-09] session 22/25: done seconds=130 claims=284 documents=25
+{"answer_usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}, "combined_usage": {"input_tokens": 60288803, "output_tokens": 1970492, "total_tokens": 62259295}, "compile_usage": {"input_tokens": 60288803, "output_tokens": 1970492, "total_tokens": 62259295}, "completed_units": 260, "hard_ceiling_reached": false, "hard_ceiling_usd": 60.0, "observed_usd": 14.422351, "pricing_basis": {"cache_assumption": "all input charged at full price; embeddings not present in CLI logs", "input_usd_per_m": 0.2, "output_usd_per_m": 1.2}, "projected_usd": 15.087998, "soft_ceiling_projected": false, "soft_ceiling_usd": 50.0, "total_units": 272}
+2026-09-03T12:06:22Z [app-09] session 23/25: convert
+verified_sessions=1 messages=33 output=/Users/pandazki/orca/workspaces/locomo-refined-2026-09/app-09/material/s023/session-023.md
+2026-09-03T12:06:22Z [app-09] session 23/25: ingest
+== Ingesting 1 materials (user=u-lcr2609-09, timezone UTC) ==
+  session-023.md → source 337f0ea1… 
+  Ingest done. Index and compile jobs queued — next: `./app.py compile`.
+2026-09-03T12:06:24Z [app-09] session 23/25: compile
+== Draining the compile queue (user=u-lcr2609-09, contract locomo-conversation-09@locomo-c09-v1) ==
+  job 1/2: Evan & Sam — session 23 of 25, 1:32 pm on 6 January, 2024 indexed (~16s left)
+  job 2/3: Evan & Sam — session 23 of 25, 1:32 pm on 6 January, 2024 +22 claims (~29s left)
+  job 3/4: Evan & Sam — session 23 of 25, 1:32 pm on 6 January, 2024 done (~25s left)
+  job 4/4: Evan & Sam — session 23 of 25, 1:32 pm on 6 January, 2024 +1 claims
+  Processed 4 jobs in 88.2s; 26 canonical documents, 290 claims.
+  Compile-model tokens: input=191438 output=5198 total=196636
+2026-09-03T12:08:08Z [app-09] session 23/25: done seconds=106 claims=290 documents=26
+{"answer_usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}, "combined_usage": {"input_tokens": 60712068, "output_tokens": 1982137, "total_tokens": 62694205}, "compile_usage": {"input_tokens": 60712068, "output_tokens": 1982137, "total_tokens": 62694205}, "completed_units": 262, "hard_ceiling_reached": false, "hard_ceiling_usd": 60.0, "observed_usd": 14.520978, "pricing_basis": {"cache_assumption": "all input charged at full price; embeddings not present in CLI logs", "input_usd_per_m": 0.2, "output_usd_per_m": 1.2}, "projected_usd": 15.075214, "soft_ceiling_projected": false, "soft_ceiling_usd": 50.0, "total_units": 272}
+2026-09-03T12:08:08Z [app-09] session 24/25: convert
+verified_sessions=1 messages=24 output=/Users/pandazki/orca/workspaces/locomo-refined-2026-09/app-09/material/s024/session-024.md
+2026-09-03T12:08:08Z [app-09] session 24/25: ingest
+== Ingesting 1 materials (user=u-lcr2609-09, timezone UTC) ==
+  session-024.md → source b444ec27… 
+  Ingest done. Index and compile jobs queued — next: `./app.py compile`.
+2026-09-03T12:08:11Z [app-09] session 24/25: compile
+== Draining the compile queue (user=u-lcr2609-09, contract locomo-conversation-09@locomo-c09-v1) ==
+  job 1/2: Evan & Sam — session 24 of 25, 12:17 am on 10 January, 2024 indexed (~24s left)
+  job 2/2: Evan & Sam — session 24 of 25, 12:17 am on 10 January, 2024 rejected by the gate (auto-retried later)
+  1 compile jobs rejected by the gate — one retry round…
+  job 1/2: Evan & Sam — session 24 of 25, 12:17 am on 10 January, 2024 +25 claims (~58s left)
+  job 2/3: Evan & Sam — session 24 of 25, 12:17 am on 10 January, 2024 done (~44s left)
+  job 3/3: Evan & Sam — session 24 of 25, 12:17 am on 10 January, 2024 +6 claims
+  Processed 5 jobs in 232.8s; 26 canonical documents, 303 claims.
+  Compile-model tokens: input=626541 output=15574 total=642115
+2026-09-03T12:12:20Z [app-09] session 24/25: done seconds=252 claims=303 documents=26
+{"answer_usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}, "combined_usage": {"input_tokens": 61673304, "output_tokens": 2007669, "total_tokens": 63680973}, "compile_usage": {"input_tokens": 61673304, "output_tokens": 2007669, "total_tokens": 63680973}, "completed_units": 264, "hard_ceiling_reached": false, "hard_ceiling_usd": 60.0, "observed_usd": 14.743864, "pricing_basis": {"cache_assumption": "all input charged at full price; embeddings not present in CLI logs", "input_usd_per_m": 0.2, "output_usd_per_m": 1.2}, "projected_usd": 15.190647, "soft_ceiling_projected": false, "soft_ceiling_usd": 50.0, "total_units": 272}
+2026-09-03T12:12:20Z [app-09] session 25/25: convert
+verified_sessions=1 messages=20 output=/Users/pandazki/orca/workspaces/locomo-refined-2026-09/app-09/material/s025/session-025.md
+2026-09-03T12:12:21Z [app-09] session 25/25: ingest
+== Ingesting 1 materials (user=u-lcr2609-09, timezone UTC) ==
+  session-025.md → source 0b8fffb7… 
+  Ingest done. Index and compile jobs queued — next: `./app.py compile`.
+2026-09-03T12:12:23Z [app-09] session 25/25: compile
+== Draining the compile queue (user=u-lcr2609-09, contract locomo-conversation-09@locomo-c09-v1) ==
+  job 1/2: Evan & Sam — session 25 of 25, 9:37 pm on 11 January, 2024 indexed (~22s left)
+  job 2/3: Evan & Sam — session 25 of 25, 9:37 pm on 11 January, 2024 +22 claims (~45s left)
+  job 3/4: Evan & Sam — session 25 of 25, 9:37 pm on 11 January, 2024 done (~36s left)
+  job 4/4: Evan & Sam — session 25 of 25, 9:37 pm on 11 January, 2024 +10 claims
+  Processed 4 jobs in 154.7s; 26 canonical documents, 310 claims.
+  Compile-model tokens: input=504636 output=10203 total=514839
+2026-09-03T12:15:14Z [app-09] session 25/25: done seconds=174 claims=310 documents=26
+{"answer_usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}, "combined_usage": {"input_tokens": 62477495, "output_tokens": 2026783, "total_tokens": 64504278}, "compile_usage": {"input_tokens": 62477495, "output_tokens": 2026783, "total_tokens": 64504278}, "completed_units": 266, "hard_ceiling_reached": false, "hard_ceiling_usd": 60.0, "observed_usd": 14.927639, "pricing_basis": {"cache_assumption": "all input charged at full price; embeddings not present in CLI logs", "input_usd_per_m": 0.2, "output_usd_per_m": 1.2}, "projected_usd": 15.264352, "soft_ceiling_projected": false, "soft_ceiling_usd": 50.0, "total_units": 272}
+2026-09-03T12:15:18Z [app-09] EVOLVE session=25 new_claims=35 sessions_since=4 force=1
+== Draining the compile queue (user=u-lcr2609-09, contract locomo-conversation-09@locomo-c09-v1) ==
+  job 1/1: (no matching material) done
+  Processed 1 jobs in 4.0s; 26 canonical documents, 310 claims.
+  Compile-model tokens: input=1938 output=142 total=2080
+evolve step: no draft produced (no_change or below thresholds).
+== Draining the compile queue (user=u-lcr2609-09, contract locomo-conversation-09@locomo-c09-v1) ==
+  Processed 0 jobs in 2.0s; 26 canonical documents, 310 claims.
+  Compile-model tokens: input=0 output=0 total=0
+2026-09-03T12:15:43Z [app-09] FINISH conversation idx=8 claims=310 documents=26
+ Container pneuma-lcr2609-09-7d91-meilisearch-1  Stopping
+ Container pneuma-lcr2609-09-7d91-rustfs-1  Stopping
+ Container pneuma-lcr2609-09-7d91-postgres-1  Stopping
+ Container pneuma-lcr2609-09-7d91-qdrant-1  Stopping
+ Container pneuma-lcr2609-09-7d91-qdrant-1  Stopped
+ Container pneuma-lcr2609-09-7d91-qdrant-1  Removing
+ Container pneuma-lcr2609-09-7d91-qdrant-1  Removed
+ Container pneuma-lcr2609-09-7d91-meilisearch-1  Stopped
+ Container pneuma-lcr2609-09-7d91-meilisearch-1  Removing
+ Container pneuma-lcr2609-09-7d91-meilisearch-1  Removed
+ Container pneuma-lcr2609-09-7d91-rustfs-1  Stopped
+ Container pneuma-lcr2609-09-7d91-rustfs-1  Removing
+ Container pneuma-lcr2609-09-7d91-rustfs-1  Removed
+ Container pneuma-lcr2609-09-7d91-postgres-1  Stopped
+ Container pneuma-lcr2609-09-7d91-postgres-1  Removing
+ Container pneuma-lcr2609-09-7d91-postgres-1  Removed
+ Network pneuma-lcr2609-09-7d91_default  Removing
+ Network pneuma-lcr2609-09-7d91_default  Removed

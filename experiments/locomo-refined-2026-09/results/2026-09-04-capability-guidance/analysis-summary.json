@@ -1,0 +1,236 @@
+{
+  "answer_surface": {
+    "correct": {
+      "count": 1067,
+      "hedged_surface_count": 19,
+      "mean_chars": 65.198688,
+      "median_chars": 48,
+      "multiline_count": 3,
+      "p90_chars": 139
+    },
+    "hedged_surface_definition": "\\b(record|records|context|conversation|source|information)\\b.{0,40}\\b(do(?:es)? not|doesn.t|don.t|not|isn.t|aren.t|cannot|can.t|unclear|specif|establish|confirm)\\b",
+    "incorrect": {
+      "count": 315,
+      "hedged_surface_count": 56,
+      "mean_chars": 95.044444,
+      "median_chars": 82,
+      "multiline_count": 3,
+      "p90_chars": 169
+    }
+  },
+  "incorrect_by_category_and_modality": {
+    "category_1__multimodal_available": {
+      "incorrect": 54,
+      "incorrect_pct": 39.705882,
+      "population": 136
+    },
+    "category_1__text_only": {
+      "incorrect": 29,
+      "incorrect_pct": 37.662338,
+      "population": 77
+    },
+    "category_2__multimodal_available": {
+      "incorrect": 32,
+      "incorrect_pct": 24.242424,
+      "population": 132
+    },
+    "category_2__text_only": {
+      "incorrect": 52,
+      "incorrect_pct": 31.137725,
+      "population": 167
+    },
+    "category_3__multimodal_available": {
+      "incorrect": 10,
+      "incorrect_pct": 31.25,
+      "population": 32
+    },
+    "category_3__text_only": {
+      "incorrect": 7,
+      "incorrect_pct": 19.444444,
+      "population": 36
+    },
+    "category_4__multimodal_available": {
+      "incorrect": 42,
+      "incorrect_pct": 19.004525,
+      "population": 221
+    },
+    "category_4__text_only": {
+      "incorrect": 89,
+      "incorrect_pct": 15.318417,
+      "population": 581
+    }
+  },
+  "inputs": {
+    "official_summary_sha256": "2efb175909db49c7c0ff929f3acb6af7d22830d231a15d2baf85b37ce3ef2d74",
+    "sanitized_scored_sha256": "d439bfe45e31360b028ea034b26ba0b41bbb11703a532a063313fabe3479946f"
+  },
+  "official_overall": {
+    "bleu_score": 0.3677734999590454,
+    "count": 1382,
+    "f1_score": 0.4589059770279516,
+    "llm_score": 0.7720694645441389,
+    "metrics": {
+      "bleu_score": {
+        "count": 1382,
+        "max": 1.0,
+        "mean": 0.3677734999590454,
+        "min": 0.0,
+        "missing_count": 0
+      },
+      "f1_score": {
+        "count": 1382,
+        "max": 1.0,
+        "mean": 0.4589059770279516,
+        "min": 0.0,
+        "missing_count": 0
+      },
+      "llm_score": {
+        "count": 1382,
+        "max": 1.0,
+        "mean": 0.7720694645441389,
+        "min": 0.0,
+        "missing_count": 0
+      }
+    }
+  },
+  "schema_version": 1,
+  "score_counts": {
+    "correct": 1067,
+    "incorrect": 315
+  },
+  "wrong_sample": {
+    "count": 16,
+    "method": "two incorrect qa_ids per category x modality stratum, ordered by sha256 of fixed salt plus qa_id",
+    "records": [
+      {
+        "category": "1",
+        "hedged_surface": false,
+        "modality": "multimodal_available",
+        "multiline": true,
+        "prediction_chars": 88,
+        "qa_id": "conv-48#q0077"
+      },
+      {
+        "category": "1",
+        "hedged_surface": false,
+        "modality": "multimodal_available",
+        "multiline": false,
+        "prediction_chars": 102,
+        "qa_id": "conv-43#q0035"
+      },
+      {
+        "category": "1",
+        "hedged_surface": false,
+        "modality": "text_only",
+        "multiline": false,
+        "prediction_chars": 43,
+        "qa_id": "conv-41#q0006"
+      },
+      {
+        "category": "1",
+        "hedged_surface": false,
+        "modality": "text_only",
+        "multiline": false,
+        "prediction_chars": 35,
+        "qa_id": "conv-50#q0047"
+      },
+      {
+        "category": "2",
+        "hedged_surface": false,
+        "modality": "multimodal_available",
+        "multiline": false,
+        "prediction_chars": 93,
+        "qa_id": "conv-42#q0006"
+      },
+      {
+        "category": "2",
+        "hedged_surface": false,
+        "modality": "multimodal_available",
+        "multiline": false,
+        "prediction_chars": 13,
+        "qa_id": "conv-44#q0010"
+      },
+      {
+        "category": "2",
+        "hedged_surface": true,
+        "modality": "text_only",
+        "multiline": false,
+        "prediction_chars": 117,
+        "qa_id": "conv-47#q0027"
+      },
+      {
+        "category": "2",
+        "hedged_surface": false,
+        "modality": "text_only",
+        "multiline": false,
+        "prediction_chars": 80,
+        "qa_id": "conv-42#q0038"
+      },
+      {
+        "category": "3",
+        "hedged_surface": true,
+        "modality": "multimodal_available",
+        "multiline": false,
+        "prediction_chars": 67,
+        "qa_id": "conv-47#q0136"
+      },
+      {
+        "category": "3",
+        "hedged_surface": false,
+        "modality": "multimodal_available",
+        "multiline": false,
+        "prediction_chars": 537,
+        "qa_id": "conv-49#q0039"
+      },
+      {
+        "category": "3",
+        "hedged_surface": false,
+        "modality": "text_only",
+        "multiline": false,
+        "prediction_chars": 7,
+        "qa_id": "conv-47#q0019"
+      },
+      {
+        "category": "3",
+        "hedged_surface": false,
+        "modality": "text_only",
+        "multiline": false,
+        "prediction_chars": 136,
+        "qa_id": "conv-48#q0021"
+      },
+      {
+        "category": "4",
+        "hedged_surface": false,
+        "modality": "multimodal_available",
+        "multiline": false,
+        "prediction_chars": 130,
+        "qa_id": "conv-26#q0134"
+      },
+      {
+        "category": "4",
+        "hedged_surface": false,
+        "modality": "multimodal_available",
+        "multiline": false,
+        "prediction_chars": 140,
+        "qa_id": "conv-41#q0125"
+      },
+      {
+        "category": "4",
+        "hedged_surface": false,
+        "modality": "text_only",
+        "multiline": false,
+        "prediction_chars": 146,
+        "qa_id": "conv-48#q0116"
+      },
+      {
+        "category": "4",
+        "hedged_surface": false,
+        "modality": "text_only",
+        "multiline": false,
+        "prediction_chars": 63,
+        "qa_id": "conv-26#q0126"
+      }
+    ],
+    "salt": "phase-c-sample-v1:"
+  }
+}

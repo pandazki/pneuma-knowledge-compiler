@@ -1,0 +1,19 @@
+{
+  "pricing_basis": {
+    "input_usd_per_m": 0.2,
+    "output_usd_per_m": 1.2,
+    "cache_assumption": "all input charged at full price"
+  },
+  "answer_usage": {
+    "input_tokens": 62523153,
+    "output_tokens": 421898,
+    "total_tokens": 62945051
+  },
+  "completed_answers": 1382,
+  "expected_answers": 1382,
+  "observed_usd": 13.010908,
+  "projected_usd": 13.010908,
+  "soft_ceiling_usd": 50.0,
+  "soft_ceiling_observed": false,
+  "soft_ceiling_projected": false
+}
