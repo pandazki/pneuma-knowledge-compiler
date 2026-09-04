@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from pneuma_knowledge_core.ports.canonical_store import CanonicalDirtyError
 
 from .. import __version__
 from ..archive_service import ArchiveRequestError
@@ -65,6 +66,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return JSONResponse(
             status_code=409,
             content={"detail": str(exc), "tenant_id": exc.tenant_id},
+        )
+
+    # The canonical library holding somebody else's uncommitted changes, in one handler for
+    # the same reason as the two above: the ADAPTER raises it, and any route whose request
+    # path commits — the skill manifest write behind `/evolve/skill`, an evolve adopt —
+    # answers 409 with one machine code, including routes written later. 409 and not 500:
+    # nothing is broken, the library is simply in a state only a person can resolve, and the
+    # same request succeeds once they have committed, stashed or reverted their work.
+    @app.exception_handler(CanonicalDirtyError)
+    async def _canonical_dirty(
+        _request: Request, exc: CanonicalDirtyError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=409,
+            content={"detail": str(exc), "code": exc.code, "paths": list(exc.paths)},
         )
 
     # The archive's refusals, in one place for the same reason: `stale`, `not_proposed`,

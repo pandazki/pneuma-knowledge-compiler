@@ -34,6 +34,12 @@ from pneuma_knowledge_service.snapshot_tenant import (
 
 USER = UserId("u-archive-service")
 NOW = datetime(2026, 9, 3, 10, tzinfo=timezone.utc)
+#: Every CONFIRM carries one, because every confirm must: the reason is recorded as the
+#: owner's own `owner-dialogue/v1` statement and the confirm is the decision it states, so a
+#: confirm with neither a note nor a `statement_ref` is refused `note_required` (its own test
+#: below). A plan needs none — its `note` is informational. Stated once here so the tests
+#: that are about something else do not each invent a sentence.
+NOTE = "Aurora shipped in June; the team is disbanded."
 
 
 def _doc(path: str, *claims: tuple[str, ...]) -> CanonicalDocument:
@@ -184,7 +190,16 @@ class _Store:
         return True
 
     async def confirm_archive_proposal(
-        self, user_id, proposal_id, *, items, job_kind, payload, note=None, note_given=False
+        self,
+        user_id,
+        proposal_id,
+        *,
+        items,
+        job_kind,
+        payload,
+        note=None,
+        note_given=False,
+        statement_ref=None,
     ):
         # ONE step, because the real one is one transaction: the row moves out of
         # `proposed` and the job that executes it is inserted under the same predicate, so
@@ -210,6 +225,10 @@ class _Store:
             row["note"] = note
         elif note is not None:  # COALESCE, like the real statement
             row["note"] = note
+        # COALESCE'd and never cleared, like the real statement: a confirm may NAME the
+        # statement the plan did not, and the job reads it off the row.
+        if statement_ref is not None:
+            row["statement_ref"] = statement_ref
         if self.on_confirm is not None:
             self.on_confirm()
         return job_id
@@ -312,13 +331,17 @@ async def test_a_plan_is_kept_verbatim_with_the_head_it_was_computed_against():
     assert stored["library_ref"] == "sha-1"
 
 
-async def test_the_plan_previews_the_exact_line_the_record_will_quote():
-    """The console shows the numbers AND the sentence. `reason` is the one part of the page
-    that is a fact about the DECISION rather than about the document, so it is decided here
-    and previewed rather than left for the owner to discover in the commit."""
+async def test_the_plan_previews_a_quotable_line_ONLY_when_the_owner_already_spoke():
+    """`reason` is the one part of the record that is a fact about the DECISION, and a plan is
+    not the decision — so it previews a sentence only when the Owner named a statement, whose
+    words they have already said. A note handed to the plan is informational: previewing it
+    would show a sentence nothing will quote, kept on a row one step from being spoken for
+    them. Without a statement the field is NULL and the console shows its own note box."""
     canonical, store = _library()
-    result = await plan(
-        _ctx(canonical, store),
+    ctx = _ctx(canonical, store)
+
+    typed = await plan(
+        ctx,
         USER,
         action="archive",
         documents=["work/aurora.md"],
@@ -327,25 +350,27 @@ async def test_the_plan_previews_the_exact_line_the_record_will_quote():
         statement_ref=None,
     )
     record = next(
-        item["record"] for item in result["items"] if item["kind"] == "document"
+        item["record"] for item in typed["items"] if item["kind"] == "document"
     )
-    assert record["reason"] == "Aurora shipped in June."
+    assert record["reason"] is None
+    # Kept, and kept as what it is: a line to display, not a line to quote.
+    assert typed["note"] == "Aurora shipped in June."
+    # There is no second field beside it either — no default the console could fall back on.
+    assert "reason_default" not in record
 
-    # No note: the default sentence, naming what is being archived, exactly as the statement
-    # the job ingests will say it.
-    silent = await plan(
-        _ctx(canonical, store),
+    spoken = await plan(
+        ctx,
         USER,
         action="archive",
         documents=["work/aurora.md"],
         sources=[],
         note=None,
-        statement_ref=None,
+        statement_ref="src-statement",
     )
-    record = next(
-        item["record"] for item in silent["items"] if item["kind"] == "document"
+    quoted = next(
+        item["record"] for item in spoken["items"] if item["kind"] == "document"
     )
-    assert record["reason"] == prompt("archive.statement.default", titles="Aurora")
+    assert quoted["reason"] == "Aurora shipped in June."
 
 
 async def test_a_note_typed_at_the_confirm_moves_the_preview_with_it():
@@ -356,8 +381,12 @@ async def test_a_note_typed_at_the_confirm_moves_the_preview_with_it():
     ctx = _ctx(canonical, store)
     proposal = await plan(
         ctx, USER, action="archive", documents=["work/aurora.md"], sources=[],
-        note=None, statement_ref=None,
+        note=NOTE, statement_ref=None,
     )
+    planned = next(
+        item["record"] for item in proposal["items"] if item["kind"] == "document"
+    )
+    assert planned["reason"] is None  # nothing was quotable until the decision
     result = await confirm(
         ctx, USER, proposal["proposal_id"], note="The team is disbanded."
     )
@@ -393,7 +422,7 @@ async def test_a_note_carrying_machinery_is_refused_at_the_plan_and_at_the_confi
 
     proposal = await plan(
         ctx, USER, action="archive", documents=["work/aurora.md"], sources=[],
-        note=None, statement_ref=None,
+        note=NOTE, statement_ref=None,
     )
     with pytest.raises(ArchiveRequestError) as confirmed:
         await confirm(ctx, USER, proposal["proposal_id"], note=note)
@@ -459,9 +488,9 @@ async def test_a_note_that_disagrees_with_the_named_statement_is_refused():
         item["record"] for item in result["items"] if item["kind"] == "document"
     )
     assert record["reason"] == "Aurora shipped in June."
-    # With a supplied statement the owner's words ARE the default: an emptied note changes
-    # nothing, so the preview of "what an empty note yields" must be the same line.
-    assert record["reason_default"] == record["reason"]
+    # …stamped with where it came from, because the job refuses a reason whose provenance the
+    # row does not state. A plan can only ever quote a named statement.
+    assert record["reason_source"] == "statement"
 
 
 async def test_a_snapshot_tenant_refuses_the_whole_path():
@@ -486,19 +515,80 @@ async def test_confirm_enqueues_one_archive_job_and_records_the_decision():
     ctx = _ctx(canonical, store)
     proposal = await plan(
         ctx, USER, action="archive", documents=["work/aurora.md"], sources=[],
-        note=None, statement_ref=None,
+        note=NOTE, statement_ref=None,
     )
     pid = proposal["proposal_id"]
 
-    result = await confirm(ctx, USER, pid)
+    result = await confirm(ctx, USER, pid, note=NOTE)
 
     assert store.enqueued == [(ARCHIVE_JOB_KIND, {"proposal_id": pid})]
     assert result["job_id"] == "job-1"
     assert result["proposal"]["status"] == "confirmed"
     assert result["proposal"]["job_id"] == "job-1"
     assert result["proposal"]["confirmed_at"] is not None
-    # The items the confirm kept are the items the plan computed.
-    assert result["proposal"]["items"] == proposal["items"]
+    # The items the confirm kept are the items the plan computed — TWO fields apart, and both
+    # are the point: `record.reason` was null on the plan (nothing was decided yet) and holds
+    # the words THIS request sent, and `record.reason_source` stamps where those words came
+    # from. Everything the planner computed is byte-for-byte.
+    def _without_reason(items):
+        return [
+            {
+                **item,
+                "record": (
+                    {**item["record"], "reason": None, "reason_source": None}
+                    if item["record"]
+                    else None
+                ),
+            }
+            for item in items
+        ]
+
+    assert _without_reason(result["proposal"]["items"]) == _without_reason(proposal["items"])
+    assert [
+        (item["record"]["reason"], item["record"]["reason_source"])
+        for item in result["proposal"]["items"]
+        if item["record"]
+    ] == [(NOTE, "note")]
+
+
+async def test_a_confirm_stamps_where_its_reason_came_from():
+    """The stamp is the mechanism behind "a confirmed row's reason is confirm-written".
+
+    Before it, that sentence was true of this code and provable by nothing in the row — the
+    job read the line and trusted whatever wrote it. Now the two legal provenances are the
+    only two values that can appear, each written by the branch that produced the words, and
+    the job refuses a reason that carries neither.
+    """
+    canonical, store = _library()
+
+    ctx = _ctx(canonical, store)
+    plain = await plan(
+        ctx, USER, action="archive", documents=["work/aurora.md"], sources=[],
+        note=None, statement_ref=None,
+    )
+    # A plan quotes nothing of its own, so there is nothing to stamp yet.
+    previewed = next(i["record"] for i in plain["items"] if i["kind"] == "document")
+    assert (previewed["reason"], previewed["reason_source"]) == (None, None)
+
+    typed = await confirm(ctx, USER, plain["proposal_id"], note=NOTE)
+    assert [
+        (i["record"]["reason"], i["record"]["reason_source"])
+        for i in typed["proposal"]["items"]
+        if i["record"]
+    ] == [(NOTE, "note")]
+
+    # The other provenance: the Owner names their own speech, and the source wins.
+    ctx = _ctx(canonical, store)
+    named = await plan(
+        ctx, USER, action="archive", documents=["work/aurora.md"], sources=[],
+        note=None, statement_ref="src-statement",
+    )
+    spoken = await confirm(ctx, USER, named["proposal_id"], statement_ref="src-statement")
+    assert [
+        (i["record"]["reason"], i["record"]["reason_source"])
+        for i in spoken["proposal"]["items"]
+        if i["record"]
+    ] == [("Aurora shipped in June.", "statement")]
 
 
 async def test_confirm_refuses_stale_when_the_library_moved_under_the_plan():
@@ -506,12 +596,12 @@ async def test_confirm_refuses_stale_when_the_library_moved_under_the_plan():
     ctx = _ctx(canonical, store)
     proposal = await plan(
         ctx, USER, action="archive", documents=["work/aurora.md"], sources=[],
-        note=None, statement_ref=None,
+        note=NOTE, statement_ref=None,
     )
     canonical.head = "sha-2"  # a compile landed while the Owner was reading the preview
 
     with pytest.raises(ArchiveRequestError) as excinfo:
-        await confirm(ctx, USER, proposal["proposal_id"])
+        await confirm(ctx, USER, proposal["proposal_id"], note=NOTE)
     assert excinfo.value.code == "stale"
     assert excinfo.value.status_code == 409
     assert store.enqueued == []
@@ -541,12 +631,12 @@ async def test_a_stale_confirm_that_lost_the_row_says_not_proposed_not_stale():
     ctx = _ctx(canonical, store)
     proposal = await plan(
         ctx, USER, action="archive", documents=["work/aurora.md"], sources=[],
-        note=None, statement_ref=None,
+        note=NOTE, statement_ref=None,
     )
     pid = proposal["proposal_id"]
 
     # The winner: another caller confirmed the row while this one was reading it.
-    await confirm(ctx, USER, pid)
+    await confirm(ctx, USER, pid, note=NOTE)
     canonical.head = "sha-2"  # …and only now does this caller see HEAD has moved
     store.reads_as = "proposed"  # its own read predates the winner's write — that IS the race
 
@@ -564,7 +654,7 @@ async def test_a_stale_confirm_that_lost_the_row_says_not_proposed_not_stale():
     store.update_archive_proposal = update_then_tell_the_truth
 
     with pytest.raises(ArchiveRequestError) as excinfo:
-        await confirm(ctx, USER, pid)
+        await confirm(ctx, USER, pid, note=NOTE)
 
     assert excinfo.value.code == "not_proposed"
     assert excinfo.value.status_code == 409
@@ -584,16 +674,16 @@ async def test_a_stale_proposal_can_be_dropped_but_never_confirmed():
     ctx = _ctx(canonical, store)
     proposal = await plan(
         ctx, USER, action="archive", documents=["work/aurora.md"], sources=[],
-        note=None, statement_ref=None,
+        note=NOTE, statement_ref=None,
     )
     canonical.head = "sha-2"
     with pytest.raises(ArchiveRequestError):
-        await confirm(ctx, USER, proposal["proposal_id"])
+        await confirm(ctx, USER, proposal["proposal_id"], note=NOTE)
 
     # A second confirm is refused as the status it now carries, not as `stale` again: there
     # is nothing left to record, and the row already says why.
     with pytest.raises(ArchiveRequestError) as excinfo:
-        await confirm(ctx, USER, proposal["proposal_id"])
+        await confirm(ctx, USER, proposal["proposal_id"], note=NOTE)
     assert excinfo.value.code == "not_proposed"
     assert store.enqueued == []
 
@@ -609,11 +699,11 @@ async def test_a_proposal_the_library_outran_is_PRESENTED_stale_without_a_write(
     ctx = _ctx(canonical, store)
     first = await plan(
         ctx, USER, action="archive", documents=["work/aurora.md"], sources=[],
-        note=None, statement_ref=None,
+        note=NOTE, statement_ref=None,
     )
     second = await plan(
         ctx, USER, action="archive", documents=["work/atlas.md"], sources=[],
-        note=None, statement_ref=None,
+        note=NOTE, statement_ref=None,
     )
     # Same HEAD: both are still real previews of the library as it stands.
     assert [row["status"] for row in await list_proposals(ctx, USER)] == [
@@ -624,7 +714,7 @@ async def test_a_proposal_the_library_outran_is_PRESENTED_stale_without_a_write(
     canonical.head = "sha-2"  # a compile landed, and nobody came back to either dialogue
     third = await plan(
         ctx, USER, action="archive", documents=["work/aurora.md"], sources=[],
-        note=None, statement_ref=None,
+        note=NOTE, statement_ref=None,
     )
 
     by_id = {row["proposal_id"]: row["status"] for row in await list_proposals(ctx, USER)}
@@ -648,12 +738,12 @@ async def test_only_an_open_proposal_is_ever_presented_stale():
     ctx = _ctx(canonical, store)
     confirmed = await plan(
         ctx, USER, action="archive", documents=["work/aurora.md"], sources=[],
-        note=None, statement_ref=None,
+        note=NOTE, statement_ref=None,
     )
-    await confirm(ctx, USER, confirmed["proposal_id"])
+    await confirm(ctx, USER, confirmed["proposal_id"], note=NOTE)
     dropped = await plan(
         ctx, USER, action="archive", documents=["work/atlas.md"], sources=[],
-        note=None, statement_ref=None,
+        note=NOTE, statement_ref=None,
     )
     await drop(ctx, USER, dropped["proposal_id"])
 
@@ -670,7 +760,7 @@ async def test_a_proposal_presented_stale_is_still_droppable():
     ctx = _ctx(canonical, store)
     proposal = await plan(
         ctx, USER, action="archive", documents=["work/aurora.md"], sources=[],
-        note=None, statement_ref=None,
+        note=NOTE, statement_ref=None,
     )
     canonical.head = "sha-2"
     assert (await get_proposal(ctx, USER, proposal["proposal_id"]))["status"] == "stale"
@@ -685,7 +775,7 @@ async def test_an_override_may_untick_a_listed_item_but_never_add_one():
     ctx = _ctx(canonical, store)
     proposal = await plan(
         ctx, USER, action="archive", documents=["work/aurora.md"], sources=[],
-        note=None, statement_ref=None,
+        note=NOTE, statement_ref=None,
     )
     pid = proposal["proposal_id"]
 
@@ -697,6 +787,7 @@ async def test_an_override_may_untick_a_listed_item_but_never_add_one():
             items_override=[
                 {"kind": "document", "ref": "work/atlas.md", "selected": True}
             ],
+            note=NOTE,
         )
     assert excinfo.value.code == "unknown_item"
     assert excinfo.value.status_code == 422
@@ -706,6 +797,7 @@ async def test_an_override_may_untick_a_listed_item_but_never_add_one():
         USER,
         pid,
         items_override=[{"kind": "source", "ref": "src-a", "selected": False}],
+        note=NOTE,
     )
     kept = {(i["kind"], i["ref"]): i["selected"] for i in result["proposal"]["items"]}
     assert kept[("source", "src-a")] is False
@@ -717,14 +809,16 @@ async def test_confirm_refuses_a_set_narrowed_to_nothing():
     ctx = _ctx(canonical, store)
     proposal = await plan(
         ctx, USER, action="archive", documents=["work/aurora.md"], sources=[],
-        note=None, statement_ref=None,
+        note=NOTE, statement_ref=None,
     )
     overrides = [
         {"kind": item["kind"], "ref": item["ref"], "selected": False}
         for item in proposal["items"]
     ]
     with pytest.raises(ArchiveRequestError) as excinfo:
-        await confirm(ctx, USER, proposal["proposal_id"], items_override=overrides)
+        await confirm(
+            ctx, USER, proposal["proposal_id"], items_override=overrides, note=NOTE
+        )
     assert excinfo.value.code == "empty"
     assert store.enqueued == []
 
@@ -734,11 +828,11 @@ async def test_confirming_twice_is_refused_rather_than_enqueuing_a_second_job():
     ctx = _ctx(canonical, store)
     proposal = await plan(
         ctx, USER, action="archive", documents=["work/aurora.md"], sources=[],
-        note=None, statement_ref=None,
+        note=NOTE, statement_ref=None,
     )
-    await confirm(ctx, USER, proposal["proposal_id"])
+    await confirm(ctx, USER, proposal["proposal_id"], note=NOTE)
     with pytest.raises(ArchiveRequestError) as excinfo:
-        await confirm(ctx, USER, proposal["proposal_id"])
+        await confirm(ctx, USER, proposal["proposal_id"], note=NOTE)
     assert excinfo.value.code == "not_proposed"
     assert len(store.enqueued) == 1
 
@@ -746,7 +840,7 @@ async def test_confirming_twice_is_refused_rather_than_enqueuing_a_second_job():
 async def test_an_unknown_proposal_is_a_404():
     canonical, store = _library()
     with pytest.raises(ArchiveRequestError) as excinfo:
-        await confirm(_ctx(canonical, store), USER, "nope")
+        await confirm(_ctx(canonical, store), USER, "nope", note=NOTE)
     assert (excinfo.value.status_code, excinfo.value.code) == (404, "not_found")
 
 
@@ -758,7 +852,7 @@ async def test_drop_closes_a_proposal_and_only_an_unconfirmed_one():
     ctx = _ctx(canonical, store)
     proposal = await plan(
         ctx, USER, action="archive", documents=["work/aurora.md"], sources=[],
-        note=None, statement_ref=None,
+        note=NOTE, statement_ref=None,
     )
     dropped = await drop(ctx, USER, proposal["proposal_id"])
     assert dropped["status"] == "dropped"
@@ -768,7 +862,7 @@ async def test_drop_closes_a_proposal_and_only_an_unconfirmed_one():
     assert excinfo.value.code == "not_proposed"
     # A dropped proposal is not confirmable either — the decision was withdrawn.
     with pytest.raises(ArchiveRequestError):
-        await confirm(ctx, USER, proposal["proposal_id"])
+        await confirm(ctx, USER, proposal["proposal_id"], note=NOTE)
 
 
 # ----------------------------------------------------------------------- inventory
@@ -869,9 +963,14 @@ async def test_the_inventory_names_the_record_standing_at_the_live_path():
     }
 
 
-async def test_the_owner_s_reason_lands_at_the_confirm_and_a_silent_confirm_keeps_the_plan_s():
-    """The note is typed while reading the plan, so the confirm carries it; a confirm that
-    says nothing leaves whatever the plan recorded."""
+async def test_the_owner_s_reason_lands_at_the_confirm_and_a_stored_note_is_never_one():
+    """The confirm's own note IS the reason, and a note the plan happens to hold is not.
+
+    The row's note was typed at a moment that decided nothing, possibly against a set the
+    Owner has since narrowed — so promoting it at the confirm would record them as having
+    said something at a time they did not. A confirm that says nothing is therefore refused
+    even over a row that carries a note, and nothing is written.
+    """
     canonical, store = _library()
     ctx = _ctx(canonical, store)
     first = await plan(
@@ -880,25 +979,60 @@ async def test_the_owner_s_reason_lands_at_the_confirm_and_a_silent_confirm_keep
     )
     result = await confirm(ctx, USER, first["proposal_id"], note="  Aurora shipped.  ")
     assert result["proposal"]["note"] == "Aurora shipped."
+    quoted = next(
+        item["record"]
+        for item in result["proposal"]["items"]
+        if item["kind"] == "document"
+    )
+    assert quoted["reason"] == "Aurora shipped."
 
     store.enqueued.clear()
     second = await plan(
         ctx, USER, action="archive", documents=["work/aurora.md"], sources=[],
         note="planned reason", statement_ref=None,
     )
-    result = await confirm(ctx, USER, second["proposal_id"])
-    assert result["proposal"]["note"] == "planned reason"
+    with pytest.raises(ArchiveRequestError) as silent:
+        await confirm(ctx, USER, second["proposal_id"])
+    assert (silent.value.status_code, silent.value.code) == (422, "note_required")
+    row = store.rows[second["proposal_id"]]
+    assert (row["status"], row["note"]) == ("proposed", "planned reason")
+    assert store.enqueued == []
 
 
-async def test_an_emptied_note_clears_the_plan_s_rather_than_falling_back_to_it():
-    """`""` is a decision, and it used to read as silence.
+async def test_a_statement_named_at_the_confirm_is_the_reason_and_is_written_with_it():
+    """The other way to satisfy the confirm: point at speech that already exists.
 
-    The store COALESCE'd the confirm's note over the plan's, so an Owner who deleted what
-    they had typed got a preview computed with no note — the default sentence — and a row
-    still holding the old one. The job then rendered the record from that row: a page
-    quoting a sentence the console had already replaced, under a decision the Owner made
-    with the other one in front of them. Cleared is stored as cleared, and the kept preview
-    and the row say the same thing.
+    A plan that named none is confirmed by naming one here, and the ref is stored in the same
+    transaction as the decision — the job reads it off the row, and a confirmed row without it
+    would mint a SECOND `owner-dialogue/v1` source saying what the one the Owner named says.
+    """
+    canonical, store = _library()
+    ctx = _ctx(canonical, store)
+    proposal = await plan(
+        ctx, USER, action="archive", documents=["work/aurora.md"], sources=[],
+        note=None, statement_ref=None,
+    )
+    result = await confirm(
+        ctx, USER, proposal["proposal_id"], statement_ref="src-statement"
+    )
+    assert result["proposal"]["statement_ref"] == "src-statement"
+    quoted = next(
+        item["record"]
+        for item in result["proposal"]["items"]
+        if item["kind"] == "document"
+    )
+    # The statement's own block 0, label stripped — never the note beside it.
+    assert quoted["reason"] == "Aurora shipped in June."
+
+
+async def test_a_confirm_that_empties_the_note_is_refused_rather_than_defaulted():
+    """Clearing the box is not a way to archive without a reason.
+
+    An emptied note used to fall through to a sentence the framework composed and then
+    ingested as the Owner's own `owner-dialogue/v1` statement — L0 saying they said
+    something they never typed. There is no such sentence any more, so `""` is refused where
+    it is typed and NOTHING is written: the plan's note stands, the row is untouched, and no
+    job is queued.
     """
     canonical, store = _library()
     ctx = _ctx(canonical, store)
@@ -906,19 +1040,71 @@ async def test_an_emptied_note_clears_the_plan_s_rather_than_falling_back_to_it(
         ctx, USER, action="archive", documents=["work/aurora.md"], sources=[],
         note="planned reason", statement_ref=None,
     )
-    result = await confirm(ctx, USER, proposal["proposal_id"], note="")
+    with pytest.raises(ArchiveRequestError) as refused:
+        await confirm(ctx, USER, proposal["proposal_id"], note="")
+    assert (refused.value.status_code, refused.value.code) == (422, "note_required")
+    # Whitespace is not a reason either — the same fold `sanitize_note` applies.
+    with pytest.raises(ArchiveRequestError) as blank:
+        await confirm(ctx, USER, proposal["proposal_id"], note="   \n ")
+    assert blank.value.code == "note_required"
 
-    assert result["proposal"]["note"] is None
-    assert store.rows[proposal["proposal_id"]]["note"] is None
-    record = next(
-        item["record"]
-        for item in result["proposal"]["items"]
-        if item["kind"] == "document"
+    row = store.rows[proposal["proposal_id"]]
+    assert row["note"] == "planned reason"
+    assert row["status"] == "proposed"
+    assert store.enqueued == []
+
+
+async def test_a_plan_needs_no_reason_and_the_CONFIRM_is_where_one_is_required():
+    """Where the requirement lives, and why it is not one step earlier.
+
+    A plan is a computation: it moves nothing, decides nothing, and the reason it would keep
+    is a sentence typed against a set the Owner may still narrow. So a noteless plan is
+    computed and kept with `note: null` and a null preview reason — and the refusal belongs
+    to the CONFIRM, which is the decision the record states. Composing a sentence at either
+    face would put the framework's prose into L0 under the Owner's name; keeping one at the
+    plan and quoting it at execution would do the same thing one step removed.
+    """
+    canonical, store = _library()
+    ctx = _ctx(canonical, store)
+    for note in (None, "", "   \n\t "):
+        computed = await plan(
+            ctx,
+            USER,
+            action="archive",
+            documents=["work/aurora.md"],
+            sources=[],
+            note=note,
+            statement_ref=None,
+        )
+        assert computed["status"] == "proposed"
+        assert computed["note"] is None
+        assert all(
+            item["record"]["reason"] is None
+            for item in computed["items"]
+            if item["record"]
+        )
+        # …and the decision over it is refused, in the owner's absence of words.
+        with pytest.raises(ArchiveRequestError) as refused:
+            await confirm(ctx, USER, computed["proposal_id"], note=note)
+        assert (refused.value.status_code, refused.value.code) == (422, "note_required")
+        assert store.rows[computed["proposal_id"]]["status"] == "proposed"
+    assert store.enqueued == []
+
+    # A `statement_ref` satisfies it without a note — the Owner already spoke, and the
+    # record cites THAT.
+    spoken = await plan(
+        ctx,
+        USER,
+        action="archive",
+        documents=["work/aurora.md"],
+        sources=[],
+        note=None,
+        statement_ref="src-statement",
     )
-    # The preview the Owner confirmed IS the default sentence — and the row now says the
-    # same, so nothing downstream can re-derive the old note.
-    assert record["reason"] == prompt("archive.statement.default", titles="Aurora")
-    assert "planned reason" not in str(result["proposal"]["items"])
+    assert spoken["status"] == "proposed"
+    # …and a confirm over it needs no note at all: the words are the statement's.
+    confirmed = await confirm(ctx, USER, spoken["proposal_id"])
+    assert confirmed["job_id"]
 
 
 # ------------------------------------------------- the ref names the tree that was read
@@ -967,7 +1153,7 @@ async def test_plan_binds_exact_tree_ref_when_head_changes_during_list():
 
     result = await plan(
         ctx, USER, action="archive", documents=["work/aurora.md"], sources=[],
-        note=None, statement_ref=None,
+        note=NOTE, statement_ref=None,
     )
 
     # The listing was PINNED, and to the ref the proposal now carries.
@@ -982,7 +1168,7 @@ async def test_plan_binds_exact_tree_ref_when_head_changes_during_list():
     # And because the ref is the tree's own, the compile that landed is now visible as
     # staleness rather than being silently absorbed.
     with pytest.raises(ArchiveRequestError) as excinfo:
-        await confirm(ctx, USER, result["proposal_id"])
+        await confirm(ctx, USER, result["proposal_id"], note=NOTE)
     assert excinfo.value.code == "stale"
 
 
@@ -1001,11 +1187,11 @@ async def test_the_decision_and_the_job_it_queues_are_written_together():
     ctx = _ctx(canonical, store)
     proposal = await plan(
         ctx, USER, action="archive", documents=["work/aurora.md"], sources=[],
-        note=None, statement_ref=None,
+        note=NOTE, statement_ref=None,
     )
     pid = proposal["proposal_id"]
 
-    result = await confirm(ctx, USER, pid)
+    result = await confirm(ctx, USER, pid, note=NOTE)
 
     assert store.rows[pid]["status"] == "confirmed"
     # The id the job carries IS the id the row records — one value, minted once.
@@ -1023,7 +1209,7 @@ async def test_a_fast_worker_that_finishes_first_is_never_walked_back():
     ctx = _ctx(canonical, store)
     proposal = await plan(
         ctx, USER, action="archive", documents=["work/aurora.md"], sources=[],
-        note=None, statement_ref=None,
+        note=NOTE, statement_ref=None,
     )
     pid = proposal["proposal_id"]
 
@@ -1034,7 +1220,7 @@ async def test_a_fast_worker_that_finishes_first_is_never_walked_back():
 
     store.on_confirm = the_worker_finishes_first
 
-    result = await confirm(ctx, USER, pid)
+    result = await confirm(ctx, USER, pid, note=NOTE)
 
     assert store.rows[pid]["status"] == "executed"  # not walked back to `confirmed`
     assert store.rows[pid]["job_id"] == result["job_id"]  # and the id landed in the flip
@@ -1049,16 +1235,16 @@ async def test_concurrent_confirms_enqueue_exactly_one_job():
     ctx = _ctx(canonical, store)
     proposal = await plan(
         ctx, USER, action="archive", documents=["work/aurora.md"], sources=[],
-        note=None, statement_ref=None,
+        note=NOTE, statement_ref=None,
     )
     pid = proposal["proposal_id"]
 
     # Both confirms read `proposed` — that IS the race — so the read-side check clears
     # both and only the write can decide.
     store.reads_as = "proposed"
-    first = await confirm(ctx, USER, pid)
+    first = await confirm(ctx, USER, pid, note=NOTE)
     with pytest.raises(ArchiveRequestError) as excinfo:
-        await confirm(ctx, USER, pid)
+        await confirm(ctx, USER, pid, note=NOTE)
 
     assert first["job_id"] == "job-1"
     assert excinfo.value.code == "not_proposed"
@@ -1073,10 +1259,10 @@ async def test_confirm_and_drop_have_one_atomic_winner():
 
     first = await plan(
         ctx, USER, action="archive", documents=["work/aurora.md"], sources=[],
-        note=None, statement_ref=None,
+        note=NOTE, statement_ref=None,
     )
     store.reads_as = "proposed"  # both callers read the row before either wrote
-    await confirm(ctx, USER, first["proposal_id"])
+    await confirm(ctx, USER, first["proposal_id"], note=NOTE)
     with pytest.raises(ArchiveRequestError) as excinfo:
         await drop(ctx, USER, first["proposal_id"])
     assert excinfo.value.code == "not_proposed"
@@ -1084,10 +1270,10 @@ async def test_confirm_and_drop_have_one_atomic_winner():
 
     second = await plan(
         ctx, USER, action="archive", documents=["work/aurora.md"], sources=[],
-        note=None, statement_ref=None,
+        note=NOTE, statement_ref=None,
     )
     await drop(ctx, USER, second["proposal_id"])
     with pytest.raises(ArchiveRequestError) as excinfo:
-        await confirm(ctx, USER, second["proposal_id"])
+        await confirm(ctx, USER, second["proposal_id"], note=NOTE)
     assert excinfo.value.code == "not_proposed"
     assert len(store.enqueued) == 1  # the dropped one never reached the queue

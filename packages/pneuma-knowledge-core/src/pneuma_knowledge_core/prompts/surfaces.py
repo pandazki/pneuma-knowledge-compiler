@@ -3752,13 +3752,6 @@ SURFACES: tuple[Surface, ...] = (
                 "不在这个 key 里。",
             ),
             f(
-                "archive.statement.default",
-                "What the owner's `owner-dialogue/v1` statement says when they archived "
-                "without writing a reason — and therefore what the record then quotes.",
-                "当拥有者归档时没有写理由，那份 `owner-dialogue/v1` 陈述说的话——也就是留痕"
-                "接着引用的那句。",
-            ),
-            f(
                 "gate.archive_record.anchors",
                 "The record's three anchors are not the system-assigned ones for this "
                 "path, in slot order.",

@@ -26,6 +26,7 @@ from pneuma_knowledge_core.domain.source import NormalizedSource
 from pneuma_knowledge_core.components import notify_source_indexed
 from pneuma_knowledge_core.domain.time_context import time_context_for
 from pneuma_knowledge_core.ingest.source_types import describe_source, first_party_type
+from pneuma_knowledge_core.ports.canonical_store import CanonicalDirtyError
 from pneuma_knowledge_core.prompts import prompt
 from pneuma_knowledge_core.skill.version import SkillVersion
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -610,6 +611,16 @@ async def drain_user(
                 if resolved is None:
                     resolved = await _resolve_user_skill(ctx, user_id, skill_cache)
                 await process_job(ctx, chat_model, resolved, user_id, job)
+        except CanonicalDirtyError as exc:
+            # STATED, not swallowed into "worker error: …". The canonical repository holds
+            # somebody else's uncommitted changes, the adapter refused rather than discarding
+            # them, and nothing was written — a fault an operator fixes in one command once
+            # they can see it named. Every job kind that commits arrives here (compile,
+            # groom, evolve adopt); the archive job states the same code in its own detail,
+            # because it also has a proposal row to fail.
+            await ctx.store.complete(
+                user_id, job.job_id, ok=False, detail=exc.detail
+            )
         except Exception as exc:  # noqa: BLE001 — never leave a job stuck 'claimed'
             await ctx.store.complete(
                 user_id, job.job_id, ok=False, detail=f"worker error: {exc}"

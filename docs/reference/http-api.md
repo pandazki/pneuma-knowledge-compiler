@@ -54,10 +54,10 @@ unconditional.
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/…/archive/proposals` | compute one proposal — `{action: "archive"\|"unarchive", documents[], sources[], note?, statement_ref?}` → the whole computed set; nothing moves |
+| POST | `/…/archive/proposals` | compute one proposal — `{action: "archive"\|"unarchive", documents[], sources[], note?, statement_ref?}` (`note` optional and informational) → the whole computed set; nothing moves |
 | GET | `/…/archive/proposals` | this Owner's proposals, newest first (`limit` 1–200) |
 | GET | `/…/archive/proposals/{proposal_id}` | read one back with its current status |
-| POST | `/…/archive/proposals/{proposal_id}/confirm` | accept it, optionally narrowed, with the Owner's reason — `{items?: [{kind, ref, selected}], note?}` → **202** `{proposal, job_id}` |
+| POST | `/…/archive/proposals/{proposal_id}/confirm` | accept it, optionally narrowed, with the Owner's reason (required here) — `{items?: [{kind, ref, selected}], note?, statement_ref?}` → **202** `{proposal, job_id}` |
 | POST | `/…/archive/proposals/{proposal_id}/drop` | close one unexecuted proposal |
 | GET | `/…/archive` | what is in the archive now: `{documents: [{path, live_path, title, archived_on, volumes, record_path, record}], sources: [{source_id, title, kind, archived_at}]}` |
 
@@ -95,21 +95,39 @@ most useful line is often the thing that stays.
 
 A DOCUMENT item of an `archive` proposal also carries `record`
 (`{title, definition, span: [from, to] | null, claims, sources, volumes, inbound, reason,
-reason_default}`) —
+reason_source}`) —
 what the archive record for that page will say, computed at plan time so the console can
 preview the page each checkbox creates. `span` is null when no source the page cites states a
 day (the record omits the clause rather than guessing one), `inbound` counts the live pages
 linking to it that are not themselves leaving, and `reason` is the exact line the record's
-third block will quote: the note, the block 0 of a supplied `statement_ref`, or the default
-sentence. A note typed at the confirm moves `reason` with it, and `reason_default` is the line
-an EMPTY note would quote instead — what a console previews the moment the Owner clears a note
-the plan carried, since a confirm sending `note: ""` replaces that note with nothing. The numbers are a PREVIEW: the
+third block will quote — always the Owner's own words, never a sentence this service composed.
+On a PLAN it is the block 0 of a supplied `statement_ref` and **null** when none was supplied:
+a plan decides nothing, so it keeps no sentence to quote back, and the console previews the
+live content of its own note box. The confirm writes the line it decided onto every item, and
+the job quotes exactly that. `reason_source` (`"note"` | `"statement"`, null exactly when
+`reason` is) states WHERE that line came from — the words sent with the confirm, or block 0 of
+a `statement_ref` the Owner named. It is stamped rather than inferred: the job mints the
+`owner-dialogue/v1` source out of `reason`, so it refuses one whose provenance the row does not
+state rather than trusting that whatever wrote the row followed the rule. The numbers are a
+PREVIEW: the
 job recomputes them at execution over the set that was finally confirmed, because unticking a
 page that another selected page links to changes that page's `inbound`. `record` is null on a
 source item and on every item of an `unarchive` proposal, which replaces the record with the
 page.
 
-A note and a `statement_ref` are checked where they are typed, at `plan` and again at
+**A reason is required at the CONFIRM, and it is always the Owner's own words — the ones that
+request carried.** The archive records it as an `owner-dialogue/v1` source, L0 labelled as the
+Owner SPEAKING, and the confirm is the decision that source states. So a confirm carrying
+neither a non-blank `note` nor a `statement_ref` (named there or already on the proposal) is
+refused **422 `note_required`**; whitespace is not a note, and a note left on the proposal is
+NOT a fallback — it was typed against a set that may since have been narrowed, at a moment that
+decided nothing. `plan`'s own `note` is therefore optional and informational: a line kept on
+the row for a listing to show, never a statement. The job refuses defensively
+(`statement_missing`) for a confirmed row that reaches it with neither. The console answers the
+friction by PREFILLING ITS OWN note box with a suggested sentence built from the selected
+titles, which the Owner edits and sends with the confirm; the plan request carries no note.
+
+A note and a `statement_ref` are otherwise checked where they are typed, at `plan` and again at
 `confirm`: **422 `note_machinery`** for a note carrying the system's own machinery (an HTML
 comment, an `__AUTO__` — the note is quoted into a claim, so its text is words), **422
 `statement_unknown`** / **422 `statement_not_owner`** for a `statement_ref` this library does
@@ -131,7 +149,8 @@ only tick and untick what was listed (a ref the plan did not compute is **422 `u
 a set narrowed to nothing is **422 `empty`**); the way to ADD to a cascade is to re-plan with
 more seeds, because every item in a proposal has to be a computation the reason field can
 explain. Every refusal answers `{"detail": "…", "code": "…"}`, the codes being `stale`,
-`not_proposed`, `not_found`, `unknown_item` and `empty`.
+`not_proposed`, `not_found`, `unknown_item`, `empty`, `note_required`, `note_machinery`,
+`statement_unknown`, `statement_not_owner` and `statement_mismatch`.
 
 The confirm writes the decision and the job that executes it in ONE TRANSACTION, under the
 condition that the proposal is still `proposed`. Two confirms in flight — or a confirm racing a

@@ -920,7 +920,6 @@
             "archive.record.facts",
             "archive.record.facts_span",
             "archive.record.reason",
-            "archive.statement.default",
             "compile.anchor.append_anchor_present",
             "compile.anchor.append_empty_heading",
             "compile.anchor.edit_duplicate_anchor",

@@ -208,27 +208,32 @@ def sanitize_note(note: str) -> str:
     return " ".join(text.split())
 
 
-def record_reason(note: str = "", titles: Sequence[str] = ()) -> str:
-    """The Owner's words: their note, or the default sentence naming what they archived.
+def record_reason(note: str = "") -> str:
+    """The Owner's OWN words, sanitized — the whole of what a record may quote.
 
     ONE string with two jobs — it is the TEXT of the `owner-dialogue/v1` statement the job
     ingests AND the sentence the record's third block quotes — because those two must be the
     same words. A record quoting something its cited source does not say would be the one
     fabrication this framework makes impossible everywhere else.
 
-    Here in core, and not in the job that calls it, because the request faces need it too:
-    the plan-time preview shows the Owner the exact line that will be quoted, and a preview
-    computed by a second implementation of "what will be quoted" is a preview of something
-    else. The note is sanitized on the way through, so the preview, the statement and the
-    record are three appearances of one string.
+    There is NO framework-composed fallback here, and its absence is the mechanism. This
+    channel writes an `owner-dialogue/v1` source: an L0 source labelled as the Owner
+    SPEAKING (docs/design/steward-owner-visitor.md §1). A sentence composed here when the
+    Owner typed nothing would stand in L0, indistinguishable to every later reader from a
+    sentence they actually said — the citation would resolve, and what it resolved to would
+    be the framework's own prose in the Owner's mouth. So the CONFIRM refuses a reasonless
+    archive (`422 note_required`) and the job refuses it defensively (`statement_missing`);
+    the console solves the friction by PREFILLING its own box with a suggested sentence the
+    Owner reads, edits and sends WITH the confirm, which makes it theirs.
+
+    Here in core, and not in the job that calls it, because the confirm face needs it too:
+    the line it computes is kept on every item and quoted by the job, and a page computed by
+    a second implementation of "what will be quoted" is a page saying something else. The
+    note is sanitized on the way through, so the preview, the statement and the record are
+    three appearances of one string. An empty answer means "the Owner said nothing", and
+    every caller is required to treat it as a refusal rather than a default.
     """
-    cleaned = sanitize_note(note)
-    if cleaned:
-        return cleaned
-    return prompt(
-        "archive.statement.default",
-        titles=", ".join(str(title) for title in titles if str(title or "").strip()),
-    )
+    return sanitize_note(note)
 
 
 def owner_turn_prefix() -> str:

@@ -2011,20 +2011,24 @@ export interface ArchiveRecordPreview extends ArchiveRecordFacts {
   /** The one sentence the record opens with — what this subject was. */
   definition: string;
   /**
-   * The reason the record will quote, exactly as it will stand there: the owner's note when
-   * they typed one, else the statement they archived from, else the sentence the job writes
-   * when neither exists. The execution always writes SOMETHING, so previewing only a typed
-   * note would show the owner a blank where the record will carry a line they never read.
-   * Absent from a service that predates the field — then the preview has only the note.
+   * The reason the record will quote, exactly as it will stand there — always the OWNER'S
+   * OWN WORDS. On a plan it is the block 0 of a `statement_ref` they named, and NULL when
+   * they named none: a plan decides nothing, and the reason is the note sent with the
+   * confirm, so the service keeps no sentence here to quote back. The console previews the
+   * live content of its own note box instead.
    */
-  reason?: string;
+  reason?: string | null;
   /**
-   * The line an EMPTY note would quote instead: the sentence the job writes when nothing is
-   * typed. It is what the owner is looking at the moment they CLEAR a note the plan carried
-   * — the confirm stores that clearing, so `reason` (computed with the old note) is no longer
-   * the future of this record. Absent from a service that predates the field.
+   * Where that sentence came from: `statement` (block 0 of a `statement_ref` the owner
+   * named) or `note` (the words sent with the confirm). Null exactly when `reason` is.
+   *
+   * The service STAMPS it rather than inferring it, and the worker refuses a reason that
+   * arrives without it — the record's reason becomes an `owner-dialogue/v1` source, L0
+   * labelled as the owner speaking, so its provenance has to be visible in the row rather
+   * than assumed from whichever code wrote it. Optional here so a service that predates the
+   * stamp renders as it did before.
    */
-  reason_default?: string;
+  reason_source?: "note" | "statement" | null;
 }
 
 export interface ArchiveProposalItem {
@@ -2123,6 +2127,11 @@ export function planArchive(
     action: ArchiveAction;
     documents?: string[];
     sources?: string[];
+    /**
+     * An informational line kept on the proposal for a listing to show. NOT the reason —
+     * that is the note sent with the confirm, because the confirm is the decision the
+     * record says the owner made. The dialog sends none.
+     */
     note?: string | null;
     /** The `owner-dialogue/v1` source in which the owner asked for this, when there is one. */
     statement_ref?: string | null;
@@ -2163,12 +2172,13 @@ export function getArchiveProposal(
  * Answers 202 with the job it enqueued. A HEAD that moved since the plan is refused with
  * `ApiError.code === "stale"`.
  *
- * `note` is three-valued on purpose, because the service reads it that way: `null` /
- * `undefined` OMITS the field and the plan's note stands, while any string REPLACES it —
- * `""` included, which clears it. So an owner who empties the textarea sends `""` and the
- * record quotes the default sentence; sending nothing there would silently keep the note
- * they just deleted. Caller decides which of the two it means by passing `null` for
- * "untouched" and the string for "this is the note now".
+ * `note` IS THE REASON, and this request is the only place it may come from: the service has
+ * no plan-time note to fall back on, so a confirm carrying neither a non-blank note nor a
+ * `statement_ref` (here or on the proposal) is refused `note_required`. It is still
+ * three-valued in what it does to the informational line the row keeps — `null` /
+ * `undefined` OMITS the field, any string REPLACES it — but only a non-blank string can
+ * supply the reason. So the console sends the words in the box, which are the words the
+ * owner read before confirming.
  */
 export function confirmArchiveProposal(
   userId: string,
