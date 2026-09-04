@@ -1988,11 +1988,13 @@ SURFACES: tuple[Surface, ...] = (
         title_en="Fast recall contract",
         title_zh="快速召回契约",
         summary_en=(
-            "The everyday answering lane's System contract: head + the shared spine (with "
-            "source-level citation and the honest close) + the deployment's answer style."
+            "The everyday answering lane's System contract: head + the shared spine (every "
+            "stated conclusion cited, to the source, and the honest close) + the "
+            "deployment's answer style."
         ),
         summary_zh=(
-            "日常回答车道的系统契约：开头 + 共享脊柱（源级引用 + 诚实收尾）+ 部署选定的回答风格。"
+            "日常回答车道的系统契约：开头 + 共享脊柱（每个结论都带引用，引到源级 + 诚实收尾）"
+            "+ 部署选定的回答风格。"
         ),
         segments=(
             b("recall.fast.contract_head"),

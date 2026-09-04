@@ -121,6 +121,20 @@ def test_the_concise_preset_commits_in_both_languages():
     assert "同一个回答里绝不两样都占" not in chinese_overlay()["recall.close.answer_honestly"]
 
 
+def test_the_source_level_clause_loosens_granularity_only_in_both_languages():
+    """Cite or abstain is the framework's identity, so a Chinese deployment cannot inherit a
+    fast lane that treats a citation as optional. Both packs loosen the ¶ interval and both
+    require the marker; neither carries the old "when you reliably have one"."""
+    en = default_catalog()["recall.cite.source_level"]
+    zh = chinese_overlay()["recall.cite.source_level"]
+    assert "the ¶ paragraph may be omitted" in en
+    assert "one you cannot mark that way is one you do not state" in en
+    assert "reliably have one" not in en and "not a hard target" not in en
+    assert "¶ 段号可以省" in zh
+    assert "标不出来的结论，就不要写" in zh
+    assert "没有不要硬凑" not in zh and "硬指标" not in zh
+
+
 def test_the_briefing_head_no_longer_calls_an_in_range_search_a_route_outside_the_pack():
     """VERIFY #10: it announced two routes "for what lies outside" the pack and then defined
     the first as searching within the pack's own range."""

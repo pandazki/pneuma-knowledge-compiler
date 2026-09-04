@@ -1689,10 +1689,18 @@ DEFAULTS: dict[str, str] = {
     ),
     # ─────────────────────────────────────────────── recall: the shared spine
     "recall.spine": _SPINE,
+    # Granularity is the only thing loosened here: the ¶ interval may be dropped. WHETHER a
+    # conclusion cites is not a granularity question — every evidence face this scenario
+    # renders arrives carrying its own marker, so a conclusion with no marker to copy is a
+    # conclusion with no evidence behind it. The library's layout (the glance) is the one
+    # surface with no marker, and it is not evidence: it states what exists, not what is so.
     "recall.cite.source_level": (
-        "source level is enough in this scenario (`[cite: <source_id>]`, the ¶ paragraph may be "
-        "omitted; include a source when you reliably have one, do not force one when you do "
-        "not) — it is a thread left for later tracing, not a hard target of this scenario."
+        "source level is enough in this scenario (`[cite: <source_id>]`, the ¶ paragraph may "
+        "be omitted). Every piece of evidence in front of you carries a marker of its own, so "
+        "each factual conclusion the answer states carries the marker of the evidence it rests "
+        "on, and one you cannot mark that way is one you do not state. The knowledge base's "
+        "layout is the exception because it is not evidence: it says which documents exist, "
+        "never what is true, so nothing is cited to it."
     ),
     "recall.cite.precise": "cite down to the paragraph (`[cite: <source_id> ¶a-b]`).",
     "recall.cite.structured": (
