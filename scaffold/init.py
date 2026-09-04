@@ -206,7 +206,7 @@ mode = "auto"              # auto = follow the data (example data → demo contr
 reference = ""             # e.g. "personal-knowledge@v2" (list with ./init.py --list-references)
 
 [models]
-compile = "openrouter:openai/gpt-5.6-luna"        # compile model (must support tool calling; the quality lever)
+compile = "openrouter:openai/gpt-5.6-luna"        # compile model (must support tool calling)
 recall = "openrouter:openai/gpt-5.6-luna"         # retrieval planning/glance model
 answer = ""                                       # empty = final answer borrows recall
 answer_reasoning_effort = ""                      # empty = preserve provider default
@@ -646,9 +646,10 @@ def engine_files(config: dict, contract: str, profile: str) -> dict[str, str]:
     return {
         "README.md": render(readme, {"PROJECT_NAME": config["project_name"]}),
         "engine.yaml": f"""\
-# Model roles for this engine. The compile model is the one real quality lever — a stronger
-# model directly produces a better library — and it must support tool calling, because the
-# compile agent writes through tools.
+# Model roles for this engine. The compile model must support tool calling: the compile agent
+# writes through tools, so a model without them cannot write at all. That is the requirement.
+# What a particular model is worth beyond it — the library it produces, its latency, its cost
+# — is compared on this project's own material, one role at a time on the same harness.
 #
 # Precedence for every key in this directory: process environment > this file > framework
 # default. The matching variables here are PNEUMA_KNOWLEDGE_LLM_MODEL_COMPILE / _RECALL /
@@ -715,9 +716,13 @@ pricing: ""
 
 # Index components: business-specific structure over canonical, enabled by name (comma
 # separated; empty = none). Shipped:
-#   people — `identities` / `aliases` on person pages, unique across the library and only
-#            ever growing, checked at the gate and shown in the compile outline, plus
-#            find_person (compile) and enumerate_identities (deep recall).
+#   people — `identities` / `aliases` on person pages. They belong to the overview, so a
+#            rewrite replaces them whole and a wrong binding is repaired by the next round
+#            that touches the page. Three things about them are mechanical, checked at the
+#            write face and again at the gate: an identity is `scheme:value` and belongs to
+#            one page; two person ids that both SPEAK in one source are two people and may
+#            not share a page; an alias is not somebody else's name. Shown in the compile
+#            outline, plus find_person (compile) and enumerate_identities (deep recall).
 #   time   — the owner's calendar: one derived row per source block keyed by the day it
 #            falls on in the owner's timezone, a timespan(since, until) lookup for fast
 #            recall, timeline / as_of for deep recall, and each source's span stated in
@@ -826,7 +831,9 @@ window_candidate_cap: 60
 episode_summary_cap: 16
 window_cap: 6
 # 0 = one query per question. N > 0 spends one small model call to derive up to N extra
-# retrieval queries, pooled into one ranking — worth it for multi-part questions.
+# retrieval queries, pooled into one ranking: more of the index reached per question, against
+# one more call and its latency on every question. Which way that trade falls is measured on
+# this project's own questions.
 plan_queries: 0
 # Empty = no reranking. Configure it only when validation on your own domain shows that
 # relevance order needs a second-stage scorer. "llm" uses the recall model; a bare model
@@ -1249,9 +1256,10 @@ def interactive(preset_lang: str | None) -> dict:
     echo_choice("answer style", answer_style)
 
     header(6, total, "Models & key")
-    say(dim("  Everything runs through OpenRouter with one key. The compile model is the only"))
-    say(dim("  quality lever — defaults are sensible, and engine/engine.yaml is where you change"))
-    say(dim("  the model roles later (the Engine Console edits the same file)."))
+    say(dim("  Everything runs through OpenRouter with one key. The compile model must support"))
+    say(dim("  tool calling; these defaults do. engine/engine.yaml is where you change the model"))
+    say(dim("  roles later, and compare them on your own material (the Engine Console edits the"))
+    say(dim("  same file)."))
     echo_choice("models", f"compile/recall {DEFAULT_MODELS['compile'].split(':', 1)[1]}, embeddings {DEFAULT_MODELS['embedding'].split(':', 1)[1]}")
     try:
         api_key = getpass.getpass("  OpenRouter API key (hidden; Enter to skip — .env holds the key) > ").strip()

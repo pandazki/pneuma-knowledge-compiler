@@ -45,7 +45,8 @@ window_candidate_cap: 60
 episode_summary_cap: 16
 window_cap: 6
 # 0 = one query per question. N > 0 spends one small model call to derive up to N extra
-# retrieval queries, pooled into one ranking — worth it for multi-part questions. Left at 0:
+# retrieval queries, pooled into one ranking: more of the index reached per question, against
+# one more call and its latency on every question. Left at 0:
 # what the framework measured is `select + structured`, and neither guide claims query planning
 # is part of that default, so turning it on here would be an unmeasured change riding along.
 plan_queries: 0

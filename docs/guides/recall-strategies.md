@@ -10,7 +10,8 @@ they trade latency, input cost and precision against each other, and which trade
 depends on what your users are waiting for.
 
 This guide is for the person making that call for a business. It states what each strategy
-does, where the trade-off actually falls, and ends in a decision table. All three are choices
+does, where the trade-off actually falls, and ends in a summary of what you are choosing
+between — the choosing itself is yours, on your own material. All three are choices
 inside the *fast* lane; the deep lane sits beside them and has its own section below. The
 per-setting reference is [reference/configuration.md](../reference/configuration.md);
 when an answer is already wrong and you are hunting for the layer that lost the fact, read
@@ -148,15 +149,20 @@ and holds none as doctrine. What these two are is the baseline your own arrangem
 against, and the cost line every answer returns is what makes that measurement yours rather than
 borrowed from someone else's corpus.
 
-## Decision table
+## What you are choosing between
 
-| If the library serves… | Set | Because |
-|---|---|---|
-| an interactive assistant, where the wait *is* the product | `evidence_strategy: all` | no serial selection call, so the wait is one answer call — paid for in input tokens |
-| audit, compliance, or any reading where a narrow, deliberately chosen evidence set matters more than breadth | `evidence_strategy: select` | the selection call is a second pass over the evidence before the answer sees it, and it fails soft to `ranked` |
-| the cheapest question at the highest volume | `evidence_strategy: ranked` | one call, the smallest prompt, no widened pool — the baseline everything else is measured against |
-| a reviewer who must see *why* evidence was accepted or ignored | `all` + `answer_format: structured` | that pair turns on `deliberation`, a field in front of the answer in the same call |
-| downstream automation that needs a clean answer string and a separately validated citation ledger | `answer_format: structured` | independent of the strategy; consume `answer_text`, render `answer` |
+The three strategies and the two settings that ride beside them, as mechanism, cost, reach
+and what each one lets you see afterwards. No row says which workload it belongs to: that
+depends on your library, your provider and what your readers are waiting for, and it is
+settled by measuring these against each other on your own questions.
+
+| | mechanism | cost | reach | what it makes observable |
+|---|---|---|---|---|
+| `ranked` | the ranked head of each face, nothing judging the cut but the retrieval score | one model call, the smallest prompt of the three | what the final caps hold | the candidate counts beside the final ones — evidence retrieved below the cut is evidence the answer never saw |
+| `select` | one structured call returns coordinates; the framework validates them, unions a ranked safety head, enforces the final caps and follows chosen claims back to source | two model calls, serial — the selection latency adds rather than overlaps; on timeout it falls back to the exact `ranked` context and marks the answer degraded | the broad pools, narrowed deliberately | how many items the model itself chose before the safety anchors: near zero against a large final ledger says the serial call is not doing the work |
+| `all` | no selection at all — the pool `select` would have judged goes to the answer whole, trimmed only by `all_context_chars` | one model call, a much longer prompt, paid in input tokens and in the answer model's attention | the broad pools entire, `claim_candidate_cap` and every retrieved window | what the ceiling dropped, stated in the answer's telemetry |
+| `answer_format: structured` | answer text, answer kind and citations travel as separate schema fields, and the cited spans are validated | no extra call | independent of the strategy | a citation ledger that can be checked apart from the prose; `answer_text` for automation, `answer` for a reader |
+| `all` + `answer_format: structured` | the pair turns on `deliberation` by itself | a bounded field written before the answer, in the same call | — | which handed-over items bore on the question and which were dismissed, in the model's own words |
 
 And for the caps, one rule: **raise a candidate cap when the fact is missing from the pool,
 raise a final cap when the pool has it and the context drops it.** Under `all`, the number
