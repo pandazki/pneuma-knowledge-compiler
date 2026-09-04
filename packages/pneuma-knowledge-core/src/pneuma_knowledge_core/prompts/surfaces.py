@@ -1686,11 +1686,16 @@ SURFACES: tuple[Surface, ...] = (
         title_en="Phase 2 — whole-library reorganization",
         title_zh="第二阶段 — 全库重组",
         summary_en=(
-            "The adopted draft executed claim by claim: claims move verbatim with their "
-            "anchors, and the evolve gate refuses anything else."
+            "The adopted draft executed claim by claim. A move is verbatim because the tool "
+            "lifts the block and re-inserts it — the model names an anchor and a "
+            "destination, never text — and the evolve gate then checks what a move cannot "
+            "guarantee: citations that still resolve against the store, and paths the new "
+            "skill owns."
         ),
         summary_zh=(
-            "被采纳的草案被逐条断言执行：断言带着锚点原样搬迁，其余一切由演进闸门拒绝。"
+            "被采纳的草案被逐条断言执行。搬迁之所以是原样的，是因为工具整块取出、整块插入"
+            "——模型给的是一个锚点和一个去处，从来不是正文；演进闸门再去校验搬迁本身保证不了"
+            "的那些：引用仍然能在存储里解析，路径落在新契约的归属模板里。"
         ),
         segments=(b("evolve.phase2_contract"),),
         kind=ASSEMBLED,
