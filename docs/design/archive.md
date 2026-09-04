@@ -209,12 +209,32 @@ against the full copy's own anchors included.
    text, not a word deleted), so a row written before that refusal cannot put a second
    citation into the one block that carries one.
 
-**The statement.** The Owner acts on the library only by speaking
-([Owner/Steward/Visitor §1](steward-owner-visitor.md#1-the-frame)), so the reason needs a
-source to cite. At execution the job ingests ONE `owner-dialogue/v1` source per proposal —
-one owner turn carrying the confirm-time note, or a default sentence naming the archived
-titles when the Owner wrote none — through the ordinary `ingest_source_contract` path, with
-one override: `canonical_treatment: none`, `semantic_indexing: full`. The record IS that
+**The statement, and why the framework never writes it.** The Owner acts on the library only
+by speaking ([Owner/Steward/Visitor §1](steward-owner-visitor.md#1-the-frame)), so the reason
+needs a source to cite. At execution the job ingests ONE `owner-dialogue/v1` source per
+proposal — one owner turn carrying the confirm-time note — through the ordinary
+`ingest_source_contract` path, with one override: `canonical_treatment: none`,
+`semantic_indexing: full`.
+
+**The words in it are always the Owner's own.** There is no framework-composed default, and
+its absence is a mechanism rather than a policy: what this step writes is an L0 source
+LABELLED AS THE OWNER SPEAKING, and a sentence composed here when they typed none would
+stand there indistinguishable to every later reader — and to every lane that retrieves it —
+from a sentence they actually said. The citation would resolve; what it resolved to would be
+the framework's prose in the Owner's mouth. I4's promise would be kept and its meaning lost.
+So `confirm` REFUSES a request carrying neither a non-blank `note` nor a `statement_ref`
+(**422 `note_required`**; whitespace is not a note), and the job refuses defensively
+(`statement_missing`) if a confirmed row somehow reaches it with neither — the request and the
+execution are separated by a queue. **The words are the ones sent with the CONFIRM and no
+others.** A note kept on the proposal is not a fallback: the confirm is the decision this
+source records, and a sentence typed at the plan — against a set the Owner may since have
+narrowed, at a moment that decided nothing — would be L0 saying they said it then. That is
+the framework-composed default again, one step removed, so the plan requires no reason at all
+and quotes none. The friction that removes is paid by the CONSOLE, which prefills its own note
+box with a suggested sentence built client-side from the selected titles: the Owner reads it,
+edits it or replaces it, and SENDS it with the confirm, which is what makes it theirs. That
+suggestion never travels with the plan. A suggestion is not a default — one is a sentence the
+Owner passed through, the other is a sentence written on their behalf. The record IS that
 statement's canonical expression, written mechanically in the same commit as the move; a
 compile of the same text would paraphrase the decision onto whatever pages the model
 believed it touched. Every field of that contract is derived from the PROPOSAL — the
@@ -225,9 +245,10 @@ answers with one source id, and a worker killed between the ingest and the write
 The id is stored on the proposal row immediately after the ingest and before the commit, so
 the resumed run cites it rather than re-deriving it.
 
-An Owner who supplied a `statement_ref` at plan time already spoke: the record cites THAT
-source and nothing is ingested. Either way the ref is CHECKED — at `plan`, and again at
-execution — to be this user's, to be an `owner_dialogue` source, and to have a block 0
+An Owner who named a `statement_ref` — at the plan or at the confirm — already spoke: the
+record cites THAT source and nothing is ingested. Either way the ref is CHECKED — where it is
+named, and again at execution — to be this user's, to be an `owner_dialogue` source, and to
+have a block 0
 (`422`/`statement_unknown`, `statement_not_owner`); a note given beside a statement that says
 something else is refused rather than silently resolved (`statement_mismatch`). The statement
 and the record say the same sentence, because a record quoting something its cited source does
@@ -313,15 +334,265 @@ SIMULATES the whole sequence over an overlay, before the first rename; a failure
 undoes exactly the renames, writes and removals this call made, in reverse, and never resets
 the tree. A write is recorded as this call's the moment the file is on disk, BEFORE its
 `git add` — an `add` that failed with the record made after it would leave the rollback's one
-authority silent about the only file this call could have written, and the next writer's
-`add -A` would commit it under an unrelated message. The queue is not the only writer — the skill manifest is written from the API
+authority silent about the only file this call could have written, and it would then sit
+untracked at a live path the move did not vacate. Every write verb STAGES UNDER A PATHSPEC OF
+ITS OWN PATHS, `commit_patch` included: the clean tree the entry established is a statement
+about one instant, and a bare `add -A` would sweep whatever appeared after it into this
+commit, under this commit's message. The queue is not the only writer — the skill manifest is written from the API
 process, off it — so the adapter holds one advisory lock per repository
 (`.git/pneuma.lock`) for the whole of every mutating sequence; a multi-host deployment is
-outside what a file lock can serialize and is a known residual. Under that lock a dirty tree
-at the ENTRY of a mutating method has exactly one explanation — a dead writer's residue — so
-it is RECOVERED there (`reset --hard HEAD` + `clean -fd`, never touching `.git`, every path
-logged at WARNING) rather than refused: `commit_patch` stages with `add -A`, so a crashed
-archive's staged renames would otherwise ride into the next unrelated compile's commit.
+outside what a file lock can serialize and is a known residual.
+
+**A dirty tree at the ENTRY of a mutating method is recovered only when the adapter can prove
+it made it, and only as far as that proof reaches.** The proof is an IN-FLIGHT MARKER —
+`.git/pneuma.inflight`, JSON naming the operation, the pid, the instant AND THE OPERATION'S
+FOOTPRINT (`paths`: every repo-relative path it may touch, known before it touches any of
+them) — written first thing under the lock and before the first mutating git command, removed
+after the commit (or after a no-op return). It sits beside the lock file inside `.git/`, so
+git never reports it and no commit carries it, and the restore's graft preserves both. The
+branches:
+
+- **clean tree** — any leftover marker is stale (a call that failed after its rollback got
+  the tree back), so it goes and the sequence proceeds;
+- **dirty AND marked BY A CLAIMANT THAT IS PROVABLY DEAD, AND EVERY DIRTY PATH INSIDE THAT
+  MARKER'S FOOTPRINT** — this adapter's own dead writer, named by the marker and bounded by
+  the list it recorded before it wrote anything: the paths, both operations and the footprint
+  are logged at WARNING, then THE FOOTPRINT AND NOTHING ELSE is put back — `reset -q HEAD --
+  <paths>`, `checkout -q HEAD -- <the ones HEAD holds>`, an unlink of the ones it does not,
+  and a prune of the directories that empties, every path spoken as `:(literal)` and every
+  unlink resolved back inside the repository first — then it is re-read and a footprint that
+  is still dirty raises. Leaving the residue is the worse option: `commit_patch` stages with
+  `add -A`, so a crashed archive's staged renames would otherwise ride into the next
+  unrelated compile's commit, under its message;
+- **dirty and marked, WITH ANYTHING LESS THAN THAT PROOF OF A DEATH** — refused (below);
+- **dirty and marked by a provably dead claimant, but SOMETHING IS DIRTY OUTSIDE THE
+  FOOTPRINT** — refused (below), naming the outsiders;
+- **dirty and UNMARKED** — somebody else's work, and not this adapter's to touch. It refuses
+  with `CanonicalDirtyError` naming every dirty path, having written nothing.
+
+**A CLAIM IS A LICENCE ONLY ONCE ITS CLAIMANT IS PROVABLY GONE.** The recovery branch is a
+statement about a DEATH, so it demands POSITIVE PROOF of one rather than taking the file's
+presence on trust: the marker parsed as an object, an integer pid above zero, and that pid
+answering `kill(pid, 0)` with `ProcessLookupError`. THE QUESTION IS NOT "IS IT ALIVE?" BUT
+"IS IT PROVABLY DEAD?", and the difference is the whole rule. Asked the first way, every
+ambiguity answers "not alive" — and what stands behind that answer is `reset --hard` + `clean
+-fd` over a working tree. So a live pid, an unparseable or truncated marker, one naming no
+pid or a non-integer one or a pid ≤ 0, a `PermissionError` or any other `OSError` out of the
+probe are ALL REFUSED (`CanonicalDirtyError` naming the paths; the operation and what could
+and could not be read out of the claim ride in the message only, so the machine face stays
+one string), never recovered. A GENUINELY DEAD WRITER WHOSE MARKER GOT CORRUPTED THEREFORE
+REFUSES TOO, and that is the intended direction, not a gap in it: what is on disk then is a
+mess nobody can prove the shape of, which is exactly the state no automatic recovery is
+entitled to interpret — an operator looks at it, for the price of one `canonical_dirty` and a
+`git status`. Our own pid counts as alive and is the likeliest live answer: the lock already
+excludes a second live adapter process on this repository, so a live pid means either
+ourselves — a clear that could not remove its own file — or an unrelated process that reused
+the number. PID REUSE CAN ONLY PUSH THIS TOWARD REFUSING, never toward deleting: it makes a
+dead writer look alive, which costs one `canonical_dirty` an operator resolves by hand, while
+the error it removes is the reverse.
+
+**AND A CLAIM ALONE IS NOT ENOUGH: IT MUST SAY *WHAT THE DEAD WRITER WAS TOUCHING*. THE PID
+ANSWERS *WHO DIED*; THE FOOTPRINT ANSWERS *WHAT WAS THEIRS*.** A pid identifies a writer, not
+their work, and a repository is not one writer's. A MIXED TREE is the ordinary case, not a
+corner one — a crashed archive's staged renames plus an agent's later untracked file, a claim
+that outlived its own clear plus somebody's `git add` an hour afterwards — and neither the pid
+nor the index can say which paths belong to whom: a person stages files too, and a rule that
+read "provably dead AND something is staged" as a licence over the whole tree deleted both
+halves under one `reset --hard` + `clean -fd`.
+
+The footprint says it, mechanically rather than by argument, because every mutating body of
+this adapter KNOWS ITS PATHS BEFORE IT WRITES ANY OF THEM: `commit_patch` has the patch's file
+map, `move_documents` has both sides of every pair plus its writes and its removals,
+`write_meta` has its one path, and the ref-only operations (`branch_commit`, `delete_branch`,
+`tag`, and the repository initialization) touch no working-tree path at all and record an
+EMPTY footprint rather than none. So the claim records that list before the first mutating
+command, and the recovery is bounded by it twice: it runs ONLY when every dirty path — staged,
+unstaged and untracked alike, read off one `status --porcelain -z` — is inside the footprint,
+and it then touches ONLY the footprint. A RENAME COUNTS AT BOTH ENDS: `R  <dest>\0<src>\0` is
+one status entry naming two dirty paths — the destination is staged-added, the source is
+staged-DELETED — and reading only the destination let a foreign rename whose destination
+happened to land inside a dead writer's footprint read as covered, its source left
+staged-deleted for the next commit to carry out of the index under an unrelated message
+(`git commit` commits the whole index, however narrowly the staging was scoped). One path outside it and the whole call is REFUSED,
+naming the outsiders and, in the message, what the claim did cover; the recoverable half is
+not recovered either, because a claim is a PRECONDITION ON THE STATE OF THE TREE, not a filter
+over it — a call that cleaned the part it recognized would be deciding on its own which half
+of a mess it had made. An empty footprint therefore covers nothing, and a claim with no
+readable list covers nothing either. The status read asks for `--untracked-files=all`, so no repository- or
+user-level `status.showUntrackedFiles=no` can hide from this read what an `add` would still
+stage, and git names every untracked file individually instead of collapsing a directory to
+`notes/`. A collapsed entry from any other producer counts as inside only when every ENTRY
+actually under it is named —
+entries and not *files*, because `is_file()` follows symlinks and answers False for a broken
+one, for a link to a directory and for a fifo, each of which is somebody's and each of which
+a file-only expansion let pass unnamed. The collapsed spelling is never itself a footprint
+entry: every footprint is built from file paths, so `notes/` in a claim covers nothing (it is
+refused at the claim's read, below).
+
+**AND EVERY RECORDED PATH IS CHECKED WHEN THE CLAIM IS READ, THEN SPOKEN TO GIT LITERALLY.**
+The claim is a JSON file this process did not write, and everything downstream treats its
+strings as two dangerous things at once: live git PATHSPECS and filesystem JOINS. So the shape
+is checked once, at the read — non-empty, relative, POSIX-spelled, no control byte, and no
+segment that is empty or `.` or `..` — and a list holding one string that is not a path this
+adapter may act on (`../x`, `/etc/x`, `a/../../b`, `notes/`, `.git/config` in any casing,
+the empty string) reads as
+unreadable WHOLE, which covers nothing and therefore refuses; taking the readable remainder
+would be this adapter deciding which half of a corrupted claim to believe. Every path then
+reaches git as `:(literal)`, because git's default pathspec is a GLOB and a recovery that
+matched a family would reach paths no claim covered — `:(literal)` rather than
+`--pathspec-from-file --pathspec-file-nul` because it needs no temporary file, and a crash
+recovery should not have a second piece of state to fail to clean up. And before any unlink
+the path is resolved back against the repository and refused if it lands outside it or
+traverses a symlinked parent: the claim cannot NAME an escape, and the act cannot PERFORM
+one.
+
+The restore states the INVERSE of a footprint, because it is the one operation that cannot
+enumerate its own: nobody knows what a `git clone` will materialize until it has. Its claim
+records `pre_existing` — what the target held before it began, normally nothing — and its
+deleting branch removes exactly what the target holds that the dead restore's claim did NOT
+record, entry by entry, keeping what it did. ENTRY, not file: the listing counts broken
+symlinks, links to directories, fifos and EMPTY DIRECTORIES as well, because a file-only
+listing left each of them out of both readings at once — out of the `pre_existing` a claim
+records, so a later restore could delete what it never made, and out of the listing that
+decides, so one that appeared could never be noticed. THE TARGET IS RE-LISTED IMMEDIATELY BEFORE THAT
+DELETION, because the list that decided is not the list that acts: the first listing is taken
+before the claim is written and before three branches are weighed, and the lock excludes only
+this framework's own writers. What the second listing holds that the first did not cannot be
+the dead clone's — that clone stopped writing when it died — so it is refused by name and
+nothing is deleted; what vanished in the same window is simply not deleted. The graft that
+follows lands each entry with the POSIX primitive that fails EEXIST by itself (`link` for a
+file, `symlink` for a link, `mkdir` for a directory, recursively), so the refusal IS the move
+rather than a check in front of a `shutil.move` that would clobber whatever appeared between
+the two. A claim with no readable `pre_existing` accounts
+for nothing and is refused, exactly as an unreadable pid is.
+
+THE ACCEPTED RESIDUAL, stated rather than hidden: a footprint that failed to name something
+its writer touched leaves residue OUTSIDE itself, which is REFUSED rather than cleaned — one
+`canonical_dirty` an operator resolves with a `git status` and a `git checkout`, never a
+deletion. The other direction has no window at all: the claim, footprint and all, is written
+BEFORE the work, so there is no instant in which this adapter has written a file it had not
+already declared.
+
+AND THE TWO RESIDUALS THIS LINE ENDS ON, in the same voice. (a) An external process that
+REPLACES a file between the re-listing and the unlink has its replacement removed. The
+listing and the deletion are two syscalls and no file-based protocol can make them one; what
+the lock does close is every writer of this framework, so what remains is a person or an
+agent with a shell in the directory, in the window between two adjacent calls. (b) A claim
+inside `.git` is only ever as trustworthy as write access to `.git` itself — anyone who can
+forge `pneuma.inflight` can already rewrite the repository it stands over, and no check
+inside this adapter recovers from that. Which is exactly why a claim MAY NOT NAME anything
+under `.git`, in any casing, and why every path it names is validated at the read and
+resolved against the repository before it is acted on: the claim is evidence about a death,
+never an authority over a path.
+
+**THE CLAIM IS WRITTEN BEFORE THE TREE IS READ, AND THE DECISION IS MADE FROM THE CLAIM THAT
+WAS THERE BEFORE IT.** Every mutating entry — and the restore — runs in one order: read the
+previous marker, write its own, then read the tree and decide. Writing first is what PROVES
+this filesystem takes a claim at all: `_write_marker` raises `CanonicalMarkerError` where
+`.git/` will not take the file, at an instant when no status has been read, nothing weighed
+and nothing deleted. The consequence is the point. On a filesystem where the claim cannot be
+written, NO MUTATION PROCEEDS — so the one state that leaves a whole claim standing after an
+orderly exit (a clear whose unlink AND replace both failed, below) can never later authorize
+a destruction: the next mutation dies before it reads the tree. And the claim weighed is
+always the one READ, never the fresh one just written, which names a live process — ourselves
+— and would otherwise be a call asking itself for permission. Replacing the previous claim is
+sound under the lock: no other live body of this adapter can be inside a mutation on this
+repository, and every exit, refusals included, releases what it wrote.
+
+**The marker is MANDATORY.** A write that cannot claim the tree does not proceed
+(`CanonicalMarkerError`, in the `CanonicalMoveError` family so every caller that reports a
+refused write already catches it): unmarked, this call's own crash residue would arrive at the
+next writer as the third branch — somebody else's work, refused, and refused again until a
+person intervenes. Refusing up front costs one write into `.git/` that was going to fail
+anyway. Every sequence that writes into the repository claims it, initialization (`git init` +
+the two configs) and the prebuilt restore included. The one failure that is merely LOGGED is the CLEAR at the end of a
+body: by then the body is over, so raising would report a write that succeeded as one that
+did not.
+
+**A CLEAR THAT CANNOT UNLINK DEGRADES THE CLAIM RATHER THAN LEAVING IT WHOLE.** Swallowing
+that failure was a hole in the sentence below: a whole claim left standing after an ORDERLY
+exit is exactly what authorizes the next writer's `reset --hard` + `clean -fd` over a human's
+later edits, which is the one deletion this mechanism exists to prevent. So the clear has a
+second half — the marker is replaced with `{"released": true}`, which every reader
+(`_read_marker`, and therefore the entry branches and the restore) treats as NO CLAIM AT ALL.
+Unlink and rewrite fail independently — a read-only directory defeats the first, a read-only
+file the second — so this is a real second chance and not a retry. THE REPLACEMENT IS ATOMIC
+(a temp file in the same directory, then `os.replace`), and that is a safety property rather
+than tidiness: a release written in place can itself be interrupted, and the truncated marker
+that would leave is one more claim nobody can read a death out of — under the old "is it
+alive?" question, one that licensed a deletion. Rename or nothing means the file on disk is
+only ever the whole old claim or the whole release. Only both failing leaves a
+whole claim; that is logged at ERROR naming the repository and the operation, and it is now
+an OPERATIONAL WARNING rather than a hazard. It used to be the last trap here — once the
+process exits, that surviving claim's pid reads as dead, so a human's later edit would have
+arrived at the recovery branch looking like proof of a death — and that is what the FOOTPRINT
+above closes: the surviving claim reaches no further than the paths its own body declared, and
+a later edit is somewhere else by definition, so it is refused rather than cleaned. What is
+left to look at is a `.git/` this process could neither write nor rewrite, which an operator
+should see. While the process lives the next mutation refuses on the pid rule anyway.
+
+**A LIVE PROCESS ALWAYS RELEASES ITS CLAIM.** Every mutating body runs inside a wrapper that
+clears the marker in a `finally`, so the claim goes on the success path AND on every orderly
+refusal: a preflight that rejected a destination, a `CanonicalDirtyError`, a rollback that put
+the tree back and re-raised. The marker therefore does not mean "this call is writing"; it
+means **"a process died here"** — which the second branch then VERIFIES against the
+claimant's pid rather than believing. Released only
+on success — which is what it used to be — it outlived every refusal, and a person's edit made
+an hour later read as this adapter's own residue and went under `reset --hard`. The claim
+survives exactly one event now, and no `finally` runs for that one.
+
+The case that looks like an exception and is not: when the rollback ITSELF could not get the
+tree clean (`rollback left the repository dirty`), the claim is still released, so the next
+call meets a dirty tree with no marker and REFUSES with `canonical_dirty` rather than
+auto-cleaning it. That mess is half this call's renames and half whatever git would not undo —
+a state no automatic recovery is entitled to interpret. An operator has to look at it.
+
+**The restore decides the same branches**, over the tree itself because there is no repository
+yet to read a `git status` out of. Four cases: `.git/HEAD` present (the graft moves it last,
+so a restore completed — including one killed before its own marker clear) drops the stale
+claim and answers False; files present with no claim OF A RESTORE'S are somebody else's and
+are refused (`CanonicalDirtyError`, naming the paths and the operation any claim standing
+there belongs to), never overwritten; a `restore_repository` claim with no HEAD, A CLAIMANT
+THAT IS PROVABLY GONE AND A `pre_existing` LIST recorded on it is this adapter's own dead
+restore, and everything the target holds that that list did NOT name is its half-materialized
+checkout: logged at WARNING and removed file by file, keeping the lock, the claim and
+everything the claim recorded, before this one proceeds — the same claim with anything less
+than that proof of a death behind it is refused instead, and so is one that recorded no list
+at all, and the rules bite hardest here, because this is the branch that deletes files rather
+than rolling changes back; a clean target is claimed (recording what stood there, normally
+nothing), cloned, grafted (HEAD last) and released. The graft refuses rather than lands on a
+path it was told to keep. The restore lists the target before it claims it — the list IS what
+the claim records — and claims it before it decides anything or removes anything: a directory
+that will not take a claim can never authorize deleting what is in it.
+
+Those middle two are separated by the marker's `operation` and not by its mere presence,
+because this branch **deletes files it did not write**. Everywhere else the recovery puts a
+claim's OWN PATHS back in a repository the adapter is committing to, and any operation's claim
+is proof enough there — every operation of this adapter writes into that same repository, so
+whichever left the residue, the residue is that operation's, and restoring its declared paths
+reaches nothing a commit has accepted. The restore is the other case: only a restore
+ever materializes a checkout in that directory, so only a restore's claim licenses removing
+one. A crashed `init_repository` — which claims a bare `.git/` and writes nothing else — would
+otherwise authorize wiping files that predate the claim entirely.
+
+The third branch is a correction, not an addition. The premise it replaces — "only this
+adapter writes" — was never true of a git repository sitting in a working directory: a person
+editing `data/canonical/<user>/`, or a coding agent with a shell in the project directory,
+leaves exactly that state, and the next compile's `reset --hard` erased it with one WARNING
+line as the only trace. The lock licenses the second branch and no more — it proves no other
+process OF THIS FRAMEWORK is mid-sequence, which says nothing about a text editor. The marker
+is what turns "the tree is dirty" into "*I* left it dirty".
+
+The refusal is STATED, not swallowed. A job that meets it completes as failed with a detail
+that STARTS WITH `canonical_dirty:<paths>` (the worker's own branch, ahead of its catch-all,
+spells exactly that; the archive job leads with the same string and may append one honest
+suffix — a terminal proposal write that lost its predicate, which is a second fact about the
+same failure and is not dropped to keep the string byte-exact). The archive job spells the
+same code in the proposal's `error`, and a request path that commits — the skill manifest
+write, an evolve adopt — answers **409 `canonical_dirty`** from one handler in `api/app.py`.
+One PREFIX across every face, because the fix is one command and the operator has to be able
+to grep for it.
+
 After the commit, and outside the rollback's reach, the directories the move drained are
 pruned. Three gate rules keep the tree that way, all mechanical and all under the kind
 `archived_path`:
@@ -361,8 +632,54 @@ removed, and a proposal planned then ingests no statement.
 
 **Verified by** `packages/pneuma-knowledge-service/tests/integration/test_git_canonical.py`
 (the move with its volumes and its history, the record written onto the vacated path, the
-unarchive as one commit, the scoped rollbacks, the residue recovery, the manifest write and
-the move not absorbing each other), `packages/pneuma-knowledge-core/tests/test_archive_gate.py`
+unarchive as one commit, the scoped rollbacks, the marker branches — a marked crash whose
+residue lies inside its footprint recovered, an unmarked dirty tree refused and left
+byte-identical, a stale marker dropped — a crash simulated between the marker and the commit —
+marker written, footprint and all, and no clear, because a killed process runs no `finally` —
+a claim whose process is still alive refused rather than recovered while a provably dead
+claimant's is still recovered, both for a mutation and for the restore's deleting branch,
+every claim that is NOT proof of a death refused too — a truncated or unparseable one, one
+that is not an object, one naming no pid or a string, float, boolean, zero or negative pid,
+and a well-formed one whose pid answers the probe with `PermissionError` or an unexpected
+`OSError` — and, on the footprint, a PROVABLY DEAD claim standing over a hand edit or an
+untracked file it never recorded refused with the residue left byte-identical, a MIXED tree of
+real staged residue PLUS a later untracked file refused WHOLE (both halves intact, the
+recoverable one included), a human's `git add` outside the footprint refused, a ref-only
+operation's EMPTY footprint licensing nothing over any dirty tree, and the recovery itself
+shown to be path-scoped — no `clean`, no `--hard`, no bare `reset HEAD`, every command bounded
+by a `--` after which only the claim's own paths appear, each of them spelled `:(literal)`,
+and everything outside them byte-identical afterwards — a foreign staged rename whose
+DESTINATION falls inside the footprint refused on its source, with the rename left exactly as
+its writer staged it, a claim naming a path this adapter may not act on (`../x`, `/etc/x`,
+`a/../../b`, the empty string, `notes/`, one carrying a NUL) refused WHOLE rather than
+recovered off its readable remainder, a footprint that is a glob (`work/*.md`) matching
+nothing and refusing while a page whose name merely holds a glob character (`work/a[1].md`)
+is still recovered verbatim, an untracked directory holding a broken symlink the
+claim never named refused (both it and the page the claim did name left intact, and the
+collapsed-entry expansion asserted directly beside it), a claim naming `.git/config`,
+`.GIT/config` or `work/.git/x` refused with `.git/` byte-identical, a
+`status.showUntrackedFiles=no` in the repository's own config failing to hide an outsider, a
+file that appears mid-flight left OUT of the commit that was running (and the patch's own
+deletion still staged), a rollback whose recorded path escapes the repository removing
+nothing outside it, a restore listing and keeping a broken symlink and an empty directory its
+claim recorded while a dead clone's empty directory goes with the rest of its residue, the whole surviving-claim scenario end to end, a clear whose
+unlink AND replace both fail leaving a whole claim, its pid then reading as dead, and a hand
+edit made afterwards refused rather than reset — the release rewrite landing by rename rather
+than in place, a claim that cannot be written stopping the call before the tree is even read
+while a dead writer's residue sits there recoverable, a clear that cannot unlink degrading its
+claim to `released` and the hand edit made after it being refused, a `released` marker over a
+dirty tree refused, a refused move leaving no claim and the hand edit made after it being
+refused rather than cleaned, a rollback that left the tree dirty releasing its claim so the
+next call refuses, a write that cannot claim the tree refusing and committing nothing, a file
+that APPEARS in a restore's target between its claim and its deletion refusing that branch by
+name with nothing removed, the graft refusing a destination created in the very instant it
+lands there, the
+restore's own claim and its branches including a target claimed by `init_repository` being
+refused, a dead restore's claim that recorded no `pre_existing` refused while the same target
+under a claim that did record one IS recovered, and a `pre_existing` file surviving a recovery
+that removes only the dead clone's leftovers, the manifest write and the move not absorbing
+each other),
+`packages/pneuma-knowledge-core/tests/test_archive_gate.py`
 (the three `archived_path` rules) and
 `packages/pneuma-knowledge-service/tests/test_archive_other_writers.py` (groom, evolve and
 adopt leaving the archive alone).
@@ -583,7 +900,9 @@ COMPUTED at read (`library_ref != HEAD`) rather than swept, and only ever WRITTE
 confirm that refuses `409 stale` — see §5, which states the whole lifecycle and why.
 
 The Owner's statement is the second kept thing, and it is an ordinary source rather than a
-row: one `owner-dialogue/v1` contract per proposal, one owner turn, ingested through the
+row: one `owner-dialogue/v1` contract per proposal, one owner turn IN THE OWNER'S OWN WORDS
+AS SENT WITH THE CONFIRM (`note_required` at that face, `statement_missing` in the job —
+§2.3), ingested through the
 ordinary `ingest_source_contract` path with `dialogue_id = proposal_id` so the statement and
 the decision address each other in the one scheme. Every field of that contract is a function
 of the proposal, `said_at` included (the row's `confirmed_at`), so the contract is the same
@@ -594,10 +913,27 @@ statement's canonical expression and a compile of the same text would paraphrase
 onto whatever pages the model believed it touched; `semantic_indexing: full`, because the
 statement is L0 like any other L0 — searchable, addressable, quotable.
 
+**The reason's provenance is STAMPED, not assumed.** The confirm writes `reason` onto every
+record item, and beside it `reason_source` — `note` (the words sent with this request) or
+`statement` (block 0 of a `statement_ref` the Owner named), which are the only two places the
+rule allows a statement to come from. The job refuses (`statement_missing`) a `reason` that
+arrives without the stamp, and it has NO fallback to the row's own `note`. Both halves are the
+same rule: the step this guards mints an `owner-dialogue/v1` source, L0 labelled as the Owner
+SPEAKING, and it may not put words in it whose origin the row does not state. "A confirmed
+row's reason is always confirm-written" was true of the code and provable by nothing in the
+row — mechanism, not the reader's trust in another function. The row's `note` is display text
+a PLAN happened to keep, typed against a set that may since have been narrowed at a moment
+that decided nothing; the confirm refuses to stand on it (`note_required`), so the job may not
+either.
+
 **Legacy data.** A proposal planned before records existed carries no `record` field on its
 items; the job then writes no record and, guarded on there being a record to write, ingests
 no statement — a statement nothing cites would be L0 the Owner never asked for. The same
-guard covers a sources-only proposal, which is not legacy but the same shape.
+guard covers a sources-only proposal, which is not legacy but the same shape. A confirmed row
+that carries no reason at all — or one carrying a reason with no `reason_source` beside it,
+which is a row no confirm of this code wrote — is the other legacy shape, and it is refused
+rather than completed: the confirm cannot produce either any more, and the job will not
+compose the sentence it refused to (`statement_missing`).
 
 **Verified by** `packages/pneuma-knowledge-service/tests/integration/test_archive_marks.py`
 (`test_archive_proposals_are_kept_and_advance_without_losing_earlier_stages`,
@@ -756,7 +1092,10 @@ this section exists to state once.
 }
 ```
 
-`statement_ref` is optional and names the `owner-dialogue/v1` source in which the Owner
+`note` here is optional and INFORMATIONAL — a line kept on the row for a listing to show. It
+is not the reason and can never become one: the reason is the note sent with the CONFIRM
+(below), because that request is the decision the record says the Owner made.
+`statement_ref` is optional too and names the `owner-dialogue/v1` source in which the Owner
 asked for this — the proposal's provenance in the one scheme, when the request came through
 the Steward rather than the console.
 
@@ -798,11 +1137,14 @@ A DOCUMENT item of an `archive` proposal carries one more field: `record`
 (`{title, definition, span: [from, to] | null, claims, sources, volumes, inbound, reason}`) —
 what the archive record for that page will say (§2.3), computed here so the console can
 preview the page each checkbox creates before anything moves. `reason` is the exact line the
-record's third block will quote (the note, the block 0 of a supplied `statement_ref`, or the
-default sentence): the one part of the page that is a fact about the DECISION rather than
-about the document, so it is decided at this layer and moves with the note when a confirm
-replaces it. The job QUOTES this kept line rather than recomputing one from the note, so the
-sentence the Owner confirmed and the sentence on the page are one string by construction. The planner takes one extra input for
+record's third block will quote — the one part of the page that is a fact about the DECISION
+rather than about the document, so it is decided at this layer rather than by the planner. On
+a PLAN it is the block 0 of a supplied `statement_ref` and **null** when none was supplied:
+words the Owner has already spoken are quotable, and a note typed at a plan is not, so
+previewing it would promise a sentence nothing will quote. The console shows the live content
+of its own note box in that case. The CONFIRM writes the line it decided onto every item, and
+the job QUOTES that kept line rather than recomputing one, so the sentence the Owner
+confirmed and the sentence on the page are one string by construction. The planner takes one extra input for
 it, `source_occurrence: Mapping[source_id, occurred_on]`, which the service supplies off the
 source inventory: the day a source is ABOUT belongs to L0, and a pure planner derives nothing
 date-shaped of its own. `inbound` excludes the pages this plan is itself moving — a link from
@@ -840,21 +1182,43 @@ has to attach it afterwards and no worker can finish inside the gap that second 
 open. A failure rolls both back, which is why there is no compensation path and no refusal
 code for one: it is an ordinary 500 over a proposal that is still open.
 
-A confirm's `note` has three states and they are stored as three: ABSENT (`None`) says
-nothing about it and the plan-time note stays; GIVEN replaces it; and GIVEN AS EMPTY clears
-it, storing NULL on purpose. The store takes a `note_given` flag beside the value for exactly
-that reason — `COALESCE` cannot spell the difference between silence and an erasure, and
-reading the second as the first left the preview computed with the default sentence while the
-row still held the old note for the record to quote.
+**The reason is required AT THE CONFIRM, and it is only ever what that request carried** —
+`422 `note_required`` for a confirm carrying neither a non-blank `note` nor a `statement_ref`
+(named there or already on the proposal), whitespace included. There is **no fallback to a
+stored note**, and its absence is the mechanism rather than a strictness: the confirm IS the
+decision the statement records, so a note typed at the plan — against a set the Owner may
+since have narrowed, at a moment that decided nothing — would be recorded as words they said
+at a time they did not. That is the same fault as a framework-composed default, one step
+removed. So a plan takes no reason at all: its `note` is informational, a noteless plan is
+computed and kept, and its items' `record.reason` is null unless a `statement_ref` names
+speech that already exists. A confirm's `note` remains three-valued in what it does to that
+stored line — ABSENT leaves it, GIVEN replaces it, BLANK clears it — but none of the three
+can supply the reason except the second. The store keeps a `note_given` flag beside the value
+because `COALESCE` cannot spell the difference between silence and an erasure; a
+`statement_ref` given at the confirm is written in the same transaction as the decision,
+since the job reads it off the row.
 
 A note and a `statement_ref` are checked where they are typed. A note carrying the system's
-own machinery is `422 note_machinery`; a `statement_ref` this library does not hold, or one
-that is not an `owner-dialogue/v1` source with a block to quote, is `422 statement_unknown` /
+own machinery is `422 note_machinery` — checked at the plan too, because that line is kept
+and displayed; a `statement_ref` this library does not hold, or one that is not an
+`owner-dialogue/v1` source with a block to quote, is `422 statement_unknown` /
 `422 statement_not_owner`; a note that says something other than the named statement's block
 0 is `422 statement_mismatch`, because the record quotes the source it cites and picking one
-of the two silently would be the framework deciding what the Owner meant. All four are made
-at `plan` and again at `confirm`, and again in the job — the request and the execution are
-separated by a queue.
+of the two silently would be the framework deciding what the Owner meant. All of them are
+made at `plan` and again at `confirm`, and again in the job — the request and the execution
+are separated by a queue.
+
+**The console prefills its own box, and that is the whole answer to the friction.** The moment
+the first plan returns, the archive dialog fills the note box with a sentence built
+client-side from the selected titles (`Archived: {titles}`), leaves the Owner free to edit or
+replace it, disables Confirm while the box is empty, previews exactly what the box holds, and
+SENDS that with the confirm. The suggestion goes into the textarea and nowhere else — the
+plan request carries no note — because a sentence the console composed and handed to the
+service would sit on a kept row one step from being quoted back as the Owner's, which is the
+default the rule forbids. A re-plan (ticking a cascade item) leaves the box exactly as it
+stands: this dialog cannot tell a suggestion the Owner approved from one they rewrote.
+Nothing about that sentence is computed by the service either: a suggestion the service
+produced would be the same default arriving by a longer road.
 
 `POST /archive/proposals/{id}/drop` closes one unexecuted. `GET /archive` lists what is in
 the archive now: documents by path with the day they were archived and `record_path` plus
@@ -894,7 +1258,14 @@ reading HEAD alone, so a manifest write landing above it — `write_meta` runs i
 process, off the queue — does not strand the job. Then, in order:
 
 1. **The Owner's statement**, before anything moves (§2.3): one `owner-dialogue/v1` source
-   per proposal, ingested through the ordinary contract path with `canonical_treatment:
+   per proposal, carrying the Owner's OWN words and never a sentence composed here — a
+   confirmed row that holds neither a note nor a `statement_ref` refuses the whole job
+   (`statement_missing`) before anything moves, which is the queue-side half of the
+   `note_required` rule the confirm enforces. The words are READ off the record item the
+   confirm stamped, and the stamp (`reason_source`: `note` | `statement`) is checked: an
+   unstamped reason is refused for the same reason a missing one is, and there is no fallback
+   to the row's `note` at all (§3.7). Ingested through the ordinary contract
+   path with `canonical_treatment:
    none`, and its id written onto the proposal row in the same step, before the commit — so a
    job that crashes and is requeued cites the statement it already ingested rather than
    minting a second one. That write-back is predicated on the row still being `confirmed`, and
@@ -921,13 +1292,10 @@ process, off the queue — does not strand the job. Then, in order:
    off it — so the git adapter holds one advisory lock per repository (`.git/pneuma.lock`)
    for the whole of every mutating sequence, and a manifest write and a move can no longer
    commit each other's staged paths (a multi-host deployment is outside what a file lock
-   can serialize, and is a known residual). Under that lock a dirty tree at the ENTRY of a
-   mutating method has exactly one explanation — every writer commits what it wrote, and the
-   lock excludes a live one — so it is a dead writer's residue, and it is RECOVERED there
-   (`reset --hard` + `clean -fd`, with every path logged at WARNING) rather than refused.
-   Leaving it is the worse option and not the safer one: `commit_patch` stages with
-   `add -A`, so a crashed archive's staged renames would otherwise ride into the next
-   unrelated compile's commit, under its message.
+   can serialize, and is a known residual). A dirty tree at the ENTRY of a mutating method
+   is recovered only when this adapter's in-flight marker is standing beside it, and
+   REFUSED (`canonical_dirty`, the job failing with the dirty paths in its detail) when it
+   is not — see §3.1 for the entry branches and why the lock alone was never licence enough.
 3. `sources.archived_at` set (or cleared) for every selected source.
 4. L1 and L2 flags flipped per source; the L3 projection synced from the new HEAD — which is
    also how the record's own blocks reach the claim indexes: it is a live page, so nothing

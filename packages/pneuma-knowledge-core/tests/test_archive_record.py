@@ -409,15 +409,22 @@ def test_machinery_reaching_a_record_from_anywhere_abandons_the_write():
 def test_the_reason_and_the_statement_are_one_string_read_two_ways():
     """`record_reason` writes the statement's text; `statement_quote` reads it back off the
     block the record cites. A round trip through the ingest turn line changes nothing."""
-    reason = record_reason("Aurora shipped in June.", ["Aurora"])
+    reason = record_reason("Aurora shipped in June.")
     block = prompt(
         "ingest.turn_line", label=prompt("ingest.owner_label"), text=reason
     )
     assert statement_quote(block) == reason
-    # No note: the default sentence names what is being archived, and it is a sentence.
-    assert record_reason("", ["Aurora", "Atlas"]) == prompt(
-        "archive.statement.default", titles="Aurora, Atlas"
-    )
+
+
+def test_the_framework_composes_no_reason_when_the_owner_wrote_none():
+    """No note, no sentence. The archive keeps the reason as an `owner-dialogue/v1` source —
+    L0 labelled as the owner SPEAKING — so a sentence composed here would stand there as
+    words the owner never said, indistinguishable to every later reader from a real
+    statement. The empty answer is what the request faces refuse on (`note_required`) and
+    what the job refuses on (`statement_missing`); whitespace is not words either."""
+    assert record_reason("") == ""
+    assert record_reason("   \n\t ") == ""
+    assert record_reason(None) == ""  # type: ignore[arg-type]
 
 
 def test_a_volume_s_claims_and_sources_count_towards_the_page_that_owns_it():

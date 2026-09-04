@@ -1828,6 +1828,7 @@ class PostgresStore:
         payload: dict[str, Any],
         note: str | None = None,
         note_given: bool = False,
+        statement_ref: str | None = None,
     ) -> str | None:
         """Accept one proposal AND queue the job that executes it — in one transaction.
 
@@ -1856,6 +1857,12 @@ class PostgresStore:
         old one — and the record then quoted a sentence the confirm's preview had already
         replaced with the default. Given, the column is assigned outright and a `None` writes
         SQL NULL on purpose; absent, the old COALESCE stands and the plan's note is kept.
+
+        `statement_ref` is the other half of the reason and is COALESCE'd, never cleared: a
+        confirm may NAME the owner-dialogue source the record will cite even when the plan
+        did not, and it is written in this same transaction because the job reads it off the
+        row — a decision that reached the queue without it would mint a second statement
+        saying what the one the Owner named already says.
         """
         job_id = uuid.uuid4().hex
         # Assigned outright when the caller SAID something about the note (`""` cleared it
@@ -1868,14 +1875,18 @@ class PostgresStore:
                     # `::jsonb` explicitly: psycopg adapts a Json() to `json`, which the
                     # jsonb column will not take without the cast.
                     "items = %s::jsonb, confirmed_at = %s, job_id = %s, "
+                    # Named at the confirm, or already named at the plan: COALESCE keeps
+                    # whichever exists and this write never clears one.
+                    "statement_ref = COALESCE(%s, statement_ref), "
                     # The Owner's reason is typed at the decision; a confirm that says
-                    # nothing leaves whatever the plan recorded.
+                    # nothing about the note leaves the informational one the plan recorded.
                     + note_clause
                     + "WHERE user_id = %s AND proposal_id = %s AND status = 'proposed'",
                     (
                         Json(list(items)),
                         datetime.now(timezone.utc),
                         job_id,
+                        statement_ref,
                         note,
                         str(user_id),
                         proposal_id,

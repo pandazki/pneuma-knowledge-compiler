@@ -382,34 +382,94 @@ export function recordFactsLine(
 /**
  * The reason line as it will stand on the record page, previewed while the owner types it.
  *
- * A CONFIRM IS OF WHAT WAS PREVIEWED, and the execution never leaves this line blank: with
- * no note it quotes the statement the archive was asked for in, and with neither it writes a
- * sentence of its own. So the planner sends the exact text it will quote (`record.reason`)
- * and this preview stands on that rather than on the textarea alone — a preview that showed
- * nothing until the owner typed would have them confirm a sentence they never saw.
+ * THE BOX AND NOTHING ELSE. What the record quotes is the note this console sends with the
+ * CONFIRM — the service keeps no reason of its own at plan time and composes none ever — so
+ * the preview is a function of the textarea alone. Anything else would preview a sentence
+ * that is not the one about to be sent: the plan's own `record.reason` is null unless the
+ * owner named a statement, and a line drawn from it beside an empty box would show a reason
+ * for a confirm the console has already disabled.
  *
- * The typed note takes precedence while it is non-empty, because it is the newer fact: the
- * planner computed `record.reason` before this keystroke, and the confirm carries the note.
- * It is trimmed exactly as the confirm trims it (`confirmArchiveProposal`), so the line shows
- * what the record will carry and not a near-miss differing by whitespace nobody sees.
- *
- * `edited` is the third state, and it is the reason this is not simply `note || reason`. A
- * textarea that was TOUCHED and left empty is the owner CLEARING the note — the confirm sends
- * `""`, which replaces the plan's note with nothing, and the record then quotes the default
- * sentence (`record.reason_default`). Falling back to `record.reason` there would show them
- * the note they just deleted, which is the one line the execution is certain not to write.
- * Untouched, `record.reason` stands: it is what the plan computed and what a confirm that
- * mentions no note will quote.
+ * Trimmed exactly as the confirm trims it, so the line shows what the record will carry and
+ * not a near-miss differing by whitespace nobody sees. An empty box previews nothing, and
+ * nothing is the honest preview: that state cannot be confirmed at all (`noteRequired`), so
+ * there is no future record to draw.
  */
-export function recordReasonPreview(
-  record: { reason?: string; reason_default?: string } | null | undefined,
-  note: string,
-  edited: boolean,
+export function recordReasonPreview(note: string, i18n: ProposalI18n): string {
+  const quoted = note.trim();
+  return quoted ? i18n.t("archive.record.reason", { note: quoted }) : "";
+}
+
+/* --------------------------------------------------------------- the owner's own words */
+
+/**
+ * The names the suggested note is built from: the documents this proposal would move.
+ *
+ * Titles, falling back to the ref — a page with no title still has a path, and a suggestion
+ * naming an empty string is one the owner has to rewrite from nothing. Overrides are
+ * respected, so unticking a box before touching the note changes what the suggestion names.
+ *
+ * A SOURCES-ONLY proposal names its sources instead. That set leaves no record behind and
+ * the design says so — the reason is still kept on the proposal, and a suggestion reading
+ * "Archived:" with nothing after it is one the owner has to write from scratch, which is the
+ * friction the prefill exists to remove.
+ */
+export function suggestionTitles(
+  items: readonly ArchiveProposalItem[],
+  overrides: ItemOverrides = {},
+): string[] {
+  const named = (kind: ArchiveItemKind) =>
+    items
+      .filter((item) => item.kind === kind && isSelected(item, overrides))
+      .map((item) => item.title || item.ref)
+      .filter((title) => title.trim() !== "");
+  const documents = named("document");
+  return documents.length > 0 ? documents : named("source");
+}
+
+/**
+ * The sentence the dialog PREFILLS the note box with — a suggestion, never a default.
+ *
+ * The distinction is the whole of correction #1. The archive records the owner's reason as
+ * an `owner-dialogue/v1` source: L0 labelled as the owner SPEAKING. A sentence the service
+ * composed when they typed nothing would stand there as words they never said, and no later
+ * reader of L0 could tell it from a real statement. So the service composes none and refuses
+ * (`note_required`), and the friction that removes is paid HERE instead: the owner is shown
+ * a sentence, may edit it or replace it, and SENDS it — which is what makes it theirs.
+ *
+ * Built client-side from the titles alone, which is why it lives in this module and not
+ * behind a request: a suggestion the service produced would be the same default sentence
+ * arriving by a longer road. It goes into the TEXTAREA and nowhere else — never into the
+ * plan request — for the same reason: a suggestion the service was handed and kept would be
+ * a sentence sitting on a kept row, one step from being quoted back as the owner's.
+ */
+export function suggestedNote(
+  action: ArchiveAction,
+  titles: readonly string[],
   i18n: ProposalI18n,
 ): string {
-  const typed = note.trim();
-  const planned = (record?.reason ?? "").trim();
-  const cleared = (record?.reason_default ?? "").trim();
-  const quoted = typed || (edited ? cleared : planned);
-  return quoted ? i18n.t("archive.record.reason", { note: quoted }) : "";
+  return i18n.t(
+    action === "unarchive" ? "archive.note.suggested.unarchive" : "archive.note.suggested.archive",
+    { titles: titles.join(", ") },
+  );
+}
+
+/** Whether the note box is empty in the only sense that counts — the one the service reads.
+ *  Whitespace is not a reason: `sanitize_note` folds it to nothing on the other side. */
+export function noteRequired(note: string): boolean {
+  return note.trim() === "";
+}
+
+/**
+ * What a refused confirm should SAY. `note_required` is the one refusal with wording of its
+ * own here, because the service's sentence explains a rule the box beside it already states;
+ * everything else keeps the service's own words, which are the only ones that can be right
+ * about a failure this console did not predict.
+ */
+export function confirmErrorMessage(
+  error: { code?: string; message: string },
+  i18n: ProposalI18n,
+): string {
+  return error.code === "note_required"
+    ? i18n.t("archive.note.required")
+    : error.message;
 }

@@ -51,10 +51,10 @@
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
-| POST | `/…/archive/proposals` | 计算一份提案——`{action: "archive"\|"unarchive", documents[], sources[], note?, statement_ref?}` → 整个闭包集合；不移动任何东西 |
+| POST | `/…/archive/proposals` | 计算一份提案——`{action: "archive"\|"unarchive", documents[], sources[], note?, statement_ref?}`（`note` 可选，且只是说明性的） → 整个闭包集合；不移动任何东西 |
 | GET | `/…/archive/proposals` | 这位主人的提案，最新在前（`limit` 1–200） |
 | GET | `/…/archive/proposals/{proposal_id}` | 读回单条及其当前状态 |
-| POST | `/…/archive/proposals/{proposal_id}/confirm` | 确认，可收窄，附 Owner 的理由——`{items?: [{kind, ref, selected}], note?}` → **202** `{proposal, job_id}` |
+| POST | `/…/archive/proposals/{proposal_id}/confirm` | 确认，可收窄，附 Owner 的理由（在这里是必需的）——`{items?: [{kind, ref, selected}], note?, statement_ref?}` → **202** `{proposal, job_id}` |
 | POST | `/…/archive/proposals/{proposal_id}/drop` | 关闭一份尚未执行的提案 |
 | GET | `/…/archive` | 此刻归档里有什么：`{documents: [{path, live_path, title, archived_on, volumes, record_path, record}], sources: [{source_id, title, kind, archived_at}]}` |
 
@@ -86,16 +86,29 @@
 
 `archive` 提案的**文档**项还带一个 `record`
 （`{title, definition, span: [from, to] | null, claims, sources, volumes, inbound, reason,
-reason_default}`）——这一页的
+reason_source}`）——这一页的
 归档留痕将会说的话，在提案时就算好，好让控制台预览每个复选框会创建的那一页。这一页引用的 source 都
 没有日期时 `span` 为 null（留痕会省略那一节，而不是猜一个），`inbound` 统计链接向它、且自己不离开的
-在用页面，`reason` 则是留痕第三块将会引述的那一行原文：note、所提供 `statement_ref` 的 ¶0，或那句默认
-句；确认时新打的 note 会带着 `reason` 一起走，而 `reason_default` 是 note 为**空**时会引述的那一行——
-控制台在拥有者把提案时那条 note 删掉的那一刻预览的就是它，因为确认时发 `note: ""` 就是把那条 note 换成空。这些数字是**预览**：作业在执行时会对着最终确认的那个集合
+在用页面，`reason` 则是留痕第三块将会引述的那一行原文——永远是
+拥有者自己的话，绝不是本服务拼出来的句子。在**提案**上它是所提供 `statement_ref` 的 ¶0，没有提供时是
+**null**：提案什么都不决定，所以它不留下任何可被引述回来的句子，控制台展示的是它自己 note 框里的实时
+内容。确认会把它拍板的那一行写到每一项上，作业引述的正是它。`reason_source`（`"note"` | `"statement"`，
+恰好在 `reason` 为 null 时为 null）说明那一行**来自哪里**——随确认发出的话，还是拥有者点名的
+`statement_ref` 的 ¶0。它是被**盖章**的而不是被推断的：作业用 `reason` 铸造那份 `owner-dialogue/v1`
+源，所以它拒绝一个行里没有写明来路的理由，而不是去信任写下这一行的东西遵守过规则。这些数字是**预览**：作业在执行时会对着最终确认的那个集合
 重算一遍，因为把一个被另一个选中页面链接着的页面取消勾选，会改变那一页的 `inbound`。source 项以及
 `unarchive` 提案的每一项，`record` 都是 null——取消归档是把留痕换回那一页。
 
-note 与 `statement_ref` 在被打出来的地方就被核对，`plan` 一次、`confirm` 再一次：带着系统自己机械记号
+**理由在「确认」上是必需的，而且永远是拥有者自己的话——那个请求带来的那些话。** 归档把它记成一份
+`owner-dialogue/v1` 源，标着「拥有者在说话」的 L0，而确认才是这份源所记录的那个决定。所以既没有非空
+`note`、也没有 `statement_ref`（在那里点名的，或提案上已有的）的确认会被拒绝为 **422
+`note_required`**；只有空白不算 note，而留在提案上的 note **不是**兜底——它针对的可能是此后又被收窄过
+的集合，打下它的那一刻什么都没决定。因此 `plan` 自己的 `note` 是可选的、说明性的：一行留在提案上供
+列表展示的文字，永远不是陈述。一份两者都没有的已确认行到了作业里也会被防御性地拒绝
+（`statement_missing`）。控制台用**预填自己的框**来回答这带来的摩擦：note 框里预先放一句由选中标题拼出
+的建议句，拥有者改一改，随确认一起发出去；提案请求不带 note。
+
+note 与 `statement_ref` 其余的核对在被打出来的地方进行，`plan` 一次、`confirm` 再一次：带着系统自己机械记号
 的 note（HTML 注释、`__AUTO__`——note 会被引述进一条断言，所以它的正文只能是话）是 **422
 `note_machinery`**；本库没有的 `statement_ref`、或者不是一份带可引述块的 `owner-dialogue/v1` 源，是
 **422 `statement_unknown`** / **422 `statement_not_owner`**；note 与所点名的陈述说法不同，是 **422
@@ -112,7 +125,8 @@ note 与 `statement_ref` 在被打出来的地方就被核对，`plan` 一次、
 永远不能被确认。确认时的 `items` 只能勾选或取消已列出的项（提案没算出来的 ref 是 **422 `unknown_item`**，收
 窄到空是 **422 `empty`**）；要**扩大**级联，就带更多种子重新提案——提案里的每一项都必须是 `reason`
 解释得了的一次计算。每一次拒绝都以 `{"detail": "…", "code": "…"}` 作答，短码为 `stale`、
-`not_proposed`、`not_found`、`unknown_item` 与 `empty`。
+`not_proposed`、`not_found`、`unknown_item`、`empty`、`note_required`、`note_machinery`、
+`statement_unknown`、`statement_not_owner` 与 `statement_mismatch`。
 
 确认把这个决定与执行它的作业写在**同一个事务**里，条件是这份提案仍是 `proposed`。因此两个同时在飞的
 确认——或者一个确认与一个 `drop`——只会有一个赢家，输的一方被拒绝为 **409 `not_proposed`**，且什么

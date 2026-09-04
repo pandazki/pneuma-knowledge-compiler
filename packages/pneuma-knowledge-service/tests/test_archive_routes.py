@@ -13,7 +13,6 @@ import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
-from pneuma_knowledge_core.archive.record import record_reason
 from pneuma_knowledge_service.api.routes.archive import (
     ConfirmIn,
     ProposeIn,
@@ -27,6 +26,10 @@ from pneuma_knowledge_service.archive_service import ArchiveRequestError
 from test_archive_service import _Canonical, _Store, _doc, _source
 
 USER = "u-archive-routes"
+#: Every CONFIRM carries a reason, because every confirm must (`note_required`, its own test
+#: below); a plan needs none — its `note` is an informational line. Stated once so the tests
+#: that are about something else need not invent one.
+NOTE = "Aurora shipped in June; the team is disbanded."
 
 
 def _ctx() -> SimpleNamespace:
@@ -92,10 +95,10 @@ async def test_a_user_id_outside_the_one_pattern_is_refused():
 async def test_confirm_accepts_a_body_with_no_overrides_at_all():
     ctx = _ctx()
     proposal = await propose_archive(
-        USER, ProposeIn(documents=["work/aurora.md"]), _request(ctx)
+        USER, ProposeIn(documents=["work/aurora.md"], note=NOTE), _request(ctx)
     )
     result = await confirm_archive_proposal(
-        USER, proposal["proposal_id"], _request(ctx), ConfirmIn()
+        USER, proposal["proposal_id"], _request(ctx), ConfirmIn(note=NOTE)
     )
     assert result["job_id"] == "job-1"
     assert ctx.store.enqueued == [("archive", {"proposal_id": proposal["proposal_id"]})]
@@ -132,7 +135,11 @@ def test_the_unarchive_reason_keeps_cited_by_archived_through_the_response_model
 
     out = client.post(
         f"/v1/users/{USER}/archive/proposals",
-        json={"action": "unarchive", "documents": ["archive/work/aurora.md"]},
+        json={
+            "action": "unarchive",
+            "documents": ["archive/work/aurora.md"],
+            "note": NOTE,
+        },
     )
 
     assert out.status_code == 200, out.text
@@ -149,7 +156,8 @@ def test_a_stale_confirm_reaches_the_wire_as_a_409_with_a_machine_code():
     ctx = _ctx()
     client = TestClient(_app(ctx))
     proposal = client.post(
-        f"/v1/users/{USER}/archive/proposals", json={"documents": ["work/aurora.md"]}
+        f"/v1/users/{USER}/archive/proposals",
+        json={"documents": ["work/aurora.md"], "note": NOTE},
     ).json()
     assert proposal["status"] == "proposed"
 
@@ -169,7 +177,8 @@ def test_a_listing_reads_stale_off_the_current_head_without_writing_anything():
     ctx = _ctx()
     client = TestClient(_app(ctx))
     proposal = client.post(
-        f"/v1/users/{USER}/archive/proposals", json={"documents": ["work/aurora.md"]}
+        f"/v1/users/{USER}/archive/proposals",
+        json={"documents": ["work/aurora.md"], "note": NOTE},
     ).json()
 
     ctx.canonical.head = "sha-2"  # a compile landed and nobody came back to the dialogue
@@ -195,11 +204,13 @@ def test_confirm_answers_202_and_the_inventory_lists_what_is_in_the_archive():
     ctx = _ctx()
     client = TestClient(_app(ctx))
     proposal = client.post(
-        f"/v1/users/{USER}/archive/proposals", json={"documents": ["work/aurora.md"]}
+        f"/v1/users/{USER}/archive/proposals",
+        json={"documents": ["work/aurora.md"], "note": NOTE},
     ).json()
 
     accepted = client.post(
-        f"/v1/users/{USER}/archive/proposals/{proposal['proposal_id']}/confirm", json={}
+        f"/v1/users/{USER}/archive/proposals/{proposal['proposal_id']}/confirm",
+        json={"note": NOTE},
     )
     assert accepted.status_code == 202
     assert accepted.json()["proposal"]["status"] == "confirmed"
@@ -228,7 +239,8 @@ def test_a_dropped_proposal_can_no_longer_be_confirmed():
     ctx = _ctx()
     client = TestClient(_app(ctx))
     proposal = client.post(
-        f"/v1/users/{USER}/archive/proposals", json={"documents": ["work/aurora.md"]}
+        f"/v1/users/{USER}/archive/proposals",
+        json={"documents": ["work/aurora.md"], "note": NOTE},
     ).json()
     pid = proposal["proposal_id"]
 
@@ -249,55 +261,74 @@ def test_the_record_preview_carries_the_line_that_will_be_quoted():
 
     `reason` has to survive the response model: an undeclared field is silently stripped by
     FastAPI, and a console would then render a record preview with no reason in it and no
-    error anywhere saying why.
+    error anywhere saying why. It is NULL on a plan that named no statement — the reason is
+    the note sent with the confirm — and null has to reach the wire as null rather than as
+    the empty string a `str` field would coerce it to, because the console reads "no line
+    kept here" and shows its own box.
     """
     ctx = _ctx()
     client = TestClient(_app(ctx))
     proposal = client.post(
         f"/v1/users/{USER}/archive/proposals",
-        json={"documents": ["work/aurora.md"], "note": "Aurora shipped in June."},
+        json={"documents": ["work/aurora.md"], "note": "an informational line"},
     ).json()
     record = next(
         item["record"] for item in proposal["items"] if item["kind"] == "document"
     )
-    assert record["reason"] == "Aurora shipped in June."
+    assert record["reason"] is None
     assert record["title"] == "Aurora"
 
+    # The confirm's own words are what the field then carries, all the way out.
+    confirmed = client.post(
+        f"/v1/users/{USER}/archive/proposals/{proposal['proposal_id']}/confirm",
+        json={"note": "Aurora shipped in June."},
+    ).json()
+    quoted = next(
+        item["record"]
+        for item in confirmed["proposal"]["items"]
+        if item["kind"] == "document"
+    )
+    assert quoted["reason"] == "Aurora shipped in June."
 
-def test_the_record_preview_also_carries_the_line_an_EMPTY_note_would_quote():
-    """`reason_default` is the other future of the same decision, and it is on the wire.
 
-    A console cannot derive it: `reason` is the note, and an Owner who deletes that note is
-    confirming a record that quotes the DEFAULT sentence — the confirm sends `note: ""`,
-    which replaces the plan's note with nothing. Without this field the preview would fall
-    back to the note being deleted and show the one line certain not to be written.
+def test_a_confirm_with_no_reason_is_422_note_required_on_the_wire():
+    """The framework never speaks for the Owner, and the wire says so with a machine code.
+
+    The reason is kept as an `owner-dialogue/v1` source — L0 labelled as the Owner speaking
+    — so the CONFIRM, which is the decision that source records, is refused unless it carries
+    the words itself. A plan is not that decision: it takes no reason, keeps its `note` as an
+    informational line, and is computed all the same. The console's answer to the friction is
+    a PREFILLED suggestion in its own box, which the Owner edits and sends with the confirm.
     """
     ctx = _ctx()
     client = TestClient(_app(ctx))
-    proposal = client.post(
+    planned = client.post(
         f"/v1/users/{USER}/archive/proposals",
-        json={"documents": ["work/aurora.md"], "note": "Aurora shipped in June."},
-    ).json()
-    record = next(
-        item["record"] for item in proposal["items"] if item["kind"] == "document"
+        json={"documents": ["work/aurora.md"], "note": NOTE},
     )
-    assert record["reason"] == "Aurora shipped in June."
-    # The sentence `record_reason` writes with no note at all, naming what is moving — the
-    # same string the job would quote, computed here rather than guessed by the console.
-    assert record["reason_default"] == record_reason(
-        "", [item["title"] for item in proposal["items"] if item["kind"] == "document"]
-    )
-    assert record["reason_default"] != record["reason"]
+    assert planned.status_code == 200
+    proposal = planned.json()
+    pid = proposal["proposal_id"]
 
-    # A plan with no note at all: the two agree, because an empty note is already the case.
-    plain = client.post(
-        f"/v1/users/{USER}/archive/proposals",
-        json={"documents": ["work/aurora.md"]},
-    ).json()
-    plain_record = next(
-        item["record"] for item in plain["items"] if item["kind"] == "document"
+    # A confirm saying nothing, a cleared box, and a blank one: all three refused, and the
+    # note the row happens to hold is a fallback for none of them.
+    for body in ({}, {"note": ""}, {"note": "   \n "}):
+        refused = client.post(
+            f"/v1/users/{USER}/archive/proposals/{pid}/confirm", json=body
+        )
+        assert refused.status_code == 422
+        assert refused.json()["code"] == "note_required"
+        # Nothing moved: the row is still open, holding the line it was planned with.
+        assert ctx.store.rows[pid]["status"] == "proposed"
+        assert ctx.store.rows[pid]["note"] == NOTE
+        assert ctx.store.enqueued == []
+
+    # A plan with no note at all is computed and kept, with nothing quotable on it.
+    noteless = client.post(
+        f"/v1/users/{USER}/archive/proposals", json={"documents": ["work/atlas.md"]}
     )
-    assert plain_record["reason_default"] == plain_record["reason"]
+    assert noteless.status_code == 200
+    assert noteless.json()["note"] is None
 
 
 def test_a_note_carrying_machinery_reaches_the_wire_as_422_note_machinery():

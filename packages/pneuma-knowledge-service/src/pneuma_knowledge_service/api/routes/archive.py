@@ -19,6 +19,13 @@ exception type, rendered by the handler in `api/app.py`:
   not hold, or one that is not an `owner-dialogue/v1` source with a block to quote.
 - `422 statement_mismatch` — a note and a `statement_ref` saying different things. The record
   quotes the source it cites, so one of the two has to go.
+- `422 note_required` — a CONFIRM carrying neither a non-blank `note` nor a `statement_ref`
+  (here or on the proposal). The reason is recorded as the owner's own `owner-dialogue/v1`
+  statement, so it can only be words the owner wrote at the decision: the framework composes
+  none on their behalf, and neither does a note left on the proposal, which decided nothing
+  when it was typed. `plan` therefore does not require one at all — its `note` is
+  informational — and the console answers the friction by prefilling a suggestion in its own
+  box, which the owner edits and SENDS with the confirm.
 """
 
 from __future__ import annotations
@@ -98,16 +105,19 @@ class RecordPreviewOut(BaseModel):
     #: Live pages, outside the set this proposal moves, that link to this one.
     inbound: int = 0
     #: The exact sentence the record's third block will quote, under the citation naming the
-    #: owner's statement: the note, the block 0 of a supplied `statement_ref`, or the default
-    #: sentence. Previewed so the console shows what is about to be confirmed rather than
-    #: only the numbers around it.
-    reason: str = ""
-    #: The line an EMPTY note would quote instead — the default sentence naming what is
-    #: moving (or, when a `statement_ref` was named, that statement's words, which a note
-    #: cannot displace). A console whose owner deletes the note they typed at plan time is
-    #: looking at THIS future of the record, not at `reason`, because the confirm stores a
-    #: cleared note as a decision and the job then writes this line.
-    reason_default: str = ""
+    #: owner's statement — always the OWNER'S OWN WORDS. On a PLAN it is the block 0 of a
+    #: supplied `statement_ref`, and NULL when none was named: a plan decides nothing, so it
+    #: previews no sentence of its own and the console shows the live content of its note box
+    #: instead. On the kept row after a confirm it is the line that decision stood on, and
+    #: the job quotes exactly it.
+    reason: str | None = None
+    #: Where that sentence came from — `statement` (block 0 of a `statement_ref` the owner
+    #: named) or `note` (the words sent with the confirm). Null exactly when `reason` is.
+    #: It is the record's PROVENANCE, and it is stamped rather than inferred: the job mints
+    #: an `owner-dialogue/v1` source — L0 labelled as the owner speaking — out of `reason`,
+    #: and refuses (`statement_missing`) a reason arriving without this stamp rather than
+    #: trusting that whatever wrote the row followed the rule.
+    reason_source: Literal["note", "statement"] | None = None
 
 
 class ProposalItemOut(BaseModel):
@@ -154,9 +164,14 @@ class ProposeIn(BaseModel):
     #: off `GET /archive` both name the same subject.
     documents: list[str] = []
     sources: list[str] = []
+    #: An informational line kept on the proposal for a listing to display. NOT a reason and
+    #: never a statement: the record's reason is the note sent with the CONFIRM, because that
+    #: request is the decision the record says the Owner made. Optional, therefore, and a
+    #: plan carrying none is computed all the same.
     note: str | None = Field(default=None, max_length=2000)
     #: Optionally the `owner-dialogue/v1` source in which the Owner asked for this — the
-    #: proposal's provenance in the one addressing scheme.
+    #: proposal's provenance in the one addressing scheme, and the other way to satisfy the
+    #: reason requirement.
     statement_ref: str | None = None
 
 
@@ -170,8 +185,16 @@ class ConfirmIn(BaseModel):
     #: Per-item `selected` overrides. Only `selected` may change and only for a ref the plan
     #: already computed; to ADD to a cascade, re-plan with more seeds.
     items: list[ItemOverrideIn] | None = None
-    #: The Owner's reason, stated at the decision; replaces the plan-time note when given.
+    #: The Owner's reason, in their own words — REQUIRED (non-blank) unless a
+    #: `statement_ref` is named here or on the proposal. This is the sentence the record
+    #: quotes and the owner-dialogue source it cites, so it can only be words sent with the
+    #: decision: absent or blank it is `422 note_required`, and the note the plan happens to
+    #: hold is never a fallback. Given, it replaces that note on the kept row.
     note: str | None = Field(default=None, max_length=2000)
+    #: Optionally the `owner-dialogue/v1` source in which the Owner asked for this, when it
+    #: was not named at the plan. Its block 0 becomes the reason and the note beside it is
+    #: informational (and may not disagree — `422 statement_mismatch`).
+    statement_ref: str | None = None
 
 
 class ConfirmOut(BaseModel):
@@ -286,6 +309,7 @@ async def confirm_archive_proposal(
         proposal_id,
         items_override=overrides,
         note=body.note if body is not None else None,
+        statement_ref=body.statement_ref if body is not None else None,
     )
 
 

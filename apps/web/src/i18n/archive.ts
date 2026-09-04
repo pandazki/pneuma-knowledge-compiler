@@ -61,6 +61,11 @@ export const archive = defineMessages({
     // 对话框问一个它不会记下的问题。
     "archive.note.placeholder.archive": "为什么归档——留给以后翻到这一条的人。",
     "archive.note.placeholder.unarchive": "为什么把它移回正本——留给以后翻到这一步的人。",
+    // 预填进备注框的建议句：拥有者读到它、可以改、然后由他自己发出去。框架自己不会替拥有
+    // 者写理由——归档的理由要以 `owner-dialogue/v1` 源的形式记进 L0，那是"拥有者说的话"。
+    "archive.note.suggested.archive": "归档：{titles}",
+    "archive.note.suggested.unarchive": "取消归档：{titles}",
+    "archive.note.required": "写一句理由——留痕引用的是你自己的话。",
 
     "archive.record.badge": "归档记录",
     "archive.record.preview": "原路径上会留下",
@@ -169,6 +174,13 @@ export const archive = defineMessages({
     // restore dialog ask a question it does not keep an answer for.
     "archive.note.placeholder.archive": "Why this is going in — for whoever finds it later.",
     "archive.note.placeholder.unarchive": "Why it is coming back — for whoever finds this later.",
+    // The sentence the box is PREFILLED with: the owner reads it, may rewrite it, and sends
+    // it themselves. The framework writes no reason on their behalf — an archive's reason is
+    // kept in L0 as an `owner-dialogue/v1` source, which is the owner SPEAKING, and a
+    // sentence they never typed standing there would be indistinguishable from one they did.
+    "archive.note.suggested.archive": "Archived: {titles}",
+    "archive.note.suggested.unarchive": "Restored: {titles}",
+    "archive.note.required": "Say why — the record quotes your own words.",
 
     "archive.record.badge": "Archived record",
     "archive.record.preview": "What stays at the live path",

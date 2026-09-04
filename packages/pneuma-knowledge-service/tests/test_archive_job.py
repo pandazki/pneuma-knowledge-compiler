@@ -19,7 +19,10 @@ from pneuma_knowledge_core.domain.canonical import CanonicalDocument
 from pneuma_knowledge_core.domain.ids import DocumentId, UserId
 from pneuma_knowledge_core.ingest.canonical_sources import normalize_source_contract
 from pneuma_knowledge_core.domain.snapshot import SnapshotRef
-from pneuma_knowledge_core.ports.canonical_store import CanonicalMoveError
+from pneuma_knowledge_core.ports.canonical_store import (
+    CanonicalDirtyError,
+    CanonicalMoveError,
+)
 from pneuma_knowledge_core.prompts import prompt
 from pneuma_knowledge_service.workers import archive_job as archive_job_module
 from pneuma_knowledge_service.workers.archive_job import run_archive_job
@@ -60,8 +63,11 @@ def _record(title: str = "Aurora", **overrides) -> dict:
 
     `reason` is the exception, and it is authoritative. It is a fact about the DECISION
     rather than about the page, computed at the confirm against the set the Owner finally
-    ticked, and the job replays it. Pass `reason=None` for a row kept before that field
-    existed — the one case the job still computes the line itself.
+    ticked, and the job replays it. It travels with `reason_source`, the confirm's STAMP
+    saying which of the two legal provenances it came from — the note sent with the confirm,
+    or a `statement_ref` the Owner named — because the job may not mint the Owner's speech
+    out of a line whose origin nothing in the row states. Pass `reason=None` for a row that
+    kept none, or `reason_source=None` for one written before the stamp existed.
     """
     facts = {
         "title": title,
@@ -72,10 +78,13 @@ def _record(title: str = "Aurora", **overrides) -> dict:
         "volumes": 1,
         "inbound": 3,
         "reason": KEPT_REASON,
+        "reason_source": "note",
     }
     facts.update(overrides)
     if facts.get("reason") is None:
         facts.pop("reason")
+    if facts.get("reason_source") is None:
+        facts.pop("reason_source", None)
     return facts
 
 
@@ -415,6 +424,65 @@ async def test_a_refused_move_fails_the_proposal_and_touches_no_index(stubbed):
     assert detail["error"] == "CanonicalMoveError"
     assert "archive/work/aurora.md" in detail["message"]
     assert ctx.completed[0][1] is False
+
+
+async def test_a_library_holding_somebody_else_s_changes_fails_canonical_dirty(stubbed):
+    """The adapter refused to discard uncommitted work it could not prove was its own, and
+    the job STATES that rather than burying it under a class name.
+
+    One code across every face (`canonical_dirty`), because the fix is one command and the
+    operator has to be able to find it: the proposal's `error`, the job's completion detail
+    and the API's 409 body all spell it the same way. Nothing moved, so the proposal is
+    `failed` over a tree that is byte-for-byte what it was and the same decision runs again
+    once the library is clean.
+    """
+    ctx = _Ctx(_row([_item("document", "work/aurora.md"), _item("source", "src-a")]))
+    ctx.move_error = CanonicalDirtyError(["work/aurora.md", "work/scratch.md"])
+
+    await run_archive_job(ctx, USER, _job())
+
+    assert [call[0] for call in ctx.calls] == ["move", "proposal"]
+    assert ctx.row["status"] == "failed"
+    detail = json.loads(ctx.row["detail"])
+    assert detail["error"] == "canonical_dirty"
+    assert "work/scratch.md" in detail["message"]
+    # …and the job's own completion STARTS WITH the machine form. The shared worker's branch
+    # for this fault completes with exactly `exc.detail`, and this job is the one kind that
+    # does not pass through it (it has a proposal row to fail first): an `archive: ` PREFIX
+    # here would make one fault two strings depending on which job met it. The contract is
+    # therefore the prefix — which is what leaves room for the one honest suffix below.
+    assert ctx.completed[0][1] is False
+    assert ctx.completed[0][2].startswith("canonical_dirty:")
+    assert ctx.completed[0][2].startswith(
+        CanonicalDirtyError(["work/aurora.md", "work/scratch.md"]).detail
+    )
+    # Nothing else here, because the terminal write kept its predicate.
+    assert ctx.completed[0][2] == "canonical_dirty:work/aurora.md,work/scratch.md"
+    # No L0 mark, no index flip: the authorities were never touched.
+    assert [call[0] for call in ctx.calls if call[0] in ("l0", "l1", "l2", "l3")] == []
+
+
+async def test_a_dirty_library_whose_row_moved_still_leads_with_canonical_dirty(stubbed):
+    """The contract is the PREFIX, and this is the one case that needs it to be.
+
+    A terminal write that lost its predicate is a second fact about the same failure — the
+    work's row was moved by somebody else while the job ran — and it is appended rather than
+    dropped: an operator told only `canonical_dirty` over a row that says `dropped` would
+    have no way to see the two are one event. Suppressing the suffix to keep the string
+    byte-exact would be trading a true statement for a tidy one. The grep still works,
+    because what every reader matches on is the front of the string.
+    """
+    ctx = _Ctx(_row([_item("document", "work/aurora.md")]))
+    ctx.during_move = lambda: ctx.row.update(status="dropped")
+    ctx.move_error = CanonicalDirtyError(["work/aurora.md"])
+
+    await run_archive_job(ctx, USER, _job())
+
+    assert ctx.row["status"] == "dropped"
+    job_id, ok, detail, _ref = ctx.completed[-1]
+    assert (job_id, ok) == ("job-1", False)
+    assert detail.startswith("canonical_dirty:work/aurora.md")
+    assert "no longer confirmed" in detail
 
 
 async def test_a_library_that_moved_since_the_confirm_fails_stale_and_moves_nothing(
@@ -964,25 +1032,101 @@ async def test_the_reason_the_confirm_kept_is_the_one_the_statement_and_the_reco
     assert "a note the confirm already replaced" not in ctx.writes["work/aurora.md"]
 
 
-async def test_a_row_that_kept_no_reason_computes_the_default_sentence(
+async def test_a_row_note_is_never_promoted_to_the_owners_statement(stubbed_statement):
+    """There is NO fallback to the note the row holds, and dropping it was the fix.
+
+    That note is display text a PLAN happened to keep: typed against a set that may since
+    have been narrowed, at a moment that decided nothing. The confirm refuses to stand on it
+    (`note_required`), so the job may not either — promoting it here would record the Owner
+    as having said something at a time they did not. The row below is exactly that shape, and
+    it is refused rather than quietly spoken for.
+    """
+    ctx = _Ctx(_row([_item("document", "work/aurora.md", record=_record(reason=None))]))
+    ctx.row["note"] = "Aurora shipped in June."
+    ctx.documents = [PAGE]
+
+    await run_archive_job(ctx, USER, _job())
+
+    assert stubbed_statement == []
+    assert ctx.writes == {}
+    assert [call[0] for call in ctx.calls if call[0] == "move"] == []
+    assert ctx.row["status"] == "failed"
+    assert json.loads(ctx.row["detail"])["error"] == "statement_missing"
+
+
+async def test_a_reason_with_no_stamped_provenance_is_refused(stubbed_statement):
+    """The mechanism behind "a confirmed row's reason is confirm-written".
+
+    It was TRUE of the code and proved by NOTHING in the row: the job read the line and
+    trusted that whatever wrote it had followed the rule. Now the confirm stamps every reason
+    it writes with `reason_source`, and a reason arriving without the stamp is refused — the
+    step this guards mints an `owner-dialogue/v1` source, L0 labelled as the Owner SPEAKING,
+    and words whose provenance cannot be seen are not words to put in it.
+    """
+    ctx = _Ctx(
+        _row([_item("document", "work/aurora.md", record=_record(reason_source=None))])
+    )
+    ctx.documents = [PAGE]
+
+    await run_archive_job(ctx, USER, _job())
+
+    assert stubbed_statement == []
+    assert ctx.writes == {}
+    assert [call[0] for call in ctx.calls if call[0] == "move"] == []
+    assert ctx.row["status"] == "failed"
+    detail = json.loads(ctx.row["detail"])
+    assert detail["error"] == "statement_missing"
+    assert "reason_source" in detail["message"]
+
+
+async def test_a_reason_stamped_by_the_confirm_runs(stubbed_statement):
+    """The other side of the stamp: both legal provenances carry the line straight through."""
+    for source in ("note", "statement"):
+        ctx = _Ctx(
+            _row(
+                [
+                    _item(
+                        "document",
+                        "work/aurora.md",
+                        record=_record(reason_source=source),
+                    )
+                ]
+            )
+        )
+        ctx.documents = [PAGE]
+
+        await run_archive_job(ctx, USER, _job())
+
+        assert ctx.row["status"] == "executed", source
+        contract, _ = stubbed_statement[-1]
+        assert contract.turns[0].text == KEPT_REASON
+        assert KEPT_REASON in ctx.writes["work/aurora.md"]
+
+
+async def test_a_row_carrying_no_reason_at_all_refuses_rather_than_speaking_for_the_owner(
     stubbed_statement,
 ):
-    """The one case the job still computes the line: a row kept before the confirm did.
+    """The defensive half of the correction, at the far side of the QUEUE.
 
-    Through core's `record_reason` — the same function the request face calls — over the
-    note the row holds and the titles it is still moving. With no note, that is the default
-    sentence naming what is being archived.
+    `plan` and `confirm` both refuse a proposal with neither a note nor a `statement_ref`, so
+    a row like this cannot be made through the API any more — but the request and the
+    execution are separated by a job queue, and a row written before that rule existed (or
+    repaired by hand) still reaches here. The step it would reach is the one that INGESTS an
+    `owner-dialogue/v1` source: L0 labelled as the owner speaking. With no words of theirs to
+    put in it, the only sentence left would be one the framework wrote and then cited as
+    theirs — so the job refuses, ingests nothing, and moves nothing.
     """
     ctx = _Ctx(_row([_item("document", "work/aurora.md", record=_record(reason=None))]))
     ctx.documents = [PAGE]
 
     await run_archive_job(ctx, USER, _job())
 
-    contract, _ = stubbed_statement[0]
-    assert contract.turns[0].text == prompt(
-        "archive.statement.default", titles="work/aurora.md"
-    )
-    assert contract.turns[0].text in ctx.writes["work/aurora.md"]
+    assert stubbed_statement == []
+    assert ctx.writes == {}
+    assert [call[0] for call in ctx.calls if call[0] == "move"] == []
+    assert ctx.row["status"] == "failed"
+    assert json.loads(ctx.row["detail"])["error"] == "statement_missing"
+    assert "statement_missing" in ctx.completed[0][2] or "no reason" in ctx.completed[0][2]
 
 
 async def test_a_sources_only_proposal_ingests_nothing_and_writes_no_record(

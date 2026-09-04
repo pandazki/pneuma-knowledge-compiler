@@ -1171,8 +1171,6 @@ _ZH: dict[str, str] = {
     ),
     # The `[cite: …]` marker is appended by the renderer, never written here.
     "archive.record.reason": "拥有者于 {date} 归档：「{note}」",
-    # What the owner's STATEMENT says when they archived without writing a reason.
-    "archive.statement.default": "归档 {titles}。",
     # ─────────────────────────────────────────────── the archive channel's own gate
     "gate.archive_record.anchors": (
         "留痕的锚点必须是本路径按槽位顺序系统派发的那三个：期望 {expected}，实得 {found}。"
