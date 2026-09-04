@@ -1230,8 +1230,7 @@ def test_the_quiet_posture_only_mines_a_question_a_library_could_answer_at_all()
 
 
 def test_every_posture_aims_a_find_a_person_ask_at_the_people_and_not_at_a_definition():
-    """The one steer that stays a RULE and not an example, in the SHARED half — so all three
-    postures carry it.
+    """The find-a-person steer, in the SHARED half — so all three postures carry it.
 
     A conversation looking for somebody to present a public tool is a find-a-person question
     wearing an external subject, and the plan it deserves is the people around that subject
@@ -1239,29 +1238,40 @@ def test_every_posture_aims_a_find_a_person_ask_at_the_people_and_not_at_a_defin
     what the tool IS — an answer to a question nobody asked. The clause is about WHERE a
     lookup points, and how latent a question may be (the density axis) does not touch that.
 
-    "TWO of them" is load-bearing and measured: on the live stack the one-entry plan is the
-    shape that comes back empty, because the people path can only answer for a subject the
-    contact book already holds, and the similarity query is what reaches the nearest
-    expertise when it does not. It used to read "BOTH entries", which was true only while the
-    plan bound was two; the clause is about how many a who-question SPENDS, and that has not
-    moved with the bound."""
+    The two lookups are load-bearing and measured: on the live stack the one-entry plan is
+    the shape that comes back empty, because the people path can only answer for a subject
+    the contact book already holds, and the similarity query is what reaches the nearest
+    expertise when it does not.
+
+    2026-09-04: that is now taught as the line above it applied — one lookup per distinct
+    thing to be found — with the reason stated, instead of as a query shape every
+    who-question must wear. The reason is the transferable half: whoever reads it can see
+    that the base either holds the person or it does not, which is what makes them two
+    things to find. The steer itself is unchanged in force, and what stays a flat rule is the
+    one thing that admits no case: a definition of the subject answers nothing here."""
     for density in ("eager", "balanced", "quiet"):
-        contract = discover_contract("general", (), density=density)
+        # One line of the clause wraps mid-sentence in the source; the contract is judged as
+        # the model reads it, so compare on normalized whitespace.
+        contract = " ".join(discover_contract("general", (), density=density).split())
         for clause in (
-            "A question about WHO takes TWO of them and is answered by neither alone.",
+            "A question about WHO is that principle's clearest case",
+            "the base either holds the person or it does not",
             "whichever offered lookup is about people",
-            "spend the OTHER on a similarity",
+            "spend a second on a similarity query",
             '("who has worked on X, or on that kind of work")',
-            "reaches the nearest expertise when the subject itself is not in the",
+            "reaches the nearest expertise when the subject itself is absent",
+            "not as the shape every who-question must take",
             "a definition of the subject answers nothing here",
         ):
             assert clause in contract, (density, clause)
 
     chinese = chinese_overlay()["recall.live.discover.contract"]
     for clause in (
-        "问「谁」的问题要用掉其中**两条**，少一条都答不上",
-        "把主体交给上面任何一条关于人的查询",
+        "问「谁」的问题是这条原则最清楚的一例",
+        "库里要么有这个人、要么没有，这是两件要找的事",
+        "所以把主体交给上面任何一条关于人的查询",
         "「做过 X 或同类工作的人」",
+        "而不是所有「谁」的问题都必须长成的样子",
         "把主体解释一遍，在这里什么都没回答",
     ):
         assert clause in chinese, clause

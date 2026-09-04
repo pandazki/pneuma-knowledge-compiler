@@ -1,6 +1,7 @@
-# Model roles for this engine. The compile model is the one real quality lever — a stronger
-# model directly produces a better library — and it must support tool calling, because the
-# compile agent writes through tools.
+# Model roles for this engine. The compile model must support tool calling: the compile agent
+# writes through tools, so a model without them cannot write at all. That is the requirement.
+# What a particular model is worth beyond it — the library it produces, its latency, its cost
+# — is compared on this project's own material, one role at a time on the same harness.
 #
 # Precedence for every key in this directory: process environment > this file > framework
 # default. The matching variables here are PNEUMA_KNOWLEDGE_LLM_MODEL_COMPILE / _RECALL /
@@ -74,9 +75,13 @@ pricing: |
 
 # Index components: business-specific structure over canonical, enabled by name (comma
 # separated; empty = none). Shipped:
-#   people — `identities` / `aliases` on person pages, unique across the library and only
-#            ever growing, checked at the gate and shown in the compile outline, plus
-#            find_person (compile) and enumerate_identities (deep recall).
+#   people — `identities` / `aliases` on person pages. They belong to the overview, so a
+#            rewrite replaces them whole and a wrong binding is repaired by the next round
+#            that touches the page. Three things about them are mechanical, checked at the
+#            write face and again at the gate: an identity is `scheme:value` and belongs to
+#            one page; two person ids that both SPEAK in one source are two people and may
+#            not share a page; an alias is not somebody else's name. Shown in the compile
+#            outline, plus find_person (compile) and enumerate_identities (deep recall).
 #   time   — the owner's calendar: one derived row per source block keyed by the day it
 #            falls on in the owner's timezone, a timespan(since, until) lookup for fast
 #            recall, timeline / as_of for deep recall, and each source's span stated in

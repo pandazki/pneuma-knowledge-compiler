@@ -96,14 +96,17 @@ the two things lexical and semantic retrieval **cannot**:
   records can neither be surveyed nor followed. Prefer one continuously updated document per
   subject over one new document per batch of material.
 
-An example of the boundary. The material says "bought a second-hand laptop, only 25000".
-That number, **25000, does not belong in canonical** — when the owner later asks "how much
-was that laptop of mine", hitting the original text on the word "laptop" is the correct
-path. What canonical should record is the part with thread significance, if this event has
-any: that the machine became the development box for some project, say, or that the expense
-became the basis for some decision. Copying the amount into canonical does not make the
-system able to answer anything more; it only adds one more duplicate to maintain in the one
-layer that cannot be rebuilt.
+An example of the boundary, and of who draws it. The material says "bought a second-hand
+laptop, only 25000". In a library where spending is not a thread of its own, that number
+stays with the original text — when the owner later asks "how much was that laptop of
+mine", hitting the original on the word "laptop" is the correct path, and copying the
+amount into canonical makes the system able to answer nothing more while adding one more
+duplicate to maintain in the one layer that cannot be rebuilt. What canonical should record
+is the part with thread significance, if this event has any: that the machine became the
+development box for some project, say, or that the expense became the basis for some
+decision. **Which classes of value are a domain's durable knowledge is decided by the
+compile contract in §5, not fixed here**: in a library whose subject IS money, amounts are
+the thread, and its contract says so.
 
 Why the constraints are tighter here than elsewhere: canonical is the only layer written by
 judgement, and nothing can regenerate it. L1 and L2 are indexes — throw them away and they
@@ -162,10 +165,11 @@ Two kinds do not belong in canonical, for different reasons:
 
 - **No thread significance**: assistant greetings, system notifications, pure status
   broadcasts, bystander chatter unrelated to the owner. They establish nothing.
-- **Real content, but detail**: specific amounts, verbatim error text, links and parameters
-  read out during a discussion. They have value, but that value is delivered by the retrieval
-  layers — copying them into canonical only adds duplication and maintenance burden to the
-  layer nothing can regenerate.
+- **Real content this contract treats as detail**: amounts, verbatim error text, links and
+  parameters read out during a discussion, wherever §5 has not claimed that class of value
+  as one of this domain's threads. Their value is delivered by the retrieval layers —
+  copying them into canonical only adds duplication and maintenance burden to the layer
+  nothing can regenerate.
 
 **"Writing nothing this round" is a legitimate outcome, not a failure.** Do not manufacture
 output so that it "looks like every source was handled": writing two or three claims for
@@ -566,11 +570,13 @@ Otherwise:
 {kinds}
   Plan one lookup per distinct thing that has to be found, and as many as the question
   needs — when it needs one, one is the right plan.
-  A question about WHO takes TWO of them and is answered by neither alone. Hand its
-  subject to whichever offered lookup is about people, and spend the OTHER on a similarity
-  query shaped like a person too ("who has worked on X, or on that kind of work") — that
-  second one is what reaches the nearest expertise when the subject itself is not in the
-  base, and a definition of the subject answers nothing here.
+  A question about WHO is that principle's clearest case: the base either holds the person
+  or it does not, and those are two distinct things to find, so hand the subject to
+  whichever offered lookup is about people and spend a second on a similarity query shaped
+  like a person too ("who has worked on X, or on that kind of work") — the second is what
+  reaches the nearest expertise when the subject itself is absent. Read it as the principle
+  applied, not as the shape every who-question must take; what does hold generally is that
+  a definition of the subject answers nothing here.
 - `worth` — 1-10: how much the room would gain from the answer. Below the floor nothing is
   retrieved at all, so an honest low score costs nothing and a high one costs attention.
 
@@ -1871,10 +1877,18 @@ DEFAULTS: dict[str, str] = {
     ),
     # ─────────────────────────────────────────────── recall: the shared spine
     "recall.spine": _SPINE,
+    # Granularity is the only thing loosened here: the ¶ interval may be dropped. WHETHER a
+    # conclusion cites is not a granularity question — every evidence face this scenario
+    # renders arrives carrying its own marker, so a conclusion with no marker to copy is a
+    # conclusion with no evidence behind it. The library's layout (the glance) is the one
+    # surface with no marker, and it is not evidence: it states what exists, not what is so.
     "recall.cite.source_level": (
-        "source level is enough in this scenario (`[cite: <source_id>]`, the ¶ paragraph may be "
-        "omitted; include a source when you reliably have one, do not force one when you do "
-        "not) — it is a thread left for later tracing, not a hard target of this scenario."
+        "source level is enough in this scenario (`[cite: <source_id>]`, the ¶ paragraph may "
+        "be omitted). Every piece of evidence in front of you carries a marker of its own, so "
+        "each factual conclusion the answer states carries the marker of the evidence it rests "
+        "on, and one you cannot mark that way is one you do not state. The knowledge base's "
+        "layout is the exception because it is not evidence: it says which documents exist, "
+        "never what is true, so nothing is cited to it."
     ),
     "recall.cite.precise": "cite down to the paragraph (`[cite: <source_id> ¶a-b]`).",
     "recall.cite.structured": (
@@ -1906,12 +1920,21 @@ DEFAULTS: dict[str, str] = {
     # discipline: the red line, citations, and the honest close above are style-
     # independent. Appended after the spine by the Q&A contracts (fast/deep); chosen per
     # deployment (PNEUMA_KNOWLEDGE_RECALL_ANSWER_STYLE) or per request.
+    # The one clause here that is not about brevity. Observed on a full autonomous run: a
+    # concise answer that named the value and then, in the same breath, said the exact value
+    # was not recorded — self-contradiction dressed as caution. Whether there is footing is
+    # the honest close's judgement (`recall.close.answer_honestly`, style-independent); what
+    # belongs here is the SHAPE that judgement takes once it is made, so the sentence lives
+    # in this preset and is not repeated there.
     "recall.style.concise": (
         "\nAnswer style — precise and concise. Reply with the shortest phrase or sentence "
         "that fully answers the question: the exact value, name, date, span, or list asked "
         "for, keeping a qualifier only when it is decisive (a negation, an approximation, "
         "a boundary). Add nothing else — no related facts, no background, no restated "
-        "question, no process notes.\n"
+        "question, no process notes. Commit to one side: give the value, or say the record "
+        "does not carry it — never both in one answer, because a stated value followed by a "
+        "disclaimer that it is not recorded contradicts itself, and a qualifier earns its "
+        "place only when it IS the answer.\n"
     ),
     "recall.style.conversational": (
         "\nAnswer style — natural conversation. Reply the way one person answers another "

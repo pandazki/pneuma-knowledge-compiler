@@ -1709,11 +1709,16 @@ SURFACES: tuple[Surface, ...] = (
         title_en="Phase 2 — whole-library reorganization",
         title_zh="第二阶段 — 全库重组",
         summary_en=(
-            "The adopted draft executed claim by claim: claims move verbatim with their "
-            "anchors, and the evolve gate refuses anything else."
+            "The adopted draft executed claim by claim. A move is verbatim because the tool "
+            "lifts the block and re-inserts it — the model names an anchor and a "
+            "destination, never text — and the evolve gate then checks what a move cannot "
+            "guarantee: citations that still resolve against the store, and paths the new "
+            "skill owns."
         ),
         summary_zh=(
-            "被采纳的草案被逐条断言执行：断言带着锚点原样搬迁，其余一切由演进闸门拒绝。"
+            "被采纳的草案被逐条断言执行。搬迁之所以是原样的，是因为工具整块取出、整块插入"
+            "——模型给的是一个锚点和一个去处，从来不是正文；演进闸门再去校验搬迁本身保证不了"
+            "的那些：引用仍然能在存储里解析，路径落在新契约的归属模板里。"
         ),
         segments=(b("evolve.phase2_contract"),),
         kind=ASSEMBLED,
@@ -2011,11 +2016,13 @@ SURFACES: tuple[Surface, ...] = (
         title_en="Fast recall contract",
         title_zh="快速召回契约",
         summary_en=(
-            "The everyday answering lane's System contract: head + the shared spine (with "
-            "source-level citation and the honest close) + the deployment's answer style."
+            "The fast lane's single-pass System contract: head + the shared spine (every "
+            "stated conclusion cited, to the source, and the honest close) + the "
+            "deployment's answer style."
         ),
         summary_zh=(
-            "日常回答车道的系统契约：开头 + 共享脊柱（源级引用 + 诚实收尾）+ 部署选定的回答风格。"
+            "快速车道单次作答的系统契约：开头 + 共享脊柱（每个结论都带引用，引到源级 + 诚实收尾）"
+            "+ 部署选定的回答风格。"
         ),
         segments=(
             b("recall.fast.contract_head"),

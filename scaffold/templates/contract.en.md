@@ -103,8 +103,10 @@ TODO: write your time calibers.
 
 ## 5. Privacy and non-admission
 
-<!-- What must never enter long-term memory? (Passwords, tokens, ID numbers are framework
-     red lines; what do you add — third parties' private matters? speculation about health
-     or finances?) -->
+<!-- What must never enter long-term memory? Nothing at the write layer judges content —
+     the gate reads provenance, structure and paths — so this list is yours to write, and
+     what must never reach the compiler at all is filtered at ingest. Most libraries start
+     with passwords, tokens and ID numbers; what do you add — third parties' private
+     matters? speculation about health or finances? -->
 
 TODO: write your non-admission list.
