@@ -114,33 +114,39 @@ way before you commit to a strategy.
 
 ## Beside them: the deep lane
 
-All three strategies are choices *inside* the fast lane — one retrieval, one answer, and the
-question of who picks the evidence in between. The deep lane is not a fourth strategy; it is
-the other lane, and no `evidence_strategy` applies to it. Sending one is refused rather than
-ignored: the API answers 400, a generated project's CLI exits.
+All three strategies are choices *inside* the fast lane, and the fast lane is one of the two
+this framework ships. The two are the canonical retrieval shapes, implemented once so a project
+starts from a working reference instead of a blank file — `evidence_strategy` reaches only the
+first of them, and sending it to the second is refused rather than ignored (the API answers 400,
+a generated project's CLI exits).
 
-**What it does.** Deep opens on the same seed evidence fast would have answered over, plus the
-library's glance, and then keeps working: it re-searches the claim face and the raw body face
-from new angles, lists and reads canonical documents in full, follows the markdown links inside
-them to their targets, and fetches verbatim spans to check what it found. It is a bounded
-agentic loop — the tool budget and the recorded trail of tool calls are mechanical, not asked
-for in prose — and it ends by answering.
+**fast** is multi-path retrieval answered in a single call: lexical and vector retrieval over
+the compiled claim face and the raw source face, fused by RRF, plus whatever routed paths the
+enabled index components contribute, with `evidence_strategy` deciding what of that pool the
+answer sees. **deep** is an agentic loop over the same faces: it opens on the evidence fast
+would have answered over, plus the library's glance, then re-searches either face from new
+angles, lists and reads canonical documents in full, follows the markdown links inside them,
+and fetches verbatim spans. The loop is bounded — a tool budget and a trail record per call,
+both mechanical — and it ends by answering.
 
-**What it costs.** Several model calls instead of one, in an order nobody knows in advance, so
-latency and token spend vary per question instead of sitting near a per-question constant.
-There is no cheap deep.
+Both stand behind the same guarantees: every conclusion cites, citations use the one addressing
+scheme the gate and the projection share, a caller that should leave no trace leaves none, and
+every answer returns what it spent.
 
-**What it buys.** Assembly. A fact that no single retrieved passage states — a join across two
-documents, a count or a comparison over many sources, "who ever did X" across the whole library
-— is not a retrieval-depth problem, and no `evidence_strategy` fixes it: raising a candidate cap
-widens what one shot sees, it does not let an answer walk from one document to a neighbouring
-one. Deep can walk, because a canonical document read in full carries its links and following
-one is another read.
+They differ mechanically in two ways. **Cost:** fast is one model call (two under `select`) over
+a prompt whose size follows from the caps; deep is a number of calls nobody knows in advance,
+because the loop decides how many it needs, so its latency and token spend vary per question
+instead of sitting near a constant. **Reach:** one shot answers over what one retrieval
+returned, while a loop can walk, because a canonical document read in full carries its links and
+following one is another read. Which is why a fact no retrieved passage states — a join across
+documents, a count over many sources — is not a retrieval-depth problem: raising a candidate cap
+widens what one shot sees, it does not move an answer to a neighbouring document.
 
-**How to choose.** Route by the question, not by the deployment: a direct lookup goes to the
-fast lane, an assembly question to the deep one. Both lanes take the same question and both
-print what they spent, so the cheapest comparison is to ask yours twice and read the two cost
-lines.
+Routing between them belongs to the application. Per-question routing, one lane always, both
+offered to the reader, a lane of your own in place of either — the framework carries all of them
+and holds none as doctrine. What these two are is the baseline your own arrangement is measured
+against, and the cost line every answer returns is what makes that measurement yours rather than
+borrowed from someone else's corpus.
 
 ## Decision table
 
@@ -151,7 +157,6 @@ lines.
 | the cheapest question at the highest volume | `evidence_strategy: ranked` | one call, the smallest prompt, no widened pool — the baseline everything else is measured against |
 | a reviewer who must see *why* evidence was accepted or ignored | `all` + `answer_format: structured` | that pair turns on `deliberation`, a field in front of the answer in the same call |
 | downstream automation that needs a clean answer string and a separately validated citation ledger | `answer_format: structured` | independent of the strategy; consume `answer_text`, render `answer` |
-| a question whose answer no single passage states — a join across documents, a count over many sources, a walk from one page to its neighbour | the deep lane (`mode: deep`, or `--deep`) | it re-searches, opens documents in full and follows their links until it can assemble the answer; `evidence_strategy` does not reach it |
 
 And for the caps, one rule: **raise a candidate cap when the fact is missing from the pool,
 raise a final cap when the pool has it and the context drops it.** Under `all`, the number

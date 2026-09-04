@@ -10,7 +10,7 @@ One command per action; `demo` runs the whole chain end to end:
                                 #   date comes from the frontmatter `date`)
     ./app.py compile            # drain the compile queue (real models)
     ./app.py ask "question"     # Q&A on the fast lane (--sources also prints the cited raw
-                                #   text; --deep answers on the agentic cross-document lane)
+                                #   text; --deep answers on the agentic lane instead)
     ./app.py glance             # print an overview of the current library (no re-ingest)
     ./app.py restore            # restore the library shipped in prebuilt/, if this project
                                 #   ships one (no API key needed — nothing here calls a model)
@@ -1787,10 +1787,10 @@ def main() -> int:
         "--deep",
         action="store_true",
         help=(
-            "answer on the agentic deep lane instead of the fast one: it starts on the same "
-            "evidence, then searches, follows document links and fetches verbatim spans on "
-            "its own. More model calls and more wall clock; use it when the answer has to be "
-            "assembled across documents rather than looked up in one"
+            "answer on the agentic deep lane instead of the fast one: it opens on the same "
+            "evidence, then re-searches, reads canonical documents in full, follows their "
+            "links and fetches verbatim spans until it can answer. A number of model calls "
+            "nobody knows in advance, against the fast lane's one"
         ),
     )
     ask.add_argument("--sources", action="store_true", help="also print the cited source windows")

@@ -103,14 +103,14 @@ cd ~/my-knowledge && ./start.sh
 
 ### The two answering lanes
 
-`ask` has two, and part of your job is teaching the judgement call rather than the flag:
+`ask` has two. They are the framework's built-in implementations of the two canonical retrieval shapes, shipped so a project starts from a working reference — not a rule about which one to use:
 
-- **fast** (the default) — retrieve once, answer once. One question, one shot at the evidence.
-- **deep** (`./app.py ask '<question>' --deep`) — the same seed evidence, then an agentic loop that re-searches from new angles, opens canonical documents in full, follows the links inside them, and fetches verbatim spans to check what it found.
+- **fast** (the default) — multi-path retrieval answered in one model call: lexical and vector retrieval over the compiled claims and the raw source, fused, then one answer.
+- **deep** (`./app.py ask '<question>' --deep`) — an agentic loop over the same evidence: it re-searches from new angles, opens canonical documents in full, follows the links inside them, and fetches verbatim spans, until it can answer.
 
-Fast is right for a direct lookup: the answer sits in one place and the question all but names it. Deep is right when the answer has to be *assembled* — a join across two documents, a count or a comparison over many sources, "who ever did this" across the whole library, anything whose subject is never named by the passages one retrieval returns first. Deep spends several model calls instead of one and takes correspondingly longer, and neither number is knowable in advance.
+Both cite, both leave no consultation record from this driver, and both print what they spent. Two mechanical differences. Cost: fast is one call over a prompt whose size follows from the caps; deep is a number of calls nobody knows in advance. Reach: a loop can walk from a document to its neighbours, because a document read in full carries its links; one shot cannot.
 
-Do not pick one for them in the abstract. Every answer prints its own cost line — seconds, evidence, tokens — so ask one of *their* real questions both ways and let the two lines make the case.
+Which lane a question goes to is the project's own design — always fast, routed per question, both offered side by side. Run one of *their* real questions through each and read the two cost lines together; that measurement, on their own material, is what a routing policy comes out of.
 
 **Done when**: they have seen the glance and one answer that clicks back to source.
 
