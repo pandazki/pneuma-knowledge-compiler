@@ -115,3 +115,15 @@ The whole point of this example is that you can. Give a coding agent the scaffol
 | `prebuilt/canonical.bundle`, `prebuilt/l0.jsonl.gz` | the two authorities from the build: the compiled canonical library (git bundle) and the verbatim L0 source rows its citations bind to (source ids are content-addressed, so identical material re-ingests to the same ids, and a restore keeps the stored ones exactly) |
 | `build-record/` | task book, build log, cost accounting, the use-side session, and the two scripts that produced them |
 | `eval/` | the frozen regression truth set over this corpus and the runner that scores a build against it |
+
+## Running and auditing the reference build
+
+The runtime files follow the current scaffold templates. `./start.sh` now builds material;
+use `./demo.sh` for the interactive tour and `./app.py ask "…" --sources` for questions.
+The prebuilt bundle preserves the historical reference build, including its imperfections.
+`./app.py audit` reports seven existing dangling overview references across five pages:
+`people/jianing.md`, `product/migration-guide.md`, `product/seamlog.md`,
+`threads/export-and-project-removal.md`, and `threads/small-group-invitation.md`.
+These unchanged regions do not block an unrelated compile. Rewriting a region requires
+repairing it, and retiring a previously valid basis requires repairing its dependants.
+The audit does not alter the shipped artifact or claim that mechanical validity proves fidelity.

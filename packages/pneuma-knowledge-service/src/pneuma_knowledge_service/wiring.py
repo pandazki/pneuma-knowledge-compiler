@@ -34,8 +34,7 @@ from .adapters.postgres import PostgresStore
 from .adapters.qdrant import QdrantVectorIndex
 from .adapters.s3_media import S3MediaStore
 from .adapters.scripted_model import load_scripted_model
-from .adapters.user_info_mock import MockUserInfoProvider
-from .adapters.user_info_provider_composite import PersistedThenMockUserInfoProvider
+from .adapters.user_info_provider_composite import PersistedUserInfoProvider, UnstatedUserInfoProvider
 from .settings import Settings
 from pneuma_knowledge_core.ports.user_info_provider import UserInfoProvider
 
@@ -629,10 +628,9 @@ class AppContext:
     embeddings: Embeddings
     registry: AdapterRegistry
     media: S3MediaStore | None = None
-    # user_id → UserProfile. Persisted-first (user-filled), mock-fallback;
-    # build_context wires the persisted lookup to PG. The default is the bare keyless mock
-    # so an AppContext built without a store (some unit tests) still resolves profiles.
-    user_info: UserInfoProvider = field(default_factory=MockUserInfoProvider)
+    # Persisted declarations win; absent personal facts remain unstated.
+    # Directly constructed contexts also use the unstated provider.
+    user_info: UserInfoProvider = field(default_factory=UnstatedUserInfoProvider)
     # Lazily built per role so build_context (used widely by tests with the default
     # openai:… model) never eagerly imports a provider client — a role's chat model is
     # only assembled when an endpoint first needs it, then reused.
@@ -811,12 +809,9 @@ async def build_context(settings: Settings) -> AppContext:
     )
     registry.register(MarkdownDocumentAdapter(), kind="document")
 
-    # Persisted-first user picture: PG-backed overrides win, mock synthesis is the
-    # fallback for users who never onboarded. No key dependency — the lookup only
-    # touches the user_profiles table, applied above by apply_schema.
-    user_info = PersistedThenMockUserInfoProvider(
+    # Profile lookup has no model dependency; the store carries explicit declarations.
+    user_info = PersistedUserInfoProvider(
         persisted_lookup=store.get_user_profile,
-        mock=MockUserInfoProvider(),
     )
 
     register_components(

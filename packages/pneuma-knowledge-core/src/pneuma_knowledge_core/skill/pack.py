@@ -343,16 +343,18 @@ async def packs_for_profile(
     callbacks: list | None = None,
     trace_metadata: dict | None = None,
 ) -> list[SchemaPack]:
-    """The single entry that turns a picture into packs, applying the enable rule.
+    """Derive schema only from declared owner information.
 
-    A `source == "mock"` synthetic picture yields NO packs at all (matrix included) — only
-    a real/persisted picture is a genuine owner choice worth compiling into schema. A real
-    picture gets matrix packs plus, when a `model` is supplied, an optional derived pack
-    (a derive failure simply leaves matrix-only)."""
-    if profile.source == "mock":
+    Mock and unstated profiles add no packs. Declared industry/role may select matrix
+    packs; model derivation additionally needs occupation, biography or interests, which
+    are the evidence actually sent to that call. An empty profile must not incur a call
+    that can invent a domain.
+    """
+    if profile.source in {"mock", "unstated"}:
         return []
     packs = list(matrix_packs(profile.industry, profile.role, matrix_path=matrix_path))
-    if model is not None:
+    if model is not None and any((profile.occupation.strip(), profile.bio.strip(),
+                                  any(item.strip() for item in profile.interests))):
         derived = await derive_pack(
             model, profile, callbacks=callbacks, trace_metadata=trace_metadata
         )

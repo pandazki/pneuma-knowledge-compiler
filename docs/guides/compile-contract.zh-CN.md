@@ -18,7 +18,7 @@ path_templates:
 （记什么、记到什么粒度、用什么口径——即本指南的主题）
 ```
 
-框架本身不解析这里的任何东西。注册是显式的——`SkillVersion.from_parts(skill_id, version, instructions, path_templates, contract_rules)`——`instructions` 就是 markdown 正文的逐字节原文。frontmatter 是 scaffold 自己的约定（它的驱动器读出字段、剥掉引导注释后再注册）；以编程方式接入的应用直接在代码里声明这些字段。`content_hash` 是这五个部分的 sha256——由 `from_parts` 计算，永不手写——盖进契约产出的每一个正本版本，任何文库状态都能追溯到产生它的那份契约。改契约就是注册一个新 `version`：它塑造将来的编译，永不改写已经记下的内容。可以直接填的骨架在 [`scaffold/templates/contract.zh.md`](../../scaffold/templates/contract.zh.md)，参考契约在 [`packages/pneuma-knowledge-strategies/`](../../packages/pneuma-knowledge-strategies/)，完整的落地示范在 [`examples/opc/`](../../examples/opc/)。
+框架本身不解析这里的任何东西。注册是显式的——`SkillVersion.from_parts(skill_id, version, instructions, path_templates, contract_rules)`——`instructions` 就是 markdown 正文的逐字节原文。frontmatter 是 scaffold 自己的约定（它的驱动器读出字段、剥掉引导注释后再注册）；以编程方式接入的应用直接在代码里声明这些字段。`content_hash` 是这五个部分的 sha256——由 `from_parts` 计算，永不手写——盖进契约产出的每一个正本版本，任何文库状态都能追溯到产生它的那份契约。改契约就是注册一个新 `version`：它塑造将来的编译，永不改写已经记下的内容。可直接运行的起始契约在 [`scaffold/templates/contract.zh.md`](../../scaffold/templates/contract.zh.md)，参考契约在 [`packages/pneuma-knowledge-strategies/`](../../packages/pneuma-knowledge-strategies/)，完整的落地示范在 [`examples/opc/`](../../examples/opc/)。
 
 ## 1. 核心推理：类型 → 隐含用法 → 入册义务
 
@@ -73,7 +73,7 @@ path_templates:
 
 ## 4. 机制的归机制：这些不用写
 
-框架已经机械强制了一批规矩：每条 claim 必须带引用、锚点系统分配且不可变、已结卷只读、路径归属、L0/L1 无条件可达（[架构 §5、§9](../architecture.zh-CN.md)）。在契约里重复任何一条都是白花 token——闸门不读散文。
+框架机械强制新增/改写的主张和本轮失去依据的依赖者具有出处链、锚点系统分配且不可变、已结卷只读、路径归属，以及 L0/L1 无条件可达（[架构 §5、§9](../architecture.zh-CN.md)）。未改动的历史出处缺陷仍可审计，但不能作为新主张的依据。在契约里重复这些机制都是白花 token——闸门不读散文。
 
 文档前置里的 `title` 同样是机制，而且是派生的而非存储的：系统从文档第一行 `# ` 标题读出它——取的是标题**说出来的那段文字**，锚点标记与行尾的系统注释都会被去掉，这和提纲、鸟瞰展示时的读法是同一个，所以存下来的名字与显示出来的名字不可能对不上——并在每一条「序列化了本轮改动过的文档」的写入路径上都这么读：编译草稿、rollover 写下的两份文件、把一次已审阅的重组落地的 adopt 合并，以及卷内链接的修复通道（那条通道在链接 href 之外逐字节不动，派生 title 是它唯一明说的例外，而不是让一个错的 title 一路带下去）。本轮没被写过的页面保持逐字节不变、连过时的 title 也不动，等它下一次被写时自然收敛。此外，`create_document` 里写的 title 会被它替换，`set_fields` 直接拒绝这个字段——所以契约要决定的不是这个字段，而是那行标题；一个人的**职务**不是他那一页的名字（它属于总览的 `definition`，或者那个族的某个字段）。
 
@@ -135,7 +135,7 @@ path_templates:
 改契约（新 version）→ 重建 → 再看
 ```
 
-- **在空库上重建。** 契约改动只塑造将来的编译、永不改写已有正本，所以看一次修订最干净的方式是从头建。
+- **在新项目中比较，保留原库。** 契约改动只塑造将来的编译、永不改写已有正本，所以看一次修订最干净的方式是从头建。
 - **先读鸟瞰。** 该立的主体立了没有？有没有一页什么都收？有没有一堆只出现过一次的名字各占一页？
 - **拿所有者自己的问题问，带上引用。** 「有代表性」的意思是：这些问题来自这座库真正会被问到的东西——所有者说过的用途、他的材料反复回到的那些张力——而且每一个都对着契约做过的某个判断，这才让答错具有诊断力，而不只是让人失望。看的不是答得漂不漂亮，而是**答案依赖的事实在不在页上**——答错时先分清病因是「没入册」还是「没取到」，两者的药完全不同。
 - **验证归属，不验证字符串出现。**「这个日期在库里某处出现过」是虚假的安心——一年下来几乎每个日期都在某处出现过。事实挂在对的主体上、绑在对的对象上，才算记下了。

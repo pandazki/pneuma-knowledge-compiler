@@ -28,6 +28,8 @@ from datetime import datetime, timezone
 
 from pneuma_knowledge_core.compile.anchor_ops import edit_claim_text, insert_block_verbatim
 from pneuma_knowledge_core.compile.documents import render_document, with_derived_title
+from pneuma_knowledge_core.compile.gate import check_citation_shape, check_claim_provenance, Violation
+from pneuma_knowledge_core.compile.overview import check_overviews
 from pneuma_knowledge_core.compile.transitions import _anchor_blocks
 from pneuma_knowledge_core.components import collect_evolve_evidence, component_job
 from pneuma_knowledge_core.domain.archive import (
@@ -499,6 +501,26 @@ async def adopt_evolve_job(ctx: AppContext, user: UserId, job: object) -> None:
         await ctx.store.complete(user, job_id, ok=False, detail=reason)
         return
 
+    # Review may span deployments or concurrent compiles. Recheck provenance against
+    # current main before making the reconciled tree canonical, including older drafts.
+    final_docs = docs_from_files(final_files)
+    provenance_violations = check_citation_shape(final_docs)
+    provenance_violations.extend(check_claim_provenance(final_docs, {doc.path: doc for doc in main_docs}))
+    provenance_violations.extend(
+        Violation(kind, path, detail) for kind, path, detail in check_overviews(
+            {path: doc.body for path, doc in final_docs.items()},
+            base_bodies={doc.path: doc.body for doc in main_docs},
+            budget=ctx.settings.overview_budget_chars,
+        )
+    )
+    if provenance_violations:
+        reason = "adopt refused by provenance checks: " + " ".join(
+            v.render() for v in provenance_violations
+        )
+        await ctx.store.update_evolve_detail(user, task_id, reason)
+        await ctx.store.complete(user, job_id, ok=False, detail=reason)
+        return
+
     # The enabled components judge the tree this adopt would commit, against current main —
     # the second half of "a canonical field invariant belongs to canonical, not to one
     # writing channel". The branch already passed these checks when it was built, but it was
@@ -511,7 +533,7 @@ async def adopt_evolve_job(ctx: AppContext, user: UserId, job: object) -> None:
     # so the mirror is cold by construction and an unprepared check would fail open.
     async with component_job(str(user)):
         component_violations = component_gate_checks(
-            docs_from_files(final_files), docs_from_canonical(main_docs)
+            final_docs, docs_from_canonical(main_docs)
         )
     if component_violations:
         reason = "adopt refused by the enabled components: " + " ".join(

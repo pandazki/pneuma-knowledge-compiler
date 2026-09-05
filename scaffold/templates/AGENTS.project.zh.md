@@ -1,22 +1,22 @@
-# AGENTS.md
+# 在 {{PROJECT_NAME}} 中工作
 
-这是一个由 pneuma-knowledge-compiler scaffold 生成的知识库项目（不是框架仓库）。
+这是生成的知识库应用，框架位于 `{{FRAMEWORK_REPO}}`。先读本项目 README，建立和验证
+知识库时使用框架的 `scaffold/AGENT-GUIDE.zh-CN.md`；具体化契约时读
+`docs/guides/compile-contract.zh-CN.md`。
 
-**文件边界**：`engine/`（这台引擎：策略、`compile/contract.md`、`persona/profile.yaml`、
-提示词覆盖——它是一个独立的 git 仓库，每次改动一个提交）、`.env`（密钥与本机端口，永不被版本化）、
-`my-data/` 归用户，可以改；`app.py`、`start.sh`、`docker-compose.yml`、`server.py`、`worker.py` 是框架运行时的机器件——
-**不要改**，要新版本就用框架仓库的 `scaffold/init.py` 重新生成。
+- 保留原始来源及身份、时间、媒体等结构字段。未知资料保持未知；租户可以代表团队或主题，
+  不一定是材料中的某个人。
+- 从可运行的契约起步，按实际未来用途调整主体边界与准入。账本保留有用细节，概览忠实呈现
+  当前图景。
+- 分别验证来源完整性、正本忠实度和回答可用性。用 `ask --sources` 读精确证据，报告失败
+  和降级，不能只列成功命令。
+- 策略放入 `engine/` 并提交有意保留的状态。凭据、私人输入和运行回执不入 Git。进程环境
+  可临时覆盖 engine 文件。
+- 沿用用户已有授权，不要反复为可逆操作请求确认；重要决策缺少必要信息或授权时再提问。
+- 不要手工改正本来改善结果。派生重建不等于重编译。测试新契约时保留原库，在新项目构建。
+- 不要让 console worker 与 CLI compile/build 同时消费同一中间件队列。
+- `app.py`、`start.sh`、`server.py`、`worker.py`、`docker-compose.yml` 是生成的机械层。
+  应改进框架模板，再保留本项目 engine 和数据地替换机械层。
 
-**策略住在哪**：`engine/`，不在 `.env`。迭代这座库就是改那里的文件并提交，这样每条业务规则都有一个
-可查看、可回退的版本。各文件的影响半径写在 `engine/README.md`。任何 `PNEUMA_KNOWLEDGE_*` 变量
-都能为单次运行盖过引擎里的同名设置——那是临时诊断或运维用的缝，不是记长期决定的地方。
-
-**帮用户干活之前先读**（都在框架仓库 `{{FRAMEWORK_REPO}}`）：
-
-- 陪用户建库/迭代库的完整流程：`scaffold/AGENT-GUIDE.zh-CN.md`
-- 写编译契约的唯一权威：`docs/guides/compile-contract.zh-CN.md`
-
-**红线**：用户数据与 key 永不写入任何会被 git 提交的位置；契约草稿必须经用户
-过目才注册；不替用户虚构 profile 事实。
-
-常用命令见 `README.md`。栈端口在 `.env`（生成时探测的空闲端口）。
+默认路径：`./start.sh` → `glance` → `ask --sources` → 检查 `data/run-reports/`。
+闸门通过说明结构和出处地址通过检查，不证明主张的含义正确。

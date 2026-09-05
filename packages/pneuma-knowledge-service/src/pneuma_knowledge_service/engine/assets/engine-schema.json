@@ -1172,6 +1172,7 @@
             "gate.overview_budget",
             "gate.overview_definition_blocks",
             "gate.overview_definition_length",
+            "gate.overview_invalid_references",
             "gate.overview_ungrounded",
             "gate.overview_unknown_slot",
             "gate.path_not_owned",

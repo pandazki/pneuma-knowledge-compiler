@@ -9,6 +9,7 @@ what the two services enumerate and what they commit.
 from __future__ import annotations
 
 from types import SimpleNamespace
+import pytest
 
 from pneuma_knowledge_core.compile.documents import render_document
 from pneuma_knowledge_core.domain.canonical import CanonicalDocument
@@ -189,9 +190,9 @@ async def test_an_adopt_leaves_every_archived_document_untouched(monkeypatch):
     monkeypatch.setattr(evolve_service, "rebuild_projection", fake_rebuild)
 
     archived = _doc(ARCHIVED, "# Atlas\n\n- retired claim <!-- c:aaaa1111 -->\n")
-    base = [_doc(LIVE, "# Aurora\n\n- live claim <!-- c:bbbb2222 -->\n"), archived]
+    base = [_doc(LIVE, "# Aurora\n\n- live claim [cite: live-source ¶0] <!-- c:bbbb2222 -->\n"), archived]
     branch = [
-        _doc("work/products/aurora-v2.md", "# Aurora\n\n- live claim <!-- c:bbbb2222 -->\n"),
+        _doc("work/products/aurora-v2.md", "# Aurora\n\n- live claim [cite: live-source ¶0] <!-- c:bbbb2222 -->\n"),
         archived,
     ]
     canonical = _Canonical({"sha-base": base, "evolve/t-1": branch, "HEAD": base})
@@ -301,9 +302,9 @@ async def test_an_adopt_carries_an_archive_record_through_byte_for_byte(monkeypa
     reorganization's to write."""
     record = _record(RECORD, "")
     copy = _doc("archive/" + RECORD, "# Atlas\n\n- retired claim <!-- c:aaaa1111 -->\n")
-    aurora = _doc(LIVE, "# Aurora\n\n- live claim <!-- c:bbbb2222 -->\n")
+    aurora = _doc(LIVE, "# Aurora\n\n- live claim [cite: live-source ¶0] <!-- c:bbbb2222 -->\n")
     renamed = _doc(
-        "work/products/aurora-v2.md", "# Aurora\n\n- live claim <!-- c:bbbb2222 -->\n"
+        "work/products/aurora-v2.md", "# Aurora\n\n- live claim [cite: live-source ¶0] <!-- c:bbbb2222 -->\n"
     )
     canonical = _Canonical(
         {
@@ -337,9 +338,9 @@ async def test_an_adopt_does_not_resurrect_a_subject_archived_during_the_review_
     atlas = _doc(RECORD, "# Atlas\n\n- Atlas ships weekly. <!-- c:dddd4444 -->\n")
     record = _record(RECORD, "")
     copy = _doc("archive/" + RECORD, atlas.body)
-    aurora = _doc(LIVE, "# Aurora\n\n- live claim <!-- c:bbbb2222 -->\n")
+    aurora = _doc(LIVE, "# Aurora\n\n- live claim [cite: live-source ¶0] <!-- c:bbbb2222 -->\n")
     renamed = _doc(
-        "work/products/aurora-v2.md", "# Aurora\n\n- live claim <!-- c:bbbb2222 -->\n"
+        "work/products/aurora-v2.md", "# Aurora\n\n- live claim [cite: live-source ¶0] <!-- c:bbbb2222 -->\n"
     )
     canonical = _Canonical(
         {
@@ -364,3 +365,22 @@ async def test_an_adopt_does_not_resurrect_a_subject_archived_during_the_review_
         record.frontmatter, record.body
     )
     assert not any("c:dddd4444" in text for text in canonical.committed.values())
+
+
+@pytest.mark.parametrize("revised", [False, True])
+async def test_adopt_preserves_legacy_debt_but_refuses_new_uncited_wording(monkeypatch, revised):
+    base = _doc(LIVE, "# Aurora\n\n- Uncited statement. <!-- c:bbbb2222 -->\n")
+    renamed = _doc("work/products/aurora-v2.md", base.body.replace("Uncited statement", "Revised statement") if revised else base.body)
+    canonical = _Canonical({"sha-base": [base], "evolve/t-1": [renamed], "HEAD": [base]})
+    store = _Store(task=_draft_task())
+    await adopt_evolve_job(
+        _adopt_ctx(monkeypatch, store, canonical), USER,
+        SimpleNamespace(job_id="j", kind="evolve_adopt", payload={"task_id": "t-1"}),
+    )
+    if revised:
+        assert canonical.committed is None and store.decided == []
+        assert store.completed[-1]["ok"] is False
+        assert "no provenance" in store.completed[-1]["detail"]
+    else:
+        assert canonical.committed is not None
+        assert store.decided == [("t-1", "adopted")]

@@ -2,7 +2,7 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-Compile the raw material of your domain — meetings, documents, chat, email — into an evolvable, citation-backed knowledge base where nothing can be fabricated.
+Compile the raw material of your domain — meetings, documents, chat, email — into an evolvable, citation-backed knowledge base. Build knowledge that can accumulate, change with its subject, and be traced to the original material.
 
 ### Domain-oriented modeling
 
@@ -14,7 +14,7 @@ No business stands still. Any model fixed up front degrades as data accumulates,
 
 ### Provenance enforced by the framework
 
-Every piece of knowledge must carry citations that resolve to exact passages of the source material, verified mechanically at write time; whatever fails verification is rejected. Provenance is not a prompt convention here but a write-layer constraint: nothing can be fabricated, and nothing loses its source.
+New and revised knowledge must carry a provenance chain to its evidence; changes cannot silently break previously valid dependencies. Original material stays reachable, claims retain their identities, and structural evolution is reviewed as a diff. These guarantees make the library inspectable and maintainable. Citation checks establish where evidence is, while the compile contract, model and review establish whether it supports the claim. See [the write mechanics](docs/architecture.md#5-canonical-write-mechanics) for the precise guarantees and treatment of historical defects.
 
 ### What this is not
 
@@ -42,11 +42,11 @@ The library it ships is [`examples/opc`](examples/opc/README.md) — an agent-bu
 `scaffold/` is a project generator — an interactive guided setup (or a single command with an answers file) that produces a complete knowledge-base project in a directory of your choosing, middleware ports auto-probed and collision-free:
 
 ```bash
-cd scaffold && ./init.py     # interactive: defaults at every step, bundled demo data to start with
-cd ~/my-kb && ./start.sh     # stack, ingest, compile, cited demo answers — one command
+cd scaffold && ./init.py     # interactive: empty project and executable starter contract by default
+cd ~/my-kb && ./start.sh     # validate, start the stack, ingest and compile your material
 ```
 
-Then make it yours: feed your `.md` material to `./app.py ingest <dir>`, edit `engine/compile/contract.md` (what deserves to be recorded) and `engine/persona/profile.yaml` (whose library this is), recompile and review.
+Then inspect it: run `./app.py glance`, ask a real question with `./app.py ask "…" --sources`, and follow its citations. Put modeling decisions in `engine/compile/contract.md`; owner details in `engine/persona/profile.yaml` are optional. Contract changes govern future compiles; they do not recompile existing knowledge.
 
 Prefer to be guided? Hand `scaffold/AGENT-GUIDE.md` to your coding agent and it will walk you through building a library from your own data, step by step.
 
@@ -58,7 +58,7 @@ Native media starts deliberately narrow and complete: IM messages may carry JPEG
 
 ## How evolution happens
 
-The compiler records what happened during each compile. From that history the framework drafts schema changes on a branch — new document families, revised path templates, restructured pages — and puts the diff in front of you. Adopt, and a mechanical reconciliation merges it; drop, and nothing changed. An upgrade never rewrites existing knowledge: evolution moves the model, not the facts.
+The compiler records what happened during each compile. From that history the framework drafts schema changes on a branch — new document families, revised path templates, restructured pages — and puts the diff in front of you. Adopt, and a mechanical reconciliation merges it; drop, and nothing changed. A contract change alone does not rewrite old claims. Adopting a restructuring can change canonical knowledge, so review its proposed meaning as well as its mechanical validity.
 
 ## Repository layout
 

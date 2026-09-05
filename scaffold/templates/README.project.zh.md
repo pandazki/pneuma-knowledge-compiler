@@ -1,71 +1,97 @@
-# {{PROJECT_NAME}} —— 我的知识库
+# {{PROJECT_NAME}}
 
-由 pneuma-knowledge-compiler 的 scaffold 生成的知识库项目。
+由 Pneuma 生成、以来源为依据的知识库。
 {{DEMO_SECTION}}
-## 哪些文件是你的，哪些别动
+## 构建与检查
 
-**你的（随便改）：**
+1. 亲自在编辑器中填写 `.env` 的模型凭据，不发给 agent，不放进命令文本。把输入放进
+   `my-data/`，或使用生成时选择的外部目录。
+2. 阅读 `engine/compile/contract.md`。{{CONTRACT_HINT}} `engine/persona/profile.yaml`
+   中的拥有者资料是可选的，未知事实留空。
+3. 运行普通构建，再对照来源检查知识库：
 
-| 文件 | 是什么 |
+```bash
+./start.sh                                  # 验证输入 → 启动 → 逐文件导入/编译
+./app.py glance
+./app.py ask '一个你实际需要答案的问题' --sources
+./app.py status
+```
+
+构建成功表示材料导入与队列处理通过，不证明主张正确、概览忠实或有用事实没有遗漏。
+`--sources` 会读取答案引用的精确 L0 段落，包括经由编译主张获得的引用。应检查原文是否
+真正支持答案。回答或证据选择降级会明确显示。`data/run-reports/` 中的私有回执保留输入
+哈希、来源 ID、engine 哈希、任务历史和回答细节；compile 模型 token 只是总成本的一部分。
+
+## 材料格式
+
+导入器先验证整个顶层目录，再按文件名顺序处理 `.json` 和 `.md`，忽略 `README.md`。
+需要按时间回放时，请通过文件名排序表达；工具不会根据正文猜一个新顺序。
+
+结构化导出使用框架 `docs/reference/source-contracts.zh-CN.md` 中的来源契约，每个 JSON
+文件一份契约。身份、消息时间、线程、元数据和媒体放在各自字段中；一个 bundle 可以展开
+为多个自然来源单元。不要为了符合契约而伪造精确时间戳或供应商身份。
+
+Markdown 笔记可以携带 JSON 兼容的 frontmatter，它会保留为来源元数据：
+
+```markdown
+---
+title: 发布决策
+date: 2026-01-10
+author: 产品团队
+---
+团队决定等无障碍审查完成后再发布。
+```
+
+简单对话可加 `type: conversation`，正文使用 `Speaker: text` 行。续行和消息内空行
+需要缩进。没有说话者的开场文字、空消息会报错。这种有限语法不能表达任意参与者名字
+或线程，遇到这些情况请用来源契约。只有日期就保留日期，不会补成当天中午。
+
+## 命令与运行边界
+
+| 命令 | 用途 |
 |---|---|
-| `engine/` | **这台引擎本身，你的，且被版本化**：模型角色、切块、回答风格、审计与演进的开关、编译契约、你的档案、提示词覆盖。它是一个独立的 git 仓库，每次改动都是一个可回看可回退的版本。先读 `engine/README.md` |
-| `engine/compile/contract.md` | 编译契约——这座库的宪法：什么值得记、记到哪一页。{{CONTRACT_HINT}} |
-| `engine/persona/profile.yaml` | 你的主体档案（称呼、职业、时区语言） |
-| `.env` | 密钥与这台机器的基础设施（端口、compose 项目名）。key 只进这里，永不提交；策略一概不在这里 |
-| `my-data/` | 你的材料（`.md`，frontmatter 带 `date:`） |
+| `./app.py build [dir]` | 与 `start.sh` 相同的普通构建 |
+| `./app.py ingest [dir]` | 只导入，将索引与编译加入队列 |
+| `./app.py compile` | 处理普通队列，对未解决 compile 任务追加一轮尝试 |
+| `./app.py audit` | 只读审计整库出处与总览，发现问题时退出 1 |
+| `./app.py ask '…' --sources` | 结构化 fast 回答及精确引用原文 |
+| `./app.py ask '…' --deep` | agentic 检索/阅读循环，可能需要更多模型调用 |
+| `./app.py ask '…' --as-of 2026-01-10T12:00:00Z` | 明确历史提问时间，省略表示现在 |
+| `./app.py evolve step` | 创建结构调整提案，默认保留供审阅 |
+| `./app.py evolve show/adopt/drop TASK_ID` | 查看或处理提案 |
+| `./app.py up`、`init`、`glance`、`status`、`down` | 中间件、检测到的区域设置及知识库检查 |
+| `./app.py restore` | 恢复随项目提供的 `prebuilt/` 演示库（若有） |
 
-策略与密钥分开住，是因为 `engine/` 生来就是要被版本化、被分享、被回退的，而 `.env` 装着一份凭证，
-永远不该被版本化。任何 `PNEUMA_KNOWLEDGE_*` 环境变量都能为单次运行盖过 `engine/` 里的同名设置——
-那是给临时诊断或运维用的；长期有效的业务决定要写进文件。
+不要让 CLI 队列处理器和 console worker 同时运行。重试保留失败历史，反复调用 `compile`
+会增加尝试次数，对比实验必须计入。`evolve step --policy adopt-clean` 明确启用机械检查
+后自动采用，检查本身不替代对提案含义的审阅。
 
-**机器件（别改，改了升级会丢）：** `app.py`、`start.sh`、`docker-compose.yml`、`server.py`、`worker.py`。
-它们是框架的运行时驱动，逻辑都在框架仓库里；想要新版本就用框架仓库里的
-`scaffold/init.py` 重新生成一个项目，或从 `scaffold/templates/` 拷最新的过来。
+`status` 在中间件或知识库不可达时退出 1；退出 0 表示检查成功，不表示 pending/failed
+数量为零。每次 CLI 处理队列前都会检查所有权，因为 console worker 可能在上一份输入后
+启动。`audit` 也读取已结卷和归档，显示无关写入不必修复的历史缺陷；新增/改写内容及本轮
+破坏的依赖仍会被拒绝。它不修改正本，机械审计通过也不证明语义忠实。
 
-## 命令
-
-```bash
-./start.sh                   # 一条命令端到端：起栈 → 检测环境 → 摄入 → 编译 → 问答演示
-./app.py up                  # 启动中间件栈（端口在 .env，是生成时探测的空闲端口，启动后回显）
-./app.py init                # 从系统检测时区/语言写回 profile.yaml
-./app.py ingest [目录]       # 摄入材料（默认 my-data/）
-./app.py compile             # 排空编译队列（真模型，花钱的一步）
-./app.py ask '问题'          # 快通道问答（--sources 连引用原文一起打印；
-                             #   --style concise|conversational|detailed 覆盖输出风格）
-./app.py glance              # 库的鸟瞰（不需要 key）
-./app.py evolve [action]     # 结构演进：list / step / run / show / adopt / drop
-                             #   （step = 脚本用的幂等一步式：跑一轮并按 --policy 处置）
-./app.py status              # 栈与库的状态（不需要 key）
-./app.py restore             # 恢复本项目自带的预编译库（只在有 prebuilt/ 时可用，不需要 key）
-./app.py down [--volumes]    # 停栈（--volumes 连数据卷一起删）
-```
-
-## 在浏览器里看
-
-一条命令起浏览层（框架 API + 编译 worker + Web 界面），三者都从 `.env` 指定的框架仓库构建：
+CLI 中断留下 claimed 任务时，先停止使用本中间件的所有 worker，再运行
+`./app.py compile --recover`。恢复会重新排队本中间件中的 claimed 任务；普通构建不会
+抢回可能仍由活跃 worker 执行的任务。
 
 ```bash
-docker compose --profile console up -d --wait    # 首次构建镜像要几分钟
-# 然后打开 http://127.0.0.1:<.env 里的 PNEUMA_APP_WEB_PORT>
+docker compose --profile console up -d --wait
+# 浏览器界面：http://127.0.0.1:<.env 中的 PNEUMA_APP_WEB_PORT>
 ```
 
-界面里能做的三件事：翻文库（每条结论都能点回原文那一段）、看流程（材料怎么变成结论）、
-开**引擎控制台**——`engine/` 目录的投影：改一个配置、看清它的影响范围、apply 一次，
-时间线上就多一个版本。没有 key 也能看：库、原料、引用全部可读，只有问答和编译需要 key。
+## 有意识地修改知识库
 
-## 重置重来
+`engine/` 是独立 Git 仓库，保存策略、编译契约、可选资料和 prompt 覆写，入口是
+`engine/README.md`。`.env` 保存凭据和本机端口，`my-data/` 保存输入，`data/` 保存私有
+运行状态，这三者都不要提交到版本库。环境变量用于单次诊断，长期策略写入 `engine/`。
 
-```bash
-./app.py down --volumes && rm -rf data/
-```
+改契约只影响未来编译，重新导入相同材料通常会被去重；派生重建恢复索引，不会重新编译
+正本。比较新契约时保留原库，在新项目构建，不要把删除知识库当作普通迭代步骤。
+显式执行 `down --volumes` 会删除中间件数据。
 
-改了契约想在空库上重编时用（删掉的主体族不会自动迁移，空库最干净）。`engine/` 不受影响：
-它是你的引擎，不是数据。
+运行机械层 `app.py`、`start.sh`、`server.py`、`worker.py`、`docker-compose.yml` 来自
+框架模板。应改进模板，而非把策略藏进复制的代码；替换机械层时保留本项目的 engine 和数据。
 
-## 想深入
-
-- 写好契约的完整实践：框架仓库 `docs/guides/compile-contract.zh-CN.md`
-- 让 AI 陪你迭代这座库：框架仓库 `scaffold/AGENT-GUIDE.zh-CN.md`
-- 底下的机器：框架仓库 `docs/architecture.zh-CN.md`
-
-框架仓库：`{{FRAMEWORK_REPO}}`（`.env` 的 `PNEUMA_APP_FRAMEWORK_REPO`）。
+框架：`{{FRAMEWORK_REPO}}`。验证流程见 `scaffold/AGENT-GUIDE.zh-CN.md`，契约设计见
+`docs/guides/compile-contract.zh-CN.md`，内部机制见 `docs/architecture.zh-CN.md`。

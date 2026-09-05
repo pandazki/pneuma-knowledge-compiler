@@ -106,7 +106,7 @@ def test_generates_a_complete_project_from_answers(tmp_path):
     assert "episode_summary_cap: 16" in recall
     assert "window_cap: 6" in recall
     assert "evidence_strategy: ranked" in recall
-    assert "answer_format: text" in recall
+    assert "answer_format: structured" in recall
     assert 'selection_reasoning_effort: ""' in recall
 
 
@@ -155,6 +155,27 @@ def test_generated_env_carries_free_distinct_ports_and_framework_repo(tmp_path):
     # A project-private subnet is probed and written (default address pools are finite).
     import re as _re
     assert _re.fullmatch(r"10\.\d+\.\d+\.0/24", values["PNEUMA_APP_SUBNET"])
+
+
+def test_external_material_directory_survives_generation(tmp_path, monkeypatch):
+    material = tmp_path / "external notes"
+    material.mkdir()
+    (material / "source.json").write_text("{}")
+    target = _generate(tmp_path, {"language": "en", "data": {"mode": "path", "path": str(material)}})
+    spec = importlib.util.spec_from_file_location("generated_app_data_path", target / "app.py")
+    app = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(app)
+
+    monkeypatch.delenv("PNEUMA_APP_DATA_DIR", raising=False)
+    # Load only the selected path, avoiding unrelated test-process environment mutations.
+    setting = next(line for line in (target / ".env").read_text().splitlines()
+                   if line.startswith("PNEUMA_APP_DATA_DIR="))
+    selected = setting.split("=", 1)[1]
+    monkeypatch.setenv("PNEUMA_APP_DATA_DIR", selected)
+    assert app.material_directory() == material
+    assert app.material_directory(str(tmp_path / "override")) == tmp_path / "override"
+    assert not list((target / "my-data").iterdir())
+    assert "source.json" in "\n".join(init.sample_material(material))
 
 
 def test_generated_console_profile_renders_under_real_docker_compose(tmp_path):
@@ -280,7 +301,7 @@ def test_demo_generates_a_project_that_already_has_a_library(tmp_path):
     # The README says where the library came from and how to make the compiler run.
     readme = (target / "README.md").read_text(encoding="utf-8")
     assert "demo" in readme.lower()
-    assert "./app.py ingest my-data" in readme
+    assert "./app.py restore" in readme
     assert "{{" not in readme
 
 
@@ -327,8 +348,8 @@ def test_demo_language_follows_the_flag(tmp_path):
     (tmp_path / "en").mkdir()
     zh = _generate_demo(tmp_path)
     en = _generate_demo(tmp_path / "en", "--lang", "en")
-    assert "这是 demo 项目" in (zh / "README.md").read_text(encoding="utf-8")
-    assert "This is a demo project" in (en / "README.md").read_text(encoding="utf-8")
+    assert "这是独立演示项目" in (zh / "README.md").read_text(encoding="utf-8")
+    assert "This is a separate demonstration project" in (en / "README.md").read_text(encoding="utf-8")
     # The contract is the example's own document in both cases — it is not a localized asset.
     assert (zh / "engine" / "compile" / "contract.md").read_bytes() == (
         en / "engine" / "compile" / "contract.md"
@@ -401,7 +422,7 @@ def test_demo_refuses_an_answers_file(tmp_path):
 
 
 def test_contract_follows_the_data_by_default(tmp_path):
-    # example data → the filled demo contract; no data → the TODO skeleton.
+    # Example data uses its contract; empty projects get the executable starter.
     (tmp_path / "a").mkdir()
     (tmp_path / "b").mkdir()
     with_example = _generate(tmp_path / "a", {"language": "zh", "data": {"mode": "example"}})
@@ -409,7 +430,8 @@ def test_contract_follows_the_data_by_default(tmp_path):
     assert "aurora-planner" in contract.read_text(encoding="utf-8")
     empty = _generate(tmp_path / "b", {"language": "zh", "data": {"mode": "none"}})
     text = (empty / "engine" / "compile" / "contract.md").read_text(encoding="utf-8")
-    assert "TODO" in text
+    assert "TODO" not in text
+    assert "subjects/{slug}.md" in text
     assert "skill_id: my-kb-knowledge" in text
     assert not (empty / "demo-questions.txt").exists()
 
@@ -547,7 +569,7 @@ def test_the_engine_readme_speaks_the_projects_language(tmp_path):
     zh = _generate(tmp_path / "zh", {"language": "zh", "data": {"mode": "none"}})
     en = _generate(tmp_path / "en", {"language": "en", "data": {"mode": "none"}})
     assert "引擎" in (zh / "engine" / "README.md").read_text(encoding="utf-8")
-    assert "This directory is your engine" in (en / "engine" / "README.md").read_text(
+    assert "This directory is the versioned strategy" in (en / "engine" / "README.md").read_text(
         encoding="utf-8"
     )
 
@@ -641,3 +663,18 @@ def test_strategies_catalog_is_empty_outside_a_framework_repo(tmp_path):
 )
 def test_slugify_produces_safe_names(raw, expected):
     assert init.slugify(raw) == expected
+
+
+def test_default_generation_is_ready_for_real_material_without_demo_or_fake_owner(tmp_path):
+    import yaml
+
+    target = _generate(tmp_path, {"language": "en"})
+    assert list((target / "my-data").iterdir()) == []
+    assert not (target / "prebuilt").exists()
+    assert not (target / "demo-questions.txt").exists()
+    contract = (target / "engine/compile/contract.md").read_text()
+    assert "subjects/{slug}.md" in contract and "TODO" not in contract
+    profile = yaml.safe_load((target / "engine/persona/profile.yaml").read_text())
+    assert not profile["display_name"] and not profile["bio"]
+    assert not profile["industry"] and not profile["level"]
+    assert 'exec ./app.py build "$@"' in (target / "start.sh").read_text()

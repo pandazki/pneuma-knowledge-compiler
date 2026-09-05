@@ -33,6 +33,7 @@ from pneuma_knowledge_core.compile.gate import run_gate
 from pneuma_knowledge_core.compile.overview import (
     DEFINITION_MAX_CHARS,
     OVERVIEW_BUDGET_CHARS,
+    check_overviews,
     ledger_anchors,
     overview_anchors,
 )
@@ -136,6 +137,52 @@ def _overview(**kwargs) -> Overview:
     }
     fields.update(kwargs)
     return Overview(**fields)
+
+
+@pytest.mark.parametrize("basis", ["c:11aa22bb", "[cite: s01 ¶2-3]"])
+@pytest.mark.parametrize("channel", ["compile", "evolve"])
+async def test_every_overview_reference_must_resolve_even_beside_valid_provenance(basis, channel):
+    draft = _draft()
+    overview = _overview(definition=f"Mei Lin leads qualification. {basis} c:deadbeef")
+    with pytest.raises(AnchorToolError, match="deadbeef"):
+        draft.rewrite_overview(PERSON, overview)
+    _poke_overview(draft, PERSON, overview)
+    if channel == "compile":
+        violations = run_gate(draft, [])
+    else:
+        from pneuma_knowledge_core.evolve.gate import run_evolve_gate
+
+        async def bounds(source_id):
+            assert source_id == "s01"
+            return 12
+
+        violations, _ = await run_evolve_gate(draft, source_bounds=bounds, path_templates=TEMPLATES)
+    assert any(v.kind == "overview" and "deadbeef" in v.detail for v in violations)
+
+
+def test_untouched_overview_preserves_historical_defects_for_explicit_audit():
+    draft = _draft()
+    body = _poke_overview(draft, PERSON, _overview(definition="Legacy head. c:deadbeef"))
+    draft = _from_canonical([_doc(PERSON, body, "a1b2c3d4e5f6")], TEMPLATES)
+    draft.edit_claim(PERSON, "11aa22bb", "Mei Lin leads qualification. [cite: s01 ¶2-3]")
+    assert not any(v.kind == "overview" for v in run_gate(draft, []))
+    assert any("deadbeef" in detail for _, _, detail in check_overviews(draft.new_bodies()))
+
+
+def test_unchanged_overview_cannot_hide_a_newly_broken_reference_beside_an_old_one():
+    head = "<!-- overview -->\n<!-- overview:definition -->\n\nA summary. c:aa11 c:deadbeef [cite: s01 ¶0] <!-- c:cc33 -->\n\n<!-- /overview -->\n"
+    base = {PERSON: head, PRODUCT: "Basis. [cite: s01 ¶0] <!-- c:aa11 -->"}
+    current = {PERSON: head, PRODUCT: ""}
+    violations = check_overviews(current, base_bodies=base)
+    assert len(violations) == 1
+    assert "c:aa11" in violations[0][2] and "deadbeef" not in violations[0][2]
+
+
+def test_rewriting_an_overview_requires_repairing_its_historical_defects():
+    head = "<!-- overview -->\n<!-- overview:definition -->\n\nOld summary. c:deadbeef [cite: s01 ¶0] <!-- c:cc33 -->\n\n<!-- /overview -->\n"
+    assert any("deadbeef" in detail for _, _, detail in check_overviews(
+        {PERSON: head.replace("Old summary", "Revised summary")}, base_bodies={PERSON: head},
+    ))
 
 
 # ───────────────────────────────────────────────────────── documents: (de)serialization
@@ -953,10 +1000,8 @@ def test_a_no_region_rollover_renders_exactly_as_before():
     assert body.startswith("# Aurora\n\n## Delivery\n")
 
 
-def test_an_unchanged_region_is_not_re_judged():
-    """A head is rewritable and the ledger is not. An overview whose grounding was retired
-    elsewhere (an evolve merge) must not close the authoritative layer to writes: the region
-    is judged when it is written, which is the only moment it can change."""
+def test_an_out_of_band_historical_retirement_remains_auditable_without_blocking_compile():
+    """The operation that already retired the claim left debt, not this later compile."""
     seeded = _from_canonical(_base(), TEMPLATES)
     seeded.rewrite_overview(
         PERSON, Overview(definition="Mei Lin leads qualification. c:11aa22bb")
@@ -979,7 +1024,8 @@ def test_an_unchanged_region_is_not_re_judged():
         ),
     )
     draft = _from_canonical(committed, TEMPLATES)
-    assert [v for v in run_gate(draft, []) if v.kind == "overview"] == []
+    assert not any(v.kind == "overview" for v in run_gate(draft, []))
+    assert any("11aa22bb" in detail for _, _, detail in check_overviews(draft.new_bodies()))
     # but the moment the round rewrites it, the same state is rejected
     _poke_overview(draft, PERSON, Overview(definition="Mei Lin leads it. c:11aa22bb"))
     assert any(v.kind == "overview" for v in run_gate(draft, []))

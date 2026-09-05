@@ -1,7 +1,7 @@
 import { defineMessages } from "./define";
 
 /**
- * The Profile view: the synthetic user record, its editor, and the AI drafting flow.
+ * The Profile view: declared user information, its editor, and the AI drafting flow.
  *
  * Two things deliberately stay OUT of this dictionary:
  *   - Everything the service composes — display_name, bio, occupation, interests,
@@ -20,26 +20,27 @@ import { defineMessages } from "./define";
  */
 export const profile = defineMessages({
   zh: {
-    "profile.header.description": "synthetic 用户档案：核心字段、编辑与 AI 生成。",
-    "profile.header.descriptionShort": "synthetic 用户档案。",
+    "profile.header.description": "用户档案：已声明的信息、编辑与草稿。",
+    "profile.header.descriptionShort": "用户档案。",
     // The subtitle states this profile's OWN provenance, which `source` already answers —
     // rather than claiming, on every deployment, that the reader's base is a demo.
     "profile.header.synthesizedDescription":
       "这份画像由服务按 user_id 确定性合成，尚未编辑保存。",
-    "profile.header.savedDescription": "这份画像已由本人编辑并保存。",
+    "profile.header.savedDescription": "这份画像来自用户填写的资料。",
+    "profile.header.unstatedDescription": "尚未声明个人资料；未知信息保持留空。",
     "profile.onboarding.title": "新建画像",
     "profile.onboarding.description":
       "先建立工作画像；可以让 AI 生成一份可编辑草稿，也可以直接填写。",
 
     "profile.empty.title": "尚未选择用户",
-    "profile.empty.description": "选择一个 user_id 查看其画像；任何 id 都会解析出一份合成画像。",
+    "profile.empty.description": "选择一个 user_id 查看其已声明的资料。未填写的信息保持留空。",
     "profile.error.title": "画像加载失败",
 
     "profile.source.prefix": "画像来源",
     // The legend follows a <Mono> chip on the same line. JSX drops the newline between them,
     // so the leading space en needs lives in the string; zh butts the full-width bracket up
     // against the chip, as it did originally.
-    "profile.source.legend": "（mock = 合成，user = 已编辑保存）",
+    "profile.source.legend": "（unstated = 未声明，user = 用户填写，mock = 合成示例）",
 
     "profile.action.edit": "编辑画像",
     "profile.section.edit": "编辑画像",
@@ -148,22 +149,23 @@ export const profile = defineMessages({
   },
   en: {
     "profile.header.description":
-      "The synthetic user record: core fields, editing, and AI generation.",
-    "profile.header.descriptionShort": "The synthetic user record.",
+      "The user profile: declared information, editing, and drafts.",
+    "profile.header.descriptionShort": "The user profile.",
     "profile.header.synthesizedDescription":
       "Composed deterministically by the service from the user_id, and not edited or saved yet.",
-    "profile.header.savedDescription": "Edited and saved by its owner.",
+    "profile.header.savedDescription": "Based on information supplied by the user.",
+    "profile.header.unstatedDescription": "No personal information has been declared; unknown fields stay blank.",
     "profile.onboarding.title": "New profile",
     "profile.onboarding.description":
       "Start with a working profile: let the AI draft one you can edit, or fill it in yourself.",
 
     "profile.empty.title": "No user selected",
     "profile.empty.description":
-      "Choose a user_id to read its profile; any id resolves to a synthetic one.",
+      "Choose a user_id to read its declared information. Unstated fields remain blank.",
     "profile.error.title": "Could not load the profile",
 
     "profile.source.prefix": "Provenance",
-    "profile.source.legend": " (mock = synthesised, user = edited and saved)",
+    "profile.source.legend": " (unstated = not declared, user = user supplied, mock = synthetic example)",
 
     "profile.action.edit": "Edit profile",
     "profile.section.edit": "Edit the profile",

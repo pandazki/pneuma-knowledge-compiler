@@ -115,3 +115,13 @@ uv run python eval/run_eval.py --mode full --out var/eval
 | `prebuilt/canonical.bundle`、`prebuilt/l0.jsonl.gz` | 构建产出的两份权威：编好的正本文库（git bundle），以及它的引用所绑定的逐字 L0 来源（来源 id 按内容寻址，相同材料重新摄入会得到相同的 id，而恢复保留的是存下来的那一批） |
 | `build-record/` | 任务书、构建日志、成本账、那次使用侧会话，以及产出它们的两个脚本 |
 | `eval/` | 这批语料上的冻结回归真值集，以及给一次构建打分的运行器 |
+
+## 运行与审计参考构建
+
+机械运行文件跟随当前 scaffold 模板。`./start.sh` 现在负责构建材料；交互导览使用
+`./demo.sh`，问答使用 `./app.py ask "…" --sources`。prebuilt bundle 保留历史参考构建，
+也保留它的缺陷。`./app.py audit` 会报告五个页面里的七个既有悬空总览引用：
+`people/jianing.md`、`product/migration-guide.md`、`product/seamlog.md`、
+`threads/export-and-project-removal.md`、`threads/small-group-invitation.md`。
+未改动的这些区域不阻止无关编译；改写某个区域时必须修好它，移除原本有效的依据时必须
+修复依赖者。审计不会改动发行产物，也不表示机械有效即可证明语义忠实。
