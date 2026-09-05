@@ -1,6 +1,6 @@
 """Mechanical compile gate (architecture.md §8): all checks hard-reject.
 
-Five machine checks, each returning structured violations (fed back verbatim for one
+The checks return structured violations (fed back verbatim for one
 repair round by the runner):
 
 1. anchor continuity — a base anchor must not vanish. v1 has no authorized deletion
@@ -17,9 +17,9 @@ repair round by the runner):
 3b. citation SHAPE — anything spelled `[cite: …]` must parse completely as a locator. See
    `check_citation_shape`: the legality check above can only judge markers it can read, so
    an unreadable one used to pass as provenance by looking like some.
-3c. authored claim provenance — every resulting ledger block must reach a source or a
-   previously admitted mechanical record. Unchanged claims and reference cycles are
-   checked too. This checks provenance, not semantic entailment.
+3c. authored claim provenance — new/revised blocks and newly broken dependants must reach
+   a source or previously admitted mechanical record. Unchanged historical defects may
+   remain but cannot ground new claims. This checks provenance, not semantic entailment.
 4. frontmatter completeness — doc_id / type / slug present.
 4b. anchor coverage — every content block carries an anchor (else it is browse-visible
    canonical text that never enters the L3 claim index — an orphaned claim).
@@ -29,8 +29,8 @@ repair round by the runner):
    that could repair it is a compile that is writing it anyway).
 4c. the OVERVIEW region — bounded in size, grounded in the ledger, four slots and no others
    (compile/overview.py). Every declared reference must resolve to a ledger anchor.
-   These are structural checks on the regions this round WROTE, not proof that a summary
-   faithfully represents its ledger.
+   Rewritten regions are fully checked; unchanged regions must retain every reference
+   that resolved in the base. These checks do not prove semantic fidelity.
 4d. the overview a document OWES — a page this round touched whose ledger has passed the
    threshold must carry one (`definition` at least). 4c bounds the head from above; this
    bounds the ledger from below. Judged for the pages this round CHANGED, never for the
@@ -444,18 +444,43 @@ def check_supersession(
 
 
 def check_claim_provenance(
-    docs: Mapping[str, object], base_documents: Mapping[str, object]
+    docs: Mapping[str, object], base_documents: Mapping[str, object], *, audit: bool = False
 ) -> list[Violation]:
-    """Authored claims must reach a source or an admitted mechanical record.
+    """Reject new provenance defects; an explicit audit also reports historical defects.
 
-    Validate the resulting library, including unchanged claims and verbatim moves. A cycle
-    of claim references is not evidence. Citation shape and bounds are checked separately;
-    reaching a source establishes provenance, not semantic entailment.
+    A byte-identical claim may retain an existing defect, even across a move. It is NOT a
+    grounding root for new claims. Previously grounded dependants that lose their source
+    chain are rejected even when their text did not change. This keeps an unrelated write
+    from being held hostage by history, especially history the writer cannot edit.
 
     Archive records and volume catalogs have their own mechanical admission channels.
-    Their exact, previously admitted blocks are valid bases; ordinary uncited claims are
-    not. Read the BASE metadata, never a model's newly declared exemption.
+    Their exact, previously admitted blocks are valid bases. Read BASE metadata, never a
+    model's newly declared exemption. Citation shape and bounds are separate checks;
+    reaching a source does not establish semantic entailment.
     """
+    current_blocks, grounded = _provenance_graph(docs, base_documents)
+    base_blocks, base_grounded = _provenance_graph(base_documents, base_documents)
+    previous = {anchor: block for blocks in base_blocks.values() for anchor, block in blocks.items()}
+    violations = []
+    for path, blocks in current_blocks.items():
+        for anchor, block in blocks.items():
+            if anchor in grounded:
+                continue
+            if not audit and previous.get(anchor) == block and anchor not in base_grounded:
+                continue
+            violations.append(Violation(
+                "citation", path, prompt(
+                    "gate.claim_without_provenance",
+                    preview=" ".join(block.split())[:48], anchor=anchor,
+                ),
+            ))
+    return violations
+
+
+def _provenance_graph(
+    docs: Mapping[str, object], admitted: Mapping[str, object]
+) -> tuple[dict[str, dict[str, str]], set[str]]:
+    """Find source-reachable claims without treating legacy admission as evidence."""
     from .rollover import catalog_anchors
 
     current_blocks = {
@@ -464,7 +489,7 @@ def check_claim_provenance(
     grounded: set[str] = set()
     dependants: dict[str, set[str]] = {}
     for path, blocks in current_blocks.items():
-        base = base_documents.get(path)
+        base = admitted.get(path)
         if base is None:
             continue
         base_blocks = _anchor_blocks(base.body)
@@ -484,18 +509,7 @@ def check_claim_provenance(
             if anchor not in grounded:
                 grounded.add(anchor)
                 pending.append(anchor)
-    violations = []
-    for path, blocks in current_blocks.items():
-        for anchor, block in blocks.items():
-            if anchor in grounded:
-                continue
-            violations.append(Violation(
-                "citation", path, prompt(
-                    "gate.claim_without_provenance",
-                    preview=" ".join(block.split())[:48], anchor=anchor,
-                ),
-            ))
-    return violations
+    return current_blocks, grounded
 
 
 def overview_required_violations(
@@ -616,7 +630,7 @@ def run_gate(
     # read as evidence, and this is what tells the two apart.
     violations.extend(check_citation_shape(docs))
 
-    # 3c. Every authored claim in the resulting library must reach provenance.
+    # 3c. New/changed claims and newly broken dependants must reach provenance.
     violations.extend(check_claim_provenance(docs, draft.base_documents()))
 
     # 3d. INTER-DOCUMENT LINK targets must exist. Markdown links are what the projection
@@ -675,7 +689,7 @@ def run_gate(
     violations.extend(
         Violation(kind, path, detail)
         for kind, path, detail in check_overviews(
-            new_bodies, budget=overview_budget_chars
+            new_bodies, base_bodies=base_bodies, budget=overview_budget_chars
         )
     )
 

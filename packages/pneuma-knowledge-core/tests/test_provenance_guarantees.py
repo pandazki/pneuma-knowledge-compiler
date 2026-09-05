@@ -2,7 +2,7 @@
 
 import pytest
 
-from pneuma_knowledge_core.compile.gate import run_gate
+from pneuma_knowledge_core.compile.gate import check_claim_provenance, run_gate
 from pneuma_knowledge_core.compile.patch import PatchDraft
 from pneuma_knowledge_core.compile.runner import _build_tools
 from pneuma_knowledge_core.domain.canonical import CanonicalDocument
@@ -50,11 +50,13 @@ async def test_edit_tool_cannot_remove_provenance_or_cite_itself(channel, text):
 
 
 @pytest.mark.parametrize("channel", ["compile", "evolve"])
-async def test_unchanged_uncited_claim_is_not_grandfathered(channel):
+async def test_unchanged_uncited_claim_does_not_block_unrelated_edit_but_remains_auditable(channel):
     draft = _draft("- Legacy note. <!-- c:bb22 -->\n"
                    "- Alice visited Canada. [cite: source-a ¶0] <!-- c:aa11 -->")
     draft.edit_claim(PATH, "aa11", "Alice travelled to Canada. [cite: source-a ¶0]")
-    assert any("no provenance" in v.detail for v in await _gate(draft, channel))
+    assert await _gate(draft, channel) == []
+    audit = check_claim_provenance(draft.documents(), draft.base_documents(), audit=True)
+    assert len(audit) == 1 and "c:bb22" in audit[0].detail
 
 
 @pytest.mark.parametrize("channel", ["compile", "evolve"])
@@ -84,19 +86,23 @@ async def test_evolve_checks_new_claim_provenance_and_citation_shape(body):
         assert any("does not parse as a locator" in v.detail for v in violations)
 
 
-async def test_evolve_does_not_exempt_an_uncited_verbatim_move():
+async def test_evolve_preserves_a_legacy_defect_across_a_verbatim_move():
     draft = _draft("- Legacy note. <!-- c:aa11 -->")
     draft.create_document("people/bob.md", {"type": "person", "slug": "bob"}, "## Notes\n")
     draft.move_claim(PATH, "aa11", "people/bob.md", "Notes")
-    assert any("no provenance" in v.detail for v in await _gate(draft, "evolve"))
+    assert await _gate(draft, "evolve") == []
+    audit = check_claim_provenance(draft.documents(), draft.base_documents(), audit=True)
+    assert len(audit) == 1 and audit[0].path == "people/bob.md"
 
 
 @pytest.mark.parametrize("channel", ["compile", "evolve"])
 async def test_reference_cycle_without_a_source_is_not_provenance(channel):
     draft = PatchDraft.from_canonical([
-        _doc(PATH, "- First inference. c:bb22 <!-- c:aa11 -->"),
-        _doc("people/bob.md", "- Second inference. c:aa11 <!-- c:bb22 -->"),
+        _doc(PATH, "- First fact. [cite: source-a ¶0] <!-- c:aa11 -->"),
+        _doc("people/bob.md", "- Second fact. [cite: source-a ¶0] <!-- c:bb22 -->"),
     ], TEMPLATES)
+    draft.edit_claim(PATH, "aa11", "First inference. c:bb22")
+    draft.edit_claim("people/bob.md", "bb22", "Second inference. c:aa11")
     assert len([v for v in await _gate(draft, channel) if "no provenance" in v.detail]) == 2
 
 
@@ -120,5 +126,38 @@ async def test_evolve_cannot_derive_from_a_deleted_anchor():
 @pytest.mark.parametrize("channel", ["compile", "evolve"])
 async def test_new_catalog_metadata_cannot_exempt_an_authored_claim(channel):
     draft = _draft("- An ungrounded claim. <!-- c:aa11 -->")
+    draft.edit_claim(PATH, "aa11", "A revised ungrounded claim.")
     draft.documents()[PATH].frontmatter["rollover_catalog_anchors"] = "aa11"
     assert any("no provenance" in v.detail for v in await _gate(draft, channel))
+
+
+@pytest.mark.parametrize("channel", ["compile", "evolve"])
+async def test_legacy_admission_is_not_evidence_for_a_new_claim(channel):
+    draft = _draft("- Legacy assertion. <!-- c:aa11 -->")
+    draft.append_block(PATH, "Notes", "A new assertion based on legacy text. c:aa11")
+    violations = await _gate(draft, channel)
+    assert len(violations) == 1 and "A new assertion" in violations[0].detail
+
+
+async def test_unchanged_transitive_dependants_are_rejected_when_evolve_deletes_their_basis():
+    draft = PatchDraft.from_canonical([
+        _doc(PATH, "- Original fact. [cite: source-a ¶0] <!-- c:aa11 -->"),
+        _doc("people/bob.md", "- Derived fact. c:aa11 <!-- c:bb22 -->\n"
+             "- Further inference. c:bb22 <!-- c:cc33 -->"),
+    ], TEMPLATES)
+    draft.delete_claim(PATH, "aa11")
+    violations = await _gate(draft, "evolve")
+    assert len(violations) == 2
+    assert all(v.path == "people/bob.md" for v in violations)
+
+
+def test_an_uncited_archived_claim_does_not_block_a_live_compile():
+    archived = "archive/people/retired.md"
+    draft = PatchDraft.from_canonical([
+        _doc(archived, "- Old uncited assertion. <!-- c:bb22 -->"),
+        _doc(PATH, "- Live fact. [cite: source-a ¶0] <!-- c:aa11 -->"),
+    ], TEMPLATES)
+    draft.edit_claim(PATH, "aa11", "A revised live fact. [cite: source-a ¶0]")
+    assert run_gate(draft, [], known_source_bounds={"source-a": 1}) == []
+    audit = check_claim_provenance(draft.documents(), draft.base_documents(), audit=True)
+    assert len(audit) == 1 and audit[0].path == archived

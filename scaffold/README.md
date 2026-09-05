@@ -96,3 +96,8 @@ library in a separate project with real embeddings. There is no demo-reset prere
 This directory contains the generator (`init.py`), its `templates/`, an optional fictional
 example (`example/`), and the agent guide. Replacing machinery must preserve the user's
 `engine/`, credentials and data.
+
+`./app.py audit` reads all provenance chains, source addresses and overview regions, including
+historical defects in archives and closed volumes. It writes a report and never repairs the
+library implicitly. New writes cannot introduce such defects or break valid dependencies;
+unchanged historical defects do not block unrelated work.

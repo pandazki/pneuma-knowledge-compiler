@@ -9,6 +9,7 @@ what the two services enumerate and what they commit.
 from __future__ import annotations
 
 from types import SimpleNamespace
+import pytest
 
 from pneuma_knowledge_core.compile.documents import render_document
 from pneuma_knowledge_core.domain.canonical import CanonicalDocument
@@ -366,15 +367,20 @@ async def test_an_adopt_does_not_resurrect_a_subject_archived_during_the_review_
     assert not any("c:dddd4444" in text for text in canonical.committed.values())
 
 
-async def test_adopt_refuses_an_uncited_ordinary_claim_even_when_unchanged(monkeypatch):
+@pytest.mark.parametrize("revised", [False, True])
+async def test_adopt_preserves_legacy_debt_but_refuses_new_uncited_wording(monkeypatch, revised):
     base = _doc(LIVE, "# Aurora\n\n- Uncited statement. <!-- c:bbbb2222 -->\n")
-    renamed = _doc("work/products/aurora-v2.md", base.body)
+    renamed = _doc("work/products/aurora-v2.md", base.body.replace("Uncited statement", "Revised statement") if revised else base.body)
     canonical = _Canonical({"sha-base": [base], "evolve/t-1": [renamed], "HEAD": [base]})
     store = _Store(task=_draft_task())
     await adopt_evolve_job(
         _adopt_ctx(monkeypatch, store, canonical), USER,
         SimpleNamespace(job_id="j", kind="evolve_adopt", payload={"task_id": "t-1"}),
     )
-    assert canonical.committed is None and store.decided == []
-    assert store.completed[-1]["ok"] is False
-    assert "no provenance" in store.completed[-1]["detail"]
+    if revised:
+        assert canonical.committed is None and store.decided == []
+        assert store.completed[-1]["ok"] is False
+        assert "no provenance" in store.completed[-1]["detail"]
+    else:
+        assert canonical.committed is not None
+        assert store.decided == [("t-1", "adopted")]

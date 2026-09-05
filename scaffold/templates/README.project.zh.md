@@ -4,7 +4,8 @@
 {{DEMO_SECTION}}
 ## 构建与检查
 
-1. 在 `.env` 放模型凭据，把输入放进 `my-data/`，或使用生成时选择的外部目录。
+1. 亲自在编辑器中填写 `.env` 的模型凭据，不发给 agent，不放进命令文本。把输入放进
+   `my-data/`，或使用生成时选择的外部目录。
 2. 阅读 `engine/compile/contract.md`。{{CONTRACT_HINT}} `engine/persona/profile.yaml`
    中的拥有者资料是可选的，未知事实留空。
 3. 运行普通构建，再对照来源检查知识库：
@@ -52,6 +53,7 @@ author: 产品团队
 | `./app.py build [dir]` | 与 `start.sh` 相同的普通构建 |
 | `./app.py ingest [dir]` | 只导入，将索引与编译加入队列 |
 | `./app.py compile` | 处理普通队列，对未解决 compile 任务追加一轮尝试 |
+| `./app.py audit` | 只读审计整库出处与总览，发现问题时退出 1 |
 | `./app.py ask '…' --sources` | 结构化 fast 回答及精确引用原文 |
 | `./app.py ask '…' --deep` | agentic 检索/阅读循环，可能需要更多模型调用 |
 | `./app.py ask '…' --as-of 2026-01-10T12:00:00Z` | 明确历史提问时间，省略表示现在 |
@@ -63,6 +65,11 @@ author: 产品团队
 不要让 CLI 队列处理器和 console worker 同时运行。重试保留失败历史，反复调用 `compile`
 会增加尝试次数，对比实验必须计入。`evolve step --policy adopt-clean` 明确启用机械检查
 后自动采用，检查本身不替代对提案含义的审阅。
+
+`status` 在中间件或知识库不可达时退出 1；退出 0 表示检查成功，不表示 pending/failed
+数量为零。每次 CLI 处理队列前都会检查所有权，因为 console worker 可能在上一份输入后
+启动。`audit` 也读取已结卷和归档，显示无关写入不必修复的历史缺陷；新增/改写内容及本轮
+破坏的依赖仍会被拒绝。它不修改正本，机械审计通过也不证明语义忠实。
 
 CLI 中断留下 claimed 任务时，先停止使用本中间件的所有 worker，再运行
 `./app.py compile --recover`。恢复会重新排队本中间件中的 claimed 任务；普通构建不会

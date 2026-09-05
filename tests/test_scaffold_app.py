@@ -1317,7 +1317,7 @@ async def test_declared_industry_is_a_profile_even_without_a_name(monkeypatch):
 
     monkeypatch.setattr(app, "load_profile", lambda: {"industry": "tech"})
     await app.upsert_owner_profile(SimpleNamespace(store=SimpleNamespace(upsert_user_profile=persist)), "team-library")
-    assert seen["source"] == "profile"
+    assert seen["source"] == "user"
     assert seen["industry"] == "tech"
     assert not seen["display_name"] and not seen["locale"]["country"]
 
@@ -1328,6 +1328,102 @@ def test_live_console_worker_blocks_cli_queue_takeover(monkeypatch):
     monkeypatch.setattr(app.subprocess, "run", lambda *args, **kwargs: SimpleNamespace(stdout="postgres\nworker\n"))
     with pytest.raises(RuntimeError, match="console worker is running"):
         app.require_cli_queue_owner()
+
+
+@pytest.mark.parametrize("failure, message", [
+    (FileNotFoundError(), "Docker CLI was not found"),
+    (app.subprocess.CalledProcessError(1, ["docker", "compose"]), "Cannot inspect queue ownership"),
+])
+def test_queue_owner_failures_have_actionable_cli_errors(monkeypatch, failure, message):
+    def fail(*args, **kwargs):
+        raise failure
+
+    monkeypatch.setattr(app.subprocess, "run", fail)
+    with pytest.raises(app.CliError, match=message):
+        app.require_cli_queue_owner()
+
+
+def test_main_reports_operational_error_without_a_traceback(monkeypatch, capsys):
+    def fail(args):
+        raise app.CliError("Start Docker before compiling.")
+
+    monkeypatch.setattr(app, "ensure_framework", lambda: None)
+    monkeypatch.setattr(app, "load_env_file", lambda path: None)
+    monkeypatch.setattr(app, "cmd_compile", fail)
+    monkeypatch.setattr(app.sys, "argv", ["app.py", "compile"])
+    assert app.main() == 1
+    assert capsys.readouterr().err == "Start Docker before compiling.\n"
+
+
+def test_build_stack_start_reports_missing_docker(monkeypatch, capsys):
+    def unavailable(*args, **kwargs):
+        raise FileNotFoundError()
+
+    monkeypatch.setattr(app.subprocess, "run", unavailable)
+    assert app.cmd_up(None) == 1
+    assert "Docker CLI was not found" in capsys.readouterr().err
+
+
+async def test_status_reports_query_failure_and_closes_context(monkeypatch, capsys):
+    from types import SimpleNamespace
+    from pneuma_knowledge_service import wiring
+
+    closed = []
+
+    async def unavailable(uid):
+        raise ConnectionError("private connection detail")
+
+    async def close():
+        closed.append(True)
+
+    async def context(settings):
+        return SimpleNamespace(store=SimpleNamespace(list=unavailable), aclose=close)
+
+    monkeypatch.setattr(app.subprocess, "run", lambda *args, **kwargs: SimpleNamespace(returncode=0))
+    monkeypatch.setattr(app, "build_settings", lambda **kwargs: None)
+    monkeypatch.setattr(app, "user_id", lambda: "status-test")
+    monkeypatch.setattr(app, "keyless_env", lambda env: [])
+    monkeypatch.setattr(wiring, "build_context", context)
+    assert await app._status() == 1
+    assert closed == [True]
+    output = capsys.readouterr().out
+    assert "Library unreachable (ConnectionError)" in output
+    assert "private connection detail" not in output
+
+
+async def test_audit_reports_immutable_history_without_writing_canonical(monkeypatch):
+    from types import SimpleNamespace
+    from pneuma_knowledge_service import wiring
+    from pneuma_knowledge_core.domain.canonical import CanonicalDocument
+
+    archived = CanonicalDocument(doc_id="retired", path="archive/topics/retired.md",
+                                 frontmatter={"type": "topic", "slug": "retired"},
+                                 body="Old assertion. <!-- c:aa11 -->")
+    seen = {}
+
+    async def documents(uid):
+        return [archived]
+
+    async def counts(uid):
+        return {}
+
+    async def close():
+        seen["closed"] = True
+
+    async def context(settings):
+        # No write port: an accidental canonical mutation would fail this test.
+        return SimpleNamespace(canonical=SimpleNamespace(list=documents),
+                               store=SimpleNamespace(block_counts=counts), aclose=close)
+
+    monkeypatch.setattr(app, "build_settings", lambda **kwargs: SimpleNamespace(overview_budget_chars=2000))
+    monkeypatch.setattr(app, "user_id", lambda: "audit-test")
+    monkeypatch.setattr(app, "keyless_env", lambda env: [])
+    monkeypatch.setattr(app, "write_run_report", lambda kind, payload: seen.update(kind=kind, report=payload))
+    monkeypatch.setattr(wiring, "build_context", context)
+    assert await app._audit() == 1
+    assert seen["closed"] and seen["kind"] == "audit"
+    assert len(seen["report"]["findings"]) == 1
+    assert seen["report"]["findings"][0]["path"] == archived.path
 
 
 async def test_answer_report_retains_degradation_and_question_time(monkeypatch, capsys):

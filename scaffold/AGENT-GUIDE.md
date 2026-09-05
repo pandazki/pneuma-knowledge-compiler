@@ -2,9 +2,10 @@
 
 **English** | [简体中文](AGENT-GUIDE.zh-CN.md)
 
-Use the scaffold to build a library the user can inspect, question and maintain. Your job is
-to decide how their material becomes useful knowledge and verify the result. A high benchmark
-score, a large claim count and a green compile are each insufficient evidence of that.
+Guide the user from their material to a library they can inspect, question and maintain.
+Explain one checkpoint at a time in their language; run authorized work yourself and do not
+hand a beginner a wall of commands. A large claim count or green compile alone does not show
+that the library is useful. These steps combine a working setup with checks of its meaning.
 
 ## 1. Form an expectation before building
 
@@ -18,6 +19,30 @@ Ask for missing information only when it changes a consequential decision you ca
 Use existing authorization; do not make each reversible step a new approval gate. The demo
 is optional and belongs in a separate project. Do not require a demo, data deletion, or a
 fully bespoke contract before useful work can begin.
+
+**Checkpoint:** You can name the material directory, who may use the library, and two or
+three useful things it should let them find. Leave unknown personal details blank.
+
+### Check the local prerequisites
+
+Locate the framework checkout and a new project directory outside it. Verify Git, `uv`,
+Docker Compose and a running Docker engine:
+
+```bash
+git --version
+uv --version
+docker version
+docker compose version
+```
+
+The generator uses Python 3.11+ and re-execs through `uv` with Python 3.12 when needed.
+If a tool is missing, help install that tool; if Docker cannot reach its engine, help start
+Docker before continuing. An OpenRouter key is needed for a real build. Do not ask the user
+to send it. If they only want to explore first, `scaffold/init.py --demo` creates a separate
+keyless browsing project; it is optional and never a prerequisite for their own library.
+
+**Checkpoint:** The commands work, the two directories are known, and the user knows whether
+they are starting a real build or browsing a demonstration.
 
 ## 2. Preserve the material before optimizing it
 
@@ -33,10 +58,8 @@ about the compiler. Keep observation time, event time and import time distinct. 
 timezones and people stay unknown. Separate unrelated tenants. Remove material that must
 never be stored or sent to the model before import; compile admission does not filter L0.
 
-For evaluation, freeze input hashes and the evaluation protocol before building. Questions,
-expected answers and gold evidence must not influence import, contract writing or compilation.
-Keep a source-only audit separate from later question-based diagnosis. A model may still know
-public benchmark material from training; procedural isolation is not proof of zero contamination.
+**Checkpoint:** You can account for the files and their processing order, and show a
+representative normalized source without losing its identities, dates or structure.
 
 ## 3. Start with the contract, specialize with evidence
 
@@ -61,8 +84,51 @@ person family and identity-bearing sources; do not bind every subject to a perso
 
 ## 4. Run the ordinary application and keep receipts
 
-Generate a fresh project, inspect its contract and model roles, set the credential in `.env`,
-and run `./start.sh`. It validates all inputs, then imports and drains the normal worker per
+### Generate an empty project
+
+Run `scaffold/init.py` interactively for a person at the terminal. For agent execution, write
+an answers file using the user's actual paths, then invoke the same generator:
+
+```toml
+language = "en"
+project_name = "my-kb"
+[data]
+mode = "path"
+path = "/absolute/path/to/material"
+```
+
+```bash
+./scaffold/init.py --answers /absolute/path/to/answers.toml --target /absolute/path/to/my-kb
+```
+
+Omit `[data]` to fill the generated `my-data/` later. The starter contract is executable;
+inspect it and `engine/engine.yaml`, adapting only what the material and intended use justify.
+**Checkpoint:** The project has `.env`, `engine/`, `app.py`, `start.sh`, and its own README.
+
+### Let the user enter the credential
+
+Have the user open the generated `.env` in their editor and fill `OPENROUTER_API_KEY` there.
+Never take a key through chat, an agent-authored command, or stdin. Never print `.env` or put
+credentials in the answers file. Existing authorized secret storage can be used by the runtime;
+it does not need to be copied into the conversation. Verify only whether the field is populated,
+without returning its value. `start.sh` performs that check and reports an empty field safely.
+
+**Checkpoint:** The credential is present locally and has not appeared in the conversation,
+command text or version control. The user knows a real build uses paid model calls.
+
+### Build and inspect
+
+From the generated project, run:
+
+```bash
+./start.sh
+./app.py status
+./app.py glance
+./app.py ask 'A useful question about this material' --sources
+./app.py audit
+```
+
+`start.sh` validates all inputs, then imports and drains the normal worker per
 input file in filename order. Source bundles may expand into several natural source units.
 For separate intake and worker operation use `ingest` then `compile`; the console worker is
 an alternative queue consumer, not an additional compiler to run concurrently with the CLI.
@@ -77,6 +143,17 @@ costs. Use provider usage or explicit per-role accounting for total cost.
 The normal path uses the framework's intake, worker, gates and recall. If an experiment needs
 a custom harness, state precisely what it changes and preserve requests, versions and failures.
 Do not hand-edit canonical knowledge to improve answers.
+
+`status` exits 1 if the stack/library is unreachable; exit 0 means the inspection succeeded,
+so still inspect pending and failed counts. `audit` reads the whole library, including archives
+and closed volumes, and reports provenance/overview defects without changing anything. It
+exits 1 for findings; a clean audit does not prove semantic fidelity. An unchanged historical
+defect can appear here without blocking unrelated compiles. A new write may not introduce
+such a defect or break previously valid dependants. Never unarchive or rewrite protected
+history automatically to make an audit green.
+
+**Checkpoint:** Expected inputs are imported, pending work is drained, unresolved failures
+are accounted for, and the user has seen a subject page and an answer with its cited passages.
 
 ## 5. Accept the library at three levels
 
@@ -126,3 +203,8 @@ Deliver the expectation, actual behavior, representative failures, changes, vali
 remaining uncertainty. Separate design limits, implementation defects, domain-contract choices
 and model mistakes. A small, source-supported improvement is more useful than a broad claim
 that the framework is now “better.”
+
+**Completion:** The user can find the project, inspect a subject and its sources, ask a question,
+and explain how to add material next. Deliver the material coverage, representative fidelity
+checks, unresolved findings and exact commands; do not call setup alone a completed library.
+For a requested independent benchmark, use the separate [evaluation protocol](../docs/guides/evaluating-libraries.md).

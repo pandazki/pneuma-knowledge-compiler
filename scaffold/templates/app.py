@@ -743,7 +743,7 @@ async def upsert_owner_profile(ctx, uid) -> None:
     }
     if (any(payload[k] for k in ("display_name", "occupation", "bio", "interests", "industry", "role", "level"))
             or any(payload["locale"].values())):
-        payload["source"] = "profile"
+        payload["source"] = "user"
     validated = UserProfile.model_validate(payload)
     await ctx.store.upsert_user_profile(uid, validated.model_dump(mode="json", exclude={"level_style"}))
 
@@ -755,10 +755,14 @@ def cmd_up(_args) -> int:
     if not COMPOSE_FILE.exists():
         sys.exit(f"error: {COMPOSE_FILE} not found")
     print("== Starting the middleware stack (postgres / qdrant / meilisearch / rustfs) ==")
-    result = subprocess.run(
-        ["docker", "compose", "-f", str(COMPOSE_FILE), "up", "-d", "--wait"],
-        cwd=PROJECT_ROOT,
-    )
+    try:
+        result = subprocess.run(
+            ["docker", "compose", "-f", str(COMPOSE_FILE), "up", "-d", "--wait"],
+            cwd=PROJECT_ROOT,
+        )
+    except FileNotFoundError:
+        print("Docker CLI was not found. Install Docker and make docker available on PATH.", file=sys.stderr)
+        return 1
     if result.returncode != 0:
         print("docker compose failed to start", file=sys.stderr)
         return result.returncode
@@ -1143,15 +1147,24 @@ async def _drain_with_progress(ctx, model, skill, uid) -> int:
             drain.cancel()
 
 
+class CliError(RuntimeError):
+    """An operational failure with a user-facing remedy and a nonzero CLI exit."""
+
+
 def require_cli_queue_owner() -> None:
     """A running console worker owns the queue; CLI drains must not reclaim its jobs."""
-    result = subprocess.run(
-        ["docker", "compose", "--profile", "console", "-f", str(COMPOSE_FILE),
-         "ps", "--status", "running", "--services"],
-        cwd=PROJECT_ROOT, text=True, capture_output=True, check=True,
-    )
+    try:
+        result = subprocess.run(
+            ["docker", "compose", "--profile", "console", "-f", str(COMPOSE_FILE),
+             "ps", "--status", "running", "--services"],
+            cwd=PROJECT_ROOT, text=True, capture_output=True, check=True,
+        )
+    except FileNotFoundError as exc:
+        raise CliError("Docker CLI was not found. Install Docker and make docker available on PATH.") from exc
+    except subprocess.CalledProcessError as exc:
+        raise CliError("Cannot inspect queue ownership. Start Docker, then run docker compose --profile console ps to diagnose the stack.") from exc
     if "worker" in result.stdout.splitlines():
-        raise RuntimeError("console worker is running; use it to drain the queue, or stop it before CLI build/compile")
+        raise CliError("console worker is running; use it to drain the queue, or stop it before CLI build/compile")
 
 
 async def _compile(*, recover: bool = False) -> tuple[int, dict[str, int]]:
@@ -1631,20 +1644,18 @@ async def _status() -> int:
     from pneuma_knowledge_core.domain.ids import UserId
     from pneuma_knowledge_service.wiring import build_context
 
-    subprocess.run(
-        ["docker", "compose", "-f", str(COMPOSE_FILE), "ps"], cwd=PROJECT_ROOT, check=False
-    )
-    for line in keyless_env(os.environ):  # counting what is there needs no model
-        print(line)
+    ctx = None
     try:
+        result = subprocess.run(
+            ["docker", "compose", "-f", str(COMPOSE_FILE), "ps"], cwd=PROJECT_ROOT, check=False
+        )
+        if result.returncode:
+            print("Cannot inspect the stack. Start Docker and check docker compose ps.")
+            return 1
+        for line in keyless_env(os.environ):  # counting what is there needs no model
+            print(line)
         settings = build_settings(require_key=False)
         ctx = await build_context(settings)
-    except SystemExit:
-        raise
-    except Exception as exc:  # noqa: BLE001 — with the stack down, status reports rather than crashes
-        print(f"(library unreachable: {type(exc).__name__}: {exc})")
-        return 1
-    try:
         uid = UserId(user_id())
         sources = await ctx.store.list(uid)
         jobs = await ctx.store.list_jobs(uid)
@@ -1656,13 +1667,62 @@ async def _status() -> int:
             f"user={uid}  sources={len(sources)}  jobs pending={len(pending)}  "
             f"jobs failed={len(failed)}  canonical documents={len(docs)}  claims={len(claims)}"
         )
+    except FileNotFoundError:
+        print("Docker CLI was not found. Install Docker and make docker available on PATH.")
+        return 1
+    except Exception as exc:  # noqa: BLE001 — status reports infrastructure failures without a traceback
+        print(f"Library unreachable ({type(exc).__name__}). Check ./app.py up and the stack configuration.")
+        return 1
     finally:
-        await ctx.aclose()
+        if ctx is not None:
+            await ctx.aclose()
     return 0
 
 
 def cmd_status(_args) -> int:
     return asyncio.run(_status())
+
+
+async def _audit() -> int:
+    """Read every document, including immutable history; never repair canonical implicitly."""
+    from pneuma_knowledge_core.compile.gate import check_citation_shape, check_claim_provenance
+    from pneuma_knowledge_core.compile.overview import check_overviews
+    from pneuma_knowledge_core.domain.canonical import iter_canonical_citations
+    from pneuma_knowledge_core.domain.ids import UserId
+    from pneuma_knowledge_service.wiring import build_context
+
+    keyless_env(os.environ)
+    settings = build_settings(require_key=False)
+    ctx = await build_context(settings)
+    try:
+        uid = UserId(user_id())
+        docs = {doc.path: doc for doc in await ctx.canonical.list(uid)}
+        findings = [vars(v) for v in check_claim_provenance(docs, docs, audit=True)]
+        findings.extend(vars(v) for v in check_citation_shape(docs))
+        findings.extend({"kind": kind, "path": path, "detail": detail}
+                        for kind, path, detail in check_overviews(
+                            {p: d.body for p, d in docs.items()}, budget=settings.overview_budget_chars,
+                        ))
+        bounds = await ctx.store.block_counts(uid)
+        for path, doc in docs.items():
+            for citation in iter_canonical_citations(doc.body):
+                sid = str(citation.source_id)
+                count = bounds.get(sid)
+                if count is None or not 0 <= citation.block_start <= citation.block_end < count:
+                    findings.append({"kind": "citation", "path": path,
+                                     "detail": f"Unresolvable source span: {sid} ¶{citation.block_start}-{citation.block_end}"})
+        write_run_report("audit", {"documents": len(docs), "findings": findings,
+                                   "scope": "All provenance chains, source addresses and overview regions; no semantic judgement."})
+        for finding in findings:
+            print(f"  {finding['path']}: {finding['detail']}")
+        print(f"Audit: {len(docs)} documents, {len(findings)} findings. Canonical was not modified.")
+        return 1 if findings else 0
+    finally:
+        await ctx.aclose()
+
+
+def cmd_audit(_args) -> int:
+    return asyncio.run(_audit())
 
 
 async def _glance() -> int:
@@ -1963,7 +2023,8 @@ def main() -> int:
         default="keep",
         help="evolve step only: dispose a draft by adopting it (gate decides), or keep it for review (exit 2)",
     )
-    sub.add_parser("status", help="stack and library status")
+    sub.add_parser("status", help="stack and library status; exit 1 when unreachable")
+    sub.add_parser("audit", help="read-only audit of all provenance and overviews, including historical defects")
     demo = sub.add_parser("demo", help="end to end: up → init → ingest → compile → Q&A")
     demo.add_argument("--yes", action="store_true", help="no prompts, take every default (CI/non-interactive)")
     sub.add_parser("preflight", help="pre-flight check (is the framework repository reachable?)")
@@ -1987,9 +2048,14 @@ def main() -> int:
         "restore": cmd_restore,
         "evolve": cmd_evolve,
         "status": cmd_status,
+        "audit": cmd_audit,
         "demo": cmd_demo,
     }[args.command]
-    return handler(args)
+    try:
+        return handler(args)
+    except CliError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

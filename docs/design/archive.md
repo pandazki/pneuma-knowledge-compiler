@@ -176,8 +176,8 @@ against the full copy's own anchors included.
    every default answer (I4). A page with NEITHER contributes its title, and that one case is
    the only one the gate's grounding floor exempts (`GROUNDING_EXEMPT`) — nothing in such a
    page exists to ground on. The record renderer copies existing text and adds mechanical
-   labels; it does not generate new claims about the retired subject. This preserves the
-   existing wording and provenance, but does not verify the semantic truth of the copied text.
+   labels; it does not generate new claims about the retired subject. Existing wording and
+   provenance are preserved by construction.
 2. **What it held.** One mechanical line: `Covered {from}–{to} · ledger claims {claims} ·
    sources {sources} · closed volumes {volumes} · linked from live pages {inbound}` —
    labelled numbers, the figure last, because a channel with no model in it cannot inflect

@@ -1485,7 +1485,7 @@ DEFAULTS: dict[str, str] = {
     ),
     "gate.claim_without_provenance": (
         "claim has no provenance at all: \"{preview}…\" (anchor c:{anchor}). "
-        "Every authored ledger claim, including unchanged claims, must reach a source citation "
+        "New or revised claims, and existing dependants whose basis this operation removed, must reach a source citation "
         "`[cite: <source_id> ¶a-b]` through its own text or a chain of `c:<id>` references. "
         "Self-reference and source-free cycles are not evidence. Existing mechanical archive "
         "records and volume catalogs have their own admission checks. If this is only a "
@@ -2525,14 +2525,17 @@ DEFAULTS: dict[str, str] = {
         "document, anchor unchanged; the target must exist (create_document first)."
     ),
     "evolve.tool.edit_claim": (
-        "Rewrite the claim at the given anchor in place; the anchor is preserved automatically."
+        "Rewrite the block at the given anchor in place; the anchor is preserved automatically. "
+        "This also edits anchored overview blocks: after deleting a referenced ledger claim, "
+        "read its dependants and correct their overview references with this tool."
     ),
     "evolve.tool.append_block": (
         "Add one claim at the end of a section; the anchor is assigned by the system."
     ),
     "evolve.tool.delete_claim": (
         "Remove a claim block entirely (only for merging equivalent redundancy; the anchor "
-        "enters the dropped list)."
+        "enters the dropped list). Repair references to it in other claims and overview blocks "
+        "with edit_claim before finishing; otherwise the gate rejects the reorganization."
     ),
     "evolve.tool.search_knowledge": (
         "Search the knowledge base again by query (L1/L2/L3) to find evidence from another "

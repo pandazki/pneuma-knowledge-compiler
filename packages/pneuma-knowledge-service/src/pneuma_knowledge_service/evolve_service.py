@@ -509,6 +509,7 @@ async def adopt_evolve_job(ctx: AppContext, user: UserId, job: object) -> None:
     provenance_violations.extend(
         Violation(kind, path, detail) for kind, path, detail in check_overviews(
             {path: doc.body for path, doc in final_docs.items()},
+            base_bodies={doc.path: doc.body for doc in main_docs},
             budget=ctx.settings.overview_budget_chars,
         )
     )

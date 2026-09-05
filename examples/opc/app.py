@@ -1,38 +1,9 @@
 #!/usr/bin/env python3
-"""Driver CLI for the pneuma-knowledge application scaffold.
+"""Generated application driver: source intake, worker drain, evidence inspection.
 
-One command per action; `demo` runs the whole chain end to end:
-
-    ./app.py up                 # start the local middleware stack (compose up + health wait)
-    ./app.py init               # detect timezone/language/region from the system, write them
-                                #   back into profile.yaml and record their provenance
-    ./app.py ingest [dir]       # ingest material (defaults to my-data; the occurrence
-                                #   date comes from the frontmatter `date`)
-    ./app.py compile            # drain the compile queue (real models)
-    ./app.py ask "question"     # Q&A on the fast lane (--sources also prints the cited raw
-                                #   text; --deep answers on the agentic lane instead)
-    ./app.py glance             # print an overview of the current library (no re-ingest)
-    ./app.py restore            # restore the library shipped in prebuilt/, if this project
-                                #   ships one (no API key needed — nothing here calls a model)
-    ./app.py evolve [action]    # schema evolution: list / run / show / adopt / drop proposals
-    ./app.py status             # stack and library status
-    ./app.py demo [--yes]       # up → init → ingest → compile → demo questions (if any) → glance
-    ./app.py preflight          # pre-flight check (is the framework repository reachable?)
-    ./app.py down [--volumes]   # stop the stack (--volumes also deletes the data volumes)
-
-Framework dependencies resolve through the uv environment of the pneuma-knowledge-compiler
-repository: while the scaffold lives inside the repository the parent directories are probed
-automatically; once copied outside it, set PNEUMA_APP_FRAMEWORK_REPO in .env. The top level of
-this file uses the standard library only — every framework import is deferred into a subcommand,
-and when the environment is missing the process re-execs itself via `uv run --project`.
-
-Strategy is NOT configured here and not in `.env`: it lives in `engine/` — the project's own
-versioned unit holding the model roles, chunking, answering, challenge and evolve knobs, the
-compile contract, the owner profile and any prompt overlays (see `engine/README.md`). This
-driver resolves them through the framework's own precedence chain — process environment >
-engine file > framework default — so the CLI, the API and the Engine Console can never
-disagree about what this engine is configured to do. `.env` holds only the API key and this
-machine's infrastructure.
+Strategy lives in engine/, credentials and local ports in .env. See the generated README
+for the workflow. Keep top-level imports stdlib-only so bootstrap can re-exec through the
+framework's uv environment before importing its dependencies.
 """
 
 from __future__ import annotations
@@ -40,6 +11,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import hashlib
 import os
 import re
 import subprocess
@@ -82,10 +54,8 @@ DEFAULT_QDRANT_PORT = 16373
 DEFAULT_MEILI_PORT = 17704
 DEFAULT_RUSTFS_PORT = 19004
 
-# The deterministic embedding used when no API key is present. Its dimension matches the
-# recommended default embedding model, so a vector collection built keyless stays usable
-# after a key arrives. An engine that names an embedding model of a different dimension sets
-# PNEUMA_APP_KEYLESS_EMBEDDING=fake:<that dimension> in .env.
+# Deterministic vectors for keyless browsing only. Real semantic retrieval needs a rebuild
+# with the selected embedding model, even when vector dimensions happen to match.
 KEYLESS_EMBEDDING = "fake:1536"
 
 CONTRACT_RULES = (
@@ -221,7 +191,7 @@ def split_frontmatter(text: str) -> tuple[str, str]:
     return match.group(1), text[match.end() :]
 
 
-def parse_conversation_turns(body: str) -> list[tuple[str, str]]:
+def parse_conversation_turns(body: str, *, strict: bool = False) -> list[tuple[str, str]]:
     """A sequence of `speaker: content` lines → [(speaker, text)]; a line without a colon is
     folded into the previous turn.
 
@@ -258,6 +228,10 @@ def parse_conversation_turns(body: str) -> list[tuple[str, str]]:
         elif turns:
             speaker, text = turns[-1]
             turns[-1] = (speaker, f"{text}\n{line.strip()}")
+        elif strict:
+            raise ValueError("conversation text before its first speaker; use source-contract JSON for structured transcripts")
+    if strict and (not turns or any(not text.strip() for _, text in turns)):
+        raise ValueError("conversation must contain nonempty attributed turns")
     return turns
 
 
@@ -726,7 +700,7 @@ async def upsert_owner_profile(ctx, uid) -> None:
     locale = profile.get("locale") or {}
     provenance = profile.get("provenance") or {}
     preferences = profile.get("preferences") or {}
-    display_name = str(profile.get("display_name") or "Owner").strip() or "Owner"
+    display_name = str(profile.get("display_name") or "").strip()
     zone = str(locale.get("timezone") or "").strip()
     if str(provenance.get("timezone") or "") != "profile":
         # A timezone the subject has not confirmed only takes effect as a deployment default
@@ -736,25 +710,26 @@ async def upsert_owner_profile(ctx, uid) -> None:
     payload = {
         "user_id": str(uid),
         "display_name": display_name,
-        "avatar": {"initial": display_name[0], "color": "#6C8EBF"},
+        "avatar": {"initial": display_name[:1] or "?", "color": "#6C8EBF"},
         "locale": {
             "city": str(locale.get("city") or "").strip(),
-            "country": str(locale.get("country") or "").strip(),
+            "country": str(locale.get("country") or "").strip()
+            if provenance.get("region") == "profile" else "",
             "timezone": zone,
-            "language": language,
+            "language": language if provenance.get("language") == "profile" else "",
             "timezone_history": [],
         },
-        "industry": str(profile.get("industry") or "other"),
-        "role": str(profile.get("role") or "other"),
-        "level": str(profile.get("level") or "mid"),
+        "industry": str(profile.get("industry") or ""),
+        "role": str(profile.get("role") or ""),
+        "level": str(profile.get("level") or ""),
         "occupation": str(profile.get("occupation") or ""),
         "bio": str(profile.get("bio") or ""),
         "interests": [str(x) for x in (profile.get("interests") or [])],
         "workspace": {
-            "operating_mode": "independent",
+            "operating_mode": "",
             "primary_stack": "",
-            "automation_level": "assisted",
-            "active_since": datetime.now(timezone.utc).date().isoformat(),
+            "automation_level": "",
+            "active_since": "",
         },
         "preferences": {
             "response_language": str(preferences.get("response_language") or "").strip()
@@ -763,9 +738,12 @@ async def upsert_owner_profile(ctx, uid) -> None:
             "units": "metric",
             "privacy_level": "standard",
         },
-        "joined_at": datetime.now(timezone.utc).date().isoformat(),
-        "source": "user",
+        "joined_at": "",
+        "source": "unstated",
     }
+    if (any(payload[k] for k in ("display_name", "occupation", "bio", "interests", "industry", "role", "level"))
+            or any(payload["locale"].values())):
+        payload["source"] = "user"
     validated = UserProfile.model_validate(payload)
     await ctx.store.upsert_user_profile(uid, validated.model_dump(mode="json", exclude={"level_style"}))
 
@@ -777,10 +755,14 @@ def cmd_up(_args) -> int:
     if not COMPOSE_FILE.exists():
         sys.exit(f"error: {COMPOSE_FILE} not found")
     print("== Starting the middleware stack (postgres / qdrant / meilisearch / rustfs) ==")
-    result = subprocess.run(
-        ["docker", "compose", "-f", str(COMPOSE_FILE), "up", "-d", "--wait"],
-        cwd=PROJECT_ROOT,
-    )
+    try:
+        result = subprocess.run(
+            ["docker", "compose", "-f", str(COMPOSE_FILE), "up", "-d", "--wait"],
+            cwd=PROJECT_ROOT,
+        )
+    except FileNotFoundError:
+        print("Docker CLI was not found. Install Docker and make docker available on PATH.", file=sys.stderr)
+        return 1
     if result.returncode != 0:
         print("docker compose failed to start", file=sys.stderr)
         return result.returncode
@@ -869,73 +851,134 @@ def confirm_language(ingest_dir: Path, *, assume_yes: bool) -> None:
     print(f"  Language set to {choice} ({source_note}).")
 
 
-async def _ingest(directory: Path) -> int:
-    from zoneinfo import ZoneInfo
+def write_run_report(kind: str, payload: dict) -> Path:
+    """Keep receipts beside private runtime data; never copy credentials into them."""
+    destination = PROJECT_ROOT / "data" / "run-reports"
+    destination.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).isoformat()
+    path = destination / f"{kind}-{time.time_ns()}.json"
+    engine_hashes = {
+        str(p.relative_to(ENGINE_DIR)): hashlib.sha256(p.read_bytes()).hexdigest()
+        for p in sorted(ENGINE_DIR.rglob("*"))
+        if p.is_file() and ".git" not in p.relative_to(ENGINE_DIR).parts
+    }
+    repo = find_framework_repo()
+    revision = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo,
+                              capture_output=True, text=True).stdout.strip() if repo else ""
+    path.write_text(json.dumps({"recorded_at": stamp, "kind": kind,
+                               "framework_revision": revision,
+                               "engine_sha256": engine_hashes, **payload},
+                              ensure_ascii=False, indent=2, default=str) + "\n")
+    print(f"  Run report: {path}")
+    return path
 
+
+def prepare_materials(directory: Path) -> list[dict]:
+    """Validate the entire ordered inventory before any source is ingested.
+
+    JSON uses the framework's source contracts, not an ad-hoc transcript conversion.
+    Markdown is a convenience adapter; preserve its frontmatter and never invent clocks.
+    """
+    import yaml
+    from pneuma_knowledge_core.ingest.source_contracts import parse_source_contract
+
+    files = sorted(p for p in directory.iterdir()
+                   if p.is_file() and p.suffix.lower() in {".json", ".md"}
+                   and p.name.lower() != "readme.md")
+    if not files:
+        raise ValueError(f"no .md or source-contract .json files in {directory}")
+    prepared = []
+    for path in files:
+        raw = path.read_bytes()
+        item = {"file": path.name, "sha256": hashlib.sha256(raw).hexdigest()}
+        try:
+            text = raw.decode("utf-8")
+            if path.suffix.lower() == ".json":
+                item["contract"] = parse_source_contract(json.loads(text))
+            else:
+                frontmatter, body = split_frontmatter(text)
+                meta = yaml.safe_load(frontmatter) or {}
+                if not isinstance(meta, dict):
+                    raise ValueError("frontmatter must be a mapping")
+                # YAML date objects must remain faithful, JSON-compatible source metadata.
+                meta = json.loads(json.dumps(meta, default=lambda value: value.isoformat()))
+                date = str(meta.get("occurred_on") or meta.get("date") or "").strip()
+                if not date:
+                    match = re.match(r"^(\d{4}-\d{2}-\d{2})", path.name)
+                    date = match.group(1) if match else ""
+                if date:
+                    datetime.fromisoformat(date)
+                    meta["occurred_on"] = date
+                if not body.strip():
+                    raise ValueError("material body is empty")
+                item.update(title=str(meta.get("title") or path.stem), body=body, meta=meta)
+                if meta.get("type") == "conversation":
+                    item["turns"] = parse_conversation_turns(body, strict=True)
+        except (ValueError, TypeError, AttributeError, yaml.YAMLError) as exc:
+            raise ValueError(f"{path.name}: {exc}") from exc
+        prepared.append(item)
+    return prepared
+
+
+async def _ingest(directory: Path, *, compile_each: bool = False) -> int:
     from pneuma_knowledge_core.domain.ids import UserId
     from pneuma_knowledge_core.domain.source import ConversationTurn
     from pneuma_knowledge_service.ingest import ingest_conversation
     from pneuma_knowledge_service.ingest_document import ingest_document
+    from pneuma_knowledge_service.ingest_sources import ingest_source_contract
     from pneuma_knowledge_service.wiring import build_context
 
-    settings = build_settings()
-    profile = load_profile()
-    zone, _ = resolved_timezone(profile)
-    try:
-        tzinfo = ZoneInfo(zone)
-    except Exception:  # noqa: BLE001 — unknown timezone falls back to UTC; ingest must not fail over it
-        tzinfo = timezone.utc
-    files = sorted(
-        p
-        for p in directory.glob("*.md")
-        if p.is_file() and p.name.lower() != "readme.md"
-    )
-    if not files:
-        print(f"error: no ingestable .md files in {directory}", file=sys.stderr)
-        return 1
-    ctx = await build_context(settings)
+    prepared = prepare_materials(directory)
+    report = {"directory": str(directory), "compile_each": compile_each,
+              "status": "incomplete", "inputs": [
+                  {k: item[k] for k in ("file", "sha256")} for item in prepared
+              ], "imported": []}
+    ctx = await build_context(build_settings())
     try:
         uid = UserId(user_id())
         await upsert_owner_profile(ctx, uid)
-        print(f"== Ingesting {len(files)} materials (user={uid}, timezone {zone}) ==")
-        for path in files:
-            frontmatter, body = split_frontmatter(path.read_text(encoding="utf-8"))
-            import yaml
-
-            meta = yaml.safe_load(frontmatter) or {}
-            date = str(meta.get("date") or "").strip()
-            if not date:
-                match = re.match(r"^(\d{4}-\d{2}-\d{2})", path.name)
-                date = match.group(1) if match else ""
-            title = str(meta.get("title") or path.stem)
-            kind = str(meta.get("type") or "note").strip()
-            source_meta = {"occurred_on": date} if date else {}
-            if kind == "conversation":
-                at = None
-                if date:
-                    at = datetime.fromisoformat(date).replace(hour=12, tzinfo=tzinfo)
-                turns = [
-                    ConversationTurn(speaker=speaker, text=text, at=at)
-                    for speaker, text in parse_conversation_turns(body)
-                ]
-                if not turns:
-                    print(f"  skipping {path.name}: no conversation turns parsed")
-                    continue
-                result = await ingest_conversation(ctx, uid, turns, title=title, meta=source_meta)
+        print(f"== Ingesting {len(prepared)} files in filename order (user={uid}) ==")
+        for item in prepared:
+            if "contract" in item:
+                results = (await ingest_source_contract(ctx, uid, item["contract"])).sources
+            elif "turns" in item:
+                turns = [ConversationTurn(speaker=speaker, text=text, at=None)
+                         for speaker, text in item["turns"]]
+                results = [await ingest_conversation(
+                    ctx, uid, turns, title=item["title"], meta=item["meta"])]
             else:
-                result = await ingest_document(
-                    ctx, uid, title=title, text=body.strip(), declared_type="note", meta=source_meta
-                )
-            flag = " (duplicate, skipped)" if result.deduplicated else ""
-            print(f"  {path.name} → source {str(result.source_id)[:8]}… {flag}")
-        print("  Ingest done. Index and compile jobs queued — next: `./app.py compile`.")
+                results = [await ingest_document(
+                    ctx, uid, title=item["title"], text=item["body"],
+                    declared_type="note", meta=item["meta"])]
+            for result in results:
+                row = {"file": item["file"], "source_id": str(result.source_id),
+                       "deduplicated": result.deduplicated}
+                report["imported"].append(row)
+                print(f"  {item['file']} → {result.source_id}" +
+                      (" (already imported)" if result.deduplicated else ""))
+            if compile_each:
+                code, _ = await _compile()
+                if code:
+                    report["failed_at"] = item["file"]
+                    return code
+        report["status"] = "complete"
+        print("  Import complete." + ("" if compile_each else " Next: ./app.py compile"))
+        return 0
+    except Exception as exc:
+        report["error"] = f"{type(exc).__name__}: {exc}"
+        raise
     finally:
+        write_run_report("build" if compile_each else "ingest", report)
         await ctx.aclose()
-    return 0
+
+
+def material_directory(override: str | None = None) -> Path:
+    """Use the selected external directory by default; an explicit CLI path wins."""
+    return Path(override or os.environ.get("PNEUMA_APP_DATA_DIR") or MY_DATA_DIR).expanduser().resolve()
 
 
 def cmd_ingest(args) -> int:
-    directory = Path(args.directory).resolve() if args.directory else MY_DATA_DIR
+    directory = material_directory(args.directory)
     if not directory.is_dir():
         sys.exit(f"error: directory does not exist: {directory}")
     return asyncio.run(_ingest(directory))
@@ -958,23 +1001,84 @@ def _usage_totals(tracker) -> dict[str, int]:
     return totals
 
 
+def _compile_work_key(payload: dict, source: str) -> tuple[str, str, bool, str]:
+    """The source and the compile instructions a successful retry must preserve."""
+    return (
+        source,
+        str((payload.get("treatments") or {}).get(source) or ""),
+        bool(payload.get("challenge_compensation")),
+        str(payload.get("challenge_guidance") or ""),
+    )
+
+
+def _job_completed_at(job: dict) -> datetime | None:
+    """Store datetimes and API ISO timestamps share one clock; unknown is not success."""
+    value = job.get("completed_at")
+    if isinstance(value, str):
+        try:
+            value = datetime.fromisoformat(value)
+        except ValueError:
+            return None
+    if not isinstance(value, datetime) or value.tzinfo is None:
+        return None
+    return value.astimezone(timezone.utc)
+
+
 def _unresolved_failures(jobs: list[dict]) -> list[dict]:
-    """Jobs that ended in failure, minus the ones a later retry resolved: once every source of
-    a failed compile job is covered by a successful job, that failure is just history and no
-    longer counts as unresolved."""
-    ok_sources: set[str] = set()
+    """A failed compile is resolved only by later successes covering the same work.
+
+    Each source may be retried in a different batch, but its treatment and compensation
+    guidance must match. Earlier successes, unfinished jobs and unknown completion times
+    cannot hide a later failure. Input order does not affect this judgement.
+    """
+    successes: dict[tuple[str, str, bool, str], datetime] = {}
     for job in jobs:
-        if job.get("kind") == "compile" and job.get("ok") is True:
-            ok_sources.update(str(s) for s in (job.get("payload") or {}).get("source_ids", []))
+        completed = _job_completed_at(job)
+        if (job.get("kind") != "compile" or job.get("status") != "done"
+                or job.get("ok") is not True or completed is None):
+            continue
+        payload = job.get("payload") or {}
+        for source in payload.get("source_ids", []):
+            key = _compile_work_key(payload, str(source))
+            successes[key] = max(successes.get(key, completed), completed)
     unresolved: list[dict] = []
     for job in jobs:
         if job.get("status") != "done" or job.get("ok") is True:
             continue
-        sources = {str(s) for s in (job.get("payload") or {}).get("source_ids", [])}
-        if job.get("kind") == "compile" and sources and sources <= ok_sources:
-            continue
+        payload = job.get("payload") or {}
+        sources = {str(s) for s in payload.get("source_ids", [])}
+        completed = _job_completed_at(job)
+        if job.get("kind") == "compile" and sources and completed is not None:
+            if all(successes.get(_compile_work_key(payload, sid), completed) > completed
+                   for sid in sources):
+                continue
         unresolved.append(job)
     return unresolved
+
+
+def _compile_retry_payloads(jobs: list[dict]) -> list[dict]:
+    """Deduplicate the same work, preserving compensation flags and guidance on retries."""
+    seen: set[tuple[str, str, bool, str]] = set()
+    retries: list[dict] = []
+    for job in jobs:
+        payload = job.get("payload") or {}
+        sources: list[str] = []
+        for source in payload.get("source_ids", []):
+            sid = str(source)
+            key = _compile_work_key(payload, sid)
+            if key not in seen:
+                seen.add(key)
+                sources.append(sid)
+        if not sources:
+            continue
+        retry = {**payload, "source_ids": sources}
+        if "treatments" in payload:
+            retry["treatments"] = {
+                str(sid): treatment for sid, treatment in (payload["treatments"] or {}).items()
+                if str(sid) in sources
+            }
+        retries.append(retry)
+    return retries
 
 
 def _job_progress_line(
@@ -1043,10 +1147,31 @@ async def _drain_with_progress(ctx, model, skill, uid) -> int:
             drain.cancel()
 
 
-async def _compile() -> tuple[int, dict[str, int]]:
+class CliError(RuntimeError):
+    """An operational failure with a user-facing remedy and a nonzero CLI exit."""
+
+
+def require_cli_queue_owner() -> None:
+    """A running console worker owns the queue; CLI drains must not reclaim its jobs."""
+    try:
+        result = subprocess.run(
+            ["docker", "compose", "--profile", "console", "-f", str(COMPOSE_FILE),
+             "ps", "--status", "running", "--services"],
+            cwd=PROJECT_ROOT, text=True, capture_output=True, check=True,
+        )
+    except FileNotFoundError as exc:
+        raise CliError("Docker CLI was not found. Install Docker and make docker available on PATH.") from exc
+    except subprocess.CalledProcessError as exc:
+        raise CliError("Cannot inspect queue ownership. Start Docker, then run docker compose --profile console ps to diagnose the stack.") from exc
+    if "worker" in result.stdout.splitlines():
+        raise CliError("console worker is running; use it to drain the queue, or stop it before CLI build/compile")
+
+
+async def _compile(*, recover: bool = False) -> tuple[int, dict[str, int]]:
     from pneuma_knowledge_core.domain.ids import UserId
     from pneuma_knowledge_service.wiring import build_context
 
+    require_cli_queue_owner()
     skill = load_contract_skill()
     settings = build_settings(base_version=skill.version)
     ctx = await build_context(settings)
@@ -1054,47 +1179,25 @@ async def _compile() -> tuple[int, dict[str, int]]:
     try:
         uid = UserId(user_id())
         await upsert_owner_profile(ctx, uid)
-        # A drain killed mid-job (Ctrl-C, agent timeout, machine sleep) leaves its claim
-        # orphaned, and claim_next then refuses this user's queue forever — the worker
-        # service self-heals on startup, but this in-process drain is many users' ONLY
-        # drain path, so it must heal too or one interrupted compile bricks the project.
-        from pneuma_knowledge_service.workers.compile_worker import requeue_orphaned_jobs
+        if recover:
+            # Explicit recovery only: a claimed row may belong to a live process.
+            # The store operation is stack-wide; the caller must stop all workers first.
+            from pneuma_knowledge_service.workers.compile_worker import requeue_orphaned_jobs
 
-        await requeue_orphaned_jobs(ctx, label="app-compile")
+            await requeue_orphaned_jobs(ctx, label="app-compile-recovery")
         model = ctx.get_chat_model("compile")
         tracker = _attach_usage_tracker(model)
         print(f"== Draining the compile queue (user={uid}, contract {skill.skill_id}@{skill.version}) ==")
         started = time.perf_counter()
         processed = await _drain_with_progress(ctx, model, skill, uid)
         # The compile gate (citation traceability and friends) occasionally rejects a single
-        # model output — give the gate-rejected compile jobs one more round before passing
+        # model output — give the failed compile jobs one more round before passing
         # judgement. Only what still fails after the retry is reported as a failure.
         failures = _unresolved_failures(await ctx.store.list_jobs(uid))
         retriable = [j for j in failures if j.get("kind") == "compile"]
         if retriable:
-            print(f"  {len(retriable)} compile jobs rejected by the gate — one retry round…")
-            seen: set[str] = set()
-            for job in retriable:
-                payload = job.get("payload") or {}
-                sources = [
-                    str(s)
-                    for s in payload.get("source_ids", [])
-                    if str(s) not in seen
-                ]
-                if not sources:
-                    continue
-                seen.update(sources)
-                # Carry the per-source treatments over: without them the retry compiles at
-                # the plan's default, so a source the caller asked to only DISTIL gets
-                # digested in full — the retry would quietly overrule the intake decision.
-                treatments = {
-                    sid: t
-                    for sid, t in (payload.get("treatments") or {}).items()
-                    if str(sid) in set(sources)
-                }
-                retry_payload = {"source_ids": sources}
-                if treatments:
-                    retry_payload["treatments"] = treatments
+            print(f"  {len(retriable)} failed compile jobs — one retry round…")
+            for retry_payload in _compile_retry_payloads(retriable):
                 await ctx.store.enqueue(uid, "compile", retry_payload)
             processed += await _drain_with_progress(ctx, model, skill, uid)
             failures = _unresolved_failures(await ctx.store.list_jobs(uid))
@@ -1110,6 +1213,21 @@ async def _compile() -> tuple[int, dict[str, int]]:
             f"  Compile-model tokens: input={usage['input_tokens']} "
             f"output={usage['output_tokens']} total={usage['total_tokens']}"
         )
+        jobs = await ctx.store.list_jobs(uid)
+        pending = [job for job in jobs if job.get("status") != "done"]
+        write_run_report("compile", {
+            "user_id": str(uid), "skill": f"{skill.skill_id}@{skill.version}",
+            "status": "incomplete" if failures or pending else "complete",
+            "processed_jobs": processed, "elapsed_seconds": elapsed,
+            "documents": len(docs), "claims": len(claims),
+            "compile_model_tokens": usage, "jobs": jobs,
+            "unresolved_job_ids": [job.get("job_id") for job in failures],
+            "pending_job_ids": [job.get("job_id") for job in pending],
+        })
+        if pending:
+            print(f"  {len(pending)} jobs still pending or claimed; compilation is incomplete.")
+            print("  After stopping all workers, use ./app.py compile --recover for abandoned claims.")
+            return 1, usage
         if failures:
             print("  Unresolved failed jobs:")
             for job in failures:
@@ -1121,8 +1239,8 @@ async def _compile() -> tuple[int, dict[str, int]]:
     return 0, usage
 
 
-def cmd_compile(_args) -> int:
-    code, _usage = asyncio.run(_compile())
+def cmd_compile(args) -> int:
+    code, _usage = asyncio.run(_compile(recover=bool(getattr(args, "recover", False))))
     return code
 
 
@@ -1291,7 +1409,7 @@ def cmd_evolve(args) -> int:
     if action == "run":
         return asyncio.run(_evolve_enqueue("evolve", {}))
     if action == "step":
-        return asyncio.run(_evolve_step(getattr(args, "policy", "adopt-clean") or "adopt-clean"))
+        return asyncio.run(_evolve_step(getattr(args, "policy", "keep") or "keep"))
     if action == "adopt":
         return asyncio.run(_evolve_enqueue("evolve_adopt", {"task_id": args.task_id}))
     if action == "drop":
@@ -1304,6 +1422,32 @@ async def _glance_text(ctx, uid, skill) -> str:
 
     docs = await ctx.canonical.list(uid)
     return render_canonical_glance(docs, skill)
+
+
+async def cited_source_spans(store, uid, answer) -> list[dict]:
+    """Resolve final citations directly against L0, including citations reached through L3."""
+    from pneuma_knowledge_core.recall.citation_alias import iter_answer_citations
+    from pneuma_knowledge_core.domain.ids import SourceId
+
+    aliases = dict(getattr(answer, "citation_handles", None) or {})
+    spans = []
+    seen = set()
+    for alias, start, end in iter_answer_citations(answer.answer):
+        source_id = aliases.get(alias, alias)
+        key = (source_id, start, end)
+        if key in seen:
+            continue
+        seen.add(key)
+        row = {"source_id": source_id, "block_start": start, "block_end": end}
+        try:
+            source = await store.get(uid, SourceId(source_id))
+            if not 0 <= start <= end < len(source.blocks):
+                raise ValueError("citation outside source bounds")
+            row["text"] = await store.fetch(uid, SourceId(source_id), {"blocks": [start, end]})
+        except (KeyError, ValueError) as exc:
+            row["error"] = f"source span unavailable: {type(exc).__name__}"
+        spans.append(row)
+    return spans
 
 
 async def _ask(
@@ -1319,13 +1463,13 @@ async def _ask(
 ) -> tuple[int, dict[str, int]]:
     """One question through one of the framework's two answering lanes.
 
-    Default is the fast lane: retrieve once, answer once. `deep=True` calls the framework's
+    Fast uses bounded retrieval and one final answer call; optional helpers can add calls.
+    `deep=True` calls the framework's
     agentic deep lane (`recall.deep.deep_recall`) — the same coroutine the service route
     `POST /v1/recall` runs for `mode=deep` and the Engine Console's deep answers go through.
     Both lanes are invoked in process here, so this driver still leaves no consultation
     record for either: it is a silent visitor exactly as it was before deep was reachable.
     """
-    from pneuma_knowledge_core.domain.canonical import CANONICAL_CITATION_RE
     from pneuma_knowledge_core.domain.ids import UserId
     from pneuma_knowledge_core.recall.deep import deep_recall
     from pneuma_knowledge_core.recall.fast import fast_recall
@@ -1348,6 +1492,7 @@ async def _ask(
     try:
         uid = UserId(user_id())
         started = time.perf_counter()
+        question_time = as_of or datetime.now(timezone.utc)
         include_original_images = "image" in include_original_modalities
         # The canonical layout the answering side reads its glance from — the same inputs the
         # service route assembles in `_glance_inputs`, fetched once for whichever lane runs.
@@ -1359,7 +1504,7 @@ async def _ask(
             answer = await deep_recall(
                 uid,
                 question,
-                as_of=as_of or datetime.now(timezone.utc),
+                as_of=question_time,
                 claim_lexical=ctx.lexical,
                 claim_vectors=ctx.vectors,
                 lexical=ctx.lexical,
@@ -1384,7 +1529,7 @@ async def _ask(
             answer = await fast_recall(
                 uid,
                 question,
-                as_of=as_of or datetime.now(timezone.utc),
+                as_of=question_time,
                 claim_lexical=ctx.lexical,
                 claim_vectors=ctx.vectors,
                 lexical=ctx.lexical,
@@ -1437,68 +1582,30 @@ async def _ask(
             )
         if answer.stages:
             print(f"  stages: {stage_timing_line(answer.stages)}")
-        episode_summaries = getattr(answer, "used_episode_summaries", ())
-        if show_sources and episode_summaries:
-            print("  Derived episode summaries supplied to the answer (not verbatim):")
-            for summary in episode_summaries:
-                section = " / ".join(summary.section_path) or "(root)"
-                occurred_on = summary.source_occurred_on or "(unknown date)"
-                print(
-                    f"    [{summary.source_id} ¶{summary.block_start}-{summary.block_end}] "
-                    f"{summary.source_title or '(untitled)'} · {occurred_on} · {section}"
-                )
-                for text_line in summary.text.strip().splitlines():
-                    print(f"      {text_line}")
-        # Citation legend: map each [cite: s01 ¶…] short handle in the answer back to its
-        # material's title and date, so a citation is something you can actually follow rather
-        # than a string of secret codes. Fast-lane only: deep aliases nothing (its loop
-        # re-retrieves across rounds, so one source would carry different handles in different
-        # turns), so a deep answer cites the real source id and needs no legend.
-        handle_map = dict(getattr(answer, "citation_handles", None) or {})
-        if handle_map and cited_handles(answer.answer):
-            source_info = {
-                str(s.source_id): (s.title, str((s.meta or {}).get("occurred_on") or ""))
-                for s in await ctx.store.list(uid)
-            }
-            legend = citation_legend_lines(answer.answer, handle_map, source_info)
-            if legend:
-                print("  Citations:")
-                for line in legend:
-                    print(f"    {line}")
-            if show_sources:
-                real_to_handle = {v: k for k, v in handle_map.items()}
-                cited_ids = {handle_map[h] for h in cited_handles(answer.answer) if h in handle_map}
-                shown = 0
-                for w in answer.used_windows:
-                    sid = str(w.source_id)
-                    if sid not in cited_ids:
-                        continue
-                    if shown == 0:
-                        print("  Cited source windows:")
-                    shown += 1
-                    handle = real_to_handle.get(sid, sid[:8] + "…")
-                    print(f"    [{handle} ¶{w.block_start}-{w.block_end}]")
-                    for text_line in w.text.strip().splitlines():
-                        print(f"      {text_line}")
-                if shown == 0:
-                    print("  (all citations point at compiled claims; no raw source window to show.)")
-        elif deep and show_sources:
-            # The same service, read through the framework's own citation grammar (I4) since
-            # there is no handle map to go through.
-            cited_ids = {m.group("sid") for m in CANONICAL_CITATION_RE.finditer(answer.answer)}
-            shown = 0
-            for w in answer.used_windows:
-                sid = str(w.source_id)
-                if sid not in cited_ids:
-                    continue
-                if shown == 0:
-                    print("  Cited source windows:")
-                shown += 1
-                print(f"    [{sid} ¶{w.block_start}-{w.block_end}]")
-                for text_line in w.text.strip().splitlines():
-                    print(f"      {text_line}")
-            if shown == 0:
-                print("  (all citations point at compiled claims; no raw source window to show.)")
+        degradation = {
+            name: getattr(answer, name, None)
+            for name in ("answer_format_degraded", "evidence_selection_degraded")
+        }
+        for name, value in degradation.items():
+            if value:
+                print(f"  Degraded: {name}={value}")
+        source_spans = await cited_source_spans(ctx.store, uid, answer) if show_sources else []
+        if show_sources:
+            print("  Cited L0 passages (address validity does not establish support):")
+            for span in source_spans:
+                print(f"    [{span['source_id']} ¶{span['block_start']}-{span['block_end']}]")
+                print("      " + span.get("text", span.get("error", "")).replace("\n", "\n      "))
+            if not source_spans:
+                print("    (no source citations in this answer)")
+        write_run_report("answer", {
+            "question": question, "as_of": question_time.isoformat(),
+            "mode": "deep" if deep else "fast", "answer": answer.answer,
+            "answer_text": getattr(answer, "answer_text", None),
+            "answer_kind": getattr(answer, "answer_kind", None),
+            "citation_handles": dict(getattr(answer, "citation_handles", None) or {}),
+            "cited_sources": source_spans, "token_usage": answer.token_usage,
+            "elapsed_seconds": elapsed, **degradation,
+        })
         await ctx.flush_traces()
         return 0, dict(answer.token_usage or {})
     finally:
@@ -1537,37 +1644,85 @@ async def _status() -> int:
     from pneuma_knowledge_core.domain.ids import UserId
     from pneuma_knowledge_service.wiring import build_context
 
-    subprocess.run(
-        ["docker", "compose", "-f", str(COMPOSE_FILE), "ps"], cwd=PROJECT_ROOT, check=False
-    )
-    for line in keyless_env(os.environ):  # counting what is there needs no model
-        print(line)
+    ctx = None
     try:
+        result = subprocess.run(
+            ["docker", "compose", "-f", str(COMPOSE_FILE), "ps"], cwd=PROJECT_ROOT, check=False
+        )
+        if result.returncode:
+            print("Cannot inspect the stack. Start Docker and check docker compose ps.")
+            return 1
+        for line in keyless_env(os.environ):  # counting what is there needs no model
+            print(line)
         settings = build_settings(require_key=False)
         ctx = await build_context(settings)
-    except SystemExit:
-        raise
-    except Exception as exc:  # noqa: BLE001 — with the stack down, status reports rather than crashes
-        print(f"(library unreachable: {type(exc).__name__}: {exc})")
-        return 0
-    try:
         uid = UserId(user_id())
         sources = await ctx.store.list(uid)
         jobs = await ctx.store.list_jobs(uid)
         pending = [j for j in jobs if j.get("status") != "done"]
+        failed = _unresolved_failures(jobs)
         docs = await ctx.canonical.list(uid)
         claims = await ctx.store.list_canonical_claims(uid)
         print(
             f"user={uid}  sources={len(sources)}  jobs pending={len(pending)}  "
-            f"canonical documents={len(docs)}  claims={len(claims)}"
+            f"jobs failed={len(failed)}  canonical documents={len(docs)}  claims={len(claims)}"
         )
+    except FileNotFoundError:
+        print("Docker CLI was not found. Install Docker and make docker available on PATH.")
+        return 1
+    except Exception as exc:  # noqa: BLE001 — status reports infrastructure failures without a traceback
+        print(f"Library unreachable ({type(exc).__name__}). Check ./app.py up and the stack configuration.")
+        return 1
     finally:
-        await ctx.aclose()
+        if ctx is not None:
+            await ctx.aclose()
     return 0
 
 
 def cmd_status(_args) -> int:
     return asyncio.run(_status())
+
+
+async def _audit() -> int:
+    """Read every document, including immutable history; never repair canonical implicitly."""
+    from pneuma_knowledge_core.compile.gate import check_citation_shape, check_claim_provenance
+    from pneuma_knowledge_core.compile.overview import check_overviews
+    from pneuma_knowledge_core.domain.canonical import iter_canonical_citations
+    from pneuma_knowledge_core.domain.ids import UserId
+    from pneuma_knowledge_service.wiring import build_context
+
+    keyless_env(os.environ)
+    settings = build_settings(require_key=False)
+    ctx = await build_context(settings)
+    try:
+        uid = UserId(user_id())
+        docs = {doc.path: doc for doc in await ctx.canonical.list(uid)}
+        findings = [vars(v) for v in check_claim_provenance(docs, docs, audit=True)]
+        findings.extend(vars(v) for v in check_citation_shape(docs))
+        findings.extend({"kind": kind, "path": path, "detail": detail}
+                        for kind, path, detail in check_overviews(
+                            {p: d.body for p, d in docs.items()}, budget=settings.overview_budget_chars,
+                        ))
+        bounds = await ctx.store.block_counts(uid)
+        for path, doc in docs.items():
+            for citation in iter_canonical_citations(doc.body):
+                sid = str(citation.source_id)
+                count = bounds.get(sid)
+                if count is None or not 0 <= citation.block_start <= citation.block_end < count:
+                    findings.append({"kind": "citation", "path": path,
+                                     "detail": f"Unresolvable source span: {sid} ¶{citation.block_start}-{citation.block_end}"})
+        write_run_report("audit", {"documents": len(docs), "findings": findings,
+                                   "scope": "All provenance chains, source addresses and overview regions; no semantic judgement."})
+        for finding in findings:
+            print(f"  {finding['path']}: {finding['detail']}")
+        print(f"Audit: {len(docs)} documents, {len(findings)} findings. Canonical was not modified.")
+        return 1 if findings else 0
+    finally:
+        await ctx.aclose()
+
+
+def cmd_audit(_args) -> int:
+    return asyncio.run(_audit())
 
 
 async def _glance() -> int:
@@ -1708,6 +1863,24 @@ async def _demo_tail() -> int:
     return 0
 
 
+def cmd_build(args) -> int:
+    directory = material_directory(args.directory)
+    prepare_materials(directory)  # fail before starting containers or calling models
+    load_contract_skill()
+    require_models()
+    if cmd_up(None) or cmd_init(None):
+        return 1
+    require_cli_queue_owner()
+    confirm_language(directory, assume_yes=True)
+    code = asyncio.run(_ingest(directory, compile_each=True))
+    if code:
+        return code
+    print("\nBuild complete: source import and queued jobs passed.")
+    print("Inspect ./app.py glance and ask your real questions with --sources.")
+    print("A successful build validates structure and provenance addresses, not factual correctness.")
+    return 0
+
+
 def cmd_demo(args) -> int:
     started = time.perf_counter()
     steps: list[tuple[str, float]] = []
@@ -1749,7 +1922,6 @@ def cmd_demo(args) -> int:
     print("  ./app.py glance            # look at the library overview any time")
     print("  engine/                    # this engine's strategy and contract, versioned (see engine/README.md)")
     print("  Switching to your own data: see README.md (or let your AI guide walk you through)")
-    print("  Reset and start over: ./app.py down --volumes && rm -rf data/")
     return 0
 
 
@@ -1778,9 +1950,12 @@ def main() -> int:
     down = sub.add_parser("down", help="stop the middleware stack")
     down.add_argument("--volumes", action="store_true", help="also delete the data volumes")
     sub.add_parser("init", help="detect timezone/language/region into profile.yaml")
-    ingest = sub.add_parser("ingest", help="ingest a directory of .md material")
+    ingest = sub.add_parser("ingest", help="ingest source-contract JSON and Markdown files in filename order")
     ingest.add_argument("directory", nargs="?", help="defaults to my-data/")
-    sub.add_parser("compile", help="drain the compile queue")
+    build = sub.add_parser("build", help="validate, start, then import and compile each material file")
+    build.add_argument("directory", nargs="?", help="defaults to my-data/")
+    compile_command = sub.add_parser("compile", help="drain the compile queue")
+    compile_command.add_argument("--recover", action="store_true", help="requeue abandoned claimed jobs; stop ALL workers using this stack first")
     ask = sub.add_parser("ask", help="ask the library a question (fast lane; --deep for the agentic one)")
     ask.add_argument("question")
     ask.add_argument(
@@ -1790,14 +1965,14 @@ def main() -> int:
             "answer on the agentic deep lane instead of the fast one: it opens on the same "
             "evidence, then re-searches, reads canonical documents in full, follows their "
             "links and fetches verbatim spans until it can answer. A number of model calls "
-            "nobody knows in advance, against the fast lane's one"
+            "that depends on the question; fast uses bounded retrieval and one final answer call"
         ),
     )
     ask.add_argument("--sources", action="store_true", help="also print the cited source windows")
     ask.add_argument(
         "--style",
         choices=["concise", "conversational", "detailed"],
-        help="answer style for this ask (default: PNEUMA_KNOWLEDGE_RECALL_ANSWER_STYLE in .env)",
+        help="answer style for this ask (default: engine/recall/recall.yaml)",
     )
     ask.add_argument(
         "--evidence-strategy",
@@ -1845,10 +2020,11 @@ def main() -> int:
     evolve.add_argument(
         "--policy",
         choices=["adopt-clean", "keep"],
-        default="adopt-clean",
+        default="keep",
         help="evolve step only: dispose a draft by adopting it (gate decides), or keep it for review (exit 2)",
     )
-    sub.add_parser("status", help="stack and library status")
+    sub.add_parser("status", help="stack and library status; exit 1 when unreachable")
+    sub.add_parser("audit", help="read-only audit of all provenance and overviews, including historical defects")
     demo = sub.add_parser("demo", help="end to end: up → init → ingest → compile → Q&A")
     demo.add_argument("--yes", action="store_true", help="no prompts, take every default (CI/non-interactive)")
     sub.add_parser("preflight", help="pre-flight check (is the framework repository reachable?)")
@@ -1864,6 +2040,7 @@ def main() -> int:
         return handler(args)
     ensure_framework()
     handler = {
+        "build": cmd_build,
         "ingest": cmd_ingest,
         "compile": cmd_compile,
         "ask": cmd_ask,
@@ -1871,9 +2048,14 @@ def main() -> int:
         "restore": cmd_restore,
         "evolve": cmd_evolve,
         "status": cmd_status,
+        "audit": cmd_audit,
         "demo": cmd_demo,
     }[args.command]
-    return handler(args)
+    try:
+        return handler(args)
+    except CliError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

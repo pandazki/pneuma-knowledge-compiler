@@ -2,7 +2,7 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-Compile the raw material of your domain — meetings, documents, chat, email — into an evolvable knowledge base with explicit provenance.
+Compile the raw material of your domain — meetings, documents, chat, email — into an evolvable, citation-backed knowledge base. Build knowledge that can accumulate, change with its subject, and be traced to the original material.
 
 ### Domain-oriented modeling
 
@@ -14,7 +14,7 @@ No business stands still. Any model fixed up front degrades as data accumulates,
 
 ### Provenance enforced by the framework
 
-Authored ledger claims must have a provenance chain reaching a source or an already admitted mechanical record; this applies to unchanged claims too. Source-free cycles do not qualify. The framework checks citation syntax and source bounds, and every declared reference in every existing overview. Mechanical archive records and volume catalogs retain their own narrow admission rules. These checks establish traceable addresses, not faithful interpretation: semantic fidelity still depends on the compile contract, model and review.
+New and revised knowledge must carry a provenance chain to its evidence; changes cannot silently break previously valid dependencies. Original material stays reachable, claims retain their identities, and structural evolution is reviewed as a diff. These guarantees make the library inspectable and maintainable. Citation checks establish where evidence is, while the compile contract, model and review establish whether it supports the claim. See [the write mechanics](docs/architecture.md#5-canonical-write-mechanics) for the precise guarantees and treatment of historical defects.
 
 ### What this is not
 
@@ -43,10 +43,10 @@ The library it ships is [`examples/opc`](examples/opc/README.md) — an agent-bu
 
 ```bash
 cd scaffold && ./init.py     # interactive: empty project and executable starter contract by default
-cd ~/my-kb && ./start.sh     # stack, ingest, compile, cited demo answers — one command
+cd ~/my-kb && ./start.sh     # validate, start the stack, ingest and compile your material
 ```
 
-Then make it yours: feed your `.md` material to `./app.py ingest <dir>`, edit `engine/compile/contract.md` (what deserves to be recorded) and `engine/persona/profile.yaml` (whose library this is), recompile and review.
+Then inspect it: run `./app.py glance`, ask a real question with `./app.py ask "…" --sources`, and follow its citations. Put modeling decisions in `engine/compile/contract.md`; owner details in `engine/persona/profile.yaml` are optional. Contract changes govern future compiles; they do not recompile existing knowledge.
 
 Prefer to be guided? Hand `scaffold/AGENT-GUIDE.md` to your coding agent and it will walk you through building a library from your own data, step by step.
 

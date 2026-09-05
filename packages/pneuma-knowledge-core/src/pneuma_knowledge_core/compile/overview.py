@@ -30,9 +30,9 @@ The mechanical checks are:
   be a document that exists. The gate's dead-link check covers this repository-wide; the
   tool face states it early, because a dead connection is the one an overview writes most.
 
-Existing overview regions are validated across the resulting library: retiring a ledger
-claim must also repair overview references to it. The presence threshold remains local to
-touched pages; a missing overview is different from an existing invalid reference.
+Changed overview regions are fully validated. Unchanged regions retain historical defects,
+but an operation retiring a previously referenced ledger claim must repair its dependants.
+Omit the base snapshot to audit every region, including historical defects.
 
 `overview_write_problems` validates a candidate at the write-tool boundary, so the model can
 repair it within its current turn. `check_overviews` validates the final draft again because
@@ -311,26 +311,37 @@ def overview_write_problems(
 def check_overviews(
     bodies: Mapping[str, str],
     *,
+    base_bodies: Mapping[str, str] | None = None,
     budget: int = OVERVIEW_BUDGET_CHARS,
 ) -> list[tuple[str, str, str]]:
-    """Judge every overview in the resulting library. Returns `(kind, path, detail)` triples.
+    """Judge changed regions and newly dangling references; without a base, audit all.
 
     Grounding is judged against the LEDGER anchors of the WHOLE repository, minus every
     overview region's own anchors: an overview may rest on a claim this round added, and on a
     claim filed in another document, but never on another overview — a head that grounds a
     head grounds nothing.
 
-    An unchanged overview can become invalid when a referenced ledger claim is retired.
-    The operation that retires it must also repair its dependants; historical admission
-    does not exempt dangling references from validation.
+    An unchanged region's pre-existing defects do not block unrelated writes, including
+    writes that cannot repair a closed volume or archive. Its references that resolved in
+    the base must still resolve now: the operation retiring them owns that repair.
     """
     findings: list[tuple[str, str, str]] = []
     ledger = {anchor for body in bodies.values() for anchor in ledger_anchors(body)}
+    base_ledger = {anchor for body in (base_bodies or {}).values() for anchor in ledger_anchors(body)}
 
     for path in sorted(bodies):
         body = bodies[path]
         region = overview_region(body)
         if not region:
+            continue
+
+        if base_bodies is not None and region == overview_region(base_bodies.get(path, "")):
+            for _, block in overview_blocks(body):
+                # Ignore only references that were already absent, not newly broken ones.
+                historical_missing = grounding_references(block) - base_ledger
+                invalid = _invalid_reference_problem(block, ledger | historical_missing)
+                if invalid:
+                    findings.append(("overview", path, invalid))
             continue
 
         if len(region) > budget:
