@@ -16,8 +16,8 @@ reorganization is not a forward-only single compile:
 - **path ownership is against the NEW skill's templates**, passed in explicitly.
 
 This profile shares compile's pure structural, citation-shape, claim-provenance and overview
-checks. A retained anchor does not exempt a revised claim, while a verbatim moved block
-retains its prior admission. It also shares the rule that
+checks. Every authored claim must reach provenance, including unchanged and moved blocks;
+an unsupported reference cycle is rejected. It also shares the rule that
 an ARCHIVE RECORD is read-only (`check_archive_records`). A reorganization moves claims
 between pages and renames families, and a record is neither material nor shape: it stays
 byte-for-byte where the archive job left it, and the Owner unmakes that by unarchiving.
@@ -216,10 +216,10 @@ async def run_evolve_gate(
 
     # 3b. Provenance belongs to canonical, regardless of the writing channel.
     violations.extend(check_citation_shape(docs))
-    violations.extend(check_claim_provenance(docs, base_bodies))
+    violations.extend(check_claim_provenance(docs, draft.base_documents()))
     violations.extend(
         Violation(kind, path, detail) for kind, path, detail in check_overviews(
-            {path: doc.body for path, doc in docs.items()}, base_bodies,
+            {path: doc.body for path, doc in docs.items()},
             budget=draft.overview_budget_chars,
         )
     )

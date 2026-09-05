@@ -373,10 +373,10 @@ async def test_profile_put_persists_and_get_reflects(client):
     uid = f"u-e2e-{uuid.uuid4().hex[:10]}"
     base = f"/v1/users/{uid}"
 
-    # Un-onboarded id: mock synthesis.
+    # An undeclared identity remains unstated.
     before = await client.get(f"{base}/profile")
     assert before.status_code == 200
-    assert before.json()["source"] == "mock"
+    assert before.json()["source"] == "unstated"
     base_role = before.json()["role"]
 
     put = await client.put(
@@ -402,9 +402,9 @@ async def test_profile_put_persists_and_get_reflects(client):
     assert after["display_name"] == "IT Onboard"
     assert after["level"] == "staff"
 
-    # A different, un-onboarded id is unaffected (still mock).
+    # A different, un-onboarded id is unaffected (still unstated).
     other = (await client.get(f"/v1/users/u-e2e-{uuid.uuid4().hex[:8]}/profile")).json()
-    assert other["source"] == "mock"
+    assert other["source"] == "unstated"
 
     # Bad enum → 422.
     assert (await client.put(f"{base}/profile", json={"level": "god"})).status_code == 422

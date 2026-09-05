@@ -159,12 +159,12 @@ async def test_every_overview_reference_must_resolve_even_beside_valid_provenanc
     assert any(v.kind == "overview" and "deadbeef" in v.detail for v in violations)
 
 
-def test_untouched_legacy_overview_does_not_block_ledger_writes():
+def test_untouched_overview_with_dangling_reference_blocks_commit():
     draft = _draft()
     body = _poke_overview(draft, PERSON, _overview(definition="Legacy head. c:deadbeef"))
     draft = _from_canonical([_doc(PERSON, body, "a1b2c3d4e5f6")], TEMPLATES)
     draft.edit_claim(PERSON, "11aa22bb", "Mei Lin leads qualification. [cite: s01 ¶2-3]")
-    assert not [v for v in run_gate(draft, []) if v.kind == "overview"]
+    assert any(v.kind == "overview" and "deadbeef" in v.detail for v in run_gate(draft, []))
 
 
 # ───────────────────────────────────────────────────────── documents: (de)serialization
@@ -982,10 +982,8 @@ def test_a_no_region_rollover_renders_exactly_as_before():
     assert body.startswith("# Aurora\n\n## Delivery\n")
 
 
-def test_an_unchanged_region_is_not_re_judged():
-    """A head is rewritable and the ledger is not. An overview whose grounding was retired
-    elsewhere (an evolve merge) must not close the authoritative layer to writes: the region
-    is judged when it is written, which is the only moment it can change."""
+def test_an_unchanged_region_cannot_keep_a_retired_reference():
+    """Retiring a ledger claim requires repairing every overview that references it."""
     seeded = _from_canonical(_base(), TEMPLATES)
     seeded.rewrite_overview(
         PERSON, Overview(definition="Mei Lin leads qualification. c:11aa22bb")
@@ -1008,7 +1006,7 @@ def test_an_unchanged_region_is_not_re_judged():
         ),
     )
     draft = _from_canonical(committed, TEMPLATES)
-    assert [v for v in run_gate(draft, []) if v.kind == "overview"] == []
+    assert any(v.kind == "overview" for v in run_gate(draft, []))
     # but the moment the round rewrites it, the same state is rejected
     _poke_overview(draft, PERSON, Overview(definition="Mei Lin leads it. c:11aa22bb"))
     assert any(v.kind == "overview" for v in run_gate(draft, []))

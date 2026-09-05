@@ -284,3 +284,18 @@ async def test_packs_for_profile_matrix_only_without_model(tmp_path):
     mp = _write_matrix(tmp_path)
     packs = await packs_for_profile(_profile(source="user"), model=None, matrix_path=mp)
     assert all(p.origin == "matrix" for p in packs)
+
+
+async def test_unstated_profile_cannot_spend_a_model_call_or_invent_schema():
+    from pneuma_knowledge_core.domain.user import UserProfile
+    from pneuma_knowledge_core.domain.ids import UserId
+
+    model = _FakeModel(_derived("Invented domain", "subjects/{slug}.md"))
+    profile = UserProfile.unstated(UserId("team-library"))
+    assert await packs_for_profile(profile, model=model) == []
+    assert model.calls == 0
+    # A declared display name alone is not domain evidence either.
+    profile.source = "user"
+    profile.display_name = "A team"
+    assert await packs_for_profile(profile, model=model) == []
+    assert model.calls == 0

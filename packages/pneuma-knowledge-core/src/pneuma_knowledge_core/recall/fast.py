@@ -2537,7 +2537,10 @@ async def answer_with_structured(
 
     allowed = set(iter_answer_citations(_text_blocks(aliased_human)))
     citations: list[str] = []
-    for candidate in parsed.citations:
+    inline = re.findall(r"\[cite:[^\]]*\]", parsed.answer)
+    if inline:
+        degraded = "inline_citations"
+    for candidate in [*parsed.citations, *inline]:
         marker = str(candidate or "").strip()
         references = tuple(iter_answer_citations(marker))
         if (
@@ -2551,7 +2554,7 @@ async def answer_with_structured(
             continue
         if marker not in citations:
             citations.append(marker)
-    answer_text = parsed.answer.strip()
+    answer_text = strip_citations(parsed.answer)
     answer = answer_text
     if citations:
         answer = (answer + " " + " ".join(citations)).strip()

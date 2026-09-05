@@ -6,7 +6,7 @@ from pneuma_knowledge_core.compile.gate import run_gate
 from pneuma_knowledge_core.compile.patch import PatchDraft
 from pneuma_knowledge_core.compile.runner import _build_tools
 from pneuma_knowledge_core.domain.canonical import CanonicalDocument
-from pneuma_knowledge_core.domain.ids import DocumentId
+from pneuma_knowledge_core.domain.ids import DocumentId, extract_anchors
 from pneuma_knowledge_core.evolve.gate import run_evolve_gate
 
 
@@ -50,11 +50,11 @@ async def test_edit_tool_cannot_remove_provenance_or_cite_itself(channel, text):
 
 
 @pytest.mark.parametrize("channel", ["compile", "evolve"])
-async def test_cited_revision_and_unchanged_legacy_claim_remain_admissible(channel):
+async def test_unchanged_uncited_claim_is_not_grandfathered(channel):
     draft = _draft("- Legacy note. <!-- c:bb22 -->\n"
                    "- Alice visited Canada. [cite: source-a ¶0] <!-- c:aa11 -->")
     draft.edit_claim(PATH, "aa11", "Alice travelled to Canada. [cite: source-a ¶0]")
-    assert await _gate(draft, channel) == []
+    assert any("no provenance" in v.detail for v in await _gate(draft, channel))
 
 
 @pytest.mark.parametrize("channel", ["compile", "evolve"])
@@ -84,11 +84,30 @@ async def test_evolve_checks_new_claim_provenance_and_citation_shape(body):
         assert any("does not parse as a locator" in v.detail for v in violations)
 
 
-async def test_evolve_keeps_unchanged_legacy_claim_when_moved():
+async def test_evolve_does_not_exempt_an_uncited_verbatim_move():
     draft = _draft("- Legacy note. <!-- c:aa11 -->")
     draft.create_document("people/bob.md", {"type": "person", "slug": "bob"}, "## Notes\n")
     draft.move_claim(PATH, "aa11", "people/bob.md", "Notes")
-    assert await _gate(draft, "evolve") == []
+    assert any("no provenance" in v.detail for v in await _gate(draft, "evolve"))
+
+
+@pytest.mark.parametrize("channel", ["compile", "evolve"])
+async def test_reference_cycle_without_a_source_is_not_provenance(channel):
+    draft = PatchDraft.from_canonical([
+        _doc(PATH, "- First inference. c:bb22 <!-- c:aa11 -->"),
+        _doc("people/bob.md", "- Second inference. c:aa11 <!-- c:bb22 -->"),
+    ], TEMPLATES)
+    assert len([v for v in await _gate(draft, channel) if "no provenance" in v.detail]) == 2
+
+
+@pytest.mark.parametrize("channel", ["compile", "evolve"])
+async def test_new_derivation_can_reach_a_source_through_another_new_claim(channel):
+    draft = _draft()
+    updated = draft.append_block(PATH, "Notes", "A supported inference. c:aa11")
+    middle = next(anchor for anchor in extract_anchors(updated.body) if anchor != "aa11")
+    draft.create_document("people/bob.md", {"type": "person", "slug": "bob"},
+                          f"Another inference. c:{middle}")
+    assert await _gate(draft, channel) == []
 
 
 async def test_evolve_cannot_derive_from_a_deleted_anchor():
@@ -96,3 +115,10 @@ async def test_evolve_cannot_derive_from_a_deleted_anchor():
     draft.create_document("people/bob.md", {"type": "person", "slug": "bob"}, "Derived. c:aa11")
     draft.delete_claim(PATH, "aa11")
     assert any("no provenance at all" in v.detail for v in await _gate(draft, "evolve"))
+
+
+@pytest.mark.parametrize("channel", ["compile", "evolve"])
+async def test_new_catalog_metadata_cannot_exempt_an_authored_claim(channel):
+    draft = _draft("- An ungrounded claim. <!-- c:aa11 -->")
+    draft.documents()[PATH].frontmatter["rollover_catalog_anchors"] = "aa11"
+    assert any("no provenance" in v.detail for v in await _gate(draft, channel))

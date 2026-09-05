@@ -17,9 +17,9 @@ repair round by the runner):
 3b. citation SHAPE — anything spelled `[cite: …]` must parse completely as a locator. See
    `check_citation_shape`: the legality check above can only judge markers it can read, so
    an unreadable one used to pass as provenance by looking like some.
-3c. claim provenance — every new or revised ledger block cites a source or references
-   another existing ledger claim. Keeping an id does not exempt a revision; a verbatim
-   move preserves prior admission. This checks provenance, not semantic entailment.
+3c. authored claim provenance — every resulting ledger block must reach a source or a
+   previously admitted mechanical record. Unchanged claims and reference cycles are
+   checked too. This checks provenance, not semantic entailment.
 4. frontmatter completeness — doc_id / type / slug present.
 4b. anchor coverage — every content block carries an anchor (else it is browse-visible
    canonical text that never enters the L3 claim index — an orphaned claim).
@@ -444,34 +444,50 @@ def check_supersession(
 
 
 def check_claim_provenance(
-    docs: Mapping[str, object], base_bodies: Mapping[str, str]
+    docs: Mapping[str, object], base_documents: Mapping[str, object]
 ) -> list[Violation]:
-    """Require provenance on new or changed ledger blocks, including retained ids.
+    """Authored claims must reach a source or an admitted mechanical record.
 
-    Compare by anchor across the repository so a verbatim move during evolve preserves
-    legacy admission. Identity and supersession markers are not evidence references.
-    Derivation may name another existing, surviving ledger claim in any document.
-    Citation shape and source bounds are checked separately; this does not prove entailment.
+    Validate the resulting library, including unchanged claims and verbatim moves. A cycle
+    of claim references is not evidence. Citation shape and bounds are checked separately;
+    reaching a source establishes provenance, not semantic entailment.
+
+    Archive records and volume catalogs have their own mechanical admission channels.
+    Their exact, previously admitted blocks are valid bases; ordinary uncited claims are
+    not. Read the BASE metadata, never a model's newly declared exemption.
     """
-    base_blocks = {
-        anchor: block for body in base_bodies.values()
-        for anchor, block in _anchor_blocks(body).items()
-    }
+    from .rollover import catalog_anchors
+
     current_blocks = {
         path: _anchor_blocks(doc.body) for path, doc in docs.items()
     }
-    existing = set(base_blocks) & {
-        anchor for blocks in current_blocks.values() for anchor in blocks
-    }
+    grounded: set[str] = set()
+    dependants: dict[str, set[str]] = {}
+    for path, blocks in current_blocks.items():
+        base = base_documents.get(path)
+        if base is None:
+            continue
+        base_blocks = _anchor_blocks(base.body)
+        mechanical = (set(base_blocks) if is_archive_record(base)
+                      else set(catalog_anchors(base.frontmatter)))
+        grounded.update(anchor for anchor in mechanical
+                        if anchor in blocks and blocks[anchor] == base_blocks.get(anchor))
+    for blocks in current_blocks.values():
+        for anchor, block in blocks.items():
+            if CANONICAL_CITATION_MARKER_RE.search(block):
+                grounded.add(anchor)
+            for reference in grounding_references(block) - set(extract_anchors(block)):
+                dependants.setdefault(reference, set()).add(anchor)
+    pending = list(grounded)
+    while pending:
+        for anchor in dependants.get(pending.pop(), ()):
+            if anchor not in grounded:
+                grounded.add(anchor)
+                pending.append(anchor)
     violations = []
     for path, blocks in current_blocks.items():
         for anchor, block in blocks.items():
-            if base_blocks.get(anchor) == block:
-                continue
-            if CANONICAL_CITATION_MARKER_RE.search(block):
-                continue
-            references = grounding_references(block) - set(extract_anchors(block))
-            if references & existing:
+            if anchor in grounded:
                 continue
             violations.append(Violation(
                 "citation", path, prompt(
@@ -600,8 +616,8 @@ def run_gate(
     # read as evidence, and this is what tells the two apart.
     violations.extend(check_citation_shape(docs))
 
-    # 3c. New and revised claims must keep provenance, even when the id survives.
-    violations.extend(check_claim_provenance(docs, base_bodies))
+    # 3c. Every authored claim in the resulting library must reach provenance.
+    violations.extend(check_claim_provenance(docs, draft.base_documents()))
 
     # 3d. INTER-DOCUMENT LINK targets must exist. Markdown links are what the projection
     # layer turns into knowledge-graph edges, i.e. the hops available when direct retrieval
@@ -659,7 +675,7 @@ def run_gate(
     violations.extend(
         Violation(kind, path, detail)
         for kind, path, detail in check_overviews(
-            new_bodies, base_bodies, budget=overview_budget_chars
+            new_bodies, budget=overview_budget_chars
         )
     )
 

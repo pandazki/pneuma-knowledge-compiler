@@ -14,7 +14,7 @@ from pneuma_knowledge_core.domain.ids import UserId
 from pneuma_knowledge_core.domain.user import LEVELS, LEVEL_STYLES, UserProfile
 from pneuma_knowledge_service.adapters.user_info_mock import MockUserInfoProvider
 from pneuma_knowledge_service.adapters.user_info_provider_composite import (
-    PersistedThenMockUserInfoProvider,
+    PersistedUserInfoProvider,
 )
 from pneuma_knowledge_service.api.routes.v1 import router
 import httpx
@@ -175,14 +175,17 @@ class _FakeStore:
         self._profiles[str(user_id)] = profile
 
 
-async def test_composite_mock_fallback_when_not_persisted():
+async def test_composite_leaves_absent_profile_unstated():
     async def _none(_uid):
         return None
 
-    prov = PersistedThenMockUserInfoProvider(_none, MockUserInfoProvider())
+    prov = PersistedUserInfoProvider(_none)
     p = await prov.get_profile(UserId("u-generic-demo"))
-    assert p.display_name
-    assert p.source == "mock"
+    assert p == UserProfile.unstated(UserId("u-generic-demo"))
+    assert not p.display_name and not p.bio and not p.locale.timezone
+    assert not p.joined_at and not p.workspace.active_since
+    assert not p.level_style
+    assert p.source == "unstated"
 
 
 async def test_composite_persisted_wins():
@@ -192,13 +195,13 @@ async def test_composite_persisted_wins():
     async def _lookup(uid):
         return stored if uid == "u-it-persist" else None
 
-    prov = PersistedThenMockUserInfoProvider(_lookup, mock)
+    prov = PersistedUserInfoProvider(_lookup)
     p = await prov.get_profile(UserId("u-it-persist"))
     assert p.display_name == "Persisted Name"
     assert p.industry == "finance"
     assert p.source == "user"
-    # A different id still falls through to the mock.
-    assert (await prov.get_profile(UserId("u-it-other"))).source == "mock"
+    # A different tenant has no declared identity.
+    assert (await prov.get_profile(UserId("u-it-other"))).source == "unstated"
 
 
 def _app_with_store() -> tuple[FastAPI, _FakeStore]:
@@ -207,8 +210,8 @@ def _app_with_store() -> tuple[FastAPI, _FakeStore]:
     store = _FakeStore()
     app.state.ctx = SimpleNamespace(
         store=store,
-        user_info=PersistedThenMockUserInfoProvider(
-            store.get_user_profile, MockUserInfoProvider()
+        user_info=PersistedUserInfoProvider(
+            store.get_user_profile
         ),
     )
     return app, store
@@ -219,9 +222,9 @@ async def test_put_profile_merge_and_persist():
     client = _client(app)
     uid = "u-it-onboard-x"
 
-    # Base = mock synthesis for this id; capture the untouched fields.
+    # The base carries no personal facts; capture the untouched fields.
     base = (await client.get(f"/v1/users/{uid}/profile")).json()
-    assert base["source"] == "mock"
+    assert base["source"] == "unstated"
 
     resp = await client.put(
         f"/v1/users/{uid}/profile",
@@ -274,6 +277,9 @@ async def test_put_profile_records_timezone_changes_forward_only():
     app, store = _app_with_store()
     client = _client(app)
     uid = "u-it-moved"
+    first = await client.put(f"/v1/users/{uid}/profile", json={"locale": {"timezone": "UTC"}})
+    assert first.status_code == 200
+    assert first.json()["locale"]["timezone_history"] == []
     base = (await client.get(f"/v1/users/{uid}/profile")).json()
     assert base["locale"]["timezone_history"] == []
     old_zone = base["locale"]["timezone"]
@@ -314,15 +320,15 @@ async def test_put_profile_rejects_bad_enum():
     for field, bad in [("industry", "aerospace"), ("role", "wizard"), ("level", "god")]:
         resp = await client.put(f"/v1/users/u-it-bad/profile", json={field: bad})
         assert resp.status_code == 422, (field, resp.text)
-    # A rejected PUT persisted nothing — GET stays mock.
-    assert (await client.get("/v1/users/u-it-bad/profile")).json()["source"] == "mock"
+    # A rejected PUT persisted nothing — GET stays unstated.
+    assert (await client.get("/v1/users/u-it-bad/profile")).json()["source"] == "unstated"
 
 
 async def test_put_profile_user_isolation():
     app, _store = _app_with_store()
     client = _client(app)
     await client.put("/v1/users/u-it-a/profile", json={"display_name": "AAA"})
-    # A user who never PUT stays on the mock synthesis, unaffected by the other's write.
+    # An undeclared user stays unstated, unaffected by the other's write.
     other = (await client.get("/v1/users/u-it-b/profile")).json()
-    assert other["source"] == "mock"
+    assert other["source"] == "unstated"
     assert other["display_name"] != "AAA"

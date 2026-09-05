@@ -138,10 +138,13 @@ contract, not a semantic proof. Structured fast answers validate the explicit ci
 against the exact spans shown to the model. If any entry is rejected, it is removed and
 `answer_format_degraded` is `invalid_citations`; the answer and its kind remain available,
 and no second model call is made. An empty citation list alone does not trigger this marker,
-including for `inference` and `no_record` answers.
+including for `inference` and `no_record` answers. Inline citations in a structured answer
+are stripped from `answer_text` and validated through the same allowed-span check; a
+valid misplaced citation marks `inline_citations`, and an invalid one marks `invalid_citations`.
+Streaming deltas are provisional model text; the final result carries validated citations.
 
-They differ mechanically in two ways. **Cost:** fast is one model call (two under `select`) over
-a prompt whose size follows from the caps; deep is a number of calls nobody knows in advance,
+They differ mechanically in two ways. **Cost:** fast has one final answer call, plus selection
+under `select`; planning, glance, component routing or fallback may add calls. Its prompt size follows the caps; deep is a number of calls nobody knows in advance,
 because the loop decides how many it needs, so its latency and token spend vary per question
 instead of sitting near a constant. **Reach:** one shot answers over what one retrieval
 returned, while a loop can walk, because a canonical document read in full carries its links and
@@ -170,14 +173,17 @@ settled by measuring these against each other on your own questions.
 | `answer_format: structured` | answer text, answer kind and citations travel as separate schema fields, and the cited spans are validated | no extra call | independent of the strategy | a citation ledger that can be checked apart from the prose; `answer_text` for automation, `answer` for a reader |
 | `all` + `answer_format: structured` | the pair turns on `deliberation` by itself | a bounded field written before the answer, in the same call | — | which handed-over items bore on the question and which were dismissed, in the model's own words |
 
+Call counts in this table cover evidence selection and the final answer. Enabled planning,
+glance, component routing or fallback can add calls; use the complete trace for total cost.
+
 And for the caps, one rule: **raise a candidate cap when the fact is missing from the pool,
 raise a final cap when the pool has it and the context drops it.** Under `all`, the number
 that widens the claim pool is `claim_candidate_cap`, not `claim_cap`, and the window face is
 already unbounded — so the knob that matters there is `all_context_chars`, which is what
 decides how much of it survives.
 
-Nothing here changes a default. The framework ships `evidence_strategy: ranked` and
-`answer_format: text`, a generated engine writes the same, and the OPC example keeps
+The core framework defaults to `evidence_strategy: ranked` and `answer_format: text`.
+The scaffold explicitly chooses `ranked` plus `structured` for inspectable answers; the OPC example keeps
 `select` as its default — `all` with `deliberation` is a deliberate
 choice for a workload, not a new baseline. Both settings can also be overridden for a single
 question (`evidence_strategy` / `answer_format` in the recall request body, or

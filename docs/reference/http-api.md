@@ -24,8 +24,8 @@ Conventions:
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/…/profile` | persisted profile, else a deterministic mock |
-| PUT | `/…/profile` | partial merge (nested objects merge per sub-field); server keeps `timezone_history` append-only, forces `source="user"`; invalid enum values → 422 |
+| GET | `/…/profile` | persisted profile, else an unstated profile with blank personal fields |
+| PUT | `/…/profile` | partial merge (nested objects merge per sub-field); server keeps `timezone_history` append-only, forces `source="user"`; blank enums mean unstated; other invalid enum values → 422 |
 
 ## Sources (L0)
 

@@ -30,18 +30,13 @@ The mechanical checks are:
   be a document that exists. The gate's dead-link check covers this repository-wide; the
   tool face states it early, because a dead connection is the one an overview writes most.
 
-All of it is judged for the regions a round WROTE, not repository-wide — see
-`check_overviews` for why the head must never be able to close the ledger to writes.
+Existing overview regions are validated across the resulting library: retiring a ledger
+claim must also repair overview references to it. The presence threshold remains local to
+touched pages; a missing overview is different from an existing invalid reference.
 
-WHERE THE RULES ARE ENFORCED — TWICE, ON PURPOSE
-------------------------------------------------
-`overview_write_problems` runs at the WRITE TOOL FACE (`PatchDraft.rewrite_overview`), on
-the candidate region, before a byte is written; `check_overviews` runs at the GATE, on the
-committed draft, as the final arbiter. Same rules, same wording, two moments — and the
-early one is the one that matters in practice: a rule first heard at the gate costs a whole
-repair round, and in a live build that was 804 rejections out of a thousand and 418 lost
-compiles. A refusal the model reads while it still holds the region in hand costs nothing
-but the call. The gate stays because a draft can reach it without passing a tool.
+`overview_write_problems` validates a candidate at the write-tool boundary, so the model can
+repair it within its current turn. `check_overviews` validates the final draft again because
+other operations can invalidate an earlier successful write.
 
 Everything here is pure and returns `(kind, path, detail)` triples rather than `Violation`s —
 the gate owns that type, and a module the gate imports cannot import it back.
@@ -315,35 +310,27 @@ def overview_write_problems(
 
 def check_overviews(
     bodies: Mapping[str, str],
-    base_bodies: Mapping[str, str] | None = None,
     *,
     budget: int = OVERVIEW_BUDGET_CHARS,
 ) -> list[tuple[str, str, str]]:
-    """Judge the overview regions this round WROTE. Returns `(kind, path, detail)` triples.
+    """Judge every overview in the resulting library. Returns `(kind, path, detail)` triples.
 
     Grounding is judged against the LEDGER anchors of the WHOLE repository, minus every
     overview region's own anchors: an overview may rest on a claim this round added, and on a
     claim filed in another document, but never on another overview — a head that grounds a
     head grounds nothing.
 
-    A region byte-identical to its base is NOT re-judged, for the same reason a carried-over
-    citation is grandfathered: it was judged when it was written, and the alternative is
-    worse than the exemption. An evolve merge can retire a claim an old overview referenced,
-    and a repo-wide check would then reject every later compile — including compiles that
-    never touch that document — over a head that holds nothing of its own. The one layer that
-    cannot be rebuilt would be closed to writes to protect the one region that can. A rewrite
-    is judged in full, and a rewrite is the only way the region ever changes.
+    An unchanged overview can become invalid when a referenced ledger claim is retired.
+    The operation that retires it must also repair its dependants; historical admission
+    does not exempt dangling references from validation.
     """
     findings: list[tuple[str, str, str]] = []
     ledger = {anchor for body in bodies.values() for anchor in ledger_anchors(body)}
-    base_bodies = base_bodies or {}
 
     for path in sorted(bodies):
         body = bodies[path]
         region = overview_region(body)
         if not region:
-            continue
-        if region == overview_region(base_bodies.get(path, "")):
             continue
 
         if len(region) > budget:
@@ -449,19 +436,9 @@ def check_overview_required(
 ) -> list[tuple[str, str]]:
     """Pages this round TOUCHED that carry enough ledger to owe a head. `(path, detail)`.
 
-    The rule the whole module is the argument for, stated from the other end: a document
-    whose ledger has passed `threshold` claims and still has no `definition` is refused.
-    Nothing about it is a matter of taste — the first claims of a subject genuinely do not
-    support a picture of it ("一开始什么都不知道的时候可以没有"), and past a certain weight
-    of knowledge the absence of a picture is a defect in the library rather than honesty
-    about it.
-
-    Judged ONLY for the pages this round changed — created, or body/frontmatter differing
-    from base — for the same reason `check_overviews` judges only rewritten regions: a
-    repository-wide floor would let a page nobody touched abort a compile that has nothing
-    to do with it, and closing the one non-rebuildable layer to writes is a heavier cost
-    than a late overview. An untouched page converges on its next touch, and a page holding
-    that much ledger is touched often.
+    A page with enough ledger claims must gain an overview when it is next changed.
+    This presence requirement is incremental; reference validity for existing overviews is
+    repository-wide. `threshold <= 0` disables the presence requirement only.
 
     Duck-typed on `.body` and `.frontmatter` (the compile draft's document records) so this
     module stays where it is in the dependency direction: the gate and the patch draft

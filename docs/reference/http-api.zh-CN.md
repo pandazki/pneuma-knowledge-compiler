@@ -24,8 +24,8 @@
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
-| GET | `/…/profile` | 持久化画像，没有则给确定性 mock |
-| PUT | `/…/profile` | 部分字段合并（嵌套对象逐子字段合并）；服务端维护只追加的 `timezone_history`、强制 `source="user"`；非法枚举 → 422 |
+| GET | `/…/profile` | 持久化画像，没有则返回个人字段留空的 unstated 画像 |
+| PUT | `/…/profile` | 部分字段合并（嵌套对象逐子字段合并）；服务端维护只追加的 `timezone_history`、强制 `source="user"`；空枚举表示未声明；其他非法枚举 → 422 |
 
 ## 原始材料（L0）
 

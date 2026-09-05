@@ -3952,9 +3952,9 @@ SURFACES: tuple[Surface, ...] = (
             ),
             f(
                 "gate.claim_without_provenance",
-                "When a new or revised ledger claim has no provenance. This checks that a "
+                "When an authored ledger claim has no grounded provenance chain. This checks that a "
                 "basis is named, not whether the evidence supports the claim's meaning.",
-                "当新增或改写的账本断言没有出处时。这检查是否声明了依据，不证明依据支持断言的语义。",
+                "当编写的账本断言没有可溯源的依据链时。检查出处链，不证明依据支持断言的语义。",
             ),
             f(
                 "gate.citation_unknown_source",

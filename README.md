@@ -14,7 +14,7 @@ No business stands still. Any model fixed up front degrades as data accumulates,
 
 ### Provenance enforced by the framework
 
-New and revised claims must carry provenance: a source citation or a reference to an existing ledger claim. The framework checks provenance presence, citation syntax and source bounds before committing, and checks every declared reference in a rewritten overview. These are write-layer constraints. They make missing or invalid provenance detectable; they do not prove that a claim faithfully represents the cited material. Semantic fidelity still depends on the compile contract, model and review.
+Authored ledger claims must have a provenance chain reaching a source or an already admitted mechanical record; this applies to unchanged claims too. Source-free cycles do not qualify. The framework checks citation syntax and source bounds, and every declared reference in every existing overview. Mechanical archive records and volume catalogs retain their own narrow admission rules. These checks establish traceable addresses, not faithful interpretation: semantic fidelity still depends on the compile contract, model and review.
 
 ### What this is not
 
@@ -42,7 +42,7 @@ The library it ships is [`examples/opc`](examples/opc/README.md) — an agent-bu
 `scaffold/` is a project generator — an interactive guided setup (or a single command with an answers file) that produces a complete knowledge-base project in a directory of your choosing, middleware ports auto-probed and collision-free:
 
 ```bash
-cd scaffold && ./init.py     # interactive: defaults at every step, bundled demo data to start with
+cd scaffold && ./init.py     # interactive: empty project and executable starter contract by default
 cd ~/my-kb && ./start.sh     # stack, ingest, compile, cited demo answers — one command
 ```
 
@@ -58,7 +58,7 @@ Native media starts deliberately narrow and complete: IM messages may carry JPEG
 
 ## How evolution happens
 
-The compiler records what happened during each compile. From that history the framework drafts schema changes on a branch — new document families, revised path templates, restructured pages — and puts the diff in front of you. Adopt, and a mechanical reconciliation merges it; drop, and nothing changed. An upgrade never rewrites existing knowledge: evolution moves the model, not the facts.
+The compiler records what happened during each compile. From that history the framework drafts schema changes on a branch — new document families, revised path templates, restructured pages — and puts the diff in front of you. Adopt, and a mechanical reconciliation merges it; drop, and nothing changed. A contract change alone does not rewrite old claims. Adopting a restructuring can change canonical knowledge, so review its proposed meaning as well as its mechanical validity.
 
 ## Repository layout
 

@@ -1,11 +1,4 @@
-"""UserProfile — the user-picture core domain object (architecture.md §6).
-
-user_id is the unique key of this core domain object; all sub-facets of a
-user's picture hang off it. v1 is fed by a mock provider (service
-adapters/user_info_mock.py); a real sync source replaces `source` later without
-changing this shape. UI uses `display_name` / `avatar` everywhere instead of the
-raw id.
-"""
+"""Declared owner profile. A tenant may have no stated personal information."""
 
 from __future__ import annotations
 
@@ -105,10 +98,23 @@ class UserProfile(BaseModel):
     workspace: WorkspaceProfile
     preferences: Preferences
     joined_at: str  # ISO date
-    source: str = "mock"  # provenance of this picture; "mock" until real sync lands
+    source: str = "unstated"  # provenance; mock providers must opt in explicitly
+
+    @classmethod
+    def unstated(cls, user_id: UserId) -> "UserProfile":
+        """An addressable profile without fabricated identity, location or biography."""
+        return cls(
+            user_id=user_id, display_name="", avatar=Avatar(initial="?", color="#6C8EBF"),
+            locale=Locale(city="", country="", timezone="", language=""),
+            industry="", role="", level="", occupation="", bio="", interests=[],
+            workspace=WorkspaceProfile(operating_mode="", primary_stack="",
+                                       automation_level="", active_since=""),
+            preferences=Preferences(response_language="", units="", privacy_level=""),
+            joined_at="", source="unstated",
+        )
 
     @computed_field  # type: ignore[prop-decorator]
     @property
     def level_style(self) -> str:
         """The answer-style directive for this seniority level (product semantics)."""
-        return LEVEL_STYLES.get(self.level, LEVEL_STYLES["mid"])
+        return LEVEL_STYLES.get(self.level, "")

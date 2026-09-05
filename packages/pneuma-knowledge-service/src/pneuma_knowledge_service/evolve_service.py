@@ -504,12 +504,11 @@ async def adopt_evolve_job(ctx: AppContext, user: UserId, job: object) -> None:
     # Review may span deployments or concurrent compiles. Recheck provenance against
     # current main before making the reconciled tree canonical, including older drafts.
     final_docs = docs_from_files(final_files)
-    main_bodies = {doc.path: doc.body for doc in main_docs}
     provenance_violations = check_citation_shape(final_docs)
-    provenance_violations.extend(check_claim_provenance(final_docs, main_bodies))
+    provenance_violations.extend(check_claim_provenance(final_docs, {doc.path: doc for doc in main_docs}))
     provenance_violations.extend(
         Violation(kind, path, detail) for kind, path, detail in check_overviews(
-            {path: doc.body for path, doc in final_docs.items()}, main_bodies,
+            {path: doc.body for path, doc in final_docs.items()},
             budget=ctx.settings.overview_budget_chars,
         )
     )

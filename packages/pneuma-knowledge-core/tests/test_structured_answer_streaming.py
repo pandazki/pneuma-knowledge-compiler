@@ -241,3 +241,18 @@ async def test_a_structured_call_that_hangs_still_honours_its_timeout():
         **_kwargs(_Hanging()),
     )
     assert fa.answer_format_degraded == "timeout"
+
+
+@pytest.mark.parametrize("stream", [False, True])
+async def test_inline_citations_cannot_bypass_structured_validation(stream):
+    model = _JsonStreamingModel(payload=json.dumps({
+        "answer_kind": "fact", "answer": "Synthetic answer [cite: s99 ¶0]",
+        "citations": [],
+    }))
+    result = await fast_recall(
+        _USER, "Synthetic question", answer_format="structured",
+        on_token=(lambda token: None) if stream else None, **_kwargs(model),
+    )
+    assert result.answer_text == result.answer == "Synthetic answer"
+    assert result.answer_format_degraded == "invalid_citations"
+    assert next(stage for stage in result.stages if stage.name == "answer").preview["turns"] == 1

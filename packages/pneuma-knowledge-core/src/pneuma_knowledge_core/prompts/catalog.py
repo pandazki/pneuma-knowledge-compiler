@@ -1484,11 +1484,12 @@ DEFAULTS: dict[str, str] = {
         "supplied material."
     ),
     "gate.claim_without_provenance": (
-        "new or revised claim has no provenance at all: \"{preview}…\" (anchor c:{anchor}). "
-        "Every claim added or revised this round must link back to its basis — either `[cite: "
-        "<source_id> ¶a-b]` pointing at this round's material, or an in-text reference to the "
-        "existing anchor `c:<id>` it derives from; if it is only a section label or a "
-        "structural line, do not write it as a standalone claim block."
+        "claim has no provenance at all: \"{preview}…\" (anchor c:{anchor}). "
+        "Every authored ledger claim, including unchanged claims, must reach a source citation "
+        "`[cite: <source_id> ¶a-b]` through its own text or a chain of `c:<id>` references. "
+        "Self-reference and source-free cycles are not evidence. Existing mechanical archive "
+        "records and volume catalogs have their own admission checks. If this is only a "
+        "section label, do not write it as a standalone claim."
     ),
     "gate.link_self_reference": (
         "link points at the current document itself: `{href}`. Links are only for pointing at "

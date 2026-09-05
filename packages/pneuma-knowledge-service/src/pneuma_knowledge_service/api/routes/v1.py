@@ -857,9 +857,7 @@ async def list_users(request: Request) -> list[str]:
 
 @router.get("/profile", response_model=UserProfile)
 async def get_profile(user_id: str, request: Request) -> UserProfile:
-    """The user's picture. Persisted (user-filled) picture wins; otherwise a
-    named persona for known ids or a deterministic synthesis. UI reads display_name/
-    avatar from here."""
+    """Declared user picture; absent personal facts remain unstated."""
     return await _ctx(request).user_info.get_profile(UserId(user_id))
 
 
@@ -886,7 +884,7 @@ class WorkspaceIn(BaseModel):
 class ProfileUpdateIn(BaseModel):
     """The editable subset of the user picture (onboarding form). Every field is
     optional: only the fields present in the body are merged onto the current picture
-    (persisted or mock-synthesized); everything else is preserved."""
+    (persisted or unstated); everything else is preserved."""
 
     display_name: str | None = None
     gender: str | None = None
@@ -909,7 +907,7 @@ async def put_profile(
     user_id: str, body: ProfileUpdateIn, request: Request
 ) -> UserProfile:
     """Persist the user's onboarding-edited picture. Merges the provided fields
-    onto the current picture (base = persisted picture if any, else the mock synthesis):
+    onto the current picture (base = persisted picture if any, else an unstated profile):
     fields absent from the body keep their base value; nested objects
     (locale/preferences/workspace) merge sub-field by sub-field. Validates
     industry/role/level against the enums,
@@ -948,11 +946,11 @@ async def put_profile(
         }
 
     invalid: list[str] = []
-    if merged.get("industry") not in INDUSTRIES:
+    if merged.get("industry") not in ("", *INDUSTRIES):
         invalid.append(f"industry must be one of {list(INDUSTRIES)}")
-    if merged.get("role") not in ROLES:
+    if merged.get("role") not in ("", *ROLES):
         invalid.append(f"role must be one of {list(ROLES)}")
-    if merged.get("level") not in LEVELS:
+    if merged.get("level") not in ("", *LEVELS):
         invalid.append(f"level must be one of {list(LEVELS)}")
     if invalid:
         raise HTTPException(status_code=422, detail="; ".join(invalid))
