@@ -34,7 +34,7 @@
 |---|---|---|
 | `LLM_MODEL` | `openrouter:openai/gpt-5.6-luna` | 基础模型规格，也是所有角色的兜底 |
 | `LLM_MODEL_COMPILE` / `_RECALL` / `_ANSWER` / `_DEEP` / `_SKILL` / `_EVOLVE` / `_LIVE_CONTEXT` / `_LIVE_DISCOVER` / `_LIVE_PICK` / `_CHALLENGE` / `_BRIEF` | 空 | 按角色覆盖；`answer` 只负责 fast 的最终答题，留空则借用 `recall` |
-| `ANSWER_REASONING_EFFORT` | 空 | 只在 fast 最终答题调用中发送的推理强度；空则保持 provider 默认。生成项目明确写为 `high` |
+| `ANSWER_REASONING_EFFORT` | 空 | 只在 fast 最终答题调用中发送的推理强度；生成项目也留空，保持 provider 默认 |
 | `LLM_TIMEOUT` | `600` | 秒；防挂死，不防慢 |
 | `LLM_MAX_RETRIES` | `3` | 瞬时错误重试（langchain） |
 | `EMBEDDING_MODEL` | `fake:384` | `fake:<维度>`（确定性、零密钥）或 `openrouter:<模型>` |
@@ -47,7 +47,7 @@
 
 模型规格三种形态：`scripted:<路径>`（本地回放、零密钥——且硬覆盖所有角色，scripted 运行完全确定）；`openrouter:<模型>`（需要 `OPENROUTER_API_KEY`）；以及 `init_chat_model` 认识的任意 provider 前缀（如 `anthropic:claude-sonnet-5`、`openai:gpt-5.6-luna`）。角色回退只有一跳：`answer → recall`、`live_context → recall`、`live_discover → recall`、`live_pick → recall`、`evolve → compile`、`challenge → compile`、`brief → compile`，然后是 `LLM_MODEL`。
 
-其中两个角色属于全量范围的实时上下文车道，它们之所以存在，是因为那条车道每一拍是两次小调用、而不是一次大调用（架构 §7）。`LLM_MODEL_LIVE_DISCOVER`（引擎键 `models.live_discover`）跑第①段——读待处理的对话，决定这一拍到底要不要检索——要的是**小型推理**模型：输出只有几十个 token，需要的是对一场对话的快速判断。`LLM_MODEL_LIVE_PICK`（引擎键 `models.live_pick`）跑第③段——在已经装配好的候选卡片里选一张或一张都不选、写一句短引言、裁剪引用、打分——要的是**又弱又快**的模型，因为这里没有什么要推理的：证据就摆在面前，而且它一个字都不许改写。生成出来的引擎分别写的是 `openrouter:openai/gpt-5.6-sol` 与 `openrouter:openai/gpt-5.6-luna`；两者留空都借用 `recall`，于是已有部署原样继续工作。它们的推理强度由**框架钉死**（发现为 `low`，挑选关闭），并且刻意不做成旋钮：能被部署调高的强度会改变这条车道每一拍的成本，而便宜正是「先花一次调用、再决定要不要检索」这件事的全部理由。`LLM_MODEL_LIVE_CONTEXT` 仍然负责简报范围的那一轮与卡片展开，两者各一次调用，均未改变。脚手架让检索规划/概览继续跑 standard Luna，只把最终答题送到显式 `high` effort 的 Luna Pro。
+其中两个角色属于全量范围的实时上下文车道，它们之所以存在，是因为那条车道每一拍是两次小调用、而不是一次大调用（架构 §7）。`LLM_MODEL_LIVE_DISCOVER`（引擎键 `models.live_discover`）跑第①段——读待处理的对话，决定这一拍到底要不要检索——要的是**小型推理**模型：输出只有几十个 token，需要的是对一场对话的快速判断。`LLM_MODEL_LIVE_PICK`（引擎键 `models.live_pick`）跑第③段——在已经装配好的候选卡片里选一张或一张都不选、写一句短引言、裁剪引用、打分——要的是**又弱又快**的模型，因为这里没有什么要推理的：证据就摆在面前，而且它一个字都不许改写。生成出来的引擎分别写的是 `openrouter:openai/gpt-5.6-sol` 与 `openrouter:openai/gpt-5.6-luna`；两者留空都借用 `recall`，于是已有部署原样继续工作。它们的推理强度由**框架钉死**（发现为 `low`，挑选关闭），并且刻意不做成旋钮：能被部署调高的强度会改变这条车道每一拍的成本，而便宜正是「先花一次调用、再决定要不要检索」这件事的全部理由。`LLM_MODEL_LIVE_CONTEXT` 仍然负责简报范围的那一轮与卡片展开，两者各一次调用，均未改变。脚手架默认让 `recall` 使用 Luna，`answer` 和 `answer_reasoning_effort` 留空：fast 最终答题借用 `recall`，保持 provider 的默认推理强度。单独指定答题模型或推理强度是部署方的可选配置。
 
 在这三者之外，同一条车道上还有第四个、可选的模型：`LIVE_WEB_SEARCH`（引擎键 `models.live_web_search`，默认 `false`）会在知识库旁边再开一条**补充**的互联网面，`LIVE_WEB_SEARCH_MODEL`（引擎键 `models.live_web_search_model`，默认 `openai/gpt-5.6-luna`）指定承接它的 OpenRouter 模型，背后用的是该服务商自己的原生网页搜索。它复用 `OPENROUTER_API_KEY`——不需要第二个密钥——没有密钥时这条搜索会自报不可用，无论开关怎么设，`web` 这个查询种类都不会被提供。在这里打开只是打开了可能性，并不等于对谁都打开：必须**部署与那一条连接都同意**，发现契约才会把这个查询种类写进去；而 `ready` 帧回送的是「批准了什么」，不是「请求了什么」（见 [http-api.zh-CN.md](http-api.zh-CN.md)）。它按次搜索计费，每次搜索的花费会记进那一拍的记录里。
 
