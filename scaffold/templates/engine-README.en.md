@@ -1,93 +1,67 @@
-# The engine of {{PROJECT_NAME}}
+# {{PROJECT_NAME}} engine
 
-This directory is your engine. Everything in it — the model roles, how material is cut, how
-answers read, when the library audits and reorganizes itself, the compile contract, your
-profile, any prompt rewording — decides what this knowledge base does with your material.
+This directory is the versioned strategy of your library. The API key and this machine's
+ports live in `../.env`; sources and runtime state live outside this Git repository.
 
-It is **its own git repository**, separate from your data and from the machinery. Every
-change is a version you can read back and revert. Nothing secret lives here: the API key and
-this machine's ports stay in `../.env`, which is never versioned.
-
-```
-engine.yaml              model roles: compile / recall / answer / deep / embedding; index components
-intake/intake.yaml       how material is cut into semantic units
-compile/contract.md      the constitution — what deserves memory, on which page
-compile/challenge.yaml   the post-compile coverage audit
-evolve/evolve.yaml       when the library may propose reorganizing itself
-recall/recall.yaml       how answers read, and the retrieval budget per question
-persona/profile.yaml     who the owner is
-prompts/overlays.yaml    which language the framework's own prompts arrive in, plus
-                         replacement wording for any of them (usually empty)
-```
-
-## Three things worth knowing before you edit
-
-**The contract is a document, not a set of switches.** `compile/contract.md` teaches the
-compile model to judge what deserves long-term memory in *your* domain and which page it
-belongs on. That is judgement, and it is written in prose — there is no form that could
-capture it. The full practice lives in the framework repository's
-`docs/guides/compile-contract.md`.
-
-**Every change states its blast radius.** Nothing you do here rewrites what is already
-recorded:
-
-| Change | What it affects |
+| File | Decision |
 |---|---|
-| answering style, retrieval budgets | the next question you ask |
-| model roles, prompt language, prompt overlays | after the next start |
-| the contract, challenge, evolve | future compiles only — recorded knowledge is never rewritten |
-| chunking strategy | new material at once; existing material after a derived rebuild |
+| `compile/contract.md` | Purpose, subject boundaries, admission, authority and time |
+| `engine.yaml` | Model roles, tool/call limits, overview bounds and index components |
+| `intake/intake.yaml` | Segmentation of new source material |
+| `recall/recall.yaml` | Retrieval breadth, evidence context and answer format/style |
+| `persona/profile.yaml` | Optional declared owner details and locale provenance |
+| `compile/challenge.yaml` | Optional coverage probe and compensation |
+| `evolve/evolve.yaml` | Structural proposal triggers and draft lifetime |
+| `prompts/overlays.yaml` | Framework prompt language and whole-clause replacements |
 
-`recall/recall.yaml` separates cheap retrieval breadth from final model context.
-`claim_candidate_cap` and `window_candidate_cap` search broadly; `claim_cap`,
-`episode_summary_cap`, and `window_cap` admit three different content faces. Episode
-summaries are dense generated L2 content, shown under an explicit derived label with source
-title, occurrence time, section, and exact span. They are not presented as verbatim source;
-the smaller raw-window budget remains the exact-text face.
+Start with the contract and inspect actual output before changing other knobs. The starter
+keeps independent subjects separate and useful specifics in their ledgers; its overview is
+a concise reading of that knowledge. No contract can make a valid citation prove a correct
+interpretation. Check sources, pages and real questions together.
 
-`evidence_strategy` controls how those faces are composed. `ranked` is the direct,
-lowest-latency fixed-head path. `select` adds one bounded structured recall-model call over
-the broad candidates; the framework validates its coordinates, retains ranked safety anchors,
-and follows selected derived provenance back to L0. `all` removes the choice instead of
-making it: no selection call runs, and the whole candidate pool goes to the answer under one
-character ceiling (`all_context_chars`), which drops windows, then episode summaries, then
-the lowest-ranked claims, and always says what it dropped. `answer_format` is independent: `text`
-keeps the ordinary free-text answer, while `structured` separates answer kind, clean text and
-precise citations so cited spans can be validated. Both can be overridden for one `ask`.
-The API exposes the selector's pre-safety-head choice counts, so a serial selection call that
-contributes little evidence is visible rather than assumed useful. Automation consumes clean
-`answer_text`; interactive clients render the cited `answer`. Historical replay must pass the
-question time explicitly with `--as-of`; omission means the current UTC time.
+## Defaults and deliberate changes
 
-Which of the three to run for your business is in the framework repository's
-`docs/guides/recall-strategies.md`. The short version: `ranked` is the cheapest baseline,
-`select` buys a narrow, deliberately chosen evidence set at the price of a serial call, and
-`all` buys breadth at the price of input tokens. Latency and cost are properties of your
-provider and your library, so measure them on your own material: try one with
-`--evidence-strategy` on a single `ask` before changing the file.
+`ranked` retrieves broadly and supplies bounded claims, derived episode summaries and raw
+windows. `structured` separates answer text/kind/citations and reports invalid returned
+citations. `ask --sources` reads exact cited L0 spans. `select` adds a bounded selection call;
+`all` gives candidates to the answer under a character ceiling. Try overrides on representative
+questions before changing defaults. Fast uses one final answer call; planning, glance,
+components, selection or fallback can add calls. Deep can search and read repeatedly.
 
-**The prompt language is the layer your overrides sit on.** `prompts/overlays.yaml` opens
-with `language:` — `en` is the framework's default English catalog; `zh` swaps in the shipped
-Chinese language pack, for readability and for Chinese material. Either way your
-own clauses under `overlays:` are applied *after* it and win over it. It does not decide what
-language this library is written in: that follows the owner profile's declared language.
+Keep `components` empty until the domain supports them. `people` requires a matching person
+family and identity evidence, `time` adds source-time lookup, and `attention` observes business
+consultations. The CLI's direct recall calls leave no consultation records. Coverage challenge
+and automatic evolution are off because they add work and calls; a green coverage probe is
+still model judgment. `evolve step` keeps a draft; explicit adoption is a separate action.
 
-**Your environment can override any of it for one run.** The order is: process environment
-(`PNEUMA_KNOWLEDGE_*`) beats this directory, and this directory beats the framework default.
-That supports one-off diagnosis — `PNEUMA_KNOWLEDGE_RECALL_WINDOW_CANDIDATE_CAP=80
-./app.py ask '…'` checks whether missing material is a search-depth problem without dirtying
-a versioned file. A durable operating decision belongs in the file.
+| Edit | Effect |
+|---|---|
+| Recall budgets, style, evidence strategy | Next invocation/question |
+| Model roles or prompt overlays | Next CLI invocation; restart long-running services |
+| Compile contract or challenge policy | Future compile work; existing claims are not recompiled |
+| Evolve policy | Future proposal scheduling; adoption changes canonical structure |
+| Chunking policy | New indexing; a derived rebuild replays kept semantic boundaries |
+| Embedding model | Rebuild affected vectors; dimensions and embedding space must agree |
 
-## Editing it
+Re-importing identical sources normally deduplicates them. To compare full compilations,
+use a fresh project with the same source inventory. Do not erase the original as the routine
+way to change a contract. A derived rebuild recreates indexes from authorities, not new L3
+judgments. Equal vector dimensions do not make different embedding models interchangeable.
 
-Edit the files and run `./app.py …` again — the driver reads this directory on every command.
-Commit when you are happy with a state:
+System-detected locale is labelled `deployment_default`; it is not the owner's statement.
+Set a locale field's provenance to `profile` only when declared. Blank biography, name and
+dates remain unstated. Prompt `language` selects framework wording; it is separate from
+source language and answer-language preferences.
+
+Files are read on each CLI invocation. Precedence is process environment → engine files →
+framework defaults. Use environment overrides for diagnosis and files for lasting policy:
 
 ```bash
-cd engine && git add -A && git commit -m "raise the claim budget" && cd ..
-git -C engine log --oneline        # every version of this engine
+git -C engine diff
+git -C engine add -A
+git -C engine commit -m 'Describe the actual strategy change'
 ```
 
-The framework's Engine Console (`/v1/engine/*`) is the same thing with a picture attached: it
-renders this directory as the lifecycle it configures, shows where each value came from, and
-commits every apply here with a label.
+These commands run from the project root. The Engine Console configures the same directory.
+For deeper guidance, read the framework's `docs/guides/compile-contract.md`,
+`docs/guides/recall-strategies.md`, and `scaffold/AGENT-GUIDE.md`.

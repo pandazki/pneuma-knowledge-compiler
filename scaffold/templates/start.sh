@@ -1,8 +1,5 @@
 #!/usr/bin/env bash
-# Experience pneuma-knowledge in one command: check prerequisites → start the stack →
-# initialize → ingest → compile → demo questions (when the project ships any) → print the
-# knowledge-base overview. Safe to run repeatedly (idempotent).
-# CI / non-interactive environments: ./start.sh --yes (every confirmation takes the default).
+# Validate and build your material. Pass a material directory to override my-data/.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -51,4 +48,4 @@ fi
 # than failing halfway through the run.
 ./app.py preflight || exit 1
 
-exec ./app.py demo "$@"
+exec ./app.py build "$@"

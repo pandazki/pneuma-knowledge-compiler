@@ -193,11 +193,12 @@ def test_example_contract_has_operative_body_after_comment_stripping():
     assert len(stripped) > 500
 
 
-def test_contract_skeletons_carry_todo_slots_and_guidance():
+def test_starter_contracts_are_executable_without_placeholder_admission():
     for name in ("contract.zh.md", "contract.en.md"):
         text = (ROOT / "scaffold" / "templates" / name).read_text(encoding="utf-8")
         assert "{{SKILL_ID}}" in text
-        assert "TODO" in text
+        assert "TODO" not in text
+        assert "subjects/{slug}.md" in text
         assert "aurora-planner" not in text  # no demo residue in the skeleton
 
 
@@ -335,6 +336,17 @@ def test_stamp_writes_detected_values_with_deployment_default_provenance():
         "language": "deployment_default",
         "region": "deployment_default",
     }
+
+
+def test_init_records_detected_locale_without_declaring_owner_facts(tmp_path, monkeypatch):
+    profile = tmp_path / "profile.yaml"
+    profile.write_text(PROFILE_TEMPLATE)
+    monkeypatch.setattr(app, "PROFILE_PATH", profile)
+    monkeypatch.setattr(app, "detect_timezone", lambda: "Asia/Shanghai")
+    monkeypatch.setenv("LANG", "zh_CN.UTF-8")
+    assert app.cmd_init(None) == 0
+    assert 'language: "zh-CN"' in profile.read_text()
+    assert set(app.current_provenance(profile.read_text()).values()) == {"deployment_default"}
 
 
 def test_stamp_never_touches_a_user_confirmed_field():
@@ -555,7 +567,8 @@ def test_cli_ask_accepts_an_explicit_historical_as_of():
     app_text = (ROOT / "scaffold" / "templates" / "app.py").read_text(encoding="utf-8")
     ask = app_text[app_text.index("async def _ask(") : app_text.index("async def _status()")]
     assert "as_of: datetime | None = None" in ask
-    assert "as_of=as_of or datetime.now(timezone.utc)" in ask
+    assert "question_time = as_of or datetime.now(timezone.utc)" in ask
+    assert "as_of=question_time" in ask
     assert "as_of=parse_as_of(args.as_of)" in ask
     assert '"--as-of"' in app_text
     assert "timezone-aware ISO 8601" in app_text
@@ -908,13 +921,15 @@ async def test_evolve_step_surfaces_a_failed_adopt_instead_of_claiming_progress(
     assert calls == [("evolve_adopt", {"task_id": "t-4"})]
 
 
-def test_compile_drain_heals_orphaned_claims_first():
+def test_compile_drain_only_reclaims_jobs_on_explicit_recovery():
     """An interrupted `./app.py compile` leaves its job 'claimed'; claim_next then skips
     that user's queue forever. For a scaffold project this in-process drain is the ONLY
     drain path (no worker restart to self-heal), so it must requeue orphans before
     draining — without this, one Ctrl-C mid-compile bricks the project permanently."""
     src = APP_PATH.read_text(encoding="utf-8")
     compile_body = src.split("async def _compile(")[1].split("\nasync def ")[0]
+    assert "if recover:" in compile_body
+    assert "require_cli_queue_owner()" in compile_body
     heal = compile_body.index("requeue_orphaned_jobs")
     drain = compile_body.index("_drain_with_progress")
     assert heal < drain
@@ -1026,6 +1041,7 @@ def _stub_ask_environment(monkeypatch, *, documents=()):
 
     skill = _Skill()
     calls["skill"] = skill
+    monkeypatch.setattr(app, "write_run_report", lambda kind, payload: calls.update(report=payload))
     monkeypatch.setattr(app, "load_contract_skill", lambda: skill)
     monkeypatch.setattr(app, "build_settings", lambda base_version="": _Settings())
     monkeypatch.setattr(app, "user_id", lambda: "u-test")
@@ -1120,3 +1136,205 @@ def test_cli_ask_wires_the_deep_flag_through_the_real_parser(monkeypatch):
 
     src = APP_PATH.read_text(encoding="utf-8")
     assert "deep=args.deep" in src, "cmd_ask must pass the flag to the lane selector"
+
+
+def _source_contract(text="Keep the launch pending until review."):
+    return {
+        "schema": "pneuma.source.owner-dialogue/v1", "provider": "mock",
+        "dialogue_id": "dialogue-1", "owner_id": "team-owner",
+        "turns": [{"turn_id": "turn-1", "role": "owner",
+                   "said_at": "2026-01-10T09:15:00+08:00", "text": text}],
+        "metadata": {"purpose": "test source fidelity"},
+    }
+
+
+def test_material_inventory_preserves_contract_structure_and_date_precision(tmp_path):
+    import json
+
+    payload = _source_contract()
+    (tmp_path / "02-dialogue.json").write_text(json.dumps(payload))
+    (tmp_path / "01-note.md").write_text(
+        "---\ndate: 2026-01-09\nauthor: Ada\nlabels: [decision, pending]\n---\nA note.\n")
+    prepared = app.prepare_materials(tmp_path)
+    assert [item["file"] for item in prepared] == ["01-note.md", "02-dialogue.json"]
+    assert prepared[0]["meta"] == {"date": "2026-01-09", "author": "Ada",
+                                   "labels": ["decision", "pending"], "occurred_on": "2026-01-09"}
+    source = prepared[1]["contract"]
+    assert source.owner_id == "team-owner"
+    assert source.turns[0].said_at.isoformat() == payload["turns"][0]["said_at"]
+    assert source.turns[0].text == payload["turns"][0]["text"]
+    assert source.metadata == payload["metadata"]
+    assert all(len(item["sha256"]) == 64 for item in prepared)
+
+
+@pytest.mark.parametrize("body", ["unattributed introduction\nAda: hello", "Ada: \n", "no turns"])
+def test_invalid_markdown_transcript_is_rejected_before_ingestion(tmp_path, body):
+    (tmp_path / "chat.md").write_text("---\ntype: conversation\n---\n" + body)
+    with pytest.raises(ValueError, match="chat.md"):
+        app.prepare_materials(tmp_path)
+
+
+async def test_full_inventory_validation_precedes_any_context_or_ingest(tmp_path, monkeypatch):
+    import json
+    from pneuma_knowledge_service import wiring
+
+    (tmp_path / "01.json").write_text(json.dumps(_source_contract()))
+    (tmp_path / "02.json").write_text('{"schema": "unknown/v1"}')
+
+    async def forbidden(*args, **kwargs):
+        pytest.fail("invalid inventory opened a runtime context")
+
+    monkeypatch.setattr(wiring, "build_context", forbidden)
+    with pytest.raises(ValueError, match="02.json"):
+        await app._ingest(tmp_path)
+
+
+async def test_markdown_conversation_keeps_metadata_without_fabricating_turn_times(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from pneuma_knowledge_service import wiring, ingest
+
+    (tmp_path / "chat.md").write_text(
+        "---\ntype: conversation\ndate: 2026-01-10\nparticipants: [Ada, Bob]\n---\nAda: A plan.\nBob: Not yet.\n")
+    seen = {}
+
+    async def close():
+        seen["closed"] = True
+
+    async def context(*args, **kwargs):
+        return SimpleNamespace(aclose=close)
+
+    async def profile(*args):
+        pass
+
+    async def capture(ctx, uid, turns, **kwargs):
+        seen.update(turns=turns, **kwargs)
+        return SimpleNamespace(source_id="source-x", deduplicated=False)
+
+    monkeypatch.setattr(app, "build_settings", lambda: object())
+    monkeypatch.setattr(app, "upsert_owner_profile", profile)
+    monkeypatch.setattr(app, "write_run_report", lambda kind, payload: seen.update(report=payload))
+    monkeypatch.setattr(wiring, "build_context", context)
+    monkeypatch.setattr(ingest, "ingest_conversation", capture)
+    assert await app._ingest(tmp_path) == 0
+    assert all(turn.at is None for turn in seen["turns"])
+    assert seen["meta"]["participants"] == ["Ada", "Bob"]
+    assert seen["meta"]["occurred_on"] == "2026-01-10"
+    assert seen["report"]["status"] == "complete" and seen["closed"]
+
+
+async def test_build_stops_at_first_incomplete_drain_and_preserves_receipt(tmp_path, monkeypatch):
+    import json
+    from types import SimpleNamespace
+    from pneuma_knowledge_service import wiring, ingest_sources
+
+    for name in ("01.json", "02.json"):
+        (tmp_path / name).write_text(json.dumps(_source_contract()))
+    seen = {"imports": 0, "drains": 0}
+
+    async def close():
+        seen["closed"] = True
+
+    async def context(*args):
+        return SimpleNamespace(aclose=close)
+
+    async def profile(*args):
+        pass
+
+    async def ingest(*args):
+        seen["imports"] += 1
+        return SimpleNamespace(sources=[SimpleNamespace(source_id="s1", deduplicated=False)])
+
+    async def drain():
+        seen["drains"] += 1
+        return 1, {}
+
+    monkeypatch.setattr(wiring, "build_context", context)
+    monkeypatch.setattr(ingest_sources, "ingest_source_contract", ingest)
+    monkeypatch.setattr(app, "build_settings", lambda: object())
+    monkeypatch.setattr(app, "upsert_owner_profile", profile)
+    monkeypatch.setattr(app, "_compile", drain)
+    monkeypatch.setattr(app, "write_run_report", lambda kind, payload: seen.update(report=payload))
+    assert await app._ingest(tmp_path, compile_each=True) == 1
+    assert seen["imports"] == seen["drains"] == 1
+    assert seen["report"]["status"] == "incomplete"
+    assert seen["report"]["failed_at"] == "01.json"
+    assert len(seen["report"]["inputs"]) == 2
+    assert seen["closed"]
+
+
+async def test_sources_resolve_compiled_citations_and_reject_invalid_bounds():
+    from types import SimpleNamespace
+    from pneuma_knowledge_core.domain.source import StructureMap
+
+    class Store:
+        async def get(self, uid, sid):
+            assert (uid, sid) == ("u", "raw-source")
+            return SimpleNamespace(blocks=[0, 1, 2])
+
+        async def fetch(self, uid, sid, locator):
+            # Use the real locator grammar: a hand-written fake must not accept a wrong key.
+            assert StructureMap().resolve(locator) == (1, 2)
+            return "The exact two source paragraphs."
+
+    answer = SimpleNamespace(
+        answer="A claim [cite: s01 ¶1-2, ¶9] [cite: s01 ¶1-2]",
+        citation_handles={"s01": "raw-source"}, used_windows=(),
+    )
+    spans = await app.cited_source_spans(Store(), "u", answer)
+    assert len(spans) == 2
+    assert spans[0]["text"] == "The exact two source paragraphs."
+    assert "error" in spans[1] and "text" not in spans[1]
+
+
+async def test_unstated_profile_does_not_invent_personal_facts_or_dates(monkeypatch):
+    from types import SimpleNamespace
+
+    seen = {}
+
+    async def persist(uid, payload):
+        seen.update(payload)
+
+    monkeypatch.setattr(app, "load_profile", lambda: {
+        "locale": {"country": "CN", "timezone": "Asia/Shanghai", "language": "zh-CN"},
+        "provenance": dict.fromkeys(("region", "timezone", "language"), "deployment_default"),
+    })
+    await app.upsert_owner_profile(SimpleNamespace(store=SimpleNamespace(upsert_user_profile=persist)), "team-library")
+    assert seen["source"] == "unstated"
+    assert not seen["display_name"] and not seen["occupation"] and not seen["bio"]
+    assert not seen["joined_at"] and not any(seen["workspace"].values())
+    assert not seen["industry"] and not seen["role"] and not seen["level"]
+    assert not seen["locale"]["timezone"] and not seen["locale"]["country"]
+    assert seen["preferences"]["response_language"] == "zh-CN"
+
+
+async def test_declared_industry_is_a_profile_even_without_a_name(monkeypatch):
+    from types import SimpleNamespace
+
+    seen = {}
+
+    async def persist(uid, payload):
+        seen.update(payload)
+
+    monkeypatch.setattr(app, "load_profile", lambda: {"industry": "tech"})
+    await app.upsert_owner_profile(SimpleNamespace(store=SimpleNamespace(upsert_user_profile=persist)), "team-library")
+    assert seen["source"] == "profile"
+    assert seen["industry"] == "tech"
+    assert not seen["display_name"] and not seen["locale"]["country"]
+
+
+def test_live_console_worker_blocks_cli_queue_takeover(monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(app.subprocess, "run", lambda *args, **kwargs: SimpleNamespace(stdout="postgres\nworker\n"))
+    with pytest.raises(RuntimeError, match="console worker is running"):
+        app.require_cli_queue_owner()
+
+
+async def test_answer_report_retains_degradation_and_question_time(monkeypatch, capsys):
+    calls = _stub_ask_environment(monkeypatch)
+    monkeypatch.setattr(_StubFastAnswer, "answer_format_degraded", "invalid_citations", raising=False)
+    at = app.parse_as_of("2026-01-10T09:00:00+08:00")
+    await app._ask("q", as_of=at)
+    assert "Degraded: answer_format_degraded=invalid_citations" in capsys.readouterr().out
+    assert calls["report"]["answer_format_degraded"] == "invalid_citations"
+    assert calls["report"]["as_of"] == at.isoformat()

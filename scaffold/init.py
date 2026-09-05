@@ -96,7 +96,7 @@ DEFAULT_MODELS = {
     # The agentic deep-search lane defaults to the stronger sibling: it reasons across
     # multiple retrieval rounds, where the model tier is worth its price.
     "deep": "openrouter:openai/gpt-5.6-terra",
-    # Live Context is two small calls per tick, and they want different models.
+    # Discovery can skip retrieval; pick runs only when candidates exist.
     # discover — a small REASONING model: it decides whether the tick retrieves at all, in a
     #   few dozen tokens. sol is that shape; its effort is pinned LOW in the framework.
     # pick — a WEAK FAST model: it chooses between cards that are already assembled and may
@@ -184,23 +184,23 @@ language = "en"            # documentation language of the generated project: zh
 project_name = "my-kb"     # project name (lowercase letters/digits/hyphens); default dir name
 
 [owner]
-display_name = "Someone"   # how the owner is addressed
+display_name = ""          # optional; leave unknown owner details unstated
 occupation = ""            # one-line occupation
 bio = ""                   # a sentence or two of background
 interests = []             # long-term interest keywords, e.g. ["hiking", "open source"]
-industry = "other"         # tech/finance/sports/creative/education/healthcare/marketing/other
-role = "other"             # engineering/marketing/product_management/sales/design/support/admin/other
-level = "mid"              # entry/junior/mid/senior/staff/principal
+industry = ""              # optional: tech/finance/sports/creative/education/healthcare/marketing/other
+role = ""                  # optional: engineering/marketing/product_management/sales/design/support/admin/other
+level = ""                 # optional: entry/junior/mid/senior/staff/principal
 
 [data]
-mode = "example"           # example = bundled demo dataset | path = my own directory | none = empty
+mode = "none"              # example = bundled demo dataset | path = my own directory | none = empty
                            # demo = what ./init.py --demo generates (a shipped, already-compiled
                            #   library plus a few raw materials); normally set by --demo, not here
 path = ""                  # absolute path when mode = "path"; read at ingest time, never copied
 
 [contract]
-mode = "auto"              # auto = follow the data (example data → demo contract, else skeleton)
-                           # skeleton = TODO-slot skeleton | example = bundled demo contract
+mode = "auto"              # auto = follow the data (example data → demo contract, else starter)
+                           # starter = usable source-grounded contract | example = bundled demo contract
                            # demo = the example project's real, agent-authored contract
                            # reference = start from a built-in strategy (fill reference below)
 reference = ""             # e.g. "personal-knowledge@v2" (list with ./init.py --list-references)
@@ -388,8 +388,9 @@ def sample_material(directory: Path, *, files: int = 4, lines: int = 3) -> list[
     """A one-screen peek at a material directory: a few file names, and the first content
     lines of the first file — enough for the user to recognize what data they are about
     to build on, not a full listing."""
-    paths = sorted(p for p in directory.glob("*.md") if p.name.lower() != "readme.md")
-    out = [f"  {len(paths)} .md files, e.g.:"]
+    paths = sorted(p for p in directory.iterdir() if p.is_file()
+                   and p.suffix.lower() in {".md", ".json"} and p.name.lower() != "readme.md")
+    out = [f"  {len(paths)} material files (.md / .json), e.g.:"]
     for path in paths[:files]:
         out.append(f"    · {path.name}")
     if len(paths) > files:
@@ -421,19 +422,19 @@ def build_config(answers: dict, *, target: str | None) -> dict:
 
     owner_in = dict(answers.get("owner") or {})
     owner = {
-        "display_name": str(owner_in.get("display_name") or "Someone"),
+        "display_name": str(owner_in.get("display_name") or ""),
         "occupation": str(owner_in.get("occupation") or ""),
         "bio": str(owner_in.get("bio") or ""),
         "interests": [str(i) for i in (owner_in.get("interests") or [])],
     }
     for enum_field, allowed in ENUMS.items():
-        value = str(owner_in.get(enum_field) or ("mid" if enum_field == "level" else "other"))
-        if value not in allowed:
+        value = str(owner_in.get(enum_field) or "")
+        if value and value not in allowed:
             sys.exit(f"error: owner.{enum_field} value {value!r} not in {sorted(allowed)}")
         owner[enum_field] = value
 
     data_in = dict(answers.get("data") or {})
-    data_mode = str(data_in.get("mode") or "example")
+    data_mode = str(data_in.get("mode") or "none")
     if data_mode not in ("example", "path", "none", "demo"):
         sys.exit(f"error: data.mode must be example / path / none / demo, got {data_mode!r}")
     data_path = str(data_in.get("path") or "")
@@ -443,17 +444,17 @@ def build_config(answers: dict, *, target: str | None) -> dict:
         resolved = Path(data_path).expanduser().resolve()
         if not resolved.is_dir():
             sys.exit(f"error: data.path is not a directory: {resolved}")
-        if not list(resolved.glob("*.md")):
-            print(f"  note: no .md files in {resolved} yet (the ingester reads .md only).")
+        if not any(resolved.glob("*.md")) and not any(resolved.glob("*.json")):
+            print(f"  note: no .md or source-contract .json files in {resolved} yet.")
         data_path = str(resolved)
 
     contract_in = dict(answers.get("contract") or {})
     contract_mode = str(contract_in.get("mode") or "auto")
     if contract_mode == "auto":
-        contract_mode = {"example": "example", "demo": "demo"}.get(data_mode, "skeleton")
-    if contract_mode not in ("skeleton", "example", "reference", "demo"):
+        contract_mode = {"example": "example", "demo": "demo"}.get(data_mode, "starter")
+    if contract_mode not in ("starter", "example", "reference", "demo"):
         sys.exit(
-            "error: contract.mode must be auto / skeleton / example / reference / demo, "
+            "error: contract.mode must be auto / starter / example / reference / demo, "
             f"got {contract_mode!r}"
         )
     reference = str(contract_in.get("reference") or "")
@@ -546,6 +547,8 @@ def make_env_text(config: dict, ports: dict[str, int], compose_project: str, rep
             "",
             "# Framework repository (app.py runs via its uv environment).",
             f"PNEUMA_APP_FRAMEWORK_REPO={repo}",
+            "# Optional external material directory. Empty means this project's my-data/.",
+            f"PNEUMA_APP_DATA_DIR={config['data_path']}",
             "",
             "# Compose project name and ports — free ports probed at generation time, private to",
             "# this project. The project name owns the docker volumes; renaming orphans them.",
@@ -619,9 +622,9 @@ def contract_text(config: dict, repo: Path) -> tuple[str, str]:
         sys.exit(f"error: no built-in strategy named {wanted} (list them with ./init.py --list-references).")
     template = (TEMPLATES / ("contract.zh.md" if zh else "contract.en.md")).read_text(encoding="utf-8")
     hint = (
-        "现在还是骨架：标着 TODO 的地方，通读你的材料后用你自己的答案写掉。"
+        "可直接运行的起始契约；读过代表性材料后，再具体化用途与主体族。"
         if zh
-        else "Still a skeleton: read your material, then replace every TODO with your own answer."
+        else "Usable starter contract; specialize its purpose and subject families after reading representative sources."
     )
     return render(template, {"SKILL_ID": skill_id}), hint
 
@@ -646,264 +649,115 @@ def engine_files(config: dict, contract: str, profile: str) -> dict[str, str]:
     return {
         "README.md": render(readme, {"PROJECT_NAME": config["project_name"]}),
         "engine.yaml": f"""\
-# Model roles for this engine. The compile model must support tool calling: the compile agent
-# writes through tools, so a model without them cannot write at all. That is the requirement.
-# What a particular model is worth beyond it — the library it produces, its latency, its cost
-# — is compared on this project's own material, one role at a time on the same harness.
-#
-# Precedence for every key in this directory: process environment > this file > framework
-# default. The matching variables here are PNEUMA_KNOWLEDGE_LLM_MODEL_COMPILE / _RECALL /
-# _ANSWER / _DEEP, PNEUMA_KNOWLEDGE_ANSWER_REASONING_EFFORT and
-# PNEUMA_KNOWLEDGE_EMBEDDING_MODEL.
+# Model roles and framework limits. See README.md for behavior and change scope.
+# Compile requires tool calling; native images require a model that accepts image content.
 compile: {models["compile"]}
-# How images reach the compile model: native sends real image content blocks; caption sends
-# only labelled caption/OCR text; auto trusts the active model profile.
 image_mode: {config["compile_image_mode"]}
-# Wall-clock budget for one model call inside a compile job. A hung provider connection
-# otherwise holds the job open until the worker restarts; on timeout the job fails with a
-# stated reason and the canonical library is untouched. 0 = no timeout.
+# Per-call timeout in seconds; 0 disables the timeout.
 compile_call_timeout: 600
-# How many tool calls one round of a compile may spend — first round and repair round alike.
-# 0 is not unbounded: it means the number is derived from the job itself, max(40, 3 x
-# sources), so a round can read every source and write at least twice per source. Set an
-# absolute number only when you mean one.
+# 0 derives a bounded budget from the job; it does not mean unlimited.
 compile_max_tool_calls: 0
-# How large a document's overview may be — the bounded head the compile model rewrites
-# whole when the picture of a subject changed. Over it, the gate rejects the round; it is
-# a head, not a second ledger.
 overview_budget_chars: 2000
-# And the floor under the same region: how many claims a document may hold before a compile
-# that touches it must give it an overview (definition at least). A model maintains a head
-# that already exists and never starts one, so the first one is refused into being. 0 = off.
+# Applies to touched pages; 0 disables the presence threshold, not reference checks.
 overview_required_after_claims: 8
 recall: {models["recall"]}
-# Empty borrows the recall role. Split this only when validation in your own domain shows a
-# separate final-answer model is worth its added cost or latency.
 answer: {models["answer"] if models["answer"] else '""'}
-# Empty preserves the answer model provider's default reasoning behavior.
 answer_reasoning_effort: {models["answer_reasoning_effort"] if models["answer_reasoning_effort"] else '""'}
-# Deep recall (the agentic search lane). Empty borrows the recall role.
 deep: {deep if deep else '""'}
-# Live Context is two small calls per tick, not one big one.
-#   live_discover — reads the pending conversation and decides whether anything is worth
-#     looking up at all, and how. A SMALL REASONING model; its effort is pinned LOW in the
-#     framework, because an effort you could raise would change what the lane costs.
-#   live_pick — chooses between candidate cards that are already assembled, writes one short
-#     lede and prunes the citations. A WEAK FAST model; reasoning is pinned off.
-# Both empty = borrow the recall role.
+# Discovery may decide no retrieval is needed; pick runs only when candidates exist.
 live_discover: {models["live_discover"] if models["live_discover"] else '""'}
 live_pick: {models["live_pick"] if models["live_pick"] else '""'}
-# A supplementary INTERNET face beside your library on the same lane. Off, and that is the
-# default worth keeping until you want it: your library is the authority, this reaches
-# outside it, and it bills per search. Turning it on here only opens the possibility — each
-# Live Context connection also has its own toggle, and the lookup is offered to the discover
-# model only where both said yes. What comes back is one candidate in the SAME pool your
-# library's candidates are in, chosen or not by the same pick call, and cited to the pages it
-# read rather than to one of your source blocks. Reuses OPENROUTER_API_KEY.
+# External search is opt-in and also gated by each Live Context connection.
 live_web_search: false
 live_web_search_model: {models["live_web_search_model"]}
-# A vector collection's dimension is fixed when it is created, so switching to a model of a
-# different dimension means a new collection, not an in-place change.
+# Changing model requires rebuilding vectors, even when its dimensions are unchanged.
 embedding: {models["embedding"]}
 
-# What you pay for the models above, one entry per line:
-#   <model id> = <input>/<output>/<cache_read>/<cache_creation> <CURRENCY>
-# with every rate per 1M tokens. Leave it empty and every place that shows what a call spent
-# shows tokens only — the framework quotes no price of its own, and an undeclared model is
-# reported in tokens rather than in a figure somebody invented for it. Costs are computed
-# when they are read, so correcting a rate corrects every number at once.
+# Optional rates per 1M tokens; an undeclared rate yields tokens, not an invented cost.
 pricing: ""
 
-# Index components: business-specific structure over canonical, enabled by name (comma
-# separated; empty = none). Shipped:
-#   people — `identities` / `aliases` on person pages. They belong to the overview, so a
-#            rewrite replaces them whole and a wrong binding is repaired by the next round
-#            that touches the page. Three things about them are mechanical, checked at the
-#            write face and again at the gate: an identity is `scheme:value` and belongs to
-#            one page; two person ids that both SPEAK in one source are two people and may
-#            not share a page; an alias is not somebody else's name. Shown in the compile
-#            outline, plus find_person (compile) and enumerate_identities (deep recall).
-#   time   — the owner's calendar: one derived row per source block keyed by the day it
-#            falls on in the owner's timezone, a timespan(since, until) lookup for fast
-#            recall, timeline / as_of for deep recall, and each source's span stated in
-#            the compile task. Re-derived by scripts/ops/rebuild_derived.py.
-#   attention — what the library is being ASKED for: a ledger over the consultations a
-#            business visitor left behind (which documents were read, which questions came
-#            back empty), reported to schema evolution and readable from deep recall. It
-#            counts nothing until a caller asks with visitor_class=business.
+# Enable only when source semantics and contract families support the component.
 components: ""
-# The contract family the people component binds to — one of contract.md's path_templates.
+# Inactive until people is enabled; set to an actual person-family path template.
 people_family: memory/people/{{slug}}.md
-# The attention component's three knobs. No score is stored: heat is recomputed when the
-# ledger is read, so changing the half-life rewrites nothing.
-#   half_life_days  how fast a read fades — 14 means a fortnight-old read counts half.
-#   window_days     how far back a report reads. Older days stay in the table.
-#   evidence_chars  the ceiling on the block handed to a schema-evolve proposal.
 attention_half_life_days: 14
 attention_window_days: 60
 attention_evidence_chars: 1500
 """,
         "intake/intake.yaml": f"""\
-# How material becomes the semantic units the vector index searches. Citable unit text is
-# always a verbatim slice; derived titles/descriptions form a separate dense L2 context face.
-#
-#   semantic  one compile-role call returns topic/episode boundaries plus a grounded title
-#             and description for each episode. Costs one small model call per source.
-#   sentence  mechanical sentence chunking with overlap. No model cost at all.
-#
-# Changing this governs new material immediately; material already indexed keeps the
-# boundaries recorded for it until the framework's rebuild_derived is run, so a switch is
-# never a silent partial migration.
+# New-source segmentation. Semantic indexing can use several bounded model calls.
+# Derived rebuilds replay already-kept semantic manifests rather than choosing new cuts.
 chunk_strategy: {config["chunk_strategy"]}
 
-# Whether two neighbouring semantic segments may share a block (semantic strategy only).
-#
-#   smart     the model returns start/end pairs, so a hinge — the sentence that closes one
-#             topic while opening the next — is indexed as part of BOTH segments. How much
-#             to share is judged per boundary, never a fixed stride, and at most three
-#             blocks: that ceiling is what keeps "every segment is the whole document" out
-#             of reach rather than merely discouraged.
-#   off       a zero-overlap cut for domains where every block must belong to exactly one
-#             semantic segment.
 semantic_overlap: "{config["semantic_overlap"]}"
 """,
         "compile/contract.md": contract,
         "compile/challenge.yaml": f"""\
-# The post-compile coverage audit: blind questions generated over the material that was just
-# compiled, a probe of the canon for gaps, and one compensation compile for the gaps the
-# material actually supports. It mechanizes the "ask real questions" acceptance step.
-#
-# Off by default because it spends extra model calls on every compile job. Turning it on
-# governs future compiles only — nothing already recorded is revisited.
+# Optional coverage probes and compensation; extra model calls on future compiles.
 enabled: {"true" if config["challenge_enabled"] else "false"}
 max_rounds: 2
 max_questions: 6
-# Completion budget for the audit's structured passes; 0 = provider default.
 max_output_tokens: 32768
 compensate: true
 """,
         "evolve/evolve.yaml": """\
-# Schema evolution: once enough new material has accrued, a strong model proposes
-# reorganizing the library's structure on a branch and waits for you to adopt or drop it.
-# Nothing is ever reorganized without your review.
-#
-# `auto_trigger: false` ships as the default so a first run holds no surprise model spend —
-# fire a round yourself with `./app.py evolve run`. Turn it on once you know your material's
-# arrival rhythm, and tune the thresholds to it: lower for a slow-trickle library, higher for
-# a daily bulk feed. Both thresholds must be met for a round to fire.
+# Proposals are drafts. CLI evolve step keeps them unless explicitly told to adopt.
 auto_trigger: false
 trigger_topic_docs: 5
 trigger_new_claims: 30
-# A draft older than this many hours is dropped the next time proposals are listed.
 draft_ttl_hours: 24
 """,
         "recall/recall.yaml": f"""\
-# Answering. Style is shape only — the truth discipline (citations, no invention, an honest
-# "the material does not say") is the same in all three.
-#
-#   concise        one compact value for an API client or automation
-#   conversational a natural chat reply
-#   detailed       a self-contained written note
-#
-# Override for one question: ./app.py ask '...' --style concise
+# Broad retrieval, bounded answer context, structured answer/citation validation.
+# Override one ask with --style / --evidence-strategy / --answer-format.
 answer_style: {config["answer_style"]}
 
-# Context composition and answer wire. The shipped defaults preserve the direct ranked
-# lane. `select` adds one bounded structured call over all evidence faces; `all` skips that
-# call and hands the whole candidate pool to the answer instead; `structured` separates
-# answer text/kind/citations so exact source spans can be validated.
-# Override one question with --evidence-strategy / --answer-format.
 evidence_strategy: ranked
-answer_format: text
-# Optional provider reasoning-effort hint for the selection call; empty = provider default.
+answer_format: structured
 selection_reasoning_effort: ""
-# `all`'s only bound, ignored by the other two: how many characters the assembled evidence
-# may occupy. Over it windows go first, then episode summaries, then the lowest-ranked
-# claims — and the answer says what it dropped. 0 = no ceiling.
+# Used only by all; 0 means no character ceiling.
 all_context_chars: 120000
 
-# Retrieval breadth is cheap; answer evidence is expensive. Candidate caps search a broad
-# lexical/semantic tail. Up to 16 dense episode summaries enter as explicitly derived,
-# source-addressed context; six exact raw spans remain beside them for verbatim evidence.
 claim_candidate_cap: 80
 claim_cap: 40
 window_candidate_cap: 60
 episode_summary_cap: 16
 window_cap: 6
-# 0 = one query per question. N > 0 spends one small model call to derive up to N extra
-# retrieval queries, pooled into one ranking: more of the index reached per question, against
-# one more call and its latency on every question. Which way that trade falls is measured on
-# this project's own questions.
+# 0 disables planning; positive values add a query-planning call.
 plan_queries: 0
-# Empty = no reranking. Configure it only when validation on your own domain shows that
-# relevance order needs a second-stage scorer. "llm" uses the recall model; a bare model
-# name uses OpenRouter's /rerank endpoint.
+# Empty disables reranking. Measure before adding the model call.
 rerank_model: ""
 rerank_candidates: 120
 
-# Component lookups: when enabled index components (engine.yaml `components`) offer
-# lookup paths, fast spends one routing tool-call turn to choose which run, concurrently
-# with the built-in retrieval. No path offered = no routing call, no cost.
 component_paths: true
-# How much context the whole component face may occupy. A path's own cap bounds how many
-# items it contributes; this bounds their size. Over it the lowest-ranked items fall off and
-# long excerpts are cut at block boundaries — both stated in the face, never silently.
 component_budget_chars: 6000
 """,
         "persona/profile.yaml": profile,
         "prompts/overlays.yaml": f"""\
-# Prompt overlays: catalog key → the clause that replaces it, applied when a process starts.
-# This is the framework's extension point for model-visible wording — you can rewrite what
-# the models are told without forking anything.
-#
-# `language` picks which language the FRAMEWORK's own clauses arrive in — the layer your
-# overrides below sit on. en = the default English catalog; zh = the shipped Chinese language
-# pack, for readability and Chinese material. It does NOT decide what language
-# this library is written in: that follows the owner profile's declared language.
+# Framework wording language, independent of answer language.
+# Whole-clause replacements; unknown keys are rejected. Domain judgment belongs in the contract.
 language: {config["prompt_language"]}
-#
-# Whole-clause replacement only, and an unknown key is refused rather than ignored (a
-# half-applied override would leave the framework's wording reaching the model while you
-# believed it did not). `GET /v1/engine/schema` lists every key that can be overridden.
-#
-# Empty is the right default: the framework's own wording is business-neutral, and your
-# domain judgement belongs in compile/contract.md, not in a prompt rewrite.
 overlays: {{}}
 """,
     }
 
 
+
 def demo_readme_section(zh: bool) -> str:
-    """The README paragraph a demo project needs and an ordinary one must not have: where its
-    library came from, and how to make the compiler run on your own key."""
+    """A prebuilt demonstration is separate from a real-material compilation."""
     if zh:
         return """
-> **这是 demo 项目。** 它的库不是空的：`prebuilt/` 里带着框架仓库中示例项目
-> `examples/opc` 编好的正本（一个 git bundle）和它引用的 L0 原始来源，
-> `./app.py restore` 用确定性向量把派生层重建出来——**不需要 API key**，191 份来源、
-> 28 篇正本文档、每一条引用都能读。`engine/` 里放的是那个项目的真实契约与主体档案。
->
-> **想看编译自己跑一遍**：`my-data/` 里留了 3 份同一批语料的原始材料。往 `.env` 填一个
-> OpenRouter key，然后 `./app.py ingest my-data && ./app.py compile`。装载过那座库之后
-> 这 3 份已经在 L0 里了，摄入会认出是同一份而不排队——想真看编译跑，先
-> `./app.py down --volumes && rm -rf data/` 清空，再从这 3 份重新开始；或者把你自己的
-> 一份材料丢进 `my-data/`。demo 与正常生成的项目结构完全一致；差别只是它多带了一座库。
+> **这是独立演示项目。** `prebuilt/` 保存 `examples/opc` 的正本 git bundle 和所引用的
+> L0 来源。`./app.py restore` 无需 API key 即可恢复并浏览 191 份来源、28 份正本文档。
+> 派生层使用确定性向量，只用于无 key 展示。已有的 3 份示例原料再次导入会被去重。
+> 要编译自己的材料，请另生成一个项目，使用起始契约与真实 embedding，无需删除此演示库。
 """
     return """
-> **This is a demo project.** Its library is not empty: `prebuilt/` carries the compiled
-> canonical library of the framework repository's `examples/opc` (a git bundle) together
-> with the L0 source rows its citations bind to, and `./app.py restore` rebuilds the derived
-> layers with deterministic vectors — **no API key** — leaving 191 sources, 28 canonical
-> documents and every citation readable. `engine/` holds that project's real contract and
-> owner profile.
->
-> **To watch a compile yourself**: `my-data/` keeps 3 raw materials from the same corpus. Put
-> an OpenRouter key in `.env`, then `./app.py ingest my-data && ./app.py compile`. Once the
-> shipped library is restored those 3 are already in L0, so ingest recognizes them and queues
-> nothing — to really watch a compile, clear first
-> (`./app.py down --volumes && rm -rf data/`) and start from those 3, or drop one of your own
-> files into `my-data/`. A demo project is structurally identical to any generated one; it
-> just arrives with a library.
+> **This is a separate demonstration project.** `prebuilt/` holds the canonical git bundle
+> and cited L0 of `examples/opc`. `./app.py restore` restores 191 sources and 28 documents
+> for keyless browsing. Its deterministic vectors are for demonstration, not retrieval-quality
+> measurement. Re-importing the 3 already-kept example inputs deduplicates them. Build your
+> own material in a fresh project with the starter contract and real embeddings; keep this demo.
 """
 
 
@@ -1058,12 +912,11 @@ def generate(config: dict) -> Path:
     say(f"  cd {target}")
     if not config["api_key"]:
         say("  $EDITOR .env      " + dim("# fill OPENROUTER_API_KEY (https://openrouter.ai/keys)"))
-    say("  ./start.sh        " + dim("# end to end: start stack → ingest → compile → demo Q&A"))
+    say("  ./start.sh        " + dim("# validate inputs → start stack → ingest/compile each file"))
     if config["data_mode"] == "path":
-        say(f"  ./app.py ingest {config['data_path']}")
-        say("                    " + dim("# your material directory (start.sh ingests my-data/ by default)"))
+        say("  " + dim(f"source directory: {config['data_path']} (saved in .env; start.sh uses it)"))
     if config["data_mode"] == "none":
-        say("  " + dim("drop .md material into my-data/ (with date: frontmatter), then run ./start.sh"))
+        say("  " + dim("put source-contract .json or .md notes in my-data/, then run ./start.sh"))
     return target
 
 
@@ -1215,19 +1068,20 @@ def interactive(preset_lang: str | None) -> dict:
     echo_choice("language", "中文" if lang == "zh" else "English")
 
     header(3, total, "Owner")
-    say(dim("  The library belongs to one person; compiles read their profile to know whose"))
-    say(dim("  perspective the material is written from. Facts stay in the material — this is"))
-    say(dim("  just the introduction line."))
-    display_name = ask("Name to address the owner by", "Someone")
+    say(dim("  Owner details are optional. A team or topic library need not impersonate a person."))
+    say(dim("  Keep unknown facts blank; facts in the material belong in the sources."))
+    display_name = ask("Owner display name (optional)", "")
     bio = ask("One line about them (occupation, what they do — optional)", "")
     echo_choice("owner", display_name + (f" — {bio}" if bio else ""))
 
     header(4, total, "Data")
-    say(dim("  The compiler eats .md files (one file = one material, date: in frontmatter)."))
-    say(dim("  No data ready? Start with the bundled demo dataset — two weeks of a fictional"))
-    say(dim("  indie developer's notes and chats — and swap in your own later."))
-    use_example = ask("Use the bundled demo dataset? (y = demo, or paste a directory path)", "y")
-    if use_example.lower() in ("y", "yes", ""):
+    say(dim("  Import source-contract JSON or Markdown notes. Use ordered filenames for replay."))
+    say(dim("  Enter leaves my-data/ empty for your material. The demo is an optional separate start."))
+    use_example = ask("Material directory (or y for bundled example; Enter for empty)", "")
+    if not use_example:
+        data_mode, data_path = "none", ""
+        echo_choice("data", "empty my-data/ directory")
+    elif use_example.lower() in ("y", "yes"):
         data_mode, data_path = "example", ""
         for line in sample_material(EXAMPLE / "data"):
             say(line)
@@ -1278,7 +1132,7 @@ def interactive(preset_lang: str | None) -> dict:
     config["api_key"] = api_key
 
     say()
-    contract_note = "bundled demo contract" if config["contract_mode"] == "example" else "TODO skeleton for your own domain"
+    contract_note = "bundled demo contract" if config["contract_mode"] == "example" else "source-grounded starter for your domain"
     say(bold("About to generate: ") + f"{config['target']}  ·  docs {lang}  ·  data {data_mode}  ·  contract {contract_note}")
     if ask("Proceed? (y/n)", "y").lower() not in ("y", "yes"):
         sys.exit("cancelled.")

@@ -1,78 +1,89 @@
-# pneuma-knowledge scaffold —— 项目生成器
+# 从原始材料建立知识库
 
 [English](README.md) | **简体中文**
 
-scaffold 是一个**生成器**：一个入口脚本，问你几个问题（或者用一个文件一次性给全），
-然后在你指定的目录里生成一个完整、自洽的知识库项目——你的数据、你的契约、
-一套探测空闲端口自动配好的独立中间件栈。
+Pneuma 将原始材料编译成持续维护的主体与主张，并保留回到原文段落的引用。scaffold 生成
+拥有材料、编译契约和运行环境的应用项目。作为框架使用者从这里开始即可，无需先读源码。
+
+默认路径是：**保全来源 → 按主体编译 → 检查证据与用途**。L0 保存来源，L1/L2 支持检索，
+L3 是持续维护的 canonical 正本。编译成功说明机械检查通过，不说明解释忠实或覆盖完整；
+这两类验收应分开进行。
+
+## 用自己的材料开始
+
+准备 Python、`uv`、Docker 和模型 API key，在本目录运行：
 
 ```bash
-./init.py --demo                           # 零交互零 key：直接给你一个「已经编好库」的项目并起好
-./init.py                                  # 交互式：一步步引导，每个岔路都可用内置演示数据
-./init.py --answers my.toml --target DIR   # 单命令：给编码代理和 CI 用
-./init.py --print-schema                   # 打印带注释的 answers 文件模板
+./init.py                                  # 交互生成；默认创建空项目
+./init.py --print-schema                    # 查看全部配置项
+./init.py --answers answers.toml --target /path/to/my-kb
 ```
 
-**只想先看看一座编好的知识库长什么样？** `./init.py --demo` 会在一个新建临时目录里生成一个
-真实项目，起好中间件与浏览层，并把 [`examples/opc`](../examples/opc/README.zh-CN.md) 的库装进去
-——191 份来源、28 篇正本文档、每条结论都能点回原文的那一段——**完全不需要 API key**
-（`--target DIR` 指定目录，`--no-start` 只生成不启动）。它就是一个普通的生成项目，只是自带
-一座库；你在里面学到的东西，直接适用于你自己的库。
+最小 `answers.toml`：
 
-两种模式跑的是同一个生成器；交互流只是把 answers 文件里的答案逐个问出来。
-流程里没有任何问题需要前置知识：每一步先讲清这个东西是干什么的，给一个合理的
-默认值（回车即接受），选完回显确认。端口、compose 项目名、租户 id——所有新手
-不会有意见的东西——全部自动决定并回显，从来不问。
-
-想让 AI 陪你建库？把 `AGENT-GUIDE.zh-CN.md` 交给你的编码代理（Claude Code / Codex /
-Cursor 都行），把这句话粘给它：
-
-```
-请阅读 scaffold/AGENT-GUIDE.zh-CN.md 并按它引导我，用我自己的数据建一个知识库。我是新手，请一步步来。
+```toml
+language = "zh"
+project_name = "my-kb"
+[data]
+mode = "path"
+path = "/absolute/path/to/material"
 ```
 
-## 生成出来的项目长什么样
+省略 `[data]`，之后把材料放进生成项目的 `my-data/`。拥有者资料是可选的。生成的
+`engine/compile/contract.md` 已经可用，以 `subjects/{slug}.md` 为起点，每个独立演化的
+主体一页。先读几份有代表性的材料，再根据未来用途具体化它。
 
-```
-my-kb/
-  engine/            # 你的 —— 引擎本身，自带一个 git 仓库：模型角色、切块、回答风格、
-                     #   编译契约、主体档案、prompt 覆盖
-  .env               # 你的 —— key 与这台机器的基础设施（已 gitignore）
-  my-data/           # 你的 —— 材料（.md；选了演示数据的话已经填好）
-  README.md          # 按你选的语言生成，写明上述边界
-  AGENTS.md          # 告诉任何编码代理同样的边界 + 指南在哪
-  app.py             # 机器件 —— 运行时驱动（别改）
-  start.sh           # 机器件 —— 端到端演示（别改）
-  docker-compose.yml # 机器件 —— 本项目专属中间件栈（别改）
-  server.py          # 机器件 —— 浏览层的 API 入口（别改）
-  worker.py          # 机器件 —— 浏览层的编译 worker（别改）
-```
-
-机器件是 `templates/` 的字节拷贝——升级它们就是重新生成一个项目（或拷最新模板
-过来）；你写的东西全部在机器件之外。
-
-然后在生成的项目里：
+在生成项目中运行：
 
 ```bash
-cd my-kb
-$EDITOR .env       # 填 OPENROUTER_API_KEY（交互时输过就不用了）
-./start.sh         # 起栈 → 摄入 → 编译 → 带引用的演示问答 → 库的鸟瞰
-
-docker compose --profile console up -d --wait   # 想在浏览器里干活：文库、原料、引擎控制台
+$EDITOR .env                               # 凭据只放这里
+./start.sh                                 # 验证 → 启动 → 逐文件导入并编译
+./app.py glance
+./app.py ask '一个关于这些材料的实际问题' --sources
 ```
 
-## 这个目录里有什么
+输入按文件名排序处理，请用文件名表达回放顺序。材料有参与者身份、消息时间、线程或媒体时，
+优先用[来源契约 JSON](../docs/reference/source-contracts.zh-CN.md)。Markdown 只是笔记和简单
+对话的便捷适配器，不能替代这些结构字段。导入器先验证整批输入，再开始写入；保留 Markdown
+frontmatter，不会把粗略日期补成虚构时刻。语法见生成项目的 README。
 
-| 路径 | 是什么 |
+每次构建/导入、队列处理和回答都在 `data/run-reports/` 留下私有回执，可以查看输入哈希、
+来源 ID、任务历史、失败和回答降级。compile 模型的 token 统计不等于索引、检索及回答的
+总成本。
+
+## 理解并改进结果
+
+1. 把原文、主体页和引用段落放在一起读，检查归属、时间、限定条件、变化和遗漏。地址合法的
+   引用仍可能对应错误主张。
+2. 提出未来确实会问的问题。回答出错时，定位最早出现偏差的环节：导入、编译、检索、上下文
+   选择，还是最终解释。
+3. 修改对应层。改契约只影响未来编译，不会自动重编旧材料；重建派生索引也不会重写正本知识。
+
+让 agent 协作时，从 [AGENT-GUIDE](AGENT-GUIDE.zh-CN.md) 开始。定制准入和页面边界时读
+[契约指南](../docs/guides/compile-contract.zh-CN.md)，调整回答组装时读
+[召回指南](../docs/guides/recall-strategies.zh-CN.md)，修改框架时再读
+[架构](../docs/architecture.zh-CN.md)。
+
+## 可选演示
+
+```bash
+./init.py --demo                            # 独立临时项目，带已编译的库，无需 key
+./init.py --demo --target /path/to/demo --no-start
+```
+
+演示用于浏览已编译的示例。确定性向量支持无 key 展示，不是语义检索质量的基准。自己的库
+请在独立项目中用真实 embedding 构建，无需先跑演示再清空数据。
+
+## 生成项目的边界
+
+| 路径 | 用途 |
 |---|---|
-| `init.py` | 生成器——唯一入口 |
-| `templates/` | 原样拷贝的机器件 + 分语言模板（契约骨架、档案、项目 README/AGENTS） |
-| `example/` | 内置演示数据集（一位虚构独立开发者的两周）、配套演示契约、演示问题 |
-| `AGENT-GUIDE.zh-CN.md` | 编码代理陪用户建库的完整流程 |
+| `engine/` | 可版本化的策略：契约、模型角色、摄入、召回、资料与 prompt 覆写 |
+| `.env` | 凭据和本机隔离的中间件端口，不入版本库 |
+| `my-data/` | 用户输入；也可使用生成时指定的外部目录 |
+| `data/` | 私有运行状态和回执 |
+| `README.md`、`AGENTS.md` | 项目使用说明与 agent 指引 |
+| `app.py`、`start.sh`、`server.py`、`worker.py`、`docker-compose.yml` | 生成的运行机械层；改进它应修改框架模板 |
 
-## 判断力写在哪
-
-编译模型的全部判断依据都写在生成项目的 `engine/compile/contract.md` 里。写好一份契约的完整实践
-——类型→隐含用法的推导、主体粒度、验收环——在
-[docs/guides/compile-contract.zh-CN.md](../docs/guides/compile-contract.zh-CN.md)，
-那是这件事的唯一权威。
+本目录包含生成器 `init.py`、`templates/`、可选的虚构示例 `example/` 与 agent 指南。
+替换运行机械层时必须保留用户的 `engine/`、凭据与数据。
