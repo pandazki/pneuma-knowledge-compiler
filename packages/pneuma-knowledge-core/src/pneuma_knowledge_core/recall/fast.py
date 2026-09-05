@@ -568,7 +568,8 @@ class FastAnswer:
     evidence_strategy: str = "ranked"
     evidence_selection_degraded: str | None = None
     # The answer wire shape. Structured answers still return the same public `answer`
-    # string; kind/degradation are additive telemetry.
+    # string; kind/degradation are additive telemetry. Invalid citation removal is
+    # reported as "invalid_citations" without making a second model call.
     answer_format: str = "text"
     answer_kind: str | None = None
     answer_format_degraded: str | None = None
@@ -1927,6 +1928,22 @@ def evidence_selection_messages(
     ]
 
 
+def _reasoning_kwargs(model: BaseChatModel, effort: str | None) -> dict[str, Any]:
+    """Merge the OpenRouter effort override with the model's request defaults.
+
+    Pass these kwargs into `with_structured_output` itself on structured paths:
+    calling that method on `model.bind(...)` delegates to the original model and loses
+    the binding. Text calls bind the same merged body without replacing provider routing.
+    No override leaves the provider's defaults untouched.
+    """
+    if not effort:
+        return {}
+    extra_body = dict(getattr(model, "extra_body", None) or {})
+    reasoning = dict(extra_body.get("reasoning") or {})
+    extra_body["reasoning"] = {**reasoning, "effort": effort}
+    return {"extra_body": extra_body}
+
+
 async def select_evidence(
     model: BaseChatModel,
     question: str,
@@ -1975,14 +1992,10 @@ async def select_evidence(
         component_cap=component_cap,
         document_cap=document_cap,
     )
-    selecting_model = (
-        model.bind(extra_body={"reasoning": {"effort": reasoning_effort}})
-        if reasoning_effort
-        else model
-    )
     try:
-        structured = selecting_model.with_structured_output(
-            EvidenceSelection, include_raw=True
+        structured = model.with_structured_output(
+            EvidenceSelection, include_raw=True,
+            **_reasoning_kwargs(model, reasoning_effort),
         )
         call = structured.ainvoke(
             messages,
@@ -2250,9 +2263,7 @@ async def answer_with_selector(
     # `bind` rather than a constructor knob: the client instance is shared across roles
     # (wiring caches by model spec), so the override must live on this call, not the client.
     answering_model = (
-        model.bind(extra_body={"reasoning": {"effort": reasoning_effort}})
-        if reasoning_effort
-        else model
+        model.bind(**_reasoning_kwargs(model, reasoning_effort)) if reasoning_effort else model
     )
     response = await invoke_or_stream(
         answering_model,
@@ -2430,7 +2441,8 @@ async def answer_with_structured(
 
     Provider/schema failure retries through the historical text answer once and exposes the
     degradation reason. A successful structured call keeps answer text and citations apart;
-    only exact citation spans present in the aliased evidence are appended.
+    only exact citation spans present in the aliased evidence are appended. Rejected
+    citation entries set "invalid_citations" without retrying the model.
 
     Returns the deliberation as its seventh element: the text of the review when one was
     asked for and produced, None otherwise (including on the degraded fallback, which
@@ -2454,17 +2466,14 @@ async def answer_with_structured(
         image_mode=image_mode,
     )
     aliased_human, handle_map = _alias_human_content(human)
-    answering_model = (
-        model.bind(extra_body={"reasoning": {"effort": reasoning_effort}})
-        if reasoning_effort
-        else model
-    )
     usage = zero_usage()
     degraded: str | None = None
     parsed: object = None
     schema = DeliberatedRecallAnswer if deliberate else StructuredRecallAnswer
     try:
-        structured = answering_model.with_structured_output(schema, include_raw=True)
+        structured = model.with_structured_output(
+            schema, include_raw=True, **_reasoning_kwargs(model, reasoning_effort)
+        )
         messages = [
             SystemMessage(
                 content=structured_answer_contract(answer_style, deliberate=deliberate)
@@ -2506,7 +2515,7 @@ async def answer_with_structured(
             full_documents=full_documents,
             window_notes=window_notes,
             timelines=timelines,
-        component_evidence=component_evidence,
+            component_evidence=component_evidence,
             images=images,
             image_mode=image_mode,
             callbacks=callbacks,
@@ -2538,6 +2547,7 @@ async def answer_with_structured(
             or any(reference not in allowed for reference in references)
             or any(source not in handle_map for source, _start, _end in references)
         ):
+            degraded = "invalid_citations"
             continue
         if marker not in citations:
             citations.append(marker)
@@ -2555,7 +2565,7 @@ async def answer_with_structured(
         usage,
         handle_map,
         parsed.answer_kind,
-        None,
+        degraded,
         deliberation,
     )
 
@@ -3884,7 +3894,7 @@ async def fast_recall(
                 "answer",
                 {
                     "format": answer_format,
-                    "turns": 2 if answer_format_degraded else 1,
+                    "turns": 2 if answer_format_degraded in {"error", "timeout"} else 1,
                     **({"deliberation": preview_head(deliberation)} if deliberation else {}),
                     **_answer_input_preview(
                         claims, windows, episode_summaries, expanded, glance

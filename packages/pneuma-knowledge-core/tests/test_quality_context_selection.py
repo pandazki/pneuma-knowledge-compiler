@@ -217,7 +217,7 @@ async def test_structured_answer_admits_only_exact_presented_citations():
         answer_style="concise",
     )
 
-    assert degraded is None
+    assert degraded == "invalid_citations"
     assert deliberation is None  # no deliberation was asked for, so the field stays absent
     assert kind == "time"
     assert usage["total_tokens"] == 14

@@ -23,6 +23,8 @@ import json
 from datetime import datetime, timezone
 from operator import itemgetter
 
+import pytest
+
 from langchain_core.messages import AIMessage, AIMessageChunk
 from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
 from langchain_core.runnables import RunnableLambda, RunnableMap, RunnablePassthrough
@@ -151,6 +153,30 @@ def test_an_unrecognised_chain_degrades_instead_of_crashing():
 
 
 # ------------------------------------------------------------------ the lane
+
+
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize("citations,kind,expected", [
+    (["[cite: s99 ¶0]"], "fact", "invalid_citations"),
+    ([], "fact", None),
+    ([], "no_record", None),
+    ([], "inference", None),
+])
+async def test_rejected_citations_are_visible_without_a_second_answer_call(stream, citations, kind, expected):
+    model = _JsonStreamingModel(payload=json.dumps({
+        "answer_kind": kind, "answer": "Synthetic answer", "citations": citations,
+    }))
+    result = await fast_recall(
+        _USER, "Synthetic question", answer_format="structured",
+        on_token=(lambda token: None) if stream else None, **_kwargs(model),
+    )
+    assert result.answer == "Synthetic answer"
+    assert result.answer_kind == kind
+    assert result.answer_format_degraded == expected
+    stage = next(stage for stage in result.stages if stage.name == "answer")
+    assert stage.preview["turns"] == 1
+    assert stage.detail == expected
+    assert stage.status == ("degraded" if expected else "ran")
 
 
 async def test_a_structured_answer_streams_one_delta_per_token():

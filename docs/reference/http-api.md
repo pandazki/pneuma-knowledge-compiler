@@ -218,7 +218,10 @@ only exact cited spans present in evidence. The response echoes candidate counts
 model-selected claim/episode/window counts before safety anchors and provenance rollback,
 plus `evidence_strategy`,
 `evidence_selection_degraded`, `answer_format`, `answer_kind`, and
-`answer_format_degraded`. `evidence_strategy: "all"` makes no selection call: the same
+`answer_format_degraded`. When a structured answer supplies invalid citations, they are
+removed and `answer_format_degraded` is `"invalid_citations"`; answer text and kind are
+preserved without a retry. An empty citation list alone does not trigger this marker.
+`evidence_strategy: "all"` makes no selection call: the same
 candidate pool is handed to one answer call whole, so the model-selected counts stay 0, the
 `select` stage comes back `skipped`, and the only thing that can cut the context is the
 assembled-context ceiling — which reports itself as

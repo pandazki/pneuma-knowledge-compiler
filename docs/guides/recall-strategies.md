@@ -83,7 +83,9 @@ in the answer model's attention.
   ignored.
 - **`answer_reasoning_effort`** is a provider hint bound to the final answer call only. Empty
   sends nothing at all, so the request is byte-identical to the no-knob behaviour and the
-  provider's own default applies. Changing it needs a restart.
+  provider's own default applies. The override is merged with existing request options,
+  including provider routing, and is carried through both text and structured calls.
+  Changing it needs a restart.
 - **`selection_reasoning_effort`** is the same hint bound to the `select` call only, and is
   read by no other strategy. Applies hot.
 - **`all_context_chars`** is `all`'s only bound and is read by nothing else. `0` turns the
@@ -130,9 +132,13 @@ angles, lists and reads canonical documents in full, follows the markdown links 
 and fetches verbatim spans. The loop is bounded — a tool budget and a trail record per call,
 both mechanical — and it ends by answering.
 
-Both stand behind the same guarantees: every conclusion cites, citations use the one addressing
-scheme the gate and the projection share, a caller that should leave no trace leaves none, and
-every answer returns what it spent.
+Both lanes use the addressing scheme shared by the gate and projection, preserve no-trace
+caller semantics, and report token usage. Citation coverage of every conclusion is a model
+contract, not a semantic proof. Structured fast answers validate the explicit citation list
+against the exact spans shown to the model. If any entry is rejected, it is removed and
+`answer_format_degraded` is `invalid_citations`; the answer and its kind remain available,
+and no second model call is made. An empty citation list alone does not trigger this marker,
+including for `inference` and `no_record` answers.
 
 They differ mechanically in two ways. **Cost:** fast is one model call (two under `select`) over
 a prompt whose size follows from the caps; deep is a number of calls nobody knows in advance,
