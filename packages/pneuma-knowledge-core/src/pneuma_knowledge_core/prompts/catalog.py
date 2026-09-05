@@ -1580,10 +1580,6 @@ DEFAULTS: dict[str, str] = {
     # The `[cite: …]` marker is appended by the renderer, never written here: the addressing
     # scheme must not move when the deployment changes language.
     "archive.record.reason": "Archived by the owner on {date}: «{note}»",
-    # What the owner's STATEMENT says when they archived without writing a reason. It is an
-    # ordinary `owner-dialogue/v1` turn — the one the record then quotes — so it has to read
-    # as something a person said, not as a log line.
-    "archive.statement.default": "Archive {titles}.",
     # ─────────────────────────────────────────────── the archive channel's own gate
     # Never model-facing: the archive record is written by a mechanical channel, and a
     # violation abandons the whole write. Stated as prose anyway, and in both languages,

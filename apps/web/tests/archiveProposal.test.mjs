@@ -39,6 +39,10 @@ const {
   citedByLabel,
   recordFactsLine,
   recordReasonPreview,
+  confirmErrorMessage,
+  noteRequired,
+  suggestedNote,
+  suggestionTitles,
   confirmSelection,
   groupItems,
   isSelected,
@@ -594,79 +598,128 @@ test("a row that states no facts at all says nothing, rather than zero of everyt
 
 test("the reason preview quotes the note the confirm will send — trimmed", () => {
   assert.equal(
-    recordReasonPreview(null, "  superseded by Meridian  ", true, i18n),
+    recordReasonPreview("  superseded by Meridian  ", i18n),
     'archive.record.reason {"note":"superseded by Meridian"}',
   );
-  // The typed note is the newer fact: the planner computed its sentence before this
-  // keystroke, and the confirm carries the note.
   assert.equal(
-    recordReasonPreview(
-      { reason: "Archived by the owner.", reason_default: "Archived Aurora." },
-      " done with it ",
-      true,
-      i18n,
-    ),
+    recordReasonPreview(" done with it ", i18n),
     'archive.record.reason {"note":"done with it"}',
   );
 });
 
-test("an untyped note previews the sentence the record WILL carry, never a blank", () => {
-  // The execution always writes a reason — the note, the statement it was asked for in, or a
-  // default sentence. A preview that showed nothing here would have the owner confirm a
-  // record whose one editorial line they never read.
-  assert.equal(
-    recordReasonPreview(
-      { reason: "Archived by the owner on 2026-09-04." },
-      "",
-      false,
-      i18n,
-    ),
-    'archive.record.reason {"note":"Archived by the owner on 2026-09-04."}',
-  );
-  // Whitespace alone, in a field nobody touched, is still the untouched field.
-  assert.equal(
-    recordReasonPreview(
-      { reason: "  from the owner's statement  " },
-      "   \n  ",
-      false,
-      i18n,
-    ),
-    'archive.record.reason {"note":"from the owner\'s statement"}',
-  );
-  // A service that predates the field, and a record that states no reason at all: nothing to
-  // preview, and nothing shown — exactly as it read before the field existed.
-  assert.equal(recordReasonPreview(undefined, "", false, i18n), "");
-  assert.equal(recordReasonPreview({}, "   ", false, i18n), "");
-  assert.equal(recordReasonPreview({ reason: "  " }, "", false, i18n), "");
+test("the preview is the BOX and never a sentence kept on the proposal", () => {
+  // The reason is what the confirm carries, so the preview is a function of the textarea
+  // alone. There is nothing to fall back to: the plan sends no note and keeps no reason of
+  // its own, and a line drawn from anywhere else would preview a sentence that is not the
+  // one about to be sent — beside a Confirm button this console has already disabled.
+  assert.equal(recordReasonPreview("", i18n), "");
+  assert.equal(recordReasonPreview("   \n  ", i18n), "");
+  assert.equal(recordReasonPreview("   ", i18n), "");
 });
 
-test("clearing a note previews the default sentence, not the note being deleted", () => {
-  // THREE states over one string, and the middle one is the bug this pins. The plan carried
-  // a note, so `reason` is that note; the owner selects it and deletes it; the confirm sends
-  // `note: ""`, which REPLACES the plan's note with nothing, and the record then quotes the
-  // sentence the job writes when nothing is typed. Falling back to `reason` here — which is
-  // what an `edited`-blind preview does — would show them the one line that is now certain
-  // not to be written.
-  const record = {
-    reason: "superseded by Meridian",
-    reason_default: "Archived Aurora.",
-  };
-  // 1. typed: the note, trimmed exactly as the confirm trims it.
+test("an empty note box is not a decision the console may send", () => {
+  // The service refuses it (`note_required`): the record quotes the owner's own words, and
+  // an empty box is the one state where there are none. Whitespace is not words either —
+  // the same fold the service applies on the other side.
+  assert.equal(noteRequired(""), true);
+  assert.equal(noteRequired("   \n\t "), true);
+  assert.equal(noteRequired("Aurora shipped in June."), false);
+});
+
+test("the note box is prefilled with a SUGGESTION built from the selected titles", () => {
+  // A suggestion, not a default: the owner reads it, may rewrite it, and sends it — which
+  // is what makes the `owner-dialogue/v1` statement the record cites their own speech
+  // rather than the framework's. Built client-side, from the titles of what is moving.
+  const items = PROPOSAL.items;
+  assert.deepEqual(suggestionTitles(items), ["Aurora", "Aurora rollout"]);
   assert.equal(
-    recordReasonPreview(record, "  still superseded  ", true, i18n),
-    'archive.record.reason {"note":"still superseded"}',
+    suggestedNote("archive", suggestionTitles(items), i18n),
+    'archive.note.suggested.archive {"titles":"Aurora, Aurora rollout"}',
   );
-  // 2. edited to empty: the default sentence.
+  // Unticking before touching the note changes what the suggestion names.
+  const narrowed = { [itemKey("document", DEPENDENT_DOC.ref)]: false };
+  assert.deepEqual(suggestionTitles(items, narrowed), ["Aurora"]);
+  // The two actions leave two different traces, so they suggest two different sentences.
   assert.equal(
-    recordReasonPreview(record, "   ", true, i18n),
-    'archive.record.reason {"note":"Archived Aurora."}',
+    suggestedNote("unarchive", ["Aurora"], i18n),
+    'archive.note.suggested.unarchive {"titles":"Aurora"}',
   );
-  // 3. untouched: the plan's own line, which is what a confirm mentioning no note quotes.
+  // A page with no title still has a path; a suggestion naming an empty string would be one
+  // the owner has to rewrite from nothing.
+  assert.deepEqual(
+    suggestionTitles([{ kind: "document", ref: "work/x.md", title: "", selected: true }]),
+    ["work/x.md"],
+  );
+  // Sources leave no record, so a mixed proposal's sentence names the pages that move …
+  assert.deepEqual(suggestionTitles([SEED_DOC, ORPHANED_SOURCE]), ["Aurora"]);
+  // … but a sources-only proposal has nothing else to name, and "Archived:" followed by
+  // nothing is exactly the blank the prefill exists to spare the owner.
+  assert.deepEqual(suggestionTitles([ORPHANED_SOURCE, KEPT_SOURCE]), ["Aurora standup"]);
+});
+
+test("a refused confirm says `note_required` in the console's own words", () => {
+  // The one refusal with wording of its own: the service's sentence explains a rule the box
+  // beside it already states. Everything else keeps the service's words, which are the only
+  // ones that can be right about a failure this console did not predict.
   assert.equal(
-    recordReasonPreview(record, "", false, i18n),
-    'archive.record.reason {"note":"superseded by Meridian"}',
+    confirmErrorMessage({ code: "note_required", message: "say why. …" }, i18n),
+    "archive.note.required",
   );
-  // A service that predates `reason_default` cannot preview the clearing, and shows nothing
-  // rather than the deleted note: the owner reads a blank line instead of a false one.
-  assert.equal(recordReasonPreview({ reason: "gone" }, "  ", true, i18n), "");
+  assert.equal(
+    confirmErrorMessage({ code: "unknown_item", message: "not in this proposal" }, i18n),
+    "not in this proposal",
+  );
+  assert.equal(confirmErrorMessage({ message: "network down" }, i18n), "network down");
+});
+
+/* ------------------------------------------------------ where the suggestion may travel */
+
+const DIALOG = await readFile(
+  new URL("../src/views/archive/ArchiveProposalDialog.tsx", import.meta.url),
+  "utf8",
+);
+
+/** The arguments of the first `name(` call in `text`, balanced-paren. */
+function callArgs(text, name) {
+  const open = text.indexOf(`${name}(`);
+  assert.notEqual(open, -1, `${name}( is not called at all`);
+  let depth = 0;
+  for (let i = open + name.length; i < text.length; i += 1) {
+    if (text[i] === "(") depth += 1;
+    else if (text[i] === ")") {
+      depth -= 1;
+      if (depth === 0) return text.slice(open + name.length + 1, i);
+    }
+  }
+  throw new Error(`unbalanced ${name}(`);
+}
+
+test("the prefilled sentence goes into the textarea and NEVER into the plan request", () => {
+  // The whole of the rule. The archive keeps the reason as an `owner-dialogue/v1` source —
+  // the owner SPEAKING — so a sentence this dialog composed must not reach the service until
+  // the owner sends it. Handed to `planArchive` it would sit on the kept proposal row, one
+  // step from being quoted back as theirs; so the plan request carries seeds and nothing
+  // else, and the suggestion is written to the note box alone.
+  const planned = callArgs(DIALOG, "planArchive");
+  assert.match(planned, /documents: next\.documents/);
+  assert.doesNotMatch(planned, /note/);
+  assert.doesNotMatch(planned, /statement_ref/);
+  assert.doesNotMatch(planned, /suggestedNote/);
+  // The suggestion's one destination.
+  assert.match(DIALOG, /setNote\(\s*suggestedNote\(/);
+  // And it is written ONCE: a re-plan (ticking a cascade item) leaves the box as it stands,
+  // because this dialog cannot tell a suggestion the owner approved from one they rewrote.
+  assert.match(DIALOG, /if \(!notePrefilledRef\.current\) \{\s*notePrefilledRef\.current = true;/);
+});
+
+test("the confirm sends the box, and an empty box cannot be sent", () => {
+  // What the record quotes is what this request carries: the service has no plan-time note
+  // to fall back on (`note_required`), so the console sends the textarea's content every
+  // time and disables Confirm while it is blank.
+  const confirmed = callArgs(DIALOG, "confirmArchiveProposal");
+  assert.match(confirmed, /\bnote,/);
+  assert.match(DIALOG, /const missingNote = noteRequired\(note\);/);
+  assert.match(DIALOG, /disabled=\{[^}]*missingNote/);
+  // The preview quotes that same string and nothing else.
+  assert.match(DIALOG, /recordReasonPreview\(note, i18n\)/);
 });

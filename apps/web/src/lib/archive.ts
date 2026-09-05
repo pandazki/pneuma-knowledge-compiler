@@ -279,8 +279,10 @@ export function archiveRecordPaths<T extends FrontmatterCarrier & { path: string
 
 /**
  * The body a confirm sends, decided in one place so the three-valued `note` cannot collapse
- * again: `null` / `undefined` OMITS the field (the plan's note stands), any string — `""`
- * included — REPLACES it, and `""` clears it. Items travel only when given.
+ * again: `null` / `undefined` OMITS the field and any string sends it, trimmed. The confirm
+ * IS the decision, so a body with no note (and no statement named on the proposal) is
+ * refused `note_required` — there is no plan-time note to fall back on, and the record
+ * quotes the owner's own words or nothing happens. Items travel only when given.
  */
 export function confirmRequestBody<I>(
   items: I[] | undefined,

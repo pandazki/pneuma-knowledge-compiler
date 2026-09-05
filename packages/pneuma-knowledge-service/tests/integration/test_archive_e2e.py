@@ -202,7 +202,11 @@ async def test_one_confirmed_proposal_moves_a_subject_out_of_every_default_face(
         assert preview["definition"]
 
         # ---------------------------------------------------------------- confirm
-        confirmed = await archive_service.confirm(ctx, user, proposal["proposal_id"])
+        # THE REASON TRAVELS WITH THE DECISION: the confirm carries the owner's words, and
+        # they are what the statement source and the record's third block will say.
+        confirmed = await archive_service.confirm(
+            ctx, user, proposal["proposal_id"], note="Aurora shipped."
+        )
         assert confirmed["proposal"]["status"] == "confirmed"
         # TWO jobs, drained through the ordinary worker dispatch: the archive itself, and
         # the `index` job the Owner's statement enqueued on its way in. The archive is a
@@ -371,13 +375,15 @@ async def test_one_confirmed_proposal_moves_a_subject_out_of_every_default_face(
         # -------------------------------------------------------- and back again
         back = await archive_service.plan(
             ctx, user, action="unarchive", documents=["archive/work/aurora.md"],
-            sources=[], note=None, statement_ref=None,
+            sources=[], note="Aurora is back on the roadmap.", statement_ref=None,
         )
         back_items = {(i["kind"], i["ref"]): i for i in back["items"]}
         assert back_items[("document", "archive/work/aurora.md")]["selected"] is True
         assert back_items[("source", sid_a)]["selected"] is True
 
-        await archive_service.confirm(ctx, user, back["proposal_id"])
+        await archive_service.confirm(
+            ctx, user, back["proposal_id"], note="Aurora is back on the roadmap."
+        )
         assert await drain_user(ctx, None, load_skill_base("v1"), user) == 1
 
         assert {doc.path for doc in await ctx.canonical.list(user)} == {

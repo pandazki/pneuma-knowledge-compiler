@@ -19,7 +19,8 @@ The order below is the correctness argument, not a convenience:
 2. **The Owner's STATEMENT, before anything moves.** An archive that writes a record needs
    the evidence its reason cites, and the Owner acts on the library only by speaking
    (docs/design/steward-owner-visitor.md §1): so one `owner-dialogue/v1` source is ingested
-   per proposal — the confirm-time note, or a default sentence naming the archived titles —
+   per proposal, carrying the confirm-time note — the Owner's own words and never a
+   sentence composed here (`statement_missing` if the row holds none) —
    through the ordinary contract path, with `canonical_treatment: none`. The record IS that
    statement's canonical expression, and a compile of the same statement would paraphrase
    the decision onto whatever pages the model thought it touched. The id is written onto the
@@ -60,7 +61,6 @@ from typing import Any
 
 from pneuma_knowledge_core.archive.record import (
     record_facts_in_move,
-    record_reason,
     render_record,
     run_archive_record_gate,
     sanitize_note,
@@ -81,6 +81,7 @@ from pneuma_knowledge_core.ingest.source_contracts import (
     OwnerDialogueSource,
     OwnerDialogueTurn,
 )
+from pneuma_knowledge_core.ports.canonical_store import CanonicalDirtyError
 
 from ..archive_service import (
     ARCHIVE_JOB_KIND,
@@ -167,6 +168,13 @@ STATEMENT_INTAKE = IntakePlan(
 )
 
 
+#: The two provenances a kept `reason` may carry (`archive_service.REASON_SOURCE_*`): the
+#: note sent WITH the confirm, or block 0 of a `statement_ref` the Owner named. Spelled here
+#: rather than imported because this is the QUEUE side of the boundary — the job validates
+#: what a row holds, and a row is data, not a call.
+_REASON_SOURCES = frozenset({"note", "statement"})
+
+
 def _reason(row: dict[str, Any], documents: list[dict[str, Any]]) -> str:
     """The Owner's words when this job is the one minting the statement — REPLAYED, not redone.
 
@@ -180,17 +188,51 @@ def _reason(row: dict[str, Any], documents: list[dict[str, Any]]) -> str:
     explicitly emptied note fell back to the plan's old one in the store, and the record
     quoted a sentence the preview had replaced.
 
-    A row kept before the confirm refreshed that field carries no `reason`, and only then is
-    the line computed here — through core's `record_reason`, the same function the request
-    face uses, over the note the row holds and the titles it is still moving.
+    **THE PROVENANCE IS READ, NOT ASSUMED.** This step mints an `owner-dialogue/v1` source —
+    L0 labelled as the Owner SPEAKING — out of this string, so the one thing it may not do is
+    take words whose origin it cannot see. `confirm` stamps every record item it writes with
+    `reason_source` (`note` | `statement`), the two places the rule allows a statement to come
+    from, and a `reason` arriving here WITHOUT that stamp is refused (`statement_missing`)
+    rather than used. Before the stamp, "a confirmed row's reason is confirm-written" was
+    true of the code and provable by nothing in the row — which is the shape of constraint
+    this project rejects: mechanism, not the reader's trust in another function.
+
+    There is no fallback to the row's `note`, and dropping it is the same rule one step
+    further. That note is display text a PLAN happened to keep, typed against a set that may
+    since have been narrowed, at a moment that decided nothing; the confirm refuses to stand
+    on it (`note_required`), so the job may not either. A confirmed row always carries the
+    stamp, because the confirm that wrote it is the only thing that can produce one.
+
+    A row that holds NEITHER — no stamped reason at all — is refused and nothing moves.
+    `plan` and `confirm` both make that impossible, and this check exists because they are
+    separated from here by a QUEUE: a row written before that rule existed, or repaired by
+    hand, would otherwise reach this step with no words of the Owner's to put in the source,
+    and the only sentence left to write would be one the framework composed and then cited as
+    theirs.
     """
     for item in documents:
         record = item.get("record")
-        if isinstance(record, Mapping) and str(record.get("reason") or "").strip():
-            return str(record["reason"])
-    return record_reason(
-        str(row.get("note") or ""),
-        [str(item.get("title") or item.get("ref") or "") for item in documents],
+        if not isinstance(record, Mapping):
+            continue
+        words = str(record.get("reason") or "").strip()
+        if not words:
+            continue
+        if str(record.get("reason_source") or "") not in _REASON_SOURCES:
+            raise ArchiveJobError(
+                "statement_missing",
+                "this proposal carries a reason with no stated provenance — the confirm "
+                "stamps every reason it writes with `reason_source` (`note` or "
+                "`statement`), and this row has none, so nothing here can show these are "
+                "the owner's own words rather than a line left on the plan. The record "
+                "cites an `owner-dialogue/v1` source, which is the owner speaking. Nothing "
+                "was moved; re-plan and confirm with a reason.",
+            )
+        return str(record["reason"])
+    raise ArchiveJobError(
+        "statement_missing",
+        "this proposal carries no reason in the owner's own words — no note sent with the "
+        "confirm and no `statement_ref` — so the statement the record would cite could only "
+        "be a sentence the framework wrote. Nothing was moved; re-plan and say why.",
     )
 
 
@@ -831,17 +873,36 @@ async def run_archive_job(ctx: AppContext, user_id: UserId, job: object) -> None
     try:
         detail = await _execute(ctx, user, proposal_id, row, progress)
     except Exception as exc:  # noqa: BLE001 — every failure is the proposal's, and stated
-        code = exc.code if isinstance(exc, ArchiveJobError) else type(exc).__name__
+        # `CanonicalDirtyError` gets its own spelling rather than a class name: the library
+        # holds somebody else's uncommitted changes, the adapter refused rather than
+        # discarding them, and nothing moved. One code across every face that reports it
+        # (`canonical_dirty`), so an operator greps for one string.
+        code = (
+            exc.code
+            if isinstance(exc, (ArchiveJobError, CanonicalDirtyError))
+            else type(exc).__name__
+        )
         failure = {**progress, "error": code, "message": str(exc)}
         recorded = await _record_terminal(
             ctx, user, proposal_id, STATUS_FAILED, failure, executed_at=None
+        )
+        # A dirty library's completion detail STARTS WITH `canonical_dirty:<paths>` — the
+        # shared worker's own branch for it spells exactly `exc.detail`, and this job is the
+        # one kind that does not pass through that branch (it has a proposal row to fail
+        # first). An `archive: ` PREFIX here would make the fault two strings depending on
+        # which job met it, and the operator greps for one; a suffix does not, and there is
+        # one honest suffix to add — a terminal write that lost its predicate, which is a
+        # second fact about the same failure and must not be silently dropped to keep the
+        # string exact. So the contract is the PREFIX: `startswith("canonical_dirty:")` is
+        # what every reader matches on.
+        stated = (
+            exc.detail if isinstance(exc, CanonicalDirtyError) else f"archive: {exc}"
         )
         await ctx.store.complete(
             user,
             job_id,
             ok=False,
-            detail=f"archive: {exc}"
-            + ("" if recorded else f" [{_NOT_CONFIRMED}]"),
+            detail=stated + ("" if recorded else f" [{_NOT_CONFIRMED}]"),
         )
         return
 

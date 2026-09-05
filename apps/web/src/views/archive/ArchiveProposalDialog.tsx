@@ -23,16 +23,20 @@ import { Mono } from "@/ui/Mono";
 import { SkeletonText } from "@/ui/Skeleton";
 import { TextArea } from "@/ui/TextArea";
 import {
+  confirmErrorMessage,
   confirmSelection,
   groupItems,
   isSelected,
   isStalePlan,
   itemKey,
+  noteRequired,
   reasonMessage,
   recordFactsLine,
   recordReasonPreview,
   selectionCounts,
   settleConfirm,
+  suggestedNote,
+  suggestionTitles,
   summaryMessage,
   toggleItem,
   type ConfirmResult,
@@ -59,10 +63,24 @@ import {
  *
  * Beside each selected document is a preview of the RECORD the archive will leave standing
  * at its live path — the definition, the facts, and the reason it will quote: the note as it
- * is being typed, or, until one is typed, the sentence the planner says the execution will
- * write. It is shown before the confirm rather than after because "what will be here
- * afterwards" is the half of this decision the item list alone never states, and because the
- * record is live knowledge: the owner is writing a page, not only moving one.
+ * is being typed. It is shown before the confirm rather than after because "what will be
+ * here afterwards" is the half of this decision the item list alone never states, and
+ * because the record is live knowledge: the owner is writing a page, not only moving one.
+ *
+ * THE REASON IS ALWAYS THE OWNER'S OWN WORDS, SENT WITH THE CONFIRM, and this dialog is
+ * where that rule is paid for. The archive keeps the reason as an `owner-dialogue/v1` source
+ * — L0 labelled as the owner SPEAKING — so the framework composes none on their behalf and
+ * the service refuses a confirm carrying neither a note nor a `statement_ref` (`422
+ * note_required`). The friction that would otherwise create is answered by a SUGGESTION, not
+ * by a default: the moment the plan returns, the note box is prefilled with a sentence built
+ * here from the selected titles, which the owner reads, edits or replaces, and sends.
+ *
+ * That suggestion goes into the TEXTAREA ONLY. The plan request carries no note at all —
+ * `planArchive` is called without one — because a sentence this dialog composed and handed
+ * to the service would be kept on the proposal row, and a row's note one step from being
+ * quoted back is exactly the default the rule forbids. Confirm stays disabled while the box
+ * is empty, the record preview quotes the box and nothing else, and a re-plan leaves the box
+ * exactly as it stands.
  *
  * Both requests it makes — the plan and the confirm — are per user, so both go out under the
  * guard (`lib/requestGuard.ts`) and both carry an abort signal. The parents mount this keyed
@@ -96,11 +114,17 @@ export function ArchiveProposalDialog({
   const [planError, setPlanError] = useState<string | null>(null);
   const [overrides, setOverrides] = useState<ItemOverrides>({});
   const [note, setNote] = useState("");
-  // Whether the owner TOUCHED the note field. `note === ""` is two different facts — nothing
-  // typed yet, and a note deliberately deleted — and they lead to two different records, so
-  // the emptiness alone cannot be read. Untouched, the confirm mentions no note and the
-  // plan's stands; touched, it sends what is in the box, `""` included, which clears it.
-  const [noteEdited, setNoteEdited] = useState(false);
+  // Whether the box has been filled once — by this dialog's suggestion, when the first plan
+  // came back. It decides one thing only: nothing writes the box again. The suggestion is an
+  // opening offer, and every keystroke after it is the owner's answer, so a later plan (a
+  // ticked cascade item) leaves the box exactly as it stands rather than replacing words
+  // that may be theirs. What the confirm sends is the box, always: what the owner read is
+  // what they send, and an empty box cannot be sent at all.
+  //
+  // A REF and not state, because `plan` reads it: a dependency that changed here would
+  // rebuild `plan`, and the effect that opens this dialog depends on `plan` — so the first
+  // prefill would silently re-plan and drop the proposal on screen.
+  const notePrefilledRef = useRef(false);
   const [confirming, setConfirming] = useState(false);
   const [confirmError, setConfirmError] = useState<string | null>(null);
   const [stale, setStale] = useState(false);
@@ -115,6 +139,11 @@ export function ArchiveProposalDialog({
   const confirmAbortRef = useRef<AbortController | null>(null);
 
   const i18n = useMemo(() => ({ t }), [t]);
+  // Same reason as `noteEditedRef`: `plan` writes the suggested note, so it needs the
+  // dictionary without taking it as a dependency — a locale switch must repaint the dialog,
+  // never re-compute the proposal the owner is reading.
+  const i18nRef = useRef(i18n);
+  i18nRef.current = i18n;
 
   /**
    * Compute (or re-compute) the plan. A re-plan REPLACES what is on screen and drops the
@@ -124,7 +153,6 @@ export function ArchiveProposalDialog({
   const plan = useCallback(
     async (
       next: ArchiveProposalSeeds,
-      noteText: string,
       previousId?: string,
       signal?: AbortSignal,
     ) => {
@@ -134,14 +162,11 @@ export function ArchiveProposalDialog({
       setStale(false);
       setConfirmError(null);
       try {
+        // NO NOTE. A plan is a computation and decides nothing, so nothing this dialog
+        // composed travels with it: the reason is the box's content, sent with the confirm.
         const computed = await planArchive(
           userId,
-          {
-            action,
-            documents: next.documents,
-            sources: next.sources,
-            note: noteText.trim() || null,
-          },
+          { action, documents: next.documents, sources: next.sources },
           signal,
         );
         if (previousId && previousId !== computed.proposal_id) {
@@ -157,6 +182,21 @@ export function ArchiveProposalDialog({
         }
         setProposal(computed);
         setOverrides({});
+        // PREFILL, ONCE, the moment the first plan returns. The suggestion is built here
+        // rather than asked for, from the titles this plan actually selected — so the owner
+        // reads a sentence about what is really moving, edits it if they want to, and sends
+        // it themselves. That last part is the whole point: the archive keeps the reason as
+        // an `owner-dialogue/v1` source, which is the owner SPEAKING, so the words in it
+        // have to be words the owner sent. After that the box is theirs: a re-plan (ticking
+        // a cascade item) leaves it exactly as it stands, because this dialog cannot tell a
+        // suggestion they approved from one they rewrote, and overwriting either is putting
+        // words in their mouth.
+        if (!notePrefilledRef.current) {
+          notePrefilledRef.current = true;
+          setNote(
+            suggestedNote(action, suggestionTitles(computed.items), i18nRef.current),
+          );
+        }
         return computed;
       } catch (e) {
         if (guard.isCurrent(token)) setPlanError((e as Error).message);
@@ -175,14 +215,17 @@ export function ArchiveProposalDialog({
       setProposal(null);
       setOverrides({});
       setNote("");
-      setNoteEdited(false);
+      notePrefilledRef.current = false;
       setPlanError(null);
       setConfirmError(null);
       setStale(false);
       return;
     }
     const controller = new AbortController();
-    void plan(seeds, "", undefined, controller.signal);
+    // Just the seeds. The note box is filled from the ANSWER — the titles the closure
+    // actually selected — and never from this request, which carries no reason because it
+    // decides nothing.
+    void plan(seeds, undefined, controller.signal);
     // Closing, unmounting or switching library retires the plan as well as aborting it: an
     // abort comes back as a rejection, and a rejection that can still write state is not a
     // guard.
@@ -195,7 +238,7 @@ export function ArchiveProposalDialog({
     // The seeds are the identity of this dialog's question; re-planning on every render of
     // an unchanged array literal is what the join guards against.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, seeds.documents.join("|"), seeds.sources.join("|"), plan, guard]);
+  }, [open, action, seeds.documents.join("|"), seeds.sources.join("|"), plan, guard]);
 
   // Out of date either because this dialog's confirm was refused, or because the proposal
   // itself came back saying so (`views/archive/proposal.ts::isStalePlan`).
@@ -203,12 +246,16 @@ export function ArchiveProposalDialog({
   const items = proposal?.items ?? [];
   const groups = useMemo(() => groupItems(items, overrides), [items, overrides]);
   const counts = useMemo(() => selectionCounts(items, overrides), [items, overrides]);
+  // An empty box is not a decision the console may send: the record quotes the owner's own
+  // words, and the service refuses anything else (`note_required`). Disabled rather than
+  // refused on the wire, so the rule is visible where it is broken.
+  const missingNote = noteRequired(note);
 
   const onToggle = (item: ArchiveProposalItem, next: boolean) => {
     if (!proposal) return;
     const outcome = toggleItem(proposal, overrides, item, next);
     if (outcome.kind === "override") setOverrides(outcome.overrides);
-    else void plan(outcome.seeds, note, proposal.proposal_id);
+    else void plan(outcome.seeds, proposal.proposal_id);
   };
 
   /**
@@ -247,9 +294,11 @@ export function ArchiveProposalDialog({
         userId,
         proposal.proposal_id,
         confirmSelection(proposal.items, overrides),
-        // `null` is "untouched", so the plan's note stands. Anything else REPLACES it, and
-        // an emptied box replaces it with nothing — the clearing the owner just previewed.
-        noteEdited ? note : null,
+        // ALWAYS the box, edited or not. What is sent has to be what the owner read: the
+        // suggestion this dialog prefilled is not the framework's reason until they send
+        // it, and sending `null` here would confirm the sentence the plan happened to be
+        // computed with instead of the one on screen.
+        note,
         controller.signal,
       );
       result = { kind: "queued", jobId: confirmed.job_id };
@@ -260,7 +309,7 @@ export function ArchiveProposalDialog({
       result =
         error instanceof ApiError && error.code === "stale"
           ? { kind: "stale" }
-          : { kind: "failed", message: error.message };
+          : { kind: "failed", message: confirmErrorMessage(error, i18n) };
     } finally {
       if (confirmAbortRef.current === controller) confirmAbortRef.current = null;
     }
@@ -310,7 +359,9 @@ export function ArchiveProposalDialog({
               variant="primary"
               size="sm"
               loading={confirming}
-              disabled={!proposal || planning || outOfDate || counts.total === 0}
+              disabled={
+                !proposal || planning || outOfDate || counts.total === 0 || missingNote
+              }
               onClick={() => void onConfirm()}
             >
               {t(
@@ -327,7 +378,7 @@ export function ArchiveProposalDialog({
           <ErrorState
             title={t("archive.dialog.planFailed")}
             error={planError}
-            onRetry={() => void plan(seeds, note)}
+            onRetry={() => void plan(seeds)}
           />
         )}
 
@@ -339,7 +390,6 @@ export function ArchiveProposalDialog({
               overrides={overrides}
               onToggle={onToggle}
               note={note}
-              noteEdited={noteEdited}
             />
             <ItemGroup
               title={t(
@@ -351,7 +401,6 @@ export function ArchiveProposalDialog({
               overrides={overrides}
               onToggle={onToggle}
               note={note}
-              noteEdited={noteEdited}
               emptyText={t("archive.group.empty")}
             />
             {groups.related.length > 0 && (
@@ -362,24 +411,25 @@ export function ArchiveProposalDialog({
                 overrides={overrides}
                 onToggle={onToggle}
                 note={note}
-                noteEdited={noteEdited}
               />
             )}
 
-            <TextArea
-              label={t("archive.note.label")}
-              placeholder={t(
-                action === "unarchive"
-                  ? "archive.note.placeholder.unarchive"
-                  : "archive.note.placeholder.archive",
+            <div>
+              <TextArea
+                label={t("archive.note.label")}
+                placeholder={t(
+                  action === "unarchive"
+                    ? "archive.note.placeholder.unarchive"
+                    : "archive.note.placeholder.archive",
+                )}
+                value={note}
+                rows={2}
+                onChange={(e) => setNote(e.target.value)}
+              />
+              {missingNote && (
+                <p className="mt-1 text-12 text-ink-3">{t("archive.note.required")}</p>
               )}
-              value={note}
-              rows={2}
-              onChange={(e) => {
-                setNoteEdited(true);
-                setNote(e.target.value);
-              }}
-            />
+            </div>
 
             <p className="flex flex-wrap items-baseline gap-x-2 text-12 text-ink-3">
               <span>{t("archive.plan.libraryRef")}</span>
@@ -394,9 +444,7 @@ export function ArchiveProposalDialog({
             <p className="mt-2">
               <Button
                 size="sm"
-                onClick={() =>
-                  void plan(proposal?.seeds ?? seeds, note, proposal?.proposal_id)
-                }
+                onClick={() => void plan(proposal?.seeds ?? seeds, proposal?.proposal_id)}
               >
                 {t("archive.stale.replan")}
               </Button>
@@ -422,7 +470,6 @@ function ItemGroup({
   overrides,
   onToggle,
   note,
-  noteEdited,
   emptyText,
 }: {
   title: string;
@@ -433,8 +480,6 @@ function ItemGroup({
   onToggle: (item: ArchiveProposalItem, next: boolean) => void;
   /** The owner's note, as typed — the record preview quotes it live. */
   note: string;
-  /** Whether that field was touched: an emptied note is a clearing, not an absence. */
-  noteEdited: boolean;
   emptyText?: string;
 }) {
   if (items.length === 0 && !emptyText) return null;
@@ -453,7 +498,6 @@ function ItemGroup({
               checked={isSelected(item, overrides)}
               onToggle={onToggle}
               note={note}
-              noteEdited={noteEdited}
             />
           ))}
         </ul>
@@ -467,13 +511,11 @@ function ItemRow({
   checked,
   onToggle,
   note,
-  noteEdited,
 }: {
   item: ArchiveProposalItem;
   checked: boolean;
   onToggle: (item: ArchiveProposalItem, next: boolean) => void;
   note: string;
-  noteEdited: boolean;
 }) {
   const t = useT();
   const i18n = useMemo(() => ({ t }), [t]);
@@ -510,9 +552,7 @@ function ItemRow({
         </p>
         <Mono className="mt-0.5 block break-all text-12 text-ink-3">{item.ref}</Mono>
         {reason && <p className="mt-0.5 text-12 text-ink-2">{reason}</p>}
-        {record && (
-          <RecordPreview record={record} note={note} noteEdited={noteEdited} />
-        )}
+        {record && <RecordPreview record={record} note={note} />}
       </div>
     </li>
   );
@@ -522,19 +562,16 @@ function ItemRow({
 function RecordPreview({
   record,
   note,
-  noteEdited,
 }: {
   record: NonNullable<ArchiveProposalItem["record"]>;
   note: string;
-  noteEdited: boolean;
 }) {
   const t = useT();
   const i18n = useMemo(() => ({ t }), [t]);
   const facts = recordFactsLine(record, i18n);
-  // The note as it is being typed; emptied after touching the field, the sentence an empty
-  // note yields; untouched, the sentence the planner says the record will quote. The
-  // execution writes a reason in all three cases, and the owner confirms what they were shown.
-  const reason = recordReasonPreview(record, note, noteEdited, i18n);
+  // The note as it is being typed, and nothing else: that string is what the confirm sends
+  // and what the record will quote, so the owner confirms exactly what they were shown.
+  const reason = recordReasonPreview(note, i18n);
   return (
     <div className="mt-1.5 rounded-1 border border-line bg-surface px-2.5 py-2">
       <p className="text-12 uppercase tracking-wide text-ink-3">

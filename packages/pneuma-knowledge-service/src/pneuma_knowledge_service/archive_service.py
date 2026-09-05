@@ -155,38 +155,59 @@ async def library_head(ctx: Any, user_id: UserId) -> str:
 # through these two functions and cannot disagree.
 
 
+#: Where a kept `reason` came from. Written beside the line itself, because the JOB — which
+#: mints an `owner-dialogue/v1` source out of that line, L0 labelled as the Owner SPEAKING —
+#: may not take the words of anything it cannot see the provenance of. The two legal
+#: provenances are the whole of the rule in `_reason_line`: the note sent WITH the confirm,
+#: or block 0 of a `statement_ref` the Owner named. An item carrying a `reason` with no stamp
+#: is a row no confirm of this code wrote, and the job refuses it (`statement_missing`)
+#: rather than guessing which of the two it was.
+REASON_SOURCE_NOTE = "note"
+REASON_SOURCE_STATEMENT = "statement"
+
+
 def _record_dict(
-    item: Any, reason: str, reason_default: str = ""
+    item: Any, reason: str | None, reason_source: str | None = None
 ) -> dict[str, Any] | None:
     """The item's record PREVIEW, or None when this item leaves no record behind.
 
-    `reason` is the exact line the record's third block will quote — the Owner's note, the
-    block 0 of a statement they named, or the default sentence — and it rides inside the
+    `reason` is the exact line the record's third block will quote — the Owner's own words,
+    read off the statement they named or sent with the confirm — and it rides inside the
     preview because it is the one part of the page the console cannot derive from the item.
     It is not a fact about the PAGE (every other field is), so the pure planner does not
     compute it: it is a fact about the DECISION, and the decision is this layer's.
 
-    `reason_default` is the line an EMPTY note would quote instead. It rides beside `reason`
-    for the one state a console cannot otherwise render: an Owner who empties a textarea that
-    carried a note at plan time is clearing it, the confirm stores that (`note=""`), and the
-    record will then quote this sentence — while `reason` still says what the plan computed.
-    Without it the preview would fall back to the note being deleted and show a line the
-    execution is not going to write.
+    It is NULL on a plan that named no statement, and null is the honest preview of a page
+    whose reason has not been spoken yet. The framework composes none (`record_reason`), a
+    note typed at the plan is not a decision, and the console shows the live content of the
+    box instead — so the line the Owner reads is always the line they are about to send.
+
+    `reason_source` is that line's PROVENANCE, stamped beside it and never inferred. Without
+    it the job could only assume that a `reason` on a confirmed row was confirm-written —
+    true of this code, and provable by nothing, which is the shape of constraint this project
+    does not accept. Stamped, the job can REFUSE a line whose provenance is not stated rather
+    than mint the Owner's speech out of it. Null exactly when `reason` is null.
     """
     facts = getattr(item, "record", None)
     if not facts:
         return None
-    return {**facts.as_dict(), "reason": reason, "reason_default": reason_default}
+    return {
+        **facts.as_dict(),
+        "reason": reason,
+        "reason_source": reason_source if reason is not None else None,
+    }
 
 
-def _item_dict(item: Any, reason: str = "", reason_default: str = "") -> dict[str, Any]:
+def _item_dict(
+    item: Any, reason: str | None = None, reason_source: str | None = None
+) -> dict[str, Any]:
     return {
         # The RECORD this document will leave behind at its live path, or None. Computed at
         # PLAN time and kept so the console previews the page the owner is about to create.
         # A PREVIEW: the job recomputes the facts at execution over the set the owner finally
         # confirmed, through the same function the planner used, because a confirm may untick
         # a box and unticking one changes another item's `inbound`.
-        "record": _record_dict(item, reason, reason_default),
+        "record": _record_dict(item, reason, reason_source),
         "kind": item.kind,
         "ref": item.ref,
         "title": item.title,
@@ -204,28 +225,6 @@ def _item_dict(item: Any, reason: str = "", reason_default: str = "") -> dict[st
         },
         "volumes": list(item.volumes),
     }
-
-
-def _selected_titles(items: Sequence[Any]) -> list[str]:
-    """The names of the documents a proposal would move, in item order.
-
-    What the DEFAULT statement names when the Owner archived without writing a reason, so
-    the sentence they are quoted saying is a sentence about what they actually archived.
-    Read off items in one place, because the plan and the confirm compute it over two
-    different shapes of the same list (planner objects, then kept dicts).
-    """
-    out: list[str] = []
-    for item in items:
-        kind = item.get("kind") if isinstance(item, Mapping) else getattr(item, "kind", "")
-        selected = (
-            item.get("selected") if isinstance(item, Mapping) else getattr(item, "selected", False)
-        )
-        if kind != "document" or not selected:
-            continue
-        title = item.get("title") if isinstance(item, Mapping) else getattr(item, "title", "")
-        ref = item.get("ref") if isinstance(item, Mapping) else getattr(item, "ref", "")
-        out.append(str(title or ref or ""))
-    return out
 
 
 def _iso(value: Any) -> str | None:
@@ -349,19 +348,54 @@ async def _reason_line(
     *,
     note: str | None,
     statement_ref: str | None,
-    titles: Sequence[str],
-) -> str:
+    required: bool,
+) -> str | None:
     """The exact sentence the record will quote, validated. The preview and the page agree.
+
+    THE OWNER'S OWN WORDS OR NOTHING, and — the whole of this rule — only the words they
+    sent WITH THE DECISION. The archive ingests an `owner-dialogue/v1` source, L0 labelled as
+    the Owner SPEAKING, so a sentence this layer composed when they typed none would stand
+    there as words they never said. A note stored earlier is the same fault one step removed:
+    it was typed against a different set, at a moment that decided nothing, and promoting it
+    to a statement at execution would record the Owner as having said something at a time
+    they did not. So the statement can come from exactly two places — the `note` in the
+    CONFIRM request, or the block 0 of a `statement_ref` the Owner named — and `required`
+    says which caller is standing at that decision.
+
+    `required=True` (the confirm) refuses `422 note_required` when the request carries
+    neither. Whitespace is not a note: a box holding only spaces is refused exactly as an
+    empty one is (`sanitize_note` folds it to "").
+
+    `required=False` (the plan) answers None instead. A plan decides nothing and stores
+    nothing quotable: its preview quotes a line only when the Owner named a statement, which
+    is words they have already spoken. Friction at the box is answered by the console, which
+    PREFILLS a suggested sentence the Owner reads, edits and SENDS with the confirm; it is
+    not answered by this layer keeping the suggestion and quoting it back.
 
     With a `statement_ref`, the source WINS: the quote is that source's block 0, and a note
     given beside it is informational only — so if the two differ they are refused
     (`statement_mismatch`) rather than silently resolved, because either answer would be a
-    record quoting one thing and citing another. Without one, the reason is the note, or the
-    default sentence naming what is being archived.
+    record quoting one thing and citing another.
     """
     _refuse_note_machinery(note)
     if not statement_ref:
-        return record_reason(note or "", titles)
+        if not required:
+            # A plan quotes NOTHING of its own, note or no note. Answering the note here
+            # would preview a sentence this call is not entitled to keep, and a preview is a
+            # promise about what the page will say.
+            return None
+        words = record_reason(note or "")
+        if words:
+            return words
+        raise ArchiveRequestError(
+            422,
+            "note_required",
+            "say why. The archive records the reason as the owner's own statement — an "
+            "`owner-dialogue/v1` source the record then cites — so it can only be words "
+            "the owner wrote AT THIS DECISION: send a `note` with the confirm, or a "
+            "`statement_ref` naming the statement they already made. A note left on the "
+            "proposal is not one: it was typed against a set that may since have changed.",
+        )
     words = await _statement_words(ctx, user, statement_ref)
     typed = sanitize_note(note or "")
     if typed and typed != words:
@@ -373,26 +407,6 @@ async def _reason_line(
             "cites, so drop the note or name a statement that says it.",
         )
     return words
-
-
-def _default_reason_line(
-    reason: str, *, statement_ref: str | None, titles: Sequence[str]
-) -> str:
-    """The line the record would quote if the note were EMPTY. The preview's other half.
-
-    Same rule as `_reason_line` read with `note=""`, and free of an await because the one
-    branch that needs the library has already been walked: with a `statement_ref` the source
-    WINS over any note at all, so an emptied note changes nothing and the default IS the line
-    just computed. Without one, an empty note is the default sentence naming what is moving.
-
-    It exists because the console shows the record before it is written, and "what will stand
-    here if I delete what I typed" is a question the plan's own `reason` cannot answer — that
-    string is the note. A confirm may clear the note (`note=""` replaces it), so the two lines
-    are two different futures of the same decision and both have to be on the wire.
-    """
-    if statement_ref:
-        return reason
-    return record_reason("", titles)
 
 
 # --------------------------------------------------------------------------- propose
@@ -414,6 +428,13 @@ async def plan(
     takes both by value — then stores the computed items beside the HEAD they explain. The
     proposal is a KEPT record from this moment: it states what the Owner was shown, and
     nothing recomputes it later.
+
+    `note` IS NOT A REASON HERE. A plan decides nothing, so nothing it is given may become
+    the Owner's statement: the note is kept on the row as the informational line a listing
+    displays, and the statement is the note sent with the CONFIRM (`_reason_line`). The one
+    quotable line a plan can preview is a `statement_ref`'s block 0 — words the Owner has
+    already spoken — and without one the preview's `record.reason` is null and the console
+    shows the live content of its own note box.
     """
     assert_writable(user_id)
     user = UserId(str(user_id))
@@ -447,17 +468,13 @@ async def plan(
         source_occurrence=source_occurrence,
     )
     # The one line of the record the planner cannot compute — it is a fact about the DECISION
-    # and not about the page — checked here, where the Owner can still change what they typed.
-    titles = _selected_titles(proposal.items)
+    # and not about the page. `required=False`: this call is not the decision, so a plan
+    # carrying no statement previews no reason (None) rather than quoting a note that has
+    # decided nothing. What IS checked here is everything the Owner can still fix by typing
+    # something else — a `statement_ref` that is not this owner speaking, a note carrying the
+    # system's own machinery — because the alternative is discovering it in the job.
     reason = await _reason_line(
-        ctx,
-        user,
-        note=note,
-        statement_ref=statement_ref,
-        titles=titles,
-    )
-    reason_default = _default_reason_line(
-        reason, statement_ref=statement_ref, titles=titles
+        ctx, user, note=note, statement_ref=statement_ref, required=False
     )
 
     proposal_id = uuid.uuid4().hex
@@ -469,11 +486,16 @@ async def plan(
             "documents": list(proposal.seeds_documents),
             "sources": list(proposal.seeds_sources),
         },
+        # A plan's only quotable line is a `statement_ref`'s block 0 — words the Owner
+        # already spoke — so the stamp beside it can only ever be `statement` here.
         items=[
-            _item_dict(item, reason, reason_default) for item in proposal.items
+            _item_dict(item, reason, REASON_SOURCE_STATEMENT if reason else None)
+            for item in proposal.items
         ],
         library_ref=ref,
-        note=(note or None),
+        # Trimmed to None the way the confirm trims its own: a box holding only spaces is a
+        # box nobody typed in, and storing it would put a blank line on a listing.
+        note=((note or "").strip() or None),
         statement_ref=(statement_ref or None),
     )
     row = await ctx.store.get_archive_proposal(user, proposal_id)
@@ -522,17 +544,23 @@ async def confirm(
     *,
     items_override: Sequence[Mapping[str, Any]] | None = None,
     note: str | None = None,
+    statement_ref: str | None = None,
 ) -> dict[str, Any]:
     """Accept a proposal (optionally narrowed) and enqueue the one job that executes it.
 
-    `note` is the Owner's stated reason, written at the decision rather than at the plan:
-    the plan is a computation and the note is typed while reading it, so the confirm is
-    where it naturally lands. ABSENT (`None`) it is not mentioned and the plan-time note
-    stays; GIVEN — any string, `""` included — it REPLACES that note, and `""` replaces it
-    with nothing at all. The two were one spelling once (`COALESCE(note, note)` in the
-    store) and an emptied note therefore fell back to the plan's, so the preview the Owner
-    confirmed said the default sentence while the record quoted the old note. Cleared is a
-    decision like any other and is stored as one.
+    THE REASON IS WHAT THIS REQUEST CARRIES. `note` is the Owner's stated reason, and the
+    confirm is not merely where it naturally lands — it is the only place it may come from,
+    because this call IS the decision the record says they made. So the statement is the
+    `note` in THIS body, or the block 0 of a `statement_ref` named here or at the plan (a
+    named source is words the Owner already spoke, and naming it is itself an act). A
+    confirm carrying neither is refused `422 note_required` — there is NO fallback to the
+    note the row happens to hold, which was typed against a set that may since have been
+    narrowed and decided nothing when it was typed.
+
+    The note that IS sent replaces the row's, so the kept record states the words the
+    decision stood on. The store keeps a `note_given` flag beside the value because silence
+    and an erasure cannot share a spelling under `COALESCE` — a confirm may leave the
+    plan-time note alone (informational, beside a statement) or clear it outright.
 
     The decision and the job are ONE TRANSACTION. Refuses 409 `not_proposed` when another
     writer reached the row first — which is what the store answering `None` means: the
@@ -605,25 +633,29 @@ async def confirm(
             "nothing is selected, so this confirm would move nothing.",
         )
 
-    # The reason is decided HERE as much as at the plan — the note is typed while reading the
-    # proposal, and unticking a box changes which titles the default sentence names. So it is
-    # checked again against the note that will actually stand, and the preview kept on each
-    # item is refreshed to the line that will actually be quoted. A row whose preview said one
-    # thing while the commit quoted another would be a kept record of a decision nobody made.
-    # `is not None`, not truthiness: an empty note is the Owner CLEARING one they typed at
-    # the plan, and it computes the default sentence here exactly as it will be stored.
-    effective_note = note if note is not None else row.get("note")
-    titles = _selected_titles(items)
-    statement_ref = row.get("statement_ref")
+    # The reason is decided HERE and nowhere else. The note read is the one in THIS request —
+    # never `row["note"]`, which is display text a plan happened to keep — so a confirm that
+    # says nothing is refused rather than quietly standing on words typed at another moment
+    # against another set. The preview kept on each item is refreshed to the line that will
+    # actually be quoted, because a row whose preview said one thing while the commit quoted
+    # another would be a kept record of a decision nobody made.
+    #
+    # A `statement_ref` may arrive here or have been named at the plan: either is the Owner
+    # pointing at their own speech, and the request's own wins so a confirm can name one the
+    # plan did not.
+    named_statement = (statement_ref or "").strip() or None
+    effective_statement = named_statement or row.get("statement_ref")
     reason = await _reason_line(
-        ctx,
-        user,
-        note=effective_note,
-        statement_ref=statement_ref,
-        titles=titles,
+        ctx, user, note=note, statement_ref=effective_statement, required=True
     )
-    reason_default = _default_reason_line(
-        reason, statement_ref=statement_ref, titles=titles
+    # STAMPED with where the line came from, not just refreshed. The job mints an
+    # `owner-dialogue/v1` source — L0 labelled as the Owner speaking — out of this string, and
+    # "a confirmed row's reason is always confirm-written" was true of this code and proved by
+    # nothing in the row. The stamp is the proof: `statement` when the Owner named their own
+    # speech, `note` when they sent the words with this decision, and nothing else can put
+    # either one there. An unstamped `reason` on a confirmed row is refused in the job.
+    reason_source = (
+        REASON_SOURCE_STATEMENT if effective_statement else REASON_SOURCE_NOTE
     )
     for item in items:
         record = item.get("record")
@@ -631,7 +663,7 @@ async def confirm(
             item["record"] = {
                 **record,
                 "reason": reason,
-                "reason_default": reason_default,
+                "reason_source": reason_source,
             }
 
     # ONE TRANSACTION: the flip out of `proposed` and the job row that executes it. Two
@@ -651,11 +683,15 @@ async def confirm(
         items=items,
         job_kind=ARCHIVE_JOB_KIND,
         payload={"proposal_id": proposal_id},
-        # The same distinction the preview above was computed under: `None` says nothing
-        # about the note, and any given string — `""` included — replaces it. `note_given`
-        # is what lets the store write NULL on purpose rather than read it as silence.
+        # `None` says nothing about the note and leaves the plan's informational one; any
+        # given string — `""` included — replaces it. `note_given` is what lets the store
+        # write NULL on purpose rather than read it as silence.
         note=(note.strip() or None) if note is not None else None,
         note_given=note is not None,
+        # A statement named HERE is written with the decision, in the same statement pair:
+        # the job cites `statement_ref` off the row, and one that reached the queue without
+        # it would mint a second `owner-dialogue/v1` source saying what the first already says.
+        statement_ref=named_statement,
     )
     if job_id is None:
         raise ArchiveRequestError(
