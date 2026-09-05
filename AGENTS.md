@@ -4,7 +4,7 @@ This file guides coding agents (Claude Code, Codex, Cursor, …) working in this
 
 ## What this is
 
-Pneuma Knowledge Compiler turns the raw material of a domain — meetings, documents, chat, email — into an evolvable, citation-backed knowledge base where fabrication is structurally impossible. It is not an agent memory system.
+Pneuma Knowledge Compiler turns the raw material of a domain — meetings, documents, chat, email — into an evolvable, citation-backed knowledge base. Write-time checks enforce provenance presence and valid citation addresses; they do not prove that a claim faithfully represents its cited material. Semantic fidelity still depends on the compile contract, model and review. It is not an agent memory system.
 
 `docs/architecture.md` is the design authority — read it before anything non-trivial. `docs/guides/compile-contract.md` is the authority on writing compile contracts. Documentation is bilingual: English is primary (`X.md`) with a Chinese mirror (`X.zh-CN.md`) — when you edit one, update the other. Code and comments are English only; legacy Chinese comments are being migrated — do not add new ones.
 
