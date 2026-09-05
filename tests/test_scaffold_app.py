@@ -33,6 +33,73 @@ def _load_by_path(name: str, path: Path):
 app = _load_by_path("scaffold_app_under_test", APP_PATH)
 
 
+def _compile_job(ok, completed_at, sources=("source-a",), **payload):
+    return {
+        "kind": "compile", "status": "done", "ok": ok, "completed_at": completed_at,
+        "payload": {"source_ids": list(sources), **payload},
+    }
+
+
+def test_earlier_success_cannot_resolve_a_later_failed_compile():
+    old = _compile_job(True, "2026-01-01T10:00:00+00:00")
+    failed = _compile_job(False, "2026-01-01T11:00:00+00:00")
+    assert app._unresolved_failures([failed, old]) == [failed]
+    assert app._unresolved_failures([old, failed]) == [failed]
+
+
+def test_only_later_matching_retries_resolve_every_source_of_a_failure():
+    failed = _compile_job(False, "2026-01-01T10:00:00Z", ("source-a", "source-b"))
+    first = _compile_job(True, "2026-01-01T19:00:00+08:00")
+    second = _compile_job(True, "2026-01-01T12:00:00Z", ("source-b",))
+    assert app._unresolved_failures([first, failed]) == [failed]
+    assert app._unresolved_failures([second, failed, first]) == []
+
+
+@pytest.mark.parametrize("completed_at", [None, "invalid", "2026-01-01T10:00:00Z"])
+def test_missing_invalid_or_equal_retry_time_is_not_proof_of_recovery(completed_at):
+    failed = _compile_job(False, "2026-01-01T10:00:00Z")
+    retried = _compile_job(True, completed_at)
+    assert app._unresolved_failures([retried, failed]) == [failed]
+
+
+@pytest.mark.parametrize("retry_payload", [
+    {},
+    {"challenge_compensation": True, "challenge_guidance": "Different gap."},
+    {"challenge_compensation": True, "challenge_guidance": "Record the location.",
+     "treatments": {"source-a": "digest"}},
+])
+def test_success_for_different_work_does_not_resolve_compensation(retry_payload):
+    failed = _compile_job(
+        False, "2026-01-01T10:00:00Z", challenge_compensation=True,
+        challenge_guidance="Record the location.", treatments={"source-a": "distil"},
+    )
+    unrelated = _compile_job(True, "2026-01-01T11:00:00Z", **retry_payload)
+    assert app._unresolved_failures([unrelated, failed]) == [failed]
+
+
+def test_retry_preserves_guidance_and_deduplicates_only_identical_work():
+    failed = _compile_job(
+        False, "2026-01-01T10:00:00Z", challenge_compensation=True,
+        challenge_guidance="Record the location.", treatments={"source-a": "distil"},
+    )
+    regular = _compile_job(False, "2026-01-01T09:00:00Z")
+    payloads = app._compile_retry_payloads([failed, failed, regular])
+    assert payloads == [failed["payload"], regular["payload"]]
+    assert payloads[0] is not failed["payload"]
+    recovered = _compile_job(True, "2026-01-01T11:00:00Z", **{
+        k: v for k, v in payloads[0].items() if k != "source_ids"
+    })
+    assert app._unresolved_failures([recovered, failed, regular]) == [regular]
+
+
+def test_non_compile_and_unfinished_jobs_cannot_count_as_successful_retries():
+    failed = _compile_job(False, "2026-01-01T10:00:00Z")
+    unfinished = _compile_job(True, "2026-01-01T11:00:00Z") | {"status": "running"}
+    indexed = _compile_job(True, "2026-01-01T11:00:00Z") | {"kind": "index"}
+    failed_index = _compile_job(False, "2026-01-01T09:00:00Z") | {"kind": "index"}
+    assert app._unresolved_failures([unfinished, indexed, failed, failed_index]) == [failed, failed_index]
+
+
 def test_scaffold_app_top_level_is_framework_free():
     # Loading the module must not import the framework: the bootstrap path (system
     # python, before the uv re-exec) depends on it. Checked in a fresh interpreter —
@@ -860,11 +927,14 @@ def test_gate_retry_carries_the_per_source_treatments():
     full or only distilled. Re-enqueuing with source_ids alone drops that map, so the retry
     compiles at the plan's default and a distil-only source gets fully digested. The retry
     is a second attempt at the SAME job, not a different one."""
-    src = APP_PATH.read_text(encoding="utf-8")
-    body = src.split("async def _compile(")[1].split("\nasync def ")[0]
-    retry = body[body.index("rejected by the gate") : body.index("_drain_with_progress", body.index("rejected by the gate"))]
-    assert "treatments" in retry, "the retry drops the per-source treatments map"
-    assert 'ctx.store.enqueue(uid, "compile", {"source_ids": sources})' not in retry
+    failed = _compile_job(False, "2026-01-01T10:00:00Z", ("source-a", "source-b"),
+                          treatments={"source-a": "distil", "source-b": "digest"})
+    already_retried = _compile_job(False, "2026-01-01T11:00:00Z",
+                                   treatments={"source-a": "distil"})
+    assert app._compile_retry_payloads([already_retried, failed]) == [
+        {"source_ids": ["source-a"], "treatments": {"source-a": "distil"}},
+        {"source_ids": ["source-b"], "treatments": {"source-b": "digest"}},
+    ]
 
 
 # --------------------------------------------------------------------- the two answer lanes

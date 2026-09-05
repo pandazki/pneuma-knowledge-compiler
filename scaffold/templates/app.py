@@ -958,23 +958,84 @@ def _usage_totals(tracker) -> dict[str, int]:
     return totals
 
 
+def _compile_work_key(payload: dict, source: str) -> tuple[str, str, bool, str]:
+    """The source and the compile instructions a successful retry must preserve."""
+    return (
+        source,
+        str((payload.get("treatments") or {}).get(source) or ""),
+        bool(payload.get("challenge_compensation")),
+        str(payload.get("challenge_guidance") or ""),
+    )
+
+
+def _job_completed_at(job: dict) -> datetime | None:
+    """Store datetimes and API ISO timestamps share one clock; unknown is not success."""
+    value = job.get("completed_at")
+    if isinstance(value, str):
+        try:
+            value = datetime.fromisoformat(value)
+        except ValueError:
+            return None
+    if not isinstance(value, datetime) or value.tzinfo is None:
+        return None
+    return value.astimezone(timezone.utc)
+
+
 def _unresolved_failures(jobs: list[dict]) -> list[dict]:
-    """Jobs that ended in failure, minus the ones a later retry resolved: once every source of
-    a failed compile job is covered by a successful job, that failure is just history and no
-    longer counts as unresolved."""
-    ok_sources: set[str] = set()
+    """A failed compile is resolved only by later successes covering the same work.
+
+    Each source may be retried in a different batch, but its treatment and compensation
+    guidance must match. Earlier successes, unfinished jobs and unknown completion times
+    cannot hide a later failure. Input order does not affect this judgement.
+    """
+    successes: dict[tuple[str, str, bool, str], datetime] = {}
     for job in jobs:
-        if job.get("kind") == "compile" and job.get("ok") is True:
-            ok_sources.update(str(s) for s in (job.get("payload") or {}).get("source_ids", []))
+        completed = _job_completed_at(job)
+        if (job.get("kind") != "compile" or job.get("status") != "done"
+                or job.get("ok") is not True or completed is None):
+            continue
+        payload = job.get("payload") or {}
+        for source in payload.get("source_ids", []):
+            key = _compile_work_key(payload, str(source))
+            successes[key] = max(successes.get(key, completed), completed)
     unresolved: list[dict] = []
     for job in jobs:
         if job.get("status") != "done" or job.get("ok") is True:
             continue
-        sources = {str(s) for s in (job.get("payload") or {}).get("source_ids", [])}
-        if job.get("kind") == "compile" and sources and sources <= ok_sources:
-            continue
+        payload = job.get("payload") or {}
+        sources = {str(s) for s in payload.get("source_ids", [])}
+        completed = _job_completed_at(job)
+        if job.get("kind") == "compile" and sources and completed is not None:
+            if all(successes.get(_compile_work_key(payload, sid), completed) > completed
+                   for sid in sources):
+                continue
         unresolved.append(job)
     return unresolved
+
+
+def _compile_retry_payloads(jobs: list[dict]) -> list[dict]:
+    """Deduplicate the same work, preserving compensation flags and guidance on retries."""
+    seen: set[tuple[str, str, bool, str]] = set()
+    retries: list[dict] = []
+    for job in jobs:
+        payload = job.get("payload") or {}
+        sources: list[str] = []
+        for source in payload.get("source_ids", []):
+            sid = str(source)
+            key = _compile_work_key(payload, sid)
+            if key not in seen:
+                seen.add(key)
+                sources.append(sid)
+        if not sources:
+            continue
+        retry = {**payload, "source_ids": sources}
+        if "treatments" in payload:
+            retry["treatments"] = {
+                str(sid): treatment for sid, treatment in (payload["treatments"] or {}).items()
+                if str(sid) in sources
+            }
+        retries.append(retry)
+    return retries
 
 
 def _job_progress_line(
@@ -1073,28 +1134,7 @@ async def _compile() -> tuple[int, dict[str, int]]:
         retriable = [j for j in failures if j.get("kind") == "compile"]
         if retriable:
             print(f"  {len(retriable)} compile jobs rejected by the gate — one retry round…")
-            seen: set[str] = set()
-            for job in retriable:
-                payload = job.get("payload") or {}
-                sources = [
-                    str(s)
-                    for s in payload.get("source_ids", [])
-                    if str(s) not in seen
-                ]
-                if not sources:
-                    continue
-                seen.update(sources)
-                # Carry the per-source treatments over: without them the retry compiles at
-                # the plan's default, so a source the caller asked to only DISTIL gets
-                # digested in full — the retry would quietly overrule the intake decision.
-                treatments = {
-                    sid: t
-                    for sid, t in (payload.get("treatments") or {}).items()
-                    if str(sid) in set(sources)
-                }
-                retry_payload = {"source_ids": sources}
-                if treatments:
-                    retry_payload["treatments"] = treatments
+            for retry_payload in _compile_retry_payloads(retriable):
                 await ctx.store.enqueue(uid, "compile", retry_payload)
             processed += await _drain_with_progress(ctx, model, skill, uid)
             failures = _unresolved_failures(await ctx.store.list_jobs(uid))
