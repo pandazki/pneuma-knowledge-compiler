@@ -1,0 +1,14 @@
+{
+  "phase": "answer",
+  "status": "interrupted",
+  "updated_at": "2026-09-05T15:28:03.906986+00:00",
+  "timestamp_basis": "last completed answer before interruption; lower bound for actual exit time",
+  "pause_duration_is_upper_bound": true,
+  "actual_exit_timestamp_recorded": false,
+  "user_reported_stop_minute": "2026-09-05T15:28Z",
+  "resumed_utc": "2026-09-05T15:29:31.580842+00:00",
+  "completed_answers_before_restart": 801,
+  "restarted_by": "orchestrator (Claude), per attributed RUN-LOG disclosure",
+  "raw_disclosure_timestamp": "2026-09-05T15:29:31.6N+00:00",
+  "restart_timestamp_source": "structured PHASE_START event"
+}

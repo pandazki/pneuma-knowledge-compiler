@@ -1,0 +1,343 @@
+{
+  "utc": "2026-09-05T15:42:12.161155+00:00",
+  "conversation_idx": 3,
+  "job_counts": {
+    "evolve": 4,
+    "challenge": 29,
+    "compile": 55,
+    "index": 29
+  },
+  "historical_failed_jobs": 1,
+  "pending": 0,
+  "unresolved": 0,
+  "historical_http402_jobs_retained": 0,
+  "http402_jobs_still_unresolved": 0,
+  "evolve_status_counts": {
+    "no_change": 4
+  },
+  "evolve_proposals": 0,
+  "evolve_dropped_items": 0,
+  "challenge": [
+    {
+      "job_id": "c3596053310e42958444578fddff5188",
+      "rounds": 1,
+      "questions": 4,
+      "gaps": 0,
+      "compensation_enqueued": false,
+      "exhausted": true,
+      "degraded": false,
+      "degraded_class": null,
+      "detail_parsed": true
+    },
+    {
+      "job_id": "2f719a18baa344d7bfe4c82ac041e670",
+      "rounds": 1,
+      "questions": 4,
+      "gaps": 2,
+      "compensation_enqueued": true,
+      "exhausted": false,
+      "degraded": false,
+      "degraded_class": null,
+      "detail_parsed": true
+    },
+    {
+      "job_id": "c2f8e33c6fad449da60081e9c93a62db",
+      "rounds": 1,
+      "questions": 4,
+      "gaps": 10,
+      "compensation_enqueued": true,
+      "exhausted": false,
+      "degraded": false,
+      "degraded_class": null,
+      "detail_parsed": true
+    },
+    {
+      "job_id": "5346bcfe23fa4dba83c2040860d83457",
+      "rounds": 1,
+      "questions": 4,
+      "gaps": 2,
+      "compensation_enqueued": true,
+      "exhausted": false,
+      "degraded": false,
+      "degraded_class": null,
+      "detail_parsed": true
+    },
+    {
+      "job_id": "6027583cc5354a26b72666738c4038c9",
+      "rounds": 1,
+      "questions": 4,
+      "gaps": 3,
+      "compensation_enqueued": true,
+      "exhausted": false,
+      "degraded": false,
+      "degraded_class": null,
+      "detail_parsed": true
+    },
+    {
+      "job_id": "88e669bf6b604949aa2a50138841ade3",
+      "rounds": 1,
+      "questions": 4,
+      "gaps": 0,
+      "compensation_enqueued": false,
+      "exhausted": true,
+      "degraded": false,
+      "degraded_class": null,
+      "detail_parsed": true
+    },
+    {
+      "job_id": "f2472323ec9645388ea146ceccdaaa35",
+      "rounds": 1,
+      "questions": 4,
+      "gaps": 1,
+      "compensation_enqueued": true,
+      "exhausted": false,
+      "degraded": false,
+      "degraded_class": null,
+      "detail_parsed": true
+    },
+    {
+      "job_id": "2a46cc72b61f4989b2b07aaba92751bd",
+      "rounds": 1,
+      "questions": 4,
+      "gaps": 2,
+      "compensation_enqueued": true,
+      "exhausted": false,
+      "degraded": false,
+      "degraded_class": null,
+      "detail_parsed": true
+    },
+    {
+      "job_id": "ea96066e6d474741aa9271dae553329a",
+      "rounds": 1,
+      "questions": 4,
+      "gaps": 2,
+      "compensation_enqueued": true,
+      "exhausted": false,
+      "degraded": false,
+      "degraded_class": null,
+      "detail_parsed": true
+    },
+    {
+      "job_id": "03448ecc460c444880327bd9687eeef8",
+      "rounds": 1,
+      "questions": 4,
+      "gaps": 1,
+      "compensation_enqueued": true,
+      "exhausted": false,
+      "degraded": false,
+      "degraded_class": null,
+      "detail_parsed": true
+    },
+    {
+      "job_id": "8c1d6c4e607940acaa5c98aa9bce11de",
+      "rounds": 1,
+      "questions": 4,
+      "gaps": 1,
+      "compensation_enqueued": true,
+      "exhausted": false,
+      "degraded": false,
+      "degraded_class": null,
+      "detail_parsed": true
+    },
+    {
+      "job_id": "8bb3e873a66044c19fca62d365dba791",
+      "rounds": 1,
+      "questions": 4,
+      "gaps": 2,
+      "compensation_enqueued": true,
+      "exhausted": false,
+      "degraded": false,
+      "degraded_class": null,
+      "detail_parsed": true
+    },
+    {
+      "job_id": "7aefa21f05dc434dacdafc4f9fd172e5",
+      "rounds": 1,
+      "questions": 4,
+      "gaps": 4,
+      "compensation_enqueued": true,
+      "exhausted": false,
+      "degraded": false,
+      "degraded_class": null,
+      "detail_parsed": true
+    },
+    {
+      "job_id": "92f8728edc3046ab8e6616d4aa2449c2",
+      "rounds": 1,
+      "questions": 4,
+      "gaps": 1,
+      "compensation_enqueued": true,
+      "exhausted": false,
+      "degraded": false,
+      "degraded_class": null,
+      "detail_parsed": true
+    },
+    {
+      "job_id": "77a426fe8355455c8663c5f469db76f1",
+      "rounds": 1,
+      "questions": 4,
+      "gaps": 1,
+      "compensation_enqueued": true,
+      "exhausted": false,
+      "degraded": false,
+      "degraded_class": null,
+      "detail_parsed": true
+    },
+    {
+      "job_id": "43645e8581524b118dc7ce03e6b1f2d0",
+      "rounds": 1,
+      "questions": 4,
+      "gaps": 1,
+      "compensation_enqueued": true,
+      "exhausted": false,
+      "degraded": false,
+      "degraded_class": null,
+      "detail_parsed": true
+    },
+    {
+      "job_id": "c233845d48e944d99f9cdb57eec238bd",
+      "rounds": 1,
+      "questions": 4,
+      "gaps": 0,
+      "compensation_enqueued": false,
+      "exhausted": true,
+      "degraded": false,
+      "degraded_class": null,
+      "detail_parsed": true
+    },
+    {
+      "job_id": "586f7a60f27b49c995300ed3ac831ee9",
+      "rounds": 1,
+      "questions": 4,
+      "gaps": 2,
+      "compensation_enqueued": true,
+      "exhausted": false,
+      "degraded": false,
+      "degraded_class": null,
+      "detail_parsed": true
+    },
+    {
+      "job_id": "5ad9f5a2a8404d0790c899c9e38e3292",
+      "rounds": 1,
+      "questions": 4,
+      "gaps": 3,
+      "compensation_enqueued": true,
+      "exhausted": false,
+      "degraded": false,
+      "degraded_class": null,
+      "detail_parsed": true
+    },
+    {
+      "job_id": "d152981604f54a18b027843ba4c94020",
+      "rounds": 1,
+      "questions": 4,
+      "gaps": 4,
+      "compensation_enqueued": true,
+      "exhausted": false,
+      "degraded": false,
+      "degraded_class": null,
+      "detail_parsed": true
+    },
+    {
+      "job_id": "6dcb1f5849604ec2ab6997e184507130",
+      "rounds": 1,
+      "questions": 4,
+      "gaps": 1,
+      "compensation_enqueued": true,
+      "exhausted": false,
+      "degraded": false,
+      "degraded_class": null,
+      "detail_parsed": true
+    },
+    {
+      "job_id": "50ddb40e1fd24348a93155d6d1c4b460",
+      "rounds": 1,
+      "questions": 4,
+      "gaps": 1,
+      "compensation_enqueued": true,
+      "exhausted": false,
+      "degraded": false,
+      "degraded_class": null,
+      "detail_parsed": true
+    },
+    {
+      "job_id": "eaebf0d74fe148e88dc6241a3fbce5e3",
+      "rounds": 1,
+      "questions": 4,
+      "gaps": 4,
+      "compensation_enqueued": true,
+      "exhausted": false,
+      "degraded": false,
+      "degraded_class": null,
+      "detail_parsed": true
+    },
+    {
+      "job_id": "c049be22c98e4fd69bb2fcab7f9781ad",
+      "rounds": 1,
+      "questions": 4,
+      "gaps": 1,
+      "compensation_enqueued": true,
+      "exhausted": false,
+      "degraded": false,
+      "degraded_class": null,
+      "detail_parsed": true
+    },
+    {
+      "job_id": "e32afbf36adf49799da0a7325e0827d5",
+      "rounds": 1,
+      "questions": 4,
+      "gaps": 1,
+      "compensation_enqueued": true,
+      "exhausted": false,
+      "degraded": false,
+      "degraded_class": null,
+      "detail_parsed": true
+    },
+    {
+      "job_id": "e530c505cef5444f969c26a7e27cc013",
+      "rounds": 1,
+      "questions": 4,
+      "gaps": 1,
+      "compensation_enqueued": true,
+      "exhausted": true,
+      "degraded": false,
+      "degraded_class": null,
+      "detail_parsed": true
+    },
+    {
+      "job_id": "25ab3366a7bc4b328253949ce6e6a7aa",
+      "rounds": 1,
+      "questions": 4,
+      "gaps": 2,
+      "compensation_enqueued": true,
+      "exhausted": false,
+      "degraded": false,
+      "degraded_class": null,
+      "detail_parsed": true
+    },
+    {
+      "job_id": "eb907a9c177245968298a2a334061e76",
+      "rounds": 1,
+      "questions": 4,
+      "gaps": 2,
+      "compensation_enqueued": true,
+      "exhausted": false,
+      "degraded": false,
+      "degraded_class": null,
+      "detail_parsed": true
+    },
+    {
+      "job_id": "17224da34cec4796b168e7b3a866cdd2",
+      "rounds": 1,
+      "questions": 3,
+      "gaps": 1,
+      "compensation_enqueued": true,
+      "exhausted": false,
+      "degraded": false,
+      "degraded_class": null,
+      "detail_parsed": true
+    }
+  ],
+  "consultation_records": 0,
+  "business_consultation_records": 0
+}

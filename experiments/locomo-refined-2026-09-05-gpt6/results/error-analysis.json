@@ -1,0 +1,85 @@
+{
+  "method": "在300道LLM判错题中，以seed=20260905固定随机数；按category标签排序，每类先按qa_id排序再随机抽2题，共8题。再从未抽中的错题按F1降序、qa_id升序选2题作为目的性补充，共10题；后两题专用于检查词面高分与语义判定的差别",
+  "samples": [
+    {
+      "qa_id": "conv-50#q0017",
+      "category": "1",
+      "selection": "stratified_random",
+      "classification": "计数不足",
+      "observation": "预测次数少于官方要求；仅凭最终作答不能定位为漏编译还是漏召回。"
+    },
+    {
+      "qa_id": "conv-43#q0030",
+      "category": "1",
+      "selection": "stratified_random",
+      "classification": "集合额外项",
+      "observation": "覆盖目标集合但额外加入两项；这与refined对集合精确性的要求不符。"
+    },
+    {
+      "qa_id": "conv-30#q0032",
+      "category": "2",
+      "selection": "stratified_random",
+      "classification": "时间形式与粒度",
+      "observation": "把较粗或相对时间落实到具体日期，未通过判官；不能仅凭此认定时间索引本身出错。"
+    },
+    {
+      "qa_id": "conv-50#q0002",
+      "category": "2",
+      "selection": "stratified_random",
+      "classification": "时间锚点与形式",
+      "observation": "输出具体周末区间，未保持官方接受的相对或月份形式；缺少检索轨迹，无法定位转换环节。"
+    },
+    {
+      "qa_id": "conv-47#q0010",
+      "category": "3",
+      "selection": "stratified_random",
+      "classification": "保守表述削弱承诺",
+      "observation": "给出正确候选但同时声明未命名、仅相似；最终仍被判错，显示保守姿态可能付出的代价。"
+    },
+    {
+      "qa_id": "conv-48#q0070",
+      "category": "3",
+      "selection": "stratified_random",
+      "classification": "描述代替实体名",
+      "observation": "复述对象特征但未给出所需专名；不能把相关描述等同于完成识别。"
+    },
+    {
+      "qa_id": "conv-26#q0126",
+      "category": "4",
+      "selection": "stratified_random",
+      "classification": "集合额外项",
+      "observation": "核心项存在，但扩充了支持性概念；完整性之外还需要控制额外项。"
+    },
+    {
+      "qa_id": "conv-48#q0155",
+      "category": "4",
+      "selection": "stratified_random",
+      "classification": "添加额外动作",
+      "observation": "包含所需活动，但添加额外动作；concise风格没有保证最小充分答案。"
+    },
+    {
+      "qa_id": "conv-50#q0007",
+      "category": "2",
+      "selection": "purposive_high_f1",
+      "classification": "截止时间代替发生时间",
+      "observation": "日期词面高度重合，但添加截止语义，把发生时间改为最迟时间；高F1不等于语义正确。"
+    },
+    {
+      "qa_id": "conv-49#q0041",
+      "category": "2",
+      "selection": "purposive_high_f1",
+      "classification": "具体日期不匹配",
+      "observation": "月份词面重合拉高F1，但具体日期与接受形式不一致；不推断错误发生在哪个检索环节。"
+    }
+  ],
+  "takeaways": [
+    "赌对的工程部分：逐session清队列、原子完成标记和幂等恢复支撑了全量完成；两次构建恢复保留118/213个完成单元，答题恢复保留801份完成答案。32路silent作答结束后consultation与business记录均为0。",
+    "尚未证实的模型押注：全部文本角色使用Luna，记录构建与答题费用为17.89644 USD，但记录账低估，不能把它写成完整成本或据此证明优于其他模型。",
+    "未兑现的答案口径预期：宽证据配合concise仍会输出额外集合项、转换时间形式，或以保守措辞弱化实体识别。样本显示答案的精确性仍是问题，但不能据此量化各类错误占比。",
+    "演进机制确实运行35次，却全部no_change，proposal与adopt均为0；本次没有观察到schema演进产出，不能声称演进贡献了得分。",
+    "质询触发272次，报告496个缺口并入队241次补偿，另有3次degraded审计。没有关闭质询的对照，补偿量不等于新增正确题数。",
+    "分组描述：category 1为59.62%，category 4为84.41%；有模态标记题72.17%，无模态标记题82.00%。题目构成与证据类型不同，这些差距只能指示后续排查方向，不能归因于某个组件或原生视觉能力。",
+    "赌错的基础设施口径：共享key差额被误作预算停止依据；维护者裁定后只重冻结budget guard并完整保留旧哈希。HTTP402资金中断与Codex账户上限属于外部服务和执行环境事件，编排者重启是恢复操作，均未改变实验内容。"
+  ],
+  "conclusion": "本次严格·演进主线的官方成绩为78.2923%，剔除两道烧题后为78.2609%。相对78.15%为+0.1423pp，相对76.34%为+1.9523pp，均处于任务书要求不主张差异的2–3pp范围；结论是处于既往线的相近水平。框架、执行者和实验设计同时变化，单线且无消融，无法把分数差分配给people/time、质询、演进或模型选择。完整检查点、未改的评分流程及公开事故记录支持过程复查，不能替代因果对照或完整费用账。"
+}

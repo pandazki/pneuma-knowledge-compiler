@@ -1,0 +1,15 @@
+{
+  "utc": "2026-09-05T14:25:42.216517+00:00",
+  "scope": "Shared account service availability only; not attributable experiment spend",
+  "key": {
+    "limit": null,
+    "limit_remaining": null,
+    "usage": 2007.188350891,
+    "is_free_tier": false,
+    "is_management_key": false
+  },
+  "credits": {
+    "total_credits": 3500,
+    "total_usage": 2500.117984347
+  }
+}

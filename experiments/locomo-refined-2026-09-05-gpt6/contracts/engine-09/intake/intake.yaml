@@ -1,0 +1,22 @@
+# How material becomes the semantic units the vector index searches. Citable unit text is
+# always a verbatim slice; derived titles/descriptions form a separate dense L2 context face.
+#
+#   semantic  one compile-role call returns topic/episode boundaries plus a grounded title
+#             and description for each episode. Costs one small model call per source.
+#   sentence  mechanical sentence chunking with overlap. No model cost at all.
+#
+# Changing this governs new material immediately; material already indexed keeps the
+# boundaries recorded for it until the framework's rebuild_derived is run, so a switch is
+# never a silent partial migration.
+chunk_strategy: semantic
+
+# Whether two neighbouring semantic segments may share a block (semantic strategy only).
+#
+#   smart     the model returns start/end pairs, so a hinge — the sentence that closes one
+#             topic while opening the next — is indexed as part of BOTH segments. How much
+#             to share is judged per boundary, never a fixed stride, and at most three
+#             blocks: that ceiling is what keeps "every segment is the whole document" out
+#             of reach rather than merely discouraged.
+#   off       a zero-overlap cut for domains where every block must belong to exactly one
+#             semantic segment.
+semantic_overlap: "smart"

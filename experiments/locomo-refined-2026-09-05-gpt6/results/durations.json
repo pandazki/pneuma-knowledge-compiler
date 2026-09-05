@@ -1,0 +1,35 @@
+[
+  {
+    "phase": "build",
+    "start": "2026-09-05T06:14:19.268134+00:00",
+    "end": "2026-09-05T15:17:12.461762+00:00",
+    "wall_seconds": 32573.193628,
+    "active_seconds": 13050.116675000001,
+    "active_seconds_upper_bound": 13050.116675000001,
+    "pause_seconds": 19523.076953,
+    "pause_seconds_lower_bound": 19523.076953,
+    "attempts": 3
+  },
+  {
+    "phase": "answer",
+    "start": "2026-09-05T15:17:12.462588+00:00",
+    "end": "2026-09-05T15:36:26.964812+00:00",
+    "wall_seconds": 1154.502224,
+    "active_seconds": 1066.828368,
+    "active_seconds_upper_bound": 1154.502224,
+    "pause_seconds": 87.673856,
+    "pause_seconds_lower_bound": 0,
+    "attempts": 2
+  },
+  {
+    "phase": "score",
+    "start": "2026-09-05T15:36:26.965383+00:00",
+    "end": "2026-09-05T15:41:00.127387+00:00",
+    "wall_seconds": 273.162004,
+    "active_seconds": 273.162004,
+    "active_seconds_upper_bound": 273.162004,
+    "pause_seconds": 0,
+    "pause_seconds_lower_bound": 0,
+    "attempts": 1
+  }
+]

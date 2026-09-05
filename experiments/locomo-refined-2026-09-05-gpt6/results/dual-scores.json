@@ -1,0 +1,10 @@
+{
+  "official": 78.29232995658467,
+  "unburned": 78.26086956521739,
+  "total": 1382,
+  "unburned_count": 1380,
+  "burned": [
+    "conv-26#q0000",
+    "conv-26#q0001"
+  ]
+}

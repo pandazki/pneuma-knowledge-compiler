@@ -1,0 +1,4 @@
+auto_trigger: false
+trigger_topic_docs: 1
+trigger_new_claims: 60
+draft_ttl_hours: 168

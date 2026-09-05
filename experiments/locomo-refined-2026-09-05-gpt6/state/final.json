@@ -1,0 +1,15 @@
+{
+  "utc": "2026-09-05T15:49:31.589553+00:00",
+  "status": "complete",
+  "completed_sessions": 272,
+  "completed_libraries": 10,
+  "answered_questions": 1382,
+  "judged_questions": 1382,
+  "official_score": 78.29232995658467,
+  "unburned_score": 78.26086956521739,
+  "own_recorded_usd": 17.896440000000002,
+  "own_accounting_undercounts": true,
+  "shared_key_cost_attributable": false,
+  "phase_c_complete": true,
+  "report_sha256": "c5d34343864cf6c21b1ea47916d26e26e3c5de5d309f876cdade175585492a11"
+}

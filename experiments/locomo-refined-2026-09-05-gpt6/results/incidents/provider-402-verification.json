@@ -1,0 +1,13 @@
+{
+  "utc": "2026-09-05T11:05:27.379669+00:00",
+  "freeze1_files_verified": 191,
+  "freeze2_files_verified": 14,
+  "original_checkpoints_unchanged": 118,
+  "latest_checkpoints_verified": 213,
+  "credential_grep_matches": 0,
+  "forbidden_result_fields": 0,
+  "tracked_files_scanned": 373,
+  "framework_tracked_changes": 0,
+  "firewall": "closed",
+  "official_score": null
+}

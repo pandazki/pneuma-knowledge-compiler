@@ -1,0 +1,11 @@
+{
+  "phase": "complete",
+  "status": "complete",
+  "freeze1": true,
+  "freeze2": true,
+  "updated_at": "2026-09-05T15:49:31.589553+00:00",
+  "official_score": 78.29232995658467,
+  "unburned_score": 78.26086956521739,
+  "report": "RUN-REPORT.md",
+  "next_action": "none; all experiment phases complete"
+}

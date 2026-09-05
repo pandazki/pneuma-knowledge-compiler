@@ -1,0 +1,11 @@
+{
+  "utc": "2026-09-05T14:26:24.754773+00:00",
+  "classification": "provider-side outage of funds; not an experiment intervention",
+  "maintainer_remaining_usd_reported": 999.91,
+  "freeze1_verified": 191,
+  "freeze2_verified": 14,
+  "sealed_checkpoints_verified": 213,
+  "original_checkpoints_verified": 118,
+  "http402_failed_compile_jobs": 16,
+  "recovery": "Frozen pipeline; normal CLI compile retry deduplicates sources and resolves historical failures through successful replacement jobs"
+}

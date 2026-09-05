@@ -1,0 +1,12 @@
+{
+  "utc": "2026-09-05T15:49:52.956379+00:00",
+  "status": "complete",
+  "freeze1_files_verified": 191,
+  "freeze2_files_verified": 14,
+  "credential_pattern_matches": 0,
+  "forbidden_result_fields": 0,
+  "numeric_reconciliation": true,
+  "csv_line_endings": "LF",
+  "framework_tracked_changes": 0,
+  "details": "results/final-verification.json"
+}

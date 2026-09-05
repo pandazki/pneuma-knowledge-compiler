@@ -1,0 +1,15 @@
+.env
+.env.*
+**/.env
+**/.env.*
+secrets/
+repo/
+data/
+material/
+app-*/
+logs/
+__pycache__/
+*.pyc
+.DS_Store
+
+state/*.lock

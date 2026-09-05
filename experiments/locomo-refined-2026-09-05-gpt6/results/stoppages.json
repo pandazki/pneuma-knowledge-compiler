@@ -1,0 +1,32 @@
+[
+  {
+    "phase": "build",
+    "incident": "budget-stop",
+    "stopped_utc": "2026-09-05T07:42:18.215500+00:00",
+    "resumed_utc": "2026-09-05T09:43:14.197528+00:00",
+    "seconds": 7255.982028,
+    "seconds_lower_bound": 7255.982028,
+    "duration_is_upper_bound": false,
+    "timestamp_basis": "pipeline failure timestamp"
+  },
+  {
+    "phase": "build",
+    "incident": "provider-402",
+    "stopped_utc": "2026-09-05T11:01:58.313772+00:00",
+    "resumed_utc": "2026-09-05T14:26:25.408697+00:00",
+    "seconds": 12267.094925,
+    "seconds_lower_bound": 12267.094925,
+    "duration_is_upper_bound": false,
+    "timestamp_basis": "pipeline failure timestamp"
+  },
+  {
+    "phase": "answer",
+    "incident": "codex-limit",
+    "stopped_utc": "2026-09-05T15:28:03.906986+00:00",
+    "resumed_utc": "2026-09-05T15:29:31.580842+00:00",
+    "seconds": 87.673856,
+    "seconds_lower_bound": 0,
+    "duration_is_upper_bound": true,
+    "timestamp_basis": "last completed answer before interruption; lower bound for actual exit time"
+  }
+]

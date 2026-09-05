@@ -1,0 +1,22 @@
+{
+  "utc": "2026-09-05T15:17:58.012500+00:00",
+  "sessions": 272,
+  "libraries": 10,
+  "sources": 272,
+  "documents": 80,
+  "claims": 2011,
+  "pending": 0,
+  "unresolved": 0,
+  "job_counts": {
+    "evolve": 35,
+    "compile": 530,
+    "challenge": 272,
+    "index": 272
+  },
+  "recorded_input_tokens": 38988530,
+  "recorded_output_tokens": 842826,
+  "recorded_build_usd": 8.8090972,
+  "sealed_213_unchanged": true,
+  "freeze1_verified": 191,
+  "freeze2_verified": 14
+}

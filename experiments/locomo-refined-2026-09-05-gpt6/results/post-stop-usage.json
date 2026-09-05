@@ -1,0 +1,14 @@
+{
+  "observations": [
+    {
+      "utc": "2026-09-05T07:43:34.860414+00:00",
+      "usage": 1953.942359719,
+      "own_pipeline_running": false
+    },
+    {
+      "utc": "2026-09-05T07:44:21.841561+00:00",
+      "usage": 1954.031188879,
+      "own_pipeline_running": false
+    }
+  ]
+}

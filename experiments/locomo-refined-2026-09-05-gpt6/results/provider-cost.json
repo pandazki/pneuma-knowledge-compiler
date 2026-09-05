@@ -1,0 +1,7 @@
+{
+  "utc": "2026-09-05T07:42:17.024391+00:00",
+  "baseline_usage": 1893.944365959,
+  "usage": 1946.421908439,
+  "delta_usd": 52.47754248000001,
+  "scope": "key-wide conservative upper bound; judge separately after scoring starts"
+}

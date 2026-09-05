@@ -1,0 +1,10 @@
+{
+  "utc": "2026-09-05T15:49:31.589553+00:00",
+  "status": "complete",
+  "post_score_audit": true,
+  "report_metrics": true,
+  "error_analysis_samples": 10,
+  "final_report": true,
+  "verification": "results/final-verification.json",
+  "report_sha256": "c5d34343864cf6c21b1ea47916d26e26e3c5de5d309f876cdade175585492a11"
+}

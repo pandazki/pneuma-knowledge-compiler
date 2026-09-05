@@ -1,0 +1,26 @@
+{
+  "utc": "2026-09-05T14:30:30.631665+00:00",
+  "historical_http402_jobs_retained": 16,
+  "all_failures_resolved_by_normal_compile_path": true,
+  "sealed_checkpoints_unchanged": 213,
+  "libraries": [
+    {
+      "conversation_idx": 6,
+      "historical_http402_jobs": 5,
+      "pending": 0,
+      "unresolved": 0
+    },
+    {
+      "conversation_idx": 7,
+      "historical_http402_jobs": 6,
+      "pending": 0,
+      "unresolved": 0
+    },
+    {
+      "conversation_idx": 8,
+      "historical_http402_jobs": 5,
+      "pending": 0,
+      "unresolved": 0
+    }
+  ]
+}

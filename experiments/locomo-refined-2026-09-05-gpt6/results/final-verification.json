@@ -1,0 +1,34 @@
+{
+  "utc": "2026-09-05T15:49:53.665788+00:00",
+  "status": "verified",
+  "freeze_files": {
+    "1": 191,
+    "2": 14
+  },
+  "sealed_checkpoints": {
+    "118": 118,
+    "213": 213
+  },
+  "completed_sessions": 272,
+  "completed_libraries": 10,
+  "atomic_answers": 1382,
+  "official_correct": 1082.0,
+  "official_score": 78.29232995658467,
+  "unburned_score": 78.26086956521739,
+  "judge_successes": 1382,
+  "judge_error_rows": 0,
+  "unresolved_jobs": 0,
+  "http402_historical_retained": 16,
+  "http402_unresolved": 0,
+  "consultation_records": 0,
+  "framework_clean": true,
+  "own_containers_remaining": [],
+  "own_volumes_preserved": 40,
+  "credential_grep_count": 0,
+  "scanned_git_files": 3244,
+  "protected_result_fields": 0,
+  "official_summaries_byte_identical": true,
+  "own_recorded_usd": 17.896440000000002,
+  "report_sha256": "c5d34343864cf6c21b1ea47916d26e26e3c5de5d309f876cdade175585492a11",
+  "predictions_sha256": "2ea902cfe70a2a4586efa2409eaee3dee8d0cfad5f3345a9f981ac64599b014e"
+}

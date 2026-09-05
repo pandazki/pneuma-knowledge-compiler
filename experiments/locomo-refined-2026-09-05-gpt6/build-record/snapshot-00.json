@@ -1,0 +1,610 @@
+{
+  "conversation_idx": 0,
+  "sources": 19,
+  "documents": 9,
+  "claims": 180,
+  "pending": 0,
+  "unresolved": 0,
+  "jobs": [
+    {
+      "job_id": "595bd73321f34e98be567b9aa973ecd9",
+      "kind": "evolve",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 0,
+      "output_tokens": 0
+    },
+    {
+      "job_id": "e64d95326dc14cba9719e0825fce6771",
+      "kind": "compile",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 115970,
+      "output_tokens": 2086
+    },
+    {
+      "job_id": "f09ce8af0f5246c39d58543d32b72668",
+      "kind": "challenge",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 0,
+      "output_tokens": 0
+    },
+    {
+      "job_id": "4802a567d697437fac28755d33572dd9",
+      "kind": "compile",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 87012,
+      "output_tokens": 1467
+    },
+    {
+      "job_id": "d78b9545e18f453492a3d233724c3b42",
+      "kind": "index",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 0,
+      "output_tokens": 0
+    },
+    {
+      "job_id": "d99845c7f15f4386988599e1be025c42",
+      "kind": "compile",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 59957,
+      "output_tokens": 1293
+    },
+    {
+      "job_id": "2589de9046b04f08ba43d02ca355ab6b",
+      "kind": "challenge",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 0,
+      "output_tokens": 0
+    },
+    {
+      "job_id": "131c4315e63a481098ea2d0c58bf9291",
+      "kind": "compile",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 39152,
+      "output_tokens": 1089
+    },
+    {
+      "job_id": "d34517b2ebe34ab1ba0ba7f2fa747c8a",
+      "kind": "index",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 0,
+      "output_tokens": 0
+    },
+    {
+      "job_id": "a706c00e63c14de68de9004c361d8045",
+      "kind": "compile",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 163339,
+      "output_tokens": 2180
+    },
+    {
+      "job_id": "85904d5f93b74ead8b1b9d148d95fd63",
+      "kind": "challenge",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 0,
+      "output_tokens": 0
+    },
+    {
+      "job_id": "3d6ec47d878c4d2d8a624b6831cd7783",
+      "kind": "compile",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 119713,
+      "output_tokens": 2116
+    },
+    {
+      "job_id": "eadc034be66a468faeb14114e7faa97e",
+      "kind": "index",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 0,
+      "output_tokens": 0
+    },
+    {
+      "job_id": "6661cf728baf474ab05e99f8b47540ba",
+      "kind": "compile",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 40296,
+      "output_tokens": 563
+    },
+    {
+      "job_id": "fa7f58c8494a485385c3a80d1c13d808",
+      "kind": "challenge",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 0,
+      "output_tokens": 0
+    },
+    {
+      "job_id": "bc1fa1958adb42509be6da0cb354b2f0",
+      "kind": "compile",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 139078,
+      "output_tokens": 2089
+    },
+    {
+      "job_id": "fa82efa9a1324229ab13a3fcb8bcd538",
+      "kind": "index",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 0,
+      "output_tokens": 0
+    },
+    {
+      "job_id": "02324874ecff4aee8aa68218c91d094d",
+      "kind": "compile",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 41133,
+      "output_tokens": 1182
+    },
+    {
+      "job_id": "6d738a8d9eec4ca198974c03de36bd5c",
+      "kind": "challenge",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 0,
+      "output_tokens": 0
+    },
+    {
+      "job_id": "0cc4c7cda5534bbdbc0df1d016a14c5e",
+      "kind": "compile",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 118679,
+      "output_tokens": 2352
+    },
+    {
+      "job_id": "d81d7665b1634d51b602ff355017349d",
+      "kind": "index",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 0,
+      "output_tokens": 0
+    },
+    {
+      "job_id": "a3dd51632d8f479b92de33525f3dae28",
+      "kind": "evolve",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 0,
+      "output_tokens": 0
+    },
+    {
+      "job_id": "589b7c0076f04e959cbe851f38847a83",
+      "kind": "compile",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 65480,
+      "output_tokens": 1361
+    },
+    {
+      "job_id": "a6451d6ff3de4dff8ead0ce7710978e1",
+      "kind": "challenge",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 0,
+      "output_tokens": 0
+    },
+    {
+      "job_id": "4229260f12e1483999484e0e188fc9b7",
+      "kind": "compile",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 80776,
+      "output_tokens": 2267
+    },
+    {
+      "job_id": "12cd8446cda548dabbe4a7856818b542",
+      "kind": "index",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 0,
+      "output_tokens": 0
+    },
+    {
+      "job_id": "f34d465adb6441038751ddfb43c86cda",
+      "kind": "compile",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 76052,
+      "output_tokens": 2639
+    },
+    {
+      "job_id": "92c8087619e84cee98a6c6a84e1a10d1",
+      "kind": "challenge",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 0,
+      "output_tokens": 0
+    },
+    {
+      "job_id": "eaa7ae547a654e9294a2cf6d5a37b034",
+      "kind": "compile",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 72913,
+      "output_tokens": 1572
+    },
+    {
+      "job_id": "a01ee68060b444b0a1b3a68a55064fa0",
+      "kind": "index",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 0,
+      "output_tokens": 0
+    },
+    {
+      "job_id": "d2015e3b09ba4f6eb50a657156005c18",
+      "kind": "compile",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 65498,
+      "output_tokens": 1923
+    },
+    {
+      "job_id": "484fed9b6692414bb1520bfa9636ea8a",
+      "kind": "challenge",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 0,
+      "output_tokens": 0
+    },
+    {
+      "job_id": "994603e202de47e381e4a5fd191956a0",
+      "kind": "compile",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 40845,
+      "output_tokens": 1223
+    },
+    {
+      "job_id": "a576348498a1452585db5730e0e311b0",
+      "kind": "index",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 0,
+      "output_tokens": 0
+    },
+    {
+      "job_id": "ff0a5899023046d49c84330988ba63d6",
+      "kind": "compile",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 52646,
+      "output_tokens": 1021
+    },
+    {
+      "job_id": "7b00752bfbfd430eae5c6ce34e43f42b",
+      "kind": "challenge",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 0,
+      "output_tokens": 0
+    },
+    {
+      "job_id": "190bcf263df745659dd2b21b07e6c80e",
+      "kind": "compile",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 96366,
+      "output_tokens": 3552
+    },
+    {
+      "job_id": "2f8c5927e895406bb608055db0406327",
+      "kind": "index",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 0,
+      "output_tokens": 0
+    },
+    {
+      "job_id": "2265a18d141d47b897e89cc1ee042803",
+      "kind": "compile",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 73670,
+      "output_tokens": 1449
+    },
+    {
+      "job_id": "019dc58241fb41d3973dafd8d4ac89e5",
+      "kind": "challenge",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 0,
+      "output_tokens": 0
+    },
+    {
+      "job_id": "114d814d3a184305a49a51846f790b8a",
+      "kind": "compile",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 135642,
+      "output_tokens": 3363
+    },
+    {
+      "job_id": "3fec19ddaa294759995b9b892c45c3f3",
+      "kind": "index",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 0,
+      "output_tokens": 0
+    },
+    {
+      "job_id": "34839f2043474b3babe6bcf3ab9a516c",
+      "kind": "compile",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 52204,
+      "output_tokens": 1326
+    },
+    {
+      "job_id": "1b71e754039b4665b431c773bc03c175",
+      "kind": "challenge",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 0,
+      "output_tokens": 0
+    },
+    {
+      "job_id": "eddbb5602435425885fb82d0eccd9cda",
+      "kind": "compile",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 148124,
+      "output_tokens": 3386
+    },
+    {
+      "job_id": "e423c5c721544bd5a92fda3d2163051a",
+      "kind": "index",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 0,
+      "output_tokens": 0
+    },
+    {
+      "job_id": "25f247bbed794fc5af0cd4d959520cef",
+      "kind": "compile",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 76404,
+      "output_tokens": 1316
+    },
+    {
+      "job_id": "76040b14e2374550bb42515fb799e3f9",
+      "kind": "challenge",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 0,
+      "output_tokens": 0
+    },
+    {
+      "job_id": "c29d35998dac42c7b837f876db64cd50",
+      "kind": "compile",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 96150,
+      "output_tokens": 3528
+    },
+    {
+      "job_id": "1eba655371e8457685bf04399ddd2cc6",
+      "kind": "index",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 0,
+      "output_tokens": 0
+    },
+    {
+      "job_id": "04c08e7676374475b37abfc332c50a3f",
+      "kind": "evolve",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 0,
+      "output_tokens": 0
+    },
+    {
+      "job_id": "ef6e9dc8c5cc40fc94dfc668ba6b94b9",
+      "kind": "compile",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 81257,
+      "output_tokens": 1301
+    },
+    {
+      "job_id": "2de6ad9801b74ae1a4b945bc50852b10",
+      "kind": "challenge",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 0,
+      "output_tokens": 0
+    },
+    {
+      "job_id": "ba07357774f748a2bcddee8179cbca70",
+      "kind": "compile",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 82744,
+      "output_tokens": 3375
+    },
+    {
+      "job_id": "5d21f3bb26804a1aa335924fea29e477",
+      "kind": "index",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 0,
+      "output_tokens": 0
+    },
+    {
+      "job_id": "417d7ad23d704b79b81882be284d0e50",
+      "kind": "challenge",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 0,
+      "output_tokens": 0
+    },
+    {
+      "job_id": "53492fedbfdf4e0da3b421284463b21b",
+      "kind": "compile",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 61784,
+      "output_tokens": 1845
+    },
+    {
+      "job_id": "f531627107844d4d86dbb89eaf64fa9f",
+      "kind": "index",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 0,
+      "output_tokens": 0
+    },
+    {
+      "job_id": "68b09e60c71e4ed7889b76e157e66496",
+      "kind": "challenge",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 0,
+      "output_tokens": 0
+    },
+    {
+      "job_id": "3f2506964dd64862a2143cdb984ed093",
+      "kind": "compile",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 99385,
+      "output_tokens": 2930
+    },
+    {
+      "job_id": "47824653358941348ad8ddf20e02e9e2",
+      "kind": "index",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 0,
+      "output_tokens": 0
+    },
+    {
+      "job_id": "f524dc8a0a5c4412989e4b6fec4ae419",
+      "kind": "challenge",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 0,
+      "output_tokens": 0
+    },
+    {
+      "job_id": "05112df0016b4fb2ab6857f4dd747a93",
+      "kind": "compile",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 90834,
+      "output_tokens": 2405
+    },
+    {
+      "job_id": "ea6f965d00bf439996d1cd28b4a41860",
+      "kind": "index",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 0,
+      "output_tokens": 0
+    },
+    {
+      "job_id": "787e2b9d20f3414bb72dd3b9c4749085",
+      "kind": "compile",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 49570,
+      "output_tokens": 1201
+    },
+    {
+      "job_id": "56f5d7cf296b4481a5e8d4fd188a3dc3",
+      "kind": "challenge",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 0,
+      "output_tokens": 0
+    },
+    {
+      "job_id": "690daeb395154dbfa329f6ea428e7825",
+      "kind": "compile",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 51835,
+      "output_tokens": 1851
+    },
+    {
+      "job_id": "c759be55b7754e3a8227b642086ac520",
+      "kind": "index",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 0,
+      "output_tokens": 0
+    },
+    {
+      "job_id": "3210e936a6a54ec0ab1342e5235d27fa",
+      "kind": "challenge",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 0,
+      "output_tokens": 0
+    },
+    {
+      "job_id": "c86152c69c304d9596cd84c55c60ab18",
+      "kind": "compile",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 35363,
+      "output_tokens": 1265
+    },
+    {
+      "job_id": "af2080b435214b5ab1b49544ebc3cd5b",
+      "kind": "index",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 0,
+      "output_tokens": 0
+    },
+    {
+      "job_id": "0061cc2aaed641e48d8468d04c10eee3",
+      "kind": "compile",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 46453,
+      "output_tokens": 2195
+    },
+    {
+      "job_id": "597fa6c63c4348789ad52d3f532c2125",
+      "kind": "challenge",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 0,
+      "output_tokens": 0
+    },
+    {
+      "job_id": "ebb1021ed84b4984bc7fb98ae4433f5a",
+      "kind": "compile",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 63989,
+      "output_tokens": 2941
+    },
+    {
+      "job_id": "62eaa1519d9d40cf94c2260497404854",
+      "kind": "index",
+      "status": "done",
+      "ok": true,
+      "input_tokens": 0,
+      "output_tokens": 0
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "language": "en",
+  "project_name": "lr6r2-06",
+  "owner": {
+    "display_name": "Conversation 06"
+  },
+  "data": {
+    "mode": "none"
+  },
+  "contract": {
+    "mode": "skeleton"
+  },
+  "models": {
+    "compile": "openrouter:openai/gpt-5.6-luna",
+    "recall": "openrouter:openai/gpt-5.6-luna",
+    "answer": "openrouter:openai/gpt-5.6-luna",
+    "deep": "openrouter:openai/gpt-5.6-luna",
+    "live_discover": "openrouter:openai/gpt-5.6-luna",
+    "live_pick": "openrouter:openai/gpt-5.6-luna"
+  },
+  "advanced": {
+    "user_id": "lr6r2-06",
+    "chunk_strategy": "semantic",
+    "challenge_enabled": true,
+    "compile_image_mode": "caption"
+  }
+}

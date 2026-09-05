@@ -1,0 +1,51 @@
+{
+  "utc": "2026-09-05T11:03:02.561803+00:00",
+  "conversation_idx": 6,
+  "failed_jobs": [
+    {
+      "job_id": "3ee3a51960ef4767aa5056bb26233a9f",
+      "kind": "compile",
+      "tags": [
+        "http_402"
+      ]
+    },
+    {
+      "job_id": "225ce0c88b784c7289433da4272af830",
+      "kind": "compile",
+      "tags": [
+        "http_402"
+      ]
+    },
+    {
+      "job_id": "428de695a87545ba8b49372240a31cb3",
+      "kind": "compile",
+      "tags": [
+        "http_402"
+      ]
+    },
+    {
+      "job_id": "7975adf4be464763a1df714a6cc7ae56",
+      "kind": "compile",
+      "tags": [
+        "http_402"
+      ]
+    },
+    {
+      "job_id": "0ce3cd5abb2d429299529260073a3e8c",
+      "kind": "compile",
+      "tags": [
+        "http_402"
+      ]
+    },
+    {
+      "job_id": "38b2c445854848b8a312f6472777d859",
+      "kind": "compile",
+      "tags": []
+    },
+    {
+      "job_id": "d7fe1e8abb3f4729aa4d356e826e7c99",
+      "kind": "compile",
+      "tags": []
+    }
+  ]
+}

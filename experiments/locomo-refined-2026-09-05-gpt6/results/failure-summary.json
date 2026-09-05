@@ -1,0 +1,159 @@
+{
+  "status": "stopped_by_frozen_budget_guard",
+  "official_score": null,
+  "unburned_score": null,
+  "completed_sessions": 118,
+  "total_sessions": 272,
+  "completed_libraries": 4,
+  "answered_questions": 0,
+  "judged_questions": 0,
+  "burned_qa_ids": [
+    "conv-26#q0000",
+    "conv-26#q0001"
+  ],
+  "conversations": [
+    {
+      "conversation_idx": 0,
+      "completed_sessions": 19,
+      "total_sessions": 19,
+      "sources": 19,
+      "claims": 180,
+      "documents": 9,
+      "complete": true,
+      "snapshot_available": true
+    },
+    {
+      "conversation_idx": 1,
+      "completed_sessions": 19,
+      "total_sessions": 19,
+      "sources": 19,
+      "claims": 121,
+      "documents": 5,
+      "complete": true,
+      "snapshot_available": true
+    },
+    {
+      "conversation_idx": 2,
+      "completed_sessions": 32,
+      "total_sessions": 32,
+      "sources": 32,
+      "claims": 223,
+      "documents": 8,
+      "complete": true,
+      "snapshot_available": true
+    },
+    {
+      "conversation_idx": 3,
+      "completed_sessions": 29,
+      "total_sessions": 29,
+      "sources": 29,
+      "claims": 235,
+      "documents": 11,
+      "complete": true,
+      "snapshot_available": true
+    },
+    {
+      "conversation_idx": 4,
+      "completed_sessions": 10,
+      "total_sessions": 29,
+      "sources": 10,
+      "claims": 77,
+      "documents": 4,
+      "complete": false,
+      "snapshot_available": true
+    },
+    {
+      "conversation_idx": 5,
+      "completed_sessions": 9,
+      "total_sessions": 28,
+      "sources": 9,
+      "claims": 88,
+      "documents": 5,
+      "complete": false,
+      "snapshot_available": true
+    },
+    {
+      "conversation_idx": 6,
+      "completed_sessions": 0,
+      "total_sessions": 31,
+      "sources": 0,
+      "claims": 0,
+      "documents": 0,
+      "complete": false,
+      "snapshot_available": false
+    },
+    {
+      "conversation_idx": 7,
+      "completed_sessions": 0,
+      "total_sessions": 30,
+      "sources": 0,
+      "claims": 0,
+      "documents": 0,
+      "complete": false,
+      "snapshot_available": false
+    },
+    {
+      "conversation_idx": 8,
+      "completed_sessions": 0,
+      "total_sessions": 25,
+      "sources": 0,
+      "claims": 0,
+      "documents": 0,
+      "complete": false,
+      "snapshot_available": false
+    },
+    {
+      "conversation_idx": 9,
+      "completed_sessions": 0,
+      "total_sessions": 30,
+      "sources": 0,
+      "claims": 0,
+      "documents": 0,
+      "complete": false,
+      "snapshot_available": false
+    }
+  ],
+  "stages": {
+    "evolve": {
+      "jobs": 15,
+      "ok": 15,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "jobs_with_usage": 0,
+      "estimated_usd": null
+    },
+    "compile": {
+      "jobs": 221,
+      "ok": 219,
+      "input_tokens": 16482125,
+      "output_tokens": 375378,
+      "jobs_with_usage": 221,
+      "estimated_usd": 3.7468786
+    },
+    "challenge": {
+      "jobs": 118,
+      "ok": 118,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "jobs_with_usage": 0,
+      "estimated_usd": null
+    },
+    "index": {
+      "jobs": 118,
+      "ok": 118,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "jobs_with_usage": 0,
+      "estimated_usd": null
+    }
+  },
+  "recorded_compile_usd": 3.7468786,
+  "provider_key_delta_at_stop_usd": 52.47754248000001,
+  "provider_delta_attributable_to_experiment": false,
+  "build_start_utc": "2026-09-05T06:14:19.298560+00:00",
+  "build_end_utc": "2026-09-05T07:42:18.215500+00:00",
+  "build_seconds": 5278.91694,
+  "evolve_steps_completed": 15,
+  "evolve_adoption_jobs": 0,
+  "midpoint_reached": false
+}

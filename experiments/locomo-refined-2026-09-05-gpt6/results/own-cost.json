@@ -1,0 +1,14 @@
+{
+  "utc": "2026-09-05T15:43:49.499177+00:00",
+  "build_input_tokens": 38988530,
+  "build_output_tokens": 842826,
+  "answer_input_tokens": 42871804,
+  "answer_output_tokens": 427485,
+  "own_accounted_usd": 17.896440000000002,
+  "soft_ceiling_usd": 50,
+  "hard_ceiling_usd": 60,
+  "effective_stop_usd": 50,
+  "undercounts": true,
+  "scope": "Own recorded job/answer token usage at declared prices; judge excluded",
+  "limitation": "Own accounting undercounts (approximately 40% was observed at 07:16Z); key-level figures are not attributable while the key is shared."
+}

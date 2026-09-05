@@ -1,0 +1,17 @@
+{
+  "utc": "2026-09-05T09:52:11.044998+00:00",
+  "changed_runtime_functions": [
+    "check_budget"
+  ],
+  "changed_build_functions": [
+    "budget"
+  ],
+  "comparison_commit": "25002af",
+  "freeze1_changed_paths": [
+    "scripts/build.py",
+    "scripts/runtime.py",
+    "scripts/test_budget_guard.py"
+  ],
+  "unchanged_original_checkpoints": 118,
+  "scope": "Infrastructure accounting only; content protocol unchanged"
+}

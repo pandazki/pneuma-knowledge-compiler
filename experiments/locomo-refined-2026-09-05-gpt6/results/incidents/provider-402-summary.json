@@ -1,0 +1,91 @@
+{
+  "utc": "2026-09-05T11:04:00.892474+00:00",
+  "status": "blocked_by_provider_http_402",
+  "completed_sessions": 213,
+  "completed_libraries": 6,
+  "answered_questions": 0,
+  "official_score": null,
+  "unburned_score": null,
+  "own_recorded_usd": 6.962215199999999,
+  "budget_guard_stopped_run": false,
+  "own_soft_usd": 50,
+  "own_hard_usd": 60,
+  "resumption_requires": "Provider account service availability restored; no protocol changes required",
+  "snapshots": [
+    {
+      "conversation_idx": 0,
+      "sources": 19,
+      "documents": 9,
+      "claims": 180,
+      "pending": 0,
+      "unresolved": 0
+    },
+    {
+      "conversation_idx": 1,
+      "sources": 19,
+      "documents": 5,
+      "claims": 121,
+      "pending": 0,
+      "unresolved": 0
+    },
+    {
+      "conversation_idx": 2,
+      "sources": 32,
+      "documents": 8,
+      "claims": 223,
+      "pending": 0,
+      "unresolved": 0
+    },
+    {
+      "conversation_idx": 3,
+      "sources": 29,
+      "documents": 11,
+      "claims": 235,
+      "pending": 0,
+      "unresolved": 0
+    },
+    {
+      "conversation_idx": 4,
+      "sources": 29,
+      "documents": 4,
+      "claims": 196,
+      "pending": 0,
+      "unresolved": 0
+    },
+    {
+      "conversation_idx": 5,
+      "sources": 28,
+      "documents": 9,
+      "claims": 245,
+      "pending": 0,
+      "unresolved": 0
+    },
+    {
+      "conversation_idx": 6,
+      "sources": 29,
+      "documents": 12,
+      "claims": 217,
+      "pending": 0,
+      "unresolved": 5
+    },
+    {
+      "conversation_idx": 7,
+      "sources": 30,
+      "documents": 7,
+      "claims": 216,
+      "pending": 0,
+      "unresolved": 5
+    },
+    {
+      "conversation_idx": 8,
+      "sources": 1,
+      "documents": 0,
+      "claims": 0,
+      "pending": 0,
+      "unresolved": 5
+    }
+  ],
+  "infrastructure_error_tags": {
+    "http_402": 16
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "qa_id": "conv-41#q0038",
+  "conversation_idx": 2,
+  "utc": "2026-09-05T15:21:36.060222+00:00",
+  "attempts": 1,
+  "seconds": 20.28,
+  "input_tokens": 30374,
+  "output_tokens": 256,
+  "total_tokens": 30630
+}

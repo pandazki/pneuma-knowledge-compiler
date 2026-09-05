@@ -1,0 +1,9 @@
+{
+  "utc": "2026-09-05T07:44:21.804954+00:00",
+  "pipeline_exit_code": 1,
+  "own_containers_remaining": [],
+  "framework_clean": true,
+  "volumes_preserved": true,
+  "firewall_still_closed": true,
+  "do_not_resume_without_revised_budget_protocol": true
+}

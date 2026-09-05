@@ -1,0 +1,10 @@
+display_name: "Conversation 01"
+locale:
+  timezone: UTC
+  language: en
+provenance:
+  timezone: deployment_default
+  language: profile
+  region: unstated
+preferences:
+  response_language: en

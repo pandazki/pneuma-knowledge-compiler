@@ -1,0 +1,46 @@
+{
+  "evolve": {
+    "jobs": 35,
+    "ok": 35,
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "jobs_with_usage": 0,
+    "usd": null,
+    "scope": "Recorded usage only; missing usage is not zero cost"
+  },
+  "compile": {
+    "jobs": 530,
+    "ok": 510,
+    "input_tokens": 38988530,
+    "output_tokens": 842826,
+    "jobs_with_usage": 514,
+    "usd": 8.8090972,
+    "scope": "Recorded usage only; missing usage is not zero cost"
+  },
+  "challenge": {
+    "jobs": 272,
+    "ok": 272,
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "jobs_with_usage": 0,
+    "usd": null,
+    "scope": "Recorded usage only; missing usage is not zero cost"
+  },
+  "index": {
+    "jobs": 272,
+    "ok": 272,
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "jobs_with_usage": 0,
+    "usd": null,
+    "scope": "Recorded usage only; missing usage is not zero cost"
+  },
+  "answer": {
+    "jobs": 1382,
+    "input_tokens": 42871804,
+    "output_tokens": 427485,
+    "jobs_with_usage": 1382,
+    "usd": 9.087342800000002,
+    "scope": "Recorded usage only; missing usage is not zero cost"
+  }
+}

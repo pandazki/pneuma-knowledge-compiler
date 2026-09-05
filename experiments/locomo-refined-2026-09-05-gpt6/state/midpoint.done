@@ -1,0 +1,11 @@
+{
+  "utc": "2026-09-05T09:57:30.843767+00:00",
+  "input_tokens": 18944392,
+  "output_tokens": 431606,
+  "estimated_usd": 4.306805600000001,
+  "completed_sessions": 136,
+  "own_accounted_usd": 4.306805600000001,
+  "extrapolated_build_usd": 8.613611200000001,
+  "undercounts": true,
+  "conservative_cache_rates": true
+}

@@ -1,0 +1,14 @@
+{
+  "utc": "2026-09-05T15:49:31.589553+00:00",
+  "status": "complete",
+  "scores_landed": true,
+  "phase_c_complete": true,
+  "pipeline_running": false,
+  "own_containers_remaining": [],
+  "own_volumes_preserved": 40,
+  "volumes_preserved": true,
+  "framework_clean": true,
+  "freeze_verified": true,
+  "sealed_checkpoints_unchanged": true,
+  "credential_grep_count": 0
+}

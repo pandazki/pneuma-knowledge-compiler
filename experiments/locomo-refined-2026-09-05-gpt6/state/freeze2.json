@@ -1,0 +1,16 @@
+{
+  "scripts/answer.py": "8af83dbade5075603b372fdfdf97918b1f6e925443c72310e134e90db48deb76",
+  "scripts/score.py": "62a73af21c4cc5c562447e9aed5a0ff6e03c1b9f258662b3e62666bb84bcf33e",
+  "scripts/pipeline.py": "da6e4c13b5a2c99100f263a351436c62948ed91670dad348b7a923695aa57ebe",
+  "scripts/test_answer.py": "c46d654719deab80f4fb1dc13a703859afef51ac5d043eeea75af4a14020b297",
+  "contracts/ANSWER-DOCTRINE.md": "65ae99dee1587cd8aefdc31777f8ef5a8c00f003f6a78a4fc078c9412f7ec8e7",
+  "data/README.md": "411a5d7cf48b6a9f05c74e5084f036ad97eaa745759fb7ed8f667db7abb2fb12",
+  "data/scripts/run_eval.sh": "e1516c2429291a36015043dbd246dae624f9898d406874c9ca731e344275c9e8",
+  "data/scripts/env.sh": "20ba4867738bb1613fa7ad9d014d7ed1803a232be890216fc355e14e10be0ea3",
+  "data/src/llm_judge.py": "a24d3480e003d985175b1889d6de208585fa694cdb1f02a3739f3cda30a9bb2a",
+  "data/src/llm_judge_runtime.py": "6fa81ca9b0347293f81666b794788b18e70018dadb5793895a8f0e53437d5790",
+  "data/src/evaluate.py": "a5693786b0d0d1beed41f3acd2b78fb3ddcac27f36ae72cdae30fd8f73cbf410",
+  "data/src/summarize.py": "223aa1fe1e78f3bef16399a0c2fc7e65cb32b2fd20812c05e70bd3b7ae3738ed",
+  "data/src/export.py": "6b1c6d1b29d2e43280ffe745cff11de7cc61a5ae1239bd3928cf6a8b6d6ebafe",
+  "data/src/bleu_f1.py": "49e3f81a10299d51aa85decbbe3caf9851e2def251793dd9a5ccf87f3bedacff"
+}
