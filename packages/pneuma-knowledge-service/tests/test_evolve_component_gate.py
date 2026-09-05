@@ -345,6 +345,28 @@ class _Store:
         self.completed.append({"ok": ok, "detail": detail})
 
 
+@pytest.mark.parametrize("body", [
+    "- Revised claim without provenance. <!-- c:aa11 -->",
+    "- Revised claim with a malformed citation. [cite: source-a] <!-- c:aa11 -->",
+])
+async def test_adopt_rechecks_provenance_before_committing_an_older_draft(body):
+    base = [_topic()]
+    branch = [base[0].model_copy(update={"body": body})]
+    store = _Store(
+        {"task_id": "t-1", "status": "draft", "branch": "evolve/t-1", "base_ref": "base-ref"}
+    )
+    canonical = _Canonical(base, branch, base)
+    ctx = SimpleNamespace(settings=Settings(), store=store, canonical=canonical)
+    job = SimpleNamespace(job_id="j-1", kind="evolve_adopt", payload={"task_id": "t-1"})
+    await adopt_evolve_job(ctx, USER, job)
+    assert canonical.commits == []
+    assert store.decided == []
+    [completion] = store.completed
+    assert completion["ok"] is False
+    assert "[citation]" in completion["detail"]
+    assert store.task["detail"] == completion["detail"]
+
+
 async def test_adopt_is_refused_when_the_review_window_bound_the_identity_elsewhere():
     """The branch passed the gate against the base it was built from. What no one has judged
     is the branch against main NOW: a daily compile inside the review window gave the same

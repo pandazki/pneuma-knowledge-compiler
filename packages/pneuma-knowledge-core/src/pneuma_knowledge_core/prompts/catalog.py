@@ -1484,8 +1484,8 @@ DEFAULTS: dict[str, str] = {
         "supplied material."
     ),
     "gate.claim_without_provenance": (
-        "newly created claim has no provenance at all: \"{preview}…\" (anchor c:{anchor}). "
-        "Every claim added this round must link back to its basis — either `[cite: "
+        "new or revised claim has no provenance at all: \"{preview}…\" (anchor c:{anchor}). "
+        "Every claim added or revised this round must link back to its basis — either `[cite: "
         "<source_id> ¶a-b]` pointing at this round's material, or an in-text reference to the "
         "existing anchor `c:<id>` it derives from; if it is only a section label or a "
         "structural line, do not write it as a standalone claim block."
@@ -1659,6 +1659,11 @@ DEFAULTS: dict[str, str] = {
     "gate.overview_ungrounded": (
         "overview block '{preview}' rests on nothing: every overview sentence must reference "
         "a ledger claim (c:xxxx) or cite a source span ([cite: <source_id> ¶a-b])."
+    ),
+    "gate.overview_invalid_references": (
+        "overview references do not resolve to ledger claims: {references}. Every named "
+        "anchor must exist outside the overview regions, even beside a valid citation. "
+        "Correct or remove these references."
     ),
     "gate.overview_unknown_slot": (
         "the overview carries an unknown slot `{slot}`. The slots are: {slots}."

@@ -4,17 +4,18 @@ WHAT THE OVERVIEW IS, AND WHY IT NEEDS ITS OWN CHECKS
 -----------------------------------------------------
 The ledger is append-only and anchor-immutable because a claim is a piece of judged
 knowledge with an identity: losing one loses something. The overview is the opposite kind of
-object — a bounded head the compile model may replace WHOLESALE — and it is safe to replace
-precisely because it holds nothing of its own. Every sentence in it restates something the
-ledger already carries, so a rewrite can only change the reading, never the record.
+object — a bounded head the compile model may replace WHOLESALE while the ledger keeps its
+bytes. Its contract is to summarize the ledger; the checks below validate its references
+and structure, not whether a sentence faithfully restates what its evidence says.
 
-That safety is not a hope; it is these checks:
+The mechanical checks are:
 
 - **grounding** — every overview block references a ledger claim (`c:<anchor>`) or cites a
   source span. A block that references neither is not a reading of the ledger, it is a new
   uncited assertion in the one non-rebuildable layer, and it is refused. The referenced
   anchor may live in ANY document's ledger: an overview legitimately says "she owns the
-  supplier contracts" on the strength of a claim filed under the product.
+  supplier contracts" on the strength of a claim filed under the product. Every declared
+  anchor reference must resolve, even beside a valid source citation or ledger reference.
 - **budget** — the region is bounded in characters. Unbounded, "the current picture" grows
   into a second ledger that nothing keeps in step with the first.
 - **slots** — the region has four slots and no others, and `definition` is one short block:
@@ -207,6 +208,17 @@ def _connection_targets(block: str) -> list[str]:
     return out
 
 
+def _invalid_reference_problem(block: str, ledger: set[str]) -> str | None:
+    """A valid reference must not mask an invalid one in the same block."""
+    invalid = grounding_references(block) - ledger
+    if not invalid:
+        return None
+    return prompt(
+        "gate.overview_invalid_references",
+        references=", ".join(f"c:{anchor}" for anchor in sorted(invalid)),
+    )
+
+
 def overview_write_problems(
     path: str,
     body: str,
@@ -245,6 +257,9 @@ def overview_write_problems(
         if slot == "definition":
             definition_blocks.append(block)
         preview = _block_preview(block)
+        invalid = _invalid_reference_problem(block, ledger)
+        if invalid:
+            problems.append(invalid)
         if not CANONICAL_CITATION_MARKER_RE.search(block) and not (
             grounding_references(block) & ledger
         ):
@@ -359,6 +374,9 @@ def check_overviews(
         for slot, block in overview_blocks(body):
             if slot == "definition":
                 definition_blocks.append(block)
+            invalid = _invalid_reference_problem(block, ledger)
+            if invalid:
+                findings.append(("overview", path, invalid))
             if CANONICAL_CITATION_MARKER_RE.search(block):
                 continue
             if grounding_references(block) & ledger:

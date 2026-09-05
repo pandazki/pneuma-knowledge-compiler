@@ -138,6 +138,35 @@ def _overview(**kwargs) -> Overview:
     return Overview(**fields)
 
 
+@pytest.mark.parametrize("basis", ["c:11aa22bb", "[cite: s01 ¶2-3]"])
+@pytest.mark.parametrize("channel", ["compile", "evolve"])
+async def test_every_overview_reference_must_resolve_even_beside_valid_provenance(basis, channel):
+    draft = _draft()
+    overview = _overview(definition=f"Mei Lin leads qualification. {basis} c:deadbeef")
+    with pytest.raises(AnchorToolError, match="deadbeef"):
+        draft.rewrite_overview(PERSON, overview)
+    _poke_overview(draft, PERSON, overview)
+    if channel == "compile":
+        violations = run_gate(draft, [])
+    else:
+        from pneuma_knowledge_core.evolve.gate import run_evolve_gate
+
+        async def bounds(source_id):
+            assert source_id == "s01"
+            return 12
+
+        violations, _ = await run_evolve_gate(draft, source_bounds=bounds, path_templates=TEMPLATES)
+    assert any(v.kind == "overview" and "deadbeef" in v.detail for v in violations)
+
+
+def test_untouched_legacy_overview_does_not_block_ledger_writes():
+    draft = _draft()
+    body = _poke_overview(draft, PERSON, _overview(definition="Legacy head. c:deadbeef"))
+    draft = _from_canonical([_doc(PERSON, body, "a1b2c3d4e5f6")], TEMPLATES)
+    draft.edit_claim(PERSON, "11aa22bb", "Mei Lin leads qualification. [cite: s01 ¶2-3]")
+    assert not [v for v in run_gate(draft, []) if v.kind == "overview"]
+
+
 # ───────────────────────────────────────────────────────── documents: (de)serialization
 
 

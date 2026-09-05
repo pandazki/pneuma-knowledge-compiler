@@ -2,7 +2,7 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-Compile the raw material of your domain — meetings, documents, chat, email — into an evolvable, citation-backed knowledge base where nothing can be fabricated.
+Compile the raw material of your domain — meetings, documents, chat, email — into an evolvable knowledge base with explicit provenance.
 
 ### Domain-oriented modeling
 
@@ -14,7 +14,7 @@ No business stands still. Any model fixed up front degrades as data accumulates,
 
 ### Provenance enforced by the framework
 
-Every piece of knowledge must carry citations that resolve to exact passages of the source material, verified mechanically at write time; whatever fails verification is rejected. Provenance is not a prompt convention here but a write-layer constraint: nothing can be fabricated, and nothing loses its source.
+New and revised claims must carry provenance: a source citation or a reference to an existing ledger claim. The framework checks provenance presence, citation syntax and source bounds before committing, and checks every declared reference in a rewritten overview. These are write-layer constraints. They make missing or invalid provenance detectable; they do not prove that a claim faithfully represents the cited material. Semantic fidelity still depends on the compile contract, model and review.
 
 ### What this is not
 

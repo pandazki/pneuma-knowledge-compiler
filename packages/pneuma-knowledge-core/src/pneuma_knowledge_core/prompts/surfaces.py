@@ -3888,6 +3888,11 @@ SURFACES: tuple[Surface, ...] = (
                 "总览超出字符预算——它是头部，不是第二本账。",
             ),
             f(
+                "gate.overview_invalid_references",
+                "Every declared overview reference must name an existing ledger claim.",
+                "总览声明的每个引用都必须指向已有账本断言。",
+            ),
+            f(
                 "gate.overview_ungrounded",
                 "An overview block references no ledger claim and cites no source span.",
                 "某个总览块既没引账本断言，也没引来源区间。",
@@ -3947,9 +3952,9 @@ SURFACES: tuple[Surface, ...] = (
             ),
             f(
                 "gate.claim_without_provenance",
-                "When a newly written claim links back to nothing — this is the citation gate "
-                "itself, the check that makes fabrication structurally impossible.",
-                "当新写的断言没有任何回溯依据时——这就是引用闸门本身，让编造在结构上不可能的那道检查。",
+                "When a new or revised ledger claim has no provenance. This checks that a "
+                "basis is named, not whether the evidence supports the claim's meaning.",
+                "当新增或改写的账本断言没有出处时。这检查是否声明了依据，不证明依据支持断言的语义。",
             ),
             f(
                 "gate.citation_unknown_source",
@@ -4172,6 +4177,11 @@ SURFACES: tuple[Surface, ...] = (
                 "The candidate overview renders over its character budget — refused before "
                 "the write rather than at the gate.",
                 "候选总览渲染后超出字符预算——在写入前就拒绝，而不是拖到闸门。",
+            ),
+            f(
+                "gate.overview_invalid_references",
+                "Every declared overview reference must name an existing ledger claim.",
+                "总览声明的每个引用都必须指向已有账本断言。",
             ),
             f(
                 "compile.overview.refuse_ungrounded",

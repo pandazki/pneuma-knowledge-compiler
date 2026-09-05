@@ -1111,7 +1111,7 @@ _ZH: dict[str, str] = {
         "符。"
     ),
     "gate.claim_without_provenance": (
-        "本轮新增的断言完全没有出处：「{preview}…」（锚点 c:{anchor}）。本轮新增的每条断言都必须"
+        "本轮新增或改写的断言完全没有出处：「{preview}…」（锚点 c:{anchor}）。本轮新增或改写的每条断言都必须"
         "链回它的依据——要么是指向本轮材料的 `[cite: <source_id> ¶a-b]`，要么是在正文里引用它所依"
         "据的已有锚点 `c:<id>`；如果它只是小节标签或结构行，就不要把它写成独立的断言块。"
     ),
@@ -1235,6 +1235,10 @@ _ZH: dict[str, str] = {
     "gate.overview_ungrounded": (
         "总览块「{preview}」没有落点：总览的每一句都必须引用一条账本断言（c:xxxx），"
         "或引用一段来源（[cite: <source_id> ¶a-b]）。"
+    ),
+    "gate.overview_invalid_references": (
+        "总览中的引用无法解析到账本断言：{references}。每个被引用的锚点都必须存在于总览区域之外，"
+        "即使旁边已有有效引用也不例外。请修正或删除这些引用。"
     ),
     "gate.overview_unknown_slot": (
         "总览里出现了未知槽位 `{slot}`。槽位只有：{slots}。"
