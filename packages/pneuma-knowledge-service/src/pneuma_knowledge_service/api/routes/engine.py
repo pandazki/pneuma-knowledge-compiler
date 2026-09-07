@@ -22,6 +22,7 @@ route below is a 404, so a deployment that never adopted the concept has no new 
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from pathlib import Path
 from typing import Any, Literal
@@ -52,6 +53,8 @@ from ...engine import (
     version,
 )
 from ...settings import Settings
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1/engine", tags=["engine"])
 
@@ -455,6 +458,36 @@ async def post_engine_apply(request: Request, body: ApplyIn) -> ApplyOut:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except EngineGitError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+    await _refresh_steward_skill(request)
     return ApplyOut(
         sha=sha, effects=[EffectOut(key=e.key, apply=e.apply) for e in effects]
     )
+
+
+async def _refresh_steward_skill(request: Request) -> None:
+    """Re-render the coding agent's installed skill after an apply that may have moved it.
+
+    The skill package is generated from the contract, the overlays, the enabled components
+    and the language — the same four things this route writes. Under an agent executor an
+    apply that left the installed skill alone would leave the Steward reading an engine that
+    no longer exists, and the freshness check would then fail the suite for a drift nobody
+    introduced by hand. Blast radius is `future_compiles`, like the knobs themselves: a
+    session already running keeps the words it started with until it restarts.
+
+    Never fatal. The apply is committed by the time this runs, and a project directory the
+    API process cannot write (a container that mounts only `engine/`) is a deployment shape,
+    not an error in the change that was just saved — it is logged and the caller is told the
+    apply succeeded, because it did.
+    """
+    from ...coding_agent import refresh_skill_installs
+
+    settings = getattr(request.app.state, "settings", None)
+    if settings is None:
+        return
+    try:
+        written = await refresh_skill_installs(settings)
+    except Exception:  # noqa: BLE001 — see the docstring: an apply is not undone by this
+        logger.warning("the Steward skill could not be re-installed after the apply", exc_info=True)
+        return
+    if written:
+        logger.info("re-installed the Steward skill after an engine apply: %s", ", ".join(written))

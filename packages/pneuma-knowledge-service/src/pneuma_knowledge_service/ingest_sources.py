@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Sequence
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from pneuma_knowledge_core.domain.ids import UserId
-from pneuma_knowledge_core.domain.intake import IntakePlan, propose_intake
+from pneuma_knowledge_core.domain.intake import (
+    IntakePlan,
+    plan_for_archetype,
+    propose_intake,
+)
 from pneuma_knowledge_core.ingest.canonical_sources import normalize_source_contract
 from pneuma_knowledge_core.ingest.source_contracts import SourceContract
 
@@ -20,6 +25,11 @@ from .wiring import AppContext
 class OfficialIngestResult:
     contract_schema: str
     sources: list[IngestResult]
+    #: The compile jobs this import enqueued, in the order it enqueued them. Empty when the
+    #: contract's intake asked for no canonical treatment, or when every source was a replay
+    #: the library already holds. Reported because a CLI caller has nothing else to watch:
+    #: the browser polls `/jobs`, and a Steward needs the id it is about to open.
+    compile_jobs: list[str] = field(default_factory=list)
 
 
 async def ingest_source_contract(
@@ -29,6 +39,8 @@ async def ingest_source_contract(
     *,
     imported_at: datetime | None = None,
     intake_plan: IntakePlan | None = None,
+    about_paths: Sequence[str] = (),
+    intake_archetype: str | None = None,
 ) -> OfficialIngestResult:
     """Import a canonical bundle at its natural citation boundaries.
 
@@ -42,6 +54,19 @@ async def ingest_source_contract(
     same commit as the move. A compile of the same statement would paraphrase the decision
     onto whatever pages the model thought it touched. The statement is still fully indexed
     (`semantic_indexing: full`) and fully addressable, exactly like any other L0.
+
+    `intake_archetype` overrules the proposal for every source of this bundle, exactly as
+    `ingest_document`'s does for a single document: a plan is a PROPOSAL (architecture §4),
+    and a caller who names an archetype has decided. Unknown names raise rather than falling
+    back, because silently proposing when someone stated is the one failure a plan override
+    exists to prevent.
+
+    `about_paths` is the OWNER's hint about which canonical pages a statement concerns
+    (`pkc owner say --about`, docs/design/coding-agent-mode.md §5.3). It rides the compile
+    job's payload and is rendered into that round's source guidance; it points the round at
+    pages and changes nothing about what the gate requires of what is written there. A
+    caller who states both gets the plan: `intake_plan` is a fully-formed decision, and an
+    archetype name is a way of naming one.
     """
 
     assert_writable(user_id)  # a frozen snapshot tenant is never written (snapshot_tenant.py)
@@ -77,11 +102,15 @@ async def ingest_source_contract(
     for normalized in normalized_sources:
         raw = normalized.raw
         char_count = sum(len(block.text) for block in normalized.blocks)
-        plan = intake_plan or propose_intake(
-            raw.kind,
-            raw.source_class,
-            char_count,
-            "note" if raw.kind == "document_library" else None,
+        plan = (
+            intake_plan
+            or (plan_for_archetype(intake_archetype) if intake_archetype else None)
+            or propose_intake(
+                raw.kind,
+                raw.source_class,
+                char_count,
+                "note" if raw.kind == "document_library" else None,
+            )
         )
         raw.intake_plan = plan.model_dump()
 
@@ -127,17 +156,22 @@ async def ingest_source_contract(
     # them enters L3 compilation. This also keeps bulk import progress intuitive.
     for source_id, _ in new_sources:
         await ctx.store.enqueue(user_id, "index", {"source_id": source_id})
+    compile_jobs: list[str] = []
+    about = [str(path).strip() for path in about_paths if str(path).strip()]
     for source_id, plan in new_sources:
         if plan.canonical_treatment != "none":
-            await ctx.store.enqueue(
-                user_id,
-                "compile",
-                {
-                    "source_ids": [source_id],
-                    "treatments": {source_id: plan.canonical_treatment},
-                },
-            )
+            payload: dict = {
+                "source_ids": [source_id],
+                "treatments": {source_id: plan.canonical_treatment},
+            }
+            if about:
+                payload["about_paths"] = about
+            job_id = await ctx.store.enqueue(user_id, "compile", payload)
+            if job_id:
+                compile_jobs.append(str(job_id))
 
     return OfficialIngestResult(
-        contract_schema=contract.contract_schema, sources=results
+        contract_schema=contract.contract_schema,
+        sources=results,
+        compile_jobs=compile_jobs,
     )

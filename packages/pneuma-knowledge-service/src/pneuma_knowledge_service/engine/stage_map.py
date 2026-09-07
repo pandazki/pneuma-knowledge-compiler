@@ -693,10 +693,20 @@ STAGES: tuple[Stage, ...] = (
                 label_zh="编译模型",
                 description_en=(
                     "Must support tool calling: the compile agent writes through tools, so a "
-                    "model without them cannot write at all."
+                    "model without them cannot write at all. It may also name an EXECUTOR "
+                    "instead of a model — `agent:codex` or `agent:claude-code` — and the "
+                    "round is then driven by that coding agent on this machine, under your "
+                    "own subscription, through the same draft and the same gate. Changing it "
+                    "takes a restart and governs future compiles only; the library is "
+                    "byte-identical either way, and the job record says which ran. An "
+                    "executor is not a model: the other roles still need one of their own."
                 ),
                 description_zh=(
                     "必须支持工具调用：编译代理是通过工具写入的，不支持工具调用的模型根本写不了。"
+                    "这里也可以填执行体而非模型——`agent:codex` 或 `agent:claude-code`——那一轮"
+                    "就由本机上的编码代理、用你自己的订阅来跑，走同一份草稿、同一道闸门。改动需要"
+                    "重启，且只影响此后的编译；两种方式产出的库逐字节一致，任务记录会写明是谁跑的。"
+                    "执行体不是模型：其余角色仍需各自指定模型。"
                 ),
             ),
             Knob(
@@ -1361,6 +1371,36 @@ NON_ENGINE_SETTINGS: frozenset[str] = frozenset(
         "context_stream_render_roles",
         "context_stream_compile_guidance",
         "briefing_citation_alias",
+        # How long an open `pkc draft` round may go quiet before the queue's self-heal
+        # reclaims it. Queue plumbing, exactly like the orphan reclaim it extends: it decides
+        # when a body has stopped holding a job, never what gets compiled or how.
+        "compile_draft_ttl",
+        # How long a `pkc recall --evidence` hand-over waits for its answer before the same
+        # self-heal deletes it. The same plumbing decision one line up: it says when a body
+        # has stopped holding something, never what is retrieved or how it is answered.
+        "recall_handoff_ttl",
+        # Which harness typed the commands of an agent-driven round. Written by whoever
+        # launched that session and read only when a job row is stamped with its executor:
+        # a record of what happened, not a choice about what happens. The choice is the
+        # compile role's model spec, which IS a knob.
+        "executor_backend",
+        # The four knobs of the UNATTENDED launcher (docs/design/coding-agent-mode.md §8).
+        # Every one of them is about how this installation runs a subprocess — whether to
+        # check a binary is logged in before starting, how many times to wait out a
+        # provider's rate limit, whether to keep a temp directory for debugging, and whether
+        # this process launches harnesses at all. None of them changes what is compiled or
+        # how it is judged, which is the line an engine knob has to be on the other side of.
+        # The choice that IS strategy stays one line in `engine.yaml`: `models.compile`.
+        "agent_probe_on_start",
+        "agent_retries",
+        "agent_keep_workdir",
+        "agent_unattended",
+        # The two knobs of the console's Steward session (§5.6): WHERE this installation
+        # spawns a harness, and how long that process outlives the browser tab. A directory
+        # and a timeout — deployment wiring by construction, and neither of them is reachable
+        # from a compile's judgement. What the Steward compiles with is `models.compile`.
+        "project_dir",
+        "steward_session_idle",
         # Document rollover is mechanical maintenance, like log rotation — size-triggered,
         # meaning-preserving. Orthogonal to every knob above, which is why it is not one.
         "rollover_threshold_chars",

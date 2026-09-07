@@ -23,6 +23,7 @@ import json
 import logging
 from datetime import datetime, timezone
 
+from pneuma_knowledge_core.compile.runner import with_skill_trailer
 from pneuma_knowledge_core.domain.ids import UserId
 from pneuma_knowledge_core.skill import (
     SchemaPack,
@@ -127,11 +128,14 @@ async def _write_manifest(
     composed: SkillVersion,
 ) -> None:
     content = serialize_manifest(base, packs, composed)
+    # Every canonical commit states which contract produced it (architecture §4); this one
+    # is produced by the composed contract itself, so it carries the same trailer a compile
+    # or a groom heal does — and `pkc library check` can hold the whole history to one rule.
     await ctx.canonical.write_meta(
         user_id,
         _MANIFEST_PATH,
         content,
-        message="skill: materialize per-user schema manifest",
+        message=with_skill_trailer("skill: materialize per-user schema manifest", composed),
     )
 
 
@@ -193,6 +197,48 @@ async def path_templates_for(settings, canonical, user_id: UserId) -> list[str]:
             exc,
         )
         return []
+
+
+async def composed_skill_readonly(settings, canonical, user_id: UserId) -> SkillVersion:
+    """The contract this user compiles under — READ-ONLY, and no ctx required.
+
+    `skill_for_user` is the write-capable resolution: it may derive packs with a model and
+    materialize a manifest. This is the same question asked by something that must not do
+    either — rendering the coding agent's skill package, where inventing a user's schema as a
+    side effect of writing a reference file would be absurd. It is `path_templates_for`'s
+    sibling one level up: that one answers "which families", this one answers "which whole
+    contract", and both absorb the same three named failures into the same answer, "the
+    deployment's base, composed with nothing".
+
+    `canonical` may be None — a caller with no repository to read (a project being generated,
+    where nothing has been compiled yet) gets the deployment's base, which is exactly what the
+    first compile will use.
+    """
+    base = load_skill_base(settings.user_schema_base_version)
+    if not settings.user_schema_packs or canonical is None:
+        return base
+    try:
+        raw = await canonical.read_meta(user_id, _MANIFEST_PATH)
+        manifest = json.loads(raw) if raw else None
+        if not isinstance(manifest, dict):
+            return base
+        named, _retired = base_named_or_current(
+            settings, str(manifest.get("base_version") or "")
+        )
+        try:
+            packs = [SchemaPack(**p) for p in manifest.get("packs", [])]
+        except TypeError as exc:
+            raise ValueError(f"malformed schema pack: {exc}") from exc
+        return compose_skill(named, packs)
+    except (OSError, ValueError) as exc:
+        _log.warning(
+            "the composed contract for %s could not be read (%s: %s); using the "
+            "deployment's base",
+            user_id,
+            type(exc).__name__,
+            exc,
+        )
+        return base
 
 
 async def skill_for_user(ctx, user_id: UserId) -> SkillVersion:

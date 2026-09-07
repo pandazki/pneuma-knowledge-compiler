@@ -2189,6 +2189,13 @@ class JobOut(BaseModel):
     field existed a finished job could not say what it had cost — the money went where money
     goes when nobody counts it. It is the compile loop's own sum (first round plus repair
     round); jobs that run no model report nothing rather than zero.
+
+    `executor` is who ran the round — `langchain:<model spec>`, or `agent:<backend>` when a
+    coding agent typed the calls through `pkc draft` (docs/design/coding-agent-mode.md ruling
+    1). Null on a job that has not finished, and on every job compiled before the column
+    existed. `waiting_for` is the other half of the same question, asked of a job that has
+    not run yet: under an agent executor a queued compile job does not drain itself, and the
+    process view has to be able to say who is expected to act on it (story 2.24).
     """
 
     job_id: str
@@ -2202,6 +2209,8 @@ class JobOut(BaseModel):
     completed_at: str | None
     token_usage: dict[str, int] = {}
     cost: CostOut | None = None
+    executor: str | None = None
+    waiting_for: Literal["worker", "steward"] | None = None
 
 
 class JobPageOut(BaseModel):
@@ -2275,6 +2284,9 @@ async def list_jobs(
         status=status,
         kind=kind,
     )
+    # WHO is expected to act on a job still in the queue. One resolution — the deployment's
+    # compile executor — read here so the console cannot say something the worker will not do.
+    compile_waits_for = "steward" if ctx.compile_executor.is_agent else "worker"
     items = [
         JobOut(
             job_id=r["job_id"],
@@ -2288,6 +2300,14 @@ async def list_jobs(
             completed_at=r["completed_at"].isoformat() if r["completed_at"] else None,
             token_usage=dict(r.get("token_usage") or {}),
             cost=_cost_out(lane_cost(ctx.settings, "compile", r.get("token_usage"))),
+            executor=r.get("executor"),
+            waiting_for=(
+                compile_waits_for
+                if r["status"] == "queued" and r["kind"] == "compile"
+                else "worker"
+                if r["status"] == "queued"
+                else None
+            ),
         )
         for r in rows
     ]

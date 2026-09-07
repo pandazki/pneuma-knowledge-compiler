@@ -6,6 +6,8 @@ that satisfy the core ports and hands them to the API via FastAPI lifespan.
 
 from __future__ import annotations
 
+import logging
+
 from dataclasses import dataclass, field
 
 from langchain_core.embeddings import DeterministicFakeEmbedding, Embeddings
@@ -29,6 +31,7 @@ from pneuma_knowledge_core.ingest.chunking import (
 )
 
 from .adapters.git_canonical import GitCanonicalStore
+from .coding_agent.backends import BACKENDS as _BACKEND_MANIFESTS
 from .adapters.meilisearch import MeiliLexicalIndex
 from .adapters.postgres import PostgresStore
 from .adapters.qdrant import QdrantVectorIndex
@@ -36,8 +39,11 @@ from .adapters.s3_media import S3MediaStore
 from .adapters.scripted_model import load_scripted_model
 from .adapters.user_info_mock import MockUserInfoProvider
 from .adapters.user_info_provider_composite import PersistedThenMockUserInfoProvider
+from .embedding_key import embedding_key_notice, embedding_key_requirement
 from .settings import Settings
 from pneuma_knowledge_core.ports.user_info_provider import UserInfoProvider
+
+log = logging.getLogger(__name__)
 
 
 def build_chunker(settings: Settings):
@@ -400,8 +406,20 @@ def resolve_model_name(settings: Settings, role: str = "default") -> str:
     for candidate in (role, _ROLE_FALLBACK.get(role)):
         field = _ROLE_FIELDS.get(candidate) if candidate else None
         value = getattr(settings, field, "") if field else ""
-        if value:
-            return value
+        if not value:
+            continue
+        if (
+            candidate != role
+            and value.startswith(AGENT_PREFIX)
+            and role not in AGENT_ROLES
+        ):
+            # A BORROWED `agent:` spec is not a model this role can run — evolve, challenge
+            # and brief borrow compile's field, and pointing compile at a coding agent must
+            # not strand them. The chain keeps falling to the base model instead. A role
+            # that names `agent:` in its OWN field is a different matter: that is a stated
+            # misconfiguration and `executor_for` refuses it by name.
+            continue
+        return value
     return settings.llm_model
 
 
@@ -430,6 +448,13 @@ def usable_model_name(settings: Settings, role: str = "default") -> str:
     which used to hide the engine's values behind an env lock in the console."""
     name = resolve_model_name(settings, role)
     if name.startswith("openrouter:") and not settings.openrouter_api_key.strip():
+        return ""
+    if name.startswith(AGENT_PREFIX):
+        # A coding agent does not answer an `ainvoke`, so every dispatch point that asks
+        # "can THIS process run the role's model" must hear no — and degrade the way it
+        # already degrades for a keyless deployment. Semantic chunking is the one that
+        # matters today: it falls back to mechanical sentence chunking, exactly as it does
+        # for a scripted model (docs/design/coding-agent-mode.md §3.1).
         return ""
     return name
 
@@ -480,6 +505,16 @@ def _build_from_name(
     guardrails from settings — see `_provider_guardrails`. The scripted model is local
     replay: no request, nothing to time out or retry.
     """
+    if name.startswith(AGENT_PREFIX):
+        # An executor is not a chat model (docs/design/coding-agent-mode.md ruling 1). The
+        # spec resolves and travels like any other — that is what makes switching executors
+        # one edit — but the thing at the end of it is a harness a person's subscription
+        # runs, with no `ainvoke` to bind tools to. `executor_for` is the question to ask
+        # about `agent:`; this one has no answer.
+        raise RuntimeError(
+            f"{name!r} names a coding-agent executor, not a chat model: ask "
+            "`executor_for(settings, role)` instead of building a model from it"
+        )
     if name.startswith("scripted:"):
         return load_scripted_model(name.split(":", 1)[1])
     # Imported lazily: init_chat_model pulls provider extras only when a real model
@@ -533,6 +568,163 @@ def build_chat_model_for(settings: Settings, role: str = "default") -> BaseChatM
 def build_chat_model(settings: Settings) -> BaseChatModel:
     """Back-compat: the default-role chat model (settings.llm_model)."""
     return build_chat_model_for(settings, "default")
+
+
+# ────────────────────────────────────────────────────────────────────── the executor
+#
+# WHO runs a role's rounds. Every role in this file has had exactly one possible body — a
+# langchain `BaseChatModel` assembled from its spec — and the compile role now has two: that
+# model, or a coding agent running under the Owner's own subscription
+# (docs/design/coding-agent-mode.md). The choice is spelled where the model is spelled, as a
+# spec (`agent:codex` beside `openrouter:…`), because switching bodies is a strategy edit and
+# not a deployment rebuild (ruling 1, story 2.10).
+
+#: The spec prefix that names an executor rather than a model.
+AGENT_PREFIX = "agent:"
+
+#: The harnesses this version knows. Codex first, Claude Code beside it; Kimi waits for a
+#: headless mode that carries a structured flow and reports tokens (§0, third ruling). A name
+#: outside this set is a typo, and a typo that started the stack would be found by a compile
+#: job that never ran.
+#:
+#: Read off the backend registry rather than spelled again: backends are data (ruling 9), and
+#: a second list of their names is a second thing to keep in step.
+AGENT_BACKENDS: tuple[str, ...] = tuple(_BACKEND_MANIFESTS)
+
+#: The roles that may resolve to an `agent:` spec. Compile is the whole of v1: it is the one
+#: role whose round is a tool loop over a draft, and therefore the one a CLI can carry. The
+#: single-shot roles (recall, answer, deep, live, evolve, …) want a `LeafChatModel` over the
+#: same launcher, which is designed (§9) and deferred.
+AGENT_ROLES: frozenset[str] = frozenset({"compile"})
+
+
+@dataclass(frozen=True)
+class Executor:
+    """Who drives one role's rounds, resolved once and read by everybody.
+
+    `kind` is the fork every caller branches on; `spec` is the resolved model spec exactly as
+    `resolve_model_name` returned it (so a job record can name what ran); `backend` is the
+    harness for an agent executor and None for a model.
+    """
+
+    kind: str  #: "langchain" | "agent"
+    spec: str
+    backend: str | None = None
+
+    @property
+    def is_agent(self) -> bool:
+        return self.kind == "agent"
+
+
+def executor_for(settings: Settings, role: str = "compile") -> Executor:
+    """The body that runs `role`'s rounds in this deployment.
+
+    An ordinary spec (including `scripted:`, including an empty one) is a langchain model, as
+    it has always been. `agent:<backend>` is a coding agent, and two things are refused here
+    rather than discovered later: a backend nothing can launch, and an `agent:` spec STATED
+    for a role that has no CLI to drive it — in the role's own field, or as the base
+    `LLM_MODEL` every role ends at. A role that would merely have BORROWED compile's agent
+    spec through `_ROLE_FALLBACK` (evolve, challenge, brief) never gets here: `resolve_model_name`
+    skips the borrowed spec and falls to the base model, so pointing compile at an agent does
+    not strand three other roles. Both refusals raise naming the role, and `build_context`
+    asks about every role so they land at startup instead of on the first job of that kind.
+    """
+    spec = resolve_model_name(settings, role)
+    if not spec.startswith(AGENT_PREFIX):
+        return Executor(kind="langchain", spec=spec, backend=None)
+    backend = spec[len(AGENT_PREFIX) :].strip()
+    if role not in AGENT_ROLES:
+        own = getattr(settings, _ROLE_FIELDS.get(role, ""), "") if role in _ROLE_FIELDS else ""
+        where = (
+            f"PNEUMA_KNOWLEDGE_LLM_MODEL_{role.upper()}"
+            if own
+            else "the base PNEUMA_KNOWLEDGE_LLM_MODEL"
+        )
+        raise ValueError(
+            f"the {role!r} role resolves to {spec!r} through {where}, and only "
+            f"{sorted(AGENT_ROLES)} may run on a coding agent in this version: give "
+            f"{role!r} a model there"
+        )
+    if backend not in AGENT_BACKENDS:
+        raise ValueError(
+            f"the {role!r} role names an unknown coding agent {backend!r}; "
+            f"shipped backends: {', '.join(AGENT_BACKENDS)}"
+        )
+    return Executor(kind="agent", spec=spec, backend=backend)
+
+
+def check_executors(settings: Settings) -> None:
+    """Resolve every role's executor, so a bad one fails at startup and names the role."""
+    for role in ("default", *_ROLE_FIELDS):
+        executor_for(settings, role)
+
+
+#: Which (spec, variable) pairs this process has already said the sentence about. A process
+#: builds a context once (the API, the worker) or once per command (`pkc`), and a reminder
+#: repeated on every build would train the reader to skip it.
+_EMBEDDING_KEY_WARNED: set[tuple[str, str]] = set()
+
+
+def warn_missing_embedding_key(settings: Settings) -> str:
+    """One WARNING, once per process, when the embedding model needs a key nobody set.
+
+    Beside `check_executors` because it answers the same kind of question at the same moment:
+    who does the work this deployment configured, and can they. The difference is the verdict
+    — a role that names a harness nothing can launch is a misconfiguration the stack refuses
+    to start on, while a missing embedding key leaves L0, L1 and canonical entirely usable.
+    So this warns and returns; only L2 is affected, and it is affected loudly.
+
+    Returns what it said, so a caller with a face of its own (`app.py up`) can print the same
+    text rather than compose a second one.
+    """
+    spec = str(settings.embedding_model or "")
+    requirement = embedding_key_requirement(spec)
+    if requirement is None:
+        return ""
+    env_var, field = requirement
+    notice = embedding_key_notice(spec, str(getattr(settings, field, "") or ""))
+    if not notice:
+        return ""
+    if (spec, env_var) not in _EMBEDDING_KEY_WARNED:
+        _EMBEDDING_KEY_WARNED.add((spec, env_var))
+        log.warning("%s", notice)
+    return notice
+
+
+class AgentProbeFailed(RuntimeError):
+    """The configured coding agent is not usable, and the message says exactly why."""
+
+
+async def probe_compile_executor(settings: Settings) -> None:
+    """Is the harness this deployment compiles with actually live? (§8, ruling 9.)
+
+    Asked once, at startup, by the process that will LAUNCH it — and fatal when the answer is
+    no, because the alternative is a queue that fills up while every round dies on a binary
+    that is not there or a login nobody finished. Liveness, never a version.
+
+    Three conditions, all of them about "will this process launch a harness":
+
+    * the compile role runs on an agent at all;
+    * this deployment is in the unattended posture — interactively the Owner's own session IS
+      the harness, and probing would test something nothing here is going to start;
+    * `AGENT_PROBE_ON_START` is on, which is the switch a test or a CI job flips when the
+      binary on PATH is a fake and a login is not a thing that exists.
+    """
+    executor = executor_for(settings, "compile")
+    if not (executor.is_agent and settings.agent_unattended and settings.agent_probe_on_start):
+        return
+    from .coding_agent.backends import backend as backend_manifest
+    from .coding_agent.probe import probe
+
+    manifest = backend_manifest(str(executor.backend))
+    result = await probe(manifest)
+    if result.ok:
+        log.info("compile executor %s: %s", executor.spec, result.reason)
+        return
+    raise AgentProbeFailed(
+        f"this deployment compiles with {executor.spec} and that harness is not usable: "
+        f"{result.reason}. Fix it, or point PNEUMA_KNOWLEDGE_LLM_MODEL_COMPILE at a model."
+    )
 
 
 # --------------------------------------------------------------- observability (Langfuse)
@@ -648,6 +840,9 @@ class AppContext:
     # deployment has not enabled one. Built once and reused: it holds an httpx client.
     _web_search: object | None = field(default=None, repr=False)
     _web_search_built: bool = field(default=False, repr=False)
+    # The console Steward session's transcript store (`coding_agent/steward_turns.py`), built
+    # on first use. Ephemeral rows, neither authority nor kept record — see the table comment.
+    _steward_turns: object | None = field(default=None, repr=False)
 
     def get_web_search(self):
         """The configured supplementary internet search, or None when the deployment is
@@ -704,6 +899,26 @@ class AppContext:
                     spec, self.settings.openrouter_api_key
                 )
         return self._reranker
+
+    @property
+    def steward_turns(self):
+        """The durable half of a console Steward session's transcript (ruling 13).
+
+        Lazy and built from the same pool as everything else, so an AppContext assembled
+        without Postgres (the keyless command tests) never touches it — and so a test that
+        wants the in-memory double sets `_steward_turns` and this returns it unchanged.
+        """
+        if self._steward_turns is None:
+            from .adapters.postgres import PostgresStewardTurnStore
+
+            self._steward_turns = PostgresStewardTurnStore(self.store)
+        return self._steward_turns
+
+    @property
+    def compile_executor(self) -> Executor:
+        """Who runs this deployment's compile rounds — one resolution, read by the worker and
+        the API alike, so what the queue does and what the console says cannot disagree."""
+        return executor_for(self.settings, "compile")
 
     def get_chat_model(self, role: str = "default") -> BaseChatModel:
         # Keyed by resolved model spec, not role: roles sharing a spec (all-scripted,
@@ -780,11 +995,29 @@ class AppContext:
             await self._web_search.aclose()
 
 
-async def build_context(settings: Settings) -> AppContext:
+async def build_context(
+    settings: Settings, *, probe_agent: bool = True
+) -> AppContext:
     """Assemble the adapter singletons and bring their connections up on the CALLER's
     event loop (pool open, collection probe). Everything the constructors used to do
     eagerly — opening the PG pool, probing the Qdrant collection, probing the embedding
-    dimension — is I/O, so it happens here under await rather than inside `__init__`."""
+    dimension — is I/O, so it happens here under await rather than inside `__init__`.
+
+    `probe_agent=False` is for a process that will never launch a harness because it IS the
+    harness's hand: every `pkc` command builds a context, and probing a coding agent once per
+    command would cost seconds per call and, inside a session of that very harness, would
+    launch it from within itself.
+    """
+    # Who runs each role, before anything is built: an `agent:` spec on a role that cannot
+    # be driven by a CLI, or a harness nothing can launch, is a misconfiguration the stack
+    # must refuse to start on rather than discover on the first job of that kind.
+    check_executors(settings)
+    # Not a gate: the embedding key is missing or it is not, and either way everything below
+    # this line is built. What it must not do is stay silent (§3.1).
+    warn_missing_embedding_key(settings)
+    if probe_agent:
+        await probe_compile_executor(settings)
+
     store = PostgresStore(settings.pg_dsn)
     await store.open()
     await store.apply_schema()

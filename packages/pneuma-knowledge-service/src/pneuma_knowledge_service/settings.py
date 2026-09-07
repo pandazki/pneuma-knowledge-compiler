@@ -68,6 +68,82 @@ class Settings(BaseSettings):
     # the library. Set it only to state an absolute number; it is then used as given.
     compile_max_tool_calls: int = 0
 
+    # How long an OPEN compile draft may go quiet before the queue's self-heal treats it as
+    # abandoned (seconds). A draft is written by every `pkc draft` command an agent runs, so
+    # `updated_at` is the liveness signal for a round a person is actually driving; six hours
+    # is long enough to cover an interrupted afternoon and short enough that a forgotten round
+    # does not hold a user's queue overnight. Past it the draft is deleted and its job
+    # requeued — the same outcome a worker killed mid-job gets, and never a canonical write:
+    # an unfinished round wrote nothing. 0 disables draft protection entirely, which is the
+    # pre-agent behaviour (every claimed job is requeued on worker start).
+    compile_draft_ttl: int = 6 * 60 * 60
+
+    # How long a PENDING RECALL HANDOFF survives before the same startup self-heal deletes it
+    # (seconds). `pkc recall --evidence` hands the fast lane's assembled context to the
+    # Steward and records the hand-over — question, instant, library ref, evidence manifest —
+    # so that `pkc consult answer` can turn it into a consultation later. A day is long
+    # enough for a Steward to come back after a night and short enough that a question nobody
+    # answered does not accumulate forever; past it the row is gone and the question simply
+    # left no consultation, which is what actually happened. 0 disables the sweep, and the
+    # rows then live until they are answered or deleted by hand.
+    recall_handoff_ttl: int = 24 * 60 * 60
+
+    # WHICH coding agent is typing the `pkc draft` commands, when one is. Set by whoever
+    # launched the session — the unattended launcher, or the console's bridge — and left
+    # empty by an Owner who opened a terminal themselves; the job record then says `agent`
+    # rather than naming a harness it cannot verify. It is a label on what happened, never a
+    # switch: what a deployment RUNS on is `llm_model_compile: agent:<backend>`, and this
+    # field decides nothing about it.
+    executor_backend: str = ""
+
+    # ── the unattended posture (docs/design/coding-agent-mode.md §8, §9) ──────────────────
+    #
+    # Four knobs, all of them about a coding agent the FRAMEWORK launches. None of them
+    # applies when the Owner drives the harness themselves: there the skill is the launcher.
+
+    # Probe the configured compile backend when the stack starts. A harness that is installed
+    # but not logged in drops into an interactive flow and waits forever, so "is it live" is a
+    # question a deployment must answer before it queues work, not on the first compile. The
+    # probe is liveness, never a version comparison (ruling 9). Off is for tests and CI, where
+    # the binary is a fake on PATH and a login is not a thing that exists.
+    agent_probe_on_start: bool = True
+
+    # How many times the unattended launcher may relaunch a round the harness refused with a
+    # RATE LIMIT — and only that. A refusal of any other kind is reported, because it will be
+    # refused again; a timeout is not retried either, because the wall clock is the statement
+    # that the round is over. Waits are exponential with jitter and bounded by the launcher's
+    # own ceiling. 0 means one attempt and no backoff.
+    agent_retries: int = 3
+
+    # Keep the launcher's per-round working directory (the system text, the task, the
+    # harness's last message) instead of deleting it. Debugging only: those files hold the
+    # library's material, and leaving them in /tmp is a decision an operator makes on purpose.
+    agent_keep_workdir: bool = False
+
+    # Whether the WORKER runs compile jobs through a coding agent itself. A worker is by
+    # definition unattended — nobody is at a terminal where it runs — so this is on, and a
+    # compile job under an agent executor is claimed, opened, handed to a launched harness and
+    # finished. Off is the interactive posture: the worker leaves compile jobs queued and the
+    # Owner's own session opens them with `pkc draft open` (the behaviour §11 step 2 shipped).
+    agent_unattended: bool = True
+
+    # ── the console's Steward view (docs/design/coding-agent-mode.md §5.6) ────────────────
+
+    # WHERE a harness the service spawns is run: the project directory the skill was
+    # installed into, so the harness reads its own `AGENTS.md` / `CLAUDE.md` and finds the
+    # installed skill beside them. Empty (the default) means the directory the API process
+    # was started from — the same convention `pkc` itself uses to find a deployment, and the
+    # same one the unattended worker follows. Stated as a setting because the API and the
+    # worker need not share a working directory.
+    project_dir: str = ""
+
+    # How long a Steward session outlives the browser tab that opened it (seconds). Closing
+    # a tab is not ending a conversation: the session is the HARNESS's, and reopening the
+    # view re-attaches to the process that is still there. Past this it is killed —
+    # TERM→KILL over the process group — and the next attach starts a new one. 0 kills a
+    # session the moment its last socket goes away.
+    steward_session_idle: int = 30 * 60
+
     # The character ceiling on a canonical document's OVERVIEW region — the bounded head
     # the compile model may rewrite whole (core compile/overview.py). It is a mechanism
     # knob, not a contract rule: the contract says what an overview is FOR, and this says

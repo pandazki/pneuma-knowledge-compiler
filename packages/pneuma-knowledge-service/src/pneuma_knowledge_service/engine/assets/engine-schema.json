@@ -528,8 +528,8 @@
             "zh": "编译模型"
           },
           "description": {
-            "en": "Must support tool calling: the compile agent writes through tools, so a model without them cannot write at all.",
-            "zh": "必须支持工具调用：编译代理是通过工具写入的，不支持工具调用的模型根本写不了。"
+            "en": "Must support tool calling: the compile agent writes through tools, so a model without them cannot write at all. It may also name an EXECUTOR instead of a model — `agent:codex` or `agent:claude-code` — and the round is then driven by that coding agent on this machine, under your own subscription, through the same draft and the same gate. Changing it takes a restart and governs future compiles only; the library is byte-identical either way, and the job record says which ran. An executor is not a model: the other roles still need one of their own.",
+            "zh": "必须支持工具调用：编译代理是通过工具写入的，不支持工具调用的模型根本写不了。这里也可以填执行体而非模型——`agent:codex` 或 `agent:claude-code`——那一轮就由本机上的编码代理、用你自己的订阅来跑，走同一份草稿、同一道闸门。改动需要重启，且只影响此后的编译；两种方式产出的库逐字节一致，任务记录会写明是谁跑的。执行体不是模型：其余角色仍需各自指定模型。"
           }
         },
         {
@@ -1006,6 +1006,7 @@
             "compile.rules_header",
             "compile.skill_header",
             "compile.skill_lede",
+            "compile.task.about_pages",
             "compile.task.block_line",
             "compile.task.guidance_header",
             "compile.task.image_derived",
@@ -1420,7 +1421,25 @@
             "source.preamble.stream_role_spoke",
             "source.preamble.stream_scene_default",
             "source.preamble.stream_tail",
-            "source.preamble.title_quoted"
+            "source.preamble.title_quoted",
+            "steward.reference.cli_exit_header",
+            "steward.reference.cli_header",
+            "steward.reference.contract_header",
+            "steward.reference.gate_components_header",
+            "steward.reference.gate_header",
+            "steward.reference.instructions_header",
+            "steward.router.block",
+            "steward.skill.archive",
+            "steward.skill.cannot",
+            "steward.skill.description",
+            "steward.skill.door",
+            "steward.skill.owner_speech",
+            "steward.skill.postures",
+            "steward.skill.references",
+            "steward.skill.round",
+            "steward.skill.who",
+            "steward.skill.workflow",
+            "steward.unattended.task"
           ],
           "default": {},
           "apply": "restart",
