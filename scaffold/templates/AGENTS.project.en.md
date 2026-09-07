@@ -15,11 +15,19 @@ to. `engine/README.md` states each file's blast radius. Any `PNEUMA_KNOWLEDGE_*`
 overrides its engine counterpart for one run — that is the seam for temporary diagnosis or
 operations, not for recording a durable decision.
 
-**Read before doing any work for the user** (all in the framework repo at
+**Two different jobs, two different entries.** *Acting on this library* — compiling what is
+queued, recording what the owner said, importing material, reading a page, answering from it —
+is the Steward's job, and its entry is the skill this project installs, named in the
+`pkc:start` block below. Read it from the path that block gives, and do that work through
+`pkc` only. *Changing how this library is built* — the contract, the families, the models —
+is a different job, and its entry is the framework's own documents (in the framework repo at
 `{{FRAMEWORK_REPO}}`):
 
 - The full flow for building/iterating a library with a user: `scaffold/AGENT-GUIDE.md`
 - The sole authority on writing compile contracts: `docs/guides/compile-contract.md`
+
+If no `pkc:start` block appears below, this project has no Steward skill installed: the
+compiles here are run by an API model, and there is nothing for an agent to drive.
 
 **Red lines**: user data and keys never go anywhere git might commit; contract drafts are
 registered only after the user has reviewed them; never invent profile facts for the user.

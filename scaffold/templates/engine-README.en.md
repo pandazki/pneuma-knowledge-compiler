@@ -37,6 +37,14 @@ recorded:
 | model roles, prompt language, prompt overlays | after the next start |
 | the contract, challenge, evolve | future compiles only — recorded knowledge is never rewritten |
 | chunking strategy | new material at once; existing material after a derived rebuild |
+| the coding agent's installed skill | future compiles only — re-installed on apply, read at the agent's next start |
+
+When `engine.yaml`'s `compile` names a coding agent (`agent:codex`, `agent:claude-code`)
+rather than a model, the skill that agent reads is *generated from this directory* — the
+contract, the prompt overlays, the language and the enabled components — and re-installed
+whenever an apply moves any of them. It is never hand-written: `pkc skill verify` re-renders
+it and reports anything that drifted, and `pkc skill install` puts it back. A session that is
+already running keeps the words it started with until it restarts.
 
 `recall/recall.yaml` separates cheap retrieval breadth from final model context.
 `claim_candidate_cap` and `window_candidate_cap` search broadly; `claim_cap`,

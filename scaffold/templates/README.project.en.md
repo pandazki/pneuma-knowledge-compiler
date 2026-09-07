@@ -44,6 +44,7 @@ framework repository; to upgrade, regenerate a project with the framework repo's
 ./app.py down [--volumes]    # stop the stack (--volumes also deletes the data volumes)
 ```
 
+{{STEWARD_SECTION}}
 ## In a browser
 
 One command starts the browsing layer — the framework API, a compile worker and the web UI,

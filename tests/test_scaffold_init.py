@@ -274,7 +274,7 @@ def test_demo_generates_a_project_that_already_has_a_library(tmp_path):
     assert [
         name
         for name in env
-        if name.startswith("PNEUMA_KNOWLEDGE_") and name != "PNEUMA_KNOWLEDGE_ENGINE_DIR"
+        if name.startswith("PNEUMA_KNOWLEDGE_") and name not in _allowed_knowledge_keys()
     ] == []
 
     # The README says where the library came from and how to make the compiler run.
@@ -417,9 +417,24 @@ def test_contract_follows_the_data_by_default(tmp_path):
 # ------------------------------------------------------------------ the engine directory
 
 
+#: The PNEUMA_KNOWLEDGE_* variables a generated `.env` MAY carry: the engine directory, and
+#: the connection settings that say which library this project is. Read from the framework's
+#: own list rather than retyped, so `.env` and the launcher can never disagree about what
+#: counts as a connection.
+def _allowed_knowledge_keys() -> set[str]:
+    from pneuma_knowledge_service.coding_agent.launcher import CONNECTION_SETTINGS
+
+    return {"PNEUMA_KNOWLEDGE_ENGINE_DIR", *(name for name, _ in CONNECTION_SETTINGS)}
+
+
 def test_env_carries_the_key_and_infrastructure_but_no_strategy(tmp_path):
     """Strategy belongs in the versioned unit; a credential must never be versioned. The
-    two files exist precisely so those two facts never have to be reconciled."""
+    two files exist precisely so those two facts never have to be reconciled.
+
+    Connections are not strategy. `.env` states which Postgres, which Qdrant, which canonical
+    root — the same values `app.py` would derive from the ports beside them — because `pkc`
+    has no `app.py` to derive them and would otherwise reach the framework's own development
+    stack. What must never appear here is a knob that decides WHAT a compile does."""
     target = _generate(tmp_path, {"language": "en", "data": {"mode": "none"}})
     env = (target / ".env").read_text(encoding="utf-8")
     settings = [
@@ -430,7 +445,7 @@ def test_env_carries_the_key_and_infrastructure_but_no_strategy(tmp_path):
     strategy = [
         name
         for name in settings
-        if name.startswith("PNEUMA_KNOWLEDGE_") and name != "PNEUMA_KNOWLEDGE_ENGINE_DIR"
+        if name.startswith("PNEUMA_KNOWLEDGE_") and name not in _allowed_knowledge_keys()
     ]
     assert strategy == [], f".env still carries strategy keys: {strategy}"
     assert "PNEUMA_APP_COMPILE_MODEL" not in env  # models moved to engine/engine.yaml
@@ -641,3 +656,294 @@ def test_strategies_catalog_is_empty_outside_a_framework_repo(tmp_path):
 )
 def test_slugify_produces_safe_names(raw, expected):
     assert init.slugify(raw) == expected
+
+
+# ─────────────────────────────────────────────────── who compiles (coding-agent-mode §3)
+#
+# The generator asks one new question and answers it in three places: `engine.yaml` states
+# the executor, `bin/pkc` is the entry a person types, and the framework's own installer
+# writes the skill. What these pin is the *shape* of that outcome — the rendering itself is
+# the framework's, tested in `packages/pneuma-knowledge-service/tests/test_skill_package.py`.
+
+PKC_BLOCK = "<!-- pkc:start -->"
+
+
+def _agent_answers(compiler: str) -> dict:
+    return {
+        "language": "en",
+        "project_name": "kb",
+        "owner": {"display_name": "Ada"},
+        "data": {"mode": "none"},
+        "compiler": compiler,
+    }
+
+
+def test_codex_as_the_compiler_states_the_executor_and_installs_its_skill(tmp_path):
+    target = _generate(tmp_path, _agent_answers("codex"))
+
+    engine = (target / "engine" / "engine.yaml").read_text(encoding="utf-8")
+    assert "\ncompile: agent:codex\n" in engine
+
+    shim = target / "bin" / "pkc"
+    assert shim.is_file() and shim.stat().st_mode & 0o111
+
+    skill = target / ".agents" / "skills" / "pkc-steward"
+    assert (skill / "SKILL.md").is_file()
+    assert (skill / "references" / "cli.md").is_file()
+    assert (skill / "references" / "gate.md").is_file()
+    assert (skill / "scripts" / "pkc").is_file()
+    assert (target / ".agents" / "skills" / "skill-version.json").is_file()
+
+    agents = (target / "AGENTS.md").read_text(encoding="utf-8")
+    assert agents.count(PKC_BLOCK) == 1
+    assert ".agents/skills/pkc-steward/SKILL.md" in agents
+    # Claude Code was not asked for, so nothing of it is written.
+    assert not (target / ".claude").exists()
+    assert not (target / "CLAUDE.md").exists()
+
+
+def test_claude_code_as_the_compiler_installs_its_layout_and_its_workflow(tmp_path):
+    target = _generate(tmp_path, _agent_answers("claude-code"))
+
+    assert "\ncompile: agent:claude-code\n" in (
+        target / "engine" / "engine.yaml"
+    ).read_text(encoding="utf-8")
+    assert (target / ".claude" / "skills" / "pkc-steward" / "SKILL.md").is_file()
+    assert (target / ".claude" / "workflows" / "compile.js").is_file()
+
+    claude_md = (target / "CLAUDE.md").read_text(encoding="utf-8")
+    assert claude_md.count(PKC_BLOCK) == 1
+    assert ".claude/skills/pkc-steward/SKILL.md" in claude_md
+    # AGENTS.md is still the project's note; it simply carries no router block.
+    assert PKC_BLOCK not in (target / "AGENTS.md").read_text(encoding="utf-8")
+
+
+def test_an_api_compiler_generates_exactly_what_it_always_did(tmp_path):
+    """The default answer changes nothing: no skill directory, no block, no shim, and the
+    compile role still names a model."""
+    target = _generate(tmp_path, _agent_answers("api"))
+
+    engine = (target / "engine" / "engine.yaml").read_text(encoding="utf-8")
+    assert "compile: agent:" not in engine
+    assert "\ncompile: openrouter:" in engine
+
+    assert not (target / ".agents").exists()
+    assert not (target / ".claude").exists()
+    assert not (target / "bin").exists()
+    assert not (target / "CLAUDE.md").exists()
+    assert PKC_BLOCK not in (target / "AGENTS.md").read_text(encoding="utf-8")
+
+
+def test_both_agents_share_one_project_and_codex_is_the_one_that_compiles(tmp_path):
+    target = _generate(tmp_path, _agent_answers("all"))
+    assert "\ncompile: agent:codex\n" in (
+        target / "engine" / "engine.yaml"
+    ).read_text(encoding="utf-8")
+    assert (target / ".agents" / "skills" / "pkc-steward" / "SKILL.md").is_file()
+    assert (target / ".claude" / "skills" / "pkc-steward" / "SKILL.md").is_file()
+    assert (target / "AGENTS.md").read_text(encoding="utf-8").count(PKC_BLOCK) == 1
+    assert (target / "CLAUDE.md").read_text(encoding="utf-8").count(PKC_BLOCK) == 1
+
+
+def test_an_unknown_compiler_is_refused_before_anything_is_written(tmp_path):
+    answers_path = tmp_path / "answers.json"
+    answers_path.write_text(json.dumps(_agent_answers("kimi")), encoding="utf-8")
+    target = tmp_path / "out"
+    result = subprocess.run(
+        [sys.executable, str(INIT_PATH), "--answers", str(answers_path), "--target", str(target)],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0
+    assert "compiler" in result.stderr
+    assert not target.exists()
+
+
+def test_the_project_note_routes_an_agent_to_the_skill(tmp_path):
+    """The generated AGENTS.md is a router, not a second set of Steward instructions.
+
+    It must send an agent that is going to ACT on the library to the installed skill and to
+    `pkc`, and reserve the framework's own documents for the different job of changing how the
+    library is built. `app.py` appears in it once, in the list of machinery not to edit — the
+    note never tells an agent to drive the library through it.
+    """
+    target = _generate(tmp_path, _agent_answers("codex"))
+    agents = (target / "AGENTS.md").read_text(encoding="utf-8")
+    routing = agents.split("**Two different jobs")[1].split("**Red lines**")[0]
+    assert "app.py" not in routing
+    assert "`pkc:start` block" in routing
+    assert "do that work through\n`pkc` only" in routing
+    assert agents.count("app.py") == 1
+
+
+# ────────────────────────── which library, and how to open a session that can reach it
+
+
+def _generate_with_output(tmp_path: Path, answers: dict) -> tuple[Path, str]:
+    """`_generate`, keeping what the generator printed — the last thing a beginner reads."""
+    answers_path = tmp_path / "answers.json"
+    answers_path.write_text(json.dumps(answers), encoding="utf-8")
+    target = tmp_path / "out"
+    result = subprocess.run(
+        [sys.executable, str(INIT_PATH), "--answers", str(answers_path), "--target", str(target)],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr or result.stdout
+    return target, result.stdout
+
+
+def test_env_states_this_projects_own_stack_so_pkc_cannot_reach_another(tmp_path):
+    """The isolation hazard the acceptance run found: `.env` carried the project's PORTS but
+    no connection settings, so `pkc` — which has no `app.py` to translate them — fell back to
+    the framework repository's own development stack (15432 / 16333 / 17700) and stood in the
+    developer's library instead of the owner's. Only a Qdrant dimension mismatch stopped a
+    cross-library write."""
+    target = _generate(tmp_path, {"language": "en", "data": {"mode": "none"}})
+    env = dict(
+        line.split("=", 1)
+        for line in (target / ".env").read_text(encoding="utf-8").splitlines()
+        if line and not line.startswith("#") and "=" in line
+    )
+    for name, _field in _allowed_connection_settings():
+        assert name in env, f".env does not state {name}"
+
+    pg, qdrant, meili, rustfs = (
+        env["PNEUMA_APP_PG_PORT"],
+        env["PNEUMA_APP_QDRANT_PORT"],
+        env["PNEUMA_APP_MEILI_PORT"],
+        env["PNEUMA_APP_RUSTFS_PORT"],
+    )
+    assert f":{pg}/" in env["PNEUMA_KNOWLEDGE_PG_DSN"]
+    assert env["PNEUMA_KNOWLEDGE_QDRANT_URL"].endswith(f":{qdrant}")
+    assert env["PNEUMA_KNOWLEDGE_MEILI_URL"].endswith(f":{meili}")
+    assert env["PNEUMA_KNOWLEDGE_MEDIA_S3_ENDPOINT_URL"].endswith(f":{rustfs}")
+    # Never the framework's own development ports.
+    assert "15432" not in env["PNEUMA_KNOWLEDGE_PG_DSN"]
+    assert "16333" not in env["PNEUMA_KNOWLEDGE_QDRANT_URL"]
+    assert "17700" not in env["PNEUMA_KNOWLEDGE_MEILI_URL"]
+    # The canonical library is this project's own directory, absolutely addressed: the shim
+    # cds to the project, but a worker's launched harness runs in an empty temp directory.
+    assert Path(env["PNEUMA_KNOWLEDGE_CANONICAL_ROOT"]) == (
+        target / "data" / "canonical"
+    ).resolve()
+    assert env["PNEUMA_KNOWLEDGE_MEDIA_S3_ACCESS_KEY"] == env["PNEUMA_APP_RUSTFS_ACCESS_KEY"]
+
+
+def _allowed_connection_settings():
+    from pneuma_knowledge_service.coding_agent.launcher import CONNECTION_SETTINGS
+
+    # ENGINE_DIR is stated separately by the generator (relative, as the project reads it).
+    return [(n, f) for n, f in CONNECTION_SETTINGS if f != "engine_dir"]
+
+
+def test_the_env_example_keeps_no_credential_of_either_kind(tmp_path):
+    target = _generate(tmp_path, {"language": "en", "data": {"mode": "none"}})
+    example = (target / ".env.example").read_text(encoding="utf-8")
+    assert "PNEUMA_KNOWLEDGE_MEDIA_S3_SECRET_KEY=\n" in example
+    assert "PNEUMA_KNOWLEDGE_MEDIA_S3_ACCESS_KEY=\n" in example
+    assert "OPENROUTER_API_KEY=\n" in example
+    # The non-secret half still states this project's own stack, so the file is a usable
+    # recovery copy rather than a shape.
+    assert "PNEUMA_KNOWLEDGE_PG_DSN=postgresql://" in example
+
+
+def test_the_generator_prints_the_invocation_a_session_here_needs(tmp_path):
+    """The single biggest gap the acceptance run found: a bare `codex exec` runs read-only
+    and networkless, so `pkc` cannot open this project's database and the headline experience
+    of the feature does not work out of the box. Nothing said the flags — not the generator,
+    not the README, not the router block. The commands come from the framework's backend
+    manifests, so this asserts against those rather than against a retyped string."""
+    from pneuma_knowledge_service.coding_agent.backends import CODEX
+
+    _target, out = _generate_with_output(tmp_path, _agent_answers("codex"))
+    assert CODEX.owner_session_command in out
+    assert CODEX.owner_exec_command in out
+    assert "--sandbox workspace-write" in out
+
+
+def test_an_empty_key_makes_the_generator_state_the_embedding_reminder(tmp_path):
+    """A deployment with no embedding key is not a supported "no-L2" mode (design §3.1): the
+    generator says so on the way out, in the framework's own words rather than a second text
+    of its own."""
+    from pneuma_knowledge_service.embedding_key import EMBEDDING_SETTING
+
+    _target, out = _generate_with_output(tmp_path, {"language": "en", "data": {"mode": "none"}})
+    # Wrapped for the terminal, so the assertion is on the words rather than on one line.
+    flat = " ".join(out.split())
+    assert EMBEDDING_SETTING in flat
+    assert "OPENROUTER_API_KEY" in flat
+    assert "L2" in flat
+
+
+def test_answers_that_never_named_the_owner_keep_the_placeholder_and_say_so(tmp_path):
+    """The generator does not guess who the owner is — nobody here knows. What it does is say
+    what the placeholder costs, because a first compile files the owner as a stranger and the
+    pages it writes are permanent."""
+    _target, out = _generate_with_output(tmp_path, {"language": "en", "data": {"mode": "none"}})
+    flat = " ".join(out.split())
+    assert "pkc profile set" in flat
+    assert "placeholder" in flat
+
+    named = tmp_path / "named"
+    named.mkdir()
+    _t2, quiet = _generate_with_output(
+        named, {"language": "en", "owner": {"display_name": "Chen Wan"}, "data": {"mode": "none"}}
+    )
+    assert "pkc profile set" not in " ".join(quiet.split())
+
+
+def test_the_readme_states_it_too_and_only_for_an_agent_compiler(tmp_path):
+    from pneuma_knowledge_service.coding_agent.backends import CODEX
+
+    target = _generate(tmp_path, _agent_answers("codex"))
+    readme = (target / "README.md").read_text(encoding="utf-8")
+    assert CODEX.owner_session_command in readme
+    assert CODEX.owner_exec_command in readme
+    assert "bin/pkc" in readme
+
+    api_dir = tmp_path / "api"
+    api_dir.mkdir()
+    plain = _generate(api_dir, _agent_answers("api"))
+    assert "--sandbox workspace-write" not in (plain / "README.md").read_text(encoding="utf-8")
+    assert "{{STEWARD_SECTION}}" not in (plain / "README.md").read_text(encoding="utf-8")
+
+
+def test_the_router_block_states_it_as_well(tmp_path):
+    """Three places, because a session that cannot run `pkc` never gets as far as the skill:
+    the router block in AGENTS.md, SKILL.md's posture section, and the README."""
+    from pneuma_knowledge_service.coding_agent.backends import CODEX
+
+    target = _generate(tmp_path, _agent_answers("codex"))
+    agents = (target / "AGENTS.md").read_text(encoding="utf-8")
+    assert CODEX.owner_session_command in agents
+    skill = (target / ".agents" / "skills" / "pkc-steward" / "SKILL.md").read_text(
+        encoding="utf-8"
+    )
+    assert CODEX.owner_session_command in skill
+    assert CODEX.owner_exec_command in skill
+
+
+def test_the_skill_names_bin_pkc_as_the_entry_in_a_scaffold_project(tmp_path):
+    """One entry name. The scaffold writes `bin/pkc` and every other document names it, so
+    the skill names it too rather than teaching a second path for the same door."""
+    target = _generate(tmp_path, _agent_answers("codex"))
+    skill = (target / ".agents" / "skills" / "pkc-steward" / "SKILL.md").read_text(
+        encoding="utf-8"
+    )
+    assert "Run it as `bin/pkc`" in skill
+    assert ".agents/skills/pkc-steward/scripts/pkc" not in skill
+    # The shim itself is still installed and still works — it is what `bin/pkc` points at.
+    assert (target / ".agents" / "skills" / "pkc-steward" / "scripts" / "pkc").is_file()
+
+
+def test_the_project_shim_points_uv_at_a_writable_cache(tmp_path):
+    """`uv run` needs a writable `~/.cache/uv`, which a sandboxed harness does not have —
+    both acceptance sessions had to set the variable themselves before `pkc` would run."""
+    target = _generate(tmp_path, _agent_answers("codex"))
+    shim = (target / ".agents" / "skills" / "pkc-steward" / "scripts" / "pkc").read_text(
+        encoding="utf-8"
+    )
+    assert 'UV_CACHE_DIR="$project/.uv-cache"' in shim
+    assert "export UV_CACHE_DIR" in shim
+    assert ".uv-cache/" in (target / ".gitignore").read_text(encoding="utf-8")

@@ -67,6 +67,14 @@ cd <this repo>/scaffold
 
 The target directory must live outside any git repository; if it must sit inside one, verify with `git check-ignore <path>` first. The generator probes free ports and derives an isolated compose project name automatically — neither you nor the user manages ports; they are echoed at startup.
 
+**2.1b Who compiles: an API model, or a coding agent on their machine.** One answers-file field, `compiler`, default `"api"` — leave it alone unless the user raises it, and take `codex` / `claude-code` / `all` only when they say they would rather spend their Codex or Claude subscription than their API budget on compiling. Say plainly what it changes and what it does not.
+
+*Changes*: who runs a compile round. Under `api` the model in `[models].compile` reads the material and writes; under an agent, the coding agent already on their machine does, and the generator installs a **skill** into the project that teaches it. The agent's entire vocabulary is then `pkc` — one command line for reading the library, one door for writing it — and a compile becomes a sequence of small commands the user can watch and stop. `./start.sh` no longer drains the compile queue by itself: jobs wait for the agent, which the process view says.
+
+*Does not change*: the key question (2.2 is unchanged — embeddings, retrieval and Q&A still need a key, and a keyless deployment is keyless the same way either way), the citations, the gate, or the shape of the library. The same material under the same contract produces the same kind of library, and switching back is one line in `engine/engine.yaml`.
+
+Practically: `compiler = "codex"` writes `compile: agent:codex` into `engine/engine.yaml`, installs `.agents/skills/pkc-steward/` and a `pkc:start` block into the project's `AGENTS.md`, and emits `bin/pkc`. `claude-code` does the same under `.claude/` with `CLAUDE.md` and a workflow beside it; `all` installs both so either agent can be opened in the same project, and Codex is the one that compiles. Requires that agent to be installed and logged in on this machine — check before promising it, and fall back to `api` if it is not.
+
 **2.2 Get the key into `.env` — by THEIR hands, not yours.** The generated `.env` holds the key and this machine's ports, nothing else; the only empty field is `OPENROUTER_API_KEY` (a key-blank `.env.example` sits beside it as the recovery copy). Have them open `.env` in their editor and paste the key themselves. Never take the key through your own commands, stdin, or the chat: everything that passes through an agent's tool calls lands verbatim in session transcripts, and a key in a transcript is a key on disk. You only verify the field is non-empty afterwards (`grep -c '^OPENROUTER_API_KEY=.' .env`). Models live in `engine/engine.yaml`, not here; the generated defaults (`openrouter:openai/gpt-5.6-luna` + `text-embedding-3-small`) are a strong price/quality starting point, and the compile model is the single quality lever — but **don't expand on that here**, it matters at step 6, when they start caring what deserves to be recorded.
 
 **2.3 Start, and wait with them**, translating the English output as it goes:
@@ -145,6 +153,8 @@ This is context construction, not compile-contract prose. The contract may say h
 **4.4 Ask for what's left.** Done right, usually three gaps remain: name/address-as, preferred answering language, and "what do you most want this library to remember for you". Plus the principle-4 confirmations (timezone, language).
 
 **Done when**: the detected values in `engine/persona/profile.yaml` are confirmed with `provenance` flipped to `profile`, you can name the long-lived subjects in the material, and every source modality has an explicit, capability-verified context path with original and derived representations distinguished.
+
+Fill `display_name` and the rest of `engine/persona/profile.yaml` **before the first compile**: a contract that files the owner's own facts differently from everyone else's has no way to tell which person is the owner while the profile still says `Someone`, and the pages that come out of that compile are permanent. The Steward's way of doing it is `bin/pkc profile show` — which reports the placeholder mechanically — and then `bin/pkc profile set --field display_name=... --field bio=...` (or `--file -`), which writes the file and the persisted profile as one thing. If a person page for the owner was already compiled, archive it like any other page after the facts worth keeping are on the profile and the owner said so (`bin/pkc owner say`).
 
 ---
 

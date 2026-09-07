@@ -9,6 +9,7 @@ stdlib-only by design, so this import must never pull the framework in.
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -880,6 +881,16 @@ class _StubCanonical:
         return self.documents
 
 
+class _StubDocument:
+    """A canonical document as the archive helpers read one: a path, and nothing else."""
+
+    def __init__(self, path: str):
+        self.path = path
+
+    def __repr__(self) -> str:  # pragma: no cover — assertion output only
+        return f"_StubDocument({self.path!r})"
+
+
 class _StubContext:
     """Just enough of the wiring context for one lane selection, no middleware."""
 
@@ -889,7 +900,9 @@ class _StubContext:
         self.store = "store"
         self.media = "media"
         self.embeddings = "embeddings"
-        self.canonical = _StubCanonical(list(documents))
+        self.canonical = _StubCanonical(
+            [d if hasattr(d, "path") else _StubDocument(str(d)) for d in documents]
+        )
         self.roles: list[str] = []
 
     def get_chat_model(self, role):
@@ -982,7 +995,9 @@ async def test_ask_deep_reaches_the_frameworks_agentic_lane(monkeypatch, capsys)
     """`--deep` must land on `recall.deep.deep_recall` — the coroutine the service route
     runs for mode=deep — with the deep model role and the canonical documents the loop
     walks, and it must print its own cost line so choosing it is never free by accident."""
-    calls = _stub_ask_environment(monkeypatch, documents=["doc-1", "doc-2"])
+    calls = _stub_ask_environment(
+        monkeypatch, documents=["work/doc-1.md", "work/doc-2.md"]
+    )
     code, usage = await app._ask("who signed off on both?", deep=True)
     assert code == 0 and usage == {"input": 900, "output": 120}
     assert "fast" not in calls, "the deep flag was ignored"
@@ -991,7 +1006,7 @@ async def test_ask_deep_reaches_the_frameworks_agentic_lane(monkeypatch, capsys)
     assert question == "who signed off on both?"
     assert kwargs["model"] == "model:deep"
     assert calls["ctx"].roles == ["deep"]  # the fast roles are never even built
-    assert kwargs["documents"] == ["doc-1", "doc-2"]
+    assert [d.path for d in kwargs["documents"]] == ["work/doc-1.md", "work/doc-2.md"]
     assert kwargs["skill"] is calls["skill"]
     out = capsys.readouterr().out
     assert "(deep, " in out and "2 tool calls" in out and "2 documents read" in out
@@ -1003,14 +1018,51 @@ async def test_the_fast_lane_sees_the_library_too(monkeypatch, capsys):
     generated project answered every fast question with the library's glance missing and the
     whole-document selection pass switched off — both additive layers the service route has
     always supplied. Both lanes now read the same canonical listing, fetched once."""
-    calls = _stub_ask_environment(monkeypatch, documents=["doc-1", "doc-2"])
+    calls = _stub_ask_environment(
+        monkeypatch, documents=["work/doc-1.md", "work/doc-2.md"]
+    )
     code, usage = await app._ask("when did that land?")
     assert code == 0 and usage == {"input": 300, "output": 20}
     assert "deep" not in calls
     _user, _question, kwargs = calls["fast"]
-    assert kwargs["documents"] == ["doc-1", "doc-2"]
+    assert [d.path for d in kwargs["documents"]] == ["work/doc-1.md", "work/doc-2.md"]
     assert kwargs["skill"] is calls["skill"]
     assert calls["ctx"].canonical.reads == 1, "one canonical listing serves whichever lane runs"
+
+
+async def test_ask_answers_out_of_the_live_library_only(monkeypatch):
+    """The driver handed the WHOLE canonical listing to both lanes with no `archive_active`,
+    so a generated project answered out of pages the owner had archived — the one thing
+    archiving is for. The archive is decided once here, exactly as the service route decides
+    it in `_glance_inputs`: the live set goes to the lane, and the fact that an archive stands
+    beside it is what turns the assembly filter's pin on."""
+    for deep in (False, True):
+        calls = _stub_ask_environment(
+            monkeypatch,
+            documents=["work/live.md", "archive/work/retired.md"],
+        )
+        assert (await app._ask("q", deep=deep))[0] == 0
+        kwargs = calls["deep" if deep else "fast"][2]
+        assert [d.path for d in kwargs["documents"]] == ["work/live.md"]
+        assert kwargs["archive_active"] is True
+
+
+async def test_ask_says_nothing_about_an_archive_that_does_not_exist(monkeypatch):
+    """Nothing archived, nothing different: the flag rides along as False and the pin never
+    runs, so a library with no archive answers byte-for-byte as it did before."""
+    calls = _stub_ask_environment(monkeypatch, documents=["work/live.md"])
+    assert (await app._ask("q"))[0] == 0
+    assert calls["fast"][2]["archive_active"] is False
+
+
+async def test_an_archive_alone_still_reaches_the_lane(monkeypatch):
+    """Every page archived is an answering set with no page in it — which the lane must be
+    HANDED, because the pin needs it. Only a library that never had an archive passes
+    nothing (`_glance_inputs`: an empty list, never an omitted one)."""
+    calls = _stub_ask_environment(monkeypatch, documents=["archive/work/retired.md"])
+    assert (await app._ask("q"))[0] == 0
+    kwargs = calls["fast"][2]
+    assert kwargs["documents"] == [] and kwargs["archive_active"] is True
 
 
 async def test_an_empty_library_still_asks_the_retrieval_only_lane(monkeypatch):
@@ -1050,3 +1102,288 @@ def test_cli_ask_wires_the_deep_flag_through_the_real_parser(monkeypatch):
 
     src = APP_PATH.read_text(encoding="utf-8")
     assert "deep=args.deep" in src, "cmd_ask must pass the flag to the lane selector"
+
+
+# ─────────────────────────────────────── the base model spec, when a coding agent compiles
+
+
+def test_the_base_model_spec_is_never_an_executor():
+    """`agent:codex` in the base spec is what every unnamed role falls back to, and the
+    framework refuses an executor for every role but `compile` — so a project generated with
+    `compiler = "codex"` died at startup on EVERY command. Recall is the fallback: the
+    strongest thing left that IS a model."""
+    assert app.base_model_spec({"compile": "openrouter:x/y", "recall": "openrouter:a/b"}) == (
+        "openrouter:x/y"
+    )
+    assert app.base_model_spec({"compile": "agent:codex", "recall": "openrouter:a/b"}) == (
+        "openrouter:a/b"
+    )
+    assert app.base_model_spec({"compile": "agent:claude-code", "recall": ""}) == ""
+
+
+def _agent_project(monkeypatch, tmp_path, compile_spec: str):
+    """`build_settings` over a project whose compile role is `compile_spec`, with the engine
+    reads stubbed and this project's own ports in the environment."""
+    monkeypatch.setattr(app, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(app, "DATA_ROOT", tmp_path / "data")
+    monkeypatch.setattr(app, "ENGINE_DIR", tmp_path / "engine")
+    monkeypatch.setattr(
+        app,
+        "require_models",
+        lambda require_key=True: {
+            "compile": compile_spec,
+            "recall": "openrouter:openai/gpt-x",
+            "embedding": "openrouter:openai/text-embedding-3-small",
+            "answer": "openrouter:openai/gpt-x",
+            "deep": "openrouter:openai/gpt-x",
+        },
+    )
+    monkeypatch.setattr(app, "apply_prompt_overlays", lambda: None)
+    monkeypatch.setattr(app, "load_profile", lambda: {"locale": {"timezone": "UTC"}})
+    monkeypatch.setattr(
+        app,
+        "engine_strategy",
+        lambda: {"llm_model_compile": compile_spec, "llm_model_recall": "openrouter:openai/gpt-x"},
+    )
+    return app.build_settings()
+
+
+@pytest.fixture(autouse=True)
+def _no_inherited_connection_env(monkeypatch):
+    """These tests are about what the DRIVER resolves; a developer's own shell (or the repo's
+    `.env`) stating a connection would decide the answer for it."""
+    for name, _field in _connection_names():
+        monkeypatch.delenv(name, raising=False)
+
+
+def _connection_names():
+    from pneuma_knowledge_service.coding_agent.launcher import CONNECTION_SETTINGS
+
+    return CONNECTION_SETTINGS
+
+
+def test_an_agent_compiler_produces_settings_every_role_can_resolve(monkeypatch, tmp_path):
+    """The acceptance blocker: `./app.py <anything>` died in `wiring.check_executors` because
+    the base spec was `agent:codex`. This is that check, run over the settings the template
+    actually builds."""
+    from pneuma_knowledge_service.wiring import check_executors, executor_for
+
+    settings = _agent_project(monkeypatch, tmp_path, "agent:codex")
+    assert not settings.llm_model.startswith("agent:")
+    check_executors(settings)  # would raise for any role resolving to an executor
+    assert executor_for(settings, "compile").is_agent
+    assert not executor_for(settings, "default").is_agent
+
+
+def test_a_model_compiler_still_puts_compile_in_the_base_spec(monkeypatch, tmp_path):
+    settings = _agent_project(monkeypatch, tmp_path, "openrouter:openai/gpt-compile")
+    assert settings.llm_model == "openrouter:openai/gpt-compile"
+
+
+def test_the_env_states_which_library_and_the_derivation_is_only_the_fallback(
+    monkeypatch, tmp_path
+):
+    """`.env` is the source of truth for WHICH library this is, because `pkc` reads it and
+    has no `app.py` to derive it. So the driver prefers it — and the isolation check then
+    judges the value the whole project will actually use."""
+    monkeypatch.setenv("PNEUMA_APP_PG_PORT", "15499")
+    monkeypatch.setenv("PNEUMA_APP_QDRANT_PORT", "16499")
+    monkeypatch.setenv("PNEUMA_APP_MEILI_PORT", "17499")
+    monkeypatch.setenv("PNEUMA_APP_RUSTFS_PORT", "19499")
+    settings = _agent_project(monkeypatch, tmp_path, "agent:codex")
+    assert ":15499/" in settings.pg_dsn and ":16499" in settings.qdrant_url
+
+    monkeypatch.setenv("PNEUMA_KNOWLEDGE_MEILI_KEY", "stated-in-env")
+    monkeypatch.setenv(
+        "PNEUMA_KNOWLEDGE_PG_DSN", "postgresql://u:p@localhost:15499/pneuma_knowledge"
+    )
+    settings = _agent_project(monkeypatch, tmp_path, "agent:codex")
+    assert settings.pg_dsn == "postgresql://u:p@localhost:15499/pneuma_knowledge"
+    assert settings.meili_key == "stated-in-env"
+
+
+def test_a_stated_connection_that_points_elsewhere_is_still_refused(monkeypatch, tmp_path):
+    """Preferring the env does not weaken the isolation check: a `.env` naming some other
+    stack's port is exactly the drift the check exists for, and it now sees it."""
+    monkeypatch.setenv("PNEUMA_APP_PG_PORT", "15499")
+    monkeypatch.setenv(
+        "PNEUMA_KNOWLEDGE_PG_DSN", "postgresql://u:p@localhost:15432/pneuma_knowledge"
+    )
+    with pytest.raises(SystemExit, match="isolation check failed"):
+        _agent_project(monkeypatch, tmp_path, "agent:codex")
+
+
+# ────────────────────────────────────── what counts as a job the drain should retry (B6)
+
+
+def _job(**fields) -> dict:
+    base = {
+        "job_id": "j",
+        "kind": "compile",
+        "status": "done",
+        "ok": False,
+        "detail": None,
+        "snapshot_ref": None,
+        "payload": {"source_ids": ["s1"]},
+    }
+    base.update(fields)
+    return base
+
+
+def test_a_job_that_committed_is_never_a_gate_rejection():
+    """THE RULE. A round that named a commit or a projection wrote to canonical, so re-running
+    it is not a repair — it is a second compile of the same material, on the owner's own
+    subscription, on every drain forever. `ok = false` alone cannot decide this: the worker's
+    catch-all error path can write that flag over a round that had already finished."""
+    assert app.committed(_job(snapshot_ref="deadbeef")) is True
+    assert app.committed(_job(detail='projection:{"upserted": 4}')) is True
+    assert app.committed(_job(detail="worker error: COALESCE could not convert type")) is False
+    assert app.committed(_job()) is False
+
+
+def test_the_retry_round_skips_the_jobs_that_committed():
+    jobs = [
+        _job(job_id="a", snapshot_ref="c0ffee", detail="worker error: something after finish"),
+        _job(job_id="b", payload={"source_ids": ["s2"]}),
+    ]
+    unresolved = app._unresolved_failures(jobs)
+    assert [j["job_id"] for j in unresolved] == ["b"]
+
+
+def test_a_committed_job_also_covers_its_sources_for_the_other_failures():
+    """A source whose compile committed is a source nothing is owed for, so an older failed
+    job over the same source stops counting as unresolved too."""
+    jobs = [
+        _job(job_id="old", detail="rejected"),
+        _job(job_id="new", snapshot_ref="c0ffee", detail="worker error: after the fact"),
+    ]
+    assert app._unresolved_failures(jobs) == []
+
+
+def test_a_gate_rejection_is_still_a_gate_rejection():
+    """Nothing written, nothing recorded to write — the case the retry round exists for."""
+    jobs = [_job(job_id="r", detail="citation: claim has no provenance")]
+    assert [j["job_id"] for j in app._unresolved_failures(jobs)] == ["r"]
+
+
+def test_the_compile_usage_line_is_printed_only_when_a_model_of_ours_ran():
+    """Under an agent executor `_compile` builds no chat model, so there is no tracker and no
+    usage — and the unconditional `Compile-model tokens:` print made every unattended drain
+    end in `KeyError: 'input_tokens'`, exit 1, with `Unresolved failed jobs:` never printed
+    and `flush_traces()` never run."""
+    src = APP_PATH.read_text(encoding="utf-8")
+    body = src[src.index("async def _compile()") : src.index("def cmd_compile(")]
+    guard = body.index("if usage:")
+    assert guard < body.index("Compile-model tokens:")
+    # The two things the traceback used to skip both happen before the failure return.
+    assert body.index("await ctx.flush_traces()") < body.index("Unresolved failed jobs:")
+    assert body.index("Unresolved failed jobs:") < body.index("return 1, usage")
+
+
+# ──────────────────────────────── the skill's hash must keep naming the current engine
+
+
+def _skill_project(tmp_path, backend: str = "codex", *, shim: bool = True):
+    directory = {"codex": ".agents", "claude-code": ".claude"}[backend]
+    skills = tmp_path / directory / "skills"
+    skills.mkdir(parents=True)
+    (skills / "skill-version.json").write_text(
+        json.dumps({"backend": backend, "sha256": "deadbeef"}), encoding="utf-8"
+    )
+    if shim:
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        (bin_dir / "pkc").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        (bin_dir / "pkc").chmod(0o755)
+    return tmp_path
+
+
+def test_writing_the_profile_re_renders_the_installed_skill(monkeypatch, tmp_path, capsys):
+    """`app.py init` writes the owner profile, and the profile is one of the inputs a skill
+    package is rendered from — so an installed skill goes stale the moment `init` runs, and
+    the `Executor-Skill:` trailer stops naming a text a fresh rendering reproduces."""
+    project = _skill_project(tmp_path)
+    monkeypatch.setattr(app, "PROJECT_ROOT", project)
+    calls: list[list[str]] = []
+
+    class _Result:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    monkeypatch.setattr(
+        app.subprocess, "run", lambda argv, **kw: calls.append(list(argv)) or _Result()
+    )
+    app.refresh_steward_skill()
+    assert len(calls) == 1
+    assert calls[0][1:] == [
+        "skill",
+        "install",
+        "--backend",
+        "codex",
+        "--project",
+        str(project),
+    ]
+    assert "re-rendered" in capsys.readouterr().out
+
+
+def test_only_the_backends_the_project_already_chose_are_re_rendered(monkeypatch, tmp_path):
+    """A refresh is never a decision to install a harness nobody asked for."""
+    project = _skill_project(tmp_path, "claude-code")
+    monkeypatch.setattr(app, "PROJECT_ROOT", project)
+    calls: list[list[str]] = []
+
+    class _Result:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    monkeypatch.setattr(
+        app.subprocess, "run", lambda argv, **kw: calls.append(list(argv)) or _Result()
+    )
+    app.refresh_steward_skill()
+    assert [a for c in calls for a in c if a in ("codex", "claude-code")] == ["claude-code"]
+
+
+def test_a_project_without_a_skill_runs_nothing(monkeypatch, tmp_path):
+    monkeypatch.setattr(app, "PROJECT_ROOT", tmp_path)
+
+    def _never(*_a, **_kw):
+        raise AssertionError("a project with no skill must not shell out")
+
+    monkeypatch.setattr(app.subprocess, "run", _never)
+    app.refresh_steward_skill()
+
+
+def test_a_refresh_that_fails_names_the_command_and_does_not_raise(
+    monkeypatch, tmp_path, capsys
+):
+    """The profile is already written by then: `init` must finish."""
+    project = _skill_project(tmp_path)
+    monkeypatch.setattr(app, "PROJECT_ROOT", project)
+
+    class _Result:
+        returncode = 4
+        stdout = ""
+        stderr = "drift"
+
+    monkeypatch.setattr(app.subprocess, "run", lambda *_a, **_kw: _Result())
+    app.refresh_steward_skill()
+    out = capsys.readouterr().out
+    assert "bin/pkc skill install --backend codex" in out
+
+
+def test_the_claim_count_survives_the_run_facts_appended_after_the_projection():
+    """A finished compile's detail is `projection:{…}; rounds:1` — the projection plus the
+    facts the round had to state beside it. Reading the whole string as JSON failed, so the
+    drain printed `done` for every round that had a claim count to report."""
+    assert app.claims_from_detail('projection:{"upserted": 6}') == 6
+    assert app.claims_from_detail('projection:{"upserted": 6}; rounds:1') == 6
+    assert (
+        app.claims_from_detail(
+            'projection:{"upserted": 0}; rounds:2; archive_refusals:["work/x.md"]'
+        )
+        == 0
+    )
+    assert app.claims_from_detail("citation: no provenance") is None
+    assert app.claims_from_detail(None) is None
