@@ -21,6 +21,11 @@ dependencies = [
     "pypinyin>=0.53,<1",
 ]
 
+[project.scripts]
+# The Steward's whole vocabulary (docs/design/coding-agent-mode.md §5): one command-line face
+# over the framework, reading the same settings the API and the worker read.
+pkc = "pneuma_knowledge_service.cli:main"
+
 [project.optional-dependencies]
 dev = ["pytest", "httpx"]
 
