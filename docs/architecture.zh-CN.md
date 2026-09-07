@@ -202,6 +202,8 @@ Git 二进制是运行时必备（正本适配器通过子进程调用它）。�
 
 模型接线按角色划分——compile、recall、answer、deep、skill、evolve、challenge、live-context——各自独立可配，带一跳回退和共享默认值。`recall` 负责检索规划/概览，`answer` 只负责 fast 最终答题，因此质量优先的推理不会拖累每一次检索辅助调用。`scripted:` 模型规格回放录制好的响应，用于零密钥、确定性的运行；向量模型同理接受确定性的 `fake:<dim>`。追踪（Langfuse）在未完整配置时整体为空操作。
 
+编译角色还接受一种规格 `agent:<backend>`（`codex`、`claude-code`）：由部署所在机器上的一个 **coding agent**、用所有者自己的订阅来驾驭这一轮，而不是 API 模型。知识库本身一处未变——claim 级 draft、写工具和 gate 是同一道门，langchain 循环和 agent 的 `pkc` 命令是它的两个客户端，被同一份代码施以同样的拒绝——所以执行器是 Steward 内部的选择（design/steward-owner-visitor.zh-CN.md），从不进入归因 trailer，后者照旧只写契约、措辞和组件；作业记录写明执行器，agent 产出的提交另带它所受教的 skill 包哈希。agent 的全部词汇是框架的 CLI：`pkc` 读每一层、经 `pkc draft` 写正本，draft 在命令之间存于 Postgres，每次写入都用 gate 自己的谓词做后置检查。两种姿态共用它：worker 为排队作业无头拉起 harness；所有者在项目里与 agent 同坐——在终端，或在控制台的 Steward 视图。完整设计见 [design/coding-agent-mode.zh-CN.md](design/coding-agent-mode.zh-CN.md)。
+
 ## 11. 引擎目录
 
 一个部署里「构成引擎本身」的东西——策略、编译契约、提示词覆盖、所有者档案——可以住在同一个目录里，作为它自己的 git 仓库被版本化，与数据、密钥、机械件分开。`PNEUMA_KNOWLEDGE_ENGINE_DIR` 指向它；不设（默认）就表示这个部署没有引擎目录，所有策略键的解析与这个概念存在之前逐字节一致。

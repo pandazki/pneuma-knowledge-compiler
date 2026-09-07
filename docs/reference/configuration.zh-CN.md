@@ -37,7 +37,7 @@
 | `ANSWER_REASONING_EFFORT` | 空 | 只在 fast 最终答题调用中发送的推理强度；空则保持 provider 默认。生成项目明确写为 `high` |
 | `LLM_TIMEOUT` | `600` | 秒；防挂死，不防慢 |
 | `LLM_MAX_RETRIES` | `3` | 瞬时错误重试（langchain） |
-| `EMBEDDING_MODEL` | `fake:384` | `fake:<维度>`（确定性、零密钥）或 `openrouter:<模型>` |
+| `EMBEDDING_MODEL` | `fake:384` | `fake:<维度>`（确定性、零密钥）或 `openrouter:<模型>`。一个需要 key 而没人设置的规格并不是一种受支持的「无 L2」模式：启动时会记一条 WARNING，点名这个设置项、对应变量（`OPENROUTER_API_KEY`），以及语义索引与语义检索会一直失败直到它被设置——这是提醒，不是拒绝 |
 | `MODEL_PRICING` | （空） | **本部署**为上面这些模型实际支付多少，一行一条（写成单行变量时用 `;` 分隔）：`<模型 id> = <输入>/<输出>/<缓存读>/<缓存写> <货币>`，每项都是每 100 万 token 的价格。空 = 没有声明任何价格：所有显示花费的地方都只显示 token，不显示金额。引擎键：`models.pricing` |
 | `COMPILE_CALL_TIMEOUT` | `600` | 一次编译任务里单次模型调用（工具循环、修复轮、编译后简报）的秒数上限。它在 `LLM_TIMEOUT`（供应商客户端的请求护栏）之上：连接挂死时任务会一直停在 `claimed`，直到 worker 重启；超时则任务判失败，正本不受影响。`0` = 不限时。引擎键：`models.compile_call_timeout` |
 | `COMPILE_MAX_TOOL_CALLS` | `0` | 一次编译的**一轮**可以花掉多少次工具调用——首轮和它的修复轮都按这个数。`0` 不是不限：它表示这个数由本次任务算出，`max(40, 3 × 来源数)`，因为首轮必须能读完每一个来源、并且每个来源至少追加两次（真实重建里固定的 40 把一个 36 来源的日组截断在追加中途，让 14 个日组没能进库）。任何大于 0 的值都作为绝对上限直接使用。修复轮从不接手首轮剩下的额度：它有自己全新的一份 `max(12, 3 × 违规数)`，同样以这个数封顶——一个旋钮同时约束两轮。引擎键：`models.compile_max_tool_calls` |
@@ -48,6 +48,31 @@
 模型规格三种形态：`scripted:<路径>`（本地回放、零密钥——且硬覆盖所有角色，scripted 运行完全确定）；`openrouter:<模型>`（需要 `OPENROUTER_API_KEY`）；以及 `init_chat_model` 认识的任意 provider 前缀（如 `anthropic:claude-sonnet-5`、`openai:gpt-5.6-luna`）。角色回退只有一跳：`answer → recall`、`live_context → recall`、`live_discover → recall`、`live_pick → recall`、`evolve → compile`、`challenge → compile`、`brief → compile`，然后是 `LLM_MODEL`。
 
 其中两个角色属于全量范围的实时上下文车道，它们之所以存在，是因为那条车道每一拍是两次小调用、而不是一次大调用（架构 §7）。`LLM_MODEL_LIVE_DISCOVER`（引擎键 `models.live_discover`）跑第①段——读待处理的对话，决定这一拍到底要不要检索——要的是**小型推理**模型：输出只有几十个 token，需要的是对一场对话的快速判断。`LLM_MODEL_LIVE_PICK`（引擎键 `models.live_pick`）跑第③段——在已经装配好的候选卡片里选一张或一张都不选、写一句短引言、裁剪引用、打分——要的是**又弱又快**的模型，因为这里没有什么要推理的：证据就摆在面前，而且它一个字都不许改写。生成出来的引擎分别写的是 `openrouter:openai/gpt-5.6-sol` 与 `openrouter:openai/gpt-5.6-luna`；两者留空都借用 `recall`，于是已有部署原样继续工作。它们的推理强度由**框架钉死**（发现为 `low`，挑选关闭），并且刻意不做成旋钮：能被部署调高的强度会改变这条车道每一拍的成本，而便宜正是「先花一次调用、再决定要不要检索」这件事的全部理由。`LLM_MODEL_LIVE_CONTEXT` 仍然负责简报范围的那一轮与卡片展开，两者各一次调用，均未改变。脚手架让检索规划/概览继续跑 standard Luna，只把最终答题送到显式 `high` effort 的 Luna Pro。
+
+### `agent:<backend>`——用编码代理代替模型
+
+`LLM_MODEL_COMPILE`（引擎键 `models.compile`）还接受一种形态：`agent:codex` 或 `agent:claude-code`。它命名的是**执行体**而不是模型——这一轮由本机上的那个编码代理来跑，用所有者自己的订阅，走与模型执行体完全相同的断言级草稿和同一道闸门（见 [coding-agent-mode](../design/coding-agent-mode.zh-CN.md) 裁定 1）。影响范围就是编译角色本身的那一档：`restart`，且只影响此后的编译；两种方式产出的库逐字节一致，改回来同样是一行。
+
+三个必须直说的后果：
+
+- **执行体不是模型。** 凡是要从这个规格构造模型的地方都会拒绝。自己字段为空时**借用**编译角色字段的角色——`evolve`、`challenge`、`brief`——会跳过借来的 `agent:` 规格，继续落到基础 `LLM_MODEL`，所以一行 `compile: agent:codex` 不会让其他角色停摆。在自己字段里写了 `agent:` 的角色，或基础 `LLM_MODEL` 写成 `agent:`，启动时按角色名被拒绝。本版本只有编译角色可以跑在代理上。
+- **worker 不再认领 compile job。** 它们留在 `queued` 等 `pkc draft open`；index、projection、groom、challenge、evolve 等任务照旧排干。队列的「每用户单写者」规则没有变——Steward 的 `open` 用的就是 worker 那把锁。
+- **语义切分降级。** 编码代理不响应 `ainvoke`，所以 `CHUNK_STRATEGY=semantic` 会像 scripted / 无密钥部署一样回落到机械分句；引擎文件里仍然写着 `semantic`，之后补上密钥再跑 `rebuild_derived` 就能补齐。
+
+| 配置 | 默认 | 含义 |
+|---|---|---|
+| `EXECUTOR_BACKEND` | （空） | 正在敲 `pkc draft` 命令的是哪个编码代理，由启动那个会话的一方设置。它是**对已发生之事的标注**，不是开关：部署跑在什么上由 `LLM_MODEL_COMPILE` 决定。经 CLI 完成的任务记录 `executor = agent:<后端>`；未设置时只记 `agent`——所有者自己开的终端会话不冒充任何一个 harness。不是引擎旋钮（属于部署接线） |
+| `AGENT_UNATTENDED` | `true` | **worker 自己**是否通过编码代理来跑编译作业。worker 按定义就是无人值守的——它运行的地方没有人守着——所以在 `agent:` 执行体下它会认领编译作业、打开草稿，并交给自己拉起的 harness（[coding-agent-mode](../design/coding-agent-mode.md) §9）。`false` 是交互姿态：编译作业留在队列里，由所有者自己的会话用 `pkc draft open` 打开，其余作业照常流转。在模型执行体下这个开关不决定任何事。不是引擎旋钮（属于部署接线） |
+| `AGENT_PROBE_ON_START` | `true` | 启动时探测所配置的编译 harness，不可用就拒绝启动。装了但没登录的 harness 会掉进交互式登录流程并永远等下去，所以「它是否活着」应当在排队派活之前问清楚，而不是等第一次编译才发现。探测的是**活性**，绝不比较版本。只有无人值守姿态会探测——`pkc` 进程从不拉起 harness，所以它从不探测。测试与 CI 用 `false`：那里 PATH 上的是假二进制，登录这件事根本不存在。不是引擎旋钮 |
+| `AGENT_RETRIES` | `3` | 当 harness 以**限流**拒绝一轮时，无人值守启动器最多可以重新拉起几次——仅限这一种。其他任何拒绝都只上报不重试（再试一次还是会被拒），超时同样不重试，因为墙钟本身就是「这一轮结束了」的声明。等待按指数增长并带抖动，受启动器自身的上限约束；每一次等待都写日志。`0` 表示只试一次、不退避。不是引擎旋钮 |
+| `AGENT_KEEP_WORKDIR` | `false` | 保留启动器为每一轮建的工作目录（system 文本、任务、harness 的最后一条消息），而不是删掉它。仅供调试：这些文件里装着知识库的材料，把它们留在 `/tmp` 应当是运维者刻意做的决定。不是引擎旋钮 |
+| `PROJECT_DIR` | （API 的 cwd） | 控制台的 Steward 视图在哪里拉起 harness（[coding-agent-mode](../design/coding-agent-mode.md) §5.6）。就是技能包被装进去的那个项目目录，好让 harness 读到本部署自己的 `AGENTS.md` / `CLAUDE.md`，并在旁边找到技能——与 `pkc` 和无人值守 worker 遵循的是同一个约定。之所以做成配置项，是因为 API 与 worker 并不一定共用同一个工作目录。不是引擎旋钮（属于部署接线） |
+| `STEWARD_SESSION_IDLE` | `1800` | 控制台的 Steward 会话在开启它的那个浏览器标签页关掉之后还能活多少秒。关掉标签页不等于结束一场对话：harness 进程仍然在跑，重新连上就会重新接回它，并用会话自己保留的事件尾巴重绘。超过这个时限后，进程**组**会被 TERM→KILL 收掉，会话的逐字记录（`steward_turns`）随之删除；下一次接入开的是一段新会话。`0` 表示最后一个 socket 一走就收掉会话。不是引擎旋钮 |
+| `STEWARD_SKILL_HASH` | （空） | 教会这个 Steward 会话的那份技能包的 sha256。由 `pkc skill install` 写下的 shim（`<技能目录>/pkc-steward/scripts/pkc`）导出，读一次，然后作为 `Executor-Skill:` trailer 盖进这个会话产出的每一次正本提交——就在 `Skill-Content-Hash` 与 `Prompt-Overlay-Hash` 旁边，好让执行体读到的措辞和契约给它的措辞一样事后可辨。未设置时不写这一行，模型编译出的提交与它一直以来逐字节相同。没有任何东西会替你设置它：没走 shim 的代理会话诚实地无法辨认，而不是被猜一个。不是引擎旋钮（属于会话接线） |
+
+**技能包。** 在代理执行体之下，Steward 由一份生成出来的技能来教——`SKILL.md`、组合契约、编译指令、命令参考、闸门参考，以及那个 shim——由 `pkc skill install [--backend codex|claude-code|all] [--project <目录>]` 装进项目。它是本部署的一次*渲染*（契约 × 提示词覆盖 × 语言 × 组件 × 命令树），永不手写，所以 `pkc skill verify` 会重新渲染一遍，有漂移就列出来并以 `4` 退出；`pkc skill show` 打印哈希与文件清单。脚手架在生成时按 `compiler = codex | claude-code | all` 这个回答安装它，引擎 apply 会重新安装，影响范围 `future_compiles`——已经在跑的会话保持它开始时的措辞，直到重启。这三条命令只读引擎目录：不需要数据库、不需要密钥、不需要跑着的栈。
+
+**任务上的 `executor`。** 每个完成的任务都记录是谁跑的这一轮：worker 自己的循环记 `langchain:<解析后的模型规格>`，编码代理记 `agent:<后端>`。它和 `token_usage` 并排，因为两者合起来回答同一个问题——由代理执行的任务会写明执行体、并且**完全不报** token，因为 harness 的计数属于所有者的订阅，本进程根本没看见过。是缺席，而不是零：写零等于宣称这一轮免费。两个字段在 `GET /jobs` 和控制台的过程视图里都能读到。
 
 在这三者之外，同一条车道上还有第四个、可选的模型：`LIVE_WEB_SEARCH`（引擎键 `models.live_web_search`，默认 `false`）会在知识库旁边再开一条**补充**的互联网面，`LIVE_WEB_SEARCH_MODEL`（引擎键 `models.live_web_search_model`，默认 `openai/gpt-5.6-luna`）指定承接它的 OpenRouter 模型，背后用的是该服务商自己的原生网页搜索。它复用 `OPENROUTER_API_KEY`——不需要第二个密钥——没有密钥时这条搜索会自报不可用，无论开关怎么设，`web` 这个查询种类都不会被提供。在这里打开只是打开了可能性，并不等于对谁都打开：必须**部署与那一条连接都同意**，发现契约才会把这个查询种类写进去；而 `ready` 帧回送的是「批准了什么」，不是「请求了什么」（见 [http-api.zh-CN.md](http-api.zh-CN.md)）。它按次搜索计费，每次搜索的花费会记进那一拍的记录里。
 
@@ -108,6 +133,8 @@ id，于是一张按模型报的价目表，也能给通过网关买的同一个
 | `EVOLVE_TRIGGER_TOPIC_DOCS` | `5` | 新文档阈值（与下一条同时满足） |
 | `EVOLVE_TRIGGER_NEW_CLAIMS` | `30` | 新 claim 阈值 |
 | `EVOLVE_DRAFT_TTL_HOURS` | `24` | 草稿存活时长 |
+| `COMPILE_DRAFT_TTL` | `21600` | 一个打开着的编译草稿（`pkc draft open`，[coding-agent-mode](../design/coding-agent-mode.md) §6）可以静默多少秒，之后队列自愈就视其为被放弃。草稿会被每一条 `pkc draft` 命令重写，所以 `updated_at` 就是「确实有人在推进这一轮」的存活信号；超过 TTL 后草稿被删除、其 job 重新入队——与 worker 中途被杀掉的 job 是同一个结局，且任何情况下都不会写正本，因为未完成的一轮什么也没写。`0` 关闭草稿保护：worker 启动时把所有 claimed 的 job 一律重新入队，与草稿这个概念出现之前完全一致 |
+| `RECALL_HANDOFF_TTL` | `86400` | 一次**待答交接**在被同一个启动自愈删除之前，可以等多少秒。`pkc recall --evidence`（[coding-agent-mode](../design/coding-agent-mode.md) §5.1）把 fast lane 装配好的上下文交给 Steward，并记下这次交接——问题、时刻、library ref、证据清单——好让 `pkc consult answer` 之后把它变成一条咨询。一天足够 Steward 隔夜回来，也短到让无人作答的问题不会一直堆积；超时之后这一行就没了，那个问题也就没有留下任何咨询——事实本来就是如此。`0` 关闭这次清扫 |
 | `ROLLOVER_THRESHOLD_CHARS` | `40000` | 文档超过此字符数入队轮转；`0` 关闭 |
 | `ROLLOVER_KEEP_RECENT_CHARS` | `12000` | 活动文档保留的近期尾部 |
 | `RECALL_CLAIM_CANDIDATE_CAP` | `80` | 内容包含去重、可选重排与最终上下文裁剪之前的 claim 检索深度 |
