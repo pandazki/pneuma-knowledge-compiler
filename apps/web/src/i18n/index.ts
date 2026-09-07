@@ -30,6 +30,7 @@ import { profile } from "./profile";
 import { recall } from "./recall";
 import { service } from "./service";
 import { sources } from "./sources";
+import { steward } from "./steward";
 
 export type { Locale, MessageBundle } from "./define";
 export { LOCALES, defineMessages } from "./define";
@@ -52,6 +53,7 @@ export const BUNDLES = [
   recall,
   ask,
   liveContext,
+  steward,
   library,
   graph,
   history,
@@ -77,6 +79,7 @@ export const MESSAGES = {
     ...recall.zh,
     ...ask.zh,
     ...liveContext.zh,
+    ...steward.zh,
     ...library.zh,
     ...graph.zh,
     ...history.zh,
@@ -100,6 +103,7 @@ export const MESSAGES = {
     ...recall.en,
     ...ask.en,
     ...liveContext.en,
+    ...steward.en,
     ...library.en,
     ...graph.en,
     ...history.en,

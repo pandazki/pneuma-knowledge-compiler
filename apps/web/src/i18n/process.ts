@@ -49,6 +49,9 @@ export const process = defineMessages({
     "process.row.created": "创建",
     "process.row.completed": "完成",
     "process.jobNoun": "个 job",
+
+    "process.steward.waiting":
+      "有 {count} 个 compile job 在等 Steward——在项目目录里打开你的编码代理。",
   },
   en: {
     "process.description":
@@ -94,5 +97,8 @@ export const process = defineMessages({
     "process.row.created": "created",
     "process.row.completed": "completed",
     "process.jobNoun": "jobs",
+
+    "process.steward.waiting":
+      "{count} compile jobs are waiting for the Steward — open your coding agent in the project directory.",
   },
 });

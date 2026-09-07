@@ -19,3 +19,18 @@ export function splitGateDetail(detail: string | null | undefined): string[] {
     .filter((part) => part !== "");
   return parts.length > 0 ? parts : [detail.trim()];
 }
+
+/**
+ * How many of these jobs are waiting for the Steward — a queued compile job under an agent
+ * executor, which does not drain itself (docs/design/coding-agent-mode.md story 2.24).
+ *
+ * The API answers this per job (`waiting_for`), because the deployment's executor is the
+ * server's fact and not the browser's; the page only counts. A job whose `waiting_for` is
+ * absent — an older API, a finished job — is not waiting for anybody.
+ */
+export function countWaitingForSteward(
+  jobs: { waiting_for?: string | null }[] | null | undefined,
+): number {
+  if (!jobs) return 0;
+  return jobs.filter((job) => job.waiting_for === "steward").length;
+}

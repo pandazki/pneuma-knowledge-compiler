@@ -14,7 +14,7 @@ const transformed = await transformWithEsbuild(
   { loader: "ts", format: "esm", target: "es2022" },
 );
 const moduleUrl = `data:text/javascript;base64,${Buffer.from(transformed.code).toString("base64")}`;
-const { splitGateDetail } = await import(moduleUrl);
+const { countWaitingForSteward, splitGateDetail } = await import(moduleUrl);
 
 test("a joined gate rejection becomes one line per finding", () => {
   assert.deepEqual(
@@ -42,4 +42,19 @@ test("a semicolon with no space after it is inside a sentence, not between two",
   // The gate joins on "; ". `a;b` is one finding that happens to contain a semicolon.
   assert.deepEqual(splitGateDetail("expected a;b, got c"), ["expected a;b, got c"]);
   assert.deepEqual(splitGateDetail("  spaced  ;   out  "), ["spaced", "out"]);
+});
+
+test("only queued jobs addressed to the Steward are counted as waiting for one", () => {
+  assert.equal(
+    countWaitingForSteward([
+      { waiting_for: "steward" },
+      { waiting_for: "worker" },
+      { waiting_for: "steward" },
+      { waiting_for: null },
+      {},
+    ]),
+    2,
+  );
+  assert.equal(countWaitingForSteward(null), 0);
+  assert.equal(countWaitingForSteward([]), 0);
 });

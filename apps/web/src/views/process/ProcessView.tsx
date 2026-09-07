@@ -7,7 +7,7 @@ import {
   type JobSummary,
 } from "@/lib/api";
 import { fmtTime } from "@/lib/format";
-import { splitGateDetail } from "@/lib/jobDetail";
+import { countWaitingForSteward, splitGateDetail } from "@/lib/jobDetail";
 import { locateStep, type LocateWalk } from "@/lib/jobLocate";
 import {
   firstPage,
@@ -81,6 +81,8 @@ export default function ProcessView() {
   const select = useApp((s) => s.select);
   const setView = useApp((s) => s.setView);
   const jump = useApp((s) => s.jump);
+  // A Steward step that committed moves this ledger without a reload (story 2.5f).
+  const libraryRevision = useApp((s) => s.libraryRevision);
   const t = useT();
 
   const [jobPage, setJobPage] = useState<Page<JobSummary> | null>(null);
@@ -95,6 +97,13 @@ export default function ProcessView() {
 
   const jobs = jobPage?.items ?? null;
   const selectedJobId = selection?.kind === "job" ? selection.id : null;
+  /**
+   * Jobs the worker will not touch. Under an agent executor a compile job is the Steward's
+   * to open, so the queue holding still ones is not a stall — it is work addressed to a
+   * person's coding agent, and the ledger has to say so or it reads as a broken worker
+   * (docs/design/coding-agent-mode.md story 2.24).
+   */
+  const waitingForSteward = useMemo(() => countWaitingForSteward(jobs), [jobs]);
 
   /**
    * L4 — a deep link into the ledger lands on whichever page the job is on.
@@ -155,7 +164,7 @@ export default function ProcessView() {
       live = false;
       if (timer) window.clearTimeout(timer);
     };
-  }, [currentUser, pageState.cursor, reloadKey]);
+  }, [currentUser, pageState.cursor, reloadKey, libraryRevision]);
 
   useEffect(() => {
     if (!selectedJobId) {
@@ -302,6 +311,12 @@ export default function ProcessView() {
           onDismiss={() => setCompileError(null)}
         >
           <Mono className="break-all">{compileError}</Mono>
+        </Callout>
+      )}
+
+      {waitingForSteward > 0 && (
+        <Callout tone="info">
+          {t("process.steward.waiting", { count: waitingForSteward })}
         </Callout>
       )}
 
@@ -473,6 +488,18 @@ function JobDetail({ job, userId }: { job: JobSummary; userId: string }) {
             term: "ok",
             definition:
               job.ok == null ? "—" : job.ok ? "true" : "false",
+          },
+          // WHO ran the round. A library does not care — its authority is L0 and canonical,
+          // and its attribution names the contract and the wording, never the model — but a
+          // job row that cannot say which body typed its calls makes "what did this cost"
+          // and "why is there no usage here" two unanswerable questions.
+          {
+            term: "executor",
+            definition: job.executor ? (
+              <Mono className="break-all">{job.executor}</Mono>
+            ) : (
+              "—"
+            ),
           },
           // Compile is the system's biggest spender. Until the job row carried its own
           // usage, this was the one place money went and nothing said how much.

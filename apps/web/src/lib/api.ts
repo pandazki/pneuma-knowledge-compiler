@@ -1666,6 +1666,13 @@ export interface JobSummary {
    *  no model, or predates the column. */
   token_usage: Partial<TokenUsage>;
   cost: Cost | null;
+  /** Who ran the round: `langchain:<model spec>`, or `agent:<backend>` when a coding agent
+   *  typed the calls. Null while the job has not finished, and on jobs compiled before the
+   *  column existed. */
+  executor?: string | null;
+  /** Who is expected to act on a job still in the queue: the worker, or the Steward (a
+   *  queued compile job under an agent executor). Null once the job has left the queue. */
+  waiting_for?: "worker" | "steward" | null;
 }
 
 export interface CompileResult {
@@ -2212,4 +2219,97 @@ export function getArchiveInventory(
   signal?: AbortSignal,
 ): Promise<ArchiveInventory> {
   return req<ArchiveInventory>(`/v1/users/${u(userId)}/archive`, { signal });
+}
+
+// ── The console's Steward view (docs/design/coding-agent-mode.md §5.6) ──────────────────────
+
+/** What the view needs before it draws anything: is there a Steward, and is one up? */
+export interface StewardStatus {
+  /** False when this deployment compiles with a model — the empty state, not an error. */
+  configured: boolean;
+  backend: string;
+  label: string;
+  protocol: string;
+  spec: string;
+  live: boolean;
+  exited: boolean;
+  exit_code: number | null;
+  agent_session_id: string;
+  project_dir: string;
+}
+
+export function getStewardStatus(userId: string): Promise<StewardStatus> {
+  return req<StewardStatus>(`/v1/users/${u(userId)}/steward`);
+}
+
+/**
+ * The Steward socket: the Owner's turns down, the harness's own events up.
+ *
+ * A thin typed wrapper, like `LiveContextSocket` — the SESSION lives in the service and
+ * survives this connection, so there is no client state to restore on reconnect: the server's
+ * `snapshot` frame repaints the conversation. It does not auto-reconnect, because reopening
+ * the view is what a reconnect is.
+ */
+export class StewardSocket {
+  private ws: WebSocket;
+
+  constructor(
+    userId: string,
+    private readonly onFrame: (frame: Record<string, unknown>) => void,
+    private readonly onStatus: (status: LiveContextSocketStatus, detail?: string) => void,
+  ) {
+    this.onStatus("connecting");
+    this.ws = new WebSocket(wsUrl(`/v1/users/${u(userId)}/steward`));
+    this.ws.onopen = () => this.onStatus("open");
+    this.ws.onclose = (e) =>
+      this.onStatus("closed", e.reason || (e.wasClean ? tx("service.ws.closed") : `code ${e.code}`));
+    this.ws.onerror = () => this.onStatus("closed", tx("service.ws.error"));
+    this.ws.onmessage = (e) => {
+      try {
+        this.onFrame(JSON.parse(e.data as string) as Record<string, unknown>);
+      } catch {
+        this.onFrame({
+          type: "error",
+          detail: tx("service.ws.badFrame", { detail: String(e.data).slice(0, 120) }),
+        });
+      }
+    };
+  }
+
+  get ready(): boolean {
+    return this.ws.readyState === WebSocket.OPEN;
+  }
+
+  private send(msg: Record<string, unknown>): boolean {
+    if (!this.ready) return false;
+    this.ws.send(JSON.stringify(msg));
+    return true;
+  }
+
+  /** One Owner turn. Recorded by the service before the harness sees it (ruling 13). */
+  say(text: string): boolean {
+    return this.send({ type: "user", text });
+  }
+
+  /** After an exit: a NEW session, because nothing restarts one silently. */
+  startAgain(): boolean {
+    return this.send({ type: "start" });
+  }
+
+  /** End the session and reap the harness's process group. */
+  end(): boolean {
+    return this.send({ type: "end" });
+  }
+
+  close(): void {
+    this.ws.onclose = null;
+    this.ws.onerror = null;
+    this.ws.onmessage = null;
+    try {
+      this.ws.close();
+    } catch {
+      /* already closing */
+    }
+    this.onStatus("closed", tx("service.ws.disconnected"));
+  }
 }
