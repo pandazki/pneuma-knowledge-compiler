@@ -7,6 +7,7 @@ canonical layer while service/worker processes stay stateless.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any, Protocol
 
 from ..domain.ids import UserId
@@ -27,8 +28,67 @@ class JobQueue(Protocol):
         payload: dict[str, Any],
     ) -> str: ...
 
-    async def claim_next(self, user_id: UserId) -> Job | None:
-        """Claim the next per-user job (FOR UPDATE SKIP LOCKED, serial per user)."""
+    async def claim_next(
+        self, user_id: UserId, *, exclude_kinds: Sequence[str] = ()
+    ) -> Job | None:
+        """Claim the next per-user job (FOR UPDATE SKIP LOCKED, serial per user).
+
+        `exclude_kinds` skips over kinds this body will not run and claims the oldest job
+        that is left. The worker under an agent executor is the caller: a compile job is
+        then the Steward's to open (`pkc draft open`), so the worker must reach that user's
+        later index and projection jobs without claiming the compile one — and a
+        kind-agnostic claim would hand it exactly that job and hold the user's single
+        in-flight slot with it. The lock, the ordering and the per-user serialization are
+        unchanged; only the row this claim is willing to take is narrower.
+        """
+        ...
+
+    async def claim(
+        self, user_id: UserId, job_id: str, *, claimed_by: str = "worker"
+    ) -> Job | None:
+        """Claim ONE named job, under the same lock and the same per-user serialization.
+
+        `claim_next` serves a body that takes whatever is next; this serves one that was told
+        which job to work on — `pkc draft open <job-id>`, an agent claiming the round it is
+        about to drive by hand (docs/design/coding-agent-mode.md §6). The guarantee is
+        identical and deliberately so: whoever holds a user's claimed job is that user's
+        single writer, and the canonical layer never learns which body it was. `claimed_by`
+        records that anyway, because a job held by an open draft should be legible in the
+        queue rather than merely missing from it.
+
+        None when the job is not this user's, not queued, or when that user already has a job
+        in flight.
+        """
+        ...
+
+    async def record_job_usage(
+        self,
+        user_id: UserId,
+        job_id: str,
+        *,
+        token_usage: dict[str, int] | None = None,
+        executor: str | None = None,
+    ) -> None:
+        """Record what a FINISHED job cost, without touching its outcome.
+
+        `complete` is the write that ends a job, and it states the outcome; this states only
+        the two bookkeeping columns beside it. It exists because of one asymmetry: under an
+        agent executor the round is ended by `pkc draft finish` INSIDE the harness's session,
+        which never saw the harness's own token counters — the unattended launcher did, one
+        process out, after the job row was already written. Calling `complete` again to add
+        them would restate (and could contradict) an outcome that is already true.
+
+        Idempotent and outcome-preserving: a job that does not exist, or a call that supplies
+        nothing, changes nothing.
+        """
+        ...
+
+    async def release(self, user_id: UserId, job_id: str) -> None:
+        """Return a claimed job to the queue, undecided (`pkc draft abandon`).
+
+        Not `complete(ok=False)`: nothing was judged about the work, so the row goes back to
+        'queued' exactly as it stood and the next body picks it up. Canonical is untouched
+        either way."""
         ...
 
     async def complete(
@@ -40,6 +100,7 @@ class JobQueue(Protocol):
         detail: str | None = None,
         snapshot_ref: str | None = None,
         token_usage: dict[str, int] | None = None,
+        executor: str | None = None,
     ) -> None:
         """Mark a claimed job finished. `ok=False` records an aborted compile with its
         gate-violation `detail`; `snapshot_ref` is the resulting commit on success.
@@ -47,5 +108,12 @@ class JobQueue(Protocol):
         `token_usage` is what the job's model calls actually spent, recorded on the same
         write that ends the job rather than through a second one: a job row that says it is
         done and cannot say what it cost is the one place a knowledge base spends most of
-        its money invisibly. `None` states nothing, which is not the same as zero."""
+        its money invisibly. `None` states nothing, which is not the same as zero.
+
+        `executor` names WHO ran the round — `langchain:<model spec>` for the worker's own
+        loop, `agent:<backend>` for a coding agent that typed the calls through `pkc draft`
+        (docs/design/coding-agent-mode.md ruling 1). It is recorded beside the usage because
+        the two answer one question together: an agent-executed job carries an executor and
+        NO usage, since the harness's counters are the subscription's and not the library's,
+        and a zero there would be a claim that the round was free."""
         ...

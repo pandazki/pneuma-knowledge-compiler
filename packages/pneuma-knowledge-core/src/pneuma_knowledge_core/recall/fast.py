@@ -603,6 +603,43 @@ class FastAnswer:
 
 
 @dataclass(frozen=True)
+class FastEvidence:
+    """The fast lane stopped one line before the answer call — what it WOULD have sent.
+
+    Not a second assembly and not a rendering of one: `fast_recall(..., evidence_only=True)`
+    runs the whole lane and returns this instead of invoking the answering model, so the
+    bytes here are the bytes that call would have carried. A reader that prints them reads
+    what a model would have read (docs/design/coding-agent-mode.md §5.1).
+
+    `content` is the aliased Human content — query-local `sNN` handles already applied, the
+    same substitution `answer_with_selector` / `answer_with_structured` make at their own
+    model boundary — and `handles` is that call's handle map. `manifest` is the lane's own
+    `evidence_manifest`, unchanged, so a record built from an answer written against this
+    evidence admits exactly the citations the lane would have admitted.
+    """
+
+    question: str
+    as_of: datetime
+    #: The system contract the answering call would have opened with.
+    system: str
+    #: The aliased Human content — a string in caption mode, content blocks in native mode.
+    content: str | list[dict]
+    #: `sNN` → real source id, for exactly this assembly.
+    handles: dict[str, str] = field(default_factory=dict)
+    manifest: tuple[EvidenceRef, ...] = field(default_factory=tuple)
+    answer_format: str = "text"
+    answer_style: str = DEFAULT_ANSWER_STYLE
+    evidence_strategy: str = "ranked"
+    used_claims: tuple[RetrievedClaim, ...] = field(default_factory=tuple)
+    used_windows: tuple = field(default_factory=tuple)
+    used_episode_summaries: tuple = field(default_factory=tuple)
+    used_component_evidence: tuple = field(default_factory=tuple)
+    expanded_documents: tuple[str, ...] = field(default_factory=tuple)
+    glance_chars: int = 0
+    stages: tuple[StageTiming, ...] = field(default_factory=tuple)
+
+
+@dataclass(frozen=True)
 class EpisodeSummary:
     """One explicitly derived, source-addressed episode description shown to the answer.
 
@@ -3008,6 +3045,13 @@ async def fast_recall(
     # were present in the evidence context.
     answer_format: Literal["text", "structured"] = "text",
     structured_answer_timeout: float | None = DEFAULT_STRUCTURED_ANSWER_TIMEOUT_SECONDS,
+    # Stop one line before the answering call and return what it WOULD have been sent
+    # (`FastEvidence`). Everything above the answer runs exactly as it always does — the same
+    # retrieval, the same selection, the same assembly, the same manifest — so this is the
+    # lane minus its last step and never a second lane. `pkc recall --evidence` is the caller
+    # it exists for (docs/design/coding-agent-mode.md §5.1): a Steward answering from a
+    # terminal reads the bytes a model would have read.
+    evidence_only: bool = False,
     claim_provenance_passage_cap: int = 12,
     episode_provenance_passage_cap: int = 4,
     # The SHAPE of the answer: "concise" (the bare exact value — graders, scripts),
@@ -3105,7 +3149,7 @@ async def fast_recall(
     # nothing archived the whole filter is inert and this lane answers byte-for-byte as it
     # did before the archive existed (`archive_filter._pin`).
     archive_active: bool = False,
-) -> FastAnswer:
+) -> "FastAnswer | FastEvidence":
     """fast recall: the knowledge base glance + L3 claims + L1/L2 body windows → one answer.
 
     Two disjoint retrieval faces answer one question: claims give precision + citation
@@ -3843,6 +3887,53 @@ async def fast_recall(
     deliberating = (
         (evidence_strategy == "all") if deliberate is None else bool(deliberate)
     ) and answer_format == "structured"
+
+    if evidence_only:
+        # THE SEAM. Everything above ran; the answering call does not. The Human content is
+        # built from the very arguments both answer branches below are handed and aliased by
+        # the same function they alias with, so what comes back is the message that call
+        # would have carried — not a rendering of it, and not a second assembly that could
+        # drift from one.
+        evidence_human = recall_human_content(
+            question,
+            claims,
+            as_of=as_of,
+            windows=windows,
+            episode_summaries=episode_summaries,
+            profile=profile,
+            glance=glance,
+            snapshot=scope_declaration(scope),
+            full_documents=expanded,
+            window_notes=window_notes,
+            timelines=timelines,
+            component_evidence=shown_component_evidence,
+            images=images,
+            image_mode=image_mode,
+        )
+        aliased_evidence, evidence_handles = _alias_human_content(evidence_human)
+        timer.record("total", (time.perf_counter() - lane_started) * 1000.0)
+        return FastEvidence(
+            question=question,
+            as_of=as_of,
+            system=(
+                structured_answer_contract(answer_style, deliberate=deliberating)
+                if answer_format == "structured"
+                else selector_contract(answer_style)
+            ),
+            content=aliased_evidence,
+            handles=evidence_handles,
+            manifest=manifest,
+            answer_format=answer_format,
+            answer_style=answer_style,
+            evidence_strategy=evidence_strategy,
+            used_claims=tuple(claims),
+            used_windows=tuple(windows),
+            used_episode_summaries=tuple(episode_summaries),
+            used_component_evidence=tuple(component_evidence),
+            expanded_documents=tuple(selected),
+            glance_chars=len(glance or ""),
+            stages=timer.emit(),
+        )
     if answer_format == "structured":
         with timer.measure("answer"):
             (

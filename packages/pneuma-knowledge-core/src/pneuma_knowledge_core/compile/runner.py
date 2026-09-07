@@ -15,15 +15,19 @@ visible rather than merely enforced — a notice at the low-water mark names the
 and what the gate's own predicates already find owed, and a round that ran out says so at
 the top of the feedback the next round reads.
 
+The loop itself lives in `compile/round.py` behind a one-method protocol, because it is the
+only part of a compile that changes when a different body drives the round — a coding agent
+under the Owner's subscription rather than a provider model (docs/design/coding-agent-mode.md
+ruling 2). Everything this module does around it is the same either way.
+
 Nothing here persuades the model; the anchor/citation/path mechanisms are enforced by
 the tools and the gate (architecture.md §0 discipline 1).
 """
 
 from __future__ import annotations
 
-import asyncio
 import base64
-import inspect
+import os
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Literal
@@ -33,7 +37,6 @@ from langchain_core.messages import (
     BaseMessage,
     HumanMessage,
     SystemMessage,
-    ToolMessage,
 )
 from langchain_core.messages.content import create_image_block
 from langchain_core.tools import StructuredTool
@@ -51,17 +54,30 @@ from ..ports.canonical_store import CanonicalStore
 from ..prompts import prompt, prompt_overlay_hash
 from ..skill.contract import render_system_contract
 from ..skill.version import SkillVersion
-from .anchor_ops import AnchorToolError
 from .documents import Connection, Overview, render_document
 from .overview import OVERVIEW_BUDGET_CHARS, OVERVIEW_REQUIRED_AFTER_CLAIMS
 from .gate import (
     Violation,
     archive_refusals,
     overview_required_violations,
+    owed_now_lines,
     run_gate,
 )
 from ..components import component_job, registered_components
 from .patch import PatchDraft, history_volume_owner
+# The round itself — the ONE part of a compile that changes with the executor, and therefore
+# the one part behind a protocol (compile/round.py). Three of these names were defined here
+# before the seam existed and are re-exported so their import sites keep working (notably
+# `compile/brief.py`'s `_call_model` and the tests' `CompileCallTimeout`).
+from .round import (  # noqa: F401 — re-exported: see above
+    BUDGET_NOTICE_REMAINING,
+    CompileCallTimeout,
+    LangchainRoundRunner,
+    RoundOutcome,
+    RoundRunner,
+    RoundToolFace,
+    _call_model,
+)
 from .transitions import CompileEvent, derive_events
 
 # Injected read ports, mirroring evolve/runner.py's shape. compile was the only agentic
@@ -126,10 +142,9 @@ MIN_TOOL_CALLS = 40
 TOOL_CALLS_PER_SOURCE = 3
 MIN_REPAIR_TOOL_CALLS = 12
 REPAIR_TOOL_CALLS_PER_VIOLATION = 3
-# How much budget must be LEFT for the low-water notice to still be worth sending. Below a
-# handful of calls the notice would name work the model can no longer do; above it the
-# notice is noise in the middle of a round that has room. Rendered once per round.
-BUDGET_NOTICE_REMAINING = 6
+# `BUDGET_NOTICE_REMAINING` — how much budget must be LEFT for the low-water notice to still
+# be worth sending — now lives with the loop that sends it (compile/round.py), and is
+# re-exported above.
 MAX_REPAIR_ROUNDS = 1
 
 
@@ -149,30 +164,6 @@ def repair_round_budget(violation_count: int, round_budget: int) -> int:
     """The repair round's own fresh allowance — never borrowed from what round one spent."""
     sized = max(MIN_REPAIR_TOOL_CALLS, REPAIR_TOOL_CALLS_PER_VIOLATION * violation_count)
     return min(round_budget, sized)
-
-
-class CompileCallTimeout(TimeoutError):
-    """A single model call in the compile loop exceeded its wall-clock budget.
-
-    A provider connection that hangs is invisible to every other guardrail: the request is
-    open, no error arrives, and the job stays `claimed` — one hung call held a worker for
-    23 minutes, and orphan reclaim only runs on worker restart. The bound is per CALL, not
-    per compile: a slow-but-alive model must not be killed, so the budget is generous and
-    the guard is against hangs. Raising propagates out of `run_compile` before any commit,
-    so the worker's "any exception completes the job as failed" path records the reason and
-    the canonical layer is untouched."""
-
-
-async def _call_model(coro, timeout: float | None):
-    """Await one model call under `timeout` seconds; `None` / `0` = no bound."""
-    if not timeout:
-        return await coro
-    try:
-        return await asyncio.wait_for(coro, timeout)
-    except asyncio.TimeoutError as exc:
-        raise CompileCallTimeout(
-            f"compile model call timed out after {timeout:g}s"
-        ) from exc
 
 
 # Per-source treatment instruction segments (architecture.md §4, execution paths). These are
@@ -490,6 +481,22 @@ def _render_task_content(
     return content
 
 
+#: The environment variable a coding-agent Steward's session carries: the sha256 of the skill
+#: package it was installed with. Set by the generated shim, read here and nowhere else.
+STEWARD_SKILL_HASH_ENV = "PNEUMA_KNOWLEDGE_STEWARD_SKILL_HASH"
+
+
+def executor_skill_hash() -> str:
+    """The executor's own skill hash for this process, or "" when there is none.
+
+    Process state, exactly like `prompt_overlay_hash()`: an executor is a property of the
+    running body, not an argument every call site would have to thread. Reading it here keeps
+    the two executors on ONE trailer format — the CLI's `finish` and the langchain loop call
+    the same function, and what differs between them is only whether the variable is set.
+    """
+    return os.environ.get(STEWARD_SKILL_HASH_ENV, "").strip()
+
+
 def _with_skill_trailer(message: str, skill: SkillVersion) -> str:
     """Append a git trailer block recording which skill version compiled this snapshot.
 
@@ -508,6 +515,15 @@ def _with_skill_trailer(message: str, skill: SkillVersion) -> str:
     overlay = prompt_overlay_hash()
     if overlay is not None:
         trailers.append(f"Prompt-Overlay-Hash: {overlay}")
+    # Fourth axis, and only when a coding agent is the body: WHICH WORDS the executor itself
+    # was taught. The skill package a `pkc` Steward reads is generated from this same catalog
+    # and this same contract, and its sha256 is exported by the shim that starts the session
+    # (docs/design/coding-agent-mode.md §7). Absent for the langchain executor, whose process
+    # nothing exports it into — so a model-compiled commit's trailer is byte-for-byte what it
+    # has always been.
+    executor_skill = executor_skill_hash()
+    if executor_skill:
+        trailers.append(f"Executor-Skill: {executor_skill}")
     # Third axis: WHICH components were in the room — their gate checks, outline lines and
     # tools shaped this compile. Absent when none is enabled, so a stock trailer is unchanged.
     names = [c.name for c in registered_components()]
@@ -544,6 +560,12 @@ def _render_violations(
     lines.append(prompt("gate.feedback_header"))
     lines.extend(v.render() for v in violations)
     return "\n".join(lines)
+
+
+#: Public spelling of the gate's own feedback rendering. Both executors show the same text:
+#: the langchain loop puts it in the repair round's HumanMessage, `pkc draft finish` prints it
+#: on stderr. A second rendering would be a second thing the two could disagree about.
+render_violations = _render_violations
 
 
 def _build_tools(
@@ -736,6 +758,227 @@ def _build_tools(
     ]
 
 
+# ─────────────────────────────────────── the round's pieces, reusable by either executor
+#
+# Everything below is called by `run_compile` and by the `pkc draft` commands, and that is
+# the point: the claim-level draft with its tool face and its gate is ONE door, and the
+# langchain loop and the CLI are two clients of it (ruling 2 of
+# docs/design/coding-agent-mode.md). A second rendering of the task, a second tool face or a
+# second commit tail would be a second door, and "whatever one refuses the other refuses with
+# the same text" would then be an aspiration rather than a fact about the code.
+
+
+@dataclass(frozen=True)
+class AliasedSources:
+    """This compile's sources under their per-job `sNN` handles, plus the two maps.
+
+    Compile-boundary citation aliasing (see `run_compile`): the model mis-copies 32-char UUID
+    source ids into `[cite:]` markers, so it is shown short per-job handles instead, the gate
+    validates handles, and the commit resolves them back to real ids. Minted here rather than
+    inline so both executors alias one way.
+    """
+
+    sources: list[NormalizedSource]
+    handle_by_real: dict[str, str]
+    real_by_handle: dict[str, str]
+    treatments: dict[str, str]
+    source_guidance: dict[str, str]
+    source_preamble: dict[str, str]
+
+
+def alias_sources(
+    sources: Sequence[NormalizedSource],
+    *,
+    treatments: Mapping[str, str] | None = None,
+    source_guidance: Mapping[str, str] | None = None,
+    source_preamble: Mapping[str, str] | None = None,
+) -> AliasedSources:
+    """The supplied sources re-keyed onto `sNN` handles, with the per-source maps re-keyed too."""
+    handle_by_real = {str(s.raw.source_id): f"s{i + 1:02d}" for i, s in enumerate(sources)}
+    real_by_handle = {h: r for r, h in handle_by_real.items()}
+    aliased = [
+        s.model_copy(
+            update={
+                "raw": s.raw.model_copy(
+                    update={"source_id": SourceId(handle_by_real[str(s.raw.source_id)])}
+                )
+            }
+        )
+        for s in sources
+    ]
+    return AliasedSources(
+        sources=aliased,
+        handle_by_real=handle_by_real,
+        real_by_handle=real_by_handle,
+        treatments={
+            handle_by_real[k]: v
+            for k, v in (treatments or {}).items()
+            if k in handle_by_real
+        },
+        source_guidance={
+            handle_by_real[k]: v
+            for k, v in (source_guidance or {}).items()
+            if k in handle_by_real
+        },
+        source_preamble={
+            handle_by_real[k]: v
+            for k, v in (source_preamble or {}).items()
+            if k in handle_by_real
+        },
+    )
+
+
+def render_compile_messages(
+    *,
+    sources: Sequence[NormalizedSource],
+    base_docs: list[CanonicalDocument],
+    skill: SkillVersion,
+    treatments: Mapping[str, str] | None = None,
+    source_guidance: Mapping[str, str] | None = None,
+    source_preamble: Mapping[str, str] | None = None,
+    retrieved: str | None = None,
+    owner: object | None = None,
+    time: TimeContext | None = None,
+    image_mode: Literal["caption", "native"] = "caption",
+    image_payloads: Mapping[str, bytes] | None = None,
+) -> tuple[str, str | list[dict]]:
+    """The two surfaces one compile round is given: `(system text, task content)`.
+
+    `sources` are the ALIASED sources — the handles the model will cite. Called inside the
+    component window, because the task carries every enabled component's `source_preamble`
+    line. The langchain executor puts the pair into a SystemMessage and a HumanMessage; the
+    CLI prints it from `pkc draft open`. Same call, same bytes: invariant I5 holds for an
+    agent reading a terminal exactly as it holds for a provider reading a request.
+    """
+    return (
+        render_system_contract(skill, owner=owner, time=time),
+        _render_task_content(
+            sources,
+            base_docs,
+            treatments,
+            source_guidance,
+            source_preamble,
+            retrieved,
+            time,
+            image_mode=image_mode,
+            image_payloads=image_payloads,
+        ),
+    )
+
+
+def build_compile_tool_face(
+    draft: PatchDraft,
+    *,
+    sources: Sequence[NormalizedSource] = (),
+    search_knowledge: SearchKnowledge | None = None,
+    search_source: SearchSource | None = None,
+) -> list[StructuredTool]:
+    """The write tools plus every enabled component's compile tools, in registration order.
+
+    `sources` are the ALIASED sources: a component tool that names a source must name it by
+    the same `sNN` handle the task text under the model's eyes uses. Call inside the component
+    window (`component_job`), whose `prepare` is what makes a component's sync faces speak
+    about this user at all.
+    """
+    component_tools = [
+        tool
+        for component in registered_components()
+        for tool in component.compile_tools(draft, sources=sources)
+    ]
+    return _build_tools(draft, search_knowledge, search_source, component_tools)
+
+
+async def finalize_compile(
+    *,
+    user_id: UserId,
+    store: CanonicalStore,
+    draft: PatchDraft,
+    sources: Sequence[NormalizedSource],
+    skill: SkillVersion,
+    commit_message: str = "compile",
+    alias_map: dict[str, str] | None = None,
+    known_source_bounds: Mapping[str, int] | None = None,
+    overview_budget_chars: int = OVERVIEW_BUDGET_CHARS,
+    overview_required_after_claims: int = OVERVIEW_REQUIRED_AFTER_CLAIMS,
+    violations: Sequence[Violation] | None = None,
+    rounds: int = 1,
+    tool_calls: int = 0,
+    token_usage: Mapping[str, int] | None = None,
+) -> CompileResult:
+    """The end of a compile round, whichever executor drove it: gate → commit | abort | noop.
+
+    `violations` is an already-computed gate result (the langchain loop runs the gate to
+    decide whether a repair round is owed, and hands the answer over rather than paying for
+    it twice); `None` means run the gate here. Everything after it is the same either way —
+    the handle resolution, the commit with the skill trailer, the derived events — because a
+    committed compile is defined by what it wrote, never by who typed the calls.
+    """
+    if violations is None:
+        violations = run_gate(
+            draft,
+            sources,
+            alias_map=alias_map,
+            known_source_bounds=known_source_bounds,
+            overview_budget_chars=overview_budget_chars,
+            overview_required_after_claims=overview_required_after_claims,
+        )
+    usage = dict(token_usage or {})
+    files = draft.to_files()
+    # Read AFTER the last gate run, so a refusal the repair round earned is in it, and
+    # for every outcome alike: an aborted round hit the archive as truly as a committed
+    # one, and a noop is exactly the shape a round spends when the only thing it had to
+    # write was refused.
+    refusals = archive_refusals(violations, draft)
+    if violations:
+        # Abort: canonical layer untouched (no commit).
+        return CompileResult(
+            status="aborted",
+            files=files,
+            events=[],
+            violations=list(violations),
+            rounds=rounds,
+            tool_calls=tool_calls,
+            token_usage=usage,
+            snapshot=None,
+            archive_refusals=refusals,
+        )
+
+    if not draft.is_dirty():
+        return CompileResult(
+            status="noop",
+            files=files,
+            events=[],
+            violations=[],
+            rounds=rounds,
+            tool_calls=tool_calls,
+            token_usage=usage,
+            snapshot=None,
+            archive_refusals=refusals,
+        )
+
+    # Resolve the per-job `sNN` handles back to real source ids, so canonical stores real
+    # provenance (base docs already carry real ids; only the model's new citations use
+    # handles). Both the committed files and the event diff run over the resolved bodies.
+    resolved = alias_map or {}
+    files = {p: resolve_handles(b, resolved) for p, b in files.items()}
+    new_bodies = {p: resolve_handles(b, resolved) for p, b in draft.new_bodies().items()}
+    snapshot = await store.commit_patch(
+        user_id, files, message=_with_skill_trailer(commit_message, skill)
+    )
+    events = derive_events(draft.base_bodies(), new_bodies)
+    return CompileResult(
+        status="committed",
+        files=files,
+        events=events,
+        violations=[],
+        rounds=rounds,
+        tool_calls=tool_calls,
+        token_usage=usage,
+        snapshot=snapshot,
+        archive_refusals=refusals,
+    )
+
+
 async def run_compile(
     *,
     user_id: UserId,
@@ -764,6 +1007,11 @@ async def run_compile(
     # Wall-clock budget for ONE model call in the tool loop (the first round and the repair
     # round share it). None / 0 = unbounded, the pre-guardrail behaviour.
     call_timeout: float | None = None,
+    # WHO drives each round (compile/round.py). None = the langchain loop over `model`,
+    # assembled below — which is what every caller in the framework passes today. A second
+    # body (an agent under the Owner's subscription) supplies its own runner here and changes
+    # nothing else about a compile: same aliasing, same task bytes, same gate, same commit.
+    round_runner: RoundRunner | None = None,
     # This deployment's absolute ceiling on the tool calls ONE round of this compile may
     # spend (first round and repair round alike). 0 / unset = derive it from the material —
     # see `first_round_budget`.
@@ -778,25 +1026,18 @@ async def run_compile(
     # `[cite:]` markers (blind audit: a whole source was lost when the compiler mis-typed
     # its id 4× → gate rejected). Show it short per-job handles `sNN` instead; the gate
     # validates handles; on commit we resolve them back so canonical stores the real ids.
-    handle_by_real = {str(s.raw.source_id): f"s{i + 1:02d}" for i, s in enumerate(sources)}
-    real_by_handle = {h: r for r, h in handle_by_real.items()}
-    a_sources = [
-        s.model_copy(
-            update={
-                "raw": s.raw.model_copy(
-                    update={"source_id": SourceId(handle_by_real[str(s.raw.source_id)])}
-                )
-            }
-        )
-        for s in sources
-    ]
-    treatments = {handle_by_real[k]: v for k, v in (treatments or {}).items() if k in handle_by_real}
-    source_guidance = {
-        handle_by_real[k]: v for k, v in (source_guidance or {}).items() if k in handle_by_real
-    }
-    source_preamble = {
-        handle_by_real[k]: v for k, v in (source_preamble or {}).items() if k in handle_by_real
-    }
+    # `alias_sources` is the one minting, shared with the CLI executor.
+    aliased = alias_sources(
+        sources,
+        treatments=treatments,
+        source_guidance=source_guidance,
+        source_preamble=source_preamble,
+    )
+    real_by_handle = aliased.real_by_handle
+    a_sources = aliased.sources
+    treatments = aliased.treatments
+    source_guidance = aliased.source_guidance
+    source_preamble = aliased.source_preamble
 
     base_docs = await store.list(user_id)
     # The components' one async breath before the sync seams run, and the window that keeps
@@ -814,15 +1055,12 @@ async def run_compile(
         )
         # Components see the ALIASED sources: a component tool that names a source must name it
         # by the same `sNN` handle the task text under the model's eyes uses.
-        component_tools = [
-            tool
-            for component in registered_components()
-            for tool in component.compile_tools(draft, sources=a_sources)
-        ]
-        tools = _build_tools(draft, search_knowledge, search_source, component_tools)
-        by_name = {t.name: t for t in tools}
-        bound = model.bind_tools(tools)
-
+        tools = build_compile_tool_face(
+            draft,
+            sources=a_sources,
+            search_knowledge=search_knowledge,
+            search_source=search_source,
+        )
         # core depends only on langchain's callback abstraction (architecture.md §2): the
         # service injects a langfuse handler via `callbacks`; every invoke in the tool loop
         # carries it so Langfuse sees each multi-turn tool round. Keyless → config is a no-op.
@@ -832,201 +1070,61 @@ async def run_compile(
             "run_name": "compile",
         }
 
+        # `time` reaches the system side too, but only for its zone and that zone's
+        # provenance (the subject-environment declaration in §2) — never its instant, so the
+        # SystemMessage stays byte-stable per (skill, owner, zone, overlay).
+        system_text, task_content = render_compile_messages(
+            sources=a_sources,
+            base_docs=base_docs,
+            skill=skill,
+            treatments=treatments,
+            source_guidance=source_guidance,
+            source_preamble=source_preamble,
+            retrieved=retrieved,
+            owner=owner,
+            time=time,
+            image_mode=image_mode,
+            image_payloads=image_payloads,
+        )
         messages: list[BaseMessage] = [
-            # `time` reaches the system side too, but only for its zone and that zone's
-            # provenance (the subject-environment declaration in §2) — never its instant, so the
-            # SystemMessage stays byte-stable per (skill, owner, zone, overlay).
-            SystemMessage(content=render_system_contract(skill, owner=owner, time=time)),
-            HumanMessage(
-                content=_render_task_content(
-                    a_sources,
-                    base_docs,
-                    treatments,
-                    source_guidance,
-                    source_preamble,
-                    retrieved,
-                    time,
-                    image_mode=image_mode,
-                    image_payloads=image_payloads,
-                )
-            ),
+            SystemMessage(content=system_text),
+            HumanMessage(content=task_content),
         ]
 
         usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
         tool_calls = 0
 
-        def accumulate(response: BaseMessage) -> None:
-            meta = getattr(response, "usage_metadata", None) or {}
+        def accumulate(spent_usage: Mapping[str, int]) -> None:
             for key in usage:
-                usage[key] += int(meta.get(key, 0) or 0)
+                usage[key] += int(spent_usage.get(key, 0) or 0)
 
-        def owed_now() -> list[str]:
-            """What the round already OWES, by the very predicates the gate will run.
-
-            Two of them, and no more: the overview a touched page owes
-            (`overview_required_violations` — the same call `finish_compile` makes) and every
-            enabled component's `gate_checks` over the current draft. Re-deriving this from a
-            second set of rules would let the notice name work the gate does not want; asking
-            the whole gate would need the sources and the alias map for a message whose only
-            job is to point the last few calls at what is outstanding.
-            """
-            owed = [
-                v.render()
+        # The draft as a round is allowed to see it: the tools, plus the two questions only
+        # the whole draft can answer (compile/round.py). Built once and handed to every round.
+        face = RoundToolFace(
+            tools=tools,
+            finish_owed=lambda: [
+                v.detail
                 for v in overview_required_violations(
                     draft, threshold=overview_required_after_claims
                 )
-            ]
-            documents, base = draft.documents(), draft.base_documents()
-            for component in registered_components():
-                owed.extend(v.render() for v in component.gate_checks(documents, base))
-            return owed
-
-        def answer_unreached(calls: Sequence[dict], start: int, content: str) -> None:
-            """Give every call from `start` on a ToolMessage saying it was not executed.
-
-            A batch's AIMessage declares N tool calls and a provider REQUIRES N results: a
-            round that returns mid-batch leaves the transcript with tool calls nothing
-            answered, and the next `ainvoke` over that history is rejected outright. Silent
-            until now only because the round that returned mid-batch was the last one that
-            ever ran — the repair round could not enter its loop. Now that it can, the reply
-            has to exist.
-            """
-            for call in calls[start:]:
-                messages.append(ToolMessage(content=content, tool_call_id=call.get("id")))
-
-        async def tool_loop(budget: int) -> tuple[int, bool]:
-            """Run one round under its OWN budget; return (calls spent, was it cut off).
-
-            "Cut off" is reported, never re-derived from `spent == budget`: a round whose
-            last call is `finish_compile` at exactly the budget ended on its own, and telling
-            the repair round otherwise would be a false statement about what happened.
-            """
-            nonlocal tool_calls
-            spent = 0
-            noticed = False
-            while spent < budget:
-                response = await _call_model(
-                    bound.ainvoke(messages, config=invoke_config), call_timeout
-                )
-                messages.append(response)
-                accumulate(response)
-                calls = getattr(response, "tool_calls", None) or []
-                # A call whose arguments the model did not emit as valid JSON never becomes a
-                # `tool_calls` entry — langchain files it under `invalid_tool_calls` — but the
-                # assistant message still carries it on the wire, so the provider REQUIRES a
-                # result for it exactly as for a parsed one ("No tool output found for
-                # function call …" on the next invoke otherwise). It is answered here, BEFORE
-                # the batch's valid calls, and charged to the round budget like a refused
-                # call: an unparseable call spent a turn, and a model that keeps emitting them
-                # runs out of round rather than looping forever.
-                invalid = getattr(response, "invalid_tool_calls", None) or []
-                if not calls and not invalid:
-                    return spent, False  # model ended its turn without more tool calls
-                for call in invalid:
-                    spent += 1
-                    tool_calls += 1
-                    messages.append(
-                        ToolMessage(
-                            content=prompt(
-                                "compile.tool.invalid_call",
-                                name=call.get("name") or "?",
-                                error=call.get("error") or "?",
-                            ),
-                            tool_call_id=call.get("id"),
-                        )
-                    )
-                if invalid and spent >= budget:
-                    # The invalid calls alone spent the round: the rest of the batch still
-                    # needs its results, or the repair round is rejected on the transcript.
-                    answer_unreached(
-                        calls, 0, prompt("compile.budget.call_refused", budget=budget)
-                    )
-                    return spent, True
-                if not calls:
-                    # A batch of nothing but unparseable calls is NOT the model ending its
-                    # turn — it is the model failing to speak. Loop (budget permitting) so it
-                    # can re-send them; the low-water notice below is skipped for this batch
-                    # because no tool ran and nothing about the draft changed, and the next
-                    # batch that does reach it will state the remaining budget then.
-                    continue
-                for index, call in enumerate(calls):
-                    spent += 1
-                    tool_calls += 1
-                    name, args, cid = call["name"], call.get("args", {}), call.get("id")
-                    if name == "finish_compile":
-                        # The one rule that can only be judged at the END: an overview a
-                        # document owes is owed by the round as a whole, not by any single
-                        # call. Said here, the model still holds the material and one
-                        # `rewrite_overview` fixes it; said at the gate, it costs the round's
-                        # only repair round — the same reason every other overview rule is
-                        # stated at a tool face. The gate re-states it (4d) for a draft that
-                        # reaches it without finishing, and the budget bounds the retries.
-                        owed = overview_required_violations(
-                            draft, threshold=overview_required_after_claims
-                        )
-                        if owed:
-                            messages.append(
-                                ToolMessage(
-                                    content="\n".join(v.detail for v in owed),
-                                    tool_call_id=cid,
-                                )
-                            )
-                            continue
-                        messages.append(ToolMessage(content="ok", tool_call_id=cid))
-                        answer_unreached(
-                            calls, index + 1, prompt("compile.tool.round_ended")
-                        )
-                        return spent, False
-                    tool = by_name.get(name)
-                    if tool is None:
-                        content = prompt("compile.tool.unknown_tool", name=name)
-                    else:
-                        fn = tool.coroutine or tool.func
-                        try:
-                            # Read ports are async; the write tools stay sync (pure in-memory
-                            # PatchDraft mutation). Dispatch on the function, as evolve does.
-                            content = (
-                                await fn(**args)
-                                if inspect.iscoroutinefunction(fn)
-                                else fn(**args)
-                            )
-                        except AnchorToolError as exc:
-                            content = str(exc)
-                        except (TypeError, ValueError) as exc:
-                            content = prompt(
-                                "compile.tool.call_failed", name=name, error=exc
-                            )
-                    messages.append(ToolMessage(content=content, tool_call_id=cid))
-                    if spent >= budget:
-                        answer_unreached(
-                            calls,
-                            index + 1,
-                            prompt("compile.budget.call_refused", budget=budget),
-                        )
-                        return spent, True
-                # The low-water notice: the budget is a number the model cannot see from
-                # inside the loop, and a round that does not know it is nearly over spends
-                # its last calls on exploration. It rides a HumanMessage AFTER the whole
-                # batch has been answered — every tool call in the batch already has its
-                # ToolMessage, so the pairing the provider checks is intact — and once per
-                # round, because a line repeated every turn stops being read.
-                if not noticed and budget - spent <= BUDGET_NOTICE_REMAINING:
-                    noticed = True
-                    owed = owed_now()
-                    messages.append(
-                        HumanMessage(
-                            content=prompt(
-                                "compile.budget.notice",
-                                remaining=budget - spent,
-                                budget=budget,
-                                owed="\n".join(owed) or prompt("compile.budget.owed_none"),
-                            )
-                        )
-                    )
-            return spent, True
+            ],
+            owed_now=lambda: owed_now_lines(
+                draft, threshold=overview_required_after_claims
+            ),
+        )
+        # Who drives the round. Absent, it is the langchain loop this function has always
+        # run — assembled here so the public signature is unchanged and a caller that names
+        # no runner gets byte-for-byte the round it got before the seam existed.
+        runner = round_runner or LangchainRoundRunner(
+            model=model, call_timeout=call_timeout, config=invoke_config
+        )
 
         round_budget = first_round_budget(len(sources), max_tool_calls)
-        spent, cut_off = await tool_loop(round_budget)
+        spent, cut_off, round_usage = await runner.run_round(
+            messages=messages, face=face, budget=round_budget
+        )
+        tool_calls += spent
+        accumulate(round_usage)
         rounds = 1
         violations = run_gate(
             draft,
@@ -1048,7 +1146,11 @@ async def run_compile(
                     )
                 )
             )
-            await tool_loop(repair_budget)
+            repair_spent, _, repair_usage = await runner.run_round(
+                messages=messages, face=face, budget=repair_budget
+            )
+            tool_calls += repair_spent
+            accumulate(repair_usage)
             rounds = 2
             violations = run_gate(
                 draft,
@@ -1059,56 +1161,19 @@ async def run_compile(
                 overview_required_after_claims=overview_required_after_claims,
             )
 
-        files = draft.to_files()
-        # Read AFTER the last gate run, so a refusal the repair round earned is in it, and
-        # for every outcome alike: an aborted round hit the archive as truly as a committed
-        # one, and a noop is exactly the shape a round spends when the only thing it had to
-        # write was refused.
-        refusals = archive_refusals(violations, draft)
-        if violations:
-            # Abort: canonical layer untouched (no commit).
-            return CompileResult(
-                status="aborted",
-                files=files,
-                events=[],
-                violations=violations,
-                rounds=rounds,
-                tool_calls=tool_calls,
-                token_usage=usage,
-                snapshot=None,
-                archive_refusals=refusals,
-            )
-
-        if not draft.is_dirty():
-            return CompileResult(
-                status="noop",
-                files=files,
-                events=[],
-                violations=[],
-                rounds=rounds,
-                tool_calls=tool_calls,
-                token_usage=usage,
-                snapshot=None,
-                archive_refusals=refusals,
-            )
-
-        # Resolve the per-job `sNN` handles back to real source ids, so canonical stores real
-        # provenance (base docs already carry real ids; only the model's new citations use
-        # handles). Both the committed files and the event diff run over the resolved bodies.
-        files = {p: resolve_handles(b, real_by_handle) for p, b in files.items()}
-        new_bodies = {p: resolve_handles(b, real_by_handle) for p, b in draft.new_bodies().items()}
-        snapshot = await store.commit_patch(
-            user_id, files, message=_with_skill_trailer(commit_message, skill)
-        )
-        events = derive_events(draft.base_bodies(), new_bodies)
-        return CompileResult(
-            status="committed",
-            files=files,
-            events=events,
-            violations=[],
+        return await finalize_compile(
+            user_id=user_id,
+            store=store,
+            draft=draft,
+            sources=sources,
+            skill=skill,
+            commit_message=commit_message,
+            alias_map=real_by_handle,
+            known_source_bounds=known_source_bounds,
+            overview_budget_chars=overview_budget_chars,
+            overview_required_after_claims=overview_required_after_claims,
+            violations=violations,
             rounds=rounds,
             tool_calls=tool_calls,
             token_usage=usage,
-            snapshot=snapshot,
-            archive_refusals=refusals,
         )

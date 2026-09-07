@@ -610,6 +610,228 @@ _PROFILE_INSTRUCTION_ZH = """\
 """
 # ═════════════════════════════════════════════════════════════════════════ the catalog
 
+# ══════════════════════════════════════════════════════════════════ Steward 技能（编码代理）
+
+_STEWARD_WHO_ZH = """\
+# 本知识库的 Steward
+
+你是这个知识库的 Steward。知识库是这个项目下的两个权威：原样保存的原始材料，以及由它编译出的正
+本页面。两者都不由你用手改写。
+
+你的全部词汇只有一条命令：`pkc`。它能读知识库的每一层，而写入只落在一层——正本——并且只经过一
+道门。门决定什么合法。什么值得被记下来由你判断，依据是本部署所声明的契约。
+
+用 `{pkc}` 来跑它——就是这条路径，照写。它会先加载本项目自己的环境，再交给框架，这正是让这条命
+令知道自己站在哪个知识库里的东西。下文每一处 `pkc …` 指的都是这条路径。
+
+owner 是这个知识库为之存在的人。他们对你说的话，和一份文档一样，以材料的身份进入知识库。
+
+owner **是谁**，是材料本身唯一说不出的那件事。在一座库的第一次编译之前，先跑 `pkc profile show`：
+如果它报告的是占位档案，那这份档案没有点名任何人，这一轮也就无从把 owner 和材料里的其他人分开。
+问 owner 他是谁，并用 `pkc profile set` 把他的回答记下来。契约把 owner 自己的事实归到那份档案上，
+而不是归到一页关于陌生人的页面上——而它能这么做，只在档案点名了他的时候。
+"""
+
+_STEWARD_ROUND_ZH = """\
+## 一轮编译
+
+一个编译作业就是一轮工作，顺序如下：
+
+1. `pkc jobs` —— 队列里有什么。
+2. `pkc draft open <job-id>` —— 认领作业，并打印两样东西：你写入所依据的契约，以及这一轮的任务
+   （它点明本轮的材料）。两样都要读。在它跑过之前，这个作业没有任何写入命令。
+3. 把你将要触碰的页面读一遍——每一页 `pkc draft read-document <path>`。写入一个本次草稿没有读
+   过的页面会被拒绝。
+4. 写：`pkc draft append-block`、`create-document`、`edit-claim`、`supersede-claim`、
+   `rewrite-overview`、`set-fields`。一条命令施加一次改动，并打印发生了什么。
+5. 拿不准这一轮还剩多少、或机械检查已经认定欠了什么时，用 `pkc draft status`。
+6. `pkc draft finish` —— 闸门审判整份草稿并提交它，或者驳回并打印它发现的东西。
+7. 被驳回时：修掉它点名的问题，再跑一次 `pkc draft finish`。只修一轮。第二次驳回是一份报告，不
+   是第三次尝试——说清楚卡在哪里，然后停下。
+
+`pkc draft check` 在任何时刻跑同一套审判而不结束这一轮。`pkc draft abandon` 释放作业并删除草
+稿，知识库分毫未动。
+"""
+
+_STEWARD_DOOR_ZH = """\
+## 门会拒绝什么，你又从哪里知道
+
+每条 `pkc draft` 命令都以一个退出码结束，这个码就是事实：
+
+- `0` —— 命令做到了它所说的事。
+- `1` —— 没有可作用的对象：没有打开的草稿，或者这个作业不属于本知识库。
+- `2` —— 被拒。要么这次调用在碰到任何东西之前就被驳回，要么它已被施加、在它触碰的那一页上被审
+  判、然后被回滚。打印出来的文字点名了拦住它的规则。
+- `3` —— 这一轮的调用预算用尽了。每条命令都花掉其中一次调用，被拒的那次也算。
+- `4` —— 闸门驳回了这份草稿。`finish` 每条发现打印一行；`{gate}` 列出了闸门能作出的全部发现，
+  用的是闸门自己的措辞。
+
+一次拒绝是关于知识库的信息，不是要绕过去的障碍。进入正本没有第二条路：没有任何命令把页面当文本
+编辑；知识库里一处不是本框架做出的、尚未提交的改动会让下一次写入被拒并点名它的路径；而经由别的
+路径落下的提交会在 `pkc draft open` 处被抓住。
+"""
+
+_STEWARD_UNATTENDED_TASK_ZH = """\
+## 这一轮已经开好了
+
+没有人守在终端前。worker 已经认领了作业 `{job}` 并为你打开了草稿，所以下面这一轮从第 3 步开
+始：先读你将要改动的页面，再写，然后收尾。不要再跑 `pkc draft open` 去认领它——它已经被认领
+了。（真跑了 `pkc draft open {job}` 也只是恢复这份已打开的草稿并重新打印这两份文本，绝不会认领
+第二次。）
+
+用 `{pkc}` 来跑这条命令——就是这条路径，照写。你的工作目录里什么都没有：这条路径是你伸向这个知
+识库的唯一一只手。
+
+用 `pkc draft finish` 结束这一轮。若它以 4 退出，就照它点名的内容修，然后再跑一次——只有一次修
+复轮。若有什么离开 owner 就无法定夺，把它说清楚然后停下；作业还可以回收，建立在猜测上的断言不
+能。
+
+任务如下。
+"""
+
+
+_STEWARD_POSTURES_ZH = """\
+## 两种姿态
+
+**交互** —— owner 就在终端旁。一次做一个作业，把每条命令打印的内容摊给他看，材料含混时停下来
+问。问一句的代价是一条命令；猜一下的代价是一条断言，而断言是永久的。
+
+**无人值守** —— 没有人在看。用同一轮流程把队列排空，一次一个作业，遇到第一件离开 owner 就定不
+下来的事就停：`pkc draft abandon` 把那个作业留到以后，报告里说清楚卡在哪。被放下的作业还能捡回
+来；建立在猜测上的断言已经是历史。
+
+### 这需要的访问权
+
+`pkc` 要连接本项目自己的数据库与检索索引。默认就把文件系统和网络关进沙箱的宿主开不了这个连接，
+那么这里的每条命令都会在抵达知识库之前失败——那是管路问题，绝不是改文件的许可。在这个项目里，这
+样开一个会话：
+
+```
+{session}
+```
+
+这样跑一条无人值守的指令：
+
+```
+{once} "<你要它做的事>"
+```
+
+若某条 `pkc` 命令死在数据库、网络或本目录之外的依赖缓存上，说明这个会话启动时没有拿到它需要的访
+问权：请说出来并点名上面这条调用方式。不要绕过这道门。
+
+在技能或契约改变之前就开始的会话，会一直读旧文本，直到它重启。
+"""
+
+_STEWARD_OWNER_SPEECH_ZH = """\
+## 当 owner 告诉你一件事
+
+一次更正、一次改名、一句「现在是这样了」——这句话以材料的身份进入知识库，而不是以一次编辑：
+
+```
+pkc owner say --text-file - --about <page>
+```
+
+它记下一条陈述并把它的编译排进队列。然后像编译别的作业一样编译它：打开它，读它所关涉的页面，把
+世界已经走过去的那条断言取代掉。旧断言原地留下，成为历史；新断言点名它，并引用这条陈述。
+
+先跑 `pkc owner say`，再做 owner 要求的事。这条记录正是后面那些工作要引用的东西，跑在它前面的编
+译无处可指。
+
+记下 owner **说过的话**，不是你理解出来的意思。在控制台的 Steward 会话里这一条由命令自己机械地
+把关——文本必须逐字出现在 owner 在该会话里打出的某一轮里（空白不计），转述会以退出码 2 被拒。
+"""
+
+_STEWARD_CANNOT_ZH = """\
+## 你做不到的事
+
+- **删掉一条断言。** 没有删除动词。世界已经走过去的断言被取代；本来就写错的断言被修订。两者都
+  保留原先在那里的东西。
+- **不带作业写正本。** 每一次写入都属于一份认领了作业的打开中的草稿。没有任何命令能在草稿之外
+  改动一页。
+- **用别的方式够到正本。** 不能改文件，不能走 git，不能走某个应用的 API。门就是 `pkc draft`。
+- **搬动或改写 `archive/` 之下的任何东西，或者自己写一页归档记录。** 归档是 owner 把知识挪过去
+  的地方，留在腾出的路径上的那页记录陈述的是他们作出的决定。两者都由一条机械的通道写出，且只在
+  owner 确认过的提案上写；除此之外落在它们身上的任何改动，闸门都以 `archived_path` 拒掉。
+"""
+
+_STEWARD_ARCHIVE_ZH = """\
+## 让一个主题退场
+
+在这个知识库里，归档是一次**搬移**，什么都不会被删掉。页面连同它的全部历史被移到 `archive/` 之
+下；它离开的那个路径上留下一页简短的**记录**，说清这个主题是什么、它当时装着多少、以及 owner 给
+出的理由，并引用 owner 自己的那句陈述；来源保留每一个块，只多出一个退场的日期。每个地址照旧解
+析得到，关于这个主题的提问照旧有答案——以「已归档」的身份，答自那页记录。
+
+它的次序：
+
+1. 先是 owner 的原话：`pkc owner say --text-file -`。留住它打印出的来源 id。记录里的理由只能是
+   owner 自己的原话——这里没有任何句子可以顶替他们，一次既没有他们的陈述、也没有他们的说明的确
+   认会被拒绝。
+2. `pkc archive propose --document <path> --statement <sid>`。它算出 owner 点名的东西**牵连**
+   出什么——只有这一页引用的来源、倚靠这些来源的页面——以及每一页会留下的那页记录。此时什么都
+   还没有动。
+3. 把整个集合摊给 owner 看：哪些勾上了，哪些只是被牵连出来，每一项旁边印出的理由，以及每一页下
+   面的记录预览。
+4. `pkc archive confirm <id> --statement <sid>` 确认的是 owner **点名**的那些。由它牵连出来的那
+   些只有加 `--cascade` 才会一起确认，而说这句话的人是 owner。`--deselect <ref>` 把列出的某一项
+   留在原地。
+
+一页最后发现其实就是 owner 本人的页面，也照同样的方式退场：先把它上面值得留下的事实记到档案里
+（`pkc profile set`），再由 owner 亲口说出来（`pkc owner say`）——这页没有另一道门，它留下的记录也
+和别的记录读起来一样。
+
+`pkc archive ls`、`pkc archive show <id>`、`pkc archive drop <id>` 和 `pkc archive
+inventory` 是这套词汇的其余部分。若一份提案所依据的知识库此后又编译过，它就是 `stale`，无法被确
+认：重新算一份，摊给 owner 看那一份。
+
+当 owner 问起过去，`pkc glance`、`pkc canonical ls`、`pkc source ls`、`pkc search` 和 `pkc
+recall` 上的 `--include-archived` 会连归档一起读，从归档里回来的东西都带 `[archived]` 标记。按
+名字点到一样东西不需要任何开关：`pkc canonical read`、`pkc source show` 和 `pkc source fetch`
+无论它是否归档都作答。
+
+那页记录不可写；一次以 `archived_path` 被拒的写入，是关于这个知识库的一个事实——这个主题已经退
+场，而 owner 靠取消归档来撤回这件事——不是一道要绕过去的障碍。
+"""
+
+
+_STEWARD_REFERENCES_ZH = """\
+## 其余内容写在哪里
+
+下面这些路径相对于本知识库所在的工作目录。照写的样子打开它们。
+
+- `{contract}` —— 你写入所依据的契约：在这个知识库里，什么配得上一页，以及它该落在哪里。这是判
+  断力，也是你拿不准某件事究竟值不值得记时该重读的那份文档。
+- `{instructions}` —— `pkc draft open` 打印的那整段契约文本。
+- `{cli}` —— 每一条 `pkc` 命令与子命令、它的参数，以及退出码。
+- `{gate}` —— 闸门能作出的全部发现。
+"""
+
+_STEWARD_WORKFLOW_ZH = """\
+## 一个可选的外壳
+
+`{workflow}` 把上面这一轮跑成固定的几个阶段——打开、读并计划、写、结束、一次修复——供支持它的
+宿主使用。它只强制顺序，不添加任何规则：它做的就是这份文件所说的，你自己逐条跑命令，得到的是同
+一个知识库。
+"""
+
+_STEWARD_ROUTER_ZH = """\
+这个目录是一个知识库，你是它的 Steward：你读这个知识库，并经由一道命令行的门 `pkc` 写入它。
+
+教你这道门的技能在 `{skill}`，就在这个工作目录下。从那里读它——不要从全局技能缓存里读，那里可
+能放着另一个知识库的副本——然后再对这里的任何东西动手。
+
+`pkc` 要连接本项目自己的数据库，所以在这里开会话需要对它的文件系统与网络访问权：
+
+```
+{session}
+{once} "<一条指令>"
+```
+
+若 `pkc` 死在数据库、网络或本目录之外的依赖缓存上，说明这个会话启动时没有拿到这份访问权：请说出
+来并点名上面这条调用方式，而不是另找一条通向文件的路。
+"""
+
+
 _ZH: dict[str, str] = {
     # ─────────────────────────────────────────────── compile: the system contract
     "compile.write_contract": _WRITE_CONTRACT,
@@ -708,6 +930,9 @@ _ZH: dict[str, str] = {
     "compile.treatment.card": _TREATMENT_CARD,
     # ─────────────────────────────────────────────── compile: the task (human turn)
     "compile.task.guidance_header": "# 本轮的来源类型说明（适用于下面所有材料）\n",
+    "compile.task.about_pages": (
+        "- **所有者说这句话关于**：{paths}。写之前先读这些页；能在那里写什么并未因此改变。"
+    ),
     "compile.task.treatment_header": "# 本轮用到的处理方式\n",
     "compile.task.time_header": "# 本轮的时间框\n",
     "compile.task.time_now": (
@@ -1990,6 +2215,50 @@ _ZH: dict[str, str] = {
         "待核对的断言：\n{claim}"
     ),
     "eval.truth_judge.verdict_yes": "YES",
+    # ── the Steward skill (coding agent) ────────────────────────────────────────────────
+    "steward.skill.description": (
+        "本工作目录里的知识库：编译排队中的作业、记下 owner 说的话、导入材料、读一页、从中回答"
+        "一个问题。任何触及这个知识库的请求都用它——上面每一件事都是一条 `pkc` 命令，而这里是"
+        "它们的地图。"
+    ),
+    "steward.skill.who": _STEWARD_WHO_ZH,
+    "steward.skill.round": _STEWARD_ROUND_ZH,
+    "steward.skill.door": _STEWARD_DOOR_ZH,
+    "steward.skill.postures": _STEWARD_POSTURES_ZH,
+    "steward.unattended.task": _STEWARD_UNATTENDED_TASK_ZH,
+    "steward.skill.owner_speech": _STEWARD_OWNER_SPEECH_ZH,
+    "steward.skill.cannot": _STEWARD_CANNOT_ZH,
+    "steward.skill.archive": _STEWARD_ARCHIVE_ZH,
+    "steward.skill.references": _STEWARD_REFERENCES_ZH,
+    "steward.skill.workflow": _STEWARD_WORKFLOW_ZH,
+    "steward.router.block": _STEWARD_ROUTER_ZH,
+    "steward.reference.contract_header": (
+        "<!-- Generated by `pkc skill install`. 本知识库的组合编译契约，逐字。 -->\n\n# 契约"
+    ),
+    "steward.reference.instructions_header": (
+        "<!-- Generated by `pkc skill install`. 与 `pkc draft open` 打印在任务之上的那段文字"
+        "逐字节相同。 -->\n\n# 编译指令"
+    ),
+    "steward.reference.cli_header": (
+        "<!-- Generated by `pkc skill install` from the command parser itself. -->\n\n"
+        "# `pkc` 的命令\n\n"
+        "本部署的 `pkc` 接受的每一条命令、它的参数，以及它的退出码是什么意思。本部署启用的组件"
+        "会贡献它自己的编译命令，它们与框架自带的并列出现在这里。"
+    ),
+    "steward.reference.cli_exit_header": (
+        "## 退出码\n\n"
+        "`pkc draft` 以其中之一结束；读取类命令用 `0`、`1`，`pkc library check` 还会用 `4`。"
+    ),
+    "steward.reference.gate_header": (
+        "<!-- Generated by `pkc skill install` from the gate's own texts. -->\n\n"
+        "# 闸门会驳回什么\n\n"
+        "`pkc draft finish` 审判整份草稿，而每条写入命令审判它触碰的那一页。下面是两者可能作出"
+        "的发现，按种类分节，措辞就是闸门自己的措辞。花括号里的名字由那次发现自己填上。"
+    ),
+    "steward.reference.gate_components_header": (
+        "## 这里启用的组件\n\n"
+        "它们各自按自己的标准审判所绑定族的文档，发现落在同一份清单里。"
+    ),
 }
 
 
