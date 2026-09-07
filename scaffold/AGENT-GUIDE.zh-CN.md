@@ -67,6 +67,14 @@ cd <本仓库>/scaffold
 
 目标目录要落在任何 git 仓库之外；若必须放在某个仓库内部，先用 `git check-ignore <路径>` 亲自验证它已被忽略。生成器会自动探测空闲端口、起独立的 compose 项目名——这些你和用户都不用管，启动时会回显。
 
+**2.1b 谁来编译：API 模型，还是他机器上的编码代理。** answers 文件里一个字段 `compiler`，默认 `"api"`——除非用户主动提起，否则别动它；只有当他说「我更愿意花 Codex / Claude 的订阅，而不是 API 预算」时，才取 `codex` / `claude-code` / `all`。把「变什么、不变什么」直说。
+
+*变的*：谁来跑一轮编译。`api` 时是 `[models].compile` 里的模型读材料、写正本；换成代理，就由他机器上已有的编码代理来跑，生成器会往项目里装一份**技能**来教它。代理的全部词汇从此是 `pkc`——读库的一条命令行、写库的一道门——一次编译于是变成一串用户能看见、也能叫停的小命令。`./start.sh` 不再自己把编译队列排干：作业等着代理，过程视图会这么说。
+
+*不变的*：密钥这一问（2.2 完全照旧——嵌入、检索、问答仍然要密钥，无密钥部署在两种方式下同样是无密钥）、引用、闸门，以及库的形状。同样的材料、同样的契约，产出同一种库；改回去是 `engine/engine.yaml` 里的一行。
+
+具体来说：`compiler = "codex"` 会把 `compile: agent:codex` 写进 `engine/engine.yaml`，装上 `.agents/skills/pkc-steward/`，往项目的 `AGENTS.md` 里拼一个 `pkc:start` 块，并生成 `bin/pkc`。`claude-code` 同理，落在 `.claude/` 下、用 `CLAUDE.md`，旁边还多一个 workflow；`all` 两个都装，于是同一个项目里开哪个代理都行，而由 Codex 负责编译。前提是那个代理已经装在这台机器上并且登录过——答应之前先确认，没有就退回 `api`。
+
 **2.2 key 由他亲手填进 `.env`，不经你的手。** 项目里的 `.env` 只装密钥和这台机器的端口，别的都不装，唯一空着的就是 `OPENROUTER_API_KEY`（旁边有 key 置空的 `.env.example` 作恢复底本）；请他自己用编辑器打开 `.env` 粘贴。**绝不让 key 经过你的命令、stdin 或对话**——经过代理工具调用的一切都会逐字落入会话记录，落了记录的 key 就是落了盘的 key。你只在事后验证非空（`grep -c '^OPENROUTER_API_KEY=.' .env`）。模型不在这里，在 `engine/engine.yaml`；生成的默认值 `openrouter:openai/gpt-5.6-luna` + `text-embedding-3-small` 是高性价比的起点，编译模型是唯一的质量杠杆，但**别在这一步展开讲**——等第 6 步验收时他自然会在意。
 
 **2.3 起跑，陪他一起等**，边等边把英文输出翻译成他的语言：
@@ -145,6 +153,8 @@ cd ~/my-knowledge && ./start.sh
 **4.4 补问剩下的缺口。** 推理做到位后，通常只剩三个：称呼／姓名、期望的回答语言、以及「你最想让这个库替你记住什么」。加上按原则 4 确认时区和语言。
 
 **完成标志**：`engine/persona/profile.yaml` 的检测值经他确认、`provenance` 已改成 `profile`，你能说清这批材料里有哪些长命主体，并且每种素材模态都有一条经过能力核验的上下文路径，原始表示与派生表示分得清楚。
+
+`display_name` 和 `engine/persona/profile.yaml` 的其余字段要在**第一次编译之前**填好：档案还写着 `Someone` 时，一份把 owner 自己的事实与别人的事实分开归档的契约无从判断哪个人是 owner，而那次编译产出的页面是永久的。Steward 的做法是先 `bin/pkc profile show`——它会机械地报出「这是占位档案」——再 `bin/pkc profile set --field display_name=... --field bio=...`（或 `--file -`），它把文件和持久化的档案当成一件事一起写。如果 owner 的人物页已经被编译出来了，就照别的页一样归档：先把值得留下的事实记进档案，再由他亲口说出来（`bin/pkc owner say`）。
 
 ---
 

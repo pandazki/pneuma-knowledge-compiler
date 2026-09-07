@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 
 from ..domain.archive import (
@@ -193,6 +193,26 @@ def archived_titles(docs: "Iterable[DraftDoc]") -> dict[str, str]:
     return out
 
 
+def _doc_state(doc: "DraftDoc") -> dict:
+    """One draft document as JSON — the shape `PatchDraft.to_state` writes."""
+    return {
+        "path": doc.path,
+        "doc_id": str(doc.doc_id),
+        "frontmatter": dict(doc.frontmatter),
+        "body": doc.body,
+    }
+
+
+def _doc_from_state(path: str, value: object) -> "DraftDoc":
+    data = dict(value or {})  # type: ignore[arg-type]
+    return DraftDoc(
+        path=str(data.get("path") or path),
+        doc_id=DocumentId(str(data.get("doc_id") or "")),
+        frontmatter=dict(data.get("frontmatter") or {}),
+        body=str(data.get("body") or ""),
+    )
+
+
 def raw_file(doc: "DraftDoc") -> str:
     """One draft document serialized exactly as it stands — no derivation applied."""
     return render_document(doc.frontmatter, doc.body)
@@ -273,6 +293,61 @@ class PatchDraft:
             overview_budget_chars=overview_budget_chars,
         )
 
+    # --- serialization --------------------------------------------------------
+    #
+    # A langchain round holds the draft in memory for the whole round; a CLI round holds
+    # nothing between two invocations. Ruling 3 of docs/design/coding-agent-mode.md: the
+    # draft gains a state form so an agent can hold it across commands. The form carries
+    # EVERYTHING the object holds — base table, working table, read marks, path templates,
+    # the overview ceiling — because a partial round trip is a draft that refuses differently
+    # after a reload than it did before it, and every refusal in this class is the mechanism
+    # the whole write discipline rests on. It is JSON-serializable and nothing more: the
+    # draft is neither canonical nor a kept record (I2), and this is not a storage format
+    # anything reads for knowledge.
+
+    def to_state(self) -> dict:
+        """This draft as a JSON-serializable document (lossless; see `from_state`)."""
+        return {
+            "path_templates": list(self.path_templates),
+            "overview_budget_chars": int(self.overview_budget_chars),
+            "base": {p: _doc_state(d) for p, d in self._base.items()},
+            "working": {p: _doc_state(d) for p, d in self._working.items()},
+            "read": sorted(self._read),
+            # A tool-face archive refusal is not derivable from the file table: the write was
+            # REFUSED, so nothing in base or working changed and no gate violation stands.
+            # It survives the round trip because the CLI executor persists this draft between
+            # every command, and a refusal dropped here would be one the owner never hears
+            # about on a round the CLI drove — while the same round under the langchain
+            # executor reports it (docs/design/archive.md §2.1, finding O3).
+            "archive_refusals": [dict(r) for r in self._archive_refusals],
+        }
+
+    @classmethod
+    def from_state(cls, state: Mapping[str, object]) -> "PatchDraft":
+        """Rebuild a draft from `to_state()`. `from_state(to_state())` is the same draft:
+        same files, same dirtiness, same refusals."""
+        base = {
+            path: _doc_from_state(path, value)
+            for path, value in dict(state.get("base") or {}).items()
+        }
+        working = {
+            path: _doc_from_state(path, value)
+            for path, value in dict(state.get("working") or {}).items()
+        }
+        draft = cls(
+            path_templates=[str(t) for t in (state.get("path_templates") or [])],
+            _base=base,
+            _working=working,
+            overview_budget_chars=int(
+                state.get("overview_budget_chars") or OVERVIEW_BUDGET_CHARS
+            ),
+        )
+        draft._read = {str(p) for p in (state.get("read") or [])}
+        draft._archive_refusals = [
+            dict(r) for r in (state.get("archive_refusals") or []) if isinstance(r, Mapping)
+        ]
+        return draft
+
     # --- read -----------------------------------------------------------------
 
     def list_paths(self) -> list[str]:
@@ -292,6 +367,11 @@ class PatchDraft:
         internally and which would therefore let a write vouch for itself.
         """
         self._read.add(path)
+
+    def read_paths(self) -> frozenset[str]:
+        """The paths this round has looked at — what `pkc draft status` reports and what the
+        whole-region writes refuse a path for not being in."""
+        return frozenset(self._read)
 
     def _refuse_unread(self, path: str, op: str) -> None:
         if path in self._read:

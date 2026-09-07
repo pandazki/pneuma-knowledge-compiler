@@ -321,6 +321,9 @@ export type ViewName =
   // Live Context: takes workstream fragments live and folds in citable knowledge
   // (SSE and WS, two transports)
   | "live_context"
+  // the Steward view: one conversation with the coding agent that compiles this library,
+  // and every command it runs, as it runs it (docs/design/coding-agent-mode.md §5.6)
+  | "steward"
   // the use side: every answer this library gave, and the ledger derived from them
   | "consultations"
   // canonical/derived views (light up once the user has compiled canonical)

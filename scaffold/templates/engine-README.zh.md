@@ -31,6 +31,12 @@ prompts/overlays.yaml    框架自身提示词用哪种语言，以及替换其�
 | 模型角色、提示词语言、提示词覆盖 | 下次启动之后 |
 | 契约、challenge、evolve | 只管未来的编译——已记录的知识永不被回溯重写 |
 | 切块策略 | 新材料立刻生效；已有材料要等派生层重建 |
+| 编码代理装上的那份技能 | 只管未来的编译——apply 时重新安装，代理下次启动时读到 |
+
+当 `engine.yaml` 里的 `compile` 写的是编码代理（`agent:codex`、`agent:claude-code`）而不是模型
+时，那个代理读的技能是*从这个目录生成出来的*——契约、提示词覆盖、语言和已启用的组件——并且只要
+apply 动了其中任何一样就重新安装。它永不手写：`pkc skill verify` 会重新渲染一遍并报出任何漂移，
+`pkc skill install` 把它放回去。已经在跑的会话保持它开始时的措辞，直到重启。
 
 `recall/recall.yaml` 把廉价的检索广度与最终模型上下文分开。`claim_candidate_cap` 与
 `window_candidate_cap` 负责宽搜；`claim_cap`、`episode_summary_cap` 与 `window_cap` 分别准入三种

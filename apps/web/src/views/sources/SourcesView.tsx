@@ -65,6 +65,8 @@ export default function SourcesView() {
   const selection = useApp((s) => s.selection);
   const select = useApp((s) => s.select);
   const setView = useApp((s) => s.setView);
+  // A Steward step that filed a source moves this catalogue without a reload (story 2.5f).
+  const libraryRevision = useApp((s) => s.libraryRevision);
 
   const sourceSel = selection?.kind === "source" ? selection : null;
 
@@ -132,7 +134,7 @@ export default function SourcesView() {
     return () => controller.abort();
     // The archive toggle is a request parameter, not a view filter: turning it on has to go
     // back to the route, because a source the default listing omitted was never on the wire.
-  }, [currentUser, reloadKey, includeArchived]);
+  }, [currentUser, reloadKey, includeArchived, libraryRevision]);
 
   // A user switch is a different catalogue, so it is also a different question.
   useEffect(() => {

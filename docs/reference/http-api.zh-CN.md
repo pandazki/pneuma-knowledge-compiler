@@ -342,6 +342,15 @@ null，再被 coalesce 成 0——求和之后，一次没被计量的调用与�
 `GET /…/summary` 以 `jobs_failed` 给出同一个集合的计数，于是「这个工作区的编译全在中止」不必翻
 队列就能看见。`status` 会被绑进分页游标：翻页途中改它会返回 422，请从第一页重新提问。
 
+两个字段说明一个任务归谁。**`executor`** 是谁**跑**的：worker 自己的循环驱动这一轮时为
+`langchain:<模型规格>`，编码代理通过 `pkc draft` 敲出这些调用时为 `agent:<后端>`（见
+[coding-agent-mode](../design/coding-agent-mode.zh-CN.md) 裁定 1）。任务尚未结束时为 `null`，
+该字段出现之前编译的任务也是 `null`。由代理执行的任务会写明执行体，并且**完全没有**
+`token_usage`——是缺席而不是零，因为 harness 的计数属于所有者的订阅，框架从未看见过。
+**`waiting_for`** 是还在队列里的任务**等谁动手**：worker 会排干的一切为 `"worker"`；代理执行体
+下排队的 compile 任务为 `"steward"`，它不会自己排干，要由所有者的编码代理打开。任务离开队列后
+为 `null`。只要有任务在等 Steward，控制台的过程视图就显示一条横幅。
+
 ## 快照——两个不同的概念
 
 | 方法 | 路径 | 用途 |
@@ -406,6 +415,27 @@ null，再被 coalesce 成 0——求和之后，一次没被计量的调用与�
 `stats`（WS，需显式开启）与 `done`（SSE）都带着这一拍的**处理记录**：`skipped`（投递时为 `""`，否则说明是哪道门关上的——发现阶段给的 `small_talk` / `already_mined` / `nothing_new`，或 `low_worth`、`no_plan`、`no_candidates`、`no_coverage`、`none_chosen`、`low_confidence`、`uncited`、`duplicate`、`unparsed`、`pick_failed`、`canonical_unavailable` 之一）、`intent`、`worth`、`plan`（实际跑了哪些查询）、`rejected`（计划里指向未启用查询路的条目）、`candidates`（每条 `{index, kind, title, subject, origin, provenance, citations}`）、`chosen`、`web`（`{tier, searches, cost, pages}`，见下），以及 `stages`（`discover` / `retrieve` / `retrieve.semantic` / `retrieve.web` / `retrieve.path:<名字>` / `pick` / `total`，各带 `ms` 与 `status`）。两者还带这一拍的 `token_usage` 与 `cost`——按本部署声明的价格算出的**模型**调用花费，没声明就是 `null`。这条车道不记任何咨询（听众不是访问者），所以一拍的花费要么在这里被看见，要么就没有地方看见；下面那个 `web.cost` 是另一个数，仍旧是它本来的意思：服务商为那几次搜索实际计的费。`no_coverage` 是挑选阶段自己给的 `choice: 0`——它把每一张候选对着意图读过，没有一张覆盖它——刻意与 `low_confidence`（一个被压住的弱答案）和 `none_chosen`（一个畸形的编号）分开：这三者在一次沉默的拍子上看起来一模一样，含义却不同。`canonical_unavailable` 说的则是**部署**而不是知识库：这一拍需要的 canonical 读取失败了，于是这一拍没有可供归档过滤器钉住的文档集合，它选择跳过而不是无钉检索——房间安静一轮，下一拍再试。`dropped` 仍在，是简报那一轮的四道闸门账；全量车道下它为空，对应的东西是 `skipped`——唯一的例外正是这次跳过，它同时带上 `canonical_unavailable: 1`。
 
 `config` 与 `ready` 上的策略字段：`focus`、`min_confidence`（一个数字两道门——发现阶段的 `worth` 下限与挑选阶段的 `confidence` 下限）、`max_pending_turns`、`quiet_period`、`web_search`、`briefing_id`、`stats`。`web_search` 是在请求那条补充的互联网路；`ready` 回送的是**生效值**，因为部署自己也有一个答案（`PNEUMA_KNOWLEDGE_LIVE_WEB_SEARCH`），而一个请求了 `true` 却读回 `false` 的客户端，是被机械地告知了「不行」，而不是只能从「没有 web 卡片」里去推测。随后那一拍的 `web` 记录说明这条路做了什么：`tier` 是 `off`、`planned`（发现阶段规划了这次查询，于是它与知识库各面并发跑）或 `fallback`（发现阶段没规划，而知识库给出的候选池是空的，于是它在其后跑），并附上 `searches`、`cost` 与 `pages`——那几次搜索一共点名了多少个网页。`cost` 不为零而 `pages` 为 0，正是那个否则完全看不见的结局：一次搜索跑了、被计了费、却没有引用任何网页，于是它的回答在装配处就被拒绝，从来没有成为候选。`turn_window` 作为 `max_pending_turns` 的旧名被接受；`max_suggestions` 被接受并忽略——全量车道按构造每一拍只投递一张卡。
+
+## Steward（控制台里的编码代理会话）
+
+仅所有者可见，且只在本部署用编码代理编译时才存在（`models.compile: agent:<后端>`）。它是**同一场 harness 会话**的一张脸，而不是第二个 Steward：服务在项目目录里拉起 harness，配上终端会话会加载的同一份生成技能包，把它的流桥接到浏览器；代理走的仍是同一批 `pkc` 命令。设计见 [coding-agent-mode](../design/coding-agent-mode.zh-CN.md) §5.6。
+
+| 方法 | 路径 | 用途 |
+|---|---|---|
+| GET | `/…/steward` | `{configured, backend, label, protocol, spec, live, exited, exit_code, agent_session_id, project_dir}`——视图在画任何东西之前需要知道的事。`configured: false` 是「本部署由模型编译」的空状态，不是错误 |
+| WS | `/…/steward` | 这场对话。客户端发 `{type:"user", text}` / `{type:"start"}` / `{type:"end"}` / `ping`；服务端在接入时发 `snapshot`，随后是两个适配器把两种 harness 都归一到的那套事件词汇——`session_started`、`turn_started`、`text_delta`、`step_started`、`step_finished`、`permission_request`、`turn_finished`、`session_exited`、`notice`——外加 `error`（永不致命）与 `ping`（约 30 秒保活）。没有编码代理的部署只会收到一帧 `not_configured`，随后连接关闭，什么进程都没有拉起。完整协议见 [`api/routes/steward.py`](../../packages/pneuma-knowledge-service/src/pneuma_knowledge_service/api/routes/steward.py) 的模块 docstring |
+
+**每位所有者一场会话，第二次接入是加入它。** 一座知识库开两个标签页，是一个人开了两扇窗：两边收到同样的事件，各自由 `snapshot` 帧里那段有界的事件尾巴（200 条）重绘，而不是从空白开始。单会话真正拦住的，是两个 harness 同时编译同一座知识库。
+
+**关掉标签页不等于结束对话。** 会话是 harness 的：最后一个 socket 断开后它还会活 `PNEUMA_KNOWLEDGE_STEWARD_SESSION_IDLE` 秒，重新连上就接回同一个进程。**自己死掉**的 harness 会被如实报为 `session_exited`，绝不悄悄重启——下一次接入拿回的还是那场已死的会话，只有显式的 `{"type":"start"}`（视图上的「重新开始」）才会拉起新的。
+
+**一个步骤就是代理自己敲的那条命令。** `step_started` 带的是 harness 报上来的命令原文——`Bash` 的命令行、一次 `Read` 打开的路径；`step_finished` 带它的退出码、一段有界的输出预览和耗时。没有任何东西是被发明、改名或藏起来的。在这些会话启动时所用的策略下，`permission_request` 本不该出现；真出现了就按协议自己的应答形状**拒绝**掉并呈现出来，于是停下的 Steward 是看得见的，而不是挂着不动的。
+
+**一轮进行中发出的消息会排队，而不是插进去。** Claude Code 的流式输入不带轮次 id，写进正在跑的一轮就会与它抢跑。桥接层把文本按下不发，直到 `turn_finished`，并用一条 `code` 为 `queued` 的 `notice` 说明这件事。
+
+**`turn_finished.usage` 是这一轮的，否则是 null。** Claude 在它的 `result` 信封里连同 `total_cost_usd` 一起给出；Codex 在 `thread/tokenUsage/updated` 上给 `last`（它的 `total` 是整场会话的累计花费，不是一轮的成本），钱则一分都不报。没有任何东西量到的，就是 `null`，绝不是零。
+
+**这场对话不存进知识库。** 所有者的每一轮只在会话存活期间留在 `steward_turns` 里，只被一条命令读取——`pkc owner say`，它会拒绝任何不是其中某一轮逐字子串的文本（裁定 13）——并在会话结束或过期时删除。
 
 ## 引擎控制台
 

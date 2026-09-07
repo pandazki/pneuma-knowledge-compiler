@@ -115,9 +115,39 @@ ALTER TABLE compile_jobs ADD COLUMN IF NOT EXISTS brief text;
 -- elsewhere and derived when somebody reads. NULL = the job predates the column, or nothing
 -- was reported; neither is a claim that the job was free.
 ALTER TABLE compile_jobs ADD COLUMN IF NOT EXISTS token_usage jsonb;
+-- WHO ran this job's round: `langchain:<model spec>` when the worker's own loop drove it,
+-- `agent:<backend>` when a coding agent typed the calls through `pkc draft`
+-- (docs/design/coding-agent-mode.md ruling 1). It sits beside `token_usage` because the two
+-- answer one question together — an agent-executed job names its executor and reports NO
+-- usage, the harness's counters being the subscription's rather than the library's. NULL =
+-- the job predates the column.
+ALTER TABLE compile_jobs ADD COLUMN IF NOT EXISTS executor text;
 
 CREATE INDEX IF NOT EXISTS compile_jobs_claim
     ON compile_jobs (user_id, status, created_at);
+
+-- compile_drafts: an OPEN compile round, while an agent holds it (docs/design/
+-- coding-agent-mode.md §6). The langchain executor needs no such row — its round is one
+-- function call and its draft a local variable — but a round driven from a command line has
+-- no memory between invocations, so the PatchDraft and its session live here for exactly as
+-- long as the round is open. Ephemeral by construction: neither an authority nor a kept
+-- record (invariant I2), deleted on finish, abort or abandon, and reclaimed by the queue's
+-- self-heal once older than PNEUMA_KNOWLEDGE_COMPILE_DRAFT_TTL. One row per job, beside the
+-- queue it belongs to, so the per-user lock and the TTL govern a job and its draft in one
+-- place. `round` is a projection of state->>'round', kept as a column so the self-heal and
+-- an operator's `psql` can read the lifecycle without parsing the document.
+CREATE TABLE IF NOT EXISTS compile_drafts (
+    user_id    text        NOT NULL,
+    job_id     text        NOT NULL,
+    state      jsonb       NOT NULL DEFAULT '{}'::jsonb,
+    round      text        NOT NULL DEFAULT 'first',
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, job_id)
+);
+
+CREATE INDEX IF NOT EXISTS compile_drafts_updated
+    ON compile_drafts (updated_at);
 
 -- compile_events: mechanically derived claim-level events per committed compile
 -- (architecture.md §8; runner.derive_events). Append-only audit of what each compile
@@ -627,3 +657,48 @@ CREATE TABLE IF NOT EXISTS recall_access_misses (
 -- create. They hold a pure projection of `consultations` that one `recall_rebuild` job
 -- re-derives in full, so an operator loses nothing by dropping them by hand, once:
 -- `DROP TABLE IF EXISTS component_attention_hits, component_attention_misses;`
+
+-- recall_handoffs: a question handed to the Steward WITHOUT an answer (docs/design/
+-- coding-agent-mode.md §5.1). `pkc recall --evidence` runs the fast lane up to but not
+-- including the answering call, so at that moment there is a question, an instant, a library
+-- ref and an evidence manifest — and no answer. A consultation cannot be written yet:
+-- ConsultationRecord is frozen and `is_miss` reads `answer_kind`, so a half-record would
+-- either be rewritten later or state a miss the lane never observed. This row holds the
+-- material a record would be built from until `pkc consult answer` supplies the answer; then
+-- the record is emitted down the same path /recall uses and this row is deleted. A question
+-- nobody answered leaves no consultation at all, which is the honest outcome.
+-- Ephemeral like compile_drafts and for the same reason (invariant I2): swept once older
+-- than PNEUMA_KNOWLEDGE_RECALL_HANDOFF_TTL by the same startup self-heal.
+CREATE TABLE IF NOT EXISTS recall_handoffs (
+    user_id    text        NOT NULL,
+    handoff_id text        NOT NULL,
+    state      jsonb       NOT NULL DEFAULT '{}'::jsonb,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, handoff_id)
+);
+
+CREATE INDEX IF NOT EXISTS recall_handoffs_created
+    ON recall_handoffs (created_at);
+
+-- steward_turns: what the OWNER typed in one console Steward session (docs/design/
+-- coding-agent-mode.md ruling 13, §5.6). The console's bridge holds the transcript, which is
+-- the one mechanism a terminal session cannot have: `pkc owner say` running inside a bridged
+-- session refuses a text that is not a verbatim substring of one of these rows, so a
+-- paraphrase of the Owner never enters the library as the Owner's statement.
+--
+-- Not a kept record and not knowledge. The conversation belongs to the harness's session,
+-- not to the library; these rows exist only while that session does, are read by exactly one
+-- command, and are deleted when the session ends or its idle window expires. Nothing
+-- rebuilds from them and no other code reads them. `seq` is the order the Owner said things
+-- in, which is also the only order a transcript has.
+CREATE TABLE IF NOT EXISTS steward_turns (
+    user_id    text        NOT NULL,
+    session_id text        NOT NULL,
+    seq        integer     NOT NULL,
+    said_at    timestamptz NOT NULL DEFAULT now(),
+    text       text        NOT NULL,
+    PRIMARY KEY (user_id, session_id, seq)
+);
+
+CREATE INDEX IF NOT EXISTS steward_turns_said
+    ON steward_turns (said_at);

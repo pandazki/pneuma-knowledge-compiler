@@ -35,7 +35,13 @@ export const TOC: TocGroup[] = [
   },
   {
     group: "nav.group.process",
-    items: [{ view: "process", no: "04", label: "nav.view.process" }],
+    items: [
+      { view: "process", no: "04", label: "nav.view.process" },
+      // The Steward sits in the process chapter because that is what it does: it is the body
+      // that runs the compile, and the views on either side of it are the queue it works and
+      // the versions it leaves behind.
+      { view: "steward", no: "04b", label: "nav.view.steward" },
+    ],
   },
   {
     group: "nav.group.retrieval",

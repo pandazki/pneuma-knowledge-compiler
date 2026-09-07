@@ -50,6 +50,9 @@ export const VIEW_LENSES: Record<ViewName, readonly Lens[]> = {
   recall: EVERY_LENS,
   ask: OWNER_ONLY,
   live_context: OWNER_ONLY,
+  // The Steward is the OWNER's. A visitor asks the library questions; only the person the
+  // library exists for directs the agent that writes it (story 2.5h).
+  steward: OWNER_ONLY,
   consultations: OWNER_ONLY,
   library: EVERY_LENS,
   process: OWNER_ONLY,

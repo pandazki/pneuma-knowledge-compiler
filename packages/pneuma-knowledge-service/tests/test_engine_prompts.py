@@ -186,7 +186,9 @@ async def test_an_assembled_surface_still_carries_the_bytes_the_model_receives(t
     # its own rather than a section of the two-call pipeline input.
     # +1: the ARCHIVE RECORD channel — the page a retired subject leaves at its live path,
     # and the gate that judges it. No model writes there; a person reads it.
-    assert len(fragments) == 33
+    # +1: the coding-agent Steward's skill package — a document an agent reads, generated
+    # from these clauses and installed in the project, so a family and never an assembly.
+    assert len(fragments) == 34
 
 
 async def test_a_template_preview_carries_the_banner_that_stops_it_reading_as_the_message(

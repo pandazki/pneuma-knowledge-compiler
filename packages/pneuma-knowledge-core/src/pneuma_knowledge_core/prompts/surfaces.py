@@ -196,6 +196,7 @@ GROUPS: tuple[tuple[str, str, str], ...] = (
     ("skill", "Skill", "领域契约"),
     ("feedback", "Rejection wording", "反馈文案"),
     ("eval", "Evaluation", "评测"),
+    ("steward", "Coding-agent Steward", "编码代理 Steward"),
 )
 
 
@@ -269,6 +270,9 @@ _LABEL_FAMILIES: tuple[tuple[str, str, str], ...] = (
     ("eval.qa.", "Answer judge", "回答评判"),
     ("eval.truth_judge.", "Claim judge", "断言评判"),
     ("eval.", "Evaluation", "评测"),
+    ("steward.skill.", "Steward skill", "Steward 技能"),
+    ("steward.reference.", "Steward reference", "Steward 参考"),
+    ("steward.", "Steward", "Steward"),
 )
 
 # The refinements: the segments somebody actually opens, reads and rewrites. Everything
@@ -987,6 +991,13 @@ SURFACES: tuple[Surface, ...] = (
                 "compile.task.guidance_header",
                 "Opens the source-type notes, when this round's material has any.",
                 "当本轮材料带有按源类型的说明时，开出那一节。",
+            ),
+            f(
+                "compile.task.about_pages",
+                "One line under the source-type notes, when the owner said which pages "
+                "their statement concerns (`pkc owner say --about`).",
+                "当所有者说明了这句话关于哪些页面时（`pkc owner say --about`），"
+                "在来源类型说明下加的一行。",
             ),
             f(
                 "compile.task.treatment_header",
@@ -4452,6 +4463,148 @@ SURFACES: tuple[Surface, ...] = (
                 "eval.truth_judge.verdict_yes",
                 "The exact token counted as a match; the verdict is read mechanically.",
                 "被算作命中的那个确切标记；判决是机械读取的。",
+            ),
+        ),
+        kind=FRAGMENTS,
+    ),
+    Surface(
+        id="steward.skill",
+        group="steward",
+        title_en="Steward skill package",
+        title_zh="Steward 技能包",
+        summary_en=(
+            "Everything a CODING AGENT reads about its own procedure when it is the body "
+            "running a compile round: who it is, the round from `pkc jobs` to `pkc draft "
+            "finish`, what each exit code means, the two postures, how the owner's own "
+            "speech enters, and the three things it cannot do. It is generated into "
+            "`SKILL.md` and installed in the project (`pkc skill install`), which is why it "
+            "is a family of independent sections rather than one assembled message — the "
+            "agent reads a document, not a prompt. The rule these clauses are written under "
+            "is the compile contract's own: a refusal is stated as a fact about the door, "
+            "and nothing here asks the agent to remember anything. Rewriting one of them "
+            "rewrites the installed skill at the next install; a session already running "
+            "keeps the words it started with."
+        ),
+        summary_zh=(
+            "当**编码代理**是跑编译轮次的那具身体时，它读到的关于自己该怎么做的全部文字："
+            "它是谁、从 `pkc jobs` 到 `pkc draft finish` 的一轮、每个退出码是什么意思、"
+            "两种姿态、owner 自己的话如何进入、以及它做不到的三件事。这些文字会被生成进 "
+            "`SKILL.md` 并装进项目（`pkc skill install`），所以它是一组彼此独立的段落而不是"
+            "一条组装好的消息——代理读的是一份文档，不是一条提示词。写这些条款遵循的规矩与编译"
+            "契约相同：拒绝被写成关于那道门的事实，这里没有任何一句请代理「记得」什么。改写其中"
+            "一条，下次安装时装进去的技能就随之改写；已经在跑的会话保持它开始时的措辞。"
+        ),
+        segments=(
+            f(
+                "steward.skill.description",
+                "The skill's own frontmatter description — what a harness reads to decide "
+                "whether this skill applies to what was asked.",
+                "技能自己的 frontmatter 描述——宿主读它来判断这份技能是否适用于当前的请求。",
+            ),
+            f(
+                "steward.skill.who",
+                "Opens SKILL.md: what the library is, that the reader is its Steward, the "
+                "one path its `pkc` is run as, and the one thing no material states — who "
+                "the owner is, checked with `pkc profile show` before the first compile.",
+                "SKILL.md 的开头：这座库是什么、读它的人是它的 Steward、它的 `pkc` 该以哪条"
+                "路径来跑，以及材料本身唯一说不出的那件事——owner 是谁，在第一次编译之前用 "
+                "`pkc profile show` 查。",
+            ),
+            f(
+                "steward.skill.round",
+                "The order of one compile round, command by command.",
+                "一轮编译的顺序，一条命令一条命令地写。",
+            ),
+            f(
+                "steward.skill.door",
+                "What each exit code of `pkc draft` means — the door described as facts.",
+                "`pkc draft` 每个退出码的含义——把门写成事实。",
+            ),
+            f(
+                "steward.skill.postures",
+                "Interactive and unattended: what changes when nobody is watching, and "
+                "the invocation a session here needs for `pkc` to reach the library at all.",
+                "交互与无人值守：没有人在看的时候什么会变，以及在这里开会话要怎么开，`pkc` 才"
+                "够得着这座库。",
+            ),
+            f(
+                "steward.unattended.task",
+                "The preamble on an unattended round's task: the draft is already open, "
+                "start at step 3, and this is the path to run `pkc` by.",
+                "无人值守轮次任务开头的那段话：草稿已经开好，从第 3 步开始，以及 `pkc` 该用哪"
+                "条路径来跑。",
+            ),
+            f(
+                "steward.skill.owner_speech",
+                "How the owner's own sentence enters the library — as a source, never as an "
+                "edit.",
+                "owner 自己的话如何进入知识库——以源的身份，绝不以一次编辑的身份。",
+            ),
+            f(
+                "steward.skill.archive",
+                "How a subject is retired: a move plus a record, the owner's words as the "
+                "reason, the closure shown before anything moves, the one flag that reads "
+                "the past back, and the page that turns out to be the owner themselves.",
+                "一个主题如何退场：一次搬移加一页记录、以 owner 的原话作理由、在任何东西动"
+                "之前先摊开闭包、把过去读回来的那一个旗标，以及那页最后发现其实就是 owner "
+                "本人的页面。",
+            ),
+            f(
+                "steward.skill.cannot",
+                "The things the door has no verb for.",
+                "门里没有对应动词的那些事。",
+            ),
+            f(
+                "steward.skill.references",
+                "Where the generated references are, as paths under the working directory.",
+                "生成出来的参考文件在哪里，写成工作目录下的路径。",
+            ),
+            f(
+                "steward.skill.workflow",
+                "Emitted only for a harness that runs dynamic workflows: the workflow "
+                "enforces the order of work and adds no rule.",
+                "只对支持动态 workflow 的宿主输出：workflow 只强制工作顺序，不添加规则。",
+            ),
+            f(
+                "steward.router.block",
+                "The block spliced into the project's AGENTS.md / CLAUDE.md: what this "
+                "directory is, where the skill is, and how to start a session that can "
+                "actually run `pkc` here.",
+                "拼进项目 AGENTS.md / CLAUDE.md 的那一块：这个目录是什么、技能在哪里、以及"
+                "怎么在这里开一个真能跑起 `pkc` 的会话。",
+            ),
+            f(
+                "steward.reference.contract_header",
+                "Heads `references/contract.md`, above the composed contract.",
+                "`references/contract.md` 的抬头，在组合契约之上。",
+            ),
+            f(
+                "steward.reference.instructions_header",
+                "Heads `references/compile-instructions.md`, above the exact bytes `pkc "
+                "draft open` prints.",
+                "`references/compile-instructions.md` 的抬头，在 `pkc draft open` 打印的"
+                "那段字节之上。",
+            ),
+            f(
+                "steward.reference.cli_header",
+                "Heads `references/cli.md`, above the command tree.",
+                "`references/cli.md` 的抬头，在命令树之上。",
+            ),
+            f(
+                "steward.reference.cli_exit_header",
+                "Introduces the exit-code table at the end of `references/cli.md`.",
+                "引出 `references/cli.md` 末尾的退出码表。",
+            ),
+            f(
+                "steward.reference.gate_header",
+                "Heads `references/gate.md`, above one section per violation kind.",
+                "`references/gate.md` 的抬头，下面每种违规一节。",
+            ),
+            f(
+                "steward.reference.gate_components_header",
+                "Introduces the enabled index components at the end of "
+                "`references/gate.md`.",
+                "引出 `references/gate.md` 末尾已启用的索引组件。",
             ),
         ),
         kind=FRAGMENTS,

@@ -539,6 +539,18 @@ ones:
 aborting is visible without listing the queue. The `status` value is bound into the pagination
 cursor: changing it mid-page is a 422, ask again from the first page.
 
+Two fields say who a job belongs to. **`executor`** is who RAN it: `langchain:<model spec>`
+when the worker's own loop drove the round, `agent:<backend>` when a coding agent typed the
+calls through `pkc draft` ([coding-agent-mode](../design/coding-agent-mode.md) ruling 1). It
+is `null` while the job has not finished and on every job compiled before the field existed.
+An agent-executed job carries an executor and **no** `token_usage` at all — absent rather than
+zero, because the harness's counters belong to the Owner's subscription and the framework
+never saw them. **`waiting_for`** is who is expected to ACT on a job still in the queue:
+`"worker"` for everything the worker drains, `"steward"` for a queued compile job under an
+agent executor, which does not drain itself and is opened by the Owner's coding agent. It is
+`null` once the job has left the queue. The console's process view shows one banner when any
+job is waiting for the Steward.
+
 ## Snapshots — two distinct concepts
 
 | Method | Path | Purpose |
@@ -624,6 +636,51 @@ A delivered card carries two text fields with two different authors, and they ar
 `stats` (WS, opt-in) and `done` (SSE) both carry the tick's **processing record**: `skipped` (`""` on a delivery, else which door closed — a discover reason `small_talk` / `already_mined` / `nothing_new`, or one of `low_worth`, `no_plan`, `no_candidates`, `no_coverage`, `none_chosen`, `low_confidence`, `uncited`, `duplicate`, `unparsed`, `pick_failed`, `canonical_unavailable`), `intent`, `worth`, `plan` (the lookups that ran), `rejected` (plan entries naming no enabled path), `candidates` (each `{index, kind, title, subject, origin, provenance, citations}`), `chosen`, `web` (`{tier, searches, cost, pages}` — see below), and `stages` (`discover` / `retrieve` / `retrieve.semantic` / `retrieve.web` / `retrieve.path:<name>` / `pick` / `total`, each with `ms` and `status`). `no_coverage` is the pick's own `choice: 0` — it read every candidate against the intent and none of them covers it — and is deliberately distinct from `low_confidence` (a weak answer held back) and from `none_chosen` (a malformed index), because the three look identical on a silent tick and mean different things. `canonical_unavailable` says something about the DEPLOYMENT rather than about the library: the canonical read this tick needed failed, so the tick had no document set to pin its archive filter to and it skipped rather than retrieve unpinned — the room is quiet for one turn and the next tick tries again. `dropped` is still there and is the briefing round's four-gate accounting; it is empty for the full-scope lane, whose equivalent is `skipped` — with the single exception of that skip, which also carries `canonical_unavailable: 1`.
 
 Policy fields on `config` and `ready`: `focus`, `min_confidence` (one number, two doors — discover's `worth` floor and pick's `confidence` floor), `max_pending_turns`, `quiet_period`, `web_search`, `briefing_id`, `stats`. `web_search` asks for the supplementary internet path; the `ready` echo is the **effective** value, because the deployment has its own answer (`PNEUMA_KNOWLEDGE_LIVE_WEB_SEARCH`) and a client that asked for `true` and reads `false` back has been told no mechanically rather than left to infer it from the absence of web cards. The tick's `web` record then says what that path did: `tier` is `off`, `planned` (discover asked for the lookup, so it ran concurrently with the library faces) or `fallback` (discover did not ask, the library came back with an empty candidate pool, so it ran after), alongside `searches`, `cost`, and `pages` — how many pages those searches came back naming. `pages: 0` beside a non-zero `cost` is the one outcome that would otherwise be invisible: a search that ran, was billed, and cited nothing, so its answer was refused at construction and no candidate ever appeared. `turn_window` is accepted as the old name of `max_pending_turns`, and `max_suggestions` is accepted and ignored — the full-scope lane delivers exactly one card per tick by construction.
+
+## Steward (the console's coding-agent session)
+
+Owner-only, and present only where this deployment compiles with a coding agent
+(`models.compile: agent:<backend>`). A face over the harness's OWN session, not a second
+Steward: the service spawns the harness in the project directory with the same generated
+skill a terminal session loads, bridges its stream to the browser, and the agent acts through
+the same `pkc` commands. Design: [coding-agent-mode](../design/coding-agent-mode.md) §5.6.
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/…/steward` | `{configured, backend, label, protocol, spec, live, exited, exit_code, agent_session_id, project_dir}` — what the view needs before it draws anything. `configured: false` is the empty state of a model-compiled deployment, not an error |
+| WS | `/…/steward` | the conversation. Client sends `{type:"user", text}` / `{type:"start"}` / `{type:"end"}` / `ping`; server sends `snapshot` on attach, then the event vocabulary the two adapters normalize both harnesses into — `session_started`, `turn_started`, `text_delta`, `step_started`, `step_finished`, `permission_request`, `turn_finished`, `session_exited`, `notice` — plus `error` (never fatal) and `ping` (~30 s keepalive). A deployment with no coding agent gets one `not_configured` frame and the socket closes, having spawned nothing. The full protocol is documented in the module docstring of [`api/routes/steward.py`](../../packages/pneuma-knowledge-service/src/pneuma_knowledge_service/api/routes/steward.py) |
+
+**One session per Owner, and a second attach joins it.** Two tabs on one library are one
+person at two windows: both receive the same events, and each is repainted by the `snapshot`
+frame's bounded event tail (200) rather than starting blank. What a single session prevents is
+two harnesses compiling one library at once.
+
+**A closed tab does not end the conversation.** The session is the harness's; it stays up for
+`PNEUMA_KNOWLEDGE_STEWARD_SESSION_IDLE` after the last socket detaches and a reconnect
+re-attaches to the same process. A harness that DIED is reported as `session_exited` and never
+silently restarted — the next attach hands back the same dead session, and only an explicit
+`{"type":"start"}` (the view's "start again") spawns a new one.
+
+**A step is the agent's own command.** `step_started` carries the command text the harness
+reported — the `Bash` command line, the path a `Read` opened — and `step_finished` its exit
+code, a bounded output preview and its duration. Nothing is invented, renamed or hidden. A
+`permission_request` should not arrive at all under the policies these sessions launch with;
+if one does it is DECLINED in the protocol's own answer shape and surfaced, so a stopped
+Steward is visible rather than a hung one.
+
+**A turn sent mid-turn is queued, never steered.** Claude Code's streaming input carries no
+turn id, so a second turn written into a running one would race it. The bridge holds the text
+until `turn_finished` and says so with a `notice` whose `code` is `queued`.
+
+**`turn_finished.usage` is this turn's, or null.** Claude reports it on its `result` envelope
+with `total_cost_usd`; Codex reports `last` on `thread/tokenUsage/updated` (its `total` is the
+session's cumulative spend and is not a turn's cost) and no money at all. Nothing measured
+means `null`, never a zero.
+
+**The conversation is not stored in the library.** The Owner's turns are held in
+`steward_turns` for exactly as long as the session lives, are read by exactly one command —
+`pkc owner say`, which refuses a text that is not a verbatim substring of one of them
+(ruling 13) — and are deleted when the session ends or expires.
 
 ## Engine Console
 

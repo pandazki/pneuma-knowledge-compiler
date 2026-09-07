@@ -16,7 +16,9 @@ import asyncio
 import hashlib
 import json
 import logging
-from dataclasses import asdict
+import os
+from dataclasses import asdict, dataclass
+from datetime import datetime, timedelta, timezone
 
 from pneuma_knowledge_core.compile.brief import generate_brief
 from pneuma_knowledge_core.compile.runner import CompileResult, run_compile
@@ -59,6 +61,7 @@ from ..wiring import (
     build_chat_model_for,
     build_context,
     embed_l2_chunks,
+    executor_for,
     full_l2_chunks,
     llm_call_config,
     resolve_image_mode,
@@ -66,6 +69,29 @@ from ..wiring import (
 )
 
 log = logging.getLogger(__name__)
+
+#: The job kind whose body is a compile round. Named because the worker has to be able to
+#: leave it alone: under an agent executor the round belongs to the Steward, and this is the
+#: kind a drain skips over (docs/design/coding-agent-mode.md §9, "The worker").
+COMPILE_JOB_KIND = "compile"
+
+
+def langchain_executor(settings: Settings) -> str:
+    """What a job record says when the worker's own loop ran the round."""
+    return f"langchain:{resolve_model_name(settings, 'compile')}"
+
+
+def agent_executor(settings: Settings) -> str:
+    """What a job record says when a coding agent typed the calls through `pkc draft`.
+
+    The backend is whatever launched the session (`PNEUMA_KNOWLEDGE_EXECUTOR_BACKEND`, set by
+    the unattended launcher and by the console's bridge). A terminal session the Owner opened
+    themselves sets nothing, and the record then says `agent` and stops there — which is the
+    true statement. Neither form carries token usage: the harness's counters belong to the
+    Owner's subscription, and a zero would be a claim that the round was free (story 2.15).
+    """
+    backend = (settings.executor_backend or "").strip()
+    return f"agent:{backend}" if backend else "agent"
 
 
 def _projection_detail(projection: object) -> str:
@@ -227,14 +253,48 @@ async def _recall_related_claims(
     return "\n".join(seen.values())
 
 
-async def process_job(
+@dataclass(frozen=True)
+class CompileInputs:
+    """Everything one compile job supplies to a round, resolved from the job row.
+
+    Extracted from `process_job` because a compile round now has two possible bodies, and the
+    material a round is given must not depend on which one drives it (ruling 2 of
+    docs/design/coding-agent-mode.md). The langchain worker and `pkc draft open` resolve their
+    inputs through this one function, which is what makes "the same job renders the same task
+    bytes under either executor" a property of the code rather than a hope about two call
+    sites.
+    """
+
+    sources: list[NormalizedSource]
+    source_ids: list[str]
+    treatments: dict[str, str]
+    source_guidance: dict[str, str]
+    source_preamble: dict[str, str]
+    owner: object | None
+    owner_name: str
+    retrieved: str
+    time: object
+    known_source_bounds: dict[str, int]
+    image_mode: str
+    image_payloads: dict[str, bytes]
+    commit_message: str
+    image_count: int
+
+
+async def compile_inputs(
     ctx: AppContext,
-    chat_model: BaseChatModel,
-    skill: SkillVersion,
     user_id: UserId,
     job: object,
-) -> CompileResult:
-    """Run one claimed compile job to completion (commit + events + digest, or abort)."""
+    *,
+    chat_model: BaseChatModel | None = None,
+    image_mode: str | None = None,
+) -> CompileInputs:
+    """Resolve one claimed compile job into the material and the frame a round runs on.
+
+    `image_mode` states the delivery when the caller knows it (the CLI executor reads a
+    terminal, so it asks for captions); otherwise it is resolved against the model that will
+    receive the message, exactly as before.
+    """
     payload = getattr(job, "payload", {}) or {}
     job_id = getattr(job, "job_id")
     source_ids: list[str] = [str(s) for s in payload.get("source_ids", [])]
@@ -267,6 +327,20 @@ async def process_job(
             g = fp.compile_guidance() if fp else None
             if g:
                 source_guidance[str(s.raw.source_id)] = g.render()
+
+    # What the OWNER said this statement was about (`pkc owner say --about`, §5.3). It rides
+    # the per-source guidance because that is where "how to read this round's material" is
+    # already said, and it is a POINTER and not a permission: it names the pages the
+    # statement concerns so the round opens them, and the gate asks exactly what it asked
+    # before. Carried on the job payload rather than on the source, because it is a fact
+    # about this hand-over and not about the bytes in L0.
+    about_paths = [str(p).strip() for p in (payload.get("about_paths") or []) if str(p).strip()]
+    if about_paths:
+        line = prompt("compile.task.about_pages", paths=", ".join(about_paths))
+        for src in sources:
+            sid = str(src.raw.source_id)
+            existing = source_guidance.get(sid)
+            source_guidance[sid] = f"{existing}\n{line}" if existing else line
 
     # The knowledge subject. compile used to never learn who it was compiling FOR — the
     # profile was consumed once by schema-pack selection and then dropped, so every judgment
@@ -313,55 +387,60 @@ async def process_job(
     )
 
     image_count = sum(len(block.images) for source in sources for block in source.blocks)
-    image_mode = resolve_compile_image_mode(ctx.settings, chat_model)
+    mode = image_mode or resolve_compile_image_mode(ctx.settings, chat_model)
     image_payloads = (
         await _native_image_payloads(ctx, user_id, sources)
-        if image_mode == "native" and image_count
+        if mode == "native" and image_count
         else {}
     )
-
-    trace_cfg = llm_call_config(
-        ctx,
-        operation="compile",
-        user_id=str(user_id),
-        extra={
-            "skill_version": skill.version,
-            "skill_id": skill.skill_id,
-            "job_id": str(job_id),
-            "source_count": len(sources),
-            "image_count": image_count,
-            "image_mode": image_mode,
-        },
-    )
-    result = await run_compile(
-        user_id=user_id,
-        model=chat_model,
-        store=ctx.canonical,
+    return CompileInputs(
         sources=sources,
-        skill=skill,
+        source_ids=source_ids,
         treatments=treatments,
         source_guidance=source_guidance,
-        known_source_bounds=await ctx.store.block_counts(user_id),
         source_preamble=source_preamble,
         owner=owner,
+        owner_name=owner_name,
         retrieved=retrieved,
-        search_knowledge=_search_knowledge_port(ctx, user_id),
-        search_source=_search_source_port(ctx, user_id),
         time=time,
-        commit_message=f"compile {job_id}",
-        image_mode=image_mode,
+        known_source_bounds=await ctx.store.block_counts(user_id),
+        image_mode=mode,
         image_payloads=image_payloads,
-        call_timeout=ctx.settings.compile_call_timeout,
-        max_tool_calls=ctx.settings.compile_max_tool_calls,
-        overview_budget_chars=ctx.settings.overview_budget_chars,
-        overview_required_after_claims=ctx.settings.overview_required_after_claims,
-        **trace_cfg,
+        commit_message=f"compile {job_id}",
+        image_count=image_count,
     )
 
+
+async def persist_compile_result(
+    ctx: AppContext,
+    user_id: UserId,
+    job_id: str,
+    job_payload: dict,
+    inputs: CompileInputs,
+    result: CompileResult,
+    *,
+    executor: str | None = None,
+) -> None:
+    """Everything that happens AFTER a compile round produced its result, whoever drove it.
+
+    Events, the L3 projection delta, digestion, the job row and its token usage, the rollover
+    and evolve and challenge triggers, the post-compile brief — and the two other endings, a
+    canonical noop and an abort. It was the tail of `process_job` and is now called from there
+    and from `pkc draft finish`, because what a committed compile means to the derived layers
+    cannot depend on which executor typed the tool calls.
+
+    `executor` is the one thing that does depend on it, and it is a label on the job row:
+    `langchain:<model spec>` from the worker, `agent:<backend>` from the CLI. None leaves the
+    column as it was — a caller that does not know who ran the round says nothing rather than
+    guessing.
+    """
     # Bookkeeping timestamps stay UTC instants (storage is UTC everywhere); only rendered
     # calendar days go through the TimeContext. Reuse its instant so the whole job is
     # stamped from one clock read.
-    now = time.now_utc
+    now = inputs.time.now_utc
+    sources = inputs.sources
+    source_ids = inputs.source_ids
+    owner_name = inputs.owner_name
     if result.status == "committed":
         assert result.snapshot is not None
         await ctx.store.record_compile_events(
@@ -385,6 +464,7 @@ async def process_job(
             detail=_with_run_facts(_projection_detail(projection), result),
             snapshot_ref=result.snapshot.ref,
             token_usage=result.token_usage,
+            executor=executor,
         )
         # Mechanical rollover trigger: a document this compile WROTE that is now over the
         # size threshold gets a groom job on this same per-user queue. Size only — no LLM, no
@@ -396,7 +476,7 @@ async def process_job(
         # enqueue an evolve job if the whole-KB doc/anchor increment cleared the threshold.
         await maybe_trigger_evolve(ctx, user_id)
         # Optional post-compile coverage challenge (never on a compensation compile).
-        await maybe_trigger_challenge(ctx, user_id, payload, source_ids)
+        await maybe_trigger_challenge(ctx, user_id, job_payload, source_ids)
         # Optional derived narration over the recorded events (brief_enabled). LAST on
         # purpose: it is display copy, and a model call ahead of `complete` would hold an
         # already-committed job open — a process killed mid-narration would leave the job
@@ -441,6 +521,7 @@ async def process_job(
             ok=True,
             detail=_with_run_facts(detail, result),
             token_usage=result.token_usage,
+            executor=executor,
         )
         if refs:
             await maybe_trigger_evolve(ctx, user_id)
@@ -453,8 +534,128 @@ async def process_job(
             ok=False,
             detail=_with_run_facts(detail, result),
             token_usage=result.token_usage,
+            executor=executor,
         )
+
+
+async def process_job(
+    ctx: AppContext,
+    chat_model: BaseChatModel,
+    skill: SkillVersion,
+    user_id: UserId,
+    job: object,
+) -> CompileResult:
+    """Run one claimed compile job to completion (commit + events + digest, or abort)."""
+    payload = getattr(job, "payload", {}) or {}
+    job_id = getattr(job, "job_id")
+    inputs = await compile_inputs(ctx, user_id, job, chat_model=chat_model)
+
+    trace_cfg = llm_call_config(
+        ctx,
+        operation="compile",
+        user_id=str(user_id),
+        extra={
+            "skill_version": skill.version,
+            "skill_id": skill.skill_id,
+            "job_id": str(job_id),
+            "source_count": len(inputs.sources),
+            "image_count": inputs.image_count,
+            "image_mode": inputs.image_mode,
+        },
+    )
+    result = await run_compile(
+        user_id=user_id,
+        model=chat_model,
+        store=ctx.canonical,
+        sources=inputs.sources,
+        skill=skill,
+        treatments=inputs.treatments,
+        source_guidance=inputs.source_guidance,
+        known_source_bounds=inputs.known_source_bounds,
+        source_preamble=inputs.source_preamble,
+        owner=inputs.owner,
+        retrieved=inputs.retrieved,
+        search_knowledge=_search_knowledge_port(ctx, user_id),
+        search_source=_search_source_port(ctx, user_id),
+        time=inputs.time,
+        commit_message=inputs.commit_message,
+        image_mode=inputs.image_mode,
+        image_payloads=inputs.image_payloads,
+        call_timeout=ctx.settings.compile_call_timeout,
+        max_tool_calls=ctx.settings.compile_max_tool_calls,
+        overview_budget_chars=ctx.settings.overview_budget_chars,
+        overview_required_after_claims=ctx.settings.overview_required_after_claims,
+        **trace_cfg,
+    )
+    await persist_compile_result(
+        ctx,
+        user_id,
+        job_id,
+        payload,
+        inputs,
+        result,
+        executor=langchain_executor(ctx.settings),
+    )
     return result
+
+
+def unattended(ctx: AppContext) -> bool:
+    """Does THIS worker run compile jobs through the coding agent itself?
+
+    Two postures, one question (§8, §9). A worker is by definition unattended — nobody is at
+    a terminal where it runs — so under an agent executor it claims a compile job, opens its
+    draft and hands it to a launched harness. Turning `AGENT_UNATTENDED` off restores the
+    interactive posture step 2 shipped: compile jobs stay queued and the Owner's own session
+    opens them with `pkc draft open`. Under a model executor the question does not arise.
+    """
+    return bool(ctx.compile_executor.is_agent and ctx.settings.agent_unattended)
+
+
+async def process_agent_job(ctx: AppContext, user_id: UserId, job: object) -> None:
+    """One claimed compile job, run through a launched coding agent (§9).
+
+    `run_compile` is deliberately NOT used: the round's body is another process typing `pkc
+    draft` commands, and the draft it works on lives in the store. What ends the round is the
+    same `cmd_finish` the CLI calls, whether the harness ran it or the runner did — one code
+    path finishes a draft (`coding_agent/round_runner.py` states the cut).
+
+    The job row is written by that finish. What this adds afterwards is the one thing the
+    finish could not know: what the harness's own counters said the round cost, which the
+    launcher read from its JSON one process out. Absent stays absent — a round whose harness
+    reported nothing records nothing, never a zero.
+    """
+    from ..cli.runtime import build_runtime
+    from ..coding_agent.backends import backend as backend_manifest
+    from ..coding_agent.round_runner import AgentRoundRunner
+
+    executor = ctx.compile_executor
+    job_id = getattr(job, "job_id")
+    rt = await build_runtime(ctx, user_id, executor=executor.spec)
+    runner = AgentRoundRunner(
+        manifest=backend_manifest(str(executor.backend)),
+        # The project the shim and the installed skill live in is the directory the worker
+        # was started from — the same convention `pkc` itself uses to find a deployment.
+        project_dir=os.getcwd(),
+        timeout_s=float(ctx.settings.compile_call_timeout),
+        retries=int(ctx.settings.agent_retries),
+        keep_workdir=bool(ctx.settings.agent_keep_workdir),
+        # Which library. The harness runs in an empty working directory with no project
+        # `.env` in it, so the stack it reaches is stated by the worker rather than
+        # resolved by the child (`launcher.CONNECTION_SETTINGS`).
+        settings=ctx.settings,
+    )
+    result = await runner.run_job(rt, job_id)
+    log.info(
+        "job %s: %s (%d launch(es)%s)",
+        job_id,
+        result.outcome,
+        result.launches,
+        ", timed out" if result.timed_out else "",
+    )
+    if result.usage:
+        await ctx.store.record_job_usage(
+            user_id, job_id, token_usage=result.usage, executor=executor.spec
+        )
 
 
 async def process_index_job(
@@ -550,17 +751,72 @@ async def requeue_orphaned_jobs(ctx: AppContext, *, label: str = "compile-worker
     but it does mean a script calling this alongside a LIVE compile worker would yank that
     worker's in-flight job back into the queue. Don't run the two concurrently.
 
+    One kind of claimed job is NOT orphaned: one an agent is holding through `pkc draft open`
+    (docs/design/coding-agent-mode.md §6). Its draft row is rewritten by every command that
+    round runs, so the store is asked to spare a job whose draft is younger than
+    `COMPILE_DRAFT_TTL`; an older draft is deleted and its job requeued with the rest.
+
     Returns the number requeued and reports it on stdout (silence means nothing was stuck).
     """
-    reclaimed = await ctx.store.requeue_claimed_jobs()
+    # A job an agent is holding through `pkc draft open` is legitimately in flight, and its
+    # draft row says so by being freshly written (see the adapter). Past the TTL the draft is
+    # deleted and the job requeued with the orphans, because a round nobody came back to must
+    # not hold a user's queue any longer than a dead worker's job does.
+    reclaimed = await ctx.store.requeue_claimed_jobs(
+        draft_ttl=ctx.settings.compile_draft_ttl
+    )
     if reclaimed:
         print(f"[{label}] reclaimed {reclaimed} orphaned claimed job(s) → requeued", flush=True)
+    # The other thing an agent can walk away from: a `pkc recall --evidence` hand-over whose
+    # answer never came (docs/design/coding-agent-mode.md §5.1). It is swept HERE and not on
+    # a clock of its own, because it is the same fact about the same body — a round nobody
+    # came back to — and one place to look is worth more than a second sweeper. Nothing is
+    # lost by the deletion: a question the Steward never answered leaves no consultation, and
+    # that is what happened.
+    await sweep_recall_handoffs(ctx, label=label)
     return reclaimed
+
+
+async def sweep_recall_handoffs(ctx: AppContext, *, label: str = "compile-worker") -> int:
+    """Delete the recall hand-overs older than `RECALL_HANDOFF_TTL`; return how many.
+
+    Best-effort and never fatal: a store that predates the table (or a deployment whose store
+    does not offer the port at all) leaves the count at zero rather than stopping a worker
+    from starting."""
+    ttl = int(getattr(ctx.settings, "recall_handoff_ttl", 0) or 0)
+    if ttl <= 0:
+        return 0
+    from ..adapters.postgres import PostgresRecallHandoffStore
+
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=ttl)
+    try:
+        swept = await PostgresRecallHandoffStore(ctx.store).sweep(cutoff)
+    except Exception:  # noqa: BLE001 — bookkeeping never blocks a worker's start
+        return 0
+    if swept:
+        print(f"[{label}] swept {swept} expired recall handoff(s)", flush=True)
+    return swept
+
+
+async def _waiting_for_steward(ctx: AppContext, user_id: UserId) -> int:
+    """How many of this user's compile jobs are queued for the Steward to open.
+
+    Asked once per drain, not once per job: under an agent executor the worker walks past
+    these rows every sweep, and a line per row would say the same thing every two seconds.
+    """
+    lister = getattr(ctx.store, "list_jobs", None)
+    if lister is None:
+        return 0
+    return sum(
+        1
+        for job in await lister(user_id)
+        if job.get("status") == "queued" and job.get("kind") == COMPILE_JOB_KIND
+    )
 
 
 async def drain_user(
     ctx: AppContext,
-    chat_model: BaseChatModel,
+    chat_model: BaseChatModel | None,
     skill: SkillVersion | None,
     user_id: UserId,
     *,
@@ -578,11 +834,36 @@ async def drain_user(
     one (upgrade/version tests), or None to load it per-job via `skill_for_user` (the
     worker's default — each owner compiles with their own composed skill). It resolves
     lazily on the first compile job (index jobs need no skill) and is memoized here + in
-    `skill_cache` for the rest of the sweep."""
+    `skill_cache` for the rest of the sweep.
+
+    Under an AGENT executor the compile jobs are not this body's to run: the round belongs to
+    the Steward, which opens it with `pkc draft open` (docs/design/coding-agent-mode.md §9).
+    They are skipped at the CLAIM rather than after it — claiming one and putting it back
+    would still have spent that user's single in-flight slot, and everything queued behind it
+    (index, projection, groom) would wait on a round nobody in this process is going to run.
+    Everything else drains exactly as it always has."""
     resolved = skill
     processed = 0
+    # Under an agent executor there are two postures, and they differ in exactly one place:
+    # whether this body claims a compile job. Unattended, it does — and hands it to a
+    # launched harness. Interactive, it does not, and the round waits for `pkc draft open`.
+    steward_kinds = (
+        (COMPILE_JOB_KIND,)
+        if ctx.compile_executor.is_agent and not unattended(ctx)
+        else ()
+    )
+    if steward_kinds:
+        waiting = await _waiting_for_steward(ctx, user_id)
+        if waiting:
+            log.info(
+                "%s compile job(s) for %s are waiting for the Steward "
+                "(executor %s); the worker is not claiming them",
+                waiting,
+                user_id,
+                ctx.compile_executor.spec,
+            )
     while True:
-        job = await ctx.store.claim_next(user_id)
+        job = await ctx.store.claim_next(user_id, exclude_kinds=steward_kinds)
         if job is None:
             return processed
         try:
@@ -607,6 +888,8 @@ async def drain_user(
                 await run_challenge_job(
                     ctx, ctx.get_chat_model("challenge"), resolved, user_id, job
                 )
+            elif kind == COMPILE_JOB_KIND and unattended(ctx):
+                await process_agent_job(ctx, user_id, job)
             else:
                 if resolved is None:
                     resolved = await _resolve_user_skill(ctx, user_id, skill_cache)
@@ -657,7 +940,7 @@ async def drain_index_jobs(ctx: AppContext, user_id: UserId) -> int:
 
 
 async def compile_pending(
-    ctx: AppContext, chat_model: BaseChatModel, skill: SkillVersion | None = None
+    ctx: AppContext, chat_model: BaseChatModel | None, skill: SkillVersion | None = None
 ) -> int:
     """One sweep across every user with data; returns the job count processed.
 
@@ -691,12 +974,27 @@ async def _users_with_jobs(ctx: AppContext) -> list[str]:
 async def run_forever() -> None:
     settings = get_settings()
     ctx = await build_context(settings)
-    chat_model = build_chat_model_for(settings, "compile")
+    executor = executor_for(settings, "compile")
+    # An agent executor has no chat model to build, and building one would raise: what runs
+    # the round is a harness under the Owner's subscription, and the worker's part is to
+    # leave its jobs alone (§9). Every other kind of job is drained as before.
+    chat_model = None if executor.is_agent else build_chat_model_for(settings, "compile")
     # No single global skill: each job loads its user's own composed skill (skill=None).
     print(
-        f"[compile-worker] model={resolve_model_name(settings, 'compile')} "
+        f"[compile-worker] executor={executor.kind} model={executor.spec} "
         f"canonical={settings.canonical_root}"
     )
+    if executor.is_agent and settings.agent_unattended:
+        print(
+            f"[compile-worker] compile jobs are claimed and handed to {executor.backend} "
+            "(unattended); set PNEUMA_KNOWLEDGE_AGENT_UNATTENDED=false to leave them for a "
+            "Steward at a terminal"
+        )
+    elif executor.is_agent:
+        print(
+            "[compile-worker] compile jobs are left queued for the Steward "
+            "(`pkc draft open <job>`); index, projection and groom jobs drain as usual"
+        )
     # Self-heal on startup: requeue any job orphaned as 'claimed' by a previous worker
     # that died mid-job (killed during an LLM call), which would otherwise block its
     # user's queue forever.

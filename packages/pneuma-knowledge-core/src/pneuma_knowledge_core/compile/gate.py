@@ -126,6 +126,87 @@ class Violation:
         return f"[{self.kind}] {self.path}: {self.detail}"
 
 
+#: Every violation kind this gate can emit, in the order the checks are documented in the
+#: module docstring, paired with the prompt-catalog keys whose templates ARE the gate's own
+#: descriptions of it. Enumerable on purpose: a generated reference for a coding-agent
+#: Steward (`pkc skill install`) renders one entry per kind out of this table and out of the
+#: catalog, so the door's description of a refusal and the refusal itself are one text
+#: (docs/design/coding-agent-mode.md ruling 4). Nothing here paraphrases a check — the tuple
+#: names keys, and `violation_catalog()` resolves them through the ordinary prompt seam so a
+#: deployment's overlay and its language pack reach the reference too.
+#:
+#: `compile.overview.refuse_missing` is the one non-`gate.` key: the overview a page OWES is
+#: refused by the write verb first and by the gate second, from that single text.
+VIOLATION_KINDS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("anchor_continuity", ("gate.anchor_continuity",)),
+    ("anchor_uniqueness", ("gate.anchor_uniqueness",)),
+    (
+        "citation",
+        (
+            "gate.citation_unknown_source",
+            "gate.citation_out_of_range",
+            "gate.citation_unparsable_marker",
+            "gate.citation_anchor_in_marker",
+            "gate.claim_without_provenance",
+        ),
+    ),
+    ("frontmatter", ("gate.frontmatter_missing",)),
+    ("anchor_coverage", ("gate.anchor_coverage",)),
+    ("claim_text", ("gate.claim_text_machinery",)),
+    (
+        "overview",
+        (
+            "gate.overview_budget",
+            "gate.overview_ungrounded",
+            "gate.overview_unknown_slot",
+            "gate.overview_definition_blocks",
+            "gate.overview_definition_length",
+            "compile.overview.refuse_missing",
+        ),
+    ),
+    ("path", ("gate.path_not_owned",)),
+    ("volume_closed", ("gate.volume_closed",)),
+    (
+        # The ARCHIVE, which is not the closed-volume rule above: `archive/` is where the
+        # OWNER moved a subject out of the answering set, and the four texts are the four
+        # ways a round can reach back for it — the archived path itself, the live path it
+        # shadows, the name it shadows, and the record it left standing.
+        "archived_path",
+        (
+            "gate.archived_path",
+            "gate.archived_path_shadowed",
+            "gate.archived_title_shadowed",
+            "gate.archive_record",
+        ),
+    ),
+    (
+        "supersession",
+        (
+            "gate.supersession_target_missing",
+            "gate.supersession_self",
+            "gate.supersession_multiple",
+            "gate.supersession_not_linear",
+            "gate.supersession_cycle",
+            "gate.supersession_frozen",
+            "gate.supersession_without_evidence",
+        ),
+    ),
+    ("link", ("gate.link_self_reference", "gate.link_dead")),
+)
+
+
+def violation_catalog() -> list[tuple[str, list[str]]]:
+    """`VIOLATION_KINDS` with every key resolved to the text the gate would render.
+
+    Templates, not filled sentences: the placeholders (`{anchor}`, `{source_id}`) are the
+    part a violation supplies at the moment it is raised, and a reference that invented
+    values for them would be describing a different failure than the one that happens. The
+    resolution goes through `prompt`, so an overridden clause and the active language pack
+    are what a reader of the reference sees.
+    """
+    return [(kind, [prompt(key) for key in keys]) for kind, keys in VIOLATION_KINDS]
+
+
 def check_anchor_uniqueness(docs: Mapping[str, object]) -> list[Violation]:
     """Every anchor is unique across the whole repo (shared by compile + evolve gates)."""
     violations: list[Violation] = []
@@ -893,3 +974,76 @@ def archive_refusals(
             }
         )
     return records
+
+
+def owed_now_lines(
+    draft: PatchDraft,
+    *,
+    threshold: int = OVERVIEW_REQUIRED_AFTER_CLAIMS,
+) -> list[str]:
+    """What the round already OWES, by the very predicates the gate will run.
+
+    Two of them, and no more: the overview a touched page owes
+    (`overview_required_violations` — the same call `finish_compile` makes) and every enabled
+    component's `gate_checks` over the current draft. Re-deriving this from a second set of
+    rules would let the notice name work the gate does not want; asking the whole gate would
+    need the sources and the alias map for a message whose only job is to point the last few
+    calls at what is outstanding.
+
+    Both executors read it: the langchain loop puts it in the low-water HumanMessage, the CLI
+    appends it to the write that crossed the mark and repeats it in `pkc draft status`. One
+    derivation, so the two renderings cannot name different work.
+    """
+    owed = [
+        v.render()
+        for v in overview_required_violations(draft, threshold=threshold)
+    ]
+    documents, base = draft.documents(), draft.base_documents()
+    for component in registered_components():
+        owed.extend(v.render() for v in component.gate_checks(documents, base))
+    return owed
+
+
+def post_write_violations(
+    draft: PatchDraft,
+    sources: Sequence[NormalizedSource],
+    path: str,
+    *,
+    baseline: Sequence[Violation] = (),
+    alias_map: dict[str, str] | None = None,
+    known_source_bounds: Mapping[str, int] | None = None,
+    overview_budget_chars: int = OVERVIEW_BUDGET_CHARS,
+    overview_required_after_claims: int = OVERVIEW_REQUIRED_AFTER_CLAIMS,
+) -> list[Violation]:
+    """What one write just broke on the page it touched (ruling 10 of the coding-agent design).
+
+    A write that passed its argument checks is APPLIED and then judged: the gate's own
+    predicates run over the draft, and this returns the findings that name `path` and were
+    not already standing before the write (`baseline`, the same call over the draft as it
+    stood). Two properties come out of that shape, and both are why it is not a second set of
+    predicates:
+
+    - **the gate's rules, once.** `run_gate` is the arbiter, here and at `finish`; there is no
+      per-command rulebook that could hold a rule the final gate does not, or miss one it
+      does.
+    - **the write answers for itself and nothing else.** A page that arrived with a problem —
+      a legacy document, or a page an earlier command in this round left owing an overview —
+      does not make the next unrelated write refusable, and a round is never wedged by a
+      finding no single command can repair.
+
+    The whole gate runs rather than a per-document slice of it, because several of its checks
+    are repository-wide by nature (anchor uniqueness, link targets, the overview's grounding
+    in a ledger that may live on another page) and a scoped re-implementation of those would
+    be exactly the second rulebook this function exists to avoid. The findings are then
+    filtered to the touched page, which is the scope the ruling asks for.
+    """
+    after = run_gate(
+        draft,
+        sources,
+        alias_map=alias_map,
+        known_source_bounds=known_source_bounds,
+        overview_budget_chars=overview_budget_chars,
+        overview_required_after_claims=overview_required_after_claims,
+    )
+    standing = set(baseline)
+    return [v for v in after if v.path == path and v not in standing]

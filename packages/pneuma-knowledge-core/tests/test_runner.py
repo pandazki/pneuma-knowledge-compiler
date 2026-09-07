@@ -29,6 +29,7 @@ from pneuma_knowledge_core.compile.documents import (
 )
 from pneuma_knowledge_core.compile.patch import PatchDraft
 from pneuma_knowledge_core.compile.gate import Violation
+from pneuma_knowledge_core.compile.round import LangchainRoundRunner
 from pneuma_knowledge_core.compile.runner import (
     CompileCallTimeout,
     _build_tools,
@@ -1447,3 +1448,85 @@ async def test_an_unparseable_call_costs_the_round_a_call_like_a_refused_one():
     # create_document + the invalid call spent the first round; finish_compile the repair one.
     assert result.tool_calls == 3
     assert store.commits == []  # the gate still rejects the citation: canonical untouched
+
+
+def _repair_round_script() -> list[list[dict]]:
+    """A two-round compile: a citation the gate rejects, then the edit that fixes it.
+
+    Two rounds on purpose — the seam is the loop, and a refactor that lost the repair round's
+    fresh budget or its feedback message would show up here and nowhere in a one-round script.
+    """
+    path = "memory/people/cheng-ye.md"
+    bad_body = "- 程野 是后端负责人。[cite: src-99 ¶3]"
+    anchor = extract_anchors(assign_document_anchors(bad_body, path))[0]
+    return [
+        [
+            tc(
+                "create_document",
+                path=path,
+                frontmatter={"type": "person", "slug": "cheng-ye"},
+                body=bad_body,
+            ),
+            tc("finish_compile"),
+        ],
+        [
+            tc(
+                "edit_claim",
+                path=path,
+                anchor_id=anchor,
+                new_text="- 程野 是后端负责人。[cite: src-01 ¶3]",
+            ),
+            tc("finish_compile"),
+        ],
+    ]
+
+
+async def test_an_explicit_langchain_round_runner_compiles_exactly_as_the_default_does():
+    """`run_compile` delegating the loop changed nothing about what a compile produces.
+
+    The round is now behind a protocol (compile/round.py) so a second body can drive it, and
+    the guarantee that buys the seam its keep is that the FIRST body is unchanged: the same
+    script through the default path and through an explicitly constructed
+    `LangchainRoundRunner` must yield the same files, the same events, the same call count
+    and the same bytes in front of the model. Anything else would mean the extraction moved
+    the compiler, not the code.
+    """
+    sources = [_source("src-01", 5)]
+    default_store = FakeCanonicalStore()
+    default_model = ScriptedChatModel(turns=_repair_round_script())
+    default = await run_compile(
+        user_id=USER,
+        model=default_model,
+        store=default_store,
+        sources=sources,
+        skill=SKILL,
+    )
+
+    injected_store = FakeCanonicalStore()
+    injected_model = ScriptedChatModel(turns=_repair_round_script())
+    injected = await run_compile(
+        user_id=USER,
+        model=injected_model,
+        store=injected_store,
+        sources=sources,
+        skill=SKILL,
+        round_runner=LangchainRoundRunner(model=injected_model),
+    )
+
+    assert injected.status == default.status == "committed"
+    assert injected.files == default.files
+    assert injected.rounds == default.rounds == 2
+    assert injected.tool_calls == default.tool_calls
+    assert injected.token_usage == default.token_usage
+    assert [(e.type, e.path, e.anchor) for e in injected.events] == [
+        (e.type, e.path, e.anchor) for e in default.events
+    ]
+    assert injected_store.commits == default_store.commits
+    # Not just the result: the transcript. I5 is a statement about the bytes the compiler is
+    # given, and a runner that assembled its own would break it silently.
+    assert [
+        [(type(m).__name__, str(m.content)) for m in seen]
+        for seen in injected_model.seen
+    ] == [
+        [(type(m).__name__, str(m.content)) for m in seen] for seen in default_model.seen
+    ]

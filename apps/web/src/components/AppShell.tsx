@@ -35,6 +35,9 @@ const VIEWPORT_PANE_VIEWS: ReadonlySet<ViewName> = new Set<ViewName>([
   // by side. Either of them scrolling the page out from under the other is the failure that
   // layout exists to prevent, so the page takes the viewport and the panes scroll inside it.
   "live_context",
+  // The conversation and the steps it produces are watched together, and the composer must
+  // stay reachable while the transcript grows under it.
+  "steward",
 ]);
 
 /**

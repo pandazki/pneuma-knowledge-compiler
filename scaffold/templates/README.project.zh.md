@@ -40,6 +40,7 @@
 ./app.py down [--volumes]    # 停栈（--volumes 连数据卷一起删）
 ```
 
+{{STEWARD_SECTION}}
 ## 在浏览器里看
 
 一条命令起浏览层（框架 API + 编译 worker + Web 界面），三者都从 `.env` 指定的框架仓库构建：

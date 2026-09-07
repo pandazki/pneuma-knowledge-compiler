@@ -2,3 +2,6 @@
 .env
 data/
 __pycache__/
+# The `pkc` shim's uv cache: the default one is under $HOME, which a sandboxed coding
+# agent cannot write, so the shim points uv at this project-local directory instead.
+.uv-cache/

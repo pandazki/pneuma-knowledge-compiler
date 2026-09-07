@@ -18,5 +18,7 @@
 | [design/index-components.md](design/index-components.md) | the component protocol: business structure over canonical, and how to write one |
 | [design/steward-owner-visitor.md](design/steward-owner-visitor.md) | the roles above the library, the record an answer leaves, and the access ledger over those records |
 | [design/archive.md](design/archive.md) | the archive: retiring a document or a source from every default retrieval without deleting it, through a proposal the Owner confirms |
+| [design/coding-agent-mode.md](design/coding-agent-mode.md) | a coding agent as the Steward: roles, motivations, stories, and the CLI door it compiles through |
+| [design/single-machine-edition.md](design/single-machine-edition.md) | `pkc` and `~/.pkc`: one infrastructure per machine, libraries as tenants, the skill dropped into the harness |
 
 The repository [README](../README.md) has the three-minute demo.

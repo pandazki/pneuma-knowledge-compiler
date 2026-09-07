@@ -378,6 +378,19 @@ interface AppState {
    * dataset so the views fall back to their "not yet compiled" empty state.
    */
   loadUserDataset: () => Promise<void>;
+  /**
+   * Bumped whenever something outside a view changed the library — today, a Steward step
+   * that ran `pkc draft finish`, `pkc owner say`, `pkc ingest`, `pkc draft abandon` or `pkc
+   * source archive` (`lib/steward.ts` INVALIDATING).
+   *
+   * The views that hold their OWN lists — the job ledger, the source catalogue — read this
+   * as a dependency and refetch when it moves; the canonical views need no dependency
+   * because `libraryChanged` reloads the dataset they render. That is what makes the history
+   * view gain its commit while the Steward is still typing, with no reload (story 2.5f).
+   */
+  libraryRevision: number;
+  /** Say that the library moved: bump the revision and reload the canonical dataset. */
+  libraryChanged: () => void;
   /** (re)load the current user's snapshot list from GET /snapshots. */
   loadSnapshots: () => Promise<void>;
   /** append the next bounded git-history page to the snapshot picker. */
@@ -932,6 +945,13 @@ export const useApp = create<AppState>((set, get) => ({
       set({ kbSnapshotError: (error as Error).message });
     }
     if (get().currentUser === uid) await get().loadKbSnapshots();
+  },
+
+  libraryRevision: 0,
+
+  libraryChanged: () => {
+    set({ libraryRevision: get().libraryRevision + 1 });
+    void get().loadUserDataset();
   },
 
   loadUserDataset: async () => {

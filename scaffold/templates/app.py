@@ -354,6 +354,19 @@ def current_provenance(profile_text: str) -> dict[str, str]:
     return result
 
 
+def infra_setting(name: str, derived: str) -> str:
+    """One connection target: what `.env` states, else what this project's ports imply.
+
+    The generated `.env` carries the PNEUMA_KNOWLEDGE_* connection variables, because a
+    host-side `pkc` — the coding agent's whole vocabulary, and the Owner's too — has no
+    `app.py` to translate ports for it and would otherwise fall back to the framework's own
+    development stack. That makes `.env` the single source of truth for WHICH library this is,
+    and leaves this derivation as the fallback for a project generated before those lines
+    existed. Preferring the env is what keeps the two from ever disagreeing; the isolation
+    check below is what catches it if they somehow do."""
+    return os.environ.get(name, "").strip() or derived
+
+
 def stack_port(name: str, default: int) -> int:
     try:
         return int(os.environ.get(name, "") or default)
@@ -501,12 +514,17 @@ def stage_timing_line(stages) -> str:
 
 
 def claims_from_detail(detail: str | None) -> int | None:
-    """The number of claims inserted/updated, taken from a finished compile job's detail
-    (detail looks like `projection:{...}`)."""
+    """The number of claims inserted/updated, taken from a finished compile job's detail.
+
+    The detail is `projection:{…}` followed by whatever run facts the round had to state —
+    `; rounds:2`, `; archive_refusals:[…]` (service `_with_run_facts`). So the projection is
+    the FIRST segment, not the whole string: reading the whole string made a perfectly good
+    round report `done` where it had `+6 claims` to say."""
     if not detail or not detail.startswith("projection:"):
         return None
+    head = detail[len("projection:") :].split("; ", 1)[0]
     try:
-        payload = json.loads(detail[len("projection:") :])
+        payload = json.loads(head)
     except (ValueError, TypeError):
         return None
     value = payload.get("upserted")
@@ -549,8 +567,9 @@ def engine_strategy() -> dict:
     precedence (process environment > engine file > framework default) then has exactly one
     implementation across this CLI, the API and the Engine Console. Note that `.env` is
     loaded into the process environment before anything here runs, so a PNEUMA_KNOWLEDGE_*
-    strategy key placed there would outrank the engine file — which is precisely why the
-    generated `.env` carries none."""
+    STRATEGY key placed there would outrank the engine file — which is precisely why the
+    generated `.env` carries none. The PNEUMA_KNOWLEDGE_* variables it does carry are
+    connections (`infra_setting`): which library this is, not what a compile does."""
     from pneuma_knowledge_service.engine.resolve import engine_overrides
 
     overrides, _resolution = engine_overrides(ENGINE_DIR, os.environ)
@@ -602,6 +621,33 @@ def keyless_env(env) -> list[str]:
     ]
 
 
+def embedding_key_reminder() -> str:
+    """The framework's own reminder when this project's embedding model needs a key nobody
+    set, or "" when it needs none (`fake:`) or the key is there.
+
+    Not composed here: the sentence lives in the framework
+    (`pneuma_knowledge_service.embedding_key`) and is printed by every startup point — the
+    API, the worker, `pkc`, and the two commands below — so a project hears one text. An
+    unreachable framework says nothing: `preflight` is the command that reports THAT.
+    """
+    try:
+        from pneuma_knowledge_service.embedding_key import embedding_key_notice
+        from pneuma_knowledge_service.engine.resolve import resolve_engine
+
+        values = resolve_engine(ENGINE_DIR, os.environ).values
+        spec = str(values.get("models.embedding") or "")
+    except Exception:  # noqa: BLE001 — a reminder that cannot be composed is not an error
+        return ""
+    return embedding_key_notice(spec, os.environ.get("OPENROUTER_API_KEY", ""))
+
+
+def say_embedding_key_reminder() -> None:
+    """Print the reminder once, where a person is looking at a startup step."""
+    notice = embedding_key_reminder()
+    if notice:
+        print(f"  note: {notice}")
+
+
 def require_models(*, require_key: bool = True) -> dict[str, str]:
     """The model roles as the engine resolves them, or a loud exit naming what is
     missing. `answer` and `deep` may legitimately borrow the recall role.
@@ -629,6 +675,19 @@ def require_models(*, require_key: bool = True) -> dict[str, str]:
     return roles
 
 
+def base_model_spec(models: dict[str, str]) -> str:
+    """The base `PNEUMA_KNOWLEDGE_LLM_MODEL` — a MODEL, never an executor.
+
+    Every role nobody named in engine.yaml falls back to this one spec, and the framework asks
+    it of every role at startup. An `agent:<backend>` compile role is an executor rather than
+    a model, and only `compile` may be one, so putting it here makes `check_executors` refuse
+    the `default` role and the project dies before its first command."""
+    compile_spec = models.get("compile", "")
+    if compile_spec.startswith("agent:"):
+        return models.get("recall", "")
+    return compile_spec
+
+
 def build_settings(base_version: str = "", *, require_key: bool = True):
     """App-wide Settings: this machine's infrastructure + everything the engine resolves.
 
@@ -646,31 +705,57 @@ def build_settings(base_version: str = "", *, require_key: bool = True):
     qdrant_port = stack_port("PNEUMA_APP_QDRANT_PORT", DEFAULT_QDRANT_PORT)
     meili_port = stack_port("PNEUMA_APP_MEILI_PORT", DEFAULT_MEILI_PORT)
     rustfs_port = stack_port("PNEUMA_APP_RUSTFS_PORT", DEFAULT_RUSTFS_PORT)
-    canonical = DATA_ROOT / "canonical"
+    canonical = Path(
+        infra_setting("PNEUMA_KNOWLEDGE_CANONICAL_ROOT", str(DATA_ROOT / "canonical"))
+    )
     canonical.mkdir(parents=True, exist_ok=True)
     kwargs = engine_strategy()
     kwargs.update(
         engine_dir=str(ENGINE_DIR),
-        pg_dsn=(
+        pg_dsn=infra_setting(
+            "PNEUMA_KNOWLEDGE_PG_DSN",
             "postgresql://pneuma_knowledge:"
             f"{os.environ.get('PNEUMA_APP_PG_PASSWORD', 'pneuma_knowledge')}"
-            f"@localhost:{pg_port}/pneuma_knowledge"
+            f"@localhost:{pg_port}/pneuma_knowledge",
         ),
-        qdrant_url=f"http://localhost:{qdrant_port}",
-        qdrant_collection=os.environ.get("PNEUMA_APP_QDRANT_COLLECTION", "pneuma_app_chunks"),
-        meili_url=f"http://localhost:{meili_port}",
-        meili_key=os.environ.get("PNEUMA_APP_MEILI_KEY", "masterKey_change_me"),
-        media_s3_endpoint_url=f"http://localhost:{rustfs_port}",
-        media_s3_access_key=os.environ.get("PNEUMA_APP_RUSTFS_ACCESS_KEY", ""),
-        media_s3_secret_key=os.environ.get("PNEUMA_APP_RUSTFS_SECRET_KEY", ""),
+        qdrant_url=infra_setting(
+            "PNEUMA_KNOWLEDGE_QDRANT_URL", f"http://localhost:{qdrant_port}"
+        ),
+        qdrant_collection=infra_setting(
+            "PNEUMA_KNOWLEDGE_QDRANT_COLLECTION",
+            os.environ.get("PNEUMA_APP_QDRANT_COLLECTION", "pneuma_app_chunks"),
+        ),
+        meili_url=infra_setting(
+            "PNEUMA_KNOWLEDGE_MEILI_URL", f"http://localhost:{meili_port}"
+        ),
+        meili_key=infra_setting(
+            "PNEUMA_KNOWLEDGE_MEILI_KEY",
+            os.environ.get("PNEUMA_APP_MEILI_KEY", "masterKey_change_me"),
+        ),
+        media_s3_endpoint_url=infra_setting(
+            "PNEUMA_KNOWLEDGE_MEDIA_S3_ENDPOINT_URL", f"http://localhost:{rustfs_port}"
+        ),
+        media_s3_access_key=infra_setting(
+            "PNEUMA_KNOWLEDGE_MEDIA_S3_ACCESS_KEY",
+            os.environ.get("PNEUMA_APP_RUSTFS_ACCESS_KEY", ""),
+        ),
+        media_s3_secret_key=infra_setting(
+            "PNEUMA_KNOWLEDGE_MEDIA_S3_SECRET_KEY",
+            os.environ.get("PNEUMA_APP_RUSTFS_SECRET_KEY", ""),
+        ),
         canonical_root=str(canonical),
         default_timezone=zone,
         user_schema_packs=False,
         user_schema_base_version=base_version,
-        # The base spec and the roles nobody chose in engine.yaml: compile is the strongest
-        # thing this project has, so it is the sane fallback, and `deep` empty means "answer
-        # deep questions with the recall model".
-        llm_model=models["compile"],
+        # The base spec and the roles nobody chose in engine.yaml. Compile is the strongest
+        # thing this project has, so it is the sane fallback — UNLESS compile runs on a
+        # coding agent, because then it is not a model at all: `agent:codex` in the base spec
+        # makes every unnamed role resolve to an executor, and `check_executors` refuses that
+        # at startup for every role but `compile` (service `wiring.executor_for`). Recall is
+        # then the fallback: the strongest thing left that IS a model, and the role every
+        # answering path already borrows. `deep` empty means "answer deep questions with the
+        # recall model".
+        llm_model=base_model_spec(models),
         llm_model_deep=models["deep"],
         llm_model_skill="",
         llm_model_evolve="",
@@ -717,57 +802,15 @@ def load_contract_skill():
 
 
 async def upsert_owner_profile(ctx, uid) -> None:
-    """profile.yaml → UserProfile, persisted. A timezone whose provenance is
-    deployment_default is left out of the subject's profile (blank) so the framework can
-    honestly declare it as a deployment default."""
-    from pneuma_knowledge_core.domain.user import UserProfile
+    """profile.yaml → UserProfile, persisted.
 
-    profile = load_profile()
-    locale = profile.get("locale") or {}
-    provenance = profile.get("provenance") or {}
-    preferences = profile.get("preferences") or {}
-    display_name = str(profile.get("display_name") or "Owner").strip() or "Owner"
-    zone = str(locale.get("timezone") or "").strip()
-    if str(provenance.get("timezone") or "") != "profile":
-        # A timezone the subject has not confirmed only takes effect as a deployment default
-        # (build_settings already carries it).
-        zone = ""
-    language = str(locale.get("language") or "").strip()
-    payload = {
-        "user_id": str(uid),
-        "display_name": display_name,
-        "avatar": {"initial": display_name[0], "color": "#6C8EBF"},
-        "locale": {
-            "city": str(locale.get("city") or "").strip(),
-            "country": str(locale.get("country") or "").strip(),
-            "timezone": zone,
-            "language": language,
-            "timezone_history": [],
-        },
-        "industry": str(profile.get("industry") or "other"),
-        "role": str(profile.get("role") or "other"),
-        "level": str(profile.get("level") or "mid"),
-        "occupation": str(profile.get("occupation") or ""),
-        "bio": str(profile.get("bio") or ""),
-        "interests": [str(x) for x in (profile.get("interests") or [])],
-        "workspace": {
-            "operating_mode": "independent",
-            "primary_stack": "",
-            "automation_level": "assisted",
-            "active_since": datetime.now(timezone.utc).date().isoformat(),
-        },
-        "preferences": {
-            "response_language": str(preferences.get("response_language") or "").strip()
-            or language
-            or "zh-CN",
-            "units": "metric",
-            "privacy_level": "standard",
-        },
-        "joined_at": datetime.now(timezone.utc).date().isoformat(),
-        "source": "user",
-    }
-    validated = UserProfile.model_validate(payload)
-    await ctx.store.upsert_user_profile(uid, validated.model_dump(mode="json", exclude={"level_style"}))
+    The mapping itself lives in the framework (`pneuma_knowledge_service.persona_profile`),
+    which is also what `pkc profile set` writes through: the file and the persisted record are
+    one thing, and two mappings of one file into one model are two things that can disagree.
+    """
+    from pneuma_knowledge_service.persona_profile import upsert_owner_profile as _upsert
+
+    await _upsert(ctx.store, uid, load_profile())
 
 
 # ---------------------------------------------------------------- subcommands
@@ -791,6 +834,7 @@ def cmd_up(_args) -> int:
         f"meili :{stack_port('PNEUMA_APP_MEILI_PORT', DEFAULT_MEILI_PORT)}"
         f"  rustfs :{stack_port('PNEUMA_APP_RUSTFS_PORT', DEFAULT_RUSTFS_PORT)}"
     )
+    say_embedding_key_reminder()
     return 0
 
 
@@ -817,7 +861,53 @@ def cmd_init(_args) -> int:
         print("  profile.yaml, then flip the matching provenance entries to profile.")
     else:
         print("  nothing to write (already confirmed, or nothing was detected).")
+    refresh_steward_skill()
     return 0
+
+
+def refresh_steward_skill() -> None:
+    """Re-render the coding agent's skill, if this project has one.
+
+    The owner profile is one of the inputs a skill package is rendered FROM — it is what
+    `references/compile-instructions.md` states as the subject of the library — so writing the
+    profile leaves an installed skill describing an engine that no longer exists, and
+    `bin/pkc skill verify` says so. That matters because the `Executor-Skill:` hash in the
+    next commit's trailer is only worth anything while it names a text a fresh rendering
+    reproduces.
+
+    Through the project's own `bin/pkc`, not through an import: `init` runs BEFORE the uv
+    re-exec (it must work on a checkout nobody has synced yet), and the shim is the one thing
+    here that already knows how to reach the framework. Only the backends this project
+    ALREADY installed are re-rendered — `skill-version.json` records which — so a refresh
+    never becomes a decision to install a harness nobody chose.
+
+    Non-fatal, and silent for a project without a skill: the profile is written by then, and
+    a failure names the one command that fixes it."""
+    shim = PROJECT_ROOT / "bin" / "pkc"
+    backends = []
+    for directory in (".agents", ".claude"):
+        record = PROJECT_ROOT / directory / "skills" / "skill-version.json"
+        if not record.is_file():
+            continue
+        try:
+            name = str(json.loads(record.read_text(encoding="utf-8")).get("backend") or "")
+        except (OSError, ValueError):
+            name = ""
+        if name:
+            backends.append(name)
+    if not backends or not os.access(shim, os.X_OK):
+        return
+    for name in backends:
+        result = subprocess.run(
+            [str(shim), "skill", "install", "--backend", name, "--project", str(PROJECT_ROOT)],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            print(f"  note: the {name} Steward skill was not re-rendered;")
+            print(f"  run `bin/pkc skill install --backend {name}` so its hash names this profile.")
+            continue
+        print(f"  Steward skill re-rendered for this profile ({name}).")
 
 
 LANGUAGE_NAMES = {"zh": "Chinese", "en": "English"}
@@ -958,17 +1048,36 @@ def _usage_totals(tracker) -> dict[str, int]:
     return totals
 
 
+def committed(job: dict) -> bool:
+    """Did this job's round reach the canonical layer, whatever its `ok` flag says?
+
+    THE RULE: a job that named a commit or a projection COMMITTED, and a commit is not a gate
+    rejection. `ok = false` alone is not enough to re-compile a source — the flag can be
+    written a second time by the worker's catch-all error path, over a round that had already
+    finished and committed, and a retry round decided on the flag alone then re-ran every
+    source ever ingested, on every drain, for nothing. What a gate rejection actually looks
+    like is a job with no snapshot and no projection: nothing was written, so nothing was
+    recorded to write."""
+    if str(job.get("snapshot_ref") or "").strip():
+        return True
+    return str(job.get("detail") or "").startswith("projection:")
+
+
 def _unresolved_failures(jobs: list[dict]) -> list[dict]:
     """Jobs that ended in failure, minus the ones a later retry resolved: once every source of
     a failed compile job is covered by a successful job, that failure is just history and no
-    longer counts as unresolved."""
+    longer counts as unresolved.
+
+    A compile job that COMMITTED is never unresolved, whatever its flag says (`committed`)."""
     ok_sources: set[str] = set()
     for job in jobs:
-        if job.get("kind") == "compile" and job.get("ok") is True:
+        if job.get("kind") == "compile" and (job.get("ok") is True or committed(job)):
             ok_sources.update(str(s) for s in (job.get("payload") or {}).get("source_ids", []))
     unresolved: list[dict] = []
     for job in jobs:
         if job.get("status") != "done" or job.get("ok") is True:
+            continue
+        if job.get("kind") == "compile" and committed(job):
             continue
         sources = {str(s) for s in (job.get("payload") or {}).get("source_ids", [])}
         if job.get("kind") == "compile" and sources and sources <= ok_sources:
@@ -1061,9 +1170,21 @@ async def _compile() -> tuple[int, dict[str, int]]:
         from pneuma_knowledge_service.workers.compile_worker import requeue_orphaned_jobs
 
         await requeue_orphaned_jobs(ctx, label="app-compile")
-        model = ctx.get_chat_model("compile")
-        tracker = _attach_usage_tracker(model)
+        # Who compiles. An `agent:<backend>` executor has no chat model to build — building
+        # one raises — and the round is run by a coding agent the worker launches, or by the
+        # owner's own `pkc draft` session. Either way this drain claims and hands off; it does
+        # not call a model, and it must not say it did.
+        executor = ctx.compile_executor
+        model = None if executor.is_agent else ctx.get_chat_model("compile")
+        tracker = None if model is None else _attach_usage_tracker(model)
         print(f"== Draining the compile queue (user={uid}, contract {skill.skill_id}@{skill.version}) ==")
+        if executor.is_agent and settings.agent_unattended:
+            print(f"   compile rounds run through {executor.backend}, launched per job")
+        elif executor.is_agent:
+            print(
+                "   compile rounds are left for the Steward at a terminal "
+                "(`pkc draft open <job>`); everything else drains here"
+            )
         started = time.perf_counter()
         processed = await _drain_with_progress(ctx, model, skill, uid)
         # The compile gate (citation traceability and friends) occasionally rejects a single
@@ -1099,23 +1220,29 @@ async def _compile() -> tuple[int, dict[str, int]]:
             processed += await _drain_with_progress(ctx, model, skill, uid)
             failures = _unresolved_failures(await ctx.store.list_jobs(uid))
         elapsed = time.perf_counter() - started
-        usage = _usage_totals(tracker)
+        usage = _usage_totals(tracker) if tracker is not None else {}
         docs = await ctx.canonical.list(uid)
         claims = await ctx.store.list_canonical_claims(uid)
         print(
             f"  Processed {processed} jobs in {elapsed:.1f}s; "
             f"{len(docs)} canonical documents, {len(claims)} claims."
         )
-        print(
-            f"  Compile-model tokens: input={usage['input_tokens']} "
-            f"output={usage['output_tokens']} total={usage['total_tokens']}"
-        )
+        # Only when a model of ours ran: under an agent executor there is no langchain model
+        # to attach a tracker to, `usage` is empty, and what the round cost is on the job row
+        # (`pkc jobs --json`) because the harness is the only thing that counted it.
+        if usage:
+            print(
+                f"  Compile-model tokens: input={usage['input_tokens']} "
+                f"output={usage['output_tokens']} total={usage['total_tokens']}"
+            )
+        # Before the return, not after it: a failed drain is exactly the drain whose traces
+        # somebody will want to read.
+        await ctx.flush_traces()
         if failures:
             print("  Unresolved failed jobs:")
             for job in failures:
                 print(f"    job {job.get('job_id')} kind={job.get('kind')} detail={str(job.get('detail'))[:120]}")
             return 1, usage
-        await ctx.flush_traces()
     finally:
         await ctx.aclose()
     return 0, usage
@@ -1325,6 +1452,7 @@ async def _ask(
     Both lanes are invoked in process here, so this driver still leaves no consultation
     record for either: it is a silent visitor exactly as it was before deep was reachable.
     """
+    from pneuma_knowledge_core.domain.archive import any_archived, live_documents
     from pneuma_knowledge_core.domain.canonical import CANONICAL_CITATION_RE
     from pneuma_knowledge_core.domain.ids import UserId
     from pneuma_knowledge_core.recall.deep import deep_recall
@@ -1351,10 +1479,23 @@ async def _ask(
         include_original_images = "image" in include_original_modalities
         # The canonical layout the answering side reads its glance from — the same inputs the
         # service route assembles in `_glance_inputs`, fetched once for whichever lane runs.
-        # An empty library passes nothing, so a project that has not compiled anything yet is
-        # byte-for-byte the retrieval-only lane it has always been.
-        documents = await ctx.canonical.list(uid)
-        glance_inputs = {"documents": documents, "skill": skill} if documents else {}
+        # A library that never had an archive passes nothing when it is empty, so a project
+        # that has not compiled anything yet is byte-for-byte the retrieval-only lane it has
+        # always been.
+        #
+        # AND THE ARCHIVE IS DECIDED HERE, once, for whichever lane runs. `documents` is not
+        # only the glance's input: it is what deep's list_documents / read_document walk and
+        # what pins the assembly filter, so an unfiltered list made this driver answer out of
+        # pages the owner had archived. Read the whole tree first — after the filter, an
+        # archived document is exactly the one thing that is gone.
+        tree = await ctx.canonical.list(uid)
+        archive_active = any_archived(tree)
+        documents = live_documents(tree)
+        glance_inputs = (
+            {"documents": documents, "skill": skill, "archive_active": archive_active}
+            if (documents or archive_active)
+            else {}
+        )
         if deep:
             answer = await deep_recall(
                 uid,
@@ -1665,6 +1806,7 @@ def cmd_preflight(_args) -> int:
             file=sys.stderr,
         )
         return 1
+    say_embedding_key_reminder()
     return 0
 
 
