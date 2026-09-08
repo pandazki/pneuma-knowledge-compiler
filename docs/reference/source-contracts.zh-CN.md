@@ -113,7 +113,7 @@ Provider 中立的编码代理会话：知识主体的原话、代理逐字保�
 
 **顺序就是含义，所以校验而不修复。** `at` 倒退直接拒绝；时间相等时保持提交顺序。日历日分节遵循知识主体时区，没有提供主体时钟时遵循时间戳自身偏移。公开的 [JSON Schema](source-contracts/agent-session-v1.schema.json) 表达结构型拒绝；时间顺序、身份唯一性和显式时区还会在运行时边界检查。
 
-**归一化。** 每个回合一个块，只在原文前加英中 prompt 目录中的角色/种类标签：`Owner:`、`Agent:`、`Agent did:`（中文为「知识主体：」「代理：」「代理操作：」），其余文字逐字保留。`meta` 保存 `provider`、`session_id`、`owner_id`、代理名称/模型 `agent`、`project`、时间戳，以及与块顺序对齐的 `turns` 元数据（角色、种类、回合 id 和时间），不复制回合正文。内部 origin 是 `agent_session`，自由格式的 harness 名称保留在 `meta.provider`。`pkc source structure <source-id>`（`source show` 的别名）输出 `block_authorship` 行（`index`、`role`、`kind`），无需读取动作正文。动作短记和其他小块一样进入 L1/L2。Owner 回合少于三次时提议 `canonical_treatment: none`；三次及以上沿用普通工作流提议（当前为机械的完整编译）。两者都提议完整语义索引，再由部署的 semantic-retrieval 开关封顶。理由写明触发的阈值规则，原型与用户覆写保持不变；L0/L1 始终无条件可达。
+**归一化。** 每个回合一个块，只在原文前加英中 prompt 目录中的角色/种类标签：`Owner:`、`<agent.name>:`、`<agent.name> did:`（中文为「知识主体：」「<agent.name>：」「<agent.name> 执行：」——代理的回合带契约里代理自己的名字，如 `Codex did:`），其余文字逐字保留。`meta` 保存 `provider`、`session_id`、`owner_id`、代理名称/模型 `agent`、`project`、时间戳，以及与块顺序对齐的 `turns` 元数据（角色、种类、回合 id 和时间），不复制回合正文。内部 origin 是 `agent_session`，自由格式的 harness 名称保留在 `meta.provider`。`pkc source structure <source-id>`（`source show` 的别名）输出 `block_authorship` 行（`index`、`role`、`kind`），无需读取动作正文。动作短记和其他小块一样进入 L1/L2。Owner 回合少于三次时提议 `canonical_treatment: none`；三次及以上沿用普通工作流提议（当前为机械的完整编译）。两者都提议完整语义索引，再由部署的 semantic-retrieval 开关封顶。理由写明触发的阈值规则，原型与用户覆写保持不变；L0/L1 始终无条件可达。
 
 **种类由框架声明，判断归编译契约。** 编译任务每个来源前的一行说明这是编码代理会话：Owner 回合是知识主体的原话；代理叙述是机器对自己工作的记述，可证明做过什么，不能代表主体的想法；动作短记是活动日志，不是知识。该行位于 HumanMessage，会话内容不会改变 SystemMessage。什么值得写成主张由编译契约决定。路径模板还可声明 `owner_voice: true`，在写入面和闸门机械要求知识主体亲自撰写的证据；见[编译契约怎么写](../guides/compile-contract.zh-CN.md)。
 

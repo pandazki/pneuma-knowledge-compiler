@@ -509,10 +509,12 @@ def _email(
 def _agent_session(
     source: AgentSessionSource, user_id: UserId, time: TimeContext | None = None
 ) -> list[NormalizedSource]:
+    # The agent's turns carry the agent's own name (the contract's `agent.name`): a reader
+    # of the evidence, and the compiler, should see "Codex did: …", not an abstract role.
     labels = {
         "say": prompt("ingest.owner_label"),
-        "narrative": prompt("ingest.agent_label"),
-        "action": prompt("ingest.agent_action_label"),
+        "narrative": prompt("ingest.agent_label", agent=source.agent.name),
+        "action": prompt("ingest.agent_action_label", agent=source.agent.name),
     }
     blocks = [
         NormalizedBlock(

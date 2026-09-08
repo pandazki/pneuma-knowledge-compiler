@@ -233,9 +233,9 @@ def test_verbatim_normalization_labels_metadata_days_and_identity(chinese):
         value["turns"][2]["at"] = "2026-09-08T00:00:00+08:00"
         ns = normalize(value)
         labels = (
-            ["知识主体", "代理", "代理操作"]
+            ["知识主体", "codex", "codex 执行"]
             if chinese
-            else ["Owner", "Agent", "Agent did"]
+            else ["Owner", "codex", "codex did"]
         )
         separator = "：" if chinese else ": "
         assert [b.text for b in ns.blocks] == [

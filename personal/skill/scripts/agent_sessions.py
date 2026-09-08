@@ -19,7 +19,9 @@ import sys
 import tempfile
 
 SCHEMA = "pneuma.source.agent-session/v1"
-CONVERTER_VERSION = 1
+CONVERTER_VERSION = 2
+# The harness names the agent's turns are labelled with in L0, keyed by provider id.
+AGENT_NAMES = {"codex": "Codex", "claude-code": "Claude Code"}
 ACKNOWLEDGEMENTS = frozenset({
     "ok", "okay", "yes", "no", "yep", "nope", "sure", "thanks", "thank you", "continue",
     "proceed", "done", "agreed", "approved", "go", "great", "fine", "ack", "acknowledged",
@@ -143,7 +145,8 @@ class Session:
             raise ValueError("owner-id must be non-blank")
         if not any(turn["role"] == "owner" for turn in self.turns):
             raise ValueError("a session needs at least one owner turn")
-        agent = {"name": self.provider}
+        # The name the agent's turns are labelled with in L0: the harness's own name.
+        agent = {"name": AGENT_NAMES.get(self.provider, self.provider)}
         if self.model:
             agent["model"] = self.model
         result = {

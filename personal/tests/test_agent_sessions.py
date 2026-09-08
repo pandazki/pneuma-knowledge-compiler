@@ -131,7 +131,8 @@ def assert_wire_shape(payload):
     assert payload["owner_id"].strip() and payload["session_id"].strip()
     assert set(payload) <= {"schema", "provider", "session_id", "owner_id", "agent", "project",
                             "started_at", "ended_at", "turns", "metadata"}
-    assert payload["agent"]["name"] == payload["provider"]
+    # The agent's turns are labelled with this name in L0: the harness's own name, not its id.
+    assert payload["agent"]["name"] == {"codex": "Codex", "claude-code": "Claude Code"}[payload["provider"]]
     assert all(set(turn) == {"turn_id", "role", "kind", "at", "text"} for turn in payload["turns"])
     assert len({turn["turn_id"] for turn in payload["turns"]}) == len(payload["turns"])
     assert any(turn["role"] == "owner" and turn["text"].strip() for turn in payload["turns"])

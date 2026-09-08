@@ -714,13 +714,13 @@ SURFACES: tuple[Surface, ...] = (
         segments=(
             f(
                 'ingest.agent_label',
-                'Labels an agent narrative, without changing its words.',
-                '标记代理叙述，不改变其原话。',
+                'Labels an agent narrative with the agent\'s own name from the contract, without changing its words.',
+                '用契约里代理自己的名字标记其叙述，不改变原话。',
             ),
             f(
                 'ingest.agent_action_label',
-                'Labels a bounded mechanical activity stub.',
-                '标记有界的机械动作短记。',
+                'Labels a bounded mechanical activity stub with the agent\'s own name.',
+                '用代理自己的名字标记有界的机械动作短记。',
             ),
             f(
                 'ingest.agent_session.title',
