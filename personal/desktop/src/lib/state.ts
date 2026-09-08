@@ -19,7 +19,7 @@ export interface SyncStatus {
 }
 export interface LibraryStatus {
   name: string; current: boolean; engine: Engine;
-  queue: { pending: number; failed: number; last_compile_at: string | null } | null;
+  queue: { pending: number; failed: number; succeeded?: number; failed_by_kind?: Record<string, number>; last_compile_at: string | null } | null;
   key: Known; engine_dir: string; canonical_head: string | null;
   skill_fresh: Known; steps: Steps; last_used: string | null;
   sync?: SyncStatus | null;

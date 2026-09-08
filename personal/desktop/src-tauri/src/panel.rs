@@ -2,7 +2,6 @@ use crate::state::{Health, Runtime, Snapshot};
 use serde::Serialize;
 use std::sync::atomic::Ordering;
 use tauri::{image::Image, Emitter, Manager};
-use tauri_plugin_positioner::{Position, WindowExt};
 
 pub fn init(app: &tauri::AppHandle) -> tauri::Result<()> {
     let window = app.get_webview_window("panel").expect("configured panel");
@@ -32,8 +31,10 @@ pub fn init(app: &tauri::AppHandle) -> tauri::Result<()> {
             // ordered on screen; only a loss after it has settled is the Owner clicking away.
             let shown = handle.state::<Runtime>().shown_at_ms.load(Ordering::Relaxed);
             let age = crate::poller::now_ms().saturating_sub(shown);
-            eprintln!("[panel] focus lost {age}ms after show");
-            if shown > 0 && age > 400 {
+            // `PKC_TRAY_PIN=1` keeps the panel up through focus changes: a review hand for
+            // screenshots taken while the reviewer is typing elsewhere; never set by users.
+            let pinned = std::env::var_os("PKC_TRAY_PIN").is_some();
+            if shown > 0 && age > 400 && !pinned {
                 hide(&handle);
             }
         }
@@ -53,7 +54,13 @@ struct Opening {
 pub fn request_open(app: &tauri::AppHandle, tab: Option<&str>) {
     let runtime = app.state::<Runtime>();
     runtime.wants_open.store(true, Ordering::Relaxed);
+    if let Some(tab) = tab {
+        *runtime.wanted_tab.lock().unwrap() = Some(tab.to_owned());
+    }
+    let tab = runtime.wanted_tab.lock().unwrap().clone();
+    let tab = tab.as_deref();
     if runtime.ready.load(Ordering::Relaxed) {
+        *runtime.wanted_tab.lock().unwrap() = None;
         // The hidden webview commits this cached snapshot before asking to become visible.
         let _ = app.emit_to(
             "panel",
@@ -80,31 +87,59 @@ pub fn reveal_panel(app: tauri::AppHandle) -> Result<(), String> {
         return Ok(());
     }
     let window = app.get_webview_window("panel").ok_or("Panel unavailable")?;
-    // Tray events seed positioner. Menu actions can open before a click, so seed from
-    // rect on platforms that expose it; TopRight is a safe fallback on Linux.
-    let tray_rect = app
-        .tray_by_id("pkc")
-        .and_then(|tray| tray.rect().ok().flatten());
-    if let Some(rect) = tray_rect {
-        tauri_plugin_positioner::on_tray_event(
-            &app,
-            &tauri::tray::TrayIconEvent::Move {
-                id: "pkc".into(),
-                position: rect.position.to_physical(1.0),
-                rect,
-            },
-        );
-        window
-            .as_ref()
-            .window()
-            .move_window(Position::TrayCenter)
-            .map_err(|e| e.to_string())?;
-    } else {
-        window
-            .as_ref()
-            .window()
-            .move_window(Position::TopRight)
-            .map_err(|e| e.to_string())?;
+    // The panel belongs on the display the Owner is looking at: the one under the mouse at
+    // the moment of the click (a tray icon exists on every menu bar, and Tauri's window
+    // position API does not move a converted NSPanel). AppKit directly: NSEvent's mouse
+    // location, NSScreen's visible frame, the panel's own setFrameOrigin — points, y up.
+    #[cfg(target_os = "macos")]
+    {
+        use tauri_nspanel::cocoa::base::{id, nil};
+        use tauri_nspanel::cocoa::foundation::{NSPoint, NSRect};
+        use tauri_nspanel::objc::{class, msg_send, sel, sel_impl};
+        use tauri_nspanel::ManagerExt;
+        let panel = app.get_webview_panel("panel").map_err(|_| "Panel unavailable")?;
+        unsafe {
+            let mouse: NSPoint = msg_send![class!(NSEvent), mouseLocation];
+            let screens: id = msg_send![class!(NSScreen), screens];
+            let count: usize = msg_send![screens, count];
+            let mut target: id = nil;
+            for i in 0..count {
+                let screen: id = msg_send![screens, objectAtIndex: i];
+                let frame: NSRect = msg_send![screen, frame];
+                if mouse.x >= frame.origin.x && mouse.x < frame.origin.x + frame.size.width
+                    && mouse.y >= frame.origin.y && mouse.y < frame.origin.y + frame.size.height
+                {
+                    target = screen;
+                    break;
+                }
+            }
+            if target == nil {
+                target = msg_send![class!(NSScreen), mainScreen];
+            }
+            if target != nil {
+                let visible: NSRect = msg_send![target, visibleFrame];
+                eprintln!("[panel] screen visible frame origin ({:.0}, {:.0})", visible.origin.x, visible.origin.y);
+                let frame: NSRect = msg_send![&*panel, frame];
+                let margin = 8.0;
+                let x = (mouse.x - frame.size.width / 2.0)
+                    .max(visible.origin.x + margin)
+                    .min(visible.origin.x + visible.size.width - frame.size.width - margin);
+                let y = visible.origin.y + visible.size.height - frame.size.height - margin;
+                eprintln!("[panel] mouse ({:.0}, {:.0}) → origin ({x:.0}, {y:.0}) on a {:.0}x{:.0} screen", mouse.x, mouse.y, visible.size.width, visible.size.height);
+                let _: () = msg_send![&*panel, setFrameOrigin: NSPoint::new(x, y)];
+            }
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let size = window.outer_size().map_err(|e| e.to_string())?;
+        if let Ok(Some(monitor)) = app.primary_monitor() {
+            let scale = monitor.scale_factor();
+            let margin = (8.0 * scale) as i32;
+            let x = monitor.position().x + monitor.size().width as i32 - size.width as i32 - margin;
+            let y = monitor.position().y + (30.0 * scale) as i32;
+            window.set_position(tauri::PhysicalPosition::new(x, y)).map_err(|e| e.to_string())?;
+        }
     }
     #[cfg(target_os = "macos")]
     {
@@ -116,13 +151,7 @@ pub fn reveal_panel(app: tauri::AppHandle) -> Result<(), String> {
             })?
             .show();
     }
-    if let Ok(pos) = window.outer_position() {
-        let size = window.outer_size().ok();
-        let scale = window.scale_factor().unwrap_or(1.0);
-        eprintln!("[panel] shown at {:?} size {:?} scale {scale}", pos, size);
-    } else {
-        eprintln!("[panel] shown");
-    }
+    eprintln!("[panel] shown");
     runtime.shown_at_ms.store(crate::poller::now_ms(), Ordering::Relaxed);
     #[cfg(not(target_os = "macos"))]
     {
@@ -224,3 +253,41 @@ pub fn update_icon(app: &tauri::AppHandle, health: Health) {
         let _ = tray.set_tooltip(Some(format!("PKC · {label}")));
     }
 }
+
+/// The panel takes the height of its content: a paper card does not stretch. Called by the
+/// frontend after layout with the document's height in points; clamped, and the top edge
+/// stays where it is (AppKit grows a window downward from its bottom-left origin otherwise).
+#[tauri::command]
+pub fn fit_panel(app: tauri::AppHandle, height: f64) -> Result<(), String> {
+    eprintln!("[panel] fit requested for content {height:.0}");
+    let height = height.clamp(280.0, 720.0);
+    #[cfg(target_os = "macos")]
+    {
+        use tauri_nspanel::cocoa::foundation::{NSPoint, NSRect};
+        use tauri_nspanel::objc::{msg_send, sel, sel_impl};
+        use tauri_nspanel::ManagerExt;
+        let panel = app.get_webview_panel("panel").map_err(|_| "Panel unavailable")?;
+        unsafe {
+            let frame: NSRect = msg_send![&*panel, frame];
+            if (frame.size.height - height).abs() < 1.0 {
+                return Ok(());
+            }
+            let top_left = NSPoint::new(frame.origin.x, frame.origin.y + frame.size.height);
+            panel.set_content_size(frame.size.width, height);
+            let _: () = msg_send![&*panel, setFrameTopLeftPoint: top_left];
+            let after: NSRect = msg_send![&*panel, frame];
+            eprintln!("[panel] fit {:.0}x{:.0}@({:.0},{:.0}) -> {:.0}x{:.0}@({:.0},{:.0}) for content {height:.0}",
+                frame.size.width, frame.size.height, frame.origin.x, frame.origin.y,
+                after.size.width, after.size.height, after.origin.x, after.origin.y);
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        if let Some(window) = app.get_webview_window("panel") {
+            let width = window.outer_size().map(|s| s.width as f64 / window.scale_factor().unwrap_or(1.0)).unwrap_or(380.0);
+            window.set_size(tauri::LogicalSize::new(width, height)).map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
+}
+

@@ -11,7 +11,7 @@
   },
   "app": {
     "windows": [{
-      "label": "panel", "title": "PKC", "width": 360, "height": 520,
+      "label": "panel", "title": "PKC", "width": 380, "height": 560,
       "visible": false, "decorations": false, "resizable": false,
       "alwaysOnTop": true, "skipTaskbar": true, "shadow": true
     }],

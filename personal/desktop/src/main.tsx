@@ -2,6 +2,7 @@ import { createRoot } from 'react-dom/client';
 import { listen } from '@tauri-apps/api/event';
 import App, { getState } from './App';
 import type { Snapshot } from './lib/state';
+import { resolveLocale, t } from './lib/i18n';
 import './styles.css';
 
 async function boot() {
@@ -20,5 +21,7 @@ async function boot() {
 }
 void boot().catch(error => {
   // Startup IPC failure is exceptional, and does not impersonate an empty home.
-  document.getElementById('root')!.textContent = `PKC could not load its cached state: ${String(error)}`;
+  const locale = resolveLocale(null, navigator.languages);
+  document.documentElement.lang = locale;
+  document.getElementById('root')!.textContent = t(locale, 'loadFailed', { error: String(error) });
 });

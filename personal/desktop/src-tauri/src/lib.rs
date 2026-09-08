@@ -42,6 +42,7 @@ pub fn run() {
             panel::frontend_ready,
             panel::reveal_panel,
             panel::hide_panel,
+            panel::fit_panel,
             quit
         ])
         .setup(|app| {
@@ -67,6 +68,7 @@ pub fn run() {
                     fetched_at: poller::now_ms(),
                     ..Default::default()
                 }),
+                wanted_tab: std::sync::Mutex::new(None),
                 panel_open: AtomicBool::new(false),
                 shown_at_ms: std::sync::atomic::AtomicU64::new(0),
                 wants_open: AtomicBool::new(false),
@@ -118,8 +120,14 @@ pub fn run() {
             tauri::async_runtime::spawn(poller::run(app.handle().clone()));
             // A diagnostic hand: `PKC_TRAY_OPEN=1` opens the panel right after launch, so a
             // terminal can exercise the open path without a click on the menu bar.
-            if std::env::var_os("PKC_TRAY_OPEN").is_some() {
-                panel::request_open(app.handle(), None);
+            if let Some(value) = std::env::var_os("PKC_TRAY_OPEN") {
+                // `PKC_TRAY_OPEN=1` opens the dashboard; `=search` / `=settings` open that pane.
+                let value = value.to_string_lossy();
+                let tab = match value.as_ref() {
+                    "search" | "settings" => Some(value.to_string()),
+                    _ => None,
+                };
+                panel::request_open(app.handle(), tab.as_deref());
             }
             Ok(())
         })

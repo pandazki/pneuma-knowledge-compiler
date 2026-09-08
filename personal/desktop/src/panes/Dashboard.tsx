@@ -1,65 +1,82 @@
-import { runAction, type Perform } from '../lib/commands';
-import { deepLibrary, health, healthLabels, stepLabels, syncSummary, timeLabel, uptime, type Known, type Snapshot } from '../lib/state';
+import { openConsole, runAction, type Perform } from '../lib/commands';
+import { t, textLanguage, type Locale, type Message } from '../lib/i18n';
+import { orderedLibraries, readoutRows, relativeTime } from '../lib/readouts';
+import { consoleUrl, deepLibrary, health, type Snapshot, type Steps } from '../lib/state';
+import { Leader } from './Ledger';
 
-export function Dot({ up }: { up: Known }) {
-  return <span className={`dot ${up === null ? 'grey' : up ? 'green' : 'red'}`} aria-hidden="true" />;
-}
-function observation(value: Known, yes: string, no: string) { return value === null || value === undefined ? 'Unknown' : value ? yes : no; }
-export default function Dashboard({ state, busy, perform, now }: { state: Snapshot; busy: boolean; perform: Perform; now: number }) {
+const steps: [keyof Steps, Message][] = [
+  ['infra', 'infra'], ['credentials', 'credentials'], ['profile', 'profile'],
+  ['skill', 'skill'], ['first_compile', 'firstCompile'],
+];
+const healthMessages = { grey: 'healthGrey', green: 'healthGreen', amber: 'healthAmber', red: 'healthRed' } as const;
+
+export default function Dashboard({ state, busy, perform, now, locale }: {
+  state: Snapshot; busy: boolean; perform: Perform; now: number; locale: Locale;
+}) {
   const { shallow } = state;
-  if (!shallow.configured) return <div className="empty">
-    <span className="book-mark" aria-hidden="true">▤</span><h1>A place for what you know</h1>
-    <p>Set up your personal knowledge home in a terminal. Your libraries will appear here.</p>
-    <code>pkchome setup</code><p className="muted">The tray will notice when setup finishes.</p>
-  </div>;
-  return <>
-    <section className="system-health" aria-label="Machine health">
-      <div className="row"><h1><span className={`dot ${health(shallow)}`} />{healthLabels[health(shallow)]}</h1><span className="muted">Docker {shallow.docker.reachable ? 'up' : 'down'}</span></div>
-      <div className="services">{Object.entries(shallow.services).map(([name, service]) =>
-        <div key={name} title={`${name}: ${observation(service.up, 'up', 'down')} · port ${service.port ?? 'unconfigured'}`}>
-          <Dot up={service.up} /><span>{({ postgres: 'Postgres', qdrant: 'Qdrant', meili: 'Meili', rustfs: 'RustFS' } as Record<string, string>)[name] ?? name}</span>
-        </div>)}</div>
-      <div className="actions">
-        <button disabled={busy} onClick={() => void perform(() => runAction({ kind: 'up' }), 'Home started')}>Start</button>
-        <button disabled={busy} onClick={() => void perform(() => runAction({ kind: 'down' }), 'Home stopped')}>Stop</button>
-        <button disabled={busy} onClick={() => void perform(() => runAction({ kind: 'restart' }), 'Home restarted')}>Restart</button>
-        <span className="muted">All libraries</span>
-      </div>
-    </section>
+  if (!shallow.configured) return <section className="empty-home">
+    <h1>{t(locale, 'noLibrary')}</h1>
+    <p className="muted">{t(locale, 'pasteHint')}</p>
+    <p className="setup-prompt">{t(locale, 'setupPrompt')}</p>
     {shallow.errors.map(error => <p className="inline-error" key={error}>{error}</p>)}
-    <div className="section-label">Libraries <span>{shallow.libraries.length}</span></div>
-    {!shallow.libraries.length && <p className="muted">Create a library with <code>pkchome library create notes</code>.</p>}
-    {shallow.libraries.map(library => {
+  </section>;
+
+  const libraries = orderedLibraries(state);
+  const primaryStart = libraries.find(library => !library.engine.up)?.name;
+  const machine = [['docker', 'Docker'], ['postgres', 'Postgres'], ['qdrant', 'Qdrant'], ['meili', 'Meili'], ['rustfs', 'RustFS']];
+  return <div className="dashboard">
+    {shallow.errors.map(error => <p className="inline-error" key={error}>{error}</p>)}
+    {!libraries.length && <p className="setup-prompt">{t(locale, 'emptyLibraries')}</p>}
+    {libraries.map((library, index) => {
       const deep = deepLibrary(state, library);
-      const queue = deep?.queue;
-      const seconds = library.engine.uptime == null ? null : library.engine.uptime + Math.max(0, now - state.fetched_at) / 1000;
-      const steps = deep?.steps ?? library.steps;
-      return <section className="library-card" key={library.name} aria-label={`${library.name} library`}>
-        <div className="row"><h2>{library.name}</h2>{library.current && <span className="badge">Current</span>}</div>
-        <div className="row engine-line"><span><Dot up={library.engine.up} />Engine {library.engine.up ? 'up' : 'down'}</span>
-          <span className="muted">{library.engine.up ? uptime(seconds) : `Port ${library.engine.port}`}</span></div>
-        {!library.engine.up && library.pid_alive && <p className="muted">Process is running; waiting for its port.</p>}
-        <dl className="metrics">
-          <div><dt>Pending</dt><dd>{queue?.pending ?? '—'}</dd></div>
-          <div><dt>Failed</dt><dd className={queue?.failed ? 'failure' : ''}>{queue?.failed ?? '—'}</dd></div>
-          <div><dt>Last compile</dt><dd>{queue ? queue.last_compile_at ? timeLabel(queue.last_compile_at) : 'None yet' : 'Unknown'}</dd></div>
-        </dl>
-        <p className="muted compact">{syncSummary(deep?.sync, library.watching)}</p>
-        {!!deep?.sync?.last_result?.rewritten && <p className="inline-error">{deep.sync.last_result.rewritten} rewritten sessions need review.</p>}
-        {!!deep?.sync?.last_result?.skipped && <p className="muted compact">{deep.sync.last_result.skipped} skipped on the last pass. Run a dry sync in the terminal for details.</p>}
-        <div className="actions"><button disabled={busy || !library.engine.up || deep?.sync?.running === true} onClick={() => void perform(
-          () => runAction({ kind: 'sync', library: library.name }), 'Sync requested')}>{deep?.sync?.running ? 'Syncing…' : 'Sync now'}</button></div>
-        <div className="row details"><span>Key <strong>{observation(deep?.key ?? null, 'present', 'absent')}</strong></span>
-          <span>Skill <strong>{observation(deep?.skill_fresh ?? null, 'fresh', 'drifted')}</strong></span></div>
-        <ol className="steps" aria-label="Setup progress">{stepLabels.map(([key, label], i) => <li key={key} title={steps[key] ? `${label}: ${timeLabel(steps[key])}` : `${label}: not completed`}>
-          <span className={steps[key] ? 'complete' : ''} aria-hidden="true">{steps[key] ? '✓' : i + 1}</span>
-          <span>{label}</span><span className="sr-only">: {steps[key] ? 'complete' : 'not completed'}</span>
-        </li>)}</ol>
-        {!deep && <p className="muted compact">{library.engine.up ? 'Detailed health is unavailable.' : 'Detailed health returns when the engine starts.'}</p>}
-        {!!queue?.failed && <span className="disabled-hint" tabIndex={0} title="Retry failed jobs is not available in this release. Use the console to inspect failures.">
-          <button disabled>Retry failed jobs</button><span className="muted"> Coming later</span>
-        </span>}
+      const marks = deep?.steps ?? library.steps;
+      const currentStep = steps.find(([key]) => !marks[key])?.[0];
+      const sync = deep?.sync ?? library.sync;
+      const status = health({ ...shallow, libraries: [library] });
+      return <section className="library" key={library.name} aria-label={library.name}>
+        <div className="running-head">
+          <h1 lang={textLanguage(library.name)} title={library.name}>
+            <span className={`health-dot ${status}`} role="img" aria-label={t(locale, healthMessages[status])} />
+            <span className="library-name">{library.name}</span>
+            {library.current && <span className="sr-only"> · {t(locale, 'current')}</span>}
+          </h1>
+          {index === 0 && <div className="head-actions" title={t(locale, 'allLibraries')}>
+            {!library.engine.up && <button className="primary" disabled={busy} onClick={() => void perform(() => runAction({ kind: 'up' }), t(locale, 'started'))}>{t(locale, 'start')}</button>}
+            {library.engine.up && <button disabled={busy} onClick={() => void perform(() => runAction({ kind: 'down' }), t(locale, 'stopped'))}>{t(locale, 'stop')}</button>}
+            <button disabled={busy} onClick={() => void perform(() => runAction({ kind: 'restart' }), t(locale, 'restarted'))}>{t(locale, 'restart')}</button>
+          </div>}
+        </div>
+        <dl className="ledger">{readoutRows(state, library, now, locale).map(row =>
+          <div className="readout" key={row.id}>
+            <dt className="small-caps">{t(locale, row.id)}</dt><Leader /><dd title={row.title}>{row.value}</dd>
+            {row.note && <dd className="readout-note" lang={textLanguage(row.note)}>{row.note}</dd>}
+          </div>)}</dl>
+        <ol className="setup-steps small-caps" aria-label={t(locale, 'setup')}>
+          {steps.map(([key, label]) => <li key={key} className={marks[key] ? 'complete' : 'incomplete'} aria-current={key === currentStep ? 'step' : undefined}
+            title={`${t(locale, label)}: ${typeof marks[key] === 'string' ? relativeTime(marks[key], now, locale) : t(locale, marks[key] ? 'complete' : 'incomplete')}`}>
+            <span className="step-word">{t(locale, label)}</span><span className="sr-only">: {t(locale, marks[key] ? 'complete' : 'incomplete')}</span>
+          </li>)}
+        </ol>
+        <div className="library-actions">
+          <button disabled={busy || !library.engine.up || sync?.running === true} onClick={() => void perform(
+            () => runAction({ kind: 'sync', library: library.name }), t(locale, 'synced'))}>{t(locale, sync?.running ? 'syncing' : 'syncNow')}</button>
+          <button disabled={busy || !library.engine.up} onClick={() => void perform(() => openConsole(consoleUrl(library.engine.port)))}>{t(locale, 'openConsole')}</button>
+          {index > 0 && !library.engine.up && <button className={library.name === primaryStart ? 'primary' : undefined} disabled={busy} title={t(locale, 'allLibraries')} onClick={() => void perform(() => runAction({ kind: 'up' }), t(locale, 'started'))}>{t(locale, 'start')}</button>}
+        </div>
+        {!deep && <p className="muted library-note">{t(locale, library.engine.up ? 'detailedUnavailable' : 'detailedOffline')}</p>}
+        {!!sync?.last_result?.rewritten && <p className="muted library-note">{t(locale, 'rewritten', { count: sync.last_result.rewritten })}</p>}
+        {!!sync?.last_result?.skipped && <p className="muted library-note">{t(locale, 'skipped', { count: sync.last_result.skipped })}</p>}
       </section>;
     })}
-  </>;
+    <div className="machine-line" aria-label={t(locale, 'machine')}>
+      {machine.map(([key, label]) => {
+        const up = key === 'docker' ? shallow.docker.reachable : shallow.services[key]?.up;
+        const status = t(locale, up == null ? 'unknown' : up ? 'serviceUp' : 'serviceDown');
+        return <span key={key} title={`${label}: ${status}`}>
+          {up !== true && <span className="machine-mark" aria-hidden="true">{up === false ? '•' : '◦'}</span>}
+          {label}<span className="sr-only">: {status}</span>
+        </span>;
+      })}
+    </div>
+  </div>;
 }

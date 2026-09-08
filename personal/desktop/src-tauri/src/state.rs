@@ -35,6 +35,12 @@ pub struct Engine {
 pub struct Queue {
     pub pending: u64,
     pub failed: u64,
+    /// Failures by job kind and successes of every kind: forty failed evolve jobs beside
+    /// fifty-nine good compiles must read as what they are. Absent from an older engine.
+    #[serde(default)]
+    pub failed_by_kind: std::collections::BTreeMap<String, u64>,
+    #[serde(default)]
+    pub succeeded: Option<u64>,
     pub last_compile_at: Option<String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -233,6 +239,8 @@ pub struct Runtime {
     pub login_path: String,
     pub client: reqwest::Client,
     pub cache: RwLock<Snapshot>,
+    /// The pane a pending open asked for, kept until the frontend is ready to receive it.
+    pub wanted_tab: std::sync::Mutex<Option<String>>,
     pub panel_open: AtomicBool,
     /// When the panel was last ordered on screen (unix ms); a focus loss inside the first
     /// moments after showing is the show itself settling, not the Owner clicking away.
