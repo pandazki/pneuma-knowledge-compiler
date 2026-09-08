@@ -10,14 +10,11 @@ their replay live in `test_access_stats.py` and, against a real postgres, in
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
 from pneuma_knowledge_core.domain.canonical import CanonicalDocument
 
 from pneuma_knowledge_service.components.attention import AttentionComponent
-
-TODAY = date(2026, 8, 31)
-
 
 # ------------------------------------------------------------------------- the faces
 
@@ -123,7 +120,7 @@ async def test_the_reported_window_does_not_reach_past_the_day_it_says_it_ends_o
     ledger = _Ledger(
         [
             {"target_kind": "document", "target_ref": "memory/topics/pricing.md",
-             "day": TODAY + timedelta(days=5), "hits": 99},
+             "day": datetime.now(timezone.utc).date() + timedelta(days=5), "hits": 99},
         ]
     )
     component = AttentionComponent(content=ledger, templates=_templates)

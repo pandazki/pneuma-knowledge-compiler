@@ -89,6 +89,7 @@ from .fast import (
     assemble_windows,
     collect_window_images,
     evidence_manifest,
+    mark_superseded_claims,
     recall_human_content,
     render_claims,
     retrieve_claims,
@@ -97,6 +98,7 @@ from .fast import (
 from .rag import RecallHit
 from .stage_timing import StageEventSink, StageTiming
 from .verbatim import fetched_span
+from .provenance import hydrate_claim_citations
 
 _DEEP_TOOL_BUDGET = 6  # tool rounds before the forced tool-less finalize
 _SEARCH_CLAIM_CAP = 8
@@ -224,13 +226,15 @@ def _search_claims_tool(
     view: ArchiveView | None = None,
     include_archived: bool = False,
     live_paths: frozenset[str] | None = None,
+    documents: Sequence[CanonicalDocument] = (),
 ) -> StructuredTool:
     """`search_claims(query)` — the L3 face, re-searchable mid-loop.
 
     It carries the lane's archive scope for the same reason the seed does: the loop can
     re-retrieve at any point, and a filter that applied only to the seed would let the second
     round put back exactly what the first excluded. `live_paths` rides along for the same
-    reason: a stale L3 row is stale in round three as much as in the seed."""
+    reason: a stale L3 row is stale in round three as much as in the seed. Supersession is
+    read from the same pinned documents as the seed, since the index omits that relation."""
 
     async def search_claims(query: str) -> str:
         """Re-search the claim notes; see `recall.deep.tool.search_claims_doc`."""
@@ -249,6 +253,9 @@ def _search_claims_tool(
             include_archived=include_archived,
             live_paths=live_paths,
         )
+        provenance_documents = documents if include_archived else live_documents(documents)
+        claims, _ = hydrate_claim_citations(claims, provenance_documents)
+        claims = mark_superseded_claims(claims, documents)
         found.extend(claims)
         out = (
             render_claims(claims)
@@ -618,7 +625,9 @@ async def deep_recall(
     seed_claims_raw, _ = scope_claims(
         seed_claims_raw, view, include_archived=include_archived, live_paths=live_paths
     )
-    seed_claims = seed_claims_raw[:cap]
+    provenance_documents = documents if include_archived else live_documents(documents)
+    seed_claims_raw, _ = hydrate_claim_citations(seed_claims_raw, provenance_documents)
+    seed_claims = mark_superseded_claims(seed_claims_raw, documents)[:cap]
     seed_windows = await assemble_windows(
         raw_windows, content=content, user_id=user_id
     )
@@ -660,6 +669,7 @@ async def deep_recall(
             view=view,
             include_archived=include_archived,
             live_paths=live_paths,
+            documents=documents,
         ),
         _search_content_tool(
             user_id,

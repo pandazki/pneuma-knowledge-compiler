@@ -8,6 +8,7 @@ import {
   type UserProfilePatch,
 } from "@/lib/api";
 import { fmtDate, fmtDay } from "@/lib/format";
+import { profilePresentation } from "@/lib/profilePresentation";
 import type { UserProfile } from "@/lib/types";
 import { useT, useTOr, type TOrFunction } from "@/lib/useT";
 import { PageHeader } from "@/components/PageHeader";
@@ -701,9 +702,7 @@ export default function ProfileView() {
         description={
           onboarding
             ? t("profile.onboarding.description")
-            : profile.source === "user"
-              ? t("profile.header.savedDescription")
-              : t("profile.header.synthesizedDescription")
+            : t(profilePresentation(profile.source).description)
         }
         actions={
           !onboarding && !editing ? (
@@ -726,9 +725,8 @@ export default function ProfileView() {
         <div className="flex min-w-0 flex-col gap-1">
           <div className="flex flex-wrap items-center gap-3">
             <h2 className="font-serif text-24 text-balance text-ink">{profile.display_name}</h2>
-            {/* The stamp states provenance, so it follows `source`: a profile the owner edited
-                and saved is theirs, not a synthesised persona. */}
-            {profile.source !== "user" && <Stamp tone="neutral">SYNTHETIC</Stamp>}
+            {/* Only an explicitly mock profile is synthetic. Unknown is not invented. */}
+            {profilePresentation(profile.source).synthetic && <Stamp tone="neutral">SYNTHETIC</Stamp>}
           </div>
           <Mono className="text-13 text-ink-3">{profile.user_id}</Mono>
           <p className="text-12 text-ink-3">

@@ -5,8 +5,8 @@ documents that re-materializes one record per anchored claim. The projection is
 rebuilt in full after every compile commit — never mutated incrementally — so it is
 always reconstructable from canonical alone.
 
-Provenance (I4): each ProjectedClaim keeps its anchor and its `[cite: <sid> ¶a-b]`
-citations parsed into the same `source_id + block span` addressing used everywhere.
+Provenance (I4): snapshot projection follows canonical claim references as well as direct
+`[cite: <sid> ¶a-b]` markers, preserving the one `source_id + block span` addressing.
 """
 
 from __future__ import annotations
@@ -25,6 +25,7 @@ from ..compile.documents import OVERVIEW_LABEL, OVERVIEW_MARKER_RE, overview_slo
 from ..compile.supersession import SUPERSEDES_MARK_RE
 from ..domain.archive import is_archived_path
 from ..domain.ids import ANCHOR_MARK_RE, AnchorId, SourceId
+from .provenance import hydrate_claim_citations
 
 _LIST_ITEM_RE = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s")
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.*?)\s*$")
@@ -209,12 +210,16 @@ def project_snapshot_claims(
 ) -> list[ProjectedClaim]:
     """Project a whole snapshot's documents into a claim list under `strategy`.
 
-    Deterministic order: documents by path, then claims in document order — no set
-    iteration (the briefing byte-stability discipline)."""
+    Deterministic order: documents by path, then claims in document order. Resolve source
+    locators against this WHOLE snapshot before the service compares projection signatures:
+    an unchanged dependant must be upserted when an ancestor's citations change. The
+    incremental index write is an optimization over complete snapshot derivation, never
+    an independently cached reference graph.
+    """
     out: list[ProjectedClaim] = []
     for doc in sorted(docs, key=lambda d: d.path):
         out.extend(project_document_claims(doc, strategy))
-    return out
+    return hydrate_claim_citations(out, docs)[0]
 
 
 def claims_citing(

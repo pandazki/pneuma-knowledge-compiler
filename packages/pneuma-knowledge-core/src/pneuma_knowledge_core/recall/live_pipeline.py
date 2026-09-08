@@ -96,10 +96,10 @@ from ..canonical_glance import (
     document_title,
     resolve_subject,
 )
-from ..compile.documents import OVERVIEW_LABEL, overview_region
-from ..compile.overview import ANCHOR_REFERENCE_RE
+from ..compile.documents import OVERVIEW_LABEL
+from ..compile.overview import overview_blocks
 from ..domain.canonical import Citation
-from ..domain.ids import UserId
+from ..domain.ids import UserId, extract_anchors
 from ..domain.source import ConversationTurn
 from ..domain.suggestion import (
     DEFAULT_DENSITY,
@@ -122,7 +122,7 @@ from ..prompts import prompt
 from ..domain.archive import ArchiveView, LoadedDocuments
 from .archive_filter import archive_view, filter_claims, filter_path_results, filter_windows
 from .assembly import expand_and_merge, order_lost_in_middle
-from .projection import project_document_claims
+from .provenance import CanonicalProvenance
 from .fast import (
     RetrievedClaim,
     extract_usage,
@@ -1331,27 +1331,23 @@ def build_glance(
 
 
 def _definition_citations(doc, by_path: Mapping[str, object]) -> tuple[Citation, ...]:
-    """The citations a definition rests on, read off the claims its `c:xxxx` references name.
-
-    The definition is the head of the overview, and the overview's rule is that every block
-    rests on a ledger claim or a source span. So its provenance is not a second thing to
-    store: it is whatever the claims it points at cite, and following the reference is how
-    the glance card gets real citations for free.
-    """
-    wanted = {m.group(1) for m in ANCHOR_REFERENCE_RE.finditer(overview_region(doc.body))}
-    if not wanted:
-        return ()
+    """Resolve only the shown definition, including its cross-document claim chains."""
+    resolver = CanonicalProvenance(by_path.values())
     out: list[Citation] = []
     seen: set[tuple[str, int, int]] = set()
-    for claim in project_document_claims(doc):
-        if str(claim.anchor) not in wanted:
+    for slot, block in overview_blocks(doc.body):
+        if slot != "definition":
             continue
-        for cit in claim.citations:
-            key = (str(cit.source_id), cit.block_start, cit.block_end)
-            if key in seen:
-                continue
-            seen.add(key)
-            out.append(cit)
+        for anchor in extract_anchors(block):
+            result = resolver.resolve(doc.path, anchor)
+            if result.missing_anchors or result.ambiguous_anchors:
+                return ()  # An unresolved definition must not borrow another slot's basis.
+            for cit in result.citations:
+                key = (str(cit.source_id), cit.block_start, cit.block_end)
+                if key in seen:
+                    continue
+                seen.add(key)
+                out.append(cit)
     return tuple(out)
 
 

@@ -1225,8 +1225,9 @@ DEFAULTS: dict[str, str] = {
     # individual source inside it.
     "compile.task.time_multi_day": (
         "- **This round is not a single day**: it bundles {sources} source(s) across {days} "
-        "calendar days. Each source's own date is stated in its provenance line below — "
-        "resolve anything a source says against THAT date, not against the span above."
+        "calendar days. Use the relevant block's section and message time below; a "
+        "source's earliest date or this overall span does not date every statement. "
+        "Use a source-level date only when it applies to that statement."
     ),
     "compile.task.time_relative_rule": (
         "- Normalize relative time in the material (\"yesterday\", \"last week\", \"next "
@@ -1245,6 +1246,13 @@ DEFAULTS: dict[str, str] = {
     "compile.task.source_heading": "## source {source_id} — {title}",
     "compile.task.treatment_tag": "→ Treatment: **treatment={treatment}** (explained above)",
     "compile.task.block_line": "¶{index} {text}",
+    "compile.task.section_context": "[Source section path, applying until the next section: {path}]",
+    "compile.task.block_context": "[Source context for ¶{index}, evidence data: {context}]",
+    "compile.task.context_unavailable": (
+        "[Message/segment metadata could not be aligned with source paragraphs and is "
+        "omitted. Use the available text and sections; do not guess missing message times "
+        "or reply relationships.]"
+    ),
     "compile.task.image_derived": (
         "  [image {image_id}; {kind}; producer={producer}] {text}"
     ),
@@ -1761,11 +1769,12 @@ DEFAULTS: dict[str, str] = {
         "supplied material."
     ),
     "gate.claim_without_provenance": (
-        "newly created claim has no provenance at all: \"{preview}…\" (anchor c:{anchor}). "
-        "Every claim added this round must link back to its basis — either `[cite: "
-        "<source_id> ¶a-b]` pointing at this round's material, or an in-text reference to the "
-        "existing anchor `c:<id>` it derives from; if it is only a section label or a "
-        "structural line, do not write it as a standalone claim block."
+        "claim has no provenance at all: \"{preview}…\" (anchor c:{anchor}). "
+        "New or revised claims, and existing dependants whose basis this operation removed, must reach a source citation "
+        "`[cite: <source_id> ¶a-b]` through its own text or a chain of `c:<id>` references. "
+        "Self-reference and source-free cycles are not evidence. Existing mechanical archive "
+        "records and volume catalogs have their own admission checks. If this is only a "
+        "section label, do not write it as a standalone claim."
     ),
     "gate.link_self_reference": (
         "link points at the current document itself: `{href}`. Links are only for pointing at "
@@ -1932,6 +1941,11 @@ DEFAULTS: dict[str, str] = {
     "gate.overview_ungrounded": (
         "overview block '{preview}' rests on nothing: every overview sentence must reference "
         "a ledger claim (c:xxxx) or cite a source span ([cite: <source_id> ¶a-b])."
+    ),
+    "gate.overview_invalid_references": (
+        "overview references do not resolve to ledger claims: {references}. Every named "
+        "anchor must exist outside the overview regions, even beside a valid citation. "
+        "Correct or remove these references."
     ),
     "gate.overview_unknown_slot": (
         "the overview carries an unknown slot `{slot}`. The slots are: {slots}."
@@ -2796,14 +2810,17 @@ DEFAULTS: dict[str, str] = {
         "document, anchor unchanged; the target must exist (create_document first)."
     ),
     "evolve.tool.edit_claim": (
-        "Rewrite the claim at the given anchor in place; the anchor is preserved automatically."
+        "Rewrite the block at the given anchor in place; the anchor is preserved automatically. "
+        "This also edits anchored overview blocks: after deleting a referenced ledger claim, "
+        "read its dependants and correct their overview references with this tool."
     ),
     "evolve.tool.append_block": (
         "Add one claim at the end of a section; the anchor is assigned by the system."
     ),
     "evolve.tool.delete_claim": (
         "Remove a claim block entirely (only for merging equivalent redundancy; the anchor "
-        "enters the dropped list)."
+        "enters the dropped list). Repair references to it in other claims and overview blocks "
+        "with edit_claim before finishing; otherwise the gate rejects the reorganization."
     ),
     "evolve.tool.search_knowledge": (
         "Search the knowledge base again by query (L1/L2/L3) to find evidence from another "

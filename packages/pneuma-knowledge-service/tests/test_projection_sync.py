@@ -188,6 +188,44 @@ async def _rows(claims):
     ]
 
 
+async def test_ancestor_citation_change_upserts_unchanged_transitive_dependants():
+    from pneuma_knowledge_core.recall.projection import project_snapshot_claims
+
+    before = [
+        _doc("memory/a.md", "a", "- Original. [cite: source-a ¶0] <!-- c:aa11 -->"),
+        _doc("memory/b.md", "b", "- Derived c:aa11. <!-- c:bb22 -->"),
+        _doc("memory/c.md", "c", "- Further inference c:bb22. <!-- c:cc33 -->"),
+        _doc("memory/d.md", "d", "- Independent. [cite: source-d ¶0] <!-- c:dd44 -->"),
+    ]
+    after = [before[0].model_copy(update={
+        "body": "- Original. [cite: source-a ¶4-5] <!-- c:aa11 -->",
+    }), *before[1:]]
+    old_claims = project_snapshot_claims(before)
+    current_claims = project_snapshot_claims(after)
+    assert [c.text for c in old_claims] == [c.text for c in current_claims]
+
+    ctx = _ctx()
+
+    async def current_documents(user_id, *, at=None):
+        return list(reversed(after))  # Input order cannot perturb the manifest signature.
+
+    ctx.canonical.list = current_documents
+    ctx.store.list_canonical_claims = lambda user_id: _rows(old_claims)
+    result = await sync_projection(ctx, USER, "sha-current")
+
+    assert (result.total, result.upserted, result.deleted, result.unchanged) == (4, 3, 0, 1)
+    assert [str(c.anchor) for c in ctx.store.synced[2]] == ["aa11", "bb22", "cc33"]
+    assert all((c.citations[0].block_start, c.citations[0].block_end) == (4, 5)
+               for c in ctx.store.synced[2])
+
+    # Once the manifest lands, the same full derivation has no dependency-only churn.
+    ctx.store.list_canonical_claims = lambda user_id: _rows(current_claims)
+    ctx.embeddings.calls.clear()
+    repeated = await sync_projection(ctx, USER, "sha-current")
+    assert (repeated.upserted, repeated.deleted, repeated.unchanged) == (0, 0, 4)
+    assert ctx.embeddings.calls == []
+
+
 # ============================================================================== guardrails
 
 

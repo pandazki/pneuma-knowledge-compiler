@@ -1,35 +1,27 @@
-# 主体档案 —— 只放「注册级」信息：称呼、职业、语言时区这类稳定的自我介绍。
-# 材料里的事实（谁负责什么、决定了什么）让编译自己去学，不要写进这里。
-#
-# locale 三项（时区/语言/地区）由 `./app.py init` 从系统自动检测（/etc/localtime
-# 软链、$LANG），并在下面的 provenance 块里如实标注每一项是怎么来的：
-#   - deployment_default = 从系统检测出来的默认值。编译会照实声明"这是检测值，
-#     不是所有者自己的设定"；此时时区不写入主体档案，只作为默认时区生效。
-#   - profile = 你（或你的 AI 向导）亲自确认或改过这一项。确认后把对应
-#     provenance 改成 profile，它才会作为你自己的设定写入档案。
-#   - unstated = 尚未检测、尚未声明。
+# Optional owner declarations. A team/topic library need not have a personal biography.
+# Keep unknown details blank; facts learned from material belong in sources, not here.
+display_name: "{{DISPLAY_NAME}}"
+occupation: "{{OCCUPATION}}"
+bio: "{{BIO}}"
+interests: {{INTERESTS}}
 
-display_name: "{{DISPLAY_NAME}}"   # 所有者的称呼
-occupation: "{{OCCUPATION}}"       # 一句话职业描述
-bio: "{{BIO}}"                     # 一两句背景，帮编译理解你的视角
-interests: {{INTERESTS}}           # 长期兴趣关键词
-
-# 三个枚举只影响回答风格，不影响入册判断。
-# 个人/爱好场景不用对号入座：industry、role 就写 other，level 保持 mid 即可。
-industry: {{INDUSTRY}}    # tech / finance / sports / creative / education / healthcare / marketing / other
-role: {{ROLE}}            # engineering / marketing / product_management / sales / design / support / admin / other
-level: {{LEVEL}}          # entry / junior / mid / senior / staff / principal
+# Optional answer-style context; blank means unstated, not an inferred profession/seniority.
+industry: {{INDUSTRY}}  # tech/finance/sports/creative/education/healthcare/marketing/other
+role: {{ROLE}}          # engineering/marketing/product_management/sales/design/support/admin/other
+level: {{LEVEL}}        # entry/junior/mid/senior/staff/principal
 
 locale:
-  city: ""            # 常驻城市（可留空）
-  country: ""         # ISO 国家/地区码，如 CN、US —— init 从 $LANG 检测
-  timezone: ""        # IANA 时区，如 Asia/Shanghai —— init 从 /etc/localtime 检测
-  language: ""        # BCP-47，如 zh-CN —— init 从 $LANG 检测
+  city: ""
+  country: ""
+  timezone: ""
+  language: ""
 
-provenance:           # 上面三项检测值的来源标注（取值含义见文件头注释）
+# init stamps detected values as deployment_default. Only explicit declarations use profile.
+# Detection is a runtime default, not a statement of the owner's location or language.
+provenance:
   timezone: unstated
   language: unstated
   region: unstated
 
 preferences:
-  response_language: ""   # 希望 AI 用什么语言回答；留空跟随 locale.language
+  response_language: ""  # empty follows locale.language as a runtime answer preference

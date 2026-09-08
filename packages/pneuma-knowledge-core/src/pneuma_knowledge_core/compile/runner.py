@@ -27,6 +27,7 @@ the tools and the gate (architecture.md §0 discipline 1).
 from __future__ import annotations
 
 import base64
+import json
 import os
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -50,6 +51,7 @@ from ..recall.citation_alias import resolve_handles
 from ..domain.snapshot import SnapshotRef
 from ..domain.source import NormalizedSource
 from ..domain.time_context import TimeContext
+from ..ingest.evidence_context import block_evidence_context
 from ..ports.canonical_store import CanonicalStore
 from ..prompts import prompt, prompt_overlay_hash
 from ..skill.contract import render_system_contract
@@ -214,20 +216,13 @@ def _render_time_anchor(
 ) -> list[str]:
     """The task's time frame: when this compile runs, and what period the material covers.
 
-    The skill requires relative time ("tomorrow", "last week") to be normalized to absolute
-    dates, but
-    the prompt carried no reference point to normalize AGAINST: the only dates present were
-    whatever happened to appear inside the text. `RawSource.created_at` is no help either —
-    it is the INGEST wall-clock, so material captured weeks ago is stamped with today.
+    Source occurrence days and normalized section dates describe the material's coverage;
+    the earliest day alone cannot anchor every statement in a multi-day source. Individual
+    sections and message envelopes remain beside their blocks below. created_at is an
+    ingestion clock and is never used as evidence of when a statement occurred.
 
-    Every date here is a calendar day in the SUBJECT's timezone, and the anchor says which
-    zone that is: the section dates were cut in that zone at ingest, so a "today" stated in
-    UTC would silently disagree with them for a third of the day. `time` is passed in rather
-    than read from the clock so the render stays deterministic and testable.
-
-    A recorded timezone change is stated too. Dates compiled before the move were normalized
-    under the OLD zone and are never rewritten (canonical is the non-rebuildable layer), so
-    the only honest option is to tell the model which zone an older date belongs to.
+    The current clock and timezone history are supplied, not read here. Previously compiled
+    dates are not rewritten when that timezone changes.
     """
     lines: list[str] = []
     if time is not None:
@@ -252,7 +247,6 @@ def _render_time_anchor(
         occurred_on = str((s.raw.meta or {}).get("occurred_on") or "").strip()
         if occurred_on:
             dates.add(occurred_on)
-            continue
         for span in s.structure.sections:
             for part in span.path:
                 if len(part) == 10 and part[4] == "-" and part[7] == "-":
@@ -263,11 +257,7 @@ def _render_time_anchor(
         lines.append(
             prompt("compile.task.time_window", span=span_text, days=len(dates))
         )
-        # A round of ONE day needs nothing more: the span above IS every source's date. A
-        # round of several (a deployment batching sources into one job) must say so, because
-        # the span alone cannot place a source inside it and the relative-time rule below is
-        # then mechanically unexecutable. The per-source preambles carry the actual dates;
-        # this line is what tells the model to go read them.
+        # Coverage is not a per-statement timestamp, even when one source supplies it all.
         if len(dates) > 1:
             lines.append(
                 prompt(
@@ -377,7 +367,22 @@ def _render_task(
                 parts.append(line)
         treatment = treatments.get(str(s.raw.source_id), "full")
         parts.append(prompt("compile.task.treatment_tag", treatment=treatment))
+        context = block_evidence_context(s)
+        if context.misaligned:
+            parts.append(prompt("compile.task.context_unavailable"))
+        previous_section: list[str] = []
         for b in s.blocks:
+            if b.section_path != previous_section:
+                parts.append(prompt(
+                    "compile.task.section_context",
+                    path=json.dumps(b.section_path, ensure_ascii=False),
+                ))
+                previous_section = b.section_path
+            if context.blocks.get(b.index):
+                parts.append(prompt(
+                    "compile.task.block_context", index=b.index,
+                    context=json.dumps(context.blocks[b.index], ensure_ascii=False),
+                ))
             parts.append(prompt("compile.task.block_line", index=b.index, text=b.text))
             for image in b.images:
                 if image.derived:
