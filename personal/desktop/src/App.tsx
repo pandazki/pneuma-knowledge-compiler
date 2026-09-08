@@ -20,6 +20,7 @@ export default function App({ initial, subscribe }: {
   const [state, setState] = useState(initial);
   const [page, setPage] = useState<Tab>('dashboard');
   const [query, setQuery] = useState('');
+  const [submitted, setSubmitted] = useState(0);
   const [composing, setComposing] = useState(false);
   const [preference, setPreference] = useState(languagePreference);
   const [languages, setLanguages] = useState(navigator.languages);
@@ -125,7 +126,9 @@ export default function App({ initial, subscribe }: {
         if (next < 0) input.current?.focus();
         else links[Math.min(next, links.length - 1)]?.focus();
       } else if (event.key === 'Enter' && document.activeElement === input.current && page === 'search') {
-        event.preventDefault(); body.current?.querySelector<HTMLAnchorElement>('[data-result-link]')?.click();
+        event.preventDefault();
+        const first = body.current?.querySelector<HTMLAnchorElement>('[data-result-link]');
+        if (first) first.click(); else setSubmitted(n => n + 1);
       }
     };
     window.addEventListener('keydown', keyboard);
@@ -145,7 +148,7 @@ export default function App({ initial, subscribe }: {
     </header>
     <main id="panel-body" ref={body} className={page === 'dashboard' ? 'dashboard-body' : undefined} aria-label={t(locale, page === 'dashboard' ? 'back' : page)}>
       {page === 'dashboard' && <Dashboard state={state} busy={busy} perform={perform} now={now} locale={locale} />}
-      {page === 'search' && <Search state={state} busy={busy} perform={perform} query={query} composing={composing} locale={locale} />}
+      {page === 'search' && <Search state={state} busy={busy} perform={perform} query={query} composing={composing} locale={locale} submitted={submitted} />}
       {page === 'settings' && <Settings state={state} busy={busy} perform={perform} locale={locale} preference={preference} onLanguage={value => {
         setPreference(value);
         try { localStorage.setItem('pkc-desktop.locale', value); } catch { /* The current session still follows the selected language. */ }
