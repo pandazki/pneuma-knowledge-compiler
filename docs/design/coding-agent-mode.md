@@ -492,7 +492,12 @@ for multi-tenant deployments and is the only place a user id is typed.
 
 ### 5.1 Reading — the Steward's eyes
 
-The read half of the HTTP API, as commands. Same handlers, same shapes, JSON on request:
+The read half of the HTTP API, as commands. Same handlers, same shapes, JSON on request.
+Every read is **paged**: prose prints one page of 8,000 characters and a footer naming the
+next (`--page N`, `--all-pages`, `--page-chars CHARS`); `--json` pages the one list a payload carries
+(hits, pages, jobs …) by items and adds a `paging` field, because a reader with a context
+window asked for a page, and a 200 KB search result handed over whole is the library spending
+the reader's attention for it. `pkc canonical read` takes several paths in one process.
 
 | Command | Reads |
 |---|---|

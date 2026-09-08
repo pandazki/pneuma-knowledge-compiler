@@ -190,8 +190,9 @@ def test_outline_and_glance_help_and_the_three_reading_moments(language, capsys)
         consume = text(package, "references/consume.md")
         journey = text(package, "SKILL.md")
         assert prompt("steward.consume.when_to_use").strip() in consume
-        moments = ("Session start", "Answering", "After `pkc draft finish`") if language == "en" else (
-            "\u4f1a\u8bdd\u5f00\u59cb", "\u56de\u7b54\u95ee\u9898", "`pkc draft finish` \u4e4b\u540e",
+        # The table is keyed by the SHAPE of the question, not by a fixed sequence of moments.
+        moments = ("Shape of the question", "Spans several pages", "After `pkc draft finish`") if language == "en" else (
+            "\u95ee\u9898\u7684\u5f62\u72b6", "\u8de8\u591a\u4e2a\u9875\u9762", "`pkc draft finish` \u4e4b\u540e",
         )
         for moment in moments:
             assert moment in consume
@@ -201,6 +202,7 @@ def test_outline_and_glance_help_and_the_three_reading_moments(language, capsys)
             "pkc glance", "pkc outline --family <template>",
         ):
             assert command in consume and command in journey
+        assert "--page N" in consume and "--all-pages" in consume
         assert "top-K" in consume and "top-K" in journey
         round_text = prompt("steward.skill.round")
         assert round_text.index("pkc outline") < round_text.index("pkc draft open")

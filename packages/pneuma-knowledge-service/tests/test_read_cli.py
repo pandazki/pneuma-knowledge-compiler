@@ -542,3 +542,45 @@ async def test_only_two_bare_integer_arguments_form_one_span():
 
     help_text = children(children(parser)["source"])["fetch"].format_help()
     assert "exactly two bare integers" in " ".join(help_text.split())
+
+
+def test_prose_paging_cuts_at_line_boundaries_and_never_drops_text():
+    from pneuma_knowledge_service.cli.read import paginate
+
+    text = "\n".join(f"line {i:03d} " + "x" * 20 for i in range(100))
+    pages = paginate(text, 500)
+    assert len(pages) > 1
+    assert "\n".join(pages) == text
+    assert all(len(page) <= 500 for page in pages)
+    assert all(not page.startswith("x") for page in pages)  # a cut lands between lines
+    assert paginate(text, 0) == [text] and paginate("short", 500) == ["short"]
+    long_line = "y" * 1200
+    assert paginate(long_line, 500) == ["y" * 500, "y" * 500, "y" * 200]
+
+
+def test_json_paging_cuts_the_one_list_by_items_and_names_the_next_page():
+    from pneuma_knowledge_service.cli.read import page_items
+
+    hits = [{"i": i, "text": "z" * 300} for i in range(30)]
+    payload = {"query": "q", "hits": hits}
+    first = page_items(payload, 1, 2000)
+    assert first["query"] == "q" and first["paging"]["page"] == 1
+    assert first["paging"]["items"] == 30 and first["paging"]["next"] == "--page 2"
+    assert 0 < len(first["hits"]) < 30
+    pages = first["paging"]["pages"]
+    last = page_items(payload, 99, 2000)
+    assert last["paging"]["page"] == pages and last["paging"]["next"] is None
+    gathered = [h["i"] for p in range(1, pages + 1) for h in page_items(payload, p, 2000)["hits"]]
+    assert gathered == list(range(30))
+    assert page_items({"a": [1], "b": [2]}, 1, 10) == {"a": [1], "b": [2]}  # two lists: whole
+    assert page_items({"hits": hits[:2]}, 1, 100000) == {"hits": hits[:2]}  # fits: untouched
+
+
+async def test_canonical_read_takes_several_pages_in_one_process():
+    lib = _lib()
+    code, out, err = await run(lib, "canonical", "read", PAGE, "memory/topics/nope.md", OTHER, "--json")
+    assert code == 0
+    assert [p["path"] for p in json.loads(out)["pages"]] == [PAGE, OTHER]
+    assert "no such page: memory/topics/nope.md" in err
+    code, out, _err = await run(lib, "canonical", "read", PAGE, OTHER)
+    assert code == 0 and out.count("---") >= 2

@@ -6,6 +6,7 @@ import argparse
 import getpass
 import json
 import os
+import socket
 import shlex
 import subprocess
 import sys
@@ -111,16 +112,31 @@ def _exec(home: Home, explicit: str | None, argv: list[str]) -> None:
     argv = argv[1:] if argv and argv[0] == "--" else argv
     if not argv:
         raise ValueError("exec needs -- <command> [args...]")
-    library.touch_last_used()
+    # An observation, never a precondition: a read-only sandbox (a harness's default) must
+    # still be able to READ the library, so a `last_used` that cannot be written is skipped.
+    try:
+        library.touch_last_used()
+    except OSError:
+        pass
     env = home_environment(home, library)
     if argv[0] == "pkc":
-        argv = [pkc_script(), *argv[1:]]
         # The library's installer writes the version record beside the skill directory
         # (`<project>/<skills_dir>/skill-version.json`), not inside the package.
         version = library.skill_dir.parent / "skill-version.json"
         if version.is_file():
             recorded = json.loads(version.read_text(encoding="utf-8"))
             env.setdefault(SKILL_HASH_ENV, str(recorded["sha256"]))
+        # In this process, not a second interpreter: `pkc` is the library's entry point and
+        # this one already has the library imported, so exec'ing the shim → console script →
+        # Python again paid a third of a second per command for nothing. The shim stays what
+        # an unattended round runs (`library show`'s `entry`); this is the Owner's own hand.
+        env.setdefault("PKC_STEWARD_SESSION", os.environ.get("CODEX_THREAD_ID")
+                       or os.environ.get("CLAUDE_SESSION_ID") or f"{os.getppid()}@{socket.gethostname()}")
+        os.environ.update(env)
+        os.chdir(library.path)
+        from pneuma_knowledge_service.cli import main as pkc_main
+
+        raise SystemExit(pkc_main(argv[1:]))
     os.execvpe(argv[0], argv, env)
 
 

@@ -2295,11 +2295,19 @@ _ZH: dict[str, str] = {
 """,
     "steward.consume.when_to_use": """## 什么时候用什么
 
-| 时刻 | 命令及其展示内容 |
+每条命令都是一次进程启动，两三次检索就该给出完整答案。按问题的形状选一条路，语法就在这里，
+不必再翻 cli.md：
+
+| 问题的形状 | 走法 |
 |---|---|
-| 会话开始 | 先运行 `pkc outline`：秒级的完整地图。每一页都在所属族下，一页一行；没有 top-K 或字符预算。空族也会点名。 |
-| 回答问题 | `pkc outline` 找页面；`pkc canonical read <path>` 读页面。`pkc recall <q> --evidence` 提供 fast 通道的证据；`pkc search <q> --lexical` 查名字和原句；`pkc source fetch <sid> ¶a-b` 提供原文事实。仅当 outline 太长、难以扫读且按预算挑选有帮助时，才用 `pkc glance`：它挑选每个族的头部页面，可能省略页面，并报告数量。 |
-| `pkc draft finish` 之后 | 对每个写入过的族运行 `pkc outline --family <template>`，查看新页面是否落在正确的族下。这个族列表也完整无遗漏。 |
+| 问一个 outline 里认得出的主体（一个项目、一个人、一个主题） | `pkc outline` 定位 → `pkc canonical read <path> [<path>…]` 一次读完相关的一两页 → 作答。页面里引用的原文用 `pkc source fetch <sid> ¶a-b` 核对。 |
+| 问题跨多个页面，或不知道落在哪一页 | `pkc recall <q> --evidence`：一次拿到多页的 claim 与原文窗口，以及待答的 `handoff_id`。不够再按引用的地址 `source fetch`。 |
+| 找一个名字、一句原话、或没入正本的材料 | `pkc search <q> --lexical`（默认 10 条；`--limit N` 加多）。语义检索开着时 `--semantic` 查概念匹配。 |
+| 只想知道库里有什么 | `pkc outline`（`--definitions` 带一行定义）：完整地图，一页一行，没有 top-K 或字符预算，长了分页。仅当 outline 太长、难以扫读时才用有预算的 `pkc glance`，它会省略页面并报告数量。 |
+| `pkc draft finish` 之后 | 对每个写入过的族运行 `pkc outline --family <template>`，查看新页面是否落在正确的族下。 |
+
+长输出会分页：散文一页 8,000 字符，页脚写明 `--page N` 看下一页、`--all-pages` 全量；`--json`
+按条目给列表分页并附 `paging` 字段。先读第一页判断够不够，再决定翻页，不要一开始就 `--all-pages`。
 
 `outline` 和 `glance` 都是地图，不是可引用的证据。`outline --definitions` 为有定义的页面
 增加一行定义；`--json` 返回族树。两种地图默认省略已归档页面，保留 live 路径上的归档记录，

@@ -3027,11 +3027,20 @@ what the Owner wrote or confirmed, and `detected` marks a system observation.
 """,
     "steward.consume.when_to_use": """## When to use what
 
-| Moment | Commands and what they show |
+Every command is a process start; two or three lookups should give a complete answer. Pick
+the path by the shape of the question — the syntax is here, so cli.md need not be opened:
+
+| Shape of the question | Path |
 |---|---|
-| Session start | `pkc outline` first: the complete map, in seconds. Every page appears under its family, one line each; there is no top-K or character budget. Empty families are named. |
-| Answering | `pkc outline` finds pages; `pkc canonical read <path>` reads them. `pkc recall <q> --evidence` supplies the fast lane's evidence; `pkc search <q> --lexical` finds names and phrases; `pkc source fetch <sid> ¶a-b` supplies the ground truth. Use `pkc glance` only when the outline is too long to scan and a budgeted pick helps: it selects top pages per family, may drop pages, and reports how many. |
-| After `pkc draft finish` | Run `pkc outline --family <template>` for each family you wrote, to see the new pages land under the right family. This family listing is complete too. |
+| About a subject the outline names (a project, a person, a topic) | `pkc outline` to locate → `pkc canonical read <path> [<path>…]` reads the one or two relevant pages in one call → answer. Check quoted wording with `pkc source fetch <sid> ¶a-b`. |
+| Spans several pages, or nobody knows which page | `pkc recall <q> --evidence`: one call returns claims and verbatim windows from many pages, plus the `handoff_id` awaiting an answer. Follow cited addresses with `source fetch` if that is not enough. |
+| A name, an exact phrase, material never compiled | `pkc search <q> --lexical` (10 hits by default; `--limit N` for more). With semantic retrieval on, `--semantic` matches concepts. |
+| Only what the library holds | `pkc outline` (`--definitions` adds one-line definitions): the complete map, one page per line, no top-K or character budget, paged when long. Use budgeted `pkc glance` only when the outline is too long to scan; it drops pages and says how many. |
+| After `pkc draft finish` | Run `pkc outline --family <template>` for each family you wrote, to see the new pages land under the right family. |
+
+Long output is paged: prose prints 8,000 characters and a footer naming `--page N` for the
+next and `--all-pages` for everything; `--json` pages its list by items and adds a `paging` field.
+Read the first page and judge whether more is needed; do not begin with `--all-pages`.
 
 `outline` and `glance` are maps, not cited evidence. `outline --definitions` adds each page's
 one-line definition when present; `--json` returns the family tree. Both maps omit archived

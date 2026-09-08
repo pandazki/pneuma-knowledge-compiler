@@ -35,7 +35,7 @@ from .adapters.git_canonical import GitCanonicalStore
 from .coding_agent.backends import BACKENDS as _BACKEND_MANIFESTS
 from .adapters.meilisearch import MeiliLexicalIndex
 from .adapters.postgres import PostgresStore
-from .adapters.qdrant import QdrantVectorIndex
+from .adapters.qdrant import QdrantVectorIndex, existing_dimension
 from .adapters.s3_media import S3MediaStore
 from .adapters.scripted_model import load_scripted_model
 from .adapters.user_info_provider_composite import PersistedUserInfoProvider, UnstatedUserInfoProvider
@@ -1084,7 +1084,7 @@ class AppContext:
 
 
 async def build_context(
-    settings: Settings, *, probe_agent: bool = True
+    settings: Settings, *, probe_agent: bool = True, probe_embedding: bool = True
 ) -> AppContext:
     """Assemble the adapter singletons and bring their connections up on the CALLER's
     event loop (pool open, collection probe). Everything the constructors used to do
@@ -1095,6 +1095,13 @@ async def build_context(
     harness's hand: every `pkc` command builds a context, and probing a coding agent once per
     command would cost seconds per call and, inside a session of that very harness, would
     launch it from within itself.
+
+    `probe_embedding=False` is for the same process: with semantic retrieval on, learning the
+    embedding dimension costs one model call over the network (a second per `pkc` command,
+    measured), and a process that only reads can adopt the dimension the Qdrant collection
+    already has. Only when no collection exists yet is the model asked, because then one has
+    to be created at the model's dimension. The engine keeps probing at boot: that is where a
+    model changed under an existing collection must be refused, not at the first upsert.
     """
     # Who runs each role, before anything is built: an `agent:` spec on a role that cannot
     # be driven by a CLI, or a harness nothing can launch, is a misconfiguration the stack
@@ -1118,7 +1125,11 @@ async def build_context(
         vectors = None
         if settings.semantic_retrieval == "on":
             embeddings = build_embeddings(settings)
-            dim = len(await embeddings.aembed_query("dimension probe"))
+            dim = None
+            if not probe_embedding:
+                dim = await existing_dimension(settings.qdrant_url, settings.qdrant_collection)
+            if dim is None:
+                dim = len(await embeddings.aembed_query("dimension probe"))
 
         lexical = MeiliLexicalIndex(settings.meili_url, settings.meili_key)
         cleanup.push_async_callback(lexical.aclose)

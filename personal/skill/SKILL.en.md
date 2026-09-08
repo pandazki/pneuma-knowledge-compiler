@@ -3,10 +3,26 @@ name: pkc-steward
 description: Keep the Owner's personal knowledge libraries through pkchome and the library's citation-gated pkc commands.
 ---
 
+# Answering the Owner's questions (the common case)
+
+No status check first. Directly:
+
+1. `pkchome exec -- pkc outline` — the complete map, one page per line; find the relevant pages. Without a chosen library it refuses and lists the libraries; name one with `--library NAME`.
+2. `pkchome exec -- pkc canonical read <path> [<path>…]` — read the one or two relevant pages in one call.
+3. When the question spans pages or nobody knows which page: `pkchome exec -- pkc recall <q> --evidence` returns claims and verbatim windows from many pages in one call.
+4. Check wording with `pkc source fetch <sid> ¶a-b`; find names or phrases with `pkc search <q> --lexical`.
+5. Record the answer with `pkc consult answer <handoff_id> --text-file -` (or `pkc consult record --question <q> --text-file -` when no recall ran).
+
+Two or three lookups should give a complete answer. Cite the page anchors and source spans you
+read; say plainly when the library has nothing. Long output is paged and the footer names
+`--page N`; read the first page before deciding to turn it. The same flow in detail is the
+library's `references/consume.md`, read when needed; `references/cli.md` is the full argument
+table, not required reading.
+
 # Where you are
 
-Run `pkchome status --json` to see this machine's libraries, live probes and completed
-setup steps. `pkchome exec` refuses with the library list if no library is chosen.
+`pkchome status --json` shows this machine's libraries, live probes and completed setup
+steps — for setup and maintenance, not for answering a question. `pkchome exec` refuses with the library list if no library is chosen.
 Select with `--library NAME`, `PKC_LIBRARY=NAME`, a directory binding
 (`pkchome library bind NAME .`), or `pkchome library use NAME` for the home default.
 

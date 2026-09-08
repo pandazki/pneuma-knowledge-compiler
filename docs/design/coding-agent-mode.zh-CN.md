@@ -380,7 +380,10 @@ API 和 worker 读的同一套设置，所以项目的 `.env` 和 `engine/` 对�
 
 ### 5.1 读——Steward 的眼睛
 
-HTTP API 的读半边变成命令。同样的 handler、同样的形状，可要求 JSON：
+HTTP API 的读半边变成命令。同样的 handler、同样的形状，可要求 JSON。每条读命令都**分页**：
+散文一页 8,000 字符，页脚点名下一页（`--page N`、`--all-pages`、`--page-chars CHARS`）；`--json` 按条目给
+载荷里唯一的那个列表（hits、pages、jobs……）分页并附 `paging` 字段——读者带着上下文窗口来要一页，
+一次交出 200 KB 的检索结果，是库替读者花掉了他的注意力。`pkc canonical read` 一次可读多页。
 
 | 命令 | 读什么 |
 |---|---|

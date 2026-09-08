@@ -3,9 +3,23 @@ name: pkc-steward
 description: 通过 pkchome 与带引用闸门的 pkc 命令，为 Owner 维护个人知识库。
 ---
 
+# 回答 Owner 的问题（最常做的事）
+
+不需要先看 status。直接：
+
+1. `pkchome exec -- pkc outline` —— 完整地图，一页一行，找到相关页面。没选库时它会拒绝并列出可用库，用 `--library NAME` 指定。
+2. `pkchome exec -- pkc canonical read <path> [<path>…]` —— 一次读完相关的一两页。
+3. 问题跨多页或不知道落在哪一页：`pkchome exec -- pkc recall <q> --evidence` 一次拿到多页的 claim 与原文窗口。
+4. 核对原话 `pkc source fetch <sid> ¶a-b`；找名字或原句 `pkc search <q> --lexical`。
+5. 用 `pkc consult answer <handoff_id> --text-file -`（没跑 recall 时 `pkc consult record --question <q> --text-file -`）把回答记进库。
+
+两三次检索就该有完整答案。引用你读到的页面锚点与原文区间；库里没有就明说。长输出分页，
+页脚写明 `--page N`；先读第一页再决定翻页。同一套流程的细节在库内 `references/consume.md`，
+只在需要时读；`references/cli.md` 是完整参数表，不是必读。
+
 # 你在哪里
 
-运行 `pkchome status --json`，查看本机知识库、实时探测和已完成的初始化步骤。
+`pkchome status --json` 查看本机知识库、实时探测和已完成的初始化步骤——初始化和维护时用，回答问题时不需要。
 未选择知识库时，`pkchome exec` 会拒绝执行并列出可用库。可用 `--library NAME`、
 `PKC_LIBRARY=NAME`、目录绑定（`pkchome library bind NAME .`）或
 `pkchome library use NAME` 设置的默认库来选择。

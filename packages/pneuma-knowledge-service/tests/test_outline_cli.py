@@ -85,7 +85,8 @@ def large_library():
 async def test_outline_is_complete_where_glance_drops_pages(skill, definitions):
     docs = large_library()
     ctx = context(skill, docs)
-    code, output, err = await run(ctx, "outline", *(("--definitions",) if definitions else ()))
+    # `--all-pages`: the map is complete, and paged when long; this test is about the former.
+    code, output, err = await run(ctx, "outline", "--all-pages", *(("--definitions",) if definitions else ()))
     assert (code, err) == (0, "")
     assert ctx.canonical.calls == [USER]
     assert len(output) > 5_000

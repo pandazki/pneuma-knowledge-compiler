@@ -203,6 +203,20 @@ def _jsonable(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
         action="store_true",
         help="machine-readable output; the default is the same state as prose",
     )
+    # Prose is paged: a reader with a context window gets one page and a footer saying how
+    # much more there is, instead of everything at once. JSON is never paged.
+    parser.add_argument(
+        "--page", type=int, default=1, metavar="N",
+        help="which page of a long prose output to print (default 1; the footer names the next)",
+    )
+    parser.add_argument(
+        "--page-chars", type=int, default=read_cmd.PAGE_CHARS, metavar="CHARS",
+        help=f"characters per page (default {read_cmd.PAGE_CHARS}; 0 = no paging)",
+    )
+    parser.add_argument(
+        "--all-pages", dest="all_pages", action="store_true",
+        help="print the whole prose output, however long",
+    )
     return parser
 
 
@@ -304,7 +318,7 @@ def _add_read_commands(top) -> None:  # noqa: ANN001
             ),
         )
     )
-    p.add_argument("path")
+    p.add_argument("path", nargs="+", help="one page, or several read in one process")
     p = _jsonable(
         csub.add_parser(
             "history",
@@ -832,7 +846,9 @@ async def dispatch(ctx, args: argparse.Namespace, *, out=None, err=None) -> int:
     if group in ("outline", "glance", "canonical", "source", "search", "jobs", "history", "brief",
                  "consultations", "spend", "evolve", "recall"):
         rt = read_cmd.ReadRuntime(
-            user_id=user, ctx=ctx, as_json=as_json, out=out, err=err
+            user_id=user, ctx=ctx, as_json=as_json, out=out, err=err,
+            page=getattr(args, "page", 1), page_chars=getattr(args, "page_chars", read_cmd.PAGE_CHARS),
+            all_pages=bool(getattr(args, "all_pages", False)),
         )
         include_archived = bool(getattr(args, "include_archived", False))
         if group == "outline":
@@ -1135,7 +1151,7 @@ async def _run(args: argparse.Namespace, component_tools, parser_for) -> int:
     # hand. Probing one here would cost seconds on every command and, inside a session of
     # that very harness, would start it from within itself. The worker, which does launch,
     # probes at startup (`wiring.probe_compile_executor`).
-    ctx = await build_context(settings, probe_agent=False)
+    ctx = await build_context(settings, probe_agent=False, probe_embedding=False)
     try:
         if args.group == "draft":
             from .runtime import build_runtime

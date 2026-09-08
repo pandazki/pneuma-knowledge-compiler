@@ -63,6 +63,9 @@ EXIT_REFUSED = 2
 _SPAN_RE = re.compile(r"^\s*¶?\s*(?P<start>\d+)(?:\s*[-–]\s*(?P<end>\d+))?\s*$")
 
 
+PAGE_CHARS = 8000
+
+
 @dataclass
 class ReadRuntime:
     """What every read command needs, injected rather than looked up.
@@ -77,15 +80,101 @@ class ReadRuntime:
     as_json: bool = False
     out: TextIO = field(default_factory=lambda: sys.stdout)
     err: TextIO = field(default_factory=lambda: sys.stderr)
+    # Prose output is paged: a reader with a context window asked for one page and gets one,
+    # with a footer saying how much more there is. `--json` is never paged (a script reads it).
+    page: int = 1
+    page_chars: int = PAGE_CHARS
+    all_pages: bool = False
+
+
+
+def paginate(text: str, page_chars: int) -> list[str]:
+    """Cut `text` into pages of at most `page_chars` characters at line boundaries — a line
+    longer than a page is cut hard rather than dropped. Pure, so the paging is testable
+    without a command behind it."""
+    if page_chars <= 0 or len(text) <= page_chars:
+        return [text]
+    pages: list[str] = []
+    current: list[str] = []
+    size = 0
+    for line in text.split("\n"):
+        while len(line) > page_chars:
+            if current:
+                pages.append("\n".join(current))
+                current, size = [], 0
+            pages.append(line[:page_chars])
+            line = line[page_chars:]
+        extra = len(line) + (1 if current else 0)
+        if current and size + extra > page_chars:
+            pages.append("\n".join(current))
+            current, size = [], 0
+            extra = len(line)
+        current.append(line)
+        size += extra
+    if current:
+        pages.append("\n".join(current))
+    return pages
+
+
+def page_items(payload: Any, page: int, page_chars: int) -> Any:
+    """JSON paging: a payload carrying ONE list (hits, pages, jobs …) whose serialization
+    exceeds a page is returned with that list cut to the items that fit `page_chars`, plus a
+    `paging` field naming the page, the page count, the item total and the next flag. Any
+    other payload is returned whole — a JSON document cut at a character is not JSON."""
+    if page_chars <= 0 or not isinstance(payload, dict):
+        return payload
+    lists = [key for key, value in payload.items() if isinstance(value, list)]
+    if len(lists) != 1:
+        return payload
+    dump = lambda value: json.dumps(value, ensure_ascii=False, indent=2, default=str)  # noqa: E731
+    if len(dump(payload)) <= page_chars:
+        return payload
+    key = lists[0]
+    items = payload[key]
+    pages: list[list[Any]] = []
+    current: list[Any] = []
+    size = 0
+    for item in items:
+        length = len(dump(item))
+        if current and size + length > page_chars:
+            pages.append(current)
+            current, size = [], 0
+        current.append(item)
+        size += length
+    if current or not pages:
+        pages.append(current)
+    index = min(max(page, 1), len(pages))
+    return {
+        **payload,
+        key: pages[index - 1],
+        "paging": {
+            "page": index, "pages": len(pages), "items": len(items),
+            "next": f"--page {index + 1}" if index < len(pages) else None,
+            "all": "--all-pages",
+        },
+    }
 
 
 def _emit(rt: ReadRuntime, payload: Any, lines: list[str]) -> None:
-    """One state, two renderings. `--json` prints the payload; the default prints the lines."""
+    """One state, two renderings. `--json` prints the payload; the default prints the lines,
+    one page of them at a time (`page` / `all_pages` on the runtime)."""
     if rt.as_json:
+        if not rt.all_pages:
+            payload = page_items(payload, rt.page, rt.page_chars)
         print(json.dumps(payload, ensure_ascii=False, indent=2, default=str), file=rt.out)
-    else:
-        for line in lines:
-            print(line, file=rt.out)
+        return
+    text = "\n".join(lines)
+    pages = [text] if rt.all_pages else paginate(text, rt.page_chars)
+    if len(pages) == 1:
+        print(text, file=rt.out)
+        return
+    index = min(max(rt.page, 1), len(pages))
+    print(pages[index - 1], file=rt.out)
+    footer = f"[page {index}/{len(pages)} · {len(pages[index - 1]):,} of {len(text):,} chars"
+    if index < len(pages):
+        footer += f" · --page {index + 1} for the next"
+    footer += " · --all-pages for everything · --json pages by item]"
+    print(footer, file=rt.out)
 
 
 def _refuse(rt: ReadRuntime, message: str) -> int:
@@ -281,16 +370,27 @@ async def cmd_canonical_ls(rt: ReadRuntime, *, include_archived: bool = False) -
     return EXIT_OK
 
 
-async def cmd_canonical_read(rt: ReadRuntime, path: str) -> int:
+async def cmd_canonical_read(rt: ReadRuntime, path: str | list[str]) -> int:
+    """One page, or several in one process: every `pkc` call builds its context, so a
+    reader wanting three pages should not pay for three."""
+    paths = [path] if isinstance(path, str) else list(path)
     docs = await rt.ctx.canonical.list(rt.user_id)
-    doc = next((d for d in docs if d.path == path), None)
-    if doc is None:
-        print(f"no such page: {path}", file=rt.err)
+    by_path = {d.path: d for d in docs}
+    found = []
+    for wanted in paths:
+        doc = by_path.get(wanted)
+        if doc is None:
+            print(f"no such page: {wanted}", file=rt.err)
+            continue
+        # The compile model's own `read_document` rendering, so the Steward and the model
+        # read one page rather than two descriptions of it.
+        found.append({"path": doc.path, "document": render_document(doc.frontmatter, doc.body)})
+    if not found:
         return EXIT_NOTHING
-    # The compile model's own `read_document` rendering, so the Steward and the model read
-    # one page rather than two descriptions of it.
-    rendered = render_document(doc.frontmatter, doc.body)
-    _emit(rt, {"path": doc.path, "document": rendered}, [rendered])
+    if len(paths) == 1:
+        _emit(rt, found[0], [found[0]["document"]])
+    else:
+        _emit(rt, {"pages": found}, [item["document"] for item in found])
     return EXIT_OK
 
 

@@ -49,12 +49,18 @@ def test_exec_refusal_and_venv_resolution(home, make_library, monkeypatch, tmp_p
     assert not calls
     assert "notes" in capsys.readouterr().err
     atomic_write(library.skill_dir.parent / "skill-version.json", json.dumps({"sha256": "synthetic-hash"}))
-    assert cli.main(["exec", "--library", "notes", "--", "pkc", "jobs"]) == 0
-    command, argv, env = calls[0]
-    assert command == str(Path(sys.prefix) / "bin" / "pkc")
-    assert argv == [command, "jobs"]
-    assert env["PNEUMA_KNOWLEDGE_TENANT"] == "lib-notes"
-    assert env["PNEUMA_KNOWLEDGE_STEWARD_SKILL_HASH"] == "synthetic-hash"
+    # `pkc` runs in THIS process (no second interpreter), under the library's environment,
+    # from the library directory; anything else is exec'd.
+    seen = {}
+    import pneuma_knowledge_service.cli as pkc_cli
+    monkeypatch.setattr(pkc_cli, "main", lambda argv: seen.update(argv=argv, env=dict(os.environ), cwd=os.getcwd()) or 0)
+    with pytest.raises(SystemExit) as stop:
+        cli.main(["exec", "--library", "notes", "--", "pkc", "jobs"])
+    assert stop.value.code == 0 and not calls
+    assert seen["argv"] == ["jobs"] and seen["cwd"] == str(library.path)
+    assert seen["env"]["PNEUMA_KNOWLEDGE_TENANT"] == "lib-notes"
+    assert seen["env"]["PNEUMA_KNOWLEDGE_STEWARD_SKILL_HASH"] == "synthetic-hash"
+    assert seen["env"]["PKC_STEWARD_SESSION"]
     assert Library.load(home, "notes").state.last_used is not None
     assert cli.main(["exec", "--library", "notes", "--", "echo", "hello"]) == 0
     assert calls[-1][0] == "echo"
