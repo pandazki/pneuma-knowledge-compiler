@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from datetime import datetime
 
+import pytest
+
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
@@ -17,6 +19,7 @@ from pneuma_knowledge_core.domain.canonical import Citation
 from pneuma_knowledge_core.domain.ids import AnchorId, SourceId, UserId
 from pneuma_knowledge_core.recall.assembly import Passage
 from pneuma_knowledge_core.recall.fast import (
+    DeliberatedRecallAnswer,
     EpisodeSummary,
     EvidenceSelection,
     SelectedEvidence,
@@ -217,7 +220,7 @@ async def test_structured_answer_admits_only_exact_presented_citations():
         answer_style="concise",
     )
 
-    assert degraded is None
+    assert degraded == "invalid_citations"
     assert deliberation is None  # no deliberation was asked for, so the field stays absent
     assert kind == "time"
     assert usage["total_tokens"] == 14
@@ -226,6 +229,31 @@ async def test_structured_answer_admits_only_exact_presented_citations():
     assert handles == {"s01": "source-0", "s02": "raw-source"}
     assert "[cite: s01 ¶0-0]" in model.seen[0][1].content
     assert model.seen[0][0].content != ""
+
+
+@pytest.mark.parametrize("deliberate", [False, True])
+@pytest.mark.parametrize("inline", [False, True])
+@pytest.mark.parametrize("malformed", [
+    "[cite: s01 ¶0-0] [cite: nonsense]",
+    "[cite: s01 ¶0-0 trailing garbage]",
+    "[cite: leading garbage s01 ¶0-0]",
+])
+async def test_valid_span_cannot_smuggle_unparsed_citation_content(deliberate, inline, malformed):
+    schema = DeliberatedRecallAnswer if deliberate else StructuredRecallAnswer
+    model = StructuredModel(parsed=schema(
+        answer_kind="fact",
+        answer="Synthetic answer" + (" " + malformed if inline else ""),
+        citations=["[cite: s01 ¶0-0]", *([] if inline else [malformed])],
+        **({"deliberation": "Synthetic evidence review."} if deliberate else {}),
+    ), seen=[])
+    result = await answer_with_structured(
+        model, "Synthetic question", _claims(1),
+        as_of=datetime(2026, 8, 14), deliberate=deliberate,
+    )
+    assert result[0] == "Synthetic answer"
+    assert result[1] == "Synthetic answer [cite: s01 ¶0-0]"
+    assert result[5] == "invalid_citations"
+    assert len(model.seen) == 1
 
 
 async def test_selected_provenance_follows_claims_and_episodes_to_authoritative_l0():

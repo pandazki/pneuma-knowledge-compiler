@@ -71,6 +71,47 @@ def iter_answer_citations(answer: str):
             yield sid, start, end
 
 
+def parse_citation_markers(text: str) -> tuple[tuple[str, int, int], ...] | None:
+    """Parse a citation-only field completely, or reject it as a whole.
+
+    The prose iterator intentionally extracts recognizable spans from free text. Admission
+    needs a stronger contract: every bracket and every character inside it must belong to
+    a span, so a valid reference cannot carry an unchecked bracket or suffix into output.
+    Merged spans retain the iterator's source inheritance, local to each bracket.
+    """
+    refs: list[tuple[str, int, int]] = []
+    cursor = 0
+    for bracket in _CITE_BRACKET_RE.finditer(text):
+        if text[cursor:bracket.start()].strip():
+            return None
+        body = bracket.group("body")
+        position = 0
+        current_sid: str | None = None
+        for span in _CITE_SPAN_RE.finditer(body):
+            gap = body[position:span.start()]
+            if current_sid is None:
+                if gap.strip():
+                    return None
+            elif not re.fullmatch(r"\s*[,;]\s*|\s+", gap):
+                return None
+            sid = span.group("sid") or current_sid
+            if sid is None:
+                return None
+            start = int(span.group("start"))
+            end = int(span.group("end")) if span.group("end") else start
+            if end < start:
+                return None
+            refs.append((sid, start, end))
+            current_sid = sid
+            position = span.end()
+        if current_sid is None or body[position:].strip():
+            return None
+        cursor = bracket.end()
+    if text[cursor:].strip() or not refs:
+        return None
+    return tuple(refs)
+
+
 # A bare id inside a `[cite: …]` bracket that carries no `¶` span at all.
 _CITE_BARE_SID_RE = re.compile(r"[^\s,;¶\]]+")
 

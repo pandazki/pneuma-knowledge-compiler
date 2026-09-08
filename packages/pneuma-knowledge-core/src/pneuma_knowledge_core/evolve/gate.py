@@ -15,8 +15,9 @@ reorganization is not a forward-only single compile:
   never hits the store (evolve must not re-audit the whole KB on every run).
 - **path ownership is against the NEW skill's templates**, passed in explicitly.
 
-The daily compile gate is untouched; this is a separate profile that shares only the pure
-structural checks — and one rule that is not structural but is not a compile rule either:
+This profile shares compile's pure structural, citation-shape, claim-provenance and overview
+checks. New/changed claims and newly broken dependants must reach provenance. Byte-identical
+historical defects may move but never ground new claims. It also shares the rule that
 an ARCHIVE RECORD is read-only (`check_archive_records`). A reorganization moves claims
 between pages and renames families, and a record is neither material nor shape: it stays
 byte-for-byte where the archive job left it, and the Owner unmakes that by unarchiving.
@@ -43,9 +44,12 @@ from ..compile.gate import (
     check_anchor_coverage,
     check_anchor_uniqueness,
     check_archive_records,
+    check_citation_shape,
+    check_claim_provenance,
     check_frontmatter,
 )
 from ..compile.patch import DraftDoc, PatchDraft, path_allowed
+from ..compile.overview import check_overviews
 from ..compile.transitions import _anchor_blocks
 from ..components import registered_components
 from ..domain.canonical import (
@@ -210,8 +214,17 @@ async def run_evolve_gate(
     violations.extend(check_frontmatter(docs))
     violations.extend(check_anchor_coverage(docs))
 
-    # 3b. the enabled components judge their own families, exactly as they do in a daily
-    # compile. Canonical field invariants belong to canonical, not to one writing channel.
+    # 3b. Provenance belongs to canonical, regardless of the writing channel.
+    violations.extend(check_citation_shape(docs))
+    violations.extend(check_claim_provenance(docs, draft.base_documents()))
+    violations.extend(
+        Violation(kind, path, detail) for kind, path, detail in check_overviews(
+            {path: doc.body for path, doc in docs.items()},
+            base_bodies=base_bodies,
+            budget=draft.overview_budget_chars,
+        )
+    )
+    # The enabled components also judge their own families, as in a daily compile.
     violations.extend(component_gate_checks(docs, draft.base_documents()))
 
     # 3c. an ARCHIVE RECORD is left where it stands, byte-for-byte — the same rule the daily

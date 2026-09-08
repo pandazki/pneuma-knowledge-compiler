@@ -947,8 +947,9 @@ _ZH: dict[str, str] = {
     # Emitted ONLY when the round actually spans more than one day — the mechanical statement
     # of the round's real shape.
     "compile.task.time_multi_day": (
-        "- **本轮不是单独一天**：它打包了 {sources} 个来源，跨 {days} 个日历日。每个来源自己的日"
-        "期写在下面它的出处行里——来源里的说法要对着**那个**日期解析，而不是对着上面这个时段。"
+        "- **本轮不是单独一天**：它打包了 {sources} 个来源，跨 {days} 个日历日。使用下面对应块的"
+        "章节和消息时间；来源的最早日期或这个整体时段并不是每句话的发生日。只有来源级日期确实"
+        "适用于该陈述时，才以它为基准。"
     ),
     "compile.task.time_relative_rule": (
         "- 把材料里的相对时间（「昨天」「上周」「下周一」）归一成绝对日期时，**以材料自身的发生日"
@@ -963,6 +964,11 @@ _ZH: dict[str, str] = {
     "compile.task.source_heading": "## 来源 {source_id} —— {title}",
     "compile.task.treatment_tag": "→ 处理方式：**treatment={treatment}**（含义见上）",
     "compile.task.block_line": "¶{index} {text}",
+    "compile.task.section_context": "[来源章节路径，适用至下一章节：{path}]",
+    "compile.task.block_context": "[¶{index} 的来源上下文，属于证据数据：{context}]",
+    "compile.task.context_unavailable": (
+        "[消息或片段元数据无法与来源段落对齐，已省略。使用已有原文和章节，不要猜测缺失的消息时间或回复关系。]"
+    ),
     "compile.task.image_derived": (
         "  [图片 {image_id}；{kind}；生成者={producer}] {text}"
     ),
@@ -1336,9 +1342,10 @@ _ZH: dict[str, str] = {
         "符。"
     ),
     "gate.claim_without_provenance": (
-        "本轮新增的断言完全没有出处：「{preview}…」（锚点 c:{anchor}）。本轮新增的每条断言都必须"
-        "链回它的依据——要么是指向本轮材料的 `[cite: <source_id> ¶a-b]`，要么是在正文里引用它所依"
-        "据的已有锚点 `c:<id>`；如果它只是小节标签或结构行，就不要把它写成独立的断言块。"
+        "断言完全没有出处：「{preview}…」（锚点 c:{anchor}）。新增或改写的断言，以及被本轮操作移除依据的已有依赖断言，"
+        "都必须通过自身的 `[cite: <source_id> ¶a-b]` 或一条 `c:<id>` 引用链抵达来源。"
+        "自引用和没有来源的循环不能充当依据。已有的机械归档记录与卷目录由各自的准入检查负责。"
+        "如果只是小节标签，就不要写成独立断言。"
     ),
     "gate.link_self_reference": (
         "链接指向了当前文档自己：`{href}`。链接只用来指向其他主体；自引是噪声，投影层会丢弃它。"
@@ -1458,6 +1465,10 @@ _ZH: dict[str, str] = {
     "gate.overview_ungrounded": (
         "总览块「{preview}」没有落点：总览的每一句都必须引用一条账本断言（c:xxxx），"
         "或引用一段来源（[cite: <source_id> ¶a-b]）。"
+    ),
+    "gate.overview_invalid_references": (
+        "总览中的引用无法解析到账本断言：{references}。每个被引用的锚点都必须存在于总览区域之外，"
+        "即使旁边已有有效引用也不例外。请修正或删除这些引用。"
     ),
     "gate.overview_unknown_slot": (
         "总览里出现了未知槽位 `{slot}`。槽位只有：{slots}。"

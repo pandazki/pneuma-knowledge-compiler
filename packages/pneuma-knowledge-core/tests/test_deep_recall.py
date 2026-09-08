@@ -7,6 +7,8 @@ import hashlib
 from datetime import datetime
 from typing import Any
 
+import pytest
+
 from pneuma_knowledge_core.components import (
     RECALL_EVIDENCE_KEY,
     BaseComponent,
@@ -14,6 +16,7 @@ from pneuma_knowledge_core.components import (
     reset_components,
 )
 from pneuma_knowledge_core.domain.consultation import EvidenceRef
+from pneuma_knowledge_core.domain.canonical import CanonicalDocument
 from pneuma_knowledge_core.domain.ids import UserId, SourceId
 from pneuma_knowledge_core.domain.source import (
     NormalizedBlock,
@@ -197,6 +200,70 @@ async def test_direct_answer_over_seed_evidence_no_tools():
     assert system.content == deep_contract()
     assert "# claim notes" in human.content
     assert human.content.rstrip().endswith("Owner input: 谁是后端负责人")
+
+
+@pytest.mark.parametrize("has_successor", [False, True])
+async def test_seed_and_search_claims_preserve_pinned_canonical_supersession(has_successor):
+    """Historical wording stays accessible and is labelled only when this snapshot
+    records its successor, even when the index ranks the older wording first."""
+    path = "subjects/orbit.md"
+    old = ClaimStub(
+        "aa11", path, "Orbit launch is approved.",
+        citations=[{"source_id": "old-review", "block_start": 0, "block_end": 0}],
+    )
+    current = ClaimStub(
+        "bb22", path, "Orbit launch is blocked.",
+        citations=[{"source_id": "new-review", "block_start": 2, "block_end": 2}],
+    )
+    body = (
+        "# Orbit\n\n"
+        "- Orbit launch is approved. [cite: old-review ¶0] <!-- c:aa11 -->\n"
+    )
+    if has_successor:
+        body += (
+            "- Orbit launch is blocked. [cite: new-review ¶2] "
+            "<!-- c:bb22 --> <!-- supersedes: c:aa11 -->\n"
+        )
+    doc = CanonicalDocument(doc_id="d-orbit", path=path, body=body)
+    candidates = [old, current] if has_successor else [old]
+    model = _model(
+        AIMessage(content="", tool_calls=[
+            _tool_call("search_claims", {"query": "Orbit launch decision"}, "verify")
+        ]),
+        AIMessage(content="Decision checked."),
+    )
+    result = await deep_recall(
+        _USER,
+        "How did the Orbit launch decision change?",
+        as_of=_AS_OF,
+        claim_lexical=FakeClaimIndex(candidates),
+        claim_vectors=FakeClaimIndex([]),
+        embeddings=FakeEmbeddings(),
+        model=model,
+        content=FakeContent(),
+        documents=[doc],
+    )
+
+    seed = model.seen[0][1].content.split("# claim notes", 1)[1]
+    searched = next(
+        message.content for message in model.seen[-1]
+        if getattr(message, "type", None) == "tool"
+    )
+    for evidence in (seed, searched):
+        old_line = next(line for line in evidence.splitlines() if "[c:aa11" in line)
+        assert "Orbit launch is approved." in old_line
+        assert "[cite: old-review ¶0-0]" in old_line
+        assert ("superseded" in old_line) is has_successor
+        if has_successor:
+            assert evidence.index("[c:bb22") < evidence.index("[c:aa11")
+            current_line = next(line for line in evidence.splitlines() if "[c:bb22" in line)
+            assert "superseded" not in current_line
+    assert [str(claim.anchor) for claim in result.used_claims] == (
+        ["bb22", "aa11"] if has_successor else ["aa11"]
+    )
+    assert next(claim for claim in result.used_claims if claim.anchor == "aa11").labels == (
+        ("superseded",) if has_successor else ()
+    )
 
 
 async def test_search_content_surfaces_uncompiled_body_the_jack_regression():

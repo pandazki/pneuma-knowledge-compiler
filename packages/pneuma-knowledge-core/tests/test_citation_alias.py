@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import pytest
+
 from pneuma_knowledge_core.recall.citation_alias import (
     alias_sources,
     iter_answer_citations,
+    parse_citation_markers,
     resolve_handles,
 )
 
@@ -66,6 +69,35 @@ def test_iter_answer_citations_expands_merged_multi_source_bracket():
 def test_iter_answer_citations_ignores_source_level_and_template_tokens():
     # a bare source-level cite has no block span; template placeholders carry no ¶ digit.
     assert list(iter_answer_citations("[cite: s01] 与 [cite: <source_id> ¶a-b]")) == []
+
+
+@pytest.mark.parametrize("marker", [
+    "", "[cite: s01]", "[cite: ¶0]", "[cite: s01 ¶8-1]",
+    "[cite: s01 ¶0] [cite: nonsense]",
+    "[cite: nonsense] [cite: s01 ¶0]",
+    "[cite: s01 ¶0 trailing garbage]",
+    "[cite: leading garbage s01 ¶0]",
+    "[cite: s01 ¶0, garbage, ¶2]",
+    "[cite: s01 ¶0, ¶]", "[cite: s01 ¶0-]",
+    "[cite: s01 ¶0, s99]", "[cite: s01 ¶0], [cite: s02 ¶2]",
+    "prefix [cite: s01 ¶0]", "[cite: s01 ¶0] suffix",
+    "[cite: s01 ¶0][cite: ¶2]", "[cite: s01 ¶0] [cite: s02 ¶2",
+])
+def test_citation_only_parser_rejects_every_unconsumed_fragment(marker):
+    assert parse_citation_markers(marker) is None
+
+
+@pytest.mark.parametrize("marker,expected", [
+    (" [cite: s01 ¶0] ", (("s01", 0, 0),)),
+    ("[cite: s01 ¶0-8]", (("s01", 0, 8),)),
+    ("[cite: s01 ¶1-3, ¶5-7]", (("s01", 1, 3), ("s01", 5, 7))),
+    ("[cite: s01 ¶1-3; s02 ¶2-4]", (("s01", 1, 3), ("s02", 2, 4))),
+    ("[cite: s01 ¶0 ¶2]", (("s01", 0, 0), ("s01", 2, 2))),
+    ("[cite: s01 ¶0]\n[cite: s02 ¶2]", (("s01", 0, 0), ("s02", 2, 2))),
+    ("[cite: s01 ¶0][cite: s02 ¶2]", (("s01", 0, 0), ("s02", 2, 2))),
+])
+def test_citation_only_parser_preserves_zero_based_and_merged_spans(marker, expected):
+    assert parse_citation_markers(marker) == expected
 
 
 def test_session_aliaser_keeps_one_handle_per_source_across_calls():

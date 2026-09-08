@@ -559,7 +559,7 @@ export interface RecallAnswer {
   model_selected_windows?: number;
   answer_format?: "text" | "structured";
   answer_kind?: "fact" | "list" | "time" | "duration" | "yes_no" | "inference" | "no_record" | null;
-  answer_format_degraded?: "timeout" | "error" | null;
+  answer_format_degraded?: "timeout" | "error" | "invalid_citations" | "inline_citations" | null;
   /** The answering call's own evidence review, when the schema asked for one (the `all`
    *  strategy). Model output about the evidence — never evidence, never a citation. */
   deliberation?: string | null;

@@ -53,6 +53,7 @@ from ..canonical_glance import (
 from ..compile.documents import render_document
 from ..compile.documents import OVERVIEW_LABEL
 from ..domain.canonical import CanonicalDocument, Citation, iter_canonical_citations
+from ..domain.archive import live_documents
 from ..domain.consultation import (
     EvidenceRef,
     claim_ref,
@@ -62,7 +63,7 @@ from ..domain.consultation import (
 )
 from ..domain.ids import AnchorId, UserId, SourceId
 from ..domain.pricing import USAGE_FIELDS
-from ..domain.source import BlockImage, NormalizedSource
+from ..domain.source import BlockImage, NormalizedBlock, NormalizedSource
 from ..ports.claim_index import ClaimLexicalIndex, ClaimVectorIndex
 from ..ports.content_store import ContentStore
 from ..ports.lexical_index import LexicalIndex
@@ -81,6 +82,7 @@ from .citation_alias import (
     SessionAliaser,
     alias_sources,
     iter_answer_citations,
+    parse_citation_markers,
     strip_citations,
 )
 from .scope import SnapshotScope, scope_declaration
@@ -114,6 +116,7 @@ from .assembly import (
     render_passages,
 )
 from .projection import PROJECTION_V1, ProjectedClaim, project_document_claims
+from .provenance import hydrate_claim_citations
 from .rag import EpisodeSummarySignal, RecallHit, _rrf_scores, rag_recall, rrf_fuse
 from ..compile.supersession import superseded_index
 from .paths import (
@@ -568,7 +571,8 @@ class FastAnswer:
     evidence_strategy: str = "ranked"
     evidence_selection_degraded: str | None = None
     # The answer wire shape. Structured answers still return the same public `answer`
-    # string; kind/degradation are additive telemetry.
+    # string; kind/degradation are additive telemetry. Invalid citation removal is
+    # reported as "invalid_citations" without making a second model call.
     answer_format: str = "text"
     answer_kind: str | None = None
     answer_format_degraded: str | None = None
@@ -1964,6 +1968,22 @@ def evidence_selection_messages(
     ]
 
 
+def _reasoning_kwargs(model: BaseChatModel, effort: str | None) -> dict[str, Any]:
+    """Merge the OpenRouter effort override with the model's request defaults.
+
+    Pass these kwargs into `with_structured_output` itself on structured paths:
+    calling that method on `model.bind(...)` delegates to the original model and loses
+    the binding. Text calls bind the same merged body without replacing provider routing.
+    No override leaves the provider's defaults untouched.
+    """
+    if not effort:
+        return {}
+    extra_body = dict(getattr(model, "extra_body", None) or {})
+    reasoning = dict(extra_body.get("reasoning") or {})
+    extra_body["reasoning"] = {**reasoning, "effort": effort}
+    return {"extra_body": extra_body}
+
+
 async def select_evidence(
     model: BaseChatModel,
     question: str,
@@ -2012,14 +2032,10 @@ async def select_evidence(
         component_cap=component_cap,
         document_cap=document_cap,
     )
-    selecting_model = (
-        model.bind(extra_body={"reasoning": {"effort": reasoning_effort}})
-        if reasoning_effort
-        else model
-    )
     try:
-        structured = selecting_model.with_structured_output(
-            EvidenceSelection, include_raw=True
+        structured = model.with_structured_output(
+            EvidenceSelection, include_raw=True,
+            **_reasoning_kwargs(model, reasoning_effort),
         )
         call = structured.ainvoke(
             messages,
@@ -2287,9 +2303,7 @@ async def answer_with_selector(
     # `bind` rather than a constructor knob: the client instance is shared across roles
     # (wiring caches by model spec), so the override must live on this call, not the client.
     answering_model = (
-        model.bind(extra_body={"reasoning": {"effort": reasoning_effort}})
-        if reasoning_effort
-        else model
+        model.bind(**_reasoning_kwargs(model, reasoning_effort)) if reasoning_effort else model
     )
     response = await invoke_or_stream(
         answering_model,
@@ -2467,7 +2481,8 @@ async def answer_with_structured(
 
     Provider/schema failure retries through the historical text answer once and exposes the
     degradation reason. A successful structured call keeps answer text and citations apart;
-    only exact citation spans present in the aliased evidence are appended.
+    only exact citation spans present in the aliased evidence are appended. Rejected
+    citation entries set "invalid_citations" without retrying the model.
 
     Returns the deliberation as its seventh element: the text of the review when one was
     asked for and produced, None otherwise (including on the degraded fallback, which
@@ -2491,17 +2506,14 @@ async def answer_with_structured(
         image_mode=image_mode,
     )
     aliased_human, handle_map = _alias_human_content(human)
-    answering_model = (
-        model.bind(extra_body={"reasoning": {"effort": reasoning_effort}})
-        if reasoning_effort
-        else model
-    )
     usage = zero_usage()
     degraded: str | None = None
     parsed: object = None
     schema = DeliberatedRecallAnswer if deliberate else StructuredRecallAnswer
     try:
-        structured = answering_model.with_structured_output(schema, include_raw=True)
+        structured = model.with_structured_output(
+            schema, include_raw=True, **_reasoning_kwargs(model, reasoning_effort)
+        )
         messages = [
             SystemMessage(
                 content=structured_answer_contract(answer_style, deliberate=deliberate)
@@ -2543,7 +2555,7 @@ async def answer_with_structured(
             full_documents=full_documents,
             window_notes=window_notes,
             timelines=timelines,
-        component_evidence=component_evidence,
+            component_evidence=component_evidence,
             images=images,
             image_mode=image_mode,
             callbacks=callbacks,
@@ -2565,20 +2577,22 @@ async def answer_with_structured(
 
     allowed = set(iter_answer_citations(_text_blocks(aliased_human)))
     citations: list[str] = []
-    for candidate in parsed.citations:
+    inline = re.findall(r"\[cite:[^\]]*\]", parsed.answer)
+    if inline:
+        degraded = "inline_citations"
+    for candidate in [*parsed.citations, *inline]:
         marker = str(candidate or "").strip()
-        references = tuple(iter_answer_citations(marker))
+        references = parse_citation_markers(marker)
         if (
-            not marker
-            or strip_citations(marker)
-            or not references
+            not references
             or any(reference not in allowed for reference in references)
             or any(source not in handle_map for source, _start, _end in references)
         ):
+            degraded = "invalid_citations"
             continue
         if marker not in citations:
             citations.append(marker)
-    answer_text = parsed.answer.strip()
+    answer_text = strip_citations(parsed.answer)
     answer = answer_text
     if citations:
         answer = (answer + " " + " ".join(citations)).strip()
@@ -2592,7 +2606,7 @@ async def answer_with_structured(
         usage,
         handle_map,
         parsed.answer_kind,
-        None,
+        degraded,
         deliberation,
     )
 
@@ -2879,13 +2893,50 @@ async def assemble_windows(
     return order_lost_in_middle(passages) if order else passages
 
 
-def _span_overlaps(items: Sequence[object], source_id: str, start: int, end: int) -> bool:
-    return any(
-        str(getattr(item, "source_id")) == source_id
-        and int(getattr(item, "block_start")) <= end
-        and start <= int(getattr(item, "block_end"))
-        for item in items
-    )
+def _provenance_blocks(
+    blocks: Mapping[int, NormalizedBlock], start: int, end: int
+) -> list[NormalizedBlock]:
+    """Resolve the entire requested interval, never a silently clamped citation."""
+    if start < 0 or end < start or end - start + 1 > len(blocks):
+        raise ValueError("provenance span does not resolve to a complete L0 interval")
+    try:
+        return [blocks[index] for index in range(start, end + 1)]
+    except KeyError as exc:
+        raise ValueError("provenance span does not resolve to a complete L0 interval") from exc
+
+
+def _span_fully_shown(
+    source: NormalizedSource, block_map: Mapping[int, NormalizedBlock],
+    items: Sequence[object], start: int, end: int,
+) -> bool:
+    """Only complete verbatim windows can discharge a source-reading obligation.
+
+    Passage ranges remain provenance addresses when their text is truncated. Compare
+    against L0 before treating a range as read; a caption/summary or shortened window
+    cannot stand in for unseen source bytes. Adjacent complete windows may cover the
+    interval together, but a gap or a different source never does.
+    """
+    spans: list[tuple[int, int]] = []
+    for item in items:
+        if str(item.source_id) != str(source.raw.source_id):
+            continue
+        left, right = item.block_start, item.block_end
+        if right < start or left > end:
+            continue
+        try:
+            blocks = _provenance_blocks(block_map, left, right)
+        except ValueError:
+            continue
+        if item.text == "\n".join(block.text for block in blocks):
+            spans.append((left, right))
+    next_block = start
+    for left, right in sorted(spans):
+        if left > next_block:
+            return False
+        next_block = max(next_block, right + 1)
+        if next_block > end:
+            return True
+    return False
 
 
 async def expand_claim_provenance(
@@ -2896,37 +2947,41 @@ async def expand_claim_provenance(
     existing: Sequence[object] = (),
     claim_cap: int = 16,
     passage_cap: int = 12,
+    invalid_citations: list[Citation] | None = None,
 ) -> list[Passage]:
-    """Follow selected canonical claims to authoritative, deduplicated L0 passages."""
+    """Follow selected canonical claims to authoritative, deduplicated L0 passages.
+
+    With an error sink, skip and report incomplete intervals so a caller can exclude the
+    affected evidence. Without one, stay strict. Store/identity errors still propagate.
+    """
 
     if content is None or claim_cap <= 0 or passage_cap <= 0:
         return []
-    cache: dict[str, NormalizedSource] = {}
+    cache: dict[str, tuple[NormalizedSource, dict[int, NormalizedBlock]]] = {}
     passages: list[Passage] = []
     for claim in claims[:claim_cap]:
         for citation in claim.citations:
             source_id = str(citation.source_id)
-            if _span_overlaps(
-                (*existing, *passages),
-                source_id,
-                citation.block_start,
-                citation.block_end,
+            if source_id not in cache:
+                source = await content.get(user_id, citation.source_id)
+                if source.raw.source_id != citation.source_id or source.raw.user_id != user_id:
+                    raise ValueError("provenance source identity does not match the requested tenant/source")
+                block_map = {block.index: block for block in source.blocks}
+                if len(block_map) != len(source.blocks):
+                    raise ValueError("provenance source has duplicate block indices")
+                cache[source_id] = source, block_map
+            source, block_map = cache[source_id]
+            try:
+                blocks = _provenance_blocks(block_map, citation.block_start, citation.block_end)
+            except ValueError:
+                if invalid_citations is None:
+                    raise
+                invalid_citations.append(citation)
+                continue
+            if _span_fully_shown(
+                source, block_map, (*existing, *passages), citation.block_start, citation.block_end
             ):
                 continue
-            source = cache.get(source_id)
-            if source is None:
-                source = await content.get(user_id, citation.source_id)
-                cache[source_id] = source
-            blocks = [
-                block
-                for block in source.blocks
-                if citation.block_start <= block.index <= citation.block_end
-            ]
-            if not blocks:
-                raise ValueError(
-                    f"claim citation {source_id} ¶{citation.block_start}-{citation.block_end} "
-                    "does not resolve to L0 blocks"
-                )
             passages.append(
                 Passage(
                     source_id=citation.source_id,
@@ -2952,36 +3007,39 @@ async def expand_episode_provenance(
     content: ContentStore | None,
     existing: Sequence[object] = (),
     episode_cap: int = 4,
+    invalid_citations: list[Citation] | None = None,
 ) -> list[Passage]:
-    """Follow selected derived episodes to their authoritative L0 spans."""
+    """Follow selected derived episodes to L0, with the claim follower's error policy."""
 
     if content is None or episode_cap <= 0:
         return []
-    cache: dict[str, NormalizedSource] = {}
+    cache: dict[str, tuple[NormalizedSource, dict[int, NormalizedBlock]]] = {}
     passages: list[Passage] = []
     for summary in summaries[:episode_cap]:
         source_id = str(summary.source_id)
-        if _span_overlaps(
-            (*existing, *passages),
-            source_id,
-            summary.block_start,
-            summary.block_end,
+        if source_id not in cache:
+            source = await content.get(user_id, summary.source_id)
+            if source.raw.source_id != summary.source_id or source.raw.user_id != user_id:
+                raise ValueError("provenance source identity does not match the requested tenant/source")
+            block_map = {block.index: block for block in source.blocks}
+            if len(block_map) != len(source.blocks):
+                raise ValueError("provenance source has duplicate block indices")
+            cache[source_id] = source, block_map
+        source, block_map = cache[source_id]
+        try:
+            blocks = _provenance_blocks(block_map, summary.block_start, summary.block_end)
+        except ValueError:
+            if invalid_citations is None:
+                raise
+            invalid_citations.append(Citation(
+                source_id=summary.source_id, block_start=summary.block_start,
+                block_end=summary.block_end,
+            ))
+            continue
+        if _span_fully_shown(
+            source, block_map, (*existing, *passages), summary.block_start, summary.block_end
         ):
             continue
-        source = cache.get(source_id)
-        if source is None:
-            source = await content.get(user_id, summary.source_id)
-            cache[source_id] = source
-        blocks = [
-            block
-            for block in source.blocks
-            if summary.block_start <= block.index <= summary.block_end
-        ]
-        if not blocks:
-            raise ValueError(
-                f"episode span {source_id} ¶{summary.block_start}-{summary.block_end} "
-                "does not resolve to L0 blocks"
-            )
         passages.append(
             Passage(
                 source_id=summary.source_id,
@@ -3435,6 +3493,13 @@ async def fast_recall(
     claims_raw, hidden_claims = scope_claims(
         claims_raw, view, include_archived=include_archived, live_paths=live_paths
     )
+    provenance_documents = (
+        documents if documents is None or include_archived else live_documents(documents)
+    )
+    # Resolve the same canonical graph the write gate admits, including for indexes
+    # built before transitive locators were projected. This never fetches extra documents.
+    with timer.measure("assemble"):
+        claims_raw, _ = hydrate_claim_citations(claims_raw, provenance_documents)
     raw_windows, hidden_windows = scope_windows(
         raw_windows, view, include_archived=include_archived
     )
@@ -3447,6 +3512,12 @@ async def fast_recall(
         include_archived=include_archived,
         live_paths=live_paths,
     )
+    with timer.measure("assemble"):
+        component_evidence = [
+            replace(group, claims=tuple(hydrate_claim_citations(
+                group.claims, provenance_documents
+            )[0])) for group in component_evidence
+        ]
     archive_hidden = hidden_claims + hidden_windows + hidden_component
     if archive_hidden:
         # Never silent: the same channel the rest of this lane states an omission on. The
@@ -3750,9 +3821,10 @@ async def fast_recall(
     # hidden way to pull extra media into a call.
     image_windows = list(windows)
     if evidence_strategy == "select" and content is not None:
-        # L3 and derived L2 are navigation, not authority. Once selected, follow their
-        # source spans back to bounded L0 passages and deduplicate them against the raw face.
+        # Selected canonical claims and derived summaries carry source pointers. Follow
+        # them to L0 under passage-count caps; only fully read spans are redundant.
         with timer.measure("assemble"):
+            invalid_citations: list[Citation] = []
             claim_passages = await expand_claim_provenance(
                 user_id,
                 claims,
@@ -3760,6 +3832,7 @@ async def fast_recall(
                 existing=windows,
                 claim_cap=len(claims),
                 passage_cap=claim_provenance_passage_cap,
+                invalid_citations=invalid_citations,
             )
             episode_passages = await expand_episode_provenance(
                 user_id,
@@ -3767,7 +3840,32 @@ async def fast_recall(
                 content=content,
                 existing=(*windows, *claim_passages),
                 episode_cap=episode_provenance_passage_cap,
+                invalid_citations=invalid_citations,
             )
+            if invalid_citations:
+                # Drop selected claims/summaries whose pointer failed. Keep the remaining
+                # evidence and complete passages, including those after the bad interval.
+                invalid_spans = {
+                    (c.source_id, c.block_start, c.block_end) for c in invalid_citations
+                }
+                before_claims, before_episodes = len(claims), len(episode_summaries)
+                claims = [c for c in claims if not any(
+                    (cite.source_id, cite.block_start, cite.block_end) in invalid_spans
+                    for cite in c.citations
+                )]
+                episode_summaries = [e for e in episode_summaries if (
+                    e.source_id, e.block_start, e.block_end
+                ) not in invalid_spans]
+                reason = "provenance:invalid_span"
+                evidence_selection_degraded = ";".join(filter(None, (
+                    evidence_selection_degraded, reason,
+                )))
+                timer.degrade("assemble", reason)
+                timer.preview("assemble", {
+                    "invalid_provenance_spans": len(invalid_spans),
+                    "dropped_provenance_claims": before_claims - len(claims),
+                    "dropped_provenance_episodes": before_episodes - len(episode_summaries),
+                })
             timer.preview(
                 "assemble",
                 {
@@ -3975,7 +4073,7 @@ async def fast_recall(
                 "answer",
                 {
                     "format": answer_format,
-                    "turns": 2 if answer_format_degraded else 1,
+                    "turns": 2 if answer_format_degraded in {"error", "timeout"} else 1,
                     **({"deliberation": preview_head(deliberation)} if deliberation else {}),
                     **_answer_input_preview(
                         claims, windows, episode_summaries, expanded, glance

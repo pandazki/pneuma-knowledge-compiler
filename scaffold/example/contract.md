@@ -3,7 +3,7 @@
 # path_templates 声明库的目录布局，与正文第 1 节的主体族一一对应。
 # skill_id/version 是这座库自己的标识——即使正文来自示例，溯源也从你的第一次提交起算。
 skill_id: my-knowledge
-version: app-v1
+version: app-v2
 path_templates:
   - memory/profile.md
   - memory/people/{slug}.md
@@ -51,8 +51,11 @@ path_templates:
 
 ## 4. 时间
 
-以每份材料 frontmatter 的 date 为发生日期；「下周」「月中」一律换算成
-具体日期并附原话。
+材料 frontmatter 的 date 是该笔记或对话的记录日期，不自动等于所述事件的发生日期。
+相对时间以该来源日期为基准，并保留原话；只有来源和已声明的日历约定足以确定时，
+才换算为确切日期或区间。「下周」「月中」未给定具体日期或边界时，保留带基准的
+表达，不补造某一天或区间端点。区分计划、实际发生与验收；账本和概览沿用同一
+时间口径与精度。导入日期不作为事件日期。
 
 ## 5. 隐私与不入册
 

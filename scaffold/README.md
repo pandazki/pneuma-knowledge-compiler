@@ -1,86 +1,103 @@
-# pneuma-knowledge scaffold — the project generator
+# Build a knowledge library from your sources
 
 **English** | [简体中文](README.zh-CN.md)
 
-The scaffold is a **generator**: one entry script that asks a handful of questions (or takes
-them all at once from a file), then produces a complete, self-contained knowledge-base
-project in a directory of your choosing — your data, your contract, your own middleware
-stack on auto-probed free ports.
+Pneuma compiles raw material into a maintained library of subjects and claims, with references
+back to the original passages. The scaffold generates the application that owns your sources,
+compile contract and runtime. Start here as a user of the framework; you do not need to read
+its implementation first.
+
+The default path is **preserve sources → compile by subject → inspect evidence and usefulness**.
+L0 stores source material, L1/L2 support retrieval, and L3 is the maintained canonical library.
+A successful compile establishes mechanical validity, not faithful interpretation or complete
+coverage. Keep those two acceptance questions separate.
+
+## Start with your material
+
+Prerequisites: Python, `uv`, Docker and a model API key. Run from this directory:
 
 ```bash
-./init.py --demo                           # zero interaction, zero keys: a project that
-                                           #   already HAS a compiled library, started for you
-./init.py                                  # interactive: guided, step by step, with a
-                                           #   bundled demo dataset offered at every fork
-./init.py --answers my.toml --target DIR   # one command: for coding agents and CI
-./init.py --print-schema                   # the commented answers-file template
+./init.py                                  # interactive; Enter starts an empty project
+./init.py --print-schema                    # all answers-file options
+./init.py --answers answers.toml --target /path/to/my-kb
 ```
 
-**Just want to see what a finished knowledge base looks like?** `./init.py --demo` generates a
-real project into a fresh temporary directory, brings up its stack and browser UI, and loads
-the library of [`examples/opc`](../examples/opc/README.md) — 191 sources, 28 canonical
-documents, every claim drillable back to the exact source passage — with **no API key at all**
-(`--target DIR` to choose where, `--no-start` to generate without starting docker). It is an
-ordinary generated project that happens to arrive with a library, so anything you learn there
-transfers directly to your own.
+A minimal `answers.toml`:
 
-Both modes run the same generator; the interactive flow simply collects the same answers a
-file would carry. No question in the flow requires prior knowledge: every step introduces
-what the thing is for, offers a sensible default (Enter accepts), and echoes what you chose.
-Ports, compose project names, tenant ids — anything a newcomer has no opinion about — are
-decided automatically and echoed, never asked.
-
-Want an AI to build the library with you? Hand `AGENT-GUIDE.md` to your coding agent
-(Claude Code / Codex / Cursor all work) and paste it this line:
-
-```
-请阅读 scaffold/AGENT-GUIDE.md 并按它引导我，用我自己的数据建一个知识库。我是新手，请一步步来。
+```toml
+language = "en"
+project_name = "my-kb"
+[data]
+mode = "path"
+path = "/absolute/path/to/material"
 ```
 
-## What gets generated
+Omit `[data]` to put material into the generated `my-data/` later. Owner information is
+optional. The generated `engine/compile/contract.md` is a usable, domain-neutral starting
+contract, with one independently evolving subject per `subjects/{slug}.md`. Read a few
+representative sources and specialize it when the intended use calls for a better layout.
 
-```
-my-kb/
-  engine/            # YOURS — the engine, its own git repository: model roles, chunking,
-                     #   answering, the compile contract, the owner profile, prompt overlays
-  .env               # YOURS — the key and this machine's infrastructure (gitignored)
-  my-data/           # YOURS — material (.md files; pre-filled when you chose the demo dataset)
-  README.md          # generated in your language, states these boundaries
-  AGENTS.md          # tells any coding agent the same boundaries + where the guides live
-  app.py             # machinery — runtime driver (never edit)
-  start.sh           # machinery — end-to-end demo runner (never edit)
-  docker-compose.yml # machinery — per-project middleware stack (never edit)
-  server.py          # machinery — the API entrypoint of the browsing layer (never edit)
-  worker.py          # machinery — the compile worker of the browsing layer (never edit)
-```
-
-The machinery files are verbatim copies of `templates/` — upgrading them is regenerating a
-project (or copying the newest templates over); everything you authored lives outside them.
-
-Then, inside the generated project:
+Inside the generated project:
 
 ```bash
-cd my-kb
-$EDITOR .env       # fill OPENROUTER_API_KEY (skipped only if you didn't enter it)
-./start.sh         # stack → ingest → compile → cited demo answers → library glance
-
-docker compose --profile console up -d --wait   # and to work in a browser: the library,
-                                                #   the material, the Engine Console
+$EDITOR .env                               # put credentials here only
+./start.sh                                 # validate → start → ingest/compile each input file
+./app.py glance
+./app.py ask 'A real question about this material' --sources
 ```
 
-## What this directory contains
+Inputs are processed in filename order. Name files to express the intended replay order.
+Use [source-contract JSON](../docs/reference/source-contracts.md) when material carries
+participant identities, message timestamps, threads or media. Markdown is a convenience
+adapter for notes and simple transcripts, not a substitute for those fields. The importer
+validates the whole inventory before writing; it preserves Markdown frontmatter and does
+not turn an imprecise date into an invented clock time. See the generated README for syntax.
 
-| Path | What it is |
+Every build/import, queue drain and answer writes a private receipt under `data/run-reports/`.
+Check input hashes, imported source IDs, job history, failures and answer degradation. The
+reported compile-model token count is not the total cost of indexing, retrieval and answering.
+
+## Understand and improve the result
+
+1. Read the source, its subject page and the cited passage together. Check attribution,
+   dates, qualifiers, changes and omissions; a valid address can still support the wrong claim.
+2. Ask questions implied by real future use. If an answer is wrong, locate the first failure:
+   import, compilation, retrieval, context selection, or final interpretation.
+3. Change the responsible layer. A contract change governs future compiles; it does not
+   recompile old sources, and a derived-index rebuild does not rewrite canonical knowledge.
+
+For agent-assisted work, start with [AGENT-GUIDE.md](AGENT-GUIDE.md). Read the
+[contract guide](../docs/guides/compile-contract.md) when specializing admission and page
+boundaries, the [recall guide](../docs/guides/recall-strategies.md) when changing answer
+assembly, and the [architecture](../docs/architecture.md) when changing the framework.
+
+## Optional demonstration
+
+```bash
+./init.py --demo                            # separate temporary project; prebuilt library, no key
+./init.py --demo --target /path/to/demo --no-start
+```
+
+The demo restores a compiled example for browsing. Its deterministic vectors support a
+keyless demonstration; they are not a quality baseline for semantic retrieval. Build your own
+library in a separate project with real embeddings. There is no demo-reset prerequisite.
+
+## Generated project boundaries
+
+| Path | Purpose |
 |---|---|
-| `init.py` | the generator — the only entry point |
-| `templates/` | machinery copied verbatim + language-variant templates (contract skeleton, profile, project README/AGENTS) |
-| `example/` | the bundled demo dataset (a fictional indie developer's two weeks), its filled demo contract, demo questions |
-| `AGENT-GUIDE.md` | the flow a coding agent follows to build a library with a user |
+| `engine/` | Versioned strategy: contract, model roles, intake, recall, profile and overlays |
+| `.env` | Credentials and this machine's isolated middleware ports; never versioned |
+| `my-data/` | Your inputs, or use the external directory selected during generation |
+| `data/` | Private runtime state and run receipts |
+| `README.md`, `AGENTS.md` | The project's usage and agent instructions |
+| `app.py`, `start.sh`, `server.py`, `worker.py`, `docker-compose.yml` | Generated runtime machinery; change the framework templates to improve it |
 
-## Where the judgement lives
+This directory contains the generator (`init.py`), its `templates/`, an optional fictional
+example (`example/`), and the agent guide. Replacing machinery must preserve the user's
+`engine/`, credentials and data.
 
-Everything the compile model is allowed to judge is written in the generated project's
-`engine/compile/contract.md`. The full practice of writing one — type → implied-usage derivation, subject
-granularity, the acceptance loop — is in
-[docs/guides/compile-contract.md](../docs/guides/compile-contract.md), the sole authority
-on the subject.
+`./app.py audit` reads all provenance chains, source addresses and overview regions, including
+historical defects in archives and closed volumes. It writes a report and never repairs the
+library implicitly. New writes cannot introduce such defects or break valid dependencies;
+unchanged historical defects do not block unrelated work.

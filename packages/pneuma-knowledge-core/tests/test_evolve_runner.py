@@ -121,6 +121,43 @@ class ScriptedChatModel(BaseChatModel):
 
 USER = UserId("u-evolve-1")
 
+
+async def test_evolve_repairs_an_overview_reference_through_edit_claim():
+    """The gate's repair instruction is executable with evolve's actual tool surface."""
+    from pneuma_knowledge_core.skill.version import SkillVersion
+
+    path = "topics/alice.md"
+    body = (
+        "# Alice\n\n<!-- overview -->\n<!-- overview:definition -->\n\n"
+        "Alice has a supported fact. c:aa11 <!-- c:dd44 -->\n\n<!-- /overview -->\n\n"
+        "## Facts\n\nFirst wording. [cite: source-a ¶0] <!-- c:aa11 -->\n\n"
+        "Equivalent wording. [cite: source-a ¶0] <!-- c:bb22 -->\n"
+    )
+    model = ScriptedChatModel(turns=[
+        [tc("delete_claim", path=path, anchor_id="aa11"), tc("finish_evolve")],
+        [tc("read_document", path=path),
+         tc("edit_claim", path=path, anchor_id="dd44", new_text="Alice has a supported fact. c:bb22"),
+         tc("finish_evolve")],
+    ])
+
+    async def bounds(source_id):
+        return 1 if source_id == "source-a" else None
+
+    result = await run_evolve(
+        user_id=USER, model=model,
+        base_docs=[CanonicalDocument(
+            doc_id=DocumentId("alice"), path=path,
+            frontmatter={"doc_id": "alice", "type": "topic", "slug": "alice"}, body=body,
+        )],
+        new_skill=SkillVersion(skill_id="test", version="v1", instructions="Preserve supported facts.",
+                               path_templates=["topics/{slug}.md"], content_hash="synthetic"),
+        proposal=EvolveProposal(packs=[], rationale="Merge duplicate wording."),
+        source_bounds=bounds,
+    )
+    assert result.status == "completed"
+    assert "Alice has a supported fact. c:bb22 <!-- c:dd44 -->" in result.files[path]
+    assert "Correct or remove these references" in str(model.seen)
+
 ATLAS_BODY = (
     "## 产品计划\n\n"
     "- Atlas Q3 发布。[cite: src-01 ¶2] <!-- c:aa11 -->\n"
