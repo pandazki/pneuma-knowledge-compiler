@@ -39,16 +39,16 @@ export default function Settings({ state, busy, perform, locale, preference, onL
   return <form className="settings" onSubmit={event => event.preventDefault()}>
     <h1>{t(locale, 'settings')}</h1>
     <SettingRow id="library" label={t(locale, 'current')}>
-      <LedgerSelect id="library" disabled={busy || !state.shallow.libraries.length} value={library?.name ?? ''} onChange={event => {
-        const name = event.target.value;
-        void perform(() => runAction({ kind: 'use_library', library: name }), t(locale, 'switched', { name }));
-      }}><option value="" disabled>{t(locale, 'chooseLibrary')}</option>{state.shallow.libraries.map(lib => <option key={lib.name} value={lib.name}>{lib.name}</option>)}</LedgerSelect>
+      <LedgerSelect id="library" disabled={busy || !state.shallow.libraries.length} value={library?.name ?? ''} placeholder={t(locale, 'chooseLibrary')}
+        options={state.shallow.libraries.map(lib => ({ value: lib.name, label: lib.name }))} onChange={name => {
+          void perform(() => runAction({ kind: 'use_library', library: name }), t(locale, 'switched', { name }));
+        }} />
     </SettingRow>
     {!library && <p className="muted">{t(locale, 'choosePreferences')}</p>}
     <SettingRow id="language" label={t(locale, 'language')}>
-      <LedgerSelect id="language" value={preference} onChange={event => onLanguage(event.target.value)}>
-        <option value="system">{t(locale, 'systemLanguage')}</option><option value="en" lang="en">English</option><option value="zh-CN" lang="zh-CN">简体中文</option>
-      </LedgerSelect>
+      <LedgerSelect id="language" value={preference} onChange={onLanguage} options={[
+        { value: 'system', label: t(locale, 'systemLanguage') }, { value: 'en', label: 'English', lang: 'en' }, { value: 'zh-CN', label: '简体中文', lang: 'zh-CN' },
+      ]} />
     </SettingRow>
 
     <section className="setting-group" aria-labelledby="embedding-heading">
@@ -84,9 +84,9 @@ export default function Settings({ state, busy, perform, locale, preference, onL
       </SettingRow>
       <p id="unattended-help" className="muted setting-help">{t(locale, 'unattendedHelp')}</p>
       <SettingRow id="backend" label={t(locale, 'backend')}>
-        <LedgerSelect id="backend" value={library?.choices.backend ?? 'codex'} disabled={busy || !library} onChange={event => {
-          if (library) void perform(() => runAction({ kind: 'backend', library: library.name, backend: event.target.value as Backend }), t(locale, 'backendSaved'));
-        }}><option value="codex">Codex</option><option value="claude-code">Claude Code</option><option value="api">{t(locale, 'modelApi')}</option></LedgerSelect>
+        <LedgerSelect id="backend" value={library?.choices.backend ?? 'codex'} disabled={busy || !library} onChange={backend => {
+          if (library) void perform(() => runAction({ kind: 'backend', library: library.name, backend: backend as Backend }), t(locale, 'backendSaved'));
+        }} options={[{ value: 'codex', label: 'Codex' }, { value: 'claude-code', label: 'Claude Code' }, { value: 'api', label: t(locale, 'modelApi') }]} />
       </SettingRow>
     </section>
 

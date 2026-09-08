@@ -213,15 +213,44 @@ sup a { display: inline; padding: 4px; margin: 0 1px; scroll-margin: 16px; }
 .setting-row { display: flex; gap: var(--space-inline); align-items: baseline; min-height: var(--row-height); }
 .setting-row:hover:has(:enabled) { background: var(--hover); }
 .setting-row > label { flex: none; max-width: 60%; font-size: var(--text-meta); color: var(--ink-2); }
-.setting-control { min-width: 0; max-width: 56%; }
-.select-value { position: relative; display: inline-flex; max-width: 100%; }
+.setting-control { display: flex; justify-content: flex-end; min-width: 0; max-width: 56%; }
+.select-value { position: relative; display: inline-flex; min-width: 0; }
+.select-trigger {
+  display: inline-flex; align-items: baseline; gap: var(--space-inline); min-width: 0; min-height: var(--row-height);
+  padding: 4px 18px 4px 4px; margin-right: -4px; border-radius: 0; border-bottom: 1px solid transparent; font-size: var(--text-meta);
+}
+.select-trigger:hover:not(:disabled) { background: transparent; }
+.select-trigger:focus-visible, .select-value[data-open='true'] .select-trigger { outline: none; border-bottom-color: var(--accent); }
+.select-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.select-label[data-placeholder='true'] { color: var(--ink-3); }
 .select-value::after {
   content: ''; position: absolute; right: 3px; top: 12px; width: 6px; height: 6px;
   border-right: 1px solid currentColor; border-bottom: 1px solid currentColor; transform: rotate(45deg); pointer-events: none;
+  transition: transform var(--duration) var(--ease-out-quint);
 }
+.select-value[data-open='true']::after { transform: translateY(3px) rotate(225deg); }
 .select-value:has(:disabled)::after { opacity: 0.48; }
-.setting-control select { width: auto; max-width: 100%; padding-right: 18px; border-bottom-color: transparent; text-align: right; text-align-last: right; }
-.setting-control select:focus { border-bottom-color: var(--accent); }
+/* The list is the page's own: paper on paper, a hairline edge, one soft ink shadow so it reads as lifted. */
+.menu {
+  position: fixed; right: var(--space-gutter); z-index: 10; margin: 0; padding: 4px 0; list-style: none;
+  min-width: 128px; max-width: calc(100vw - 2 * var(--space-gutter)); overflow-y: auto; overscroll-behavior: contain;
+  background: var(--surface); border: 1px solid var(--line-2); border-radius: 3px;
+  box-shadow: 0 10px 28px -8px color-mix(in oklch, var(--ink) 22%, transparent), 0 1px 2px color-mix(in oklch, var(--ink) 8%, transparent);
+  animation: menu-settle var(--duration) var(--ease-out-quint) both;
+}
+.menu[data-side='above'] { animation-name: menu-settle-up; }
+@keyframes menu-settle { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes menu-settle-up { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
+.menu li {
+  display: flex; align-items: baseline; gap: var(--space-inline); min-height: 28px; padding: 4px 12px 4px 8px;
+  font-size: var(--text-meta); white-space: nowrap; cursor: pointer;
+}
+.menu li[data-active='true'] { background: var(--hover); }
+.menu li:active:not([aria-disabled='true']) { background: var(--active); }
+.menu li[aria-disabled='true'] { color: var(--ink-3); cursor: default; }
+.menu li[aria-selected='true'] .menu-label { color: var(--ink); font-weight: 500; }
+.menu-mark { flex: none; width: 0.6em; color: var(--accent); font-family: var(--font-serif); }
+.menu-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .setting-help { margin: var(--space-mark) 0 var(--space-inline); }
 .setting-group > label { display: block; font-size: var(--text-meta); color: var(--ink-2); margin: var(--space-inline) 0 var(--space-mark); }
 .text-toggle { display: inline-flex; align-items: baseline; gap: var(--space-inline); min-width: 32px; border-radius: 0; border-bottom: 1px solid transparent; font-size: var(--text-meta); }
