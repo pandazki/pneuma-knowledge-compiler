@@ -129,7 +129,7 @@ def assert_wire_shape(payload):
     """The agreed interface remains testable while the library task is in flight."""
     assert payload["schema"] == "pneuma.source.agent-session/v1"
     assert payload["owner_id"].strip() and payload["session_id"].strip()
-    assert set(payload) <= {"schema", "provider", "session_id", "owner_id", "agent", "project",
+    assert set(payload) <= {"schema", "provider", "session_id", "owner_id", "owner_name", "agent", "project",
                             "started_at", "ended_at", "turns", "metadata"}
     # The agent's turns are labelled with this name in L0: the harness's own name, not its id.
     assert payload["agent"]["name"] == {"codex": "Codex", "claude-code": "Claude Code"}[payload["provider"]]
@@ -340,7 +340,7 @@ def launcher(tmp_path, monkeypatch):
     library_path = tmp_path / "home/libraries/notes"
     library_path.mkdir(parents=True)
     calls = []
-    state = {"returncode": 0, "name": "notes", "path": str(library_path), "tenant": "lib-notes"}
+    state = {"returncode": 0, "name": "notes", "path": str(library_path), "tenant": "lib-notes", "owner_name": "Momo"}
 
     def run(command, **kwargs):
         calls.append(command)
@@ -351,6 +351,8 @@ def launcher(tmp_path, monkeypatch):
         payload = json.loads(Path(command[command.index("--file") + 1]).read_text())
         assert_wire_shape(payload)
         assert payload["owner_id"] == state["tenant"]
+        # The Owner's turns are labelled with the profile name `library show` handed over.
+        assert payload.get("owner_name") == state.get("owner_name")
         if payload["metadata"]["triage"]["verdict"] == "index":
             assert command[-2:] == ["--intake", "searchable"]
         else:

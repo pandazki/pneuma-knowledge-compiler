@@ -53,6 +53,7 @@ from ..domain.source import NormalizedSource
 from ..domain.authorship import owner_authored_blocks as source_owner_blocks
 from ..domain.time_context import TimeContext
 from ..ingest.evidence_context import block_evidence_context
+from ..ingest.source_types import agent_session_owner_label
 from ..ports.canonical_store import CanonicalStore
 from ..prompts import prompt, prompt_overlay_hash
 from ..skill.contract import render_system_contract
@@ -358,7 +359,10 @@ def _render_task(
         # authorship + time are exactly what the compiler must not guess.
         preamble = source_preamble.get(str(s.raw.source_id))
         if s.raw.kind == "agent_session":
-            preamble = prompt("compile.task.agent_session")
+            preamble = prompt(
+                "compile.task.agent_session",
+                owner=agent_session_owner_label(s.raw.meta.get("owner_name")),
+            )
         if preamble:
             parts.append(preamble)
         # What the source boundary knows and the transcript cannot show — an enabled

@@ -89,9 +89,9 @@ pkchome sync --library NAME
 否则由 `pkchome library show` 解析既有选择。转换器在每条 `pkchome exec --library NAME
 -- pkc ingest --contract agent-session/v1 --file …` 调用中固定这个选择。`--session-id ID`
 选择列出的某条会话，可以重复。`--since` 接受带时区的 ISO 时间，保留活动达到该时刻的
-会话会被纳入。`export --project <dir> --out <dir> [--owner-id ID]` 为每条准入会话写出一个
-过滤后的 JSON，不导入。独立 export 的 `owner_id` 默认是 `owner`；ingest 默认使用
-所选租户。手动导入只索引的 export 时，需传 `--intake searchable`；分流元数据只
+会话会被纳入。`export --project <dir> --out <dir> [--owner-id ID] [--owner-name NAME]` 为每条准入会话写出一个
+过滤后的 JSON，不导入。独立 export 的 `owner_id` 默认是 `owner`、不带 `owner_name`（库把 Owner 回合标为「用户：」）；ingest 默认使用
+所选租户和库主档案里的名字，回合就读作「Pandazki：」。手动导入只索引的 export 时，需传 `--intake searchable`；分流元数据只
 说明判定，本身不覆盖库的 intake。
 
 `list`/`export` 的分流是机械的：Owner 文本少于 200 字符就跳过；否则至少三次 Owner 发言且项目目录匹配，

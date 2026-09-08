@@ -728,6 +728,11 @@ SURFACES: tuple[Surface, ...] = (
                 '用 provider 的会话 id 命名这次会话。',
             ),
             f(
+                'ingest.agent_session.user_label',
+                "Labels the Owner's turns of a coding-agent session when the contract carries no owner name.",
+                '契约未给出 Owner 名字时，编码代理会话里 Owner 回合的标签。',
+            ),
+            f(
                 "ingest.owner_label",
                 "The name the subject's own turns are labelled with, in every transcript and "
                 "in the live-context stream.",
@@ -1087,8 +1092,8 @@ SURFACES: tuple[Surface, ...] = (
             ),
             f(
                 'compile.task.agent_session',
-                'States the source kind and the distinct authorship of Owner, narrative and action turns.',
-                '声明来源种类，以及主体发言、代理叙述和动作短记各自的作者含义。',
+                'States the source kind, which label marks the Owner\'s turns, and the distinct authorship of narrative and action turns.',
+                '声明来源种类、哪个标签是 Owner 的回合，以及代理叙述和动作短记各自的作者含义。',
             ),
             f(
                 "compile.task.source_heading",

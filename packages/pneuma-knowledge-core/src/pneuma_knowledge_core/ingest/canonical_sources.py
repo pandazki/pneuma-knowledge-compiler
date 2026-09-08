@@ -18,6 +18,7 @@ from ..domain.source import BlockImage, NormalizedBlock, NormalizedSource, RawSo
 from ..domain.time_context import TimeContext
 from ..prompts import prompt
 from .adapters import MarkdownDocumentAdapter, PlainDocumentInput, stamp_occurred_on
+from .source_types import agent_session_owner_label
 from .source_contracts import (
     AgentSessionSource,
     DocumentLibrarySource,
@@ -512,7 +513,7 @@ def _agent_session(
     # The agent's turns carry the agent's own name (the contract's `agent.name`): a reader
     # of the evidence, and the compiler, should see "Codex did: …", not an abstract role.
     labels = {
-        "say": prompt("ingest.owner_label"),
+        "say": agent_session_owner_label(source.owner_name),
         "narrative": prompt("ingest.agent_label", agent=source.agent.name),
         "action": prompt("ingest.agent_action_label", agent=source.agent.name),
     }
@@ -539,6 +540,7 @@ def _agent_session(
             "provider": source.provider,
             "session_id": source.session_id,
             "owner_id": source.owner_id,
+            "owner_name": source.owner_name,
             "agent": source.agent.model_dump(mode="json"),
             "project": source.project.model_dump(mode="json") if source.project else None,
             "started_at": source.started_at.isoformat(),

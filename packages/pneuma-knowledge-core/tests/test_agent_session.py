@@ -233,9 +233,9 @@ def test_verbatim_normalization_labels_metadata_days_and_identity(chinese):
         value["turns"][2]["at"] = "2026-09-08T00:00:00+08:00"
         ns = normalize(value)
         labels = (
-            ["知识主体", "codex", "codex 执行"]
+            ["用户", "codex", "codex 执行"]
             if chinese
-            else ["Owner", "codex", "codex did"]
+            else ["User", "codex", "codex did"]
         )
         separator = "：" if chinese else ": "
         assert [b.text for b in ns.blocks] == [
@@ -535,3 +535,36 @@ def test_every_claim_write_refuses_agent_evidence_and_rolls_back(verb):
     with pytest.raises(AnchorToolError, match="owner_voice"):
         tools[verb].func(**args)
     assert d.to_state() == before
+
+
+@pytest.mark.parametrize("chinese", [False, True])
+def test_owner_turns_carry_the_owner_name_when_the_contract_states_one(chinese):
+    """The Owner's turns are labelled with the Owner's own name, never the id; without a
+    name the catalog's neutral word stands in. The compile task's per-source line names
+    the same label, so the sentence about the text and the text cannot disagree."""
+    if chinese:
+        override_prompts(chinese_overlay())
+    try:
+        named = payload()
+        named["owner_name"] = "Momo"
+        ns = normalize(named)
+        separator = "：" if chinese else ": "
+        assert ns.blocks[0].text == f"Momo{separator}{named['turns'][0]['text']}"
+        assert ns.raw.meta["owner_name"] == "Momo"
+        assert "momo" not in ns.blocks[0].text  # the id never reaches the text
+        _, task = render_compile_messages(sources=[ns], base_docs=[], skill=skill())
+        assert ("标为「Momo」" if chinese else 'labelled "Momo"') in task
+        anonymous = normalize(payload())
+        assert anonymous.raw.meta["owner_name"] is None
+        _, task = render_compile_messages(sources=[anonymous], base_docs=[], skill=skill())
+        assert ("标为「用户」" if chinese else 'labelled "User"') in task
+    finally:
+        reset_prompt_overrides()
+
+
+@pytest.mark.parametrize("owner_name", ["", "   ", "two\nlines"])
+def test_a_blank_or_multiline_owner_name_is_refused(owner_name):
+    value = payload()
+    value["owner_name"] = owner_name
+    with pytest.raises(ValidationError):
+        normalize(value)

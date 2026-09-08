@@ -140,7 +140,7 @@ class Session:
         self.turns = [{"turn_id": f"t{index}", **turn} for index, turn in enumerate(ordered, 1)]
         return self
 
-    def payload(self, owner_id: str, verdict: dict) -> dict:
+    def payload(self, owner_id: str, verdict: dict, owner_name: str | None = None) -> dict:
         if not owner_id.strip():
             raise ValueError("owner-id must be non-blank")
         if not any(turn["role"] == "owner" for turn in self.turns):
@@ -159,6 +159,10 @@ class Session:
         }
         if self.project is not None:
             result["project"] = {"path": str(self.project), "name": self.project.name or str(self.project)}
+        # The Owner's turns are labelled with this name in L0; absent, the library labels
+        # them "User". It is the library owner's own name from the profile, never the tenant id.
+        if owner_name and owner_name.strip():
+            result["owner_name"] = owner_name.strip()
         return result
 
 
@@ -370,8 +374,8 @@ def session_key(session: Session) -> str:
                                        str(session.project) if session.project else None]).encode()).hexdigest()
 
 
-def export_session(session: Session, verdict: dict, owner_id: str, directory: Path):
-    payload = session.payload(owner_id, verdict)
+def export_session(session: Session, verdict: dict, owner_id: str, directory: Path, owner_name: str | None = None):
+    payload = session.payload(owner_id, verdict, owner_name)
     path = directory / f"{session.provider}-{session_key(session)}.json"
     atomic_json(path, payload)
     return path, payload
@@ -532,7 +536,7 @@ def sync_pass(library: dict, watches: list[dict], *, dry_run: bool = False,
               rewritten: str = "report", claude_root: Path | None = None,
               codex_root: Path | None = None, options: dict | None = None,
               owner_id: str | None = None, session_ids: list[str] | None = None,
-              pkchome: str = "pkchome") -> dict:
+              pkchome: str = "pkchome", owner_name: str | None = None) -> dict:
     """One edition-owned pass. Ingest is its only library write door."""
     directory = Path(library["path"])
     state_path = directory / "sync-state.json"
@@ -542,11 +546,12 @@ def sync_pass(library: dict, watches: list[dict], *, dry_run: bool = False,
                           claude_root=claude_root or Path.home() / ".claude/projects",
                           codex_root=codex_root or Path.home() / ".codex/sessions",
                           options=options or {}, owner_id=owner_id or library["tenant"],
+                          owner_name=owner_name or library.get("owner_name") or None,
                           session_ids=session_ids, pkchome=pkchome)
 
 
 def _sync_pass(library, watches, state_path, *, dry_run, rewritten, claude_root, codex_root,
-               options, owner_id, session_ids, pkchome):
+               options, owner_id, owner_name, session_ids, pkchome):
     state = read_sync_state(state_path)
     report = {**dict.fromkeys(SYNC_COUNTS, 0), "sessions": [], "dry_run": dry_run}
     state.setdefault("legacy", {})
@@ -748,7 +753,7 @@ def _sync_pass(library, watches, state_path, *, dry_run, rewritten, claude_root,
                         line["status"] = "would_ingest"
                         report["sessions"].append(line)
                         continue
-                    payload = increment.payload(owner_id, verdict)
+                    payload = increment.payload(owner_id, verdict, owner_name)
                     part = len(entry["source_ids"]) + 1
                     payload["metadata"].update(from_turn=increment.turns[0]["turn_id"], part=part)
                     if entry["exported_turns"]:
@@ -809,7 +814,7 @@ def ingest_sessions(args, library: dict, *, dry_run: bool) -> int:
                        claude_root=args.claude_root, codex_root=args.codex_root,
                        options={key: getattr(args, key) for key in
                                 ("min_owner_turns", "min_owner_chars", "ack_max_words", "purpose")},
-                       owner_id=args.owner_id, session_ids=args.session_id)
+                       owner_id=args.owner_id, owner_name=args.owner_name, session_ids=args.session_id)
     for row in report["sessions"]:
         print(json.dumps(row, ensure_ascii=False, sort_keys=True))
     print(json.dumps({"summary": {key: report[key] for key in SYNC_COUNTS}, "dry_run": dry_run}))
@@ -834,6 +839,8 @@ def build_parser() -> argparse.ArgumentParser:
                              help="research/chat sessions are index-only")
         if verb in {"export", "ingest"}:
             command.add_argument("--owner-id", help="export default: owner; ingest default: selected library tenant")
+            command.add_argument("--owner-name", help="the name the Owner's turns are labelled with; "
+                                 "export default: none (the library labels them User); ingest default: the library owner's profile name")
         if verb == "export":
             command.add_argument("--out", type=Path, required=True)
         if verb == "ingest":
@@ -861,7 +868,8 @@ def main(argv: list[str] | None = None) -> int:
                 report = {"provider": session.provider, "session_id": session.session_id,
                           "file": str(session.path), **verdict}
                 if args.command == "export" and verdict["verdict"] != "skip":
-                    path, _ = export_session(session, verdict, args.owner_id or "owner", args.out.expanduser())
+                    path, _ = export_session(session, verdict, args.owner_id or "owner", args.out.expanduser(),
+                                             args.owner_name)
                     report["exported"] = str(path)
             print(json.dumps(report, ensure_ascii=False, sort_keys=True))
         return int(failed)

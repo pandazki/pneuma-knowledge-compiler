@@ -26,7 +26,7 @@ from pneuma_knowledge_service.engine.contract import load_engine_contract
 from pneuma_knowledge_service.engine.schema import build_schema
 from pneuma_knowledge_service.engine.template_files import template_text
 from pneuma_knowledge_service.infra.ports import probe_free_ports
-from pneuma_knowledge_service.persona_profile import read_profile_data, upsert_owner_profile
+from pneuma_knowledge_service.persona_profile import owner_profile, read_profile_data, upsert_owner_profile
 from pneuma_knowledge_service.settings import Settings
 
 from pkc_personal.home import (
@@ -192,9 +192,19 @@ class Library:
         self.state.last_used = now()
         self.save()
 
+    def owner_name(self) -> str | None:
+        """The Owner's own name from the profile, or None while it is a placeholder or unstated.
+        The converter labels the Owner's turns with it; it never sees the tenant id as a name."""
+        try:
+            name = owner_profile(self.state.tenant, read_profile_data(self.engine_dir)).display_name
+        except Exception:
+            return None
+        return name.strip() or None
+
     def show(self) -> dict:
         return {
             **self.state.model_dump(mode="json"),
+            "owner_name": self.owner_name(),
             "path": str(self.path),
             "engine_dir": str(self.engine_dir),
             "canonical_dir": str(self.canonical_dir),

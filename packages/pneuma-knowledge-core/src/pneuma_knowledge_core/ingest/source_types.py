@@ -125,9 +125,9 @@ class FirstPartySourceType(Protocol):
 
 
 # ── context_stream: the first concrete first-party type ─────────────────────────────────────
-
 # Diarization channel → owner/other. `self/*` represents the knowledge owner;
 # `others/*` are participants. Multiple `self/N` channels belong to the same owner.
+
 def parse_diarized_turns(turns: list[ConversationTurn]) -> list[ConversationTurn]:
     """Normalize raw diarized `speaker` strings (`self/3`, `others/2`) into typed roles,
     unless the caller already set them. Anything not matching the diarization convention
@@ -466,6 +466,13 @@ def describe_source(
     return _spaced(_describe(raw, blocks_count, owner_name))
 
 
+def agent_session_owner_label(owner_name: str | None) -> str:
+    """The label the Owner's turns carry: the Owner's own name when the contract states it,
+    else the catalog's neutral word. The same function names the label in the compile task's
+    per-source line, so the text and the sentence about the text cannot disagree."""
+    return owner_name or prompt("ingest.agent_session.user_label")
+
+
 def _describe(raw: RawSource, blocks_count: int, owner_name: str) -> str:
     # Concern 5 belongs to the registered type when there is one, so a deployment's own
     # phrasing wins without core knowing anything about its medium.
@@ -484,7 +491,10 @@ def _describe(raw: RawSource, blocks_count: int, owner_name: str) -> str:
     # "remember that owner dialogues are statements" in a contract body would be exactly the
     # persuasion this project replaces with mechanism.
     if raw.kind == "agent_session":
-        return prompt("compile.task.agent_session")
+        return prompt(
+            "compile.task.agent_session",
+            owner=agent_session_owner_label(raw.meta.get("owner_name")),
+        )
     if raw.kind == "owner_dialogue":
         key = (
             "source.preamble.owner_dialogue_dated"

@@ -499,6 +499,10 @@ class AgentSessionSource(ContractModel):
     provider: str = Field(min_length=1, pattern=r"\S")
     session_id: str = Field(min_length=1, pattern=r"\S")
     owner_id: str = Field(min_length=1, pattern=r"\S")
+    # The name the Owner's turns are labelled with in the text a reader and the compiler
+    # see. Optional: an application that knows the Owner's name states it; without one the
+    # turns are labelled with the catalog's neutral word ("User"), never with the id.
+    owner_name: str | None = Field(default=None, min_length=1, pattern=r"^[^\r\n]*\S[^\r\n]*$")
     agent: SessionAgent
     project: SessionProject | None = None
     started_at: datetime

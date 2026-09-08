@@ -1218,6 +1218,7 @@
             "ingest.agent_action_label",
             "ingest.agent_label",
             "ingest.agent_session.title",
+            "ingest.agent_session.user_label",
             "ingest.email.attachments",
             "ingest.email.subject",
             "ingest.other_label",

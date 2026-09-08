@@ -104,8 +104,9 @@ selection. The converter pins that selection for every `pkchome exec --library N
 ingest --contract agent-session/v1 --file …` call. `--session-id ID` selects an individual
 listed session and can be repeated. `--since` takes a timezone-aware ISO timestamp and
 includes sessions whose retained activity reaches that time. `export --project <dir> --out
-<dir> [--owner-id ID]` writes one filtered JSON payload per admitted session without importing.
-Standalone export defaults `owner_id` to `owner`; ingest defaults it to the selected tenant.
+<dir> [--owner-id ID] [--owner-name NAME]` writes one filtered JSON payload per admitted session without importing.
+Standalone export defaults `owner_id` to `owner` and states no `owner_name` (the library labels the Owner's turns
+`User:`); ingest defaults them to the selected tenant and the library owner's profile name, so the turns read `Pandazki:`.
 For manual imports of an index-only export, pass `--intake searchable`; triage metadata
 documents the verdict and does not itself override library intake.
 
