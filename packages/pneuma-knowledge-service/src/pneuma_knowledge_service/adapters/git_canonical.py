@@ -412,7 +412,7 @@ class GitCanonicalStore:
     # --- writes ---------------------------------------------------------------
 
     def _commit_patch(
-        self, user_id: UserId, files: dict[str, str], message: str
+        self, user_id: UserId, files: dict[str, str], message: str, removals: Sequence[str] = ()
     ) -> SnapshotRef:
         repo = self._repo(user_id)
         with _locked(repo):
@@ -424,8 +424,15 @@ class GitCanonicalStore:
             # THE FOOTPRINT IS THE PATCH'S OWN FILE MAP — every path this call will write,
             # known before it writes any of them, and therefore the only thing a recovery
             # after this process's death is allowed to touch.
-            paths = sorted(files)
+            paths = sorted(set(files) | set(removals))
             with self._mutation(repo, "commit_patch", paths=paths):
+                if removals:
+                    # Reuse the transactional remove/write channel, including its scoped
+                    # rollback. Unnamed files are outside this operation's footprint.
+                    replaced = [p for p in files if (repo / p).is_file()]
+                    return self._move_documents_locked(
+                        repo, (), message, files, sorted(set(removals) | set(replaced))
+                    )
                 for rel, content in files.items():
                     target = repo / rel
                     target.parent.mkdir(parents=True, exist_ok=True)
@@ -465,11 +472,11 @@ class GitCanonicalStore:
         return SnapshotRef(ref=sha)
 
     async def commit_patch(
-        self, user_id: UserId, files: dict[str, str], *, message: str
+        self, user_id: UserId, files: dict[str, str], *, message: str, removals: Sequence[str] = ()
     ) -> SnapshotRef:
         # to_thread: one hop for the whole write sequence, so add → status → commit →
         # rev-parse stays atomic in a single thread (see module docstring).
-        return await asyncio.to_thread(self._commit_patch, user_id, files, message)
+        return await asyncio.to_thread(self._commit_patch, user_id, files, message, removals)
 
     def _move_documents(
         self,
@@ -2254,6 +2261,7 @@ class GitCanonicalStore:
         files: dict[str, str],
         message: str,
         base: SnapshotRef,
+        removals: Sequence[str] = (),
     ) -> SnapshotRef:
         repo = self._repo(user_id)
         # A throwaway index seeded from base's tree, kept entirely off the repo's real index
@@ -2282,7 +2290,9 @@ class GitCanonicalStore:
             with _locked(repo), self._mutation(repo, "branch_commit", paths=()):
                 # Seed the temp index from base's tree — every path base carries stays
                 # present, so an overlay of `files` leaves untouched paths byte-for-byte.
-                run_env("read-tree", base.ref)
+                run_env("read-tree", base.ref) if base.ref else run_env("read-tree", "--empty")
+                if removals:
+                    run_env("update-index", "--force-remove", "--", *removals)
                 for rel, content in files.items():
                     blob = subprocess.run(
                         ["git", "-C", str(repo), "hash-object", "-w", "--stdin"],
@@ -2297,7 +2307,7 @@ class GitCanonicalStore:
                     )
                 tree = run_env("write-tree").stdout.strip()
                 commit = run_env(
-                    *_GIT_ID, "commit-tree", tree, "-p", base.ref, "-m", message
+                    *_GIT_ID, "commit-tree", tree, *(["-p", base.ref] if base.ref else []), "-m", message
                 ).stdout.strip()
                 # Force the ref (an evolve re-run for one task overwrites its own branch).
                 self._run(repo, "update-ref", f"refs/heads/{branch}", commit)
@@ -2313,6 +2323,7 @@ class GitCanonicalStore:
         message: str,
         *,
         base: SnapshotRef,
+        removals: Sequence[str] = (),
     ) -> SnapshotRef:
         """Overlay `files` onto `base`'s tree and commit it to `refs/heads/<branch>`.
 
@@ -2320,7 +2331,7 @@ class GitCanonicalStore:
         not in `files` are carried verbatim from `base`; an existing branch is force-repointed
         at the new commit (an evolve re-run overwrites its own branch)."""
         return await asyncio.to_thread(
-            self._branch_commit, user_id, branch, files, message, base
+            self._branch_commit, user_id, branch, files, message, base, removals
         )
 
     def _branch_head(

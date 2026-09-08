@@ -483,6 +483,8 @@ def _describe(raw: RawSource, blocks_count: int, owner_name: str) -> str:
     # because a compiler that reads it as a conversation has already misread it, and
     # "remember that owner dialogues are statements" in a contract body would be exactly the
     # persuasion this project replaces with mechanism.
+    if raw.kind == "agent_session":
+        return prompt("compile.task.agent_session")
     if raw.kind == "owner_dialogue":
         key = (
             "source.preamble.owner_dialogue_dated"

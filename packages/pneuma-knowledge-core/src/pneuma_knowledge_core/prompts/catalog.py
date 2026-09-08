@@ -849,6 +849,10 @@ _STEWARD_ROUND = """\
 
 A compile job is one round of work, and it runs in this order:
 
+Before the round, `pkc outline` shows every page under its family, with no top-K or character
+budget. It is the complete map used at session start, so a page absent from `glance` is not
+mistaken for a missing subject.
+
 1. `pkc jobs` — what is queued.
 2. `pkc draft open <job-id>` — claims the job and prints two things: the contract you write
    under, and the task, which names the material of this round. Read both. Before this has
@@ -859,10 +863,14 @@ A compile job is one round of work, and it runs in this order:
    `rewrite-overview`, `set-fields`. One command applies one change and prints what happened.
 5. `pkc draft status` when you are unsure what is left of the round or what the mechanical
    checks already find owed.
-6. `pkc draft finish` — the gate judges the whole draft and commits it, or rejects it and
+6. `pkc draft finish --brief <f>` (or `--brief -`) supplies your own brief for this version,
+   non-blank and at most 8000 characters. The gate judges the whole draft and commits it, or rejects it and
    prints what it found.
 7. On a rejection: repair what it named, then `pkc draft finish` again. One repair round. A
    second rejection is a report, not a third attempt — say what stands in the way and stop.
+8. After a successful `pkc draft finish`, run `pkc outline --family <template>` for each
+   family you wrote. The complete family listing shows the new pages under their actual
+   family; it cannot drop them to fit a budget.
 
 `pkc draft check` runs the same judgement at any point without finishing. `pkc draft abandon`
 releases the job and deletes the draft, leaving the library untouched.
@@ -896,7 +904,8 @@ _STEWARD_UNATTENDED_TASK = """\
 Nobody is at the terminal. A worker claimed job `{job}` and opened its draft for you, so the
 round below starts at step 3: read the pages you are about to touch, write, then finish.
 Do NOT run `pkc draft open` to claim it — it is claimed. (Running `pkc draft open {job}`
-anyway simply resumes the open draft and reprints these two surfaces; it never claims twice.)
+again resumes and reprints these surfaces only for the same executor; another executor is
+refused. The worker and this harness share the launch identity exported as PKC_DRAFT_EXECUTOR.)
 
 Run the library's command as `{pkc}` — that path, spelled exactly. Your working directory
 holds nothing: that path is the only hand you have on this library.
@@ -904,6 +913,9 @@ holds nothing: that path is the only hand you have on this library.
 End the round with `pkc draft finish`. If it exits 4, repair exactly what it named and run it
 again — one repair round. If something cannot be settled without the owner, say what it is
 and stop; the job is recoverable and a claim built on a guess is not.
+
+After finishing, your final message is used as the brief when no --brief was supplied;
+keep it non-blank and within 8000 characters.
 
 The task follows.
 """
@@ -971,12 +983,12 @@ the owner typed there, whitespace aside, and a paraphrase is refused with exit 2
 _STEWARD_CANNOT = """\
 ## What you cannot do
 
-- **Delete a claim.** There is no delete verb. A claim the world moved past is superseded; a
+- **Silently delete a claim.** Compile has no delete verb; evolve names every dropped anchor for Owner review. A claim the world moved past is superseded; a
   claim that was wrong is edited. Both keep what was there before.
 - **Write canonical without a job.** Every write belongs to an open draft on a claimed job.
   No command changes a page outside one.
 - **Reach canonical any other way.** Not by editing files, not through git, not through an
-  application's API. The door is `pkc draft`.
+  application's API. Use `pkc draft` for claims and `pkc evolve draft` for structure.
 - **Move or edit anything under `archive/`, or write an archive record.** The archive is
   where the owner moved knowledge to, and the record standing at the vacated path states the
   decision they made. Both are written by one mechanical channel, on a proposal the owner
@@ -1037,6 +1049,7 @@ written.
   where it goes. This is judgement, and it is the document to re-read when you are unsure
   whether something is worth recording at all.
 - `{instructions}` — the whole contract text as `pkc draft open` prints it.
+- `{consume}` — how to read this library, its retrieval primitives and its domain families.
 - `{cli}` — every `pkc` command and subcommand, its arguments, and the exit codes.
 - `{gate}` — every finding the gate can make.
 """
@@ -2132,6 +2145,13 @@ DEFAULTS: dict[str, str] = {
     ),
     "source.preamble.title_quoted": " \"{title}\"",
     # ─────────────────────────────────────────────── ingest rendering
+    "compile.task.agent_session": "This is a coding-agent session. The Owner's turns are the Owner's own words; the agent's narrative is a machine's account of its own work and evidence of what was done, not of what the Owner thinks; action stubs are a log of activity, never knowledge.",
+    "compile.owner_voice_template": ' (owner_voice: true; only Owner-authored source spans)',
+    "gate.owner_voice_unresolved": 'Claim {anchor} on an owner_voice path needs provenance resolving to Owner-authored source blocks; a missing or cyclic claim reference does not establish authorship.',
+    "gate.owner_voice": 'Claim {anchor} requires only Owner-authored source blocks; {source_id} ¶{start}-{end} includes non-Owner or unknown authorship.',
+    'ingest.agent_label': 'Agent',
+    'ingest.agent_action_label': 'Agent did',
+    'ingest.agent_session.title': 'Agent session {session_id}',
     "ingest.owner_label": "Owner",
     "ingest.other_label": "Participant{n}{suffix}",
     "ingest.speaker_alias": " ({speaker_id})",
@@ -2954,6 +2974,246 @@ DEFAULTS: dict[str, str] = {
         "is the map of them."
     ),
     "steward.skill.who": _STEWARD_WHO,
+    "steward.cli.outline": (
+        "The complete map: every page under its family, one line each, never cut. "
+        "The first command of a session and the check after a compile. "
+        "For a budgeted map that picks the top pages, see `glance`."
+    ),
+    "steward.cli.glance": (
+        "The budgeted map the answering lanes open with: the top pages per family within "
+        "a character budget — it may drop pages and says how many. Use it to choose "
+        "subjects when the outline is long; for the whole library, `outline`."
+    ),
+    "steward.skill.consume": """## Reading the library
+
+At session start, `pkc outline` is the first command: the complete map, in seconds, every
+page under its family with no top-K or character budget.
+
+When answering, use `pkc outline` to find pages, `pkc canonical read <path>` to read them,
+`pkc recall <q> --evidence` for the fast lane's evidence, `pkc search <q> --lexical` for names
+and phrases, and `pkc source fetch <sid> ¶a-b` for the ground truth. `pkc glance` is only for
+an outline too long to scan: its budgeted pick drops pages and reports how many. After
+`pkc draft finish`, `pkc outline --family <template>` for each family you wrote shows where
+the new pages landed.
+
+Read `{consume}` before answering from this library. It supplies the library's design,
+the reading primitives and this deployment's domain schema. Under an agent executor,
+consumption is your reading: follow citations and links yourself, then record the answer
+through `pkc consult answer`. The fast/deep/briefing API lanes are quality-testing tools
+for a console with a key; they are not the way in under this executor.
+""",
+    "steward.consume.library": """# Reading the library
+
+## What this library is
+
+The library compiles source material into domain knowledge. L0 verbatim source blocks and
+the canonical library are authoritative; lexical and semantic indexes are derived views.
+These are parallel access levels over the same sources, with one address: source id and
+block span. A claim has an anchor (`c:xxxx`) and cites `[cite: <sid> ¶a-b]`; the gate rejects
+unsupported writes. A citation resolves evidence; its meaning still needs reading.
+
+The ledger is append-only, with immutable anchors. The bounded overview head is a current
+snapshot supported by ledger claims or source spans. `<!-- supersedes: c:xxxx -->` means
+the world changed: the predecessor stays as frozen history; follow the chain to the current
+state. Closed volumes (`<doc>/aNN.md`) remain live knowledge. `archive/` and archived sources
+leave every default retrieval; `--include-archived` admits and labels them. An archive record
+at the old live path explains the retired subject. Fetching a known address still works.
+
+Strength labels such as 【firm】/【forming】/【loose】 carry the distinctions the
+[contract](contract.md) states, not a probability of truth. Preserve their conditions and
+uncertainty. On `pkc profile show`, `inferred` marks the Steward's hypothesis, `owner` marks
+what the Owner wrote or confirmed, and `detected` marks a system observation.
+""",
+    "steward.consume.when_to_use": """## When to use what
+
+| Moment | Commands and what they show |
+|---|---|
+| Session start | `pkc outline` first: the complete map, in seconds. Every page appears under its family, one line each; there is no top-K or character budget. Empty families are named. |
+| Answering | `pkc outline` finds pages; `pkc canonical read <path>` reads them. `pkc recall <q> --evidence` supplies the fast lane's evidence; `pkc search <q> --lexical` finds names and phrases; `pkc source fetch <sid> ¶a-b` supplies the ground truth. Use `pkc glance` only when the outline is too long to scan and a budgeted pick helps: it selects top pages per family, may drop pages, and reports how many. |
+| After `pkc draft finish` | Run `pkc outline --family <template>` for each family you wrote, to see the new pages land under the right family. This family listing is complete too. |
+
+`outline` and `glance` are maps, not cited evidence. `outline --definitions` adds each page's
+one-line definition when present; `--json` returns the family tree. Both maps omit archived
+pages by default, retain live archive records, and admit and label archived pages with
+`--include-archived`. Closed volumes are counted beside their page.
+""",
+    "steward.consume.primitives": """## The primitives, in reading order
+
+- `pkc outline` is the complete family map; `pkc glance` is the answering lanes' budgeted
+  selection. Their different completeness guarantees determine the uses above.
+- `pkc canonical ls` lists pages; `pkc canonical read <path>` prints a page with its overview,
+  ledger, anchors and citations. Follow its links and volume catalog; use
+  `pkc canonical history <path> c:xxxx` for a claim's supersession chain.
+- `pkc search <q> --lexical` prints L1 hits with source/block addresses, unconditionally across
+  intake plans. Use it for names, phrases and material without canonical claims. Check the
+  retrieval knob `intake.semantic_retrieval` (`PNEUMA_KNOWLEDGE_SEMANTIC_RETRIEVAL`): `on`
+  enables `--semantic` for indexed conceptual matches; `off` builds no embeddings or L2 arm.
+  The default search fuses available arms. Semantic summaries are derived, not verbatim.
+- `pkc source structure <sid>` prints metadata and the section-to-block map;
+  `pkc source fetch <sid> ¶a-b` prints verbatim spans. Use them to check wording, speakers and
+  context: source material is the ground truth beneath a claim.
+- `pkc recall <q> --evidence` prints the fast lane's evidence context with query-local handles
+  and a `handoff_id`. It builds no chat model; with semantic retrieval off it needs no model
+  at all. Use it to assemble evidence and open the consultation you will answer.
+- `pkc history` prints versions, jobs and sources; `pkc brief <version>` prints the kept
+  post-compile brief. Use them to locate when the library changed, then read the claims.
+- `pkc consultations` prints past questions, visitor classes, misses and evidence/citation
+  counts. Use it to inspect recorded use; a consultation is a kept record, not knowledge.
+
+Multi-hop reading is your own sequence of these commands: follow a page link, a claim chain
+or a citation, read the next item, and continue until the evidence answers the question or
+the library's gap is clear. Full command arguments are in [cli.md](cli.md).
+""",
+    "steward.consume.schema": """## The domain schema of this deployment
+
+Resolved contract: `{skill_id}` / `{version}`. These families are its declared path templates,
+in declaration order; their scope and wording come from [contract.md](contract.md).
+
+{families}
+""",
+    "steward.consume.owner_voice": " — the Owner's own words only (`owner_voice`)",
+    "steward.consume.no_families": "This contract declares no path templates.",
+    "steward.consume.answering": """## Answering
+
+Cite what you read: a page and claim anchor together with its source span, or the source span
+itself. Read the cited span before treating a summary as exact wording. State when the
+library holds nothing on the question. Where source kinds carry roles (`owner-dialogue/v1`,
+`agent-session/v1`), distinguish the Owner's own words from Steward or agent narrative;
+reported completion is not Owner acceptance, and an action stub is not a successful result.
+
+Record the use with the answer you wrote: `pkc consult answer <handoff_id> --text-file <f>`
+(`-` for stdin) closes a `recall --evidence` handoff. Cite what you read: a handed handle or
+a real `[cite: <sid> ¶a-b]` address or `c:xxxx` anchor. Both handed and direct citations
+enter the record, and both must resolve in this tenant's L0 block range or canonical anchors;
+an invalid citation refuses the answer with exit 4 and leaves the handoff open for correction.
+Direct citations carry `origin: "direct"` and do not expand `evidence_handed`.
+When you never ran `recall --evidence`, close with `pkc consult record --question <q>
+--text-file <f>` (or `-`): the same resolution and recording, with lane `direct` and no handoff.
+Use `--kind no_record` when the library held no answer. One question, one record: do not
+re-run recall to "fix" a record; correct the refused answer and submit it again. The handoff
+alone records nothing, and a successful close consumes it. Both commands record without a
+model. The default `business` class records and queues the access ledger update;
+`--visitor-class audit` records without that influence, and `silent` records nothing.
+The handoff fixes its class at recall; direct recording selects it on `consult record`.
+The `attention` component reads the update after the worker drains the queue.
+
+A Visitor reads and answers from the library. An Owner can also state corrections or request
+structural changes; those acts follow the Owner-speech and evolve procedures in SKILL.md.
+Neither stance turns an answer into canonical knowledge. Under an agent executor the agent
+does this reading; fast/deep/briefing API lanes are quality-testing tools for a keyed console.
+""",
+    "steward.skill.episodes": """## Episodes before compile
+
+When `pkc jobs` lists an episodes job, open it with `pkc index episodes open <job>` before
+opening its compile. Read the source's structure map, the numbered blocks and their role/kind
+labels; use `pkc source fetch` for any further reading. Cut by topic into coherent episodes,
+grounding each title and description in its covered blocks. Leave material that carries no
+knowledge without an episode: it remains reachable through L0 and L1. This is a retrieval
+judgement; details worth finding may deserve an episode even when the compile contract keeps
+them out of canonical.
+
+Submit the complete array with `pkc index episodes propose --file <f>` (or `-` for stdin).
+The door names every interval violation at the write and lists the blocks with no episode;
+`[]` is an explicit judgement that none deserve L2. `pkc index episodes status` shows the
+budget and residue. `pkc index episodes finish` records the selection and embeds it;
+`pkc index episodes abandon` releases an unfinished round. Compile reads L0 and never waits
+for this job. Challenge is skipped under this executor: no job, door or skill step.
+""",
+    "steward.episodes.rules": """# Episodes — the index door
+
+Choose topic/episode boundaries as coherent units, without over-splitting. Every episode is
+a CLOSED interval of actual block indices: start <= end, strictly increasing starts, at most
+{overlap} shared blocks between neighbours, and no more episodes than source blocks. Gaps
+are allowed, including omitting the entire source: uncovered blocks retain L0/L1 access.
+The mechanical gates refuse invalid boundaries; they never repair them into another choice.
+
+Give each episode a grounded title and a factual third-person description of what it is
+about. Preserve concrete participants, dates, places, events, decisions, reasons, plans and
+outcomes the covered blocks actually support. Normalize relative dates only when the source
+supplies an occurrence date. Distinguish Owner speech, agent responses and activity stubs
+using the provided role/kind labels. Do not turn an agent assertion into the Owner's words.
+These fields are derived retrieval aids, never verbatim evidence or canonical claims.
+Both fields must be non-blank strings: title <= {title_limit} characters and description <=
+{description_limit} characters after whitespace normalization.
+
+Propose JSON only: [{{"start": a, "end": b, "title": "...", "description": "..."}}, ...].
+Use integer block indices. Empty [] is allowed. Every proposal replaces the whole selection.
+""",
+    "steward.episodes.task": "Source and structure map:\n{source}\n\nBudget: {budget} calls. Propose the episodes, then finish.\n",
+    "steward.episodes.shape": "episodes.shape: expected an array of objects with exactly start, end, title and description",
+    "steward.episodes.endpoints": "episodes.endpoints: episode {episode} must name real integer block indices",
+    "steward.episodes.text": "episodes.{field}: episode {episode} needs a non-blank string of at most {limit} characters",
+    "steward.episodes.proposal_required": "episodes.proposal: supply a proposal, including [] when no episode is warranted",
+    "steward.episodes.no_episode": "no episode: {blocks} (L0/L1 only)",
+    "steward.episodes.source_changed": "episodes.source_changed: L0 changed since open; abandon and reopen this job",
+    "steward.episodes.executor_required": "episodes.executor: the compile role must name an agent executor",
+    "steward.episodes.recorded": "episodes.recorded: this judgement is already a kept record; retry finish to rebuild its vectors",
+    "steward.episodes.skill_required": "episodes.executor_skill: finish needs the installed Executor-Skill sha256; run the library's installed pkc shim",
+    "steward.episodes.finished": "episodes: recorded {count}; indexing finished",
+    "steward.unattended.episodes_task": """## This episodes round is already open
+
+The worker claimed episodes job `{job}` and opened its draft. Read the rules and source
+structure below, select grounded topic episodes with `pkc index episodes propose`, and
+finish with `pkc index episodes finish`. Use `{pkc}` for every library command: that exact
+path reaches this library from the empty working directory. Reopening `{job}` resumes the
+same round for the same executor; another executor is refused. Exit 4 allows one repair round. If no content deserves an episode, explicitly
+propose [] and finish; silence is not a proposal. Task follows.
+""",
+    "steward.skill.evolve": """## One evolve round
+
+An evolve job has two halves: judgement, then structure. `pkc evolve draft open <job-id>`
+claims it; `pkc evolve draft open --new` starts an Owner-requested round. `--from <proposal>`
+continues a proposal on its original base. Read the current contract, path templates, packs,
+recent compile-event counts, document tree and component evolve evidence printed by open.
+Use `pkc canonical read <path>` and `pkc source fetch` to inspect the evidence itself.
+
+Submit the judgement with `pkc evolve draft propose --file <f>` (or `-` for stdin):
+EvolveProposal JSON has `packs` (SchemaPack objects) and a non-blank `rationale` pointing at
+that evidence. Each pack has `pack_id`, `origin: "evolved"`, `extra_instructions`,
+`extra_path_templates` and optional `extra_contract_rules`. Optional `retire_packs` names
+existing pack ids; `rename_packs` maps existing ids to their new names; `path_templates`
+states the complete final template list. `dropped_anchors` explicitly names any anchors
+whose claims are to be retired. Empty packs with a rationale and no structural changes is a
+valid no-change judgement. Malformed proposals are refused before they replace the draft.
+
+Then restructure with `pkc evolve draft move-claim <from-path> <anchor> <to-path>`,
+`rename <path> <new-path>`, or `retire <path>`. Move preserves the whole claim and citation,
+creating an empty destination when needed. Rename preserves document identity. Retire removes
+an empty page or the claims named in `dropped_anchors`; it cannot silently lose an anchor.
+Archive records and closed volumes refuse structural writes. Revise the contract with
+`pkc evolve draft contract edit --file <f>` (or `-`): instructions as text, optionally with
+contract frontmatter declaring path_templates. A new version takes effect only on adopt.
+
+Every write is post-checked and rolled back on violation, spending one call even on refusal.
+Old family paths may remain while the reorganization is in progress; `finish` requires writable
+pages to fit the final templates. Existing archive records and closed volumes stay frozen. `pkc evolve draft status` shows the budget and findings;
+`pkc evolve draft check` runs the gate without finishing. `pkc evolve draft finish` runs the
+same evolve gate: anchor conservation with every drop named, citations intact, field and
+path invariants. It writes the ordinary proposal and branch; `pkc evolve ls/show` and the
+console read them. One repair round is available. `pkc evolve draft abandon` releases the
+job and discards the ephemeral draft. An idle draft expires under COMPILE_DRAFT_TTL.
+
+Adopt is the Owner's decision: `pkc evolve adopt <id>` queues the existing three-way merge.
+There is no evolve workflow script: this journey and the mechanically generated CLI reference
+are the procedure on both harnesses; workflows/compile.js remains the compile workflow.
+""",
+    "steward.unattended.evolve_task": """## This evolve round is already open
+
+A worker claimed evolve job `{job}` and opened its draft. Read the evidence and the current
+contract below, submit the phase-1 judgement with `pkc evolve draft propose`, then perform
+the structural changes through `pkc evolve draft`. Reopening job `{job}` resumes this round
+for the same executor; another executor is refused.
+Run the library's command as `{pkc}` — that exact path reaches this library from your empty
+working directory. End with `pkc evolve draft finish`; exit 4 grants one repair round.
+The result is a proposal for the Owner: adopt is the Owner's decision. If no structure needs
+to change, submit empty packs with your evidence-based rationale and finish the no-change round.
+
+The task follows.
+""",
+    'steward.evolve.packs': '## Current schema packs\n\n{packs}',
+    'steward.evolve.unnamed_drop': 'anchor c:{anchor} would be dropped unnamed; name it in proposal.dropped_anchors or preserve it',
+    'steward.evolve.proposal_required': 'the phase-1 judgement is missing: run `pkc evolve draft propose --file <f>`',
+    'steward.evolve.closed_volumes': '{operation} refused: the document has closed volumes',
     "steward.skill.round": _STEWARD_ROUND,
     "steward.skill.door": _STEWARD_DOOR,
     "steward.skill.postures": _STEWARD_POSTURES,

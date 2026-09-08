@@ -51,6 +51,13 @@ class DraftSession:
 
     user_id: str
     job_id: str
+    #: An opaque session identity, distinct from the job's agent:<backend> usage label.
+    executor: str = ""
+    opened_at: str = ""
+    worker_posture: str = ""
+    kind: Literal["compile", "evolve", "episodes"] = "compile"
+    #: The door's pinned, role-specific inputs (evolve evidence, proposal and contract).
+    context: dict = field(default_factory=dict)
     #: real source id → `sNN`, in the order the sources were supplied.
     handle_by_real: dict[str, str] = field(default_factory=dict)
     round: Round = "first"
@@ -108,6 +115,11 @@ class DraftSession:
         return {
             "user_id": self.user_id,
             "job_id": self.job_id,
+            "executor": self.executor,
+            "opened_at": self.opened_at,
+            "worker_posture": self.worker_posture,
+            "kind": self.kind,
+            "context": dict(self.context),
             "handle_by_real": dict(self.handle_by_real),
             "round": self.round,
             "budget": int(self.budget),
@@ -131,6 +143,11 @@ class DraftSession:
         return cls(
             user_id=str(state.get("user_id") or ""),
             job_id=str(state.get("job_id") or ""),
+            executor=str(state.get("executor") or ""),
+            opened_at=str(state.get("opened_at") or ""),
+            worker_posture=str(state.get("worker_posture") or ""),
+            kind=state["kind"] if state.get("kind") in ("evolve", "episodes") else "compile",
+            context=dict(state.get("context") or {}),
             handle_by_real={
                 str(k): str(v)
                 for k, v in dict(state.get("handle_by_real") or {}).items()

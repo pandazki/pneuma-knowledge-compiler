@@ -14,6 +14,9 @@ the fast lane's own builder, under the fast lane's own citation rule, out the sa
 from __future__ import annotations
 
 import io
+from unittest.mock import Mock
+
+import pytest
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
@@ -131,6 +134,41 @@ async def _seed(lib):
 # ─────────────────────────────────────────────────── the evidence face is the lane's
 
 
+@pytest.mark.parametrize("strategy", ["ranked", "select", "all"])
+async def test_reading_never_builds_a_chat_model_or_materializes_schema(strategy, monkeypatch):
+    """Even a keyed deployment with fresh packs and model-assisted selection reads directly."""
+    from pneuma_knowledge_service import skills
+
+    lib = _lib()
+    await _seed(lib)
+    lib.ctx.settings.user_schema_packs = True
+    lib.ctx.settings.recall_evidence_strategy = strategy
+    lib.ctx.settings.recall_plan_queries = 3
+    lib.ctx.settings.semantic_retrieval = "off"
+    lib.ctx.embeddings = lib.ctx.vectors = None
+    build_model = Mock(side_effect=AssertionError("reading constructed a chat model"))
+    resolve_writable = Mock(side_effect=AssertionError("reading resolved a writable schema"))
+    lib.ctx.get_chat_model = build_model
+    monkeypatch.setattr(skills, "skill_for_user", resolve_writable)
+
+    assert await read_cmd.cmd_glance(_rt(lib)) == 0
+    rt = _rt(lib, as_json=True)
+    assert await read_cmd.cmd_recall_evidence(rt, QUESTION, handoffs=lib.handoffs) == 0
+    import json
+
+    evidence = json.loads(rt.out.getvalue())
+    assert evidence["evidence_manifest"]
+    handle = next(h for h, sid in evidence["handles"].items() if sid == "s-01")
+    code, _out, _err = await _answer(
+        lib, evidence["handoff_id"], f"20 a seat. [cite: {handle} ¶1]"
+    )
+    assert code == 0 and lib.store.consultations
+    # The read path absorbs optional failures; assert calls as well as raising so a
+    # swallowed AssertionError cannot masquerade as model-free execution.
+    build_model.assert_not_called()
+    resolve_writable.assert_not_called()
+
+
 async def test_evidence_prints_exactly_what_the_lane_would_hand_its_model():
     lib = _lib()
     await _seed(lib)
@@ -222,7 +260,7 @@ async def _answer(lib, handoff_id, text, *, kind="answer"):
     return code, out.getvalue(), err.getvalue()
 
 
-async def test_a_marker_inside_the_manifest_is_admitted_and_an_invented_span_is_dropped():
+async def test_an_invented_span_refuses_the_answer_and_preserves_the_handoff():
     lib = _lib()
     await _seed(lib)
     handoff_id, handles, manifest = await _handoff(lib)
@@ -231,19 +269,17 @@ async def test_a_marker_inside_the_manifest_is_admitted_and_an_invented_span_is_
     spans = [row["ref"] for row in manifest if row["ref"].startswith("s-01 ")]
     assert spans, "the lane handed at least one span of s-01"
 
-    code, out, _err = await _answer(
-        lib,
-        handoff_id,
-        f"20 a seat. [cite: {handle} ¶1] [cite: {handle} ¶999]",
+    code, out, err = await _answer(
+        lib, handoff_id, f"20 a seat. [cite: {handle} ¶1] [cite: {handle} ¶999]",
     )
+    assert code == 4 and not out
+    assert "s-01 ¶999" in err
+    assert not lib.store.consultations and not lib.store.projection_jobs
+    assert await lib.handoffs.get(USER, handoff_id) is not None
+    # Correct the answer against the same hand-over: exactly one question, one record.
+    code, _out, _err = await _answer(lib, handoff_id, f"20 a seat. [cite: {handle} ¶1]")
     assert code == 0
-    import json
-
-    payload = json.loads(out)
-    refs = [c["ref"] for c in payload["citations"]]
-    assert "s-01 ¶1" in refs
-    # A real source id with an invented interval on it is prose, not provenance.
-    assert not any(ref.endswith("¶999") for ref in refs)
+    assert len(lib.store.consultations) == len(lib.store.projection_jobs) == 1
 
 
 async def test_answering_writes_the_record_the_lane_would_have_and_closes_the_handoff():
@@ -429,3 +465,152 @@ async def test_the_evidence_line_says_when_the_archive_is_in_the_context():
         rt, QUESTION, handoffs=lib.handoffs, include_archived=True
     )
     assert "the archive is INCLUDED" in rt.out.getvalue()
+
+
+async def test_direct_citations_resolve_beside_handed_handles_and_keep_the_manifest(monkeypatch):
+    import json
+    from pneuma_knowledge_service.api.routes import v1
+
+    lib = _lib()
+    await _seed(lib)
+    await lib.store.add(USER, source("s-direct", blocks=["intro", "renewals cost 25"]))
+    handoff_id, handles, manifest = await _handoff(lib)
+    handle = next(h for h, real in handles.items() if real == "s-01")
+    spawn = Mock(wraps=v1._spawn_recording)
+    monkeypatch.setattr(v1, "_spawn_recording", spawn)
+    code, out, err = await _answer(
+        lib, handoff_id,
+        f"20. [cite: {handle} ¶1] Renewal: [cite: s-direct ¶1] [cite: s-01 ¶3] c:aaa1",
+    )
+    assert code == 0, err
+    payload = json.loads(out)
+    by_ref = {c["ref"]: c for c in payload["citations"]}
+    assert by_ref["s-01 ¶1"]["origin"] == "handed"
+    assert by_ref["s-direct ¶1"]["origin"] == "direct"
+    assert by_ref["s-01 ¶3"]["origin"] == "direct"
+    assert by_ref["c:aaa1"]["path"] == PAGE
+    assert payload["citations_direct"] == 2
+    assert payload["evidence_handed"] == len(manifest)
+    assert len(lib.store.projection_jobs) == 1
+    spawn.assert_called_once()
+
+
+@pytest.mark.parametrize("citation", [
+    "[cite: s-01 ¶999]", "[cite: s-01 ¶0]", "[cite: s-01 ¶3-2]",
+    "[cite: absent ¶1]", "[cite: s99 ¶1]", "c:ffff", "c:invented",
+    "[cite: s-01]", "[cite: s-01 ¶1, garbage]", "[cite: s-01 ¶1",
+])
+async def test_invalid_direct_citations_cannot_leave_partial_records(citation):
+    lib = _lib()
+    await _seed(lib)
+    handoff_id, _handles, _manifest = await _handoff(lib)
+    code, out, err = await _answer(lib, handoff_id, f"Read: [cite: s-01 ¶1] {citation}")
+    assert code == 4 and not out and "unresolved citation" in err
+    assert not lib.store.consultations and not lib.store.projection_jobs
+    assert await lib.handoffs.get(USER, handoff_id) is not None
+
+
+async def test_empty_keyless_handoff_can_close_from_direct_reads_without_a_second_recall():
+    import json
+
+    lib = library(docs=[document(PAGE, "## Pricing\n\n- Seats cost 20. <!-- c:aaa1 -->")])
+    await _seed(lib)
+    lib.ctx.embeddings = lib.ctx.vectors = None
+    build_model = Mock(side_effect=AssertionError("reading constructed a model"))
+    lib.ctx.get_chat_model = build_model
+    rt = _rt(lib, as_json=True)
+    assert await read_cmd.cmd_recall_evidence(rt, QUESTION, handoffs=lib.handoffs) == 0
+    evidence = json.loads(rt.out.getvalue())
+    assert evidence["evidence_manifest"] == []
+    arms = {arm["name"]: arm for arm in evidence["arms"]}
+    assert arms["retrieve.claims"]["status"] == "ran"
+    assert arms["retrieve.windows"]["status"] == "ran"
+    assert arms["retrieve.glance"]["status"] == "skipped"
+    assert "no model" in arms["retrieve.glance"]["detail"]
+    build_model.assert_not_called()
+    code, out, err = await _answer(
+        lib, evidence["handoff_id"], "20 a seat. [cite: s-01 ¶1] c:aaa1",
+    )
+    assert code == 0, err
+    payload = json.loads(out)
+    assert payload["evidence_handed"] == 0 and payload["citations_direct"] == 2
+    assert not payload["miss"]
+    assert all(c["origin"] == "direct" for c in payload["citations"])
+    assert len(lib.store.consultations) == len(lib.store.projection_jobs) == 1
+
+
+@pytest.mark.parametrize("visitor_class, recorded, jobs", [
+    ("business", True, 1), ("audit", True, 0), ("silent", False, 0),
+])
+async def test_consult_record_uses_the_same_emission_without_a_handoff(
+    visitor_class, recorded, jobs, tmp_path, monkeypatch,
+):
+    import json
+    from pneuma_knowledge_service.api.routes import v1
+    from test_read_cli import run
+
+    lib = _lib()
+    await _seed(lib)
+    answer = tmp_path / "answer.txt"
+    answer.write_text("20 a seat. [cite: s-01 ¶1] [cite: c:aaa1]")
+    spawn = Mock(wraps=v1._spawn_recording)
+    monkeypatch.setattr(v1, "_spawn_recording", spawn)
+    code, out, err = await run(
+        lib, "consult", "record", "--question", QUESTION, "--text-file", str(answer),
+        "--visitor-class", visitor_class, "--json",
+    )
+    assert code == 0, err
+    payload = json.loads(out)
+    assert payload["lane"] == "direct" and payload["recorded"] is recorded
+    assert payload["evidence_handed"] == 0 and payload["citations_direct"] == 2
+    assert payload["miss"] is False
+    assert len(lib.store.consultations) == int(recorded)
+    assert len(lib.store.projection_jobs) == jobs
+    assert spawn.call_count == int(recorded)
+    assert await lib.handoffs.list_pending(USER) == []
+
+
+async def test_consult_record_accepts_stdin_and_no_record(monkeypatch):
+    import json
+    from test_read_cli import run
+
+    lib = _lib()
+    monkeypatch.setattr("sys.stdin", io.StringIO("The library holds nothing."))
+    code, out, err = await run(
+        lib, "consult", "record", "--question", QUESTION, "--kind", "no_record", "-", "--json",
+    )
+    assert code == 0, err
+    payload = json.loads(out)
+    assert payload["miss"] and payload["citations_direct"] == 0
+    assert lib.store.consultations[-1]["lane"] == "direct"
+
+
+async def test_direct_anchor_resolution_reads_only_the_callers_canonical_tenant():
+    from unittest.mock import AsyncMock
+    from pneuma_knowledge_core.domain.ids import UserId
+
+    lib = _lib()
+    docs = await lib.canonical.list(USER)
+    lib.canonical.list = AsyncMock(side_effect=lambda uid: docs if uid == USER else [])
+    other = UserId("u-cli-other")
+    err = io.StringIO()
+    assert await consult_cmd.cmd_consult_record(
+        lib.ctx, other, question=QUESTION, text="c:aaa1", out=io.StringIO(), err=err,
+    ) == 4
+    assert "c:aaa1" in err.getvalue() and not lib.store.consultations
+    lib.canonical.list.assert_awaited_once_with(other)
+    assert await consult_cmd.cmd_consult_record(
+        lib.ctx, USER, question=QUESTION, text="c:aaa1", out=io.StringIO(),
+    ) == 0
+    assert lib.store.consultations[-1]["citations"][0]["path"] == PAGE
+
+
+async def test_evidence_prose_reports_the_model_free_arms():
+    lib = _lib()
+    await _seed(lib)
+    rt = _rt(lib)
+    assert await read_cmd.cmd_recall_evidence(rt, QUESTION, handoffs=lib.handoffs) == 0
+    printed = rt.out.getvalue()
+    assert "retrieve.claims: ran" in printed
+    assert "retrieve.windows: ran" in printed
+    assert "retrieve.glance: skipped (no model; glance pick skipped" in printed

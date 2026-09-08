@@ -8,7 +8,7 @@ worker resolve, the same tenant the project states, and one subcommand tree.
 Three families live here now (§11 steps 1 and 3): `pkc draft`, the write door; the read
 commands — the read half of the HTTP API, over the same service functions and never over
 HTTP; and the two ways material enters, `owner say` (the Owner's own statement, as an
-ordinary source) and `ingest` (the five contracts). One module per family, registered in one
+ordinary source) and `ingest` (the six contracts). One module per family, registered in one
 place, so the tree is read in one screen.
 
 Command names, descriptions and refusal texts come from the prompt catalog keys the langchain
@@ -31,6 +31,7 @@ from pneuma_knowledge_core.prompts import prompt
 from . import archive as archive_cmd
 from . import check as check_cmd
 from . import consult as consult_cmd
+from . import config as config_cmd
 from . import draft as draft_cmd
 from . import ingest as ingest_cmd
 from . import owner as owner_cmd
@@ -124,10 +125,11 @@ def build_parser(component_tools=()) -> argparse.ArgumentParser:
         "status", help="budget remaining, pages read this draft, what the gate finds owed"
     )
     sub.add_parser("check", help="run the whole gate over the open draft, without finishing")
-    sub.add_parser("finish", help=_tool_help("finish"))
+    p = sub.add_parser("finish", help=_tool_help("finish"))
+    p.add_argument("--brief", metavar="FILE|-", help="the Steward brief for this version; non-blank, at most 8000 characters")
     sub.add_parser(
         "abandon", help="release the job back to the queue and delete the draft"
-    )
+    ).add_argument("--take-over", action="store_true", help="abandon another executor's dead or idle draft after the grace")
 
     sub.add_parser("list-documents", help=_tool_help("list-documents"))
 
@@ -225,13 +227,69 @@ def _archivable(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     return parser
 
 
+def _add_evolve_draft_commands(esub) -> None:
+    door = esub.add_parser("draft", help="propose and restructure through the evolve gate")
+    sub = door.add_subparsers(dest="evolve_command", required=True)
+    p = sub.add_parser("open", help="claim an evolve job; print evidence, contract and gate")
+    choice = p.add_mutually_exclusive_group(required=True)
+    choice.add_argument("job_id", nargs="?")
+    choice.add_argument("--new", action="store_true", help="open an Owner-requested evolve job")
+    p.add_argument("--from", dest="from_proposal", default="", help="continue an existing proposal on its pinned base")
+    for name, help_text in (
+        ("status", "the budget and the gate's findings"),
+        ("check", "check the whole evolve draft without finishing"),
+        ("finish", "run the evolve gate and write the review proposal"),
+        ("abandon", "release the job and delete its ephemeral draft"),
+    ):
+        parser = sub.add_parser(name, help=help_text)
+        if name == "abandon":
+            parser.add_argument("--take-over", action="store_true")
+    p = sub.add_parser("propose", help="phase-1 judgement as EvolveProposal JSON")
+    _evolve_file(p)
+    p = sub.add_parser("move-claim", help="move an anchored claim verbatim; create an empty target if needed")
+    p.add_argument("from_path")
+    p.add_argument("anchor")
+    p.add_argument("to_path")
+    p = sub.add_parser("rename", help="rename a document, preserving its anchors and identity")
+    p.add_argument("path")
+    p.add_argument("new_path")
+    p = sub.add_parser("retire", help="retire a page; every dropped anchor must be named in the proposal")
+    p.add_argument("path")
+    p = sub.add_parser("contract", help="revise the contract for adoption as a new version")
+    csub = p.add_subparsers(dest="contract_command", required=True)
+    _evolve_file(csub.add_parser("edit", help="the revised contract text; bounded to 100000 characters"))
+
+
+def _evolve_file(parser) -> None:
+    choice = parser.add_mutually_exclusive_group(required=True)
+    choice.add_argument("--file", help="read text from a file (or - for stdin)")
+    choice.add_argument("stdin", nargs="?", choices=["-"], help="read text from stdin")
+
+
 def _add_read_commands(top) -> None:  # noqa: ANN001
     """§5.1 — the read half of the HTTP API, as commands."""
-    _archivable(
-        _jsonable(
-            top.add_parser("glance", help="the library overview the answering lanes open with")
-        )
-    )
+    index = top.add_parser("index", help="source indexing judgements")
+    isub = index.add_subparsers(dest="command", required=True)
+    door = isub.add_parser("episodes", help="select grounded episodes through the index door")
+    esub = door.add_subparsers(dest="episodes_command", required=True)
+    esub.add_parser("open", help="claim one source's episodes job; print structure, rules and budget").add_argument("job_id")
+    for name, help_text in (
+        ("status", "remaining budget and blocks with no episode"),
+        ("finish", "record the manifest, replace L2 vectors and close the job"),
+        ("abandon", "release the job and delete its ephemeral draft"),
+    ):
+        parser = esub.add_parser(name, help=help_text)
+        if name == "abandon":
+            parser.add_argument("--take-over", action="store_true")
+    _evolve_file(esub.add_parser("propose", help="closed intervals with grounded title/description; gaps and [] allowed"))
+    for name in ("outline", "glance"):
+        description = prompt(f"steward.cli.{name}")
+        p = _archivable(_jsonable(top.add_parser(
+            name, help=description, description=description,
+        )))
+        if name == "outline":
+            p.add_argument("--family", metavar="TEMPLATE", help="show only this declared path-template family")
+            p.add_argument("--definitions", action="store_true", help="add each page's one-line definition when present")
 
     canonical = top.add_parser("canonical", help="pages, a page, a claim's chain")
     csub = canonical.add_subparsers(dest="command", required=True)
@@ -264,16 +322,17 @@ def _add_read_commands(top) -> None:  # noqa: ANN001
     p.add_argument("--limit", type=int, default=25)
     p.add_argument("--query", default=None, help="match the title")
     p.add_argument("--kind", default=None)
-    p = _jsonable(
-        ssub.add_parser(
-            "show",
-            help=(
-                "one source: metadata and its structure map — unconditional, whatever the "
-                "owner archived"
-            ),
+    for name in ("show", "structure"):
+        p = _jsonable(
+            ssub.add_parser(
+                name,
+                help=(
+                    "one source: metadata and its structure map — unconditional, whatever the "
+                    "owner archived"
+                ),
+            )
         )
-    )
-    p.add_argument("source_id")
+        p.add_argument("source_id")
     p = _jsonable(
         ssub.add_parser(
             "fetch",
@@ -281,7 +340,10 @@ def _add_read_commands(top) -> None:  # noqa: ANN001
         )
     )
     p.add_argument("source_id")
-    p.add_argument("span", nargs="+", help="¶a-b, or `a b`")
+    p.add_argument(
+        "span", nargs="+",
+        help="one or more ¶a-b, ¶a or a-b spans; exactly two bare integers `a b` mean one span",
+    )
 
     p = _archivable(_jsonable(top.add_parser("search", help=_tool_help("search-source"))))
     p.add_argument("query")
@@ -313,6 +375,9 @@ def _add_read_commands(top) -> None:  # noqa: ANN001
     _jsonable(esub.add_parser("ls", help="every proposal and its state"))
     p = _jsonable(esub.add_parser("show", help="one proposal, whole"))
     p.add_argument("task_id")
+    p = esub.add_parser("adopt", help="enqueue the Owner's adoption of a proposal")
+    p.add_argument("task_id")
+    _add_evolve_draft_commands(esub)
 
     p = _archivable(
         _jsonable(
@@ -360,7 +425,7 @@ def _add_read_commands(top) -> None:  # noqa: ANN001
 
 
 def _add_write_commands(top) -> None:  # noqa: ANN001
-    """§5.3 and §5.4 — the Owner's own statement, and the five contracts."""
+    """§5.3 and §5.4 — the Owner's own statement, and the six contracts."""
     owner = top.add_parser("owner", help="what the Owner says, as a source")
     osub = owner.add_subparsers(dest="command", required=True)
     p = _jsonable(
@@ -385,6 +450,12 @@ def _add_write_commands(top) -> None:  # noqa: ANN001
         help="a canonical page this statement concerns; repeatable, a hint and not a permission",
     )
     p.add_argument("--said-at", default=None, help="when it was said (ISO 8601); now when omitted")
+
+    config = top.add_parser("config", help="the engine's retrieval choice")
+    csub = config.add_subparsers(dest="command", required=True)
+    p = _jsonable(csub.add_parser("set", help="set semantic retrieval on or off"))
+    p.add_argument("key", choices=("semantic_retrieval",))
+    p.add_argument("value", choices=("on", "off"))
 
     profile = top.add_parser(
         "profile",
@@ -433,25 +504,42 @@ def _add_write_commands(top) -> None:  # noqa: ANN001
         ),
     )
 
-    p = _jsonable(top.add_parser("ingest", help="import one payload under one of the five contracts"))
+    p.add_argument("--provenance", choices=("inferred", "owner"), default=None)
+    p.add_argument("payload_stdin", nargs="?", choices=("-",), help="read a profile mapping from stdin")
+    p = _jsonable(psub.add_parser("confirm", help="confirm profile fields as the Owner's own"))
+    confirm = p.add_mutually_exclusive_group(required=True)
+    confirm.add_argument("--field", dest="fields", action="append", default=[])
+    confirm.add_argument("--all", dest="all_fields", action="store_true")
+
+    p = _jsonable(top.add_parser("ingest", help="import one payload under one of the six contracts"))
     p.add_argument("--contract", required=True, choices=sorted(ingest_cmd.CONTRACTS))
     p.add_argument("--file", dest="payload_file", default="", help="the payload; stdin when omitted or given as `-`")
     p.add_argument("--intake", default=None, help="override the proposed intake archetype")
 
-    consult = top.add_parser("consult", help="close a `recall --evidence` handoff")
+    consult = top.add_parser("consult", help="record an answer after handed or direct reading")
     nsub = consult.add_subparsers(dest="command", required=True)
     p = _jsonable(
         nsub.add_parser(
             "answer",
             help=(
                 "supply the answer for a handoff and record the consultation — the lane's "
-                "own builder, the lane's own citation rule, the lane's own emission"
+                "own builder and emission, with every citation resolved in this tenant"
             ),
         )
     )
     p.add_argument("handoff_id")
     p.add_argument("--text-file", default="", help="the answer; stdin when omitted or given as `-`")
     p.add_argument("--kind", default="answer", choices=consult_cmd.ANSWER_KINDS)
+    p.add_argument("stdin", nargs="?", choices=["-"], help="read the answer from stdin")
+    p = _jsonable(nsub.add_parser("record", help="record direct reading without a handoff"))
+    p.add_argument("--question", required=True)
+    p.add_argument("--text-file", default="", help="the answer; stdin when omitted or given as `-`")
+    p.add_argument("stdin", nargs="?", choices=["-"], help="read the answer from stdin")
+    p.add_argument("--kind", default="answer", choices=consult_cmd.ANSWER_KINDS)
+    p.add_argument(
+        "--visitor-class", choices=("business", "audit", "silent"), default="business",
+        help="business records and queues attention; audit records only; silent records nothing",
+    )
     _jsonable(nsub.add_parser("pending", help="the handoffs still waiting for an answer"))
 
 
@@ -657,9 +745,12 @@ async def _draft_command(rt, args: argparse.Namespace, component_tools) -> int: 
     if args.command == "check":
         return await draft_cmd.cmd_check(rt)
     if args.command == "finish":
-        return await draft_cmd.cmd_finish(rt)
+        brief_file = getattr(args, "brief", None)
+        return await draft_cmd.cmd_finish(
+            rt, brief=draft_cmd.read_text_arg(brief_file) if brief_file is not None else None,
+        )
     if args.command == "abandon":
-        return await draft_cmd.cmd_abandon(rt)
+        return await draft_cmd.cmd_abandon(rt, take_over=getattr(args, "take_over", False))
     call = _tool_call(args, component_tools)
     if call is None:
         print(f"unknown draft command: {args.command}", file=sys.stderr)
@@ -699,12 +790,56 @@ async def dispatch(ctx, args: argparse.Namespace, *, out=None, err=None) -> int:
     group = args.group
     command = getattr(args, "command", "")
 
-    if group in ("glance", "canonical", "source", "search", "jobs", "history", "brief",
+    if group == "index" and command == "episodes":
+        from . import episodes
+
+        rt = await episodes.build_runtime(ctx, user)
+        rt.out, rt.err = out, err
+        verb = args.episodes_command
+        if verb == "open":
+            return await episodes.cmd_open(rt, args.job_id)
+        if verb == "status":
+            return await episodes.cmd_status(rt)
+        if verb == "propose":
+            return await episodes.cmd_propose(rt, file=args.file or "-")
+        if verb == "finish":
+            return await episodes.cmd_finish(rt)
+        return await draft_cmd.cmd_abandon(rt, take_over=getattr(args, "take_over", False))
+
+    if group == "evolve" and command in ("draft", "adopt"):
+        from . import evolve as evolve_cmd
+
+        if command == "adopt":
+            return await evolve_cmd.cmd_adopt(ctx, user, args.task_id, out=out, err=err)
+        rt = await evolve_cmd.build_runtime(ctx, user)
+        rt.out, rt.err = out, err
+        verb = args.evolve_command
+        if verb == "open":
+            return await evolve_cmd.cmd_open(rt, args.job_id or "", new=args.new, from_proposal=args.from_proposal)
+        if verb == "status":
+            return await evolve_cmd.cmd_status(rt)
+        if verb == "check":
+            return await evolve_cmd.cmd_check(rt)
+        if verb == "finish":
+            return await evolve_cmd.cmd_finish(rt)
+        if verb == "abandon":
+            return await draft_cmd.cmd_abandon(rt, take_over=getattr(args, "take_over", False))
+        values = {key: getattr(args, key) for key in ("from_path", "anchor", "to_path", "path", "new_path") if hasattr(args, key)}
+        if verb in ("propose", "contract"):
+            values["file"] = args.file or "-"
+        return await evolve_cmd.run_command(rt, verb, **values)
+
+    if group in ("outline", "glance", "canonical", "source", "search", "jobs", "history", "brief",
                  "consultations", "spend", "evolve", "recall"):
         rt = read_cmd.ReadRuntime(
             user_id=user, ctx=ctx, as_json=as_json, out=out, err=err
         )
         include_archived = bool(getattr(args, "include_archived", False))
+        if group == "outline":
+            return await read_cmd.cmd_outline(
+                rt, family=args.family, definitions=args.definitions,
+                include_archived=include_archived,
+            )
         if group == "glance":
             return await read_cmd.cmd_glance(rt, include_archived=include_archived)
         if group == "canonical":
@@ -724,10 +859,10 @@ async def dispatch(ctx, args: argparse.Namespace, *, out=None, err=None) -> int:
                     kind=args.kind,
                     include_archived=include_archived,
                 )
-            if command == "show":
+            if command in {"show", "structure"}:
                 return await read_cmd.cmd_source_show(rt, args.source_id)
             return await read_cmd.cmd_source_fetch(
-                rt, args.source_id, " ".join(args.span)
+                rt, args.source_id, args.span
             )
         if group == "search":
             mode = (
@@ -791,11 +926,28 @@ async def dispatch(ctx, args: argparse.Namespace, *, out=None, err=None) -> int:
             out=out,
             err=err,
         )
+    if group == "config":
+        return config_cmd.cmd_config_set(
+            ctx.settings, args.key, args.value, as_json=as_json, out=out, err=err
+        )
     if group == "profile":
         if command == "show":
             return await profile_cmd.cmd_profile_show(
                 ctx, user, as_json=as_json, out=out, err=err
             )
+        if command == "confirm":
+            return await profile_cmd.cmd_profile_confirm(
+                ctx, user, fields=args.fields, all_fields=args.all_fields,
+                as_json=as_json, out=out, err=err,
+            )
+        if args.payload_stdin is not None:
+            if args.payload_file is not None or args.fields:
+                print("refused: use one of --file, -, or --field", file=err)
+                return draft_cmd.EXIT_REFUSED
+            args.payload_file = args.payload_stdin
+        if args.payload_file is not None and args.fields:
+            print("refused: use one of --file, -, or --field", file=err)
+            return draft_cmd.EXIT_REFUSED
         # `--file` is OPTIONAL here, so it is read only when it was given: an omitted flag
         # means "no payload", never "read stdin" — a `--field`-only call must not hang on a
         # terminal.
@@ -809,6 +961,7 @@ async def dispatch(ctx, args: argparse.Namespace, *, out=None, err=None) -> int:
             user,
             payload_text=payload,
             fields=list(args.fields or []),
+            provenance=args.provenance,
             as_json=as_json,
             out=out,
             err=err,
@@ -878,6 +1031,15 @@ async def dispatch(ctx, args: argparse.Namespace, *, out=None, err=None) -> int:
         if command == "pending":
             return await consult_cmd.cmd_consult_pending(
                 ctx, user, handoffs=_handoffs(ctx), as_json=as_json, out=out, err=err
+            )
+        if args.stdin and args.text_file:
+            print("choose --text-file or `-` for stdin, not both", file=err)
+            return consult_cmd.EXIT_REFUSED
+        if command == "record":
+            return await consult_cmd.cmd_consult_record(
+                ctx, user, question=args.question,
+                text=draft_cmd.read_text_arg(args.text_file or None), kind=args.kind,
+                visitor_class=args.visitor_class, as_json=as_json, out=out, err=err,
             )
         return await consult_cmd.cmd_consult_answer(
             ctx,
@@ -949,6 +1111,10 @@ async def _run(args: argparse.Namespace, component_tools, parser_for) -> int:
     if problems:
         print(isolation_refusal(problems), file=sys.stderr)
         return draft_cmd.EXIT_REFUSED
+    if args.group == "config":
+        return config_cmd.cmd_config_set(
+            settings, args.key, args.value, as_json=getattr(args, "as_json", False)
+        )
     # This project's wording and contract, for a process that has no application to import.
     # `pkc` is the framework's own entry point run against a project (the shim hands off to
     # it), so nothing else in this process would have registered either — and a round rendered

@@ -46,12 +46,13 @@
 | 字段 | 含义 |
 |---|---|
 | `consultation_id`、`user_id`、`created_at` | 身份（系统分配） |
-| `lane` | `fast` / `deep` / `briefing_ask` |
+| `lane` | `fast` / `deep` / `briefing_ask` / `direct` |
 | `visitor_class` | `silent` / `audit` / `business`（§5） |
 | `question`、`as_of` | 问题原文；以及 lane 解析相对时间所用的参照时刻 |
 | `library_ref` | **咨询开始时采样到的正本 HEAD**——调用被钉住时则是快照 id，那是同一个字段的精确形态。是采样，不是钉住：证据各面读的是活状态，调用当中它可能越过采样点继续前进（编译在答题中途落地；claim 索引没有版本），所以这个 ref 说的是*读取从哪里开始*，而不是整个答案都出自那一份状态 |
 | `evidence_handed` | lane 摆到模型面前的每一个*地址*，除此之外什么都没有：`{kind: claim/window/episode/component/document, ref}`，`ref` 是带页路径的 claim 锚、`source_id ¶a-b` 区间，或一条正本页路径（`document`：lane 整页读过的页）。它既载证据*条目*，也载与条目一同渲染出去的出处区间——一条 claim 笔记会打印自己的 `[cite: …]` 标记，而合约要求模型逐字照抄证据里的这些标记，所以在那里出现过的区间就是模型见过的地址。清单由 lane 在渲染处发布（`recall/fast.py:evidence_manifest`），构造器只是照抄 |
-| `answer_kind`、`answer`、`citations` | lane 的答案；`citations` 按构造是 `evidence_handed` 的*子集*——只有解析后的地址落在清单里，标记才被采纳（claim 按锚相等，区间按落在同源已交出区间之内），所以在一个真实来源上编造出来的区间（`¶999`）是散文，不是出处。`answer` 是去掉了所有仍指向无法还原句柄的括号之后的记录文本；发到调用方线上的答案不受影响 |
+| `answer_kind`、`answer`、`citations` | 回答及可解析地址，每个引用带 `origin: handed` 或 `direct`。模型通道按清单放行；agent 回答还会针对当前租户的 L0 与 canonical 锚点解析直接读取的引用（见下）。模型通道的记录文本去掉无法还原的句柄；agent 回答含无效引用时，在记录前整次拒绝 |
+| `citations_direct` | 存储的 origin 为 `direct` 的引用数；交接证据仍严格等于通道交出的内容 |
 | `miss` | 每条 lane 同一条规则：`answer_kind == "no_record"`，或者什么都没到模型面前（见下） |
 | `degraded` | lane 的降级标志，原样复制 |
 | `token_usage` | 这次咨询**花掉**了什么：lane 自己的用量映射，按字段顺序存下。只有 token，没有金额——token 数是实际发生的事，永远为真；而价格是一份商业约定，它变的时候不会来问这条记录。所以费用是在有人读取时、用部署当下声明的价格（`MODEL_PRICING`）算出来的；对一个从没被定过价的模型，它是缺席，而不是零 |
@@ -62,7 +63,7 @@
 （`recall/consultation.py`，与 lane 放在一起而不是与记录放在一起：构造器要读的形状是 lane
 的，而 domain → recall 是错的方向）。它没有咨询端口，也不读任何咨询。
 
-**上面那张表是三条 lane 的并集，没有哪条 lane 会把它填满：**
+**上面那张表是各回答通道的并集，没有哪条 lane 会把它填满：**
 
 - **fast** 全部填满。它的 `citations` 并不是 `FastAnswer` 上的一个字段——那里没有这样一个字段
   ——而是答案自己的引用标记，经 lane 的 `citation_handles` 映射还原；映射里没有的句柄会被丢掉，
@@ -82,14 +83,30 @@
   过的证据的引用。在包清单被记录之前存下的简报不带清单，它的提问因此什么都不放行。它的
   `library_ref` 是那份包自己钉住的提交 ref：简报按构造就是钉住的，所以不需要再查一次 HEAD。
 
+**在 agent 执行器下，agent 的阅读就是检索。** 交接清单无法枚举后续的 `canonical read`
+与 `source fetch`；无密钥时 glance 选页需要模型，交出的清单甚至可能为空。清单成员关系曾是
+「可解析」的替代判据，直接阅读让这个替代不再成立。`pkc consult answer` 逐一解析标记：
+若为句柄，先经交接的句柄表还原；否则按真实的 `[cite: <sid> ¶a-b]` 地址或 `c:xxxx` 锚点解析。
+来源必须存在于当前租户的 L0，且 `1 <= a <= b <= block count`；锚点必须存在于当前租户的
+canonical。清单内的引用（锚相等或区间被包含）保留 `origin: "handed"`；清单外但解析成功的
+引用记为 `origin: "direct"`。真实来源上编造的区间以退出码 4 拒绝，点名引用，不写记录、不排
+投影作业，交接保持待答以便纠正回答。`evidence_handed` 不变。
+
+没有交接时，`pkc consult record --question <q> --text-file <f>`（或 `-` 读 stdin）记录回答：
+lane 为 `direct`，交接证据为空，所有引用均为直接引用，走相同的解析、fast 记录构造器与
+`_spawn_recording` 发出路径。它在记录时采样 `library_ref`，`as_of` 留空，不能重建之前阅读的
+快照。两条命令都接受 `--kind no_record`。直接记录默认 `business`，也接受 `audit` 或 `silent`，
+记录行与作业的规则与交接回答相同。一个问题，一条记录：关闭失败后可以纠正回答；重跑 recall
+来修复它只会多造一次交接。保留记录不被改写。
+
 **「某样东西在哪」的地图不是证据。** 库**概览**（每一页的路径、标题和一句话定义，fast、deep
 与简报包都以它开场）刻意不进任何清单：它是模型据以决定*读什么*的东西，把它算作证据会让每一次
 咨询都碰到每一页，而且它根本不带任何引用标记或锚（`canonical_glance` 两样都剥掉）。概览随后
 **选中整页读**的那些页则是清单里的 `document` 条目，连同页面正文携带的每一个区间——因为那些页
 的文本真的到过模型面前。简报包里某份来源的结构大纲（`- <小节>  ¶a-b`）出局的理由与概览相同。
 
-**`miss` 对每条 lane 都是同一条规则**：`answer_kind == "no_record"`，或什么都没到模型面前——
-`domain/consultation.py:is_miss(answer_kind, evidence_handed)`。这个判定是机械的，而不是交给
+**`miss` 对每条 lane 都是同一条规则**：`answer_kind == "no_record"`，或既没有交接证据、也没有可解析的
+直接引用——`domain/consultation.py:is_miss(answer_kind, evidence_handed, citations)`。这个判定是机械的，而不是交给
 各调用方自行斟酌，因为一切统计「这座库答不上什么」的东西，其真实性都不会超过它。
 
 ## 4. 投递，以及组件协议上的两个使用侧接缝

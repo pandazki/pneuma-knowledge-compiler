@@ -11,9 +11,10 @@ consultation to decide what is true.
 Kept is not the same as untouched. A lane that aliases source ids into query-local handles
 resolves them back before the answer is recorded, and a bracket still naming a handle that
 resolves to nothing is dropped from the recorded prose; `citations` is filtered by the same
-map and then admitted only against `evidence_handed`. The builders below are where that
-happens, one per lane, and the answer on the wire is never touched — the caller sees what the
-model wrote, and the record carries addresses that resolve.
+map and then admitted against `evidence_handed`. Agent answers also admit direct addresses
+validated against the tenant's L0 and canonical anchors: the agent's reading is retrieval,
+and the hand-over cannot enumerate it. Each citation records its `handed` or `direct` origin.
+The builders below preserve these resolved addresses without expanding the handed manifest.
 
 WHAT THE RECORD IS ALLOWED TO CARRY
 -----------------------------------
@@ -42,7 +43,7 @@ from .canonical import format_citation_span
 
 #: The answering lanes that produce a record. `rag` is absent on purpose: it runs no model,
 #: so there is no "what was handed to it" for a record to be about.
-LANE_VALUES = ("fast", "deep", "briefing_ask")
+LANE_VALUES = ("fast", "deep", "briefing_ask", "direct")
 
 #: Recording and influence are two axes; these are the three points on them the framework
 #: ships. `silent` is the default everywhere, so an unchanged caller leaves no trace.
@@ -58,7 +59,7 @@ VISITOR_CLASS_VALUES = ("silent", "audit", "business")
 #: interval. It maps 1:1 onto the `document` target the attention ledger already counts.
 EVIDENCE_KIND_VALUES = ("claim", "window", "episode", "component", "document")
 
-Lane = Literal["fast", "deep", "briefing_ask"]
+Lane = Literal["fast", "deep", "briefing_ask", "direct"]
 VisitorClass = Literal["silent", "audit", "business"]
 EvidenceKind = Literal["claim", "window", "episode", "component", "document"]
 
@@ -75,6 +76,9 @@ class EvidenceRef:
     kind: str
     ref: str
     path: str = ""
+    #: Old records and lane manifests are handed evidence; only validated direct reading
+    #: introduces the other origin. This default lets kept records replay without rewriting.
+    origin: Literal["handed", "direct"] = "handed"
 
 
 @dataclass(frozen=True)
@@ -108,7 +112,7 @@ class ConsultationRecord:
     #: lookup, a page read in full) and the provenance spans rendered WITH them — a claim
     #: note carries its own `[cite: …]` marker, and the contract tells the model to copy
     #: exactly those markers, so a span named there is an address that reached the model.
-    #: `citations` is a subset of this by construction.
+    #: Direct citations do not expand this manifest.
     evidence_handed: tuple[EvidenceRef, ...] = ()
     answer_kind: str | None = None
     answer: str = ""
@@ -129,13 +133,24 @@ class ConsultationRecord:
     #: a stored amount would be a number nobody can reproduce a quarter later.
     token_usage: tuple[tuple[str, int], ...] = field(default_factory=tuple)
 
+    @property
+    def citations_direct(self) -> int:
+        """Count direct citations from their stored origins, without a second counter."""
+        return sum(ref.origin == "direct" for ref in self.citations)
 
-def is_miss(answer_kind: str | None, evidence_handed: tuple[EvidenceRef, ...]) -> bool:
+
+def is_miss(
+    answer_kind: str | None,
+    evidence_handed: tuple[EvidenceRef, ...],
+    citations: tuple[EvidenceRef, ...] = (),
+) -> bool:
     """Did this consultation come back with nothing?
 
     Two ways, and they are different failures: the model said so (`no_record`), or the
-    retrieval put nothing in front of it at all. Both are the library being asked something
-    it could not answer, which is the one signal a use-side record exists to keep.
+    retrieval put nothing in front of it at all and no validated direct citation supplied
+    evidence. Both are the library being asked something it could not answer, which is the
+    one signal a use-side record exists to keep. Agent reading can supply citations without
+    a hand-over; those addresses count without changing the handed manifest.
 
     ONE RULE, EVERY LANE. There used to be a `lane` exception here: a `briefing_ask`
     answers over a pack that was assembled and frozen when the briefing was built, and the
@@ -148,7 +163,9 @@ def is_miss(answer_kind: str | None, evidence_handed: tuple[EvidenceRef, ...]) -
     what the library was asked and could not answer) is only as truthful as this predicate,
     and it is more truthful with one rule than with an exception standing in for a gap.
     """
-    return answer_kind == "no_record" or not evidence_handed
+    # An agent can answer from direct reading even when the lane handed nothing. The
+    # validated citations are evidence of that use; they never inflate evidence_handed.
+    return answer_kind == "no_record" or not (evidence_handed or citations)
 
 
 # --------------------------------------------------------------- address construction

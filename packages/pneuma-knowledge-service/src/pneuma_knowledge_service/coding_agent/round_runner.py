@@ -34,6 +34,7 @@ from __future__ import annotations
 import logging
 import shutil
 import tempfile
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Awaitable, Callable
@@ -42,6 +43,7 @@ from pneuma_knowledge_core.compile.gate import Violation, owed_now_lines
 from pneuma_knowledge_core.compile.patch import PatchDraft
 from pneuma_knowledge_core.compile.runner import render_violations
 from pneuma_knowledge_core.compile.session import DraftSession
+from pneuma_knowledge_core.ports.draft_store import DraftOwnershipError
 from pneuma_knowledge_core.prompts import prompt
 
 from ..cli.draft import (
@@ -51,6 +53,8 @@ from ..cli.draft import (
     cmd_finish,
     open_round,
     outside_write,
+    require_owner,
+    validate_brief,
 )
 from .backends import BackendManifest
 from .install import SKILL_HASH_ENV, installed_hash
@@ -121,21 +125,48 @@ class AgentRoundRunner:
     #: The worker's own resolved settings, handed to the launcher so the harness's `pkc`
     #: stands in the same library this worker does (`launcher.CONNECTION_SETTINGS`).
     settings: object | None = None
+    #: The queue's failure tail uses this identity to avoid ending a replacement round.
+    executor: str = field(default="", init=False)
 
     # ── the round ────────────────────────────────────────────────────────────────────────
 
     async def run_job(self, rt: DraftRuntime, job_id: str) -> AgentRoundResult:
+        executor = f"worker:{self.manifest.name}:{uuid.uuid4().hex}"
+        self.executor = executor
+        previous = rt.draft_executor, rt.expected_job_id, rt.worker_posture
+        rt.draft_executor, rt.expected_job_id, rt.worker_posture = executor, job_id, "unattended"
+        try:
+            async with rt.drafts.launch(rt.user_id, executor):
+                async with rt.drafts.lock(rt.user_id):
+                    if not await rt.jobs.attach_executor(rt.user_id, job_id, executor):
+                        owner = await rt.drafts.owner(rt.user_id, job_id)
+                        detail = owner.refusal() if owner else "job is not an unstarted worker claim"
+                        raise AgentRoundOpenRefused(job_id, 2, detail)
+                return await self._run_owned_job(rt, job_id)
+        finally:
+            rt.draft_executor, rt.expected_job_id, rt.worker_posture = previous
+
+    async def _run_owned_job(self, rt: DraftRuntime, job_id: str) -> AgentRoundResult:
         """Open the job's draft, hand it to the harness, and make sure the round ends.
 
         The job is ALREADY claimed by the drain that called this, so `open_round` is asked
         not to claim it again (the queue's single-in-flight rule would refuse).
         """
-        code, system_text, task_text = await open_round(rt, job_id, claim=False)
+        if rt.kind == "evolve":
+            from ..cli.evolve import open_round as open_draft, cmd_finish as finish
+        elif rt.kind == "episodes":
+            from ..cli.episodes import open_round as open_draft, cmd_finish as finish
+            rt.executor_skill = rt.executor_skill or self._env().get(SKILL_HASH_ENV, "")
+        else:
+            open_draft, finish = open_round, cmd_finish
+        code, system_text, task_text = await open_draft(rt, job_id, claim=False)
         if code != EXIT_OK:
             # `open` refused — an un-attributable HEAD, or a job that is not there. The
             # reason travels ON the exception rather than only on stderr, because the drain's
             # error path writes it onto the job row and that row is where an operator looks.
-            raise AgentRoundOpenRefused(job_id, code, await outside_write(rt))
+            owner = await rt.drafts.owner(rt.user_id, job_id)
+            detail = owner.refusal() if owner and owner.executor != rt.draft_executor else await outside_write(rt)
+            raise AgentRoundOpenRefused(job_id, code, detail)
 
         home = Path(tempfile.mkdtemp(prefix=CONFIG_HOME_PREFIX))
         usage: dict[str, int] | None = None
@@ -143,12 +174,15 @@ class AgentRoundRunner:
         launches = 0
         timed_out = False
         rate_limited = False
+        last_message = ""
         try:
             first = await self._launch(
                 system_text=system_text,
-                task_text=self._task(job_id, task_text),
+                task_text=self._task(job_id, task_text, kind=rt.kind),
                 home=home,
+                executor=rt.draft_executor,
             )
+            last_message = first.last_message
             launches += 1
             usage, cost = _sum_usage(usage, first.usage), _add(cost, first.cost_usd)
             timed_out = timed_out or first.timed_out
@@ -166,7 +200,7 @@ class AgentRoundRunner:
                 # refused and it did not try again. The worker finishes what is there through
                 # the same function `pkc draft finish` is, so the gate judges what was
                 # written rather than the worker deciding anything.
-                await cmd_finish(rt)
+                await finish(rt)
                 state = await self._open_state(rt, job_id)
                 if state is None:
                     return self._result(
@@ -180,8 +214,10 @@ class AgentRoundRunner:
                 system_text=system_text,
                 task_text=self._repair_task(job_id, *state),
                 home=home,
+                executor=rt.draft_executor,
                 resume_session=first.session_id if await self.can_resume(self.manifest) else "",
             )
+            last_message = repair.last_message or last_message
             launches += 1
             usage, cost = _sum_usage(usage, repair.usage), _add(cost, repair.cost_usd)
             timed_out = timed_out or repair.timed_out
@@ -195,7 +231,7 @@ class AgentRoundRunner:
             # The repair round did not finish either. The worker finishes it: on a repair
             # round `cmd_finish` either commits or aborts, so this ends the draft whatever
             # the gate says.
-            await cmd_finish(rt)
+            await finish(rt)
             if await self._open_state(rt, job_id) is not None:
                 # Nothing left to try. Release the job rather than hold it claimed forever.
                 await cmd_abandon(rt)
@@ -203,13 +239,31 @@ class AgentRoundRunner:
             return self._result(
                 job_id, outcome, usage, cost, launches, timed_out, rate_limited
             )
+        except DraftOwnershipError:
+            # An explicit takeover/TTL recovery ended this launch's authority. Its late
+            # return must neither finish nor abandon the replacement executor's work.
+            last_message = ""  # A replacement's version must not inherit this launch's brief.
+            return self._result(
+                job_id, "draft ownership lost", usage, cost, launches, timed_out, rate_limited
+            )
         finally:
             shutil.rmtree(home, ignore_errors=True)
+            if rt.kind == "compile" and last_message and rt.record_brief is not None:
+                try:
+                    job = await rt.jobs.get_job(rt.user_id, job_id)
+                    if job is not None and job.status == "done" and job.claimed_by == rt.draft_executor:
+                        text = validate_brief(last_message)
+                        # The store only fills a missing brief on this launch's version.
+                        # An explicit --brief wins; a replacement's narration stays its own.
+                        await rt.record_brief(job_id, text)
+                except Exception:
+                    log.warning("could not record the Steward brief for %s", job_id, exc_info=True)
 
     # ── the pieces ───────────────────────────────────────────────────────────────────────
 
     async def _launch(
-        self, *, system_text: str, task_text: str, home: Path, resume_session: str = ""
+        self, *, system_text: str, task_text: str, home: Path, executor: str,
+        resume_session: str = ""
     ) -> LaunchResult:
         request = LaunchRequest(
             manifest=self.manifest,
@@ -220,7 +274,7 @@ class AgentRoundRunner:
             timeout_s=self.timeout_s,
             model=self.model,
             resume_session=resume_session,
-            env=self._env(),
+            env={**self._env(), "PKC_DRAFT_EXECUTOR": executor},
             settings=self.settings,
             retries=self.retries,
             keep_workdir=self.keep_workdir,
@@ -253,7 +307,7 @@ class AgentRoundRunner:
     def _shim(self) -> str:
         return str(Path(self.project_dir).expanduser().resolve() / self.manifest.skill_dir / "scripts" / "pkc")
 
-    def _task(self, job_id: str, task_text: str) -> str:
+    def _task(self, job_id: str, task_text: str, *, kind: str = "compile") -> str:
         """The round's task, headed by the one thing an unattended agent has to be told.
 
         Every other sentence it reads comes from the catalog through the skill; so does this
@@ -261,7 +315,11 @@ class AgentRoundRunner:
         so start at step 3 — and the shim's path, because the working directory is empty and
         that path is the only hand it has.
         """
-        preamble = prompt("steward.unattended.task", job=job_id, pkc=self._shim()).strip("\n")
+        key = {
+            "evolve": "steward.unattended.evolve_task",
+            "episodes": "steward.unattended.episodes_task",
+        }.get(kind, "steward.unattended.task")
+        preamble = prompt(key, job=job_id, pkc=self._shim()).strip("\n")
         return f"{preamble}\n\n{task_text}"
 
     def _repair_task(self, job_id: str, draft: PatchDraft, session: DraftSession) -> str:
@@ -288,21 +346,31 @@ class AgentRoundRunner:
             body = "\n".join(
                 ["`pkc draft finish` did not accept this round. What it still owes:", *owed]
             )
-        preamble = prompt("steward.unattended.task", job=job_id, pkc=self._shim()).strip("\n")
-        return f"{preamble}\n\n{body}"
+        return self._task(job_id, body, kind=session.kind)
 
     @staticmethod
     async def _open_state(
         rt: DraftRuntime, job_id: str
     ) -> tuple[PatchDraft, DraftSession] | None:
         """This job's open round, or None when the draft is gone — i.e. the round ended."""
-        state = await rt.drafts.get(rt.user_id, job_id)
-        if not state:
-            return None
-        return (
-            PatchDraft.from_state(state.get("draft") or {}),
-            DraftSession.from_state(state.get("session") or {}),
-        )
+        async with rt.drafts.lock(rt.user_id):
+            state = await rt.drafts.get(rt.user_id, job_id)
+            job = await rt.jobs.get_job(rt.user_id, job_id)
+            if job is not None and getattr(job, "status", "") == "done":
+                if getattr(job, "claimed_by", None) != rt.draft_executor:
+                    raise DraftOwnershipError(f"job {job_id} was finished by a replacement executor")
+                # Finish can have completed its job before a failure in its final cleanup.
+                # The persisted outcome wins; only this launch's leftover draft is removed.
+                if state:
+                    await rt.drafts.delete(rt.user_id, job_id, executor=rt.draft_executor)
+                return None
+            if not state:
+                raise DraftOwnershipError(f"job {job_id} no longer belongs to this launch")
+            await require_owner(rt, job_id)
+            return (
+                PatchDraft.from_state(state.get("draft") or {}),
+                DraftSession.from_state(state.get("session") or {}),
+            )
 
     @staticmethod
     def _result(

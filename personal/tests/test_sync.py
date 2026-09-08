@@ -1,0 +1,317 @@
+"""Incremental sync uses synthetic transcripts and a deduplicating fake ingest door."""
+
+from datetime import datetime, timezone
+import json
+import os
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+from pkc_personal import cli, sync
+from pkc_personal.library import Library, Watch, set_config, watch_project
+from test_agent_sessions import (
+    OWNER_TEXTS, claude_row, codex_message, codex_row, provider_files,
+    read_provider, sessions, write_jsonl,
+)
+
+
+@pytest.fixture
+def importer(home, make_library, provider_files, monkeypatch):
+    library = make_library()
+    second = make_library("second")
+    watch_project(library, str(provider_files.project))
+    payloads, commands = [], []
+    accepted = {}
+    behavior = {"fail": False, "lost_response": False}
+
+    def run(command, **kwargs):
+        assert command[:7] == ["pkchome", "exec", "--library", library.state.name, "--", "pkc", "ingest"]
+        commands.append(command)
+        payload = json.loads(Path(command[command.index("--file") + 1]).read_text())
+        payloads.append(payload)
+        if behavior["fail"]:
+            return SimpleNamespace(returncode=1, stdout="", stderr="synthetic failure")
+        key = sessions.digest(sessions.encoded_json(payload).encode())
+        duplicate = key in accepted
+        accepted.setdefault(key, f"s{len(accepted) + 1}")
+        body = {"sources": [{"source_id": accepted[key], "deduplicated": duplicate}],
+                "compile_jobs": [] if duplicate else [f"job-{accepted[key]}"]}
+        return SimpleNamespace(returncode=0, stdout="" if behavior["lost_response"] else json.dumps(body))
+
+    monkeypatch.setattr(sessions.subprocess, "run", run)
+    def run_pass(**kwargs):
+        return sessions.sync_pass(library.show(), [w.model_dump() for w in library.state.watch],
+                                  claude_root=provider_files.claude_root,
+                                  codex_root=provider_files.codex_root, **kwargs)
+
+    return SimpleNamespace(library=library, second=second, run=run_pass, payloads=payloads,
+                           commands=commands, accepted=accepted, behavior=behavior,
+                           state=library.path / "sync-state.json")
+
+
+def cursor(importer, provider="claude-code"):
+    return next(entry for entry in json.loads(importer.state.read_text())["sessions"].values()
+                if entry["provider"] == provider)
+
+
+def append(files, provider, count=3, start=20):
+    path = files.claude_file if provider == "claude-code" else files.codex_file
+    with path.open("a") as stream:
+        for index, text in enumerate(OWNER_TEXTS[:count], start):
+            row = claude_row("user", text, index) if provider == "claude-code" else codex_message("user", text, index)
+            stream.write(json.dumps(row) + "\n")
+
+
+@pytest.mark.parametrize("provider", ["claude-code", "codex"])
+def test_grown_held_then_continuation_and_unchanged(provider_files, importer, provider):
+    first = importer.run()
+    assert (first["scanned"], first["new"], first["ingested"]) == (2, 2, 2)
+    before = cursor(importer, provider)
+    assert importer.run()["unchanged"] == 2
+    append(provider_files, provider, 1)
+    held = importer.run()
+    assert held["held"] == 1 and held["ingested"] == 0
+    after = cursor(importer, provider)
+    for key in ("exported_turns", "last_turn_id", "last_at", "source_ids", "exported_bytes"):
+        assert after[key] == before[key]
+    assert after["held"] == {"owner_turns": 1, "chars": len(OWNER_TEXTS[0])}
+    same = importer.run()
+    assert same["held"] == 1 and same["unchanged"] == 2 and same["ingested"] == 0
+    append(provider_files, provider, 2, 21)
+    grown = importer.run()
+    assert grown["increments"] == grown["ingested"] == 1
+    payload = importer.payloads[-1]
+    assert len(payload["turns"]) == 3
+    assert payload["metadata"]["continues"] == before["source_ids"][-1]
+    assert payload["metadata"]["part"] == 2
+    assert payload["metadata"]["from_turn"] == f"t{before['exported_turns'] + 1}"
+    assert len(cursor(importer, provider)["source_ids"]) == 2
+    assert cursor(importer, provider)["held"] is None
+    assert importer.run()["ingested"] == 0
+
+
+def test_timestamp_delayed_growth_never_drops_or_repeats_turns(provider_files, importer):
+    importer.run()
+    # These records are appended after t7, but have timestamps earlier than it.
+    append(provider_files, "codex", start=2)
+    report = importer.run()
+    assert report["increments"] == 1
+    assert [turn["text"] for turn in importer.payloads[-1]["turns"]] == OWNER_TEXTS
+    assert importer.run()["ingested"] == 0
+
+
+def test_rewrite_same_size_and_touched_mtime_are_not_growth(provider_files, importer):
+    importer.run()
+    before = cursor(importer)
+    os.utime(provider_files.claude_file, (1, 1))
+    assert importer.run()["unchanged"] == 2
+    path = provider_files.claude_file
+    path.write_bytes(path.read_bytes().replace(b"offline", b"on-line"))
+    report = importer.run()
+    assert report["rewritten"] == 1 and report["ingested"] == 0
+    assert cursor(importer) == before
+    report = importer.run(rewritten="reingest")
+    assert report["rewritten"] == report["ingested"] == 1
+    assert importer.payloads[-1]["metadata"]["rewritten"] is True
+    assert "continues" not in importer.payloads[-1]["metadata"]
+    assert importer.run()["ingested"] == 0
+
+
+def test_truncation_and_identity_change_are_rewritten(provider_files, importer):
+    importer.run()
+    path = provider_files.claude_file
+    original = path.read_bytes()
+    path.write_bytes(original[:original.find(b"\n") + 1])
+    assert importer.run()["rewritten"] == 1
+    path.write_bytes(original.replace(b"momo-claude", b"other-session"))
+    assert importer.run()["rewritten"] == 1
+    assert len(importer.payloads) == 2
+
+
+def disk_tree(path):
+    return {str(p.relative_to(path)): p.read_bytes() if p.is_file() else None for p in path.rglob("*")}
+
+
+def test_dry_run_writes_nothing_including_lock_and_migration(provider_files, importer, home):
+    old = read_provider(provider_files, "claude-code")
+    legacy = {sessions.session_key(old): {"sha256": sessions.digest(sessions.encoded_json(
+        old.payload("lib-notes", sessions.triage(old))).encode())}}
+    sessions.atomic_json(importer.state.with_name("ingested-sessions.json"), {"version": 1, "sessions": legacy})
+    before = disk_tree(home.path)
+    report = importer.run(dry_run=True)
+    assert report["new"] == 1
+    assert not importer.commands
+    assert disk_tree(home.path) == before
+
+
+def test_lock_is_per_library_and_refuses_concurrent_pass(importer, home):
+    with sessions.sync_lock(home.path / "run/notes.sync.lock"):
+        for dry_run in (False, True):
+            with pytest.raises(ValueError, match="another sync"):
+                importer.run(dry_run=dry_run)
+        assert sessions.sync_pass(importer.second.show(), [], dry_run=True)["scanned"] == 0
+    assert not importer.commands
+
+
+def test_legacy_migration_recovers_old_prefix_then_imports_increment(provider_files, importer):
+    old = read_provider(provider_files, "claude-code")
+    payload = old.payload("lib-notes", sessions.triage(old))
+    digest = sessions.digest(sessions.encoded_json(payload).encode())
+    importer.accepted[digest] = "historical-source"
+    sessions.atomic_json(importer.state.with_name("ingested-sessions.json"), {"version": 1, "sessions": {
+        sessions.session_key(old): {"provider": old.provider, "session_id": old.session_id, "sha256": digest,
+                                    "canonical_treatment": "full", "ingested_at": "2026-09-01T05:00:00Z"}}})
+    append(provider_files, "claude-code")
+    report = importer.run()
+    assert report["increments"] == 1 and report["ingested"] == 2
+    assert importer.payloads[0] == payload
+    assert importer.payloads[1]["metadata"]["continues"] == "historical-source"
+    assert importer.payloads[1]["metadata"]["part"] == 2
+    assert cursor(importer)["source_ids"][0] == "historical-source"
+    assert json.loads(importer.state.read_text())["legacy"] == {}
+    assert importer.run()["ingested"] == 0
+
+
+def test_unrecoverable_legacy_hash_is_reported_and_never_assumed_current(provider_files, importer):
+    old = read_provider(provider_files, "claude-code")
+    sessions.atomic_json(importer.state.with_name("ingested-sessions.json"), {"version": 1, "sessions": {
+        sessions.session_key(old): {"sha256": "unrecoverable"}}})
+    report = importer.run()
+    assert report["rewritten"] == 1
+    assert all(p["provider"] != "claude-code" for p in importer.payloads)
+
+
+def test_lost_ingest_response_replays_exact_payload_despite_growth(provider_files, importer):
+    importer.behavior["lost_response"] = True
+    assert importer.run()["skipped"] == 2
+    assert len(importer.accepted) == 2
+    assert cursor(importer)["exported_turns"] == 0
+    old_payloads = list(importer.payloads)
+    append(provider_files, "claude-code")
+    importer.behavior["lost_response"] = False
+    assert importer.run()["ingested"] == 2
+    assert sorted(map(sessions.encoded_json, importer.payloads[2:])) == sorted(map(sessions.encoded_json, old_payloads))
+    assert len(importer.accepted) == 2
+    assert importer.run()["increments"] == 1
+    assert len(importer.accepted) == 3
+
+
+def test_partial_jsonl_tail_waits_for_newline(provider_files, importer):
+    importer.run()
+    append(provider_files, "claude-code", 2)
+    row = json.dumps(claude_row("user", OWNER_TEXTS[2], 22)).encode()
+    with provider_files.claude_file.open("ab") as stream:
+        stream.write(row[:30])
+    assert importer.run()["held"] == 1
+    with provider_files.claude_file.open("ab") as stream:
+        stream.write(row[30:] + b"\n")
+    assert importer.run()["increments"] == 1
+
+
+def test_complete_final_record_without_newline_is_not_lost(provider_files, importer):
+    provider_files.claude_file.write_bytes(provider_files.claude_file.read_bytes().rstrip(b"\n"))
+    assert importer.run()["ingested"] == 2
+    assert importer.run()["unchanged"] == 2
+    with provider_files.claude_file.open("ab") as stream:
+        stream.write(b"\n")
+    assert importer.run()["ingested"] == 0
+
+
+def test_watch_commands_settings_and_library_isolation(home, make_library, tmp_path, capsys):
+    one, two = make_library(), make_library("second")
+    project = tmp_path / "synthetic project"
+    project.mkdir()
+    assert cli.main(["watch", "add", str(project), "--library", "notes", "--harnesses", "codex",
+                     "--since", "2026-09-01T00:00:00Z"]) == 0
+    assert cli.main(["watch", "add", str(project), "--library", "notes"]) == 0
+    assert cli.main(["watch", "ls", "--library", "notes"]) == 0
+    watches = json.loads(capsys.readouterr().out)
+    assert len(watches) == 1 and watches[0]["harnesses"] == ["codex"]
+    assert Library.load(home, two.state.name).state.watch == []
+    project.rmdir()
+    assert cli.main(["watch", "rm", str(project), "--library", "notes"]) == 0
+    assert Library.load(home, one.state.name).state.watch == []
+    assert cli.main(["config", "set", "sync.interval_minutes", "7"]) == 0
+    assert home.config.sync.interval_minutes == 7
+    assert cli.main(["config", "set", "sync.enabled", "off"]) == 0
+    assert home.config.sync.enabled is False
+    assert cli.main(["config", "set", "sync.interval_minutes", "0"]) == 2
+    assert cli.main(["config", "set", "sync.enabled", "yes"]) == 2
+    with pytest.raises(ValueError):
+        Watch(path=str(project), since="2026-09-01T00:00:00")
+
+
+def test_sync_cli_json_and_status_use_same_edition_state(home, importer, monkeypatch, capsys):
+    script = sync.converter()
+    monkeypatch.setattr(script, "sync_pass", lambda *args, **kwargs: importer.run(**{k: kwargs[k] for k in ("dry_run", "rewritten")}))
+    assert cli.main(["sync", "--library", "notes", "--dry-run", "--json"]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["dry_run"] and report["new"] == 2
+    assert cli.main(["sync", "--library", "notes", "--json"]) == 0
+    report = json.loads(capsys.readouterr().out)
+    result = sync.status(home, importer.library)
+    assert result["last_result"] == report
+    assert result["watching"] == [importer.library.state.watch[0].path]
+    assert result["next_due_ms"] is not None and not result["running"]
+    with sessions.sync_lock(home.path / "run/notes.sync.lock"):
+        assert sync.status(home, importer.library)["running"] is True
+    set_config(home, "sync.enabled", "off")
+    assert sync.status(home, importer.library)["next_due"] is None
+
+
+def test_watch_harness_and_since_filter_are_content_based(provider_files, importer):
+    importer.library.state.watch = [Watch(path=str(provider_files.project), harnesses=["codex"],
+                                         since="2026-09-01T03:00:00Z")]
+    report = importer.run()
+    assert report["scanned"] == 1 and report["skipped"] == 1
+    append(provider_files, "codex")
+    assert importer.run()["ingested"] == 0
+    path = provider_files.codex_file
+    row = codex_message("user", OWNER_TEXTS[0], 50)
+    row["timestamp"] = "2026-09-02T03:00:00Z"
+    with path.open("a") as stream:
+        stream.write(json.dumps(row) + "\n")
+    assert importer.run()["ingested"] == 1
+    assert all(p["provider"] == "codex" for p in importer.payloads)
+
+
+def test_rewrite_is_detected_before_parsing_or_reingesting(provider_files, importer):
+    importer.run()
+    provider_files.claude_file.write_bytes(b"this is not JSON\n")
+    report = importer.run()
+    assert report["rewritten"] == 1 and report["ingested"] == 0
+    assert next(row for row in report["sessions"] if row["provider"] == "claude-code")["status"] == "rewritten"
+
+
+def test_changed_reader_history_requires_rewrite_override(provider_files, importer):
+    rows = [codex_row("session_meta", {"id": "momo-codex", "cwd": str(provider_files.project)}, 0)]
+    rows += [codex_row("event_msg", {"type": "user_message", "message": text}, i)
+             for i, text in enumerate(OWNER_TEXTS, 1)]
+    write_jsonl(provider_files.codex_file, rows)
+    importer.run()
+    # Modern response items replace the reader's event-only fallback for this role.
+    append(provider_files, "codex")
+    assert importer.run()["rewritten"] == 1
+    report = importer.run(rewritten="reingest")
+    assert report["rewritten"] == report["ingested"] == 1
+    assert "continues" not in importer.payloads[-1]["metadata"]
+
+
+def test_continuations_cross_the_unchanged_library_contract_as_distinct_citable_sources(provider_files, importer):
+    from pneuma_knowledge_core.domain.ids import UserId
+    from pneuma_knowledge_core.ingest.canonical_sources import normalize_source_contract
+    from pneuma_knowledge_core.ingest.source_contracts import parse_source_contract
+
+    importer.run()
+    append(provider_files, "claude-code")
+    importer.run()
+    parts = [parse_source_contract(payload) for payload in importer.payloads if payload["provider"] == "claude-code"]
+    sources = [normalize_source_contract(part, UserId("lib-notes"), imported_at=datetime.now(timezone.utc))[0]
+               for part in parts]
+    assert sources[0].raw.source_id != sources[1].raw.source_id
+    assert len(sources[1].blocks) == 3
+    assert sources[1].raw.meta["metadata"]["continues"] == cursor(importer)["source_ids"][0]
+    assert all(text in block.text for text, block in zip(OWNER_TEXTS, sources[1].blocks, strict=True))
+    other = normalize_source_contract(parts[1], UserId("lib-second"), imported_at=datetime.now(timezone.utc))[0]
+    assert sources[1].raw.user_id == "lib-notes" and other.raw.user_id == "lib-second"

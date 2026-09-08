@@ -60,9 +60,11 @@ from ..wiring import (
     AppContext,
     build_chat_model_for,
     build_context,
+    can_build_chat_model,
     embed_l2_chunks,
     executor_for,
     full_l2_chunks,
+    agent_chunk_manifest,
     llm_call_config,
     resolve_image_mode,
     resolve_model_name,
@@ -74,6 +76,45 @@ log = logging.getLogger(__name__)
 #: leave it alone: under an agent executor the round belongs to the Steward, and this is the
 #: kind a drain skips over (docs/design/coding-agent-mode.md §9, "The worker").
 COMPILE_JOB_KIND = "compile"
+
+#: Which (role, reason) pairs this process has already said the skip sentence about. The
+#: reason is a deployment fact, not a per-job event — a keyless library under an agent
+#: executor crossed the evolve threshold forty times in one real run, and forty identical
+#: lines teach the reader to skip the line. Keyed on the reason too, so a configuration that
+#: changes under a long-lived process speaks again.
+_OPTIONAL_ROLE_SKIPPED: set[tuple[str, str]] = set()
+
+
+def optional_role_runnable(settings: Settings, role: str) -> bool:
+    """May this deployment ENQUEUE work for an optional role — saying once why not.
+
+    Evolve under an agent executor has its own draft door and is always runnable. For an
+    API executor, the passive evolve trigger and post-compile challenge need the role's
+    model. When this deployment cannot build that model, enqueueing it manufactures a failure:
+    the job is claimed, dies on `openrouter:<model> requires OPENROUTER_API_KEY`, and lands
+    in the Owner's health page and tray as breakage of a library that is in fact perfectly
+    healthy. So the question is asked HERE, mechanically, at the moment of enqueue.
+
+    Nothing is recorded when the answer is no — no job, no failed row, and (for evolve) no
+    evolve task. That last one is what keeps the accounting honest: `maybe_trigger_evolve`
+    measures its window from the last evolve TASK, so a skipped crossing consumes nothing
+    and the increment keeps accruing — the first crossing after a key appears enqueues.
+
+    Compile is never asked. A compile is the work itself, and under an agent executor its
+    job is claimed by a Steward rather than by a model.
+    """
+    if role == "evolve" and executor_for(settings, role).is_agent:
+        return True
+    if role == "challenge" and executor_for(settings, "compile").is_agent:
+        ok, reason = False, "challenge is skipped under an agent executor"
+    else:
+        ok, reason = can_build_chat_model(settings, role)
+    if ok:
+        return True
+    if (role, reason) not in _OPTIONAL_ROLE_SKIPPED:
+        _OPTIONAL_ROLE_SKIPPED.add((role, reason))
+        log.warning("[compile-worker] %s skipped: %s", role, reason)
+    return False
 
 
 def langchain_executor(settings: Settings) -> str:
@@ -473,10 +514,16 @@ async def persist_compile_result(
             ctx, user_id, result.files, {e.path for e in result.events}
         )
         # Passive schema-evolve trigger (schema-evolve §2.1): once committed events land,
-        # enqueue an evolve job if the whole-KB doc/anchor increment cleared the threshold.
-        await maybe_trigger_evolve(ctx, user_id)
+        # enqueue an evolve job if the whole-KB doc/anchor increment cleared the threshold —
+        # and only if this deployment can actually run the evolve role at all.
+        # The deployment's own switch is asked FIRST (and again inside the trigger, which is
+        # where it belongs): a deployment that turned the trigger off is not one that cannot
+        # run the role, and it must not be told that it is.
+        if ctx.settings.evolve_auto_trigger and optional_role_runnable(ctx.settings, "evolve"):
+            await maybe_trigger_evolve(ctx, user_id)
         # Optional post-compile coverage challenge (never on a compensation compile).
-        await maybe_trigger_challenge(ctx, user_id, job_payload, source_ids)
+        if ctx.settings.challenge_enabled and optional_role_runnable(ctx.settings, "challenge"):
+            await maybe_trigger_challenge(ctx, user_id, job_payload, source_ids)
         # Optional derived narration over the recorded events (brief_enabled). LAST on
         # purpose: it is display copy, and a model call ahead of `complete` would hold an
         # already-committed job open — a process killed mid-narration would leave the job
@@ -484,7 +531,16 @@ async def persist_compile_result(
         # durable and the brief only fills one column of it. Its input is the mechanical
         # record alone; `describe_source` is recomputed rather than reusing
         # `source_preamble`, which may carry challenge guidance. Any failure is a warning.
-        if ctx.settings.brief_enabled and result.events:
+        # The brief is not a job, so a keyless deployment loses only a caption here — but it
+        # loses it once per compile, through an exception and a stack trace. The same
+        # question, asked once, is the cheaper and quieter answer.
+        if (
+            ctx.settings.brief_enabled
+            and not (executor or "").startswith("agent")
+            and not executor_for(ctx.settings, "compile").is_agent
+            and result.events
+            and optional_role_runnable(ctx.settings, "brief")
+        ):
             try:
                 brief = await generate_brief(
                     model=ctx.get_chat_model("brief"),
@@ -523,7 +579,11 @@ async def persist_compile_result(
             token_usage=result.token_usage,
             executor=executor,
         )
-        if refs:
+        if (
+            refs
+            and ctx.settings.evolve_auto_trigger
+            and optional_role_runnable(ctx.settings, "evolve")
+        ):
             await maybe_trigger_evolve(ctx, user_id)
     else:  # aborted
         detail = "; ".join(v.render() for v in result.violations)
@@ -563,6 +623,8 @@ async def process_job(
             "image_mode": inputs.image_mode,
         },
     )
+    from ..source_authorship import load_owner_authored_blocks
+
     result = await run_compile(
         user_id=user_id,
         model=chat_model,
@@ -572,6 +634,7 @@ async def process_job(
         treatments=inputs.treatments,
         source_guidance=inputs.source_guidance,
         known_source_bounds=inputs.known_source_bounds,
+        owner_authored_blocks=await load_owner_authored_blocks(ctx.store, user_id, skill),
         source_preamble=inputs.source_preamble,
         owner=inputs.owner,
         retrieved=inputs.retrieved,
@@ -599,7 +662,7 @@ async def process_job(
     return result
 
 
-def unattended(ctx: AppContext) -> bool:
+def unattended(ctx: AppContext, role: str = "compile") -> bool:
     """Does THIS worker run compile jobs through the coding agent itself?
 
     Two postures, one question (§8, §9). A worker is by definition unattended — nobody is at
@@ -608,7 +671,7 @@ def unattended(ctx: AppContext) -> bool:
     interactive posture step 2 shipped: compile jobs stay queued and the Owner's own session
     opens them with `pkc draft open`. Under a model executor the question does not arise.
     """
-    return bool(ctx.compile_executor.is_agent and ctx.settings.agent_unattended)
+    return bool(executor_for(ctx.settings, role).is_agent and ctx.settings.agent_unattended)
 
 
 async def process_agent_job(ctx: AppContext, user_id: UserId, job: object) -> None:
@@ -626,10 +689,16 @@ async def process_agent_job(ctx: AppContext, user_id: UserId, job: object) -> No
     """
     from ..cli.runtime import build_runtime
     from ..coding_agent.backends import backend as backend_manifest
-    from ..coding_agent.round_runner import AgentRoundRunner
+    from ..coding_agent.round_runner import ABANDONED, AgentRoundRunner
 
-    executor = ctx.compile_executor
+    kind = getattr(job, "kind", "compile")
+    role = "evolve" if kind == "evolve" else "compile"
+    executor = executor_for(ctx.settings, role)
     job_id = getattr(job, "job_id")
+    if role == "evolve":
+        from ..cli.evolve import build_runtime
+    elif kind == "episodes":
+        from ..cli.episodes import build_runtime
     rt = await build_runtime(ctx, user_id, executor=executor.spec)
     runner = AgentRoundRunner(
         manifest=backend_manifest(str(executor.backend)),
@@ -644,7 +713,13 @@ async def process_agent_job(ctx: AppContext, user_id: UserId, job: object) -> No
         # resolved by the child (`launcher.CONNECTION_SETTINGS`).
         settings=ctx.settings,
     )
-    result = await runner.run_job(rt, job_id)
+    try:
+        result = await runner.run_job(rt, job_id)
+    except Exception as exc:
+        # The drain's error tail must still name this launch after the lease closes.
+        exc.draft_executor = runner.executor
+        exc.draft_runtime = rt
+        raise
     log.info(
         "job %s: %s (%d launch(es)%s)",
         job_id,
@@ -652,10 +727,42 @@ async def process_agent_job(ctx: AppContext, user_id: UserId, job: object) -> No
         result.launches,
         ", timed out" if result.timed_out else "",
     )
-    if result.usage:
+    if result.usage and result.outcome not in (ABANDONED, "draft ownership lost"):
         await ctx.store.record_job_usage(
             user_id, job_id, token_usage=result.usage, executor=executor.spec
         )
+
+
+async def _fail_job(ctx: AppContext, user_id: UserId, job_id: str, exc: Exception, detail: str) -> None:
+    rt = getattr(exc, "draft_runtime", None)
+    executor = getattr(exc, "draft_executor", "")
+    if rt is None or not executor:
+        await ctx.store.complete(user_id, job_id, ok=False, detail=detail)
+        return
+    async with rt.drafts.lock(user_id):
+        await ctx.store.complete(user_id, job_id, ok=False, detail=detail, claimed_by=executor)
+        job = await ctx.store.get_job(user_id, job_id)
+        owner = await rt.drafts.owner(user_id, job_id)
+        if job is not None and job.status == "done" and owner and owner.executor == executor:
+            await rt.drafts.delete(user_id, job_id, executor=executor)
+
+
+_DRAFT_HOLD_LOGGED: dict[str, tuple[str, str]] = {}
+
+
+async def _steward_holds_draft(ctx: AppContext, user_id: UserId) -> bool:
+    peek = getattr(ctx.store, "held_draft", None)
+    held = await peek(user_id) if peek is not None else None
+    if held is None or held[1].executor.startswith("worker:"):
+        _DRAFT_HOLD_LOGGED.pop(str(user_id), None)
+        return False
+    job_id, owner = held
+    key = (job_id, owner.executor)
+    if _DRAFT_HOLD_LOGGED.get(str(user_id)) != key:
+        log.info("job %s for %s is held by %s; the worker is not claiming this tenant's work",
+                 job_id, user_id, owner.executor or "legacy:unknown")
+        _DRAFT_HOLD_LOGGED[str(user_id)] = key
+    return True
 
 
 async def process_index_job(
@@ -687,7 +794,9 @@ async def process_index_job(
     plan = (
         IntakePlan.model_validate(ns.raw.intake_plan) if ns.raw.intake_plan else None
     )
-    semantic = plan.semantic_indexing if plan else "full"
+    semantic = (plan.semantic_indexing_requested or plan.semantic_indexing) if plan else "full"
+    if getattr(ctx.settings, "semantic_retrieval", "on") == "off":
+        semantic = "none"
 
     # L1: unconditional (I3) — an archived source is indexed exactly like a live one and
     # simply carries the flag, so it stays reachable by an `include_archived` search and a
@@ -696,7 +805,19 @@ async def process_index_job(
     await ctx.lexical.index_blocks(user_id, source_id, ns.blocks, archived=archived)
 
     # L2: by IntakePlan (semantic_indexing knob).
-    if semantic == "full":
+    replace_selection = False
+    if semantic != "none" and executor_for(ctx.settings, "compile").is_agent:
+        manifest = await agent_chunk_manifest(ctx, user_id, source_id, ns.blocks)
+        replace_selection = manifest is not None
+        if manifest is None:
+            # Index jobs are serialized per tenant. Retrying L1 must not enqueue the same
+            # unmade judgement twice; a kept judgement is replayed, never commissioned again.
+            pending = await ctx.store.list_jobs(user_id)
+            if not any(j["kind"] == "episodes" and j["status"] in ("queued", "claimed")
+                       and j["payload"].get("source_id") == str(source_id) for j in pending):
+                await ctx.store.enqueue(user_id, "episodes", {"source_id": str(source_id)})
+        chunks = await full_l2_chunks(ctx, source_id, ns.blocks, ns.structure, user_id, raw=ns.raw)
+    elif semantic == "full":
         chunks = await full_l2_chunks(
             ctx, source_id, ns.blocks, ns.structure, user_id, raw=ns.raw
         )
@@ -706,7 +827,11 @@ async def process_index_job(
         chunks = []
     if chunks:
         embedded = await embed_l2_chunks(ctx, chunks, ns)
+        if replace_selection:
+            await ctx.vectors.delete_source_chunks(user_id, source_id)
         await ctx.vectors.upsert_chunks(user_id, embedded, archived=archived)
+    elif replace_selection:
+        await ctx.vectors.delete_source_chunks(user_id, source_id)
 
     # The projection channel: an enabled component may keep a derived index of its own (the
     # `time` component's per-block calendar rows), and this is where it learns a source is
@@ -733,6 +858,15 @@ async def _resolve_user_skill(
     return skill
 
 
+def worker_tenants(ctx: AppContext) -> tuple[str, ...]:
+    """The tenants this body is allowed to touch; empty = every tenant (§11.7).
+
+    One place reads the setting, because every queue call this module makes has to state the
+    same restriction: a filter honoured by the drain but not by the startup self-heal would
+    still reach into another engine's library."""
+    return ctx.settings.worker_tenant_ids()
+
+
 async def requeue_orphaned_jobs(ctx: AppContext, *, label: str = "compile-worker") -> int:
     """Startup self-heal: return every job orphaned as 'claimed' to 'queued'.
 
@@ -745,25 +879,26 @@ async def requeue_orphaned_jobs(ctx: AppContext, *, label: str = "compile-worker
     just the long-running worker: an experiment/demo script that reuses a tenant inherits
     the exact same orphan.
 
-    Blast radius: the underlying store call is global (the JobQueue port has no per-user
-    variant), so it also requeues other tenants' claimed jobs. That is sound for this
-    single-worker queue — while no worker is running nothing is legitimately in flight —
-    but it does mean a script calling this alongside a LIVE compile worker would yank that
-    worker's in-flight job back into the queue. Don't run the two concurrently.
+    Legacy model claims have no draft or launch lease to prove liveness. Recovery of those
+    claims still assumes their worker has stopped; an unfiltered sweep can reclaim other
+    tenants' model jobs too. Agent claims below carry their own mechanical liveness proof.
 
-    One kind of claimed job is NOT orphaned: one an agent is holding through `pkc draft open`
-    (docs/design/coding-agent-mode.md §6). Its draft row is rewritten by every command that
-    round runs, so the store is asked to spare a job whose draft is younger than
-    `COMPILE_DRAFT_TTL`; an older draft is deleted and its job requeued with the rest.
+    Unless this body has a tenant filter (`WORKER_TENANTS`, §11.7), which is exactly the
+    deployment where that blast radius stops being sound: two engine processes on one
+    Postgres, one library each, and the other engine's claimed job is its work in flight
+    rather than anybody's orphan. The sweep is then bounded to this worker's own tenants.
+
+    Agent claims have stronger evidence (docs/design/coding-agent-mode.md §6): an interactive
+    draft's timestamp, or an unattended launch's PG lease. A live launch is spared until
+    the full `COMPILE_DRAFT_TTL` expires, independently of the much shorter takeover grace;
+    a dead launch is reclaimed immediately. Recovery skips any command currently holding
+    the tenant's draft lock, so it cannot interrupt gate/commit or a takeover in flight.
 
     Returns the number requeued and reports it on stdout (silence means nothing was stuck).
     """
-    # A job an agent is holding through `pkc draft open` is legitimately in flight, and its
-    # draft row says so by being freshly written (see the adapter). Past the TTL the draft is
-    # deleted and the job requeued with the orphans, because a round nobody came back to must
-    # not hold a user's queue any longer than a dead worker's job does.
+    # The adapter checks the launch lease and timestamp under the command/queue locks.
     reclaimed = await ctx.store.requeue_claimed_jobs(
-        draft_ttl=ctx.settings.compile_draft_ttl
+        draft_ttl=ctx.settings.compile_draft_ttl, tenants=worker_tenants(ctx)
     )
     if reclaimed:
         print(f"[{label}] reclaimed {reclaimed} orphaned claimed job(s) → requeued", flush=True)
@@ -841,18 +976,24 @@ async def drain_user(
     They are skipped at the CLAIM rather than after it — claiming one and putting it back
     would still have spent that user's single in-flight slot, and everything queued behind it
     (index, projection, groom) would wait on a round nobody in this process is going to run.
-    Everything else drains exactly as it always has."""
+    Everything else drains exactly as it always has.
+
+    A user this worker does not serve (`WORKER_TENANTS`, single-machine-edition.md §11.7) is
+    refused at the same claim: the drain returns 0 without having held anything."""
     resolved = skill
     processed = 0
     # Under an agent executor there are two postures, and they differ in exactly one place:
     # whether this body claims a compile job. Unattended, it does — and hands it to a
     # launched harness. Interactive, it does not, and the round waits for `pkc draft open`.
-    steward_kinds = (
-        (COMPILE_JOB_KIND,)
-        if ctx.compile_executor.is_agent and not unattended(ctx)
-        else ()
+    steward_kinds = tuple(
+        role for role in (COMPILE_JOB_KIND, "evolve")
+        if executor_for(ctx.settings, role).is_agent and not unattended(ctx, role)
     )
-    if steward_kinds:
+    if not unattended(ctx):
+        # Episodes always belong to the compile harness, even if the executor was changed
+        # while some were queued. They must never reach the default compile dispatch.
+        steward_kinds += ("episodes",)
+    if COMPILE_JOB_KIND in steward_kinds:
         waiting = await _waiting_for_steward(ctx, user_id)
         if waiting:
             log.info(
@@ -863,17 +1004,29 @@ async def drain_user(
                 ctx.compile_executor.spec,
             )
     while True:
-        job = await ctx.store.claim_next(user_id, exclude_kinds=steward_kinds)
+        if await _steward_holds_draft(ctx, user_id):
+            return processed
+        job = await ctx.store.claim_next(
+            user_id, exclude_kinds=steward_kinds, tenants=worker_tenants(ctx)
+        )
         if job is None:
             return processed
         try:
             kind = getattr(job, "kind", "compile")
             if kind == "index":
                 await process_index_job(ctx, user_id, job)
+            elif kind == "episodes":
+                await process_agent_job(ctx, user_id, job)
             elif kind == "evolve":
-                await run_evolve_job(ctx, user_id, job)
+                if unattended(ctx, "evolve"):
+                    await process_agent_job(ctx, user_id, job)
+                else:
+                    await run_evolve_job(ctx, user_id, job)
             elif kind == "evolve_adopt":
                 await adopt_evolve_job(ctx, user_id, job)
+                resolved = None
+                if skill_cache is not None:
+                    skill_cache.pop(str(user_id), None)
             elif kind == GROOM_JOB_KIND:
                 await run_groom_job(ctx, user_id, job)
             elif kind == ARCHIVE_JOB_KIND:
@@ -883,6 +1036,10 @@ async def drain_user(
             elif kind == RECALL_REBUILD_JOB_KIND:
                 await run_recall_rebuild_job(ctx, user_id, job)
             elif kind == CHALLENGE_JOB_KIND:
+                if executor_for(ctx.settings, "compile").is_agent:
+                    await ctx.store.complete(user_id, job.job_id, ok=True, detail="challenge skipped under an agent executor")
+                    processed += 1
+                    continue
                 if resolved is None:
                     resolved = await _resolve_user_skill(ctx, user_id, skill_cache)
                 await run_challenge_job(
@@ -901,13 +1058,9 @@ async def drain_user(
             # they can see it named. Every job kind that commits arrives here (compile,
             # groom, evolve adopt); the archive job states the same code in its own detail,
             # because it also has a proposal row to fail.
-            await ctx.store.complete(
-                user_id, job.job_id, ok=False, detail=exc.detail
-            )
+            await _fail_job(ctx, user_id, job.job_id, exc, exc.detail)
         except Exception as exc:  # noqa: BLE001 — never leave a job stuck 'claimed'
-            await ctx.store.complete(
-                user_id, job.job_id, ok=False, detail=f"worker error: {exc}"
-            )
+            await _fail_job(ctx, user_id, job.job_id, exc, f"worker error: {exc}")
         finally:
             # Short-lived per-job trace flush: a worker sweep may exit right after, so
             # never rely on the background batch surviving process end.
@@ -963,7 +1116,15 @@ async def _users_with_jobs(ctx: AppContext) -> list[str]:
     business questions before it has imported anything at all — so enumerating from
     `sources` alone left exactly that tenant's jobs queued forever, with nothing in the
     system able to notice.
+
+    With a tenant filter set (`WORKER_TENANTS`, single-machine-edition.md §11.7) the answer
+    is the filter itself: those tenants ARE the ones this worker serves, whether or not they
+    have imported anything yet, and no other tenant's queue is this body's to look at. The
+    claim query refuses the rest anyway — this only saves the sweep from asking.
     """
+    tenants = worker_tenants(ctx)
+    if tenants:
+        return sorted(tenants)
     users = set(await ctx.store.list_users())
     lister = getattr(ctx.store, "list_consultation_users", None)
     if lister is not None:
@@ -971,35 +1132,47 @@ async def _users_with_jobs(ctx: AppContext) -> list[str]:
     return sorted(users)
 
 
-async def run_forever() -> None:
-    settings = get_settings()
+async def run_forever(settings: Settings | None = None) -> None:
+    if settings is None:
+        settings = get_settings()
     ctx = await build_context(settings)
-    executor = executor_for(settings, "compile")
-    # An agent executor has no chat model to build, and building one would raise: what runs
-    # the round is a harness under the Owner's subscription, and the worker's part is to
-    # leave its jobs alone (§9). Every other kind of job is drained as before.
-    chat_model = None if executor.is_agent else build_chat_model_for(settings, "compile")
-    # No single global skill: each job loads its user's own composed skill (skill=None).
-    print(
-        f"[compile-worker] executor={executor.kind} model={executor.spec} "
-        f"canonical={settings.canonical_root}"
-    )
-    if executor.is_agent and settings.agent_unattended:
-        print(
-            f"[compile-worker] compile jobs are claimed and handed to {executor.backend} "
-            "(unattended); set PNEUMA_KNOWLEDGE_AGENT_UNATTENDED=false to leave them for a "
-            "Steward at a terminal"
-        )
-    elif executor.is_agent:
-        print(
-            "[compile-worker] compile jobs are left queued for the Steward "
-            "(`pkc draft open <job>`); index, projection and groom jobs drain as usual"
-        )
-    # Self-heal on startup: requeue any job orphaned as 'claimed' by a previous worker
-    # that died mid-job (killed during an LLM call), which would otherwise block its
-    # user's queue forever.
-    await requeue_orphaned_jobs(ctx)
     try:
+        executor = executor_for(settings, "compile")
+        # An agent executor has no chat model to build, and building one would raise: what runs
+        # the round is a harness under the Owner's subscription, and the worker's part is to
+        # leave its jobs alone (§9). Every other kind of job is drained as before.
+        chat_model = None if executor.is_agent else build_chat_model_for(settings, "compile")
+        # No single global skill: each job loads its user's own composed skill (skill=None).
+        print(
+            f"[compile-worker] executor={executor.kind} model={executor.spec} "
+            f"canonical={settings.canonical_root} "
+            f"agent_unattended={settings.agent_unattended} "
+            f"posture={'unattended' if settings.agent_unattended else 'interactive'}"
+        )
+        # Stated once, at the start: a worker that silently ignores most of a shared queue
+        # looks exactly like a worker that is stuck. An empty filter prints nothing, because
+        # "every tenant" is what a worker has always been.
+        tenants = settings.worker_tenant_ids()
+        if tenants:
+            print(
+                f"[compile-worker] tenants={','.join(tenants)} — jobs of any other tenant "
+                "on this store are neither claimed nor reclaimed"
+            )
+        if executor.is_agent and settings.agent_unattended:
+            print(
+                f"[compile-worker] compile jobs are claimed and handed to {executor.backend} "
+                "(unattended); set PNEUMA_KNOWLEDGE_AGENT_UNATTENDED=false to leave them for a "
+                "Steward at a terminal"
+            )
+        elif executor.is_agent:
+            print(
+                "[compile-worker] compile jobs are left queued for the Steward "
+                "(`pkc draft open <job>`); index, projection and groom jobs drain as usual"
+            )
+        # Self-heal on startup: requeue any job orphaned as 'claimed' by a previous worker
+        # that died mid-job (killed during an LLM call), which would otherwise block its
+        # user's queue forever.
+        await requeue_orphaned_jobs(ctx)
         while True:
             n = await compile_pending(ctx, chat_model)
             if n:

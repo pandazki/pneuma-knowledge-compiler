@@ -47,13 +47,16 @@ import random
 import re
 import secrets
 import shutil
-import socket
 import subprocess
 from pathlib import Path
 
 sys.dont_write_bytecode = True
 
 SCAFFOLD_DIR = Path(__file__).resolve().parent
+# The project-shaped templates: runtime machinery and the documents a person owns. The
+# engine's own starting texts (contract / profile / engine README) are NOT here — they are
+# library material, shipped inside the service package and read through `engine_template`,
+# so this generator and the personal edition start an engine from the same files.
 TEMPLATES = SCAFFOLD_DIR / "templates"
 EXAMPLE = SCAFFOLD_DIR / "example"
 
@@ -294,48 +297,72 @@ def demo_example(repo: Path) -> Path:
     return source
 
 
+#: Modules loaded from the framework's service package by path, keyed by dotted name.
+_LIBRARY_MODULES: dict[str, object] = {}
+
+
+def library_module(dotted: str):
+    """A standard-library-only module from the framework's service package, loaded by path.
+
+    The framework owns the engine's starting texts and the port/subnet probes; this
+    generator is one of two callers (the personal edition is the other), and both must read
+    the same file or they are two engines that merely look alike. `import
+    pneuma_knowledge_service...` is not available here — init.py runs before any environment
+    exists — so the module is loaded straight from the source tree instead. The modules
+    reached this way are themselves standard-library-only, which is what makes it safe.
+    """
+    if dotted not in _LIBRARY_MODULES:
+        import importlib.util
+
+        repo = find_framework_repo()
+        if repo is None:
+            sys.exit(
+                "error: framework repository not found — init.py must run from inside the "
+                "pneuma-knowledge-compiler repo."
+            )
+        path = repo.joinpath(
+            "packages", "pneuma-knowledge-service", "src", *dotted.split(".")
+        ).with_suffix(".py")
+        if not path.is_file():
+            sys.exit(f"error: the framework module {dotted} is missing at {path}.")
+        spec = importlib.util.spec_from_file_location(f"pneuma_init_{dotted.replace('.', '_')}", path)
+        if spec is None or spec.loader is None:
+            sys.exit(f"error: could not load the framework module {dotted} from {path}.")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        _LIBRARY_MODULES[dotted] = module
+    return _LIBRARY_MODULES[dotted]
+
+
+def engine_template(name: str, language: str) -> str:
+    """One of the framework's engine templates (`contract`, `engine-README`, `profile`)."""
+    files = library_module("pneuma_knowledge_service.engine.template_files")
+    try:
+        return files.template_text(name, language)
+    except files.UnknownTemplate as exc:
+        sys.exit(f"error: {exc}")
+
+
 def probe_free_ports(count: int, *, lo: int = 20000, hi: int = 59999) -> list[int]:
-    """Distinct localhost ports that are free right now. Random draws instead of a fixed
-    block: two projects generated on the same machine must never collide with each other,
-    or with anything else already listening. Users are never asked about ports."""
-    ports: list[int] = []
-    attempts = 0
-    while len(ports) < count:
-        attempts += 1
-        if attempts > 500:
-            sys.exit("error: could not find enough free localhost ports (tried 500 times).")
-        port = random.randrange(lo, hi)
-        if port in ports:
-            continue
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-            try:
-                probe.bind(("127.0.0.1", port))
-            except OSError:
-                continue
-        ports.append(port)
-    return ports
+    """Distinct localhost ports that are free right now — the framework's own probe.
+
+    Random draws instead of a fixed block: two projects generated on the same machine must
+    never collide with each other, or with anything else already listening. Users are never
+    asked about ports."""
+    ports = library_module("pneuma_knowledge_service.infra.ports")
+    try:
+        return ports.probe_free_ports(count, lo=lo, hi=hi)
+    except ports.NoFreePorts as exc:
+        sys.exit(f"error: {exc}")
 
 
 def probe_free_subnet() -> str:
-    """A random private /24 for the project's Docker network, checked (best-effort)
-    against the host routing table. Random for the same reason ports are: two projects
-    generated on one machine must not collide, and Docker's default address pools are a
-    finite resource that many-project machines exhaust."""
-    import subprocess
+    """A random private /24 for the project's Docker network — the framework's own probe.
 
-    routed = ""
-    for probe_cmd in (["netstat", "-rn", "-f", "inet"], ["ip", "route"]):
-        try:
-            routed = subprocess.run(probe_cmd, capture_output=True, text=True, timeout=5).stdout
-            break
-        except (OSError, subprocess.TimeoutExpired):
-            continue
-    for _ in range(200):
-        second, third = random.randrange(128, 255), random.randrange(0, 255)
-        subnet = f"10.{second}.{third}.0/24"
-        if f"10.{second}.{third}." not in routed and subnet != "10.222.222.0/24":
-            return subnet
-    return "10.222.222.0/24"  # fallback: the template's own default
+    Checked (best-effort) against the host routing table, and random for the same reason
+    ports are: two projects generated on one machine must not collide, and Docker's default
+    address pools are a finite resource that many-project machines exhaust."""
+    return library_module("pneuma_knowledge_service.infra.ports").probe_free_subnet()
 
 
 def render(template: str, slots: dict[str, str]) -> str:
@@ -694,7 +721,7 @@ def contract_text(config: dict, repo: Path) -> tuple[str, str]:
                 )
                 return reference_contract_text(entry, skill_id=skill_id), hint
         sys.exit(f"error: no built-in strategy named {wanted} (list them with ./init.py --list-references).")
-    template = (TEMPLATES / ("contract.zh.md" if zh else "contract.en.md")).read_text(encoding="utf-8")
+    template = engine_template("contract", "zh" if zh else "en")
     hint = (
         "可直接运行的起始契约；读过代表性材料后，再具体化用途与主体族。"
         if zh
@@ -716,9 +743,7 @@ def engine_files(config: dict, contract: str, profile: str) -> dict[str, str]:
     their engine does without knowing what the framework would otherwise have chosen."""
     zh = config["language"] == "zh"
     models = config["models"]
-    readme = (TEMPLATES / ("engine-README.zh.md" if zh else "engine-README.en.md")).read_text(
-        encoding="utf-8"
-    )
+    readme = engine_template("engine-README", "zh" if zh else "en")
     deep = models["deep"]
     # Who runs a compile round, in the one field that states it. An agent executor is a
     # strategy value like any other — the same file, the same key, read by the same
@@ -774,6 +799,11 @@ attention_evidence_chars: 1500
 # New-source segmentation. Semantic indexing can use several bounded model calls.
 # Derived rebuilds replay already-kept semantic manifests rather than choosing new cuts.
 chunk_strategy: {config["chunk_strategy"]}
+
+# Whether L2 exists at all (coding-agent-mode.md §5.9): "on" embeds semantic chunks and needs an
+# embedding key; "off" never calls an embedding, L0/L1 stay unconditional, and every lane
+# reports its vector arms as skipped. Turning it on later: rebuild_derived builds L2 then.
+semantic_retrieval: "on"
 
 semantic_overlap: "{config["semantic_overlap"]}"
 """,
@@ -1107,9 +1137,7 @@ def generate(config: dict) -> Path:
         # about whose library this is.
         profile = (demo_example(repo) / DEMO_PROFILE).read_text(encoding="utf-8")
     else:
-        profile_template = (
-            TEMPLATES / ("profile.zh.yaml" if zh else "profile.en.yaml")
-        ).read_text(encoding="utf-8")
+        profile_template = engine_template("profile", "zh" if zh else "en")
         profile = render(
             profile_template,
             {

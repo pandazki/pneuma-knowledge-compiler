@@ -34,4 +34,8 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
+# Everything under the package directory ships, Python or not: the engine schema
+# (`engine/assets/`) and the engine directory's starting texts (`engine/templates/`) are
+# read from the installed wheel through `importlib.resources`. Do not add an exclude that
+# would drop non-Python files.
 packages = ["src/pneuma_knowledge_service"]

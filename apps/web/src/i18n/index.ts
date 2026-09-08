@@ -20,6 +20,7 @@ import { evolve } from "./evolve";
 import { gallery } from "./gallery";
 import { graph } from "./graph";
 import { history } from "./history";
+import { home } from "./home";
 import { ingest } from "./ingest";
 import { library } from "./library";
 import { liveContext } from "./liveContext";
@@ -57,6 +58,7 @@ export const BUNDLES = [
   library,
   graph,
   history,
+  home,
   evolve,
   gallery,
 ];
@@ -83,6 +85,7 @@ export const MESSAGES = {
     ...library.zh,
     ...graph.zh,
     ...history.zh,
+    ...home.zh,
     ...evolve.zh,
     ...gallery.zh,
   },
@@ -107,6 +110,7 @@ export const MESSAGES = {
     ...library.en,
     ...graph.en,
     ...history.en,
+    ...home.en,
     ...evolve.en,
     ...gallery.en,
   },

@@ -26,7 +26,7 @@ from pneuma_knowledge_core.domain.ids import SourceId, UserId
 from pneuma_knowledge_core.domain.source import NormalizedSource
 from pneuma_knowledge_core.skill.version import SkillVersion
 
-from .wiring import AppContext, llm_call_config
+from .wiring import AppContext, executor_for, llm_call_config
 
 log = logging.getLogger(__name__)
 
@@ -48,6 +48,8 @@ async def maybe_trigger_challenge(
     """
     if not ctx.settings.challenge_enabled:
         return
+    if executor_for(ctx.settings, "compile").is_agent:
+        return
     if payload.get("challenge_compensation"):
         return
     if not source_ids:
@@ -67,6 +69,8 @@ async def _probe_claims(ctx: AppContext, user_id: UserId, question: str) -> list
             texts.setdefault(hit.text, None)
     except Exception:  # noqa: BLE001 — a missing face degrades the probe, not the job
         pass
+    if ctx.embeddings is None or ctx.vectors is None:
+        return list(texts)
     try:
         embedding = await ctx.embeddings.aembed_query(question)
         for hit in await ctx.vectors.search_claims(

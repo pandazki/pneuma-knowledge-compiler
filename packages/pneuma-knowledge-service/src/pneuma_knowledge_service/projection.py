@@ -275,16 +275,16 @@ async def sync_projection(
                 limit=MAX_PROJECTION_LOSS_SHARE,
             )
 
-    if upserts:
+    if upserts and ctx.embeddings is not None:
         vectors = await ctx.embeddings.aembed_documents([claim.text for claim in upserts])
     else:
         vectors = []
 
     if upserts or deleted:
-        await asyncio.gather(
-            ctx.lexical.sync_claims(user_id, upserts, deleted),
-            ctx.vectors.sync_claims(user_id, upserts, vectors, deleted),
-        )
+        writes = [ctx.lexical.sync_claims(user_id, upserts, deleted)]
+        if ctx.vectors is not None and ctx.embeddings is not None:
+            writes.append(ctx.vectors.sync_claims(user_id, upserts, vectors, deleted))
+        await asyncio.gather(*writes)
 
     await ctx.store.sync_canonical_claims(
         user_id, snapshot_ref, upserts, deleted
@@ -348,9 +348,10 @@ async def rebuild_projection(
     await ctx.lexical.index_claims(user_id, claims)
 
     # 3. Qdrant claim layer (drop then re-upsert with embeddings).
-    await ctx.vectors.delete_claims(user_id)
-    if claims:
-        vectors = await ctx.embeddings.aembed_documents([c.text for c in claims])
-        await ctx.vectors.upsert_claims(user_id, claims, vectors)
+    if ctx.vectors is not None and ctx.embeddings is not None:
+        await ctx.vectors.delete_claims(user_id)
+        if claims:
+            vectors = await ctx.embeddings.aembed_documents([c.text for c in claims])
+            await ctx.vectors.upsert_claims(user_id, claims, vectors)
 
     return len(claims)

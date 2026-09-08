@@ -24,6 +24,7 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+from pydantic_core import PydanticCustomError
 
 
 def _require_aware(value: datetime | None) -> datetime | None:
@@ -451,8 +452,113 @@ class OwnerDialogueSource(ContractModel):
         return self
 
 
+class SessionAgent(ContractModel):
+    name: str = Field(min_length=1, pattern=r"\S")
+    model: str | None = None
+
+
+class SessionProject(ContractModel):
+    path: str = Field(min_length=1, pattern=r"\S")
+    name: str | None = None
+    git_remote: str | None = None
+
+
+class AgentSessionTurn(ContractModel):
+    turn_id: str = Field(min_length=1, pattern=r"\S")
+    role: Literal["owner", "agent"]
+    kind: Literal["say", "narrative", "action"]
+    at: datetime
+    text: str = Field(min_length=1, pattern=r"\S")
+
+    _aware_at = field_validator("at")(_require_aware)
+
+    @model_validator(mode="after")
+    def validate_turn(self) -> "AgentSessionTurn":
+        if (self.role == "owner") != (self.kind == "say"):
+            raise PydanticCustomError(
+                "agent_session_role_kind",
+                "turn {turn_id}: owner requires say; agent requires narrative or action",
+                {"turn_id": self.turn_id},
+            )
+        if self.kind == "action" and (
+            len(self.text) > 200
+            or any(c in self.text for c in "\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029")
+        ):
+            raise PydanticCustomError(
+                "agent_session_action_stub",
+                "turn {turn_id}: action must be one line of at most 200 characters",
+                {"turn_id": self.turn_id},
+            )
+        return self
+
+
+class AgentSessionSource(ContractModel):
+    """A session's spoken turns and bounded activity stubs, never tool payloads."""
+
+    contract_schema: Literal["pneuma.source.agent-session/v1"] = Field(alias="schema")
+    provider: str = Field(min_length=1, pattern=r"\S")
+    session_id: str = Field(min_length=1, pattern=r"\S")
+    owner_id: str = Field(min_length=1, pattern=r"\S")
+    agent: SessionAgent
+    project: SessionProject | None = None
+    started_at: datetime
+    ended_at: datetime | None = None
+    turns: list[AgentSessionTurn] = Field(min_length=1)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    _aware_started = field_validator("started_at")(_require_aware)
+    _aware_ended = field_validator("ended_at")(_require_aware)
+
+    @model_validator(mode="before")
+    @classmethod
+    def refuse_tool_payloads(cls, value: Any) -> Any:
+        def visit(item: Any, path: str) -> None:
+            if isinstance(item, dict):
+                for key, child in item.items():
+                    if key in {"input", "output", "result"}:
+                        raise PydanticCustomError(
+                            "agent_session_tool_payload",
+                            "tool input/output/result is not admitted at {path}",
+                            {"path": f"{path}.{key}"},
+                        )
+                    visit(child, f"{path}.{key}")
+            elif isinstance(item, list):
+                for index, child in enumerate(item):
+                    visit(child, f"{path}[{index}]")
+
+        visit(value, "session")
+        return value
+
+    @model_validator(mode="after")
+    def validate_session(self) -> "AgentSessionSource":
+        if duplicates := _duplicates([turn.turn_id for turn in self.turns]):
+            raise PydanticCustomError(
+                "agent_session_duplicate_turn_ids",
+                "duplicate turn ids: {ids}",
+                {"ids": sorted(duplicates)},
+            )
+        if not any(turn.role == "owner" for turn in self.turns):
+            raise PydanticCustomError(
+                "agent_session_owner_required",
+                "a session needs at least one owner turn",
+            )
+        for earlier, later in zip(self.turns, self.turns[1:]):
+            if later.at < earlier.at:
+                raise PydanticCustomError(
+                    "agent_session_turn_order",
+                    "turn {later} is timestamped before {earlier}; order is not repaired",
+                    {"later": later.turn_id, "earlier": earlier.turn_id},
+                )
+        if self.ended_at is not None and self.ended_at < self.started_at:
+            raise PydanticCustomError(
+                "agent_session_time_range", "ended_at must not precede started_at"
+            )
+        return self
+
+
 SourceContract = Annotated[
-    MeetingSource | DocumentLibrarySource | ImSource | EmailSource | OwnerDialogueSource,
+    MeetingSource | DocumentLibrarySource | ImSource | EmailSource | OwnerDialogueSource
+    | AgentSessionSource,
     Field(discriminator="contract_schema"),
 ]
 _SOURCE_CONTRACT_ADAPTER = TypeAdapter(SourceContract)

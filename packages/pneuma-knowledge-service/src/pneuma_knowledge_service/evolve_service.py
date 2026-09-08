@@ -31,6 +31,7 @@ from pneuma_knowledge_core.compile.documents import render_document, with_derive
 from pneuma_knowledge_core.compile.gate import check_citation_shape, check_claim_provenance, Violation
 from pneuma_knowledge_core.compile.overview import check_overviews
 from pneuma_knowledge_core.compile.transitions import _anchor_blocks
+from pneuma_knowledge_core.compile.runner import with_skill_trailer
 from pneuma_knowledge_core.components import collect_evolve_evidence, component_job
 from pneuma_knowledge_core.domain.archive import (
     live_documents,
@@ -41,20 +42,23 @@ from pneuma_knowledge_core.domain.canonical import CanonicalDocument
 from pneuma_knowledge_core.domain.ids import UserId, SourceId, extract_anchors
 from pneuma_knowledge_core.domain.snapshot import SnapshotRef
 from pneuma_knowledge_core.evolve import propose_evolution, run_evolve
+from pneuma_knowledge_core.evolve.propose import proposal_payload
 from pneuma_knowledge_core.evolve.gate import (
     component_gate_checks,
     docs_from_canonical,
     docs_from_files,
 )
 from pneuma_knowledge_core.prompts import prompt
-from pneuma_knowledge_core.skill import SchemaPack, compose_skill, load_skill_base
+from pneuma_knowledge_core.skill import SchemaPack, load_skill_base
 from pneuma_knowledge_core.skill.version import SkillVersion
 
 from .groom_service import scan_oversized_documents
 from .projection import rebuild_projection
 from .skills import (
     MANIFEST_PATH,
-    base_named_or_current,
+    manifest_base,
+    manifest_skill,
+    compose_manifest_skill,
     read_manifest,
     serialize_manifest,
     skill_for_user,
@@ -153,10 +157,21 @@ async def _compose_new_skill(
     else:
         base_version = ctx.settings.user_schema_base_version
         base_packs = []
-    base_skill, _retired = base_named_or_current(ctx.settings, str(base_version))
+    base_skill, _retired = manifest_base(ctx.settings, manifest or {"base_version": base_version})
     all_packs = base_packs + list(evolved_packs)
-    new_skill = compose_skill(base_skill, all_packs)
-    return new_skill, serialize_manifest(base_skill, all_packs, new_skill)
+    templates = (manifest or {}).get("path_templates")
+    if templates is not None:
+        templates = list(dict.fromkeys([
+            *templates, *(t for p in evolved_packs for t in p.extra_path_templates),
+        ]))
+    new_skill = compose_manifest_skill(base_skill, all_packs, templates)
+    content = json.loads(serialize_manifest(base_skill, all_packs, new_skill))
+    for key in ("base_contract", "path_templates", "agent_evolved"):
+        if key in (manifest or {}):
+            content[key] = manifest[key]
+    if templates is not None:
+        content["path_templates"] = templates
+    return new_skill, json.dumps(content, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
 
 
 # --------------------------------------------------------------- evolve job (C3)
@@ -256,41 +271,55 @@ async def run_evolve_job(ctx: AppContext, user: UserId, job: object) -> None:
         ),
     )
 
+    await persist_evolve_result(ctx, user, job_id, task_id, proposal, result, manifest_content)
+
+
+async def persist_evolve_result(
+    ctx: AppContext, user: UserId, job_id: str, task_id: str, proposal, result,
+    manifest_content: str, *, base_ref: str | None = None, executor: str | None = None,
+) -> None:
+    """The review record and branch, shared by the model and the persisted draft door."""
     if result.status == "aborted":
         await ctx.store.create_evolve_task(
             user, task_id, status="aborted",
-            proposal=proposal.model_dump(), summary=result.summary,
+            proposal=proposal_payload(proposal), summary=result.summary,
             dropped=_dropped_json(result.dropped),
             detail="evolve gate rejected: the reorganization still fails the mechanical checks.",
         )
-        await ctx.store.complete(user, job_id, ok=False, detail="evolve aborted")
+        await ctx.store.complete(user, job_id, ok=False, detail="evolve aborted", **({"executor": executor} if executor else {}))
         return
 
     if result.status == "noop":
         await ctx.store.create_evolve_task(
             user, task_id, status="no_change",
-            proposal=proposal.model_dump(),
+            proposal=proposal_payload(proposal),
             detail="the reorganization produced no change.",
         )
-        await ctx.store.complete(user, job_id, ok=True, detail="evolve noop")
+        await ctx.store.complete(user, job_id, ok=True, detail="evolve noop", **({"executor": executor} if executor else {}))
         return
 
     # completed → land the reorganization + the evolved manifest atomically on a branch.
-    snaps = await ctx.canonical.snapshots(user)
-    base_ref = snaps[0].ref if snaps else ""
+    if base_ref is None:
+        snaps = await ctx.canonical.snapshots(user)
+        base_ref = snaps[0].ref if snaps else ""
     branch = f"evolve/{task_id}"
     files = dict(result.files)
     files[MANIFEST_PATH] = manifest_content
+    message = f"evolve {task_id}"
+    if executor:
+        message = with_skill_trailer(message, manifest_skill(ctx.settings, json.loads(manifest_content)))
+    removals = getattr(result, "removed_paths", ())
     await ctx.canonical.branch_commit(
-        user, branch, files, f"evolve {task_id}", base=SnapshotRef(ref=base_ref)
+        user, branch, files, message, base=SnapshotRef(ref=base_ref),
+        **({"removals": removals} if removals else {}),
     )
     await ctx.store.create_evolve_task(
         user, task_id, status="draft",
-        base_ref=base_ref, branch=branch, proposal=proposal.model_dump(),
+        base_ref=base_ref, branch=branch, proposal=proposal_payload(proposal),
         summary=result.summary, dropped=_dropped_json(result.dropped),
         detail=_summary_line(result.summary),
     )
-    await ctx.store.complete(user, job_id, ok=True, detail=f"evolve draft {task_id}")
+    await ctx.store.complete(user, job_id, ok=True, detail=f"evolve draft {task_id}", **({"executor": executor} if executor else {}))
 
 
 # ------------------------------------------------- adopt reconciliation (C4, pure)
@@ -553,8 +582,14 @@ async def adopt_evolve_job(ctx: AppContext, user: UserId, job: object) -> None:
     snaps = await ctx.canonical.snapshots(user)
     pre_adopt_ref = snaps[0].ref if snaps else ""
 
+    message = f"adopt evolve {task_id}"
+    manifest = json.loads(manifest_content) if manifest_content else {}
+    agent_evolved = manifest.get("agent_evolved", False)
+    removals = sorted({d.path for d in main_docs} - set(final_files)) if agent_evolved else []
+    if agent_evolved:
+        message = with_skill_trailer(message, manifest_skill(ctx.settings, manifest))
     adopted = await ctx.canonical.commit_patch(
-        user, final_files, message=f"adopt evolve {task_id}"
+        user, final_files, message=message, **({"removals": removals} if removals else {}),
     )
     await rebuild_projection(ctx, user, adopted.ref)
     await ctx.store.decide_evolve_task(

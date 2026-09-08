@@ -37,6 +37,7 @@ SourceOrigin = Literal[
     "rfc822",
     "console",  # the surface the library's owner speaks to the steward through
     "mock",
+    "agent_session",  # harness names remain free strings in meta.provider
 ]
 SourceKind = Literal[
     "meeting",
@@ -49,6 +50,7 @@ SourceKind = Literal[
     # The owner's own statement about the library — a correction, an instruction, an
     # addition. An ordinary source in every respect; only its authorship is unusual.
     "owner_dialogue",
+    "agent_session",
 ]
 
 

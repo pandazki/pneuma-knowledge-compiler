@@ -249,7 +249,10 @@ def plan_effects(engine_dir: str | Path, changes: Iterable[Change]) -> list[Effe
             key = f"{stage.id}.{knob.key}"
             if key not in seen:
                 seen.add(key)
-                effects.append(Effect(key=key, apply=knob.apply))
+                effects.extend(
+                    Effect(key=key, apply=effect)
+                    for effect in (knob.apply, *knob.additional_apply)
+                )
     return effects
 
 

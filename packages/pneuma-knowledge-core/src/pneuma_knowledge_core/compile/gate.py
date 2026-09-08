@@ -68,6 +68,7 @@ from ..domain.archive import (
 from ..domain.canonical import CANONICAL_CITATION_MARKER_RE, iter_canonical_citations
 from ..domain.ids import extract_anchors
 from ..domain.source import NormalizedSource
+from ..domain.authorship import owner_authored_blocks
 from ..prompts import prompt
 from ..components import registered_components
 from .anchor_ops import (
@@ -156,6 +157,7 @@ VIOLATION_KINDS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ),
     ),
     ("frontmatter", ("gate.frontmatter_missing",)),
+    ("owner_voice", ("gate.owner_voice", "gate.owner_voice_unresolved")),
     ("anchor_coverage", ("gate.anchor_coverage",)),
     ("claim_text", ("gate.claim_text_machinery",)),
     (
@@ -626,6 +628,104 @@ def overview_required_violations(
     ]
 
 
+def check_owner_voice(
+    draft: PatchDraft,
+    sources: Sequence[NormalizedSource],
+    *,
+    alias_map: Mapping[str, str] | None = None,
+) -> list[Violation]:
+    """New or edited claims on opted-in paths must resolve entirely to Owner blocks.
+
+    Canonical anchor references follow their provenance too, including overview references.
+    A carried-over citation marker does not exempt a new assertion using that marker.
+    """
+    if not draft.owner_voice_templates:
+        return []
+    aliases = alias_map or {}
+    owners = {sid: set(indices) for sid, indices in draft.owner_authored_blocks.items()}
+    for source in sources:
+        sid = str(source.raw.source_id)
+        owners[aliases.get(sid, sid)] = set(owner_authored_blocks(source.raw)) & {
+            block.index for block in source.blocks
+        }
+    docs = draft.documents()
+    claims = {
+        block_anchor(block): block
+        for doc in docs.values()
+        for block in anchored_blocks(doc.body)
+    }
+
+    evidence_cache: dict[str, tuple[list, bool]] = {}
+
+    def evidence(block: str, visited: frozenset[str]) -> tuple[list, bool]:
+        anchor = block_anchor(block)
+        if anchor in evidence_cache:
+            return evidence_cache[anchor]
+        citations = list(iter_canonical_citations(block))
+        prose = re.sub(r"<!--.*?-->", "", block, flags=re.DOTALL)
+        refs = set(re.findall(r"\bc:([0-9a-zA-Z_-]+)", prose))
+        resolved = bool(citations or refs)
+        for ref in sorted(refs):
+            if ref in visited or ref not in claims:
+                resolved = False
+                continue
+            more, valid = evidence(claims[ref], visited | {ref})
+            citations.extend(more)
+            resolved = resolved and valid
+        evidence_cache[anchor] = citations, resolved
+        return citations, resolved
+
+    violations = []
+    base_bodies = draft.base_bodies()
+    for path, doc in docs.items():
+        if not path_allowed(path, draft.owner_voice_templates):
+            continue
+        base = {
+            block_anchor(block): block
+            for block in anchored_blocks(base_bodies.get(path, ""))
+        }
+        for block in anchored_blocks(doc.body):
+            anchor = block_anchor(block)
+            if base.get(anchor) == block:
+                continue
+            citations, resolved = evidence(block, frozenset({anchor}))
+            if not resolved:
+                violations.append(
+                    Violation(
+                        "owner_voice",
+                        path,
+                        prompt("gate.owner_voice_unresolved", anchor=anchor),
+                    )
+                )
+            for citation in citations:
+                sid = aliases.get(str(citation.source_id), str(citation.source_id))
+                start, end = citation.block_start, citation.block_end
+                owner_indices = owners.get(sid, set())
+                # Bound the work by the available indices, even for an enormous bad span.
+                if (
+                    start < 0
+                    or start > end
+                    or end - start + 1 > len(owner_indices)
+                    or any(
+                        index not in owner_indices for index in range(start, end + 1)
+                    )
+                ):
+                    violations.append(
+                        Violation(
+                            "owner_voice",
+                            path,
+                            prompt(
+                                "gate.owner_voice",
+                                anchor=anchor,
+                                source_id=sid,
+                                start=start,
+                                end=end,
+                            ),
+                        )
+                    )
+    return violations
+
+
 def run_gate(
     draft: PatchDraft,
     sources: Sequence[NormalizedSource],
@@ -711,6 +811,7 @@ def run_gate(
     # 3b. citation SHAPE — before provenance, because provenance counts markers it cannot
     # read as evidence, and this is what tells the two apart.
     violations.extend(check_citation_shape(docs))
+    violations.extend(check_owner_voice(draft, sources, alias_map=alias_map))
 
     # 3c. New/changed claims and newly broken dependants must reach provenance.
     violations.extend(check_claim_provenance(docs, draft.base_documents()))

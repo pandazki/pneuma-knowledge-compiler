@@ -54,13 +54,24 @@ ProposeReason = Literal["no_change", "parse_error", "invalid_templates", "propos
 class EvolveProposal(BaseModel):
     """A phase-1 schema draft: the new families to add, plus one evidence line each.
 
-    Frozen — a proposal is an immutable artifact handed to phase 2 / the review gate. An
-    empty `packs` list is illegal (an empty proposal is "no change", expressed as `None`)."""
+    Frozen — a proposal is an immutable artifact handed to phase 2 / the review gate.
+    The agent door also accepts a structure-only judgement with no new packs."""
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
     packs: list[SchemaPack]
     rationale: str
+    # Optional structure decisions at the agent door. Legacy additive proposals keep
+    # their serialized shape through `proposal_payload` below.
+    retire_packs: list[str] = Field(default_factory=list)
+    rename_packs: dict[str, str] = Field(default_factory=dict)
+    path_templates: list[str] | None = None
+    dropped_anchors: list[str] = Field(default_factory=list)
+
+
+def proposal_payload(proposal: EvolveProposal) -> dict:
+    """Keep the API executor's additive record byte-for-byte in its existing shape."""
+    return proposal.model_dump(exclude_unset=True)
 
 
 # --------------------------------------------------------- LLM structured output schema

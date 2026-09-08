@@ -93,6 +93,17 @@ MANIFEST_VERSION = 3
 _BOUNDARY_ONLY_MANIFEST_VERSION = 2
 
 
+def is_agent_manifest(recorded) -> bool:
+    """The explicit contract that permits omitted blocks, including an empty selection."""
+    return (
+        isinstance(recorded, dict)
+        and recorded.get("version") == MANIFEST_VERSION
+        and recorded.get("producer") == "agent"
+        and recorded.get("coverage") == "partial"
+        and recorded.get("overlap") == OVERLAP_SMART
+    )
+
+
 def blocks_content_digest(blocks: list[NormalizedBlock]) -> str:
     """sha256 of the block-joined source text — the exact input to semantic chunking.
 
@@ -180,7 +191,7 @@ def decode_manifest_episodes(
         version = recorded.get("version")
         if version == MANIFEST_VERSION:
             raw_episodes = recorded.get("episodes")
-            if not isinstance(raw_episodes, list) or not raw_episodes:
+            if not isinstance(raw_episodes, list) or (not raw_episodes and not is_agent_manifest(recorded)):
                 return None
             episodes: list[SemanticEpisode] = []
             for item in raw_episodes:
@@ -526,29 +537,43 @@ def overlap_rejection(
     5. **Sane segment count** — never more segments than there are blocks, the same
        implicit bound the start-only contract gets for free from deduplicating positions.
     """
+    violations = interval_rejections(spans, lo, hi, max_overlap=max_overlap)
+    return violations[0][1] if violations else ""
+
+
+def interval_rejections(
+    spans: list[tuple[int, int]], lo: int, hi: int, *,
+    max_overlap: int = MAX_OVERLAP_BLOCKS, require_cover: bool = True,
+) -> list[tuple[str, str]]:
+    """The same five gates, with coverage explicitly optional at the episodes door.
+
+    All findings are returned to a command client; the API chunker uses the first as before.
+    Coordinates here are positions, so sparse real block indices are mapped by the caller.
+    """
     if not spans:
-        return "no segments returned"
+        return [("coverage", "no segments returned")] if require_cover else []
+    violations: list[tuple[str, str]] = []
     blocks = hi - lo + 1
     if len(spans) > blocks:
-        return f"{len(spans)} segments over {blocks} blocks"
+        violations.append(("count", f"{len(spans)} segments over {blocks} blocks"))
     for s, e in spans:
         if not (lo <= s <= hi) or not (lo <= e <= hi):
-            return f"segment [{s}, {e}] leaves the block range {lo}..{hi}"
+            violations.append(("endpoints", f"segment [{s}, {e}] leaves the block range {lo}..{hi}"))
         if e < s:
-            return f"segment [{s}, {e}] ends before it starts"
-    if spans[0][0] != lo:
-        return f"first segment starts at {spans[0][0]}, not at block {lo}"
-    if spans[-1][1] != hi:
-        return f"last segment ends at {spans[-1][1]}, not at block {hi}"
+            violations.append(("endpoints", f"segment [{s}, {e}] ends before it starts"))
+    if require_cover and spans[0][0] != lo:
+        violations.append(("coverage", f"first segment starts at {spans[0][0]}, not at block {lo}"))
+    if require_cover and spans[-1][1] != hi:
+        violations.append(("coverage", f"last segment ends at {spans[-1][1]}, not at block {hi}"))
     for (s, e), (s_next, _) in zip(spans, spans[1:]):
         if s_next <= s:
-            return f"segment starts are not strictly increasing at {s_next}"
-        if s_next > e + 1:
-            return f"blocks {e + 1}..{s_next - 1} are covered by no segment"
+            violations.append(("starts", f"segment starts are not strictly increasing at {s_next}"))
+        if require_cover and s_next > e + 1:
+            violations.append(("coverage", f"blocks {e + 1}..{s_next - 1} are covered by no segment"))
         shared = e - s_next + 1
         if shared > max_overlap:
-            return f"segments share {shared} blocks at {s_next}, over the {max_overlap} allowed"
-    return ""
+            violations.append(("overlap", f"segments share {shared} blocks at {s_next}, over the {max_overlap} allowed"))
+    return violations
 
 
 def _partition_from_starts(starts, lo: int, hi: int) -> list[tuple[int, int]]:
@@ -883,6 +908,7 @@ def _refine_by_sections(
     block_indices: list[int],
     seg_intervals: list[tuple[int, int]],
     sections: list[tuple[int, int]],
+    *, allow_gaps: bool = False,
 ) -> list[tuple[int, int]]:
     """Common refinement of the LLM segments and the StructureMap sections.
 
@@ -897,7 +923,8 @@ def _refine_by_sections(
     for, so it must not also be read as a cut."""
     section_starts = {iv[0] for iv in sections}
     result: list[tuple[int, int]] = []
-    for seg_start, seg_end in _close_gaps(block_indices, seg_intervals):
+    intervals = seg_intervals if allow_gaps else _close_gaps(block_indices, seg_intervals)
+    for seg_start, seg_end in intervals:
         present = [i for i in block_indices if seg_start <= i <= seg_end]
         if not present:
             continue
@@ -928,6 +955,7 @@ async def semantic_chunk_source(
     max_blocks_per_call: int = DEFAULT_MAX_BLOCKS_PER_CALL,
     overlap: str = OVERLAP_OFF,
     source_context: list[str] | None = None,
+    allow_gaps: bool = False,
 ) -> list[Chunk]:
     """One Chunk per coherent unit, with exact char/block provenance (I4).
 
@@ -984,6 +1012,7 @@ async def semantic_chunk_source(
         block_indices,
         [(episode.start, episode.end) for episode in episodes],
         sections,
+        allow_gaps=allow_gaps,
     )
 
     def representation_for(start: int, end: int) -> SemanticEpisode | None:

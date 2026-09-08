@@ -7,7 +7,7 @@
 |---|---|
 | `compile/contract.md` | 用途、主体边界、准入、权威和时间 |
 | `engine.yaml` | 模型角色、工具/调用限制、概览边界和索引组件 |
-| `intake/intake.yaml` | 新来源的切分方式 |
+| `intake/intake.yaml` | 是否存在语义检索（`semantic_retrieval`），以及新来源的切分方式 |
 | `recall/recall.yaml` | 检索广度、证据上下文、回答格式和风格 |
 | `persona/profile.yaml` | 可选的拥有者声明资料与区域设置来源 |
 | `compile/challenge.yaml` | 可选的覆盖探测与补偿 |

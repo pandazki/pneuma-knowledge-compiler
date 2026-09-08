@@ -19,6 +19,7 @@ from ..domain.time_context import TimeContext
 from ..prompts import prompt
 from .adapters import MarkdownDocumentAdapter, PlainDocumentInput, stamp_occurred_on
 from .source_contracts import (
+    AgentSessionSource,
     DocumentLibrarySource,
     EmailAddress,
     EmailMessage,
@@ -58,6 +59,7 @@ def _raw(
     created_at: datetime,
     evidence: object,
     meta: dict,
+    origin: str | None = None,
 ) -> RawSource:
     evidence_digest = hashlib.sha256(_canonical_bytes(evidence)).hexdigest()
     return RawSource(
@@ -65,7 +67,7 @@ def _raw(
         user_id=user_id,
         kind=kind,
         source_class="workstream",
-        origin=provider,
+        origin=origin or provider,
         title=title,
         mime=mime,
         checksum=evidence_digest,
@@ -159,6 +161,7 @@ def _meeting(
                 {
                     "segment_id": item.segment_id,
                     "speaker_id": item.speaker_id,
+                    "role": "owner" if item.speaker_id in owners else "other",
                     "started_at": item.started_at.isoformat(),
                     "ended_at": (
                         item.ended_at.isoformat()
@@ -314,6 +317,7 @@ def _im(
                     {
                         "message_id": item.message_id,
                         "sender_id": item.sender_id,
+                        "role": "owner" if item.sender_id in owners else "other",
                         "sent_at": item.sent_at.isoformat(),
                         "thread_id": item.thread_id,
                         "edited_at": (
@@ -474,6 +478,7 @@ def _email(
                         "message_id": item.message_id,
                         "sent_at": item.sent_at.isoformat(),
                         "from": item.from_.model_dump(mode="json"),
+                        "role": "owner" if item.from_.address in owners else "other",
                         "to": [
                             address.model_dump(mode="json") for address in item.to
                         ],
@@ -499,6 +504,58 @@ def _email(
             NormalizedSource(raw=raw, blocks=blocks, structure=_spans_from_paths(blocks))
         )
     return normalized
+
+
+def _agent_session(
+    source: AgentSessionSource, user_id: UserId, time: TimeContext | None = None
+) -> list[NormalizedSource]:
+    labels = {
+        "say": prompt("ingest.owner_label"),
+        "narrative": prompt("ingest.agent_label"),
+        "action": prompt("ingest.agent_action_label"),
+    }
+    blocks = [
+        NormalizedBlock(
+            index=index,
+            text=prompt("ingest.turn_line", label=labels[turn.kind], text=turn.text),
+            section_path=[_local_day(turn.at, time)],
+        )
+        for index, turn in enumerate(source.turns)
+    ]
+    raw = _raw(
+        user_id=user_id,
+        kind="agent_session",
+        provider=source.provider,
+        origin="agent_session",
+        provider_id=source.session_id,
+        title=prompt("ingest.agent_session.title", session_id=source.session_id),
+        mime="application/vnd.pneuma.agent-session+json",
+        created_at=source.started_at,
+        evidence=source,
+        meta={
+            "contract_schema": source.contract_schema,
+            "provider": source.provider,
+            "session_id": source.session_id,
+            "owner_id": source.owner_id,
+            "agent": source.agent.model_dump(mode="json"),
+            "project": source.project.model_dump(mode="json") if source.project else None,
+            "started_at": source.started_at.isoformat(),
+            "ended_at": source.ended_at.isoformat() if source.ended_at else None,
+            "turn_ids": [turn.turn_id for turn in source.turns],
+            "turns": [
+                {
+                    "turn_id": turn.turn_id,
+                    "role": turn.role,
+                    "kind": turn.kind,
+                    "at": turn.at.isoformat(),
+                }
+                for turn in source.turns
+            ],
+            "metadata": source.metadata,
+        },
+    )
+    stamp_occurred_on(raw, [block.section_path[0] for block in blocks])
+    return [NormalizedSource(raw=raw, blocks=blocks, structure=_spans_from_paths(blocks))]
 
 
 def normalize_source_contract(
@@ -527,4 +584,6 @@ def normalize_source_contract(
         return _email(source, user_id, time)
     if isinstance(source, OwnerDialogueSource):
         return _owner_dialogue(source, user_id, time)
+    if isinstance(source, AgentSessionSource):
+        return _agent_session(source, user_id, time)
     raise TypeError(f"unsupported source contract: {type(source)!r}")

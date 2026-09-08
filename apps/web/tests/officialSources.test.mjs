@@ -27,10 +27,11 @@ const i18n = {
   t: (key, params) => [key, ...Object.values(params ?? {})].join(" "),
 };
 
-test("the Web import surface publishes exactly the four official source contracts", () => {
+test("the Web import surface publishes the five JSON imports alongside the owner-statement form", () => {
   assert.deepEqual(
     OFFICIAL_SOURCE_OPTIONS.map(({ kind, schema }) => ({ kind, schema })),
     [
+      { kind: "agent_session", schema: "pneuma.source.agent-session/v1" },
       { kind: "meeting", schema: "pneuma.source.meeting/v1" },
       {
         kind: "document_library",
@@ -94,4 +95,17 @@ test("a payload without its own title falls back to a per-contract message key",
     summarizeOfficialSourcePayload({ title: "Q3 review" }, "meeting", i18n).title,
     "Q3 review",
   );
+});
+
+
+test("agent sessions detect, import unchanged, and count turns", () => {
+  const payload = {
+    schema: "pneuma.source.agent-session/v1", provider: "codex",
+    session_id: "session-synthetic-001", turns: [{ role: "owner", kind: "say" }],
+  };
+  assert.equal(detectOfficialSourceKind(payload), "agent_session");
+  assert.deepEqual(parseOfficialSourcePayload(JSON.stringify(payload), "agent_session", i18n), payload);
+  assert.deepEqual(summarizeOfficialSourcePayload(payload, "agent_session", i18n), {
+    title: "session-synthetic-001", provider: "codex", itemLabel: "turns", itemCount: 1,
+  });
 });

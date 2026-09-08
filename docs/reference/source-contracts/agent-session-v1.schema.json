@@ -1,0 +1,305 @@
+{
+  "$defs": {
+    "AgentSessionTurn": {
+      "additionalProperties": false,
+      "properties": {
+        "turn_id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Turn Id",
+          "type": "string"
+        },
+        "role": {
+          "enum": [
+            "owner",
+            "agent"
+          ],
+          "title": "Role",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "say",
+            "narrative",
+            "action"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "at": {
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        },
+        "text": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "turn_id",
+        "role",
+        "kind",
+        "at",
+        "text"
+      ],
+      "title": "AgentSessionTurn",
+      "type": "object",
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "role": {
+                "const": "owner"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "kind": {
+                "const": "say"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "narrative",
+                  "action"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "action"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "text": {
+                "maxLength": 200,
+                "pattern": "^[^\\n\\r\\v\\f\\u001c\\u001d\\u001e\\u0085\\u2028\\u2029]*$"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "SessionAgent": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Name",
+          "type": "string"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "SessionAgent",
+      "type": "object"
+    },
+    "SessionProject": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Path",
+          "type": "string"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "git_remote": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Git Remote"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "title": "SessionProject",
+      "type": "object"
+    },
+    "ToolFreeValue": {
+      "anyOf": [
+        {
+          "type": [
+            "string",
+            "number",
+            "boolean",
+            "null"
+          ]
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ToolFreeValue"
+          }
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "not": {
+              "enum": [
+                "input",
+                "output",
+                "result"
+              ]
+            }
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/ToolFreeValue"
+          }
+        }
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "description": "One coding-agent session. Runtime additionally validates timezone offsets, unique turn ids, non-decreasing turn timestamps, and ended_at >= started_at. Tool input/output/result keys are forbidden recursively, including in metadata.",
+  "properties": {
+    "schema": {
+      "const": "pneuma.source.agent-session/v1",
+      "title": "Schema",
+      "type": "string"
+    },
+    "provider": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Provider",
+      "type": "string"
+    },
+    "session_id": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Session Id",
+      "type": "string"
+    },
+    "owner_id": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Owner Id",
+      "type": "string"
+    },
+    "agent": {
+      "$ref": "#/$defs/SessionAgent"
+    },
+    "project": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SessionProject"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "started_at": {
+      "format": "date-time",
+      "title": "Started At",
+      "type": "string"
+    },
+    "ended_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Ended At"
+    },
+    "turns": {
+      "items": {
+        "$ref": "#/$defs/AgentSessionTurn"
+      },
+      "minItems": 1,
+      "title": "Turns",
+      "type": "array",
+      "contains": {
+        "type": "object",
+        "properties": {
+          "role": {
+            "const": "owner"
+          }
+        },
+        "required": [
+          "role"
+        ]
+      }
+    },
+    "metadata": {
+      "additionalProperties": {
+        "$ref": "#/$defs/ToolFreeValue"
+      },
+      "title": "Metadata",
+      "type": "object",
+      "propertyNames": {
+        "not": {
+          "enum": [
+            "input",
+            "output",
+            "result"
+          ]
+        }
+      }
+    }
+  },
+  "required": [
+    "schema",
+    "provider",
+    "session_id",
+    "owner_id",
+    "agent",
+    "started_at",
+    "turns"
+  ],
+  "title": "Pneuma Agent Session Source v1",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://knowledge.pneuma.dev/schemas/source/agent-session-v1.schema.json"
+}

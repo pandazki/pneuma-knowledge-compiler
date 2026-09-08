@@ -2,15 +2,15 @@
 
 **English** | [简体中文](source-contracts.zh-CN.md)
 
-The official input boundary is five versioned, provider-neutral JSON contracts — meeting, document library, IM, email, owner dialogue. Anything that speaks one of them can feed the system; converters from concrete provider formats live outside the contract (see [Importing](#importing)).
+The official input boundary is six versioned, provider-neutral JSON contracts — meeting, document library, IM, email, owner dialogue, agent session. Anything that speaks one of them can feed the system; converters from concrete provider formats live outside the contract (see [Importing](#importing)).
 
-- One payload, one `schema` discriminator: `pneuma.source.meeting/v1`, `pneuma.source.document-library/v1`, `pneuma.source.im/v1`, `pneuma.source.email/v1`, `pneuma.source.owner-dialogue/v1`.
+- One payload, one `schema` discriminator: `pneuma.source.meeting/v1`, `pneuma.source.document-library/v1`, `pneuma.source.im/v1`, `pneuma.source.email/v1`, `pneuma.source.owner-dialogue/v1`, `pneuma.source.agent-session/v1`.
 - Validation is strict (`extra="forbid"`): unknown fields are rejected, not ignored. The authority is the Pydantic model set in [`ingest/source_contracts.py`](../../packages/pneuma-knowledge-core/src/pneuma_knowledge_core/ingest/source_contracts.py); the JSON Schema files in [`source-contracts/`](source-contracts/) mirror it for wire-level tooling.
 - **Every timestamp must carry an explicit timezone offset.** A naive datetime fails validation.
-- Ids must be unique within their scope. Two contracts declare a closed identity set and resolve every reference against it: `meeting/v1` (segment speakers and owner ids ⊆ `participants`) and `im/v1` (conversation members and senders ⊆ `users`). `email/v1` normalizes `owner_addresses` but declares no roster; `document-library/v1` and `owner-dialogue/v1` declare no identity set at all — a dialogue carries `owner_id` / `steward_id` in its envelope and shows the compiler a `role`, never an id.
-- Every payload envelope carries a free-form `metadata` object for provider extras. Below the envelope it varies by contract: `im/v1` carries one on conversations, messages and images, `email/v1` on threads and messages, `document-library/v1` on documents, while `meeting/v1` and `owner-dialogue/v1` carry none below the envelope.
+- Ids must be unique within their scope. Two contracts declare a closed identity set and resolve every reference against it: `meeting/v1` (segment speakers and owner ids ⊆ `participants`) and `im/v1` (conversation members and senders ⊆ `users`). `email/v1` normalizes `owner_addresses` but declares no roster; `document-library/v1`, `owner-dialogue/v1`, and `agent-session/v1` declare no identity set — a dialogue carries `owner_id` / `steward_id` in its envelope and shows the compiler a `role`, never an id.
+- Every payload envelope carries a free-form `metadata` object for provider extras. Below the envelope it varies by contract: `im/v1` carries one on conversations, messages and images, `email/v1` on threads and messages, `document-library/v1` on documents, while `meeting/v1`, `owner-dialogue/v1`, and `agent-session/v1` carry none below the envelope; agent-session metadata also prohibits tool payloads.
 
-**Expansion.** One payload is a bundle that expands into sources at natural reference boundaries: a meeting stays one source; a document library becomes one source per document; an IM archive one per conversation; an email archive one per thread; an owner dialogue is one statement and stays one source. Source ids are content-addressed (sha256), so re-importing identical content deduplicates instead of duplicating.
+**Expansion.** One payload is a bundle that expands into sources at natural reference boundaries: a meeting stays one source; a document library becomes one source per document; an IM archive one per conversation; an email archive one per thread; an owner dialogue is one statement and stays one source; an agent session stays one source. Source ids are content-addressed (sha256), so re-importing identical content deduplicates instead of duplicating.
 
 ## `pneuma.source.meeting/v1`
 
@@ -94,6 +94,29 @@ What the library's owner said to the steward, as an ordinary source. The owner a
 
 **The kind is stated by the framework, the judgement by the contract.** The blocks read like a transcript and are not one, so the compile task's per-source line names the kind — the owner speaking to this library directly, their own words, not a record of an event. What the statement DESERVES — an `edit_claim`, a `supersede_claim`, a new page — is the compile contract's judgement and is deliberately absent from that line.
 
+## `pneuma.source.agent-session/v1`
+
+A provider-neutral coding-agent session: the Owner's words, the agent's verbatim narrative, and bounded mechanical activity stubs. One session stays one source, using the same L0 blocks, citation syntax and compile gate as every other contract.
+
+| Field | Type | Notes |
+|---|---|---|
+| `schema` | literal | `pneuma.source.agent-session/v1` |
+| `provider` | string | non-blank; `claude-code`, `codex`, or another harness name |
+| `session_id`, `owner_id` | string | non-blank; session identity within the provider, Owner identity in the application's scheme |
+| `agent` | object | `name` (non-blank), `model?` (string) |
+| `project` | object, optional | `path` (non-blank working directory), `name?`, `git_remote?` |
+| `started_at`, `ended_at?` | datetime | timezone-aware; end must not precede start |
+| `turns[]` | object, ≥1 | `turn_id` (unique, non-blank), `role` (`owner` \| `agent`), `kind` (`say` \| `narrative` \| `action`), `at` (timezone-aware, non-decreasing), `text` (non-blank) |
+| `metadata` | object | provider extras; the tool-payload prohibition below also applies here |
+
+**Refused material: tool payloads, contradictory roles, and empty speech.** An Owner turn must be `say`; an agent turn must be `narrative` or `action`. At least one turn must be the Owner's, and no turn may be blank. An `action` is a one-line mechanical stub of at most 200 characters, such as `edited src/x.py`, `ran: uv run pytest`, or `read docs/a.md`; line-break characters are rejected. Tool inputs and outputs are not admitted in any field: `input`, `output`, and `result` keys are refused recursively, including nested metadata (`agent_session_tool_payload`). Code belongs in git, and file contents and tool results are not the Owner's knowledge. Other relational refusals are named `agent_session_role_kind`, `agent_session_action_stub`, `agent_session_owner_required`, `agent_session_duplicate_turn_ids`, `agent_session_turn_order`, and `agent_session_time_range`; field-shape refusals use the ordinary validation error names. The importer supplies narrative verbatim; the contract does not infer authorship from prose.
+
+**Order is meaning, so it is validated rather than repaired.** Decreasing `at` values are rejected. Equal timestamps retain submitted order. Calendar-day sections follow the subject's timezone, or the timestamp's own offset when no subject clock was supplied. The published [JSON Schema](source-contracts/agent-session-v1.schema.json) expresses structural refusals; timestamp ordering, identity uniqueness and timezone checks also run at the runtime boundary.
+
+**Normalization.** One block per turn, prefixed only with the role/kind label from the English or Chinese prompt catalog: `Owner:`, `Agent:`, `Agent did:`. The remaining text stays verbatim. `meta` keeps `provider`, `session_id`, `owner_id`, `agent` name/model, `project`, timestamps, and parallel `turns` metadata with role/kind, turn id and time, in normalized block order. It never copies turn text. The internal origin is `agent_session`; the free-form harness name is `meta.provider`. `pkc source structure <source-id>` (an alias of `source show`) exposes `block_authorship` rows (`index`, `role`, `kind`) without reading action text. Action stubs enter L1/L2 like any other small block. Fewer than three Owner turns proposes `canonical_treatment: none`; three or more uses the existing ordinary workstream proposal (currently mechanical full treatment). Both propose full semantic indexing, capped by the deployment's semantic-retrieval switch. The rationale names the threshold rule; archetypes and user overrides are unchanged. L0/L1 remain unconditional.
+
+**The kind is stated by the framework, the judgement by the contract.** The compile task's per-source line says this is a coding-agent session: Owner turns are the Owner's own words; agent narrative is a machine's account of its work and evidence of what was done, not of what the Owner thinks; action stubs are activity logs, never knowledge. This line lives in the HumanMessage; session contents never alter the SystemMessage. The compile contract decides what deserves a claim. A template may additionally declare `owner_voice: true` to require Owner-authored evidence mechanically at the write face and the gate; see [Writing a compile contract](../guides/compile-contract.md).
+
 ## Invariants and versioning
 
 - **Source text is immutable evidence.** A correction arrives as a new import, never as an edit to what was already ingested.
@@ -107,5 +130,6 @@ Upstream formats the shipped adapters were written against: Zoom meeting transcr
 ## Importing
 
 - **HTTP**: `POST /v1/users/{uid}/sources/import` with the bare contract payload as the body. The service materializes declared images before normalization. The response reports the matched `contract_schema` and one entry per expanded source (see [http-api.md](http-api.md)).
+- **CLI**: `pkc ingest --contract agent-session/v1 --file session.json`; the JSON `schema` must agree with `--contract`.
 - **Programmatic**: `parse_source_contract(payload)` validates. Image-bearing callers first materialize images through `materialize_contract_images(...)`, then pass that result as `materialized_images` to `normalize_source_contract(...)`; text-only contracts normalize directly.
 - **From real provider exports**: `scripts/ops/import_source.py` converts and imports in one step — `--provider {mock, obsidian, zoom, slack, email}` covering canonical JSON, an Obsidian vault, a Zoom VTT transcript, a Slack export zip, and RFC-822 mail.

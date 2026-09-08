@@ -308,6 +308,10 @@ export type Selection =
 export type VisitorClass = "silent" | "audit" | "business";
 
 export type ViewName =
+  // the machine this console is served from — a personal edition's health page. Routable
+  // always, listed in the contents only when `GET /home/status` answered
+  // (docs/design/single-machine-edition.md §4.12); on a project deployment it says so.
+  | "home"
   // open-source system map + deterministic demo journey
   | "overview"
   // pneuma-knowledge user product profile

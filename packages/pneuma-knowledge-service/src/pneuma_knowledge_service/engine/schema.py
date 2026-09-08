@@ -67,6 +67,8 @@ def _knob_json(knob: Knob) -> dict[str, Any]:
         out["enum"] = list(allowed)
     out["default"] = knob_default(knob)
     out["apply"] = knob.apply
+    if knob.additional_apply:
+        out["additional_apply"] = list(knob.additional_apply)
     out["label"] = {"en": knob.label_en, "zh": knob.label_zh}
     out["description"] = {"en": knob.description_en, "zh": knob.description_zh}
     return out

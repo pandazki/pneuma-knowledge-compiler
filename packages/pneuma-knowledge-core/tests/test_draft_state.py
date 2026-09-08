@@ -91,6 +91,9 @@ def test_the_session_round_trips_and_derives_both_handle_directions():
     session = DraftSession(
         user_id="u-1",
         job_id="job-7",
+        executor="steward:synthetic-session",
+        opened_at="2026-09-08T09:00:00+00:00",
+        worker_posture="interactive",
         handle_by_real=handles_for(["src-b", "src-a"]),
         round="repair",
         budget=12,

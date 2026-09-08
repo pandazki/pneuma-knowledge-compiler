@@ -1,8 +1,11 @@
 import { Suspense, lazy, useEffect, type ComponentType } from "react";
 import { useApp } from "./lib/store";
+import { isModelLaneView, modelLanesLocked } from "./lib/modelLanes";
+import { useHome, useHomeProbe } from "./lib/useHome";
 import { useT } from "./lib/useT";
 import type { ViewName } from "./lib/types";
 import { AppShell } from "./components/AppShell";
+import { ModelLaneNotice } from "./views/_shared/ModelLaneNotice";
 import { SourceSpanSheet } from "./components/SourceSpanSheet";
 import { ErrorState } from "./ui/ErrorState";
 import { Skeleton, SkeletonText } from "./ui/Skeleton";
@@ -10,6 +13,7 @@ import OverviewView from "./views/overview/OverviewView";
 
 // View-level code splitting: the main bundle keeps only the front matter; every other view
 // loads on first visit, with a Suspense skeleton covering the gap.
+const HomeView = lazy(() => import("./views/home/HomeView"));
 const ProfileView = lazy(() => import("./views/profile/ProfileView"));
 const SourcesView = lazy(() => import("./views/sources/SourcesView"));
 const IngestView = lazy(() => import("./views/ingest/IngestView"));
@@ -27,6 +31,7 @@ const EngineConsoleView = lazy(() => import("./views/engine_console/EngineConsol
 const ComponentsGallery = lazy(() => import("./views/components/ComponentsGallery"));
 
 const VIEWS: Record<ViewName, ComponentType> = {
+  home: HomeView,
   overview: OverviewView,
   profile: ProfileView,
   sources: SourcesView,
@@ -75,11 +80,19 @@ export function App() {
   const status = useApp((s) => s.status);
   const error = useApp((s) => s.error);
   const view = useApp((s) => s.view);
+  // In the personal edition the model lanes are quality-testing tools, and a library with no
+  // API key cannot run them. The gate sits HERE rather than inside the three views, so a deep
+  // link resolves to the notice by the same route as a click on the rail, and the views stay
+  // what they are: the forms, unchanged, for every console that can actually post them.
+  const home = useHome();
   const t = useT();
 
   useEffect(() => {
     void useApp.getState().init();
   }, []);
+  // The home is health, and health goes stale: re-probed here, at the one place mounted for
+  // the life of the page, and only once a home has actually answered.
+  useHomeProbe();
 
   if (status === "idle" || status === "loading") return <BootSkeleton />;
   if (status === "error") {
@@ -111,7 +124,11 @@ export function App() {
           </div>
         }
       >
-        <View />
+        {isModelLaneView(view) && modelLanesLocked(home) ? (
+          <ModelLaneNotice view={view} />
+        ) : (
+          <View />
+        )}
       </Suspense>
     </AppShell>
   );

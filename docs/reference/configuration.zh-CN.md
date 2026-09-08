@@ -2,7 +2,7 @@
 
 [English](configuration.md) | **简体中文**
 
-框架的全部配置都是带 `PNEUMA_KNOWLEDGE_` 前缀的环境变量（读取本地 `.env`；未知键忽略）。下表省略前缀。起步可以拷贝 [`.env.example`](../../.env.example)。
+框架的全部配置都是带 `PNEUMA_KNOWLEDGE_` 前缀的环境变量（默认读取本地 `.env`；未知键忽略）。下表省略前缀。起步可以拷贝 [`.env.example`](../../.env.example)。
 
 环境变量与默认值之间可以插入一层：**引擎目录**（`ENGINE_DIR`，见[架构 §11](../architecture.zh-CN.md#11-引擎目录)）。优先级是**进程 env > 引擎文件 > 框架默认**，并且在 settings 装配处被机械执行：引擎文件的值只在 `os.environ` 未表态的键上被交给 `Settings`。两个值得知道的推论：环境变量存在但为空，仍然算环境层的一次表态；而来自 `.env` **文件**的值不是进程 env，因此排在引擎文件**之下**。`ENGINE_DIR` 不设（默认）就表示这一层根本不存在，每一项配置的解析与这个概念出现之前完全一致。
 
@@ -16,6 +16,7 @@
 
 | 配置 | 默认 | 含义 |
 |---|---|---|
+| `ENV_FILE` | 工作目录下的 `.env` | 通过进程环境控制 `get_settings()`：未设置时保留本地 `.env` 加载行为；空字符串完全禁用 dotenv；路径则改为加载指定文件。从任意目录运行时，设置 `PNEUMA_KNOWLEDGE_ENV_FILE=` 即可忽略该目录的 `.env`。此项只从进程环境读取，不从 dotenv 或引擎目录读取 |
 | `PG_DSN` | `postgresql://pneuma_knowledge:pneuma_knowledge@localhost:15432/pneuma_knowledge` | Postgres（L0、任务队列、投影、各注册表） |
 | `QDRANT_URL` | `http://localhost:16333` | 向量库 |
 | `QDRANT_COLLECTION` | `pneuma_knowledge_chunks` | 单 collection；向量维度建库时锁定——换嵌入模型要换 collection 名 |
@@ -51,18 +52,19 @@
 
 ### `agent:<backend>`——用编码代理代替模型
 
-`LLM_MODEL_COMPILE`（引擎键 `models.compile`）还接受一种形态：`agent:codex` 或 `agent:claude-code`。它命名的是**执行体**而不是模型——这一轮由本机上的那个编码代理来跑，用所有者自己的订阅，走与模型执行体完全相同的断言级草稿和同一道闸门（见 [coding-agent-mode](../design/coding-agent-mode.zh-CN.md) 裁定 1）。影响范围就是编译角色本身的那一档：`restart`，且只影响此后的编译；两种方式产出的库逐字节一致，改回来同样是一行。
+`LLM_MODEL_COMPILE`（引擎键 `models.compile`）还接受一种形态：`agent:codex` 或 `agent:claude-code`。它命名的是**执行体**而不是模型——这一轮由本机上的那个编码代理来跑，用所有者自己的订阅，走与模型执行体完全相同的断言级草稿和同一道闸门（见 [coding-agent-mode](../design/coding-agent-mode.zh-CN.md) 裁定 1）。配置在 `restart` 后作用于后续编译，以及继承该执行器的演进作业；改回来同样是一行。
 
-三个必须直说的后果：
+这会改变四项行为：
 
-- **执行体不是模型。** 凡是要从这个规格构造模型的地方都会拒绝。自己字段为空时**借用**编译角色字段的角色——`evolve`、`challenge`、`brief`——会跳过借来的 `agent:` 规格，继续落到基础 `LLM_MODEL`，所以一行 `compile: agent:codex` 不会让其他角色停摆。在自己字段里写了 `agent:` 的角色，或基础 `LLM_MODEL` 写成 `agent:`，启动时按角色名被拒绝。本版本只有编译角色可以跑在代理上。
-- **worker 不再认领 compile job。** 它们留在 `queued` 等 `pkc draft open`；index、projection、groom、challenge、evolve 等任务照旧排干。队列的「每用户单写者」规则没有变——Steward 的 `open` 用的就是 worker 那把锁。
+- **编译与演进都有 agent 门。** `LLM_MODEL_EVOLVE` 接受 `agent:<backend>`，留空时继承 compile 的执行器。两种角色都使用 harness 和各自的持久草稿闸门。challenge 仍跳过借来的 agent 规格、使用基础 API 模型，默认关闭。其他角色显式写 `agent:`，或基础 `LLM_MODEL` 写成它，都会在启动时被拒绝。
+- **worker 的姿态覆盖两扇门。** `AGENT_UNATTENDED=true` 时打开并交派 compile/evolve 作业；`false` 时 agent 作业留队等 `pkc draft open` 或 `pkc evolve draft open`。index、projection 和 adopt 等照常排干；两种执行体受同一个逐用户单写者锁约束。
+- **agent 编译自己提供简报。** `pkc draft finish --brief <f>` / `--brief -` 接收不超过 8,000 字符的非空文本；无人值守时 harness 的最后消息在同样界限下补全成功版本缺失的简报。不调用 brief API 模型，显式简报不会被覆盖，且不依赖 API 叙述开关 `BRIEF_ENABLED`。
 - **语义切分降级。** 编码代理不响应 `ainvoke`，所以 `CHUNK_STRATEGY=semantic` 会像 scripted / 无密钥部署一样回落到机械分句；引擎文件里仍然写着 `semantic`，之后补上密钥再跑 `rebuild_derived` 就能补齐。
 
 | 配置 | 默认 | 含义 |
 |---|---|---|
 | `EXECUTOR_BACKEND` | （空） | 正在敲 `pkc draft` 命令的是哪个编码代理，由启动那个会话的一方设置。它是**对已发生之事的标注**，不是开关：部署跑在什么上由 `LLM_MODEL_COMPILE` 决定。经 CLI 完成的任务记录 `executor = agent:<后端>`；未设置时只记 `agent`——所有者自己开的终端会话不冒充任何一个 harness。不是引擎旋钮（属于部署接线） |
-| `AGENT_UNATTENDED` | `true` | **worker 自己**是否通过编码代理来跑编译作业。worker 按定义就是无人值守的——它运行的地方没有人守着——所以在 `agent:` 执行体下它会认领编译作业、打开草稿，并交给自己拉起的 harness（[coding-agent-mode](../design/coding-agent-mode.md) §9）。`false` 是交互姿态：编译作业留在队列里，由所有者自己的会话用 `pkc draft open` 打开，其余作业照常流转。在模型执行体下这个开关不决定任何事。不是引擎旋钮（属于部署接线） |
+| `AGENT_UNATTENDED` | `true` | **worker 自己**是否通过编码代理来跑编译与演进作业。worker 按定义就是无人值守的——它运行的地方没有人守着——所以在 `agent:` 执行体下它会认领编译作业、打开草稿，并交给自己拉起的 harness（[coding-agent-mode](../design/coding-agent-mode.md) §9）。`false` 是交互姿态：agent 编译与演进作业留在队列里，由所有者自己的会话用各自的 draft open 打开，其余作业照常流转。在模型执行体下这个开关不决定任何事。不是引擎旋钮（属于部署接线） |
 | `AGENT_PROBE_ON_START` | `true` | 启动时探测所配置的编译 harness，不可用就拒绝启动。装了但没登录的 harness 会掉进交互式登录流程并永远等下去，所以「它是否活着」应当在排队派活之前问清楚，而不是等第一次编译才发现。探测的是**活性**，绝不比较版本。只有无人值守姿态会探测——`pkc` 进程从不拉起 harness，所以它从不探测。测试与 CI 用 `false`：那里 PATH 上的是假二进制，登录这件事根本不存在。不是引擎旋钮 |
 | `AGENT_RETRIES` | `3` | 当 harness 以**限流**拒绝一轮时，无人值守启动器最多可以重新拉起几次——仅限这一种。其他任何拒绝都只上报不重试（再试一次还是会被拒），超时同样不重试，因为墙钟本身就是「这一轮结束了」的声明。等待按指数增长并带抖动，受启动器自身的上限约束；每一次等待都写日志。`0` 表示只试一次、不退避。不是引擎旋钮 |
 | `AGENT_KEEP_WORKDIR` | `false` | 保留启动器为每一轮建的工作目录（system 文本、任务、harness 的最后一条消息），而不是删掉它。仅供调试：这些文件里装着知识库的材料，把它们留在 `/tmp` 应当是运维者刻意做的决定。不是引擎旋钮 |
@@ -110,10 +112,27 @@ id，于是一张按模型报的价目表，也能给通过网关买的同一个
 
 | 配置 | 默认 | 含义 |
 |---|---|---|
+| `SEMANTIC_RETRIEVAL` | `on` | `on` / `off`；引擎键为 `intake.semantic_retrieval`，修改后需要 `restart` + `derived_rebuild` |
 | `CHUNK_STRATEGY` | `semantic` | `semantic` = 一次编译角色调用同时返回主题/episode 边界和用于 L2 检索与派生回答上下文的有根据标题/描述（`scripted:` 模型下回落 `sentence`）；`sentence` / `recursive` = 机械切分，零 LLM 成本 |
 | `SEMANTIC_OVERLAP` | `smart` | 只对 `semantic` 有意义。`smart` = 模型返回前闭后闭区间，转折块同时属于前后两段；`off` = 原来的零重叠切法 |
 | `CHUNK_SIZE` | `768` | 语义边界检测后的 embedding 单元上限；按 token 计，CJK 约 1 token/字 |
 | `CHUNK_OVERLAP` | `128` | token 计 |
+
+**`SEMANTIC_RETRIEVAL`。** 设置 `PNEUMA_KNOWLEDGE_SEMANTIC_RETRIEVAL=off`，或运行
+`pkc config set semantic_retrieval off`，将 `semantic_retrieval: "off"` 写入
+`intake/intake.yaml`。此命令在中间件启动前也能执行；显式进程环境变量仍优先于引擎文件。
+`off` 时启动过程不创建 embedding 客户端和向量客户端，因此不需要 embedding 密钥。
+接收提案强制 `semantic_indexing: none`，预设选择器只提供该值的处理意图。索引仍写入 L1，
+不产生 L2 chunk 或 chunk manifest。fast、rag、deep、briefing 和 live context 使用来源词法搜索
+与正本断言检索面，跳过向量分支及 episode 摘要，并在阶段计时中标明 skipped。
+`pkc search --mode semantic` 会解释该分支已关闭。两个运维重建命令都会打印 L2 已跳过；
+`rebuild_derived` 仍重建 L1、词法/PG 断言投影及组件。
+
+修改后需重启。为已有来源启用语义索引时，运行 `pkc config set semantic_retrieval on`，
+在模型需要时配置 embedding 密钥，重启后执行 `rebuild_derived`。当部署开关把非 `none` 的方案
+压成 `none` 时，接收记录会用 `semantic_indexing_requested` 保留来源原本的处理模式，因此重建
+可恢复该模式而无需改写 L0；明确选择仅词法检索的来源仍保持仅词法检索。缺失的 manifest 会在
+首次语义重建时计算并记录，后续重建回放它。关闭期间已有 manifest 不会被修改。
 
 **`SEMANTIC_OVERLAP`。** 转折句——那句既收束上一话题、又开启下一话题的话，那个既回答了上一问、又引出下一问的回应——本来就同时属于两段，而一刀切必须把它判给其中一段。`smart` 不再做这个取舍：每个 episode 对象末尾返回 `start`、`end` 前闭后闭坐标，相邻区间可以共享转折块。共享多少由模型逐个边界判断，不是固定步长。
 
@@ -133,7 +152,7 @@ id，于是一张按模型报的价目表，也能给通过网关买的同一个
 | `EVOLVE_TRIGGER_TOPIC_DOCS` | `5` | 新文档阈值（与下一条同时满足） |
 | `EVOLVE_TRIGGER_NEW_CLAIMS` | `30` | 新 claim 阈值 |
 | `EVOLVE_DRAFT_TTL_HOURS` | `24` | 草稿存活时长 |
-| `COMPILE_DRAFT_TTL` | `21600` | 一个打开着的编译草稿（`pkc draft open`，[coding-agent-mode](../design/coding-agent-mode.md) §6）可以静默多少秒，之后队列自愈就视其为被放弃。草稿会被每一条 `pkc draft` 命令重写，所以 `updated_at` 就是「确实有人在推进这一轮」的存活信号；超过 TTL 后草稿被删除、其 job 重新入队——与 worker 中途被杀掉的 job 是同一个结局，且任何情况下都不会写正本，因为未完成的一轮什么也没写。`0` 关闭草稿保护：worker 启动时把所有 claimed 的 job 一律重新入队，与草稿这个概念出现之前完全一致 |
+| `COMPILE_DRAFT_TTL` | `21600` | 一个打开着的编译或演进草稿（`pkc draft open` / `pkc evolve draft open`，[coding-agent-mode](../design/coding-agent-mode.md) §6）可以静默多少秒，之后队列自愈就视其为被放弃。草稿会被每一条 `pkc draft` 命令重写，所以 `updated_at` 就是「确实有人在推进这一轮」的存活信号；超过 TTL 后草稿被删除、其 job 重新入队——与 worker 中途被杀掉的 job 是同一个结局，且任何情况下都不会写正本，因为未完成的一轮什么也没写。`0` 关闭草稿保护：worker 启动时把所有 claimed 的 job 一律重新入队，与草稿这个概念出现之前完全一致 |
 | `RECALL_HANDOFF_TTL` | `86400` | 一次**待答交接**在被同一个启动自愈删除之前，可以等多少秒。`pkc recall --evidence`（[coding-agent-mode](../design/coding-agent-mode.md) §5.1）把 fast lane 装配好的上下文交给 Steward，并记下这次交接——问题、时刻、library ref、证据清单——好让 `pkc consult answer` 之后把它变成一条咨询。一天足够 Steward 隔夜回来，也短到让无人作答的问题不会一直堆积；超时之后这一行就没了，那个问题也就没有留下任何咨询——事实本来就是如此。`0` 关闭这次清扫 |
 | `ROLLOVER_THRESHOLD_CHARS` | `40000` | 文档超过此字符数入队轮转；`0` 关闭 |
 | `ROLLOVER_KEEP_RECENT_CHARS` | `12000` | 活动文档保留的近期尾部 |
@@ -187,10 +206,10 @@ id，于是一张按模型报的价目表，也能给通过网关买的同一个
 
 | 配置 | 默认 | 含义 |
 |---|---|---|
-| `BRIEF_ENABLED` | `false` | 每次编译落地后，用一次模型调用把这次编译的机械 claim 事件叙述成一段简报，存在 job 行上、显示在 History 时间线（标注为派生） |
+| `BRIEF_ENABLED` | `false` | API 执行器每次编译落地后，用一次模型调用把这次编译的机械 claim 事件叙述成一段简报，存在 job 行上、显示在 History 时间线（标注为派生） |
 | `LLM_MODEL_BRIEF` | 空 | 叙述用的模型；留空借用编译角色 |
 
-简报的输入只有机械记录——从 diff 推导出的 claim 事件加上各来源的出处句——从不包含编译对话本身，因此模型没有记录之外的东西可叙述。它是展示文案而非知识：不带引用、不写正本，生成失败只是没有简报，不会让任务失败。它的提示词（`compile.brief.system`、`compile.brief.task`）住在 prompt 目录里，与其他模型可见文案同一机制。
+API 生成的简报，其输入只有机械记录——从 diff 推导出的 claim 事件加上各来源的出处句——从不包含编译对话本身，因此模型没有记录之外的东西可叙述。它是展示文案而非知识：不带引用、不写正本，生成失败只是没有简报，不会让任务失败。它的提示词（`compile.brief.system`、`compile.brief.task`）住在 prompt 目录里，与其他模型可见文案同一机制。
 
 ## 检索访问统计
 
@@ -234,6 +253,7 @@ id，于是一张按模型报的价目表，也能给通过网关买的同一个
 | `CONTEXT_STREAM_RENDER_ROLES` | `true` | 摄入时渲染 owner/participant 标签 |
 | `CONTEXT_STREAM_COMPILE_GUIDANCE` | `true` | 编译时注入按类型的指引 |
 | `BRIEFING_CITATION_ALIAS` | `true` | briefing 里把真实 source id 别名成 `sNN` 句柄 |
+| `WORKER_TENANTS` | （空） | 这个 worker 只处理哪些租户的作业，逗号分隔的 user id。留空即全部租户——一个 worker 对一套栈，与一直以来的行为完全一致。它存在是因为一个 Postgres 上可以放多个 library，而一个 library 就是一个租户（[single-machine-edition](../design/single-machine-edition.md) §11.7）：每个 library 的引擎进程注册自己的编译契约，worker 若认领了邻居的作业，那份知识就会在错误的契约下被编译。这道限制是认领查询里的一个谓词，绝不是「先认领再放回」——放回去的作业已经占用过那个租户唯一的在途名额。启动时的孤儿回收也用同一道边界：别的引擎手上 claimed 的作业是它正在跑的一轮，不是这个 worker 的孤儿。设置之后，worker 启动行里会把它明说一次。不是引擎旋钮（属于部署接线） |
 | `CORS_ALLOW_ORIGIN_REGEX` | `https?://(localhost\|127\.0\.0\.1)(:\d+)?` | 设为空串完全关闭 CORS |
 
 ## 无前缀（直读）
@@ -249,3 +269,19 @@ id，于是一张按模型报的价目表，也能给通过网关买的同一个
 |---|---|---|
 | `PNEUMA_KNOWLEDGE_API_HOST` / `_API_PORT` | `127.0.0.1` / `18000` | `scripts/dev-api.sh` |
 | `PNEUMA_KNOWLEDGE_PG_PASSWORD` / `_MEILI_KEY` | `pneuma_knowledge` / — | `infra/docker-compose.yml` |
+
+## 所有者档案来源标记
+
+`pkc profile show [--json]` 展示每个可编辑字段及其来源标记，并识别占位档案。
+`pkc profile set --field display_name="Chen Wan" --provenance inferred` 将字段值和标记一起写入
+`persona/profile.yaml` 与持久化档案。YAML/JSON 输入可使用 `--file <path>`、`--file -` 或 `-`。
+未显式指定标记时，携带 `PNEUMA_KNOWLEDGE_STEWARD_SKILL_HASH` 的进程写入 `inferred`，
+其他进程写入 `owner`。`pkc profile confirm --field display_name` 只确认该字段；
+`--all` 确认全部可编辑字段，均不改变字段值。
+
+来源映射与 `--field` 使用相同的点分字段名，包括 `locale.timezone` 和
+`preferences.response_language`。值为 `inferred`、`owner` 或 `placeholder`；已有的
+`profile`、`deployment_default`、`unstated` 及旧地区键仍可读取，点分键优先于旧别名。
+推断值在编译 system 文本中带有标记，全部为 owner 的档案保留原有渲染字节。
+打开草稿时，占位或未确认档案会触发一条提示，但不会阻止本轮打开。档案编辑不写正本；
+实质性证据仍通过 `pkc owner say` 进入。

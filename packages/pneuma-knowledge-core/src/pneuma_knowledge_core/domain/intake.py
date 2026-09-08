@@ -30,6 +30,28 @@ class IntakePlan(BaseModel):
     semantic_indexing: SemanticIndexing
     rationale: str
     user_confirmed: bool = False
+    # Preserve the source's requested mode when a deployment disables semantic retrieval.
+    # A later rebuild can enable L2 without rewriting L0 or overriding a deliberate none.
+    semantic_indexing_requested: SemanticIndexing | None = None
+
+
+def with_semantic_retrieval(plan: IntakePlan, enabled: bool) -> IntakePlan:
+    """Apply the deployment ceiling while retaining the source's own processing intent."""
+    if enabled or plan.semantic_indexing == "none":
+        return plan
+    return plan.model_copy(update={
+        "semantic_indexing": "none",
+        "semantic_indexing_requested": plan.semantic_indexing,
+        "rationale": f"{plan.rationale}; semantic retrieval is off: L2 skipped",
+    })
+
+
+def intake_archetypes(*, semantic_retrieval: bool = True) -> list[IntakeArchetype]:
+    """Only offer processing intents the deployment can execute."""
+    return [
+        archetype for archetype in INTAKE_ARCHETYPES
+        if semantic_retrieval or archetype.semantic_indexing == "none"
+    ]
 
 
 # ------------------------------------------------------------ intake archetypes
@@ -118,8 +140,25 @@ def propose_intake(
     source_class: Literal["workstream", "reference"],
     char_count: int,
     declared_type: str | None,
+    *,
+    owner_turns: int = 0,
 ) -> IntakePlan:
     """Mechanical v1 intake proposal. Every branch states its matrix basis."""
+    if kind == "agent_session":
+        if owner_turns < 3:
+            return IntakePlan(
+                canonical_treatment="none",
+                semantic_indexing="full",
+                rationale=(
+                    f"agent session has {owner_turns} owner turns (<3): one-shot task or "
+                    "subagent fragment; no canonical compile, L0/L1 unconditional"
+                ),
+            )
+        plan = propose_intake("conversation", source_class, char_count, declared_type)
+        return plan.model_copy(update={
+            "rationale": f"agent session has {owner_turns} owner turns (>=3): "
+            f"ordinary workstream proposal; {plan.rationale}"
+        })
     # First-party conversation or handwritten note: everything matters, compile fully.
     if kind in {"meeting", "im", "email", "conversation"} or declared_type == "note":
         return IntakePlan(

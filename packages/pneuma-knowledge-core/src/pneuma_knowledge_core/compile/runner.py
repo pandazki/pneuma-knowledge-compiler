@@ -50,6 +50,7 @@ from ..domain.ids import UserId, SourceId, extract_anchors
 from ..recall.citation_alias import resolve_handles
 from ..domain.snapshot import SnapshotRef
 from ..domain.source import NormalizedSource
+from ..domain.authorship import owner_authored_blocks as source_owner_blocks
 from ..domain.time_context import TimeContext
 from ..ingest.evidence_context import block_evidence_context
 from ..ports.canonical_store import CanonicalStore
@@ -61,6 +62,7 @@ from .overview import OVERVIEW_BUDGET_CHARS, OVERVIEW_REQUIRED_AFTER_CLAIMS
 from .gate import (
     Violation,
     archive_refusals,
+    check_owner_voice,
     overview_required_violations,
     owed_now_lines,
     run_gate,
@@ -355,6 +357,8 @@ def _render_task(
         # happened, what his role in it was. The transcript cannot convey any of that, and
         # authorship + time are exactly what the compiler must not guess.
         preamble = source_preamble.get(str(s.raw.source_id))
+        if s.raw.kind == "agent_session":
+            preamble = prompt("compile.task.agent_session")
         if preamble:
             parts.append(preamble)
         # What the source boundary knows and the transcript cannot show — an enabled
@@ -890,7 +894,35 @@ def build_compile_tool_face(
         for component in registered_components()
         for tool in component.compile_tools(draft, sources=sources)
     ]
-    return _build_tools(draft, search_knowledge, search_source, component_tools)
+    tools = _build_tools(draft, search_knowledge, search_source, component_tools)
+    if draft.owner_voice_templates:
+        from functools import wraps
+        from .anchor_ops import AnchorToolError
+
+        def checked(fn):
+            @wraps(fn)
+            def write(**args):
+                before = draft.to_state()
+                baseline = set(check_owner_voice(draft, sources))
+                result = fn(**args)
+                broke = [
+                    v for v in check_owner_voice(draft, sources)
+                    if v.path == args.get("path") and v not in baseline
+                ]
+                if broke:
+                    restored = PatchDraft.from_state(before)
+                    draft.__dict__.update(restored.__dict__)
+                    raise AnchorToolError("\n".join(v.render() for v in broke))
+                return result
+            return write
+
+        for tool in tools:
+            if tool.name in {
+                "create_document", "append_block", "edit_claim", "supersede_claim",
+                "rewrite_overview", "set_fields",
+            }:
+                tool.func = checked(tool.func)
+    return tools
 
 
 async def finalize_compile(
@@ -995,6 +1027,7 @@ async def run_compile(
     treatments: Mapping[str, str] | None = None,
     source_guidance: Mapping[str, str] | None = None,
     known_source_bounds: Mapping[str, int] | None = None,
+    owner_authored_blocks: Mapping[str, list[int]] | None = None,
     source_preamble: Mapping[str, str] | None = None,
     owner: object | None = None,
     retrieved: str | None = None,
@@ -1056,7 +1089,12 @@ async def run_compile(
         # The tool face refuses an overview by the SAME ceiling the gate uses below: two
         # numbers for one region would let a deployment's knob be honoured at one end only.
         draft = PatchDraft.from_canonical(
-            base_docs, skill.path_templates, overview_budget_chars=overview_budget_chars
+            base_docs, skill.path_templates, overview_budget_chars=overview_budget_chars,
+            owner_voice_templates=skill.owner_voice_templates,
+            owner_authored_blocks={
+                **(owner_authored_blocks or {}),
+                **{str(s.raw.source_id): source_owner_blocks(s.raw) for s in sources},
+            } if skill.owner_voice_templates else None,
         )
         # Components see the ALIASED sources: a component tool that names a source must name it
         # by the same `sNN` handle the task text under the model's eyes uses.

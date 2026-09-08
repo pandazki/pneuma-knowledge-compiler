@@ -2,15 +2,15 @@
 
 [English](source-contracts.md) | **简体中文**
 
-官方输入边界是五种版本化、provider 中立的 JSON 契约——会议、文档库、IM、邮件、所有者对话。能说其中一种契约的东西就能喂进系统；从具体 provider 格式到契约的转换器在契约之外（见[导入](#导入)）。
+官方输入边界是六种版本化、provider 中立的 JSON 契约——会议、文档库、IM、邮件、所有者对话、代理会话。能说其中一种契约的东西就能喂进系统；从具体 provider 格式到契约的转换器在契约之外（见[导入](#导入)）。
 
-- 一个 payload，一个 `schema` 判别字段：`pneuma.source.meeting/v1`、`pneuma.source.document-library/v1`、`pneuma.source.im/v1`、`pneuma.source.email/v1`、`pneuma.source.owner-dialogue/v1`。
+- 一个 payload，一个 `schema` 判别字段：`pneuma.source.meeting/v1`、`pneuma.source.document-library/v1`、`pneuma.source.im/v1`、`pneuma.source.email/v1`、`pneuma.source.owner-dialogue/v1`、`pneuma.source.agent-session/v1`。
 - 校验是严格的（`extra="forbid"`）：未知字段直接拒绝，不是忽略。权威定义是 [`ingest/source_contracts.py`](../../packages/pneuma-knowledge-core/src/pneuma_knowledge_core/ingest/source_contracts.py) 里的 Pydantic 模型；[`source-contracts/`](source-contracts/) 下的 JSON Schema 是它的线上镜像，供工具链使用。
 - **所有时间戳必须带显式时区偏移。** naive datetime 过不了校验。
-- id 在各自作用域内唯一。声明了封闭身份集合、并据以解析每个引用的有两种契约：`meeting/v1`（发言人与 owner id ⊆ `participants`）和 `im/v1`（会话成员与发送者 ⊆ `users`）。`email/v1` 只对 `owner_addresses` 做归一，不声明名册；`document-library/v1` 与 `owner-dialogue/v1` 根本不声明身份集合——一段对话把 `owner_id` / `steward_id` 留在信封里，给编译器看的是**角色**，不是 id。
-- 每个 payload 的信封都有自由的 `metadata` 对象，装 provider 的附加信息。信封以下则因契约而异：`im/v1` 在会话、消息、图片上各有一个，`email/v1` 在线程与消息上有，`document-library/v1` 在文档上有，而 `meeting/v1` 与 `owner-dialogue/v1` 在信封以下没有。
+- id 在各自作用域内唯一。声明了封闭身份集合、并据以解析每个引用的有两种契约：`meeting/v1`（发言人与 owner id ⊆ `participants`）和 `im/v1`（会话成员与发送者 ⊆ `users`）。`email/v1` 只对 `owner_addresses` 做归一，不声明名册；`document-library/v1`、`owner-dialogue/v1` 与 `agent-session/v1` 不声明身份集合——一段对话把 `owner_id` / `steward_id` 留在信封里，给编译器看的是**角色**，不是 id。
+- 每个 payload 的信封都有自由的 `metadata` 对象，装 provider 的附加信息。信封以下则因契约而异：`im/v1` 在会话、消息、图片上各有一个，`email/v1` 在线程与消息上有，`document-library/v1` 在文档上有，而 `meeting/v1`、`owner-dialogue/v1` 与 `agent-session/v1` 在信封以下没有；代理会话的 metadata 同样禁止工具数据。
 
-**展开。** 一个 payload 是一个包，按天然引用边界展开成多个 source：会议保持一个；文档库每篇文档一个；IM 归档每个会话一个；邮件归档每条线程一个；一段所有者对话就是一次陈述，保持一个。source id 按内容寻址（sha256），重复导入相同内容会去重，不会重复入库。
+**展开。** 一个 payload 是一个包，按天然引用边界展开成多个 source：会议保持一个；文档库每篇文档一个；IM 归档每个会话一个；邮件归档每条线程一个；一段所有者对话就是一次陈述，保持一个；一次代理会话保持一个。source id 按内容寻址（sha256），重复导入相同内容会去重，不会重复入库。
 
 ## `pneuma.source.meeting/v1`
 
@@ -94,6 +94,29 @@
 
 **种类由框架陈述，判断由契约给出。** 这些块读起来像转录，但它不是，因此编译任务的按来源行点出种类——所有者在直接对这座库说话，是他自己的话，而不是某件事的记录。这段陈述*该得到*什么——一次 `edit_claim`、一次 `supersede_claim`、一个新页——是编译契约的判断，因此刻意不写进那一行。
 
+## `pneuma.source.agent-session/v1`
+
+Provider 中立的编码代理会话：知识主体的原话、代理逐字保留的叙述，以及有界的机械动作短记。一次会话保持一个来源，沿用所有契约共同的 L0 块、引用语法和编译闸门。
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `schema` | literal | `pneuma.source.agent-session/v1` |
+| `provider` | string | 非空白；`claude-code`、`codex` 或其他 harness 名称 |
+| `session_id`、`owner_id` | string | 非空白；provider 内的会话身份，以及应用自身方案中的 Owner 身份 |
+| `agent` | object | `name`（非空白）、`model?`（string） |
+| `project` | object，可选 | `path`（非空白工作目录）、`name?`、`git_remote?` |
+| `started_at`、`ended_at?` | datetime | 显式时区；结束不能早于开始 |
+| `turns[]` | object，≥1 | `turn_id`（唯一、非空白）、`role`（`owner` \| `agent`）、`kind`（`say` \| `narrative` \| `action`）、`at`（显式时区、非递减）、`text`（非空白） |
+| `metadata` | object | provider 附加信息；下述工具数据禁令同样适用 |
+
+**拒绝工具数据、角色矛盾和空白发言。** Owner 回合只能是 `say`；代理回合只能是 `narrative` 或 `action`。至少有一个 Owner 回合，任何回合都不能空白。`action` 必须是至多 200 字符的单行机械短记，例如 `edited src/x.py`、`ran: uv run pytest`、`read docs/a.md`；换行字符一律拒绝。任何字段都不接纳工具输入输出：递归拒绝 `input`、`output`、`result` 键，嵌套 metadata 也不能绕过（`agent_session_tool_payload`）。代码属于 git，文件内容和工具结果不等于知识主体的知识。其他关系型拒绝名为 `agent_session_role_kind`、`agent_session_action_stub`、`agent_session_owner_required`、`agent_session_duplicate_turn_ids`、`agent_session_turn_order`、`agent_session_time_range`；字段形状使用通常的校验错误名。导入方须逐字提供代理叙述，契约不从散文推断作者。
+
+**顺序就是含义，所以校验而不修复。** `at` 倒退直接拒绝；时间相等时保持提交顺序。日历日分节遵循知识主体时区，没有提供主体时钟时遵循时间戳自身偏移。公开的 [JSON Schema](source-contracts/agent-session-v1.schema.json) 表达结构型拒绝；时间顺序、身份唯一性和显式时区还会在运行时边界检查。
+
+**归一化。** 每个回合一个块，只在原文前加英中 prompt 目录中的角色/种类标签：`Owner:`、`Agent:`、`Agent did:`（中文为「知识主体：」「代理：」「代理操作：」），其余文字逐字保留。`meta` 保存 `provider`、`session_id`、`owner_id`、代理名称/模型 `agent`、`project`、时间戳，以及与块顺序对齐的 `turns` 元数据（角色、种类、回合 id 和时间），不复制回合正文。内部 origin 是 `agent_session`，自由格式的 harness 名称保留在 `meta.provider`。`pkc source structure <source-id>`（`source show` 的别名）输出 `block_authorship` 行（`index`、`role`、`kind`），无需读取动作正文。动作短记和其他小块一样进入 L1/L2。Owner 回合少于三次时提议 `canonical_treatment: none`；三次及以上沿用普通工作流提议（当前为机械的完整编译）。两者都提议完整语义索引，再由部署的 semantic-retrieval 开关封顶。理由写明触发的阈值规则，原型与用户覆写保持不变；L0/L1 始终无条件可达。
+
+**种类由框架声明，判断归编译契约。** 编译任务每个来源前的一行说明这是编码代理会话：Owner 回合是知识主体的原话；代理叙述是机器对自己工作的记述，可证明做过什么，不能代表主体的想法；动作短记是活动日志，不是知识。该行位于 HumanMessage，会话内容不会改变 SystemMessage。什么值得写成主张由编译契约决定。路径模板还可声明 `owner_voice: true`，在写入面和闸门机械要求知识主体亲自撰写的证据；见[编译契约怎么写](../guides/compile-contract.zh-CN.md)。
+
 ## 不变量与版本化
 
 - **源文本是不可变证据。** 更正以一次新导入的形式到来，绝不修改已摄入的内容。
@@ -107,5 +130,6 @@
 ## 导入
 
 - **HTTP**：`POST /v1/users/{uid}/sources/import`，body 就是裸契约 payload。服务在归一化前把声明的图片实体化。响应报告匹配到的 `contract_schema` 与每个展开出的 source（见 [http-api.zh-CN.md](http-api.zh-CN.md)）。
+- **CLI**：`pkc ingest --contract agent-session/v1 --file session.json`；JSON 中的 `schema` 必须与 `--contract` 一致。
 - **程序化**：`parse_source_contract(payload)` 校验。带图片的调用方先经 `materialize_contract_images(...)` 实体化，再把结果作为 `materialized_images` 传给 `normalize_source_contract(...)`；纯文本契约可以直接归一化。
 - **从真实 provider 导出**：`scripts/ops/import_source.py` 一步转换加导入——`--provider {mock, obsidian, zoom, slack, email}`，分别对应 canonical JSON、Obsidian 库、Zoom VTT 转写、Slack 导出 zip、RFC-822 邮件。

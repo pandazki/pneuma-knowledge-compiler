@@ -9,8 +9,11 @@ omits it. Content dedup: same user + same checksum returns the existing source_i
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from collections.abc import Mapping, Sequence
+from contextlib import asynccontextmanager
+from contextvars import ContextVar
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -28,6 +31,7 @@ from pneuma_knowledge_core.domain.source import (
     RawSource,
     StructureMap,
 )
+from pneuma_knowledge_core.ports.draft_store import DraftOwner, DraftOwnershipError
 from pneuma_knowledge_core.recall.projection import ProjectedClaim
 from psycopg.types.json import Json, Jsonb
 from psycopg_pool import AsyncConnectionPool
@@ -1061,46 +1065,85 @@ class PostgresStore:
             )
         return job_id
 
-    async def requeue_claimed_jobs(self, *, draft_ttl: int = 0) -> int:
-        """Reclaim orphaned jobs: any job still 'claimed' is returned to 'queued'.
+    async def requeue_claimed_jobs(
+        self, *, draft_ttl: int = 0, tenants: Sequence[str] = ()
+    ) -> int:
+        """Requeue abandoned work, preserving live launch leases and unexpired drafts.
 
-        The queue is single-worker and per-user single-in-flight, so at worker startup
-        nothing is legitimately in-flight — a 'claimed' row means a worker died mid-job
-        (e.g. killed during a long LLM call), which otherwise blocks that user's queue
-        forever. Called on worker startup so a restart self-heals instead of stranding
-        jobs. Returns the number requeued.
-
-        One thing IS legitimately in flight now: a job an agent claimed with `pkc draft open`
-        and is still working through, command by command (docs/design/coding-agent-mode.md
-        §6). Its draft row is written by every one of those commands, so `updated_at` is the
-        liveness signal, and `draft_ttl` seconds is how long a round may go quiet before it
-        counts as abandoned. Stale drafts are DELETED here and their jobs requeued with the
-        rest — a round nobody came back to must not hold a user's queue any longer than a
-        dead worker's job does. `draft_ttl <= 0` keeps the pre-draft behaviour exactly: every
-        claimed job is requeued and no draft protects anything.
+        Recovery takes the same tenant locks as commands and claims. A launch can be quiet
+        for longer than the takeover grace without being dead; only its lease or the full
+        draft TTL decides that. A completed row is never a recovery candidate.
         """
+        allowed = [t for t in tenants if t]
+        drafts = PostgresDraftStore(self)
         async with self._pool.connection() as conn:
-            if draft_ttl > 0:
-                await conn.execute(
-                    "DELETE FROM compile_drafts "
-                    "WHERE updated_at < now() - make_interval(secs => %s)",
-                    (float(draft_ttl),),
-                )
-                cur = await conn.execute(
-                    "UPDATE compile_jobs SET status='queued', claimed_at=NULL, "
-                    "claimed_by=NULL WHERE status='claimed' AND NOT EXISTS ("
-                    "  SELECT 1 FROM compile_drafts d "
-                    "  WHERE d.user_id = compile_jobs.user_id AND d.job_id = compile_jobs.id)"
-                )
-                return cur.rowcount
-            cur = await conn.execute(
-                "UPDATE compile_jobs SET status='queued', claimed_at=NULL, claimed_by=NULL "
-                "WHERE status='claimed'"
-            )
-            return cur.rowcount
+            users = await (await conn.execute(
+                "SELECT user_id FROM (SELECT user_id FROM compile_jobs WHERE status = 'claimed' "
+                "UNION SELECT user_id FROM compile_drafts) candidates"
+                + (" WHERE user_id = ANY(%s)" if allowed else ""),
+                (allowed,) if allowed else (),
+            )).fetchall()
+        reclaimed = 0
+        for (uid,) in users:
+            async with self._pool.connection() as conn:
+                async with conn.transaction():
+                    locked = await (await conn.execute(
+                        "SELECT pg_try_advisory_xact_lock(hashtext('pkc-draft'), hashtext(%s))",
+                        (uid,),
+                    )).fetchone()
+                    if not locked[0]:
+                        continue  # A command is running, possibly committing canonical.
+                    await conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (uid,))
+                    # A worker failure or a crash in finish's cleanup can leave a draft on
+                    # a terminal job. It has no resumable round and must not reserve the
+                    # tenant forever through the claim query's draft exclusion.
+                    await conn.execute(
+                        "DELETE FROM compile_drafts d USING compile_jobs j "
+                        "WHERE d.user_id = %s AND j.user_id = d.user_id AND j.id = d.job_id "
+                        "AND (j.status = 'done' OR j.completed_at IS NOT NULL)", (uid,),
+                    )
+                    jobs = await (await conn.execute(
+                        "SELECT id, claimed_by FROM compile_jobs "
+                        "WHERE user_id = %s AND completed_at IS NULL AND (status = 'claimed' "
+                        "OR id IN (SELECT job_id FROM compile_drafts WHERE user_id = %s)) "
+                        "FOR UPDATE", (uid, uid),
+                    )).fetchall()
+                    for job_id, claimed_by in jobs:
+                        owner = await drafts.owner(UserId(uid), job_id)
+                        executor = owner.executor if owner else (claimed_by or "")
+                        expired = bool(owner and draft_ttl > 0 and owner.idle_seconds >= draft_ttl)
+                        if executor.startswith("worker:"):
+                            if not expired and await drafts.worker_alive(UserId(uid), executor):
+                                continue
+                        elif owner and not expired and draft_ttl > 0:
+                            continue
+                        if owner:
+                            await conn.execute(
+                                "DELETE FROM compile_drafts WHERE user_id = %s AND job_id = %s",
+                                (uid, job_id),
+                            )
+                        cur = await conn.execute(
+                            "UPDATE compile_jobs SET status='queued', claimed_at=NULL, claimed_by=NULL "
+                            "WHERE user_id = %s AND id = %s AND status = 'claimed' AND completed_at IS NULL",
+                            (uid, job_id),
+                        )
+                        reclaimed += cur.rowcount
+        return reclaimed
+
+    async def held_draft(self, user_id: UserId) -> tuple[str, DraftOwner] | None:
+        drafts = PostgresDraftStore(self)
+        for job_id in await drafts.list_open(user_id):
+            owner = await drafts.owner(user_id, job_id)
+            if owner is not None:
+                return job_id, owner
+        return None
 
     async def claim_next(
-        self, user_id: UserId, *, exclude_kinds: Sequence[str] = ()
+        self,
+        user_id: UserId,
+        *,
+        exclude_kinds: Sequence[str] = (),
+        tenants: Sequence[str] = (),
     ) -> _JobRow | None:
         """Claim the oldest queued job for this user, but only if the user has no
         job already in flight — per-user serialization (§5, single git writer).
@@ -1109,10 +1152,22 @@ class PostgresStore:
         advisory lock, same `FOR UPDATE SKIP LOCKED`, same ordering, same refusal while
         that user has a job in flight. It exists because a worker under an agent executor
         does not run compile jobs and must still drain the user's other work
-        (docs/design/coding-agent-mode.md §9)."""
+        (docs/design/coding-agent-mode.md §9).
+
+        `tenants` narrows WHOSE row it will take — the worker tenant filter
+        (docs/design/single-machine-edition.md §11.7). Empty is no restriction; non-empty
+        adds one predicate to the same query, so a job outside the list is never handed out
+        in the first place and this body never has to give one back."""
         skip = [k for k in exclude_kinds if k]
+        allowed = [t for t in tenants if t]
         async with self._pool.connection() as conn:
             async with conn.transaction():
+                locked = await (await conn.execute(
+                    "SELECT pg_try_advisory_xact_lock(hashtext('pkc-draft'), hashtext(%s))",
+                    (str(user_id),),
+                )).fetchone()
+                if not locked[0]:
+                    return None
                 # One claimer per user at a time, whichever body it is. The NOT EXISTS below
                 # reads committed state, so two claimers racing on two different queued jobs
                 # of one user could both pass it; the row lock only serializes claims on the
@@ -1123,12 +1178,19 @@ class PostgresStore:
                 )
                 row = await (await conn.execute(
                     "SELECT id, kind, payload FROM compile_jobs "
-                    "WHERE user_id = %s AND status = 'queued' "
+                    "WHERE user_id = %s AND status = 'queued' AND completed_at IS NULL "
+                    + ("AND user_id = ANY(%s) " if allowed else "")
                     + ("AND NOT (kind = ANY(%s)) " if skip else "")
-                    + "AND NOT EXISTS (SELECT 1 FROM compile_jobs j2 "
+                    + "AND NOT EXISTS (SELECT 1 FROM compile_drafts d WHERE d.user_id = %s) "
+                    "AND NOT EXISTS (SELECT 1 FROM compile_jobs j2 "
                     "  WHERE j2.user_id = %s AND j2.status = 'claimed') "
                     "ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1",
-                    (str(user_id), *((skip,) if skip else ()), str(user_id)),
+                    (
+                        str(user_id),
+                        *((allowed,) if allowed else ()),
+                        *((skip,) if skip else ()),
+                        str(user_id), str(user_id),
+                    ),
                 )).fetchone()
                 if row is None:
                     return None
@@ -1167,11 +1229,12 @@ class PostgresStore:
                 )
                 row = await (await conn.execute(
                     "SELECT id, kind, payload FROM compile_jobs "
-                    "WHERE user_id = %s AND id = %s AND status = 'queued' "
+                    "WHERE user_id = %s AND id = %s AND status = 'queued' AND completed_at IS NULL "
+                    "AND NOT EXISTS (SELECT 1 FROM compile_drafts d WHERE d.user_id = %s) "
                     "AND NOT EXISTS (SELECT 1 FROM compile_jobs j2 "
                     "  WHERE j2.user_id = %s AND j2.status = 'claimed') "
                     "FOR UPDATE SKIP LOCKED",
-                    (str(user_id), job_id, str(user_id)),
+                    (str(user_id), job_id, str(user_id), str(user_id)),
                 )).fetchone()
                 if row is None:
                     return None
@@ -1181,6 +1244,16 @@ class PostgresStore:
                     (datetime.now(timezone.utc), claimed_by, row[0]),
                 )
         return _JobRow(row[0], user_id, row[1], row[2])
+
+    async def attach_executor(self, user_id: UserId, job_id: str, executor: str) -> bool:
+        async with self._pool.connection() as conn:
+            cur = await conn.execute(
+                "UPDATE compile_jobs SET claimed_by = %s WHERE user_id = %s AND id = %s "
+                "AND status = 'claimed' AND completed_at IS NULL AND claimed_by = 'worker' "
+                "AND NOT EXISTS (SELECT 1 FROM compile_drafts d WHERE d.user_id = %s)",
+                (executor, str(user_id), job_id, str(user_id)),
+            )
+            return cur.rowcount == 1
 
     async def release(self, user_id: UserId, job_id: str) -> None:
         """Put a claimed job back in the queue, unfinished (`pkc draft abandon`).
@@ -1192,7 +1265,7 @@ class PostgresStore:
         async with self._pool.connection() as conn:
             await conn.execute(
                 "UPDATE compile_jobs SET status='queued', claimed_at=NULL, claimed_by=NULL "
-                "WHERE user_id = %s AND id = %s AND status = 'claimed'",
+                "WHERE user_id = %s AND id = %s AND status = 'claimed' AND completed_at IS NULL",
                 (str(user_id), job_id),
             )
 
@@ -1201,7 +1274,7 @@ class PostgresStore:
         from "no such job"."""
         async with self._pool.connection() as conn:
             row = await (await conn.execute(
-                "SELECT id, kind, payload, status FROM compile_jobs "
+                "SELECT id, kind, payload, status, claimed_by FROM compile_jobs "
                 "WHERE user_id = %s AND id = %s",
                 (str(user_id), job_id),
             )).fetchone()
@@ -1209,6 +1282,7 @@ class PostgresStore:
             return None
         job = _JobRow(row[0], user_id, row[1], row[2])
         job.status = row[3]
+        job.claimed_by = row[4]
         return job
 
     async def complete(
@@ -1221,13 +1295,20 @@ class PostgresStore:
         snapshot_ref: str | None = None,
         token_usage: dict[str, int] | None = None,
         executor: str | None = None,
+        claimed_by: str | None = None,
     ) -> None:
         async with self._pool.connection() as conn:
             await conn.execute(
                 "UPDATE compile_jobs SET status = 'done', completed_at = %s, "
                 "ok = %s, detail = %s, snapshot_ref = %s, "
                 "token_usage = coalesce(%s, token_usage), "
-                "executor = coalesce(%s, executor) WHERE user_id = %s AND id = %s",
+                # A job can be completed TWICE — the round's own `pkc draft finish` writes the
+                # real record, and the worker's catch-all error path writes a second one if
+                # anything after it raises. The second caller knows neither the usage nor the
+                # executor, and the COALESCE keeps what the round measured. What a finished job
+                # must never be is re-CLAIMED; that guard lives in the claim query, not here.
+                "executor = coalesce(%s, executor) WHERE user_id = %s AND id = %s"
+                + (" AND claimed_by = %s" if claimed_by is not None else ""),
                 (
                     datetime.now(timezone.utc),
                     ok,
@@ -1236,15 +1317,11 @@ class PostgresStore:
                     # Absent, never zero: a job whose round ran no model of ours reports
                     # nothing rather than a count it did not measure.
                     #
-                    # COALESCE, not assignment: a job can be completed TWICE — the round's own
-                    # `pkc draft finish` writes the real record, and the worker's catch-all
-                    # error path writes a second one if anything after it raises. The second
-                    # caller knows neither the usage nor the executor, and an assignment there
-                    # would erase what the round measured.
                     Jsonb(dict(token_usage)) if token_usage else None,
                     executor or None,
                     str(user_id),
                     job_id,
+                    *((claimed_by,) if claimed_by is not None else ()),
                 ),
             )
 
@@ -1639,12 +1716,14 @@ class PostgresStore:
                 )
 
     async def record_compile_brief(
-        self, user_id: UserId, job_id: str, brief: str
+        self, user_id: UserId, job_id: str, brief: str, *, if_missing: bool = False
     ) -> None:
         """Attach the derived narration to a completed compile job (brief_enabled)."""
         async with self._pool.connection() as conn:
             await conn.execute(
-                "UPDATE compile_jobs SET brief = %s WHERE user_id = %s AND id = %s",
+                "UPDATE compile_jobs SET brief = %s WHERE user_id = %s AND id = %s"
+                + (" AND brief IS NULL AND kind = 'compile' AND status = 'done' "
+                   "AND ok = true AND snapshot_ref IS NOT NULL" if if_missing else ""),
                 (brief, str(user_id), job_id),
             )
 
@@ -2485,7 +2564,7 @@ class PostgresStore:
 
     @staticmethod
     def _evidence_json(refs: Any) -> list[dict[str, str]]:
-        return [{"kind": r.kind, "ref": r.ref, "path": r.path} for r in refs or ()]
+        return [{"kind": r.kind, "ref": r.ref, "path": r.path, "origin": r.origin} for r in refs or ()]
 
     @staticmethod
     def _evidence_refs(raw: Any) -> tuple[EvidenceRef, ...]:
@@ -2494,6 +2573,7 @@ class PostgresStore:
                 kind=str(item.get("kind", "")),
                 ref=str(item.get("ref", "")),
                 path=str(item.get("path", "")),
+                origin=item.get("origin", "handed"),
             )
             for item in (raw or [])
         )
@@ -2704,7 +2784,9 @@ class PostgresStore:
             rows = await (await conn.execute(
                 "SELECT consultation_id, created_at, lane, visitor_class, question, "
                 "miss, answer_kind, library_ref, jsonb_array_length(citations), "
-                "jsonb_array_length(evidence_handed), token_usage FROM consultations "
+                "jsonb_array_length(evidence_handed), token_usage, "
+                "(SELECT count(*) FROM jsonb_array_elements(citations) AS citation "
+                "WHERE citation->>'origin' = 'direct') FROM consultations "
                 f"WHERE {page_where} "
                 "ORDER BY created_at DESC, consultation_id DESC LIMIT %s",
                 [*page_params, limit + 1],
@@ -2726,6 +2808,7 @@ class PostgresStore:
                     "citation_count": int(r[8] or 0),
                     "evidence_count": int(r[9] or 0),
                     "token_usage": usage_pairs(r[10] or {}),
+                    "citations_direct": int(r[11] or 0),
                 }
                 for r in rows
             ],
@@ -3020,6 +3103,64 @@ class PostgresDraftStore:
 
     def __init__(self, store: "PostgresStore") -> None:
         self._pool = store._pool
+        self._held = ContextVar("draft_command_locks", default=())
+
+    @asynccontextmanager
+    async def lock(self, user_id: UserId):
+        # Reentrant only in this task: child tasks inherit ContextVars but do not own locks.
+        key = (str(user_id), asyncio.current_task())
+        if key in self._held.get():
+            yield
+            return
+        async with self._pool.connection() as conn:
+            async with conn.transaction():
+                await conn.execute(
+                    "SELECT pg_advisory_xact_lock(hashtext('pkc-draft'), hashtext(%s))",
+                    (str(user_id),),
+                )
+                token = self._held.set((*self._held.get(), key))
+                try:
+                    yield
+                finally:
+                    self._held.reset(token)
+
+    @asynccontextmanager
+    async def launch(self, user_id: UserId, executor: str):
+        # A transaction-scoped lease on a dedicated connection. PG releases it even when
+        # the worker is killed; a timestamp or a reused OS pid cannot provide that proof.
+        async with self._pool.connection() as conn:
+            async with conn.transaction():
+                await conn.execute(
+                    "SELECT pg_advisory_xact_lock(hashtext(%s), hashtext(%s))",
+                    (f"pkc-launch:{user_id}", executor),
+                )
+                yield
+
+    async def worker_alive(self, user_id: UserId, executor: str) -> bool:
+        if not executor.startswith("worker:"):
+            return False
+        async with self._pool.connection() as conn:
+            async with conn.transaction():
+                row = await (await conn.execute(
+                    "SELECT pg_try_advisory_xact_lock(hashtext(%s), hashtext(%s))",
+                    (f"pkc-launch:{user_id}", executor),
+                )).fetchone()
+                return not row[0]
+
+    async def owner(self, user_id: UserId, job_id: str) -> DraftOwner | None:
+        async with self._pool.connection() as conn:
+            row = await (await conn.execute(
+                "SELECT state->'session', updated_at FROM compile_drafts "
+                "WHERE user_id = %s AND job_id = %s", (str(user_id), job_id),
+            )).fetchone()
+        if row is None:
+            return None
+        session = row[0] or {}
+        return DraftOwner(
+            executor=str(session.get("executor") or ""),
+            since=datetime.fromisoformat(session["opened_at"]) if session.get("opened_at") else row[1],
+            updated_at=row[1], worker_posture=str(session.get("worker_posture") or ""),
+        )
 
     async def get(self, user_id: UserId, job_id: str) -> dict[str, Any] | None:
         async with self._pool.connection() as conn:
@@ -3030,29 +3171,83 @@ class PostgresDraftStore:
         return dict(row[0]) if row is not None else None
 
     async def put(self, user_id: UserId, job_id: str, state: dict[str, Any]) -> None:
-        round_ = str((state.get("session") or {}).get("round") or "first")
-        async with self._pool.connection() as conn:
-            await conn.execute(
-                "INSERT INTO compile_drafts (user_id, job_id, state, round, updated_at) "
-                "VALUES (%s, %s, %s, %s, %s) "
-                "ON CONFLICT (user_id, job_id) DO UPDATE SET "
-                "state = EXCLUDED.state, round = EXCLUDED.round, "
-                "updated_at = EXCLUDED.updated_at",
-                (
-                    str(user_id),
-                    job_id,
-                    Json(state),
-                    round_,
-                    datetime.now(timezone.utc),
-                ),
-            )
+        session = state.get("session") or {}
+        executor = str(session.get("executor") or "")
+        round_ = str(session.get("round") or "first")
+        async with self.lock(user_id):
+            owner = await self.owner(user_id, job_id)
+            if owner is not None and owner.executor != executor:
+                raise DraftOwnershipError(owner.refusal())
+            async with self._pool.connection() as conn:
+                async with conn.transaction():
+                    if executor:
+                        job = await (await conn.execute(
+                            "SELECT status, claimed_by FROM compile_jobs "
+                            "WHERE user_id = %s AND id = %s FOR UPDATE",
+                            (str(user_id), job_id),
+                        )).fetchone()
+                        if job is None or job[0] != "claimed" or job[1] != executor:
+                            raise DraftOwnershipError(f"job {job_id} is not claimed by {executor}; cannot reopen it")
+                    await conn.execute(
+                        "INSERT INTO compile_drafts (user_id, job_id, state, round, updated_at) "
+                        "VALUES (%s, %s, %s, %s, %s) "
+                        "ON CONFLICT (user_id, job_id) DO UPDATE SET "
+                        "state = EXCLUDED.state, round = EXCLUDED.round, "
+                        "updated_at = EXCLUDED.updated_at",
+                        (str(user_id), job_id, Json(state), round_, datetime.now(timezone.utc)),
+                    )
 
-    async def delete(self, user_id: UserId, job_id: str) -> None:
-        async with self._pool.connection() as conn:
-            await conn.execute(
-                "DELETE FROM compile_drafts WHERE user_id = %s AND job_id = %s",
-                (str(user_id), job_id),
-            )
+    async def delete(self, user_id: UserId, job_id: str, *, executor: str = "") -> None:
+        async with self.lock(user_id):
+            owner = await self.owner(user_id, job_id)
+            if owner is not None and executor and owner.executor != executor:
+                raise DraftOwnershipError(owner.refusal())
+            async with self._pool.connection() as conn:
+                await conn.execute(
+                    "DELETE FROM compile_drafts WHERE user_id = %s AND job_id = %s",
+                    (str(user_id), job_id),
+                )
+
+    async def abandon(
+        self, user_id: UserId, job_id: str, *, executor: str,
+        take_over: bool = False, grace_seconds: int = 60,
+    ) -> dict[str, Any] | None:
+        async with self.lock(user_id):
+            owner = await self.owner(user_id, job_id)
+            if owner is None:
+                return None
+            audit = None
+            if owner.executor != executor:
+                if not take_over:
+                    raise DraftOwnershipError(owner.refusal())
+                dead = owner.executor.startswith("worker:") and not await self.worker_alive(user_id, owner.executor)
+                grace = max(60, grace_seconds)
+                if owner.idle_seconds < grace and not dead:
+                    raise DraftOwnershipError(f"{owner.refusal()}; takeover refused within {grace}s grace")
+                audit = {
+                    "previous_executor": owner.executor or "legacy:unknown", "executor": executor,
+                    "at": datetime.now(timezone.utc).isoformat(),
+                    "reason": "owning worker launch is gone" if dead else f"draft idle for {owner.idle_seconds}s (grace {grace}s)",
+                }
+            async with self._pool.connection() as conn:
+                async with conn.transaction():
+                    if audit:
+                        await conn.execute(
+                            "UPDATE compile_jobs SET payload = jsonb_set(payload, '{draft_takeovers}', "
+                            "coalesce(payload->'draft_takeovers', '[]'::jsonb) || %s) "
+                            "WHERE user_id = %s AND id = %s AND status = 'claimed'",
+                            (Jsonb([audit]), str(user_id), job_id),
+                        )
+                    await conn.execute(
+                        "DELETE FROM compile_drafts WHERE user_id = %s AND job_id = %s",
+                        (str(user_id), job_id),
+                    )
+                    await conn.execute(
+                        "UPDATE compile_jobs SET status='queued', claimed_at=NULL, claimed_by=NULL "
+                        "WHERE user_id = %s AND id = %s AND status = 'claimed'",
+                        (str(user_id), job_id),
+                    )
+            return audit
 
     async def list_open(self, user_id: UserId) -> list[str]:
         async with self._pool.connection() as conn:

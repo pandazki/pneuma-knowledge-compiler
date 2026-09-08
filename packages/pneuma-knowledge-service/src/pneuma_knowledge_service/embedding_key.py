@@ -1,7 +1,6 @@
 """Does this deployment's embedding model need a key, and did anybody set it?
 
-L2 is not optional equipment. A coding agent replaces the compile MODEL; it does not embed,
-and no executor choice switches semantic indexing off. So a deployment whose
+The semantic retrieval setting is independent of the compile executor. When it is on, a deployment whose
 `EMBEDDING_MODEL` names a provider spec needs that provider's key, and the honest moment to
 say so is startup — not the first `index` job, which fails at the first embed call with a
 provider error nobody reads as "you never set the key".
@@ -60,12 +59,15 @@ def embedding_key_reminder(spec: str, env_var: str) -> str:
     return (
         f"{EMBEDDING_SETTING} is {spec!r}, which embeds through {env_var}, and {env_var} is "
         f"not set. Semantic indexing (L2) and semantic recall will fail at the first embed "
-        f"call until it is: an embedding key is required for L2, and no compile executor "
-        f"replaces it. Set {env_var} where this deployment states its environment (`.env`)."
+        f"call until resolved. Set {env_var} where this deployment states its environment "
+        f"(`.env`), or run `pkc config set semantic_retrieval off` "
+        f"(PNEUMA_KNOWLEDGE_SEMANTIC_RETRIEVAL=off) and restart."
     )
 
 
-def embedding_key_notice(spec: str, key: str) -> str:
+def embedding_key_notice(spec: str, key: str, semantic_retrieval: str = "on") -> str:
     """The reminder for this (spec, key) pair, or `""` when this deployment needs none."""
+    if semantic_retrieval == "off":
+        return "semantic retrieval is off — no key needed"
     env_var = missing_embedding_key(spec, key)
     return embedding_key_reminder(spec, env_var) if env_var else ""

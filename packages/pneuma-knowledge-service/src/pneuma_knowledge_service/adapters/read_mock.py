@@ -197,10 +197,13 @@ class InMemoryLibraryStore(InMemoryJobQueue):
                 "answer_kind": record.answer_kind,
                 "answer": record.answer,
                 "citations": [
-                    {"kind": c.kind, "ref": c.ref, "path": c.path}
+                    {"kind": c.kind, "ref": c.ref, "path": c.path, "origin": c.origin}
                     for c in record.citations
                 ],
                 "miss": record.miss,
+                "citations_direct": record.citations_direct,
+                "evidence_count": len(record.evidence_handed),
+                "citation_count": len(record.citations),
                 "degraded": list(record.degraded),
                 "token_usage": dict(record.token_usage),
             }

@@ -13,6 +13,14 @@ Two guarantees, and both of them are about somebody else's files:
 the list of paths where the disk and a fresh rendering disagree. Empty means the installed
 skill is the current rendering of the current catalog, contract and components — which is the
 only condition under which the hash in a commit trailer means anything.
+
+Beside the install there is a second way for the same bytes to reach a disk:
+`write_skill_package` puts the package's own files under a directory of the caller's naming,
+installs nothing and touches no instructions file. It is what the personal edition renders a
+library's reference package with (`single-machine-edition.md` §4.9, §11 item 4) — a directory
+the global skill reads, rather than a project a harness is opened in. Same package, same
+hash, same `skill-version.json`; the difference is entirely where the files land and what is
+NOT written beside them.
 """
 
 from __future__ import annotations
@@ -122,6 +130,36 @@ def strip_block(existing: str) -> str:
     return splice_block(existing, "").replace("\n\n\n", "\n\n").rstrip("\n") + "\n"
 
 
+def _version_document(
+    backend: BackendManifest,
+    package: SkillPackage,
+    framework_version: str,
+    rendered_at: datetime | None,
+) -> str:
+    """The `skill-version.json` text — one writer, whichever way the package reached a disk.
+
+    Written once here so an install and a `pkc skill render --out` record the same five
+    facts about the same bytes. `rendered_at` is the only one that moves between two
+    renderings of one package, which is why it is beside the files and not among them.
+    """
+    stamp = (rendered_at or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    return (
+        json.dumps(
+            {
+                "framework_version": framework_version,
+                "sha256": package.sha256,
+                "backend": backend.name,
+                "language": package.language,
+                "rendered_at": stamp.isoformat(),
+            },
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n"
+    )
+
+
 def install_skill_package(
     project_dir: str | Path,
     backend: BackendManifest,
@@ -149,22 +187,9 @@ def install_skill_package(
         written.append(_relative(project, target))
 
     version_path = project / backend.skills_dir / VERSION_FILE
-    stamp = (rendered_at or datetime.now(timezone.utc)).astimezone(timezone.utc)
     version_path.parent.mkdir(parents=True, exist_ok=True)
     version_path.write_text(
-        json.dumps(
-            {
-                "framework_version": framework_version,
-                "sha256": package.sha256,
-                "backend": backend.name,
-                "language": package.language,
-                "rendered_at": stamp.isoformat(),
-            },
-            ensure_ascii=False,
-            indent=2,
-            sort_keys=True,
-        )
-        + "\n",
+        _version_document(backend, package, framework_version, rendered_at),
         encoding="utf-8",
     )
     written.append(_relative(project, version_path))
@@ -222,6 +247,98 @@ def verify_skill_package(
     existing = instructions.read_text(encoding="utf-8") if instructions.is_file() else ""
     if router_block(backend) not in existing:
         drift.add(backend.instructions_file)
+
+    return sorted(drift)
+
+
+# ───────────────────────────────────────────────── the same package, written to a directory
+
+
+class SkillWriteRefused(RuntimeError):
+    """The named directory already holds something this render was not asked to replace."""
+
+
+def write_skill_package(
+    out_dir: str | Path,
+    backend: BackendManifest,
+    package: SkillPackage,
+    framework_version: str,
+    *,
+    force: bool = False,
+    rendered_at: datetime | None = None,
+) -> list[str]:
+    """Write the package under `out_dir`, install nothing. Returns the paths, dir-relative.
+
+    The files keep the package's OWN layout — `SKILL.md`, `references/…`, `scripts/pkc`,
+    `workflows/…` where the backend has one — because there is no project here to map them
+    onto: a harness convention (`.claude/workflows`) is a fact about a project a harness is
+    opened in, and this directory is read rather than entered. `skill-version.json` lands
+    inside it for the same reason it lands beside an install: whoever stamps `Executor-Skill`
+    needs the hash of these exact bytes.
+
+    Nothing outside `out_dir` is written, and no instructions file is spliced. A directory
+    that already holds files is REFUSED rather than merged into — a half-old package would
+    verify as drift the caller did not cause — and `force` purges it wholesale first, which
+    is the same guarantee the install gives: a file a previous version rendered and this one
+    does not cannot survive as a stale reference.
+    """
+    directory = Path(out_dir).expanduser().absolute()
+    if directory.exists() and not directory.is_dir():
+        raise SkillWriteRefused(f"{directory} is not a directory")
+    if directory.is_dir() and any(directory.iterdir()):
+        if not force:
+            raise SkillWriteRefused(
+                f"{directory} is not empty; nothing was written. Pass --force to replace "
+                "what is there."
+            )
+        _purge(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+
+    written: list[str] = []
+    for rel in sorted(package.files):
+        _write(directory / rel, package.files[rel], executable=rel in package.executable)
+        written.append(rel)
+    (directory / VERSION_FILE).write_text(
+        _version_document(backend, package, framework_version, rendered_at), encoding="utf-8"
+    )
+    written.append(VERSION_FILE)
+    return written
+
+
+def verify_rendered_package(
+    out_dir: str | Path, backend: BackendManifest, expected: SkillPackage
+) -> list[str]:
+    """Every directory-relative path where a rendered directory and a fresh rendering differ.
+
+    `verify_skill_package`'s question asked of a directory instead of a project: missing,
+    changed and extra all count, and so does the recorded hash. What it does NOT ask about is
+    the router block — there is no instructions file here, because nothing was installed.
+    """
+    directory = Path(out_dir).expanduser()
+    drift: set[str] = set()
+
+    for rel, data in expected.files.items():
+        path = directory / rel
+        if not path.is_file() or path.read_bytes() != data:
+            drift.add(rel)
+
+    if directory.is_dir():
+        for path in directory.rglob("*"):
+            if not path.is_file():
+                continue
+            rel = path.relative_to(directory).as_posix()
+            if rel != VERSION_FILE and rel not in expected.files:
+                drift.add(rel)
+
+    version_path = directory / VERSION_FILE
+    recorded = ""
+    if version_path.is_file():
+        try:
+            recorded = str(json.loads(version_path.read_text(encoding="utf-8")).get("sha256"))
+        except (OSError, ValueError):
+            recorded = ""
+    if recorded != expected.sha256:
+        drift.add(VERSION_FILE)
 
     return sorted(drift)
 

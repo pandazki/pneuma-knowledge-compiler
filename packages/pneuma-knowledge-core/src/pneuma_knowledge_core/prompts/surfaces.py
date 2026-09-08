@@ -271,6 +271,7 @@ _LABEL_FAMILIES: tuple[tuple[str, str, str], ...] = (
     ("eval.truth_judge.", "Claim judge", "断言评判"),
     ("eval.", "Evaluation", "评测"),
     ("steward.skill.", "Steward skill", "Steward 技能"),
+    ("steward.consume.", "Reading the library", "阅读知识库"),
     ("steward.reference.", "Steward reference", "Steward 参考"),
     ("steward.", "Steward", "Steward"),
 )
@@ -712,6 +713,21 @@ SURFACES: tuple[Surface, ...] = (
         ),
         segments=(
             f(
+                'ingest.agent_label',
+                'Labels an agent narrative, without changing its words.',
+                '标记代理叙述，不改变其原话。',
+            ),
+            f(
+                'ingest.agent_action_label',
+                'Labels a bounded mechanical activity stub.',
+                '标记有界的机械动作短记。',
+            ),
+            f(
+                'ingest.agent_session.title',
+                'Names one session from its provider session id.',
+                '用 provider 的会话 id 命名这次会话。',
+            ),
+            f(
                 "ingest.owner_label",
                 "The name the subject's own turns are labelled with, in every transcript and "
                 "in the live-context stream.",
@@ -925,6 +941,11 @@ SURFACES: tuple[Surface, ...] = (
             ),
             # Emitted only by a skill version that declares extra contract clauses.
             v(
+                "compile.owner_voice_template",
+                "Annotates only path templates that require Owner-authored evidence.",
+                "只为要求主体原文证据的路径模板添加标记。",
+            ),
+            v(
                 "compile.rules_header",
                 "Opens an extra section, only for a skill version that declares presentation "
                 "rules of its own.",
@@ -1063,6 +1084,11 @@ SURFACES: tuple[Surface, ...] = (
                 "compile.task.sources_header",
                 "Opens this round's material.",
                 "开出本轮材料那一节。",
+            ),
+            f(
+                'compile.task.agent_session',
+                'States the source kind and the distinct authorship of Owner, narrative and action turns.',
+                '声明来源种类，以及主体发言、代理叙述和动作短记各自的作者含义。',
             ),
             f(
                 "compile.task.source_heading",
@@ -3976,6 +4002,16 @@ SURFACES: tuple[Surface, ...] = (
                 "当编写的账本断言没有可溯源的依据链时。检查出处链，不证明依据支持断言的语义。",
             ),
             f(
+                'gate.owner_voice',
+                'Refuses a new or edited claim on an owner_voice path citing any non-Owner block.',
+                '拒绝 owner_voice 路径新增或修改主张引用非主体原文块。',
+            ),
+            f(
+                'gate.owner_voice_unresolved',
+                'Refuses missing or cyclic canonical provenance on an owner_voice path.',
+                '拒绝 owner_voice 路径缺失或循环的正本出处。',
+            ),
+            f(
                 "gate.citation_unknown_source",
                 "When a citation names a source that was not supplied this round.",
                 "当引用指向本轮并未提供的材料时。",
@@ -4536,6 +4572,31 @@ SURFACES: tuple[Surface, ...] = (
                 "`pkc profile show` 查。",
             ),
             f(
+                "steward.skill.consume",
+                "The reading step in SKILL.md, pointing to this deployment's consume reference.",
+                "SKILL.md 中的阅读步骤，指向本部署的 consume 参考。",
+            ),
+            f('steward.skill.evolve', "The evolve draft door: evidence, procedure or write-time refusal.", "演进草稿门：证据、流程或写入时拒绝。"),
+            f("steward.skill.episodes", "The episodes door: rules, procedure or write-time refusal.", "片段门：规则、流程或写入时拒绝。"),
+            f("steward.episodes.rules", "The episodes door: rules, procedure or write-time refusal.", "片段门：规则、流程或写入时拒绝。"),
+            f("steward.episodes.task", "The episodes door: rules, procedure or write-time refusal.", "片段门：规则、流程或写入时拒绝。"),
+            f("steward.episodes.shape", "The episodes door: rules, procedure or write-time refusal.", "片段门：规则、流程或写入时拒绝。"),
+            f("steward.episodes.endpoints", "The episodes door: rules, procedure or write-time refusal.", "片段门：规则、流程或写入时拒绝。"),
+            f("steward.episodes.text", "The episodes door: rules, procedure or write-time refusal.", "片段门：规则、流程或写入时拒绝。"),
+            f("steward.episodes.proposal_required", "The episodes door: rules, procedure or write-time refusal.", "片段门：规则、流程或写入时拒绝。"),
+            f("steward.episodes.no_episode", "The episodes door: rules, procedure or write-time refusal.", "片段门：规则、流程或写入时拒绝。"),
+            f("steward.episodes.source_changed", "The episodes door: rules, procedure or write-time refusal.", "片段门：规则、流程或写入时拒绝。"),
+            f("steward.episodes.executor_required", "The episodes door: rules, procedure or write-time refusal.", "片段门：规则、流程或写入时拒绝。"),
+            f("steward.episodes.recorded", "The episodes door: rules, procedure or write-time refusal.", "片段门：规则、流程或写入时拒绝。"),
+            f("steward.episodes.skill_required", "The episodes door: rules, procedure or write-time refusal.", "片段门：规则、流程或写入时拒绝。"),
+            f("steward.episodes.finished", "The episodes door: rules, procedure or write-time refusal.", "片段门：规则、流程或写入时拒绝。"),
+            f("steward.unattended.episodes_task", "The episodes door: rules, procedure or write-time refusal.", "片段门：规则、流程或写入时拒绝。"),
+            f('steward.unattended.evolve_task', "The evolve draft door: evidence, procedure or write-time refusal.", "演进草稿门：证据、流程或写入时拒绝。"),
+            f('steward.evolve.packs', "The evolve draft door: evidence, procedure or write-time refusal.", "演进草稿门：证据、流程或写入时拒绝。"),
+            f('steward.evolve.unnamed_drop', "The evolve draft door: evidence, procedure or write-time refusal.", "演进草稿门：证据、流程或写入时拒绝。"),
+            f('steward.evolve.proposal_required', "The evolve draft door: evidence, procedure or write-time refusal.", "演进草稿门：证据、流程或写入时拒绝。"),
+            f('steward.evolve.closed_volumes', "The evolve draft door: evidence, procedure or write-time refusal.", "演进草稿门：证据、流程或写入时拒绝。"),
+            f(
                 "steward.skill.round",
                 "The order of one compile round, command by command.",
                 "一轮编译的顺序，一条命令一条命令地写。",
@@ -4631,6 +4692,53 @@ SURFACES: tuple[Surface, ...] = (
                 "`references/gate.md`.",
                 "引出 `references/gate.md` 末尾已启用的索引组件。",
             ),
+        ),
+        kind=FRAGMENTS,
+    ),
+    Surface(
+        id="steward.consume",
+        group="steward",
+        title_en="Reading the library",
+        title_zh="阅读知识库",
+        summary_en=(
+            "Sections of references/consume.md: the library's design, reading primitives, "
+            "the resolved contract's families and the consultation procedure. The agent "
+            "reads directly under its executor; these sections never enter a system message."
+        ),
+        summary_zh=(
+            "references/consume.md 的各节：知识库设计、阅读原语、已解析契约的族和咨询流程。"
+            "agent 在自己的执行器下直接阅读；这些段落不进入 system 消息。"
+        ),
+        segments=(
+            f("steward.consume.library", "Opens the reading reference with the library's mechanisms.",
+              "阅读参考的开头，说明知识库的机制。"),
+            f("steward.consume.when_to_use", "Selects commands at session start, when answering and after a compile; outline is complete and glance is budgeted.",
+              "说明会话开始、回答时及编译后使用哪些命令；outline 完整，glance 受预算限制。"),
+            f("steward.consume.primitives", "Describes the read commands in reading order.",
+              "按阅读顺序描述读命令。"),
+            f("steward.consume.schema", "Wraps the families enumerated from the resolved SkillVersion.",
+              "承载从已解析 SkillVersion 枚举出的族。"),
+            f("steward.consume.owner_voice", "Marks a path template whose owner_voice constraint is enabled.",
+              "标记启用了 owner_voice 约束的路径模板。"),
+            f("steward.consume.no_families", "Replaces the family list when no templates are declared.",
+              "未声明路径模板时替代族列表。"),
+            f("steward.consume.answering", "Closes the reference with citations, roles and consultation recording.",
+              "参考结尾说明引用、角色和咨询记录。"),
+        ),
+        kind=FRAGMENTS,
+    ),
+    Surface(
+        id="steward.cli",
+        group="steward",
+        title_en="Library maps in CLI help",
+        title_zh="CLI 帮助中的知识库地图",
+        summary_en="The complete outline and budgeted glance, in command help and references/cli.md.",
+        summary_zh="命令帮助与 references/cli.md 中的完整 outline 和有预算的 glance。",
+        segments=(
+            f("steward.cli.outline", "Describes outline in parent help, its own help and the rendered CLI reference.",
+              "在父命令帮助、outline 帮助和生成的 CLI 参考中描述 outline。"),
+            f("steward.cli.glance", "Describes glance in parent help, its own help and the rendered CLI reference.",
+              "在父命令帮助、glance 帮助和生成的 CLI 参考中描述 glance。"),
         ),
         kind=FRAGMENTS,
     ),

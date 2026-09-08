@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { UserRoundPlus } from "lucide-react";
 import { useApp } from "@/lib/store";
 import { useT } from "@/lib/useT";
+import { LibraryPicker } from "./LibraryPicker";
 import { Combobox, type ComboboxItem } from "@/ui/Combobox";
 import { Mono } from "@/ui/Mono";
 import { cn } from "@/ui/cn";
@@ -21,11 +22,29 @@ function AvatarMark({ initial, className }: { initial: string; className?: strin
 }
 
 /**
+ * Which library this console is looking at — one control with two faces, because the
+ * question it answers is one question.
+ *
+ * Served by a personal edition's engine, the machine itself knows its libraries and their
+ * names, so the control is the library switcher (LibraryPicker) and there is no free-text
+ * tenant id to type: the home's tenants are the tenants. Everywhere else — every project
+ * deployment, which is every deployment today — the home probe answered 404 and this is the
+ * bench's user picker, byte for byte as it always was.
+ *
+ * The fork is here rather than at the two call sites so that neither the top bar nor the
+ * Profile view has to know that a home is a thing that can exist.
+ */
+export function UserPicker() {
+  const home = useApp((s) => s.home);
+  return home ? <LibraryPicker home={home} /> : <UserIdPicker />;
+}
+
+/**
  * Synthetic user switcher: avatar mark + display_name + mono id, a "recent" group
  * (store.recentUsers) and a "new profile" footer where the filter text IS the new id
  * (routed through createUser).
  */
-export function UserPicker() {
+function UserIdPicker() {
   const t = useT();
   const users = useApp((s) => s.users);
   const currentUser = useApp((s) => s.currentUser);

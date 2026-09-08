@@ -313,6 +313,20 @@ def test_usage_parsing_survives_output_that_is_not_the_shape_we_expect():
         assert reader('{"type":"result"}').usage is None
 
 
+def test_last_message_readers_capture_the_final_steward_text():
+    stream = "\n".join(json.dumps(event) for event in [
+        {"type": "item.completed", "item": "an unfamiliar surface"},
+        {"type": "item.completed", "item": {"type": "agent_message", "text": "Working."}},
+        {"type": "item.completed", "item": {"type": "command_execution", "text": "tool output"}},
+        {"type": "item.completed", "item": {"type": "agent_message", "text": "Consolidated delivery owners."}},
+    ])
+    assert read_codex_output(stream).last_message == "Consolidated delivery owners."
+    assert read_codex_output("", "The output-file brief.").last_message == "The output-file brief."
+    assert read_claude_output(json.dumps({
+        "type": "result", "result": "Consolidated delivery owners.",
+    })).last_message == "Consolidated delivery owners."
+
+
 def test_a_cumulative_codex_total_is_read_once_and_not_summed():
     """Where a Codex version reports a RUNNING total, summing them would multiply the round.
 

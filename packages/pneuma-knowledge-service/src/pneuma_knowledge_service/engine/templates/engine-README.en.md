@@ -7,7 +7,7 @@ ports live in `../.env`; sources and runtime state live outside this Git reposit
 |---|---|
 | `compile/contract.md` | Purpose, subject boundaries, admission, authority and time |
 | `engine.yaml` | Model roles, tool/call limits, overview bounds and index components |
-| `intake/intake.yaml` | Segmentation of new source material |
+| `intake/intake.yaml` | Whether semantic retrieval exists at all (`semantic_retrieval`), and segmentation of new source material |
 | `recall/recall.yaml` | Retrieval breadth, evidence context and answer format/style |
 | `persona/profile.yaml` | Optional declared owner details and locale provenance |
 | `compile/challenge.yaml` | Optional coverage probe and compensation |

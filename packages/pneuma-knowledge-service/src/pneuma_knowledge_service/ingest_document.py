@@ -25,6 +25,7 @@ from pneuma_knowledge_core.domain.intake import (
     archetype_of,
     plan_for_archetype,
     propose_intake,
+    with_semantic_retrieval,
 )
 from pneuma_knowledge_core.domain.source import NormalizedSource, RawSource
 from pneuma_knowledge_core.ingest.adapters import MarkdownDocumentAdapter, PlainDocumentInput
@@ -139,6 +140,7 @@ def _resolve_plan(
             ),
             rationale=base.rationale,
             user_confirmed=True,
+            semantic_indexing_requested=plan_override.get("semantic_indexing_requested"),
         )
     if confirm and intake_archetype:
         return base.model_copy(update={"user_confirmed": True})
@@ -152,6 +154,7 @@ def preview_document(
     declared_type: str | None = None,
     source_class: str | None = None,
     intake_archetype: str | None = None,
+    semantic_retrieval: bool = True,
 ) -> DocumentPreview:
     """Normalize + propose an IntakePlan with no side effects (§4: plan is a proposal)."""
     cls = _default_source_class(declared_type, source_class)
@@ -171,6 +174,7 @@ def preview_document(
         plan_override=None,
         confirm=False,
     )
+    plan = with_semantic_retrieval(plan, semantic_retrieval)
     tree = [
         SectionNode(
             path=list(s.path),
@@ -258,6 +262,9 @@ async def ingest_document(
         intake_archetype=intake_archetype,
         plan_override=plan_override,
         confirm=True,
+    )
+    plan = with_semantic_retrieval(
+        plan, getattr(ctx.settings, "semantic_retrieval", "on") == "on"
     )
     normalized.raw.intake_plan = plan.model_dump()
 

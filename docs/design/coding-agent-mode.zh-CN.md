@@ -119,10 +119,10 @@ API 和控制台触达知识库，从不通过所有者的 agent 会话。
 - **2.4 "直接删掉"（v1）。** 所有者让 Steward 删掉一条 claim。Steward 做不到：账本没有删除，
   skill 用一句话说明这一点，并给出它能做的两件事——用一份陈述取代它，或者它写下时就错了则原地
   编辑。拒绝来自门，不来自 agent 的客气。
-- **2.5 合并两页（v2）。** *"这两个人是同一个人。"* 这是结构而非内容：Steward 在分支上打开一份
+- **2.5 合并两页（v1）。** *"这两个人是同一个人。"* 这是结构而非内容：Steward 在分支上打开一份
   **evolve draft**，移动 claim，退役一页，evolve gate 核算每一个锚。所有者在控制台读 diff 并采纳；
   三方合并落地。同一道门，evolve 模式。
-- **2.6 改变记什么（v2）。** *"给每个项目开始记时间线。"* Steward 把契约修改和受影响的路径模板
+- **2.6 改变记什么（v1）。** *"给每个项目开始记时间线。"* Steward 把契约修改和受影响的路径模板
   起草成一份 evolve 提案；所有者审阅理由和 diff，采纳，之后的编译遵循它。正本不因此重写。
 
 - **2.5b 让一个主题退场（v1）。** *"Harbour 项目结束了，归档掉。"* `pkc owner say` 记下所有者真正
@@ -286,9 +286,10 @@ claim，每条命令的文本和引用都在终端可见；`pkc draft finish`。
 ingest` 时，L1 和 L2 用配置好的 embedding 建起来，skill 只需说"摄入会索引"。两个问题自由组合：
 一个 OpenRouter key 管 embedding 和检索，Codex 管编译，是预期的形状。
 
-coding agent 替换的只是编译模型。L2 仍然**需要** embedding key，选 agent 不会把 L2 关掉：这里
-没有一种受支持的「无 L2」姿态，因为一座语义层悄悄缺席的库只会答得更差，却从不说明为什么。系统改
-为**提醒**。启动时解析 embedding 规格（`wiring.warn_missing_embedding_key`，就在 `check_executors`
+coding agent 驱动 compile、episodes 及默认的 evolve；简报由 Steward 自己写。
+语义检索开启时，片段判断经索引门运行（§5.12），配置好的 embedding 仍负责构建 L2。
+`semantic_retrieval: off`（§5.9）跳过这些工作，也不需要 embedding key。
+对于启用但缺少 key 的供应商 embedding，启动时解析其规格（`wiring.warn_missing_embedding_key`，就在 `check_executors`
 旁边），当这个规格需要一把该部署没有设置的 key 时，记一条 WARNING，点名设置项
 （`PNEUMA_KNOWLEDGE_EMBEDDING_MODEL`）、变量（`OPENROUTER_API_KEY`）以及会坏掉的东西——语义索引与
 语义检索，在第一次 embed 调用处。生成器在答案把 key 留空时打印同一句话，`./app.py up` 与
@@ -301,14 +302,19 @@ key 部署在 L2 也完整的那件事——是后续项（§13）。
 
 1. **执行器是 Steward 内部的选择，以 model spec 的形式配置。** 一个角色的模型可以写
    `agent:codex` 或 `agent:claude-code`，位置与今天写 `openrouter:…`、`scripted:…` 完全相同
-   （`wiring.resolve_model_name`）。compile 角色第一个支持。库的归因 trailer 不变；作业记录增加
+   （`wiring.resolve_model_name`）。compile 与 evolve 都支持；evolve 未单独指定时继承 compile。
+   episodes 经索引门使用 compile 执行器的 harness（§5.12），简报由 Steward 自己写。
+   agent compile 执行器下跳过 challenge：没有作业、门或技能步骤，即使配置了 API challenge 模型也一样。
+   库的归因 trailer 不变；作业记录增加
    `executor`。
+   **在 agent 执行器下，消费是 agent 按 `references/consume.md` 指引自行阅读；
+   API 通道是有密钥的控制台用来测试质量的工具。**
 2. **一道门，两种姿态。** claim 级 draft 加它的写工具加 gate，是两种执行器进入正本的唯一路径。
    langchain 循环和 CLI 是它的两个客户端。CLI 能拒绝的，langchain 工具以同一段文字拒绝；同一个
    测试序列走两条路产生同样的文件。
 3. **agent 持有期间 draft 落在磁盘。** CLI 在两次调用之间没有记忆，所以 `PatchDraft` 获得序列化
    形式和每作业一个的家。它既不是正本也不是保留的记录：临时物，finish 或 abandon 时删除；对已有
-   draft 的作业再次 `open` 是续接。
+   draft 的作业再次 `open` 只允许同一执行者续接；其他执行者会被拒绝。
 4. **skill 是一次渲染，不是第二份文本。** agent 读到的、影响判断的一切——契约、编译指令、工具
    描述、组件 preamble——都已在 prompt catalog 里，按（契约 × 措辞 × 组件）字节钉住。skill 包由
    它生成；哈希盖在 overlay 哈希旁边。没有任何东西被手写两遍。
@@ -322,7 +328,7 @@ key 部署在 L2 也完整的那件事——是后续项（§13）。
    `owner-dialogue/v1` 来源，然后才是一次编译。CLI 的 `owner say` 命令只做这件事；不存在任何
    不经作业就改动 claim 的命令。
 8. **结构变更走 evolve 门。** 合并、拆分、重命名页面，改族或改契约：Steward 在分支上起草 evolve
-   draft，evolve gate 核算锚，所有者采纳。本页定形（§5.7），v2 实现。
+   draft，evolve gate 核算锚，所有者采纳。已在 v1 实现（§5.7）。
 9. **backend 是数据。** 每个 harness 由一份清单描述——二进制、安装布局、无头启动形状、能力——
    清单之外没有任何代码按它的名字分支。探针探活性，从不比版本号。
 10. **正确性归框架，且每次行动之后告知。** Steward 可能出错、可能误解；框架不允许的错误由本会造成
@@ -359,6 +365,10 @@ key 部署在 L2 也完整的那件事——是后续项（§13）。
     默认值。在任何地方启动的 Steward 读它、探测它指的东西、继续；里面没有来源、claim 或库的记录，
     没有它项目也是完整的。
 
+compile 与 evolve 都可使用 `agent:<backend>`；evolve 未单独指定时继承 compile 的执行器。
+compile、evolve 与 episodes 三类作业在无人值守时交给同一 launcher，在交互姿态下留队等各自的 open。
+简报是 Steward 自己的文本；agent 执行器跳过 challenge。采纳仍由 Owner 决定。
+
 ## 5. `pkc` CLI
 
 `pneuma-knowledge-service` 里的一个控制台脚本（`pkc = pneuma_knowledge_service.cli:main`），读
@@ -374,7 +384,8 @@ HTTP API 的读半边变成命令。同样的 handler、同样的形状，可要
 
 | 命令 | 读什么 |
 |---|---|
-| `pkc glance`（`--include-archived`） | 库概览（`canonical_glance`），归档页默认省略 |
+| `pkc outline`（`--json`、`--family <template>`、`--definitions`、`--include-archived`） | 完整地图：每一页都在所属族下，一页一行，没有 top-K 或字符预算；用于会话开始及编译后检查 |
+| `pkc glance`（`--include-archived`） | 回答通道的有预算地图（`canonical_glance`）：每个族的头部页面，报告省略数量；outline 太长、难以扫读时用来挑选主题 |
 | `pkc canonical ls`（`--include-archived`） / `read <path>` / `history <path>` | 页面、一页、一条 claim 链——`read` 与 `history` 无条件：按地址点名的页，无论是否归档都作答 |
 | `pkc source ls`（`--include-archived`） / `show <id>` / `fetch <id> ¶a-b` | L0：来源、结构、逐字 span——`show` 与 `fetch` 无条件 |
 | `pkc archive propose` / `confirm` / `ls` / `show` / `drop` / `inventory` | 让一个主题退场，以及把它请回来（§5.5）——一份提案、一次确认，以及排在普通队列上的一个作业 |
@@ -382,11 +393,18 @@ HTTP API 的读半边变成命令。同样的 handler、同样的形状，可要
 | `pkc recall <q> --evidence`（`--include-archived`） | fast lane 装配好的上下文、不含回答调用：claim、窗口、片段摘要、glance，带查询局部句柄 |
 | `pkc recall <q>`（`--include-archived`） | 配置了回答模型时的 fast lane |
 | `pkc jobs` / `pkc history` / `pkc brief <version>` | 队列、编译版本、编译后简报 |
-| `pkc consultations` / `pkc spend` | 使用侧的保留记录及其花费 |
+| `pkc consult answer <handoff_id> --text-file <f>` / `pkc consult record --question <q> --text-file <f>`（或 `-`；`--kind no_record`） | 关闭交接回答，或不经过交接直接记录阅读；每个引用都必须可解析 |
+| `pkc consultations` / `pkc spend` | 使用侧保留记录、交接证据数与直接引用数及其花费 |
 | `pkc evolve ls` / `show` | 提案及其 diff |
 | `pkc library check` | 对已提交的库跑全库谓词：锚唯一与连续、引用形状与可解析、路径归属、总览规则、组件检查、每次提交带 trailer——只报告，不修复 |
 
-`pkc recall --evidence` 是唯一新增的读面。它返回 fast lane 本会递给回答模型的东西，且不多于
+两种地图默认省略已归档页面，保留 live 路径上的归档记录；显式纳入的已归档页面按 live 路径
+归入所属族、排在 live 页面之后，并标明状态。Outline 按契约声明顺序点名空族，在页面旁计数
+关闭卷，以 `[record]` 标记记录，以 `[archived]` 标记显式纳入的已归档页面。JSON 是带页面总数
+的族树；不属于已声明族的页面仍可见，其 template 为 null。它从一次 canonical listing 推导
+元数据，不逐页读取，也不调用模型。当前 listing 会加载正文；持久化页头索引留作后续优化。
+
+`pkc recall --evidence` 返回 fast lane 本会递给回答模型的东西，且不多于
 此：lane 中无模型的那一半，露出来。
 
 递交那一刻记下的是一条**待答交接**，不是咨询。`ConsultationRecord` 是冻结的，`is_miss` 读的是
@@ -394,8 +412,11 @@ HTTP API 的读半边变成命令。同样的 handler、同样的形状，可要
 一次 lane 从未观察到的 miss。所以 `--evidence` 持久化的是「一条记录将由什么构成」：问题、
 `as_of`、按 lane 采样方式采到的 library ref、证据清单、查询局部句柄表、访客类别，并交回一个
 `handoff_id`。`pkc consult answer <handoff_id>` 补上回答，用 fast lane 自己的构造器建记录——
-引用规则原封不动：标记先经那张句柄表解析，且只有解析出的地址落在清单内才被采纳——再走 `/recall`
-用的同一条落库路径发出。交接行在这时删除；无人回来处理的那条按
+句柄经交接表还原，真实来源区间或 canonical 锚点则在当前租户的 L0 块范围或 canonical 中解析。
+交接引用保留 `origin: "handed"`；清单外解析成功的直接读取记为 `origin: "direct"`，不扩充
+`evidence_handed`。在 agent 执行器下，agent 的阅读就是检索，因此清单成员关系不能替代可解析性。
+无效引用以退出码 4 拒绝，交接保持待答以便纠正；有效回答经 `/recall` 同用的 `_spawn_recording`
+路径发出。交接行在这时删除；无人回来处理的那条按
 `PNEUMA_KNOWLEDGE_RECALL_HANDOFF_TTL` 过期，由清扫 draft 的同一个自愈清掉。
 **因此，Steward 从未回答的问题不会留下任何咨询**——这一点是明说的，不是藏起来的：另一种做法是
 半条记录，而它无论朝哪个方向都得撒谎。一次 `pkc recall` 跑在哪个访客类别下，决定了这条交接被回答
@@ -403,6 +424,13 @@ HTTP API 的读半边变成命令。同样的 handler、同样的形状，可要
 owner 的 Steward，本身就是这座库正在被使用，那正是使用侧账本要收的东西；`pkc recall` 单独跑则默认
 `silent`，因为一条只为自己那句回答而调的 lane 是在被评测，不是在被咨询。两者都写在 `--help` 和交接
 那一行里——一个悄悄什么都不记的默认值，正是注意力账本在无人察觉中一直空着的原因。
+
+未运行 `recall --evidence` 时，`pkc consult record --question <q> --text-file <f>`（或 `-`）
+走相同的解析、构造器和发出路径，lane 为 `direct`，不需要交接。它接受
+`--visitor-class business|audit|silent`，默认 `business`，也接受 `--kind no_record`。
+一个问题，一条记录：纠正被拒绝的回答，不要重跑 recall 来修复它。无密钥的 `recall --evidence`
+不构造模型，报告哪些分支运行、哪些被跳过（JSON 的 `arms`），包括无法运行的 glance 选页；
+空或稀薄的清单不意味着 agent 无法直接阅读库。
 
 ### 5.2 写——那一道门
 
@@ -420,8 +448,8 @@ pkc draft set-fields <path> --json <json>
 pkc draft search-knowledge <q> | search-source <q>
 pkc draft <component-tool> …                 启用的组件贡献什么就有什么
 pkc draft check                              对打开的 draft 跑完整 gate，不 finish
-pkc draft finish                             总览下限 → gate → 提交 | 违规
-pkc draft abandon                            释放作业；删除 draft；正本不动
+pkc draft finish [--brief <f>|-]              总览下限 → gate → 提交 | 违规；Steward 简报
+pkc draft abandon [--take-over]              释放作业；删除 draft；显式恢复其他执行者的草稿
 ```
 
 文本经文件或 stdin 到达，从不经 argv：一条 claim 是一个段落，shell 引号出错不该是 agent 拿本轮
@@ -434,6 +462,11 @@ pkc draft abandon                            释放作业；删除 draft；正�
 输出，磁盘上的 draft 是命令之前的那份；预算耗尽是退出码 3 加 `compile.budget.call_refused` 文本；
 `finish` 或 `check` 处的 gate 失败是退出码 4 加渲染后的违规。退出码是让 workflow 脚本不解析散文就
 能分支的机制，而后置检查让"库仍然完整"成为 Steward 被告知的事实，而不是被交付的职责。
+
+`finish --brief <f>`（或 `--brief -`）接收 Steward 为该版本写的简报：非空、不超过 8,000
+字符，作为派生文本存在成功的编译作业上，并能跨修复轮保留。agent 执行器不再调用简报模型。
+无人值守时，launcher 的最后消息在同样的界限下补全成功版本缺失的简报；显式 brief 优先。
+中止、放弃和无改动轮不产生简报。
 
 ### 5.3 所有者的话
 
@@ -589,18 +622,51 @@ agent 没做的，也不隐藏它做了的。断开的标签页让 harness 会�
 来承载的方案被权衡过；控制台已经拥有视角模型和那些必须在 Steward 打字时就动起来的视图，所以桥来
 到它这边。
 
-### 5.7 结构——evolve 门（v2）
+### 5.7 结构——evolve 门（v1）
 
 ```
-pkc evolve draft open [--from <proposal>]     一个分支、当前路径模板、evolve gate
-pkc evolve draft move-claim <from> <anchor> <to>
-pkc evolve draft rename <path> <new-path> | retire <path>
-pkc evolve draft contract edit --file <f>     修订后的契约文本，采纳时注册为新版本
-pkc evolve draft finish                       evolve gate：锚守恒、点名被丢弃的锚；写出提案
+pkc evolve draft open (<job-id> | --new) [--from <proposal>]
+pkc evolve draft status
+pkc evolve draft propose (--file <f> | -)
+pkc evolve draft move-claim <from-path> <anchor> <to-path>
+pkc evolve draft rename <path> <new-path>
+pkc evolve draft retire <path>
+pkc evolve draft contract edit (--file <f> | -)
+pkc evolve draft check
+pkc evolve draft finish
+pkc evolve draft abandon
+pkc evolve adopt <id>
 ```
 
-所有者在控制台或用 `pkc evolve adopt <id>` 采纳，即现有的三方合并。这是编译门的姊妹：结构需要
-的动词、结构已有的 gate；在此定形，是为了它到来时 CLI 的形状不必再改。
+`open` 在队列的逐用户锁下认领 evolve 作业；`--new` 创建 Owner 主动请求的作业。它把 kind 为
+`evolve` 的 `DraftSession` 放进编译使用的同一个 DraftStore，受 `COMPILE_DRAFT_TTL` 保护。
+放弃与过期都释放作业，不写正本；恢复会重新打印固定的两份文本。`--from` 在原始基线上复制一份
+审阅提案的工作文档与判断，不会采纳它。
+
+任务带有当前契约、模板和 packs、近期编译事件的机械摘要、文档树、组件的 `evolve_evidence`
+块。易变内容只进任务；两个 evolve 契约和门的规则构成逐字节稳定的 system message（I5）。
+Steward 读证据，先提交符合 `EvolveProposal` 的第一阶段 JSON 判断，再调整结构。必填字段仍为
+`packs` 与 `rationale`；可选 `retire_packs`、`rename_packs` 和完整的 `path_templates` 列表
+表达现有结构的修改，`dropped_anchors` 逐个点名损失。错误 JSON、模型验证失败、未知 pack 名称
+和非法模板均被拒绝。空 packs 加理由、且没有结构改动，会留下不变判断记录。
+
+move 逐字搬移断言与引用，必要时创建空目标页；rename 保留文档身份；retire 只移除空页或已点名
+将丢失锚点的页面。归档记录与关闭卷保留现有保护：闸门允许它们沿用基线中的精确路径，但内容
+不得改动；带有关闭卷的页不能改名或退役。每次写入运行 evolve gate 的谓词，有新增违规
+就回滚整条命令；被拒也通过编译门的共享事务花掉一次预算。家族退役期间，其页面可以暂留旧路径，
+但 check 与 finish 都要求最终模板集。默认演进预算为 120 次调用；显式
+`COMPILE_MAX_TOOL_CALLS` 覆盖它。finish 失败后只有一次独立预算的修复轮。
+
+`contract edit` 接受不超过 100,000 字符的非空文本，可附带声明 `path_templates` 的契约
+frontmatter。框架分配版本并将其保存在该用户的提案 manifest 中。采纳后，正本 manifest 中的
+版本成为该租户注册的契约，进程重启仍然有效；它不修改其他租户的注册表，也不编辑部署的引擎文件。
+契约与 schema 变化只影响未来编译，结构命令保留已有断言。
+
+finish 运行同一个 `run_evolve_gate`，核算每个锚点与引用，再调用模型路径使用的分支和审阅记录
+写入器。rename/retire 在分支里显式移除旧路径；采纳把这些删除与合并后的文件放进同一次原子提交。
+`pkc evolve ls/show`、控制台和原有机械三方合并都读取普通提案。**采纳由 Owner 决定**：
+`pkc evolve adopt <id>` 只排入这条合并流程。无需新增 `workflows/compile.js` 的姊妹脚本；
+双语 skill 流程与 argparse 机械生成的 CLI 参考足以把这扇门教给两种宿主。
 
 ### 5.8 profile——`pkc profile`
 
@@ -612,9 +678,17 @@ pkc profile confirm --field k…                   把字段翻为 owner；--all
 
 一条写路径（`persona_profile.save_owner_profile`）：引擎的 `persona/profile.yaml` 和持久化的
 `UserProfile` 一起动，`provenance` 是覆盖 Steward 可设的每个字段的映射，不只三个地区键。
-`render_system_contract` 把出处词渲染在每个值旁边（`display_name: 陈晚 (inferred)`），这就是让模型把
-推断出的所有者当作假设的东西。profile 是占位符或含未确认推断时 `pkc draft open` 打印一行提示；它不拒绝
-任何东西。
+`render_system_contract` 把出处词渲染在每个推断值旁边（`display_name: 陈晚 (inferred)`），这就是让模型把
+推断出的所有者当作假设的东西。已确认值保留原有渲染，因此全部为 owner 的档案与原来的 system 契约
+逐字节相同。profile 是占位符或含未确认推断时 `pkc draft open` 打印一行提示；它不拒绝任何东西。
+
+未知所有者用 `UserProfile.unstated()` 表示：姓名、个人事实和日期为空，`source="unstated"`，
+所有可设字段的出处均为 `placeholder`。空姓名、`Someone` 和 `Owner` 都是占位姓名；仅声明行业、
+没有姓名，也已经是一份档案。引擎文件中已声明字段的出处为 `owner`，空字段为 `placeholder`；
+旧地区标记 `profile` 映射为 `owner`，检测所得或未声明的地区值不进入个人档案。Steward 写入的
+字段在确认前保持 `inferred`，即使只设置一个字段也如此。所有者通过 API/CLI 编辑时保留
+`source="user"`。加载器不补写无人声明的加入日期、开始活动日期或个人偏好。个人版把未经编辑的
+引擎模板持久化为 unstated，档案是否完成由两件事推导：已不是占位符，且没有 `inferred` 字段。
 
 skill 的首轮规则两头都有机制托底：占位符可检测，出处会被渲染。Steward 拿来推断的是它自己的东西——
 harness 对所有者的记忆、材料里的第一人称、`people` 组件已经报告的称呼——skill 只说它这么做，以及之后
@@ -632,10 +706,73 @@ harness 对所有者的记忆、材料里的第一人称、`people` 组件已经
 
 ### 5.10 家——`~/.pkc`
 
-单机版：每台机器一套共享基础设施，库作为它上面的租户，skill 装进 harness 而不是项目，每个选择和每个
-初始化步骤在 `~/.pkc` 下记录一次，之后的会话不再问。它有自己的一页：
+个人版：库之上的一个应用，每台机器一套共享基础设施，库作为它上面的租户，skill 装进 harness 而不是
+项目，每个选择和每个初始化步骤在 `~/.pkc` 下记录一次，之后的会话不再问。它自己的命令是 `pkchome`；
+`pkc` 仍是库的，不为它添一个字。它有自己的一页：
 [single-machine-edition.zh-CN.md](single-machine-edition.zh-CN.md)；profile 流程（§5.8）和检索选择
 （§5.9）是它冷启动要问的两个问题。
+
+### 5.11 技能包——`pkc skill`
+
+```
+pkc skill install [--backend codex|claude-code|all] [--project <目录>]     文件装进项目，外加那个路由块
+pkc skill render --out <目录> [--backend …] [--language en|zh] [--force]   同一份包写进一个目录；什么都不安装，不碰指令文件
+pkc skill verify [--backend …] [--project <目录> | --dir <目录>]           重新渲染并逐字节比对；有漂移就列出并以 4 退出
+pkc skill show [--backend …] [--project <目录>]                            哈希、契约与文件清单
+pkc skill probe [--backend …] [--deadline <秒>]                            harness 是否活着？不可用则以 4 退出
+```
+
+`render` 就是不安装的 install，面向被人读的那份包，而不是 harness 打开的那个项目：个人版正是用它把
+每个库的参考包渲染到 `~/.pkc/libraries/<name>/skill/` 下
+（[single-machine-edition.zh-CN.md](single-machine-edition.zh-CN.md) §4.9）。同一次部署解析、同一次
+渲染调用、同一份 `skill-version.json`，所以它打印的哈希就是 `install` 会盖下的那一个——这正是它是这
+条命令而不是第二个渲染器的原因。`verify --dir` 对那个目录问同一个新鲜度问题，只是少了路由块：那里
+没有指令文件可以承载它。包里*有什么*，见 §7。
+
+### 5.12 片段——索引门
+
+片段判断是 agent 在编译前做的一步。index 作业仍无条件写 L1。语义检索开启且来源 IntakePlan
+要求 L2（`full` 或 `summary`）时，agent compile 执行器为此来源入队一个 `episodes` 作业；
+当前每个 index 作业本来就恰好持有一个来源。它绝不用机械切分代替 agent 的判断。
+已有匹配的留存清单就重放；index 重试不会重复创建尚未完成的 episodes 作业。
+检索关闭或来源计划为 `none` 时不建 episodes 作业。API 执行器的模型路径与无 key 回退保持原样。
+编译读 L0，绝不等待 episodes；技能中的阅读顺序不增加队列依赖。
+
+```
+pkc index episodes open <job>
+pkc index episodes status
+pkc index episodes propose (--file <f> | -)
+pkc index episodes finish
+pkc index episodes abandon
+```
+
+`open` 认领来源作业，在 compile、evolve 共用的 Postgres DraftStore 中持久化 kind 为 `episodes`
+的草稿。它打印结构图、每个带编号的块及契约携带的 role/kind 元数据、片段规则与预算。
+规则文本字节稳定；来源内容和预算放在任务里。共享的命令事务对拒绝计费、回滚被拒提案，复用
+compile 的预算、退出码和 TTL。`status` 免费，`abandon` 释放认领。finish 时没有提案会获得一轮
+修复预算，再次缺失则中止：沉默永不等于空选择。
+
+`propose` 用 `{"start": a, "end": b, "title": "…", "description": "…"}` 对象数组替换完整选择。
+分块器的门检查真实且有序的端点、严格递增的起点、相邻最多共享三块、片段数不超过块数。
+**这里明确去掉无缝隙覆盖要求。** 写入时逐项列出所有违规；标题和描述必须非空且有界；
+未覆盖块列为 `no episode`。`[]` 是有效且明确的判断。agent 根据所给块撰写描述；
+机械保证是真实的来源坐标和派生表示，不是对生成文字的语义真伪检验。这里不写 L0 或正本。
+
+`finish` 写同一张 `chunk_manifests` 表和语义重放键（租户、来源、compile 执行器规格、内容摘要）。
+v3 信封明确记录 `producer: agent`、`coverage: partial`、smart 重叠、执行器和 `Executor-Skill`
+哈希，以及本次观察使用的细分设置。哈希来自已安装的 shim 或技能包；缺少此身份的 finish 被拒，
+不编造归因。agent 区间始终使用这套 smart 重叠契约；API 的 `semantic_overlap` 旋钮不会重新解释它们。
+重建读取记录（包括空数组），绝不填补空隙、调用模型或改写记录。按章节细分和长片段再切分仍是
+机械操作，不能把覆盖范围伸入被省略的块。
+
+嵌入步骤生成普通 raw 与 episode 向量，仅替换此租户、此来源的 L2 点，避免旧向量在省略后残留。
+清单发布后若嵌入或向量存储失败，留存判断仍在；重试 finish（包括 abandon 或 TTL 恢复后）
+继续同一份记录，而不接受新提案。打开的一轮中途关闭语义检索时，finish 保留清单但不建向量；
+日后重建可以重放它。
+
+交互作业等待 `open`；无人值守作业复用 compile、evolve 的启动器和草稿生命周期，任务文本为
+`steward.unattended.episodes_task`。生成技能增加「编译前的片段划分」，`references/cli.md`
+从当前解析器自动获得全部动词。
 
 ## 6. 磁盘上的 draft
 
@@ -647,11 +784,34 @@ Postgres 里，每作业一行（`compile_drafts(user_id, job_id, state, round, 
 属的队列：管作业的每用户锁、TTL、自愈在同一处管它们的 draft，draft 永不触碰 `engine/` 或正本。
 core 定义状态形式；service 的 Postgres 适配器存它。
 
+**一份 draft，一个执行者。** `state` 中的 session 还记录不透明的 `executor`、`opened_at` 和
+打开时的 worker 姿态；这与作业用于用量记账的 `agent:<backend>` 标签不同。CLI 优先使用
+`PKC_DRAFT_EXECUTOR`，否则由已安装 skill 的哈希与 shim 导出的 Steward 会话令牌生成身份
+（`PKC_STEWARD_SESSION`，使用 harness 的线程 id，或父 shell 的 pid 与主机名）；没有会话信息的
+直接 CLI 调用退回 `pid@host`。无人值守 runner 生成 `worker:<harness>:<launch id>`，将同一令牌
+导出给所有子命令，包括修复轮。再次 `open` 只允许该执行者续接；其他执行者得到退出码 2，点名持有者、
+打开时间、空闲秒数、worker 姿态和恢复命令。status、读写、check、finish 与 abandon 都检查同一归属。
+没有 executor 的旧 draft 视为 `legacy:unknown` 持有，不能被静默接手。
+
+`pkc draft abandon --take-over`（evolve 与 episodes 门同样支持）显式丢弃另一执行者的草稿并释放
+作业。草稿空闲不足 `max(60, COMPILE_DRAFT_TTL / 12)` 秒时拒绝接管，除非持有它的 worker 启动实例
+已消失。作业的运行 payload 记录原持有者、接管者、时间和机械判定的原因；临时草稿删除后审计仍在。
+每租户的 PG advisory lock 将整条命令（包括 gate 和提交）与接管、恢复串行化，已经执行中的命令不会
+在写入中途失去归属。
+
 两条命令把握生命周期。`open` 以 worker 同样的方式领取作业（`FOR UPDATE SKIP LOCKED`，每用户一个
 在飞作业），所以不论 Steward 是哪具身体，每用户单写者都成立；被 draft 持有的作业对 worker 不可见。
 `finish` 重放今天 `run_compile` 结尾做的事：总览下限、gate、带 skill trailer 的 `commit_patch`、
 `derive_events`、简报；有违规时把修复预算写进 draft 并返回它们。被放弃或过期的 draft——队列自愈把
 超过 `COMPILE_DRAFT_TTL` 的 draft 视为孤儿——释放作业。
+worker 启动实例在整轮运行期间持有独立的 PG advisory lease，进程死亡就会释放该租约。启动恢复保留
+仍存活的实例，直到完整 TTL 过期；即使空闲超过接管宽限也不回收，已死亡的实例则立即重新入队。
+TTL 为零时关闭空闲草稿保护，但活着的启动实例仍受租约保护。领取查询拒绝任何已有草稿的租户，即使
+其队列行曾被错误地重新入队。已完成作业不能再次认领，也不能通过 `claim=False` 重开；迟到的完成
+调用保留既有结果，worker 的迟到失败只能结束它自己的 claim。runner 同时固定作业 id 与执行者，
+因此 finish 后返回也不能操作该租户的下一份草稿。
+worker 的失败收尾在同一把锁下只删除它自己的终态草稿；启动恢复也会清理此前崩溃留下的终态草稿，
+不会重新打开对应作业。
 
 **字节相等是验收测试。** 同一个工具调用序列，一次经 scripted 模型走 langchain 循环，一次经
 `pkc draft` 命令，产出同样的提交文件、同样的事件、同样的违规。这条测试在 CLI 有用户之前就存在。
@@ -673,7 +833,8 @@ core 定义状态形式；service 的 Postgres 适配器存它。
 
 ```
 .agents/skills/pkc-steward/            Codex           .claude/skills/pkc-steward/   Claude Code
-  SKILL.md                             路线：你是谁、一轮怎么走、门、两种姿态、owner 说话、归档
+  SKILL.md                             路线：你是谁、阅读、一轮怎么走、门、两种姿态、owner 说话、归档
+  references/consume.md                知识库设计、阅读原语、已解析的领域族和咨询流程
   references/contract.md               组合后的契约，逐字
   references/compile-instructions.md   渲染后的编译 system 消息，逐字
   references/cli.md                    每条命令、描述、拒绝什么、退出码
@@ -682,6 +843,18 @@ core 定义状态形式；service 的 Postgres 适配器存它。
   workflows/compile.js                 仅 Claude Code：读 → 计划 → 写 → finish 作为工作顺序
 AGENTS.md / CLAUDE.md                  一个 `pkc:start … pkc:end` 块：这是一座库、你是它的 Steward、skill 在 <path>
 ```
+
+`references/consume.md` 从 prompt catalog 的 `steward.consume.*` 渲染，族和 `owner_voice`
+标记从已解析契约的路径模板枚举。它明确教三个时刻：会话开始用完整的 `pkc outline`；回答时
+用 outline 找页面、`canonical read` 读页面、`recall --evidence` 取 fast 通道证据、`search`
+查名字和原句、`source fetch` 核对原文事实。仅当 outline 太长、难以扫读时，才使用有预算的
+`glance`。`draft finish` 后，对每个写入过的族运行 `outline --family <template>`，查看新页面
+的落点。这三个时刻也出现在 SKILL.md 路线中，包括编译轮次的前后步骤。两条命令的描述来自
+双语 catalog，同时出现在 CLI 帮助和 `references/cli.md`，完整与有预算的差别在命令处可见。
+它计入包哈希，不向 system 消息加入内容（I5）。阅读通过
+`pkc` 原语沿引用和链接进行；`recall --evidence` 汇集上下文而不构建 chat model，
+`consult answer` 将交接关闭为咨询。关闭语义检索时也不构建 embedding。Outline、glance 和证据读取
+组合后的契约，不推导 pack，也不写 manifest。
 
 SKILL.md 能写什么不能写什么，遵循一条检验，与 compile-contract 指南给契约作者的那条相同：*违反
 它会让写入被拒的，是机制，作为关于门的事实来描述；只有读者能分辨对错的，是判断，属于契约。*
@@ -790,7 +963,8 @@ gate 的写入在下一轮建立在它上面之前就被拦住，而不是被叠
 
 - **`agent:<backend>` 作为 model spec。** `resolve_model_name` 原样返回；`build_chat_model_for`
   拒绝据此构造 chat model（执行器不是模型），compile worker 改问 `executor_for(settings,
-  "compile")`。v1 里其他角色写 `agent:` 在启动时大声失败。
+  role)`，支持 compile 和 evolve。其他角色显式写 `agent:` 会在启动时失败。
+  episodes 共享 compile 的执行器并有自己的草稿门；该执行器下跳过 challenge，agent 自己提供简报。
 - **core 里的 `RoundRunner`。** `run_compile` 保留循环周围的一切——别名、`prepare`、draft、gate、
   提交——把循环委托给一个只有一个方法的协议：在预算下对一份 draft 的工具面跑一轮，返回花掉的调用、
   是否被截断、用量。`LangchainRoundRunner` 就是今天的 `tool_loop`，挪了个位置。CLI 执行器不在进程
@@ -802,10 +976,12 @@ gate 的写入在下一轮建立在它上面之前就被拦住，而不是被叠
   意味着造一份没人读的消息列表和一个没人调的工具面，好让它的 `finalize_compile` 在 harness 已经
   收过尾的 draft 上再收一次尾。那是一轮假的轮次，也是第二条终结 draft 的代码路径。所以无人值守
   的 worker 绕过 `run_compile`：它用 CLI 自己的 `open_round` 打开 draft、拉起进程，然后读存储
-  ——draft 没了，说明 harness 跑了 `pkc draft finish`，作业已完成；draft 还开着，说明它停下了，
+  ——draft 没了，且作业行确认完成，才说明 harness 已经 finish；草稿被释放或被另一执行者接管时，
+  本次启动的权限已经结束。仍属于自己的 draft 还开着，说明它停下了，
   由 worker 跑同一个 `cmd_finish`，于是 gate 照样判；draft 开在 `repair`（或被 overview 下限
   拒掉），就再拉起一次、带上 gate 说过的话，然后再 `cmd_finish`，第二次失败与今天一样中止。
-  `cmd_finish` 是唯一终结 draft 的函数，不论谁来调，所以根本不存在「收两次尾」需要提防。
+  `cmd_finish` 是唯一终结 draft 的函数，不论谁来调。归属与终态检查阻止迟到的 runner 重开已完成
+  作业，或结束接替执行者的草稿。
 - **`open` 在领取之前先审计库的 HEAD。** 本框架的每一条正本写入通道都会盖上 `Skill-Version`
   trailer，所以没有 trailer 的 HEAD 就是一次不是这里做出的提交：`pkc draft open` 以退出码 2 拒
   绝，并点名那次提交和它的标题，而不是在一次无从归因的改动上继续堆断言。没有任何提交的仓库正常
@@ -813,12 +989,14 @@ gate 的写入在下一轮建立在它上面之前就被拦住，而不是被叠
 - **API。** 增加 Steward WebSocket 与桥（§5.6）。API 对库仍是无状态的；它持有的是每个所有者会话
   一个 harness 进程句柄，如同 live-context socket 已经持有一次运行——对话住在 harness 的会话里，
   不住在 API 里。
-- **worker。** agent 执行器下，编译作业被领取后交给启动器（无人值守），或留在队列里等
-  `pkc draft open`（交互）——流程视图说清期待哪一种。索引、投影、重建作业不变。
+- **worker。** agent 执行器下，compile、evolve、episodes 作业交给同一个启动器（无人值守），
+  或留在队列里等各自的 open（交互）。每次启动重新读取并记录 `PNEUMA_KNOWLEDGE_AGENT_UNATTENDED`。
+  认领之前会跳过 Steward 持有的草稿，对每个持有者只记录一次日志；SQL 领取查询执行同样的排除。
+  重复 `open` 只允许同一执行者续接，其他执行者会被拒绝并看到持有它的 worker 已记录的姿态。
+  index 写 L1 并入队片段判断（§5.12）；投影和重建仍是机械工作。
 - **`engine.yaml` 与控制台。** `models.compile: agent:codex` 是和其他一样的策略值；引擎 schema 增加
   `agent:` 形式，控制台在旁边显示探针结果，流程视图增加"等待 Steward"状态。
-- **单次角色（v2）。** 同一启动器之上的 `LeafChatModel` 让 `agent:` 可用于分块、fast、live 和
-  evolve：system 文本走 harness 的 system 通道，消息走 stdin，结构化输出以 prompt 里的 schema 加
+- **单次角色（v2）。** 同一启动器之上的 `LeafChatModel` 让 `agent:` 可用于 fast、live：system 文本走 harness 的 system 通道，消息走 stdin，结构化输出以 prompt 里的 schema 加
   pydantic 模型校验、一次重问。不在 v1；形状写明，是为了清单和启动器只造一次。
 
 ## 10. 不变量与纪律
@@ -886,7 +1064,7 @@ gate 的写入在下一轮建立在它上面之前就被拦住，而不是被叠
 |---|---|
 | 2.1–2.3 | `pkc owner say` → owner-dialogue 来源 → gate 下的 `pkc draft`（§5.3、§5.2） |
 | 2.4 | 没有删除命令；skill 的"你做不到什么"里的拒绝文本（§5.2、§7） |
-| 2.5、2.6 | evolve 门（§5.7），v2 |
+| 2.5、2.6 | evolve 门（§5.7），v1 |
 | 2.5b、2.5b′ | 上游的归档（一次搬移 + 一页记录，`include_archived` 贯穿每条 lane），经 `pkc archive propose / confirm / ls / show / drop / inventory` 抵达，外加读命令上的 `--include-archived`；两条门上的规则：要所有者的原话、默认只确认种子（§5.5） |
 | 2.5c–2.5e | `pkc ingest`、`steward/` 领地、内容身份幂等、凭据不进任务文件（§5.4） |
 | 2.5f–2.5h | Steward 视图：harness 会话之上的桥、步骤即 agent 自己的命令、`owner say` 逐字校验、重连续接（§5.6） |
@@ -909,7 +1087,7 @@ gate 的写入在下一轮建立在它上面之前就被拦住，而不是被叠
 
 ## 13. 边界，以及之后
 
-- **Steward 做结构编辑**（§5.7）与**单次角色跑在 agent 上**（§9）已定形，推到 v2。
+- **单次角色跑在 agent 上**（§9）仍推到 v2。结构演进已通过 evolve 草稿门运行（§5.7）。
 - **常设任务是 Steward 的，不是框架的。** 框架提供 `pkc ingest` 和五个契约；它不排期、不抓取、
   不整形、不知道任务存在。所有者想跨部署共享的任务是一个待分发的 skill，不是一个待加的框架功能。
 - **家持有状态，从不持有知识。** `~/.pkc` 记住项目、选择和凭据；它没有来源、claim 或记录。第二台

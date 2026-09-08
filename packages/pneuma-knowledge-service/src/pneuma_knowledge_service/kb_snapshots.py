@@ -268,7 +268,7 @@ async def run_copy(ctx: AppContext, owner: UserId, snapshot: KbSnapshot) -> KbSn
     tenant = snapshot.tenant_id
     try:
         # 1. L2 + L3 semantic, with the original vectors — never re-embedded.
-        points = await ctx.vectors.copy_tenant(owner, tenant)
+        points = await ctx.vectors.copy_tenant(owner, tenant) if ctx.vectors is not None else 0
 
         # 2. L0 + the claim projection, one transaction.
         counts = await ctx.store.copy_tenant_rows(owner, tenant)
@@ -317,9 +317,9 @@ async def run_copy(ctx: AppContext, owner: UserId, snapshot: KbSnapshot) -> KbSn
         # cheap, total, and computed from counts the pipeline already has. A tenant that
         # fails it is a snapshot that would answer with a different claim set depending on
         # which face a query happens to hit — the one outcome `ready` must never cover.
-        chunks = await ctx.vectors.count_chunks(tenant)
+        chunks = await ctx.vectors.count_chunks(tenant) if ctx.vectors is not None else 0
         counts["chunks"] = chunks
-        if points - chunks != int(counts.get("claims", 0)):
+        if ctx.vectors is not None and points - chunks != int(counts.get("claims", 0)):
             raise SnapshotIncomplete(points, chunks, int(counts.get("claims", 0)))
 
         await ctx.store.finish_kb_snapshot(
@@ -355,7 +355,8 @@ async def delete(ctx: AppContext, owner: UserId, snapshot_id: str) -> bool:
         return False
     snapshot = _from_row(row)
     tenant = snapshot.tenant_id
-    await ctx.vectors.delete_user(tenant)
+    if ctx.vectors is not None:
+        await ctx.vectors.delete_user(tenant)
     await ctx.lexical.delete_user(tenant)
     if ctx.media is not None:
         await ctx.media.delete_user(tenant)

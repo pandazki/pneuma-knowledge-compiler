@@ -14,23 +14,79 @@ self-heal that govern jobs govern their drafts in the same place.
 
 from __future__ import annotations
 
-from datetime import datetime
+from contextlib import AbstractAsyncContextManager
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Protocol
 
 from ..domain.ids import UserId
 
 
+@dataclass(frozen=True)
+class DraftOwner:
+    executor: str
+    since: datetime
+    updated_at: datetime
+    worker_posture: str = ""
+
+    @property
+    def idle_seconds(self) -> int:
+        return max(0, int((datetime.now(timezone.utc) - self.updated_at).total_seconds()))
+
+    def refusal(self, door: str = "pkc draft") -> str:
+        posture = f"; worker posture: {self.worker_posture}" if self.worker_posture else ""
+        return (
+            f"draft held by {self.executor or 'legacy:unknown'} since {self.since.isoformat()}, "
+            f"idle {self.idle_seconds}s — wait for it to finish, or "
+            f"`{door} abandon --take-over` when it is dead{posture}"
+        )
+
+
+class DraftOwnershipError(ValueError):
+    """A command attempted to act on another executor's draft or a closed job."""
+
+
 class DraftStore(Protocol):
+    def lock(self, user_id: UserId) -> AbstractAsyncContextManager[None]:
+        """Serialize a whole command, including its gate/commit, against takeover and expiry."""
+        ...
+
+    def launch(self, user_id: UserId, executor: str) -> AbstractAsyncContextManager[None]:
+        """Hold a worker launch's liveness lease until its runner returns or dies."""
+        ...
+
+    async def worker_alive(self, user_id: UserId, executor: str) -> bool:
+        """Whether this tenant's worker launch still holds its lease, across processes."""
+        ...
+
+    async def owner(self, user_id: UserId, job_id: str) -> DraftOwner | None:
+        """The executor and store timestamps; legacy ownerless rows are never silently joined."""
+        ...
+
     async def get(self, user_id: UserId, job_id: str) -> dict[str, Any] | None:
         """This job's open draft state, or None when no round is open on it."""
         ...
 
     async def put(self, user_id: UserId, job_id: str, state: dict[str, Any]) -> None:
-        """Write (or replace) this job's draft state. One row per job."""
+        """Write this job's state, refusing replacement by a different session.executor.
+
+        Owned drafts require a claimed job. A completed job can never acquire a new draft.
+        """
         ...
 
-    async def delete(self, user_id: UserId, job_id: str) -> None:
+    async def delete(self, user_id: UserId, job_id: str, *, executor: str = "") -> None:
         """Drop this job's draft. Idempotent: a draft that is already gone is not an error."""
+        ...
+
+    async def abandon(
+        self, user_id: UserId, job_id: str, *, executor: str,
+        take_over: bool = False, grace_seconds: int = 60,
+    ) -> dict[str, Any] | None:
+        """Atomically drop the draft and release its job, recording any takeover on the job.
+
+        Another owner requires explicit takeover and either an expired grace or a dead
+        worker lease. Returns the takeover audit, or None for ordinary abandonment.
+        """
         ...
 
     async def list_open(self, user_id: UserId) -> list[str]:

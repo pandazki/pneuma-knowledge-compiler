@@ -504,3 +504,41 @@ def _recording_search(lexical):
         return await original(user_id, query, limit=limit, include_archived=include_archived)
 
     return search
+
+
+async def test_source_fetch_multiple_spans_preserve_shell_argument_boundaries():
+    lib = _lib()
+    await lib.store.add(USER, source("spans", blocks=[f"Block {i}" for i in range(7)]))
+    for tokens, expected in (
+        (("¶1", "¶5"), [[1, 1], [5, 5]]),
+        (("¶2-3",), [[2, 3]]),
+        (("4", "6"), [[4, 6]]),
+        (("¶1", "¶2-3", "4-6"), [[1, 1], [2, 3], [4, 6]]),
+        (("1", "3", "5"), [[1, 1], [3, 3], [5, 5]]),
+    ):
+        code, out, err = await run(lib, "source", "fetch", "spans", *tokens, "--json")
+        assert code == 0, err
+        payload = json.loads(out)
+        items = payload if isinstance(payload, list) else [payload]
+        assert [item["blocks"] for item in items] == expected
+        texts = ["\n\n".join(f"Block {i}" for i in range(a, b + 1)) for a, b in expected]
+        assert [item["text"] for item in items] == texts
+        code, out, err = await run(lib, "source", "fetch", "spans", *tokens)
+        assert code == 0 and out == "\n".join(texts) + "\n", err
+    code, out, err = await run(lib, "source", "fetch", "spans", "¶1", "not-a-span")
+    assert code == 2 and not out and "'not-a-span'" in err
+
+
+async def test_only_two_bare_integer_arguments_form_one_span():
+    lib = await _seeded()
+    for token in ("¶1 2", "1 2"):
+        code, out, err = await run(lib, "source", "fetch", "s-01", token)
+        assert code == 2 and not out and "not a block span" in err
+    parser = build_parser()
+    import argparse
+
+    def children(p):
+        return next(a.choices for a in p._actions if isinstance(a, argparse._SubParsersAction))
+
+    help_text = children(children(parser)["source"])["fetch"].format_help()
+    assert "exactly two bare integers" in " ".join(help_text.split())

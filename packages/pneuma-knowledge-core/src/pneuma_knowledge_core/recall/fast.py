@@ -92,6 +92,7 @@ from .stage_timing import (
     StageEventSink,
     StageRecorder,
     StageTiming,
+    semantic_skipped_stages,
     call_line,
     child_name,
     claim_entries,
@@ -866,7 +867,7 @@ async def retrieve_claims(
     query: str,
     *,
     claim_lexical: ClaimLexicalIndex,
-    claim_vectors: ClaimVectorIndex,
+    claim_vectors: ClaimVectorIndex | None,
     embeddings,  # langchain_core.embeddings.Embeddings
     limit: int = DEFAULT_CLAIM_CAP,
     query_embedding: list[float] | None = None,
@@ -893,11 +894,13 @@ async def retrieve_claims(
     lexical_hits = await claim_lexical.search_claims(
         user_id, query, limit=limit, **scope
     )
-    if query_embedding is None:
-        query_embedding = await embeddings.aembed_query(query)
-    vector_hits = await claim_vectors.search_claims(
-        user_id, query_embedding, limit=limit, **scope
-    )
+    vector_hits = []
+    if embeddings is not None and claim_vectors is not None:
+        if query_embedding is None:
+            query_embedding = await embeddings.aembed_query(query)
+        vector_hits = await claim_vectors.search_claims(
+            user_id, query_embedding, limit=limit, **scope
+        )
     return _fuse_claim_hits(
         [("lexical", lexical_hits), ("vector", vector_hits)], limit
     )
@@ -908,7 +911,7 @@ async def retrieve_claims_multi(
     queries: Sequence[str],
     *,
     claim_lexical: ClaimLexicalIndex,
-    claim_vectors: ClaimVectorIndex,
+    claim_vectors: ClaimVectorIndex | None,
     embeddings,  # langchain_core.embeddings.Embeddings
     limit: int = DEFAULT_CLAIM_CAP,
     pool_cap: int | None = None,
@@ -938,10 +941,12 @@ async def retrieve_claims_multi(
         lexical_hits = await claim_lexical.search_claims(
             user_id, query, limit=limit, **scope
         )
-        vector = await embeddings.aembed_query(query)
-        vector_hits = await claim_vectors.search_claims(
-            user_id, vector, limit=limit, **scope
-        )
+        vector_hits = []
+        if embeddings is not None and claim_vectors is not None:
+            vector = await embeddings.aembed_query(query)
+            vector_hits = await claim_vectors.search_claims(
+                user_id, vector, limit=limit, **scope
+            )
         return lexical_hits, vector_hits
 
     per_query = await asyncio.gather(*(one(q) for q in queries))
@@ -2850,7 +2855,7 @@ async def retrieve_windows(
     then ordinary RRF and source-span overlap suppression produce one bounded evidence list. No path
     receives a quota: exact identifiers and dates remain able to outrank broad semantics.
     """
-    if lexical is None or vectors is None or limit <= 0:
+    if lexical is None or limit <= 0:
         return []
     return await rag_recall(
         user_id,
@@ -3062,7 +3067,7 @@ async def fast_recall(
     *,
     as_of: datetime,
     claim_lexical: ClaimLexicalIndex,
-    claim_vectors: ClaimVectorIndex,
+    claim_vectors: ClaimVectorIndex | None,
     embeddings,  # langchain_core.embeddings.Embeddings
     model: BaseChatModel,
     answer_model: BaseChatModel | None = None,
@@ -3253,7 +3258,7 @@ async def fast_recall(
     planned: tuple[str, ...] = ()
     plan_usage = zero_usage()
     plan_degraded: str | None = None
-    if plan_queries_cap > 0:
+    if plan_queries_cap > 0 and (plan_model or model) is not None:
         with timer.measure("plan"):
             planned, plan_usage, plan_degraded = await plan_retrieval_queries(
                 plan_model or model,
@@ -3265,6 +3270,8 @@ async def fast_recall(
             )
             timer.preview("plan", {"cap": plan_queries_cap, "queries": list(planned)})
         timer.degrade("plan", plan_degraded)
+    elif plan_queries_cap > 0:
+        timer.degrade("plan", "no model; using the original question")
 
     # The claim face always retrieves beyond the final evidence wall. This is cheap index
     # work and leaves enough tail for containment dedup and multi-path disagreement. With a
@@ -3355,7 +3362,7 @@ async def fast_recall(
     async def retrieve_window_face() -> list[RecallHit]:
         # Not merely "0 ms": with no raw index wired this lane does not exist, and the strip
         # must be able to say so. `retrieve_windows` would return [] either way.
-        if lexical is None or vectors is None:
+        if lexical is None:
             return []
         with timer.measure(child_name("windows")):
             hits = await retrieve_windows(
@@ -3378,6 +3385,9 @@ async def fast_recall(
         # One routing turn chooses paths and arguments; the chosen paths run concurrently.
         # The built-in faces never wait for this arm — they are gathered beside it.
         if not offered_paths:
+            return [], zero_usage(), None
+        if (route_model or model) is None:
+            timer.degrade("route", "no model; component routing skipped")
             return [], zero_usage(), None
         with timer.measure("route"):
             chosen, usage, degraded, rejected = await route_paths(
@@ -3448,6 +3458,9 @@ async def fast_recall(
     # sees the same glance in its one cross-face selection call below, so enabling it does
     # not accidentally add two sequential model judgements before the answer.
     async def glance_branch():
+        if (glance_model or model) is None:
+            timer.degrade(child_name("glance"), "no model; glance pick skipped, no pages selected")
+            return (), zero_usage(), None
         with timer.measure(child_name("glance")):
             picked = await select_glance_documents(
                 glance_model or model,
@@ -3568,7 +3581,7 @@ async def fast_recall(
                 content=content,
                 user_id=user_id,
                 cap=max(episode_summary_cap, window_candidate_cap),
-            )
+            ) if embeddings is not None else []
             timer.preview(
                 "assemble",
                 {
@@ -3590,39 +3603,44 @@ async def fast_recall(
             )
             component_merged = True
             component_pool = component_candidate_pool(component_evidence)
-        with timer.measure("select"):
-            evidence_choice, evidence_selection_usage, evidence_selection_degraded = (
-                await select_evidence(
-                    glance_model or model,
-                    question,
-                    claims=claims_raw,
-                    episode_summaries=episode_candidates,
-                    windows=raw_windows,
-                    components=component_pool,
-                    glance=glance,
-                    known_paths=tuple(by_path),
-                    claim_cap=cap,
-                    episode_summary_cap=episode_summary_cap,
-                    window_cap=window_cap,
-                    document_cap=glance_pick_cap,
-                    reasoning_effort=selection_reasoning_effort,
-                    timeout=evidence_selection_timeout,
-                    callbacks=callbacks,
-                    trace_metadata=trace_metadata,
+        if (glance_model or model) is None:
+            evidence_choice = None
+            timer.degrade("select", "no model; using ranked evidence")
+            timer.degrade(child_name("glance"), "no model; glance pick skipped, no pages selected")
+        else:
+            with timer.measure("select"):
+                evidence_choice, evidence_selection_usage, evidence_selection_degraded = (
+                    await select_evidence(
+                        glance_model or model,
+                        question,
+                        claims=claims_raw,
+                        episode_summaries=episode_candidates,
+                        windows=raw_windows,
+                        components=component_pool,
+                        glance=glance,
+                        known_paths=tuple(by_path),
+                        claim_cap=cap,
+                        episode_summary_cap=episode_summary_cap,
+                        window_cap=window_cap,
+                        document_cap=glance_pick_cap,
+                        reasoning_effort=selection_reasoning_effort,
+                        timeout=evidence_selection_timeout,
+                        callbacks=callbacks,
+                        trace_metadata=trace_metadata,
+                    )
                 )
-            )
-            timer.preview(
-                "select",
-                _selection_preview(
-                    evidence_choice,
-                    claims=claims_raw,
-                    episodes=episode_candidates,
-                    windows=raw_windows,
-                    components=component_pool,
-                    titles=titles,
-                ),
-            )
-        timer.degrade("select", evidence_selection_degraded)
+                timer.preview(
+                    "select",
+                    _selection_preview(
+                        evidence_choice,
+                        claims=claims_raw,
+                        episodes=episode_candidates,
+                        windows=raw_windows,
+                        components=component_pool,
+                        titles=titles,
+                    ),
+                )
+            timer.degrade("select", evidence_selection_degraded)
         if evidence_choice is None:
             # Fail-soft means the exact ranked heads remain usable; no partial/unvalidated
             # model output is allowed to influence context.
@@ -3674,7 +3692,7 @@ async def fast_recall(
                 content=content,
                 user_id=user_id,
                 cap=max(episode_summary_cap, window_candidate_cap),
-            )
+            ) if embeddings is not None else []
             timer.preview(
                 "assemble",
                 {
@@ -3735,7 +3753,7 @@ async def fast_recall(
                 content=content,
                 user_id=user_id,
                 cap=episode_summary_cap,
-            )
+            ) if embeddings is not None else []
             timer.preview(
                 "assemble",
                 {
@@ -3753,7 +3771,7 @@ async def fast_recall(
                 content=content,
                 user_id=user_id,
                 cap=episode_summary_cap,
-            )
+            ) if embeddings is not None else []
             timer.preview(
                 "assemble",
                 {
@@ -4030,7 +4048,7 @@ async def fast_recall(
             used_component_evidence=tuple(component_evidence),
             expanded_documents=tuple(selected),
             glance_chars=len(glance or ""),
-            stages=timer.emit(),
+            stages=(*semantic_skipped_stages(embeddings), *timer.emit()),
         )
     if answer_format == "structured":
         with timer.measure("answer"):
@@ -4163,6 +4181,6 @@ async def fast_recall(
         component_candidates=evidence_counts(component_evidence),
         used_component_evidence=tuple(component_evidence),
         component_rerank_degraded=component_rerank_degraded,
-        stages=timer.emit(),
+        stages=(*semantic_skipped_stages(embeddings), *timer.emit()),
         evidence_manifest=manifest,
     )

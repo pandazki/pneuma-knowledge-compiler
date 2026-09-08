@@ -96,7 +96,7 @@ from .fast import (
     retrieve_windows,
 )
 from .rag import RecallHit
-from .stage_timing import StageEventSink, StageTiming
+from .stage_timing import StageEventSink, StageTiming, semantic_skipped_stages
 from .verbatim import fetched_span
 from .provenance import hydrate_claim_citations
 
@@ -219,7 +219,7 @@ def _search_claims_tool(
     user_id: UserId,
     *,
     claim_lexical: ClaimLexicalIndex,
-    claim_vectors: ClaimVectorIndex,
+    claim_vectors: ClaimVectorIndex | None,
     embeddings,  # langchain_core.embeddings.Embeddings
     found: list[RetrievedClaim],
     trail: list[dict],
@@ -517,7 +517,7 @@ async def deep_recall(
     *,
     as_of: datetime,
     claim_lexical: ClaimLexicalIndex,
-    claim_vectors: ClaimVectorIndex,
+    claim_vectors: ClaimVectorIndex | None,
     embeddings,  # langchain_core.embeddings.Embeddings
     model: BaseChatModel,
     content: ContentStore,
@@ -779,6 +779,6 @@ async def deep_recall(
         read_documents=tuple(read_paths),
         image_count=len(images),
         image_mode=image_mode,
-        stages=timings.stages(),
+        stages=(*semantic_skipped_stages(embeddings), *timings.stages()),
         evidence_manifest=manifest,
     )

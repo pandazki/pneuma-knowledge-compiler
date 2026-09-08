@@ -37,6 +37,7 @@ class HarnessReport:
     usage: dict[str, int] | None = None
     cost_usd: float | None = None
     session_id: str = ""
+    last_message: str = ""
 
 
 def _json_objects(text: str) -> Iterator[dict[str, Any]]:
@@ -147,7 +148,9 @@ def read_claude_output(stdout: str, last_message: str = "") -> HarnessReport:
             if isinstance(node.get("total_cost_usd"), (int, float)):
                 cost = float(node["total_cost_usd"])
             session = _session_id(node) or session
-    return HarnessReport(usage=usage, cost_usd=cost, session_id=session)
+            if node.get("type") == "result" and isinstance(node.get("result"), str):
+                last_message = node["result"]
+    return HarnessReport(usage=usage, cost_usd=cost, session_id=session, last_message=last_message)
 
 
 #: Where Codex states what a round spent. `turn.completed` carries THIS turn's counts;
@@ -172,6 +175,10 @@ def read_codex_output(stdout: str, last_message: str = "") -> HarnessReport:
     session = ""
     for event in _json_objects(stdout):
         kind = str(event.get("type") or "")
+        item = event.get("item") or {}
+        if (kind == "item.completed" and isinstance(item, dict)
+                and item.get("type") == "agent_message" and isinstance(item.get("text"), str)):
+            last_message = item["text"]
         for node in _walk(event):
             session = _session_id(node) or session
             total = node.get("total_token_usage")
@@ -188,10 +195,10 @@ def read_codex_output(stdout: str, last_message: str = "") -> HarnessReport:
                     for field in USAGE_FIELDS:
                         summed[field] += found[field]
     if cumulative is not None:
-        return HarnessReport(usage=cumulative, cost_usd=None, session_id=session)
+        return HarnessReport(usage=cumulative, cost_usd=None, session_id=session, last_message=last_message)
     if turns:
-        return HarnessReport(usage=summed, cost_usd=None, session_id=session)
-    return HarnessReport(usage=None, cost_usd=None, session_id=session)
+        return HarnessReport(usage=summed, cost_usd=None, session_id=session, last_message=last_message)
+    return HarnessReport(usage=None, cost_usd=None, session_id=session, last_message=last_message)
 
 
 def read_no_output(stdout: str, last_message: str = "") -> HarnessReport:

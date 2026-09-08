@@ -20,7 +20,7 @@ Owner lens's Steward view rendering it, the invalidation that moves the history 
 sources views while the Steward is still typing, and the verbatim check on `pkc owner say`.
 And now the archive at this door (step 5c): `pkc archive propose / confirm / ls / show /
 drop / inventory` over the upstream archive service, `--include-archived` on every read
-command that lists or searches, and the skill's own section for it. Read
+command that lists or searches, and the skill's own section for it. The evolve door (§5.7) now runs on the same agent, and compile briefs can be the Steward's own text. Read
 [steward-owner-visitor.md](steward-owner-visitor.md) first:
 this page fills the Steward role with a body, and everything here rests on that frame.
 
@@ -143,11 +143,11 @@ first version; **v2** are designed here with their shape stated and built next.
   cannot: the ledger has no delete, and the skill says so in one sentence, offering the two
   things it can do — supersede it with a statement, or edit it in place if it was wrong when
   written. The refusal is the door's, not the agent's politeness.
-- **2.5 Merge two pages (v2).** *"These two people are the same person."* Structure, not
+- **2.5 Merge two pages (v1).** *"These two people are the same person."* Structure, not
   content: the Steward opens an **evolve draft** on a branch, moves the claims, retires one
   page, and the evolve gate accounts for every anchor. The Owner reads the diff in the console
   and adopts; the three-way merge lands it. Same door, evolve mode.
-- **2.6 Change what is recorded (v2).** *"Start keeping a timeline for every project."* The
+- **2.6 Change what is recorded (v1).** *"Start keeping a timeline for every project."* The
   Steward drafts the contract change and the affected path templates as an evolve proposal;
   the Owner reviews the rationale and the diff, adopts, and future compiles follow it.
   Canonical is never rewritten by this.
@@ -367,10 +367,10 @@ to `.env`, and `pkc` reads that file as the API and the worker do — so when th
 that ingest indexes. The two questions compose freely: an OpenRouter key for embeddings and
 recall with Codex compiling is the expected shape.
 
-A coding agent replaces the compile model, and only that. An embedding key is still
-**required** for L2, and nothing about choosing an agent switches L2 off: there is no
-supported "no-L2" posture, because a library whose semantic layer is silently absent answers
-worse without ever saying why. What the system does instead is **remind**. Startup resolves
+A coding agent drives compile, episodes and, by default, evolve; briefs are the Steward's text.
+With semantic retrieval on, episode judgement runs through the index door (§5.12) and the
+configured embedding still builds L2. `semantic_retrieval: off` (§5.9) skips that work and
+needs no embedding key. For an enabled provider embedding that lacks a key, startup resolves
 the embedding spec (`wiring.warn_missing_embedding_key`, beside `check_executors`), and when
 that spec needs a key the deployment has not set, it logs one WARNING naming the setting
 (`PNEUMA_KNOWLEDGE_EMBEDDING_MODEL`), the variable (`OPENROUTER_API_KEY`) and what will fail —
@@ -387,9 +387,14 @@ follow-up (§13).
 
 1. **The executor is a Steward-internal choice, configured as a model spec.** A role's model
    may name `agent:codex` or `agent:claude-code` exactly where it names
-   `openrouter:…` or `scripted:…` today (`wiring.resolve_model_name`). The compile role is the
-   first to honour it. The library's attribution trailer does not change; the job record
+   `openrouter:…` or `scripted:…` today (`wiring.resolve_model_name`). The compile and evolve roles
+   honour it; an unset evolve role inherits compile's executor. Episodes use the compile
+   executor's harness through the index door (§5.12). Briefs are the Steward's text.
+   Challenge is skipped under an agent compile executor: no job, door or skill step,
+   even if an API challenge model is configured. The library's attribution trailer does not change; the job record
    gains `executor`.
+   **Under an agent executor, consumption is the agent's reading, guided by
+   `references/consume.md`; the API lanes are quality-testing tools for a keyed console.**
 2. **One door, two postures.** The claim-level draft with its write tools and the gate is the
    only path into canonical for either executor. The langchain loop and the CLI are two
    clients of it. Whatever the CLI can refuse, the langchain tool refuses with the same text,
@@ -397,7 +402,7 @@ follow-up (§13).
 3. **The draft lives on disk while an agent holds it.** A CLI has no memory between
    invocations, so `PatchDraft` gains a serialization and a home per job. It is neither
    canonical nor a kept record: ephemeral, deleted on finish or abort, and a second `open` on
-   a job whose draft exists resumes it.
+   a job whose draft exists resumes it only for the same executor; another executor is refused.
 4. **The skill is a rendering, not a second text.** Everything the agent reads that shapes
    its judgement — the contract, the compile instructions, the tool descriptions, the
    component preambles — already lives in the prompt catalog, byte-pinned per (contract ×
@@ -418,7 +423,7 @@ follow-up (§13).
    changes a claim without a job.
 8. **Structural change is the evolve door.** Merging, splitting, renaming pages, changing
    families or the contract: the Steward authors an evolve draft on a branch, the evolve gate
-   accounts for anchors, the Owner adopts. Designed here (§5.7), built in v2.
+   accounts for anchors, the Owner adopts. Built in v1 (§5.7).
 9. **Backends are data.** Each harness is described by one manifest — binary, install layout,
    headless launch shape, capabilities — and nothing outside the manifest branches on its
    name. Probes test liveness, never version numbers.
@@ -491,7 +496,8 @@ The read half of the HTTP API, as commands. Same handlers, same shapes, JSON on 
 
 | Command | Reads |
 |---|---|
-| `pkc glance` (`--include-archived`) | the library overview (`canonical_glance`), archived pages omitted unless asked |
+| `pkc outline` (`--json`, `--family <template>`, `--definitions`, `--include-archived`) | the complete map: every page under its family, one line each, no top-K or character budget; session start and the check after a compile |
+| `pkc glance` (`--include-archived`) | the answering lanes' budgeted map (`canonical_glance`): top pages per family, with omission counts; choose subjects when outline is too long to scan |
 | `pkc canonical ls` (`--include-archived`) / `read <path>` / `history <path>` | pages, a page, a claim chain — `read` and `history` are unconditional: an address resolves whether or not it is archived |
 | `pkc source ls` (`--include-archived`) / `show <id>` / `fetch <id> ¶a-b` | L0: sources, structure, verbatim spans — `show` and `fetch` are unconditional |
 | `pkc archive propose` / `confirm` / `ls` / `show` / `drop` / `inventory` | retiring a subject and bringing it back (§5.5) — a proposal, a confirmation, and one job on the ordinary queue |
@@ -499,11 +505,20 @@ The read half of the HTTP API, as commands. Same handlers, same shapes, JSON on 
 | `pkc recall <q> --evidence` (`--include-archived`) | the fast lane's assembled context without the answer call: claims, windows, episode summaries, glance, with query-local handles |
 | `pkc recall <q>` (`--include-archived`) | the fast lane with the configured answer model, when one is configured |
 | `pkc jobs` / `pkc history` / `pkc brief <version>` | the queue, compile versions, the post-compile brief |
-| `pkc consultations` / `pkc spend` | kept records of use, and what they cost |
+| `pkc consult answer <handoff_id> --text-file <f>` / `pkc consult record --question <q> --text-file <f>` (or `-`; `--kind no_record`) | close a handed answer or record direct reading without a hand-over; every citation must resolve |
+| `pkc consultations` / `pkc spend` | kept records of use, handed evidence and direct citation counts, and what they cost |
 | `pkc evolve ls` / `show` | proposals and their diffs |
 | `pkc library check` | the repository-wide predicates over the committed library: anchor uniqueness and continuity, citation shape and resolvability, path ownership, overview rules, component checks, trailer presence on every commit — reported, never repaired |
 
-`pkc recall --evidence` is the one new read face. It returns what the fast lane would have
+Both maps omit archived pages unless asked, retain live archive records, and label admitted
+archived pages under the family of their live path, after live pages. Outline names empty
+families in contract declaration order, counts closed volumes beside their page, and marks
+records `[record]` and admitted archived pages `[archived]`. Its JSON is a family tree with
+a total page count; pages outside declared families remain visible under a null template.
+It derives metadata from one canonical listing, with no per-document reads or model calls.
+The current listing loads document bodies; a persisted header index is a later optimization.
+
+`pkc recall --evidence` returns what the fast lane would have
 handed its answer model, and nothing the lane would not have: the model-free half of the
 lane, exposed.
 
@@ -514,9 +529,14 @@ miss the lane never observed. So `--evidence` persists the material a record wou
 from (the question, `as_of`, the library ref sampled the way the lane samples it, the evidence
 manifest, the query-local handle map, the visitor class) and hands back a `handoff_id`. `pkc
 consult answer <handoff_id>` supplies the answer, builds the record through the fast lane's
-own builder — the lane's citation rule, unchanged: a marker is resolved through that handle
-map and admitted only if the resolved address is inside the manifest — and emits it down the
-same path `/recall` uses. The handoff row is deleted then; one nobody came back to expires
+own builder. A handle resolves through that map; a real source span or canonical anchor
+resolves against this tenant's L0 block bounds or canonical anchors. Handed citations retain
+`origin: "handed"`; resolving direct reads outside the manifest carry `origin: "direct"`,
+without expanding `evidence_handed`. Under an agent executor the agent's reading IS retrieval,
+so manifest membership cannot stand in for resolution. Invalid citations refuse the answer
+with exit 4 and leave the hand-over open for correction. A valid answer is emitted through
+`_spawn_recording`, the same path `/recall` uses. The handoff row is deleted then; one nobody
+came back to expires
 under `PNEUMA_KNOWLEDGE_RECALL_HANDOFF_TTL`, swept by the same self-heal that sweeps drafts.
 **A question the Steward never answered therefore leaves no consultation at all**, and that is
 stated rather than hidden: the alternative was a half-record, which would have had to lie in
@@ -527,6 +547,14 @@ being used, which is what the use-side ledger exists to hold — while `pkc reca
 defaults to `silent`, because a lane called for its own answer is being evaluated rather than
 consulted; both say so in `--help` and on the handoff line, since a default that quietly
 records nothing is how the attention ledger stays empty without anyone noticing.
+
+When no `recall --evidence` ran, `pkc consult record --question <q> --text-file <f>` (or `-`)
+uses that same resolution, builder and emission with lane `direct` and no hand-over. It
+accepts `--visitor-class business|audit|silent`, defaults to `business`, and accepts
+`--kind no_record`. One question, one record: correct a refused answer instead of re-running
+recall to fix it. Keyless `recall --evidence` builds no model and reports which arms ran and
+which were skipped (`arms` in JSON), including the unavailable glance pick; an empty or thin
+manifest does not mean the agent cannot read the library directly.
 
 ### 5.2 Writing — the one door
 
@@ -544,8 +572,8 @@ pkc draft set-fields <path> --json <json>
 pkc draft search-knowledge <q> | search-source <q>
 pkc draft <component-tool> …                 whatever the enabled components contribute
 pkc draft check                              the whole gate over the open draft, without finishing
-pkc draft finish                             overview floor → gate → commit | violations
-pkc draft abandon                            release the job; delete the draft; canonical untouched
+pkc draft finish [--brief <f>|-]              overview floor → gate → commit | violations; Steward brief
+pkc draft abandon [--take-over]              release the job; delete the draft; explicit recovery of another owner
 ```
 
 Text arrives through files or stdin, never argv: a claim is a paragraph, and a shell quoting
@@ -564,6 +592,12 @@ the draft on disk is the one from before the command; budget exhausted is exit 3
 rendered violations. Exit codes are the mechanism that lets a workflow script branch without
 parsing prose, and the post-check is what makes "the library is still whole" a fact the
 Steward is told rather than a duty it is given.
+
+`finish --brief <f>` (or `--brief -`) accepts the Steward's own narration for the version:
+non-blank, at most 8,000 characters, stored as derived text on the successful compile job.
+It survives a repair round. Under an agent executor no brief model is called. Unattended,
+the launcher's last message fills a successful version's missing brief under the same
+bound; an explicit brief wins. Aborts, abandoned drafts and no-op rounds gain no brief.
 
 ### 5.3 Owner speech
 
@@ -759,20 +793,64 @@ storage of the conversation inside the library. The alternative of hosting the l
 as a mode inside a general agent shell was weighed; the console already owns the lens model
 and the views that must move while the Steward types, so the bridge comes to it.
 
-### 5.7 Structure — the evolve door (v2)
+### 5.7 Structure — the evolve door (v1)
 
 ```
-pkc evolve draft open [--from <proposal>]     a branch, the current path templates, the evolve gate
-pkc evolve draft move-claim <from> <anchor> <to>
-pkc evolve draft rename <path> <new-path> | retire <path>
-pkc evolve draft contract edit --file <f>     the revised contract text, to be registered as a new version on adopt
-pkc evolve draft finish                       evolve gate: anchor conservation, dropped anchors named; the proposal is written
+pkc evolve draft open (<job-id> | --new) [--from <proposal>]
+pkc evolve draft status
+pkc evolve draft propose (--file <f> | -)
+pkc evolve draft move-claim <from-path> <anchor> <to-path>
+pkc evolve draft rename <path> <new-path>
+pkc evolve draft retire <path>
+pkc evolve draft contract edit (--file <f> | -)
+pkc evolve draft check
+pkc evolve draft finish
+pkc evolve draft abandon
+pkc evolve adopt <id>
 ```
 
-The Owner adopts in the console or with `pkc evolve adopt <id>`, which is the existing
-three-way merge. This is the compile door's sibling with the verbs structure needs and the
-gate structure has; it is designed here so that the CLI's shape does not have to change when
-it arrives.
+`open` claims an evolve job with the queue's per-user lock, or creates an Owner-requested
+job with `--new`. It stores a `DraftSession` of kind `evolve` in the same DraftStore as
+compile, protected by `COMPILE_DRAFT_TTL`; abandonment and expiry release the job without
+writing canonical. Resuming reprints the pinned surfaces. `--from` copies a review
+proposal's working documents and judgement on its original base; it does not adopt it.
+
+The task contains the current contract, templates and packs, the mechanical summary of
+recent compile events, the document tree, and component `evolve_evidence` blocks. Those
+volatile inputs stay in the task; the two evolve contracts and the door's rules form a
+byte-stable system message (I5). The Steward reads the evidence, submits the phase-1
+judgement as `EvolveProposal` JSON, then restructures. Its required fields remain `packs`
+and `rationale`. The optional `retire_packs`, `rename_packs`, and complete `path_templates`
+list express changes to existing structure; `dropped_anchors` explicitly names losses.
+Malformed JSON, an invalid model, unknown pack names and malformed templates are refused.
+An empty pack list and a rationale, without structural changes, records a no-change round.
+
+Move carries a claim and its citations verbatim, creating an empty destination when needed;
+rename preserves document identity; retire removes a page only when its lost anchors were
+named. Archive records and closed volumes retain their existing protection: their exact
+base paths remain readable to the gate, and their content cannot change. Renaming or retiring
+a page with closed volumes is refused. Every write
+runs the evolve gate's predicates and rolls back the whole command on a new violation,
+charging the compile door's shared budget transaction even on refusal. A family being
+retired can remain temporarily while commands move its pages; `check` and `finish` require
+the final template set. The default evolve budget is 120 calls; an explicit
+`COMPILE_MAX_TOOL_CALLS` overrides it. One fresh repair budget follows a failed finish.
+
+`contract edit` accepts non-blank text up to 100,000 characters, optionally with contract
+frontmatter declaring `path_templates`. The framework assigns its version and retains it
+in this user's proposed manifest. On adopt, that version becomes the tenant's registered
+contract through the canonical manifest, including after a process restart; it never
+changes another tenant's registry or edits the deployment's engine file. Contract and
+schema changes apply to future compiles; the structural commands preserve existing claims.
+
+`finish` runs the same `run_evolve_gate`, accounts for every anchor and citation, then uses
+the same branch and review-record writer as the model path. Rename and retire explicitly
+remove their old paths in that branch; adoption carries those deletions in the same atomic
+commit as the merged files. `pkc evolve ls/show`, the console and the existing mechanical
+three-way reconciliation read the ordinary record. **Adopt remains the Owner's decision**:
+`pkc evolve adopt <id>` queues that reconciliation. No sibling of `workflows/compile.js`
+is needed: the bilingual skill journey and the argparse-generated CLI reference teach this
+door to both harnesses.
 
 ### 5.8 The profile — `pkc profile`
 
@@ -785,9 +863,22 @@ pkc profile confirm --field k…                   flip fields to owner; --all
 One write path (`persona_profile.save_owner_profile`): the engine's `persona/profile.yaml`
 and the persisted `UserProfile` move together, and `provenance` is a map over every field the
 Steward may set, not only the three locale keys. `render_system_contract` renders the
-provenance word beside each value (`display_name: 陈晚 (inferred)`), which is what lets a
-model treat an inferred owner as a hypothesis. `pkc draft open` prints one notice when the
+provenance word beside each inferred value (`display_name: 陈晚 (inferred)`), which is what
+lets a model treat an inferred owner as a hypothesis. Confirmed values retain their previous
+rendering, so an all-owner profile keeps the earlier system contract byte-for-byte.
+`pkc draft open` prints one notice when the
 profile is the placeholder or holds unconfirmed inferences; it refuses nothing.
+
+An unknown Owner is `UserProfile.unstated()`: a blank name, blank personal facts and dates,
+`source="unstated"`, and `placeholder` provenance for every settable field. Blank, `Someone`
+and `Owner` are placeholder names; a declared industry alone still makes a profile, even
+without a name. Engine declarations give each stated field `owner` provenance and each blank
+field `placeholder`; legacy locale `profile` markers map to `owner`, while detected or
+unstated locale values stay out of the personal profile. Steward writes carry `inferred`
+until confirmed, including when only one field is set. Owner API/CLI edits keep `source="user"`.
+No loader supplies a join date, active-since date or personal preference that nobody stated.
+The personal edition persists its untouched engine template as unstated and derives a
+settled profile from two facts: it is no longer a placeholder, and no field is `inferred`.
 
 The skill's first-round rule is mechanism-backed on both ends: the placeholder is
 detectable, and the provenance is rendered. What the Steward reads to infer is its own —
@@ -810,11 +901,91 @@ engine knob (blast radius `restart` + `derived_rebuild`). The startup reminder f
 
 ### 5.10 The home — `~/.pkc`
 
-The single-machine edition: one shared infrastructure per machine, libraries as tenants on
-it, the skill installed into the harness rather than into a project, every choice and every
-init step recorded once under `~/.pkc` so no later session asks again. It has its own page,
-[single-machine-edition.md](single-machine-edition.md); the profile flow (§5.8) and the
-retrieval choice (§5.9) are the two cold-start questions it asks.
+The personal edition: an application over the library, with one shared infrastructure per
+machine, libraries as tenants on it, the skill installed into the harness rather than into a
+project, and every choice and every init step recorded once under `~/.pkc` so no later
+session asks again. Its own command is `pkchome`; `pkc` stays the library's and gains
+nothing from it. It has its own page, [single-machine-edition.md](single-machine-edition.md);
+the profile flow (§5.8) and the retrieval choice (§5.9) are the two cold-start questions it
+asks.
+
+### 5.11 The skill package — `pkc skill`
+
+```
+pkc skill install [--backend codex|claude-code|all] [--project <dir>]     the files into a project, plus the router block
+pkc skill render --out <dir> [--backend …] [--language en|zh] [--force]   the same package into a directory; nothing installed, no instructions file
+pkc skill verify [--backend …] [--project <dir> | --dir <dir>]            re-render and compare bytes; exit 4 listing what drifted
+pkc skill show [--backend …] [--project <dir>]                            the hash, the contract and the file list
+pkc skill probe [--backend …] [--deadline <s>]                            is the harness live? exit 4 when it is not
+```
+
+`render` is the install without the install, for a package somebody reads rather than one a
+harness was opened onto: the personal edition renders each library's reference package under
+`~/.pkc/libraries/<name>/skill/` with it
+([single-machine-edition.md](single-machine-edition.md) §4.9). Same deployment resolution,
+same rendering call, same `skill-version.json`, so the hash it prints is the hash `install`
+would have stamped — which is why it is this command and not a second renderer. `verify
+--dir` asks that directory the same freshness question, minus the router block there is no
+instructions file to hold. What the package *contains* is §7.
+
+### 5.12 Episodes — the index door
+
+Episode judgement is the agent's step before compile. An index job still writes L1
+unconditionally. When semantic retrieval is on and the source's IntakePlan requests L2
+(`full` or `summary`), an agent compile executor enqueues one `episodes` job for that source;
+the current index job already holds exactly one source. It never substitutes a mechanical
+partition for the agent's judgement. A matching kept manifest is replayed, and an outstanding
+episodes job is not duplicated by an index retry. With retrieval off, or the source's plan
+set to `none`, there is no episodes job. The API executor's model and keyless fallback paths
+retain their existing behavior. Compile reads L0 and never waits on episodes; the skill's
+reading order does not add a queue dependency.
+
+```
+pkc index episodes open <job>
+pkc index episodes status
+pkc index episodes propose (--file <f> | -)
+pkc index episodes finish
+pkc index episodes abandon
+```
+
+`open` claims the source's job and persists a draft of kind `episodes` in the same
+Postgres DraftStore as compile and evolve. It prints the structure map, every numbered
+block with the contract's role/kind metadata when present, the episode rules, and the budget.
+The rule text is byte-stable; source content and budget travel in the task. The shared
+command transaction charges refusals, rolls back rejected proposals, and uses the compile
+budget, exit codes and TTL. `status` is free; `abandon` releases the claim. A missing proposal
+at finish receives one repair round, then aborts: silence never means an empty selection.
+
+`propose` replaces the whole selection with an array of
+`{"start": a, "end": b, "title": "…", "description": "…"}` objects. The chunker's gates
+check real ordered endpoints, strictly increasing starts, at most three shared blocks between
+neighbours, and no more episodes than blocks. **Gapless coverage is deliberately omitted.**
+Every violation is named at the write, titles and descriptions must be non-blank and bounded,
+and uncovered blocks are listed as `no episode`. `[]` is a valid, explicit judgement. The
+agent grounds its wording in the supplied blocks; the mechanical guarantee is real source
+coordinates and a derived representation, not a semantic truth test over generated prose.
+Nothing here writes L0 or canonical.
+
+`finish` writes the same `chunk_manifests` table and semantic replay key (tenant, source,
+compile executor spec and content digest). Its v3 envelope explicitly records `producer:
+agent`, `coverage: partial`, smart overlap, the executor and `Executor-Skill` hash, plus the
+splitter settings used for this observation. The hash comes from the installed shim or
+package; a finish without that identity is refused rather than inventing attribution.
+Agent intervals always use this smart-overlap contract; the API's `semantic_overlap` switch
+does not reinterpret them. Rebuild reads the record, including an empty array, and never
+fills gaps, calls a model, or rewrites the record. Section refinement and long-episode
+sub-splitting remain mechanical and cannot extend coverage into omitted blocks.
+
+The embedding step produces the ordinary raw and episode vectors, replacing only this
+tenant's L2 points for this source so old vectors cannot survive an omission. If embedding
+or vector storage fails after the manifest was published, the kept judgement remains;
+retrying finish (including after abandonment or TTL recovery) resumes that same record
+instead of accepting a new proposal. With retrieval switched off during an open round,
+finish retains its manifest without building vectors; a later rebuild can replay it.
+
+Attended jobs wait for `open`; unattended jobs use the same launcher and draft lifecycle as
+compile and evolve, with `steward.unattended.episodes_task`. The generated skill adds
+“Episodes before compile”, and `references/cli.md` learns the verbs from the live parser.
 
 ## 6. The draft on disk
 
@@ -829,6 +1000,26 @@ belongs to: the per-user lock, the TTL and the self-heal that govern jobs govern
 in the same place, and a draft never touches `engine/` or canonical. Core defines the state
 form; the service's Postgres adapter stores it.
 
+**One draft, one executor.** The session inside `state` also records an opaque `executor`,
+`opened_at`, and the worker posture at opening. This is distinct from the job's
+`agent:<backend>` accounting label. CLI identity comes from `PKC_DRAFT_EXECUTOR` when set,
+otherwise the installed skill hash plus the Steward session token the shim exports
+(`PKC_STEWARD_SESSION`, using a harness thread id or the parent shell's pid and host);
+a direct CLI invocation without a session falls back to `pid@host`. An unattended runner
+mints `worker:<harness>:<launch id>` and exports that exact token to every child command,
+including the repair round. Repeated `open` resumes only for that executor. Another executor
+gets exit 2 naming the holder, opening time, idle seconds, worker posture and the recovery
+command. Status, reads, writes, checks, finish and abandon enforce the same ownership.
+Legacy drafts with no executor are held by `legacy:unknown`, never silently adopted.
+
+`pkc draft abandon --take-over` (also on the evolve and episodes doors) explicitly discards
+another executor's draft and releases its job. It is refused until the draft has been idle
+for `max(60, COMPILE_DRAFT_TTL / 12)` seconds, unless the owning worker launch has gone.
+The job's operational payload records the previous holder, who took over, when, and the
+mechanical reason; the audit survives deletion of the ephemeral draft. A per-tenant PG
+advisory lock serializes each entire command, including gate and commit, against takeover
+and recovery. A command already executing cannot lose ownership midway through its write.
+
 Two commands hold the lifecycle. `open` claims the job in the queue exactly as the worker
 does (`FOR UPDATE SKIP LOCKED`, one in-flight job per user), so the per-user single writer
 holds whichever body the Steward has; a job held by a draft is invisible to the worker.
@@ -836,6 +1027,17 @@ holds whichever body the Steward has; a job held by a draft is invisible to the 
 `commit_patch` with the skill trailer, `derive_events`, the brief; on violations it writes
 the repair budget into the draft and returns them. An abandoned or expired draft — the queue's
 self-heal treats a draft older than `COMPILE_DRAFT_TTL` as orphaned — releases the job.
+A worker launch holds a separate PG advisory lease for its entire run; process death drops
+that lease. Startup recovery preserves a live launch until the full TTL expires, even when
+it has been idle longer than the takeover grace, and requeues a dead launch immediately.
+With TTL zero, idle-draft protection is disabled but a live launch's lease still protects it.
+The claim query refuses any tenant with an open draft, including one whose queue row was
+mistakenly requeued. Completed jobs cannot be claimed or reopened through `claim=False`;
+a late completion preserves the existing outcome, and a late worker failure can end only
+its own claim. The runner pins the job id as well as the executor, so a return after finish
+cannot act on the tenant's next draft.
+The worker's failure tail removes only its own terminal draft under that same lock; startup
+recovery also removes terminal drafts left by earlier crashes, without reopening their jobs.
 
 **Byte equality is the acceptance test.** The same sequence of tool calls, run once through
 the langchain loop with a scripted model and once through `pkc draft` commands, produces the
@@ -862,7 +1064,8 @@ harness's own conventions, which are data on the backend manifest (§8):
 
 ```
 .agents/skills/pkc-steward/            Codex           .claude/skills/pkc-steward/   Claude Code
-  SKILL.md                             the journey: who you are, the round, the door, the postures, owner speech, the archive
+  SKILL.md                             the journey: who you are, reading, the round, the door, the postures, owner speech, the archive
+  references/consume.md                the library's design, reading primitives, resolved domain families and consultation procedure
   references/contract.md               the composed contract, verbatim
   references/compile-instructions.md   the rendered compile system message, verbatim
   references/cli.md                    every command, its description, what it refuses, its exit codes
@@ -871,6 +1074,22 @@ harness's own conventions, which are data on the backend manifest (§8):
   workflows/compile.js                 Claude Code only: read → plan → write → finish as an order of work
 AGENTS.md / CLAUDE.md                  one `pkc:start … pkc:end` block: this is a library, you are its Steward, the skill is at <path>
 ```
+
+`references/consume.md` is rendered from `steward.consume.*` in the prompt catalog, with
+families and `owner_voice` markings enumerated from the resolved contract's path templates.
+It teaches three moments explicitly: session start uses the complete `pkc outline`; answering
+uses outline to find pages, `canonical read` to read them, `recall --evidence` for fast-lane
+evidence, `search` for names and phrases, and `source fetch` for ground truth. The budgeted
+`glance` is only for an outline too long to scan. After `draft finish`, run
+`outline --family <template>` for each family written to see the new pages in place. These
+moments also appear in the SKILL.md journey, including the compile round's before/after steps.
+Both command descriptions come from the bilingual catalog and appear in CLI help and
+`references/cli.md`, so completeness versus budget is visible at the command itself.
+It shares the package hash and introduces no system-message content (I5). Reading follows
+citations and links through `pkc` primitives; `recall --evidence` assembles context without
+constructing a chat model, and `consult answer` closes the handoff into a consultation.
+With semantic retrieval off, no embeddings are built either. Outline, glance and evidence read the
+composed contract without deriving packs or writing a manifest.
 
 What the SKILL.md may and may not contain follows one test, the same one the compile-contract
 guide gives contract authors: *if breaking a rule gets the write refused, it is mechanism and
@@ -1011,8 +1230,9 @@ went around the gate is stopped before the next round builds on it, rather than 
 
 - **`agent:<backend>` as a model spec.** `resolve_model_name` returns it unchanged;
   `build_chat_model_for` refuses to build a chat model from it (an executor is not a model),
-  and the compile worker asks `executor_for(settings, "compile")` instead. Other roles
-  naming `agent:` fail loudly at startup in v1.
+  and the worker asks `executor_for(settings, role)` for compile and evolve. Other roles
+  naming `agent:` explicitly fail at startup. Episodes share compile's executor and their
+  own draft door; challenge is skipped under it, and the agent supplies its own brief.
 - **`RoundRunner` in core.** `run_compile` keeps everything around the loop — aliasing,
   `prepare`, the draft, the gate, the commit — and delegates the loop to a protocol with one
   method: run a round under a budget over a draft's tool face, return calls spent, whether
@@ -1029,11 +1249,14 @@ went around the gate is stopped before the next round builds on it, rather than 
   harness already finished. That is a fake round and a second code path that ends a draft. So
   the unattended worker bypasses `run_compile`: it opens the draft through the CLI's own
   `open_round`, launches, and then reads the store — draft gone means the harness ran `pkc
-  draft finish` and the job is complete; draft still open means it stopped, and the worker
+  draft finish` and the job is complete only when the job row confirms that outcome;
+  a released or replaced draft ends this launch's authority. Its own draft still open means
+  it stopped, and the worker
   runs the same `cmd_finish` so the gate still judges; draft open in `repair` (or refused by
   the overview floor) means one more launch carrying what the gate said, then `cmd_finish`
   again, and a second failure aborts exactly as today. `cmd_finish` is the one function that
-  ends a draft, whoever calls it, so there is no double finalize to guard against.
+  ends a draft, whoever calls it. Ownership and terminal-state checks prevent a late runner
+  from reopening a completed job or finishing a replacement executor's draft.
 - **`open` audits the library HEAD before it claims.** Every canonical write channel this
   framework has stamps a `Skill-Version` trailer, so a HEAD without one is a commit nothing
   here made: `pkc draft open` refuses with exit 2 naming the commit and its subject rather
@@ -1044,14 +1267,20 @@ went around the gate is stopped before the next round builds on it, rather than 
   about the library; what it holds is a handle to a harness process per Owner session, as the
   live-context socket already holds a run — and the harness's session, not the API, is where
   the conversation lives.
-- **The worker.** Under an agent executor a compile job is claimed and handed to the
-  launcher (unattended), or left in the queue for `pkc draft open` (interactive) — the
-  process view says which is expected. Index, projection and rebuild jobs are unchanged.
+- **The worker.** Under an agent executor compile, evolve and episodes jobs are claimed and handed to
+  the same launcher (unattended), or left queued for their respective draft `open` commands
+  (interactive) — the
+  process view says which is expected. `PNEUMA_KNOWLEDGE_AGENT_UNATTENDED` is resolved afresh
+  at each worker start and logged. An open Steward draft is skipped before claiming, with
+  one log message per holder; the SQL claim enforces the same exclusion. A repeated `open`
+  resumes for the same executor; another executor is refused and shown the owning worker's
+  recorded posture. Index writes L1 and queues episode judgement (§5.12);
+  projection and rebuild jobs remain mechanical.
 - **`engine.yaml` and the console.** `models.compile: agent:codex` is a strategy value like
   any other; the engine schema gains the `agent:` form, the console shows the probe's result
   beside it, and the process view gains the waiting-for-Steward state.
 - **Single-shot roles (v2).** A `LeafChatModel` over the same launcher makes `agent:` usable
-  for chunking, fast, live and evolve: system text to the harness's system channel, messages
+  for fast and live: system text to the harness's system channel, messages
   on stdin, structured output as a schema in the prompt validated by the pydantic model with
   one re-ask. Not in v1; the shape is stated so the manifest and launcher are built once.
 
@@ -1138,7 +1367,7 @@ Order, Codex first throughout:
 |---|---|
 | 2.1–2.3 | `pkc owner say` → owner-dialogue source → `pkc draft` under the gate (§5.3, §5.2) |
 | 2.4 | no delete command; refusal text in the skill's "what you cannot do" (§5.2, §7) |
-| 2.5, 2.6 | evolve door (§5.7), v2 |
+| 2.5, 2.6 | evolve door (§5.7), v1 |
 | 2.5f–2.5h | the Steward view: bridge over the harness session, steps as the agent's own commands, verbatim check on `owner say`, resume on reconnect (§5.6) |
 | 2.5b, 2.5b′ | the upstream archive (a move + a record, `include_archived` through every lane) reached through `pkc archive propose / confirm / ls / show / drop / inventory`, plus `--include-archived` on the read commands; the two door rules: the Owner's words required, seeds confirmed by default (§5.5) |
 | 2.5c–2.5e | `pkc ingest`, the `steward/` realm, content-identity idempotency, secrets outside task files (§5.4) |
@@ -1161,8 +1390,8 @@ Order, Codex first throughout:
 
 ## 13. Boundaries and what comes after
 
-- **Structural edits by the Steward** (§5.7) and **single-shot roles on an agent** (§9) are
-  designed and deferred to v2.
+- **Single-shot roles on an agent** (§9) remain deferred to v2. Structural evolution
+  already runs through the evolve draft door (§5.7).
 - **Standing tasks are the Steward's, not the framework's.** The framework offers `pkc
   ingest` and the five contracts; it does not schedule, fetch, transform, or know a task
   exists. A task the Owner wants shared across deployments is a skill to distribute, not a

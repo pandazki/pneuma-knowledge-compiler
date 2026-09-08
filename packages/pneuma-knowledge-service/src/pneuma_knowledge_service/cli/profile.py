@@ -6,7 +6,7 @@ names them: a round opened against `display_name: "Someone"` has no way to know,
 comes out of it is permanent. The acceptance run produced exactly that — the Owner filed as
 `memory/people/chen-wan.md`.
 
-Two commands, and neither of them guesses. `show` reads the record the round is rendered with
+Values carry inferred or owner provenance; confirm changes only that provenance. `show` reads the record the round is rendered with
 and says, mechanically, whether it is still the placeholder. `set` writes what the Owner
 supplied — through `persona_profile.save_owner_profile`, which is the one write: the project's
 `engine/persona/profile.yaml` and the persisted profile move together or not at all.
@@ -19,10 +19,13 @@ said so in their own words.
 from __future__ import annotations
 
 import json
+import os
 import sys
 from typing import Any, TextIO
 
 from pneuma_knowledge_core.domain.ids import UserId
+from pneuma_knowledge_core.domain.user import PROFILE_FIELDS
+from pneuma_knowledge_core.persona.provenance import profile_fields, provenance_for
 
 from ..persona_profile import (
     PLACEHOLDER_NOTICE,
@@ -82,17 +85,9 @@ async def cmd_profile_show(
     if profile is None:
         print("no owner profile is recorded for this library.", file=out)
     else:
-        print(f"display_name  {profile.display_name}", file=out)
-        print(f"occupation    {profile.occupation or '(unset)'}", file=out)
-        print(f"bio           {profile.bio or '(unset)'}", file=out)
-        print(f"interests     {', '.join(profile.interests) or '(unset)'}", file=out)
-        print(
-            f"locale        {profile.locale.language or '(unset)'} · "
-            f"{profile.locale.timezone or '(unset)'} · "
-            f"{profile.locale.country or '(unset)'}",
-            file=out,
-        )
-        print(f"industry/role {profile.industry} / {profile.role} · {profile.level}", file=out)
+        for key, value in profile_fields(profile).items():
+            rendered = ", ".join(value) if isinstance(value, list) else value
+            print(f"{key:<30} {rendered or '(unset)'} ({provenance_for(profile, key)})", file=out)
     if path:
         print(f"file          {path}", file=out)
     else:
@@ -108,6 +103,7 @@ async def cmd_profile_set(
     *,
     payload_text: str | None = None,
     fields: list[str] | None = None,
+    provenance: str | None = None,
     as_json: bool = False,
     out: TextIO | None = None,
     err: TextIO | None = None,
@@ -147,7 +143,12 @@ async def cmd_profile_set(
 
     engine_dir = str(getattr(ctx.settings, "engine_dir", "") or "").strip()
     try:
-        profile, path = await save_owner_profile(ctx.store, user_id, engine_dir, updates)
+        marker = provenance or (
+            "inferred" if "PNEUMA_KNOWLEDGE_STEWARD_SKILL_HASH" in os.environ else "owner"
+        )
+        profile, path = await save_owner_profile(
+            ctx.store, user_id, engine_dir, updates, provenance=marker
+        )
     except (ProfileError, ValueError) as exc:
         # A value the profile model refuses (an industry outside the enum, say) is a refusal
         # at the argument face, in the words the model used.
@@ -175,4 +176,41 @@ async def cmd_profile_set(
         print(f"file          {path}", file=out)
     if is_placeholder(profile):
         print(f"\n{PLACEHOLDER_NOTICE}", file=out)
+    return EXIT_OK
+
+
+async def cmd_profile_confirm(
+    ctx: Any,
+    user_id: UserId,
+    *,
+    fields: list[str] | None = None,
+    all_fields: bool = False,
+    as_json: bool = False,
+    out: TextIO | None = None,
+    err: TextIO | None = None,
+) -> int:
+    """Confirm only the named leaves; values remain unchanged."""
+    out = out or sys.stdout
+    err = err or sys.stderr
+    selected = list(PROFILE_FIELDS) if all_fields else list(dict.fromkeys(fields or []))
+    if not selected or any(key not in PROFILE_FIELDS for key in selected):
+        print(f"refused: confirm --field <name> or --all; fields: {', '.join(PROFILE_FIELDS)}", file=err)
+        return EXIT_REFUSED
+    try:
+        engine_dir = str(getattr(ctx.settings, "engine_dir", "") or "").strip()
+        profile, path = await save_owner_profile(
+            ctx.store, user_id, engine_dir,
+            {f"provenance.{key}": "owner" for key in selected},
+        )
+    except (ProfileError, ValueError) as exc:
+        print(f"refused: {exc}", file=err)
+        return EXIT_REFUSED
+    if as_json:
+        print(json.dumps({"profile": _dump(profile), "confirmed": selected,
+                          "placeholder": is_placeholder(profile), "file": path},
+                         ensure_ascii=False, indent=2), file=out)
+    else:
+        print(f"profile confirmed: {', '.join(selected)}", file=out)
+        if is_placeholder(profile):
+            print(f"\n{PLACEHOLDER_NOTICE}", file=out)
     return EXIT_OK

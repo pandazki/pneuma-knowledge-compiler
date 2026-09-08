@@ -132,7 +132,7 @@ from .fast import (
 )
 from .paths import ComponentEvidence, FastPath, run_paths
 from .rag import RecallHit, _suppress_overlapping, rag_recall
-from .stage_timing import StageRecorder, StageTiming, child_name
+from .stage_timing import StageRecorder, StageTiming, child_name, semantic_skipped_stages
 from .suggestion import label_turns, render_transcript
 
 # ------------------------------------------------------------------------- constants
@@ -1552,12 +1552,16 @@ async def _semantic_face(
         text = str(raw_query or "").strip()
         if text and text not in wanted:
             wanted.append(text)
-    do_claims = claim_lexical is not None and claim_vectors is not None
-    do_windows = lexical is not None and vectors is not None
+    do_claims = claim_lexical is not None
+    do_windows = lexical is not None
     view = view if view is not None else ArchiveView.empty()
     if not wanted or (not do_claims and not do_windows):
         return (), (), 0
-    embedded = await embeddings.aembed_documents(wanted)
+    embedded = (
+        await embeddings.aembed_documents(wanted)
+        if embeddings is not None
+        else [None] * len(wanted)
+    )
 
     async def one(query: str, vector) -> tuple[Sequence[RetrievedClaim], Sequence]:
         claims_job = (
@@ -1702,7 +1706,11 @@ async def evaluate_live_pipeline(
     on the result (`touched`, and the delivered card's own subject), because the session
     that owns the ledger is also the thing that knows whether this tick's result was still
     the current one when it landed."""
-    recorder = StageRecorder(STAGE_ORDER, RETRIEVE_CHILDREN)
+    recorder = StageRecorder(
+        STAGE_ORDER,
+        RETRIEVE_CHILDREN if embeddings is not None or (claim_lexical is None and lexical is None)
+        else (*RETRIEVE_CHILDREN, "lexical"),
+    )
     started = time.perf_counter()
 
     posture = coerce_density(density)
@@ -1734,7 +1742,9 @@ async def evaluate_live_pipeline(
             else:
                 outcome = GLANCE_ALONE
         return PipelineResult(
-            stages=recorder.emit(),
+            stages=(*semantic_skipped_stages(
+                embeddings, retrieval_available=claim_lexical is not None or lexical is not None
+            ), *recorder.emit()),
             density=posture,
             glance=glance.suggestion if glance is not None else None,
             glance_state=state,
@@ -1908,7 +1918,8 @@ async def evaluate_live_pipeline(
                 )
             finally:
                 recorder.record(
-                    "retrieve.semantic", (time.perf_counter() - semantic_started) * 1000.0
+                    "retrieve.semantic" if embeddings is not None else "retrieve.lexical",
+                    (time.perf_counter() - semantic_started) * 1000.0
                 )
 
         async def web(web_query: str) -> list[tuple[WebSearchAnswer, str]]:
@@ -1945,7 +1956,7 @@ async def evaluate_live_pipeline(
 
         component, (claims, windows, hidden_semantic), web_answers = await asyncio.gather(
             run_paths(str(user_id), runs, question=intent, as_of=as_of),
-            semantic() if embeddings is not None else _empty_face(),
+            semantic() if claim_lexical is not None or lexical is not None else _empty_face(),
             web(web_queries[0] if web_queries else ""),
         )
     # The component face gets the same rule the semantic one does. A routed path reads its

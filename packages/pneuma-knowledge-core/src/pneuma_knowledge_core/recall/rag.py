@@ -125,7 +125,7 @@ async def rag_recall(
     query: str,
     *,
     lexical: LexicalIndex,
-    vectors: VectorIndex,
+    vectors: VectorIndex | None,
     embeddings,  # langchain_core.embeddings.Embeddings
     limit: int = 10,
     query_embedding: list[float] | None = None,
@@ -189,7 +189,7 @@ async def _rag_recall(
     query: str,
     *,
     lexical: LexicalIndex,
-    vectors: VectorIndex,
+    vectors: VectorIndex | None,
     embeddings,
     limit: int,
     query_embedding: list[float] | None,
@@ -219,7 +219,7 @@ async def _rag_recall(
     # The two are independent, so what comes back is unchanged either way; what changes is
     # that a reader watching the lane live and a reader reading the finished breakdown see
     # the same sequence.
-    if query_embedding is None:
+    if query_embedding is None and embeddings is not None and vectors is not None:
         with timer.measure(EMBED):
             query_embedding = await embeddings.aembed_query(query)
             timer.preview(EMBED, {"dimensions": len(query_embedding)})
@@ -234,29 +234,31 @@ async def _rag_recall(
                 child_name("lexical"),
                 {"candidates": candidate_limit, **_hit_preview(lexical_hits)},
             )
-        with timer.measure(child_name("vector")):
-            raw_hits = await vectors.search(
-                user_id,
-                query_embedding,
-                limit=candidate_limit,
-                representation="raw",
-                **scope,
-            )
-            episode_hits = await vectors.search(
-                user_id,
-                query_embedding,
-                limit=candidate_limit,
-                representation="episode",
-                **scope,
-            )
-            timer.preview(
-                child_name("vector"),
-                {
-                    "raw": len(raw_hits),
-                    "episode": len(episode_hits),
-                    **_hit_preview([*raw_hits, *episode_hits]),
-                },
-            )
+        raw_hits, episode_hits = [], []
+        if embeddings is not None and vectors is not None:
+            with timer.measure(child_name("vector")):
+                raw_hits = await vectors.search(
+                    user_id,
+                    query_embedding,
+                    limit=candidate_limit,
+                    representation="raw",
+                    **scope,
+                )
+                episode_hits = await vectors.search(
+                    user_id,
+                    query_embedding,
+                    limit=candidate_limit,
+                    representation="episode",
+                    **scope,
+                )
+                timer.preview(
+                    child_name("vector"),
+                    {
+                        "raw": len(raw_hits),
+                        "episode": len(episode_hits),
+                        **_hit_preview([*raw_hits, *episode_hits]),
+                    },
+                )
 
     with timer.measure(FUSE):
         raw = _fuse(lexical_hits, raw_hits, episode_hits)

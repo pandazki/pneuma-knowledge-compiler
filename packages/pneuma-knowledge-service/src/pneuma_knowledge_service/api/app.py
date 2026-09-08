@@ -7,11 +7,17 @@ app.state; routes read it per-request. M1 mounts the /v1 surface.
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pneuma_knowledge_core.ports.canonical_store import CanonicalDirtyError
+from starlette.exceptions import HTTPException
+from starlette.responses import Response
+from starlette.routing import Match, Mount
+from starlette.staticfiles import StaticFiles
+from starlette.types import Scope
 
 from .. import __version__
 from ..archive_service import ArchiveRequestError
@@ -26,7 +32,46 @@ from .routes.steward import close_sessions as close_steward_sessions, router as 
 from .routes.v1 import drain_recording_tasks, root_router, router as v1_router
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+class _SPAStaticFiles(StaticFiles):
+    async def get_response(self, path: str, scope: Scope) -> Response:
+        try:
+            return await super().get_response(path, scope)
+        except HTTPException as exc:
+            if exc.status_code != 404 or scope["method"] not in ("GET", "HEAD"):
+                raise
+            return await super().get_response("index.html", scope)
+
+
+class _SPAMount(Mount):
+    """Leave API namespaces and routes added by the host application to its router."""
+
+    def __init__(self, app: FastAPI, directory: str | Path):
+        super().__init__("/", app=_SPAStaticFiles(directory=directory), name="console")
+        self.api_routes = app.routes
+
+    def matches(self, scope: Scope) -> tuple[Match, Scope]:
+        if scope["type"] != "http":
+            return Match.NONE, {}
+        # Included API routers all live under /v1. Top-level routes also reserve their
+        # namespace, including FastAPI's docs and routes the hosting application adds.
+        prefixes = {"/v1"}
+        for route in self.api_routes:
+            if route is self:
+                continue
+            path = getattr(route, "path", "")
+            if path and path != "/":
+                prefixes.add("/" + path.strip("/").split("/", 1)[0])
+            if route.matches(scope)[0] != Match.NONE:
+                return Match.NONE, {}
+        path = scope["path"].removeprefix(scope.get("root_path", ""))
+        if any(path == prefix or path.startswith(prefix + "/") for prefix in prefixes):
+            return Match.NONE, {}
+        return super().matches(scope)
+
+
+def create_app(
+    settings: Settings | None = None, *, static_dir: str | Path | None = None
+) -> FastAPI:
     settings = settings or get_settings()
 
     @asynccontextmanager
@@ -123,4 +168,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # The console's Steward view: one WebSocket per Owner over the harness's own session,
     # plus the GET the view reads its empty/disabled state from.
     app.include_router(steward_router)
+    if static_dir is not None:
+        app.router.routes.append(_SPAMount(app, static_dir))
     return app

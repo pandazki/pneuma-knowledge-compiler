@@ -68,6 +68,7 @@ from .stage_timing import (
     claim_entries,
     StageEventSink,
     StageRecorder,
+    semantic_skipped_stages,
     StageTiming,
     child_name,
     window_entries,
@@ -376,7 +377,7 @@ async def _query_section(
     )
     view = view if view is not None else ArchiveView.empty()
 
-    if claim_lexical is not None and claim_vectors is not None and embeddings is not None:
+    if claim_lexical is not None:
         with stages.measure(RETRIEVE), stages.measure(child_name("claims")):
             retrieved = (await retrieve_claims(
                 user_id,
@@ -411,7 +412,7 @@ async def _query_section(
             lines.append(_join([_claim_block(c) for c in ordered], "\n"))
             claim_count = len(ordered)
 
-    if lexical is not None and vectors is not None and embeddings is not None:
+    if lexical is not None:
         with stages.measure(RETRIEVE), stages.measure(child_name("passages")):
             hits = await rag_recall(
                 user_id,
@@ -762,7 +763,9 @@ async def build_briefing(
         source_count=len(set(str(s) for s in scope.source_ids)),
         char_count=len(system_prefix),
         source_ids=tuple(sorted(set(str(s) for s in scope.source_ids))),
-        stages=stages.emit(),
+        stages=(*semantic_skipped_stages(
+            embeddings, retrieval_available=claim_lexical is not None or lexical is not None
+        ), *stages.emit()),
         pack_manifest=pack_manifest,
         include_archived=scope.include_archived,
     )
@@ -903,7 +906,7 @@ def _search_knowledge_tool(
     async def search_knowledge(query: str) -> str:
         """In-scope retrieval; see `recall.briefing.tool.search_knowledge_doc`."""
         claims = []
-        if claim_lexical is not None and claim_vectors is not None and embeddings is not None:
+        if claim_lexical is not None:
             claims = await retrieve_claims(
                 user_id,
                 query,
@@ -914,7 +917,7 @@ def _search_knowledge_tool(
                 include_archived=include_archived,
             )
         passages = []
-        if lexical is not None and vectors is not None and embeddings is not None:
+        if lexical is not None:
             hits = await rag_recall(
                 user_id,
                 query,
@@ -1119,7 +1122,9 @@ async def briefing_ask(
         evidence_manifest=_ask_manifest(briefing, searched, fetched),
         citation_handles=handle_map,
         aliased=aliaser is not None,
-        stages=timings.stages(),
+        stages=(*semantic_skipped_stages(
+            embeddings, retrieval_available=claim_lexical is not None or lexical is not None
+        ), *timings.stages()),
     )
 
 

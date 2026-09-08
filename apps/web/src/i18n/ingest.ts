@@ -91,6 +91,10 @@ export const ingest = defineMessages({
       "当前选择的是 {expectedKind}，需要 {expectedSchema}；收到 {actual}。",
     "ingest.official.error.missingSchema": "缺少 schema",
 
+    "ingest.official.agent_session.description": "知识主体与编码代理的会话，仅保留原话和简短动作记录。",
+    "ingest.official.agent_session.citationUnit": "回合",
+    "ingest.official.untitled.agent_session": "未命名代理会话",
+    "ingest.sample.agent_session.say": "请保留决策依据。",
     "ingest.official.untitled.meeting": "未命名会议",
     "ingest.official.untitled.document_library": "未命名文档库",
     "ingest.official.untitled.im": "未命名 IM archive",
@@ -234,6 +238,10 @@ export const ingest = defineMessages({
       "You have selected {expectedKind}, which needs {expectedSchema}; received {actual}.",
     "ingest.official.error.missingSchema": "no schema",
 
+    "ingest.official.agent_session.description": "Owner and coding-agent turns, with brief activity stubs.",
+    "ingest.official.agent_session.citationUnit": "turn",
+    "ingest.official.untitled.agent_session": "Untitled agent session",
+    "ingest.sample.agent_session.say": "Keep the decision rationale.",
     "ingest.official.untitled.meeting": "Untitled meeting",
     "ingest.official.untitled.document_library": "Untitled document library",
     "ingest.official.untitled.im": "Untitled IM archive",

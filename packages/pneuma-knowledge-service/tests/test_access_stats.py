@@ -35,6 +35,7 @@ from pneuma_knowledge_service.access_stats import (
     top_misses,
     top_targets,
 )
+from pneuma_knowledge_service.settings import Settings
 
 TODAY = date(2026, 8, 31)
 NOON = datetime(2026, 8, 31, 12, 0, tzinfo=timezone.utc)
@@ -648,7 +649,9 @@ async def test_the_sweep_reaches_a_tenant_that_has_only_ever_asked():
     jobs sat queued forever with nothing in the system able to notice."""
     from pneuma_knowledge_service.workers.compile_worker import _users_with_jobs
 
-    ctx = SimpleNamespace(store=_SweepStore(["u-bao"], ["u-mei", "u-bao"]))
+    ctx = SimpleNamespace(
+        store=_SweepStore(["u-bao"], ["u-mei", "u-bao"]), settings=Settings()
+    )
     assert await _users_with_jobs(ctx) == ["u-bao", "u-mei"]
 
 
@@ -657,7 +660,7 @@ async def test_a_store_without_the_consultation_listing_still_sweeps():
     old answer rather than failing the worker's whole sweep."""
     from pneuma_knowledge_service.workers.compile_worker import _users_with_jobs
 
-    ctx = SimpleNamespace(store=_SweepStore(["u-bao"]))
+    ctx = SimpleNamespace(store=_SweepStore(["u-bao"]), settings=Settings())
     assert await _users_with_jobs(ctx) == ["u-bao"]
 
 

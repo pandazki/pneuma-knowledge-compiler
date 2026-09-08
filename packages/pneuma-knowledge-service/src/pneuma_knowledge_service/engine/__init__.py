@@ -48,6 +48,12 @@ from .prompts import (
 )
 from .resolve import ResolvedEngine, engine_overrides, resolve_engine
 from .schema import SCHEMA_PATH, build_schema, load_schema, serialize_schema
+from .template_files import (
+    UnknownTemplate,
+    template_names,
+    template_path,
+    template_text,
+)
 
 __all__ = [
     "Change",
@@ -62,6 +68,7 @@ __all__ = [
     "PromptRewrite",
     "ResolvedEngine",
     "SCHEMA_PATH",
+    "UnknownTemplate",
     "Version",
     "active_language",
     "apply_changes",
@@ -84,6 +91,9 @@ __all__ = [
     "rewrite_messages",
     "serialize_schema",
     "surface_payload",
+    "template_names",
+    "template_path",
+    "template_text",
     "validate",
     "version",
 ]

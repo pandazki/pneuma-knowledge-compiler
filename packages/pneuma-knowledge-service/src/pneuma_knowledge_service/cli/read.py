@@ -5,8 +5,8 @@ functions its route calls. Nothing goes over HTTP: a Steward working in the proj
 adapters in hand, and a CLI that shelled out to its own API would be a second deployment to
 keep alive. Nothing is added to core that is only about printing, either — what a page looks
 like when the compile model reads it is `render_document`, what the lanes open with is
-`render_canonical_glance`, and a command that rendered its own would be showing the Steward a
-library nobody else sees.
+`render_canonical_glance`, and the complete `outline` reuses that map's metadata derivations
+without its top-K or character budget.
 
 Two output shapes and one rule about them: `--json` is the machine-readable form a workflow
 branches on, and the default is prose for a person (and for an agent, which reads prose
@@ -15,7 +15,7 @@ state.
 
 Exit codes are the same vocabulary `pkc draft` uses: 0 ok · 1 nothing to show (no such page,
 no such source, an empty answer) · 2 refused (an argument that does not parse, a lane this
-deployment cannot run) · 4 findings (`pkc library check` alone).
+deployment cannot run) · 4 findings (`pkc library check`, or an unresolved consult citation).
 """
 
 from __future__ import annotations
@@ -28,14 +28,26 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, TextIO
 
-from pneuma_knowledge_core.canonical_glance import render_canonical_glance
+from pneuma_knowledge_core.canonical_glance import (
+    claim_count,
+    closed_volume_counts,
+    document_definition,
+    document_title,
+    family_of,
+    render_canonical_glance,
+    volume_origin,
+)
 from pneuma_knowledge_core.compile.documents import render_document
 from pneuma_knowledge_core.compile.supersession import block_by_anchor, chains
 from pneuma_knowledge_core.domain.archive import (
     any_archived,
+    is_archive_record,
     is_archived_path,
     live_documents,
+    live_path,
+    split_archived,
 )
+from pneuma_knowledge_core.domain.canonical import CanonicalDocument
 from pneuma_knowledge_core.domain.ids import SourceId, UserId
 from pneuma_knowledge_core.recall.archive_filter import archive_view
 from pneuma_knowledge_core.recall.fast import FastEvidence, fast_recall, message_text
@@ -45,10 +57,10 @@ EXIT_OK = 0
 EXIT_NOTHING = 1
 EXIT_REFUSED = 2
 
-#: `¶3`, `¶3-7`, `3-7` and `3 7` all address the same span. The citation grammar is the one
+#: `¶3`, `¶3-7` and `3-7` address block spans. The citation grammar is the one
 #: the whole system speaks (I4), so it is what a locator is typed in; the bare forms exist
 #: because a shell eats `¶` on some keyboards and refusing over a pilcrow would be theatre.
-_SPAN_RE = re.compile(r"^\s*¶?\s*(?P<start>\d+)(?:\s*[-–\s]\s*(?P<end>\d+))?\s*$")
+_SPAN_RE = re.compile(r"^\s*¶?\s*(?P<start>\d+)(?:\s*[-–]\s*(?P<end>\d+))?\s*$")
 
 
 @dataclass
@@ -91,6 +103,109 @@ def parse_span(text: str) -> tuple[int, int] | None:
     return (start, end)
 
 
+# ───────────────────────────────────────────────────────────────────────── outline
+
+
+def _outline_tree(
+    documents: list[CanonicalDocument],
+    templates: list[str],
+    *,
+    family: str | None,
+    definitions: bool,
+    include_archived: bool,
+) -> dict[str, Any]:
+    """The complete page map, derived from the one listing already in hand.
+
+    Reuse the glance's title, claim, definition, volume and family derivations without its
+    top-K or character budget. Unfiled pages have a null template, so a contract change can
+    never make an existing page disappear from the complete map.
+    """
+    grouped: dict[str | None, list[dict[str, Any]]] = {
+        template: [] for template in templates if family is None or template == family
+    }
+    live, archived = split_archived(documents)
+    # Resolve volumes within each side of the archive boundary. An archived volume's old
+    # owning-page stamp names a live path now occupied by a record; it belongs to the moved
+    # page, not to that record. Each family's archived pages follow all its live pages.
+    for scope in (live, archived) if include_archived else (live,):
+        present = {doc.path for doc in scope}
+        volumes = closed_volume_counts(scope)
+        for doc in sorted(scope, key=lambda d: d.path):
+            if volume_origin(doc, present) is not None:
+                continue
+            template = family_of(live_path(doc.path), templates)
+            if family is not None and template != family:
+                continue
+            item = {
+                "path": doc.path,
+                "title": " ".join(document_title(doc).split()),
+                "claims": claim_count(doc),
+                "volumes": volumes.get(doc.path, 0),
+                "kind": "record" if is_archive_record(doc) else "page",
+                "archived": is_archived_path(doc.path),
+            }
+            if definitions:
+                definition = document_definition(doc)
+                if definition:
+                    item["definition"] = definition
+            grouped.setdefault(template, []).append(item)
+    return {
+        "families": [
+            {"template": template, "documents": members}
+            for template, members in grouped.items()
+        ],
+        "documents": sum(len(members) for members in grouped.values()),
+    }
+
+
+def _outline_lines(tree: dict[str, Any]) -> list[str]:
+    lines: list[str] = []
+    for family in tree["families"]:
+        if lines:
+            lines.append("")
+        lines.append(f"## {family['template'] or '(outside every declared family)'}")
+        if not family["documents"]:
+            lines.append("(empty)")
+        for doc in family["documents"]:
+            line = f"{doc['path']} — {doc['title']} ({doc['claims']} claims)"
+            if doc["volumes"]:
+                line += f" +{doc['volumes']} volumes"
+            if doc["kind"] == "record":
+                line += " [record]"
+            if doc["archived"]:
+                line += " [archived]"
+            lines.append(line)
+            if doc.get("definition"):
+                lines.append(f"  definition: {doc['definition']}")
+    return lines or ["this library holds no canonical pages yet"]
+
+
+async def cmd_outline(
+    rt: ReadRuntime,
+    *,
+    family: str | None = None,
+    definitions: bool = False,
+    include_archived: bool = False,
+) -> int:
+    from ..skills import composed_skill_readonly
+
+    skill = await composed_skill_readonly(rt.ctx.settings, rt.ctx.canonical, rt.user_id)
+    templates = list(skill.path_templates)
+    if family is not None and family not in templates:
+        print(f"no such family: {family}", file=rt.err)
+        return EXIT_REFUSED
+    documents = await rt.ctx.canonical.list(rt.user_id)
+    tree = _outline_tree(
+        documents,
+        templates,
+        family=family,
+        definitions=definitions,
+        include_archived=include_archived,
+    )
+    _emit(rt, tree, _outline_lines(tree))
+    return EXIT_OK
+
+
 # ───────────────────────────────────────────────────────────────────────── glance
 
 
@@ -102,10 +217,10 @@ async def _glance_text(rt: ReadRuntime, *, include_archived: bool = False) -> st
     documents = await ctx.canonical.list(rt.user_id)
     if not documents:
         return None
-    from ..skills import packs_for_user, skill_for_user
+    from ..skills import composed_skill_readonly, packs_for_user
 
     try:
-        skill = await skill_for_user(ctx, rt.user_id)
+        skill = await composed_skill_readonly(ctx.settings, ctx.canonical, rt.user_id)
         packs = await packs_for_user(ctx, rt.user_id)
     except Exception:  # noqa: BLE001 — families and blurbs decorate a real document list
         skill, packs = None, []
@@ -292,7 +407,10 @@ async def cmd_source_show(rt: ReadRuntime, source_id: str) -> int:
     except KeyError:
         print(f"no such source: {source_id}", file=rt.err)
         return EXIT_NOTHING
+    from pneuma_knowledge_core.domain.authorship import block_authorship
+
     raw = ns.raw
+    authorship = block_authorship(raw)
     payload = {
         "source_id": str(raw.source_id),
         "kind": raw.kind,
@@ -313,6 +431,13 @@ async def cmd_source_show(rt: ReadRuntime, source_id: str) -> int:
         f"{raw.source_id}  {raw.kind}  {raw.title}",
         f"blocks: ¶0-{max(len(ns.blocks) - 1, 0)}",
     ]
+    if authorship:
+        payload["block_authorship"] = authorship
+        lines.extend(
+            f"  ¶{row['index']}  {row['role']}"
+            + (f" / {row['kind']}" if "kind" in row else "")
+            for row in authorship
+        )
     for span in payload["structure"]:
         lines.append(
             f"  ¶{span['blocks'][0]}-{span['blocks'][1]}  {' / '.join(span['path'])}"
@@ -321,26 +446,36 @@ async def cmd_source_show(rt: ReadRuntime, source_id: str) -> int:
     return EXIT_OK
 
 
-async def cmd_source_fetch(rt: ReadRuntime, source_id: str, span: str) -> int:
-    """Verbatim L0 for one block span. UNCONDITIONAL (I3): no plan, no strategy and no
+async def cmd_source_fetch(rt: ReadRuntime, source_id: str, span: str | list[str]) -> int:
+    """Verbatim L0 for one or more spans. UNCONDITIONAL (I3): no plan, no strategy and no
     visibility state decides whether a cited span resolves."""
-    parsed = parse_span(span)
-    if parsed is None:
-        return _refuse(
-            rt, f"not a block span: {span!r} — write it as ¶a-b, or as `a b`"
-        )
-    start, end = parsed
+    tokens = [span] if isinstance(span, str) else span
+    spans = []
+    if len(tokens) == 2 and all(re.fullmatch(r"\d+", token) for token in tokens):
+        spans = [(int(tokens[0]), int(tokens[1]))]
+        tokens = []
+    for token in tokens:
+        parsed = parse_span(token)
+        if parsed is None:
+            return _refuse(
+                rt, f"not a block span: {token!r} — write ¶a-b, ¶a or a-b; "
+                "exactly two bare integers `a b` mean one span"
+            )
+        spans.append(parsed)
+    items = []
     try:
-        text = await rt.ctx.store.fetch(
-            rt.user_id, SourceId(source_id), {"blocks": [start, end]}
-        )
+        for start, end in spans:
+            text = await rt.ctx.store.fetch(
+                rt.user_id, SourceId(source_id), {"blocks": [start, end]}
+            )
+            items.append({"source_id": source_id, "blocks": [start, end], "text": text})
     except (KeyError, ValueError) as exc:
         print(str(exc), file=rt.err)
         return EXIT_NOTHING
     _emit(
         rt,
-        {"source_id": source_id, "blocks": [start, end], "text": text},
-        [text],
+        items[0] if len(items) == 1 else items,
+        [item["text"] for item in items],
     )
     return EXIT_OK
 
@@ -379,6 +514,13 @@ async def cmd_search(
                 }
             )
     elif mode == "semantic":
+        if ctx.embeddings is None or ctx.vectors is None:
+            print(
+                "semantic retrieval is off; use `pkc search --mode lexical` or enable "
+                "it with `pkc config set semantic_retrieval on` and rebuild derived indexes",
+                file=rt.err,
+            )
+            return EXIT_NOTHING
         embedding = (await ctx.embeddings.aembed_documents([query]))[0]
         for hit in await ctx.vectors.search(
             rt.user_id, embedding, limit=limit, include_archived=include_archived
@@ -581,8 +723,9 @@ async def cmd_consultations(rt: ReadRuntime, *, limit: int = 25) -> int:
             "question": r.get("question"),
             "miss": r.get("miss"),
             "answer_kind": r.get("answer_kind"),
-            "evidence_handed": len(r.get("evidence_handed") or []),
-            "citations": len(r.get("citations") or []),
+            "evidence_handed": r["evidence_count"],
+            "citations": r["citation_count"],
+            "citations_direct": r["citations_direct"],
         }
         for r in rows
     ]
@@ -591,7 +734,8 @@ async def cmd_consultations(rt: ReadRuntime, *, limit: int = 25) -> int:
         {"consultations": items, "total": total},
         [
             f"{i['created_at']}  {i['lane']:<12} {'MISS' if i['miss'] else '    '}  "
-            f"{i['question']}"
+            f"{i['question']}  ·  evidence handed: {i['evidence_handed']}  ·  "
+            f"citations: {i['citations']}  ·  direct: {i['citations_direct']}"
             for i in items
         ],
     )
@@ -683,10 +827,12 @@ async def _fast_kwargs(
     as_of: datetime,
     style: str | None,
     include_archived: bool = False,
+    evidence_only: bool = False,
 ) -> dict:
-    """Everything `fast_recall` is called with here — the settings the route reads, read
-    once more. What this CANNOT do is choose differently: a lane whose CLI face retrieved
-    less than its HTTP face would make `--evidence` a description of a different lane.
+    """The fast lane's configured retrieval and rendering, with optional chat assistance.
+
+    Evidence-only calls supply no chat models: the agent performs the judgements itself.
+    The lane's deterministic fallbacks still assemble and render the evidence context.
     """
     ctx = rt.ctx
     # THE ARCHIVE IS DECIDED HERE, once, exactly as the route decides it in `_glance_inputs`.
@@ -701,12 +847,12 @@ async def _fast_kwargs(
     documents = tree if include_archived else live_documents(tree)
     glance_inputs: dict[str, Any] = {}
     if documents or archive_active:
-        from ..skills import packs_for_user, skill_for_user
+        from ..skills import composed_skill_readonly, packs_for_user
 
         try:
             glance_inputs = {
                 "documents": documents,
-                "skill": await skill_for_user(ctx, rt.user_id),
+                "skill": await composed_skill_readonly(ctx.settings, ctx.canonical, rt.user_id),
                 "packs": await packs_for_user(ctx, rt.user_id),
             }
         except Exception:  # noqa: BLE001 — the glance is context, never a hard dependency
@@ -725,13 +871,11 @@ async def _fast_kwargs(
         vectors=ctx.vectors,
         content=ctx.store,
         embeddings=ctx.embeddings,
-        # Resolved defensively because `--evidence` is the MODEL-FREE half of this lane: a
-        # keyless deployment must still be able to assemble the context, and every pass
-        # before the answer that would use a model (the glance pick) is additive and
-        # fail-soft by construction. `pkc recall` without `--evidence` has already refused
-        # above when either role is unusable, so a None never reaches an answering call.
-        model=_optional_model(ctx, "recall"),
-        answer_model=_optional_model(ctx, "answer"),
+        # Evidence uses the lane's deterministic retrieval and rendering. Model-assisted
+        # planning, routing and selection fall back without constructing a chat model,
+        # even when a deployment has credentials. The agent does those judgements itself.
+        model=None if evidence_only else _optional_model(ctx, "recall"),
+        answer_model=None if evidence_only else _optional_model(ctx, "answer"),
         cap=settings.recall_claim_cap,
         claim_candidate_cap=settings.recall_claim_candidate_cap,
         window_cap=settings.recall_window_cap,
@@ -790,10 +934,14 @@ async def cmd_recall_evidence(
         query,
         evidence_only=True,
         **await _fast_kwargs(
-            rt, as_of=when, style=style, include_archived=include_archived
+            rt, as_of=when, style=style, include_archived=include_archived, evidence_only=True
         ),
     )
     assert isinstance(evidence, FastEvidence)
+    arms = [
+        {"name": stage.name, "status": stage.status, "detail": stage.detail}
+        for stage in evidence.stages
+    ]
     body = message_text(evidence.content)
     handoff_id = uuid.uuid4().hex
     snaps = await rt.ctx.canonical.snapshots(rt.user_id)
@@ -829,12 +977,18 @@ async def cmd_recall_evidence(
             "content": body,
             "handles": dict(evidence.handles),
             "evidence_manifest": _manifest_payload(evidence.manifest),
+            "arms": arms,
             "visitor_class": visitor_class,
             "include_archived": bool(include_archived),
         },
         [
             body,
             "",
+            "arms: " + "; ".join(
+                f"{arm['name']}: {arm['status']}"
+                + (f" ({arm['detail']})" if arm['detail'] else "")
+                for arm in arms
+            ),
             f"handoff: {handoff_id}",
             "answer it with: pkc consult answer "
             f"{handoff_id} --text-file <f>   (or `-` for stdin, or --kind no_record)",

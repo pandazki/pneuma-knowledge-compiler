@@ -134,7 +134,10 @@ def render_skill_md(*, backend: BackendManifest, entry: str = "") -> str:
     root = f"{backend.skill_dir}"
     sections = [
         prompt("steward.skill.who", pkc=skill_entry(backend, entry)),
+        prompt("steward.skill.consume", consume=f"{root}/references/consume.md"),
+        prompt("steward.skill.episodes"),
         prompt("steward.skill.round"),
+        prompt("steward.skill.evolve"),
         prompt("steward.skill.door", gate=f"{root}/references/gate.md"),
         prompt(
             "steward.skill.postures",
@@ -152,6 +155,7 @@ def render_skill_md(*, backend: BackendManifest, entry: str = "") -> str:
             "steward.skill.references",
             contract=f"{root}/references/contract.md",
             instructions=f"{root}/references/compile-instructions.md",
+            consume=f"{root}/references/consume.md",
             cli=f"{root}/references/cli.md",
             gate=f"{root}/references/gate.md",
         ),
@@ -162,6 +166,38 @@ def render_skill_md(*, backend: BackendManifest, entry: str = "") -> str:
         )
     body = "\n\n".join(section.strip("\n") for section in sections)
     return _frontmatter(prompt("steward.skill.description")) + "\n" + body + "\n"
+
+
+# ─────────────────────────────────────────────────────────────────── references/consume.md
+
+
+def render_consume_md(skill: SkillVersion) -> str:
+    """Reading procedure from the catalog, families from the resolved contract.
+
+    A family is its path template, as in the canonical glance. No domain names or paths
+    are inferred from prose; declaration order and owner-voice constraints come from the
+    same SkillVersion the package's compile instructions render.
+    """
+    families = "\n".join(
+        f"- `{template}`"
+        + (prompt("steward.consume.owner_voice") if template in skill.owner_voice_templates else "")
+        for template in skill.path_templates
+    ) or prompt("steward.consume.no_families")
+    return "\n\n".join(
+        section.strip("\n")
+        for section in (
+            prompt("steward.consume.library"),
+            prompt("steward.consume.when_to_use"),
+            prompt("steward.consume.primitives"),
+            prompt(
+                "steward.consume.schema",
+                skill_id=skill.skill_id,
+                version=skill.version,
+                families=families,
+            ),
+            prompt("steward.consume.answering"),
+        )
+    ) + "\n"
 
 
 # ─────────────────────────────────────────────────────────────────────── references/cli.md
@@ -271,7 +307,7 @@ def render_gate_md(components: Sequence[object] = ()) -> str:
 def render_shim(backend: BackendManifest) -> str:
     """The `pkc` a session in this project runs: project `.env`, skill hash, framework `pkc`.
 
-    Three jobs and no fourth. It loads the project's `.env` the way the project's own driver
+    It loads the project's `.env` the way the project's own driver
     does (so the tenant, the engine directory and this machine's ports resolve identically);
     it exports the installed package's hash, which is what puts `Executor-Skill:` in the
     commit trailer; and it hands off to the framework's own entry point through the runner
@@ -315,6 +351,11 @@ if [ -f "$version_file" ]; then
         export PNEUMA_KNOWLEDGE_STEWARD_SKILL_HASH
     fi
 fi
+
+# Session identity survives the shim's exec and repeated commands. Harness thread ids win;
+# a terminal without one uses its parent shell's pid and host as the session token.
+PKC_STEWARD_SESSION="${{PKC_STEWARD_SESSION:-${{CODEX_THREAD_ID:-${{CLAUDE_SESSION_ID:-$PPID@$(hostname)}}}}}}"
+export PKC_STEWARD_SESSION
 
 # uv's cache. Its default is under the invoking user's HOME, which a sandboxed harness cannot
 # write — a Codex round then dies on the dependency cache rather than on anything about the
@@ -632,6 +673,7 @@ def render_skill_package(
             + render_system_contract(skill, owner=owner, time=time_zone)
         ).encode("utf-8"),
         "references/cli.md": render_cli_md(cli_parser).encode("utf-8"),
+        "references/consume.md": render_consume_md(skill).encode("utf-8"),
         "references/gate.md": render_gate_md(enabled).encode("utf-8"),
         "scripts/pkc": render_shim(backend).encode("utf-8"),
     }

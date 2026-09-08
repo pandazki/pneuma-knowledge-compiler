@@ -169,9 +169,10 @@ def compose_skill(base: SkillVersion, packs: Sequence[SchemaPack]) -> SkillVersi
         version=version,
         instructions=instructions,
         path_templates=templates,
+        owner_voice_templates=list(base.owner_voice_templates),
         contract_rules=rules,
         content_hash=SkillVersion.compute_hash(
-            base.skill_id, version, instructions, templates, rules
+            base.skill_id, version, instructions, templates, rules, base.owner_voice_templates
         ),
     )
 

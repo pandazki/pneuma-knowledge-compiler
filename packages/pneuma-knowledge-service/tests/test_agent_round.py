@@ -138,6 +138,7 @@ async def test_a_harness_that_finishes_the_round_leaves_nothing_for_the_worker_t
     completion, no second finalize.
     """
     h = await harness([source()])
+    assert await h.jobs.claim(h.rt.user_id, h.job_id) is not None
     fake = FakeHarness(h.rt, [[*CALLS, "finish"]])
     result = await runner(fake, tmp_path).run_job(h.rt, h.job_id)
 
@@ -154,6 +155,7 @@ async def test_the_round_is_opened_for_the_harness_and_names_where_it_starts(tmp
     already open, so start at step 3 — and the path to run `pkc` by, because the working
     directory is empty."""
     h = await harness([source()])
+    assert await h.jobs.claim(h.rt.user_id, h.job_id) is not None
     fake = FakeHarness(h.rt, [[*CALLS, "finish"]])
     await runner(fake, tmp_path).run_job(h.rt, h.job_id)
 
@@ -172,6 +174,7 @@ async def test_what_the_harness_reported_spending_lands_on_the_job(tmp_path):
     JSON, one process out. Step 2's "absent" rule was about a process that measured nothing,
     and this one measured something."""
     h = await harness([source()])
+    assert await h.jobs.claim(h.rt.user_id, h.job_id) is not None
     fake = FakeHarness(h.rt, [[*CALLS, "finish"]])
     result = await runner(fake, tmp_path).run_job(h.rt, h.job_id)
     assert result.usage == USAGE
@@ -179,6 +182,7 @@ async def test_what_the_harness_reported_spending_lands_on_the_job(tmp_path):
 
 async def test_a_harness_that_reported_no_usage_reports_none_rather_than_zero(tmp_path):
     h = await harness([source()])
+    assert await h.jobs.claim(h.rt.user_id, h.job_id) is not None
     fake = FakeHarness(h.rt, [[*CALLS, "finish"]])
     fake.result = lambda: LaunchResult(exit_code=0, stdout="", stderr="", usage=None)
     result = await runner(fake, tmp_path).run_job(h.rt, h.job_id)
@@ -194,6 +198,7 @@ async def test_a_harness_that_stops_mid_round_has_its_round_finished_by_the_work
     SAME `cmd_finish` the CLI calls, so the gate judges what was written — a round that wrote
     good claims and lost its process is committed, not thrown away."""
     h = await harness([source()])
+    assert await h.jobs.claim(h.rt.user_id, h.job_id) is not None
     fake = FakeHarness(h.rt, [[*CALLS]])  # wrote, never finished
     result = await runner(fake, tmp_path).run_job(h.rt, h.job_id)
 
@@ -206,6 +211,7 @@ async def test_a_harness_that_stops_mid_round_has_its_round_finished_by_the_work
 
 async def test_a_harness_that_did_nothing_at_all_still_ends_its_job(tmp_path):
     h = await harness([source()])
+    assert await h.jobs.claim(h.rt.user_id, h.job_id) is not None
     fake = FakeHarness(h.rt, [["nothing"]])
     result = await runner(fake, tmp_path).run_job(h.rt, h.job_id)
     assert result.outcome == FINISHED_BY_WORKER
@@ -221,6 +227,7 @@ async def test_a_rejected_finish_gets_one_repair_round_carrying_the_gates_own_wo
     findings on it. The second launch's task is `render_violations` — the same text the
     langchain repair round is fed and the same one `pkc draft finish` printed."""
     h = await harness([source()])
+    assert await h.jobs.claim(h.rt.user_id, h.job_id) is not None
 
     async def repair(rt: draft_cmd.DraftRuntime) -> None:
         # Give the uncited claim the citation the gate named, then finish again.
@@ -252,6 +259,7 @@ async def test_a_rejected_finish_gets_one_repair_round_carrying_the_gates_own_wo
 async def test_a_second_rejection_aborts_the_job_and_leaves_canonical_untouched(tmp_path):
     """One repair round, as the langchain executor gets. A second failure is a report."""
     h = await harness([source()])
+    assert await h.jobs.claim(h.rt.user_id, h.job_id) is not None
     fake = FakeHarness(h.rt, [[*CALLS, uncited_claim, "finish"], ["nothing"]])
     result = await runner(fake, tmp_path).run_job(h.rt, h.job_id)
 
@@ -267,11 +275,13 @@ async def test_a_repair_round_resumes_the_first_rounds_session_where_the_harness
         return True
 
     h = await harness([source()])
+    assert await h.jobs.claim(h.rt.user_id, h.job_id) is not None
     fake = FakeHarness(h.rt, [[*CALLS, uncited_claim, "finish"], ["nothing"]])
     await runner(fake, tmp_path, can_resume=always_resumes).run_job(h.rt, h.job_id)
     assert fake.requests[1].resume_session == "sess-1"
 
     h2 = await harness([source()])
+    assert await h2.jobs.claim(h2.rt.user_id, h2.job_id) is not None
     fake2 = FakeHarness(h2.rt, [[*CALLS, uncited_claim, "finish"], ["nothing"]])
     await runner(fake2, tmp_path).run_job(h2.rt, h2.job_id)
     assert fake2.requests[1].resume_session == "", "a CLI without resume gets a fresh process"
@@ -353,6 +363,7 @@ async def test_a_store_that_cannot_read_trailers_is_not_interrogated():
 
 async def test_the_unattended_round_refuses_to_start_on_a_library_it_cannot_attribute(tmp_path):
     h = await harness([source()])
+    assert await h.jobs.claim(h.rt.user_id, h.job_id) is not None
     h.rt.canonical = TrailerCanonicalStore(
         [SnapshotRef(ref="deadbeef", label="hand edit")], trailers={}
     )
@@ -454,6 +465,7 @@ async def test_a_dirty_library_ends_the_unattended_round_by_refusing_the_commit(
     from test_draft_cli import DIRTY, DirtyCanonicalStore  # noqa: E402
 
     h = await harness([source()])
+    assert await h.jobs.claim(h.rt.user_id, h.job_id) is not None
 
     async def somebody_edits_the_tree(rt) -> None:  # noqa: ANN001
         rt.canonical = DirtyCanonicalStore(h.store._docs)
@@ -490,3 +502,93 @@ async def test_the_drain_records_a_dirty_library_on_the_job_rather_than_a_worker
     assert done["job_id"] == job_id
     assert done["ok"] is False
     assert done["detail"] == "canonical_dirty:data/canonical/u-agent/work/aurora.md"
+
+
+@pytest.mark.parametrize("harness_finishes", [True, False])
+async def test_the_unattended_last_message_becomes_the_missing_brief(tmp_path, harness_finishes):
+    h = await harness([source()])
+    assert await h.jobs.claim(h.rt.user_id, h.job_id) is not None
+    briefs = {}
+
+    async def record(job_id, text):
+        if any(c["job_id"] == job_id and c["ok"] and c["snapshot_ref"] for c in h.jobs.completed):
+            briefs.setdefault(job_id, text)
+
+    h.rt.record_brief = record
+    actions = [*CALLS, *(["finish"] if harness_finishes else [])]
+    fake = FakeHarness(h.rt, [actions], result=lambda: LaunchResult(
+        exit_code=0, stdout="", stderr="", last_message="Recorded the synthetic delivery commitments."
+    ))
+    await runner(fake, tmp_path).run_job(h.rt, h.job_id)
+    assert briefs == {h.job_id: "Recorded the synthetic delivery commitments."}
+
+
+async def test_a_finish_brief_wins_over_the_harness_last_message(tmp_path):
+    h = await harness([source()])
+    assert await h.jobs.claim(h.rt.user_id, h.job_id) is not None
+    briefs = {}
+
+    async def record(job_id, text):
+        briefs.setdefault(job_id, text)
+
+    async def finish(rt):
+        assert await draft_cmd.cmd_finish(rt, brief="The Steward's explicit brief.") == 0
+
+    h.rt.record_brief = record
+    fake = FakeHarness(h.rt, [[*CALLS, finish]], result=lambda: LaunchResult(
+        exit_code=0, stdout="", stderr="", last_message="The harness's final message."
+    ))
+    await runner(fake, tmp_path).run_job(h.rt, h.job_id)
+    assert briefs == {h.job_id: "The Steward's explicit brief."}
+
+
+async def test_a_brief_store_failure_does_not_leave_a_committed_draft_open():
+    h = await harness([source()])
+    await draft_cmd.cmd_open(h.rt, h.job_id)
+    for verb, args in CALLS:
+        assert await draft_cmd.run_tool(h.rt, verb, args) == 0
+
+    async def unavailable(job, text):
+        raise OSError("synthetic narration store outage")
+
+    h.rt.record_brief = unavailable
+    assert await draft_cmd.cmd_finish(h.rt, brief="The synthetic version was compiled.") == 0
+    assert await h.drafts.get(h.rt.user_id, h.job_id) is None
+    assert h.jobs.completed[-1]["ok"] and h.jobs.completed[-1]["snapshot_ref"]
+
+
+@pytest.mark.parametrize("brief", ["", " \n ", "b" * (draft_cmd.BRIEF_MAX_CHARS + 1)])
+async def test_finish_refuses_a_blank_or_unbounded_brief_without_finishing(brief):
+    h = await harness([source()])
+    await draft_cmd.cmd_open(h.rt, h.job_id)
+    assert await draft_cmd.cmd_finish(h.rt, brief=brief) == draft_cmd.EXIT_REFUSED
+    assert await h.drafts.get(h.rt.user_id, h.job_id) is not None
+    assert not h.jobs.completed and not h.store.commits
+
+
+async def test_finish_reads_its_brief_from_a_file_or_stdin(tmp_path, monkeypatch):
+    import io
+    from pneuma_knowledge_service.cli import _draft_command, build_parser
+
+    for name in ("brief.md", "-"):
+        h = await harness([source()])
+        await draft_cmd.cmd_open(h.rt, h.job_id)
+        for verb, args in CALLS:
+            assert await draft_cmd.run_tool(h.rt, verb, args) == 0
+        recorded = []
+
+        async def record(job, text):
+            recorded.append(text)
+
+        h.rt.record_brief = record
+        text = "Synthetic commitments were recorded.\n"
+        path = tmp_path / name
+        if name == "-":
+            monkeypatch.setattr("sys.stdin", io.StringIO(text))
+            filename = "-"
+        else:
+            path.write_text(text)
+            filename = str(path)
+        args = build_parser().parse_args(["draft", "finish", "--brief", filename])
+        assert await _draft_command(h.rt, args, []) == 0
+        assert recorded == [text]

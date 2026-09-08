@@ -10,11 +10,15 @@ their replay live in `test_access_stats.py` and, against a real postgres, in
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from pneuma_knowledge_core.domain.canonical import CanonicalDocument
 
 from pneuma_knowledge_service.components.attention import AttentionComponent
+
+# The fixed day every clock-dependent assertion below is pinned to; the component reads the
+# wall clock, and a row placed 'five days ahead' must be five days ahead of THIS day.
+TODAY = date(2026, 8, 31)
 
 # ------------------------------------------------------------------------- the faces
 
@@ -114,13 +118,19 @@ async def test_the_deep_tool_says_the_ledger_is_empty_rather_than_returning_noth
     assert "no consultation was recorded" in await tool.ainvoke({"days": 7})
 
 
-async def test_the_reported_window_does_not_reach_past_the_day_it_says_it_ends_on():
+async def test_the_reported_window_does_not_reach_past_the_day_it_says_it_ends_on(monkeypatch):
     """The report prints `window A..B`. A row dated after B was counted in a window whose
     own header says it does not contain it."""
+    class FixedClock:
+        @staticmethod
+        def now(zone):
+            return datetime(TODAY.year, TODAY.month, TODAY.day, tzinfo=zone)
+
+    monkeypatch.setattr("pneuma_knowledge_service.components.attention.datetime", FixedClock)
     ledger = _Ledger(
         [
             {"target_kind": "document", "target_ref": "memory/topics/pricing.md",
-             "day": datetime.now(timezone.utc).date() + timedelta(days=5), "hits": 99},
+             "day": TODAY + timedelta(days=5), "hits": 99},
         ]
     )
     component = AttentionComponent(content=ledger, templates=_templates)

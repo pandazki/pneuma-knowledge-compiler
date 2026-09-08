@@ -88,6 +88,8 @@ class _Embeddings:
 
 def _ctx(store: _Store, **settings_overrides) -> SimpleNamespace:
     values = dict(
+        llm_model="",
+        llm_model_compile="",
         challenge_enabled=True,
         challenge_max_rounds=2,
         challenge_max_questions=6,

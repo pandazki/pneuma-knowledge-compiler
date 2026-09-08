@@ -394,6 +394,17 @@ class QdrantVectorIndex:
             wait=True,
         )
 
+    async def delete_source_chunks(self, user_id: UserId, source_id: SourceId) -> None:
+        """Replace an episode selection without retaining vectors for omitted blocks."""
+        selector = self._chunk_layer_filter(user_id)
+        selector.must = [
+            *(selector.must or []),
+            models.FieldCondition(key="source_id", match=models.MatchValue(value=str(source_id))),
+        ]
+        await self._client.delete(
+            self._collection, points_selector=models.FilterSelector(filter=selector), wait=True,
+        )
+
     async def count_chunks(self, user_id: UserId) -> int:
         """Number of L2 chunk points a user has (re-index before/after verification)."""
         result = await self._client.count(

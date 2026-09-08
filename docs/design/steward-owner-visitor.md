@@ -57,12 +57,13 @@ A `ConsultationRecord` (core `domain/consultation.py`) is a frozen dataclass:
 | Field | Meaning |
 |---|---|
 | `consultation_id`, `user_id`, `created_at` | identity (system-assigned) |
-| `lane` | `fast` / `deep` / `briefing_ask` |
+| `lane` | `fast` / `deep` / `briefing_ask` / `direct` |
 | `visitor_class` | `silent` / `audit` / `business` (§5) |
 | `question`, `as_of` | the question as asked, and the reference instant the lane resolved against |
 | `library_ref` | **the canonical HEAD sampled when the consultation began** — the snapshot id instead when the call was pinned, which is the exact form of the same field. Sampled, not pinned: the evidence faces read live state, which may advance past the sample during the call (a compile lands mid-answer; the claim indexes are unversioned), so the ref names where the reading started rather than one state the whole answer came from |
 | `evidence_handed` | every ADDRESS the lane put in front of the model, and nothing else: `{kind: claim/window/episode/component/document, ref}` where `ref` is a claim anchor with its page, a `source_id ¶a-b` span, or a canonical page path (`document`: a page the lane opened and read in full). It carries the evidence ITEMS and the provenance spans rendered WITH them — a claim note prints its own `[cite: …]` marker and the contract tells the model to copy source references verbatim from those markers, so a span named there is an address the model was shown. The lane publishes it as a manifest at render time (`recall/fast.py:evidence_manifest`) and the builder copies it |
-| `answer_kind`, `answer`, `citations` | the lane's answer; `citations` is a SUBSET of `evidence_handed` by construction — a marker is admitted only when its resolved address is in the manifest (a claim by anchor equality, a span by containment inside a handed span of the same source), so a real source id with an invented interval on it (`¶999`) is prose, not provenance. `answer` is the recorded prose with every bracket still naming an unresolvable handle removed; the answer on the wire is untouched |
+| `answer_kind`, `answer`, `citations` | the answer and its resolving addresses, each with `origin: handed` or `direct`. Model lanes admit against their manifests; agent answers additionally resolve direct reads against tenant-scoped L0 and canonical anchors (below). Unresolved handles are removed from model-lane recorded prose; an agent answer with an invalid citation is refused before recording |
+| `citations_direct` | the count of citations whose stored origin is `direct`; handed evidence remains exactly what the lane handed |
 | `miss` | one rule, every lane: `answer_kind == "no_record"`, or nothing reaching the model at all (see below) |
 | `degraded` | the lane's degradation flags, copied |
 | `token_usage` | what the consultation SPENT, as the lane's own usage mapping in field order. Tokens and never money: the count is what happened and stays true, while a price is a commercial arrangement that moves without asking this record — so the cost is derived when somebody reads, out of the rates the deployment declares then (`MODEL_PRICING`), and is absent rather than zero for a model it never priced |
@@ -74,7 +75,7 @@ event channel, and one pure builder per lane (`recall/consultation.py`, beside t
 rather than beside the record: the shape a builder reads is the lane's, and domain → recall
 would be the wrong direction). It holds no consultation port and reads no consultation.
 
-**The table above is a UNION across the three lanes, and no lane fills all of it:**
+**The table above is a UNION across the answering lanes, and no lane fills all of it:**
 
 - **fast** populates everything. Its `citations` are not a field on `FastAnswer` — there is
   none — but the answer's own markers re-parsed through the lane's `citation_handles` map: a
@@ -102,6 +103,27 @@ would be the wrong direction). It holds no consultation port and reads no consul
   Its `library_ref` is the pack's own pinned commit ref — a briefing is pinned by
   construction, so no HEAD lookup happens.
 
+**Under an agent executor, the agent's reading IS retrieval.** A hand-over's manifest
+cannot enumerate subsequent `canonical read` and `source fetch` calls; keyless retrieval may
+hand an empty manifest because the glance pick needs a model. Membership was a proxy for
+resolution, and direct reading makes it the wrong proxy. `pkc consult answer` resolves every
+marker through the hand-over's handle map when applicable, otherwise as a real
+`[cite: <sid> ¶a-b]` address or a `c:xxxx` anchor. The source must exist in this tenant's L0
+with `1 <= a <= b <= block count`, or the anchor must exist in this tenant's canonical.
+Manifest membership (anchor equality or span containment) keeps `origin: "handed"`;
+resolving addresses outside it carry `origin: "direct"`. An invented interval on a real
+source is refused with exit 4, naming the citation; no record or projection job is emitted,
+and the pending hand-over stays open for a corrected answer. `evidence_handed` is unchanged.
+
+`pkc consult record --question <q> --text-file <f>` (or `-` for stdin) records an answer when
+no hand-over was made: lane `direct`, empty handed evidence, every citation direct, the same
+resolution, fast record builder and `_spawn_recording` emission. It samples `library_ref` at
+recording and leaves `as_of` absent; it cannot reconstruct the earlier reading snapshot.
+Both commands accept `--kind no_record`. Direct recording defaults to `business` and accepts
+`audit` or `silent`, with the same row/job rules as a handed answer. One question, one record:
+a failed close leaves the answer correctable; re-running recall to fix it creates another
+hand-over instead. No kept record is rewritten.
+
 **A map of where something is is not evidence.** The library GLANCE — every page's path,
 title and one-line definition, which fast, deep and the briefing pack all open with — is
 deliberately absent from every manifest: it is how a model decides what to read, counting it
@@ -112,7 +134,8 @@ pages whose text actually reached the model. A source section's structure outlin
 briefing pack (`- <section>  ¶a-b`) is out for the same reason as the glance.
 
 **`miss` is one rule for every lane**: `answer_kind == "no_record"`, or nothing reaching the
-model at all — `domain/consultation.py:is_miss(answer_kind, evidence_handed)`. The predicate
+model at all — neither handed evidence nor resolving direct citations. The shared predicate
+is `domain/consultation.py:is_miss(answer_kind, evidence_handed, citations)`. The predicate
 is mechanical rather than each caller's discretion, because everything counting "what the
 library could not answer" is only as truthful as it is.
 

@@ -637,6 +637,9 @@ _STEWARD_ROUND_ZH = """\
 
 一个编译作业就是一轮工作，顺序如下：
 
+本轮开始前，`pkc outline` 按族展示每一页，没有 top-K 或字符预算。它也是会话开始时使用的
+完整地图，所以不会把 `glance` 省略的页面误认成库里没有的主题。
+
 1. `pkc jobs` —— 队列里有什么。
 2. `pkc draft open <job-id>` —— 认领作业，并打印两样东西：你写入所依据的契约，以及这一轮的任务
    （它点明本轮的材料）。两样都要读。在它跑过之前，这个作业没有任何写入命令。
@@ -645,9 +648,12 @@ _STEWARD_ROUND_ZH = """\
 4. 写：`pkc draft append-block`、`create-document`、`edit-claim`、`supersede-claim`、
    `rewrite-overview`、`set-fields`。一条命令施加一次改动，并打印发生了什么。
 5. 拿不准这一轮还剩多少、或机械检查已经认定欠了什么时，用 `pkc draft status`。
-6. `pkc draft finish` —— 闸门审判整份草稿并提交它，或者驳回并打印它发现的东西。
+6. `pkc draft finish --brief <f>`（或 `--brief -`）提交你为本版本写的简报；非空且不超过 8000
+   字符。闸门审判整份草稿并提交它，或者驳回并打印它发现的东西。
 7. 被驳回时：修掉它点名的问题，再跑一次 `pkc draft finish`。只修一轮。第二次驳回是一份报告，不
    是第三次尝试——说清楚卡在哪里，然后停下。
+8. `pkc draft finish` 成功后，对每个写入过的族运行 `pkc outline --family <template>`。
+   完整的族列表展示新页面实际落在哪个族下，不会为了满足预算而省略它们。
 
 `pkc draft check` 在任何时刻跑同一套审判而不结束这一轮。`pkc draft abandon` 释放作业并删除草
 稿，知识库分毫未动。
@@ -676,8 +682,8 @@ _STEWARD_UNATTENDED_TASK_ZH = """\
 
 没有人守在终端前。worker 已经认领了作业 `{job}` 并为你打开了草稿，所以下面这一轮从第 3 步开
 始：先读你将要改动的页面，再写，然后收尾。不要再跑 `pkc draft open` 去认领它——它已经被认领
-了。（真跑了 `pkc draft open {job}` 也只是恢复这份已打开的草稿并重新打印这两份文本，绝不会认领
-第二次。）
+了。（再次运行 `pkc draft open {job}` 只允许同一执行者恢复草稿并重印文本；其他执行者会被拒绝。
+worker 与这个 harness 共享通过 PKC_DRAFT_EXECUTOR 导出的启动身份。）
 
 用 `{pkc}` 来跑这条命令——就是这条路径，照写。你的工作目录里什么都没有：这条路径是你伸向这个知
 识库的唯一一只手。
@@ -685,6 +691,8 @@ _STEWARD_UNATTENDED_TASK_ZH = """\
 用 `pkc draft finish` 结束这一轮。若它以 4 退出，就照它点名的内容修，然后再跑一次——只有一次修
 复轮。若有什么离开 owner 就无法定夺，把它说清楚然后停下；作业还可以回收，建立在猜测上的断言不
 能。
+
+若 finish 没有提供 --brief，你的最终消息会作为本版本的简报；正文非空且不超过 8000 字符。
 
 任务如下。
 """
@@ -744,11 +752,11 @@ pkc owner say --text-file - --about <page>
 _STEWARD_CANNOT_ZH = """\
 ## 你做不到的事
 
-- **删掉一条断言。** 没有删除动词。世界已经走过去的断言被取代；本来就写错的断言被修订。两者都
+- **悄悄删掉一条断言。** 编译没有删除动词；演进逐个点名丢失的锚点供 Owner 审阅。世界已经走过去的断言被取代；本来就写错的断言被修订。两者都
   保留原先在那里的东西。
 - **不带作业写正本。** 每一次写入都属于一份认领了作业的打开中的草稿。没有任何命令能在草稿之外
   改动一页。
-- **用别的方式够到正本。** 不能改文件，不能走 git，不能走某个应用的 API。门就是 `pkc draft`。
+- **用别的方式够到正本。** 不能改文件，不能走 git，不能走某个应用的 API。断言走 `pkc draft`，结构走 `pkc evolve draft`。
 - **搬动或改写 `archive/` 之下的任何东西，或者自己写一页归档记录。** 归档是 owner 把知识挪过去
   的地方，留在腾出的路径上的那页记录陈述的是他们作出的决定。两者都由一条机械的通道写出，且只在
   owner 确认过的提案上写；除此之外落在它们身上的任何改动，闸门都以 `archived_path` 拒掉。
@@ -802,6 +810,7 @@ _STEWARD_REFERENCES_ZH = """\
 - `{contract}` —— 你写入所依据的契约：在这个知识库里，什么配得上一页，以及它该落在哪里。这是判
   断力，也是你拿不准某件事究竟值不值得记时该重读的那份文档。
 - `{instructions}` —— `pkc draft open` 打印的那整段契约文本。
+- `{consume}` —— 如何阅读本库、检索原语和本库的领域族。
 - `{cli}` —— 每一条 `pkc` 命令与子命令、它的参数，以及退出码。
 - `{gate}` —— 闸门能作出的全部发现。
 """
@@ -1615,6 +1624,13 @@ _ZH: dict[str, str] = {
     ),
     "source.preamble.title_quoted": "「{title}」",
     # ─────────────────────────────────────────────── ingest rendering
+    "compile.task.agent_session": '这是一次编码代理会话。Owner 回合是知识主体自己的原话；代理叙述是机器对自身工作的记述，可作为做过什么的证据，不能代表知识主体的想法；动作短记只是活动日志，不是知识。',
+    "compile.owner_voice_template": '（owner_voice: true；只能引用知识主体亲自撰写的来源范围）',
+    "gate.owner_voice_unresolved": 'owner_voice 路径上的主张 {anchor} 必须有可追溯到知识主体原文块的出处；缺失或循环的主张引用不能证明作者身份。',
+    "gate.owner_voice": '主张 {anchor} 只能引用知识主体亲自撰写的来源块；{source_id} ¶{start}-{end} 包含非知识主体或作者不明的内容。',
+    'ingest.agent_label': '代理',
+    'ingest.agent_action_label': '代理操作',
+    'ingest.agent_session.title': '代理会话 {session_id}',
     "ingest.owner_label": "知识主体",
     "ingest.other_label": "参与者{n}{suffix}",
     "ingest.speaker_alias": "（{speaker_id}）",
@@ -2233,6 +2249,202 @@ _ZH: dict[str, str] = {
         "它们的地图。"
     ),
     "steward.skill.who": _STEWARD_WHO_ZH,
+    "steward.cli.outline": (
+        "完整地图：每一页都在所属族下，一页一行，绝不裁掉。会话的第一条命令，也是编译后的检查。"
+        "需要按预算挑选头部页面的地图时，见 `glance`。"
+    ),
+    "steward.cli.glance": (
+        "回答通道开头的有预算地图：在字符预算内展示每个族的头部页面——可能省略页面，并说明数量。"
+        "outline 太长时，用它挑选主题；要看完整知识库，用 `outline`。"
+    ),
+    "steward.skill.consume": """## 阅读知识库
+
+会话开始时，第一条命令是 `pkc outline`：秒级的完整地图，每一页都在所属族下，没有 top-K
+或字符预算。
+
+回答时，用 `pkc outline` 找页面，`pkc canonical read <path>` 读页面，
+`pkc recall <q> --evidence` 取 fast 通道的证据，`pkc search <q> --lexical` 查名字和原句，
+`pkc source fetch <sid> ¶a-b` 核对原文事实。仅当 outline 太长、难以扫读时才用 `pkc glance`：
+它按预算挑选，会省略页面并报告数量。`pkc draft finish` 后，对每个写入过的族运行
+`pkc outline --family <template>`，查看新页面的实际落点。
+
+从本库回答问题前，读取 `{consume}`。它提供知识库的设计、阅读原语和本部署的领域 schema。
+在 agent 执行器下，消费由你自己阅读完成：自行沿引用和链接追读，再通过 `pkc consult answer`
+记录回答。fast/deep/briefing API 通道是有密钥的控制台用来测试质量的工具，不是这个执行器
+消费知识库的入口。
+""",
+    "steward.consume.library": """# 阅读知识库
+
+## 这座知识库是什么
+
+知识库把原始材料编译成领域知识。L0 逐字原文块与 canonical 库是权威；词法和语义索引是派生
+视图。这些是同一份来源之上的并行访问层，共用一种地址：来源 id 加块区间。Claim 有锚点
+（`c:xxxx`），并以 `[cite: <sid> ¶a-b]` 引用来源；闸门拒绝无证据的写入。引用能定位证据，
+其含义仍需阅读。
+
+账本只追加，锚点不可变。有界的 overview 头部是当前快照，由账本 claim 或来源区间支撑。
+`<!-- supersedes: c:xxxx -->` 表示世界变了：前驱保留为冻结的历史；沿链追到当前状态。
+关闭卷（`<doc>/aNN.md`）仍是活知识。`archive/` 和已归档来源退出所有默认检索；
+`--include-archived` 将它们纳入并标明状态。原 live 路径上的归档记录解释已退场的主题。
+按已知地址读取仍然可达。
+
+【强】/【中】/【弱】等力度标签表达[契约](contract.md)规定的区分，不是真实性的概率。
+保留它们的条件与不确定性。`pkc profile show` 中，`inferred` 是 Steward 的假设，`owner`
+表示 Owner 写下或确认过，`detected` 表示系统观察所得。
+""",
+    "steward.consume.when_to_use": """## 什么时候用什么
+
+| 时刻 | 命令及其展示内容 |
+|---|---|
+| 会话开始 | 先运行 `pkc outline`：秒级的完整地图。每一页都在所属族下，一页一行；没有 top-K 或字符预算。空族也会点名。 |
+| 回答问题 | `pkc outline` 找页面；`pkc canonical read <path>` 读页面。`pkc recall <q> --evidence` 提供 fast 通道的证据；`pkc search <q> --lexical` 查名字和原句；`pkc source fetch <sid> ¶a-b` 提供原文事实。仅当 outline 太长、难以扫读且按预算挑选有帮助时，才用 `pkc glance`：它挑选每个族的头部页面，可能省略页面，并报告数量。 |
+| `pkc draft finish` 之后 | 对每个写入过的族运行 `pkc outline --family <template>`，查看新页面是否落在正确的族下。这个族列表也完整无遗漏。 |
+
+`outline` 和 `glance` 都是地图，不是可引用的证据。`outline --definitions` 为有定义的页面
+增加一行定义；`--json` 返回族树。两种地图默认省略已归档页面，保留 live 路径上的归档记录，
+用 `--include-archived` 纳入并标明已归档页面。关闭卷的数量标在所属页面旁。
+""",
+    "steward.consume.primitives": """## 阅读原语，按阅读顺序
+
+- `pkc outline` 是完整的族地图；`pkc glance` 是回答通道按预算挑选的地图。
+  两者的完整性保证不同，用途由上表说明。
+- `pkc canonical ls` 列出页面；`pkc canonical read <path>` 打印页面的 overview、账本、
+  锚点与引用。沿链接和卷目录继续读；用 `pkc canonical history <path> c:xxxx`
+  查看一条 claim 的接替链。
+- `pkc search <q> --lexical` 打印 L1 命中及来源/块地址，不受 intake plan 限制。
+  查名字、原句或没有 canonical claim 的材料时使用。查看检索旋钮 `intake.semantic_retrieval`
+  （`PNEUMA_KNOWLEDGE_SEMANTIC_RETRIEVAL`）：`on` 时 `--semantic` 可查已索引的概念匹配；
+  `off` 不构建 embedding 或 L2 支路。默认 search 融合可用支路。语义摘要是派生内容，不是原文。
+- `pkc source structure <sid>` 打印元数据和章节到块的映射；
+  `pkc source fetch <sid> ¶a-b` 打印逐字区间。用它们核对措辞、说话人和上下文：
+  来源材料是 claim 之下的事实依据。
+- `pkc recall <q> --evidence` 打印 fast 通道的证据上下文、查询内句柄和 `handoff_id`。
+  它不构建 chat model；关闭语义检索时完全不需要模型。用它汇集证据并打开待回答的咨询交接。
+- `pkc history` 打印版本、作业和来源；`pkc brief <version>` 打印保留的编译后简报。
+  用它们定位知识库何时变化，再读对应 claim。
+- `pkc consultations` 打印过往问题、访客类别、未命中和证据/引用数。
+  用它查看已记录的使用；咨询是保留记录，不是知识。
+
+多跳阅读由你自己逐次调用这些命令完成：沿页面链接、claim 链或引用读取下一项，直到证据
+回答了问题，或库的空白已清楚。完整命令参数见 [cli.md](cli.md)。
+""",
+    "steward.consume.schema": """## 本部署的领域 schema
+
+已解析契约：`{skill_id}` / `{version}`。下面按声明顺序列出它的族，即路径模板；
+各族的范围和措辞由 [contract.md](contract.md) 规定。
+
+{families}
+""",
+    "steward.consume.owner_voice": " —— 仅限 Owner 自己的话（`owner_voice`）",
+    "steward.consume.no_families": "这份契约没有声明路径模板。",
+    "steward.consume.answering": """## 回答
+
+引用你实际读到的内容：页面和 claim 锚点加其来源区间，或来源区间本身。把摘要当作精确措辞前，
+先读它引用的区间。库中没有相关记录时明确说出。来源类型带角色（`owner-dialogue/v1`、
+`agent-session/v1`）时，区分 Owner 自己的话与 Steward 或 agent 叙述；报告完成不等于
+Owner 验收，动作 stub 不等于执行成功。
+
+用你写下的回答记录使用：`pkc consult answer <handoff_id> --text-file <f>`（`-` 读 stdin）
+关闭 `recall --evidence` 的交接。引用你读过的内容：交接句柄、真实的 `[cite: <sid> ¶a-b]`
+地址或 `c:xxxx` 锚点。交接引用与直接引用都会进入记录，而且都必须在当前租户的 L0 块范围或
+canonical 锚点中解析成功；无效引用以退出码 4 拒绝回答，交接保持待答以便纠正。
+直接引用带 `origin: "direct"`，不扩充 `evidence_handed`。
+从未运行 `recall --evidence` 时，用 `pkc consult record --question <q> --text-file <f>`
+（或 `-`）收尾：同样的解析和记录路径，lane 为 `direct`，不需要交接。
+库没有答案时用 `--kind no_record`。一个问题，一条记录：不要重跑 recall 来「修复」记录；
+纠正被拒绝的回答，再提交。交接本身不记录咨询，成功关闭就会消耗它。两条命令写记录都无需模型。
+默认的 `business` 类别记录并排队更新访问账本；`--visitor-class audit` 只记录、不产生影响，
+`silent` 什么也不记录。交接的类别在 recall 时固定；直接记录在 `consult record` 上选择。
+worker 清完队列后，`attention` 组件才读到这次更新。
+
+Visitor 从库中阅读并回答。Owner 还可以陈述纠正或请求结构变化；这些动作遵循 SKILL.md
+中的 Owner 陈述与演进流程。两种姿态都不会把回答变成 canonical 知识。在 agent 执行器下，
+阅读由 agent 完成；fast/deep/briefing API 通道是有密钥的控制台用来测试质量的工具。
+""",
+    "steward.skill.episodes": """## 编译前的片段划分
+
+`pkc jobs` 列出 episodes 作业时，在打开它的编译轮之前先用 `pkc index episodes open <job>`
+打开。阅读来源的结构图、带编号的块及其 role/kind 标签；需要进一步阅读时用
+`pkc source fetch`。按主题切成连贯的片段，每个标题和描述都以所覆盖的块为依据。
+不承载知识的内容可以不划入任何片段，它仍通过 L0 和 L1 可达。这是检索判断；值得找回的细节，
+即使编译契约不让它进入 canonical，也可能值得一个片段。
+
+用 `pkc index episodes propose --file <f>` 提交完整数组（或用 `-` 从标准输入读取）。
+门在写入时逐项列出区间违规，并列出没有片段的块；`[]` 明确表示本来源没有值得进入 L2 的内容。
+`pkc index episodes status` 显示预算与未覆盖块，`pkc index episodes finish` 记录选择并嵌入，
+`pkc index episodes abandon` 释放未完成的一轮。编译读取 L0，绝不等待此作业。
+此执行器跳过 challenge：没有作业、门或技能步骤。
+""",
+    "steward.episodes.rules": """# 片段——索引门
+
+按主题划分连贯的片段，避免过度切分。每个片段都是实际块编号的闭区间：start <= end，
+起点严格递增，相邻片段最多共享 {overlap} 个块，片段数不超过来源块数。
+允许留空，也允许整个来源没有片段；未覆盖块仍可通过 L0/L1 访问。
+机械门拒绝无效边界，不会自动修补成另一种选择。
+
+每个片段给出有依据的标题和说明其内容的第三人称事实描述，保留覆盖块确实支持的具体人物、
+日期、地点、事件、决定、原因、计划和结果。仅在来源提供发生日期时换算相对日期。
+使用所给 role/kind 标签区分 Owner 发言、代理回复和活动摘要，不把代理的断言变成 Owner 的话。
+这些字段是派生检索辅助信息，不是原文证据或 canonical 主张。
+两个字段都必须是非空字符串：规范化空白后，标题不超过 {title_limit} 个字符，描述不超过
+{description_limit} 个字符。
+
+仅提交 JSON：[{{"start": a, "end": b, "title": "...", "description": "..."}}, ...]。
+块编号必须是整数，允许空数组 []。每次提案替换完整选择。
+""",
+    "steward.episodes.task": "来源与结构图：\n{source}\n\n预算：{budget} 次调用。提交片段后 finish。\n",
+    "steward.episodes.shape": "episodes.shape：应为对象数组，每个对象恰好包含 start、end、title、description",
+    "steward.episodes.endpoints": "episodes.endpoints：片段 {episode} 必须使用真实的整数块编号",
+    "steward.episodes.text": "episodes.{field}：片段 {episode} 需要不超过 {limit} 个字符的非空字符串",
+    "steward.episodes.proposal_required": "episodes.proposal：请提交提案；没有值得保留的片段时也须提交 []",
+    "steward.episodes.no_episode": "no episode（没有片段）：{blocks}（仅 L0/L1）",
+    "steward.episodes.source_changed": "episodes.source_changed：打开后 L0 已改变；请 abandon 后重新打开此作业",
+    "steward.episodes.executor_required": "episodes.executor：compile 角色必须指定代理执行器",
+    "steward.episodes.recorded": "episodes.recorded：本次判断已成为留存记录；重试 finish 来重建其向量",
+    "steward.episodes.skill_required": "episodes.executor_skill：finish 需要已安装的 Executor-Skill sha256；请运行知识库已安装的 pkc shim",
+    "steward.episodes.finished": "episodes：已记录 {count} 个片段；索引完成",
+    "steward.unattended.episodes_task": """## 这一轮片段划分已经开好
+
+worker 已认领 episodes 作业 `{job}` 并打开草稿。阅读下面的规则与来源结构，
+用 `pkc index episodes propose` 选择有依据的主题片段，以 `pkc index episodes finish` 结束。
+用 `{pkc}` 来运行所有知识库命令：就是这条路径，它从空工作目录连接本知识库。
+再次打开 `{job}` 只允许同一执行者恢复这一轮；其他执行者会被拒绝。退出码 4 允许一轮修复。
+没有值得划入片段的内容时，明确提交 [] 并 finish；沉默不是提案。任务如下。
+""",
+    "steward.skill.evolve": """## 一轮演进
+
+一个 evolve 作业分两半：先判断，再调整结构。`pkc evolve draft open <job-id>` 认领作业；
+`pkc evolve draft open --new` 打开 Owner 主动请求的一轮。`--from <proposal>` 在原始基线上
+继续一份提案。先读 open 打印的当前契约、路径模板、packs、近期编译事件计数、文档树和组件的
+演进证据；用 `pkc canonical read <path>` 与 `pkc source fetch` 查看证据本身。
+
+`pkc evolve draft propose --file <f>`（或用 `-` 读 stdin）提交判断：EvolveProposal JSON
+包含 `packs`（SchemaPack 对象）和引用上述证据的非空 `rationale`。每个 pack 有 `pack_id`、
+`origin: "evolved"`、`extra_instructions`、`extra_path_templates`，以及可选的
+`extra_contract_rules`。可选的 `retire_packs` 点名现有 pack；`rename_packs` 把现有 id 映射为
+新名字；`path_templates` 声明最终完整模板集；`dropped_anchors` 逐个点名将退场的断言锚点。
+空 packs 加理由、且没有结构改动，是合法的不变判断。格式错误的提案在替换草稿前就被拒绝。
+
+再用 `pkc evolve draft move-claim <from-path> <anchor> <to-path>`、`rename <path> <new-path>`
+或 `retire <path>` 整理结构。move 逐字保留断言与引用，必要时创建空的目标页；rename 保留文档
+身份；retire 移除空页或 `dropped_anchors` 中点名的断言，不能悄悄丢失锚点。归档记录和关闭卷
+拒绝结构写入。`pkc evolve draft contract edit --file <f>`（或 `-`）提交修订的契约文本；
+可附带声明 path_templates 的契约 frontmatter。新版本只在采纳后生效。
+
+每次写入都后检，违规就回滚，被拒也花一次预算。结构调整期间旧家族路径可以暂留，finish 要求可写页
+符合最终模板，已有归档记录和关闭卷保持冻结。`pkc evolve draft status` 显示预算与发现，`pkc evolve draft check` 运行闸门但
+不结束。`pkc evolve draft finish` 运行同一个 evolve gate：锚点守恒、丢失逐个点名、引用完好、
+字段和路径合法；随后写出普通提案与分支，`pkc evolve ls/show` 和控制台照常读取。可修复一轮。
+`pkc evolve draft abandon` 释放作业并丢弃临时草稿；静默草稿按 COMPILE_DRAFT_TTL 过期。
+
+采纳由 Owner 决定：`pkc evolve adopt <id>` 排入现有三方合并流程。没有新增 evolve workflow
+脚本：两种宿主都以本流程和机械生成的 CLI 参考为准，workflows/compile.js 仍只用于编译。
+""",
+    'steward.unattended.evolve_task': '## 这一轮演进已经开好\n\nworker 已认领 evolve 作业 `{job}` 并打开草稿。先读下面的证据与当前契约，用\n`pkc evolve draft propose` 提交第一阶段判断，再通过 `pkc evolve draft` 调整结构。\n再次打开作业 `{job}` 只允许同一执行者恢复本轮；其他执行者会被拒绝。用 `{pkc}` 来运行知识库命令：就是这条路径，它从空工作目录\n连接本知识库。以 `pkc evolve draft finish` 结束；退出码 4 允许一轮修复。\n结果是一份供 Owner 审阅的提案；采纳由 Owner 决定。无需调整结构时，提交空 packs 和引用证据的\n理由，然后 finish 这轮不变判断。\n\n任务如下。\n',
+    'steward.evolve.packs': '## 当前 schema packs\n\n{packs}',
+    'steward.evolve.unnamed_drop': '锚点 c:{anchor} 将丢失但未点名；请在 proposal.dropped_anchors 中点名或保留它',
+    'steward.evolve.proposal_required': '缺少第一阶段判断：运行 `pkc evolve draft propose --file <f>`',
+    'steward.evolve.closed_volumes': '{operation} 被拒：文档有关闭卷',
     "steward.skill.round": _STEWARD_ROUND_ZH,
     "steward.skill.door": _STEWARD_DOOR_ZH,
     "steward.skill.postures": _STEWARD_POSTURES_ZH,

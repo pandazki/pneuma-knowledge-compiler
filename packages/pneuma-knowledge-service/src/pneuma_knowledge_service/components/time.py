@@ -128,6 +128,7 @@ _INSTANT_META: dict[str, tuple[str, str]] = {
     # coarse occurrence day, so a timeline could not tell a morning correction from the
     # afternoon one that walked it back — on the one material whose author is the subject.
     "owner_dialogue": ("turns", "said_at"),
+    "agent_session": ("turns", "at"),
 }
 
 #: Output bounds. A digest that silently stops reads as "that was everything"; each of

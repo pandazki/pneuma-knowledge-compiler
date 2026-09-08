@@ -50,6 +50,8 @@ class Knob:
     enum_source: str = ""
     # Only for knobs with no `setting` to read a default from (document / overlay_map).
     literal_default: object = ""
+    # A knob may require both rewiring and an explicit rebuild of existing derived data.
+    additional_apply: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -127,6 +129,26 @@ STAGES: tuple[Stage, ...] = (
         doc="docs/reference/configuration.md#l2-chunking",
         file="intake/intake.yaml",
         knobs=(
+            Knob(
+                key="semantic_retrieval",
+                type="enum",
+                enum=("on", "off"),
+                apply="restart",
+                additional_apply=("derived_rebuild",),
+                env="PNEUMA_KNOWLEDGE_SEMANTIC_RETRIEVAL",
+                setting="semantic_retrieval",
+                label_en="Semantic retrieval",
+                label_zh="语义检索",
+                description_en=(
+                    "off skips embeddings, L2 chunks and vector recall; L0, lexical search "
+                    "and canonical claims remain available. Restart after changing; run "
+                    "rebuild_derived after enabling to index existing sources."
+                ),
+                description_zh=(
+                    "off 跳过 embedding、L2 切块和向量召回；L0、词法搜索和正本断言仍可用。"
+                    "修改后需重启；启用后运行 rebuild_derived 为已有来源建立索引。"
+                ),
+            ),
             Knob(
                 key="chunk_strategy",
                 type="enum",
@@ -1379,6 +1401,14 @@ NON_ENGINE_SETTINGS: frozenset[str] = frozenset(
         # self-heal deletes it. The same plumbing decision one line up: it says when a body
         # has stopped holding something, never what is retrieved or how it is answered.
         "recall_handoff_ttl",
+        # WHICH tenants this worker drains (docs/design/single-machine-edition.md §11.7).
+        # It says which queue rows this PROCESS is willing to touch when several engines
+        # share one Postgres — a deployment's own topology, and unstatable in an engine
+        # directory by construction: the directory belongs to one library, and this is the
+        # line that keeps a worker out of another library's. It changes nothing about what
+        # is compiled or how; the neighbour's jobs are compiled by the neighbour's engine,
+        # under the contract ITS directory states.
+        "worker_tenants",
         # Which harness typed the commands of an agent-driven round. Written by whoever
         # launched that session and read only when a job row is stamped with its executor:
         # a record of what happened, not a choice about what happens. The choice is the

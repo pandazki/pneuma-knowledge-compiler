@@ -373,6 +373,18 @@ class StageTiming:
     preview: dict | None = None
 
 
+def semantic_skipped_stages(
+    embeddings: object | None, *, retrieval_available: bool = True
+) -> tuple[StageTiming, ...]:
+    """The absent semantic arms, reported as a choice rather than a retrieval failure."""
+    if embeddings is not None or not retrieval_available:
+        return ()
+    return tuple(
+        StageTiming(name=name, ms=0, status="skipped", detail="semantic retrieval is off")
+        for name in ("embed", "retrieve.vector", "episode_summaries")
+    )
+
+
 #: A stage is either beginning or settling. There is no third phase: a stage that never
 #: begins simply has no events, which is the same fact `emit` reports as `status="skipped"`.
 StagePhase = Literal["start", "end"]

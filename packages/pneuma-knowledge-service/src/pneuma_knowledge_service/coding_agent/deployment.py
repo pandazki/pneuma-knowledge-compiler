@@ -1,9 +1,9 @@
 """What this deployment renders a skill package FROM, resolved once.
 
-`install`, `verify`, `show` and the engine's own apply hook must all render from identical
-inputs — otherwise the freshness check reports drift that is really just two callers
-disagreeing about which contract, which wording, which components. So there is one function
-that answers "what is this deployment", and every caller goes through it.
+`install`, `render`, `verify`, `show` and the engine's own apply hook must all render from
+identical inputs — otherwise the freshness check reports drift that is really just two
+callers disagreeing about which contract, which wording, which components. So there is one
+function that answers "what is this deployment", and every caller goes through it.
 
 Deliberately DATABASE-FREE. A package is a rendering of the engine — contract, wording,
 language, components, command tree — and none of that lives in Postgres. That is what lets
@@ -130,8 +130,17 @@ def owner_from_engine(engine_dir: str) -> tuple[_EngineOwner | None, str, str]:
     return owner, (zone if stated else ""), ("profile" if stated else "")
 
 
-async def resolve_deployment(settings, *, user: str, parser_for) -> Deployment:  # noqa: ANN001
-    """Everything a rendering needs, from settings alone — no database, no model."""
+async def resolve_deployment(  # noqa: ANN001
+    settings, *, user: str, parser_for, language: str | None = None
+) -> Deployment:
+    """Everything a rendering needs, from settings alone — no database, no model.
+
+    `language` names a pack instead of the engine directory's own, for the one caller that
+    renders a package somebody will read rather than a package a harness was installed with
+    (`pkc skill render --out`). The override is the pack that is APPLIED before the prose is
+    read, never a label written over an English rendering: the bytes are really in that
+    language, and the hash says so. Left None — every other caller — the engine states it.
+    """
     from importlib.metadata import PackageNotFoundError, version as package_version
 
     from pneuma_knowledge_core.components import registered_components
@@ -143,12 +152,14 @@ async def resolve_deployment(settings, *, user: str, parser_for) -> Deployment: 
     from ..wiring import register_components
 
     engine_dir = (settings.engine_dir or "").strip()
-    language = "en"
+    asked = (language or "").strip()
+    active = asked or "en"
     if engine_dir:
         from ..engine.files import EngineFileError, read_mapping
         from ..engine.prompts import overlays_file
 
-        language = active_language(engine_dir)
+        if not asked:
+            active = active_language(engine_dir)
         try:
             from ..engine.files import parse_overlays
 
@@ -157,7 +168,11 @@ async def resolve_deployment(settings, *, user: str, parser_for) -> Deployment: 
             )
         except (EngineFileError, OSError):
             overlays = {}
-        apply_prompt_stack(language, overlays)
+        apply_prompt_stack(active, overlays)
+    elif asked:
+        # No engine directory to read overlays from, but a pack was named: apply it, or the
+        # rendering would carry a language it is not written in.
+        apply_prompt_stack(active, {})
 
     # The contract. A deployment that already registered one (a process that imported its
     # application) keeps it; otherwise the engine directory's own `compile/contract.md` is
@@ -207,7 +222,7 @@ async def resolve_deployment(settings, *, user: str, parser_for) -> Deployment: 
         time=time,
         components=components,
         parser=parser_for(),
-        language=language,
+        language=active,
         framework_version=framework_version,
         user_id=user_id,
     )

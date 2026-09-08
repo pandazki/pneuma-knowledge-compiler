@@ -227,6 +227,10 @@ def harness_env(
     if manifest.config_home_env:
         env[manifest.config_home_env] = config_home
     env[BACKEND_ENV] = manifest.name
+    # A console session's config home is unique and survives reconnects. Unattended rounds
+    # override this with their own PKC_DRAFT_EXECUTOR, shared by runner and child commands.
+    env["PKC_STEWARD_SESSION"] = config_home
+    env.pop("PKC_DRAFT_EXECUTOR", None)
     # Which library. Stated before `extra` so a caller may still override one field, and
     # stated at all because the child has no project `.env` to fall back on.
     env.update(connection_env(settings))
@@ -401,7 +405,7 @@ async def _run_once(request: LaunchRequest, workdir: Path) -> LaunchResult:
         timed_out=timed_out,
         rate_limited=_is_rate_limited(manifest, code, f"{stdout}\n{stderr}"),
         session_id=report.session_id,
-        last_message=last_message,
+        last_message=report.last_message or last_message,
     )
 
 

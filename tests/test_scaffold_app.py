@@ -198,8 +198,9 @@ def test_example_contract_has_operative_body_after_comment_stripping():
 
 
 def test_starter_contracts_are_executable_without_placeholder_admission():
+    templates = ROOT / "packages/pneuma-knowledge-service/src/pneuma_knowledge_service/engine/templates"
     for name in ("contract.zh.md", "contract.en.md"):
-        text = (ROOT / "scaffold" / "templates" / name).read_text(encoding="utf-8")
+        text = (templates / name).read_text(encoding="utf-8")
         assert "{{SKILL_ID}}" in text
         assert "TODO" not in text
         assert "subjects/{slug}.md" in text
@@ -1645,7 +1646,9 @@ async def test_unstated_profile_does_not_invent_personal_facts_or_dates(monkeypa
     assert not seen["joined_at"] and not any(seen["workspace"].values())
     assert not seen["industry"] and not seen["role"] and not seen["level"]
     assert not seen["locale"]["timezone"] and not seen["locale"]["country"]
-    assert seen["preferences"]["response_language"] == "zh-CN"
+    assert not any(seen["preferences"].values())
+    from pneuma_knowledge_core.domain.user import PROFILE_FIELDS
+    assert all(seen["provenance"][key] == "placeholder" for key in PROFILE_FIELDS)
 
 
 async def test_declared_industry_is_a_profile_even_without_a_name(monkeypatch):
@@ -1661,6 +1664,10 @@ async def test_declared_industry_is_a_profile_even_without_a_name(monkeypatch):
     assert seen["source"] == "user"
     assert seen["industry"] == "tech"
     assert not seen["display_name"] and not seen["locale"]["country"]
+    from pneuma_knowledge_service.persona_profile import is_placeholder
+    assert not is_placeholder(seen)
+    assert seen["provenance"]["industry"] == "owner"
+    assert seen["provenance"]["display_name"] == "placeholder"
 
 
 def test_live_console_worker_blocks_cli_queue_takeover(monkeypatch):

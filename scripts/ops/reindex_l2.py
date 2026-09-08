@@ -44,6 +44,9 @@ _chunks_for = plan_l2_chunks
 
 
 async def reindex_user(ctx, user_id: UserId) -> None:
+    if getattr(getattr(ctx, "settings", None), "semantic_retrieval", "on") == "off":
+        print(f"  L2  skipped for {user_id}: semantic retrieval is off")
+        return
     before = await ctx.vectors.count_chunks(user_id)
     sources = await ctx.store.list(user_id)
     print(f"\n== {user_id}: {len(sources)} source(s), L2 chunks before = {before} ==")

@@ -14,8 +14,9 @@ from pneuma_knowledge_core.domain.ids import SourceId, UserId
 from pneuma_knowledge_core.domain.source import NormalizedSource
 
 from ..adapters.postgres import PostgresDraftStore
-from ..persona_profile import is_placeholder
-from ..skills import skill_for_user
+from ..persona_profile import is_placeholder, profile_notice
+from ..skills import skill_for_user, composed_skill_readonly
+from ..source_authorship import load_owner_authored_blocks
 from ..wiring import AppContext
 from ..workers.compile_worker import (
     _search_knowledge_port,
@@ -28,7 +29,7 @@ from .draft import DraftRuntime
 
 
 async def build_runtime(
-    ctx: AppContext, user_id: UserId, *, executor: str | None = None
+    ctx: AppContext, user_id: UserId, *, executor: str | None = None, kind: str = "compile"
 ) -> DraftRuntime:
     """One tenant's draft runtime over this deployment's adapters.
 
@@ -37,16 +38,20 @@ async def build_runtime(
     Owner opened: nothing told this process which harness it is. The WORKER passes the
     resolved spec instead, because in the unattended posture it launched the harness itself
     and knows (§9)."""
-    skill = await skill_for_user(ctx, user_id)
+    skill = (await composed_skill_readonly(ctx.settings, ctx.canonical, user_id)
+             if kind in ("evolve", "episodes") else await skill_for_user(ctx, user_id))
     label = executor or agent_executor(ctx.settings)
     # Asked once, here, from the same provider the round's own contract is rendered from
     # (`compile_inputs`): does this library's profile name its Owner? A lookup that fails is
     # not a finding — the notice exists to catch the generator's placeholder, not to report
     # on an unreachable store.
     try:
-        owner_placeholder = is_placeholder(await ctx.user_info.get_profile(user_id))
+        owner_profile = await ctx.user_info.get_profile(user_id)
+        owner_placeholder = is_placeholder(owner_profile)
+        owner_notice = profile_notice(owner_profile)
     except Exception:  # noqa: BLE001 — advisory, and never in the way of opening a round
         owner_placeholder = False
+        owner_notice = ""
 
     async def load_inputs(job):  # noqa: ANN001
         # `caption`: an agent reads a terminal, so native image blocks have nowhere to go.
@@ -79,6 +84,9 @@ async def build_runtime(
             executor=label,
         )
 
+    async def record_brief(job_id: str, text: str) -> None:
+        await ctx.store.record_compile_brief(user_id, job_id, text, if_missing=True)
+
     return DraftRuntime(
         user_id=user_id,
         canonical=ctx.canonical,
@@ -95,5 +103,11 @@ async def build_runtime(
         search_source=_search_source_port(ctx, user_id),
         persist=persist,
         executor=label,
+        compile_draft_ttl=ctx.settings.compile_draft_ttl,
+        worker_posture="unattended" if ctx.settings.agent_unattended else "interactive",
+        kind=kind,
+        record_brief=record_brief,
         owner_is_placeholder=owner_placeholder,
+        owner_profile_notice=owner_notice,
+        owner_authored_blocks=await load_owner_authored_blocks(ctx.store, user_id, skill),
     )
