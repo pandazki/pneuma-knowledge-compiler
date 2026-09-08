@@ -49,6 +49,22 @@ def test_credentials_permissions_output_steps_and_status(home, make_library, mon
     assert row["steps"]["profile"] is None and row["steps"]["first_compile"] is None
 
 
+def test_storing_a_credential_replaces_every_running_engine(home, make_library, monkeypatch, capsys):
+    """A key reaches an engine only as its environment: saving one while the engine runs
+    must replace the process, or recall goes on answering keyless until someone restarts."""
+    up, idle = make_library("up"), make_library("idle")
+    events: list[tuple[str, str]] = []
+    monkeypatch.setattr(engine, "status", lambda _home, library: {"up": library.state.name == "up", "pid": 1, "port": 1, "uptime": 1.0})
+    monkeypatch.setattr(engine, "stop", lambda _home, library: events.append(("stop", library.state.name)))
+    monkeypatch.setattr(engine, "start", lambda _home, library: events.append(("start", library.state.name)))
+    monkeypatch.setattr("sys.stdin", io.StringIO("synthetic-key\n"))
+    assert cli.main(["credentials", "set", "OPENROUTER_API_KEY", "--from-stdin"]) == 0
+    assert capsys.readouterr().out == "stored OPENROUTER_API_KEY (13 chars)\nrestarted engine up so it holds the key\n"
+    assert events == [("stop", "up"), ("start", "up")]
+    assert home.credentials()["OPENROUTER_API_KEY"] == "synthetic-key"
+    assert idle.state.name == "idle"
+
+
 @pytest.mark.parametrize("key,value", [("bad-key", "value"), ("LOWER_key", "value"), ("KEY", "one\ntwo"), ("KEY", "one\0two")])
 def test_credentials_refuse_invalid_content(home, key, value):
     with pytest.raises(ValueError):

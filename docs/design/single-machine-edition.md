@@ -216,7 +216,7 @@ pkchome status [--json] [--library <name>]        everything probed: docker, fou
 pkchome library create <name> [--from <name>] [--language …] [--contract <path>]
 pkchome library ls | show [<name>] | use <name> | bind <name> [<dir>] | unbind [<dir>] | render [<name>]
 pkchome config get|set <key> [<value>] [--library <name>]   home defaults or a library's choices (semantic_retrieval, backend, embedding)
-pkchome credentials set KEY [--from-stdin]        writes ~/.pkc/credentials (0600); never echoes
+pkchome credentials set KEY [--from-stdin]        writes ~/.pkc/credentials (0600); never echoes; replaces every running engine (a key reaches an engine only as its environment)
 pkchome env [--library <name>]                    the assembled environment, for a shell or a script
 pkchome exec [--library <name>] -- <command…>     run a command under that environment; `pkc` resolves to the library's
 pkchome skill install [--backend codex|claude-code|all] [--force]   the harness-level skill; auto-detects the harnesses present

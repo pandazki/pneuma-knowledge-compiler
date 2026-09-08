@@ -30,8 +30,8 @@ registration holds the Owner's self-introduction.
 Read the recorded retrieval choice. If the Owner has yet to choose, ask whether to run
 without semantic retrieval or supply the embedding provider's key. Record it with
 `pkchome config set semantic_retrieval off --library NAME`, or store the key with
-`pkchome credentials set KEY` and set the choice to `on`. Restart engines after changing
-engine settings. Filling semantic retrieval for existing sources uses the library's
+`pkchome credentials set KEY` and set the choice to `on`. Storing a key restarts the running
+engines itself; restart engines after changing other engine settings. Filling semantic retrieval for existing sources uses the library's
 derived-rebuild operation.
 
 # Continuing in a library

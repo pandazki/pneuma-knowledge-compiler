@@ -472,6 +472,18 @@ def restart_engine(home: Home, library: Library) -> bool:
     return True
 
 
+def set_credential(home: Home, key: str, value: str) -> list[str]:
+    """Store one key in the home's credentials and replace every running engine.
+
+    A credential reaches an engine only as its process environment (`home_environment`
+    assembles it at start), so a key saved while the engine runs is a key nothing holds:
+    recall would go on answering 503 keyless until somebody remembered to restart. Returns
+    the names of the libraries whose engine was replaced.
+    """
+    home.set_credential(key, value)
+    return [library.state.name for library in libraries(home) if restart_engine(home, library)]
+
+
 def set_config(home: Home, key: str, value: str, library: Library | None = None) -> str | None:
     """Record one choice. Returns a line for the Owner when the command did more than record."""
     if key.startswith("sync."):

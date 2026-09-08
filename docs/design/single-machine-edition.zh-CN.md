@@ -168,7 +168,7 @@ pkchome status [--json] [--library <name>]        逐项探测：docker、四个
 pkchome library create <name> [--from <name>] [--language …] [--contract <path>]
 pkchome library ls | show [<name>] | use <name> | bind <name> [<dir>] | unbind [<dir>] | render [<name>]
 pkchome config get|set <key> [<value>] [--library <name>]   家的默认值或某座库的选择（semantic_retrieval、backend、embedding）
-pkchome credentials set KEY [--from-stdin]        写 ~/.pkc/credentials（0600）；从不回显
+pkchome credentials set KEY [--from-stdin]        写 ~/.pkc/credentials（0600）；从不回显；重启每个运行中的引擎（密钥只以进程环境抵达引擎）
 pkchome env [--library <name>]                    装配好的环境，给 shell 或脚本用
 pkchome exec [--library <name>] -- <命令…>        在那个环境下运行一条命令；`pkc` 解析为库的那个
 pkchome skill install [--backend codex|claude-code|all] [--force]   harness 级 skill；自动检测在场的 harness

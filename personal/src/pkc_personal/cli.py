@@ -17,7 +17,7 @@ from pkc_personal import infra, setup, skill_install, status, sync
 from pkc_personal.environment import LibraryNotChosen, home_environment, resolve_library
 from pkc_personal.home import Choices, Home, KEY_PATTERN
 from pkc_personal.library import (
-    bind_library, create_library, libraries, pkc_script, render_library, set_config,
+    bind_library, create_library, libraries, pkc_script, render_library, set_config, set_credential,
     unbind_library, use_library,
     watch_project,
 )
@@ -191,8 +191,10 @@ def _dispatch(args: argparse.Namespace, home: Home) -> None:
         if not KEY_PATTERN.fullmatch(args.key):
             raise ValueError("credential name must match [A-Z][A-Z0-9_]*")
         value = sys.stdin.read().rstrip("\r\n") if args.from_stdin or not sys.stdin.isatty() else getpass.getpass(f"{args.key}: ")
-        home.set_credential(args.key, value)
+        restarted = set_credential(home, args.key, value)
         print(f"stored {args.key} ({len(value)} chars)")
+        for name in restarted:
+            print(f"restarted engine {name} so it holds the key")
     elif args.command == "skill":
         paths = skill_install.install(home, args.backend, force=args.force)
         print("\n".join(str(path) for path in paths) if paths else "No harness directories found; use --backend to choose one.")

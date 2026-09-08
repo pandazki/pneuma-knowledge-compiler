@@ -26,7 +26,8 @@ description: 通过 pkchome 与带引用闸门的 pkc 命令，为 Owner 维护�
 
 先读已记录的检索选择。Owner 尚未选择时，询问是关闭语义检索运行，还是提供 embedding
 服务商的密钥。用 `pkchome config set semantic_retrieval off --library NAME` 记录关闭，
-或用 `pkchome credentials set KEY` 保存密钥，再将选择设为 `on`。修改引擎设置后重启。
+或用 `pkchome credentials set KEY` 保存密钥，再将选择设为 `on`。保存密钥会自行重启运行中的引擎；
+修改其他引擎设置后需重启。
 为已有来源补齐语义检索，使用库提供的派生层重建操作。
 
 # 继续维护已有库
