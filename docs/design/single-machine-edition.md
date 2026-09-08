@@ -532,7 +532,7 @@ for every watched library with a live engine, an elapsed interval and no running
 sync.interval_minutes N` and `sync.enabled on|off` edit these home-wide settings. The
 engine action detaches `pkchome sync --library <this> --json`, pinned to its own home and
 library. `/home/status` includes each library's `sync` observation and a top-level `sync`
-for the serving library: `{last_run_at, last_result, watching, next_due}`, plus `running`,
+for the serving library: `{last_run_at, last_result, watching, next_due}` — `last_result` is the last pass's counts only, never its per-session rows — plus `running`,
 current `held` count and a numeric `next_due_ms` for scheduling without client date parsing.
 The due time is derived from the recorded last pass and the current interval; a never-run
 watch is immediately due. The poller also spaces action attempts by the interval so stale

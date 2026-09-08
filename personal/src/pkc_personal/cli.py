@@ -138,7 +138,8 @@ def _dispatch(args: argparse.Namespace, home: Home) -> None:
         print(json.dumps(document, ensure_ascii=False, indent=2) if args.json else status.render_text(document))
     elif args.command == "sync":
         report = sync.run(home, resolve_library(home, explicit), dry_run=args.dry_run, rewritten=args.rewritten)
-        print(json.dumps(report, ensure_ascii=False, indent=2) if args.json else sync.converter().render_sync(report))
+        script = sync.converter()
+        print(json.dumps(script.reportable(report), ensure_ascii=False, indent=2) if args.json else script.render_sync(report))
         if any(row["status"] == "error" for row in report["sessions"]):
             raise RuntimeError("sync had errors; failed parts remain retryable")
     elif args.command == "watch":

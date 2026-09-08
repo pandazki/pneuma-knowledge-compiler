@@ -419,7 +419,7 @@ sync 运行中的库请求 `/home/actions/sync`。`config.yaml` 保存
 及 `sync.enabled on|off` 修改全 home 配置。引擎 action 脱离当前进程会话启动
 `pkchome sync --library <this> --json`，固定到自身 home 和库。`/home/status` 包含每库
 的 `sync` 观察，顶层 `sync` 对应该引擎服务的库：`{last_run_at, last_result, watching,
-next_due}`，另有 `running`、当前 `held` 数及供调度使用的数值 `next_due_ms`，客户端
+next_due}`（`last_result` 只有上一轮的计数，从不带逐会话行），另有 `running`、当前 `held` 数及供调度使用的数值 `next_due_ms`，客户端
 无需解析日期。到期时间由记录的上一轮和当前间隔计算；从未运行的监视立即到期。
 Poller 也按间隔限制 action 尝试，避免陈旧状态或启动失败使每次健康轮询都触发重试。
 Settings 通过 `pkchome watch` 提供间隔、开关和监视目录；Dashboard 显示

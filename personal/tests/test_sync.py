@@ -251,7 +251,9 @@ def test_sync_cli_json_and_status_use_same_edition_state(home, importer, monkeyp
     assert cli.main(["sync", "--library", "notes", "--json"]) == 0
     report = json.loads(capsys.readouterr().out)
     result = sync.status(home, importer.library)
-    assert result["last_result"] == report
+    # Status carries the pass's counts, never its per-session rows.
+    assert result["last_result"] == {key: report[key] for key in sessions.SYNC_COUNTS}
+    assert "sessions" not in result["last_result"]
     assert result["watching"] == [importer.library.state.watch[0].path]
     assert result["next_due_ms"] is not None and not result["running"]
     with sessions.sync_lock(home.path / "run/notes.sync.lock"):

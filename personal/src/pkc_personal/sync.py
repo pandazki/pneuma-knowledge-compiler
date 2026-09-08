@@ -40,7 +40,12 @@ def status(home: Home, library: Library) -> dict:
         # No run means due immediately; epoch is stable across polls and process restarts.
         next_due = ((datetime.fromisoformat(last) + timedelta(minutes=config.interval_minutes))
                     if last else datetime.fromtimestamp(0, timezone.utc)).isoformat()
-    return {"last_run_at": last, "last_result": state.get("last_result"),
+    # Counts only, whatever an older state file holds: a full report here is what made a
+    # status document weigh half a megabyte.
+    result = state.get("last_result")
+    if isinstance(result, dict):
+        result = {key: result[key] for key in script.SYNC_COUNTS if key in result}
+    return {"last_run_at": last, "last_result": result,
             "watching": watching, "next_due": next_due,
             "next_due_ms": int(datetime.fromisoformat(next_due).timestamp() * 1000) if next_due else None,
             "running": script.sync_running(home.path / "run" / f"{library.state.name}.sync.lock"),

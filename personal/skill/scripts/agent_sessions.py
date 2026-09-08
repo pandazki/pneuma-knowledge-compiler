@@ -780,7 +780,9 @@ def _sync_pass(library, watches, state_path, *, dry_run, rewritten, claude_root,
                     line.update(status="error", error=str(exc))
             report["sessions"].append(line)
     state["last_run_at"] = datetime.now(timezone.utc).isoformat()
-    state["last_result"] = report
+    # The state keeps the pass's COUNTS, never its per-session rows: those are the run's own
+    # output, and a thousand of them stored here would ride into every status document.
+    state["last_result"] = {key: report[key] for key in SYNC_COUNTS}
     save()
     return report
 
@@ -791,9 +793,15 @@ def empty_cursor_from(cursor: dict) -> dict:
             "last_turn_id": None, "last_at": None}
 
 
+def reportable(report: dict) -> dict:
+    """The report with its unchanged rows dropped: they say nothing the `unchanged` count
+    does not, and a watched project has hundreds of them on every pass."""
+    return {**report, "sessions": [row for row in report["sessions"] if row.get("status") != "unchanged"]}
+
+
 def render_sync(report: dict) -> str:
     lines = []
-    for row in report["sessions"]:
+    for row in reportable(report)["sessions"]:
         detail = f" {row['held']['owner_turns']} owner turns / {row['held']['chars']} chars" if row.get("held") else ""
         if row.get("source_id"):
             detail += f" source {row['source_id']} · {len(row.get('compile_jobs', []))} compile jobs enqueued"
