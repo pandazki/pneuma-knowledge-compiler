@@ -38,6 +38,7 @@ from .steward_codex import CodexJsonRpcAdapter
 # "whatever the harness defaults to" without a second template or an `if`.
 
 MODEL = "{model}"
+REASONING_EFFORT = "{effort}"
 SYSTEM_FILE = "{system_file}"
 OUTPUT_FILE = "{output_file}"
 PROJECT_DIR = "{project_dir}"
@@ -113,6 +114,11 @@ class BackendManifest:
     config_home_env: str = ""
     #: Where that directory normally is, `~`-relative — what the per-job one is seeded FROM.
     default_config_home: str = ""
+    #: How this harness is told how hard to think, as the flag pair carrying `REASONING_EFFORT`
+    #: — spliced into `launch_command` and `resume_command`, and stated here as well so the
+    #: launcher can ask whether this harness takes an effort at all without knowing its name.
+    #: Empty = it does not, and the configured effort is dropped rather than guessed at.
+    effort_flags: tuple[str, ...] = ()
     #: The files a per-job config home cannot do without: the harness's credentials, and the
     #: configuration the Owner set it up with. Moving the config home moves the CREDENTIALS
     #: with it, and a hermetic home that holds none is a harness that is suddenly logged out
@@ -208,12 +214,19 @@ _CODEX_SANDBOX: tuple[str, ...] = (
     "sandbox_workspace_write.network_access=true",
 )
 
+# How hard a Codex round thinks. A `-c` override rather than a flag of its own, because that
+# is the only channel the CLI has for it: unset, the round inherits `model_reasoning_effort`
+# from the config home it was seeded from — the Owner's own — which is what
+# `PNEUMA_KNOWLEDGE_AGENT_REASONING_EFFORT` exists to stop being the only answer.
+_CODEX_EFFORT: tuple[str, ...] = ("-c", f"model_reasoning_effort={REASONING_EFFORT}")
+
 _CODEX_COMMON: tuple[str, ...] = (
     "--skip-git-repo-check",  # the working directory is a fresh mkdtemp, not a repo
     "--color",
     "never",
     "--json",  # the token counts ride these events; there is no other channel
     *_CODEX_SANDBOX,
+    *_CODEX_EFFORT,
     "-m",
     MODEL,
     "--output-last-message",
@@ -265,6 +278,7 @@ CODEX = BackendManifest(
     interactive_adapter=CodexJsonRpcAdapter,
     config_home_env="CODEX_HOME",
     default_config_home="~/.codex",
+    effort_flags=_CODEX_EFFORT,
     config_seed=("auth.json", "config.toml"),
     read_output=read_codex_output,
     # `--skip-git-repo-check` because a library need not be a git repository (the canonical
@@ -317,6 +331,8 @@ CLAUDE_CODE = BackendManifest(
     interactive_adapter=ClaudeStreamAdapter,
     config_home_env="CLAUDE_CONFIG_DIR",
     default_config_home="~/.claude",
+    # No `effort_flags`: this version of the Claude Code CLI has no reasoning-effort flag,
+    # and inventing one would be a round that dies in argv. A configured effort is dropped.
     config_seed=(".credentials.json", "settings.json"),
     unset_env=("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT"),
     read_output=read_claude_output,

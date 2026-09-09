@@ -201,6 +201,11 @@ def status_document(home: Home, explicit: str | None = None) -> dict:
             # The recorded posture, not a probe of the running worker: it is the choice the
             # next engine start obeys, and `config set unattended` restarts to make them one.
             "unattended": library.state.choices.unattended,
+            # The same kind of recorded choice, and the same rule: what the next engine start
+            # obeys. Empty is not a value — it is this library leaving the round's model and
+            # effort to the harness's own configuration.
+            "agent_model": library.state.choices.model,
+            "reasoning_effort": library.state.choices.reasoning_effort,
             # No probe of an engine port whose pid is dead: a status taken with nothing up
             # must cost nothing but the reads that can still answer.
             "queue": queue_status(library) if engine_state["up"] else None,
@@ -232,6 +237,8 @@ def render_text(document: dict) -> str:
         lines.extend(["", f"{library['name']}{' (current)' if library['current'] else ''}",
                       f"  Engine: {state(library['engine']['up'])} (port {library['engine']['port']})",
                       f"  Worker: {posture(library['unattended'])}",
+                      f"  Rounds: {library['agent_model'] or 'the harness default model'}"
+                      f" at {library['reasoning_effort'] or 'the harness default effort'}",
                       f"  Engine directory: {library['engine_dir']}",
                       f"  Embedding key: {'present' if library['key'] else 'absent'}",
                       f"  Canonical HEAD: {library['canonical_head'] or 'empty'}",

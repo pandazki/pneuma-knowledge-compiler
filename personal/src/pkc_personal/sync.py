@@ -21,12 +21,20 @@ def converter():
     return module
 
 
+#: The triage thresholds the home records and the converter applies. Named here so the two
+#: spellings cannot drift: a threshold the Owner sets and the pass ignores is worse than none.
+THRESHOLDS = ("min_owner_turns", "min_owner_chars", "ack_max_words")
+
+
 def run(home: Home, library: Library, *, dry_run: bool = False, rewritten: str = "report") -> dict:
     from pkc_personal.engine_app import pkchome_command
 
+    config = home.config.sync
     return converter().sync_pass(
         library.show(), [item.model_dump() for item in library.state.watch],
-        dry_run=dry_run, rewritten=rewritten, pkchome=pkchome_command(home))
+        dry_run=dry_run, rewritten=rewritten, pkchome=pkchome_command(home),
+        exclude=list(config.exclude), home=str(home.path),
+        options={key: getattr(config, key) for key in THRESHOLDS})
 
 
 def status(home: Home, library: Library) -> dict:

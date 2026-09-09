@@ -203,6 +203,54 @@ def test_the_worker_posture_is_a_recorded_choice_the_environment_states(home, ma
     assert Library.load(home, "notes").state.choices.unattended is False
 
 
+def test_the_rounds_model_and_effort_are_recorded_choices_the_environment_states(
+    home, make_library, monkeypatch
+):
+    """The Owner's global `~/.codex` is what a launched round inherits when nothing is named,
+    so these two exist to let the library's rounds run at one model and effort while the
+    Owner's own terminal stays at another. Empty means the variable is ABSENT, not empty."""
+    from pneuma_knowledge_service.settings import AGENT_REASONING_EFFORTS
+
+    library = make_library()
+    assert library.state.choices.model == ""
+    assert library.state.choices.reasoning_effort == ""
+    environment = home_environment(home, library)
+    assert "PNEUMA_KNOWLEDGE_AGENT_MODEL" not in environment
+    assert "PNEUMA_KNOWLEDGE_AGENT_REASONING_EFFORT" not in environment
+
+    restarts = []
+    monkeypatch.setattr(library_module, "restart_engine",
+                        lambda home, library: restarts.append(library.state.name) or False)
+    note = set_config(home, "model", "gpt-6-astra", library)
+    assert note and "not running" in note and "gpt-6-astra" in note
+    note = set_config(home, "reasoning_effort", "medium", library)
+    assert note and "medium" in note
+    # A launcher reads its settings at start, so a recorded choice reaches a running engine
+    # only when the process is replaced — asked for once per change, like the posture.
+    assert restarts == ["notes", "notes"]
+
+    reloaded = Library.load(home, "notes")
+    assert reloaded.state.choices.model == "gpt-6-astra"
+    assert reloaded.state.choices.reasoning_effort == "medium"
+    environment = home_environment(home, reloaded)
+    assert environment["PNEUMA_KNOWLEDGE_AGENT_MODEL"] == "gpt-6-astra"
+    assert environment["PNEUMA_KNOWLEDGE_AGENT_REASONING_EFFORT"] == "medium"
+    # Not an engine knob: the engine directory states models for API roles, not the harness's.
+    assert "reasoning_effort" not in read_yaml(reloaded.engine_dir / "engine.yaml")
+    # `library show` prints the choices, so both fall out of the record without restating it.
+    assert reloaded.show()["choices"]["model"] == "gpt-6-astra"
+    assert reloaded.show()["choices"]["reasoning_effort"] == "medium"
+
+    with pytest.raises(ValueError, match="reasoning_effort must be one of") as refusal:
+        set_config(home, "reasoning_effort", "ultra", reloaded)
+    for effort in AGENT_REASONING_EFFORTS:
+        assert effort in str(refusal.value)
+    assert Library.load(home, "notes").state.choices.reasoning_effort == "medium"
+    # And on the home's defaults, which a new library is created from.
+    set_config(home, "model", "gpt-6-astra")
+    assert home.config.defaults.model == "gpt-6-astra"
+
+
 def test_custom_contract_rejected_before_publication(home, make_library, tmp_path):
     contract = tmp_path / "contract.md"
     atomic_write(contract, "No frontmatter")

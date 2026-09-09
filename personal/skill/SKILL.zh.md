@@ -93,10 +93,15 @@ null 表示这次没有观察到，而不是步骤未完成：只有库的存储
 
 ```sh
 pkchome watch add <dir> --library NAME
+pkchome watch add --all --library NAME
 pkchome watch ls --library NAME
 pkchome sync --library NAME --dry-run
 pkchome sync --library NAME
 ```
+
+`watch add --all` 把库开放给两种宿主留有会话的每个项目，`watch add <dir> --recursive`
+则开放给某个目录之下的全部项目；`sync.exclude` 挡住临时目录，Steward 自己的 `pkc`
+会话始终被跳过。
 
 库的引擎运行时，常驻托盘默认每 15 分钟同步一次。Settings 可调整间隔和监视目录；
 `pkchome watch rm <dir>` 停止监视。`pkchome sync` 手动执行一轮；`--dry-run` 展示

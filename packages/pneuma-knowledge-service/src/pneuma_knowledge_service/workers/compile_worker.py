@@ -706,6 +706,11 @@ async def process_agent_job(ctx: AppContext, user_id: UserId, job: object) -> No
         # was started from — the same convention `pkc` itself uses to find a deployment.
         project_dir=os.getcwd(),
         timeout_s=float(ctx.settings.compile_call_timeout),
+        # WHICH model runs the round and how hard it thinks. Empty leaves both to the harness,
+        # which means the Owner's own global harness configuration — the deployment states
+        # them here when the library's rounds are not to inherit the Owner's terminal.
+        model=str(ctx.settings.agent_model),
+        reasoning_effort=str(ctx.settings.agent_reasoning_effort),
         retries=int(ctx.settings.agent_retries),
         keep_workdir=bool(ctx.settings.agent_keep_workdir),
         # Which library. The harness runs in an empty working directory with no project

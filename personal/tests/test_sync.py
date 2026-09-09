@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+import shutil
 from types import SimpleNamespace
 
 import pytest
@@ -11,9 +12,18 @@ import pytest
 from pkc_personal import cli, sync
 from pkc_personal.library import Library, Watch, set_config, watch_project
 from test_agent_sessions import (
-    OWNER_TEXTS, claude_row, codex_message, codex_row, provider_files,
+    OWNER_TEXTS, claude_row, claude_rows, codex_message, codex_row, codex_rows, provider_files,
     read_provider, sessions, write_jsonl,
 )
+
+
+def add_project(files, name, *, parent=None):
+    """A second synthetic project, reachable only by enumerating the harness roots."""
+    project = (parent or files.project.parent) / name
+    project.mkdir(parents=True, exist_ok=True)
+    write_jsonl(files.claude_root / str(project).replace("/", "-") / f"{name}.jsonl", claude_rows(project))
+    write_jsonl(files.codex_root / f"2026/09/02/rollout-{name}.jsonl", codex_rows(project))
+    return project
 
 
 @pytest.fixture
@@ -317,3 +327,122 @@ def test_continuations_cross_the_unchanged_library_contract_as_distinct_citable_
     assert all(text in block.text for text, block in zip(OWNER_TEXTS, sources[1].blocks, strict=True))
     other = normalize_source_contract(parts[1], UserId("lib-second"), imported_at=datetime.now(timezone.utc))[0]
     assert sources[1].raw.user_id == "lib-notes" and other.raw.user_id == "lib-second"
+
+
+def test_all_scope_reads_the_harness_roots_excludes_patterns_and_counts_missing(provider_files, importer):
+    root = provider_files.project.parent
+    add_project(provider_files, "other")
+    add_project(provider_files, "scratch", parent=root / "junk")
+    shutil.rmtree(add_project(provider_files, "gone"))
+    importer.library.state.watch = [Watch(path="all")]
+    report = importer.run(dry_run=True, exclude=[f"{root / 'junk'}/**"])
+    # momo and other, from both harnesses; the excluded project is not read at all.
+    assert (report["scanned"], report["new"]) == (4, 4)
+    assert all("scratch" not in row["file"] for row in report["sessions"])
+    # A project whose directory is gone is counted once, and never listed session by session.
+    assert report["project_missing"] == 1
+    assert all("gone" not in row["file"] for row in report["sessions"])
+
+
+def test_a_recursive_entry_matches_by_path_component(provider_files, importer):
+    root = provider_files.project.parent
+    add_project(provider_files, "inside", parent=root / "work")
+    add_project(provider_files, "outside", parent=root / "workshop")
+    importer.library.state.watch = [Watch(path=str(root / "work"), recursive=True)]
+    report = importer.run(dry_run=True)
+    assert report["scanned"] == 2
+    assert all("workshop" not in row["file"] for row in report["sessions"])
+
+
+def test_the_home_and_the_library_are_excluded_with_no_patterns_at_all(provider_files, importer, home):
+    for name, directory in (("engine", importer.library.engine_dir),
+                            ("canonical", importer.library.canonical_dir),
+                            ("home", home.path)):
+        write_jsonl(provider_files.claude_root / str(directory).replace("/", "-") / f"{name}.jsonl",
+                    claude_rows(directory))
+    importer.library.state.watch = [Watch(path="all")]
+    report = importer.run(dry_run=True, exclude=[])
+    assert report["scanned"] == 2
+    assert all(str(home.path) not in row["file"] for row in report["sessions"])
+
+
+def test_a_steward_session_is_skipped_entirely_and_never_indexed(provider_files, importer):
+    rows = claude_rows(provider_files.project)
+    # The Owner ran the library's own command from this session: it is work ON the library.
+    rows[3]["message"]["content"][3]["input"]["command"] = "pkc draft open --json"
+    write_jsonl(provider_files.claude_file, rows)
+    report = importer.run()
+    assert report["skipped_steward"] == 1 and report["ingested"] == 1
+    assert all(payload["provider"] == "codex" for payload in importer.payloads)
+    row = next(row for row in report["sessions"] if row["provider"] == "claude-code")
+    assert row["status"] == "steward" and row["triage"]["verdict"] == "skip"
+    assert "steward_session" in row["triage"]["reasons"]
+    assert importer.run()["ingested"] == 0
+
+
+def test_the_skill_entry_of_a_rendered_package_is_the_same_command(provider_files, importer):
+    rows = claude_rows(provider_files.project)
+    entry = importer.library.show()["entry"]
+    rows[3]["message"]["content"][3]["input"]["command"] = f"{entry} queue"
+    write_jsonl(provider_files.claude_file, rows)
+    assert importer.run()["skipped_steward"] == 1
+    # A different executable that merely begins with the same letters is ordinary material.
+    rows[3]["message"]["content"][3]["input"]["command"] = "pkcompose up"
+    write_jsonl(provider_files.claude_file, rows)
+    report = importer.run(rewritten="reingest")
+    assert report["skipped_steward"] == 0 and report["ingested"] == 1
+
+
+def test_home_configuration_reaches_the_pass_and_holds_below_its_own_floor(provider_files, importer,
+                                                                          home, monkeypatch):
+    set_config(home, "sync.exclude", "")
+    set_config(home, "sync.exclude", "/synthetic/**,/nowhere/**")
+    set_config(home, "sync.min_owner_turns", "5")
+    assert home.config.sync.exclude == ["/synthetic/**", "/nowhere/**"]
+    captured = {}
+    script = sync.converter()
+
+    def spy(library, watches, **kwargs):
+        captured.update(kwargs)
+        return importer.run(**{key: kwargs[key] for key in ("dry_run", "rewritten", "options", "exclude")})
+
+    monkeypatch.setattr(script, "sync_pass", spy)
+    report = sync.run(home, importer.library, dry_run=True)
+    assert captured["options"] == {"min_owner_turns": 5, "min_owner_chars": 200, "ack_max_words": 1}
+    assert captured["exclude"] == ["/synthetic/**", "/nowhere/**"]
+    assert captured["home"] == str(home.path)
+    # Three Owner turns, and a fourth appended: still under the floor the home now states.
+    append(provider_files, "claude-code", 1)
+    assert report["new"] == 0 and report["held"] == 2
+    assert sync.run(home, importer.library, dry_run=True)["held"] == 2
+
+
+def test_watch_scope_forms_and_sync_settings_round_trip(home, make_library, tmp_path, capsys):
+    make_library()
+    project = tmp_path / "synthetic project"
+    project.mkdir()
+    assert cli.main(["watch", "add", "--all", "--library", "notes"]) == 0
+    assert cli.main(["watch", "add", str(project), "--recursive", "--library", "notes"]) == 0
+    assert cli.main(["watch", "ls", "--library", "notes"]) == 0
+    watches = json.loads(capsys.readouterr().out)
+    assert [(item["path"], item["recursive"]) for item in watches] == [("all", False), (str(project), True)]
+    # One scope per entry: a directory and --all together, or neither, is a refusal.
+    assert cli.main(["watch", "add", "--library", "notes"]) == 2
+    assert cli.main(["watch", "add", str(project), "--all", "--library", "notes"]) == 2
+    assert cli.main(["watch", "add", str(tmp_path / "absent"), "--recursive", "--library", "notes"]) == 2
+    assert cli.main(["watch", "rm", "--all", "--library", "notes"]) == 0
+    assert cli.main(["watch", "rm", str(project), "--library", "notes"]) == 0
+    assert Library.load(home, "notes").state.watch == []
+    # Patterns append to the defaults; an empty value is how they are cleared.
+    assert cli.main(["config", "set", "sync.exclude", "/one/**,/two/**"]) == 0
+    assert home.config.sync.exclude[-2:] == ["/one/**", "/two/**"] and len(home.config.sync.exclude) == 6
+    assert cli.main(["config", "set", "sync.exclude", ""]) == 0
+    assert cli.main(["config", "set", "sync.exclude", "/one/**,/two/**"]) == 0
+    assert cli.main(["config", "get", "sync.exclude"]) == 0
+    assert capsys.readouterr().out == "/one/**\n/two/**\n"
+    assert cli.main(["config", "set", "sync.ack_max_words", "2"]) == 0
+    assert cli.main(["config", "set", "sync.min_owner_chars", "0"]) == 0
+    assert (home.config.sync.ack_max_words, home.config.sync.min_owner_chars) == (2, 0)
+    # The converter's own floors are the model's floors; a value below them is refused.
+    assert cli.main(["config", "set", "sync.min_owner_turns", "2"]) == 2
+    assert cli.main(["config", "set", "sync.ack_max_words", "0"]) == 2

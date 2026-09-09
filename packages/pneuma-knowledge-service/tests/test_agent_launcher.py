@@ -19,6 +19,7 @@ import time
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from pneuma_knowledge_service.coding_agent import backends
 from pneuma_knowledge_service.coding_agent.backends import CLAUDE_CODE, CODEX
@@ -200,6 +201,71 @@ def test_an_unnamed_model_drops_its_flag_rather_than_passing_an_empty_one(tmp_pa
     without = build_argv(request(CODEX, tmp_path), tmp_path / "wd")
     assert "-m" not in without
     assert "" not in without
+
+
+def test_a_named_reasoning_effort_rides_both_the_launch_and_the_repair_round(tmp_path):
+    """The whole point of the setting: the Owner's global harness config says one thing and
+    the library's rounds say another, in the argv of both the first round and the repair."""
+    launch = build_argv(request(CODEX, tmp_path, reasoning_effort="medium"), tmp_path / "wd")
+    assert launch[launch.index("-c") + 1 :].count("model_reasoning_effort=medium") == 1
+    resumed = build_argv(
+        request(CODEX, tmp_path, reasoning_effort="medium", resume_session="anything"),
+        tmp_path / "wd",
+    )
+    assert resumed[:3] == ["codex", "exec", "resume"]
+    assert "model_reasoning_effort=medium" in resumed
+
+
+def test_an_unnamed_effort_drops_its_flag_and_leaves_no_dangling_one(tmp_path):
+    """The same one substitution rule the model pair rides: an empty placeholder takes the
+    flag before it, so the sandbox's own `-c` is the only one left."""
+    without = build_argv(request(CODEX, tmp_path), tmp_path / "wd")
+    assert not [argument for argument in without if "model_reasoning_effort" in argument]
+    assert without.count("-c") == 1
+    assert without[without.index("-c") + 1] == "sandbox_workspace_write.network_access=true"
+    assert "" not in without
+
+
+def test_a_harness_that_states_no_effort_flags_never_carries_one(tmp_path):
+    """Claude Code's CLI has no reasoning-effort flag in this version, so a configured effort
+    is dropped rather than invented. Read off the manifest, never off a backend name."""
+    assert CLAUDE_CODE.effort_flags == ()
+    argv = build_argv(
+        request(CLAUDE_CODE, tmp_path, model="claude-x", reasoning_effort="medium"),
+        tmp_path / "wd",
+    )
+    assert argv[argv.index("--model") + 1] == "claude-x"
+    assert not [argument for argument in argv if "effort" in argument]
+    assert "medium" not in argv
+
+
+def test_an_effort_no_harness_takes_is_refused_where_it_is_written():
+    """Not in a launched argv minutes later, one process out, in somebody else's stderr."""
+    from pneuma_knowledge_service.settings import AGENT_REASONING_EFFORTS, Settings
+
+    assert Settings(_env_file=None, agent_reasoning_effort="medium").agent_reasoning_effort == "medium"
+    assert Settings(_env_file=None).agent_reasoning_effort == ""
+    with pytest.raises(ValidationError) as refusal:
+        Settings(_env_file=None, agent_reasoning_effort="ultra")
+    message = str(refusal.value)
+    assert "ultra" in message
+    for effort in AGENT_REASONING_EFFORTS:
+        assert effort in message
+
+
+def test_the_worker_states_the_round_s_model_and_effort_rather_than_inheriting_them():
+    """A per-job config home is SEEDED from the Owner's own, so a round with nothing stated
+    thinks at whatever the Owner set for their own terminal. The worker is where the
+    deployment's answer is stated, beside the other settings it already hands over."""
+    import inspect
+
+    from pneuma_knowledge_service.coding_agent.round_runner import AgentRoundRunner
+    from pneuma_knowledge_service.workers import compile_worker
+
+    source = inspect.getsource(compile_worker.process_agent_job)
+    assert "model=str(ctx.settings.agent_model)" in source
+    assert "reasoning_effort=str(ctx.settings.agent_reasoning_effort)" in source
+    assert "reasoning_effort=self.reasoning_effort" in inspect.getsource(AgentRoundRunner._launch)
 
 
 def test_the_harness_gets_a_shell_and_not_the_open_world(tmp_path):

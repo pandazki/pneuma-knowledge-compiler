@@ -926,7 +926,7 @@ skill 包的 sha256 盖进 agent 执行器产生的每一次正本提交，作�
 | skill 目录 / 指令文件 | `.agents/skills` / `AGENTS.md` | `.claude/skills` / `CLAUDE.md` |
 | workflow 目录 | — | `.claude/workflows` |
 | 探针 | `codex login status` 退出 0 | `claude -p ping --output-format text` 在期限内答复 |
-| 无头启动 | `codex exec --skip-git-repo-check --color never --json --sandbox workspace-write -c sandbox_workspace_write.network_access=true [-m <model>] --output-last-message <f> -` | `claude -p --output-format json --tools "Bash,Read" --permission-mode bypassPermissions [--model <m>] --add-dir <project> --system-prompt-file <f>` |
+| 无头启动 | `codex exec --skip-git-repo-check --color never --json --sandbox workspace-write -c sandbox_workspace_write.network_access=true [-c model_reasoning_effort=<e>] [-m <model>] --output-last-message <f> -` | `claude -p --output-format json --tools "Bash,Read" --permission-mode bypassPermissions [--model <m>] --add-dir <project> --system-prompt-file <f>` |
 | system 文本 | 前置到 stdin（无 system 通道） | `--system-prompt-file`，替换 harness 自己的前言 |
 | 用量 | `--json` 事件里的 token 数；无价格 | `result.usage` 与 `total_cost_usd` |
 | 会话 | 每轮新线程；修复轮是每作业 `CODEX_HOME` 下的 `codex exec resume --last`，不支持则新进程喂违规 | 每作业独立 `CLAUDE_CONFIG_DIR` 下 `--resume <session>`（取自 `result.session_id`），随 draft 删除 |
@@ -946,6 +946,14 @@ skill 包的 sha256 盖进 agent 执行器产生的每一次正本提交，作�
 路径的全新 `mkdtemp` 工作目录、进程作为独立进程组启动并在 worker 退出时 TERM→KILL 收割、从
 harness 的 JSON 结果把用量读进作业记录。prompt 经 stdin 从文件进入，从不进 argv。启动时探针失败
 是致命的并点名缺什么；未知的协议表面降级并记录；版本号从不比较。
+
+这一轮**跑什么**由部署来声明，而默认状态下它并不声明：每个作业的配置目录是从所有者自己的
+`~/.codex` 播种的，所以什么都不点名的一轮会继承所有者为自己交互会话设置的模型与推理强度。
+`PNEUMA_KNOWLEDGE_AGENT_MODEL` 与 `PNEUMA_KNOWLEDGE_AGENT_REASONING_EFFORT` 改为在 argv 里替
+知识库的编译轮点名这两件事，同时不动所有者自己的终端——推理强度作为清单上的一对参数
+（`effort_flags`）承载，于是 CLI 里没有这个开关的 harness 就什么都不带，也没有任何地方按 backend
+名字分支；不在 `minimal|low|medium|high|xhigh` 之内的强度在写入处即被拒绝，而不是等到某个被拉起
+的进程的 stderr 里。
 
 **交互姿态**下这些都不跑：所有者的 harness 已经开着，skill 就是启动器。
 `PNEUMA_KNOWLEDGE_AGENT_UNATTENDED` 决定 worker 取哪一种姿态，默认无人值守——因为 worker 按定

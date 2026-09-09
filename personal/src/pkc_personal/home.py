@@ -12,9 +12,10 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from pneuma_knowledge_service.infra.ports import probe_free_ports
+from pneuma_knowledge_service.settings import AGENT_REASONING_EFFORTS
 
 from pkc_personal import __version__
 
@@ -75,6 +76,22 @@ def asset_path(relative: str) -> Path:
     return installed if installed.exists() else package.parents[1] / relative
 
 
+def validated_effort(value: str) -> str:
+    """One reasoning effort the harness will accept, or a refusal naming the whole set.
+
+    The set is the service's own (`AGENT_REASONING_EFFORTS`), imported rather than restated:
+    a value this face accepted and the engine's settings refused would be a library whose
+    engine dies at start, with the reason in a process the Owner is not looking at.
+    """
+    effort = value.strip()
+    if effort and effort not in AGENT_REASONING_EFFORTS:
+        raise ValueError(
+            f"reasoning_effort must be one of {', '.join(AGENT_REASONING_EFFORTS)}, "
+            "or empty for the harness default"
+        )
+    return effort
+
+
 class Model(BaseModel):
     model_config = ConfigDict(extra="forbid", validate_assignment=True)
 
@@ -123,11 +140,41 @@ class Choices(Model):
     # terminal and the worker never reach for the same job. It is a recorded choice per
     # library (§4.7) rather than an env file, and `home_environment` is what states it.
     unattended: bool = True
+    # WHICH model this library's rounds run, and how hard it thinks. Empty leaves both to the
+    # harness — which means the Owner's global harness configuration, because the launcher
+    # seeds each job's config home from it. Naming them here is how a library is compiled at
+    # one model and effort while the Owner's own terminal stays at another; `home_environment`
+    # states them, and `set_config` restarts the engine so a running launcher obeys them.
+    model: str = ""
+    reasoning_effort: str = ""
+
+    @field_validator("reasoning_effort")
+    @classmethod
+    def known_effort(cls, value: str) -> str:
+        """Checked on the record, so a hand-edited `library.yaml` is refused on load too."""
+        return validated_effort(value)
+
+
+#: Directories that hold scratch work rather than projects. They are the DEFAULT exclusions,
+#: which means the Owner can drop them; the home and the libraries cannot be dropped, and are
+#: excluded by mechanism in the converter (`steward_roots`) rather than by a pattern here.
+DEFAULT_SYNC_EXCLUDE = ["/private/tmp/**", "/tmp/**", "/private/var/**", "/var/folders/**"]
 
 
 class SyncConfig(Model):
     interval_minutes: int = Field(default=15, ge=1)
     enabled: bool = True
+    # Glob patterns matched against a project's resolved directory. They matter most once the
+    # scope is wider than a named directory: `watch add --all` reaches every project either
+    # harness ever opened, and thousands of those are dead scratch directories.
+    exclude: list[str] = Field(default_factory=lambda: list(DEFAULT_SYNC_EXCLUDE))
+    # What a pending increment must hold before it is ingested rather than held. The floors
+    # are the converter's own (`triage`): three Owner turns is where a session stops being an
+    # errand, and a length below zero or an acknowledgement limit below one word is not a
+    # threshold at all. Configuration, so a library can ask for more without a code change.
+    min_owner_turns: int = Field(default=3, ge=3)
+    min_owner_chars: int = Field(default=200, ge=0)
+    ack_max_words: int = Field(default=1, ge=1)
 
 
 class Config(Model):

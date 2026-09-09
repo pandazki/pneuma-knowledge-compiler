@@ -1179,7 +1179,7 @@ One manifest per harness, data first:
 | skills dir / instructions file | `.agents/skills` / `AGENTS.md` | `.claude/skills` / `CLAUDE.md` |
 | workflows dir | — | `.claude/workflows` |
 | probe | `codex login status` exits 0 | `claude -p ping --output-format text` answers within the deadline |
-| headless launch | `codex exec --skip-git-repo-check --color never --json --sandbox workspace-write -c sandbox_workspace_write.network_access=true [-m <model>] --output-last-message <f> -` | `claude -p --output-format json --tools "Bash,Read" --permission-mode bypassPermissions [--model <m>] --add-dir <project> --system-prompt-file <f>` |
+| headless launch | `codex exec --skip-git-repo-check --color never --json --sandbox workspace-write -c sandbox_workspace_write.network_access=true [-c model_reasoning_effort=<e>] [-m <model>] --output-last-message <f> -` | `claude -p --output-format json --tools "Bash,Read" --permission-mode bypassPermissions [--model <m>] --add-dir <project> --system-prompt-file <f>` |
 | system text | prepended to stdin (no system channel) | `--system-prompt-file`, replacing the harness's own preamble |
 | usage | token counts from `--json` events; no cost | `result.usage` and `total_cost_usd` |
 | session | new thread per round; the repair round is `codex exec resume --last` under a per-job `CODEX_HOME`, else a fresh process fed the violations | `--resume <session>` (from `result.session_id`) under a per-job `CLAUDE_CONFIG_DIR`, deleted with the draft |
@@ -1206,6 +1206,15 @@ worker's exit, and usage read from the harness's JSON result into the job record
 travels on stdin from a file, never in argv. A probe failure at startup is fatal and names the
 missing thing; an unknown protocol surface degrades and is logged; a version number is never
 compared.
+
+What that launch RUNS is the deployment's to state, and by default is not: the per-job config
+home is seeded from the Owner's own (`~/.codex`), so a round with nothing named inherits the
+model and the reasoning effort the Owner set for their own interactive sessions.
+`PNEUMA_KNOWLEDGE_AGENT_MODEL` and `PNEUMA_KNOWLEDGE_AGENT_REASONING_EFFORT` name them for the
+library's rounds instead, in argv, leaving the Owner's terminal untouched — the effort as a
+flag pair on the manifest (`effort_flags`), so a harness whose CLI has none carries none and
+nothing branches on a backend name; an effort outside `minimal|low|medium|high|xhigh` is
+refused where it is written rather than in a launched process's stderr.
 
 In the **interactive posture** none of this runs: the Owner's harness is already up, and the
 skill is the launcher. `PNEUMA_KNOWLEDGE_AGENT_UNATTENDED` is which posture a worker takes,
