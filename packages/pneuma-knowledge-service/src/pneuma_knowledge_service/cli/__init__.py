@@ -1076,7 +1076,18 @@ async def _run(args: argparse.Namespace, component_tools, parser_for) -> int:
     # hand. Probing one here would cost seconds on every command and, inside a session of
     # that very harness, would start it from within itself. The worker, which does launch,
     # probes at startup (`wiring.probe_compile_executor`).
-    ctx = await build_context(settings, probe_agent=False, probe_embedding=False)
+    # `semantic=` narrows the context for the one family that never reaches L2: `pkc profile`
+    # writes `engine/persona/profile.yaml` and the row that moves with it, and nothing else.
+    # Building the embedding model for it would make the Owner's own name unrecordable on a
+    # machine whose deployment says semantic retrieval is on but has no key stored yet — the
+    # documented cold start, where `pkchome setup` runs before the key is sent. The library is
+    # still an L2 deployment; this process just does not need that half to record a name.
+    ctx = await build_context(
+        settings,
+        probe_agent=False,
+        probe_embedding=False,
+        semantic=args.group != "profile",
+    )
     try:
         if args.group == "draft":
             from .runtime import build_runtime

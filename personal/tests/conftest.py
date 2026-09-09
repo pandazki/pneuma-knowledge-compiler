@@ -96,14 +96,28 @@ def pkc(monkeypatch):
             self.default = SimpleNamespace(returncode=0, stdout="", stderr="")
 
         def answer(self, verbs: str, *, returncode: int = 0, stdout: str = "", stderr: str = ""):
-            self.answers[verbs] = SimpleNamespace(returncode=returncode, stdout=stdout, stderr=stderr)
+            self.answers[verbs] = [SimpleNamespace(returncode=returncode, stdout=stdout, stderr=stderr)]
+            return self
+
+        def then(self, verbs: str, *, returncode: int = 0, stdout: str = "", stderr: str = ""):
+            """What the NEXT call to these verbs answers, after the ones already queued.
+
+            For a command that asks twice in one run and must see the world change in
+            between — `onboarding` reads the profile, writes what is missing, reads again."""
+            self.answers.setdefault(verbs, []).append(
+                SimpleNamespace(returncode=returncode, stdout=stdout, stderr=stderr))
             return self
 
         def __call__(self, command, **kwargs):
             if list(command)[:2] != [pkc_script(), "profile"]:
                 return real(command, **kwargs)
             self.calls.append(list(command))
-            return self.answers.get(" ".join(command[1:3]), self.default)
+            queue = self.answers.get(" ".join(command[1:3]))
+            if not queue:
+                return self.default
+            # The last answer stands for every call after it: a test that stated one verdict
+            # states it for the whole run.
+            return queue.pop(0) if len(queue) > 1 else queue[0]
 
         def fields(self, provenance: str) -> list[str]:
             for command in self.calls:

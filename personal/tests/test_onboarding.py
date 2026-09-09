@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 
 import pytest
+from pneuma_knowledge_core.domain.user import PROFILE_FIELDS
 
 from pkc_personal import cli, infra, library as library_module, owner_hints as hints_module
 from pkc_personal import setup, skill_install
@@ -232,3 +233,107 @@ def test_onboarding_still_asks_when_the_library_cannot_be_reached(home, make_lib
     # The library's own recorded language decides how to ask, since no profile states one.
     assert "What do you do?" in text
     assert Library.load(home, "notes").state.choices.language == "en"
+
+
+# ──────────────────────────────────────────── onboarding seeds what the setup could not
+
+#: The machine, as these tests let it speak.
+MACHINE = {"display_name": "Ez Chan", "locale.timezone": "Asia/Shanghai",
+           "locale.language": "en", "preferences.response_language": "en"}
+
+
+def _blank() -> str:
+    """The profile a cold start leaves when its seeding step did not happen."""
+    profile = {
+        "display_name": "", "occupation": "", "bio": "", "interests": [],
+        "industry": "", "role": "", "level": "",
+        "locale": {"city": "", "country": "", "timezone": "", "language": ""},
+        "preferences": {"response_language": ""},
+        "provenance": {key: "placeholder" for key in PROFILE_FIELDS},
+    }
+    return json.dumps({"profile": profile, "placeholder": True, "file": "profile.yaml"})
+
+
+@pytest.fixture
+def machine(monkeypatch):
+    monkeypatch.setattr(setup, "read_owner_hints", lambda: dict(MACHINE))
+
+
+def test_onboarding_seeds_the_hints_a_skipped_setup_never_wrote(home, make_library, pkc, machine):
+    """The observed cold start: `setup` reported `profile skipped:` and the checklist that
+    followed had no confirmation step in it, because there was nothing to confirm."""
+    library = make_library()
+    pkc.answer("profile show", stdout=_blank())
+    pkc.then("profile show", stdout=_profile("en"))
+    text = setup.onboarding(home, library)
+
+    assert text.splitlines()[0] == (
+        "seeded: display_name, locale.timezone, locale.language, preferences.response_language")
+    assert pkc.fields("inferred") == [
+        "display_name=Ez Chan", "locale.timezone=Asia/Shanghai",
+        "locale.language=en", "preferences.response_language=en",
+    ]
+    # And the list is the record as it now stands, not as it stood a moment ago.
+    assert "Inferred from this machine" in text
+    assert f"  {'display_name':<30}Ez Chan" in text
+    assert "Owner onboarding — notes. Speak to the Owner in en." in text
+
+
+def test_the_librarys_own_language_is_what_the_seeding_writes(home, make_library, pkc, machine):
+    """The machine's interface says en; this library was created zh. The library's choice
+    is the Owner's, so it wins — and stays `inferred` until they say so themselves."""
+    library = make_library(language="zh")
+    pkc.answer("profile show", stdout=_blank())
+    pkc.then("profile show", stdout=_profile("zh"))
+    setup.onboarding(home, library)
+    assert pkc.fields("inferred") == [
+        "display_name=Ez Chan", "locale.timezone=Asia/Shanghai",
+        "locale.language=zh", "preferences.response_language=zh",
+    ]
+
+
+def test_a_second_onboarding_seeds_nothing(home, make_library, pkc, machine):
+    library = make_library()
+    pkc.answer("profile show", stdout=_profile("en"))
+    text = setup.onboarding(home, library)
+    assert not text.startswith("seeded:")
+    assert [command for command in pkc.calls if command[1:3] == ["profile", "set"]] == []
+
+
+def test_seeding_never_overwrites_what_the_owner_said_about_themselves(
+    home, make_library, pkc, machine
+):
+    """A display_name the Owner stated is theirs. The machine's guess about it is not
+    written, and the fields nobody has stated still are."""
+    library = make_library()
+    owned = json.loads(_blank())
+    owned["profile"]["display_name"] = "Chen Wan"
+    owned["profile"]["provenance"]["display_name"] = "owner"
+    owned["placeholder"] = False
+    pkc.answer("profile show", stdout=json.dumps(owned))
+    pkc.then("profile show", stdout=json.dumps(owned))
+    text = setup.onboarding(home, library)
+
+    assert text.splitlines()[0] == (
+        "seeded: locale.timezone, locale.language, preferences.response_language")
+    assert pkc.fields("inferred") == [
+        "locale.timezone=Asia/Shanghai", "locale.language=en",
+        "preferences.response_language=en",
+    ]
+
+
+def test_a_library_that_cannot_be_asked_is_not_written_to(home, make_library, pkc, machine):
+    library = make_library()
+    pkc.answer("profile show", returncode=1, stderr="connection refused\n")
+    text = setup.onboarding(home, library)
+    assert "could not be asked" in text
+    assert [command for command in pkc.calls if command[1:3] == ["profile", "set"]] == []
+
+
+def test_a_seeding_write_that_fails_names_the_reason_and_still_asks(home, make_library, pkc, machine):
+    library = make_library()
+    pkc.answer("profile show", stdout=_blank())
+    pkc.answer("profile set", returncode=1, stderr="refused: the store is unreachable\n")
+    text = setup.onboarding(home, library)
+    assert text.splitlines()[0] == "profile skipped: refused: the store is unreachable"
+    assert "What do you do?" in text

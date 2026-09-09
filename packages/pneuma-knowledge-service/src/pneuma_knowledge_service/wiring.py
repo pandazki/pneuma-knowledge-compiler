@@ -1084,7 +1084,11 @@ class AppContext:
 
 
 async def build_context(
-    settings: Settings, *, probe_agent: bool = True, probe_embedding: bool = True
+    settings: Settings,
+    *,
+    probe_agent: bool = True,
+    probe_embedding: bool = True,
+    semantic: bool = True,
 ) -> AppContext:
     """Assemble the adapter singletons and bring their connections up on the CALLER's
     event loop (pool open, collection probe). Everything the constructors used to do
@@ -1102,6 +1106,16 @@ async def build_context(
     already has. Only when no collection exists yet is the model asked, because then one has
     to be created at the model's dimension. The engine keeps probing at boot: that is where a
     model changed under an existing collection must be refused, not at the first upsert.
+
+    `semantic=False` builds the context WITHOUT the embedding model and the vector index, for
+    a command whose whole reach is L0 and the files beside the engine — `pkc profile`, which
+    writes `engine/persona/profile.yaml` and the row that moves with it. Assembling the
+    embedding model there is not merely wasted work: a spec that needs a key nobody has stored
+    yet REFUSES to construct, so the Owner's own name would be unrecordable on exactly the
+    machine that has not been given its key — which is the documented cold start (`pkchome
+    setup` first, key second). The flag narrows this process's context; it never changes what
+    the deployment is. `settings.semantic_retrieval` still says `on`, and the next process
+    that actually reaches L2 builds both.
     """
     # Who runs each role, before anything is built: an `agent:` spec on a role that cannot
     # be driven by a CLI, or a harness nothing can launch, is a misconfiguration the stack
@@ -1123,7 +1137,7 @@ async def build_context(
 
         embeddings = None
         vectors = None
-        if settings.semantic_retrieval == "on":
+        if settings.semantic_retrieval == "on" and semantic:
             embeddings = build_embeddings(settings)
             dim = None
             if not probe_embedding:

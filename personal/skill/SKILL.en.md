@@ -52,7 +52,9 @@ its Owner — the account's full name, the system timezone, the interface langua
 it with `--provenance inferred`, which leaves every one of those fields unconfirmed.
 Run `pkchome onboarding [--library NAME]` for the checklist: the inferred fields with their
 values, the registration questions still unanswered, and the retrieval choice when it is
-still undecided. Speak to the Owner in `locale.language`.
+still undecided. When setup could not write those fields, onboarding writes them itself and
+reports `seeded: <fields>` on its first line, so the checklist always carries the
+confirmation step. Speak to the Owner in `locale.language`.
 
 Present the inference as “I believe you are X, in timezone Y, writing in Z — correct me” and
 settle it one field at a time: `pkchome exec -- pkc profile confirm --field <name>` when it is
