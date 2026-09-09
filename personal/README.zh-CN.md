@@ -73,7 +73,9 @@ Setup 不会把档案留成空白。它读取这台机器已经说明的 Owner �
 界面语言（`language` 回答优先于它）——并以 `inferred` 出处写入；在 Owner 逐项确认之前，
 `pkchome status` 不会把这样的档案算作已完成。`pkchome onboarding` 打印剩下要做的事：
 带值的推断字段与确认或更正它们的命令、尚未回答的注册问题（用 Owner 自己的语言提问），
-以及仍未决定时的检索选择。Setup 会打印同一段内容；这条命令是留给之后才到场的 Steward 的。
+以及仍未决定时的检索选择。Setup 会打印同一段内容；这条命令是留给之后才到场的 Steward 的——
+setup 未能写入推断字段时，`onboarding` 会自行补写，并在首行报告 `seeded: <字段>`，
+清单里因此不会缺掉确认这一步。
 
 `config get|set` 读写每个库（不带 `--library` 时则是 home 的默认值）记录下来的一项选择：
 `backend`、`language`、`semantic_retrieval`、`embedding`、`unattended`，以及

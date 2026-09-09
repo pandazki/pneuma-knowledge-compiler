@@ -298,18 +298,63 @@ def _stated(value: object) -> bool:
     return any(str(item).strip() for item in value) if isinstance(value, list) else bool(str(value or "").strip())
 
 
+def seed_hints(home: Home, library: Library, profile: dict) -> tuple[list[str], str]:
+    """Write the machine's hints for a profile that does not state them yet. (written, failure)
+
+    `setup` writes these at install time (step 9), and that write can be the one step of a
+    cold start that does not happen — a library whose store was not up yet, an interrupted
+    run. What was left behind then was a blank profile AND a checklist with no confirmation
+    step in it, so the Steward could not even see that the machine had answers to give. So
+    whichever face reads the checklist first writes them: `setup` through `seed_profile`,
+    `pkchome onboarding` through here, from the same `read_owner_hints()`.
+
+    Only fields the profile leaves unstated are written. That is what makes this idempotent
+    and what keeps it honest: a second call writes nothing, and a value the Owner stated is
+    never overwritten by a guess about them.
+    """
+    stated = profile_fields(profile)
+    hints = read_owner_hints()
+    # The language this library was created with, exactly as `setup` treats a stated answer:
+    # the value is the Owner's choice, the provenance stays `inferred` — nobody has yet said
+    # this is the language they want to be ANSWERED in.
+    for field in ("locale.language", "preferences.response_language"):
+        hints[field] = library.state.choices.language
+    updates = {key: value for key, value in hints.items() if not _stated(stated.get(key))}
+    if not updates:
+        return [], ""
+    try:
+        profile_set(home, library, updates, provenance="inferred")
+    except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
+        # Same verdict as `seed_profile`: a profile that could not be written is not a failed
+        # checklist. The questions below stand, and the reason is named rather than swallowed.
+        return [], f"profile skipped: {exc}"
+    return _ordered(updates), ""
+
+
 def onboarding(home: Home, library: Library) -> str:
     """The Steward's checklist: what to confirm, what to ask, and what is still undecided.
 
     Printed by `setup` and by `pkchome onboarding`, from the same reading of the same record,
     so a Steward who arrives a week later gets the list as it stands then rather than the list
-    as it stood at install time.
+    as it stood at install time. It also SEEDS what a setup could not (`seed_hints`), so the
+    confirmation step is in the list on the machine that has it to confirm.
     """
     name = library.state.name
     profile = read_profile(home, library)
+    # A library that cannot be asked for its profile cannot be written one either.
+    seeded, failure = seed_hints(home, library, profile) if profile is not None else ([], "")
+    if seeded:
+        # Read again, so the list below is the record as it now stands rather than as it stood
+        # a moment ago — the same discipline that makes this function re-readable at all.
+        profile = read_profile(home, library) or profile
     language = owner_language(profile, library)
     values = profile_fields(profile) if profile else {}
-    lines = [f"Owner onboarding — {name}. Speak to the Owner in {language}."]
+    lines: list[str] = []
+    if seeded:
+        lines.append(f"seeded: {', '.join(seeded)}")
+    elif failure:
+        lines.append(failure)
+    lines.append(f"Owner onboarding — {name}. Speak to the Owner in {language}.")
 
     inferred = list(inferred_fields(profile)) if profile else []
     if inferred:

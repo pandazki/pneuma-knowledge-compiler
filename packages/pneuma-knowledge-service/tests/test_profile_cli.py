@@ -12,6 +12,8 @@ from __future__ import annotations
 import io
 import json
 
+import pytest
+
 from pneuma_knowledge_service.cli import build_parser, dispatch
 from pneuma_knowledge_service.persona_profile import (
     PLACEHOLDER_NAMES,
@@ -20,6 +22,8 @@ from pneuma_knowledge_service.persona_profile import (
     read_profile_data,
     set_profile_values,
 )
+
+from pneuma_knowledge_service.adapters.read_mock import InMemoryLibraryStore
 
 from _cli_library import USER, library  # noqa: E402
 
@@ -220,3 +224,80 @@ async def test_setting_nothing_is_nothing_to_act_on(tmp_path):
     code, _out, err = await run(lib, "profile", "set")
     assert code == 1
     assert "--field" in err
+
+
+# ───────────────────────────────── the cold start: an L2 deployment with no key stored yet
+
+
+class _MemoryStore(InMemoryLibraryStore):
+    """`InMemoryLibraryStore` with the lifecycle `build_context` drives, so the real
+    `build_context` can be exercised without Postgres. Everything else in this test is the
+    shipped code path: settings, engine bootstrap, wiring, dispatch."""
+
+    def __init__(self, _dsn: str) -> None:
+        super().__init__()
+
+    async def open(self) -> None:
+        return None
+
+    async def apply_schema(self) -> None:
+        return None
+
+    async def aclose(self) -> None:
+        return None
+
+
+def test_profile_needs_no_embedding_key_on_a_semantic_deployment(tmp_path, monkeypatch, capsys):
+    """The documented cold start: `pkchome setup` runs before the embedding key is sent.
+
+    Semantic retrieval is `on` and the spec is a real one, so the embedding model REFUSES to
+    construct — and recording the Owner's own name must not depend on that half of the
+    deployment. Nothing here is faked into working: the spec below is the one that raises.
+    """
+    from pneuma_knowledge_service import wiring
+    from pneuma_knowledge_service.cli import main
+    from pneuma_knowledge_service.settings import Settings
+
+    engine = _project(tmp_path)
+    monkeypatch.setenv("PNEUMA_KNOWLEDGE_ENV_FILE", "")  # the machine's `.env` states nothing here
+    monkeypatch.setenv("PNEUMA_KNOWLEDGE_ENGINE_DIR", str(engine))
+    monkeypatch.setenv("PNEUMA_KNOWLEDGE_SEMANTIC_RETRIEVAL", "on")
+    monkeypatch.setenv("PNEUMA_KNOWLEDGE_EMBEDDING_MODEL", "openrouter:google/gemini-embedding-2")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "")
+    # One library across both commands: each `main` builds its own context, and the record
+    # has to outlive the process the way Postgres does.
+    store = _MemoryStore("")
+    monkeypatch.setattr(wiring, "PostgresStore", lambda _dsn: store)
+
+    # The premise, stated as a fact rather than assumed: this deployment cannot build
+    # embeddings at all right now.
+    with pytest.raises(RuntimeError, match="OPENROUTER_API_KEY"):
+        wiring.build_embeddings(Settings(_env_file=None))
+
+    assert main(["--user", str(USER), "profile", "set",
+                 "--field", "display_name=Ez Chan", "--provenance", "inferred"]) == 0
+    capsys.readouterr()
+    assert main(["--user", str(USER), "profile", "show", "--json"]) == 0
+    shown = json.loads(capsys.readouterr().out)
+    assert shown["profile"]["display_name"] == "Ez Chan"
+    assert shown["profile"]["provenance"]["display_name"] == "inferred"
+    # And the file the round is rendered from carries it, not just the record.
+    assert "Ez Chan" in (engine / "persona" / "profile.yaml").read_text(encoding="utf-8")
+
+
+def test_every_other_command_still_gets_the_semantic_half(tmp_path, monkeypatch):
+    """The narrowing is scoped to `pkc profile`, not a deployment-wide downgrade: the same
+    settings still refuse for a command that reads the library."""
+    from pneuma_knowledge_service import wiring
+    from pneuma_knowledge_service.cli import main
+
+    engine = _project(tmp_path)
+    monkeypatch.setenv("PNEUMA_KNOWLEDGE_ENV_FILE", "")
+    monkeypatch.setenv("PNEUMA_KNOWLEDGE_ENGINE_DIR", str(engine))
+    monkeypatch.setenv("PNEUMA_KNOWLEDGE_SEMANTIC_RETRIEVAL", "on")
+    monkeypatch.setenv("PNEUMA_KNOWLEDGE_EMBEDDING_MODEL", "openrouter:google/gemini-embedding-2")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "")
+    monkeypatch.setattr(wiring, "PostgresStore", _MemoryStore)
+
+    with pytest.raises(RuntimeError, match="OPENROUTER_API_KEY"):
+        main(["--user", str(USER), "outline"])

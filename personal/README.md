@@ -81,7 +81,9 @@ refuses to count as a settled profile until the Owner confirms each one.
 `pkchome onboarding` prints what is left to do: the inferred fields with their values and the
 commands that confirm or correct them, the registration questions still unanswered — asked in
 the Owner's own language — and the retrieval choice while it is undecided. Setup prints that
-same block; the command is there for a Steward who arrives later.
+same block; the command is there for a Steward who arrives later — and when setup could not
+write the inferred fields, `onboarding` writes them itself and says `seeded: <fields>` on its
+first line, so the confirmation step is never missing from the list.
 
 `config get|set` reads and writes one recorded choice per library (or the home defaults with
 no `--library`): `backend`, `language`, `semantic_retrieval`, `embedding`, `unattended`, and

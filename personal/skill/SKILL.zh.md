@@ -45,7 +45,8 @@ setup 按“Owner 亲述”写入，而不是当作猜测。
 你到场时档案不是空的。setup 会读取这台机器已经说明的 Owner 信息——账户全名、系统时区、
 界面语言——并以 `--provenance inferred` 写入，因此这些字段一律处于未确认状态。
 运行 `pkchome onboarding [--library NAME]` 取得清单：带值的推断字段、尚未回答的注册问题，
-以及仍未决定的检索选择。用 `locale.language` 的语言与 Owner 交谈。
+以及仍未决定的检索选择。setup 未能写入这些字段时，onboarding 会自行补写，并在首行报告
+`seeded: <字段>`，因此清单里始终带着确认这一步。用 `locale.language` 的语言与 Owner 交谈。
 
 向 Owner 展示推断：“我认为你是 X，在 Y 时区，用 Z 写作——请纠正我”，然后逐字段落定：
 正确就用 `pkchome exec -- pkc profile confirm --field <name>`，不正确就用
