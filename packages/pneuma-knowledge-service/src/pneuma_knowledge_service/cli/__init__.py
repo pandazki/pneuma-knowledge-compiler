@@ -201,13 +201,13 @@ def _jsonable(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
         "--json",
         dest="as_json",
         action="store_true",
-        help="machine-readable output; the default is the same state as prose",
+        help=prompt("steward.read.json_paging"),
     )
     # Prose is paged: a reader with a context window gets one page and a footer saying how
-    # much more there is, instead of everything at once. JSON is never paged.
+    # much more there is. JSON pages whole list items; recall evidence JSON stays whole.
     parser.add_argument(
         "--page", type=int, default=1, metavar="N",
-        help="which page of a long prose output to print (default 1; the footer names the next)",
+        help="page of prose or JSON list items (default 1); recall needs --handoff to reuse a result",
     )
     parser.add_argument(
         "--page-chars", type=int, default=read_cmd.PAGE_CHARS, metavar="CHARS",
@@ -215,7 +215,7 @@ def _jsonable(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--all-pages", dest="all_pages", action="store_true",
-        help="print the whole prose output, however long",
+        help="print the whole prose or JSON output, however long",
     )
     return parser
 
@@ -399,7 +399,8 @@ def _add_read_commands(top) -> None:  # noqa: ANN001
                            description=prompt("steward.cli.recall"))
         )
     )
-    p.add_argument("query")
+    p.add_argument("query", nargs="?", help="required for a new retrieval; omit with --handoff")
+    p.add_argument("--handoff", metavar="ID", help="page retained --evidence without retrieving again")
     p.add_argument(
         "--evidence",
         action="store_true",
@@ -802,6 +803,16 @@ async def dispatch(ctx, args: argparse.Namespace, *, out=None, err=None) -> int:
     group = args.group
     command = getattr(args, "command", "")
 
+    if group == "recall":
+        handoff = getattr(args, "handoff", None)
+        if handoff and (not args.evidence or args.query or args.as_of or args.style
+                        or args.include_archived or args.visitor_class):
+            print("--handoff requires --evidence and reuses the retained query, scope and visitor class", file=err)
+            return draft_cmd.EXIT_REFUSED
+        if not handoff and not args.query:
+            print("recall requires a query or --evidence --handoff <id>", file=err)
+            return draft_cmd.EXIT_REFUSED
+
     if group == "index" and command == "episodes":
         from . import episodes
 
@@ -910,6 +921,7 @@ async def dispatch(ctx, args: argparse.Namespace, *, out=None, err=None) -> int:
                 rt,
                 args.query,
                 handoffs=_handoffs(ctx),
+                handoff_id=args.handoff,
                 visitor_class=recall_visitor_class(args),
                 as_of=args.as_of,
                 style=args.style,
@@ -1197,10 +1209,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser(component_tools)
     args = parser.parse_args(argv)
     # The parser is handed on as a THUNK rather than as a value: `pkc skill` renders the
-    # command reference out of this very tree, and passing the object the process is running
-    # under is what makes the reference describe the deployment instead of a reconstruction
-    # of it.
-    return asyncio.run(_run(args, component_tools, lambda: parser))
+    # command reference after applying the deployment's language overlay. Rebuild the same
+    # tree then, so descriptions reflect that overlay instead of the process's startup words.
+    return asyncio.run(_run(args, component_tools, lambda: build_parser(component_tools)))
 
 
 if __name__ == "__main__":  # pragma: no cover

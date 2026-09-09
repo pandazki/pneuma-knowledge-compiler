@@ -2,16 +2,24 @@
 
 from __future__ import annotations
 
+import math
+from collections.abc import Iterable
 from datetime import date, datetime, timezone
 from typing import Any
 
 from pneuma_knowledge_core.domain.authorship import block_authorship
-from pneuma_knowledge_core.domain.canonical import format_citation_span
+from pneuma_knowledge_core.domain.canonical import Citation, format_citation_span
 from pneuma_knowledge_core.domain.ids import SourceId, UserId
 from pneuma_knowledge_core.domain.source import NormalizedSource, RawSource
 from pneuma_knowledge_core.ingest.source_types import agent_session_owner_label
 from pneuma_knowledge_core.prompts import prompt
-from pneuma_knowledge_core.recall.fast import FastEvidence
+from pneuma_knowledge_core.recall.citation_alias import SessionAliaser
+from pneuma_knowledge_core.recall.fast import (
+    FastEvidence,
+    _render_window_section,
+    render_claims,
+    render_episode_summaries,
+)
 
 
 def one_line(value: Any) -> str:
@@ -22,26 +30,44 @@ def span_label(start: int, end: int) -> str:
     return format_citation_span("", start, end).strip()
 
 
-def source_day(raw: RawSource) -> str:
-    """Prefer the recorded local occurrence day; ingestion timestamps fall back to UTC."""
-    occurred = raw.occurred_on()
-    if occurred:
+def recorded_day(value: Any) -> str | None:
+    """A recorded day or instant's own calendar day; no imported-date fallback."""
+    try:
+        return date.fromisoformat(str(value)).isoformat()
+    except ValueError:
         try:
-            return date.fromisoformat(occurred).isoformat()
+            return datetime.fromisoformat(str(value)).date().isoformat()
         except ValueError:
-            # Older/custom sources may carry an instant instead of a calendar day.
-            try:
-                instant = datetime.fromisoformat(occurred)
-            except ValueError:
-                pass
-            else:
-                return instant.replace(tzinfo=instant.tzinfo or timezone.utc).astimezone(
-                    timezone.utc
-                ).date().isoformat()
+            return None
+
+
+def source_date(raw: RawSource) -> tuple[str, bool]:
+    """The sortable calendar day and whether it comes from the import timestamp."""
+    occurred = recorded_day(raw.occurred_on())
+    if occurred:
+        return occurred, False
     instant = raw.created_at
-    return instant.replace(tzinfo=instant.tzinfo or timezone.utc).astimezone(
+    day = instant.replace(tzinfo=instant.tzinfo or timezone.utc).astimezone(
         timezone.utc
     ).date().isoformat()
+    return day, True
+
+
+def source_day(raw: RawSource) -> str:
+    """Prefer occurrence; explicitly label the UTC import day when it is all we know."""
+    day, imported = source_date(raw)
+    return prompt("steward.read.imported", day=day) if imported else day
+
+
+def block_days(raw: RawSource) -> dict[int, str]:
+    envelope, key = {
+        "agent_session": ("turns", "at"),
+        "owner_dialogue": ("turns", "said_at"),
+        "im": ("messages", "sent_at"),
+        "meeting": ("segments", "started_at"),
+    }.get(raw.kind, ("", ""))
+    return {index: day for index, block in enumerate(raw.meta.get(envelope, []))
+            if (day := recorded_day(block.get(key))) is not None}
 
 
 def block_speakers(raw: RawSource, owner_name: str | None = None) -> dict[int, str]:
@@ -78,8 +104,8 @@ def block_speakers(raw: RawSource, owner_name: str | None = None) -> dict[int, s
             name = prompt("ingest.steward_label")
         else:
             name = declared
-        if name:
-            speakers[index] = one_line(name)
+        if name and (label := one_line(name)):
+            speakers[index] = label
     return speakers
 
 
@@ -134,19 +160,66 @@ class SourceSignals:
             row["agent"] = agent
         return row
 
+    def latest_day(self, source_ids: Iterable[str]) -> str | None:
+        """Choose among loaded sources by date, independent of the catalog's label."""
+        raw = max(
+            (source.raw for sid in source_ids if (source := self.sources.get(sid)) is not None),
+            key=lambda raw: source_date(raw)[0], default=None,
+        )
+        return source_day(raw) if raw is not None else None
+
     async def span(self, source_id: str, start: int, end: int) -> dict[str, Any]:
-        await self.get(source_id)
-        row: dict[str, Any] = {"span": span_label(start, end)}
+        source = await self.get(source_id)
         speakers = self.speakers[source_id]
-        covered = [index for index in sorted(speakers) if start <= index <= end]
-        names = list(dict.fromkeys(speakers[index] for index in covered))
-        if names:
-            # Work is bounded by stored authorship, including for an invalid historical
-            # citation with an enormous end block. Missing roles never borrow a neighbour.
-            if len(covered) < end - start + 1:
-                names.append(prompt("steward.read.unknown"))
-            row["speaker"] = ", ".join(names)
+        days = block_days(source.raw) if source else {}
+        rows = []
+        cursor = start
+        # Bound work to stored blocks, even for a malformed historical citation. Missing
+        # runs remain explicit without allocating a row per nonexistent block.
+        for index in sorted({b.index for b in source.blocks} if source else set()):
+            if not start <= index <= end:
+                continue
+            if index > cursor:
+                rows.append({"span": span_label(cursor, index - 1),
+                             "speaker": prompt("steward.read.unknown")})
+            rows.append({"span": span_label(index, index),
+                         "speaker": speakers.get(index, prompt("steward.read.unknown")),
+                         **({"date": days[index]} if index in days else {})})
+            cursor = index + 1
+        if cursor <= end:
+            rows.append({"span": span_label(cursor, end),
+                         "speaker": prompt("steward.read.unknown")})
+        row: dict[str, Any] = {"span": span_label(start, end), "speakers": rows}
+        names = {block["speaker"] for block in rows}
+        if len(names) == 1:
+            row["speaker"] = next(iter(names))
         return row
+
+    async def index(
+        self, citations: Iterable[Citation], *, handles: dict[str, str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """The shared cited-source rows for canonical and recall, deduped by exact span."""
+        cited: dict[str, set[tuple[int, int]]] = {
+            sid: set() for sid in (handles or {}).values()
+        }
+        for citation in citations:
+            sid = str(citation.source_id)
+            sid = (handles or {}).get(sid, sid)
+            cited.setdefault(sid, set()).add((citation.block_start, citation.block_end))
+        reverse = {sid: handle for handle, sid in (handles or {}).items()}
+        return [
+            {**({"handle": reverse[sid]} if sid in reverse else {}),
+             **await self.summary(sid),
+             "cited": [await self.span(sid, a, b) for a, b in sorted(spans)]}
+            for sid, spans in cited.items()
+        ]
+
+
+def span_speaker_text(span: dict[str, Any]) -> str:
+    return " · ".join(
+        f"{row['span']} {row['speaker']}" + (f" {row['date']}" if row.get("date") else "")
+        for row in span["speakers"]
+    )
 
 
 def source_index_lines(sources: list[dict[str, Any]]) -> list[str]:
@@ -161,8 +234,7 @@ def source_index_lines(sources: list[dict[str, Any]]) -> list[str]:
             f"{source['date'] or prompt('steward.read.unknown')} · "
             + one_line(source['title'] or prompt('steward.read.unknown'))
         )
-        cited = [f"{span['span']} {span['speaker']}" for span in source.get("cited", [])
-                 if span.get("speaker")]
+        cited = [span_speaker_text(span) for span in source.get("cited", [])]
         if cited:
             lines.append("    " + prompt("steward.read.cited", spans=" · ".join(cited)))
     return lines
@@ -170,7 +242,7 @@ def source_index_lines(sources: list[dict[str, Any]]) -> list[str]:
 
 def evidence_tally(evidence: FastEvidence) -> dict[str, Any]:
     pages: dict[str, int] = {}
-    for claim in evidence.used_claims:
+    for claim in ranked_items(evidence.used_claims)[0]:
         pages[claim.document_path] = pages.get(claim.document_path, 0) + 1
     return {
         "claims": len(evidence.used_claims),
@@ -181,30 +253,58 @@ def evidence_tally(evidence: FastEvidence) -> dict[str, Any]:
     }
 
 
-def evidence_lines(evidence: FastEvidence, tally: dict[str, Any]) -> list[str]:
+def ranked_items(items) -> tuple[list, bool]:
+    """Only finite, positive retrieval scores establish an order; defaults do not."""
+    ranked = bool(items) and all(
+        isinstance(getattr(item, "score", None), (int, float))
+        and math.isfinite(item.score) and item.score > 0 for item in items
+    )
+    return (sorted(items, key=lambda item: -item.score) if ranked else list(items), ranked)
+
+
+def evidence_lines(evidence: FastEvidence, tally: dict[str, Any]) -> tuple[list[str], list[str]]:
+    """A repeatable header and the retained reader body, over the lane's exact evidence."""
+    aliaser = SessionAliaser()
+    for _handle, sid in evidence.handles.items():
+        aliaser.alias(f"[cite: {sid} ¶0]")
+    sections = dict(evidence.sections)
+    ordering = []
+    primary = []
+    for number, (kind, items, render) in enumerate((
+        ("claims", evidence.used_claims, render_claims),
+        ("windows", evidence.used_windows, _render_window_section),
+        ("episodes", evidence.used_episode_summaries, render_episode_summaries),
+    ), 1):
+        label = prompt(f"steward.read.section_{kind}")
+        section = sections.get(kind, "").partition("\n")[2]
+        ordered, ranked = ranked_items(items)
+        # An annotated window may contain additional claims. Only reorder when this
+        # renderer accounts for the entire section; otherwise preserve the lane's bytes.
+        if ranked and aliaser.alias(render(list(items))).strip() == section.strip():
+            section = aliaser.alias(render(ordered))
+        else:
+            ranked = False
+        ordering.append(f"{label}: " + prompt(
+            "steward.read.ranked" if ranked else "steward.read.lane_order"
+        ))
+        primary.extend([f"# {number} {label}", section, ""])
     when = evidence.as_of.replace(tzinfo=evidence.as_of.tzinfo or timezone.utc)
-    lines = [
+    header = [
         prompt("steward.read.evidence_for", query=one_line(evidence.question)),
         "as_of: " + when.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
         prompt("steward.read.tally", **{**tally, "pages": len(tally["pages"])}),
         prompt("steward.read.pages", pages=" · ".join(
             f"{page['path']} ({page['claims']})" for page in tally["pages"]
         ) or prompt("steward.read.none")),
-        prompt("steward.read.sections"),
-        "",
+        " · ".join(ordering),
+        prompt("steward.read.sections", sections=" · ".join(
+            f"{n} {prompt('steward.read.section_' + kind)}"
+            for n, kind in enumerate(("claims", "windows", "episodes", "map"), 1)
+        )),
     ]
-    sections = dict(evidence.sections)
-    for number, (kind, header_key, count) in enumerate((
-        ("claims", "recall.section.claims_header", tally["claims"]),
-        ("windows", "recall.section.windows_header", tally["windows"]),
-        ("episodes", "recall.section.episode_summaries_header", tally["episodes"]),
-    ), 1):
-        section = sections.get(kind, prompt(header_key, count=count))
-        # The title and section body are the lane's own bytes, with only a reading number
-        # inserted before the title; source text containing Markdown headings is untouched.
-        lines.extend([f"# {number} {section.removeprefix('# ')}", ""])
+    lines = primary
     for kind, section in evidence.sections:
         if kind not in {"claims", "windows", "episodes", "map"}:
             lines.extend([section, ""])
-    lines.extend([prompt("steward.read.map"), sections.get("map", ""), ""])
-    return lines
+    lines.extend([f"# 4 {prompt('steward.read.section_map')}", sections.get("map", ""), ""])
+    return header, lines

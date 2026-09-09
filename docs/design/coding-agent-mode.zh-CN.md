@@ -389,17 +389,22 @@ HTTP API 的读半边变成命令。同样的 handler、同样的形状，可要
 |---|---|
 | `pkc outline`（`--json`、`--family <template>`、`--definitions`、`--include-archived`） | 完整地图：每一页都在所属族下，一页一行，没有 top-K 或字符预算；用于会话开始及编译后检查 |
 | `pkc glance`（`--include-archived`） | 回答通道的有预算地图（`canonical_glance`）：每个族的头部页面，报告省略数量；outline 太长、难以扫读时用来挑选主题 |
-| `pkc canonical ls`（`--include-archived`） / `read <path> [<path> …]` / `history <path>` | 页面、一页、一条 claim 链；每页正文前列出最近提交、断言及被替代数量、引用来源及日期、全库编译队列状态，正文后列出来源索引及引用区间发言者；`read` 与 `history` 无条件 |
-| `pkc source ls`（`--include-archived`） / `show <id>` / `fetch <id> ¶a-b [<id> ¶c-d …]` | L0：来源、结构、逐字 span；每个读取区间标注完整来源 id、区间、已知发言者和来源日期（JSON 为列表），仍支持单来源多区间；`show` 与 `fetch` 无条件 |
+| `pkc canonical ls`（`--include-archived`） / `read <path> [<path> …]` / `history <path>` | 页面、一页、一条 claim 链；每页显示「最后改动」（路径提交）、与 outline 一致的账本断言数、概览块数、全库替代关系及后继地址、「最新被引来源」和当前租户待处理及失败的编译作业数。来源索引逐引用块标注发言者及块自身的已记录日期，缺失署名明确标为「未知」。来源日期优先发生日期，否则标为「导入 …」；`read` 与 `history` 无条件 |
+| `pkc source ls`（`--include-archived`） / `show <id>` / `fetch <id> ¶a-b [<id> ¶c-d …]` | L0：来源、结构、逐字 span；每个读取区间标注完整来源 id、逐块发言者（缺失时明确标为「未知」）、块自身的已记录日期，以及来源发生日期或带「导入」标签的日期。JSON 为列表，分页时包装为 `items` 并附 `paging`；仍支持单来源多区间；`show` 与 `fetch` 无条件 |
 | `pkc archive propose` / `confirm` / `ls` / `show` / `drop` / `inventory` | 让一个主题退场，以及把它请回来（§5.5）——一份提案、一次确认，以及排在普通队列上的一个作业 |
-| `pkc search <q>`（`--lexical` / `--semantic` / 融合；`--include-archived`） | L1 / L2，默认范围内，除非要求；命中标注已知发言者，列出每个词项及严格匹配全部词项的词法估计数和显示数量（引号短语算一个词项；语义模式无词法计数，融合模式单独报告词法总数） |
-| `pkc recall <q> --evidence`（`--include-archived`） | fast lane 证据，不含回答调用：文本先给出总数及按排名的页面计数，再依次列出断言、原文窗口、派生片段摘要、原样 glance，最后列出句柄到来源的索引；JSON 保留 lane 的 `content` 原始字节并新增 `tally` 和 `sources` |
+| `pkc search <q>`（`--lexical` / `--semantic` / 融合；`--include-archived`） | 在指定范围内返回 L1 / L2 排名命中，逐块标注发言者及日期。词法/融合头部报告每个词项及全部词项的**已索引块**数估计，说明单块匹配、相邻块可能合并涵盖词项、索引因 index 队列落后于 L0，并列出当前租户待处理 index 作业数。引号短语算一个词项；语义模式无词法计数；融合模式单独报告词法总数 |
+| `pkc recall <q> --evidence`（`--include-archived`） / `pkc recall --evidence --handoff <id> --page N` | fast 证据，不含回答调用：头部列出统计、第三行 handoff 及精确的下一页命令；依次为断言、原文窗口、片段摘要（派生）、地图。有相关性评分的章节按排名排序，否则标注保留 lane 顺序。句柄到来源的索引列出引用块、发言者和日期。文本随 handoff 保留，silent 调用也如此：`--handoff` 读取保留分页，不重新检索或创建第二个 handoff；仅用 `--page` 会重新检索。JSON 保留完整 lane `content`，附 `tally` 和 `sources` |
 | `pkc recall <q>`（`--include-archived`） | 配置了回答模型时的 fast lane |
 | `pkc jobs` / `pkc history` / `pkc brief <version>` | 队列、编译版本、编译后简报 |
 | `pkc consult answer <handoff_id> --text-file <f>` / `pkc consult record --question <q> --text-file <f>`（或 `-`；`--kind no_record`） | 关闭交接回答，或不经过交接直接记录阅读；每个引用都必须可解析 |
 | `pkc consultations` / `pkc spend` | 使用侧保留记录、交接证据数与直接引用数及其花费 |
 | `pkc evolve ls` / `show` | 提案及其 diff |
 | `pkc library check` | 对已提交的库跑全库谓词：锚唯一与连续、引用形状与可解析、路径归属、总览规则、组件检查、每次提交带 trailer——只报告，不修复 |
+
+读命令的文本按字符分页，JSON 按完整列表条目分页。顶层列表分页时包装为 `items`；对象含多个
+列表时，对序列化后最大的列表分页，并在 `paging.list` 中标明。`--all-pages` 返回完整载荷。
+Recall 证据的 JSON 始终完整。保留的 recall 分页沿用初次读取的页大小，重复显示头部；在交接
+被回答或过期前均可读取。
 
 两种地图默认省略已归档页面，保留 live 路径上的归档记录；显式纳入的已归档页面按 live 路径
 归入所属族、排在 live 页面之后，并标明状态。Outline 按契约声明顺序点名空族，在页面旁计数

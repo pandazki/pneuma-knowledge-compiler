@@ -2975,26 +2975,43 @@ DEFAULTS: dict[str, str] = {
         "is the map of them."
     ),
     "steward.skill.who": _STEWARD_WHO,
-    "steward.cli.recall": "The fast answer, or --evidence with tallies and a source index in claims, verbatim windows, derived episode summaries, then map order, with the map last for a reader who already holds it (--json preserves the model's exact content).",
-    "steward.cli.canonical_read": "Read one or more pages unconditionally, with last-commit, claim, citation and library compile-queue status above the unchanged page and a source index with cited-span speakers below.",
-    "steward.cli.search": "Ranked source spans with speaker labels and, in lexical or fused mode, estimated per-term and all-terms block counts (quoted phrases count as one term).",
-    "steward.cli.source_fetch": "Fetch verbatim spans from one or more sources, each labelled with its full source id, span, speaker when known and source day; JSON is a list.",
+    "steward.cli.recall": "The fast answer, or --evidence: tally, handoff and exact next-page command in the header; claims, verbatim windows, episode summaries (derived), then map. Sections with scores are ranked by relevance; others stay in the lane's order. The source index lists cited blocks, speakers and days. --handoff ID pages the retained result without retrieval, including silent calls; --page alone starts a new retrieval. --json preserves the lane's whole content.",
+    "steward.cli.canonical_read": "Read one or more pages unconditionally: last changed (path commit), ledger claim count as in outline, overview blocks, repository-wide supersession with successor addresses, latest cited source and pending/failed compile queue. The unchanged page is followed by a source index with cited-block speakers and days; unknown authorship is explicit, and import dates say imported.",
+    "steward.cli.search": "Ranked source spans with per-block speakers and recorded days. Lexical/fused headers report estimated per-term and all-terms indexed-block counts: single-block matches; adjacent blocks may join terms; the index lags L0 by the index queue, whose pending count is shown. Quoted phrases count as one term.",
+    "steward.cli.source_fetch": "Fetch verbatim spans from one or more sources, each labelled with its full source id, per-block speaker (unknown when absent) and recorded block day. Source dates use occurrence days or explicitly labelled imported days. JSON is a list, wrapped as items with paging metadata when paged.",
     "steward.cli.source_fetch_spans": "one or more ¶a-b, ¶a or a-b spans, optionally followed by another source id and its spans; exactly two bare integers `a b` mean one span per source",
+    "steward.read.imported": "imported {day}",
+    "steward.read.section_claims": "claims",
+    "steward.read.section_windows": "verbatim windows",
+    "steward.read.section_episodes": "episode summaries (derived)",
+    "steward.read.section_map": "map",
+    "steward.read.ranked": "ranked by relevance",
+    "steward.read.lane_order": "in the lane's order",
+    "steward.read.superseded": "superseded: {count} · {successors}",
+    "steward.read.this_page": "this page",
+    "steward.read.queue": "queue: {pending} · {failed}",
+    "steward.read.compile_pending": "{count} compile pending",
+    "steward.read.compile_failed": "{count} compile failed (pkc jobs --status failed)",
+    "steward.read.pending": "{count} pending",
+    "steward.read.none_pending": "none pending",
+    "steward.read.none_failed": "none failed",
+    "steward.read.index_queue": "index queue: {pending}",
+    "steward.read.next_page": "next page: {command}",
+    "steward.read.result_end": "last page; whole retained result: {command}",
+    "steward.read.new_retrieval": "new retrieval; pages of a retained result: --handoff {handoff_id}",
+    "steward.read.json_paging": "--json pages by item where the payload is a list; recall's JSON is whole",
     "steward.read.unknown": "unknown",
     "steward.read.none": "none",
     "steward.read.sources": "sources:",
     "steward.read.cited": "cited: {spans}",
     "steward.read.evidence_for": "evidence for: {query}",
-    "steward.read.tally": "ranked by relevance · {claims} claims from {pages} pages · {windows} verbatim windows from {window_sources} sources · {episodes} episode summaries (derived)",
+    "steward.read.tally": "{claims} claims from {pages} pages · {windows} verbatim windows from {window_sources} sources · {episodes} episode summaries (derived)",
     "steward.read.pages": "pages: {pages}",
-    "steward.read.sections": "sections: 1 claims · 2 verbatim windows · 3 episode summaries (derived) · 4 map (library glance; see pkc outline for the complete map)",
-    "steward.read.map": "# 4 map",
+    "steward.read.sections": "sections: {sections} (map: library glance; see pkc outline for the complete map)",
     "steward.read.page": "page: {path}",
-    "steward.read.status": "compiled: {compiled_at} (commit {commit}) · claims: {claims} · superseded: {superseded} · sources cited: {sources_cited} · latest source: {latest_source}",
-    "steward.read.queue_empty": "queue: no compile pending",
-    "steward.read.queue_pending": "queue: {count} compile jobs pending for this library · page destinations unknown",
+    "steward.read.status": "last changed: {last_changed} (commit {commit}) · claims: {claims} · overview blocks: {overview_blocks} · superseded: {superseded} · sources cited: {sources_cited} · latest cited source: {latest_cited_source}",
     "steward.read.query": "query: {query}",
-    "steward.read.search_counts": "blocks matching every term: {all_terms} · {terms} (lexical estimates)",
+    "steward.read.search_counts": "indexed blocks holding every term: {all_terms} · {terms} (estimates; single-block matches in the lexical index; adjacent blocks may still join the terms; the index lags L0 by the index queue)",
     "steward.read.showing": "showing: {showing} of {total} (ranked; estimated total; --limit N for more)",
     "steward.read.showing_fused": "showing: {showing} fused hits (ranked; --limit N for more)",
     "steward.read.lexical_total": "lexical total: {total} (estimated)",
@@ -3044,93 +3061,106 @@ state. Closed volumes (`<doc>/aNN.md`) remain live knowledge. `archive/` and arc
 leave every default retrieval; `--include-archived` admits and labels them. An archive record
 at the old live path explains the retired subject. Fetching a known address still works.
 
-## What a claim guarantees, and what it does not
+## What the library establishes, and what it leaves to you
 
-Every guarantee here is mechanical — the library checked it when the claim was written, and
-its read commands print the fact — so you can judge from the output instead of re-checking.
+Each read command prints what the library knows mechanically, so you can see it instead of
+re-deriving it. What a mechanism does not establish is stated too; the judgement is yours.
 
-- **Cited, at write time.** Every claim on a page passed the gate: each `[cite: <sid> ¶a-b]`
-  resolved to a real block of this library at commit, and the page was written under the
-  [contract](contract.md). A claim is the compile's judgement of what the span supports; the
-  span is the ground truth beneath it. Read the span to quote wording verbatim, not to
-  believe the claim.
-- **Dates are settled.** The compile converts every date into the Owner's calendar day, and
-  quotes the original when it was relative ("next week"). A date inside a claim is the
-  answer; the source is not more right about it.
-- **Current unless superseded.** A claim is current unless a later claim names it in
-  `<!-- supersedes: c:xxxx -->`; then the later one is current and the earlier is frozen
-  history. `pkc canonical read` counts superseded claims in its header; `pkc canonical
+- **Provenance is checked; meaning is not.** When a claim was written, the gate verified that
+  every `[cite: <sid> ¶a-b]` resolves to a real block of this tenant, that the page follows the
+  [contract](contract.md), that an overview block rests on a ledger claim or a span, and — on
+  pages the contract marks owner-voice — that the cited blocks are the Owner's own. The gate does not verify
+  that the span means what the claim says. A claim is the compiler's reading of its span;
+  the span is the ground truth beneath it, one `source fetch` away.
+- **Dates in claims are the compiler's conversion.** The compile task states the Owner's
+  calendar and time frame, and the compiler writes dates as the Owner's calendar day, quoting a
+  relative expression ("next week") beside it. The source index prints each cited block's own
+  day where the block carries a timestamp, so a claim's date and its source's day sit side by
+  side; when they differ, or the day is the answer, the span decides.
+- **Current unless superseded, checked across the whole library.** A claim is current unless
+  a later claim anywhere names it in `<!-- supersedes: c:xxxx -->`. `pkc canonical read`
+  counts the superseded claims on a page and names each successor's address; `pkc canonical
   history` prints a chain.
-- **Who said it is printed.** Where a source carries roles (agent sessions, Owner statements,
-  meetings, chats), the page's `sources:` footer and the evidence's `sources:` index name the
-  speaker of every cited span — the Owner's own words against an agent's account of its work.
-  An agent's report of finishing is not the Owner's acceptance; an action stub is a log line,
-  not a result.
-- **Freshness is stated.** The page header says when it was compiled and whether compile
-  jobs are still pending for this library. Material in the queue is on no page yet, so a
-  question about the newest sessions may need `pkc search --lexical` over L0 as well.
-- **Absence is stated.** `pkc search --lexical` counts the blocks holding every term of the
-  query. Zero means no verbatim record joins those terms: answer from what is recorded and
-  say the rest is inference, or say there is no record.
+- **Who spoke each cited block is printed.** Where a source carries roles (agent sessions,
+  Owner statements, meetings, chats), the `sources:` index under a page or under evidence
+  names the speaker of every cited block — the Owner's own words against an agent's account
+  of its work — and prints `unknown` where the source carries no roles. An agent's report of
+  finishing is not the Owner's acceptance; an action stub is a log line, not a result.
+- **Freshness is what git and the queue know.** A page header prints when the page last
+  changed and the tenant's compile queue (pending and failed). It does not know whether a
+  newer session concerns this page: material still in the queue is on no page, and a page can
+  be old and still right.
+- **Absence is narrowed, not proven.** `pkc search --lexical` counts the indexed blocks that
+  hold every term of the query, single block at a time. Zero means no one indexed block holds
+  them all — adjacent blocks may, a paraphrase may, and the index lags L0 by the index queue,
+  which the header also prints. The count tells you where not to look; it does not say the
+  library has no record.
 - **Strength is the contract's.** Labels such as 【firm】/【forming】/【loose】 carry the
-  distinctions the [contract](contract.md) states, not a probability of truth. Preserve their
-  conditions. On `pkc profile show`, `inferred` marks the Steward's hypothesis, `owner` marks
-  what the Owner wrote or confirmed, and `detected` marks a system observation.
+  distinctions the [contract](contract.md) states, not a probability of truth. On `pkc profile
+  show`, `inferred` marks the Steward's hypothesis, `owner` what the Owner wrote or confirmed,
+  `detected` a system observation.
 """,
     "steward.consume.when_to_use": """## Best practice by the shape of the question
 
-Every command is a process start; two or three lookups usually give a complete answer. Read
-commands are independent of one another — run several at once when their inputs are already
-known (a harness runs shell commands in parallel when told they are independent). Pick the
-path by the shape of the question; the syntax is here, so cli.md need not be opened:
+Every read command is an independent process; when their inputs are known, run several at
+once (a harness runs shell commands in parallel when told they are independent). The syntax
+is here, so cli.md need not be opened first.
 
 | Shape of the question | Path |
 |---|---|
-| About a subject the outline names (a project, a person, a topic) | `pkc outline` to locate → `pkc canonical read <path> [<path>…]` reads the one or two relevant pages in one call → answer from the claims. The header says when the page was compiled; the `sources:` footer says who spoke each cited span. Fetch a span only to quote it verbatim. |
-| Spans several pages, or nobody knows which page | `pkc recall <q> --evidence`: one call returns claims and verbatim windows from many pages, ranked, with a header tallying which pages they come from and the `handoff_id` the answer will close. Later pages of the output rank lower; read them when the tally shows pages you have not seen. |
-| A name, an exact phrase, material never compiled, or the newest sessions | `pkc search <q> --lexical` (10 hits by default; `--limit N` for more). The header counts blocks per term and blocks holding every term; each hit names its speaker. With semantic retrieval on, `--semantic` matches concepts. |
-| Nothing found | When `search` reports zero blocks holding every term and the pages hold nothing, the library has no record: say so, and close with `pkc consult record … --kind no_record`. Do not keep searching for a record the counts say is absent. |
+| About a subject the outline names (a project, a person, a topic) | `pkc outline` to locate → `pkc canonical read <path> [<path>…]` reads the relevant pages in one call → answer from the claims. The header says when the page last changed and what the queue holds; the `sources:` index says who spoke each cited block and on which day. Read a span (`pkc source fetch`) when the wording, the day, or the speaker matters to the answer. |
+| Spans several pages, or nobody knows which page | `pkc recall <q> --evidence`: one call returns claims and verbatim windows from many pages, with a header tallying the pages, the section order, and the `handoff:` the answer will close. Follow cited addresses with `source fetch` where the evidence is not enough; the next page of a long result is served from the retained handoff (`--handoff <id> --page N`), not by a second retrieval. |
+| A name, an exact phrase, uncompiled material, or the newest sessions | `pkc search <q> --lexical` (10 hits by default; `--limit N` for more). The header counts indexed blocks per term and blocks holding every term, and prints the index queue; each hit names its speaker. With semantic retrieval on, `--semantic` matches concepts. |
+| Nothing found | When the pages hold nothing and the search counts are zero, say what you looked for and that no record was found; close with `pkc consult record … --kind no_record`. Whether to widen the search — adjacent blocks, a paraphrase, `--include-archived` — is your judgement; the counts tell you where a match cannot be, not that none exists. |
 | Only what the library holds | `pkc outline` (`--definitions` adds one-line definitions): the complete map, one page per line, no top-K or character budget, paged when long. Use budgeted `pkc glance` only when the outline is too long to scan; it drops pages and says how many. |
 | After `pkc draft finish` | Run `pkc outline --family <template>` for each family you wrote, to see the new pages land under the right family. |
 
+**Answering.** Answer from what you read and cite it: a page and claim anchor with its source
+span, or the span itself. Keep record and inference apart, and say plainly when the library
+holds nothing. Where source kinds carry roles (`owner-dialogue/v1`, `agent-session/v1`),
+distinguish the Owner's own words from Steward or agent narrative.
+
 Long output is paged: prose prints 8,000 characters and a footer naming `--page N` for the
-next and `--all-pages` for everything; `--json` pages its list by items and adds a `paging`
-field. Headers sit on page 1; read it and judge whether more is needed.
+next and `--all-pages` for everything; `--json` pages by item where the payload is a list
+(recall's JSON is whole). Headers sit on page 1.
 """,
     "steward.consume.primitives": """## The tools: what each returns, and its typical use
 
-- `pkc outline` — the complete family map, one page per line with its claim count; `--definitions`
-  adds each page's definition; `--family <template>` one family; `--json` the tree. Typical use:
-  session start, locating pages, checking where a compile landed.
+- `pkc outline` — the complete family map, one page per line with its ledger claim count;
+  `--definitions` adds each page's definition; `--family <template>` one family; `--json` the
+  tree. Typical use: session start, locating pages, checking where a compile landed.
 - `pkc glance` — the answering lanes' budgeted map: top pages per family with omission counts.
   Typical use: only when the outline is too long to scan.
 - `pkc canonical ls` — every page path. `pkc canonical read <path> [<path>…]` — a status header
-  (`compiled`, `claims`, `superseded`, `sources cited`, `latest source`, `queue`), the page as the
-  compile model reads it (overview, ledger, anchors, citations), and a `sources:` footer naming
-  each cited source's kind, date and title, with the speaker of every cited span where the
+  (`last changed` with its commit, `claims` as the outline counts them, `superseded` with each
+  successor's address, `sources cited`, `latest cited source`, `queue` pending and failed), the
+  page as the compile model reads it (overview, ledger, anchors, citations), and a `sources:`
+  index: each cited source's kind, day (`imported <day>` when no occurrence day is recorded)
+  and title, with a `cited:` row naming the speaker and day of every cited block where the
   source carries roles. `pkc canonical history <path> c:xxxx` — a claim's supersession chain.
   Typical use: answering about a named subject; several pages in one call.
-- `pkc search <q> --lexical` — a header (`blocks matching every term`, per-term counts,
-  `showing N of M`) and ranked L1 hits with source/block addresses, each with its speaker where
-  the source carries roles; unconditional across intake plans. `--semantic` (when the
-  `intake.semantic_retrieval` knob is `on`) matches indexed concepts; the default fuses the arms.
-  Semantic summaries are derived, not verbatim. Typical use: names, phrases, uncompiled or
-  newest material, and the absence signal.
+- `pkc search <q> --lexical` — a header (`indexed blocks holding every term`, per-term counts,
+  the `index queue`, `showing N of M`) and ranked L1 hits with source/block addresses and the
+  speaker where the source carries roles; unconditional across intake plans. `--semantic`
+  (when the `intake.semantic_retrieval` knob is `on`) matches indexed concepts; the default
+  fuses the arms. Semantic summaries are derived, not verbatim. Typical use: names, phrases,
+  uncompiled or newest material, narrowing where a record can be.
 - `pkc source structure <sid>` — metadata and the section-to-block map with each block's role.
   `pkc source fetch <sid> ¶a-b [<sid> ¶c-d …]` — verbatim spans from one or several sources,
-  each under a line naming source, span, speaker and date. Typical use: quoting wording
-  verbatim, reading around a cited span.
-- `pkc recall <q> --evidence` — the fast lane's evidence: a header (`ranked by relevance`, the
-  claim tally per page, window and episode counts, the section order), then claims, verbatim
-  windows, derived episode summaries, and the map last; a `sources:` index mapping handles to
-  sources; the `handoff_id` and the command that closes it. It builds no chat model. `--json`
-  keeps the lane's exact context in `content`. Typical use: a question that spans pages.
+  each under a line naming source, span, speaker and day. Typical use: the wording, day or
+  speaker behind a claim; reading around a cited span.
+- `pkc recall <q> --evidence` — the fast lane's evidence: a header (the query, `as_of`, the
+  `handoff:` and the next-page command, the tally of claims per page, windows and summaries,
+  the section order), then claims in rank order, verbatim windows, derived episode summaries,
+  and the map last; a `sources:` index with `cited:` rows like a page's. It builds no chat
+  model. `--json` keeps the lane's exact context in `content`. Typical use: a question that
+  spans pages.
 - `pkc history` — versions, jobs and sources; `pkc brief <version>` — the kept post-compile
   brief. Typical use: locating when the library changed, then reading the claims.
 - `pkc consultations` — past questions, visitor classes, misses and evidence/citation counts.
   A consultation is a kept record, not knowledge.
 - `pkc consult answer <handoff_id> --text-file <f>` / `pkc consult record --question <q>
-  --text-file <f>` — record the answer you wrote (see Answering).
+  --text-file <f>` — record the answer you wrote; the mechanics follow.
 
 Multi-hop reading is your own sequence of these commands: follow a page link, a claim chain
 or a citation, read the next item, and continue until the evidence answers the question or
@@ -3145,22 +3175,14 @@ in declaration order; their scope and wording come from [contract.md](contract.m
 """,
     "steward.consume.owner_voice": " — the Owner's own words only (`owner_voice`)",
     "steward.consume.no_families": "This contract declares no path templates.",
-    "steward.consume.answering": """## Answering
+    "steward.consume.answering": """## Recording the consultation
 
-Answer from the claims you read and cite them: a page and claim anchor together with its
-source span, or the source span itself. Fetch a span to quote its wording verbatim; a claim's
-fact, date and speaker are already settled by the guarantees above. State when the library
-holds nothing on the question, and keep inference apart from record. Where source kinds carry
-roles (`owner-dialogue/v1`, `agent-session/v1`), distinguish the Owner's own words from Steward
-or agent narrative; reported completion is not Owner acceptance, and an action stub is not a
-successful result.
-
-Record the use with the answer you wrote: `pkc consult answer <handoff_id> --text-file <f>`
-(`-` for stdin) closes a `recall --evidence` handoff. Cite what you read: a handed handle or
-a real `[cite: <sid> ¶a-b]` address or `c:xxxx` anchor. Both handed and direct citations
-enter the record, and both must resolve in this tenant's L0 block range or canonical anchors;
-an invalid citation refuses the answer with exit 4 and leaves the handoff open for correction.
-Direct citations carry `origin: "direct"` and do not expand `evidence_handed`.
+`pkc consult answer <handoff_id> --text-file <f>` (`-` for stdin) closes a `recall --evidence`
+handoff with the answer you wrote. Cite what you read: a handed handle or a real
+`[cite: <sid> ¶a-b]` address or `c:xxxx` anchor. Both handed and direct citations enter the
+record, and both must resolve in this tenant's L0 block range or canonical anchors; an invalid
+citation refuses the answer with exit 4 and leaves the handoff open for correction. Direct
+citations carry `origin: "direct"` and do not expand `evidence_handed`.
 When you never ran `recall --evidence`, close with `pkc consult record --question <q>
 --text-file <f>` (or `-`): the same resolution and recording, with lane `direct` and no handoff.
 Use `--kind no_record` when the library held no answer. One question, one record: do not

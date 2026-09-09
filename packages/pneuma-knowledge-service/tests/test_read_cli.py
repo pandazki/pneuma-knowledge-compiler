@@ -173,7 +173,7 @@ async def test_source_fetch_returns_the_verbatim_span():
     # The bare spelling addresses the same span — a shell that eats the pilcrow must not
     # change what a locator means.
     _code, plain, _err = await run(lib, "source", "fetch", "s-01", "1", "2")
-    assert plain.strip() == "s-01 ¶1-2 · 2026-08-01\nbeta\n\ngamma"
+    assert plain.strip() == "s-01 ¶1 unknown · ¶2 unknown · imported 2026-08-01\nbeta\n\ngamma"
 
 
 async def test_source_fetch_refuses_an_argument_that_is_not_a_span():
@@ -202,6 +202,7 @@ async def test_search_reports_each_hit_as_a_source_id_and_span():
             "score": 1.0,
             "text": "gamma",
             "archived": False,
+            "speaker": "unknown", "speakers": [{"span": "¶2", "speaker": "unknown"}],
         }
     ]
 
@@ -529,7 +530,8 @@ async def test_source_fetch_multiple_spans_preserve_shell_argument_boundaries():
         code, out, err = await run(lib, "source", "fetch", "spans", *tokens)
         assert code == 0, err
         assert out == "\n".join(
-            f"spans {item['span']} · 2026-08-01\n{text}"
+            "spans " + " · ".join(f"¶{i} unknown" for i in range(*[item["blocks"][0], item["blocks"][1] + 1]))
+            + f" · imported 2026-08-01\n{text}"
             for item, text in zip(items, texts)
         ) + "\n"
     code, out, err = await run(lib, "source", "fetch", "spans", "¶1", "not-a-span")
@@ -579,7 +581,7 @@ def test_json_paging_cuts_the_one_list_by_items_and_names_the_next_page():
     assert last["paging"]["page"] == pages and last["paging"]["next"] is None
     gathered = [h["i"] for p in range(1, pages + 1) for h in page_items(payload, p, 2000)["hits"]]
     assert gathered == list(range(30))
-    assert page_items({"a": [1], "b": [2]}, 1, 10) == {"a": [1], "b": [2]}  # two lists: whole
+    assert page_items({"a": [1], "b": [2]}, 1, 10)["paging"]["list"] == "a"
     assert page_items({"hits": hits[:2]}, 1, 100000) == {"hits": hits[:2]}  # fits: untouched
 
 
@@ -643,27 +645,31 @@ async def test_canonical_reader_status_and_per_span_source_index(monkeypatch):
     assert calls == [(USER, PAGE, "c0"), (USER, OTHER, "c0")]
     for page in pages:
         assert page["status"] == {
-            "compiled_at": "2026-09-07", "commit": "95c8cdb" + "0" * 33,
-            "claims": 3, "superseded": 1, "sources_cited": 2,
-            "latest_source": "2026-09-06", "queue_pending": 31,
+            "last_changed": "2026-09-07", "commit": "95c8cdb" + "0" * 33,
+            "claims": 3, "overview_blocks": 0, "superseded": 1, "sources_cited": 2,
+            "latest_cited_source": "imported 2026-09-06", "queue_pending": 31, "queue_failed": 0,
         }
         assert page["sources"] == [
             {"source_id": SESSION, "kind": "agent-session", "agent": "TestCoder",
              "date": "2026-07-02", "title": "Synthetic planning session",
-             "cited": [{"span": "¶0", "speaker": "Avery"},
-                       {"span": "¶1-2", "speaker": "TestCoder"}]},
-            {"source_id": STATEMENT, "kind": "document", "date": "2026-09-06",
-             "title": "Synthetic review document", "cited": [{"span": "¶0"}]},
+             "cited": [{"span": "¶0", "speaker": "Avery",
+                        "speakers": [{"span": "¶0", "speaker": "Avery"}]},
+                       {"span": "¶1-2", "speaker": "TestCoder",
+                        "speakers": [{"span": "¶1", "speaker": "TestCoder"},
+                                     {"span": "¶2", "speaker": "TestCoder"}]}]},
+            {"source_id": STATEMENT, "kind": "document", "date": "imported 2026-09-06",
+             "title": "Synthetic review document", "cited": [{"span": "¶0", "speaker": "unknown",
+                 "speakers": [{"span": "¶0", "speaker": "unknown"}]}]},
         ]
     code, prose, err = await run(lib, "canonical", "read", PAGE, OTHER, "--all-pages")
     assert code == 0, err
     for page in pages:
-        assert f"page: {page['path']}\ncompiled: 2026-09-07 (commit 95c8cdb)" in prose
+        assert f"page: {page['path']}\nlast changed: 2026-09-07 (commit 95c8cdb)" in prose
         assert page["document"] in prose
-    assert prose.count("queue: 31 compile jobs pending for this library") == 2
-    assert "cited: ¶0 Avery · ¶1-2 TestCoder" in prose
+    assert prose.count("queue: 31 compile pending · none failed") == 2
+    assert "cited: ¶0 Avery · ¶1 TestCoder · ¶2 TestCoder" in prose
     assert f"{SESSION} · agent-session (TestCoder) · 2026-07-02" in prose
-    assert "sources cited: 2 · latest source: 2026-09-06" in prose
+    assert "sources cited: 2 · latest cited source: imported 2026-09-06" in prose
 
 
 async def test_canonical_missing_metadata_is_unknown_and_empty_queue_is_explicit():
@@ -671,15 +677,15 @@ async def test_canonical_missing_metadata_is_unknown_and_empty_queue_is_explicit
     code, out, err = await run(lib, "canonical", "read", PAGE, "--json")
     assert code == 0, err
     payload = json.loads(out)
-    assert payload["status"]["compiled_at"] is None
-    assert payload["status"]["latest_source"] is None
+    assert payload["status"]["last_changed"] is None
+    assert payload["status"]["latest_cited_source"] is None
     assert payload["status"]["sources_cited"] == 1
     assert payload["status"]["queue_pending"] == 0
     assert payload["sources"][0]["date"] is None
     code, out, err = await run(lib, "canonical", "read", PAGE)
     assert code == 0, err
-    assert "compiled: unknown (commit unknown)" in out
-    assert "queue: no compile pending" in out
+    assert "last changed: unknown (commit unknown)" in out
+    assert "queue: none pending · none failed" in out
     assert "s-01 · unknown · unknown · unknown" in out
 
 
@@ -695,7 +701,7 @@ async def test_source_fetch_multiple_sources_labels_every_span_and_preserves_tex
     code, out, err = await run(lib, *args, "--json")
     assert code == 0, err
     rows = json.loads(out)
-    assert rows == [
+    assert [{k: v for k, v in row.items() if k != "speakers"} for row in rows] == [
         {"source_id": SESSION, "blocks": [0, 0], "span": "¶0", "speaker": "Avery",
          "date": "2026-07-02", "text": "Choose the blue plan."},
         {"source_id": SESSION, "blocks": [1, 2], "span": "¶1-2", "speaker": "TestCoder",
@@ -706,7 +712,9 @@ async def test_source_fetch_multiple_sources_labels_every_span_and_preserves_tex
     code, out, err = await run(lib, *args)
     assert code == 0, err
     assert out == "\n".join(
-        f"{row['source_id']} {row['span']} · {row['speaker']} · {row['date']}\n{row['text']}"
+        f"{row['source_id']} " + " · ".join(
+            f"¶{index} {row['speaker']}" for index in range(row["blocks"][0], row["blocks"][1] + 1)
+        ) + f" · {row['date']}\n{row['text']}"
         for row in rows
     ) + "\n"
     code, out, err = await run(lib, *args, "missing-source")
@@ -728,7 +736,7 @@ async def test_source_fetch_multiple_sources_labels_every_span_and_preserves_tex
                       {"user_id": "m2", "display_name": "Blair"}],
             "messages": [{"sender_id": "m1"}, {"sender_id": "m2"}]}, ["Avery", "Blair"]),
     ("email", {"owner_addresses": ["avery@example.invalid"],
-               "messages": [{"from": {"address": "avery@example.invalid"}}]}, [None, None]),
+               "messages": [{"from": {"address": "avery@example.invalid"}}]}, ["unknown", "unknown"]),
 ])
 async def test_source_speaker_labels_follow_authorship_not_text(kind, meta, expected):
     lib = _lib()
@@ -740,8 +748,8 @@ async def test_source_speaker_labels_follow_authorship_not_text(kind, meta, expe
     assert [row.get("speaker") for row in json.loads(out)] == expected
     code, out, err = await run(lib, "source", "fetch", SESSION, "¶0-1", "--json")
     assert code == 0, err
-    speakers = ", ".join(dict.fromkeys(name for name in expected if name))
-    assert json.loads(out)[0].get("speaker") == (speakers or None)
+    assert [row["speaker"] for row in json.loads(out)[0]["speakers"]] == expected
+    assert json.loads(out)[0].get("speaker") == (expected[0] if len(set(expected)) == 1 else None)
 
 
 async def test_search_counts_terms_and_phrases_without_using_limited_hit_length(monkeypatch):
@@ -770,7 +778,7 @@ async def test_search_counts_terms_and_phrases_without_using_limited_hit_length(
     assert counted == [(USER, q, True, True) for q in (query, "blue", '"three stages"')]
     code, out, err = await run(lib, *args)
     assert code == 0, err
-    assert out.startswith(f"query: {query}\nblocks matching every term: 0")
+    assert out.startswith(f"query: {query}\nindexed blocks holding every term: 0")
     assert '"blue": 37 · "three stages": 120' in out
     assert "showing: 1 of 37" in out
     assert f"{SESSION} ¶0 Avery" in out
@@ -785,7 +793,7 @@ async def test_search_zero_counts_are_visible_and_fused_total_does_not_count_vec
     assert code == 1 and "nothing found" in err
     assert json.loads(out)["counts"] == {"all_terms": 0, "per_term": {"absent": 0}}
     code, out, _err = await run(library(), "search", "absent", "--lexical")
-    assert code == 1 and "blocks matching every term: 0" in out and "showing: 0 of 0" in out
+    assert code == 1 and "indexed blocks holding every term: 0" in out and "showing: 0 of 0" in out
     lib = library(lexical_hits=[LexHit(source_id=SESSION, block_index=0, text="blue")],
                   vector_hits=[VecHit(source_id=STATEMENT, block_start=0, block_end=0, text="plan")])
     code, out, err = await run(lib, "search", "blue", "--fused", "--json")
@@ -822,9 +830,15 @@ async def test_source_authorship_is_bounded_and_never_borrows_an_unknown_role():
     item.raw.meta["turns"][1] = {"role": "unknown"}
     await lib.store.add(USER, item)
     signals = SourceSignals(lib.store, USER)
-    assert await signals.span(SESSION, 1, 1) == {"span": "¶1"}
+    assert await signals.span(SESSION, 1, 1) == {
+        "span": "¶1", "speaker": "unknown", "speakers": [{"span": "¶1", "speaker": "unknown"}],
+    }
     assert await signals.span(SESSION, 0, 10**12) == {
-        "span": "¶0-1000000000000", "speaker": "Avery, TestCoder, unknown",
+        "span": "¶0-1000000000000", "speakers": [
+            {"span": "¶0", "speaker": "Avery"}, {"span": "¶1", "speaker": "unknown"},
+            {"span": "¶2", "speaker": "TestCoder"},
+            {"span": "¶3-1000000000000", "speaker": "unknown"},
+        ],
     }
 
 
@@ -833,9 +847,9 @@ async def test_reader_help_and_labels_follow_the_catalog_in_both_languages():
     from pneuma_knowledge_service.coding_agent.skillpack import render_cli_md
 
     english = render_cli_md(build_parser())
-    assert "map last for a reader who already holds it" in english
-    assert "source index with cited-span speakers" in english
-    assert "estimated per-term and all-terms block counts" in english
+    assert "--handoff ID pages the retained result without retrieval" in english
+    assert "source index with cited-block speakers and days" in english
+    assert "estimated per-term and all-terms indexed-block counts" in english
     assert "JSON is a list" in english
     try:
         override_prompts(chinese_overlay())
@@ -843,11 +857,11 @@ async def test_reader_help_and_labels_follow_the_catalog_in_both_languages():
         await lib.store.add(USER, _authored_source(owner_name=None))
         code, out, err = await run(lib, "source", "fetch", SESSION, "¶0")
         assert code == 0, err
-        assert f"{SESSION} ¶0 · 用户 · 2026-07-02" in out
+        assert f"{SESSION} ¶0 用户 · 2026-07-02" in out
         code, out, err = await run(lib, "canonical", "read", PAGE)
         assert code == 0, err
-        assert out.startswith(f"页面：{PAGE}\n编译：未知")
-        assert "队列：无待处理编译" in out and "来源：" in out
+        assert out.startswith(f"页面：{PAGE}\n最后改动：未知")
+        assert "队列：无待处理 · 无失败" in out and "来源：" in out
         assert "地图放最后" in render_cli_md(build_parser())
     finally:
         reset_prompt_overrides()
@@ -895,7 +909,7 @@ async def test_recall_reader_tally_order_and_handle_source_index_keep_model_byte
         "claims": 3, "pages": [{"path": PAGE, "claims": 2}, {"path": OTHER, "claims": 1}],
         "windows": len(evidence.used_windows), "window_sources": 2, "episodes": 1,
     }
-    assert payload["sources"] == [
+    assert [{k: v for k, v in row.items() if k != "cited"} for row in payload["sources"]] == [
         {"handle": handle, "source_id": sid, "kind": "agent-session", "agent": "TestCoder",
          "date": "2026-07-02", "title": "Synthetic planning session"}
         for handle, sid in evidence.handles.items()
@@ -906,11 +920,408 @@ async def test_recall_reader_tally_order_and_handle_source_index_keep_model_byte
     assert f"pages: {PAGE} (2) · {OTHER} (1)" in out
     assert "3 claims from 2 pages" in out and "1 episode summaries (derived)" in out
     positions = [out.index(header) for header in (
-        "# 1 claim notes", "# 2 raw excerpts", "# 3 derived episode summaries", "# 4 map", "sources:", "handoff:",
+        "# 1 claims", "# 2 verbatim windows", "# 3 episode summaries (derived)", "# 4 map", "sources:",
     )]
     assert positions == sorted(positions)
+    assert out.splitlines()[2].startswith("handoff: ")
+    assert "cited: ¶0 Avery" in out
+    assert "¶1 TestCoder" in out and "¶2 TestCoder" in out
     for kind, section in evidence.sections:
         section_body = section.partition("\n")[2] if kind in {"claims", "windows", "episodes"} else section
         assert section_body in out
     for handle, sid in evidence.handles.items():
         assert f"{handle} = {sid} · agent-session (TestCoder) · 2026-07-02" in out
+
+
+async def test_canonical_supersession_uses_the_pinned_repository_and_claims_match_outline(monkeypatch):
+    from pneuma_knowledge_core.canonical_glance import claim_count
+    from pneuma_knowledge_core.domain.snapshot import SnapshotRef
+
+    body = (
+        "<!-- overview -->\n<!-- overview:definition -->\n### What this is\n\n"
+        "A synthetic plan. c:aaaa <!-- c:eeee -->\n<!-- /overview -->\n\n"
+        f"- Initial plan. [cite: {SESSION} ¶0] <!-- c:aaaa -->\n\n"
+        f"- Original stage. [cite: {SESSION} ¶1] <!-- c:cccc -->\n\n"
+        f"- New stage. [cite: {SESSION} ¶2] <!-- c:dddd --> <!-- supersedes: c:cccc -->\n"
+    )
+    page = document(PAGE, body)
+    successor = document(OTHER, f"- Revised plan. [cite: {STATEMENT} ¶0] "
+                         "<!-- c:bbbb --> <!-- supersedes: c:aaaa -->\n")
+    lib = library(docs=[page, successor])
+    calls = []
+
+    async def pinned_list(user, *, at=None):
+        calls.append((user, at))
+        # The reader must not use an unpinned second listing to resolve successors.
+        return [page, successor] if at is not None else [page]
+
+    monkeypatch.setattr(lib.canonical, "list", pinned_list)
+    code, out, err = await run(lib, "canonical", "read", PAGE, "--json")
+    assert code == 0, err
+    payload = json.loads(out)
+    assert calls == [(USER, SnapshotRef(ref="c0", label="compile 1"))]
+    assert payload["status"]["claims"] == claim_count(page) == 3
+    assert payload["status"]["overview_blocks"] == 1
+    assert payload["status"]["superseded"] == 2
+    assert payload["supersessions"] == [
+        {"predecessor": "c:aaaa", "successor": "c:bbbb", "path": OTHER},
+        {"predecessor": "c:cccc", "successor": "c:dddd", "path": PAGE},
+    ]
+    code, outline, err = await run(lib, "outline", "--json")
+    assert code == 0, err
+    listed = [doc for family in json.loads(outline)["families"] for doc in family["documents"]]
+    assert next(doc["claims"] for doc in listed if doc["path"] == PAGE) == payload["status"]["claims"]
+    code, out, err = await run(lib, "canonical", "read", PAGE)
+    assert code == 0, err
+    assert f"superseded: 2 · c:aaaa → c:bbbb ({OTHER}) · c:cccc → c:dddd (this page)" in out
+    assert "claims: 3 · overview blocks: 1" in out
+
+
+async def test_compile_and_index_queue_signals_count_pending_and_failed_for_this_tenant():
+    lib = _lib()
+    queued = await lib.store.enqueue(USER, "compile", {})
+    await lib.store.claim(USER, queued)
+    await lib.store.enqueue(USER, "compile", {})
+    failed = await lib.store.enqueue(USER, "compile", {})
+    await lib.store.complete(USER, failed, ok=False)
+    for tenant, kind, ok in [(USER, "compile", True), ("other", "compile", False),
+                              (USER, "index", False), (USER, "index", True)]:
+        job = await lib.store.enqueue(tenant, kind, {})
+        await lib.store.complete(tenant, job, ok=ok)
+    for _ in range(3):
+        await lib.store.enqueue(USER, "index", {})
+    await lib.store.enqueue("other", "index", {})
+    code, out, err = await run(lib, "canonical", "read", PAGE)
+    assert code == 0, err
+    assert "queue: 2 compile pending · 1 compile failed (pkc jobs --status failed)" in out
+    code, out, err = await run(lib, "jobs", "--status", "failed", "--kind", "compile", "--json")
+    assert code == 0, err
+    assert [row["job_id"] for row in json.loads(out)["jobs"]] == [failed]
+    code, out, _ = await run(lib, "search", "blue green", "--lexical")
+    assert code == 1
+    assert "indexed blocks holding every term: 0" in out
+    assert "single-block matches" in out and "adjacent blocks" in out and "index lags L0" in out
+    assert "index queue: 3 pending" in out
+    code, out, _ = await run(lib, "search", "blue green", "--fused", "--json")
+    assert json.loads(out)["index_queue_pending"] == 3
+
+
+@pytest.mark.parametrize("kind,envelope,time_key", [
+    ("agent_session", "turns", "at"), ("owner_dialogue", "turns", "said_at"),
+    ("im", "messages", "sent_at"), ("meeting", "segments", "started_at"),
+])
+async def test_cited_blocks_use_their_own_days_and_individual_speakers(kind, envelope, time_key):
+    lib = library(docs=[document(PAGE, f"- A synthetic decision. [cite: {SESSION} ¶0-2] <!-- c:aaaa -->")])
+    item = source(SESSION, kind=kind, blocks=["First day.", "Later reply.", "Unknown speaker."])
+    item.raw.meta = {
+        "occurred_on": "2026-07-01", "owner_name": "Avery", "agent": {"name": "TestCoder"},
+        "users": [{"user_id": "p1", "display_name": "Avery"},
+                  {"user_id": "p2", "display_name": "TestCoder"}],
+        "participants": [{"participant_id": "p1", "display_name": "Avery"},
+                         {"participant_id": "p2", "display_name": "TestCoder"}],
+        envelope: [
+            {"role": "owner", "sender_id": "p1", "speaker_id": "p1", time_key: "2026-07-10T01:00:00+08:00"},
+            {"role": "agent", "sender_id": "p2", "speaker_id": "p2", time_key: "2026-07-11T01:00:00+08:00"},
+            {"role": "unknown", time_key: "2026-07-12T01:00:00+08:00"},
+        ],
+    }
+    # Owner-dialogue's counterpart is the declared Steward, not an arbitrary agent name.
+    if kind == "owner_dialogue":
+        item.raw.meta[envelope][1]["role"] = "steward"
+    other_name = "Steward" if kind == "owner_dialogue" else "TestCoder"
+    await lib.store.add(USER, item)
+    for args in (("canonical", "read", PAGE), ("source", "fetch", SESSION, "¶0-2")):
+        code, out, err = await run(lib, *args)
+        assert code == 0, err
+        assert f"¶0 Avery 2026-07-10 · ¶1 {other_name} 2026-07-11 · ¶2 unknown 2026-07-12" in out
+        assert f"Avery, {other_name}" not in out
+    code, out, _ = await run(lib, "canonical", "read", PAGE, "--json")
+    assert json.loads(out)["sources"][0]["date"] == "2026-07-01"
+    assert json.loads(out)["sources"][0]["cited"][0]["speakers"][1]["date"] == "2026-07-11"
+
+
+def test_source_date_prefers_occurrence_and_labels_import_in_both_languages():
+    from pneuma_knowledge_core.prompts import chinese_overlay, override_prompts, reset_prompt_overrides
+    from pneuma_knowledge_service.cli.reader_signals import source_day
+
+    raw = source("dates").raw
+    raw.created_at = datetime.fromisoformat("2026-09-07T01:00:00+08:00")
+    assert source_day(raw) == "imported 2026-09-06"
+    raw.meta["occurred_on"] = "2026-07-10"
+    assert source_day(raw) == "2026-07-10"
+    raw.meta["occurred_on"] = "2026-07-10T01:00:00+08:00"
+    assert source_day(raw) == "2026-07-10"
+    raw.meta["occurred_on"] = "invalid"
+    try:
+        override_prompts(chinese_overlay())
+        assert source_day(raw) == "导入 2026-09-06"
+    finally:
+        reset_prompt_overrides()
+
+
+def test_json_pages_top_level_and_largest_list_without_losing_other_fields():
+    from pneuma_knowledge_service.cli.read import page_items
+
+    rows = [{"index": i, "text": "synthetic " * 20} for i in range(12)]
+    for payload, key in [(rows, "items"), ({"small": [1, 2, 3], "windows": rows, "query": "q"}, "windows")]:
+        first = page_items(payload, 1, 500)
+        assert first["paging"]["list"] == key
+        assert first["paging"]["items"] == len(rows)
+        gathered = []
+        for n in range(1, first["paging"]["pages"] + 1):
+            page = page_items(payload, n, 500)
+            gathered.extend(page[key])
+            if isinstance(payload, dict):
+                assert page["small"] == [1, 2, 3] and page["query"] == "q"
+        assert gathered == rows
+    assert page_items(rows, 1, 100000) == rows
+
+
+async def test_source_fetch_json_pages_list_and_all_pages_returns_original_list():
+    lib = _lib()
+    await lib.store.add(USER, source(SESSION, blocks=["synthetic " * 80] * 3))
+    args = ("source", "fetch", SESSION, "¶0", "¶1", "¶2", "--json", "--page-chars", "1000")
+    code, out, err = await run(lib, *args)
+    assert code == 0, err
+    first = json.loads(out)
+    assert first["paging"]["list"] == "items" and len(first["items"]) == 1
+    code, out, err = await run(lib, *args, "--page", "2")
+    assert json.loads(out)["items"][0]["blocks"] == [1, 1]
+    code, out, err = await run(lib, *args, "--all-pages")
+    assert isinstance(json.loads(out), list) and len(json.loads(out)) == 3
+
+
+def _ranked_evidence():
+    from pneuma_knowledge_core.domain.canonical import Citation
+    from pneuma_knowledge_core.recall.citation_alias import SessionAliaser, alias_sources
+    from pneuma_knowledge_core.recall.fast import FastEvidence, RetrievedClaim, recall_human_content
+
+    claims = tuple(RetrievedClaim(
+        anchor=anchor, document_path=path, section_path=(), text=text,
+        citations=(Citation(source_id=SESSION, block_start=index, block_end=index),), score=score,
+    ) for anchor, path, text, index, score in (
+        ("aaaa", PAGE, "First ranked claim.", 0, 3),
+        ("cccc", OTHER, "Third ranked claim.", 2, 1),
+        ("bbbb", PAGE, "Second ranked claim.", 1, 2),
+    ))
+    windows = tuple(VecHit(source_id=SESSION, block_start=i, block_end=i,
+                           text=f"Window {i}. " + "Synthetic material. " * 20, score=score)
+                    for i, score in ((0, 3), (2, 1), (1, 2)))
+    when = datetime(2026, 9, 9, tzinfo=timezone.utc)
+    sections = []
+    original = recall_human_content("synthetic query", list(claims), as_of=when,
+                                    windows=list(windows), glance="A synthetic map.",
+                                    evidence_sections=sections)
+    body, handles = alias_sources(original)
+    aliaser = SessionAliaser()
+    return FastEvidence(
+        question="synthetic query", as_of=when, system="Synthetic contract", content=body,
+        handles=handles, used_claims=claims, used_windows=windows,
+        sections=tuple((kind, aliaser.alias(section)) for kind, section in sections),
+    )
+
+
+@pytest.mark.parametrize("language", ["en", "zh"])
+async def test_recall_sorts_scored_claims_and_windows_and_shares_section_labels(language, monkeypatch):
+    from pneuma_knowledge_core.prompts import chinese_overlay, override_prompts, reset_prompt_overrides
+    from pneuma_knowledge_service import cli
+    from pneuma_knowledge_service.cli import read
+
+    try:
+        if language == "zh":
+            override_prompts(chinese_overlay())
+        evidence = _ranked_evidence()
+        lib = _lib()
+        item = _authored_source()
+        item.raw.meta["turns"][1]["at"] = "2026-07-10T12:00:00+08:00"
+        await lib.store.add(USER, item)
+
+        async def retrieve(*args, **kwargs):
+            return evidence
+
+        monkeypatch.setattr(read, "fast_recall", retrieve)
+        monkeypatch.setattr(cli, "_handoffs", lambda ctx: lib.handoffs)
+        code, out, err = await run(lib, "recall", "synthetic query", "--evidence", "--all-pages")
+        assert code == 0, err
+        positions = [out.index(f"[c:{anchor}") for anchor in ("aaaa", "bbbb", "cccc")]
+        assert positions == sorted(positions)
+        assert [out.index(f"Window {i}.") for i in range(3)] == sorted(out.index(f"Window {i}.") for i in range(3))
+        assert "¶1 TestCoder 2026-07-10" in out
+        labels = (("claims", "verbatim windows", "episode summaries (derived)", "map") if language == "en"
+                  else ("断言", "原文窗口", "片段摘要（派生）", "地图"))
+        section_index = next(line for line in out.splitlines() if line.startswith(("sections:", "章节：")))
+        for n, label in enumerate(labels, 1):
+            assert f"{n} {label}" in section_index and f"# {n} {label}\n" in out
+        assert ("claims: ranked by relevance" if language == "en" else "断言: 按相关性排序") in out
+        assert ("episode summaries (derived): in the lane's order" if language == "en"
+                else "片段摘要（派生）: 保留 lane 顺序") in out
+        handoff = out.splitlines()[2].split(": ", 1)[1]
+        code, out, err = await run(lib, "recall", "--evidence", "--handoff", handoff, "--json", "--page-chars", "1")
+        assert code == 0, err
+        payload = json.loads(out)
+        assert payload["content"] == evidence.content and "paging" not in payload
+        spans = payload["sources"][0]["cited"]
+        assert [row["span"] for row in spans] == ["¶0", "¶1", "¶2"]
+    finally:
+        reset_prompt_overrides()
+
+
+def test_recall_without_scores_preserves_lane_order_and_does_not_claim_ranking():
+    from dataclasses import replace
+    from pneuma_knowledge_service.cli.reader_signals import evidence_lines, evidence_tally
+
+    evidence = _ranked_evidence()
+    evidence = replace(evidence, used_claims=tuple(replace(c, score=0) for c in evidence.used_claims))
+    header, lines = evidence_lines(evidence, evidence_tally(evidence))
+    assert "claims: in the lane's order" in "\n".join(header)
+    body = "\n".join(lines)
+    positions = [body.index(f"[c:{anchor}") for anchor in ("aaaa", "cccc", "bbbb")]
+    assert positions == sorted(positions)
+
+
+@pytest.mark.parametrize("visitor_class", ["business", "silent"])
+async def test_recall_pages_are_retained_without_another_retrieval_or_handoff(visitor_class, monkeypatch):
+    from pneuma_knowledge_service import cli
+    from pneuma_knowledge_service.cli import read
+
+    lib = _lib()
+    await lib.store.add(USER, _authored_source())
+    evidence = _ranked_evidence()
+    calls = []
+
+    async def retrieve(*args, **kwargs):
+        calls.append(args)
+        return evidence
+
+    monkeypatch.setattr(read, "fast_recall", retrieve)
+    monkeypatch.setattr(cli, "_handoffs", lambda ctx: lib.handoffs)
+    code, first, err = await run(lib, "recall", "synthetic query", "--evidence", "--page-chars", "300",
+                                 "--visitor-class", visitor_class)
+    assert code == 0, err
+    handoff = first.splitlines()[2].removeprefix("handoff: ")
+    assert "new retrieval; pages of a retained result: --handoff " + handoff in first
+    prefix = f"pkc --user {USER} recall --evidence --handoff {handoff}"
+    assert first.splitlines()[3] == f"next page: {prefix} --page 2"
+    assert len(calls) == 1 and len(await lib.handoffs.list_pending(USER)) == 1
+    saved = await lib.handoffs.get(USER, handoff)
+    assert saved["visitor_class"] == visitor_class
+    assert saved["retained_result"]["payload"]["content"] == evidence.content
+    pages = read.paginate(saved["retained_result"]["text"], 300)
+
+    async def no_read(*args, **kwargs):
+        raise AssertionError("retained paging touched live retrieval state")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(read, "fast_recall", no_read)
+        patch.setattr(read, "_fast_kwargs", no_read)
+        patch.setattr(lib.store, "get", no_read)
+        patch.setattr(lib.canonical, "snapshots", no_read)
+        for n in range(2, len(pages) + 1):
+            code, out, err = await run(lib, "recall", "--evidence", "--handoff", handoff, "--page", str(n))
+            assert code == 0, err
+            assert out.splitlines()[:3] == first.splitlines()[:3]
+            assert pages[n - 1] in out
+            assert f"[page {n}/{len(pages)}" in out and "new retrieval;" not in out
+        code, whole, err = await run(lib, "recall", "--evidence", "--handoff", handoff, "--all-pages")
+        assert code == 0 and saved["retained_result"]["text"] in whole
+        code, json_result, err = await run(lib, "recall", "--evidence", "--handoff", handoff,
+                                          "--json", "--page", "999", "--page-chars", "1")
+        assert code == 0, err
+        assert json.loads(json_result) == saved["retained_result"]["payload"]
+        assert len(await lib.handoffs.list_pending(USER)) == 1
+        # A different tenant cannot read the saved evidence; an absent result never retrieves.
+        args = build_parser().parse_args(["--user", "other", "recall", "--evidence", "--handoff", handoff])
+        out, err = io.StringIO(), io.StringIO()
+        assert await dispatch(lib.ctx, args, out=out, err=err) == 1
+        assert out.getvalue() == "" and "no retained handoff" in err.getvalue()
+    # --page alone is deliberately a new call and identifies itself as such.
+    code, fresh, err = await run(lib, "recall", "synthetic query", "--evidence", "--page", "2", "--page-chars", "300")
+    assert code == 0, err
+    assert "new retrieval;" in fresh and fresh.splitlines()[2] != first.splitlines()[2]
+    assert len(calls) == 2 and len(await lib.handoffs.list_pending(USER)) == 2
+    code, _, err = await run(lib, "consultations")
+    assert code == 1 and "nobody has asked" in err
+
+
+@pytest.mark.parametrize("argv", [
+    ("recall",), ("recall", "--handoff", "id"),
+    ("recall", "new query", "--evidence", "--handoff", "id"),
+    ("recall", "--evidence", "--handoff", "id", "--include-archived"),
+    ("recall", "--evidence", "--handoff", "id", "--visitor-class", "silent"),
+])
+async def test_recall_refuses_ambiguous_retained_arguments(argv):
+    code, out, err = await run(_lib(), *argv)
+    assert code == 2 and not out and err
+
+
+def test_main_renders_chinese_cli_descriptions_after_applying_the_language(tmp_path, monkeypatch):
+    from pneuma_knowledge_core.prompts import prompt, reset_prompt_overrides
+    from pneuma_knowledge_service import cli, settings as settings_module
+    from pneuma_knowledge_service.settings import Settings
+
+    settings = Settings(engine_dir="", canonical_root=str(tmp_path / "canonical"),
+                        user_schema_base_version="v1", components="")
+    monkeypatch.setattr(settings_module, "get_settings", lambda: settings)
+    output = tmp_path / "rendered"
+    reset_prompt_overrides()
+    try:
+        # Enter through main: using build_parser as a thunk directly would miss the bug
+        # where main captured an English parser before resolve_deployment applied zh.
+        assert cli.main(["skill", "render", "--out", str(output), "--language", "zh"]) == 0
+        reference = (output / "references" / "cli.md").read_text()
+        for key in ("outline", "glance", "canonical_read", "source_fetch", "search", "recall"):
+            assert prompt("steward.cli." + key) in reference
+        assert "全库替代关系及后继地址" in reference
+        assert "最新被引来源" in reference
+        assert "无条件读取一页或多页" in reference
+    finally:
+        reset_prompt_overrides()
+
+
+async def test_latest_cited_source_compares_days_without_sorting_the_import_label():
+    from pneuma_knowledge_core.prompts import override_prompts, reset_prompt_overrides
+
+    lib = library(docs=[document(PAGE,
+        f"- Synthetic comparison. [cite: {SESSION} ¶0] [cite: {STATEMENT} ¶0] <!-- c:aaaa -->")])
+    imported = source(SESSION)
+    imported.raw.created_at = datetime(2026, 8, 1, tzinfo=timezone.utc)
+    occurred = source(STATEMENT)
+    occurred.raw.meta["occurred_on"] = "2026-09-08"
+    await lib.store.add(USER, imported)
+    await lib.store.add(USER, occurred)
+    code, out, err = await run(lib, "canonical", "read", PAGE)
+    assert code == 0, err
+    assert "latest cited source: 2026-09-08" in out
+    assert "imported 2026-08-01" in out
+    occurred.raw.meta["occurred_on"] = "2026-07-01"
+    await lib.store.add(USER, occurred)
+    try:
+        override_prompts({"steward.read.imported": "{day} (imported)"})
+        code, out, err = await run(lib, "canonical", "read", PAGE)
+        assert code == 0, err
+        assert "latest cited source: 2026-08-01 (imported)" in out
+    finally:
+        reset_prompt_overrides()
+
+
+async def test_recall_source_index_uses_evidence_citations_without_mining_the_query(monkeypatch):
+    from dataclasses import replace
+    from pneuma_knowledge_service import cli
+    from pneuma_knowledge_service.cli import read
+
+    lib = _lib()
+    await lib.store.add(USER, _authored_source())
+    evidence = _ranked_evidence()
+    evidence = replace(evidence, content=evidence.content + f"\nQuestion: [cite: {STATEMENT} ¶99]")
+
+    async def retrieve(*args, **kwargs):
+        return evidence
+
+    monkeypatch.setattr(read, "fast_recall", retrieve)
+    monkeypatch.setattr(cli, "_handoffs", lambda ctx: lib.handoffs)
+    code, out, err = await run(lib, "recall", "synthetic query", "--evidence", "--json")
+    assert code == 0, err
+    payload = json.loads(out)
+    assert payload["content"] == evidence.content
+    assert [row["source_id"] for row in payload["sources"]] == [SESSION]
+    assert [row["span"] for row in payload["sources"][0]["cited"]] == ["¶0", "¶1", "¶2"]

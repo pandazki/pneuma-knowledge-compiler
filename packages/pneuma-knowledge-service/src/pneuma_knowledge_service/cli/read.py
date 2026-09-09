@@ -40,7 +40,7 @@ from pneuma_knowledge_core.canonical_glance import (
     volume_origin,
 )
 from pneuma_knowledge_core.compile.documents import render_document
-from pneuma_knowledge_core.compile.supersession import SUPERSEDES_MARK_RE, block_by_anchor, chains
+from pneuma_knowledge_core.compile.supersession import block_by_anchor, chains, superseded_index
 from pneuma_knowledge_core.domain.archive import (
     any_archived,
     is_archive_record,
@@ -49,7 +49,7 @@ from pneuma_knowledge_core.domain.archive import (
     live_path,
     split_archived,
 )
-from pneuma_knowledge_core.domain.canonical import CanonicalDocument, iter_canonical_citations
+from pneuma_knowledge_core.domain.canonical import CanonicalDocument, Citation, iter_canonical_citations
 from pneuma_knowledge_core.domain.ids import SourceId, UserId, extract_anchors
 from pneuma_knowledge_core.prompts import prompt
 from pneuma_knowledge_core.recall.archive_filter import archive_view
@@ -61,7 +61,7 @@ from .reader_signals import (
     evidence_lines,
     evidence_tally,
     one_line,
-    span_label,
+    span_speaker_text,
     source_index_lines,
 )
 
@@ -93,7 +93,7 @@ class ReadRuntime:
     out: TextIO = field(default_factory=lambda: sys.stdout)
     err: TextIO = field(default_factory=lambda: sys.stderr)
     # Prose output is paged: a reader with a context window asked for one page and gets one,
-    # with a footer saying how much more there is. `--json` is never paged (a script reads it).
+    # with a footer saying how much more there is. JSON lists page by whole items.
     page: int = 1
     page_chars: int = PAGE_CHARS
     all_pages: bool = False
@@ -129,19 +129,20 @@ def paginate(text: str, page_chars: int) -> list[str]:
 
 
 def page_items(payload: Any, page: int, page_chars: int) -> Any:
-    """JSON paging: a payload carrying ONE list (hits, pages, jobs …) whose serialization
-    exceeds a page is returned with that list cut to the items that fit `page_chars`, plus a
-    `paging` field naming the page, the page count, the item total and the next flag. Any
-    other payload is returned whole — a JSON document cut at a character is not JSON."""
-    if page_chars <= 0 or not isinstance(payload, dict):
-        return payload
-    lists = [key for key, value in payload.items() if isinstance(value, list)]
-    if len(lists) != 1:
+    """Page a top-level list (wrapped as `items`) or the largest serialized list in a dict.
+
+    Item boundaries are never cut. Scalars and payloads that fit are returned whole.
+    """
+    if page_chars <= 0 or not isinstance(payload, (dict, list)):
         return payload
     dump = lambda value: json.dumps(value, ensure_ascii=False, indent=2, default=str)  # noqa: E731
     if len(dump(payload)) <= page_chars:
         return payload
-    key = lists[0]
+    payload = {"items": payload} if isinstance(payload, list) else payload
+    lists = [key for key, value in payload.items() if isinstance(value, list)]
+    if not lists:
+        return payload
+    key = max(lists, key=lambda key: len(dump(payload[key])))
     items = payload[key]
     pages: list[list[Any]] = []
     current: list[Any] = []
@@ -160,6 +161,7 @@ def page_items(payload: Any, page: int, page_chars: int) -> Any:
         **payload,
         key: pages[index - 1],
         "paging": {
+            "list": key,
             "page": index, "pages": len(pages), "items": len(items),
             "next": f"--page {index + 1}" if index < len(pages) else None,
             "all": "--all-pages",
@@ -167,11 +169,11 @@ def page_items(payload: Any, page: int, page_chars: int) -> Any:
     }
 
 
-def _emit(rt: ReadRuntime, payload: Any, lines: list[str]) -> None:
+def _emit(rt: ReadRuntime, payload: Any, lines: list[str], *, json_paging: bool = True) -> None:
     """One state, two renderings. `--json` prints the payload; the default prints the lines,
     one page of them at a time (`page` / `all_pages` on the runtime)."""
     if rt.as_json:
-        if not rt.all_pages:
+        if json_paging and not rt.all_pages:
             payload = page_items(payload, rt.page, rt.page_chars)
         print(json.dumps(payload, ensure_ascii=False, indent=2, default=str), file=rt.out)
         return
@@ -185,7 +187,7 @@ def _emit(rt: ReadRuntime, payload: Any, lines: list[str]) -> None:
     footer = f"[page {index}/{len(pages)} · {len(pages[index - 1]):,} of {len(text):,} chars"
     if index < len(pages):
         footer += f" · --page {index + 1} for the next"
-    footer += " · --all-pages for everything · --json pages by item]"
+    footer += " · --all-pages for everything · " + prompt("steward.read.json_paging") + "]"
     print(footer, file=rt.out)
 
 
@@ -390,9 +392,13 @@ async def cmd_canonical_read(rt: ReadRuntime, path: str | list[str]) -> int:
     at = snapshots[0] if snapshots else None
     docs = await rt.ctx.canonical.list(rt.user_id, at=at)
     by_path = {d.path: d for d in docs}
+    successors = superseded_index({d.path: d.body for d in docs})
     signals = await SourceSignals.for_runtime(rt.ctx.store, rt.user_id)
     _jobs, pending, _more = await rt.ctx.store.list_jobs_page(
         rt.user_id, limit=1, status=("queued", "claimed"), kind="compile"
+    )
+    _jobs, failed, _more = await rt.ctx.store.list_jobs_page(
+        rt.user_id, limit=1, status="failed", kind="compile"
     )
     found = []
     lines = []
@@ -403,31 +409,27 @@ async def cmd_canonical_read(rt: ReadRuntime, path: str | list[str]) -> int:
             continue
         # The compile model's own `read_document` rendering, so the Steward and the model
         # read one page rather than two descriptions of it.
-        cited: dict[str, list[tuple[int, int]]] = {}
-        for citation in iter_canonical_citations(doc.body):
-            spans = cited.setdefault(str(citation.source_id), [])
-            span = (citation.block_start, citation.block_end)
-            if span not in spans:
-                spans.append(span)
-        sources = []
-        for source_id, spans in cited.items():
-            sources.append({
-                **await signals.summary(source_id),
-                "cited": [await signals.span(source_id, start, end) for start, end in sorted(spans)],
-            })
+        sources = await signals.index(iter_canonical_citations(doc.body))
         written = await rt.ctx.canonical.last_commit(rt.user_id, doc.path, at=at)
         anchors = extract_anchors(doc.body)
+        replaced = [
+            {"predecessor": f"c:{anchor}", "successor": f"c:{successors[anchor][1]}",
+             "path": successors[anchor][0]}
+            for anchor in dict.fromkeys(anchors) if anchor in successors
+        ]
         status = {
-            "compiled_at": written[1] if written else None,
+            "last_changed": written[1] if written else None,
             "commit": written[0] if written else None,
-            "claims": len(anchors),
-            "superseded": len(set(anchors) & set(SUPERSEDES_MARK_RE.findall(doc.body))),
-            "sources_cited": len(cited),
-            "latest_source": max((s["date"] for s in sources if s["date"]), default=None),
+            "claims": claim_count(doc),
+            "overview_blocks": len(anchors) - claim_count(doc),
+            "superseded": len(replaced),
+            "sources_cited": len(sources),
+            "latest_cited_source": signals.latest_day(s["source_id"] for s in sources),
             "queue_pending": pending,
+            "queue_failed": failed,
         }
         item = {"path": doc.path, "document": render_document(doc.frontmatter, doc.body),
-                "status": status, "sources": sources}
+                "status": status, "supersessions": replaced, "sources": sources}
         found.append(item)
         display = {key: value if value is not None else prompt("steward.read.unknown")
                    for key, value in status.items()}
@@ -435,8 +437,18 @@ async def cmd_canonical_read(rt: ReadRuntime, path: str | list[str]) -> int:
         lines.extend([
             prompt("steward.read.page", path=doc.path),
             prompt("steward.read.status", **display),
-            prompt("steward.read.queue_pending", count=pending) if pending
-            else prompt("steward.read.queue_empty"),
+            *([prompt("steward.read.superseded", count=len(replaced), successors=" · ".join(
+                f"{link['predecessor']} → {link['successor']} "
+                f"({prompt('steward.read.this_page') if link['path'] == doc.path else link['path']})"
+                for link in replaced
+            ))] if replaced else []),
+            prompt("steward.read.queue", pending=(
+                prompt("steward.read.compile_pending", count=pending) if pending
+                else prompt("steward.read.none_pending")
+            ), failed=(
+                prompt("steward.read.compile_failed", count=failed) if failed
+                else prompt("steward.read.none_failed")
+            )),
             "", item["document"], "", *source_index_lines(sources), "",
         ])
     if not found:
@@ -638,9 +650,12 @@ async def cmd_source_fetch(rt: ReadRuntime, source_id: str, span: str | list[str
     _emit(
         rt,
         items,
-        [f"{item['source_id']} {item['span']}"
-         + (f" · {item['speaker']}" if item.get("speaker") else "")
-         + f" · {item['date'] or prompt('steward.read.unknown')}\n{item['text']}"
+        # The source's day closes the line only when a block carries no day of its own;
+        # a span whose every block is dated already says when it was spoken.
+        [f"{item['source_id']} {span_speaker_text(item)}"
+         + ("" if item["speakers"] and all(row.get("date") for row in item["speakers"])
+            else f" · {item['date'] or prompt('steward.read.unknown')}")
+         + f"\n{item['text']}"
          for item in items],
     )
     return EXIT_OK
@@ -742,6 +757,7 @@ async def cmd_search(
             view.source_archived(hit["source_id"]) if view is not None else False
         )
         speaker = await signals.span(hit["source_id"], *hit["blocks"])
+        hit["speakers"] = speaker["speakers"]
         if "speaker" in speaker:
             hit["speaker"] = speaker["speaker"]
     payload = {
@@ -760,6 +776,14 @@ async def cmd_search(
             f"{json.dumps(term, ensure_ascii=False)}: {count}"
             for term, count in payload["counts"]["per_term"].items()
         )))
+        _jobs, index_pending, _more = await ctx.store.list_jobs_page(
+            rt.user_id, limit=1, status=("queued", "claimed"), kind="index"
+        )
+        payload["index_queue_pending"] = index_pending
+        lines.append(prompt("steward.read.index_queue", pending=(
+            prompt("steward.read.pending", count=index_pending) if index_pending
+            else prompt("steward.read.none_pending")
+        )))
         if mode == "fused":
             # A fused candidate cap is not an index-wide total. Keep the lexical estimate
             # separately named; pretending it counted vector-only hits can yield 10 of 0.
@@ -775,8 +799,7 @@ async def cmd_search(
         rt,
         payload,
         lines + [
-            f"{h['source_id']} {span_label(*h['blocks'])}"
-            + (f" {h['speaker']}" if h.get("speaker") else "")
+            f"{h['source_id']} {span_speaker_text(h)}"
             + ("  [archived]" if h["archived"] else "")
             + f"\n  {h['text']}"
             for h in hits
@@ -1111,36 +1134,64 @@ def _manifest_payload(manifest) -> list[dict[str, str]]:
     ]
 
 
+def _emit_evidence(rt: ReadRuntime, retained: dict[str, Any], *, new_retrieval: bool) -> None:
+    """Serve the same handoff's saved text; the header is outside the body page budget."""
+    payload = retained["payload"]
+    if rt.as_json:
+        _emit(rt, payload, [], json_paging=False)
+        return
+    text = retained["text"]
+    pages = [text] if rt.all_pages else paginate(text, retained["page_chars"])
+    index = min(max(rt.page, 1), len(pages))
+    handoff_id = payload["handoff_id"]
+    command = f"pkc --user {shlex.quote(str(rt.user_id))} recall --evidence --handoff {handoff_id}"
+    header = list(retained["header"])
+    if index < len(pages):
+        header.insert(3, prompt("steward.read.next_page", command=f"{command} --page {index + 1}"))
+    else:
+        header.insert(3, prompt("steward.read.result_end", command=command + " --all-pages"))
+    if new_retrieval:
+        header.insert(4, prompt("steward.read.new_retrieval", handoff_id=handoff_id))
+    print("\n".join([*header, "", pages[index - 1]]), file=rt.out)
+    if len(pages) > 1:
+        print(
+            f"[page {index}/{len(pages)} · {len(pages[index - 1]):,} of {len(text):,} chars · "
+            f"{command} --all-pages · {prompt('steward.read.json_paging')}]",
+            file=rt.out,
+        )
+
+
 async def cmd_recall_evidence(
     rt: ReadRuntime,
-    query: str,
+    query: str | None,
     *,
     handoffs: Any,
+    handoff_id: str | None = None,
     visitor_class: str = "business",
     as_of: str | None = None,
     style: str | None = None,
     include_archived: bool = False,
 ) -> int:
-    """The fast lane's assembled context, and no answering call (§5.1).
+    """Retrieve once and retain both reader prose and unchanged lane JSON with the handoff.
 
-    `visitor_class` defaults to `business` here and to `silent` on `cmd_recall`: this face
-    hands the context to somebody who is about to answer the Owner with it, which is the
-    library being used, while the answering face prints to whoever typed the question. The
-    CLI states the same rule in `--visitor-class`'s help (`cli.RECALL_VISITOR_DEFAULTS`).
-
-    JSON keeps what the lane WOULD have handed its model byte for byte; prose reorders the
-    same sections and adds mechanical reader signals. Both keep the lane's own query-local
-    handles and record a PENDING HANDOFF:
-    the question, the instant, the library ref sampled the way the lane samples it, the
-    manifest and the handle map. That is not a consultation yet, and deliberately: a record
-    written before the answer exists would have to be rewritten when it arrived, or would
-    state a miss the lane never observed. `pkc consult answer <handoff_id>` closes it.
+    Reading a retained page only reads this tenant's handoff. Silent handoffs have the same
+    retention, but answering them still leaves no consultation record.
     """
+    if handoff_id:
+        state = await handoffs.get(rt.user_id, handoff_id)
+        if state is None:
+            print(f"no retained handoff: {handoff_id}", file=rt.err)
+            return EXIT_NOTHING
+        retained = state.get("retained_result")
+        if retained is None:
+            return _refuse(rt, f"handoff {handoff_id} has no retained result; retrieve again")
+        _emit_evidence(rt, retained, new_retrieval=False)
+        return EXIT_OK
+    if not query:
+        return _refuse(rt, "recall requires a query or --evidence --handoff <id>")
     when = datetime.fromisoformat(as_of) if as_of else datetime.now(timezone.utc)
     evidence = await fast_recall(
-        rt.user_id,
-        query,
-        evidence_only=True,
+        rt.user_id, query, evidence_only=True,
         **await _fast_kwargs(
             rt, as_of=when, style=style, include_archived=include_archived, evidence_only=True
         ),
@@ -1153,78 +1204,56 @@ async def cmd_recall_evidence(
     body = message_text(evidence.content)
     tally = evidence_tally(evidence)
     signals = await SourceSignals.for_runtime(rt.ctx.store, rt.user_id)
-    sources = [
-        {"handle": handle, **await signals.summary(source_id)}
-        for handle, source_id in evidence.handles.items()
-    ]
+    # The rendered content includes annotated and component claims as well as ordinary
+    # claims/windows. Add explicit claim provenance too; never infer citations from titles.
+    citations = [citation for _kind, section in evidence.sections
+                 for citation in iter_canonical_citations(section)]
+    for claim in evidence.used_claims:
+        citations.extend(claim.citations)
+        citations.extend(iter_canonical_citations(claim.text))
+    citations.extend(
+        Citation(source_id=window.source_id, block_start=window.block_start, block_end=window.block_end)
+        for window in (*evidence.used_windows, *evidence.used_episode_summaries)
+    )
+    sources = await signals.index(citations, handles=evidence.handles)
     handoff_id = uuid.uuid4().hex
-    snaps = await rt.ctx.canonical.snapshots(rt.user_id)
-    await handoffs.create(
-        rt.user_id,
-        handoff_id,
-        {
-            "question": query,
-            "as_of": when.isoformat(),
-            # Sampled, not pinned — the same word the route's `_library_ref` uses, and the
-            # same fact: what the record names is where the reading started.
-            "library_ref": snaps[0].ref if snaps else "",
-            "visitor_class": visitor_class,
-            # THE SCOPE THIS CONTEXT WAS ASSEMBLED UNDER, kept with the handoff. The answer
-            # is written from these bytes and recorded against them, so the record has to say
-            # which library the reading covered — a consultation over the archive read back as
-            # one over the present would be the archive presented as the present, one hop
-            # later (docs/design/archive.md §4).
-            "include_archived": bool(include_archived),
-            "handles": dict(evidence.handles),
-            "manifest": _manifest_payload(evidence.manifest),
-            "answer_format": evidence.answer_format,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        },
-    )
-    _emit(
-        rt,
-        {
-            "handoff_id": handoff_id,
-            "question": query,
-            "as_of": when.isoformat(),
-            "system": evidence.system,
-            "content": body,
-            "tally": tally,
-            "sources": sources,
-            "handles": dict(evidence.handles),
-            "evidence_manifest": _manifest_payload(evidence.manifest),
-            "arms": arms,
-            "visitor_class": visitor_class,
-            "include_archived": bool(include_archived),
-        },
-        evidence_lines(evidence, tally) + source_index_lines(sources) + [
-            "",
-            "arms: " + "; ".join(
-                f"{arm['name']}: {arm['status']}"
-                + (f" ({arm['detail']})" if arm['detail'] else "")
-                for arm in arms
-            ),
-            f"handoff: {handoff_id}",
-            "answer it with: pkc consult answer "
-            f"{handoff_id} --text-file <f>   (or `-` for stdin, or --kind no_record)",
-            # What the answer will LEAVE BEHIND, said where the instruction is. A `silent`
-            # handoff closes without a consultation, so a Steward who followed the printed
-            # line and saw nothing in `pkc consultations` was reading a correct ledger of a
-            # call that recorded nothing on purpose — stated rather than discovered.
-            f"visitor class: {visitor_class}"
-            + (
-                "  — this call will leave NO consultation record; re-run with "
-                "`--visitor-class business` (or `audit`) to record one"
-                if visitor_class == "silent"
-                else "  — answering it records one consultation"
-            ),
-        ]
-        + (
-            ["scope: the archive is INCLUDED in this context, and archived items are labelled"]
-            if include_archived
-            else []
+    payload = {
+        "handoff_id": handoff_id, "question": query, "as_of": when.isoformat(),
+        "system": evidence.system, "content": body, "tally": tally, "sources": sources,
+        "handles": dict(evidence.handles), "evidence_manifest": _manifest_payload(evidence.manifest),
+        "arms": arms, "visitor_class": visitor_class, "include_archived": bool(include_archived),
+    }
+    header, lines = evidence_lines(evidence, tally)
+    header.insert(2, f"handoff: {handoff_id}")
+    header.extend([
+        "answer it with: pkc consult answer "
+        f"{handoff_id} --text-file <f>   (or `-` for stdin, or --kind no_record)",
+        f"visitor class: {visitor_class}" + (
+            "  — this call will leave NO consultation record; re-run with "
+            "`--visitor-class business` (or `audit`) to record one"
+            if visitor_class == "silent" else "  — answering it records one consultation"
         ),
-    )
+    ])
+    if include_archived:
+        header.append("scope: the archive is INCLUDED in this context, and archived items are labelled")
+    lines += source_index_lines(sources) + [
+        "", "arms: " + "; ".join(
+            f"{arm['name']}: {arm['status']}"
+            + (f" ({arm['detail']})" if arm['detail'] else "") for arm in arms
+        ),
+    ]
+    retained = {"payload": payload, "header": header, "text": "\n".join(lines),
+                "page_chars": rt.page_chars}
+    snaps = await rt.ctx.canonical.snapshots(rt.user_id)
+    await handoffs.create(rt.user_id, handoff_id, {
+        "question": query, "as_of": when.isoformat(),
+        # Sampled, not pinned: the same library-ref semantics as the answering route.
+        "library_ref": snaps[0].ref if snaps else "", "visitor_class": visitor_class,
+        "include_archived": bool(include_archived), "handles": dict(evidence.handles),
+        "manifest": _manifest_payload(evidence.manifest), "answer_format": evidence.answer_format,
+        "created_at": datetime.now(timezone.utc).isoformat(), "retained_result": retained,
+    })
+    _emit_evidence(rt, retained, new_retrieval=True)
     return EXIT_OK
 
 

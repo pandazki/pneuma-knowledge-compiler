@@ -146,10 +146,15 @@ class InMemoryLibraryStore(InMemoryJobQueue):
             }
             for job in reversed(self.jobs)
             if str(job.user_id) == str(user_id)
-            and (job.status in status if isinstance(status, tuple)
-                 else not status or job.status == status)
             and (not kind or job.kind == kind)
         ]
+        statuses = status if isinstance(status, tuple) else (status,) if status else ()
+        if statuses:
+            rows = [row for row in rows if any(
+                (row["status"] == "done" and row["ok"] is (wanted == "succeeded"))
+                if wanted in {"failed", "succeeded"} else row["status"] == wanted
+                for wanted in statuses
+            )]
         return rows[:limit], len(rows), len(rows) > limit
 
     def _outcome(self, user_id, job_id: str) -> dict:  # noqa: ANN001

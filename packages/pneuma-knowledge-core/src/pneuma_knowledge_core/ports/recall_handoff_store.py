@@ -15,6 +15,11 @@ that point. A question the Steward never answered therefore leaves NO consultati
 which is the honest outcome, and is stated in the design rather than hidden behind a
 fabricated miss.
 
+The CLI also retains the rendered reader text, header, page size and original JSON payload
+in this state. `pkc recall --evidence --handoff <id> --page N` serves that result without
+retrieval or another handoff. Silent calls retain pages on the same terms; retention is
+independent of consultation recording and ends with the handoff's deletion or expiry.
+
 Ephemeral like a draft and for the same reason (I2): neither an authority nor a kept record.
 A row nobody came back to expires under `PNEUMA_KNOWLEDGE_RECALL_HANDOFF_TTL`, swept by the
 same startup self-heal that sweeps abandoned drafts. `user_id` comes first on every method

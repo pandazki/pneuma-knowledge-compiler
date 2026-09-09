@@ -3,21 +3,27 @@ name: pkc-steward
 description: 通过 pkchome 与带引用闸门的 pkc 命令，为 Owner 维护个人知识库。
 ---
 
+# 这是什么
+
+知识库把 Owner 的材料——编码代理会话、文档、聊天——按契约编译成带引用的知识：L0 逐字原文与
+canonical 库是权威，索引是派生视图，每条 claim 都引用来源块，闸门在写入时验证引用能解析。
+库机械地确立的事（出处已验证、谁说的、何时最后改动、哪些 claim 已被接替、检索命中了多少已索引块）
+读命令都会印出来；它没有确立的事（原文是否真的表达了 claim 的意思、日期换算是否正确、是否有
+更新的材料涉及这一页）也写明了。判断是你的：需要核对就去读原文，问题复杂就交叉验证。
+完整的设计与保证、按问题形状的最佳做法、每条工具的返回值，都在所选库的
+`references/consume.md`（`pkchome library show` 的 `skill_dir` 下）。
+
 # 回答 Owner 的问题（最常做的事）
 
-不需要先看 status。直接：
+一条常见的路，不是规定的流程：
 
-1. `pkchome exec -- pkc outline` —— 完整地图，一页一行，找到相关页面。没选库时它会拒绝并列出可用库，用 `--library NAME` 指定。
-2. `pkchome exec -- pkc canonical read <path> [<path>…]` —— 一次读完相关的一两页。
-3. 问题跨多页或不知道落在哪一页：`pkchome exec -- pkc recall <q> --evidence` 一次拿到多页的 claim 与原文窗口。
-4. 核对原话 `pkc source fetch <sid> ¶a-b`；找名字或原句 `pkc search <q> --lexical`。
+1. `pkchome exec -- pkc outline` —— 完整地图，一页一行。没选库时它会拒绝并列出可用库，用 `--library NAME` 指定。
+2. `pkchome exec -- pkc canonical read <path> [<path>…]` —— 一次读相关页面；头部和 `来源：` 索引写明最后改动、队列、每个被引块是谁哪天说的。
+3. 跨页或不知道在哪一页：`pkchome exec -- pkc recall <q> --evidence` 一次拿到多页的 claim 与原文窗口。
+4. `pkc source fetch <sid> ¶a-b` 看原文；`pkc search <q> --lexical` 找名字、原句、最新会话，头部的计数说明匹配不可能在哪里。
 5. 用 `pkc consult answer <handoff_id> --text-file -`（没跑 recall 时 `pkc consult record --question <q> --text-file -`）把回答记进库。
 
-两三次检索就该有完整答案；读命令彼此独立，输入已知时可同时发几条。每条输出的头部和页尾就是判断依据：
-页面何时编译、有无待编译作业、每个被引区间是谁说的、同时含全部查询词的块有几个——凭这些作答，
-只在要逐字引用时才回原文。引用你读到的页面锚点与原文区间；库里没有就明说。长输出分页，
-页脚写明 `--page N`；先读第一页再决定翻页。同一套流程的细节在库内 `references/consume.md`，
-只在需要时读；`references/cli.md` 是完整参数表，不是必读。
+读命令彼此独立，输入已知时可同时发几条。长输出分页，页脚写明 `--page N`。
 
 # 你在哪里
 

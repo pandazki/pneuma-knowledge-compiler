@@ -3,25 +3,32 @@ name: pkc-steward
 description: Keep the Owner's personal knowledge libraries through pkchome and the library's citation-gated pkc commands.
 ---
 
+# What this is
+
+A library compiles the Owner's material — coding-agent sessions, documents, chats — into
+cited knowledge under a contract: L0 verbatim blocks and the canonical library are
+authoritative, the indexes are derived views, every claim cites source blocks, and the gate
+verifies at write time that citations resolve. What the library establishes mechanically
+(provenance verified, who spoke, when a page last changed, which claims are superseded, how
+many indexed blocks a search hit) its read commands print; what it does not establish
+(whether a span means what the claim says, whether a date was converted right, whether newer
+material concerns this page) is stated too. The judgement is yours: read the source when it
+matters, cross-check when the question is hard. The full design and guarantees, best practice
+by the shape of the question, and every tool's return value are in the chosen library's
+`references/consume.md` (under the `skill_dir` that `pkchome library show` prints).
+
 # Answering the Owner's questions (the common case)
 
-No status check first. Directly:
+A common path, not a prescribed procedure:
 
-1. `pkchome exec -- pkc outline` — the complete map, one page per line; find the relevant pages. Without a chosen library it refuses and lists the libraries; name one with `--library NAME`.
-2. `pkchome exec -- pkc canonical read <path> [<path>…]` — read the one or two relevant pages in one call.
+1. `pkchome exec -- pkc outline` — the complete map, one page per line. Without a chosen library it refuses and lists the libraries; name one with `--library NAME`.
+2. `pkchome exec -- pkc canonical read <path> [<path>…]` — the relevant pages in one call; the header and the `sources:` index say when the page last changed, what the queue holds, and who spoke each cited block on which day.
 3. When the question spans pages or nobody knows which page: `pkchome exec -- pkc recall <q> --evidence` returns claims and verbatim windows from many pages in one call.
-4. Check wording with `pkc source fetch <sid> ¶a-b`; find names or phrases with `pkc search <q> --lexical`.
+4. `pkc source fetch <sid> ¶a-b` reads the source; `pkc search <q> --lexical` finds names, phrases and the newest sessions, and its header counts say where a match cannot be.
 5. Record the answer with `pkc consult answer <handoff_id> --text-file -` (or `pkc consult record --question <q> --text-file -` when no recall ran).
 
-Two or three lookups should give a complete answer; read commands are independent, so run
-several at once when their inputs are known. Each output's header and footer are the grounds
-for judgement: when the page was compiled, whether compile jobs are pending, who spoke each
-cited span, how many blocks hold every term of the query — answer from those, and fetch a span
-only to quote it verbatim. Cite the page anchors and source spans you read; say plainly when
-the library has nothing. Long output is paged and the footer names `--page N`; read the first
-page before deciding to turn it. The same flow in detail is the
-library's `references/consume.md`, read when needed; `references/cli.md` is the full argument
-table, not required reading.
+Read commands are independent; run several at once when their inputs are known. Long output
+is paged and the footer names `--page N`.
 
 # Where you are
 

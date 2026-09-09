@@ -185,16 +185,20 @@ def render_consume_md(skill: SkillVersion) -> str:
     ) or prompt("steward.consume.no_families")
     return "\n\n".join(
         section.strip("\n")
+        # Philosophy and what the library establishes → this deployment's domain schema →
+        # best practice by the shape of the question → the tools and what each returns →
+        # recording. The Owner's ruling on what a skill is: those three parts, in that order,
+        # and the rest is the model's.
         for section in (
             prompt("steward.consume.library"),
-            prompt("steward.consume.when_to_use"),
-            prompt("steward.consume.primitives"),
             prompt(
                 "steward.consume.schema",
                 skill_id=skill.skill_id,
                 version=skill.version,
                 families=families,
             ),
+            prompt("steward.consume.when_to_use"),
+            prompt("steward.consume.primitives"),
             prompt("steward.consume.answering"),
         )
     ) + "\n"
