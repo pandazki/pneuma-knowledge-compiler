@@ -86,31 +86,62 @@ for other personal material. Select the earlier contract with
 `pkchome library create notes --contract personal-knowledge`, or pass a custom contract path.
 `--from NAME` still inherits that library's contract unless `--contract` overrides it.
 
-Name project directories once; the tray syncs their Claude Code and Codex sessions while
-the library's engine is running:
+Say once what the library's scope is; the tray syncs the Claude Code and Codex sessions
+inside it while the library's engine is running:
 
 ```sh
 pkchome watch add /path/to/momo --library notes
+pkchome watch add ~/Codes --recursive --library notes
+pkchome watch add --all --library notes
 pkchome watch ls --library notes
 pkchome sync --library notes --dry-run
 pkchome sync --library notes --json
 pkchome watch rm /path/to/momo --library notes
+pkchome watch rm --all --library notes
 pkchome config set sync.interval_minutes 15
 pkchome config set sync.enabled on
+pkchome config set sync.exclude '/private/tmp/**,~/scratch/**'
+pkchome config get sync.exclude
+pkchome config set sync.min_owner_turns 5
+pkchome config set sync.min_owner_chars 200
+pkchome config set sync.ack_max_words 1
 ```
 
 Setup answers can include `watch: [/path/to/momo]`. Each library records its own
-`watch: [{path, harnesses: [claude-code, codex], since?}]` in `library.yaml`.
+`watch: [{path, recursive, harnesses: [claude-code, codex], since?}]` in `library.yaml`.
 `watch add` accepts `--harnesses codex claude-code` and a timezone-aware `--since` to select
-sessions with retained activity at or after that boundary. Paths select exact projects.
+sessions with retained activity at or after that boundary.
+
+An entry takes one of three scope forms. A directory is one exact project, as before.
+`--recursive` makes it a prefix: every project at or below it, compared by path components,
+so `/a/b` never admits `/a/bc`. `--all` records the literal `all` — every project either
+harness has a session for, enumerated from the harness roots themselves rather than from a
+list of directories, because opening the library to four hundred projects is a configuration
+and not four hundred `watch add` calls. `watch rm <dir>` and `watch rm --all` remove by the
+same key.
+
+A scope that wide also reaches thousands of dead scratch directories, so `sync.exclude`
+holds glob patterns matched against the resolved project directory, defaulting to
+`/private/tmp/**`, `/tmp/**`, `/private/var/**` and `/var/folders/**`. `config set
+sync.exclude` appends one pattern or a comma-separated list; an empty value clears them all.
+Two exclusions are mechanical rather than patterns the Owner can remove: the home, and every
+library's own directory — its engine, its canonical repository and its rendered package. A
+project whose directory no longer exists is counted as `project_missing` and listed nowhere,
+because under `all` there are thousands of them.
+
+The Steward's own sessions are skipped entirely, neither indexed nor compiled. A session that
+ran `pkc` or `pkchome`, or that stood inside the home or a library, is work ON the library,
+and a library that ingested it would be compiling its own output. Those count as
+`skipped_steward`.
+
 The tray defaults to a 15-minute interval; Settings edits the interval, switch and watch list.
 Dashboard shows the last sync and held count, with a “Sync now” button.
 
 Sync only sends new parts through `pkchome exec --library NAME -- pkc ingest`. It never
 compiles itself: ingest enqueues ordinary index/compile jobs, and the engine worker or
 Steward drains them. Reports show scanned, new, increments, held, unchanged, rewritten,
-ingested and skipped, with per-session details. Held counts are separate from the library's
-queue; unchanged held sessions count in both fields.
+ingested, skipped, skipped_steward and project_missing, with per-session details. Held
+counts are separate from the library's queue; unchanged held sessions count in both fields.
 
 The global skill also ships the stdlib `scripts/agent_sessions.py`: `list --project <dir>`
 shows whole-session triage, `export --project <dir> --out <dir> [--owner-id ID]` writes
@@ -119,8 +150,10 @@ cursor. `--session-id ID` selects particular sessions; `--purpose research|chat`
 index-only. Export defaults Owner identity to `owner`; ingest uses the selected tenant.
 Manual imports of index-only exports need `--intake searchable`; metadata does not set intake.
 
-Each pending increment needs three Owner turns and 200 Owner-text characters. Below either
-threshold it is HELD without advancing the exported cursor, so later growth accumulates.
+Each pending increment needs three Owner turns and 200 Owner-text characters by default;
+`sync.min_owner_turns` (floor 3), `sync.min_owner_chars` and `sync.ack_max_words` state what
+this home asks for. Below either threshold an increment is HELD without advancing the
+exported cursor, so later growth accumulates.
 The converter's `--min-owner-turns`, `--min-owner-chars` and `--ack-max-words` still configure
 its manual triage (turn floor 3, character floor 0, default acknowledgement limit 1 word).
 Once the numeric thresholds are met, only slash commands/known acknowledgements and explicit

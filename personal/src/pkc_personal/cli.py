@@ -16,10 +16,10 @@ from pneuma_knowledge_service.coding_agent.install import SKILL_HASH_ENV, SkillW
 
 from pkc_personal import infra, setup, skill_install, status, sync
 from pkc_personal.environment import LibraryNotChosen, home_environment, resolve_library
-from pkc_personal.home import Choices, Home, KEY_PATTERN
+from pkc_personal.home import Choices, Home, KEY_PATTERN, SyncConfig
 from pkc_personal.library import (
-    bind_library, create_library, libraries, pkc_script, render_library, set_config, set_credential,
-    unbind_library, use_library,
+    ALL_PROJECTS, bind_library, create_library, libraries, pkc_script, render_library, set_config,
+    set_credential, unbind_library, use_library,
     watch_project,
 )
 
@@ -54,8 +54,12 @@ def build_parser() -> argparse.ArgumentParser:
         p = commands.add_parser(verb)
         _library_flag(p)
         if verb != "ls":
-            p.add_argument("directory")
+            p.add_argument("directory", nargs="?")
+            p.add_argument("--all", dest="every", action="store_true",
+                           help="every project either harness has a session for")
         if verb == "add":
+            p.add_argument("--recursive", action="store_true",
+                           help="every project at or below this directory")
             p.add_argument("--harnesses", nargs="+", choices=("claude-code", "codex"))
             p.add_argument("--since")
     p = sub.add_parser("env")
@@ -87,7 +91,8 @@ def build_parser() -> argparse.ArgumentParser:
     commands = p.add_subparsers(dest="action", required=True)
     for verb in ("get", "set"):
         p = commands.add_parser(verb)
-        p.add_argument("key", choices=(*Choices.model_fields, "sync.interval_minutes", "sync.enabled"))
+        p.add_argument("key", choices=(*Choices.model_fields,
+                                       *(f"sync.{name}" for name in SyncConfig.model_fields)))
         if verb == "set":
             p.add_argument("value")
         _library_flag(p)
@@ -167,7 +172,10 @@ def _dispatch(args: argparse.Namespace, home: Home) -> None:
         if args.action == "ls":
             print(json.dumps([item.model_dump() for item in library.state.watch], ensure_ascii=False, indent=2))
         else:
-            watch_project(library, args.directory, remove=args.action == "rm",
+            if bool(args.directory) == args.every:
+                raise ValueError("watch needs one directory, or --all")
+            watch_project(library, ALL_PROJECTS if args.every else args.directory,
+                          remove=args.action == "rm", recursive=getattr(args, "recursive", False),
                           harnesses=getattr(args, "harnesses", None), since=getattr(args, "since", None))
     elif args.command == "exec":
         _exec(home, explicit, args.argv)
@@ -207,7 +215,11 @@ def _dispatch(args: argparse.Namespace, home: Home) -> None:
                 value = getattr(home.config.sync, args.key.split(".")[1])
             else:
                 value = getattr(library.state.choices if library else home.config.defaults, args.key)
-            print("on" if value is True else "off" if value is False else value)
+            if isinstance(value, list):
+                # One pattern per line, so the answer pipes into the next command.
+                print("\n".join(value))
+            else:
+                print("on" if value is True else "off" if value is False else value)
     elif args.command == "credentials":
         if not KEY_PATTERN.fullmatch(args.key):
             raise ValueError("credential name must match [A-Z][A-Z0-9_]*")

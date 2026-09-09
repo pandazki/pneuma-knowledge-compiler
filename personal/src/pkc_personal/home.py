@@ -155,9 +155,26 @@ class Choices(Model):
         return validated_effort(value)
 
 
+#: Directories that hold scratch work rather than projects. They are the DEFAULT exclusions,
+#: which means the Owner can drop them; the home and the libraries cannot be dropped, and are
+#: excluded by mechanism in the converter (`steward_roots`) rather than by a pattern here.
+DEFAULT_SYNC_EXCLUDE = ["/private/tmp/**", "/tmp/**", "/private/var/**", "/var/folders/**"]
+
+
 class SyncConfig(Model):
     interval_minutes: int = Field(default=15, ge=1)
     enabled: bool = True
+    # Glob patterns matched against a project's resolved directory. They matter most once the
+    # scope is wider than a named directory: `watch add --all` reaches every project either
+    # harness ever opened, and thousands of those are dead scratch directories.
+    exclude: list[str] = Field(default_factory=lambda: list(DEFAULT_SYNC_EXCLUDE))
+    # What a pending increment must hold before it is ingested rather than held. The floors
+    # are the converter's own (`triage`): three Owner turns is where a session stops being an
+    # errand, and a length below zero or an acknowledgement limit below one word is not a
+    # threshold at all. Configuration, so a library can ask for more without a code change.
+    min_owner_turns: int = Field(default=3, ge=3)
+    min_owner_chars: int = Field(default=200, ge=0)
+    ack_max_words: int = Field(default=1, ge=1)
 
 
 class Config(Model):

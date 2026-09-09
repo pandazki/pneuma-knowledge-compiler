@@ -31,8 +31,8 @@ from pneuma_knowledge_service.persona_profile import owner_profile, read_profile
 from pneuma_knowledge_service.settings import Settings
 
 from pkc_personal.home import (
-    Choices, Home, Model, asset_path, atomic_write, now, read_yaml, validated_effort,
-    yaml_text,
+    Choices, Home, Model, SyncConfig, asset_path, atomic_write, now, read_yaml,
+    validated_effort, yaml_text,
 )
 
 NAME_PATTERN = re.compile(r"[a-z][a-z0-9-]{0,31}\Z")
@@ -81,8 +81,18 @@ class Steps(Model):
 DERIVED_STEPS = ("profile", "first_compile")
 
 
+#: The `path` that opens the library to every project either harness has a session for.
+#: Scope is a configuration, not a list of hundreds of `watch add` calls and not a code change.
+ALL_PROJECTS = "all"
+
+
 class Watch(Model):
+    """One scope: an exact project, a prefix (`recursive`), or the literal `all`."""
+
     path: str
+    # A prefix rather than one project: every project at or below `path`. The test is by path
+    # components in the converter, so `/a/b` never admits `/a/bc`.
+    recursive: bool = False
     harnesses: list[Literal["claude-code", "codex"]] = Field(
         default_factory=lambda: ["claude-code", "codex"], min_length=1)
     since: str | None = None
@@ -92,6 +102,8 @@ class Watch(Model):
     def directory(cls, value: str) -> str:
         if not value.strip():
             raise ValueError("watch path must be non-blank")
+        if value.strip() == ALL_PROJECTS:
+            return ALL_PROJECTS
         return str(Path(value).expanduser().resolve())
 
     @field_validator("since")
@@ -598,12 +610,23 @@ def set_config(home: Home, key: str, value: str, library: Library | None = None)
         if library is not None:
             raise ValueError("sync settings belong to the home; omit --library")
         config = home.config
-        if key == "sync.interval_minutes":
-            config.sync.interval_minutes = int(value)
-        elif key == "sync.enabled" and value.lower() in {"on", "off", "true", "false"}:
+        name = key.split(".", 1)[1]
+        if name not in SyncConfig.model_fields:
+            raise ValueError(f"unknown config key: {key}")
+        if name == "enabled":
+            if value.lower() not in {"on", "off", "true", "false"}:
+                raise ValueError("sync.enabled must be on or off")
             config.sync.enabled = value.lower() in {"on", "true"}
+        elif name == "exclude":
+            # A pattern (or a comma-separated list of them) is APPENDED: the defaults are the
+            # point of the field, and a set that silently replaced them would be a way to
+            # re-admit every scratch directory by adding one project. An empty value clears.
+            patterns = [pattern.strip() for pattern in value.split(",") if pattern.strip()]
+            added = [pattern for pattern in patterns if pattern not in config.sync.exclude]
+            config.sync.exclude = [*config.sync.exclude, *added] if patterns else []
         else:
-            raise ValueError("sync.enabled must be on or off")
+            # Every other sync setting is a number, and its floor lives on the field itself.
+            setattr(config.sync, name, int(value))
         home.save_config(config)
         return None
     if key not in Choices.model_fields:
@@ -664,13 +687,17 @@ def set_config(home: Home, key: str, value: str, library: Library | None = None)
 
 
 def watch_project(library: Library, directory: str, *, remove: bool = False,
-                  harnesses: list[str] | None = None, since: str | None = None) -> None:
-    watch = Watch(path=directory, harnesses=harnesses or ["claude-code", "codex"], since=since)
-    if not remove and not Path(watch.path).is_dir():
+                  harnesses: list[str] | None = None, since: str | None = None,
+                  recursive: bool = False) -> None:
+    watch = Watch(path=directory, recursive=recursive,
+                  harnesses=harnesses or ["claude-code", "codex"], since=since)
+    # `all` names no directory; an exact or prefix entry still names one that must exist.
+    if not remove and watch.path != ALL_PROJECTS and not Path(watch.path).is_dir():
         raise ValueError("watch add needs an existing directory")
     library.state = Library.load(library.home, library.state.name).state
     previous = next((item for item in library.state.watch if item.path == watch.path), None)
-    if previous and not remove and harnesses is None and since is None:
+    if (previous and not remove and harnesses is None and since is None
+            and previous.recursive == watch.recursive):
         return
     library.state.watch = [item for item in library.state.watch if item.path != watch.path]
     if not remove:

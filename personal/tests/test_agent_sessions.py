@@ -253,6 +253,35 @@ def test_triage_thresholds_and_treatments(texts, options, verdict, reason):
         assert reason in result["reasons"]
 
 
+@pytest.mark.parametrize("stub, steward", [
+    ("Bash: pkc", True),
+    ("Bash: pkchome", True),
+    ("Bash: /Users/x/.pkc/libraries/notes/.agents/skills/pkc-steward/scripts/pkc", True),
+    ("Bash: pkcompose", False),
+    ("Bash: python", False),
+    ("Write", False),
+])
+def test_the_stewards_own_commands_make_a_session_the_librarys_maintenance(stub, steward):
+    session = triage_session(OWNER_TEXTS)
+    session.turns.append({"turn_id": "t9", "role": "agent", "kind": "action",
+                          "at": session.turns[-1]["at"], "text": stub})
+    assert sessions.steward_work(session) is steward
+    result = sessions.triage(session, steward=sessions.steward_work(session))
+    assert result["verdict"] == ("skip" if steward else "compile")
+    assert ("steward_session" in result["reasons"]) is steward
+    assert result["canonical_treatment"] == ("none" if steward else "full")
+
+
+def test_a_session_inside_the_home_is_the_stewards_own_work(tmp_path):
+    library = tmp_path / "home/libraries/notes"
+    roots = sessions.steward_roots({"path": str(library), "engine_dir": str(library / "engine")})
+    assert sessions.steward_work(triage_session(OWNER_TEXTS, project=library / "engine"), roots)
+    assert sessions.steward_work(triage_session(OWNER_TEXTS, project=tmp_path / "home/run"), roots)
+    assert not sessions.steward_work(triage_session(OWNER_TEXTS, project=tmp_path / "momo"), roots)
+    # Components, never characters: a sibling whose name merely starts the same is not inside.
+    assert not sessions.steward_work(triage_session(OWNER_TEXTS, project=tmp_path / "home-of-momo"), roots)
+
+
 def test_project_membership_and_subagent_are_required_for_compile():
     assert sessions.triage(triage_session(OWNER_TEXTS, project=None))["verdict"] == "index"
     assert sessions.triage(triage_session(OWNER_TEXTS, is_subagent=True))["verdict"] == "index"

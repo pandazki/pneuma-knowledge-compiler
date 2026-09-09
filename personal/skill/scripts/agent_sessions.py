@@ -8,6 +8,7 @@ from collections import Counter
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
+import fnmatch
 import hashlib
 import json
 import os
@@ -28,6 +29,12 @@ ACKNOWLEDGEMENTS = frozenset({
     "\u597d", "\u597d\u7684", "\u884c", "\u53ef\u4ee5", "\u7ee7\u7eed", "\u662f", "\u5426",
     "\u786e\u8ba4", "\u8c22\u8c22", "\u540c\u610f",
 })
+#: The `path` of a watch entry that admits every project either harness has a session for.
+ALL_PROJECTS = "all"
+#: The executables whose presence in a session makes it the Steward's own work.
+STEWARD_COMMANDS = frozenset({"pkc", "pkchome"})
+#: How far into a transcript to look for the directory it was opened in.
+CWD_SCAN_ROWS = 40
 CONTEXT_PREFIXES = (
     "# AGENTS.md instructions", "<environment_context>", "<user_instructions>",
     "<permissions instructions>", "<turn_aborted>", "<system-reminder>",
@@ -276,8 +283,72 @@ def low_signal(text: str, ack_max_words: int) -> bool:
     return len(normalized.split()) <= ack_max_words and normalized in ACKNOWLEDGEMENTS
 
 
+def under(path: Path, root: Path) -> bool:
+    """True when `path` is `root` or below it, compared by components: /a/bc is not under /a/b."""
+    return path == root or root in path.parents
+
+
+def excluded_project(project: Path, roots=(), patterns=()) -> bool:
+    """Whether this project stays outside the library, by mechanism or by configuration.
+
+    `roots` are the Steward's own directories — the home and the library itself. They are not
+    patterns and the Owner cannot remove them: a library that ingested the sessions that
+    maintain it would be compiling its own output. `patterns` are the Owner's glob exclusions.
+    """
+    if any(under(project, root) for root in roots):
+        return True
+    text = str(project)
+    # The trailing separator lets `/tmp/**` name the directory itself, not only what is in it.
+    # A pattern is compared against a resolved path, so `~/scratch/**` is expanded first.
+    return any(fnmatch.fnmatch(text, pattern) or fnmatch.fnmatch(f"{text}/", pattern)
+               for pattern in map(os.path.expanduser, patterns))
+
+
+def steward_roots(library: dict, home: str | None = None) -> list[Path]:
+    """The directories a Steward works in when maintaining THIS library.
+
+    Someone at a terminal draining the queue stands in the home or in the library — its
+    engine, its canonical repository, its rendered package. Those sessions are the library's
+    own maintenance, never its material.
+    """
+    roots = []
+    for key in ("path", "engine_dir", "canonical_dir", "skill_dir"):
+        value = library.get(key)
+        if isinstance(value, str) and value.strip():
+            roots.append(Path(value).expanduser().resolve())
+    if home:
+        roots.append(Path(home).expanduser().resolve())
+    elif library.get("path"):
+        # <home>/libraries/<name>: the home is derivable from the library's own directory.
+        directory = Path(library["path"]).expanduser().resolve()
+        if len(directory.parents) >= 2:
+            roots.append(directory.parents[1])
+    return roots
+
+
+def steward_action(text: str) -> bool:
+    """True when an action stub names the library's own command as the executable.
+
+    `action_stub` keeps a bare first word (`Bash: pkc`) or an absolute path, so the comparison
+    is by basename; the rendered package's own entry (`<lib>/.../scripts/pkc`) is named too.
+    A different executable that merely starts with those letters (`pkcompose`) is not one.
+    """
+    _, separator, detail = text.partition(": ")
+    detail = detail.strip()
+    if not separator or not detail:
+        return False
+    return detail.rsplit("/", 1)[-1] in STEWARD_COMMANDS or detail.endswith("/scripts/pkc")
+
+
+def steward_work(session: Session, roots=()) -> bool:
+    """Whether this session is work ON the library rather than work the library records."""
+    if session.project is not None and any(under(session.project, root) for root in roots):
+        return True
+    return any(turn["kind"] == "action" and steward_action(turn["text"]) for turn in session.turns)
+
+
 def triage(session: Session, *, min_owner_turns: int = 3, min_owner_chars: int = 200,
-           ack_max_words: int = 1, purpose: str = "project") -> dict:
+           ack_max_words: int = 1, purpose: str = "project", steward: bool = False) -> dict:
     if min_owner_turns < 3 or min_owner_chars < 0 or ack_max_words < 1:
         raise ValueError("thresholds require min-owner-turns >= 3, min-owner-chars >= 0, ack-max-words >= 1")
     owners = [turn["text"] for turn in session.turns if turn["role"] == "owner"]
@@ -299,7 +370,9 @@ def triage(session: Session, *, min_owner_turns: int = 3, min_owner_chars: int =
         reasons.append("commands_or_acknowledgements_only")
     if purpose != "project":
         reasons.append(f"{purpose}_session")
-    verdict = ("skip" if not owners or chars < min_owner_chars or session.project_conflict
+    if steward:
+        reasons.append("steward_session")
+    verdict = ("skip" if steward or not owners or chars < min_owner_chars or session.project_conflict
                else "index" if reasons else "compile")
     return {"verdict": verdict, "canonical_treatment": "full" if verdict == "compile" else "none",
             "reasons": reasons, "owner_turns": len(owners), "owner_chars": chars, "purpose": purpose,
@@ -307,8 +380,39 @@ def triage(session: Session, *, min_owner_turns: int = 3, min_owner_chars: int =
                            "ack_max_words": ack_max_words}}
 
 
+def claude_cwd(path: Path) -> Path | None:
+    """The directory a Claude Code transcript was opened in, read from its own rows.
+
+    The encoded directory name is not reliably decodable — a hyphen there stands for both a
+    separator and a hyphen — so the transcript's own `cwd` is the only true answer.
+    """
+    try:
+        for index, row in enumerate(jsonl(path)):
+            if index >= CWD_SCAN_ROWS:
+                break
+            cwd = row.get("cwd")
+            if isinstance(cwd, str) and cwd.strip():
+                return Path(cwd).expanduser().resolve()
+    except (OSError, ValueError):
+        return None
+    return None
+
+
+def codex_cwd(path: Path) -> Path | None:
+    """The directory a Codex rollout was opened in, from its opening session_meta."""
+    try:
+        first = next(jsonl(path), {})
+    except (OSError, ValueError):
+        return None
+    payload = first.get("payload", {})
+    if first.get("type") != "session_meta" or not isinstance(payload, dict):
+        return None
+    cwd = payload.get("cwd")
+    return Path(cwd).expanduser().resolve() if isinstance(cwd, str) and cwd.strip() else None
+
+
 def discover(project: Path, claude_root: Path, codex_root: Path):
-    # A project selection is exact, never a recursive import of adjacent projects.
+    # One exact project. A wider scope is a watch entry, resolved by `discover_projects`.
     encodings = {str(project).replace("/", "-"), re.sub(r"[^a-zA-Z0-9]", "-", str(project))}
     for encoded in sorted(encodings):
         directory = claude_root / encoded
@@ -317,18 +421,71 @@ def discover(project: Path, claude_root: Path, codex_root: Path):
             if not path.is_symlink():
                 yield "claude-code", path
     for path in sorted(codex_root.glob("*/*/*/rollout-*.jsonl")):
+        if not path.is_symlink() and codex_cwd(path) == project:
+            yield "codex", path
+
+
+def discover_projects(claude_root: Path, codex_root: Path) -> dict:
+    """Every project either harness has a session for, keyed by its resolved directory.
+
+    Enumerated from the harness roots themselves, so a scope wider than one directory needs
+    no list of directories: the transcripts say which project they belong to.
+    """
+    projects: dict = {}
+    for directory in sorted(claude_root.glob("*")):
+        if not directory.is_dir():
+            continue
+        paths = [path for path in sorted(set(directory.glob("*.jsonl"))
+                                         | set(directory.glob("*/subagents/*.jsonl")))
+                 if not path.is_symlink()]
+        named = {path: claude_cwd(path) for path in paths}
+        # A subagent transcript may name no directory of its own; its siblings do.
+        fallback = next((cwd for cwd in named.values() if cwd is not None), None)
+        for path in paths:
+            project = named[path] or fallback
+            if project is not None:
+                projects.setdefault(project, []).append(("claude-code", path))
+    for path in sorted(codex_root.glob("*/*/*/rollout-*.jsonl")):
         if path.is_symlink():
             continue
-        try:
-            first = next(jsonl(path), {})
-        except (OSError, ValueError):
-            continue
-        payload = first.get("payload", {})
-        if first.get("type") != "session_meta" or not isinstance(payload, dict):
-            continue
-        cwd = payload.get("cwd")
-        if isinstance(cwd, str) and Path(cwd).expanduser().resolve() == project:
-            yield "codex", path
+        project = codex_cwd(path)
+        if project is not None:
+            projects.setdefault(project, []).append(("codex", path))
+    return projects
+
+
+def watch_targets(watches: list[dict], claude_root: Path, codex_root: Path, *,
+                  roots=(), patterns=()) -> tuple[list, int]:
+    """The sessions the watch entries admit, and how many projects have no directory left.
+
+    An entry is one exact project (today's meaning), a prefix when it carries `recursive`, or
+    the literal `all`. A project whose directory is gone is counted, never reported per
+    session: opening the library to every project also opens it to thousands of dead ones.
+    """
+    targets: list = []
+    missing: set = set()
+    discovered: dict | None = None
+    for watch in watches:
+        path = str(watch["path"])
+        harnesses = watch.get("harnesses") or ["claude-code", "codex"]
+        if path == ALL_PROJECTS or watch.get("recursive"):
+            if discovered is None:
+                discovered = discover_projects(claude_root, codex_root)
+            root = None if path == ALL_PROJECTS else Path(path).expanduser().resolve()
+            found = [(project, sessions) for project, sessions in sorted(discovered.items())
+                     if root is None or under(project, root)]
+        else:
+            project = Path(path).expanduser().resolve()
+            found = [(project, sorted(discover(project, claude_root, codex_root)))]
+        for project, sessions in found:
+            if excluded_project(project, roots, patterns):
+                continue
+            if not project.is_dir():
+                missing.add(project)
+                continue
+            targets += [(watch, project, provider, session) for provider, session in sessions
+                        if provider in harnesses]
+    return targets, len(missing)
 
 
 def scan(args):
@@ -346,7 +503,7 @@ def scan(args):
                 continue
             verdict = triage(session, min_owner_turns=args.min_owner_turns,
                              min_owner_chars=args.min_owner_chars, ack_max_words=args.ack_max_words,
-                             purpose=args.purpose)
+                             purpose=args.purpose, steward=steward_work(session))
             yield session, verdict, None
         except (OSError, ValueError) as exc:
             yield None, {"provider": provider, "file": str(path)}, str(exc)
@@ -408,7 +565,8 @@ def selected_library(name: str | None) -> dict:
     return library
 
 
-SYNC_COUNTS = ("scanned", "new", "increments", "held", "unchanged", "rewritten", "ingested", "skipped")
+SYNC_COUNTS = ("scanned", "new", "increments", "held", "unchanged", "rewritten", "ingested",
+               "skipped", "skipped_steward", "project_missing")
 
 
 def digest(data: bytes) -> str:
@@ -536,7 +694,8 @@ def sync_pass(library: dict, watches: list[dict], *, dry_run: bool = False,
               rewritten: str = "report", claude_root: Path | None = None,
               codex_root: Path | None = None, options: dict | None = None,
               owner_id: str | None = None, session_ids: list[str] | None = None,
-              pkchome: str = "pkchome", owner_name: str | None = None) -> dict:
+              pkchome: str = "pkchome", owner_name: str | None = None,
+              exclude: list[str] | None = None, home: str | None = None) -> dict:
     """One edition-owned pass. Ingest is its only library write door."""
     directory = Path(library["path"])
     state_path = directory / "sync-state.json"
@@ -547,11 +706,12 @@ def sync_pass(library: dict, watches: list[dict], *, dry_run: bool = False,
                           codex_root=codex_root or Path.home() / ".codex/sessions",
                           options=options or {}, owner_id=owner_id or library["tenant"],
                           owner_name=owner_name or library.get("owner_name") or None,
-                          session_ids=session_ids, pkchome=pkchome)
+                          session_ids=session_ids, pkchome=pkchome,
+                          exclude=exclude or (), home=home)
 
 
 def _sync_pass(library, watches, state_path, *, dry_run, rewritten, claude_root, codex_root,
-               options, owner_id, owner_name, session_ids, pkchome):
+               options, owner_id, owner_name, session_ids, pkchome, exclude, home):
     state = read_sync_state(state_path)
     report = {**dict.fromkeys(SYNC_COUNTS, 0), "sessions": [], "dry_run": dry_run}
     state.setdefault("legacy", {})
@@ -628,157 +788,159 @@ def _sync_pass(library, watches, state_path, *, dry_run, rewritten, claude_root,
     seen = set(recovered)
     by_file = {(entry["provider"], entry["file"]): (key, entry)
                for key, entry in state["sessions"].items()}
-    for watch in watches:
-        project = Path(watch["path"]).expanduser().resolve()
-        if not project.is_dir():
-            report["skipped"] += 1
-            report["sessions"].append({"file": str(project), "status": "error", "error": "watched directory missing"})
+    roots = steward_roots(library, home)
+    targets, report["project_missing"] = watch_targets(
+        watches, claude_root.expanduser(), codex_root.expanduser(),
+        roots=roots, patterns=exclude)
+    for watch, project, provider, path in targets:
+        if (provider, str(path)) in seen:
             continue
+        seen.add((provider, str(path)))
         since = timestamp(watch["since"]) if watch.get("since") else None
-        for provider, path in discover(project, claude_root.expanduser(), codex_root.expanduser()):
-            if provider not in watch.get("harnesses", ["claude-code", "codex"]):
-                continue
-            if (provider, str(path)) in seen:
-                continue
-            seen.add((provider, str(path)))
-            line = {"provider": provider, "file": str(path)}
-            report["scanned"] += 1
-            try:
-                # Read one byte snapshot, deferring an in-flight final JSONL record.
-                # Neither selection nor progress uses mtime.
-                data = complete_jsonl(path.read_bytes())
-                previous = by_file.get((provider, str(path)))
-                if previous:
-                    _, observed = previous
-                    line["session_id"] = observed["session_id"]
-                    if session_ids and observed["session_id"] not in session_ids:
-                        report["scanned"] -= 1
-                        continue
-                    intact = (len(data) >= observed["file_size"]
-                              and digest(data[:observed["file_size"]]) == observed["prefix_hash"])
-                    # A rewritten prefix is a rewrite even when it no longer parses.
-                    if not intact and rewritten != "reingest":
-                        report["rewritten"] += 1
-                        line["status"] = "rewritten"
-                        report["sessions"].append(line)
-                        continue
-                    if intact and len(data) == observed["file_size"]:
-                        report["unchanged"] += 1
-                        line["status"] = "unchanged"
-                        if observed["held"]:
-                            report["held"] += 1
-                            line["held"] = observed["held"]
-                        report["sessions"].append(line)
-                        continue
-                session = read_session(provider, path, project, data)
-                if session_ids and session.session_id not in session_ids:
+        line = {"provider": provider, "file": str(path)}
+        report["scanned"] += 1
+        try:
+            # Read one byte snapshot, deferring an in-flight final JSONL record.
+            # Neither selection nor progress uses mtime.
+            data = complete_jsonl(path.read_bytes())
+            previous = by_file.get((provider, str(path)))
+            if previous:
+                _, observed = previous
+                line["session_id"] = observed["session_id"]
+                if session_ids and observed["session_id"] not in session_ids:
                     report["scanned"] -= 1
                     continue
-                line["session_id"] = session.session_id
-                key = session_key(session)
-                entry = state["sessions"].get(key)
-                # Locate rewrites that changed provider identity/project attribution too.
-                if entry is None:
-                    if previous:
-                        key, entry = previous
-                legacy = state["legacy"].get(key)
-                forced_rewrite = False
-                if legacy and entry is None:
-                    recovered_prefix = legacy_prefix(session, data, legacy, owner_id, options)
-                    if recovered_prefix is None:
-                        forced_rewrite = True
-                    elif dry_run:
-                        _, entry = recovered_prefix
-                        line["migration_due"] = True
-                    else:
-                        payload, entry = recovered_prefix
-                        ingest(key, payload, entry, line, migration=True)
-                        entry = state["sessions"][key]
-                was_rewritten = forced_rewrite or bool(entry and (
-                    len(data) < entry["file_size"]
-                    or digest(data[:entry["file_size"]]) != entry["prefix_hash"]
-                    or session.session_id != entry["session_id"]))
-                if was_rewritten:
+                intact = (len(data) >= observed["file_size"]
+                          and digest(data[:observed["file_size"]]) == observed["prefix_hash"])
+                # A rewritten prefix is a rewrite even when it no longer parses.
+                if not intact and rewritten != "reingest":
                     report["rewritten"] += 1
                     line["status"] = "rewritten"
-                    if rewritten != "reingest":
-                        report["sessions"].append(line)
-                        continue
-                    # Preserve the source history, but this replacement starts afresh and
-                    # has no 'continues' assertion. Publish the reset only after success.
-                    old_ids = entry["source_ids"] if entry else []
-                    entry = empty_cursor(session)
-                    entry["source_ids"] = old_ids
-                if entry and not was_rewritten and len(data) == entry["file_size"]:
+                    report["sessions"].append(line)
+                    continue
+                if intact and len(data) == observed["file_size"]:
                     report["unchanged"] += 1
                     line["status"] = "unchanged"
-                    if entry["held"]:
+                    if observed["held"]:
                         report["held"] += 1
-                        line["held"] = entry["held"]
+                        line["held"] = observed["held"]
                     report["sessions"].append(line)
                     continue
-                entry = entry or empty_cursor(session)
-                earlier = read_session(provider, path, project, data[:entry["exported_bytes"]])
-                try:
-                    increment = pending_turns(session, earlier, entry["exported_turns"])
-                except ValueError:
-                    if rewritten != "reingest":
-                        raise
-                    report["rewritten"] += 1
-                    was_rewritten = True
-                    old_ids = entry["source_ids"]
-                    entry = empty_cursor(session)
-                    entry["source_ids"] = old_ids
-                    increment = session
-                verdict = triage(increment, **options)
-                cursor = {**entry, "file": str(path), "file_size": len(data), "prefix_hash": digest(data)}
-                line["triage"] = verdict
-                if session.is_subagent or session.project_conflict or (
-                    since and not entry["exported_turns"] and (
-                        not session.turns or timestamp(session.turns[-1]["at"]) < since)):
-                    line["status"] = "skipped"
-                    report["skipped"] += 1
-                elif not increment.turns:
-                    line["status"] = "unchanged"
-                    report["unchanged"] += 1
-                elif (verdict["owner_turns"] < verdict["thresholds"]["min_owner_turns"]
-                      or verdict["owner_chars"] < verdict["thresholds"]["min_owner_chars"]):
-                    cursor["held"] = {"owner_turns": verdict["owner_turns"], "chars": verdict["owner_chars"]}
-                    line.update(status="held", held=cursor["held"])
+            session = read_session(provider, path, project, data)
+            if session_ids and session.session_id not in session_ids:
+                report["scanned"] -= 1
+                continue
+            line["session_id"] = session.session_id
+            key = session_key(session)
+            entry = state["sessions"].get(key)
+            # Locate rewrites that changed provider identity/project attribution too.
+            if entry is None:
+                if previous:
+                    key, entry = previous
+            legacy = state["legacy"].get(key)
+            forced_rewrite = False
+            if legacy and entry is None:
+                recovered_prefix = legacy_prefix(session, data, legacy, owner_id, options)
+                if recovered_prefix is None:
+                    forced_rewrite = True
+                elif dry_run:
+                    _, entry = recovered_prefix
+                    line["migration_due"] = True
+                else:
+                    payload, entry = recovered_prefix
+                    ingest(key, payload, entry, line, migration=True)
+                    entry = state["sessions"][key]
+            was_rewritten = forced_rewrite or bool(entry and (
+                len(data) < entry["file_size"]
+                or digest(data[:entry["file_size"]]) != entry["prefix_hash"]
+                or session.session_id != entry["session_id"]))
+            if was_rewritten:
+                report["rewritten"] += 1
+                line["status"] = "rewritten"
+                if rewritten != "reingest":
+                    report["sessions"].append(line)
+                    continue
+                # Preserve the source history, but this replacement starts afresh and
+                # has no 'continues' assertion. Publish the reset only after success.
+                old_ids = entry["source_ids"] if entry else []
+                entry = empty_cursor(session)
+                entry["source_ids"] = old_ids
+            if entry and not was_rewritten and len(data) == entry["file_size"]:
+                report["unchanged"] += 1
+                line["status"] = "unchanged"
+                if entry["held"]:
                     report["held"] += 1
-                else:
-                    kind = "increments" if entry["exported_turns"] else "new"
-                    report[kind] += 1
-                    if dry_run:
-                        line["status"] = "would_ingest"
-                        report["sessions"].append(line)
-                        continue
-                    payload = increment.payload(owner_id, verdict, owner_name)
-                    part = len(entry["source_ids"]) + 1
-                    payload["metadata"].update(from_turn=increment.turns[0]["turn_id"], part=part)
-                    if entry["exported_turns"]:
-                        payload["metadata"]["continues"] = entry["source_ids"][-1]
-                    if was_rewritten:
-                        payload["metadata"]["rewritten"] = True
-                    cursor.update(exported_turns=entry["exported_turns"] + len(increment.turns),
-                                  last_turn_id=increment.turns[-1]["turn_id"], last_at=increment.turns[-1]["at"],
-                                  exported_bytes=len(data), held=None)
-                    line["status"] = "ingested"
-                    ingest(key, payload, cursor, line)
+                    line["held"] = entry["held"]
+                report["sessions"].append(line)
+                continue
+            entry = entry or empty_cursor(session)
+            earlier = read_session(provider, path, project, data[:entry["exported_bytes"]])
+            try:
+                increment = pending_turns(session, earlier, entry["exported_turns"])
+            except ValueError:
+                if rewritten != "reingest":
+                    raise
+                report["rewritten"] += 1
+                was_rewritten = True
+                old_ids = entry["source_ids"]
+                entry = empty_cursor(session)
+                entry["source_ids"] = old_ids
+                increment = session
+            steward = steward_work(session, roots)
+            verdict = triage(increment, **options, steward=steward)
+            cursor = {**entry, "file": str(path), "file_size": len(data), "prefix_hash": digest(data)}
+            line["triage"] = verdict
+            if steward:
+                # Work ON the library, by the Owner or a Steward at a terminal. It never
+                # advances to index: a library ingesting this would eat its own output.
+                line["status"] = "steward"
+                report["skipped_steward"] += 1
+            elif session.is_subagent or session.project_conflict or (
+                since and not entry["exported_turns"] and (
+                    not session.turns or timestamp(session.turns[-1]["at"]) < since)):
+                line["status"] = "skipped"
+                report["skipped"] += 1
+            elif not increment.turns:
+                line["status"] = "unchanged"
+                report["unchanged"] += 1
+            elif (verdict["owner_turns"] < verdict["thresholds"]["min_owner_turns"]
+                  or verdict["owner_chars"] < verdict["thresholds"]["min_owner_chars"]):
+                cursor["held"] = {"owner_turns": verdict["owner_turns"], "chars": verdict["owner_chars"]}
+                line.update(status="held", held=cursor["held"])
+                report["held"] += 1
+            else:
+                kind = "increments" if entry["exported_turns"] else "new"
+                report[kind] += 1
+                if dry_run:
+                    line["status"] = "would_ingest"
                     report["sessions"].append(line)
                     continue
-                # Observation advances the file fingerprint, never the export cursor.
-                if not was_rewritten:
-                    state["sessions"][key] = cursor
-                    save()
-            except (OSError, ValueError) as exc:
-                if str(exc).startswith("rewritten:"):
-                    report["rewritten"] += 1
-                    line.update(status="rewritten", error=str(exc))
-                else:
-                    report["skipped"] += 1
-                    line.update(status="error", error=str(exc))
-            report["sessions"].append(line)
+                payload = increment.payload(owner_id, verdict, owner_name)
+                part = len(entry["source_ids"]) + 1
+                payload["metadata"].update(from_turn=increment.turns[0]["turn_id"], part=part)
+                if entry["exported_turns"]:
+                    payload["metadata"]["continues"] = entry["source_ids"][-1]
+                if was_rewritten:
+                    payload["metadata"]["rewritten"] = True
+                cursor.update(exported_turns=entry["exported_turns"] + len(increment.turns),
+                              last_turn_id=increment.turns[-1]["turn_id"], last_at=increment.turns[-1]["at"],
+                              exported_bytes=len(data), held=None)
+                line["status"] = "ingested"
+                ingest(key, payload, cursor, line)
+                report["sessions"].append(line)
+                continue
+            # Observation advances the file fingerprint, never the export cursor.
+            if not was_rewritten:
+                state["sessions"][key] = cursor
+                save()
+        except (OSError, ValueError) as exc:
+            if str(exc).startswith("rewritten:"):
+                report["rewritten"] += 1
+                line.update(status="rewritten", error=str(exc))
+            else:
+                report["skipped"] += 1
+                line.update(status="error", error=str(exc))
+        report["sessions"].append(line)
     state["last_run_at"] = datetime.now(timezone.utc).isoformat()
     # The state keeps the pass's COUNTS, never its per-session rows: those are the run's own
     # output, and a thousand of them stored here would ride into every status document.

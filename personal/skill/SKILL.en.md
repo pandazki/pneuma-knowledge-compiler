@@ -111,10 +111,15 @@ Name the project directories once for the selected library:
 
 ```sh
 pkchome watch add <dir> --library NAME
+pkchome watch add --all --library NAME
 pkchome watch ls --library NAME
 pkchome sync --library NAME --dry-run
 pkchome sync --library NAME
 ```
+
+`watch add --all` opens the library to every project either harness has a session for, and
+`watch add <dir> --recursive` to every project below one directory; `sync.exclude` keeps
+scratch directories out, and the Steward's own `pkc` sessions are always skipped.
 
 The resident tray syncs while the library's engine is up, every 15 minutes by default.
 Settings changes that interval and the watched directories; `pkchome watch rm <dir>` stops

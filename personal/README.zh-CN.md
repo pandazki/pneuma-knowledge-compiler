@@ -80,28 +80,55 @@ Setup 回答字段：`library: notes`、`language: en`、`backend: codex`、
 `pkchome library create notes --contract personal-knowledge` 选择之前的契约，也可传入
 自定义契约路径。`--from NAME` 仍继承该库的契约，除非 `--contract` 显式覆盖。
 
-指定一次项目目录；库的引擎运行时，托盘会同步其中的 Claude Code 与 Codex 会话：
+说明一次库的范围；库的引擎运行时，托盘会同步范围内的 Claude Code 与 Codex 会话：
 
 ```sh
 pkchome watch add /path/to/momo --library notes
+pkchome watch add ~/Codes --recursive --library notes
+pkchome watch add --all --library notes
 pkchome watch ls --library notes
 pkchome sync --library notes --dry-run
 pkchome sync --library notes --json
 pkchome watch rm /path/to/momo --library notes
+pkchome watch rm --all --library notes
 pkchome config set sync.interval_minutes 15
 pkchome config set sync.enabled on
+pkchome config set sync.exclude '/private/tmp/**,~/scratch/**'
+pkchome config get sync.exclude
+pkchome config set sync.min_owner_turns 5
+pkchome config set sync.min_owner_chars 200
+pkchome config set sync.ack_max_words 1
 ```
 
 Setup answers 可包含 `watch: [/path/to/momo]`。每库在 `library.yaml` 中保存自己的
-`watch: [{path, harnesses: [claude-code, codex], since?}]`。`watch add` 接受
+`watch: [{path, recursive, harnesses: [claude-code, codex], since?}]`。`watch add` 接受
 `--harnesses codex claude-code` 和带时区的 `--since`，选择保留活动达到该时刻的会话。
-路径精确选择项目。托盘默认间隔为 15 分钟；Settings 可修改间隔、开关与目录列表。
+
+一条记录有三种范围形式。给出目录即精确的单个项目，与此前相同。`--recursive` 使它成为
+前缀：该目录及其下的每个项目，按路径分段比较，因此 `/a/b` 绝不会收入 `/a/bc`。`--all`
+记录字面量 `all`：两种宿主留有会话的每个项目，直接从宿主根目录枚举得到，而不依赖一份
+目录清单——把库开放给四百个项目应当是一项配置，而不是四百次 `watch add`。
+`watch rm <dir>` 与 `watch rm --all` 按同一个键移除。
+
+这样宽的范围也会触及成千上万个已废弃的临时目录，因此 `sync.exclude` 保存一组 glob
+模式，与解析后的项目目录匹配，默认为 `/private/tmp/**`、`/tmp/**`、`/private/var/**`
+和 `/var/folders/**`。`config set sync.exclude` 追加一个模式或逗号分隔的列表；传入空值
+则全部清空。有两项排除是机制而非 Owner 可以移除的模式：home 本身，以及每个库自己的
+目录——它的 engine、canonical 仓库与渲染出的技能包。目录已不存在的项目计入
+`project_missing`，不逐条列出，因为在 `all` 下它们数以千计。
+
+Steward 自己的会话被整体跳过，既不索引也不编译。运行过 `pkc` 或 `pkchome` 的会话，或
+处在 home 与库目录之中的会话，都是对库本身的维护工作；库若把它收进来，就是在编译自己
+的产物。它们计入 `skipped_steward`。
+
+托盘默认间隔为 15 分钟；Settings 可修改间隔、开关与目录列表。
 Dashboard 展示上次同步和 held 数量，并提供 “Sync now” 按钮。
 
 Sync 只通过 `pkchome exec --library NAME -- pkc ingest` 送入新部分，自身不编译：
 ingest 将普通 index/compile 任务入队，由引擎 worker 或 Steward 排空。报告包含
-scanned、new、increments、held、unchanged、rewritten、ingested、skipped 和逐会话
-细节。Held 数量与库的队列分开；未变化的 held 会话同时计入这两个字段。
+scanned、new、increments、held、unchanged、rewritten、ingested、skipped、
+skipped_steward、project_missing 和逐会话细节。Held 数量与库的队列分开；未变化的
+held 会话同时计入这两个字段。
 
 全局技能还携带标准库 `scripts/agent_sessions.py`：`list --project <dir>` 展示整会话
 分流，`export --project <dir> --out <dir> [--owner-id ID]` 写出过滤后的 JSON，
@@ -110,8 +137,9 @@ scanned、new、increments、held、unchanged、rewritten、ingested、skipped �
 为 `owner`；ingest 使用所选租户。手动导入只索引的 export 时需要 `--intake searchable`，
 元数据本身不设置 intake。
 
-每份待处理增量要求三次 Owner 发言和 200 个 Owner 文本字符。任一阈值不足都保持 HELD，
-不推进导出游标，后续增长继续累积。转换器的 `--min-owner-turns`、`--min-owner-chars`
+每份待处理增量默认要求三次 Owner 发言和 200 个 Owner 文本字符；`sync.min_owner_turns`
+（下限 3）、`sync.min_owner_chars` 和 `sync.ack_max_words` 说明这台机器实际要求多少。
+任一阈值不足都保持 HELD，不推进导出游标，后续增长继续累积。转换器的 `--min-owner-turns`、`--min-owner-chars`
 和 `--ack-max-words` 仍可配置其手动分流（次数下限 3、字符下限 0，确认语默认限 1 词）。
 数值阈值满足后，仅命令/已知确认语和显式研究/闲聊只索引。子代理和目录冲突被排除。
 Owner 原话与代理叙述逐字保留；工具缩为有长度上限的动作短句，排除参数、结果、思考
