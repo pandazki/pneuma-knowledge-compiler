@@ -22,6 +22,7 @@ from pneuma_knowledge_service.coding_agent.backends import (
     BACKENDS, BackendManifest, backend as backend_manifest,
 )
 from pneuma_knowledge_service.coding_agent.install import strip_block
+from pneuma_knowledge_service.embedding_key import embedding_key_requirement
 from pneuma_knowledge_service.engine.contract import load_engine_contract
 from pneuma_knowledge_service.engine.schema import build_schema
 from pneuma_knowledge_service.engine.template_files import template_text
@@ -482,16 +483,112 @@ def restart_engine(home: Home, library: Library) -> bool:
     return True
 
 
-def set_credential(home: Home, key: str, value: str) -> list[str]:
+class CredentialRefused(RuntimeError):
+    """The provider did not accept a candidate credential, so nothing was written."""
+
+
+#: What the probe embeds. Content-free on purpose: it is sent to a provider under a key
+#: nobody has vouched for yet, so it must say nothing about this library.
+PROBE_TEXT = "credential preflight"
+PROBE_TIMEOUT = 20.0
+
+
+def _settings_override(requirement: tuple[str, str] | None, value: str) -> dict[str, str]:
+    """`{name: value}` that reaches the candidate into `Settings`, spelled the way it reads it.
+
+    A field with a `validation_alias` (the key fields all carry one, so an unprefixed
+    `OPENROUTER_API_KEY` is read) is populated under that alias and NOT under its Python
+    name — `extra="ignore"` would drop the misnamed argument in silence and probe with
+    whatever the environment held, which is the one outcome a preflight must never have.
+    """
+    if requirement is None:
+        return {}
+    field = Settings.model_fields[requirement[1]]
+    alias = field.validation_alias
+    return {alias if isinstance(alias, str) else requirement[1]: value}
+
+
+def probe_embedding_key(spec: str, value: str, *, timeout: float = PROBE_TIMEOUT) -> None:
+    """Embed one string through `spec` with this candidate. Returns on acceptance.
+
+    The embeddings object is the deployment's own (`build_embeddings` over a `Settings`
+    carrying the candidate) — one client and one retry policy, not a second HTTP client
+    that could accept what the engine will reject. The candidate is passed as a value and
+    never written to the process environment or to any file, so a refusal leaves nothing
+    behind. Injectable: the personal tests monkeypatch this name and stay keyless.
+    """
+    from pneuma_knowledge_service.wiring import build_embeddings
+
+    requirement = embedding_key_requirement(spec)
+    embeddings = build_embeddings(
+        Settings(_env_file=None, embedding_model=spec, **_settings_override(requirement, value))
+    )
+
+    async def probe() -> None:
+        try:
+            await asyncio.wait_for(embeddings.aembed_query(PROBE_TEXT), timeout)
+        finally:
+            release = getattr(embeddings, "aclose", None)
+            if release is not None:
+                await release()
+
+    asyncio.run(probe())
+
+
+def _refused(spec: str, key: str, value: str, exc: BaseException) -> CredentialRefused:
+    """One line for the Owner: which provider said no, and how. Never the value.
+
+    The provider's own text is not repeated — a status line and an exception class are all
+    that is needed to act, and anything echoed back from a request is one bad provider away
+    from carrying the candidate into a terminal, a log or a screenshot.
+    """
+    provider = (spec.split(":", 1)[0] or "the provider").strip()
+    error: BaseException | None = exc
+    reason = ""
+    while error is not None and not reason:
+        status = getattr(getattr(error, "response", None), "status_code", None)
+        if isinstance(status, int):
+            phrase = getattr(error.response, "reason_phrase", "") or ""
+            reason = f"rejected it ({status} {phrase})" if phrase else f"rejected it ({status})"
+        error = error.__cause__ or error.__context__
+    reason = reason or f"did not answer ({type(exc).__name__})"
+    line = (f"refused: {key} was not stored — {provider} {reason}; "
+            f"the previous key, if any, is unchanged")
+    # Belt and braces: nothing above puts the candidate in the line, and this makes it so.
+    return CredentialRefused(line.replace(value, "***") if value else line)
+
+
+def set_credential(home: Home, key: str, value: str, *, verify: bool = True) -> tuple[list[str], str]:
     """Store one key in the home's credentials and replace every running engine.
 
     A credential reaches an engine only as its process environment (`home_environment`
     assembles it at start), so a key saved while the engine runs is a key nothing holds:
-    recall would go on answering 503 keyless until somebody remembered to restart. Returns
-    the names of the libraries whose engine was replaced.
+    recall would go on answering 503 keyless until somebody remembered to restart.
+
+    The provider is asked FIRST, before anything is written. A pasted URL once landed here
+    as OPENROUTER_API_KEY: it was stored over a working key, every engine was restarted,
+    the command reported success, and the engine died at startup on a 401 nobody was
+    watching for — with the queue standing still until a human noticed. So a candidate for
+    the embedding key of the configured spec must embed one string through that provider
+    before it is written; a refusal leaves the credentials file, the running engines and
+    the previous key exactly as they were. Returns the names of the libraries whose engine
+    was replaced, and the clause the Owner is told about verification.
     """
+    spec = home.config.defaults.embedding if home.configured else ""
+    requirement = embedding_key_requirement(spec)
+    if requirement is None or requirement[0] != key:
+        note = " — not verified: no probe for this credential"
+    elif not verify:
+        note = " — not verified (--no-verify)"
+    else:
+        try:
+            probe_embedding_key(spec, value)
+        except Exception as exc:  # noqa: BLE001 — any refusal is a refusal; the reason is derived
+            raise _refused(spec, key, value, exc) from None
+        note = f" — verified {spec}"
     home.set_credential(key, value)
-    return [library.state.name for library in libraries(home) if restart_engine(home, library)]
+    restarted = [library.state.name for library in libraries(home) if restart_engine(home, library)]
+    return restarted, note
 
 
 def set_config(home: Home, key: str, value: str, library: Library | None = None) -> str | None:

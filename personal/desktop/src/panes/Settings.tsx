@@ -1,8 +1,12 @@
 import { useEffect, useState } from 'react';
 import { autostartEnabled, openConsole, runAction, setAutostart, type Perform } from '../lib/commands';
-import { t, type Locale } from '../lib/i18n';
-import { consoleUrl, currentLibrary, type Backend, type Snapshot } from '../lib/state';
-import { LedgerSelect, SettingRow } from './Ledger';
+import { t, type Locale, type Message } from '../lib/i18n';
+import { consoleUrl, credentialName, currentLibrary, deepLibrary, keyReadout, timeLabel, type Backend, type KeyReadout, type Snapshot } from '../lib/state';
+import { LedgerSelect, Leader, SettingRow } from './Ledger';
+
+const verdicts: Record<Exclude<KeyReadout, 'absent' | 'unknown'>, Message> = {
+  verified: 'keyVerified', unverified: 'keyUnverified', unused: 'keyUnused',
+};
 
 function TextToggle({ id, value, disabled, onChange, locale, describedBy }: {
   id: string; value: boolean | null; disabled: boolean; onChange: (value: boolean) => void; locale: Locale; describedBy?: string;
@@ -23,6 +27,7 @@ export default function Settings({ state, busy, perform, locale, preference, onL
   const library = currentLibrary(state);
   const [key, setKey] = useState('');
   const [keyName, setKeyName] = useState('OPENROUTER_API_KEY');
+  const [replacing, setReplacing] = useState(false);
   const [login, setLogin] = useState<boolean | null>(null);
   const [directory, setDirectory] = useState('');
   const [interval, setInterval] = useState('15');
@@ -30,11 +35,16 @@ export default function Settings({ state, busy, perform, locale, preference, onL
   const validInterval = Number.isSafeInteger(intervalMinutes) && intervalMinutes >= 1;
   useEffect(() => { setInterval(String(state.shallow.sync_config?.interval_minutes ?? 15)); }, [state.shallow.sync_config?.interval_minutes]);
   useEffect(() => { void perform(async () => { setLogin(await autostartEnabled()); }); }, [perform]);
-  useEffect(() => {
-    const provider = library?.choices.embedding.split(':')[0];
-    setKeyName(provider === 'openai' ? 'OPENAI_API_KEY' : provider === 'google' || provider === 'google-genai' ? 'GOOGLE_API_KEY' : 'OPENROUTER_API_KEY');
-    setKey('');
-  }, [library?.name, library?.choices.embedding]);
+  const deep = library ? deepLibrary(state, library) : undefined;
+  const storedName = credentialName(library?.choices.embedding);
+  const readout = keyReadout(library, deep);
+  // A stored key is a readout, not a waiting field; the field is revealed to replace it.
+  const editing = readout === 'absent' || replacing;
+  const stamped = (deep ?? library)?.steps.credentials;
+  const savedAt = typeof stamped === 'string' ? stamped : null;
+  const verdict = readout === 'absent' || readout === 'unknown' ? null : t(locale, verdicts[readout]);
+  const provenance = [savedAt ? t(locale, 'keySavedAt', { time: timeLabel(savedAt) }) : null, verdict].filter(Boolean).join(' · ');
+  useEffect(() => { setKeyName(storedName); setKey(''); setReplacing(false); }, [library?.name, storedName]);
 
   return <form className="settings" onSubmit={event => event.preventDefault()}>
     <h1>{t(locale, 'settings')}</h1>
@@ -54,21 +64,33 @@ export default function Settings({ state, busy, perform, locale, preference, onL
     <section className="setting-group" aria-labelledby="embedding-heading">
       <h2 id="embedding-heading" className="section-label small-caps">{t(locale, 'embeddingKey')}</h2>
       <p className="muted setting-help">{library ? library.choices.embedding : t(locale, 'sharedKey')}</p>
-      <label htmlFor="key-name">{t(locale, 'credentialName')}</label>
-      <input id="key-name" aria-describedby="key-help" value={keyName} disabled={busy || !state.shallow.configured}
-        onChange={event => setKeyName(event.target.value)} autoCapitalize="characters" spellCheck={false} />
-      <label className="sr-only" htmlFor="embedding-key">{t(locale, 'embeddingKey')}</label>
-      <div className="input-action"><input id="embedding-key" type="password" value={key} autoComplete="new-password" autoCorrect="off" autoCapitalize="none"
-        spellCheck={false} placeholder={t(locale, 'pasteKey')} disabled={busy || !state.shallow.configured} onChange={event => setKey(event.target.value)} />
-        <button disabled={busy || !key.trim() || !/^[A-Z][A-Z0-9_]*$/.test(keyName)} onClick={() => {
-          const value = key; setKey('');
-          void perform(async () => {
-            try { await runAction({ kind: 'credential', key: keyName, value }); }
-            // Provider errors must never echo a submitted secret into the footer.
-            catch { throw new Error(t(locale, 'keySaveFailed')); }
-          }, t(locale, 'keySaved'));
-        }}>{t(locale, 'save')}</button></div>
-      <p id="key-help" className="muted setting-help">{t(locale, 'keyHelp')}</p>
+      {readout !== 'absent' && <dl className="ledger"><div className="readout">
+        <dt className="small-caps">{t(locale, 'credentialName')}</dt><Leader />
+        <dd>{readout === 'unknown' ? t(locale, 'unknown') : storedName}</dd>
+        <dd className="readout-action"><button type="button" aria-expanded={replacing} aria-controls="key-controls" disabled={busy}
+          onClick={() => { setReplacing(!replacing); setKeyName(storedName); setKey(''); }}>{t(locale, replacing ? 'cancel' : 'replace')}</button></dd>
+        {provenance && <dd className="readout-note">{provenance}</dd>}
+      </div></dl>}
+      {editing && <div id="key-controls" className="key-controls">
+        <label className={readout === 'absent' ? undefined : 'sr-only'} htmlFor="key-name">{t(locale, 'credentialName')}</label>
+        <input id="key-name" aria-describedby="key-help" value={keyName} disabled={busy || !state.shallow.configured}
+          onChange={event => setKeyName(event.target.value)} autoCapitalize="characters" spellCheck={false} />
+        <label className="sr-only" htmlFor="embedding-key">{t(locale, 'embeddingKey')}</label>
+        <div className="input-action"><input id="embedding-key" type="password" value={key} autoComplete="new-password" autoCorrect="off" autoCapitalize="none"
+          spellCheck={false} placeholder={t(locale, 'pasteKey')} disabled={busy || !state.shallow.configured} onChange={event => setKey(event.target.value)} />
+          <button disabled={busy || !key.trim() || !/^[A-Z][A-Z0-9_]*$/.test(keyName)} onClick={() => {
+            const value = key; setKey('');
+            void perform(async () => {
+              try { await runAction({ kind: 'credential', key: keyName, value }); }
+              catch (error) {
+                // The submitted value is scrubbed out of the tool's words on the Rust side,
+                // so a refusal can state its reason; only silence falls back to a generic line.
+                throw String(error ?? '').trim() || t(locale, 'keySaveFailed');
+              }
+            }, t(locale, 'keySaved')).then(saved => { if (saved) setReplacing(false); });
+          }}>{t(locale, 'save')}</button></div>
+        <p id="key-help" className="muted setting-help">{t(locale, 'keyHelp')}</p>
+      </div>}
       <SettingRow id="semantic" label={t(locale, 'semantic')}>
         <TextToggle id="semantic" value={library?.choices.semantic_retrieval ?? false} disabled={busy || !library} locale={locale} onChange={enabled => {
           if (library) void perform(() => runAction({ kind: 'semantic_retrieval', library: library.name, enabled }), t(locale, 'retrievalSaved'));

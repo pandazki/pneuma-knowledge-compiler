@@ -252,7 +252,12 @@ sup a { display: inline; padding: 4px; margin: 0 1px; scroll-margin: 16px; }
 .menu-mark { flex: none; width: 0.6em; color: var(--accent); font-family: var(--font-serif); }
 .menu-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .setting-help { margin: var(--space-mark) 0 var(--space-inline); }
-.setting-group > label { display: block; font-size: var(--text-meta); color: var(--ink-2); margin: var(--space-inline) 0 var(--space-mark); }
+.setting-group > label, .key-controls > label { display: block; font-size: var(--text-meta); color: var(--ink-2); margin: var(--space-inline) 0 var(--space-mark); }
+/* A stored credential reads as a readout; its Replace sits at the value's right margin. */
+.readout-action { flex: none; margin-right: -4px; font-family: var(--font-sans); }
+.readout-action button { color: var(--ink-3); font-size: var(--text-meta); }
+.readout-action button:hover:not(:disabled) { color: var(--ink); }
+.setting-group > .ledger { margin-top: var(--space-mark); }
 .text-toggle { display: inline-flex; align-items: baseline; gap: var(--space-inline); min-width: 32px; border-radius: 0; border-bottom: 1px solid transparent; font-size: var(--text-meta); }
 .text-toggle [data-active='true'] { color: var(--ink); }
 .text-toggle [data-active='false'] { color: var(--ink-3); }

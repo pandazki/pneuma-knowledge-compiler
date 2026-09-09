@@ -64,8 +64,9 @@ def test_skill_autodetect_does_not_create_unselected_harness(home):
     assert not (Path.home() / ".codex").exists()
 
 
-def test_setup_answers_and_owned_steps(home, monkeypatch, tmp_path, capsys):
+def test_setup_answers_and_owned_steps(home, monkeypatch, tmp_path, capsys, provider):
     operations = []
+    provider.accepts()
     def up(_home):
         operations.append("up")
         from pkc_personal.library import libraries
@@ -111,6 +112,26 @@ def test_setup_answers_and_owned_steps(home, monkeypatch, tmp_path, capsys):
     operations.clear()
     setup.setup(home, answers, no_skill=True)
     assert operations == ["up", "profile", "render", "engine"]
+
+
+def test_setup_stops_before_any_infrastructure_when_the_key_is_refused(home, monkeypatch, tmp_path, capsys, provider):
+    """A key in an answers file goes through the same preflight as one typed at the face,
+    and it is checked where it is written — before the infrastructure, the library and the
+    engine — so a refused key ends the run with nothing started and nothing stored."""
+    operations = []
+    monkeypatch.setattr(infra, "up", lambda *_: operations.append("up"))
+    monkeypatch.setattr(skill_install, "install", lambda *_, **__: operations.append("skill"))
+    monkeypatch.setattr(setup.engine, "start", lambda *_: operations.append("engine"))
+    provider.refuses()
+    answers = tmp_path / "answers.yaml"
+    atomic_write(answers, yaml_text({"library": "notes", "semantic_retrieval": True,
+                                     "embedding_key": "https://example.invalid/pasted"}))
+
+    with pytest.raises(RuntimeError, match="refused: OPENROUTER_API_KEY was not stored"):
+        setup.setup(home, answers)
+    assert operations == []
+    assert not (home.path / "credentials").exists()
+    assert not (home.path / "libraries" / "notes").exists()
 
 
 def test_noninteractive_setup_requires_answers(home, monkeypatch, capsys):

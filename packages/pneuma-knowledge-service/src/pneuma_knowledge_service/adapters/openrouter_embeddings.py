@@ -35,6 +35,8 @@ _TIMEOUT = 60.0
 # provider rate-limit window, so a blip that a minute of patience would have absorbed
 # failed a whole ingest instead. Minutes-scale patience here is cheap: the caller is a
 # background compile/index job, not a user-facing request.
+# The budget is for blips — network errors, 5xx, 429. A 4xx the provider has decided
+# (401, 403, 400, 404) leaves the loop on the first response; see `_final`.
 # Deliberately module constants rather than Settings: this is one internal policy number,
 # not a per-deployment knob.
 _RETRIES = 6
@@ -42,9 +44,38 @@ _BACKOFF_BASE = 2.0
 _BACKOFF_CAP = 30.0
 
 
+# The 4xx statuses that mean "later" rather than "no". Everything else in the 4xx range is
+# the provider's decision about THIS request — a rejected key, an unknown model, a malformed
+# body — and a second identical request gets the identical answer. Retrying one of those
+# buys nothing and spends the whole budget: a mistyped key once cost a minute of backoff at
+# engine startup before the failure was even printed.
+_RETRYABLE_CLIENT_STATUSES = frozenset({408, 429})
+
+
 def _backoff(attempt: int) -> float:
     """Seconds to wait after a failed attempt (0-based). Exponential, capped."""
     return min(_BACKOFF_CAP, _BACKOFF_BASE * 2**attempt)
+
+
+def _final(exc: BaseException) -> bool:
+    """True when the provider has already answered and would answer the same way again."""
+    status = getattr(getattr(exc, "response", None), "status_code", None)
+    return (
+        isinstance(status, int)
+        and 400 <= status < 500
+        and status not in _RETRYABLE_CLIENT_STATUSES
+    )
+
+
+def _give_up(attempts: int, last: Exception | None) -> RuntimeError:
+    """Fail loud: never return a partial/zero vector — a silently empty embedding corrupts
+    the index. The count is what was actually spent, so a final 4xx says "1 try" and a
+    transient outage says the whole budget."""
+    return RuntimeError(
+        f"OpenRouter embeddings failed after {attempts} "
+        f"{'try' if attempts == 1 else 'tries'}: {last}"
+    )
+
 
 # NOTE on provider stability: OpenRouter load-balances a model across providers at wildly
 # different latencies (qwen3-embedding-8b measured ~1s on Nebius but 24-65s on DeepInfra).
@@ -89,18 +120,22 @@ class OpenRouterEmbeddings(Embeddings):
 
     async def _apost(self, inputs: list[str]) -> list[list[float]]:
         last: Exception | None = None
+        attempts = 0
         for attempt in range(_RETRIES):
+            attempts += 1
             try:
                 resp = await self._aclient.post(self._url, json=self._body(inputs))
                 resp.raise_for_status()
                 return self._vectors(resp.json())
             except Exception as exc:  # noqa: BLE001 — transient network/5xx: retry then raise
                 last = exc
+                if _final(exc):
+                    break
                 if attempt < _RETRIES - 1:
                     await asyncio.sleep(_backoff(attempt))
-        # Fail loud: the budget is spent, so this is no longer a blip. Never return a
-        # partial/zero vector — a silently empty embedding corrupts the index.
-        raise RuntimeError(f"OpenRouter embeddings failed after {_RETRIES} tries: {last}")
+        # Chained, not just printed: the caller (the personal edition's credential preflight)
+        # reads the provider's status off the cause rather than parsing this sentence.
+        raise _give_up(attempts, last) from last
 
     async def aembed_documents(self, texts: list[str]) -> list[list[float]]:
         out: list[list[float]] = []
@@ -111,6 +146,11 @@ class OpenRouterEmbeddings(Embeddings):
     async def aembed_query(self, text: str) -> list[float]:
         return (await self._apost([text]))[0]
 
+    async def aclose(self) -> None:
+        """Release the pooled connection. For one-shot callers (a credential probe); the
+        service holds one adapter for the process's life and never needs it."""
+        await self._aclient.aclose()
+
     # --- sync face (offline scripts outside an event loop) --------------------
 
     def _sync_client(self) -> httpx.Client:
@@ -120,17 +160,21 @@ class OpenRouterEmbeddings(Embeddings):
 
     def _post(self, inputs: list[str]) -> list[list[float]]:
         last: Exception | None = None
+        attempts = 0
         for attempt in range(_RETRIES):
+            attempts += 1
             try:
                 resp = self._sync_client().post(self._url, json=self._body(inputs))
                 resp.raise_for_status()
                 return self._vectors(resp.json())
             except Exception as exc:  # noqa: BLE001 — transient network/5xx: retry then raise
                 last = exc
+                if _final(exc):
+                    break
                 if attempt < _RETRIES - 1:
                     time.sleep(_backoff(attempt))
-        # Same fail-loud contract as the async face (see `_apost`).
-        raise RuntimeError(f"OpenRouter embeddings failed after {_RETRIES} tries: {last}")
+        # Same fail-loud and same final-4xx contract as the async face (see `_apost`).
+        raise _give_up(attempts, last) from last
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         out: list[list[float]] = []

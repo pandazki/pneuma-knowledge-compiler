@@ -3,6 +3,7 @@ import os
 import json
 import stat
 
+import httpx
 import pytest
 
 from pkc_personal import cli, engine, home as home_module, infra, status
@@ -22,11 +23,14 @@ def test_layout_and_config_roundtrip(home):
     assert "credentials" not in {p.name for p in home.path.iterdir()}
 
 
-def test_credentials_permissions_output_steps_and_status(home, make_library, monkeypatch, capsys):
+def test_credentials_permissions_output_steps_and_status(home, make_library, monkeypatch, capsys, provider):
     library = make_library()
+    provider.accepts()
     monkeypatch.setattr("sys.stdin", io.StringIO("synthetic-key\n"))
     assert cli.main(["credentials", "set", "OPENROUTER_API_KEY", "--from-stdin"]) == 0
-    assert capsys.readouterr().out == "stored OPENROUTER_API_KEY (13 chars)\n"
+    assert capsys.readouterr().out == (
+        "stored OPENROUTER_API_KEY (13 chars) — verified openrouter:openai/text-embedding-3-small\n"
+    )
     path = home.path / "credentials"
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
     path.chmod(0o644)
@@ -50,20 +54,103 @@ def test_credentials_permissions_output_steps_and_status(home, make_library, mon
     assert row["steps"]["profile"] is None and row["steps"]["first_compile"] is None
 
 
-def test_storing_a_credential_replaces_every_running_engine(home, make_library, monkeypatch, capsys):
+def test_storing_a_credential_replaces_every_running_engine(home, make_library, monkeypatch, capsys, provider):
     """A key reaches an engine only as its environment: saving one while the engine runs
     must replace the process, or recall goes on answering keyless until someone restarts."""
     up, idle = make_library("up"), make_library("idle")
+    provider.accepts()
     events: list[tuple[str, str]] = []
     monkeypatch.setattr(engine, "status", lambda _home, library: {"up": library.state.name == "up", "pid": 1, "port": 1, "uptime": 1.0})
     monkeypatch.setattr(engine, "stop", lambda _home, library: events.append(("stop", library.state.name)))
     monkeypatch.setattr(engine, "start", lambda _home, library: events.append(("start", library.state.name)))
     monkeypatch.setattr("sys.stdin", io.StringIO("synthetic-key\n"))
     assert cli.main(["credentials", "set", "OPENROUTER_API_KEY", "--from-stdin"]) == 0
-    assert capsys.readouterr().out == "stored OPENROUTER_API_KEY (13 chars)\nrestarted engine up so it holds the key\n"
+    assert capsys.readouterr().out == (
+        "stored OPENROUTER_API_KEY (13 chars) — verified openrouter:openai/text-embedding-3-small\n"
+        "restarted engine up so it holds the key\n"
+    )
     assert events == [("stop", "up"), ("start", "up")]
     assert home.credentials()["OPENROUTER_API_KEY"] == "synthetic-key"
     assert idle.state.name == "idle"
+
+
+def _rejection(status: int = 401) -> RuntimeError:
+    """What the adapter raises when the provider has decided: a chained HTTP status."""
+    request = httpx.Request("POST", "https://openrouter.ai/api/v1/embeddings")
+    refusal = RuntimeError(f"OpenRouter embeddings failed after 1 try: {status}")
+    refusal.__cause__ = httpx.HTTPStatusError(
+        "client error", request=request, response=httpx.Response(status, request=request)
+    )
+    return refusal
+
+
+def test_a_refused_key_is_not_stored_and_no_engine_is_touched(home, make_library, monkeypatch, capsys, provider):
+    """The incident, mechanically. A pasted URL was stored over a working key, every engine
+    was restarted, the command reported success, and the engine then died at startup on a
+    401 with the queue standing still. A refused candidate must change nothing at all."""
+    make_library("up")
+    provider.accepts()
+    monkeypatch.setattr("sys.stdin", io.StringIO("working-key\n"))
+    assert cli.main(["credentials", "set", "OPENROUTER_API_KEY", "--from-stdin"]) == 0
+    capsys.readouterr()
+    path = home.path / "credentials"
+    before = path.read_bytes()
+
+    touched: list[str] = []
+    for verb in ("status", "stop", "start"):
+        monkeypatch.setattr(engine, verb, lambda *_a, _verb=verb, **_kw: touched.append(_verb))
+    pasted = "https://example.invalid/pasted-by-mistake"
+    provider.refuses(_rejection())
+    monkeypatch.setattr("sys.stdin", io.StringIO(pasted + "\n"))
+
+    assert cli.main(["credentials", "set", "OPENROUTER_API_KEY", "--from-stdin"]) == 1
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert output.err == (
+        "refused: OPENROUTER_API_KEY was not stored — openrouter rejected it "
+        "(401 Unauthorized); the previous key, if any, is unchanged\n"
+    )
+    assert pasted not in output.err
+    assert path.read_bytes() == before
+    assert home.credentials()["OPENROUTER_API_KEY"] == "working-key"
+    assert touched == []
+    assert provider.calls[-1] == ("openrouter:openai/text-embedding-3-small", pasted)
+
+
+def test_a_refused_first_key_leaves_no_credentials_file(home, make_library, capsys, monkeypatch, provider):
+    """Nothing to preserve is still nothing to write: an unreachable provider is a refusal."""
+    make_library()
+    provider.refuses(TimeoutError("synthetic"))
+    monkeypatch.setattr("sys.stdin", io.StringIO("candidate-key\n"))
+    assert cli.main(["credentials", "set", "OPENROUTER_API_KEY", "--from-stdin"]) == 1
+    assert capsys.readouterr().err == (
+        "refused: OPENROUTER_API_KEY was not stored — openrouter did not answer "
+        "(TimeoutError); the previous key, if any, is unchanged\n"
+    )
+    assert not (home.path / "credentials").exists()
+
+
+def test_a_credential_no_provider_claims_is_stored_unprobed(home, make_library, monkeypatch, capsys, provider):
+    """Only the embedding key of the configured spec has somewhere to be checked; the line
+    says which of the two happened rather than letting silence stand for a verdict."""
+    make_library()
+    monkeypatch.setattr("sys.stdin", io.StringIO("synthetic-token\n"))
+    assert cli.main(["credentials", "set", "LANGFUSE_SECRET_KEY", "--from-stdin"]) == 0
+    assert capsys.readouterr().out == (
+        "stored LANGFUSE_SECRET_KEY (15 chars) — not verified: no probe for this credential\n"
+    )
+    assert provider.calls == []
+    assert home.credentials()["LANGFUSE_SECRET_KEY"] == "synthetic-token"
+
+
+def test_no_verify_stores_the_key_and_says_it_was_not_checked(home, make_library, monkeypatch, capsys, provider):
+    """The offline case, named in the output: a key stored unchecked never reads as verified."""
+    make_library()
+    monkeypatch.setattr("sys.stdin", io.StringIO("offline-key\n"))
+    assert cli.main(["credentials", "set", "OPENROUTER_API_KEY", "--from-stdin", "--no-verify"]) == 0
+    assert capsys.readouterr().out == "stored OPENROUTER_API_KEY (11 chars) — not verified (--no-verify)\n"
+    assert provider.calls == []
+    assert home.credentials()["OPENROUTER_API_KEY"] == "offline-key"
 
 
 @pytest.mark.parametrize("key,value", [("bad-key", "value"), ("LOWER_key", "value"), ("KEY", "one\ntwo"), ("KEY", "one\0two")])

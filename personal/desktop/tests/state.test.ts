@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { consoleUrl, currentLibrary, deepLibrary, emptyState, health, syncSummary, type Snapshot, type ShallowLibrary } from '../src/lib/state.ts';
+import { consoleUrl, credentialName, currentLibrary, deepLibrary, emptyState, health, keyReadout, syncSummary, type Snapshot, type ShallowLibrary } from '../src/lib/state.ts';
 
 const library = (name: string, current = false): ShallowLibrary => ({
   name, tenant: `lib-${name}`, current,
@@ -61,4 +61,32 @@ test('sync summary keeps held increments separate from queue and unknown observa
   assert.equal(syncSummary(null, ['/synthetic/momo']), 'watching 1 dirs · last sync never · held —');
   assert.equal(syncSummary({ last_run_at: null, last_result: null, watching: ['/synthetic/momo'],
     next_due: null, held: 2, running: false }, ['/synthetic/momo']), 'watching 1 dirs · last sync never · held 2');
+});
+
+test('a stored key is only called verified when a running engine has been made to use it', () => {
+  const state = ready();
+  const notes = state.shallow.libraries[0];
+  // Nothing has looked, and nothing is stored: both are the fill-in field's own states.
+  assert.equal(keyReadout(undefined), 'absent');
+  assert.equal(keyReadout(notes), 'unknown');
+  notes.key = false;
+  assert.equal(keyReadout(notes), 'absent');
+  // The disk walk never reads credentials, so only the engine's own document decides.
+  assert.equal(keyReadout(notes, { ...notes, key: true }), 'unused');
+  // Stored, but semantic retrieval is off, so no start has ever probed the provider.
+  notes.key = true;
+  assert.equal(keyReadout(notes), 'unused');
+  assert.equal(keyReadout(notes, { ...notes, key: false }), 'absent');
+  // Fail-closed startup: a live engine with semantic retrieval on is the provider's own verdict.
+  notes.choices.semantic_retrieval = true;
+  assert.equal(keyReadout(notes), 'verified');
+  notes.engine.up = false;
+  assert.equal(keyReadout(notes), 'unverified');
+});
+
+test('the credential a readout names is the one the library embedding provider is asked for', () => {
+  assert.equal(credentialName('openrouter:openai/text-embedding-3-small'), 'OPENROUTER_API_KEY');
+  assert.equal(credentialName('openai:text-embedding-3-small'), 'OPENAI_API_KEY');
+  assert.equal(credentialName('google-genai:gemini-embedding-001'), 'GOOGLE_API_KEY');
+  assert.equal(credentialName(undefined), 'OPENROUTER_API_KEY');
 });

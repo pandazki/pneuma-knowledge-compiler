@@ -64,6 +64,32 @@ export const healthLabels = { grey: 'Set up your home', green: 'All engines read
 export function currentLibrary(state: Snapshot): ShallowLibrary | undefined {
   return state.shallow.libraries.find(l => l.current);
 }
+/**
+ * What the pane may say about the stored embedding key, from observation alone.
+ * Engine startup is fail-closed — with semantic retrieval on, the engine probes the
+ * provider with the stored key and refuses to come up if it is rejected — so a running
+ * engine is proof the provider accepted it. A stored key nothing has exercised is
+ * reported as stored and no more. Without a library nothing has looked, and the pane
+ * must stay usable, so the empty state (the fill-in field) is what the Owner sees.
+ */
+export type KeyReadout = 'absent' | 'unknown' | 'verified' | 'unverified' | 'unused';
+export function keyReadout(library: ShallowLibrary | undefined, deep?: LibraryStatus): KeyReadout {
+  if (!library) return 'absent';
+  // Only the engine's own document knows whether a credential is present; the disk walk
+  // never looks. Same overlay rule as every other readout: the deep answer, or nothing.
+  const key = deep?.key ?? library.key;
+  if (key === false) return 'absent';
+  if (key === null) return 'unknown';
+  if (!library.engine.up) return 'unverified';
+  return library.choices.semantic_retrieval ? 'verified' : 'unused';
+}
+/** The credential the library's embedding provider is asked for. */
+export function credentialName(embedding: string | undefined): string {
+  const provider = embedding?.split(':')[0];
+  if (provider === 'openai') return 'OPENAI_API_KEY';
+  if (provider === 'google' || provider === 'google-genai') return 'GOOGLE_API_KEY';
+  return 'OPENROUTER_API_KEY';
+}
 export function deepLibrary(state: Snapshot, library: ShallowLibrary): LibraryStatus | undefined {
   // Only the selected engine's own answer supplies its deep overlay. A sibling's
   // cached status cannot make a stopped engine appear healthy.

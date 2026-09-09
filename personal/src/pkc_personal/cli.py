@@ -96,6 +96,10 @@ def build_parser() -> argparse.ArgumentParser:
     p = commands.add_parser("set")
     p.add_argument("key")
     p.add_argument("--from-stdin", action="store_true")
+    # The default is to ask the provider. `--no-verify` is for the offline case (no network
+    # yet, a credential the machine cannot reach) and says so in the line it prints, so a
+    # key stored unchecked is never mistaken for a key that worked.
+    p.add_argument("--no-verify", action="store_true")
     p = sub.add_parser("skill")
     commands = p.add_subparsers(dest="action", required=True)
     p = commands.add_parser("install")
@@ -208,8 +212,8 @@ def _dispatch(args: argparse.Namespace, home: Home) -> None:
         if not KEY_PATTERN.fullmatch(args.key):
             raise ValueError("credential name must match [A-Z][A-Z0-9_]*")
         value = sys.stdin.read().rstrip("\r\n") if args.from_stdin or not sys.stdin.isatty() else getpass.getpass(f"{args.key}: ")
-        restarted = set_credential(home, args.key, value)
-        print(f"stored {args.key} ({len(value)} chars)")
+        restarted, note = set_credential(home, args.key, value, verify=not args.no_verify)
+        print(f"stored {args.key} ({len(value)} chars){note}")
         for name in restarted:
             print(f"restarted engine {name} so it holds the key")
     elif args.command == "skill":

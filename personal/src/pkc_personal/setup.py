@@ -13,8 +13,8 @@ from pneuma_knowledge_service.embedding_key import embedding_key_requirement
 from pkc_personal import engine, infra, skill_install
 from pkc_personal.home import Backend, Choices, Home, Language, Model, read_yaml
 from pkc_personal.library import (
-    Library, create_library, persist_owner_profile, render_library, set_config, use_library,
-    validate_name,
+    Library, create_library, persist_owner_profile, render_library, set_config, set_credential,
+    use_library, validate_name,
     watch_project,
 )
 
@@ -78,7 +78,11 @@ def setup(home: Home, answers: str | Path | None = None, *, no_skill: bool = Fal
         requirement = embedding_key_requirement(home.config.defaults.embedding)
         if requirement is None:
             raise ValueError("the configured embedding has no credential provider")
-        home.set_credential(requirement[0], selected.embedding_key)
+        # Before the infrastructure and before the engine, because this is where the key is
+        # written: a setup whose answers carry a key the provider refuses should stop here,
+        # with nothing started and nothing stored, rather than complete and leave an engine
+        # that dies on its first embed.
+        set_credential(home, requirement[0], selected.embedding_key)
     # The cold start's order, spelled once and in one place, because every defect a real
     # cold start found was an ordering defect: the engine started before the library it
     # serves existed, and a refusal in the middle of the list stopped the steps after it.
