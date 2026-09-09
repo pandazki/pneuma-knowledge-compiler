@@ -86,50 +86,49 @@ def _tool_help(name: str) -> str:
     return prompt(key) if key else ""
 
 
+class CatalogArgumentParser(argparse.ArgumentParser):
+    """The built-in help option follows the same catalog as explicit option help."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for action in self._actions:
+            if isinstance(action, argparse._HelpAction):
+                action.help = prompt("steward.cli.help")
+
+
 def build_parser(component_tools=()) -> argparse.ArgumentParser:
     """The whole `pkc` tree. `component_tools` are the enabled components' compile tools,
     rendered as subcommands from their own names, descriptions and argument schemas."""
-    parser = argparse.ArgumentParser(
+    parser = CatalogArgumentParser(
         prog="pkc",
-        description=(
-            "The knowledge library's command line: what the Steward reads, and the one door "
-            "it writes through."
-        ),
+        description=prompt("steward.cli.description"),
     )
     parser.add_argument(
         "--user",
         default="",
-        help=(
-            "the tenant to act as; defaults to $PNEUMA_KNOWLEDGE_TENANT (or "
-            "$PNEUMA_APP_USER_ID), which is what a project states once"
-        ),
+        help=prompt("steward.cli.user"),
     )
     top = parser.add_subparsers(dest="group", required=True)
 
     draft = top.add_parser(
         "draft",
-        help="the claim-level compile draft: open a job, read, write, finish",
-        description=(
-            "One open compile round. Every command applies exactly one call, post-checks the "
-            "page it touched with the gate's own predicates, and spends one call of the "
-            "round's budget. Exit codes: 0 ok, 1 nothing to act on, 2 refused, 3 budget "
-            "spent, 4 the gate rejected the draft."
-        ),
+        help=prompt("steward.cli.draft"),
+        description=prompt("steward.cli.draft_description"),
     )
     sub = draft.add_subparsers(dest="command", required=True)
 
-    p = sub.add_parser("open", help="claim the job, render the contract and the task")
+    p = sub.add_parser("open", help=prompt("steward.cli.draft_open"))
     p.add_argument("job_id")
 
     sub.add_parser(
-        "status", help="budget remaining, pages read this draft, what the gate finds owed"
+        "status", help=prompt("steward.cli.draft_status")
     )
-    sub.add_parser("check", help="run the whole gate over the open draft, without finishing")
+    sub.add_parser("check", help=prompt("steward.cli.draft_check"))
     p = sub.add_parser("finish", help=_tool_help("finish"))
-    p.add_argument("--brief", metavar="FILE|-", help="the Steward brief for this version; non-blank, at most 8000 characters")
+    p.add_argument("--brief", metavar="FILE|-", help=prompt("steward.cli.brief_file"))
     sub.add_parser(
-        "abandon", help="release the job back to the queue and delete the draft"
-    ).add_argument("--take-over", action="store_true", help="abandon another executor's dead or idle draft after the grace")
+        "abandon", help=prompt("steward.cli.draft_abandon")
+    ).add_argument("--take-over", action="store_true", help=prompt("steward.cli.take_over"))
 
     sub.add_parser("list-documents", help=_tool_help("list-documents"))
 
@@ -138,34 +137,31 @@ def build_parser(component_tools=()) -> argparse.ArgumentParser:
 
     p = sub.add_parser("create-document", help=_tool_help("create-document"))
     p.add_argument("path")
-    p.add_argument("--frontmatter", required=True, help="the document's frontmatter as JSON")
-    p.add_argument("--body-file", default="", help="the body; stdin when omitted or given as `-`")
+    p.add_argument("--frontmatter", required=True, help=prompt("steward.cli.frontmatter"))
+    p.add_argument("--body-file", default="", help=prompt("steward.cli.body_file"))
 
     p = sub.add_parser("append-block", help=_tool_help("append-block"))
     p.add_argument("path")
     p.add_argument("--heading", required=True)
-    p.add_argument("--text-file", default="", help="the claim text; stdin when omitted or given as `-`")
+    p.add_argument("--text-file", default="", help=prompt("steward.cli.claim_file"))
 
     for name in ("edit-claim", "supersede-claim"):
         p = sub.add_parser(name, help=_tool_help(name))
         p.add_argument("path")
         p.add_argument("anchor")
-        p.add_argument("--text-file", default="", help="the claim text; stdin when omitted or given as `-`")
+        p.add_argument("--text-file", default="", help=prompt("steward.cli.claim_file"))
 
     p = sub.add_parser("rewrite-overview", help=_tool_help("rewrite-overview"))
     p.add_argument("path")
     p.add_argument(
         "--json-file",
         default="",
-        help=(
-            "the overview as JSON — definition, summary, introduction, connections, fields; "
-            "stdin when omitted or given as `-`"
-        ),
+        help=prompt("steward.cli.overview_file"),
     )
 
     p = sub.add_parser("set-fields", help=_tool_help("set-fields"))
     p.add_argument("path")
-    p.add_argument("--json", dest="json_text", default="", help="the fields as JSON")
+    p.add_argument("--json", dest="json_text", default="", help=prompt("steward.cli.fields_json"))
 
     for name in ("search-knowledge", "search-source"):
         p = sub.add_parser(name, help=_tool_help(name))
@@ -207,15 +203,15 @@ def _jsonable(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     # much more there is. JSON pages whole list items; recall evidence JSON stays whole.
     parser.add_argument(
         "--page", type=int, default=1, metavar="N",
-        help="page of prose or JSON list items (default 1); recall needs --handoff to reuse a result",
+        help=prompt("steward.cli.page"),
     )
     parser.add_argument(
         "--page-chars", type=int, default=read_cmd.PAGE_CHARS, metavar="CHARS",
-        help=f"characters per page (default {read_cmd.PAGE_CHARS}; 0 = no paging)",
+        help=prompt("steward.cli.page_chars", default=read_cmd.PAGE_CHARS),
     )
     parser.add_argument(
         "--all-pages", dest="all_pages", action="store_true",
-        help="print the whole prose or JSON output, however long",
+        help=prompt("steward.cli.all_pages"),
     )
     return parser
 
@@ -231,83 +227,78 @@ def _archivable(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
         "--include-archived",
         dest="include_archived",
         action="store_true",
-        help=(
-            "read the archive too. Off by default: an archived page or source is one the "
-            "owner moved out of the answering set. On, what comes back from the archive is "
-            "labelled `[archived]` (`archived` in `--json`), so history never reads as the "
-            "present"
-        ),
+        help=prompt("steward.cli.include_archived"),
     )
     return parser
 
 
 def _add_evolve_draft_commands(esub) -> None:
-    door = esub.add_parser("draft", help="propose and restructure through the evolve gate")
+    door = esub.add_parser("draft", help=prompt("steward.cli.evolve_draft"))
     sub = door.add_subparsers(dest="evolve_command", required=True)
-    p = sub.add_parser("open", help="claim an evolve job; print evidence, contract and gate")
+    p = sub.add_parser("open", help=prompt("steward.cli.evolve_open"))
     choice = p.add_mutually_exclusive_group(required=True)
     choice.add_argument("job_id", nargs="?")
-    choice.add_argument("--new", action="store_true", help="open an Owner-requested evolve job")
-    p.add_argument("--from", dest="from_proposal", default="", help="continue an existing proposal on its pinned base")
+    choice.add_argument("--new", action="store_true", help=prompt("steward.cli.evolve_new"))
+    p.add_argument("--from", dest="from_proposal", default="", help=prompt("steward.cli.evolve_from"))
     for name, help_text in (
-        ("status", "the budget and the gate's findings"),
-        ("check", "check the whole evolve draft without finishing"),
-        ("finish", "run the evolve gate and write the review proposal"),
-        ("abandon", "release the job and delete its ephemeral draft"),
+        ("status", prompt("steward.cli.evolve_status")),
+        ("check", prompt("steward.cli.evolve_check")),
+        ("finish", prompt("steward.cli.evolve_finish")),
+        ("abandon", prompt("steward.cli.abandon_draft")),
     ):
         parser = sub.add_parser(name, help=help_text)
         if name == "abandon":
             parser.add_argument("--take-over", action="store_true")
-    p = sub.add_parser("propose", help="phase-1 judgement as EvolveProposal JSON")
+    p = sub.add_parser("propose", help=prompt("steward.cli.evolve_propose"))
     _evolve_file(p)
-    p = sub.add_parser("move-claim", help="move an anchored claim verbatim; create an empty target if needed")
+    p = sub.add_parser("move-claim", help=prompt("steward.cli.move_claim"))
     p.add_argument("from_path")
     p.add_argument("anchor")
     p.add_argument("to_path")
-    p = sub.add_parser("rename", help="rename a document, preserving its anchors and identity")
+    p = sub.add_parser("rename", help=prompt("steward.cli.rename"))
     p.add_argument("path")
     p.add_argument("new_path")
-    p = sub.add_parser("retire", help="retire a page; every dropped anchor must be named in the proposal")
+    p = sub.add_parser("retire", help=prompt("steward.cli.retire"))
     p.add_argument("path")
-    p = sub.add_parser("contract", help="revise the contract for adoption as a new version")
+    p = sub.add_parser("contract", help=prompt("steward.cli.evolve_contract"))
     csub = p.add_subparsers(dest="contract_command", required=True)
-    _evolve_file(csub.add_parser("edit", help="the revised contract text; bounded to 100000 characters"))
+    _evolve_file(csub.add_parser("edit", help=prompt("steward.cli.contract_edit")))
 
 
 def _evolve_file(parser) -> None:
     choice = parser.add_mutually_exclusive_group(required=True)
-    choice.add_argument("--file", help="read text from a file (or - for stdin)")
-    choice.add_argument("stdin", nargs="?", choices=["-"], help="read text from stdin")
+    choice.add_argument("--file", help=prompt("steward.cli.file"))
+    choice.add_argument("stdin", nargs="?", choices=["-"], help=prompt("steward.cli.stdin"))
 
 
 def _add_read_commands(top) -> None:  # noqa: ANN001
     """§5.1 — the read half of the HTTP API, as commands."""
-    index = top.add_parser("index", help="source indexing judgements")
+    index = top.add_parser("index", help=prompt("steward.cli.index"))
     isub = index.add_subparsers(dest="command", required=True)
-    door = isub.add_parser("episodes", help="select grounded episodes through the index door")
+    door = isub.add_parser("episodes", help=prompt("steward.cli.episodes"))
     esub = door.add_subparsers(dest="episodes_command", required=True)
-    esub.add_parser("open", help="claim one source's episodes job; print structure, rules and budget").add_argument("job_id")
+    esub.add_parser("open", help=prompt("steward.cli.episodes_open")).add_argument("job_id")
     for name, help_text in (
-        ("status", "remaining budget and blocks with no episode"),
-        ("finish", "record the manifest, replace L2 vectors and close the job"),
-        ("abandon", "release the job and delete its ephemeral draft"),
+        ("status", prompt("steward.cli.episodes_status")),
+        ("finish", prompt("steward.cli.episodes_finish")),
+        ("abandon", prompt("steward.cli.abandon_draft")),
     ):
         parser = esub.add_parser(name, help=help_text)
         if name == "abandon":
             parser.add_argument("--take-over", action="store_true")
-    _evolve_file(esub.add_parser("propose", help="closed intervals with grounded title/description; gaps and [] allowed"))
+    _evolve_file(esub.add_parser("propose", help=prompt("steward.cli.episodes_propose")))
     for name in ("outline", "glance"):
         description = prompt(f"steward.cli.{name}")
         p = _archivable(_jsonable(top.add_parser(
             name, help=description, description=description,
         )))
         if name == "outline":
-            p.add_argument("--family", metavar="TEMPLATE", help="show only this declared path-template family")
-            p.add_argument("--definitions", action="store_true", help="add each page's one-line definition when present")
+            p.add_argument("--family", metavar="TEMPLATE", help=prompt("steward.cli.family"))
+            p.add_argument("--definitions", action="store_true", help=prompt("steward.cli.definitions"))
 
-    canonical = top.add_parser("canonical", help="pages, a page, a claim's chain")
+    canonical = top.add_parser("canonical", help=prompt("steward.cli.canonical"))
     csub = canonical.add_subparsers(dest="command", required=True)
-    _archivable(_jsonable(csub.add_parser("ls", help="every canonical page, by path")))
+    _archivable(_jsonable(csub.add_parser("ls", help=prompt("steward.cli.canonical_ls"))))
     p = _jsonable(
         csub.add_parser(
             "read",
@@ -315,32 +306,29 @@ def _add_read_commands(top) -> None:  # noqa: ANN001
             description=prompt("steward.cli.canonical_read"),
         )
     )
-    p.add_argument("path", nargs="+", help="one page, or several read in one process")
+    p.add_argument("path", nargs="+", help=prompt("steward.cli.paths"))
     p = _jsonable(
         csub.add_parser(
             "history",
-            help="the supersession chains on a page — what a claim used to say",
+            help=prompt("steward.cli.canonical_history"),
         )
     )
     p.add_argument("path")
-    p.add_argument("anchor", nargs="?", default=None, help="one anchor (c:xxxx); all when omitted")
+    p.add_argument("anchor", nargs="?", default=None, help=prompt("steward.cli.anchor"))
 
-    source = top.add_parser("source", help="L0: sources, structure, verbatim spans")
+    source = top.add_parser("source", help=prompt("steward.cli.source"))
     ssub = source.add_subparsers(dest="command", required=True)
     p = _archivable(
-        _jsonable(ssub.add_parser("ls", help="this library's sources, newest first"))
+        _jsonable(ssub.add_parser("ls", help=prompt("steward.cli.source_ls")))
     )
     p.add_argument("--limit", type=int, default=25)
-    p.add_argument("--query", default=None, help="match the title")
+    p.add_argument("--query", default=None, help=prompt("steward.cli.title_query"))
     p.add_argument("--kind", default=None)
     for name in ("show", "structure"):
         p = _jsonable(
             ssub.add_parser(
                 name,
-                help=(
-                    "one source: metadata and its structure map — unconditional, whatever the "
-                    "owner archived"
-                ),
+                help=prompt("steward.cli.source_show"),
             )
         )
         p.add_argument("source_id")
@@ -361,35 +349,35 @@ def _add_read_commands(top) -> None:  # noqa: ANN001
         "search", help=prompt("steward.cli.search"), description=prompt("steward.cli.search"),
     )))
     p.add_argument("query")
-    p.add_argument("--lexical", action="store_true", help="L1 only")
-    p.add_argument("--semantic", action="store_true", help="L2 only")
-    p.add_argument("--fused", action="store_true", help="the RRF fusion `rag` uses (default)")
+    p.add_argument("--lexical", action="store_true", help=prompt("steward.cli.lexical"))
+    p.add_argument("--semantic", action="store_true", help=prompt("steward.cli.semantic"))
+    p.add_argument("--fused", action="store_true", help=prompt("steward.cli.fused"))
     p.add_argument("--limit", type=int, default=10)
 
-    p = _jsonable(top.add_parser("jobs", help="the queue, newest first"))
+    p = _jsonable(top.add_parser("jobs", help=prompt("steward.cli.jobs")))
     p.add_argument("--limit", type=int, default=25)
     p.add_argument("--status", default=None)
     p.add_argument("--kind", default=None)
 
-    p = _jsonable(top.add_parser("history", help="compile versions, jobs and sources, newest first"))
+    p = _jsonable(top.add_parser("history", help=prompt("steward.cli.history")))
     p.add_argument("--limit", type=int, default=25)
     p.add_argument("--kind", default=None, choices=("patch", "job", "snapshot"))
 
-    p = _jsonable(top.add_parser("brief", help="the post-compile brief of one version"))
-    p.add_argument("version", help="a patch ref as `pkc history` shows it; a prefix is enough")
+    p = _jsonable(top.add_parser("brief", help=prompt("steward.cli.brief")))
+    p.add_argument("version", help=prompt("steward.cli.version"))
 
-    p = _jsonable(top.add_parser("consultations", help="kept records of use, newest first"))
+    p = _jsonable(top.add_parser("consultations", help=prompt("steward.cli.consultations")))
     p.add_argument("--limit", type=int, default=25)
 
-    p = _jsonable(top.add_parser("spend", help="what the recorded consultations spent, in tokens"))
+    p = _jsonable(top.add_parser("spend", help=prompt("steward.cli.spend")))
     p.add_argument("--days", type=int, default=30)
 
-    evolve = top.add_parser("evolve", help="schema-evolve proposals")
+    evolve = top.add_parser("evolve", help=prompt("steward.cli.evolve"))
     esub = evolve.add_subparsers(dest="command", required=True)
-    _jsonable(esub.add_parser("ls", help="every proposal and its state"))
-    p = _jsonable(esub.add_parser("show", help="one proposal, whole"))
+    _jsonable(esub.add_parser("ls", help=prompt("steward.cli.evolve_ls")))
+    p = _jsonable(esub.add_parser("show", help=prompt("steward.cli.evolve_show")))
     p.add_argument("task_id")
-    p = esub.add_parser("adopt", help="enqueue the Owner's adoption of a proposal")
+    p = esub.add_parser("adopt", help=prompt("steward.cli.evolve_adopt"))
     p.add_argument("task_id")
     _add_evolve_draft_commands(esub)
 
@@ -399,8 +387,8 @@ def _add_read_commands(top) -> None:  # noqa: ANN001
                            description=prompt("steward.cli.recall"))
         )
     )
-    p.add_argument("query", nargs="?", help="required for a new retrieval; omit with --handoff")
-    p.add_argument("--handoff", metavar="ID", help="page retained --evidence without retrieving again")
+    p.add_argument("query", nargs="?", help=prompt("steward.cli.recall_query"))
+    p.add_argument("--handoff", metavar="ID", help=prompt("steward.cli.handoff"))
     p.add_argument(
         "--evidence",
         action="store_true",
@@ -410,200 +398,139 @@ def _add_read_commands(top) -> None:  # noqa: ANN001
         "--visitor-class",
         default=None,
         choices=("silent", "audit", "business"),
-        help=(
-            "what this call leaves behind in the attention ledger: `silent` records "
-            "NOTHING AT ALL (no consultation, nothing for `pkc consultations`, `pkc spend` "
-            "or the attention report to see), `business` and `audit` record one "
-            "consultation. Default depends on the mode: `--evidence` defaults to "
-            "`business`, because a Steward answering the Owner from that context IS the "
-            "library being used; `pkc recall` on its own defaults to `silent`, because a "
-            "call whose answer nobody reads is an evaluation of the lane, not a use of the "
-            "library"
-        ),
+        help=prompt("steward.cli.visitor_class"),
     )
     p.add_argument("--style", default=None, choices=("concise", "conversational", "detailed"))
-    p.add_argument("--as-of", default=None, help="the instant relative time resolves against")
+    p.add_argument("--as-of", default=None, help=prompt("steward.cli.as_of"))
 
-    library = top.add_parser("library", help="the library as a whole")
+    library = top.add_parser("library", help=prompt("steward.cli.library"))
     lsub = library.add_subparsers(dest="command", required=True)
     _jsonable(
         lsub.add_parser(
             "check",
-            help=(
-                "the gate's predicates over the committed library — reported, never "
-                "repaired; exit 4 when anything is found"
-            ),
+            help=prompt("steward.cli.library_check"),
         )
     )
 
 
 def _add_write_commands(top) -> None:  # noqa: ANN001
     """§5.3 and §5.4 — the Owner's own statement, and the six contracts."""
-    owner = top.add_parser("owner", help="what the Owner says, as a source")
+    owner = top.add_parser("owner", help=prompt("steward.cli.owner"))
     osub = owner.add_subparsers(dest="command", required=True)
     p = _jsonable(
         osub.add_parser(
             "say",
-            help=(
-                "record one owner-dialogue/v1 statement and enqueue its compile — every "
-                "correction starts here, and no command changes a claim without a job. "
-                "Inside the console's Steward session (and only there, where the bridge "
-                "holds the transcript) the text must be a verbatim substring of something "
-                "the owner typed in that session, whitespace aside; a paraphrase is "
-                "refused with exit 2. A terminal session has no transcript to check "
-                "against and is unchanged."
-            ),
+            help=prompt("steward.cli.owner_say"),
         )
     )
-    p.add_argument("--text-file", default="", help="the statement; stdin when omitted or given as `-`")
+    p.add_argument("--text-file", default="", help=prompt("steward.cli.statement_file"))
     p.add_argument(
         "--about",
         action="append",
         default=[],
-        help="a canonical page this statement concerns; repeatable, a hint and not a permission",
+        help=prompt("steward.cli.about"),
     )
-    p.add_argument("--said-at", default=None, help="when it was said (ISO 8601); now when omitted")
+    p.add_argument("--said-at", default=None, help=prompt("steward.cli.said_at"))
 
-    config = top.add_parser("config", help="the engine's retrieval choice")
+    config = top.add_parser("config", help=prompt("steward.cli.config"))
     csub = config.add_subparsers(dest="command", required=True)
-    p = _jsonable(csub.add_parser("set", help="set semantic retrieval on or off"))
+    p = _jsonable(csub.add_parser("set", help=prompt("steward.cli.config_set")))
     p.add_argument("key", choices=("semantic_retrieval",))
     p.add_argument("value", choices=("on", "off"))
 
     profile = top.add_parser(
         "profile",
-        help="who the Owner is — the one thing a compile cannot infer from the material",
-        description=(
-            "The library belongs to one person, and the contract files that person's own "
-            "facts on their profile rather than on a page about a stranger — which it can "
-            "only do if the profile names them. `show` reports whether it still holds the "
-            "generator's placeholder; `set` records what the Owner supplied, writing this "
-            "project's engine/persona/profile.yaml and the persisted profile together."
-        ),
+        help=prompt("steward.cli.profile"),
+        description=prompt("steward.cli.profile_description"),
     )
     psub = profile.add_subparsers(dest="command", required=True)
     _jsonable(
         psub.add_parser(
             "show",
-            help=(
-                "the profile this library compiles under, and whether it is still the "
-                "placeholder"
-            ),
+            help=prompt("steward.cli.profile_show"),
         )
     )
     p = _jsonable(
         psub.add_parser(
             "set",
-            help=(
-                "record the Owner's own information — the same shape "
-                "engine/persona/profile.yaml holds, validated the same way, written once"
-            ),
+            help=prompt("steward.cli.profile_set"),
         )
     )
     p.add_argument(
         "--file",
         dest="payload_file",
         default=None,
-        help="a profile mapping as YAML or JSON; `-` reads stdin",
+        help=prompt("steward.cli.profile_file"),
     )
     p.add_argument(
         "--field",
         dest="fields",
         action="append",
         default=[],
-        help=(
-            "one field as `name=value`; repeatable. Settable: "
-            + ", ".join(profile_cmd_settable())
-        ),
+        help=prompt("steward.cli.profile_field", fields=", ".join(profile_cmd_settable())),
     )
 
     p.add_argument("--provenance", choices=("inferred", "owner"), default=None)
-    p.add_argument("payload_stdin", nargs="?", choices=("-",), help="read a profile mapping from stdin")
-    p = _jsonable(psub.add_parser("confirm", help="confirm profile fields as the Owner's own"))
+    p.add_argument("payload_stdin", nargs="?", choices=("-",), help=prompt("steward.cli.profile_stdin"))
+    p = _jsonable(psub.add_parser("confirm", help=prompt("steward.cli.profile_confirm")))
     confirm = p.add_mutually_exclusive_group(required=True)
     confirm.add_argument("--field", dest="fields", action="append", default=[])
     confirm.add_argument("--all", dest="all_fields", action="store_true")
 
-    p = _jsonable(top.add_parser("ingest", help="import one payload under one of the six contracts"))
+    p = _jsonable(top.add_parser("ingest", help=prompt("steward.cli.ingest")))
     p.add_argument("--contract", required=True, choices=sorted(ingest_cmd.CONTRACTS))
-    p.add_argument("--file", dest="payload_file", default="", help="the payload; stdin when omitted or given as `-`")
-    p.add_argument("--intake", default=None, help="override the proposed intake archetype")
+    p.add_argument("--file", dest="payload_file", default="", help=prompt("steward.cli.payload_file"))
+    p.add_argument("--intake", default=None, help=prompt("steward.cli.intake"))
 
-    consult = top.add_parser("consult", help="record an answer after handed or direct reading")
+    consult = top.add_parser("consult", help=prompt("steward.cli.consult"))
     nsub = consult.add_subparsers(dest="command", required=True)
     p = _jsonable(
         nsub.add_parser(
             "answer",
-            help=(
-                "supply the answer for a handoff and record the consultation — the lane's "
-                "own builder and emission, with every citation resolved in this tenant"
-            ),
+            help=prompt("steward.cli.consult_answer"),
         )
     )
     p.add_argument("handoff_id")
-    p.add_argument("--text-file", default="", help="the answer; stdin when omitted or given as `-`")
+    p.add_argument("--text-file", default="", help=prompt("steward.cli.answer_file"))
     p.add_argument("--kind", default="answer", choices=consult_cmd.ANSWER_KINDS)
-    p.add_argument("stdin", nargs="?", choices=["-"], help="read the answer from stdin")
-    p = _jsonable(nsub.add_parser("record", help="record direct reading without a handoff"))
+    p.add_argument("stdin", nargs="?", choices=["-"], help=prompt("steward.cli.answer_stdin"))
+    p = _jsonable(nsub.add_parser("record", help=prompt("steward.cli.consult_record")))
     p.add_argument("--question", required=True)
-    p.add_argument("--text-file", default="", help="the answer; stdin when omitted or given as `-`")
-    p.add_argument("stdin", nargs="?", choices=["-"], help="read the answer from stdin")
+    p.add_argument("--text-file", default="", help=prompt("steward.cli.answer_file"))
+    p.add_argument("stdin", nargs="?", choices=["-"], help=prompt("steward.cli.answer_stdin"))
     p.add_argument("--kind", default="answer", choices=consult_cmd.ANSWER_KINDS)
     p.add_argument(
         "--visitor-class", choices=("business", "audit", "silent"), default="business",
-        help="business records and queues attention; audit records only; silent records nothing",
+        help=prompt("steward.cli.record_visitor_class"),
     )
-    _jsonable(nsub.add_parser("pending", help="the handoffs still waiting for an answer"))
+    _jsonable(nsub.add_parser("pending", help=prompt("steward.cli.consult_pending")))
 
 
 #: What the CONFIRM says about the owner's words, in `--help`. The rule is the service's
 #: (`422 note_required`) and this door's, and it is spelled once: the record's reason is an
 #: `owner-dialogue/v1` statement the record then cites, so it can only be words the owner
 #: sent WITH the decision (`cli/archive.py`).
-_ARCHIVE_WORDS_HELP = (
-    "the owner's own reason, and one of these two is REQUIRED here: `--statement` names the "
-    "owner-dialogue source `pkc owner say` printed, `--note-file` carries the same words "
-    "(`-` for stdin). The archive record quotes the owner, and there is no default sentence "
-    "anywhere to put in their place. Inside a console Steward session a note must be a "
-    "verbatim substring of something the owner typed there."
-)
+_ARCHIVE_WORDS_HELP = "steward.cli.archive_reason"
 
 #: The same two options at the PLAN, where neither is required. A plan decides nothing and
 #: quotes nothing: `--statement` fixes the source the record will cite, `--note-file` is
 #: display text kept on the proposal, and the reason itself arrives with the confirm.
-_ARCHIVE_PLAN_WORDS_HELP = (
-    "optional here — a plan decides nothing, so it quotes no sentence of its own. "
-    "`--statement` names the owner-dialogue source `pkc owner say` printed and FIXES what "
-    "the record will cite; `--note-file` (`-` for stdin) is a line kept on the proposal for "
-    "a listing to show. The reason the record quotes is what `pkc archive confirm` carries. "
-    "Inside a console Steward session a note must be a verbatim substring of something the "
-    "owner typed there."
-)
+_ARCHIVE_PLAN_WORDS_HELP = "steward.cli.archive_plan_reason"
 
 
 def _add_archive_commands(top) -> None:  # noqa: ANN001
     """§5.5 — the archive, over `archive_service`'s own functions (docs/design/archive.md)."""
     archive = top.add_parser(
         "archive",
-        help="retire knowledge without deleting it: propose, confirm, and what is archived now",
-        description=(
-            "Archiving is a MOVE, never a deletion: the page goes under `archive/` with its "
-            "history, a short record stays at its old path saying what the subject was and "
-            "why the owner retired it, and a source keeps every block and gains a date. The "
-            "set is computed from what the owner named, shown whole, and moves nothing until "
-            "it is confirmed against the same library state. Exit codes: 0 ok, 1 no such "
-            "proposal, 2 refused."
-        ),
+        help=prompt("steward.cli.archive"),
+        description=prompt("steward.cli.archive_description"),
     )
     asub = archive.add_subparsers(dest="command", required=True)
 
     p = _jsonable(
         asub.add_parser(
             "propose",
-            help=(
-                "compute what retiring these pages and sources would take — the seeds, "
-                "everything that follows from them, and the record each page would leave"
-            ),
+            help=prompt("steward.cli.archive_propose"),
         )
     )
     p.add_argument(
@@ -611,36 +538,33 @@ def _add_archive_commands(top) -> None:  # noqa: ANN001
         dest="documents",
         action="append",
         default=[],
-        help="a canonical page to retire, by path; repeatable",
+        help=prompt("steward.cli.archive_document"),
     )
     p.add_argument(
         "--source",
         dest="sources",
         action="append",
         default=[],
-        help="a source to retire, by id; repeatable",
+        help=prompt("steward.cli.archive_source"),
     )
     p.add_argument(
         "--action",
         default="archive",
         choices=("archive", "unarchive"),
-        help="which direction; `unarchive` brings a page back and removes its record",
+        help=prompt("steward.cli.archive_action"),
     )
     p.add_argument(
-        "--statement", dest="statement_ref", default=None, help=_ARCHIVE_PLAN_WORDS_HELP
+        "--statement", dest="statement_ref", default=None, help=prompt(_ARCHIVE_PLAN_WORDS_HELP)
     )
-    p.add_argument("--note-file", default=None, help=_ARCHIVE_PLAN_WORDS_HELP)
+    p.add_argument("--note-file", default=None, help=prompt(_ARCHIVE_PLAN_WORDS_HELP))
 
-    p = _jsonable(asub.add_parser("ls", help="every archive proposal and its state"))
+    p = _jsonable(asub.add_parser("ls", help=prompt("steward.cli.archive_ls")))
     p.add_argument("--limit", type=int, default=50)
 
     p = _jsonable(
         asub.add_parser(
             "show",
-            help=(
-                "one proposal whole: its status as it reads now, every item with the reason "
-                "it is there, and the job when one was queued"
-            ),
+            help=prompt("steward.cli.archive_show"),
         )
     )
     p.add_argument("proposal_id")
@@ -648,42 +572,33 @@ def _add_archive_commands(top) -> None:  # noqa: ANN001
     p = _jsonable(
         asub.add_parser(
             "confirm",
-            help=(
-                "accept a proposal and queue the one job that executes it — the items the "
-                "owner NAMED, and the ones that follow only with `--cascade`"
-            ),
+            help=prompt("steward.cli.archive_confirm"),
         )
     )
     p.add_argument("proposal_id")
     p.add_argument(
         "--cascade",
         action="store_true",
-        help=(
-            "confirm the items the planner computed from the seeds too. Without it they are "
-            "listed and left where they are"
-        ),
+        help=prompt("steward.cli.cascade"),
     )
     p.add_argument(
         "--deselect",
         action="append",
         default=[],
-        help="untick one item the plan selected, by ref; repeatable",
+        help=prompt("steward.cli.deselect"),
     )
-    p.add_argument("--statement", dest="statement_ref", default=None, help=_ARCHIVE_WORDS_HELP)
-    p.add_argument("--note-file", default=None, help=_ARCHIVE_WORDS_HELP)
+    p.add_argument("--statement", dest="statement_ref", default=None, help=prompt(_ARCHIVE_WORDS_HELP))
+    p.add_argument("--note-file", default=None, help=prompt(_ARCHIVE_WORDS_HELP))
 
     p = _jsonable(
-        asub.add_parser("drop", help="close one proposal nobody is going to act on")
+        asub.add_parser("drop", help=prompt("steward.cli.archive_drop"))
     )
     p.add_argument("proposal_id")
 
     _jsonable(
         asub.add_parser(
             "inventory",
-            help=(
-                "what is in the archive now: pages with the day they went in and the record "
-                "standing at their live path, and sources with the day they were retired"
-            ),
+            help=prompt("steward.cli.archive_inventory"),
         )
     )
 
@@ -1199,6 +1114,15 @@ def main(argv: list[str] | None = None) -> int:
     from ..wiring import register_components
 
     settings = get_settings()
+    # argparse exits for -h before _run, so apply the deployment's wording first.
+    if settings.engine_dir:
+        from ..engine.contract import bootstrap_engine
+
+        bootstrap_engine(settings)
+    elif settings.prompt_language != "en":
+        from ..engine.prompts import apply_prompt_stack
+
+        apply_prompt_stack(settings.prompt_language, {})
     try:
         register_components(settings, store=None, canonical=None)
         component_tools = draft_cmd.component_tool_specs()

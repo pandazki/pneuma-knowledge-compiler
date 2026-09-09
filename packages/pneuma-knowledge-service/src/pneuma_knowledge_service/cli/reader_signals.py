@@ -11,6 +11,8 @@ from pneuma_knowledge_core.domain.authorship import block_authorship
 from pneuma_knowledge_core.domain.canonical import Citation, format_citation_span
 from pneuma_knowledge_core.domain.ids import SourceId, UserId
 from pneuma_knowledge_core.domain.source import NormalizedSource, RawSource
+from pneuma_knowledge_core.domain.time_context import TimeContext, time_context_for
+from pneuma_knowledge_core.ingest.evidence_context import aligned_envelope
 from pneuma_knowledge_core.ingest.source_types import agent_session_owner_label
 from pneuma_knowledge_core.prompts import prompt
 from pneuma_knowledge_core.recall.citation_alias import SessionAliaser
@@ -30,73 +32,117 @@ def span_label(start: int, end: int) -> str:
     return format_citation_span("", start, end).strip()
 
 
-def recorded_day(value: Any) -> str | None:
-    """A recorded day or instant's own calendar day; no imported-date fallback."""
+def recorded_at(value: Any) -> datetime | None:
+    """Keep instants distinct from date-only evidence; naive storage timestamps are UTC."""
     try:
-        return date.fromisoformat(str(value)).isoformat()
+        date.fromisoformat(str(value))
+        return None
     except ValueError:
         try:
-            return datetime.fromisoformat(str(value)).date().isoformat()
+            instant = datetime.fromisoformat(str(value))
+            return instant.replace(tzinfo=instant.tzinfo or timezone.utc)
         except ValueError:
             return None
 
 
-def source_date(raw: RawSource) -> tuple[str, bool]:
+def recorded_day(value: Any, time: TimeContext) -> str | None:
+    """Recorded dates stay dates; every instant is read on the command's one calendar."""
+    if instant := recorded_at(value):
+        return time.local_date(instant).isoformat()
+    try:
+        return date.fromisoformat(str(value)).isoformat()
+    except ValueError:
+        return None
+
+
+def calendar_basis(time: TimeContext) -> str:
+    """Which link of the resolution chain gave the calendar: the Owner's declared zone, the
+    deployment's default zone (a personal edition sets it to the machine's), or UTC because
+    nothing was recorded. Three cases, because a deployment default of Asia/Shanghai is not
+    UTC and must not be printed as if it were."""
+    if time.zone_source == "profile":
+        return "owner"
+    if time.zone_source == "deployment_default" and time.zone_name != "UTC":
+        return "deployment_default"
+    return "utc_fallback"
+
+
+def calendar_header(time: TimeContext) -> str:
+    key = {"owner": "steward.read.days_owner",
+           "deployment_default": "steward.read.days_default",
+           "utc_fallback": "steward.read.days_utc"}[calendar_basis(time)]
+    return prompt(key, zone=time.zone_name)
+
+
+def calendar_metadata(time: TimeContext) -> dict[str, str]:
+    return {"timezone": time.zone_name, "basis": calendar_basis(time)}
+
+
+def source_date(raw: RawSource, time: TimeContext) -> tuple[str, bool]:
     """The sortable calendar day and whether it comes from the import timestamp."""
-    occurred = recorded_day(raw.occurred_on())
+    occurred = recorded_day(raw.occurred_on(), time)
     if occurred:
         return occurred, False
-    instant = raw.created_at
-    day = instant.replace(tzinfo=instant.tzinfo or timezone.utc).astimezone(
-        timezone.utc
-    ).date().isoformat()
-    return day, True
+    return time.local_date(raw.created_at).isoformat(), True
 
 
-def source_day(raw: RawSource) -> str:
-    """Prefer occurrence; explicitly label the UTC import day when it is all we know."""
-    day, imported = source_date(raw)
+def source_day(raw: RawSource, time: TimeContext) -> str:
+    """Prefer occurrence; explicitly label an import day when it is all we know."""
+    day, imported = source_date(raw, time)
     return prompt("steward.read.imported", day=day) if imported else day
 
 
-def block_days(raw: RawSource) -> dict[int, str]:
-    envelope, key = {
-        "agent_session": ("turns", "at"),
-        "owner_dialogue": ("turns", "said_at"),
-        "im": ("messages", "sent_at"),
-        "meeting": ("segments", "started_at"),
-    }.get(raw.kind, ("", ""))
-    return {index: day for index, block in enumerate(raw.meta.get(envelope, []))
-            if (day := recorded_day(block.get(key))) is not None}
+_READER_ENVELOPES = {
+    "agent_session": ("turns", "turn_ids", "turn_id", "at"),
+    "owner_dialogue": ("turns", "turn_ids", "turn_id", "said_at"),
+    "im": ("messages", "message_ids", "message_id", "sent_at"),
+    "email": ("messages", "message_ids", "message_id", "sent_at"),
+    "meeting": ("segments", "segment_ids", "segment_id", "started_at"),
+}
 
 
-def block_speakers(raw: RawSource, owner_name: str | None = None) -> dict[int, str]:
-    """Resolve the structure command's authorship rows against their declared identities.
+def reader_envelope(source: NormalizedSource) -> list[dict]:
+    spec = _READER_ENVELOPES.get(source.raw.kind)
+    return (aligned_envelope(source, *spec[:3]) or []) if spec else []
 
-    Documents and emails deliberately supply no conversational speaker labels. Nothing is
-    inferred from block text, source titles, tenant ids or an agent's prose about the Owner.
-    """
-    if raw.kind not in {"agent_session", "owner_dialogue", "im", "meeting"}:
+
+def block_days(source: NormalizedSource, time: TimeContext) -> dict[int, dict[str, str]]:
+    spec = _READER_ENVELOPES.get(source.raw.kind)
+    if spec is None:
         return {}
-    meta = raw.meta
+    dates = {}
+    for index, row in enumerate(reader_envelope(source)):
+        value = row.get(spec[3])
+        if day := recorded_day(value, time):
+            instant = recorded_at(value)
+            dates[index] = {"date": day, **({"at": instant.isoformat()} if instant else {})}
+    return dates
+
+
+def block_speakers(source: NormalizedSource, owner_name: str | None = None) -> dict[int, str]:
+    """Resolve declared identities only after the envelope matches the stored blocks."""
+    turns = reader_envelope(source)
+    if not turns:
+        return {}
+    raw, meta = source.raw, source.raw.meta
     people: dict[str, str] = {}
-    turns: list[dict] = []
     identity_key = ""
     if raw.kind == "meeting":
         people = {p["participant_id"]: p.get("display_name") or p["participant_id"]
-                  for p in meta.get("participants", [])}
-        turns, identity_key = meta.get("segments", []), "speaker_id"
+                  for p in meta.get("participants", []) if isinstance(p, dict) and p.get("participant_id")}
+        identity_key = "speaker_id"
     elif raw.kind == "im":
         people = {p["user_id"]: p.get("display_name") or p["user_id"]
-                  for p in meta.get("users", [])}
-        turns, identity_key = meta.get("messages", []), "sender_id"
+                  for p in meta.get("users", []) if isinstance(p, dict) and p.get("user_id")}
+        identity_key = "sender_id"
     speakers: dict[int, str] = {}
     for row in block_authorship(raw):
         index, role = row["index"], row["role"]
-        declared = people.get(turns[index].get(identity_key)) if turns else None
-        if role == "owner":
-            # The contract's own name first; a source ingested before the contract carried one
-            # falls back to the library owner's profile name, since the role IS the owner.
+        declared = people.get(turns[index].get(identity_key))
+        if raw.kind == "email":
+            sender = turns[index].get("from")
+            name = (sender.get("display_name") or sender.get("address")) if isinstance(sender, dict) else None
+        elif role == "owner":
             name = agent_session_owner_label(meta.get("owner_name") or declared or owner_name)
         elif role == "agent":
             name = (meta.get("agent") or {}).get("name")
@@ -112,26 +158,31 @@ def block_speakers(raw: RawSource, owner_name: str | None = None) -> dict[int, s
 class SourceSignals:
     """Read each cited source once within this tenant and command invocation."""
 
-    def __init__(self, store: Any, user_id: UserId, owner_name: str | None = None) -> None:
+    def __init__(
+        self, store: Any, user_id: UserId, owner_name: str | None = None,
+        time: TimeContext | None = None,
+    ) -> None:
         self.store, self.user_id, self.owner_name = store, user_id, owner_name
+        self.time = time or time_context_for(user_id)
         self.sources: dict[str, NormalizedSource | None] = {}
         self.speakers: dict[str, dict[int, str]] = {}
 
     @classmethod
-    async def for_runtime(cls, store: Any, user_id: UserId) -> "SourceSignals":
-        """Signals with the owner's profile name as the fallback speaker label for owner
-        turns of sources that predate `owner_name` on the contract."""
-        name = None
-        lookup = getattr(store, "get_user_profile", None)
+    async def for_runtime(cls, ctx: Any, user_id: UserId) -> "SourceSignals":
+        """Use compile's profile provider and time context, with a stated UTC fallback."""
+        provider = getattr(ctx, "user_info", None)
+        lookup = (getattr(provider, "get_profile", None)
+                  or getattr(ctx.store, "get_user_profile", None))
+        profile = None
         if lookup is not None:
             try:
                 profile = await lookup(user_id)
-            except Exception:  # a store without profiles is still a readable library
-                profile = None
-            if profile is not None:
-                value = profile.get("display_name") if isinstance(profile, dict) else getattr(profile, "display_name", None)
-                name = str(value or "").strip() or None
-        return cls(store, user_id, name)
+            except Exception:  # a profile outage must not make L0 unreadable
+                pass
+        value = (profile.get("display_name") if isinstance(profile, dict)
+                 else getattr(profile, "display_name", None))
+        name = str(value or "").strip() or None
+        return cls(ctx.store, user_id, name, time_context_for(user_id, profile))
 
     async def get(self, source_id: str) -> NormalizedSource | None:
         if source_id not in self.sources:
@@ -145,7 +196,7 @@ class SourceSignals:
             ):
                 raise ValueError("source identity mismatch")
             self.sources[source_id] = source
-            self.speakers[source_id] = block_speakers(source.raw, self.owner_name) if source else {}
+            self.speakers[source_id] = block_speakers(source, self.owner_name) if source else {}
         return self.sources[source_id]
 
     async def summary(self, source_id: str) -> dict[str, Any]:
@@ -154,24 +205,35 @@ class SourceSignals:
             return {"source_id": source_id, "kind": None, "date": None, "title": None}
         raw = source.raw
         row = {"source_id": source_id, "kind": raw.kind.replace("_", "-"),
-               "date": source_day(raw), "title": raw.title}
+               "date": source_day(raw, self.time), "title": raw.title}
+        value = raw.created_at if source_date(raw, self.time)[1] else raw.occurred_on()
+        if instant := recorded_at(value):
+            row["at"] = instant.isoformat()
         agent = (raw.meta.get("agent") or {}).get("name")
         if raw.kind == "agent_session" and agent:
             row["agent"] = agent
         return row
 
-    def latest_day(self, source_ids: Iterable[str]) -> str | None:
-        """Choose among loaded sources by date, independent of the catalog's label."""
-        raw = max(
-            (source.raw for sid in source_ids if (source := self.sources.get(sid)) is not None),
-            key=lambda raw: source_date(raw)[0], default=None,
-        )
-        return source_day(raw) if raw is not None else None
+    def latest_source(self, sources: list[dict[str, Any]]) -> dict[str, Any] | None:
+        """Latest cited block day, falling back per block to its source's recorded day."""
+        candidates = []
+        for summary in sources:
+            source = self.sources.get(summary["source_id"])
+            if source is None:
+                continue
+            fallback_day = source_date(source.raw, self.time)[0]
+            rows = [row for span in summary["cited"] for row in span["speakers"]]
+            for row in rows or [{}]:
+                candidate = row if row.get("date") else summary
+                candidates.append((row.get("date") or fallback_day, candidate))
+        return max(candidates, key=lambda pair: pair[0])[1] if candidates else None
 
     async def span(self, source_id: str, start: int, end: int) -> dict[str, Any]:
         source = await self.get(source_id)
         speakers = self.speakers[source_id]
-        days = block_days(source.raw) if source else {}
+        days = block_days(source, self.time) if source else {}
+        email_roles = {i: row["role"] for i, row in enumerate(reader_envelope(source))
+                       if row.get("role") in {"owner", "other"}} if source and source.raw.kind == "email" else {}
         rows = []
         cursor = start
         # Bound work to stored blocks, even for a malformed historical citation. Missing
@@ -184,7 +246,8 @@ class SourceSignals:
                              "speaker": prompt("steward.read.unknown")})
             rows.append({"span": span_label(index, index),
                          "speaker": speakers.get(index, prompt("steward.read.unknown")),
-                         **({"date": days[index]} if index in days else {})})
+                         **days.get(index, {}),
+                         **({"role": email_roles[index]} if index in email_roles else {})})
             cursor = index + 1
         if cursor <= end:
             rows.append({"span": span_label(cursor, end),
@@ -262,7 +325,7 @@ def ranked_items(items) -> tuple[list, bool]:
     return (sorted(items, key=lambda item: -item.score) if ranked else list(items), ranked)
 
 
-def evidence_lines(evidence: FastEvidence, tally: dict[str, Any]) -> tuple[list[str], list[str]]:
+def evidence_lines(evidence: FastEvidence, tally: dict[str, Any], time: TimeContext) -> tuple[list[str], list[str]]:
     """A repeatable header and the retained reader body, over the lane's exact evidence."""
     aliaser = SessionAliaser()
     for _handle, sid in evidence.handles.items():
@@ -288,10 +351,11 @@ def evidence_lines(evidence: FastEvidence, tally: dict[str, Any]) -> tuple[list[
             "steward.read.ranked" if ranked else "steward.read.lane_order"
         ))
         primary.extend([f"# {number} {label}", section, ""])
-    when = evidence.as_of.replace(tzinfo=evidence.as_of.tzinfo or timezone.utc)
+    when = time.resolve(evidence.as_of)
     header = [
         prompt("steward.read.evidence_for", query=one_line(evidence.question)),
-        "as_of: " + when.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+        "as_of: " + when.strftime("%Y-%m-%d %H:%M") + " " + time.zone_name,
+        calendar_header(time),
         prompt("steward.read.tally", **{**tally, "pages": len(tally["pages"])}),
         prompt("steward.read.pages", pages=" · ".join(
             f"{page['path']} ({page['claims']})" for page in tally["pages"]

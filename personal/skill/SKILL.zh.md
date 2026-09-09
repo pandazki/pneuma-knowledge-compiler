@@ -18,7 +18,7 @@ canonical 库是权威，索引是派生视图，每条 claim 都引用来源块
 一条常见的路，不是规定的流程：
 
 1. `pkchome exec -- pkc outline` —— 完整地图，一页一行。没选库时它会拒绝并列出可用库，用 `--library NAME` 指定。
-2. `pkchome exec -- pkc canonical read <path> [<path>…]` —— 一次读相关页面；头部和 `来源：` 索引写明最后改动、队列、每个被引块是谁哪天说的。
+2. `pkchome exec -- pkc canonical read <path> [<path>…]` —— 一次读相关页面；头部和 `来源：` 索引写明最后改动、待处理或失败的编译作业、每个被引块是谁哪天说的。
 3. 跨页或不知道在哪一页：`pkchome exec -- pkc recall <q> --evidence` 一次拿到多页的 claim 与原文窗口。
 4. `pkc source fetch <sid> ¶a-b` 看原文；`pkc search <q> --lexical` 找名字、原句、最新会话，头部的计数说明匹配不可能在哪里。
 5. 用 `pkc consult answer <handoff_id> --text-file -`（没跑 recall 时 `pkc consult record --question <q> --text-file -`）把回答记进库。
@@ -54,7 +54,7 @@ canonical 库是权威，索引是派生视图，每条 claim 都引用来源块
 
 # 继续维护已有库
 
-每次会话先用 `pkc outline` 看完整地图；回答遵循 `references/consume.md`：outline → `canonical read`、`recall --evidence`、`search`、`source fetch`；仅当 outline 太长、难以扫读时才用有预算的 `glance`。
+`pkc outline` 是完整地图，一次会话通常从它开始；回答按 `references/consume.md` 的场景选路（`canonical read`、`recall --evidence`、`search`、`source fetch`）；仅当 outline 太长、难以扫读时才用有预算的 `glance`。
 `pkc draft finish` 后，对每个写入过的族运行 `pkc outline --family <template>` 查看新页面的落点；在 agent 执行器下，API 通道是有密钥的控制台用来测试质量的工具。
 
 运行 `pkchome library show NAME`。读取它给出的 `skill_dir` 那个包里的 `SKILL.md` 和

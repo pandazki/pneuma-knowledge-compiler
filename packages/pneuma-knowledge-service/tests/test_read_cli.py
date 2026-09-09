@@ -16,6 +16,7 @@ from types import SimpleNamespace
 import pytest
 
 from pneuma_knowledge_core.compile.documents import render_document
+from pneuma_knowledge_core.domain.time_context import time_context_for
 from pneuma_knowledge_service.cli import build_parser, dispatch
 
 from _cli_library import (  # noqa: E402
@@ -29,6 +30,7 @@ from _cli_library import (  # noqa: E402
 
 PAGE = "memory/topics/pricing.md"
 OTHER = "memory/people/cheng-ye.md"
+UTC_BASIS = "days: UTC (no Owner timezone recorded)"
 
 
 async def run(lib, *argv):
@@ -173,7 +175,7 @@ async def test_source_fetch_returns_the_verbatim_span():
     # The bare spelling addresses the same span — a shell that eats the pilcrow must not
     # change what a locator means.
     _code, plain, _err = await run(lib, "source", "fetch", "s-01", "1", "2")
-    assert plain.strip() == "s-01 ¶1 unknown · ¶2 unknown · imported 2026-08-01\nbeta\n\ngamma"
+    assert plain.strip() == UTC_BASIS + "\ns-01 ¶1 unknown · ¶2 unknown · imported 2026-08-01\nbeta\n\ngamma"
 
 
 async def test_source_fetch_refuses_an_argument_that_is_not_a_span():
@@ -529,7 +531,7 @@ async def test_source_fetch_multiple_spans_preserve_shell_argument_boundaries():
         assert [item["text"] for item in items] == texts
         code, out, err = await run(lib, "source", "fetch", "spans", *tokens)
         assert code == 0, err
-        assert out == "\n".join(
+        assert out == UTC_BASIS + "\n" + "\n".join(
             "spans " + " · ".join(f"¶{i} unknown" for i in range(*[item["blocks"][0], item["blocks"][1] + 1]))
             + f" · imported 2026-08-01\n{text}"
             for item, text in zip(items, texts)
@@ -600,12 +602,35 @@ SESSION = "a" * 32
 STATEMENT = "b" * 32
 
 
+async def _owner_calendar(lib, zone):
+    from pneuma_knowledge_core.domain.user import UserProfile
+
+    profile = UserProfile.unstated(USER)
+    profile.display_name, profile.source = "Avery", "owner"
+    profile.locale.timezone = zone
+    await lib.store.upsert_user_profile(USER, profile.model_dump(mode="json"))
+    return profile
+
+
+def _stamp_envelope_ids(item):
+    singular = "segment" if item.raw.kind == "meeting" else (
+        "message" if item.raw.kind in {"email", "im"} else "turn"
+    )
+    rows = item.raw.meta[singular + "s"]
+    ids = [f"{singular}-{i}" for i in range(len(rows))]
+    item.raw.meta[singular + "_ids"] = ids
+    for row, identity in zip(rows, ids):
+        row[singular + "_id"] = identity
+
+
 def _authored_source(sid=SESSION, *, owner_name="Avery"):
     item = source(sid, kind="agent_session", title="Synthetic planning session",
                   blocks=["Choose the blue plan.", "The blue plan has three stages.", "Stage two is review."])
     item.raw.meta = {
         "owner_name": owner_name, "agent": {"name": "TestCoder"}, "occurred_on": "2026-07-02",
-        "turns": [{"role": "owner"}, {"role": "agent"}, {"role": "agent"}],
+        "turn_ids": ["t0", "t1", "t2"],
+        "turns": [{"turn_id": "t0", "role": "owner"},
+                  {"turn_id": "t1", "role": "agent"}, {"turn_id": "t2", "role": "agent"}],
     }
     return item
 
@@ -626,7 +651,7 @@ async def test_canonical_reader_status_and_per_span_source_index(monkeypatch):
 
     async def last_commit(user, path, *, at=None):
         calls.append((user, path, at.ref))
-        return "95c8cdb" + "0" * 33, "2026-09-07"
+        return "95c8cdb" + "0" * 33, "2026-09-07T12:00:00+00:00"
 
     monkeypatch.setattr(lib.canonical, "last_commit", last_commit)
     # More than one default job page; completed jobs, index jobs and another tenant do
@@ -645,9 +670,10 @@ async def test_canonical_reader_status_and_per_span_source_index(monkeypatch):
     assert calls == [(USER, PAGE, "c0"), (USER, OTHER, "c0")]
     for page in pages:
         assert page["status"] == {
-            "last_changed": "2026-09-07", "commit": "95c8cdb" + "0" * 33,
+            "last_changed": "2026-09-07", "last_changed_at": "2026-09-07T12:00:00+00:00", "commit": "95c8cdb" + "0" * 33,
             "claims": 3, "overview_blocks": 0, "superseded": 1, "sources_cited": 2,
-            "latest_cited_source": "imported 2026-09-06", "queue_pending": 31, "queue_failed": 0,
+            "latest_cited_source": "imported 2026-09-06",
+            "latest_cited_source_at": "2026-09-07T01:00:00+08:00", "queue_pending": 31, "queue_failed": 0,
         }
         assert page["sources"] == [
             {"source_id": SESSION, "kind": "agent-session", "agent": "TestCoder",
@@ -658,6 +684,7 @@ async def test_canonical_reader_status_and_per_span_source_index(monkeypatch):
                         "speakers": [{"span": "¶1", "speaker": "TestCoder"},
                                      {"span": "¶2", "speaker": "TestCoder"}]}]},
             {"source_id": STATEMENT, "kind": "document", "date": "imported 2026-09-06",
+             "at": "2026-09-07T01:00:00+08:00",
              "title": "Synthetic review document", "cited": [{"span": "¶0", "speaker": "unknown",
                  "speakers": [{"span": "¶0", "speaker": "unknown"}]}]},
         ]
@@ -666,7 +693,7 @@ async def test_canonical_reader_status_and_per_span_source_index(monkeypatch):
     for page in pages:
         assert f"page: {page['path']}\nlast changed: 2026-09-07 (commit 95c8cdb)" in prose
         assert page["document"] in prose
-    assert prose.count("queue: 31 compile pending · none failed") == 2
+    assert prose.count("compile jobs: 31 pending · 0 failed") == 2
     assert "cited: ¶0 Avery · ¶1 TestCoder · ¶2 TestCoder" in prose
     assert f"{SESSION} · agent-session (TestCoder) · 2026-07-02" in prose
     assert "sources cited: 2 · latest cited source: imported 2026-09-06" in prose
@@ -685,7 +712,7 @@ async def test_canonical_missing_metadata_is_unknown_and_empty_queue_is_explicit
     code, out, err = await run(lib, "canonical", "read", PAGE)
     assert code == 0, err
     assert "last changed: unknown (commit unknown)" in out
-    assert "queue: none pending · none failed" in out
+    assert "compile jobs: 0 pending · 0 failed" in out
     assert "s-01 · unknown · unknown · unknown" in out
 
 
@@ -695,13 +722,15 @@ async def test_source_fetch_multiple_sources_labels_every_span_and_preserves_tex
     statement = source(STATEMENT, kind="owner_dialogue", title="Synthetic decision",
                        blocks=["Continue with the blue plan.", "Decision recorded."])
     statement.raw.meta = {"occurred_on": "2026-09-08", "owner_name": "Avery",
-                          "turns": [{"role": "owner"}, {"role": "steward"}]}
+                          "turn_ids": ["t0", "t1"],
+                          "turns": [{"turn_id": "t0", "role": "owner"},
+                                    {"turn_id": "t1", "role": "steward"}]}
     await lib.store.add(USER, statement)
     args = ("source", "fetch", SESSION, "¶0", "¶1-2", STATEMENT, "¶0")
     code, out, err = await run(lib, *args, "--json")
     assert code == 0, err
     rows = json.loads(out)
-    assert [{k: v for k, v in row.items() if k != "speakers"} for row in rows] == [
+    assert [{k: v for k, v in row.items() if k not in {"speakers", "calendar"}} for row in rows] == [
         {"source_id": SESSION, "blocks": [0, 0], "span": "¶0", "speaker": "Avery",
          "date": "2026-07-02", "text": "Choose the blue plan."},
         {"source_id": SESSION, "blocks": [1, 2], "span": "¶1-2", "speaker": "TestCoder",
@@ -711,7 +740,7 @@ async def test_source_fetch_multiple_sources_labels_every_span_and_preserves_tex
     ]
     code, out, err = await run(lib, *args)
     assert code == 0, err
-    assert out == "\n".join(
+    assert out == UTC_BASIS + "\n" + "\n".join(
         f"{row['source_id']} " + " · ".join(
             f"¶{index} {row['speaker']}" for index in range(row["blocks"][0], row["blocks"][1] + 1)
         ) + f" · {row['date']}\n{row['text']}"
@@ -742,6 +771,7 @@ async def test_source_speaker_labels_follow_authorship_not_text(kind, meta, expe
     lib = _lib()
     item = source(SESSION, kind=kind, blocks=["Blair says Avery spoke.", "Avery says Blair spoke."])
     item.raw.meta = meta
+    _stamp_envelope_ids(item)
     await lib.store.add(USER, item)
     code, out, err = await run(lib, "source", "fetch", SESSION, "¶0", "¶1", "--json")
     assert code == 0, err
@@ -778,7 +808,7 @@ async def test_search_counts_terms_and_phrases_without_using_limited_hit_length(
     assert counted == [(USER, q, True, True) for q in (query, "blue", '"three stages"')]
     code, out, err = await run(lib, *args)
     assert code == 0, err
-    assert out.startswith(f"query: {query}\nindexed blocks holding every term: 0")
+    assert out.startswith(f"query: {query}\n{UTC_BASIS}\nindexed blocks holding every term: 0")
     assert '"blue": 37 · "three stages": 120' in out
     assert "showing: 1 of 37" in out
     assert f"{SESSION} ¶0 Avery" in out
@@ -827,7 +857,7 @@ async def test_source_authorship_is_bounded_and_never_borrows_an_unknown_role():
 
     lib = _lib()
     item = _authored_source()
-    item.raw.meta["turns"][1] = {"role": "unknown"}
+    item.raw.meta["turns"][1]["role"] = "unknown"
     await lib.store.add(USER, item)
     signals = SourceSignals(lib.store, USER)
     assert await signals.span(SESSION, 1, 1) == {
@@ -860,8 +890,8 @@ async def test_reader_help_and_labels_follow_the_catalog_in_both_languages():
         assert f"{SESSION} ¶0 用户 · 2026-07-02" in out
         code, out, err = await run(lib, "canonical", "read", PAGE)
         assert code == 0, err
-        assert out.startswith(f"页面：{PAGE}\n最后改动：未知")
-        assert "队列：无待处理 · 无失败" in out and "来源：" in out
+        assert out.startswith(f"日期：UTC（未记录 Owner 时区）\n页面：{PAGE}\n最后改动：未知")
+        assert "编译作业：0 待处理 · 0 失败" in out and "来源：" in out
         assert "地图放最后" in render_cli_md(build_parser())
     finally:
         reset_prompt_overrides()
@@ -993,17 +1023,18 @@ async def test_compile_and_index_queue_signals_count_pending_and_failed_for_this
     await lib.store.enqueue("other", "index", {})
     code, out, err = await run(lib, "canonical", "read", PAGE)
     assert code == 0, err
-    assert "queue: 2 compile pending · 1 compile failed (pkc jobs --status failed)" in out
+    assert "compile jobs: 2 pending · 1 failed (pkc jobs --status failed)" in out
     code, out, err = await run(lib, "jobs", "--status", "failed", "--kind", "compile", "--json")
     assert code == 0, err
     assert [row["job_id"] for row in json.loads(out)["jobs"]] == [failed]
     code, out, _ = await run(lib, "search", "blue green", "--lexical")
     assert code == 1
     assert "indexed blocks holding every term: 0" in out
-    assert "single-block matches" in out and "adjacent blocks" in out and "index lags L0" in out
-    assert "index queue: 3 pending" in out
+    assert "single-block matches" in out and "adjacent blocks" in out and "index may lag L0" in out
+    assert "index jobs: 3 pending · 1 failed (pkc jobs --status failed)" in out
     code, out, _ = await run(lib, "search", "blue green", "--fused", "--json")
     assert json.loads(out)["index_queue_pending"] == 3
+    assert json.loads(out)["index_queue_failed"] == 1
 
 
 @pytest.mark.parametrize("kind,envelope,time_key", [
@@ -1025,6 +1056,8 @@ async def test_cited_blocks_use_their_own_days_and_individual_speakers(kind, env
             {"role": "unknown", time_key: "2026-07-12T01:00:00+08:00"},
         ],
     }
+    _stamp_envelope_ids(item)
+    await _owner_calendar(lib, "Asia/Shanghai")
     # Owner-dialogue's counterpart is the declared Steward, not an arbitrary agent name.
     if kind == "owner_dialogue":
         item.raw.meta[envelope][1]["role"] = "steward"
@@ -1044,17 +1077,18 @@ def test_source_date_prefers_occurrence_and_labels_import_in_both_languages():
     from pneuma_knowledge_core.prompts import chinese_overlay, override_prompts, reset_prompt_overrides
     from pneuma_knowledge_service.cli.reader_signals import source_day
 
+    time = time_context_for(USER)
     raw = source("dates").raw
     raw.created_at = datetime.fromisoformat("2026-09-07T01:00:00+08:00")
-    assert source_day(raw) == "imported 2026-09-06"
+    assert source_day(raw, time) == "imported 2026-09-06"
     raw.meta["occurred_on"] = "2026-07-10"
-    assert source_day(raw) == "2026-07-10"
+    assert source_day(raw, time) == "2026-07-10"
     raw.meta["occurred_on"] = "2026-07-10T01:00:00+08:00"
-    assert source_day(raw) == "2026-07-10"
+    assert source_day(raw, time) == "2026-07-09"
     raw.meta["occurred_on"] = "invalid"
     try:
         override_prompts(chinese_overlay())
-        assert source_day(raw) == "导入 2026-09-06"
+        assert source_day(raw, time) == "导入 2026-09-06"
     finally:
         reset_prompt_overrides()
 
@@ -1172,7 +1206,7 @@ def test_recall_without_scores_preserves_lane_order_and_does_not_claim_ranking()
 
     evidence = _ranked_evidence()
     evidence = replace(evidence, used_claims=tuple(replace(c, score=0) for c in evidence.used_claims))
-    header, lines = evidence_lines(evidence, evidence_tally(evidence))
+    header, lines = evidence_lines(evidence, evidence_tally(evidence), time_context_for(USER))
     assert "claims: in the lane's order" in "\n".join(header)
     body = "\n".join(lines)
     positions = [body.index(f"[c:{anchor}") for anchor in ("aaaa", "cccc", "bbbb")]
@@ -1272,7 +1306,7 @@ def test_main_renders_chinese_cli_descriptions_after_applying_the_language(tmp_p
         for key in ("outline", "glance", "canonical_read", "source_fetch", "search", "recall"):
             assert prompt("steward.cli." + key) in reference
         assert "全库替代关系及后继地址" in reference
-        assert "最新被引来源" in reference
+        assert "最新被引块日期" in reference
         assert "无条件读取一页或多页" in reference
     finally:
         reset_prompt_overrides()
@@ -1325,3 +1359,301 @@ async def test_recall_source_index_uses_evidence_citations_without_mining_the_qu
     assert payload["content"] == evidence.content
     assert [row["source_id"] for row in payload["sources"]] == [SESSION]
     assert [row["span"] for row in payload["sources"][0]["cited"]] == ["¶0", "¶1", "¶2"]
+
+
+@pytest.mark.parametrize("language", ["en", "zh"])
+async def test_every_reader_day_uses_the_owner_calendar_and_keeps_original_instants(language, monkeypatch):
+    from dataclasses import replace
+    from pneuma_knowledge_core.prompts import chinese_overlay, override_prompts, reset_prompt_overrides
+    from pneuma_knowledge_service import cli
+    from pneuma_knowledge_service.cli import read
+
+    lib = library(
+        docs=[document(PAGE, f"- Synthetic decision. [cite: {SESSION} ¶1] <!-- c:aaaa -->")],
+        lexical_hits=[LexHit(source_id=SESSION, block_index=1, text="synthetic decision")],
+    )
+    profile = await _owner_calendar(lib, "Asia/Shanghai")
+    # A deployment provider can differ from the persisted profile; use compile's provider.
+    provider_calls = []
+
+    async def get_profile(user):
+        provider_calls.append(user)
+        return profile
+
+    monkeypatch.setattr(lib.ctx.user_info, "get_profile", get_profile)
+    await lib.store.upsert_user_profile("other", {"locale": {"timezone": "America/New_York"}})
+    item = _authored_source()
+    item.raw.meta["occurred_on"] = "2026-09-07T20:30:00+00:00"
+    block_at = "2026-09-08T20:30:00+00:00"
+    for row, at in zip(item.raw.meta["turns"], (
+        "2026-09-07T20:30:00+00:00", block_at, "2026-09-10T20:30:00+00:00",
+    )):
+        row["at"] = at
+    await lib.store.add(USER, item)
+    commit_at = "2026-09-08T22:00:00+00:00"
+
+    async def last_commit(user, path, *, at=None):
+        assert user == USER and at.ref == "c0"
+        return "a" * 40, commit_at
+
+    monkeypatch.setattr(lib.canonical, "last_commit", last_commit)
+    when = datetime.fromisoformat(block_at)
+    evidence = _ranked_evidence()
+    evidence = replace(
+        evidence, as_of=when, used_claims=(evidence.used_claims[2],), used_windows=(),
+        sections=(("claims", f"# claims\nSynthetic decision. [cite: {SESSION} ¶1]"),),
+    )
+
+    async def retrieve(*args, **kwargs):
+        return evidence
+
+    monkeypatch.setattr(read, "fast_recall", retrieve)
+    monkeypatch.setattr(cli, "_handoffs", lambda ctx: lib.handoffs)
+    basis = "days: Owner's calendar (Asia/Shanghai)" if language == "en" else "日期：按 Owner 时区（Asia/Shanghai）"
+    try:
+        if language == "zh":
+            override_prompts(chinese_overlay())
+        commands = (
+            ("canonical", "read", PAGE), ("source", "fetch", SESSION, "¶1"),
+            ("search", "synthetic", "--lexical"),
+            ("recall", "synthetic", "--evidence", "--as-of", block_at),
+        )
+        for args in commands:
+            provider_calls.clear()
+            code, out, err = await run(lib, *args, "--all-pages")
+            assert code == 0, err
+            assert out.count(basis) == 1
+            assert "¶1 TestCoder 2026-09-09" in out
+            assert provider_calls == [USER]
+            # Basis remains in the header when the body is paged past its first page.
+            code, paged, err = await run(lib, *args, "--page", "2", "--page-chars", "60")
+            assert code == 0, err
+            assert paged.count(basis) == 1
+            code, out, err = await run(lib, *args, "--json", "--all-pages")
+            assert code == 0, err
+            payload = json.loads(out)
+            if args[0] == "canonical":
+                status = payload["status"]
+                assert status["last_changed"] == "2026-09-09"
+                assert status["last_changed_at"] == commit_at
+                # The uncited third turn is later, but cannot date this page's evidence.
+                assert status["latest_cited_source"] == "2026-09-09"
+                assert status["latest_cited_source_at"] == block_at
+                assert payload["sources"][0]["date"] == "2026-09-08"
+                assert payload["sources"][0]["at"] == item.raw.meta["occurred_on"]
+                block = payload["sources"][0]["cited"][0]["speakers"][0]
+            elif args[0] == "recall":
+                assert payload["as_of"] == block_at
+                assert payload["as_of_day"] == "2026-09-09"
+                assert payload["content"] == evidence.content
+                block = payload["sources"][0]["cited"][0]["speakers"][0]
+                retained = await lib.handoffs.get(USER, payload["handoff_id"])
+                assert "as_of: 2026-09-09 04:30 Asia/Shanghai" in retained["retained_result"]["header"]
+            elif args[0] == "source":
+                payload = payload[0]
+                block = payload["speakers"][0]
+            else:
+                block = payload["hits"][0]["speakers"][0]
+            assert payload["calendar"] == {"timezone": "Asia/Shanghai", "basis": "owner"}
+            assert block["date"] == "2026-09-09" and block["at"] == block_at
+    finally:
+        reset_prompt_overrides()
+
+
+@pytest.mark.parametrize("zone,day,basis", [
+    (None, "2026-09-08", UTC_BASIS),
+    ("invalid/zone", "2026-09-08", UTC_BASIS),
+    ("UTC", "2026-09-08", "days: Owner's calendar (UTC)"),
+    ("Asia/Shanghai", "2026-09-09", "days: Owner's calendar (Asia/Shanghai)"),
+    ("America/New_York", "2026-09-08", "days: Owner's calendar (America/New_York)"),
+])
+async def test_reader_import_days_and_naive_storage_instants_share_the_stated_calendar(zone, day, basis):
+    lib = _lib()
+    lib.ctx.settings.default_timezone = "Pacific/Auckland"
+    if zone is not None:
+        await _owner_calendar(lib, zone)
+    item = _authored_source()
+    item.raw.meta.pop("occurred_on")
+    # A naive storage instant is UTC, independent of the host or deployment default.
+    item.raw.created_at = datetime(2026, 9, 8, 20, 30)
+    item.raw.meta["turns"][0]["at"] = "2026-09-08T20:30:00"
+    await lib.store.add(USER, item)
+    code, out, err = await run(lib, "source", "fetch", SESSION, "¶0", "--json")
+    assert code == 0, err
+    row = json.loads(out)[0]
+    assert row["date"] == f"imported {day}"
+    assert row["speakers"][0]["date"] == day
+    assert row["at"] == row["speakers"][0]["at"] == "2026-09-08T20:30:00+00:00"
+    code, out, err = await run(lib, "source", "fetch", SESSION, "¶0")
+    assert code == 0, err
+    assert out.startswith(basis + "\n")
+    assert f"¶0 Avery {day}" in out
+
+
+@pytest.mark.parametrize("kind,envelope,time_key", [
+    ("agent_session", "turns", "at"), ("owner_dialogue", "turns", "said_at"),
+    ("im", "messages", "sent_at"), ("meeting", "segments", "started_at"),
+    ("email", "messages", "sent_at"),
+])
+@pytest.mark.parametrize("damage", ["short", "long", "reordered", "duplicate", "missing_ids", "bad_row", "block_order"])
+async def test_reader_omits_dates_speakers_and_roles_from_misaligned_envelopes(kind, envelope, time_key, damage):
+    lib = library(
+        docs=[document(PAGE, f"- Synthetic decision. [cite: {SESSION} ¶0-1] <!-- c:aaaa -->")],
+        lexical_hits=[LexHit(source_id=SESSION, block_index=0, text="synthetic decision")],
+    )
+    item = source(SESSION, kind=kind, blocks=["Original one.", "Original two."])
+    item.raw.meta = {
+        "owner_name": "Wrong attached name", "occurred_on": "2026-07-01",
+        "agent": {"name": "Wrong agent"},
+        "users": [{"user_id": "p", "display_name": "Wrong sender"}],
+        "participants": [{"participant_id": "p", "display_name": "Wrong speaker"}],
+        envelope: [{"role": "owner", "sender_id": "p", "speaker_id": "p",
+                    "from": {"address": "wrong@example.invalid"}, time_key: "2026-09-08T20:30:00+00:00"}
+                   for _ in range(2)],
+    }
+    _stamp_envelope_ids(item)
+    ids_key = envelope[:-1] + "_ids"
+    rows = item.raw.meta[envelope]
+    if damage == "short":
+        rows.pop()
+    elif damage == "long":
+        rows.append(dict(rows[0]))
+    elif damage == "reordered":
+        rows.reverse()
+    elif damage == "duplicate":
+        item.raw.meta[ids_key][1] = item.raw.meta[ids_key][0]
+        rows[1][envelope[:-1] + "_id"] = rows[0][envelope[:-1] + "_id"]
+    elif damage == "missing_ids":
+        item.raw.meta.pop(ids_key)
+    elif damage == "bad_row":
+        rows[0] = None
+    else:
+        item.blocks.reverse()
+    await lib.store.add(USER, item)
+    for args in (("source", "fetch", SESSION, "¶0-1"), ("canonical", "read", PAGE),
+                 ("search", "synthetic", "--lexical")):
+        code, out, err = await run(lib, *args, "--json")
+        assert code == 0, err
+        payload = json.loads(out)
+        if args[0] == "source":
+            blocks = payload[0]["speakers"]
+        elif args[0] == "canonical":
+            blocks = payload["sources"][0]["cited"][0]["speakers"]
+        else:
+            blocks = payload["hits"][0]["speakers"]
+        assert all(row == {"span": row["span"], "speaker": "unknown"} for row in blocks)
+
+
+@pytest.mark.parametrize("owner_display", [None, "Avery"])
+async def test_email_reader_exposes_normalized_roles_and_latest_cited_message_day(owner_display):
+    from pneuma_knowledge_core.ingest.canonical_sources import normalize_source_contract
+    from pneuma_knowledge_core.ingest.source_contracts import EmailSource
+
+    lib = library()
+    profile = await _owner_calendar(lib, "Asia/Shanghai")
+    instants = ("2026-09-07T20:00:00+00:00", "2026-09-08T20:00:00+00:00", "2026-09-10T20:00:00+00:00")
+    contract = EmailSource.model_validate({
+        "schema": "pneuma.source.email/v1", "provider": "mock", "archive_id": "synthetic-mail",
+        "owner_addresses": ["Avery@Example.Invalid"], "threads": [{
+            "thread_id": "synthetic-thread", "subject": "Synthetic schedule",
+            "messages": [{"message_id": f"m{i}", "sent_at": at,
+                          "from": {"address": address, "display_name": display},
+                          "to": [], "cc": [], "subject": "Synthetic schedule", "text": f"Synthetic message {i}."}
+                         for i, (at, address, display) in enumerate(zip(instants,
+                             ("blair@example.invalid", "avery@example.invalid", "blair@example.invalid"),
+                             ("Blair", owner_display, "Blair")))],
+        }],
+    })
+    item = normalize_source_contract(contract, USER, imported_at=datetime.now(timezone.utc),
+                                     time=time_context_for(USER, profile))[0]
+    sid = str(item.raw.source_id)
+    await lib.store.add(USER, item)
+    lib.canonical._docs = [document(PAGE, f"- Synthetic schedule. [cite: {sid} ¶0-1] <!-- c:aaaa -->")]
+    code, out, err = await run(lib, "canonical", "read", PAGE, "--json")
+    assert code == 0, err
+    payload = json.loads(out)
+    assert payload["sources"][0]["date"] == "2026-09-08"
+    assert payload["status"]["latest_cited_source"] == "2026-09-09"
+    assert payload["status"]["latest_cited_source_at"] == instants[1]
+    blocks = payload["sources"][0]["cited"][0]["speakers"]
+    assert [b["role"] for b in blocks] == ["other", "owner"]
+    assert [b["date"] for b in blocks] == ["2026-09-08", "2026-09-09"]
+    assert [b["at"] for b in blocks] == list(instants[:2])
+    code, out, err = await run(lib, "canonical", "read", PAGE)
+    assert code == 0, err
+    assert f"cited: ¶0 Blair 2026-09-08 · ¶1 {owner_display or 'avery@example.invalid'} 2026-09-09" in out
+
+
+async def test_failed_index_jobs_remain_visible_when_none_are_pending():
+    lib = library()
+    failed = await lib.store.enqueue(USER, "index", {})
+    await lib.store.complete(USER, failed, ok=False)
+    other = await lib.store.enqueue("other", "index", {})
+    await lib.store.complete("other", other, ok=False)
+    for mode in ("--lexical", "--fused"):
+        code, out, err = await run(lib, "search", "unindexed", mode)
+        assert code == 1
+        assert "index jobs: 0 pending · 1 failed (pkc jobs --status failed)" in out
+        assert "none pending" not in out
+
+
+def test_all_static_cli_help_uses_the_active_catalog():
+    import argparse
+    from pneuma_knowledge_core.prompts import chinese_overlay, override_prompts, reset_prompt_overrides
+    from pneuma_knowledge_service.coding_agent.skillpack import render_cli_md
+
+    def help_strings(parser):
+        if parser.description:
+            yield parser.description
+        for action in parser._actions:
+            if action.help:
+                yield action.help
+            if isinstance(action, argparse._SubParsersAction):
+                for entry in action._choices_actions:
+                    if entry.help:
+                        yield entry.help
+                for child in action.choices.values():
+                    yield from help_strings(child)
+
+    english = list(help_strings(build_parser()))
+    try:
+        override_prompts(chinese_overlay())
+        parser = build_parser()
+        chinese = list(help_strings(parser))
+        assert len(english) == len(chinese)
+        for en, zh in zip(english, chinese):
+            assert en != zh, en
+            assert any("\u4e00" <= char <= "\u9fff" for char in zh), zh
+        reference = render_cli_md(parser)
+        for text in ("每页字符数", "输出全部正文或 JSON", "仅 L1", "解析相对时间所用的基准时刻", "写入技能包的目录"):
+            assert text in reference
+        override_prompts({"steward.cli.page": "自定义分页说明"})
+        assert "自定义分页说明" in render_cli_md(build_parser())
+    finally:
+        reset_prompt_overrides()
+
+
+@pytest.mark.parametrize("engine", [False, True])
+def test_main_help_applies_chinese_before_argparse_exits(engine, tmp_path, monkeypatch, capsys):
+    from pneuma_knowledge_core.prompts import reset_prompt_overrides
+    from pneuma_knowledge_service import cli, settings as settings_module
+    from pneuma_knowledge_service.settings import Settings
+
+    engine_dir = tmp_path / "engine"
+    if engine:
+        (engine_dir / "prompts").mkdir(parents=True)
+        (engine_dir / "prompts" / "overlays.yaml").write_text("language: zh\n")
+    settings = Settings(engine_dir=str(engine_dir) if engine else "", prompt_language="zh",
+                        user_schema_base_version="v1", components="")
+    monkeypatch.setattr(settings_module, "get_settings", lambda: settings)
+    reset_prompt_overrides()
+    try:
+        with pytest.raises(SystemExit) as exc:
+            cli.main(["search", "-h"])
+        assert exc.value.code == 0
+        help_text = " ".join(capsys.readouterr().out.split())
+        assert "显示帮助并退出" in help_text
+        assert "每页字符数" in help_text and "仅 L1" in help_text
+        assert "characters per page" not in help_text
+    finally:
+        reset_prompt_overrides()

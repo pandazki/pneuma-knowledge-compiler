@@ -22,7 +22,7 @@ by the shape of the question, and every tool's return value are in the chosen li
 A common path, not a prescribed procedure:
 
 1. `pkchome exec -- pkc outline` — the complete map, one page per line. Without a chosen library it refuses and lists the libraries; name one with `--library NAME`.
-2. `pkchome exec -- pkc canonical read <path> [<path>…]` — the relevant pages in one call; the header and the `sources:` index say when the page last changed, what the queue holds, and who spoke each cited block on which day.
+2. `pkchome exec -- pkc canonical read <path> [<path>…]` — the relevant pages in one call; the header and the `sources:` index say when the page last changed, which compile jobs are pending or failed, and who spoke each cited block on which day.
 3. When the question spans pages or nobody knows which page: `pkchome exec -- pkc recall <q> --evidence` returns claims and verbatim windows from many pages in one call.
 4. `pkc source fetch <sid> ¶a-b` reads the source; `pkc search <q> --lexical` finds names, phrases and the newest sessions, and its header counts say where a match cannot be.
 5. Record the answer with `pkc consult answer <handoff_id> --text-file -` (or `pkc consult record --question <q> --text-file -` when no recall ran).
@@ -63,7 +63,7 @@ derived-rebuild operation.
 
 # Continuing in a library
 
-Start each session with `pkc outline`, the complete map; for answers follow `references/consume.md`: outline → `canonical read`, `recall --evidence`, `search`, `source fetch`; use budgeted `glance` only when outline is too long to scan.
+`pkc outline` is the complete map and a session usually begins there; for answers pick the path by the question's shape in `references/consume.md` (`canonical read`, `recall --evidence`, `search`, `source fetch`); use budgeted `glance` only when outline is too long to scan.
 After `pkc draft finish`, run `pkc outline --family <template>` for each family you wrote to see the new pages land; under an agent executor, API lanes are quality-testing tools for a keyed console.
 
 Run `pkchome library show NAME`. Read `SKILL.md` and `references/` in the package it

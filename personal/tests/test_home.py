@@ -1,4 +1,5 @@
 import io
+import os
 import json
 import stat
 
@@ -106,3 +107,17 @@ def test_atomic_write_failure_preserves_old_file(home, monkeypatch):
         home.set_credential("KEY", "new")
     assert home.credentials() == {"KEY": "old"}
     assert not list(home.path.glob(".*.tmp"))
+
+
+def test_the_deployment_default_calendar_is_this_machines_zone(home, make_library, monkeypatch):
+    """A personal edition runs on the Owner's machine: the engine and every `pkc` read count
+    days in this machine's zone unless the profile declares one. Process env still wins."""
+    from pkc_personal import environment
+    library = make_library()
+    monkeypatch.delenv("TZ", raising=False)
+    monkeypatch.setattr(os, "readlink", lambda path: "/var/db/timezone/zoneinfo/Asia/Shanghai")
+    assert home_environment(home, library)["PNEUMA_KNOWLEDGE_DEFAULT_TIMEZONE"] == "Asia/Shanghai"
+    monkeypatch.setattr(os, "readlink", lambda path: (_ for _ in ()).throw(OSError()))
+    assert environment.local_timezone_name() == "UTC"
+    monkeypatch.setenv("TZ", "Europe/Berlin")
+    assert environment.local_timezone_name() == "Europe/Berlin"

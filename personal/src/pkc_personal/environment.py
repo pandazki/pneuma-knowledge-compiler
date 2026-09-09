@@ -16,6 +16,21 @@ class LibraryNotChosen(ValueError):
     pass
 
 
+def local_timezone_name() -> str:
+    """The machine's IANA zone, from the `/etc/localtime` link (or `$TZ`), else UTC. The
+    personal edition runs on the Owner's own machine, so the deployment's default calendar
+    is this machine's; the Owner's declared zone in the profile still wins over it."""
+    tz = os.environ.get("TZ", "").strip()
+    if tz and "/" in tz:
+        return tz
+    try:
+        target = os.readlink("/etc/localtime")
+    except OSError:
+        return "UTC"
+    _, _, name = target.partition("zoneinfo/")
+    return name or "UTC"
+
+
 def home_environment(home: Home, library: Library) -> dict[str, str]:
     config = home.config.infra
     ports = config.ports
@@ -42,6 +57,8 @@ def home_environment(home: Home, library: Library) -> dict[str, str]:
         values["PROJECT_DIR"] = str(library.path)
     if "semantic_retrieval" in Settings.model_fields:
         values["SEMANTIC_RETRIEVAL"] = "on" if library.state.choices.semantic_retrieval else "off"
+    if "default_timezone" in Settings.model_fields:
+        values["DEFAULT_TIMEZONE"] = local_timezone_name()
     env = {prefix + key: value for key, value in values.items()}
     env.update(home.credentials())
     env[prefix + "ENV_FILE"] = ""

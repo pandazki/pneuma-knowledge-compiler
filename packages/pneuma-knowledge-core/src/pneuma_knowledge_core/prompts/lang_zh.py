@@ -2250,10 +2250,143 @@ _ZH: dict[str, str] = {
         "它们的地图。"
     ),
     "steward.skill.who": _STEWARD_WHO_ZH,
-    "steward.cli.recall": "fast 回答，或 --evidence：头部列出统计、handoff 和精确的下一页命令；依次列出断言、原文窗口、片段摘要（派生），地图放最后。有评分的章节按相关性排序，其余保留 lane 顺序。来源索引列出引用块、发言者和日期。--handoff ID 读取保留结果的分页，不重新检索，silent 调用也支持；仅用 --page 会重新检索。--json 保留 lane 完整原文。",
-    "steward.cli.canonical_read": "无条件读取一页或多页：最后改动（路径提交）、与 outline 一致的账本断言数、概览块数、全库替代关系及后继地址、最新被引来源、待处理及失败的编译队列。原样正文后列出来源索引、逐引用块发言者及日期；未知署名明确标注，导入日期带“导入”标签。",
-    "steward.cli.search": "按排名返回来源区间，逐块标注发言者及已记录日期。词法/融合头部报告每个词项及全部词项的已索引块数估计：单块匹配，相邻块仍可能合并涵盖词项；索引因 index 队列落后于 L0，并显示待处理数。带引号的短语算一个词项。",
-    "steward.cli.source_fetch": "从一个或多个来源逐字读取区间，标注完整来源 id、逐块发言者（缺失时标为未知）及已记录的块日期。来源日期为发生日期，或明确标为“导入”的日期。JSON 返回列表；分页时包装为 items 并附分页元数据。",
+    "steward.cli.archive_reason": "Owner 本人的归档理由；这里必须提供以下之一：`--statement` 指定 `pkc owner say` 输出的 owner-dialogue 来源，`--note-file` 提供相同原话（`-` 从标准输入读取）。归档记录引用 Owner 的原话，没有可代填的默认句子。在控制台 Steward 会话中，备注必须逐字摘自 Owner 在该会话输入的内容。",
+    "steward.cli.archive_plan_reason": "此处可选：计划不作决定，也不自行引用理由。`--statement` 指定 `pkc owner say` 输出的 owner-dialogue 来源，并固定记录将引用的来源；`--note-file`（`-` 从标准输入读取）仅将文字保留在提案中供列表展示。归档记录引用的理由来自 `pkc archive confirm`。在控制台 Steward 会话中，备注必须逐字摘自 Owner 在该会话输入的内容。",
+    "steward.cli.description": "知识库命令行：Steward 的读取工具，以及唯一的写入入口。",
+    "steward.cli.user": "操作所用的租户；默认取项目声明的 $PNEUMA_KNOWLEDGE_TENANT（或 $PNEUMA_APP_USER_ID）",
+    "steward.cli.draft": "逐条断言的编译草稿：领取作业、读取、写入、完成",
+    "steward.cli.draft_description": "一个打开的编译轮次。每条命令执行一次调用，用闸门自身的谓词检查改动的页面，并消耗一次轮次预算。退出码：0 成功，1 无事可做，2 拒绝，3 预算耗尽，4 闸门拒绝草稿。",
+    "steward.cli.draft_open": "领取作业，输出合同和任务",
+    "steward.cli.draft_status": "剩余预算、本轮已读页面以及闸门发现的未完成事项",
+    "steward.cli.draft_check": "检查整个打开的草稿，不结束轮次",
+    "steward.cli.brief_file": "本版本的 Steward 简报；不能为空，最多 8000 字符",
+    "steward.cli.take_over": "宽限期后放弃另一执行器已失效或闲置的草稿",
+    "steward.cli.frontmatter": "文档的 frontmatter，使用 JSON",
+    "steward.cli.body_file": "正文；省略或指定 `-` 时从标准输入读取",
+    "steward.cli.claim_file": "断言文本；省略或指定 `-` 时从标准输入读取",
+    "steward.cli.overview_file": "概览 JSON：definition、summary、introduction、connections、fields；省略或指定 `-` 时从标准输入读取",
+    "steward.cli.fields_json": "字段值，使用 JSON",
+    "steward.cli.page": "正文或 JSON 列表的页码（默认 1）；recall 需用 --handoff 复用结果",
+    "steward.cli.all_pages": "输出全部正文或 JSON，不限长度",
+    "steward.cli.include_archived": "同时读取归档，默认关闭。已归档页面或来源是 Owner 已移出默认回答范围的内容。开启后，归档结果标注为 `[archived]`（`--json` 中为 `archived`），以区分历史和当前内容",
+    "steward.cli.evolve_draft": "通过演进闸门提出方案并调整结构",
+    "steward.cli.evolve_open": "领取演进作业，输出证据、合同和闸门规则",
+    "steward.cli.evolve_new": "打开 Owner 请求的演进作业",
+    "steward.cli.evolve_from": "在已有提案固定的基线上继续",
+    "steward.cli.evolve_status": "预算和闸门检查结果",
+    "steward.cli.evolve_check": "检查整个演进草稿，不结束轮次",
+    "steward.cli.evolve_finish": "运行演进闸门并写入待审提案",
+    "steward.cli.abandon_draft": "释放作业并删除其临时草稿",
+    "steward.cli.evolve_propose": "第一阶段的判断，使用 EvolveProposal JSON",
+    "steward.cli.move_claim": "逐字移动带锚点的断言；必要时创建空目标页面",
+    "steward.cli.rename": "重命名文档，保留锚点和身份",
+    "steward.cli.retire": "撤下页面；提案必须列明每个被移除的锚点",
+    "steward.cli.evolve_contract": "修订合同，以新版本采纳",
+    "steward.cli.file": "从文件读取文本（`-` 从标准输入读取）",
+    "steward.cli.stdin": "从标准输入读取文本",
+    "steward.cli.index": "来源索引判断",
+    "steward.cli.episodes": "通过索引入口选择有证据支撑的片段",
+    "steward.cli.episodes_status": "剩余预算及尚无片段覆盖的块",
+    "steward.cli.episodes_finish": "记录清单、替换 L2 向量并结束作业",
+    "steward.cli.canonical": "页面列表、单页及断言的替代链",
+    "steward.cli.paths": "一页或多页，在同一进程中读取",
+    "steward.cli.anchor": "一个锚点（c:xxxx）；省略时显示全部",
+    "steward.cli.source": "L0：来源、结构和逐字原文区间",
+    "steward.cli.title_query": "匹配标题",
+    "steward.cli.fused": "`rag` 使用的 RRF 融合（默认）",
+    "steward.cli.version": "`pkc history` 显示的补丁引用；可只写前缀",
+    "steward.cli.evolve": "模式演进提案",
+    "steward.cli.evolve_adopt": "将 Owner 采纳提案的决定加入作业队列",
+    "steward.cli.recall_query": "新检索必须提供；使用 --handoff 时省略",
+    "steward.cli.handoff": "对保留的 --evidence 结果分页，不重新检索",
+    "steward.cli.visitor_class": "本次调用在注意力账本中留下什么：`silent` 完全不记录（没有咨询记录，`pkc consultations`、`pkc spend` 和注意力报告均不可见），`business` 和 `audit` 记录一次咨询。默认值取决于模式：`--evidence` 默认 `business`，因为 Steward 据此回答 Owner 就是知识库被使用；单独的 `pkc recall` 默认 `silent`，因为无人阅读的回答属于通道评估。",
+    "steward.cli.as_of": "解析相对时间所用的基准时刻",
+    "steward.cli.library": "整个知识库",
+    "steward.cli.owner": "将 Owner 的话作为来源",
+    "steward.cli.statement_file": "Owner 的声明；省略或指定 `-` 时从标准输入读取",
+    "steward.cli.about": "声明涉及的 canonical 页面；可重复指定，仅为提示，不构成授权",
+    "steward.cli.said_at": "发言时刻（ISO 8601）；省略时使用当前时刻",
+    "steward.cli.config": "引擎的检索选项",
+    "steward.cli.profile": "Owner 是谁：编译无法从材料中推断的信息",
+    "steward.cli.profile_description": "知识库属于一个人，合同把此人的事实记入其个人资料，而不是陌生人的页面；为此资料必须明确 Owner 的身份。`show` 报告是否仍为生成器占位资料；`set` 记录 Owner 提供的信息，同时写入项目的 engine/persona/profile.yaml 和持久化资料。",
+    "steward.cli.profile_file": "YAML 或 JSON 格式的个人资料映射；`-` 从标准输入读取",
+    "steward.cli.profile_stdin": "从标准输入读取个人资料映射",
+    "steward.cli.payload_file": "输入数据；省略或指定 `-` 时从标准输入读取",
+    "steward.cli.intake": "覆盖建议的摄取类型",
+    "steward.cli.consult": "记录通过交接或直接读取后给出的回答",
+    "steward.cli.answer_file": "回答文本；省略或指定 `-` 时从标准输入读取",
+    "steward.cli.answer_stdin": "从标准输入读取回答",
+    "steward.cli.record_visitor_class": "business 记录并排队更新注意力；audit 仅记录；silent 不记录",
+    "steward.cli.archive": "归档知识并保留内容：提出方案、确认和查看当前归档",
+    "steward.cli.archive_description": "归档是移动，不是删除：页面连同历史移至 `archive/`，原路径保留简短记录，说明主题及 Owner 归档的理由；来源保留全部块并添加归档日期。根据 Owner 指定的内容计算完整集合，展示后必须针对同一知识库状态确认，才会执行移动。退出码：0 成功，1 无此提案，2 拒绝。",
+    "steward.cli.archive_document": "按路径指定要归档的 canonical 页面；可重复",
+    "steward.cli.archive_source": "按 id 指定要归档的来源；可重复",
+    "steward.cli.archive_action": "操作方向；`unarchive` 恢复页面并移除归档记录",
+    "steward.cli.cascade": "同时确认规划器从指定项推导出的关联项；省略时仅列出关联项并保留原位",
+    "steward.cli.deselect": "按引用取消选择计划中的一项；可重复",
+    "steward.cli.contract_edit": "修订后的合同文本；最多 100000 字符",
+    "steward.cli.episodes_propose": "带有证据支撑的标题和描述的闭区间；允许空缺及 []",
+    "steward.cli.canonical_history": "页面中的替代链，展示断言过去的内容",
+    "steward.cli.jobs": "作业队列，最新在前",
+    "steward.cli.history": "编译版本、作业和来源，最新在前",
+    "steward.cli.brief": "某一版本的编译后简报",
+    "steward.cli.consultations": "保留的使用记录，最新在前",
+    "steward.cli.spend": "已记录咨询消耗的 token 数",
+    "steward.cli.evolve_ls": "所有提案及其状态",
+    "steward.cli.evolve_show": "完整显示一份提案",
+    "steward.cli.library_check": "对已提交知识库运行闸门检查；仅报告，不修复；发现问题时退出码为 4",
+    "steward.cli.owner_say": "记录一条 owner-dialogue/v1 声明并排队编译；每次纠正从这里开始，没有作业就不能改动断言。仅在控制台 Steward 会话中，桥接持有对话记录，因此文本须逐字摘自 Owner 在该会话输入的内容（忽略空白差异）；改述会以退出码 2 拒绝。终端会话没有可用于核对的对话记录，行为不变。",
+    "steward.cli.config_set": "开启或关闭语义检索",
+    "steward.cli.profile_show": "本知识库编译所用的个人资料，以及是否仍为占位资料",
+    "steward.cli.profile_set": "记录 Owner 提供的信息；与 engine/persona/profile.yaml 采用相同格式和校验，一次写入",
+    "steward.cli.profile_confirm": "将资料字段确认为 Owner 本人声明",
+    "steward.cli.ingest": "按六种合同之一导入一份数据",
+    "steward.cli.consult_answer": "为交接提供回答并记录咨询；复用通道的构建和记录逻辑，所有引用均在当前租户内解析",
+    "steward.cli.consult_record": "记录没有交接的直接读取",
+    "steward.cli.consult_pending": "仍在等待回答的交接",
+    "steward.cli.archive_propose": "计算归档这些页面和来源需要的集合：指定项、全部关联项以及每页留下的记录",
+    "steward.cli.archive_ls": "所有归档提案及其状态",
+    "steward.cli.archive_show": "完整显示提案：当前状态、每项及其纳入原因，以及已排队的作业",
+    "steward.cli.archive_confirm": "确认提案并排队执行作业；确认 Owner 指定的项，仅在带 --cascade 时包含关联项",
+    "steward.cli.archive_drop": "关闭不再执行的提案",
+    "steward.cli.archive_inventory": "当前归档内容：页面及其归档日期、原路径的归档记录，以及来源及其归档日期",
+    "steward.cli.draft_abandon": "将作业释放回队列并删除草稿",
+    "steward.cli.episodes_open": "领取一个来源的片段作业，输出结构、规则和预算",
+    "steward.cli.family": "仅显示指定的已声明路径模板族",
+    "steward.cli.definitions": "有定义时，附上每页的一行定义",
+    "steward.cli.canonical_ls": "按路径列出所有 canonical 页面",
+    "steward.cli.source_ls": "本知识库的来源，最新在前",
+    "steward.cli.source_show": "单个来源的元数据和结构图；无条件可读，不受 Owner 归档操作影响",
+    "steward.cli.skill": "编码代理读取的 Steward 技能：生成、安装、检查",
+    "steward.cli.skill_description": "技能包由当前部署的合同、措辞、组件和命令树生成，不手写。`install` 将其放入项目；`verify` 在已安装内容与当前输入的生成结果不符时以退出码 4 退出。",
+    "steward.cli.skill_install": "生成技能包并写入项目",
+    "steward.cli.skill_render": "将技能包生成到目录，不安装到项目，也不写入指令文件",
+    "steward.cli.skill_verify": "重新生成并列出偏差；有偏差时退出码为 4",
+    "steward.cli.skill_show": "显示技能包的哈希和文件列表，不修改项目",
+    "steward.cli.skill_probe": "检查执行器是否已安装且已登录；检查可用性，不检查版本；不可用时退出码为 4",
+    "steward.cli.json": "机器可读输出；默认以正文展示相同状态",
+    "steward.cli.render_backend": "要使用哪个执行器的目录布局",
+    "steward.cli.backend": "要使用哪个执行器的目录布局；`all` 表示全部内置执行器",
+    "steward.cli.deadline": "可用性检查的秒数上限，超时后终止进程组；未完成登录也会表现为挂起",
+    "steward.cli.out": "写入技能包的目录；不存在时创建",
+    "steward.cli.language": "生成正文所用的语言包；默认使用引擎目录的语言",
+    "steward.cli.force": "替换目录内容；省略时拒绝非空目录，不写入任何内容",
+    "steward.cli.verify_dir": "检查 `pkc skill render --out` 生成的目录，而非项目安装；不检查路由指令块",
+    "steward.cli.project": "要操作的项目目录；默认为当前目录",
+    "steward.cli.page_chars": "每页字符数（默认 {default}；0 表示不分页）",
+    "steward.cli.profile_field": "一个字段，格式为 `name=value`；可重复。可设置：{fields}",
+    "steward.cli.lexical": "仅 L1",
+    "steward.cli.semantic": "仅 L2",
+    "steward.cli.help": "显示帮助并退出",
+    "steward.read.days_owner": "日期：按 Owner 时区（{zone}）",
+    "steward.read.days_utc": "日期：UTC（未记录 Owner 时区）",
+    "steward.read.days_default": "日期：按本部署的默认时区（{zone}）；Owner 未声明时区",
+    "steward.read.compile_jobs": "编译作业：{pending} 待处理 · {failed} 失败（pkc jobs --status failed）",
+    "steward.read.index_jobs": "索引作业：{pending} 待处理 · {failed} 失败（pkc jobs --status failed）",
+    "steward.cli.recall": "fast 回答，或 --evidence：头部列出统计、handoff 和精确的下一页命令；依次列出断言、原文窗口、片段摘要（派生），地图放最后。有评分的章节按相关性排序，其余保留 lane 顺序。来源索引列出引用块、发言者和日期。--handoff ID 读取保留结果的分页，不重新检索，silent 调用也支持；仅用 --page 会重新检索。--json 保留 lane 完整原文。 所有展示日期按头部声明的 Owner 时区计算，缺失时明确回退 UTC。仅在元数据序列与块对齐后展示日期和发言者；邮件块展示发件人、角色和日期。",
+    "steward.cli.canonical_read": "无条件读取一页或多页：最后改动（路径提交）、与 outline 一致的账本断言数、概览块数、全库替代关系及后继地址、最新被引块日期（缺失时取来源日期）、待处理及失败的编译作业。原样正文后列出来源索引、逐引用块发言者及日期；未知署名明确标注，导入日期带“导入”标签。 所有展示日期按头部声明的 Owner 时区计算，缺失时明确回退 UTC。仅在元数据序列与块对齐后展示日期和发言者；邮件块展示发件人、角色和日期。",
+    "steward.cli.search": "按排名返回来源区间，逐块标注发言者及已记录日期。词法/融合头部报告每个词项及全部词项的已索引块数估计：单块匹配，相邻块仍可能合并涵盖词项；索引可能落后于 L0，并显示待处理及失败的索引作业数。带引号的短语算一个词项。 所有展示日期按头部声明的 Owner 时区计算，缺失时明确回退 UTC。仅在元数据序列与块对齐后展示日期和发言者；邮件块展示发件人、角色和日期。",
+    "steward.cli.source_fetch": "从一个或多个来源逐字读取区间，标注完整来源 id、逐块发言者（缺失时标为未知）及已记录的块日期。来源日期为发生日期，或明确标为“导入”的日期。JSON 返回列表；分页时包装为 items 并附分页元数据。 所有展示日期按头部声明的 Owner 时区计算，缺失时明确回退 UTC。仅在元数据序列与块对齐后展示日期和发言者；邮件块展示发件人、角色和日期。",
     "steward.cli.source_fetch_spans": "一个或多个 ¶a-b、¶a 或 a-b 区间，后面可接另一来源 id 及其区间；每个来源恰好两个裸整数 `a b` 表示一个区间",
     "steward.read.imported": "导入 {day}",
     "steward.read.section_claims": "断言",
@@ -2286,7 +2419,7 @@ _ZH: dict[str, str] = {
     "steward.read.page": "页面：{path}",
     "steward.read.status": "最后改动：{last_changed}（提交 {commit}） · 断言：{claims} · 概览块：{overview_blocks} · 已被替代：{superseded} · 引用来源：{sources_cited} · 最新被引来源：{latest_cited_source}",
     "steward.read.query": "查询：{query}",
-    "steward.read.search_counts": "已索引块中同时含全部词项：{all_terms} · {terms}（估计；词法索引中的单块匹配；相邻块仍可能合并涵盖这些词项；索引因 index 队列落后于 L0）",
+    "steward.read.search_counts": "已索引块中同时含全部词项：{all_terms} · {terms}（估计；词法索引中的单块匹配；相邻块仍可能合并涵盖这些词项；索引可能落后于 L0）",
     "steward.read.showing": "显示：{showing} / {total}（按排名；总数为估计；--limit N 可查看更多）",
     "steward.read.showing_fused": "显示：{showing} 条融合结果（按排名；--limit N 可查看更多）",
     "steward.read.lexical_total": "词法总数：{total}（估计）",
@@ -2339,6 +2472,7 @@ _ZH: dict[str, str] = {
   本租户的真实块、页面遵循[契约](contract.md)、overview 块落在账本 claim 或来源区间上，以及
   契约标为 owner-voice 的页面所引的块出自 Owner 本人。闸门不验证那段原文是否真的表达了 claim 所说的
   意思。Claim 是编译者对原文的解读，原文是它脚下的事实，一次 `source fetch` 就能看到。
+- **所有日期按同一个日历打印。** 每条输出的头部写明基准（`日期：按 Owner 时区（<时区>）`，没有记录 Owner 时区时为 UTC）；块日期、来源日期、`最后改动` 和 `as_of` 都按它，claim 的日期和块的日期才可比。
 - **claim 里的日期是编译者换算的。** 编译任务写明 Owner 的日历和时间框架，编译者把日期写成
   Owner 时区的日历日，相对说法（「下周」）附原话。来源索引会印出每个被引块自己的日期（块带
   时间戳时），claim 的日期和来源的日期并排可比；两者不一致、或日期本身就是答案时，以原文为准。
@@ -2349,11 +2483,11 @@ _ZH: dict[str, str] = {
   证据下方的 `来源：` 索引写明每个被引块的说话人——Owner 本人的话，还是 agent 对自己工作的
   叙述；来源没有角色时印 `未知`。Agent 报告「做完了」不等于 Owner 验收；动作短记是日志，不是结果。
 - **新鲜度只是 git 和队列知道的那些。** 页面头部印出这页最后改动的时间，以及本租户的编译队列
-  （待处理与失败）。它不知道更新的会话是否涉及这页：还在队列里的材料不在任何页面上，而一页旧
-  页面也可能仍然正确。
+  （待处理与失败）。它不知道更新的会话是否涉及这页：待处理作业还没完成，计数也不说明它们的来源是否已被这页
+  引用、将来的改动是否涉及这页。一页旧页面也可能仍然正确。
 - **「没有」只是缩小范围，不是证明。** `pkc search --lexical` 数的是已索引块中同时含全部查询词的
   块数，按单块计。为零只说明没有哪一个已索引块同时含这些词——相邻块可能含、换个说法可能含，
-  而且索引比 L0 滞后一个索引队列（头部也会印出来）。这个计数告诉你不必去哪里找，不代表库里
+  而且索引比 L0 滞后那些待处理或失败的索引作业（头部按作业数印出来，它不是覆盖率）。这个计数告诉你不必去哪里找，不代表库里
   没有记录。
 - **力度是契约的。** `【强】/【中】/【弱】`之类标签表达[契约](contract.md)规定的区分，不是
   真实性的概率。`pkc profile show` 中，`inferred` 是 Steward 的假设，`owner` 表示 Owner 写下或
@@ -2366,9 +2500,9 @@ _ZH: dict[str, str] = {
 
 | 问题的形状 | 走法 |
 |---|---|
-| 问一个 outline 里认得出的主体（一个项目、一个人、一个主题） | `pkc outline` 定位 → `pkc canonical read <path> [<path>…]` 一次读完相关页面 → 按 claim 作答。头部写明这页何时最后改动、队列里有什么；`来源：` 索引写明每个被引块是谁、哪天说的。措辞、日期或说话人对答案要紧时，读原文（`pkc source fetch`）。 |
+| 问一个 outline 里认得出的主体（一个项目、一个人、一个主题） | `pkc outline` 定位 → `pkc canonical read <path> [<path>…]` 一次读完相关页面 → 按 claim 作答。头部写明这页何时最后改动、有哪些待处理或失败的编译作业；`来源：` 索引写明每个被引块是谁、哪天说的。展示的证据还留着与答案相关的不确定、或需要更多原文上下文时，用 `pkc source fetch`。 |
 | 问题跨多个页面，或不知道落在哪一页 | `pkc recall <q> --evidence`：一次拿到多页的 claim 与原文窗口，头部统计页面、写明章节顺序和回答时要关闭的 `handoff:`。证据不够时沿引用地址 `source fetch`；长结果的下一页从保留的交接里取（`--handoff <id> --page N`），不会重新检索。 |
-| 找一个名字、一句原话、没入正本的材料、或最新的会话 | `pkc search <q> --lexical`（默认 10 条；`--limit N` 加多）。头部数出每个词的已索引块数、同时含全部词的块数，并印出索引队列；每条命中写明说话人。语义检索开着时 `--semantic` 查概念匹配。 |
+| 找一个名字、一句原话、没入正本的材料、或最新的会话 | `pkc search <q> --lexical`（默认 10 条；`--limit N` 加多）。头部数出每个词的已索引块数、同时含全部词的块数，并印出待处理与失败的索引作业数；每条命中写明说话人。语义检索开着时 `--semantic` 查概念匹配。 |
 | 什么都没找到 | 页面里没有、检索计数也为零时，说明你查了什么、没有找到记录，并用 `pkc consult record … --kind no_record` 收尾。要不要再扩大范围——相邻块、换个说法、`--include-archived`——由你判断；计数只说明匹配不可能在哪里，不说明没有。 |
 | 只想知道库里有什么 | `pkc outline`（`--definitions` 带一行定义）：完整地图，一页一行，没有 top-K 或字符预算，长了分页。仅当 outline 太长、难以扫读时才用有预算的 `pkc glance`，它会省略页面并报告数量。 |
 | `pkc draft finish` 之后 | 对每个写入过的族运行 `pkc outline --family <template>`，查看新页面是否落在正确的族下。 |
@@ -2387,11 +2521,11 @@ _ZH: dict[str, str] = {
 - `pkc glance`——回答通道按预算挑选的地图：每族头部页面加省略数。典型用法：仅当 outline 太长难以扫读。
 - `pkc canonical ls`——所有页面路径。`pkc canonical read <path> [<path>…]`——状态头部（`最后改动`
   及其提交、与 outline 口径一致的 `断言` 数、`已被替代` 及每个接替者的地址、`引用来源`、
-  `最新被引来源`、`队列` 的待处理与失败数），编译模型看到的那份页面（overview、账本、锚点、
+  `最新被引来源`、`编译作业` 的待处理与失败数），编译模型看到的那份页面（overview、账本、锚点、
   引用），以及 `来源：` 索引：每个被引来源的类型、日期（没有发生日期时写 `导入 <日期>`）、标题，
   来源带角色时有 `引用区间：` 一行，写明每个被引块的说话人和日期。`pkc canonical history <path>
   c:xxxx`——一条 claim 的接替链。典型用法：回答关于某个主体的问题；一次读多页。
-- `pkc search <q> --lexical`——头部（`已索引块中同时含全部词项`、逐词计数、`索引队列`、
+- `pkc search <q> --lexical`——头部（`已索引块中同时含全部词项`、逐词计数、`索引作业` 的待处理与失败数、
   `显示：N / M`）和按序的 L1 命中，带来源/块地址，来源带角色时带说话人；不受 intake plan 限制。
   `--semantic`（`intake.semantic_retrieval` 为 `on` 时）查已索引的概念匹配；默认融合可用支路。
   语义摘要是派生内容，不是原文。典型用法：名字、原句、未编译或最新的材料、缩小记录可能在哪里。
@@ -2399,8 +2533,8 @@ _ZH: dict[str, str] = {
   `pkc source fetch <sid> ¶a-b [<sid> ¶c-d …]`——一个或多个来源的逐字区间，每段上方一行写明
   来源、区间、说话人、日期。典型用法：看一条 claim 背后的措辞、日期或说话人；读被引区间的上下文。
 - `pkc recall <q> --evidence`——fast 通道的证据：头部（问题、`as_of`、`handoff:` 与下一页的
-  命令、逐页 claim 统计、窗口与摘要数、章节顺序），然后依次是按相关度排序的断言、原文窗口、
-  派生片段摘要、最后是地图；`来源：` 索引带和页面一样的 `引用区间：` 行。不构建 chat model。
+  命令、逐页 claim 统计、窗口与摘要数、章节顺序），然后依次是断言、原文窗口、派生片段摘要——通道给出相关度时按相关度排序，否则头部标明
+  「按通道顺序」——最后是地图；`来源：` 索引带和页面一样的 `引用区间：` 行。不构建 chat model。
   `--json` 的 `content` 保留通道的原样上下文。典型用法：跨页面的问题。
 - `pkc history`——版本、作业和来源；`pkc brief <version>`——保留的编译后简报。典型用法：定位
   知识库何时变化，再读对应 claim。

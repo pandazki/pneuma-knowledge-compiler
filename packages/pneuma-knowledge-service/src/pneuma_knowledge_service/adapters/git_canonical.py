@@ -369,17 +369,17 @@ class GitCanonicalStore:
         if at is None and not self._has_head(repo):
             return None
         result = self._run(
-            repo, "log", "-1", "--format=%H %cs", self._ref(at), "--", f":(literal){path}"
+            repo, "log", "-1", "--format=%H %cI", self._ref(at), "--", f":(literal){path}"
         ).stdout.strip()
         if not result:
             return None
-        commit, day = result.split()
-        return commit, day
+        commit, instant = result.split()
+        return commit, datetime.fromisoformat(instant).isoformat()
 
     async def last_commit(
         self, user_id: UserId, path: str, *, at: SnapshotRef | None = None
     ) -> tuple[str, str] | None:
-        """Last committed change to a literal path, in the commit's recorded timezone."""
+        """Last committed change to a literal path, with its original offset timestamp."""
         return await asyncio.to_thread(self._last_commit, user_id, path, at)
 
     def _written_on(self, user_id: UserId, prefix: str) -> dict[str, str]:

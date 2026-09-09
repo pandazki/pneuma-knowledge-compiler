@@ -282,7 +282,7 @@ class CanonicalStore(Protocol):
     async def last_commit(
         self, user_id: UserId, path: str, *, at: SnapshotRef | None = None
     ) -> tuple[str, str] | None:
-        """Last commit touching this exact path: (ref, recorded YYYY-MM-DD), or absent.
+        """Last commit touching this exact path: (ref, ISO 8601 instant with offset), or absent.
 
         A supplied snapshot bounds the history as well as the document being read.
         """

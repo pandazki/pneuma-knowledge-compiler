@@ -58,10 +58,12 @@ from pneuma_knowledge_core.recall.rag import rag_recall
 
 from .reader_signals import (
     SourceSignals,
+    calendar_header,
+    calendar_metadata,
     evidence_lines,
     evidence_tally,
     one_line,
-    span_speaker_text,
+    recorded_day,    span_speaker_text,
     source_index_lines,
 )
 
@@ -169,7 +171,10 @@ def page_items(payload: Any, page: int, page_chars: int) -> Any:
     }
 
 
-def _emit(rt: ReadRuntime, payload: Any, lines: list[str], *, json_paging: bool = True) -> None:
+def _emit(
+    rt: ReadRuntime, payload: Any, lines: list[str], *, json_paging: bool = True,
+    header: list[str] | None = None,
+) -> None:
     """One state, two renderings. `--json` prints the payload; the default prints the lines,
     one page of them at a time (`page` / `all_pages` on the runtime)."""
     if rt.as_json:
@@ -177,6 +182,8 @@ def _emit(rt: ReadRuntime, payload: Any, lines: list[str], *, json_paging: bool 
             payload = page_items(payload, rt.page, rt.page_chars)
         print(json.dumps(payload, ensure_ascii=False, indent=2, default=str), file=rt.out)
         return
+    if header:
+        print("\n".join(header), file=rt.out)
     text = "\n".join(lines)
     pages = [text] if rt.all_pages else paginate(text, rt.page_chars)
     if len(pages) == 1:
@@ -393,7 +400,7 @@ async def cmd_canonical_read(rt: ReadRuntime, path: str | list[str]) -> int:
     docs = await rt.ctx.canonical.list(rt.user_id, at=at)
     by_path = {d.path: d for d in docs}
     successors = superseded_index({d.path: d.body for d in docs})
-    signals = await SourceSignals.for_runtime(rt.ctx.store, rt.user_id)
+    signals = await SourceSignals.for_runtime(rt.ctx, rt.user_id)
     _jobs, pending, _more = await rt.ctx.store.list_jobs_page(
         rt.user_id, limit=1, status=("queued", "claimed"), kind="compile"
     )
@@ -417,18 +424,22 @@ async def cmd_canonical_read(rt: ReadRuntime, path: str | list[str]) -> int:
              "path": successors[anchor][0]}
             for anchor in dict.fromkeys(anchors) if anchor in successors
         ]
+        latest = signals.latest_source(sources)
         status = {
-            "last_changed": written[1] if written else None,
+            "last_changed": recorded_day(written[1], signals.time) if written else None,
+            "last_changed_at": written[1] if written else None,
             "commit": written[0] if written else None,
             "claims": claim_count(doc),
             "overview_blocks": len(anchors) - claim_count(doc),
             "superseded": len(replaced),
             "sources_cited": len(sources),
-            "latest_cited_source": signals.latest_day(s["source_id"] for s in sources),
+            "latest_cited_source": latest["date"] if latest else None,
+            "latest_cited_source_at": latest.get("at") if latest else None,
             "queue_pending": pending,
             "queue_failed": failed,
         }
-        item = {"path": doc.path, "document": render_document(doc.frontmatter, doc.body),
+        item = {"path": doc.path, "calendar": calendar_metadata(signals.time),
+                "document": render_document(doc.frontmatter, doc.body),
                 "status": status, "supersessions": replaced, "sources": sources}
         found.append(item)
         display = {key: value if value is not None else prompt("steward.read.unknown")
@@ -442,21 +453,15 @@ async def cmd_canonical_read(rt: ReadRuntime, path: str | list[str]) -> int:
                 f"({prompt('steward.read.this_page') if link['path'] == doc.path else link['path']})"
                 for link in replaced
             ))] if replaced else []),
-            prompt("steward.read.queue", pending=(
-                prompt("steward.read.compile_pending", count=pending) if pending
-                else prompt("steward.read.none_pending")
-            ), failed=(
-                prompt("steward.read.compile_failed", count=failed) if failed
-                else prompt("steward.read.none_failed")
-            )),
+            prompt("steward.read.compile_jobs", pending=pending, failed=failed),
             "", item["document"], "", *source_index_lines(sources), "",
         ])
     if not found:
         return EXIT_NOTHING
     if len(paths) == 1:
-        _emit(rt, found[0], lines)
+        _emit(rt, found[0], lines, header=[calendar_header(signals.time)])
     else:
-        _emit(rt, {"pages": found}, lines)
+        _emit(rt, {"pages": found}, lines, header=[calendar_header(signals.time)])
     return EXIT_OK
 
 
@@ -628,7 +633,7 @@ async def cmd_source_fetch(rt: ReadRuntime, source_id: str, span: str | list[str
                 "exactly two bare integers `a b` mean one span; another source id needs a span"
             )
     items = []
-    signals = await SourceSignals.for_runtime(rt.ctx.store, rt.user_id)
+    signals = await SourceSignals.for_runtime(rt.ctx, rt.user_id)
     try:
         for sid, tokens in groups:
             spans = (
@@ -643,7 +648,8 @@ async def cmd_source_fetch(rt: ReadRuntime, source_id: str, span: str | list[str
                 summary = await signals.summary(sid)
                 items.append({"source_id": sid, "blocks": [start, end],
                               **await signals.span(sid, start, end),
-                              "date": summary["date"], "text": text})
+                              "date": summary["date"], **({"at": summary["at"]} if "at" in summary else {}),
+                              "calendar": calendar_metadata(signals.time), "text": text})
     except (KeyError, ValueError) as exc:
         print(str(exc), file=rt.err)
         return EXIT_NOTHING
@@ -657,6 +663,7 @@ async def cmd_source_fetch(rt: ReadRuntime, source_id: str, span: str | list[str
             else f" · {item['date'] or prompt('steward.read.unknown')}")
          + f"\n{item['text']}"
          for item in items],
+        header=[calendar_header(signals.time)],
     )
     return EXIT_OK
 
@@ -751,7 +758,7 @@ async def cmd_search(
                     "text": hit.text,
                 }
             )
-    signals = await SourceSignals.for_runtime(ctx.store, rt.user_id)
+    signals = await SourceSignals.for_runtime(ctx, rt.user_id)
     for hit in hits:
         hit["archived"] = (
             view.source_archived(hit["source_id"]) if view is not None else False
@@ -762,9 +769,9 @@ async def cmd_search(
             hit["speaker"] = speaker["speaker"]
     payload = {
         "mode": mode, "query": query, "include_archived": include_archived, "hits": hits,
-        "showing": len(hits), "total": total,
+        "showing": len(hits), "total": total, "calendar": calendar_metadata(signals.time),
     }
-    lines = [prompt("steward.read.query", query=one_line(query))]
+    lines = [prompt("steward.read.query", query=one_line(query)), calendar_header(signals.time)]
     if mode != "semantic":
         counts = await asyncio.gather(*(
             ctx.lexical.count(rt.user_id, term_query, all_terms=True,
@@ -779,11 +786,12 @@ async def cmd_search(
         _jobs, index_pending, _more = await ctx.store.list_jobs_page(
             rt.user_id, limit=1, status=("queued", "claimed"), kind="index"
         )
+        _jobs, index_failed, _more = await ctx.store.list_jobs_page(
+            rt.user_id, limit=1, status="failed", kind="index"
+        )
         payload["index_queue_pending"] = index_pending
-        lines.append(prompt("steward.read.index_queue", pending=(
-            prompt("steward.read.pending", count=index_pending) if index_pending
-            else prompt("steward.read.none_pending")
-        )))
+        payload["index_queue_failed"] = index_failed
+        lines.append(prompt("steward.read.index_jobs", pending=index_pending, failed=index_failed))
         if mode == "fused":
             # A fused candidate cap is not an index-wide total. Keep the lexical estimate
             # separately named; pretending it counted vector-only hits can yield 10 of 0.
@@ -798,12 +806,13 @@ async def cmd_search(
     _emit(
         rt,
         payload,
-        lines + [
+        [
             f"{h['source_id']} {span_speaker_text(h)}"
             + ("  [archived]" if h["archived"] else "")
             + f"\n  {h['text']}"
             for h in hits
         ],
+        header=lines,
     )
     if not hits:
         print("nothing found", file=rt.err)
@@ -1203,7 +1212,7 @@ async def cmd_recall_evidence(
     ]
     body = message_text(evidence.content)
     tally = evidence_tally(evidence)
-    signals = await SourceSignals.for_runtime(rt.ctx.store, rt.user_id)
+    signals = await SourceSignals.for_runtime(rt.ctx, rt.user_id)
     # The rendered content includes annotated and component claims as well as ordinary
     # claims/windows. Add explicit claim provenance too; never infer citations from titles.
     citations = [citation for _kind, section in evidence.sections
@@ -1219,11 +1228,12 @@ async def cmd_recall_evidence(
     handoff_id = uuid.uuid4().hex
     payload = {
         "handoff_id": handoff_id, "question": query, "as_of": when.isoformat(),
+        "as_of_day": recorded_day(when, signals.time), "calendar": calendar_metadata(signals.time),
         "system": evidence.system, "content": body, "tally": tally, "sources": sources,
         "handles": dict(evidence.handles), "evidence_manifest": _manifest_payload(evidence.manifest),
         "arms": arms, "visitor_class": visitor_class, "include_archived": bool(include_archived),
     }
-    header, lines = evidence_lines(evidence, tally)
+    header, lines = evidence_lines(evidence, tally, signals.time)
     header.insert(2, f"handoff: {handoff_id}")
     header.extend([
         "answer it with: pkc consult answer "

@@ -36,6 +36,8 @@ import sys
 from pathlib import Path
 from typing import TextIO
 
+from pneuma_knowledge_core.prompts import prompt
+
 from ..coding_agent.backends import BACKENDS, backend as backend_manifest
 from ..coding_agent.probe import DEFAULT_DEADLINE_S, probe
 from ..coding_agent.install import (
@@ -64,29 +66,22 @@ def add_skill_commands(top) -> None:  # noqa: ANN001
     """`pkc skill …`, registered from the one place the tree is assembled."""
     skill = top.add_parser(
         "skill",
-        help="the Steward skill a coding agent reads: render it, install it, check it",
-        description=(
-            "The skill package is generated from this deployment's own contract, wording, "
-            "components and command tree — never written by hand. `install` puts it in a "
-            "project; `verify` exits 4 when what is installed is no longer what those inputs "
-            "render."
-        ),
+        help=prompt("steward.cli.skill"),
+        description=prompt("steward.cli.skill_description"),
     )
     sub = skill.add_subparsers(dest="command", required=True)
 
     for name, help_text in (
-        ("install", "render the package and write it into a project"),
+        ("install", prompt("steward.cli.skill_install")),
         (
             "render",
-            "render the package into a directory and install nothing — no project, no "
-            "instructions file",
+            prompt("steward.cli.skill_render"),
         ),
-        ("verify", "re-render and list what drifted; exit 4 when anything did"),
-        ("show", "the package's hash and file list, without touching a project"),
+        ("verify", prompt("steward.cli.skill_verify")),
+        ("show", prompt("steward.cli.skill_show")),
         (
             "probe",
-            "is the harness installed and logged in? liveness, never a version — exit 4 "
-            "when it is not usable",
+            prompt("steward.cli.skill_probe"),
         ),
     ):
         p = sub.add_parser(name, help=help_text)
@@ -100,9 +95,9 @@ def add_skill_commands(top) -> None:  # noqa: ANN001
             # one harness or none.
             choices=sorted(BACKENDS) if name == "render" else (*sorted(BACKENDS), "all"),
             help=(
-                "which harness's layout to use"
+                prompt("steward.cli.render_backend")
                 if name == "render"
-                else "which harness's layout to use; `all` does every shipped one"
+                else prompt("steward.cli.backend")
             ),
         )
         if name == "probe":
@@ -110,16 +105,13 @@ def add_skill_commands(top) -> None:  # noqa: ANN001
                 "--deadline",
                 type=float,
                 default=DEFAULT_DEADLINE_S,
-                help=(
-                    "seconds the liveness command gets before its process group is reaped; "
-                    "an unfinished login looks exactly like a hang"
-                ),
+                help=prompt("steward.cli.deadline"),
             )
         if name == "render":
             p.add_argument(
                 "--out",
                 required=True,
-                help="the directory to write the package into; created if it is not there",
+                help=prompt("steward.cli.out"),
             )
             p.add_argument(
                 "--language",
@@ -127,18 +119,12 @@ def add_skill_commands(top) -> None:  # noqa: ANN001
                 # Read off the engine's own prompt-language knob, never retyped here: the
                 # choice this command offers and the choice an apply accepts are one list.
                 choices=("", *prompt_languages()),
-                help=(
-                    "the language pack to render the prose under; the engine directory's "
-                    "own by default"
-                ),
+                help=prompt("steward.cli.language"),
             )
             p.add_argument(
                 "--force",
                 action="store_true",
-                help=(
-                    "replace what is in the directory; without it a non-empty one is "
-                    "refused and nothing is written"
-                ),
+                help=prompt("steward.cli.force"),
             )
         elif name != "probe":
             # `show` takes it too, and reads nothing: the project decides which path the
@@ -147,23 +133,20 @@ def add_skill_commands(top) -> None:  # noqa: ANN001
             p.add_argument(
                 "--project",
                 default=".",
-                help="the project directory to act on; the current directory by default",
+                help=prompt("steward.cli.project"),
             )
         if name == "verify":
             p.add_argument(
                 "--dir",
                 dest="directory",
                 default="",
-                help=(
-                    "verify a directory written by `pkc skill render --out` instead of a "
-                    "project install; the router block is not part of that question"
-                ),
+                help=prompt("steward.cli.verify_dir"),
             )
         p.add_argument(
             "--json",
             dest="as_json",
             action="store_true",
-            help="machine-readable output; the default is the same state as prose",
+            help=prompt("steward.cli.json"),
         )
 
 
