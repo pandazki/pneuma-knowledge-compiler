@@ -15,7 +15,17 @@ import pytest
 from pneuma_knowledge_service.infra import ports
 
 
-def test_probed_ports_are_distinct_in_range_and_actually_bindable():
+@pytest.fixture
+def localhost_binding():
+    """These two OS tests require permission to bind, including inside a sandbox."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            probe.bind(("127.0.0.1", 0))
+    except PermissionError:
+        pytest.skip("sandbox denies localhost socket binding")
+
+
+def test_probed_ports_are_distinct_in_range_and_actually_bindable(localhost_binding):
     probed = ports.probe_free_ports(6)
     assert len(set(probed)) == 6
     lo, hi = ports.DEFAULT_PORT_RANGE
@@ -25,7 +35,7 @@ def test_probed_ports_are_distinct_in_range_and_actually_bindable():
             probe.bind(("127.0.0.1", port))
 
 
-def test_an_exhausted_range_refuses_instead_of_looping_forever():
+def test_an_exhausted_range_refuses_instead_of_looping_forever(localhost_binding):
     # One port wide and already taken: the probe must give up with a stated reason rather
     # than spin, which is what a caller turns into its own error message.
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as taken:

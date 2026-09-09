@@ -961,6 +961,8 @@ async def cmd_consultations(rt: ReadRuntime, *, limit: int = 25) -> int:
             "visitor_class": r.get("visitor_class"),
             "question": r.get("question"),
             "miss": r.get("miss"),
+            "state": r.get("state", "answered"),
+            "answered_at": r["answered_at"].isoformat() if r.get("answered_at") else None,
             "answer_kind": r.get("answer_kind"),
             "evidence_handed": r["evidence_count"],
             "citations": r["citation_count"],
@@ -972,7 +974,8 @@ async def cmd_consultations(rt: ReadRuntime, *, limit: int = 25) -> int:
         rt,
         {"consultations": items, "total": total},
         [
-            f"{i['created_at']}  {i['lane']:<12} {'MISS' if i['miss'] else '    '}  "
+            f"{i['consultation_id']}  {i['created_at']}  {i['lane']:<12} "
+            f"{prompt('steward.read.unanswered') if i['state'] == 'unanswered' else prompt('steward.read.miss' if i['miss'] else 'steward.read.answered')}  "
             f"{i['question']}  ·  evidence handed: {i['evidence_handed']}  ·  "
             f"citations: {i['citations']}  ·  direct: {i['citations_direct']}"
             for i in items
@@ -1199,6 +1202,8 @@ async def cmd_recall_evidence(
     if not query:
         return _refuse(rt, "recall requires a query or --evidence --handoff <id>")
     when = datetime.fromisoformat(as_of) if as_of else datetime.now(timezone.utc)
+    opened_at = datetime.now(timezone.utc)
+    snaps = await rt.ctx.canonical.snapshots(rt.user_id)
     evidence = await fast_recall(
         rt.user_id, query, evidence_only=True,
         **await _fast_kwargs(
@@ -1234,14 +1239,16 @@ async def cmd_recall_evidence(
         "arms": arms, "visitor_class": visitor_class, "include_archived": bool(include_archived),
     }
     header, lines = evidence_lines(evidence, tally, signals.time)
-    header.insert(2, f"handoff: {handoff_id}")
+    recording = prompt("steward.read.handoff_silent" if visitor_class == "silent"
+                       else "steward.read.handoff_recorded")
+    header.insert(2, f"handoff: {handoff_id} · {visitor_class} · {recording}")
     header.extend([
         "answer it with: pkc consult answer "
         f"{handoff_id} --text-file <f>   (or `-` for stdin, or --kind no_record)",
         f"visitor class: {visitor_class}" + (
             "  — this call will leave NO consultation record; re-run with "
             "`--visitor-class business` (or `audit`) to record one"
-            if visitor_class == "silent" else "  — answering it records one consultation"
+            if visitor_class == "silent" else f"  — {recording}"
         ),
     ])
     if include_archived:
@@ -1254,15 +1261,29 @@ async def cmd_recall_evidence(
     ]
     retained = {"payload": payload, "header": header, "text": "\n".join(lines),
                 "page_chars": rt.page_chars}
-    snaps = await rt.ctx.canonical.snapshots(rt.user_id)
-    await handoffs.create(rt.user_id, handoff_id, {
+    state = {
         "question": query, "as_of": when.isoformat(),
         # Sampled, not pinned: the same library-ref semantics as the answering route.
         "library_ref": snaps[0].ref if snaps else "", "visitor_class": visitor_class,
         "include_archived": bool(include_archived), "handles": dict(evidence.handles),
         "manifest": _manifest_payload(evidence.manifest), "answer_format": evidence.answer_format,
-        "created_at": datetime.now(timezone.utc).isoformat(), "retained_result": retained,
-    })
+        "created_at": opened_at.isoformat(), "retained_result": retained,
+        "opening_recorded": visitor_class != "silent",
+    }
+    if visitor_class != "silent":
+        from pneuma_knowledge_core.domain.consultation import ConsultationRecord, dedup_evidence
+        from .consult import _default_emit
+
+        opening = ConsultationRecord(
+            consultation_id=handoff_id, user_id=str(rt.user_id), created_at=opened_at,
+            lane="fast", visitor_class=visitor_class, question=query, as_of=when,
+            library_ref=state["library_ref"], evidence_handed=dedup_evidence(list(evidence.manifest)),
+            event="opening", miss=None,
+        )
+        # Persist use before publishing retained pages that claim it was recorded. If
+        # retaining prose fails, the completed retrieval still leaves its kept opening.
+        await _default_emit(rt.ctx, rt.user_id, opening)
+    await handoffs.create(rt.user_id, handoff_id, state)
     _emit_evidence(rt, retained, new_retrieval=True)
     return EXIT_OK
 

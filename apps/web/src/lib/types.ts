@@ -8,6 +8,8 @@
 
 export type FlagKind = "disputed" | "open_question" | "inferred" | string;
 
+export type ConsultationState = "unanswered" | "answered";
+
 export type RedactionState = "included" | "snippet" | "withheld" | string;
 
 export interface Citation {

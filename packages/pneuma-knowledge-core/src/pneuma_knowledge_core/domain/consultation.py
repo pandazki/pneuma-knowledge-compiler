@@ -35,7 +35,7 @@ of core's involvement — one per lane, so a caller does no field-picking of its
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Literal
 
@@ -83,8 +83,11 @@ class EvidenceRef:
 
 @dataclass(frozen=True)
 class ConsultationRecord:
-    """One consultation, as its lane emitted it. Frozen: a record of what happened is not
-    editable."""
+    """An immutable opening, answer event, or joined reading of those two events.
+
+    `complete` preserves the single-call lanes' builder face: the service writes both
+    events together. A later answer is a NEW value, never a mutation of its opening.
+    """
 
     #: Identity — all three system-assigned by the caller, never by the model or the client.
     consultation_id: str
@@ -120,7 +123,7 @@ class ConsultationRecord:
     citations: tuple[EvidenceRef, ...] = ()
     #: `is_miss` over the two fields above it. Stored rather than recomputed at read time so
     #: a replay of the records cannot disagree with what was recorded.
-    miss: bool = False
+    miss: bool | None = False
     #: The lane's degradation flags, copied as `(field, value)` pairs in field order — only
     #: the ones that fired, so an undegraded run carries an empty tuple.
     degraded: tuple[tuple[str, str], ...] = field(default_factory=tuple)
@@ -132,6 +135,44 @@ class ConsultationRecord:
     #: is computed when someone reads — out of the rates the deployment declares then — and
     #: a stored amount would be a number nobody can reproduce a quarter later.
     token_usage: tuple[tuple[str, int], ...] = field(default_factory=tuple)
+    answered_at: datetime | None = None
+    event: Literal["opening", "answer", "complete"] = "complete"
+
+    def __post_init__(self) -> None:
+        if self.event not in {"opening", "answer", "complete"}:
+            raise ValueError(f"unknown consultation event: {self.event}")
+        if self.event == "opening":
+            if (self.answer_kind is not None or self.answer or self.citations
+                    or self.miss is not None or self.degraded or self.token_usage
+                    or self.answered_at is not None):
+                raise ValueError("an opening carries no answer event or miss classification")
+        else:
+            if self.miss is None:
+                raise ValueError("an answer event requires its miss classification")
+            if self.answered_at is None:
+                # Existing single-call builders record both events at the same instant.
+                object.__setattr__(self, "answered_at", self.created_at)
+
+    @property
+    def state(self) -> Literal["unanswered", "answered"]:
+        return "unanswered" if self.event == "opening" else "answered"
+
+    @property
+    def event_at(self) -> datetime:
+        return self.created_at if self.event == "opening" else (self.answered_at or self.created_at)
+
+    def opening(self) -> ConsultationRecord:
+        """Read the first kept event without borrowing anything from the answer."""
+        return replace(
+            self, event="opening", answered_at=None, answer_kind=None, answer="",
+            citations=(), miss=None, degraded=(), token_usage=(),
+        )
+
+    def events(self) -> tuple[ConsultationRecord, ...]:
+        """Opening before answer, even when a single call emitted both together."""
+        if self.event != "complete":
+            return (self,)
+        return (self.opening(), replace(self, event="answer"))
 
     @property
     def citations_direct(self) -> int:

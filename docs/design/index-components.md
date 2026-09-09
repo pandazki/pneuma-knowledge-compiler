@@ -76,7 +76,7 @@ once.
 | `source_preamble(source)` | rendering the compile task | one mechanical line under a source: what the source *boundary* knows and the transcript cannot show |
 | `prepare(user_id)` | at the head of a compile job, before any sync face renders, inside the job window (§4) | the async face of the sync seams (§4) |
 | `on_source_indexed(user_id, source)` | when one source finishes L1/L2 | the projection channel's incremental write |
-| `on_recall(user_id, record)` | on the WORKER, when it drains the projection job one business-classed answering-lane call enqueued | the use-side twin of `on_source_indexed`: one `ConsultationRecord` — the question, the addresses of what was handed to the model, what the answer cited. A record is not knowledge and never becomes any; it says the library was ASKED something, which is the one thing L0 and canonical cannot say |
+| `on_recall(user_id, record)` | on the worker, for each business consultation event | Two deliveries under one `consultation_id`: `event="opening"` carries the question and handed addresses; `event="answer"` adds answer citations and miss classification. Each event is immutable and projection is idempotent per `(consultation_id, event)`. An unanswered opening is neither hit nor miss. These records describe use, never knowledge |
 | `evolve_evidence(user_id)` | assembling a schema-evolve proposal | one mechanical block beside the compile events and the document list, reporting what the component knows about the library's USE. It reaches the model in the human turn and only when non-empty (I5) |
 | `rebuild(user_id)` | on an explicit `rebuild_derived` | re-derive the whole projection from its declared substrate |
 
@@ -100,17 +100,19 @@ one that solves a deployment problem.
 
 - **`on_source_indexed`** — the incremental write. The index job calls it after L1/L2 land.
 - **`on_recall`** — the same write, from the use side, and delivered the same way: the
-  answering route only EMITS (a row plus one `recall_projection` job, in one transaction),
+  request path only EMITS (each event plus its `recall_projection` delivery, in one transaction),
   and the worker draining that job is what calls this. Fail-soft on the index channel's
   exact terms — a component that raises is logged and costs a stale ledger, never the job,
-  and never the answer, which was returned long before any of this ran.
+  and never the evidence or answer served by the request path.
 - **`rebuild`** — the full re-derivation. `scripts/ops/rebuild_derived.py` calls it.
 - **`prepare`** — the async face of the sync seams.
 
 **A projection is rebuildable from its declared substrate.** For every projection the
 framework shipped first, that substrate is L0 + canonical, and I2/I7 were written in those
-terms. `on_recall` adds a second one: the use-side records the service keeps (the
-`consultations` table). They are not L0 and not canonical, and they are not derived either —
+terms. `on_recall` adds a second one: the use-side opening and answer events the service keeps (the
+`consultations` table). `list_consultation_events` replays them in time order, with the
+opening first on a tie. Separate projection stamps let a rebuild replay an applied opening
+while its answer is still queued; neither kept event is rewritten. They are not L0 and not canonical, and they are not derived either —
 nothing can regenerate the fact that somebody asked something, so `rebuild_derived` leaves
 them exactly where they are while re-deriving everything projected FROM them. Nothing about
 authority moves: a consultation is never an authority over knowledge, canonical still derives

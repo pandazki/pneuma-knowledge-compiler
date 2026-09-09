@@ -313,6 +313,7 @@ async def test_the_briefing_ask_route_emits_on_the_same_terms(monkeypatch, compo
                 lane=kw["lane"],
                 visitor_class=kw["visitor_class"],
                 consultation_id=kw["consultation_id"],
+                event="complete",
             ),
             out,
             user=user,

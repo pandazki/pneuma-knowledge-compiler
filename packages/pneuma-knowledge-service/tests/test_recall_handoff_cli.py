@@ -213,7 +213,7 @@ async def test_the_evidence_is_byte_for_byte_the_human_message_the_answer_call_c
     assert RecordingModel.seen[-1][0].content == evidence.system
 
 
-async def test_evidence_records_a_pending_handoff_and_no_consultation():
+async def test_evidence_records_an_unanswered_consultation_at_handoff():
     lib = _lib()
     await _seed(lib)
     rt = _rt(lib, as_json=True)
@@ -228,8 +228,11 @@ async def test_evidence_records_a_pending_handoff_and_no_consultation():
     assert state["question"] == QUESTION
     assert state["visitor_class"] == "business"
     assert state["manifest"]
-    # Nothing is a consultation yet — that is the whole point of the pending row.
-    assert lib.store.consultations == []
+    opening = await lib.store.get_consultation(USER, handoff_id)
+    assert opening.state == "unanswered" and opening.miss is None
+    assert opening.question == QUESTION and opening.evidence_handed
+    assert opening.answered_at is None
+    assert len(lib.store.projection_jobs) == 1
 
 
 # ─────────────────────────────────────────────────────────── closing the hand-over
@@ -276,12 +279,14 @@ async def test_an_invented_span_refuses_the_answer_and_preserves_the_handoff():
     )
     assert code == 4 and not out
     assert "s-01 ¶999" in err
-    assert not lib.store.consultations and not lib.store.projection_jobs
+    assert len(lib.store.consultations) == len(lib.store.projection_jobs) == 1
+    assert lib.store.consultations[0]["state"] == "unanswered"
+    assert lib.store.consultations[0]["miss"] is None
     assert await lib.handoffs.get(USER, handoff_id) is not None
     # Correct the answer against the same hand-over: exactly one question, one record.
     code, _out, _err = await _answer(lib, handoff_id, f"20 a seat. [cite: {handle} ¶1]")
     assert code == 0
-    assert len(lib.store.consultations) == len(lib.store.projection_jobs) == 1
+    assert len(lib.store.consultations) == 1 and len(lib.store.projection_jobs) == 2
 
 
 async def test_answering_writes_the_record_the_lane_would_have_and_closes_the_handoff():
@@ -319,7 +324,7 @@ async def test_business_enqueues_one_projection_job_and_silent_enqueues_none():
     handoff_id, handles, _m = await _handoff(lib, visitor_class="business")
     handle = next(h for h, real in handles.items() if real == "s-01")
     await _answer(lib, handoff_id, f"20. [cite: {handle} ¶1]")
-    assert len(lib.store.projection_jobs) == 1
+    assert len(lib.store.projection_jobs) == 2
 
     quiet = _lib()
     await _seed(quiet)
@@ -345,8 +350,9 @@ async def test_an_empty_answer_is_refused_rather_than_recorded_as_a_miss():
     code, _out, err = await _answer(lib, handoff_id, "   \n")
     assert code == 2
     assert "no_record" in err
-    # Refused BEFORE anything was written, and the hand-over is still open.
-    assert lib.store.consultations == []
+    # No answer was written; the opening is still unanswered.
+    assert lib.store.consultations[0]["state"] == "unanswered"
+    assert lib.store.consultations[0]["miss"] is None
     assert await lib.handoffs.get(USER, handoff_id) is not None
 
 
@@ -415,7 +421,7 @@ async def test_a_recording_class_says_so_instead():
     )
     printed = rt.out.getvalue()
     assert "visitor class: business" in printed
-    assert "records one consultation" in printed
+    assert "recorded as an unanswered consultation until closed" in printed
     assert "NO consultation record" not in printed
 
 
@@ -493,7 +499,7 @@ async def test_direct_citations_resolve_beside_handed_handles_and_keep_the_manif
     assert by_ref["c:aaa1"]["path"] == PAGE
     assert payload["citations_direct"] == 2
     assert payload["evidence_handed"] == len(manifest)
-    assert len(lib.store.projection_jobs) == 1
+    assert len(lib.store.projection_jobs) == 2
     spawn.assert_called_once()
 
 
@@ -508,7 +514,9 @@ async def test_invalid_direct_citations_cannot_leave_partial_records(citation):
     handoff_id, _handles, _manifest = await _handoff(lib)
     code, out, err = await _answer(lib, handoff_id, f"Read: [cite: s-01 ¶1] {citation}")
     assert code == 4 and not out and "unresolved citation" in err
-    assert not lib.store.consultations and not lib.store.projection_jobs
+    assert len(lib.store.consultations) == len(lib.store.projection_jobs) == 1
+    assert lib.store.consultations[0]["state"] == "unanswered"
+    assert lib.store.consultations[0]["miss"] is None
     assert await lib.handoffs.get(USER, handoff_id) is not None
 
 
@@ -538,7 +546,7 @@ async def test_empty_keyless_handoff_can_close_from_direct_reads_without_a_secon
     assert payload["evidence_handed"] == 0 and payload["citations_direct"] == 2
     assert not payload["miss"]
     assert all(c["origin"] == "direct" for c in payload["citations"])
-    assert len(lib.store.consultations) == len(lib.store.projection_jobs) == 1
+    assert len(lib.store.consultations) == 1 and len(lib.store.projection_jobs) == 2
 
 
 @pytest.mark.parametrize("visitor_class, recorded, jobs", [
@@ -568,6 +576,9 @@ async def test_consult_record_uses_the_same_emission_without_a_handoff(
     assert payload["miss"] is False
     assert len(lib.store.consultations) == int(recorded)
     assert len(lib.store.projection_jobs) == jobs
+    if jobs:
+        queued = await lib.store.list_jobs(USER)
+        assert queued[0]["payload"] == {"consultation_id": payload["consultation_id"]}
     assert spawn.call_count == int(recorded)
     assert await lib.handoffs.list_pending(USER) == []
 
@@ -616,3 +627,125 @@ async def test_evidence_prose_reports_the_model_free_arms():
     assert "retrieve.claims: ran" in printed
     assert "retrieve.windows: ran" in printed
     assert "retrieve.glance: skipped (no model; glance pick skipped" in printed
+
+
+@pytest.mark.parametrize("visitor_class, recorded, jobs", [
+    ("business", True, 1), ("audit", True, 0), ("silent", False, 0),
+])
+async def test_handoff_counts_as_use_before_any_answer(visitor_class, recorded, jobs):
+    import json
+
+    lib = _lib()
+    await _seed(lib)
+    hid, _handles, manifest = await _handoff(lib, visitor_class=visitor_class)
+    opening = await lib.store.get_consultation(USER, hid)
+    assert (opening is not None) is recorded
+    assert len(lib.store.projection_jobs) == jobs
+    if not recorded:
+        assert lib.store.consultations == []
+        return
+    assert opening.state == "unanswered" and opening.miss is None
+    assert opening.answer == "" and opening.citations == () and opening.answered_at is None
+    assert len(opening.evidence_handed) == len(manifest)
+    rt = _rt(lib, as_json=True)
+    assert await read_cmd.cmd_consultations(rt) == 0
+    row = json.loads(rt.out.getvalue())["consultations"][0]
+    assert row["consultation_id"] == hid and row["state"] == "unanswered"
+    assert row["question"] == QUESTION and row["evidence_handed"] == len(manifest)
+    assert row["miss"] is None and row["answered_at"] is None
+    # It cannot enter either the misses-only or the hits-only list.
+    for miss in (True, False):
+        rows, total, _ = await lib.store.list_consultations_page(USER, miss=miss)
+        assert rows == [] and total == 0
+
+
+@pytest.mark.parametrize("visitor_class", ["business", "audit"])
+async def test_answer_appends_once_under_handoff_id_and_never_changes_opening(visitor_class):
+    import json
+
+    lib = _lib()
+    await _seed(lib)
+    hid, _handles, _manifest = await _handoff(lib, visitor_class=visitor_class)
+    opening = await lib.store.get_consultation(USER, hid)
+    code, out, err = await _answer(lib, hid, "Seats cost 20. [cite: s-01 ¶1]")
+    assert code == 0, err
+    assert json.loads(out)["consultation_id"] == hid
+    answered = await lib.store.get_consultation(USER, hid)
+    assert answered.opening() == opening
+    assert opening.state == "unanswered" and opening.miss is None
+    assert answered.state == "answered" and answered.answered_at >= opening.created_at
+    assert len(lib.store.projection_jobs) == (2 if visitor_class == "business" else 0)
+    before = list(lib.store.projection_jobs)
+    code, out, err = await _answer(lib, hid, "A different answer. [cite: s-01 ¶1]")
+    assert code == 4 and not out and "already answered" in err
+    assert await lib.store.get_consultation(USER, hid) == answered
+    assert lib.store.projection_jobs == before
+
+
+async def test_expiring_retained_evidence_keeps_the_unanswered_opening():
+    from datetime import timedelta
+
+    lib = _lib()
+    await _seed(lib)
+    hid, _handles, _manifest = await _handoff(lib)
+    opening = await lib.store.get_consultation(USER, hid)
+    await lib.handoffs.sweep(datetime.now(timezone.utc) + timedelta(seconds=1))
+    assert await lib.handoffs.get(USER, hid) is None
+    assert await lib.store.get_consultation(USER, hid) == opening
+    code, out, err = await _answer(lib, hid, "Too late.")
+    assert code == 1 and not out and "expired" in err
+    assert (await lib.store.get_consultation(USER, hid)).state == "unanswered"
+
+
+async def test_failed_answer_persistence_keeps_the_handoff_and_never_reports_success(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    lib = _lib()
+    await _seed(lib)
+    hid, _handles, _manifest = await _handoff(lib)
+    opening = await lib.store.get_consultation(USER, hid)
+    monkeypatch.setattr(lib.store, "answer_consultation", AsyncMock(side_effect=RuntimeError("offline")))
+    with pytest.raises(RuntimeError, match="offline"):
+        await _answer(lib, hid, "20. [cite: s-01 ¶1]")
+    assert await lib.handoffs.get(USER, hid) is not None
+    assert await lib.store.get_consultation(USER, hid) == opening
+
+
+async def test_failed_opening_persistence_publishes_no_retained_handoff(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    lib = _lib()
+    await _seed(lib)
+    monkeypatch.setattr(lib.store, "create_consultation", AsyncMock(side_effect=RuntimeError("offline")))
+    rt = _rt(lib)
+    with pytest.raises(RuntimeError, match="offline"):
+        await read_cmd.cmd_recall_evidence(rt, QUESTION, handoffs=lib.handoffs)
+    assert not rt.out.getvalue()
+    assert await lib.handoffs.list_pending(USER) == []
+    assert lib.store.consultations == []
+
+
+async def test_api_lists_an_opening_and_serves_its_evidence_before_an_answer():
+    from types import SimpleNamespace
+    from pneuma_knowledge_service.api.routes import v1
+
+    lib = _lib()
+    await _seed(lib)
+    hid, _handles, manifest = await _handoff(lib)
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(ctx=lib.ctx)))
+    page = await v1.list_consultations(
+        str(USER), request, limit=25, cursor=None, lane=None,
+        visitor_class=None, miss=None, target=None,
+    )
+    row = page.items[0]
+    assert row.consultation_id == hid and row.state == "unanswered"
+    assert row.miss is None and row.evidence_count == len(manifest)
+    assert row.answered_at is None and row.citation_count == 0
+    detail = v1._consultation_out(await lib.store.get_consultation(USER, hid), lib.ctx.settings)
+    assert detail.state == "unanswered" and detail.answer == "" and detail.miss is None
+    assert len(detail.evidence_handed) == len(manifest) and detail.citations == []
+    other = await v1.list_consultations(
+        "synthetic-other", request, limit=25, cursor=None, lane=None,
+        visitor_class=None, miss=None, target=None,
+    )
+    assert other.items == []

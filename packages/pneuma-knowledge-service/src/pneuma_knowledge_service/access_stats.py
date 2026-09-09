@@ -31,12 +31,12 @@ Two derived tables, keyed by address (I4) and by `user_id` first (I1):
 Access metadata NEVER touches a canonical file. It is joined at read time, by address, out
 of the derived layer — a read must never become a write to the authority.
 
-AT MOST ONCE PER RECORD
------------------------
-`apply_record` and the `projected_at` stamp on the consultation row land in ONE transaction.
-A job that finds `projected_at` already set is a no-op, so a retry — a worker killed
-mid-job, a queue self-heal on restart — cannot count the same consultation twice. What the
-stamp does not cover is the component fan-out that follows it: a process death between the
+AT MOST ONCE PER EVENT
+----------------------
+Each event's increments and its stamp (`opening_projected_at` or `projected_at` for the
+answer) land in ONE transaction. A stamped event is a no-op on retry, including when an
+opening is replayed after its answer arrived. A single-call lane emits both events together.
+The stamp does not cover is the component fan-out that follows it: a process death between the
 commit and the fan-out loses the notification for good. That is the at-most-once trade this
 delivery model chose out loud, in place of the at-least-once one that would double every
 count it recovered.
@@ -195,8 +195,10 @@ def targets(record: ConsultationRecord) -> dict[tuple[str, str], int]:
         for path in pages:
             counts[("document", path)] = counts.get(("document", path), 0) + 1
 
-    add(record.evidence_handed)
-    add(record.citations)
+    if record.event != "answer":
+        add(record.evidence_handed)
+    if record.event != "opening":
+        add(record.citations)
     return counts
 
 
@@ -217,11 +219,11 @@ class LedgerSums:
 
     def add(self, records: Sequence[ConsultationRecord]) -> None:
         """Fold one batch in. The caller may drop it the moment this returns."""
-        for record in records:
+        for record in (event for record in records for event in record.events()):
             if getattr(record, "visitor_class", "") != "business":
                 continue
-            day = utc_day(record.created_at)
-            instant = _utc_instant(record.created_at)
+            day = utc_day(record.event_at)
+            instant = _utc_instant(record.event_at)
             for (kind, ref), count in targets(record).items():
                 key = (kind, ref, day)
                 self._hits[key] = self._hits.get(key, 0) + count
@@ -432,15 +434,19 @@ def top_misses(
 
 
 async def apply_record(store: Any, user_id: UserId, record: ConsultationRecord) -> bool:
-    """Apply one record's hits and miss, and stamp it projected — in ONE transaction.
+    """Apply each event and its stamp atomically; return whether any event was new.
 
-    Returns whether this call was the one that applied it. `False` means the record was
-    already stamped, which is what makes a retried job a no-op rather than a second count.
+    Openings add handed targets only; answers add citations and the recorded miss only.
+    A joined single-call record is split into those same two independent deliveries.
     """
-    hits, misses = ledger_rows([record])
-    return await store.apply_access_stats(
-        user_id, record.consultation_id, hits, misses
-    )
+    applied = False
+    for event in record.events():
+        hits, misses = ledger_rows([event])
+        changed = await store.apply_access_stats(
+            user_id, event.consultation_id, hits, misses, event=event.event,
+        )
+        applied = applied or changed
+    return applied
 
 
 async def rebuild_access_stats(store: Any, user_id: UserId) -> int:
@@ -458,7 +464,8 @@ async def rebuild_access_stats(store: Any, user_id: UserId) -> int:
     answer and a whole evidence manifest, so retaining them would make a rebuild's memory a
     function of how much the library has been used.
 
-    ONLY RECORDS ALREADY STAMPED `projected_at` ARE REPLAYED. A record still unstamped at
+    ONLY EVENTS ALREADY STAMPED ARE REPLAYED (`opening_projected_at` / `projected_at`).
+    An event still unstamped at
     scan time has a `recall_projection` job of its own waiting in this user's queue, and
     that queue is the serialization: this rebuild runs as a `recall_rebuild` job holding the
     user's one in-flight claim, so no projection can land between the scan and the swap.
@@ -472,9 +479,9 @@ async def rebuild_access_stats(store: Any, user_id: UserId) -> int:
     """
     sums = LedgerSums()
     replayed = 0
-    after: tuple[datetime, str] | None = None
+    after: tuple[datetime, str, int] | None = None
     while True:
-        page = await store.list_consultations(
+        page = await store.list_consultation_events(
             user_id,
             visitor_class="business",
             projected=True,
@@ -485,8 +492,9 @@ async def rebuild_access_stats(store: Any, user_id: UserId) -> int:
             break
         sums.add(page)
         replayed += len(page)
-        after = (page[-1].created_at, page[-1].consultation_id)
-        # The cursor is two scalars, so nothing from the page outlives this line.
+        after = (page[-1].event_at, page[-1].consultation_id,
+                 0 if page[-1].event == "opening" else 1)
+        # The cursor is three scalars, so nothing from the page outlives this line.
         del page
     hits, misses = sums.rows()
     await store.replace_access_stats(user_id, hits, misses)
@@ -512,9 +520,23 @@ async def run_recall_projection_job(ctx: Any, user_id: UserId, job: object) -> N
     if record is None:
         await ctx.store.complete(user_id, job_id, ok=True, detail="consultation gone")
         return
-    applied = await apply_record(ctx.store, user_id, record)
-    if applied:
-        await notify_recall(str(user_id), record)
+    from dataclasses import replace
+
+    event_name = payload.get("event", "complete")
+    if event_name == "opening":
+        events = (record.opening(),)
+    elif event_name == "answer" and record.state == "answered":
+        events = (replace(record, event="answer"),)
+    elif event_name == "complete":
+        # A single-call lane emitted both together; legacy jobs have no discriminator.
+        events = record.events()
+    else:
+        raise ValueError(f"unavailable consultation event: {event_name}")
+    applied = False
+    for event in events:
+        if await apply_record(ctx.store, user_id, event):
+            applied = True
+            await notify_recall(str(user_id), event)
     await ctx.store.complete(
         user_id,
         job_id,
@@ -536,7 +558,7 @@ async def run_recall_rebuild_job(ctx: Any, user_id: UserId, job: object) -> None
     job_id = getattr(job, "job_id")
     replayed = await rebuild_access_stats(ctx.store, user_id)
     names = await rebuild_components(str(user_id))
-    detail = f"replayed {replayed} record(s)"
+    detail = f"replayed {replayed} event(s)"
     if names:
         detail += f"; components: {', '.join(names)}"
     await ctx.store.complete(user_id, job_id, ok=True, detail=detail)

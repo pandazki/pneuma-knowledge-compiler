@@ -534,36 +534,48 @@ exactly what the lane would have handed its answer model. Prose preserves each e
 section's contents while moving the map last for a reader who already holds it; metadata
 headers and source indexes add mechanical reading signals without changing the lane.
 
-What the hand-over records is a **pending handoff**, not a consultation. A `ConsultationRecord`
-is frozen and `is_miss` reads `answer_kind`, so a record written before the answer exists
-would have to be rewritten when it arrived — which a kept record never is — or would state a
-miss the lane never observed. So `--evidence` persists the material a record would be built
-from (the question, `as_of`, the library ref sampled the way the lane samples it, the evidence
-manifest, the query-local handle map, the visitor class) and hands back a `handoff_id`. `pkc
-consult answer <handoff_id>` supplies the answer, builds the record through the fast lane's
-own builder. A handle resolves through that map; a real source span or canonical anchor
-resolves against this tenant's L0 block bounds or canonical anchors. Handed citations retain
-`origin: "handed"`; resolving direct reads outside the manifest carry `origin: "direct"`,
-without expanding `evidence_handed`. Under an agent executor the agent's reading IS retrieval,
-so manifest membership cannot stand in for resolution. Invalid citations refuse the answer
-with exit 4 and leave the hand-over open for correction. A valid answer is emitted through
-`_spawn_recording`, the same path `/recall` uses. The handoff row is deleted then; one nobody
-came back to expires
-under `PNEUMA_KNOWLEDGE_RECALL_HANDOFF_TTL`, swept by the same self-heal that sweeps drafts.
-**A question the Steward never answered therefore leaves no consultation at all**, and that is
-stated rather than hidden: the alternative was a half-record, which would have had to lie in
-one direction or the other. Which visitor class a `pkc recall` runs under decides whether the
-answered handoff records anything, and the two faces default differently: `--evidence`
-defaults to `business` — a Steward about to answer the Owner from that context IS the library
-being used, which is what the use-side ledger exists to hold — while `pkc recall` on its own
-defaults to `silent`, because a lane called for its own answer is being evaluated rather than
-consulted; both say so in `--help` and on the handoff line, since a default that quietly
-records nothing is how the attention ledger stays empty without anyone noticing.
+**The hand-over itself counts as use.** Under `business` (the `--evidence` default) or
+`audit`, retrieval records the consultation's **opening** immediately: `consultation_id`,
+`user_id`, `created_at`, lane, visitor class, question, `as_of`, the canonical HEAD sampled
+before retrieval, and `evidence_handed`. The consultation id IS the handoff id printed on
+page 1. An agent may answer the Owner and stop without closing; that must not erase the fact
+that the library was asked and handed evidence. An opening without an answer is explicitly
+**unanswered**, neither a hit nor a miss (`miss: null`). The CLI, API and console list its
+question, opening time and handed-address count in that state.
+
+A consultation is **two immutable kept events under one id**, never a record rewritten when
+an answer arrives. `pkc consult answer <handoff_id>` appends the answer event once:
+`answered_at`, answer text, citations, `answer_kind`, the computed miss classification and
+the fast lane builder's other fields. The shipped storage uses one row: opening columns are
+written once, answer columns start NULL, and a transaction guarded by `answered_at IS NULL`
+fills only those answer columns. This second event is an append, not a rewrite. Repeated or
+concurrent closes are refused as already answered. Direct `pkc consult record` and answering
+model lanes write both events together; existing completed records retain their original
+recorded instant for both events.
+
+The expiring handoff separately retains reader prose, handles and retrieval state. Handles
+resolve through its map; real source spans and canonical anchors resolve against this tenant's
+L0 block bounds and canonical anchors. Handed citations retain `origin: "handed"`; validated
+direct reads carry `origin: "direct"` without expanding `evidence_handed`. Invalid citations
+refuse with exit 4, append nothing, and leave the handoff open for correction. The CLI awaits
+its `_spawn_recording` write before reporting success and deleting the handoff. A handoff
+nobody closes expires under `PNEUMA_KNOWLEDGE_RECALL_HANDOFF_TTL`; expiry deletes only retained
+prose and handles, **never the kept opening**, which remains unanswered.
+
+For `business`, each event and its projection job commit together. The worker delivers the
+opening (handed evidence gains weight) and later the answer (citations gain weight; misses
+are counted only here). Projection is idempotent per `(consultation_id, event)`, with separate
+stamps. Rebuild replays already-applied events in timestamp order, opening before answer on
+a tie; pending events retain their own queued delivery. Thus an applied opening survives a
+rebuild while its answer is still waiting. The attention report separates handed evidence,
+answer citations, misses and unanswered counts. `audit` keeps both events without affecting
+attention; `silent` records neither. The handoff header and help state this choice. Plain
+`pkc recall` still defaults to `silent`; retained paging creates no new event.
 
 When no `recall --evidence` ran, `pkc consult record --question <q> --text-file <f>` (or `-`)
 uses that same resolution, builder and emission with lane `direct` and no hand-over. It
 accepts `--visitor-class business|audit|silent`, defaults to `business`, and accepts
-`--kind no_record`. One question, one record: correct a refused answer instead of re-running
+`--kind no_record`. One question, one id, two kept events: correct a refused answer instead of re-running
 recall to fix it. Keyless `recall --evidence` builds no model and reports which arms ran and
 which were skipped (`arms` in JSON), including the unavailable glance pick; an empty or thin
 manifest does not mean the agent cannot read the library directly.
@@ -1099,7 +1111,7 @@ Both command descriptions come from the bilingual catalog and appear in CLI help
 `references/cli.md`, so completeness versus budget is visible at the command itself.
 It shares the package hash and introduces no system-message content (I5). Reading follows
 citations and links through `pkc` primitives; `recall --evidence` assembles context without
-constructing a chat model, and `consult answer` closes the handoff into a consultation.
+constructing a chat model, and `consult answer` appends the answer to the consultation opened at handover.
 With semantic retrieval off, no embeddings are built either. Outline, glance and evidence read the
 composed contract without deriving packs or writing a manifest.
 

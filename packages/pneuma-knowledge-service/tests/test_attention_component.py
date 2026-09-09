@@ -305,3 +305,23 @@ def test_attention_is_registrable_by_name_and_contributes_nothing_until_it_is():
             )
     finally:
         reset_components()
+
+
+async def test_attention_names_unanswered_even_when_no_address_was_handed():
+    from unittest.mock import AsyncMock
+
+    ledger = _Ledger([])
+    ledger.consultation_activity = AsyncMock(return_value={
+        "openings": 1, "evidence_handed": 0, "answers": 0,
+        "citations": 0, "misses": 0, "unanswered": 1,
+    })
+    component = AttentionComponent(content=ledger, window_days=30)
+    report = await component.report("synthetic-owner", days=30)
+    assert "openings: 1; handed evidence addresses: 0" in report
+    assert "answers: 0; answer citations: 0; misses: 0; unanswered: 1" in report
+    assert "unanswered is neither a hit nor a miss" in report
+    assert "questions answered with nothing" not in report
+    assert ledger.consultation_activity.call_args.args == ("synthetic-owner",)
+    args = ledger.consultation_activity.call_args.kwargs
+    assert args["until"] - args["since"] == timedelta(days=30)
+    assert await component.evolve_evidence("synthetic-owner") == report

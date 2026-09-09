@@ -25,7 +25,7 @@ A common path, not a prescribed procedure:
 2. `pkchome exec -- pkc canonical read <path> [<path>…]` — the relevant pages in one call; the header and the `sources:` index say when the page last changed, which compile jobs are pending or failed, and who spoke each cited block on which day.
 3. When the question spans pages or nobody knows which page: `pkchome exec -- pkc recall <q> --evidence` returns claims and verbatim windows from many pages in one call.
 4. `pkc source fetch <sid> ¶a-b` reads the source; `pkc search <q> --lexical` finds names, phrases and the newest sessions, and its header counts say where a match cannot be.
-5. Hand the use back to the library: `pkc consult answer <handoff_id> --text-file -` (or `pkc consult record --question <q> --text-file -` when no recall ran; `--kind no_record` when nothing was found). The question, the pages it touched and what it cited enter the attention ledger; unrecorded, the use never happened as far as the library knows.
+5. Hand the use back to the library: `pkc consult answer <handoff_id> --text-file -` (or `pkc consult record --question <q> --text-file -` when no recall ran; `--kind no_record` when nothing was found). A recall hand-over already recorded the question and the pages handed as a consultation awaiting its answer; closing adds the answer. A session that only read, without a hand-over, never happened as far as the library knows until it records.
 
 Read commands are independent; run several at once when their inputs are known. Long output
 is paged and the footer names `--page N`.

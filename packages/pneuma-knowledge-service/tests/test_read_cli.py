@@ -1189,7 +1189,7 @@ async def test_recall_sorts_scored_claims_and_windows_and_shares_section_labels(
         assert ("claims: ranked by relevance" if language == "en" else "断言: 按相关性排序") in out
         assert ("episode summaries (derived): in the lane's order" if language == "en"
                 else "片段摘要（派生）: 保留 lane 顺序") in out
-        handoff = out.splitlines()[2].split(": ", 1)[1]
+        handoff = out.splitlines()[2].split(": ", 1)[1].split(" · ", 1)[0]
         code, out, err = await run(lib, "recall", "--evidence", "--handoff", handoff, "--json", "--page-chars", "1")
         assert code == 0, err
         payload = json.loads(out)
@@ -1232,7 +1232,7 @@ async def test_recall_pages_are_retained_without_another_retrieval_or_handoff(vi
     code, first, err = await run(lib, "recall", "synthetic query", "--evidence", "--page-chars", "300",
                                  "--visitor-class", visitor_class)
     assert code == 0, err
-    handoff = first.splitlines()[2].removeprefix("handoff: ")
+    handoff = first.splitlines()[2].removeprefix("handoff: ").split(" · ", 1)[0]
     assert "new retrieval; pages of a retained result: --handoff " + handoff in first
     prefix = f"pkc --user {USER} recall --evidence --handoff {handoff}"
     assert first.splitlines()[3] == f"next page: {prefix} --page 2"
@@ -1273,8 +1273,9 @@ async def test_recall_pages_are_retained_without_another_retrieval_or_handoff(vi
     assert code == 0, err
     assert "new retrieval;" in fresh and fresh.splitlines()[2] != first.splitlines()[2]
     assert len(calls) == 2 and len(await lib.handoffs.list_pending(USER)) == 2
-    code, _, err = await run(lib, "consultations")
-    assert code == 1 and "nobody has asked" in err
+    code, listing, err = await run(lib, "consultations")
+    assert code == 0 and "unanswered" in listing
+    assert len(lib.store.consultations) == (2 if visitor_class == "business" else 1)
 
 
 @pytest.mark.parametrize("argv", [

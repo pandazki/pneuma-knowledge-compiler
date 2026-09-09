@@ -56,7 +56,7 @@ export const consultations = defineMessages({
     "consultations.title": "咨询 Consultations",
     "consultations.ledger": "逐条记录",
     "consultations.description":
-      "这座库每答一次的记录：问了什么、拿到哪一份库、摆到模型面前的每一个地址、答案，以及其中哪些被真正引用。逐字保留，绝不重新推导，也绝不是知识的权威。",
+      "交接证据时即记录问题、库版本和递交的地址，答案及引用随后追加。未关闭的咨询明确显示为未作答。两个事件分别保留，绝不改写，也不是知识的权威。",
     "consultations.noUser.title": "先选一个画像",
     "consultations.noUser.description": "咨询记录按用户隔离，选定画像后才有可读的记录。",
     "consultations.empty.title": "还没有咨询记录",
@@ -81,6 +81,9 @@ export const consultations = defineMessages({
     "consultations.lane.deep": "deep",
     "consultations.lane.briefing_ask": "briefing ask",
     "consultations.miss.badge": "落空",
+    "consultations.unanswered.badge": "未作答",
+    "consultations.answered.badge": "已作答",
+    "consultations.detail.unanswered": "已记录问题和递交的证据，尚未收到答案。",
     "consultations.total": "共 {count} 条",
     "consultations.loadMore": "加载更早的咨询",
 
@@ -124,7 +127,7 @@ export const consultations = defineMessages({
     "usage.hotDocuments": "Most-read pages",
     "usage.topMisses": "Questions answered with nothing",
     "usage.emptyHot": "No page was read in this window.",
-    "usage.emptyMisses": "Nothing went unanswered in this window.",
+    "usage.emptyMisses": "No answer was recorded as a miss in this window.",
     "usage.spend": "{count} recorded consultation{count||s} in this window, spending",
     "usage.spendUnpriced": "(this deployment declared no model prices — tokens only)",
     "usage.spendIncomplete":
@@ -139,7 +142,7 @@ export const consultations = defineMessages({
     "consultations.title": "Consultations",
     "consultations.ledger": "The records",
     "consultations.description":
-      "One record per answer this library gave: the question, which library answered, every address the lane put in front of the model, the answer, and which of those it cited. Kept verbatim, never re-derived, and never an authority over knowledge.",
+      "Evidence handover records the question, library reference and handed addresses. The answer and its citations arrive as a second kept event; an unclosed consultation stays unanswered. Neither event is rewritten or becomes an authority over knowledge.",
     "consultations.noUser.title": "Choose a profile first",
     "consultations.noUser.description":
       "Consultations are isolated per user; pick a profile to read its records.",
@@ -165,6 +168,9 @@ export const consultations = defineMessages({
     "consultations.lane.deep": "deep",
     "consultations.lane.briefing_ask": "briefing ask",
     "consultations.miss.badge": "miss",
+    "consultations.unanswered.badge": "unanswered",
+    "consultations.answered.badge": "answered",
+    "consultations.detail.unanswered": "The question and handed evidence were recorded; no answer has arrived.",
     "consultations.total": "{count} record{count||s}",
     "consultations.loadMore": "Load earlier consultations",
 

@@ -294,7 +294,13 @@ class AttentionComponent(BaseComponent):
         """
         uid = UserId(user_id)
         hits, misses, since, today = await self._window(uid, days=days)
-        if not hits and not misses:
+        activity = {}
+        if self._content is not None and hasattr(self._content, "consultation_activity"):
+            activity = await self._content.consultation_activity(
+                uid, since=datetime.combine(since, datetime.min.time(), timezone.utc),
+                until=datetime.combine(today + timedelta(days=1), datetime.min.time(), timezone.utc),
+            )
+        if not hits and not misses and not any(activity.values()):
             return None
 
         lines = [
@@ -302,6 +308,14 @@ class AttentionComponent(BaseComponent):
             f"({max(1, int(days))} day(s)); heat = hits halved every "
             f"{self._half_life_days:g} day(s)"
         ]
+        if activity:
+            lines.extend([
+                f"openings: {activity['openings']}; handed evidence addresses: {activity['evidence_handed']}; "
+                f"answers: {activity['answers']}; answer citations: {activity['citations']}; "
+                f"misses: {activity['misses']}; unanswered: {activity['unanswered']}",
+                "weights: handed evidence counts on opening; citations count on answer; "
+                "unanswered is neither a hit nor a miss. Event counts include pending projection jobs.",
+            ])
 
         tree = await self._tree(uid)
         live = None if tree is None else live_documents(tree)

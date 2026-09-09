@@ -1,29 +1,14 @@
-"""RecallHandoffStore port — a question handed over without an answer, waiting for one.
+"""Ephemeral recall handoffs: retained evidence prose and query-local handles.
 
-`pkc recall --evidence` gives the Steward the fast lane's assembled context and makes no
-answering call (docs/design/coding-agent-mode.md §5.1). A consultation cannot be written at
-that moment: `ConsultationRecord` is frozen and `is_miss` reads `answer_kind`, so a record
-written before the answer exists would either be rewritten later — which a kept record is
-never — or would state a miss the lane never observed.
+`pkc recall --evidence` records an immutable consultation opening immediately for business
+and audit visitors. This store separately retains the state needed to page the evidence and
+resolve an answer's handles. `pkc consult answer` appends the answer event once under the
+handoff id, then deletes the handoff. It never rewrites the kept opening.
 
-So the hand-over is kept HERE instead, and it is not a consultation: it is the material one
-would be built from — the question, the instant, the library ref sampled as the lane samples
-it, the lane's own evidence manifest and its query-local handle map, and the visitor class the
-caller asked for. `pkc consult answer <handoff_id>` reads it back, builds the record through
-the fast lane's own builder and emits it down the path `/recall` uses; the row is deleted at
-that point. A question the Steward never answered therefore leaves NO consultation at all —
-which is the honest outcome, and is stated in the design rather than hidden behind a
-fabricated miss.
-
-The CLI also retains the rendered reader text, header, page size and original JSON payload
-in this state. `pkc recall --evidence --handoff <id> --page N` serves that result without
-retrieval or another handoff. Silent calls retain pages on the same terms; retention is
-independent of consultation recording and ends with the handoff's deletion or expiry.
-
-Ephemeral like a draft and for the same reason (I2): neither an authority nor a kept record.
-A row nobody came back to expires under `PNEUMA_KNOWLEDGE_RECALL_HANDOFF_TTL`, swept by the
-same startup self-heal that sweeps abandoned drafts. `user_id` comes first on every method
-(I1); the shipped implementation keeps it in Postgres beside the consultations it may become.
+An unanswered handoff expires under `PNEUMA_KNOWLEDGE_RECALL_HANDOFF_TTL`; expiry removes
+only this ephemeral state, never the consultation, which remains explicitly unanswered.
+Silent calls retain evidence on the same terms but record neither consultation event.
+Every read is tenant-scoped (I1). Retained paging performs no new retrieval or recording.
 """
 
 from __future__ import annotations

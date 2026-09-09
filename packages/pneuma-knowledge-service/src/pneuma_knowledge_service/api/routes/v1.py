@@ -171,10 +171,12 @@ RECORDING_DRAIN_SECONDS = 2.0
 
 
 def _spawn_recording(
-    ctx: AppContext, user: UserId, record: ConsultationRecord | None
+    ctx: AppContext, user: UserId, record: ConsultationRecord | None, *, strict: bool = False
 ) -> asyncio.Task | None:
-    """EMIT one consultation. Nothing waits on this — not the response, not the terminal
-    frame of a stream.
+    """Emit consultation events; HTTP responses and stream frames do not wait on this.
+
+    Explicit CLI recording uses `strict=True`, awaits the task, and observes persistence
+    errors before reporting success or consuming a handoff.
 
     The write runs as a detached background task: it writes the row and, for a `business`
     visitor, enqueues one `recall_projection` job in the same transaction. Consuming that
@@ -193,13 +195,20 @@ def _spawn_recording(
     with a timeout, which is a smaller version of the same wrong promise, because an answer
     already produced should not wait on bookkeeping about it at all.
     """
-    if record is None:
+    if record is None or record.visitor_class == "silent":
         return None
 
     async def write() -> None:
         try:
-            await ctx.store.create_consultation(user, record)
+            if record.event == "answer":
+                await ctx.store.answer_consultation(user, record)
+            else:
+                await ctx.store.create_consultation(user, record)
         except Exception:  # noqa: BLE001 — a record never fails the answer it is about
+            if strict:
+                # A CLI explicitly recording an event must observe persistence/refusal
+                # before printing success or deleting the handoff it needs for correction.
+                raise
             _log.warning(
                 "consultation %s (%s) could not be recorded for user %s; continuing",
                 record.consultation_id,
@@ -2773,7 +2782,9 @@ class ConsultationSummaryOut(BaseModel):
     lane: str
     visitor_class: str
     question: str
-    miss: bool
+    miss: bool | None
+    state: Literal["unanswered", "answered"] = "answered"
+    answered_at: datetime | None = None
     answer_kind: str | None = None
     library_ref: str = ""
     citation_count: int = 0
@@ -2814,6 +2825,8 @@ def _consultation_out(record: ConsultationRecord, settings: Any) -> Consultation
         visitor_class=record.visitor_class,
         question=record.question,
         miss=record.miss,
+        state=record.state,
+        answered_at=record.answered_at,
         answer_kind=record.answer_kind,
         library_ref=record.library_ref,
         citation_count=len(record.citations),

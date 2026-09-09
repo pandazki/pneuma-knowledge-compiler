@@ -2,8 +2,8 @@
 
 `pkc recall --evidence` gave the Steward the fast lane's assembled context and made no
 answering call, so what exists at that moment is a question, an instant, a library ref and an
-evidence manifest — and no answer. This command supplies the answer and turns the pair into a
-`ConsultationRecord`. `record` uses the same path without a hand-over, with lane `direct`.
+evidence manifest — and no answer. The kept opening already records that use. This command
+appends the answer event once under its id. `record` uses the same path without a hand-over, with lane `direct`.
 
 Three things it does NOT do, and each is the point:
 
@@ -19,9 +19,8 @@ Three things it does NOT do, and each is the point:
 - **it does not write the row itself.** `_spawn_recording` writes it — the same emission the
   answering routes use, so a `business` answer enqueues its one `recall_projection` job in
   the same transaction and a `silent` one is never written at all.
-- **it does not backfill a missing answer.** A hand-over nobody answered expires and leaves
-  no consultation. That is honest: the library was asked something and nothing was recorded
-  as having come back, which is exactly what happened.
+- **it does not rewrite an opening or an answer.** A hand-over nobody answers expires,
+  but its kept opening remains unanswered. A refused answer leaves that state unchanged.
 """
 
 from __future__ import annotations
@@ -29,7 +28,7 @@ from __future__ import annotations
 import json
 import sys
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from typing import Any, TextIO
 
@@ -110,12 +109,33 @@ async def cmd_consult_answer(
         return EXIT_REFUSED
     state = await handoffs.get(user_id, handoff_id)
     if state is None:
+        recorded = await ctx.store.get_consultation(user_id, handoff_id)
+        if recorded is not None and recorded.state == "answered":
+            print(f"consultation {handoff_id} is already answered", file=err)
+            return EXIT_FINDINGS
         print(
             f"no pending handoff {handoff_id} — it was answered already, or it expired "
             "(PNEUMA_KNOWLEDGE_RECALL_HANDOFF_TTL)",
             file=err,
         )
         return EXIT_NOTHING
+    state = {**state, "consultation_id": handoff_id}
+    if state.get("opening_recorded"):
+        opening = await ctx.store.get_consultation(user_id, handoff_id)
+        if opening is None or opening.state == "answered":
+            reason = "has no opening" if opening is None else "is already answered"
+            print(f"consultation {handoff_id} {reason}", file=err)
+            return EXIT_FINDINGS
+        # The kept event supplies its own immutable context, including timestamps in
+        # the store's normalized timezone. The expiring row supplies prose and handles.
+        state.update(
+            question=opening.question, visitor_class=opening.visitor_class,
+            created_at=opening.created_at.isoformat(),
+            as_of=opening.as_of.isoformat() if opening.as_of else None,
+            library_ref=opening.library_ref,
+            manifest=[{"kind": r.kind, "ref": r.ref, "path": r.path}
+                      for r in opening.evidence_handed],
+        )
     code = await _record_answer(
         ctx, user_id, state, text=text, kind=kind, lane="fast", emit=emit,
         as_json=as_json, out=out, err=err,
@@ -211,16 +231,25 @@ async def _record_answer(
         question=str(state.get("question") or ""),
         as_of=datetime.fromisoformat(as_of) if as_of else None,
         library_ref=str(state.get("library_ref") or ""),
-        consultation_id=uuid.uuid4().hex,
-        created_at=datetime.now(timezone.utc),
+        consultation_id=state.get("consultation_id") or uuid.uuid4().hex,
+        created_at=(datetime.fromisoformat(state["created_at"])
+                    if state.get("created_at") else datetime.now(timezone.utc)),
         resolved_citations=citations,
+    )
+    record = replace(
+        record, answered_at=datetime.now(timezone.utc),
+        event="answer" if state.get("opening_recorded") else "complete",
     )
     # `silent` leaves no trace at all — not a row, not a job, not a task. The class was fixed
     # at hand-over, so a Steward cannot make a silent question recordable after the fact by
     # answering it differently.
     if str(state.get("visitor_class") or "silent") != "silent":
         writer = emit or _default_emit
-        await writer(ctx, user_id, record)
+        try:
+            await writer(ctx, user_id, record)
+        except ValueError as exc:
+            print(str(exc), file=err)
+            return EXIT_FINDINGS
     payload = {
         "consultation_id": record.consultation_id,
         "recorded": str(state.get("visitor_class") or "silent") != "silent",
@@ -233,6 +262,9 @@ async def _record_answer(
         "lane": record.lane,
         "visitor_class": record.visitor_class,
         "question": record.question,
+        "state": record.state,
+        "created_at": record.created_at.isoformat(),
+        "answered_at": record.answered_at.isoformat(),
         "answer_kind": record.answer_kind,
         "miss": record.miss,
         "citations": [
@@ -263,11 +295,14 @@ async def _record_answer(
 
 
 async def _default_emit(ctx: Any, user_id: UserId, record) -> None:
-    """The answering routes' own emission: the row, and for a `business` visitor the one
-    `recall_projection` job, in the same transaction the store writes them in."""
+    """Emit an opening, answer, or both; await persistence and propagate any refusal.
+
+    Each business event and its projection delivery commit together. CLI success means
+    the event is durable; a failed write must not consume the retained handoff.
+    """
     from ..api.routes.v1 import _spawn_recording
 
-    task = _spawn_recording(ctx, user_id, record)
+    task = _spawn_recording(ctx, user_id, record, strict=True)
     if task is not None:
         # A CLI process has no lifespan left to drain its detached write after exit.
         await task

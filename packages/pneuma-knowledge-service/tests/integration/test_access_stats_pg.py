@@ -281,7 +281,7 @@ async def test_a_rebuild_replays_the_records_into_byte_identical_tables(pg_store
     live_hits, live_misses = await _rows(pg_store, user)
     assert live_hits and live_misses
 
-    assert await rebuild_access_stats(pg_store, user) == 3
+    assert await rebuild_access_stats(pg_store, user) == 6
 
     assert await _rows(pg_store, user) == (live_hits, live_misses)
 
@@ -299,7 +299,7 @@ async def test_a_rebuild_skips_a_record_whose_own_projection_has_not_run_yet(pg_
     waiting = _record("k-2", handed=(BAO,), minutes=20)
     await _emit(pg_store, user, waiting)
 
-    assert await rebuild_access_stats(pg_store, user) == 1
+    assert await rebuild_access_stats(pg_store, user) == 2
 
     hits, _ = await _rows(pg_store, user)
     assert {r["target_ref"] for r in hits} == {MEI.ref, MEI.path}

@@ -703,3 +703,24 @@ def test_direct_citation_parsing_preserves_first_appearance_and_deduplicates_add
 
     refs = answer_addresses("c:aa11 [cite: s01 ¶1] [cite: c:bb22] [cite: real ¶1]", {"s01": "real"})
     assert [ref.ref for ref in refs] == ["c:aa11", "real ¶1", "c:bb22"]
+
+
+def test_opening_is_immutable_and_has_no_answer_or_miss():
+    from dataclasses import FrozenInstanceError, replace
+    from datetime import datetime, timezone
+    import pytest
+    from pneuma_knowledge_core.domain.consultation import ConsultationRecord
+
+    opening = ConsultationRecord(
+        consultation_id="synthetic-handoff", user_id="synthetic-owner",
+        created_at=datetime(2026, 9, 1, tzinfo=timezone.utc), lane="fast",
+        visitor_class="business", question="What do seats cost?", as_of=None,
+        library_ref="synthetic-head", event="opening", miss=None,
+    )
+    assert opening.events() == (opening,)
+    assert opening.state == "unanswered" and opening.miss is None
+    with pytest.raises(FrozenInstanceError):
+        opening.answer = "20"
+    for changes in ({"miss": False}, {"answer": "20"}, {"answer_kind": "no_record"}):
+        with pytest.raises(ValueError, match="opening carries no answer"):
+            replace(opening, **changes)

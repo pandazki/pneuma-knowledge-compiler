@@ -133,7 +133,9 @@ async def test_keyless_reading_and_consultation_round_trip_on_postgres(
         hid = evidence["handoff_id"]
         assert evidence["evidence_manifest"]
         assert await handoffs.get(user, hid) is not None
-        assert await ctx.store.list_consultations(user) == []
+        opening = await ctx.store.get_consultation(user, hid)
+        assert opening.state == "unanswered" and opening.miss is None
+        assert opening.consultation_id == hid
         other = UserId(f"{user}-other")
         assert await handoffs.get(other, hid) is None
         assert await consult.cmd_consult_answer(
@@ -151,15 +153,17 @@ async def test_keyless_reading_and_consultation_round_trip_on_postgres(
         assert len(records) == 1
         record = records[0]
         assert record.question == QUESTION and record.visitor_class == "business"
+        assert record.consultation_id == hid and record.opening() == opening
         assert record.answer_kind == "answer" and not record.miss
         assert record.library_ref == "c0"
         assert [item.ref for item in record.citations] == ["s-01 ¶1"]
         assert await ctx.store.list_consultations(other) == []
         jobs = await ctx.store.list_jobs(user)
-        assert len(jobs) == 1 and jobs[0]["kind"] == "recall_projection"
-        job = await ctx.store.claim_next(user)
-        assert job is not None
-        await run_recall_projection_job(ctx, user, job)
+        assert len(jobs) == 2 and all(j["kind"] == "recall_projection" for j in jobs)
+        for _ in range(2):
+            job = await ctx.store.claim_next(user)
+            assert job is not None
+            await run_recall_projection_job(ctx, user, job)
         stats = await access_stats(ctx.store, user, [("document", PAGE), ("source", "s-01")])
         assert stats[("document", PAGE)]["hits_7d"] > 0
         assert stats[("source", "s-01")]["hits_7d"] > 0
@@ -208,6 +212,7 @@ async def test_direct_record_round_trips_counts_and_attention_on_postgres(pg_sto
     assert all(c.origin == "direct" for c in record.citations)
     assert record.citations[-1].path == PAGE
     assert record.library_ref == "c0" and record.as_of is None
+    assert [event.event for event in await pg_store.list_consultation_events(user)] == ["opening", "answer"]
     detail = _consultation_out(record, settings).model_dump()
     assert detail["citations_direct"] == 2
     assert all(c["origin"] == "direct" for c in detail["citations"])
@@ -261,3 +266,107 @@ async def test_old_consultation_origins_default_to_handed_without_rewriting(pg_s
     assert restored.citations[0].origin == "handed" and restored.citations_direct == 0
     rows, _total, _more = await pg_store.list_consultations_page(user, limit=10)
     assert rows[0]["citations_direct"] == 0 and rows[0]["citation_count"] == 1
+
+
+async def test_opening_survives_expiry_and_schema_reapplication(pg_store, user):
+    from pneuma_knowledge_core.domain.consultation import ConsultationRecord, claim_ref
+
+    opening = ConsultationRecord(
+        consultation_id="kept-opening", user_id=str(user), created_at=datetime.now(timezone.utc),
+        lane="fast", visitor_class="business", question="Synthetic unanswered question",
+        as_of=None, library_ref="synthetic-head", evidence_handed=(claim_ref("aa11", "topics/seats.md"),),
+        event="opening", miss=None,
+    )
+    handoffs = PostgresRecallHandoffStore(pg_store)
+    await pg_store.create_consultation(user, opening)
+    await handoffs.create(user, opening.consultation_id, STATE)
+    await _age(pg_store, user, opening.consultation_id, seconds=48 * 60 * 60)
+    await handoffs.sweep(datetime.now(timezone.utc) - timedelta(hours=24))
+    assert await handoffs.get(user, opening.consultation_id) is None
+    # apply_schema runs at every process start; it must migrate legacy answers only ONCE.
+    await pg_store.apply_schema()
+    assert await pg_store.get_consultation(user, opening.consultation_id) == opening
+    rows, total, _ = await pg_store.list_consultations_page(user, limit=10)
+    assert total == 1 and rows[0]["state"] == "unanswered" and rows[0]["miss"] is None
+    assert rows[0]["evidence_count"] == 1
+    async with pg_store._pool.connection() as conn:
+        row = await (await conn.execute(
+            "SELECT answer_kind, answer, citations, miss, degraded, token_usage, answered_at "
+            "FROM consultations WHERE user_id = %s AND consultation_id = %s",
+            (str(user), opening.consultation_id),
+        )).fetchone()
+    assert row == (None,) * 7
+
+
+async def test_concurrent_answers_append_only_once_and_replay_each_event(pg_store, user):
+    import asyncio
+    from dataclasses import replace
+    from pneuma_knowledge_core.domain.consultation import ConsultationRecord, claim_ref
+    from pneuma_knowledge_service.access_stats import (
+        apply_record, rebuild_access_stats, run_recall_projection_job,
+    )
+
+    now = datetime.now(timezone.utc)
+    ref = claim_ref("aa11", "topics/seats.md")
+    opening = ConsultationRecord(
+        consultation_id="concurrent", user_id=str(user), created_at=now - timedelta(days=1),
+        lane="fast", visitor_class="business", question="Synthetic seat question", as_of=None,
+        library_ref="synthetic-head", evidence_handed=(ref,), event="opening", miss=None,
+    )
+    await pg_store.create_consultation(user, opening)
+    assert await apply_record(pg_store, user, opening)
+    assert not await apply_record(pg_store, user, opening)
+    answer = replace(opening, event="answer", answered_at=now, answer="20 seats", citations=(ref,), miss=False)
+    other_answer = replace(answer, answer="21 seats")
+    results = await asyncio.gather(
+        pg_store.answer_consultation(user, answer), pg_store.answer_consultation(user, other_answer),
+        return_exceptions=True,
+    )
+    assert sum(isinstance(r, ValueError) for r in results) == 1
+    assert "already answered" in str(next(r for r in results if isinstance(r, ValueError)))
+    stored = await pg_store.get_consultation(user, opening.consultation_id)
+    assert stored.opening() == opening and stored.answer in {"20 seats", "21 seats"}
+    # The unprojected answer is not borrowed by a rebuild of its already-applied opening.
+    assert await rebuild_access_stats(pg_store, user) == 1
+    assert await apply_record(pg_store, user, replace(stored, event="answer"))
+    assert not await apply_record(pg_store, user, replace(stored, event="answer"))
+    assert await rebuild_access_stats(pg_store, user) == 2
+    rows = await pg_store.access_rows_for(user, [("document", "topics/seats.md")])
+    assert sum(row["hits"] for row in rows) == 2
+    assert {row["day"] for row in rows} == {opening.created_at.date(), now.date()}
+    events = await pg_store.list_consultation_events(user, limit=1)
+    assert events == [opening]
+    events = await pg_store.list_consultation_events(user, after=(opening.created_at, opening.consultation_id, 0))
+    assert [e.event for e in events] == ["answer"]
+    assert await pg_store.get_consultation(UserId(f"{user}-other"), opening.consultation_id) is None
+    assert await pg_store.list_consultation_events(UserId(f"{user}-other")) == []
+    # Pending original queue deliveries are harmless after replay: both stamps survive.
+    jobs = await pg_store.list_jobs(user)
+    assert len(jobs) == 2
+    while job := await pg_store.claim_next(user):
+        await run_recall_projection_job(SimpleNamespace(store=pg_store), user, job)
+    assert sum(row["hits"] for row in await pg_store.access_rows_for(user, [("document", "topics/seats.md")])) == 2
+    assert await pg_store.get_consultation(user, opening.consultation_id) == stored
+
+
+async def test_attention_counts_events_by_time_and_excludes_audit(pg_store, user):
+    from dataclasses import replace
+    from pneuma_knowledge_core.domain.consultation import ConsultationRecord, span_ref
+
+    now = datetime.now(timezone.utc)
+    opening = ConsultationRecord(
+        consultation_id="activity", user_id=str(user), created_at=now, lane="fast",
+        visitor_class="business", question="Synthetic question", as_of=None, library_ref="",
+        evidence_handed=(span_ref("synthetic-source", 1, 2),), event="opening", miss=None,
+    )
+    await pg_store.create_consultation(user, opening)
+    await pg_store.create_consultation(user, replace(opening, consultation_id="audit", visitor_class="audit"))
+    kwargs = dict(since=now - timedelta(seconds=1), until=now + timedelta(seconds=1))
+    counts = await pg_store.consultation_activity(user, **kwargs)
+    assert counts == dict(openings=1, evidence_handed=1, answers=0, citations=0, misses=0, unanswered=1)
+    await pg_store.answer_consultation(user, replace(
+        opening, event="answer", answered_at=now, answer_kind="no_record", miss=True,
+    ))
+    assert await pg_store.consultation_activity(user, **kwargs) == dict(
+        openings=1, evidence_handed=1, answers=1, citations=0, misses=1, unanswered=0,
+    )

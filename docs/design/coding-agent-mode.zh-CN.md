@@ -416,28 +416,40 @@ Recall 证据的 JSON 始终完整。保留的 recall 分页沿用初次读取�
 lane 本会递给回答模型的字节。文本保留各证据章节的内容，将地图放最后，便于已经掌握地图
 的读者；元数据页头和来源索引提供机械阅读信号，不改变 lane。
 
-递交那一刻记下的是一条**待答交接**，不是咨询。`ConsultationRecord` 是冻结的，`is_miss` 读的是
-`answer_kind`——在回答存在之前写下的记录，要么等回答来了再改写（保留记录从不被改写），要么声称
-一次 lane 从未观察到的 miss。所以 `--evidence` 持久化的是「一条记录将由什么构成」：问题、
-`as_of`、按 lane 采样方式采到的 library ref、证据清单、查询局部句柄表、访客类别，并交回一个
-`handoff_id`。`pkc consult answer <handoff_id>` 补上回答，用 fast lane 自己的构造器建记录——
-句柄经交接表还原，真实来源区间或 canonical 锚点则在当前租户的 L0 块范围或 canonical 中解析。
-交接引用保留 `origin: "handed"`；清单外解析成功的直接读取记为 `origin: "direct"`，不扩充
-`evidence_handed`。在 agent 执行器下，agent 的阅读就是检索，因此清单成员关系不能替代可解析性。
-无效引用以退出码 4 拒绝，交接保持待答以便纠正；有效回答经 `/recall` 同用的 `_spawn_recording`
-路径发出。交接行在这时删除；无人回来处理的那条按
-`PNEUMA_KNOWLEDGE_RECALL_HANDOFF_TTL` 过期，由清扫 draft 的同一个自愈清掉。
-**因此，Steward 从未回答的问题不会留下任何咨询**——这一点是明说的，不是藏起来的：另一种做法是
-半条记录，而它无论朝哪个方向都得撒谎。一次 `pkc recall` 跑在哪个访客类别下，决定了这条交接被回答
-时会不会留下记录，而两张面孔的默认值不同：`--evidence` 默认 `business`——正要拿这份上下文回答
-owner 的 Steward，本身就是这座库正在被使用，那正是使用侧账本要收的东西；`pkc recall` 单独跑则默认
-`silent`，因为一条只为自己那句回答而调的 lane 是在被评测，不是在被咨询。两者都写在 `--help` 和交接
-那一行里——一个悄悄什么都不记的默认值，正是注意力账本在无人察觉中一直空着的原因。
+**交接本身就算使用。** 在 `business`（`--evidence` 的默认值）或 `audit` 下，检索立即记录
+咨询的**开场事件**：`consultation_id`、`user_id`、`created_at`、lane、访客类别、问题、`as_of`、
+检索开始前采样的 canonical HEAD 和 `evidence_handed`。咨询 id 就是证据第一页打印的 handoff id。
+agent 可能回答了 Owner 就停下，不再关闭交接；这不能抹掉库被问过、证据已递出的事实。
+只有开场、没有答案的咨询明确显示为**未作答**，既不是命中也不是落空（`miss: null`）。
+CLI、API 和控制台都列出其问题、开场时间与递交地址数。
+
+一条咨询是**同一 id 下两个不可变的保留事件**，绝不是答案到来后改写原记录。
+`pkc consult answer <handoff_id>` 只追加一次答案事件：`answered_at`、答案文本、引用、
+`answer_kind`、此时计算的 miss 分类，以及 fast lane 构造器的其他字段。当前存储用一行表达：
+开场列只写一次，答案列初始为 NULL，事务用 `answered_at IS NULL` 守卫，只填入答案列。
+这次填入是在追加第二个事件，不是改写。重复或并发关闭会以「已经作答」拒绝。
+直接 `pkc consult record` 和模型应答 lane 一次写入两个事件；已有完整记录的两个事件
+沿用其原本记录的时刻。
+
+会过期的 handoff 单独保留阅读文本、句柄表和检索状态。句柄按表还原，真实来源区间和 canonical
+锚点则在当前租户的 L0 块范围与 canonical 中解析。交接引用保留 `origin: "handed"`；清单外
+解析成功的直接读取记为 `origin: "direct"`，不扩充 `evidence_handed`。无效引用以退出码 4
+拒绝，不追加任何答案，交接保留以便纠正。CLI 等待 `_spawn_recording` 持久化成功后才报告成功并
+删除 handoff。无人关闭的 handoff 按 `PNEUMA_KNOWLEDGE_RECALL_HANDOFF_TTL` 过期；过期只删除
+保留的文本和句柄，**绝不删除开场记录**，它继续显示为未作答。
+
+对 `business`，每个事件与其投影作业在同一事务中提交。worker 分别投递开场（递交证据增加权重）
+和后来的答案（引用增加权重；只有此时才计落空）。投影按 `(consultation_id, event)` 幂等，
+两个事件各有自己的投影标记。重建按事件时间重放已投影事件，同一时刻开场在答案前；尚未投影的
+事件仍由自己的排队作业处理。因此答案仍在等待时，已投影的开场也能完整重建。
+注意力报告分别列出交接证据、答案引用、落空和未作答计数。`audit` 保留两个事件但不影响注意力；
+`silent` 两步都不记录。交接页头和帮助说明这个选择。单独 `pkc recall` 仍默认 `silent`；
+读取保留分页不会创建新事件。
 
 未运行 `recall --evidence` 时，`pkc consult record --question <q> --text-file <f>`（或 `-`）
 走相同的解析、构造器和发出路径，lane 为 `direct`，不需要交接。它接受
 `--visitor-class business|audit|silent`，默认 `business`，也接受 `--kind no_record`。
-一个问题，一条记录：纠正被拒绝的回答，不要重跑 recall 来修复它。无密钥的 `recall --evidence`
+一个问题，一个 id，两个保留事件：纠正被拒绝的回答，不要重跑 recall 来修复它。无密钥的 `recall --evidence`
 不构造模型，报告哪些分支运行、哪些被跳过（JSON 的 `arms`），包括无法运行的 glance 选页；
 空或稀薄的清单不意味着 agent 无法直接阅读库。
 
@@ -862,7 +874,7 @@ AGENTS.md / CLAUDE.md                  一个 `pkc:start … pkc:end` 块：这�
 双语 catalog，同时出现在 CLI 帮助和 `references/cli.md`，完整与有预算的差别在命令处可见。
 它计入包哈希，不向 system 消息加入内容（I5）。阅读通过
 `pkc` 原语沿引用和链接进行；`recall --evidence` 汇集上下文而不构建 chat model，
-`consult answer` 将交接关闭为咨询。关闭语义检索时也不构建 embedding。Outline、glance 和证据读取
+`consult answer` 为交接时已开场的咨询追加答案。关闭语义检索时也不构建 embedding。Outline、glance 和证据读取
 组合后的契约，不推导 pack，也不写 manifest。
 
 SKILL.md 能写什么不能写什么，遵循一条检验，与 compile-contract 指南给契约作者的那条相同：*违反

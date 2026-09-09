@@ -3024,7 +3024,7 @@ DEFAULTS: dict[str, str] = {
     "steward.cli.evolve_adopt": "enqueue the Owner's adoption of a proposal",
     "steward.cli.recall_query": "required for a new retrieval; omit with --handoff",
     "steward.cli.handoff": "page retained --evidence without retrieving again",
-    "steward.cli.visitor_class": "what this call leaves behind in the attention ledger: `silent` records NOTHING AT ALL (no consultation, nothing for `pkc consultations`, `pkc spend` or the attention report to see), `business` and `audit` record one consultation. Default depends on the mode: `--evidence` defaults to `business`, because a Steward answering the Owner from that context IS the library being used; `pkc recall` on its own defaults to `silent`, because a call whose answer nobody reads is an evaluation of the lane, not a use of the library",
+    "steward.cli.visitor_class": "what this call records: `silent` records NOTHING AT ALL; business and audit record the question and handed evidence immediately with `--evidence`, then append the answer once under the same id; `--evidence` defaults to `business`, and recall on its own defaults to `silent`",
     "steward.cli.as_of": "the instant relative time resolves against",
     "steward.cli.library": "the library as a whole",
     "steward.cli.owner": "what the Owner says, as a source",
@@ -3055,7 +3055,7 @@ DEFAULTS: dict[str, str] = {
     "steward.cli.jobs": "the queue, newest first",
     "steward.cli.history": "compile versions, jobs and sources, newest first",
     "steward.cli.brief": "the post-compile brief of one version",
-    "steward.cli.consultations": "kept records of use, newest first",
+    "steward.cli.consultations": "kept consultations, including unanswered handovers, newest first",
     "steward.cli.spend": "what the recorded consultations spent, in tokens",
     "steward.cli.evolve_ls": "every proposal and its state",
     "steward.cli.evolve_show": "one proposal, whole",
@@ -3066,7 +3066,7 @@ DEFAULTS: dict[str, str] = {
     "steward.cli.profile_set": "record the Owner's own information — the same shape engine/persona/profile.yaml holds, validated the same way, written once",
     "steward.cli.profile_confirm": "confirm profile fields as the Owner's own",
     "steward.cli.ingest": "import one payload under one of the six contracts",
-    "steward.cli.consult_answer": "supply the answer for a handoff and record the consultation — the lane's own builder and emission, with every citation resolved in this tenant",
+    "steward.cli.consult_answer": "append the answer once to the handoff consultation; every citation must resolve in this tenant",
     "steward.cli.consult_record": "record direct reading without a handoff",
     "steward.cli.consult_pending": "the handoffs still waiting for an answer",
     "steward.cli.archive_propose": "compute what retiring these pages and sources would take — the seeds, everything that follows from them, and the record each page would leave",
@@ -3131,6 +3131,11 @@ DEFAULTS: dict[str, str] = {
     "steward.read.index_queue": "index queue: {pending}",
     "steward.read.next_page": "next page: {command}",
     "steward.read.result_end": "last page; whole retained result: {command}",
+    "steward.read.handoff_silent": "nothing recorded",
+    "steward.read.handoff_recorded": "recorded as an unanswered consultation until closed",
+    "steward.read.unanswered": "unanswered",
+    "steward.read.answered": "answered",
+    "steward.read.miss": "miss",
     "steward.read.new_retrieval": "new retrieval; pages of a retained result: --handoff {handoff_id}",
     "steward.read.json_paging": "--json pages by item where the payload is a list; recall's JSON is whole",
     "steward.read.unknown": "unknown",
@@ -3239,9 +3244,12 @@ re-deriving it. What a mechanism does not establish is stated too; the judgement
   what the answer cited, or that nothing was found — is how a session's use reaches the
   library: the pages a question touched gain weight in the attention ledger, questions that
   found nothing become evidence for evolving the schema, and the Owner sees in the console
-  what the library is asked. A session that answers without recording leaves the library
-  exactly as it found it — as if it had never been used. `pkc consult answer` and
-  `pkc consult record` are that door; they take the answer you already wrote.
+  what the library is asked. A `recall --evidence` hand-over under its default `business` class already
+  records the question and what was handed, as a consultation awaiting its answer; `pkc
+  consult answer` adds the answer and its citations (or `no_record`), and a hand-over nobody
+  closes stays on record as unanswered — its own signal. Reading without a hand-over records
+  nothing until `pkc consult record`; a session that only reads and answers leaves the library
+  as it found it. Both commands take the answer you already wrote.
 """,
     "steward.consume.when_to_use": """## Best practice by the shape of the question
 
@@ -3332,10 +3340,11 @@ citations carry `origin: "direct"` and do not expand `evidence_handed`.
 When you never ran `recall --evidence`, close with `pkc consult record --question <q>
 --text-file <f>` (or `-`): the same resolution and recording, with lane `direct` and no handoff.
 Use `--kind no_record` when the library held no answer. One question, one record: do not
-re-run recall to "fix" a record; correct the refused answer and submit it again. The handoff
-alone records nothing, and a successful close consumes it. Both commands record without a
-model. The default `business` class records and queues the access ledger update;
-`--visitor-class audit` records without that influence, and `silent` records nothing.
+re-run recall to "fix" a record; correct the refused answer and submit it again. A hand-over
+under `business` or `audit` is already recorded as an unanswered consultation when the evidence
+is handed; closing writes the answer event once under the same id, and a hand-over nobody
+closes stays listed as unanswered. Both commands record without a model. The default `business` class records both events and queues the access ledger update;
+`--visitor-class audit` records without that influence, and `silent` records nothing at either step.
 The handoff fixes its class at recall; direct recording selects it on `consult record`.
 The `attention` component reads the update after the worker drains the queue.
 

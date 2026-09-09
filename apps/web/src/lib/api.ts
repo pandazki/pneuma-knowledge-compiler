@@ -7,7 +7,7 @@
  */
 
 import { tx } from "./i18n";
-import type { ClaimLabel, UserProfile, VisitorClass } from "./types";
+import type { ClaimLabel, ConsultationState, UserProfile, VisitorClass } from "./types";
 import type { HistoryCounts, HistoryItemEnvelope } from "./history";
 import type { StageEvent, StageTiming } from "./stages";
 import { buildPageQuery, type Page } from "./pagination";
@@ -935,12 +935,14 @@ export interface EvidenceRef {
 export interface ConsultationSummary {
   consultation_id: string;
   created_at: string;
+  answered_at: string | null;
+  state: ConsultationState;
   lane: "fast" | "deep" | "briefing_ask" | string;
   visitor_class: "audit" | "business" | string;
   question: string;
   /** The library answered with nothing — `no_record`, or (for a retrieving lane) nothing
    *  reaching the model at all. */
-  miss: boolean;
+  miss: boolean | null;
   answer_kind: string | null;
   /** The canonical HEAD sampled when the consultation began — the snapshot id for a pinned
    *  call, which is the same field in its other exact form. */

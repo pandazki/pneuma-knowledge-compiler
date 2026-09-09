@@ -37,11 +37,17 @@
 **使用侧 L0** 是系统观察到的：一份来源被摄入、一次编译运行、一位访问者提问。这些是
 *记录*——保存而非重新推导，也从不是知识的权威。正本不从它派生；Steward 的记忆从它派生。
 
-一次答复的使用侧记录是**咨询**：一次答复 lane 的调用，按审计链所需的样子。
+使用侧的记录是**咨询**：开场记录问题与递交证据，答案到来时再追加答案事件。交接本身就算使用。
 
 ## 3. 咨询记录
 
-`ConsultationRecord`（core `domain/consultation.py`）是一个冻结的 dataclass：
+`ConsultationRecord`（core `domain/consultation.py`）是一个冻结的 dataclass，可表达 `opening`、
+`answer` 事件或二者合读的 `complete`。`complete` 不是第三个保留事件：单次应答 lane 一起写入
+两个事件，worker 分别投递。`pkc recall --evidence` 在 `business` 或 `audit` 下立即记录开场，
+咨询 id 就是 handoff id；`pkc consult answer` 只追加一次答案。handoff 会过期，开场仍保留为
+未作答。两个事件都不改写（存储以 `answered_at IS NULL` 为条件，只填入空答案列）。
+`silent` 两个事件都不记录。
+
 
 | 字段 | 含义 |
 |---|---|
@@ -53,7 +59,8 @@
 | `evidence_handed` | lane 摆到模型面前的每一个*地址*，除此之外什么都没有：`{kind: claim/window/episode/component/document, ref}`，`ref` 是带页路径的 claim 锚、`source_id ¶a-b` 区间，或一条正本页路径（`document`：lane 整页读过的页）。它既载证据*条目*，也载与条目一同渲染出去的出处区间——一条 claim 笔记会打印自己的 `[cite: …]` 标记，而合约要求模型逐字照抄证据里的这些标记，所以在那里出现过的区间就是模型见过的地址。清单由 lane 在渲染处发布（`recall/fast.py:evidence_manifest`），构造器只是照抄 |
 | `answer_kind`、`answer`、`citations` | 回答及可解析地址，每个引用带 `origin: handed` 或 `direct`。模型通道按清单放行；agent 回答还会针对当前租户的 L0 与 canonical 锚点解析直接读取的引用（见下）。模型通道的记录文本去掉无法还原的句柄；agent 回答含无效引用时，在记录前整次拒绝 |
 | `citations_direct` | 存储的 origin 为 `direct` 的引用数；交接证据仍严格等于通道交出的内容 |
-| `miss` | 每条 lane 同一条规则：`answer_kind == "no_record"`，或者什么都没到模型面前（见下） |
+| `answered_at`、`state` | 答案事件时间；未作答时为 NULL，状态为 `unanswered`，作答后为 `answered` |
+| `miss` | 未作答时为 NULL；答案到来后，每条 lane 同一条规则：`answer_kind == "no_record"`，或者什么都没到模型面前（见下） |
 | `degraded` | lane 的降级标志，原样复制 |
 | `token_usage` | 这次咨询**花掉**了什么：lane 自己的用量映射，按字段顺序存下。只有 token，没有金额——token 数是实际发生的事，永远为真；而价格是一份商业约定，它变的时候不会来问这条记录。所以费用是在有人读取时、用部署当下声明的价格（`MODEL_PRICING`）算出来的；对一个从没被定过价的模型，它是缺席，而不是零 |
 
@@ -89,14 +96,14 @@
 若为句柄，先经交接的句柄表还原；否则按真实的 `[cite: <sid> ¶a-b]` 地址或 `c:xxxx` 锚点解析。
 来源必须存在于当前租户的 L0，且 `1 <= a <= b <= block count`；锚点必须存在于当前租户的
 canonical。清单内的引用（锚相等或区间被包含）保留 `origin: "handed"`；清单外但解析成功的
-引用记为 `origin: "direct"`。真实来源上编造的区间以退出码 4 拒绝，点名引用，不写记录、不排
+引用记为 `origin: "direct"`。真实来源上编造的区间以退出码 4 拒绝，点名引用，不写答案事件、不排答案
 投影作业，交接保持待答以便纠正回答。`evidence_handed` 不变。
 
 没有交接时，`pkc consult record --question <q> --text-file <f>`（或 `-` 读 stdin）记录回答：
 lane 为 `direct`，交接证据为空，所有引用均为直接引用，走相同的解析、fast 记录构造器与
 `_spawn_recording` 发出路径。它在记录时采样 `library_ref`，`as_of` 留空，不能重建之前阅读的
 快照。两条命令都接受 `--kind no_record`。直接记录默认 `business`，也接受 `audit` 或 `silent`，
-记录行与作业的规则与交接回答相同。一个问题，一条记录：关闭失败后可以纠正回答；重跑 recall
+记录行与作业的规则与交接回答相同。一个问题，一个 id，两个保留事件：关闭失败后可以纠正回答；重跑 recall
 来修复它只会多造一次交接。保留记录不被改写。
 
 **「某样东西在哪」的地图不是证据。** 库**概览**（每一页的路径、标题和一句话定义，fast、deep
@@ -105,7 +112,7 @@ lane 为 `direct`，交接证据为空，所有引用均为直接引用，走相
 **选中整页读**的那些页则是清单里的 `document` 条目，连同页面正文携带的每一个区间——因为那些页
 的文本真的到过模型面前。简报包里某份来源的结构大纲（`- <小节>  ¶a-b`）出局的理由与概览相同。
 
-**`miss` 对每条 lane 都是同一条规则**：`answer_kind == "no_record"`，或既没有交接证据、也没有可解析的
+**`miss` 只在答案存在时计算，对每条 lane 都是同一条规则**：`answer_kind == "no_record"`，或既没有交接证据、也没有可解析的
 直接引用——`domain/consultation.py:is_miss(answer_kind, evidence_handed, citations)`。这个判定是机械的，而不是交给
 各调用方自行斟酌，因为一切统计「这座库答不上什么」的东西，其真实性都不会超过它。
 
@@ -115,14 +122,14 @@ lane 为 `direct`，交接证据为空，所有引用均为直接引用，走相
 记录行，并在同一个事务里为 `business` 访问者入队一个 `recall_projection` 作业。消费这个作业是
 worker 的事，走的是摄入侧早已在排的那条按用户队列。响应——以及流的终帧——什么都不等：不等写入、
 不等消费者、也不等一个为二者兜底的超时。代价明说而不藏着：记录是尽力而为的发后不理，进程在答案
-与该任务提交之间死掉就把它丢了。它绝不可能付出的代价，是答案。
+与该任务提交之间死掉就把它丢了。它绝不可能付出的代价，是答案。CLI 的显式记录则以 `strict=True` 等待持久化；写入成功后才声明证据已记录，或消耗已回答的 handoff。投影仍只在 worker 上执行。
 
 发出的两半谁也不能单独存在：记录行与作业同事务提交，于是没有作业会点名一条不存在的咨询，也没有
-`business` 记录会在无人排队去读它的情况下写下。作业只携带 `consultation_id`，别无他物。
+`business` 记录会在无人排队去读它的情况下写下。交接作业携带 `consultation_id` 和 `event`（`opening` 或 `answer`）；单次应答作业保留原来的仅 id 载荷，worker 将合读记录拆为两次事件投递。
 
 - `on_recall(user_id, record)`——`on_source_indexed` 在使用侧的孪生，由 *worker* 在排掉那个作业
   时调用。`notify_recall` 以同样的 fail-soft 规则扇出：组件抛错记日志，绝不让作业失败。只对
-  `business` 咨询调用。
+  `business` 咨询的每个事件调用；开场不携带答案或 miss 分类。
 - `evolve_evidence(user_id) -> str | None`——组件可向 evolve 提案的证据贡献的一段机械文本。
   由 core 汇集各段（`components.collect_evolve_evidence`：每个组件一行标题、逐组件 fail-soft、
   什么都没有时返回 `None`），再由 service 的 evolve runner 把一个
@@ -166,8 +173,8 @@ worker 的事，走的是摄入侧早已在排的那条按用户队列。响应�
 写，每个接缝都与没有这个概念时字节一致。两张派生表（service `access_stats.py`）：
 
 - `recall_access_hits(user_id, target_kind, target_ref, day, hits, last_seen)`——`target_kind`
-  为 `claim` / `document` / `source`；每目标每自然日一行，`day` 是记录 `created_at` 的 UTC
-  日历日。账本对时区不持任何观点：主体的日历归 `time` 管，而对「这是哪一天」给出第二个答案，
+  为 `claim` / `document` / `source`；每目标每自然日一行，`day` 是事件时刻的 UTC 日期（开场用 `created_at`，答案用 `answered_at`）。
+  账本对时区不持任何观点：主体的日历归 `time` 管，而对「这是哪一天」给出第二个答案，
   恰恰就是让两份投影对同一个下午各说各话的原因。行由记录的 `evidence_handed` ∪ `citations`
   写入（被引用的项比仅被递出的项多计一次）；目标按*地址*分派，不按 `kind`——`kind` 说的是 lane
   用哪条路够到了这一项（`component` 同时涵盖路由的 claim 查询与路由的跨度），语法说的才是它是
@@ -187,23 +194,17 @@ worker 的事，走的是摄入侧早已在排的那条按用户队列。响应�
 访问，也确实没有近期命中。
 
 不存分数。热度在读取时计算：`Σ hits × 0.5^(age_days / half_life)`，`ATTENTION_HALF_LIFE_DAYS`
-默认 14——投影因此是记录的纯函数，重建就是重放：把每条*已盖上 `projected_at` 戳*的 `business`
-记录重放成一份替换行集，再原子地换进去（一个事务：删掉该用户的行、写入重建的行），于是没有读者
-会看见空档。走查的每一页折进正在累加的和里随即丢弃——行集是按去重目标求的和，因此重建占用的内存
-不随这座库被用了多少而增长。
+默认 14。递交地址在开场计权重；引用与落空在答案事件计数。报告在窗口内分别统计开场、递交地址、
+答案、引用、落空与未作答咨询；未作答不算落空。
 
-**只有盖过戳的记录才被重放**，因为重建期间 API 写入照常。一条在扫描游标到达之前插入的咨询，此刻
-在表里 `projected_at` 为空、自己的投影作业还排在队列里；把它重放进来就会被计两次——一次进换入的
-行集，一次由随后跑的那个作业。把它排除在外，它就恰好由那个作业施加一次；而让这套推理成立的正是
-队列：重建持有该用户唯一的在飞认领，因此扫描与换入之间落不下任何一次投影。
+**只有盖过戳的事件才重放**，通过 `list_consultation_events` 按时间排序，同一时刻先开场后答案。
+`opening_projected_at` 与答案的 `projected_at` 独立：后来到达的答案仍排队时，重建保留已投影的
+开场，把答案交给它自己的投递。每一页折进正在累加的和里随即丢弃，重建的行集原子换入。
 
-**每条记录至多施加一次，机制只是一条语句。** `recall_projection` 作业的增量与该咨询的
-`projected_at` 戳在*同一个*事务里提交，而那个戳是带着 `projected_at IS NULL` 的 `WHERE` 抢下来
-的：同一条咨询的第二个作业更新不到任何一行，从 rowcount 上知道这件事，然后什么都不写。被中途杀
-掉的 worker、以及队列重启时的自愈，重放各自的作业都无害。这里再没有任何锁——重建作为一个
-`recall_rebuild` 作业跑，而 `claim_next` 拒绝给一个已有作业在飞的用户再发一个，于是重放与换入
-根本不可能与该用户的投影交错。`scripts/ops/rebuild_derived.py` 入队这个作业并把它排掉，自己不再
-重新推导任何东西。
+**每个 `(consultation_id, event)` 至多施加一次。** 每个事件的增量与自己的戳在同一个事务里
+提交；只抢 NULL 戳使重复投递无效。重建不改两个戳或任何保留字段。它持有该用户唯一的在飞作业
+认领，因此扫描与换入之间不会插入投影。`scripts/ops/rebuild_derived.py` 仍入队并排掉同一个
+`recall_rebuild` 作业。
 
 这个戳*没有*罩住的部分，明说，因为没人能验证的保证比没有保证更糟：进程若死在提交与随后那次组件
 扇出之间，那次通知就永远丢了。这是本投递模型选择的「至多一次」这笔交易，用来换掉那种会把每个它

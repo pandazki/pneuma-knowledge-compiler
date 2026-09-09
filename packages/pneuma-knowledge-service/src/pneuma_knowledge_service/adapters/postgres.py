@@ -613,8 +613,10 @@ class PostgresStore:
         consultation_id: str,
         hits: list[dict],
         misses: list[dict],
+        *,
+        event: str,
     ) -> bool:
-        """Apply one record's rows AND stamp it `projected_at` — in one transaction.
+        """Apply one event's rows AND stamp it projected — in one transaction.
 
         Returns whether this call was the one that applied it. The stamp is claimed first,
         with `projected_at IS NULL` in the `WHERE`: a second job for the same consultation
@@ -631,12 +633,16 @@ class PostgresStore:
         order — a projection job drained after a newer one — never drags a target's last
         access backwards.
         """
+        if event not in {"opening", "answer"}:
+            raise ValueError(f"unknown consultation event: {event}")
+        stamp = "opening_projected_at" if event == "opening" else "projected_at"
+        exists = "TRUE" if event == "opening" else "answered_at IS NOT NULL"
         async with self._pool.connection() as conn:
             async with conn.transaction(), conn.cursor() as cur:
                 await cur.execute(
-                    "UPDATE consultations SET projected_at = %s "
+                    f"UPDATE consultations SET {stamp} = %s "
                     "WHERE user_id = %s AND consultation_id = %s "
-                    "AND projected_at IS NULL",
+                    f"AND {stamp} IS NULL AND {exists}",
                     (datetime.now(timezone.utc), str(user_id), consultation_id),
                 )
                 if not cur.rowcount:
@@ -2563,7 +2569,7 @@ class PostgresStore:
 
     # --- consultations (use-side L0) ------------------------------------------
     #
-    # The one table in this file that `rebuild_derived` must never touch: a consultation is
+    # Rebuild never rewrites these kept events: a consultation is
     # a RECORD of something that happened, not a projection of something stored elsewhere,
     # so there is nothing to re-derive it from. It is also never read by the knowledge side
     # — no gate, contract or compile input joins against it (I6's read-side sibling).
@@ -2623,13 +2629,21 @@ class PostgresStore:
         already uses, drained per user by the compile worker, and the request path that
         called this waits on none of it.
         """
+        if record.visitor_class == "silent":
+            return None
+        if record.event == "answer":
+            raise ValueError("an answer event requires answer_consultation")
+        opening = record.event == "opening"
+        payload = {"consultation_id": record.consultation_id}
+        if opening:
+            payload["event"] = "opening"
         async with self._pool.connection() as conn:
             async with conn.transaction(), conn.cursor() as cur:
                 await cur.execute(
                     "INSERT INTO consultations (user_id, consultation_id, created_at, "
                     "lane, visitor_class, question, as_of, library_ref, evidence_handed, "
-                    "answer_kind, answer, citations, miss, degraded, token_usage) "
-                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
+                    "answer_kind, answer, citations, miss, degraded, token_usage, answered_at) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
                     "ON CONFLICT (user_id, consultation_id) DO NOTHING",
                     (
                         str(user_id),
@@ -2642,14 +2656,15 @@ class PostgresStore:
                         record.library_ref,
                         Json(self._evidence_json(record.evidence_handed)),
                         record.answer_kind,
-                        record.answer,
-                        Json(self._evidence_json(record.citations)),
+                        None if opening else record.answer,
+                        None if opening else Json(self._evidence_json(record.citations)),
                         record.miss,
-                        Json([list(pair) for pair in record.degraded]),
+                        None if opening else Json([list(pair) for pair in record.degraded]),
                         # An OBJECT, not the record's pairs: `/spend` sums these in SQL,
                         # and summing an array of pairs would mean shipping every row to
                         # Python. Field order is restored on read from `USAGE_FIELDS`.
-                        Json(dict(record.token_usage)),
+                        None if opening else Json(dict(record.token_usage)),
+                        record.answered_at,
                     ),
                 )
                 if not cur.rowcount or record.visitor_class != "business":
@@ -2662,8 +2677,57 @@ class PostgresStore:
                         job_id,
                         str(user_id),
                         RECALL_PROJECTION_JOB_KIND,
-                        Json({"consultation_id": record.consultation_id}),
+                        Json(payload),
                     ),
+                )
+        return job_id
+
+    async def answer_consultation(
+        self, user_id: UserId, record: ConsultationRecord
+    ) -> str | None:
+        """Append the answer event once, with its delivery in the same transaction.
+
+        Filling NULL fields by a second event is not a rewrite. No opening column is in
+        the SET clause, and `answered_at IS NULL` refuses a concurrent or repeated close.
+        The equality check binds the builder's miss/citations to the actual kept opening.
+        """
+        from dataclasses import replace
+
+        if record.event != "answer":
+            raise ValueError("answer_consultation requires an answer event")
+        async with self._pool.connection() as conn:
+            async with conn.transaction(), conn.cursor() as cur:
+                await cur.execute(
+                    f"SELECT {self._CONSULTATION_COLUMNS} FROM consultations "
+                    "WHERE user_id = %s AND consultation_id = %s FOR UPDATE",
+                    (str(user_id), record.consultation_id),
+                )
+                row = await cur.fetchone()
+                if row is None:
+                    raise ValueError(f"consultation {record.consultation_id} has no opening")
+                existing = self._consultation_record(user_id, row)
+                if existing.state == "answered":
+                    raise ValueError(f"consultation {record.consultation_id} is already answered")
+                if existing != replace(record.opening(), user_id=str(user_id)):
+                    raise ValueError("answer does not match the kept consultation opening")
+                await cur.execute(
+                    "UPDATE consultations SET answered_at = %s, answer_kind = %s, "
+                    "answer = %s, citations = %s, miss = %s, degraded = %s, token_usage = %s "
+                    "WHERE user_id = %s AND consultation_id = %s AND answered_at IS NULL",
+                    (record.answered_at, record.answer_kind, record.answer,
+                     Json(self._evidence_json(record.citations)), record.miss,
+                     Json([list(pair) for pair in record.degraded]), Json(dict(record.token_usage)),
+                     str(user_id), record.consultation_id),
+                )
+                if not cur.rowcount:
+                    raise ValueError(f"consultation {record.consultation_id} is already answered")
+                if existing.visitor_class != "business":
+                    return None
+                job_id = uuid.uuid4().hex
+                await cur.execute(
+                    "INSERT INTO compile_jobs (id, user_id, kind, payload) VALUES (%s, %s, %s, %s)",
+                    (job_id, str(user_id), RECALL_PROJECTION_JOB_KIND,
+                     Json({"consultation_id": record.consultation_id, "event": "answer"})),
                 )
         return job_id
 
@@ -2692,7 +2756,8 @@ class PostgresStore:
     ) -> list[ConsultationRecord]:
         """One user's consultations, oldest first, bounded.
 
-        This is the REPLAY face: a component's ledger is rebuilt by re-applying these in the
+        This is the joined read face. For independent opening/answer delivery and replay,
+        use `list_consultation_events`. These joined rows are read in the
         order they were recorded, so the order has to be total. `created_at` alone is not —
         two calls can land in the same microsecond — so the id is the tie-break, in the sort
         and in the `after` cursor alike. `after` is the last record of the previous page as
@@ -2700,7 +2765,7 @@ class PostgresStore:
 
         `projected=True` restricts the walk to records already stamped `projected_at` —
         the ones whose own projection job has run. That is what a replay must count, and
-        `rebuild_access_stats` explains why.
+        `list_consultation_events` instead filters the two stamps independently.
         """
         clauses = ["user_id = %s"]
         params: list[Any] = [str(user_id)]
@@ -2792,7 +2857,7 @@ class PostgresStore:
                 "miss, answer_kind, library_ref, jsonb_array_length(citations), "
                 "jsonb_array_length(evidence_handed), token_usage, "
                 "(SELECT count(*) FROM jsonb_array_elements(citations) AS citation "
-                "WHERE citation->>'origin' = 'direct') FROM consultations "
+                "WHERE citation->>'origin' = 'direct'), answered_at FROM consultations "
                 f"WHERE {page_where} "
                 "ORDER BY created_at DESC, consultation_id DESC LIMIT %s",
                 [*page_params, limit + 1],
@@ -2808,7 +2873,9 @@ class PostgresStore:
                     "lane": r[2],
                     "visitor_class": r[3],
                     "question": r[4],
-                    "miss": bool(r[5]),
+                    "miss": r[5],
+                    "answered_at": r[12],
+                    "state": "unanswered" if r[12] is None else "answered",
                     "answer_kind": r[6],
                     "library_ref": r[7],
                     "citation_count": int(r[8] or 0),
@@ -2869,38 +2936,98 @@ class PostgresStore:
             for r in rows
         ]
 
+    _CONSULTATION_COLUMNS = (
+        "consultation_id, created_at, lane, visitor_class, question, "
+        "as_of, library_ref, evidence_handed, answer_kind, answer, citations, "
+        "miss, degraded, token_usage, answered_at"
+    )
+
+    def _consultation_record(self, user_id: UserId, r: Any) -> ConsultationRecord:
+        return ConsultationRecord(
+            consultation_id=r[0], user_id=str(user_id), created_at=r[1], lane=r[2],
+            visitor_class=r[3], question=r[4], as_of=r[5], library_ref=r[6],
+            evidence_handed=self._evidence_refs(r[7]), answer_kind=r[8], answer=r[9] or "",
+            citations=self._evidence_refs(r[10]), miss=r[11],
+            degraded=tuple((str(a), str(b)) for a, b in (r[12] or [])),
+            token_usage=usage_pairs(r[13] or {}), answered_at=r[14],
+            event="opening" if r[14] is None else "complete",
+        )
+
     async def _consultation_rows(
         self, clauses: list[str], params: list[Any], user_id: UserId, *, limit: int
     ) -> list[ConsultationRecord]:
-        """The one SELECT + row→record mapping both consultation reads share."""
+        """The joined read face; NULL answer columns mean an unanswered opening."""
         async with self._pool.connection() as conn:
             rows = await (await conn.execute(
-                "SELECT consultation_id, created_at, lane, visitor_class, question, "
-                "as_of, library_ref, evidence_handed, answer_kind, answer, citations, "
-                "miss, degraded, token_usage FROM consultations WHERE " + " AND ".join(clauses)
-                + " ORDER BY created_at, consultation_id LIMIT %s",
+                f"SELECT {self._CONSULTATION_COLUMNS} FROM consultations WHERE "
+                + " AND ".join(clauses) + " ORDER BY created_at, consultation_id LIMIT %s",
                 tuple([*params, limit]),
             )).fetchall()
+        return [self._consultation_record(user_id, r) for r in rows]
+
+    async def list_consultation_events(
+        self, user_id: UserId, *, visitor_class: str | None = None,
+        projected: bool | None = None, limit: int = CONSULTATION_PAGE,
+        after: tuple[datetime, str, int] | None = None,
+    ) -> list[ConsultationRecord]:
+        """Replay kept events in total time order, opening before answer on a tie.
+
+        The two projection stamps are filtered independently. An opening already applied
+        must survive a rebuild while its later answer is still waiting on the queue.
+        """
+        from dataclasses import replace
+
+        clauses = ["user_id = %s", "event_at IS NOT NULL"]
+        params: list[Any] = [str(user_id)]
+        if visitor_class is not None:
+            clauses.append("visitor_class = %s")
+            params.append(visitor_class)
+        if projected is not None:
+            clauses.append("stamp IS NOT NULL" if projected else "stamp IS NULL")
+        if after is not None:
+            clauses.append("(event_at, consultation_id, event_order) > (%s, %s, %s)")
+            params.extend(after)
+        async with self._pool.connection() as conn:
+            rows = await (await conn.execute(
+                f"SELECT {self._CONSULTATION_COLUMNS}, event_order FROM consultations "
+                "CROSS JOIN LATERAL (VALUES (0, created_at, opening_projected_at), "
+                "(1, answered_at, projected_at)) AS events(event_order, event_at, stamp) WHERE "
+                + " AND ".join(clauses)
+                + " ORDER BY event_at, consultation_id, event_order LIMIT %s",
+                [*params, max(1, int(limit))],
+            )).fetchall()
         return [
-            ConsultationRecord(
-                consultation_id=r[0],
-                user_id=str(user_id),
-                created_at=r[1],
-                lane=r[2],
-                visitor_class=r[3],
-                question=r[4],
-                as_of=r[5],
-                library_ref=r[6],
-                evidence_handed=self._evidence_refs(r[7]),
-                answer_kind=r[8],
-                answer=r[9],
-                citations=self._evidence_refs(r[10]),
-                miss=bool(r[11]),
-                degraded=tuple((str(a), str(b)) for a, b in (r[12] or [])),
-                token_usage=usage_pairs(r[13] or {}),
-            )
+            self._consultation_record(user_id, r).opening() if r[15] == 0
+            else replace(self._consultation_record(user_id, r), event="answer")
             for r in rows
         ]
+
+    async def consultation_activity(
+        self, user_id: UserId, *, since: datetime, until: datetime
+    ) -> dict[str, int]:
+        """Business use by event time; unanswered openings are a separate signal.
+
+        Counts are read from kept events, including ones awaiting projection. An audit
+        records the same events but never influences these attention signals.
+        """
+        async with self._pool.connection() as conn:
+            row = await (await conn.execute(
+                "SELECT count(*) FILTER (WHERE created_at >= %s AND created_at < %s), "
+                "coalesce(sum(jsonb_array_length(evidence_handed)) "
+                "FILTER (WHERE created_at >= %s AND created_at < %s), 0), "
+                "count(*) FILTER (WHERE answered_at >= %s AND answered_at < %s), "
+                "coalesce(sum(jsonb_array_length(citations)) "
+                "FILTER (WHERE answered_at >= %s AND answered_at < %s), 0), "
+                "count(*) FILTER (WHERE answered_at >= %s AND answered_at < %s AND miss), "
+                "count(*) FILTER (WHERE created_at >= %s AND created_at < %s "
+                "AND answered_at IS NULL) "
+                "FROM consultations WHERE user_id = %s AND visitor_class = 'business'",
+                [*([since, until] * 6), str(user_id)],
+            )).fetchone()
+        return dict(zip(
+            ("openings", "evidence_handed", "answers", "citations", "misses", "unanswered"),
+            (int(value or 0) for value in row), strict=True,
+        ))
 
     # --- user_profiles (onboarding-editable picture) --------------------------
 
@@ -3281,7 +3408,7 @@ class PostgresRecallHandoffStore:
     Its own class for the reason `PostgresDraftStore` is: `get` / `create` / `delete` are
     names the source layer already owns, and one store answering two different questions to
     the same name is a store that will eventually be asked the wrong one. It shares the pool,
-    so a hand-over is written beside the consultation it may become and swept by the same
+    so retained evidence is written beside its kept consultation events and swept by the same
     startup self-heal that reclaims abandoned drafts.
     """
 

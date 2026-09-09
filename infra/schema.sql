@@ -233,16 +233,15 @@ ALTER TABLE briefings ADD COLUMN IF NOT EXISTS stages jsonb NOT NULL DEFAULT '[]
 ALTER TABLE briefings ADD COLUMN IF NOT EXISTS pack_manifest jsonb NOT NULL DEFAULT '[]'::jsonb;
 
 -- consultations: USE-SIDE L0 (docs/design/steward-owner-visitor.md §2). One row per
--- answering-lane call that a non-silent visitor made — the question, the addresses of what
--- was put in front of the model, the answer and what it cited. Kept verbatim and never
+-- non-silent consultation: its opening question and handed addresses, then its answer
+-- event (if one arrives). Kept verbatim and never
 -- re-derived: unlike every other derived table in this file, `rebuild_derived` does not
 -- touch it, because nothing can regenerate the fact that somebody asked something.
 --
 -- It is NOT an authority over knowledge. Canonical derives from knowledge L0 and from
 -- nothing else; no gate, contract or projection reads a row here to decide what is true.
 -- What a row may feed is a component's own derived ledger, which is rebuilt BY replaying
--- these rows in `created_at` order — hence the index below carrying the id as a tie-break,
--- so a replay's order is total rather than merely mostly-determined.
+-- opening and answer events in their own timestamp order, with id and event as tie-breaks.
 --
 -- `library_ref` is the canonical HEAD sampled when the consultation began — the snapshot id
 -- instead for a pinned call, which is the exact form of the same field. Sampled, not pinned:
@@ -302,6 +301,47 @@ ALTER TABLE consultations ADD COLUMN IF NOT EXISTS projected_at timestamptz;
 -- rates the deployment declares then. `{}` is what every row written before this column
 -- existed says, and it reads back as "nothing reported" rather than as a free call.
 ALTER TABLE consultations ADD COLUMN IF NOT EXISTS token_usage jsonb NOT NULL DEFAULT '{}'::jsonb;
+
+-- Two kept events in one row. The opening columns never change. The answer event fills
+-- NULL answer columns ONCE under `answered_at IS NULL`; this is an append of a second
+-- event, never a rewrite of the opening or a previous answer. Unanswered is neither hit
+-- nor miss. Projection stamps are derived metadata, independent for each event.
+-- Only the FIRST migration adds timestamps to legacy completed records, using their own
+-- recorded instant. Reapplying the schema must never close a new unanswered opening.
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_schema = current_schema() AND table_name = 'consultations'
+                   AND column_name = 'answered_at') THEN
+        ALTER TABLE consultations ADD COLUMN answered_at timestamptz;
+        ALTER TABLE consultations ADD COLUMN opening_projected_at timestamptz;
+        UPDATE consultations SET answered_at = created_at, opening_projected_at = projected_at;
+    END IF;
+END $$;
+ALTER TABLE consultations ALTER COLUMN answer DROP NOT NULL;
+ALTER TABLE consultations ALTER COLUMN answer DROP DEFAULT;
+ALTER TABLE consultations ALTER COLUMN citations DROP NOT NULL;
+ALTER TABLE consultations ALTER COLUMN citations DROP DEFAULT;
+ALTER TABLE consultations ALTER COLUMN miss DROP NOT NULL;
+ALTER TABLE consultations ALTER COLUMN miss DROP DEFAULT;
+ALTER TABLE consultations ALTER COLUMN degraded DROP NOT NULL;
+ALTER TABLE consultations ALTER COLUMN degraded DROP DEFAULT;
+ALTER TABLE consultations ALTER COLUMN token_usage DROP NOT NULL;
+ALTER TABLE consultations ALTER COLUMN token_usage DROP DEFAULT;
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                   WHERE conrelid = 'consultations'::regclass
+                   AND conname = 'consultations_answer_event') THEN
+        ALTER TABLE consultations ADD CONSTRAINT consultations_answer_event CHECK (
+            (answered_at IS NULL AND answer_kind IS NULL AND answer IS NULL
+             AND citations IS NULL AND miss IS NULL AND degraded IS NULL AND token_usage IS NULL)
+            OR
+            (answered_at IS NOT NULL AND answer IS NOT NULL AND citations IS NOT NULL
+             AND miss IS NOT NULL AND degraded IS NOT NULL AND token_usage IS NOT NULL)
+        );
+    END IF;
+END $$;
 
 -- evolve_tasks: schema-evolve proposals + their review lifecycle (schema-evolve §2.5).
 -- One row per evolve run: a proposal that landed a branch (status='draft') awaiting

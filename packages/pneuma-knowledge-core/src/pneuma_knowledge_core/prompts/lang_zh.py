@@ -2299,7 +2299,7 @@ _ZH: dict[str, str] = {
     "steward.cli.evolve_adopt": "将 Owner 采纳提案的决定加入作业队列",
     "steward.cli.recall_query": "新检索必须提供；使用 --handoff 时省略",
     "steward.cli.handoff": "对保留的 --evidence 结果分页，不重新检索",
-    "steward.cli.visitor_class": "本次调用在注意力账本中留下什么：`silent` 完全不记录（没有咨询记录，`pkc consultations`、`pkc spend` 和注意力报告均不可见），`business` 和 `audit` 记录一次咨询。默认值取决于模式：`--evidence` 默认 `business`，因为 Steward 据此回答 Owner 就是知识库被使用；单独的 `pkc recall` 默认 `silent`，因为无人阅读的回答属于通道评估。",
+    "steward.cli.visitor_class": "本次调用留下什么：silent 完全不留记录；business 和 audit 在 --evidence 交接时立即记录问题与递交证据，随后在同一 id 下追加一次答案；--evidence 默认为 business，单独 recall 默认为 silent",
     "steward.cli.as_of": "解析相对时间所用的基准时刻",
     "steward.cli.library": "整个知识库",
     "steward.cli.owner": "将 Owner 的话作为来源",
@@ -2330,7 +2330,7 @@ _ZH: dict[str, str] = {
     "steward.cli.jobs": "作业队列，最新在前",
     "steward.cli.history": "编译版本、作业和来源，最新在前",
     "steward.cli.brief": "某一版本的编译后简报",
-    "steward.cli.consultations": "保留的使用记录，最新在前",
+    "steward.cli.consultations": "保留的咨询记录，含未作答交接，最新在前",
     "steward.cli.spend": "已记录咨询消耗的 token 数",
     "steward.cli.evolve_ls": "所有提案及其状态",
     "steward.cli.evolve_show": "完整显示一份提案",
@@ -2341,7 +2341,7 @@ _ZH: dict[str, str] = {
     "steward.cli.profile_set": "记录 Owner 提供的信息；与 engine/persona/profile.yaml 采用相同格式和校验，一次写入",
     "steward.cli.profile_confirm": "将资料字段确认为 Owner 本人声明",
     "steward.cli.ingest": "按六种合同之一导入一份数据",
-    "steward.cli.consult_answer": "为交接提供回答并记录咨询；复用通道的构建和记录逻辑，所有引用均在当前租户内解析",
+    "steward.cli.consult_answer": "在交接咨询的同一 id 下追加一次答案；每条引用都须在当前用户库中可解析",
     "steward.cli.consult_record": "记录没有交接的直接读取",
     "steward.cli.consult_pending": "仍在等待回答的交接",
     "steward.cli.archive_propose": "计算归档这些页面和来源需要的集合：指定项、全部关联项以及每页留下的记录",
@@ -2406,6 +2406,11 @@ _ZH: dict[str, str] = {
     "steward.read.index_queue": "索引队列：{pending}",
     "steward.read.next_page": "下一页：{command}",
     "steward.read.result_end": "最后一页；完整保留结果：{command}",
+    "steward.read.handoff_silent": "不留记录",
+    "steward.read.handoff_recorded": "已记录为未作答咨询，关闭时追加答案",
+    "steward.read.unanswered": "未作答",
+    "steward.read.answered": "已作答",
+    "steward.read.miss": "未命中",
     "steward.read.new_retrieval": "本次为新检索；读取保留结果的分页：--handoff {handoff_id}",
     "steward.read.json_paging": "--json 在载荷为列表时按条目分页；recall 的 JSON 始终完整",
     "steward.read.unknown": "未知",
@@ -2495,8 +2500,10 @@ _ZH: dict[str, str] = {
 - **使用只从一扇门进入库。** L0 和 canonical 说得出库里有什么，说不出库被问了什么。一条咨询记录——
   问了什么、交出了哪些页面和区间、回答引用了什么、或者什么也没找到——是一次会话的使用抵达库的
   唯一途径：被问到的页面在访问账本里获得权重，没找到答案的问题成为 schema 演进的证据，Owner 在
-  控制台看到库被问了什么。答完却不记，这次会话就把库原样留下，等于从未被使用过。
-  `pkc consult answer` 与 `pkc consult record` 就是这扇门；它们收的是你已经写好的回答。
+  控制台看到库被问了什么。`recall --evidence` 的交接在默认的 `business` 类别下已经把问题和交出的内容记为一条待作答的
+  咨询；`pkc consult answer` 补上回答与引用（或 `no_record`），没人关闭的交接就以「未作答」留在
+  记录里——这本身也是一个信号。不经交接的阅读在 `pkc consult record` 之前什么也不记：只读只答的
+  会话会把库原样留下。两条命令收的都是你已经写好的回答。
 """,
     "steward.consume.when_to_use": """## 按问题的形状选最佳做法
 
@@ -2571,9 +2578,10 @@ _ZH: dict[str, str] = {
 从未运行 `recall --evidence` 时，用 `pkc consult record --question <q> --text-file <f>`
 （或 `-`）收尾：同样的解析和记录路径，lane 为 `direct`，不需要交接。
 库没有答案时用 `--kind no_record`。一个问题，一条记录：不要重跑 recall 来「修复」记录；
-纠正被拒绝的回答，再提交。交接本身不记录咨询，成功关闭就会消耗它。两条命令写记录都无需模型。
-默认的 `business` 类别记录并排队更新访问账本；`--visitor-class audit` 只记录、不产生影响，
-`silent` 什么也不记录。交接的类别在 recall 时固定；直接记录在 `consult record` 上选择。
+纠正被拒绝的回答，再提交。`business` 或 `audit` 类别的交接在交出证据时就已记为一条未作答的咨询；
+关闭时在同一个 id 下写入一次回答事件，没人关闭的交接以「未作答」留在列表里。两条命令写记录都无需模型。
+默认的 `business` 类别记录两个事件并排队更新访问账本；`--visitor-class audit` 只记录、不产生影响，
+`silent` 两步都什么也不记录。交接的类别在 recall 时固定；直接记录在 `consult record` 上选择。
 worker 清完队列后，`attention` 组件才读到这次更新。
 
 访客从库中阅读并作答。Owner 还可以陈述订正或要求结构变更；这些动作遵循 SKILL.md 中的
