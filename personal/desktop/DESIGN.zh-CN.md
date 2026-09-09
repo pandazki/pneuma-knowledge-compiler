@@ -6,7 +6,7 @@
 
 ## 表面与令牌
 
-`src/styles.css` 定义所有颜色。`color-scheme: light dark` 与 `light-dark()` 跟随系统外观。Paper 与 Lightbox 分别调校。中性色统一使用色相 85，次要文字的明度经过调整以保持可读。蓝铅笔和健康色由控制台的 sRGB 数值转换而来。健康色只用于库名旁的小圆点；原生托盘图标保留既有契约。错误与失败详情以普通表面上的文字表达。
+`src/styles.css` 定义所有颜色。`color-scheme: light dark` 与 `light-dark()` 跟随系统外观。Paper 与 Lightbox 分别调校。中性色统一使用色相 85，次要文字的明度经过调整以保持可读。蓝铅笔和健康色由控制台的 sRGB 数值转换而来。健康色只用于库名旁的小圆点；原生托盘图标保留既有契约。打开控制台时，这张面孔以 `?locale=` 与 `?theme=` 一并交出，主题取自 `light-dark()` 所依据的同一条 `prefers-color-scheme` 查询，浏览器不必再去猜一个用户早已选定的语言。错误与失败详情以普通表面上的文字表达。
 
 | 令牌 | Paper · OKLCH | Lightbox · OKLCH |
 |---|---|---|

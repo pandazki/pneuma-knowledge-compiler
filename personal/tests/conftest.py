@@ -2,11 +2,14 @@
 
 import itertools
 import os
+import subprocess
+from types import SimpleNamespace
 
 import pytest
 
-from pkc_personal import home as home_module, library as library_module
+from pkc_personal import home as home_module, library as library_module, setup as setup_module
 from pkc_personal.home import Home
+from pkc_personal.library import pkc_script
 
 
 @pytest.fixture
@@ -14,6 +17,9 @@ def home(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path / "owner"))
     monkeypatch.setenv("PKC_HOME", str(tmp_path / "home"))
     monkeypatch.delenv("PKC_LIBRARY", raising=False)
+    # The console's two overrides are the developer's own; no test inherits the machine's.
+    monkeypatch.delenv("PKC_CONSOLE_DIST", raising=False)
+    monkeypatch.delenv("PKC_CONSOLE_URL", raising=False)
     for key in list(os.environ):
         if key.startswith("PNEUMA_KNOWLEDGE_"):
             monkeypatch.delenv(key)
@@ -76,3 +82,36 @@ class _Provider:
 @pytest.fixture(autouse=True)
 def provider(monkeypatch):
     return _Provider(monkeypatch)
+
+
+@pytest.fixture
+def pkc(monkeypatch):
+    """Every `pkc profile` call, answered by the test; every other subprocess really runs."""
+    real = subprocess.run
+
+    class Runner:
+        def __init__(self):
+            self.calls: list[list[str]] = []
+            self.answers: dict[str, SimpleNamespace] = {}
+            self.default = SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        def answer(self, verbs: str, *, returncode: int = 0, stdout: str = "", stderr: str = ""):
+            self.answers[verbs] = SimpleNamespace(returncode=returncode, stdout=stdout, stderr=stderr)
+            return self
+
+        def __call__(self, command, **kwargs):
+            if list(command)[:2] != [pkc_script(), "profile"]:
+                return real(command, **kwargs)
+            self.calls.append(list(command))
+            return self.answers.get(" ".join(command[1:3]), self.default)
+
+        def fields(self, provenance: str) -> list[str]:
+            for command in self.calls:
+                if command[1:3] == ["profile", "set"] and command[-1] == provenance:
+                    return [command[index + 1] for index, item in enumerate(command)
+                            if item == "--field"]
+            return []
+
+    runner = Runner()
+    monkeypatch.setattr(setup_module.subprocess, "run", runner)
+    return runner

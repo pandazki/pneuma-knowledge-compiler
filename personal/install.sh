@@ -1,9 +1,9 @@
 #!/bin/sh
 # The pkc personal edition installer: one machine, one command, safe to re-run.
 #
-# It does six things in order — uv, the package, the `pkc` launcher, the harness skill,
-# a Docker probe, the optional desktop app — and ends with a block addressed to the
-# coding agent that ran it. Every step prints one `ok:` or `skip:` line; nothing is
+# It does seven things in order — uv, the package, the `pkc` launcher, the harness skill,
+# a Docker probe, the console page, the optional desktop app — and ends with a block
+# addressed to the coding agent that ran it. Every step prints one `ok:` or `skip:` line; nothing is
 # undone when a step stops the run, so a re-run continues from where it stopped.
 #
 # POSIX sh only: no bashisms, no `set -o pipefail`.
@@ -109,7 +109,16 @@ else
     exit 3
 fi
 
-# (6) the desktop app, when a build is published -------------------------------------------
+# (6) the console page ------------------------------------------------------------------
+# Never fatal: a machine that is offline (or a release that is not up yet) keeps everything
+# above, and `pkchome console` fetches the page the first time it is opened.
+if CONSOLE_NOTE="$(pkchome console install 2>&1)"; then
+    say "ok: console ${CONSOLE_NOTE#console: }"
+else
+    say "skip: console not fetched (${CONSOLE_NOTE#console: }) — pkchome console fetches it later"
+fi
+
+# (7) the desktop app, when a build is published -------------------------------------------
 # The release process pins this asset URL; empty means no build is published yet.
 PKC_DESKTOP_ASSET="${PKC_DESKTOP_ASSET:-}"
 if [ "${PKC_DESKTOP:-0}" = "1" ] && [ -n "$PKC_DESKTOP_ASSET" ]; then

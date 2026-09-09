@@ -16,7 +16,8 @@ def test_global_skill_assets_shim_and_install(home):
     assert shim.read_text() == '#!/bin/sh\nexec pkchome exec -- pkc "$@"\n'
     for language in ("en", "zh"):
         text = asset_path(f"skill/SKILL.{language}.md").read_text()
-        for phrase in ("pkchome status", "pkchome setup --answers", "--provenance inferred", "pkchome library show"):
+        for phrase in ("pkchome status", "pkchome setup --answers", "--provenance inferred",
+                       "--provenance owner", "pkchome onboarding", "pkchome library show"):
             assert phrase in text
     files = skill_install.install(home, "codex")
     installed = Path.home() / ".codex" / "skills" / "pkc-steward"
@@ -64,9 +65,10 @@ def test_skill_autodetect_does_not_create_unselected_harness(home):
     assert not (Path.home() / ".codex").exists()
 
 
-def test_setup_answers_and_owned_steps(home, monkeypatch, tmp_path, capsys, provider):
+def test_setup_answers_and_owned_steps(home, monkeypatch, tmp_path, capsys, provider, pkc):
     operations = []
     provider.accepts()
+    monkeypatch.setattr(setup, "read_owner_hints", lambda: {"display_name": "Ez Chan"})
     def up(_home):
         operations.append("up")
         from pkc_personal.library import libraries
@@ -98,7 +100,14 @@ def test_setup_answers_and_owned_steps(home, monkeypatch, tmp_path, capsys, prov
     assert "synthetic-key" not in (home.path / "config.yaml").read_text()
     assert "synthetic-key" not in (library.path / "library.yaml").read_text()
     output = capsys.readouterr().out
-    assert "--provenance inferred" in output and "synthetic-key" not in output
+    # The machine's own answer about its Owner, written as an inference and reported as one,
+    # and the checklist that asks the Owner to settle it.
+    # The account's name from the machine, and the language from the Owner's own answers.
+    assert pkc.fields("inferred") == ["display_name=Ez Chan", "locale.language=zh",
+                                      "preferences.response_language=zh"]
+    assert ("profile (inferred: display_name, locale.language, preferences.response_language)"
+            in output and "synthetic-key" not in output)
+    assert "Owner onboarding" in output and "--provenance owner" in output
     assert "library notes (created)" in output and "engine on port" in output
     # A second setup on the same home completes nothing new: same list, same library, no
     # second creation, and the engine start that a mid-list refusal used to skip.

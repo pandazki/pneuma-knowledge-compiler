@@ -14,7 +14,7 @@ import webbrowser
 
 from pneuma_knowledge_service.coding_agent.install import SKILL_HASH_ENV, SkillWriteRefused
 
-from pkc_personal import infra, setup, skill_install, status, sync
+from pkc_personal import console, infra, setup, skill_install, status, sync
 from pkc_personal.environment import LibraryNotChosen, home_environment, resolve_library
 from pkc_personal.home import Choices, Home, KEY_PATTERN, SyncConfig
 from pkc_personal.library import (
@@ -36,12 +36,20 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--answers")
     p.add_argument("--non-interactive", action="store_true")
     p.add_argument("--no-skill", action="store_true")
-    for verb in ("up", "down", "restart", "console", "tray"):
+    for verb in ("up", "down", "restart", "tray"):
         p = sub.add_parser(verb)
         _library_flag(p)
+    # `console` opens the page and fetches it first when this machine has none; `console
+    # install` only fetches, so an installer can do it without opening a browser.
+    p = sub.add_parser("console")
+    _library_flag(p)
+    p.add_subparsers(dest="action").add_parser("install")
     p = sub.add_parser("status")
     p.add_argument("--json", action="store_true")
     _library_flag(p)
+    # The cold start's remaining questions, re-readable: a Steward who arrives after the
+    # install is the common case, and the block setup printed is gone from that terminal.
+    _library_flag(sub.add_parser("onboarding"))
     p = sub.add_parser("sync")
     _library_flag(p)
     p.add_argument("--dry-run", action="store_true")
@@ -158,6 +166,8 @@ def _dispatch(args: argparse.Namespace, home: Home) -> None:
             infra.down(home)
         if args.command in {"up", "restart"}:
             infra.up(home)
+    elif args.command == "onboarding":
+        print(setup.onboarding(home, resolve_library(home, explicit)))
     elif args.command == "status":
         document = status.status_document(home, explicit)
         print(json.dumps(document, ensure_ascii=False, indent=2) if args.json else status.render_text(document))
@@ -232,7 +242,20 @@ def _dispatch(args: argparse.Namespace, home: Home) -> None:
         paths = skill_install.install(home, args.backend, force=args.force)
         print("\n".join(str(path) for path in paths) if paths else "No harness directories found; use --backend to choose one.")
     elif args.command == "console":
+        present = console.console_dist(home)
+        if getattr(args, "action", None) == "install":
+            if present is None:
+                print(f"console: installed v{console.console_version()} at {console.install_console(home)}")
+            elif present == console.packaged_dist():
+                print("console: packaged")
+            elif present == console.env_dist():
+                print("console: local build")
+            else:
+                print("console: already installed")
+            return
         library = resolve_library(home, explicit)
+        if present is None:
+            console.install_console(home)
         webbrowser.open(f"http://127.0.0.1:{library.state.engine.port}")
     elif args.command == "tray":
         from pathlib import Path
@@ -252,6 +275,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         _dispatch(args, Home())
         return 0
+    except console.ConsoleUnavailable as exc:
+        print(str(exc), file=sys.stderr)
+        return 3
     except (LibraryNotChosen, SkillWriteRefused, ValueError, FileNotFoundError) as exc:
         print(str(exc), file=sys.stderr)
         return 2

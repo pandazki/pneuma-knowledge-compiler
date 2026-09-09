@@ -182,3 +182,58 @@ async def test_canonical_projection_does_not_read_unbounded_audit_lists():
         "bundle_versions": [],
     }
     assert ds["journal"] == []
+
+
+async def test_two_documents_sharing_a_slug_are_named_by_their_own_headings():
+    """A directory's documents legitimately share a `slug`; they must not share a NAME.
+
+    `projects/cc-master/overview.md` and `projects/cc-master/evolution.md` both carry
+    `slug: cc-master` (the slug keys the subject folder, not the page). A slug-first
+    projection labelled both leaves of the console's library tree `cc-master`; the title
+    each document states in its own H1 is what tells them apart.
+    """
+
+    overview = CanonicalDocument(
+        doc_id=DocumentId("doc-cc-overview"),
+        path="projects/cc-master/overview.md",
+        frontmatter={
+            "doc_id": "doc-cc-overview",
+            "type": "project",
+            "slug": "cc-master",
+            "title": "cc-master",
+        },
+        body="# cc-master\n\n## 概览\n\n- 起步。[cite: src-01 ¶1] <!-- c:dd44 -->",
+    )
+    evolution = CanonicalDocument(
+        doc_id=DocumentId("doc-cc-evolution"),
+        path="projects/cc-master/evolution.md",
+        frontmatter={
+            "doc_id": "doc-cc-evolution",
+            "type": "evolution",
+            "slug": "cc-master",
+            "title": "cc-master evolution",
+        },
+        body="# cc-master evolution\n\n## 变更\n\n- 换了方向。[cite: src-01 ¶2] <!-- c:ee55 -->",
+    )
+
+    class _SlugSharingCanonical(_FakeCanonical):
+        async def list(self, user_id, *, at: SnapshotRef | None = None):
+            return [overview, evolution]
+
+    ctx = _ctx()
+    ctx.canonical = _SlugSharingCanonical()
+    ds = await build_dataset(ctx, USER, audit=False)
+
+    titles = {d["path"]: d["title"] for d in ds["documents"]["documents"]}
+    assert titles == {
+        "projects/cc-master/overview.md": "cc-master",
+        "projects/cc-master/evolution.md": "cc-master evolution",
+    }
+    # the graph names them the same way — one rule, both projections
+    graph_titles = {
+        n["id"]: n["title"] for n in ds["graph"]["nodes"] if not n["id"].startswith("src:")
+    }
+    assert graph_titles == {
+        "doc-cc-overview": "cc-master",
+        "doc-cc-evolution": "cc-master evolution",
+    }

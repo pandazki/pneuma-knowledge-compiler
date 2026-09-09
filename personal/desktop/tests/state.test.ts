@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { consoleUrl, credentialName, currentLibrary, deepLibrary, emptyState, health, keyReadout, syncSummary, type Snapshot, type ShallowLibrary } from '../src/lib/state.ts';
+import { consoleHome, consolePreferences, consoleUrl, credentialName, currentLibrary, deepLibrary, emptyState, health, keyReadout, syncSummary, type Snapshot, type ShallowLibrary } from '../src/lib/state.ts';
 
 const library = (name: string, current = false): ShallowLibrary => ({
   name, tenant: `lib-${name}`, current,
@@ -55,6 +55,26 @@ test('console links encode each routing segment and preserve exact source span',
   assert.equal(consoleUrl(18300, 'document', 'doc:a/b #1'), 'http://127.0.0.1:18300/#/library/document/doc%3Aa%2Fb%20%231');
   assert.equal(consoleUrl(18300, 'claim', 'doc-1', 'c:42'), 'http://127.0.0.1:18300/#/library/claim/doc-1/c%3A42');
   assert.equal(consoleUrl(18300, 'source', 'src:1', 7), 'http://127.0.0.1:18300/#/sources/source/src%3A1/7');
+});
+
+test('the tray hands its language and appearance to the console before the hash', () => {
+  // Query before hash: the console routes on the hash, so a parameter appended after it
+  // would be read as part of the route and never reach the preference.
+  assert.equal(consoleHome(18300, { locale: 'zh', theme: 'dark' }),
+    'http://127.0.0.1:18300/?locale=zh&theme=dark');
+  assert.equal(consoleUrl(18300, 'claim', 'doc-1', 'c:42', { locale: 'zh', theme: 'light' }),
+    'http://127.0.0.1:18300/?locale=zh&theme=light#/library/claim/doc-1/c%3A42');
+  // No preference stated, no parameter written — the deep links stay byte-for-byte as before.
+  assert.equal(consoleHome(18300), 'http://127.0.0.1:18300/');
+  assert.equal(consoleUrl(18300, 'source', 'src:1', 7, {}), 'http://127.0.0.1:18300/#/sources/source/src%3A1/7');
+});
+
+test('console preferences say the tray face in the console vocabulary, and stay silent on what cannot be asked', () => {
+  assert.deepEqual(consolePreferences('zh-CN', true), { locale: 'zh', theme: 'dark' });
+  assert.deepEqual(consolePreferences('en', false), { locale: 'en', theme: 'light' });
+  // No media query to ask (no window at all): the language still travels, the theme does not
+  // become a guess the console would then store as an explicit choice.
+  assert.deepEqual(consolePreferences('zh-CN', null), { locale: 'zh' });
 });
 
 test('sync summary keeps held increments separate from queue and unknown observations', () => {

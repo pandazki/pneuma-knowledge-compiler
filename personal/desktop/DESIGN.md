@@ -6,7 +6,7 @@ A library Owner glances at a Mac menu bar at their reading desk, in daylight or 
 
 ## Surfaces and tokens
 
-`src/styles.css` owns every colour. `color-scheme: light dark` and `light-dark()` follow system appearance. Paper and Lightbox are independently tuned. Neutrals share hue 85; muted text is darkened/lightened enough to remain readable. The blue pencil and health colours are conversions of the console's sRGB values. A health colour appears only on the small mark beside each library name; the native tray icon retains its existing contract. Errors and failure details use words on the ordinary surface.
+`src/styles.css` owns every colour. `color-scheme: light dark` and `light-dark()` follow system appearance. Paper and Lightbox are independently tuned. Neutrals share hue 85; muted text is darkened/lightened enough to remain readable. The blue pencil and health colours are conversions of the console's sRGB values. A health colour appears only on the small mark beside each library name; the native tray icon retains its existing contract. Opening the console hands that same face over as `?locale=` and `?theme=`, the theme read from the very `prefers-color-scheme` query `light-dark()` resolves against, so the browser does not re-guess a language the Owner has already chosen. Errors and failure details use words on the ordinary surface.
 
 | Token | Paper · OKLCH | Lightbox · OKLCH |
 |---|---|---|

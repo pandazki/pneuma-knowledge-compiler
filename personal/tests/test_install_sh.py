@@ -34,6 +34,11 @@ def machine(tmp_path):
     """A temporary HOME with a Codex harness present and a fake `docker` on PATH."""
     owner = tmp_path / "owner"
     (owner / ".codex").mkdir(parents=True)
+    # The console step must not depend on the network (or on whether this checkout happens
+    # to carry a built dist): PKC_CONSOLE_DIST is the developer path, and it answers offline.
+    console = tmp_path / "console-dist"
+    console.mkdir()
+    (console / "index.html").write_text("<!doctype html>\n")
     tools = owner / "fake-bin"
     tools.mkdir()
     real_home = Path(os.path.expanduser("~"))
@@ -50,6 +55,7 @@ def machine(tmp_path):
             "HOME": str(owner),
             "PATH": os.pathsep.join([str(tools), str(Path(shutil.which("uv")).parent), "/usr/bin", "/bin"]),
             "PKC_SOURCE": str(ROOT / "personal"),
+            "PKC_CONSOLE_DIST": str(console),
             # The real cache keeps a warm install warm; nothing else escapes the temporary HOME.
             "UV_CACHE_DIR": os.environ.get("UV_CACHE_DIR", str(real_home / ".cache" / "uv")),
         }
@@ -86,6 +92,7 @@ def test_the_installer_installs_the_edition_the_launcher_and_the_skill(machine):
     assert all(line.startswith(("ok:", "skip:")) for line in _steps(first.stdout)), first.stdout
     assert first.stdout.endswith(NEXT_BLOCK)
     assert "skip: no ~/.claude" in first.stdout
+    assert "ok: console local build" in first.stdout
 
 
 def _written(home: Path) -> dict:

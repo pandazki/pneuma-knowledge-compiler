@@ -149,6 +149,8 @@ def test_status_document_shape_and_failed_probes(home, make_library, monkeypatch
     assert row["queue"] is None and row["skill_fresh"] is None and row["canonical_head"] is None
     rendered = status.render_text(document)
     assert "Docker: down" in rendered
+    # The console page is machine-wide, so it is reported beside Docker, not per library.
+    assert document["home"]["console"] and "Console: " in rendered
     # The posture is carried per library and shown per library, recorded rather than probed.
     assert row["unattended"] is True and "Worker: unattended" in rendered
     # So are the round's model and effort: recorded, and empty means the harness's own.

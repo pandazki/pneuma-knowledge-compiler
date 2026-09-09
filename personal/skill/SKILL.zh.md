@@ -36,15 +36,24 @@ canonical 库是权威，索引是派生视图，每条 claim 都引用来源块
 
 空 home 用 Owner 的回答生成 YAML，再运行 `pkchome setup --answers <yaml>`。
 字段为 `library`、`language`（en 或 zh）、`backend`（codex、claude-code 或 api）、
-`semantic_retrieval`（on 或 off）和可选的 `embedding_key`。
+`semantic_retrieval`（on 或 off）、可选的 `embedding_key`，以及可选的 `owner` 映射——
+Owner 已经说明的档案字段（`display_name`、`occupation`、`role`、`industry`、`bio`），
+setup 按“Owner 亲述”写入，而不是当作猜测。
 优先通过 `pkchome credentials set KEY --from-stdin` 传入密钥；setup 也接受回答文件
 中的密钥，但仅将它存入 home 的 credentials 文件。
 
-档案的初稿来自宿主已经了解的 Owner：会话记忆、明确表达的偏好以及材料中的第一人称。
-通过 `pkchome exec -- pkc profile set --field display_name=NAME --provenance inferred`
-写入推断，其他字段按库内参考包的说明填写。向 Owner 展示：“我认为你是 X，从事 Y，
-用 Z 写作——请纠正我”，然后逐字段用 `pkc profile confirm` 或 `pkc profile set`
-确认或修正。实质知识仍通过来源与引用闸门进入知识库；档案只承载 Owner 的自我介绍。
+你到场时档案不是空的。setup 会读取这台机器已经说明的 Owner 信息——账户全名、系统时区、
+界面语言——并以 `--provenance inferred` 写入，因此这些字段一律处于未确认状态。
+运行 `pkchome onboarding [--library NAME]` 取得清单：带值的推断字段、尚未回答的注册问题，
+以及仍未决定的检索选择。用 `locale.language` 的语言与 Owner 交谈。
+
+向 Owner 展示推断：“我认为你是 X，在 Y 时区，用 Z 写作——请纠正我”，然后逐字段落定：
+正确就用 `pkchome exec -- pkc profile confirm --field <name>`，不正确就用
+`pkchome exec -- pkc profile set --field <name>=<value> --provenance owner`。
+随后按清单逐个提问，用 Owner 的语言问，每个回答都以 `--provenance owner` 写入；
+可设置的全部字段见库内参考包。当 `pkchome status` 中 `profile` 显示完成时这一步才算完成——
+只有档案指名了某个人、且其中没有任何字段仍标着 inferred，它才会显示完成。
+实质知识仍通过来源与引用闸门进入知识库；档案只承载 Owner 的自我介绍。
 
 先读已记录的检索选择。Owner 尚未选择时，询问是关闭语义检索运行，还是提供 embedding
 服务商的密钥。用 `pkchome config set semantic_retrieval off --library NAME` 记录关闭，

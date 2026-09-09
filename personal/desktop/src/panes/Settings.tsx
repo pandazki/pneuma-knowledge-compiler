@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { autostartEnabled, openConsole, runAction, setAutostart, type Perform } from '../lib/commands';
 import { t, type Locale, type Message } from '../lib/i18n';
-import { consoleUrl, credentialName, currentLibrary, deepLibrary, keyReadout, timeLabel, type Backend, type KeyReadout, type Snapshot } from '../lib/state';
+import { consoleHome, consolePreferences, credentialName, currentLibrary, deepLibrary, keyReadout, timeLabel, type Backend, type KeyReadout, type Snapshot } from '../lib/state';
 import { LedgerSelect, Leader, SettingRow } from './Ledger';
 
 const verdicts: Record<Exclude<KeyReadout, 'absent' | 'unknown'>, Message> = {
@@ -159,7 +159,7 @@ export default function Settings({ state, busy, perform, locale, preference, onL
           void perform(async () => { await setAutostart(enabled); setLogin(enabled); });
         }} />
       </SettingRow>
-      <button disabled={busy || !library?.engine.up} onClick={() => { if (library) void perform(() => openConsole(consoleUrl(library.engine.port))); }}>{t(locale, 'openConsole')}</button>
+      <button disabled={busy || !library?.engine.up} onClick={() => { if (library) void perform(() => openConsole(consoleHome(library.engine.port, consolePreferences(locale)))); }}>{t(locale, 'openConsole')}</button>
       <p className="muted home-path" title={state.shallow.home.path}>{state.shallow.home.path}</p>
     </section>
   </form>;

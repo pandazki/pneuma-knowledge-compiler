@@ -28,7 +28,12 @@ The installed library supplies `pkc`, including every canonical write through it
    (`~/.codex`, `~/.claude`).
 5. **Docker** — a `docker info` probe. On failure it says where Docker Desktop or OrbStack
    comes from and stops with exit 3; nothing done above is undone, so a re-run continues.
-6. **the desktop app** — with `PKC_DESKTOP=1` once a build is published; otherwise one line
+6. **the console page** — `pkchome console install`. The wheel carries the built page only
+   when it was built inside this repository, so otherwise it is downloaded from the
+   `personal-console-v<version>` release and verified against the published sha256 before
+   anything is written. Never fatal: an offline machine keeps everything above, and
+   `pkchome console` fetches the page the first time it is opened.
+7. **the desktop app** — with `PKC_DESKTOP=1` once a build is published; otherwise one line
    saying `pkchome tray` will tell where to get it.
 
 Every step prints one `ok:` or `skip:` line, and the last lines name the installed
@@ -38,8 +43,9 @@ Every step prints one `ok:` or `skip:` line, and the last lines name the install
 
 ```
 pkchome setup [--answers <file>] [--non-interactive] [--no-skill]
-pkchome up | down | restart | console | tray
+pkchome up | down | restart | console [install] | tray
 pkchome status [--json] [--library <name>]
+pkchome onboarding [--library <name>]
 pkchome library create <name> [--from <name>] [--language en|zh] [--contract personal-projects|personal-knowledge|<path>] [--backend …]
 pkchome library ls | show [<name>] | use <name> | bind <name> [<dir>] | unbind [<dir>] | render [<name>]
 pkchome config get|set <key> [<value>] [--library <name>]
@@ -59,11 +65,23 @@ prints the release page. For development, use `cd personal/desktop && pnpm insta
 without an engine and uses each running engine's `/home/status` for detailed health.
 
 Setup answers: `library: notes`, `language: en`, `backend: codex`,
-`semantic_retrieval: off`; an optional `embedding_key` goes only to credentials. A key for
+`semantic_retrieval: off`; an optional `embedding_key` goes only to credentials; an optional
+`owner:` mapping states profile fields the Owner has already given (`display_name`,
+`occupation`, `role`, `industry`, `bio` — any of `pkc profile`'s fields), written as theirs.
+A key for
 the configured embedding provider is probed against it before it is stored — a rejected key
 changes nothing (no file written, no engine restarted, the previous key kept), and
 `--no-verify` stores one unchecked when the machine is offline. Setup
 needs a terminal or `--answers`; `--no-skill` skips installation into detected harnesses.
+
+Setup does not leave the profile blank. It reads what the machine already states about its
+Owner — the account's full name, the system timezone, the interface language (the `language`
+answer wins over it) — and writes those with `inferred` provenance, which `pkchome status`
+refuses to count as a settled profile until the Owner confirms each one.
+`pkchome onboarding` prints what is left to do: the inferred fields with their values and the
+commands that confirm or correct them, the registration questions still unanswered — asked in
+the Owner's own language — and the retrieval choice while it is undecided. Setup prints that
+same block; the command is there for a Steward who arrives later.
 
 `config get|set` reads and writes one recorded choice per library (or the home defaults with
 no `--library`): `backend`, `language`, `semantic_retrieval`, `embedding`, `unattended`, and
@@ -211,7 +229,15 @@ This is a standalone uv project with its own environment and committed lockfile.
 runtime library dependencies are the core and service distributions; edition contracts and
 global skill texts ship as its own assets.
 
+The console page is a built artifact, never source: an engine serves it from the wheel's own
+`pkc_personal/console/dist`, from `PKC_CONSOLE_DIST` (a local build, for development), or from
+`~/.pkc/console/<version>/dist` — the copy `pkchome console install` downloads from the
+`personal-console-v<version>` release and verifies against its published sha256.
+In this repository `scripts/personal_console_dist.sh` builds that directory and
+`scripts/personal_console_release.sh` publishes it as one version's release asset.
+`pkchome status` says which of the three this machine has.
+
 Current seam limits: engine startup refuses a library version without worker tenant
 filtering; a retrieval choice is recorded but only takes effect when the library exposes
-`semantic_retrieval`; the console is served only when a built artifact is installed under
-`pkc_personal/console/dist`.
+`semantic_retrieval`; an engine decides at start whether it serves the console, so a page
+fetched after the engine started is served from the next `pkchome restart`.

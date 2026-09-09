@@ -11,7 +11,7 @@ from urllib.request import urlopen
 from pneuma_knowledge_service.embedding_key import embedding_key_requirement
 from pneuma_knowledge_service.persona_profile import is_placeholder, read_profile_data
 
-from pkc_personal import __version__, engine, infra, sync
+from pkc_personal import __version__, console, engine, infra, sync
 from pkc_personal.environment import home_environment, resolve_library
 from pkc_personal.home import Home, read_yaml
 from pkc_personal.library import Library, libraries, pkc_script, posture
@@ -218,7 +218,9 @@ def status_document(home: Home, explicit: str | None = None) -> dict:
             "last_used": library.state.last_used,
             "sync": sync.status(home, library),
         })
-    return {"home": {"path": str(home.path), "version": config.install.version if config else __version__},
+    return {"home": {"path": str(home.path), "version": config.install.version if config else __version__,
+                     # Machine-wide, like Docker: one built page serves every library here.
+                     "console": console.console_state(home)},
             "docker": {"reachable": docker}, "services": services, "libraries": rows}
 
 
@@ -230,6 +232,7 @@ def render_text(document: dict) -> str:
         return "done" if value is True else (value or "not completed")
 
     lines = [f"Home: {document['home']['path']} (v{document['home']['version']})",
+             f"Console: {document['home'].get('console', 'unknown')}",
              f"Docker: {state(document['docker']['reachable'])}"]
     for name, probe in document["services"].items():
         lines.append(f"{name}: {state(probe['up'])} (port {probe['port'] or 'unconfigured'})")
