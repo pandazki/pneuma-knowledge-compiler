@@ -182,7 +182,12 @@ class SourceSignals:
         value = (profile.get("display_name") if isinstance(profile, dict)
                  else getattr(profile, "display_name", None))
         name = str(value or "").strip() or None
-        return cls(ctx.store, user_id, name, time_context_for(user_id, profile))
+        # The same resolution chain the compile uses (wiring.time_context_for the job):
+        # the profile's declared zone, else this deployment's default, else UTC — so a day
+        # printed here is the day the compile wrote.
+        default_zone = getattr(getattr(ctx, "settings", None), "default_timezone", None)
+        return cls(ctx.store, user_id, name,
+                   time_context_for(user_id, profile, default_timezone=default_zone))
 
     async def get(self, source_id: str) -> NormalizedSource | None:
         if source_id not in self.sources:

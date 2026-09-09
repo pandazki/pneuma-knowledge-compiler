@@ -1460,9 +1460,14 @@ async def test_every_reader_day_uses_the_owner_calendar_and_keeps_original_insta
         reset_prompt_overrides()
 
 
+DEFAULT_BASIS = "days: this deployment's default calendar (Pacific/Auckland); the Owner has not declared a timezone"
+
+
 @pytest.mark.parametrize("zone,day,basis", [
-    (None, "2026-09-08", UTC_BASIS),
-    ("invalid/zone", "2026-09-08", UTC_BASIS),
+    # No usable profile zone: the reader resolves the calendar the way the compile does —
+    # the deployment's default next — and says so; 20:30 UTC is already the 9th in Auckland.
+    (None, "2026-09-09", DEFAULT_BASIS),
+    ("invalid/zone", "2026-09-09", DEFAULT_BASIS),
     ("UTC", "2026-09-08", "days: Owner's calendar (UTC)"),
     ("Asia/Shanghai", "2026-09-09", "days: Owner's calendar (Asia/Shanghai)"),
     ("America/New_York", "2026-09-08", "days: Owner's calendar (America/New_York)"),
@@ -1474,7 +1479,7 @@ async def test_reader_import_days_and_naive_storage_instants_share_the_stated_ca
         await _owner_calendar(lib, zone)
     item = _authored_source()
     item.raw.meta.pop("occurred_on")
-    # A naive storage instant is UTC, independent of the host or deployment default.
+    # A naive storage instant is UTC; the DAY it is filed under follows the stated calendar.
     item.raw.created_at = datetime(2026, 9, 8, 20, 30)
     item.raw.meta["turns"][0]["at"] = "2026-09-08T20:30:00"
     await lib.store.add(USER, item)
@@ -1657,3 +1662,20 @@ def test_main_help_applies_chinese_before_argparse_exits(engine, tmp_path, monke
         assert "characters per page" not in help_text
     finally:
         reset_prompt_overrides()
+
+
+async def test_the_reader_counts_days_on_the_deployment_default_calendar_when_the_owner_declared_none():
+    """The compile resolves the Owner's calendar as profile zone → deployment default → UTC;
+    the read commands must resolve it the same way, and say which link answered."""
+    from types import SimpleNamespace
+    from pneuma_knowledge_service.cli.reader_signals import SourceSignals, calendar_basis
+
+    lib = _lib()
+    lib.settings = SimpleNamespace(**{**getattr(lib, "settings", SimpleNamespace()).__dict__, "default_timezone": "Asia/Shanghai"}) \
+        if hasattr(lib, "settings") else SimpleNamespace(default_timezone="Asia/Shanghai")
+    signals = await SourceSignals.for_runtime(lib, USER)
+    assert signals.time.zone_name == "Asia/Shanghai"
+    assert calendar_basis(signals.time) == "deployment_default"
+    lib.settings = SimpleNamespace(default_timezone="UTC")
+    signals = await SourceSignals.for_runtime(lib, USER)
+    assert calendar_basis(signals.time) == "utc_fallback"
