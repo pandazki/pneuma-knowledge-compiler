@@ -28,9 +28,9 @@ One backend image, two tiers by command:
 - **API tier** (default `CMD`): `uvicorn … --host 0.0.0.0 --port 8080`.
 - **Worker tier**: override the command with `python -m pneuma_knowledge_service.workers.compile_worker`. Both are stateless; scale the API horizontally, run the worker as at least one replica (per-user job serialization is handled by the queue, not by replica count).
 
-Two constraints are baked into the Dockerfile and are easy to trip over when building your own:
+Two things are baked into the Dockerfile and are easy to trip over when building your own:
 
-1. **Ship the whole repository and run via `uv run`.** The Postgres adapter locates `infra/schema.sql` relative to its own source path, so a bare-wheel install does not work — the source layout must survive into the image.
+1. **The image ships the whole repository and runs via `uv run`.** One option rather than a requirement: the service wheel now carries the bootstrap schema inside the package (`pneuma_knowledge_service/infra/schema.sql`), and the Postgres adapter reads that packaged copy first, falling back to `infra/schema.sql` in a source checkout. So an installed edition works too; ship the repository when you want the checkout layout — tests, ops scripts, compose files — to survive into the image.
 2. **The runtime needs the `git` binary** (the canonical adapter shells out), plus `git config --system --add safe.directory '*'` for volumes whose uid doesn't match the container user. Canonical data lives on a persistent volume at `PNEUMA_KNOWLEDGE_CANONICAL_ROOT=/data/canonical`.
 
 Startup is deliberately fail-closed and network-dependent: `build_context()` creates the schema, probes the embedding dimension with one real embedding call, and connects to Meilisearch and Qdrant before serving anything — budget a generous startup window. The S3 client is lazy; the first image import creates or verifies its private bucket, while compose health still keeps RustFS ready before the stack reports healthy. The probed dimension is load-bearing: switching `EMBEDDING_MODEL` means a new collection name and a derived rebuild; mixed dimensions cannot share a collection.

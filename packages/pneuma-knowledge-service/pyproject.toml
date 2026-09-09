@@ -39,3 +39,10 @@ build-backend = "hatchling.build"
 # read from the installed wheel through `importlib.resources`. Do not add an exclude that
 # would drop non-Python files.
 packages = ["src/pneuma_knowledge_service"]
+
+[tool.hatch.build.targets.wheel.force-include]
+# The bootstrap schema every process applies on start. The repository file stays the single
+# authoritative copy (docs, compose and tests all name `infra/schema.sql`); shipping a copy
+# inside the package is what lets an installed edition — `uv tool install pkc-personal`,
+# which has no repository around it — find it at all. See `adapters/postgres.py`.
+"../../infra/schema.sql" = "pneuma_knowledge_service/infra/schema.sql"

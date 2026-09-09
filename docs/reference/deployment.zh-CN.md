@@ -28,9 +28,9 @@ cd apps/web && pnpm dev          # Vite 于 :5173，把 /v1 与 /healthz 代理�
 - **API 层**（默认 `CMD`）：`uvicorn … --host 0.0.0.0 --port 8080`。
 - **Worker 层**：把命令改成 `python -m pneuma_knowledge_service.workers.compile_worker`。两者都无状态；API 可水平扩容，worker 至少一个副本即可（按用户的任务串行由队列保证，与副本数无关）。
 
-两条硬约束写死在 Dockerfile 里，自建镜像最容易栽在这儿：
+两件事写死在 Dockerfile 里，自建镜像最容易栽在这儿：
 
-1. **整仓复制、用 `uv run` 运行。** Postgres 适配器按自身源码路径定位 `infra/schema.sql`，裸 wheel 安装跑不起来——源码目录布局必须原样进镜像。
+1. **镜像整仓复制、用 `uv run` 运行。** 这是一种做法，而非硬性要求：service wheel 现在把引导 schema 带进包内（`pneuma_knowledge_service/infra/schema.sql`），Postgres 适配器优先读这份打包副本，读不到才回落到源码目录里的 `infra/schema.sql`。所以裸 wheel 安装同样跑得起来；整仓复制适用于你希望把 checkout 的目录布局——测试、运维脚本、compose 文件——原样带进镜像的场景。
 2. **运行时必须有 `git` 二进制**（正本适配器走子进程），并加 `git config --system --add safe.directory '*'` 应对卷 uid 与容器用户不一致的情况。正本数据放持久卷，`PNEUMA_KNOWLEDGE_CANONICAL_ROOT=/data/canonical`。
 
 启动刻意做成 fail-closed 且依赖网络：`build_context()` 先建 schema，再用**一次真实 embedding 调用**探测向量维度，然后连上 Meilisearch 与 Qdrant——四者齐备前不服务任何请求，启动窗口要给足预算。S3 client 是惰性的：第一次图片导入才创建或确认私有 bucket；compose 健康检查仍会确保整栈报告 healthy 之前 RustFS 已就绪。探测出的维度是承重的：换 `EMBEDDING_MODEL` 意味着换 collection 名并重建派生层；不同维度不能共存一个 collection。
