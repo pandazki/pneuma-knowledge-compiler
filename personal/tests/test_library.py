@@ -15,7 +15,10 @@ from pneuma_knowledge_service.settings import get_settings
 from pkc_personal import cli, library as library_module
 from pkc_personal.environment import LibraryNotChosen, home_environment, resolve_library
 from pkc_personal.home import atomic_write, read_yaml
-from pkc_personal.library import Library, bind_library, create_library, render_library, set_config, unbind_library, use_library
+from pkc_personal.library import (
+    Library, bind_library, create_library, probe_embedding_key, render_library, set_config,
+    unbind_library, use_library,
+)
 
 
 def test_resolution_order_and_ancestor_binding(home, make_library, tmp_path):
@@ -256,3 +259,34 @@ def test_the_installed_shim_is_the_path_the_unattended_round_runs(home):
     assert entry == runner._shim()
     assert Path(entry).is_file() and os.access(entry, os.X_OK)
     assert library.show()["skill_dir"] == str(library.skill_dir)
+
+
+def test_the_probe_is_one_real_embed_through_the_deployments_own_builder():
+    """Keyless proof that the preflight is the engine's own path and not a second client:
+    the keyless spec needs no credential and answers, so the probe returns."""
+    probe_embedding_key("fake:384", "")
+
+
+def test_the_probe_hands_the_candidate_over_without_writing_the_environment(monkeypatch):
+    """The candidate travels as a value. Nothing in os.environ carries it, so a refusal
+    leaves no trace for the next process to pick up."""
+    from pneuma_knowledge_service import wiring
+
+    seen: dict[str, object] = {}
+
+    class _Embeddings:
+        async def aembed_query(self, text: str) -> list[float]:
+            seen["text"] = text
+            return [0.0]
+
+    def build(settings):
+        seen.update(spec=settings.embedding_model, key=settings.openrouter_api_key)
+        return _Embeddings()
+
+    monkeypatch.setattr(wiring, "build_embeddings", build)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    probe_embedding_key("openrouter:vendor/embed", "synthetic-candidate")
+
+    assert seen["spec"] == "openrouter:vendor/embed"
+    assert seen["key"] == "synthetic-candidate"
+    assert seen["text"] and "OPENROUTER_API_KEY" not in os.environ

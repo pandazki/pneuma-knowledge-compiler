@@ -41,7 +41,7 @@ pkchome status [--json] [--library <name>]
 pkchome library create <name> [--from <name>] [--language en|zh] [--contract personal-projects|personal-knowledge|<path>] [--backend …]
 pkchome library ls | show [<name>] | use <name> | bind <name> [<dir>] | unbind [<dir>] | render [<name>]
 pkchome config get|set <key> [<value>] [--library <name>]
-pkchome credentials set KEY [--from-stdin]
+pkchome credentials set KEY [--from-stdin] [--no-verify]
 pkchome env [--export] [--library <name>]
 pkchome exec [--library <name>] -- <command…>
 pkchome skill install [--backend codex|claude-code|all] [--force]
@@ -57,7 +57,9 @@ pkchome skill install [--backend codex|claude-code|all] [--force]
 `/home/status`。
 
 Setup 回答字段：`library: notes`、`language: en`、`backend: codex`、
-`semantic_retrieval: off`；可选的 `embedding_key` 只进入凭据文件。Setup 需要终端或
+`semantic_retrieval: off`；可选的 `embedding_key` 只进入凭据文件。配置的 embedding
+服务商的密钥在写入前会先向该服务商验证一次——被拒绝的密钥不改变任何东西（不写文件、
+不重启引擎、保留原密钥），离线时可用 `--no-verify` 跳过验证直接保存。Setup 需要终端或
 `--answers`；`--no-skill` 跳过向检测到的宿主目录安装技能。
 
 知识库选择优先级依次是 `--library`、`PKC_LIBRARY`、当前目录或祖先中最近的 `.pkc`

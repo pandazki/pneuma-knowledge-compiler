@@ -43,7 +43,7 @@ pkchome status [--json] [--library <name>]
 pkchome library create <name> [--from <name>] [--language en|zh] [--contract personal-projects|personal-knowledge|<path>] [--backend …]
 pkchome library ls | show [<name>] | use <name> | bind <name> [<dir>] | unbind [<dir>] | render [<name>]
 pkchome config get|set <key> [<value>] [--library <name>]
-pkchome credentials set KEY [--from-stdin]
+pkchome credentials set KEY [--from-stdin] [--no-verify]
 pkchome env [--export] [--library <name>]
 pkchome exec [--library <name>] -- <command…>
 pkchome skill install [--backend codex|claude-code|all] [--force]
@@ -59,7 +59,10 @@ prints the release page. For development, use `cd personal/desktop && pnpm insta
 without an engine and uses each running engine's `/home/status` for detailed health.
 
 Setup answers: `library: notes`, `language: en`, `backend: codex`,
-`semantic_retrieval: off`; an optional `embedding_key` goes only to credentials. Setup
+`semantic_retrieval: off`; an optional `embedding_key` goes only to credentials. A key for
+the configured embedding provider is probed against it before it is stored — a rejected key
+changes nothing (no file written, no engine restarted, the previous key kept), and
+`--no-verify` stores one unchecked when the machine is offline. Setup
 needs a terminal or `--answers`; `--no-skill` skips installation into detected harnesses.
 
 Choose a library with `--library`, `PKC_LIBRARY`, the nearest `.pkc` file in the current

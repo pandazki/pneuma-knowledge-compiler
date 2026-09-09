@@ -194,10 +194,25 @@ async fn executable(runtime: &Runtime) -> Result<PathBuf, String> {
         Err("install.pkchome must be an absolute path or a command on PATH".into())
     }
 }
-fn error_output(stderr: &[u8], secret: Option<&str>, fallback: String) -> String {
+/// The tool's own words, with the submitted credential mechanically removed.
+///
+/// A provider's refusal is worth showing — `401 Unauthorized` is the difference between
+/// "try again" and "you pasted the wrong thing" — but it may quote back what it was given.
+/// Scrubbing here, at the one place a credential action's output leaves the process, is
+/// what lets the window show the reason instead of a generic line.
+fn error_output(stderr: &[u8], stdout: &[u8], secret: Option<&str>, fallback: String) -> String {
     let mut text = String::from_utf8_lossy(stderr).trim().to_owned();
+    if text.is_empty() {
+        text = String::from_utf8_lossy(stdout).trim().to_owned();
+    }
     if let Some(secret) = secret {
-        text = text.replace(secret, "[redacted]");
+        // The tool trims what it reads on stdin, so both forms can appear in its output.
+        // The untrimmed value first: it contains the trimmed one.
+        for form in [secret, secret.trim()] {
+            if !form.is_empty() {
+                text = text.replace(form, "\u{2022}\u{2022}\u{2022}");
+            }
+        }
     }
     if text.is_empty() {
         fallback
@@ -258,6 +273,7 @@ pub async fn run_action(runtime: State<'_, Runtime>, action: Action) -> Result<(
         } else {
             Err(error_output(
                 &output.stderr,
+                &output.stdout,
                 secret,
                 format!("pkchome exited with {}", output.status),
             ))
@@ -400,13 +416,36 @@ mod tests {
             ["credentials", "set", "OPENROUTER_API_KEY", "--from-stdin"]
         );
         assert_eq!(stdin, Some("synthetic-$(never-execute) `literal`"));
+    }
+
+    #[test]
+    fn a_refusal_states_its_reason_without_carrying_the_submitted_value_back() {
+        let action = Action::Credential {
+            key: "OPENROUTER_API_KEY".into(),
+            value: " synthetic-key-value ".into(),
+        };
+        let (_, stdin) = arguments(&action).unwrap();
+        // The tool trims what it reads on stdin, so its words may quote either form.
         assert_eq!(
             error_output(
-                b"refused synthetic-$(never-execute) `literal`",
+                b"refused: OPENROUTER_API_KEY was not stored \xe2\x80\x94 \
+                  openrouter rejected 'synthetic-key-value' (401 Unauthorized)",
+                b"",
                 stdin,
-                "failed".into()
+                "failed".into(),
             ),
-            "refused [redacted]"
+            "refused: OPENROUTER_API_KEY was not stored \u{2014} \
+             openrouter rejected '\u{2022}\u{2022}\u{2022}' (401 Unauthorized)"
+        );
+        assert_eq!(
+            error_output(b"echoed [ synthetic-key-value ]", b"", stdin, "failed".into()),
+            "echoed [\u{2022}\u{2022}\u{2022}]"
+        );
+        // Silence still says something, and a tool that speaks on stdout is still heard.
+        assert_eq!(error_output(b"", b"", None, "failed".into()), "failed");
+        assert_eq!(
+            error_output(b"", b"refused: no reason on stderr", None, "failed".into()),
+            "refused: no reason on stderr"
         );
     }
 
