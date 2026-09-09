@@ -115,6 +115,8 @@ class AgentRoundRunner:
     project_dir: str
     timeout_s: float
     model: str = ""
+    #: How hard the harness is told to think, when its manifest states a flag for it.
+    reasoning_effort: str = ""
     retries: int = 3
     keep_workdir: bool = False
     #: Injected so the tests can drive every branch with no subprocess at all.
@@ -273,6 +275,7 @@ class AgentRoundRunner:
             config_home=str(home),
             timeout_s=self.timeout_s,
             model=self.model,
+            reasoning_effort=self.reasoning_effort,
             resume_session=resume_session,
             env={**self._env(), "PKC_DRAFT_EXECUTOR": executor},
             settings=self.settings,

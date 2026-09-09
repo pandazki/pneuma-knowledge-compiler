@@ -1414,7 +1414,7 @@ NON_ENGINE_SETTINGS: frozenset[str] = frozenset(
         # a record of what happened, not a choice about what happens. The choice is the
         # compile role's model spec, which IS a knob.
         "executor_backend",
-        # The four knobs of the UNATTENDED launcher (docs/design/coding-agent-mode.md §8).
+        # The knobs of the UNATTENDED launcher (docs/design/coding-agent-mode.md §8).
         # Every one of them is about how this installation runs a subprocess — whether to
         # check a binary is logged in before starting, how many times to wait out a
         # provider's rate limit, whether to keep a temp directory for debugging, and whether
@@ -1425,6 +1425,14 @@ NON_ENGINE_SETTINGS: frozenset[str] = frozenset(
         "agent_retries",
         "agent_keep_workdir",
         "agent_unattended",
+        # The last two are the same kind of statement, and the borderline one: the model and
+        # the reasoning effort of the harness the launcher spawns. `models.compile` already
+        # says `agent:<backend>` and deliberately says no more — §8's ruling is that WHICH
+        # model a subscription reaches is the harness's own affair. These name the argv that
+        # subprocess is started with, in place of the Owner's global harness configuration,
+        # which is deployment wiring in the same sense the sandbox flags are.
+        "agent_model",
+        "agent_reasoning_effort",
         # The two knobs of the console's Steward session (§5.6): WHERE this installation
         # spawns a harness, and how long that process outlives the browser tab. A directory
         # and a timeout — deployment wiring by construction, and neither of them is reachable

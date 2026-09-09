@@ -62,6 +62,13 @@ Setup 回答字段：`library: notes`、`language: en`、`backend: codex`、
 不重启引擎、保留原密钥），离线时可用 `--no-verify` 跳过验证直接保存。Setup 需要终端或
 `--answers`；`--no-skill` 跳过向检测到的宿主目录安装技能。
 
+`config get|set` 读写每个库（不带 `--library` 时则是 home 的默认值）记录下来的一项选择：
+`backend`、`language`、`semantic_retrieval`、`embedding`、`unattended`，以及
+`model` / `reasoning_effort`——这个库的编译与演进轮跑哪个模型、想多深，而不是继承你自己
+全局 harness 配置里的那一套。Codex 两者都认（`reasoning_effort` 取 `minimal`、`low`、
+`medium`、`high`、`xhigh` 之一）；Claude Code 只认模型，因为它的 CLI 没有推理强度开关。
+留空即各自交给 harness。改动其中任何一个都会重启该库的引擎，因为启动器只在启动时读一次设置。
+
 知识库选择优先级依次是 `--library`、`PKC_LIBRARY`、当前目录或祖先中最近的 `.pkc`
 文件，以及 home 的当前库。未选择时以退出码 2 拒绝执行。`env` 为用户自己的 shell
 有意输出密钥；状态文档不会输出。

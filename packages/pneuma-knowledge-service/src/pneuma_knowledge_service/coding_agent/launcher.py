@@ -49,6 +49,7 @@ from .backends import (
     MODEL,
     OUTPUT_FILE,
     PROJECT_DIR,
+    REASONING_EFFORT,
     SESSION,
     SYSTEM_FILE,
     SYSTEM_PROMPT_FILE,
@@ -145,6 +146,9 @@ class LaunchRequest:
     config_home: str
     timeout_s: float
     model: str = ""
+    #: How hard the harness is told to think. Carried only by a harness whose manifest states
+    #: the flags for it; empty is the harness's own default.
+    reasoning_effort: str = ""
     #: Resume this session instead of starting a new one, when the manifest can.
     resume_session: str = ""
     #: Extra environment for the child, on top of the inherited one.
@@ -294,6 +298,10 @@ def build_argv(request: LaunchRequest, workdir: Path) -> list[str]:
         template = manifest.resume_command
     values = {
         MODEL: request.model or "",
+        # A harness that states no effort flags is a harness that takes no effort: the value
+        # is dropped here rather than at the template, so a deployment that configured one
+        # cannot reach a CLI that would exit on it. Read off the manifest, never off a name.
+        REASONING_EFFORT: (request.reasoning_effort or "") if manifest.effort_flags else "",
         SYSTEM_FILE: str(workdir / SYSTEM_FILENAME),
         OUTPUT_FILE: str(workdir / LAST_MESSAGE_FILENAME),
         PROJECT_DIR: str(Path(request.project_dir).expanduser().resolve()),

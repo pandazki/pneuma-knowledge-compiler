@@ -139,8 +139,9 @@ def test_status_document_shape_and_failed_probes(home, make_library, monkeypatch
     assert set(document) == {"home", "docker", "services", "libraries"}
     assert all(row["up"] is None for row in document["services"].values())
     row = document["libraries"][0]
-    assert set(row) == {"name", "tenant", "current", "engine", "unattended", "queue", "key",
-                        "engine_dir", "canonical_head", "skill_fresh", "steps", "last_used", "sync"}
+    assert set(row) == {"name", "tenant", "current", "engine", "unattended", "agent_model",
+                        "reasoning_effort", "queue", "key", "engine_dir", "canonical_head",
+                        "skill_fresh", "steps", "last_used", "sync"}
     # The tenant travels with the name: it is what the console reads once it has switched to
     # a library by name, and a row without it names a library no request could reach.
     assert row["tenant"] == "lib-notes"
@@ -150,6 +151,9 @@ def test_status_document_shape_and_failed_probes(home, make_library, monkeypatch
     assert "Docker: down" in rendered
     # The posture is carried per library and shown per library, recorded rather than probed.
     assert row["unattended"] is True and "Worker: unattended" in rendered
+    # So are the round's model and effort: recorded, and empty means the harness's own.
+    assert row["agent_model"] == "" and row["reasoning_effort"] == ""
+    assert "Rounds: the harness default model at the harness default effort" in rendered
 
 
 def test_queue_reads_one_bounded_page_of_succeeded_compiles(home, make_library, monkeypatch):
@@ -287,7 +291,8 @@ def test_derived_steps_join_the_recorded_ones_under_the_five_names(home, make_li
         {"home": {"path": "/h", "version": "0"}, "docker": {"reachable": True}, "services": {},
          "libraries": [{"name": "notes", "current": True, "engine": {"up": True, "port": 1},
                         "engine_dir": "/e", "key": False, "canonical_head": None, "skill_fresh": None,
-                        "unattended": False, "queue": None, "last_used": None, "steps": steps}]}
+                        "unattended": False, "agent_model": "", "reasoning_effort": "",
+                        "queue": None, "last_used": None, "steps": steps}]}
     )
 
 

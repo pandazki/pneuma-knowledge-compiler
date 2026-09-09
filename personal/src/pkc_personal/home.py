@@ -12,9 +12,10 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from pneuma_knowledge_service.infra.ports import probe_free_ports
+from pneuma_knowledge_service.settings import AGENT_REASONING_EFFORTS
 
 from pkc_personal import __version__
 
@@ -75,6 +76,22 @@ def asset_path(relative: str) -> Path:
     return installed if installed.exists() else package.parents[1] / relative
 
 
+def validated_effort(value: str) -> str:
+    """One reasoning effort the harness will accept, or a refusal naming the whole set.
+
+    The set is the service's own (`AGENT_REASONING_EFFORTS`), imported rather than restated:
+    a value this face accepted and the engine's settings refused would be a library whose
+    engine dies at start, with the reason in a process the Owner is not looking at.
+    """
+    effort = value.strip()
+    if effort and effort not in AGENT_REASONING_EFFORTS:
+        raise ValueError(
+            f"reasoning_effort must be one of {', '.join(AGENT_REASONING_EFFORTS)}, "
+            "or empty for the harness default"
+        )
+    return effort
+
+
 class Model(BaseModel):
     model_config = ConfigDict(extra="forbid", validate_assignment=True)
 
@@ -123,6 +140,19 @@ class Choices(Model):
     # terminal and the worker never reach for the same job. It is a recorded choice per
     # library (§4.7) rather than an env file, and `home_environment` is what states it.
     unattended: bool = True
+    # WHICH model this library's rounds run, and how hard it thinks. Empty leaves both to the
+    # harness — which means the Owner's global harness configuration, because the launcher
+    # seeds each job's config home from it. Naming them here is how a library is compiled at
+    # one model and effort while the Owner's own terminal stays at another; `home_environment`
+    # states them, and `set_config` restarts the engine so a running launcher obeys them.
+    model: str = ""
+    reasoning_effort: str = ""
+
+    @field_validator("reasoning_effort")
+    @classmethod
+    def known_effort(cls, value: str) -> str:
+        """Checked on the record, so a hand-edited `library.yaml` is refused on load too."""
+        return validated_effort(value)
 
 
 class SyncConfig(Model):

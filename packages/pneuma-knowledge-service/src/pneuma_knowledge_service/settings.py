@@ -17,6 +17,13 @@ from pneuma_knowledge_core.domain.pricing import parse_model_pricing
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+#: The reasoning efforts a coding-agent harness accepts, in the harness's own spelling —
+#: Codex's set, which is the only shipped harness whose CLI takes one. Empty is NOT a member:
+#: it is the absence of a choice ("whatever the harness defaults to"), not a value. Stated
+#: once and imported by every face that offers the choice, so a knob the service would refuse
+#: cannot be accepted somewhere else and land as a launch that dies in argv.
+AGENT_REASONING_EFFORTS: tuple[str, ...] = ("minimal", "low", "medium", "high", "xhigh")
+
 
 class Settings(BaseSettings):
     # extra="ignore": a 12-factor service must tolerate unrelated env / .env vars
@@ -140,6 +147,20 @@ class Settings(BaseSettings):
     # finished. Off is the interactive posture: the worker leaves compile jobs queued and the
     # Owner's own session opens them with `pkc draft open` (the behaviour §11 step 2 shipped).
     agent_unattended: bool = True
+
+    # WHICH model the launched harness runs, and how hard it is told to think. Empty means
+    # the harness's own default — which is the Owner's global harness configuration, and that
+    # is exactly the thing these two exist to name: an unattended round seeded from `~/.codex`
+    # inherits whatever the Owner set for their own interactive sessions, so a library could
+    # not be compiled at one model and effort while the Owner works at another. Stated here,
+    # the round's model and effort are the DEPLOYMENT's, and the Owner's own terminal is left
+    # alone. Both travel as argv on the manifest's launch template (`coding_agent/backends.py`),
+    # so a harness whose CLI has no such flag simply carries neither.
+    agent_model: str = ""
+    # The effort is validated against `AGENT_REASONING_EFFORTS` rather than passed through:
+    # an unknown value is a round that dies in argv minutes after the job was queued, and the
+    # place to refuse it is where it is written.
+    agent_reasoning_effort: str = ""
 
     # ── the console's Steward view (docs/design/coding-agent-mode.md §5.6) ────────────────
 
@@ -549,6 +570,23 @@ class Settings(BaseSettings):
         """
         parse_model_pricing(value)
         return value
+
+    @field_validator("agent_reasoning_effort")
+    @classmethod
+    def _effort_must_be_one_a_harness_takes(cls, value: str) -> str:
+        """An effort no harness accepts is refused here rather than in a launched argv.
+
+        The failure it prevents is a slow one: the round is queued, claimed, its draft is
+        opened, and the harness then exits on a flag it does not understand — minutes later
+        and one process out, where the reason is a line of somebody else's stderr.
+        """
+        effort = (value or "").strip()
+        if effort and effort not in AGENT_REASONING_EFFORTS:
+            raise ValueError(
+                f"unknown reasoning effort {effort!r}; accepted: "
+                f"{', '.join(AGENT_REASONING_EFFORTS)} (empty = the harness default)"
+            )
+        return effort
 
 
 def get_settings() -> Settings:

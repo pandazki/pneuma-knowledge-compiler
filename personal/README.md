@@ -65,6 +65,15 @@ changes nothing (no file written, no engine restarted, the previous key kept), a
 `--no-verify` stores one unchecked when the machine is offline. Setup
 needs a terminal or `--answers`; `--no-skill` skips installation into detected harnesses.
 
+`config get|set` reads and writes one recorded choice per library (or the home defaults with
+no `--library`): `backend`, `language`, `semantic_retrieval`, `embedding`, `unattended`, and
+`model` / `reasoning_effort` — which model this library's compile and evolve rounds run and
+how hard it thinks, instead of inheriting whatever your own global harness configuration
+says. Codex honours both (`reasoning_effort` is one of `minimal`, `low`, `medium`, `high`,
+`xhigh`); Claude Code honours the model only, because its CLI has no effort flag. Empty
+leaves each to the harness. Changing either restarts the library's engine, because a
+launcher reads its settings when it starts.
+
 Choose a library with `--library`, `PKC_LIBRARY`, the nearest `.pkc` file in the current
 directory or an ancestor, or the home current selection, in that order. No selection is an
 exit-2 refusal. `env` intentionally prints secrets for your shell; status never does.

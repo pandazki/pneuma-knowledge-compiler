@@ -53,6 +53,13 @@ def home_environment(home: Home, library: Library) -> dict[str, str]:
         # environment, and changing it restarts the engine (`library.set_config`).
         "AGENT_UNATTENDED": "true" if library.state.choices.unattended else "false",
     }
+    # WHICH model the launched harness runs and how hard it thinks. Stated only when the
+    # library named them: an empty variable is not "no model", it is a model spelled as the
+    # empty string, and the whole of "leave it to the harness" is the variable being absent.
+    if "agent_model" in Settings.model_fields and library.state.choices.model:
+        values["AGENT_MODEL"] = library.state.choices.model
+    if "agent_reasoning_effort" in Settings.model_fields and library.state.choices.reasoning_effort:
+        values["AGENT_REASONING_EFFORT"] = library.state.choices.reasoning_effort
     if "project_dir" in Settings.model_fields:
         values["PROJECT_DIR"] = str(library.path)
     if "semantic_retrieval" in Settings.model_fields:
