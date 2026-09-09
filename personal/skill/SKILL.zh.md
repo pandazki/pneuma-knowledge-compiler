@@ -21,7 +21,7 @@ canonical 库是权威，索引是派生视图，每条 claim 都引用来源块
 2. `pkchome exec -- pkc canonical read <path> [<path>…]` —— 一次读相关页面；头部和 `来源：` 索引写明最后改动、待处理或失败的编译作业、每个被引块是谁哪天说的。
 3. 跨页或不知道在哪一页：`pkchome exec -- pkc recall <q> --evidence` 一次拿到多页的 claim 与原文窗口。
 4. `pkc source fetch <sid> ¶a-b` 看原文；`pkc search <q> --lexical` 找名字、原句、最新会话，头部的计数说明匹配不可能在哪里。
-5. 用 `pkc consult answer <handoff_id> --text-file -`（没跑 recall 时 `pkc consult record --question <q> --text-file -`）把回答记进库。
+5. 把这次使用交还给库：`pkc consult answer <handoff_id> --text-file -`（没跑 recall 时 `pkc consult record --question <q> --text-file -`，什么也没找到时加 `--kind no_record`）。问了什么、碰到哪些页面、引用了什么由此进入访问账本；不记，这次使用对库就不存在。
 
 读命令彼此独立，输入已知时可同时发几条。长输出分页，页脚写明 `--page N`。
 

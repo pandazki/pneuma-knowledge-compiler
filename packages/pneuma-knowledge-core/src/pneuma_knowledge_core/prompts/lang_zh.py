@@ -2492,6 +2492,11 @@ _ZH: dict[str, str] = {
 - **力度是契约的。** `【强】/【中】/【弱】`之类标签表达[契约](contract.md)规定的区分，不是
   真实性的概率。`pkc profile show` 中，`inferred` 是 Steward 的假设，`owner` 表示 Owner 写下或
   确认过，`detected` 表示系统观察所得。
+- **使用只从一扇门进入库。** L0 和 canonical 说得出库里有什么，说不出库被问了什么。一条咨询记录——
+  问了什么、交出了哪些页面和区间、回答引用了什么、或者什么也没找到——是一次会话的使用抵达库的
+  唯一途径：被问到的页面在访问账本里获得权重，没找到答案的问题成为 schema 演进的证据，Owner 在
+  控制台看到库被问了什么。答完却不记，这次会话就把库原样留下，等于从未被使用过。
+  `pkc consult answer` 与 `pkc consult record` 就是这扇门；它们收的是你已经写好的回答。
 """,
     "steward.consume.when_to_use": """## 按问题的形状选最佳做法
 
@@ -2508,7 +2513,9 @@ _ZH: dict[str, str] = {
 | `pkc draft finish` 之后 | 对每个写入过的族运行 `pkc outline --family <template>`，查看新页面是否落在正确的族下。 |
 
 **作答。** 按读到的内容作答并引用它：页面和 claim 锚点加其来源区间，或来源区间本身。记录与
-推断分开写，库里没有就明说。来源类型带角色（`owner-dialogue/v1`、`agent-session/v1`）时，
+推断分开写，库里没有就明说。然后把这次使用交还给库——有 recall 交接用 `pkc consult answer`，
+否则 `pkc consult record`，什么也没找到用 `--kind no_record`——问了什么、碰到哪些页面、引用了
+什么，由此进入库的访问账本。来源类型带角色（`owner-dialogue/v1`、`agent-session/v1`）时，
 区分 Owner 自己的话与 Steward 或 agent 叙述。
 
 长输出会分页：散文一页 8,000 字符，页脚写明 `--page N` 看下一页、`--all-pages` 全量；`--json`
@@ -2554,7 +2561,7 @@ _ZH: dict[str, str] = {
 """,
     "steward.consume.owner_voice": " —— 仅限 Owner 自己的话（`owner_voice`）",
     "steward.consume.no_families": "这份契约没有声明路径模板。",
-    "steward.consume.answering": """## 记录咨询
+    "steward.consume.answering": """## 把使用交还给库：咨询记录
 
 `pkc consult answer <handoff_id> --text-file <f>`（`-` 读 stdin）用你写下的回答关闭
 `recall --evidence` 的交接。引用你读过的内容：交接句柄、真实的 `[cite: <sid> ¶a-b]` 地址或

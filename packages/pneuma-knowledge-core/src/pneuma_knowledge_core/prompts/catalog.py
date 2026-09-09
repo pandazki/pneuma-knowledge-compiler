@@ -3234,6 +3234,14 @@ re-deriving it. What a mechanism does not establish is stated too; the judgement
   distinctions the [contract](contract.md) states, not a probability of truth. On `pkc profile
   show`, `inferred` marks the Steward's hypothesis, `owner` what the Owner wrote or confirmed,
   `detected` a system observation.
+- **Use enters through one door.** L0 and canonical say what the library holds; they cannot
+  say what it is asked. A consultation record — the question, the pages and spans handed over,
+  what the answer cited, or that nothing was found — is how a session's use reaches the
+  library: the pages a question touched gain weight in the attention ledger, questions that
+  found nothing become evidence for evolving the schema, and the Owner sees in the console
+  what the library is asked. A session that answers without recording leaves the library
+  exactly as it found it — as if it had never been used. `pkc consult answer` and
+  `pkc consult record` are that door; they take the answer you already wrote.
 """,
     "steward.consume.when_to_use": """## Best practice by the shape of the question
 
@@ -3252,7 +3260,9 @@ is here, so cli.md need not be opened first.
 
 **Answering.** Answer from what you read and cite it: a page and claim anchor with its source
 span, or the span itself. Keep record and inference apart, and say plainly when the library
-holds nothing. Where source kinds carry roles (`owner-dialogue/v1`, `agent-session/v1`),
+holds nothing. Then hand the use back to the library — `pkc consult answer` for a recall
+handoff, `pkc consult record` otherwise, `--kind no_record` when nothing was found — so the
+question, the pages it touched and what it cited weight the library's attention ledger. Where source kinds carry roles (`owner-dialogue/v1`, `agent-session/v1`),
 distinguish the Owner's own words from Steward or agent narrative.
 
 Long output is paged: prose prints 8,000 characters and a footer naming `--page N` for the
@@ -3311,7 +3321,7 @@ in declaration order; their scope and wording come from [contract.md](contract.m
 """,
     "steward.consume.owner_voice": " — the Owner's own words only (`owner_voice`)",
     "steward.consume.no_families": "This contract declares no path templates.",
-    "steward.consume.answering": """## Recording the consultation
+    "steward.consume.answering": """## Handing the use back: the consultation record
 
 `pkc consult answer <handoff_id> --text-file <f>` (`-` for stdin) closes a `recall --evidence`
 handoff with the answer you wrote. Cite what you read: a handed handle or a real
