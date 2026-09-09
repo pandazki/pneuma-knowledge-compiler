@@ -447,7 +447,9 @@ function TreeRow({
         )}
       >
         <FileText size={13} aria-hidden className="shrink-0 text-ink-3" />
-        <span className="truncate">{node.doc?.title || node.name}</span>
+        <span className="truncate">
+          {node.doc ? documentDisplayTitle(node.doc) : node.name}
+        </span>
       </button>
     </li>
   );

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { openConsole, runAction, search, type Perform } from '../lib/commands';
 import { t, textLanguage, type Locale } from '../lib/i18n';
 import { searchResults, type Footnote } from '../lib/searchResults';
-import { currentLibrary, type RecallResult, type Snapshot } from '../lib/state';
+import { consolePreferences, currentLibrary, type RecallResult, type Snapshot } from '../lib/state';
 
 function Citation({ note, perform, locale }: { note: Footnote; perform: Perform; locale: Locale }) {
   return <sup><a href={note.url} data-result-link title={note.label}
@@ -47,7 +47,7 @@ export default function Search({ state, busy, perform, query, composing, locale,
   if (!current) return <p className="muted" role="status">{inFlight === requestKey ? t(locale, 'searching', { name: library.name }) : t(locale, 'waitToSearch')}</p>;
   if (current.error) return <p className="inline-error" role="alert">{current.error}</p>;
   if (!current.result) return null;
-  const view = searchResults(current.result, library.engine.port);
+  const view = searchResults(current.result, library.engine.port, consolePreferences(locale));
   return <section className="search-results" aria-label={t(locale, 'answer')}>
     <p className="answer" lang={textLanguage(current.result.answer)}>{view.answer.map((part, i) => part.citation
       ? <Citation key={i} note={part.citation} perform={perform} locale={locale} /> : <span key={i}>{part.text}</span>)}</p>

@@ -24,7 +24,7 @@ The only environment variable is `VITE_API_BASE` (empty = same-origin via the de
 
 React 18 + Zustand + Radix + Tailwind v4. No react-router: `src/App.tsx` maps view names to lazy components, and the Zustand store syncs selection to `location.hash` — deep links and back/forward work (`#/evolve/evolve-task/<id>`).
 
-The shell carries the tenant switcher, the snapshot picker (HEAD / frozen KB snapshots / canonical history, read-only mode stamped when pinned), a zh/en locale toggle (full dictionaries under `src/i18n/`) and the Paper/Lightbox theme toggle. Views, grouped as the sidebar presents them:
+The shell carries the tenant switcher, the snapshot picker (HEAD / frozen KB snapshots / canonical history, read-only mode stamped when pinned), a zh/en locale toggle (full dictionaries under `src/i18n/`) and the Paper/Lightbox theme toggle. A console opened from the personal edition's tray arrives with `?locale=zh|en&theme=light|dark`: `src/lib/handoff.ts` adopts the two valid values into the console's own stored preferences, ignores anything else, and strips the parameters from the address, so the Owner's tray language and appearance carry over without ever sticking to a shared link. Views, grouped as the sidebar presents them:
 
 | Group | Views |
 |---|---|

@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type { Dataset, Selection, UserProfile, ViewName, VisitorClass } from "./types";
 import type { MessageKey, MessageParams } from "./i18n";
 import { LOCALE_STORAGE_KEY, detectLocale, setActiveLocale, type Locale } from "./i18n";
+import { adoptHandoffPreferences } from "./handoff";
 import { buildModel, type Model } from "./model";
 import { hashToState, sameSelection, selectionToHash } from "./hash";
 import { LENS_HOME, isLens, resolveView, type Lens } from "./lenses";
@@ -601,6 +602,15 @@ function writeHash(view: ViewName, selection: Selection, replace = false) {
  * front matter for an instant and then be corrected.
  */
 const bootLens = loadLens();
+
+/**
+ * A console opened from the personal edition's tray arrives with the Owner's face stated in
+ * the query string. Adopted HERE — before `initialTheme()` and `detectLocale()` read
+ * localStorage in the initializer below — so the handoff writes the console's own stored
+ * preference and the ordinary resolution ladder does the rest. `lib/handoff.ts` owns the
+ * rules; nothing downstream knows the URL ever said anything.
+ */
+adoptHandoffPreferences();
 
 export const useApp = create<AppState>((set, get) => ({
   status: "idle",

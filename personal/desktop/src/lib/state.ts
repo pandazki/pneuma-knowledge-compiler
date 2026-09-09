@@ -1,5 +1,7 @@
 // Copied wire types from the single-machine-edition design §§4.11, 6, 9 and 10.
 // This client has no runtime/source dependency on the framework or console projects.
+import type { Locale } from './i18n.ts';
+
 export type Known = boolean | null;
 export type Backend = 'codex' | 'claude-code' | 'api';
 export type Tab = 'dashboard' | 'search' | 'settings';
@@ -98,8 +100,47 @@ export function deepLibrary(state: Snapshot, library: ShallowLibrary): LibrarySt
 export function syncSummary(sync: SyncStatus | null | undefined, watching: string[] = []): string {
   return `watching ${watching.length} dirs · last sync ${sync?.last_run_at ? timeLabel(sync.last_run_at) : 'never'} · held ${sync?.held ?? '—'}`;
 }
-export function consoleUrl(port: number, kind?: 'document' | 'claim' | 'source', id?: string, anchor?: string | number): string {
-  const root = `http://127.0.0.1:${port}/`;
+/**
+ * The tray's face, said in the console's vocabulary. The console reads `?locale=` and
+ * `?theme=` once, stores them in its own preferences and strips them from the address
+ * (the console's own `lib/handoff.ts`), so an Owner who set Chinese in the tray does not land in an
+ * English console because the browser's `navigator.language` says otherwise.
+ */
+export interface ConsolePreferences { locale?: 'zh' | 'en'; theme?: 'light' | 'dark' }
+/**
+ * Whether the panel is currently painting dark — `null` where nothing can be asked.
+ *
+ * The panel has no theme setting and no theme state: its palette is `color-scheme: light
+ * dark` + `light-dark()` in styles.css, which resolves against exactly this media query.
+ * Reading it here is the same fact the CSS paints with, not a second opinion about it.
+ */
+export function prefersDark(): boolean | null {
+  const query = typeof matchMedia === 'function' ? matchMedia('(prefers-color-scheme: dark)') : null;
+  return query ? query.matches : null;
+}
+export function consolePreferences(locale: Locale, dark: boolean | null = prefersDark()): ConsolePreferences {
+  const preferences: ConsolePreferences = { locale: locale === 'zh-CN' ? 'zh' : 'en' };
+  if (dark !== null) preferences.theme = dark ? 'dark' : 'light';
+  return preferences;
+}
+/** The console's front door, in the tray's own language and appearance. */
+export function consoleHome(port: number, preferences?: ConsolePreferences): string {
+  return consoleUrl(port, undefined, undefined, undefined, preferences);
+}
+export function consoleUrl(
+  port: number,
+  kind?: 'document' | 'claim' | 'source',
+  id?: string,
+  anchor?: string | number,
+  preferences?: ConsolePreferences,
+): string {
+  // Query before hash: the console routes on the hash, and a parameter appended after it
+  // would become part of the route instead of a preference.
+  const query = new URLSearchParams();
+  if (preferences?.locale) query.set('locale', preferences.locale);
+  if (preferences?.theme) query.set('theme', preferences.theme);
+  const search = query.size ? `?${query}` : '';
+  const root = `http://127.0.0.1:${port}/${search}`;
   if (!kind || !id) return root;
   const view = kind === 'source' ? 'sources' : 'library';
   return root + '#/' + [view, kind, id, ...(anchor != null ? [String(anchor)] : [])].map(encodeURIComponent).join('/');

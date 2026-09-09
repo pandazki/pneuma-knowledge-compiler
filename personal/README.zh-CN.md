@@ -26,7 +26,11 @@
    `pkchome skill install --force`。
 5. **Docker** —— 探测 `docker info`。失败时说明 Docker Desktop 或 OrbStack 从哪里获取，
    并以退出码 3 停止；此前完成的步骤不会回滚，重跑即可继续。
-6. **桌面应用** —— 发布构建后配合 `PKC_DESKTOP=1` 下载；否则只打印一行，说明
+6. **控制台页面** —— 执行 `pkchome console install`。只有在本仓库内构建的 wheel 才自带
+   已构建页面，否则从 `personal-console-v<version>` 发布下载，并在写入任何文件之前校验
+   随发布公布的 sha256。此步绝不致命：机器离线时上面各步的成果照旧保留，首次打开
+   `pkchome console` 时再取。
+7. **桌面应用** —— 发布构建后配合 `PKC_DESKTOP=1` 下载；否则只打印一行，说明
    `pkchome tray` 会告知从哪里获取。
 
 每一步打印一行 `ok:` 或 `skip:`，最后几行给出已安装的 `SKILL.md` 与接下来要运行的两条
@@ -36,8 +40,9 @@
 
 ```
 pkchome setup [--answers <file>] [--non-interactive] [--no-skill]
-pkchome up | down | restart | console | tray
+pkchome up | down | restart | console [install] | tray
 pkchome status [--json] [--library <name>]
+pkchome onboarding [--library <name>]
 pkchome library create <name> [--from <name>] [--language en|zh] [--contract personal-projects|personal-knowledge|<path>] [--backend …]
 pkchome library ls | show [<name>] | use <name> | bind <name> [<dir>] | unbind [<dir>] | render [<name>]
 pkchome config get|set <key> [<value>] [--library <name>]
@@ -57,10 +62,18 @@ pkchome skill install [--backend codex|claude-code|all] [--force]
 `/home/status`。
 
 Setup 回答字段：`library: notes`、`language: en`、`backend: codex`、
-`semantic_retrieval: off`；可选的 `embedding_key` 只进入凭据文件。配置的 embedding
+`semantic_retrieval: off`；可选的 `embedding_key` 只进入凭据文件；可选的 `owner:` 映射
+写明 Owner 已经给出的档案字段（`display_name`、`occupation`、`role`、`industry`、`bio`
+等 `pkc profile` 的任意字段），按“Owner 亲述”写入。配置的 embedding
 服务商的密钥在写入前会先向该服务商验证一次——被拒绝的密钥不改变任何东西（不写文件、
 不重启引擎、保留原密钥），离线时可用 `--no-verify` 跳过验证直接保存。Setup 需要终端或
 `--answers`；`--no-skill` 跳过向检测到的宿主目录安装技能。
+
+Setup 不会把档案留成空白。它读取这台机器已经说明的 Owner 信息——账户全名、系统时区、
+界面语言（`language` 回答优先于它）——并以 `inferred` 出处写入；在 Owner 逐项确认之前，
+`pkchome status` 不会把这样的档案算作已完成。`pkchome onboarding` 打印剩下要做的事：
+带值的推断字段与确认或更正它们的命令、尚未回答的注册问题（用 Owner 自己的语言提问），
+以及仍未决定时的检索选择。Setup 会打印同一段内容；这条命令是留给之后才到场的 Steward 的。
 
 `config get|set` 读写每个库（不带 `--library` 时则是 home 的默认值）记录下来的一项选择：
 `backend`、`language`、`semantic_retrieval`、`embedding`、`unattended`，以及
@@ -191,6 +204,13 @@ uv run --project personal pytest personal/tests -q
 这是独立的 uv 项目，有自己的环境和随代码提交的锁文件。运行时仅依赖 core、service
 两个库发行包；本版的契约和全局技能文本作为自有资源随包分发。
 
+控制台页面始终是构建产物而非源码：引擎按顺序从 wheel 自带的 `pkc_personal/console/dist`、
+`PKC_CONSOLE_DIST`（本地构建，供开发）、或 `~/.pkc/console/<version>/dist`（由
+`pkchome console install` 从 `personal-console-v<version>` 发布下载、并按公布的 sha256
+校验的副本）中取用。在本仓库内，`scripts/personal_console_dist.sh` 构建该目录，
+`scripts/personal_console_release.sh` 将其发布为某一版本的发布资产。
+`pkchome status` 会说明本机用的是哪一种。
+
 当前接口限制：缺少 worker 租户过滤的库版本会被拒绝启动引擎；检索选择会被记录，但需要
-库暴露 `semantic_retrieval` 后才生效；只有安装 `pkc_personal/console/dist` 构建产物后
-才提供控制台页面。
+库暴露 `semantic_retrieval` 后才生效；引擎在启动时决定是否提供控制台页面，因此引擎启动
+之后才取到的页面要等下一次 `pkchome restart` 才会被提供。

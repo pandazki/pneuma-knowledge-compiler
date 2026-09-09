@@ -1,7 +1,7 @@
 import { openConsole, runAction, type Perform } from '../lib/commands';
 import { t, textLanguage, type Locale, type Message } from '../lib/i18n';
 import { orderedLibraries, readoutRows, relativeTime } from '../lib/readouts';
-import { consoleUrl, deepLibrary, health, type Snapshot, type Steps } from '../lib/state';
+import { consoleHome, consolePreferences, deepLibrary, health, type Snapshot, type Steps } from '../lib/state';
 import { Leader } from './Ledger';
 
 const steps: [keyof Steps, Message][] = [
@@ -60,7 +60,7 @@ export default function Dashboard({ state, busy, perform, now, locale }: {
         <div className="library-actions">
           <button disabled={busy || !library.engine.up || sync?.running === true} onClick={() => void perform(
             () => runAction({ kind: 'sync', library: library.name }), t(locale, 'synced'))}>{t(locale, sync?.running ? 'syncing' : 'syncNow')}</button>
-          <button disabled={busy || !library.engine.up} onClick={() => void perform(() => openConsole(consoleUrl(library.engine.port)))}>{t(locale, 'openConsole')}</button>
+          <button disabled={busy || !library.engine.up} onClick={() => void perform(() => openConsole(consoleHome(library.engine.port, consolePreferences(locale))))}>{t(locale, 'openConsole')}</button>
           {index > 0 && !library.engine.up && <button className={library.name === primaryStart ? 'primary' : undefined} disabled={busy} title={t(locale, 'allLibraries')} onClick={() => void perform(() => runAction({ kind: 'up' }), t(locale, 'started'))}>{t(locale, 'start')}</button>}
         </div>
         {!deep && <p className="muted library-note">{t(locale, library.engine.up ? 'detailedUnavailable' : 'detailedOffline')}</p>}

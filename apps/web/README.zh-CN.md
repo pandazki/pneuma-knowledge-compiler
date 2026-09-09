@@ -24,7 +24,7 @@ pnpm test         # node --test tests/*.test.mjs（纯逻辑测试，无浏览�
 
 React 18 + Zustand + Radix + Tailwind v4。没有 react-router：`src/App.tsx` 用一张视图名 → 懒加载组件的映射表，Zustand store 把选中状态双向同步到 `location.hash`——深链与前进后退都好使（`#/evolve/evolve-task/<id>`）。
 
-外壳带租户切换器、快照选择器（HEAD / 冻结 KB 快照 / 正本历史，钉住时盖只读印）、中英 locale 切换（全量词典在 `src/i18n/`）和纸/灯箱主题切换。视图按侧栏分组：
+外壳带租户切换器、快照选择器（HEAD / 冻结 KB 快照 / 正本历史，钉住时盖只读印）、中英 locale 切换（全量词典在 `src/i18n/`）和纸/灯箱主题切换。从个人版托盘打开的控制台会带上 `?locale=zh|en&theme=light|dark`：`src/lib/handoff.ts` 只接受这两个合法取值、写入控制台自己的偏好存储，其余一律忽略，随后把参数从地址中抹去——托盘的语言与外观得以延续，又不会粘在分享出去的链接上。视图按侧栏分组：
 
 | 组 | 视图 |
 |---|---|

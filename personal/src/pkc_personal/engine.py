@@ -11,6 +11,7 @@ from pathlib import Path
 
 from pneuma_knowledge_service.settings import Settings
 
+from pkc_personal.console import console_dist
 from pkc_personal.environment import home_environment
 from pkc_personal.home import Home, atomic_write
 from pkc_personal.infra import pid_alive
@@ -47,8 +48,10 @@ def start(home: Home, library: Library) -> bool:
     command = [sys.executable, "-m", "pkc_personal.engine_app",
                "--library", library.state.name,
                "--port", str(library.state.engine.port)]
-    static = Path(__file__).resolve().parent / "console" / "dist"
-    if static.is_dir():
+    # Wherever the built page is: the wheel's own copy, a local build, or the copy
+    # `pkchome console install` downloaded into this home.
+    static = console_dist(home)
+    if static is not None:
         command.extend(["--static-dir", str(static)])
     with (home.path / "run" / f"{library.state.name}.log").open("ab") as log:
         process = subprocess.Popen(

@@ -13,6 +13,7 @@ import asyncio
 import re
 from typing import Any
 
+from pneuma_knowledge_core.canonical_glance import document_title
 from pneuma_knowledge_core.domain.archive import is_archived_path
 from pneuma_knowledge_core.domain.canonical import (
     CanonicalDocument,
@@ -95,11 +96,16 @@ def _parse_claims(body: str) -> list[dict[str, Any]]:
 
 
 def _doc_title(doc: CanonicalDocument) -> str:
-    slug = str(doc.frontmatter.get("slug", "")).strip()
-    if slug:
-        return slug
-    base = doc.path.rsplit("/", 1)[-1]
-    return base[:-3] if base.endswith(".md") else base
+    """The name the console shows a document by — core's ONE rule, not a second one.
+
+    Read through `canonical_glance.document_title` (H1 → frontmatter `title` → `slug` →
+    filename stem) rather than through a slug-first rule of this module's own. A slug is a
+    directory-scoped key, not a name: `projects/cc-master/overview.md` and
+    `projects/cc-master/evolution.md` legitimately share `slug: cc-master`, and a
+    slug-first projection made the library tree show that folder holding two leaves both
+    labelled `cc-master`. The heading each page states is what distinguishes them.
+    """
+    return document_title(doc)
 
 
 def _document_record(doc: CanonicalDocument) -> dict[str, Any]:

@@ -41,16 +41,26 @@ Select with `--library NAME`, `PKC_LIBRARY=NAME`, a directory binding
 
 With an empty home, run `pkchome setup --answers <yaml>` from the Owner's answers.
 The mapping contains `library`, `language` (en or zh), `backend` (codex, claude-code or
-api), `semantic_retrieval` (on or off), and optionally `embedding_key`.
+api), `semantic_retrieval` (on or off), optionally `embedding_key`, and an optional `owner`
+mapping of profile fields the Owner has already stated (`display_name`, `occupation`,
+`role`, `industry`, `bio`), which setup writes as theirs rather than as guesses.
 Send a key through `pkchome credentials set KEY --from-stdin` when possible; setup also
 accepts it in the answers file and stores it only in the home's credentials file.
 
-The profile starts with what the harness already knows of the Owner: its session memory,
-stated preferences and the material's first-person voice. Write those inferences through
-`pkchome exec -- pkc profile set --field display_name=NAME --provenance inferred`,
-using the library reference for additional fields. Present the inference as
-“I believe you are X, a Y, writing in Z — correct me”, and confirm or correct one field at
-a time through `pkc profile confirm` or `pkc profile set`.
+The profile is not blank when you arrive. Setup reads what this machine already states about
+its Owner — the account's full name, the system timezone, the interface language — and writes
+it with `--provenance inferred`, which leaves every one of those fields unconfirmed.
+Run `pkchome onboarding [--library NAME]` for the checklist: the inferred fields with their
+values, the registration questions still unanswered, and the retrieval choice when it is
+still undecided. Speak to the Owner in `locale.language`.
+
+Present the inference as “I believe you are X, in timezone Y, writing in Z — correct me” and
+settle it one field at a time: `pkchome exec -- pkc profile confirm --field <name>` when it is
+right, `pkchome exec -- pkc profile set --field <name>=<value> --provenance owner` when it is
+not. Then ask the checklist's questions one at a time, in the Owner's language, and write each
+answer with `--provenance owner`; the library reference names every settable field. The step
+is done when `pkchome status` shows `profile` complete, which it does only once the profile
+names somebody and nothing in it is still marked inferred.
 Substantive knowledge reaches the library through sources and the citation gate; profile
 registration holds the Owner's self-introduction.
 

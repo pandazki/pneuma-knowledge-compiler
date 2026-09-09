@@ -27,6 +27,8 @@ build-backend = "hatchling.build"
 packages = ["src/pkc_personal"]
 # The console dist is a built, git-ignored artifact (the repository's
 # scripts/personal_console_dist.sh drops it here); hatch skips ignored files unless told.
+# A wheel built from the git tree carries none, so the same directory is published per
+# version by scripts/personal_console_release.sh and downloaded by `pkchome console install`.
 artifacts = ["src/pkc_personal/console/dist/**"]
 
 [tool.hatch.build.targets.wheel.force-include]
