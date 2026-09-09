@@ -66,21 +66,18 @@ def load_engine_contract(engine_dir: str | Path) -> SkillVersion | None:
         return None
     if not isinstance(meta, dict):
         return None
-    templates = [str(t) for t in (meta.get("path_templates") or [])]
+    templates = meta.get("path_templates") or []
     body = _COMMENT_RE.sub("", text[match.end() :]).strip()
     if not templates or not body:
         return None
     skill_id = str(meta.get("skill_id") or "my-knowledge")
     version = str(meta.get("version") or "app-v1")
-    return SkillVersion(
+    return SkillVersion.from_parts(
         skill_id=skill_id,
         version=version,
         instructions=body,
         path_templates=templates,
         contract_rules=CONTRACT_RULES,
-        content_hash=SkillVersion.compute_hash(
-            skill_id, version, body, templates, CONTRACT_RULES
-        ),
     )
 
 

@@ -2,7 +2,7 @@
 
 **English** | [简体中文](configuration.zh-CN.md)
 
-All framework settings are environment variables with the `PNEUMA_KNOWLEDGE_` prefix (a local `.env` is read; unknown keys are ignored). Names below drop the prefix. Copy [`.env.example`](../../.env.example) to start.
+All framework settings are environment variables with the `PNEUMA_KNOWLEDGE_` prefix (a local `.env` is read by default; unknown keys are ignored). Names below drop the prefix. Copy [`.env.example`](../../.env.example) to start.
 
 One optional layer sits between environment and default: the **engine directory** (`ENGINE_DIR`, [architecture §11](../architecture.md#11-the-engine-directory)). Precedence is **process env > engine file > framework default**, and it is enforced at settings assembly: the engine file's values reach `Settings` only for keys `os.environ` leaves unstated. Two consequences worth knowing: an entry present-but-empty in the environment is still an environment-level statement, and a value from a `.env` FILE is not process env, so it ranks BELOW the engine file. `ENGINE_DIR` unset (the default) means the whole layer does not exist and every setting resolves exactly as it did before the concept.
 
@@ -16,6 +16,7 @@ One optional layer sits between environment and default: the **engine directory*
 
 | Setting | Default | Meaning |
 |---|---|---|
+| `ENV_FILE` | `.env` in the working directory | Process-environment control for `get_settings()`: unset preserves local `.env` loading; an empty string disables dotenv entirely; a path loads that file instead. Set `PNEUMA_KNOWLEDGE_ENV_FILE=` when running from an arbitrary directory to ignore its `.env`. Read only from the process environment, never from dotenv or the engine directory |
 | `PG_DSN` | `postgresql://pneuma_knowledge:pneuma_knowledge@localhost:15432/pneuma_knowledge` | Postgres (L0, jobs, projections, registries) |
 | `QDRANT_URL` | `http://localhost:16333` | vector store |
 | `QDRANT_COLLECTION` | `pneuma_knowledge_chunks` | one collection; its embedding dimension is fixed at creation — switching embedding models means a new collection name |
@@ -51,18 +52,19 @@ Two of those roles are the full-scope Live Context lane's, and they exist becaus
 
 ### `agent:<backend>` — a coding agent instead of a model
 
-`LLM_MODEL_COMPILE` (engine key `models.compile`) accepts one further form: `agent:codex` or `agent:claude-code`. It names an **executor** rather than a model — the round is driven by that coding agent on this machine, under the Owner's own subscription, through the same claim-level draft and the same gate as a model executor ([coding-agent-mode](../design/coding-agent-mode.md) ruling 1). Blast radius is the compile role's own: `restart`, and future compiles only; the library is byte-identical either way, and moving back is the same one-line edit.
+`LLM_MODEL_COMPILE` (engine key `models.compile`) accepts one further form: `agent:codex` or `agent:claude-code`. It names an **executor** rather than a model — the round is driven by that coding agent on this machine, under the Owner's own subscription, through the same claim-level draft and the same gate as a model executor ([coding-agent-mode](../design/coding-agent-mode.md) ruling 1). The change takes effect after `restart` for future compile jobs and evolve jobs that inherit their executor. Moving back is the same one-line edit.
 
-Three consequences worth stating plainly:
+This changes four behaviors:
 
-- **An executor is not a chat model.** Anything that would build a model from the spec refuses it. The roles that BORROW the compile role's field when their own is empty — `evolve`, `challenge`, `brief` — skip a borrowed `agent:` spec and fall through to the base `LLM_MODEL`, so one line (`compile: agent:codex`) leaves every other role running as before. A role that names `agent:` in its own field, or a base `LLM_MODEL` that does, is refused at startup by role name. Only the compile role may run on an agent in this version.
-- **The worker does not claim compile jobs.** They stay `queued` for `pkc draft open`; index, projection, groom, challenge and evolve jobs drain exactly as before. The queue's per-user single-writer rule is unchanged — the Steward's `open` claims through the same lock the worker uses.
+- **Compile and evolve have agent doors.** `LLM_MODEL_EVOLVE` accepts `agent:<backend>` and inherits compile's executor when empty. Both roles use the harness and their own persisted draft gate. Challenge still skips a borrowed agent spec and uses the base API model; it remains off by default. Other roles explicitly naming `agent:`, or a base `LLM_MODEL` naming it, are refused at startup.
+- **The worker's posture covers both doors.** With `AGENT_UNATTENDED=true`, it opens and hands compile/evolve jobs to the harness. With `false`, agent jobs stay queued for `pkc draft open` or `pkc evolve draft open`. Index, projection and adopt jobs drain as usual. The same per-user single-writer lock governs either body.
+- **An agent compile supplies its own brief.** `pkc draft finish --brief <f>` / `--brief -` accepts non-blank text up to 8,000 characters; unattended, the harness's last message fills a successful version's missing brief under the same bound. No brief API model is called, and an explicit brief is never overwritten. This does not depend on the API narration switch `BRIEF_ENABLED`.
 - **Semantic chunking degrades.** A coding agent does not answer an `ainvoke`, so `CHUNK_STRATEGY=semantic` falls back to mechanical sentence chunking exactly as it does for a scripted or keyless deployment; the engine file keeps saying `semantic`, and a later key plus `rebuild_derived` fills it in.
 
 | Setting | Default | Meaning |
 |---|---|---|
 | `EXECUTOR_BACKEND` | (empty) | which coding agent is typing the `pkc draft` commands, set by whoever launched that session. It is a **label on what happened**, never a switch: what a deployment runs on is `LLM_MODEL_COMPILE`. A job finished through the CLI records `executor = agent:<backend>`, and `agent` alone when this is unset — an Owner's own terminal session names no harness rather than guessing one. Not an engine knob (deployment wiring) |
-| `AGENT_UNATTENDED` | `true` | whether the WORKER runs compile jobs through a coding agent itself. A worker is by definition unattended — nobody is at a terminal where it runs — so under an `agent:` executor it claims a compile job, opens its draft and hands it to a harness it launches ([coding-agent-mode](../design/coding-agent-mode.md) §9). `false` is the interactive posture: compile jobs stay queued and the Owner's own session opens them with `pkc draft open`, everything else drains as usual. Under a model executor this decides nothing. Not an engine knob (deployment wiring) |
+| `AGENT_UNATTENDED` | `true` | whether the WORKER runs compile and evolve jobs through their coding agents itself. A worker is by definition unattended — nobody is at a terminal where it runs — so under an `agent:` executor it claims a compile job, opens its draft and hands it to a harness it launches ([coding-agent-mode](../design/coding-agent-mode.md) §9). `false` is the interactive posture: agent compile/evolve jobs stay queued and the Owner's session opens them through their respective draft commands; other jobs drain as usual. Under a model executor this decides nothing. Not an engine knob (deployment wiring) |
 | `AGENT_PROBE_ON_START` | `true` | probe the configured compile harness when the stack starts, and refuse to start when it is not usable. A harness that is installed but not logged in drops into an interactive flow and waits forever, so "is it live" is a question a deployment answers before it queues work rather than on the first compile. Liveness, never a version comparison. Only the unattended posture probes — a `pkc` process never launches a harness, so it never does. `false` for tests and CI, where the binary on PATH is a fake and a login is not a thing that exists. Not an engine knob |
 | `AGENT_RETRIES` | `3` | how many times the unattended launcher may relaunch a round the harness refused with a RATE LIMIT — and only that. Any other refusal is reported rather than retried (it will be refused again), and a timeout is not retried either, because the wall clock is the statement that the round is over. Waits are exponential with jitter and bounded by the launcher's own ceiling; every wait is logged. `0` means one attempt and no backoff. Not an engine knob |
 | `AGENT_KEEP_WORKDIR` | `false` | keep the launcher's per-round working directory (the system text, the task, the harness's last message) instead of deleting it. Debugging only: those files hold the library's material, so leaving them in `/tmp` is a decision an operator makes on purpose. Not an engine knob |
@@ -115,10 +117,31 @@ on one price price the lane exactly.
 
 | Setting | Default | Meaning |
 |---|---|---|
+| `SEMANTIC_RETRIEVAL` | `on` | `on` / `off`; engine key `intake.semantic_retrieval`. Changing it requires `restart` + `derived_rebuild` |
 | `CHUNK_STRATEGY` | `semantic` | `semantic` = one compile-role call returns topic/episode boundaries plus a grounded title/description for L2 retrieval and derived answer context (falls back to `sentence` under `scripted:` models); `sentence` / `recursive` = mechanical, zero LLM cost |
 | `SEMANTIC_OVERLAP` | `smart` | `semantic` only. `smart` = the model returns closed block intervals, so a hinge block belongs to both neighbouring segments; `off` = the original zero-overlap cut |
 | `CHUNK_SIZE` | `768` | maximum embedding-unit size after semantic boundary detection; tokens, ~1 token/char for CJK |
 | `CHUNK_OVERLAP` | `128` | tokens |
+
+**`SEMANTIC_RETRIEVAL`.** Set `PNEUMA_KNOWLEDGE_SEMANTIC_RETRIEVAL=off`, or run
+`pkc config set semantic_retrieval off` to write `semantic_retrieval: "off"` in
+`intake/intake.yaml`. The command works before middleware starts. Explicit process environment
+still overrides the engine file. With `off`, startup builds neither an embedding client nor a
+vector client, so no embedding key is needed. Intake proposals force `semantic_indexing: none`
+and the archetype picker offers only presets with that value. Indexing still writes L1; it
+creates neither L2 chunks nor chunk manifests. Fast, rag, deep, briefing and live context use
+lexical source search and the canonical claim face; vector arms and episode summaries are
+skipped, with skipped stage timings. `pkc search --mode semantic` explains the disabled lane.
+Both ops rebuild commands print that L2 was skipped, while `rebuild_derived` still rebuilds
+L1, the lexical/PG claim projection, and components.
+
+Restart after changing the setting. To enable semantics for existing sources, run
+`pkc config set semantic_retrieval on`, configure the embedding key when the chosen model
+requires it, restart, and run `rebuild_derived`. Intake records keep
+`semantic_indexing_requested` when the deployment ceiling changed a non-`none` plan, so this
+rebuild restores that source's requested mode without rewriting L0. An explicitly lexical-only
+source stays lexical-only. Absent manifests are computed and recorded on the first semantic
+rebuild; subsequent rebuilds replay them. Existing manifests are left untouched while off.
 
 **`SEMANTIC_OVERLAP`.** A hinge — the sentence that closes one topic while opening the next, the answer that also sets up the following question — reads as part of both segments, and a cut has to put it in one of them. `smart` stops making that choice: every returned episode object ends with `start`, `end` closed-interval coordinates, and neighbouring intervals may share the hinge. How much to share is judged per boundary, not a fixed stride.
 
@@ -138,7 +161,7 @@ Overlap duplicates a block across two L2 chunks. That duplication is derived-lay
 | `EVOLVE_TRIGGER_TOPIC_DOCS` | `5` | new-document threshold (AND-ed with the next) |
 | `EVOLVE_TRIGGER_NEW_CLAIMS` | `30` | new-claim threshold |
 | `EVOLVE_DRAFT_TTL_HOURS` | `24` | draft lifetime |
-| `COMPILE_DRAFT_TTL` | `21600` | seconds an OPEN compile draft (`pkc draft open`, [coding-agent-mode](../design/coding-agent-mode.md) §6) may go quiet before the queue's self-heal treats it as abandoned. A draft is rewritten by every `pkc draft` command, so its `updated_at` is the liveness signal for a round somebody is actually driving; past the TTL the draft is deleted and its job requeued — the same outcome a worker killed mid-job gets, and never a canonical write, because an unfinished round wrote nothing. `0` disables draft protection: every claimed job is requeued on worker start, exactly as before drafts existed |
+| `COMPILE_DRAFT_TTL` | `21600` | seconds an OPEN compile or evolve draft (`pkc draft open` / `pkc evolve draft open`, [coding-agent-mode](../design/coding-agent-mode.md) §6) may go quiet before the queue's self-heal treats it as abandoned. A draft is rewritten by every `pkc draft` command, so its `updated_at` is the liveness signal for a round somebody is actually driving; past the TTL the draft is deleted and its job requeued — the same outcome a worker killed mid-job gets, and never a canonical write, because an unfinished round wrote nothing. `0` disables draft protection: every claimed job is requeued on worker start, exactly as before drafts existed |
 | `RECALL_HANDOFF_TTL` | `86400` | seconds a PENDING RECALL HANDOFF waits for its answer before the same startup self-heal deletes it. `pkc recall --evidence` ([coding-agent-mode](../design/coding-agent-mode.md) §5.1) hands the fast lane's assembled context to the Steward and records the hand-over — question, instant, library ref, evidence manifest — so `pkc consult answer` can turn it into a consultation later. A day is long enough for a Steward to come back after a night and short enough that questions nobody answered do not accumulate; past it the row is gone and that question simply left no consultation, which is what actually happened. `0` disables the sweep |
 | `ROLLOVER_THRESHOLD_CHARS` | `40000` | document size that enqueues a groom job; `0` disables |
 | `ROLLOVER_KEEP_RECENT_CHARS` | `12000` | tail kept in the active document |
@@ -204,10 +227,10 @@ The audit's judgement is extensible: its three prompts — `compile.challenge.qu
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `BRIEF_ENABLED` | `false` | after each committed compile, one model call narrates the compile's mechanical claim events into a short brief, stored on the job row and shown on the History timeline (labelled derived) |
+| `BRIEF_ENABLED` | `false` | for an API executor, after each committed compile, one model call narrates the compile's mechanical claim events into a short brief, stored on the job row and shown on the History timeline (labelled derived) |
 | `LLM_MODEL_BRIEF` | empty | model for the narration; empty borrows the compile role |
 
-The brief's only input is the mechanical record — the claim events derived from the diff plus the per-source provenance sentences — never the compile conversation, so there is nothing beyond the record for it to narrate. It is display copy, not knowledge: no citations, no canonical write, and a generation failure degrades to no brief rather than a failed job. Its prompts (`compile.brief.system`, `compile.brief.task`) live in the prompt catalog like any other model-visible wording.
+The API-generated brief's only input is the mechanical record — the claim events derived from the diff plus the per-source provenance sentences — never the compile conversation, so there is nothing beyond the record for it to narrate. It is display copy, not knowledge: no citations, no canonical write, and a generation failure degrades to no brief rather than a failed job. Its prompts (`compile.brief.system`, `compile.brief.task`) live in the prompt catalog like any other model-visible wording.
 
 ## Recall access statistics
 
@@ -256,6 +279,7 @@ With `time` on, the component keeps a persisted projection (PG `component_time_b
 | `CONTEXT_STREAM_RENDER_ROLES` | `true` | render owner/participant labels at ingest |
 | `CONTEXT_STREAM_COMPILE_GUIDANCE` | `true` | inject per-type compile guidance |
 | `BRIEFING_CITATION_ALIAS` | `true` | alias real source ids to `sNN` handles in briefings |
+| `WORKER_TENANTS` | (empty) | which tenants this worker drains, comma-separated user ids. Empty is every tenant — one worker over one stack, exactly as it has always behaved. It exists because one Postgres can carry more than one library and a library IS a tenant ([single-machine-edition](../design/single-machine-edition.md) §11.7): each library's engine process registers its own compile contract, so a worker claiming a neighbour's job would compile that knowledge under the wrong contract. The restriction is one predicate in the claim query, never a claim followed by a release — a job put back has still spent that tenant's single in-flight slot. The startup orphan sweep is bounded the same way: another engine's claimed job is that engine's work in flight, not an orphan of this one. Set, it is stated once in the worker's startup lines. Not an engine knob (deployment wiring) |
 | `CORS_ALLOW_ORIGIN_REGEX` | `https?://(localhost\|127\.0\.0\.1)(:\d+)?` | empty string disables CORS entirely |
 
 ## Unprefixed (read directly)
@@ -271,3 +295,21 @@ With `time` on, the component keeps a persisted projection (PG `component_time_b
 |---|---|---|
 | `PNEUMA_KNOWLEDGE_API_HOST` / `_API_PORT` | `127.0.0.1` / `18000` | `scripts/dev-api.sh` |
 | `PNEUMA_KNOWLEDGE_PG_PASSWORD` / `_MEILI_KEY` | `pneuma_knowledge` / — | `infra/docker-compose.yml` |
+
+## Owner profile provenance
+
+`pkc profile show [--json]` reports every editable field and its provenance, and identifies the
+placeholder. `pkc profile set --field display_name="Chen Wan" --provenance inferred` writes
+values and markers to both `persona/profile.yaml` and the persisted profile. A YAML/JSON payload
+can be supplied with `--file <path>`, `--file -`, or `-`. With no explicit marker, a process
+carrying `PNEUMA_KNOWLEDGE_STEWARD_SKILL_HASH` writes `inferred`; other processes write `owner`.
+`pkc profile confirm --field display_name` confirms that field alone; `--all` confirms every
+editable field without changing their values.
+
+The provenance map uses the same dotted names as `--field`, including `locale.timezone` and
+`preferences.response_language`. Values are `inferred`, `owner`, or `placeholder`; existing
+`profile`, `deployment_default`, and `unstated` values and the legacy locale keys remain readable.
+A dotted entry takes precedence over its legacy alias. Inferred values are marked in the compile
+system text, while an all-owner profile retains the historical rendering bytes. Draft opening
+prints one notice for a placeholder or unconfirmed profile and still opens the round. Profile
+edits never write canonical; substantive evidence enters through `pkc owner say`.

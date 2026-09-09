@@ -79,6 +79,7 @@ class EvolveResult:
     summary: dict
     tool_calls: int
     token_usage: dict[str, int]
+    removed_paths: tuple[str, ...] = ()
 
 
 async def _search_unavailable(query: str) -> str:

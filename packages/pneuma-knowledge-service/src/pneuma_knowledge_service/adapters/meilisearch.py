@@ -253,34 +253,72 @@ class MeiliLexicalIndex:
         limit: int = 20,
         include_archived: bool = False,
     ) -> list[LexicalHitRow]:
+        hits, _total = await self.search_with_total(
+            user_id, query, limit=limit, include_archived=include_archived
+        )
+        return hits
+
+    async def _search_blocks(
+        self, user_id: UserId, query: str, *, limit: int,
+        include_archived: bool, all_terms: bool = False,
+    ) -> Any:
         """L1 lexical search. The archive is excluded unless the call says otherwise.
 
         See the module docstring for the filter expression and why a legacy document with no
         `archived` attribute still reads as live under it."""
         uid = _index_uid(user_id)
         if not await self._configure_for_read(uid, _BLOCK_SETTINGS):
-            return []  # index absent (user has no indexed blocks yet) → no L1 hits
+            return None  # index absent (user has no indexed blocks yet)
         index = self._client.index(uid)
         try:
             result = await index.search(
                 query,
                 limit=limit,
                 show_ranking_score=True,
+                matching_strategy="all" if all_terms else "last",
                 filter=None if include_archived else _NOT_ARCHIVED,
             )
         except MeilisearchApiError as exc:
             if not _is_missing_index(exc):
                 raise  # auth / connection / server: a real failure, never "no hits"
-            return []  # index absent (user has no indexed blocks yet) → no L1 hits
-        return [
+            return None  # index absent (user has no indexed blocks yet)
+        return result
+
+    @staticmethod
+    def _estimated_total(result: Any) -> int:
+        if result is None:
+            return 0
+        if result.estimated_total_hits is None:
+            raise ValueError("lexical search returned no estimated total")
+        return int(result.estimated_total_hits)
+
+    async def count(
+        self, user_id: UserId, query: str, *, all_terms: bool = False,
+        include_archived: bool = False,
+    ) -> int:
+        result = await self._search_blocks(
+            user_id, query, limit=0, all_terms=all_terms,
+            include_archived=include_archived,
+        )
+        return self._estimated_total(result)
+
+    async def search_with_total(
+        self, user_id: UserId, query: str, *, limit: int = 20,
+        include_archived: bool = False,
+    ) -> tuple[list[LexicalHitRow], int]:
+        result = await self._search_blocks(
+            user_id, query, limit=limit, include_archived=include_archived,
+        )
+        hits = [
             LexicalHitRow(
                 source_id=SourceId(hit["source_id"]),
                 block_index=int(hit["block_index"]),
                 text=hit["text"],
                 score=float(hit.get("_rankingScore", 0.0)),
             )
-            for hit in result.hits
+            for hit in (result.hits if result is not None else [])
         ]
+        return hits, self._estimated_total(result)
 
     # --- L3 claim retrieval face (M4) ----------------------------------------
 

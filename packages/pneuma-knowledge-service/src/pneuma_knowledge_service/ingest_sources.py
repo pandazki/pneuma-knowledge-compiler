@@ -7,10 +7,12 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from pneuma_knowledge_core.domain.ids import UserId
+from pneuma_knowledge_core.domain.authorship import owner_authored_blocks
 from pneuma_knowledge_core.domain.intake import (
     IntakePlan,
     plan_for_archetype,
     propose_intake,
+    with_semantic_retrieval,
 )
 from pneuma_knowledge_core.ingest.canonical_sources import normalize_source_contract
 from pneuma_knowledge_core.ingest.source_contracts import SourceContract
@@ -110,7 +112,11 @@ async def ingest_source_contract(
                 raw.source_class,
                 char_count,
                 "note" if raw.kind == "document_library" else None,
+                owner_turns=len(owner_authored_blocks(raw)),
             )
+        )
+        plan = with_semantic_retrieval(
+            plan, getattr(ctx.settings, "semantic_retrieval", "on") == "on"
         )
         raw.intake_plan = plan.model_dump()
 

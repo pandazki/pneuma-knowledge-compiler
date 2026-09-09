@@ -19,6 +19,6 @@
 | [design/steward-owner-visitor.zh-CN.md](design/steward-owner-visitor.zh-CN.md) | 知识库之上的三个角色、一次答复留下的记录，以及记录之上的访问账本 |
 | [design/archive.zh-CN.md](design/archive.zh-CN.md) | 归档：让文档或源退出所有默认检索而不删除，经 Owner 确认的提案执行 |
 | [design/coding-agent-mode.zh-CN.md](design/coding-agent-mode.zh-CN.md) | 让 coding agent 充当 Steward：角色、动机、用户故事，以及它借以编译的 CLI 门 |
-| [design/single-machine-edition.zh-CN.md](design/single-machine-edition.zh-CN.md) | `pkc` 与 `~/.pkc`：每台机器一套基础设施、库即租户、skill 直接放进 harness |
+| [design/single-machine-edition.zh-CN.md](design/single-machine-edition.zh-CN.md) | 个人版：库之上的一个应用——`pkchome` 与 `~/.pkc`、每台机器一套基础设施、库即租户、一句话安装、托盘、被服务的控制台 |
 
 三分钟演示在仓库 [README](../README.zh-CN.md) 里。

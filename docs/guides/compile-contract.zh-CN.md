@@ -18,7 +18,19 @@ path_templates:
 （记什么、记到什么粒度、用什么口径——即本指南的主题）
 ```
 
-框架本身不解析这里的任何东西。注册是显式的——`SkillVersion.from_parts(skill_id, version, instructions, path_templates, contract_rules)`——`instructions` 就是 markdown 正文的逐字节原文。frontmatter 是 scaffold 自己的约定（它的驱动器读出字段、剥掉引导注释后再注册）；以编程方式接入的应用直接在代码里声明这些字段。`content_hash` 是这五个部分的 sha256——由 `from_parts` 计算，永不手写——盖进契约产出的每一个正本版本，任何文库状态都能追溯到产生它的那份契约。改契约就是注册一个新 `version`：它塑造将来的编译，永不改写已经记下的内容。可直接运行的起始契约在 [`scaffold/templates/contract.zh.md`](../../scaffold/templates/contract.zh.md)，参考契约在 [`packages/pneuma-knowledge-strategies/`](../../packages/pneuma-knowledge-strategies/)，完整的落地示范在 [`examples/opc/`](../../examples/opc/)。
+框架本身不解析这里的任何东西。注册是显式的——`SkillVersion.from_parts(skill_id, version, instructions, path_templates, contract_rules)`——`instructions` 就是 markdown 正文的逐字节原文。frontmatter 是 scaffold 自己的约定（它的驱动器读出字段、剥掉引导注释后再注册）；以编程方式接入的应用直接在代码里声明这些字段。`content_hash` 是这五个部分的 sha256——由 `from_parts` 计算，永不手写——盖进契约产出的每一个正本版本，任何文库状态都能追溯到产生它的那份契约。改契约就是注册一个新 `version`：它塑造将来的编译，永不改写已经记下的内容。可直接运行的起始契约在 [`packages/pneuma-knowledge-service/src/pneuma_knowledge_service/engine/templates/contract.zh.md`](../../packages/pneuma-knowledge-service/src/pneuma_knowledge_service/engine/templates/contract.zh.md)，参考契约在 [`packages/pneuma-knowledge-strategies/`](../../packages/pneuma-knowledge-strategies/)，完整的落地示范在 [`examples/opc/`](../../examples/opc/)。
+
+
+路径模板可在契约 frontmatter 中声明 **`owner_voice: true`**：
+
+```yaml
+path_templates:
+  - path: voice/{slug}.md
+    owner_voice: true
+  - work/{slug}.md
+```
+
+引擎契约加载器与 `SkillVersion.from_parts` 同时接受这种对象形式和原有字符串形式；`owner_voice` 是布尔值，默认 false，属于契约的路径模板，不属于生成页面的 frontmatter。该标记进入契约哈希，schema pack 组合时保持不丢失。匹配任一带标记模板的页面，其新增或修改主张必须完全追溯到知识主体亲自撰写的来源块：代理会话和所有者对话中的 Owner 回合、会议里声明为 owner 的参与者发言、IM 中声明为 owner 的用户消息，以及声明的 owner 邮箱发出的邮件。作者不明、Owner 与代理混合的引用范围都会以 `owner_voice` 拒绝，先在写入面，再由闸门复核。canonical 锚点引用（包括总览的出处）递归追溯其证据，缺失或循环的引用不能证明作者身份；原有且未改动的主张保持原样。该约束决定这个文档族可以采纳谁的证据，什么值得写成主张仍是契约的判断。未标记模板的行为、内容哈希与系统消息字节保持不变。
 
 ## 1. 核心推理：类型 → 隐含用法 → 入册义务
 

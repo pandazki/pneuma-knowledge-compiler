@@ -1,5 +1,5 @@
 /**
- * The four official source contracts the Web import surface publishes, plus canonical-JSON
+ * The official JSON source contracts the Web import surface publishes, plus canonical-JSON
  * preflight and the synthetic samples.
  *
  * Wording never comes from a runtime import here: the tests transpile this file on its own
@@ -9,7 +9,7 @@
  */
 import type { MessageKey } from "@/i18n";
 
-export type OfficialSourceKind = "meeting" | "document_library" | "im" | "email";
+export type OfficialSourceKind = "meeting" | "document_library" | "im" | "email" | "agent_session";
 
 /** The translator a caller supplies; `t` is the view's `useT()`. */
 export interface OfficialSourceI18n {
@@ -27,6 +27,14 @@ export interface OfficialSourceOption {
 }
 
 export const OFFICIAL_SOURCE_OPTIONS: OfficialSourceOption[] = [
+  {
+    kind: "agent_session",
+    schema: "pneuma.source.agent-session/v1",
+    labelKey: "enum.sourceKind.agent_session",
+    provider: "Claude Code / Codex / canonical JSON",
+    descriptionKey: "ingest.official.agent_session.description",
+    citationUnitKey: "ingest.official.agent_session.citationUnit",
+  },
   {
     kind: "meeting",
     schema: "pneuma.source.meeting/v1",
@@ -120,6 +128,7 @@ export interface OfficialSourceSummary {
 
 /** The fallback title per contract, for a payload that carries no readable one. */
 const UNTITLED_KEY: Record<OfficialSourceKind, MessageKey> = {
+  agent_session: "ingest.official.untitled.agent_session",
   meeting: "ingest.official.untitled.meeting",
   document_library: "ingest.official.untitled.document_library",
   im: "ingest.official.untitled.im",
@@ -134,6 +143,14 @@ export function summarizeOfficialSourcePayload(
   const provider = typeof payload.provider === "string" ? payload.provider : "unknown";
   // `itemLabel` names a contract array (segments / documents / …), so it stays untranslated.
   const untitled = i18n.t(UNTITLED_KEY[kind]);
+  if (kind === "agent_session") {
+    return {
+      title: typeof payload.session_id === "string" ? payload.session_id : untitled,
+      provider,
+      itemLabel: "turns",
+      itemCount: Array.isArray(payload.turns) ? payload.turns.length : 0,
+    };
+  }
   if (kind === "meeting") {
     return {
       title: typeof payload.title === "string" ? payload.title : untitled,
@@ -174,6 +191,21 @@ function officialSourceTemplatePayload(
   kind: OfficialSourceKind,
   i18n: OfficialSourceI18n,
 ): Record<string, unknown> {
+  if (kind === "agent_session") {
+    return {
+      schema: "pneuma.source.agent-session/v1",
+      provider: "codex",
+      session_id: "session-synthetic-001",
+      owner_id: "momo",
+      agent: { name: "codex" },
+      started_at: "2026-09-07T09:00:00+08:00",
+      turns: [{
+        turn_id: "t1", role: "owner", kind: "say",
+        at: "2026-09-07T09:00:00+08:00",
+        text: i18n.t("ingest.sample.agent_session.say"),
+      }],
+    };
+  }
   const owner = i18n.t("ingest.sample.owner");
   const collaborator = i18n.t("ingest.sample.collaborator");
   if (kind === "meeting") {

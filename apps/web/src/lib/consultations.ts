@@ -11,6 +11,17 @@
  * injected by the caller rather than looked up here.
  */
 
+import type { ConsultationState } from "./types";
+
+/** An opening has no answer outcome, even when retrieval handed no evidence. */
+export function consultationOutcome(record: {
+  state: ConsultationState;
+  miss: boolean | null;
+}): "unanswered" | "miss" | "answered" {
+  if (record.state === "unanswered") return "unanswered";
+  return record.miss ? "miss" : "answered";
+}
+
 export interface EvidenceAddress {
   kind: string;
   ref: string;

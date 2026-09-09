@@ -7,7 +7,7 @@ import {
   type ConsultationParams,
   type ConsultationSummary,
 } from "@/lib/api";
-import { addressLabel, citedFirst, evidenceRows } from "@/lib/consultations";
+import { addressLabel, citedFirst, consultationOutcome, evidenceRows } from "@/lib/consultations";
 import { fmtTime } from "@/lib/format";
 import { useApp } from "@/lib/store";
 import { useT } from "@/lib/useT";
@@ -326,7 +326,9 @@ function ConsultationRow({
         <Badge tone={item.visitor_class === "business" ? "accent" : "neutral"}>
           {item.visitor_class}
         </Badge>
-        {item.miss && <Badge tone="warn">{t("consultations.miss.badge")}</Badge>}
+        <Badge tone={item.miss ? "warn" : "neutral"}>
+          {t(`consultations.${consultationOutcome(item)}.badge`)}
+        </Badge>
         <Mono className="text-12 text-ink-3">{fmtTime(item.created_at)}</Mono>
         <Mono className="text-12 text-ink-3">
           {t("consultations.detail.cited")} {item.citation_count}/{item.evidence_count}
@@ -386,7 +388,9 @@ function ConsultationDetail({
           <Badge tone={record.visitor_class === "business" ? "accent" : "neutral"}>
             {record.visitor_class}
           </Badge>
-          {record.miss && <Badge tone="warn">{t("consultations.miss.badge")}</Badge>}
+          <Badge tone={record.miss ? "warn" : "neutral"}>
+            {t(`consultations.${consultationOutcome(record)}.badge`)}
+          </Badge>
           {record.answer_kind && <Mono className="text-12">{record.answer_kind}</Mono>}
           <span>
             {t("consultations.detail.libraryRef")}{" "}
@@ -412,7 +416,9 @@ function ConsultationDetail({
       <section>
         <p className="text-12 text-ink-3">{t("consultations.detail.answer")}</p>
         <p className="mt-1 max-w-measure text-14 leading-relaxed whitespace-pre-wrap text-ink">
-          {record.answer || t("consultations.detail.noAnswer")}
+          {record.state === "unanswered"
+            ? t("consultations.detail.unanswered")
+            : record.answer || t("consultations.detail.noAnswer")}
         </p>
       </section>
 

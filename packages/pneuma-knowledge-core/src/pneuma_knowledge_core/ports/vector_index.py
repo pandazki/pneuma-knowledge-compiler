@@ -40,6 +40,10 @@ class SemanticHit(Protocol):
 
 
 class VectorIndex(Protocol):
+    async def delete_source_chunks(self, user_id: UserId, source_id: SourceId) -> None:
+        """Remove one source's L2 representations, preserving all tenants and L3 claims."""
+        ...
+
     async def upsert_chunks(
         self, user_id: UserId, chunks: list[SemanticChunk], *, archived: bool = False
     ) -> None:

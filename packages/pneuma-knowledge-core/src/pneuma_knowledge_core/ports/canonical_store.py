@@ -214,11 +214,12 @@ class CanonicalStore(Protocol):
     ) -> list[CanonicalDocument]: ...
 
     async def commit_patch(
-        self, user_id: UserId, files: dict[str, str], *, message: str
+        self, user_id: UserId, files: dict[str, str], *, message: str, removals: Sequence[str] = ()
     ) -> SnapshotRef:
         """Write the given path→content file set and commit it; return the resulting
         snapshot ref. The file set is the compiler's produced document table (paths
-        relative to the per-user repo root); this replaces those paths' content."""
+        relative to the per-user repo root); this replaces those paths' content.
+        Evolve may additionally name paths to remove in the same atomic commit."""
         ...
 
     async def move_documents(
@@ -275,6 +276,15 @@ class CanonicalStore(Protocol):
         the files it removed) and nothing else; it never restores the whole tree. One commit
         for the whole set because the set is what the Owner confirmed; `message` is the
         caller's, trailers included.
+        """
+        ...
+
+    async def last_commit(
+        self, user_id: UserId, path: str, *, at: SnapshotRef | None = None
+    ) -> tuple[str, str] | None:
+        """Last commit touching this exact path: (ref, ISO 8601 instant with offset), or absent.
+
+        A supplied snapshot bounds the history as well as the document being read.
         """
         ...
 

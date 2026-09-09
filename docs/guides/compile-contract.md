@@ -18,7 +18,19 @@ path_templates:
 (what to record, at what granularity, under what wording — the subject of this guide)
 ```
 
-The framework itself parses none of this. Registration is explicit — `SkillVersion.from_parts(skill_id, version, instructions, path_templates, contract_rules)` — and `instructions` is the markdown body verbatim. The frontmatter is the scaffold's own convention (its driver reads the fields and strips the guidance comments before registering); an application registering programmatically declares the fields in code. The `content_hash` is a sha256 over those five parts — computed by `from_parts`, never hand-written — and it is stamped into every canonical version the contract produces, so a library state is always attributable to the exact contract that made it. Changing the contract means registering a new `version`; it shapes future compiles and never rewrites what is already recorded. An executable starter contract lives at [`scaffold/templates/contract.en.md`](../../scaffold/templates/contract.en.md) (Chinese variant beside it), reference contracts at [`packages/pneuma-knowledge-strategies/`](../../packages/pneuma-knowledge-strategies/), and a complete worked deployment at [`examples/opc/`](../../examples/opc/).
+The framework itself parses none of this. Registration is explicit — `SkillVersion.from_parts(skill_id, version, instructions, path_templates, contract_rules)` — and `instructions` is the markdown body verbatim. The frontmatter is the scaffold's own convention (its driver reads the fields and strips the guidance comments before registering); an application registering programmatically declares the fields in code. The `content_hash` is a sha256 over those five parts — computed by `from_parts`, never hand-written — and it is stamped into every canonical version the contract produces, so a library state is always attributable to the exact contract that made it. Changing the contract means registering a new `version`; it shapes future compiles and never rewrites what is already recorded. An executable starter contract lives at [`packages/pneuma-knowledge-service/src/pneuma_knowledge_service/engine/templates/contract.en.md`](../../packages/pneuma-knowledge-service/src/pneuma_knowledge_service/engine/templates/contract.en.md) (Chinese variant beside it), reference contracts at [`packages/pneuma-knowledge-strategies/`](../../packages/pneuma-knowledge-strategies/), and a complete worked deployment at [`examples/opc/`](../../examples/opc/).
+
+
+A path template may opt into **`owner_voice: true`** in the contract frontmatter:
+
+```yaml
+path_templates:
+  - path: voice/{slug}.md
+    owner_voice: true
+  - work/{slug}.md
+```
+
+The engine contract loader and `SkillVersion.from_parts` accept this object form alongside existing strings; `owner_voice` is a boolean, defaults to false, and belongs to the contract template, not a generated page's frontmatter. The flag is included in the contract hash and preserved when schema packs compose the contract. A new or edited claim under any matching flagged template must resolve entirely to Owner-authored source blocks: Owner turns in agent sessions and owner dialogues, meeting segments by declared owner participants, IM messages by declared owner users, and mail from declared owner addresses. Unknown authorship and mixed Owner/agent spans are refused as `owner_voice`, at the write face first and at the gate again. Canonical anchor references (including overview grounding) follow their cited evidence recursively; missing or cyclic references cannot establish authorship. Existing unchanged claims are left intact. The restriction describes whose evidence may support this family's claims; deciding what deserves a claim remains the contract's judgement. Unflagged templates retain their existing behavior, content hash and system-message bytes.
 
 ## 1. The core reasoning: type → implied use → obligations
 

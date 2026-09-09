@@ -127,6 +127,10 @@ hash 路由就是 deep link 契约（`lib/hash.ts`）：12 个视图加 selectio
 
 顶栏贯穿所有视图：字标、移动端目录按钮，右侧是 UserPicker（租户）、SnapshotPicker（当前 HEAD / 可问答的冻结快照 / canonical 提交仅浏览）、LocaleToggle 与 ThemeToggle。选中快照期间，内容栏顶部出现档案戳横幅，所有写操作控件禁用（§4.3）。
 
+**本机面**只是一个可选端点，此外别无他物。`lib/store.ts` 在启动时探测一次 `GET /home/status`（`lib/home.ts` 负责解析，`lib/useHome.ts` 在标签页可见时每 30 秒复探）；返回 404——也就是今天的每一个项目部署——会被记住且不再追问，控制台逐字节保持原样。当单机版引擎作答时（docs/design/single-machine-edition.zh-CN.md §4.12、§10），只有三处变化：租户选择器变成按**名字**列出本机知识库的切换器（`components/LibraryPicker.tsx`——切换是一次导航，跳到那个知识库自己的引擎端口并带上当前 hash 路由，因为每个引擎都提供同一份控制台），控制台的当前租户跟随该引擎所服务的知识库、而不是任何持久化的 id，目录栏在全书之上多出一条不带编号的 `home`：仅所有者可见的只读健康页（Docker、四项服务，以及每个知识库的引擎、队列、密钥、skill 包新鲜度与五步冷启动）。机器不是这本书的一章，所以那一条不带 § 编号。
+
+**模型通道是台架，密钥是它的开关。** 单机版里知识库自己不带模型——一切判断都是代理做的——所以检索、问答、即时上下文是架在 API 模型通道之上的质检工具，而不是日常取用知识的地方；日常检索是一次代理会话，也就是 `steward` 那一页。这些通道需要 API 密钥，`lib/modelLanes.ts` 是这两件事的唯一声明：哪三个视图，以及关闭它们的唯一条件（本机作答了，且当前知识库报告 `key: false`）。闸口在**路由**上（`App.tsx`），深链因此与点目录栏走同一条路落到提示页，那三个视图文件则始终不知道有这回事；提示页本身（`views/_shared/ModelLaneNotice.tsx`）保留该页自己的标题，只说三句话——这一页是什么、为什么跑不了（附 `pkchome credentials set OPENROUTER_API_KEY`）、日常检索去了哪里，并且只对看得见管家的身份视角给出那个入口。目录栏保留这三条，只给它们打上一枚小小的 `key` 标记：一个密钥不该改写全书目录。没有本机时——也就是每一个项目部署——什么都不会被关闭，每一页逐字节保持原样。
+
 `overview` 必须在一屏内回答：材料如何进入 → 如何编译索引 → claim 如何回到 source span → 如何进入版本 → 取用面如何被门禁保护 → 数据全是 synthetic。形式是一纸校样——serif 题字、一段简短编者说明、一幅标尺线生产流程图（原料 → 编译 → 正典 → 取用，发丝线 + § 编号，节点上是实时计数）、L0–L3 定义表、按编号进入各视图的翻阅指引、synthetic 披露。不做线路图，不做彩色管道图形。无数据时计数显示 `—`，指引仍然可读。
 
 ---
@@ -206,6 +210,7 @@ hash 路由就是 deep link 契约（`lib/hash.ts`）：12 个视图加 selectio
 - **history** — snapshot / job / patch 三类记录的统一账页（mono ref、时间、changed paths、sources consumed、lineage）。patch 展开为 escalations、flag counts 与 claims trace；snapshot 行可经 SnapshotPicker 以只读态打开。
 - **evolve** — 三个面：演化时间线（状态即站点的形状与语义色）、任务详情（proposal 依据、pack 草案全文、会消失的 anchors、changed-file diff、adopt/drop）、schema 轴（族与 path template 随时间累积）。409 单飞冲突以 `Callout` 呈现。`#/evolve/evolve-task/<id>` 落在详情上。
 - **profile** — 当前租户的画像：身份加一张编译契约会读的字段定义表，以及全部由 primitives 搭的编辑表单。AI 生成只属于「新建画像」onboarding（一句话 → 草稿 → 用户确认）；已有画像不显示生成入口。
+- **home**（`#/home`，仅在探测到本机时进入目录）— 讲的是机器而不是知识：Docker 与本机只跑一份的四项服务，然后每个知识库一段发丝线分隔的区块（引擎运行 / 端口 / pid / 已运行时长，队列待处理与失败数，最近编译，密钥，skill 包新鲜度，五步冷启动，最近使用），末尾一行是本机位置与版本。只读；动作是 `/home/actions/*` 背后的 `pkchome` 命令，在端点还不存在时先摆出按钮并不诚实。
 - **components**（隐藏 `#/components`）— 全部 primitives 的默认 / hover / focus / disabled / error / loading / empty 矩阵，用于验收截图与回归。
 
 ---

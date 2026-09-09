@@ -288,7 +288,9 @@ async def test_a_business_visitor_is_recorded_and_queued_then_delivered(answerin
 
     await _deliver(answering_client, uid)
 
-    assert [r.consultation_id for r in recorder.seen] == [records[0].consultation_id]
+    assert [r.consultation_id for r in recorder.seen] == [records[0].consultation_id] * 2
+    assert [r.event for r in recorder.seen] == ["opening", "answer"]
+    assert recorder.seen[0].miss is None and recorder.seen[0].answer == ""
     assert recorder.seen[0].visitor_class == "business"
     store = answering_client.app.state.ctx.store
     hits = await store.access_hits_since(UserId(uid), records[0].created_at.date())

@@ -188,7 +188,9 @@ async def test_an_assembled_surface_still_carries_the_bytes_the_model_receives(t
     # and the gate that judges it. No model writes there; a person reads it.
     # +1: the coding-agent Steward's skill package — a document an agent reads, generated
     # from these clauses and installed in the project, so a family and never an assembly.
-    assert len(fragments) == 34
+    # +1: the reading reference's library design, primitives and contract-derived families.
+    # +1: outline and glance help, shared by the CLI and its generated reference.
+    assert len(fragments) == 36
 
 
 async def test_a_template_preview_carries_the_banner_that_stops_it_reading_as_the_message(

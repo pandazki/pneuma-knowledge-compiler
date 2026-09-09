@@ -46,8 +46,9 @@ protocol, the mechanical faces the framework calls at its own seams:
   shipped example, faces over a ledger the framework itself writes, and its `on_recall` and
   `rebuild` are explicit no-ops so that switching it on cannot double a count.
 - `on_recall` — the USE-SIDE twin of `on_source_indexed`: the framework tells a component
-  that one answering-lane call happened, as a `ConsultationRecord` (core
-  `domain/consultation.py`) — the question, what was handed to the model, what it cited.
+  about each consultation event, as a frozen `ConsultationRecord` (core
+  `domain/consultation.py`): `opening` carries the question and handed evidence; `answer`
+  carries the later answer and citations. Delivery is idempotent per (consultation_id, event).
   Called only for the visitor classes the application declared business (the service's
   ruling, not core's), and fail-soft on the same terms: a component that raises is logged,
   never a failed request. A record is not knowledge and never becomes any: it says the

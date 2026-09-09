@@ -90,6 +90,16 @@ def _language_knob():
     raise RuntimeError("the stage map declares no prompt-language knob")
 
 
+def prompt_languages() -> tuple[str, ...]:
+    """Every language pack the stage map's prompt-language knob declares, in its own order.
+
+    Read rather than retyped, so a command that offers the choice (`pkc skill render
+    --language`) and an engine apply that accepts it cannot come to disagree about what the
+    packs are.
+    """
+    return tuple(str(value) for value in _language_knob().enum)
+
+
 def active_language(engine_dir: str | Path, environ: Mapping[str, str] | None = None) -> str:
     """Which language pack this engine directory runs under: env > that file > default.
 

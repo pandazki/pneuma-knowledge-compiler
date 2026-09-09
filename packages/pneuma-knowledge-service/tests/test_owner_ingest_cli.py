@@ -28,6 +28,14 @@ STATEMENT = "Seats are 25 now, not 20.\nThe change took effect on 2026-08-01."
 
 def _payload(kind: str) -> dict:
     """One minimal payload per contract family, in the shape the route's own tests use."""
+    if kind == "agent-session/v1":
+        return {
+            "schema": "pneuma.source.agent-session/v1",
+            "provider": "codex", "session_id": "session-001", "owner_id": "momo",
+            "agent": {"name": "codex"}, "started_at": "2026-09-07T09:00:00+08:00",
+            "turns": [{"turn_id": "t1", "role": "owner", "kind": "say",
+                       "at": "2026-09-07T09:00:00+08:00", "text": "Keep the rationale."}],
+        }
     if kind == "meeting/v1":
         return {
             "schema": "pneuma.source.meeting/v1",

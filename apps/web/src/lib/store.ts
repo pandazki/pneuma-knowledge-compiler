@@ -10,8 +10,10 @@ import { appendUniqueSnapshots } from "./snapshotPagination";
 import { briefingSelection } from "./ask";
 import type { StageTiming } from "./stages";
 import type { ChatMode, LiveRole, LiveTurn } from "./liveContextChat";
+import { currentLibrary, type HomeStatus } from "./home";
 import {
   listUsers,
+  getHomeStatus,
   getDatasetRaw,
   getUserProfile,
   listSnapshots,
@@ -353,7 +355,30 @@ interface AppState {
   /** interface language (zh | en); resolved from localStorage → navigator → en. */
   locale: Locale;
 
+  /**
+   * The machine this console is served from, when it is a personal edition's engine and it
+   * answered `GET /home/status`; null everywhere else, which is every project deployment
+   * (docs/design/single-machine-edition.md §4.12). Null is not a degraded state — it is the
+   * ordinary one, and nothing in the console changes shape because of it.
+   */
+  home: HomeStatus | null;
+  /**
+   * The tenant last adopted FROM the home. The engine serving this console serves exactly
+   * one library, so which tenant is on the bench is the machine's fact, not the reader's:
+   * remembering what was adopted is what keeps a re-probe from re-switching (and wiping the
+   * sitting) every thirty seconds, while a home that genuinely moved still lands.
+   */
+  homeTenant: string | null;
+  /** The probe answered 404 / was unreachable: never ask again this page load. */
+  homeAbsent: boolean;
+
   init: () => Promise<void>;
+  /**
+   * Probe `/home/status` once, and adopt the current library's tenant when it answers.
+   * `booting` is the init pass, where the rest of the boot loads the tenant's data right
+   * after; outside it an adoption is a real library switch and goes through `setUser`.
+   */
+  loadHome: (booting?: boolean) => Promise<void>;
   /** (re)load the pneuma-knowledge user directory from GET /v1/users. */
   loadUsers: () => Promise<void>;
   /** (re)load the active user's product profile from GET /profile (drives Profile view + name). */
@@ -613,6 +638,9 @@ export const useApp = create<AppState>((set, get) => ({
   identityEpoch: 0,
   consultationTarget: null,
   locale: detectLocale(),
+  home: null,
+  homeTenant: null,
+  homeAbsent: false,
 
   init: async () => {
     applyTheme(get().theme);
@@ -673,6 +701,10 @@ export const useApp = create<AppState>((set, get) => ({
     // the user directory and land the UI ready regardless (an empty / unreachable
     // directory is a valid state the panels explain).
     set({ status: "loading", error: null });
+    // The home is probed BEFORE the directory, because when there is one it decides which
+    // tenant this console is showing — the engine serving it serves one library, and a
+    // persisted MRU id from another machine must not win over the machine in front of you.
+    await get().loadHome(true);
     await get().loadUsers();
     // Profile powers the Profile view + the top-bar name — load it non-blocking so
     // "ready" never waits on it (an unreachable /profile degrades gracefully).
@@ -683,6 +715,33 @@ export const useApp = create<AppState>((set, get) => ({
       await get().loadUserDataset();
     }
     set({ status: "ready" });
+  },
+
+  loadHome: async (booting = false) => {
+    // One probe, then silence: an endpoint that answered 404 once will answer 404 for the
+    // life of this page, and re-asking it every thirty seconds would be a request the
+    // deployment never asked for.
+    if (get().homeAbsent) return;
+    const status = await getHomeStatus();
+    if (!status) {
+      set({ home: null, homeAbsent: true });
+      return;
+    }
+    set({ home: status });
+    const library = currentLibrary(status);
+    if (!library || library.tenant === get().homeTenant) return;
+    set({ homeTenant: library.tenant });
+    if (library.tenant === get().currentUser) return;
+    try {
+      localStorage.setItem(USER_KEY, library.tenant);
+    } catch {
+      /* ignore */
+    }
+    // During boot the tenant is only a starting point — the loads that follow in `init`
+    // read it. Afterwards, adopting a different library IS a switch, with everything
+    // `setUser` clears and reloads.
+    if (booting) set({ currentUser: library.tenant });
+    else get().setUser(library.tenant);
   },
 
   loadUsers: async () => {

@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from pneuma_knowledge_core.domain.ids import UserId, SourceId
-from pneuma_knowledge_core.domain.intake import IntakePlan, propose_intake
+from pneuma_knowledge_core.domain.intake import IntakePlan, propose_intake, with_semantic_retrieval
 from pneuma_knowledge_core.domain.source import ConversationTurn, RawSource, SourceOrigin
 from pneuma_knowledge_core.domain.time_context import TimeContext, time_context_for
 from pneuma_knowledge_core.ingest.adapters import CONTEXT_STREAM_MIME, PlainConversationInput
@@ -125,6 +125,9 @@ async def ingest_conversation(
     char_count = sum(len(b.text) for b in normalized.blocks)
     plan = propose_intake(
         hints["kind"], hints["source_class"], char_count, hints.get("declared_type")
+    )
+    plan = with_semantic_retrieval(
+        plan, getattr(ctx.settings, "semantic_retrieval", "on") == "on"
     )
     normalized.raw.intake_plan = plan.model_dump()
 

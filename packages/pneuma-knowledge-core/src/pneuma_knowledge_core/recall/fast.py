@@ -92,6 +92,7 @@ from .stage_timing import (
     StageEventSink,
     StageRecorder,
     StageTiming,
+    semantic_skipped_stages,
     call_line,
     child_name,
     claim_entries,
@@ -641,6 +642,9 @@ class FastEvidence:
     expanded_documents: tuple[str, ...] = field(default_factory=tuple)
     glance_chars: int = 0
     stages: tuple[StageTiming, ...] = field(default_factory=tuple)
+    # The same rendered evidence, with assembly boundaries retained for read surfaces.
+    # These never change the bytes or ordering of `content` sent to an answering model.
+    sections: tuple[tuple[str, str], ...] = field(default_factory=tuple)
 
 
 @dataclass(frozen=True)
@@ -866,7 +870,7 @@ async def retrieve_claims(
     query: str,
     *,
     claim_lexical: ClaimLexicalIndex,
-    claim_vectors: ClaimVectorIndex,
+    claim_vectors: ClaimVectorIndex | None,
     embeddings,  # langchain_core.embeddings.Embeddings
     limit: int = DEFAULT_CLAIM_CAP,
     query_embedding: list[float] | None = None,
@@ -893,11 +897,13 @@ async def retrieve_claims(
     lexical_hits = await claim_lexical.search_claims(
         user_id, query, limit=limit, **scope
     )
-    if query_embedding is None:
-        query_embedding = await embeddings.aembed_query(query)
-    vector_hits = await claim_vectors.search_claims(
-        user_id, query_embedding, limit=limit, **scope
-    )
+    vector_hits = []
+    if embeddings is not None and claim_vectors is not None:
+        if query_embedding is None:
+            query_embedding = await embeddings.aembed_query(query)
+        vector_hits = await claim_vectors.search_claims(
+            user_id, query_embedding, limit=limit, **scope
+        )
     return _fuse_claim_hits(
         [("lexical", lexical_hits), ("vector", vector_hits)], limit
     )
@@ -908,7 +914,7 @@ async def retrieve_claims_multi(
     queries: Sequence[str],
     *,
     claim_lexical: ClaimLexicalIndex,
-    claim_vectors: ClaimVectorIndex,
+    claim_vectors: ClaimVectorIndex | None,
     embeddings,  # langchain_core.embeddings.Embeddings
     limit: int = DEFAULT_CLAIM_CAP,
     pool_cap: int | None = None,
@@ -938,10 +944,12 @@ async def retrieve_claims_multi(
         lexical_hits = await claim_lexical.search_claims(
             user_id, query, limit=limit, **scope
         )
-        vector = await embeddings.aembed_query(query)
-        vector_hits = await claim_vectors.search_claims(
-            user_id, vector, limit=limit, **scope
-        )
+        vector_hits = []
+        if embeddings is not None and claim_vectors is not None:
+            vector = await embeddings.aembed_query(query)
+            vector_hits = await claim_vectors.search_claims(
+                user_id, vector, limit=limit, **scope
+            )
         return lexical_hits, vector_hits
 
     per_query = await asyncio.gather(*(one(q) for q in queries))
@@ -1709,7 +1717,12 @@ def recall_human(
     ) + _recall_human_tail(question, as_of)
 
 
-def _recall_human_evidence(
+def _recall_human_evidence(claims: list[RetrievedClaim], **kwargs: Any) -> str:
+    """The lane's original order, joined from the same named evidence sections."""
+    return "\n\n".join(text for _kind, text in _recall_human_sections(claims, **kwargs))
+
+
+def _recall_human_sections(
     claims: list[RetrievedClaim],
     *,
     windows: list | None = None,
@@ -1721,41 +1734,41 @@ def _recall_human_evidence(
     window_notes: Sequence[tuple[object, tuple[RetrievedClaim, ...]]] | None = None,
     timelines: Sequence[TimelineBlock] = (),
     component_evidence: Sequence[ComponentEvidence] = (),
-) -> str:
+) -> list[tuple[str, str]]:
     """Everything before the volatile clock/question tail in the Human message."""
 
     windows = windows or []
-    sections: list[str] = []
+    sections: list[tuple[str, str]] = []
     if profile:
-        sections.append(f"{prompt('recall.section.profile_header')}\n{profile}")
+        sections.append(("profile", f"{prompt('recall.section.profile_header')}\n{profile}"))
     if snapshot:
-        sections.append(snapshot)
+        sections.append(("snapshot", snapshot))
     if glance:
-        sections.append(glance)
-    sections.append(
+        sections.append(("map", glance))
+    sections.append(("claims",
         prompt("recall.section.claims_header", count=len(claims))
         + "\n"
         + (render_claims(claims) or prompt("recall.section.claims_empty"))
-    )
+    ))
     if component_evidence:
-        sections.append(
+        sections.append(("components",
             prompt("recall.section.component_header", count=evidence_counts(component_evidence))
             + "\n"
             + render_component_evidence(component_evidence)
-        )
+        ))
     if episode_summaries:
-        sections.append(
+        sections.append(("episodes",
             prompt(
                 "recall.section.episode_summaries_header",
                 count=len(episode_summaries),
             )
             + "\n"
             + render_episode_summaries(episode_summaries)
-        )
+        ))
     if timelines:
-        sections.append(render_subject_timelines(timelines))
+        sections.append(("timelines", render_subject_timelines(timelines)))
     if windows:
-        sections.append(
+        sections.append(("windows",
             prompt("recall.section.windows_header", count=len(windows))
             + "\n"
             + (
@@ -1763,14 +1776,14 @@ def _recall_human_evidence(
                 if window_notes is not None
                 else _render_window_section(windows)
             )
-        )
+        ))
     if full_documents:
-        sections.append(
+        sections.append(("documents",
             prompt("recall.fast.select.documents_header", count=len(full_documents))
             + "\n"
             + render_full_documents(full_documents)
-        )
-    return "\n\n".join(sections)
+        ))
+    return sections
 
 
 def _recall_human_tail(question: str, as_of: datetime) -> str:
@@ -2180,13 +2193,14 @@ def recall_human_content(
     component_evidence: Sequence[ComponentEvidence] = (),
     images: Sequence[RecallImage] = (),
     image_mode: Literal["caption", "native"] = "caption",
+    evidence_sections: list[tuple[str, str]] | None = None,
 ) -> str | list[dict]:
     """Build the volatile Human content shared by direct and agentic recall.
 
     Original image bytes enter only when the query caller explicitly selected native
     delivery. Caption mode keeps the same block-aligned derived evidence in text form.
     """
-    evidence = _recall_human_evidence(
+    sections = _recall_human_sections(
         claims,
         windows=windows,
         episode_summaries=episode_summaries,
@@ -2198,10 +2212,17 @@ def recall_human_content(
         timelines=timelines,
         component_evidence=component_evidence,
     )
+    if evidence_sections is not None:
+        evidence_sections.extend(sections)
+    evidence = "\n\n".join(text for _kind, text in sections)
     tail = _recall_human_tail(question, as_of)
     if not images:
         return evidence + tail
     header = prompt("recall.section.images_header", count=len(images))
+    if evidence_sections is not None:
+        evidence_sections.append((
+            "images", header + "\n" + "\n".join(_render_recall_image(image) for image in images)
+        ))
     if image_mode == "caption":
         return (
             evidence
@@ -2850,7 +2871,7 @@ async def retrieve_windows(
     then ordinary RRF and source-span overlap suppression produce one bounded evidence list. No path
     receives a quota: exact identifiers and dates remain able to outrank broad semantics.
     """
-    if lexical is None or vectors is None or limit <= 0:
+    if lexical is None or limit <= 0:
         return []
     return await rag_recall(
         user_id,
@@ -3062,7 +3083,7 @@ async def fast_recall(
     *,
     as_of: datetime,
     claim_lexical: ClaimLexicalIndex,
-    claim_vectors: ClaimVectorIndex,
+    claim_vectors: ClaimVectorIndex | None,
     embeddings,  # langchain_core.embeddings.Embeddings
     model: BaseChatModel,
     answer_model: BaseChatModel | None = None,
@@ -3253,7 +3274,7 @@ async def fast_recall(
     planned: tuple[str, ...] = ()
     plan_usage = zero_usage()
     plan_degraded: str | None = None
-    if plan_queries_cap > 0:
+    if plan_queries_cap > 0 and (plan_model or model) is not None:
         with timer.measure("plan"):
             planned, plan_usage, plan_degraded = await plan_retrieval_queries(
                 plan_model or model,
@@ -3265,6 +3286,8 @@ async def fast_recall(
             )
             timer.preview("plan", {"cap": plan_queries_cap, "queries": list(planned)})
         timer.degrade("plan", plan_degraded)
+    elif plan_queries_cap > 0:
+        timer.degrade("plan", "no model; using the original question")
 
     # The claim face always retrieves beyond the final evidence wall. This is cheap index
     # work and leaves enough tail for containment dedup and multi-path disagreement. With a
@@ -3355,7 +3378,7 @@ async def fast_recall(
     async def retrieve_window_face() -> list[RecallHit]:
         # Not merely "0 ms": with no raw index wired this lane does not exist, and the strip
         # must be able to say so. `retrieve_windows` would return [] either way.
-        if lexical is None or vectors is None:
+        if lexical is None:
             return []
         with timer.measure(child_name("windows")):
             hits = await retrieve_windows(
@@ -3378,6 +3401,9 @@ async def fast_recall(
         # One routing turn chooses paths and arguments; the chosen paths run concurrently.
         # The built-in faces never wait for this arm — they are gathered beside it.
         if not offered_paths:
+            return [], zero_usage(), None
+        if (route_model or model) is None:
+            timer.degrade("route", "no model; component routing skipped")
             return [], zero_usage(), None
         with timer.measure("route"):
             chosen, usage, degraded, rejected = await route_paths(
@@ -3448,6 +3474,9 @@ async def fast_recall(
     # sees the same glance in its one cross-face selection call below, so enabling it does
     # not accidentally add two sequential model judgements before the answer.
     async def glance_branch():
+        if (glance_model or model) is None:
+            timer.degrade(child_name("glance"), "no model; glance pick skipped, no pages selected")
+            return (), zero_usage(), None
         with timer.measure(child_name("glance")):
             picked = await select_glance_documents(
                 glance_model or model,
@@ -3568,7 +3597,7 @@ async def fast_recall(
                 content=content,
                 user_id=user_id,
                 cap=max(episode_summary_cap, window_candidate_cap),
-            )
+            ) if embeddings is not None else []
             timer.preview(
                 "assemble",
                 {
@@ -3590,39 +3619,44 @@ async def fast_recall(
             )
             component_merged = True
             component_pool = component_candidate_pool(component_evidence)
-        with timer.measure("select"):
-            evidence_choice, evidence_selection_usage, evidence_selection_degraded = (
-                await select_evidence(
-                    glance_model or model,
-                    question,
-                    claims=claims_raw,
-                    episode_summaries=episode_candidates,
-                    windows=raw_windows,
-                    components=component_pool,
-                    glance=glance,
-                    known_paths=tuple(by_path),
-                    claim_cap=cap,
-                    episode_summary_cap=episode_summary_cap,
-                    window_cap=window_cap,
-                    document_cap=glance_pick_cap,
-                    reasoning_effort=selection_reasoning_effort,
-                    timeout=evidence_selection_timeout,
-                    callbacks=callbacks,
-                    trace_metadata=trace_metadata,
+        if (glance_model or model) is None:
+            evidence_choice = None
+            timer.degrade("select", "no model; using ranked evidence")
+            timer.degrade(child_name("glance"), "no model; glance pick skipped, no pages selected")
+        else:
+            with timer.measure("select"):
+                evidence_choice, evidence_selection_usage, evidence_selection_degraded = (
+                    await select_evidence(
+                        glance_model or model,
+                        question,
+                        claims=claims_raw,
+                        episode_summaries=episode_candidates,
+                        windows=raw_windows,
+                        components=component_pool,
+                        glance=glance,
+                        known_paths=tuple(by_path),
+                        claim_cap=cap,
+                        episode_summary_cap=episode_summary_cap,
+                        window_cap=window_cap,
+                        document_cap=glance_pick_cap,
+                        reasoning_effort=selection_reasoning_effort,
+                        timeout=evidence_selection_timeout,
+                        callbacks=callbacks,
+                        trace_metadata=trace_metadata,
+                    )
                 )
-            )
-            timer.preview(
-                "select",
-                _selection_preview(
-                    evidence_choice,
-                    claims=claims_raw,
-                    episodes=episode_candidates,
-                    windows=raw_windows,
-                    components=component_pool,
-                    titles=titles,
-                ),
-            )
-        timer.degrade("select", evidence_selection_degraded)
+                timer.preview(
+                    "select",
+                    _selection_preview(
+                        evidence_choice,
+                        claims=claims_raw,
+                        episodes=episode_candidates,
+                        windows=raw_windows,
+                        components=component_pool,
+                        titles=titles,
+                    ),
+                )
+            timer.degrade("select", evidence_selection_degraded)
         if evidence_choice is None:
             # Fail-soft means the exact ranked heads remain usable; no partial/unvalidated
             # model output is allowed to influence context.
@@ -3674,7 +3708,7 @@ async def fast_recall(
                 content=content,
                 user_id=user_id,
                 cap=max(episode_summary_cap, window_candidate_cap),
-            )
+            ) if embeddings is not None else []
             timer.preview(
                 "assemble",
                 {
@@ -3735,7 +3769,7 @@ async def fast_recall(
                 content=content,
                 user_id=user_id,
                 cap=episode_summary_cap,
-            )
+            ) if embeddings is not None else []
             timer.preview(
                 "assemble",
                 {
@@ -3753,7 +3787,7 @@ async def fast_recall(
                 content=content,
                 user_id=user_id,
                 cap=episode_summary_cap,
-            )
+            ) if embeddings is not None else []
             timer.preview(
                 "assemble",
                 {
@@ -3992,6 +4026,7 @@ async def fast_recall(
         # the same function they alias with, so what comes back is the message that call
         # would have carried — not a rendering of it, and not a second assembly that could
         # drift from one.
+        evidence_sections: list[tuple[str, str]] = []
         evidence_human = recall_human_content(
             question,
             claims,
@@ -4007,8 +4042,13 @@ async def fast_recall(
             component_evidence=shown_component_evidence,
             images=images,
             image_mode=image_mode,
+            evidence_sections=evidence_sections,
         )
         aliased_evidence, evidence_handles = _alias_human_content(evidence_human)
+        section_aliaser = SessionAliaser()
+        aliased_sections = tuple(
+            (kind, section_aliaser.alias(text)) for kind, text in evidence_sections
+        )
         timer.record("total", (time.perf_counter() - lane_started) * 1000.0)
         return FastEvidence(
             question=question,
@@ -4030,7 +4070,8 @@ async def fast_recall(
             used_component_evidence=tuple(component_evidence),
             expanded_documents=tuple(selected),
             glance_chars=len(glance or ""),
-            stages=timer.emit(),
+            stages=(*semantic_skipped_stages(embeddings), *timer.emit()),
+            sections=aliased_sections,
         )
     if answer_format == "structured":
         with timer.measure("answer"):
@@ -4163,6 +4204,6 @@ async def fast_recall(
         component_candidates=evidence_counts(component_evidence),
         used_component_evidence=tuple(component_evidence),
         component_rerank_degraded=component_rerank_degraded,
-        stages=timer.emit(),
+        stages=(*semantic_skipped_stages(embeddings), *timer.emit()),
         evidence_manifest=manifest,
     )

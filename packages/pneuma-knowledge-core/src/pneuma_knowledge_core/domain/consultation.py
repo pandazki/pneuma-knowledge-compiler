@@ -11,9 +11,10 @@ consultation to decide what is true.
 Kept is not the same as untouched. A lane that aliases source ids into query-local handles
 resolves them back before the answer is recorded, and a bracket still naming a handle that
 resolves to nothing is dropped from the recorded prose; `citations` is filtered by the same
-map and then admitted only against `evidence_handed`. The builders below are where that
-happens, one per lane, and the answer on the wire is never touched — the caller sees what the
-model wrote, and the record carries addresses that resolve.
+map and then admitted against `evidence_handed`. Agent answers also admit direct addresses
+validated against the tenant's L0 and canonical anchors: the agent's reading is retrieval,
+and the hand-over cannot enumerate it. Each citation records its `handed` or `direct` origin.
+The builders below preserve these resolved addresses without expanding the handed manifest.
 
 WHAT THE RECORD IS ALLOWED TO CARRY
 -----------------------------------
@@ -34,7 +35,7 @@ of core's involvement — one per lane, so a caller does no field-picking of its
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Literal
 
@@ -42,7 +43,7 @@ from .canonical import format_citation_span
 
 #: The answering lanes that produce a record. `rag` is absent on purpose: it runs no model,
 #: so there is no "what was handed to it" for a record to be about.
-LANE_VALUES = ("fast", "deep", "briefing_ask")
+LANE_VALUES = ("fast", "deep", "briefing_ask", "direct")
 
 #: Recording and influence are two axes; these are the three points on them the framework
 #: ships. `silent` is the default everywhere, so an unchanged caller leaves no trace.
@@ -58,7 +59,7 @@ VISITOR_CLASS_VALUES = ("silent", "audit", "business")
 #: interval. It maps 1:1 onto the `document` target the attention ledger already counts.
 EVIDENCE_KIND_VALUES = ("claim", "window", "episode", "component", "document")
 
-Lane = Literal["fast", "deep", "briefing_ask"]
+Lane = Literal["fast", "deep", "briefing_ask", "direct"]
 VisitorClass = Literal["silent", "audit", "business"]
 EvidenceKind = Literal["claim", "window", "episode", "component", "document"]
 
@@ -75,12 +76,18 @@ class EvidenceRef:
     kind: str
     ref: str
     path: str = ""
+    #: Old records and lane manifests are handed evidence; only validated direct reading
+    #: introduces the other origin. This default lets kept records replay without rewriting.
+    origin: Literal["handed", "direct"] = "handed"
 
 
 @dataclass(frozen=True)
 class ConsultationRecord:
-    """One consultation, as its lane emitted it. Frozen: a record of what happened is not
-    editable."""
+    """An immutable opening, answer event, or joined reading of those two events.
+
+    `complete` preserves the single-call lanes' builder face: the service writes both
+    events together. A later answer is a NEW value, never a mutation of its opening.
+    """
 
     #: Identity — all three system-assigned by the caller, never by the model or the client.
     consultation_id: str
@@ -108,7 +115,7 @@ class ConsultationRecord:
     #: lookup, a page read in full) and the provenance spans rendered WITH them — a claim
     #: note carries its own `[cite: …]` marker, and the contract tells the model to copy
     #: exactly those markers, so a span named there is an address that reached the model.
-    #: `citations` is a subset of this by construction.
+    #: Direct citations do not expand this manifest.
     evidence_handed: tuple[EvidenceRef, ...] = ()
     answer_kind: str | None = None
     answer: str = ""
@@ -116,7 +123,7 @@ class ConsultationRecord:
     citations: tuple[EvidenceRef, ...] = ()
     #: `is_miss` over the two fields above it. Stored rather than recomputed at read time so
     #: a replay of the records cannot disagree with what was recorded.
-    miss: bool = False
+    miss: bool | None = False
     #: The lane's degradation flags, copied as `(field, value)` pairs in field order — only
     #: the ones that fired, so an undegraded run carries an empty tuple.
     degraded: tuple[tuple[str, str], ...] = field(default_factory=tuple)
@@ -128,14 +135,63 @@ class ConsultationRecord:
     #: is computed when someone reads — out of the rates the deployment declares then — and
     #: a stored amount would be a number nobody can reproduce a quarter later.
     token_usage: tuple[tuple[str, int], ...] = field(default_factory=tuple)
+    answered_at: datetime | None = None
+    event: Literal["opening", "answer", "complete"] = "complete"
+
+    def __post_init__(self) -> None:
+        if self.event not in {"opening", "answer", "complete"}:
+            raise ValueError(f"unknown consultation event: {self.event}")
+        if self.event == "opening":
+            if (self.answer_kind is not None or self.answer or self.citations
+                    or self.miss is not None or self.degraded or self.token_usage
+                    or self.answered_at is not None):
+                raise ValueError("an opening carries no answer event or miss classification")
+        else:
+            if self.miss is None:
+                raise ValueError("an answer event requires its miss classification")
+            if self.answered_at is None:
+                # Existing single-call builders record both events at the same instant.
+                object.__setattr__(self, "answered_at", self.created_at)
+
+    @property
+    def state(self) -> Literal["unanswered", "answered"]:
+        return "unanswered" if self.event == "opening" else "answered"
+
+    @property
+    def event_at(self) -> datetime:
+        return self.created_at if self.event == "opening" else (self.answered_at or self.created_at)
+
+    def opening(self) -> ConsultationRecord:
+        """Read the first kept event without borrowing anything from the answer."""
+        return replace(
+            self, event="opening", answered_at=None, answer_kind=None, answer="",
+            citations=(), miss=None, degraded=(), token_usage=(),
+        )
+
+    def events(self) -> tuple[ConsultationRecord, ...]:
+        """Opening before answer, even when a single call emitted both together."""
+        if self.event != "complete":
+            return (self,)
+        return (self.opening(), replace(self, event="answer"))
+
+    @property
+    def citations_direct(self) -> int:
+        """Count direct citations from their stored origins, without a second counter."""
+        return sum(ref.origin == "direct" for ref in self.citations)
 
 
-def is_miss(answer_kind: str | None, evidence_handed: tuple[EvidenceRef, ...]) -> bool:
+def is_miss(
+    answer_kind: str | None,
+    evidence_handed: tuple[EvidenceRef, ...],
+    citations: tuple[EvidenceRef, ...] = (),
+) -> bool:
     """Did this consultation come back with nothing?
 
     Two ways, and they are different failures: the model said so (`no_record`), or the
-    retrieval put nothing in front of it at all. Both are the library being asked something
-    it could not answer, which is the one signal a use-side record exists to keep.
+    retrieval put nothing in front of it at all and no validated direct citation supplied
+    evidence. Both are the library being asked something it could not answer, which is the
+    one signal a use-side record exists to keep. Agent reading can supply citations without
+    a hand-over; those addresses count without changing the handed manifest.
 
     ONE RULE, EVERY LANE. There used to be a `lane` exception here: a `briefing_ask`
     answers over a pack that was assembled and frozen when the briefing was built, and the
@@ -148,7 +204,9 @@ def is_miss(answer_kind: str | None, evidence_handed: tuple[EvidenceRef, ...]) -
     what the library was asked and could not answer) is only as truthful as this predicate,
     and it is more truthful with one rule than with an exception standing in for a gap.
     """
-    return answer_kind == "no_record" or not evidence_handed
+    # An agent can answer from direct reading even when the lane handed nothing. The
+    # validated citations are evidence of that use; they never inflate evidence_handed.
+    return answer_kind == "no_record" or not (evidence_handed or citations)
 
 
 # --------------------------------------------------------------- address construction

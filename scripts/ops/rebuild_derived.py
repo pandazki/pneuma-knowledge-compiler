@@ -73,12 +73,15 @@ async def all_users(ctx) -> list[UserId]:
 
 async def rebuild_user(ctx, user_id: UserId) -> None:
     sources = await ctx.store.list(user_id)
-    l2_before = await ctx.vectors.count_chunks(user_id)
+    semantic_enabled = getattr(getattr(ctx, "settings", None), "semantic_retrieval", "on") == "on"
+    l2_before = await ctx.vectors.count_chunks(user_id) if semantic_enabled else "skipped"
     print(
         f"\n== {user_id}: {len(sources)} source(s) | "
         f"L2 chunks before = {l2_before} =="
     )
     if not sources:
+        if not semantic_enabled:
+            print("  L2  skipped: semantic retrieval is off")
         # L1/L2/L3 are all functions of the sources, so there is nothing there to redo — but
         # a component projection may be derived from the use-side records instead, and that
         # tenant is exactly the one that needs repairing. The component pass runs below.
@@ -106,21 +109,24 @@ async def rebuild_user(ctx, user_id: UserId) -> None:
         + (f" ({archived} archived)" if archived else "")
     )
 
-    # L2 — drop stale chunk points once, then re-chunk + re-embed every source.
-    await ctx.vectors.delete_chunks(user_id)
-    l2_chunks = 0
-    for raw in sources:
-        normalized = await ctx.store.get(user_id, raw.source_id)
-        chunks = await _chunks_for(ctx, raw.source_id, normalized, user_id)
-        if not chunks:
-            continue
-        embedded = await embed_l2_chunks(ctx, chunks, normalized)
-        await ctx.vectors.upsert_chunks(
-            user_id, embedded, archived=raw.archived_at is not None
-        )
-        l2_chunks += len(chunks)
-    l2_after = await ctx.vectors.count_chunks(user_id)
-    print(f"  L2  {l2_after} chunk(s) (was {l2_before})")
+    if not semantic_enabled:
+        print("  L2  skipped: semantic retrieval is off")
+    else:
+        # L2 — drop stale chunk points once, then re-chunk + re-embed every source.
+        await ctx.vectors.delete_chunks(user_id)
+        l2_chunks = 0
+        for raw in sources:
+            normalized = await ctx.store.get(user_id, raw.source_id)
+            chunks = await _chunks_for(ctx, raw.source_id, normalized, user_id)
+            if not chunks:
+                continue
+            embedded = await embed_l2_chunks(ctx, chunks, normalized)
+            await ctx.vectors.upsert_chunks(
+                user_id, embedded, archived=raw.archived_at is not None
+            )
+            l2_chunks += len(chunks)
+        l2_after = await ctx.vectors.count_chunks(user_id)
+        print(f"  L2  {l2_after} chunk(s) (was {l2_before})")
 
     # L3 — re-project canonical HEAD onto PG + Meili claims + Qdrant claim layer.
     claim_count = await rebuild_projection(ctx, user_id)

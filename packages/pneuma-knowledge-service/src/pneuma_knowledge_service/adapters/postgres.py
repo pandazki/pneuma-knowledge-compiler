@@ -9,8 +9,11 @@ omits it. Content dedup: same user + same checksum returns the existing source_i
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from collections.abc import Mapping, Sequence
+from contextlib import asynccontextmanager
+from contextvars import ContextVar
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -28,6 +31,7 @@ from pneuma_knowledge_core.domain.source import (
     RawSource,
     StructureMap,
 )
+from pneuma_knowledge_core.ports.draft_store import DraftOwner, DraftOwnershipError
 from pneuma_knowledge_core.recall.projection import ProjectedClaim
 from psycopg.types.json import Json, Jsonb
 from psycopg_pool import AsyncConnectionPool
@@ -609,8 +613,10 @@ class PostgresStore:
         consultation_id: str,
         hits: list[dict],
         misses: list[dict],
+        *,
+        event: str,
     ) -> bool:
-        """Apply one record's rows AND stamp it `projected_at` — in one transaction.
+        """Apply one event's rows AND stamp it projected — in one transaction.
 
         Returns whether this call was the one that applied it. The stamp is claimed first,
         with `projected_at IS NULL` in the `WHERE`: a second job for the same consultation
@@ -627,12 +633,16 @@ class PostgresStore:
         order — a projection job drained after a newer one — never drags a target's last
         access backwards.
         """
+        if event not in {"opening", "answer"}:
+            raise ValueError(f"unknown consultation event: {event}")
+        stamp = "opening_projected_at" if event == "opening" else "projected_at"
+        exists = "TRUE" if event == "opening" else "answered_at IS NOT NULL"
         async with self._pool.connection() as conn:
             async with conn.transaction(), conn.cursor() as cur:
                 await cur.execute(
-                    "UPDATE consultations SET projected_at = %s "
+                    f"UPDATE consultations SET {stamp} = %s "
                     "WHERE user_id = %s AND consultation_id = %s "
-                    "AND projected_at IS NULL",
+                    f"AND {stamp} IS NULL AND {exists}",
                     (datetime.now(timezone.utc), str(user_id), consultation_id),
                 )
                 if not cur.rowcount:
@@ -1061,46 +1071,85 @@ class PostgresStore:
             )
         return job_id
 
-    async def requeue_claimed_jobs(self, *, draft_ttl: int = 0) -> int:
-        """Reclaim orphaned jobs: any job still 'claimed' is returned to 'queued'.
+    async def requeue_claimed_jobs(
+        self, *, draft_ttl: int = 0, tenants: Sequence[str] = ()
+    ) -> int:
+        """Requeue abandoned work, preserving live launch leases and unexpired drafts.
 
-        The queue is single-worker and per-user single-in-flight, so at worker startup
-        nothing is legitimately in-flight — a 'claimed' row means a worker died mid-job
-        (e.g. killed during a long LLM call), which otherwise blocks that user's queue
-        forever. Called on worker startup so a restart self-heals instead of stranding
-        jobs. Returns the number requeued.
-
-        One thing IS legitimately in flight now: a job an agent claimed with `pkc draft open`
-        and is still working through, command by command (docs/design/coding-agent-mode.md
-        §6). Its draft row is written by every one of those commands, so `updated_at` is the
-        liveness signal, and `draft_ttl` seconds is how long a round may go quiet before it
-        counts as abandoned. Stale drafts are DELETED here and their jobs requeued with the
-        rest — a round nobody came back to must not hold a user's queue any longer than a
-        dead worker's job does. `draft_ttl <= 0` keeps the pre-draft behaviour exactly: every
-        claimed job is requeued and no draft protects anything.
+        Recovery takes the same tenant locks as commands and claims. A launch can be quiet
+        for longer than the takeover grace without being dead; only its lease or the full
+        draft TTL decides that. A completed row is never a recovery candidate.
         """
+        allowed = [t for t in tenants if t]
+        drafts = PostgresDraftStore(self)
         async with self._pool.connection() as conn:
-            if draft_ttl > 0:
-                await conn.execute(
-                    "DELETE FROM compile_drafts "
-                    "WHERE updated_at < now() - make_interval(secs => %s)",
-                    (float(draft_ttl),),
-                )
-                cur = await conn.execute(
-                    "UPDATE compile_jobs SET status='queued', claimed_at=NULL, "
-                    "claimed_by=NULL WHERE status='claimed' AND NOT EXISTS ("
-                    "  SELECT 1 FROM compile_drafts d "
-                    "  WHERE d.user_id = compile_jobs.user_id AND d.job_id = compile_jobs.id)"
-                )
-                return cur.rowcount
-            cur = await conn.execute(
-                "UPDATE compile_jobs SET status='queued', claimed_at=NULL, claimed_by=NULL "
-                "WHERE status='claimed'"
-            )
-            return cur.rowcount
+            users = await (await conn.execute(
+                "SELECT user_id FROM (SELECT user_id FROM compile_jobs WHERE status = 'claimed' "
+                "UNION SELECT user_id FROM compile_drafts) candidates"
+                + (" WHERE user_id = ANY(%s)" if allowed else ""),
+                (allowed,) if allowed else (),
+            )).fetchall()
+        reclaimed = 0
+        for (uid,) in users:
+            async with self._pool.connection() as conn:
+                async with conn.transaction():
+                    locked = await (await conn.execute(
+                        "SELECT pg_try_advisory_xact_lock(hashtext('pkc-draft'), hashtext(%s))",
+                        (uid,),
+                    )).fetchone()
+                    if not locked[0]:
+                        continue  # A command is running, possibly committing canonical.
+                    await conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (uid,))
+                    # A worker failure or a crash in finish's cleanup can leave a draft on
+                    # a terminal job. It has no resumable round and must not reserve the
+                    # tenant forever through the claim query's draft exclusion.
+                    await conn.execute(
+                        "DELETE FROM compile_drafts d USING compile_jobs j "
+                        "WHERE d.user_id = %s AND j.user_id = d.user_id AND j.id = d.job_id "
+                        "AND (j.status = 'done' OR j.completed_at IS NOT NULL)", (uid,),
+                    )
+                    jobs = await (await conn.execute(
+                        "SELECT id, claimed_by FROM compile_jobs "
+                        "WHERE user_id = %s AND completed_at IS NULL AND (status = 'claimed' "
+                        "OR id IN (SELECT job_id FROM compile_drafts WHERE user_id = %s)) "
+                        "FOR UPDATE", (uid, uid),
+                    )).fetchall()
+                    for job_id, claimed_by in jobs:
+                        owner = await drafts.owner(UserId(uid), job_id)
+                        executor = owner.executor if owner else (claimed_by or "")
+                        expired = bool(owner and draft_ttl > 0 and owner.idle_seconds >= draft_ttl)
+                        if executor.startswith("worker:"):
+                            if not expired and await drafts.worker_alive(UserId(uid), executor):
+                                continue
+                        elif owner and not expired and draft_ttl > 0:
+                            continue
+                        if owner:
+                            await conn.execute(
+                                "DELETE FROM compile_drafts WHERE user_id = %s AND job_id = %s",
+                                (uid, job_id),
+                            )
+                        cur = await conn.execute(
+                            "UPDATE compile_jobs SET status='queued', claimed_at=NULL, claimed_by=NULL "
+                            "WHERE user_id = %s AND id = %s AND status = 'claimed' AND completed_at IS NULL",
+                            (uid, job_id),
+                        )
+                        reclaimed += cur.rowcount
+        return reclaimed
+
+    async def held_draft(self, user_id: UserId) -> tuple[str, DraftOwner] | None:
+        drafts = PostgresDraftStore(self)
+        for job_id in await drafts.list_open(user_id):
+            owner = await drafts.owner(user_id, job_id)
+            if owner is not None:
+                return job_id, owner
+        return None
 
     async def claim_next(
-        self, user_id: UserId, *, exclude_kinds: Sequence[str] = ()
+        self,
+        user_id: UserId,
+        *,
+        exclude_kinds: Sequence[str] = (),
+        tenants: Sequence[str] = (),
     ) -> _JobRow | None:
         """Claim the oldest queued job for this user, but only if the user has no
         job already in flight — per-user serialization (§5, single git writer).
@@ -1109,10 +1158,22 @@ class PostgresStore:
         advisory lock, same `FOR UPDATE SKIP LOCKED`, same ordering, same refusal while
         that user has a job in flight. It exists because a worker under an agent executor
         does not run compile jobs and must still drain the user's other work
-        (docs/design/coding-agent-mode.md §9)."""
+        (docs/design/coding-agent-mode.md §9).
+
+        `tenants` narrows WHOSE row it will take — the worker tenant filter
+        (docs/design/single-machine-edition.md §11.7). Empty is no restriction; non-empty
+        adds one predicate to the same query, so a job outside the list is never handed out
+        in the first place and this body never has to give one back."""
         skip = [k for k in exclude_kinds if k]
+        allowed = [t for t in tenants if t]
         async with self._pool.connection() as conn:
             async with conn.transaction():
+                locked = await (await conn.execute(
+                    "SELECT pg_try_advisory_xact_lock(hashtext('pkc-draft'), hashtext(%s))",
+                    (str(user_id),),
+                )).fetchone()
+                if not locked[0]:
+                    return None
                 # One claimer per user at a time, whichever body it is. The NOT EXISTS below
                 # reads committed state, so two claimers racing on two different queued jobs
                 # of one user could both pass it; the row lock only serializes claims on the
@@ -1123,12 +1184,19 @@ class PostgresStore:
                 )
                 row = await (await conn.execute(
                     "SELECT id, kind, payload FROM compile_jobs "
-                    "WHERE user_id = %s AND status = 'queued' "
+                    "WHERE user_id = %s AND status = 'queued' AND completed_at IS NULL "
+                    + ("AND user_id = ANY(%s) " if allowed else "")
                     + ("AND NOT (kind = ANY(%s)) " if skip else "")
-                    + "AND NOT EXISTS (SELECT 1 FROM compile_jobs j2 "
+                    + "AND NOT EXISTS (SELECT 1 FROM compile_drafts d WHERE d.user_id = %s) "
+                    "AND NOT EXISTS (SELECT 1 FROM compile_jobs j2 "
                     "  WHERE j2.user_id = %s AND j2.status = 'claimed') "
                     "ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1",
-                    (str(user_id), *((skip,) if skip else ()), str(user_id)),
+                    (
+                        str(user_id),
+                        *((allowed,) if allowed else ()),
+                        *((skip,) if skip else ()),
+                        str(user_id), str(user_id),
+                    ),
                 )).fetchone()
                 if row is None:
                     return None
@@ -1167,11 +1235,12 @@ class PostgresStore:
                 )
                 row = await (await conn.execute(
                     "SELECT id, kind, payload FROM compile_jobs "
-                    "WHERE user_id = %s AND id = %s AND status = 'queued' "
+                    "WHERE user_id = %s AND id = %s AND status = 'queued' AND completed_at IS NULL "
+                    "AND NOT EXISTS (SELECT 1 FROM compile_drafts d WHERE d.user_id = %s) "
                     "AND NOT EXISTS (SELECT 1 FROM compile_jobs j2 "
                     "  WHERE j2.user_id = %s AND j2.status = 'claimed') "
                     "FOR UPDATE SKIP LOCKED",
-                    (str(user_id), job_id, str(user_id)),
+                    (str(user_id), job_id, str(user_id), str(user_id)),
                 )).fetchone()
                 if row is None:
                     return None
@@ -1181,6 +1250,16 @@ class PostgresStore:
                     (datetime.now(timezone.utc), claimed_by, row[0]),
                 )
         return _JobRow(row[0], user_id, row[1], row[2])
+
+    async def attach_executor(self, user_id: UserId, job_id: str, executor: str) -> bool:
+        async with self._pool.connection() as conn:
+            cur = await conn.execute(
+                "UPDATE compile_jobs SET claimed_by = %s WHERE user_id = %s AND id = %s "
+                "AND status = 'claimed' AND completed_at IS NULL AND claimed_by = 'worker' "
+                "AND NOT EXISTS (SELECT 1 FROM compile_drafts d WHERE d.user_id = %s)",
+                (executor, str(user_id), job_id, str(user_id)),
+            )
+            return cur.rowcount == 1
 
     async def release(self, user_id: UserId, job_id: str) -> None:
         """Put a claimed job back in the queue, unfinished (`pkc draft abandon`).
@@ -1192,7 +1271,7 @@ class PostgresStore:
         async with self._pool.connection() as conn:
             await conn.execute(
                 "UPDATE compile_jobs SET status='queued', claimed_at=NULL, claimed_by=NULL "
-                "WHERE user_id = %s AND id = %s AND status = 'claimed'",
+                "WHERE user_id = %s AND id = %s AND status = 'claimed' AND completed_at IS NULL",
                 (str(user_id), job_id),
             )
 
@@ -1201,7 +1280,7 @@ class PostgresStore:
         from "no such job"."""
         async with self._pool.connection() as conn:
             row = await (await conn.execute(
-                "SELECT id, kind, payload, status FROM compile_jobs "
+                "SELECT id, kind, payload, status, claimed_by FROM compile_jobs "
                 "WHERE user_id = %s AND id = %s",
                 (str(user_id), job_id),
             )).fetchone()
@@ -1209,6 +1288,7 @@ class PostgresStore:
             return None
         job = _JobRow(row[0], user_id, row[1], row[2])
         job.status = row[3]
+        job.claimed_by = row[4]
         return job
 
     async def complete(
@@ -1221,13 +1301,20 @@ class PostgresStore:
         snapshot_ref: str | None = None,
         token_usage: dict[str, int] | None = None,
         executor: str | None = None,
+        claimed_by: str | None = None,
     ) -> None:
         async with self._pool.connection() as conn:
             await conn.execute(
                 "UPDATE compile_jobs SET status = 'done', completed_at = %s, "
                 "ok = %s, detail = %s, snapshot_ref = %s, "
                 "token_usage = coalesce(%s, token_usage), "
-                "executor = coalesce(%s, executor) WHERE user_id = %s AND id = %s",
+                # A job can be completed TWICE — the round's own `pkc draft finish` writes the
+                # real record, and the worker's catch-all error path writes a second one if
+                # anything after it raises. The second caller knows neither the usage nor the
+                # executor, and the COALESCE keeps what the round measured. What a finished job
+                # must never be is re-CLAIMED; that guard lives in the claim query, not here.
+                "executor = coalesce(%s, executor) WHERE user_id = %s AND id = %s"
+                + (" AND claimed_by = %s" if claimed_by is not None else ""),
                 (
                     datetime.now(timezone.utc),
                     ok,
@@ -1236,15 +1323,11 @@ class PostgresStore:
                     # Absent, never zero: a job whose round ran no model of ours reports
                     # nothing rather than a count it did not measure.
                     #
-                    # COALESCE, not assignment: a job can be completed TWICE — the round's own
-                    # `pkc draft finish` writes the real record, and the worker's catch-all
-                    # error path writes a second one if anything after it raises. The second
-                    # caller knows neither the usage nor the executor, and an assignment there
-                    # would erase what the round measured.
                     Jsonb(dict(token_usage)) if token_usage else None,
                     executor or None,
                     str(user_id),
                     job_id,
+                    *((claimed_by,) if claimed_by is not None else ()),
                 ),
             )
 
@@ -1317,7 +1400,7 @@ class PostgresStore:
         *,
         limit: int,
         before: tuple[datetime, str] | None = None,
-        status: str | None = None,
+        status: str | tuple[str, ...] | None = None,
         kind: str | None = None,
     ) -> tuple[list[dict[str, Any]], int, bool]:
         """One keyset-paginated job page, newest first.
@@ -1325,10 +1408,16 @@ class PostgresStore:
         `status` is the QUERY vocabulary, not the column: `failed` and `succeeded` are the
         two halves of `done` (see `JOB_STATUS_SQL`). The column keeps its three values, so
         the queue's storage semantics — and everything that reads them — are untouched.
+        A tuple selects several raw states in one snapshot for internal status summaries.
         """
         filters = ["user_id = %s"]
         params: list[Any] = [str(user_id)]
-        if status:
+        if isinstance(status, tuple):
+            # One count over several raw states, so a queued -> claimed transition cannot
+            # be counted twice by readers summing independently sampled status queries.
+            filters.append("status = ANY(%s)")
+            params.append(list(status))
+        elif status:
             derived = JOB_STATUS_SQL.get(status)
             if derived is not None:
                 filters.append(derived)
@@ -1639,12 +1728,14 @@ class PostgresStore:
                 )
 
     async def record_compile_brief(
-        self, user_id: UserId, job_id: str, brief: str
+        self, user_id: UserId, job_id: str, brief: str, *, if_missing: bool = False
     ) -> None:
         """Attach the derived narration to a completed compile job (brief_enabled)."""
         async with self._pool.connection() as conn:
             await conn.execute(
-                "UPDATE compile_jobs SET brief = %s WHERE user_id = %s AND id = %s",
+                "UPDATE compile_jobs SET brief = %s WHERE user_id = %s AND id = %s"
+                + (" AND brief IS NULL AND kind = 'compile' AND status = 'done' "
+                   "AND ok = true AND snapshot_ref IS NOT NULL" if if_missing else ""),
                 (brief, str(user_id), job_id),
             )
 
@@ -2478,14 +2569,14 @@ class PostgresStore:
 
     # --- consultations (use-side L0) ------------------------------------------
     #
-    # The one table in this file that `rebuild_derived` must never touch: a consultation is
+    # Rebuild never rewrites these kept events: a consultation is
     # a RECORD of something that happened, not a projection of something stored elsewhere,
     # so there is nothing to re-derive it from. It is also never read by the knowledge side
     # — no gate, contract or compile input joins against it (I6's read-side sibling).
 
     @staticmethod
     def _evidence_json(refs: Any) -> list[dict[str, str]]:
-        return [{"kind": r.kind, "ref": r.ref, "path": r.path} for r in refs or ()]
+        return [{"kind": r.kind, "ref": r.ref, "path": r.path, "origin": r.origin} for r in refs or ()]
 
     @staticmethod
     def _evidence_refs(raw: Any) -> tuple[EvidenceRef, ...]:
@@ -2494,6 +2585,7 @@ class PostgresStore:
                 kind=str(item.get("kind", "")),
                 ref=str(item.get("ref", "")),
                 path=str(item.get("path", "")),
+                origin=item.get("origin", "handed"),
             )
             for item in (raw or [])
         )
@@ -2537,13 +2629,21 @@ class PostgresStore:
         already uses, drained per user by the compile worker, and the request path that
         called this waits on none of it.
         """
+        if record.visitor_class == "silent":
+            return None
+        if record.event == "answer":
+            raise ValueError("an answer event requires answer_consultation")
+        opening = record.event == "opening"
+        payload = {"consultation_id": record.consultation_id}
+        if opening:
+            payload["event"] = "opening"
         async with self._pool.connection() as conn:
             async with conn.transaction(), conn.cursor() as cur:
                 await cur.execute(
                     "INSERT INTO consultations (user_id, consultation_id, created_at, "
                     "lane, visitor_class, question, as_of, library_ref, evidence_handed, "
-                    "answer_kind, answer, citations, miss, degraded, token_usage) "
-                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
+                    "answer_kind, answer, citations, miss, degraded, token_usage, answered_at) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
                     "ON CONFLICT (user_id, consultation_id) DO NOTHING",
                     (
                         str(user_id),
@@ -2556,14 +2656,15 @@ class PostgresStore:
                         record.library_ref,
                         Json(self._evidence_json(record.evidence_handed)),
                         record.answer_kind,
-                        record.answer,
-                        Json(self._evidence_json(record.citations)),
+                        None if opening else record.answer,
+                        None if opening else Json(self._evidence_json(record.citations)),
                         record.miss,
-                        Json([list(pair) for pair in record.degraded]),
+                        None if opening else Json([list(pair) for pair in record.degraded]),
                         # An OBJECT, not the record's pairs: `/spend` sums these in SQL,
                         # and summing an array of pairs would mean shipping every row to
                         # Python. Field order is restored on read from `USAGE_FIELDS`.
-                        Json(dict(record.token_usage)),
+                        None if opening else Json(dict(record.token_usage)),
+                        record.answered_at,
                     ),
                 )
                 if not cur.rowcount or record.visitor_class != "business":
@@ -2576,8 +2677,57 @@ class PostgresStore:
                         job_id,
                         str(user_id),
                         RECALL_PROJECTION_JOB_KIND,
-                        Json({"consultation_id": record.consultation_id}),
+                        Json(payload),
                     ),
+                )
+        return job_id
+
+    async def answer_consultation(
+        self, user_id: UserId, record: ConsultationRecord
+    ) -> str | None:
+        """Append the answer event once, with its delivery in the same transaction.
+
+        Filling NULL fields by a second event is not a rewrite. No opening column is in
+        the SET clause, and `answered_at IS NULL` refuses a concurrent or repeated close.
+        The equality check binds the builder's miss/citations to the actual kept opening.
+        """
+        from dataclasses import replace
+
+        if record.event != "answer":
+            raise ValueError("answer_consultation requires an answer event")
+        async with self._pool.connection() as conn:
+            async with conn.transaction(), conn.cursor() as cur:
+                await cur.execute(
+                    f"SELECT {self._CONSULTATION_COLUMNS} FROM consultations "
+                    "WHERE user_id = %s AND consultation_id = %s FOR UPDATE",
+                    (str(user_id), record.consultation_id),
+                )
+                row = await cur.fetchone()
+                if row is None:
+                    raise ValueError(f"consultation {record.consultation_id} has no opening")
+                existing = self._consultation_record(user_id, row)
+                if existing.state == "answered":
+                    raise ValueError(f"consultation {record.consultation_id} is already answered")
+                if existing != replace(record.opening(), user_id=str(user_id)):
+                    raise ValueError("answer does not match the kept consultation opening")
+                await cur.execute(
+                    "UPDATE consultations SET answered_at = %s, answer_kind = %s, "
+                    "answer = %s, citations = %s, miss = %s, degraded = %s, token_usage = %s "
+                    "WHERE user_id = %s AND consultation_id = %s AND answered_at IS NULL",
+                    (record.answered_at, record.answer_kind, record.answer,
+                     Json(self._evidence_json(record.citations)), record.miss,
+                     Json([list(pair) for pair in record.degraded]), Json(dict(record.token_usage)),
+                     str(user_id), record.consultation_id),
+                )
+                if not cur.rowcount:
+                    raise ValueError(f"consultation {record.consultation_id} is already answered")
+                if existing.visitor_class != "business":
+                    return None
+                job_id = uuid.uuid4().hex
+                await cur.execute(
+                    "INSERT INTO compile_jobs (id, user_id, kind, payload) VALUES (%s, %s, %s, %s)",
+                    (job_id, str(user_id), RECALL_PROJECTION_JOB_KIND,
+                     Json({"consultation_id": record.consultation_id, "event": "answer"})),
                 )
         return job_id
 
@@ -2606,7 +2756,8 @@ class PostgresStore:
     ) -> list[ConsultationRecord]:
         """One user's consultations, oldest first, bounded.
 
-        This is the REPLAY face: a component's ledger is rebuilt by re-applying these in the
+        This is the joined read face. For independent opening/answer delivery and replay,
+        use `list_consultation_events`. These joined rows are read in the
         order they were recorded, so the order has to be total. `created_at` alone is not —
         two calls can land in the same microsecond — so the id is the tie-break, in the sort
         and in the `after` cursor alike. `after` is the last record of the previous page as
@@ -2614,7 +2765,7 @@ class PostgresStore:
 
         `projected=True` restricts the walk to records already stamped `projected_at` —
         the ones whose own projection job has run. That is what a replay must count, and
-        `rebuild_access_stats` explains why.
+        `list_consultation_events` instead filters the two stamps independently.
         """
         clauses = ["user_id = %s"]
         params: list[Any] = [str(user_id)]
@@ -2704,7 +2855,9 @@ class PostgresStore:
             rows = await (await conn.execute(
                 "SELECT consultation_id, created_at, lane, visitor_class, question, "
                 "miss, answer_kind, library_ref, jsonb_array_length(citations), "
-                "jsonb_array_length(evidence_handed), token_usage FROM consultations "
+                "jsonb_array_length(evidence_handed), token_usage, "
+                "(SELECT count(*) FROM jsonb_array_elements(citations) AS citation "
+                "WHERE citation->>'origin' = 'direct'), answered_at FROM consultations "
                 f"WHERE {page_where} "
                 "ORDER BY created_at DESC, consultation_id DESC LIMIT %s",
                 [*page_params, limit + 1],
@@ -2720,12 +2873,15 @@ class PostgresStore:
                     "lane": r[2],
                     "visitor_class": r[3],
                     "question": r[4],
-                    "miss": bool(r[5]),
+                    "miss": r[5],
+                    "answered_at": r[12],
+                    "state": "unanswered" if r[12] is None else "answered",
                     "answer_kind": r[6],
                     "library_ref": r[7],
                     "citation_count": int(r[8] or 0),
                     "evidence_count": int(r[9] or 0),
                     "token_usage": usage_pairs(r[10] or {}),
+                    "citations_direct": int(r[11] or 0),
                 }
                 for r in rows
             ],
@@ -2780,38 +2936,98 @@ class PostgresStore:
             for r in rows
         ]
 
+    _CONSULTATION_COLUMNS = (
+        "consultation_id, created_at, lane, visitor_class, question, "
+        "as_of, library_ref, evidence_handed, answer_kind, answer, citations, "
+        "miss, degraded, token_usage, answered_at"
+    )
+
+    def _consultation_record(self, user_id: UserId, r: Any) -> ConsultationRecord:
+        return ConsultationRecord(
+            consultation_id=r[0], user_id=str(user_id), created_at=r[1], lane=r[2],
+            visitor_class=r[3], question=r[4], as_of=r[5], library_ref=r[6],
+            evidence_handed=self._evidence_refs(r[7]), answer_kind=r[8], answer=r[9] or "",
+            citations=self._evidence_refs(r[10]), miss=r[11],
+            degraded=tuple((str(a), str(b)) for a, b in (r[12] or [])),
+            token_usage=usage_pairs(r[13] or {}), answered_at=r[14],
+            event="opening" if r[14] is None else "complete",
+        )
+
     async def _consultation_rows(
         self, clauses: list[str], params: list[Any], user_id: UserId, *, limit: int
     ) -> list[ConsultationRecord]:
-        """The one SELECT + row→record mapping both consultation reads share."""
+        """The joined read face; NULL answer columns mean an unanswered opening."""
         async with self._pool.connection() as conn:
             rows = await (await conn.execute(
-                "SELECT consultation_id, created_at, lane, visitor_class, question, "
-                "as_of, library_ref, evidence_handed, answer_kind, answer, citations, "
-                "miss, degraded, token_usage FROM consultations WHERE " + " AND ".join(clauses)
-                + " ORDER BY created_at, consultation_id LIMIT %s",
+                f"SELECT {self._CONSULTATION_COLUMNS} FROM consultations WHERE "
+                + " AND ".join(clauses) + " ORDER BY created_at, consultation_id LIMIT %s",
                 tuple([*params, limit]),
             )).fetchall()
+        return [self._consultation_record(user_id, r) for r in rows]
+
+    async def list_consultation_events(
+        self, user_id: UserId, *, visitor_class: str | None = None,
+        projected: bool | None = None, limit: int = CONSULTATION_PAGE,
+        after: tuple[datetime, str, int] | None = None,
+    ) -> list[ConsultationRecord]:
+        """Replay kept events in total time order, opening before answer on a tie.
+
+        The two projection stamps are filtered independently. An opening already applied
+        must survive a rebuild while its later answer is still waiting on the queue.
+        """
+        from dataclasses import replace
+
+        clauses = ["user_id = %s", "event_at IS NOT NULL"]
+        params: list[Any] = [str(user_id)]
+        if visitor_class is not None:
+            clauses.append("visitor_class = %s")
+            params.append(visitor_class)
+        if projected is not None:
+            clauses.append("stamp IS NOT NULL" if projected else "stamp IS NULL")
+        if after is not None:
+            clauses.append("(event_at, consultation_id, event_order) > (%s, %s, %s)")
+            params.extend(after)
+        async with self._pool.connection() as conn:
+            rows = await (await conn.execute(
+                f"SELECT {self._CONSULTATION_COLUMNS}, event_order FROM consultations "
+                "CROSS JOIN LATERAL (VALUES (0, created_at, opening_projected_at), "
+                "(1, answered_at, projected_at)) AS events(event_order, event_at, stamp) WHERE "
+                + " AND ".join(clauses)
+                + " ORDER BY event_at, consultation_id, event_order LIMIT %s",
+                [*params, max(1, int(limit))],
+            )).fetchall()
         return [
-            ConsultationRecord(
-                consultation_id=r[0],
-                user_id=str(user_id),
-                created_at=r[1],
-                lane=r[2],
-                visitor_class=r[3],
-                question=r[4],
-                as_of=r[5],
-                library_ref=r[6],
-                evidence_handed=self._evidence_refs(r[7]),
-                answer_kind=r[8],
-                answer=r[9],
-                citations=self._evidence_refs(r[10]),
-                miss=bool(r[11]),
-                degraded=tuple((str(a), str(b)) for a, b in (r[12] or [])),
-                token_usage=usage_pairs(r[13] or {}),
-            )
+            self._consultation_record(user_id, r).opening() if r[15] == 0
+            else replace(self._consultation_record(user_id, r), event="answer")
             for r in rows
         ]
+
+    async def consultation_activity(
+        self, user_id: UserId, *, since: datetime, until: datetime
+    ) -> dict[str, int]:
+        """Business use by event time; unanswered openings are a separate signal.
+
+        Counts are read from kept events, including ones awaiting projection. An audit
+        records the same events but never influences these attention signals.
+        """
+        async with self._pool.connection() as conn:
+            row = await (await conn.execute(
+                "SELECT count(*) FILTER (WHERE created_at >= %s AND created_at < %s), "
+                "coalesce(sum(jsonb_array_length(evidence_handed)) "
+                "FILTER (WHERE created_at >= %s AND created_at < %s), 0), "
+                "count(*) FILTER (WHERE answered_at >= %s AND answered_at < %s), "
+                "coalesce(sum(jsonb_array_length(citations)) "
+                "FILTER (WHERE answered_at >= %s AND answered_at < %s), 0), "
+                "count(*) FILTER (WHERE answered_at >= %s AND answered_at < %s AND miss), "
+                "count(*) FILTER (WHERE created_at >= %s AND created_at < %s "
+                "AND answered_at IS NULL) "
+                "FROM consultations WHERE user_id = %s AND visitor_class = 'business'",
+                [*([since, until] * 6), str(user_id)],
+            )).fetchone()
+        return dict(zip(
+            ("openings", "evidence_handed", "answers", "citations", "misses", "unanswered"),
+            (int(value or 0) for value in row), strict=True,
+        ))
 
     # --- user_profiles (onboarding-editable picture) --------------------------
 
@@ -3020,6 +3236,64 @@ class PostgresDraftStore:
 
     def __init__(self, store: "PostgresStore") -> None:
         self._pool = store._pool
+        self._held = ContextVar("draft_command_locks", default=())
+
+    @asynccontextmanager
+    async def lock(self, user_id: UserId):
+        # Reentrant only in this task: child tasks inherit ContextVars but do not own locks.
+        key = (str(user_id), asyncio.current_task())
+        if key in self._held.get():
+            yield
+            return
+        async with self._pool.connection() as conn:
+            async with conn.transaction():
+                await conn.execute(
+                    "SELECT pg_advisory_xact_lock(hashtext('pkc-draft'), hashtext(%s))",
+                    (str(user_id),),
+                )
+                token = self._held.set((*self._held.get(), key))
+                try:
+                    yield
+                finally:
+                    self._held.reset(token)
+
+    @asynccontextmanager
+    async def launch(self, user_id: UserId, executor: str):
+        # A transaction-scoped lease on a dedicated connection. PG releases it even when
+        # the worker is killed; a timestamp or a reused OS pid cannot provide that proof.
+        async with self._pool.connection() as conn:
+            async with conn.transaction():
+                await conn.execute(
+                    "SELECT pg_advisory_xact_lock(hashtext(%s), hashtext(%s))",
+                    (f"pkc-launch:{user_id}", executor),
+                )
+                yield
+
+    async def worker_alive(self, user_id: UserId, executor: str) -> bool:
+        if not executor.startswith("worker:"):
+            return False
+        async with self._pool.connection() as conn:
+            async with conn.transaction():
+                row = await (await conn.execute(
+                    "SELECT pg_try_advisory_xact_lock(hashtext(%s), hashtext(%s))",
+                    (f"pkc-launch:{user_id}", executor),
+                )).fetchone()
+                return not row[0]
+
+    async def owner(self, user_id: UserId, job_id: str) -> DraftOwner | None:
+        async with self._pool.connection() as conn:
+            row = await (await conn.execute(
+                "SELECT state->'session', updated_at FROM compile_drafts "
+                "WHERE user_id = %s AND job_id = %s", (str(user_id), job_id),
+            )).fetchone()
+        if row is None:
+            return None
+        session = row[0] or {}
+        return DraftOwner(
+            executor=str(session.get("executor") or ""),
+            since=datetime.fromisoformat(session["opened_at"]) if session.get("opened_at") else row[1],
+            updated_at=row[1], worker_posture=str(session.get("worker_posture") or ""),
+        )
 
     async def get(self, user_id: UserId, job_id: str) -> dict[str, Any] | None:
         async with self._pool.connection() as conn:
@@ -3030,29 +3304,83 @@ class PostgresDraftStore:
         return dict(row[0]) if row is not None else None
 
     async def put(self, user_id: UserId, job_id: str, state: dict[str, Any]) -> None:
-        round_ = str((state.get("session") or {}).get("round") or "first")
-        async with self._pool.connection() as conn:
-            await conn.execute(
-                "INSERT INTO compile_drafts (user_id, job_id, state, round, updated_at) "
-                "VALUES (%s, %s, %s, %s, %s) "
-                "ON CONFLICT (user_id, job_id) DO UPDATE SET "
-                "state = EXCLUDED.state, round = EXCLUDED.round, "
-                "updated_at = EXCLUDED.updated_at",
-                (
-                    str(user_id),
-                    job_id,
-                    Json(state),
-                    round_,
-                    datetime.now(timezone.utc),
-                ),
-            )
+        session = state.get("session") or {}
+        executor = str(session.get("executor") or "")
+        round_ = str(session.get("round") or "first")
+        async with self.lock(user_id):
+            owner = await self.owner(user_id, job_id)
+            if owner is not None and owner.executor != executor:
+                raise DraftOwnershipError(owner.refusal())
+            async with self._pool.connection() as conn:
+                async with conn.transaction():
+                    if executor:
+                        job = await (await conn.execute(
+                            "SELECT status, claimed_by FROM compile_jobs "
+                            "WHERE user_id = %s AND id = %s FOR UPDATE",
+                            (str(user_id), job_id),
+                        )).fetchone()
+                        if job is None or job[0] != "claimed" or job[1] != executor:
+                            raise DraftOwnershipError(f"job {job_id} is not claimed by {executor}; cannot reopen it")
+                    await conn.execute(
+                        "INSERT INTO compile_drafts (user_id, job_id, state, round, updated_at) "
+                        "VALUES (%s, %s, %s, %s, %s) "
+                        "ON CONFLICT (user_id, job_id) DO UPDATE SET "
+                        "state = EXCLUDED.state, round = EXCLUDED.round, "
+                        "updated_at = EXCLUDED.updated_at",
+                        (str(user_id), job_id, Json(state), round_, datetime.now(timezone.utc)),
+                    )
 
-    async def delete(self, user_id: UserId, job_id: str) -> None:
-        async with self._pool.connection() as conn:
-            await conn.execute(
-                "DELETE FROM compile_drafts WHERE user_id = %s AND job_id = %s",
-                (str(user_id), job_id),
-            )
+    async def delete(self, user_id: UserId, job_id: str, *, executor: str = "") -> None:
+        async with self.lock(user_id):
+            owner = await self.owner(user_id, job_id)
+            if owner is not None and executor and owner.executor != executor:
+                raise DraftOwnershipError(owner.refusal())
+            async with self._pool.connection() as conn:
+                await conn.execute(
+                    "DELETE FROM compile_drafts WHERE user_id = %s AND job_id = %s",
+                    (str(user_id), job_id),
+                )
+
+    async def abandon(
+        self, user_id: UserId, job_id: str, *, executor: str,
+        take_over: bool = False, grace_seconds: int = 60,
+    ) -> dict[str, Any] | None:
+        async with self.lock(user_id):
+            owner = await self.owner(user_id, job_id)
+            if owner is None:
+                return None
+            audit = None
+            if owner.executor != executor:
+                if not take_over:
+                    raise DraftOwnershipError(owner.refusal())
+                dead = owner.executor.startswith("worker:") and not await self.worker_alive(user_id, owner.executor)
+                grace = max(60, grace_seconds)
+                if owner.idle_seconds < grace and not dead:
+                    raise DraftOwnershipError(f"{owner.refusal()}; takeover refused within {grace}s grace")
+                audit = {
+                    "previous_executor": owner.executor or "legacy:unknown", "executor": executor,
+                    "at": datetime.now(timezone.utc).isoformat(),
+                    "reason": "owning worker launch is gone" if dead else f"draft idle for {owner.idle_seconds}s (grace {grace}s)",
+                }
+            async with self._pool.connection() as conn:
+                async with conn.transaction():
+                    if audit:
+                        await conn.execute(
+                            "UPDATE compile_jobs SET payload = jsonb_set(payload, '{draft_takeovers}', "
+                            "coalesce(payload->'draft_takeovers', '[]'::jsonb) || %s) "
+                            "WHERE user_id = %s AND id = %s AND status = 'claimed'",
+                            (Jsonb([audit]), str(user_id), job_id),
+                        )
+                    await conn.execute(
+                        "DELETE FROM compile_drafts WHERE user_id = %s AND job_id = %s",
+                        (str(user_id), job_id),
+                    )
+                    await conn.execute(
+                        "UPDATE compile_jobs SET status='queued', claimed_at=NULL, claimed_by=NULL "
+                        "WHERE user_id = %s AND id = %s AND status = 'claimed'",
+                        (str(user_id), job_id),
+                    )
+            return audit
 
     async def list_open(self, user_id: UserId) -> list[str]:
         async with self._pool.connection() as conn:
@@ -3080,7 +3408,7 @@ class PostgresRecallHandoffStore:
     Its own class for the reason `PostgresDraftStore` is: `get` / `create` / `delete` are
     names the source layer already owns, and one store answering two different questions to
     the same name is a store that will eventually be asked the wrong one. It shares the pool,
-    so a hand-over is written beside the consultation it may become and swept by the same
+    so retained evidence is written beside its kept consultation events and swept by the same
     startup self-heal that reclaims abandoned drafts.
     """
 

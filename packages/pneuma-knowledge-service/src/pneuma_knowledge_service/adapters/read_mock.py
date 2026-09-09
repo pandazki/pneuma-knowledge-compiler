@@ -14,10 +14,11 @@ let a test pass that the real store would fail.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Any
 
-from pneuma_knowledge_core.domain.consultation import ConsultationRecord
+from pneuma_knowledge_core.domain.consultation import ConsultationRecord, EvidenceRef
 from pneuma_knowledge_core.domain.ids import SourceId
 from pneuma_knowledge_core.domain.source import NormalizedSource
 
@@ -146,9 +147,15 @@ class InMemoryLibraryStore(InMemoryJobQueue):
             }
             for job in reversed(self.jobs)
             if str(job.user_id) == str(user_id)
-            and (not status or job.status == status)
             and (not kind or job.kind == kind)
         ]
+        statuses = status if isinstance(status, tuple) else (status,) if status else ()
+        if statuses:
+            rows = [row for row in rows if any(
+                (row["status"] == "done" and row["ok"] is (wanted == "succeeded"))
+                if wanted in {"failed", "succeeded"} else row["status"] == wanted
+                for wanted in statuses
+            )]
         return rows[:limit], len(rows), len(rows) > limit
 
     def _outcome(self, user_id, job_id: str) -> dict:  # noqa: ANN001
@@ -180,11 +187,19 @@ class InMemoryLibraryStore(InMemoryJobQueue):
     # ----------------------------------------------------------------- use-side records
 
     async def create_consultation(self, user_id, record: ConsultationRecord):  # noqa: ANN001
+        if record.visitor_class == "silent":
+            return None
+        if record.event == "answer":
+            raise ValueError("an answer event requires answer_consultation")
+        if await self.get_consultation(user_id, record.consultation_id) is not None:
+            return None
         self.consultations.append(
             {
                 "user_id": str(user_id),
                 "consultation_id": record.consultation_id,
                 "created_at": record.created_at,
+                "answered_at": record.answered_at,
+                "state": record.state,
                 "lane": record.lane,
                 "visitor_class": record.visitor_class,
                 "question": record.question,
@@ -197,10 +212,13 @@ class InMemoryLibraryStore(InMemoryJobQueue):
                 "answer_kind": record.answer_kind,
                 "answer": record.answer,
                 "citations": [
-                    {"kind": c.kind, "ref": c.ref, "path": c.path}
+                    {"kind": c.kind, "ref": c.ref, "path": c.path, "origin": c.origin}
                     for c in record.citations
                 ],
                 "miss": record.miss,
+                "citations_direct": record.citations_direct,
+                "evidence_count": len(record.evidence_handed),
+                "citation_count": len(record.citations),
                 "degraded": list(record.degraded),
                 "token_usage": dict(record.token_usage),
             }
@@ -208,8 +226,54 @@ class InMemoryLibraryStore(InMemoryJobQueue):
         # The real store enqueues delivery for a `business` visitor in the same transaction;
         # this records the same fact, so a test can ask whether one job was queued.
         if record.visitor_class == "business":
+            payload = {"consultation_id": record.consultation_id}
+            if record.event == "opening":
+                payload["event"] = "opening"
             job_id = await self.enqueue(
-                user_id, "recall_projection", {"consultation_id": record.consultation_id}
+                user_id, "recall_projection", payload
+            )
+            self.projection_jobs.append(job_id)
+            return job_id
+        return None
+
+    async def get_consultation(self, user_id, consultation_id):
+        row = next((r for r in self.consultations
+                    if r["user_id"] == str(user_id) and r["consultation_id"] == consultation_id), None)
+        if row is None:
+            return None
+        return ConsultationRecord(
+            **{key: row[key] for key in (
+                "user_id", "consultation_id", "created_at", "answered_at", "lane", "visitor_class",
+                "question", "as_of", "library_ref", "answer_kind", "answer", "miss",
+            )},
+            evidence_handed=tuple(EvidenceRef(**r) for r in row["evidence_handed"]),
+            citations=tuple(EvidenceRef(**r) for r in row["citations"]),
+            degraded=tuple(row["degraded"]), token_usage=tuple(row["token_usage"].items()),
+            event="opening" if row["state"] == "unanswered" else "complete",
+        )
+
+    async def answer_consultation(self, user_id, record):
+        existing = await self.get_consultation(user_id, record.consultation_id)
+        if existing is None:
+            raise ValueError(f"consultation {record.consultation_id} has no opening")
+        if existing.state == "answered":
+            raise ValueError(f"consultation {record.consultation_id} is already answered")
+        if existing != replace(record.opening(), user_id=str(user_id)):
+            raise ValueError("answer does not match the kept consultation opening")
+        row = next(r for r in self.consultations
+                   if r["user_id"] == str(user_id) and r["consultation_id"] == record.consultation_id)
+        # The same write-once fill as Postgres; the opening fields stay untouched.
+        row.update(
+            answered_at=record.answered_at, state="answered", answer_kind=record.answer_kind,
+            answer=record.answer, miss=record.miss,
+            citations=[{"kind": c.kind, "ref": c.ref, "path": c.path, "origin": c.origin}
+                       for c in record.citations],
+            citation_count=len(record.citations), citations_direct=record.citations_direct,
+            degraded=list(record.degraded), token_usage=dict(record.token_usage),
+        )
+        if existing.visitor_class == "business":
+            job_id = await self.enqueue(
+                user_id, "recall_projection", {"consultation_id": record.consultation_id, "event": "answer"}
             )
             self.projection_jobs.append(job_id)
             return job_id
@@ -232,7 +296,7 @@ class InMemoryLibraryStore(InMemoryJobQueue):
             if row["user_id"] == str(user_id)
             and (not lane or row["lane"] == lane)
             and (not visitor_class or row["visitor_class"] == visitor_class)
-            and (miss is None or bool(row["miss"]) is bool(miss))
+            and (miss is None or row["miss"] is bool(miss))
         ]
         return rows[:limit], len(rows), len(rows) > limit
 

@@ -1,0 +1,1 @@
+{"panel":{"identifier":"panel","description":"The bundled tray UI can receive state, open local console links, and manage login startup.","local":true,"windows":["panel"],"permissions":["core:default","shell:allow-open","autostart:allow-enable","autostart:allow-disable","autostart:allow-is-enabled"]}}

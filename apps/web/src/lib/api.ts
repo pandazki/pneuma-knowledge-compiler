@@ -7,11 +7,12 @@
  */
 
 import { tx } from "./i18n";
-import type { ClaimLabel, UserProfile, VisitorClass } from "./types";
+import type { ClaimLabel, ConsultationState, UserProfile, VisitorClass } from "./types";
 import type { HistoryCounts, HistoryItemEnvelope } from "./history";
 import type { StageEvent, StageTiming } from "./stages";
 import { buildPageQuery, type Page } from "./pagination";
 import { confirmRequestBody } from "./archive";
+import { parseHomeStatus, type HomeStatus } from "./home";
 
 const BASE = (import.meta.env.VITE_API_BASE ?? "").replace(/\/+$/, "");
 
@@ -934,12 +935,14 @@ export interface EvidenceRef {
 export interface ConsultationSummary {
   consultation_id: string;
   created_at: string;
+  answered_at: string | null;
+  state: ConsultationState;
   lane: "fast" | "deep" | "briefing_ask" | string;
   visitor_class: "audit" | "business" | string;
   question: string;
   /** The library answered with nothing — `no_record`, or (for a retrieving lane) nothing
    *  reaching the model at all. */
-  miss: boolean;
+  miss: boolean | null;
   answer_kind: string | null;
   /** The canonical HEAD sampled when the consultation began — the snapshot id for a pinned
    *  call, which is the same field in its other exact form. */
@@ -2311,5 +2314,31 @@ export class StewardSocket {
       /* already closing */
     }
     this.onStatus("closed", tx("service.ws.disconnected"));
+  }
+}
+
+/* ------------------------------------------------- The home (personal edition, optional) */
+
+/**
+ * Probe `GET /home/status`. Deliberately outside `req()`: a 404 here is not an error but the
+ * ordinary answer of every project deployment, and an unreachable host is the same absence.
+ * Both come back as `null`, so the caller has one state to handle and no console anywhere
+ * ever shows a failed request for an endpoint that was never promised.
+ *
+ * The path is not under `/v1` because it is not the library's API: it is the edition's own
+ * face on the machine the engine happens to be running on (single-machine-edition §10).
+ */
+export async function getHomeStatus(): Promise<HomeStatus | null> {
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}/home/status`, { headers: { accept: "application/json" } });
+  } catch {
+    return null;
+  }
+  if (!res.ok) return null;
+  try {
+    return parseHomeStatus(await res.json());
+  } catch {
+    return null;
   }
 }

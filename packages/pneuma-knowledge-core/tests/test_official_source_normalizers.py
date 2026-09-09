@@ -64,12 +64,14 @@ def test_meeting_normalizes_one_block_per_segment_with_declared_owner():
         {
             "segment_id": "s1",
             "speaker_id": "p1",
+            "role": "owner",
             "started_at": "2026-07-28T09:00:01+08:00",
             "ended_at": None,
         },
         {
             "segment_id": "s2",
             "speaker_id": "p2",
+            "role": "other",
             "started_at": "2026-07-28T09:00:05+08:00",
             "ended_at": None,
         },
@@ -170,6 +172,7 @@ def test_im_expands_by_conversation_and_preserves_message_ids():
         {
             "message_id": "1.1",
             "sender_id": "U2",
+            "role": "other",
             "sent_at": "2026-07-28T11:00:00+08:00",
             "thread_id": None,
             "edited_at": None,
@@ -300,6 +303,7 @@ def test_email_expands_by_thread_and_marks_owner_side_without_inference():
     assert source.raw.meta["messages"] == [
         {
             "message_id": "<m1@example.com>",
+            "role": "owner",
             "sent_at": "2026-07-28T12:00:00+08:00",
             "from": {
                 "address": "owner@example.test",

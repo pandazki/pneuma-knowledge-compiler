@@ -29,9 +29,16 @@ class JobQueue(Protocol):
     ) -> str: ...
 
     async def claim_next(
-        self, user_id: UserId, *, exclude_kinds: Sequence[str] = ()
+        self,
+        user_id: UserId,
+        *,
+        exclude_kinds: Sequence[str] = (),
+        tenants: Sequence[str] = (),
     ) -> Job | None:
         """Claim the next per-user job (FOR UPDATE SKIP LOCKED, serial per user).
+
+        An open draft also reserves the tenant even if its job was accidentally requeued.
+        Finished jobs (including a row carrying a completion timestamp) are never claimed.
 
         `exclude_kinds` skips over kinds this body will not run and claims the oldest job
         that is left. The worker under an agent executor is the caller: a compile job is
@@ -40,6 +47,13 @@ class JobQueue(Protocol):
         kind-agnostic claim would hand it exactly that job and hold the user's single
         in-flight slot with it. The lock, the ordering and the per-user serialization are
         unchanged; only the row this claim is willing to take is narrower.
+
+        `tenants` narrows WHOSE row it will take, for the same reason and by the same means:
+        a body that serves only some of the tenants on one store — one engine process per
+        library, several libraries on one Postgres — states them here and the claim query
+        refuses everything else. Empty means every tenant, which is what a single worker over
+        a single store has always done. Stated at the claim rather than enforced by claiming
+        and releasing: a job put back has still spent that tenant's single in-flight slot.
         """
         ...
 
@@ -58,6 +72,13 @@ class JobQueue(Protocol):
 
         None when the job is not this user's, not queued, or when that user already has a job
         in flight.
+        """
+        ...
+
+    async def attach_executor(self, user_id: UserId, job_id: str, executor: str) -> bool:
+        """Bind an unstarted worker claim to one launch, refusing a draft or terminal job.
+
+        This is a compare-and-set from claimed_by='worker', never a new queue claim.
         """
         ...
 
@@ -101,8 +122,14 @@ class JobQueue(Protocol):
         snapshot_ref: str | None = None,
         token_usage: dict[str, int] | None = None,
         executor: str | None = None,
+        claimed_by: str | None = None,
     ) -> None:
-        """Mark a claimed job finished. `ok=False` records an aborted compile with its
+        """Mark a job finished once. A late completion never replaces a terminal outcome.
+
+        `claimed_by`, when supplied, requires that same executor to still own the claim.
+        The worker's error tail uses it so an old launch cannot fail a replacement's round.
+
+        `ok=False` records an aborted compile with its
         gate-violation `detail`; `snapshot_ref` is the resulting commit on success.
 
         `token_usage` is what the job's model calls actually spent, recorded on the same

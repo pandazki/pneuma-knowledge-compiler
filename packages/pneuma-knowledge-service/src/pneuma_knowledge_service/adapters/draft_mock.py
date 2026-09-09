@@ -13,30 +13,115 @@ to be fast.
 
 from __future__ import annotations
 
+import asyncio
+from contextlib import asynccontextmanager
+from contextvars import ContextVar
 from datetime import datetime, timezone
 from typing import Any
+
+from pneuma_knowledge_core.ports.draft_store import DraftOwner, DraftOwnershipError
 
 
 class InMemoryDraftStore:
     """`DraftStore` (core `ports/draft_store.py`) over a dict, keyed `(user_id, job_id)`."""
 
-    def __init__(self) -> None:
+    def __init__(self, jobs=None) -> None:
         self._rows: dict[tuple[str, str], dict[str, Any]] = {}
         self._stamps: dict[tuple[str, str], datetime] = {}
+        self._locks: dict[str, asyncio.Lock] = {}
+        self._held = ContextVar("memory_draft_locks", default=())
+        self._launches: set[tuple[str, str]] = set()
+        self.jobs = jobs or InMemoryJobQueue()
+        self.jobs.drafts = self
 
-    async def get(self, user_id, job_id: str) -> dict[str, Any] | None:  # noqa: ANN001
+    @asynccontextmanager
+    async def lock(self, user_id):
+        key = (str(user_id), asyncio.current_task())
+        if key in self._held.get():
+            yield
+            return
+        async with self._locks.setdefault(str(user_id), asyncio.Lock()):
+            token = self._held.set((*self._held.get(), key))
+            try:
+                yield
+            finally:
+                self._held.reset(token)
+
+    @asynccontextmanager
+    async def launch(self, user_id, executor):
+        key = (str(user_id), executor)
+        self._launches.add(key)
+        try:
+            yield
+        finally:
+            self._launches.discard(key)
+
+    async def worker_alive(self, user_id, executor):
+        return (str(user_id), executor) in self._launches
+
+    async def owner(self, user_id, job_id):
+        key = (str(user_id), job_id)
+        if key not in self._rows:
+            return None
+        session = self._rows[key].get("session") or {}
+        return DraftOwner(
+            executor=session.get("executor", ""),
+            since=datetime.fromisoformat(session["opened_at"]) if session.get("opened_at") else self._stamps[key],
+            updated_at=self._stamps[key], worker_posture=session.get("worker_posture", ""),
+        )
+
+    async def get(self, user_id, job_id: str) -> dict[str, Any] | None:
         row = self._rows.get((str(user_id), job_id))
         return dict(row) if row is not None else None
 
-    async def put(self, user_id, job_id: str, state: dict[str, Any]) -> None:  # noqa: ANN001
-        key = (str(user_id), job_id)
-        self._rows[key] = dict(state)
-        self._stamps[key] = datetime.now(timezone.utc)
+    async def put(self, user_id, job_id: str, state: dict[str, Any]) -> None:
+        async with self.lock(user_id):
+            key = (str(user_id), job_id)
+            executor = (state.get("session") or {}).get("executor", "")
+            owner = await self.owner(user_id, job_id)
+            if owner and owner.executor != executor:
+                raise DraftOwnershipError(owner.refusal())
+            if executor:
+                job = await self.jobs.get_job(user_id, job_id)
+                if job is None or job.status != "claimed" or job.claimed_by != executor:
+                    raise DraftOwnershipError(f"job {job_id} is not claimed by {executor}; cannot reopen it")
+                job.claimed_by = executor
+            self._rows[key] = dict(state)
+            self._stamps[key] = datetime.now(timezone.utc)
 
-    async def delete(self, user_id, job_id: str) -> None:  # noqa: ANN001
-        key = (str(user_id), job_id)
-        self._rows.pop(key, None)
-        self._stamps.pop(key, None)
+    async def delete(self, user_id, job_id: str, *, executor: str = "") -> None:
+        async with self.lock(user_id):
+            key = (str(user_id), job_id)
+            owner = await self.owner(user_id, job_id)
+            if owner and executor and owner.executor != executor:
+                raise DraftOwnershipError(owner.refusal())
+            self._rows.pop(key, None)
+            self._stamps.pop(key, None)
+
+    async def abandon(self, user_id, job_id, *, executor, take_over=False, grace_seconds=60):
+        async with self.lock(user_id):
+            owner = await self.owner(user_id, job_id)
+            if owner is None:
+                return None
+            audit = None
+            if owner.executor != executor:
+                if not take_over:
+                    raise DraftOwnershipError(owner.refusal())
+                dead = owner.executor.startswith("worker:") and not await self.worker_alive(user_id, owner.executor)
+                grace = max(60, grace_seconds)
+                if owner.idle_seconds < grace and not dead:
+                    raise DraftOwnershipError(f"{owner.refusal()}; takeover refused within {grace}s grace")
+                audit = {
+                    "previous_executor": owner.executor or "legacy:unknown", "executor": executor,
+                    "at": datetime.now(timezone.utc).isoformat(),
+                    "reason": "owning worker launch is gone" if dead else f"draft idle for {owner.idle_seconds}s (grace {grace}s)",
+                }
+                job = await self.jobs.get_job(user_id, job_id)
+                if job and job.status == "claimed":
+                    job.payload.setdefault("draft_takeovers", []).append(audit)
+            await self.delete(user_id, job_id)
+            await self.jobs.release(user_id, job_id)
+            return audit
 
     async def list_open(self, user_id) -> list[str]:  # noqa: ANN001
         return [
@@ -69,6 +154,7 @@ class InMemoryJobQueue:
         self.jobs: list[_Job] = []
         self.completed: list[dict[str, Any]] = []
         self._seq = 0
+        self.drafts = None
 
     async def enqueue(self, user_id, kind: str, payload: dict) -> str:  # noqa: ANN001
         self._seq += 1
@@ -82,15 +168,17 @@ class InMemoryJobQueue:
         )
 
     async def claim_next(  # noqa: ANN001
-        self, user_id, *, claimed_by: str = "worker", exclude_kinds=()
+        self, user_id, *, claimed_by: str = "worker", exclude_kinds=(), tenants=()
     ):
-        if self._in_flight(user_id):
+        if self._in_flight(user_id) or (self.drafts and await self.drafts.list_open(user_id)):
             return None
         skip = {k for k in exclude_kinds if k}
+        allowed = {t for t in tenants if t}
         for job in self.jobs:
             if (
                 job.status == "queued"
                 and str(job.user_id) == str(user_id)
+                and (not allowed or str(job.user_id) in allowed)
                 and job.kind not in skip
             ):
                 job.status = "claimed"
@@ -99,7 +187,7 @@ class InMemoryJobQueue:
         return None
 
     async def claim(self, user_id, job_id: str, *, claimed_by: str = "worker"):  # noqa: ANN001
-        if self._in_flight(user_id):
+        if self._in_flight(user_id) or (self.drafts and await self.drafts.list_open(user_id)):
             return None
         for job in self.jobs:
             if (
@@ -111,6 +199,40 @@ class InMemoryJobQueue:
                 job.claimed_by = claimed_by
                 return job
         return None
+
+    async def held_draft(self, user_id):
+        if self.drafts:
+            for job_id in await self.drafts.list_open(user_id):
+                owner = await self.drafts.owner(user_id, job_id)
+                if owner:
+                    return job_id, owner
+        return None
+
+    async def requeue_claimed_jobs(self, *, draft_ttl=0, tenants=()):
+        reclaimed = 0
+        for job in self.jobs:
+            if tenants and str(job.user_id) not in tenants:
+                continue
+            owner = await self.drafts.owner(job.user_id, job.job_id) if self.drafts else None
+            if job.status == "done":
+                if owner:
+                    await self.drafts.delete(job.user_id, job.job_id)
+                continue
+            if job.status != "claimed" and owner is None:
+                continue
+            executor = owner.executor if owner else (getattr(job, "claimed_by", "") or "")
+            expired = bool(owner and draft_ttl > 0 and owner.idle_seconds >= draft_ttl)
+            if executor.startswith("worker:"):
+                if not expired and self.drafts and await self.drafts.worker_alive(job.user_id, executor):
+                    continue
+            elif owner and not expired and draft_ttl > 0:
+                continue
+            if owner:
+                await self.drafts.delete(job.user_id, job.job_id)
+            was_claimed = job.status == "claimed"
+            await self.release(job.user_id, job.job_id)
+            reclaimed += int(was_claimed)
+        return reclaimed
 
     async def list_jobs(self, user_id) -> list[dict[str, Any]]:  # noqa: ANN001
         """This user's jobs, newest first — the shape `PostgresStore.list_jobs` returns, and
@@ -132,6 +254,14 @@ class InMemoryJobQueue:
                 return job
         return None
 
+    async def attach_executor(self, user_id, job_id, executor):
+        job = await self.get_job(user_id, job_id)
+        if (job is None or job.status != "claimed" or job.claimed_by != "worker"
+                or (self.drafts and await self.drafts.list_open(user_id))):
+            return False
+        job.claimed_by = executor
+        return True
+
     async def release(self, user_id, job_id: str) -> None:  # noqa: ANN001
         for job in self.jobs:
             if (
@@ -140,6 +270,7 @@ class InMemoryJobQueue:
                 and job.status == "claimed"
             ):
                 job.status = "queued"
+                job.claimed_by = None
 
     async def complete(  # noqa: ANN001
         self,
@@ -151,9 +282,14 @@ class InMemoryJobQueue:
         snapshot_ref: str | None = None,
         token_usage: dict[str, int] | None = None,
         executor: str | None = None,
+        claimed_by: str | None = None,
     ) -> None:
         for job in self.jobs:
             if job.job_id == job_id and str(job.user_id) == str(user_id):
+                if claimed_by is not None and getattr(job, "claimed_by", None) != claimed_by:
+                    return
+                if job.status == "done":
+                    return
                 job.status = "done"
         self.completed.append(
             {

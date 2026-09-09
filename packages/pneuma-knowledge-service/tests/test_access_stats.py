@@ -35,6 +35,7 @@ from pneuma_knowledge_service.access_stats import (
     top_misses,
     top_targets,
 )
+from pneuma_knowledge_service.settings import Settings
 
 TODAY = date(2026, 8, 31)
 NOON = datetime(2026, 8, 31, 12, 0, tzinfo=timezone.utc)
@@ -323,7 +324,7 @@ class _StatsStore:
 
     def __init__(self, records=()) -> None:
         self.records = {r.consultation_id: r for r in records}
-        self.projected: set[str] = set()
+        self.projected: set[tuple[str, str]] = set()
         self.hits: list[dict] = []
         self.misses: list[dict] = []
         self.swaps = 0
@@ -332,10 +333,11 @@ class _StatsStore:
     async def get_consultation(self, user_id, consultation_id):
         return self.records.get(consultation_id)
 
-    async def apply_access_stats(self, user_id, consultation_id, hits, misses):
-        if consultation_id in self.projected:
+    async def apply_access_stats(self, user_id, consultation_id, hits, misses, *, event):
+        key = (consultation_id, event)
+        if key in self.projected:
             return False
-        self.projected.add(consultation_id)
+        self.projected.add(key)
         self.hits.extend(hits)
         self.misses.extend(misses)
         return True
@@ -346,24 +348,25 @@ class _StatsStore:
         self.misses = list(misses)
         return len(hits) + len(misses)
 
-    async def list_consultations(
+    async def list_consultation_events(
         self, user_id, *, visitor_class=None, projected=None, after=None, limit=500
     ):
         rows = sorted(
             (
                 r
-                for r in self.records.values()
+                for record in self.records.values()
+                for r in record.events()
                 if (visitor_class is None or r.visitor_class == visitor_class)
                 # `self.projected` is this fake's `projected_at`: stamped or not.
                 and (
                     projected is None
-                    or (r.consultation_id in self.projected) is bool(projected)
+                    or ((r.consultation_id, r.event) in self.projected) is bool(projected)
                 )
             ),
-            key=lambda r: (r.created_at, r.consultation_id),
+            key=lambda r: (r.event_at, r.consultation_id, 0 if r.event == "opening" else 1),
         )
         if after is not None:
-            rows = [r for r in rows if (r.created_at, r.consultation_id) > after]
+            rows = [r for r in rows if (r.event_at, r.consultation_id, 0 if r.event == "opening" else 1) > after]
         return rows[:limit]
 
     async def complete(
@@ -379,7 +382,7 @@ class _Watcher:
         self.seen: list = []
 
     async def on_recall(self, user_id, record) -> None:  # noqa: ANN001
-        self.seen.append((user_id, record.consultation_id))
+        self.seen.append((user_id, record.consultation_id, record.event))
 
 
 class _Raiser:
@@ -412,7 +415,7 @@ async def test_the_job_applies_the_stats_and_then_tells_the_components():
         ("claim", "c:aa11"),
         ("document", "memory/x.md"),
     }
-    assert watcher.seen == [("u-lynx-1", "k-1")]
+    assert watcher.seen == [("u-lynx-1", "k-1", "opening"), ("u-lynx-1", "k-1", "answer")]
     assert store.completed == [("j-1", True, "projected")]
 
 
@@ -434,7 +437,7 @@ async def test_the_same_job_run_twice_is_a_no_op():
         reset_components()
 
     assert len(store.hits) == 1
-    assert watcher.seen == [("u-lynx-1", "k-1")]
+    assert watcher.seen == [("u-lynx-1", "k-1", "opening"), ("u-lynx-1", "k-1", "answer")]
     assert store.completed[1] == ("j-2", True, "already projected")
 
 
@@ -455,7 +458,7 @@ async def test_a_component_that_raises_costs_a_warning_and_never_the_job():
     assert store.completed == [("j-1", True, "projected")]
     assert len(store.hits) == 1
     # the fan-out carries on past the one that raised
-    assert watcher.seen == [("u-lynx-1", "k-1")]
+    assert watcher.seen == [("u-lynx-1", "k-1", "opening"), ("u-lynx-1", "k-1", "answer")]
 
 
 async def test_a_job_naming_a_consultation_that_is_gone_finishes_rather_than_looping():
@@ -499,14 +502,15 @@ async def test_the_replay_reproduces_the_ledger_and_leaves_the_stamps_alone():
 
     replayed = await rebuild_access_stats(store, UserId("u-lynx-1"))
 
-    assert replayed == 2  # the audit record is not a business one
+    assert replayed == 4  # two events each; audit does not influence attention
     assert store.swaps == 1
     assert sorted(store.hits, key=lambda r: (r["day"], r["target_ref"])) == sorted(
         live_hits, key=lambda r: (r["day"], r["target_ref"])
     )
     assert store.misses == live_misses
     # the stamps survive: a rebuild is not permission to apply a record a second time
-    assert store.projected == {"k-1", "k-2"}
+    assert store.projected == {(cid, event) for cid in ("k-1", "k-2")
+                               for event in ("opening", "answer")}
 
 
 async def test_a_record_that_arrives_mid_scan_is_left_for_its_own_job_and_counted_once():
@@ -533,7 +537,7 @@ async def test_a_record_that_arrives_mid_scan_is_left_for_its_own_job_and_counte
     # The insert happens mid-walk: the first page is served, and the row lands behind it
     # with `projected_at` null and a projection job of its own waiting in the queue.
     served = 0
-    plain_list = store.list_consultations
+    plain_list = store.list_consultation_events
 
     async def listing(*args, **kwargs):
         nonlocal served
@@ -543,15 +547,15 @@ async def test_a_record_that_arrives_mid_scan_is_left_for_its_own_job_and_counte
             store.records[arriving.consultation_id] = arriving
         return page
 
-    store.list_consultations = listing
+    store.list_consultation_events = listing
 
     replayed = await rebuild_access_stats(store, UserId("u-lynx-1"))
 
-    assert replayed == 1  # only the settled record; the arriving one is not the replay's
+    assert replayed == 2  # only the settled events; arriving events belong to their own job
     assert [(r["target_ref"], r["hits"]) for r in store.hits] == [("c:aa11", 1)]
 
     # …and its own job then applies it, once.
-    store.list_consultations = plain_list
+    store.list_consultation_events = plain_list
     await run_recall_projection_job(
         SimpleNamespace(store=store), UserId("u-lynx-1"), _job("k-2", "j-2")
     )
@@ -589,14 +593,14 @@ class _PagedStore:
             evidence_handed=(EvidenceRef("claim", "c:aa11", ""),),
         )
 
-    async def list_consultations(
+    async def list_consultation_events(
         self, user_id, *, visitor_class=None, projected=None, after=None, limit=500
     ):
         gc.collect()
         self.live_before_each_page.append(sum(1 for r in self.alive if r() is not None))
         start = 0 if after is None else int(str(after[1]).split("-")[1]) + 1
         page = [
-            self._record_at(i) for i in range(start, min(start + limit, self.total))
+            self._record_at(i).opening() for i in range(start, min(start + limit, self.total))
         ]
         self.alive.extend(weakref.ref(item) for item in page)
         return page
@@ -648,7 +652,9 @@ async def test_the_sweep_reaches_a_tenant_that_has_only_ever_asked():
     jobs sat queued forever with nothing in the system able to notice."""
     from pneuma_knowledge_service.workers.compile_worker import _users_with_jobs
 
-    ctx = SimpleNamespace(store=_SweepStore(["u-bao"], ["u-mei", "u-bao"]))
+    ctx = SimpleNamespace(
+        store=_SweepStore(["u-bao"], ["u-mei", "u-bao"]), settings=Settings()
+    )
     assert await _users_with_jobs(ctx) == ["u-bao", "u-mei"]
 
 
@@ -657,7 +663,7 @@ async def test_a_store_without_the_consultation_listing_still_sweeps():
     old answer rather than failing the worker's whole sweep."""
     from pneuma_knowledge_service.workers.compile_worker import _users_with_jobs
 
-    ctx = SimpleNamespace(store=_SweepStore(["u-bao"]))
+    ctx = SimpleNamespace(store=_SweepStore(["u-bao"]), settings=Settings())
     assert await _users_with_jobs(ctx) == ["u-bao"]
 
 
@@ -772,3 +778,53 @@ def test_misses_sum_across_days_and_keep_the_last_day_they_were_asked():
     assert out[0]["count"] == 3 and out[0]["last_day"] == TODAY
     assert out[1]["last_day"] == TODAY - timedelta(days=1)
     assert len(top_misses(rows, limit=1)) == 1
+
+
+async def test_opening_and_later_answer_project_once_each_and_rebuild_between_deliveries(monkeypatch):
+    from dataclasses import replace
+
+    monkeypatch.setattr("pneuma_knowledge_service.access_stats.REPLAY_PAGE", 1)
+    uid = UserId("u-lynx-1")
+    answered = _record(
+        evidence_handed=(EvidenceRef("claim", "c:aa11", "memory/x.md"),),
+        citations=(EvidenceRef("claim", "c:aa11", "memory/x.md"),),
+        answered_at=NOON + timedelta(days=1),
+        miss=True,
+    )
+    opening = answered.opening()
+    store = _StatsStore([opening])
+    ctx = SimpleNamespace(store=store)
+    open_job = _job(opening.consultation_id)
+    open_job.payload["event"] = "opening"
+    answer_job = _job(opening.consultation_id, "j-answer")
+    answer_job.payload["event"] = "answer"
+    watcher = _Watcher()
+    reset_components()
+    register_component(watcher)
+    try:
+        await run_recall_projection_job(ctx, uid, open_job)
+        assert all(row["hits"] == 1 for row in store.hits)
+        assert store.misses == [] and opening.miss is None
+        first_hits = list(store.hits)
+        # The answer arrives before its queue job runs. Replaying only its opening is
+        # essential: the answer still owns a pending projection delivery.
+        store.records[opening.consultation_id] = answered
+        assert await rebuild_access_stats(store, uid) == 1
+        assert store.hits == first_hits and not store.misses
+        await run_recall_projection_job(ctx, uid, open_job)
+        assert store.hits == first_hits
+        await run_recall_projection_job(ctx, uid, answer_job)
+        assert len(store.misses) == 1
+        assert store.misses[0]["day"] == answered.answered_at.date()
+        live_hits = sorted(store.hits, key=lambda r: (r["day"], r["target_kind"]))
+        live_misses = list(store.misses)
+        await run_recall_projection_job(ctx, uid, answer_job)
+        assert sorted(store.hits, key=lambda r: (r["day"], r["target_kind"])) == live_hits
+        assert await rebuild_access_stats(store, uid) == 2
+        assert sorted(store.hits, key=lambda r: (r["day"], r["target_kind"])) == live_hits
+        assert store.misses == live_misses
+        assert watcher.seen == [(str(uid), "k-1", "opening"), (str(uid), "k-1", "answer")]
+        assert store.records[opening.consultation_id] == answered
+        assert ledger_rows([replace(answered, visitor_class="audit")]) == ([], [])
+    finally:
+        reset_components()

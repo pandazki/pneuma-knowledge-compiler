@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 
+from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 
 from langchain_core.embeddings import DeterministicFakeEmbedding, Embeddings
@@ -34,7 +35,7 @@ from .adapters.git_canonical import GitCanonicalStore
 from .coding_agent.backends import BACKENDS as _BACKEND_MANIFESTS
 from .adapters.meilisearch import MeiliLexicalIndex
 from .adapters.postgres import PostgresStore
-from .adapters.qdrant import QdrantVectorIndex
+from .adapters.qdrant import QdrantVectorIndex, existing_dimension
 from .adapters.s3_media import S3MediaStore
 from .adapters.scripted_model import load_scripted_model
 from .adapters.user_info_provider_composite import PersistedUserInfoProvider, UnstatedUserInfoProvider
@@ -74,6 +75,15 @@ async def full_l2_chunks(
     Centralized so both ingest flows and the re-index script share one dispatch."""
     from pneuma_knowledge_core.ingest.chunking import build_chunker as _build
     from pneuma_knowledge_core.ingest.chunking import chunk_source
+
+    if getattr(ctx.settings, "semantic_retrieval", "on") == "off":
+        return []
+
+    if executor_for(ctx.settings, "compile").is_agent:
+        # A missing record means the episodes job is still the Steward's work. Rebuild
+        # never invents a mechanical partition in place of that unmade judgement.
+        manifest = await agent_chunk_manifest(ctx, user_id, source_id, blocks)
+        return await chunks_from_agent_manifest(ctx, source_id, blocks, structure, manifest) if manifest else []
 
     # Semantic segmentation needs a REAL LLM, so a scripted/keyless base model (tests,
     # demos) falls back to mechanical sentence chunking — mirroring the "scripted: base
@@ -215,9 +225,11 @@ async def plan_l2_chunks(ctx: "AppContext", source_id, normalized, user_id):
     ignored the plan would over-index sources the plan deliberately kept out of L2."""
     from .ingest_document import _summary_chunks
 
+    if getattr(ctx.settings, "semantic_retrieval", "on") == "off":
+        return []
     plan = normalized.raw.intake_plan or {}
-    semantic = plan.get("semantic_indexing", "full")
-    if semantic == "full":
+    semantic = plan.get("semantic_indexing_requested") or plan.get("semantic_indexing", "full")
+    if semantic == "full" or (semantic == "summary" and executor_for(ctx.settings, "compile").is_agent):
         return await full_l2_chunks(
             ctx,
             source_id,
@@ -231,6 +243,43 @@ async def plan_l2_chunks(ctx: "AppContext", source_id, normalized, user_id):
     return []
 
 
+async def agent_chunk_manifest(ctx, user_id, source_id, blocks) -> dict | None:
+    """The ordinary replay key, with the agent's explicit partial-coverage contract.
+
+    Agent episodes always use closed intervals with smart overlap. The API overlap knob
+    does not reinterpret a kept agent judgement; its skill hash is attribution, not a key.
+    """
+    from pneuma_knowledge_core.ingest.semantic import blocks_content_digest, is_agent_manifest
+
+    manifest = await ctx.store.get_chunk_manifest(user_id, source_id)
+    if (
+        manifest is not None and manifest["strategy"] == "semantic"
+        and manifest["model"] == resolve_model_name(ctx.settings, "compile")
+        and manifest["content_digest"] == blocks_content_digest(blocks)
+        and is_agent_manifest(manifest["segments"])
+    ):
+        return manifest
+    return None
+
+
+async def chunks_from_agent_manifest(ctx, source_id, blocks, structure, manifest):
+    """Materialize a kept agent selection without filling its gaps or rewriting it."""
+    from pneuma_knowledge_core.ingest.chunking import build_chunker as _build
+    from pneuma_knowledge_core.ingest.episodes import parse_episode_proposal
+    from pneuma_knowledge_core.ingest.semantic import semantic_chunk_source
+
+    envelope = manifest["segments"]
+    episodes = parse_episode_proposal(envelope["episodes"], [b.index for b in blocks])
+    # Pin the splitter as well as the intervals: a replay cannot silently change the
+    # observation's fingerprint when an operator changes the API chunking defaults.
+    size = envelope["chunk_size"]
+    return await semantic_chunk_source(
+        source_id, blocks, structure, episodes=episodes, allow_gaps=True,
+        sub_chunker=_build("sentence", size, envelope["chunk_overlap"]),
+        max_chunk_chars=size,
+    )
+
+
 async def embed_l2_chunks(
     ctx: "AppContext",
     chunks: list[Chunk],
@@ -242,6 +291,9 @@ async def embed_l2_chunks(
     still stores the verbatim chunk and its exact L0 char span, so retrieval and citation
     drill-down cannot mistake metadata or a derived representation for source prose.
     """
+
+    if ctx.embeddings is None:
+        return []
 
     raw_inputs = [
         embedding_text_for_chunk(chunk, normalized.blocks, raw=normalized.raw)
@@ -412,7 +464,7 @@ def resolve_model_name(settings: Settings, role: str = "default") -> str:
             and value.startswith(AGENT_PREFIX)
             and role not in AGENT_ROLES
         ):
-            # A BORROWED `agent:` spec is not a model this role can run — evolve, challenge
+            # A BORROWED `agent:` spec is not a model this role can run — challenge
             # and brief borrow compile's field, and pointing compile at a coding agent must
             # not strand them. The chain keeps falling to the base model instead. A role
             # that names `agent:` in its OWN field is a different matter: that is a stated
@@ -451,11 +503,40 @@ def usable_model_name(settings: Settings, role: str = "default") -> str:
     if name.startswith(AGENT_PREFIX):
         # A coding agent does not answer an `ainvoke`, so every dispatch point that asks
         # "can THIS process run the role's model" must hear no — and degrade the way it
-        # already degrades for a keyless deployment. Semantic chunking is the one that
-        # matters today: it falls back to mechanical sentence chunking, exactly as it does
-        # for a scripted model (docs/design/coding-agent-mode.md §3.1).
+        # already degrades for a keyless deployment. Agent episode judgement has its own
+        # draft door; it never asks this helper for a model or a mechanical fallback.
         return ""
     return name
+
+
+def can_build_chat_model(settings: Settings, role: str = "default") -> tuple[bool, str]:
+    """Can THIS process build the chat model a role runs on — and, when not, why.
+
+    A DRY resolution: the same spec `build_chat_model_for` would use, checked against the
+    two conditions that make `_build_from_name` raise, without constructing a client or
+    touching the network. `usable_model_name` answers the same question with an empty
+    string; this one carries the sentence, because the caller has to print it.
+
+    It exists for the point where an OPTIONAL role's work is ENQUEUED as a job — the
+    passive evolve trigger, the post-compile challenge. Asking at processing time is too
+    late: the job is already in the queue, and a deployment that can never run it collects
+    failed rows the Owner reads as its own breakage. Compile is never asked, because a
+    compile is never skipped.
+
+    The two answers are the two keyless states: an `openrouter:` spec with no key, and a
+    spec naming a coding-agent executor (which has no `ainvoke` at all — a role that merely
+    BORROWS compile's `agent:` spec has already fallen to the base model in
+    `resolve_model_name`, so this only fires on one stated in the role's own field).
+    """
+    spec = resolve_model_name(settings, role)
+    if spec.startswith(AGENT_PREFIX):
+        return False, (
+            f"the {role!r} role resolves to {spec!r}, which names a coding-agent executor "
+            f"and not a chat model this process can invoke"
+        )
+    if spec.startswith("openrouter:") and not settings.openrouter_api_key.strip():
+        return False, f"{spec} requires OPENROUTER_API_KEY"
+    return True, ""
 
 
 def _provider_guardrails(settings: Settings) -> dict:
@@ -590,11 +671,9 @@ AGENT_PREFIX = "agent:"
 #: a second list of their names is a second thing to keep in step.
 AGENT_BACKENDS: tuple[str, ...] = tuple(_BACKEND_MANIFESTS)
 
-#: The roles that may resolve to an `agent:` spec. Compile is the whole of v1: it is the one
-#: role whose round is a tool loop over a draft, and therefore the one a CLI can carry. The
-#: single-shot roles (recall, answer, deep, live, evolve, …) want a `LeafChatModel` over the
-#: same launcher, which is designed (§9) and deferred.
-AGENT_ROLES: frozenset[str] = frozenset({"compile"})
+#: Both authoring roles have persisted draft doors. Other roles still need chat models;
+#: brief narration for an agent compile is supplied by the Steward through draft finish.
+AGENT_ROLES: frozenset[str] = frozenset({"compile", "evolve"})
 
 
 @dataclass(frozen=True)
@@ -623,9 +702,9 @@ def executor_for(settings: Settings, role: str = "compile") -> Executor:
     rather than discovered later: a backend nothing can launch, and an `agent:` spec STATED
     for a role that has no CLI to drive it — in the role's own field, or as the base
     `LLM_MODEL` every role ends at. A role that would merely have BORROWED compile's agent
-    spec through `_ROLE_FALLBACK` (evolve, challenge, brief) never gets here: `resolve_model_name`
+    spec through `_ROLE_FALLBACK` (challenge, brief) never gets here: `resolve_model_name`
     skips the borrowed spec and falls to the base model, so pointing compile at an agent does
-    not strand three other roles. Both refusals raise naming the role, and `build_context`
+    not strand the roles that need chat models. Both refusals raise naming the role, and `build_context`
     asks about every role so they land at startup instead of on the first job of that kind.
     """
     spec = resolve_model_name(settings, role)
@@ -677,6 +756,12 @@ def warn_missing_embedding_key(settings: Settings) -> str:
     text rather than compose a second one.
     """
     spec = str(settings.embedding_model or "")
+    if settings.semantic_retrieval == "off":
+        notice = embedding_key_notice(spec, "", "off")
+        if (spec, "off") not in _EMBEDDING_KEY_WARNED:
+            _EMBEDDING_KEY_WARNED.add((spec, "off"))
+            log.info("%s", notice)
+        return notice
     requirement = embedding_key_requirement(spec)
     if requirement is None:
         return ""
@@ -695,7 +780,7 @@ class AgentProbeFailed(RuntimeError):
 
 
 async def probe_compile_executor(settings: Settings) -> None:
-    """Is the harness this deployment compiles with actually live? (§8, ruling 9.)
+    """Are this deployment's compile/evolve harnesses actually live? (§8, ruling 9.)
 
     Asked once, at startup, by the process that will LAUNCH it — and fatal when the answer is
     no, because the alternative is a queue that fills up while every round dies on a binary
@@ -703,27 +788,31 @@ async def probe_compile_executor(settings: Settings) -> None:
 
     Three conditions, all of them about "will this process launch a harness":
 
-    * the compile role runs on an agent at all;
+    * the compile or evolve role runs on an agent;
     * this deployment is in the unattended posture — interactively the Owner's own session IS
       the harness, and probing would test something nothing here is going to start;
     * `AGENT_PROBE_ON_START` is on, which is the switch a test or a CI job flips when the
       binary on PATH is a fake and a login is not a thing that exists.
     """
-    executor = executor_for(settings, "compile")
-    if not (executor.is_agent and settings.agent_unattended and settings.agent_probe_on_start):
+    if not (settings.agent_unattended and settings.agent_probe_on_start):
         return
     from .coding_agent.backends import backend as backend_manifest
     from .coding_agent.probe import probe
 
-    manifest = backend_manifest(str(executor.backend))
-    result = await probe(manifest)
-    if result.ok:
-        log.info("compile executor %s: %s", executor.spec, result.reason)
-        return
-    raise AgentProbeFailed(
-        f"this deployment compiles with {executor.spec} and that harness is not usable: "
-        f"{result.reason}. Fix it, or point PNEUMA_KNOWLEDGE_LLM_MODEL_COMPILE at a model."
-    )
+    probed: set[str] = set()
+    for role in ("compile", "evolve"):
+        executor = executor_for(settings, role)
+        if not executor.is_agent or executor.spec in probed:
+            continue
+        manifest = backend_manifest(str(executor.backend))
+        result = await probe(manifest)
+        if not result.ok:
+            raise AgentProbeFailed(
+                f"this deployment runs {role} with {executor.spec} and that harness is not usable: "
+                f"{result.reason}. Fix it, or point PNEUMA_KNOWLEDGE_LLM_MODEL_{role.upper()} at a model."
+            )
+        log.info("%s executor %s: %s", role, executor.spec, result.reason)
+        probed.add(executor.spec)
 
 
 # --------------------------------------------------------------- observability (Langfuse)
@@ -816,8 +905,8 @@ class AppContext:
     store: PostgresStore
     canonical: GitCanonicalStore
     lexical: MeiliLexicalIndex
-    vectors: QdrantVectorIndex
-    embeddings: Embeddings
+    vectors: QdrantVectorIndex | None
+    embeddings: Embeddings | None
     registry: AdapterRegistry
     media: S3MediaStore | None = None
     # Persisted declarations win; absent personal facts remain unstated.
@@ -984,7 +1073,8 @@ class AppContext:
         await self.flush_traces()
         await self.store.aclose()
         await self.lexical.aclose()
-        await self.vectors.aclose()
+        if self.vectors is not None:
+            await self.vectors.aclose()
         if self.media is not None:
             await self.media.aclose()
         if self._reranker is not None:
@@ -994,7 +1084,7 @@ class AppContext:
 
 
 async def build_context(
-    settings: Settings, *, probe_agent: bool = True
+    settings: Settings, *, probe_agent: bool = True, probe_embedding: bool = True
 ) -> AppContext:
     """Assemble the adapter singletons and bring their connections up on the CALLER's
     event loop (pool open, collection probe). Everything the constructors used to do
@@ -1005,6 +1095,13 @@ async def build_context(
     harness's hand: every `pkc` command builds a context, and probing a coding agent once per
     command would cost seconds per call and, inside a session of that very harness, would
     launch it from within itself.
+
+    `probe_embedding=False` is for the same process: with semantic retrieval on, learning the
+    embedding dimension costs one model call over the network (a second per `pkc` command,
+    measured), and a process that only reads can adopt the dimension the Qdrant collection
+    already has. Only when no collection exists yet is the model asked, because then one has
+    to be created at the model's dimension. The engine keeps probing at boot: that is where a
+    model changed under an existing collection must be refused, not at the first upsert.
     """
     # Who runs each role, before anything is built: an `agent:` spec on a role that cannot
     # be driven by a CLI, or a harness nothing can launch, is a misconfiguration the stack
@@ -1016,52 +1113,72 @@ async def build_context(
     if probe_agent:
         await probe_compile_executor(settings)
 
-    store = PostgresStore(settings.pg_dsn)
-    await store.open()
-    await store.apply_schema()
+    # A stop during startup must close the adapters already opened, even before an
+    # AppContext exists for the API lifespan or worker to close.
+    async with AsyncExitStack() as cleanup:
+        store = PostgresStore(settings.pg_dsn)
+        cleanup.push_async_callback(store.aclose)
+        await store.open()
+        await store.apply_schema()
 
-    embeddings = build_embeddings(settings)
-    dim = len(await embeddings.aembed_query("dimension probe"))
+        embeddings = None
+        vectors = None
+        if settings.semantic_retrieval == "on":
+            embeddings = build_embeddings(settings)
+            dim = None
+            if not probe_embedding:
+                dim = await existing_dimension(settings.qdrant_url, settings.qdrant_collection)
+            if dim is None:
+                dim = len(await embeddings.aembed_query("dimension probe"))
 
-    lexical = MeiliLexicalIndex(settings.meili_url, settings.meili_key)
-    vectors = QdrantVectorIndex(settings.qdrant_url, dim, collection=settings.qdrant_collection)
-    await vectors.ensure_collection()
-    canonical = GitCanonicalStore(settings.canonical_root)
-    media = S3MediaStore(
-        bucket=settings.media_s3_bucket,
-        endpoint_url=settings.media_s3_endpoint_url,
-        access_key=settings.media_s3_access_key,
-        secret_key=settings.media_s3_secret_key,
-        region=settings.media_s3_region,
-    )
+        lexical = MeiliLexicalIndex(settings.meili_url, settings.meili_key)
+        cleanup.push_async_callback(lexical.aclose)
+        if embeddings is not None:
+            vectors = QdrantVectorIndex(
+                settings.qdrant_url, dim, collection=settings.qdrant_collection
+            )
+            cleanup.push_async_callback(vectors.aclose)
+            await vectors.ensure_collection()
+        canonical = GitCanonicalStore(settings.canonical_root)
+        media = S3MediaStore(
+            bucket=settings.media_s3_bucket,
+            endpoint_url=settings.media_s3_endpoint_url,
+            access_key=settings.media_s3_access_key,
+            secret_key=settings.media_s3_secret_key,
+            region=settings.media_s3_region,
+        )
 
-    registry = AdapterRegistry()
-    registry.register(PlainConversationAdapter(), kind="conversation")
-    registry.register(
-        ContextStreamAdapter(), kind="conversation", mime=CONTEXT_STREAM_MIME
-    )
-    registry.register(MarkdownDocumentAdapter(), kind="document")
+        cleanup.push_async_callback(media.aclose)
 
-    # Profile lookup has no model dependency; the store carries explicit declarations.
-    user_info = PersistedUserInfoProvider(
-        persisted_lookup=store.get_user_profile,
-    )
+        registry = AdapterRegistry()
+        registry.register(PlainConversationAdapter(), kind="conversation")
+        registry.register(
+            ContextStreamAdapter(), kind="conversation", mime=CONTEXT_STREAM_MIME
+        )
+        registry.register(MarkdownDocumentAdapter(), kind="document")
 
-    register_components(
-        settings, store=store, canonical=canonical, user_info=user_info
-    )
+        # Profile lookup has no model dependency; the store carries explicit declarations.
+        user_info = PersistedUserInfoProvider(
+            persisted_lookup=store.get_user_profile,
+        )
 
-    return AppContext(
-        settings=settings,
-        store=store,
-        canonical=canonical,
-        lexical=lexical,
-        vectors=vectors,
-        embeddings=embeddings,
-        registry=registry,
-        media=media,
-        user_info=user_info,
-    )
+        register_components(
+            settings, store=store, canonical=canonical, user_info=user_info
+        )
+
+        ctx = AppContext(
+            settings=settings,
+            store=store,
+            canonical=canonical,
+            lexical=lexical,
+            vectors=vectors,
+            embeddings=embeddings,
+            registry=registry,
+            media=media,
+            user_info=user_info,
+        )
+        cleanup.pop_all()  # The completed context now owns the adapters.
+        return ctx
 
 
 def register_components(

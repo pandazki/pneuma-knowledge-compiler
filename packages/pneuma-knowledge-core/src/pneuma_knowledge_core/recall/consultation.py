@@ -10,7 +10,7 @@ Pure: no I/O, no clock, no ids. Every system-assigned value (`consultation_id`,
 `created_at`, `library_ref`, the visitor class) is a required keyword argument, so a record
 never invents its own provenance.
 
-Two mechanical rules hold across all three:
+Three mechanical rules hold across the builders:
 
 - **A query-local `sNN` handle never reaches a record.** The fast lane and the briefing ask
   alias source ids at the model boundary; a handle is valid for exactly one call, so
@@ -20,10 +20,12 @@ Two mechanical rules hold across all three:
   The RECORDED prose is cleaned too (`drop_unresolved_brackets`): a bracket that still
   names an unresolvable handle after the rewrite is removed from it. The answer on the wire
   is untouched — the caller sees what the model wrote; only the record is cleaned.
-- **`citations` is a subset of `evidence_handed`, by construction.** A marker is admitted
+- **Model-lane citations are admitted against `evidence_handed`.** A marker is admitted
   only when its resolved address is IN the lane's manifest — a claim by anchor equality, a
   span by containment inside a span the lane handed over for that same source. A real
   source id with an invented interval on it is prose, not provenance, and stays out.
+  Agent answers additionally supply citations validated against the tenant's L0 and
+  canonical anchors, with explicit origins; their direct reading is retrieval too.
 - **The record carries what the lane exposes, and nothing reconstructed.** Where a lane has
   no such face (deep and the briefing ask publish no `answer_kind`), the record's field is
   empty rather than inferred. All three lanes now expose a manifest, the briefing ask
@@ -143,6 +145,7 @@ def consultation_from_fast(
     library_ref: str,
     consultation_id: str,
     created_at: datetime,
+    resolved_citations: tuple[EvidenceRef, ...] | None = None,
 ) -> ConsultationRecord:
     """The fast lane: ranked claims, episode summaries, body windows, component lookups.
 
@@ -157,10 +160,19 @@ def consultation_from_fast(
     The component faces reach the manifest as `component` items addressed by whatever they
     actually are underneath (a claim anchor, a source span) — a routed lookup is a different
     ROUTE to evidence, not a different kind of evidence.
+
+    `resolved_citations` is supplied only after an agent answer's addresses have been
+    validated against tenant-scoped stores. None retains the model lane's manifest filter;
+    an empty tuple means the agent answered without citations, not that validation was skipped.
     """
     evidence_handed = dedup_evidence(list(getattr(answer, "evidence_manifest", ()) or ()))
     handles = dict(getattr(answer, "citation_handles", {}) or {})
     answer_kind = getattr(answer, "answer_kind", None)
+    citations = (
+        dedup_evidence(list(resolved_citations))
+        if resolved_citations is not None
+        else _cited_spans(answer.answer, handles, evidence_handed)
+    )
     return ConsultationRecord(
         consultation_id=consultation_id,
         user_id=user_id,
@@ -175,11 +187,15 @@ def consultation_from_fast(
         # Fast aliases unconditionally (`_alias_human_content` runs on every answering
         # call), so an unresolvable bracket here is always a handle that resolves to
         # nothing — including when the map is empty because the lane surfaced no source.
-        answer=drop_unresolved_brackets(
-            resolve_handles(answer.answer, handles), set(handles.values())
+        answer=(
+            resolve_handles(answer.answer, handles)
+            if resolved_citations is not None
+            else drop_unresolved_brackets(
+                resolve_handles(answer.answer, handles), set(handles.values())
+            )
         ),
-        citations=_cited_spans(answer.answer, handles, evidence_handed),
-        miss=is_miss(answer_kind, evidence_handed),
+        citations=citations,
+        miss=is_miss(answer_kind, evidence_handed, citations),
         degraded=degraded_flags(answer, _FAST_DEGRADED),
         token_usage=usage_pairs(getattr(answer, "token_usage", None)),
     )

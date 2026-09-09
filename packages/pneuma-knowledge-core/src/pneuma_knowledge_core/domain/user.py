@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field, computed_field
+from typing import Literal
+
+from pydantic import BaseModel, Field, computed_field, model_validator
 
 from .ids import UserId
 from .time_context import TimezoneChange
@@ -40,6 +42,24 @@ LEVEL_STYLES: dict[str, str] = {
     "principal": "Prefers terse, decision-oriented answers assuming deep expertise.",
 }
 LEVELS = tuple(LEVEL_STYLES)
+
+# The stable, registration-level profile fields the Steward can write. Dotted names are
+# leaves, so confirming one locale value never confirms its neighbouring fields.
+PROFILE_FIELDS: tuple[str, ...] = (
+    "display_name", "occupation", "bio", "interests", "industry", "role", "level",
+    "locale.city", "locale.country", "locale.timezone", "locale.language",
+    "preferences.response_language",
+)
+PLACEHOLDER_NAMES = frozenset({"", "someone", "owner"})
+ProfileProvenance = Literal[
+    "inferred", "owner", "placeholder", "profile", "deployment_default", "unstated"
+]
+LOCALE_PROVENANCE_ALIASES = {
+    "locale.timezone": "timezone",
+    "locale.language": "language",
+    "locale.city": "region",
+    "locale.country": "region",
+}
 
 
 class Avatar(BaseModel):
@@ -99,6 +119,7 @@ class UserProfile(BaseModel):
     preferences: Preferences
     joined_at: str  # ISO date
     source: str = "unstated"  # provenance; mock providers must opt in explicitly
+    provenance: dict[str, ProfileProvenance] = Field(default_factory=dict)
 
     @classmethod
     def unstated(cls, user_id: UserId) -> "UserProfile":
@@ -112,6 +133,29 @@ class UserProfile(BaseModel):
             preferences=Preferences(response_language="", units="", privacy_level=""),
             joined_at="", source="unstated",
         )
+
+    @model_validator(mode="after")
+    def complete_provenance(self) -> UserProfile:
+        """Old records remain readable; every editable leaf gets an explicit provenance."""
+        for key in PROFILE_FIELDS:
+            if self.source == "unstated":
+                self.provenance[key] = "placeholder"
+                continue
+            marker = self.provenance.get(key)
+            if marker is None:
+                marker = self.provenance.get(LOCALE_PROVENANCE_ALIASES.get(key))
+            value: object = self
+            for part in key.split("."):
+                value = getattr(value, part)
+            stated = any(x.strip() for x in value) if isinstance(value, list) else bool(str(value).strip())
+            if key == "display_name" and self.display_name.strip().casefold() in PLACEHOLDER_NAMES:
+                stated = False
+            if marker == "profile":
+                marker = "owner" if stated else "placeholder"
+            elif marker in {"unstated", "deployment_default"}:
+                marker = "placeholder"
+            self.provenance[key] = marker or ("owner" if stated else "placeholder")
+        return self
 
     @computed_field  # type: ignore[prop-decorator]
     @property

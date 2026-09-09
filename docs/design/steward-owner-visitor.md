@@ -47,23 +47,32 @@ Knowledge L0 is what the Owner put there: sources, verbatim, addressable by
 visitor asked. These are *records* — kept rather than re-derived, and never an authority
 over knowledge. Canonical does not derive from them. The Steward's memory does.
 
-The use-side record of an answer is the **consultation**: one answering-lane call, as the
-audit chain needs it.
+The use-side record is the **consultation**: an opening question and handed evidence,
+followed by an answer event if one arrives. Handover itself counts as use.
 
 ## 3. The consultation record
 
-A `ConsultationRecord` (core `domain/consultation.py`) is a frozen dataclass:
+A `ConsultationRecord` (core `domain/consultation.py`) is a frozen dataclass. It represents
+an `opening`, an `answer` event, or their joined `complete` read. `complete` is not a third
+kept event: single-call lanes write the two together and the worker delivers them separately.
+`pkc recall --evidence` records the opening immediately under `business` or `audit`; its id
+is the handoff id. `pkc consult answer` appends the answer once. A handoff may expire, but its
+opening stays unanswered. Neither event is rewritten (storage fills only NULL answer columns
+under `answered_at IS NULL`). `silent` records neither event.
+
 
 | Field | Meaning |
 |---|---|
 | `consultation_id`, `user_id`, `created_at` | identity (system-assigned) |
-| `lane` | `fast` / `deep` / `briefing_ask` |
+| `lane` | `fast` / `deep` / `briefing_ask` / `direct` |
 | `visitor_class` | `silent` / `audit` / `business` (§5) |
 | `question`, `as_of` | the question as asked, and the reference instant the lane resolved against |
 | `library_ref` | **the canonical HEAD sampled when the consultation began** — the snapshot id instead when the call was pinned, which is the exact form of the same field. Sampled, not pinned: the evidence faces read live state, which may advance past the sample during the call (a compile lands mid-answer; the claim indexes are unversioned), so the ref names where the reading started rather than one state the whole answer came from |
 | `evidence_handed` | every ADDRESS the lane put in front of the model, and nothing else: `{kind: claim/window/episode/component/document, ref}` where `ref` is a claim anchor with its page, a `source_id ¶a-b` span, or a canonical page path (`document`: a page the lane opened and read in full). It carries the evidence ITEMS and the provenance spans rendered WITH them — a claim note prints its own `[cite: …]` marker and the contract tells the model to copy source references verbatim from those markers, so a span named there is an address the model was shown. The lane publishes it as a manifest at render time (`recall/fast.py:evidence_manifest`) and the builder copies it |
-| `answer_kind`, `answer`, `citations` | the lane's answer; `citations` is a SUBSET of `evidence_handed` by construction — a marker is admitted only when its resolved address is in the manifest (a claim by anchor equality, a span by containment inside a handed span of the same source), so a real source id with an invented interval on it (`¶999`) is prose, not provenance. `answer` is the recorded prose with every bracket still naming an unresolvable handle removed; the answer on the wire is untouched |
-| `miss` | one rule, every lane: `answer_kind == "no_record"`, or nothing reaching the model at all (see below) |
+| `answer_kind`, `answer`, `citations` | the answer and its resolving addresses, each with `origin: handed` or `direct`. Model lanes admit against their manifests; agent answers additionally resolve direct reads against tenant-scoped L0 and canonical anchors (below). Unresolved handles are removed from model-lane recorded prose; an agent answer with an invalid citation is refused before recording |
+| `citations_direct` | the count of citations whose stored origin is `direct`; handed evidence remains exactly what the lane handed |
+| `answered_at`, `state` | the answer event's timestamp, or NULL while `unanswered`; an answered consultation has state `answered` |
+| `miss` | NULL while unanswered; once an answer exists, one rule, every lane: `answer_kind == "no_record"`, or nothing reaching the model at all (see below) |
 | `degraded` | the lane's degradation flags, copied |
 | `token_usage` | what the consultation SPENT, as the lane's own usage mapping in field order. Tokens and never money: the count is what happened and stays true, while a price is a commercial arrangement that moves without asking this record — so the cost is derived when somebody reads, out of the rates the deployment declares then (`MODEL_PRICING`), and is absent rather than zero for a model it never priced |
 
@@ -74,7 +83,7 @@ event channel, and one pure builder per lane (`recall/consultation.py`, beside t
 rather than beside the record: the shape a builder reads is the lane's, and domain → recall
 would be the wrong direction). It holds no consultation port and reads no consultation.
 
-**The table above is a UNION across the three lanes, and no lane fills all of it:**
+**The table above is a UNION across the answering lanes, and no lane fills all of it:**
 
 - **fast** populates everything. Its `citations` are not a field on `FastAnswer` — there is
   none — but the answer's own markers re-parsed through the lane's `citation_handles` map: a
@@ -102,6 +111,27 @@ would be the wrong direction). It holds no consultation port and reads no consul
   Its `library_ref` is the pack's own pinned commit ref — a briefing is pinned by
   construction, so no HEAD lookup happens.
 
+**Under an agent executor, the agent's reading IS retrieval.** A hand-over's manifest
+cannot enumerate subsequent `canonical read` and `source fetch` calls; keyless retrieval may
+hand an empty manifest because the glance pick needs a model. Membership was a proxy for
+resolution, and direct reading makes it the wrong proxy. `pkc consult answer` resolves every
+marker through the hand-over's handle map when applicable, otherwise as a real
+`[cite: <sid> ¶a-b]` address or a `c:xxxx` anchor. The source must exist in this tenant's L0
+with `1 <= a <= b <= block count`, or the anchor must exist in this tenant's canonical.
+Manifest membership (anchor equality or span containment) keeps `origin: "handed"`;
+resolving addresses outside it carry `origin: "direct"`. An invented interval on a real
+source is refused with exit 4, naming the citation; no answer event or answer projection job is emitted,
+and the pending hand-over stays open for a corrected answer. `evidence_handed` is unchanged.
+
+`pkc consult record --question <q> --text-file <f>` (or `-` for stdin) records an answer when
+no hand-over was made: lane `direct`, empty handed evidence, every citation direct, the same
+resolution, fast record builder and `_spawn_recording` emission. It samples `library_ref` at
+recording and leaves `as_of` absent; it cannot reconstruct the earlier reading snapshot.
+Both commands accept `--kind no_record`. Direct recording defaults to `business` and accepts
+`audit` or `silent`, with the same row/job rules as a handed answer. One question, one id, two kept events:
+a failed close leaves the answer correctable; re-running recall to fix it creates another
+hand-over instead. No kept record is rewritten.
+
 **A map of where something is is not evidence.** The library GLANCE — every page's path,
 title and one-line definition, which fast, deep and the briefing pack all open with — is
 deliberately absent from every manifest: it is how a model decides what to read, counting it
@@ -111,8 +141,9 @@ full are manifest `document` items with every span their bodies carry, because t
 pages whose text actually reached the model. A source section's structure outline in a
 briefing pack (`- <section>  ¶a-b`) is out for the same reason as the glance.
 
-**`miss` is one rule for every lane**: `answer_kind == "no_record"`, or nothing reaching the
-model at all — `domain/consultation.py:is_miss(answer_kind, evidence_handed)`. The predicate
+**`miss` is computed only when an answer exists**, with one rule for every lane: `answer_kind == "no_record"`, or nothing reaching the
+model at all — neither handed evidence nor resolving direct citations. The shared predicate
+is `domain/consultation.py:is_miss(answer_kind, evidence_handed, citations)`. The predicate
 is mechanical rather than each caller's discretion, because everything counting "what the
 library could not answer" is only as truthful as it is.
 
@@ -125,16 +156,20 @@ is the worker's, on the per-user queue the ingest side already drains. The respo
 terminal frame of a stream, wait on nothing: not the write, not a consumer, not a timeout
 bounding either. What that costs is stated rather than hidden — the record is best-effort
 fire-and-forget, and a process death between the answer and the task's commit loses it. What
-it can never cost is the answer.
+it can never cost is the answer. Explicit CLI recording instead awaits persistence with
+`strict=True`: evidence is not published as recorded, nor a handoff consumed, until the write
+succeeds. Projection still runs only on the worker.
 
 Neither half of the emit can exist alone: the row and the job commit together, so no job
 names a consultation that is not there, and no `business` record is written with nobody
-scheduled to read it. The job carries the `consultation_id` and nothing else.
+scheduled to read it. Handoff jobs carry `consultation_id` and `event` (`opening` or `answer`).
+Single-call jobs retain their existing id-only payload; the worker splits the joined record
+into opening and answer deliveries.
 
 - `on_recall(user_id, record)` — the use-side twin of `on_source_indexed`, called by the
   WORKER when it drains that job. `notify_recall` fans out with the same fail-soft rule: a
   component that raises is logged, never a failed job. Called only for `business`
-  consultations.
+  consultations, once for each event; the opening carries no answer or miss classification.
 - `evolve_evidence(user_id) -> str | None` — one mechanical block a component may
   contribute to the evolve proposal's evidence. Core assembles the blocks
   (`components.collect_evolve_evidence`, one header per component, fail-soft per component,
@@ -188,7 +223,7 @@ concept. Two derived tables (service `access_stats.py`):
 
 - `recall_access_hits(user_id, target_kind, target_ref, day, hits, last_seen)` —
   `target_kind` is `claim` / `document` / `source`; one row per target per calendar day,
-  where `day` is the record's `created_at` in UTC. The ledger holds no zone opinion: `time`
+  where `day` is the event's instant in UTC (`created_at` for opening, `answered_at` for answer). The ledger holds no zone opinion: `time`
   owns the subject's calendar, and a second answer to "which day is this" is exactly what
   makes two projections disagree about one afternoon. Rows are written from a record's
   `evidence_handed` ∪ `citations` (a cited item counts once more than one merely handed
@@ -215,29 +250,21 @@ ranked window. `last_accessed_at` is the whole history's answer and not the wind
 last read forty-five days ago has a real last access and no recent hits.
 
 No score is stored. Heat is computed at read time as `Σ hits × 0.5^(age_days / half_life)`
-with `ATTENTION_HALF_LIFE_DAYS` (default 14), so the projection is a pure function of the
-records and a rebuild is a replay: re-apply every `business` record already stamped
-`projected_at` into a replacement set and swap it in atomically (one transaction: the user's
-rows out, the rebuilt rows in), so no reader sees a gap. Each page of the walk is folded
-into the running sums and dropped — the rows are a summation over distinct targets, so a
-rebuild's memory does not grow with how much the library has been used.
+with `ATTENTION_HALF_LIFE_DAYS` (default 14). Handed addresses count on opening; citations
+and misses count on answer. The report separately counts openings, handed addresses, answers,
+citations, misses and unanswered consultations in its window; unanswered is not a miss.
 
-**Only stamped records are replayed**, because API writes stay live while a rebuild runs. A
-consultation inserted before the scan cursor reaches it is in the table with `projected_at`
-null and its own projection job still queued; replayed here it would be counted twice — once
-into the swap, once by the job that runs afterwards. Excluded, it is applied exactly once by
-that job, and the queue is what makes the reasoning sound: the rebuild holds this user's one
-in-flight claim, so no projection can land between the scan and the swap.
+**Only stamped events are replayed**, in time order through `list_consultation_events`, with
+opening before answer on a tie. `opening_projected_at` and the answer's `projected_at` are
+independent: rebuilding while a later answer is queued preserves the already-applied opening
+and leaves that answer to its own delivery. Each bounded page is folded into running sums
+and dropped, and the rebuilt rows are swapped atomically.
 
-**At most once per record, and the mechanism is one statement.** The `recall_projection`
-job's increments and the consultation's `projected_at` stamp commit in ONE transaction, and
-the stamp is claimed with `projected_at IS NULL` in the `WHERE`: a second job for the same
-consultation updates no row, learns it from the rowcount, and writes nothing. A worker
-killed mid-job and the queue's self-heal on restart both replay their job harmlessly. There
-is no lock in this anywhere — a rebuild runs as a `recall_rebuild` job, and `claim_next`
-refuses to hand out a second job for a user with one in flight, so the replay and the swap
-cannot interleave with that user's projections at all. `scripts/ops/rebuild_derived.py`
-enqueues that job and drains it rather than re-deriving anything itself.
+**At most once per `(consultation_id, event)`.** Each event's increments and its stamp commit
+in one transaction. Claiming only a NULL stamp makes duplicate deliveries no-ops. Rebuild
+leaves both stamps and all kept fields untouched. It runs under this user's one in-flight
+queue claim, so no projection can interleave with the scan and swap.
+`scripts/ops/rebuild_derived.py` enqueues and drains that same `recall_rebuild` job.
 
 What the stamp does not cover, stated plainly because a guarantee nobody can check is worse
 than none: a process death between the commit and the component fan-out that follows it

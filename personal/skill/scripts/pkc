@@ -1,0 +1,2 @@
+#!/bin/sh
+exec pkchome exec -- pkc "$@"

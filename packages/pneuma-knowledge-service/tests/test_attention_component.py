@@ -10,11 +10,15 @@ their replay live in `test_access_stats.py` and, against a real postgres, in
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from pneuma_knowledge_core.domain.canonical import CanonicalDocument
 
 from pneuma_knowledge_service.components.attention import AttentionComponent
+
+# The fixed day every clock-dependent assertion below is pinned to; the component reads the
+# wall clock, and a row placed 'five days ahead' must be five days ahead of THIS day.
+TODAY = date(2026, 8, 31)
 
 # ------------------------------------------------------------------------- the faces
 
@@ -114,13 +118,19 @@ async def test_the_deep_tool_says_the_ledger_is_empty_rather_than_returning_noth
     assert "no consultation was recorded" in await tool.ainvoke({"days": 7})
 
 
-async def test_the_reported_window_does_not_reach_past_the_day_it_says_it_ends_on():
+async def test_the_reported_window_does_not_reach_past_the_day_it_says_it_ends_on(monkeypatch):
     """The report prints `window A..B`. A row dated after B was counted in a window whose
     own header says it does not contain it."""
+    class FixedClock:
+        @staticmethod
+        def now(zone):
+            return datetime(TODAY.year, TODAY.month, TODAY.day, tzinfo=zone)
+
+    monkeypatch.setattr("pneuma_knowledge_service.components.attention.datetime", FixedClock)
     ledger = _Ledger(
         [
             {"target_kind": "document", "target_ref": "memory/topics/pricing.md",
-             "day": datetime.now(timezone.utc).date() + timedelta(days=5), "hits": 99},
+             "day": TODAY + timedelta(days=5), "hits": 99},
         ]
     )
     component = AttentionComponent(content=ledger, templates=_templates)
@@ -295,3 +305,23 @@ def test_attention_is_registrable_by_name_and_contributes_nothing_until_it_is():
             )
     finally:
         reset_components()
+
+
+async def test_attention_names_unanswered_even_when_no_address_was_handed():
+    from unittest.mock import AsyncMock
+
+    ledger = _Ledger([])
+    ledger.consultation_activity = AsyncMock(return_value={
+        "openings": 1, "evidence_handed": 0, "answers": 0,
+        "citations": 0, "misses": 0, "unanswered": 1,
+    })
+    component = AttentionComponent(content=ledger, window_days=30)
+    report = await component.report("synthetic-owner", days=30)
+    assert "openings: 1; handed evidence addresses: 0" in report
+    assert "answers: 0; answer citations: 0; misses: 0; unanswered: 1" in report
+    assert "unanswered is neither a hit nor a miss" in report
+    assert "questions answered with nothing" not in report
+    assert ledger.consultation_activity.call_args.args == ("synthetic-owner",)
+    args = ledger.consultation_activity.call_args.kwargs
+    assert args["until"] - args["since"] == timedelta(days=30)
+    assert await component.evolve_evidence("synthetic-owner") == report

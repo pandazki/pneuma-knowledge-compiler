@@ -2,6 +2,9 @@ __pycache__/
 *.pyc
 *.pyo
 .venv/
+# The personal edition owns its environment; its uv.lock ships like the root lock.
+/personal/.venv/
+!/personal/uv.lock
 .pytest_cache/
 .ruff_cache/
 dist/
@@ -59,3 +62,12 @@ evals/*/scenario.strategist.yaml
 /SUMMARY-*.md
 /CODEX-*.md
 /.codex-review*
+
+# The console dist the personal edition serves is a built artifact (scripts/personal_console_dist.sh)
+personal/src/pkc_personal/console/dist/
+.pnpm-store/
+
+# The tray's build output (personal/desktop/.gitignore covers it for git; the hygiene walker asks git from the root)
+personal/desktop/src-tauri/target/
+personal/desktop/node_modules/
+personal/desktop/dist/

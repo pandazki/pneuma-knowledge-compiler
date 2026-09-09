@@ -34,6 +34,7 @@ citation grammar, same path ownership. Only the framing and the grouping are new
 from __future__ import annotations
 
 from ..prompts import prompt, resolve_or_verbatim
+from ..persona.provenance import annotated_value, inferred_fields, profile_fields
 from .version import SkillVersion
 
 
@@ -46,7 +47,7 @@ def _owner_lines(owner: object) -> list[str]:
     Locale is NOT one of these lines: region, timezone and language are declared — with
     their provenance — by `_environment_section`, and stating them twice in one section, once
     as background and once as an instruction, is how a contract starts contradicting itself."""
-    get = lambda name: (getattr(owner, name, None) or "")  # noqa: E731
+    get = lambda name: annotated_value(owner, name, getattr(owner, name, None) or "")  # noqa: E731
     list_sep = prompt("compile.owner_field.list_separator")
     detail_sep = prompt("compile.owner_field.detail_separator")
     unspecified = prompt("compile.owner_field.unspecified")
@@ -89,8 +90,16 @@ def _owner_lines(owner: object) -> list[str]:
     interests = getattr(owner, "interests", None) or []
     if interests:
         lines.append(
-            prompt("compile.owner_field.interests", value=list_sep.join(interests))
+            prompt(
+                "compile.owner_field.interests",
+                value=annotated_value(owner, "interests", list_sep.join(interests)),
+            )
         )
+    # These fields are normally recall-only; an unconfirmed hypothesis still needs a face.
+    values = profile_fields(owner)
+    for key in inferred_fields(owner):
+        if key in {"level", "preferences.response_language"} and values[key]:
+            lines.append(f"{key}: {annotated_value(owner, key, str(values[key]))}")
     return lines
 
 
@@ -122,6 +131,8 @@ def _timezone_line(owner: object | None, time: object | None) -> str:
         "profile": "compile.owner_env.timezone_profile",
         "deployment_default": "compile.owner_env.timezone_default",
     }.get(source, "compile.owner_env.timezone_unstated")
+    if source == "profile":
+        zone = annotated_value(owner, "locale.timezone", zone)
     return prompt(key, value=zone)
 
 
@@ -139,9 +150,11 @@ def _environment_section(owner: object | None, time: object | None) -> str:
     """
     list_sep = prompt("compile.owner_field.list_separator")
     where = list_sep.join(
-        x for x in (_locale_field(owner, "city"), _locale_field(owner, "country")) if x
+        annotated_value(owner, f"locale.{name}", value)
+        for name in ("city", "country")
+        if (value := _locale_field(owner, name))
     )
-    language = _locale_field(owner, "language")
+    language = annotated_value(owner, "locale.language", _locale_field(owner, "language"))
     lines = [
         prompt("compile.owner_env.region", value=where)
         if where
@@ -187,7 +200,10 @@ def render_system_contract(
     seam as everything else), while a business-authored SkillVersion may store a literal
     sentence and it is emitted as written.
     """
-    templates = "\n".join(f"  - {t}" for t in skill.path_templates)
+    templates = "\n".join(
+        f"  - {t}" + (prompt("compile.owner_voice_template") if t in skill.owner_voice_templates else "")
+        for t in skill.path_templates
+    )
     environment = _environment_section(owner, time)
     owner_section = (
         prompt(

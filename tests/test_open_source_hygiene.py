@@ -443,3 +443,97 @@ def test_scrubbed_private_identifiers_never_come_back() -> None:
         "scrubbed private identifiers are back — replace them with the synthetic "
         "equivalents listed beside SCRUBBED_IDENTIFIERS:\n" + "\n".join(violations[:100])
     )
+
+
+def _personal_files() -> list[Path]:
+    """Authored assets plus the lock, excluding only ignored local runtime/build state."""
+    files = [p for p in (ROOT / "personal").rglob("*")
+             if p.is_file() and not any(part in SKIP_PARTS for part in p.parts)]
+    ignored = _git_ignored(files)
+    return [p for p in files if p not in ignored]
+
+
+def test_personal_imports_only_its_package_the_library_and_external_dependencies():
+    import ast
+    import sys
+    from importlib.metadata import packages_distributions
+
+    allowed = sys.stdlib_module_names | {"pkc_personal", "pneuma_knowledge_core", "pneuma_knowledge_service"}
+    third_parties = set(packages_distributions())
+    violations = []
+    for path in _personal_files():
+        if path.suffix != ".py":
+            continue
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            names = []
+            if isinstance(node, ast.Import):
+                names = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                names = [node.module or ""]
+            for name in names:
+                top = name.split(".")[0]
+                if top in allowed:
+                    continue
+                if top in third_parties and not top.startswith("pneuma_knowledge_"):
+                    continue
+                if (path.parent / f"{top}.py").is_file():
+                    continue  # a sibling helper module (a test importing its fixtures)
+                violations.append(f"{path.relative_to(ROOT)}:{node.lineno}: {name}")
+    assert not violations, "personal edition dependency violations:\n" + "\n".join(violations)
+
+
+def test_personal_assets_do_not_reach_into_other_applications():
+    import tomllib
+
+    manifest = ROOT / "personal" / "pyproject.toml"
+    sources = tomllib.loads(manifest.read_text())["tool"]["uv"]["sources"]
+    allowed_paths = {entry["path"] for entry in sources.values()}
+    assert allowed_paths == {"../packages/pneuma-knowledge-core", "../packages/pneuma-knowledge-service"}
+    violations = []
+    for path in _personal_files():
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue  # an icon or another binary asset names no path
+        if path == manifest:
+            # Exactly the source declarations, not an exception for the whole manifest.
+            text = re.sub(r"(?ms)^\[tool\.uv\.sources\]\n.*?(?=^\[|\Z)", "", text)
+        elif path.name == "uv.lock":
+            # uv repeats the declared editable sources AND publishes PyPI URLs containing
+            # '/packages/'. Validate those generated values; authored text gets no exemption.
+            lock = tomllib.loads(text)
+            for package in lock["package"]:
+                source = package["source"]
+                assert set(source) <= {"editable", "registry"}, source
+                if "editable" in source:
+                    assert source["editable"] in allowed_paths | {"."}, source
+                if "registry" in source:
+                    assert source["registry"] == "https://pypi.org/simple", source
+                for artifact in [*package.get("wheels", []), *([package["sdist"]] if "sdist" in package else [])]:
+                    assert artifact["url"].startswith("https://files.pythonhosted.org/packages/"), artifact
+                    text = text.replace(artifact["url"], "")
+            for declared in allowed_paths:
+                text = text.replace(declared, "")
+        # A path segment, not a substring: `@tauri-apps/api` is an npm scope and
+        # `files.pythonhosted.org/packages/` a registry, neither a reach into this repository.
+        reach = re.compile(r"(?<![\w@.-])(?:scaffold|apps|examples|packages)/")
+        for line_number, line in enumerate(text.splitlines(), 1):
+            if reach.search(line):
+                violations.append(f"{path.relative_to(ROOT)}:{line_number}")
+    assert not violations, "personal edition reads another application's paths:\n" + "\n".join(violations)
+
+
+def test_the_library_and_other_applications_do_not_depend_on_personal():
+    candidates = [p for directory in ("packages", "apps", "scaffold")
+                  for p in (ROOT / directory).rglob("*")
+                  if p.is_file() and not any(part in SKIP_PARTS for part in p.parts)]
+    ignored = _git_ignored(candidates)
+    violations = []
+    for path in candidates:
+        if path in ignored:
+            continue
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        for number, line in enumerate(text.splitlines(), 1):
+            if "pkc_personal" in line or "personal/" in line:
+                violations.append(f"{path.relative_to(ROOT)}:{number}")
+    assert not violations, "dependency direction must remain personal -> library:\n" + "\n".join(violations)

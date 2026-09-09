@@ -74,8 +74,8 @@ class Settings(BaseSettings):
     # is long enough to cover an interrupted afternoon and short enough that a forgotten round
     # does not hold a user's queue overnight. Past it the draft is deleted and its job
     # requeued — the same outcome a worker killed mid-job gets, and never a canonical write:
-    # an unfinished round wrote nothing. 0 disables draft protection entirely, which is the
-    # pre-agent behaviour (every claimed job is requeued on worker start).
+    # an unfinished round wrote nothing. 0 disables idle-draft protection; a live worker's
+    # launch lease still protects its round independently of the draft timestamp.
     compile_draft_ttl: int = 6 * 60 * 60
 
     # How long a PENDING RECALL HANDOFF survives before the same startup self-heal deletes it
@@ -87,6 +87,20 @@ class Settings(BaseSettings):
     # left no consultation, which is what actually happened. 0 disables the sweep, and the
     # rows then live until they are answered or deleted by hand.
     recall_handoff_ttl: int = 24 * 60 * 60
+
+    # WHICH tenants this worker is allowed to drain, comma-separated. Empty (the default)
+    # means every tenant — one worker over one stack, exactly as it has always behaved.
+    #
+    # It exists because one Postgres can carry more than one library, and a library IS a
+    # tenant (docs/design/single-machine-edition.md §11.7): each library's engine process
+    # registers its own compile contract, so a worker that claimed another library's job
+    # would compile that knowledge under the wrong contract. The restriction lives in the
+    # claim query itself rather than in a claim-then-release: putting a job back would
+    # already have spent that tenant's single in-flight slot, and everything queued behind
+    # it would wait on a round this process is never going to run. The startup self-heal is
+    # narrowed the same way — another engine's claimed job is that engine's work in flight,
+    # not an orphan of this one.
+    worker_tenants: str = ""
 
     # WHICH coding agent is typing the `pkc draft` commands, when one is. Set by whoever
     # launched the session — the unattended launcher, or the console's bridge — and left
@@ -191,6 +205,7 @@ class Settings(BaseSettings):
     # and real overlap; `recursive` = chonkie RecursiveChunker for structure-heavy docs.
     # chonkie counts in tokens; its default character tokenizer is ~1 token/char for CJK,
     # so chunk_size 768 ≈ the prior ~800-char sizing. See ingest/chunking.py.
+    semantic_retrieval: Literal["on", "off"] = "on"
     chunk_strategy: str = "semantic"
     chunk_size: int = 768
     chunk_overlap: int = 128
@@ -509,6 +524,18 @@ class Settings(BaseSettings):
     langfuse_base_url: str = Field(default="", validation_alias="LANGFUSE_BASE_URL")
 
 
+    def worker_tenant_ids(self) -> tuple[str, ...]:
+        """`worker_tenants` as the list the queue actually restricts on.
+
+        Blank entries and repeats are dropped, order is preserved, and an empty result means
+        exactly what an unset variable means: no restriction, every tenant."""
+        seen: dict[str, None] = {}
+        for tenant in self.worker_tenants.split(","):
+            name = tenant.strip()
+            if name:
+                seen[name] = None
+        return tuple(seen)
+
     @field_validator("model_pricing")
     @classmethod
     def _pricing_must_parse(cls, value: str) -> str:
@@ -534,9 +561,11 @@ def get_settings() -> Settings:
     over ONLY the keys the process environment leaves unstated — that is where the precedence
     rule is mechanically enforced, rather than in a comment asking callers to be careful.
 
-    With no engine directory configured this is `Settings()` and nothing more.
+    `PNEUMA_KNOWLEDGE_ENV_FILE` selects the dotenv file from the process environment;
+    empty disables dotenv, and unset preserves the working directory's `.env` default.
     """
-    base = Settings()
+    env_file = os.environ.get("PNEUMA_KNOWLEDGE_ENV_FILE", ".env") or None
+    base = Settings(_env_file=env_file)
     if not base.engine_dir.strip():
         return base
     from .engine.resolve import engine_overrides  # local: engine imports Settings
@@ -544,4 +573,4 @@ def get_settings() -> Settings:
     overrides, _resolution = engine_overrides(base.engine_dir.strip(), os.environ)
     if not overrides:
         return base
-    return Settings(**overrides)
+    return Settings(_env_file=env_file, **overrides)

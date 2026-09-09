@@ -114,3 +114,11 @@ test("a page is labelled by its last segment; an anchor and a span keep their gr
   assert.equal(addressLabel(parseAddress({ ...SPAN, ref: "src-01 ¶7" })), "src-01 ¶7");
   assert.equal(addressLabel(parseAddress(PAGE)), "delivery.md");
 });
+
+test("unanswered is a separate outcome with handed evidence and no answer", async () => {
+  const { consultationOutcome } = await import(moduleUrl);
+  assert.equal(consultationOutcome({ state: "unanswered", miss: null }), "unanswered");
+  assert.equal(consultationOutcome({ state: "answered", miss: true }), "miss");
+  assert.equal(consultationOutcome({ state: "answered", miss: false }), "answered");
+  assert.deepEqual(evidenceRows([CLAIM, SPAN], []).map(row => row.cited), [false, false]);
+});

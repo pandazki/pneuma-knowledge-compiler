@@ -34,6 +34,29 @@ from pneuma_knowledge_service.workers import compile_worker
 USER = UserId("u-exec-1")
 
 
+@pytest.mark.parametrize("compile_spec,evolve_spec,expected", [
+    ("agent:codex", "", ["codex"]),
+    ("openrouter:x/compile", "agent:claude-code", ["claude-code"]),
+    ("agent:codex", "agent:claude-code", ["codex", "claude-code"]),
+])
+async def test_startup_probes_each_configured_harness_once(monkeypatch, compile_spec, evolve_spec, expected):
+    import importlib
+    from pneuma_knowledge_service.wiring import probe_compile_executor
+
+    called = []
+
+    async def probe(manifest):
+        called.append(manifest.name)
+        return SimpleNamespace(ok=True, reason="synthetic live harness")
+
+    monkeypatch.setattr(importlib.import_module("pneuma_knowledge_service.coding_agent.probe"), "probe", probe)
+    await probe_compile_executor(settings(
+        llm_model_compile=compile_spec, llm_model_evolve=evolve_spec,
+        agent_unattended=True, agent_probe_on_start=True,
+    ))
+    assert called == expected
+
+
 def settings(**kwargs) -> Settings:
     """Settings with every role stated, so a deployment's `.env` cannot decide a test.
 
@@ -99,11 +122,10 @@ def test_an_unknown_backend_fails_and_names_it():
         ("recall", "llm_model_recall"),
         ("answer", "llm_model_answer"),
         ("deep", "llm_model_deep"),
-        ("evolve", "llm_model_evolve"),
         ("skill", "llm_model_skill"),
     ],
 )
-def test_only_compile_may_run_on_an_agent_and_the_refusal_names_the_role(role, field):
+def test_roles_without_draft_doors_refuse_agents_and_name_the_role(role, field):
     with pytest.raises(ValueError) as err:
         executor_for(settings(**{field: "agent:codex"}), role)
     assert role in str(err.value)
@@ -122,15 +144,17 @@ def test_a_role_that_would_borrow_compiles_agent_spec_falls_to_the_base_model():
         llm_model_brief="",
     )
     check_executors(config)
-    for role in ("evolve", "challenge", "brief"):
+    assert resolve_model_name(config, "evolve") == "agent:codex"
+    assert executor_for(config, "evolve").is_agent
+    for role in ("challenge", "brief"):
         assert resolve_model_name(config, role) == "openrouter:x/base"
         assert executor_for(config, role).kind == "langchain"
     # compile itself still resolves to the agent.
     assert executor_for(config, "compile").kind == "agent"
-    # …and a role that STATES the agent in its own field is still refused by name.
+    assert executor_for(config.model_copy(update={"llm_model_evolve": "agent:claude-code"}), "evolve").backend == "claude-code"
     with pytest.raises(ValueError) as err:
-        executor_for(settings(llm_model_evolve="agent:codex"), "evolve")
-    assert "evolve" in str(err.value)
+        executor_for(config.model_copy(update={"llm_model_challenge": "agent:codex"}), "challenge")
+    assert "challenge" in str(err.value)
 
 
 def test_a_base_model_may_not_be_an_agent():

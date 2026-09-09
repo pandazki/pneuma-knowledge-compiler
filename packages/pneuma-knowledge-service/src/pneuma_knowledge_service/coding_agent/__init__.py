@@ -26,7 +26,13 @@ from __future__ import annotations
 
 from .backends import BACKENDS, BLOCK_END, BLOCK_START, SKILL_NAME, BackendManifest, backend
 from .deployment import refresh_skill_installs, resolve_deployment
-from .install import install_skill_package, verify_skill_package
+from .install import (
+    SkillWriteRefused,
+    install_skill_package,
+    verify_rendered_package,
+    verify_skill_package,
+    write_skill_package,
+)
 from .launcher import LaunchRequest, LaunchResult, launch_round
 from .probe import ProbeResult, probe
 from .skillpack import SkillPackage, render_skill_package
@@ -41,6 +47,7 @@ __all__ = [
     "LaunchResult",
     "ProbeResult",
     "SkillPackage",
+    "SkillWriteRefused",
     "backend",
     "launch_round",
     "probe",
@@ -48,5 +55,7 @@ __all__ = [
     "refresh_skill_installs",
     "resolve_deployment",
     "render_skill_package",
+    "verify_rendered_package",
     "verify_skill_package",
+    "write_skill_package",
 ]

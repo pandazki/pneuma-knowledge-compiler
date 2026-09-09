@@ -29,7 +29,7 @@ from pneuma_knowledge_core.components import registered_components
 from pneuma_knowledge_core.domain.archive import any_archived, live_documents
 from pneuma_knowledge_core.domain.consultation import ConsultationRecord, EvidenceRef
 from pneuma_knowledge_core.domain.ids import UserId, SourceId
-from pneuma_knowledge_core.domain.intake import INTAKE_ARCHETYPES, IntakeArchetype
+from pneuma_knowledge_core.domain.intake import IntakeArchetype, intake_archetypes
 from pneuma_knowledge_core.domain.snapshot import SnapshotRef
 from pneuma_knowledge_core.domain.source import ConversationTurn, SourceOrigin
 from pneuma_knowledge_core.domain.time_context import time_context_for
@@ -75,6 +75,7 @@ from ...ingest_document import ingest_document, preview_document
 from ...ingest_sources import ingest_source_contract
 from ...kb_snapshots import KbSnapshot, SnapshotNotFound, SnapshotNotReady
 from ...pagination import CursorError, decode_cursor, encode_cursor
+from ...persona_profile import flatten_updates, save_owner_profile
 from ...pricing import lane_cost
 from ...skills import packs_for_user, skill_for_user
 from ...snapshot_tenant import assert_writable
@@ -170,10 +171,12 @@ RECORDING_DRAIN_SECONDS = 2.0
 
 
 def _spawn_recording(
-    ctx: AppContext, user: UserId, record: ConsultationRecord | None
+    ctx: AppContext, user: UserId, record: ConsultationRecord | None, *, strict: bool = False
 ) -> asyncio.Task | None:
-    """EMIT one consultation. Nothing waits on this — not the response, not the terminal
-    frame of a stream.
+    """Emit consultation events; HTTP responses and stream frames do not wait on this.
+
+    Explicit CLI recording uses `strict=True`, awaits the task, and observes persistence
+    errors before reporting success or consuming a handoff.
 
     The write runs as a detached background task: it writes the row and, for a `business`
     visitor, enqueues one `recall_projection` job in the same transaction. Consuming that
@@ -192,13 +195,20 @@ def _spawn_recording(
     with a timeout, which is a smaller version of the same wrong promise, because an answer
     already produced should not wait on bookkeeping about it at all.
     """
-    if record is None:
+    if record is None or record.visitor_class == "silent":
         return None
 
     async def write() -> None:
         try:
-            await ctx.store.create_consultation(user, record)
+            if record.event == "answer":
+                await ctx.store.answer_consultation(user, record)
+            else:
+                await ctx.store.create_consultation(user, record)
         except Exception:  # noqa: BLE001 — a record never fails the answer it is about
+            if strict:
+                # A CLI explicitly recording an event must observe persistence/refusal
+                # before printing success or deleting the handoff it needs for correction.
+                raise
             _log.warning(
                 "consultation %s (%s) could not be recorded for user %s; continuing",
                 record.consultation_id,
@@ -967,7 +977,11 @@ async def put_profile(
     profile = UserProfile.model_validate(merged)
     # mode="json": the profile now holds datetimes (locale.timezone_history[].changed_at) and
     # the store hands the dict straight to a jsonb parameter, which cannot serialize one.
-    await ctx.store.upsert_user_profile(user, profile.model_dump(mode="json"))
+    profile, _ = await save_owner_profile(
+        ctx.store, user, getattr(getattr(ctx, "settings", None), "engine_dir", ""),
+        flatten_updates(patch),
+        provenance="owner", current=profile,
+    )
     return profile
 
 
@@ -2112,15 +2126,17 @@ class DocumentIngestIn(DocumentPreviewIn):
 
 
 @root_router.get("/intake/archetypes", response_model=list[IntakeArchetype])
-async def list_intake_archetypes() -> list[IntakeArchetype]:
+async def list_intake_archetypes(request: Request) -> list[IntakeArchetype]:
     """The intake archetype registry — the closed set of processing intents (core is the
     single source of truth; the UI fetches this rather than inlining a copy)."""
-    return INTAKE_ARCHETYPES
+    return intake_archetypes(
+        semantic_retrieval=_ctx(request).settings.semantic_retrieval == "on"
+    )
 
 
 @router.post("/sources/document/preview", response_model=DocumentPreviewOut)
 async def post_document_preview(
-    user_id: str, body: DocumentPreviewIn
+    user_id: str, body: DocumentPreviewIn, request: Request
 ) -> DocumentPreviewOut:
     """Normalize + propose an IntakePlan with NO side effects (§4: plan is a proposal)."""
     try:
@@ -2130,6 +2146,7 @@ async def post_document_preview(
             intake_archetype=body.intake_archetype or None,
             declared_type=body.declared_type,
             source_class=body.source_class,
+            semantic_retrieval=_ctx(request).settings.semantic_retrieval == "on",
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -2746,6 +2763,7 @@ class EvidenceRefOut(BaseModel):
     kind: str
     ref: str
     path: str = ""
+    origin: str = "handed"
 
 
 class ConsultationSummaryOut(BaseModel):
@@ -2764,10 +2782,13 @@ class ConsultationSummaryOut(BaseModel):
     lane: str
     visitor_class: str
     question: str
-    miss: bool
+    miss: bool | None
+    state: Literal["unanswered", "answered"] = "answered"
+    answered_at: datetime | None = None
     answer_kind: str | None = None
     library_ref: str = ""
     citation_count: int = 0
+    citations_direct: int = 0
     evidence_count: int = 0
     token_usage: dict[str, int] = {}
     cost: CostOut | None = None
@@ -2781,9 +2802,9 @@ class ConsultationPageOut(BaseModel):
 class ConsultationOut(ConsultationSummaryOut):
     """The whole record — the audit chain for one answer.
 
-    `citations` is a SUBSET of `evidence_handed` by construction: a marker is admitted only
-    when its resolved address is in the manifest the lane published, so a real source id with
-    an invented interval on it is prose, not provenance.
+    `citations` carries handed addresses and agent citations resolved directly against
+    this tenant's L0 or canonical anchors, with explicit origins. Direct reading never
+    expands `evidence_handed`; invalid addresses are refused before an agent answer records.
     """
 
     as_of: datetime | None = None
@@ -2804,18 +2825,21 @@ def _consultation_out(record: ConsultationRecord, settings: Any) -> Consultation
         visitor_class=record.visitor_class,
         question=record.question,
         miss=record.miss,
+        state=record.state,
+        answered_at=record.answered_at,
         answer_kind=record.answer_kind,
         library_ref=record.library_ref,
         citation_count=len(record.citations),
+        citations_direct=record.citations_direct,
         evidence_count=len(record.evidence_handed),
         as_of=record.as_of,
         answer=record.answer,
         evidence_handed=[
-            EvidenceRefOut(kind=r.kind, ref=r.ref, path=r.path)
+            EvidenceRefOut(kind=r.kind, ref=r.ref, path=r.path, origin=r.origin)
             for r in record.evidence_handed
         ],
         citations=[
-            EvidenceRefOut(kind=r.kind, ref=r.ref, path=r.path) for r in record.citations
+            EvidenceRefOut(kind=r.kind, ref=r.ref, path=r.path, origin=r.origin) for r in record.citations
         ],
         degraded=[[a, b] for a, b in record.degraded],
     )
@@ -2827,7 +2851,7 @@ async def list_consultations(
     request: Request,
     limit: int = Query(default=25, ge=1, le=100),
     cursor: str | None = None,
-    lane: Literal["fast", "deep", "briefing_ask"] | None = None,
+    lane: Literal["fast", "deep", "briefing_ask", "direct"] | None = None,
     visitor_class: Literal["audit", "business"] | None = None,
     miss: bool | None = None,
     target: str | None = Query(default=None, max_length=400),

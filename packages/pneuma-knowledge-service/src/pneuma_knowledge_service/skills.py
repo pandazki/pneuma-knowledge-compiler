@@ -24,6 +24,7 @@ import logging
 from datetime import datetime, timezone
 
 from pneuma_knowledge_core.compile.runner import with_skill_trailer
+from pneuma_knowledge_core.compile.session import content_sha256
 from pneuma_knowledge_core.domain.ids import UserId
 from pneuma_knowledge_core.skill import (
     SchemaPack,
@@ -38,6 +39,46 @@ _log = logging.getLogger(__name__)
 # Non-canonical meta path inside the per-user git repo (off the compile gate).
 _MANIFEST_PATH = "skill/manifest.json"
 MANIFEST_PATH = _MANIFEST_PATH  # public alias (evolve rides the same manifest on its branch)
+
+
+def manifest_base(settings, manifest: dict) -> tuple[SkillVersion, bool]:
+    """An adopted contract belongs to this tenant's manifest, never the global registry."""
+    if manifest.get("base_contract") is not None:
+        return SkillVersion.model_validate(manifest["base_contract"]), False
+    return base_named_or_current(settings, str(manifest.get("base_version") or ""))
+
+
+def manifest_skill(settings, manifest: dict) -> SkillVersion:
+    """Reconstruct the version recorded with the library, including structural revisions."""
+    base, _ = manifest_base(settings, manifest)
+    try:
+        packs = [SchemaPack(**p) for p in manifest.get("packs", [])]
+    except TypeError as exc:
+        raise ValueError(f"malformed schema pack: {exc}") from exc
+    return compose_manifest_skill(base, packs, manifest.get("path_templates"))
+
+
+def compose_manifest_skill(
+    base: SkillVersion, packs: list[SchemaPack], path_templates: list[str] | None = None,
+) -> SkillVersion:
+    composed = compose_skill(base, packs)
+    if path_templates is None or path_templates == composed.path_templates:
+        return composed
+    from pneuma_knowledge_core.skill.pack import _require_valid_template
+
+    if not isinstance(path_templates, list) or any(not isinstance(t, str) for t in path_templates):
+        raise ValueError("path_templates must be a list of strings")
+    for template in path_templates:
+        _require_valid_template(template)
+    templates = list(dict.fromkeys(path_templates))
+    return SkillVersion.from_parts(
+        skill_id=composed.skill_id,
+        version=f"{composed.version}+paths.{content_sha256(chr(10).join(templates))[:12]}",
+        instructions=composed.instructions,
+        path_templates=templates,
+        contract_rules=composed.contract_rules,
+        owner_voice_templates=[t for t in composed.owner_voice_templates if t in templates],
+    )
 
 
 def base_named_or_current(settings, named: str) -> tuple[SkillVersion, bool]:
@@ -95,10 +136,10 @@ async def packs_for_user(ctx, user_id: UserId) -> list[SchemaPack]:
     manifest, packs disabled, or a malformed entry all mean "no blurbs", and the glance still
     lists what exists.
     """
-    if not ctx.settings.user_schema_packs:
-        return []
     manifest = await _read_manifest(ctx, user_id)
     if manifest is None:
+        return []
+    if not ctx.settings.user_schema_packs and not manifest.get("agent_evolved"):
         return []
     packs: list[SchemaPack] = []
     for entry in manifest.get("packs", []) or []:
@@ -167,20 +208,13 @@ async def path_templates_for(settings, canonical, user_id: UserId) -> list[str]:
     about, one layer down.
     """
     try:
-        if not settings.user_schema_packs:
-            return list(load_skill_base(settings.user_schema_base_version).path_templates)
         raw = await canonical.read_meta(user_id, _MANIFEST_PATH)
         manifest = json.loads(raw) if raw else None
         if not isinstance(manifest, dict):
             return list(load_skill_base(settings.user_schema_base_version).path_templates)
-        base, _retired = base_named_or_current(
-            settings, str(manifest.get("base_version") or "")
-        )
-        try:
-            packs = [SchemaPack(**p) for p in manifest.get("packs", [])]
-        except TypeError as exc:
-            raise ValueError(f"malformed schema pack: {exc}") from exc
-        return list(compose_skill(base, packs).path_templates)
+        if not settings.user_schema_packs and not manifest.get("agent_evolved"):
+            return list(load_skill_base(settings.user_schema_base_version).path_templates)
+        return list(manifest_skill(settings, manifest).path_templates)
     except LookupError:
         # No contract base is registered at all: a keyless test, a fresh install. Expected,
         # and not a failure to warn about — there is simply nothing declared to group by.
@@ -215,21 +249,16 @@ async def composed_skill_readonly(settings, canonical, user_id: UserId) -> Skill
     first compile will use.
     """
     base = load_skill_base(settings.user_schema_base_version)
-    if not settings.user_schema_packs or canonical is None:
+    if canonical is None:
         return base
     try:
         raw = await canonical.read_meta(user_id, _MANIFEST_PATH)
         manifest = json.loads(raw) if raw else None
         if not isinstance(manifest, dict):
             return base
-        named, _retired = base_named_or_current(
-            settings, str(manifest.get("base_version") or "")
-        )
-        try:
-            packs = [SchemaPack(**p) for p in manifest.get("packs", [])]
-        except TypeError as exc:
-            raise ValueError(f"malformed schema pack: {exc}") from exc
-        return compose_skill(named, packs)
+        if not settings.user_schema_packs and not manifest.get("agent_evolved"):
+            return base
+        return manifest_skill(settings, manifest)
     except (OSError, ValueError) as exc:
         _log.warning(
             "the composed contract for %s could not be read (%s: %s); using the "
@@ -244,16 +273,13 @@ async def composed_skill_readonly(settings, canonical, user_id: UserId) -> Skill
 async def skill_for_user(ctx, user_id: UserId) -> SkillVersion:
     """The SkillVersion this user compiles with (see module docstring)."""
     settings = ctx.settings
-    if not settings.user_schema_packs:
-        return load_skill_base(settings.user_schema_base_version)
-
     manifest = await _read_manifest(ctx, user_id)
+    if not settings.user_schema_packs and not (manifest or {}).get("agent_evolved"):
+        return load_skill_base(settings.user_schema_base_version)
     if manifest is not None:
-        base, retired = base_named_or_current(
-            settings, str(manifest.get("base_version") or "")
-        )
+        base, retired = manifest_base(settings, manifest)
         packs = [SchemaPack(**p) for p in manifest.get("packs", [])]
-        composed = compose_skill(base, packs)
+        composed = manifest_skill(settings, manifest)
         if retired:
             # The contract this user was composed against is no longer registered: the
             # operator advanced the engine. A new version is meant to shape future compiles,

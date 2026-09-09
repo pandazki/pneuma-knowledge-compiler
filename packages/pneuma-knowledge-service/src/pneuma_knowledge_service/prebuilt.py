@@ -355,7 +355,8 @@ async def rebuild_source_indexes(ctx: AppContext, user_id: UserId) -> int:
     then rebuild per source through the shared plan dispatch, so a restore and a rebuild
     produce the same indexes."""
     await ctx.lexical.delete_user(user_id)
-    await ctx.vectors.delete_chunks(user_id)
+    if ctx.vectors is not None:
+        await ctx.vectors.delete_chunks(user_id)
     sources = await ctx.store.list(user_id)
     for raw in sources:
         normalized = await ctx.store.get(user_id, raw.source_id)

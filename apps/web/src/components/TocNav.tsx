@@ -1,5 +1,6 @@
 import { useApp } from "@/lib/store";
 import { isViewVisible, type Lens } from "@/lib/lenses";
+import { modelLaneLocked } from "@/lib/modelLanes";
 import { useT } from "@/lib/useT";
 import type { MessageKey } from "@/lib/i18n";
 import type { ViewName } from "@/lib/types";
@@ -16,6 +17,17 @@ interface TocGroup {
   group: MessageKey;
   items: TocItem[];
 }
+
+/**
+ * The machine's own entry, above the book. It is not a chapter — it is not about this
+ * library at all — so it carries no § number and sits outside the numbering, and it is
+ * PREPENDED only when a home answered (`HOME_GROUP` below). On every project deployment the
+ * rail is the table it always was.
+ */
+const HOME_GROUP: TocGroup = {
+  group: "nav.group.machine",
+  items: [{ view: "home", no: "", label: "nav.view.home" }],
+};
 
 /**
  * The chapter table from DESIGN.md §3 (the hidden "components" route stays out of it).
@@ -80,12 +92,15 @@ export const TOC: TocGroup[] = [
  * filters the one chapter table through `VIEW_LENSES`, so a view added to the table without
  * a lens declaration is a build error rather than a page a visitor finds by scrolling.
  */
-export function tocForLens(lens: Lens): TocGroup[] {
-  if (lens === "owner") return TOC;
-  return TOC.map((group) => ({
-    ...group,
-    items: group.items.filter((item) => isViewVisible(item.view, lens)),
-  })).filter((group) => group.items.length > 0);
+export function tocForLens(lens: Lens, hasHome = false): TocGroup[] {
+  const table = hasHome ? [HOME_GROUP, ...TOC] : TOC;
+  if (lens === "owner") return table;
+  return table
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => isViewVisible(item.view, lens)),
+    }))
+    .filter((group) => group.items.length > 0);
 }
 
 export interface TocNavProps {
@@ -113,8 +128,13 @@ export function TocNav({ onNavigate }: TocNavProps) {
   const view = useApp((s) => s.view);
   const lens = useApp((s) => s.lens);
   const setView = useApp((s) => s.setView);
+  const hasHome = useApp((s) => s.home != null);
+  // A key this library does not have closes the three model lanes, but it must not edit the
+  // table of contents: the map of the console is the same map, and an entry that vanished
+  // with a credential would teach that the page was never there.
+  const home = useApp((s) => s.home);
   const t = useT();
-  const groups = tocForLens(lens);
+  const groups = tocForLens(lens, hasHome);
   const chapters = lens === "owner";
 
   return (
@@ -131,6 +151,7 @@ export function TocNav({ onNavigate }: TocNavProps) {
             {chapters && <p className="px-2 pb-1 text-12 text-ink-3">{t(group.group)}</p>}
             {group.items.map((item) => {
               const active = item.view === view;
+              const locked = modelLaneLocked(item.view, home);
               return (
                 <button
                   key={item.view}
@@ -155,10 +176,21 @@ export function TocNav({ onNavigate }: TocNavProps) {
                         active ? "text-accent" : "text-ink-3",
                       )}
                     >
-                      §{item.no}
+                      {/* The machine's entry is outside the numbering, so its cell is empty
+                          rather than reading 「§」 — the column still aligns. */}
+                      {item.no === "" ? "" : `§${item.no}`}
                     </span>
                   )}
                   <span className="min-w-0 truncate">{t(item.label)}</span>
+                  {/* The entry stays; it is marked. One quiet word, and the reason on hover. */}
+                  {locked && (
+                    <span
+                      title={t("nav.modelLane.title")}
+                      className="shrink-0 rounded-1 border border-line-2 px-1 font-mono text-12 text-ink-3"
+                    >
+                      {t("nav.modelLane.badge")}
+                    </span>
+                  )}
                 </button>
               );
             })}

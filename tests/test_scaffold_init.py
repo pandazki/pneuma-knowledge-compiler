@@ -672,6 +672,37 @@ def test_strategies_catalog_is_empty_outside_a_framework_repo(tmp_path):
     assert init.strategies_catalog(tmp_path) == []
 
 
+def test_the_scaffold_starts_an_engine_from_the_librarys_own_templates():
+    """No second copy of the contract / profile / engine-README skeletons.
+
+    The generator loads them by path (it runs before any environment exists); the installed
+    package is what the personal edition will import. Both must be the same bytes, or the
+    two editions start different engines.
+    """
+    from pneuma_knowledge_service.engine import template_files
+
+    for name in template_files.template_names():
+        for language in ("en", "zh"):
+            assert init.engine_template(name, language) == template_files.template_text(
+                name, language
+            )
+    assert not list((ROOT / "scaffold" / "templates").glob("contract.*.md"))
+    assert not list((ROOT / "scaffold" / "templates").glob("profile.*.yaml"))
+    assert not list((ROOT / "scaffold" / "templates").glob("engine-README.*.md"))
+
+
+def test_the_port_and_subnet_probes_are_the_librarys():
+    """The scaffold delegates, so a generated project and the personal edition probe alike."""
+    from pneuma_knowledge_service.infra import ports as library_ports
+
+    probed = init.probe_free_ports(4)
+    assert len(set(probed)) == 4
+    for port in probed:
+        assert library_ports.DEFAULT_PORT_RANGE[0] <= port <= library_ports.DEFAULT_PORT_RANGE[1]
+    subnet = init.probe_free_subnet()
+    assert subnet.startswith("10.") and subnet.endswith(".0/24")
+
+
 @pytest.mark.parametrize(
     ("raw", "expected"),
     [("My KB!", "my-kb"), ("已经是中文", "my-kb"), ("ok-name-9", "ok-name-9")],

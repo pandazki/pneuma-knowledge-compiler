@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 
 from ..domain.archive import (
@@ -242,6 +242,8 @@ class PatchDraft:
     """Working copy of the canonical file table plus claim-level mutations."""
 
     path_templates: list[str]
+    owner_voice_templates: list[str] = field(default_factory=list, kw_only=True)
+    owner_authored_blocks: dict[str, list[int]] = field(default_factory=dict, kw_only=True)
     _base: dict[str, DraftDoc] = field(default_factory=dict)
     _working: dict[str, DraftDoc] = field(default_factory=dict)
     #: The paths this round has actually LOOKED AT (`read_document`, and the document a
@@ -272,6 +274,8 @@ class PatchDraft:
         path_templates: list[str],
         *,
         overview_budget_chars: int = OVERVIEW_BUDGET_CHARS,
+        owner_voice_templates: Sequence[str] = (),
+        owner_authored_blocks: Mapping[str, list[int]] | None = None,
     ) -> "PatchDraft":
         base = {
             d.path: DraftDoc(
@@ -288,6 +292,8 @@ class PatchDraft:
         }
         return cls(
             path_templates=list(path_templates),
+            owner_voice_templates=list(owner_voice_templates),
+            owner_authored_blocks=dict(owner_authored_blocks or {}),
             _base=base,
             _working=working,
             overview_budget_chars=overview_budget_chars,
@@ -309,6 +315,10 @@ class PatchDraft:
         """This draft as a JSON-serializable document (lossless; see `from_state`)."""
         return {
             "path_templates": list(self.path_templates),
+            **({
+                "owner_voice_templates": list(self.owner_voice_templates),
+                "owner_authored_blocks": {sid: list(indices) for sid, indices in self.owner_authored_blocks.items()},
+            } if self.owner_voice_templates else {}),
             "overview_budget_chars": int(self.overview_budget_chars),
             "base": {p: _doc_state(d) for p, d in self._base.items()},
             "working": {p: _doc_state(d) for p, d in self._working.items()},
@@ -336,6 +346,8 @@ class PatchDraft:
         }
         draft = cls(
             path_templates=[str(t) for t in (state.get("path_templates") or [])],
+            owner_voice_templates=list(state.get("owner_voice_templates") or []),
+            owner_authored_blocks=dict(state.get("owner_authored_blocks") or {}),
             _base=base,
             _working=working,
             overview_budget_chars=int(
@@ -856,6 +868,39 @@ class PatchDraft:
         dst = self._working[to_path]
         dst.body = insert_block_verbatim(dst.body, heading, block)
         return dst
+
+    def rename_document(self, path: str, new_path: str) -> DraftDoc:
+        """Evolve-only path change; identity, anchors and content stay intact."""
+        for candidate in (path, new_path):
+            self._refuse_closed_volume(candidate, "rename")
+            self._refuse_archived_path(candidate, "rename")
+            self._refuse_archive_record(candidate, "rename")
+        doc = self.read(path)
+        if new_path == path:
+            return doc
+        if new_path in self._working:
+            raise AnchorToolError(prompt("compile.patch.create_exists", path=new_path))
+        if not path_allowed(new_path, self.path_templates):
+            raise AnchorToolError(prompt(
+                "compile.patch.create_path_not_allowed", path=new_path,
+                templates=", ".join(self.path_templates),
+            ))
+        if any(p.startswith(path.removesuffix(".md") + "/") for p in self._working):
+            raise AnchorToolError(prompt("steward.evolve.closed_volumes", operation="rename"))
+        del self._working[path]
+        doc.path = new_path
+        self._working[new_path] = doc
+        return doc
+
+    def retire_document(self, path: str) -> None:
+        """Evolve-only removal; the evolve gate accounts for every dropped anchor."""
+        self._refuse_closed_volume(path, "retire")
+        self._refuse_archived_path(path, "retire")
+        self._refuse_archive_record(path, "retire")
+        self.read(path)
+        if any(p.startswith(path.removesuffix(".md") + "/") for p in self._working):
+            raise AnchorToolError(prompt("steward.evolve.closed_volumes", operation="retire"))
+        del self._working[path]
 
     def delete_claim(self, path: str, anchor_id: str) -> DraftDoc:
         """Remove a whole anchored claim block (the evolve-only merge outcome). The anchor

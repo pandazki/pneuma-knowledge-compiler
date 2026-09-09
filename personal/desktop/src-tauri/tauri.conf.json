@@ -1,0 +1,29 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "PKC",
+  "version": "0.1.0",
+  "identifier": "com.pneuma.pkc",
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "pnpm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [{
+      "label": "panel", "title": "PKC", "width": 380, "height": 560,
+      "visible": false, "decorations": false, "resizable": false,
+      "alwaysOnTop": true, "skipTaskbar": true, "shadow": true
+    }],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'; frame-src 'none'"
+    }
+  },
+  "plugins": { "shell": { "open": "^http://127\\.0\\.0\\.1:[0-9]{1,5}(/.*)?$" } },
+  "bundle": {
+    "active": true, "targets": "all", "category": "Productivity",
+    "shortDescription": "Your personal knowledge libraries, at a glance",
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
+    "macOS": { "minimumSystemVersion": "11.0" }
+  }
+}

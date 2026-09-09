@@ -778,7 +778,8 @@ async def _execute(
             index_failures.append(f"lexical {sid}: {type(exc).__name__}: {exc}")
             _log.warning("archive: lexical flip failed for %s: %s", sid, exc)
         try:
-            await ctx.vectors.set_source_archived(user, source_id, archived)
+            if ctx.vectors is not None:
+                await ctx.vectors.set_source_archived(user, source_id, archived)
         except Exception as exc:  # noqa: BLE001
             index_failures.append(f"vectors {sid}: {type(exc).__name__}: {exc}")
             _log.warning("archive: vector flip failed for %s: %s", sid, exc)

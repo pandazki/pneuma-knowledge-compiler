@@ -105,6 +105,20 @@ def _claim_point_id(user_id: UserId, document_path: str, anchor: str) -> str:
     )
 
 
+async def existing_dimension(url: str, collection: str) -> int | None:
+    """The vector size of an existing collection, or None when there is none yet. A process
+    that only reads adopts the dimension the collection already has instead of spending a
+    model call to learn it; the engine, which may have to CREATE the collection, still probes."""
+    client = AsyncQdrantClient(url=url)
+    try:
+        if not await client.collection_exists(collection):
+            return None
+        vectors = (await client.get_collection(collection)).config.params.vectors
+        return None if isinstance(vectors, dict) else int(vectors.size)
+    finally:
+        await client.close()
+
+
 class QdrantVectorIndex:
     """Construction is inert (no I/O): the collection probe/creation that used to run in
     `__init__` is now `await ensure_collection()`, called once by `build_context` (and by
@@ -392,6 +406,17 @@ class QdrantVectorIndex:
                 filter=self._chunk_layer_filter(user_id)
             ),
             wait=True,
+        )
+
+    async def delete_source_chunks(self, user_id: UserId, source_id: SourceId) -> None:
+        """Replace an episode selection without retaining vectors for omitted blocks."""
+        selector = self._chunk_layer_filter(user_id)
+        selector.must = [
+            *(selector.must or []),
+            models.FieldCondition(key="source_id", match=models.MatchValue(value=str(source_id))),
+        ]
+        await self._client.delete(
+            self._collection, points_selector=models.FilterSelector(filter=selector), wait=True,
         )
 
     async def count_chunks(self, user_id: UserId) -> int:

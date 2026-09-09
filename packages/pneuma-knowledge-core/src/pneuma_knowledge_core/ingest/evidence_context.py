@@ -35,6 +35,27 @@ _ENVELOPES = {
 }
 
 
+def aligned_envelope(
+    source: NormalizedSource, rows_key: str, ids_key: str, id_key: str,
+) -> list[dict] | None:
+    """Validate a parallel envelope before attaching any of its fields to L0 blocks."""
+    meta = source.raw.meta or {}
+    rows, ids = meta.get(rows_key), meta.get(ids_key)
+    if (
+        not isinstance(rows, list)
+        or not isinstance(ids, list)
+        or len(rows) != len(source.blocks)
+        or len(ids) != len(rows)
+        or any(not isinstance(i, str) or not i for i in ids)
+        or len(set(ids)) != len(ids)
+        or any(not isinstance(row, dict) or row.get(id_key) != i
+               for row, i in zip(rows, ids))
+        or [block.index for block in source.blocks] != list(range(len(rows)))
+    ):
+        return None
+    return rows
+
+
 def block_evidence_context(source: NormalizedSource) -> EvidenceContext:
     """Recover only an exactly aligned official envelope. Missing fields stay missing.
 
@@ -48,18 +69,8 @@ The compiler renders these values as source data, never as instructions or new c
     if spec is None:
         return EvidenceContext({})
     rows_key, ids_key, id_key, fields = spec
-    rows, ids = meta.get(rows_key), meta.get(ids_key)
-    if (
-        not isinstance(rows, list)
-        or not isinstance(ids, list)
-        or len(rows) != len(source.blocks)
-        or len(ids) != len(rows)
-        or any(not isinstance(i, str) or not i for i in ids)
-        or len(set(ids)) != len(ids)
-        or any(not isinstance(row, dict) or row.get(id_key) != i
-               for row, i in zip(rows, ids))
-        or [block.index for block in source.blocks] != list(range(len(rows)))
-    ):
+    rows = aligned_envelope(source, rows_key, ids_key, id_key)
+    if rows is None:
         return EvidenceContext({}, misaligned=True)
     contexts: dict[int, dict] = {}
     for block, row in zip(source.blocks, rows):

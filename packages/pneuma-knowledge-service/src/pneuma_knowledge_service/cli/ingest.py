@@ -1,13 +1,13 @@
 """`pkc ingest` — the CLI face of `/sources/import` (§5.4).
 
-The whole input boundary, and it is enough: what arrives shaped as one of the five contracts
+The whole input boundary, and it is enough: what arrives shaped as one of the six contracts
 is the framework's business, and how it came to be shaped is the Steward's. Everything
 upstream — fetching, transforming, scheduling — lives in the project under `steward/` and
 never touches `data/` or canonical (ruling 11).
 
 Same validation, same import function, same intake override, same answer as the route. The
 one thing this face adds is the refusal a route gets for free from its path: an unknown
-contract is named and rejected BEFORE the payload is read, because "which of the five is
+contract is named and rejected BEFORE the payload is read, because "which of the six is
 this" is a question about the argument and not about the file.
 """
 
@@ -23,9 +23,9 @@ from pneuma_knowledge_core.ingest.source_contracts import parse_source_contract
 EXIT_OK = 0
 EXIT_REFUSED = 2
 
-#: The five versioned provider-neutral contracts, by the name a caller types and the
+#: The six versioned provider-neutral contracts, by the name a caller types and the
 #: `schema` value the payload must carry. The framework's input boundary IS this table
-#: (docs/reference/source-contracts.md); a sixth entry is a framework change and a new
+#: (docs/reference/source-contracts.md); a new entry is a framework change and a new
 #: upstream is not.
 CONTRACTS = {
     "meeting/v1": "pneuma.source.meeting/v1",
@@ -33,6 +33,7 @@ CONTRACTS = {
     "im/v1": "pneuma.source.im/v1",
     "email/v1": "pneuma.source.email/v1",
     "owner-dialogue/v1": "pneuma.source.owner-dialogue/v1",
+    "agent-session/v1": "pneuma.source.agent-session/v1",
 }
 
 
@@ -52,7 +53,7 @@ async def cmd_ingest(
     schema = CONTRACTS.get(str(contract_name or "").strip())
     if schema is None:
         print(
-            f"unknown contract {contract_name!r} — the five are: "
+            f"unknown contract {contract_name!r} — the six are: "
             + ", ".join(sorted(CONTRACTS)),
             file=err,
         )
@@ -66,7 +67,7 @@ async def cmd_ingest(
     if declared and declared != schema:
         print(
             f"this payload declares {declared!r}, not {schema!r} — "
-            "`--contract` names which of the five it is, and the two must agree",
+            "`--contract` names which of the six it is, and the two must agree",
             file=err,
         )
         return EXIT_REFUSED

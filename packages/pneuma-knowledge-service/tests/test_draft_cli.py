@@ -178,7 +178,7 @@ async def harness(
 ) -> Harness:
     store = FakeCanonicalStore(base)
     jobs = InMemoryJobQueue()
-    drafts = InMemoryDraftStore()
+    drafts = InMemoryDraftStore(jobs)
     job_id = await jobs.enqueue(
         USER, "compile", {"source_ids": [str(s.raw.source_id) for s in sources]}
     )
@@ -556,7 +556,7 @@ async def test_open_claims_the_job_and_the_worker_no_longer_sees_it():
     assert await draft_cmd.cmd_open(h.rt, h.job_id) == draft_cmd.EXIT_OK
     assert await h.jobs.claim_next(USER) is None
     held = await h.jobs.get_job(USER, h.job_id)
-    assert held.status == "claimed" and held.claimed_by == "draft"
+    assert held.status == "claimed" and held.claimed_by == h.rt.draft_executor
 
 
 async def test_open_on_an_unknown_job_says_so_and_claims_nothing():
@@ -1011,7 +1011,7 @@ async def test_the_door_answers_the_same_way_whichever_command_meets_it(
     h = await harness([source()])
     assert await draft_cmd.cmd_open(h.rt, h.job_id) == draft_cmd.EXIT_OK
 
-    async def _dirty(_rt):  # noqa: ANN001
+    async def _dirty(_rt, **kwargs):  # noqa: ANN001
         raise CanonicalDirtyError(DIRTY)
 
     monkeypatch.setattr(draft_cmd, "cmd_abandon", _dirty)

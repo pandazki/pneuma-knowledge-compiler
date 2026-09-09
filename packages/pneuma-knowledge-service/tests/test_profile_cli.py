@@ -28,14 +28,14 @@ from _cli_library import USER, library  # noqa: E402
 PLACEHOLDER_FILE = '''\
 # Owner profile — "registration-level" information only.
 
-display_name: "Someone"   # how the owner is addressed
+display_name: ""          # how the owner is addressed
 occupation: ""            # one-line occupation
 bio: ""                   # a sentence or two of background
 interests: []             # long-term interest keywords
 
-industry: other    # tech / finance / ...
-role: other        # engineering / ...
-level: mid         # entry / ... / principal
+industry: ""       # tech / finance / ...
+role: ""           # engineering / ...
+level: ""          # entry / ... / principal
 
 locale:
   city: ""            # home city (may stay empty)
@@ -129,8 +129,8 @@ def test_writing_the_file_keeps_every_comment_it_had():
     assert '# IANA timezone' in written
     assert 'display_name: "Chen Wan"' in written
     assert 'interests: ["bread", "ledgers"]' in written
-    # The enums and the provenance words are bare in the file and stay bare.
-    assert "level: senior" in written
+    # Existing quoting is preserved; the legacy provenance words stay bare.
+    assert 'level: "senior"' in written
     assert "  timezone: profile" in written
     assert '  timezone: "Asia/Shanghai"' in written
 

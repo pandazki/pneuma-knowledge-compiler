@@ -254,13 +254,13 @@ async def test_snapshot_pages_are_bounded_and_stable_during_new_commits(tmp_path
         )
 
 
-def _commit_on(repo, day: str, rel: str, text: str) -> None:
+def _commit_on(repo, day: str, rel: str, text: str, *, at: str | None = None) -> None:
     """One commit stamped with a chosen day, so "the LAST commit wins" is testable in a test
     that runs inside one second."""
     target = repo / rel
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(text, encoding="utf-8")
-    stamp = f"{day}T12:00:00+0000"
+    stamp = at or f"{day}T12:00:00+0000"
     subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
     subprocess.run(
         ["git", "-C", str(repo), "commit", "-q", "-m", f"write {rel}"],
@@ -309,6 +309,25 @@ async def test_written_on_names_the_day_each_path_was_last_committed(tmp_path):
     }
     # a user with no repo at all answers nothing, and never another user's history (I1)
     assert await store.written_on(U2) == {}
+
+
+async def test_last_commit_is_path_specific_literal_and_bounded_by_snapshot(tmp_path):
+    store = GitCanonicalStore(str(tmp_path))
+    path = "memory/topics/plan[1].md"
+    assert await store.last_commit(U1, path) is None
+    repo = store.repo_path(U1)
+    _commit_on(repo, "2026-03-01", path, _file("d-1", "plan", "first plan"),
+               at="2026-03-01T23:30:00-0700")
+    first = store._run(repo, "rev-parse", "HEAD").stdout.strip()
+    # This path matches the other's glob spelling, but cannot move its history date.
+    _commit_on(repo, "2026-04-02", "memory/topics/plan1.md", _file("d-2", "plan1", "other plan"))
+    assert await store.last_commit(U1, path) == (first, "2026-03-01T23:30:00-07:00")
+    _commit_on(repo, "2026-05-03", path, _file("d-1", "plan", "revised plan"))
+    last = store._run(repo, "rev-parse", "HEAD").stdout.strip()
+    assert await store.last_commit(U1, path) == (last, "2026-05-03T12:00:00+00:00")
+    assert await store.last_commit(U1, path, at=SnapshotRef(ref=first)) == (first, "2026-03-01T23:30:00-07:00")
+    assert await store.last_commit(U1, "memory/topics/missing.md") is None
+    assert await store.last_commit(U2, path) is None
 
 
 async def test_tag_creates_readable_ref(tmp_path):

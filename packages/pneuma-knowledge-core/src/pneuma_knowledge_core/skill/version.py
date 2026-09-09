@@ -28,7 +28,7 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Sequence
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
 
 # Extra write-contract clauses a SkillVersion may fold into render_system_contract. These
 # are mechanism refinements (a controlled vocabulary, a presentation convention), not
@@ -55,6 +55,14 @@ _STRENGTH_LABEL_RULE = STRENGTH_LABEL_RULE
 _CITATION_SHAPE_RULE = CITATION_SHAPE_RULE
 
 
+class PathTemplate(BaseModel):
+    """Optional per-template write constraints in compile-contract frontmatter."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    path: str = Field(min_length=1)
+    owner_voice: StrictBool = False
+
+
 class SkillVersion(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -62,8 +70,15 @@ class SkillVersion(BaseModel):
     version: str
     instructions: str
     path_templates: list[str] = Field(default_factory=list)
+    owner_voice_templates: list[str] = Field(default_factory=list)
     contract_rules: tuple[str, ...] = ()
     content_hash: str
+
+    @model_validator(mode="after")
+    def owner_voice_paths_are_owned(self) -> SkillVersion:
+        if not set(self.owner_voice_templates) <= set(self.path_templates):
+            raise ValueError("owner_voice templates must be declared path_templates")
+        return self
 
     @staticmethod
     def compute_hash(
@@ -72,6 +87,7 @@ class SkillVersion(BaseModel):
         instructions: str,
         path_templates: list[str],
         contract_rules: tuple[str, ...] = (),
+        owner_voice_templates: Sequence[str] = (),
     ) -> str:
         h = hashlib.sha256()
         h.update(skill_id.encode("utf-8"))
@@ -83,6 +99,9 @@ class SkillVersion(BaseModel):
         h.update("\n".join(path_templates).encode("utf-8"))
         h.update(b"\x00")
         h.update("\n".join(contract_rules).encode("utf-8"))
+        if owner_voice_templates:
+            h.update(b"\x00owner_voice\x00")
+            h.update("\n".join(sorted(set(owner_voice_templates))).encode("utf-8"))
         return h.hexdigest()
 
     @classmethod
@@ -92,8 +111,9 @@ class SkillVersion(BaseModel):
         skill_id: str,
         version: str,
         instructions: str,
-        path_templates: Sequence[str],
+        path_templates: Sequence[str | PathTemplate | dict],
         contract_rules: Sequence[str] = (),
+        owner_voice_templates: Sequence[str] = (),
     ) -> SkillVersion:
         """Build a SkillVersion and compute its `content_hash` from the same four parts.
 
@@ -102,15 +122,29 @@ class SkillVersion(BaseModel):
         which one transposed argument yields a wrong-but-plausible provenance hash that
         nothing downstream can catch. The parts are supplied once here.
         """
-        templates = list(path_templates)
+        templates: list[str] = []
+        owner_voice = set(owner_voice_templates)
+        for entry in path_templates:
+            template = (
+                PathTemplate(path=entry)
+                if isinstance(entry, str)
+                else PathTemplate.model_validate(entry)
+            )
+            templates.append(template.path)
+            if template.owner_voice:
+                owner_voice.add(template.path)
+        owner_voice = sorted(owner_voice)
         rules = tuple(contract_rules)
         return cls(
             skill_id=skill_id,
             version=version,
             instructions=instructions,
             path_templates=templates,
+            owner_voice_templates=owner_voice,
             contract_rules=rules,
-            content_hash=cls.compute_hash(skill_id, version, instructions, templates, rules),
+            content_hash=cls.compute_hash(
+                skill_id, version, instructions, templates, rules, owner_voice
+            ),
         )
 
 

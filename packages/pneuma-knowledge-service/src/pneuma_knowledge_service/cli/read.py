@@ -5,8 +5,8 @@ functions its route calls. Nothing goes over HTTP: a Steward working in the proj
 adapters in hand, and a CLI that shelled out to its own API would be a second deployment to
 keep alive. Nothing is added to core that is only about printing, either — what a page looks
 like when the compile model reads it is `render_document`, what the lanes open with is
-`render_canonical_glance`, and a command that rendered its own would be showing the Steward a
-library nobody else sees.
+`render_canonical_glance`, and the complete `outline` reuses that map's metadata derivations
+without its top-K or character budget.
 
 Two output shapes and one rule about them: `--json` is the machine-readable form a workflow
 branches on, and the default is prose for a person (and for an agent, which reads prose
@@ -15,40 +15,69 @@ state.
 
 Exit codes are the same vocabulary `pkc draft` uses: 0 ok · 1 nothing to show (no such page,
 no such source, an empty answer) · 2 refused (an argument that does not parse, a lane this
-deployment cannot run) · 4 findings (`pkc library check` alone).
+deployment cannot run) · 4 findings (`pkc library check`, or an unresolved consult citation).
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
+import shlex
 import sys
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, TextIO
 
-from pneuma_knowledge_core.canonical_glance import render_canonical_glance
+from pneuma_knowledge_core.canonical_glance import (
+    claim_count,
+    closed_volume_counts,
+    document_definition,
+    document_title,
+    family_of,
+    render_canonical_glance,
+    volume_origin,
+)
 from pneuma_knowledge_core.compile.documents import render_document
-from pneuma_knowledge_core.compile.supersession import block_by_anchor, chains
+from pneuma_knowledge_core.compile.supersession import block_by_anchor, chains, superseded_index
 from pneuma_knowledge_core.domain.archive import (
     any_archived,
+    is_archive_record,
     is_archived_path,
     live_documents,
+    live_path,
+    split_archived,
 )
-from pneuma_knowledge_core.domain.ids import SourceId, UserId
+from pneuma_knowledge_core.domain.canonical import CanonicalDocument, Citation, iter_canonical_citations
+from pneuma_knowledge_core.domain.ids import SourceId, UserId, extract_anchors
+from pneuma_knowledge_core.prompts import prompt
 from pneuma_knowledge_core.recall.archive_filter import archive_view
 from pneuma_knowledge_core.recall.fast import FastEvidence, fast_recall, message_text
 from pneuma_knowledge_core.recall.rag import rag_recall
+
+from .reader_signals import (
+    SourceSignals,
+    calendar_header,
+    calendar_metadata,
+    evidence_lines,
+    evidence_tally,
+    one_line,
+    recorded_day,    span_speaker_text,
+    source_index_lines,
+)
 
 EXIT_OK = 0
 EXIT_NOTHING = 1
 EXIT_REFUSED = 2
 
-#: `¶3`, `¶3-7`, `3-7` and `3 7` all address the same span. The citation grammar is the one
+#: `¶3`, `¶3-7` and `3-7` address block spans. The citation grammar is the one
 #: the whole system speaks (I4), so it is what a locator is typed in; the bare forms exist
 #: because a shell eats `¶` on some keyboards and refusing over a pilcrow would be theatre.
-_SPAN_RE = re.compile(r"^\s*¶?\s*(?P<start>\d+)(?:\s*[-–\s]\s*(?P<end>\d+))?\s*$")
+_SPAN_RE = re.compile(r"^\s*¶?\s*(?P<start>\d+)(?:\s*[-–]\s*(?P<end>\d+))?\s*$")
+
+
+PAGE_CHARS = 8000
 
 
 @dataclass
@@ -65,15 +94,108 @@ class ReadRuntime:
     as_json: bool = False
     out: TextIO = field(default_factory=lambda: sys.stdout)
     err: TextIO = field(default_factory=lambda: sys.stderr)
+    # Prose output is paged: a reader with a context window asked for one page and gets one,
+    # with a footer saying how much more there is. JSON lists page by whole items.
+    page: int = 1
+    page_chars: int = PAGE_CHARS
+    all_pages: bool = False
 
 
-def _emit(rt: ReadRuntime, payload: Any, lines: list[str]) -> None:
-    """One state, two renderings. `--json` prints the payload; the default prints the lines."""
+
+def paginate(text: str, page_chars: int) -> list[str]:
+    """Cut `text` into pages of at most `page_chars` characters at line boundaries — a line
+    longer than a page is cut hard rather than dropped. Pure, so the paging is testable
+    without a command behind it."""
+    if page_chars <= 0 or len(text) <= page_chars:
+        return [text]
+    pages: list[str] = []
+    current: list[str] = []
+    size = 0
+    for line in text.split("\n"):
+        while len(line) > page_chars:
+            if current:
+                pages.append("\n".join(current))
+                current, size = [], 0
+            pages.append(line[:page_chars])
+            line = line[page_chars:]
+        extra = len(line) + (1 if current else 0)
+        if current and size + extra > page_chars:
+            pages.append("\n".join(current))
+            current, size = [], 0
+            extra = len(line)
+        current.append(line)
+        size += extra
+    if current:
+        pages.append("\n".join(current))
+    return pages
+
+
+def page_items(payload: Any, page: int, page_chars: int) -> Any:
+    """Page a top-level list (wrapped as `items`) or the largest serialized list in a dict.
+
+    Item boundaries are never cut. Scalars and payloads that fit are returned whole.
+    """
+    if page_chars <= 0 or not isinstance(payload, (dict, list)):
+        return payload
+    dump = lambda value: json.dumps(value, ensure_ascii=False, indent=2, default=str)  # noqa: E731
+    if len(dump(payload)) <= page_chars:
+        return payload
+    payload = {"items": payload} if isinstance(payload, list) else payload
+    lists = [key for key, value in payload.items() if isinstance(value, list)]
+    if not lists:
+        return payload
+    key = max(lists, key=lambda key: len(dump(payload[key])))
+    items = payload[key]
+    pages: list[list[Any]] = []
+    current: list[Any] = []
+    size = 0
+    for item in items:
+        length = len(dump(item))
+        if current and size + length > page_chars:
+            pages.append(current)
+            current, size = [], 0
+        current.append(item)
+        size += length
+    if current or not pages:
+        pages.append(current)
+    index = min(max(page, 1), len(pages))
+    return {
+        **payload,
+        key: pages[index - 1],
+        "paging": {
+            "list": key,
+            "page": index, "pages": len(pages), "items": len(items),
+            "next": f"--page {index + 1}" if index < len(pages) else None,
+            "all": "--all-pages",
+        },
+    }
+
+
+def _emit(
+    rt: ReadRuntime, payload: Any, lines: list[str], *, json_paging: bool = True,
+    header: list[str] | None = None,
+) -> None:
+    """One state, two renderings. `--json` prints the payload; the default prints the lines,
+    one page of them at a time (`page` / `all_pages` on the runtime)."""
     if rt.as_json:
+        if json_paging and not rt.all_pages:
+            payload = page_items(payload, rt.page, rt.page_chars)
         print(json.dumps(payload, ensure_ascii=False, indent=2, default=str), file=rt.out)
-    else:
-        for line in lines:
-            print(line, file=rt.out)
+        return
+    if header:
+        print("\n".join(header), file=rt.out)
+    text = "\n".join(lines)
+    pages = [text] if rt.all_pages else paginate(text, rt.page_chars)
+    if len(pages) == 1:
+        print(text, file=rt.out)
+        return
+    index = min(max(rt.page, 1), len(pages))
+    print(pages[index - 1], file=rt.out)
+    footer = f"[page {index}/{len(pages)} · {len(pages[index - 1]):,} of {len(text):,} chars"
+    if index < len(pages):
+        footer += f" · --page {index + 1} for the next"
+    footer += " · --all-pages for everything · " + prompt("steward.read.json_paging") + "]"
+    print(footer, file=rt.out)
 
 
 def _refuse(rt: ReadRuntime, message: str) -> int:
@@ -91,6 +213,109 @@ def parse_span(text: str) -> tuple[int, int] | None:
     return (start, end)
 
 
+# ───────────────────────────────────────────────────────────────────────── outline
+
+
+def _outline_tree(
+    documents: list[CanonicalDocument],
+    templates: list[str],
+    *,
+    family: str | None,
+    definitions: bool,
+    include_archived: bool,
+) -> dict[str, Any]:
+    """The complete page map, derived from the one listing already in hand.
+
+    Reuse the glance's title, claim, definition, volume and family derivations without its
+    top-K or character budget. Unfiled pages have a null template, so a contract change can
+    never make an existing page disappear from the complete map.
+    """
+    grouped: dict[str | None, list[dict[str, Any]]] = {
+        template: [] for template in templates if family is None or template == family
+    }
+    live, archived = split_archived(documents)
+    # Resolve volumes within each side of the archive boundary. An archived volume's old
+    # owning-page stamp names a live path now occupied by a record; it belongs to the moved
+    # page, not to that record. Each family's archived pages follow all its live pages.
+    for scope in (live, archived) if include_archived else (live,):
+        present = {doc.path for doc in scope}
+        volumes = closed_volume_counts(scope)
+        for doc in sorted(scope, key=lambda d: d.path):
+            if volume_origin(doc, present) is not None:
+                continue
+            template = family_of(live_path(doc.path), templates)
+            if family is not None and template != family:
+                continue
+            item = {
+                "path": doc.path,
+                "title": " ".join(document_title(doc).split()),
+                "claims": claim_count(doc),
+                "volumes": volumes.get(doc.path, 0),
+                "kind": "record" if is_archive_record(doc) else "page",
+                "archived": is_archived_path(doc.path),
+            }
+            if definitions:
+                definition = document_definition(doc)
+                if definition:
+                    item["definition"] = definition
+            grouped.setdefault(template, []).append(item)
+    return {
+        "families": [
+            {"template": template, "documents": members}
+            for template, members in grouped.items()
+        ],
+        "documents": sum(len(members) for members in grouped.values()),
+    }
+
+
+def _outline_lines(tree: dict[str, Any]) -> list[str]:
+    lines: list[str] = []
+    for family in tree["families"]:
+        if lines:
+            lines.append("")
+        lines.append(f"## {family['template'] or '(outside every declared family)'}")
+        if not family["documents"]:
+            lines.append("(empty)")
+        for doc in family["documents"]:
+            line = f"{doc['path']} — {doc['title']} ({doc['claims']} claims)"
+            if doc["volumes"]:
+                line += f" +{doc['volumes']} volumes"
+            if doc["kind"] == "record":
+                line += " [record]"
+            if doc["archived"]:
+                line += " [archived]"
+            lines.append(line)
+            if doc.get("definition"):
+                lines.append(f"  definition: {doc['definition']}")
+    return lines or ["this library holds no canonical pages yet"]
+
+
+async def cmd_outline(
+    rt: ReadRuntime,
+    *,
+    family: str | None = None,
+    definitions: bool = False,
+    include_archived: bool = False,
+) -> int:
+    from ..skills import composed_skill_readonly
+
+    skill = await composed_skill_readonly(rt.ctx.settings, rt.ctx.canonical, rt.user_id)
+    templates = list(skill.path_templates)
+    if family is not None and family not in templates:
+        print(f"no such family: {family}", file=rt.err)
+        return EXIT_REFUSED
+    documents = await rt.ctx.canonical.list(rt.user_id)
+    tree = _outline_tree(
+        documents,
+        templates,
+        family=family,
+        definitions=definitions,
+        include_archived=include_archived,
+    )
+    _emit(rt, tree, _outline_lines(tree))
+    return EXIT_OK
+
+
 # ───────────────────────────────────────────────────────────────────────── glance
 
 
@@ -102,10 +327,10 @@ async def _glance_text(rt: ReadRuntime, *, include_archived: bool = False) -> st
     documents = await ctx.canonical.list(rt.user_id)
     if not documents:
         return None
-    from ..skills import packs_for_user, skill_for_user
+    from ..skills import composed_skill_readonly, packs_for_user
 
     try:
-        skill = await skill_for_user(ctx, rt.user_id)
+        skill = await composed_skill_readonly(ctx.settings, ctx.canonical, rt.user_id)
         packs = await packs_for_user(ctx, rt.user_id)
     except Exception:  # noqa: BLE001 — families and blurbs decorate a real document list
         skill, packs = None, []
@@ -166,16 +391,77 @@ async def cmd_canonical_ls(rt: ReadRuntime, *, include_archived: bool = False) -
     return EXIT_OK
 
 
-async def cmd_canonical_read(rt: ReadRuntime, path: str) -> int:
-    docs = await rt.ctx.canonical.list(rt.user_id)
-    doc = next((d for d in docs if d.path == path), None)
-    if doc is None:
-        print(f"no such page: {path}", file=rt.err)
+async def cmd_canonical_read(rt: ReadRuntime, path: str | list[str]) -> int:
+    """One page, or several in one process: every `pkc` call builds its context, so a
+    reader wanting three pages should not pay for three."""
+    paths = [path] if isinstance(path, str) else list(path)
+    snapshots = await rt.ctx.canonical.snapshots(rt.user_id)
+    at = snapshots[0] if snapshots else None
+    docs = await rt.ctx.canonical.list(rt.user_id, at=at)
+    by_path = {d.path: d for d in docs}
+    successors = superseded_index({d.path: d.body for d in docs})
+    signals = await SourceSignals.for_runtime(rt.ctx, rt.user_id)
+    _jobs, pending, _more = await rt.ctx.store.list_jobs_page(
+        rt.user_id, limit=1, status=("queued", "claimed"), kind="compile"
+    )
+    _jobs, failed, _more = await rt.ctx.store.list_jobs_page(
+        rt.user_id, limit=1, status="failed", kind="compile"
+    )
+    found = []
+    lines = []
+    for wanted in paths:
+        doc = by_path.get(wanted)
+        if doc is None:
+            print(f"no such page: {wanted}", file=rt.err)
+            continue
+        # The compile model's own `read_document` rendering, so the Steward and the model
+        # read one page rather than two descriptions of it.
+        sources = await signals.index(iter_canonical_citations(doc.body))
+        written = await rt.ctx.canonical.last_commit(rt.user_id, doc.path, at=at)
+        anchors = extract_anchors(doc.body)
+        replaced = [
+            {"predecessor": f"c:{anchor}", "successor": f"c:{successors[anchor][1]}",
+             "path": successors[anchor][0]}
+            for anchor in dict.fromkeys(anchors) if anchor in successors
+        ]
+        latest = signals.latest_source(sources)
+        status = {
+            "last_changed": recorded_day(written[1], signals.time) if written else None,
+            "last_changed_at": written[1] if written else None,
+            "commit": written[0] if written else None,
+            "claims": claim_count(doc),
+            "overview_blocks": len(anchors) - claim_count(doc),
+            "superseded": len(replaced),
+            "sources_cited": len(sources),
+            "latest_cited_source": latest["date"] if latest else None,
+            "latest_cited_source_at": latest.get("at") if latest else None,
+            "queue_pending": pending,
+            "queue_failed": failed,
+        }
+        item = {"path": doc.path, "calendar": calendar_metadata(signals.time),
+                "document": render_document(doc.frontmatter, doc.body),
+                "status": status, "supersessions": replaced, "sources": sources}
+        found.append(item)
+        display = {key: value if value is not None else prompt("steward.read.unknown")
+                   for key, value in status.items()}
+        display["commit"] = status["commit"][:7] if status["commit"] else display["commit"]
+        lines.extend([
+            prompt("steward.read.page", path=doc.path),
+            prompt("steward.read.status", **display),
+            *([prompt("steward.read.superseded", count=len(replaced), successors=" · ".join(
+                f"{link['predecessor']} → {link['successor']} "
+                f"({prompt('steward.read.this_page') if link['path'] == doc.path else link['path']})"
+                for link in replaced
+            ))] if replaced else []),
+            prompt("steward.read.compile_jobs", pending=pending, failed=failed),
+            "", item["document"], "", *source_index_lines(sources), "",
+        ])
+    if not found:
         return EXIT_NOTHING
-    # The compile model's own `read_document` rendering, so the Steward and the model read
-    # one page rather than two descriptions of it.
-    rendered = render_document(doc.frontmatter, doc.body)
-    _emit(rt, {"path": doc.path, "document": rendered}, [rendered])
+    if len(paths) == 1:
+        _emit(rt, found[0], lines, header=[calendar_header(signals.time)])
+    else:
+        _emit(rt, {"pages": found}, lines, header=[calendar_header(signals.time)])
     return EXIT_OK
 
 
@@ -292,7 +578,10 @@ async def cmd_source_show(rt: ReadRuntime, source_id: str) -> int:
     except KeyError:
         print(f"no such source: {source_id}", file=rt.err)
         return EXIT_NOTHING
+    from pneuma_knowledge_core.domain.authorship import block_authorship
+
     raw = ns.raw
+    authorship = block_authorship(raw)
     payload = {
         "source_id": str(raw.source_id),
         "kind": raw.kind,
@@ -313,6 +602,13 @@ async def cmd_source_show(rt: ReadRuntime, source_id: str) -> int:
         f"{raw.source_id}  {raw.kind}  {raw.title}",
         f"blocks: ¶0-{max(len(ns.blocks) - 1, 0)}",
     ]
+    if authorship:
+        payload["block_authorship"] = authorship
+        lines.extend(
+            f"  ¶{row['index']}  {row['role']}"
+            + (f" / {row['kind']}" if "kind" in row else "")
+            for row in authorship
+        )
     for span in payload["structure"]:
         lines.append(
             f"  ¶{span['blocks'][0]}-{span['blocks'][1]}  {' / '.join(span['path'])}"
@@ -321,26 +617,53 @@ async def cmd_source_show(rt: ReadRuntime, source_id: str) -> int:
     return EXIT_OK
 
 
-async def cmd_source_fetch(rt: ReadRuntime, source_id: str, span: str) -> int:
-    """Verbatim L0 for one block span. UNCONDITIONAL (I3): no plan, no strategy and no
+async def cmd_source_fetch(rt: ReadRuntime, source_id: str, span: str | list[str]) -> int:
+    """Verbatim L0 for one or more spans. UNCONDITIONAL (I3): no plan, no strategy and no
     visibility state decides whether a cited span resolves."""
-    parsed = parse_span(span)
-    if parsed is None:
-        return _refuse(
-            rt, f"not a block span: {span!r} — write it as ¶a-b, or as `a b`"
-        )
-    start, end = parsed
+    tokens = [span] if isinstance(span, str) else list(span)
+    groups: list[tuple[str, list[str]]] = [(source_id, [])]
+    for index, token in enumerate(tokens):
+        if parse_span(token) is not None:
+            groups[-1][1].append(token)
+        elif groups[-1][1] and index + 1 < len(tokens) and parse_span(tokens[index + 1]):
+            groups.append((token, []))
+        else:
+            return _refuse(
+                rt, f"not a block span: {token!r} — write ¶a-b, ¶a or a-b; "
+                "exactly two bare integers `a b` mean one span; another source id needs a span"
+            )
+    items = []
+    signals = await SourceSignals.for_runtime(rt.ctx, rt.user_id)
     try:
-        text = await rt.ctx.store.fetch(
-            rt.user_id, SourceId(source_id), {"blocks": [start, end]}
-        )
+        for sid, tokens in groups:
+            spans = (
+                [(int(tokens[0]), int(tokens[1]))]
+                if len(tokens) == 2 and all(re.fullmatch(r"\d+", token) for token in tokens)
+                else [parse_span(token) for token in tokens]
+            )
+            for start, end in spans:
+                text = await rt.ctx.store.fetch(
+                    rt.user_id, SourceId(sid), {"blocks": [start, end]}
+                )
+                summary = await signals.summary(sid)
+                items.append({"source_id": sid, "blocks": [start, end],
+                              **await signals.span(sid, start, end),
+                              "date": summary["date"], **({"at": summary["at"]} if "at" in summary else {}),
+                              "calendar": calendar_metadata(signals.time), "text": text})
     except (KeyError, ValueError) as exc:
         print(str(exc), file=rt.err)
         return EXIT_NOTHING
     _emit(
         rt,
-        {"source_id": source_id, "blocks": [start, end], "text": text},
-        [text],
+        items,
+        # The source's day closes the line only when a block carries no day of its own;
+        # a span whose every block is dated already says when it was spoken.
+        [f"{item['source_id']} {span_speaker_text(item)}"
+         + ("" if item["speakers"] and all(row.get("date") for row in item["speakers"])
+            else f" · {item['date'] or prompt('steward.read.unknown')}")
+         + f"\n{item['text']}"
+         for item in items],
+        header=[calendar_header(signals.time)],
     )
     return EXIT_OK
 
@@ -365,11 +688,25 @@ async def cmd_search(
     """
     ctx = rt.ctx
     view = await archive_view(rt.user_id, ctx.store) if include_archived else None
+    terms: dict[str, str] = {}
+    if mode != "semantic":
+        # Preserve the index query spelling even for a quoted single word; quotes disable
+        # prefix matching in Meilisearch. Apostrophes inside words are ordinary text.
+        lexer = shlex.shlex(query, posix=False)
+        lexer.whitespace_split, lexer.commenters, lexer.quotes, lexer.escape = True, "", '"', ""
+        try:
+            for token in lexer:
+                term = token[1:-1] if token.startswith('"') and token.endswith('"') else token
+                terms.setdefault(term, token)
+        except ValueError as exc:
+            return _refuse(rt, str(exc))
     hits: list[dict[str, Any]] = []
+    total = None
     if mode == "lexical":
-        for hit in await ctx.lexical.search(
+        lexical_hits, total = await ctx.lexical.search_with_total(
             rt.user_id, query, limit=limit, include_archived=include_archived
-        ):
+        )
+        for hit in lexical_hits:
             hits.append(
                 {
                     "source_id": str(hit.source_id),
@@ -379,6 +716,13 @@ async def cmd_search(
                 }
             )
     elif mode == "semantic":
+        if ctx.embeddings is None or ctx.vectors is None:
+            print(
+                "semantic retrieval is off; use `pkc search --mode lexical` or enable "
+                "it with `pkc config set semantic_retrieval on` and rebuild derived indexes",
+                file=rt.err,
+            )
+            return EXIT_NOTHING
         embedding = (await ctx.embeddings.aembed_documents([query]))[0]
         for hit in await ctx.vectors.search(
             rt.user_id, embedding, limit=limit, include_archived=include_archived
@@ -414,28 +758,65 @@ async def cmd_search(
                     "text": hit.text,
                 }
             )
-    if not hits:
-        print("nothing found", file=rt.err)
-        return EXIT_NOTHING
+    signals = await SourceSignals.for_runtime(ctx, rt.user_id)
     for hit in hits:
         hit["archived"] = (
             view.source_archived(hit["source_id"]) if view is not None else False
         )
+        speaker = await signals.span(hit["source_id"], *hit["blocks"])
+        hit["speakers"] = speaker["speakers"]
+        if "speaker" in speaker:
+            hit["speaker"] = speaker["speaker"]
+    payload = {
+        "mode": mode, "query": query, "include_archived": include_archived, "hits": hits,
+        "showing": len(hits), "total": total, "calendar": calendar_metadata(signals.time),
+    }
+    lines = [prompt("steward.read.query", query=one_line(query)), calendar_header(signals.time)]
+    if mode != "semantic":
+        counts = await asyncio.gather(*(
+            ctx.lexical.count(rt.user_id, term_query, all_terms=True,
+                              include_archived=include_archived)
+            for term_query in [query, *terms.values()]
+        ))
+        payload["counts"] = {"all_terms": counts[0], "per_term": dict(zip(terms, counts[1:]))}
+        lines.append(prompt("steward.read.search_counts", all_terms=counts[0], terms=" · ".join(
+            f"{json.dumps(term, ensure_ascii=False)}: {count}"
+            for term, count in payload["counts"]["per_term"].items()
+        )))
+        _jobs, index_pending, _more = await ctx.store.list_jobs_page(
+            rt.user_id, limit=1, status=("queued", "claimed"), kind="index"
+        )
+        _jobs, index_failed, _more = await ctx.store.list_jobs_page(
+            rt.user_id, limit=1, status="failed", kind="index"
+        )
+        payload["index_queue_pending"] = index_pending
+        payload["index_queue_failed"] = index_failed
+        lines.append(prompt("steward.read.index_jobs", pending=index_pending, failed=index_failed))
+        if mode == "fused":
+            # A fused candidate cap is not an index-wide total. Keep the lexical estimate
+            # separately named; pretending it counted vector-only hits can yield 10 of 0.
+            payload["lexical_total"] = await ctx.lexical.count(
+                rt.user_id, query, include_archived=include_archived
+            )
+            lines.append(prompt("steward.read.lexical_total", total=payload["lexical_total"]))
+    lines.append(prompt(
+        "steward.read.showing" if mode == "lexical" else f"steward.read.showing_{mode}",
+        showing=len(hits), total=total,
+    ))
     _emit(
         rt,
-        {
-            "mode": mode,
-            "query": query,
-            "include_archived": include_archived,
-            "hits": hits,
-        },
+        payload,
         [
-            f"{h['source_id']} ¶{h['blocks'][0]}-{h['blocks'][1]}"
+            f"{h['source_id']} {span_speaker_text(h)}"
             + ("  [archived]" if h["archived"] else "")
             + f"\n  {h['text']}"
             for h in hits
         ],
+        header=lines,
     )
+    if not hits:
+        print("nothing found", file=rt.err)
+        return EXIT_NOTHING
     return EXIT_OK
 
 
@@ -580,9 +961,12 @@ async def cmd_consultations(rt: ReadRuntime, *, limit: int = 25) -> int:
             "visitor_class": r.get("visitor_class"),
             "question": r.get("question"),
             "miss": r.get("miss"),
+            "state": r.get("state", "answered"),
+            "answered_at": r["answered_at"].isoformat() if r.get("answered_at") else None,
             "answer_kind": r.get("answer_kind"),
-            "evidence_handed": len(r.get("evidence_handed") or []),
-            "citations": len(r.get("citations") or []),
+            "evidence_handed": r["evidence_count"],
+            "citations": r["citation_count"],
+            "citations_direct": r["citations_direct"],
         }
         for r in rows
     ]
@@ -590,8 +974,10 @@ async def cmd_consultations(rt: ReadRuntime, *, limit: int = 25) -> int:
         rt,
         {"consultations": items, "total": total},
         [
-            f"{i['created_at']}  {i['lane']:<12} {'MISS' if i['miss'] else '    '}  "
-            f"{i['question']}"
+            f"{i['consultation_id']}  {i['created_at']}  {i['lane']:<12} "
+            f"{prompt('steward.read.unanswered') if i['state'] == 'unanswered' else prompt('steward.read.miss' if i['miss'] else 'steward.read.answered')}  "
+            f"{i['question']}  ·  evidence handed: {i['evidence_handed']}  ·  "
+            f"citations: {i['citations']}  ·  direct: {i['citations_direct']}"
             for i in items
         ],
     )
@@ -683,10 +1069,12 @@ async def _fast_kwargs(
     as_of: datetime,
     style: str | None,
     include_archived: bool = False,
+    evidence_only: bool = False,
 ) -> dict:
-    """Everything `fast_recall` is called with here — the settings the route reads, read
-    once more. What this CANNOT do is choose differently: a lane whose CLI face retrieved
-    less than its HTTP face would make `--evidence` a description of a different lane.
+    """The fast lane's configured retrieval and rendering, with optional chat assistance.
+
+    Evidence-only calls supply no chat models: the agent performs the judgements itself.
+    The lane's deterministic fallbacks still assemble and render the evidence context.
     """
     ctx = rt.ctx
     # THE ARCHIVE IS DECIDED HERE, once, exactly as the route decides it in `_glance_inputs`.
@@ -701,12 +1089,12 @@ async def _fast_kwargs(
     documents = tree if include_archived else live_documents(tree)
     glance_inputs: dict[str, Any] = {}
     if documents or archive_active:
-        from ..skills import packs_for_user, skill_for_user
+        from ..skills import composed_skill_readonly, packs_for_user
 
         try:
             glance_inputs = {
                 "documents": documents,
-                "skill": await skill_for_user(ctx, rt.user_id),
+                "skill": await composed_skill_readonly(ctx.settings, ctx.canonical, rt.user_id),
                 "packs": await packs_for_user(ctx, rt.user_id),
             }
         except Exception:  # noqa: BLE001 — the glance is context, never a hard dependency
@@ -725,13 +1113,11 @@ async def _fast_kwargs(
         vectors=ctx.vectors,
         content=ctx.store,
         embeddings=ctx.embeddings,
-        # Resolved defensively because `--evidence` is the MODEL-FREE half of this lane: a
-        # keyless deployment must still be able to assemble the context, and every pass
-        # before the answer that would use a model (the glance pick) is additive and
-        # fail-soft by construction. `pkc recall` without `--evidence` has already refused
-        # above when either role is unusable, so a None never reaches an answering call.
-        model=_optional_model(ctx, "recall"),
-        answer_model=_optional_model(ctx, "answer"),
+        # Evidence uses the lane's deterministic retrieval and rendering. Model-assisted
+        # planning, routing and selection fall back without constructing a chat model,
+        # even when a deployment has credentials. The agent does those judgements itself.
+        model=None if evidence_only else _optional_model(ctx, "recall"),
+        answer_model=None if evidence_only else _optional_model(ctx, "answer"),
         cap=settings.recall_claim_cap,
         claim_candidate_cap=settings.recall_claim_candidate_cap,
         window_cap=settings.recall_window_cap,
@@ -760,102 +1146,145 @@ def _manifest_payload(manifest) -> list[dict[str, str]]:
     ]
 
 
+def _emit_evidence(rt: ReadRuntime, retained: dict[str, Any], *, new_retrieval: bool) -> None:
+    """Serve the same handoff's saved text; the header is outside the body page budget."""
+    payload = retained["payload"]
+    if rt.as_json:
+        _emit(rt, payload, [], json_paging=False)
+        return
+    text = retained["text"]
+    pages = [text] if rt.all_pages else paginate(text, retained["page_chars"])
+    index = min(max(rt.page, 1), len(pages))
+    handoff_id = payload["handoff_id"]
+    command = f"pkc --user {shlex.quote(str(rt.user_id))} recall --evidence --handoff {handoff_id}"
+    header = list(retained["header"])
+    if index < len(pages):
+        header.insert(3, prompt("steward.read.next_page", command=f"{command} --page {index + 1}"))
+    else:
+        header.insert(3, prompt("steward.read.result_end", command=command + " --all-pages"))
+    if new_retrieval:
+        header.insert(4, prompt("steward.read.new_retrieval", handoff_id=handoff_id))
+    print("\n".join([*header, "", pages[index - 1]]), file=rt.out)
+    if len(pages) > 1:
+        print(
+            f"[page {index}/{len(pages)} · {len(pages[index - 1]):,} of {len(text):,} chars · "
+            f"{command} --all-pages · {prompt('steward.read.json_paging')}]",
+            file=rt.out,
+        )
+
+
 async def cmd_recall_evidence(
     rt: ReadRuntime,
-    query: str,
+    query: str | None,
     *,
     handoffs: Any,
+    handoff_id: str | None = None,
     visitor_class: str = "business",
     as_of: str | None = None,
     style: str | None = None,
     include_archived: bool = False,
 ) -> int:
-    """The fast lane's assembled context, and no answering call (§5.1).
+    """Retrieve once and retain both reader prose and unchanged lane JSON with the handoff.
 
-    `visitor_class` defaults to `business` here and to `silent` on `cmd_recall`: this face
-    hands the context to somebody who is about to answer the Owner with it, which is the
-    library being used, while the answering face prints to whoever typed the question. The
-    CLI states the same rule in `--visitor-class`'s help (`cli.RECALL_VISITOR_DEFAULTS`).
-
-    It prints what the lane WOULD have handed its model — the bytes, in the lane's own
-    rendering, with the lane's own query-local handles — and then records a PENDING HANDOFF:
-    the question, the instant, the library ref sampled the way the lane samples it, the
-    manifest and the handle map. That is not a consultation yet, and deliberately: a record
-    written before the answer exists would have to be rewritten when it arrived, or would
-    state a miss the lane never observed. `pkc consult answer <handoff_id>` closes it.
+    Reading a retained page only reads this tenant's handoff. Silent handoffs have the same
+    retention, but answering them still leaves no consultation record.
     """
+    if handoff_id:
+        state = await handoffs.get(rt.user_id, handoff_id)
+        if state is None:
+            print(f"no retained handoff: {handoff_id}", file=rt.err)
+            return EXIT_NOTHING
+        retained = state.get("retained_result")
+        if retained is None:
+            return _refuse(rt, f"handoff {handoff_id} has no retained result; retrieve again")
+        _emit_evidence(rt, retained, new_retrieval=False)
+        return EXIT_OK
+    if not query:
+        return _refuse(rt, "recall requires a query or --evidence --handoff <id>")
     when = datetime.fromisoformat(as_of) if as_of else datetime.now(timezone.utc)
+    opened_at = datetime.now(timezone.utc)
+    snaps = await rt.ctx.canonical.snapshots(rt.user_id)
     evidence = await fast_recall(
-        rt.user_id,
-        query,
-        evidence_only=True,
+        rt.user_id, query, evidence_only=True,
         **await _fast_kwargs(
-            rt, as_of=when, style=style, include_archived=include_archived
+            rt, as_of=when, style=style, include_archived=include_archived, evidence_only=True
         ),
     )
     assert isinstance(evidence, FastEvidence)
+    arms = [
+        {"name": stage.name, "status": stage.status, "detail": stage.detail}
+        for stage in evidence.stages
+    ]
     body = message_text(evidence.content)
+    tally = evidence_tally(evidence)
+    signals = await SourceSignals.for_runtime(rt.ctx, rt.user_id)
+    # The rendered content includes annotated and component claims as well as ordinary
+    # claims/windows. Add explicit claim provenance too; never infer citations from titles.
+    citations = [citation for _kind, section in evidence.sections
+                 for citation in iter_canonical_citations(section)]
+    for claim in evidence.used_claims:
+        citations.extend(claim.citations)
+        citations.extend(iter_canonical_citations(claim.text))
+    citations.extend(
+        Citation(source_id=window.source_id, block_start=window.block_start, block_end=window.block_end)
+        for window in (*evidence.used_windows, *evidence.used_episode_summaries)
+    )
+    sources = await signals.index(citations, handles=evidence.handles)
     handoff_id = uuid.uuid4().hex
-    snaps = await rt.ctx.canonical.snapshots(rt.user_id)
-    await handoffs.create(
-        rt.user_id,
-        handoff_id,
-        {
-            "question": query,
-            "as_of": when.isoformat(),
-            # Sampled, not pinned — the same word the route's `_library_ref` uses, and the
-            # same fact: what the record names is where the reading started.
-            "library_ref": snaps[0].ref if snaps else "",
-            "visitor_class": visitor_class,
-            # THE SCOPE THIS CONTEXT WAS ASSEMBLED UNDER, kept with the handoff. The answer
-            # is written from these bytes and recorded against them, so the record has to say
-            # which library the reading covered — a consultation over the archive read back as
-            # one over the present would be the archive presented as the present, one hop
-            # later (docs/design/archive.md §4).
-            "include_archived": bool(include_archived),
-            "handles": dict(evidence.handles),
-            "manifest": _manifest_payload(evidence.manifest),
-            "answer_format": evidence.answer_format,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        },
-    )
-    _emit(
-        rt,
-        {
-            "handoff_id": handoff_id,
-            "question": query,
-            "as_of": when.isoformat(),
-            "system": evidence.system,
-            "content": body,
-            "handles": dict(evidence.handles),
-            "evidence_manifest": _manifest_payload(evidence.manifest),
-            "visitor_class": visitor_class,
-            "include_archived": bool(include_archived),
-        },
-        [
-            body,
-            "",
-            f"handoff: {handoff_id}",
-            "answer it with: pkc consult answer "
-            f"{handoff_id} --text-file <f>   (or `-` for stdin, or --kind no_record)",
-            # What the answer will LEAVE BEHIND, said where the instruction is. A `silent`
-            # handoff closes without a consultation, so a Steward who followed the printed
-            # line and saw nothing in `pkc consultations` was reading a correct ledger of a
-            # call that recorded nothing on purpose — stated rather than discovered.
-            f"visitor class: {visitor_class}"
-            + (
-                "  — this call will leave NO consultation record; re-run with "
-                "`--visitor-class business` (or `audit`) to record one"
-                if visitor_class == "silent"
-                else "  — answering it records one consultation"
-            ),
-        ]
-        + (
-            ["scope: the archive is INCLUDED in this context, and archived items are labelled"]
-            if include_archived
-            else []
+    payload = {
+        "handoff_id": handoff_id, "question": query, "as_of": when.isoformat(),
+        "as_of_day": recorded_day(when, signals.time), "calendar": calendar_metadata(signals.time),
+        "system": evidence.system, "content": body, "tally": tally, "sources": sources,
+        "handles": dict(evidence.handles), "evidence_manifest": _manifest_payload(evidence.manifest),
+        "arms": arms, "visitor_class": visitor_class, "include_archived": bool(include_archived),
+    }
+    header, lines = evidence_lines(evidence, tally, signals.time)
+    recording = prompt("steward.read.handoff_silent" if visitor_class == "silent"
+                       else "steward.read.handoff_recorded")
+    header.insert(2, f"handoff: {handoff_id} · {visitor_class} · {recording}")
+    header.extend([
+        "answer it with: pkc consult answer "
+        f"{handoff_id} --text-file <f>   (or `-` for stdin, or --kind no_record)",
+        f"visitor class: {visitor_class}" + (
+            "  — this call will leave NO consultation record; re-run with "
+            "`--visitor-class business` (or `audit`) to record one"
+            if visitor_class == "silent" else f"  — {recording}"
         ),
-    )
+    ])
+    if include_archived:
+        header.append("scope: the archive is INCLUDED in this context, and archived items are labelled")
+    lines += source_index_lines(sources) + [
+        "", "arms: " + "; ".join(
+            f"{arm['name']}: {arm['status']}"
+            + (f" ({arm['detail']})" if arm['detail'] else "") for arm in arms
+        ),
+    ]
+    retained = {"payload": payload, "header": header, "text": "\n".join(lines),
+                "page_chars": rt.page_chars}
+    state = {
+        "question": query, "as_of": when.isoformat(),
+        # Sampled, not pinned: the same library-ref semantics as the answering route.
+        "library_ref": snaps[0].ref if snaps else "", "visitor_class": visitor_class,
+        "include_archived": bool(include_archived), "handles": dict(evidence.handles),
+        "manifest": _manifest_payload(evidence.manifest), "answer_format": evidence.answer_format,
+        "created_at": opened_at.isoformat(), "retained_result": retained,
+        "opening_recorded": visitor_class != "silent",
+    }
+    if visitor_class != "silent":
+        from pneuma_knowledge_core.domain.consultation import ConsultationRecord, dedup_evidence
+        from .consult import _default_emit
+
+        opening = ConsultationRecord(
+            consultation_id=handoff_id, user_id=str(rt.user_id), created_at=opened_at,
+            lane="fast", visitor_class=visitor_class, question=query, as_of=when,
+            library_ref=state["library_ref"], evidence_handed=dedup_evidence(list(evidence.manifest)),
+            event="opening", miss=None,
+        )
+        # Persist use before publishing retained pages that claim it was recorded. If
+        # retaining prose fails, the completed retrieval still leaves its kept opening.
+        await _default_emit(rt.ctx, rt.user_id, opening)
+    await handoffs.create(rt.user_id, handoff_id, state)
+    _emit_evidence(rt, retained, new_retrieval=True)
     return EXIT_OK
 
 

@@ -30,9 +30,13 @@ from __future__ import annotations
 
 import inspect
 import json
+import os
+import socket
 import sys
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field, replace
+from datetime import datetime, timezone
+from functools import wraps
 from typing import Any, TextIO
 
 from langchain_core.tools import StructuredTool
@@ -61,6 +65,7 @@ from pneuma_knowledge_core.compile.session import DraftSession, content_sha256
 from pneuma_knowledge_core.domain.canonical import CanonicalDocument
 from pneuma_knowledge_core.domain.ids import DocumentId, UserId
 from pneuma_knowledge_core.domain.source import NormalizedSource
+from pneuma_knowledge_core.ports.draft_store import DraftOwnershipError
 from pneuma_knowledge_core.prompts import prompt
 from pneuma_knowledge_core.skill.version import SkillVersion
 
@@ -86,6 +91,41 @@ WRITE_TOOLS = frozenset(
         "set_fields",
     }
 )
+
+
+def draft_executor() -> str:
+    """The session typing commands, separate from its harness/model accounting label."""
+    explicit = os.environ.get("PKC_DRAFT_EXECUTOR", "").strip()
+    if explicit:
+        return explicit
+    token = (os.environ.get("PKC_STEWARD_SESSION") or os.environ.get("CODEX_THREAD_ID")
+             or os.environ.get("CLAUDE_SESSION_ID") or "").strip()
+    digest = os.environ.get("PNEUMA_KNOWLEDGE_STEWARD_SKILL_HASH", "")
+    if token:
+        return "steward:" + content_sha256(f"{digest}:{token}")
+    # No session token in the environment: every `pkc` command is its own process, so a
+    # per-process identity would make a Steward's second command "another executor" and
+    # refuse it. The distinction the ownership rule exists for is Steward versus worker,
+    # so an interactive Steward without a token is one executor class: the Owner's
+    # terminal, on this host, under this skill.
+    return "steward:" + content_sha256(f"{digest}:terminal@{socket.gethostname()}")
+
+
+def draft_command(fn):
+    """Hold the tenant's draft lock through the entire command, including commit and finish.
+
+    Takeover and startup expiry take this same lock, so a command already inside the gate
+    cannot have its draft stolen midway through a canonical write.
+    """
+    @wraps(fn)
+    async def guarded(rt, *args, **kwargs):
+        try:
+            async with rt.drafts.lock(rt.user_id):
+                return await fn(rt, *args, **kwargs)
+        except DraftOwnershipError as exc:
+            print(str(exc), file=rt.err)
+            return (EXIT_REFUSED, "", "") if fn.__name__ == "open_round" else EXIT_REFUSED
+    return guarded
 
 
 @dataclass
@@ -121,12 +161,21 @@ class DraftRuntime:
     #: worker answers with its model spec; usage is deliberately absent either way, because
     #: a harness's counters belong to the Owner's subscription and a zero would be a claim.
     executor: str = "agent"
+    draft_executor: str = field(default_factory=draft_executor)
+    compile_draft_ttl: int = 6 * 60 * 60
+    worker_posture: str = ""
+    #: The unattended runner must never load a later job belonging to this tenant.
+    expected_job_id: str = ""
+    kind: str = "compile"
+    record_brief: Callable[[str, str], Awaitable[None]] | None = None
     #: Does the owner profile still name nobody? A NOTICE, never a refusal: the round opens,
     #: the surfaces are byte-identical, and the langchain executor is untouched. What it buys
     #: is that a Steward about to file the Owner as a stranger reads one line saying so first
     #: (`cli/profile.py`). Default False so a runtime assembled by a test — or by anything
     #: that cannot read a profile — says nothing at all.
     owner_is_placeholder: bool = False
+    owner_profile_notice: str = ""
+    owner_authored_blocks: dict[str, list[int]] = field(default_factory=dict)
     out: TextIO = field(default_factory=lambda: sys.stdout)
     err: TextIO = field(default_factory=lambda: sys.stderr)
 
@@ -135,11 +184,39 @@ class DraftRuntime:
 
 
 def _draft_state(draft: PatchDraft, session: DraftSession) -> dict:
-    return {"draft": draft.to_state(), "session": session.to_state()}
+    return {"kind": session.kind, "draft": draft.to_state(), "session": session.to_state()}
 
 
 async def _store(rt: DraftRuntime, draft: PatchDraft, session: DraftSession) -> None:
     await rt.drafts.put(rt.user_id, session.job_id, _draft_state(draft, session))
+
+
+async def require_owner(rt: DraftRuntime, job_id: str) -> None:
+    owner = await rt.drafts.owner(rt.user_id, job_id)
+    # A draft written before ownership existed recorded no executor. Nobody holds it, so
+    # the first executor to act on it adopts it — refusing would strand every draft that
+    # was open when this rule arrived, and a worker's own drafts always carry an executor.
+    if owner is not None and owner.executor and owner.executor != rt.draft_executor:
+        raise DraftOwnershipError(owner.refusal(draft_door(rt.kind)))
+    job = await rt.jobs.get_job(rt.user_id, job_id)
+    if job is None or getattr(job, "status", "claimed") != "claimed":
+        raise DraftOwnershipError(f"job {job_id} is not claimed; a finished job cannot be reopened")
+
+
+def ownership_fields(rt: DraftRuntime) -> dict[str, str]:
+    return {
+        "executor": rt.draft_executor,
+        "opened_at": datetime.now(timezone.utc).isoformat(),
+        "worker_posture": rt.worker_posture,
+    }
+
+
+async def require_open_slot(rt: DraftRuntime, job_id: str) -> None:
+    """Refuse a different executor before loading any role's task or touching its job."""
+    for held_id in await rt.drafts.list_open(rt.user_id):
+        await require_owner(rt, held_id)
+        if held_id != job_id:
+            raise DraftOwnershipError(f"draft for job {held_id} is already open; finish or abandon it first")
 
 
 async def _open_job_id(rt: DraftRuntime) -> str | None:
@@ -153,17 +230,23 @@ async def _open_job_id(rt: DraftRuntime) -> str | None:
 
 
 async def _load(rt: DraftRuntime) -> tuple[PatchDraft, DraftSession] | None:
-    job_id = await _open_job_id(rt)
-    if job_id is None:
+    job_id = rt.expected_job_id or await _open_job_id(rt)
+    state = await rt.drafts.get(rt.user_id, job_id) if job_id else None
+    if state is None:
         print(
-            "no open draft: run `pkc draft open <job-id>` first.", file=rt.err
+            f"no open draft: run `{draft_door(rt.kind)} open <job-id>` first.", file=rt.err
         )
         return None
-    state = await rt.drafts.get(rt.user_id, job_id) or {}
-    return (
-        PatchDraft.from_state(state.get("draft") or {}),
-        DraftSession.from_state(state.get("session") or {}),
-    )
+    await require_owner(rt, job_id)
+    session = DraftSession.from_state(state.get("session") or {})
+    if session.kind != rt.kind:
+        print(f"the open draft is {session.kind}; use `{draft_door(session.kind)}`.", file=rt.err)
+        return None
+    return PatchDraft.from_state(state.get("draft") or {}), session
+
+
+def draft_door(kind: str) -> str:
+    return {"evolve": "pkc evolve draft", "episodes": "pkc index episodes"}.get(kind, "pkc draft")
 
 
 def _base_documents(draft: PatchDraft) -> list[CanonicalDocument]:
@@ -188,14 +271,16 @@ async def cmd_open(rt: DraftRuntime, job_id: str) -> int:
     """Claim the job, render the contract and the task, print the round's two surfaces."""
     code, system_text, task_text = await open_round(rt, job_id)
     if code == EXIT_OK:
-        if rt.owner_is_placeholder:
+        notice = rt.owner_profile_notice or (PLACEHOLDER_NOTICE if rt.owner_is_placeholder else "")
+        if notice:
             # Above the round, not inside it: `open_round` renders the same bytes either way
             # (I5), and the unattended launcher hands those bytes to a harness untouched.
-            print(f"note: {PLACEHOLDER_NOTICE}\n", file=rt.out)
+            print(f"note: {notice}\n", file=rt.out)
         _print_round(rt, system_text, task_text)
     return code
 
 
+@draft_command
 async def open_round(
     rt: DraftRuntime, job_id: str, *, claim: bool = True
 ) -> tuple[int, str, str]:
@@ -213,6 +298,10 @@ async def open_round(
     """
     existing = await rt.drafts.get(rt.user_id, job_id)
     if existing is not None:
+        await require_owner(rt, job_id)
+        if existing.get("kind", "compile") != rt.kind:
+            print("this job has a different kind of draft", file=rt.err)
+            return EXIT_REFUSED, "", ""
         draft = PatchDraft.from_state(existing.get("draft") or {})
         session = DraftSession.from_state(existing.get("session") or {})
         job = await rt.jobs.get_job(rt.user_id, job_id)
@@ -231,7 +320,18 @@ async def open_round(
                 "base and its source handles are unchanged.",
                 file=rt.err,
             )
+        await _store(rt, draft, session)
         return EXIT_OK, system_text, task
+
+    other_id = await _open_job_id(rt)
+    if other_id:
+        await require_owner(rt, other_id)
+        raise DraftOwnershipError(f"draft for job {other_id} is already open; finish or abandon it first")
+
+    candidate = await rt.jobs.get_job(rt.user_id, job_id)
+    if candidate is not None and getattr(candidate, "kind", "compile") != rt.kind:
+        print(f"job {job_id} is not a {rt.kind} job", file=rt.err)
+        return EXIT_REFUSED, "", ""
 
     # Before anything is claimed: does the library HEAD carry the framework's own trailer?
     # A commit that arrived by another route is detected here and named (§8) — the sentence
@@ -242,11 +342,11 @@ async def open_round(
         return EXIT_REFUSED, "", ""
 
     job = (
-        await rt.jobs.claim(rt.user_id, job_id, claimed_by="draft")
+        await rt.jobs.claim(rt.user_id, job_id, claimed_by=rt.draft_executor)
         if claim
         else await rt.jobs.get_job(rt.user_id, job_id)
     )
-    if job is None:
+    if job is None or getattr(job, "status", "claimed") != "claimed":
         existing_job = await rt.jobs.get_job(rt.user_id, job_id)
         if existing_job is None:
             print(f"no such job for this user: {job_id}", file=rt.err)
@@ -257,7 +357,9 @@ async def open_round(
                 "in flight.",
                 file=rt.err,
             )
-        return EXIT_NOTHING, "", ""
+        return (EXIT_REFUSED if not claim else EXIT_NOTHING), "", ""
+    if not claim and getattr(job, "claimed_by", "worker") not in ("worker", rt.draft_executor):
+        raise DraftOwnershipError(f"job {job_id} is claimed by {job.claimed_by}; cannot join its round")
 
     inputs = await rt.load_inputs(job)
     base_docs = await rt.canonical.list(rt.user_id)
@@ -265,12 +367,15 @@ async def open_round(
         base_docs,
         rt.skill.path_templates,
         overview_budget_chars=rt.overview_budget_chars,
+        owner_voice_templates=rt.skill.owner_voice_templates,
+        owner_authored_blocks=rt.owner_authored_blocks,
     )
     async with component_job(str(rt.user_id)):
         system_text, task_text = _render_surfaces(rt, base_docs, inputs)
     session = DraftSession(
         user_id=str(rt.user_id),
         job_id=job_id,
+        **ownership_fields(rt),
         handle_by_real=alias_sources(inputs.sources).handle_by_real,
         round="first",
         budget=first_round_budget(len(inputs.sources), rt.max_tool_calls),
@@ -377,6 +482,7 @@ def _print_round(rt: DraftRuntime, system_text: str, task: str) -> None:
     rt.out.write(f"{system_text}\n\n{task}\n")
 
 
+@draft_command
 async def cmd_status(rt: DraftRuntime) -> int:
     """What remains of the round, what has been read, and what the gate already finds owed."""
     loaded = await _load(rt)
@@ -407,6 +513,82 @@ async def run_tool(rt: DraftRuntime, name: str, args: dict) -> int:
     free would have no bound at all. What a refusal never does is move the draft — the state
     written back on a refusal is the draft as it stood plus one more call spent.
     """
+    async def execute(draft: PatchDraft, session: DraftSession) -> str:
+        sources = await rt.load_sources(session.source_ids)
+        bounds = await rt.load_bounds()
+        if draft.owner_voice_templates:
+            from pneuma_knowledge_core.domain.authorship import owner_authored_blocks
+
+            draft.owner_authored_blocks.update(rt.owner_authored_blocks)
+            draft.owner_authored_blocks.update({
+                str(source.raw.source_id): owner_authored_blocks(source.raw) for source in sources
+            })
+        aliased = alias_sources(sources)
+        async with component_job(str(rt.user_id)):
+            tools = build_compile_tool_face(
+                draft,
+                sources=aliased.sources,
+                search_knowledge=rt.search_knowledge,
+                search_source=rt.search_source,
+            )
+            by_name = {t.name: t for t in tools}
+            tool = by_name.get(name)
+            if tool is None:
+                raise AnchorToolError(prompt("compile.tool.unknown_tool", name=name))
+
+            writes = name in WRITE_TOOLS
+            touched = str(args.get("path") or "") if writes else ""
+            baseline: list[Violation] = (
+                run_gate(
+                    draft,
+                    sources,
+                    alias_map=session.real_by_handle,
+                    known_source_bounds=bounds,
+                    overview_budget_chars=session.overview_budget_chars,
+                    overview_required_after_claims=session.overview_required_after_claims,
+                )
+                if writes
+                else []
+            )
+            # Read ports are async; write tools stay sync (pure in-memory PatchDraft
+            # mutation). Dispatch on the function, exactly as the tool loop does.
+            fn = tool.coroutine or tool.func
+            result = await fn(**args) if inspect.iscoroutinefunction(fn) else fn(**args)
+
+            if writes:
+                broke = post_write_violations(
+                    draft,
+                    sources,
+                    touched,
+                    baseline=baseline,
+                    alias_map=session.real_by_handle,
+                    known_source_bounds=bounds,
+                    overview_budget_chars=session.overview_budget_chars,
+                    overview_required_after_claims=session.overview_required_after_claims,
+                )
+                if broke:
+                    # Applied, judged, and rolled back: the draft on disk is the one from before
+                    # the command, and the Steward reads what the gate would have said at the end
+                    # of the round while it still holds the material.
+                    raise AnchorToolError("\n".join(v.render() for v in broke))
+        return str(result)
+
+    return await apply_call(rt, name, execute)
+
+
+@draft_command
+async def apply_call(
+    rt: DraftRuntime,
+    name: str,
+    execute: Callable[[PatchDraft, DraftSession], Awaitable[str]],
+    *,
+    owed: Callable[[PatchDraft, DraftSession], list[str]] | None = None,
+) -> int:
+    """Shared command transaction: charge refusals, roll back, persist and notify.
+
+    The door supplies its operation and its gate; both doors share all budget and storage
+    behavior. Snapshot BOTH halves so a rejected proposal cannot change session metadata.
+    """
     loaded = await _load(rt)
     if loaded is None:
         return EXIT_NOTHING
@@ -414,84 +596,30 @@ async def run_tool(rt: DraftRuntime, name: str, args: dict) -> int:
     if session.remaining <= 0:
         print(prompt("compile.budget.call_refused", budget=session.budget), file=rt.err)
         return EXIT_BUDGET
-    #: The draft before this command touched anything — what a refusal restores.
-    untouched = draft.to_state()
-
-    async def refuse(message: str) -> int:
+    untouched = _draft_state(draft, session)
+    # JSON is also the store's boundary; this makes nested proposal data independent.
+    untouched = json.loads(json.dumps(untouched))
+    try:
+        text = await execute(draft, session)
+    except (AnchorToolError, TypeError, ValueError) as exc:
+        message = str(exc) if isinstance(exc, AnchorToolError) else prompt(
+            "compile.tool.call_failed", name=name, error=exc
+        )
         print(message, file=rt.err)
-        await _store(rt, PatchDraft.from_state(untouched), session.spend())
+        await _store(
+            rt, PatchDraft.from_state(untouched["draft"]),
+            DraftSession.from_state(untouched["session"]).spend(),
+        )
         return EXIT_REFUSED
-
-    sources = await rt.load_sources(session.source_ids)
-    bounds = await rt.load_bounds()
-    aliased = alias_sources(sources)
-    async with component_job(str(rt.user_id)):
-        tools = build_compile_tool_face(
-            draft,
-            sources=aliased.sources,
-            search_knowledge=rt.search_knowledge,
-            search_source=rt.search_source,
-        )
-        by_name = {t.name: t for t in tools}
-        tool = by_name.get(name)
-        if tool is None:
-            return await refuse(prompt("compile.tool.unknown_tool", name=name))
-
-        writes = name in WRITE_TOOLS
-        touched = str(args.get("path") or "") if writes else ""
-        baseline: list[Violation] = (
-            run_gate(
-                draft,
-                sources,
-                alias_map=session.real_by_handle,
-                known_source_bounds=bounds,
-                overview_budget_chars=session.overview_budget_chars,
-                overview_required_after_claims=session.overview_required_after_claims,
-            )
-            if writes
-            else []
-        )
-        try:
-            # Read ports are async; the write tools stay sync (pure in-memory PatchDraft
-            # mutation). Dispatch on the function, exactly as the tool loop does.
-            fn = tool.coroutine or tool.func
-            result = (
-                await fn(**args) if inspect.iscoroutinefunction(fn) else fn(**args)
-            )
-        except AnchorToolError as exc:
-            # The tool's own refusal text, verbatim — the same string the langchain executor
-            # reads as a ToolMessage. Nothing was written; one call was spent.
-            return await refuse(str(exc))
-        except (TypeError, ValueError) as exc:
-            return await refuse(prompt("compile.tool.call_failed", name=name, error=exc))
-
-        if writes:
-            broke = post_write_violations(
-                draft,
-                sources,
-                touched,
-                baseline=baseline,
-                alias_map=session.real_by_handle,
-                known_source_bounds=bounds,
-                overview_budget_chars=session.overview_budget_chars,
-                overview_required_after_claims=session.overview_required_after_claims,
-            )
-            if broke:
-                # Applied, judged, and rolled back: the draft on disk is the one from before
-                # the command, and the Steward reads what the gate would have said at the end
-                # of the round while it still holds the material.
-                return await refuse("\n".join(v.render() for v in broke))
-
     session = session.spend()
-    text = str(result)
     if not session.noticed and session.remaining <= BUDGET_NOTICE_REMAINING:
         session = session.with_notice()
-        owed = owed_now_lines(draft, threshold=session.overview_required_after_claims)
+        lines = owed(draft, session) if owed else owed_now_lines(
+            draft, threshold=session.overview_required_after_claims
+        )
         text += "\n" + prompt(
-            "compile.budget.notice",
-            remaining=session.remaining,
-            budget=session.budget,
-            owed="\n".join(owed) or prompt("compile.budget.owed_none"),
+            "compile.budget.notice", remaining=session.remaining, budget=session.budget,
+            owed="\n".join(lines) or prompt("compile.budget.owed_none"),
         )
     await _store(rt, draft, session)
     rt.out.write(text + "\n")
@@ -501,6 +629,7 @@ async def run_tool(rt: DraftRuntime, name: str, args: dict) -> int:
 # ───────────────────────────────────────────────────────────────── check / finish / abandon
 
 
+@draft_command
 async def cmd_check(rt: DraftRuntime) -> int:
     """The whole gate over the open draft, without finishing. Free: it decides nothing."""
     loaded = await _load(rt)
@@ -529,7 +658,18 @@ async def _gate(
     )
 
 
-async def cmd_finish(rt: DraftRuntime) -> int:
+BRIEF_MAX_CHARS = 8000
+
+
+def validate_brief(text: str) -> str:
+    """The Steward's narration, bounded independently of canonical knowledge."""
+    if not text.strip() or len(text) > BRIEF_MAX_CHARS:
+        raise ValueError(f"brief must be non-blank and at most {BRIEF_MAX_CHARS} characters")
+    return text
+
+
+@draft_command
+async def cmd_finish(rt: DraftRuntime, *, brief: str | None = None) -> int:
     """The overview floor, then the gate, then the commit — the end of `run_compile`, replayed.
 
     Clean: commit, events, the job completed, the draft deleted. Violations on the FIRST
@@ -538,10 +678,20 @@ async def cmd_finish(rt: DraftRuntime) -> int:
     formula. Violations again: the job is aborted exactly as `run_compile` aborts it, with the
     canonical layer untouched.
     """
+    if brief is not None:
+        try:
+            brief = validate_brief(brief)
+        except ValueError as exc:
+            print(str(exc), file=rt.err)
+            return EXIT_REFUSED
     loaded = await _load(rt)
     if loaded is None:
         return EXIT_NOTHING
     draft, session = loaded
+    if brief is not None:
+        session.context["brief"] = brief
+    else:
+        brief = session.context.get("brief")
 
     async with component_job(str(rt.user_id)):
         owed = overview_required_violations(
@@ -604,7 +754,13 @@ async def cmd_finish(rt: DraftRuntime) -> int:
         )
 
     await _persist(rt, session, result)
-    await rt.drafts.delete(rt.user_id, session.job_id)
+    if brief is not None and result.snapshot is not None and result.status != "aborted":
+        if rt.record_brief is not None:
+            try:
+                await rt.record_brief(session.job_id, brief)
+            except Exception as exc:  # noqa: BLE001 — narration cannot fail a committed compile
+                print(f"the version finished, but its brief could not be recorded: {exc}", file=rt.err)
+    await rt.drafts.delete(rt.user_id, session.job_id, executor=rt.draft_executor)
     if result.status == "aborted":
         print(render_violations(result.violations), file=rt.err)
         return EXIT_GATE
@@ -658,16 +814,29 @@ async def complete_job(rt: DraftRuntime, job_id: str, result: CompileResult) -> 
     )
 
 
-async def cmd_abandon(rt: DraftRuntime) -> int:
+@draft_command
+async def cmd_abandon(rt: DraftRuntime, *, take_over: bool = False) -> int:
     """Release the job back to the queue and drop the draft. Canonical is untouched: an
     unfinished round wrote nothing anywhere."""
-    loaded = await _load(rt)
-    if loaded is None:
+    job_id = rt.expected_job_id or await _open_job_id(rt)
+    if job_id is None:
+        print("no open draft", file=rt.err)
         return EXIT_NOTHING
-    _, session = loaded
-    await rt.jobs.release(rt.user_id, session.job_id)
-    await rt.drafts.delete(rt.user_id, session.job_id)
-    rt.out.write(f"abandoned {session.job_id}; the job is back in the queue.\n")
+    state = await rt.drafts.get(rt.user_id, job_id)
+    if state is None:
+        print("no open draft", file=rt.err)
+        return EXIT_NOTHING
+    kind = (state.get("session") or {}).get("kind", "compile")
+    if kind != rt.kind:
+        print(f"the open draft is {kind}; use `{draft_door(kind)}`.", file=rt.err)
+        return EXIT_NOTHING
+    audit = await rt.drafts.abandon(
+        rt.user_id, job_id, executor=rt.draft_executor, take_over=take_over,
+        grace_seconds=max(60, rt.compile_draft_ttl // 12),
+    )
+    if audit:
+        rt.out.write(f"taken over by {audit['executor']} from {audit['previous_executor']}: {audit['reason']}\n")
+    rt.out.write(f"abandoned {job_id}; the job is back in the queue.\n")
     return EXIT_OK
 
 
