@@ -15,6 +15,7 @@ from collections.abc import Mapping, Sequence
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from datetime import date, datetime, timezone
+from importlib import resources
 from pathlib import Path
 from typing import Any
 
@@ -39,7 +40,24 @@ from psycopg_pool import AsyncConnectionPool
 from ..access_stats import RECALL_PROJECTION_JOB_KIND
 from ..snapshot_tenant import RESERVED_PREFIX
 
-_SCHEMA_PATH = Path(__file__).resolve().parents[5] / "infra" / "schema.sql"
+
+def schema_sql() -> str:
+    """The bootstrap schema text, from wherever this installation keeps it.
+
+    Two locations, because there are two ways this package is installed. A built wheel
+    carries a copy inside the package (`force-include` in pyproject.toml): an installed
+    edition — `uv tool install pkc-personal` — has no repository around it to look at, so
+    without the packaged copy its first `setup` dies on a missing file. A source checkout
+    (editable/dev install, and the whole-repository container image) has no packaged copy
+    and reads `infra/schema.sql` where it lives, five directories up: that repository file
+    stays the single authoritative copy the docs, compose and tests all name.
+    """
+    packaged = resources.files("pneuma_knowledge_service").joinpath("infra/schema.sql")
+    if packaged.is_file():
+        return packaged.read_text(encoding="utf-8")
+    checkout = Path(__file__).resolve().parents[5] / "infra" / "schema.sql"
+    return checkout.read_text(encoding="utf-8")
+
 
 #: The default page a consultation walk takes. Bounded rather than open because the
 #: caller of the replay face is a rebuild, and a rebuild that loads a year of records
@@ -110,7 +128,7 @@ class PostgresStore:
         runs this, so on a fresh deployment (or a fresh test database) N starters meant
         N-1 crashes. The lock is held for the transaction and released when it ends, so a
         warm database still costs one no-op round trip and nothing else."""
-        sql = _SCHEMA_PATH.read_text(encoding="utf-8")
+        sql = schema_sql()
         async with self._pool.connection() as conn:
             async with conn.transaction():
                 await conn.execute(
